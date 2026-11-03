@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -1414,8 +1415,8 @@ func TestAStalePreviousBinaryIsSweptAndNothingElse(t *testing.T) {
 		_ = os.Chtimes(p, at, at)
 		return p
 	}
-	oldPrev := mk(fmt.Sprintf(".monoagentcli-previous-%d-aaa", time.Now().Add(-48*time.Hour).Unix()), 0)
-	newPrev := mk(fmt.Sprintf(".monoagentcli-previous-%d-bbb", time.Now().Add(-time.Minute).Unix()), 0)
+	oldPrev := mk(fmt.Sprintf(".monoagentcli-previous-%d-111", time.Now().Add(-48*time.Hour).Unix()), 0)
+	newPrev := mk(fmt.Sprintf(".monoagentcli-previous-%d-222", time.Now().Add(-time.Minute).Unix()), 0)
 	noTime := mk(".monoagentcli-previous-notatime", 48*time.Hour)
 	other := mk("something-else", 48*time.Hour)
 	bak := mk("monoagentcli.bak", 48*time.Hour)
@@ -1673,4 +1674,67 @@ func TestUpdateAppReplacesNothingElseWithoutAVerifiedCLI(t *testing.T) {
 			}
 		}
 	})
+}
+
+// A backup is named with the time it was made, in the exact shape the sweep reads, and the sweep touches only that shape: a
+// user's own file with a similar name, a time from the future or a symbolic link is left alone.
+func TestAKeptBackupCarriesItsTimeAndTheSweepReadsOnlyThatShape(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "monoagentcli")
+	if err := os.WriteFile(target, []byte(oldAsset), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	before := time.Now().Add(-2 * time.Second).Unix()
+	r, err := installBinaryKeep([]byte(newAsset), target, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sm := previousName.FindStringSubmatch(filepath.Base(r.bak))
+	if sm == nil {
+		t.Fatalf("the backup %q is not named with the time it was made", filepath.Base(r.bak))
+	}
+	if secs, _ := strconv.ParseInt(sm[1], 10, 64); secs < before || secs > time.Now().Add(2*time.Second).Unix() {
+		t.Fatalf("the time in the name is %d", secs)
+	}
+	r.Commit()
+
+	mk := func(name string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte("mine"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	old := time.Now().Add(-72 * time.Hour).Unix()
+	good := mk(fmt.Sprintf(".monoagentcli-previous-%d-123", old))
+	userLike := mk(fmt.Sprintf(".monoagentcli-previous-%d-x", old)) // the random part is not digits
+	shortStamp := mk(".monoagentcli-previous-12345-1")              // not a unix time of this era
+	future := mk(fmt.Sprintf(".monoagentcli-previous-%d-1", time.Now().Add(72*time.Hour).Unix()))
+	huge := mk(".monoagentcli-previous-9223372036-1")
+	link := filepath.Join(dir, fmt.Sprintf(".monoagentcli-previous-%d-456", old))
+	if err := os.Symlink(userLike, link); err != nil {
+		t.Fatal(err)
+	}
+	sweepPrevious(dir)
+	for p, want := range map[string]bool{good: false, userLike: true, shortStamp: true, future: true, huge: true, link: true} {
+		if _, err := os.Lstat(p); (err == nil) != want {
+			t.Errorf("%s: exists = %v, want %v", filepath.Base(p), err == nil, want)
+		}
+	}
+}
+
+// Only files of this user are swept.
+func TestTheSweepLeavesAFileOfAnotherUserAlone(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, fmt.Sprintf(".monoagentcli-previous-%d-1", time.Now().Add(-72*time.Hour).Unix()))
+	if err := os.WriteFile(p, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := uidOf
+	uidOf = func() int { return os.Getuid() + 12345 }
+	defer func() { uidOf = old }()
+	sweepPrevious(dir)
+	if _, err := os.Lstat(p); err != nil {
+		t.Fatalf("a file of another user was swept: %v", err)
+	}
 }
