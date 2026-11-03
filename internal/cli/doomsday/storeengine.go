@@ -20,6 +20,9 @@ type StoreEngine struct {
 	// ContainmentProbe is nil only when containment is available (stop package).
 	ContainmentProbe func() error
 	StopFn           func(ctx context.Context) (StopOutcome, error)
+	// AfterEnter runs once the run is recorded (the stop package's per-run secret). A failure is reported with
+	// the run id: the run exists and `doomsday stop` still stops it (its marker is then unsigned).
+	AfterEnter func(ctx context.Context, generation int64) error
 }
 
 var errNoProbe = errors.New("no containment probe is wired, so containment cannot be shown to be available")
@@ -67,6 +70,11 @@ func (e *StoreEngine) Enter(ctx context.Context, canon Canon, expectedHash strin
 	if _, err := e.Store.AppendAudit(ctx, run.Profile, run.Generation, "start", fmt.Sprintf("ack=%s lines=%d", ack.Kind, ack.Lines)); err != nil {
 		return Entry{}, fmt.Errorf("the run started but its audit record failed: %w", err)
 	}
+	if e.AfterEnter != nil {
+		if err := e.AfterEnter(ctx, run.Generation); err != nil {
+			return Entry{}, fmt.Errorf("run %s/%d started but its stop secret could not be created (run `doomsday stop`): %w", run.Profile, run.Generation, err)
+		}
+	}
 	return Entry{RunID: fmt.Sprintf("%s/%d", run.Profile, run.Generation), CharterID: run.CharterID, Hash: canon.Hash, Generation: run.Generation}, nil
 }
 
@@ -100,7 +108,13 @@ func (e *StoreEngine) Status(ctx context.Context) (Status, error) {
 		return Status{}, err
 	}
 	h := sc.Hash()
-	return Status{Active: run.State != store.StateQuiescent, RunID: fmt.Sprintf("%s/%d", e.Profile, gen), CharterID: run.CharterID,
+	var head store.AuditHead
+	if r, ok := e.Store.(store.AuditHeadReader); ok {
+		if head, err = r.AuditHead(ctx, e.Profile, gen); err != nil {
+			return Status{}, fmt.Errorf("the audit chain of generation %d does not verify: %w", gen, err)
+		}
+	}
+	return Status{AuditSeq: head.Seq, AuditHead: hex.EncodeToString(head.MAC[:min(len(head.MAC), 8)]), Active: run.State != store.StateQuiescent, RunID: fmt.Sprintf("%s/%d", e.Profile, gen), CharterID: run.CharterID,
 		Hash: hex.EncodeToString(h[:]), State: string(run.State), Generation: gen, Lines: sc.Lines, Members: len(members)}, nil
 }
 

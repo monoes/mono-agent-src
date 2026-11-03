@@ -224,6 +224,9 @@ func (d Deps) newStop() *cobra.Command {
 			case !o.IntentRecorded:
 				fmt.Fprintln(out, "Stop intent NOT RECORDED in the database: not reporting stopped.")
 				return errors.New("stop intent is NOT RECORDED")
+			case len(o.Incomplete) > 0:
+				fmt.Fprintln(out, "NOT stopped:\n  "+strings.Join(o.Incomplete, "\n  "))
+				return errors.New("the run is not fully stopped")
 			}
 			fmt.Fprintln(out, "stopped")
 			return nil
@@ -246,11 +249,18 @@ func (d Deps) newStatus() *cobra.Command {
 				return json.NewEncoder(out).Encode(s)
 			}
 			if !s.Active {
+				if s.State != "" {
+					fmt.Fprintf(out, "no run (generation %d is %s)\n", s.Generation, s.State)
+					return nil
+				}
 				fmt.Fprintln(out, "no run")
 				return nil
 			}
 			fmt.Fprintf(out, "run %s: %s (charter %s, generation %d, %d members); lines: %s\n",
 				s.RunID, s.State, short(s.Hash), s.Generation, s.Members, strings.Join(s.Lines, ", "))
+			if s.AuditHead != "" {
+				fmt.Fprintf(out, "audit: %d rows, head %s\n", s.AuditSeq, s.AuditHead)
+			}
 			return nil
 		},
 	}
