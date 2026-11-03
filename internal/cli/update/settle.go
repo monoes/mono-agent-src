@@ -37,7 +37,8 @@ func (d Deps) settleDaemon(ctx context.Context, list []StaleCLI, du *DaemonUpdat
 		}
 		switch {
 		case rollBack && s.runsDaemon:
-			note := d.rollBackOne(ctx, s, du.pid)
+			note, up := d.rollBackOne(ctx, s, du.pid)
+			du.recovered = du.recovered || up
 			du.RolledBack = du.RolledBack || strings.HasPrefix(note, "Rolled back")
 			du.Message += " " + note
 			s.undo.done = true
@@ -66,14 +67,14 @@ func (d Deps) settleBridge(list []StaleCLI, bu *BridgeUpdate) {
 	}
 }
 
-func (d Deps) rollBackOne(ctx context.Context, s StaleCLI, failedPID int) string {
+func (d Deps) rollBackOne(ctx context.Context, s StaleCLI, failedPID int) (string, bool) {
 	target, bak := s.undo.target, s.undo.bak
 	manual := fmt.Sprintf("The previous binary is kept at %q; put it back with: mv -f %s %s", bak, shQuote(bak), shQuote(target))
 	if why := replaceable(target); why != "" {
-		return fmt.Sprintf("The new %q could not be rolled back (%s). %s", target, why, manual)
+		return fmt.Sprintf("The new %q could not be rolled back (%s). %s", target, why, manual), false
 	}
 	if err := s.undo.Restore(); err != nil {
-		return fmt.Sprintf("Rolling back %q failed (%v). %s", target, err, manual)
+		return fmt.Sprintf("Rolling back %q failed (%v). %s", target, err, manual), false
 	}
 	in := d.Installer()
 	d.say(fmt.Sprintf("Putting the previous %q back and restarting the daemon (up to %s)...", target, restartBound+d.verifyWait()))
@@ -81,10 +82,10 @@ func (d Deps) rollBackOne(ctx context.Context, s StaleCLI, failedPID int) string
 	defer cancel()
 	since := time.Now()
 	if _, err := autostart.RestartRegistered(rctx, in); err != nil {
-		return fmt.Sprintf("Rolled back %q to %s, but the service manager could not start the daemon again (%v): %s.", target, s.Version, err, daemonDown)
+		return fmt.Sprintf("Rolled back %q to %s, but the service manager could not start the daemon again (%v): %s.", target, s.Version, err, daemonDown), false
 	}
 	if !d.waitForLive(ctx, since, failedPID) {
-		return fmt.Sprintf("Rolled back %q to %s and restarted the daemon, but no live heartbeat followed within %s: %s.", target, s.Version, d.verifyWait(), daemonDown)
+		return fmt.Sprintf("Rolled back %q to %s and restarted the daemon, but no live heartbeat followed within %s: %s.", target, s.Version, d.verifyWait(), daemonDown), false
 	}
-	return fmt.Sprintf("Rolled back %q to %s: the daemon is running it again. The new release did not start on this machine; running `monoagentcli update` again installs the same release and repeats this, so report it (with the daemon's log) instead.", target, s.Version)
+	return fmt.Sprintf("Rolled back %q to %s: the daemon is running it again. The new release did not start on this machine; running `monoagentcli update` again installs the same release and repeats this, so report it (with the daemon's log) instead.", target, s.Version), true
 }

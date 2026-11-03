@@ -33,6 +33,8 @@ type DaemonUpdate struct {
 	// (the process runs, no heartbeat of the new version yet) and timed_out (the service manager did not answer in time).
 	Reason string `json:"reason,omitempty"`
 	pid    int    // the pid of the daemon that was restarted
+	// recovered: the daemon runs again on the previous binary after a rollback.
+	recovered bool
 	// RolledBack: the binary the service starts was put back to the previous one because of that failure (see settleReplaced).
 	RolledBack bool   `json:"rolled_back,omitempty"`
 	Message    string `json:"message"`
@@ -47,6 +49,16 @@ const (
 	restartVerifyWait = 15 * time.Second
 	restartVerifyTick = 250 * time.Millisecond
 )
+
+// Down says the update left no daemon running: its restart failed and the service's process is gone (stopped, or no heartbeat
+// and no process), and no rollback brought it back. A daemon that is only slow to start, a restart the service manager has not
+// answered within the bound (timed_out) and an update that was interrupted are not down; it is not known.
+func (u *DaemonUpdate) Down() bool {
+	if u == nil || u.Action != "failed" || u.recovered {
+		return false
+	}
+	return u.Reason == "stopped" || u.Reason == "no_heartbeat"
+}
 
 const daemonDown = "daemon is down — start it with: monoagentcli daemon start"
 
