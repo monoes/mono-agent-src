@@ -55,6 +55,10 @@ type Deps struct {
 	RestartBlockers func(ctx context.Context, pid int) (inFlight int, settingsErr, err error)
 	// Installer is the auto-start service manager.
 	Installer func() autostart.Installer
+	// Bridge reports the extension bridge that answers, and RestartBridge restarts its user service when it is still pid and
+	// still owned by unit (bridge.go). Nil: the bridge is left alone.
+	Bridge        func(ctx context.Context) (BridgeState, bool)
+	RestartBridge func(ctx context.Context, unit string, pid int) error
 	// LookPath finds a program on PATH; nil: exec.LookPath. ProbeVersion asks a CLI for its version in a scratch
 	// environment; nil: it runs `<path> --json version` there (stale.go).
 	// SelfPath is the path of the binary an update replaces; nil: where this process was started from.
@@ -216,6 +220,9 @@ func (d Deps) run(cmd *cobra.Command) error {
 		if du := d.daemonAfterUpdate(cmd.Context(), v); du != nil {
 			fmt.Println(du.Message)
 		}
+		if bu := d.bridgeAfterUpdate(cmd.Context(), v); bu != nil {
+			fmt.Println(bu.Message)
+		}
 		return nil
 	}
 	if err := release.CheckDowngrade(info.Tag, v, force); err != nil {
@@ -266,9 +273,14 @@ func (d Deps) run(cmd *cobra.Command) error {
 	// from the verified asset, so that the restart below starts the new code; the rest is reported with its command.
 	stale := d.staleCLIs(cmd.Context(), info.Tag, d.selfSkip(selfPath), data)
 	d.printStale(stale)
-	du := d.settleReplaced(cmd.Context(), stale, d.daemonAfterUpdate(cmd.Context(), info.Tag))
+	du := d.daemonAfterUpdate(cmd.Context(), info.Tag)
+	bu := d.bridgeAfterUpdate(cmd.Context(), info.Tag)
+	du = d.settleReplaced(cmd.Context(), stale, du, bu)
 	if du != nil {
 		fmt.Println(du.Message)
+	}
+	if bu != nil {
+		fmt.Println(bu.Message)
 	}
 	return nil
 }

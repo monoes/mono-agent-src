@@ -59,16 +59,8 @@ func addServiceHooks(env *health.Env, d EnvDeps) {
 		return bridgeUserService(ctx, pid, serviceUnit(pid))
 	}
 	env.RestartBridge = func(ctx context.Context, unit string, pid int, progress func(string)) error {
-		st, _, ok := extensioncli.FindRunningBridge(ctx)
-		if !ok || st.PID != pid || unit == "" || bridgeUserService(ctx, pid, serviceUnit(pid)) != unit {
-			return fmt.Errorf("the bridge is no longer pid %d run by %s — not restarting", pid, unit)
-		}
 		progress("restarting " + unit)
-		out, err := exec.CommandContext(ctx, "systemctl", "--user", "restart", "--", unit).CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("restarting %s: %w: %s", unit, err, strings.TrimSpace(string(out)))
-		}
-		return nil
+		return RestartBridgeUnit(ctx, unit, pid)
 	}
 
 	env.Daemon = func(context.Context) health.DaemonInfo {

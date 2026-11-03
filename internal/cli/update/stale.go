@@ -422,8 +422,9 @@ func shQuote(s string) string {
 // daemon service starts was replaced and the restart did not bring the daemon up on the new version, because then the
 // service has a binary it cannot run and the old one is the last thing known to work. The put-back passes the same rules as
 // the replacement, and a restart of its own, with the same bound. du is the restart's result (nil: no daemon ran); the
-// returned value is what to tell the operator.
-func (d Deps) settleReplaced(ctx context.Context, list []StaleCLI, du *DaemonUpdate) *DaemonUpdate {
+// returned value is what to tell the operator. bu is the bridge restart's result: when it failed, no previous binary is dropped
+// (bu's message says where each is and how to put it back).
+func (d Deps) settleReplaced(ctx context.Context, list []StaleCLI, du *DaemonUpdate, bu *BridgeUpdate) *DaemonUpdate {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -433,6 +434,11 @@ func (d Deps) settleReplaced(ctx context.Context, list []StaleCLI, du *DaemonUpd
 			continue
 		}
 		if !rollBack || !s.runsDaemon {
+			if bu != nil && bu.Action == "failed" {
+				// the bridge did not come up on the new binary and which binary it starts is not known here: the previous one stays
+				bu.Message += fmt.Sprintf(" The previous binary of %q is kept at %q; put it back with: mv -f %s %s", s.Path, s.undo.bak, shQuote(s.undo.bak), shQuote(s.undo.target))
+				continue
+			}
 			s.undo.Commit()
 			continue
 		}

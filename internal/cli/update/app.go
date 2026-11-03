@@ -34,7 +34,9 @@ type AppResult struct {
 	// StaleCLIs are other mono-agent CLIs older than the release (the one on PATH, the one a daemon service starts): not
 	// changed here, each with the command that updates it.
 	StaleCLIs []StaleCLI `json:"stale_clis,omitempty"`
-	Error     string     `json:"error,omitempty"`
+	// Bridge is what the update did about the extension bridge; absent when none ran or it already ran this version.
+	Bridge *BridgeUpdate `json:"bridge,omitempty"`
+	Error  string        `json:"error,omitempty"`
 }
 
 func (d Deps) runApp(cmd *cobra.Command, appPath, current string) error {
@@ -56,6 +58,11 @@ func (d Deps) runApp(cmd *cobra.Command, appPath, current string) error {
 		// The files are replaced; a daemon still runs the old ones. The app relays this line.
 		if res.Daemon = d.daemonAfterUpdate(cmd.Context(), res.NewVersion); res.Daemon != nil {
 			progress(res.Daemon.Message)
+		}
+	}
+	if err == nil && !res.UpToDate {
+		if res.Bridge = d.bridgeAfterUpdate(cmd.Context(), res.NewVersion); res.Bridge != nil {
+			progress(res.Bridge.Message)
 		}
 	}
 	if err == nil {

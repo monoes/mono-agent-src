@@ -7,7 +7,9 @@ import (
 
 	"github.com/monoes/mono-agent/internal/autostart"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/cli/doctor"
 	"github.com/monoes/mono-agent/internal/cli/update"
+	"github.com/monoes/mono-agent/internal/daemonhb"
 	"github.com/monoes/mono-agent/internal/release"
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/spf13/cobra"
@@ -47,6 +49,15 @@ func updateDeps(cfg *globalConfig) update.Deps {
 			return restartBlockers(ctx, cfg, pid)
 		},
 		Installer: func() autostart.Installer { return newInstaller() },
+		Bridge: func(ctx context.Context) (update.BridgeState, bool) {
+			daemonPID := 0
+			if hb, live := daemonhb.Read(); live {
+				daemonPID = hb.PID
+			}
+			b, ok := doctor.FindBridge(ctx, daemonPID)
+			return update.BridgeState{PID: b.PID, Version: b.Version, InFlight: b.InFlight, Unit: b.Unit, DaemonOwned: b.DaemonOwned}, ok
+		},
+		RestartBridge: doctor.RestartBridgeUnit,
 	}
 }
 

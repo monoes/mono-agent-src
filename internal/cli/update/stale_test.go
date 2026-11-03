@@ -465,6 +465,10 @@ func TestUpdateReplacesTheDaemonServicesExeBeforeItRestartsTheDaemon(t *testing.
 	d.Installer = func() autostart.Installer { return fake }
 	d.ServicePID = func(context.Context, autostart.Installer) (int, error) { return os.Getpid(), nil }
 	d.VerifyWait, d.VerifyTick = 300*time.Millisecond, 10*time.Millisecond
+	bridge := newFakeBridge("v0.176.0") // the user's bridge service, restarted after the binaries are replaced
+	bridge.after = func(b *fakeBridge) { b.state.PID, b.state.Version = 101, "v9.9.9" }
+	d = bridge.deps(d)
+	d.VerifyWait = 300 * time.Millisecond
 
 	out := captureStdout(t, func() {
 		if err := d.run(NewCommand(d)); err != nil {
@@ -487,6 +491,9 @@ func TestUpdateReplacesTheDaemonServicesExeBeforeItRestartsTheDaemon(t *testing.
 		if m, _ := filepath.Glob(filepath.Join(dir, ".monoagentcli-*")); len(m) != 0 {
 			t.Errorf("files left behind in %s after a successful update: %v", dir, m)
 		}
+	}
+	if len(bridge.restarts) != 1 || !strings.Contains(out, "Restarted the extension bridge") {
+		t.Errorf("the bridge was restarted %d times; output:\n%s", len(bridge.restarts), out)
 	}
 	if strings.Count(out, "replaced it with v9.9.9") != 2 {
 		t.Errorf("output does not say that the daemon's exe and the PATH CLI were both replaced:\n%s", out)
@@ -994,7 +1001,7 @@ func newRollbackRig(t *testing.T) *rollbackRig {
 func (rr *rollbackRig) update(t *testing.T) (*DaemonUpdate, []StaleCLI) {
 	t.Helper()
 	list := rr.d.staleCLIs(context.Background(), "v0.215.7", nil, []byte(newAsset))
-	return rr.d.settleReplaced(context.Background(), list, rr.d.daemonAfterUpdate(context.Background(), "v0.215.7")), list
+	return rr.d.settleReplaced(context.Background(), list, rr.d.daemonAfterUpdate(context.Background(), "v0.215.7"), nil), list
 }
 
 func leftovers(t *testing.T, r *staleRig) []string {
@@ -1060,7 +1067,7 @@ func TestAFailedRollbackSaysWhatToDo(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer os.Chmod(filepath.Dir(rr.exe), 0o755)
-		du := rr.d.settleReplaced(context.Background(), list, rr.d.daemonAfterUpdate(context.Background(), "v0.215.7"))
+		du := rr.d.settleReplaced(context.Background(), list, rr.d.daemonAfterUpdate(context.Background(), "v0.215.7"), nil)
 		if du.RolledBack || !strings.Contains(du.Message, "could not be rolled back") || !strings.Contains(du.Message, "mv -f") {
 			t.Fatalf("du = %+v", du)
 		}
