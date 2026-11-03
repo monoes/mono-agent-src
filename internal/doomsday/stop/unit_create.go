@@ -23,6 +23,13 @@ type UnitHost interface {
 // ErrUnitNotCreated means no unit exists for the run: the mode does not start ("no unit, no run").
 var ErrUnitNotCreated = errors.New("stop: the containment unit could not be created and recorded")
 
+// UnitJournal is where the unit lifecycle is written to the witness (note 13.2 section 4). Intent is written before
+// the service is asked for, Bound before the unit file; a failure of either refuses the unit ("no unit, no run").
+type UnitJournal interface {
+	Intent(gen uint64, name, nonce, boot string) error
+	Bound(rec UnitRecord) error
+}
+
 // UnitCreator creates the run's containment unit at entry, before the charter becomes effective and before any
 // member can start (note 13.2 sections 3 and 4). It records the unit durably before returning, with the facts
 // the identity proof checks, so a sweep never has to bind a unit by name pattern and owner UID alone (13.2 P1).
@@ -31,6 +38,8 @@ type UnitCreator struct {
 	Dir  RunDir
 	Host UnitHost
 	Rand io.Reader // nil: crypto/rand
+	// Journal, when set, records unit-intent and unit-bound in the witness.
+	Journal UnitJournal
 }
 
 func (c UnitCreator) random() io.Reader {
@@ -64,6 +73,11 @@ func (c UnitCreator) Create(ctx context.Context, gen uint64) (UnitRecord, error)
 	if err := c.Dir.fsys().MkdirAll(c.Dir.Dir, 0o700); err != nil {
 		return UnitRecord{}, fmt.Errorf("%w: the run directory cannot be created: %v", ErrUnitNotCreated, err)
 	}
+	if c.Journal != nil {
+		if err := c.Journal.Intent(gen, name, nonce, boot); err != nil {
+			return UnitRecord{}, fmt.Errorf("%w: the witness refused the unit intent: %v", ErrUnitNotCreated, err)
+		}
+	}
 	if err := c.Host.StartUnit(ctx, name, fmt.Sprintf("monoagent open-ended run, generation %d", gen)); err != nil {
 		return UnitRecord{}, fmt.Errorf("%w: the service manager refused: %v", ErrUnitNotCreated, err)
 	}
@@ -71,6 +85,11 @@ func (c UnitCreator) Create(ctx context.Context, gen uint64) (UnitRecord, error)
 		OwnerUID: c.K.CurrentUID(), Nonce: nonce, Generation: gen}
 	if err := c.bind(&rec); err != nil {
 		return UnitRecord{}, c.abandon(ctx, name, err)
+	}
+	if c.Journal != nil {
+		if err := c.Journal.Bound(rec); err != nil {
+			return UnitRecord{}, c.abandon(ctx, name, fmt.Errorf("the witness refused the unit binding: %w", err))
+		}
 	}
 	if err := c.Dir.WriteUnitFile(rec); err != nil {
 		return UnitRecord{}, c.abandon(ctx, name, fmt.Errorf("the unit record cannot be written: %w", err))

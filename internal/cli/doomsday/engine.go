@@ -29,6 +29,9 @@ type Entry struct {
 	CharterID  string `json:"charter_id"`
 	Hash       string `json:"hash"`
 	Generation int64  `json:"generation"`
+	// AnchorBound: the OS secret store holds the run's anchor. When false, AnchorNote says why rollback detection is weaker.
+	AnchorBound bool   `json:"anchor_bound"`
+	AnchorNote  string `json:"anchor_note,omitempty"`
 }
 
 // StopOutcome is what Stop did, in the order it did it.

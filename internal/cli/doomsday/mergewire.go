@@ -53,7 +53,7 @@ func (w Wiring) MergeRecovery() *dynorg.MergeRecovery {
 		return nil
 	}
 	return &dynorg.MergeRecovery{
-		Profile: w.Profile, Members: w.Store, Journal: MergeJournal(w.DB, w.Store),
+		Profile: w.Profile, Members: w.Chained(), Journal: MergeJournal(w.DB, w.Store),
 		Gone:     dynorg.ContainmentGone(w.Kernel, w.RunDir, nil),
 		Recorded: dynorg.TaskStoreRecorded(w.DB, w.Profile),
 		PlaceFor: w.placementOfOpenRun,

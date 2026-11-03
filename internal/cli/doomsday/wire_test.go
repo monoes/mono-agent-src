@@ -121,7 +121,8 @@ func (h recordingHost) RevokeSessionTokensErr(p, c string) error {
 func newWire(t *testing.T, probe func() error, kernel stop.Kernel, revokeErr error) (*wireRig, *storage.Database) {
 	t.Helper()
 	keyring.MockInit()
-	db, err := storage.NewDatabase(t.TempDir() + "/dd.db")
+	dbPath := t.TempDir() + "/dd.db"
+	db, err := storage.NewDatabase(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,6 +130,7 @@ func newWire(t *testing.T, probe func() error, kernel stop.Kernel, revokeErr err
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.DB.Close() })
+	t.Cleanup(ClosePins)
 	host := coderhost.NewStore(db.DB)
 	world := &fakeWorld{}
 	if _, isFake := kernel.(fakeKernel); isFake {
@@ -136,8 +138,9 @@ func newWire(t *testing.T, probe func() error, kernel stop.Kernel, revokeErr err
 	}
 	w := Wiring{
 		Store: store.New(db.DB, store.NewHMACKeyer([]byte("k"))), Profile: "p1",
-		RunDir: stop.RunDir{Dir: t.TempDir() + "/run"},
-		Probe:  probe, Kernel: kernel, Host: world,
+		Witness: &WitnessSetup{DBPath: dbPath, Keys: store.NewHMACKeyer([]byte("k")), Secrets: &stop.FileSecretStore{Dir: t.TempDir()}},
+		RunDir:  stop.RunDir{Dir: t.TempDir() + "/run"},
+		Probe:   probe, Kernel: kernel, Host: world,
 		Binding: func(context.Context) (bool, error) { return true, nil },
 		Tokens:  CoderTokens{DB: db.DB, Profile: "p1", Host: recordingHost{CoderHost: host, revokeErr: revokeErr}},
 	}
