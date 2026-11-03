@@ -33,6 +33,9 @@ type EndConfig struct {
 }
 
 func (c EndConfig) norm() EndConfig {
+	if c.Clock == nil {
+		c.Clock = SystemClock{} // EndUnit reads the clock whenever a ticket sub-cgroup exists: never nil
+	}
 	if c.TTerm == 0 {
 		c.TTerm = DefaultTTerm
 	}
