@@ -201,7 +201,9 @@ func (s Settings) validateAt(depthCeiling int) error {
 // Apply returns s with the fields of patch (a JSON object) replaced, after
 // checking the result. A key that is not a setting is refused, so a typo does
 // not silently change nothing. It also returns the keys the patch changed.
-func (s Settings) Apply(patch []byte) (Settings, []string, error) { return s.applyAt(patch, MaxSessionDepth) }
+func (s Settings) Apply(patch []byte) (Settings, []string, error) {
+	return s.applyAt(patch, MaxSessionDepth)
+}
 
 // applyAt is Apply with the deepest max_depth the session's tree allows.
 func (s Settings) applyAt(patch []byte, depthCeiling int) (Settings, []string, error) {
