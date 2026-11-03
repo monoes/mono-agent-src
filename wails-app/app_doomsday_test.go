@@ -5,6 +5,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -21,9 +22,7 @@ const (
 )
 
 func resetProbe() {
-	doomsdayProbe.mu.Lock()
-	doomsdayProbe.at = time.Time{}
-	doomsdayProbe.mu.Unlock()
+	doomsdayProbe.invalidate()
 }
 
 func callCount(t *testing.T, log string) int {
@@ -216,11 +215,67 @@ func TestDoomsdayStopIsRefusedForANonOperatorWithoutRunningTheCLI(t *testing.T) 
 func TestDoomsdayStopRefusesASecondStopInFlight(t *testing.T) {
 	log, _ := taskCLIFake(t, "stopped\n", 0)
 	doomsdayStopMu.Lock()
-	defer doomsdayStopMu.Unlock()
-	if got := newTaskTestApp(t).DoomsdayStop(); !strings.Contains(got, `"code":"busy"`) {
+	got := newTaskTestApp(t).DoomsdayStop()
+	// A broken guard has Stop release the mutex we hold: fail cleanly instead of panicking on a double Unlock.
+	if doomsdayStopMu.TryLock() {
+		doomsdayStopMu.Unlock()
+		t.Fatalf("the stop guard let a second stop through: %q", got)
+	}
+	doomsdayStopMu.Unlock()
+	if !strings.Contains(got, `"code":"busy"`) {
 		t.Fatalf("second stop: %q", got)
 	}
 	if _, err := os.Stat(log); err == nil {
 		t.Fatal("the CLI ran")
 	}
+}
+
+// Stop's reply must not wait for a probe that is still running the CLI, and that probe's late answer must not be cached
+// over the invalidation.
+func TestDoomsdayStopDoesNotWaitForAnInFlightProbe(t *testing.T) {
+	dir := t.TempDir()
+	started, release := filepath.Join(dir, "started"), filepath.Join(dir, "release")
+	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t,
+		"case \"$*\" in *overview*) : > '"+started+"'; i=0\n"+
+			"while [ ! -e '"+release+"' ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done\n"+
+			"echo '"+dmOverview+"';; *) echo stopped;; esac\n"))
+	resetProbe()
+	a := newTaskTestApp(t)
+	probed := make(chan string, 1)
+	go func() { probed <- a.DoomsdayProbe() }()
+	waitFor(t, func() bool { _, err := os.Stat(started); return err == nil })
+	stopped := make(chan string, 1)
+	go func() { stopped <- a.DoomsdayStop() }()
+	select {
+	case got := <-stopped:
+		if !strings.Contains(got, `"ok":true`) {
+			t.Errorf("stop doc %s", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("Stop waited for the in-flight probe")
+	}
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-probed:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the probe never returned")
+	}
+	doomsdayProbe.mu.Lock()
+	cachedAt := doomsdayProbe.at
+	doomsdayProbe.mu.Unlock()
+	if !cachedAt.IsZero() {
+		t.Errorf("a probe that began before Stop was cached over the invalidation")
+	}
+}
+
+func waitFor(t *testing.T, ok func() bool) {
+	t.Helper()
+	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
+		if ok() {
+			return
+		}
+	}
+	t.Fatal("condition not reached in 5s")
 }

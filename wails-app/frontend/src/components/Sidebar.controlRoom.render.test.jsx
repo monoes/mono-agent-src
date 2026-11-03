@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, act } from '@testing-library/react'
 import { renderHook, waitFor } from '@testing-library/react'
 import '../i18n.js'
 
@@ -55,5 +55,76 @@ describe('the probe rule', () => {
     const r2 = renderHook(() => useControlRoomProbe(api))
     await waitFor(() => expect(r2.result.current).toEqual({ show: true, running: true }))
     rerender()
+  })
+})
+
+describe('the probe keeps its last good answer and paces itself', () => {
+  const run = { mode_available: true, run_exists: true }
+  const idle = { mode_available: true, run_exists: false }
+  const setHidden = (h) => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => h })
+    document.dispatchEvent(new Event('visibilitychange'))
+  }
+  const tick = (ms) => act(async () => { await vi.advanceTimersByTimeAsync(ms) })
+  const setup = () => { vi.useFakeTimers(); setHidden(false) }
+  afterEach(() => { vi.useRealTimers(); setHidden(false) })
+
+  it('a failed probe after a good one leaves the nav item in place', async () => {
+    setup()
+    const api = { probe: vi.fn().mockResolvedValue(run) }
+    const { result } = renderHook(() => useControlRoomProbe(api))
+    await tick(0)
+    expect(result.current).toEqual({ show: true, running: true })
+    api.probe.mockResolvedValue({ error: 'timeout' })
+    await tick(15_000)
+    expect(api.probe).toHaveBeenCalledTimes(2)
+    expect(result.current).toEqual({ show: true, running: true })
+    await tick(15_000)
+    expect(result.current).toEqual({ show: true, running: true })
+  })
+  it('a good probe that says no run does hide it again', async () => {
+    setup()
+    const api = { probe: vi.fn().mockResolvedValue(run) }
+    const { result } = renderHook(() => useControlRoomProbe(api))
+    await tick(0)
+    api.probe.mockResolvedValue({ mode_available: false, run_exists: false })
+    await tick(15_000)
+    expect(result.current).toEqual({ show: false, running: false })
+  })
+  it('asks every 15 s while a run exists and every 60 s when the last answer said none', async () => {
+    setup()
+    const api = { probe: vi.fn().mockResolvedValue(run) }
+    renderHook(() => useControlRoomProbe(api))
+    await tick(0)
+    await tick(45_000)
+    expect(api.probe).toHaveBeenCalledTimes(4)
+    api.probe.mockResolvedValue(idle)
+    await tick(15_000)               // this probe answers idle
+    const n = api.probe.mock.calls.length
+    await tick(59_000)
+    expect(api.probe).toHaveBeenCalledTimes(n)
+    await tick(1_100)
+    expect(api.probe).toHaveBeenCalledTimes(n + 1)
+  })
+  it('does not ask at all while the window is hidden, and asks again on return', async () => {
+    setup()
+    const api = { probe: vi.fn().mockResolvedValue(run) }
+    renderHook(() => useControlRoomProbe(api))
+    await tick(0)
+    act(() => setHidden(true))
+    const n = api.probe.mock.calls.length
+    await tick(300_000)
+    expect(api.probe).toHaveBeenCalledTimes(n)
+    act(() => setHidden(false))
+    await tick(0)
+    expect(api.probe).toHaveBeenCalledTimes(n + 1)
+  })
+  it('never has two probes in flight', async () => {
+    setup()
+    let inFlight = 0, most = 0
+    const api = { probe: vi.fn(() => { inFlight++; most = Math.max(most, inFlight); return new Promise(r => setTimeout(() => { inFlight--; r(run) }, 40_000)) }) }
+    renderHook(() => useControlRoomProbe(api))
+    await tick(200_000)
+    expect(most).toBe(1)
   })
 })

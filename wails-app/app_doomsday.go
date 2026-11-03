@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -162,8 +163,12 @@ type doomsdayProbeDoc struct {
 	RunExists     bool `json:"run_exists"`
 }
 
+// doomsdayProbeCache holds the last probe answer. mu guards the fields only and is never held across the CLI run;
+// gen is bumped by invalidation, and an answer computed under an older generation is not stored, so Stop never waits
+// behind an in-flight probe.
 type doomsdayProbeCache struct {
 	mu      sync.Mutex
+	gen     atomic.Uint64
 	profile string
 	at      time.Time
 	doc     string
@@ -171,18 +176,32 @@ type doomsdayProbeCache struct {
 
 var doomsdayProbe doomsdayProbeCache
 
+// invalidate drops the cached answer now and makes any probe already running discard its result.
+func (c *doomsdayProbeCache) invalidate() {
+	c.gen.Add(1)
+	c.mu.Lock()
+	c.at = time.Time{}
+	c.mu.Unlock()
+}
+
 // DoomsdayProbe answers {"mode_available","run_exists"} and is reused for doomsdayProbeTTL. Any failure (an old CLI
 // without the verb, a refusal, a timeout) is both false: the page stays hidden rather than showing a broken state.
+// The page keeps its last good answer across a failed probe; the CLI is the same read as the control room's overview
+// (it has no cheaper availability verb), so the caller paces it (see useControlRoomProbe).
 func (a *App) DoomsdayProbe() string {
 	if err := a.signedOut(); err != nil {
 		return loginRequiredJSON(err)
 	}
 	pid, _ := a.profileID()
-	doomsdayProbe.mu.Lock()
-	defer doomsdayProbe.mu.Unlock()
-	if doomsdayProbe.profile == pid && time.Since(doomsdayProbe.at) < doomsdayProbeTTL {
-		return doomsdayProbe.doc
+	c := &doomsdayProbe
+	c.mu.Lock()
+	if c.profile == pid && time.Since(c.at) < doomsdayProbeTTL {
+		doc := c.doc
+		c.mu.Unlock()
+		return doc
 	}
+	gen := c.gen.Load()
+	c.mu.Unlock()
 	var ov struct {
 		SchemaVersion int    `json:"schema_version"`
 		Available     bool   `json:"available"`
@@ -193,8 +212,12 @@ func (a *App) DoomsdayProbe() string {
 		doc = doomsdayProbeDoc{ModeAvailable: ov.Available || ov.Reason == "no_run", RunExists: ov.Available}
 	}
 	b, _ := json.Marshal(doc)
-	doomsdayProbe.profile, doomsdayProbe.at, doomsdayProbe.doc = pid, time.Now(), string(b)
-	return doomsdayProbe.doc
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.gen.Load() == gen {
+		c.profile, c.at, c.doc = pid, time.Now(), string(b)
+	}
+	return string(b)
 }
 
 // doomsdayStopMu keeps two Stops from running at once; a second click while one runs is refused, not queued.
@@ -215,7 +238,7 @@ func (a *App) DoomsdayStop() string {
 		return stopDoc(false, "", "a stop is already running", "busy")
 	}
 	defer doomsdayStopMu.Unlock()
-	defer func() { doomsdayProbe.mu.Lock(); doomsdayProbe.at = time.Time{}; doomsdayProbe.mu.Unlock() }()
+	defer doomsdayProbe.invalidate()
 	out, errText, _, err := a.runDoomsday(doomsdayStopTimeout, "stop")
 	if err == nil {
 		return stopDoc(true, out, "", "")

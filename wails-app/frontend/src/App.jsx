@@ -283,7 +283,7 @@ export default function App({ banners = null }) {
     documents: <Documents isActive={activePage === 'documents'} />,
     info: <Info isActive={activePage === 'info'} />,
     tasks: <Tasks isActive={activePage === 'tasks'} navData={activePage === 'tasks' ? navData : null} />,
-    ...(controlRoom.show ? { controlroom: <ControlRoom isActive={activePage === 'controlroom'} /> } : {}),
+    ...(controlRoom.show || activePage === 'controlroom' ? { controlroom: <ControlRoom isActive={activePage === 'controlroom'} /> } : {}),
     ai: <Agents />,
     orgs: <Orgs isActive={activePage === 'orgs'} onNavigate={navigate} pendingSelectOrgName={pendingOrgSelect} onConsumePendingSelect={() => setPendingOrgSelect(null)} />,
     logs:      <Logs logs={logs} onClear={() => { api.clearLogs(); setLogs([]) }} onRefresh={refreshLogs} />,
@@ -316,7 +316,7 @@ export default function App({ banners = null }) {
         onNavigate={navigate}
         stats={stats}
         dbConnected={dbConnected}
-        controlRoom={controlRoom}
+        controlRoom={activePage === 'controlroom' ? { ...controlRoom, show: true } : controlRoom}
       />
       <div style={{ display: 'flex', flexDirection: 'row', minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
         <main className="main-content">

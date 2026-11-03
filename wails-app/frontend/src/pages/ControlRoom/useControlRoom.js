@@ -11,6 +11,9 @@ export function useControlRoom(active, api = controlRoomApi) {
   const [feed, setFeed] = useState({ items: [], next: 0, older: false })
   const [rate, setRate] = useState(null)
   const [updatedAt, setUpdatedAt] = useState(0)
+  // The last run a successful poll showed, as {run} (null: the last good poll said no run / off, or none yet). A failed
+  // poll leaves it alone, so Stop stays offered while a run was last known to exist.
+  const [lastRun, setLastRun] = useState(null)
   const samples = useRef([])
   const failures = useRef(0)
   const timer = useRef(null)
@@ -25,6 +28,8 @@ export function useControlRoom(active, api = controlRoomApi) {
     const v = viewOf(ov)
     failures.current = v.state === 'error' ? failures.current + 1 : 0
     setDoc(ov)
+    if (v.state === 'ok') setLastRun({ run: ov.run })
+    else if (v.state !== 'error') setLastRun(null)
     setUpdatedAt(Date.now())
     if (v.state === 'ok' && v.chain === 'yes' && ov.spend) {
       samples.current = addSample(samples.current, { t: Date.now(), used: num(ov.spend.used_micro), run: ov.run?.run_id })
@@ -71,5 +76,5 @@ export function useControlRoom(active, api = controlRoomApi) {
     setFeed(f => ({ items: mergeFeed(f.items, page.items), next: num(page.next_before), older: true }))
   }, [api, feed.next, feed.items.length])
 
-  return { doc, view: viewOf(doc), feed, rate, updatedAt, loadOlder, refresh: poll }
+  return { doc, view: viewOf(doc), lastRun, feed, rate, updatedAt, loadOlder, refresh: poll }
 }

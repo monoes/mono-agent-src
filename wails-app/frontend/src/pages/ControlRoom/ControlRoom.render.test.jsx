@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
-import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, cleanup, within, act } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -85,6 +85,51 @@ describe('states of the page', () => {
     await show({ ...running, run: { ...running.run, state: 'quiescent', active: false, stopping: true } }, 'cr-stop')
     expect(screen.getByTestId('cr-run-state')).toHaveTextContent('Run ended')
     expect(screen.getByRole('button', { name: /Stop run/ })).toBeDisabled()
+  })
+})
+
+describe('Stop survives a failed poll', () => {
+  afterEach(() => vi.useRealTimers())
+  const laterPoll = async (doc) => {
+    api.overview.mockResolvedValue(doc)
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000) })
+  }
+  const firstOk = async (doc = running) => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    api.overview.mockResolvedValue(doc)
+    render(<ControlRoom api={api} />)
+    await screen.findByTestId('cr-stop')
+  }
+  it('a good poll then an error: the error banner shows and Stop is still there', async () => {
+    await firstOk()
+    await laterPoll({ error: 'database is locked' })
+    expect(screen.getByTestId('cr-error')).toHaveTextContent('database is locked')
+    expect(screen.getByTestId('cr-stop')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Stop run/ })).toBeEnabled()
+  })
+  it('an unreadable document (unknown schema) after a good poll keeps Stop', async () => {
+    await firstOk()
+    await laterPoll({ schema_version: 99, available: true })
+    expect(screen.getByTestId('cr-error')).toBeInTheDocument()
+    expect(screen.getByTestId('cr-stop')).toBeInTheDocument()
+  })
+  it('the last known ended run keeps Stop disabled under an error', async () => {
+    await firstOk({ ...running, run: { ...running.run, state: 'quiescent', active: false } })
+    await laterPoll({ error: 'x' })
+    expect(screen.getByRole('button', { name: /Stop run/ })).toBeDisabled()
+  })
+  it('a bad chain keeps Stop, and an error after it too', async () => {
+    await firstOk(unverified)
+    expect(screen.getByTestId('cr-bad-chain')).toBeInTheDocument()
+    await laterPoll({ error: 'x' })
+    expect(screen.getByTestId('cr-stop')).toBeInTheDocument()
+  })
+  it('after a good poll that says no run, Stop is gone (and an error after that does not bring it back)', async () => {
+    await firstOk()
+    await laterPoll(golden('overview_no_run'))
+    expect(screen.queryByTestId('cr-stop')).toBeNull()
+    await laterPoll({ error: 'x' })
+    expect(screen.queryByTestId('cr-stop')).toBeNull()
   })
 })
 
