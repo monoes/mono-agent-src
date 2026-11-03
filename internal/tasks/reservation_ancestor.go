@@ -33,6 +33,7 @@ type hypo struct {
 func (s *Store) ancestorGrant(ctx context.Context, x dbx, profileID string, target int64, g int64) (grant int64, found bool, err error) {
 	seen := map[int64]bool{target: true}
 	cur := target
+	maxDepth := s.depthLimit(ctx, target)
 	for step := 1; ; step++ {
 		var parent sql.NullInt64
 		if err := x.QueryRowContext(ctx, `SELECT parent_session_id FROM task_sessions WHERE profile_id = ? AND id = ?`, profileID, cur).Scan(&parent); err != nil {
@@ -41,8 +42,8 @@ func (s *Store) ancestorGrant(ctx context.Context, x dbx, profileID string, targ
 		if !parent.Valid {
 			return g, found, nil
 		}
-		if step >= HardMaxSessionDepth {
-			return 0, false, limit("session #%d is deeper than %d levels", target, HardMaxSessionDepth)
+		if step >= maxDepth {
+			return 0, false, limit("session #%d is deeper than %d levels", target, maxDepth)
 		}
 		a := parent.Int64
 		if seen[a] {

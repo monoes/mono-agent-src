@@ -370,8 +370,9 @@ func (s *Store) mayHaveChildren(c Caller) (Settings, error) {
 		return Settings{}, fmt.Errorf("%w: only a running master session can create child sessions", ErrNotYours)
 	}
 	lvl, ok := s.level(c.ProfileID, c.ConversationID)
-	if !ok || lvl+1 > ps.MaxDepth || lvl+1 > MaxSessionDepth {
-		return Settings{}, fmt.Errorf("%w (%w): depth %d would pass max_depth %d; run this work here with workers of this turn instead of a session of its own", ErrLimit, ErrAtWorkingDepth, lvl+1, min(ps.MaxDepth, MaxSessionDepth))
+	ceiling := s.depthCeiling(c.ProfileID, c.ConversationID)
+	if !ok || lvl+1 > ps.MaxDepth || lvl+1 > ceiling {
+		return Settings{}, fmt.Errorf("%w (%w): depth %d would pass max_depth %d; run this work here with workers of this turn instead of a session of its own", ErrLimit, ErrAtWorkingDepth, lvl+1, min(ps.MaxDepth, ceiling))
 	}
 	return ps, nil
 }
@@ -485,7 +486,7 @@ func (s *Store) spawnWith(c Caller, req SpawnRequest, hk spawnHooks) (Spawned, e
 		undo()
 		return Spawned{}, fmt.Errorf("%w: the budget is more than the master has left", ErrLimit)
 	}
-	cs := childSettings(ps, childLevel)
+	cs := childSettings(ps, childLevel, s.depthCeiling(c.ProfileID, c.ConversationID))
 	// The child's starting settings replace its document, but not the operator's Mission toggle, which a
 	// writer that got to the child since SetRole (the child is already in its master's tree) may have set.
 	// The parent's K is inherited only while the fresh row holds no mission_directions of its own: one the
