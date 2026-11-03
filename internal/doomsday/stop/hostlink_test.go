@@ -38,6 +38,9 @@ func newHostRun(t *testing.T) (*hostRun, context.CancelFunc) {
 		t.Fatal(err)
 	}
 	go func() { h.w.Run(ctx); close(h.end) }()
+	// The watcher writes its ack after the gate has closed, which a test sees first: wait for Run to return before the
+	// temporary directory is removed, or the removal races the ack file and fails with "directory not empty".
+	t.Cleanup(func() { cancel(); <-h.end })
 	return h, cancel
 }
 
@@ -213,7 +216,9 @@ func TestWatcherClosesOnTheMarkerAloneAndOnTheRunState(t *testing.T) {
 		Stops: func(context.Context) bool { return stopped.Load() }})
 	ctx, cancel2 := context.WithCancel(context.Background())
 	defer cancel2()
-	go w.Run(ctx)
+	runEnd := make(chan struct{})
+	go func() { w.Run(ctx); close(runEnd) }()
+	t.Cleanup(func() { cancel2(); <-runEnd })
 	stopped.Store(true)
 	for i := 0; i < 2000 && !g.Sealed(); i++ {
 		clk.Advance(time.Second)
@@ -467,4 +472,56 @@ func TestEnforcerStopsWhenTheGateCloses(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatal("the enforcer goroutine outlived the gate")
+}
+
+// The enforcer is stopped the moment the watcher closes the gate, not when Run returns: Close waits for a starter that is
+// still in flight (up to TClose), and the host must not exit itself under the Stop that is draining it, even when the
+// starter's age passes T_hung meanwhile. Mutant tried: removing the stopEnforce call before closeAndAck (the deferred
+// one runs only after Close returned) makes Exit fire during the drain: red.
+func TestEnforcerDoesNotEndTheHostWhileTheClosingGateDrains(t *testing.T) {
+	dir := RunDir{Dir: t.TempDir()}
+	clk := newFakeClock()
+	g := NewGate(GateConfig{Generation: 5, Reg: &fakeRegistry{}, Clock: clk, TClose: 120 * time.Second, THung: 30 * time.Second})
+	tk, err := g.Admit(Spec{Kind: KindE1, Op: "turn.start"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := g.BeginStart(tk); err != nil { // a call in flight that never returns
+		t.Fatal(err)
+	}
+	var exits atomic.Int32
+	w := NewHostWatcher(&HostWatcher{Gate: g, Dir: dir, Gen: 5, CharterID: "ch", Clock: clk, Tick: time.Second, Exit: func([]uint64) { exits.Add(1) }})
+	ctx, cancel := context.WithCancel(context.Background())
+	end := make(chan struct{})
+	go func() { w.Run(ctx); close(end) }()
+	t.Cleanup(func() { // the drain ends at TClose on the fake clock: let it
+		cancel()
+		for i := 0; i < 4000; i++ {
+			select {
+			case <-end:
+				return
+			default:
+				clk.Advance(5 * time.Second)
+				time.Sleep(time.Millisecond)
+			}
+		}
+		t.Error("the watcher did not return")
+	})
+	if _, err := dir.WriteMarker(5, "ch", "operator"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2000 && !g.Sealed(); i++ { // the poll sees the marker and the drain begins
+		clk.Advance(time.Second)
+		time.Sleep(time.Millisecond)
+	}
+	if !g.Sealed() {
+		t.Fatal("the gate did not close on the marker")
+	}
+	for i := 0; i < 60; i++ { // the starter is now older than T_hung, the drain is still waiting
+		clk.Advance(time.Second)
+		time.Sleep(2 * time.Millisecond)
+	}
+	if n := exits.Load(); n != 0 {
+		t.Fatalf("the host ended itself %d times while the closing gate drained a starter", n)
+	}
 }

@@ -141,3 +141,43 @@ func TestDeniedFinishAttemptsAreBounded(t *testing.T) {
 		t.Fatalf("denied-attempt rows = %d, want %d", n, ops.MaxParkRows)
 	}
 }
+
+// BossOf reads only a stamped, top-level, current-generation lead. Mutants tried: dropping the top-level condition
+// (COALESCE(parent_session_id, 0) = 0) returns a stamped child (red on the child step); dropping the generation
+// condition returns a boss stamped for another generation (red on the generation step).
+func TestBossOfRequiresTopLevelAndTheCurrentGeneration(t *testing.T) {
+	r := newFinRig(t, finishCharterJSON)
+	ctx := context.Background()
+	top := r.topLead(t, "conv-top")
+	other := r.topLead(t, "conv-other")
+	r.start(t)
+	runs, err := r.w.Store.OpenRuns(ctx, "p1")
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("no open run: %v %v", runs, err)
+	}
+	act := ops.Active{ID: runs[0].CharterID, Generation: runs[0].Generation, Profile: "p1"}
+	src := BossSource{Wiring: r.w}
+	if err := r.boss(t, top); err != nil {
+		t.Fatal(err)
+	}
+	if id, ok, err := src.BossOf(ctx, act); err != nil || !ok || id != top {
+		t.Fatalf("the recorded boss: %d %v %v", id, ok, err)
+	}
+	// another generation of the same charter has no boss here
+	wrong := act
+	wrong.Generation++
+	if _, ok, err := src.BossOf(ctx, wrong); err != nil || ok {
+		t.Fatalf("a boss stamped for generation %d answered for %d: %v %v", act.Generation, wrong.Generation, ok, err)
+	}
+	// a stamped row that is not top-level is not the boss: move the stamp to a child
+	if _, err := r.w.DB.Exec(`UPDATE task_sessions SET doomsday_charter_id = '', doomsday_generation = 0 WHERE id = ?`, top); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.w.DB.Exec(`UPDATE task_sessions SET parent_session_id = ?, doomsday_charter_id = ?, doomsday_generation = ? WHERE id = ?`,
+		top, act.ID, act.Generation, other); err != nil {
+		t.Fatal(err)
+	}
+	if id, ok, err := src.BossOf(ctx, act); err != nil || ok {
+		t.Fatalf("a stamped child was taken for the boss: %d %v %v", id, ok, err)
+	}
+}

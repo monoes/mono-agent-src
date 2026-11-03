@@ -42,8 +42,11 @@ const (
 	// namespace did.
 	NetDeclared = "denied(declared-only)"
 	NetEnforced = "denied(enforced)"
-	scratchPoll = 100 * time.Millisecond
 )
+
+// scratchPoll is how often the writable area is measured while the program runs (a variable so a test can stop the poll and
+// see what the check after the run alone does).
+var scratchPoll = 100 * time.Millisecond
 
 // Results of a machine criterion, the closed list of note 13.6 section 8.
 const (

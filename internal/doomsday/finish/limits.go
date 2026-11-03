@@ -98,33 +98,38 @@ type writable struct {
 	scratch, subject string
 	baseBytes        int64
 	baseEntries      int
+	baseUnreadable   int
 }
 
 // newWritable measures the working copy as it is before the program starts.
 func newWritable(scratch, subject string) writable {
-	b, n, _ := treeSize(subject, 1<<30)
-	return writable{scratch: scratch, subject: subject, baseBytes: b, baseEntries: n}
+	b, n, _, u := treeSize(subject, 1<<30)
+	return writable{scratch: scratch, subject: subject, baseBytes: b, baseEntries: n, baseUnreadable: u}
 }
 
 // over reports whether the scratch plus the growth of the working copy passed limit, or either tree gained more entries
-// than the walk allows (a directory of millions of files must not hold the check).
+// than the walk allows (a directory of millions of files must not hold the check), or a directory could not be read that
+// could before (a criterion that writes into a directory and then removes its permissions hides those bytes from the
+// walk: an unmeasurable tree is over the cap, never under it).
 func (w writable) over(limit int64) bool {
 	total, over := scratchBytes(w.scratch, limit)
 	if over {
 		return true
 	}
-	b, n, many := treeSize(w.subject, w.baseEntries+maxScratchEntries)
-	return many || n > w.baseEntries+maxScratchEntries || total+max(b-w.baseBytes, 0) > limit
+	b, n, many, unreadable := treeSize(w.subject, w.baseEntries+maxScratchEntries)
+	return many || unreadable > w.baseUnreadable || n > w.baseEntries+maxScratchEntries || total+max(b-w.baseBytes, 0) > limit
 }
 
 const maxScratchEntries = 200000
 
 // treeSize sums the regular files under dir without following links, giving up after maxEntries entries (many is true).
-func treeSize(dir string, maxEntries int) (bytes int64, entries int, many bool) {
+// unreadable counts the directories that could not be listed, whose bytes are not in the sum.
+func treeSize(dir string, maxEntries int) (bytes int64, entries int, many bool, unreadable int) {
 	var walk func(string)
 	walk = func(d string) {
 		ents, err := os.ReadDir(d)
 		if err != nil {
+			unreadable++
 			return
 		}
 		for _, e := range ents {
@@ -148,11 +153,12 @@ func treeSize(dir string, maxEntries int) (bytes int64, entries int, many bool) 
 		}
 	}
 	walk(dir)
-	return bytes, entries, many
+	return bytes, entries, many, unreadable
 }
 
 // scratchBytes sums the sizes of the regular files under dir, without following links, stopping at maxEntries entries so a
-// directory of millions of files cannot hold the check. over is true when the sum or the entry count passed the bound.
+// directory of millions of files cannot hold the check. over is true when the sum or the entry count passed the bound, or
+// when a directory could not be read (its bytes cannot be counted, so the area is not shown to be inside the cap).
 func scratchBytes(dir string, limit int64) (total int64, over bool) {
 	const maxEntries = maxScratchEntries
 	entries := 0
@@ -160,6 +166,7 @@ func scratchBytes(dir string, limit int64) (total int64, over bool) {
 	walk = func(d string) {
 		ents, err := os.ReadDir(d)
 		if err != nil {
+			over = true
 			return
 		}
 		for _, e := range ents {

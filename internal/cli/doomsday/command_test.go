@@ -361,3 +361,44 @@ func TestCharterValidation(t *testing.T) {
 }
 
 var _ = cobra.Command{}
+
+// bossEngine is a fakeEngine that can record a boss.
+type bossEngine struct {
+	*fakeEngine
+	bound []int64
+	err   error
+}
+
+func (b *bossEngine) BindBoss(_ context.Context, session int64, _ Entry) error {
+	b.bound = append(b.bound, session)
+	return b.err
+}
+
+// `start --boss-session` hands the named session to the engine, once, and nothing without the flag; a refusal of the
+// engine or an engine that cannot record a boss is an error naming the run (it started and must be stopped). Mutants
+// tried: ignoring the flag (red on the bound list), binding a fixed session (red on the id), swallowing the bind error
+// (red on the refusal step).
+func TestStartHonoursBossSession(t *testing.T) {
+	file := writeCharter(t, goodCharter)
+	r := newRig()
+	h := fullHash(t, r, file)
+	be := &bossEngine{fakeEngine: r.e}
+	r.deps.Engine = func() Engine { return be }
+
+	if _, err := run(t, r.deps, "", "start", "--charter", file, "--yes-i-lift", "--hash", h); err != nil || len(be.bound) != 0 {
+		t.Fatalf("without the flag: %v %v", err, be.bound)
+	}
+	if _, err := run(t, r.deps, "", "start", "--charter", file, "--yes-i-lift", "--hash", h, "--boss-session", "7"); err != nil || len(be.bound) != 1 || be.bound[0] != 7 {
+		t.Fatalf("with the flag: %v %v", err, be.bound)
+	}
+	be.err = errors.New("not a lead mission")
+	_, err := run(t, r.deps, "", "start", "--charter", file, "--yes-i-lift", "--hash", h, "--boss-session", "43")
+	if err == nil || !strings.Contains(err.Error(), "r1") || !strings.Contains(err.Error(), "43") || !strings.Contains(err.Error(), "not a lead mission") {
+		t.Fatalf("a refused boss: %v", err)
+	}
+	// an engine that cannot record a boss refuses the flag rather than ignoring it
+	r2 := newRig()
+	if _, err := run(t, r2.deps, "", "start", "--charter", file, "--yes-i-lift", "--hash", h, "--boss-session", "44"); err == nil || !strings.Contains(err.Error(), "cannot record a boss") {
+		t.Fatalf("an engine without a boss binder: %v", err)
+	}
+}
