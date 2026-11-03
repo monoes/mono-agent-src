@@ -28,9 +28,11 @@ func (r RunDir) fsys() FS {
 }
 
 // StopPath is named by generation, and a generation is never reused, so a stale marker cannot stop a new run.
-func (r RunDir) StopPath(gen uint64) string   { return filepath.Join(r.Dir, fmt.Sprintf("%d.stop", gen)) }
-func (r RunDir) SecretPath(gen uint64) string { return filepath.Join(r.Dir, fmt.Sprintf("%d.secret", gen)) }
-func (r RunDir) UnitPath(gen uint64) string   { return filepath.Join(r.Dir, fmt.Sprintf("%d.unit", gen)) }
+func (r RunDir) StopPath(gen uint64) string { return filepath.Join(r.Dir, fmt.Sprintf("%d.stop", gen)) }
+func (r RunDir) SecretPath(gen uint64) string {
+	return filepath.Join(r.Dir, fmt.Sprintf("%d.secret", gen))
+}
+func (r RunDir) UnitPath(gen uint64) string { return filepath.Join(r.Dir, fmt.Sprintf("%d.unit", gen)) }
 
 // CreateSecret generates the per-run random secret (not derived from the vault key) with mode 0600.
 func (r RunDir) CreateSecret(gen uint64) error {

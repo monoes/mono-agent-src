@@ -27,8 +27,8 @@ type OSFS struct{}
 func (OSFS) CreateExclusive(path string, perm os.FileMode) (File, error) {
 	return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
 }
-func (OSFS) ReadFile(path string) ([]byte, error)      { return os.ReadFile(path) }
-func (OSFS) Remove(path string) error                   { return os.Remove(path) }
+func (OSFS) ReadFile(path string) ([]byte, error)        { return os.ReadFile(path) }
+func (OSFS) Remove(path string) error                    { return os.Remove(path) }
 func (OSFS) MkdirAll(dir string, perm os.FileMode) error { return os.MkdirAll(dir, perm) }
 
 // SyncDir fsyncs a directory so a created or removed entry survives power loss.

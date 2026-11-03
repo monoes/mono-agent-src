@@ -20,8 +20,8 @@ import (
 // shutdown writes the fail-closed record instead of the clean one.
 type UnrecordedFlag struct{ v atomic.Bool }
 
-func (f *UnrecordedFlag) Set()      { f.v.Store(true) }
-func (f *UnrecordedFlag) Clear()    { f.v.Store(false) }
+func (f *UnrecordedFlag) Set()        { f.v.Store(true) }
+func (f *UnrecordedFlag) Clear()      { f.v.Store(false) }
 func (f *UnrecordedFlag) IsSet() bool { return f.v.Load() }
 
 // ErrSecretUnreadable is the explicit failure of a missing or unreadable per-run secret: the sender falls back
@@ -58,8 +58,8 @@ func NewEmergencyHandler(g *Gate, flag *UnrecordedFlag, kick func(gen uint64)) f
 type EmergencyServer struct {
 	Dir    RunDir
 	Gen    uint64
-	UID    uint32                           // the only accepted peer uid
-	Peer   func(net.Conn) (uint32, error)   // peer credentials; defaults to the platform implementation
+	UID    uint32                         // the only accepted peer uid
+	Peer   func(net.Conn) (uint32, error) // peer credentials; defaults to the platform implementation
 	OnStop func(gen uint64)
 }
 
