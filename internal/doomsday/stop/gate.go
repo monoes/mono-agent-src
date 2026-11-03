@@ -248,6 +248,7 @@ func (g *Gate) RetryUnknown() {
 func (g *Gate) State(t *Ticket) TicketState {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	g.expireLocked()
 	return t.state
 }
 

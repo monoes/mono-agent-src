@@ -211,6 +211,9 @@ func TestT41WithdrawalOnEveryTerminalTransition(t *testing.T) {
 			go func() { errc <- f.g.BeginStart(b) }()
 			pp.wait()
 			end(f, first)
+			if st := f.g.State(b); st != Fenced {
+				t.Fatalf("state %v at the terminal transition, want FENCED (withdrawn)", st)
+			}
 			if o := f.g.Close(); o.Kind != Barrier {
 				t.Fatalf("outcome %v", o.Kind)
 			}

@@ -207,6 +207,17 @@ func TestEnforceHungExits(t *testing.T) {
 	t.Fatal("the host never terminated itself")
 }
 
+// "stopped" is never printed for a report with an unrecorded step, whatever the state says.
+func TestReportStoppedRequiresEveryStep(t *testing.T) {
+	r := Report{Generation: 1, Final: StateQuiescent, Steps: []Step{{Name: StepMarker, Done: false, Err: errInjected}}}
+	if r.Stopped() || r.ExitCode() == 0 {
+		t.Fatal("an unrecorded step must prevent Stopped")
+	}
+	if !strings.Contains(joined(r), "NOT RECORDED") || strings.Contains(joined(r), "generation 1 stopped") {
+		t.Fatalf("%s", joined(r))
+	}
+}
+
 func contains(ss []string, s string) bool {
 	for _, x := range ss {
 		if x == s {
