@@ -59,7 +59,7 @@ func (s *Store) SetChild(c Caller, target string, patch []byte) (Settings, []str
 	next, err := s.UpdateSettings(c.ProfileID, target, func(_ context.Context, _ *sql.Conn, cur Settings) (Settings, error) {
 		// cur is the settings as they are inside the write transaction, so a key the patch does not name
 		// (the operator's Mission toggle among them) keeps the value it has now, not the one an earlier read saw.
-		next, k, err := cur.Apply(patch)
+		next, k, err := cur.applyAt(patch, s.writeCeiling(c.ProfileID, target, cur.MaxDepth))
 		if err != nil {
 			return Settings{}, fmt.Errorf("%w: %v", ErrInvalid, err)
 		}

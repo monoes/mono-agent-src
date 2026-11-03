@@ -7,10 +7,12 @@
 package chat
 
 import (
+	"context"
 	"database/sql"
 
 	"github.com/spf13/cobra"
 
+	"github.com/monoes/mono-agent/internal/dynorg"
 	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/storage"
 )
@@ -32,6 +34,18 @@ type Deps struct {
 	RequireOperator func(what string) error
 	// PublicationPrompt is the agents' instruction to register what they publish.
 	PublicationPrompt func() string
+	// DoomsdayMerge is set only by an engine built with the open-ended mode: for a database it returns the
+	// resolver of the run a conductor's merges belong to (nil result: no run, merges as they were). Nil here is
+	// the default build, and merges are not gated.
+	DoomsdayMerge func(db *sql.DB) func(ctx context.Context) (*dynorg.DoomsdayMerge, error)
+}
+
+// doomsdayFor is dynorg.Config.DoomsdayFor for db, or nil when the mode is not built in.
+func (d *Deps) doomsdayFor(db *sql.DB) func(ctx context.Context) (*dynorg.DoomsdayMerge, error) {
+	if d.DoomsdayMerge == nil {
+		return nil
+	}
+	return d.DoomsdayMerge(db)
 }
 
 // NewChatCommand is `monoagentcli chat`.

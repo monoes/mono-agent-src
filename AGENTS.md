@@ -4397,6 +4397,7 @@ change is logged in the status history. `applied` is reached only through `appli
 | 4 | auth or connection failure — including `login_required`: no valid monoes.me sign-in (see [monoes.me account](#monoesme-account)) |
 | 5 | `chat history delete` did not delete (a process the conversation's turns started could not be stopped; `survivors_remain`, listed under `survivors`), or `chat history set-access` lowered the level but a process the conversation's turns started could not be stopped (`survivors_remain`; the JSON lists each under `lowered.survivors` with its pid, command and reason) |
 | 6 | `chat history set-access --expect L` found the conversation no longer at level L: `access_changed`, `current` is the real level, nothing was changed |
+| 7 | `update` installed the release but the daemon is down: its restart left no daemon running and a rollback did not bring one back (`--check` and `--app` still exit 0; `update --app --json` carries the outcome under `daemon`) |
 
 Branch on these instead of parsing stderr.
 
@@ -4666,3 +4667,19 @@ Use the `monomind` MCP tools for graph navigation, impact analysis, memory, and 
 For multi-step work, load only the applicable `mastermind-*` skill; do not load all workflows at once.
 If MCP is unavailable, run `npx -y monomind@latest doctor` and use `npx -y monomind@latest` commands.
 # monomind:end instructions:codex
+
+**Boss tools of the open-ended mode** (`internal/mcp/boss_tools.go`): `session_boss_answer_ask`, `session_boss_approve_plan` and
+`session_boss_grant_budget` are the lead-facing mirrors of the typed operations ask.answer, plan.approve and spend.grant. Each calls
+coderhost's `BossAnswerAsk` / `BossApprovePlan` / `BossGrantBudget` as the lead whose token the process holds (never an operator
+scope), after the MCP server installs the route on its own coder store per call (`mcp.SetBossRouteInstaller`, set only by a
+`-tags doomsday` build in `cmd/monoagentcli/doomsday_engine.go`, which reads the profile's run from the database every call). With no
+installer (default build) or no running, verified run they refuse (`not_yours: ... not running`) and spend nothing; over a charter
+limit they park (`limit`). They are the only tools `internal/mcp/doomsday_guard_test.go` lets mention the mode.
+A fourth, `session_boss_finish_begin` (`internal/mcp/boss_tools_finish.go`), is the typed operation finish.begin (note 13.6 A3): no
+approval and no per-ask limit, only the top lead of the run (a lead below another lead is refused), through
+`mcp.SetBossFinishBeginner` (same build-tag rule) into the ops package's `BeginFinish` (live charter, verified caller) and then the
+finish engine's `FinishBegin`: the run stops with cause finish, and the operator's `doomsday finish` verbs verify and commit. Finish
+criteria run under process limits (CPU, address space, open files, file size, process count), a scratch byte cap and, where the
+kernel allows an unprivileged user namespace, without a network (`denied(enforced)`; otherwise `denied(declared-only)`, and
+`doomsday finish --require-net-deny` parks with `enforcement-required`); each round's verification unit is witnessed and a `verify`
+member of the run registry.

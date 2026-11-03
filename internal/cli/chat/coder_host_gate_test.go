@@ -889,3 +889,41 @@ func TestARefusalIsAStartThatHappened(t *testing.T) {
 		t.Fatalf("a clean refusal: %v (started %v)", err, coderhost.TurnStarted(err))
 	}
 }
+
+// The exported hook of an extending build sees the real host, its store and the database; it is nil by default.
+func TestTheExportedHostBuiltHookSeesTheRealHost(t *testing.T) {
+	if HostBuilt != nil {
+		t.Fatal("HostBuilt is set in a default build")
+	}
+	asOperator(t)
+	dbPath := newChatCLITestDB(t)
+	cfg := testDeps(&testConfig{DBPath: dbPath, ProfileID: "default", JSONOutput: true})
+	cfg.RequireOperator = func(string) error { return nil }
+	type seen struct {
+		st *coderhost.Store
+		h  *coderhost.Host
+		db *sql.DB
+	}
+	seenc := make(chan seen, 1)
+	HostBuilt = func(st *coderhost.Store, h *coderhost.Host, db *sql.DB) { seenc <- seen{st, h, db} }
+	t.Cleanup(func() { HostBuilt = nil })
+	t.Cleanup(func() { RegisterChildTokenMinter(nil) })
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := newCoderHostRunCmd(cfg)
+	cmd.SetContext(ctx)
+	cmd.SetArgs([]string{"--poll=20ms"})
+	cmd.SilenceUsage, cmd.SilenceErrors = true, true
+	errc := make(chan error, 1)
+	go func() { errc <- cmd.Execute() }()
+	select {
+	case got := <-seenc:
+		if got.st == nil || got.h == nil || got.db == nil || got.h.Store != got.st {
+			t.Errorf("the hook saw %+v", got)
+		}
+	case <-time.After(20 * time.Second):
+		cancel()
+		t.Fatalf("the hook was not called: %v", <-errc)
+	}
+	cancel()
+	<-errc
+}

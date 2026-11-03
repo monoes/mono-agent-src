@@ -151,6 +151,12 @@ func newCoderHostCmd(cfg *Deps) *cobra.Command {
 // production wiring installs.
 var hostBuilt func(h *coderhost.Host)
 
+// HostBuilt, when set by a build that extends the host (an optional engine linked in by a build tag), sees the real host just built,
+// with its store and database, before it runs. It is nil in every default build: nothing changes unless something sets it. The host
+// serves every profile of the database (a session carries its own ProfileID), so a hook that needs a profile reads it from the
+// session or command it is asked about.
+var HostBuilt func(st *coderhost.Store, h *coderhost.Host, db *sql.DB)
+
 // retentionSweepEvery is how often the host runs the sweep of the retained v2 rows after the first one at its start.
 var retentionSweepEvery = time.Hour
 
@@ -277,6 +283,9 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 			}
 			if hostBuilt != nil {
 				hostBuilt(h)
+			}
+			if HostBuilt != nil {
+				HostBuilt(h.Store, h, db.DB)
 			}
 			if meshEnabled() {
 				h.Mesh = &coderhost.HubMesh{StartHub: func(ctx context.Context) error { return startMeshHub(ctx, hostDir(cfg)) }, Logf: logf}

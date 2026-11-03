@@ -417,3 +417,37 @@ exit 0
 		t.Error("a member of the leader's group outlived a failed bound delivery whose leader had already exited")
 	}
 }
+
+// The legacy token is bound with the stamp read BEFORE the exit waiter could reap the child: a turn that has already exited and been
+// reaped by the time the binding is made is still bound with its own start stamp, never with an empty one or with whatever the number
+// names afterwards.
+func TestTheLegacyTokenIsBoundWithTheStampReadBeforeTheWaiterStarted(t *testing.T) {
+	bin, dir := scriptBin(t, "echo '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\nexit 0\n")
+	exited := make(chan struct{})
+	var once sync.Once
+	old := afterWaiterStarted
+	afterWaiterStarted = func() { // the child has exited and been reaped before the binding is made
+		select {
+		case <-exited:
+		case <-time.After(10 * time.Second):
+		}
+	}
+	t.Cleanup(func() { afterWaiterStarted = old })
+	var recorded, bound string
+	l := &execLauncher{bin: bin, dbPath: "/db/x.db", instance: "host-test", logDir: filepath.Join(dir, "turns"), revokeBackoff: time.Millisecond,
+		revoke:          func(string, string) error { return nil },
+		afterExitRevoke: func() { once.Do(func() { close(exited) }) },
+		onProcess:       func(_, _, _ string, _ int, stamp string, _ bool) error { recorded = stamp; return nil },
+		bind:            func(_, _, _ string, _ int, stamp string) error { bound = stamp; return nil }}
+	turn, err := l.Start("default", "c1", "t1", "hi", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = turn.Wait()
+	if !strings.HasPrefix(bound, "start:") {
+		t.Fatalf("the token was bound with the stamp %q after the child was reaped", bound)
+	}
+	if !strings.HasPrefix(recorded, bound) { // the recorded stamp is "start:N@boot": the same start tick
+		t.Errorf("the token was bound with %q, the process was recorded as %q", bound, recorded)
+	}
+}

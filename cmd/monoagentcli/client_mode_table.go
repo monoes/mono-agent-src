@@ -54,6 +54,7 @@ var clientModeClasses = map[string]string{
 	"connect":            cmOperatorOnly,
 	"daemon":             cmOperatorOnly,
 	"db":                 cmOperatorOnly,
+	"doomsday":           cmOperatorOnly,
 	"extension":          cmOperatorOnly,
 	"hil":                cmOperatorOnly,
 	"httpapi":            cmOperatorOnly,

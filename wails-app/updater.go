@@ -29,6 +29,9 @@ type UpdateResult struct {
 	UpToDate   bool   `json:"up_to_date,omitempty"` // nothing was installed
 	NewVersion string `json:"new_version,omitempty"`
 	Error      string `json:"error,omitempty"`
+	// Notice is what the person should read before restarting the app (set when the update did not restart the daemon or the
+	// bridge, or left another CLI old); the app does not quit by itself then.
+	Notice string `json:"notice,omitempty"`
 }
 
 // GetVersion returns the current build version.

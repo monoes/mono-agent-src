@@ -13,7 +13,7 @@ import (
 // helpers handed over as chatcli.Deps, and the old names the rest of the CLI uses.
 
 func chatDeps(cfg *globalConfig) chatcli.Deps {
-	return chatcli.Deps{
+	d := chatcli.Deps{
 		JSONOutput:        func() bool { return cfg.JSONOutput },
 		ProfileID:         func() string { return cfg.ProfileID },
 		DBPath:            func() string { return cfg.DBPath },
@@ -22,6 +22,10 @@ func chatDeps(cfg *globalConfig) chatcli.Deps {
 		RequireOperator:   cfg.requireOperator,
 		PublicationPrompt: func() string { return publicationAgentPrompt(cfg) },
 	}
+	if doomsdayChat != nil { // only an engine built with the open-ended mode
+		doomsdayChat(cfg, &d)
+	}
+	return d
 }
 
 func newChatCmd(cfg *globalConfig) *cobra.Command { return chatcli.NewChatCommand(chatDeps(cfg)) }

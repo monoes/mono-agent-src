@@ -104,7 +104,7 @@ func TestADirectionLeadKeepsTheOperatorsMissionDirections(t *testing.T) {
 	parent := DefaultSettings()
 	setMD(&parent, 5)
 	for _, lvl := range []int{1, 2, 4} {
-		if got, ok := mdOf(childSettings(parent, lvl)); !ok || got != 5 {
+		if got, ok := mdOf(childSettings(parent, lvl, MaxSessionDepth)); !ok || got != 5 {
 			t.Fatalf("level %d child has mission_directions %d, want 5", lvl, got)
 		}
 	}

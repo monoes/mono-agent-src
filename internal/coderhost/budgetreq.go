@@ -336,6 +336,12 @@ func (s *Store) GrantBudget(sc CallerScope, profileID string, id int64, usd floa
 	if err := operatorOnly(sc); err != nil {
 		return BudgetRequest{}, err
 	}
+	return s.grantBudget(profileID, id, usd)
+}
+
+// grantBudget is the grant itself, with every limit of the carve and the ancestors. Its callers decide who may
+// call it: GrantBudget the person, BossGrantBudget a doomsday run's approved spend.grant.
+func (s *Store) grantBudget(profileID string, id int64, usd float64) (BudgetRequest, error) {
 	grantMicro := int64(0) // 0 = what was asked
 	if usd != 0 {
 		var ok bool

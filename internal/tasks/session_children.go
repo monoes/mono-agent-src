@@ -62,6 +62,7 @@ func (s *Store) clampChildren(ctx context.Context, x dbx, id int64, actor Actor,
 	floor := map[int64]childKid{id: top}
 	seen := []int64{id}
 	frontier := []int64{id}
+	maxDepth := s.walkLimit(ctx, id)
 	for depth := 1; len(frontier) > 0; depth++ {
 		var next []int64
 		for _, parent := range frontier {
@@ -70,8 +71,8 @@ func (s *Store) clampChildren(ctx context.Context, x dbx, id int64, actor Actor,
 			if err != nil {
 				return err
 			}
-			if depth >= HardMaxSessionDepth && len(kids) > 0 {
-				return limit("session #%d has sessions deeper than %d levels below it", id, HardMaxSessionDepth)
+			if depth >= maxDepth && len(kids) > 0 {
+				return limit("session #%d has sessions deeper than %d levels below it", id, maxDepth)
 			}
 			for _, k := range kids {
 				if slices.Contains(seen, k.id) {

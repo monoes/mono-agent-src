@@ -113,3 +113,51 @@ echo '{"success":false,"error":"no app asset"}'
 		t.Fatalf("argv = %q", got)
 	}
 }
+
+// An install that comes with something to read (the daemon is down, the bridge was not restarted, another CLI is old) does
+// not quit by itself: the notice is returned and the person quits with QuitApp. A clean install still quits.
+func TestAppSelfUpdateWithANoticeDoesNotQuitByItself(t *testing.T) {
+	for name, tc := range map[string]struct {
+		body   string
+		quits  int
+		notice string
+	}{
+		"clean":          {`{"success":true,"new_version":"v9.9.9","daemon":{"action":"restarted","message":"Restarted the daemon"},"bridge":{"action":"restarted","message":"Restarted the bridge"},"stale_clis":[{"action":"updated","message":"replaced it"}]}`, 1, ""},
+		"daemon down":    {`{"success":true,"new_version":"v9.9.9","daemon":{"action":"failed","reason":"no_heartbeat","message":"daemon is down — start it with: monoagentcli daemon start"}}`, 0, "daemon is down — start it with: monoagentcli daemon start"},
+		"bridge skipped": {`{"success":true,"new_version":"v9.9.9","daemon":{"action":"restarted","message":"ok"},"bridge":{"action":"skipped","message":"The extension bridge was not restarted: x"}}`, 0, "The extension bridge was not restarted: x"},
+		"stale cli":      {`{"success":true,"new_version":"v9.9.9","stale_clis":[{"action":"stale","message":"/usr/bin/monoagentcli is old: update it"}]}`, 0, "/usr/bin/monoagentcli is old: update it"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cli := fakeCLI(t, "echo '"+tc.body+"'\n")
+			var r updateRun
+			res := r.run(cli, "/x")
+			if !res.Success || res.NewVersion != "v9.9.9" || r.quits != tc.quits {
+				t.Fatalf("res = %+v, quits = %d", res, r.quits)
+			}
+			if tc.notice == "" {
+				if res.Notice != "" {
+					t.Fatalf("notice = %q", res.Notice)
+				}
+				return
+			}
+			if !strings.Contains(res.Notice, tc.notice) || !strings.HasSuffix(res.Notice, "The update is installed; restart the app to use it.") {
+				t.Fatalf("notice = %q", res.Notice)
+			}
+		})
+	}
+}
+
+// An up-to-date app never quits and carries no notice; a refusal carries none either.
+func TestUpdateNoticeNamesEveryOutcomeThatNeedsWords(t *testing.T) {
+	got := updateNotice(cliAppUpdate{
+		Daemon:    &cliNote{Action: "busy", Message: "D"},
+		Bridge:    &cliNote{Action: "failed", Message: "B"},
+		StaleCLIs: []cliNote{{Action: "stale", Message: "S1"}, {Action: "updated", Message: "U"}, {Action: "stale", Message: "S2"}},
+	})
+	if want := "D\nB\nS1\nS2\nThe update is installed; restart the app to use it."; got != want {
+		t.Fatalf("notice = %q, want %q", got, want)
+	}
+	if got := updateNotice(cliAppUpdate{Daemon: &cliNote{Action: "failed", Message: "  "}}); got != "" {
+		t.Fatalf("a blank message made a notice: %q", got)
+	}
+}

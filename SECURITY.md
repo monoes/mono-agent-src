@@ -2437,6 +2437,19 @@ mission session, and one with unrecorded background processes, all rechecked ins
 (`deleteGuard`, `internal/cli/chat/chat_history.go`); it revokes the conversation's mission tokens in that transaction, records
 the child sessions' spend before the usage is erased (`coderspend.Snapshot`) so the money stays held until the host charges it, and
 removes the asks and the spawn advice the chat owned. `profile delete` is refused while a live worker reservation exists.
+Per-exec reservations (migration 154; `Store.ReserveExec`, `Store.ChargeExec` and `Store.SettleExecNoReport`, not yet
+called by any worker): a hold may name the exec (one launch of a worker) it was taken for. The exec id must be unique per
+launch (a fresh id for every run): the same (session, worker, exec) is one hold however often it is asked (a trigger that
+refuses a second row, so `REPLACE` and upserts cannot swap the hold either, a unique index behind it, and a lookup in the
+reserve's own transaction), so reusing the id of a finished run returns that run's ended row, not a new hold. A retry of
+`ReserveExec` returns an ended row too, so a caller must check its `State` before it runs on the hold. Only the owner that
+took it may ask again. A late call of an earlier exec holds its own row's id and reaches nothing of the next exec; the
+charge calls answer a stranger, an ended or expired row, another profile and a missing row with the same
+`ErrReservationLost`, by design. The charge is the larger of what was charged and the largest cumulative cost THIS exec
+reported (kept in `task_session_reservation_costs`, grow-only), so a lower final report never lowers it; a negative cost is
+refused. An exec that ended without a final cost report (`SettleExecNoReport`, a call of its own so a miscomputed number
+cannot mean it) is charged its whole grant, whatever partial reports came before (never less than they said). An exec that
+crashed expires after its lease plus grace and keeps holding what is left of it until the operator resolves it.
 
 **Not verified live.** None of the following has been run against real agent runtimes, real accounts or the desktop app:
 a mission end to end with real workers and verifiers; task child sessions (the launcher, the child's task token, the budget
@@ -3256,3 +3269,13 @@ file it cannot parse. Being name-based it sees no other route to the same effect
 function that does what the guarded one does), and it skips directories named `scripts`, `docs`, `node_modules` and
 `chrome-extension`. A typed check (`go/types`) would need the whole module graph for every build tag and the separate
 `wails-app` module, which is not worth its cost; the limits above are accepted and documented instead.
+
+- **Boss tools of the open-ended mode.** `session_boss_answer_ask`, `session_boss_approve_plan` and `session_boss_grant_budget` can
+  act only through coderhost's route: a verified lead token (an operator scope is not accepted), a running, verified run of the
+  profile read from the database on every call, and the charter's per-ask limits with an approval spent first. A default build
+  serves the tools but they always refuse; they cannot start, stop or edit a run, and no other MCP tool may mention the mode
+  (`TestNoToolTouchesTheOpenEndedMode`). The fourth boss tool, `session_boss_finish_begin` (finish.begin), has no approval: its
+  enforcement is the live charter, the verified top lead and the finish's own preconditions (criteria, a distinct pinned
+  verifier, no open person item); it only begins the finish, whose verification and commit stay the operator's. A criterion
+  runs with process limits and a scratch cap, and without a network where the kernel allows an unprivileged user namespace;
+  where it does not the record says `denied(declared-only)`, which is a declaration and not a defence.

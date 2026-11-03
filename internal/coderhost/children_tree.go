@@ -26,11 +26,11 @@ func childRuntime(parent ai.Conversation, req SpawnRequest) (runtimeID, provider
 // childSettings are the settings of a new child at childLevel, its carve policy: the working depth is the parent's
 // (only the operator widens it), and the child may have children of its own, within what its parent may have, only while
 // a level below it is still inside that depth.
-func childSettings(parent Settings, childLevel int) Settings {
+func childSettings(parent Settings, childLevel, depthCeiling int) Settings {
 	cs := DefaultSettings()
 	cs.MaxDepth = parent.MaxDepth
 	cs.MissionDirections = cloneInt(parent.MissionDirections) // the operator's K holds all the way down the tree
-	if childLevel >= min(parent.MaxDepth, MaxSessionDepth) {
+	if childLevel >= min(parent.MaxDepth, depthCeiling) {
 		cs.MaxChildren = 0
 		return cs
 	}

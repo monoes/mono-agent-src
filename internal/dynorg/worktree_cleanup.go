@@ -191,6 +191,9 @@ func ignoredFiles(ctx context.Context, dir string) []string {
 // holds its lock. The app's startup reconcile and the start of each
 // isolated turn call it.
 func ReconcileWorktrees(ctx context.Context, cwd string, active func(turnID string) bool) []TreeCleanup {
+	if g := reconcileGuard.Load(); g != nil { // an engine with the mode resolves begun merges first (note 13.3 5.1)
+		active = (*g)(ctx, cwd, active)
+	}
 	base, err := safeBase(cwd)
 	if err != nil {
 		return nil

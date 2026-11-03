@@ -27,6 +27,7 @@ const (
 	maxOwnerIDBytes   = 128
 	maxWorkerRefBytes = 256
 	maxEndNoteBytes   = 1024
+	maxExecIDBytes    = 256
 )
 
 // Reservation states.
@@ -48,6 +49,7 @@ type Reservation struct {
 	ProfileID   string
 	SessionID   int64
 	WorkerRef   string
+	ExecID      string // the run this hold is for (migration 154); empty on a hold taken by Reserve
 	OwnerID     string
 	AmountUSD   float64
 	Bounded     bool // false: the worker named no cap, so amount is 0 and nothing is known to be held
@@ -68,12 +70,12 @@ func (r Reservation) Held() float64 {
 	return math.Max(r.AmountUSD-r.ChargedUSD, 0)
 }
 
-const reservationCols = `id, profile_id, session_id, worker_ref, owner_id, amount_usd, bounded, charged_usd, state, lease_until, heartbeat_at, created_at, ended_at, end_note`
+const reservationCols = `id, profile_id, session_id, worker_ref, exec_id, owner_id, amount_usd, bounded, charged_usd, state, lease_until, heartbeat_at, created_at, ended_at, end_note`
 
 func scanReservation(row interface{ Scan(...any) error }) (Reservation, error) {
 	var r Reservation
 	var bounded int
-	err := row.Scan(&r.ID, &r.ProfileID, &r.SessionID, &r.WorkerRef, &r.OwnerID, &r.AmountUSD, &bounded, &r.ChargedUSD, &r.State, &r.LeaseUntil, &r.HeartbeatAt, &r.CreatedAt, &r.EndedAt, &r.EndNote)
+	err := row.Scan(&r.ID, &r.ProfileID, &r.SessionID, &r.WorkerRef, &r.ExecID, &r.OwnerID, &r.AmountUSD, &bounded, &r.ChargedUSD, &r.State, &r.LeaseUntil, &r.HeartbeatAt, &r.CreatedAt, &r.EndedAt, &r.EndNote)
 	r.Bounded = bounded == 1
 	return r, err
 }

@@ -169,8 +169,10 @@ var seedOverrides = map[string]map[string]any{
 	"coder_budget_requests":   {"target": "lead", "status": "open"},
 	// 149: a live reservation, with stamps in the one text form its CHECK accepts. Deleting the profile (or its
 	// session) removes the row, which is how a reservation's money comes back; there is no rule to retain it.
-	"task_session_reservations": {"session_id": 1, "state": "live", "lease_until": "2026-10-05T12:00:00Z", "heartbeat_at": "2026-10-05T12:00:00Z", "created_at": "2026-10-05T12:00:00Z", "bounded": 1},
-	"coder_session_asks":        {"importance": "normal"},
+	"task_session_reservations": {"session_id": 1, "state": "live", "lease_until": "2026-10-05T12:00:00Z", "heartbeat_at": "2026-10-05T12:00:00Z", "created_at": "2026-10-05T12:00:00Z", "bounded": 1, "exec_id": "e1"},
+	// 154: a report of that exec's cost (the row it reports on is live and has an exec id).
+	"task_session_reservation_costs": {"seq": 1, "final": 0, "reported_at": "2026-10-05T12:00:00Z"},
+	"coder_session_asks":             {"importance": "normal"},
 }
 
 // notProfileOwned are tables with a column that looks like a link to a
@@ -225,7 +227,7 @@ func TestDeleteCoversEveryTableOfTheProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := map[string]int{}
-	for _, e := range scope {
+	for _, e := range sessionsBeforeTheirReservations(scope) { // a report is seeded after its reservation
 		conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM "`+e.Table+`"`).Scan(new(int))
 		var n int
 		conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM "`+e.Table+`"`).Scan(&n)
