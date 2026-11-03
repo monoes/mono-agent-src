@@ -157,6 +157,7 @@ func (g *Gate) Started(t *Ticket, handle string) error {
 	}
 	if werr != nil {
 		t.state = Unknown
+		g.stepFailedLocked(t)
 		g.notifyLocked()
 		g.mu.Unlock()
 		return ErrRegistryWrite
@@ -187,6 +188,7 @@ func (g *Gate) finishAbort(t *Ticket) {
 	} else {
 		t.state = Aborted
 	}
+	g.stepFailedLocked(t)
 	g.notifyLocked()
 	g.mu.Unlock()
 }

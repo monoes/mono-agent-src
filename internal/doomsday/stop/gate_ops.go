@@ -62,6 +62,13 @@ func (g *Gate) terminalLocked(op *beginOp, to opState) {
 	g.notifyLocked()
 }
 
+// stepFailedLocked: a step whose ticket was ABORTED or UNKNOWN leaves its operation INCOMPLETE.
+func (g *Gate) stepFailedLocked(t *Ticket) {
+	if t.op != nil && t.op.state == opContinuing {
+		g.terminalLocked(t.op, opIncomplete)
+	}
+}
+
 func (g *Gate) nextOpDeadlineLocked(now time.Time) (time.Duration, bool) {
 	var best time.Duration
 	found := false

@@ -1,0 +1,286 @@
+package stop
+
+import (
+	"context"
+	"fmt"
+	"sort"
+	"strings"
+	"syscall"
+	"time"
+)
+
+// Default escalation bounds of note 13.2 section 7; starting values, to be measured.
+const (
+	DefaultTTerm = 5 * time.Second
+	DefaultTKill = 5 * time.Second
+	defaultPoll  = 50 * time.Millisecond
+)
+
+// EndConfig parameterises EndUnit.
+type EndConfig struct {
+	Clock Clock
+	TTerm time.Duration
+	TKill time.Duration
+	Poll  time.Duration
+	// Exclude names the ticket sub-cgroups (t-<ticket>) of a CONTINUING begun operation that are not touched.
+	Exclude map[string]bool
+	// Known reports whether the registry has a row for the member; a member without one is "unknown" (it is
+	// still ended, inside a unit proven ours, but the outcome is ENDED-WITH-UNKNOWN).
+	Known func(sub string, pid int, stamp string) bool
+	// StopService is the convenience stop of the systemd service; it is never the proof.
+	StopService func() error
+}
+
+func (c EndConfig) norm() EndConfig {
+	if c.TTerm == 0 {
+		c.TTerm = DefaultTTerm
+	}
+	if c.TKill == 0 {
+		c.TKill = DefaultTKill
+	}
+	if c.Poll == 0 {
+		c.Poll = defaultPoll
+	}
+	return c
+}
+
+// waitEmpty polls "populated 0" until the deadline from the injected clock.
+func waitEmpty(cg Cgroup, sub string, clk Clock, d, poll time.Duration) bool {
+	end := clk.Now().Add(d)
+	for {
+		if p, err := cg.Populated(sub); err == nil && !p {
+			return true
+		}
+		if !clk.Now().Before(end) {
+			return false
+		}
+		<-clk.After(poll)
+	}
+}
+
+// EndUnit ends every sub-cgroup of a unit whose identity was proven (the Cgroup comes from ProveUnit):
+// enumerate, SIGTERM through the descriptor, wait, cgroup.kill, wait, rmdir (a successful rmdir is the proof),
+// retry while something is alive, list stragglers, list unknown members. A process outside the unit is never
+// signalled because every operation is relative to the descriptor.
+func EndUnit(cg Cgroup, cfg EndConfig) UnitOutcome {
+	cfg = cfg.norm()
+	subs, err := cg.Subgroups()
+	if err != nil {
+		return UnitOutcome{Kind: UnitNotProven, Note: fmt.Sprintf("the unit cannot be enumerated: %v", err)}
+	}
+	sort.Strings(subs)
+	var out UnitOutcome
+	out.Kind = UnitEnded
+	for _, sub := range subs {
+		if cfg.Exclude[sub] {
+			continue
+		}
+		unknown := endSub(cg, sub, cfg, &out)
+		out.Unknown = append(out.Unknown, unknown...)
+	}
+	switch {
+	case len(out.Survivors) > 0:
+		out.Kind = UnitStragglers
+	case len(out.Unknown) > 0:
+		out.Kind = UnitEndedWithUnknown
+	}
+	if out.Kind == UnitEnded && len(cfg.Exclude) == 0 && cfg.StopService != nil {
+		_ = cfg.StopService()
+	}
+	return out
+}
+
+func endSub(cg Cgroup, sub string, cfg EndConfig, out *UnitOutcome) (unknown []Survivor) {
+	seen := map[int]bool{}
+	end := cfg.Clock.Now().Add(cfg.TTerm)
+	for {
+		pids, err := cg.Procs(sub)
+		fresh := false
+		if err == nil {
+			for _, pid := range pids {
+				if seen[pid] {
+					continue
+				}
+				seen[pid] = true
+				fresh = true
+				stamp, comm, ierr := cg.ProcInfo(sub, pid)
+				if ierr != nil || cfg.Known == nil || !cfg.Known(sub, pid, stamp) {
+					why := "no registry row"
+					if ierr != nil {
+						why = "identity unreadable"
+					}
+					unknown = append(unknown, Survivor{PID: pid, Stamp: stamp, Comm: comm, Sub: sub, Why: why})
+				}
+				_ = cg.Signal(sub, pid, syscall.SIGTERM)
+			}
+		}
+		// processes fork while we look: repeat until a pass finds nothing new or T_term passes
+		if !fresh || !cfg.Clock.Now().Before(end) {
+			break
+		}
+	}
+	if !waitEmpty(cg, sub, cfg.Clock, cfg.TTerm, cfg.Poll) {
+		for attempt := 0; attempt < 3; attempt++ {
+			_ = cg.Kill(sub)
+			if waitEmpty(cg, sub, cfg.Clock, cfg.TKill, cfg.Poll) && cg.Rmdir(sub) == nil {
+				return unknown
+			}
+		}
+	} else if cg.Rmdir(sub) == nil {
+		return unknown
+	}
+	// rmdir only succeeds on an empty cgroup: a late creator made something, so kill again once more
+	_ = cg.Kill(sub)
+	if waitEmpty(cg, sub, cfg.Clock, cfg.TKill, cfg.Poll) && cg.Rmdir(sub) == nil {
+		return unknown
+	}
+	pids, _ := cg.Procs(sub)
+	for _, pid := range pids {
+		stamp, comm, _ := cg.ProcInfo(sub, pid)
+		out.Survivors = append(out.Survivors, Survivor{PID: pid, Stamp: stamp, Comm: comm, Sub: sub, Why: "did not die after the kill window"})
+	}
+	if len(pids) == 0 {
+		out.Survivors = append(out.Survivors, Survivor{Sub: sub, Why: "the sub-cgroup could not be removed"})
+	}
+	return unknown
+}
+
+// UnitEnder implements Ender over the identity proof. Records come from the witness (authenticated) and the
+// run directory file (key-free); both are proven and both are ended; a disagreement is reported.
+type UnitEnder struct {
+	K       Kernel
+	Dir     RunDir
+	Witness func(gen uint64) []UnitRecord
+	Cfg     EndConfig
+}
+
+// End proves each candidate unit and ends it. A unit that is present on the machine for this generation but
+// has no durable binding is NOT signalled: a name pattern and an owner UID are not authority (note 13.2 P1);
+// it is reported and the run stays cleanup-pending.
+func (u UnitEnder) End(ctx context.Context, gen uint64, exclude []uint64) UnitOutcome {
+	var cands []UnitRecord
+	if u.Witness != nil {
+		cands = append(cands, u.Witness(gen)...)
+	}
+	if rec, ok, err := u.Dir.ReadUnitFile(gen); err != nil {
+		return UnitOutcome{Kind: UnitNotProven, Note: err.Error()}
+	} else if ok {
+		dup := false
+		for _, c := range cands {
+			dup = dup || c == rec
+		}
+		if !dup {
+			cands = append(cands, rec)
+		}
+	}
+	cfg := u.Cfg
+	cfg.Exclude = map[string]bool{}
+	for _, id := range exclude {
+		cfg.Exclude[fmt.Sprintf("t-%d", id)] = true
+	}
+	res := UnitOutcome{Kind: UnitNone}
+	var notes []string
+	if len(cands) == 2 && cands[0] != cands[1] {
+		notes = append(notes, "the witness and the run directory file disagree; both named units are ended")
+	}
+	for _, rec := range cands {
+		o := u.endOne(rec, cfg)
+		res = mergeOutcome(res, o)
+		if o.Note != "" {
+			notes = append(notes, o.Note)
+		}
+	}
+	if un := u.unbound(gen, cands); len(un) > 0 {
+		res = mergeOutcome(res, UnitOutcome{Kind: UnitNotProven})
+		notes = append(notes, "unit present with no durable binding, not signalled: "+strings.Join(un, ", "))
+	}
+	res.Note = strings.Join(notes, "; ")
+	return res
+}
+
+func (u UnitEnder) endOne(rec UnitRecord, cfg EndConfig) UnitOutcome {
+	p, err := ProveUnit(u.K, rec)
+	if err != nil {
+		return UnitOutcome{Kind: UnitNotProven, Note: err.Error()}
+	}
+	if p.Gone {
+		return UnitOutcome{Kind: UnitEnded, Note: p.Note}
+	}
+	defer p.Cg.Close()
+	return EndUnit(p.Cg, cfg)
+}
+
+// unbound lists the units of this generation visible on the machine that no record binds.
+func (u UnitEnder) unbound(gen uint64, bound []UnitRecord) []string {
+	root, err := u.K.DelegatedRoot()
+	if err != nil {
+		return nil
+	}
+	names, err := u.K.ListUnitNames(root)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, n := range names {
+		if g, _, ok := UnitGeneration(n); !ok || g != gen {
+			continue
+		}
+		known := false
+		for _, b := range bound {
+			known = known || b.Name == n
+		}
+		if !known {
+			out = append(out, n)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// UnboundUnits lists every run unit on the machine that no record binds (used by recovery to report): never a
+// signalling decision.
+func UnboundUnits(k Kernel, bound []UnitRecord) []string {
+	root, err := k.DelegatedRoot()
+	if err != nil {
+		return nil
+	}
+	names, _ := k.ListUnitNames(root)
+	var out []string
+	for _, n := range names {
+		if _, _, ok := UnitGeneration(n); !ok {
+			continue
+		}
+		known := false
+		for _, b := range bound {
+			known = known || b.Name == n
+		}
+		if !known {
+			out = append(out, n)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func mergeOutcome(a, b UnitOutcome) UnitOutcome {
+	rank := func(k UnitOutcomeKind) int {
+		switch k {
+		case UnitNotProven:
+			return 4
+		case UnitStragglers:
+			return 3
+		case UnitEndedWithUnknown:
+			return 2
+		case UnitEnded:
+			return 1
+		}
+		return 0
+	}
+	out := a
+	if rank(b.Kind) > rank(a.Kind) {
+		out.Kind = b.Kind
+	}
+	out.Survivors = append(out.Survivors, b.Survivors...)
+	out.Unknown = append(out.Unknown, b.Unknown...)
+	return out
+}
