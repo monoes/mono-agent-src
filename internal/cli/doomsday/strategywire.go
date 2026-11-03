@@ -73,14 +73,21 @@ type StoreRunSource struct {
 		LoadCharter(ctx context.Context, profile string, generation int64) (store.Charter, error)
 	}
 	Bosses ops.Bosses
+	// DB, when set, lets the source keep naming a generation that has quiesced while it still has an epoch left open, so
+	// the host closes that epoch as abandoned (a Stop that completed between two ticks must not leave one open). With
+	// nil, a generation is gone from the source when it quiesces.
+	DB *sql.DB
 }
 
 // Current prefers the running generation; otherwise the newest open one. A boss that cannot be read is no boss, so the
 // finish policy waits.
 func (s StoreRunSource) Current(ctx context.Context) (StrategyRun, bool, error) {
 	runs, err := s.Runs.OpenRuns(ctx, s.Profile)
-	if err != nil || len(runs) == 0 {
+	if err != nil {
 		return StrategyRun{}, false, err
+	}
+	if len(runs) == 0 {
+		return s.quiescedWithOpenEpoch(ctx)
 	}
 	pick := runs[len(runs)-1]
 	for _, r := range runs {
@@ -88,6 +95,31 @@ func (s StoreRunSource) Current(ctx context.Context) (StrategyRun, bool, error) 
 			pick = r
 		}
 	}
+	return s.describe(ctx, pick)
+}
+
+// quiescedWithOpenEpoch is the newest generation of the profile when it has quiesced and still has an open epoch.
+func (s StoreRunSource) quiescedWithOpenEpoch(ctx context.Context) (StrategyRun, bool, error) {
+	if s.DB == nil {
+		return StrategyRun{}, false, nil
+	}
+	var gen int64
+	var state string
+	err := s.DB.QueryRowContext(ctx, `SELECT r.generation, r.state FROM doomsday_runs r WHERE r.profile = ? ORDER BY r.generation DESC LIMIT 1`, s.Profile).Scan(&gen, &state)
+	if errors.Is(err, sql.ErrNoRows) {
+		return StrategyRun{}, false, nil
+	}
+	if err != nil {
+		return StrategyRun{}, false, err
+	}
+	var open int
+	if err := s.DB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM doomsday_strategy_epochs WHERE profile = ? AND generation = ? AND state = 'open')`, s.Profile, gen).Scan(&open); err != nil || open == 0 {
+		return StrategyRun{}, false, err
+	}
+	return s.describe(ctx, store.Run{Profile: s.Profile, Generation: gen, State: store.RunState(state)})
+}
+
+func (s StoreRunSource) describe(ctx context.Context, pick store.Run) (StrategyRun, bool, error) {
 	c, err := s.Runs.LoadCharter(ctx, s.Profile, pick.Generation)
 	if err != nil {
 		return StrategyRun{}, false, err

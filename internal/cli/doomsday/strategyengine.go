@@ -94,7 +94,7 @@ func (w Wiring) StrategyHostDeps(ctx context.Context, x StrategyExtras) (Strateg
 	}
 	d := StrategyHostDeps{
 		DB: w.DB, Keys: w.Witness.Keys, Audit: NewStoreTxAppender(w.Store), Seq: WitnessSequencer(seq), Profile: w.Profile,
-		Runs:  StoreRunSource{Profile: w.Profile, Runs: w.Store, Bosses: BossSource{Wiring: w}},
+		Runs:  StoreRunSource{Profile: w.Profile, Runs: w.Store, Bosses: BossSource{Wiring: w}, DB: w.DB},
 		Clock: clock, Timeout: 3 * time.Minute, Finish: x.Finish,
 		ModelFor: func(run StrategyRun) judge.Model {
 			if run.Judge.String() == "" {

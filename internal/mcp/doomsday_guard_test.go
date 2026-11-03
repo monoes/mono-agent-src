@@ -14,9 +14,11 @@ import (
 // The one deliberate exception (user decision 2026-11-03): the boss's typed operations. Three only call coderhost's
 // DoomsdayRoute (plan.approve, ask.answer, spend.grant inside the charter's per-ask limits); the fourth, finish.begin,
 // calls the ops package's BeginFinish (note 13.6 A3: no approval, the finish's own preconditions). All refuse without a
-// running run. They are listed by name; any other tool that mentions the mode fails.
+// running run. The strategy layer adds two lead tools, strategy.propose and strategy.report (boss_tools_strategy.go): a
+// proposal for the novelty gate and a claim about a direction the caller owns. Neither can request or begin a finish
+// (TestNoStrategyToolCanRequestOrApproveAFinish). They are listed by name; any other tool that mentions the mode fails.
 var bossModeTools = map[string]bool{"session_boss_answer_ask": true, "session_boss_approve_plan": true, "session_boss_grant_budget": true,
-	"session_boss_finish_begin": true}
+	"session_boss_finish_begin": true, "session_boss_strategy_propose": true, "session_boss_strategy_report": true}
 
 func TestNoToolTouchesTheOpenEndedMode(t *testing.T) {
 	s, _ := twoProfileServer(t)

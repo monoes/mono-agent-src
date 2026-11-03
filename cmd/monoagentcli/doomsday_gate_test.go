@@ -31,7 +31,7 @@ var doomsdayVerbs = map[string][]string{
 	"status": nil,
 	"render": nil,
 	// The finish verbs (internal/cli/doomsday/finishverbs.go) are classified, gated and tested in
-	// doomsday_finish_gate_test.go.
+	// doomsday_finish_gate_test.go; the read-only strategy verbs in doomsday_strategy_gate_test.go.
 }
 
 func TestDoomsdayVerbsAreExactlyTheClassifiedOnes(t *testing.T) {
@@ -41,7 +41,7 @@ func TestDoomsdayVerbsAreExactlyTheClassifiedOnes(t *testing.T) {
 		got = append(got, c.Name())
 	}
 	sort.Strings(got)
-	if strings.Join(got, ",") != "finish,render,rubric,start,status,stop" {
+	if strings.Join(got, ",") != "finish,render,rubric,start,status,stop,strategy" {
 		t.Fatalf("doomsday verbs changed: %v: classify the new verb and its gate", got)
 	}
 }

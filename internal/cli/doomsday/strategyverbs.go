@@ -66,6 +66,9 @@ func (d StrategyDeps) statusCmd() *cobra.Command {
 			if err != nil {
 				return strategyReadError(err)
 			}
+			if v.Generation == 0 { // no run was ever recorded for the profile: the layer is off
+				return renderOff(cmd.OutOrStdout(), d.json())
+			}
 			if d.json() {
 				return writeJSON(cmd.OutOrStdout(), v)
 			}
@@ -92,6 +95,9 @@ func (d StrategyDeps) epochsCmd() *cobra.Command {
 			if err != nil {
 				return strategyReadError(err)
 			}
+			if v.Generation == 0 { // no run was ever recorded for the profile: the layer is off
+				return renderOff(cmd.OutOrStdout(), d.json())
+			}
 			if d.json() {
 				return writeJSON(cmd.OutOrStdout(), v)
 			}
@@ -117,6 +123,9 @@ func (d StrategyDeps) directionsCmd() *cobra.Command {
 			v, err := r.ReadDirections(cmd.Context(), f.generation, ClampStrategyLimit(f.limit))
 			if err != nil {
 				return strategyReadError(err)
+			}
+			if v.Generation == 0 { // no run was ever recorded for the profile: the layer is off
+				return renderOff(cmd.OutOrStdout(), d.json())
 			}
 			if d.json() {
 				return writeJSON(cmd.OutOrStdout(), v)
