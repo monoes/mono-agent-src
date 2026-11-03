@@ -249,7 +249,7 @@ func TestStopOrderAgainstRealStore(t *testing.T) {
 		Limits:   store.Limits{TreeDepth: 4, LivePerTree: 30, SpawnRate: 6, OpenSessions: 50, MaxConcurrent: 30, MaxTotal: 100, BudgetMicro: 1_000_000},
 		Lines:    []string{store.LineSpending},
 		BossPin:  store.Pin{Provider: "a", Model: "m1", Version: "v", PurposePolicy: "p"}, VerifierPin: store.Pin{Provider: "a", Model: "m2", Version: "v", PurposePolicy: "p"},
-		PerAsk: store.PerAsk{Declared: true, SpendMicro: 1, Tasks: 1, Access: "edit", Depth: 1}}
+		PerAsk: store.PerAsk{Declared: true, SpendMicro: 1, Tasks: 1, Access: "edit", Depth: 1, RunSpendMicro: 1, RunTasks: 1}}
 	_, err = s.Enter(bg, c, c.Hash(), "operator")
 	mustNoErr(t, err)
 	mustNoErr(t, s.Register(bg, store.Member{Profile: "p", Generation: gen, ID: "m1", Kind: "pid", Pid: 5, Stamp: "1", Live: true}))
