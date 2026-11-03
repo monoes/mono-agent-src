@@ -1,0 +1,72 @@
+package doomsday
+
+import (
+	"context"
+	"errors"
+)
+
+// ErrOff is why the mode refuses on an install that was not built with it.
+var ErrOff = errors.New("open-ended (doomsday) mode is not available on this install")
+
+// Canon is the canonical encoding of a charter and its hash, as the store
+// computes them (bound to the profile and the next run generation).
+type Canon struct {
+	Bytes []byte
+	Hash  string // full lowercase hex SHA-256
+}
+
+// Ack is who acknowledged the lift, recorded with the run (Q9).
+type Ack struct {
+	Kind  string // "terminal": the typed phrase; "script": --yes-i-lift with the full hash
+	Lines int    // lifted lines the acknowledgement named
+}
+
+// Entry is a started run.
+type Entry struct {
+	RunID      string `json:"run_id"`
+	CharterID  string `json:"charter_id"`
+	Hash       string `json:"hash"`
+	Generation int64  `json:"generation"`
+}
+
+// StopOutcome is what Stop did, in the order it did it.
+type StopOutcome struct {
+	MarkerRecorded bool     // the Stop marker was durably written first
+	IntentRecorded bool     // database intent
+	Survivors      []string // processes still alive after the kill step
+}
+
+// Status is the read-only view of the profile's run.
+type Status struct {
+	Active     bool     `json:"active"`
+	RunID      string   `json:"run_id,omitempty"`
+	CharterID  string   `json:"charter_id,omitempty"`
+	Hash       string   `json:"hash,omitempty"`
+	State      string   `json:"state,omitempty"`
+	Generation int64    `json:"generation,omitempty"`
+	Lines      []string `json:"lines,omitempty"`
+	Members    int      `json:"members,omitempty"`
+}
+
+// Engine is what the store and stop packages give the CLI. Enter must
+// re-compute the hash over Canon.Bytes inside the entry transaction and refuse
+// when it differs from ExpectedHash.
+type Engine interface {
+	// Containment is nil only where the mode can contain its processes (cgroup
+	// v2 delegation probed); anywhere else it is the reason the mode refuses.
+	Containment() error
+	Canonical(ctx context.Context, c Charter) (Canon, error)
+	Enter(ctx context.Context, canon Canon, expectedHash string, ack Ack) (Entry, error)
+	Stop(ctx context.Context) (StopOutcome, error)
+	Status(ctx context.Context) (Status, error)
+}
+
+// Off is the Engine of an install that does not carry the mode: it can do
+// nothing, so no run can start.
+type Off struct{}
+
+func (Off) Containment() error                                       { return ErrOff }
+func (Off) Canonical(context.Context, Charter) (Canon, error)        { return Canon{}, ErrOff }
+func (Off) Enter(context.Context, Canon, string, Ack) (Entry, error) { return Entry{}, ErrOff }
+func (Off) Stop(context.Context) (StopOutcome, error)                { return StopOutcome{}, ErrOff }
+func (Off) Status(context.Context) (Status, error)                   { return Status{}, nil }
