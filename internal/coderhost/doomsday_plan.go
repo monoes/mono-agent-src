@@ -16,7 +16,7 @@ type bossActorKey struct{}
 // over a limit returns ErrParked and stays a draft for the person. The approval is spent before the effect (the safe
 // direction), as for the other typed operations.
 func (s *Store) BossApprovePlan(ctx context.Context, sc CallerScope, profileID string, session, rev int64, digest string) (tasks.Session, error) {
-	r := s.doomsday
+	r := s.doomsdayFor(ctx, profileID)
 	if r == nil {
 		return tasks.Session{}, ErrDoomsdayOff
 	}

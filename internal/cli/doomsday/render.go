@@ -73,6 +73,8 @@ func Render(c Charter, hash string) string {
 	if p := c.PerAsk; p.AutoApproves() {
 		w("The boss may auto-approve an ask only when it is within: spend %.6f USD, %d tasks, access %q, %d levels below the asker.",
 			float64(p.SpendMicro)/1e6, p.Tasks, p.Access, p.Depth)
+		w("  Run caps (all auto-approvals together): spend %.6f USD, %d tasks. Critical asks it may answer: %s.",
+			float64(p.RunSpendMicro)/1e6, p.RunTasks, classesText(p.AnswerClasses))
 		w("  Anything over a limit parks as a person item and blocks what depends on it.")
 	} else {
 		w("The boss may auto-approve nothing: every giant plan and critical ask parks for a person.")
@@ -80,4 +82,11 @@ func Render(c Charter, hash string) string {
 	w("")
 	w("%s", NotDefended)
 	return b.String()
+}
+
+func classesText(cs []string) string {
+	if len(cs) == 0 {
+		return "none (every critical ask parks)"
+	}
+	return strings.Join(cs, ", ")
 }

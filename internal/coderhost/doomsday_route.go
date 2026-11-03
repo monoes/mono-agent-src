@@ -33,6 +33,24 @@ const ClassAskCritical = ClassAncestorQuestion
 type DoomsdayRoute struct {
 	Enforcer      *ops.Enforcer
 	NewApprovalID func() string // nil: 16 random bytes in hex
+	// Live says whether the profile has a running run. A host built with the mode installs the route once and lives
+	// across runs, so the route consults Live on every call: no running run (or a Live that fails) is the mode off,
+	// ErrDoomsdayOff, exactly as with no route. Nil means always on (a test).
+	Live func(ctx context.Context, profileID string) (bool, error)
+}
+
+// doomsdayFor is the route while the mode is running for the profile; nil when there is no route or no running run.
+func (s *Store) doomsdayFor(ctx context.Context, profileID string) *DoomsdayRoute {
+	r := s.doomsday
+	if r == nil {
+		return nil
+	}
+	if r.Live != nil {
+		if on, err := r.Live(ctx, profileID); err != nil || !on {
+			return nil
+		}
+	}
+	return r
 }
 
 // SpendBounds are the bounds of a single grant the host already enforces, for ops.Enforcer.Bounds.
@@ -74,7 +92,7 @@ func (r *DoomsdayRoute) request(ctx context.Context, profileID, op string, sessi
 // the ancestor the ask names, from its verified token; OperatorScope is not accepted. Over a limit, or for a class
 // the charter did not lift, it returns ErrParked and the ask stays open for the person.
 func (s *Store) BossAnswerAsk(ctx context.Context, sc CallerScope, profileID string, askID int64, class, answer string) (Ask, Command, error) {
-	r := s.doomsday
+	r := s.doomsdayFor(ctx, profileID)
 	if r == nil {
 		return Ask{}, Command{}, ErrDoomsdayOff
 	}
@@ -116,7 +134,7 @@ func (s *Store) BossAnswerAsk(ctx context.Context, sc CallerScope, profileID str
 // caller must be a proper ancestor of the requesting session. The grant itself keeps every carve and ancestor
 // limit of GrantBudget; a refusal there leaves the request open (the approval is spent, the safe direction).
 func (s *Store) BossGrantBudget(ctx context.Context, sc CallerScope, profileID string, requestID, amountMicro int64) (BudgetRequest, error) {
-	r := s.doomsday
+	r := s.doomsdayFor(ctx, profileID)
 	if r == nil {
 		return BudgetRequest{}, ErrDoomsdayOff
 	}

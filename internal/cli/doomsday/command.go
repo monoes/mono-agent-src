@@ -259,6 +259,10 @@ func (d Deps) newStatus() *cobra.Command {
 				return json.NewEncoder(out).Encode(s)
 			}
 			if !s.Active {
+				if s.Finish != "" {
+					fmt.Fprintf(out, "no run (generation %d is %s); finish: %s%s\n", s.Generation, s.State, s.Finish, finishDetail(s))
+					return nil
+				}
 				if s.State != "" {
 					fmt.Fprintf(out, "no run (generation %d is %s)\n", s.Generation, s.State)
 					return nil
@@ -274,6 +278,18 @@ func (d Deps) newStatus() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// finishDetail names the round and, for a parked finish, the reason; "finished" is printed only for finished.
+func finishDetail(s Status) string {
+	d := ""
+	if s.FinishRound > 0 {
+		d += fmt.Sprintf(" (round %d)", s.FinishRound)
+	}
+	if s.FinishReason != "" {
+		d += ", reason: " + s.FinishReason
+	}
+	return d
 }
 
 func refusal(err error) error {
