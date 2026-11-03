@@ -36,6 +36,8 @@ permissions:
 # state between runs). An unset or empty CI_RUNNER falls back to ubuntu-latest.
 # KILL SWITCH: delete the CI_RUNNER variable (or set it to "ubuntu-latest",
 # quotes included) and every job, push runs included, runs on hosted runners again.
+# "Changed paths" and "Release guard test" route the same way, so neither pull requests nor master pushes wait on a hosted
+# slot for the gate jobs. "Doctor smoke test" stays hosted (a clean-machine proof; it is also the required check name).
 # Everything else (apt, Chrome, macOS/Windows) stays on its hosted OS.
 # Persistent runners keep their Go module cache, so setup-go in these jobs sets
 # `cache: ${{ runner.environment == 'github-hosted' }}` (restoring the archive
@@ -67,7 +69,7 @@ jobs:
   # as changed. If the diff cannot be computed the result is also "everything".
   changes:
     name: Changed paths
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON((((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'push') && vars.CI_RUNNER) || '"ubuntu-latest"') }}
     timeout-minutes: 5
     outputs:
       go: ${{ steps.c.outputs.go }}
@@ -168,6 +170,8 @@ jobs:
   # breaks what the GUI's System health section parses fails CI. doctor and
   # setup need a monoes.me sign-in, so the build has the devaccount tag: the
   # script runs the checks in the warn period and asserts the refusal after it.
+  # Stays on a hosted runner on purpose: it proves doctor/setup on a CLEAN machine (a fresh VM with no toolchain, keychain or
+  # leftovers), which a persistent self-hosted runner is not. Its job name is the required master-ruleset check: keep it.
   doctor-smoke:
     name: Doctor smoke test
     runs-on: ubuntu-latest
@@ -286,12 +290,13 @@ jobs:
   # that the guard passes and fails as it should (spec D11, D24).
   release-guard-test:
     name: Release guard test
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON((((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'push') && vars.CI_RUNNER) || '"ubuntu-latest"') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache: ${{ runner.environment == 'github-hosted' }}
       - name: Test the CI path rules
         run: bash .github/scripts/ci-changes_test.sh
       - name: Test the workflow security guard
