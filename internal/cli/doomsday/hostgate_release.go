@@ -68,26 +68,40 @@ func (g *HostGate) BeforeRelease(ctx context.Context, _, _, turnID string, bound
 	if !bound {
 		return refuse("no run without binding: this turn is not peer-credential bound")
 	}
+	// The gate's own lock covers the cancellation check and the in-memory ticket steps only (Admit, BeginStart): the registry
+	// write of Started (an audit append with retries and an fsync) happens after it is released, so one slow write never queues
+	// every dispatch behind it.
 	g.mu.Lock()
-	defer g.mu.Unlock()
 	if err := ctx.Err(); err != nil {
+		g.mu.Unlock()
 		return err
 	}
 	if g.released[turnID] {
+		g.mu.Unlock()
 		return nil
 	}
 	t, err := gate.Admit(stop.Spec{Kind: stop.KindE1, Op: string(coderhost.PointTurnStart)})
 	if err == nil {
-		if err = gate.BeginStart(t); err == nil {
-			err = gate.Started(t, "turn:"+turnID)
+		err = gate.BeginStart(t)
+	}
+	if err == nil {
+		if g.released == nil || len(g.released) >= maxReleased {
+			g.released = map[string]bool{}
+		}
+		g.released[turnID] = true // a repeat for this turn consumes nothing, even while Started is still being written
+	}
+	g.mu.Unlock()
+	if err == nil {
+		err = gate.Started(t, "turn:"+turnID)
+		if err != nil {
+			g.mu.Lock()
+			delete(g.released, turnID)
+			g.mu.Unlock()
 		}
 	}
 	if err != nil {
+		gate.Abort(t)
 		return refuse("%v", err)
 	}
-	if g.released == nil || len(g.released) >= maxReleased {
-		g.released = map[string]bool{}
-	}
-	g.released[turnID] = true
 	return nil
 }
