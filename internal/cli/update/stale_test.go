@@ -16,7 +16,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -85,9 +87,12 @@ func TestTheDaemonServicesExeIsReplacedFromTheVerifiedAsset(t *testing.T) {
 }
 
 func TestTheDaemonServicesExeIsOnlyReportedWhenItCannotBeReplacedFromHere(t *testing.T) {
-	t.Run("a symbolic link", func(t *testing.T) {
+	t.Run("a link to a file that may be replaced: the file behind it is, the link stays", func(t *testing.T) {
 		r := newStaleRig(t, true)
-		real := filepath.Join(t.TempDir(), "real")
+		real := filepath.Join(t.TempDir(), "share", "monoagentcli")
+		if err := os.MkdirAll(filepath.Dir(real), 0o755); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(real, []byte(oldAsset), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -99,13 +104,57 @@ func TestTheDaemonServicesExeIsOnlyReportedWhenItCannotBeReplacedFromHere(t *tes
 		}
 		r.versions[r.exe], r.versions[real] = "0.176.0", "0.176.0" // the probe asks the file the name resolves to
 		got := r.d.staleCLIs(context.Background(), "v0.215.7", nil, []byte(newAsset))
-		if len(got) != 1 || got[0].Action != "stale" || !strings.Contains(got[0].Message, "symbolic link") || !strings.Contains(got[0].Message, r.exe+" update") {
+		if len(got) != 1 || got[0].Action != "updated" || !got[0].runsDaemon {
 			t.Fatalf("stale = %+v", got)
 		}
-		if b, _ := os.ReadFile(real); string(b) != oldAsset {
-			t.Fatal("a file behind a symbolic link was rewritten")
+		if b, _ := os.ReadFile(real); string(b) != newAsset {
+			t.Fatalf("the file behind the link was not replaced: %q", b)
+		}
+		if fi, err := os.Lstat(r.exe); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("the link was replaced by a file: %v", err)
 		}
 	})
+	for name, prep := range map[string]func(t *testing.T, r *staleRig, real string){
+		"the folder of the link is writable by others": func(t *testing.T, r *staleRig, real string) {
+			if err := os.Chmod(filepath.Dir(r.exe), 0o777); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"the file behind the link is in a folder others can write": func(t *testing.T, r *staleRig, real string) {
+			if err := os.Chmod(filepath.Dir(real), 0o777); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"the file behind the link is writable by others": func(t *testing.T, r *staleRig, real string) {
+			if err := os.Chmod(real, 0o777); err != nil {
+				t.Fatal(err)
+			}
+		},
+	} {
+		t.Run("a link is not followed when "+name, func(t *testing.T) {
+			r := newStaleRig(t, true)
+			real := filepath.Join(t.TempDir(), "share", "monoagentcli")
+			if err := os.MkdirAll(filepath.Dir(real), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(real, []byte(oldAsset), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			_ = os.Remove(r.exe)
+			if err := os.Symlink(real, r.exe); err != nil {
+				t.Fatal(err)
+			}
+			prep(t, r, real)
+			r.versions[r.exe], r.versions[real] = "0.176.0", "0.176.0"
+			got := r.d.staleCLIs(context.Background(), "v0.215.7", nil, []byte(newAsset))
+			if len(got) != 1 || got[0].Action != "stale" {
+				t.Fatalf("stale = %+v", got)
+			}
+			if b, _ := os.ReadFile(real); string(b) != oldAsset {
+				t.Fatal("a file behind a link that fails a rule was rewritten")
+			}
+		})
+	}
 	t.Run("no verified asset in hand (update --app)", func(t *testing.T) {
 		r := newStaleRig(t, true)
 		r.versions[r.exe] = "0.176.0"
@@ -126,27 +175,75 @@ func TestTheDaemonServicesExeIsOnlyReportedWhenItCannotBeReplacedFromHere(t *tes
 	})
 }
 
-func TestAMonoagentcliOnPathIsReportedNeverReplaced(t *testing.T) {
-	r := newStaleRig(t, false)
-	bin := filepath.Join(t.TempDir(), "bin dir", "monoagentcli")
-	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
-		t.Fatal(err)
+// The monoagentcli on PATH is replaced by the same rules as the daemon's exe: from the verified asset, and only when it is safe
+// to. Without an asset (update --app), or when a rule refuses it, it is reported with the exact command.
+func TestAMonoagentcliOnPathIsReplacedUnderTheSameRulesAsTheDaemonsExe(t *testing.T) {
+	onPath := func(t *testing.T) (*staleRig, string) {
+		r := newStaleRig(t, false)
+		bin := filepath.Join(t.TempDir(), "bin dir", "monoagentcli")
+		if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(bin, []byte(oldAsset), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		r.d.LookPath = func(string) (string, error) { return bin, nil }
+		r.versions[bin] = "0.176.0"
+		return r, bin
 	}
-	if err := os.WriteFile(bin, []byte(oldAsset), 0o755); err != nil {
-		t.Fatal(err)
+	t.Run("replaced from the verified asset", func(t *testing.T) {
+		r, bin := onPath(t)
+		got := r.d.staleCLIs(context.Background(), "v0.215.7", nil, []byte(newAsset))
+		if len(got) != 1 || got[0].Role != "path" || got[0].Action != "updated" || got[0].Version != "0.176.0" {
+			t.Fatalf("stale = %+v", got)
+		}
+		if b, _ := os.ReadFile(bin); string(b) != newAsset {
+			t.Fatalf("the PATH CLI was not replaced: %q", b)
+		}
+		if fi, _ := os.Stat(bin); fi.Mode()&0o111 == 0 {
+			t.Error("the replaced CLI is not executable")
+		}
+	})
+	t.Run("no verified asset: reported with the quoted command", func(t *testing.T) {
+		r, bin := onPath(t)
+		got := r.d.staleCLIs(context.Background(), "v0.215.7", nil, nil)
+		if len(got) != 1 || got[0].Action != "stale" || !strings.Contains(got[0].Message, "'"+bin+"' update") {
+			t.Fatalf("stale = %+v", got)
+		}
+		if b, _ := os.ReadFile(bin); string(b) != oldAsset {
+			t.Fatal("replaced with nothing verified in hand")
+		}
+	})
+	for name, prep := range map[string]func(t *testing.T, bin string){
+		"others can write the file":   func(t *testing.T, bin string) { _ = os.Chmod(bin, 0o777) },
+		"others can write the folder": func(t *testing.T, bin string) { _ = os.Chmod(filepath.Dir(bin), 0o777) },
+	} {
+		t.Run("refused: "+name, func(t *testing.T) {
+			r, bin := onPath(t)
+			prep(t, bin)
+			r.versions[realPath(bin)] = "0.176.0"
+			got := r.d.staleCLIs(context.Background(), "v0.215.7", nil, []byte(newAsset))
+			if len(got) != 1 || got[0].Action != "stale" || !strings.Contains(got[0].Message, "was not replaced") {
+				t.Fatalf("stale = %+v", got)
+			}
+			if b, _ := os.ReadFile(bin); string(b) != oldAsset {
+				t.Fatal("a CLI that a rule refuses was replaced")
+			}
+		})
 	}
-	r.d.LookPath = func(string) (string, error) { return bin, nil }
-	r.versions[bin] = "0.176.0"
-	got := r.d.staleCLIs(context.Background(), "v0.215.7", nil, []byte(newAsset))
-	if len(got) != 1 || got[0].Role != "path" || got[0].Action != "stale" || got[0].Version != "0.176.0" {
-		t.Fatalf("stale = %+v", got)
-	}
-	if !strings.Contains(got[0].Message, "'"+bin+"' update") {
-		t.Errorf("the message does not carry the quoted command: %s", got[0].Message)
-	}
-	if b, _ := os.ReadFile(bin); string(b) != oldAsset {
-		t.Fatal("the CLI on PATH was replaced")
-	}
+	t.Run("never as root", func(t *testing.T) {
+		old := isRoot
+		isRoot = func() bool { return true }
+		defer func() { isRoot = old }()
+		r, bin := onPath(t)
+		got := r.d.staleCLIs(context.Background(), "v0.215.7", nil, []byte(newAsset))
+		if len(got) != 1 || got[0].Action != "stale" {
+			t.Fatalf("stale = %+v", got)
+		}
+		if b, _ := os.ReadFile(bin); string(b) != oldAsset {
+			t.Fatal("replaced by a command running as root")
+		}
+	})
 }
 
 func TestACLIAsNewAsTheReleaseOrTheOneJustUpdatedIsLeftOut(t *testing.T) {
@@ -318,8 +415,8 @@ func captureStdout(t *testing.T, f func()) string {
 	return <-done
 }
 
-// The whole `update`, against a fake release: this binary and the daemon service's exe are both replaced from the verified
-// asset, the exe before the daemon is restarted, so that the restart runs the new code; the CLI on PATH is only reported.
+// The whole `update`, against a fake release: this binary, the daemon service's exe and the CLI on PATH are all replaced from
+// the verified asset, the daemon's exe before the daemon is restarted, so that the restart runs the new code.
 func TestUpdateReplacesTheDaemonServicesExeBeforeItRestartsTheDaemon(t *testing.T) {
 	asset := updateAssetName()
 	sum := sha256.Sum256([]byte(newAsset))
@@ -385,11 +482,16 @@ func TestUpdateReplacesTheDaemonServicesExeBeforeItRestartsTheDaemon(t *testing.
 	if fake.restarted != 1 || exeAtRestart != newAsset {
 		t.Errorf("the daemon restarted %d times; its exe at that moment was %q, want the new one", fake.restarted, exeAtRestart)
 	}
-	if b, _ := os.ReadFile(onPath); string(b) != oldAsset {
-		t.Error("the CLI on PATH was replaced")
+	if b, _ := os.ReadFile(onPath); string(b) != newAsset {
+		t.Errorf("the CLI on PATH was not replaced: %q", b)
 	}
-	if !strings.Contains(out, "replaced it with v9.9.9") || !strings.Contains(out, onPath+" update") {
-		t.Errorf("output does not say what was replaced and what is stale:\n%s", out)
+	for _, dir := range []string{filepath.Dir(r.exe), filepath.Dir(onPath), filepath.Dir(self)} {
+		if m, _ := filepath.Glob(filepath.Join(dir, ".monoagentcli-*")); len(m) != 0 {
+			t.Errorf("files left behind in %s after a successful update: %v", dir, m)
+		}
+	}
+	if strings.Count(out, "replaced it with v9.9.9") != 2 {
+		t.Errorf("output does not say that the daemon's exe and the PATH CLI were both replaced:\n%s", out)
 	}
 }
 
@@ -589,12 +691,16 @@ func TestTheBundledCLIAWrapperAndASharedFileAreNeverReplaced(t *testing.T) {
 			t.Fatal(err)
 		}
 		r.d.LookPath = func(string) (string, error) { return link, nil }
+		r.versions[link] = "0.176.0"
 		got := r.d.staleCLIs(context.Background(), "v0.215.7", nil, []byte(newAsset))
-		if len(got) != 1 || got[0].Role != "path" || got[0].Action != "stale" {
+		if len(got) != 1 || got[0].Role != "path" || got[0].Action != "updated" || !got[0].runsDaemon {
 			t.Fatalf("stale = %+v", got)
 		}
-		if b, _ := os.ReadFile(r.exe); string(b) != oldAsset {
-			t.Fatal("the PATH CLI was replaced through the daemon's name for it")
+		if b, _ := os.ReadFile(r.exe); string(b) != newAsset {
+			t.Fatal("the file both names lead to was not replaced, so the daemon's restart would run the old one")
+		}
+		if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("the link was replaced by a file: %v", err)
 		}
 	})
 }
@@ -793,7 +899,7 @@ func TestAPathWithControlCharactersIsShownQuoted(t *testing.T) {
 	r.versions[evil] = "0.176.0"
 	got := r.d.staleCLIs(context.Background(), "v0.215.7", nil, nil)
 	if len(got) != 1 || strings.ContainsAny(got[0].Message, "\x1b\n\r") {
-		t.Fatalf("a raw control character reached the message: %q", got)
+		t.Fatalf("a raw control character reached the message: %+v", got)
 	}
 }
 
@@ -863,4 +969,638 @@ func TestAFolderOfAnotherUserAboveAProgramIsRefused(t *testing.T) {
 			t.Errorf("stale = %+v", got)
 		}
 	})
+}
+
+// --- rollback and bounded restart (#1358)
+
+type rollbackRig struct {
+	*staleRig
+	fake *fakeAutostart
+	hb   *fakeHeartbeat
+}
+
+func newRollbackRig(t *testing.T) *rollbackRig {
+	t.Helper()
+	r := newStaleRig(t, true)
+	r.versions[r.exe] = "0.176.0"
+	rr := &rollbackRig{staleRig: r, fake: &fakeAutostart{installed: true, where: r.unit}, hb: &fakeHeartbeat{}}
+	rr.hb.write(os.Getpid(), "v1.0.0")
+	rr.d.Heartbeat = rr.hb.read
+	rr.d.Installer = func() autostart.Installer { return rr.fake }
+	rr.d.ServicePID = func(context.Context, autostart.Installer) (int, error) { return os.Getpid(), nil }
+	rr.d.VerifyWait, rr.d.VerifyTick = 200*time.Millisecond, 10*time.Millisecond
+	return rr
+}
+
+// update: replace, restart the daemon, settle.
+func (rr *rollbackRig) update(t *testing.T) (*DaemonUpdate, []StaleCLI) {
+	t.Helper()
+	list := rr.d.staleCLIs(context.Background(), "v0.215.7", nil, []byte(newAsset))
+	return rr.d.settleReplaced(context.Background(), list, rr.d.daemonAfterUpdate(context.Background(), "v0.215.7")), list
+}
+
+func leftovers(t *testing.T, r *staleRig) []string {
+	t.Helper()
+	m, _ := filepath.Glob(filepath.Join(filepath.Dir(r.exe), ".monoagentcli-*"))
+	return m
+}
+
+func TestTheOldBinaryIsDroppedOnlyAfterTheNewOneBroughtTheDaemonUp(t *testing.T) {
+	rr := newRollbackRig(t)
+	rr.fake.onRestart = func() { rr.hb.write(os.Getpid(), "v0.215.7") }
+	du, _ := rr.update(t)
+	if du == nil || du.Action != "restarted" || du.RolledBack {
+		t.Fatalf("du = %+v", du)
+	}
+	if b, _ := os.ReadFile(rr.exe); string(b) != newAsset {
+		t.Fatalf("the new binary is not in place: %q", b)
+	}
+	if l := leftovers(t, rr.staleRig); len(l) != 0 {
+		t.Fatalf("the old binary was kept after the daemon came up on the new one: %v", l)
+	}
+}
+
+func TestTheOldBinaryIsPutBackWhenTheDaemonDoesNotComeUpOnTheNewOne(t *testing.T) {
+	rr := newRollbackRig(t)
+	calls := 0
+	rr.fake.onRestart = func() { // the restart on the new binary brings nothing up; the one after the put-back does
+		calls++
+		if calls == 2 {
+			rr.hb.write(os.Getpid()+1, "v1.0.0") // the rolled-back daemon is a new process
+		}
+	}
+	du, _ := rr.update(t)
+	if du == nil || du.Action != "failed" || du.Reason != "no_heartbeat" || !du.RolledBack {
+		t.Fatalf("du = %+v", du)
+	}
+	if b, _ := os.ReadFile(rr.exe); string(b) != oldAsset {
+		t.Fatalf("the old binary was not put back: %q", b)
+	}
+	if rr.fake.restarted != 2 || !strings.Contains(du.Message, "Rolled back") || !strings.Contains(du.Message, "is running it again") {
+		t.Fatalf("restarted %d times; message: %s", rr.fake.restarted, du.Message)
+	}
+	if l := leftovers(t, rr.staleRig); len(l) != 0 {
+		t.Fatalf("files left behind: %v", l)
+	}
+}
+
+func TestAFailedRollbackSaysWhatToDo(t *testing.T) {
+	t.Run("the daemon still does not come up", func(t *testing.T) {
+		rr := newRollbackRig(t) // no restart brings a heartbeat
+		du, _ := rr.update(t)
+		if b, _ := os.ReadFile(rr.exe); string(b) != oldAsset {
+			t.Fatal("the old binary was not put back")
+		}
+		if !du.RolledBack || !strings.Contains(du.Message, "no live heartbeat followed") || !strings.Contains(du.Message, "monoagentcli daemon start") {
+			t.Fatalf("message: %s", du.Message)
+		}
+	})
+	t.Run("the put-back is refused by the path rules", func(t *testing.T) {
+		rr := newRollbackRig(t)
+		list := rr.d.staleCLIs(context.Background(), "v0.215.7", nil, []byte(newAsset))
+		if err := os.Chmod(filepath.Dir(rr.exe), 0o777); err != nil { // the folder became writable by others since
+			t.Fatal(err)
+		}
+		defer os.Chmod(filepath.Dir(rr.exe), 0o755)
+		du := rr.d.settleReplaced(context.Background(), list, rr.d.daemonAfterUpdate(context.Background(), "v0.215.7"))
+		if du.RolledBack || !strings.Contains(du.Message, "could not be rolled back") || !strings.Contains(du.Message, "mv -f") {
+			t.Fatalf("du = %+v", du)
+		}
+		if b, _ := os.ReadFile(rr.exe); string(b) != newAsset {
+			t.Fatal("a file that fails the path rules was moved")
+		}
+		if l := leftovers(t, rr.staleRig); len(l) != 1 {
+			t.Fatalf("the previous binary must be kept for the manual command: %v", l)
+		}
+	})
+}
+
+// A restart that the service manager never answers does not hang the update: it ends at the bound, and the roll back is tried.
+func TestARestartThatNeverAnswersEndsAtTheBoundAndKeepsThePreviousBinary(t *testing.T) {
+	old := restartBound
+	restartBound = 150 * time.Millisecond
+	defer func() { restartBound = old }()
+	rr := newRollbackRig(t)
+	rr.fake.block = true
+	start := time.Now()
+	var du *DaemonUpdate
+	within(t, 10*time.Second, func() { du, _ = rr.update(t) })
+	if took := time.Since(start); took > 5*time.Second {
+		t.Fatalf("the update took %s", took)
+	}
+	if du == nil || du.Action != "failed" || du.Reason != "timed_out" || du.RolledBack {
+		t.Fatalf("du = %+v", du)
+	}
+	// a restart that may still be in flight is not raced by a second one, and the new binary is not pulled from under it
+	if rr.fake.restarted != 1 {
+		t.Fatalf("restarted %d times, want only the one that timed out", rr.fake.restarted)
+	}
+	if b, _ := os.ReadFile(rr.exe); string(b) != newAsset {
+		t.Fatalf("the binary was rolled back under a restart that may still be running: %q", b)
+	}
+	if kept := leftovers(t, rr.staleRig); len(kept) != 1 || !strings.Contains(du.Message, "kept at") || !strings.Contains(du.Message, "mv -f") {
+		t.Fatalf("the previous binary must be kept for the operator: %v; message: %s", kept, du.Message)
+	}
+}
+
+// A daemon that has started its process but not yet written a heartbeat of the new version may be migrating: the old binary is
+// not put under it, it is kept.
+func TestADaemonThatIsStillStartingIsNotRolledBack(t *testing.T) {
+	rr := newRollbackRig(t)
+	calls := 0
+	rr.d.ServicePID = func(context.Context, autostart.Installer) (int, error) { // the daemon's pid before the restart, a new process after
+		calls++
+		if calls == 1 {
+			return os.Getpid(), nil
+		}
+		return os.Getpid() + 7, nil
+	}
+	du, _ := rr.update(t)
+	if du == nil || du.Action != "failed" || du.Reason != "still_starting" || du.RolledBack || rr.fake.restarted != 1 {
+		t.Fatalf("du = %+v, restarted %d", du, rr.fake.restarted)
+	}
+	if b, _ := os.ReadFile(rr.exe); string(b) != newAsset {
+		t.Fatalf("the binary was rolled back under a daemon that may be starting: %q", b)
+	}
+	if kept := leftovers(t, rr.staleRig); len(kept) != 1 || !strings.Contains(du.Message, "may still be starting") || !strings.Contains(du.Message, "mv -f") {
+		t.Fatalf("kept %v; message: %s", kept, du.Message)
+	}
+}
+
+// Only a daemon that was stopped and not started again, or whose process is gone, is rolled back; any other failure of the
+// service manager is not the binary's.
+func TestOnlyTheRightFailuresRollTheBinaryBack(t *testing.T) {
+	t.Run("stopped and not started again", func(t *testing.T) {
+		rr := newRollbackRig(t)
+		calls := 0
+		rr.fake.restartErr = &autostart.StoppedError{Err: errors.New("start failed")}
+		rr.fake.onRestart = func() {}
+		old := rr.fake
+		_ = old
+		// the second call (the rollback's) must work: the fake fails the first only
+		fail := rr.fake.restartErr
+		rr.d.Installer = func() autostart.Installer {
+			return &failFirstRestart{fakeAutostart: rr.fake, err: fail, calls: &calls, hb: rr.hb}
+		}
+		du, _ := rr.update(t)
+		if du == nil || du.Reason != "stopped" || !du.RolledBack {
+			t.Fatalf("du = %+v", du)
+		}
+		if b, _ := os.ReadFile(rr.exe); string(b) != oldAsset {
+			t.Fatalf("not rolled back after a daemon stopped and not started: %q", b)
+		}
+	})
+	t.Run("any other failure of the service manager", func(t *testing.T) {
+		rr := newRollbackRig(t)
+		rr.fake.restartErr = errors.New("systemctl: access denied")
+		du, _ := rr.update(t)
+		if du == nil || du.Action != "failed" || du.Reason != "" || du.RolledBack {
+			t.Fatalf("du = %+v", du)
+		}
+		if b, _ := os.ReadFile(rr.exe); string(b) != newAsset {
+			t.Fatalf("rolled back for a failure that is not the binary's: %q", b)
+		}
+	})
+}
+
+// failFirstRestart is a service manager whose first restart fails with err and whose later ones bring a daemon up.
+type failFirstRestart struct {
+	*fakeAutostart
+	err   error
+	calls *int
+	hb    *fakeHeartbeat
+}
+
+func (f *failFirstRestart) Restart(ctx context.Context) error {
+	*f.calls++
+	f.fakeAutostart.restarted++
+	if *f.calls == 1 {
+		return f.err
+	}
+	f.hb.write(os.Getpid()+1, "v1.0.0")
+	return nil
+}
+
+// A heartbeat that the daemon that was restarted is still writing does not pass for the rolled-back daemon.
+func TestTheRolledBackDaemonIsAnotherProcessThanTheOneRestarted(t *testing.T) {
+	rr := newRollbackRig(t)
+	rr.fake.onRestart = func() { rr.hb.write(os.Getpid(), "v1.0.0") } // the same pid keeps answering, on the old version
+	du, _ := rr.update(t)
+	if du == nil || !du.RolledBack || !strings.Contains(du.Message, "no live heartbeat followed") {
+		t.Fatalf("du = %+v", du)
+	}
+}
+
+// A file the user keeps as <binary>.bak is not ours to delete, and the CLI on PATH, which the daemon does not start, is kept
+// whatever happens to the daemon.
+func TestTheUsersOwnBakFileAndAPathCLIAreLeftAlone(t *testing.T) {
+	rr := newRollbackRig(t)
+	if err := os.WriteFile(rr.exe+".bak", []byte("mine"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	onPath := filepath.Join(t.TempDir(), "pathbin", "monoagentcli")
+	if err := os.MkdirAll(filepath.Dir(onPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(onPath, []byte(oldAsset), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rr.d.LookPath = func(string) (string, error) { return onPath, nil }
+	rr.versions[onPath] = "0.176.0"
+	du, list := rr.update(t) // the daemon does not come up: its exe is rolled back, the PATH CLI is not
+	if b, _ := os.ReadFile(rr.exe + ".bak"); string(b) != "mine" {
+		t.Fatalf("the user's own .bak file was changed: %q", b)
+	}
+	if b, _ := os.ReadFile(onPath); string(b) != newAsset {
+		t.Fatalf("the PATH CLI was rolled back with the daemon's: %q", b)
+	}
+	if len(list) != 2 || du == nil || !du.RolledBack {
+		t.Fatalf("list %+v, du %+v", list, du)
+	}
+	if l, _ := filepath.Glob(filepath.Join(filepath.Dir(onPath), ".monoagentcli-previous-*")); len(l) != 0 {
+		t.Fatalf("the PATH CLI's previous binary was kept: %v", l)
+	}
+}
+
+// With no daemon running, the new binary is not in doubt: the old one is dropped.
+func TestWithNoDaemonRunningTheOldBinaryIsDropped(t *testing.T) {
+	rr := newRollbackRig(t)
+	rr.hb = &fakeHeartbeat{} // no heartbeat: no daemon
+	rr.d.Heartbeat = rr.hb.read
+	du, _ := rr.update(t)
+	if du != nil {
+		t.Fatalf("du = %+v", du)
+	}
+	if b, _ := os.ReadFile(rr.exe); string(b) != newAsset {
+		t.Fatalf("not replaced: %q", b)
+	}
+	if l := leftovers(t, rr.staleRig); len(l) != 0 {
+		t.Fatalf("left behind: %v", l)
+	}
+}
+
+// --- the swap
+
+// The swap keeps the target in place at every moment: the new file is renamed over it, and the old one is held by a link or a
+// copy under a name of its own until Commit; Restore puts it back. The new file has exactly the mode 0755.
+func TestTheSwapReplacesInOneRenameAndKeepsTheOldFileUntilCommit(t *testing.T) {
+	for name, noLink := range map[string]bool{"with a hard link": false, "with a copy where there are no links": true} {
+		t.Run(name, func(t *testing.T) {
+			if noLink {
+				old := linkFile
+				linkFile = func(string, string) error { return errors.New("no hard links here") }
+				defer func() { linkFile = old }()
+			}
+			dir := t.TempDir()
+			target := filepath.Join(dir, "monoagentcli")
+			if err := os.WriteFile(target, []byte(oldAsset), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			r, err := installBinaryKeep([]byte(newAsset), target, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if b, _ := os.ReadFile(target); string(b) != newAsset {
+				t.Fatalf("not replaced: %q", b)
+			}
+			if fi, _ := os.Stat(target); fi.Mode().Perm() != 0o755 {
+				t.Errorf("the new file's mode is %v, want 0755", fi.Mode().Perm())
+			}
+			if b, _ := os.ReadFile(r.bak); string(b) != oldAsset {
+				t.Fatalf("the old file is not kept: %q", b)
+			}
+			if err := r.Restore(); err != nil {
+				t.Fatal(err)
+			}
+			if b, _ := os.ReadFile(target); string(b) != oldAsset {
+				t.Fatalf("not restored: %q", b)
+			}
+			if m, _ := filepath.Glob(filepath.Join(dir, ".monoagentcli-*")); len(m) != 0 {
+				t.Fatalf("left behind: %v", m)
+			}
+		})
+	}
+}
+
+// `update` found through a link replaces the file behind it and keeps the link.
+func TestUpdateOfABinaryFoundThroughALinkReplacesTheFileBehindIt(t *testing.T) {
+	asset := updateAssetName()
+	sum := sha256.Sum256([]byte(newAsset))
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/latest":
+			fmt.Fprintf(w, `{"tag_name":"v9.9.9","assets":[{"name":%q,"browser_download_url":"%s/bin"},{"name":"SHA256SUMS.txt","browser_download_url":"%s/sums"}]}`, asset, srv.URL, srv.URL)
+		case "/bin":
+			_, _ = w.Write([]byte(newAsset))
+		case "/sums":
+			fmt.Fprintf(w, "%s  %s\n", hex.EncodeToString(sum[:]), asset)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	dir := t.TempDir()
+	real := filepath.Join(dir, "share", "monoagentcli")
+	link := filepath.Join(dir, "bin", "monoagentcli")
+	for _, d := range []string{filepath.Dir(real), filepath.Dir(link)} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(real, []byte(oldAsset), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	r := newStaleRig(t, false)
+	r.newVer = "9.9.9"
+	d := r.d
+	d.LatestReleaseURL = srv.URL + "/latest"
+	d.Version = func() string { return "v1.0.0" }
+	d.JSONOutput = func() bool { return false }
+	d.SelfPath = func() (string, error) { return link, nil }
+	captureStdout(t, func() {
+		if err := d.run(NewCommand(d)); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("the link was replaced by a file: %v", err)
+	}
+	if b, _ := os.ReadFile(real); string(b) != newAsset {
+		t.Fatalf("the file behind the link was not replaced: %q", b)
+	}
+}
+
+// --- review 1358-c/d
+
+// The common layout: `update` replaces the very file the daemon service starts. A new version that cannot bring the daemon up
+// is put back for it too, and an update that went well drops the old one.
+func TestUpdateOfTheBinaryTheDaemonServiceStartsIsRolledBackWhenItDoesNotComeUp(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		comesUp    bool
+		wantBinary string
+	}{{"the daemon comes up", true, newAsset}, {"the daemon does not come up", false, oldAsset}} {
+		t.Run(tc.name, func(t *testing.T) {
+			asset := updateAssetName()
+			sum := sha256.Sum256([]byte(newAsset))
+			var srv *httptest.Server
+			srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/latest":
+					fmt.Fprintf(w, `{"tag_name":"v9.9.9","assets":[{"name":%q,"browser_download_url":"%s/bin"},{"name":"SHA256SUMS.txt","browser_download_url":"%s/sums"}]}`, asset, srv.URL, srv.URL)
+				case "/bin":
+					_, _ = w.Write([]byte(newAsset))
+				case "/sums":
+					fmt.Fprintf(w, "%s  %s\n", hex.EncodeToString(sum[:]), asset)
+				}
+			}))
+			t.Cleanup(srv.Close)
+			rr := newRollbackRig(t)
+			rr.newVer = "9.9.9"
+			rr.d.LatestReleaseURL = srv.URL + "/latest"
+			rr.d.Version = func() string { return "v1.0.0" }
+			rr.d.JSONOutput = func() bool { return false }
+			rr.d.SelfPath = func() (string, error) { return rr.exe, nil } // this binary is the daemon's exe
+			restarts := 0
+			rr.fake.onRestart = func() {
+				restarts++
+				switch {
+				case restarts == 1 && tc.comesUp:
+					rr.hb.write(os.Getpid(), "v9.9.9")
+				case restarts == 2:
+					rr.hb.write(os.Getpid()+1, "v1.0.0")
+				}
+			}
+			out := captureStdout(t, func() {
+				if err := rr.d.run(NewCommand(rr.d)); err != nil {
+					t.Fatal(err)
+				}
+			})
+			if b, _ := os.ReadFile(rr.exe); string(b) != tc.wantBinary {
+				t.Fatalf("the binary is %q; output:\n%s", b, out)
+			}
+			if !tc.comesUp && !strings.Contains(out, "Rolled back") {
+				t.Fatalf("the rollback is not reported:\n%s", out)
+			}
+			if l := leftovers(t, rr.staleRig); len(l) != 0 {
+				t.Fatalf("left behind: %v", l)
+			}
+		})
+	}
+}
+
+// A previous binary left by an update that was killed is removed by the next one that works in the same folder; a recent one,
+// and anything else, stays.
+func TestAStalePreviousBinaryIsSweptAndNothingElse(t *testing.T) {
+	dir := t.TempDir()
+	mk := func(name string, age time.Duration) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte("x"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		at := time.Now().Add(-age)
+		_ = os.Chtimes(p, at, at)
+		return p
+	}
+	oldPrev := mk(fmt.Sprintf(".monoagentcli-previous-%d-111", time.Now().Add(-48*time.Hour).Unix()), 0)
+	newPrev := mk(fmt.Sprintf(".monoagentcli-previous-%d-222", time.Now().Add(-time.Minute).Unix()), 0)
+	noTime := mk(".monoagentcli-previous-notatime", 48*time.Hour)
+	other := mk("something-else", 48*time.Hour)
+	bak := mk("monoagentcli.bak", 48*time.Hour)
+	target := mk("monoagentcli", time.Hour)
+	if _, err := installBinaryKeep([]byte(newAsset), target, nil); err != nil {
+		t.Fatal(err)
+	}
+	for p, want := range map[string]bool{oldPrev: false, newPrev: true, noTime: true, other: true, bak: true} {
+		if _, err := os.Stat(p); (err == nil) != want {
+			t.Errorf("%s: exists = %v, want %v", filepath.Base(p), err == nil, want)
+		}
+	}
+}
+
+// `update` found through a link it cannot follow does not swap the link for a file.
+func TestUpdateThroughADanglingLinkIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	link := filepath.Join(dir, "monoagentcli")
+	if err := os.Symlink(filepath.Join(dir, "gone"), link); err != nil {
+		t.Fatal(err)
+	}
+	if !isLink(link) {
+		t.Fatal("isLink is false for a link")
+	}
+	if isLink(dir) {
+		t.Fatal("isLink is true for a folder")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"tag_name":"v9.9.9","assets":[]}`)
+	}))
+	t.Cleanup(srv.Close)
+	r := newStaleRig(t, false)
+	d := r.d
+	d.LatestReleaseURL = srv.URL
+	d.Version = func() string { return "v1.0.0" }
+	d.JSONOutput = func() bool { return false }
+	d.SelfPath = func() (string, error) { return link, nil }
+	var err error
+	captureStdout(t, func() { err = d.run(NewCommand(d)) })
+	if err == nil || !strings.Contains(err.Error(), "cannot be followed") {
+		t.Fatalf("err = %v", err)
+	}
+	if !isLink(link) {
+		t.Fatal("the link was replaced")
+	}
+}
+
+// The copy that keeps the old binary where there are no hard links has the old file's mode whatever the umask, and is synced.
+func TestTheCopyOfTheOldBinaryKeepsItsModeWhateverTheUmask(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.WriteFile(src, []byte(oldAsset), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := syscall.Umask(0o077)
+	defer syscall.Umask(old)
+	dst := filepath.Join(dir, "dst")
+	if err := copyFileMode(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Stat(dst); fi.Mode().Perm() != 0o755 {
+		t.Fatalf("the copy's mode is %v, want 0755", fi.Mode().Perm())
+	}
+	if b, _ := os.ReadFile(dst); string(b) != oldAsset {
+		t.Fatalf("copy = %q", b)
+	}
+}
+
+// `update` of itself runs the new binary first and installs it only if it says the released version.
+func TestUpdateKeepsItselfWhenTheNewBinaryDoesNotSayTheReleasedVersion(t *testing.T) {
+	asset := updateAssetName()
+	sum := sha256.Sum256([]byte(newAsset))
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/latest":
+			fmt.Fprintf(w, `{"tag_name":"v9.9.9","assets":[{"name":%q,"browser_download_url":"%s/bin"},{"name":"SHA256SUMS.txt","browser_download_url":"%s/sums"}]}`, asset, srv.URL, srv.URL)
+		case "/bin":
+			_, _ = w.Write([]byte(newAsset))
+		case "/sums":
+			fmt.Fprintf(w, "%s  %s\n", hex.EncodeToString(sum[:]), asset)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	self := filepath.Join(t.TempDir(), "monoagentcli")
+	if err := os.WriteFile(self, []byte(oldAsset), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := newStaleRig(t, false)
+	r.newVer = "0.1.0" // the downloaded binary says another version
+	d := r.d
+	d.LatestReleaseURL = srv.URL + "/latest"
+	d.Version = func() string { return "v1.0.0" }
+	d.JSONOutput = func() bool { return false }
+	d.SelfPath = func() (string, error) { return self, nil }
+	var err error
+	captureStdout(t, func() { err = d.run(NewCommand(d)) })
+	if err == nil || !strings.Contains(err.Error(), "did not pass its check") {
+		t.Fatalf("err = %v", err)
+	}
+	if b, _ := os.ReadFile(self); string(b) != oldAsset {
+		t.Fatalf("the binary was replaced by one that failed its check: %q", b)
+	}
+}
+
+// The backup of one binary survives the installing of another in the same folder, even though a hard link carries the old
+// file's modification time (which may be a year old): it is the time the backup was made that counts, not the file's.
+func TestABackupJustMadeIsNotSweptByTheNextInstallInTheSameFolder(t *testing.T) {
+	dir := t.TempDir()
+	mk := func(name string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(oldAsset), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		at := time.Now().Add(-400 * 24 * time.Hour) // a binary built over a year ago
+		_ = os.Chtimes(p, at, at)
+		return p
+	}
+	a, b := mk("monoagentcli"), mk("monoagentcli-other")
+	ra, err := installBinaryKeep([]byte(newAsset), a, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rb, err := installBinaryKeep([]byte(newAsset), b, nil) // sweeps the folder first
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ra.Restore(); err != nil {
+		t.Fatalf("the first backup was swept by the second install: %v", err)
+	}
+	if x, _ := os.ReadFile(a); string(x) != oldAsset {
+		t.Fatalf("restored %q", x)
+	}
+	rb.Commit()
+}
+
+// A backup is named with the time it was made, in the exact shape the sweep reads, and the sweep touches only that shape: a
+// user's own file with a similar name, a time from the future or a symbolic link is left alone.
+func TestAKeptBackupCarriesItsTimeAndTheSweepReadsOnlyThatShape(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "monoagentcli")
+	if err := os.WriteFile(target, []byte(oldAsset), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	before := time.Now().Add(-2 * time.Second).Unix()
+	r, err := installBinaryKeep([]byte(newAsset), target, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sm := previousName.FindStringSubmatch(filepath.Base(r.bak))
+	if sm == nil {
+		t.Fatalf("the backup %q is not named with the time it was made", filepath.Base(r.bak))
+	}
+	if secs, _ := strconv.ParseInt(sm[1], 10, 64); secs < before || secs > time.Now().Add(2*time.Second).Unix() {
+		t.Fatalf("the time in the name is %d", secs)
+	}
+	r.Commit()
+
+	mk := func(name string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte("mine"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	old := time.Now().Add(-72 * time.Hour).Unix()
+	good := mk(fmt.Sprintf(".monoagentcli-previous-%d-123", old))
+	userLike := mk(fmt.Sprintf(".monoagentcli-previous-%d-x", old)) // the random part is not digits
+	shortStamp := mk(".monoagentcli-previous-12345-1")              // not a unix time of this era
+	future := mk(fmt.Sprintf(".monoagentcli-previous-%d-1", time.Now().Add(72*time.Hour).Unix()))
+	huge := mk(".monoagentcli-previous-9223372036-1")
+	link := filepath.Join(dir, fmt.Sprintf(".monoagentcli-previous-%d-456", old))
+	if err := os.Symlink(userLike, link); err != nil {
+		t.Fatal(err)
+	}
+	sweepPrevious(dir)
+	for p, want := range map[string]bool{good: false, userLike: true, shortStamp: true, future: true, huge: true, link: true} {
+		if _, err := os.Lstat(p); (err == nil) != want {
+			t.Errorf("%s: exists = %v, want %v", filepath.Base(p), err == nil, want)
+		}
+	}
+}
+
+// Only files of this user are swept.
+func TestTheSweepLeavesAFileOfAnotherUserAlone(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, fmt.Sprintf(".monoagentcli-previous-%d-1", time.Now().Add(-72*time.Hour).Unix()))
+	if err := os.WriteFile(p, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := uidOf
+	uidOf = func() int { return os.Getuid() + 12345 }
+	defer func() { uidOf = old }()
+	sweepPrevious(dir)
+	if _, err := os.Lstat(p); err != nil {
+		t.Fatalf("a file of another user was swept: %v", err)
+	}
 }
