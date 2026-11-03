@@ -132,25 +132,45 @@ func TestChargeExecFinalAboveTheGrantIsRecordedAsOverspend(t *testing.T) {
 
 func TestChargeExecWithoutAReportIsSettledAtTheWholeGrant(t *testing.T) {
 	s, db, _ := newTestStore(t)
-	id := rsession(t, s, db, 10)
+	id := rsession(t, s, db, 100)
 	r := xreserve(t, s, id, "o", "w", "e1", 4)
-	if err := s.ChargeExec(bg, "default", r.ID, "o", ExecNoReport, true); err != nil {
+	if err := s.SettleExecNoReport(bg, "default", r.ID, "o"); err != nil {
 		t.Fatal(err)
 	}
 	row := rrow(t, s, r.ID)
 	if row.State != ReservationSettled || !near(row.ChargedUSD, 4) || !near(rspent(t, db, id), 4) {
 		t.Fatalf("%+v spent %v: a run that reported nothing costs its whole grant", row, rspent(t, db, id))
 	}
-	// but a run that reported something is settled at what it reported, not at the grant
+	// a run that reported only PARTIAL costs and then ended without a final report is also charged its whole grant
 	r2 := xreserve(t, s, id, "o", "w", "e2", 3)
 	if err := s.ChargeExec(bg, "default", r2.ID, "o", 1.25, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.ChargeExec(bg, "default", r2.ID, "o", ExecNoReport, true); err != nil {
+	if err := s.SettleExecNoReport(bg, "default", r2.ID, "o"); err != nil {
 		t.Fatal(err)
 	}
-	if row := rrow(t, s, r2.ID); !near(row.ChargedUSD, 1.25) || row.State != ReservationSettled {
+	if row := rrow(t, s, r2.ID); !near(row.ChargedUSD, 3) || row.State != ReservationSettled || !near(rspent(t, db, id), 4+3) {
+		t.Fatalf("%+v spent %v, want the whole grant 3 (spent 7 in all)", row, rspent(t, db, id))
+	}
+	// partial reports above the grant (an overspend) keep what they said: never below what was reported
+	r4 := xreserve(t, s, id, "o", "w", "e4", 1)
+	if err := s.ChargeExec(bg, "default", r4.ID, "o", 2.5, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SettleExecNoReport(bg, "default", r4.ID, "o"); err != nil {
+		t.Fatal(err)
+	}
+	if row := rrow(t, s, r4.ID); !near(row.ChargedUSD, 2.5) {
 		t.Fatalf("%+v", row)
+	}
+	// the ended row cannot be settled again
+	if err := s.SettleExecNoReport(bg, "default", r.ID, "o"); !errors.Is(err, ErrReservationLost) {
+		t.Fatalf("second settle: %v", err)
+	}
+	// and a stranger cannot settle it
+	r5 := xreserve(t, s, id, "o", "w", "e5", 1)
+	if err := s.SettleExecNoReport(bg, "default", r5.ID, "stranger"); !errors.Is(err, ErrReservationLost) {
+		t.Fatalf("stranger: %v", err)
 	}
 	// a run that reported a zero cost DID report: it is free
 	r3 := xreserve(t, s, id, "o", "w", "e3", 3)
@@ -166,14 +186,13 @@ func TestChargeExecRefusesWhatIsNotAMoneyReport(t *testing.T) {
 	s, db, _ := newTestStore(t)
 	id := rsession(t, s, db, 10)
 	r := xreserve(t, s, id, "o", "w", "e1", 4)
-	for _, bad := range []float64{math.NaN(), math.Inf(1), -0.5, MaxBudgetUSD * 2} {
-		if err := s.ChargeExec(bg, "default", r.ID, "o", bad, true); !errors.Is(err, ErrInvalid) {
-			t.Errorf("%v: %v", bad, err)
+	// a miscomputed negative (-1 included) is an error, never "the whole grant"
+	for _, bad := range []float64{math.NaN(), math.Inf(1), math.Inf(-1), -0.5, -1, MaxBudgetUSD * 2} {
+		for _, final := range []bool{true, false} {
+			if err := s.ChargeExec(bg, "default", r.ID, "o", bad, final); !errors.Is(err, ErrInvalid) {
+				t.Errorf("%v final=%v: %v", bad, final, err)
+			}
 		}
-	}
-	// "no report" only means something at the end
-	if err := s.ChargeExec(bg, "default", r.ID, "o", ExecNoReport, false); !errors.Is(err, ErrInvalid) {
-		t.Errorf("non-final no-report: %v", err)
 	}
 	if row := rrow(t, s, r.ID); row.State != ReservationLive || row.ChargedUSD != 0 {
 		t.Fatalf("%+v", row)

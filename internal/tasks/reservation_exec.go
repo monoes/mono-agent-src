@@ -13,14 +13,14 @@ import (
 // What is new is that a retry of the reserve is the same hold, and that the charge is rebuilt from what THIS exec
 // reported, so a late call of an earlier exec of the worker holds another row's id and reaches nothing of this one.
 
-// ExecNoReport is the cumulative a final ChargeExec passes when the run reported no cost at all: the exec is then
-// charged its whole grant, because nothing says it cost less. (A report of 0 is a report: the run was free.)
-const ExecNoReport = -1.0
-
 // ReserveExec is Reserve for one exec of a worker, and idempotent: the same (session, workerRef, execID) of the
-// profile is one hold however often it is asked, and a repeat returns that row as it is now, ended or not, without
-// a second hold, whatever amount it asks for. Only the owner that took the hold may ask again; any other owner gets
-// ErrReservationLost. A different exec id of the same worker is a new hold. execID is 1 to 256 bytes with no NUL.
+// profile is one hold however often it is asked, and a repeat returns that row as it is now, without a second hold,
+// whatever amount it asks for. A repeat returns an ENDED row too (settled, released, expired or resolved): a caller that
+// retries after a crash must look at State before it runs anything on the hold. Only the owner that took the hold may
+// ask again; any other owner gets ErrReservationLost, which is also what a stranger, an ended row, another profile and
+// a missing row get from the charge calls: the cases are not told apart. A different exec id of the same worker is a
+// new hold. execID is 1 to 256 bytes with no NUL and MUST be unique per launch (a fresh id for every run, never one
+// derived from the worker alone): reusing an id of a finished run returns that run's ended row, not a new hold.
 func (s *Store) ReserveExec(ctx context.Context, profileID string, sessionID int64, ownerID, workerRef, execID string, want float64) (Reservation, error) {
 	if err := reservationText("the owner id", ownerID, maxOwnerIDBytes); err != nil {
 		return Reservation{}, err
@@ -77,24 +77,31 @@ func (s *Store) ReserveExec(ctx context.Context, profileID string, sessionID int
 
 // ChargeExec records what the owner's live exec reservation has cost: cumulativeUSD is the exec's running total
 // (not an increment), and with final the exec is over and the reservation is settled. The report is kept in the
-// exec's cost record, and the charge becomes MAX(what was charged so far, the largest cumulative THIS exec has
-// reported): a report below an earlier one, a lower final report included, never lowers it. The difference goes
-// into the session's spend in the same transaction, in whole micro-dollars, overspend of the grant included.
+// exec's cost record, and the charge becomes MAX(what was charged so far, this report), which is the largest
+// cumulative THIS exec has reported (the charge only ever comes from this exec's reports): a report below an earlier
+// one, a lower final report included, never lowers it. The difference goes into the session's spend in the same
+// transaction, in whole micro-dollars, overspend of the grant included. A negative cost is refused (ErrInvalid):
+// this call never means "the whole grant"; SettleExecNoReport does.
 //
-// A final call with cumulativeUSD = ExecNoReport and no earlier report means the run reported nothing: it is
-// settled at its whole grant. After earlier reports it settles at the largest of them. ExecNoReport is not valid
-// without final. Only the owner's live row of an exec matches; any other caller (a stranger, an ended or expired
-// row, another profile, a row taken by Reserve) changes nothing and gets ErrReservationLost or ErrInvalid.
+// Only the owner's live row of an exec matches; a stranger, an ended or expired row, another profile and a missing row
+// all change nothing and get the same ErrReservationLost; a row taken by Reserve (no exec) gets ErrInvalid.
 func (s *Store) ChargeExec(ctx context.Context, profileID string, id int64, ownerID string, cumulativeUSD float64, final bool) error {
-	noReport := cumulativeUSD == ExecNoReport
-	switch {
-	case noReport && !final:
-		return invalid("a run that reported nothing can only be said so at its end")
-	case !noReport:
-		if err := reservationAmount("the cost", cumulativeUSD); err != nil {
-			return err
-		}
+	if err := reservationAmount("the cost", cumulativeUSD); err != nil {
+		return err
 	}
+	return s.chargeExec(ctx, profileID, id, ownerID, cumulativeUSD, final, false)
+}
+
+// SettleExecNoReport ends the owner's live exec reservation of a run that finished without a final cost report
+// (it crashed, was killed or never said): the run is charged its WHOLE GRANT, because nothing says it cost less,
+// whatever partial reports came before. Partial reports above the grant (an overspend) keep what they said, so the
+// charge is the larger of the grant and the most the run reported. A run that reported its cost, a zero included,
+// is settled with ChargeExec(final) instead. The same fences as ChargeExec apply.
+func (s *Store) SettleExecNoReport(ctx context.Context, profileID string, id int64, ownerID string) error {
+	return s.chargeExec(ctx, profileID, id, ownerID, 0, true, true)
+}
+
+func (s *Store) chargeExec(ctx context.Context, profileID string, id int64, ownerID string, cumulativeUSD float64, final, noReport bool) error {
 	return s.tx(ctx, func(x dbx) error {
 		r, err := s.reservationTx(ctx, x, profileID, id)
 		if err != nil {
@@ -113,16 +120,9 @@ func (s *Store) ChargeExec(ctx context.Context, profileID string, id int64, owne
 				return fmt.Errorf("tasks: recording the cost of reservation #%d: %w", id, err)
 			}
 		}
-		var reported sql.NullFloat64
-		if err := x.QueryRowContext(ctx, `SELECT MAX(cumulative_usd) FROM task_session_reservation_costs WHERE reservation_id = ?`, id).Scan(&reported); err != nil {
-			return fmt.Errorf("tasks: reading the cost of reservation #%d: %w", id, err)
-		}
-		was := toMicros(r.ChargedUSD)
-		target := was
-		switch {
-		case reported.Valid:
-			target = max(was, toMicros(reported.Float64))
-		case final: // the run ended and never said what it cost: the whole grant
+		was := toMicros(r.ChargedUSD) // never below the largest report of this exec: the charge comes only from them
+		target := max(was, toMicros(cumulativeUSD))
+		if noReport { // the run ended without a final report: the whole grant, or more if it had already reported more
 			target = max(was, toMicros(r.AmountUSD))
 		}
 		var res sql.Result

@@ -138,7 +138,7 @@ func TestReservationTriggersSurviveEveryMigration(t *testing.T) {
 	}
 	sort.Strings(got)
 	var want []string
-	for _, s := range []string{"no_replace", "generation", "starts_live", "pinned", "state", "terminal", "grow", "expired_frozen", "no_delete", "profile_tie", "auto_id_only", "ended_live", "exec_pinned"} {
+	for _, s := range []string{"no_replace", "generation", "starts_live", "pinned", "state", "terminal", "grow", "expired_frozen", "no_delete", "profile_tie", "auto_id_only", "ended_live", "exec_pinned", "exec_once"} {
 		want = append(want, "trg_"+resTable+"_"+s)
 	}
 	sort.Strings(want)

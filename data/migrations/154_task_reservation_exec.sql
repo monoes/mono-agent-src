@@ -9,6 +9,13 @@
 -- earlier run of the same worker holds the id of ITS row, never the next run's. The id is fixed for the life of the row.
 ALTER TABLE task_session_reservations ADD COLUMN exec_id TEXT NOT NULL DEFAULT '' CHECK (typeof(exec_id) = 'text' AND length(CAST(exec_id AS BLOB)) <= 256 AND instr(exec_id, char(0)) = 0);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_task_session_reservations_exec ON task_session_reservations(profile_id, session_id, worker_ref, exec_id) WHERE exec_id <> '';
+-- The index is the backstop; this is the rule. REPLACE, INSERT OR REPLACE and an upsert resolve a unique conflict by
+-- removing the old row WITHOUT running the delete rules (its hold and cost record would be gone), and INSERT OR
+-- IGNORE would drop the insert without a word; a BEFORE INSERT trigger runs ahead of every one of them, so the
+-- insert of a second row for an exec is refused outright, whatever the statement says.
+CREATE TRIGGER IF NOT EXISTS trg_task_session_reservations_exec_once BEFORE INSERT ON task_session_reservations
+WHEN NEW.exec_id <> '' AND EXISTS (SELECT 1 FROM task_session_reservations WHERE profile_id = NEW.profile_id AND session_id = NEW.session_id AND worker_ref = NEW.worker_ref AND exec_id = NEW.exec_id)
+BEGIN SELECT RAISE(ABORT, 'reservations: an exec has one reservation'); END;
 CREATE TRIGGER IF NOT EXISTS trg_task_session_reservations_exec_pinned BEFORE UPDATE OF exec_id ON task_session_reservations
 WHEN NEW.exec_id IS NOT OLD.exec_id
 BEGIN SELECT RAISE(ABORT, 'reservations: the exec of a reservation cannot change'); END;
@@ -28,6 +35,8 @@ CREATE TABLE IF NOT EXISTS task_session_reservation_costs (
     PRIMARY KEY (reservation_id, seq)
 ) WITHOUT ROWID;
 
+-- The after-final rule below looks for a final report of the reservation: this keeps that a seek, not a scan of every report.
+CREATE INDEX IF NOT EXISTS idx_task_session_reservation_costs_final ON task_session_reservation_costs(reservation_id) WHERE final = 1;
 CREATE TRIGGER IF NOT EXISTS trg_task_session_reservation_costs_live BEFORE INSERT ON task_session_reservation_costs
 WHEN NOT EXISTS (SELECT 1 FROM task_session_reservations WHERE id = NEW.reservation_id AND exec_id <> '' AND state = 'live')
 BEGIN SELECT RAISE(ABORT, 'reservation costs: a report is for a live reservation of an exec'); END;
