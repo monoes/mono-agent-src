@@ -78,13 +78,26 @@ var openURLInBrowser = clicore.OpenURLInBrowser
 // port and can mint a nonce (see PairingURL). Failures are non-fatal —
 // falling back to the popup's manual "Pairing token" field always works —
 // so this only logs, never returns an error.
-func tryOpenPairingPage(bridge ConnChecker, opened *bool) {
+func tryOpenPairingPage(bridge ConnChecker, opened *bool, refusal func() string) {
 	if *opened {
 		return
 	}
 	p, ok := bridge.(pairingURLProvider)
 	if !ok {
 		*opened = true // never will be ready (relay bridge) — stop trying
+		return
+	}
+	// Starting a pairing flow in the user's browser is the operator's act (it is what
+	// `extension pair --open` does, and that is gated): a model's turn that runs a browser
+	// command must not be able to cause it. Decided before PairingURL, which mints the nonce.
+	// No refusal func means no operator check was wired, which is a refusal too.
+	why := "no operator check is wired"
+	if refusal != nil {
+		why = refusal()
+	}
+	if why != "" {
+		*opened = true
+		fmt.Fprintf(os.Stderr, "  (not opening the extension pairing page: %s — to pair the extension, run this yourself in your own terminal: monoagentcli extension pair --open)\n", why)
 		return
 	}
 	url, ready := p.PairingURL()
@@ -101,16 +114,21 @@ func tryOpenPairingPage(bridge ConnChecker, opened *bool) {
 
 // Thin names for the internal/browserdetect helpers this file (and its
 // tests) always used.
-func findLocalChromePath() string { return browserdetect.FindBrowser() }
-func isChromeRunning() bool       { return browserdetect.IsBrowserRunning() }
-func getExtensionDir() string     { return browserdetect.ExtensionDir() }
+// findLocalChromePath and isChromeRunning are vars so tests can drive EnsureConnected's wait loops
+// without a real browser.
+var (
+	findLocalChromePath = browserdetect.FindBrowser
+	isChromeRunning     = browserdetect.IsBrowserRunning
+)
+
+func getExtensionDir() string { return browserdetect.ExtensionDir() }
 
 // isExtensionInstalled reports whether the extension was found. When the
 // scan couldn't tell (e.g. a profile directory is unreadable — see
 // browserdetect.ExtensionInstalled), this returns true so the caller doesn't
 // block on a claim it can't back up; the real answer is whichever way
 // EnsureConnected's own connect-and-wait below actually goes.
-func isExtensionInstalled() bool {
+var isExtensionInstalled = func() bool {
 	found, checked := browserdetect.ExtensionInstalled()
 	return found || !checked
 }
@@ -126,6 +144,9 @@ type Hints struct {
 	RouteWaitPoll time.Duration
 	// Lifetime explains a bridge that lives only as long as this command ("" when none applies).
 	Lifetime func(bridge ConnChecker) string
+	// Refusal is why this process may not start the extension pairing flow, "" for the operator's
+	// own terminal (the CLI passes opgate.Refusal; this package cannot import it). Nil refuses.
+	Refusal func() string
 }
 
 // EnsureConnected returns once the extension bridge is connected.
@@ -171,7 +192,7 @@ func EnsureConnected(bridge ConnChecker, timeout time.Duration, h Hints) error {
 		// Wait for the extension bridge to connect in case the service worker is waking up.
 		deadline := time.Now().Add(timeout)
 		for !bridge.IsConnected() && time.Now().Before(deadline) {
-			tryOpenPairingPage(bridge, &pairingOpened)
+			tryOpenPairingPage(bridge, &pairingOpened, h.Refusal)
 			time.Sleep(500 * time.Millisecond)
 		}
 		if !bridge.IsConnected() {
@@ -196,7 +217,7 @@ func EnsureConnected(bridge ConnChecker, timeout time.Duration, h Hints) error {
 
 	deadline := time.Now().Add(timeout)
 	for !bridge.IsConnected() && time.Now().Before(deadline) {
-		tryOpenPairingPage(bridge, &pairingOpened)
+		tryOpenPairingPage(bridge, &pairingOpened, h.Refusal)
 		time.Sleep(500 * time.Millisecond)
 	}
 	if !bridge.IsConnected() {

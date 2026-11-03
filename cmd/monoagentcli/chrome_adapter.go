@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/cli/bridge"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 )
 
 // Waiting for the Chrome extension to connect lives in internal/cli/bridge; these are the
@@ -15,5 +16,11 @@ type connChecker = bridge.ConnChecker
 
 // ensureExtensionConnected returns once the extension bridge is connected (bridge.EnsureConnected).
 func ensureExtensionConnected(b connChecker, timeout time.Duration) error {
-	return bridge.EnsureConnected(b, timeout, bridge.Hints{Route: routeHint, RouteWaitPoll: routeWaitPoll, Lifetime: bridgeLifetimeHint})
+	return bridge.EnsureConnected(b, timeout, extensionHints())
+}
+
+// extensionHints is what the CLI adds around the wait for the extension. Refusal is the operator
+// gate: a model's turn must not make the wait open the one-time pairing page.
+func extensionHints() bridge.Hints {
+	return bridge.Hints{Route: routeHint, RouteWaitPoll: routeWaitPoll, Lifetime: bridgeLifetimeHint, Refusal: opgate.Refusal}
 }
