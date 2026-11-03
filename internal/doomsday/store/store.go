@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +18,16 @@ type SQLStore struct {
 	db   *sql.DB
 	keys Keyer
 	now  func() time.Time
+	// entry, when set, is an extra check of a charter at Enter (the ops package supplies one that validates the
+	// constraints it enforces); a charter it refuses is never recorded.
+	entry func(Charter) error
+}
+
+// WithEntryCheck returns the store with an additional charter check run by Enter after Validate.
+func (s *SQLStore) WithEntryCheck(fn func(Charter) error) *SQLStore {
+	c := *s
+	c.entry = fn
+	return &c
 }
 
 var _ Store = (*SQLStore)(nil)
@@ -55,6 +66,11 @@ func (s *SQLStore) runMAC(r Run) ([]byte, error) {
 func (s *SQLStore) Enter(ctx context.Context, c Charter, confirmed [32]byte, by string) (Run, error) {
 	if err := c.Validate(); err != nil {
 		return Run{}, err
+	}
+	if s.entry != nil {
+		if err := s.entry(c); err != nil {
+			return Run{}, fmt.Errorf("%w: %v", ErrInvalidCharter, err)
+		}
 	}
 	if c.Hash() != confirmed {
 		return Run{}, ErrHashMismatch

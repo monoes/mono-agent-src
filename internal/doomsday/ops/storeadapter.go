@@ -11,9 +11,9 @@ import (
 	"github.com/monoes/mono-agent/internal/doomsday/store"
 )
 
-// StoreAdapter satisfies Charters, Ledger and Auditor over the real store. The store's charter has no run-total
-// caps of its own, so they are derived from the limits it does have (see runCaps), and no answer classes, so the
-// operator-facing configuration (AnswerClasses) names them; with none, every ask.answer parks.
+// StoreAdapter satisfies Charters, Ledger and Auditor over the real store. The charter carries the per-ask limits, the
+// run caps, the answer classes and the constraints of the typed operations (store.Typed); an operation whose section is
+// absent stays off. A typed operation is consumed only against its issued approval row (ConsumeApproval).
 type StoreAdapter struct {
 	Store  store.Store
 	Bounds SpendBounds
@@ -64,9 +64,13 @@ func (a StoreAdapter) constraints(c store.Charter) Constraints {
 		}
 	}
 	if slices.Contains(c.Lines, store.LineSpending) {
-		out.SpendGrant = &SpendGrant{Targets: []string{"lead", "child"}, MaxPerGrantMicro: a.Bounds.MaxMicro, RunCeilingMicro: a.grantCeiling(c)}
+		targets := []string{"lead", "child"}
+		if len(c.Typed.GrantTargets) > 0 {
+			targets = slices.Clone(c.Typed.GrantTargets)
+		}
+		out.SpendGrant = &SpendGrant{Targets: targets, MaxPerGrantMicro: a.Bounds.MaxMicro, RunCeilingMicro: a.grantCeiling(c)}
 	}
-	return out
+	return typedConstraints(out, c.Typed)
 }
 
 // approvalsKind counts approvals themselves: it is charged one unit per approval, so an approval with only
@@ -75,11 +79,7 @@ const approvalsKind = "approvals"
 
 // Consume charges every counter and writes the audit row in one store transaction (all or nothing).
 func (a StoreAdapter) Consume(ctx context.Context, c Consume) (ConsumeResult, error) {
-	mc, ok := a.Store.(store.MultiConsumer)
-	if !ok {
-		return ConsumeResult{}, errors.New("doomsday ops: the store has no atomic multi-kind consume")
-	}
-	charges := []store.Charge{{Kind: approvalsKind, N: 1, Limit: math.MaxInt64}}
+	var charges []store.Charge
 	for _, s := range c.Spends {
 		if s.N > 0 {
 			charges = append(charges, store.Charge{Kind: s.Kind, N: s.N, Limit: s.Cap})
@@ -89,7 +89,16 @@ func (a StoreAdapter) Consume(ctx context.Context, c Consume) (ConsumeResult, er
 	if err != nil {
 		return ConsumeResult{}, err
 	}
-	err = mc.ConsumeMany(ctx, c.Profile, c.Generation, c.ApprovalID, charges, store.AuditEntry{Kind: "ops." + c.Audit.Op + ".approved", Payload: string(p)})
+	entry := store.AuditEntry{Kind: "ops." + c.Audit.Op + ".approved", Payload: string(p)}
+	if AllowedTyped(c.Audit.Op) {
+		err = a.consumeTyped(ctx, c, charges, entry)
+	} else {
+		mc, ok := a.Store.(store.MultiConsumer)
+		if !ok {
+			return ConsumeResult{}, errors.New("doomsday ops: the store has no atomic multi-kind consume")
+		}
+		err = mc.ConsumeMany(ctx, c.Profile, c.Generation, c.ApprovalID, append([]store.Charge{{Kind: approvalsKind, N: 1, Limit: math.MaxInt64}}, charges...), entry)
+	}
 	var over *store.OverLimitError
 	switch {
 	case err == nil:
@@ -101,6 +110,26 @@ func (a StoreAdapter) Consume(ctx context.Context, c Consume) (ConsumeResult, er
 	default:
 		return ConsumeResult{}, err // a refusal (run stopped) or any other failure is never an approval
 	}
+}
+
+// consumeTyped spends a typed approval: there is no fallback to a store that cannot check the approval row.
+func (a StoreAdapter) consumeTyped(ctx context.Context, c Consume, charges []store.Charge, entry store.AuditEntry) error {
+	as, ok := a.Store.(store.ApprovalStore)
+	if !ok {
+		return errors.New("doomsday ops: the store has no approval rows")
+	}
+	err := as.ConsumeApproval(ctx, c.Profile, c.Generation, c.ApprovalID, c.Audit.Op, c.Audit.ArgsHash, charges, entry)
+	switch {
+	case errors.Is(err, store.ErrApprovalUnknown):
+		return ErrUnknownApproval
+	case errors.Is(err, store.ErrApprovalRevoked):
+		return ErrRevoked
+	case errors.Is(err, store.ErrApprovalExpired):
+		return ErrExpired
+	case errors.Is(err, store.ErrApprovalMismatch):
+		return ErrArgsMismatch
+	}
+	return err
 }
 
 // Append writes the decision to the audit stream.
