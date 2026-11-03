@@ -10,9 +10,10 @@
 .cr-badge { display: inline-flex; gap: 5px; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border); }
 .cr-badge-yes, .cr-state-running { color: var(--green-neon); border-color: rgba(74, 222, 128, 0.3); }
 .cr-badge-no { color: var(--red); border-color: var(--danger-border); background: var(--danger-surface); }
-.cr-badge-unknown, .cr-state-stopping { color: var(--yellow); border-color: rgba(234, 179, 8, 0.4); }
+.cr-badge-unanchored, .cr-badge-unknown, .cr-state-stopping { color: var(--yellow); border-color: rgba(234, 179, 8, 0.4); }
 .cr-state-ended { color: var(--text-muted); }
 .cr-banner { display: flex; gap: 10px; padding: 12px; margin-bottom: 14px; border: 1px solid var(--danger-border); background: var(--danger-surface); border-radius: var(--radius-lg); color: var(--red); }
+.cr-banner-amber { border-color: rgba(234, 179, 8, 0.5); background: rgba(234, 179, 8, 0.08); color: var(--yellow); }
 .cr-banner p { margin: 4px 0 0; color: var(--text); font-size: 12px; }
 .cr-clusters, .cr-counters, .cr-feed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .cr-clusters li { display: grid; grid-template-columns: 90px 1fr auto; gap: 8px; align-items: center; }

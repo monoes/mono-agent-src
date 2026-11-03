@@ -70,6 +70,17 @@ describe('useControlRoom polling', () => {
     await tick(3100)
     expect(result.current.feed.items).toEqual([])
   })
+  it('an unanchored chain still shows its feed, and an error document keeps the last known run', async () => {
+    api.overview.mockResolvedValue({ ...ok, integrity: { chain_verified: 'unanchored', reason: 'no_witness' } })
+    const { result } = renderHook(() => useControlRoom(true, api))
+    await tick(0)
+    expect(api.feed).toHaveBeenCalledTimes(1)
+    expect(result.current.feed.items.map(r => r.seq)).toEqual([2, 1])
+    api.overview.mockResolvedValue({ schema_version: 1, available: false, reason: 'error', error_code: 'read_failed' })
+    await tick(3100)
+    expect(result.current.view).toMatchObject({ state: 'error', errorCode: 'read_failed' })
+    expect(result.current.lastRun.run.run_id).toBe('r')
+  })
   it('stops when unmounted', async () => {
     const { unmount } = renderHook(() => useControlRoom(true, api))
     await tick(0)

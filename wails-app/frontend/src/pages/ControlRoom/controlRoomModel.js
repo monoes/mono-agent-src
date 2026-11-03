@@ -29,15 +29,25 @@ export function formatMicro(micro) {
 }
 
 // The state the page draws, from the overview document:
-//   error | off | no_run | ok, and for ok the chain: yes | no | unknown.
-// Only chain "yes" is healthy; a missing or odd value is "unknown", never "yes".
+//   error | off | no_run | ok, and for ok the chain: yes | unanchored | no | unknown.
+// Only chain "yes" is healthy. "unanchored" shows the data (tree, spend, feed) under an amber banner; a missing or odd
+// value is "unknown", never "yes". A read failure (available false, reason "error") is an error with its error_code,
+// never off.
+export const CHAINS = ['yes', 'unanchored', 'no', 'unknown']
+export const ERROR_CODES = ['db_unavailable', 'read_timeout', 'read_failed']
+export const hasData = (chain) => chain === 'yes' || chain === 'unanchored'
+
 export function viewOf(doc) {
   if (!doc || doc.error || doc.schema_version !== 1) {
     return { state: 'error', message: clip(doc?.error || 'unreadable control room document', 200), chain: 'unknown' }
   }
+  if (!doc.available && doc.reason === 'error') {
+    const code = ERROR_CODES.includes(doc.error_code) ? doc.error_code : 'unknown'
+    return { state: 'error', errorCode: code, chain: 'unknown' }
+  }
   if (!doc.available) return { state: doc.reason === 'off' ? 'off' : 'no_run', chain: 'unknown' }
   const c = doc.integrity?.chain_verified
-  const chain = c === 'yes' || c === 'no' ? c : 'unknown'
+  const chain = CHAINS.includes(c) ? c : 'unknown'
   return { state: 'ok', chain, healthy: chain === 'yes' }
 }
 

@@ -122,11 +122,27 @@ func (a *App) doomsdayRead(verb string, extra ...string) string {
 	if err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {
+			// A failed read exits non-zero but still prints its document (available:false, reason:error, error_code);
+			// that is the page's error state, not a failed poll and never "off".
+			if isDoomsdayReadError(out) {
+				return strings.TrimSpace(out)
+			}
 			return cliResultJSON("monoagentcli", []byte(out), &exec.ExitError{ProcessState: ee.ProcessState, Stderr: []byte(errText)})
 		}
 		return aiError(err)
 	}
 	return cliResultJSON("monoagentcli", []byte(out), nil)
+}
+
+// isDoomsdayReadError reports whether out is the control room's read-failure document: schema_version 1,
+// available false, reason "error". Anything else on a non-zero exit is handled as a failed command.
+func isDoomsdayReadError(out string) bool {
+	var d struct {
+		SchemaVersion int    `json:"schema_version"`
+		Available     bool   `json:"available"`
+		Reason        string `json:"reason"`
+	}
+	return json.Unmarshal([]byte(strings.TrimSpace(out)), &d) == nil && d.SchemaVersion == 1 && !d.Available && d.Reason == "error"
 }
 
 // DoomsdayOverview is `doomsday overview`: the run, tree clusters, spend and integrity, or available:false.
@@ -208,7 +224,13 @@ func (a *App) DoomsdayProbe() string {
 		Reason        string `json:"reason"`
 	}
 	doc := doomsdayProbeDoc{}
-	if json.Unmarshal([]byte(a.doomsdayRead("overview")), &ov) == nil && ov.SchemaVersion == 1 {
+	raw := a.doomsdayRead("overview")
+	if isDoomsdayReadError(raw) {
+		// The read failed, which says nothing about the mode or the run: answer an error (the page keeps its last
+		// good answer) and cache nothing, so the next probe asks again.
+		return `{"error":"the control room could not be read"}`
+	}
+	if json.Unmarshal([]byte(raw), &ov) == nil && ov.SchemaVersion == 1 {
 		doc = doomsdayProbeDoc{ModeAvailable: ov.Available || ov.Reason == "no_run", RunExists: ov.Available}
 	}
 	b, _ := json.Marshal(doc)

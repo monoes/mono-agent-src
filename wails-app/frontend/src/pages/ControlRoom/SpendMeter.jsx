@@ -23,6 +23,7 @@ export default function SpendMeter({ spend, rate }) {
       <p className="cr-meta" data-testid="cr-rate">
         {rate == null ? t('controlRoom.spend.rateNone') : t('controlRoom.spend.rate', { rate: formatMicro(rate) })}
       </p>
+      {spend?.counters_authenticated !== true ? <p className="cr-meta" data-testid="cr-counters-note">{t('controlRoom.spend.unauthenticated')}</p> : null}
       <p className="cr-meta">{t('controlRoom.spend.split', { ask: formatMicro(spend?.ask_micro), grant: formatMicro(spend?.grant_micro) })}</p>
       {counters.length > 0 ? (
         <ul className="cr-counters">

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { controlRoomApi } from '../../services/controlRoom.js'
 import { usePageVisible } from '../../lib/usePageVisible.js'
-import { MIN_POLL_MS, viewOf, nextDelay, mergeFeed, addSample, approxRate, num, FEED_PAGE, FEED_KEEP } from './controlRoomModel.js'
+import { MIN_POLL_MS, viewOf, nextDelay, mergeFeed, addSample, approxRate, hasData, num, FEED_PAGE, FEED_KEEP } from './controlRoomModel.js'
 
 export function useControlRoom(active, api = controlRoomApi) {
   const visible = usePageVisible()
@@ -31,14 +31,14 @@ export function useControlRoom(active, api = controlRoomApi) {
     if (v.state === 'ok') setLastRun({ run: ov.run })
     else if (v.state !== 'error') setLastRun(null)
     setUpdatedAt(Date.now())
-    if (v.state === 'ok' && v.chain === 'yes' && ov.spend) {
+    if (v.state === 'ok' && hasData(v.chain) && ov.spend) {
       samples.current = addSample(samples.current, { t: Date.now(), used: num(ov.spend.used_micro), run: ov.run?.run_id })
       setRate(approxRate(samples.current))
     } else {
       samples.current = []
       setRate(null)
     }
-    if (v.state === 'ok' && v.chain === 'yes') {
+    if (v.state === 'ok' && hasData(v.chain)) {
       const page = await api.feed(0, FEED_PAGE)
       if (!alive.current) return 'stop'
       if (!page?.error && Array.isArray(page?.items)) {

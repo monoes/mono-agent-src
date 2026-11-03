@@ -1,8 +1,10 @@
 import { useTranslation } from 'react-i18next'
 import { controlRoomApi } from '../../services/controlRoom.js'
+import { hasData } from './controlRoomModel.js'
 import { useControlRoom } from './useControlRoom.js'
 import RunHeader from './RunHeader.jsx'
 import BadChainBanner from './BadChainBanner.jsx'
+import UnanchoredBanner from './UnanchoredBanner.jsx'
 import TreeClusters from './TreeClusters.jsx'
 import SpendMeter from './SpendMeter.jsx'
 import DecisionFeed from './DecisionFeed.jsx'
@@ -30,12 +32,15 @@ export default function ControlRoom({ isActive = true, api = controlRoomApi }) {
         {view.state === 'off' ? <p className="cr-meta" data-testid="cr-off">{t('controlRoom.off')}</p> : null}
         {view.state === 'no_run' ? <p className="cr-meta" data-testid="cr-no-run">{t('controlRoom.noRun')}</p> : null}
         {view.state === 'error' && doc !== null ? (
-          <p className="cr-warn" role="alert" data-testid="cr-error">{t('controlRoom.error', { message: view.message })}</p>
+          <p className="cr-warn" role="alert" data-testid="cr-error" data-error-code={view.errorCode || ''}>
+            {view.errorCode ? t(`controlRoom.errorCode.${view.errorCode}`) : t('controlRoom.error', { message: view.message })}
+          </p>
         ) : null}
         {view.state === 'ok' ? (
           <>
             <RunHeader run={run} integrity={doc.integrity} />
-            {view.chain !== 'yes' ? <BadChainBanner chain={view.chain} reason={doc.integrity?.reason} /> : (
+            {view.chain === 'unanchored' ? <UnanchoredBanner reason={doc.integrity?.reason} /> : null}
+            {!hasData(view.chain) ? <BadChainBanner chain={view.chain} reason={doc.integrity?.reason} /> : (
               <div className="cr-grid">
                 <TreeClusters tree={doc.tree} />
                 <SpendMeter spend={doc.spend} rate={rate} />

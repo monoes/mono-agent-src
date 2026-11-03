@@ -22,6 +22,22 @@ describe('viewOf', () => {
   })
 })
 
+describe('viewOf: the integrity states and read errors', () => {
+  const doc = (c) => ({ schema_version: 1, available: true, integrity: { chain_verified: c } })
+  it('only yes is healthy; unanchored has data but is not healthy', () => {
+    expect(viewOf(doc('yes'))).toMatchObject({ state: 'ok', chain: 'yes', healthy: true })
+    expect(viewOf(doc('unanchored'))).toMatchObject({ state: 'ok', chain: 'unanchored', healthy: false })
+    expect(viewOf(doc('no'))).toMatchObject({ chain: 'no', healthy: false })
+    expect(viewOf(doc('maybe'))).toMatchObject({ chain: 'unknown', healthy: false })
+  })
+  it('reason error is an error with its code, never off', () => {
+    const v = viewOf({ schema_version: 1, available: false, reason: 'error', error_code: 'read_timeout' })
+    expect(v).toMatchObject({ state: 'error', errorCode: 'read_timeout' })
+    expect(viewOf({ schema_version: 1, available: false, reason: 'error', error_code: 'x' }).errorCode).toBe('unknown')
+    expect(viewOf({ schema_version: 1, available: false, reason: 'off' }).state).toBe('off')
+  })
+})
+
 describe('bounded output', () => {
   it('clusters are capped and sanitised', () => {
     const rows = clusterRows({ clusters: Array.from({ length: 5000 }, (_, i) => ({ kind: 'k' + i, total: i, live: 'x' })) })

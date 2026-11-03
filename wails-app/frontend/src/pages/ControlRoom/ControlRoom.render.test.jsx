@@ -88,6 +88,82 @@ describe('states of the page', () => {
   })
 })
 
+describe('integrity states from the contract', () => {
+  const unanchored = golden('overview_unanchored')
+  const behind = golden('overview_behind_witness')
+  it.each([
+    ['no_witness', 'no stop witness'],
+    ['no_witness_record', 'no record'],
+    ['witness_unreadable', 'could not be read'],
+  ])('unanchored (%s): data shown under an amber banner, never the healthy look', async (reason, words) => {
+    await show({ ...unanchored, integrity: { ...unanchored.integrity, reason } }, 'cr-unanchored')
+    expect(screen.getByTestId('cr-unanchored')).toHaveTextContent('not anchored')
+    expect(screen.getByTestId('cr-reason')).toHaveTextContent(words)
+    expect(screen.getByTestId('cr-integrity')).toHaveAttribute('data-chain', 'unanchored')
+    expect(screen.getByTestId('cr-integrity')).toHaveTextContent('NOT anchored')
+    expect(screen.getByTestId('cr-integrity')).not.toHaveTextContent('verified')
+    expect(screen.queryByTestId('cr-bad-chain')).toBeNull()
+    expect(screen.getByTestId('cr-tree')).toBeInTheDocument()
+    expect(screen.getByTestId('cr-spend')).toBeInTheDocument()
+    expect(await screen.findAllByTestId('cr-feed-row')).toHaveLength(3)
+    expect(screen.getByRole('button', { name: /Stop run/ })).toBeEnabled()
+  })
+  it('unanchored is not the healthy look: the verified badge and head never show', async () => {
+    await show(unanchored, 'cr-unanchored')
+    expect(screen.getByTestId('cr-integrity')).not.toHaveTextContent('#42')
+    expect(screen.getByTestId('cr-integrity')).not.toHaveAttribute('data-chain', 'yes')
+  })
+  it.each([
+    ['behind_witness', 'cut off'],
+    ['witness_mismatch', 'disagree'],
+  ])('no (%s): a red banner with the reason, no tree, spend or feed', async (reason, words) => {
+    await show({ ...behind, integrity: { chain_verified: 'no', reason, head_seq: 0 } }, 'cr-bad-chain')
+    expect(screen.getByTestId('cr-bad-chain')).toHaveAttribute('data-chain', 'no')
+    expect(screen.getByTestId('cr-reason')).toHaveTextContent(words)
+    expect(screen.queryByTestId('cr-unanchored')).toBeNull()
+    for (const id of ['cr-tree', 'cr-spend', 'cr-feed']) expect(screen.queryByTestId(id)).toBeNull()
+    expect(api.feed).not.toHaveBeenCalled()
+  })
+  it('no with no run row (forged or deleted): banner, header without a run, Stop stays', async () => {
+    await show(golden('overview_run_row_forged'), 'cr-bad-chain')
+    expect(screen.getByTestId('cr-integrity')).toHaveAttribute('data-chain', 'no')
+    expect(screen.queryByTestId('cr-run-state')).toBeNull()
+    expect(screen.getByTestId('cr-stop')).toBeInTheDocument()
+  })
+  it('an unknown reason still gets a plain sentence', async () => {
+    await show({ ...behind, integrity: { chain_verified: 'no', reason: 'something_new', head_seq: 0 } }, 'cr-bad-chain')
+    expect(screen.getByTestId('cr-reason')).toHaveTextContent('could not be confirmed')
+  })
+})
+
+describe('a failed read is an error, not off', () => {
+  it.each([
+    ['db_unavailable', 'database could not be opened'],
+    ['read_timeout', 'took too long'],
+    ['read_failed', 'Reading the run failed.'],
+    ['brand_new_code', 'reason this version does not know'],
+  ])('error_code %s is said in plain words', async (code, words) => {
+    await show({ ...golden('overview_error'), error_code: code }, 'cr-error')
+    expect(screen.getByTestId('cr-error')).toHaveAttribute('data-error-code', code === 'brand_new_code' ? 'unknown' : code)
+    expect(screen.getByTestId('cr-error')).toHaveTextContent(words)
+    expect(screen.queryByTestId('cr-off')).toBeNull()
+    expect(screen.queryByTestId('cr-no-run')).toBeNull()
+    for (const id of ['cr-tree', 'cr-spend', 'cr-feed']) expect(screen.queryByTestId(id)).toBeNull()
+  })
+  it('after a good poll, an error document keeps Stop, and the run stays the last known one', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      api.overview.mockResolvedValue(running)
+      render(<ControlRoom api={api} />)
+      await screen.findByTestId('cr-stop')
+      api.overview.mockResolvedValue(golden('overview_error'))
+      await act(async () => { await vi.advanceTimersByTimeAsync(4000) })
+      expect(screen.getByTestId('cr-error')).toHaveAttribute('data-error-code', 'db_unavailable')
+      expect(screen.getByRole('button', { name: /Stop run/ })).toBeEnabled()
+    } finally { vi.useRealTimers() }
+  })
+})
+
 describe('Stop survives a failed poll', () => {
   afterEach(() => vi.useRealTimers())
   const laterPoll = async (doc) => {
@@ -170,6 +246,13 @@ describe('tree and spend components', () => {
     expect(screen.getAllByTestId('cr-cluster').length).toBeLessThanOrEqual(20)
     expect(screen.getByTestId('cr-tree')).toHaveTextContent('1000 live of 5000')
     expect(screen.getByTestId('cr-tree')).toHaveTextContent('Some kinds are not shown')
+  })
+  it('the counters are labelled as not authenticated, whatever the badge says', () => {
+    const { unmount } = render(<SpendMeter spend={{ ...running.spend, counters_authenticated: false }} rate={null} />)
+    expect(screen.getByTestId('cr-counters-note')).toHaveTextContent('not authenticated')
+    unmount()
+    render(<SpendMeter spend={{ ...running.spend }} rate={null} />)
+    expect(screen.getByTestId('cr-counters-note')).toBeInTheDocument()
   })
   it('spend: ok, near, over, no ceiling, no budget', () => {
     const cases = [

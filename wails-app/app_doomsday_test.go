@@ -113,6 +113,62 @@ func TestDoomsdayReadShowsTheCLIsRefusal(t *testing.T) {
 }
 
 // A document over the cap is refused, not buffered whole (the work is bounded by the cap).
+// The CLI's read-failure document (exit 1, JSON on stdout) reaches the page verbatim as a structured error: not an
+// {"error"} wrapper of the exit status and never the "off" document, for every error_code and for the feed too.
+func TestDoomsdayReadErrorDocumentOnNonZeroExitIsStructured(t *testing.T) {
+	root := filepath.Join("..", "internal", "cli", "doomsday", "testdata")
+	for _, tc := range []struct{ verb, file, code string }{
+		{"overview", "controlroom_overview_error.golden.json", "db_unavailable"},
+		{"feed", "controlroom_feed_error.golden.json", "read_timeout"},
+	} {
+		raw, err := os.ReadFile(filepath.Join(root, tc.file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		taskCLIFake(t, string(raw), 1)
+		a := newTaskTestApp(t)
+		got := a.DoomsdayOverview()
+		if tc.verb == "feed" {
+			got = a.DoomsdayFeed(0, 0)
+		}
+		var d struct {
+			Available bool   `json:"available"`
+			Reason    string `json:"reason"`
+			ErrorCode string `json:"error_code"`
+			Error     string `json:"error"`
+		}
+		if json.Unmarshal([]byte(got), &d) != nil || d.Available || d.Reason != "error" || d.ErrorCode != tc.code || d.Error != "" {
+			t.Errorf("%s on exit 1 = %q", tc.verb, got)
+		}
+	}
+	// A non-zero exit with some other document is still a failed command.
+	taskCLIFake(t, dmOff, 1)
+	if got := newTaskTestApp(t).DoomsdayOverview(); strings.Contains(got, `"reason":"off"`) {
+		t.Errorf("an off document on a failed exit was passed through: %q", got)
+	}
+}
+
+// A failed read says nothing about the mode or the run: the probe answers an error (the nav keeps its last good
+// answer) and does not cache it, rather than answering "unavailable".
+func TestDoomsdayProbeOfAReadErrorIsAnErrorAndNotCached(t *testing.T) {
+	resetProbe()
+	raw, err := os.ReadFile(filepath.Join("..", "internal", "cli", "doomsday", "testdata", "controlroom_overview_error.golden.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	log, _ := taskCLIFake(t, string(raw), 1)
+	a := newTaskTestApp(t)
+	for i := 0; i < 3; i++ {
+		got := a.DoomsdayProbe()
+		if !strings.Contains(got, `"error"`) || strings.Contains(got, "mode_available") {
+			t.Fatalf("probe of a read error = %s", got)
+		}
+	}
+	if n := callCount(t, log); n != 3 {
+		t.Fatalf("an error answer was cached: CLI ran %d times for 3 probes", n)
+	}
+}
+
 func TestDoomsdayReadOutputIsCapped(t *testing.T) {
 	big := `{"schema_version":1,"x":"` + strings.Repeat("a", doomsdayMaxOutput+10) + `"}`
 	taskCLIFake(t, big, 0)

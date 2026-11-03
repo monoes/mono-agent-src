@@ -2,11 +2,11 @@ import { useTranslation } from 'react-i18next'
 import { ShieldCheck, ShieldAlert, ShieldQuestion } from 'lucide-react'
 import { clip, num } from './controlRoomModel.js'
 
-// The integrity badge: "verified" only for chain_verified "yes"; anything else says it is not.
+// The integrity badge: "verified" only for chain_verified "yes"; anything else says it is not ("not anchored" is amber).
 export function IntegrityBadge({ integrity }) {
   const { t } = useTranslation()
   const c = integrity?.chain_verified
-  const kind = c === 'yes' ? 'yes' : c === 'no' ? 'no' : 'unknown'
+  const kind = c === 'yes' || c === 'no' || c === 'unanchored' ? c : 'unknown'
   const Icon = kind === 'yes' ? ShieldCheck : kind === 'no' ? ShieldAlert : ShieldQuestion
   return (
     <span className={`cr-badge cr-badge-${kind}`} data-testid="cr-integrity" data-chain={kind}>
