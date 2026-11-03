@@ -51,6 +51,10 @@ func TestBossApprovesAPlanInsideTheLimitsAsRead(t *testing.T) {
 	if len(l.ids) != 1 || l.used[ops.KindAskTasks] != 10 || l.used[ops.KindAskSpend] != 5_000_000 {
 		t.Fatalf("ledger %+v", l)
 	}
+	// a plan that is no longer a draft is not open: refused before anything is spent
+	if _, err := f.st.BossApprovePlan(context.Background(), f.lead(f.pc), "p", kid.ID, v.Rev, v.Digest); !errors.Is(err, ops.ErrNotOpen) || len(l.ids) != 1 {
+		t.Fatalf("a second approval: %v, spent %d", err, len(l.ids))
+	}
 }
 
 func TestBossApprovePlanRefusals(t *testing.T) {
