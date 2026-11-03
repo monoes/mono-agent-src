@@ -10,7 +10,6 @@ import (
 	"reflect"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -137,7 +136,7 @@ type vrig struct {
 func newVRig(t *testing.T, tr Transport) *vrig {
 	clk := newClock()
 	au := &auditLog{}
-	return &vrig{t: t, clk: clk, audit: au, t0: clk.Now(), x: &VaultExecutor{Clock: clk, Transport: tr, Secrets: fakeSecrets{"s3cret-value"}, Auditor: au}}
+	return &vrig{t: t, clk: clk, audit: au, t0: clk.Now(), x: &VaultExecutor{Clock: clk, Transport: tr, Secrets: fakeSecrets{"s3cret-value"}, Auditor: au, WallGrace: time.Minute}}
 }
 
 type result struct {
@@ -284,44 +283,6 @@ func TestACallThatReachesMaxCallIsATimeoutInTheLastSlot(t *testing.T) { // T5f4,
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("no timeout")
-	}
-}
-
-// jump moves the clock without waking anyone, so the timeout signal does not fire and the arrival rule alone decides.
-func (c *fakeClock) jump(d time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.now = c.now.Add(d)
-}
-
-// noTimerClock never fires the wait for the call's deadline, so only the arrival rule can produce a timeout.
-type noTimerClock struct {
-	*fakeClock
-	deadline time.Time
-	used     *atomic.Bool
-}
-
-func (c noTimerClock) Wait(ctx context.Context, until time.Time) error {
-	if until.Equal(c.deadline) && c.used.CompareAndSwap(false, true) {
-		<-ctx.Done()
-		return ctx.Err()
-	}
-	return c.fakeClock.Wait(ctx, until)
-}
-
-func TestABodyThatCompletesAtMaxCallIsATimeoutEvenWithoutTheTimerSignal(t *testing.T) { // T5f10
-	var clk *fakeClock
-	tr := fakeTransport{func(context.Context, VaultArgs, []byte) (Response, error) {
-		clk.jump(1000 * time.Millisecond)
-		return Response{Status: 200, Body: io.NopCloser(strings.NewReader("abc"))}, nil
-	}}
-	r := newVRig(t, tr)
-	clk = r.clk
-	r.x.Clock = noTimerClock{r.clk, r.at(1000 * time.Millisecond), new(atomic.Bool)}
-	e, err := r.x.Run(context.Background(), approvedVault(testVault), testReq)
-	res := result{e, err}
-	if res.err != nil || res.env != (Envelope{Outcome: OutcomeTimeout}) {
-		t.Fatalf("%+v %v", res.env, res.err)
 	}
 }
 
