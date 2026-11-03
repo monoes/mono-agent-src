@@ -349,6 +349,7 @@ func TestUpdateAppReportsTheStaleCLIsAndLeavesTheBundledOneOut(t *testing.T) {
 	latest := fakeAppRelease(t, tgz(t, map[string]string{"MonoAgent-linux-amd64": "new-app", "monoagentcli": "new-cli"}), false)
 	app, bundled := appInstallDir(t)
 	r := newStaleRig(t, true)
+	r.newVer = "9.9.9" // the release the fake download carries
 	r.versions[r.exe] = "0.176.0"
 	r.versions[bundled] = "0.176.0"
 	// the daemon service starts the CLI bundled with the app: the update just replaced it, so it is not listed
@@ -365,11 +366,14 @@ func TestUpdateAppReportsTheStaleCLIsAndLeavesTheBundledOneOut(t *testing.T) {
 		t.Fatal(err)
 	}
 	res, progress := runUpdateAppCmd(t, d, "--app", app, "--current", "v1.0.0")
-	if !res.Success || len(res.StaleCLIs) != 1 || res.StaleCLIs[0].Path != other || res.StaleCLIs[0].Action != "stale" {
+	if !res.Success || len(res.StaleCLIs) != 1 || res.StaleCLIs[0].Path != other || res.StaleCLIs[0].Action != "updated" {
 		t.Fatalf("res = %+v", res)
 	}
-	if !strings.Contains(progress, other+" update") {
-		t.Errorf("the progress lines do not carry the command: %s", progress)
+	if !strings.Contains(progress, "replaced it with v9.9.9") {
+		t.Errorf("the progress lines do not say what was replaced: %s", progress)
+	}
+	if b, _ := os.ReadFile(other); string(b) != "new-cli" {
+		t.Errorf("the CLI on PATH is not the release's CLI from the verified download: %q", b)
 	}
 	if b, _ := os.ReadFile(bundled); string(b) != "new-cli" {
 		t.Errorf("the bundled CLI is not the one the app update installed: %q", b)
@@ -467,6 +471,10 @@ func TestUpdateReplacesTheDaemonServicesExeBeforeItRestartsTheDaemon(t *testing.
 	d.Installer = func() autostart.Installer { return fake }
 	d.ServicePID = func(context.Context, autostart.Installer) (int, error) { return os.Getpid(), nil }
 	d.VerifyWait, d.VerifyTick = 300*time.Millisecond, 10*time.Millisecond
+	bridge := newFakeBridge("v0.176.0") // the user's bridge service, restarted after the binaries are replaced
+	bridge.after = func(b *fakeBridge) { b.state.PID, b.state.Version = 101, "v9.9.9" }
+	d = bridge.deps(d)
+	d.VerifyWait = 300 * time.Millisecond
 
 	out := captureStdout(t, func() {
 		if err := d.run(NewCommand(d)); err != nil {
@@ -489,6 +497,9 @@ func TestUpdateReplacesTheDaemonServicesExeBeforeItRestartsTheDaemon(t *testing.
 		if m, _ := filepath.Glob(filepath.Join(dir, ".monoagentcli-*")); len(m) != 0 {
 			t.Errorf("files left behind in %s after a successful update: %v", dir, m)
 		}
+	}
+	if len(bridge.restarts) != 1 || !strings.Contains(out, "Restarted the extension bridge") {
+		t.Errorf("the bridge was restarted %d times; output:\n%s", len(bridge.restarts), out)
 	}
 	if strings.Count(out, "replaced it with v9.9.9") != 2 {
 		t.Errorf("output does not say that the daemon's exe and the PATH CLI were both replaced:\n%s", out)
@@ -996,7 +1007,7 @@ func newRollbackRig(t *testing.T) *rollbackRig {
 func (rr *rollbackRig) update(t *testing.T) (*DaemonUpdate, []StaleCLI) {
 	t.Helper()
 	list := rr.d.staleCLIs(context.Background(), "v0.215.7", nil, []byte(newAsset))
-	return rr.d.settleReplaced(context.Background(), list, rr.d.daemonAfterUpdate(context.Background(), "v0.215.7")), list
+	return rr.d.settleReplaced(context.Background(), list, rr.d.daemonAfterUpdate(context.Background(), "v0.215.7"), nil), list
 }
 
 func leftovers(t *testing.T, r *staleRig) []string {
@@ -1062,7 +1073,7 @@ func TestAFailedRollbackSaysWhatToDo(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer os.Chmod(filepath.Dir(rr.exe), 0o755)
-		du := rr.d.settleReplaced(context.Background(), list, rr.d.daemonAfterUpdate(context.Background(), "v0.215.7"))
+		du := rr.d.settleReplaced(context.Background(), list, rr.d.daemonAfterUpdate(context.Background(), "v0.215.7"), nil)
 		if du.RolledBack || !strings.Contains(du.Message, "could not be rolled back") || !strings.Contains(du.Message, "mv -f") {
 			t.Fatalf("du = %+v", du)
 		}
@@ -1373,6 +1384,16 @@ func TestUpdateOfTheBinaryTheDaemonServiceStartsIsRolledBackWhenItDoesNotComeUp(
 					rr.hb.write(os.Getpid()+1, "v1.0.0")
 				}
 			}
+			bridge := newFakeBridge("v0.176.0")
+			bridge.after = func(b *fakeBridge) { b.state.PID, b.state.Version = 101, "v9.9.9" }
+			rr.d = bridge.deps(rr.d)
+			rr.d.VerifyWait = 200 * time.Millisecond
+			defer func() {
+				// the bridge is restarted onto the new binary only when the daemon came up on it
+				if want := map[bool]int{true: 1, false: 0}[tc.comesUp]; len(bridge.restarts) != want {
+					t.Errorf("the bridge was restarted %d times, want %d", len(bridge.restarts), want)
+				}
+			}()
 			out := captureStdout(t, func() {
 				if err := rr.d.run(NewCommand(rr.d)); err != nil {
 					t.Fatal(err)
@@ -1540,6 +1561,135 @@ func TestABackupJustMadeIsNotSweptByTheNextInstallInTheSameFolder(t *testing.T) 
 		t.Fatalf("restored %q", x)
 	}
 	rb.Commit()
+}
+
+// --- update --app brings the other CLIs onto the release (the one-shot)
+
+// appRig is an update --app against a fake release whose tarball holds the app and a CLI, with a daemon service whose exe and a
+// CLI on PATH are old.
+type appRig struct {
+	*rollbackRig
+	app, bundled, onPath string
+}
+
+func newAppRig(t *testing.T, tarFiles map[string]string, tamper bool) (*appRig, string) {
+	t.Helper()
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
+		t.Skip("linux/amd64 install path")
+	}
+	latest := fakeAppRelease(t, tgz(t, tarFiles), tamper)
+	app, bundled := appInstallDir(t)
+	rr := newRollbackRig(t)
+	rr.newVer = "9.9.9"
+	onPath := filepath.Join(t.TempDir(), "pathbin", "monoagentcli")
+	if err := os.MkdirAll(filepath.Dir(onPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(onPath, []byte(oldAsset), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rr.d.LookPath = func(string) (string, error) { return onPath, nil }
+	rr.versions[onPath] = "0.176.0"
+	rr.d.ReleaseClient, rr.d.LatestReleaseURL = testDeps(t, latest).ReleaseClient, latest
+	return &appRig{rollbackRig: rr, app: app, bundled: bundled, onPath: onPath}, latest
+}
+
+func TestUpdateAppReplacesTheDaemonExeAndThePathCLIFromTheVerifiedDownload(t *testing.T) {
+	r, _ := newAppRig(t, map[string]string{"MonoAgent-linux-amd64": "new-app", "monoagentcli": "new-cli"}, false)
+	var exeAtRestart string
+	r.fake.onRestart = func() {
+		b, _ := os.ReadFile(r.exe)
+		exeAtRestart = string(b)
+		r.hb.write(os.Getpid(), "v9.9.9")
+	}
+	res, progress := runUpdateAppCmd(t, r.d, "--app", r.app, "--current", "v1.0.0")
+	if !res.Success || len(res.StaleCLIs) != 2 {
+		t.Fatalf("res = %+v", res)
+	}
+	for _, p := range []string{r.exe, r.onPath} {
+		if b, _ := os.ReadFile(p); string(b) != "new-cli" {
+			t.Errorf("%s = %q, want the release's CLI from the verified download", p, b)
+		}
+	}
+	if exeAtRestart != "new-cli" || res.Daemon == nil || res.Daemon.Action != "restarted" {
+		t.Errorf("the daemon was restarted onto %q; daemon %+v", exeAtRestart, res.Daemon)
+	}
+	if l := leftovers(t, r.staleRig); len(l) != 0 {
+		t.Errorf("previous binaries left behind after a good update: %v", l)
+	}
+	if strings.Count(progress, "replaced it with v9.9.9") != 2 {
+		t.Errorf("progress does not say both were replaced:\n%s", progress)
+	}
+}
+
+// The daemon that does not come up on the new CLI is put back on the old one, as for a plain update.
+func TestUpdateAppRollsTheDaemonExeBackWhenTheDaemonDoesNotComeUp(t *testing.T) {
+	r, _ := newAppRig(t, map[string]string{"MonoAgent-linux-amd64": "new-app", "monoagentcli": "new-cli"}, false)
+	restarts := 0
+	r.fake.onRestart = func() {
+		restarts++
+		if restarts == 2 { // after the put-back
+			r.hb.write(os.Getpid()+1, "v1.0.0")
+		}
+	}
+	bridge := newFakeBridge("v0.176.0")
+	r.d = bridge.deps(r.d)
+	r.d.VerifyWait = 200 * time.Millisecond
+	res, _ := runUpdateAppCmd(t, r.d, "--app", r.app, "--current", "v1.0.0")
+	if res.Daemon == nil || !res.Daemon.RolledBack {
+		t.Fatalf("daemon = %+v", res.Daemon)
+	}
+	if res.Bridge == nil || res.Bridge.Action != "skipped" || len(bridge.restarts) != 0 {
+		t.Fatalf("the bridge was restarted onto a binary that was rolled back: %+v, restarts %v", res.Bridge, bridge.restarts)
+	}
+	if b, _ := os.ReadFile(r.exe); string(b) != oldAsset {
+		t.Fatalf("the daemon's exe was not put back: %q", b)
+	}
+	if b, _ := os.ReadFile(r.bundled); string(b) != "new-cli" {
+		t.Fatalf("the app's own CLI must stay the new one: %q", b)
+	}
+}
+
+// Nothing is replaced when the app was already current, when the download held no CLI, or when the download was refused.
+func TestUpdateAppReplacesNothingElseWithoutAVerifiedCLI(t *testing.T) {
+	t.Run("the download holds no CLI: reported", func(t *testing.T) {
+		r, _ := newAppRig(t, map[string]string{"MonoAgent-linux-amd64": "new-app"}, false)
+		res, _ := runUpdateAppCmd(t, r.d, "--app", r.app, "--current", "v1.0.0")
+		for _, p := range []string{r.exe, r.onPath} {
+			if b, _ := os.ReadFile(p); string(b) != oldAsset {
+				t.Errorf("%s was replaced though the download held no CLI: %q", p, b)
+			}
+		}
+		if len(res.StaleCLIs) != 2 || res.StaleCLIs[0].Action != "stale" || res.StaleCLIs[1].Action != "stale" {
+			t.Fatalf("stale = %+v", res.StaleCLIs)
+		}
+	})
+	t.Run("a refused download", func(t *testing.T) {
+		r, _ := newAppRig(t, map[string]string{"MonoAgent-linux-amd64": "new-app", "monoagentcli": "new-cli"}, true)
+		var out, errOut bytes.Buffer
+		cmd := NewCommand(r.d)
+		cmd.SetOut(&out)
+		cmd.SetErr(&errOut)
+		cmd.SetArgs([]string{"--app", r.app, "--current", "v1.0.0"})
+		_ = cmd.Execute()
+		for _, p := range []string{r.exe, r.onPath} {
+			if b, _ := os.ReadFile(p); string(b) != oldAsset {
+				t.Errorf("%s was replaced by a download that was refused: %q", p, b)
+			}
+		}
+	})
+	t.Run("already current", func(t *testing.T) {
+		r, _ := newAppRig(t, map[string]string{"MonoAgent-linux-amd64": "new-app", "monoagentcli": "new-cli"}, false)
+		res, _ := runUpdateAppCmd(t, r.d, "--app", r.app, "--current", "v9.9.9")
+		if !res.UpToDate {
+			t.Fatalf("res = %+v", res)
+		}
+		for _, p := range []string{r.exe, r.onPath} {
+			if b, _ := os.ReadFile(p); string(b) != oldAsset {
+				t.Errorf("%s was replaced though the app was already current: %q", p, b)
+			}
+		}
+	})
 }
 
 // A backup is named with the time it was made, in the exact shape the sweep reads, and the sweep touches only that shape: a
