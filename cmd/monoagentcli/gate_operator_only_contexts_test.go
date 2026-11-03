@@ -25,7 +25,13 @@ func opEnv(t *testing.T) *globalConfig {
 
 func (r opRow) run(t *testing.T, cfg *globalConfig) error {
 	t.Helper()
-	_, err := runSendCLI(t, cfg, r.build(cfg), r.args...)
+	args := append([]string(nil), r.args...)
+	for i, a := range args {
+		if a == "{tmp}" { // a file the verb may write: the test's own directory, never the working directory
+			args[i] = filepath.Join(t.TempDir(), "out.enc")
+		}
+	}
+	_, err := runSendCLI(t, cfg, r.build(cfg), args...)
 	return err
 }
 

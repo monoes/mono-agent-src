@@ -30,7 +30,7 @@ func operatorOnlyRows() []opRow {
 		{path: "secret agent-access", build: newSecretCmd, args: []string{"agent-access", "strict"}},
 		{path: "secret agent-access audit", build: newSecretCmd, args: []string{"agent-access", "audit", "--clear"}},
 		{path: "secret rebind", build: newSecretCmd, args: []string{"rebind"}, recovery: true},
-		{path: "secret export", build: newSecretCmd, args: []string{"export"}},
+		{path: "secret export", build: newSecretCmd, args: []string{"export", "--output", "{tmp}"}},
 		{path: "connect get-oauth-client", build: newConnectCmd, args: []string{"get-oauth-client", "github", "--reveal"}},
 		{path: "profile info get", build: newProfileCmd, args: []string{"info", "get", "--reveal"}},
 		{path: "workflow run", build: newWorkflowRunWithFullOutputs, args: []string{"no-such-workflow", "--full-outputs"}},
