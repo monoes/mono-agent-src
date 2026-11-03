@@ -155,6 +155,7 @@ func (e *FinishEngine) report(r finish.Report, err error) (FinishReport, error) 
 
 // FinishAdvance takes the finish as far as it goes.
 func (e *FinishEngine) FinishAdvance(ctx context.Context, o FinishOptions) (FinishReport, error) {
+	e.RequireNetDeny = e.RequireNetDeny || o.RequireNetDeny
 	h, run, err := e.harness(ctx, o.Subject)
 	if err != nil {
 		return FinishReport{}, err
@@ -184,6 +185,7 @@ func (e *FinishEngine) deadline(ctx context.Context, h *finish.Harness, run stor
 
 // FinishReverify starts another round of a parked finish.
 func (e *FinishEngine) FinishReverify(ctx context.Context, o FinishOptions) (FinishReport, error) {
+	e.RequireNetDeny = e.RequireNetDeny || o.RequireNetDeny
 	h, _, err := e.harness(ctx, o.Subject)
 	if err != nil {
 		return FinishReport{}, err

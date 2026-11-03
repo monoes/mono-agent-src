@@ -215,6 +215,9 @@ func (e *Enforcer) Decide(ctx context.Context, r Request) (Decision, error) {
 	if !Allowed(r.Op) {
 		return Decision{}, ErrNotAllowlisted
 	}
+	if r.Op == OpFinishBegin {
+		return Decision{}, fmt.Errorf("%w: finish.begin has no approval and is not decided here (BeginFinish)", ErrBadArguments)
+	}
 	act, ok, err := e.Charters.Active(ctx, r.Profile)
 	if err != nil {
 		return Decision{}, err

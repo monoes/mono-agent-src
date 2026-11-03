@@ -3233,4 +3233,8 @@ function that does what the guarded one does), and it skips directories named `s
   act only through coderhost's route: a verified lead token (an operator scope is not accepted), a running, verified run of the
   profile read from the database on every call, and the charter's per-ask limits with an approval spent first. A default build
   serves the tools but they always refuse; they cannot start, stop or edit a run, and no other MCP tool may mention the mode
-  (`TestNoToolTouchesTheOpenEndedMode`).
+  (`TestNoToolTouchesTheOpenEndedMode`). The fourth boss tool, `session_boss_finish_begin` (finish.begin), has no approval: its
+  enforcement is the live charter, the verified top lead and the finish's own preconditions (criteria, a distinct pinned
+  verifier, no open person item); it only begins the finish, whose verification and commit stay the operator's. A criterion
+  runs with process limits and a scratch cap, and without a network where the kernel allows an unprivileged user namespace;
+  where it does not the record says `denied(declared-only)`, which is a declaration and not a defence.

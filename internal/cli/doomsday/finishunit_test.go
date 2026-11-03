@@ -2,12 +2,45 @@ package doomsday
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/monoes/mono-agent/internal/doomsday/finish"
+	"github.com/monoes/mono-agent/internal/doomsday/ops"
 	"github.com/monoes/mono-agent/internal/doomsday/stop"
 	"github.com/monoes/mono-agent/internal/doomsday/store"
 )
+
+// The limits and the network requirement reach the sandbox of the round (the real construction), and the verb's flag sets
+// the requirement.
+func TestTheSandboxCarriesTheLimitsAndTheNetworkRequirement(t *testing.T) {
+	_, e := finishedBegun(t)
+	e.Limits = finish.Limits{CPUSeconds: 9, ScratchBytes: 1 << 20}
+	e.RequireNetDeny = true
+	sb, end, err := e.sandbox(1)(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer end()
+	if sb.Limits.CPUSeconds != 9 || sb.Limits.ScratchBytes != 1<<20 || !sb.RequireNetDeny {
+		t.Fatalf("%+v", sb)
+	}
+}
+
+func TestTheFinishVerbsFlagRequiresTheNetworkDeny(t *testing.T) {
+	r := newFinRig(t, finishCharterJSON)
+	r.start(t)
+	r.mustDo(t, "finish", "--begin")
+	r.mustDo(t, "finish", "--subject", r.subject)
+	if r.fe.RequireNetDeny {
+		t.Fatal("the requirement is on without the flag")
+	}
+	r.mustDo(t, "finish", "--require-net-deny")
+	if !r.fe.RequireNetDeny {
+		t.Fatal("--require-net-deny did not reach the engine")
+	}
+}
 
 // The verification unit of a finish round is witnessed like the run's own unit and is a registry member of kind `verify`
 // (note 13.6 G3), against the real store and the real witness; the kernel and the service manager are the fake world of
@@ -108,6 +141,50 @@ func TestNoVerificationUnitWithoutAWitness(t *testing.T) {
 	}
 	if len(r.world.started) != 1 {
 		t.Fatalf("a service was started for it: %v", r.world.started)
+	}
+}
+
+// finish.begin as the boss's typed operation, against the real store and witness: with no running run it is refused before
+// anything is written; with one it begins the finish (the Stop path with cause=finish), and a charter that cannot finish
+// is refused by the finish's own preconditions with a denied-attempt row.
+func TestBossFinishBeginBeginsTheFinishOnlyOnARunningRun(t *testing.T) {
+	r := newFinRig(t, finishCharterJSON)
+	ctx := context.Background()
+	if _, err := r.w.BossFinishBegin(ctx, 5); err == nil || !errors.Is(err, ops.ErrNoCharter) {
+		t.Fatalf("no run: %v", err)
+	}
+	r.start(t)
+	if _, err := r.w.BossFinishBegin(ctx, 0); !errors.Is(err, ops.ErrCallerMismatch) {
+		t.Fatalf("no caller: %v", err)
+	}
+	if runs, _ := r.w.Store.OpenRuns(ctx, "p1"); len(runs) != 1 || runs[0].State != store.StateRunning {
+		t.Fatalf("a refused call changed the run: %+v", runs)
+	}
+	res, err := r.w.BossFinishBegin(ctx, 5)
+	if err != nil || !res.Accepted || res.Generation != 1 {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if run, _ := r.w.Store.GetRun(ctx, "p1", 1); run.State != store.StateQuiescent || run.Cause != store.FinishCause {
+		t.Fatalf("%+v", run)
+	}
+	if _, err := r.w.BossFinishBegin(ctx, 5); !errors.Is(err, ops.ErrNoCharter) {
+		t.Fatalf("a second begin on a run that is no longer running: %v", err)
+	}
+}
+
+func TestBossFinishBeginOnACharterThatCannotFinishIsDeniedAndRecorded(t *testing.T) {
+	r := newFinRig(t, strings.Replace(finishCharterJSON, `"criteria":[{"kind":"command","command":"echo hello","expected":"hello"},{"kind":"rubric","text":"the docs read well"}],`, "", 1))
+	r.start(t)
+	ctx := context.Background()
+	res, err := r.w.BossFinishBegin(ctx, 5)
+	if err != nil || res.Accepted || res.Refused == "" {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if runs, _ := r.w.Store.OpenRuns(ctx, "p1"); len(runs) != 1 || runs[0].State != store.StateRunning {
+		t.Fatalf("the run changed: %+v", runs)
+	}
+	if n := count2(t, r, `SELECT COUNT(*) FROM doomsday_audit WHERE kind = 'denied-attempt'`); n != 1 {
+		t.Fatalf("denied-attempt rows = %d", n)
 	}
 }
 

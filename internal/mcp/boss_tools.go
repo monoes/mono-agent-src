@@ -11,9 +11,10 @@ import (
 	"github.com/monoes/mono-agent/internal/coderhost"
 )
 
-// The boss's three typed operations of an open-ended run (spec 6, note 13.4 4B), as lead-facing tools: they mirror
+// The boss's typed operations of an open-ended run (spec 6, note 13.4 4B), as lead-facing tools: the first three mirror
 // session_reply_ask, the plan approval and the budget grant, but every one goes through coderhost's route, which
-// enforces the live charter's per-ask limits and spends an approval first. The caller is the lead whose token this
+// enforces the live charter's per-ask limits and spends an approval first. The fourth, finish.begin, is in
+// boss_tools_finish.go (no approval; the finish's own preconditions are its enforcement). The caller is the lead whose token this
 // process holds (leadScope), exactly as for the other session tools; an operator scope cannot reach the route.
 //
 // The mode is off by default. A build without it never sets an installer, and a build with it installs the route per
@@ -74,6 +75,7 @@ func bossTools() []tool {
 				"amount_usd": map[string]interface{}{"type": "number", "description": "How much to grant, in USD (above 0)"},
 			}, "request_id", "amount_usd"),
 		},
+		bossFinishTool(),
 	}
 }
 

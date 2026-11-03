@@ -4668,3 +4668,11 @@ scope), after the MCP server installs the route on its own coder store per call 
 `-tags doomsday` build in `cmd/monoagentcli/doomsday_engine.go`, which reads the profile's run from the database every call). With no
 installer (default build) or no running, verified run they refuse (`not_yours: ... not running`) and spend nothing; over a charter
 limit they park (`limit`). They are the only tools `internal/mcp/doomsday_guard_test.go` lets mention the mode.
+A fourth, `session_boss_finish_begin` (`internal/mcp/boss_tools_finish.go`), is the typed operation finish.begin (note 13.6 A3): no
+approval and no per-ask limit, only the top lead of the run (a lead below another lead is refused), through
+`mcp.SetBossFinishBeginner` (same build-tag rule) into the ops package's `BeginFinish` (live charter, verified caller) and then the
+finish engine's `FinishBegin`: the run stops with cause finish, and the operator's `doomsday finish` verbs verify and commit. Finish
+criteria run under process limits (CPU, address space, open files, file size, process count), a scratch byte cap and, where the
+kernel allows an unprivileged user namespace, without a network (`denied(enforced)`; otherwise `denied(declared-only)`, and
+`doomsday finish --require-net-deny` parks with `enforcement-required`); each round's verification unit is witnessed and a `verify`
+member of the run registry.

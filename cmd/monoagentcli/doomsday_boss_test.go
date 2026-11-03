@@ -12,6 +12,34 @@ import (
 	"github.com/monoes/mono-agent/internal/storage"
 )
 
+// finish.begin of the boss tool: with no running run it is the mode off and writes nothing; a run row that does not verify
+// (a forged state) does not turn it on either.
+func TestBossFinishBeginnerIsOffWithoutAVerifiedRunningRun(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "m.db")
+	db, err := storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.ApplyMigrations(); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := bossFinishBeginner(ctx, db.DB, dbPath, "p", 5); !errors.Is(err, coderhost.ErrDoomsdayOff) {
+		t.Fatalf("no run: %v", err)
+	}
+	if _, err := db.DB.Exec("INSERT INTO doomsday_runs (profile, generation, charter_id, state, mac) VALUES ('p', 1, 'c', 'running', x'00')"); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := bossFinishBeginner(ctx, db.DB, dbPath, "p", 5); err == nil || res.Accepted {
+		t.Fatalf("a forged run row began a finish: %+v %v", res, err)
+	}
+	var state string
+	if err := db.DB.QueryRow(`SELECT state FROM doomsday_runs WHERE profile = 'p'`).Scan(&state); err != nil || state != "running" {
+		t.Fatalf("the run row changed: %q %v", state, err)
+	}
+}
+
 // The boss tools' installer puts no route on a store while the profile has no running run, and a run row that does not
 // verify (a forged state) does not turn the mode on either: BossAnswerAsk is the mode off in both.
 func TestBossRouteInstallerIsOffWithoutAVerifiedRunningRun(t *testing.T) {

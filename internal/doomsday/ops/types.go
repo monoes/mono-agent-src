@@ -21,11 +21,15 @@ const (
 	OpPlanApprove = "plan.approve"
 	OpAskAnswer   = "ask.answer"
 	OpSpendGrant  = "spend.grant"
+	// OpFinishBegin starts the finish of the run (note 13.6 A3). It is on the allowlist but is not an approval-with-limits
+	// operation: it has no approval record and no per-ask limits, and its precondition check is its enforcement function
+	// (BeginFinish). Decide does not decide it.
+	OpFinishBegin = "finish.begin"
 )
 
 // Allowed says whether op is on the allowlist.
 func Allowed(op string) bool {
-	return op == OpPlanApprove || op == OpAskAnswer || op == OpSpendGrant
+	return op == OpPlanApprove || op == OpAskAnswer || op == OpSpendGrant || op == OpFinishBegin
 }
 
 // Counter kinds of the run's cumulative totals (insert-only delta rows in the store).

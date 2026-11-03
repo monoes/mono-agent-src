@@ -33,6 +33,8 @@ func init() {
 	// The lead-facing boss tools of the MCP server: each call installs the route on its own coder store, and the route
 	// is the mode off whenever the profile has no running run (a build without the mode never sets this).
 	mcp.SetBossRouteInstaller(bossRouteInstaller)
+	// And its finish.begin: the boss starts the finish through the ops package's enforcement function, on the open run.
+	mcp.SetBossFinishBeginner(bossFinishBeginner)
 	doomsdayEngine = func(cfg *globalConfig) doomsdaycli.Engine {
 		db, err := initDB(cfg)
 		if err != nil {
@@ -100,6 +102,25 @@ func doomsdayWiring(cfg *globalConfig, db *sql.DB) doomsdaycli.Wiring {
 		Witness: &doomsdaycli.WitnessSetup{DBPath: expandPath(cfg.DBPath), Keys: keys, Secrets: stop.OSSecretStore{},
 			Warn: func(m string) { fmt.Fprintln(os.Stderr, "doomsday: "+m) }},
 	}
+}
+
+// bossFinishBeginner is mcp.BossFinishBeginner: finish.begin for the verified lead session. Like the route installer it asks
+// first whether the profile has a running run and constructs nothing (no pinned connection, no key read) when it has none.
+func bossFinishBeginner(ctx context.Context, db *sql.DB, dbPath, profile string, session int64) (mcp.BossFinishResult, error) {
+	var running int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM doomsday_runs WHERE profile = ? AND state = 'running'`, profile).Scan(&running); err != nil || running == 0 {
+		return mcp.BossFinishResult{}, fmt.Errorf("%w: %v", coderhost.ErrDoomsdayOff, ops.ErrNoCharter)
+	}
+	res, err := doomsdayWiring(&globalConfig{DBPath: dbPath, ProfileID: profile}, db).BossFinishBegin(ctx, session)
+	switch {
+	case errors.Is(err, ops.ErrNoCharter):
+		return mcp.BossFinishResult{}, fmt.Errorf("%w: %v", coderhost.ErrDoomsdayOff, err)
+	case errors.Is(err, ops.ErrCharterStale), errors.Is(err, ops.ErrCallerMismatch), errors.Is(err, ops.ErrNotEnabled), errors.Is(err, ops.ErrNotAllowlisted):
+		return mcp.BossFinishResult{}, fmt.Errorf("%w: %v", coderhost.ErrNotYours, err)
+	case err != nil:
+		return mcp.BossFinishResult{}, err
+	}
+	return mcp.BossFinishResult{Generation: res.Generation, Accepted: res.Accepted, Refused: res.Refused, State: res.State, Lines: res.Lines}, nil
 }
 
 // bossRouteInstaller is mcp.BossRouteInstaller: the route on one boss-tool call's coder store. One cheap query first:

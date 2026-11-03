@@ -30,6 +30,9 @@ type FinishOptions struct {
 	// Subject is the live root the finish snapshots. The first call names it; later calls may omit it, and a different
 	// one than the recorded is refused.
 	Subject string
+	// RequireNetDeny parks a finish whose criteria run programs where the platform cannot deny the network (note 13.6
+	// section 5: require_enforced); without it the denial is applied where possible and recorded as enforced or declared-only.
+	RequireNetDeny bool
 }
 
 // FinishReport is where a finish stands after a call.
@@ -121,6 +124,7 @@ func (d Deps) newFinish() *cobra.Command {
 		},
 	}
 	c.Flags().StringVar(&o.Subject, "subject", "", "The directory the finish verifies (first call; recorded afterwards)")
+	c.Flags().BoolVar(&o.RequireNetDeny, "require-net-deny", false, "Park the finish where criteria cannot be run without a network (otherwise the denial is applied where the platform allows and recorded either way)")
 	c.Flags().BoolVar(&begin, "begin", false, "Start the finish of the running run (the boss's finish.begin does the same)")
 	c.Flags().BoolVar(&reverify, "reverify", false, "Start another round of a parked finish")
 	return c
