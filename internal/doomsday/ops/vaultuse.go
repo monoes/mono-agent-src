@@ -46,7 +46,9 @@ type Response struct {
 }
 
 // Transport performs the request with the secret injected at req.Inject. It must not follow redirects, must use a
-// pinned address set and must honour ctx.
+// pinned address set and must honour ctx. The Body it returns must tolerate Close being called from another goroutine
+// while a Read is in progress (Run closes it on cancel and on timeout to release a stuck read, e.g. to kill a child);
+// a nil Body with a nil error is treated as a transport failure.
 type Transport interface {
 	Do(ctx context.Context, req VaultArgs, secret []byte) (Response, error)
 }
@@ -56,7 +58,9 @@ type SecretSource interface {
 	Value(ctx context.Context, name string) ([]byte, error)
 }
 
-// Clock is the host's monotonic clock. Wait returns nil once Now() >= until, or ctx's error.
+// Clock is the host's monotonic clock. Wait returns nil once Now() >= until, or ctx's error; it MUST honour ctx. Run
+// does not depend on that for its real-time bound: if Wait ignores ctx, the goroutine that called it stays parked until
+// Wait returns, holding only the executor, the context and the instant (never the secret), and Run has already returned.
 type Clock interface {
 	Now() time.Time
 	Wait(ctx context.Context, until time.Time) error
@@ -70,9 +74,22 @@ type VaultExecutor struct {
 	Transport Transport
 	Secrets   SecretSource
 	Auditor   Auditor
-	// WallGrace is how long after the charter's MaxCall, in real time and independent of Clock, Run waits for the clock's
-	// own signals before it forces the timeout itself. Zero means DefaultWallGrace.
+	// WallGrace is the real-time margin, independent of Clock, that Run allows the injected clock beyond the charter's
+	// durations. Run returns within MaxCall + one slot + WallGrace of real time whatever Clock and the transport do:
+	// the exchange is forced to the timeout outcome at MaxCall + WallGrace, and the wait for the slot end is released
+	// at MaxCall + slot + WallGrace measured from the same real-time start. Zero means DefaultWallGrace.
 	WallGrace time.Duration
+
+	// newWall is a test seam for the real-time timers; nil means time.NewTimer.
+	newWall func(d time.Duration) (<-chan time.Time, func())
+}
+
+func (x *VaultExecutor) wallTimer(d time.Duration) (<-chan time.Time, func()) {
+	if x.newWall != nil {
+		return x.newWall(d)
+	}
+	t := time.NewTimer(d)
+	return t.C, func() { t.Stop() }
 }
 
 // DefaultWallGrace is the real-time margin of the wall-clock backstop.
@@ -118,18 +135,31 @@ func (x *VaultExecutor) Run(ctx context.Context, ap Authorization, req VaultArgs
 		}
 	}()
 	// Backstop on the real clock: whatever Clock does, and whatever the transport's body does, Run does not outlive
-	// MaxCall by more than the grace.
-	wall := time.NewTimer(maxCall + x.wallGrace())
-	defer wall.Stop()
+	// MaxCall + one slot by more than the grace. Both real-time bounds run from this one start.
+	wallStart := time.Now()
+	wallC, stopWall := x.wallTimer(maxCall + x.wallGrace())
+	defer stopWall()
+	// forced is the outcome when the injected clock or the wall says the call ran out. A result that was already
+	// delivered in time wins (the select above picks at random among ready cases); one that arrived at or after
+	// MaxCall stays a timeout below. It is checked before cancel, which would turn the result into an error.
+	forced := func() attempt {
+		select {
+		case d := <-done:
+			if d.arrival.Before(t0.Add(maxCall)) {
+				return d
+			}
+		default:
+		}
+		cancel()
+		return attempt{arrival: t0.Add(maxCall), err: context.DeadlineExceeded}
+	}
 	var a attempt
 	select {
 	case a = <-done:
 	case <-timeout:
-		cancel()
-		a = attempt{arrival: t0.Add(maxCall), err: context.DeadlineExceeded}
-	case <-wall.C:
-		cancel()
-		a = attempt{arrival: t0.Add(maxCall), err: context.DeadlineExceeded}
+		a = forced()
+	case <-wallC:
+		a = forced()
 	case <-ctx.Done():
 		x.audit(ctx, ap, "cancelled")
 		return Envelope{}, ErrCancelled
@@ -141,7 +171,7 @@ func (x *VaultExecutor) Run(ctx context.Context, ap Authorization, req VaultArgs
 	}
 	n = min(max(n, 1), v.Slots())
 	env := envelope(v, a)
-	if !x.waitSlotEnd(ctx, t0.Add(time.Duration(n)*slot)) {
+	if !x.waitSlotEnd(ctx, t0.Add(time.Duration(n)*slot), wallStart.Add(maxCall+slot+x.wallGrace())) {
 		x.audit(ctx, ap, "cancelled")
 		return Envelope{}, ErrCancelled
 	}
@@ -149,14 +179,26 @@ func (x *VaultExecutor) Run(ctx context.Context, ap Authorization, req VaultArgs
 	return env, nil
 }
 
-// waitSlotEnd waits for the end of the slot on the injected clock, but never for longer than the real-time backstop:
-// a clock that never signals ends the wait, only the caller's own cancellation is a cancel. The slot end is at most
-// MaxCall after the start, so the bound is the remaining injected time plus the grace.
-func (x *VaultExecutor) waitSlotEnd(ctx context.Context, until time.Time) bool {
-	wctx, stop := context.WithTimeout(ctx, max(0, until.Sub(x.Clock.Now()))+x.wallGrace())
+// waitSlotEnd waits for the end of the slot on the injected clock. It returns false (cancelled, nothing delivered)
+// when the caller's ctx ends or the clock's Wait fails for any reason. It returns true early, BEFORE the injected slot
+// end, only when the real-time wall bound expires: the injected clock is then broken or running behind real time, and
+// the charter's maximum duration takes precedence over the slot quantisation. The wait runs in its own goroutine, so
+// a Clock.Wait that ignores ctx cannot hold Run past the wall.
+func (x *VaultExecutor) waitSlotEnd(ctx context.Context, until, wallEnd time.Time) bool {
+	wctx, stop := context.WithCancel(ctx)
 	defer stop()
-	err := x.Clock.Wait(wctx, until)
-	return err == nil || ctx.Err() == nil
+	errc := make(chan error, 1)
+	go func() { errc <- x.Clock.Wait(wctx, until) }()
+	wallC, stopWall := x.wallTimer(max(0, time.Until(wallEnd)))
+	defer stopWall()
+	select {
+	case err := <-errc:
+		return err == nil
+	case <-wallC:
+		return ctx.Err() == nil
+	case <-ctx.Done():
+		return false
+	}
 }
 
 func (x *VaultExecutor) audit(ctx context.Context, ap Authorization, result string) {
@@ -171,6 +213,9 @@ func (x *VaultExecutor) exchange(ctx context.Context, v *VaultUse, req VaultArgs
 	resp, err := x.Transport.Do(ctx, req, secret)
 	if err != nil {
 		return attempt{arrival: x.Clock.Now(), err: err}
+	}
+	if resp.Body == nil {
+		return attempt{arrival: x.Clock.Now(), err: errors.New("transport returned no body")}
 	}
 	a := attempt{status: resp.Status}
 	// Closing the body on cancel unblocks a read stuck in a transport that does not tie its body to ctx.
