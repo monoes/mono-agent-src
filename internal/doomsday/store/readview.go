@@ -71,7 +71,10 @@ type CounterTotal struct {
 type View struct {
 	Run    Run
 	Limits Limits
-	Chain  ChainState
+	// RunSpendCapMicro and RunTasksCap are the charter's caps on the run's auto-approved totals (0: not declared).
+	RunSpendCapMicro int64
+	RunTasksCap      int64
+	Chain            ChainState
 	// Feed is newest first; FeedNext is the cursor of the next older page (0: no older rows).
 	Feed     []FeedItem
 	FeedNext int64
@@ -153,7 +156,7 @@ func (s *SQLStore) readViewTx(ctx context.Context, tx *sql.Tx, profile string, g
 		}
 		return View{}, err
 	}
-	v := View{Run: run, Limits: ch.Limits}
+	v := View{Run: run, Limits: ch.Limits, RunSpendCapMicro: ch.PerAsk.RunSpendMicro, RunTasksCap: ch.PerAsk.RunTasks}
 	var window []FeedItem
 	if v.Chain, window, err = s.verifyWindow(ctx, tx, profile, generation, before, limit); err != nil {
 		return View{}, err

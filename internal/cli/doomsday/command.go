@@ -47,7 +47,7 @@ func NewCommand(d Deps) *cobra.Command {
 		Short:  "Open-ended mode: start, stop, status, render (the user's own)",
 		Hidden: true,
 	}
-	cmd.AddCommand(d.newStart(), d.newStop(), d.newStatus(), d.newRender(), d.newFinish(), d.newRubric())
+	cmd.AddCommand(d.newStart(), d.newStop(), d.newStatus(), d.newRender(), d.newFinish(), d.newRubric(), d.newOverview(), d.newFeed())
 	return cmd
 }
 
