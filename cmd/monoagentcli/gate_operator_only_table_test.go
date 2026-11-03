@@ -21,7 +21,7 @@ type opRow struct {
 // later change that converts more verbs adds rows here and removes them from the pending lists of the
 // guards.
 func operatorOnlyRows() []opRow {
-	return []opRow{
+	return append(operatorOnlyRowsPR2(), []opRow{
 		{path: "api key create", build: newAPICmd, args: []string{"key", "create", "--name", "x"}},
 		{path: "api key update", build: newAPICmd, args: []string{"key", "update", "k1", "--name", "y"}},
 		{path: "api key revoke", build: newAPICmd, args: []string{"key", "revoke", "k1", "--yes"}},
@@ -34,7 +34,7 @@ func operatorOnlyRows() []opRow {
 		{path: "connect get-oauth-client", build: newConnectCmd, args: []string{"get-oauth-client", "github", "--reveal"}},
 		{path: "profile info get", build: newProfileCmd, args: []string{"info", "get", "--reveal"}},
 		{path: "workflow run", build: newWorkflowRunWithFullOutputs, args: []string{"no-such-workflow", "--full-outputs"}},
-	}
+	}...)
 }
 
 // newWorkflowRunWithFullOutputs is `workflow run` with the flag the real tree binds to workflowrun.FullOutputs
