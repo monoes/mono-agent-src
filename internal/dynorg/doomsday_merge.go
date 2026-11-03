@@ -50,8 +50,10 @@ type DoomsdayMerge struct {
 	Journal    MergeJournal
 	Profile    string
 	Generation int64
-	seq        atomic.Int64
 }
+
+// mergeSeq makes operation ids unique within a process, whatever number of DoomsdayMerge values exist.
+var mergeSeq atomic.Int64
 
 // mergeOp is one begun merge. Every method is a no-op on a nil receiver (the mode is off).
 type mergeOp struct {
@@ -103,7 +105,7 @@ func (c *Conductor) beginMerge(ctx context.Context, repo, branch, worker string)
 	if dd.Journal == nil {
 		return nil, fmt.Errorf("%w: the merge journal is not wired", ErrMergeStopped)
 	}
-	id := fmt.Sprintf("merge-%d-%d", os.Getpid(), dd.seq.Add(1))
+	id := fmt.Sprintf("merge-%d-%d", os.Getpid(), mergeSeq.Add(1))
 	t, err := dd.Gate.Admit(stop.Spec{Kind: stop.KindE1, Op: id, Steps: mergeSteps})
 	if err != nil {
 		return nil, ErrMergeStopped
