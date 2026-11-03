@@ -95,7 +95,7 @@ try {
   // The request is with the owner: the panel says where to approve it, no
   // token is stored, then the driver approves and the panel flips by itself.
   const waitThenApprove = async () => {
-    await until(`/Waiting for approval in the MonoAgent app \\(or run monoagentcli extension approve <id> --code <code>\\)/.test(document.getElementById("signin-state")?.textContent || "")`, "the waiting-for-approval line", 45000);
+    await until(`/Waiting for approval in the MonoAgent app \\(or, in your own terminal, not one started from a coder session, run monoagentcli extension approve <id> --code <code>\\)/.test(document.getElementById("signin-state")?.textContent || "")`, "the waiting-for-approval line", 45000);
     // The panel shows the confirmation code the owner types to approve.
     const code = JSON.parse(await ev(`JSON.stringify((/Code: ([A-Z2-9]{3}-[A-Z2-9]{3})/.exec(document.getElementById("signin-code")?.textContent || "") || [])[1] || "")`));
     if (!/^[A-Z2-9]{3}-[A-Z2-9]{3}$/.test(code)) fail(`the waiting panel shows no confirmation code: ${JSON.stringify(code)}`);

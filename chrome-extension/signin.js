@@ -32,13 +32,13 @@
       out.state = "Sign in in the MonoAgent app or run monoagentcli account login. This window updates automatically.";
     } else if (unpaired && s.reason === "pair_waiting") {
       // The bridge holds this browser's request until the owner decides.
-      out.state = "Waiting for approval in the MonoAgent app (or run monoagentcli extension approve <id> --code <code>). This window updates automatically.";
+      out.state = "Waiting for approval in the MonoAgent app (or, in your own terminal, not one started from a coder session, run monoagentcli extension approve <id> --code <code>). This window updates automatically.";
       // The owner types this code to approve; a request they did not start shows it to nobody they can ask.
       // Only plain tokens go into a command the owner pastes into a shell.
       if (/^[A-Za-z0-9-]+$/.test(String(s.code || "")) && /^[A-Za-z0-9-]+$/.test(String(s.claimId || ""))) {
         // Spelled out, so there is nothing to look up: this browser's own request, with its own code.
         const id = String(s.claimId).slice(0, 8);
-        out.lead = "This browser asked to pair. Approve it from a terminal with:";
+        out.lead = "This browser asked to pair. Approve it from your own terminal (not one started from a coder session) with:";
         out.command = `monoagentcli extension approve ${id} --code ${s.code}`;
         out.more = [{ note: "Not you? Deny it:", cmd: `monoagentcli extension deny ${id}` }];
       }
