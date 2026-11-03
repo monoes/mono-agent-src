@@ -60,8 +60,10 @@ type execLauncher struct {
 	// beforeRelease, when set, is asked after the process and its identity exist and before anything is delivered to it (the bound
 	// child blocks on its credential frame until then, so a refusal ends a process that has not run). bound says whether the turn is
 	// launched with peer-credential binding: a legacy child is already running, so a refusal of one stops a started process. An error
-	// fails the start like any other failed delivery (the turn started, is stopped, its tokens end).
-	beforeRelease func(profileID, conversationID, turnID string, bound bool) error
+	// fails the start like any other failed delivery (the turn started, is stopped, its tokens end). The context is cancelled when the
+	// start gives up on the hook (a deadline, a panic) or returns: a hook that takes something it cannot give back (a ticket) must check it
+	// under its own lock first, so a late completion for a refused turn takes nothing.
+	beforeRelease func(ctx context.Context, profileID, conversationID, turnID string, bound bool) error
 	// afterExitRevoke is a test seam: the exit goroutine calls it once its revokes have run, before the turn is done.
 	afterExitRevoke func()
 }
@@ -80,18 +82,19 @@ func hookRecover(what string, f func() error) (err error) {
 	return f()
 }
 
-// askRelease asks the release hook, refusing when it panics or does not answer within releaseTimeout. A hook that is still running
-// at the deadline is left to finish on its own goroutine; its late answer is ignored.
-func askRelease(hook func(profileID, conversationID, turnID string, bound bool) error, profileID, conversationID, turnID string, bound bool) error {
+// boundedHook runs f on its own goroutine, with a recover, and gives up on it after releaseTimeout: the answer is then an error, and
+// the context f was given is cancelled (it is cancelled whenever boundedHook returns). A hook that is still running at the deadline is
+// left to finish; its late result is dropped, and it must check its context before any effect it cannot take back.
+func boundedHook(what string, f func(ctx context.Context) error) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	res := make(chan error, 1)
-	go func() {
-		res <- hookRecover("the release check", func() error { return hook(profileID, conversationID, turnID, bound) })
-	}()
+	go func() { res <- hookRecover(what, func() error { return f(ctx) }) }()
 	select {
 	case err := <-res:
 		return err
 	case <-time.After(releaseTimeout):
-		return errors.New("the release check did not answer in time")
+		return fmt.Errorf("%s did not answer in time", what)
 	}
 }
 
@@ -379,7 +382,7 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	}
 	if l.runStamp != nil && l.recordRun != nil {
 		// A zero answer stamps nothing and never clears an earlier stamp (the stamp belongs to the run and is read by generation).
-		if err := hookRecover("the run stamp", func() error {
+		if err := boundedHook("the run stamp", func(context.Context) error {
 			if charterID, gen := l.runStamp(profileID, conversationID); charterID != "" || gen != 0 {
 				return l.recordRun(profileID, conversationID, turnID, charterID, gen)
 			}
@@ -393,7 +396,9 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 		// A refused release is a start that failed after the process existed: StartedError on purpose (the spend cap stays counted, the
 		// command fails, nothing retries it). The stop is the ordinary one (SIGTERM, then the grace): a bound child that has not been given
 		// its credentials has not run, so it needs no pidfd kill.
-		if err := askRelease(l.beforeRelease, profileID, conversationID, turnID, bd != nil); err != nil {
+		if err := boundedHook("the release check", func(ctx context.Context) error {
+			return l.beforeRelease(ctx, profileID, conversationID, turnID, bd != nil)
+		}); err != nil {
 			return nil, t.fail(fmt.Errorf("the turn was not released: %w", err))
 		}
 	}

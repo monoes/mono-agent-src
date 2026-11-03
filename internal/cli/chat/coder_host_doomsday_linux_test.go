@@ -3,6 +3,7 @@
 package chat
 
 import (
+	"context"
 	"errors"
 	"github.com/monoes/mono-agent/internal/coderhost"
 	"os"
@@ -45,7 +46,10 @@ func TestARefusedReleaseOfABoundTurnStopsItBeforeAnythingIsDelivered(t *testing.
 	r := newBoundRig(t, "")
 	pidp := capturePid(r.l)
 	var gotBound bool
-	r.l.beforeRelease = func(_, _, _ string, bound bool) error { gotBound = bound; return errors.New("no ticket") }
+	r.l.beforeRelease = func(_ context.Context, _, _, _ string, bound bool) error {
+		gotBound = bound
+		return errors.New("no ticket")
+	}
 	if _, err := r.l.Start("default", "c1", "t1", "hi", nil, ""); err == nil || !strings.Contains(err.Error(), "no ticket") {
 		t.Fatalf("a refused release: %v", err)
 	}
@@ -68,7 +72,7 @@ func TestAnAcceptedReleaseAndNoHookLaunchAsBefore(t *testing.T) {
 		r := newBoundRig(t, "")
 		called := 0
 		if withHook {
-			r.l.beforeRelease = func(_, _, _ string, bound bool) error { called++; return nil }
+			r.l.beforeRelease = func(_ context.Context, _, _, _ string, bound bool) error { called++; return nil }
 		}
 		turn, err := r.l.Start("default", "c1", "t1", "hi", nil, "")
 		if err != nil {
@@ -128,7 +132,7 @@ func TestTheRunIsStampedAndAFailedStampStopsTheProcess(t *testing.T) {
 // empty for as long as we look), and an accepted release lets the frame arrive afterwards.
 func TestTheReleaseCheckRunsBeforeTheCredentialsAreDelivered(t *testing.T) {
 	r := newBoundRig(t, "")
-	r.l.beforeRelease = func(_, _, _ string, _ bool) error {
+	r.l.beforeRelease = func(_ context.Context, _, _, _ string, _ bool) error {
 		for i := 0; i < 30; i++ { // were delivery already under way, the child would have written its frame by now
 			if b, _ := os.ReadFile(r.frame); len(b) != 0 {
 				t.Error("the credentials were delivered before the release check ran")
@@ -162,8 +166,11 @@ func TestARefusedReleaseOfALegacyTurnStopsTheStartedProcess(t *testing.T) {
 	var gotBound = true
 	var pidp *atomic.Int64
 	l := &execLauncher{bin: bin, dbPath: "/db/x.db", instance: "host-test", logDir: filepath.Join(dir, "turns"), revokeBackoff: time.Millisecond,
-		revoke:        func(string, string) error { return nil },
-		beforeRelease: func(_, _, _ string, bound bool) error { gotBound = bound; return errors.New("unbound is refused") }}
+		revoke: func(string, string) error { return nil },
+		beforeRelease: func(_ context.Context, _, _, _ string, bound bool) error {
+			gotBound = bound
+			return errors.New("unbound is refused")
+		}}
 	pidp = capturePid(l)
 	if _, err := l.Start("default", "c1", "t1", "hi", nil, ""); err == nil || !strings.Contains(err.Error(), "unbound is refused") {
 		t.Fatalf("a refused legacy release: %v", err)
@@ -189,7 +196,9 @@ func TestAPanickingHookFailsTheStartAndStopsTheProcess(t *testing.T) {
 			l.runStamp = func(string, string) (string, int64) { return "c", 1 }
 			l.recordRun = func(string, string, string, string, int64) error { panic("boom") }
 		},
-		"beforeRelease": func(l *execLauncher) { l.beforeRelease = func(_, _, _ string, _ bool) error { panic("boom") } },
+		"beforeRelease": func(l *execLauncher) {
+			l.beforeRelease = func(_ context.Context, _, _, _ string, _ bool) error { panic("boom") }
+		},
 	} {
 		r := newBoundRig(t, "")
 		pidp := capturePid(r.l)
@@ -205,27 +214,84 @@ func TestAPanickingHookFailsTheStartAndStopsTheProcess(t *testing.T) {
 	}
 }
 
-// A release check that does not answer refuses at the deadline instead of stalling the start for good.
-func TestABlockingReleaseCheckRefusesAtTheDeadline(t *testing.T) {
+// startWithin runs Start and fails the test (cleanly, not by a hung test binary) if it does not return within d.
+func startWithin(t *testing.T, d time.Duration, l *execLauncher) error {
+	t.Helper()
+	res := make(chan error, 1)
+	go func() { _, err := l.Start("default", "c1", "t1", "hi", nil, ""); res <- err }()
+	select {
+	case err := <-res:
+		return err
+	case <-time.After(d):
+		t.Fatal("Start did not return: a hook stalled it")
+		return nil
+	}
+}
+
+// A release check that does not answer refuses at the deadline instead of stalling the start for good, and its late completion takes
+// nothing: it sees its context cancelled before it would consume the (simulated) ticket.
+func TestABlockingReleaseCheckRefusesAtTheDeadlineAndItsLateEndTakesNothing(t *testing.T) {
 	old := releaseTimeout
 	releaseTimeout = 100 * time.Millisecond
 	t.Cleanup(func() { releaseTimeout = old })
 	r := newBoundRig(t, "")
 	pidp := capturePid(r.l)
 	block := make(chan struct{})
-	t.Cleanup(func() { close(block) })
-	r.l.beforeRelease = func(_, _, _ string, _ bool) error { <-block; return nil }
-	start := time.Now()
-	if _, err := r.l.Start("default", "c1", "t1", "hi", nil, ""); err == nil || !strings.Contains(err.Error(), "in time") {
+	finished := make(chan struct{})
+	var consumed atomic.Int32
+	r.l.beforeRelease = func(ctx context.Context, _, _, _ string, _ bool) error {
+		defer close(finished)
+		<-block
+		if ctx.Err() == nil {
+			consumed.Add(1) // the ticket
+		}
+		return nil
+	}
+	if err := startWithin(t, 15*time.Second, r.l); err == nil || !strings.Contains(err.Error(), "in time") {
+		close(block)
 		t.Fatalf("a blocking check: %v", err)
 	}
-	if time.Since(start) > 20*time.Second {
-		t.Error("the start waited for a blocked check")
+	close(block) // the check completes late
+	<-finished
+	if consumed.Load() != 0 {
+		t.Error("a release check that finished after its deadline still consumed the ticket")
 	}
 	if pid := int(pidp.Load()); pid <= 1 {
 		t.Error("the launcher recorded no pid")
 	} else if !dead(pid) {
 		t.Error("the process of a turn whose release timed out is still running")
+	}
+}
+
+// A run stamp that does not answer is bounded too: the start fails at the deadline and the unwaited child is stopped.
+func TestABlockingRunStampRefusesAtTheDeadlineAndStopsTheProcess(t *testing.T) {
+	old := releaseTimeout
+	releaseTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { releaseTimeout = old })
+	for name, set := range map[string]func(l *execLauncher, block chan struct{}){
+		"runStamp": func(l *execLauncher, block chan struct{}) {
+			l.runStamp = func(string, string) (string, int64) { <-block; return "c", 1 }
+			l.recordRun = func(string, string, string, string, int64) error { return nil }
+		},
+		"recordRun": func(l *execLauncher, block chan struct{}) {
+			l.runStamp = func(string, string) (string, int64) { return "c", 1 }
+			l.recordRun = func(string, string, string, string, int64) error { <-block; return nil }
+		},
+	} {
+		r := newBoundRig(t, "")
+		pidp := capturePid(r.l)
+		block := make(chan struct{})
+		set(r.l, block)
+		err := startWithin(t, 15*time.Second, r.l)
+		close(block)
+		if err == nil || !strings.Contains(err.Error(), "in time") {
+			t.Fatalf("%s: a blocking stamp: %v", name, err)
+		}
+		if pid := int(pidp.Load()); pid <= 1 {
+			t.Errorf("%s: the launcher recorded no pid", name)
+		} else if !dead(pid) {
+			t.Errorf("%s: the process is still running", name)
+		}
 	}
 }
 
@@ -260,7 +326,7 @@ func TestInstallRunHooks(t *testing.T) {
 	legacy, bound := &execLauncher{}, &execLauncher{}
 	h := &coderhost.Host{L: &gatedLauncher{inner: legacy, bound: bound}}
 	st := coderhost.NewStore(nil)
-	hooks := RunHooks{RunStamp: func(string, string) (string, int64) { return "c", 1 }, BeforeRelease: func(_, _, _ string, _ bool) error { return nil }}
+	hooks := RunHooks{RunStamp: func(string, string) (string, int64) { return "c", 1 }, BeforeRelease: func(_ context.Context, _, _, _ string, _ bool) error { return nil }}
 	if err := InstallRunHooks(st, h, hooks); err != nil {
 		t.Fatal(err)
 	}

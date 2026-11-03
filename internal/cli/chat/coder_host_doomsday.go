@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"errors"
 
 	"github.com/monoes/mono-agent/internal/coderhost"
@@ -12,7 +13,8 @@ type RunHooks struct {
 	// RunStamp says which run (charter id, generation) a session's turn belongs to; "" and 0 stamp nothing.
 	RunStamp func(profileID, conversationID string) (charterID string, generation int64)
 	// BeforeRelease is asked before anything is delivered to the turn's process; bound says whether the turn is peer-credential bound.
-	BeforeRelease func(profileID, conversationID, turnID string, bound bool) error
+	// ctx is cancelled when the launcher gives up on the check (a deadline) or has returned: check it before any effect that cannot be undone.
+	BeforeRelease func(ctx context.Context, profileID, conversationID, turnID string, bound bool) error
 }
 
 // InstallRunHooks sets the hooks on the launchers of a host built by `coder host run` (the legacy and the bound one) and wires the
