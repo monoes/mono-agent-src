@@ -40,7 +40,7 @@ func newHostRig(t *testing.T) *hostRig {
 	w, db := newWire(t, func() error { return nil }, fakeKernel{}, nil)
 	l := &fakeLauncher{}
 	h := &coderhost.Host{Store: w.host, L: l}
-	g := &HostGate{Store: w.w.Store, Profile: "p1", RunDir: w.w.RunDir}
+	g := &HostGate{Store: w.w.Store, Profile: "p1", RunDir: w.w.RunDir, BindingOn: func() (bool, error) { return true, nil }}
 	g.Install(w.host, h)
 	return &hostRig{wireRig: w, db: db, l: l, h: h, gate: g}
 }

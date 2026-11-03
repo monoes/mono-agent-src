@@ -2,6 +2,7 @@ package doomsday
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -29,19 +30,38 @@ type HostGate struct {
 	Clock   stop.Clock
 	// Journal is the merge journal (MergeFor); nil refuses every merge while a run is open.
 	Journal dynorg.MergeJournal
+	// BindingOn says whether security.peercred_binding is on. A run needs bound turns ("no run without binding"): nil, an
+	// error and false all refuse a turn start while a run is open.
+	BindingOn func() (bool, error)
+	// InstallHooks puts Hooks on the host's launchers (chat.InstallRunHooks in production). Install reports its absence.
+	InstallHooks func(st *coderhost.Store, h *coderhost.Host, hk Hooks) error
 
-	mu     sync.Mutex
-	gates  map[int64]*stop.Gate
-	merges map[int64]*dynorg.DoomsdayMerge
+	mu       sync.Mutex
+	gates    map[int64]*stop.Gate
+	merges   map[int64]*dynorg.DoomsdayMerge
+	hooked   bool            // the launcher asks BeforeRelease: a turn's ticket is taken there, not around Start
+	released map[string]bool // turn ids that already hold their ticket
 }
 
 var _ coderhost.DispatchGate = (*HostGate)(nil)
 
 // Install puts the gate on the coder host: the store's own dispatches (spawn, token mint) and the launcher's turn
 // starts. Call it once, on the host being built, before it runs.
-func (g *HostGate) Install(st *coderhost.Store, h *coderhost.Host) {
+//
+// The hooks go on the launchers first (the run stamp and the release check, where a turn's ticket is taken), then the
+// launcher is wrapped (the bound-mode refusal before Start). When the hooks cannot be installed the error is returned and
+// the gate still stands, with the ticket taken around Start instead: the host never runs ungated because of it.
+func (g *HostGate) Install(st *coderhost.Store, h *coderhost.Host) error {
 	st.SetDispatchGate(g)
+	err := errors.New("no hook installer is wired")
+	if g.InstallHooks != nil {
+		err = g.InstallHooks(st, h, Hooks{RunStamp: g.RunStamp, BeforeRelease: g.BeforeRelease})
+	}
+	g.mu.Lock()
+	g.hooked = err == nil
+	g.mu.Unlock()
 	h.L = coderhost.WrapLauncher(h.L, g)
+	return err
 }
 
 // current returns the gate of the profile's open run, or nil when no run is open. A refusal error means the
@@ -102,6 +122,18 @@ func (g *HostGate) Start(p coderhost.DispatchPoint, create func() (coderhost.Sta
 	if gate == nil {
 		_, err := create()
 		return err
+	}
+	if p == coderhost.PointTurnStart {
+		if err := g.requireBound(); err != nil { // before Start: a turn that is not bound never gets a process
+			return err
+		}
+		g.mu.Lock()
+		hooked := g.hooked
+		g.mu.Unlock()
+		if hooked && !gate.Sealed() { // the launcher asks BeforeRelease, which takes the ticket; a sealed gate refuses below
+			_, err := create()
+			return err
+		}
 	}
 	return coderhost.StopGate{G: gate}.Start(p, create)
 }

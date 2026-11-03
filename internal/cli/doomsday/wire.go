@@ -27,6 +27,8 @@ type Wiring struct {
 		CancelQueue(ctx context.Context, gen uint64) error
 	}
 	Clock stop.Clock
+	// Binding says whether security.peercred_binding is on; nil refuses every start ("no run without binding").
+	Binding func(ctx context.Context) (bool, error)
 	// DB is the profile's database: the merge journal and the task store's merge records are read from it. Nil
 	// leaves merge recovery out (only a test that does not exercise merges leaves it nil).
 	DB *sql.DB
@@ -44,6 +46,7 @@ func (w Wiring) Engine() *StoreEngine {
 	return &StoreEngine{
 		Store: w.Store, Profile: w.Profile,
 		ContainmentProbe: w.Probe,
+		Binding:          w.Binding,
 		StopFn:           w.stop,
 		BeforeStart:      w.recoverMerges,
 		AfterEnter:       func(_ context.Context, gen int64) error { return w.RunDir.CreateSecret(uint64(gen)) },

@@ -146,6 +146,11 @@ func (d Deps) newStart() *cobra.Command {
 			if err := e.Containment(); err != nil {
 				return refusal(err)
 			}
+			if b, ok := e.(BindingRequirer); ok { // before the charter is shown: there is nothing to type for a start that cannot happen
+				if err := b.RequireBinding(cmd.Context()); err != nil {
+					return refusal(err)
+				}
+			}
 			ch, canon, err := f.build(cmd, e)
 			if err != nil {
 				return err
