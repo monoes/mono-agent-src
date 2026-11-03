@@ -2225,7 +2225,13 @@ monoagentcli sandbox fallback --set strictest       # run | strictest | fail; an
   its environment says; run it from your own terminal. The same holds for the other
   operator-only commands that share this check (`aitask submit`, `application fill start`,
   coder settings, `hil` send decisions, `media scan on|off`, `workflow apply-fix`,
-  `publication delete`). A courtesy layer, not a barrier (SECURITY.md).
+  `publication delete`). The turn check reads the database the command names and also every
+  running coder host's database, recorded in `<passwd home>/.monoagent/coder-hosts/` (so `--db-path`
+  or another `HOME` does not hide a turn). A registered database that cannot be read refuses while its
+  host runs; the error names the entry file, and if that host is gone you delete that file (a dead host's
+  unreadable database is skipped on its own). A host run under a scratch `HOME` still registers in the real
+  passwd-home registry (no override exists, by design); its stale entry is harmless. A courtesy layer, not a
+  barrier (SECURITY.md).
 - `MONOAGENT_SANDBOX_FALLBACK` overrides the saved value. Long-running processes
   re-read the setting per turn (cached one second).
 - It needs monomind with `agent-exec-sandbox-fallback`; without it the setting

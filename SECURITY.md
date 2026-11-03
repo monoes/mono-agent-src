@@ -2068,11 +2068,56 @@ that works a task acts on them. The defences:
   coder session's turn, so those are run from the operator's own terminal, not one
   started inside a turn. A machine with no database yet is not in a turn; a turn
   record that cannot be read refuses.
-  Residuals of this turn layer, stated plainly: (1) it reads the database the
-  process itself names, so a process inside a turn that also carries no agent marker
-  or token and points the CLI at another database (`--db-path`, or another `HOME`)
-  finds no turn record and is not seen (the person gate has the same property; tracked
-  in the follow-up to resolve the database from the host-recorded one); (2) this
+  The database it reads is not only the one the process names: every running coder
+  host records the database it runs turns against in the turn registry, one file per
+  database under `<the OS user's passwd home>/.monoagent/coder-hosts/` (directory
+  0700, files 0600, derived from the system's user database, never `$HOME`; the file
+  holds the absolute database path, the host's pid and its start stamp, no secret),
+  and the gate checks the union of the database the process names and every
+  registered one, so `--db-path`, another `HOME`, a clean environment or an empty
+  or missing database no longer hide a turn. An override can only add checks, never
+  remove one; a missing file or table is not a turn, and the registry is read-only
+  (a reader never deletes an entry). A registered database that cannot be read
+  (corrupt, on an unmounted path, not a regular file such as a FIFO or a directory, or
+  silent for 3 seconds) refuses the command while its host is running, with a message
+  that names the entry file: if that host is no longer running, delete that file (under
+  `<passwd home>/.monoagent/coder-hosts/`) and run the command again. If the entry's
+  recorded host is certainly dead (its pid is gone or reused, by the start stamp), an
+  unreadable database is skipped instead, so a crashed host cannot lock the operator
+  out; a dead host's readable database is still judged (its turn rows' start stamps
+  fail the ancestry check unless a turn process outlived it). That skip leaves one
+  residual: a turn process that outlived its dead host AND whose database is also
+  unreadable is not seen. A second residual is the pid namespace: a host registered in
+  one pid namespace and read from another (a container, `bwrap --unshare-pid`,
+  `systemd-run`) has a pid that does not exist there, or that carries another start
+  stamp, so the host is judged dead and its unreadable database is skipped (a readable
+  one is always judged). This is limited by the registry being hidden inside the boxes
+  (the compat box mounts a tmpfs over `<home>/.monoagent`; the strict box is read-only)
+  and by the ancestry check itself, which already fails across namespaces.
+  Registered databases are opened read-only and never
+  migrated, and only when they are regular files. Entries are one per running host
+  database and the gate opens each once; two hosts on one database share one entry (the
+  later start overwrites it, and if that one exits first the other is no longer
+  registered). A registry directory that cannot be listed adds nothing, like an
+  unavailable one. A host run under a scratch `HOME` still registers in the real
+  passwd-home registry (the registry directory is never taken from `$HOME` or from any
+  variable a model could set), so a developer's scratch-`HOME` host leaves a stale entry
+  there; it is harmless (skipped once the host is dead). A user the system has no home directory for (on Linux without cgo, a
+  uid `/etc/passwd` has no entry for, as in some containers) has no registry: the gate
+  then reads only the database the process names, as it did before, and `coder host
+  status` shows `turnRegistry` with the reason. A registry directory that is a
+  symlink, not the user's own, or writable by others is not used. Where process ancestry is
+  not read (not Linux) nothing is written or read, as before. A host that cannot write its
+  entry logs it and still starts.
+  Residuals of this turn layer, stated plainly:
+  (1) it is a courtesy layer (a confined coder turn sees `<passwd home>/.monoagent` as
+  a tmpfs in the compatible box and read-only in the strict box, so it cannot edit the
+  registry; an unconfined `run` turn can): a process of the same OS user that deletes or edits a
+  registry entry or the database, uses ptrace, runs a second build of the binary, or
+  detaches from the turn's process tree is not seen, and the `/proc` view of a
+  process in its own user and mount namespace can differ; a verdict from the kernel
+  (asking the host over its peer-credential socket) is a separate, later design;
+  (2) this
   change covers the commands listed above only: many other operator-only commands
   (secrets, sign-in, API keys and config, agent mode, automation, extensions,
   records, the organisation guards, people and profile edits, node runs and

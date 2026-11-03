@@ -4,6 +4,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/agenttokens"
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/tasks"
@@ -39,6 +40,18 @@ func (d Deps) personGateOpening(cmd *cobra.Command, what string, open func() (*s
 	actor, err := d.callerFor(flagAs(cmd)).operator(what)
 	if err != nil {
 		return tasks.Actor{}, err
+	}
+	// The database the process names is only half of the question: --db-path or another HOME must not hide a
+	// turn, so every running coder host's database (the turn registry) is checked first; the named one is
+	// checked below as before.
+	named := ""
+	if d.DBPath != nil {
+		named = clicore.ExpandPath(d.DBPath()) // expanded as the hil gate does, so the same file compares equal
+	}
+	if in, err := coderhost.CallerInARegisteredTurn(named); err != nil {
+		return tasks.Actor{}, err // fails closed
+	} else if in {
+		return tasks.Actor{}, d.operatorOnlyError("this command runs inside a coder session's turn, so a model is running it; only the operator can %s; run it in your own terminal", what)
 	}
 	db, err := open()
 	if err != nil {
