@@ -54,6 +54,9 @@ type Config struct {
 	// Missions connects the conductor to a profile's task store for mission
 	// tasks (mission_sched.go); nil: org_spawn has no task_id.
 	Missions *MissionRun
+	// Doomsday puts org_merge under a run's dispatch gate (doomsday_merge.go); nil
+	// (the default) leaves merges as they were.
+	Doomsday *DoomsdayMerge
 }
 
 // Conductor runs one lead turn's workers.
