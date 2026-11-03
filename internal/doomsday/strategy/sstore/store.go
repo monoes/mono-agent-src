@@ -76,11 +76,28 @@ type AuditSink interface {
 	Append(ctx context.Context, tx Tx, profile string, generation int64, kind, payload string) error
 }
 
+// Sequencer runs one write transaction as a witnessed transition (pending line before, committed line after, freshness
+// first): the store package's chained writers all run that way, and a chained row written outside it makes the next
+// admission fail closed. rows is how many chained rows fn writes (all or none). The stop package's Sequencer satisfies it
+// through a one-method adapter.
+type Sequencer interface {
+	SequenceRows(ctx context.Context, gen int64, kind string, rows int, fn func(context.Context) error) error
+}
+
 // Store is the accessor set. Construct with New; the zero value is not usable.
 type Store struct {
 	db    DB
 	keys  Keyer
 	audit AuditSink
+	seq   Sequencer
+}
+
+// WithSequencer returns a Store whose every write runs inside seq. A host that writes to a run with a witness passes it;
+// a Store without one writes directly (the reader, and a database with no witness).
+func (s *Store) WithSequencer(seq Sequencer) *Store {
+	c := *s
+	c.seq = seq
+	return &c
 }
 
 // New builds a Store over db with the MAC keyer and the audit sink.
@@ -108,17 +125,24 @@ func (s *Store) verify(canonical, stored []byte) error {
 	return nil
 }
 
-// inTx runs fn in one transaction: commit on nil, rollback otherwise.
-func (s *Store) inTx(ctx context.Context, fn func(Tx) error) error {
-	tx, err := s.db.Begin(ctx)
-	if err != nil {
-		return err
+// inTx runs fn in one transaction: commit on nil, rollback otherwise. gen and rows name the chained rows the transaction
+// writes, for the sequencer.
+func (s *Store) inTx(ctx context.Context, gen int64, rows int, fn func(Tx) error) error {
+	run := func(ctx context.Context) error {
+		tx, err := s.db.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		if err := fn(tx); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		return tx.Commit()
 	}
-	if err := fn(tx); err != nil {
-		_ = tx.Rollback()
-		return err
+	if s.seq == nil {
+		return run(ctx)
 	}
-	return tx.Commit()
+	return s.seq.SequenceRows(ctx, gen, "strategy", rows, run)
 }
 
 func (s *Store) appendAudit(ctx context.Context, tx Tx, profile string, gen int64, kind, payload string) error {

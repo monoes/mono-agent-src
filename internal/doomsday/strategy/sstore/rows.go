@@ -49,7 +49,7 @@ func (s *Store) AcceptProposal(ctx context.Context, d types.Direction, n types.N
 		return fmt.Errorf("%w: novelty outcome %q does not accept a proposal", ErrInvalid, n.Outcome)
 	}
 	n.Profile, n.Generation, n.DirectionID, n.KeyHash = d.Profile, d.Generation, d.ID, d.KeyHash
-	return s.inTx(ctx, func(tx Tx) error {
+	return s.inTx(ctx, d.Generation, 2, func(tx Tx) error {
 		if n.Outcome == types.NoveltyAcceptedUnchecked && n.EpochSeq > 0 {
 			var c int
 			if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM doomsday_strategy_novelty WHERE profile=? AND generation=? AND epoch_seq=? AND outcome='accepted-unchecked'`,
@@ -96,7 +96,7 @@ func (s *Store) dirInsertErr(ctx context.Context, q Querier, d types.Direction, 
 // MoveDirection moves a direction forward (compare-and-set on the current state), optionally binding the lead session
 // once, re-MACs it and appends the direction-state audit line. The run must be running.
 func (s *Store) MoveDirection(ctx context.Context, profile string, gen int64, id string, to types.DirectionState, sessionID string) error {
-	return s.inTx(ctx, func(tx Tx) error {
+	return s.inTx(ctx, gen, 1, func(tx Tx) error {
 		if err := requireRunning(ctx, tx, profile, gen); err != nil {
 			return err
 		}
@@ -202,7 +202,7 @@ func (s *Store) RecordRefusal(ctx context.Context, n types.NoveltyRow) error {
 	if n.Profile == "" || n.Generation < 1 || n.DirectionID != "" {
 		return fmt.Errorf("%w: a refusal names a run and no direction", ErrInvalid)
 	}
-	return s.inTx(ctx, func(tx Tx) error {
+	return s.inTx(ctx, n.Generation, 1, func(tx Tx) error {
 		if err := s.insertNovelty(ctx, tx, n); err != nil {
 			return err
 		}

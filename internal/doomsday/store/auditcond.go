@@ -7,10 +7,10 @@ import (
 	"strings"
 )
 
-// Audit kinds written only by this package's own methods (approvals and the finish). The generic AppendAudit and the
+// Audit kinds written only by this package's own methods (approvals, the finish and the strategy layer's lines). The generic AppendAudit and the
 // audit kind a ConsumeMany caller names refuse them, so a holder of the store cannot forge an approval, a rescind or a
 // finish row by appending a row of that kind.
-var reservedKindPrefixes = []string{kindApprovalIssue, kindApprovalRescind, "finish."}
+var reservedKindPrefixes = []string{kindApprovalIssue, kindApprovalRescind, "finish.", StrategyKindPrefix}
 
 // ErrReservedKind: the audit kind belongs to this package's typed writers.
 var ErrReservedKind = errors.New("doomsday: that audit kind is written only by its typed writer")

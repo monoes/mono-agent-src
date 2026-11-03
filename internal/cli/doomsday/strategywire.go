@@ -35,6 +35,20 @@ type StrategyRun struct {
 	Boss       int64
 	HasBoss    bool
 	Criteria   []StrategyCriterion
+	// Judge is the pin the judging purpose resolves to for this run (the charter's boss pin: the judge may equal the boss,
+	// Q2), Verifier the finish verifier's. The independence rule keeps the judge from being the verifier.
+	Judge, Verifier StrategyPin
+}
+
+// StrategyPin names a model as the charter pinned it.
+type StrategyPin struct{ Provider, Model, Version string }
+
+// String is the pin as the epoch row records it.
+func (p StrategyPin) String() string {
+	if p.Provider == "" || p.Model == "" {
+		return ""
+	}
+	return p.Provider + "/" + p.Model + "@" + p.Version
 }
 
 // CriterionIDs are the ids the judge must score.
@@ -79,7 +93,9 @@ func (s StoreRunSource) Current(ctx context.Context) (StrategyRun, bool, error) 
 		return StrategyRun{}, false, err
 	}
 	h := c.Hash()
-	out := StrategyRun{Generation: pick.Generation, CharterID: c.ID(), Hash: hex.EncodeToString(h[:]), Running: pick.State == store.StateRunning}
+	out := StrategyRun{Generation: pick.Generation, CharterID: c.ID(), Hash: hex.EncodeToString(h[:]), Running: pick.State == store.StateRunning,
+		Judge:    StrategyPin{c.BossPin.Provider, c.BossPin.Model, c.BossPin.Version},
+		Verifier: StrategyPin{c.VerifierPin.Provider, c.VerifierPin.Model, c.VerifierPin.Version}}
 	for i, cr := range c.Criteria {
 		out.Criteria = append(out.Criteria, StrategyCriterion{ID: store.CriterionID(i), Text: cr.Spec})
 	}
@@ -92,18 +108,28 @@ func (s StoreRunSource) Current(ctx context.Context) (StrategyRun, bool, error) 
 	return out, true, nil
 }
 
-// StrategyHostDeps are the collaborators of the host. Required: DB, Keys, Audit, Profile, Runs, Model, Refuse, Clock.
+// StrategyHostDeps are the collaborators of the host. Required: DB, Keys, Audit, Seq, Profile, Runs, Model (or ModelFor),
+// Refuse, Clock.
 type StrategyHostDeps struct {
-	DB      *sql.DB
-	Keys    sstore.Keyer
-	Audit   ChainTxAppender
+	DB    *sql.DB
+	Keys  sstore.Keyer
+	Audit ChainTxAppender
+	// Seq runs every write of the layer as a witnessed transition (the production one is WitnessSequencer over the
+	// profile's stop.Sequencer). It is required: a chained row written outside the witness makes the next admission of
+	// the generation fail closed, so a host without one does not exist.
+	Seq     sstore.Sequencer
 	Profile string
 	Runs    StrategyRunSource
 
-	Model   judge.Model
-	Refuse  func(pin string) bool // the independence rule of the judge; see judge.Config
-	Timeout time.Duration
-	Clock   epoch.Clock
+	Model judge.Model
+	// ModelFor, when set, is asked for the judge model of each generation it syncs to (the pin of that run's charter);
+	// it wins over Model.
+	ModelFor func(run StrategyRun) judge.Model
+	Refuse   func(pin string) bool // the independence rule of the judge; see judge.Config
+	// RefuseFor, when set, is the independence rule of each generation it syncs to; it wins over Refuse.
+	RefuseFor func(run StrategyRun) func(pin string) bool
+	Timeout   time.Duration
+	Clock     epoch.Clock
 
 	Epoch  epoch.Config  // Profile and Generation are set by the host
 	Policy policy.Config // MaxJudgmentAge
@@ -130,6 +156,8 @@ type StrategyHost struct {
 	store *sstore.Store
 	runs  runStateDB
 
+	opsOnly bool // built by NewStrategyOpsHost: it takes operations and never ticks
+
 	tickMu sync.Mutex
 	gen    *genState // owned by Tick
 }
@@ -147,15 +175,38 @@ type genState struct {
 
 // NewStrategyHost validates the dependencies and builds the host. It reads and writes nothing.
 func NewStrategyHost(d StrategyHostDeps) (*StrategyHost, error) {
-	if d.DB == nil || d.Keys == nil || d.Audit == nil || d.Profile == "" || d.Runs == nil || d.Model == nil || d.Refuse == nil || d.Clock == nil {
-		return nil, errors.New("strategy host: DB, Keys, Audit, Profile, Runs, Model, Refuse and Clock are required")
+	if (d.Model == nil && d.ModelFor == nil) || (d.Refuse == nil && d.RefuseFor == nil) || d.Clock == nil {
+		return nil, errors.New("strategy host: Model, Refuse and Clock are required")
+	}
+	return newStrategyHost(d)
+}
+
+// NewStrategyOpsHost is the host of a process that only takes the session-callable operations (the MCP server): it has
+// the sink and no judge, so it cannot Tick. It needs the same store, witness and run source as the ticking host.
+func NewStrategyOpsHost(d StrategyHostDeps) (*StrategyHost, error) {
+	h, err := newStrategyHost(d)
+	if err != nil {
+		return nil, err
+	}
+	h.opsOnly = true
+	return h, nil
+}
+
+func newStrategyHost(d StrategyHostDeps) (*StrategyHost, error) {
+	if d.DB == nil || d.Keys == nil || d.Audit == nil || d.Seq == nil || d.Profile == "" || d.Runs == nil {
+		return nil, errors.New("strategy host: DB, Keys, Audit, Seq, Profile and Runs are required")
 	}
 	if d.NewID == nil {
 		d.NewID = randomID
 	}
 	db := sstore.WrapDB(d.DB)
-	return &StrategyHost{d: d, store: sstore.New(db, d.Keys, NewStrategyAuditSink(d.Audit)),
+	return &StrategyHost{d: d, store: sstore.New(db, d.Keys, NewStrategyAuditSink(d.Audit)).WithSequencer(d.Seq),
 		runs: runStateDB{db: d.DB, profile: d.Profile}}, nil
+}
+
+// policySink is the policy.Sink of one generation: a strategy line in its own witnessed transition.
+func (h *StrategyHost) policySink(gen int64) policySink {
+	return policySink{db: sstore.WrapDB(h.d.DB), app: h.d.Audit, seq: h.d.Seq, profile: h.d.Profile, gen: gen}
 }
 
 // Sink is the ops.StrategySink the typed strategy operations write through.
@@ -174,6 +225,9 @@ type HostTick struct {
 // nothing. After a Stop it only lets the engine close an unfinished epoch as abandoned; no finish is ever requested for
 // a run that is not running. A stored row that fails its MAC parks the strategy for that generation (not the run).
 func (h *StrategyHost) Tick(ctx context.Context) (HostTick, error) {
+	if h.opsOnly {
+		return HostTick{Idle: "no-run"}, errors.New("strategy host: this host takes operations only")
+	}
 	h.tickMu.Lock()
 	defer h.tickMu.Unlock()
 	run, ok, err := h.d.Runs.Current(ctx)
@@ -222,8 +276,7 @@ func (h *StrategyHost) noteTamper(ctx context.Context, gs *genState, run Strateg
 	} else {
 		h.gen = &genState{gen: run.Generation, parked: true}
 	}
-	sink := policySink{db: sstore.WrapDB(h.d.DB), app: h.d.Audit, profile: h.d.Profile, gen: run.Generation}
-	_ = sink.Record(ctx, types.KindParked, "a stored strategy row failed verification")
+	_ = h.policySink(run.Generation).Record(ctx, types.KindParked, "a stored strategy row failed verification")
 	return err
 }
 
@@ -245,7 +298,15 @@ func (h *StrategyHost) syncGen(ctx context.Context, run StrategyRun) (*genState,
 	}
 	cfg := h.d.Epoch
 	cfg.Profile, cfg.Generation = h.d.Profile, run.Generation
-	jd, err := judge.New(judge.Config{Model: h.d.Model, Refuse: h.d.Refuse, Timeout: h.d.Timeout})
+	model := h.d.Model
+	if h.d.ModelFor != nil {
+		model = h.d.ModelFor(run)
+	}
+	refuse := h.d.Refuse
+	if h.d.RefuseFor != nil {
+		refuse = h.d.RefuseFor(run)
+	}
+	jd, err := judge.New(judge.Config{Model: model, Refuse: refuse, Timeout: h.d.Timeout})
 	if err != nil {
 		return nil, err
 	}
@@ -348,7 +409,7 @@ func (h *StrategyHost) finishStep(ctx context.Context, gs *genState, run Strateg
 	}
 	var fo policy.Outcome
 	begin := FinishFromBegin(h.d.Finish)
-	runner := policy.Runner{Config: h.d.Policy, Sink: &countingSink{h: h, gs: gs, inner: policySink{db: sstore.WrapDB(h.d.DB), app: h.d.Audit, profile: h.d.Profile, gen: run.Generation}},
+	runner := policy.Runner{Config: h.d.Policy, Sink: &countingSink{h: h, gs: gs, inner: h.policySink(run.Generation)},
 		Finish: policy.FinishFunc(func(ctx context.Context) (policy.Outcome, error) {
 			o, err := begin(ctx)
 			fo = o

@@ -9,19 +9,20 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"strconv"
 
 	"github.com/monoes/mono-agent/internal/doomsday/ops"
+	"github.com/monoes/mono-agent/internal/doomsday/store"
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/novelty"
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/policy"
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/sstore"
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/types"
 )
 
-// ChainTxAppender appends one row to the generation's MAC-chained audit table inside the CALLER's transaction, so a
-// strategy row and its strategy.* audit line commit or roll back together. The store package has no exported function
-// of this shape (its appendAuditTx is private, and AppendAudit opens its own transaction and, once the strategy kinds are
-// reserved, refuses them); seam S3 should export one and the host should then be handed it instead of NewChainTxAppender.
+// ChainTxAppender appends one strategy.* row to the generation's MAC-chained audit table inside the CALLER's transaction,
+// so a strategy row and its audit line commit or roll back together. The production one is the store's own exported
+// writer (store.SQLStore.AppendStrategyAuditTx, which writes strategy kinds and nothing else). It does not sequence the
+// write: every caller runs it inside the witnessed sequence (sstore.Sequencer), because a chained row written outside it
+// makes the next admission of the generation fail closed.
 type ChainTxAppender interface {
 	AppendAuditTx(ctx context.Context, tx sstore.Querier, profile string, generation int64, kind, payload string) error
 }
@@ -46,6 +47,7 @@ func NewStrategyAuditSink(app ChainTxAppender) sstore.AuditSink { return auditSi
 type policySink struct {
 	db      sstore.DB
 	app     ChainTxAppender
+	seq     sstore.Sequencer
 	profile string
 	gen     int64
 }
@@ -57,15 +59,21 @@ func (p policySink) Record(ctx context.Context, kind, detail string) error {
 	if len(detail) > MaxAuditDetail {
 		detail = detail[:MaxAuditDetail]
 	}
-	tx, err := p.db.Begin(ctx)
-	if err != nil {
-		return err
+	write := func(ctx context.Context) error {
+		tx, err := p.db.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		if err := p.app.AppendAuditTx(ctx, tx, p.profile, p.gen, kind, detail); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		return tx.Commit()
 	}
-	if err := p.app.AppendAuditTx(ctx, tx, p.profile, p.gen, kind, detail); err != nil {
-		_ = tx.Rollback()
-		return err
+	if p.seq == nil {
+		return errors.New("strategy audit: no witnessed sequence is wired")
 	}
-	return tx.Commit()
+	return p.seq.SequenceRows(ctx, p.gen, "strategy", 1, write)
 }
 
 // FinishFromBegin adapts the cli FinishEngine's FinishBegin to the policy's narrow Finish seam. It maps the report and
@@ -283,34 +291,14 @@ func (h *StrategyHost) epochContext(ctx context.Context, gen int64) (seq int64, 
 	return seq, unchecked, nil
 }
 
-// NewChainTxAppender writes rows of the store's own audit chain (same table, same MAC scheme, same domain) inside the
-// caller's transaction. It writes strategy kinds only. A drift from the store's scheme is caught by the test that runs
-// store.VerifyAudit over rows it wrote.
-func NewChainTxAppender(keys sstore.Keyer) ChainTxAppender { return chainTx{keys: keys} }
+// NewStoreTxAppender is the ChainTxAppender over the store's exported strategy writer.
+func NewStoreTxAppender(st *store.SQLStore) ChainTxAppender { return storeTx{st: st} }
 
-type chainTx struct{ keys sstore.Keyer }
+type storeTx struct{ st *store.SQLStore }
 
-func (c chainTx) AppendAuditTx(ctx context.Context, tx sstore.Querier, profile string, gen int64, kind, payload string) error {
+func (a storeTx) AppendAuditTx(ctx context.Context, tx sstore.Querier, profile string, gen int64, kind, payload string) error {
 	if !types.IsReserved(kind) {
 		return fmt.Errorf("strategy audit: %q is not a strategy kind", kind)
 	}
-	var seq int64
-	var prev []byte
-	err := tx.QueryRowContext(ctx, `SELECT seq, mac FROM doomsday_audit WHERE profile = ? AND generation = ? ORDER BY seq DESC LIMIT 1`, profile, gen).Scan(&seq, &prev)
-	if errors.Is(err, sql.ErrNoRows) {
-		seq, prev = 0, nil
-	} else if err != nil {
-		return err
-	}
-	seq++
-	mac, err := c.keys.MAC("audit", []byte(profile), []byte(strconv.FormatInt(gen, 10)), []byte(strconv.FormatInt(seq, 10)), prev, []byte(kind), []byte(payload))
-	if err != nil {
-		return err
-	}
-	if prev == nil {
-		prev = []byte{}
-	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO doomsday_audit(profile, generation, seq, kind, payload, prev, mac) VALUES (?,?,?,?,?,?,?)`,
-		profile, gen, seq, kind, payload, prev, mac)
-	return err
+	return a.st.AppendStrategyAuditTx(ctx, tx, profile, gen, kind, payload)
 }

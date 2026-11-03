@@ -70,6 +70,22 @@ func (f *fixedRuns) Current(context.Context) (StrategyRun, bool, error) {
 }
 func (f *fixedRuns) set(fn func(*StrategyRun)) { f.mu.Lock(); fn(&f.run); f.mu.Unlock() }
 
+// passSeq is a sequencer with no witness behind it: it runs fn and counts the transitions. The tests that need the
+// witness itself build the real one (strategywitness_test.go).
+type passSeq struct {
+	mu    sync.Mutex
+	calls int
+	rows  int
+}
+
+func (p *passSeq) SequenceRows(ctx context.Context, _ int64, _ string, rows int, fn func(context.Context) error) error {
+	p.mu.Lock()
+	p.calls++
+	p.rows += rows
+	p.mu.Unlock()
+	return fn(ctx)
+}
+
 type fenv struct {
 	db     *sql.DB
 	core   *store.SQLStore
@@ -134,7 +150,7 @@ func newFenv(t *testing.T, mut func(*StrategyHostDeps)) *fenv {
 	e.finish = &finishRecorder{rep: BeginReport{Refused: "not yet"}}
 	e.runs = &fixedRuns{ok: true, run: StrategyRun{Generation: g, CharterID: c.ID(), Running: true, Boss: 7, HasBoss: true,
 		Criteria: []StrategyCriterion{{ID: store.CriterionID(0), Text: "go test ./..."}}}}
-	deps := StrategyHostDeps{DB: d.DB, Keys: keys, Audit: NewChainTxAppender(keys), Profile: e.prof, Runs: e.runs,
+	deps := StrategyHostDeps{DB: d.DB, Keys: keys, Audit: NewStoreTxAppender(core), Seq: &passSeq{}, Profile: e.prof, Runs: e.runs,
 		Model: e.model, Refuse: func(string) bool { return false }, Timeout: time.Second, Clock: e.clock,
 		Finish:           e.finish.begin,
 		SubjectChangedAt: func(context.Context, int64) (time.Time, error) { return e.subj, nil },
@@ -244,7 +260,7 @@ func TestChainTxAppenderWritesStrategyKindsOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	app := NewChainTxAppender(e.keys)
+	app := NewStoreTxAppender(e.core)
 	for _, k := range []string{"ops.plan.approve.approved", "finish.commit", "counter.consume", ""} {
 		if err := app.AppendAuditTx(bg, tx, e.prof, e.gen, k, "x"); err == nil {
 			t.Fatalf("kind %q was appended by the strategy writer", k)

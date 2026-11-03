@@ -50,7 +50,7 @@ func (s *Store) InsertEpoch(ctx context.Context, e types.Epoch) (types.Epoch, bo
 	}
 	var out types.Epoch
 	created := false
-	err := s.inTx(ctx, func(tx Tx) error {
+	err := s.inTx(ctx, e.Generation, 1, func(tx Tx) error {
 		have, err := s.getEpoch(ctx, tx, e.Profile, e.Generation, e.Seq)
 		if err == nil {
 			if have.Trigger != e.Trigger || have.StartedAt != e.StartedAt || have.ModelPin != e.ModelPin {
@@ -92,7 +92,7 @@ func (s *Store) RecordJudgment(ctx context.Context, profile string, gen, seq int
 	}
 	rec := types.JudgmentRecord{Profile: profile, Generation: gen, EpochSeq: seq, Body: body, BodyHash: types.BodyHash(body)}
 	created := false
-	err := s.inTx(ctx, func(tx Tx) error {
+	err := s.inTx(ctx, gen, 1, func(tx Tx) error {
 		if err := requireRunning(ctx, tx, profile, gen); err != nil {
 			return err
 		}
@@ -134,7 +134,7 @@ func (s *Store) MoveEpoch(ctx context.Context, profile string, gen, seq int64, t
 	if to == types.EpochJudged || to == types.EpochOpen {
 		return fmt.Errorf("%w: use RecordJudgment to judge an epoch", ErrInvalid)
 	}
-	return s.inTx(ctx, func(tx Tx) error {
+	return s.inTx(ctx, gen, 1, func(tx Tx) error {
 		if to != types.EpochAbandoned {
 			if err := requireRunning(ctx, tx, profile, gen); err != nil {
 				return err
