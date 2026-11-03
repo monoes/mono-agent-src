@@ -76,7 +76,13 @@ func (fn Finisher) Step(ctx context.Context) (Verdict, error) {
 		if err != nil {
 			return Verdict{}, err
 		}
-		if rv, need := f.reviewVerdict(); need && rv.Outcome == Wait && f.State == "verifying" &&
+		switch f.State {
+		case StateFinished: // a repeat after a crash at the commit: the commit is a fact, never a second row
+			return Verdict{Outcome: Commit}, nil
+		case StateParked:
+			return Verdict{Outcome: Park, Reason: f.ParkReason, Detail: "the finish is parked for this round"}, nil
+		}
+		if rv, need := f.reviewVerdict(); need && rv.Outcome == Wait && f.State == StateVerifying &&
 			f.Charter.CannotFinish() == "" && f.machineEvidenceComplete() && f.WorkRowsAfterClose == 0 {
 			if pv, err := fn.runReview(ctx, f); err != nil || pv.Outcome == Park {
 				return pv, err

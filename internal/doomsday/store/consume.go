@@ -43,6 +43,9 @@ func (s *SQLStore) ConsumeMany(ctx context.Context, profile string, generation i
 	if len(charges) == 0 {
 		return ErrOverLimit
 	}
+	if reservedKind(audit.Kind) {
+		return ErrReservedKind
+	}
 	seen := map[string]bool{}
 	for _, c := range charges {
 		if c.N <= 0 || c.Limit < 0 || c.Kind == "" || seen[c.Kind] {

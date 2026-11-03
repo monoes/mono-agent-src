@@ -151,10 +151,19 @@ func ResultsDigest(ev []Evidence) string {
 	return hex.EncodeToString(h[:])
 }
 
+// Finish states as the ledger reports them in Facts.State (note 13.6 section 7.1). Only StateVerifying can commit.
+const (
+	StateVerifying = "verifying"
+	StateFinished  = "finished"
+	StateParked    = "finish-parked"
+)
+
 // Facts is everything the finish-commit predicate reads, taken under the sequencer's locks.
 type Facts struct {
 	Generation int64
 	State      string // the run row: must be "verifying"
+	// ParkReason is the reason of the park that left the run in StateParked ("" otherwise).
+	ParkReason Reason
 	Charter    Charter
 	Round      Round
 	Evidence   []Evidence       // all chained evidence rows of the generation (earlier rounds included)

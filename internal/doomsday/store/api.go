@@ -94,6 +94,8 @@ type Charter struct {
 	BossPin     Pin         `json:"boss_pin"`
 	VerifierPin Pin         `json:"verifier_pin"`
 	PerAsk      PerAsk      `json:"per_ask"`
+	// Typed carries the constraints of the typed operations (note 13.4); empty enables none of them.
+	Typed Typed `json:"typed"`
 }
 
 // Run is the run row of one generation.

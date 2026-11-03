@@ -11,7 +11,7 @@ import (
 
 // CanonVersion is the version of the canonical encoding. It is part of the hashed bytes, so a change of the rules
 // can never make an old hash match a new form.
-const CanonVersion = 1
+const CanonVersion = 2
 
 const charterDomain = "monoes/doomsday/charter/v1"
 
@@ -81,6 +81,9 @@ func (c Charter) Validate() error {
 	if err := c.PerAsk.validate(); err != nil {
 		return bad("%v", err)
 	}
+	if err := c.Typed.validate(c.Lines); err != nil {
+		return bad("%v", err)
+	}
 	if !c.BossPin.complete() || !c.VerifierPin.complete() {
 		return bad("the boss and the verifier must each be pinned (provider, model, version, purpose policy)")
 	}
@@ -137,6 +140,7 @@ func (c Charter) normalized() Charter {
 		sort.Strings(cl)
 		c.PerAsk.AnswerClasses = cl
 	}
+	c.Typed = c.Typed.normalized()
 	return c
 }
 
@@ -192,6 +196,7 @@ func (c Charter) Canonical() []byte {
 	for _, cl := range c.PerAsk.AnswerClasses {
 		str(cl)
 	}
+	c.Typed.appendCanonical(str, num, flag)
 	return b
 }
 

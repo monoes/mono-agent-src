@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +18,16 @@ type SQLStore struct {
 	db   *sql.DB
 	keys Keyer
 	now  func() time.Time
+	// entry, when set, is an extra check of a charter at Enter (the ops package supplies one that validates the
+	// constraints it enforces); a charter it refuses is never recorded.
+	entry func(Charter) error
+}
+
+// WithEntryCheck returns the store with an additional charter check run by Enter after Validate.
+func (s *SQLStore) WithEntryCheck(fn func(Charter) error) *SQLStore {
+	c := *s
+	c.entry = fn
+	return &c
 }
 
 var _ Store = (*SQLStore)(nil)
@@ -55,6 +66,11 @@ func (s *SQLStore) runMAC(r Run) ([]byte, error) {
 func (s *SQLStore) Enter(ctx context.Context, c Charter, confirmed [32]byte, by string) (Run, error) {
 	if err := c.Validate(); err != nil {
 		return Run{}, err
+	}
+	if s.entry != nil {
+		if err := s.entry(c); err != nil {
+			return Run{}, fmt.Errorf("%w: %v", ErrInvalidCharter, err)
+		}
 	}
 	if c.Hash() != confirmed {
 		return Run{}, ErrHashMismatch
@@ -305,13 +321,23 @@ func (s *SQLStore) ConsumeCumulative(ctx context.Context, profile string, genera
 // chargeTx is the conditional insert of one counter delta in the caller's transaction: the statement itself checks the
 // run is running and that the new total stays within limit; a repeated approval id is ErrAlreadyConsumed.
 func (s *SQLStore) chargeTx(ctx context.Context, tx *sql.Tx, profile string, generation int64, kind, approvalID string, n, limit int64) error {
+	return s.chargeTxIf(ctx, tx, profile, generation, kind, approvalID, n, limit, "")
+}
+
+// chargeTxIf is chargeTx with one more condition in the same statement (extra is a SQL boolean; its args follow).
+// When the statement writes nothing for a reason that is not the run state or the cap, the caller classifies it.
+func (s *SQLStore) chargeTxIf(ctx context.Context, tx *sql.Tx, profile string, generation int64, kind, approvalID string, n, limit int64, extra string, extraArgs ...any) error {
 	if n <= 0 || limit < 0 {
 		return ErrOverLimit
 	}
+	if extra == "" {
+		extra = "1"
+	}
+	args := append([]any{profile, generation, kind, approvalID, n, profile, generation, profile, generation, kind, limit, n}, extraArgs...)
 	res, err := tx.ExecContext(ctx, `INSERT INTO doomsday_counter_deltas(profile, generation, kind, approval_id, n)
 SELECT ?,?,?,?,? WHERE EXISTS (SELECT 1 FROM doomsday_runs WHERE profile = ? AND generation = ? AND state = 'running')
-AND (SELECT COALESCE(SUM(n),0) FROM doomsday_counter_deltas WHERE profile = ? AND generation = ? AND kind = ?) <= ? - ?`,
-		profile, generation, kind, approvalID, n, profile, generation, profile, generation, kind, limit, n)
+AND (SELECT COALESCE(SUM(n),0) FROM doomsday_counter_deltas WHERE profile = ? AND generation = ? AND kind = ?) <= ? - ?
+AND `+extra, args...)
 	if err != nil {
 		if isUnique(err) {
 			return ErrAlreadyConsumed
