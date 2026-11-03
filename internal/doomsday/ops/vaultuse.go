@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"sync"
 	"time"
 )
 
@@ -69,6 +70,19 @@ type VaultExecutor struct {
 	Transport Transport
 	Secrets   SecretSource
 	Auditor   Auditor
+	// WallGrace is how long after the charter's MaxCall, in real time and independent of Clock, Run waits for the clock's
+	// own signals before it forces the timeout itself. Zero means DefaultWallGrace.
+	WallGrace time.Duration
+}
+
+// DefaultWallGrace is the real-time margin of the wall-clock backstop.
+const DefaultWallGrace = time.Second
+
+func (x *VaultExecutor) wallGrace() time.Duration {
+	if x.WallGrace > 0 {
+		return x.WallGrace
+	}
+	return DefaultWallGrace
 }
 
 type attempt struct {
@@ -103,10 +117,17 @@ func (x *VaultExecutor) Run(ctx context.Context, ap Authorization, req VaultArgs
 			close(timeout)
 		}
 	}()
+	// Backstop on the real clock: whatever Clock does, and whatever the transport's body does, Run does not outlive
+	// MaxCall by more than the grace.
+	wall := time.NewTimer(maxCall + x.wallGrace())
+	defer wall.Stop()
 	var a attempt
 	select {
 	case a = <-done:
 	case <-timeout:
+		cancel()
+		a = attempt{arrival: t0.Add(maxCall), err: context.DeadlineExceeded}
+	case <-wall.C:
 		cancel()
 		a = attempt{arrival: t0.Add(maxCall), err: context.DeadlineExceeded}
 	case <-ctx.Done():
@@ -120,12 +141,22 @@ func (x *VaultExecutor) Run(ctx context.Context, ap Authorization, req VaultArgs
 	}
 	n = min(max(n, 1), v.Slots())
 	env := envelope(v, a)
-	if err := x.Clock.Wait(ctx, t0.Add(time.Duration(n)*slot)); err != nil {
+	if !x.waitSlotEnd(ctx, t0.Add(time.Duration(n)*slot)) {
 		x.audit(ctx, ap, "cancelled")
 		return Envelope{}, ErrCancelled
 	}
 	x.audit(ctx, ap, string(env.Outcome))
 	return env, nil
+}
+
+// waitSlotEnd waits for the end of the slot on the injected clock, but never for longer than the real-time backstop:
+// a clock that never signals ends the wait, only the caller's own cancellation is a cancel. The slot end is at most
+// MaxCall after the start, so the bound is the remaining injected time plus the grace.
+func (x *VaultExecutor) waitSlotEnd(ctx context.Context, until time.Time) bool {
+	wctx, stop := context.WithTimeout(ctx, max(0, until.Sub(x.Clock.Now()))+x.wallGrace())
+	defer stop()
+	err := x.Clock.Wait(wctx, until)
+	return err == nil || ctx.Err() == nil
 }
 
 func (x *VaultExecutor) audit(ctx context.Context, ap Authorization, result string) {
@@ -142,7 +173,11 @@ func (x *VaultExecutor) exchange(ctx context.Context, v *VaultUse, req VaultArgs
 		return attempt{arrival: x.Clock.Now(), err: err}
 	}
 	a := attempt{status: resp.Status}
-	defer resp.Body.Close()
+	// Closing the body on cancel unblocks a read stuck in a transport that does not tie its body to ctx.
+	var once sync.Once
+	closeBody := func() { once.Do(func() { _ = resp.Body.Close() }) }
+	defer closeBody()
+	defer context.AfterFunc(ctx, closeBody)()
 	marker := []byte(v.Predicate)
 	var hit bool
 	var tail []byte
