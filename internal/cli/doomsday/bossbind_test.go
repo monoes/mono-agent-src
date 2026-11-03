@@ -119,3 +119,25 @@ func TestAnotherLeadCannotAnswerAnAskOfTheRun(t *testing.T) {
 		t.Fatalf("the boss: %+v %v", a, err)
 	}
 }
+
+// finish.begin refused over and over by the preconditions writes a bounded number of denied-attempt rows, counted from the
+// stream itself (a boss call may run in a fresh process). Mutant tried: removing the count check in FinishBegin's deny
+// makes every call write a row (red).
+func TestDeniedFinishAttemptsAreBounded(t *testing.T) {
+	r := newFinRig(t, strings.Replace(finishCharterJSON, `"criteria":[{"kind":"command","command":"echo hello","expected":"hello"},{"kind":"rubric","text":"the docs read well"}],`, "", 1))
+	top := r.topLead(t, "conv-boss")
+	r.start(t)
+	if err := r.boss(t, top); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	for i := 0; i < ops.MaxParkRows+20; i++ {
+		res, err := r.w.BossFinishBegin(ctx, top)
+		if err != nil || res.Accepted || res.Refused == "" {
+			t.Fatalf("call %d: %+v %v", i, res, err)
+		}
+	}
+	if n := count2(t, r, `SELECT COUNT(*) FROM doomsday_audit WHERE kind = 'denied-attempt'`); n != ops.MaxParkRows {
+		t.Fatalf("denied-attempt rows = %d, want %d", n, ops.MaxParkRows)
+	}
+}

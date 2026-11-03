@@ -91,10 +91,70 @@ func parseLimitsSpec(s string) (Limits, error) {
 	return Limits{CPUSeconds: v[0], AddressSpace: v[1], OpenFiles: v[2], FileSize: v[3], Procs: v[4]}, nil
 }
 
+// writable is the byte budget over every tree the criterion can write: its scratch directory and its working copy of the
+// subject (RLIMIT_FSIZE bounds one file, never the total). The working copy starts with the subject's own bytes, so only
+// what it grows by counts, together with the scratch.
+type writable struct {
+	scratch, subject string
+	baseBytes        int64
+	baseEntries      int
+}
+
+// newWritable measures the working copy as it is before the program starts.
+func newWritable(scratch, subject string) writable {
+	b, n, _ := treeSize(subject, 1<<30)
+	return writable{scratch: scratch, subject: subject, baseBytes: b, baseEntries: n}
+}
+
+// over reports whether the scratch plus the growth of the working copy passed limit, or either tree gained more entries
+// than the walk allows (a directory of millions of files must not hold the check).
+func (w writable) over(limit int64) bool {
+	total, over := scratchBytes(w.scratch, limit)
+	if over {
+		return true
+	}
+	b, n, many := treeSize(w.subject, w.baseEntries+maxScratchEntries)
+	return many || n > w.baseEntries+maxScratchEntries || total+max(b-w.baseBytes, 0) > limit
+}
+
+const maxScratchEntries = 200000
+
+// treeSize sums the regular files under dir without following links, giving up after maxEntries entries (many is true).
+func treeSize(dir string, maxEntries int) (bytes int64, entries int, many bool) {
+	var walk func(string)
+	walk = func(d string) {
+		ents, err := os.ReadDir(d)
+		if err != nil {
+			return
+		}
+		for _, e := range ents {
+			if many {
+				return
+			}
+			if entries++; entries > maxEntries {
+				many = true
+				return
+			}
+			info, err := e.Info()
+			if err != nil {
+				continue
+			}
+			switch {
+			case info.IsDir():
+				walk(filepath.Join(d, e.Name()))
+			case info.Mode().IsRegular():
+				bytes += info.Size()
+			}
+		}
+	}
+	walk(dir)
+	return bytes, entries, many
+}
+
 // scratchBytes sums the sizes of the regular files under dir, without following links, stopping at maxEntries entries so a
 // directory of millions of files cannot hold the check. over is true when the sum or the entry count passed the bound.
 func scratchBytes(dir string, limit int64) (total int64, over bool) {
-	const maxEntries = 200000
+	const maxEntries = maxScratchEntries
 	entries := 0
 	var walk func(string)
 	walk = func(d string) {

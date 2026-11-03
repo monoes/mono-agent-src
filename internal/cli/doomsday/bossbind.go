@@ -76,3 +76,21 @@ func (b BossSource) RootOf(ctx context.Context, profile string, session int64) (
 	}
 	return 0, errors.New("the session tree is deeper than a charter allows")
 }
+
+// AuditCounter is ops.ParkCounter and the denied-attempt count over the profile's database: the audit stream is the memory
+// of what was already recorded, across the processes that build an enforcer per call.
+type AuditCounter struct{ DB *sql.DB }
+
+// ParkedCount is the number of parked decisions the generation's stream holds.
+func (c AuditCounter) ParkedCount(ctx context.Context, profile string, generation int64) (int64, error) {
+	return c.count(ctx, profile, generation, `kind LIKE 'ops.%.parked'`)
+}
+
+func (c AuditCounter) count(ctx context.Context, profile string, generation int64, where string) (int64, error) {
+	if c.DB == nil {
+		return 0, errors.New("no database to count audit rows in")
+	}
+	var n int64
+	err := c.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM doomsday_audit WHERE profile = ? AND generation = ? AND `+where, profile, generation).Scan(&n)
+	return n, err
+}
