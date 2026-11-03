@@ -87,11 +87,15 @@ func (c *cappedBuffer) Write(p []byte) (int, error) {
 // runDoomsday runs one allowed verb and returns its stdout, stderr, whether stdout was cut at the cap, and the run
 // error. profile comes from the app's selection, never from the page.
 func (a *App) runDoomsday(timeout time.Duration, verb string, extra ...string) (stdout, stderr string, truncated bool, err error) {
-	cliBin, err := findMonoAgentCLI()
+	pid, err := a.profileID()
 	if err != nil {
 		return "", "", false, err
 	}
-	pid, err := a.profileID()
+	return a.runDoomsdayFor(pid, timeout, verb, extra...)
+}
+
+func (a *App) runDoomsdayFor(pid string, timeout time.Duration, verb string, extra ...string) (stdout, stderr string, truncated bool, err error) {
+	cliBin, err := findMonoAgentCLI()
 	if err != nil {
 		return "", "", false, err
 	}
@@ -259,7 +263,9 @@ var doomsdayStopMu sync.Mutex
 //
 // Stop is the one doomsday binding that works signed out (openBindings in app_account_gate_test.go): the operator
 // stops a run whatever the monoes.me session says. So it begins without a.signedOut() and calls no account or network
-// function before the CLI; the operator gate below is its only check.
+// function before the CLI; the operator gate below is its only check. It acts on the profile selected in memory, else
+// (cold start while signed out, nothing selected yet) on the last selected profile id read from the local state file
+// (stopProfileID); with neither it answers with the no-profile text that names `doomsday stop --profile <id>`.
 func (a *App) DoomsdayStop() string {
 	if why := opgate.Refusal(); why != "" {
 		return stopDoc(false, "", why, "operator_only")
@@ -269,7 +275,11 @@ func (a *App) DoomsdayStop() string {
 	}
 	defer doomsdayStopMu.Unlock()
 	defer doomsdayProbe.invalidate()
-	out, errText, _, err := a.runDoomsday(doomsdayStopTimeout, "stop")
+	pid, err := a.stopProfileID()
+	if err != nil {
+		return stopDoc(false, "", err.Error(), "")
+	}
+	out, errText, _, err := a.runDoomsdayFor(pid, doomsdayStopTimeout, "stop")
 	if err == nil {
 		return stopDoc(true, out, "", "")
 	}

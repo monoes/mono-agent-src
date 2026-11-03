@@ -11,16 +11,23 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
+	"unicode"
 
+	"github.com/monoes/mono-agent/internal/profiledir"
 	"github.com/monoes/mono-agent/internal/profileorder"
 )
 
 // errNoProfile is what every binding that needs a profile returns while none
 // is selected, which is only the case before the first profile is created.
 var errNoProfile = errors.New("no profile selected: create a profile first")
+
+// errNoProfileForStop is Stop's own no-profile answer: it names the way out that needs no selection.
+var errNoProfileForStop = errors.New("no profile selected: select a profile or run `monoagentcli doomsday stop --profile <id>`")
 
 // guiStateFile is the app's UI state file, kept beside the database.
 const guiStateFile = "gui-state.json"
@@ -45,6 +52,62 @@ func loadSelectedProfile(path string) string {
 		return ""
 	}
 	return st.SelectedProfile
+}
+
+// Bounds for the state file Stop reads cold: the file holds one short id, so anything bigger is not ours.
+const (
+	guiStateMaxBytes = 64 << 10
+	profileIDMaxLen  = 128
+)
+
+// persistedProfileForStop returns the last selected profile id from the state file, for a Stop that has nothing
+// selected in memory (a cold start while signed out). It reads one local file and calls nothing else: no account
+// gate, no CLI, no network. A symlink, a non-regular or oversized file, bad JSON, or an id that fails the profile-id
+// syntax check (profiledir.ValidProfileID plus: no leading dash, no space or control characters, at most
+// profileIDMaxLen bytes) gives "": the id goes into the CLI argv, so a tampered file must not pass anything through.
+func persistedProfileForStop(path string) string {
+	fi, err := os.Lstat(path)
+	if err != nil || !fi.Mode().IsRegular() || fi.Size() > guiStateMaxBytes {
+		return ""
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, guiStateMaxBytes+1))
+	if err != nil || len(b) > guiStateMaxBytes {
+		return ""
+	}
+	var st guiState
+	if json.Unmarshal(b, &st) != nil || !stopProfileIDOK(st.SelectedProfile) {
+		return ""
+	}
+	return st.SelectedProfile
+}
+
+func stopProfileIDOK(id string) bool {
+	if !profiledir.ValidProfileID(id) || len(id) > profileIDMaxLen || strings.HasPrefix(id, "-") {
+		return false
+	}
+	for _, r := range id {
+		if r <= ' ' || r == 0x7f || r > unicode.MaxASCII {
+			return false
+		}
+	}
+	return true
+}
+
+// stopProfileID is the profile Stop acts on: the one selected in memory, else the persisted one, else
+// errNoProfileForStop. It never changes the selection.
+func (a *App) stopProfileID() (string, error) {
+	if id, err := a.profileID(); err == nil {
+		return id, nil
+	}
+	if id := persistedProfileForStop(guiStatePath(a.dbPath)); id != "" {
+		return id, nil
+	}
+	return "", errNoProfileForStop
 }
 
 // saveSelectedProfile writes the selection through a temp file and a rename,
