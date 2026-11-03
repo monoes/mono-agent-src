@@ -91,4 +91,12 @@ func TestATitleReadThatFailsKeepsThePreviousMeshSession(t *testing.T) {
 	if s := rm.last(); len(s) != 1 || s[0].Alias != "steady-name" {
 		t.Fatalf("after a failed read: %+v, want the previous session steady-name", s)
 	}
+	// The folder moved while the title could not be read: the alias stays, the folder is the current one.
+	if _, err := st.db.Exec(`UPDATE ai_chat_conversations SET cwd = '/work/moved' WHERE id = 'c1'`); err != nil {
+		t.Fatal(err)
+	}
+	h.meshSync(context.Background())
+	if s := rm.last(); len(s) != 1 || s[0].Alias != "steady-name" || s[0].Cwd != "/work/moved" {
+		t.Fatalf("after a failed read and a moved folder: %+v, want steady-name in /work/moved", s)
+	}
 }
