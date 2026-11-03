@@ -52,6 +52,16 @@ type execLauncher struct {
 	// process exists, before anything else of the start can fail. If it fails, the start fails and the process is stopped: a process
 	// whose identity cannot be recorded is not allowed to run, because a host restart could not find it.
 	onProcess func(profileID, conversationID, turnID string, pid int, stamp string, bound bool) error
+	// runStamp, when set, says which open-ended run (charter id and generation) a session's turn belongs to; recordRun writes it on the
+	// session the moment the turn's process exists, before the waiter starts, so a stop of the run finds the session's tokens. Both
+	// nil is the launch exactly as it was; a zero answer stamps nothing. A failed record stops the process like a failed identity record.
+	runStamp  func(profileID, conversationID string) (charterID string, generation int64)
+	recordRun func(profileID, conversationID, turnID, charterID string, generation int64) error
+	// beforeRelease, when set, is asked after the process and its identity exist and before anything is delivered to it (the bound
+	// child blocks on its credential frame until then, so a refusal ends a process that has not run). bound says whether the turn is
+	// launched with peer-credential binding: a legacy child is already running, so a refusal of one stops a started process. An error
+	// fails the start like any other failed delivery (the turn started, is stopped, its tokens end).
+	beforeRelease func(profileID, conversationID, turnID string, bound bool) error
 	// afterExitRevoke is a test seam: the exit goroutine calls it once its revokes have run, before the turn is done.
 	afterExitRevoke func()
 }
@@ -324,18 +334,33 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	// this identity commit leaves the session with PID 0. Recovery then cannot adopt the child, treats the turn as gone and settles, and a
 	// queued turn may start beside it. Closing it needs a durable launch intent written BEFORE the spawn (a per-turn nonce, or an
 	// enumerable unit); build it if it ever occurs.
+	// A process whose identity cannot be kept must not outlive this call (a restart could not find it): it is killed at once,
+	// leader and group. Nothing waits for the child yet, so the pid cannot have been reused and the group is still its own.
+	killUnrecorded := func(err error) error {
+		_ = cmd.Process.Kill()
+		_ = killGroup(t.pid)
+		t.markKilled() // under the lock, before the waiter can reap: Stop, the grace and afterDone never signal this pid or group again
+		startWaiter()  // reaps it and ends its tokens
+		return t.fail(err)
+	}
 	if l.onProcess != nil {
 		if err := l.onProcess(profileID, conversationID, turnID, t.pid, stamp, bd != nil); err != nil {
-			// A process whose identity cannot be kept must not outlive this call (a restart could not find it): it is killed at once,
-			// leader and group. Nothing waits for the child yet, so the pid cannot have been reused and the group is still its own.
-			_ = cmd.Process.Kill()
-			_ = killGroup(t.pid)
-			t.markKilled() // under the lock, before the waiter can reap: Stop, the grace and afterDone never signal this pid or group again
-			startWaiter()  // reaps it and ends its tokens
-			return nil, t.fail(fmt.Errorf("could not record the turn's process, so it was stopped: %w", err))
+			return nil, killUnrecorded(fmt.Errorf("could not record the turn's process, so it was stopped: %w", err))
+		}
+	}
+	if l.runStamp != nil && l.recordRun != nil {
+		if charterID, gen := l.runStamp(profileID, conversationID); charterID != "" || gen != 0 {
+			if err := l.recordRun(profileID, conversationID, turnID, charterID, gen); err != nil {
+				return nil, killUnrecorded(fmt.Errorf("could not record the run of the turn, so it was stopped: %w", err))
+			}
 		}
 	}
 	startWaiter()
+	if l.beforeRelease != nil {
+		if err := l.beforeRelease(profileID, conversationID, turnID, bd != nil); err != nil {
+			return nil, t.fail(fmt.Errorf("the turn was not released: %w", err))
+		}
+	}
 	if ct != nil && bd == nil { // a bound launch binds the child's token inside its own transaction
 		if err := l.child.bind(profileID, conversationID, ct, t.pid, coderhost.ProcStamp(t.pid)); err != nil {
 			return nil, t.fail(err)
