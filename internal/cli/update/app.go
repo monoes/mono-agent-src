@@ -48,6 +48,7 @@ func (d Deps) runApp(cmd *cobra.Command, appPath, current string) error {
 			fmt.Fprintln(cmd.OutOrStdout(), msg)
 		}
 	}
+	d.Say = progress
 	force, _ := cmd.Flags().GetBool("force")
 	res, err := d.updateApp(cmd, appPath, current, force, progress)
 	if err != nil {
@@ -61,7 +62,10 @@ func (d Deps) runApp(cmd *cobra.Command, appPath, current string) error {
 		// dropped or, if the daemon did not come up, put back. The app relays each line.
 		stale := d.staleAfterApp(cmd.Context(), appPath, current, res)
 		if !res.UpToDate {
-			res.Daemon = d.settleDaemon(cmd.Context(), stale, d.daemonAfterUpdate(cmd.Context(), res.NewVersion))
+			res.Daemon = d.daemonNotReplaced(cmd.Context(), res.NewVersion, stale, appSibling(appPath))
+			if res.Daemon == nil {
+				res.Daemon = d.settleDaemon(cmd.Context(), stale, d.daemonAfterUpdate(cmd.Context(), res.NewVersion))
+			}
 			res.Bridge = d.bridgeAfterUpdate(cmd.Context(), res.NewVersion, bridgeSkipReason(res.Daemon))
 			d.settleBridge(stale, res.Bridge)
 		}
@@ -117,6 +121,26 @@ func (d Deps) updateApp(cmd *cobra.Command, appPath, current string, force bool,
 	return AppResult{Success: true, UpToDate: r.UpToDate, NewVersion: r.NewVersion, Restart: r.Restart, cli: r.CLI}, nil
 }
 
+// appSibling is the CLI beside the app, which the app update itself brought onto the release (none where the app holds none).
+func appSibling(appPath string) []string {
+	if abs, err := filepath.EvalSymlinks(appPath); err == nil {
+		appPath = abs
+	}
+	if cli, ok := appupdate.SiblingCLI(filepath.Dir(appPath), runtime.GOOS, runtime.GOARCH); ok {
+		return []string{cli}
+	}
+	return nil
+}
+
+// appSkip are the paths staleCLIs does not list: the CLI run now and the one beside the app.
+func appSkip(appPath string) []string {
+	skip := []string{}
+	if exe, err := os.Executable(); err == nil {
+		skip = append(skip, exe)
+	}
+	return append(skip, appSibling(appPath)...)
+}
+
 // staleAfterApp brings the CLIs the app update left behind onto the release: the daemon service's exe and the one on PATH are
 // replaced, by the rules of staleCLIs, from the CLI inside the verified download (never from anything else, and nothing is
 // executed but the new binary's own version check); where the download held no CLI they are only reported.
@@ -129,16 +153,7 @@ func (d Deps) staleAfterApp(ctx context.Context, appPath, current string, res Ap
 	if ver == "" {
 		return nil
 	}
-	skip := []string{}
-	if exe, err := os.Executable(); err == nil {
-		skip = append(skip, exe)
-	}
-	if abs, err := filepath.EvalSymlinks(appPath); err == nil {
-		appPath = abs
-	}
-	if cli, ok := appupdate.SiblingCLI(filepath.Dir(appPath), runtime.GOOS, runtime.GOARCH); ok {
-		skip = append(skip, cli)
-	}
+	skip := appSkip(appPath)
 	var data []byte
 	if !res.UpToDate {
 		data = res.cli

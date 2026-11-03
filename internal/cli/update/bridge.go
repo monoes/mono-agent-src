@@ -42,7 +42,7 @@ type BridgeUpdate struct {
 // bridgeSkipReason is why the bridge is not restarted yet, given the daemon's outcome: "" when it may be.
 func bridgeSkipReason(du *DaemonUpdate) string {
 	if du != nil && du.Action == "failed" {
-		return "the daemon update did not settle (see above), so the new binary is in doubt. Restart the bridge when that is resolved: systemctl --user restart monoagent-bridge"
+		return "the daemon update did not settle (see above), so the new binary is in doubt."
 	}
 	return ""
 }
@@ -69,6 +69,9 @@ func (d Deps) bridgeAfterUpdate(ctx context.Context, newVersion string, skipBeca
 	if skipBecause != "" {
 		u.Action = "skipped"
 		u.Message = fmt.Sprintf("The extension bridge (pid %d) runs %s and was not restarted: %s", b.PID, was, skipBecause)
+		if b.Unit != "" {
+			u.Message += " Restart the bridge when that is resolved: systemctl --user restart " + shQuote(b.Unit)
+		}
 		return u
 	}
 	switch {
@@ -97,6 +100,7 @@ func (d Deps) bridgeAfterUpdate(ctx context.Context, newVersion string, skipBeca
 		u.Action, u.Message = "failed", fmt.Sprintf("The extension bridge (pid %d) runs %s; restart it with: %s", b.PID, was, restart)
 		return u
 	}
+	d.say(fmt.Sprintf("Restarting the extension bridge (%s) onto %s (up to %s)...", b.Unit, newVersion, bridgeRestartBound+d.verifyWait()))
 	if err := d.RestartBridge(rctx, b.Unit, b.PID); err != nil {
 		u.Action = "failed"
 		u.Message = fmt.Sprintf("The extension bridge (pid %d) runs %s and its restart failed (%v). Restart it with: %s", b.PID, was, err, restart)
