@@ -17,8 +17,10 @@ export default function ControlRoom({ isActive = true, api = controlRoomApi }) {
   const { t } = useTranslation()
   const { doc, view, lastRun, feed, rate, loadOlder, refresh } = useControlRoom(isActive, api)
   const run = view.state === 'error' ? lastRun?.run : doc?.run
-  // Stop takes no argument, so it is offered whenever a run is or was last known: also under an error banner.
-  const showStop = view.state === 'ok' || (view.state === 'error' && !!lastRun)
+  // Stop takes no argument, so it is offered whenever a run may exist: in every ok state, and under every error
+  // banner (a failed first poll or a failed read says nothing about the run). With no known run it says so.
+  const showStop = view.state === 'ok' || (view.state === 'error' && doc !== null)
+  const runUnknown = view.state === 'error' && !lastRun
   return (
     <div className="cr-page" data-testid="cr-page">
       <div className="page-header">
@@ -49,7 +51,7 @@ export default function ControlRoom({ isActive = true, api = controlRoomApi }) {
             )}
           </>
         ) : null}
-        {showStop ? <StopPanel api={api} disabled={!!run && !run.active} onDone={refresh} /> : null}
+        {showStop ? <StopPanel api={api} disabled={!!run && !run.active} unknown={runUnknown} onDone={refresh} /> : null}
       </div>
     </div>
   )

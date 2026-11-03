@@ -79,7 +79,28 @@ describe('states of the page', () => {
   it('error from the CLI: shown, no data, polling goes on', async () => {
     await show({ error: 'operator only', code: 'operator_only' }, 'cr-error')
     expect(screen.getByTestId('cr-error')).toHaveTextContent('operator only')
-    expect(screen.queryByTestId('cr-stop')).toBeNull()
+    // The first poll failed, so a run may be live: Stop is offered, labelled as "run state unknown".
+    expect(screen.getByTestId('cr-stop')).toBeInTheDocument()
+    expect(screen.getByTestId('cr-stop-unknown')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Stop run/ })).toBeEnabled()
+  })
+  it.each([
+    ['an {error} document', { error: 'database is locked' }],
+    ['a read-error document', golden('overview_error')],
+    ['an unknown schema', { schema_version: 99, available: true }],
+  ])('first poll fails with %s: Stop is reachable and the banner may say so', async (_n, doc) => {
+    await show(doc, 'cr-error')
+    expect(screen.getByRole('button', { name: /Stop run/ })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: /Stop run/ }))
+    expect(screen.getByTestId('cr-stop-confirm')).toBeInTheDocument()
+  })
+  it.each([
+    ['unanchored', golden('overview_unanchored')],
+    ['no', unverified],
+    ['unknown', { ...running, integrity: { chain_verified: 'unknown' } }],
+  ])('chain %s: Stop is reachable', async (_n, doc) => {
+    await show(doc, 'cr-stop')
+    expect(screen.getByRole('button', { name: /Stop run/ })).toBeEnabled()
   })
   it('a quiescent run: ended, Stop disabled', async () => {
     await show({ ...running, run: { ...running.run, state: 'quiescent', active: false, stopping: true } }, 'cr-stop')
@@ -200,12 +221,14 @@ describe('Stop survives a failed poll', () => {
     await laterPoll({ error: 'x' })
     expect(screen.getByTestId('cr-stop')).toBeInTheDocument()
   })
-  it('after a good poll that says no run, Stop is gone (and an error after that does not bring it back)', async () => {
+  it('after a good poll that says no run, Stop is gone; an error after that offers it again as "state unknown"', async () => {
     await firstOk()
     await laterPoll(golden('overview_no_run'))
     expect(screen.queryByTestId('cr-stop')).toBeNull()
-    await laterPoll({ error: 'x' })
-    expect(screen.queryByTestId('cr-stop')).toBeNull()
+    api.overview.mockResolvedValue({ error: 'x' })
+    await act(async () => { await vi.advanceTimersByTimeAsync(16000) }) // an idle page polls every 15 s
+    expect(screen.getByTestId('cr-error')).toBeInTheDocument()
+    expect(screen.getByTestId('cr-stop-unknown')).toBeInTheDocument()
   })
 })
 

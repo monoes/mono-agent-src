@@ -2575,6 +2575,7 @@
     },
     "stop": {
       "title": "Stop",
+      "unknown": "Run state unknown: the last read failed, so a run may still be going. Stop is offered because it needs no information from the read.",
       "cannot": "Stop ends the run and cannot be undone; resuming means a new run started in the terminal. The result below is exactly what the command said.",
       "button": "Stop run",
       "stopping": "Stopping...",

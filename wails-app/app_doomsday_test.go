@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -194,8 +195,6 @@ func TestDoomsdayProbeAnswersAndCaches(t *testing.T) {
 		{dmOverview, `{"mode_available":true,"run_exists":true}`},
 		{dmNoRun, `{"mode_available":true,"run_exists":false}`},
 		{dmOff, `{"mode_available":false,"run_exists":false}`},
-		{`{"error":"unknown command doomsday"}`, `{"mode_available":false,"run_exists":false}`},
-		{`not json`, `{"mode_available":false,"run_exists":false}`},
 	} {
 		resetProbe()
 		taskCLIFake(t, tc.doc, 0)
@@ -334,4 +333,93 @@ func waitFor(t *testing.T, ok func() bool) {
 		}
 	}
 	t.Fatal("condition not reached in 5s")
+}
+
+// The real CLI prints the control room's error document and then main's generic envelope on stdout. Only the first
+// value reaches the page, as one parseable document.
+func TestDoomsdayReadErrorWithTheRealTwoDocumentOutput(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "internal", "cli", "doomsday", "testdata", "controlroom_overview_error.golden.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := strings.TrimSpace(string(raw))
+	taskCLIFake(t, first+"\n"+`{"error":"doomsday: the run's database could not be read"}`+"\n", 1)
+	a := newTaskTestApp(t)
+	got := a.DoomsdayOverview()
+	var d struct {
+		Reason    string `json:"reason"`
+		ErrorCode string `json:"error_code"`
+		Error     string `json:"error"`
+	}
+	if json.Unmarshal([]byte(got), &d) != nil || d.Reason != "error" || d.ErrorCode == "" || d.Error != "" {
+		t.Fatalf("two-document read error = %q", got)
+	}
+}
+
+func TestDoomsdayReadErrorParsesTheFirstValueOnly(t *testing.T) {
+	good := `{"schema_version":1,"available":false,"reason":"error","error_code":"read_failed"}`
+	for _, tc := range []struct {
+		name, out string
+		ok        bool
+	}{
+		{"single", good, true},
+		{"two documents", good + "\n" + `{"error":"x"}`, true},
+		{"trailing garbage", good + "\nnot json at all", true},
+		{"empty", "", false},
+		{"garbage", "not json", false},
+		{"truncated", good[:len(good)-6], false},
+		{"healthy first", dmOverview + "\n" + good, false},
+		{"off first", dmOff + "\n" + good, false},
+		{"envelope first", `{"error":"x"}` + "\n" + good, false},
+	} {
+		first, ok := doomsdayReadError(tc.out)
+		if ok != tc.ok || (ok && first != good) {
+			t.Errorf("%s: (%q, %v)", tc.name, first, ok)
+		}
+	}
+}
+
+// Anything that is not a definite document is an error that is not cached, so the page keeps its last good probe.
+func TestDoomsdayProbeFailuresAreErrorsAndNotCached(t *testing.T) {
+	errDoc, _ := os.ReadFile(filepath.Join("..", "internal", "cli", "doomsday", "testdata", "controlroom_overview_error.golden.json"))
+	for _, tc := range []struct {
+		name, body string
+	}{
+		{"timeout", "exec sleep 5\n"},
+		{"exit1 empty", "exit 1\n"},
+		{"exit0 garbage", "echo not json\n"},
+		{"exit0 empty", "exit 0\n"},
+		{"old cli error doc", `echo '{"error":"unknown command doomsday"}'` + "\nexit 0\n"},
+		{"refusal", `echo '{"error":"operator only","code":"operator_only"}'` + "\nexit 3\n"},
+		{"unavailable doc on a failed exit", "echo '" + dmOff + "'\nexit 1\n"},
+		{"unknown reason", `echo '{"schema_version":1,"available":false,"reason":"weird"}'` + "\n"},
+		{"wrong schema", `echo '{"schema_version":2,"available":true}'` + "\n"},
+		{"read error doc", "echo '" + strings.TrimSpace(string(errDoc)) + "'\nexit 1\n"},
+		{"spawn failure", ""},
+	} {
+		resetProbe()
+		log := filepath.Join(t.TempDir(), "calls")
+		if tc.body == "" {
+			t.Setenv("MONOAGENTCLI_BIN", filepath.Join(t.TempDir(), "missing"))
+		} else {
+			t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, "echo x >> '"+log+"'\n"+tc.body))
+		}
+		a := newTaskTestApp(t)
+		if tc.name == "timeout" {
+			ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+			defer cancel()
+			a.ctx = ctx
+		}
+		for i := 0; i < 2; i++ {
+			got := a.DoomsdayProbe()
+			if !strings.Contains(got, `"error"`) || strings.Contains(got, "mode_available") {
+				t.Errorf("%s: probe = %s", tc.name, got)
+			}
+		}
+		if tc.body != "" && tc.name != "timeout" { // the shared deadline has passed for the second probe
+			if n := callCount(t, log); n != 2 {
+				t.Errorf("%s: an error answer was cached (CLI ran %d times for 2 probes)", tc.name, n)
+			}
+		}
+	}
 }
