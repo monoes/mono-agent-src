@@ -33,6 +33,12 @@ const (
 	KindAskSpend   = "ask_spend_micro"
 	KindAskTasks   = "ask_tasks"
 	KindGrantSpend = "grant_spend_micro"
+
+	// Counters of the other typed operations (typed.go): sends, files touched and bytes written, vault.use attempts.
+	KindSends         = "sends"
+	KindLocalCount    = "local_count"
+	KindLocalBytes    = "local_bytes"
+	KindVaultAttempts = "vault_attempts"
 )
 
 // Names of the limits that a request can exceed, as the audit and the person item name them.
@@ -93,6 +99,13 @@ type Constraints struct {
 	AskAnswer   *AskAnswer   `json:"ask_answer,omitempty"`
 	SpendGrant  *SpendGrant  `json:"spend_grant,omitempty"`
 	Run         RunCaps      `json:"run"`
+
+	// The other typed operations of note 13.4 (typed.go). The store's charter does not carry them yet, so the
+	// adapter leaves them nil and they stay off: a nil entry enables nothing.
+	SendThirdParty   *SendThirdParty   `json:"send_third_party,omitempty"`
+	VaultUse         *VaultUse         `json:"vault_use,omitempty"`
+	LocalDestructive *LocalDestructive `json:"local_destructive,omitempty"`
+	HostSetting      *HostSetting      `json:"host_setting,omitempty"`
 }
 
 // SpendBounds are the bounds of a single budget grant the host already enforces (budgetreq.go:
@@ -171,6 +184,28 @@ func (c Constraints) Validate(b SpendBounds) error {
 		case g.RunCeilingMicro < g.MaxPerGrantMicro:
 			return invalidLimit("%s: run_ceiling_micro is below max_per_grant_micro", OpSpendGrant)
 		}
+	}
+	return c.validateTyped()
+}
+
+func (c Constraints) validateTyped() error {
+	if v := c.VaultUse; v != nil {
+		if err := v.Validate(); err != nil {
+			return err
+		}
+	}
+	if s := c.SendThirdParty; s != nil {
+		if err := s.validate(); err != nil {
+			return err
+		}
+	}
+	if l := c.LocalDestructive; l != nil {
+		if err := l.validate(); err != nil {
+			return err
+		}
+	}
+	if h := c.HostSetting; h != nil {
+		return h.validate()
 	}
 	return nil
 }

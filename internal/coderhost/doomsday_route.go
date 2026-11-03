@@ -9,6 +9,7 @@ import (
 	"slices"
 
 	"github.com/monoes/mono-agent/internal/doomsday/ops"
+	"github.com/monoes/mono-agent/internal/tasks"
 )
 
 // B2 routing of the open-ended mode (spec 6, note 13.4 4B): what the boss may answer by itself, inside the
@@ -21,8 +22,8 @@ var ErrDoomsdayOff = fmt.Errorf("%w: the open-ended mode is not running", ErrNot
 // ErrParked: the request was over a limit or not lifted; it stays a person item and nothing was answered.
 var ErrParked = fmt.Errorf("%w: parked as a person item", ErrLimit)
 
-// ErrDoomsdayNotWired: an operation whose facts this host does not yet read (plan.approve). Refused, never
-// approved on guessed numbers.
+// ErrDoomsdayNotWired: facts that were asked for without the verified boss they are read for (plan.approve).
+// Refused, never approved on guessed numbers.
 var ErrDoomsdayNotWired = errors.New("coder host: that open-ended operation is not wired to a source of facts")
 
 // ClassAskCritical is the answer class of a critical upward ask for ops.AskAnswer.Classes.
@@ -41,7 +42,7 @@ func SpendBounds() ops.SpendBounds {
 	return ops.SpendBounds{MinMicro: min, MaxMicro: max}
 }
 
-// NewDoomsdayFacts reads the facts of an ask and a budget request from this store. Plan facts are not wired.
+// NewDoomsdayFacts reads the facts of a plan, an ask and a budget request from this store.
 func (s *Store) NewDoomsdayFacts() ops.Facts { return routeFacts{s} }
 
 // SetDoomsdayRoute installs (or with nil removes) the route.
@@ -159,8 +160,19 @@ func (s *Store) BossGrantBudget(ctx context.Context, sc CallerScope, profileID s
 
 type routeFacts struct{ s *Store }
 
-func (f routeFacts) Plan(context.Context, string, int64) (ops.Subject, error) {
-	return ops.Subject{}, ErrDoomsdayNotWired
+// Plan reads the facts of a draft's plan as the verified lead of its parent (the boss): the actor travels in ctx
+// (BossApprovePlan sets it), and a call without one is refused, never answered on guessed numbers.
+func (f routeFacts) Plan(ctx context.Context, profileID string, session int64) (ops.Subject, error) {
+	actor, ok := ctx.Value(bossActorKey{}).(tasks.Actor)
+	if !ok {
+		return ops.Subject{}, ErrDoomsdayNotWired
+	}
+	pf, err := tasks.NewStore(f.s.db).PlanFactsForBoss(ctx, profileID, session, actor)
+	if err != nil {
+		return ops.Subject{}, err
+	}
+	return ops.Subject{Open: pf.Open, Rev: pf.Rev, Digest: pf.Digest, Tasks: pf.Tasks, SpendMicro: pf.SpendMicro,
+		Access: pf.AccessLevel, Depth: pf.Depth}, nil
 }
 
 // Ask: an answer commits nothing, so its numbers are the least possible; only the class and openness matter.
