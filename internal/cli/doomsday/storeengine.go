@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/monoes/mono-agent/internal/doomsday/store"
 	"github.com/monoes/mono-agent/internal/secrets"
@@ -175,6 +176,13 @@ func (e *StoreEngine) Status(ctx context.Context) (Status, error) {
 		return Status{}, err
 	}
 	h := sc.Hash()
+	var fin, finReason string
+	var finRound int64
+	if v, ok := e.Store.(finishView); ok {
+		if fin, finReason, finRound, err = FinishStatus(ctx, v, e.Profile, run); err != nil {
+			return Status{}, fmt.Errorf("the finish of generation %d cannot be read: %w", gen, err)
+		}
+	}
 	var head store.AuditHead
 	if r, ok := e.Store.(store.AuditHeadReader); ok {
 		if head, err = r.AuditHead(ctx, e.Profile, gen); err != nil {
@@ -182,7 +190,8 @@ func (e *StoreEngine) Status(ctx context.Context) (Status, error) {
 		}
 	}
 	return Status{AuditSeq: head.Seq, AuditHead: hex.EncodeToString(head.MAC[:min(len(head.MAC), 8)]), Active: run.State != store.StateQuiescent, RunID: fmt.Sprintf("%s/%d", e.Profile, gen), CharterID: run.CharterID,
-		Hash: hex.EncodeToString(h[:]), State: string(run.State), Generation: gen, Lines: sc.Lines, Members: len(members)}, nil
+		Hash: hex.EncodeToString(h[:]), State: string(run.State), Generation: gen, Lines: sc.Lines, Members: len(members),
+		Finish: fin, FinishReason: finReason, FinishRound: finRound}, nil
 }
 
 func toStore(c Charter, profile string, gen int64) store.Charter {
@@ -205,7 +214,8 @@ func toStore(c Charter, profile string, gen int64) store.Charter {
 		}
 	}
 	if c.PerAsk.AutoApproves() {
-		sc.PerAsk = store.PerAsk{Declared: true, SpendMicro: c.PerAsk.SpendMicro, Tasks: c.PerAsk.Tasks, Access: c.PerAsk.Access, Depth: c.PerAsk.Depth}
+		sc.PerAsk = store.PerAsk{Declared: true, SpendMicro: c.PerAsk.SpendMicro, Tasks: c.PerAsk.Tasks, Access: c.PerAsk.Access, Depth: c.PerAsk.Depth,
+			RunSpendMicro: c.PerAsk.RunSpendMicro, RunTasks: c.PerAsk.RunTasks, AnswerClasses: slices.Clone(c.PerAsk.AnswerClasses)}
 	}
 	return sc
 }

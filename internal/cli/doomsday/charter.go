@@ -96,11 +96,17 @@ type PerAsk struct {
 	Tasks      int    `json:"ask_tasks"`
 	Access     string `json:"ask_access"` // named when any limit is declared; never "full"
 	Depth      int    `json:"ask_depth"`
+	// RunSpendMicro and RunTasks cap the run's cumulative auto-approved totals (note 13.4), so many small asks cannot
+	// add up to what one large ask would have been. Required, each at least the per-ask value, once any limit is declared.
+	RunSpendMicro int64 `json:"run_spend_micro,omitempty"`
+	RunTasks      int64 `json:"run_tasks,omitempty"`
+	// AnswerClasses are the answer classes the boss may answer by itself (ask.answer). Empty: every critical ask parks.
+	AnswerClasses []string `json:"answer_classes,omitempty"`
 }
 
 // AutoApproves says whether any per-ask limit is declared.
 func (a PerAsk) AutoApproves() bool {
-	return a.SpendMicro > 0 || a.Tasks > 0 || a.Access != "" || a.Depth > 0
+	return a.SpendMicro > 0 || a.Tasks > 0 || a.Access != "" || a.Depth > 0 || a.RunSpendMicro > 0 || a.RunTasks > 0 || len(a.AnswerClasses) > 0
 }
 
 // Criterion is a success criterion: a command with its expected result, or a rubric.
@@ -239,12 +245,14 @@ func (c Charter) Validate() error {
 	} else if c.Pins.Verifier == c.Pins.Boss {
 		add("the verifier is the boss's own model: finishing needs a distinct pinned verifier")
 	}
-	if p := c.PerAsk; p.SpendMicro < 0 || p.Tasks < 0 || p.Depth < 0 {
+	if p := c.PerAsk; p.SpendMicro < 0 || p.Tasks < 0 || p.Depth < 0 || p.RunSpendMicro < 0 || p.RunTasks < 0 {
 		add("a per-ask limit is negative")
 	} else if p.Access == "full" {
 		add("ask_access is never full")
 	} else if p.AutoApproves() && p.Access == "" {
 		add("name ask_access when any per-ask limit is declared")
+	} else if p.AutoApproves() && (p.RunSpendMicro < p.SpendMicro || p.RunTasks < int64(p.Tasks) || p.RunTasks < 1) {
+		add("name the run caps (run_spend_micro, run_tasks) when any per-ask limit is declared: each at least the per-ask limit")
 	}
 	for i, k := range c.Criteria {
 		switch {

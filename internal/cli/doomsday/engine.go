@@ -56,6 +56,11 @@ type Status struct {
 	Members    int      `json:"members,omitempty"`
 	AuditSeq   int64    `json:"audit_seq,omitempty"`
 	AuditHead  string   `json:"audit_head,omitempty"` // first 16 hex of the chain head MAC
+	// Finish is the state of a finish (note 13.6): quiescent while the freeze is awaited, verifying, finish-parked or
+	// finished; empty for a run that is not finishing. FinishReason is the closed park reason of a parked finish.
+	Finish       string `json:"finish,omitempty"`
+	FinishReason string `json:"finish_reason,omitempty"`
+	FinishRound  int64  `json:"finish_round,omitempty"`
 }
 
 // Engine is what the store and stop packages give the CLI. Enter must

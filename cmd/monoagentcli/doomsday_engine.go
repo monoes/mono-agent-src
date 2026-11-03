@@ -25,6 +25,9 @@ import (
 const doomsdayBuilt = true
 
 func init() {
+	// Depth limits as charter inputs: every tasks and coder-host store of this process reads the profile's open run, and
+	// is what it always was while there is none.
+	doomsdaycli.InstallDepthPolicies()
 	doomsdayEngine = func(cfg *globalConfig) doomsdaycli.Engine {
 		db, err := initDB(cfg)
 		if err != nil {
@@ -50,6 +53,9 @@ func init() {
 				InstallHooks: func(st *coderhost.Store, h *coderhost.Host, hk doomsdaycli.Hooks) error {
 					return chatcli.InstallRunHooks(st, h, chatcli.RunHooks{RunStamp: hk.RunStamp, BeforeRelease: hk.BeforeRelease, Place: hk.Place})
 				}}
+			// The boss's typed operations (plan.approve, ask.answer, spend.grant) are enforced against the open run's
+			// charter, witnessed; the route is the mode off whenever no run is running.
+			w.InstallOps(st)
 			if err := g.Install(st, h); err != nil {
 				fmt.Fprintf(os.Stderr, "coder host: the open-ended mode's launcher hooks could not be installed (turns are ticketed around their start instead): %v\n", err)
 			}

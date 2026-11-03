@@ -168,7 +168,7 @@ type Store struct {
 
 // NewStore wraps an open, migrated database.
 func NewStore(db *sql.DB) *Store {
-	s := &Store{db: db, now: time.Now}
+	s := &Store{db: db, now: time.Now, depthPolicy: defaultDepthPolicy(db)}
 	if procbind.IssuanceOn() { // the only place a verifier is installed outside a test: v2 secrets are denied until issuance is on
 		s.v2 = &procbind.V2Check{DB: db}
 	}
