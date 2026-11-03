@@ -53,6 +53,7 @@ func (s *Store) tx(ctx context.Context, fn func(x dbx) error) error {
 	defer conn.Close()
 	if err := s.beginImmediate(ctx, conn); err != nil {
 		noteDirtyConn(err, 2)
+		abandonBegin(conn)
 		return fmt.Errorf("tasks: begin: %w", err)
 	}
 	committed := false
@@ -71,6 +72,15 @@ func (s *Store) tx(ctx context.Context, fn func(x dbx) error) error {
 	}
 	committed = true
 	return nil
+}
+
+// abandonBegin makes sure a connection whose BEGIN reported an error goes back to the pool outside any
+// transaction. The driver reports the end of the context even for a BEGIN that took effect (a cancellation that
+// lands as the statement finishes), and the connection would then be handed to the next caller still inside a
+// transaction: "cannot start a transaction within a transaction" (#1315). Rolling back when none is open is a
+// harmless error, which is ignored; ctx is not used, a cancelled one would skip it.
+func abandonBegin(conn *sql.Conn) {
+	_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
 }
 
 // noteDirtyConn logs, once per occurrence and without changing what the caller does, that a pooled connection
@@ -133,6 +143,7 @@ func (s *Store) snapshot(ctx context.Context, fn func(x dbx) error) error {
 	defer conn.Close()
 	if _, err := conn.ExecContext(ctx, "BEGIN"); err != nil {
 		noteDirtyConn(err, 2)
+		abandonBegin(conn)
 		return fmt.Errorf("tasks: begin: %w", err)
 	}
 	defer func() { _, _ = conn.ExecContext(context.Background(), "ROLLBACK") }()

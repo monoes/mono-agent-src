@@ -72,6 +72,7 @@ func okTurn(text string) *monomind.TurnResult {
 // `hold` (or until cancelled), and answers per model.
 type execScript struct {
 	hold    time.Duration
+	meet    int32                           // when set, a run waits until this many are running at once (or 10 s), so overlap is not left to timing
 	answers map[string]*monomind.TurnResult // model key -> result; missing = ok
 	mu      sync.Mutex
 	calls   []monomind.ExecOptions
@@ -91,6 +92,18 @@ func (e *execScript) exec(ctx context.Context, o monomind.ExecOptions, on func(m
 		}
 	}
 	defer atomic.AddInt32(&e.running, -1)
+	if e.meet > 0 {
+		deadline := time.After(10 * time.Second)
+		for atomic.LoadInt32(&e.running) < e.meet {
+			select {
+			case <-ctx.Done():
+				return &monomind.TurnResult{SawDone: true, StopReason: monomind.StopCancelled}, nil
+			case <-deadline:
+				return okTurn("did " + o.Prompt), nil
+			case <-time.After(time.Millisecond):
+			}
+		}
+	}
 	start := monomind.Event{Type: monomind.EventStart}
 	if o.Sandbox != "" {
 		// Exec reports the sandbox it applied on the start event.
@@ -385,7 +398,7 @@ func TestResearchConfinement(t *testing.T) {
 	bare := Model{Runtime: "grok", Model: "g", FullAccess: true}
 
 	// No --access read, but a read-only sandbox: sandboxed, no write lease.
-	ex := &execScript{hold: 60 * time.Millisecond}
+	ex := &execScript{hold: 60 * time.Millisecond, meet: 2}
 	em := &recEmitter{}
 	c := New(context.Background(), Config{Cwd: "/w", Staffer: &Staffer{Roster: []Model{sandboxed}, Lead: sandboxed}, Exec: ex.exec, Emit: em, Limits: Limits{MaxAgents: 3, MaxConcurrent: 3}})
 	c.Spawn(context.Background(), SpawnRequest{Brief: "implement it", Access: ProfileCoding})
