@@ -85,6 +85,19 @@ func tlsServer(t *testing.T, h http.HandlerFunc) (*httptest.Server, PinnedTransp
 	return srv, p, res
 }
 
+func TestTheTransportIgnoresProxyVariablesAndKeepsNoConnection(t *testing.T) { // T5i
+	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:1")
+	tr := PinnedTransport{}.transport(addrs("93.184.216.34"))
+	req, _ := http.NewRequest("GET", "https://example.com/", nil)
+	_ = req
+	if tr.Proxy != nil {
+		t.Fatal("the transport has a proxy function")
+	}
+	if !tr.DisableKeepAlives {
+		t.Fatal("a connection is kept")
+	}
+}
+
 func TestRedirectsAreNotFollowed(t *testing.T) { // T5b
 	var hits atomic.Int32
 	_, p, _ := tlsServer(t, func(w http.ResponseWriter, r *http.Request) {

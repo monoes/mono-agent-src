@@ -64,22 +64,13 @@ func (p PinnedTransport) pinned(ctx context.Context, host string) ([]netip.Addr,
 	return out, nil
 }
 
-// Do implements Transport. The secret is placed at req.Inject: a header name, or "body:<field>" is not supported in
-// this transport (the body is only ever its hash in the approval), so Inject names a header.
-func (p PinnedTransport) Do(ctx context.Context, req VaultArgs, secret []byte) (Response, error) {
-	u, err := url.Parse(req.URL)
-	if err != nil || u.Scheme != "https" {
-		return Response{}, ErrMalformedResponse
-	}
-	addrs, err := p.pinned(ctx, u.Hostname())
-	if err != nil {
-		return Response{}, err
-	}
+// transport dials only the pinned set, ignores proxy environment variables and keeps no connection.
+func (p PinnedTransport) transport(addrs []netip.Addr) *http.Transport {
 	dial := p.Dial
 	if dial == nil {
 		dial = (&net.Dialer{Timeout: 10 * time.Second}).DialContext
 	}
-	tr := &http.Transport{
+	return &http.Transport{
 		Proxy: nil, // proxy environment variables are ignored
 		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
 			var last error
@@ -95,7 +86,20 @@ func (p PinnedTransport) Do(ctx context.Context, req VaultArgs, secret []byte) (
 		DisableKeepAlives: true,
 		TLSClientConfig:   p.TLSConfig,
 	}
-	client := &http.Client{Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+}
+
+// Do implements Transport. The secret is placed at req.Inject: a header name, or "body:<field>" is not supported in
+// this transport (the body is only ever its hash in the approval), so Inject names a header.
+func (p PinnedTransport) Do(ctx context.Context, req VaultArgs, secret []byte) (Response, error) {
+	u, err := url.Parse(req.URL)
+	if err != nil || u.Scheme != "https" {
+		return Response{}, ErrMalformedResponse
+	}
+	addrs, err := p.pinned(ctx, u.Hostname())
+	if err != nil {
+		return Response{}, err
+	}
+	client := &http.Client{Transport: p.transport(addrs), CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	hr, err := http.NewRequestWithContext(ctx, req.Method, req.URL, nil)
 	if err != nil {
 		return Response{}, ErrMalformedResponse

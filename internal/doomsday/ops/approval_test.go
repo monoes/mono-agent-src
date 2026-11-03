@@ -308,6 +308,22 @@ func TestALineWithoutConstraintsEnablesNothingForTheTypedOperations(t *testing.T
 	}
 }
 
+func TestACharterWhoseTypedConstraintsDoNotValidateEnablesNothing(t *testing.T) { // T14
+	c := typedCharter()
+	c.VaultUse.BucketCount = 99
+	g := newTrig(t, c)
+	r := g.issue2(vaultReq())
+	if _, err := g.e.Authorize(bg, r); !errors.Is(err, ErrNotEnabled) || g.ap.gets != 0 {
+		t.Fatalf("%v gets %d", err, g.ap.gets)
+	}
+}
+
+// issue2 fills the charter binding without checking the effect against the charter.
+func (g *trig) issue2(req TypedRequest) TypedRequest {
+	req.Profile, req.CharterID, req.Hash, req.Generation, req.Caller, req.ApprovalID = "p", "c1", "H", 1, Caller{Session: 7}, "x"
+	return req
+}
+
 func TestNoCharterDeniesTheTypedOperationsBeforeReadingAnything(t *testing.T) {
 	g := newTrig(t, typedCharter())
 	g.e.Charters = &fakeCharters{act: g.act, live: false}
@@ -362,5 +378,22 @@ func TestLocalTargetSetsAreExactAndRelative(t *testing.T) {
 	reordered.Local = &LocalArgs{Root: "/data/r", Verb: "delete", Targets: []string{"b", "a"}}
 	if _, err := g.e.Authorize(bg, reordered); err != nil {
 		t.Fatalf("the same set in another order: %v", err)
+	}
+}
+
+func TestHostSettingValuesAndKeysAreExact(t *testing.T) {
+	g := newTrig(t, typedCharter())
+	for name, a := range map[string]SettingArgs{
+		"another value": {Key: "theme", Value: "light"},
+		"unknown key":   {Key: "other", Value: "dark"},
+	} {
+		a := a
+		r := g.issue2(TypedRequest{Op: OpHostSetting, Setting: &a})
+		if _, err := g.e.Authorize(bg, r); !errors.Is(err, ErrOutsideConstraints) {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	if _, err := g.e.Authorize(bg, g.issue(t, TypedRequest{Op: OpHostSetting, Setting: &SettingArgs{Key: "motd", Value: "anything"}})); err != nil {
+		t.Fatalf("an explicit any: %v", err)
 	}
 }
