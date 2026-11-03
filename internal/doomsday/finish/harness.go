@@ -79,6 +79,7 @@ func (h *Harness) Advance(ctx context.Context) (Report, error) {
 	switch f.State {
 	case StateFinished:
 		rep.Done = true
+		h.ReleaseSnapshots(f.Generation, 0)
 		return rep, nil
 	case StateParked:
 		rep.Reason, rep.Detail = f.ParkReason, "the finish is parked for this round; `doomsday finish --reverify` starts a new round, `doomsday stop` ends it"
@@ -155,7 +156,8 @@ func (h *Harness) freeze(ctx context.Context, f Facts) (Report, error) {
 	if got != round {
 		return Report{State: f.State}, fmt.Errorf("finish: the ledger froze round %d, not %d", got, round)
 	}
-	if moving { // an unmediated writer is active: the workers are closed, so this is the documented residue
+	h.ReleaseSnapshots(f.Generation, round) // the earlier rounds' sealed copies are not needed any more
+	if moving {                             // an unmediated writer is active: the workers are closed, so this is the documented residue
 		v := Verdict{Park, ReasonSubjectChanged, "the subject kept changing while it was snapshotted"}
 		if err := h.Ledger.Park(ctx, v); err != nil {
 			return Report{}, err
@@ -289,6 +291,7 @@ func (h *Harness) report(ctx context.Context, v Verdict) (Report, error) {
 	switch f.State {
 	case StateFinished:
 		rep.Done, rep.Reason, rep.Detail = true, "", ""
+		h.ReleaseSnapshots(f.Generation, 0)
 	case StateParked:
 		rep.Reason = f.ParkReason
 	case StateVerifying:
@@ -320,4 +323,24 @@ func StatManifest(root string) (string, error) {
 		return nil
 	})
 	return b.String(), err
+}
+
+// ReleaseSnapshots removes the sealed snapshots of a generation's rounds below keepFrom (0: all of them). The digest and
+// the verdict stay in the ledger; the sealed copies are read-only trees that nothing else deletes. Best effort: a tree that
+// cannot be removed stays and is reported by the next call that tries.
+func (h *Harness) ReleaseSnapshots(gen, keepFrom int64) {
+	ents, err := os.ReadDir(h.Area)
+	if err != nil {
+		return
+	}
+	prefix := "g" + strconv.FormatInt(gen, 10) + "-r"
+	for _, d := range ents {
+		n, ok := strings.CutPrefix(d.Name(), prefix)
+		if !ok {
+			continue
+		}
+		if r, err := strconv.ParseInt(n, 10, 64); err == nil && (keepFrom == 0 || r < keepFrom) {
+			RemoveTree(filepath.Join(h.Area, d.Name()))
+		}
+	}
 }

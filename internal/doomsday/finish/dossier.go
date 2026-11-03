@@ -137,4 +137,13 @@ func (h *Harness) Decide(ctx context.Context, id string, approve bool, dossierHa
 }
 
 // Abort ends the finish at an operator Stop (note 13.6 section 7.1): nothing can commit or park afterwards.
-func (h *Harness) Abort(ctx context.Context, by string) error { return h.Ledger.Abort(ctx, by) }
+func (h *Harness) Abort(ctx context.Context, by string) error {
+	f, ferr := h.Ledger.Facts(ctx)
+	if err := h.Ledger.Abort(ctx, by); err != nil {
+		return err
+	}
+	if ferr == nil {
+		h.ReleaseSnapshots(f.Generation, 0)
+	}
+	return nil
+}

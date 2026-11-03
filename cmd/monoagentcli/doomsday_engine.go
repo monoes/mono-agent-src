@@ -33,7 +33,7 @@ func init() {
 		if err != nil {
 			return doomsdaycli.Off{} // fails closed: nothing starts
 		}
-		return doomsdayWiring(cfg, db.DB).Engine()
+		return doomsdayWiring(cfg, db.DB).FinishEngine()
 	}
 	doomsdayChat = func(cfg *globalConfig, d *chatcli.Deps) {
 		// A conductor's merges go through the open run's gate and journal; the resolver reads the run on every
