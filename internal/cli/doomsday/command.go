@@ -47,7 +47,7 @@ func NewCommand(d Deps) *cobra.Command {
 		Short:  "Open-ended mode: start, stop, status, render (the user's own)",
 		Hidden: true,
 	}
-	cmd.AddCommand(d.newStart(), d.newStop(), d.newStatus(), d.newRender())
+	cmd.AddCommand(d.newStart(), d.newStop(), d.newStatus(), d.newRender(), d.newFinish(), d.newRubric())
 	return cmd
 }
 
@@ -219,8 +219,18 @@ func (d Deps) newStop() *cobra.Command {
 			if err := d.operatorGate("stop the open-ended run"); err != nil {
 				return err
 			}
-			o, err := d.engine().Stop(cmd.Context())
 			out := cmd.OutOrStdout()
+			// A finish that has frozen is over the run's own Stop (the run is quiescent): stopping it records the end of
+			// the finish and ends its verification units (note 13.6 section 7.1).
+			if fo, ok := d.engine().(FinishOps); ok {
+				if done, err := fo.AbortFinish(cmd.Context()); err != nil {
+					return err
+				} else if done {
+					fmt.Fprintln(out, "stopped: the finish was ended; nothing can commit or park it any more")
+					return nil
+				}
+			}
+			o, err := d.engine().Stop(cmd.Context())
 			if err != nil {
 				return err
 			}

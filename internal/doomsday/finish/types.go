@@ -98,6 +98,15 @@ type Evidence struct {
 	Verifier      Pin
 	StdoutDigest  string
 	StderrDigest  string
+	// The environment descriptor and bounded excerpts for the person (note 13.6 section 8). The digests are the
+	// evidence; the excerpts are not.
+	ExitCode        int      `json:",omitempty"`
+	Net             string   `json:",omitempty"`
+	Detail          string   `json:",omitempty"`
+	StdoutExcerpt   string   `json:",omitempty"`
+	StderrExcerpt   string   `json:",omitempty"`
+	RunsSubjectCode bool     `json:",omitempty"`
+	Tainted         []string `json:",omitempty"`
 }
 
 // RubricDecision is an operator decision row bound to the version it was shown.
@@ -110,6 +119,9 @@ type RubricDecision struct {
 	CriterionID   string
 	CriterionHash string
 	Approve       bool
+	// DossierHash is the hash of the dossier the person was shown (note 13.6 section 10); Note is their bounded reason.
+	DossierHash string `json:",omitempty"`
+	Note        string `json:",omitempty"`
 }
 
 // Review states. A review is two chained rows: started, then complete. Only a complete row can count.

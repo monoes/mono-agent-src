@@ -50,6 +50,10 @@ type Finisher struct {
 	// Hook names the crash points ("review.started", "review.called", "review.complete", "commit"); a test
 	// makes a point return an error to model the process dying there.
 	Hook func(point string) error
+	// Recheck is the live recheck of note 13.6 section 7.3. The Finisher calls it once per Step, after the review and
+	// right before the commit it would make (or when the predicate only waits for it): nil records a successful recheck
+	// itself; a Park verdict (the subject changed) is written as the finish's park and nothing commits.
+	Recheck func(ctx context.Context) (*Verdict, error)
 }
 
 func (fn Finisher) at(p string) error {
@@ -71,7 +75,8 @@ func (f Facts) machineEvidenceComplete() bool {
 // Step reads the facts, runs the review if the machine results are in and no bound review covers them, and
 // then commits, parks or waits according to Evaluate.
 func (fn Finisher) Step(ctx context.Context) (Verdict, error) {
-	for range 3 {
+	rechecked := false
+	for range 5 {
 		f, err := fn.Ledger.Facts(ctx)
 		if err != nil {
 			return Verdict{}, err
@@ -90,6 +95,17 @@ func (fn Finisher) Step(ctx context.Context) (Verdict, error) {
 			continue // re-read: the review row is part of the facts now
 		}
 		v := Evaluate(f)
+		if fn.Recheck != nil && !rechecked && (v.Outcome == Commit || (v.Outcome == Wait && v.Reason == WaitRecheck)) {
+			rechecked = true
+			pv, err := fn.Recheck(ctx)
+			if err != nil {
+				return Verdict{}, err
+			}
+			if pv != nil {
+				return *pv, fn.Ledger.Park(ctx, *pv)
+			}
+			continue // re-read: the recheck row is part of the facts now
+		}
 		switch v.Outcome {
 		case Commit:
 			if err := fn.at("commit"); err != nil {
