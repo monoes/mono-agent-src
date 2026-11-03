@@ -826,3 +826,28 @@ func TestExpiryCallbackIgnoresAnEntryThatWasReplaced(t *testing.T) {
 		l.Release()
 	}
 }
+
+// An expiry that was observed is not undone by a clock stepped back afterwards: the entry was revoked when it was seen expired, so the
+// earlier time does not make it, or a lease still out on it, current again.
+func TestAnExpiryThatWasSeenIsNotUndoneByTheClockSteppingBack(t *testing.T) {
+	b, clk := newTestBinder()
+	activate(t, b, spec("t1"))
+	l, ok := b.Acquire("t1", "p1", "session:7")
+	if !ok {
+		t.Fatal("not found")
+	}
+	defer l.Release()
+	clk.add(2 * time.Hour)
+	if l2, ok := b.Acquire("t1", "p1", "session:7"); ok { // the pass that sees the expiry
+		l2.Release()
+		t.Fatal("an expired entry was looked up")
+	}
+	clk.add(-3 * time.Hour) // the wall clock is stepped back, before the token's expiry
+	if l.Valid() {
+		t.Error("a lease on an entry seen expired became valid again when the clock stepped back")
+	}
+	if l3, ok := b.Acquire("t1", "p1", "session:7"); ok {
+		l3.Release()
+		t.Error("an entry seen expired was looked up again when the clock stepped back")
+	}
+}

@@ -3,8 +3,8 @@
 #  - no workflow may trigger on pull_request_target or workflow_run, in any form
 #    (string, list or mapping under `on:`);
 #  - the sanctioned routing expression reaches vars.CI_RUNNER ONLY for a pull_request
-#    event whose head repository is this repository (push, tags, dispatch, schedule
-#    and release runs are hosted: the release guard accepts a green push run as proof);
+#    event whose head repository is this repository, or a push (ci.yml limits push to
+#    master; tags, dispatch, schedule, fork PRs and release runs are hosted);
 #  - in a job that can route to CI_RUNNER, every actions/setup-go step sets
 #    `cache: ${{ runner.environment == 'github-hosted' }}` (or false): a persistent
 #    runner keeps its module cache, and restoring the archive onto it only fails noisily;
@@ -45,8 +45,8 @@ def _mapping(loader, node, deep=False):
             seen.add(k.value)
     return yaml.SafeLoader.construct_mapping(loader, node, deep)
 Strict.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _mapping)
-SANCTIONED = ("${{ fromJSON(((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) "
-              "&& vars.CI_RUNNER) || '\"ubuntu-latest\"') }}")
+SANCTIONED = ("${{ fromJSON((((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) "
+              "|| github.event_name == 'push') && vars.CI_RUNNER) || '\"ubuntu-latest\"') }}")
 SETUP_GO_CACHE = "${{ runner.environment == 'github-hosted' }}"
 HOSTED = {"ubuntu-latest", "windows-latest", "macos-latest"}
 BAD_TRIGGERS = {"pull_request_target", "workflow_run"}
@@ -107,7 +107,7 @@ fi
 # Mutation fixtures: each must be rejected.
 d="$(mktemp -d)"
 trap 'find "$d" -mindepth 1 -delete; rmdir "$d"' EXIT
-sanctioned="\${{ fromJSON(((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER) || '\"ubuntu-latest\"') }}"
+sanctioned="\${{ fromJSON((((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'push') && vars.CI_RUNNER) || '\"ubuntu-latest\"') }}"
 mutant() { # NAME ON-BLOCK RUNS-ON-BLOCK [EXTRA-JOB-LINES]
   local m="$d/$1"
   mkdir -p "$m"
@@ -132,11 +132,15 @@ mutant on-block-list       $'\n  - push\n  - pull_request_target' ' ubuntu-lates
 mutant on-target-mapping   $'\n  pull_request_target:'    ' ubuntu-latest'
 mutant matrix-custom-os    ' push'                          ' ${{ matrix.os }}' $'    strategy:\n      matrix:\n        os: [ubuntu-latest, monoes-local]\n'
 mutant matrix-no-os        ' push'                          ' ${{ matrix.os }}' $'    strategy:\n      matrix:\n        x: [1]\n'
-# A non-pull_request run must never reach CI_RUNNER (the release guard accepts a green push run).
+# Only a pull_request from this repository and a push (the workflow limits push to master) may reach
+# CI_RUNNER; a tag, dispatch, schedule or any other event, and a fork PR, stay hosted.
 mutant routes-push-old-expr    ' push'                          " \${{ fromJSON(((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER) || '\"ubuntu-latest\"') }}"
 mutant routes-push-or-true     ' push'                          " \${{ fromJSON(((github.event_name == 'pull_request' || github.event_name == 'push') && vars.CI_RUNNER) || '\"ubuntu-latest\"') }}"
 mutant routes-no-event-test    ' push'                          " \${{ fromJSON((github.event.pull_request.head.repo.full_name == github.repository && vars.CI_RUNNER) || '\"ubuntu-latest\"') }}"
 mutant pinned-label        ' push'                          ' ubuntu-22.04'
+mutant routes-any-non-pr        ' push'                          " \${{ fromJSON((((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name != 'pull_request') && vars.CI_RUNNER) || '\"ubuntu-latest\"') }}"
+mutant routes-fork-pr           ' push'                          " \${{ fromJSON(((github.event_name == 'pull_request' || github.event_name == 'push') && vars.CI_RUNNER) || '\"ubuntu-latest\"') }}"
+mutant routes-dispatch          ' push'                          " \${{ fromJSON((((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'workflow_dispatch') && vars.CI_RUNNER) || '\"ubuntu-latest\"') }}"
 
 # Job-level `uses:` (a reusable workflow call): only a LOCAL callee is allowed (it is
 # checked in its own file); a remote one could name self-hosted labels unseen.

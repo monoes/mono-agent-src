@@ -54,6 +54,13 @@ var ErrMintRefused = errors.New("procbind: the launch is no longer current")
 // MintTx writes the tokens and their bindings in one BEGIN IMMEDIATE transaction on its own connection. The row key
 // must be had before the call (deriving it can write). Every row is written or none: an id already in use, a failed
 // Check or any database error leaves the database as it was.
+//
+// A caller's contract (the one production caller, the bound launcher, keeps it; TestMintTxHasOnlyTheLauncherAsAProductionCaller pins the
+// caller set, so a new one is a deliberate change that has to keep it too):
+//   - an error does NOT prove nothing was written (a commit can fail after it was applied): every token of the request is ended by its
+//     own id, never by "the ones that were minted";
+//   - the request is validated before the call: the key belongs to the request's profile, every token's scope and kind are the ones
+//     asked for, and the expiry is in the future of the request's Now.
 func MintTx(ctx context.Context, db *sql.DB, key []byte, r MintRequest) error {
 	if r.Profile == "" || r.WorkerPID <= 1 || r.WorkerStamp == "" || r.HostGeneration == "" || len(r.Tokens) == 0 || r.Now.IsZero() {
 		return errors.New("procbind: a mint needs a profile, a worker pid and stamp, a host generation, a time and tokens")
