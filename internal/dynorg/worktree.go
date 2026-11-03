@@ -302,13 +302,18 @@ func (c *Conductor) worktreeRule(w *worker) string {
 // commitWorktree commits whatever w changed in its worktree during its
 // run, and journals a failure.
 func (c *Conductor) commitWorktree(w *worker) error {
+	return c.commitWorktreeIn(context.WithoutCancel(c.ctx), w)
+}
+
+// commitWorktreeIn is commitWorktree in ctx: a merge's checkpoint step passes the context its git commands are
+// placed in (doomsday_place.go), so the worker folder's commit starts inside the run's unit too.
+func (c *Conductor) commitWorktreeIn(ctx context.Context, w *worker) error {
 	c.mu.Lock()
 	dir, branch, role, brief := w.worktree, w.branch, w.staff.Role, w.brief
 	c.mu.Unlock()
 	if dir == "" {
 		return nil
 	}
-	ctx := context.WithoutCancel(c.ctx)
 	subject, _, _ := strings.Cut(strings.TrimSpace(brief), "\n")
 	err := commitAll(ctx, dir, branch, fmt.Sprintf("%s (%s): %s", w.id, role, clipText(subject, 60)))
 	if err != nil {
@@ -399,6 +404,7 @@ func (c *Conductor) Merge(ctx context.Context, id string) (_ MergeResult, retErr
 		return MergeResult{}, err
 	}
 	defer mo.end(ctx, &retErr)
+	ctx = mo.placed(ctx)
 	if !holds {
 		if !c.write.tryAcquire() {
 			c.mu.Lock()
@@ -418,7 +424,7 @@ func (c *Conductor) Merge(ctx context.Context, id string) (_ MergeResult, retErr
 			if _, err := gitRun(ctx, c.iso.cwd, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch); err != nil {
 				return fmt.Errorf("the branch %s of %s no longer exists in the repository, so nothing was merged", branch, id)
 			}
-		} else if err := c.commitWorktree(w); err != nil {
+		} else if err := c.commitWorktreeIn(ctx, w); err != nil {
 			return fmt.Errorf("%s's latest changes could not be committed on %s, so nothing was merged: %v", id, branch, err)
 		}
 		return nil

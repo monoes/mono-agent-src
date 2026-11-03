@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/monoes/mono-agent/internal/doomsday/stop"
 	"github.com/monoes/mono-agent/internal/doomsday/store"
 	"github.com/monoes/mono-agent/internal/dynorg"
 )
@@ -35,7 +36,11 @@ func (g *HostGate) MergeFor(ctx context.Context) (*dynorg.DoomsdayMerge, error) 
 	}
 	dd := g.merges[run.Generation]
 	if dd == nil {
-		dd = &dynorg.DoomsdayMerge{Gate: gate, Members: g.Store, Journal: g.Journal, Profile: g.Profile, Generation: run.Generation}
+		pl, err := stop.NewPlacer(g.Kernel, g.RunDir, uint64(run.Generation))
+		if err != nil {
+			return nil, err
+		}
+		dd = &dynorg.DoomsdayMerge{Gate: gate, Members: g.Store, Journal: g.Journal, Profile: g.Profile, Generation: run.Generation, Place: pl.Place}
 		g.merges[run.Generation] = dd
 	}
 	return dd, nil
@@ -51,7 +56,22 @@ func (w Wiring) MergeRecovery() *dynorg.MergeRecovery {
 		Profile: w.Profile, Members: w.Store, Journal: MergeJournal(w.DB, w.Store),
 		Gone:     dynorg.ContainmentGone(w.Kernel, w.RunDir, nil),
 		Recorded: dynorg.TaskStoreRecorded(w.DB, w.Profile),
+		PlaceFor: w.placementOfOpenRun,
 	}
+}
+
+// placementOfOpenRun is MergeRecovery.PlaceFor: the open run's unit placement, nil while no run is open (a
+// recovery before the run exists works as it always did). A run whose unit cannot be placed in is an error.
+func (w Wiring) placementOfOpenRun(ctx context.Context) (dynorg.GitPlacer, error) {
+	runs, err := w.Store.OpenRuns(ctx, w.Profile)
+	if err != nil || len(runs) == 0 {
+		return nil, err
+	}
+	pl, err := stop.NewPlacer(w.Kernel, w.RunDir, uint64(runs[0].Generation))
+	if err != nil {
+		return nil, err
+	}
+	return pl.Place, nil
 }
 
 // recoverMerges is the call from the start and stop paths: it revisits every merge member of the profile's open

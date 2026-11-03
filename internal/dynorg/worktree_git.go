@@ -173,6 +173,14 @@ func gitRun(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", append(append(append([]string{"-C", dir}, gitsafe.Args()...), pins...), args...)...)
 	cmd.Env = gitEnv()
 	cmd.WaitDelay = time.Second
+	// under an open run the child is born inside the run's containment unit (doomsday_place.go)
+	release, err := placeGit(ctx, cmd)
+	if err != nil {
+		return "", err
+	}
+	if release != nil {
+		defer release()
+	}
 	var stdout, stderr bytes.Buffer
 	so := &limitWriter{w: &stdout, max: maxGitOutput}
 	cmd.Stdout, cmd.Stderr = so, &limitWriter{w: &stderr, max: 64 << 10}

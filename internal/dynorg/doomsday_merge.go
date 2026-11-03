@@ -50,6 +50,9 @@ type DoomsdayMerge struct {
 	Journal    MergeJournal
 	Profile    string
 	Generation int64
+	// Place starts every git command of the merge inside the run's containment unit. Required: a merge whose
+	// commands could run outside the unit would be invisible to "the unit is empty", so it is not begun.
+	Place GitPlacer
 }
 
 // mergeSeq makes operation ids unique within a process, whatever number of DoomsdayMerge values exist.
@@ -104,6 +107,9 @@ func (c *Conductor) beginMerge(ctx context.Context, repo, branch, worker string)
 	}
 	if dd.Journal == nil {
 		return nil, fmt.Errorf("%w: the merge journal is not wired", ErrMergeStopped)
+	}
+	if dd.Place == nil {
+		return nil, fmt.Errorf("%w: git commands cannot be placed in the containment unit", ErrMergeStopped)
 	}
 	id := fmt.Sprintf("merge-%d-%d", os.Getpid(), mergeSeq.Add(1))
 	t, err := dd.Gate.Admit(stop.Spec{Kind: stop.KindE1, Op: id, Steps: mergeSteps})
