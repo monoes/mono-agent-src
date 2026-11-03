@@ -641,16 +641,18 @@ dangerous calls.
   key set|remove|adopt`, which widen what the API server reaches or where
   the profile's data goes. The decrypted-secret commands except `secret reveal` and
   `node run vault.secret_get`, `secret agent-access`, `secret rebind`, `api key
-  create|update|revoke` and `api config set|unset` also refuse a process inside a
-  coder session's turn and one that holds an agent token (`internal/cli/opgate`,
-  SECURITY.md; the rest are tracked in issue 1333). `httpapi-token` is a reserved vault entry: only
+  create|update|revoke`, `api config set|unset`, `agent purposes set|reset`,
+  `agent-mode env|token create|token revoke`, `extension assign|bind|unbind|autopair|approve|deny|reset|
+  browsers allow|browsers revoke|pair --open|install --zip` and `jev enable|key set|adopt|remove` also refuse a
+  process inside a coder session's turn and one that holds an agent token
+  (`internal/cli/opgate`, SECURITY.md; the rest are tracked in issue 1333). `httpapi-token` is a reserved vault entry: only
   the server and the user's own `secret add|update|rm|import` write it
   (`secrets.ErrReservedEntry` otherwise, checked in the secrets package;
   an agent's import skips it), and its bearer is the field `token`; tools
   and workflows read secrets' metadata and write other entries as before.
   The `--help` of each of these says so ("The user's own: an agent, the
   chat or a workflow is refused"), and a nil operator check refuses
-  (`clicore.OperatorRefusal`). So are `extension bind|unbind|assign|reset`,
+  (`clicore.OperatorRefusal`). So are `extension bind|unbind|assign|reset|autopair|approve|deny`, `extension browsers allow|revoke`,
   `extension pair --open` and `extension install --zip`, which change which
   profile a browser acts as, which bridge it pairs with, or the extension
   code it loads; `extension pair` printing the token stays open (an agent can

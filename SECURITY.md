@@ -2073,15 +2073,21 @@ that works a task acts on them. The defences:
   the same layers: `secret agent-access` (and clearing its audit), `secret rebind`,
   `api key create|update|revoke`, `api config set|unset`, and every command that prints
   decrypted secrets (`secret export`, `connect get-oauth-client --reveal`,
-  `profile info get --reveal`, `workflow run --full-outputs`). The check reads the
+  `profile info get --reveal`, `workflow run --full-outputs`), and the identity and
+  trust commands: `agent purposes set|reset`, `agent-mode env` and
+  `agent-mode token create|revoke`, `extension assign|bind|unbind|autopair|approve|deny|reset`,
+  `extension browsers allow|revoke`, `extension pair --open`, `extension install --zip`,
+  and `jev enable` and `jev key set|adopt|remove`. A terminal started inside a coder
+  turn, and a process that holds an agent token, is refused by them. The check reads the
   named database read-only and never creates or migrates it. `secret rebind` repairs
-  an install, so it must work when the database is damaged: for it an unreadable or
+  an install, so it must work when the database is damaged (`extension reset`, which
+  revokes the pairing token, is the same kind of verb): for them an unreadable or
   absent database (or turn registry entry) counts as no turn recorded, while a turn
   recorded in ANY readable database still refuses it: the scan of the registry goes on
   past an unreadable entry (wherever it sorts) instead of stopping at it, which only the
   other verbs do. The named database is opened read-only, only as a regular file (a FIFO
   cannot hang it) and with a bounded wait for a lock; a lock that outlasts the wait
-  refuses the other verbs and counts as no turn recorded for `secret rebind`. `secret reveal` and
+  refuses the other verbs and counts as no turn recorded for the repair verbs. `secret reveal` and
   `node run vault.secret_get` keep the marker check alone, as before: they have an
   agent path under the profile's Reveal access level and are held for a decision.
   The database it reads is not only the one the process names: every running coder
@@ -2135,8 +2141,8 @@ that works a task acts on them. The defences:
   (asking the host over its peer-credential socket) is a separate, later design;
   (2) this
   change covers the commands listed above only: many other operator-only commands
-  (sign-in, agent mode, automation, extensions, records, the organisation guards,
-  people and profile edits, node runs and publications; tracked in issue 1333) still
+  (sign-in, automation, records, the organisation guards, people and profile edits,
+  node runs and publications; tracked in issue 1333) still
   use only the operator marker check and are NOT turn-aware,
   so this does not make every operator-only command refuse a turn; (3) the test that
   keeps the wired commands in one table counts wirings per file and misses a method
