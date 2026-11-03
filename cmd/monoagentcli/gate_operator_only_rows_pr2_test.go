@@ -87,3 +87,23 @@ func TestExtensionResetOnAnUnreadableDatabaseAndInATurn(t *testing.T) {
 		t.Fatal("the recovery gate let a process inside a recorded turn through")
 	}
 }
+
+// The gate comes before anything that needs the home directory: a process that is refused must be told it
+// is refused (exit 3, operator_only), not that $HOME is not defined. Moving the gate of `install --zip`
+// behind the extensionDir() lookup is what this pins.
+func TestExtensionInstallZipAndPairOpenAreGatedBeforeTheHomeLookup(t *testing.T) {
+	zip := filepath.Join(t.TempDir(), "x.zip")
+	if err := os.WriteFile(zip, []byte("not a zip"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"install", "--zip", zip}, {"pair", "--open"}} {
+		cfg := opEnv(t)
+		asAgentProcess(t)
+		os.Unsetenv("HOME")
+		err := opRow{build: newExtensionCmd, args: args}.run(t, cfg)
+		requireOperatorOnly(t, err)
+		if strings.Contains(err.Error(), "HOME") {
+			t.Fatalf("extension %v: told about the home instead of the gate: %v", args, err)
+		}
+	}
+}
