@@ -36,8 +36,8 @@ permissions:
 # state between runs). An unset or empty CI_RUNNER falls back to ubuntu-latest.
 # KILL SWITCH: delete the CI_RUNNER variable (or set it to "ubuntu-latest",
 # quotes included) and every job, push runs included, runs on hosted runners again.
-# "Changed paths" and "Release guard test" route the same way, so neither pull requests nor master pushes wait on a hosted
-# slot for the gate jobs. "Doctor smoke test" stays hosted (a clean-machine proof; it is also the required check name).
+# "Changed paths" routes the same way, so neither pull requests nor master pushes wait on a hosted slot for it. "Doctor smoke
+# test" (a clean-machine proof; also the required check name) and "Release guard test" (needs `zip`) stay hosted.
 # Everything else (apt, Chrome, macOS/Windows) stays on its hosted OS.
 # Persistent runners keep their Go module cache, so setup-go in these jobs sets
 # `cache: ${{ runner.environment == 'github-hosted' }}` (restoring the archive
@@ -288,15 +288,16 @@ jobs:
   # The release guard (scripts/check-release-tags.sh) keeps the devaccount tag out of releases: this
   # builds a tiny program with and without the tag, loose and inside a tarball and a zip, and checks
   # that the guard passes and fails as it should (spec D11, D24).
+  # Stays on a hosted runner: its scripts need `zip` (check-release-tags-test.sh builds a .zip like the macOS app's), which our
+  # self-hosted runners do not have (the first run there failed with `zip: command not found`).
   release-guard-test:
     name: Release guard test
-    runs-on: ${{ fromJSON((((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'push') && vars.CI_RUNNER) || '"ubuntu-latest"') }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: ${{ runner.environment == 'github-hosted' }}
       - name: Test the CI path rules
         run: bash .github/scripts/ci-changes_test.sh
       - name: Test the workflow security guard
@@ -310,8 +311,6 @@ jobs:
       - name: Test the rollout guard
         run: bash scripts/check-rollout-ready-test.sh
       - name: Test the installer
-        env:
-          TMPDIR: ${{ runner.temp }}
         run: bash scripts/install-test.sh
       - name: Test the app version stamp
         run: bash scripts/stamp-app-version-test.sh
