@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next'
+import BadChainBanner from './BadChainBanner.jsx'
 import { feedClass, formatMicro, clip, num, FEED_KEEP } from './controlRoomModel.js'
 
 // The boss's decisions, newest first: the class, the operation and result, amounts, the approval reference.
@@ -9,7 +10,8 @@ export default function DecisionFeed({ feed, onLoadOlder }) {
   return (
     <section className="cr-card" aria-label={t('controlRoom.feed.title')} data-testid="cr-feed">
       <h3>{t('controlRoom.feed.title')}</h3>
-      {items.length === 0 ? <p className="cr-meta">{t('controlRoom.feed.empty')}</p> : (
+      {feed?.bad ? <BadChainBanner chain={feed.bad.chain} reason={feed.bad.reason} /> : null}
+      {items.length === 0 && !feed?.bad ? <p className="cr-meta">{t('controlRoom.feed.empty')}</p> : (
         <ol className="cr-feed">
           {items.map(r => {
             const cls = feedClass(r.class)

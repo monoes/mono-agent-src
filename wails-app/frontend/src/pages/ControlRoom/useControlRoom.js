@@ -5,6 +5,14 @@ import { controlRoomApi } from '../../services/controlRoom.js'
 import { usePageVisible } from '../../lib/usePageVisible.js'
 import { MIN_POLL_MS, viewOf, nextDelay, mergeFeed, addSample, approxRate, hasData, num, FEED_PAGE, FEED_KEEP } from './controlRoomModel.js'
 
+// A feed page that reports its own integrity as anything but yes / unanchored is not merged into what is on screen:
+// the rows already shown are dropped and the page shows the chain banner for it. A page without the field is merged.
+function badFeed(page) {
+  const c = page?.integrity?.chain_verified
+  if (page?.integrity == null || hasData(c)) return null
+  return { chain: c === 'no' ? 'no' : 'unknown', reason: page.integrity.reason }
+}
+
 export function useControlRoom(active, api = controlRoomApi) {
   const visible = usePageVisible()
   const [doc, setDoc] = useState(null)
@@ -42,7 +50,9 @@ export function useControlRoom(active, api = controlRoomApi) {
       const page = await api.feed(0, FEED_PAGE)
       if (!alive.current) return 'stop'
       if (!page?.error && Array.isArray(page?.items)) {
-        setFeed(f => ({ items: mergeFeed(f.items, page.items), next: olderLoaded.current ? f.next : num(page.next_before), older: olderLoaded.current }))
+        const bad = badFeed(page)
+        if (bad) { olderLoaded.current = false; setFeed({ items: [], next: 0, older: false, bad }) }
+        else setFeed(f => ({ items: mergeFeed(f.items, page.items), next: olderLoaded.current ? f.next : num(page.next_before), older: olderLoaded.current }))
       }
     } else {
       olderLoaded.current = false
@@ -72,6 +82,8 @@ export function useControlRoom(active, api = controlRoomApi) {
     if (!before || feed.items.length >= FEED_KEEP) return
     const page = await api.feed(before, FEED_PAGE)
     if (!alive.current || page?.error || !Array.isArray(page?.items)) return
+    const bad = badFeed(page)
+    if (bad) { olderLoaded.current = false; setFeed({ items: [], next: 0, older: false, bad }); return }
     olderLoaded.current = true
     setFeed(f => ({ items: mergeFeed(f.items, page.items), next: num(page.next_before), older: true }))
   }, [api, feed.next, feed.items.length])

@@ -5,7 +5,7 @@ import { clip } from './controlRoomModel.js'
 
 // The only action. Two steps (click, then confirm); the call takes no argument and the CLI re-checks the operator
 // gate. The CLI's outcome is shown as it came: "NOT stopped", survivors and "NOT RECORDED" are never softened.
-export default function StopPanel({ api, disabled, onDone }) {
+export default function StopPanel({ api, disabled, unknown = false, onDone }) {
   const { t } = useTranslation()
   const [phase, setPhase] = useState('idle') // idle | confirm | stopping | done
   const [result, setResult] = useState(null)
@@ -22,6 +22,7 @@ export default function StopPanel({ api, disabled, onDone }) {
     <section className="cr-card cr-stop" aria-label={t('controlRoom.stop.title')} data-testid="cr-stop">
       <h3>{t('controlRoom.stop.title')}</h3>
       <p className="cr-meta">{t('controlRoom.stop.cannot')}</p>
+      {unknown ? <p className="cr-warn" data-testid="cr-stop-unknown">{t('controlRoom.stop.unknown')}</p> : null}
       {phase === 'confirm' ? (
         <div role="alertdialog" aria-label={t('controlRoom.stop.confirmTitle')} className="cr-confirm" data-testid="cr-stop-confirm">
           <p>{t('controlRoom.stop.confirmBody')}</p>

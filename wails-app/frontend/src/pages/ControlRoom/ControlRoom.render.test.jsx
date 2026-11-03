@@ -225,7 +225,9 @@ describe('Stop survives a failed poll', () => {
     await firstOk()
     await laterPoll(golden('overview_no_run'))
     expect(screen.queryByTestId('cr-stop')).toBeNull()
-    await laterPoll({ error: 'x' })
+    api.overview.mockResolvedValue({ error: 'x' })
+    await act(async () => { await vi.advanceTimersByTimeAsync(16000) }) // an idle page polls every 15 s
+    expect(screen.getByTestId('cr-error')).toBeInTheDocument()
     expect(screen.getByTestId('cr-stop-unknown')).toBeInTheDocument()
   })
 })

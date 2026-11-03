@@ -356,6 +356,29 @@ func TestDoomsdayReadErrorWithTheRealTwoDocumentOutput(t *testing.T) {
 	}
 }
 
+func TestDoomsdayReadErrorParsesTheFirstValueOnly(t *testing.T) {
+	good := `{"schema_version":1,"available":false,"reason":"error","error_code":"read_failed"}`
+	for _, tc := range []struct {
+		name, out string
+		ok        bool
+	}{
+		{"single", good, true},
+		{"two documents", good + "\n" + `{"error":"x"}`, true},
+		{"trailing garbage", good + "\nnot json at all", true},
+		{"empty", "", false},
+		{"garbage", "not json", false},
+		{"truncated", good[:len(good)-6], false},
+		{"healthy first", dmOverview + "\n" + good, false},
+		{"off first", dmOff + "\n" + good, false},
+		{"envelope first", `{"error":"x"}` + "\n" + good, false},
+	} {
+		first, ok := doomsdayReadError(tc.out)
+		if ok != tc.ok || (ok && first != good) {
+			t.Errorf("%s: (%q, %v)", tc.name, first, ok)
+		}
+	}
+}
+
 // Anything that is not a definite document is an error that is not cached, so the page keeps its last good probe.
 func TestDoomsdayProbeFailuresAreErrorsAndNotCached(t *testing.T) {
 	errDoc, _ := os.ReadFile(filepath.Join("..", "internal", "cli", "doomsday", "testdata", "controlroom_overview_error.golden.json"))
@@ -393,7 +416,7 @@ func TestDoomsdayProbeFailuresAreErrorsAndNotCached(t *testing.T) {
 				t.Errorf("%s: probe = %s", tc.name, got)
 			}
 		}
-		if tc.body != "" {
+		if tc.body != "" && tc.name != "timeout" { // the shared deadline has passed for the second probe
 			if n := callCount(t, log); n != 2 {
 				t.Errorf("%s: an error answer was cached (CLI ran %d times for 2 probes)", tc.name, n)
 			}
