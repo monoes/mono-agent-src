@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"io"
 	"net/http"
 	"os"
@@ -88,7 +89,8 @@ func NewCommand(d Deps) *cobra.Command {
 			"NDJSON on stderr ({\"kind\":\"line\",\"message\":…}) and the result is one JSON object on stdout.\n\n" +
 			"A running daemon keeps the code it started with, so update restarts one that runs another version, through the " +
 			"service manager it is registered with, unless an execution is in flight or the saved `api config` settings cannot be used: " +
-			"it then says so and leaves the restart to `monoagentcli daemon restart`.",
+			"it then says so and leaves the restart to `monoagentcli daemon restart`. When the restart leaves no daemon running (and a " +
+			"rollback did not bring one back), update exits 7; --check and --app exit 0 as before (--app --json carries the daemon outcome).",
 		Example: `  monoagentcli update
   monoagentcli --json update --check
   monoagentcli --json update --check --current v0.72.0
@@ -307,8 +309,14 @@ func (d Deps) run(cmd *cobra.Command) error {
 	if bu != nil {
 		fmt.Println(bu.Message)
 	}
+	if du.Down() {
+		return &clicore.Error{Code: ExitDaemonDown, Msg: "the update is installed but the daemon is down; " + daemonDown}
+	}
 	return nil
 }
+
+// ExitDaemonDown is the exit code of `update` when the update left no daemon running (see DaemonUpdate.Down).
+const ExitDaemonDown = 7
 
 // legacyDownload is the pre-manifest path: the GitHub release's asset checked
 // against the release's SHA256SUMS.txt.
