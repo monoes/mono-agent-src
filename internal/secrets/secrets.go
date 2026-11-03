@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/dbconn"
 )
 
 // Entry is the credential-free projection of a vault_secrets row — safe to
@@ -85,6 +87,7 @@ func addEntry(ctx context.Context, db *sql.DB, profileID, kind, name string, fie
 	defer conn.Close()
 
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		dbconn.AbandonBegin(conn)
 		return "", fmt.Errorf("secrets.addEntry: begin tx: %w", err)
 	}
 	committed := false
