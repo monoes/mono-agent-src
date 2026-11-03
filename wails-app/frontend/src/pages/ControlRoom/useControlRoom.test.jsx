@@ -81,6 +81,23 @@ describe('useControlRoom polling', () => {
     expect(result.current.view).toMatchObject({ state: 'error', errorCode: 'read_failed' })
     expect(result.current.lastRun.run.run_id).toBe('r')
   })
+  it.each(['no', 'unknown'])('a feed page that reports integrity %s drops the rows already shown and says so', async (chain) => {
+    const { result } = renderHook(() => useControlRoom(true, api))
+    await tick(0)
+    expect(result.current.feed.items.map(r => r.seq)).toEqual([2, 1])
+    api.feed.mockResolvedValue({ schema_version: 1, available: true, integrity: { chain_verified: chain, reason: 'x' }, items: [], next_before: 0 })
+    await tick(3100)
+    expect(result.current.feed.items).toEqual([])
+    expect(result.current.feed.bad).toMatchObject({ chain: expect.any(String) })
+  })
+  it('older rows from a feed page that fails its integrity are dropped too', async () => {
+    api.feed.mockResolvedValue({ items: [{ seq: 5 }, { seq: 4 }], next_before: 4, integrity: { chain_verified: 'yes' } })
+    const { result } = renderHook(() => useControlRoom(true, api))
+    await tick(0)
+    api.feed.mockResolvedValue({ items: [{ seq: 3 }], next_before: 0, integrity: { chain_verified: 'no' } })
+    await act(async () => { await result.current.loadOlder() })
+    expect(result.current.feed.items).toEqual([])
+  })
   it('stops when unmounted', async () => {
     const { unmount } = renderHook(() => useControlRoom(true, api))
     await tick(0)
