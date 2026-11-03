@@ -239,6 +239,7 @@ func TestTheMessageForAnUnconfirmedBridgeNeverTellsToStartAnother(t *testing.T) 
 		"not_a_service": "extension serve",
 	} {
 		f := newFakeBridge("v0.176.0")
+		f.up = true
 		f.state.Unit, f.state.Why, f.state.ServiceName = "", why, "monoagent-bridge.service"
 		bu := f.deps(testDeps(t, "http://127.0.0.1:1")).bridgeAfterUpdate(context.Background(), "v0.215.7", "")
 		if bu == nil || bu.Action != "not_managed" || !strings.Contains(bu.Message, want) || len(f.restarts) != 0 {
@@ -254,5 +255,39 @@ func TestTheMessageForAnUnconfirmedBridgeNeverTellsToStartAnother(t *testing.T) 
 func TestTheRestartBoundsAreLongerThanSystemdsStopTimeout(t *testing.T) {
 	if restartBound <= 90*time.Second || bridgeRestartBound <= 90*time.Second {
 		t.Fatalf("bounds %s and %s must exceed systemd's 90 s stop timeout", restartBound, bridgeRestartBound)
+	}
+}
+
+// When the bridge restart is skipped because the daemon's outcome is in doubt, the previous binaries are kept like after a
+// failed restart, never dropped while the message calls the new one in doubt.
+func TestASkippedBridgeRestartKeepsThePreviousBinaries(t *testing.T) {
+	for action, keep := range map[string]bool{"skipped": true, "failed": true, "restarted": false} {
+		dir := t.TempDir()
+		bak := filepath.Join(dir, ".monoagentcli-previous-1")
+		target := filepath.Join(dir, "monoagentcli")
+		if err := os.WriteFile(bak, []byte("old"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		list := []StaleCLI{{Path: target, undo: &replaced{target: target, bak: bak}}}
+		bu := &BridgeUpdate{Action: action}
+		Deps{}.settleBridge(list, bu)
+		_, err := os.Stat(bak)
+		if kept := err == nil; kept != keep {
+			t.Errorf("%s: previous binary kept = %v, want %v", action, kept, keep)
+		}
+		if keep && !strings.Contains(bu.Message, "mv -f") {
+			t.Errorf("%s: message does not say how to put it back: %q", action, bu.Message)
+		}
+	}
+}
+
+func TestTheUnconfirmedServiceNameIsQuotedInTheSuggestedCommand(t *testing.T) {
+	f := newFakeBridge("v0.176.0")
+	d := f.deps(Deps{})
+	f.up = true
+	f.state.Unit, f.state.Why, f.state.ServiceName = "", "unverified", "a b;rm.service"
+	bu := d.bridgeAfterUpdate(context.Background(), "v0.215.7", "")
+	if bu == nil || !strings.Contains(bu.Message, "restart 'a b;rm.service'") {
+		t.Fatalf("bu = %+v", bu)
 	}
 }

@@ -78,7 +78,7 @@ func (d Deps) bridgeAfterUpdate(ctx context.Context, newVersion string, skipBeca
 		case "unverified":
 			// it looks like a service but could not be confirmed (systemctl --user is not reachable here, or the unit's main
 			// process is another one): never tell the operator to start a second bridge
-			u.Message = fmt.Sprintf("The extension bridge (pid %d) runs %s and was not restarted: it seems to run as the service %s but that could not be confirmed from here (systemctl --user is not reachable). Restart it from your own session with: systemctl --user restart %s", b.PID, was, b.ServiceName, b.ServiceName)
+			u.Message = fmt.Sprintf("The extension bridge (pid %d) runs %s and was not restarted: it seems to run as the service %s but that could not be confirmed from here (systemctl --user is not reachable). Restart it from your own session with: systemctl --user restart %s", b.PID, was, b.ServiceName, shQuote(b.ServiceName))
 		case "unsupported":
 			u.Message = fmt.Sprintf("The extension bridge (pid %d) runs %s and was not restarted: restarting a bridge service is only done on Linux. Restart it the way you started it.", b.PID, was)
 		default:

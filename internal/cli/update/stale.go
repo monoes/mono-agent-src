@@ -20,7 +20,8 @@ import (
 // the daemon restart that follows an update starts the old binary again. So after an update the command looks for them,
 // says plainly which are stale and the exact command to update each, and updates the ones it can do safely: the daemon
 // service's exe and the monoagentcli on PATH, by the same rules, from the release asset it already verified (never the CLI
-// inside the desktop app). `update --app` holds no CLI asset, so it only reports.
+// inside the desktop app). `update --app` does the same from the CLI inside the app download it already verified (Linux; where
+// that holds none it only reports).
 //
 // Looking at another program means running it (`--json version`). That is done only for a file that this user or root owns
 // and that no one else can write, in a folder no one else can write, and never when this command itself runs as root: an
@@ -48,7 +49,7 @@ var (
 
 // staleCLIs finds the other mono-agent CLIs of this machine that are older than newVersion. skip are paths that were just
 // updated (this binary, the app's bundled CLI). data, when set, is the verified release asset of this platform's CLI: with
-// it the daemon service's exe may be replaced; without it (update --app) everything is only reported.
+// it the daemon service's exe may be replaced; without it (a download holding no CLI) everything is only reported.
 func (d Deps) staleCLIs(ctx context.Context, newVersion string, skip []string, data []byte) []StaleCLI {
 	type cand struct{ path, role string }
 	var daemon, onPath *cand
@@ -472,13 +473,14 @@ func (d Deps) settleDaemon(ctx context.Context, list []StaleCLI, du *DaemonUpdat
 }
 
 // settleBridge is the last part, after the bridge restart: what is still pending is dropped, unless the bridge did not come up on
-// the new binary, when which binary it starts is not known here and each previous one is kept (bu's message says where).
+// the new binary or the restart was skipped because the daemon's outcome is in doubt, when which binary it starts is not known
+// here and each previous one is kept (bu's message says where).
 func (d Deps) settleBridge(list []StaleCLI, bu *BridgeUpdate) {
 	for _, s := range list {
 		if s.undo == nil || s.undo.done {
 			continue
 		}
-		if bu != nil && bu.Action == "failed" {
+		if bu != nil && (bu.Action == "failed" || bu.Action == "skipped") {
 			bu.Message += fmt.Sprintf(" The previous binary of %q is kept at %q; put it back with: mv -f %s %s", s.Path, s.undo.bak, shQuote(s.undo.bak), shQuote(s.undo.target))
 			s.undo.done = true
 			continue
