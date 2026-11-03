@@ -153,6 +153,7 @@ func buildRootCmd(installProvider bool) *cobra.Command {
 		newAccountCmd(cfg),
 		newIntegrationCmd(cfg),
 		newDBCmd(cfg),
+		newDoomsdayCmd(cfg),
 	)
 
 	// `workflow run --full-outputs`: skip credential-key redaction of

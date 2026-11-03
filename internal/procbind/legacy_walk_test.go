@@ -86,7 +86,7 @@ var walked = []string{"ai", "cli/chat", "cli/org", "cli/profile", "coderhost", "
 // reviewedLegacyOnly is every declaration that carries the annotation, with the reason it is safe.
 var reviewedLegacyOnly = map[string]string{
 	"agenttokens/mission.go:purgeExpiredMissions":            "an expired token is denied by its expiry; the v2 rows of expired tokens follow their own retention (3e)",
-	"coderhost/sessiontoken.go:IssueSessionToken":            "the expiry purge only: the replace of the session's tokens is revoked with the v2 side",
+	"coderhost/sessiontoken.go:issueSessionToken":            "the expiry purge only: the replace of the session's tokens is revoked with the v2 side",
 	"ai/chat_events_conversations.go:deleteConversationInTx": "a bound API token has no v2 form: the v2 families are mission and session tokens",
 	"cli/chat/chat_history.go:deleteGuard":                   "the v2 mission tokens of the same owners are revoked by the common delete body, deleteConversationInTx, whichever form of delete runs",
 }

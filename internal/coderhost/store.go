@@ -122,6 +122,12 @@ type Store struct {
 	now func() time.Time
 	// binder, when set, has its live entries ended after a session-token revocation commits (revoke_v2.go).
 	binder *procbind.Binder
+	// depthPolicy widens the depth limit for charter trees only (SetDepthPolicy); nil: MaxSessionDepth.
+	depthPolicy DepthPolicy
+	// doomsday routes a boss's typed operations (SetDoomsdayRoute); nil: the mode is off and nothing changes.
+	doomsday *DoomsdayRoute
+	// dispatch gives the store's own dispatches (spawn, token mint) a ticket (SetDispatchGate); nil: no ticket.
+	dispatch DispatchGate
 	// v2 verifies session tokens of the v2 family (verify_v2.go); nil: v2 secrets are denied.
 	v2 *procbind.V2Check
 	// afterPolicyRead lets a test act between SetPolicy's read and its write.
@@ -162,7 +168,7 @@ type Store struct {
 
 // NewStore wraps an open, migrated database.
 func NewStore(db *sql.DB) *Store {
-	s := &Store{db: db, now: time.Now}
+	s := &Store{db: db, now: time.Now, depthPolicy: defaultDepthPolicy(db)}
 	if procbind.IssuanceOn() { // the only place a verifier is installed outside a test: v2 secrets are denied until issuance is on
 		s.v2 = &procbind.V2Check{DB: db}
 	}
@@ -632,7 +638,7 @@ func (s *Store) SetRole(profileID, conversationID, role, parent string) error {
 		if p.Role == "child" && ps.MaxChildren == 0 {
 			return errors.New("the master must be a running master session of this profile")
 		}
-		if lvl, ok := s.level(profileID, parent); !ok || lvl+1 > min(ps.MaxDepth, MaxSessionDepth) {
+		if lvl, ok := s.level(profileID, parent); !ok || lvl+1 > min(ps.MaxDepth, s.depthCeiling(profileID, parent)) {
 			return errors.New("the master's max_depth does not allow children")
 		}
 		res, err := s.db.Exec(`UPDATE coder_sessions SET role = 'child', parent_conversation_id = ?, updated_at = ?

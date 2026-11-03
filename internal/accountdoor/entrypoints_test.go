@@ -23,6 +23,7 @@ var doors = map[string]string{
 	"internal/cli/httpapicli/httpapi.go":  "HTTP API listener: httpapi.Server.ListenAndServe behind accountGate",
 	"internal/connections/oauth.go":       "a connection's OAuth redirect catcher, started by a gated command or by the app; stores a token, starts no work",
 	"internal/connections/oauth1_flow.go": "a connection's OAuth 1.0a redirect catcher, started by a gated command or by the app; stores a token, starts no work",
+	"internal/doomsday/stop/emergency.go": "the open-ended mode's emergency socket: a 0600 unix socket in the run's private directory, peers of the host's uid only (TestEmergencyWrongPeerUIDRefused), one STOP line with the per-run MAC (TestEmergencyChannel); the only thing it does is close the dispatch barrier, so a locked account gains no work through it, and a refused stop is never needed because a stop is always allowed",
 	"internal/extension/cdp.go":           "/monoagent/cdp upgrade: token, then account (upgrade and each command)",
 	"internal/extension/server.go":        "bridge: /monoagent/* routes and the extension socket; see TestTheOpenEndpointsOfALockedBridge",
 	"internal/extension/server_auth.go":   "bridge: the extension socket's upgrade (handleWS, split out of server.go), token first; see TestTheOpenEndpointsOfALockedBridge",

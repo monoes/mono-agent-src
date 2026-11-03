@@ -11,7 +11,7 @@ import (
 func TestBudgetRequestToolIsServedMutatingAndTheOnlyOne(t *testing.T) {
 	var names []string
 	for _, tl := range allTools() {
-		if strings.Contains(tl.name, "budget") {
+		if strings.Contains(tl.name, "budget") && !strings.HasPrefix(tl.name, "session_boss_") { // the boss's grant is gated by a running open-ended run (boss_tools.go)
 			names = append(names, tl.name)
 			if tl.name == "mission_budget_request" && !tl.mutating {
 				t.Error("mission_budget_request is not behind --allow-mutations")

@@ -34,6 +34,10 @@ func operatorOnlyRows() []opRow {
 		{path: "connect get-oauth-client", build: newConnectCmd, args: []string{"get-oauth-client", "github", "--reveal"}},
 		{path: "profile info get", build: newProfileCmd, args: []string{"info", "get", "--reveal"}},
 		{path: "workflow run", build: newWorkflowRunWithFullOutputs, args: []string{"no-such-workflow", "--full-outputs"}},
+		{path: "doomsday start", build: newDoomsdayCmd, args: []string{"start", "--charter", "{tmp}", "--yes-i-lift", "--hash", "x"}},
+		{path: "doomsday stop", build: newDoomsdayCmd, args: []string{"stop"}},
+		{path: "doomsday finish", build: newDoomsdayCmd, args: []string{"finish"}},
+		{path: "doomsday rubric", build: newDoomsdayCmd, args: []string{"rubric", "c1", "approve", "--dossier", "abcdef12"}},
 	}
 }
 

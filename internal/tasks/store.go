@@ -20,10 +20,14 @@ type Store struct {
 	checker EvidenceChecker
 	// approval reads the operator's approval settings and person items (SetApprovalSource); unset, an agent never approves.
 	approval ApprovalSource
+	// depthPolicy widens the depth walkers for charter trees only (SetDepthPolicy); unset, HardMaxSessionDepth.
+	depthPolicy DepthPolicy
 }
 
 // NewStore returns a Store over a migrated database.
-func NewStore(db *sql.DB) *Store { return &Store{db: db, now: time.Now} }
+func NewStore(db *sql.DB) *Store {
+	return &Store{db: db, now: time.Now, depthPolicy: defaultDepthPolicy(db)}
+}
 
 // dbx is what *sql.DB and *sql.Conn both offer, so a helper runs in or out of
 // a transaction.

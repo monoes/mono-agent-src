@@ -302,13 +302,18 @@ func (c *Conductor) worktreeRule(w *worker) string {
 // commitWorktree commits whatever w changed in its worktree during its
 // run, and journals a failure.
 func (c *Conductor) commitWorktree(w *worker) error {
+	return c.commitWorktreeIn(context.WithoutCancel(c.ctx), w)
+}
+
+// commitWorktreeIn is commitWorktree in ctx: a merge's checkpoint step passes the context its git commands are
+// placed in (doomsday_place.go), so the worker folder's commit starts inside the run's unit too.
+func (c *Conductor) commitWorktreeIn(ctx context.Context, w *worker) error {
 	c.mu.Lock()
 	dir, branch, role, brief := w.worktree, w.branch, w.staff.Role, w.brief
 	c.mu.Unlock()
 	if dir == "" {
 		return nil
 	}
-	ctx := context.WithoutCancel(c.ctx)
 	subject, _, _ := strings.Cut(strings.TrimSpace(brief), "\n")
 	err := commitAll(ctx, dir, branch, fmt.Sprintf("%s (%s): %s", w.id, role, clipText(subject, 60)))
 	if err != nil {
@@ -334,7 +339,7 @@ type MergeResult struct {
 // aborts the merge (the tree is left as it was) and is returned as an
 // error listing the conflicting files. Merges run one at a time, and a
 // worker being merged can't take a follow-up.
-func (c *Conductor) Merge(ctx context.Context, id string) (MergeResult, error) {
+func (c *Conductor) Merge(ctx context.Context, id string) (_ MergeResult, retErr error) {
 	if c.iso == nil {
 		return MergeResult{}, errors.New("writers are not isolated this turn, so there is nothing to merge: they edit the chat folder directly")
 	}
@@ -392,6 +397,14 @@ func (c *Conductor) Merge(ctx context.Context, id string) (MergeResult, error) {
 			c.mu.Unlock()
 		}
 	}()
+	// Under a run's gate the merge is a begun operation of four steps (doomsday_merge.go); a merge
+	// that has not begun is refused here, before the write lease or any git command.
+	mo, err := c.beginMerge(ctx, repoTop(c.iso), branch, id)
+	if err != nil {
+		return MergeResult{}, err
+	}
+	defer mo.end(ctx, &retErr)
+	ctx = mo.placed(ctx)
 	if !holds {
 		if !c.write.tryAcquire() {
 			c.mu.Lock()
@@ -406,53 +419,83 @@ func (c *Conductor) Merge(ctx context.Context, id string) (MergeResult, error) {
 	// .git/index.lock and a half-updated tree that `merge --abort` can't fix.
 	ctx = context.WithoutCancel(ctx)
 	res := MergeResult{AgentID: id, Branch: branch}
-	if stored != nil {
-		if _, err := gitRun(ctx, c.iso.cwd, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch); err != nil {
-			return res, fmt.Errorf("the branch %s of %s no longer exists in the repository, so nothing was merged", branch, id)
+	if err := mo.run(MergeStepCheckpoint, func() error {
+		if stored != nil {
+			if _, err := gitRun(ctx, c.iso.cwd, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch); err != nil {
+				return fmt.Errorf("the branch %s of %s no longer exists in the repository, so nothing was merged", branch, id)
+			}
+		} else if err := c.commitWorktreeIn(ctx, w); err != nil {
+			return fmt.Errorf("%s's latest changes could not be committed on %s, so nothing was merged: %v", id, branch, err)
 		}
-	} else if err := c.commitWorktree(w); err != nil {
-		return res, fmt.Errorf("%s's latest changes could not be committed on %s, so nothing was merged: %v", id, branch, err)
+		return nil
+	}); err != nil {
+		return res, err
 	}
-	if err := refuseProgramConfig(ctx, c.iso.cwd); err != nil {
-		return res, fmt.Errorf("%s was not merged: %v", branch, err)
+	var before, target string
+	target = "refs/heads/" + branch
+	if err := mo.run(MergeStepPin, func() error {
+		if err := refuseProgramConfig(ctx, c.iso.cwd); err != nil {
+			return fmt.Errorf("%s was not merged: %v", branch, err)
+		}
+		before, _ = gitRun(ctx, c.iso.cwd, "rev-parse", "HEAD")
+		if mo == nil {
+			return nil
+		}
+		tip, err := gitRun(ctx, c.iso.cwd, "rev-parse", "--verify", "refs/heads/"+branch)
+		if err != nil {
+			return fmt.Errorf("the branch %s could not be pinned, so nothing was merged: %v", branch, err)
+		}
+		target = strings.TrimSpace(tip) // the pinned tip, not the branch name
+		return mo.pin(ctx, strings.TrimSpace(before), target, branch, repoFingerprint(ctx, repoTop(c.iso)))
+	}); err != nil {
+		return res, err
 	}
-	before, _ := gitRun(ctx, c.iso.cwd, "rev-parse", "HEAD")
 	msg := fmt.Sprintf("Merge %s (%s)", branch, id)
-	if _, err := gitRun(ctx, c.iso.cwd, withIdentity(ctx, c.iso.cwd, "-c", "commit.gpgsign=false", "-c", "merge.verifySignatures=false", "merge", "--no-ff", "--no-edit", "-m", msg, "refs/heads/"+branch)...); err != nil {
+	if err := mo.run(MergeStepMerge, func() error {
+		_, err := gitRun(ctx, c.iso.cwd, withIdentity(ctx, c.iso.cwd, "-c", "commit.gpgsign=false", "-c", "merge.verifySignatures=false", "merge", "--no-ff", "--no-edit", "-m", msg, target)...)
+		if err == nil {
+			return nil
+		}
 		out, _ := gitRun(ctx, c.iso.cwd, "diff", "--name-only", "--diff-filter=U")
 		conflicts := strings.Fields(out)
 		if _, merging := gitRun(ctx, c.iso.cwd, "rev-parse", "--verify", "--quiet", "MERGE_HEAD"); merging == nil {
 			aerr := refuseProgramConfig(ctx, c.iso.cwd)
 			if aerr == nil {
-				_, aerr = gitRun(ctx, c.iso.cwd, "merge", "--abort")
+				_, aerr = gitRun(ctx, c.iso.cwd, "merge", "--abort") // the step's own undo: never a new step
 			}
+			mo.aborted(aerr == nil)
 			if aerr != nil {
-				return res, fmt.Errorf("merging %s failed and the merge could not be aborted (%v); run `git merge --abort` in the chat folder", branch, aerr)
+				return fmt.Errorf("merging %s failed and the merge could not be aborted (%v); run `git merge --abort` in the chat folder", branch, aerr)
 			}
 		}
 		if len(conflicts) > 0 {
-			return res, fmt.Errorf("merging %s conflicts in %d file(s): %s. The merge was aborted and your working tree is as it was; "+
+			return fmt.Errorf("merging %s conflicts in %d file(s): %s. The merge was aborted and your working tree is as it was; "+
 				"send %s a follow-up to rebase onto your changes, or resolve it yourself", branch, len(conflicts), strings.Join(conflicts, ", "), id)
 		}
-		return res, fmt.Errorf("merging %s failed: %v", branch, err)
+		return fmt.Errorf("merging %s failed: %v", branch, err)
+	}); err != nil {
+		return res, err
 	}
-	after, _ := gitRun(ctx, c.iso.cwd, "rev-parse", "HEAD")
-	res.Merged = true
-	if stored != nil {
-		c.recordMerge(ctx, nil, stored, id)
-	} else {
-		c.mu.Lock()
-		w.merged = true
-		c.mu.Unlock()
-		c.recordMerge(ctx, w, nil, id)
-	}
-	if strings.TrimSpace(before) == strings.TrimSpace(after) {
-		res.Note = "already up to date: the branch has nothing your tree doesn't"
-		return res, nil
-	}
-	res.Commit = strings.TrimSpace(after)
-	files, _ := gitRun(ctx, c.iso.cwd, "diff", "--name-only", strings.TrimSpace(before), res.Commit)
-	res.Files = strings.Fields(files)
-	res.Note = "the worker's commits skipped the repository's hooks; run the project's checks"
-	return res, nil
+	err = mo.run(MergeStepRecord, func() error {
+		after, _ := gitRun(ctx, c.iso.cwd, "rev-parse", "HEAD")
+		res.Merged = true
+		if stored != nil {
+			c.recordMerge(ctx, nil, stored, id)
+		} else {
+			c.mu.Lock()
+			w.merged = true
+			c.mu.Unlock()
+			c.recordMerge(ctx, w, nil, id)
+		}
+		if strings.TrimSpace(before) == strings.TrimSpace(after) {
+			res.Note = "already up to date: the branch has nothing your tree doesn't"
+			return nil
+		}
+		res.Commit = strings.TrimSpace(after)
+		files, _ := gitRun(ctx, c.iso.cwd, "diff", "--name-only", strings.TrimSpace(before), res.Commit)
+		res.Files = strings.Fields(files)
+		res.Note = "the worker's commits skipped the repository's hooks; run the project's checks"
+		return nil
+	})
+	return res, err
 }

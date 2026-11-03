@@ -370,8 +370,9 @@ func (s *Store) mayHaveChildren(c Caller) (Settings, error) {
 		return Settings{}, fmt.Errorf("%w: only a running master session can create child sessions", ErrNotYours)
 	}
 	lvl, ok := s.level(c.ProfileID, c.ConversationID)
-	if !ok || lvl+1 > ps.MaxDepth || lvl+1 > MaxSessionDepth {
-		return Settings{}, fmt.Errorf("%w (%w): depth %d would pass max_depth %d; run this work here with workers of this turn instead of a session of its own", ErrLimit, ErrAtWorkingDepth, lvl+1, min(ps.MaxDepth, MaxSessionDepth))
+	ceiling := s.depthCeiling(c.ProfileID, c.ConversationID)
+	if !ok || lvl+1 > ps.MaxDepth || lvl+1 > ceiling {
+		return Settings{}, fmt.Errorf("%w (%w): depth %d would pass max_depth %d; run this work here with workers of this turn instead of a session of its own", ErrLimit, ErrAtWorkingDepth, lvl+1, min(ps.MaxDepth, ceiling))
 	}
 	return ps, nil
 }
@@ -390,10 +391,22 @@ type spawnHooks struct {
 	// keep, when set, joins the undo's delete guard (it runs in the delete's own transaction): the conversation stays
 	// when it returns false.
 	keep func(ctx context.Context, c *sql.Conn, conversationID string) (bool, error)
+
+	ticketed bool // the spawn already holds its dispatch ticket (doomsday_ticket.go)
 }
 
 // spawnWith is Spawn with hooks; every limit of Spawn applies to every caller.
 func (s *Store) spawnWith(c Caller, req SpawnRequest, hk spawnHooks) (Spawned, error) {
+	if s.dispatch != nil && !hk.ticketed {
+		hk.ticketed = true
+		var out Spawned
+		var ferr error
+		gerr := s.gated(PointSessionSpawn, func() error { out, ferr = s.spawnWith(c, req, hk); return ferr })
+		if ferr == nil && gerr != nil {
+			return Spawned{}, gerr // the barrier refused: nothing was spawned
+		}
+		return out, gerr
+	}
 	ps, err := s.mayHaveChildren(c)
 	if err != nil {
 		return Spawned{}, err
@@ -485,7 +498,7 @@ func (s *Store) spawnWith(c Caller, req SpawnRequest, hk spawnHooks) (Spawned, e
 		undo()
 		return Spawned{}, fmt.Errorf("%w: the budget is more than the master has left", ErrLimit)
 	}
-	cs := childSettings(ps, childLevel)
+	cs := childSettings(ps, childLevel, s.depthCeiling(c.ProfileID, c.ConversationID))
 	// The child's starting settings replace its document, but not the operator's Mission toggle, which a
 	// writer that got to the child since SetRole (the child is already in its master's tree) may have set.
 	// The parent's K is inherited only while the fresh row holds no mission_directions of its own: one the

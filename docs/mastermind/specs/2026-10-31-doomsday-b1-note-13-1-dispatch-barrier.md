@@ -499,3 +499,7 @@ summary of its finding; the reviewers' own text is in the review report.
    including their **hung-starter handling**, and test a **deadline-after-admission** schedule.
 
 Further review rounds continue; the operator's answers (spec section 12.5) are recorded.
+
+### Amendment (2026-11-03): no run without binding
+
+A run is not started, and a turn of a run is not released, unless the turn is peer-credential bound (`security.peercred_binding`, the bound launcher). `doomsday start` refuses while the setting is off, unknown or unreadable, before the charter is shown and again inside the entry; the host refuses a turn start that is not a bound turn before the process is created, and the release check (`BeforeRelease`) refuses an unbound turn after it exists and before anything is delivered. The ticket of a turn is taken in that release check, under the gate's own lock after the check's context is found alive (a check that finishes after the launcher gave up consumes nothing), and a turn id holds at most one ticket. A legacy (unbound) turn therefore never reaches a launcher during a run.

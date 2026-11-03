@@ -52,12 +52,58 @@ type execLauncher struct {
 	// process exists, before anything else of the start can fail. If it fails, the start fails and the process is stopped: a process
 	// whose identity cannot be recorded is not allowed to run, because a host restart could not find it.
 	onProcess func(profileID, conversationID, turnID string, pid int, stamp string, bound bool) error
+	// runStamp, when set, says which open-ended run (charter id and generation) a session's turn belongs to; recordRun writes it on the
+	// session the moment the turn's process exists, before the waiter starts, so a stop of the run finds the session's tokens. Both
+	// nil is the launch exactly as it was; a zero answer stamps nothing. A failed record stops the process like a failed identity record.
+	runStamp  func(profileID, conversationID string) (charterID string, generation int64)
+	recordRun func(profileID, conversationID, turnID, charterID string, generation int64) error
+	// beforeRelease, when set, is asked after the process and its identity exist and before anything is delivered to it (the bound
+	// child blocks on its credential frame until then, so a refusal ends a process that has not run). bound says whether the turn is
+	// launched with peer-credential binding: a legacy child is already running, so a refusal of one stops a started process. An error
+	// fails the start like any other failed delivery (the turn started, is stopped, its tokens end). The context is cancelled when the
+	// start gives up on the hook (a deadline, a panic) or returns: a hook that takes something it cannot give back (a ticket) must check it
+	// under its own lock first, so a late completion for a refused turn takes nothing.
+	beforeRelease func(ctx context.Context, profileID, conversationID, turnID string, bound bool) error
+	// place, when set, puts the turn's process where it must be born (a containment cgroup): it adjusts cmd after the launcher built its
+	// process attributes (Setsid, pidfd) and before the process exists, and returns a release that the launcher calls right after the start
+	// (success or failure). An error refuses the turn before anything runs. Bound launches only: a legacy start with place set fails.
+	place func(cmd *exec.Cmd, profileID, conversationID string) (release func(), err error)
 	// afterExitRevoke is a test seam: the exit goroutine calls it once its revokes have run, before the turn is done.
 	afterExitRevoke func()
 }
 
 // afterWaiterStarted is a test seam: it runs right after the exit waiter started, before the legacy token is bound.
 var afterWaiterStarted func()
+
+// releaseTimeout bounds the release hook: a hook that does not answer in time refuses (a seam for tests). The hook runs on the start's
+// goroutine, outside the host's lock, but a blocked start would hold up the command that asked for it.
+var releaseTimeout = 30 * time.Second
+
+// hookRecover runs f and turns a panic into an error, so a faulty hook cannot unwind Start with a spawned, unwaited child.
+func hookRecover(what string, f func() error) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%s panicked: %v", what, r)
+		}
+	}()
+	return f()
+}
+
+// boundedHook runs f on its own goroutine, with a recover, and gives up on it after releaseTimeout: the answer is then an error, and
+// the context f was given is cancelled (it is cancelled whenever boundedHook returns). A hook that is still running at the deadline is
+// left to finish; its late result is dropped, and it must check its context before any effect it cannot take back.
+func boundedHook(what string, f func(ctx context.Context) error) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	res := make(chan error, 1)
+	go func() { res <- hookRecover(what, func() error { return f(ctx) }) }()
+	select {
+	case err := <-res:
+		return err
+	case <-time.After(releaseTimeout):
+		return fmt.Errorf("%s did not answer in time", what)
+	}
+}
 
 // hostID is what makes a host-owned name safe to put in a file name and a flag.
 var hostID = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$`)
@@ -251,9 +297,33 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	}
 	cmd.Dir = filepath.Dir(l.logDir)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = prompt, logFile, logFile
-	startProcess := func() error { return clicore.DetachStart(cmd) }
+	startProcess := func() error {
+		if l.place != nil {
+			return errors.New("placing a turn needs a bound launch; a legacy start would run outside the placement")
+		}
+		return clicore.DetachStart(cmd)
+	}
 	if bd != nil {
-		startProcess = func() error { return bd.start(cmd) }
+		startProcess = func() error {
+			var pre func(*exec.Cmd) error
+			var release func()
+			if l.place != nil {
+				pre = func(c *exec.Cmd) error {
+					return hookRecover("the placement", func() (perr error) {
+						release, perr = l.place(c, profileID, conversationID)
+						return perr
+					})
+				}
+			}
+			err := bd.start(cmd, pre)
+			if release != nil {
+				// the placement's descriptor is needed until the process exists, no longer; a release that panics is not fatal to the host
+				if rerr := hookRecover("the placement release", func() error { release(); return nil }); rerr != nil && l.logf != nil {
+					l.logf("coder host: %v", rerr)
+				}
+			}
+			return err
+		}
 	}
 	if err := startProcess(); err != nil {
 		os.Remove(promptPath)
@@ -330,20 +400,44 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	// this identity commit leaves the session with PID 0. Recovery then cannot adopt the child, treats the turn as gone and settles, and a
 	// queued turn may start beside it. Closing it needs a durable launch intent written BEFORE the spawn (a per-turn nonce, or an
 	// enumerable unit); build it if it ever occurs.
+	// A process whose identity cannot be kept must not outlive this call (a restart could not find it): it is killed at once,
+	// leader and group. Nothing waits for the child yet, so the pid cannot have been reused and the group is still its own.
+	killUnrecorded := func(err error) error {
+		_ = cmd.Process.Kill()
+		_ = killGroup(t.pid)
+		t.markKilled() // under the lock, before the waiter can reap: Stop, the grace and afterDone never signal this pid or group again
+		startWaiter()  // reaps it and ends its tokens
+		return t.fail(err)
+	}
 	if l.onProcess != nil {
 		if err := l.onProcess(profileID, conversationID, turnID, t.pid, stamp, bd != nil); err != nil {
-			// A process whose identity cannot be kept must not outlive this call (a restart could not find it): it is killed at once,
-			// leader and group. Nothing waits for the child yet, so the pid cannot have been reused and the group is still its own.
-			_ = cmd.Process.Kill()
-			_ = killGroup(t.pid)
-			t.markKilled() // under the lock, before the waiter can reap: Stop, the grace and afterDone never signal this pid or group again
-			startWaiter()  // reaps it and ends its tokens
-			return nil, t.fail(fmt.Errorf("could not record the turn's process, so it was stopped: %w", err))
+			return nil, killUnrecorded(fmt.Errorf("could not record the turn's process, so it was stopped: %w", err))
+		}
+	}
+	if l.runStamp != nil && l.recordRun != nil {
+		// A zero answer stamps nothing and never clears an earlier stamp (the stamp belongs to the run and is read by generation).
+		if err := boundedHook("the run stamp", func(context.Context) error {
+			if charterID, gen := l.runStamp(profileID, conversationID); charterID != "" || gen != 0 {
+				return l.recordRun(profileID, conversationID, turnID, charterID, gen)
+			}
+			return nil
+		}); err != nil {
+			return nil, killUnrecorded(fmt.Errorf("could not record the run of the turn, so it was stopped: %w", err))
 		}
 	}
 	startWaiter()
 	if afterWaiterStarted != nil {
 		afterWaiterStarted()
+	}
+	if l.beforeRelease != nil {
+		// A refused release is a start that failed after the process existed: StartedError on purpose (the spend cap stays counted, the
+		// command fails, nothing retries it). The stop is the ordinary one (SIGTERM, then the grace): a bound child that has not been given
+		// its credentials has not run, so it needs no pidfd kill.
+		if err := boundedHook("the release check", func(ctx context.Context) error {
+			return l.beforeRelease(ctx, profileID, conversationID, turnID, bd != nil)
+		}); err != nil {
+			return nil, t.fail(fmt.Errorf("the turn was not released: %w", err))
+		}
 	}
 	if ct != nil && bd == nil { // a bound launch binds the child's token inside its own transaction
 		if err := l.child.bind(profileID, conversationID, ct, t.pid, bindStamp); err != nil {
