@@ -310,6 +310,8 @@ jobs:
       - name: Test the rollout guard
         run: bash scripts/check-rollout-ready-test.sh
       - name: Test the installer
+        env:
+          TMPDIR: ${{ runner.temp }}
         run: bash scripts/install-test.sh
       - name: Test the app version stamp
         run: bash scripts/stamp-app-version-test.sh
