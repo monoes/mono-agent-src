@@ -3,8 +3,11 @@ package doomsday
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 
 	"github.com/zalando/go-keyring"
@@ -15,23 +18,89 @@ import (
 	"github.com/monoes/mono-agent/internal/storage"
 )
 
-// fakeKernel is a containment with nothing in it: the run never made a unit, so there is nothing to signal. It is
-// the stand-in for a delegated cgroup v2 manager, which these tests cannot have.
-type fakeKernel struct{}
-
-func (fakeKernel) BootID() (string, error)        { return "boot", nil }
-func (fakeKernel) CurrentUID() uint32             { return uint32(os.Getuid()) }
-func (fakeKernel) DelegatedRoot() (string, error) { return "", errors.New("fake: no delegated root") }
-func (fakeKernel) SelfCgroup() (string, error)    { return "/self", nil }
-func (fakeKernel) OpenCgroup(string) (stop.Cgroup, error) {
-	return nil, errors.New("fake: no cgroup")
+// fakeWorld is the service manager and the cgroup tree these tests cannot have: StartUnit makes a unit that holds
+// its anchor process, StopUnit removes it. extra puts a second process into the unit's own cgroup (a live member).
+type fakeWorld struct {
+	mu      sync.Mutex
+	present bool
+	extra   bool
+	started []string
+	stopped []string
+	boot    string
 }
-func (fakeKernel) IsAbsent(error) bool                       { return false }
+
+func (w *fakeWorld) StartUnit(_ context.Context, name, _ string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.present = true
+	w.started = append(w.started, name)
+	return nil
+}
+
+func (w *fakeWorld) StopUnit(_ context.Context, name string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.present = false
+	w.stopped = append(w.stopped, name)
+	return nil
+}
+
+// fakeKernel is the cgroup side of fakeWorld. The zero value (no world) is a kernel with no unit at all.
+type fakeKernel struct{ w *fakeWorld }
+
+func (k fakeKernel) BootID() (string, error) {
+	if k.w != nil && k.w.boot != "" {
+		return k.w.boot, nil
+	}
+	return "boot", nil
+}
+func (fakeKernel) CurrentUID() uint32             { return uint32(os.Getuid()) }
+func (fakeKernel) DelegatedRoot() (string, error) { return "/fake/user@1", nil }
+func (fakeKernel) SelfCgroup() (string, error)    { return "/self", nil }
+
+var errFakeAbsent = errors.New("fake: absent")
+
+func (k fakeKernel) OpenCgroup(string) (stop.Cgroup, error) {
+	if k.w == nil {
+		return nil, errors.New("fake: no cgroup")
+	}
+	k.w.mu.Lock()
+	defer k.w.mu.Unlock()
+	if !k.w.present {
+		return nil, errFakeAbsent
+	}
+	return fakeCgroup{w: k.w}, nil
+}
+func (fakeKernel) IsAbsent(err error) bool                   { return errors.Is(err, errFakeAbsent) }
 func (fakeKernel) ManagerControlGroup(string) (string, bool) { return "", false }
 func (fakeKernel) ListUnitNames(string) ([]string, error)    { return nil, nil }
 
+type fakeCgroup struct{ w *fakeWorld }
+
+func (fakeCgroup) Identity() (stop.CgroupIdentity, error) {
+	return stop.CgroupIdentity{ID: 7, UID: uint32(os.Getuid()), IsCgroup2: true}, nil
+}
+func (fakeCgroup) Subgroups() ([]string, error) { return nil, nil }
+func (c fakeCgroup) Procs(string) ([]int, error) {
+	c.w.mu.Lock()
+	defer c.w.mu.Unlock()
+	if c.w.extra {
+		return []int{100, 200}, nil
+	}
+	return []int{100}, nil
+}
+func (fakeCgroup) ProcInfo(_ string, pid int) (string, string, error) {
+	return fmt.Sprintf("stamp-%d", pid), "proc", nil
+}
+func (fakeCgroup) Signal(string, int, syscall.Signal) error { return nil }
+func (fakeCgroup) Kill(string) error                        { return nil }
+func (fakeCgroup) Populated(string) (bool, error)           { return false, nil }
+func (fakeCgroup) Rmdir(string) error                       { return nil }
+func (fakeCgroup) Close() error                             { return nil }
+
 type wireRig struct {
 	*rig
+	world   *fakeWorld
 	w       Wiring
 	host    *coderhost.Store
 	charter string
@@ -61,17 +130,21 @@ func newWire(t *testing.T, probe func() error, kernel stop.Kernel, revokeErr err
 	}
 	t.Cleanup(func() { db.DB.Close() })
 	host := coderhost.NewStore(db.DB)
+	world := &fakeWorld{}
+	if _, isFake := kernel.(fakeKernel); isFake {
+		kernel = fakeKernel{w: world}
+	}
 	w := Wiring{
 		Store: store.New(db.DB, store.NewHMACKeyer([]byte("k"))), Profile: "p1",
 		RunDir: stop.RunDir{Dir: t.TempDir() + "/run"},
-		Probe:  probe, Kernel: kernel,
+		Probe:  probe, Kernel: kernel, Host: world,
 		Binding: func(context.Context) (bool, error) { return true, nil },
 		Tokens:  CoderTokens{DB: db.DB, Profile: "p1", Host: recordingHost{CoderHost: host, revokeErr: revokeErr}},
 	}
 	r := newRig()
 	e := w.Engine()
 	r.deps.Engine = func() Engine { return e }
-	return &wireRig{rig: r, w: w, host: host, charter: writeCharter(t, goodCharter)}, db
+	return &wireRig{rig: r, world: world, w: w, host: host, charter: writeCharter(t, goodCharter)}, db
 }
 
 func (w *wireRig) start(t *testing.T) string {
@@ -169,8 +242,11 @@ func TestWiredEngineRefusesToStartWhereContainmentIsUnavailable(t *testing.T) {
 // The word "stopped" needs a proven unit end: with no containment kernel the unit is not proven, so the run stays
 // cleanup-pending and the command says NOT stopped.
 func TestStopWithoutAProvableUnitNeverSaysStopped(t *testing.T) {
-	w, _ := newWire(t, func() error { return nil }, nil, nil)
+	w, _ := newWire(t, func() error { return nil }, fakeKernel{}, nil)
 	w.start(t)
+	w.w.Kernel = nil // the unit can no longer be proven
+	e := w.w.Engine()
+	w.deps.Engine = func() Engine { return e }
 	out, err := run(t, w.deps, "", "stop")
 	if err == nil || strings.Contains(strings.ReplaceAll(out, "NOT stopped", ""), "stopped\n") || !strings.Contains(out, "NOT stopped") {
 		t.Fatalf("claimed stopped with no provable unit: %v %q", err, out)

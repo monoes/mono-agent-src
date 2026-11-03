@@ -117,7 +117,9 @@ func join(sub, file string) string {
 }
 
 func (c *linuxCgroup) Subgroups() ([]string, error) {
-	dfd, err := unix.Dup(c.fd)
+	// a fresh open file description of the same directory (a dup would share, and continue from, the offset of
+	// the last listing)
+	dfd, err := unix.Openat(c.fd, ".", unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_RDONLY, 0)
 	if err != nil {
 		return nil, err
 	}

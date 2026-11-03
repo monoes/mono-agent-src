@@ -39,12 +39,33 @@ func (g *Gate) registerOpLocked(t *Ticket) {
 	g.ops[op.id] = op
 }
 
+// stepRunningLocked reports whether the operation's latest step has been started and its work has not ended: a
+// git command is running right now (note 13.3 R2).
+func stepRunningLocked(op *beginOp) bool {
+	if len(op.tickets) == 0 || op.progress >= len(op.tickets) {
+		return false
+	}
+	last := op.tickets[len(op.tickets)-1]
+	return last.state == Starting || last.state == Started
+}
+
+// effectiveDeadlineLocked is T_merge, extended to the hard bound T_merge+TMergeHard while a step is running.
+func (g *Gate) effectiveDeadlineLocked(op *beginOp, now time.Time) time.Time {
+	if !now.Before(op.deadline) && stepRunningLocked(op) {
+		return op.deadline.Add(g.cfg.TMergeHard)
+	}
+	return op.deadline
+}
+
 // expireLocked applies T_merge: an operation past its bound becomes INCOMPLETE and its remaining steps are
-// withdrawn. It is called under the mutex by every method, so no read of the bound happens outside it.
+// withdrawn. A step that is running at the bound keeps its operation CONTINUING (so Stop's deferral of the
+// containment kill still covers the command) until the step ends or the hard bound passes; no new step is
+// admitted in that time (AdmitContinuation, BeginStart). It is called under the mutex by every method, so no
+// read of the bound happens outside it.
 func (g *Gate) expireLocked() {
 	now := g.cfg.Clock.Now()
 	for _, op := range g.ops {
-		if op.state == opContinuing && !now.Before(op.deadline) {
+		if op.state == opContinuing && !now.Before(g.effectiveDeadlineLocked(op, now)) {
 			g.terminalLocked(op, opIncomplete)
 		}
 	}
@@ -76,7 +97,7 @@ func (g *Gate) nextOpDeadlineLocked(now time.Time) (time.Duration, bool) {
 		if op.state != opContinuing {
 			continue
 		}
-		if d := op.deadline.Sub(now); !found || d < best {
+		if d := g.effectiveDeadlineLocked(op, now).Sub(now); !found || d < best {
 			best, found = d, true
 		}
 	}
@@ -97,6 +118,9 @@ func (g *Gate) AdmitContinuation(opID, step string) (*Ticket, error) {
 	n := len(op.tickets)
 	if n >= 2 && op.steps[n-1] == step {
 		return op.tickets[n-1], nil
+	}
+	if !g.cfg.Clock.Now().Before(op.deadline) {
+		return nil, fmt.Errorf("%w: T_merge has passed, no new step is admitted", ErrContinuation)
 	}
 	if n >= len(op.steps) || op.steps[n] != step {
 		return nil, fmt.Errorf("%w: %q is not the next registered step", ErrContinuation, step)
@@ -124,8 +148,11 @@ func (g *Gate) EndWork(t *Ticket, ok bool) {
 		g.terminalLocked(op, opIncomplete)
 	default:
 		op.progress++
-		if op.progress >= len(op.steps) {
+		switch {
+		case op.progress >= len(op.steps):
 			g.terminalLocked(op, opFinished)
+		case !g.cfg.Clock.Now().Before(op.deadline): // the running step ended past T_merge: nothing further runs
+			g.terminalLocked(op, opIncomplete)
 		}
 	}
 }

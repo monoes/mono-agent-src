@@ -25,7 +25,10 @@ func realEngine(t *testing.T) *StoreEngine {
 	t.Cleanup(func() { db.DB.Close() })
 	db.DB.SetMaxOpenConns(1)
 	return &StoreEngine{Store: store.New(db.DB, store.NewHMACKeyer([]byte("k"))), Profile: "p1",
-		Binding: func(context.Context) (bool, error) { return true, nil }}
+		Binding: func(context.Context) (bool, error) { return true, nil },
+		CreateUnit: func(context.Context, int64) (func(context.Context) error, error) {
+			return func(context.Context) error { return nil }, nil
+		}}
 }
 
 func TestRealStoreStartStatusAndSecondRunRefused(t *testing.T) {

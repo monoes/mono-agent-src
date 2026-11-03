@@ -3,7 +3,6 @@ package doomsday
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -17,16 +16,6 @@ func withDB(w *wireRig, db *storage.Database) {
 	w.w.DB = db.DB
 	e := w.w.Engine()
 	w.rig.deps.Engine = func() Engine { return e }
-}
-
-func (w *wireRig) unitRecord(t *testing.T, gen uint64, boot string) {
-	t.Helper()
-	const nonce = "0123456789abcdef0123456789abcdef"
-	name := fmt.Sprintf("monoagent-run-%d-%s.service", gen, nonce)
-	rec := stop.UnitRecord{Kind: "cgroup2", BootID: boot, Name: name, CgroupPath: "/sys/fs/cgroup/app/" + name, CgroupID: 1, OwnerUID: 1, Nonce: nonce, Generation: gen}
-	if err := w.w.RunDir.WriteUnitFile(rec); err != nil {
-		t.Fatal(err)
-	}
 }
 
 // MergeFor: no run, merges are as they were; a running run, the connection to its gate and journal; a stopped
@@ -77,7 +66,9 @@ func TestStopAndStartRevisitAMergeMemberUntilContainmentProvesItGone(t *testing.
 		t.Fatal(err)
 	}
 
-	// no recorded unit: not proven, so stop does not say "stopped" and the member is still live
+	// a live process in the unit besides its anchor: not proven gone, so stop does not say "stopped" and the
+	// member is still live (the unit is ended after the revisit, so the next stop finds nothing)
+	w.world.extra = true
 	out, _ := run(t, w.deps, "", "stop")
 	if strings.HasSuffix(out, "stopped\n") {
 		t.Fatalf("stopped with a merge member whose processes are not proven gone: %q", out)
@@ -91,8 +82,7 @@ func TestStopAndStartRevisitAMergeMemberUntilContainmentProvesItGone(t *testing.
 		t.Fatal("a second run started while the first has a live merge member")
 	}
 
-	// the unit is recorded for an earlier boot: a reboot is the proof every process is gone
-	w.unitRecord(t, 1, "an-earlier-boot")
+	// the first stop ended the unit's service and its cgroup is absent: the processes are proven gone
 	out, err := run(t, w.deps, "", "stop")
 	if err != nil || !strings.HasSuffix(out, "stopped\n") {
 		t.Fatalf("stop after the proof: %v %q", err, out)

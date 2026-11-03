@@ -24,6 +24,7 @@ type GateConfig struct {
 	TClose     time.Duration // default DefaultTClose
 	THung      time.Duration // default DefaultTHung
 	TMerge     time.Duration // default DefaultTMerge
+	TMergeHard time.Duration // how long past TMerge a running step keeps its operation open; default DefaultTMergeHard
 }
 
 // Spec describes one effect to admit.
@@ -83,6 +84,9 @@ func NewGate(cfg GateConfig) *Gate {
 	}
 	if cfg.TMerge == 0 {
 		cfg.TMerge = DefaultTMerge
+	}
+	if cfg.TMergeHard == 0 {
+		cfg.TMergeHard = DefaultTMergeHard
 	}
 	return &Gate{cfg: cfg, st: gateOpen, tix: map[uint64]*Ticket{}, ops: map[string]*beginOp{}, ch: make(chan struct{})}
 }

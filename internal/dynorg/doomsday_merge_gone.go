@@ -57,11 +57,9 @@ func unitEmpty(k stop.Kernel, rec stop.UnitRecord) (bool, error) {
 		return true, nil
 	}
 	defer p.Cg.Close()
-	populated, err := p.Cg.Populated("")
-	if err != nil {
-		return false, err
-	}
-	return !populated, nil
+	// the unit's own cgroup always holds its anchor process, so "not populated" would never be true while the
+	// service lives: the record names the anchor, and the unit is empty when nothing else is in it
+	return stop.UnitEmpty(p.Cg, rec)
 }
 
 // TaskStoreRecorded answers whether the task store holds the merge record of a branch (the "merge" artifact that
