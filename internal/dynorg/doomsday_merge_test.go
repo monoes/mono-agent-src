@@ -38,13 +38,17 @@ type ddMembers struct {
 	*store.SQLStore
 	mu       sync.Mutex
 	failKind string
+	onFail   func() // runs when a write fails by failKind (a test cancels its turn there)
 }
 
 func (m *ddMembers) AppendAudit(ctx context.Context, p string, g int64, kind, payload string) (store.AuditRow, error) {
 	m.mu.Lock()
-	fail := m.failKind == kind
+	fail, onFail := m.failKind == kind, m.onFail
 	m.mu.Unlock()
 	if fail {
+		if onFail != nil {
+			onFail()
+		}
 		return store.AuditRow{}, errors.New("audit write failed")
 	}
 	return m.SQLStore.AppendAudit(ctx, p, g, kind, payload)
@@ -316,7 +320,7 @@ func TestALiveMergeMemberBlocksQuiescenceUntilALaterStartProvesItGone(t *testing
 		func(store.Member) (bool, error) { return false, nil },
 		func(store.Member) (bool, error) { return true, errors.New("cannot tell") },
 	} {
-		still, err := RevisitMergeMembers(ctx, r.st, "p", r.run.Generation, gone)
+		still, err := RevisitMergeMembers(ctx, r.st, "p", r.run.Generation, gone, okLock)
 		if err != nil || len(still) != 1 {
 			t.Fatalf("revisit = %v, %v", still, err)
 		}
@@ -324,7 +328,7 @@ func TestALiveMergeMemberBlocksQuiescenceUntilALaterStartProvesItGone(t *testing
 	if _, err := r.st.Advance(ctx, "p", r.run.Generation, store.StateQuiescent, "op", ""); !errors.Is(err, store.ErrLiveMembers) {
 		t.Fatalf("quiescent after an unproven revisit: %v", err)
 	}
-	still, err := RevisitMergeMembers(ctx, r.st, "p", r.run.Generation, func(store.Member) (bool, error) { return true, nil })
+	still, err := RevisitMergeMembers(ctx, r.st, "p", r.run.Generation, func(store.Member) (bool, error) { return true, nil }, okLock)
 	if err != nil || len(still) != 0 {
 		t.Fatalf("revisit = %v, %v", still, err)
 	}
@@ -335,3 +339,5 @@ func TestALiveMergeMemberBlocksQuiescenceUntilALaterStartProvesItGone(t *testing
 		t.Fatalf("quiescent after proof: %v", err)
 	}
 }
+
+func okLock() (func(), error) { return func() {}, nil }

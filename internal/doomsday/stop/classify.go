@@ -191,6 +191,23 @@ func (r RunDir) IsRefused(gen uint64) bool {
 	return err == nil || !errors.Is(err, os.ErrNotExist)
 }
 
+// Refusal reads the durable refusal of a generation: found is true only for a file that parses as the record
+// Refuse writes. A missing file is (0, false, nil); an unreadable or malformed one is an error, so a caller never
+// takes a damaged refusal for proof of anything.
+func (r RunDir) Refusal(gen uint64) (row int, found bool, err error) {
+	b, rerr := r.fsys().ReadFile(r.refusedPath(gen))
+	if rerr != nil {
+		if errors.Is(rerr, os.ErrNotExist) {
+			return 0, false, nil
+		}
+		return 0, false, rerr
+	}
+	if _, serr := fmt.Sscanf(string(b), "row %d\n", &row); serr != nil {
+		return 0, false, fmt.Errorf("the refusal of generation %d is malformed", gen)
+	}
+	return row, true, nil
+}
+
 // FailGeneration is what every writer does on a fail-closed decision: refusal file first, then the witness
 // "failed" record (best effort), so the refusal does not depend on the second write.
 func (w Witness) FailGeneration(gen int64, row int) error {

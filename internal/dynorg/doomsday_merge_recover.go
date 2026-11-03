@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/monoes/mono-agent/internal/daemonhb"
 	"github.com/monoes/mono-agent/internal/doomsday/store"
 )
 
@@ -30,6 +31,13 @@ type MergeRecovery struct {
 	Journal MergeJournal
 	// Gone proves a member's processes are gone (containment). An error or false leaves the member live.
 	Gone func(store.Member) (bool, error)
+	// HostLock takes the host lock of the run directory without waiting; it fails while another process holds it.
+	// Recovery judges and releases only while it holds the lock itself, so a live host (which keeps its merge
+	// between two steps with no git process running) is never judged dead. Nil never judges (fail closed).
+	HostLock func() (release func(), err error)
+	// Alive reports whether the process of a member's pid is running; nil is the platform probe. A reused pid
+	// reads as alive, which only keeps a member live longer.
+	Alive func(pid int) bool
 	// Recorded reports whether the task store holds the merge record of a branch.
 	Recorded func(ctx context.Context, branch string) (bool, error)
 	// Git runs git for the judgement; nil is the conductor's own hardened runner.
@@ -71,15 +79,17 @@ func (r MergeRecovery) Recover(ctx context.Context, repo string, generations ...
 	if err != nil {
 		return out, err
 	}
+	lock := &hostLease{take: r.HostLock}
+	defer lock.release()
 	for _, id := range order {
 		o := ops[id]
 		if o.Open() && (repo == "" || o.rec.Repo == repo) {
-			r.resolveOpen(ctx, git, o, live[id], &out)
+			r.resolveOpen(ctx, git, o, live[id], lock, &out)
 		}
 	}
 	for id, m := range live {
 		if o := ops[id]; o == nil || o.Ended { // a live member with no open operation: revisit by proof only
-			r.revisit(ctx, m, &out)
+			r.revisit(ctx, m, lock, &out)
 		}
 	}
 	for _, id := range order {
@@ -114,14 +124,59 @@ func (r MergeRecovery) liveMerges(ctx context.Context, ops map[string]*opView, e
 	return live, nil
 }
 
+// hostLease takes the host lock at most once per pass and holds it until the pass ends.
+type hostLease struct {
+	take      func() (func(), error)
+	rel       func()
+	tried, ok bool
+}
+
+func (l *hostLease) held() bool {
+	if !l.tried {
+		l.tried = true
+		if l.take != nil {
+			if rel, err := l.take(); err == nil && rel != nil {
+				l.rel, l.ok = rel, true
+			}
+		}
+	}
+	return l.ok
+}
+
+func (l *hostLease) release() {
+	if l.rel != nil {
+		l.rel()
+	}
+}
+
+// provenDead is the only way recovery learns that a merge's owner is dead: the host lock is held by recovery
+// itself, the member's pid is not a running process, and containment proves the unit gone. Anything else leaves
+// the merge open and blocking. reachedUnit is true when the first two held and only the unit proof failed.
+func (r MergeRecovery) provenDead(m store.Member, lock *hostLease) (dead, reachedUnit bool) {
+	if !lock.held() {
+		return false, false
+	}
+	if m.Live {
+		alive := r.Alive
+		if alive == nil {
+			alive = daemonhb.ProcessAlive
+		}
+		if m.Pid <= 0 || alive(m.Pid) {
+			return false, false
+		}
+	}
+	gone, err := r.Gone(m)
+	return err == nil && gone, true
+}
+
 // resolveOpen asks the process question first; only a proof of "gone" lets the repository be read.
-func (r MergeRecovery) resolveOpen(ctx context.Context, git gitFn, o *opView, m store.Member, out *Recovered) {
+func (r MergeRecovery) resolveOpen(ctx context.Context, git gitFn, o *opView, m store.Member, lock *hostLease, out *Recovered) {
 	if m.ID == "" {
 		m = store.Member{Profile: r.Profile, Generation: o.Gen, ID: o.rec.Op, Kind: "merge"}
 	}
 	stillLive := m.Live
-	if gone, err := r.Gone(m); err != nil || !gone {
-		if !o.Unproven {
+	if dead, reached := r.provenDead(m, lock); !dead {
+		if reached && !o.Unproven {
 			_ = r.append(ctx, o.Gen, kindUnproven, mergeRec{Op: o.rec.Op, State: StateIncomplete, Reason: ReasonHostDied, Repair: RepairNeedsOperator,
 				Note: "a process of the operation is not proven gone; the repository was not touched"})
 		}
@@ -155,8 +210,8 @@ func (r MergeRecovery) resolveOpen(ctx context.Context, git gitFn, o *opView, m 
 }
 
 // revisit releases a merge member that has no open operation only when containment proves it gone.
-func (r MergeRecovery) revisit(ctx context.Context, m store.Member, out *Recovered) {
-	if ok, err := r.Gone(m); err != nil || !ok {
+func (r MergeRecovery) revisit(ctx context.Context, m store.Member, lock *hostLease, out *Recovered) {
+	if ok, _ := r.provenDead(m, lock); !ok {
 		out.StillLive = append(out.StillLive, m)
 		return
 	}
@@ -182,16 +237,18 @@ func (r MergeRecovery) append(ctx context.Context, gen int64, kind string, rec m
 // RevisitMergeMembers is the older entry: members only, no journal. A live merge member stays live, blocking
 // quiescence and a new run, until gone proves its process gone; an error or false answer leaves it live. It
 // returns the members still live.
-func RevisitMergeMembers(ctx context.Context, st MergeReconciler, profile string, generation int64, gone func(store.Member) (bool, error)) ([]store.Member, error) {
+func RevisitMergeMembers(ctx context.Context, st MergeReconciler, profile string, generation int64, gone func(store.Member) (bool, error), hostLock func() (func(), error)) ([]store.Member, error) {
 	ms, err := st.LiveMembers(ctx, profile, generation)
 	if err != nil {
 		return nil, err
 	}
-	r := MergeRecovery{Members: st, Profile: profile, Gone: gone}
+	r := MergeRecovery{Members: st, Profile: profile, Gone: gone, HostLock: hostLock}
+	lock := &hostLease{take: hostLock}
+	defer lock.release()
 	var out Recovered
 	for _, m := range ms {
 		if m.Kind == "merge" {
-			r.revisit(ctx, m, &out)
+			r.revisit(ctx, m, lock, &out)
 		}
 	}
 	return out.StillLive, nil

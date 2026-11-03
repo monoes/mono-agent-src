@@ -314,6 +314,16 @@ func (s *Sequencer) BeginEntry(ctx context.Context, gen int64) error {
 		return fmt.Errorf("%w: the database offers generation %d but the counter, the witness or the anchor remember generation %d: the database was rolled back", ErrEntryRefused, gen, floor)
 	}
 	if gen > 1 {
+		// A previous generation that failed closed has a durable refusal: that is the proof that it is over (note
+		// 13.5, "a new run is the only way forward"). The refusal stays and still blocks continuing THAT generation
+		// (classify checks it first); it does not block the next one. A damaged refusal proves nothing and refuses.
+		_, failed, rerr := s.W.Dir.Refusal(uint64(gen - 1))
+		if rerr != nil {
+			return fmt.Errorf("%w: the previous generation's refusal cannot be read: %v", ErrEntryRefused, rerr)
+		}
+		if failed {
+			return nil
+		}
 		if _, err := s.classify(ctx, gen-1); err != nil {
 			return fmt.Errorf("%w: the previous generation does not verify: %v", ErrEntryRefused, err)
 		}

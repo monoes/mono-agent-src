@@ -55,6 +55,7 @@ func (w Wiring) MergeRecovery() *dynorg.MergeRecovery {
 	return &dynorg.MergeRecovery{
 		Profile: w.Profile, Members: w.Chained(), Journal: MergeJournal(w.DB, w.Store),
 		Gone:     dynorg.ContainmentGone(w.Kernel, w.RunDir, nil),
+		HostLock: func() (func(), error) { return stop.AcquireHost(w.RunDir) },
 		Recorded: dynorg.TaskStoreRecorded(w.DB, w.Profile),
 		PlaceFor: w.placementOfOpenRun,
 	}

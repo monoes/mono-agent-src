@@ -253,3 +253,69 @@ func TestSwappedDatabaseFileFailsTheCheck(t *testing.T) {
 		t.Fatalf("a swapped database file was admitted: %v", err)
 	}
 }
+
+// Note 13.5: a generation that failed closed is over; a new run is the only way forward, and the refusal of the
+// failed generation still blocks continuing it.
+func TestEntryAfterAFailedGeneration(t *testing.T) {
+	t.Run("the next generation may enter, the failed one stays refused", func(t *testing.T) {
+		r := newSeqRig(t)
+		mustNoErr(t, r.seq.W.FailGeneration(1, 4))
+		if err := r.seq.BeginEntry(bg, 2); err != nil {
+			t.Fatalf("entry after a failed generation: %v", err)
+		}
+		if !r.seq.W.Dir.IsRefused(1) {
+			t.Fatal("the failed generation's refusal was lost")
+		}
+		var fe *FreshnessError
+		if err := r.seq.Check(bg, 1); !errors.As(err, &fe) || fe.Row != 13 {
+			t.Fatalf("continuing the failed generation was admitted: %v", err)
+		}
+	})
+	t.Run("a deleted refusal file does not reopen the failed generation or its successor", func(t *testing.T) {
+		r := newSeqRig(t)
+		mustNoErr(t, r.seq.W.FailGeneration(1, 4))
+		mustNoErr(t, os.Remove(r.seq.W.Dir.refusedPath(1)))
+		if err := r.seq.BeginEntry(bg, 2); !errors.Is(err, ErrEntryRefused) {
+			t.Fatalf("the failed record alone must still refuse: %v", err)
+		}
+	})
+	t.Run("an unreadable or malformed refusal proves nothing", func(t *testing.T) {
+		r := newSeqRig(t)
+		mustNoErr(t, r.seq.W.FailGeneration(1, 4))
+		r.fs.failRead["1.refused"] = true
+		if err := r.seq.BeginEntry(bg, 2); !errors.Is(err, ErrEntryRefused) {
+			t.Fatalf("unreadable refusal: %v", err)
+		}
+		delete(r.fs.failRead, "1.refused")
+		mustNoErr(t, os.WriteFile(r.seq.W.Dir.refusedPath(1), []byte("garbage"), 0o600))
+		if err := r.seq.BeginEntry(bg, 2); !errors.Is(err, ErrEntryRefused) {
+			t.Fatalf("malformed refusal: %v", err)
+		}
+	})
+	t.Run("a previous generation that is stale but not failed still refuses", func(t *testing.T) {
+		r := newSeqRig(t)
+		mustNoErr(t, os.Remove(r.seq.W.path()))
+		if err := r.seq.BeginEntry(bg, 3); !errors.Is(err, ErrEntryRefused) {
+			t.Fatalf("%v", err)
+		}
+	})
+}
+
+// A refusal file that cannot be read is a refusal (fail closed).
+func TestIsRefusedFailsClosedOnAReadError(t *testing.T) {
+	fs := newFaultFS()
+	dir := newRunDir(t, fs)
+	if dir.IsRefused(5) {
+		t.Fatal("no refusal file, yet refused")
+	}
+	mustNoErr(t, dir.Refuse(5, 13))
+	fs.failRead["5.refused"] = true
+	if !dir.IsRefused(5) {
+		t.Fatal("an unreadable refusal was treated as absent")
+	}
+	delete(fs.failRead, "5.refused")
+	fs.failRead["6.refused"] = true
+	if !dir.IsRefused(6) {
+		t.Fatal("a read error on a refusal that never existed must still refuse")
+	}
+}

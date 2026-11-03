@@ -70,6 +70,7 @@ func (s *scene) recovery() MergeRecovery {
 	return MergeRecovery{
 		Profile: "p", Members: s.r.st, Journal: s.r.journal(), Git: s.git,
 		Gone:     func(store.Member) (bool, error) { return s.gone, nil },
+		HostLock: func() (func(), error) { return func() {}, nil }, Alive: func(int) bool { return false },
 		Recorded: func(context.Context, string) (bool, error) { s.recordedAsked++; return s.recorded, nil },
 	}
 }

@@ -120,6 +120,8 @@ func (c *Conductor) beginMerge(ctx context.Context, repo, branch, worker string)
 		return nil, ErrMergeStopped
 	}
 	abort := func(err error) (*mergeOp, error) { dd.Gate.Abort(t); return nil, err }
+	// a cancelled turn (Stop, the moment Q11 is about) must not turn a release into a silent no-op
+	release := func() { _ = dd.Members.Release(context.WithoutCancel(ctx), dd.Profile, dd.Generation, id) }
 	if err := dd.repoFree(ctx, repo, ""); err != nil {
 		return abort(err)
 	}
@@ -130,17 +132,17 @@ func (c *Conductor) beginMerge(ctx context.Context, repo, branch, worker string)
 	// The claim row is the cross-process lock: the chain gives every claim one place in line, and the earliest
 	// open claim on a repository wins; a later one withdraws before it touches anything.
 	if err := dd.appendRetry(ctx, kindBegin, mergeRec{Op: id, Repo: repo, Branch: branch, Worker: worker, Step: 1}); err != nil {
-		_ = dd.Members.Release(ctx, dd.Profile, dd.Generation, id)
+		release()
 		return abort(fmt.Errorf("%w: the merge could not be recorded: %v", ErrMergeStopped, err))
 	}
 	if err := dd.repoFree(ctx, repo, id); err != nil {
 		_ = dd.appendRetry(context.WithoutCancel(ctx), kindEnd, mergeRec{Op: id, State: StateIncomplete, Reason: ReasonClaimLost, Repair: RepairClean})
-		_ = dd.Members.Release(ctx, dd.Profile, dd.Generation, id)
+		release()
 		return abort(err)
 	}
 	if err := dd.Gate.Started(t, id); err != nil {
 		_ = dd.appendRetry(context.WithoutCancel(ctx), kindEnd, mergeRec{Op: id, State: StateIncomplete, Reason: ReasonStepFailed, Repair: RepairClean})
-		_ = dd.Members.Release(ctx, dd.Profile, dd.Generation, id)
+		release()
 		return nil, ErrMergeStopped
 	}
 	return &mergeOp{dd: dd, id: id, cur: t, first: true, live: true, reached: 1}, nil
