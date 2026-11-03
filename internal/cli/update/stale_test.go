@@ -126,27 +126,83 @@ func TestTheDaemonServicesExeIsOnlyReportedWhenItCannotBeReplacedFromHere(t *tes
 	})
 }
 
-func TestAMonoagentcliOnPathIsReportedNeverReplaced(t *testing.T) {
-	r := newStaleRig(t, false)
-	bin := filepath.Join(t.TempDir(), "bin dir", "monoagentcli")
-	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
-		t.Fatal(err)
+// The monoagentcli on PATH is replaced by the same rules as the daemon's exe: from the verified asset, and only when it is safe
+// to. Without an asset (update --app), or when a rule refuses it, it is reported with the exact command.
+func TestAMonoagentcliOnPathIsReplacedUnderTheSameRulesAsTheDaemonsExe(t *testing.T) {
+	onPath := func(t *testing.T) (*staleRig, string) {
+		r := newStaleRig(t, false)
+		bin := filepath.Join(t.TempDir(), "bin dir", "monoagentcli")
+		if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(bin, []byte(oldAsset), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		r.d.LookPath = func(string) (string, error) { return bin, nil }
+		r.versions[bin] = "0.176.0"
+		return r, bin
 	}
-	if err := os.WriteFile(bin, []byte(oldAsset), 0o755); err != nil {
-		t.Fatal(err)
+	t.Run("replaced from the verified asset", func(t *testing.T) {
+		r, bin := onPath(t)
+		got := r.d.staleCLIs(context.Background(), "v0.215.7", nil, []byte(newAsset))
+		if len(got) != 1 || got[0].Role != "path" || got[0].Action != "updated" || got[0].Version != "0.176.0" {
+			t.Fatalf("stale = %+v", got)
+		}
+		if b, _ := os.ReadFile(bin); string(b) != newAsset {
+			t.Fatalf("the PATH CLI was not replaced: %q", b)
+		}
+		if fi, _ := os.Stat(bin); fi.Mode()&0o111 == 0 {
+			t.Error("the replaced CLI is not executable")
+		}
+	})
+	t.Run("no verified asset: reported with the quoted command", func(t *testing.T) {
+		r, bin := onPath(t)
+		got := r.d.staleCLIs(context.Background(), "v0.215.7", nil, nil)
+		if len(got) != 1 || got[0].Action != "stale" || !strings.Contains(got[0].Message, "'"+bin+"' update") {
+			t.Fatalf("stale = %+v", got)
+		}
+		if b, _ := os.ReadFile(bin); string(b) != oldAsset {
+			t.Fatal("replaced with nothing verified in hand")
+		}
+	})
+	for name, prep := range map[string]func(t *testing.T, bin string){
+		"a symbolic link": func(t *testing.T, bin string) {
+			real := filepath.Join(t.TempDir(), "real")
+			_ = os.WriteFile(real, []byte(oldAsset), 0o755)
+			_ = os.Remove(bin)
+			if err := os.Symlink(real, bin); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"others can write the file":   func(t *testing.T, bin string) { _ = os.Chmod(bin, 0o777) },
+		"others can write the folder": func(t *testing.T, bin string) { _ = os.Chmod(filepath.Dir(bin), 0o777) },
+	} {
+		t.Run("refused: "+name, func(t *testing.T) {
+			r, bin := onPath(t)
+			prep(t, bin)
+			r.versions[realPath(bin)] = "0.176.0"
+			got := r.d.staleCLIs(context.Background(), "v0.215.7", nil, []byte(newAsset))
+			if len(got) != 1 || got[0].Action != "stale" || !strings.Contains(got[0].Message, "was not replaced") {
+				t.Fatalf("stale = %+v", got)
+			}
+			if b, _ := os.ReadFile(bin); string(b) != oldAsset {
+				t.Fatal("a CLI that a rule refuses was replaced")
+			}
+		})
 	}
-	r.d.LookPath = func(string) (string, error) { return bin, nil }
-	r.versions[bin] = "0.176.0"
-	got := r.d.staleCLIs(context.Background(), "v0.215.7", nil, []byte(newAsset))
-	if len(got) != 1 || got[0].Role != "path" || got[0].Action != "stale" || got[0].Version != "0.176.0" {
-		t.Fatalf("stale = %+v", got)
-	}
-	if !strings.Contains(got[0].Message, "'"+bin+"' update") {
-		t.Errorf("the message does not carry the quoted command: %s", got[0].Message)
-	}
-	if b, _ := os.ReadFile(bin); string(b) != oldAsset {
-		t.Fatal("the CLI on PATH was replaced")
-	}
+	t.Run("never as root", func(t *testing.T) {
+		old := isRoot
+		isRoot = func() bool { return true }
+		defer func() { isRoot = old }()
+		r, bin := onPath(t)
+		got := r.d.staleCLIs(context.Background(), "v0.215.7", nil, []byte(newAsset))
+		if len(got) != 1 || got[0].Action != "stale" {
+			t.Fatalf("stale = %+v", got)
+		}
+		if b, _ := os.ReadFile(bin); string(b) != oldAsset {
+			t.Fatal("replaced by a command running as root")
+		}
+	})
 }
 
 func TestACLIAsNewAsTheReleaseOrTheOneJustUpdatedIsLeftOut(t *testing.T) {
@@ -318,8 +374,8 @@ func captureStdout(t *testing.T, f func()) string {
 	return <-done
 }
 
-// The whole `update`, against a fake release: this binary and the daemon service's exe are both replaced from the verified
-// asset, the exe before the daemon is restarted, so that the restart runs the new code; the CLI on PATH is only reported.
+// The whole `update`, against a fake release: this binary, the daemon service's exe and the CLI on PATH are all replaced from
+// the verified asset, the daemon's exe before the daemon is restarted, so that the restart runs the new code.
 func TestUpdateReplacesTheDaemonServicesExeBeforeItRestartsTheDaemon(t *testing.T) {
 	asset := updateAssetName()
 	sum := sha256.Sum256([]byte(newAsset))
@@ -385,11 +441,11 @@ func TestUpdateReplacesTheDaemonServicesExeBeforeItRestartsTheDaemon(t *testing.
 	if fake.restarted != 1 || exeAtRestart != newAsset {
 		t.Errorf("the daemon restarted %d times; its exe at that moment was %q, want the new one", fake.restarted, exeAtRestart)
 	}
-	if b, _ := os.ReadFile(onPath); string(b) != oldAsset {
-		t.Error("the CLI on PATH was replaced")
+	if b, _ := os.ReadFile(onPath); string(b) != newAsset {
+		t.Errorf("the CLI on PATH was not replaced: %q", b)
 	}
-	if !strings.Contains(out, "replaced it with v9.9.9") || !strings.Contains(out, onPath+" update") {
-		t.Errorf("output does not say what was replaced and what is stale:\n%s", out)
+	if strings.Count(out, "replaced it with v9.9.9") != 2 {
+		t.Errorf("output does not say that the daemon's exe and the PATH CLI were both replaced:\n%s", out)
 	}
 }
 

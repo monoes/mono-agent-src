@@ -18,9 +18,9 @@ import (
 // An update replaces one binary (this one, or the desktop app's bundled CLI), but other mono-agent CLIs may exist on the
 // machine: the one on the user's PATH, and the one a registered daemon service starts. They stay on the old version, and
 // the daemon restart that follows an update starts the old binary again. So after an update the command looks for them,
-// says plainly which are stale and the exact command to update each, and updates the one binary it can do safely: the
-// daemon service's own exe, from the release asset it already verified (never a binary that merely sits on PATH, and never
-// the CLI inside the desktop app).
+// says plainly which are stale and the exact command to update each, and updates the ones it can do safely: the daemon
+// service's exe and the monoagentcli on PATH, by the same rules, from the release asset it already verified (never the CLI
+// inside the desktop app). `update --app` holds no CLI asset, so it only reports.
 //
 // Looking at another program means running it (`--json version`). That is done only for a file that this user or root owns
 // and that no one else can write, in a folder no one else can write, and never when this command itself runs as root: an
@@ -107,20 +107,28 @@ func (d Deps) staleCLIs(ctx context.Context, newVersion string, skip []string, d
 			continue // as new as the release, or newer
 		}
 		s := StaleCLI{Path: c.path, Role: c.role, Version: ver, Action: "stale"}
+		// What this CLI is, in words: the daemon service's exe, or the monoagentcli on PATH.
+		what := fmt.Sprintf("The monoagentcli on your PATH (%q)", c.path)
+		if c.role == "daemon" {
+			what = fmt.Sprintf("The daemon's service starts %q", c.path)
+		}
 		switch {
-		case c.role == "daemon" && data != nil:
+		case data != nil:
+			// Both are replaced by the same rules, from the release asset this command verified: a regular, user-owned,
+			// non-link file that others cannot write, in folders others cannot write, never as root, and only a new binary that
+			// runs and says the released version takes the old one's place.
 			if why := replaceable(c.path); why != "" {
-				s.Message = fmt.Sprintf("The daemon's service starts %q (%s), not the updated binary, and it was not replaced: %s. Update it with: %s", c.path, ver, why, cmdline)
+				s.Message = fmt.Sprintf("%s runs %s and was not replaced: %s. Update it with: %s", what, ver, why, cmdline)
 			} else if err := installBinaryChecked(data, c.path, d.newBinaryRuns(ctx, newVersion)); err != nil {
-				s.Message = fmt.Sprintf("The daemon's service starts %q (%s), not the updated binary, and replacing it failed (%v; it was kept). Update it with: %s", c.path, ver, err, cmdline)
+				s.Message = fmt.Sprintf("%s runs %s and replacing it failed (%v; it was kept). Update it with: %s", what, ver, err, cmdline)
 			} else {
 				s.Action = "updated"
-				s.Message = fmt.Sprintf("The daemon's service starts %q, which ran %s: replaced it with %s from the verified release.", c.path, ver, newVersion)
+				s.Message = fmt.Sprintf("%s ran %s: replaced it with %s from the verified release.", what, ver, newVersion)
 			}
 		case c.role == "daemon":
-			s.Message = fmt.Sprintf("The daemon's service starts %q (%s), not the updated binary, so a daemon restart runs the old version. Update it with: %s", c.path, ver, cmdline)
+			s.Message = fmt.Sprintf("%s (%s), not the updated binary, so a daemon restart runs the old version. Update it with: %s", what, ver, cmdline)
 		default:
-			s.Message = fmt.Sprintf("The monoagentcli on your PATH (%q) is %s, older than %s. It is not changed here. Update it with: %s", c.path, ver, newVersion, cmdline)
+			s.Message = fmt.Sprintf("%s is %s, older than %s. Update it with: %s", what, ver, newVersion, cmdline)
 		}
 		out = append(out, s)
 	}
