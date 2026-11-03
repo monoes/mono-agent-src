@@ -22,6 +22,8 @@ type Trip struct {
 	armed atomic.Bool
 	// RollbackErr, when set before use, is what every ROLLBACK returns instead of running.
 	RollbackErr error
+	// RollbackHangs, when set before use, makes every ROLLBACK block until its context ends.
+	RollbackHangs bool
 	// Opened counts the connections the pool has opened.
 	Opened atomic.Int32
 }
@@ -50,6 +52,10 @@ type conn struct {
 func (c *conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 	if c.trip.RollbackErr != nil && strings.HasPrefix(query, "ROLLBACK") {
 		return nil, c.trip.RollbackErr
+	}
+	if c.trip.RollbackHangs && strings.HasPrefix(query, "ROLLBACK") {
+		<-ctx.Done()
+		return nil, ctx.Err()
 	}
 	res, err := c.Conn.(driver.ExecerContext).ExecContext(context.WithoutCancel(ctx), query, args)
 	if err == nil && strings.HasPrefix(query, "BEGIN") && c.trip.armed.CompareAndSwap(true, false) {
