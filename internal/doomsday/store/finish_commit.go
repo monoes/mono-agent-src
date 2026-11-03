@@ -13,7 +13,8 @@ import (
 // The closed list of park reasons (note 13.6 section 13); the ledger records no other.
 var parkReasons = []finish.Reason{finish.ReasonCriteriaFailed, finish.ReasonCriterionError, finish.ReasonTainted, finish.ReasonTampered,
 	finish.ReasonSubjectChanged, finish.ReasonVerifierBlocked, finish.ReasonVerifierUnavailable, finish.ReasonVerifierChanged,
-	finish.ReasonRubricRejected, finish.ReasonInternalError}
+	finish.ReasonRubricRejected, finish.ReasonInternalError, finish.ReasonDeadline, finish.ReasonSubjectMoving,
+	finish.ReasonEnforcementRequired}
 
 type commitRow struct {
 	Round int64 `json:"round"`

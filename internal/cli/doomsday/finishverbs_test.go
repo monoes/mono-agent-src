@@ -239,7 +239,7 @@ func TestSubjectRulesAndNoFinishOfAnOrdinaryStop(t *testing.T) {
 	}
 }
 
-// T_finish: a round that does not end within its deadline parks (internal-error, "deadline") instead of hanging or
+// T_finish: a round that does not end within its deadline parks (reason deadline) instead of hanging or
 // leaving the finish half-written.
 func TestARoundThatOutlivesTFinishParksWithADeadlineReason(t *testing.T) {
 	r := newFinRig(t, strings.Replace(finishCharterJSON, `"rubric","text":"the docs read well"`, `"command","command":"true","expected":"exit:0"`, 1))
@@ -253,7 +253,7 @@ func TestARoundThatOutlivesTFinishParksWithADeadlineReason(t *testing.T) {
 		}
 	}
 	out := r.mustDo(t, "finish", "--subject", r.subject)
-	if !strings.Contains(out, "NOT finished: parked") || !strings.Contains(out, "internal-error") || !strings.Contains(out, "deadline") {
+	if !strings.Contains(out, "NOT finished: parked") || !strings.Contains(out, "deadline") {
 		t.Fatalf("%s", out)
 	}
 }

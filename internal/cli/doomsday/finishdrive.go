@@ -171,7 +171,7 @@ func (e *FinishEngine) deadline(ctx context.Context, h *finish.Harness, run stor
 	if ferr != nil || f.State != finish.StateVerifying {
 		return e.report(rep, cause)
 	}
-	v := finish.Verdict{Outcome: finish.Park, Reason: finish.ReasonInternalError, Detail: "deadline: the round did not finish within T_finish"}
+	v := finish.Verdict{Outcome: finish.Park, Reason: finish.ReasonDeadline, Detail: "the round did not finish within T_finish"}
 	if perr := h.Ledger.Park(pctx, v); perr != nil {
 		return e.report(rep, errors.Join(cause, perr))
 	}

@@ -201,6 +201,12 @@ const (
 	ReasonVerifierChanged     Reason = "verifier-changed"
 	ReasonRubricRejected      Reason = "rubric-rejected"
 	ReasonInternalError       Reason = "internal-error"
+	// The reasons the note names (section 13) beyond the first list: a round that ran past T_finish, a subject that kept
+	// changing while it was snapshotted, and a finish that needs a network deny the platform cannot give. (snapshot-refused
+	// is not here: a refused snapshot is an error before the freeze, when the ledger has no round to park.)
+	ReasonDeadline            Reason = "deadline"
+	ReasonSubjectMoving       Reason = "subject-moving"
+	ReasonEnforcementRequired Reason = "enforcement-required"
 )
 
 // Outcome of the predicate.

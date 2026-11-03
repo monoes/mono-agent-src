@@ -158,7 +158,7 @@ func (h *Harness) freeze(ctx context.Context, f Facts) (Report, error) {
 	}
 	h.ReleaseSnapshots(f.Generation, round) // the earlier rounds' sealed copies are not needed any more
 	if moving {                             // an unmediated writer is active: the workers are closed, so this is the documented residue
-		v := Verdict{Park, ReasonSubjectChanged, "the subject kept changing while it was snapshotted"}
+		v := Verdict{Park, ReasonSubjectMoving, "the subject kept changing while it was snapshotted"}
 		if err := h.Ledger.Park(ctx, v); err != nil {
 			return Report{}, err
 		}
@@ -225,6 +225,9 @@ func (h *Harness) runCriteria(ctx context.Context, f Facts, snap string, tree Tr
 		return fmt.Errorf("finish: the verification unit could not be made: %w", err)
 	}
 	defer end()
+	if ids := programIDs(f, todo, h.Specs); sb.RequireNetDeny && len(ids) > 0 && !sb.NetEnforceable() {
+		return h.Ledger.Park(ctx, Verdict{Park, ReasonEnforcementRequired, "a network deny was required and this platform cannot enforce one: " + strings.Join(ids, ", ")})
+	}
 	for _, c := range todo {
 		s := h.Specs[criterionIndex(f, c)]
 		m := Measured{Result: ResError}
@@ -237,7 +240,7 @@ func (h *Harness) runCriteria(ctx context.Context, f Facts, snap string, tree Tr
 		}
 		ev := Evidence{Generation: f.Generation, CharterHash: f.Charter.Hash, Round: f.Round.N, FreezeSeq: f.Round.FreezeSeq, Digest: f.Round.Digest,
 			CriterionID: c.ID, CriterionHash: c.Hash, Result: m.Result, Verifier: f.Charter.Verifier,
-			StdoutDigest: m.StdoutDigest, StderrDigest: m.StderrDigest, ExitCode: m.ExitCode, Net: NetDeclared, Detail: m.Detail,
+			StdoutDigest: m.StdoutDigest, StderrDigest: m.StderrDigest, ExitCode: m.ExitCode, Net: netOf(m), Detail: m.Detail,
 			StdoutExcerpt: m.Stdout, StderrExcerpt: m.Stderr, RunsSubjectCode: m.RunsSubjectCode, Tainted: m.Tainted}
 		if err := h.Ledger.RecordEvidence(ctx, ev); err != nil {
 			return err
@@ -343,4 +346,23 @@ func (h *Harness) ReleaseSnapshots(gen, keepFrom int64) {
 			RemoveTree(filepath.Join(h.Area, d.Name()))
 		}
 	}
+}
+
+// netOf is the network statement of a result: what the sandbox did, or the declaration for a criterion that ran nothing.
+func netOf(m Measured) string {
+	if m.Net != "" {
+		return m.Net
+	}
+	return NetDeclared
+}
+
+// programIDs are the ids of the criteria in todo that run a program (command and output kinds).
+func programIDs(f Facts, todo []Criterion, specs []Spec) []string {
+	var ids []string
+	for _, c := range todo {
+		if k := specs[criterionIndex(f, c)].Kind; k == "command" || k == "output" {
+			ids = append(ids, c.ID)
+		}
+	}
+	return ids
 }

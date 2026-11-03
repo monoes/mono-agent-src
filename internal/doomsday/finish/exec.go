@@ -25,8 +25,11 @@ import (
 // inherited variable. The working directory is a fresh sealed copy of the snapshot. The process is born inside the run's
 // containment unit (Place) and is killed with its process group on a limit; with no Place the criterion is not run at all.
 //
-// Enforced: the wall-clock deadline, the output cap, the containment placement, the post-run taint check. Declared only
-// (Net is recorded as such): network denial, a scratch byte cap, process and memory limits.
+// Enforced: the wall-clock deadline, the output cap, the containment placement, the post-run taint check, the process
+// limits (limits.go: CPU, address space, open files, one file's size, process count), the scratch byte cap (a poll while
+// the program runs and a check after it) and, where the kernel allows an unprivileged user namespace, the network denial
+// (net_linux.go: a new empty network namespace). Where it does not, Net says "declared-only" and a finish that requires
+// the denial parks (Harness.runCriteria).
 
 // Defaults of a criterion's limits.
 const (
@@ -35,8 +38,11 @@ const (
 	excerptBytes   = 1024
 	// SystemPath is the only PATH a criterion sees; argv[0] is resolved on it by the harness.
 	SystemPath = "/usr/local/bin:/usr/bin:/bin"
-	// NetDeclared is what every result says about the network: nothing here can deny it.
+	// NetDeclared is what a result says about the network where nothing could deny it; NetEnforced where a new network
+	// namespace did.
 	NetDeclared = "denied(declared-only)"
+	NetEnforced = "denied(enforced)"
+	scratchPoll = 100 * time.Millisecond
 )
 
 // Results of a machine criterion, the closed list of note 13.6 section 8.
@@ -47,6 +53,8 @@ const (
 	ResTimeout  = "timeout"
 	ResOversize = "oversize"
 	ResTainted  = "tainted"
+	// resScratch is internal: the scratch cap was passed while the program ran; the recorded result is "error".
+	resScratch = "scratch-cap"
 )
 
 // Measured is what one criterion measured, before the ledger binds it to a round.
@@ -57,6 +65,7 @@ type Measured struct {
 	StderrDigest    string
 	Stdout, Stderr  string // bounded excerpts, for the person
 	Detail          string
+	Net             string // NetEnforced or NetDeclared for a program that was run; empty for a file criterion
 	RunsSubjectCode bool
 	Tainted         []string
 }
@@ -74,6 +83,21 @@ type Sandbox struct {
 	After func(time.Duration) <-chan time.Time
 	// Path overrides SystemPath (tests).
 	Path string
+	// Limits are the process limits and the scratch cap; a zero field takes its default (limits.go).
+	Limits Limits
+	// RequireNetDeny makes the harness park (enforcement-required) where the network cannot be denied; without it the
+	// denial is applied where possible and declared only where not.
+	RequireNetDeny bool
+	// NetDenyAvailable overrides the platform probe (tests); nil is the probe.
+	NetDenyAvailable func() bool
+}
+
+// NetEnforceable says whether this sandbox can start a criterion without a network.
+func (s Sandbox) NetEnforceable() bool {
+	if s.NetDenyAvailable != nil {
+		return s.NetDenyAvailable()
+	}
+	return netDenyAvailable()
 }
 
 func (s Sandbox) after(d time.Duration) <-chan time.Time {
@@ -184,10 +208,21 @@ func (s Sandbox) exec(ctx context.Context, work, dir, bin string, p Plan) Measur
 	over := make(chan struct{})
 	var once sync.Once
 	so, se := &capWriter{limit: limit, over: over, once: &once}, &capWriter{limit: limit, over: over, once: &once}
-	cmd := exec.Command(bin, p.Argv[1:]...)
+	lim := s.Limits.withDefaults(timeout)
+	path, argv, ok := limitsArgv(lim, bin, p.Argv[1:])
+	if !ok {
+		return fail(ResError, "the process limits cannot be applied on this platform, so the program was not started")
+	}
+	cmd := exec.Command(path)
+	cmd.Args = argv
 	cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = dir, s.env(work), so, se
 	cmd.WaitDelay = 2 * time.Second
 	setGroup(cmd)
+	net := NetDeclared
+	if s.NetEnforceable() {
+		denyNet(cmd)
+		net = NetEnforced
+	}
 	release, err := s.Place(cmd)
 	if err != nil {
 		return fail(ResError, "the criterion cannot be placed in the containment unit, so it was not started: %v", err)
@@ -200,21 +235,35 @@ func (s Sandbox) exec(ctx context.Context, work, dir, bin string, p Plan) Measur
 	go func() { done <- cmd.Wait() }()
 	res := ""
 	var werr error
-	select {
-	case werr = <-done:
-	case <-s.after(timeout):
-		res = ResTimeout
-	case <-over:
-		res = ResOversize
-	case <-ctx.Done():
-		res = ResError
+	scratch := filepath.Join(work, "scratch")
+	tick := time.NewTicker(scratchPoll)
+	defer tick.Stop()
+	timeUp := s.after(timeout)
+wait:
+	for {
+		select {
+		case werr = <-done:
+			break wait
+		case <-timeUp:
+			res = ResTimeout
+		case <-over:
+			res = ResOversize
+		case <-ctx.Done():
+			res = ResError
+		case <-tick.C:
+			if _, big := scratchBytes(scratch, lim.ScratchBytes); !big {
+				continue
+			}
+			res = resScratch
+		}
+		break
 	}
 	if res != "" {
 		killGroup(cmd) // the program is not reaped yet, so its group id is still ours
 		werr = <-done
 	}
 	// Nothing is signalled after a reap: a group id may be reused. What a program leaves behind is the unit's to end.
-	o := Measured{StdoutDigest: so.sum(), StderrDigest: se.sum(), Stdout: so.excerpt(), Stderr: se.excerpt()}
+	o := Measured{StdoutDigest: so.sum(), StderrDigest: se.sum(), Stdout: so.excerpt(), Stderr: se.excerpt(), Net: net}
 	if cmd.ProcessState != nil {
 		o.ExitCode = cmd.ProcessState.ExitCode()
 	}
@@ -225,8 +274,15 @@ func (s Sandbox) exec(ctx context.Context, work, dir, bin string, p Plan) Measur
 		o.Result, o.Detail = ResOversize, fmt.Sprintf("output beyond %d bytes; the program was killed", limit)
 	case res == ResError:
 		o.Result, o.Detail = ResError, "cancelled: "+ctx.Err().Error()
+	case res == resScratch:
+		o.Result, o.Detail = ResError, fmt.Sprintf("the scratch area grew beyond %d bytes; the program was killed", lim.ScratchBytes)
+	case o.ExitCode == limitsFailExit && strings.HasPrefix(o.Stderr, limitsFailPrefix):
+		o.Result, o.Detail = ResError, "the process limits could not be set, so the program did not run: "+strings.TrimSpace(strings.TrimPrefix(o.Stderr, limitsFailPrefix))
 	default:
 		o.Result, o.Detail = judge(p, o, so.buf.Bytes(), werr)
+		if _, big := scratchBytes(scratch, lim.ScratchBytes); big {
+			o.Result, o.Detail = ResError, fmt.Sprintf("the scratch area ended beyond %d bytes", lim.ScratchBytes)
+		}
 	}
 	return o
 }
