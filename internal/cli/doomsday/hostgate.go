@@ -58,8 +58,8 @@ type HostGate struct {
 	lockHeld bool
 	gates    map[int64]*stop.Gate
 	merges   map[int64]*dynorg.DoomsdayMerge
-	hooked   bool            // the launcher asks BeforeRelease: a turn's ticket is taken there, not around Start
-	released map[string]bool // turn ids that already hold their ticket
+	hooked   bool                    // the launcher asks BeforeRelease: a turn's ticket is taken there, not around Start
+	released map[string]*releaseCall // turn ids that hold, or are taking, their ticket
 }
 
 // hostStore is what the gate needs of the store: the run listing and the chained writes.

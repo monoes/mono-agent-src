@@ -21,6 +21,13 @@ type Hooks struct {
 
 const maxReleased = 4096
 
+// releaseCall is the one decision for a turn id: the first call takes the ticket and publishes its outcome on done; a
+// concurrent repeat waits for that outcome and returns it, so it can never be allowed ahead of a first call that still fails.
+type releaseCall struct {
+	done chan struct{}
+	err  error
+}
+
 func refuse(format string, a ...any) error {
 	return fmt.Errorf("%w: "+format, append([]any{coderhost.ErrDispatchRefused}, a...)...)
 }
@@ -76,34 +83,40 @@ func (g *HostGate) BeforeRelease(ctx context.Context, _, _, turnID string, bound
 		g.mu.Unlock()
 		return err
 	}
-	if g.released[turnID] {
+	if c := g.released[turnID]; c != nil {
 		g.mu.Unlock()
-		return nil
+		select {
+		case <-c.done:
+			return c.err
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
+	call := &releaseCall{done: make(chan struct{})}
+	if g.released == nil || len(g.released) >= maxReleased {
+		g.released = map[string]*releaseCall{} // a call in flight keeps its outcome: its repeaters hold the pointer
+	}
+	g.released[turnID] = call
 	t, err := gate.Admit(stop.Spec{Kind: stop.KindE1, Op: string(coderhost.PointTurnStart)})
 	if err == nil {
 		err = gate.BeginStart(t)
 	}
-	if err == nil {
-		if g.released == nil || len(g.released) >= maxReleased {
-			g.released = map[string]bool{}
-		}
-		g.released[turnID] = true // a repeat for this turn consumes nothing, even while Started is still being written
-	}
 	g.mu.Unlock()
 	if err == nil {
 		err = gate.Started(t, "turn:"+turnID)
-		if err != nil {
-			g.mu.Lock()
-			delete(g.released, turnID)
-			g.mu.Unlock()
-		}
 	}
 	if err != nil {
 		if t != nil { // Admit refused: there is no ticket to abort
 			gate.Abort(t)
 		}
-		return refuse("%v", err)
+		err = refuse("%v", err)
+		g.mu.Lock()
+		if g.released[turnID] == call {
+			delete(g.released, turnID) // a refused turn holds nothing: a later attempt is a fresh decision
+		}
+		g.mu.Unlock()
 	}
-	return nil
+	call.err = err
+	close(call.done)
+	return err
 }

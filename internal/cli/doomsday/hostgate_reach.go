@@ -30,6 +30,11 @@ func (g *HostGate) reachLocked(gate *stop.Gate, r store.Run, clk stop.Clock) err
 		g.lockHeld = true
 	}
 	gen := uint64(r.Generation)
+	// An acknowledgement left by an earlier host incarnation of this generation is not this one's answer: clear it before
+	// anything can reach this gate, so a Stop only ever reads an ack this incarnation wrote.
+	if err := g.RunDir.RemoveAck(gen); err != nil {
+		return fmt.Errorf("a stale acknowledgement of generation %d cannot be cleared: %w", gen, err)
+	}
 	w := stop.NewHostWatcher(&stop.HostWatcher{Gate: gate, Dir: g.RunDir, Gen: gen, CharterID: r.CharterID, Clock: clk, Tick: g.Tick,
 		Stops: func(ctx context.Context) bool { return g.runStopped(ctx, r.Generation) }, Exit: g.exit})
 	srv := &stop.EmergencyServer{Dir: g.RunDir, Gen: gen, UID: uint32(os.Getuid()), OnStop: func(uint64) { w.Kick() }}

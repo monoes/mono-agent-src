@@ -293,6 +293,10 @@ func TestAckMACCoversEveryFieldAndTheGeneration(t *testing.T) {
 		}
 	}
 	// generation 5's valid ack copied to generation 6's name is refused by the generation check, not only by the MAC
+	sec5, _ := dir.ReadSecret(5)
+	if err := os.WriteFile(dir.SecretPath(6), sec5, 0o600); err != nil { // same key: only the generation check can refuse
+		t.Fatal(err)
+	}
 	good, _ := json.Marshal(a)
 	if err := os.WriteFile(dir.AckPath(6), good, 0o600); err != nil {
 		t.Fatal(err)
@@ -430,16 +434,27 @@ func TestASlowRegistryWriteOfStartedIsNotAHungStarter(t *testing.T) {
 // The enforcer goroutine ends with the watcher: after the gate closed no EnforceHung goroutine is left. Mutant tried: the
 // goroutine bound to the caller's context only: red (it lives on).
 func TestEnforcerStopsWhenTheGateCloses(t *testing.T) {
-	h, cancel := newHostRun(t)
-	defer cancel()
-	h.w.Exit = func([]uint64) {}
-	if err := SendEmergency(h.dir, 5); err != nil {
+	dir := RunDir{Dir: t.TempDir()}
+	clk := newFakeClock()
+	g := NewGate(GateConfig{Generation: 5, Reg: &fakeRegistry{}, Clock: clk, TClose: 10 * time.Second, THung: 30 * time.Second})
+	w := NewHostWatcher(&HostWatcher{Gate: g, Dir: dir, Gen: 5, CharterID: "ch", Clock: clk, Tick: time.Second, Exit: func([]uint64) {}})
+	end := make(chan struct{})
+	go func() { w.Run(context.Background()); close(end) }()
+	if _, err := dir.WriteMarker(5, "ch", "operator"); err != nil {
 		t.Fatal(err)
 	}
-	h.advanceUntil(t, func() bool { return h.gate.Sealed() })
+	for i := 0; i < 2000; i++ {
+		select {
+		case <-end:
+			i = 2000
+		default:
+			clk.Advance(time.Second)
+			time.Sleep(time.Millisecond)
+		}
+	}
 	select {
-	case <-h.end:
-	case <-time.After(5 * time.Second):
+	case <-end:
+	default:
 		t.Fatal("the watcher did not return")
 	}
 	for i := 0; i < 2000; i++ {
@@ -448,7 +463,7 @@ func TestEnforcerStopsWhenTheGateCloses(t *testing.T) {
 		if !strings.Contains(string(buf[:n]), "stop.EnforceHung") && !strings.Contains(string(buf[:n]), "(*HostWatcher).Run.func1") {
 			return
 		}
-		h.clk.Advance(time.Second)
+		clk.Advance(time.Second)
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatal("the enforcer goroutine outlived the gate")

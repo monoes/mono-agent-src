@@ -297,3 +297,102 @@ func TestBeforeReleaseDoesNotHoldTheGateLockAcrossTheAuditWrite(t *testing.T) {
 		t.Fatalf("the slow turn: %v", err)
 	}
 }
+
+// gatedAudit makes the audit append of a started ticket wait (when hold is set) and then fail (while fail is set).
+type gatedAudit struct {
+	hostStore
+	entered chan struct{}
+	hold    chan struct{}
+	fail    atomic.Bool
+	once    atomic.Bool
+}
+
+func (s *gatedAudit) AppendAudit(ctx context.Context, profile string, gen int64, kind, payload string) (store.AuditRow, error) {
+	if kind == "ticket.started" {
+		if s.hold != nil && s.once.CompareAndSwap(false, true) {
+			close(s.entered)
+			<-s.hold
+		}
+		if s.fail.Load() {
+			return store.AuditRow{}, errors.New("audit write failed")
+		}
+	}
+	return s.hostStore.AppendAudit(ctx, profile, gen, kind, payload)
+}
+
+// A repeat of a turn id that is still taking its ticket waits for that call and gets its outcome: it is never allowed ahead
+// of a first call that still fails. Mutant tried: the old rule (the id marked held before Started returns, a repeat returns
+// nil at once): red, the repeat returns nil while the first fails.
+func TestConcurrentDuplicateReleaseSharesTheFirstOutcome(t *testing.T) {
+	r := newHookRig(t, on())
+	r.start(t)
+	slow := &gatedAudit{hostStore: r.gate.Store, entered: make(chan struct{}), hold: make(chan struct{})}
+	slow.fail.Store(true)
+	r.gate.Store = slow
+	first := make(chan error, 1)
+	go func() { first <- r.gate.BeforeRelease(context.Background(), "p1", "conv", "dup-1", true) }()
+	<-slow.entered
+	second := make(chan error, 1)
+	go func() { second <- r.gate.BeforeRelease(context.Background(), "p1", "conv", "dup-1", true) }()
+	select {
+	case err := <-second:
+		t.Fatalf("the repeat returned (%v) while the first call was still taking its ticket", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	close(slow.hold)
+	e1, e2 := <-first, <-second
+	if !refused(e1) || !refused(e2) {
+		t.Fatalf("first = %v, repeat = %v: both must be the refusal", e1, e2)
+	}
+}
+
+// A refused turn holds nothing: the same turn id asked again is a fresh decision. Mutant tried: no delete of the held entry
+// after a failed Started: red (the retry gets the old refusal). The failed ticket is recorded unknown, never left as a
+// starter (the Close outcome has no starter), which is what gate.Abort in the failure path guarantees.
+func TestRefusedReleaseHoldsNothingAndLeavesNoStarter(t *testing.T) {
+	r := newHookRig(t, on())
+	r.start(t)
+	bad := &gatedAudit{hostStore: r.gate.Store}
+	bad.fail.Store(true)
+	r.gate.Store = bad
+	if err := r.gate.BeforeRelease(context.Background(), "p1", "conv", "again", true); !refused(err) {
+		t.Fatalf("a failed audit write released the turn: %v", err)
+	}
+	gate, err := r.gate.current(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o := gate.Outcome(); len(o.Starters) != 0 {
+		t.Fatalf("a refused turn left a starter: %+v", o)
+	}
+	bad.fail.Store(false)
+	if err := r.gate.BeforeRelease(context.Background(), "p1", "conv", "again", true); err != nil {
+		t.Fatalf("the retry of a refused turn: %v", err)
+	}
+	if n := r.tickets(t); n != 1 {
+		t.Fatalf("%d ticket(s) after the retry, want 1", n)
+	}
+}
+
+// A late Started (the gate closed while the registry write was slow) refuses the turn and records the ticket aborted.
+func TestReleaseOfATicketThatTurnsLateIsRefused(t *testing.T) {
+	r := newHookRig(t, on())
+	r.start(t)
+	slow := &gatedAudit{hostStore: r.gate.Store, entered: make(chan struct{}), hold: make(chan struct{})}
+	r.gate.Store = slow
+	first := make(chan error, 1)
+	go func() { first <- r.gate.BeforeRelease(context.Background(), "p1", "conv", "late-2", true) }()
+	<-slow.entered
+	gate, err := r.gate.current(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate.Seal()
+	close(slow.hold)
+	if err := <-first; !refused(err) {
+		t.Fatalf("a ticket that turned late released its turn: %v", err)
+	}
+	if n := count(t, r.db, `SELECT COUNT(*) FROM doomsday_audit WHERE kind = 'ticket.aborted'`); n != 1 {
+		t.Fatalf("%d aborted record(s), want 1", n)
+	}
+}

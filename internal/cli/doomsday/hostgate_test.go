@@ -3,10 +3,13 @@ package doomsday
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/coderhost"
+	"github.com/monoes/mono-agent/internal/doomsday/stop"
 	"github.com/monoes/mono-agent/internal/doomsday/store"
 	"github.com/monoes/mono-agent/internal/storage"
 )
@@ -160,5 +163,39 @@ func TestHostGateRefusalNamesTheStop(t *testing.T) {
 	}
 	if err := r.startTurn(); err == nil || !strings.Contains(err.Error(), "stopping") {
 		t.Fatalf("refusal does not say the run is stopping: %v", err)
+	}
+}
+
+// A new host incarnation of a generation clears an acknowledgement it finds: nothing an earlier incarnation (or anyone) left
+// is read as this host's answer. Mutant tried: reachLocked without RemoveAck: red.
+func TestANewHostIncarnationClearsAnExistingAck(t *testing.T) {
+	r := newHostRig(t)
+	r.start(t)
+	if err := r.w.RunDir.WriteAck(stop.HostAck{Generation: 1, Kind: int(stop.Barrier)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := r.w.RunDir.ReadAck(1); !ok {
+		t.Fatal("setup: the ack must read before the host exists")
+	}
+	if err := r.startTurn(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := r.w.RunDir.ReadAck(1); ok {
+		t.Fatal("a stale ack of the generation survived the new host incarnation")
+	}
+}
+
+// A gate whose emergency channel cannot be bound refuses the dispatch (a Stop would read the missing socket as "no host").
+// Mutant tried: reachLocked ignoring the bind error: red.
+func TestAnEmergencySocketThatCannotBeBoundRefusesDispatch(t *testing.T) {
+	r := newHostRig(t)
+	r.start(t)
+	sock := r.w.RunDir.SockPath(1)
+	_ = os.Remove(sock)
+	if err := os.MkdirAll(filepath.Join(sock, "x"), 0o700); err != nil { // a socket path that cannot be replaced
+		t.Fatal(err)
+	}
+	if err := r.startTurn(); !refused(err) || !strings.Contains(err.Error(), "emergency channel") || r.l.starts != 0 {
+		t.Fatalf("a turn started with no emergency channel: %v", err)
 	}
 }

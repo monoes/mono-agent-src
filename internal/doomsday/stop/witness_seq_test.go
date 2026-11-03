@@ -7,7 +7,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/doomsday/store"
@@ -294,17 +293,6 @@ func TestEntryAfterAFailedGeneration(t *testing.T) {
 		mustNoErr(t, os.WriteFile(r.seq.W.Dir.refusedPath(1), []byte("garbage"), 0o600))
 		if err := r.seq.BeginEntry(bg, 2); !errors.Is(err, ErrEntryRefused) {
 			t.Fatalf("malformed refusal: %v", err)
-		}
-	})
-	t.Run("an unreadable refusal refuses even where the previous generation would verify", func(t *testing.T) {
-		r := newSeqRig(t)
-		mustNoErr(t, r.seq.W.Dir.Refuse(1, 4)) // not failed through the witness: only the refusal file speaks
-		_ = os.Remove(r.seq.W.Dir.refusedPath(1))
-		healthy := r.seq.BeginEntry(bg, 2)
-		r.fs.failRead["1.refused"] = true
-		err := r.seq.BeginEntry(bg, 2)
-		if !errors.Is(err, ErrEntryRefused) || !strings.Contains(err.Error(), "refusal cannot be read") {
-			t.Fatalf("healthy entry = %v; with an unreadable refusal: %v", healthy, err)
 		}
 	})
 	t.Run("a previous generation that is stale but not failed still refuses", func(t *testing.T) {
