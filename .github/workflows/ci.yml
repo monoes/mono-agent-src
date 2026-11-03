@@ -36,6 +36,8 @@ permissions:
 # state between runs). An unset or empty CI_RUNNER falls back to ubuntu-latest.
 # KILL SWITCH: delete the CI_RUNNER variable (or set it to "ubuntu-latest",
 # quotes included) and every job, push runs included, runs on hosted runners again.
+# "Changed paths" routes the same way, so neither pull requests nor master pushes wait on a hosted slot for it. "Doctor smoke
+# test" (a clean-machine proof; also the required check name) and "Release guard test" (needs `zip`) stay hosted.
 # Everything else (apt, Chrome, macOS/Windows) stays on its hosted OS.
 # Persistent runners keep their Go module cache, so setup-go in these jobs sets
 # `cache: ${{ runner.environment == 'github-hosted' }}` (restoring the archive
@@ -67,7 +69,7 @@ jobs:
   # as changed. If the diff cannot be computed the result is also "everything".
   changes:
     name: Changed paths
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON((((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'push') && vars.CI_RUNNER) || '"ubuntu-latest"') }}
     timeout-minutes: 5
     outputs:
       go: ${{ steps.c.outputs.go }}
@@ -168,6 +170,8 @@ jobs:
   # breaks what the GUI's System health section parses fails CI. doctor and
   # setup need a monoes.me sign-in, so the build has the devaccount tag: the
   # script runs the checks in the warn period and asserts the refusal after it.
+  # Stays on a hosted runner on purpose: it proves doctor/setup on a CLEAN machine (a fresh VM with no toolchain, keychain or
+  # leftovers), which a persistent self-hosted runner is not. Its job name is the required master-ruleset check: keep it.
   doctor-smoke:
     name: Doctor smoke test
     runs-on: ubuntu-latest
@@ -284,6 +288,8 @@ jobs:
   # The release guard (scripts/check-release-tags.sh) keeps the devaccount tag out of releases: this
   # builds a tiny program with and without the tag, loose and inside a tarball and a zip, and checks
   # that the guard passes and fails as it should (spec D11, D24).
+  # Stays on a hosted runner: its scripts need `zip` (check-release-tags-test.sh builds a .zip like the macOS app's), which our
+  # self-hosted runners do not have (the first run there failed with `zip: command not found`).
   release-guard-test:
     name: Release guard test
     runs-on: ubuntu-latest
