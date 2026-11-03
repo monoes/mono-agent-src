@@ -125,6 +125,13 @@ func TestRealSelfTest(t *testing.T) {
 	}
 }
 
+func TestRealProbePassesOnAMachineWithADelegatedUserManager(t *testing.T) {
+	realEnv(t)
+	if err := Probe(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRealUnitCreateBornInTicketCgroupAndStop(t *testing.T) {
 	realEnv(t)
 	k := LinuxKernel{}

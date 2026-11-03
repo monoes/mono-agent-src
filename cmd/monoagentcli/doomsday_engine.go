@@ -62,6 +62,7 @@ func doomsdayWiring(cfg *globalConfig, db *sql.DB) doomsdaycli.Wiring {
 		RunDir:  stop.RunDir{Dir: runDir},
 		Probe:   stop.Probe,
 		Kernel:  doomsdayKernel(),
+		Host:    stop.SystemHost(),
 		Tokens:  doomsdaycli.CoderTokens{DB: db, Profile: cfg.ProfileID, Host: coderhost.NewStore(db)},
 		DB:      db,
 	}

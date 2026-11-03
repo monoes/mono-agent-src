@@ -26,7 +26,13 @@ type StoreEngine struct {
 	// BeforeStart runs before a charter is entered: it revisits what a dead host left (merge members, note 13.3).
 	// An error refuses the start.
 	BeforeStart func(ctx context.Context) error
+	// CreateUnit makes the run's containment unit and records it durably, after the charter is validated and
+	// before the store records the run: no unit, no run (note 13.2 section 4). The discard it returns stops the
+	// unit again if the store then refuses the entry. Nil refuses the start: there is no mode without containment.
+	CreateUnit func(ctx context.Context, generation int64) (discard func(context.Context) error, err error)
 }
+
+var errNoUnit = errors.New("no containment unit creator is wired, so the run's processes could not be contained")
 
 var errNoProbe = errors.New("no containment probe is wired, so containment cannot be shown to be available")
 
@@ -70,8 +76,18 @@ func (e *StoreEngine) Enter(ctx context.Context, canon Canon, expectedHash strin
 			return Entry{}, fmt.Errorf("a begun merge of an earlier run could not be revisited, so nothing was started: %w", err)
 		}
 	}
+	if e.CreateUnit == nil {
+		return Entry{}, errNoUnit
+	}
+	discard, err := e.CreateUnit(ctx, sc.Generation)
+	if err != nil {
+		return Entry{}, fmt.Errorf("the containment unit could not be created, so nothing was started: %w", err)
+	}
 	run, err := e.Store.Enter(ctx, sc, confirmed, "ack:"+ack.Kind)
 	if err != nil {
+		if derr := discard(ctx); derr != nil {
+			err = fmt.Errorf("%w (and the unit created for it could not be removed: %v)", err, derr)
+		}
 		return Entry{}, err
 	}
 	// The audit row is the stream's own record that a script, not a person, may have supplied the lift.

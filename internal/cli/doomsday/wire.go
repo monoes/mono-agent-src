@@ -22,6 +22,9 @@ type Wiring struct {
 	// Kernel is the platform's cgroup seam (stop.LinuxKernel); nil means no unit can be proven, so Stop reports
 	// the unit as not proven rather than claiming it is gone.
 	Kernel stop.Kernel
+	// Host is the service manager that starts and stops the run unit (stop.SystemHost in production). Without
+	// it, or without a Kernel, no run can start and Stop cannot end a unit's service.
+	Host   stop.UnitHost
 	Tokens interface {
 		RevokeTokens(ctx context.Context, gen uint64) error
 		CancelQueue(ctx context.Context, gen uint64) error
@@ -46,6 +49,7 @@ func (w Wiring) Engine() *StoreEngine {
 		ContainmentProbe: w.Probe,
 		StopFn:           w.stop,
 		BeforeStart:      w.recoverMerges,
+		CreateUnit:       w.createUnit,
 		AfterEnter:       func(_ context.Context, gen int64) error { return w.RunDir.CreateSecret(uint64(gen)) },
 	}
 }
@@ -54,7 +58,21 @@ func (w Wiring) ender() stop.Ender {
 	if w.Kernel == nil {
 		return notProvenEnder{}
 	}
-	return stop.UnitEnder{K: w.Kernel, Dir: w.RunDir}
+	u := stop.UnitEnder{K: w.Kernel, Dir: w.RunDir}
+	if w.Host != nil {
+		u.StopUnit = w.Host.StopUnit
+	}
+	return u
+}
+
+// createUnit is StoreEngine.CreateUnit: the unit is created, proven and recorded before the run exists.
+func (w Wiring) createUnit(ctx context.Context, gen int64) (func(context.Context) error, error) {
+	c := stop.UnitCreator{K: w.Kernel, Dir: w.RunDir, Host: w.Host}
+	rec, err := c.Create(ctx, uint64(gen))
+	if err != nil {
+		return nil, err
+	}
+	return func(ctx context.Context) error { return c.Discard(ctx, rec) }, nil
 }
 
 func (w Wiring) clock() stop.Clock {
