@@ -36,7 +36,9 @@ func repoTop(iso *isolation) string {
 // repoFingerprint hashes what the operator would call the state of the repository's tree: the status with
 // untracked files and the list of changed paths. It reads with optional locks off, so it never takes
 // index.lock. An error gives an empty fingerprint, which matches nothing.
-func repoFingerprint(ctx context.Context, dir string) string { return fingerprintWith(ctx, gitRun, dir) }
+func repoFingerprint(ctx context.Context, dir string) string {
+	return fingerprintWith(ctx, gitRun, dir)
+}
 
 func fingerprintWith(ctx context.Context, git gitFn, dir string) string {
 	st, err := git(ctx, dir, "--no-optional-locks", "status", "--porcelain=v1", "-z", "--untracked-files=all")

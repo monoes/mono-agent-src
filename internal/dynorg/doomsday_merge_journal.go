@@ -143,16 +143,16 @@ func (j SQLMergeJournal) generations(ctx context.Context, profile string) ([]int
 
 // opView is one operation folded from its rows.
 type opView struct {
-	rec       mergeRec // begin row: op, repo, branch, worker
-	Gen       int64
-	BeginSeq  int64
-	Step      int // highest step row
-	Pin       *mergeRec
-	Ended     bool
-	End       mergeRec
-	Cleared   bool
-	Unproven  bool // the last row is merge.unproven
-	LastSeq   int64
+	rec      mergeRec // begin row: op, repo, branch, worker
+	Gen      int64
+	BeginSeq int64
+	Step     int // highest step row
+	Pin      *mergeRec
+	Ended    bool
+	End      mergeRec
+	Cleared  bool
+	Unproven bool // the last row is merge.unproven
+	LastSeq  int64
 }
 
 // foldJournal folds rows into operations, keyed by op id, in begin order.

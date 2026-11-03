@@ -23,6 +23,9 @@ type StoreEngine struct {
 	// AfterEnter runs once the run is recorded (the stop package's per-run secret). A failure is reported with
 	// the run id: the run exists and `doomsday stop` still stops it (its marker is then unsigned).
 	AfterEnter func(ctx context.Context, generation int64) error
+	// BeforeStart runs before a charter is entered: it revisits what a dead host left (merge members, note 13.3).
+	// An error refuses the start.
+	BeforeStart func(ctx context.Context) error
 }
 
 var errNoProbe = errors.New("no containment probe is wired, so containment cannot be shown to be available")
@@ -62,6 +65,11 @@ func (e *StoreEngine) Enter(ctx context.Context, canon Canon, expectedHash strin
 	}
 	var confirmed [32]byte
 	copy(confirmed[:], raw)
+	if e.BeforeStart != nil {
+		if err := e.BeforeStart(ctx); err != nil {
+			return Entry{}, fmt.Errorf("a begun merge of an earlier run could not be revisited, so nothing was started: %w", err)
+		}
+	}
 	run, err := e.Store.Enter(ctx, sc, confirmed, "ack:"+ack.Kind)
 	if err != nil {
 		return Entry{}, err

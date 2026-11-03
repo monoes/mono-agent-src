@@ -18,15 +18,15 @@ type fkCg struct {
 	signals   int
 }
 
-func (c *fkCg) Identity() (stop.CgroupIdentity, error)  { return c.id, nil }
-func (c *fkCg) Subgroups() ([]string, error)            { return nil, nil }
-func (c *fkCg) Procs(string) ([]int, error)             { return nil, nil }
+func (c *fkCg) Identity() (stop.CgroupIdentity, error)       { return c.id, nil }
+func (c *fkCg) Subgroups() ([]string, error)                 { return nil, nil }
+func (c *fkCg) Procs(string) ([]int, error)                  { return nil, nil }
 func (c *fkCg) ProcInfo(string, int) (string, string, error) { return "", "", errors.New("n/a") }
-func (c *fkCg) Signal(string, int, syscall.Signal) error { c.signals++; return nil }
-func (c *fkCg) Kill(string) error                       { c.signals++; return nil }
-func (c *fkCg) Populated(string) (bool, error)          { return c.populated, nil }
-func (c *fkCg) Rmdir(string) error                      { c.signals++; return nil }
-func (c *fkCg) Close() error                            { return nil }
+func (c *fkCg) Signal(string, int, syscall.Signal) error     { c.signals++; return nil }
+func (c *fkCg) Kill(string) error                            { c.signals++; return nil }
+func (c *fkCg) Populated(string) (bool, error)               { return c.populated, nil }
+func (c *fkCg) Rmdir(string) error                           { c.signals++; return nil }
+func (c *fkCg) Close() error                                 { return nil }
 
 type fkKernel struct {
 	boot, root, self string

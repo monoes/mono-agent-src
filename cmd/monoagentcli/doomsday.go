@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/spf13/cobra"
 
+	chatcli "github.com/monoes/mono-agent/internal/cli/chat"
 	doomsdaycli "github.com/monoes/mono-agent/internal/cli/doomsday"
 	"github.com/monoes/mono-agent/internal/operator"
 )
@@ -12,6 +13,10 @@ import (
 // refuses to start anything. Nothing reads a setting or an environment
 // variable to turn the mode on; wiring an engine is a code change.
 var doomsdayEngine func(*globalConfig) doomsdaycli.Engine
+
+// doomsdayChat is set by the same build: it hands the chat commands the resolver of the open run's merge gate
+// (chatcli.Deps.DoomsdayMerge) and installs the worktree reconcile guard. Nil leaves merges and reconcile as they were.
+var doomsdayChat func(cfg *globalConfig, d *chatcli.Deps)
 
 func newDoomsdayCmd(cfg *globalConfig) *cobra.Command {
 	// The gate is the same requireOperator every operator-only verb uses, handed

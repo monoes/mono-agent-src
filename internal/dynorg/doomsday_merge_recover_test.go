@@ -18,7 +18,7 @@ type scene struct {
 	repo, branch, op      string
 	before, tip, fp       string
 	gone, recorded        bool
-	failAbort             bool
+	failAbort, noopAbort  bool
 	calls                 []string
 	recordedAsked, gaveUp int
 }
@@ -59,6 +59,9 @@ func (s *scene) git(ctx context.Context, dir string, args ...string) (string, er
 	}
 	if s.failAbort && len(args) >= 2 && args[0] == "merge" && args[1] == "--abort" {
 		return "", errors.New("abort failed")
+	}
+	if s.noopAbort && len(args) >= 2 && args[0] == "merge" && args[1] == "--abort" {
+		return "", nil // git says it aborted; the repository is unchanged
 	}
 	return gitRun(ctx, dir, args...)
 }
@@ -195,6 +198,16 @@ func TestT9AFailedAbortLeavesTheRepositoryForTheOperator(t *testing.T) {
 	if !strings.Contains(s.view().End.Note, "merge --abort") {
 		t.Errorf("the note does not name the command: %q", s.view().End.Note)
 	}
+}
+
+// An abort that reports success but did not restore the pin is not believed: the result is read back.
+func TestT9AnAbortThatDidNotRestoreThePinIsNotBelieved(t *testing.T) {
+	k := killMergeInRepo(t, true)
+	s := newScene(t, k.repo, k.before, k.tip, k.fp)
+	s.noopAbort = true
+	s.seed(3, true)
+	s.recover()
+	s.want(StateIncomplete, RepairNeedsOperator)
 }
 
 // T10 (X4b, X4c): a tree changed with no merge state (real git: a clean merge killed before its commit), and a
