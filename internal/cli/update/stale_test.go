@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -1031,7 +1032,7 @@ func TestTheOldBinaryIsPutBackWhenTheDaemonDoesNotComeUpOnTheNewOne(t *testing.T
 	rr.fake.onRestart = func() { // the restart on the new binary brings nothing up; the one after the put-back does
 		calls++
 		if calls == 2 {
-			rr.hb.write(os.Getpid(), "v1.0.0")
+			rr.hb.write(os.Getpid()+1, "v1.0.0") // the rolled-back daemon is a new process
 		}
 	}
 	du, _ := rr.update(t)
@@ -1081,7 +1082,7 @@ func TestAFailedRollbackSaysWhatToDo(t *testing.T) {
 }
 
 // A restart that the service manager never answers does not hang the update: it ends at the bound, and the roll back is tried.
-func TestARestartThatNeverAnswersEndsAtTheBound(t *testing.T) {
+func TestARestartThatNeverAnswersEndsAtTheBoundAndKeepsThePreviousBinary(t *testing.T) {
 	old := restartBound
 	restartBound = 150 * time.Millisecond
 	defer func() { restartBound = old }()
@@ -1093,11 +1094,106 @@ func TestARestartThatNeverAnswersEndsAtTheBound(t *testing.T) {
 	if took := time.Since(start); took > 5*time.Second {
 		t.Fatalf("the update took %s", took)
 	}
-	if du == nil || du.Action != "failed" || du.Reason != "timed_out" {
+	if du == nil || du.Action != "failed" || du.Reason != "timed_out" || du.RolledBack {
 		t.Fatalf("du = %+v", du)
 	}
-	if b, _ := os.ReadFile(rr.exe); string(b) != oldAsset {
-		t.Fatal("the old binary was not put back after a restart that never answered")
+	// a restart that may still be in flight is not raced by a second one, and the new binary is not pulled from under it
+	if rr.fake.restarted != 1 {
+		t.Fatalf("restarted %d times, want only the one that timed out", rr.fake.restarted)
+	}
+	if b, _ := os.ReadFile(rr.exe); string(b) != newAsset {
+		t.Fatalf("the binary was rolled back under a restart that may still be running: %q", b)
+	}
+	if kept := leftovers(t, rr.staleRig); len(kept) != 1 || !strings.Contains(du.Message, "kept at") || !strings.Contains(du.Message, "mv -f") {
+		t.Fatalf("the previous binary must be kept for the operator: %v; message: %s", kept, du.Message)
+	}
+}
+
+// A daemon that has started its process but not yet written a heartbeat of the new version may be migrating: the old binary is
+// not put under it, it is kept.
+func TestADaemonThatIsStillStartingIsNotRolledBack(t *testing.T) {
+	rr := newRollbackRig(t)
+	calls := 0
+	rr.d.ServicePID = func(context.Context, autostart.Installer) (int, error) { // the daemon's pid before the restart, a new process after
+		calls++
+		if calls == 1 {
+			return os.Getpid(), nil
+		}
+		return os.Getpid() + 7, nil
+	}
+	du, _ := rr.update(t)
+	if du == nil || du.Action != "failed" || du.Reason != "still_starting" || du.RolledBack || rr.fake.restarted != 1 {
+		t.Fatalf("du = %+v, restarted %d", du, rr.fake.restarted)
+	}
+	if b, _ := os.ReadFile(rr.exe); string(b) != newAsset {
+		t.Fatalf("the binary was rolled back under a daemon that may be starting: %q", b)
+	}
+	if kept := leftovers(t, rr.staleRig); len(kept) != 1 || !strings.Contains(du.Message, "may still be starting") || !strings.Contains(du.Message, "mv -f") {
+		t.Fatalf("kept %v; message: %s", kept, du.Message)
+	}
+}
+
+// Only a daemon that was stopped and not started again, or whose process is gone, is rolled back; any other failure of the
+// service manager is not the binary's.
+func TestOnlyTheRightFailuresRollTheBinaryBack(t *testing.T) {
+	t.Run("stopped and not started again", func(t *testing.T) {
+		rr := newRollbackRig(t)
+		calls := 0
+		rr.fake.restartErr = &autostart.StoppedError{Err: errors.New("start failed")}
+		rr.fake.onRestart = func() {}
+		old := rr.fake
+		_ = old
+		// the second call (the rollback's) must work: the fake fails the first only
+		fail := rr.fake.restartErr
+		rr.d.Installer = func() autostart.Installer {
+			return &failFirstRestart{fakeAutostart: rr.fake, err: fail, calls: &calls, hb: rr.hb}
+		}
+		du, _ := rr.update(t)
+		if du == nil || du.Reason != "stopped" || !du.RolledBack {
+			t.Fatalf("du = %+v", du)
+		}
+		if b, _ := os.ReadFile(rr.exe); string(b) != oldAsset {
+			t.Fatalf("not rolled back after a daemon stopped and not started: %q", b)
+		}
+	})
+	t.Run("any other failure of the service manager", func(t *testing.T) {
+		rr := newRollbackRig(t)
+		rr.fake.restartErr = errors.New("systemctl: access denied")
+		du, _ := rr.update(t)
+		if du == nil || du.Action != "failed" || du.Reason != "" || du.RolledBack {
+			t.Fatalf("du = %+v", du)
+		}
+		if b, _ := os.ReadFile(rr.exe); string(b) != newAsset {
+			t.Fatalf("rolled back for a failure that is not the binary's: %q", b)
+		}
+	})
+}
+
+// failFirstRestart is a service manager whose first restart fails with err and whose later ones bring a daemon up.
+type failFirstRestart struct {
+	*fakeAutostart
+	err   error
+	calls *int
+	hb    *fakeHeartbeat
+}
+
+func (f *failFirstRestart) Restart(ctx context.Context) error {
+	*f.calls++
+	f.fakeAutostart.restarted++
+	if *f.calls == 1 {
+		return f.err
+	}
+	f.hb.write(os.Getpid()+1, "v1.0.0")
+	return nil
+}
+
+// A heartbeat that the daemon that was restarted is still writing does not pass for the rolled-back daemon.
+func TestTheRolledBackDaemonIsAnotherProcessThanTheOneRestarted(t *testing.T) {
+	rr := newRollbackRig(t)
+	rr.fake.onRestart = func() { rr.hb.write(os.Getpid(), "v1.0.0") } // the same pid keeps answering, on the old version
+	du, _ := rr.update(t)
+	if du == nil || !du.RolledBack || !strings.Contains(du.Message, "no live heartbeat followed") {
+		t.Fatalf("du = %+v", du)
 	}
 }
 
@@ -1223,6 +1319,7 @@ func TestUpdateOfABinaryFoundThroughALinkReplacesTheFileBehindIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := newStaleRig(t, false)
+	r.newVer = "9.9.9"
 	d := r.d
 	d.LatestReleaseURL = srv.URL + "/latest"
 	d.Version = func() string { return "v1.0.0" }
@@ -1238,5 +1335,183 @@ func TestUpdateOfABinaryFoundThroughALinkReplacesTheFileBehindIt(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(real); string(b) != newAsset {
 		t.Fatalf("the file behind the link was not replaced: %q", b)
+	}
+}
+
+// --- review 1358-c/d
+
+// The common layout: `update` replaces the very file the daemon service starts. A new version that cannot bring the daemon up
+// is put back for it too, and an update that went well drops the old one.
+func TestUpdateOfTheBinaryTheDaemonServiceStartsIsRolledBackWhenItDoesNotComeUp(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		comesUp    bool
+		wantBinary string
+	}{{"the daemon comes up", true, newAsset}, {"the daemon does not come up", false, oldAsset}} {
+		t.Run(tc.name, func(t *testing.T) {
+			asset := updateAssetName()
+			sum := sha256.Sum256([]byte(newAsset))
+			var srv *httptest.Server
+			srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/latest":
+					fmt.Fprintf(w, `{"tag_name":"v9.9.9","assets":[{"name":%q,"browser_download_url":"%s/bin"},{"name":"SHA256SUMS.txt","browser_download_url":"%s/sums"}]}`, asset, srv.URL, srv.URL)
+				case "/bin":
+					_, _ = w.Write([]byte(newAsset))
+				case "/sums":
+					fmt.Fprintf(w, "%s  %s\n", hex.EncodeToString(sum[:]), asset)
+				}
+			}))
+			t.Cleanup(srv.Close)
+			rr := newRollbackRig(t)
+			rr.newVer = "9.9.9"
+			rr.d.LatestReleaseURL = srv.URL + "/latest"
+			rr.d.Version = func() string { return "v1.0.0" }
+			rr.d.JSONOutput = func() bool { return false }
+			rr.d.SelfPath = func() (string, error) { return rr.exe, nil } // this binary is the daemon's exe
+			restarts := 0
+			rr.fake.onRestart = func() {
+				restarts++
+				switch {
+				case restarts == 1 && tc.comesUp:
+					rr.hb.write(os.Getpid(), "v9.9.9")
+				case restarts == 2:
+					rr.hb.write(os.Getpid()+1, "v1.0.0")
+				}
+			}
+			out := captureStdout(t, func() {
+				if err := rr.d.run(NewCommand(rr.d)); err != nil {
+					t.Fatal(err)
+				}
+			})
+			if b, _ := os.ReadFile(rr.exe); string(b) != tc.wantBinary {
+				t.Fatalf("the binary is %q; output:\n%s", b, out)
+			}
+			if !tc.comesUp && !strings.Contains(out, "Rolled back") {
+				t.Fatalf("the rollback is not reported:\n%s", out)
+			}
+			if l := leftovers(t, rr.staleRig); len(l) != 0 {
+				t.Fatalf("left behind: %v", l)
+			}
+		})
+	}
+}
+
+// A previous binary left by an update that was killed is removed by the next one that works in the same folder; a recent one,
+// and anything else, stays.
+func TestAStalePreviousBinaryIsSweptAndNothingElse(t *testing.T) {
+	dir := t.TempDir()
+	mk := func(name string, age time.Duration) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte("x"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		at := time.Now().Add(-age)
+		_ = os.Chtimes(p, at, at)
+		return p
+	}
+	oldPrev := mk(".monoagentcli-previous-aaa", 48*time.Hour)
+	newPrev := mk(".monoagentcli-previous-bbb", time.Minute)
+	other := mk("something-else", 48*time.Hour)
+	bak := mk("monoagentcli.bak", 48*time.Hour)
+	target := mk("monoagentcli", time.Hour)
+	if _, err := installBinaryKeep([]byte(newAsset), target, nil); err != nil {
+		t.Fatal(err)
+	}
+	for p, want := range map[string]bool{oldPrev: false, newPrev: true, other: true, bak: true} {
+		if _, err := os.Stat(p); (err == nil) != want {
+			t.Errorf("%s: exists = %v, want %v", filepath.Base(p), err == nil, want)
+		}
+	}
+}
+
+// `update` found through a link it cannot follow does not swap the link for a file.
+func TestUpdateThroughADanglingLinkIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	link := filepath.Join(dir, "monoagentcli")
+	if err := os.Symlink(filepath.Join(dir, "gone"), link); err != nil {
+		t.Fatal(err)
+	}
+	if !isLink(link) {
+		t.Fatal("isLink is false for a link")
+	}
+	if isLink(dir) {
+		t.Fatal("isLink is true for a folder")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"tag_name":"v9.9.9","assets":[]}`)
+	}))
+	t.Cleanup(srv.Close)
+	r := newStaleRig(t, false)
+	d := r.d
+	d.LatestReleaseURL = srv.URL
+	d.Version = func() string { return "v1.0.0" }
+	d.JSONOutput = func() bool { return false }
+	d.SelfPath = func() (string, error) { return link, nil }
+	var err error
+	captureStdout(t, func() { err = d.run(NewCommand(d)) })
+	if err == nil || !strings.Contains(err.Error(), "cannot be followed") {
+		t.Fatalf("err = %v", err)
+	}
+	if !isLink(link) {
+		t.Fatal("the link was replaced")
+	}
+}
+
+// The copy that keeps the old binary where there are no hard links has the old file's mode whatever the umask, and is synced.
+func TestTheCopyOfTheOldBinaryKeepsItsModeWhateverTheUmask(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.WriteFile(src, []byte(oldAsset), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := syscall.Umask(0o077)
+	defer syscall.Umask(old)
+	dst := filepath.Join(dir, "dst")
+	if err := copyFileMode(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Stat(dst); fi.Mode().Perm() != 0o755 {
+		t.Fatalf("the copy's mode is %v, want 0755", fi.Mode().Perm())
+	}
+	if b, _ := os.ReadFile(dst); string(b) != oldAsset {
+		t.Fatalf("copy = %q", b)
+	}
+}
+
+// `update` of itself runs the new binary first and installs it only if it says the released version.
+func TestUpdateKeepsItselfWhenTheNewBinaryDoesNotSayTheReleasedVersion(t *testing.T) {
+	asset := updateAssetName()
+	sum := sha256.Sum256([]byte(newAsset))
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/latest":
+			fmt.Fprintf(w, `{"tag_name":"v9.9.9","assets":[{"name":%q,"browser_download_url":"%s/bin"},{"name":"SHA256SUMS.txt","browser_download_url":"%s/sums"}]}`, asset, srv.URL, srv.URL)
+		case "/bin":
+			_, _ = w.Write([]byte(newAsset))
+		case "/sums":
+			fmt.Fprintf(w, "%s  %s\n", hex.EncodeToString(sum[:]), asset)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	self := filepath.Join(t.TempDir(), "monoagentcli")
+	if err := os.WriteFile(self, []byte(oldAsset), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := newStaleRig(t, false)
+	r.newVer = "0.1.0" // the downloaded binary says another version
+	d := r.d
+	d.LatestReleaseURL = srv.URL + "/latest"
+	d.Version = func() string { return "v1.0.0" }
+	d.JSONOutput = func() bool { return false }
+	d.SelfPath = func() (string, error) { return self, nil }
+	var err error
+	captureStdout(t, func() { err = d.run(NewCommand(d)) })
+	if err == nil || !strings.Contains(err.Error(), "did not pass its check") {
+		t.Fatalf("err = %v", err)
+	}
+	if b, _ := os.ReadFile(self); string(b) != oldAsset {
+		t.Fatalf("the binary was replaced by one that failed its check: %q", b)
 	}
 }

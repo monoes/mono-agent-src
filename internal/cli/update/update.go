@@ -241,8 +241,12 @@ func (d Deps) run(cmd *cobra.Command) error {
 	}
 	// Found through a link (~/.local/bin/monoagentcli -> .../share/monoagentcli), the file behind it is what is replaced and
 	// the link stays; replacing the link itself with a file would leave the real binary old.
-	if real, err := filepath.EvalSymlinks(selfPath); err == nil {
+	real, rerr := filepath.EvalSymlinks(selfPath)
+	switch {
+	case rerr == nil:
 		selfPath = real
+	case isLink(selfPath):
+		return fmt.Errorf("the link %s cannot be followed (%v); the installed binary was kept", selfPath, rerr)
 	}
 
 	var data []byte
@@ -264,8 +268,20 @@ func (d Deps) run(cmd *cobra.Command) error {
 		}
 	}
 
-	if err := installBinary(data, selfPath); err != nil {
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	// The new binary must run and say the released version before it takes this one's place, and this one is kept until the
+	// daemon restart below has shown the new one works: if the daemon service starts this very file, a new version that
+	// cannot start is put back like any other.
+	undoSelf, err := installBinaryKeep(data, selfPath, d.newBinaryRuns(ctx, info.Tag))
+	if err != nil {
 		return err
+	}
+	self := StaleCLI{Path: selfPath, Role: "self", Version: v, Action: "updated", undo: undoSelf}
+	if exe, ok := d.daemonExe(ctx); ok && realPath(exe) == realPath(selfPath) {
+		self.runsDaemon = true
 	}
 
 	fmt.Printf("Updated to %s\n", info.Tag)
@@ -275,7 +291,7 @@ func (d Deps) run(cmd *cobra.Command) error {
 	d.printStale(stale)
 	du := d.daemonAfterUpdate(cmd.Context(), info.Tag)
 	bu := d.bridgeAfterUpdate(cmd.Context(), info.Tag)
-	du = d.settleReplaced(cmd.Context(), stale, du, bu)
+	du = d.settleReplaced(cmd.Context(), append([]StaleCLI{self}, stale...), du, bu)
 	if du != nil {
 		fmt.Println(du.Message)
 	}
@@ -422,6 +438,12 @@ func updateAssetNameFor(goos, goarch string) string {
 	return name
 }
 
+// isLink says whether p is itself a symbolic link.
+func isLink(p string) bool {
+	fi, err := os.Lstat(p)
+	return err == nil && fi.Mode()&os.ModeSymlink != 0
+}
+
 func selfPathOrEmpty() string {
 	p, _ := selfBinaryPath()
 	return p
@@ -517,6 +539,7 @@ func installBinaryKeep(data []byte, target string, check func(tmp string) error)
 		}
 	}
 
+	sweepPrevious(filepath.Dir(target))
 	// the old binary moves to a name nobody else uses: a file the user keeps as <target>.bak is not ours to delete
 	bakFile, err := os.CreateTemp(filepath.Dir(target), ".monoagentcli-previous-*")
 	if err != nil {
@@ -558,6 +581,23 @@ func installBinaryKeep(data []byte, target string, check func(tmp string) error)
 	return &replaced{target: target, bak: bak}, nil
 }
 
+// previousMaxAge is how long a kept previous binary is trusted to still be wanted. One left by an update that was killed
+// (or that kept it for the operator) is removed by the next update that works in the same folder.
+var previousMaxAge = 24 * time.Hour
+
+// sweepPrevious removes the previous binaries (.monoagentcli-previous-*, regular files of this user) that are older than
+// previousMaxAge from dir: nothing else, nothing newer.
+func sweepPrevious(dir string) {
+	matches, _ := filepath.Glob(filepath.Join(dir, ".monoagentcli-previous-*"))
+	for _, m := range matches {
+		fi, err := os.Lstat(m)
+		if err != nil || !fi.Mode().IsRegular() || !ownedByUser(fi) || time.Since(fi.ModTime()) < previousMaxAge {
+			continue
+		}
+		_ = os.Remove(m)
+	}
+}
+
 // linkFile makes a hard link; a variable so a test can stand in for a file system that has none.
 var linkFile = os.Link
 
@@ -577,6 +617,16 @@ func copyFileMode(src, dst string) error {
 		return err
 	}
 	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		os.Remove(dst)
+		return err
+	}
+	if err := out.Chmod(fi.Mode().Perm()); err != nil { // the umask must not narrow it
+		out.Close()
+		os.Remove(dst)
+		return err
+	}
+	if err := out.Sync(); err != nil {
 		out.Close()
 		os.Remove(dst)
 		return err
