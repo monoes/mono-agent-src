@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -576,6 +577,10 @@ func installBinaryKeep(data []byte, target string, check func(tmp string) error)
 // (or that kept it for the operator) is removed by the next update that works in the same folder.
 var previousMaxAge = 24 * time.Hour
 
+// previousName is exactly the shape of a kept previous binary's name: the prefix, ten digits of unix time, a dash and the
+// digits os.CreateTemp adds. A user's own file with a similar name is not matched.
+var previousName = regexp.MustCompile(`^\.monoagentcli-previous-([0-9]{10})-[0-9]+$`)
+
 // previousPrefix starts the name of a kept previous binary: previousPrefix + unix seconds it was made + "-" + random.
 const previousPrefix = ".monoagentcli-previous-"
 
@@ -585,9 +590,17 @@ const previousPrefix = ".monoagentcli-previous-"
 func sweepPrevious(dir string) {
 	matches, _ := filepath.Glob(filepath.Join(dir, previousPrefix+"*"))
 	for _, m := range matches {
-		stamp, _, ok := strings.Cut(strings.TrimPrefix(filepath.Base(m), previousPrefix), "-")
-		secs, err := strconv.ParseInt(stamp, 10, 64)
-		if !ok || err != nil || time.Since(time.Unix(secs, 0)) < previousMaxAge {
+		sm := previousName.FindStringSubmatch(filepath.Base(m))
+		if sm == nil {
+			continue // not a name this code makes
+		}
+		secs, err := strconv.ParseInt(sm[1], 10, 64)
+		if err != nil {
+			continue
+		}
+		made := time.Unix(secs, 0)
+		// a time from the future, or before this code existed, is not one it wrote
+		if made.After(time.Now().Add(time.Hour)) || secs < 1_700_000_000 || time.Since(made) < previousMaxAge {
 			continue
 		}
 		if fi, err := os.Lstat(m); err != nil || !fi.Mode().IsRegular() || !ownedByUser(fi) {
