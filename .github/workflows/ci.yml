@@ -24,15 +24,18 @@ permissions:
 # Runner routing. Jobs that need no sudo, apt, Chrome or docker run on the
 # self-hosted runners named by the repository variable CI_RUNNER (a JSON array
 # of labels), using
-#   runs-on: ${{ fromJSON(((github.event_name == 'pull_request' && <head repo is this repo>) && vars.CI_RUNNER) || '"ubuntu-latest"') }}
+#   runs-on: ${{ fromJSON((((github.event_name == 'pull_request' && <head repo is this repo>) || github.event_name == 'push') && vars.CI_RUNNER) || '"ubuntu-latest"') }}
 # The test is POSITIVE: self-hosted only for a pull request whose head
-# repository is this repository. Everything else gets ubuntu-latest: a fork, a
-# deleted fork (head.repo is null), push (master and tags), workflow_dispatch,
-# schedule and anything unknown. The release guard accepts a green push run as
-# proof that the tests passed, so push runs, and release.yml, stay on hosted
-# runners. An unset or empty CI_RUNNER falls back to ubuntu-latest too.
+# repository is this repository, or for a push (the `on:` block above limits push
+# to master, so no tag and no other branch). Everything else gets ubuntu-latest:
+# a fork, a deleted fork (head.repo is null), tags, workflow_dispatch, schedule
+# and anything unknown. release.yml stays on hosted runners. The release guard
+# accepts a green push run as proof that the tests passed, so that proof now
+# comes from the self-hosted runners; the trade-off was weighed in issue #1356
+# (faster, no hosted queue; but a runner that executes merged code and keeps its
+# state between runs). An unset or empty CI_RUNNER falls back to ubuntu-latest.
 # KILL SWITCH: delete the CI_RUNNER variable (or set it to "ubuntu-latest",
-# quotes included) and every job runs on hosted runners again.
+# quotes included) and every job, push runs included, runs on hosted runners again.
 # Everything else (apt, Chrome, macOS/Windows) stays on its hosted OS.
 # Persistent runners keep their Go module cache, so setup-go in these jobs sets
 # `cache: ${{ runner.environment == 'github-hosted' }}` (restoring the archive
@@ -98,7 +101,7 @@ jobs:
   # publish executes locally the next time this repo's MCP server starts.
   mcp-pin-guard:
     name: Guard .mcp.json version pin
-    runs-on: ${{ fromJSON(((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER) || '"ubuntu-latest"') }}
+    runs-on: ${{ fromJSON((((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'push') && vars.CI_RUNNER) || '"ubuntu-latest"') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Reject floating Monomind version
@@ -317,7 +320,7 @@ jobs:
     name: Validate HTTP API OpenAPI spec
     needs: changes
     if: needs.changes.outputs.go == 'true'
-    runs-on: ${{ fromJSON(((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER) || '"ubuntu-latest"') }}
+    runs-on: ${{ fromJSON((((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'push') && vars.CI_RUNNER) || '"ubuntu-latest"') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -365,7 +368,7 @@ jobs:
     name: Vulnerability scan
     needs: changes
     if: needs.changes.outputs.docs_only != 'true'
-    runs-on: ${{ fromJSON(((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER) || '"ubuntu-latest"') }}
+    runs-on: ${{ fromJSON((((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'push') && vars.CI_RUNNER) || '"ubuntu-latest"') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -396,7 +399,7 @@ jobs:
     name: staticcheck (informational)
     needs: changes
     if: needs.changes.outputs.go == 'true'
-    runs-on: ${{ fromJSON(((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER) || '"ubuntu-latest"') }}
+    runs-on: ${{ fromJSON((((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'push') && vars.CI_RUNNER) || '"ubuntu-latest"') }}
     continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -420,7 +423,7 @@ jobs:
     name: Generated node schemas up to date
     needs: changes
     if: needs.changes.outputs.go == 'true'
-    runs-on: ${{ fromJSON(((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER) || '"ubuntu-latest"') }}
+    runs-on: ${{ fromJSON((((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'push') && vars.CI_RUNNER) || '"ubuntu-latest"') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -444,7 +447,7 @@ jobs:
     # A job-level `if` cannot see the matrix, so the nosocial cells are skipped
     # step by step (a skipped cell still reports green after a few seconds).
     if: needs.changes.outputs.go == 'true'
-    runs-on: ${{ fromJSON(((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER) || '"ubuntu-latest"') }}
+    runs-on: ${{ fromJSON((((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'push') && vars.CI_RUNNER) || '"ubuntu-latest"') }}
     strategy:
       # On PR runs one failing shard cancels its queued and running siblings (the author fixes, then re-runs the failed jobs). Push runs (master, release) keep every shard running: a cancelled required check there blocks the merge and the release proof.
       fail-fast: ${{ github.event_name == 'pull_request' }}
@@ -526,7 +529,7 @@ jobs:
     # Always reports (a skipped test-shards is a pass, a failed one fails the
     # first step), so the merge gate never waits on a trimmed job.
     if: ${{ !cancelled() }}
-    runs-on: ${{ fromJSON(((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER) || '"ubuntu-latest"') }}
+    runs-on: ${{ fromJSON((((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'push') && vars.CI_RUNNER) || '"ubuntu-latest"') }}
     steps:
       - name: Fail if a test shard failed or was cancelled
         if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
@@ -608,7 +611,7 @@ jobs:
     name: Build & test (nosocial)
     needs: [changes, test-shards]
     if: ${{ !cancelled() }}
-    runs-on: ${{ fromJSON(((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNNER) || '"ubuntu-latest"') }}
+    runs-on: ${{ fromJSON((((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'push') && vars.CI_RUNNER) || '"ubuntu-latest"') }}
     steps:
       - name: Fail if a test shard failed or was cancelled
         if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
