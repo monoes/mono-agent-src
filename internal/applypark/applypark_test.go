@@ -1123,3 +1123,36 @@ func TestClaimByManyResumesAtOnceHasOneWinner(t *testing.T) {
 		t.Fatalf("tab = %+v, want active under claim %d", tab, winner)
 	}
 }
+
+// A resume that is alive touches its hold: a slow start keeps its tab past ResumeHoldTTL, and only a hold
+// nobody touches is given back. Touch moves nothing for a tab not held under the id.
+func TestTouchKeepsALiveResumeHoldAgainstTheSweep(t *testing.T) {
+	db, st, apps := fixture(t)
+	alive := parkedApp(t, st, apps, 7)
+	dead := parkedApp(t, st, apps, 8)
+	old := time.Now().UTC().Add(-2 * ResumeHoldTTL).Format(time.RFC3339)
+	for app, task := range map[string]string{alive: "at-0000000000000001", dead: "at-0000000000000002"} {
+		if err := st.SetState(bg, app, StateActive, task); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`UPDATE application_tabs SET updated_at = ? WHERE application_id = ?`, old, app); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if ok, err := st.Touch(bg, alive, "at-0000000000000001"); err != nil || !ok {
+		t.Fatalf("touch of the held tab: %v %v", ok, err)
+	}
+	if ok, _ := st.Touch(bg, dead, "at-0000000000000009"); ok {
+		t.Fatal("touch took a tab held under another id")
+	}
+	tabs := []LiveTab{live(7, "https://jobs.example/a"), live(8, "https://jobs.example/b")}
+	if _, err := Sweep(bg, st, apps, tabs); err != nil {
+		t.Fatal(err)
+	}
+	if tab, _ := st.Get(bg, alive); tab.State != StateActive {
+		t.Fatalf("a touched hold was given back: %+v", tab)
+	}
+	if tab, _ := st.Get(bg, dead); tab.State != StateParked {
+		t.Fatalf("an untouched stale hold was kept: %+v", tab)
+	}
+}

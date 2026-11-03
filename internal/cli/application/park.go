@@ -171,6 +171,29 @@ func (d Deps) newFillResumeCmd() *cobra.Command {
 	return cmd
 }
 
+// holdBeat is how often a resume renews its tab hold. A var for tests.
+var holdBeat = applypark.ResumeHoldTTL / 4
+
+// keepHold renews the tab's hold under taskID every holdBeat until the returned stop is called, so a resume slower
+// than applypark.ResumeHoldTTL is not taken for a dead one. A failed renewal is left to Holds, which judges the hold.
+func keepHold(ctx context.Context, tabs applypark.Store, appID, taskID string) (stop func()) {
+	done, finished := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(finished)
+		t := time.NewTicker(holdBeat)
+		defer t.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-t.C:
+				_, _ = tabs.Touch(ctx, appID, taskID)
+			}
+		}
+	}()
+	return func() { close(done); <-finished }
+}
+
 func (d Deps) fillResume(cmd *cobra.Command, id, runtime string) error {
 	ctx := cmd.Context()
 	db, err := d.OpenDB()
@@ -201,7 +224,13 @@ func (d Deps) fillResume(cmd *cobra.Command, id, runtime string) error {
 			return d.InvalidInput("application %s's tab changed while it was resumed: look at it again", id)
 		}
 	}
-	if _, err := d.startFill(context.WithValue(context.WithValue(ctx, fillTaskIDKey{}, taskID), fillOwnerKey{}, owner), id, runtime); err != nil {
+	stopBeat := func() {}
+	if parked {
+		stopBeat = keepHold(ctx, tabs, id, taskID)
+	}
+	_, startErr := d.startFill(context.WithValue(context.WithValue(ctx, fillTaskIDKey{}, taskID), fillOwnerKey{}, owner), id, runtime)
+	stopBeat()
+	if err := startErr; err != nil {
 		// Also for a lost tab: a submit that answered with another task made one that must not keep running.
 		var owned []string
 		var wrong *wrongTaskError

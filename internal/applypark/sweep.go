@@ -13,8 +13,9 @@ import (
 const ReopenNote = "Reopen and refill: the browser tab with the filled form was closed."
 
 // ResumeHoldTTL is how long a tab held under a task id with no task behind it is taken to be a resume still
-// starting that task. Older than that, the resume is taken to have died before creating it and Sweep gives the
-// tab back; a resume slower than this finds it so (Store.Holds says).
+// starting that task. A live resume renews its hold (Store.Touch), so a slow one keeps its tab; a hold not renewed
+// for this long is taken to be of a resume that died before creating the task, and Sweep gives the tab back
+// (Store.Holds says).
 const ResumeHoldTTL = 10 * time.Minute
 
 // SweepResult says what a sweep changed.
