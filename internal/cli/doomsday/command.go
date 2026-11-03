@@ -130,6 +130,7 @@ func (d Deps) newStart() *cobra.Command {
 	var f charterFlags
 	var yes bool
 	var hash string
+	var boss int64
 	c := &cobra.Command{
 		Use:   "start",
 		Short: "Lift the lines of a charter and start a run (the user's own)",
@@ -163,6 +164,15 @@ func (d Deps) newStart() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if boss != 0 {
+				bb, ok := e.(BossBinder)
+				if !ok {
+					return fmt.Errorf("run %s started but this install cannot record a boss (run `doomsday stop`)", entry.RunID)
+				}
+				if err := bb.BindBoss(cmd.Context(), boss, entry); err != nil {
+					return fmt.Errorf("run %s started but session %d could not be recorded as its boss, so no boss tool works (run `doomsday stop`): %w", entry.RunID, boss, err)
+				}
+			}
 			if d.json() {
 				return json.NewEncoder(out).Encode(entry)
 			}
@@ -178,6 +188,7 @@ func (d Deps) newStart() *cobra.Command {
 	f.add(c)
 	c.Flags().BoolVar(&yes, "yes-i-lift", false, "Script start: needs --hash with the full charter hash; recorded as a script's acknowledgement")
 	c.Flags().StringVar(&hash, "hash", "", "The full charter hash, for --yes-i-lift")
+	c.Flags().Int64Var(&boss, "boss-session", 0, "The top-level lead mission (session id) that is the run's boss; without it no boss tool works")
 	return c
 }
 

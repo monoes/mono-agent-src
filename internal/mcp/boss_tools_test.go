@@ -61,9 +61,9 @@ func (bossSink) Park(context.Context, ops.Park) error       { return nil }
 func installBossRoute(t *testing.T, ch *bossCharters) (*bossLedger, *int) {
 	t.Helper()
 	l, calls := &bossLedger{ids: map[string]bool{}}, new(int)
-	SetBossRouteInstaller(func(_ context.Context, st *coderhost.Store, _ *sql.DB, _, _ string) error {
+	SetBossRouteInstaller(func(_ context.Context, st *coderhost.Store, db *sql.DB, _, _ string) error {
 		*calls++
-		e := &ops.Enforcer{Charters: ch, Facts: st.NewDoomsdayFacts(), Ledger: l, Auditor: bossSink{}, Parker: bossSink{}, Bounds: coderhost.SpendBounds()}
+		e := &ops.Enforcer{Charters: ch, Facts: st.NewDoomsdayFacts(), Ledger: l, Auditor: bossSink{}, Parker: bossSink{}, Bounds: coderhost.SpendBounds(), Bosses: bossTree{db}}
 		st.SetDoomsdayRoute(&coderhost.DoomsdayRoute{Enforcer: e, Live: func(context.Context, string) (bool, error) { return ch.live, nil }})
 		return nil
 	})
@@ -203,4 +203,28 @@ func TestBossApprovePlanNeedsTheRevAndDigest(t *testing.T) {
 	if l.spent() != 0 {
 		t.Fatal("spent")
 	}
+}
+
+// bossTree is ops.Bosses over the database for these tests: the boss is the lowest-id top-level session (what `start
+// --boss-session` records in production) and a session's root is found by walking its parents.
+type bossTree struct{ db *sql.DB }
+
+func (b bossTree) BossOf(ctx context.Context, act ops.Active) (int64, bool, error) {
+	var id int64
+	err := b.db.QueryRowContext(ctx, `SELECT COALESCE(MIN(id), 0) FROM task_sessions WHERE profile_id = ? AND COALESCE(parent_session_id, 0) = 0`, act.Profile).Scan(&id)
+	return id, id != 0, err
+}
+
+func (b bossTree) RootOf(ctx context.Context, profile string, session int64) (int64, error) {
+	for i := 0; i < 20; i++ {
+		var parent int64
+		if err := b.db.QueryRowContext(ctx, `SELECT COALESCE(parent_session_id, 0) FROM task_sessions WHERE profile_id = ? AND id = ?`, profile, session).Scan(&parent); err != nil {
+			return 0, err
+		}
+		if parent == 0 {
+			return session, nil
+		}
+		session = parent
+	}
+	return 0, sql.ErrNoRows
 }

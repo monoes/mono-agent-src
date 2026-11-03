@@ -140,7 +140,7 @@ func newRig(t *testing.T) *rig {
 	r.f.plan = Subject{Open: true, Rev: 3, Digest: "d3", Tasks: 5, SpendMicro: 1_000_000, Access: "coding", Depth: 2}
 	r.f.ask = Subject{Open: true, Class: "context", Tasks: 1, SpendMicro: 0, Access: "scoped", Depth: 1}
 	r.f.grant = GrantFacts{Open: true, Target: "lead", AmountMicro: 8_000_000}
-	r.e = &Enforcer{Charters: r.c, Facts: r.f, Ledger: r.l, Auditor: r.a, Parker: r.pk, Bounds: bounds}
+	r.e = &Enforcer{Charters: r.c, Facts: r.f, Ledger: r.l, Auditor: r.a, Parker: r.pk, Bounds: bounds, Bosses: fakeBosses{id: 4}}
 	return r
 }
 

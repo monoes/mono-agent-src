@@ -206,6 +206,44 @@ type Enforcer struct {
 	Auditor  Auditor
 	Parker   Parker
 	Bounds   SpendBounds
+	// Bosses says which session is the boss of the live run. Nil, or a run with no recorded boss, refuses every
+	// call: the caller must be the run's boss (or a lead inside the boss's tree, for plans, asks and grants), not
+	// merely the session its own request names.
+	Bosses Bosses
+}
+
+// Bosses finds the boss session of the live run's charter and the top of a session's tree.
+type Bosses interface {
+	// BossOf is the run's boss (0, false: the run has none recorded).
+	BossOf(ctx context.Context, act Active) (session int64, ok bool, err error)
+	// RootOf is the top-level session of the tree the session belongs to.
+	RootOf(ctx context.Context, profile string, session int64) (int64, error)
+}
+
+// requireBoss refuses a caller outside the run's boss tree. A request names its own caller and addressee, so comparing
+// them proves nothing; this reads the identity from the store. With bossOnly (finish.begin, which ends the whole run) the
+// caller must be the boss itself; otherwise a lead below the boss, whose tree root is the boss, is the boss's hand for its
+// own subtree (the plan, ask or budget request addressed to it), and a lead of another tree is not.
+func (e *Enforcer) requireBoss(ctx context.Context, act Active, caller int64, bossOnly bool) error {
+	if e.Bosses == nil {
+		return fmt.Errorf("%w: no boss is recorded for the run", ErrCallerMismatch)
+	}
+	boss, ok, err := e.Bosses.BossOf(ctx, act)
+	if err != nil {
+		return err
+	}
+	if !ok || boss == 0 {
+		return fmt.Errorf("%w: no boss is recorded for the run", ErrCallerMismatch)
+	}
+	if caller == boss {
+		return nil
+	}
+	if !bossOnly {
+		if root, err := e.Bosses.RootOf(ctx, act.Profile, caller); err == nil && root == boss {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: only the run's boss may do this", ErrCallerMismatch)
 }
 
 // Decide checks a request for a typed operation against the live charter and the actual plan, ask or grant, and
@@ -233,6 +271,9 @@ func (e *Enforcer) Decide(ctx context.Context, r Request) (Decision, error) {
 	}
 	if r.Caller.Session == 0 || r.Caller.Session != r.Addressed {
 		return Decision{}, ErrCallerMismatch
+	}
+	if err := e.requireBoss(ctx, act, r.Caller.Session, false); err != nil {
+		return Decision{}, err
 	}
 	if r.ApprovalID == "" {
 		return Decision{}, fmt.Errorf("%w: no approval id", ErrBadArguments)

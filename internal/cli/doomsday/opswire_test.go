@@ -36,6 +36,7 @@ type opsRig struct {
 func newOpsRig(t *testing.T) *opsRig {
 	t.Helper()
 	w, db := newWire(t, func() error { return nil }, fakeKernel{}, nil)
+	w.w.DB = db.DB
 	w.w.Store = w.w.Store.WithEntryCheck(ops.EntryCheck(coderhost.SpendBounds()))
 	rewire(w)
 	w.charter = writeCharter(t, opsCharter)
@@ -195,6 +196,9 @@ func TestBossRoutingIsLiveForTheRunAndOffOtherwise(t *testing.T) {
 	}
 
 	r.start(t)
+	if err := r.boss(t, R.ID); err != nil {
+		t.Fatal(err)
+	}
 
 	// a small ask is auto-approved inside the limits, as a witnessed transition
 	a, _, err := r.host.BossAnswerAsk(ctx, lead(rc), "p1", asked.AskID, coderhost.ClassAskCritical, "yes, drop it")
@@ -253,12 +257,15 @@ func TestOpsWritesOnTheRawStoreFailTheWitness(t *testing.T) {
 	r := newOpsRig(t)
 	ad := ops.StoreAdapter{Store: r.w.Store, Bounds: coderhost.SpendBounds()} // the mutant: not Chained()
 	r.host.SetDoomsdayRoute(&coderhost.DoomsdayRoute{Enforcer: &ops.Enforcer{Charters: ad, Facts: r.host.NewDoomsdayFacts(), Ledger: ad, Auditor: ad,
-		Parker: PersonParker{Store: r.w.Store, Profile: "p1"}, Bounds: coderhost.SpendBounds()}})
+		Parker: PersonParker{Store: r.w.Store, Profile: "p1"}, Bounds: coderhost.SpendBounds(), Bosses: BossSource{Wiring: r.w}}})
 	rc, pc, cc := r.chat(t), r.chat(t), r.chat(t)
 	R := r.session(t, 0, rc, 100, 10)
 	P := r.session(t, R.ID, pc, 50, 10)
 	r.session(t, P.ID, cc, 20, 10)
 	r.start(t)
+	if err := r.boss(t, R.ID); err != nil {
+		t.Fatal(err)
+	}
 	asked, err := r.host.AskAncestor(lead(cc), "p1", coderhost.AskRequest{Question: "q", Importance: coderhost.AskCritical})
 	if err != nil {
 		t.Fatal(err)
@@ -398,6 +405,9 @@ func TestRouteEndsAtStopRequestedButDepthStaysUntilQuiescent(t *testing.T) {
 	P := r.session(t, R.ID, pc, 50, 10)
 	r.session(t, P.ID, cc, 20, 10)
 	r.start(t)
+	if err := r.boss(t, R.ID); err != nil {
+		t.Fatal(err)
+	}
 	asked, err := r.host.AskAncestor(lead(cc), "p1", coderhost.AskRequest{Question: "q", Importance: coderhost.AskCritical})
 	if err != nil {
 		t.Fatal(err)

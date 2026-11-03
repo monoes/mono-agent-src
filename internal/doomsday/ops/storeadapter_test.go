@@ -181,7 +181,7 @@ func TestEndToEndOverTheAdapter(t *testing.T) {
 	a := StoreAdapter{Store: f, Bounds: bounds}
 	act, _, _ := a.Active(bg, "default")
 	facts := &fakeFacts{plan: Subject{Open: true, Rev: 1, Digest: "d", Tasks: 5, SpendMicro: 1_000_000, Access: "coding", Depth: 2}}
-	e := &Enforcer{Charters: a, Facts: facts, Ledger: a, Auditor: a, Parker: &fakeParker{}, Bounds: bounds}
+	e := &Enforcer{Charters: a, Facts: facts, Ledger: a, Auditor: a, Parker: &fakeParker{}, Bounds: bounds, Bosses: fakeBosses{id: 4}}
 	req := Request{Profile: "default", CharterID: act.ID, Hash: act.Hash, Generation: 3, Op: OpPlanApprove, ApprovalID: "ap1",
 		Caller: Caller{4}, Addressed: 4, Plan: &PlanArgs{Session: 9, Rev: 1, Digest: "d"}}
 	d, err := e.Decide(bg, req)
