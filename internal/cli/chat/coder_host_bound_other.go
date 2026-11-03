@@ -17,7 +17,7 @@ type boundDelivery struct {
 func (b *boundLaunch) attach(*exec.Cmd, string) (*boundDelivery, error) {
 	return nil, errors.New("peer-credential binding needs Linux")
 }
-func (d *boundDelivery) start(*exec.Cmd) error {
+func (d *boundDelivery) start(*exec.Cmd, func(*exec.Cmd) error) error {
 	return errors.New("peer-credential binding needs Linux")
 }
 func (d *boundDelivery) setOnKill(func()) {}

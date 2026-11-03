@@ -6,7 +6,9 @@ import (
 	"context"
 	"errors"
 	"github.com/monoes/mono-agent/internal/coderhost"
+	"golang.org/x/sys/unix"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -326,12 +328,12 @@ func TestInstallRunHooks(t *testing.T) {
 	legacy, bound := &execLauncher{}, &execLauncher{}
 	h := &coderhost.Host{L: &gatedLauncher{inner: legacy, bound: bound}}
 	st := coderhost.NewStore(nil)
-	hooks := RunHooks{RunStamp: func(string, string) (string, int64) { return "c", 1 }, BeforeRelease: func(_ context.Context, _, _, _ string, _ bool) error { return nil }}
+	hooks := RunHooks{Place: func(*exec.Cmd, string, string) (func(), error) { return nil, nil }, RunStamp: func(string, string) (string, int64) { return "c", 1 }, BeforeRelease: func(_ context.Context, _, _, _ string, _ bool) error { return nil }}
 	if err := InstallRunHooks(st, h, hooks); err != nil {
 		t.Fatal(err)
 	}
 	for name, l := range map[string]*execLauncher{"legacy": legacy, "bound": bound} {
-		if l.runStamp == nil || l.recordRun == nil || l.beforeRelease == nil {
+		if l.runStamp == nil || l.recordRun == nil || l.beforeRelease == nil || l.place == nil {
 			t.Errorf("%s launcher without its hooks: %+v", name, l)
 		}
 	}
@@ -343,5 +345,138 @@ func TestInstallRunHooks(t *testing.T) {
 	}
 	if err := InstallRunHooks(st, nil, hooks); err == nil {
 		t.Error("a nil host was accepted")
+	}
+}
+
+// place runs on cmd AFTER the launcher built its process attributes (a session of its own, a pidfd) and before the process exists; its
+// release runs once right after the start; the child is a session leader.
+func TestThePlacementRunsAfterTheLauncherBuiltItsAttributesAndIsReleased(t *testing.T) {
+	r := newBoundRig(t, "")
+	pidp := capturePid(r.l)
+	var sawSetsid, sawPidfd bool
+	var released atomic.Int32
+	var startedBeforeRelease bool
+	r.l.place = func(c *exec.Cmd, profile, conv string) (func(), error) {
+		sawSetsid = c.SysProcAttr != nil && c.SysProcAttr.Setsid
+		sawPidfd = c.SysProcAttr != nil && c.SysProcAttr.PidFD != nil
+		if profile != "default" || conv != "c1" {
+			t.Errorf("place was given %q %q", profile, conv)
+		}
+		return func() { startedBeforeRelease = c.Process != nil; released.Add(1) }, nil
+	}
+	turn, err := r.l.Start("default", "c1", "t1", "hi", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sawSetsid || !sawPidfd {
+		t.Errorf("place ran before the launcher's attributes were built (setsid=%v pidfd=%v)", sawSetsid, sawPidfd)
+	}
+	if released.Load() != 1 || !startedBeforeRelease {
+		t.Errorf("release ran %d times, process existed at release: %v", released.Load(), startedBeforeRelease)
+	}
+	if pid := int(pidp.Load()); pid > 1 {
+		if sid, err := unix.Getsid(pid); err != nil || sid != pid {
+			t.Errorf("the child is not a session leader (sid %d, %v)", sid, err)
+		}
+	}
+	_ = os.WriteFile(r.release, []byte("x"), 0o600)
+	_ = turn.Wait()
+}
+
+// A placement that fails (an error or a panic) refuses the turn before anything runs: no process is recorded, its release still runs.
+func TestAFailedPlacementRefusesTheTurnBeforeAnythingRuns(t *testing.T) {
+	for name, place := range map[string]func(*exec.Cmd, string, string) (func(), error){
+		"error": func(*exec.Cmd, string, string) (func(), error) { return nil, errors.New("no cgroup") },
+		"panic": func(*exec.Cmd, string, string) (func(), error) { panic("boom") },
+	} {
+		r := newBoundRig(t, "")
+		pidp := capturePid(r.l)
+		r.l.place = place
+		_, err := r.l.Start("default", "c1", "t1", "hi", nil, "")
+		if err == nil || (name == "error" && !strings.Contains(err.Error(), "no cgroup")) || (name == "panic" && !strings.Contains(err.Error(), "panicked")) {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if coderhost.TurnStarted(err) {
+			t.Errorf("%s: a refused placement is reported as a started turn", name)
+		}
+		time.Sleep(100 * time.Millisecond)
+		if pidp.Load() != 0 {
+			t.Errorf("%s: a process was recorded for a turn that was never placed", name)
+		}
+		if _, statErr := os.Stat(r.pidfile); statErr == nil {
+			t.Errorf("%s: the turn's script ran", name)
+		}
+	}
+}
+
+// A release is called even when the placement failed after producing one.
+func TestAPlacementReleaseRunsWhenTheStartFails(t *testing.T) {
+	r := newBoundRig(t, "")
+	var released atomic.Int32
+	r.l.place = func(*exec.Cmd, string, string) (func(), error) {
+		return func() { released.Add(1) }, errors.New("refused")
+	}
+	if _, err := r.l.Start("default", "c1", "t1", "hi", nil, ""); err == nil {
+		t.Fatal("a refused placement started")
+	}
+	if released.Load() != 1 {
+		t.Errorf("release ran %d times", released.Load())
+	}
+}
+
+// A placement cannot be honoured by a legacy launch: it is refused rather than started outside it.
+func TestALegacyStartWithAPlacementIsRefused(t *testing.T) {
+	bin, dir := scriptBin(t, "echo '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\necho $$ > \"$(dirname \"$0\")/pid\"\nsleep 300\n")
+	l := &execLauncher{bin: bin, dbPath: "/db/x.db", instance: "host-test", logDir: filepath.Join(dir, "turns"), revokeBackoff: time.Millisecond,
+		revoke: func(string, string) error { return nil },
+		place:  func(*exec.Cmd, string, string) (func(), error) { return nil, nil }}
+	if _, err := l.Start("default", "c1", "t1", "hi", nil, ""); err == nil || !strings.Contains(err.Error(), "needs a bound launch") {
+		t.Fatalf("a legacy start with a placement: %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if _, err := os.Stat(filepath.Join(dir, "pid")); err == nil {
+		t.Error("the legacy process ran")
+	}
+}
+
+// A placement that replaces the launcher's process attributes (dropping the session or the pidfd) is refused BEFORE anything is started.
+func TestAPlacementThatReplacesTheProcessAttributesIsRefusedBeforeTheStart(t *testing.T) {
+	for name, mutate := range map[string]func(c *exec.Cmd){
+		"replaced":   func(c *exec.Cmd) { c.SysProcAttr = &syscall.SysProcAttr{} },
+		"nil":        func(c *exec.Cmd) { c.SysProcAttr = nil },
+		"no session": func(c *exec.Cmd) { c.SysProcAttr.Setsid = false },
+		"no pidfd":   func(c *exec.Cmd) { c.SysProcAttr.PidFD = nil },
+	} {
+		r := newBoundRig(t, "")
+		pidp := capturePid(r.l)
+		r.l.place = func(c *exec.Cmd, _, _ string) (func(), error) { mutate(c); return nil, nil }
+		_, err := r.l.Start("default", "c1", "t1", "hi", nil, "")
+		if err == nil || !strings.Contains(err.Error(), "replaced the launcher's process attributes") {
+			t.Fatalf("%s: %v", name, err)
+		}
+		time.Sleep(100 * time.Millisecond)
+		if pidp.Load() != 0 {
+			t.Errorf("%s: a process was started with attributes the launcher did not build", name)
+		}
+		if _, statErr := os.Stat(r.pidfile); statErr == nil {
+			t.Errorf("%s: the turn's script ran", name)
+		}
+	}
+}
+
+// A release that panics does not unwind the host: the start still succeeds with its child.
+func TestAPanickingPlacementReleaseDoesNotUnwindTheStart(t *testing.T) {
+	r := newBoundRig(t, "")
+	r.l.place = func(*exec.Cmd, string, string) (func(), error) { return func() { panic("release blew up") }, nil }
+	var logged atomic.Int32
+	r.l.logf = func(string, ...any) { logged.Add(1) }
+	turn, err := r.l.Start("default", "c1", "t1", "hi", nil, "")
+	if err != nil {
+		t.Fatalf("a panicking release failed the start: %v", err)
+	}
+	_ = os.WriteFile(r.release, []byte("x"), 0o600)
+	_ = turn.Wait()
+	if logged.Load() == 0 {
+		t.Error("the panic of the release was not logged")
 	}
 }

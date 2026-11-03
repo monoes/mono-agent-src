@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"errors"
+	"os/exec"
 
 	"github.com/monoes/mono-agent/internal/coderhost"
 )
@@ -12,6 +13,8 @@ import (
 type RunHooks struct {
 	// RunStamp says which run (charter id, generation) a session's turn belongs to; "" and 0 stamp nothing.
 	RunStamp func(profileID, conversationID string) (charterID string, generation int64)
+	// Place puts the turn's process where it must be born, before it exists (see execLauncher.place); nil launches as before.
+	Place func(cmd *exec.Cmd, profileID, conversationID string) (release func(), err error)
 	// BeforeRelease is asked before anything is delivered to the turn's process; bound says whether the turn is peer-credential bound.
 	// ctx is cancelled when the launcher gives up on the check (a deadline) or has returned: check it before any effect that cannot be undone.
 	BeforeRelease func(ctx context.Context, profileID, conversationID, turnID string, bound bool) error
@@ -30,7 +33,7 @@ func InstallRunHooks(st *coderhost.Store, h *coderhost.Host, hooks RunHooks) err
 	n := 0
 	for _, l := range []coderhost.Launcher{g.inner, g.bound} {
 		if e, ok := l.(*execLauncher); ok {
-			e.runStamp, e.beforeRelease = hooks.RunStamp, hooks.BeforeRelease
+			e.runStamp, e.beforeRelease, e.place = hooks.RunStamp, hooks.BeforeRelease, hooks.Place
 			if hooks.RunStamp != nil {
 				e.recordRun = st.StampDoomsdayRun
 			}
