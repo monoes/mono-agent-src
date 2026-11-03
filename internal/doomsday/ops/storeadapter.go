@@ -15,9 +15,8 @@ import (
 // caps of its own, so they are derived from the limits it does have (see runCaps), and no answer classes, so the
 // operator-facing configuration (AnswerClasses) names them; with none, every ask.answer parks.
 type StoreAdapter struct {
-	Store         store.Store
-	Bounds        SpendBounds
-	AnswerClasses []string
+	Store  store.Store
+	Bounds SpendBounds
 }
 
 // Active returns the latest generation of the profile if its run is running.
@@ -45,51 +44,63 @@ func (a StoreAdapter) Active(ctx context.Context, profile string) (Active, bool,
 	return Active{ID: run.CharterID, Hash: hex.EncodeToString(h[:]), Generation: gen, Profile: profile, Constraints: a.constraints(c)}, true, nil
 }
 
-// runCaps derives the cumulative caps: the run's budget for spend (an explicit "no ceiling" is the operator's own
-// word) and max_total for tasks.
-func runCaps(c store.Charter) RunCaps {
-	spend := c.Limits.BudgetMicro
+// grantCeiling is the run's spend ceiling for grants: the budget, or the host's per-grant maximum if that is larger
+// or the charter said "no ceiling" (the budget request bounds still hold at each grant).
+func (a StoreAdapter) grantCeiling(c store.Charter) int64 {
 	if c.Limits.NoCeiling {
-		spend = math.MaxInt64 / 4
+		return math.MaxInt64 / 4
 	}
-	return RunCaps{SpendMicro: spend, Tasks: int64(c.Limits.MaxTotal)}
+	return max(c.Limits.BudgetMicro, a.Bounds.MaxMicro)
 }
 
 func (a StoreAdapter) constraints(c store.Charter) Constraints {
-	out := Constraints{Run: runCaps(c)}
+	out := Constraints{}
 	if c.PerAsk.Declared {
 		lim := AskLimits{SpendMicro: c.PerAsk.SpendMicro, Tasks: c.PerAsk.Tasks, Access: c.PerAsk.Access, Depth: c.PerAsk.Depth}
 		out.PlanApprove = &PlanApprove{lim}
-		if len(a.AnswerClasses) > 0 { // no class lifted: ask.answer is not enabled and every critical ask stays a person item
-			out.AskAnswer = &AskAnswer{AskLimits: lim, Classes: slices.Clone(a.AnswerClasses)}
+		out.Run = RunCaps{SpendMicro: c.PerAsk.RunSpendMicro, Tasks: c.PerAsk.RunTasks}
+		if len(c.PerAsk.AnswerClasses) > 0 { // no class lifted: ask.answer is not enabled and every critical ask stays a person item
+			out.AskAnswer = &AskAnswer{AskLimits: lim, Classes: slices.Clone(c.PerAsk.AnswerClasses)}
 		}
 	}
 	if slices.Contains(c.Lines, store.LineSpending) {
-		out.SpendGrant = &SpendGrant{Targets: []string{"lead", "child"}, MaxPerGrantMicro: a.Bounds.MaxMicro, RunCeilingMicro: max(runCaps(c).SpendMicro, a.Bounds.MaxMicro)}
+		out.SpendGrant = &SpendGrant{Targets: []string{"lead", "child"}, MaxPerGrantMicro: a.Bounds.MaxMicro, RunCeilingMicro: a.grantCeiling(c)}
 	}
 	return out
 }
 
-// Consume charges each counter through the store's conditional insert, one approval id per kind. The store has no
-// multi-kind or with-audit transaction, so a failure of a later kind leaves an earlier one charged: over-counting,
-// the safe direction. The audit row is appended after the charges.
+// approvalsKind counts approvals themselves: it is charged one unit per approval, so an approval with only
+// zero-sized charges (an ask answer commits nothing) is still recorded as spent and a repeat is a replay.
+const approvalsKind = "approvals"
+
+// Consume charges every counter and writes the audit row in one store transaction (all or nothing).
 func (a StoreAdapter) Consume(ctx context.Context, c Consume) (ConsumeResult, error) {
+	mc, ok := a.Store.(store.MultiConsumer)
+	if !ok {
+		return ConsumeResult{}, errors.New("doomsday ops: the store has no atomic multi-kind consume")
+	}
+	charges := []store.Charge{{Kind: approvalsKind, N: 1, Limit: math.MaxInt64}}
 	for _, s := range c.Spends {
-		err := a.Store.ConsumeCumulative(ctx, c.Profile, c.Generation, s.Kind, c.ApprovalID+"/"+s.Kind, s.N, s.Cap)
-		switch {
-		case err == nil:
-		case errors.Is(err, store.ErrAlreadyConsumed):
-			return ConsumeResult{Replay: true}, nil
-		case errors.Is(err, store.ErrOverLimit):
-			return ConsumeResult{Over: []string{s.Kind}}, nil
-		default:
-			return ConsumeResult{}, err
+		if s.N > 0 {
+			charges = append(charges, store.Charge{Kind: s.Kind, N: s.N, Limit: s.Cap})
 		}
 	}
-	if err := (a).Append(ctx, c.Audit); err != nil {
+	p, err := json.Marshal(withResult(c.Audit, "approved", nil))
+	if err != nil {
 		return ConsumeResult{}, err
 	}
-	return ConsumeResult{Done: true}, nil
+	err = mc.ConsumeMany(ctx, c.Profile, c.Generation, c.ApprovalID, charges, store.AuditEntry{Kind: "ops." + c.Audit.Op + ".approved", Payload: string(p)})
+	var over *store.OverLimitError
+	switch {
+	case err == nil:
+		return ConsumeResult{Done: true}, nil
+	case errors.Is(err, store.ErrAlreadyConsumed):
+		return ConsumeResult{Replay: true}, nil
+	case errors.As(err, &over):
+		return ConsumeResult{Over: over.Kinds}, nil
+	default:
+		return ConsumeResult{}, err // a refusal (run stopped) or any other failure is never an approval
+	}
 }
 
 // Append writes the decision to the audit stream.

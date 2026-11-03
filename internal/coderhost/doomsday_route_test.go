@@ -147,4 +147,23 @@ func TestBossGrantBudgetKeepsTheCharterLimitsAndTheHostLimits(t *testing.T) {
 	if _, err := f.st.BossGrantBudget(ctx, f.lead(f.rc), "p", b2.ID, int64(MaxBudgetRequestUSD*1e6)+1); !errors.Is(err, ops.ErrBadArguments) {
 		t.Fatalf("above the host bound: %v", err)
 	}
+
+	// a grant the host would refuse (its own master has no room) spends no approval and leaves the request open
+	if err := f.st.SetBudget("p", f.pc, 5.2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.st.DeclineBudget(OperatorScope{}, "p", b2.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.st.db.Exec(`UPDATE coder_sessions SET parent_conversation_id = ? WHERE profile_id = 'p' AND conversation_id = ?`, f.pc, f.cc); err != nil {
+		t.Fatal(err)
+	}
+	b3 := ask(2)
+	before := len(l.ids)
+	if _, err := f.st.BossGrantBudget(ctx, f.lead(f.rc), "p", b3.ID, 2_000_000); !errors.Is(err, ErrLimit) || errors.Is(err, ErrParked) {
+		t.Fatalf("a grant the host refuses: %v", err)
+	}
+	if g, _ := f.st.GetBudgetRequest("p", b3.ID); !g.Open || len(l.ids) != before {
+		t.Fatalf("approval spent or request closed: %+v ids %d/%d", g, len(l.ids), before)
+	}
 }
