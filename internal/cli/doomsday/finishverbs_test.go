@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/doomsday/finish"
@@ -235,6 +236,25 @@ func TestSubjectRulesAndNoFinishOfAnOrdinaryStop(t *testing.T) {
 	r.mustDo(t, "finish", "--subject", r.subject)
 	if _, err := r.do(t, "finish", "--subject", t.TempDir()); err == nil || !strings.Contains(err.Error(), "cannot be changed") {
 		t.Fatalf("the subject was changed: %v", err)
+	}
+}
+
+// T_finish: a round that does not end within its deadline parks (internal-error, "deadline") instead of hanging or
+// leaving the finish half-written.
+func TestARoundThatOutlivesTFinishParksWithADeadlineReason(t *testing.T) {
+	r := newFinRig(t, strings.Replace(finishCharterJSON, `"rubric","text":"the docs read well"`, `"command","command":"true","expected":"exit:0"`, 1))
+	r.start(t)
+	r.mustDo(t, "finish", "--begin")
+	r.fe.RoundTimeout = 3 * time.Second
+	r.fe.SandboxFor = func(int64) func(context.Context, int64) (finish.Sandbox, func(), error) {
+		return func(ctx context.Context, _ int64) (finish.Sandbox, func(), error) {
+			<-ctx.Done() // the verification unit never comes up
+			return finish.Sandbox{}, nil, ctx.Err()
+		}
+	}
+	out := r.mustDo(t, "finish", "--subject", r.subject)
+	if !strings.Contains(out, "NOT finished: parked") || !strings.Contains(out, "internal-error") || !strings.Contains(out, "deadline") {
+		t.Fatalf("%s", out)
 	}
 }
 

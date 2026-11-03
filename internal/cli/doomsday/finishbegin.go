@@ -70,11 +70,31 @@ func (e *FinishEngine) FinishBegin(ctx context.Context) (BeginReport, error) {
 	}
 	rs := stop.StoreRuns{Store: w.Chained(), Profile: w.Profile, By: "finish", Tokens: w.Tokens,
 		Runs: func(ctx context.Context) ([]stop.RunInfo, error) { return w.openInfos(ctx) }}
-	st := &stop.Stopper{Dir: w.RunDir, Store: rs, Ender: w.ender(), Clock: w.clock()}
+	st := &stop.Stopper{Dir: w.RunDir, Store: rs, Ender: e.ender(), Clock: w.clock()}
 	report := st.Stop(ctx, uint64(run.Generation), run.CharterID, store.FinishCause)
 	rep.Accepted, rep.State = true, string(report.Final)
 	if !report.Stopped() {
 		rep.Lines = report.Lines() // the run is not quiescent yet: the finish waits for cleanup
 	}
 	return rep, nil
+}
+
+// ender is Wiring.ender with the end configuration's clock set: EndUnit reads cfg.Clock for its escalation windows, and the
+// Wiring's own ender leaves it nil, which would panic at the first unit that has a ticket sub-cgroup to end. (Reported;
+// wire.go is not this package's file.)
+func (e *FinishEngine) ender() stop.Ender {
+	w := e.W
+	if w.Kernel == nil {
+		return notProvenEnder{}
+	}
+	u := stop.UnitEnder{K: w.Kernel, Dir: w.RunDir, Cfg: stop.EndConfig{Clock: w.clock()}}
+	if w.Host != nil {
+		u.StopUnit = w.Host.StopUnit
+	}
+	seq, err := w.Sequencer(context.Background())
+	if err != nil {
+		return u
+	}
+	u.Witness = seq.BoundUnits
+	return stop.NewWitnessEnder(u, seq)
 }
