@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/doomsday/finish"
 	"github.com/monoes/mono-agent/internal/doomsday/store"
 	"github.com/monoes/mono-agent/internal/monomind"
@@ -239,10 +240,10 @@ func TestSubjectRulesAndNoFinishOfAnOrdinaryStop(t *testing.T) {
 
 func TestFinishVerbsAreOperatorOnlyAndOffWithoutTheMode(t *testing.T) {
 	r := newFinRig(t, finishCharterJSON)
-	r.operator = context.DeadlineExceeded // any non-nil answer of RequireOperator is the refusal
+	r.operator = clicore.OperatorOnly("not you")
 	for _, args := range [][]string{{"finish"}, {"finish", "--begin"}, {"finish", "--reverify"}, {"rubric"}, {"rubric", "c1", "approve", "--dossier", "abcdef12"}} {
-		if _, err := r.do(t, args...); err == nil {
-			t.Fatalf("%v ran for a caller that is not the user", args)
+		if _, err := r.do(t, args...); err == nil || exitOf(err) != 3 {
+			t.Fatalf("%v was not refused as operator-only (exit 3) for a caller that is not the user: %v", args, err)
 		}
 	}
 	// an install without the mode carries no FinishOps: every finish verb refuses as off

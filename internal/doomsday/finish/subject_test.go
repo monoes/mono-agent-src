@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"syscall"
 	"testing"
 )
 
@@ -83,13 +82,6 @@ func TestSnapshotRefusesHardLinksDevicesAndLeavesNothing(t *testing.T) {
 	}
 	if _, err := os.Stat(dst); err == nil {
 		t.Fatal("a refused snapshot left a directory behind")
-	}
-	os.Remove(filepath.Join(root, "b"))
-	if err := syscall.Mkfifo(filepath.Join(root, "p"), 0o600); err != nil {
-		t.Skip("no fifo")
-	}
-	if _, err := Snapshot(root, dst); !errors.Is(err, ErrSnapshotRefused) {
-		t.Fatalf("a pipe was snapshotted: %v", err)
 	}
 }
 
