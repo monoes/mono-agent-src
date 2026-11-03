@@ -114,16 +114,21 @@ func tryOpenPairingPage(bridge ConnChecker, opened *bool, refusal func() string)
 
 // Thin names for the internal/browserdetect helpers this file (and its
 // tests) always used.
-func findLocalChromePath() string { return browserdetect.FindBrowser() }
-func isChromeRunning() bool       { return browserdetect.IsBrowserRunning() }
-func getExtensionDir() string     { return browserdetect.ExtensionDir() }
+// findLocalChromePath and isChromeRunning are vars so tests can drive EnsureConnected's wait loops
+// without a real browser.
+var (
+	findLocalChromePath = browserdetect.FindBrowser
+	isChromeRunning     = browserdetect.IsBrowserRunning
+)
+
+func getExtensionDir() string { return browserdetect.ExtensionDir() }
 
 // isExtensionInstalled reports whether the extension was found. When the
 // scan couldn't tell (e.g. a profile directory is unreadable — see
 // browserdetect.ExtensionInstalled), this returns true so the caller doesn't
 // block on a claim it can't back up; the real answer is whichever way
 // EnsureConnected's own connect-and-wait below actually goes.
-func isExtensionInstalled() bool {
+var isExtensionInstalled = func() bool {
 	found, checked := browserdetect.ExtensionInstalled()
 	return found || !checked
 }

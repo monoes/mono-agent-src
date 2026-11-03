@@ -5,7 +5,40 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
+
+// The refusal reaches both wait loops of EnsureConnected (a browser already running, and one it
+// launches): nothing is opened and no nonce is minted for a non-operator; the operator's open stays.
+func TestEnsureConnected_PairingGateInBothWaitLoops(t *testing.T) {
+	prevInst, prevRun, prevFind := isExtensionInstalled, isChromeRunning, findLocalChromePath
+	t.Cleanup(func() { isExtensionInstalled, isChromeRunning, findLocalChromePath = prevInst, prevRun, prevFind })
+	isExtensionInstalled = func() bool { return true }
+	findLocalChromePath = func() string { return "/bin/true" } // the "launched browser" exits at once
+
+	for _, running := range []bool{true, false} {
+		for _, operator := range []bool{false, true} {
+			urls := stubOpener(t)
+			isChromeRunning = func() bool { return running }
+			b := &countingBridge{fakePairingBridge: fakePairingBridge{ready: true, url: "http://127.0.0.1:9222/monoagent/pair?n=abc"}}
+			h := Hints{Route: func(ConnChecker) string { return "" }, RouteWaitPoll: time.Millisecond,
+				Lifetime: func(ConnChecker) string { return "" },
+				Refusal: func() string {
+					if operator {
+						return ""
+					}
+					return "this process runs inside a coder turn"
+				}}
+			captureStderr(t, func() { _ = EnsureConnected(b, 50*time.Millisecond, h) })
+			if operator && (len(*urls) != 1 || b.mints == 0) {
+				t.Errorf("running=%v operator: opened %v, want one open", running, *urls)
+			}
+			if !operator && (len(*urls) != 0 || b.mints != 0) {
+				t.Errorf("running=%v non-operator: opened %v, minted %d", running, *urls, b.mints)
+			}
+		}
+	}
+}
 
 // countingBridge counts how often a pairing nonce is minted (PairingURL is what mints it).
 type countingBridge struct {
