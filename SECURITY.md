@@ -2425,6 +2425,13 @@ mission session, and one with unrecorded background processes, all rechecked ins
 (`deleteGuard`, `internal/cli/chat/chat_history.go`); it revokes the conversation's mission tokens in that transaction, records
 the child sessions' spend before the usage is erased (`coderspend.Snapshot`) so the money stays held until the host charges it, and
 removes the asks and the spawn advice the chat owned. `profile delete` is refused while a live worker reservation exists.
+Per-exec reservations (migration 154; `Store.ReserveExec` and `Store.ChargeExec`, not yet called by any worker): a hold
+may name the exec (one launch of a worker) it was taken for. The same (session, worker, exec) is one hold however often it
+is asked (a unique index and a lookup in the reserve's own transaction), only the owner that took it may ask again, and a
+late call of an earlier exec holds its own row's id and reaches nothing of the next exec. The charge is the larger of what
+was charged and the largest cumulative cost THIS exec reported (kept in `task_session_reservation_costs`, grow-only), so a
+lower final report never lowers it, and an exec that ended without reporting any cost is charged its whole grant. An exec
+that crashed expires after its lease plus grace and keeps holding what is left of it until the operator resolves it.
 
 **Not verified live.** None of the following has been run against real agent runtimes, real accounts or the desktop app:
 a mission end to end with real workers and verifiers; task child sessions (the launcher, the child's task token, the budget
