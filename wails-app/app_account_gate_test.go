@@ -27,6 +27,7 @@ var openBindings = map[string]string{
 	"AccountLoginEmailVerify": "the email-code sign-in: trades the code for a session",
 	"AccountLogout":           "ends the session (`account logout` is open in the CLI)",
 	"AppSelfUpdate":           "the sign-in screen offers the update (`update` is open in the CLI, so a broken install can be fixed)",
+	"QuitApp":                 "the notice of an update that is shown on the sign-in screen, too, ends with Restart now; it only quits the app",
 	"CheckForUpdate":          "finds the release the sign-in screen offers (`update --check`)",
 	"OpenURL":                 "the sign-in fallback link; signed out it opens only the monoes.me host (TestOpenURLSignedOutOpensOnlyTheSignInHost)",
 }

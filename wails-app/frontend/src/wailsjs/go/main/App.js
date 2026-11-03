@@ -1266,6 +1266,10 @@ export function QueueStart(arg1, arg2) {
   return window['go']['main']['App']['QueueStart'](arg1, arg2);
 }
 
+export function QuitApp() {
+  return window['go']['main']['App']['QuitApp']();
+}
+
 export function ReadHILScreenshot(arg1) {
   return window['go']['main']['App']['ReadHILScreenshot'](arg1);
 }
