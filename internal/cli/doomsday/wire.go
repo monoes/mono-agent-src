@@ -2,6 +2,7 @@ package doomsday
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 
@@ -26,6 +27,9 @@ type Wiring struct {
 		CancelQueue(ctx context.Context, gen uint64) error
 	}
 	Clock stop.Clock
+	// DB is the profile's database: the merge journal and the task store's merge records are read from it. Nil
+	// leaves merge recovery out (only a test that does not exercise merges leaves it nil).
+	DB *sql.DB
 }
 
 // notProvenEnder is the Ender of an install with no Kernel: it signals nothing and says so.
@@ -41,6 +45,7 @@ func (w Wiring) Engine() *StoreEngine {
 		Store: w.Store, Profile: w.Profile,
 		ContainmentProbe: w.Probe,
 		StopFn:           w.stop,
+		BeforeStart:      w.recoverMerges,
 		AfterEnter:       func(_ context.Context, gen int64) error { return w.RunDir.CreateSecret(uint64(gen)) },
 	}
 }
@@ -66,6 +71,7 @@ func (w Wiring) stop(ctx context.Context) (StopOutcome, error) {
 	if w.Tokens == nil {
 		return StopOutcome{}, errors.New("token revocation is not wired; nothing was stopped")
 	}
+	_ = w.recoverMerges(ctx) // a merge member a dead host left is released only on proof; stopping goes on either way
 	runs, err := w.Store.OpenRuns(ctx, w.Profile)
 	if err != nil {
 		return StopOutcome{}, fmt.Errorf("the open runs cannot be read, nothing was stopped: %w", err)

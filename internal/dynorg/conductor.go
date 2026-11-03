@@ -57,6 +57,9 @@ type Config struct {
 	// Doomsday puts org_merge under a run's dispatch gate (doomsday_merge.go); nil
 	// (the default) leaves merges as they were.
 	Doomsday *DoomsdayMerge
+	// DoomsdayFor finds the run a merge belongs to when Doomsday is not fixed: nil result, no run (merges are
+	// as they were); an error refuses the merge. It is set only by an engine built with the mode.
+	DoomsdayFor func(ctx context.Context) (*DoomsdayMerge, error)
 }
 
 // Conductor runs one lead turn's workers.

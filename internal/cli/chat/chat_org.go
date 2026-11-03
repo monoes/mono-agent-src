@@ -200,6 +200,8 @@ func startDynamicOrg(ctx context.Context, cfg *Deps, journal *turnJournal, setti
 		Remember: journal.rememberWorker,
 		Mission:  mission,
 		Missions: missionRun(mission, db.DB, journal.turnID),
+		// nil unless the engine is built with the open-ended mode (merges are then gated)
+		DoomsdayFor: cfg.doomsdayFor(db.DB),
 	})
 	cond.AddVeterans(journal.veterans())
 	cond.ReserveWorkerIDs(storedIDs) // every stored id, not only the latest ones a turn loads

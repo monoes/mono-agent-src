@@ -394,7 +394,7 @@ func (c *Conductor) Merge(ctx context.Context, id string) (_ MergeResult, retErr
 	}()
 	// Under a run's gate the merge is a begun operation of four steps (doomsday_merge.go); a merge
 	// that has not begun is refused here, before the write lease or any git command.
-	mo, err := c.beginMerge(ctx)
+	mo, err := c.beginMerge(ctx, repoTop(c.iso), branch, id)
 	if err != nil {
 		return MergeResult{}, err
 	}
@@ -440,7 +440,7 @@ func (c *Conductor) Merge(ctx context.Context, id string) (_ MergeResult, retErr
 			return fmt.Errorf("the branch %s could not be pinned, so nothing was merged: %v", branch, err)
 		}
 		target = strings.TrimSpace(tip) // the pinned tip, not the branch name
-		return mo.pin(ctx, strings.TrimSpace(before), target, branch)
+		return mo.pin(ctx, strings.TrimSpace(before), target, branch, repoFingerprint(ctx, repoTop(c.iso)))
 	}); err != nil {
 		return res, err
 	}
@@ -457,6 +457,7 @@ func (c *Conductor) Merge(ctx context.Context, id string) (_ MergeResult, retErr
 			if aerr == nil {
 				_, aerr = gitRun(ctx, c.iso.cwd, "merge", "--abort") // the step's own undo: never a new step
 			}
+			mo.aborted(aerr == nil)
 			if aerr != nil {
 				return fmt.Errorf("merging %s failed and the merge could not be aborted (%v); run `git merge --abort` in the chat folder", branch, aerr)
 			}

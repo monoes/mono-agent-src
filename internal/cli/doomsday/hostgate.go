@@ -8,6 +8,7 @@ import (
 	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/doomsday/stop"
 	"github.com/monoes/mono-agent/internal/doomsday/store"
+	"github.com/monoes/mono-agent/internal/dynorg"
 )
 
 // HostGate is the coder host's dispatch gate in an engine built with the mode. It is a coderhost.DispatchGate that
@@ -26,9 +27,12 @@ type HostGate struct {
 	Profile string
 	RunDir  stop.RunDir
 	Clock   stop.Clock
+	// Journal is the merge journal (MergeFor); nil refuses every merge while a run is open.
+	Journal dynorg.MergeJournal
 
-	mu    sync.Mutex
-	gates map[int64]*stop.Gate
+	mu     sync.Mutex
+	gates  map[int64]*stop.Gate
+	merges map[int64]*dynorg.DoomsdayMerge
 }
 
 var _ coderhost.DispatchGate = (*HostGate)(nil)
@@ -42,15 +46,21 @@ func (g *HostGate) Install(st *coderhost.Store, h *coderhost.Host) {
 
 // current returns the gate of the profile's open run, or nil when no run is open. A refusal error means the
 // dispatch must not happen.
-func (g *HostGate) current(ctx context.Context) (gate *stop.Gate, err error) {
+func (g *HostGate) current(ctx context.Context) (*stop.Gate, error) {
+	gate, _, err := g.currentRun(ctx)
+	return gate, err
+}
+
+// currentRun is current with the run the gate belongs to.
+func (g *HostGate) currentRun(ctx context.Context) (gate *stop.Gate, r store.Run, err error) {
 	runs, err := g.Store.OpenRuns(ctx, g.Profile)
 	if err != nil {
-		return nil, fmt.Errorf("%w: the run state cannot be read: %v", coderhost.ErrDispatchRefused, err)
+		return nil, r, fmt.Errorf("%w: the run state cannot be read: %v", coderhost.ErrDispatchRefused, err)
 	}
 	if len(runs) == 0 {
-		return nil, nil
+		return nil, r, nil
 	}
-	r := runs[0]
+	r = runs[0]
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if g.gates == nil {
@@ -68,7 +78,7 @@ func (g *HostGate) current(ctx context.Context) (gate *stop.Gate, err error) {
 	if r.State != store.StateRunning || g.RunDir.ReadMarker(uint64(r.Generation), r.CharterID).Stops() {
 		gate.Seal()
 	}
-	return gate, nil
+	return gate, r, nil
 }
 
 // Hand implements coderhost.DispatchGate.

@@ -57,7 +57,9 @@ type ddRig struct {
 	run  store.Run
 }
 
-func newDDRig(t *testing.T) *ddRig {
+func newDDRig(t *testing.T) *ddRig { return newDDRigClock(t, stop.SystemClock{}) }
+
+func newDDRigClock(t *testing.T, clk stop.Clock) *ddRig {
 	t.Helper()
 	keyring.MockInit()
 	db, err := storage.NewDatabase(t.TempDir() + "/dd.db")
@@ -83,11 +85,15 @@ func newDDRig(t *testing.T) *ddRig {
 		t.Fatal(err)
 	}
 	reg := &ddRegistry{}
-	return &ddRig{db: db.DB, st: st, reg: reg, run: run, gate: stop.NewGate(stop.GateConfig{Generation: uint64(run.Generation), Reg: reg, Clock: stop.SystemClock{}})}
+	return &ddRig{db: db.DB, st: st, reg: reg, run: run, gate: stop.NewGate(stop.GateConfig{Generation: uint64(run.Generation), Reg: reg, Clock: clk})}
+}
+
+func (r *ddRig) journal() MergeJournal {
+	return SQLMergeJournal{DB: r.db, VerifyAudit: r.st.VerifyAudit}
 }
 
 func (r *ddRig) doomsday() *DoomsdayMerge {
-	return &DoomsdayMerge{Gate: r.gate, Members: r.st, Profile: "p", Generation: r.run.Generation}
+	return &DoomsdayMerge{Gate: r.gate, Members: r.st, Journal: r.journal(), Profile: "p", Generation: r.run.Generation}
 }
 
 func (r *ddRig) audits(t *testing.T) []string {
