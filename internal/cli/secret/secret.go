@@ -357,7 +357,7 @@ func (d Deps) revealAndPrint(cmd *cobra.Command, name string) error {
 			return err
 		}
 		if !allowed {
-			return revealgate.Refuse("secret reveal")
+			return revealgate.RefuseMarkerOnly("secret reveal")
 		}
 		if err := secrets.AuthorizeAgentReveal(cmd.Context(), db.DB, profileID, name); err != nil {
 			return err

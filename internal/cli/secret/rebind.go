@@ -6,7 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
-	"github.com/monoes/mono-agent/internal/operator"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/secrets"
 )
 
@@ -27,7 +27,7 @@ func (d Deps) newSecretRebindCmd() *cobra.Command {
 		Example: `  monoagentcli --profile work secret rebind --from /home/old/.monoagent/monoagent.db`,
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if why := operator.Refusal(); why != "" {
+			if why := opgate.RecoveryRefusal(); why != "" {
 				return clicore.OperatorOnly("secret rebind decides which database may open the vault, which only the user does: %s; run it yourself in your terminal or the app", why)
 			}
 			db, err := d.OpenDB()

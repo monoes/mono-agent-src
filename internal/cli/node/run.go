@@ -186,7 +186,7 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 					return fmt.Errorf("checking vault reveal access: %w", err)
 				}
 				if !allowed {
-					if err := revealgate.Refuse("node run vault.secret_get"); err != nil {
+					if err := revealgate.RefuseMarkerOnly("node run vault.secret_get"); err != nil {
 						return err
 					}
 				}

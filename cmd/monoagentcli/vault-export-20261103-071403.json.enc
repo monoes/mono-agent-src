@@ -1,0 +1,8 @@
+{
+  "format": "monoagent-vault-export",
+  "version": 1,
+  "kdf": "argon2id",
+  "salt": "2fmIY/idMyJ9qJp2YOCmww==",
+  "nonce": "rfiaFBPVNqWTRQZ5",
+  "ciphertext": "WOxEXAbvNcKDqqQbUemZlHrFMxIsojrlipx892vJkD7sr7hOKLFn3r4R1AJxLO9hgbMn1tzprGV9cOuZOSWQt3TXAMLGmjM0o2L+i0VD4lPQ7mXoILFfWjYNWn0="
+}

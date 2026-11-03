@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"testing"
 
 	"github.com/monoes/mono-agent/internal/account"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
@@ -47,6 +48,9 @@ func buildRootCmd(installProvider bool) *cobra.Command {
 	cfg := &globalConfig{}
 	if installProvider {
 		installSandboxFallbackProvider(cfg)
+		if !testing.Testing() { // tests bind the gate to their own config (opgate.SetForTest)
+			registerOperatorGate(cfg)
+		}
 	}
 
 	cmd := &cobra.Command{
