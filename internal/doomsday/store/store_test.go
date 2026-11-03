@@ -46,7 +46,7 @@ func charter(profile string, gen int64) Charter {
 		Limits:   Limits{TreeDepth: 4, LivePerTree: 30, SpawnRate: 6, OpenSessions: 50, MaxConcurrent: 30, MaxTotal: 100, BudgetMicro: 5_000_000},
 		Lines:    []string{LineSpending, LineInstall},
 		BossPin:  Pin{"anthropic", "m1", "v1", "judging-v1"}, VerifierPin: Pin{"anthropic", "m2", "v1", "judging-v1"},
-		PerAsk: PerAsk{Declared: true, SpendMicro: 1_000_000, Tasks: 5, Access: "edit", Depth: 2},
+		PerAsk: PerAsk{Declared: true, SpendMicro: 1_000_000, Tasks: 5, Access: "edit", Depth: 2, RunSpendMicro: 10_000_000, RunTasks: 50, AnswerClasses: []string{"context", "clarify"}},
 	}
 }
 

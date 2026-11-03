@@ -293,6 +293,21 @@ func (s *SQLStore) ConsumeCumulative(ctx context.Context, profile string, genera
 		return err
 	}
 	defer tx.Rollback()
+	if err := s.chargeTx(ctx, tx, profile, generation, kind, approvalID, n, limit); err != nil {
+		return err
+	}
+	if _, err := s.appendAuditTx(ctx, tx, profile, generation, "counter.consume", kind+" "+approvalID+" "+strconv.FormatInt(n, 10)); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// chargeTx is the conditional insert of one counter delta in the caller's transaction: the statement itself checks the
+// run is running and that the new total stays within limit; a repeated approval id is ErrAlreadyConsumed.
+func (s *SQLStore) chargeTx(ctx context.Context, tx *sql.Tx, profile string, generation int64, kind, approvalID string, n, limit int64) error {
+	if n <= 0 || limit < 0 {
+		return ErrOverLimit
+	}
 	res, err := tx.ExecContext(ctx, `INSERT INTO doomsday_counter_deltas(profile, generation, kind, approval_id, n)
 SELECT ?,?,?,?,? WHERE EXISTS (SELECT 1 FROM doomsday_runs WHERE profile = ? AND generation = ? AND state = 'running')
 AND (SELECT COALESCE(SUM(n),0) FROM doomsday_counter_deltas WHERE profile = ? AND generation = ? AND kind = ?) <= ? - ?`,
@@ -309,8 +324,5 @@ AND (SELECT COALESCE(SUM(n),0) FROM doomsday_counter_deltas WHERE profile = ? AN
 		}
 		return ErrOverLimit
 	}
-	if _, err := s.appendAuditTx(ctx, tx, profile, generation, "counter.consume", kind+" "+approvalID+" "+strconv.FormatInt(n, 10)); err != nil {
-		return err
-	}
-	return tx.Commit()
+	return nil
 }
