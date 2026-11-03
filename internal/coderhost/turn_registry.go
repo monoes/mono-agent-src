@@ -313,6 +313,19 @@ func checkWithTimeout(path string) (bool, error) {
 	}
 }
 
+// procStamp and signalPID are the two probes hostIsGone makes of a recorded pid. They are variables only so a
+// test can replace them (no production code assigns them); the defaults are the calls hostIsGone always made.
+var (
+	procStamp = ProcStamp
+	signalPID = func(pid int) error {
+		p, err := os.FindProcess(pid)
+		if err != nil {
+			return fmt.Errorf("find process %d: %v", pid, err) // %v: a lookup failure is never "the process is done"
+		}
+		return p.Signal(syscall.Signal(0))
+	}
+)
+
 // hostIsGone says whether the process that wrote an entry is certainly not running: its pid now carries a
 // different start stamp (a reused pid) or no process at all. An entry without a recorded stamp, or a pid that
 // cannot be judged, is NOT gone (the caller then fails closed).
@@ -320,11 +333,10 @@ func hostIsGone(e registryEntry) bool {
 	if e.PID <= 0 || e.Stamp == "" {
 		return false
 	}
-	if now := ProcStamp(e.PID); now != "" {
+	if now := procStamp(e.PID); now != "" {
 		return now != e.Stamp
 	}
-	p, err := os.FindProcess(e.PID)
-	return err == nil && errors.Is(p.Signal(syscall.Signal(0)), os.ErrProcessDone)
+	return errors.Is(signalPID(e.PID), os.ErrProcessDone)
 }
 
 // CallerInARegisteredTurn is the registry half of the operator gates: whether the caller descends from a turn
