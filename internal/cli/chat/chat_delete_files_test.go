@@ -588,7 +588,12 @@ func TestACleanupRowIsNotTrusted(t *testing.T) {
 	name, data := signedRow(t, r, "default", "gone-conv", good)
 	var env envelope
 	_ = json.Unmarshal([]byte(data), &env)
-	env.Mac = "00" + env.Mac[2:]
+	// Always a different MAC: overwriting two characters with "00" leaves the real MAC untouched about once in 256 runs.
+	if strings.HasPrefix(env.Mac, "00") {
+		env.Mac = "11" + env.Mac[2:]
+	} else {
+		env.Mac = "00" + env.Mac[2:]
+	}
 	badMac, _ := json.Marshal(env)
 	forged, _ := json.Marshal(good)
 	liveName, liveData := signedRow(t, r, "default", c.ID, good)
