@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/autostart"
@@ -119,15 +120,15 @@ func (d Deps) daemonAfterUpdate(ctx context.Context, newVersion string) *DaemonU
 	var notRegistered *autostart.NotRegisteredError
 	var stopped *autostart.StoppedError
 	switch {
+	case err != nil && ctx.Err() != nil:
+		// the command was interrupted: what the restart did is not known, so both binaries stay and nothing is rolled back
+		u.Action, u.Reason = "failed", "cancelled"
+		u.Message = fmt.Sprintf("The update was interrupted while the daemon (pid %d) was being restarted, so it is not known whether it runs %s. Check it with: monoagentcli daemon status", hb.PID, newVersion)
 	case errors.As(err, &notRegistered):
 		u.Action = "not_registered"
 		u.Message = fmt.Sprintf("The daemon (pid %d) runs %s and is not registered for auto-start, so nothing can restart it: stop it and start `monoagentcli daemon` again, or run `monoagentcli daemon install` to have the system manage it.", hb.PID, was)
 	case errors.As(err, &stopped):
 		u.Action, u.Reason, u.Message = "failed", "stopped", fmt.Sprintf("The daemon (pid %d) was stopped but the service manager could not start it again (%v): %s.", hb.PID, err, daemonDown)
-	case ctx.Err() != nil:
-		// the command was interrupted: what the restart did is not known, so both binaries stay and nothing is rolled back
-		u.Action, u.Reason = "failed", "cancelled"
-		u.Message = fmt.Sprintf("The update was interrupted while the daemon (pid %d) was being restarted, so it is not known whether it runs %s. Check it with: monoagentcli daemon status", hb.PID, newVersion)
 	case errors.Is(err, context.DeadlineExceeded):
 		u.Action, u.Reason = "failed", "timed_out"
 		u.Message = fmt.Sprintf("The service manager did not restart the daemon (pid %d) within %s: %s.", hb.PID, restartBound, daemonDown)
@@ -168,9 +169,8 @@ func (d Deps) daemonNotReplaced(ctx context.Context, newVersion string, entries 
 	if !ok {
 		return nil
 	}
-	real := realPath(exe)
 	for _, s := range skip {
-		if realPath(s) == real {
+		if sameFile(s, exe) {
 			return nil
 		}
 	}
@@ -185,6 +185,17 @@ func (d Deps) daemonNotReplaced(ctx context.Context, newVersion string, entries 
 	}
 	return &DaemonUpdate{Action: "not_replaced", Running: hb.Version, pid: hb.PID, Message: fmt.Sprintf(
 		"The daemon (pid %d) runs %s and was not restarted: the binary its service starts, %q, was not replaced by this update, so a restart would start the same version again. Update it (see above), then run `monoagentcli daemon restart`.", hb.PID, was, exe)}
+}
+
+// sameFile says whether a and b are the same file: by file identity, so a bind mount, a hard link or a case-insensitive name
+// is one file; by the resolved path where either cannot be looked at.
+func sameFile(a, b string) bool {
+	ia, erra := os.Stat(a)
+	ib, errb := os.Stat(b)
+	if erra == nil && errb == nil {
+		return os.SameFile(ia, ib)
+	}
+	return realPath(a) == realPath(b)
 }
 
 // waitForVersion polls the heartbeat until a live daemon runs newVersion, or the wait ends.

@@ -47,6 +47,10 @@ func bridgeSkipReason(du *DaemonUpdate) string {
 	return ""
 }
 
+// restartCommand is the command that restarts a bridge unit, as the operator pastes it: the name quoted and after `--`, so a
+// name that starts with a dash is not read as an option.
+func restartCommand(unit string) string { return "systemctl --user restart -- " + shQuote(unit) }
+
 // bridgeAfterUpdate restarts the bridge onto newVersion, or says why not. skipBecause, when set, is the reason the caller has not to
 // restart it now (the daemon update did not settle): the bridge is left as it is and the reason is told. nil: there was nothing to do (no bridge answers, it
 // already runs newVersion, or it is the daemon's own and the daemon restart covers it).
@@ -70,7 +74,7 @@ func (d Deps) bridgeAfterUpdate(ctx context.Context, newVersion string, skipBeca
 		u.Action = "skipped"
 		u.Message = fmt.Sprintf("The extension bridge (pid %d) runs %s and was not restarted: %s", b.PID, was, skipBecause)
 		if b.Unit != "" {
-			u.Message += " Restart the bridge when that is resolved: systemctl --user restart " + shQuote(b.Unit)
+			u.Message += " Restart the bridge when that is resolved: " + restartCommand(b.Unit)
 		}
 		return u
 	}
@@ -81,7 +85,7 @@ func (d Deps) bridgeAfterUpdate(ctx context.Context, newVersion string, skipBeca
 		case "unverified":
 			// it looks like a service but could not be confirmed (systemctl --user is not reachable here, or the unit's main
 			// process is another one): never tell the operator to start a second bridge
-			u.Message = fmt.Sprintf("The extension bridge (pid %d) runs %s and was not restarted: it seems to run as the service %s but that could not be confirmed from here (systemctl --user is not reachable). Restart it from your own session with: systemctl --user restart %s", b.PID, was, b.ServiceName, shQuote(b.ServiceName))
+			u.Message = fmt.Sprintf("The extension bridge (pid %d) runs %s and was not restarted: it seems to run as the service %s but that could not be confirmed from here (systemctl --user is not reachable). Restart it from your own session with: %s", b.PID, was, b.ServiceName, restartCommand(b.ServiceName))
 		case "unsupported":
 			u.Message = fmt.Sprintf("The extension bridge (pid %d) runs %s and was not restarted: restarting a bridge service is only done on Linux. Restart it the way you started it.", b.PID, was)
 		default:
@@ -90,10 +94,10 @@ func (d Deps) bridgeAfterUpdate(ctx context.Context, newVersion string, skipBeca
 		return u
 	case b.InFlight > 0:
 		u.Action = "busy"
-		u.Message = fmt.Sprintf("The extension bridge (pid %d) runs %s and was not restarted: %d command(s) are in flight on it, and an update never interrupts them. Restart it when that is settled: systemctl --user restart %s", b.PID, was, b.InFlight, b.Unit)
+		u.Message = fmt.Sprintf("The extension bridge (pid %d) runs %s and was not restarted: %d command(s) are in flight on it, and an update never interrupts them. Restart it when that is settled: %s", b.PID, was, b.InFlight, restartCommand(b.Unit))
 		return u
 	}
-	restart := "systemctl --user restart " + b.Unit
+	restart := restartCommand(b.Unit)
 	rctx, cancel := context.WithTimeout(ctx, bridgeRestartBound)
 	defer cancel()
 	if d.RestartBridge == nil {

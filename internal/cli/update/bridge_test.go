@@ -86,7 +86,7 @@ func TestTheBridgeIsNotRestartedWhenItIsNotOursOrIsBusy(t *testing.T) {
 		f := newFakeBridge("v0.176.0")
 		f.state.InFlight = 2
 		bu := f.deps(testDeps(t, "http://127.0.0.1:1")).bridgeAfterUpdate(context.Background(), "v0.215.7", "")
-		if bu == nil || bu.Action != "busy" || len(f.restarts) != 0 || !strings.Contains(bu.Message, "systemctl --user restart monoagent-bridge.service") {
+		if bu == nil || bu.Action != "busy" || len(f.restarts) != 0 || !strings.Contains(bu.Message, "systemctl --user restart -- monoagent-bridge.service") {
 			t.Fatalf("bu = %+v, restarts = %v", bu, f.restarts)
 		}
 	})
@@ -97,7 +97,7 @@ func TestAFailedBridgeRestartSaysWhatToDo(t *testing.T) {
 		f := newFakeBridge("v0.176.0")
 		f.restartErr = errors.New("the bridge is no longer pid 100 run by the unit")
 		bu := f.deps(testDeps(t, "http://127.0.0.1:1")).bridgeAfterUpdate(context.Background(), "v0.215.7", "")
-		if bu == nil || bu.Action != "failed" || !strings.Contains(bu.Message, "systemctl --user restart monoagent-bridge.service") {
+		if bu == nil || bu.Action != "failed" || !strings.Contains(bu.Message, "systemctl --user restart -- monoagent-bridge.service") {
 			t.Fatalf("bu = %+v", bu)
 		}
 	})
@@ -234,7 +234,7 @@ func TestTheBridgeIsNotRestartedOntoABinaryTheDaemonUpdateDidNotSettle(t *testin
 // Without a confirmed service the operator is not told to start a second bridge.
 func TestTheMessageForAnUnconfirmedBridgeNeverTellsToStartAnother(t *testing.T) {
 	for why, want := range map[string]string{
-		"unverified":    "systemctl --user restart monoagent-bridge.service",
+		"unverified":    "systemctl --user restart -- monoagent-bridge.service",
 		"unsupported":   "the way you started it",
 		"not_a_service": "extension serve",
 	} {
@@ -287,7 +287,7 @@ func TestTheUnconfirmedServiceNameIsQuotedInTheSuggestedCommand(t *testing.T) {
 	f.up = true
 	f.state.Unit, f.state.Why, f.state.ServiceName = "", "unverified", "a b;rm.service"
 	bu := d.bridgeAfterUpdate(context.Background(), "v0.215.7", "")
-	if bu == nil || !strings.Contains(bu.Message, "restart 'a b;rm.service'") {
+	if bu == nil || !strings.Contains(bu.Message, "restart -- 'a b;rm.service'") {
 		t.Fatalf("bu = %+v", bu)
 	}
 }

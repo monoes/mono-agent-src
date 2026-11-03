@@ -2,6 +2,7 @@ package update
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -40,10 +41,20 @@ type AppResult struct {
 	Error  string        `json:"error,omitempty"`
 }
 
+// progressLine is one NDJSON progress line of --json: encoded as JSON, so a control character in a message (a path) is a valid
+// escape and not Go's \x01.
+func progressLine(msg string) string {
+	b, _ := json.Marshal(struct {
+		Kind    string `json:"kind"`
+		Message string `json:"message"`
+	}{"line", msg})
+	return string(b)
+}
+
 func (d Deps) runApp(cmd *cobra.Command, appPath, current string) error {
 	progress := func(msg string) {
 		if d.JSONOutput() {
-			fmt.Fprintf(cmd.ErrOrStderr(), "{\"kind\":\"line\",\"message\":%q}\n", msg)
+			fmt.Fprintln(cmd.ErrOrStderr(), progressLine(msg))
 		} else {
 			fmt.Fprintln(cmd.OutOrStdout(), msg)
 		}
