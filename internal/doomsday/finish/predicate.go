@@ -50,7 +50,7 @@ func (f Facts) reviewBound(r Review) bool {
 // observed under the charter's pin, with no blocker in the round. Parks beat waits; Commit only when nothing
 // is missing and nothing blocks. The ledger runs the same predicate inside the conditional insert.
 func Evaluate(f Facts) Verdict {
-	if f.State != "verifying" {
+	if f.State != StateVerifying {
 		return Verdict{Park, ReasonInternalError, "the run is not verifying: " + f.State}
 	}
 	if why := f.Charter.CannotFinish(); why != "" {

@@ -59,31 +59,52 @@ func nonNil(p []byte) []byte {
 	return p
 }
 
+// querier is what reading the chain needs; *sql.DB and *sql.Tx both satisfy it.
+type querier interface {
+	QueryContext(ctx context.Context, q string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, q string, args ...any) *sql.Row
+}
+
+// chainRow is one verified audit row.
+type chainRow struct {
+	Seq           int64
+	Kind, Payload string
+}
+
 // VerifyAudit walks the chain from seq 1: contiguous seq, each prev equal to the previous MAC, each MAC valid.
 // A removed tail is not visible here; the witness of the stop package is what catches truncation.
 func (s *SQLStore) VerifyAudit(ctx context.Context, profile string, generation int64) error {
-	rows, err := s.db.QueryContext(ctx, `SELECT seq, kind, payload, prev, mac FROM doomsday_audit WHERE profile = ? AND generation = ? ORDER BY seq`, profile, generation)
+	_, err := s.readChain(ctx, s.db, profile, generation)
+	return err
+}
+
+// readChain verifies the whole chain of a generation through q and returns its rows in order. It is the one reader of
+// the chain, so a decision made on the rows (the finish) is made on rows whose MACs were just checked.
+func (s *SQLStore) readChain(ctx context.Context, q querier, profile string, generation int64) ([]chainRow, error) {
+	rows, err := q.QueryContext(ctx, `SELECT seq, kind, payload, prev, mac FROM doomsday_audit WHERE profile = ? AND generation = ? ORDER BY seq`, profile, generation)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer rows.Close()
 	want := int64(1)
 	var prev []byte
+	var out []chainRow
 	for rows.Next() {
 		var seq int64
 		var kind, payload string
 		var p, mc []byte
 		if err := rows.Scan(&seq, &kind, &payload, &p, &mc); err != nil {
-			return err
+			return nil, err
 		}
 		if seq != want || !bytes.Equal(p, nonNil(prev)) {
-			return ErrUnverifiable
+			return nil, ErrUnverifiable
 		}
 		exp, err := s.auditMAC(profile, generation, seq, prev, kind, payload)
 		if err != nil || !hmac.Equal(exp, mc) {
-			return ErrUnverifiable
+			return nil, ErrUnverifiable
 		}
+		out = append(out, chainRow{seq, kind, payload})
 		prev, want = mc, want+1
 	}
-	return rows.Err()
+	return out, rows.Err()
 }

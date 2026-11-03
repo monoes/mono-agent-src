@@ -164,3 +164,23 @@ func TestCleanReason(t *testing.T) {
 		t.Fatal("reason sanitising")
 	}
 }
+
+func TestAFinishedOrParkedRunIsNotCommittedOrParkedAgain(t *testing.T) {
+	f := baseFacts()
+	f.State = StateFinished
+	l := newLedger(f)
+	v := okVerifier()
+	fn := Finisher{Ledger: l, Verifier: v}
+	got, err := fn.Step(bg)
+	mustOutcome(t, got, Commit, "")
+	if err != nil || l.committed || l.parked != nil || v.calls != 0 {
+		t.Fatalf("a finished run was acted on again: %v committed=%v parked=%v calls=%d", err, l.committed, l.parked, v.calls)
+	}
+	f.State, f.ParkReason = StateParked, ReasonCriteriaFailed
+	l = newLedger(f)
+	got, err = Finisher{Ledger: l, Verifier: v}.Step(bg)
+	mustOutcome(t, got, Park, ReasonCriteriaFailed)
+	if err != nil || l.committed || l.parked != nil || v.calls != 0 {
+		t.Fatalf("a parked run was acted on again: %v", err)
+	}
+}
