@@ -257,7 +257,7 @@ func TestStopOrderAgainstRealStore(t *testing.T) {
 	dir := newRunDir(t, nil)
 	mustNoErr(t, dir.CreateSecret(uint64(gen)))
 	en := &fakeEnder{}
-	sp := &Stopper{Dir: dir, Store: runs, Ender: en, Clock: newStepClock()}
+	sp := &Stopper{Dir: dir, Store: runs, Ender: en, Host: noHost{}, Clock: newStepClock()}
 	// a live member blocks quiescent (the store refuses it); the run stays cleanup-pending
 	rep := sp.Stop(bg, uint64(gen), "cid", "operator")
 	st, _ := runs.State(bg, uint64(gen))

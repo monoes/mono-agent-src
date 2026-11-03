@@ -124,9 +124,7 @@ func (w Wiring) stop(ctx context.Context) (StopOutcome, error) {
 	if len(runs) == 0 {
 		return StopOutcome{}, errors.New("no open run to stop")
 	}
-	rs := stop.StoreRuns{Store: w.Chained(), Profile: w.Profile, By: "operator", Tokens: w.Tokens,
-		Runs: func(ctx context.Context) ([]stop.RunInfo, error) { return w.openInfos(ctx) }}
-	st := &stop.Stopper{Dir: w.RunDir, Store: rs, Ender: w.ender(), Clock: w.clock()}
+	st := w.Stopper("operator", w.ender())
 	out := StopOutcome{MarkerRecorded: true, IntentRecorded: true}
 	for _, r := range runs {
 		rep := st.Stop(ctx, uint64(r.Generation), r.CharterID, "operator stop")
@@ -141,6 +139,15 @@ func (w Wiring) stop(ctx context.Context) (StopOutcome, error) {
 		}
 	}
 	return out, nil
+}
+
+// Stopper is the production Stop order for this profile. It runs in the CLI, a different process from the host that holds
+// the gate, so it carries the host link (the marker and emergency message in, the host's acknowledgement out) instead of a
+// Gate: a Stopper with neither cannot reach quiescent.
+func (w Wiring) Stopper(by string, e stop.Ender) *stop.Stopper {
+	rs := stop.StoreRuns{Store: w.Chained(), Profile: w.Profile, By: by, Tokens: w.Tokens,
+		Runs: func(ctx context.Context) ([]stop.RunInfo, error) { return w.openInfos(ctx) }}
+	return &stop.Stopper{Dir: w.RunDir, Store: rs, Ender: e, Host: stop.ProcessHostLink{Dir: w.RunDir, Clock: w.clock()}, Clock: w.clock()}
 }
 
 func stepDone(rep stop.Report, name string) bool {

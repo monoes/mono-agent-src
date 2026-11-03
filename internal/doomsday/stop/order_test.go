@@ -17,7 +17,7 @@ func newStopper(t *testing.T, fsys FS) (*Stopper, *fakeRunStore, *fakeEnder, Run
 	mustNoErr(t, dir.CreateSecret(7))
 	st := newFakeRunStore()
 	en := &fakeEnder{store: st}
-	return &Stopper{Dir: dir, Store: st, Ender: en, Clock: newStepClock(), Retries: 3, Unrecorded: &UnrecordedFlag{}}, st, en, dir
+	return &Stopper{Dir: dir, Store: st, Ender: en, Host: noHost{}, Clock: newStepClock(), Retries: 3, Unrecorded: &UnrecordedFlag{}}, st, en, dir
 }
 
 func joined(r Report) string { return strings.Join(r.Lines(), "\n") }
@@ -375,3 +375,8 @@ func TestReconcileDisagreements(t *testing.T) {
 		}
 	}
 }
+
+// noHost is the HostLink of a test with no host process: nothing holds the generation's gate.
+type noHost struct{}
+
+func (noHost) CloseHost(context.Context, uint64) HostOutcome { return HostOutcome{Kind: HostNone} }

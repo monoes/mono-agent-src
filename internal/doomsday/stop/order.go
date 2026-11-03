@@ -91,6 +91,7 @@ type Report struct {
 	Marker     MarkerStatus
 	Final      RunState
 	Gate       *Outcome
+	Host       *HostOutcome // the host-side gate as a Stop from another process learnt it (Gate is nil then)
 	Unit       UnitOutcome
 	Members    []string
 	Pending    []uint64 // tickets of begun operations still excluded from the kill
@@ -161,6 +162,9 @@ func (r Report) Lines() []string {
 	if r.Unit.Kind == UnitNotProven {
 		out = append(out, "identity not proven, nothing was signalled: "+r.Unit.Note)
 	}
+	if r.Host != nil && !r.hostClean() {
+		out = append(out, "the host's gate is not proven closed: "+r.Host.Note)
+	}
 	for _, m := range r.Members {
 		out = append(out, "live member: "+m)
 	}
@@ -184,11 +188,14 @@ const (
 )
 
 // Stopper runs the Stop order: marker first, then the database intent, then token revocation and queue cancel,
-// then process kill. Gate is nil for a dispatcher outside the host (the CLI), which reads the marker instead.
+// then process kill. Gate is the host's own gate when Stop runs inside the host. A Stop in another process (the CLI)
+// has no Gate and must have a Host link instead: with neither, the host side is not proven and the Stop never reaches
+// quiescent (fail closed: it does not skip what it cannot see).
 type Stopper struct {
 	Dir     RunDir
 	Store   RunStore
 	Gate    *Gate
+	Host    HostLink
 	Ender   Ender
 	Clock   Clock
 	Retries int           // database attempts, default 5
@@ -254,6 +261,13 @@ func (s *Stopper) Stop(ctx context.Context, gen uint64, charterID, cause string)
 		o := s.Gate.Close()
 		rep.Gate = &o
 		rep.Pending = s.Gate.ContinuingTickets()
+	} else {
+		ho := HostOutcome{Kind: HostUnproven, Note: "no host link is wired, so the host's gate cannot be shown to be closed"}
+		if s.Host != nil {
+			ho = s.Host.CloseHost(ctx, gen)
+		}
+		rep.Host = &ho
+		rep.Pending = ho.Pending
 	}
 	rep.Unit = s.Ender.End(ctx, gen, rep.Pending)
 	rep.step(StepEnd, unitErr(rep.Unit))
@@ -264,6 +278,18 @@ func (s *Stopper) Stop(ctx context.Context, gen uint64, charterID, cause string)
 	}
 	rep.Final = s.settle(ctx, gen, &rep, cause)
 	return rep
+}
+
+// hostClean says the host side holds nothing: its own gate is a BARRIER, or a linked host closed with nothing live, or none holds
+// the generation. No gate and no link is not clean.
+func (r Report) hostClean() bool {
+	switch {
+	case r.Gate != nil:
+		return r.Gate.Kind == Barrier
+	case r.Host != nil:
+		return r.Host.Kind == HostNone || r.Host.Kind == HostClosed
+	}
+	return false
 }
 
 func unitErr(u UnitOutcome) error {
@@ -284,7 +310,7 @@ func (s *Stopper) settle(ctx context.Context, gen uint64, rep *Report, cause str
 		return cur
 	}
 	clean := rep.done(StepEnd) && len(rep.Members) == 0 && len(rep.Pending) == 0 && len(rep.Unit.Unknown) == 0 &&
-		(rep.Gate == nil || rep.Gate.Kind == Barrier)
+		rep.hostClean()
 	for _, st := range rep.Steps {
 		clean = clean && st.Done
 	}
