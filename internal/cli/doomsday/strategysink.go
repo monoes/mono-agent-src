@@ -265,19 +265,22 @@ func (s strategySink) MarkBadJudgment(ctx context.Context, profile string, gen, 
 // proposals that epoch already holds.
 func (h *StrategyHost) epochContext(ctx context.Context, gen int64) (seq int64, unchecked int, err error) {
 	latest, ok, err := h.store.LatestEpoch(ctx, h.d.Profile, gen)
-	if err != nil || !ok {
+	if err != nil {
 		return 0, 0, err
+	}
+	if ok {
+		seq = latest.Seq
 	}
 	rows, err := h.store.ListNovelty(ctx, h.d.Profile, gen)
 	if err != nil {
 		return 0, 0, err
 	}
 	for _, n := range rows {
-		if n.EpochSeq == latest.Seq && n.Outcome == types.NoveltyAcceptedUnchecked {
+		if n.EpochSeq == seq && n.Outcome == types.NoveltyAcceptedUnchecked {
 			unchecked++
 		}
 	}
-	return latest.Seq, unchecked, nil
+	return seq, unchecked, nil
 }
 
 // NewChainTxAppender writes rows of the store's own audit chain (same table, same MAC scheme, same domain) inside the
