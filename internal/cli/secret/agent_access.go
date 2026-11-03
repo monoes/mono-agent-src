@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
-	"github.com/monoes/mono-agent/internal/operator"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/secrets"
 )
 
@@ -39,7 +39,7 @@ func (d Deps) newSecretAgentAccessCmd() *cobra.Command {
 			}
 			var grant secrets.AccessGrant
 			if len(args) == 1 {
-				if why := operator.Refusal(); why != "" {
+				if why := opgate.Refusal(); why != "" {
 					return clicore.OperatorOnly("agent-access decides whether an agent may use your vault, which is yours to choose: %s; run it yourself in your terminal or the app", why)
 				}
 				if args[0] == "on" || args[0] == "use" || args[0] == "reveal" {
@@ -197,7 +197,7 @@ func (d Deps) newSecretAgentAccessAuditCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if clear {
-				if why := operator.Refusal(); why != "" {
+				if why := opgate.Refusal(); why != "" {
 					return clicore.OperatorOnly("clearing the agent-access audit erases the record of what an agent read, which is yours to decide: %s; run it yourself in your terminal or the app", why)
 				}
 			}
