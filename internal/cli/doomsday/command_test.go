@@ -322,19 +322,21 @@ func TestCharterValidation(t *testing.T) {
 		t.Fatalf("defaults: %+v", l)
 	}
 	mut := map[string]func(*Charter){
-		"depth 13":          func(c *Charter) { c.Limits.TreeDepth = 13 },
-		"depth -1":          func(c *Charter) { c.Limits.TreeDepth = -1 },
-		"concurrent > live": func(c *Charter) { c.Limits.MaxConcurrent = 31 },
-		"no budget choice":  func(c *Charter) { c.Limits.BudgetMicro = 0 },
-		"both budgets":      func(c *Charter) { c.Limits.NoCeiling = true },
-		"no boss pin":       func(c *Charter) { c.Pins.Boss = Pin{} },
-		"same verifier":     func(c *Charter) { c.Pins.Verifier = c.Pins.Boss },
-		"no judging policy": func(c *Charter) { c.Pins.Judging = "" },
-		"ask access full":   func(c *Charter) { c.PerAsk.Access = "full" },
-		"negative ask":      func(c *Charter) { c.PerAsk.Tasks = -1 },
-		"empty goal":        func(c *Charter) { c.Goal = " " },
-		"bad criterion":     func(c *Charter) { c.Criteria = []Criterion{{Kind: "command"}} },
-		"total below live":  func(c *Charter) { c.Limits.MaxTotal = 5 },
+		"depth 13":            func(c *Charter) { c.Limits.TreeDepth = 13 },
+		"depth -1":            func(c *Charter) { c.Limits.TreeDepth = -1 },
+		"concurrent > live":   func(c *Charter) { c.Limits.MaxConcurrent = 31 },
+		"no budget choice":    func(c *Charter) { c.Limits.BudgetMicro = 0 },
+		"both budgets":        func(c *Charter) { c.Limits.NoCeiling = true },
+		"no boss pin":         func(c *Charter) { c.Pins.Boss = Pin{} },
+		"same verifier":       func(c *Charter) { c.Pins.Verifier = c.Pins.Boss },
+		"no judging policy":   func(c *Charter) { c.Pins.Judging = "" },
+		"ask access full":     func(c *Charter) { c.PerAsk.Access = "full" },
+		"ask limit no access": func(c *Charter) { c.PerAsk = PerAsk{Tasks: 3} },
+		"no verifier":         func(c *Charter) { c.Pins.Verifier = Pin{} },
+		"negative ask":        func(c *Charter) { c.PerAsk.Tasks = -1 },
+		"empty goal":          func(c *Charter) { c.Goal = " " },
+		"bad criterion":       func(c *Charter) { c.Criteria = []Criterion{{Kind: "command"}} },
+		"total below live":    func(c *Charter) { c.Limits.MaxTotal = 5 },
 	}
 	for name, m := range mut {
 		cc := c
@@ -347,9 +349,8 @@ func TestCharterValidation(t *testing.T) {
 	cc.Limits.TreeDepth = 12
 	cc.Limits.MaxConcurrent, cc.Limits.ConcurrentAboveLive = 40, true
 	cc.Limits.MaxTotal = 100
-	cc.Pins.Verifier = Pin{}
 	if err := cc.Validate(); err != nil {
-		t.Errorf("a valid charter (depth 12, explicit concurrency, no verifier) refused: %v", err)
+		t.Errorf("a valid charter (depth 12, explicit concurrency) refused: %v", err)
 	}
 	for _, bad := range []string{`{"goal":"x","surprise":1}`, goodCharter + goodCharter, `nope`} {
 		if _, err := load(bad); err == nil {

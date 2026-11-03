@@ -94,7 +94,7 @@ type Pins struct {
 type PerAsk struct {
 	SpendMicro int64  `json:"ask_spend_micro"`
 	Tasks      int    `json:"ask_tasks"`
-	Access     string `json:"ask_access"` // "" or "scoped"; never "full"
+	Access     string `json:"ask_access"` // named when any limit is declared; never "full"
 	Depth      int    `json:"ask_depth"`
 }
 
@@ -234,13 +234,17 @@ func (c Charter) Validate() error {
 	if c.Pins.Judging == "" {
 		add("pin the judging purpose policy")
 	}
-	if c.Pins.Verifier.isSet() && c.Pins.Verifier == c.Pins.Boss {
+	if !c.Pins.Verifier.isSet() {
+		add("pin the finishing verifier: provider, model and version are all needed")
+	} else if c.Pins.Verifier == c.Pins.Boss {
 		add("the verifier is the boss's own model: finishing needs a distinct pinned verifier")
 	}
 	if p := c.PerAsk; p.SpendMicro < 0 || p.Tasks < 0 || p.Depth < 0 {
 		add("a per-ask limit is negative")
-	} else if p.Access != "" && p.Access != "scoped" {
-		add("ask_access %q: only scoped is allowed, never full", p.Access)
+	} else if p.Access == "full" {
+		add("ask_access is never full")
+	} else if p.AutoApproves() && p.Access == "" {
+		add("name ask_access when any per-ask limit is declared")
 	}
 	for i, k := range c.Criteria {
 		switch {

@@ -13,6 +13,8 @@ var ErrOff = errors.New("open-ended (doomsday) mode is not available on this ins
 type Canon struct {
 	Bytes []byte
 	Hash  string // full lowercase hex SHA-256
+	// Handle is the engine's own form of the charter, handed back to Enter.
+	Handle any
 }
 
 // Ack is who acknowledged the lift, recorded with the run (Q9).

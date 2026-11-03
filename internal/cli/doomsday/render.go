@@ -69,11 +69,7 @@ func Render(c Charter, hash string) string {
 		w("  (platform caps are ticked by name only; the \"everything\" preset never ticks them)")
 	}
 	w("Pinned models: boss %s/%s %s, judging policy %s.", c.Pins.Boss.Provider, c.Pins.Boss.Model, c.Pins.Boss.Version, c.Pins.Judging)
-	if c.Pins.Verifier.isSet() {
-		w("  finishing verifier %s/%s %s.", c.Pins.Verifier.Provider, c.Pins.Verifier.Model, c.Pins.Verifier.Version)
-	} else {
-		w("  no finishing verifier is pinned: completion will park for a person.")
-	}
+	w("  finishing verifier %s/%s %s.", c.Pins.Verifier.Provider, c.Pins.Verifier.Model, c.Pins.Verifier.Version)
 	if p := c.PerAsk; p.AutoApproves() {
 		w("The boss may auto-approve an ask only when it is within: spend %.6f USD, %d tasks, access %q, %d levels below the asker.",
 			float64(p.SpendMicro)/1e6, p.Tasks, p.Access, p.Depth)

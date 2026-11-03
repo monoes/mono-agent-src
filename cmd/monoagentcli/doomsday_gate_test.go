@@ -48,6 +48,9 @@ func TestDoomsdayVerbsAreExactlyTheClassifiedOnes(t *testing.T) {
 // charter, the full hash and the script flag still start nothing, and the
 // verb is not listed anywhere.
 func TestDefaultInstallCannotStartARun(t *testing.T) {
+	if doomsdayBuilt {
+		t.Skip("built with -tags doomsday: the mode is compiled in on purpose")
+	}
 	if doomsdayEngine != nil {
 		t.Fatal("an engine is wired by default: the mode would be on")
 	}
