@@ -20,6 +20,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/dbconn"
 	"github.com/monoes/mono-agent/internal/dynorg"
 	"github.com/monoes/mono-agent/internal/health"
 	"github.com/monoes/mono-agent/internal/monomind"
@@ -269,6 +270,7 @@ func updateCoderSettings(ctx context.Context, db *sql.DB, change func(s *coderSe
 		time.Sleep(100 * time.Millisecond << attempt)
 	}
 	if err != nil {
+		dbconn.AbandonBegin(conn)
 		return coderSettings{}, fmt.Errorf("saving coder settings: %w", err)
 	}
 	committed := false
