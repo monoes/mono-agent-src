@@ -166,7 +166,18 @@ func tokenMAC(key []byte, profile, conv, turn, hash, expires string, pid int, st
 // IssueSessionToken mints the token of the turn turnID of a session and replaces
 // the tokens the session had. Only the host calls it. The token identifies no one
 // until BindSessionToken names the turn's process.
-func (s *Store) IssueSessionToken(profileID, conversationID, turnID string) (string, error) {
+func (s *Store) IssueSessionToken(profileID, conversationID, turnID string) (tok string, err error) {
+	if s.dispatch == nil {
+		return s.issueSessionToken(profileID, conversationID, turnID)
+	}
+	gerr := s.gated(PointTokenMint, func() error { tok, err = s.issueSessionToken(profileID, conversationID, turnID); return err })
+	if err == nil && gerr != nil {
+		return "", gerr // the barrier refused: nothing was minted
+	}
+	return tok, gerr
+}
+
+func (s *Store) issueSessionToken(profileID, conversationID, turnID string) (string, error) {
 	if profileID == "" || conversationID == "" || turnID == "" {
 		return "", errors.New("coder host: a session token needs a profile, a conversation and a turn")
 	}

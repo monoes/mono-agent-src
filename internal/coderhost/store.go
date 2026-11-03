@@ -126,6 +126,8 @@ type Store struct {
 	depthPolicy DepthPolicy
 	// doomsday routes a boss's typed operations (SetDoomsdayRoute); nil: the mode is off and nothing changes.
 	doomsday *DoomsdayRoute
+	// dispatch gives the store's own dispatches (spawn, token mint) a ticket (SetDispatchGate); nil: no ticket.
+	dispatch DispatchGate
 	// v2 verifies session tokens of the v2 family (verify_v2.go); nil: v2 secrets are denied.
 	v2 *procbind.V2Check
 	// afterPolicyRead lets a test act between SetPolicy's read and its write.
