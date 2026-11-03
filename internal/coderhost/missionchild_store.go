@@ -916,56 +916,55 @@ func (s *Store) missionBudgetRefusal(q querier, profileID string, sessionID int6
 // when raisedConv is not empty: a child that is also a task session of the mission contributes the larger of its cap
 // and its task hold, so a raise the task hold covers adds nothing.
 func (s *Store) missionBudgetRefusalFor(q querier, profileID string, sessionID int64, lead string, carve float64, raisedConv string) (string, error) {
-	var budget, spent float64
-	if err := q.QueryRow(`SELECT budget_usd, spent_usd FROM task_sessions WHERE profile_id = ? AND id = ?`, profileID, sessionID).Scan(&budget, &spent); err != nil {
-		return "", err
-	}
-	if budget <= 0 {
-		return s.admitCarve(q, profileID, sessionID, carve, raisedConv)
-	}
-	if carve <= 0 {
-		return "the mission has a budget, so a child session needs a positive budget of its own (give the task one, or set a default for the mission)", nil
-	}
-	// What the lead's children hold, and whether one of them is lost, come from v_mission_child_held (migration 150),
-	// the same view the worker reservation store reads, so the two stores see each other's holds. A lost child
-	// (its cost record is gone) holds the whole remainder of the mission, once: the view's held is then the larger
-	// of that and the rest, never their sum.
-	var held float64
-	var lostN int
-	if err := q.QueryRow(`SELECT COALESCE(MAX(held_usd), 0), COALESCE(MAX(lost), 0) FROM v_mission_child_held WHERE profile_id = ? AND session_id = ?`,
-		profileID, sessionID).Scan(&held, &lostN); err != nil {
-		return "", err
-	}
-	// The workers' share: the unspent part of the live and expired worker reservations on the mission's session.
-	workers, err := tasks.ReservationHeld(context.Background(), ctxQuerier{q}, profileID, sessionID)
-	if err != nil {
-		return "", err
-	}
-	held += float64(workers) / 1e6
-	if lostN > 0 {
-		// The freeze is a refusal, not a number: the comparison below has a float tolerance that a tiny carve would slip under.
-		left := math.Max(budget-spent, 0)
-		return fmt.Sprintf("a carve of $%.2f would pass the mission's remaining budget ($%.2f left, $%.2f held by child sessions): a child session of this mission lost its cost record, so the mission accepts no new child session until the operator resolves it (coder sessions mission-children resolve-charge)", carve, left, math.Max(held, left)), nil
-	}
-	if held+carve > budget-spent+1e-9 {
-		return fmt.Sprintf("a carve of $%.2f would pass the mission's remaining budget ($%.2f left, $%.2f held by child sessions)", carve, budget-spent, held), nil
-	}
-	return s.admitCarve(q, profileID, sessionID, carve, raisedConv)
+	// One snapshot for the whole decision (a caller that passes the database, not a transaction, gets one here):
+	// the budget, the spend, the workers' holds, the children's holds and the admission all come from the same
+	// commitment, so a Reserve or a Settle that commits meanwhile cannot make two of them disagree.
+	return inSnapshot(q, func(q querier) (string, error) {
+		ctx := context.Background()
+		c, err := tasks.ReadCommitment(ctx, ctxQuerier{q}, profileID, sessionID)
+		if err != nil {
+			return "", err
+		}
+		if c.Budget <= 0 {
+			return s.admitCarve(q, profileID, sessionID, carve, raisedConv, c)
+		}
+		if carve <= 0 {
+			return "the mission has a budget, so a child session needs a positive budget of its own (give the task one, or set a default for the mission)", nil
+		}
+		// A lost child (its cost record is gone) holds the whole remainder of the mission, once: the held below
+		// (the larger of that and the rest, from v_mission_child_held, plus the workers' share) is then never their sum.
+		var lostN int
+		if err := q.QueryRow(`SELECT COALESCE(MAX(lost), 0) FROM v_mission_child_held WHERE profile_id = ? AND session_id = ?`,
+			profileID, sessionID).Scan(&lostN); err != nil {
+			return "", err
+		}
+		held, budget, spent := c.Held, c.Budget, c.Spent
+		if lostN > 0 {
+			// The freeze is a refusal, not a number: the comparison below has a float tolerance that a tiny carve would slip under.
+			left := math.Max(budget-spent, 0)
+			return fmt.Sprintf("a carve of $%.2f would pass the mission's remaining budget ($%.2f left, $%.2f held by child sessions): a child session of this mission lost its cost record, so the mission accepts no new child session until the operator resolves it (coder sessions mission-children resolve-charge)", carve, left, math.Max(held, left)), nil
+		}
+		if held+carve > budget-spent+1e-9 {
+			return fmt.Sprintf("a carve of $%.2f would pass the mission's remaining budget ($%.2f left, $%.2f held by child sessions)", carve, budget-spent, held), nil
+		}
+		return s.admitCarve(q, profileID, sessionID, carve, raisedConv, c)
+	})
 }
 
 // admitCarve is the rest of the admission: the reservation store's own rule (tasks.AdmitHold), which counts the
 // session's whole commitment (its task-session children at any depth and their workers, not only what the host
-// holds) and every budgeted ancestor, including for a session with no budget of its own.
-func (s *Store) admitCarve(q querier, profileID string, sessionID int64, carve float64, raisedConv string) (string, error) {
+// holds) and every budgeted ancestor, including for a session with no budget of its own. c is the commitment the
+// caller read in the same snapshot.
+func (s *Store) admitCarve(q querier, profileID string, sessionID int64, carve float64, raisedConv string, c tasks.Commitment) (string, error) {
 	if carve <= 0 {
 		return "", nil
 	}
 	var why string
 	var err error
 	if raisedConv != "" {
-		why, err = tasks.AdmitRaise(context.Background(), ctxQuerier{q}, profileID, sessionID, raisedConv, carve)
+		why, err = tasks.AdmitRaiseWith(context.Background(), ctxQuerier{q}, profileID, sessionID, raisedConv, carve, c)
 	} else {
-		why, err = tasks.AdmitHold(context.Background(), ctxQuerier{q}, profileID, sessionID, carve)
+		why, err = tasks.AdmitHoldWith(context.Background(), ctxQuerier{q}, profileID, sessionID, carve, c)
 	}
 	if err != nil || why == "" {
 		return "", err
