@@ -228,13 +228,22 @@ func TestRegisterOperatorGateBindsTheGateToTheConfig(t *testing.T) {
 	}
 }
 
-// The wiring: the real tree registers the gate (not under test binaries, which register their own).
+// The wiring: building the real tree registers the turn-aware gate (the branch tests normally skip), and a
+// throwaway probe tree does not.
 func TestTheRealCommandTreeRegistersTheOperatorGate(t *testing.T) {
-	b, err := os.ReadFile("root.go")
-	if err != nil {
-		t.Fatal(err)
+	asOperatorProcess(t)
+	t.Setenv(taskcli.PersonTokenEnv()[0], "x")
+	opgate.SetForTest(t, nil) // restores the default after the test, whatever the build registers
+	prev := inTestBinary
+	inTestBinary = func() bool { return false } // what the production binary answers
+	t.Cleanup(func() { inTestBinary = prev })
+
+	newProbeRootCmd()
+	if why := opgate.Refusal(); why != "" && strings.Contains(why, "agent token") {
+		t.Fatalf("a probe tree registered the gate: %s", why)
 	}
-	if !strings.Contains(string(b), "registerOperatorGate(cfg)") {
-		t.Fatal("root.go does not register the operator gate")
+	newRootCmd()
+	if why := opgate.Refusal(); !strings.Contains(why, "agent token") {
+		t.Fatalf("the real tree did not register the turn-aware gate (a token holder got %q)", why)
 	}
 }

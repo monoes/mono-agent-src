@@ -4,7 +4,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -44,56 +43,54 @@ type allowed struct {
 // legacyMarkerChecks is the T1 allow-list: file (slash-separated from the repo root) to the number of
 // occurrences and the reason. A new occurrence, or an entry that no longer matches, fails the test.
 var legacyMarkerChecks = map[string]allowed{
-	"cmd/monoagentcli/agent.go":                {1, pr2},
-	"cmd/monoagentcli/agent_mode.go":           {1, pr2},
-	"cmd/monoagentcli/extension_adapter.go":    {1, pr2},
-	"cmd/monoagentcli/jev_adapter.go":          {1, pr2},
-	"cmd/monoagentcli/automation.go":           {1, pr3},
-	"cmd/monoagentcli/record.go":               {1, pr3},
-	"cmd/monoagentcli/browser_allow.go":        {2, pr3},
-	"cmd/monoagentcli/browser_permissions.go":  {2, pr3},
-	"internal/cli/chat/coder_queue.go":         {1, pr3},
-	"internal/cli/record/analyze.go":           {1, pr3},
-	"internal/cli/profile/documents_remove.go": {1, pr4},
-	"internal/cli/profile/edit.go":             {1, pr4},
-	"internal/cli/profile/folder.go":           {1, pr4},
-	"internal/cli/people/messages_drafts.go":   {1, pr4},
-	"internal/cli/people/review.go":            {1, heldB + " (people review approve is converted in PR 4)"},
-	"internal/cli/org/role.go":                 {1, pr5},
-	"internal/cli/org/profile_lifecycle.go":    {1, pr5},
-	"cmd/monoagentcli/login.go":                {1, heldB + " (login of a builtin package)"},
-	"cmd/monoagentcli/hil.go":                  {6, gateImp + " (notOperator in gateVerdict); publication register is held: class B"},
-	"internal/cli/node/run.go":                 {3, heldB + " (node run, node run vault.secret_get)"},
-	"internal/cli/secret/secret.go":            {2, heldB + " (secret reveal under a Reveal grant)"},
-	"internal/cli/revealgate/revealgate.go":    {1, "RefuseMarkerOnly, the marker-only helper of the held class B reveal paths"},
-	"internal/cli/people/import.go":            {4, heldB + " (people import)"},
-	"internal/cli/org/approve_guard.go":        {2, heldB + " (org approve)"},
-	"internal/cli/org/autonomy_guard.go":       {3, heldB + " (org autonomy)"},
-	"internal/cli/org/grants.go":               {1, heldB + " (org grant add)"},
-	"internal/cli/org/sign.go":                 {2, "class C: org sign has its own signature guard; not decided (issue 1333)"},
-	"internal/nodes/agent_run_gate.go":         {1, heldB + " (node run of browser packages)"},
-	"internal/nodes/browserjev/gate.go":        {1, "engine node gate (IsAgentContext), not a CLI verb gate"},
-	"internal/nodes/publication/register.go":   {1, heldB + " (publication register)"},
-	"cmd/monoagentcli/main.go":                 {1, reader + " (log filter)"},
-	"cmd/monoagentcli/task.go":                 {1, "task verbs have their own gate (personGate, NotOperator)"},
-	"cmd/monoagentcli/task_session_guard.go":   {1, "task-session scoping, not a verb gate"},
-	"internal/cli/task/task.go":                {2, "task verbs have their own gate (personGate, NotOperator)"},
-	"internal/browserctl/context.go":           {1, "definition of IsAgentContext"},
-	"internal/browserctl/permissions.go":       {1, "browser permission engine, not a CLI verb gate"},
-	"internal/cli/doctor/doctor.go":            {1, reader + " (file previews)"},
-	"internal/cli/hil/hil.go":                  {1, reader + " (reply tokens hidden from an agent's list)"},
-	"internal/cli/secret/reserved.go":          {2, reader + " (the reserved entry's write context and message)"},
-	"internal/cli/secret/update.go":            {1, reader + " (warnDropped)"},
-	"internal/cli/summary/summary.go":          {1, reader},
-	"internal/cli/workflowedit/node.go":        {1, reader},
-	"internal/cli/workflowmanage/manage.go":    {1, reader},
-	"internal/cli/workflowrun/execution.go":    {2, reader},
-	"internal/cli/workflowrun/summary.go":      {2, reader},
-	"internal/config/writeguard.go":            {1, "reserved config writes, engine level"},
+	"cmd/monoagentcli/agent.go":                     {1, pr2},
+	"cmd/monoagentcli/agent_mode.go":                {1, pr2},
+	"cmd/monoagentcli/extension_adapter.go":         {1, pr2},
+	"cmd/monoagentcli/jev_adapter.go":               {1, pr2},
+	"cmd/monoagentcli/automation.go":                {1, pr3},
+	"cmd/monoagentcli/record.go":                    {1, pr3},
+	"cmd/monoagentcli/browser_allow.go":             {2, pr3},
+	"cmd/monoagentcli/browser_permissions.go":       {2, pr3},
+	"internal/cli/chat/coder_queue.go":              {1, pr3},
+	"internal/cli/record/analyze.go":                {1, pr3},
+	"internal/cli/profile/documents_remove.go":      {1, pr4},
+	"internal/cli/profile/edit.go":                  {1, pr4},
+	"internal/cli/profile/folder.go":                {1, pr4},
+	"internal/cli/people/messages_drafts.go":        {1, pr4},
+	"internal/cli/people/review.go":                 {1, heldB + " (people review approve is converted in PR 4)"},
+	"internal/cli/org/role.go":                      {1, pr5},
+	"internal/cli/org/profile_lifecycle.go":         {1, pr5},
+	"cmd/monoagentcli/login.go":                     {1, heldB + " (login of a builtin package)"},
+	"cmd/monoagentcli/hil.go":                       {6, gateImp + " (notOperator in gateVerdict); publication register is held: class B"},
+	"internal/cli/node/run.go":                      {3, heldB + " (node run, node run vault.secret_get)"},
+	"internal/cli/secret/secret.go":                 {2, heldB + " (secret reveal under a Reveal grant)"},
+	"internal/cli/revealgate/revealgate.go":         {1, "RefuseMarkerOnly, the marker-only helper of the held class B reveal paths"},
+	"internal/cli/people/import.go":                 {4, heldB + " (people import)"},
+	"internal/cli/org/approve_guard.go":             {2, heldB + " (org approve)"},
+	"internal/cli/org/autonomy_guard.go":            {3, heldB + " (org autonomy)"},
+	"internal/cli/org/grants.go":                    {1, heldB + " (org grant add)"},
+	"internal/cli/org/sign.go":                      {2, "class C: org sign has its own signature guard; not decided (issue 1333)"},
+	"internal/nodes/agent_run_gate.go":              {1, heldB + " (node run of browser packages)"},
+	"internal/nodes/browserjev/gate.go":             {1, "engine node gate (IsAgentContext), not a CLI verb gate"},
+	"internal/nodes/publication/register.go":        {1, heldB + " (publication register)"},
+	"cmd/monoagentcli/main.go":                      {1, reader + " (log filter)"},
+	"cmd/monoagentcli/task.go":                      {2, "task verbs have their own gate (personGate, NotOperator; operator.Caller names who added a task)"},
+	"cmd/monoagentcli/task_session_guard.go":        {1, "task-session scoping, not a verb gate"},
+	"internal/cli/task/task.go":                     {2, "task verbs have their own gate (personGate, NotOperator)"},
+	"internal/browserctl/context.go":                {1, "definition of IsAgentContext"},
+	"internal/browserctl/permissions.go":            {1, "browser permission engine, not a CLI verb gate"},
+	"internal/cli/doctor/doctor.go":                 {1, reader + " (file previews)"},
+	"internal/cli/hil/hil.go":                       {1, reader + " (reply tokens hidden from an agent's list)"},
+	"internal/cli/secret/reserved.go":               {2, reader + " (the reserved entry's write context and message)"},
+	"internal/cli/secret/update.go":                 {1, reader + " (warnDropped)"},
+	"internal/cli/summary/summary.go":               {1, reader},
+	"internal/cli/workflowaitask/workflowaitask.go": {1, reader + " (the audit line's actor)"},
+	"internal/cli/workflowedit/node.go":             {1, reader},
+	"internal/cli/workflowmanage/manage.go":         {1, reader},
+	"internal/cli/workflowrun/execution.go":         {2, reader},
+	"internal/cli/workflowrun/summary.go":           {2, reader},
+	"internal/config/writeguard.go":                 {1, "reserved config writes, engine level"},
 }
-
-var legacyCheck = regexp.MustCompile(`operator\.Refusal\b|operator\.Marker\b|\bnotOperator\b|IsAgentContext|revealgate\.RefuseMarkerOnly`)
-var trailingComment = regexp.MustCompile(`\s//.*$`)
 
 func TestNoMarkerOnlyOperatorChecksOutsideTheGate(t *testing.T) {
 	found := map[string]int{}
@@ -118,12 +115,7 @@ func TestNoMarkerOnlyOperatorChecksOutsideTheGate(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			for _, line := range strings.Split(string(b), "\n") {
-				if strings.HasPrefix(strings.TrimSpace(line), "//") {
-					continue
-				}
-				found[rel] += len(legacyCheck.FindAllString(trailingComment.ReplaceAllString(line, ""), -1))
-			}
+			found[rel] += countMarkerOnlyChecks(t, rel, b)
 			return nil
 		})
 		if err != nil {
