@@ -16,6 +16,9 @@ func (s *SQLStore) auditMAC(profile string, generation, seq int64, prev []byte, 
 // reordering or replacing a row breaks the chain; (profile, generation, seq) is unique, so two writers cannot both
 // extend the same head.
 func (s *SQLStore) AppendAudit(ctx context.Context, profile string, generation int64, kind, payload string) (AuditRow, error) {
+	if reservedKind(kind) {
+		return AuditRow{}, ErrReservedKind
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return AuditRow{}, err
