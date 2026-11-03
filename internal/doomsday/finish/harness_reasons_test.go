@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"sync/atomic"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/doomsday/finish"
@@ -76,22 +75,38 @@ func netNamespacesWork() bool {
 	return c.Run() == nil
 }
 
-// A subject that keeps changing while it is snapshotted parks with subject-moving (it was subject-changed).
+// A subject that changes between the snapshot and the live digest pass, on every try, parks with subject-moving (it was
+// subject-changed). The change is made from the harness hook at that exact point, not by a racing writer.
 func TestAMovingSubjectParksWithSubjectMoving(t *testing.T) {
 	r := newRig(t, []store.Criterion{{Kind: "file", Spec: "a.txt", Expected: "exists"}})
 	r.h.FreezeTries = 1
-	var stop atomic.Bool
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for i := 0; !stop.Load(); i++ {
-			_ = os.WriteFile(filepath.Join(r.subject, "a.txt"), []byte(strconv.Itoa(i)), 0o644)
+	n := 0
+	r.h.Hook = func(p string) error {
+		if p == "freeze.snapshot-taken" {
+			n++
+			return os.WriteFile(filepath.Join(r.subject, "a.txt"), []byte(strconv.Itoa(n)), 0o644)
 		}
-	}()
+		return nil
+	}
 	rep := r.advance()
-	stop.Store(true)
-	<-done
-	if rep.State != finish.StateParked || rep.Reason != finish.ReasonSubjectMoving {
+	if n != 1 || rep.State != finish.StateParked || rep.Reason != finish.ReasonSubjectMoving {
+		t.Fatalf("tries=%d %+v", n, rep)
+	}
+}
+
+// A change after the freeze (the snapshot and the live digest agreed) is not "moving": the recheck parks with
+// subject-changed. Same hook mechanism, the other side of the freeze.
+func TestASubjectChangedAfterTheFreezeParksWithSubjectChanged(t *testing.T) {
+	r := newRig(t, []store.Criterion{{Kind: "file", Spec: "a.txt", Expected: "exists"}})
+	r.h.FreezeTries = 1
+	r.h.Hook = func(p string) error {
+		if p == "freeze.snapshotted" {
+			return os.WriteFile(filepath.Join(r.subject, "a.txt"), []byte("after the freeze"), 0o644)
+		}
+		return nil
+	}
+	rep := r.advance()
+	if rep.State != finish.StateParked || rep.Reason != finish.ReasonSubjectChanged {
 		t.Fatalf("%+v", rep)
 	}
 }

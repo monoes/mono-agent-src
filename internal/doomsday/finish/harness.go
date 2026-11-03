@@ -39,7 +39,7 @@ type Harness struct {
 	// NewSandbox makes the confined environment of one round: the verification unit is created, recorded and a Placer
 	// bound to it. end proves the unit gone and removes the round's scratch; it is always called.
 	NewSandbox func(ctx context.Context, round int64) (sb Sandbox, end func(), err error)
-	// Hook names the pause points of the tests ("freeze.snapshotted", "evidence.recorded", "after-last-evidence",
+	// Hook names the pause points of the tests ("freeze.snapshot-taken" (between the snapshot and the live digest pass), "freeze.snapshotted", "evidence.recorded", "after-last-evidence",
 	// "after-full-digest", "after-recheck", and the Finisher's review.* and commit); an error models a crash there.
 	Hook func(point string) error
 	// FreezeTries bounds the attempts to take a snapshot of a subject that does not move meanwhile (default 3).
@@ -142,6 +142,10 @@ func (h *Harness) freeze(ctx context.Context, f Facts) (Report, error) {
 			return Report{State: f.State}, err
 		}
 		tree = t
+		if err := h.at("freeze.snapshot-taken"); err != nil { // between the snapshot and the live digest pass
+			RemoveTree(dir)
+			return Report{State: f.State}, err
+		}
 		live, err := DigestTree(h.Subject, "")
 		moving = err != nil || live.Digest != tree.Digest
 	}
