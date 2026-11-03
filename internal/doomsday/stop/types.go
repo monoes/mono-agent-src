@@ -38,6 +38,9 @@ const (
 	DefaultTClose = 2 * time.Second
 	DefaultTHung  = 30 * time.Second
 	DefaultTMerge = 10 * time.Minute
+	// DefaultTMergeHard bounds how long past T_merge a step that is still running keeps its operation open
+	// (note 13.3 R2); after it the operation is INCOMPLETE and the kill is no longer deferred.
+	DefaultTMergeHard = 10 * time.Minute
 )
 
 // Kind is the effect kind of a ticket.

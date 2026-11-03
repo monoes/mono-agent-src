@@ -177,8 +177,7 @@ func TestT18TheBoundPassingInsideTheMergeStepDoesNotCutItShort(t *testing.T) {
 }
 
 // R2 (note 13.3 section 7): a running step keeps its operation CONTINUING past T_merge, so Stop's deferral of the
-// containment kill still covers the git command. That is the gate's property (internal/doomsday/stop/gate_ops.go);
-// at the time of writing the gate ends the operation at expiry even while a step runs.
+// containment kill still covers the git command. That is the gate's property (internal/doomsday/stop/gate_ops.go).
 func TestR2ARunningStepKeepsItsOperationContinuingPastTheBound(t *testing.T) {
 	clk := newDDClock()
 	r := newDDRigClock(t, clk)
@@ -195,7 +194,7 @@ func TestR2ARunningStepKeepsItsOperationContinuingPastTheBound(t *testing.T) {
 		return nil
 	})
 	if len(during) == 0 {
-		t.Skip("OPEN: the gate ends an operation at T_merge even while a step runs (stop/gate_ops.go expireLocked), so the kill deferral would end under the running git command; needs c9's decision to edit the stop package")
+		t.Fatal("the gate ended the operation at T_merge while its step was running: the kill deferral would end under the command")
 	}
 }
 
