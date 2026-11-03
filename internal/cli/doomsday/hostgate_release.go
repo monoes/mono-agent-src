@@ -100,7 +100,9 @@ func (g *HostGate) BeforeRelease(ctx context.Context, _, _, turnID string, bound
 		}
 	}
 	if err != nil {
-		gate.Abort(t)
+		if t != nil { // Admit refused: there is no ticket to abort
+			gate.Abort(t)
+		}
 		return refuse("%v", err)
 	}
 	return nil
