@@ -71,6 +71,9 @@ type StrategyExtras struct {
 	JudgeExec func(ctx context.Context, opts monomind.ExecOptions, onEvent func(monomind.Event)) (*monomind.TurnResult, error)
 	Clock     epoch.Clock
 	Finish    func(ctx context.Context) (BeginReport, error)
+	// Similar is the memory and knowledge lookup of the novelty gate. Nil is the production default today: the corpus is
+	// then unreachable and the gate accepts at most one unchecked proposal per epoch (Q4), still ledgered.
+	Similar SimilarFunc
 }
 
 // StrategyDeps builds the dependencies of the strategy host over the wiring: the witnessed sequence, the store's strategy
@@ -109,6 +112,7 @@ func (w Wiring) StrategyHostDeps(ctx context.Context, x StrategyExtras) (Strateg
 			return func(pin string) bool { return v == "" || pin == v }
 		},
 		SubjectChangedAt: w.subjectChangedAt,
+		Similar:          x.Similar,
 	}
 	return d, nil
 }
@@ -152,6 +156,11 @@ func (w Wiring) StrategyReader(db *sql.DB, keys sstore.Keyer) StrategyReader {
 // ops.StrategyOps, whose own allowlist (AllowedStrategy) is the only one it reads: finish.begin, strategy.epoch and every
 // unknown name are refused there.
 func (w Wiring) BossStrategy(ctx context.Context, session int64, op string, args json.RawMessage) (ops.StrategyResult, error) {
+	return w.BossStrategyWith(ctx, StrategyExtras{}, session, op, args)
+}
+
+// BossStrategyWith is BossStrategy with the seams of the host replaced (tests).
+func (w Wiring) BossStrategyWith(ctx context.Context, x StrategyExtras, session int64, op string, args json.RawMessage) (ops.StrategyResult, error) {
 	o := w.Ops(nil)
 	act, ok, err := o.Adapter.Active(ctx, w.Profile)
 	if err != nil {
@@ -160,7 +169,7 @@ func (w Wiring) BossStrategy(ctx context.Context, session int64, op string, args
 	if !ok {
 		return ops.StrategyResult{}, ops.ErrNoCharter
 	}
-	d, err := w.StrategyHostDeps(ctx, StrategyExtras{})
+	d, err := w.StrategyHostDeps(ctx, x)
 	if err != nil {
 		return ops.StrategyResult{}, err
 	}
