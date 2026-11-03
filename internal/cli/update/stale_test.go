@@ -85,9 +85,12 @@ func TestTheDaemonServicesExeIsReplacedFromTheVerifiedAsset(t *testing.T) {
 }
 
 func TestTheDaemonServicesExeIsOnlyReportedWhenItCannotBeReplacedFromHere(t *testing.T) {
-	t.Run("a symbolic link", func(t *testing.T) {
+	t.Run("a link to a file that may be replaced: the file behind it is, the link stays", func(t *testing.T) {
 		r := newStaleRig(t, true)
-		real := filepath.Join(t.TempDir(), "real")
+		real := filepath.Join(t.TempDir(), "share", "monoagentcli")
+		if err := os.MkdirAll(filepath.Dir(real), 0o755); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(real, []byte(oldAsset), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -99,13 +102,57 @@ func TestTheDaemonServicesExeIsOnlyReportedWhenItCannotBeReplacedFromHere(t *tes
 		}
 		r.versions[r.exe], r.versions[real] = "0.176.0", "0.176.0" // the probe asks the file the name resolves to
 		got := r.d.staleCLIs(context.Background(), "v0.215.7", nil, []byte(newAsset))
-		if len(got) != 1 || got[0].Action != "stale" || !strings.Contains(got[0].Message, "symbolic link") || !strings.Contains(got[0].Message, r.exe+" update") {
+		if len(got) != 1 || got[0].Action != "updated" || !got[0].runsDaemon {
 			t.Fatalf("stale = %+v", got)
 		}
-		if b, _ := os.ReadFile(real); string(b) != oldAsset {
-			t.Fatal("a file behind a symbolic link was rewritten")
+		if b, _ := os.ReadFile(real); string(b) != newAsset {
+			t.Fatalf("the file behind the link was not replaced: %q", b)
+		}
+		if fi, err := os.Lstat(r.exe); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("the link was replaced by a file: %v", err)
 		}
 	})
+	for name, prep := range map[string]func(t *testing.T, r *staleRig, real string){
+		"the folder of the link is writable by others": func(t *testing.T, r *staleRig, real string) {
+			if err := os.Chmod(filepath.Dir(r.exe), 0o777); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"the file behind the link is in a folder others can write": func(t *testing.T, r *staleRig, real string) {
+			if err := os.Chmod(filepath.Dir(real), 0o777); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"the file behind the link is writable by others": func(t *testing.T, r *staleRig, real string) {
+			if err := os.Chmod(real, 0o777); err != nil {
+				t.Fatal(err)
+			}
+		},
+	} {
+		t.Run("a link is not followed when "+name, func(t *testing.T) {
+			r := newStaleRig(t, true)
+			real := filepath.Join(t.TempDir(), "share", "monoagentcli")
+			if err := os.MkdirAll(filepath.Dir(real), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(real, []byte(oldAsset), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			_ = os.Remove(r.exe)
+			if err := os.Symlink(real, r.exe); err != nil {
+				t.Fatal(err)
+			}
+			prep(t, r, real)
+			r.versions[r.exe], r.versions[real] = "0.176.0", "0.176.0"
+			got := r.d.staleCLIs(context.Background(), "v0.215.7", nil, []byte(newAsset))
+			if len(got) != 1 || got[0].Action != "stale" {
+				t.Fatalf("stale = %+v", got)
+			}
+			if b, _ := os.ReadFile(real); string(b) != oldAsset {
+				t.Fatal("a file behind a link that fails a rule was rewritten")
+			}
+		})
+	}
 	t.Run("no verified asset in hand (update --app)", func(t *testing.T) {
 		r := newStaleRig(t, true)
 		r.versions[r.exe] = "0.176.0"
@@ -166,14 +213,6 @@ func TestAMonoagentcliOnPathIsReplacedUnderTheSameRulesAsTheDaemonsExe(t *testin
 		}
 	})
 	for name, prep := range map[string]func(t *testing.T, bin string){
-		"a symbolic link": func(t *testing.T, bin string) {
-			real := filepath.Join(t.TempDir(), "real")
-			_ = os.WriteFile(real, []byte(oldAsset), 0o755)
-			_ = os.Remove(bin)
-			if err := os.Symlink(real, bin); err != nil {
-				t.Fatal(err)
-			}
-		},
 		"others can write the file":   func(t *testing.T, bin string) { _ = os.Chmod(bin, 0o777) },
 		"others can write the folder": func(t *testing.T, bin string) { _ = os.Chmod(filepath.Dir(bin), 0o777) },
 	} {
@@ -444,6 +483,11 @@ func TestUpdateReplacesTheDaemonServicesExeBeforeItRestartsTheDaemon(t *testing.
 	if b, _ := os.ReadFile(onPath); string(b) != newAsset {
 		t.Errorf("the CLI on PATH was not replaced: %q", b)
 	}
+	for _, dir := range []string{filepath.Dir(r.exe), filepath.Dir(onPath), filepath.Dir(self)} {
+		if m, _ := filepath.Glob(filepath.Join(dir, ".monoagentcli-*")); len(m) != 0 {
+			t.Errorf("files left behind in %s after a successful update: %v", dir, m)
+		}
+	}
 	if strings.Count(out, "replaced it with v9.9.9") != 2 {
 		t.Errorf("output does not say that the daemon's exe and the PATH CLI were both replaced:\n%s", out)
 	}
@@ -645,12 +689,16 @@ func TestTheBundledCLIAWrapperAndASharedFileAreNeverReplaced(t *testing.T) {
 			t.Fatal(err)
 		}
 		r.d.LookPath = func(string) (string, error) { return link, nil }
+		r.versions[link] = "0.176.0"
 		got := r.d.staleCLIs(context.Background(), "v0.215.7", nil, []byte(newAsset))
-		if len(got) != 1 || got[0].Role != "path" || got[0].Action != "stale" {
+		if len(got) != 1 || got[0].Role != "path" || got[0].Action != "updated" || !got[0].runsDaemon {
 			t.Fatalf("stale = %+v", got)
 		}
-		if b, _ := os.ReadFile(r.exe); string(b) != oldAsset {
-			t.Fatal("the PATH CLI was replaced through the daemon's name for it")
+		if b, _ := os.ReadFile(r.exe); string(b) != newAsset {
+			t.Fatal("the file both names lead to was not replaced, so the daemon's restart would run the old one")
+		}
+		if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("the link was replaced by a file: %v", err)
 		}
 	})
 }
@@ -1091,5 +1139,97 @@ func TestWithNoDaemonRunningTheOldBinaryIsDropped(t *testing.T) {
 	}
 	if l := leftovers(t, rr.staleRig); len(l) != 0 {
 		t.Fatalf("left behind: %v", l)
+	}
+}
+
+// --- the swap
+
+// The swap keeps the target in place at every moment: the new file is renamed over it, and the old one is held by a link or a
+// copy under a name of its own until Commit; Restore puts it back. The new file has exactly the mode 0755.
+func TestTheSwapReplacesInOneRenameAndKeepsTheOldFileUntilCommit(t *testing.T) {
+	for name, noLink := range map[string]bool{"with a hard link": false, "with a copy where there are no links": true} {
+		t.Run(name, func(t *testing.T) {
+			if noLink {
+				old := linkFile
+				linkFile = func(string, string) error { return errors.New("no hard links here") }
+				defer func() { linkFile = old }()
+			}
+			dir := t.TempDir()
+			target := filepath.Join(dir, "monoagentcli")
+			if err := os.WriteFile(target, []byte(oldAsset), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			r, err := installBinaryKeep([]byte(newAsset), target, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if b, _ := os.ReadFile(target); string(b) != newAsset {
+				t.Fatalf("not replaced: %q", b)
+			}
+			if fi, _ := os.Stat(target); fi.Mode().Perm() != 0o755 {
+				t.Errorf("the new file's mode is %v, want 0755", fi.Mode().Perm())
+			}
+			if b, _ := os.ReadFile(r.bak); string(b) != oldAsset {
+				t.Fatalf("the old file is not kept: %q", b)
+			}
+			if err := r.Restore(); err != nil {
+				t.Fatal(err)
+			}
+			if b, _ := os.ReadFile(target); string(b) != oldAsset {
+				t.Fatalf("not restored: %q", b)
+			}
+			if m, _ := filepath.Glob(filepath.Join(dir, ".monoagentcli-*")); len(m) != 0 {
+				t.Fatalf("left behind: %v", m)
+			}
+		})
+	}
+}
+
+// `update` found through a link replaces the file behind it and keeps the link.
+func TestUpdateOfABinaryFoundThroughALinkReplacesTheFileBehindIt(t *testing.T) {
+	asset := updateAssetName()
+	sum := sha256.Sum256([]byte(newAsset))
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/latest":
+			fmt.Fprintf(w, `{"tag_name":"v9.9.9","assets":[{"name":%q,"browser_download_url":"%s/bin"},{"name":"SHA256SUMS.txt","browser_download_url":"%s/sums"}]}`, asset, srv.URL, srv.URL)
+		case "/bin":
+			_, _ = w.Write([]byte(newAsset))
+		case "/sums":
+			fmt.Fprintf(w, "%s  %s\n", hex.EncodeToString(sum[:]), asset)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	dir := t.TempDir()
+	real := filepath.Join(dir, "share", "monoagentcli")
+	link := filepath.Join(dir, "bin", "monoagentcli")
+	for _, d := range []string{filepath.Dir(real), filepath.Dir(link)} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(real, []byte(oldAsset), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	r := newStaleRig(t, false)
+	d := r.d
+	d.LatestReleaseURL = srv.URL + "/latest"
+	d.Version = func() string { return "v1.0.0" }
+	d.JSONOutput = func() bool { return false }
+	d.SelfPath = func() (string, error) { return link, nil }
+	captureStdout(t, func() {
+		if err := d.run(NewCommand(d)); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("the link was replaced by a file: %v", err)
+	}
+	if b, _ := os.ReadFile(real); string(b) != newAsset {
+		t.Fatalf("the file behind the link was not replaced: %q", b)
 	}
 }

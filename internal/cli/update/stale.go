@@ -120,9 +120,10 @@ func (d Deps) staleCLIs(ctx context.Context, newVersion string, skip []string, d
 			// Both are replaced by the same rules, from the release asset this command verified: a regular, user-owned,
 			// non-link file that others cannot write, in folders others cannot write, never as root, and only a new binary that
 			// runs and says the released version takes the old one's place.
-			if why := replaceable(c.path); why != "" {
+			target, why := replaceTarget(c.path, real)
+			if why != "" {
 				s.Message = fmt.Sprintf("%s runs %s and was not replaced: %s. Update it with: %s", what, ver, why, cmdline)
-			} else if undo, err := installBinaryKeep(data, c.path, d.newBinaryRuns(ctx, newVersion)); err != nil {
+			} else if undo, err := installBinaryKeep(data, target, d.newBinaryRuns(ctx, newVersion)); err != nil {
 				s.Message = fmt.Sprintf("%s runs %s and replacing it failed (%v; it was kept). Update it with: %s", what, ver, err, cmdline)
 			} else {
 				s.undo = undo
@@ -208,6 +209,26 @@ func unsafeAncestor(p string) string {
 			return ""
 		}
 	}
+}
+
+// replaceTarget is the file to replace for a CLI found as name, and why not when it must not be. Where name is itself the
+// file it is that. Where it is reached through a link (the usual ~/.local/bin/monoagentcli -> .../monoagentcli), the file
+// behind the link is replaced and the link stays; the folders of the link and every rule for the file behind it must hold,
+// so a link that others can swap, or a target they can write, is not followed.
+func replaceTarget(name, real string) (string, string) {
+	if isRoot() {
+		return "", "this command runs as root"
+	}
+	if abs, err := filepath.Abs(name); err == nil && filepath.Clean(abs) == real {
+		return name, replaceable(name)
+	}
+	if why := unsafeAncestor(name); why != "" {
+		return "", "the link's " + why
+	}
+	if why := replaceable(real); why != "" {
+		return "", "behind the link: " + why
+	}
+	return real, ""
 }
 
 // replaceable says why path must not be replaced from here, or "" when it may: a regular file (not a link, so nothing else

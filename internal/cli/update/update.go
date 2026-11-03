@@ -232,6 +232,11 @@ func (d Deps) run(cmd *cobra.Command) error {
 	if err != nil {
 		return fmt.Errorf("locate binary: %w", err)
 	}
+	// Found through a link (~/.local/bin/monoagentcli -> .../share/monoagentcli), the file behind it is what is replaced and
+	// the link stays; replacing the link itself with a file would leave the real binary old.
+	if real, err := filepath.EvalSymlinks(selfPath); err == nil {
+		selfPath = real
+	}
 
 	var data []byte
 	if info.Manifest != nil {
@@ -508,15 +513,61 @@ func installBinaryKeep(data []byte, target string, check func(tmp string) error)
 	}
 	bak := bakFile.Name()
 	bakFile.Close()
-	if err := os.Rename(target, bak); err != nil {
-		os.Remove(tmpPath)
-		os.Remove(bak)
-		return nil, fmt.Errorf("backup: %w", err)
+	if runtime.GOOS == "windows" {
+		// a running exe can be renamed but not replaced: the old one moves aside first
+		if err := os.Rename(target, bak); err != nil {
+			os.Remove(tmpPath)
+			os.Remove(bak)
+			return nil, fmt.Errorf("backup: %w", err)
+		}
+		if err := os.Rename(tmpPath, target); err != nil {
+			os.Rename(bak, target) // rollback
+			os.Remove(tmpPath)
+			return nil, fmt.Errorf("install: %w", err)
+		}
+		return &replaced{target: target, bak: bak}, nil
+	}
+	// The target is never missing: the old file is kept by a hard link (a copy where the file system has none), then one
+	// rename puts the new file in its place, atomically, so a program starting meanwhile gets the old or the new one whole,
+	// and a crash leaves one of them in place.
+	os.Remove(bak)
+	if err := linkFile(target, bak); err != nil {
+		if err := copyFileMode(target, bak); err != nil {
+			os.Remove(tmpPath)
+			os.Remove(bak)
+			return nil, fmt.Errorf("backup: %w", err)
+		}
 	}
 	if err := os.Rename(tmpPath, target); err != nil {
-		os.Rename(bak, target) // rollback
 		os.Remove(tmpPath)
+		os.Remove(bak)
 		return nil, fmt.Errorf("install: %w", err)
 	}
 	return &replaced{target: target, bak: bak}, nil
+}
+
+// linkFile makes a hard link; a variable so a test can stand in for a file system that has none.
+var linkFile = os.Link
+
+// copyFileMode copies src to dst, a file that does not exist yet, with src's permission bits.
+func copyFileMode(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	fi, err := in.Stat()
+	if err != nil {
+		return err
+	}
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, fi.Mode().Perm())
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		os.Remove(dst)
+		return err
+	}
+	return out.Close()
 }
