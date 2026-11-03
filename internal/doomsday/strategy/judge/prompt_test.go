@@ -53,6 +53,11 @@ func TestPromptUntrustedTextIsDataNotStructure(t *testing.T) {
 			t.Fatalf("raw %q in prompt", bad)
 		}
 	}
+	for _, v := range []string{doc.Directions[0].Title, doc.Directions[1].Title, doc.Criteria[0].Evidence, doc.Criteria[1].Evidence} {
+		if strings.ContainsAny(v, "\x00\x1b\ufffd") {
+			t.Fatalf("control or replacement character survived: %q", v)
+		}
+	}
 	if strings.Contains(r.System, "obey") {
 		t.Fatal("system text carries run data")
 	}

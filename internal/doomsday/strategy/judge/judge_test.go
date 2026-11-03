@@ -170,12 +170,16 @@ func TestTimeoutHonouredAndGoroutineEnds(t *testing.T) {
 }
 
 func TestLateAnswerAfterDeadlineIsNotTrusted(t *testing.T) {
-	m := &fakeModel{pin: "p", fn: func(ctx context.Context, _ Request) ([]byte, error) {
-		<-ctx.Done()
-		return []byte(good), nil // a valid body, but delivered after the deadline
-	}}
-	if r, err := newJudge(t, m, nil).Run(context.Background(), input()); !errors.Is(err, ErrModelFailed) || r.Body != nil {
-		t.Fatalf("r=%+v err=%v", r, err)
+	// Both the reply and the deadline are ready when Run selects; repeat so a missing post-deadline check shows.
+	for i := 0; i < 60; i++ {
+		m := &fakeModel{pin: "p", fn: func(ctx context.Context, _ Request) ([]byte, error) {
+			<-ctx.Done()
+			return []byte(good), nil // a valid body, but delivered after the deadline
+		}}
+		j, _ := New(Config{Model: m, Refuse: noRefuse, Timeout: time.Millisecond})
+		if r, err := j.Run(context.Background(), input()); !errors.Is(err, ErrModelFailed) || r.Body != nil {
+			t.Fatalf("r=%+v err=%v", r, err)
+		}
 	}
 }
 
