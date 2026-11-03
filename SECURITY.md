@@ -2425,6 +2425,19 @@ mission session, and one with unrecorded background processes, all rechecked ins
 (`deleteGuard`, `internal/cli/chat/chat_history.go`); it revokes the conversation's mission tokens in that transaction, records
 the child sessions' spend before the usage is erased (`coderspend.Snapshot`) so the money stays held until the host charges it, and
 removes the asks and the spawn advice the chat owned. `profile delete` is refused while a live worker reservation exists.
+Per-exec reservations (migration 154; `Store.ReserveExec`, `Store.ChargeExec` and `Store.SettleExecNoReport`, not yet
+called by any worker): a hold may name the exec (one launch of a worker) it was taken for. The exec id must be unique per
+launch (a fresh id for every run): the same (session, worker, exec) is one hold however often it is asked (a trigger that
+refuses a second row, so `REPLACE` and upserts cannot swap the hold either, a unique index behind it, and a lookup in the
+reserve's own transaction), so reusing the id of a finished run returns that run's ended row, not a new hold. A retry of
+`ReserveExec` returns an ended row too, so a caller must check its `State` before it runs on the hold. Only the owner that
+took it may ask again. A late call of an earlier exec holds its own row's id and reaches nothing of the next exec; the
+charge calls answer a stranger, an ended or expired row, another profile and a missing row with the same
+`ErrReservationLost`, by design. The charge is the larger of what was charged and the largest cumulative cost THIS exec
+reported (kept in `task_session_reservation_costs`, grow-only), so a lower final report never lowers it; a negative cost is
+refused. An exec that ended without a final cost report (`SettleExecNoReport`, a call of its own so a miscomputed number
+cannot mean it) is charged its whole grant, whatever partial reports came before (never less than they said). An exec that
+crashed expires after its lease plus grace and keeps holding what is left of it until the operator resolves it.
 
 **Not verified live.** None of the following has been run against real agent runtimes, real accounts or the desktop app:
 a mission end to end with real workers and verifiers; task child sessions (the launcher, the child's task token, the budget

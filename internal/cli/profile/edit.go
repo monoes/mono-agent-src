@@ -352,25 +352,6 @@ func (d Deps) printDeleteSummary(ctx context.Context, db *sql.DB, p *profileJSON
 	return nil
 }
 
-// refuseRunning refuses deleting a profile while a workflow of it is running.
-func refuseRunning(ctx context.Context, q scopeQuerier, id string) error {
-	var n int
-	if err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM workflow_executions WHERE profile_id = ? AND status IN ('RUNNING', 'QUEUED')`, id).Scan(&n); err != nil {
-		return fmt.Errorf("check running workflows: %w", err)
-	}
-	var open int
-	if err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM workflow_publications WHERE profile_id = ? OR workflow_id IN (SELECT id FROM workflows WHERE profile_id = ?)`, id, id).Scan(&open); err != nil && !strings.Contains(err.Error(), "no such table") {
-		return fmt.Errorf("check unfinished workflow changes: %w", err)
-	}
-	if open > 0 {
-		return fmt.Errorf("the profile has %d unfinished workflow change(s): run `monoagentcli doctor fix workflows.publications.recover` (or resolve them with `doctor`), then delete again", open)
-	}
-	if n > 0 {
-		return fmt.Errorf("the profile has %d running or queued workflow execution(s): let them finish or cancel them first with `monoagentcli workflow execution cancel <execution-id>` (an execution left RUNNING by a crashed run also blocks the delete until it is cancelled)", n)
-	}
-	return refuseLiveReservations(ctx, q, id)
-}
-
 // deleteProfile removes everything the profile owns, and then the profile,
 // all or nothing. What it owns is read inside the transaction, so a row added
 // since the caller looked is not missed. It returns what was removed.
@@ -434,24 +415,6 @@ func deleteProfile(ctx context.Context, db *sql.DB, id string) ([]profileTable, 
 	// signed under it would otherwise still verify on this handle).
 	secrets.ForgetProfile(id)
 	return tables, nil
-}
-
-// sessionsBeforeTheirReservations moves the task_sessions entry ahead of task_session_reservations: a
-// reservation is refused a hand delete while its session exists, and it goes with the session.
-func sessionsBeforeTheirReservations(scope []scopeEntry) []scopeEntry {
-	out := make([]scopeEntry, 0, len(scope))
-	var held []scopeEntry
-	for _, e := range scope {
-		if e.Table == "task_session_reservations" {
-			held = append(held, e)
-			continue
-		}
-		out = append(out, e)
-		if e.Table == "task_sessions" {
-			out, held = append(out, held...), nil
-		}
-	}
-	return append(out, held...)
 }
 
 func (d Deps) newProfileBackupsCmd() *cobra.Command {
