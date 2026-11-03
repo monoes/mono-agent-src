@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	"github.com/monoes/mono-agent/internal/doomsday/stop"
 	"github.com/monoes/mono-agent/internal/doomsday/store"
 	"github.com/monoes/mono-agent/internal/dynorg"
+	"github.com/monoes/mono-agent/internal/mcp"
 )
 
 // This file is compiled only with -tags doomsday. A default build never wires
@@ -28,6 +30,9 @@ func init() {
 	// Depth limits as charter inputs: every tasks and coder-host store of this process reads the profile's open run, and
 	// is what it always was while there is none.
 	doomsdaycli.InstallDepthPolicies()
+	// The lead-facing boss tools of the MCP server: each call installs the route on its own coder store, and the route
+	// is the mode off whenever the profile has no running run (a build without the mode never sets this).
+	mcp.SetBossRouteInstaller(bossRouteInstaller)
 	doomsdayEngine = func(cfg *globalConfig) doomsdaycli.Engine {
 		db, err := initDB(cfg)
 		if err != nil {
@@ -95,4 +100,15 @@ func doomsdayWiring(cfg *globalConfig, db *sql.DB) doomsdaycli.Wiring {
 		Witness: &doomsdaycli.WitnessSetup{DBPath: expandPath(cfg.DBPath), Keys: keys, Secrets: stop.OSSecretStore{},
 			Warn: func(m string) { fmt.Fprintln(os.Stderr, "doomsday: "+m) }},
 	}
+}
+
+// bossRouteInstaller is mcp.BossRouteInstaller: the route on one boss-tool call's coder store. One cheap query first:
+// with no running run nothing is constructed (no pinned connection, no key read) and the call is refused as the mode off.
+func bossRouteInstaller(_ context.Context, st *coderhost.Store, db *sql.DB, dbPath, profile string) error {
+	var running int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM doomsday_runs WHERE profile = ? AND state = 'running'`, profile).Scan(&running); err != nil || running == 0 {
+		return errors.New("no run is running for this profile")
+	}
+	doomsdayWiring(&globalConfig{DBPath: dbPath, ProfileID: profile}, db).InstallOps(st)
+	return nil
 }

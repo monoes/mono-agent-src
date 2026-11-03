@@ -105,7 +105,7 @@ func TestSessionToolsAreServedAndGated(t *testing.T) {
 			found++
 		}
 	}
-	if found != 13 { // the eleven master tools plus session_ask_ancestor and session_reply_ask (ask_ancestor_tool.go, ask_reply_tool.go)
+	if found != 16 { // the eleven master tools plus session_ask_ancestor, session_reply_ask and the three session_boss_* tools (ask_ancestor_tool.go, ask_reply_tool.go, boss_tools.go)
 		t.Fatalf("allTools serves %d session tools", found)
 	}
 }

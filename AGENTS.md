@@ -4660,3 +4660,11 @@ Use the `monomind` MCP tools for graph navigation, impact analysis, memory, and 
 For multi-step work, load only the applicable `mastermind-*` skill; do not load all workflows at once.
 If MCP is unavailable, run `npx -y monomind@latest doctor` and use `npx -y monomind@latest` commands.
 # monomind:end instructions:codex
+
+**Boss tools of the open-ended mode** (`internal/mcp/boss_tools.go`): `session_boss_answer_ask`, `session_boss_approve_plan` and
+`session_boss_grant_budget` are the lead-facing mirrors of the typed operations ask.answer, plan.approve and spend.grant. Each calls
+coderhost's `BossAnswerAsk` / `BossApprovePlan` / `BossGrantBudget` as the lead whose token the process holds (never an operator
+scope), after the MCP server installs the route on its own coder store per call (`mcp.SetBossRouteInstaller`, set only by a
+`-tags doomsday` build in `cmd/monoagentcli/doomsday_engine.go`, which reads the profile's run from the database every call). With no
+installer (default build) or no running, verified run they refuse (`not_yours: ... not running`) and spend nothing; over a charter
+limit they park (`limit`). They are the only tools `internal/mcp/doomsday_guard_test.go` lets mention the mode.
