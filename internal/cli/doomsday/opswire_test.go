@@ -388,6 +388,54 @@ func TestFinishWritesOnTheRawLedgerFailTheWitness(t *testing.T) {
 	}
 }
 
+// The route ends with the running state, not only with quiescent: a run that has asked to stop auto-approves nothing,
+// while its trees stay readable at the charter's depth until the run is quiescent.
+func TestRouteEndsAtStopRequestedButDepthStaysUntilQuiescent(t *testing.T) {
+	r := newOpsRig(t)
+	r.w.InstallOps(r.host)
+	rc, pc, cc := r.chat(t), r.chat(t), r.chat(t)
+	R := r.session(t, 0, rc, 100, 10)
+	P := r.session(t, R.ID, pc, 50, 10)
+	r.session(t, P.ID, cc, 20, 10)
+	r.start(t)
+	asked, err := r.host.AskAncestor(lead(cc), "p1", coderhost.AskRequest{Question: "q", Importance: coderhost.AskCritical})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := r.w.Chained().Advance(ctx, "p1", 1, store.StateStopRequested, "operator", "stop"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := r.host.BossAnswerAsk(ctx, lead(rc), "p1", asked.AskID, coderhost.ClassAskCritical, "yes"); !errors.Is(err, coderhost.ErrDoomsdayOff) {
+		t.Fatalf("a stop-requested run still routed the boss: %v", err)
+	}
+	if got := (DepthSource{DB: r.db.DB, Keys: testKeys}).HostPolicy()("p1", "c"); got != 6 {
+		t.Fatalf("depth while stopping: %d", got)
+	}
+	if n := auditKinds(t, r, "ops.%"); n != 0 {
+		t.Fatalf("%d ops rows were written after the stop was requested", n)
+	}
+}
+
+// A declared per-ask limit needs its run caps: the store refuses a charter without them, so the CLI says so first.
+func TestPerAskWithoutRunCapsIsRefusedByTheCharter(t *testing.T) {
+	c, err := LoadCharter(strings.NewReader(strings.Replace(opsCharter, `"run_spend_micro":5000000,"run_tasks":4,`, "", 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "run caps") {
+		t.Fatalf("a per-ask limit without run caps: %v", err)
+	}
+	c, _ = LoadCharter(strings.NewReader(opsCharter))
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	sc := toStore(c, "p1", 1)
+	if sc.PerAsk.RunTasks != 4 || sc.PerAsk.RunSpendMicro != 5_000_000 || len(sc.PerAsk.AnswerClasses) != 1 {
+		t.Fatalf("%+v", sc.PerAsk)
+	}
+}
+
 func statusOf(t *testing.T, r *opsRig) Status {
 	t.Helper()
 	s, err := r.w.Engine().Status(context.Background())
