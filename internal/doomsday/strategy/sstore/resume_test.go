@@ -14,16 +14,16 @@ func TestResumeQueries(t *testing.T) {
 	if n, _ := e.s.NextEpochSeq(ctx, e.prof, e.gen); n != 1 {
 		t.Fatalf("next %d", n)
 	}
-	for i, tr := range []types.Trigger{types.TriggerTimer, types.TriggerFinishParked, types.TriggerFinishParked} {
+	for i, tr := range []types.Trigger{types.TriggerTimer, types.TriggerFinishParked, types.TriggerNewEvidence, types.TriggerFinishParked} {
 		if _, _, err := e.s.InsertEpoch(ctx, e.epoch(int64(i+1), tr)); err != nil {
 			t.Fatal(err)
 		}
 	}
 	l, ok, _ := e.s.LatestEpoch(ctx, e.prof, e.gen)
-	if !ok || l.Seq != 3 {
+	if !ok || l.Seq != 4 {
 		t.Fatalf("latest %+v", l)
 	}
-	if n, _ := e.s.NextEpochSeq(ctx, e.prof, e.gen); n != 4 {
+	if n, _ := e.s.NextEpochSeq(ctx, e.prof, e.gen); n != 5 {
 		t.Fatalf("next %d", n)
 	}
 	if n, err := e.s.ParkedFinishRounds(ctx, e.prof, e.gen); err != nil || n != 2 {

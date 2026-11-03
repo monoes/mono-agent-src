@@ -78,6 +78,9 @@ func TestMoveDirectionForwardOnlyAndInertAfterStop(t *testing.T) {
 	if err := e.s.MoveDirection(ctx, e.prof, e.gen, "d1", types.DirActive, ""); !errors.Is(err, ErrBackwardMove) {
 		t.Fatalf("stalled->active: %v", err)
 	}
+	if n := e.count(t, `SELECT COUNT(*) FROM doomsday_audit WHERE kind = ?`, types.KindDirectionState); n != 2 {
+		t.Fatalf("direction.state lines %d", n)
+	}
 	got, _ := e.s.GetDirection(ctx, e.prof, e.gen, "d1")
 	if got.State != types.DirStalled || got.SessionID != "lead-1" {
 		t.Fatalf("%+v", got)

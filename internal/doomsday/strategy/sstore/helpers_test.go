@@ -93,7 +93,7 @@ func newEnv(t *testing.T) *env {
 		Criteria: []store.Criterion{{Kind: "command", Spec: "go test ./...", Expected: "ok"}},
 		Limits:   store.Limits{TreeDepth: 4, LivePerTree: 30, SpawnRate: 6, OpenSessions: 50, MaxConcurrent: 30, MaxTotal: 100, BudgetMicro: 5_000_000},
 		Lines:    []string{store.LineSpending, store.LineInstall},
-		BossPin:  store.Pin{"anthropic", "m1", "v1", "judging-v1"}, VerifierPin: store.Pin{"anthropic", "m2", "v1", "judging-v1"},
+		BossPin:  store.Pin{Provider: "anthropic", Model: "m1", Version: "v1", PurposePolicy: "judging-v1"}, VerifierPin: store.Pin{Provider: "anthropic", Model: "m2", Version: "v1", PurposePolicy: "judging-v1"},
 		PerAsk: store.PerAsk{Declared: true, SpendMicro: 1_000_000, Tasks: 5, Access: "edit", Depth: 2, RunSpendMicro: 10_000_000, RunTasks: 50, AnswerClasses: []string{"context", "clarify"}},
 	}
 	if _, err := core.Enter(ctx, c, c.Hash(), "operator"); err != nil {
