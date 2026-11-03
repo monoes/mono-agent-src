@@ -391,10 +391,22 @@ type spawnHooks struct {
 	// keep, when set, joins the undo's delete guard (it runs in the delete's own transaction): the conversation stays
 	// when it returns false.
 	keep func(ctx context.Context, c *sql.Conn, conversationID string) (bool, error)
+
+	ticketed bool // the spawn already holds its dispatch ticket (doomsday_ticket.go)
 }
 
 // spawnWith is Spawn with hooks; every limit of Spawn applies to every caller.
 func (s *Store) spawnWith(c Caller, req SpawnRequest, hk spawnHooks) (Spawned, error) {
+	if s.dispatch != nil && !hk.ticketed {
+		hk.ticketed = true
+		var out Spawned
+		var ferr error
+		gerr := s.gated(PointSessionSpawn, func() error { out, ferr = s.spawnWith(c, req, hk); return ferr })
+		if ferr == nil && gerr != nil {
+			return Spawned{}, gerr // the barrier refused: nothing was spawned
+		}
+		return out, gerr
+	}
 	ps, err := s.mayHaveChildren(c)
 	if err != nil {
 		return Spawned{}, err
