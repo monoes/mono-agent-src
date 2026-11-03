@@ -80,7 +80,7 @@ func (p *Policy) RateLimited(provider string, retryAfter time.Duration) {
 	d := max(step, min(max(retryAfter, 0), MaxBackoff))
 	d += time.Duration(float64(d) * jitterFrac * p.jitter())
 	d = min(d, MaxBackoff)
-	b.until = addSat(now, d)
+	b.until = max(b.until, addSat(now, d))
 }
 
 func (p *Policy) jitter() float64 {

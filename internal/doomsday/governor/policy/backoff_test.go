@@ -157,3 +157,26 @@ func TestSystemClockIsMonotonic(t *testing.T) {
 		t.Fatal(a, b)
 	}
 }
+
+// A huge Retry-After with jitter would wrap the window negative if it were not bounded before the jitter is added.
+func TestHugeRetryAfterWithJitterDoesNotWrap(t *testing.T) {
+	c := &fakeClock{}
+	p := New(c, WithJitter(func() float64 { return 0.9 }))
+	p.RateLimited("x", time.Duration(math.MaxInt64))
+	if w := p.Provider(lim, "x").Until; w <= 0 || w > MaxBackoff {
+		t.Fatalf("window %v", w)
+	}
+}
+
+// A clock that steps back must not let a later 429 shorten the window already granted.
+func TestStepBackNeverShortensAnExistingWindow(t *testing.T) {
+	p, c := newP()
+	c.now = time.Hour
+	p.RateLimited("x", 5*time.Minute)
+	first := p.Provider(lim, "x").Until
+	c.now = 0
+	p.RateLimited("x", 0)
+	if second := p.Provider(lim, "x").Until; second < first {
+		t.Fatalf("window shortened from %v to %v", first, second)
+	}
+}
