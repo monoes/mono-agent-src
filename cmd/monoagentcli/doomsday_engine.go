@@ -39,9 +39,16 @@ func init() {
 	doomsdayEngine = func(cfg *globalConfig) doomsdaycli.Engine {
 		db, err := initDB(cfg)
 		if err != nil {
-			return doomsdaycli.Off{} // fails closed: nothing starts
+			return engineForOpenFailure(err)
 		}
 		return doomsdayWiring(cfg, db.DB).FinishEngine()
+	}
+	doomsdayReadEngine = func(cfg *globalConfig) doomsdaycli.Engine {
+		db, err := initDB(cfg)
+		if err != nil {
+			return engineForOpenFailure(err)
+		}
+		return doomsdayWiring(cfg, db.DB).ReadEngine()
 	}
 	doomsdayChat = func(cfg *globalConfig, d *chatcli.Deps) {
 		// A conductor's merges go through the open run's gate and journal; the resolver reads the run on every
@@ -74,6 +81,17 @@ func init() {
 			return r.GuardTurns(ctx, cwd, active)
 		})
 	}
+}
+
+// engineForOpenFailure is the engine when the database cannot be opened. Nothing starts either way (fails closed), but
+// a read verb must not call that "off": the database may be locked, corrupt or unmigratable while a run is live, so it
+// gets doomsdaycli.Unreadable (an error result, non-zero exit). Client mode never opens the local database, so it is
+// the mode off there.
+func engineForOpenFailure(err error) doomsdaycli.Engine {
+	if errors.Is(err, errClientModeDB) {
+		return doomsdaycli.Off{}
+	}
+	return doomsdaycli.Unreadable{Err: err}
 }
 
 var (

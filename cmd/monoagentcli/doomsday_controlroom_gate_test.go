@@ -51,7 +51,7 @@ func TestBuiltInstallWithoutARunControlRoomIsUnavailable(t *testing.T) {
 		cfg := sendEnv(t)
 		out, err := runSendCLI(t, cfg, newDoomsdayCmd(cfg), verb)
 		if err != nil {
-			t.Logf("%s: %v (an engine that cannot open its store fails closed as off)", verb, err)
+			t.Logf("%s: %v (an engine that cannot open its store is an error result, not off)", verb, err)
 			continue
 		}
 		var doc map[string]any

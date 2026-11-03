@@ -7,8 +7,10 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"fmt"
 	"regexp"
 	"sort"
+	"time"
 )
 
 // The read view is what the control room reads: one verified, redacted, bounded snapshot of a run. It never writes:
@@ -28,6 +30,21 @@ var (
 	ErrNoRun = errors.New("doomsday: no such run")
 	// ErrViewLimit: the feed limit or the page cursor is out of range. An unbounded read is refused, not clamped.
 	ErrViewLimit = errors.New("doomsday: feed limit must be 1..200 and the cursor not negative")
+	// ErrViewTimeout: the read did not finish inside its time budget. Nothing is reported from a read that did not finish.
+	ErrViewTimeout = errors.New("doomsday: the read view did not finish in time")
+)
+
+// readViewBudget bounds one ReadView (the chain walk is O(rows)); a test replaces it.
+var readViewBudget = 10 * time.Second
+
+// Reasons of ChainState.Reason (closed set).
+const (
+	ReasonDoesNotVerify  = "does_not_verify"
+	ReasonKeyUnavailable = "key_unavailable"
+	// ReasonBehindWitness: the chain ends before the head the witness recorded (a cut tail).
+	ReasonBehindWitness = "behind_witness"
+	// ReasonWitnessMismatch: the chain and the witness disagree about the head (rows past it, or another MAC).
+	ReasonWitnessMismatch = "witness_mismatch"
 )
 
 // ViewQuery selects the page of the feed. FeedBefore 0 is the newest page; otherwise rows with seq < FeedBefore.
@@ -38,9 +55,14 @@ type ViewQuery struct {
 }
 
 // ChainState says whether the audit chain of the run verified. Reason is from a closed set, never an error text.
+// Verified means the chain is internally consistent: it starts at the run's run.enter row, every row's MAC and link
+// is valid and the sequence has no gap. That alone does not show that no tail rows were cut (the run row's MAC does
+// not bind the head): Anchored says an independent record (the witness) was compared with the head and agrees. The
+// store itself never sets Anchored; the layer that holds the witness does.
 type ChainState struct {
 	Verified bool
-	Reason   string // "", "does_not_verify" or "key_unavailable"
+	Anchored bool
+	Reason   string // "", a Reason* constant; with Verified and not Anchored, why there was no anchor (set by that layer)
 	HeadSeq  int64
 	HeadMAC  []byte
 }
@@ -91,28 +113,52 @@ type ReadViewer interface {
 
 var _ ReadViewer = (*SQLStore)(nil)
 
-// withReadOnly runs fn in a read transaction on a connection with query_only on. If query_only cannot be switched on
-// nothing runs; if it cannot be switched off again the connection is discarded rather than returned to the pool.
+// readOnlySeams are the points a test can fail; production leaves them nil.
+type readOnlySeams struct {
+	beforeQueryOnly func()
+	afterQueryOnly  func()
+	resetQueryOnly  func(ctx context.Context, conn *sql.Conn) error
+}
+
+var testReadOnlySeams readOnlySeams
+
+// withReadOnly runs fn in a read transaction on a connection with query_only on. The connection is reset on every
+// way out, a panic of fn included; if it cannot be switched off again it is discarded rather than returned to the pool.
 func (s *SQLStore) withReadOnly(ctx context.Context, fn func(tx *sql.Tx) error) (err error) {
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
+	var tx *sql.Tx
+	defer func() { // also runs while fn panics: the panic continues after the connection is made safe
+		if tx != nil {
+			_ = tx.Rollback() // a read transaction has nothing to commit
+		}
+		reset := func(ctx context.Context, c *sql.Conn) error {
+			_, e := c.ExecContext(ctx, "PRAGMA query_only = OFF")
+			return e
+		}
+		if testReadOnlySeams.resetQueryOnly != nil {
+			reset = testReadOnlySeams.resetQueryOnly
+		}
+		if rerr := reset(context.Background(), conn); rerr != nil {
+			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+		}
+	}()
+	if testReadOnlySeams.beforeQueryOnly != nil {
+		testReadOnlySeams.beforeQueryOnly()
+	}
 	if _, err := conn.ExecContext(ctx, "PRAGMA query_only = ON"); err != nil {
 		return err
 	}
-	tx, err := conn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	if err != nil {
-		_, _ = conn.ExecContext(context.Background(), "PRAGMA query_only = OFF")
+	if testReadOnlySeams.afterQueryOnly != nil {
+		testReadOnlySeams.afterQueryOnly()
+	}
+	if tx, err = conn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true}); err != nil {
 		return err
 	}
-	err = fn(tx)
-	_ = tx.Rollback() // a read transaction has nothing to commit
-	if _, rerr := conn.ExecContext(context.Background(), "PRAGMA query_only = OFF"); rerr != nil {
-		_ = conn.Raw(func(any) error { return driver.ErrBadConn })
-	}
-	return err
+	return fn(tx)
 }
 
 // ReadView implements ReadViewer.
@@ -125,12 +171,25 @@ func (s *SQLStore) ReadView(ctx context.Context, profile string, generation int6
 		return View{}, ErrViewLimit
 	}
 	var v View
-	err := s.withReadOnly(ctx, func(tx *sql.Tx) error {
+	rctx, cancel := context.WithTimeout(ctx, readViewBudget)
+	defer cancel()
+	err := s.withReadOnly(rctx, func(tx *sql.Tx) error {
 		var err error
-		v, err = s.readViewTx(ctx, tx, profile, generation, q.FeedBefore, limit)
+		v, err = s.readViewTx(rctx, tx, profile, generation, q.FeedBefore, limit)
 		return err
 	})
+	if err != nil && ctx.Err() == nil && errors.Is(rctx.Err(), context.DeadlineExceeded) {
+		return View{}, fmt.Errorf("%w (budget %s)", ErrViewTimeout, readViewBudget)
+	}
 	return v, err
+}
+
+// generationsPast says whether the charter or audit tables hold a generation above runGen: a deleted run row leaves them behind.
+func generationsPast(ctx context.Context, q querier, profile string, runGen int64) (bool, error) {
+	var other int64
+	err := q.QueryRowContext(ctx, `SELECT COALESCE(MAX(g),0) FROM (SELECT MAX(generation) AS g FROM doomsday_charters WHERE profile = ?
+UNION ALL SELECT MAX(generation) FROM doomsday_audit WHERE profile = ?)`, profile, profile).Scan(&other)
+	return other > runGen, err
 }
 
 func (s *SQLStore) readViewTx(ctx context.Context, tx *sql.Tx, profile string, generation, before int64, limit int) (View, error) {
@@ -138,12 +197,26 @@ func (s *SQLStore) readViewTx(ctx context.Context, tx *sql.Tx, profile string, g
 		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(generation),0) FROM doomsday_runs WHERE profile = ?`, profile).Scan(&generation); err != nil {
 			return View{}, err
 		}
+		past, err := generationsPast(ctx, tx, profile, generation)
+		if err != nil {
+			return View{}, err
+		}
+		if past { // a newer generation has a charter or audit rows but no run row: the run row was removed
+			return View{Chain: ChainState{Reason: ReasonDoesNotVerify}}, nil
+		}
 		if generation == 0 {
 			return View{}, ErrNoRun
 		}
 	}
 	run, err := getRun(ctx, tx, s, profile, generation)
 	if errors.Is(err, sql.ErrNoRows) {
+		var n int
+		if qerr := tx.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM doomsday_charters WHERE profile = ? AND generation = ?) + (SELECT COUNT(*) FROM doomsday_audit WHERE profile = ? AND generation = ?)`,
+			profile, generation, profile, generation).Scan(&n); qerr != nil {
+			return View{}, qerr
+		} else if n > 0 { // rows of a generation whose run row is gone
+			return View{Chain: ChainState{Reason: ReasonDoesNotVerify}}, nil
+		}
 		return View{}, ErrNoRun
 	}
 	if err != nil {
@@ -211,15 +284,15 @@ func (s *SQLStore) verifyWindow(ctx context.Context, q querier, profile string, 
 		if err := rows.Scan(&seq, &kind, &payload, &p, &mc); err != nil {
 			return ChainState{}, nil, err
 		}
-		if seq != want || !bytes.Equal(p, nonNil(prev)) {
-			return bad("does_not_verify")
+		if seq != want || !bytes.Equal(p, nonNil(prev)) || (seq == 1 && kind != "run.enter") {
+			return bad(ReasonDoesNotVerify)
 		}
 		exp, err := s.auditMAC(profile, generation, seq, prev, kind, payload)
 		if err != nil {
-			return bad("key_unavailable")
+			return bad(ReasonKeyUnavailable)
 		}
 		if !hmac.Equal(exp, mc) {
-			return bad("does_not_verify")
+			return bad(ReasonDoesNotVerify)
 		}
 		if seq >= lo && seq <= hi {
 			window = append(window, redactRow(seq, kind, payload))
@@ -229,8 +302,8 @@ func (s *SQLStore) verifyWindow(ctx context.Context, q querier, profile string, 
 	if err := rows.Err(); err != nil {
 		return ChainState{}, nil, err
 	}
-	if want-1 != head {
-		return bad("does_not_verify")
+	if want-1 != head || head < 1 { // a run always has its run.enter row: an empty chain is a chain with every row cut
+		return bad(ReasonDoesNotVerify)
 	}
 	for i, j := 0, len(window)-1; i < j; i, j = i+1, j-1 {
 		window[i], window[j] = window[j], window[i]

@@ -44,7 +44,7 @@ func runningView() store.View {
 		Run:              store.Run{Profile: "p1", Generation: 2, CharterID: "ch-abc", State: store.StateRunning},
 		Limits:           store.Limits{BudgetMicro: 5_000_000},
 		RunSpendCapMicro: 1_000_000, RunTasksCap: 20,
-		Chain: store.ChainState{Verified: true, HeadSeq: 42, HeadMAC: []byte{0xde, 0xad, 0xbe, 0xef, 1, 2, 3, 4, 5, 6}},
+		Chain: store.ChainState{Verified: true, Anchored: true, HeadSeq: 42, HeadMAC: []byte{0xde, 0xad, 0xbe, 0xef, 1, 2, 3, 4, 5, 6}},
 		Feed: []store.FeedItem{
 			{Seq: 42, Kind: "ops.ask.answer.approved", Class: store.ClassAskAnswer, Op: "ask.answer", Result: "approved", Ref: "ap-9f", AnswerClass: "clarify", AmountMicro: i64(300), Count: i64(2)},
 			{Seq: 41, Kind: "ops.spend.grant.parked", Class: store.ClassGrant, Op: "spend.grant", Result: "parked", Exceeded: []string{"grant_max_per_grant_micro"}},
@@ -74,6 +74,10 @@ func TestControlRoomGoldenDocuments(t *testing.T) {
 		{"overview_running", &viewEngine{view: runningView()}, []string{"overview"}},
 		{"overview_unverified", &viewEngine{view: unverifiedView()}, []string{"overview"}},
 		{"overview_run_row_forged", &viewEngine{err: store.ErrUnverifiable}, []string{"overview"}},
+		{"overview_unanchored", &viewEngine{view: unanchoredView()}, []string{"overview"}},
+		{"overview_behind_witness", &viewEngine{view: behindWitnessView()}, []string{"overview"}},
+		{"overview_error", &viewEngine{err: ErrUnreadable}, []string{"overview"}},
+		{"feed_error", &viewEngine{err: store.ErrViewTimeout}, []string{"feed"}},
 		{"overview_no_run", &viewEngine{err: store.ErrNoRun}, []string{"overview"}},
 		{"overview_off", &viewEngine{err: ErrOff}, []string{"overview"}},
 		{"feed_page", &viewEngine{view: runningView()}, []string{"feed", "--limit", "3"}},
@@ -83,7 +87,7 @@ func TestControlRoomGoldenDocuments(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			out, err := run(t, viewRig(c.eng).deps, "", c.args...)
-			if err != nil {
+			if (err != nil) != strings.HasSuffix(c.name, "_error") { // a failed read is the document AND a non-zero exit
 				t.Fatal(err, out)
 			}
 			path := filepath.Join("testdata", "controlroom_"+c.name+".golden.json")
@@ -172,12 +176,52 @@ func TestFeedFlagsAreBoundedAndPassedThrough(t *testing.T) {
 	}
 }
 
+// A read that fails is its own state: never "off" or "no_run" (a run may be live), unknown integrity, non-zero exit.
 func TestAViewThatCannotBeReadIsAnErrorNotAnAbsentRun(t *testing.T) {
-	v := &viewEngine{err: errors.New("database is locked")}
-	out, err := run(t, viewRig(v).deps, "", "overview")
-	if err == nil || strings.Contains(out, `"available"`) {
-		t.Fatalf("a read failure was reported as a document: %v %s", err, out)
+	for _, verb := range ControlRoomVerbs {
+		for _, e := range []error{errors.New("database is locked"), ErrUnreadable, store.ErrViewTimeout} {
+			out, err := run(t, viewRig(&viewEngine{err: e}).deps, "", verb)
+			var doc struct {
+				Available bool   `json:"available"`
+				Reason    string `json:"reason"`
+				ErrorCode string `json:"error_code"`
+				Integrity struct {
+					ChainVerified string `json:"chain_verified"`
+				} `json:"integrity"`
+			}
+			if err == nil || json.Unmarshal([]byte(out), &doc) != nil || doc.Available || doc.Reason != ReasonError || doc.ErrorCode == "" ||
+				doc.Integrity.ChainVerified != VerifiedUnknown {
+				t.Fatalf("%s: a read failure was not marked as one: %v %s", verb, err, out)
+			}
+		}
 	}
+}
+
+// The engine of an install whose database cannot be opened is an error for the read verbs, and still refuses to start.
+func TestUnreadableEngineIsAnErrorForReadsAndRefusesToAct(t *testing.T) {
+	r := newRig()
+	r.deps.Engine = func() Engine { return Unreadable{Err: errors.New("file is not a database")} }
+	r.deps.JSONOutput = func() bool { return true }
+	out, err := run(t, r.deps, "", "overview")
+	if err == nil || !strings.Contains(out, `"reason":"error"`) || !strings.Contains(out, ErrCodeDBUnavailable) || strings.Contains(out, `"reason":"off"`) {
+		t.Fatalf("overview: %v %s", err, out)
+	}
+	if err := (Unreadable{}).Containment(); !errors.Is(err, ErrOff) {
+		t.Fatalf("an unreadable install can contain a run: %v", err)
+	}
+	if _, err := (Unreadable{}).Enter(context.Background(), Canon{}, "", Ack{}); !errors.Is(err, ErrOff) {
+		t.Fatalf("an unreadable install can start a run: %v", err)
+	}
+}
+
+func unanchoredView() store.View {
+	v := runningView()
+	v.Chain.Anchored, v.Chain.Reason = false, AnchorNoWitness
+	return v
+}
+
+func behindWitnessView() store.View {
+	return store.View{Run: runningView().Run, Chain: store.ChainState{Reason: store.ReasonBehindWitness}}
 }
 
 func TestUnverifiableChainNeverShowsRowsTreeOrSpend(t *testing.T) {
@@ -237,7 +281,7 @@ func TestControlRoomOverTheRealStoreReadsAndNeverWrites(t *testing.T) {
 		}
 		docs += out
 	}
-	for _, want := range []string{`"available":true`, `"chain_verified":"yes"`, `"kind":"(redacted)"`, `"run_id":"p1/1"`, `"total":1`} {
+	for _, want := range []string{`"available":true`, `"chain_verified":"unanchored"`, `"counters_authenticated":false`, `"kind":"(redacted)"`, `"run_id":"p1/1"`, `"total":1`} {
 		if !strings.Contains(docs, want) {
 			t.Fatalf("missing %s in %s", want, docs)
 		}

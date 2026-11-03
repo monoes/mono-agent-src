@@ -14,6 +14,12 @@ func buildIntegrity(c store.ChainState) *IntegrityInfo {
 	if len(c.HeadMAC) > 0 {
 		in.HeadPrefix = hex.EncodeToString(c.HeadMAC[:min(len(c.HeadMAC), headPrefixBytes)])
 	}
+	if c.Verified && !c.Anchored { // consistent, but nothing independent shows the tail was not cut
+		in.ChainVerified, in.Reason = VerifiedUnanchored, c.Reason
+		if in.Reason == "" {
+			in.Reason = AnchorNoWitness
+		}
+	}
 	if !c.Verified {
 		in.ChainVerified, in.HeadSeq, in.HeadPrefix = VerifiedNo, 0, ""
 		in.Reason = c.Reason
@@ -37,7 +43,7 @@ func positive(n int64) *int64 {
 }
 
 func buildSpend(v store.View) *SpendInfo {
-	s := &SpendInfo{NoCeiling: v.Limits.NoCeiling, RunSpendCapMicro: positive(v.RunSpendCapMicro), RateBasis: RateBasisNone, Counters: []Counter{}}
+	s := &SpendInfo{NoCeiling: v.Limits.NoCeiling, RunSpendCapMicro: positive(v.RunSpendCapMicro), RateBasis: RateBasisNone, CountersAuthenticated: false, Counters: []Counter{}}
 	if !v.Limits.NoCeiling {
 		s.CapMicro = positive(v.Limits.BudgetMicro)
 	}
@@ -72,7 +78,7 @@ func BuildOverview(v store.View, now int64) Overview {
 	if v.Run.Generation > 0 { // a run row that does not verify has no identity to show
 		o.Run = buildRun(v.Run)
 	}
-	if v.Chain.Verified {
+	if v.Chain.Verified { // a consistent chain, anchored or not: the badge says which
 		o.Tree, o.Spend = buildTree(v.Members), buildSpend(v)
 	}
 	return o
@@ -88,10 +94,23 @@ func BuildFeed(v store.View, now int64) FeedPage {
 	return p
 }
 
-func unavailableOverview(reason string) Overview {
-	return Overview{SchemaVersion: ControlRoomSchema, Reason: reason}
+// unknownIntegrity is the badge of a read that failed: nothing is known, so nothing is healthy.
+func unknownIntegrity(code string) *IntegrityInfo {
+	return &IntegrityInfo{ChainVerified: VerifiedUnknown, Reason: code}
 }
 
-func unavailableFeed(reason string) FeedPage {
-	return FeedPage{SchemaVersion: ControlRoomSchema, Reason: reason, Items: []FeedRow{}}
+func unavailableOverview(reason, code string) Overview {
+	o := Overview{SchemaVersion: ControlRoomSchema, Reason: reason, ErrorCode: code}
+	if reason == ReasonError {
+		o.Integrity = unknownIntegrity(code)
+	}
+	return o
+}
+
+func unavailableFeed(reason, code string) FeedPage {
+	p := FeedPage{SchemaVersion: ControlRoomSchema, Reason: reason, ErrorCode: code, Items: []FeedRow{}}
+	if reason == ReasonError {
+		p.Integrity = unknownIntegrity(code)
+	}
+	return p
 }

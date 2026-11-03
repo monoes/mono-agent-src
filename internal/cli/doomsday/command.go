@@ -18,6 +18,9 @@ type Deps struct {
 	// Engine is the store/stop adapter; nil, or a nil result, is the mode
 	// being off (Off): nothing can start.
 	Engine func() Engine
+	// ReadEngine is the engine of the control room's read verbs: the store and the witness file, without the stop
+	// machinery (no pinned connection, no secret store). Nil, or a nil result, falls back to Engine.
+	ReadEngine func() Engine
 	// RequireOperator is the CLI's operator check (nil error for the user).
 	RequireOperator func(what string) error
 	// OperatorRefusal is opgate.Refusal: why this process is not the user, "" for the user.

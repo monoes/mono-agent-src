@@ -10,8 +10,18 @@ package doomsday
 //   - Rows carry no timestamps (the audit stream has none), so there is no feed time and no rate: spend.rate_basis is
 //     "none" and a client may estimate a rate from successive polls, labelled approximate (generated_at is the poll
 //     time). The tree has no depth or parent: members are registered by kind and liveness only.
-//   - Nothing from a store that does not verify is reported: integrity.chain_verified is "no" (or "unknown" when the
-//     MAC key was not available) and tree, spend and the feed items are absent.
+//   - integrity.chain_verified is "yes" only when the audit chain was walked from its run.enter row, every MAC and link
+//     matched AND the head agrees with the stop witness (an independent record: the run row does not bind the head, so
+//     a chain whose tail was cut is consistent in itself). "unanchored" is a consistent chain with no witness to
+//     compare (integrity.reason says why: no_witness, no_witness_record, witness_unreadable); tree, spend and the feed
+//     are shown, but the app must not show the run as healthy. "no" is a chain that does not verify, an empty chain, a
+//     head behind or contradicting the witness (reasons behind_witness, witness_mismatch) or a run whose row or
+//     generation is missing; "unknown" is a MAC key that was not available. Tree, spend and the feed are absent for
+//     "no" and "unknown". Any value other than "yes" is not healthy.
+//   - Spend counter totals are NOT authenticated (the counter rows carry no MAC): spend.counters_authenticated is
+//     always false, whatever the badge says; the app labels the totals accordingly.
+//   - available is false with reason "error" (and error_code: db_unavailable, read_timeout or read_failed) when the
+//     read itself failed; the verb then exits non-zero and integrity is "unknown". Never "off": a run may be live.
 //   - No field carries operator text, an answer, a vault name or a secret value: every string is from a closed set or a
 //     short identifier (see store.FeedItem).
 
@@ -27,6 +37,15 @@ var ControlRoomVerbs = []string{"overview", "feed"}
 const (
 	ReasonOff   = "off"
 	ReasonNoRun = "no_run"
+	// ReasonError: the read failed (database unreadable, timeout); see Overview.ErrorCode.
+	ReasonError = "error"
+)
+
+// Values of ErrorCode.
+const (
+	ErrCodeDBUnavailable = "db_unavailable"
+	ErrCodeReadTimeout   = "read_timeout"
+	ErrCodeReadFailed    = "read_failed"
 )
 
 // Values of Integrity.ChainVerified.
@@ -34,6 +53,8 @@ const (
 	VerifiedYes     = "yes"
 	VerifiedNo      = "no"
 	VerifiedUnknown = "unknown"
+	// VerifiedUnanchored: consistent chain, head not compared with the witness. Not healthy.
+	VerifiedUnanchored = "unanchored"
 )
 
 // RateBasisNone is SpendInfo.RateBasis of every CLI document.
@@ -44,6 +65,7 @@ type Overview struct {
 	SchemaVersion int            `json:"schema_version"`
 	Available     bool           `json:"available"`
 	Reason        string         `json:"reason,omitempty"` // only when available is false
+	ErrorCode     string         `json:"error_code,omitempty"`
 	GeneratedAt   int64          `json:"generated_at,omitempty"`
 	Run           *RunInfo       `json:"run,omitempty"`
 	Tree          *TreeInfo      `json:"tree,omitempty"`
@@ -81,15 +103,17 @@ type Cluster struct {
 // SpendInfo is the spend meter. CapMicro is the charter's budget ceiling (null with no_ceiling or no budget);
 // UsedMicro is the run's auto-approved ask spend plus granted spend. RateMicroPerHour is null from the CLI.
 type SpendInfo struct {
-	CapMicro         *int64    `json:"cap_micro"`
-	NoCeiling        bool      `json:"no_ceiling"`
-	UsedMicro        int64     `json:"used_micro"`
-	AskMicro         int64     `json:"ask_micro"`
-	GrantMicro       int64     `json:"grant_micro"`
-	RunSpendCapMicro *int64    `json:"run_spend_cap_micro"`
-	RateMicroPerHour *float64  `json:"rate_micro_per_hour"`
-	RateBasis        string    `json:"rate_basis"`
-	Counters         []Counter `json:"counters"`
+	CapMicro         *int64   `json:"cap_micro"`
+	NoCeiling        bool     `json:"no_ceiling"`
+	UsedMicro        int64    `json:"used_micro"`
+	AskMicro         int64    `json:"ask_micro"`
+	GrantMicro       int64    `json:"grant_micro"`
+	RunSpendCapMicro *int64   `json:"run_spend_cap_micro"`
+	RateMicroPerHour *float64 `json:"rate_micro_per_hour"`
+	RateBasis        string   `json:"rate_basis"`
+	// CountersAuthenticated is always false: the counter rows carry no MAC, so the totals are unauthenticated.
+	CountersAuthenticated bool      `json:"counters_authenticated"`
+	Counters              []Counter `json:"counters"`
 }
 
 // Counter is one cumulative counter (the store's kinds: ask_spend_micro, ask_tasks, grant_spend_micro, sends,
@@ -100,8 +124,8 @@ type Counter struct {
 	Limit *int64 `json:"limit"`
 }
 
-// IntegrityInfo is the badge. ChainVerified is "yes" only when the whole audit chain was walked and every MAC
-// matched; HeadPrefix is the first 16 hex digits of the head MAC (the same as `status`).
+// IntegrityInfo is the badge. ChainVerified is "yes" only when the whole audit chain was walked, every MAC matched
+// and the head agrees with the witness; HeadPrefix is the first 16 hex digits of the head MAC (the same as `status`).
 type IntegrityInfo struct {
 	ChainVerified string `json:"chain_verified"`
 	Reason        string `json:"reason,omitempty"`
@@ -116,6 +140,7 @@ type FeedPage struct {
 	SchemaVersion int            `json:"schema_version"`
 	Available     bool           `json:"available"`
 	Reason        string         `json:"reason,omitempty"`
+	ErrorCode     string         `json:"error_code,omitempty"`
 	GeneratedAt   int64          `json:"generated_at,omitempty"`
 	Integrity     *IntegrityInfo `json:"integrity,omitempty"`
 	Items         []FeedRow      `json:"items"`
