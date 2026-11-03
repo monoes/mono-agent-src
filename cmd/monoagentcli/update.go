@@ -55,9 +55,11 @@ func updateDeps(cfg *globalConfig) update.Deps {
 				daemonPID = hb.PID
 			}
 			b, ok := doctor.FindBridge(ctx, daemonPID)
-			return update.BridgeState{PID: b.PID, Version: b.Version, InFlight: b.InFlight, Unit: b.Unit, DaemonOwned: b.DaemonOwned}, ok
+			return update.BridgeState{PID: b.PID, Version: b.Version, InFlight: b.InFlight, Unit: b.Unit, Why: b.Why, ServiceName: b.ServiceName, DaemonOwned: b.DaemonOwned}, ok
 		},
-		RestartBridge: doctor.RestartBridgeUnit,
+		RestartBridge: func(ctx context.Context, unit string, pid int) error {
+			return doctor.RestartBridgeUnit(ctx, unit, pid, nil)
+		},
 	}
 }
 

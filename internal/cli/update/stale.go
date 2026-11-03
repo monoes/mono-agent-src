@@ -438,16 +438,23 @@ func shQuote(s string) string {
 // returned value is what to tell the operator. bu is the bridge restart's result: when it failed, no previous binary is dropped
 // (bu's message says where each is and how to put it back).
 func (d Deps) settleReplaced(ctx context.Context, list []StaleCLI, du *DaemonUpdate, bu *BridgeUpdate) *DaemonUpdate {
+	du = d.settleDaemon(ctx, list, du)
+	d.settleBridge(list, bu)
+	return du
+}
+
+// settleDaemon is the first part: the daemon's outcome decides which replaced binaries are put back (the one the daemon service
+// starts, when the daemon did not come up) or kept for the operator (the daemon may still be starting, or its restart may still
+// be in flight). The others stay pending: the bridge restart that follows may still need them to be put back.
+func (d Deps) settleDaemon(ctx context.Context, list []StaleCLI, du *DaemonUpdate) *DaemonUpdate {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	duFailed := du != nil && du.Action == "failed"
 	rollBack := duFailed && (du.Reason == "no_heartbeat" || du.Reason == "stopped")
-	// Not in doubt enough to put the old binary back, but too much to drop it: the new daemon may still be starting, the
-	// service manager's restart may still be in flight, or the bridge did not come up and which binary it starts is not known.
-	hold := !rollBack && ((duFailed && (du.Reason == "still_starting" || du.Reason == "timed_out")) || (bu != nil && bu.Action == "failed"))
+	hold := duFailed && (du.Reason == "still_starting" || du.Reason == "timed_out")
 	for _, s := range list {
-		if s.undo == nil {
+		if s.undo == nil || s.undo.done {
 			continue
 		}
 		switch {
@@ -455,18 +462,29 @@ func (d Deps) settleReplaced(ctx context.Context, list []StaleCLI, du *DaemonUpd
 			note := d.rollBackOne(ctx, s, du.pid)
 			du.RolledBack = du.RolledBack || strings.HasPrefix(note, "Rolled back")
 			du.Message += " " + note
+			s.undo.done = true
 		case hold:
-			note := fmt.Sprintf(" The previous binary of %q is kept at %q; put it back with: mv -f %s %s", s.Path, s.undo.bak, shQuote(s.undo.bak), shQuote(s.undo.target))
-			if duFailed {
-				du.Message += note
-			} else {
-				bu.Message += note
-			}
-		default:
-			s.undo.Commit()
+			du.Message += fmt.Sprintf(" The previous binary of %q is kept at %q; put it back with: mv -f %s %s", s.Path, s.undo.bak, shQuote(s.undo.bak), shQuote(s.undo.target))
+			s.undo.done = true
 		}
 	}
 	return du
+}
+
+// settleBridge is the last part, after the bridge restart: what is still pending is dropped, unless the bridge did not come up on
+// the new binary, when which binary it starts is not known here and each previous one is kept (bu's message says where).
+func (d Deps) settleBridge(list []StaleCLI, bu *BridgeUpdate) {
+	for _, s := range list {
+		if s.undo == nil || s.undo.done {
+			continue
+		}
+		if bu != nil && bu.Action == "failed" {
+			bu.Message += fmt.Sprintf(" The previous binary of %q is kept at %q; put it back with: mv -f %s %s", s.Path, s.undo.bak, shQuote(s.undo.bak), shQuote(s.undo.target))
+			s.undo.done = true
+			continue
+		}
+		s.undo.Commit()
+	}
 }
 
 func (d Deps) rollBackOne(ctx context.Context, s StaleCLI, failedPID int) string {

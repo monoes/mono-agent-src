@@ -59,8 +59,7 @@ func addServiceHooks(env *health.Env, d EnvDeps) {
 		return bridgeUserService(ctx, pid, serviceUnit(pid))
 	}
 	env.RestartBridge = func(ctx context.Context, unit string, pid int, progress func(string)) error {
-		progress("restarting " + unit)
-		return RestartBridgeUnit(ctx, unit, pid)
+		return RestartBridgeUnit(ctx, unit, pid, progress)
 	}
 
 	env.Daemon = func(context.Context) health.DaemonInfo {

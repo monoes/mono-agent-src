@@ -222,7 +222,7 @@ func (d Deps) run(cmd *cobra.Command) error {
 		if du := d.daemonAfterUpdate(cmd.Context(), v); du != nil {
 			fmt.Println(du.Message)
 		}
-		if bu := d.bridgeAfterUpdate(cmd.Context(), v); bu != nil {
+		if bu := d.bridgeAfterUpdate(cmd.Context(), v, ""); bu != nil {
 			fmt.Println(bu.Message)
 		}
 		return nil
@@ -291,9 +291,12 @@ func (d Deps) run(cmd *cobra.Command) error {
 	// from the verified asset, so that the restart below starts the new code; the rest is reported with its command.
 	stale := d.staleCLIs(cmd.Context(), info.Tag, d.selfSkip(selfPath), data)
 	d.printStale(stale)
-	du := d.daemonAfterUpdate(cmd.Context(), info.Tag)
-	bu := d.bridgeAfterUpdate(cmd.Context(), info.Tag)
-	du = d.settleReplaced(cmd.Context(), append([]StaleCLI{self}, stale...), du, bu)
+	entries := append([]StaleCLI{self}, stale...)
+	du := d.settleDaemon(cmd.Context(), entries, d.daemonAfterUpdate(cmd.Context(), info.Tag))
+	// the bridge is restarted after the daemon's outcome is settled: a daemon that was rolled back, or whose restart is not
+	// resolved, means the new binary is in doubt, and the bridge is not restarted onto it
+	bu := d.bridgeAfterUpdate(cmd.Context(), info.Tag, bridgeSkipReason(du))
+	d.settleBridge(entries, bu)
 	if du != nil {
 		fmt.Println(du.Message)
 	}
@@ -501,10 +504,13 @@ func installBinaryChecked(data []byte, target string, check func(tmp string) err
 
 // replaced is a binary that was swapped in, with the one it replaced kept under a name of its own (never a file of the
 // user's) until the caller has seen the new one work: Commit then drops it, Restore puts it back.
-type replaced struct{ target, bak string }
+type replaced struct {
+	target, bak string
+	done        bool // settled: committed, put back, or deliberately kept
+}
 
 // Commit forgets the old binary.
-func (r *replaced) Commit() { _ = os.Remove(r.bak) }
+func (r *replaced) Commit() { _ = os.Remove(r.bak); r.done = true }
 
 // Restore puts the old binary back in the new one's place (one rename, so the target is never missing).
 func (r *replaced) Restore() error {

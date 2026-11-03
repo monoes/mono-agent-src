@@ -1384,6 +1384,16 @@ func TestUpdateOfTheBinaryTheDaemonServiceStartsIsRolledBackWhenItDoesNotComeUp(
 					rr.hb.write(os.Getpid()+1, "v1.0.0")
 				}
 			}
+			bridge := newFakeBridge("v0.176.0")
+			bridge.after = func(b *fakeBridge) { b.state.PID, b.state.Version = 101, "v9.9.9" }
+			rr.d = bridge.deps(rr.d)
+			rr.d.VerifyWait = 200 * time.Millisecond
+			defer func() {
+				// the bridge is restarted onto the new binary only when the daemon came up on it
+				if want := map[bool]int{true: 1, false: 0}[tc.comesUp]; len(bridge.restarts) != want {
+					t.Errorf("the bridge was restarted %d times, want %d", len(bridge.restarts), want)
+				}
+			}()
 			out := captureStdout(t, func() {
 				if err := rr.d.run(NewCommand(rr.d)); err != nil {
 					t.Fatal(err)
@@ -1622,9 +1632,15 @@ func TestUpdateAppRollsTheDaemonExeBackWhenTheDaemonDoesNotComeUp(t *testing.T) 
 			r.hb.write(os.Getpid()+1, "v1.0.0")
 		}
 	}
+	bridge := newFakeBridge("v0.176.0")
+	r.d = bridge.deps(r.d)
+	r.d.VerifyWait = 200 * time.Millisecond
 	res, _ := runUpdateAppCmd(t, r.d, "--app", r.app, "--current", "v1.0.0")
 	if res.Daemon == nil || !res.Daemon.RolledBack {
 		t.Fatalf("daemon = %+v", res.Daemon)
+	}
+	if res.Bridge == nil || res.Bridge.Action != "skipped" || len(bridge.restarts) != 0 {
+		t.Fatalf("the bridge was restarted onto a binary that was rolled back: %+v, restarts %v", res.Bridge, bridge.restarts)
 	}
 	if b, _ := os.ReadFile(r.exe); string(b) != oldAsset {
 		t.Fatalf("the daemon's exe was not put back: %q", b)

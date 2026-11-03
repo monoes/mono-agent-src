@@ -49,7 +49,7 @@ func newFakeBridge(version string) *fakeBridge {
 
 func TestTheBridgeIsRestartedOntoTheNewVersion(t *testing.T) {
 	f := newFakeBridge("v0.176.0")
-	bu := f.deps(testDeps(t, "http://127.0.0.1:1")).bridgeAfterUpdate(context.Background(), "v0.215.7")
+	bu := f.deps(testDeps(t, "http://127.0.0.1:1")).bridgeAfterUpdate(context.Background(), "v0.215.7", "")
 	if bu == nil || bu.Action != "restarted" || len(f.restarts) != 1 || f.restarts[0] != "monoagent-bridge.service/100" {
 		t.Fatalf("bu = %+v, restarts = %v", bu, f.restarts)
 	}
@@ -64,11 +64,11 @@ func TestTheBridgeIsLeftAloneWhenThereIsNothingToDo(t *testing.T) {
 	} {
 		f := newFakeBridge("v0.176.0")
 		set(f)
-		if bu := f.deps(testDeps(t, "http://127.0.0.1:1")).bridgeAfterUpdate(context.Background(), "v0.215.7"); bu != nil || len(f.restarts) != 0 {
+		if bu := f.deps(testDeps(t, "http://127.0.0.1:1")).bridgeAfterUpdate(context.Background(), "v0.215.7", ""); bu != nil || len(f.restarts) != 0 {
 			t.Errorf("%s: bu = %+v, restarts = %v", name, bu, f.restarts)
 		}
 	}
-	if bu := testDeps(t, "http://127.0.0.1:1").bridgeAfterUpdate(context.Background(), "v0.215.7"); bu != nil {
+	if bu := testDeps(t, "http://127.0.0.1:1").bridgeAfterUpdate(context.Background(), "v0.215.7", ""); bu != nil {
 		t.Errorf("with no bridge hook: %+v", bu)
 	}
 }
@@ -77,7 +77,7 @@ func TestTheBridgeIsNotRestartedWhenItIsNotOursOrIsBusy(t *testing.T) {
 	t.Run("not one of the user's services", func(t *testing.T) {
 		f := newFakeBridge("v0.176.0")
 		f.state.Unit = ""
-		bu := f.deps(testDeps(t, "http://127.0.0.1:1")).bridgeAfterUpdate(context.Background(), "v0.215.7")
+		bu := f.deps(testDeps(t, "http://127.0.0.1:1")).bridgeAfterUpdate(context.Background(), "v0.215.7", "")
 		if bu == nil || bu.Action != "not_managed" || len(f.restarts) != 0 || !strings.Contains(bu.Message, "extension serve") {
 			t.Fatalf("bu = %+v, restarts = %v", bu, f.restarts)
 		}
@@ -85,7 +85,7 @@ func TestTheBridgeIsNotRestartedWhenItIsNotOursOrIsBusy(t *testing.T) {
 	t.Run("a command is in flight", func(t *testing.T) {
 		f := newFakeBridge("v0.176.0")
 		f.state.InFlight = 2
-		bu := f.deps(testDeps(t, "http://127.0.0.1:1")).bridgeAfterUpdate(context.Background(), "v0.215.7")
+		bu := f.deps(testDeps(t, "http://127.0.0.1:1")).bridgeAfterUpdate(context.Background(), "v0.215.7", "")
 		if bu == nil || bu.Action != "busy" || len(f.restarts) != 0 || !strings.Contains(bu.Message, "systemctl --user restart monoagent-bridge.service") {
 			t.Fatalf("bu = %+v, restarts = %v", bu, f.restarts)
 		}
@@ -96,7 +96,7 @@ func TestAFailedBridgeRestartSaysWhatToDo(t *testing.T) {
 	t.Run("the restart is refused", func(t *testing.T) {
 		f := newFakeBridge("v0.176.0")
 		f.restartErr = errors.New("the bridge is no longer pid 100 run by the unit")
-		bu := f.deps(testDeps(t, "http://127.0.0.1:1")).bridgeAfterUpdate(context.Background(), "v0.215.7")
+		bu := f.deps(testDeps(t, "http://127.0.0.1:1")).bridgeAfterUpdate(context.Background(), "v0.215.7", "")
 		if bu == nil || bu.Action != "failed" || !strings.Contains(bu.Message, "systemctl --user restart monoagent-bridge.service") {
 			t.Fatalf("bu = %+v", bu)
 		}
@@ -104,7 +104,7 @@ func TestAFailedBridgeRestartSaysWhatToDo(t *testing.T) {
 	t.Run("it comes back on the old version: the unit starts another binary", func(t *testing.T) {
 		f := newFakeBridge("v0.176.0")
 		f.after = func(b *fakeBridge) { b.state.PID = 101 } // a new process, the same old version
-		bu := f.deps(testDeps(t, "http://127.0.0.1:1")).bridgeAfterUpdate(context.Background(), "v0.215.7")
+		bu := f.deps(testDeps(t, "http://127.0.0.1:1")).bridgeAfterUpdate(context.Background(), "v0.215.7", "")
 		if bu == nil || bu.Action != "failed" || !strings.Contains(bu.Message, "still runs v0.176.0") || !strings.Contains(bu.Message, "systemctl --user cat") {
 			t.Fatalf("bu = %+v", bu)
 		}
@@ -113,20 +113,20 @@ func TestAFailedBridgeRestartSaysWhatToDo(t *testing.T) {
 		f := newFakeBridge("v0.176.0")
 		f.after = func(b *fakeBridge) { b.up = false }
 		start := time.Now()
-		bu := f.deps(testDeps(t, "http://127.0.0.1:1")).bridgeAfterUpdate(context.Background(), "v0.215.7")
+		bu := f.deps(testDeps(t, "http://127.0.0.1:1")).bridgeAfterUpdate(context.Background(), "v0.215.7", "")
 		if bu == nil || bu.Action != "failed" || !strings.Contains(bu.Message, "no bridge answered") || time.Since(start) > 3*time.Second {
 			t.Fatalf("bu = %+v after %s", bu, time.Since(start))
 		}
 	})
 	t.Run("a restart that never returns ends at the bound", func(t *testing.T) {
-		old := restartBound
-		restartBound = 100 * time.Millisecond
-		defer func() { restartBound = old }()
+		old := bridgeRestartBound
+		bridgeRestartBound = 100 * time.Millisecond
+		defer func() { bridgeRestartBound = old }()
 		f := newFakeBridge("v0.176.0")
 		d := f.deps(testDeps(t, "http://127.0.0.1:1"))
 		d.RestartBridge = func(ctx context.Context, unit string, pid int) error { <-ctx.Done(); return ctx.Err() }
 		var bu *BridgeUpdate
-		within(t, 5*time.Second, func() { bu = d.bridgeAfterUpdate(context.Background(), "v0.215.7") })
+		within(t, 5*time.Second, func() { bu = d.bridgeAfterUpdate(context.Background(), "v0.215.7", "") })
 		if bu == nil || bu.Action != "failed" {
 			t.Fatalf("bu = %+v", bu)
 		}
@@ -141,7 +141,7 @@ func TestAFailedBridgeKeepsThePreviousBinaries(t *testing.T) {
 	f.restartErr = errors.New("systemctl failed")
 	list := rr.d.staleCLIs(context.Background(), "v0.215.7", nil, []byte(newAsset))
 	d := f.deps(rr.d)
-	bu := d.bridgeAfterUpdate(context.Background(), "v0.215.7")
+	bu := d.bridgeAfterUpdate(context.Background(), "v0.215.7", "")
 	du := d.settleReplaced(context.Background(), list, d.daemonAfterUpdate(context.Background(), "v0.215.7"), bu)
 	if du == nil || du.Action != "restarted" {
 		t.Fatalf("du = %+v", du)
@@ -188,5 +188,71 @@ func TestUpdateWhenAlreadyCurrentRestartsAStaleBridge(t *testing.T) {
 	})
 	if len(f.restarts) != 1 || !strings.Contains(out, "Restarted the extension bridge") {
 		t.Fatalf("restarts %v, output:\n%s", f.restarts, out)
+	}
+}
+
+// --- review of the bridge restart
+
+// The bridge is restarted after the daemon's outcome is settled, never onto a binary that was rolled back or whose daemon
+// restart is unresolved.
+func TestTheBridgeIsNotRestartedOntoABinaryTheDaemonUpdateDidNotSettle(t *testing.T) {
+	for name, comesUp := range map[string]bool{"the daemon comes up": true, "the daemon does not": false} {
+		t.Run(name, func(t *testing.T) {
+			rr := newRollbackRig(t)
+			restarts := 0
+			rr.fake.onRestart = func() {
+				restarts++
+				if comesUp && restarts == 1 {
+					rr.hb.write(os.Getpid(), "v0.215.7")
+				}
+				if !comesUp && restarts == 2 { // the put-back works
+					rr.hb.write(os.Getpid()+1, "v1.0.0")
+				}
+			}
+			f := newFakeBridge("v0.176.0")
+			d := f.deps(rr.d)
+			list := d.staleCLIs(context.Background(), "v0.215.7", nil, []byte(newAsset))
+			du := d.settleDaemon(context.Background(), list, d.daemonAfterUpdate(context.Background(), "v0.215.7"))
+			bu := d.bridgeAfterUpdate(context.Background(), "v0.215.7", bridgeSkipReason(du))
+			d.settleBridge(list, bu)
+			if comesUp {
+				if bu == nil || bu.Action != "restarted" || len(f.restarts) != 1 {
+					t.Fatalf("bu = %+v, restarts %v", bu, f.restarts)
+				}
+				return
+			}
+			if bu == nil || bu.Action != "skipped" || len(f.restarts) != 0 || !strings.Contains(bu.Message, "did not settle") {
+				t.Fatalf("bu = %+v, bridge restarts %v", bu, f.restarts)
+			}
+			if b, _ := os.ReadFile(rr.exe); string(b) != oldAsset {
+				t.Fatalf("the daemon's exe was not rolled back: %q", b)
+			}
+		})
+	}
+}
+
+// Without a confirmed service the operator is not told to start a second bridge.
+func TestTheMessageForAnUnconfirmedBridgeNeverTellsToStartAnother(t *testing.T) {
+	for why, want := range map[string]string{
+		"unverified":    "systemctl --user restart monoagent-bridge.service",
+		"unsupported":   "the way you started it",
+		"not_a_service": "extension serve",
+	} {
+		f := newFakeBridge("v0.176.0")
+		f.state.Unit, f.state.Why, f.state.ServiceName = "", why, "monoagent-bridge.service"
+		bu := f.deps(testDeps(t, "http://127.0.0.1:1")).bridgeAfterUpdate(context.Background(), "v0.215.7", "")
+		if bu == nil || bu.Action != "not_managed" || !strings.Contains(bu.Message, want) || len(f.restarts) != 0 {
+			t.Errorf("%s: bu = %+v", why, bu)
+		}
+		if why != "not_a_service" && strings.Contains(bu.Message, "extension serve") {
+			t.Errorf("%s: the message tells to start a second bridge: %s", why, bu.Message)
+		}
+	}
+}
+
+// The bridge's own bound is longer than systemd's stop timeout, so a restart that is slow to stop is not reported failed.
+func TestTheRestartBoundsAreLongerThanSystemdsStopTimeout(t *testing.T) {
+	if restartBound <= 90*time.Second || bridgeRestartBound <= 90*time.Second {
+		t.Fatalf("bounds %s and %s must exceed systemd's 90 s stop timeout", restartBound, bridgeRestartBound)
 	}
 }

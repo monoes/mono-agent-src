@@ -61,9 +61,9 @@ func (d Deps) runApp(cmd *cobra.Command, appPath, current string) error {
 		// dropped or, if the daemon did not come up, put back. The app relays each line.
 		stale := d.staleAfterApp(cmd.Context(), appPath, current, res)
 		if !res.UpToDate {
-			res.Daemon = d.daemonAfterUpdate(cmd.Context(), res.NewVersion)
-			res.Bridge = d.bridgeAfterUpdate(cmd.Context(), res.NewVersion)
-			res.Daemon = d.settleReplaced(cmd.Context(), stale, res.Daemon, res.Bridge)
+			res.Daemon = d.settleDaemon(cmd.Context(), stale, d.daemonAfterUpdate(cmd.Context(), res.NewVersion))
+			res.Bridge = d.bridgeAfterUpdate(cmd.Context(), res.NewVersion, bridgeSkipReason(res.Daemon))
+			d.settleBridge(stale, res.Bridge)
 		}
 		res.StaleCLIs = stale
 		for _, s := range stale {

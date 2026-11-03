@@ -38,8 +38,9 @@ type DaemonUpdate struct {
 	Message    string `json:"message"`
 }
 
-// restartBound is the longest a service manager is given to restart the daemon; a variable so a test can shorten it.
-var restartBound = 30 * time.Second
+// restartBound is the longest a service manager is given to restart the daemon: longer than systemd's own stop timeout (90 s),
+// so a restart that is only slow to stop is not reported as timed out while it completes; a variable so a test can shorten it.
+var restartBound = 100 * time.Second
 
 // How the restart is verified by default: the daemon must write a live heartbeat of the new version.
 const (
