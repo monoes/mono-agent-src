@@ -174,6 +174,13 @@ func TestFinishRefusalsWriteNothing(t *testing.T) {
 			_ = f.l.RecordRecheck(ctx, true)
 			_ = f.l.RecordRecheck(ctx, false)
 		},
+		"recheck before the evidence": func(t *testing.T, f *finFix) {
+			f.freeze(t, "d")
+			if err := f.l.RecordRecheck(ctx, true); err != nil {
+				t.Fatal(err)
+			}
+			f.ready(t, f.verifier(finish.VerdictOK))
+		},
 		"work after the close point": func(t *testing.T, f *finFix) {
 			f.freeze(t, "d")
 			f.ready(t, f.verifier(finish.VerdictOK))
@@ -518,5 +525,25 @@ func TestFinishCharterThatCanNeverFinishParksAtTheCommit(t *testing.T) {
 	vd, err := finish.Finisher{Ledger: f.l, Verifier: v}.Step(ctx)
 	if err != nil || vd.Outcome != finish.Park || v.calls.Load() != 0 || f.count(t, "finish.commit") != 0 || f.facts(t).State != finish.StateParked {
 		t.Fatalf("%+v %v calls %d", vd, err, v.calls.Load())
+	}
+}
+
+func TestFinishCommitAndParkAreIdempotentFacts(t *testing.T) {
+	f := newFin(t)
+	f.commitReady(t)
+	if err := f.l.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.l.Commit(ctx); err != nil || f.count(t, "finish.commit") != 1 {
+		t.Fatalf("the second commit: %v rows %d", err, f.count(t, "finish.commit"))
+	}
+	g := newFin(t)
+	g.freeze(t, "d")
+	pk := finish.Verdict{Outcome: finish.Park, Reason: finish.ReasonSubjectChanged}
+	if err := g.l.Park(ctx, pk); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.l.Park(ctx, pk); err != nil || g.count(t, "finish.park") != 1 {
+		t.Fatalf("the second park: %v rows %d", err, g.count(t, "finish.park"))
 	}
 }
