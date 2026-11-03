@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/monoes/mono-agent/internal/dbconn"
 	"github.com/monoes/mono-agent/internal/imagescan"
 	"github.com/monoes/mono-agent/internal/profiledir"
 )
@@ -75,6 +76,7 @@ func registerInPlace(ctx context.Context, db *sql.DB, profileID, path, source, w
 	}
 	defer conn.Close()
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		dbconn.AbandonBegin(conn)
 		return "", fmt.Errorf("vault.Register: begin tx: %w", err)
 	}
 	committed := false
