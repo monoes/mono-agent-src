@@ -134,6 +134,14 @@ func (s *Store) BossGrantBudget(ctx context.Context, sc CallerScope, profileID s
 	if !slices.ContainsFunc(anc, func(n treeNode) bool { return n.id == sid }) {
 		return BudgetRequest{}, fmt.Errorf("%w: you are not above the session that asked", ErrNotYours)
 	}
+	// The grant's own host limits are read first, so an approval is not spent on a grant the host would refuse.
+	// (They are read again inside the grant's transaction; a change in between still spends the approval, the safe
+	// direction: it is never un-spent, so the boss must ask again.)
+	if reason, err := s.budgetRaiseRefusal(s.db, b, fromMicro(amountMicro)); err != nil {
+		return BudgetRequest{}, err
+	} else if reason != "" {
+		return BudgetRequest{}, fmt.Errorf("%w: %s", ErrLimit, reason)
+	}
 	req, err := r.request(ctx, profileID, ops.OpSpendGrant, sid)
 	if err != nil {
 		return BudgetRequest{}, err
