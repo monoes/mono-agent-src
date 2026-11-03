@@ -106,6 +106,8 @@ func (d *boundDelivery) start(cmd *exec.Cmd, pre func(*exec.Cmd) error) error {
 			d.r.Close()
 			return err
 		}
+		// Only Setsid and the pidfd pointer are checked: the placement is trusted host code, not a boundary, and it is expected to add only
+		// UseCgroupFD/CgroupFD. The pidfd is compared by pointer on purpose (the launcher reads the descriptor through it after the start).
 		// What the launcher built must have survived: a placement that replaced the struct would start a child that is no session leader
 		// or has no pidfd, so it is refused before anything exists.
 		if a := cmd.SysProcAttr; a == nil || !a.Setsid || a.PidFD != &d.pidfd {
