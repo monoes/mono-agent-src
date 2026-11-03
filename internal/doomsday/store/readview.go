@@ -45,6 +45,9 @@ const (
 	ReasonBehindWitness = "behind_witness"
 	// ReasonWitnessMismatch: the chain and the witness disagree about the head (rows past it, or another MAC).
 	ReasonWitnessMismatch = "witness_mismatch"
+	// ReasonWitnessAhead: the witness records a generation newer than the newest the database holds (its run, charter,
+	// audit and member rows were removed), or any generation when the database holds no run at all.
+	ReasonWitnessAhead = "witness_ahead_generation"
 )
 
 // ViewQuery selects the page of the feed. FeedBefore 0 is the newest page; otherwise rows with seq < FeedBefore.

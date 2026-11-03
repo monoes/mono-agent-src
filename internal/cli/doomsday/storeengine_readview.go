@@ -55,6 +55,35 @@ func (e *StoreEngine) ReadView(ctx context.Context, q store.ViewQuery) (store.Vi
 	if !ok {
 		return store.View{}, ErrOff
 	}
+	v, err := e.readOnce(ctx, rv, q)
+	if errors.Is(err, store.ErrNoRun) {
+		// No run row: a witness that remembers any generation says the rows were removed, not that none ever ran.
+		if e.HeadAnchor != nil {
+			if _, reason := e.HeadAnchor(0, 0, nil); reason == store.ReasonWitnessAhead {
+				return store.View{Chain: store.ChainState{Reason: reason}}, nil
+			}
+		}
+		return v, err
+	}
+	if err != nil || !witnessDisagrees(v) {
+		return v, err
+	}
+	// The snapshot and the witness are read one after the other with no lock, so a transition committed between them
+	// reads as a cut tail. A real cut persists: read both again, once, and report only what persists.
+	if v2, err2 := e.readOnce(ctx, rv, q); err2 == nil || !errors.Is(err2, store.ErrNoRun) {
+		v, err = v2, err2
+	}
+	return v, err
+}
+
+// witnessDisagrees says whether the view was withheld because the witness contradicts the chain.
+func witnessDisagrees(v store.View) bool {
+	return !v.Chain.Verified && (v.Chain.Reason == store.ReasonBehindWitness || v.Chain.Reason == store.ReasonWitnessMismatch ||
+		v.Chain.Reason == store.ReasonWitnessAhead)
+}
+
+// readOnce is one snapshot of the store, then one comparison of its head with the witness.
+func (e *StoreEngine) readOnce(ctx context.Context, rv store.ReadViewer, q store.ViewQuery) (store.View, error) {
 	v, err := rv.ReadView(ctx, e.Profile, 0, q)
 	if err != nil || !v.Chain.Verified {
 		return v, err
@@ -67,7 +96,7 @@ func (e *StoreEngine) ReadView(ctx context.Context, q store.ViewQuery) (store.Vi
 	switch {
 	case anchored:
 		v.Chain.Anchored, v.Chain.Reason = true, ""
-	case reason == store.ReasonBehindWitness || reason == store.ReasonWitnessMismatch:
+	case reason == store.ReasonBehindWitness || reason == store.ReasonWitnessMismatch || reason == store.ReasonWitnessAhead:
 		// The witness disagrees with the chain: nothing derived from this chain is reported.
 		return store.View{Run: v.Run, Limits: v.Limits, Chain: store.ChainState{Reason: reason}}, nil
 	default:
@@ -83,6 +112,9 @@ func (e *StoreEngine) ReadView(ctx context.Context, q store.ViewQuery) (store.Vi
 func CheckHeadAgainstWitness(recs []stop.Record, gen, headSeq int64, headMAC []byte) (anchored bool, reason string) {
 	lastC := -1
 	for i, r := range recs {
+		if r.Gen > gen && (r.T == stop.RecCommitted || r.T == stop.RecFailed || r.Ended) {
+			return false, store.ReasonWitnessAhead // the witness knows a newer generation than the database holds
+		}
 		if r.Gen != gen {
 			continue
 		}
@@ -110,6 +142,9 @@ func CheckHeadAgainstWitness(recs []stop.Record, gen, headSeq int64, headMAC []b
 	}
 	for _, r := range recs[lastC+1:] { // rows past the last committed one: only the announced transition
 		if r.T == stop.RecPending && r.Gen == gen && r.To == headSeq {
+			if r.Head != "" && r.Head != hex.EncodeToString(headMAC) {
+				return false, store.ReasonWitnessMismatch // the announced transition names another head
+			}
 			return true, ""
 		}
 	}

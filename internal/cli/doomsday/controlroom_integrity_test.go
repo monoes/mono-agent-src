@@ -38,7 +38,8 @@ func TestCheckHeadAgainstWitness(t *testing.T) {
 		{"rows past the witness with nothing announcing them", []stop.Record{rec(stop.RecCommitted, 3, hx)}, 4, mac, false, store.ReasonWitnessMismatch},
 		{"one announced transition in flight", []stop.Record{rec(stop.RecCommitted, 3, "aa"), rec(stop.RecPending, 4, "")}, 4, mac, true, ""},
 		{"a pending record from before the committed one does not announce", []stop.Record{rec(stop.RecPending, 4, ""), rec(stop.RecCommitted, 3, "aa")}, 4, mac, false, store.ReasonWitnessMismatch},
-		{"no record of the generation", []stop.Record{{T: stop.RecCommitted, Gen: 9, To: 3, Head: hx}}, 3, mac, false, AnchorNoRecord},
+		{"no record of the generation", nil, 3, mac, false, AnchorNoRecord},
+		{"the witness knows only a newer generation", []stop.Record{{T: stop.RecCommitted, Gen: 9, To: 3, Head: hx}}, 3, mac, false, store.ReasonWitnessAhead},
 		{"a failed freshness check of the generation", []stop.Record{rec(stop.RecCommitted, 3, hx), {T: stop.RecFailed, Gen: 1, Row: 5}}, 3, mac, false, store.ReasonWitnessMismatch},
 	}
 	for _, c := range cases {

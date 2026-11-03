@@ -78,7 +78,7 @@ func (d Deps) newOverview() *cobra.Command {
 			if perr := printControlRoom(cmd.OutOrStdout(), d.json(), o, func(w io.Writer) { overviewText(w, o) }); perr != nil {
 				return perr
 			}
-			return err // a failed read is the document above AND a non-zero exit
+			return reportedRead(err) // a failed read is the document above AND a non-zero exit, and nothing after it
 		},
 	}
 }
@@ -107,12 +107,20 @@ func (d Deps) newFeed() *cobra.Command {
 			if perr := printControlRoom(cmd.OutOrStdout(), d.json(), p, func(w io.Writer) { feedText(w, p) }); perr != nil {
 				return perr
 			}
-			return err
+			return reportedRead(err)
 		},
 	}
 	c.Flags().Int64Var(&before, "before", 0, "Page cursor: only rows with a lower seq (next_before of the previous page)")
 	c.Flags().IntVar(&limit, "limit", store.DefaultFeedLimit, "Rows per page (1..200)")
 	return c
+}
+
+// reportedRead marks a failed read as already reported: its document is on stdout, so main adds no second one.
+func reportedRead(err error) error {
+	if err == nil {
+		return nil
+	}
+	return clicore.Reported{Err: err}
 }
 
 func printControlRoom(out io.Writer, asJSON bool, doc any, text func(io.Writer)) error {
