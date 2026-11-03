@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/monoes/mono-agent/internal/dbconn"
 )
 
 // CaptureDocument is one browser capture (an inbox envelope directory) as
@@ -123,6 +125,7 @@ func registerCaptureDocument(ctx context.Context, db *sql.DB, profileID string, 
 	}
 	defer conn.Close()
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		dbconn.AbandonBegin(conn)
 		return "", false, fmt.Errorf("begin tx: %w", err)
 	}
 	committed := false
