@@ -3,6 +3,7 @@ package orgsign
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -36,6 +37,55 @@ func crossTimestampTick(t *testing.T) {
 		}
 	}
 	t.Skip("this filesystem's timestamps do not advance within 5s")
+}
+
+// eventually runs attempt until it reports true or 5s pass. A filesystem with coarse or lazily updated
+// directory times can give a change the same time as the stamp taken just before it; a later attempt lands in a
+// later tick, so spaced attempts tell that apart from a stamp that never moves.
+func eventually(attempt func() bool) bool {
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if attempt() {
+			return true
+		}
+	}
+	return false
+}
+
+// swapDirAndBack is the swap the guard defends against: the real folder moved aside, a copy put in its place
+// (what monomind would read), then the real one moved back.
+func swapDirAndBack(dir string) error {
+	aside := dir + ".real"
+	if err := os.Rename(dir, aside); err != nil {
+		return err
+	}
+	if err := os.CopyFS(dir, os.DirFS(aside)); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return err
+	}
+	return os.Rename(aside, dir)
+}
+
+// skipIfDirStampsDoNotMove skips the test when change never moves a directory's stamp on this filesystem, however
+// the attempts are spaced: that is a filesystem which does not record the change in a directory's ctime, not a
+// guard bug (the guard's own rule for such a filesystem is Untrusted). The probe reads the ctime itself, not
+// through the guard's stamps, so a guard that stopped recording it still fails the caller.
+func skipIfDirStampsDoNotMove(t *testing.T, what string, change func(dir string) error) {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "probe")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !eventually(func() bool {
+		before := rawDirCtime(dir)
+		if err := change(dir); err != nil {
+			t.Fatal(err)
+		}
+		return rawDirCtime(dir) != before
+	}) {
+		t.Skipf("this filesystem's directory ctime does not move on %s", what)
+	}
 }
 
 // fakeSigner signs whatever is on disk when called, as `monomind org sign
@@ -520,32 +570,23 @@ func TestStampSeesADirectorySwap(t *testing.T) {
 	}
 	writeOrg(t, root, "growth", `{"name":"growth","roles":[{"id":"lead","instructions_file":"prompts/lead.md"}]}`)
 	for _, rel := range []string{".monomind/orgs", ".monomind", "prompts"} {
-		before, err := StampDefinition(root, "growth")
-		if err != nil {
-			t.Fatal(err)
-		}
 		crossTimestampTick(t) // the swap below must land in a later tick than the stamp above
 		dir := filepath.Join(root, rel)
-		aside := dir + ".real"
-		// Move the real folder away, put a copy in its place (what
-		// monomind would read), then move the real one back.
-		if err := os.Rename(dir, aside); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.CopyFS(dir, os.DirFS(aside)); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.RemoveAll(dir); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Rename(aside, dir); err != nil {
-			t.Fatal(err)
-		}
-		after, err := StampDefinition(root, "growth")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if before.Same(after) {
+		if !eventually(func() bool {
+			before, err := StampDefinition(root, "growth")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := swapDirAndBack(dir); err != nil {
+				t.Fatal(err)
+			}
+			after, err := StampDefinition(root, "growth")
+			if err != nil {
+				t.Fatal(err)
+			}
+			return !before.Same(after)
+		}) {
+			skipIfDirStampsDoNotMove(t, "a swap away and back", swapDirAndBack)
 			t.Errorf("%s swapped away and back: stamps still equal", rel)
 		}
 	}
@@ -651,12 +692,23 @@ func TestUntrustedFilesystems(t *testing.T) {
 // changed.
 func TestOnlyDirTimesMoved(t *testing.T) {
 	root, _ := instructionsOrg(t)
-	a, _ := StampDefinition(root, "growth")
 	crossTimestampTick(t)
-	if err := os.WriteFile(filepath.Join(root, ".monomind", "orgs", "busy.json.tmp"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
+	var a, b Stamp
+	n := 0
+	if !eventually(func() bool {
+		a, _ = StampDefinition(root, "growth")
+		n++
+		if err := os.WriteFile(filepath.Join(root, ".monomind", "orgs", fmt.Sprintf("busy%d.json.tmp", n)), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		b, _ = StampDefinition(root, "growth")
+		return !a.Same(b)
+	}) {
+		skipIfDirStampsDoNotMove(t, "a file written into it", func(dir string) error {
+			n++
+			return os.WriteFile(filepath.Join(dir, fmt.Sprintf("f%d", n)), []byte("x"), 0o644)
+		})
 	}
-	b, _ := StampDefinition(root, "growth")
 	if a.Same(b) || !a.OnlyDirTimesMoved(b) {
 		t.Fatal("a file written into .monomind/orgs should move only directory times")
 	}
