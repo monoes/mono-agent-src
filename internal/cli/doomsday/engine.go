@@ -36,6 +36,9 @@ type StopOutcome struct {
 	MarkerRecorded bool     // the Stop marker was durably written first
 	IntentRecorded bool     // database intent
 	Survivors      []string // processes still alive after the kill step
+	// Incomplete holds the report lines of any run that is not fully stopped (a step not done, the run not
+	// quiescent). Non-empty means "stopped" is never printed.
+	Incomplete []string
 }
 
 // Status is the read-only view of the profile's run.
@@ -48,6 +51,8 @@ type Status struct {
 	Generation int64    `json:"generation,omitempty"`
 	Lines      []string `json:"lines,omitempty"`
 	Members    int      `json:"members,omitempty"`
+	AuditSeq   int64    `json:"audit_seq,omitempty"`
+	AuditHead  string   `json:"audit_head,omitempty"` // first 16 hex of the chain head MAC
 }
 
 // Engine is what the store and stop packages give the CLI. Enter must
