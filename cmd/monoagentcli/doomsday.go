@@ -5,7 +5,7 @@ import (
 
 	chatcli "github.com/monoes/mono-agent/internal/cli/chat"
 	doomsdaycli "github.com/monoes/mono-agent/internal/cli/doomsday"
-	"github.com/monoes/mono-agent/internal/operator"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 )
 
 // doomsdayEngine is the store/stop adapter of the open-ended mode. It is nil
@@ -19,8 +19,9 @@ var doomsdayEngine func(*globalConfig) doomsdaycli.Engine
 var doomsdayChat func(cfg *globalConfig, d *chatcli.Deps)
 
 func newDoomsdayCmd(cfg *globalConfig) *cobra.Command {
-	// The gate is the same requireOperator every operator-only verb uses, handed
-	// over as a value; doomsday_gate_test.go holds this verb's own table of it.
+	// Both questions are the turn-aware ones every operator-only verb asks: requireOperator, and opgate.Refusal
+	// (agent tokens, markers, a coder session's turn). doomsday_gate_test.go and the rows of
+	// operatorOnlyRows hold them.
 	gate := cfg.requireOperator
 	return doomsdaycli.NewCommand(doomsdaycli.Deps{
 		Engine: func() doomsdaycli.Engine {
@@ -30,7 +31,7 @@ func newDoomsdayCmd(cfg *globalConfig) *cobra.Command {
 			return doomsdayEngine(cfg)
 		},
 		RequireOperator: gate,
-		OperatorRefusal: operator.Refusal,
+		OperatorRefusal: opgate.Refusal,
 		StdinIsTerminal: stdinIsTerminal,
 		JSONOutput:      func() bool { return cfg.JSONOutput },
 	})

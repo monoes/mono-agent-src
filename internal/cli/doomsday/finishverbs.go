@@ -90,7 +90,8 @@ func (d Deps) newFinish() *cobra.Command {
 	var begin, reverify bool
 	c := &cobra.Command{
 		Use:   "finish",
-		Short: "Drive the finish of a run: freeze, criteria, review, commit (the user's own). " + clicore.OperatorOnlyHelp,
+		Short: "Drive the finish of a run: freeze, criteria, review, commit",
+		Long:  "Drive the finish of a run: freeze, criteria, review, commit. " + clicore.OperatorOnlyHelp,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := d.operatorGate("drive the finish of the open-ended run"); err != nil {
@@ -171,7 +172,8 @@ func (d Deps) newRubric() *cobra.Command {
 	var dossier, note string
 	c := &cobra.Command{
 		Use:   "rubric [id approve|reject]",
-		Short: "List the rubrics that wait for you, or decide one (the user's own). " + clicore.OperatorOnlyHelp,
+		Short: "List the rubrics that wait for you, or decide one",
+		Long:  "List the rubrics that wait for you, or decide one. " + clicore.OperatorOnlyHelp,
 		Args:  cobra.RangeArgs(0, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := d.operatorGate("decide a rubric of the open-ended run"); err != nil {

@@ -20,7 +20,7 @@ type Deps struct {
 	Engine func() Engine
 	// RequireOperator is the CLI's operator check (nil error for the user).
 	RequireOperator func(what string) error
-	// OperatorRefusal is operator.Refusal: why this process is not the user, "" for the user.
+	// OperatorRefusal is opgate.Refusal: why this process is not the user, "" for the user.
 	OperatorRefusal func() string
 	// StdinIsTerminal reports whether a person can type on stdin.
 	StdinIsTerminal func() bool
@@ -51,16 +51,14 @@ func NewCommand(d Deps) *cobra.Command {
 	return cmd
 }
 
-// operatorGate is the start/stop gate, in this order: the CLI's operator
-// check (exit 3), then the human-only refusal operator.Refusal.
+// operatorGate is the gate of every verb that acts, in this order: the shared turn-aware refusal (opgate.Refusal:
+// agent tokens, markers, a coder session's turn, a process that cannot be placed), then the CLI's own operator
+// check (exit 3). Both refuse as operator_only.
 func (d Deps) operatorGate(what string) error {
-	if err := clicore.RequireOperator(d.RequireOperator, what); err != nil {
-		return err
-	}
 	if why := clicore.OperatorRefusal(d.OperatorRefusal); why != "" {
 		return clicore.OperatorOnly("only the user can %s: %s; run it yourself in a terminal", what, why)
 	}
-	return nil
+	return clicore.RequireOperator(d.RequireOperator, what)
 }
 
 type charterFlags struct {
@@ -213,7 +211,8 @@ func (d Deps) acknowledge(cmd *cobra.Command, lines int, full string, yes bool, 
 func (d Deps) newStop() *cobra.Command {
 	return &cobra.Command{
 		Use:   "stop",
-		Short: "Stop the run (terminal; resuming is a new run). " + clicore.OperatorOnlyHelp,
+		Short: "Stop the run (terminal; resuming is a new run)",
+		Long:  "Stop the run (terminal; resuming is a new run). " + clicore.OperatorOnlyHelp,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := d.operatorGate("stop the open-ended run"); err != nil {

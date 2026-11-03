@@ -63,7 +63,7 @@ type rig struct {
 	e        *fakeEngine
 	deps     Deps
 	operator error  // RequireOperator's answer
-	refusal  string // operator.Refusal's answer
+	refusal  string // opgate.Refusal's answer
 	terminal bool
 }
 
@@ -108,6 +108,7 @@ func TestCommandIsHidden(t *testing.T) {
 	}
 }
 
+// TestStartAndStopAreOperatorOnly covers every verb that acts: start, stop, finish and rubric.
 func TestStartAndStopAreOperatorOnly(t *testing.T) {
 	file := writeCharter(t, goodCharter)
 	cases := map[string]func(*rig){
@@ -117,7 +118,7 @@ func TestStartAndStopAreOperatorOnly(t *testing.T) {
 		"unwired refusal":    func(r *rig) { r.deps.OperatorRefusal = nil },
 	}
 	for name, set := range cases {
-		for _, verb := range [][]string{{"start", "--charter", file, "--yes-i-lift", "--hash", "x"}, {"stop"}} {
+		for _, verb := range [][]string{{"start", "--charter", file, "--yes-i-lift", "--hash", "x"}, {"stop"}, {"finish"}, {"rubric", "c1", "approve", "--dossier", "abcdef12"}} {
 			t.Run(name+"/"+verb[0], func(t *testing.T) {
 				r := newRig()
 				set(r)
