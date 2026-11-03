@@ -259,8 +259,10 @@ func (d Deps) run(cmd *cobra.Command) error {
 	fmt.Printf("Updated to %s\n", info.Tag)
 	// Other mono-agent CLIs (the one a daemon service starts, the one on PATH) are still old: the daemon's own is replaced
 	// from the verified asset, so that the restart below starts the new code; the rest is reported with its command.
-	d.printStale(d.staleCLIs(cmd.Context(), info.Tag, d.selfSkip(selfPath), data))
-	if du := d.daemonAfterUpdate(cmd.Context(), info.Tag); du != nil {
+	stale := d.staleCLIs(cmd.Context(), info.Tag, d.selfSkip(selfPath), data)
+	d.printStale(stale)
+	du := d.settleReplaced(cmd.Context(), stale, d.daemonAfterUpdate(cmd.Context(), info.Tag))
+	if du != nil {
 		fmt.Println(du.Message)
 	}
 	return nil
@@ -448,42 +450,73 @@ func installBinary(data []byte, target string) error { return installBinaryCheck
 // installBinaryChecked is installBinary that first runs check on the new file, next to the target and executable, and
 // installs it only if check passes: a new binary that cannot run never takes the old one's place.
 func installBinaryChecked(data []byte, target string, check func(tmp string) error) error {
+	r, err := installBinaryKeep(data, target, check)
+	if err != nil {
+		return err
+	}
+	r.Commit()
+	return nil
+}
+
+// replaced is a binary that was swapped in, with the one it replaced kept under a name of its own (never a file of the
+// user's) until the caller has seen the new one work: Commit then drops it, Restore puts it back.
+type replaced struct{ target, bak string }
+
+// Commit forgets the old binary.
+func (r *replaced) Commit() { _ = os.Remove(r.bak) }
+
+// Restore puts the old binary back in the new one's place (one rename, so the target is never missing).
+func (r *replaced) Restore() error {
+	if err := os.Rename(r.bak, r.target); err != nil {
+		return fmt.Errorf("restoring %s from %s: %w", r.target, r.bak, err)
+	}
+	return nil
+}
+
+// installBinaryKeep is installBinaryChecked that keeps the old binary until Commit or Restore is called.
+func installBinaryKeep(data []byte, target string, check func(tmp string) error) (*replaced, error) {
 	tmp, err := os.CreateTemp(filepath.Dir(target), ".monoagentcli-update-*")
 	if err != nil {
-		return fmt.Errorf("temp file: %w", err)
+		return nil, fmt.Errorf("temp file: %w", err)
 	}
 	tmpPath := tmp.Name()
 	if _, err := tmp.Write(data); err != nil {
 		tmp.Close()
 		os.Remove(tmpPath)
-		return fmt.Errorf("write download: %w", err)
+		return nil, fmt.Errorf("write download: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
 		os.Remove(tmpPath)
-		return fmt.Errorf("write download: %w", err)
+		return nil, fmt.Errorf("write download: %w", err)
 	}
 	if err := os.Chmod(tmpPath, 0755); err != nil {
 		os.Remove(tmpPath)
-		return fmt.Errorf("chmod: %w", err)
+		return nil, fmt.Errorf("chmod: %w", err)
 	}
 	if check != nil {
 		if err := check(tmpPath); err != nil {
 			os.Remove(tmpPath)
-			return fmt.Errorf("the new binary did not pass its check: %w", err)
+			return nil, fmt.Errorf("the new binary did not pass its check: %w", err)
 		}
 	}
 
-	bak := target + ".bak"
-	os.Remove(bak)
+	// the old binary moves to a name nobody else uses: a file the user keeps as <target>.bak is not ours to delete
+	bakFile, err := os.CreateTemp(filepath.Dir(target), ".monoagentcli-previous-*")
+	if err != nil {
+		os.Remove(tmpPath)
+		return nil, fmt.Errorf("backup: %w", err)
+	}
+	bak := bakFile.Name()
+	bakFile.Close()
 	if err := os.Rename(target, bak); err != nil {
 		os.Remove(tmpPath)
-		return fmt.Errorf("backup: %w", err)
+		os.Remove(bak)
+		return nil, fmt.Errorf("backup: %w", err)
 	}
 	if err := os.Rename(tmpPath, target); err != nil {
 		os.Rename(bak, target) // rollback
 		os.Remove(tmpPath)
-		return fmt.Errorf("install: %w", err)
+		return nil, fmt.Errorf("install: %w", err)
 	}
-	os.Remove(bak)
-	return nil
+	return &replaced{target: target, bak: bak}, nil
 }

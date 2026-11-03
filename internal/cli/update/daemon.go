@@ -26,8 +26,16 @@ type DaemonUpdate struct {
 	Running  string `json:"running_version,omitempty"` // the version the daemon runs, "" when its heartbeat names none
 	InFlight int    `json:"in_flight,omitempty"`       // the executions that kept it from restarting
 	Via      string `json:"via,omitempty"`             // the service manager that restarted it
-	Message  string `json:"message"`
+	// Reason says why a failed restart failed, when it is one a rollback answers: stopped (the service manager stopped it and could not
+	// start it again), timed_out (the service manager did not answer in time) or no_heartbeat (it restarted and no live heartbeat of the new version followed).
+	Reason string `json:"reason,omitempty"`
+	// RolledBack: the binary the service starts was put back to the previous one because of that failure (see settleReplaced).
+	RolledBack bool   `json:"rolled_back,omitempty"`
+	Message    string `json:"message"`
 }
+
+// restartBound is the longest a service manager is given to restart the daemon; a variable so a test can shorten it.
+var restartBound = 30 * time.Second
 
 // How the restart is verified by default: the daemon must write a live heartbeat of the new version.
 const (
@@ -41,6 +49,9 @@ const daemonDown = "daemon is down — start it with: monoagentcli daemon start"
 // was nothing to do: no daemon runs, or it already runs newVersion. Only the daemon of this home's
 // heartbeat is considered, and only through the service manager it is registered with.
 func (d Deps) daemonAfterUpdate(ctx context.Context, newVersion string) *DaemonUpdate {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	hb, live := d.heartbeat()
 	if !live || !health.DaemonVersionStale(hb.Version, newVersion) {
 		return nil
@@ -84,7 +95,9 @@ func (d Deps) daemonAfterUpdate(ctx context.Context, newVersion string) *DaemonU
 		}
 	}
 
-	res, err := autostart.RestartRegistered(ctx, in)
+	rctx, cancel := context.WithTimeout(ctx, restartBound)
+	defer cancel()
+	res, err := autostart.RestartRegistered(rctx, in)
 	var notRegistered *autostart.NotRegisteredError
 	var stopped *autostart.StoppedError
 	switch {
@@ -92,11 +105,14 @@ func (d Deps) daemonAfterUpdate(ctx context.Context, newVersion string) *DaemonU
 		u.Action = "not_registered"
 		u.Message = fmt.Sprintf("The daemon (pid %d) runs %s and is not registered for auto-start, so nothing can restart it: stop it and start `monoagentcli daemon` again, or run `monoagentcli daemon install` to have the system manage it.", hb.PID, was)
 	case errors.As(err, &stopped):
-		u.Action, u.Message = "failed", fmt.Sprintf("The daemon (pid %d) was stopped but the service manager could not start it again (%v): %s.", hb.PID, err, daemonDown)
+		u.Action, u.Reason, u.Message = "failed", "stopped", fmt.Sprintf("The daemon (pid %d) was stopped but the service manager could not start it again (%v): %s.", hb.PID, err, daemonDown)
+	case errors.Is(err, context.DeadlineExceeded):
+		u.Action, u.Reason = "failed", "timed_out"
+		u.Message = fmt.Sprintf("The service manager did not restart the daemon (pid %d) within %s: %s.", hb.PID, restartBound, daemonDown)
 	case err != nil:
 		u.Action, u.Message = "failed", notRestarted+fmt.Sprintf("the service manager failed (%v).", err)+keeps
 	case !d.waitForVersion(ctx, newVersion):
-		u.Action, u.Via = "failed", res.Via
+		u.Action, u.Via, u.Reason = "failed", res.Via, "no_heartbeat"
 		u.Message = fmt.Sprintf("Restarted the daemon through %s but no live heartbeat of %s followed within %s: %s.", res.Via, newVersion, d.verifyWait(), daemonDown)
 	default:
 		u.Action, u.Via = "restarted", res.Via
@@ -146,4 +162,27 @@ func (d Deps) verifyWait() time.Duration {
 		return d.VerifyWait
 	}
 	return restartVerifyWait
+}
+
+// waitForLive polls the heartbeat until a live daemon of any version has written one after since (so not the one of the
+// daemon that was stopped), or the wait ends.
+func (d Deps) waitForLive(ctx context.Context, since time.Time) bool {
+	wait, tick := d.verifyWait(), d.VerifyTick
+	if tick == 0 {
+		tick = restartVerifyTick
+	}
+	deadline := time.Now().Add(wait)
+	for {
+		if hb, live := d.heartbeat(); live && hb.TS.After(since) {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(tick):
+		}
+	}
 }

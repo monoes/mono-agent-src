@@ -849,7 +849,7 @@ func TestAPathWithControlCharactersIsShownQuoted(t *testing.T) {
 	r.versions[evil] = "0.176.0"
 	got := r.d.staleCLIs(context.Background(), "v0.215.7", nil, nil)
 	if len(got) != 1 || strings.ContainsAny(got[0].Message, "\x1b\n\r") {
-		t.Fatalf("a raw control character reached the message: %q", got)
+		t.Fatalf("a raw control character reached the message: %+v", got)
 	}
 }
 
@@ -919,4 +919,177 @@ func TestAFolderOfAnotherUserAboveAProgramIsRefused(t *testing.T) {
 			t.Errorf("stale = %+v", got)
 		}
 	})
+}
+
+// --- rollback and bounded restart (#1358)
+
+type rollbackRig struct {
+	*staleRig
+	fake *fakeAutostart
+	hb   *fakeHeartbeat
+}
+
+func newRollbackRig(t *testing.T) *rollbackRig {
+	t.Helper()
+	r := newStaleRig(t, true)
+	r.versions[r.exe] = "0.176.0"
+	rr := &rollbackRig{staleRig: r, fake: &fakeAutostart{installed: true, where: r.unit}, hb: &fakeHeartbeat{}}
+	rr.hb.write(os.Getpid(), "v1.0.0")
+	rr.d.Heartbeat = rr.hb.read
+	rr.d.Installer = func() autostart.Installer { return rr.fake }
+	rr.d.ServicePID = func(context.Context, autostart.Installer) (int, error) { return os.Getpid(), nil }
+	rr.d.VerifyWait, rr.d.VerifyTick = 200*time.Millisecond, 10*time.Millisecond
+	return rr
+}
+
+// update: replace, restart the daemon, settle.
+func (rr *rollbackRig) update(t *testing.T) (*DaemonUpdate, []StaleCLI) {
+	t.Helper()
+	list := rr.d.staleCLIs(context.Background(), "v0.215.7", nil, []byte(newAsset))
+	return rr.d.settleReplaced(context.Background(), list, rr.d.daemonAfterUpdate(context.Background(), "v0.215.7")), list
+}
+
+func leftovers(t *testing.T, r *staleRig) []string {
+	t.Helper()
+	m, _ := filepath.Glob(filepath.Join(filepath.Dir(r.exe), ".monoagentcli-*"))
+	return m
+}
+
+func TestTheOldBinaryIsDroppedOnlyAfterTheNewOneBroughtTheDaemonUp(t *testing.T) {
+	rr := newRollbackRig(t)
+	rr.fake.onRestart = func() { rr.hb.write(os.Getpid(), "v0.215.7") }
+	du, _ := rr.update(t)
+	if du == nil || du.Action != "restarted" || du.RolledBack {
+		t.Fatalf("du = %+v", du)
+	}
+	if b, _ := os.ReadFile(rr.exe); string(b) != newAsset {
+		t.Fatalf("the new binary is not in place: %q", b)
+	}
+	if l := leftovers(t, rr.staleRig); len(l) != 0 {
+		t.Fatalf("the old binary was kept after the daemon came up on the new one: %v", l)
+	}
+}
+
+func TestTheOldBinaryIsPutBackWhenTheDaemonDoesNotComeUpOnTheNewOne(t *testing.T) {
+	rr := newRollbackRig(t)
+	calls := 0
+	rr.fake.onRestart = func() { // the restart on the new binary brings nothing up; the one after the put-back does
+		calls++
+		if calls == 2 {
+			rr.hb.write(os.Getpid(), "v1.0.0")
+		}
+	}
+	du, _ := rr.update(t)
+	if du == nil || du.Action != "failed" || du.Reason != "no_heartbeat" || !du.RolledBack {
+		t.Fatalf("du = %+v", du)
+	}
+	if b, _ := os.ReadFile(rr.exe); string(b) != oldAsset {
+		t.Fatalf("the old binary was not put back: %q", b)
+	}
+	if rr.fake.restarted != 2 || !strings.Contains(du.Message, "Rolled back") || !strings.Contains(du.Message, "is running it again") {
+		t.Fatalf("restarted %d times; message: %s", rr.fake.restarted, du.Message)
+	}
+	if l := leftovers(t, rr.staleRig); len(l) != 0 {
+		t.Fatalf("files left behind: %v", l)
+	}
+}
+
+func TestAFailedRollbackSaysWhatToDo(t *testing.T) {
+	t.Run("the daemon still does not come up", func(t *testing.T) {
+		rr := newRollbackRig(t) // no restart brings a heartbeat
+		du, _ := rr.update(t)
+		if b, _ := os.ReadFile(rr.exe); string(b) != oldAsset {
+			t.Fatal("the old binary was not put back")
+		}
+		if !du.RolledBack || !strings.Contains(du.Message, "no live heartbeat followed") || !strings.Contains(du.Message, "monoagentcli daemon start") {
+			t.Fatalf("message: %s", du.Message)
+		}
+	})
+	t.Run("the put-back is refused by the path rules", func(t *testing.T) {
+		rr := newRollbackRig(t)
+		list := rr.d.staleCLIs(context.Background(), "v0.215.7", nil, []byte(newAsset))
+		if err := os.Chmod(filepath.Dir(rr.exe), 0o777); err != nil { // the folder became writable by others since
+			t.Fatal(err)
+		}
+		defer os.Chmod(filepath.Dir(rr.exe), 0o755)
+		du := rr.d.settleReplaced(context.Background(), list, rr.d.daemonAfterUpdate(context.Background(), "v0.215.7"))
+		if du.RolledBack || !strings.Contains(du.Message, "could not be rolled back") || !strings.Contains(du.Message, "mv -f") {
+			t.Fatalf("du = %+v", du)
+		}
+		if b, _ := os.ReadFile(rr.exe); string(b) != newAsset {
+			t.Fatal("a file that fails the path rules was moved")
+		}
+		if l := leftovers(t, rr.staleRig); len(l) != 1 {
+			t.Fatalf("the previous binary must be kept for the manual command: %v", l)
+		}
+	})
+}
+
+// A restart that the service manager never answers does not hang the update: it ends at the bound, and the roll back is tried.
+func TestARestartThatNeverAnswersEndsAtTheBound(t *testing.T) {
+	old := restartBound
+	restartBound = 150 * time.Millisecond
+	defer func() { restartBound = old }()
+	rr := newRollbackRig(t)
+	rr.fake.block = true
+	start := time.Now()
+	var du *DaemonUpdate
+	within(t, 10*time.Second, func() { du, _ = rr.update(t) })
+	if took := time.Since(start); took > 5*time.Second {
+		t.Fatalf("the update took %s", took)
+	}
+	if du == nil || du.Action != "failed" || du.Reason != "timed_out" {
+		t.Fatalf("du = %+v", du)
+	}
+	if b, _ := os.ReadFile(rr.exe); string(b) != oldAsset {
+		t.Fatal("the old binary was not put back after a restart that never answered")
+	}
+}
+
+// A file the user keeps as <binary>.bak is not ours to delete, and the CLI on PATH, which the daemon does not start, is kept
+// whatever happens to the daemon.
+func TestTheUsersOwnBakFileAndAPathCLIAreLeftAlone(t *testing.T) {
+	rr := newRollbackRig(t)
+	if err := os.WriteFile(rr.exe+".bak", []byte("mine"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	onPath := filepath.Join(t.TempDir(), "pathbin", "monoagentcli")
+	if err := os.MkdirAll(filepath.Dir(onPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(onPath, []byte(oldAsset), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rr.d.LookPath = func(string) (string, error) { return onPath, nil }
+	rr.versions[onPath] = "0.176.0"
+	du, list := rr.update(t) // the daemon does not come up: its exe is rolled back, the PATH CLI is not
+	if b, _ := os.ReadFile(rr.exe + ".bak"); string(b) != "mine" {
+		t.Fatalf("the user's own .bak file was changed: %q", b)
+	}
+	if b, _ := os.ReadFile(onPath); string(b) != newAsset {
+		t.Fatalf("the PATH CLI was rolled back with the daemon's: %q", b)
+	}
+	if len(list) != 2 || du == nil || !du.RolledBack {
+		t.Fatalf("list %+v, du %+v", list, du)
+	}
+	if l, _ := filepath.Glob(filepath.Join(filepath.Dir(onPath), ".monoagentcli-previous-*")); len(l) != 0 {
+		t.Fatalf("the PATH CLI's previous binary was kept: %v", l)
+	}
+}
+
+// With no daemon running, the new binary is not in doubt: the old one is dropped.
+func TestWithNoDaemonRunningTheOldBinaryIsDropped(t *testing.T) {
+	rr := newRollbackRig(t)
+	rr.hb = &fakeHeartbeat{} // no heartbeat: no daemon
+	rr.d.Heartbeat = rr.hb.read
+	du, _ := rr.update(t)
+	if du != nil {
+		t.Fatalf("du = %+v", du)
+	}
+	if b, _ := os.ReadFile(rr.exe); string(b) != newAsset {
+		t.Fatalf("not replaced: %q", b)
+	}
+	if l := leftovers(t, rr.staleRig); len(l) != 0 {
+		t.Fatalf("left behind: %v", l)
+	}
 }

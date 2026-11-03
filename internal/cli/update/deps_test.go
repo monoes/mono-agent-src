@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/autostart"
 	"github.com/monoes/mono-agent/internal/daemonhb"
@@ -40,7 +41,7 @@ func (f *fakeHeartbeat) read() (daemonhb.Heartbeat, bool) {
 func (f *fakeHeartbeat) write(pid int, version string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.hb, f.ok = daemonhb.Heartbeat{PID: pid, Version: version}, true
+	f.hb, f.ok = daemonhb.Heartbeat{PID: pid, Version: version, TS: time.Now()}, true
 }
 
 // fakeAutostart is the service manager: installed is whether the daemon is registered.
@@ -51,6 +52,7 @@ type fakeAutostart struct {
 	restartErr error
 	onRestart  func()
 	where      string // what Status reports as the service definition; default a path that does not exist
+	block      bool   // Restart waits for its context to end, as a service manager that does not answer
 }
 
 func (f *fakeAutostart) Install(context.Context) (autostart.Result, error) {
@@ -64,8 +66,12 @@ func (f *fakeAutostart) Status(context.Context) (bool, string) {
 	return f.installed, "/x/monoagent-daemon.service"
 }
 func (f *fakeAutostart) Start(context.Context) error { f.started++; return nil }
-func (f *fakeAutostart) Restart(context.Context) error {
+func (f *fakeAutostart) Restart(ctx context.Context) error {
 	f.restarted++
+	if f.block {
+		<-ctx.Done()
+		return ctx.Err()
+	}
 	if f.onRestart != nil && f.restartErr == nil {
 		f.onRestart()
 	}
