@@ -28,6 +28,9 @@ type HostGate struct {
 	Profile string
 	RunDir  stop.RunDir
 	Clock   stop.Clock
+	// Kernel is the cgroup seam the merge's git commands are placed through (stop.LinuxKernel); nil refuses every
+	// merge while a run is open (it could not be placed in the unit).
+	Kernel stop.Kernel
 	// Journal is the merge journal (MergeFor); nil refuses every merge while a run is open.
 	Journal dynorg.MergeJournal
 	// BindingOn says whether security.peercred_binding is on. A run needs bound turns ("no run without binding"): nil, an

@@ -34,6 +34,10 @@ type MergeRecovery struct {
 	Recorded func(ctx context.Context, branch string) (bool, error)
 	// Git runs git for the judgement; nil is the conductor's own hardened runner.
 	Git gitFn
+	// PlaceFor answers, per pass, the placement of the open run's containment unit: a nil placer (no run open)
+	// leaves git as it was; an error stops the pass before any git command (a unit that cannot be proven is not
+	// worked in). A nil PlaceFor never places.
+	PlaceFor func(ctx context.Context) (GitPlacer, error)
 }
 
 // Recovered is what one pass found.
@@ -47,6 +51,10 @@ type Recovered struct {
 // generations names runs whose live merge members are checked even when they have no journal (an older form).
 func (r MergeRecovery) Recover(ctx context.Context, repo string, generations ...int64) (Recovered, error) {
 	var out Recovered
+	ctx, perr := r.placed(ctx)
+	if perr != nil {
+		return out, perr
+	}
 	if r.Members == nil || r.Journal == nil || r.Gone == nil {
 		return out, errors.New("merge recovery is not wired; nothing was resolved")
 	}
@@ -241,6 +249,10 @@ func SetReconcileGuard(g func(ctx context.Context, cwd string, active func(strin
 // protects every turn of the repository's unresolved operations it could still read; when the journal cannot be
 // read at all it protects every turn (fail closed).
 func (r MergeRecovery) GuardTurns(ctx context.Context, cwd string, active func(string) bool) func(string) bool {
+	ctx, perr := r.placed(ctx)
+	if perr != nil {
+		return func(string) bool { return true } // fail closed, as an unreadable journal does
+	}
 	repo := repoOfDir(ctx, r.Git, cwd)
 	_, _ = r.Recover(ctx, repo) // a failed pass leaves its operations open, and open operations are protected below
 	rows, jerr := r.Journal.MergeRows(ctx, r.Profile)

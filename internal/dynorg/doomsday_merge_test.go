@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os/exec"
 	"runtime"
 	"strings"
 	"sync"
@@ -93,7 +94,8 @@ func (r *ddRig) journal() MergeJournal {
 }
 
 func (r *ddRig) doomsday() *DoomsdayMerge {
-	return &DoomsdayMerge{Gate: r.gate, Members: r.st, Journal: r.journal(), Profile: "p", Generation: r.run.Generation}
+	return &DoomsdayMerge{Gate: r.gate, Members: r.st, Journal: r.journal(), Profile: "p", Generation: r.run.Generation,
+		Place: func(*exec.Cmd) (func(), error) { return func() {}, nil }}
 }
 
 func (r *ddRig) audits(t *testing.T) []string {
