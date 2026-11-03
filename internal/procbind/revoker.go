@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/dbconn"
 )
 
 // Revoker runs a legacy token change and the v2 revocation of the same tokens in ONE write transaction, so a
@@ -197,10 +199,14 @@ func beginImmediate(ctx context.Context, conn *sql.Conn) error {
 	for attempt := 0; ; attempt++ {
 		_, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`)
 		if err == nil || attempt >= 4 || !isBusy(err) {
+			if err != nil {
+				dbconn.AbandonBegin(conn)
+			}
 			return err
 		}
 		select {
 		case <-ctx.Done():
+			dbconn.AbandonBegin(conn)
 			return err
 		case <-time.After(100 * time.Millisecond << attempt):
 		}
