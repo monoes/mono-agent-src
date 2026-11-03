@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/credhttp"
 )
 
 // PinnedTransport is the Transport of vault.use (note 13.4 section 4A, network): the name is resolved once, every
@@ -99,7 +101,9 @@ func (p PinnedTransport) Do(ctx context.Context, req VaultArgs, secret []byte) (
 	if err != nil {
 		return Response{}, err
 	}
-	client := &http.Client{Transport: p.transport(addrs), CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	// The request carries the secret: credhttp.Client adds the credential redirect policy; the refusal of every
+	// redirect below runs first and stands (a redirect is answered, never followed).
+	client := credhttp.Client(&http.Client{Transport: p.transport(addrs), CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }})
 	hr, err := http.NewRequestWithContext(ctx, req.Method, req.URL, nil)
 	if err != nil {
 		return Response{}, ErrMalformedResponse

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
@@ -11,7 +12,6 @@ import (
 	"strings"
 	"sync"
 	"syscall"
-	"unsafe"
 )
 
 // The pinned connection of note 13.5 sections 3A and 3B, fallback outcome.
@@ -440,7 +440,12 @@ func (w *nsWatch) drain(allowCreate bool) error {
 
 func (w *nsWatch) scanEvents(b []byte, allowCreate bool) error {
 	for len(b) >= syscall.SizeofInotifyEvent {
-		ev := (*syscall.InotifyEvent)(unsafe.Pointer(&b[0])) //nolint:gosec // kernel-defined layout
+		// Decoded field by field in the host's byte order (the kernel's struct inotify_event): a cast to
+		// syscall.InotifyEvent reads past a buffer that ends with an event, because Go pads the struct's zero-size Name.
+		ev := struct {
+			Wd        int32
+			Mask, Len uint32
+		}{int32(binary.NativeEndian.Uint32(b[0:])), binary.NativeEndian.Uint32(b[4:]), binary.NativeEndian.Uint32(b[12:])}
 		size := syscall.SizeofInotifyEvent + int(ev.Len)
 		if size > len(b) {
 			break

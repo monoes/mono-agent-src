@@ -7,10 +7,13 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/testhome"
 )
 
 // writeProg writes an executable script into a directory that becomes the sandbox's PATH.
@@ -23,9 +26,14 @@ func writeProg(t *testing.T, r *rig, name, body string) {
 
 // Each process limit is applied to the program itself, by the child, before it runs (note 13.6 section 5, T29).
 func TestCriterionRunsUnderItsProcessLimits(t *testing.T) {
+	// POSIX sh (dash on the CI runners) has no `ulimit -u`: read the limits through a shell that does.
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("no bash on this machine: the only way this test reads RLIMIT_NPROC (ulimit -u) is through it")
+	}
 	r := newRig(t)
 	r.sb.Limits = Limits{CPUSeconds: 7, OpenFiles: 33, FileSize: 4096 * 512, Procs: 3001, AddressSpace: 5 << 30}
-	o := r.run("command", "sh -c 'ulimit -t; ulimit -n; ulimit -u; ulimit -v'", "")
+	o := r.run("command", bash+" -c 'ulimit -t; ulimit -n; ulimit -u; ulimit -v'", "")
 	want := "7\n33\n3001\n5242880" // -v counts KiB
 	if got := strings.TrimSpace(o.Stdout); got != want {
 		t.Fatalf("limits seen by the program = %q, want %q (%+v)", got, want, o)
@@ -126,7 +134,7 @@ func TestLimitsSpecRefusesBadInput(t *testing.T) {
 func TestMain(m *testing.M) {
 	// The tests re-exec this binary as the limits helper, as the command's run function does in production.
 	RunLimitsHelperIfRequested(os.Args[1:])
-	os.Exit(m.Run())
+	testhome.Main(m)
 }
 
 // No file of this package may declare an init(): the helper mode is run from the command's run function, because nothing

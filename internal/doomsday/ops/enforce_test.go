@@ -14,12 +14,15 @@ var bg = context.Background()
 var bounds = SpendBounds{MinMicro: 10_000, MaxMicro: 50_000_000}
 
 type fakeCharters struct {
+	mu    sync.Mutex
 	act   Active
 	live  bool
 	calls int
 }
 
 func (f *fakeCharters) Active(context.Context, string) (Active, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls++
 	return f.act, f.live, nil
 }
@@ -91,9 +94,14 @@ func (l *fakeLedger) Consume(_ context.Context, c Consume) (ConsumeResult, error
 	return ConsumeResult{Done: true}, nil
 }
 
-type fakeAudit struct{ rows []AuditRow }
+type fakeAudit struct {
+	mu   sync.Mutex
+	rows []AuditRow
+}
 
 func (a *fakeAudit) Append(_ context.Context, r AuditRow) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	a.rows = append(a.rows, r)
 	return nil
 }
