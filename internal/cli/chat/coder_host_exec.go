@@ -66,6 +66,35 @@ type execLauncher struct {
 	afterExitRevoke func()
 }
 
+// releaseTimeout bounds the release hook: a hook that does not answer in time refuses (a seam for tests). The hook runs on the start's
+// goroutine, outside the host's lock, but a blocked start would hold up the command that asked for it.
+var releaseTimeout = 30 * time.Second
+
+// hookRecover runs f and turns a panic into an error, so a faulty hook cannot unwind Start with a spawned, unwaited child.
+func hookRecover(what string, f func() error) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%s panicked: %v", what, r)
+		}
+	}()
+	return f()
+}
+
+// askRelease asks the release hook, refusing when it panics or does not answer within releaseTimeout. A hook that is still running
+// at the deadline is left to finish on its own goroutine; its late answer is ignored.
+func askRelease(hook func(profileID, conversationID, turnID string, bound bool) error, profileID, conversationID, turnID string, bound bool) error {
+	res := make(chan error, 1)
+	go func() {
+		res <- hookRecover("the release check", func() error { return hook(profileID, conversationID, turnID, bound) })
+	}()
+	select {
+	case err := <-res:
+		return err
+	case <-time.After(releaseTimeout):
+		return errors.New("the release check did not answer in time")
+	}
+}
+
 // hostID is what makes a host-owned name safe to put in a file name and a flag.
 var hostID = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$`)
 
@@ -349,15 +378,22 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 		}
 	}
 	if l.runStamp != nil && l.recordRun != nil {
-		if charterID, gen := l.runStamp(profileID, conversationID); charterID != "" || gen != 0 {
-			if err := l.recordRun(profileID, conversationID, turnID, charterID, gen); err != nil {
-				return nil, killUnrecorded(fmt.Errorf("could not record the run of the turn, so it was stopped: %w", err))
+		// A zero answer stamps nothing and never clears an earlier stamp (the stamp belongs to the run and is read by generation).
+		if err := hookRecover("the run stamp", func() error {
+			if charterID, gen := l.runStamp(profileID, conversationID); charterID != "" || gen != 0 {
+				return l.recordRun(profileID, conversationID, turnID, charterID, gen)
 			}
+			return nil
+		}); err != nil {
+			return nil, killUnrecorded(fmt.Errorf("could not record the run of the turn, so it was stopped: %w", err))
 		}
 	}
 	startWaiter()
 	if l.beforeRelease != nil {
-		if err := l.beforeRelease(profileID, conversationID, turnID, bd != nil); err != nil {
+		// A refused release is a start that failed after the process existed: StartedError on purpose (the spend cap stays counted, the
+		// command fails, nothing retries it). The stop is the ordinary one (SIGTERM, then the grace): a bound child that has not been given
+		// its credentials has not run, so it needs no pidfd kill.
+		if err := askRelease(l.beforeRelease, profileID, conversationID, turnID, bd != nil); err != nil {
 			return nil, t.fail(fmt.Errorf("the turn was not released: %w", err))
 		}
 	}

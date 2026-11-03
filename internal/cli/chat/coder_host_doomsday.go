@@ -18,6 +18,9 @@ type RunHooks struct {
 // InstallRunHooks sets the hooks on the launchers of a host built by `coder host run` (the legacy and the bound one) and wires the
 // stamp to the store. It fails when the host does not launch through the production launchers.
 func InstallRunHooks(st *coderhost.Store, h *coderhost.Host, hooks RunHooks) error {
+	if h == nil || (hooks.RunStamp != nil && st == nil) {
+		return errors.New("the run hooks need a host, and a store to stamp the run")
+	}
 	g, ok := h.L.(*gatedLauncher)
 	if !ok {
 		return errors.New("the host does not launch through the production gate")

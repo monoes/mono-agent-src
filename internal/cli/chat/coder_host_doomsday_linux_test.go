@@ -4,25 +4,29 @@ package chat
 
 import (
 	"errors"
+	"github.com/monoes/mono-agent/internal/coderhost"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 )
 
-func pidOf(t *testing.T, path string) int {
-	t.Helper()
-	for i := 0; i < 300; i++ {
-		if b, err := os.ReadFile(path); err == nil {
-			if p, _ := strconv.Atoi(strings.TrimSpace(string(b))); p > 1 {
-				return p
-			}
+// capturePid makes the launcher report the pid it recorded for the turn (the process may be stopped before it writes anything itself).
+func capturePid(l *execLauncher) *atomic.Int64 {
+	var p atomic.Int64
+	prev := l.onProcess
+	l.onProcess = func(pr, c, tu string, pid int, stamp string, bound bool) error {
+		p.Store(int64(pid))
+		if prev != nil {
+			return prev(pr, c, tu, pid, stamp, bound)
 		}
-		time.Sleep(10 * time.Millisecond)
+		return nil
 	}
-	return 0
+	return &p
 }
 
 func dead(pid int) bool {
@@ -39,6 +43,7 @@ func dead(pid int) bool {
 // was never delivered (the child reads it from its pipe, so it never ran past that read).
 func TestARefusedReleaseOfABoundTurnStopsItBeforeAnythingIsDelivered(t *testing.T) {
 	r := newBoundRig(t, "")
+	pidp := capturePid(r.l)
 	var gotBound bool
 	r.l.beforeRelease = func(_, _, _ string, bound bool) error { gotBound = bound; return errors.New("no ticket") }
 	if _, err := r.l.Start("default", "c1", "t1", "hi", nil, ""); err == nil || !strings.Contains(err.Error(), "no ticket") {
@@ -47,7 +52,9 @@ func TestARefusedReleaseOfABoundTurnStopsItBeforeAnythingIsDelivered(t *testing.
 	if !gotBound {
 		t.Error("the hook was not told the turn is bound")
 	}
-	if pid := pidOf(t, r.pidfile); pid > 1 && !dead(pid) {
+	if pid := int(pidp.Load()); pid <= 1 {
+		t.Error("the launcher recorded no pid")
+	} else if !dead(pid) {
 		t.Error("the refused turn's process is still running")
 	}
 	if b, _ := os.ReadFile(r.frame); len(b) != 0 {
@@ -95,12 +102,15 @@ func TestTheRunIsStampedAndAFailedStampStopsTheProcess(t *testing.T) {
 		t.Errorf("order %v", order)
 	}
 	r2 := newBoundRig(t, "")
+	pid2 := capturePid(r2.l)
 	r2.l.runStamp = func(string, string) (string, int64) { return "charter-1", 7 }
 	r2.l.recordRun = func(string, string, string, string, int64) error { return errors.New("db down") }
 	if _, err := r2.l.Start("default", "c1", "t1", "hi", nil, ""); err == nil || !strings.Contains(err.Error(), "db down") {
 		t.Fatalf("a failed stamp: %v", err)
 	}
-	if pid := pidOf(t, r2.pidfile); pid > 1 && !dead(pid) {
+	if pid := int(pid2.Load()); pid <= 1 {
+		t.Error("the launcher recorded no pid")
+	} else if !dead(pid) {
 		t.Error("the process of a turn whose run could not be stamped is still running")
 	}
 	r3 := newBoundRig(t, "") // a zero answer stamps nothing
@@ -112,4 +122,160 @@ func TestTheRunIsStampedAndAFailedStampStopsTheProcess(t *testing.T) {
 	}
 	_ = os.WriteFile(r3.release, []byte("x"), 0o600)
 	_ = turn3.Wait()
+}
+
+// The release check runs BEFORE anything is delivered: when it runs the child has been given nothing (its frame is still empty, and stays
+// empty for as long as we look), and an accepted release lets the frame arrive afterwards.
+func TestTheReleaseCheckRunsBeforeTheCredentialsAreDelivered(t *testing.T) {
+	r := newBoundRig(t, "")
+	r.l.beforeRelease = func(_, _, _ string, _ bool) error {
+		for i := 0; i < 30; i++ { // were delivery already under way, the child would have written its frame by now
+			if b, _ := os.ReadFile(r.frame); len(b) != 0 {
+				t.Error("the credentials were delivered before the release check ran")
+				return nil
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		return nil
+	}
+	turn, err := r.l.Start("default", "c1", "t1", "hi", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got int
+	for i := 0; i < 300 && got == 0; i++ {
+		if b, _ := os.ReadFile(r.frame); len(b) != 0 {
+			got = len(b)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	_ = os.WriteFile(r.release, []byte("x"), 0o600)
+	_ = turn.Wait()
+	if got == 0 {
+		t.Error("an accepted release never delivered the credentials")
+	}
+}
+
+// A legacy (unbound) turn is told bound=false; a refusal stops the already running process.
+func TestARefusedReleaseOfALegacyTurnStopsTheStartedProcess(t *testing.T) {
+	bin, dir := scriptBin(t, "echo '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\necho $$ > \"$(dirname \"$0\")/pid\"\nsleep 300\n")
+	var gotBound = true
+	var pidp *atomic.Int64
+	l := &execLauncher{bin: bin, dbPath: "/db/x.db", instance: "host-test", logDir: filepath.Join(dir, "turns"), revokeBackoff: time.Millisecond,
+		revoke:        func(string, string) error { return nil },
+		beforeRelease: func(_, _, _ string, bound bool) error { gotBound = bound; return errors.New("unbound is refused") }}
+	pidp = capturePid(l)
+	if _, err := l.Start("default", "c1", "t1", "hi", nil, ""); err == nil || !strings.Contains(err.Error(), "unbound is refused") {
+		t.Fatalf("a refused legacy release: %v", err)
+	}
+	if gotBound {
+		t.Error("a legacy turn was reported as bound")
+	}
+	if pid := int(pidp.Load()); pid <= 1 {
+		t.Error("the launcher recorded no pid")
+	} else if !dead(pid) {
+		t.Error("the refused legacy process is still running")
+	}
+}
+
+// A panicking hook is a failed start with the process stopped, never an unwound Start with an unwaited child.
+func TestAPanickingHookFailsTheStartAndStopsTheProcess(t *testing.T) {
+	for name, set := range map[string]func(l *execLauncher){
+		"runStamp": func(l *execLauncher) {
+			l.runStamp = func(string, string) (string, int64) { panic("boom") }
+			l.recordRun = func(string, string, string, string, int64) error { return nil }
+		},
+		"recordRun": func(l *execLauncher) {
+			l.runStamp = func(string, string) (string, int64) { return "c", 1 }
+			l.recordRun = func(string, string, string, string, int64) error { panic("boom") }
+		},
+		"beforeRelease": func(l *execLauncher) { l.beforeRelease = func(_, _, _ string, _ bool) error { panic("boom") } },
+	} {
+		r := newBoundRig(t, "")
+		pidp := capturePid(r.l)
+		set(r.l)
+		if _, err := r.l.Start("default", "c1", "t1", "hi", nil, ""); err == nil || !strings.Contains(err.Error(), "panicked") {
+			t.Fatalf("%s: a panicking hook: %v", name, err)
+		}
+		if pid := int(pidp.Load()); pid <= 1 {
+			t.Errorf("%s: the launcher recorded no pid", name)
+		} else if !dead(pid) {
+			t.Errorf("%s: the process is still running", name)
+		}
+	}
+}
+
+// A release check that does not answer refuses at the deadline instead of stalling the start for good.
+func TestABlockingReleaseCheckRefusesAtTheDeadline(t *testing.T) {
+	old := releaseTimeout
+	releaseTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { releaseTimeout = old })
+	r := newBoundRig(t, "")
+	pidp := capturePid(r.l)
+	block := make(chan struct{})
+	t.Cleanup(func() { close(block) })
+	r.l.beforeRelease = func(_, _, _ string, _ bool) error { <-block; return nil }
+	start := time.Now()
+	if _, err := r.l.Start("default", "c1", "t1", "hi", nil, ""); err == nil || !strings.Contains(err.Error(), "in time") {
+		t.Fatalf("a blocking check: %v", err)
+	}
+	if time.Since(start) > 20*time.Second {
+		t.Error("the start waited for a blocked check")
+	}
+	if pid := int(pidp.Load()); pid <= 1 {
+		t.Error("the launcher recorded no pid")
+	} else if !dead(pid) {
+		t.Error("the process of a turn whose release timed out is still running")
+	}
+}
+
+// The real store writes the run on the real session.
+func TestAStartStampsTheRunOnTheRealSession(t *testing.T) {
+	r := newBoundRig(t, "")
+	x, err := r.store.EnsureSession("default", "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	x.State, x.TurnID = coderhost.StateRunning, "t1"
+	if err := r.store.SaveSession(x); err != nil {
+		t.Fatal(err)
+	}
+	r.l.runStamp = func(string, string) (string, int64) { return "charter-1", 7 }
+	r.l.recordRun = r.store.StampDoomsdayRun
+	turn, err := r.l.Start("default", "c1", "t1", "hi", nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(r.release, []byte("x"), 0o600)
+	_ = turn.Wait()
+	var gen int64
+	var charter string
+	if err := r.db.DB.QueryRow(`SELECT doomsday_generation, doomsday_charter_id FROM coder_sessions WHERE profile_id = 'default' AND conversation_id = 'c1'`).Scan(&gen, &charter); err != nil || gen != 7 || charter != "charter-1" {
+		t.Errorf("the session carries %d %q (%v)", gen, charter, err)
+	}
+}
+
+// InstallRunHooks sets the hooks on the production launchers, and refuses (as an error, never a panic) what it cannot install into.
+func TestInstallRunHooks(t *testing.T) {
+	legacy, bound := &execLauncher{}, &execLauncher{}
+	h := &coderhost.Host{L: &gatedLauncher{inner: legacy, bound: bound}}
+	st := coderhost.NewStore(nil)
+	hooks := RunHooks{RunStamp: func(string, string) (string, int64) { return "c", 1 }, BeforeRelease: func(_, _, _ string, _ bool) error { return nil }}
+	if err := InstallRunHooks(st, h, hooks); err != nil {
+		t.Fatal(err)
+	}
+	for name, l := range map[string]*execLauncher{"legacy": legacy, "bound": bound} {
+		if l.runStamp == nil || l.recordRun == nil || l.beforeRelease == nil {
+			t.Errorf("%s launcher without its hooks: %+v", name, l)
+		}
+	}
+	if err := InstallRunHooks(nil, h, hooks); err == nil {
+		t.Error("a nil store was accepted for a stamping hook")
+	}
+	if err := InstallRunHooks(st, &coderhost.Host{L: &execLauncher{}}, hooks); err == nil {
+		t.Error("a host without the production gate was accepted")
+	}
+	if err := InstallRunHooks(st, nil, hooks); err == nil {
+		t.Error("a nil host was accepted")
+	}
 }
