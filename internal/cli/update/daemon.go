@@ -20,7 +20,7 @@ import (
 // DaemonUpdate is what an update did about the daemon, in `update --app --json` as "daemon".
 type DaemonUpdate struct {
 	// Action is restarted, busy (an execution is in flight), settings (the saved API settings cannot
-	// be used), unknown (the database could not be read), not_registered, not_managed (the registered
+	// be used), unknown (the database could not be read), not_replaced (the binary the service starts was not updated), not_registered, not_managed (the registered
 	// service is not this daemon, or cannot be told to be) or failed.
 	Action   string `json:"action"`
 	Running  string `json:"running_version,omitempty"` // the version the daemon runs, "" when its heartbeat names none
@@ -33,19 +33,32 @@ type DaemonUpdate struct {
 	// (the process runs, no heartbeat of the new version yet) and timed_out (the service manager did not answer in time).
 	Reason string `json:"reason,omitempty"`
 	pid    int    // the pid of the daemon that was restarted
+	// recovered: the daemon runs again on the previous binary after a rollback.
+	recovered bool
 	// RolledBack: the binary the service starts was put back to the previous one because of that failure (see settleReplaced).
 	RolledBack bool   `json:"rolled_back,omitempty"`
 	Message    string `json:"message"`
 }
 
-// restartBound is the longest a service manager is given to restart the daemon; a variable so a test can shorten it.
-var restartBound = 30 * time.Second
+// restartBound is the longest a service manager is given to restart the daemon: longer than systemd's own stop timeout (90 s),
+// so a restart that is only slow to stop is not reported as timed out while it completes; a variable so a test can shorten it.
+var restartBound = 100 * time.Second
 
 // How the restart is verified by default: the daemon must write a live heartbeat of the new version.
 const (
 	restartVerifyWait = 15 * time.Second
 	restartVerifyTick = 250 * time.Millisecond
 )
+
+// Down says the update left no daemon running: its restart failed and the service's process is gone (stopped, or no heartbeat
+// and no process), and no rollback brought it back. A daemon that is only slow to start, a restart the service manager has not
+// answered within the bound (timed_out) and an update that was interrupted are not down; it is not known.
+func (u *DaemonUpdate) Down() bool {
+	if u == nil || u.Action != "failed" || u.recovered {
+		return false
+	}
+	return u.Reason == "stopped" || u.Reason == "no_heartbeat"
+}
 
 const daemonDown = "daemon is down — start it with: monoagentcli daemon start"
 
@@ -99,6 +112,7 @@ func (d Deps) daemonAfterUpdate(ctx context.Context, newVersion string) *DaemonU
 		}
 	}
 
+	d.say(fmt.Sprintf("Restarting the daemon (pid %d) onto %s (up to %s)...", hb.PID, newVersion, restartBound+d.verifyWait()))
 	rctx, cancel := context.WithTimeout(ctx, restartBound)
 	defer cancel()
 	res, err := autostart.RestartRegistered(rctx, in)
@@ -110,12 +124,22 @@ func (d Deps) daemonAfterUpdate(ctx context.Context, newVersion string) *DaemonU
 		u.Message = fmt.Sprintf("The daemon (pid %d) runs %s and is not registered for auto-start, so nothing can restart it: stop it and start `monoagentcli daemon` again, or run `monoagentcli daemon install` to have the system manage it.", hb.PID, was)
 	case errors.As(err, &stopped):
 		u.Action, u.Reason, u.Message = "failed", "stopped", fmt.Sprintf("The daemon (pid %d) was stopped but the service manager could not start it again (%v): %s.", hb.PID, err, daemonDown)
+	case ctx.Err() != nil:
+		// the command was interrupted: what the restart did is not known, so both binaries stay and nothing is rolled back
+		u.Action, u.Reason = "failed", "cancelled"
+		u.Message = fmt.Sprintf("The update was interrupted while the daemon (pid %d) was being restarted, so it is not known whether it runs %s. Check it with: monoagentcli daemon status", hb.PID, newVersion)
 	case errors.Is(err, context.DeadlineExceeded):
 		u.Action, u.Reason = "failed", "timed_out"
 		u.Message = fmt.Sprintf("The service manager did not restart the daemon (pid %d) within %s: %s.", hb.PID, restartBound, daemonDown)
 	case err != nil:
 		u.Action, u.Message = "failed", notRestarted+fmt.Sprintf("the service manager failed (%v).", err)+keeps
 	case !d.waitForVersion(ctx, newVersion):
+		if ctx.Err() != nil {
+			// interrupted while waiting: the wait ending says nothing about the daemon, so both binaries stay
+			u.Action, u.Via, u.Reason = "failed", res.Via, "cancelled"
+			u.Message = fmt.Sprintf("The update was interrupted while waiting for the daemon restarted through %s to show %s, so it is not known whether it runs it. Check it with: monoagentcli daemon status", res.Via, newVersion)
+			return u
+		}
 		u.Action, u.Via, u.Reason = "failed", res.Via, "no_heartbeat"
 		u.Message = fmt.Sprintf("Restarted the daemon through %s but no live heartbeat of %s followed within %s: %s.", res.Via, newVersion, d.verifyWait(), daemonDown)
 		if pid, perr := d.servicePID(ctx, in); perr == nil && pid > 0 && pid != hb.PID {
@@ -128,6 +152,39 @@ func (d Deps) daemonAfterUpdate(ctx context.Context, newVersion string) *DaemonU
 		u.Message = fmt.Sprintf("Restarted the daemon through %s so that it runs %s (it ran %s).", res.Via, newVersion, was)
 	}
 	return u
+}
+
+// daemonNotReplaced is non-nil when a daemon runs an older version and the binary its service starts was not brought onto
+// newVersion by this update (it is neither in entries as replaced nor in skip, the paths that were updated otherwise), so a
+// restart would start the same old binary again and could never show the new version: the daemon is left as it is and the
+// operator is told, instead of a restart that is reported as failed. nil when the daemon's binary is not known (a wrapper):
+// then the restart is tried as before.
+func (d Deps) daemonNotReplaced(ctx context.Context, newVersion string, entries []StaleCLI, skip []string) *DaemonUpdate {
+	hb, live := d.heartbeat()
+	if !live || !health.DaemonVersionStale(hb.Version, newVersion) {
+		return nil
+	}
+	exe, ok := d.daemonExe(ctx)
+	if !ok {
+		return nil
+	}
+	real := realPath(exe)
+	for _, s := range skip {
+		if realPath(s) == real {
+			return nil
+		}
+	}
+	for _, s := range entries {
+		if s.runsDaemon && s.undo != nil {
+			return nil
+		}
+	}
+	was := hb.Version
+	if was == "" {
+		was = "an older version"
+	}
+	return &DaemonUpdate{Action: "not_replaced", Running: hb.Version, pid: hb.PID, Message: fmt.Sprintf(
+		"The daemon (pid %d) runs %s and was not restarted: the binary its service starts, %q, was not replaced by this update, so a restart would start the same version again. Update it (see above), then run `monoagentcli daemon restart`.", hb.PID, was, exe)}
 }
 
 // waitForVersion polls the heartbeat until a live daemon runs newVersion, or the wait ends.

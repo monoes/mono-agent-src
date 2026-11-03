@@ -639,7 +639,11 @@ dangerous calls.
   teardown-profile` (`--dry-run` stays open), which mint, widen or revoke a
   key, and `api config set|unset` (not `--dry-run`), `jev enable` and `jev
   key set|remove|adopt`, which widen what the API server reaches or where
-  the profile's data goes. `httpapi-token` is a reserved vault entry: only
+  the profile's data goes. The decrypted-secret commands except `secret reveal` and
+  `node run vault.secret_get`, `secret agent-access`, `secret rebind`, `api key
+  create|update|revoke` and `api config set|unset` also refuse a process inside a
+  coder session's turn and one that holds an agent token (`internal/cli/opgate`,
+  SECURITY.md; the rest are tracked in issue 1333). `httpapi-token` is a reserved vault entry: only
   the server and the user's own `secret add|update|rm|import` write it
   (`secrets.ErrReservedEntry` otherwise, checked in the secrets package;
   an agent's import skips it), and its bearer is the field `token`; tools
@@ -4391,6 +4395,7 @@ change is logged in the status history. `applied` is reached only through `appli
 | 4 | auth or connection failure — including `login_required`: no valid monoes.me sign-in (see [monoes.me account](#monoesme-account)) |
 | 5 | `chat history delete` did not delete (a process the conversation's turns started could not be stopped; `survivors_remain`, listed under `survivors`), or `chat history set-access` lowered the level but a process the conversation's turns started could not be stopped (`survivors_remain`; the JSON lists each under `lowered.survivors` with its pid, command and reason) |
 | 6 | `chat history set-access --expect L` found the conversation no longer at level L: `access_changed`, `current` is the real level, nothing was changed |
+| 7 | `update` installed the release but the daemon is down: its restart left no daemon running and a rollback did not bring one back (`--check` and `--app` still exit 0; `update --app --json` carries the outcome under `daemon`) |
 
 Branch on these instead of parsing stderr.
 

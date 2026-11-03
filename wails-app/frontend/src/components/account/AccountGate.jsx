@@ -8,7 +8,8 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Download, RefreshCw } from 'lucide-react'
 import LogInToMonoesButton from '../library/LogInToMonoesButton.jsx'
-import { AppSelfUpdate } from '../../wailsjs/go/main/App'
+import { AppSelfUpdate, QuitApp } from '../../wailsjs/go/main/App'
+import UpdateNotice from '../UpdateNotice.jsx'
 import { subscribeEvent } from '../../services/api.js'
 import { account, onAccountLogin } from '../../services/account.js'
 
@@ -45,7 +46,7 @@ function UpdateControl({ version }) {
     setState({ phase: 'working', progress: '' })
     try {
       const r = await AppSelfUpdate()
-      if (r?.success) setState({ phase: r.up_to_date ? 'upToDate' : 'done' })
+      if (r?.success) setState({ phase: r.up_to_date ? 'upToDate' : 'done', notice: r.notice })
       else setState({ phase: 'error', message: r?.error || '' })
     } catch (e) {
       setState({ phase: 'error', message: e?.message || String(e) })
@@ -60,6 +61,9 @@ function UpdateControl({ version }) {
       </button>
       {state.phase === 'working' && state.progress && <span style={{ ...mono, color: 'var(--text-secondary)' }}>{state.progress}</span>}
       {state.phase === 'done' && <span role="status" style={{ ...mono, color: 'var(--teal)' }}>{t('account.update.done')}</span>}
+      {state.phase === 'done' && state.notice && (
+        <UpdateNotice notice={state.notice} onRestart={() => QuitApp()} onLater={() => setState(s => ({ ...s, notice: '' }))} />
+      )}
       {state.phase === 'upToDate' && <span role="status" style={{ ...mono, color: 'var(--text-secondary)' }}>{t('account.update.upToDate')}</span>}
       {state.phase === 'error' && <span role="alert" style={{ ...mono, color: 'var(--red)', maxWidth: 380 }}>{t('account.update.failed', { message: state.message })}</span>}
     </div>

@@ -37,12 +37,21 @@ func (a *App) AppSelfUpdate() UpdateResult {
 	}
 	return runAppUpdate(a.ctx, cliBin, exe, version,
 		func(msg string) { runtime.EventsEmit(a.ctx, "update:progress", msg) },
-		func() {
-			go func() {
-				time.Sleep(300 * time.Millisecond)
-				runtime.Quit(a.ctx)
-			}()
-		})
+		a.quitSoon)
+}
+
+// quitSoon quits the app a moment after the update result has been returned to the window.
+func (a *App) quitSoon() {
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		runtime.Quit(a.ctx)
+	}()
+}
+
+// QuitApp quits the app: the "Restart now" of an update that came with a notice, which did not quit by itself so that the
+// person could read it first. The restart script of the update waits for the app to exit.
+func (a *App) QuitApp() {
+	a.quitSoon()
 }
 
 // appUpdateTimeout bounds `update --app` (a release download).
@@ -54,11 +63,49 @@ type cliAppUpdate struct {
 	UpToDate   bool   `json:"up_to_date"`
 	NewVersion string `json:"new_version"`
 	Error      string `json:"error"`
+	// What the update did about the daemon, the extension bridge and the other CLIs of the machine (each with a message).
+	Daemon    *cliNote  `json:"daemon"`
+	Bridge    *cliNote  `json:"bridge"`
+	StaleCLIs []cliNote `json:"stale_clis"`
+}
+
+// cliNote is the part of a daemon, bridge or stale-CLI entry the notice needs.
+type cliNote struct {
+	Action  string `json:"action"`
+	Message string `json:"message"`
+}
+
+// updateNotice is what the person is told after an update, built from what the CLI says it did about the daemon, the bridge
+// and the other CLIs: everything but the outcomes that need no words (restarted, updated). Empty when all went as it should.
+func updateNotice(res cliAppUpdate) string {
+	var lines []string
+	add := func(n *cliNote, quiet ...string) {
+		if n == nil || strings.TrimSpace(n.Message) == "" {
+			return
+		}
+		for _, q := range quiet {
+			if n.Action == q {
+				return
+			}
+		}
+		lines = append(lines, strings.TrimSpace(n.Message))
+	}
+	add(res.Daemon, "restarted")
+	add(res.Bridge, "restarted")
+	for i := range res.StaleCLIs {
+		add(&res.StaleCLIs[i], "updated")
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return strings.Join(lines, "\n") + "\nThe update is installed; restart the app to use it."
 }
 
 // runAppUpdate runs `monoagentcli --json update --app <exe> --current <v>`,
 // forwards each NDJSON progress line on its stderr through progress and
-// calls quit after a successful install (not when already up to date).
+// calls quit after a successful install (not when already up to date). An install that comes with a notice (the daemon or the
+// bridge could not be restarted, another CLI is still old) does not quit by itself: the notice is returned and the person
+// quits with QuitApp once they have read it.
 func runAppUpdate(ctx context.Context, cliBin, exe, current string, progress func(string), quit func()) UpdateResult {
 	if ctx == nil {
 		ctx = context.Background()
@@ -121,6 +168,9 @@ func runAppUpdate(ctx context.Context, cliBin, exe, current string, progress fun
 	}
 	if res.UpToDate {
 		return UpdateResult{Success: true, UpToDate: true, NewVersion: current}
+	}
+	if notice := updateNotice(res); notice != "" {
+		return UpdateResult{Success: true, NewVersion: res.NewVersion, Notice: notice}
 	}
 	quit()
 	return UpdateResult{Success: true, NewVersion: res.NewVersion}

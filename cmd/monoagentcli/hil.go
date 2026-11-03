@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"io/fs"
 	"os"
 	"os/exec"
 	"strconv"
@@ -17,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	hilcli "github.com/monoes/mono-agent/internal/cli/hil"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	taskcli "github.com/monoes/mono-agent/internal/cli/task"
 	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/hilsend"
@@ -97,69 +97,113 @@ var hilSendRunner = func(cfg *globalConfig) hilsend.Runner {
 
 // requireOperator refuses whatever is not the operator's own terminal: it
 // may prepare a send, never decide one, nor approve what agents asked for.
-// In this order, like the person gate of the task verbs: a process that holds an agent token (an
-// agent, whatever else its environment says); anything the environment and the operator marker
-// ancestry name as not the operator; a process inside a coder session's turn (a model's shell
-// that carries no marker). A courtesy layer, not proof: SECURITY.md says so.
+// It is gateVerdict (the one implementation, shared with opgate) worded for a command that
+// takes the question as an error.
 func (c *globalConfig) requireOperator(what string) error {
-	for _, key := range taskcli.PersonTokenEnv() {
-		if os.Getenv(key) != "" {
-			return operatorOnlyError("%s is set, so a process holding an agent token is running this command; only the operator can %s; run it in your own terminal", key, what)
-		}
+	v := c.gateVerdict(false, what)
+	if v.err != nil {
+		return v.err
 	}
-	if _, err := callerFor("").operator(what); err != nil {
-		return err
-	}
-	if why := notOperator(); why != "" {
-		return operatorOnlyError("%s: only the operator can %s; run it in your own terminal", why, what)
-	}
-	in, err := c.callerInATurn()
-	if err != nil {
-		return err // fails closed: a process that cannot be placed is not let through
-	}
-	if in {
-		return operatorOnlyError("this command runs inside a coder session's turn, so a model is running it; only the operator can %s; run it in your own terminal", what)
+	if v.why != "" {
+		return operatorOnlyError("%s%sonly the operator can %s; run it in your own terminal", v.why, v.sep, what)
 	}
 	return nil
 }
 
+// gateVerdict is the answer of the operator gate. why is "" for the operator. err, when set, is the
+// error to hand back as it is (the task caller's refusal, a turn check that failed); why is then its
+// reason in a sentence. sep joins why to "only the operator can ...".
+type gateVerdict struct {
+	why, sep string
+	err      error
+}
+
+// gateVerdict asks, in this order, like the person gate of the task verbs: a process that holds an
+// agent token (an agent, whatever else its environment says); anything the environment and the
+// operator marker ancestry name as not the operator; a process inside a coder session's turn (a
+// model's shell that carries no marker). A courtesy layer, not proof: SECURITY.md says so.
+//
+// recovery is for the commands that repair an install: an unreadable or absent database, or a turn
+// registry entry that cannot be read, is then "no turn recorded" and does not refuse; a turn
+// recorded in a readable database still does. Otherwise a process that cannot be placed is refused.
+func (c *globalConfig) gateVerdict(recovery bool, what string) gateVerdict {
+	for _, key := range taskcli.PersonTokenEnv() {
+		if os.Getenv(key) != "" {
+			return gateVerdict{why: key + " is set, so a process holding an agent token is running this command", sep: "; "}
+		}
+	}
+	if _, err := callerFor("").operator(what); err != nil {
+		why := err.Error()
+		if i := strings.Index(why, ": only the operator can "); i >= 0 {
+			why = why[:i]
+		}
+		return gateVerdict{why: why, err: err}
+	}
+	if why := notOperator(); why != "" {
+		return gateVerdict{why: why, sep: ": "}
+	}
+	in, err := c.callerInATurnFor(recovery)
+	if err != nil {
+		// fails closed: a process that cannot be placed is not let through
+		return gateVerdict{why: "cannot tell whether a coder session's turn runs this command (" + err.Error() + ")", err: err}
+	}
+	if in {
+		return gateVerdict{why: "this command runs inside a coder session's turn, so a model is running it", sep: "; "}
+	}
+	return gateVerdict{}
+}
+
+// gateRefusal is the body cmd/monoagentcli registers with opgate: why this process is not the user's
+// own terminal, "" for the user.
+func (c *globalConfig) gateRefusal(recovery bool) string {
+	return c.gateVerdict(recovery, "do this").why
+}
+
+// registerOperatorGate makes cfg's turn-aware gate the answer of every command that asks opgate. It runs
+// when the real command tree is built, before any command, so a process that never builds it (library use,
+// the tests of other packages) keeps operator.Refusal.
+func registerOperatorGate(cfg *globalConfig) { opgate.Register(cfg.gateRefusal) }
+
 // callerInATurn says whether this process descends from a recorded coder turn. It never creates
 // the database: no file (a fresh machine, doctor before init) or no coder_sessions table means no
 // turn was ever recorded. A database that cannot be read or queried is an error (the caller refuses).
-func (c *globalConfig) callerInATurn() (bool, error) {
+func (c *globalConfig) callerInATurn() (bool, error) { return c.callerInATurnFor(false) }
+
+// callerInATurnFor is callerInATurn for a recovery command when recovery is set: every error becomes
+// "not in a turn" (see gateVerdict), and the registry's failure does not hide the named database.
+func (c *globalConfig) callerInATurnFor(recovery bool) (bool, error) {
 	if inClientMode() {
 		return false, nil // client mode never opens the local database (client_mode.go)
 	}
 	path := expandPath(c.DBPath)
 	// The database the process names is only half of the question: --db-path or another HOME must not hide a
 	// turn, so every running coder host's database (the turn registry) is checked too. An override only adds checks.
-	if in, err := coderhost.CallerInARegisteredTurn(path); err != nil || in {
-		return in, err
+	var in bool
+	if recovery {
+		// an unreadable entry is skipped, never allowed to hide a turn recorded in a readable database
+		in, _ = coderhost.CallerInARegisteredTurnLenient(path)
+	} else {
+		var err error
+		in, err = coderhost.CallerInARegisteredTurn(path)
+		if err != nil && !in {
+			return false, err
+		}
 	}
-	return callerInATurnNamed(path)
+	if in {
+		return true, nil
+	}
+	in, err := callerInATurnNamed(path)
+	if err != nil && recovery {
+		return false, nil
+	}
+	return in, err
 }
 
-// callerInATurnNamed is the check of the database the process names, as it was before the registry.
-func callerInATurnNamed(path string) (bool, error) {
-	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
-		return false, nil
-	} else if err != nil {
-		return false, err
-	}
-	db, err := storage.NewDatabase(path)
-	if err != nil {
-		return false, err
-	}
-	defer db.Close()
-	var n int
-	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'coder_sessions'`).Scan(&n); err != nil {
-		return false, err
-	}
-	if n == 0 {
-		return false, nil
-	}
-	return coderhost.NewStore(db.DB).CallerInATurn()
-}
+// callerInATurnNamed is the check of the database the process names, as it was before the registry. It is
+// coderhost.CallerInATurnAt, the registry's own check: the file is opened read-only (never created or
+// migrated), only a regular file is opened (a FIFO cannot hang it) and a locked database is waited for
+// at most busy_timeout. Its errors refuse a non-recovery verb; a recovery verb treats them as "not in a turn".
+func callerInATurnNamed(path string) (bool, error) { return coderhost.CallerInATurnAt(path) }
 
 // notOperator says why this process is not the operator's own terminal, or
 // "" (internal/operator): an agent, a process of any kind of agent, a chat

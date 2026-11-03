@@ -3037,6 +3037,7 @@ export namespace main {
 	    up_to_date?: boolean;
 	    new_version?: string;
 	    error?: string;
+	    notice?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new UpdateResult(source);
@@ -3048,6 +3049,7 @@ export namespace main {
 	        this.up_to_date = source["up_to_date"];
 	        this.new_version = source["new_version"];
 	        this.error = source["error"];
+	        this.notice = source["notice"];
 	    }
 	}
 	export class UploadResult {

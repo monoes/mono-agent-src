@@ -64,6 +64,10 @@ type Result struct {
 	UpToDate   bool
 	NewVersion string
 	Restart    string
+	// CLI is the CLI of this platform from the release, as the verified download holds it (Linux: the tarball's
+	// monoagentcli), so that the caller can bring other copies of the CLI onto the same release without downloading
+	// or trusting anything else. Nil where the app's download carries none (macOS, Windows: reported only).
+	CLI []byte
 }
 
 // AssetNameFor is the release asset of the desktop app on goos/goarch
@@ -174,7 +178,13 @@ func (u Updater) Run() (Result, error) {
 		return Result{}, err
 	}
 	u.Progress("Update installed — restarting")
-	return Result{NewVersion: tag, Restart: restart}, nil
+	res := Result{NewVersion: tag, Restart: restart}
+	if u.GOOS == "linux" {
+		if _, cli, err := readLinuxTarball(files[asset]); err == nil {
+			res.CLI = cli
+		}
+	}
+	return res, nil
 }
 
 func (u Updater) fetchRelease() (*releaseInfo, error) {

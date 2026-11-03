@@ -20,7 +20,8 @@ import (
 // the daemon restart that follows an update starts the old binary again. So after an update the command looks for them,
 // says plainly which are stale and the exact command to update each, and updates the ones it can do safely: the daemon
 // service's exe and the monoagentcli on PATH, by the same rules, from the release asset it already verified (never the CLI
-// inside the desktop app). `update --app` holds no CLI asset, so it only reports.
+// inside the desktop app). `update --app` does the same from the CLI inside the app download it already verified (Linux; where
+// that holds none it only reports).
 //
 // Looking at another program means running it (`--json version`). That is done only for a file that this user or root owns
 // and that no one else can write, in a folder no one else can write, and never when this command itself runs as root: an
@@ -48,7 +49,7 @@ var (
 
 // staleCLIs finds the other mono-agent CLIs of this machine that are older than newVersion. skip are paths that were just
 // updated (this binary, the app's bundled CLI). data, when set, is the verified release asset of this platform's CLI: with
-// it the daemon service's exe may be replaced; without it (update --app) everything is only reported.
+// it the daemon service's exe may be replaced; without it (a download holding no CLI) everything is only reported.
 func (d Deps) staleCLIs(ctx context.Context, newVersion string, skip []string, data []byte) []StaleCLI {
 	type cand struct{ path, role string }
 	var daemon, onPath *cand
@@ -428,60 +429,4 @@ func shQuote(s string) string {
 		return s
 	}
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
-// settleReplaced ends the replacement of the binaries staleCLIs swapped in, once the daemon restart has been tried. The
-// previous binary of each was kept; it is dropped (committed) when the new one is not in doubt, and put back when the one the
-// daemon service starts was replaced and the restart did not bring the daemon up on the new version, because then the
-// service has a binary it cannot run and the old one is the last thing known to work. The put-back passes the same rules as
-// the replacement, and a restart of its own, with the same bound. du is the restart's result (nil: no daemon ran); the
-// returned value is what to tell the operator.
-func (d Deps) settleReplaced(ctx context.Context, list []StaleCLI, du *DaemonUpdate) *DaemonUpdate {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	duFailed := du != nil && du.Action == "failed"
-	rollBack := duFailed && (du.Reason == "no_heartbeat" || du.Reason == "stopped")
-	// Not in doubt enough to put the old binary back, but too much to drop it: the new daemon may still be starting, or the
-	// service manager's restart may still be in flight.
-	hold := !rollBack && duFailed && (du.Reason == "still_starting" || du.Reason == "timed_out")
-	for _, s := range list {
-		if s.undo == nil {
-			continue
-		}
-		switch {
-		case rollBack && s.runsDaemon:
-			note := d.rollBackOne(ctx, s, du.pid)
-			du.RolledBack = du.RolledBack || strings.HasPrefix(note, "Rolled back")
-			du.Message += " " + note
-		case hold:
-			note := fmt.Sprintf(" The previous binary of %q is kept at %q; put it back with: mv -f %s %s", s.Path, s.undo.bak, shQuote(s.undo.bak), shQuote(s.undo.target))
-			du.Message += note
-		default:
-			s.undo.Commit()
-		}
-	}
-	return du
-}
-
-func (d Deps) rollBackOne(ctx context.Context, s StaleCLI, failedPID int) string {
-	target, bak := s.undo.target, s.undo.bak
-	manual := fmt.Sprintf("The previous binary is kept at %q; put it back with: mv -f %s %s", bak, shQuote(bak), shQuote(target))
-	if why := replaceable(target); why != "" {
-		return fmt.Sprintf("The new %q could not be rolled back (%s). %s", target, why, manual)
-	}
-	if err := s.undo.Restore(); err != nil {
-		return fmt.Sprintf("Rolling back %q failed (%v). %s", target, err, manual)
-	}
-	in := d.Installer()
-	rctx, cancel := context.WithTimeout(ctx, restartBound)
-	defer cancel()
-	since := time.Now()
-	if _, err := autostart.RestartRegistered(rctx, in); err != nil {
-		return fmt.Sprintf("Rolled back %q to %s, but the service manager could not start the daemon again (%v): %s.", target, s.Version, err, daemonDown)
-	}
-	if !d.waitForLive(ctx, since, failedPID) {
-		return fmt.Sprintf("Rolled back %q to %s and restarted the daemon, but no live heartbeat followed within %s: %s.", target, s.Version, d.verifyWait(), daemonDown)
-	}
-	return fmt.Sprintf("Rolled back %q to %s: the daemon is running it again. The new release did not start on this machine; running `monoagentcli update` again installs the same release and repeats this, so report it (with the daemon's log) instead.", target, s.Version)
 }

@@ -61,3 +61,11 @@ func TestRestartBlockersReadTheDaemonsRowsAndTheSavedSettings(t *testing.T) {
 		t.Fatal("no database is not 'nothing in flight'")
 	}
 }
+
+// `update` is wired to the real bridge lookup and restart: without them the bridge would silently never be restarted.
+func TestUpdateIsWiredToTheBridgeLookupAndRestart(t *testing.T) {
+	d := updateDeps(&globalConfig{})
+	if d.Bridge == nil || d.RestartBridge == nil {
+		t.Fatalf("Bridge wired: %v, RestartBridge wired: %v", d.Bridge != nil, d.RestartBridge != nil)
+	}
+}

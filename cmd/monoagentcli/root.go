@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"testing"
 
 	"github.com/monoes/mono-agent/internal/account"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
@@ -38,6 +39,11 @@ type globalConfig struct {
 
 func newRootCmd() *cobra.Command { return buildRootCmd(true) }
 
+// inTestBinary says whether this process is a test binary. Only a test replaces it, to build the real tree
+// with its production registration of the operator gate (tests otherwise bind the gate to their own config
+// with opgate.SetForTest).
+var inTestBinary = testing.Testing
+
 // newProbeRootCmd is a throwaway tree used to find a command or parse flags
 // before the real one runs; it must not install process-wide hooks (the real
 // tree's provider would be replaced by one bound to the probe's config).
@@ -47,6 +53,9 @@ func buildRootCmd(installProvider bool) *cobra.Command {
 	cfg := &globalConfig{}
 	if installProvider {
 		installSandboxFallbackProvider(cfg)
+		if !inTestBinary() { // tests bind the gate to their own config (opgate.SetForTest)
+			registerOperatorGate(cfg)
+		}
 	}
 
 	cmd := &cobra.Command{
