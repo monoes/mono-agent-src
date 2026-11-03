@@ -132,6 +132,40 @@ func TestAVerificationUnitThatIsNotProvenGoneStaysLiveAndUnended(t *testing.T) {
 	}
 }
 
+// The window between the unit's creation and its member row (a host that dies there): the unit is witnessed as bound and
+// has no end line, so it is detectable by the witness alone (BoundUnits), and the finish's stop path ends it by its
+// record and writes the end line, whether or not a member row ever existed. The member row is not what makes it
+// findable; it is what blocks a new run while the unit lives, and that gap is closed by the witness, not the registry.
+func TestAVerificationUnitWithoutItsMemberRowIsFoundAndEndedByItsRecord(t *testing.T) {
+	r, e := finishedBegun(t)
+	ctx := context.Background()
+	w := e.W
+	seq, err := w.Sequencer(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(seq.BoundUnits(1)); n != 0 { // the run's own unit already ended
+		t.Fatalf("%d units are bound before the round", n)
+	}
+	dir := e.unitDir(1, 1)
+	// the sandbox's first half, then "the host died": no RegisterVerify
+	if _, err := (stop.UnitCreator{K: w.Kernel, Dir: dir, Host: w.Host, Journal: seq}).Create(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	if ms, _ := r.w.Store.LiveMembers(ctx, "p1", 1); len(ms) != 0 {
+		t.Fatalf("a member exists: %+v", ms)
+	}
+	if n := len(seq.BoundUnits(1)); n != 1 {
+		t.Fatalf("the unit with no member row is not detectable through the witness: %d", n)
+	}
+	if left := e.endAllUnits(1); len(left) != 0 {
+		t.Fatalf("the unit was not ended: %v", left)
+	}
+	if n := len(seq.BoundUnits(1)); n != 0 || unitLines(t, r.wireRig, stop.RecUnitEnded) != 2 {
+		t.Fatalf("bound=%d, lines=%v", n, recTypes(t, r.wireRig))
+	}
+}
+
 // With no witness no unit is made: the unit must be recorded, so nothing starts without one.
 func TestNoVerificationUnitWithoutAWitness(t *testing.T) {
 	r, e := finishedBegun(t)

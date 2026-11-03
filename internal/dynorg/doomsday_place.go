@@ -35,7 +35,16 @@ func (m *mergeOp) placed(ctx context.Context) context.Context {
 	if m == nil {
 		return ctx
 	}
-	return withGitPlacer(ctx, m.dd.Place)
+	if m.dd.PlaceTicket == nil {
+		return withGitPlacer(ctx, m.dd.Place)
+	}
+	// the step that runs the command is the current ticket at the moment the command is placed
+	return withGitPlacer(ctx, func(cmd *exec.Cmd) (func(), error) {
+		if m.cur == nil {
+			return m.dd.Place(cmd)
+		}
+		return m.dd.PlaceTicket(m.cur.ID(), cmd)
+	})
 }
 
 // placed is the context a recovery pass runs its git commands in.

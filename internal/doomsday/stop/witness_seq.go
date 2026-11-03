@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // The sequencer (note 13.5 sections 3 and 3A) is the production use of the witness: it holds the witness lock
@@ -390,11 +391,19 @@ func (s *Sequencer) UnitEnded(rec UnitRecord, how string) error {
 }
 
 // BoundUnits returns the authenticated unit records of a generation (UnitEnder.Witness): the unit-bound lines
-// without a later unit-ended line for the same cgroup.
+// without a later unit-ended line for the same cgroup, so a unit already proven ended is not proven again.
 func (s *Sequencer) BoundUnits(gen uint64) []UnitRecord {
 	recs, err := s.W.Records()
 	if err != nil {
 		return nil
+	}
+	ended := map[string]bool{}
+	for _, r := range recs {
+		if r.T == RecUnitEnded && uint64(r.Gen) == gen {
+			if i := strings.IndexByte(r.Extra, ' '); i > 0 {
+				ended[r.Extra[:i]] = true // "id=<cgroup id>"
+			}
+		}
 	}
 	var out []UnitRecord
 	for _, r := range recs {
@@ -402,7 +411,7 @@ func (s *Sequencer) BoundUnits(gen uint64) []UnitRecord {
 			continue
 		}
 		var u UnitRecord
-		if json.Unmarshal([]byte(r.Extra), &u) == nil {
+		if json.Unmarshal([]byte(r.Extra), &u) == nil && !ended[fmt.Sprintf("id=%d", u.CgroupID)] {
 			out = append(out, u)
 		}
 	}

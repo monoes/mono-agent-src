@@ -10,6 +10,9 @@ type TicketCgroup struct{}
 // OpenTicketCgroup refuses off Linux.
 func OpenTicketCgroup(Cgroup, uint64) (*TicketCgroup, error) { return nil, ErrContainmentUnavailable }
 
+// OpenSubCgroup refuses off Linux.
+func OpenSubCgroup(Cgroup, string) (*TicketCgroup, error) { return nil, ErrContainmentUnavailable }
+
 // Name is empty off Linux.
 func (*TicketCgroup) Name() string { return "" }
 

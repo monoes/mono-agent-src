@@ -22,8 +22,10 @@ import (
 //
 // The unit is a witnessed unit of the run's generation like the run's own: unit-intent before the service is asked for,
 // unit-bound before the record file (stop.UnitCreator with the sequencer as its journal), unit-ended after the identity
-// proof of its end (stop.NewWitnessEnder). It is also a registry member of kind `verify` (note 13.6 G3), registered before
-// any criterion starts and released only on that proof: a host that dies mid-round leaves a live member that blocks a new
+// proof of its end (stop.NewWitnessEnder). It is also a registry member of kind `verify` (note 13.6 G3), registered after the
+// unit is witnessed and before any criterion starts (a host that dies in between leaves a witnessed unit with no member
+// row: it is found by its unit-bound line without an end line and ended by its record, see
+// TestAVerificationUnitWithoutItsMemberRowIsFoundAndEndedByItsRecord) and released only on that proof: a host that dies mid-round leaves a live member that blocks a new
 // run of the profile, and `doomsday stop` ends the unit by its record. With no witness (no sequencer) no unit is made.
 
 // RegisterVerify registers a verification unit as a member, after the witness's freshness check (store.RegisterVerify).
