@@ -168,3 +168,27 @@ func TestAParentsUnapprovedMarkKeepsAChildUnapproved(t *testing.T) {
 		}
 	}
 }
+
+// The unapproved-run walk fails closed: a parent whose environment can't be
+// read, a parent chain that can't be followed to its end, or one already
+// handed to init (a double fork) is not proof the run was approved.
+func TestWalkUnapprovedFailsClosed(t *testing.T) {
+	chain := map[int]int{50: 40, 40: 30, 30: 1}
+	parent := func(pid int) (int, bool) { p, ok := chain[pid]; return p, ok }
+	never := func(int) (bool, error) { return false, nil }
+	if walkUnapproved(50, never, parent) {
+		t.Error("a readable chain with no mark is clean")
+	}
+	if !walkUnapproved(50, func(pid int) (bool, error) { return pid == 30, nil }, parent) {
+		t.Error("a marked grandparent counts")
+	}
+	if !walkUnapproved(50, func(pid int) (bool, error) { return false, os.ErrPermission }, parent) {
+		t.Error("an unreadable parent environment is not clean")
+	}
+	if !walkUnapproved(50, never, func(pid int) (int, bool) { return 0, false }) {
+		t.Error("a chain that can't be followed is not clean")
+	}
+	if !walkUnapproved(1, never, parent) {
+		t.Error("a process already handed to init is not clean")
+	}
+}

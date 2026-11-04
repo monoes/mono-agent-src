@@ -30,13 +30,28 @@ func unapprovedAncestor() bool {
 	if testing.Testing() && !ancestorsInTests {
 		return false
 	}
-	return walkAncestors(os.Getppid(), func(pid int) string {
+	return walkUnapproved(os.Getppid(), func(pid int) (bool, error) {
 		env, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/environ")
-		if err == nil && bytes.Contains(append([]byte{0}, env...), []byte("\x00"+workflow.EnvUnapprovedRun+"=1\x00")) {
-			return workflow.EnvUnapprovedRun
+		return err == nil && bytes.Contains(append([]byte{0}, env...), []byte("\x00"+workflow.EnvUnapprovedRun+"=1\x00")), err
+	}, parentOf)
+}
+
+// walkUnapproved climbs from pid and reports whether a parent has the mark.
+func walkUnapproved(pid int, marked func(int) (bool, error), parent func(int) (int, bool)) bool {
+	for depth := 0; pid > 1 && pid != ancestorsStopAt; depth++ {
+		if depth == ancestorMaxDepth {
+			return true
 		}
-		return ""
-	}, parentOf) != ""
+		if m, _ := marked(pid); m {
+			return true
+		}
+		ppid, ok := parent(pid)
+		if !ok {
+			return false
+		}
+		pid = ppid
+	}
+	return false
 }
 
 // walkAncestors climbs from pid through parent and names the first process
