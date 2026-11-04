@@ -31,7 +31,7 @@ func TestJevKeySetStatusTestRemove(t *testing.T) {
 		_, _ = w.Write([]byte(`{"data":[{"id":"jev-latest"}]}`))
 	}))
 	t.Cleanup(srv.Close)
-	t.Setenv("TYPESAFE_BASE_URL", srv.URL)
+	t.Setenv("TYPESAFE_BASE_URL", "")
 	jevtest.DefaultHost(t, srv.URL)
 
 	// No key yet: status says none, test reports ok=false with exit 0.

@@ -474,12 +474,22 @@ per-secret check and the audit that an explicit `@secret:` reference gets).
 
 Now the lookup of the stored key is a secret read like any other
 (`secrets.RefusedReference`, and `secrets.Resolve` under agent access: its
-grant, node-type rule and audit row, named `typesafe`), and the key goes only
-where `jevconf.BaseURL` says: a stored key to the TypeSafe host, always;
-`TYPESAFE_BASE_URL` only with `TYPESAFE_API_KEY`, only from the operator's own
-terminal, only as https (or http to this machine). The class is held by a
-source pin (`internal/jev/jevconf/source_pin_test.go`): no code outside
-`internal/jev` builds a Jev client itself or reads `TYPESAFE_BASE_URL`.
+grant, which fails closed when it cannot be read, its node-type rule and an
+audit row named `typesafe`), and the key goes only where `jevconf.BaseURL`
+says. **A stored key, and a step's own `api_key`, always goes to the TypeSafe
+host; a `TYPESAFE_BASE_URL` that used to redirect it (a proxy, a self-hosted
+TypeSafe) is now an error for it** (`TYPESAFE_BASE_URL ignored: it pairs only
+with TYPESAFE_API_KEY from your own terminal`), not a silent send to the
+default host. The override pairs only with `TYPESAFE_API_KEY`, only from the
+operator's own terminal (no marker, no coder turn, no unapproved step), and
+only as https, or http to localhost, 127.0.0.1 or [::1] (`http` to a LAN host
+is refused). The Jev client reads no proxy environment (`HTTP_PROXY`,
+`HTTPS_PROXY`), so the key is never handed to a proxy; `SSL_CERT_FILE` and
+`SSL_CERT_DIR` still extend the roots it trusts, as the standard library offers
+no way to ignore them. The class is held by a source pin
+(`internal/jev/jevconf/source_pin_test.go`, syntax and import aware): no code
+outside `internal/jev` builds a Jev client or a `jev.Client`, resolves a key for
+a send apart from `jevconf.ResolveClient`, or names `TYPESAFE_BASE_URL`.
 
 What stays open: a `TYPESAFE_API_KEY` you put in an agent's environment is the
 agent's to spend, on the TypeSafe host; and an agent that runs `jev ask` with

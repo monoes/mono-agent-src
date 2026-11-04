@@ -126,6 +126,8 @@ func newJevStatusCmd(d Deps) *cobra.Command {
 			// goes to TYPESAFE_BASE_URL).
 			if b, err := jevconf.BaseURL(cmd.Context(), st.KeySource); err == nil {
 				st.BaseURL = b
+			} else {
+				st.BaseURL = "refused: " + err.Error()
 			}
 			if name, ok := jevconf.VaultKeyName(cmd.Context(), db.DB); ok {
 				st.KeyEntry = name
@@ -415,11 +417,7 @@ func newJevModelsCmd(d Deps) *cobra.Command {
 				return fmt.Errorf("initializing database: %w", err)
 			}
 			defer db.Close()
-			key, source, err := jevconf.ResolveKey(cmd.Context(), db.DB, d.ProfileID(), "")
-			if err != nil {
-				return jevKeyErr(err)
-			}
-			c, err := jevconf.ClientFor(cmd.Context(), key, source, "")
+			c, _, err := jevconf.ResolveClient(cmd.Context(), db.DB, d.ProfileID(), "", "")
 			if err != nil {
 				return jevKeyErr(err)
 			}

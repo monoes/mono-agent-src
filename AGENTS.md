@@ -4292,15 +4292,22 @@ probabilities, in one ~100–300 ms request. It **never generates text**.
   (`TYPESAFE_DEFAULT_MODEL` overrides the model). `doctor` reports it as
   `jev.key`.
 - **The key goes where `jevconf` says, nowhere else.** Every user of the key
-  reads it with `jevconf.ResolveKey` and builds its client with
-  `jevconf.NewClient` / `jevconf.ClientFor`; never `jev.NewClient` and never
-  `TYPESAFE_BASE_URL` directly (`source_pin_test.go` in `internal/jev/jevconf`
-  fails for a caller that does). The lookup of the stored key is a secret read
-  like `@secret:typesafe`: refused in an unapproved step, and under agent
-  access checked against the grant and audited. A stored key (vault, profile
-  vault, a step's own `api_key`) is sent only to `jev.DefaultBaseURL`;
-  `TYPESAFE_BASE_URL` pairs only with `TYPESAFE_API_KEY`, only for the
-  operator's own terminal, and only as https (http to this machine).
+  builds its client with `jevconf.NewClient` / `jevconf.ResolveClient` (which
+  derive the key's source themselves); never `jev.NewClient`, a `jev.Client`
+  literal, `jevconf.ResolveKey` for a send, or `TYPESAFE_BASE_URL` directly
+  (`source_pin_test.go` in `internal/jev/jevconf` reads the syntax, import
+  aliases included, and fails for a caller that does). The lookup of the stored
+  key is a secret read like `@secret:typesafe`: refused in an unapproved step,
+  and under agent access checked against the grant (fail closed) and audited.
+  A stored key (vault, profile vault, a step's own `api_key`) is sent only to
+  `jev.DefaultBaseURL`. `TYPESAFE_BASE_URL` pairs only with `TYPESAFE_API_KEY`,
+  only for the operator's own terminal, and only as https (http only to
+  localhost, 127.0.0.1 or [::1]; http to a LAN host is refused). Set in any
+  other case it is an **error** (`TYPESAFE_BASE_URL ignored: it pairs only with
+  TYPESAFE_API_KEY from your own terminal`), never a silent send to the
+  default host. The keyed client uses no proxy (`HTTP_PROXY` is not read);
+  `SSL_CERT_FILE` / `SSL_CERT_DIR` still extend the system roots (the standard
+  library offers no way to ignore them).
 
 ```bash
 printf '%s' "$KEY" | monoagentcli jev key set          # or: Settings › TypeSafe Jev in the app

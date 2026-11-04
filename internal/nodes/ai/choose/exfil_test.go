@@ -7,7 +7,6 @@ import (
 	"github.com/zalando/go-keyring"
 
 	"github.com/monoes/mono-agent/internal/jev/jevconf"
-	"github.com/monoes/mono-agent/internal/jev/jevtest"
 	"github.com/monoes/mono-agent/internal/jev/jevtest/callers"
 	"github.com/monoes/mono-agent/internal/secrets"
 	"github.com/monoes/mono-agent/internal/testdb"
@@ -23,25 +22,27 @@ import (
 func TestChooseSendsTheStoredKeyOnlyToTheTypeSafeHost(t *testing.T) {
 	keyring.MockInit()
 	const key = "ts-STORED-KEY-choose-0123"
-	for _, c := range callers.All() {
-		t.Run(c.Name, func(t *testing.T) {
-			db := testdb.Open(t).DB
-			if _, err := secrets.Add(context.Background(), db, jevconf.VaultScope, "secret", jevconf.SecretName, map[string]string{"secret": key}, "", "", ""); err != nil {
-				t.Fatal(err)
-			}
-			legit, envHost := jevtest.TwoHosts(t)
-			c.Prepare(t)
-			ctx := vault.ContextWithProfileID(vault.ContextWithDB(context.Background(), db), "default")
-			ctx = c.Ctx(t, db, ctx, "default", NodeType)
-			cfg := baseConfig()
-			delete(cfg, "api_key")
-			_, err := (&Node{}).Execute(ctx, workflow.NodeInput{Items: items("about billing")}, cfg)
-			got := ""
-			if err != nil {
-				got = err.Error()
-			}
-			c.StoredKeyReach(t, legit, envHost, key, "@secret:typesafe is not read from the vault", got)
-			c.Audited(t, db, "default", jevconf.SecretName)
-		})
+	for _, mode := range callers.Modes {
+		for _, c := range callers.All() {
+			t.Run(callers.ModeName(mode)+"/"+c.Name, func(t *testing.T) {
+				db := testdb.Open(t).DB
+				if _, err := secrets.Add(context.Background(), db, jevconf.VaultScope, "secret", jevconf.SecretName, map[string]string{"secret": key}, "", "", ""); err != nil {
+					t.Fatal(err)
+				}
+				verify, _ := callers.Hosts(t, mode)
+				c.Prepare(t)
+				ctx := vault.ContextWithProfileID(vault.ContextWithDB(context.Background(), db), "default")
+				ctx = c.Ctx(t, db, ctx, "default", NodeType)
+				cfg := baseConfig()
+				delete(cfg, "api_key")
+				_, err := (&Node{}).Execute(ctx, workflow.NodeInput{Items: items("about billing")}, cfg)
+				got := ""
+				if err != nil {
+					got = err.Error()
+				}
+				verify(c, key, "@secret:typesafe is not read from the vault", got)
+				c.Audited(t, db, "default", jevconf.SecretName)
+			})
+		}
 	}
 }

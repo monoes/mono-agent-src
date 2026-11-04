@@ -156,7 +156,7 @@ func TestRecorderCountsTokensOfRejectedAnswers(t *testing.T) {
 		_, _ = w.Write([]byte(`{"model":"jev-test","usage":{"input_tokens":123},"answers":{"q":{"type":"noul"}}}`))
 	}))
 	t.Cleanup(srv.Close)
-	t.Setenv("TYPESAFE_BASE_URL", srv.URL)
+	t.Setenv("TYPESAFE_BASE_URL", "")
 	jevtest.DefaultHost(t, srv.URL)
 	c, err := NewClient(context.Background(), db, "p1", "k", "", Capture)
 	if err != nil {

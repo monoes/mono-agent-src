@@ -1,5 +1,5 @@
 // Package jevtest is a scripted fake of TypeSafe's /v1/systemone for tests.
-// NewServer points TYPESAFE_BASE_URL and jev.DefaultBaseURL at itself (via t.Setenv), records every
+// NewServer points jev.DefaultBaseURL at itself and clears TYPESAFE_BASE_URL (via t.Setenv), records every
 // request, and answers every question with a *valid* distribution so the
 // client's validation passes unless a handler deliberately breaks it.
 //
@@ -52,7 +52,7 @@ func NewServer(t testing.TB, h Handler) *Server {
 	s := &Server{handler: h}
 	s.Server = httptest.NewServer(http.HandlerFunc(s.serve))
 	t.Cleanup(s.Close)
-	t.Setenv("TYPESAFE_BASE_URL", s.URL)
+	t.Setenv("TYPESAFE_BASE_URL", "") // only a TYPESAFE_API_KEY may follow it (jevconf.BaseURL); jev.DefaultBaseURL is the fake
 	// A stored key goes only to the default host (jevconf.BaseURL), so the fake
 	// is that host as well.
 	prev := jev.DefaultBaseURL

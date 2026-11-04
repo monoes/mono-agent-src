@@ -162,56 +162,92 @@ func MayNameHost(ctx context.Context) bool {
 
 // ErrBaseURL is wrapped by the refusal of a TYPESAFE_BASE_URL that cannot
 // carry a key.
-var ErrBaseURL = errors.New("jev: TYPESAFE_BASE_URL must be an https URL (http only to this machine)")
+var ErrBaseURL = errors.New("TYPESAFE_BASE_URL refused: it must be an https URL; http is accepted only to this machine " +
+	"(localhost, 127.0.0.1, [::1]): http to a LAN or any other non-loopback host, a URL with credentials, a query or " +
+	"a fragment, and any other scheme are refused")
+
+// ErrBaseURLIgnored is wrapped by the refusal to send a key to a
+// TYPESAFE_BASE_URL that may not receive it.
+var ErrBaseURLIgnored = errors.New("TYPESAFE_BASE_URL ignored: it pairs only with TYPESAFE_API_KEY from your own terminal")
 
 // BaseURL is the host a client sending a key of source (as ResolveKey names
 // it) calls. A key the user stored (the vault, a profile's vault, a step's
 // config, which may be a resolved @secret: reference) goes only to
-// jev.DefaultBaseURL: TYPESAFE_BASE_URL is ignored for it, so no environment
-// can redirect a stored key. The override pairs only with TYPESAFE_API_KEY
+// jev.DefaultBaseURL. TYPESAFE_BASE_URL pairs only with TYPESAFE_API_KEY
 // (SourceEnv), only for the operator's own terminal (MayNameHost), and only
-// as an https URL, or http to this machine.
+// as an https URL, or http to this machine. When the override is set and may
+// not be used, it is an error, not a silent send to the default host: the
+// user who set it for a proxy or a self-hosted TypeSafe is told, and nothing
+// is sent.
 func BaseURL(ctx context.Context, source string) (string, error) {
 	base := strings.TrimRight(jev.DefaultBaseURL, "/")
 	b := strings.TrimSpace(os.Getenv("TYPESAFE_BASE_URL"))
-	if b == "" || source != SourceEnv || !MayNameHost(ctx) {
+	if b == "" {
 		return base, nil
 	}
-	u, err := url.Parse(b)
-	if err != nil || u.Host == "" || u.User != nil {
-		return "", ErrBaseURL
+	if source != SourceEnv || !MayNameHost(ctx) {
+		return "", fmt.Errorf("%w (a stored key or a step's api_key goes only to the TypeSafe host; unset TYPESAFE_BASE_URL, "+
+			"or use TYPESAFE_API_KEY from your own terminal)", ErrBaseURLIgnored)
 	}
-	switch {
-	case u.Scheme == "https":
-	case u.Scheme == "http" && isLoopbackHost(u.Hostname()):
-	default:
-		return "", ErrBaseURL
+	if err := checkOverride(b); err != nil {
+		return "", err
 	}
 	return strings.TrimRight(b, "/"), nil
 }
 
-func isLoopbackHost(h string) bool {
-	if h == "localhost" {
-		return true
+// checkOverride accepts https, and http only to a loopback host: exactly
+// "localhost", or an IP literal net.ParseIP reads and that is loopback (so no
+// suffix, prefix, short, decimal, hex, octal, zoned or userinfo form).
+func checkOverride(b string) error {
+	u, err := url.Parse(b)
+	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {
+		return fmt.Errorf("%w: %q", ErrBaseURL, redact(b))
 	}
+	switch u.Scheme {
+	case "https":
+		return nil
+	case "http":
+		if h := u.Hostname(); h == "localhost" || isLoopbackIP(h) {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: %q", ErrBaseURL, redact(b))
+}
+
+func isLoopbackIP(h string) bool {
 	ip := net.ParseIP(h)
 	return ip != nil && ip.IsLoopback()
 }
 
-// ClientFor is jev.NewClient for a key ResolveKey returned (source is the
-// second value it gave): the one place a client is built from a resolved key,
-// so the key goes where BaseURL says and nowhere else.
-func ClientFor(ctx context.Context, key, source, model string) (*jev.Client, error) {
+// redact keeps userinfo out of an error text.
+func redact(b string) string {
+	if u, err := url.Parse(b); err == nil && u.User != nil {
+		u.User = url.User("***")
+		return u.String()
+	}
+	return b
+}
+
+// ResolveClient resolves the key for profileID as ResolveKey does and builds
+// its client: the one place a client is built from a resolved key, so the key
+// goes where BaseURL says and nowhere else. The source is derived here, never
+// taken from the caller, so a caller cannot pair a stored key with a host only
+// an env key may have. It is returned for display (`jev key test`).
+func ResolveClient(ctx context.Context, db *sql.DB, profileID, explicit, model string) (c *jev.Client, source string, err error) {
+	key, source, err := ResolveKey(ctx, db, profileID, explicit)
+	if err != nil {
+		return nil, "", err
+	}
 	base, err := BaseURL(ctx, source)
 	if err != nil {
-		return nil, err
+		return nil, source, err
 	}
-	c, err := jev.NewClient(key, model)
+	c, err = jev.NewClient(key, model)
 	if err != nil {
-		return nil, err
+		return nil, source, err
 	}
 	c.BaseURL = base
-	return c, nil
+	return c, source, nil
 }
 
 // KeySource reports where ResolveKey would look for the key, in the same

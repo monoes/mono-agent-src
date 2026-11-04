@@ -188,11 +188,7 @@ func NewHealthEnv(d EnvDeps, projects []string) (*health.Env, func()) {
 		return jevconf.KeySource(ctx, env.DB, env.ProfileID)
 	}
 	env.JevModels = func(ctx context.Context) error {
-		key, source, err := jevconf.ResolveKey(ctx, env.DB, env.ProfileID, "")
-		if err != nil {
-			return err
-		}
-		c, err := jevconf.ClientFor(ctx, key, source, "")
+		c, _, err := jevconf.ResolveClient(ctx, env.DB, env.ProfileID, "", "")
 		if err != nil {
 			return err
 		}

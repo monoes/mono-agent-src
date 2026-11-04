@@ -76,27 +76,48 @@ func All() []Caller {
 	}
 }
 
-// StoredKeyReach is what must hold after a user of the key ran as c with the
-// vault's key `key` stored and TwoHosts up. refused is the text the refusal
-// of the step reads in whatever the user of the key returned ("" skips that
-// check, for a user that swallows the error).
-func (c Caller) StoredKeyReach(t *testing.T, typesafe, envHost *jevtest.Probe, key, refused, got string) {
+// refusedOverride is what a stored key's send says when TYPESAFE_BASE_URL is set.
+const refusedOverride = "TYPESAFE_BASE_URL ignored: it pairs only with TYPESAFE_API_KEY from your own terminal"
+
+// StoredKeyWithAnOverride is what must hold after a user of the key ran as c
+// with the vault's key `key` stored and TwoHosts up (a TYPESAFE_BASE_URL set
+// by the caller's environment): the key goes nowhere. A step refused its key
+// is refused for that (refused is the refusal's text); any other caller is
+// told the override is ignored (got is what the user of the key returned or
+// noted; "" skips the text checks, for a user that swallows the error).
+func (c Caller) StoredKeyWithAnOverride(t *testing.T, typesafe, envHost *jevtest.Probe, key, refused, got string) {
 	t.Helper()
-	switch {
-	case c.Refused:
+	if typesafe.Calls() != 0 || typesafe.Saw(key) {
+		t.Errorf("the stored key was sent to the TypeSafe host while the environment names another (%d calls)", typesafe.Calls())
+	}
+	if envHost.Calls() != 0 || envHost.Saw(key) {
+		t.Errorf("the stored TypeSafe key reached the host the environment named (%d calls)", envHost.Calls())
+	}
+	want := refusedOverride
+	if c.Refused {
+		want = refused
+	}
+	if got != "" && want != "" && !strings.Contains(got, want) {
+		t.Errorf("the refusal reads %q, want it to contain %q", got, want)
+	}
+}
+
+// StoredKeyReach is what must hold after a user of the key ran as c with the
+// vault's key `key` stored and TypeSafeHost up (no override): the key reaches
+// the TypeSafe host, except for a step refused it, which sends nothing.
+func (c Caller) StoredKeyReach(t *testing.T, typesafe *jevtest.Probe, key, refused, got string) {
+	t.Helper()
+	if c.Refused {
 		if typesafe.Calls() != 0 {
 			t.Errorf("a step refused its key sent %d request(s) to the TypeSafe host", typesafe.Calls())
 		}
 		if refused != "" && !strings.Contains(got, refused) {
 			t.Errorf("an unapproved step with agent access off was not refused: %q", got)
 		}
-	default:
-		if !typesafe.Saw(key) {
-			t.Errorf("the key should reach the TypeSafe host itself")
-		}
+		return
 	}
-	if envHost.Calls() != 0 || envHost.Saw(key) {
-		t.Errorf("the stored TypeSafe key reached the host the environment named (%d calls)", envHost.Calls())
+	if !typesafe.Saw(key) {
+		t.Errorf("the key should reach the TypeSafe host itself")
 	}
 }
 
@@ -111,4 +132,35 @@ func (c Caller) Audited(t *testing.T, db *sql.DB, profile, entry string) {
 	case !c.Granted && len(rows) != 0:
 		t.Errorf("audit rows without a grant: %+v", rows)
 	}
+}
+
+// Hosts readies the hosts of one mode and returns what is checked after the
+// user of the key ran: override true is a TYPESAFE_BASE_URL set by the caller's
+// environment (the key must go nowhere), false is none (the key must reach the
+// TypeSafe host). Modes lists both, for a table.
+func Hosts(t *testing.T, override bool) (check func(c Caller, key, refused, got string), typesafe *jevtest.Probe) {
+	t.Helper()
+	if override {
+		typesafe, envHost := jevtest.TwoHosts(t)
+		return func(c Caller, key, refused, got string) {
+			t.Helper()
+			c.StoredKeyWithAnOverride(t, typesafe, envHost, key, refused, got)
+		}, typesafe
+	}
+	typesafe = jevtest.TypeSafeHost(t)
+	return func(c Caller, key, refused, got string) {
+		t.Helper()
+		c.StoredKeyReach(t, typesafe, key, refused, got)
+	}, typesafe
+}
+
+// Modes is {with a TYPESAFE_BASE_URL, without}.
+var Modes = []bool{true, false}
+
+// ModeName names a mode for t.Run.
+func ModeName(override bool) string {
+	if override {
+		return "TYPESAFE_BASE_URL set"
+	}
+	return "no override"
 }

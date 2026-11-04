@@ -74,3 +74,15 @@ func TwoHosts(t *testing.T) (typesafe, envHost *Probe) {
 	t.Setenv("TYPESAFE_API_KEY", "")
 	return typesafe, envHost
 }
+
+// TypeSafeHost stands up the TypeSafe host (jev.DefaultBaseURL for the test)
+// with no TYPESAFE_BASE_URL and no TYPESAFE_API_KEY: a stored key and its
+// host, nothing else.
+func TypeSafeHost(t *testing.T) *Probe {
+	t.Helper()
+	p := NewProbe(t)
+	DefaultHost(t, p.URL)
+	t.Setenv("TYPESAFE_BASE_URL", "")
+	t.Setenv("TYPESAFE_API_KEY", "")
+	return p
+}
