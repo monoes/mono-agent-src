@@ -128,14 +128,15 @@ func TestReadEngineWitnessLookIsPerProfileAndNoFollow(t *testing.T) {
 	if err := os.Symlink(target, filepath.Join(doomsdayRunDirPath(cfg), "witness")); err != nil {
 		t.Skip("no symlinks here")
 	}
-	if _, ok := doomsdayReadEngine(cfg).(doomsdaycli.Off); !ok {
-		t.Fatal("a symlinked witness was followed")
+	// A link where the witness should be is "cannot tell": an error (db_unavailable), never off, and never followed.
+	if _, ok := doomsdayReadEngine(cfg).(doomsdaycli.Unreadable); !ok {
+		t.Fatal("a symlinked witness must read as an error, not off, and must not be followed")
 	}
 	for _, bad := range []string{"", ".", "..", "../p2", "a/b"} {
 		c := *cfg
 		c.ProfileID = bad
-		if witnessHoldsRun(&c) {
-			t.Fatalf("profile id %q looked into a witness", bad)
+		if held, err := witnessHoldsRun(&c); held || err != nil {
+			t.Fatalf("profile id %q looked into a witness: %v %v", bad, held, err)
 		}
 	}
 }

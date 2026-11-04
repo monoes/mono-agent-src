@@ -1,8 +1,9 @@
-//go:build doomsday
+//go:build doomsday && !windows
 
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,8 +73,9 @@ func TestWitnessHoldsRunIgnoresAFIFO(t *testing.T) {
 		t.Skip("no fifo here")
 	}
 	within(t, 3*time.Second, "witnessHoldsRun on a FIFO", func() {
-		if witnessHoldsRun(cfg) {
-			t.Error("a FIFO counted as a witness record")
+		held, err := witnessHoldsRun(cfg)
+		if held || !errors.Is(err, errWitnessUnreadable) {
+			t.Errorf("a FIFO where the witness is: held %v, err %v, want an unreadable error (never off)", held, err)
 		}
 	})
 }
@@ -82,24 +84,24 @@ func TestWitnessHoldsRunIgnoresAFIFO(t *testing.T) {
 func TestWitnessHoldsRunDoesNotFollowALinkedDirectory(t *testing.T) {
 	cfg := witnessCfg(t, "p1")
 	writeWitness(t, cfg, committedRecord)
-	if !witnessHoldsRun(cfg) {
-		t.Fatal("control: the real run directory must count")
+	if held, err := witnessHoldsRun(cfg); !held || err != nil {
+		t.Fatalf("control: the real run directory must count: %v %v", held, err)
 	}
 	linked := *cfg
 	linked.ProfileID = "p3"
 	if err := os.Symlink(doomsdayRunDirPath(cfg), doomsdayRunDirPath(&linked)); err != nil {
 		t.Skip("no symlinks here")
 	}
-	if witnessHoldsRun(&linked) {
-		t.Fatal("a symlinked run directory was followed")
+	if held, err := witnessHoldsRun(&linked); held || !errors.Is(err, errWitnessUnreadable) {
+		t.Fatalf("a symlinked run directory: held %v, err %v, want an unreadable error (not followed, and never off)", held, err)
 	}
 	// The parent ("doomsday") as a link to a real one.
 	viaLink := witnessCfg(t, "p1")
 	if err := os.Symlink(filepath.Dir(doomsdayRunDirPath(cfg)), filepath.Join(filepath.Dir(viaLink.DBPath), "doomsday")); err != nil {
 		t.Fatal(err)
 	}
-	if witnessHoldsRun(viaLink) {
-		t.Fatal("a symlinked doomsday directory was followed")
+	if held, err := witnessHoldsRun(viaLink); held || !errors.Is(err, errWitnessUnreadable) {
+		t.Fatalf("a symlinked doomsday directory: held %v, err %v, want an unreadable error (not followed, and never off)", held, err)
 	}
 }
 
@@ -111,14 +113,14 @@ func TestWitnessReadIsCapped(t *testing.T) {
 	if err := os.WriteFile(p, []byte(pad+committedRecord), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if witnessHoldsRun(cfg) {
-		t.Fatal("a record beyond the 1 MiB cap was read")
+	if held, err := witnessHoldsRun(cfg); held || !errors.Is(err, errWitnessUnreadable) {
+		t.Fatalf("a record beyond the 1 MiB cap: held %v, err %v, want an unreadable error (cannot tell, never off)", held, err)
 	}
 	if err := os.WriteFile(p, []byte(committedRecord+pad), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if !witnessHoldsRun(cfg) {
-		t.Fatal("a record within the cap was missed")
+	if held, err := witnessHoldsRun(cfg); !held || err != nil {
+		t.Fatalf("a record within the cap was missed: %v %v", held, err)
 	}
 }
 
@@ -141,14 +143,35 @@ func TestWitnessHoldsRunIdGuard(t *testing.T) {
 		}
 	}
 	writeWitness(t, cfg, committedRecord) // doomsday/p1/witness: the only legitimate one
-	if !witnessHoldsRun(cfg) {
-		t.Fatal("control: p1 must count")
+	if held, err := witnessHoldsRun(cfg); !held || err != nil {
+		t.Fatalf("control: p1 must count: %v %v", held, err)
 	}
 	for _, bad := range []string{"", ".", "..", "a/b", "../p1", "p1/", "\u2025/p1", "p\uff11"} {
 		c := *cfg
 		c.ProfileID = bad
-		if witnessHoldsRun(&c) {
-			t.Errorf("profile id %q looked into a witness", bad)
+		if held, err := witnessHoldsRun(&c); held || err != nil {
+			t.Errorf("profile id %q looked into a witness: %v %v", bad, held, err)
 		}
+	}
+}
+
+// Everything beyond "plainly nothing there" is an error, never off: a witness that is a link, a directory, unreadable,
+// or a missing run directory is plainly nothing only when it does not exist.
+func TestWitnessHoldsRunOnlyAMissingPlaceIsOff(t *testing.T) {
+	cfg := witnessCfg(t, "p1")
+	if held, err := witnessHoldsRun(cfg); held || err != nil {
+		t.Fatalf("nothing at all: %v %v, want off", held, err)
+	}
+	if err := os.MkdirAll(doomsdayRunDirPath(cfg), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if held, err := witnessHoldsRun(cfg); held || err != nil {
+		t.Fatalf("no witness file: %v %v, want off", held, err)
+	}
+	if err := os.Mkdir(filepath.Join(doomsdayRunDirPath(cfg), "witness"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if held, err := witnessHoldsRun(cfg); held || !errors.Is(err, errWitnessUnreadable) {
+		t.Fatalf("a directory where the witness is: %v %v, want an unreadable error", held, err)
 	}
 }

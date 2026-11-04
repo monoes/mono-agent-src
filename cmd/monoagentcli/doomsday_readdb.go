@@ -33,41 +33,76 @@ func doomsdayRunDirPath(cfg *globalConfig) string {
 	return filepath.Join(filepath.Dir(expandPath(cfg.DBPath)), "doomsday", cfg.ProfileID)
 }
 
-// witnessHoldsRun says whether the profile's witness file (a plain regular file, not followed through a link) carries a
-// committed or pending record. Without the database there is no key to authenticate it, so this is a presence check
-// only: the worst a forged file does is turn "off" into an error, which fails safe.
-func witnessHoldsRun(cfg *globalConfig) bool {
+// errWitnessUnreadable is why a read verb cannot call a missing database "off" when the profile's witness place is
+// not plainly empty: a linked or odd directory, a witness that is a link, a FIFO or a directory, one that cannot be
+// opened or read, or an oversized one with no record in its first MiB. A read that cannot tell is an error, never
+// "off": it reaches the page as db_unavailable.
+var errWitnessUnreadable = errors.New("the open-ended mode's database is missing or lacks its tables, and the profile's witness place cannot be read plainly")
+
+// witnessHoldsRun says whether the profile's witness file carries a committed or pending record. Without the database
+// there is no key to authenticate it, so this is a presence check only: the worst a forged file does is turn "off"
+// into an error, which fails safe. It answers (false, nil) only when nothing is plainly there (an invalid profile
+// id, or the parent directory, the run directory or the witness file does not exist, or the file holds no record
+// within the cap); any other oddity is an error, never "off".
+func witnessHoldsRun(cfg *globalConfig) (bool, error) {
 	if p := cfg.ProfileID; p == "" || p == "." || p == ".." || filepath.Base(p) != p {
-		return false
+		return false, nil
 	}
 	runDir := doomsdayRunDirPath(cfg)
-	// The run directory and its parent must be real directories: a link there would send the read elsewhere.
+	// The run directory and its parent must be real directories: a link there would send the read elsewhere, and the
+	// writer's own directory can be a link (it resolves symlinks), so a link is "cannot tell", not "off".
 	for _, d := range []string{filepath.Dir(runDir), runDir} {
-		if st, err := os.Lstat(d); err != nil || !st.IsDir() {
-			return false
+		st, err := os.Lstat(d)
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		if err != nil || !st.IsDir() {
+			return false, errWitnessUnreadable
 		}
 	}
 	path := filepath.Join(runDir, "witness")
-	if st, err := os.Lstat(path); err != nil || !st.Mode().IsRegular() {
-		return false
+	st, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil || !st.Mode().IsRegular() {
+		return false, errWitnessUnreadable
 	}
 	// Open without following a link or blocking on a FIFO (the path may have been swapped since the Lstat), then
 	// judge the file actually opened.
 	f, err := openWitnessNoFollow(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
 	if err != nil {
-		return false
+		return false, errWitnessUnreadable
 	}
 	defer f.Close()
-	if st, err := f.Stat(); err != nil || !st.Mode().IsRegular() {
-		return false
+	ost, err := f.Stat()
+	if err != nil || !ost.Mode().IsRegular() {
+		return false, errWitnessUnreadable
 	}
-	b, _ := io.ReadAll(io.LimitReader(f, witnessReadCap))
-	return bytes.Contains(b, []byte(`"t":"committed"`)) || bytes.Contains(b, []byte(`"t":"pending"`))
+	b, rerr := io.ReadAll(io.LimitReader(f, witnessReadCap))
+	if rerr != nil {
+		return false, errWitnessUnreadable
+	}
+	if bytes.Contains(b, []byte(`"t":"committed"`)) || bytes.Contains(b, []byte(`"t":"pending"`)) {
+		return true, nil
+	}
+	if ost.Size() > witnessReadCap {
+		return false, errWitnessUnreadable // a record may sit past the cap: cannot tell
+	}
+	return false, nil
 }
 
-// noSchema is errNoReadableSchema, or errWitnessWithoutDB when a witness record says a run existed.
+// noSchema is errNoReadableSchema, errWitnessWithoutDB when a witness record says a run existed, or
+// errWitnessUnreadable when the witness place cannot be read plainly.
 func noSchema(cfg *globalConfig) error {
-	if witnessHoldsRun(cfg) {
+	held, err := witnessHoldsRun(cfg)
+	if err != nil {
+		return err
+	}
+	if held {
 		return errWitnessWithoutDB
 	}
 	return errNoReadableSchema
