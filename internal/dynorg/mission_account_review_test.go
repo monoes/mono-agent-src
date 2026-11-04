@@ -246,3 +246,37 @@ func TestARunThatStartedResetsTheStartlessCount(t *testing.T) {
 		t.Fatalf("spent %v", got)
 	}
 }
+
+// A runner that exits 0 with no start event and no done event comes back as a result with no error and SawDone false: it
+// did not complete cleanly, so it counts as a start-less failure too (the loop is bounded and parks the session). A
+// clean done with no start event did finish a turn: it is charged the grant per policy but is not counted and never parks.
+func TestRunnerWithNoStartAndNoDoneCountsAsStartlessButACleanDoneDoesNot(t *testing.T) {
+	r := newResvRig(t, rigOpts{budget: 100})
+	nd := step{noStart: true, noCost: true, notDone: true}
+	sx := &scripted{steps: []step{nd, nd, nd, nd}}
+	c := scriptedConductor(r, sx)
+	w := directWorker(r, "w-1")
+	r.approve()
+	for i := 0; i < maxStartlessFailures; i++ {
+		_, _ = c.execOnce(tbg, w, opus, "doing task", "")
+	}
+	if r.session().State != tasks.SessionPaused || countNotices(r.em, "mission.runtime_failing") != 1 {
+		t.Fatalf("state %s, notices %d: a run with no start and no done is a start-less failure", r.session().State, countNotices(r.em, "mission.runtime_failing"))
+	}
+	if _, err := c.execOnce(tbg, w, opus, "doing task", ""); err == nil || sx.runs() != maxStartlessFailures {
+		t.Fatalf("a run started after the block: %v (runs %d)", err, sx.runs())
+	}
+
+	r2 := newResvRig(t, rigOpts{budget: 100})
+	clean := step{noStart: true, noCost: true}
+	sx2 := &scripted{steps: []step{clean, clean, clean, clean, clean}}
+	c2 := scriptedConductor(r2, sx2)
+	w2 := directWorker(r2, "w-2")
+	r2.approve()
+	for i := 0; i < 5; i++ {
+		_, _ = c2.execOnce(tbg, w2, opus, "doing task", "")
+	}
+	if r2.session().State == tasks.SessionPaused || countNotices(r2.em, "mission.runtime_failing") != 0 || sx2.runs() != 5 {
+		t.Fatalf("a clean done is not a failure: state %s, runs %d", r2.session().State, sx2.runs())
+	}
+}
