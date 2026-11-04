@@ -220,7 +220,10 @@ func wantCapRunRefusal(t *testing.T, err error, parts ...string) {
 	if !errors.Is(err, ErrAccountingMode) {
 		t.Fatalf("want an accounting-mode refusal, got %v", err)
 	}
-	for _, p := range append(parts, "Pause the session") {
+	if strings.Contains(err.Error(), "Pause the session") {
+		t.Errorf("pausing does not stop a cap run; the refusal %q must not say it does", err)
+	}
+	for _, p := range append(parts, "task session stop", "wait for the runs to end", "3m0s after its last heartbeat") {
 		if !strings.Contains(err.Error(), p) {
 			t.Errorf("the refusal %q does not show %q", err, p)
 		}
@@ -320,4 +323,21 @@ func TestSetBudgetWithOnlyAReservationLiveStillFollowsTheFloorRules(t *testing.T
 	}
 	_, err := setBudget(s, id, 1)
 	wantFloorRefusal(t, err, "reservations $2.0000")
+}
+
+// The run ref and the owner id are echoed cut: they are text a worker chose.
+func TestSetBudgetRefusalCutsLongRunRefsAndOwners(t *testing.T) {
+	s, db, _ := newTestStore(t)
+	id := rsession(t, s, db, 10)
+	long := strings.Repeat("x", 200)
+	if _, err := s.BeginCapRun(bg, "default", id, long, long+"-ref"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := setBudget(s, id, 5)
+	if !errors.Is(err, ErrAccountingMode) {
+		t.Fatalf("%v", err)
+	}
+	if strings.Contains(err.Error(), strings.Repeat("x", 100)) || len(err.Error()) > 700 {
+		t.Fatalf("the refusal echoes the whole text (%d bytes)", len(err.Error()))
+	}
 }

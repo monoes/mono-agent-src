@@ -287,6 +287,7 @@ func TestTaskErrGivesEveryStoreRefusalItsExitCodeAndCode(t *testing.T) {
 		{fmt.Errorf("%w: #9", tasks.ErrNotClaimant), 3, "not_claimant"},
 		{fmt.Errorf("%w: twenty an hour", tasks.ErrLimit), 3, "limit"},
 		{fmt.Errorf("%w: a task needs a title", tasks.ErrInvalid), 3, "invalid_input"},
+		{fmt.Errorf("%w: runs are live", tasks.ErrAccountingMode), 3, "accounting_mode"},
 		{&tasks.ClaimedError{By: "bot", Until: time.Date(2026, 10, 6, 12, 30, 0, 0, time.UTC)}, 3, "claimed"},
 	} {
 		err := td.taskErr(c.err)
