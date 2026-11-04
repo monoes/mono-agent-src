@@ -192,7 +192,7 @@ var damagedCodes = map[int]bool{1: true, 3: true, 8: true, 10: true, 11: true, 1
 
 // transientExtendedCodes are EXTENDED result codes whose primary code is on the damage list but that say the
 // file could not be locked or recovered right now, not that it is damaged: IOERR_LOCK, IOERR_BLOCKED,
-// IOERR_RDLOCK, IOERR_SHMLOCK, IOERR_CHECKRESERVEDLOCK, READONLY_RECOVERY, READONLY_CANTINIT and
+// IOERR_RDLOCK, IOERR_SHMLOCK, IOERR_CHECKRESERVEDLOCK, IOERR_SHMOPEN, IOERR_SHMSIZE, IOERR_SHMMAP, IOERR_NOMEM, READONLY_RECOVERY, READONLY_CANTINIT and
 // READONLY_CANTLOCK. They are matched first, on the whole code; a plain IOERR, READONLY or CANTOPEN stays
 // damage (CANTOPEN under file-descriptor pressure has no extended code of its own, so it cannot be told apart
 // and is treated as damage).
@@ -202,6 +202,10 @@ var transientExtendedCodes = map[int]bool{
 	10 | 9<<8:  true, // SQLITE_IOERR_RDLOCK 2314
 	10 | 20<<8: true, // SQLITE_IOERR_SHMLOCK 5130
 	10 | 14<<8: true, // SQLITE_IOERR_CHECKRESERVEDLOCK 3594
+	10 | 18<<8: true, // SQLITE_IOERR_SHMOPEN 4618
+	10 | 19<<8: true, // SQLITE_IOERR_SHMSIZE 4874
+	10 | 21<<8: true, // SQLITE_IOERR_SHMMAP 5386
+	10 | 12<<8: true, // SQLITE_IOERR_NOMEM 3082
 	8 | 1<<8:   true, // SQLITE_READONLY_RECOVERY 264
 	8 | 5<<8:   true, // SQLITE_READONLY_CANTINIT 1288
 	8 | 2<<8:   true, // SQLITE_READONLY_CANTLOCK 520

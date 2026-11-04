@@ -2128,7 +2128,7 @@ that works a task acts on them. The defences:
   is skipped, and the operator let through: SQLITE_ERROR (a missing table or column),
   PERM, READONLY, IOERR, CORRUPT, CANTOPEN, AUTH and NOTADB (the plain codes), and errors without a SQLite
   code (not a regular file, cannot be stat'ed, permission). The extended code is read first: IOERR_LOCK,
-  IOERR_BLOCKED, IOERR_RDLOCK, IOERR_SHMLOCK, IOERR_CHECKRESERVEDLOCK, READONLY_RECOVERY,
+  IOERR_BLOCKED, IOERR_RDLOCK, IOERR_SHMLOCK, IOERR_CHECKRESERVEDLOCK, IOERR_SHMOPEN, IOERR_SHMSIZE, IOERR_SHMMAP, IOERR_NOMEM, READONLY_RECOVERY,
   READONLY_CANTINIT and READONLY_CANTLOCK are non-answers (busy) although their primary
   code is on the damage list; CANTOPEN under descriptor pressure has no extended code of
   its own, so it cannot be told apart and counts as damage. A dead host's entry is skipped
