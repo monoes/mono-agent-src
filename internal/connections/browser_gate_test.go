@@ -99,3 +99,22 @@ func TestConnectOAuthProgressDoesNotClaimAnOpenWhenRefused(t *testing.T) {
 		}
 	}
 }
+
+// A refused Connect is refused before it asks for any field, so a non-operator never blocks on a prompt.
+func TestConnectRefusesBeforeFieldPrompts(t *testing.T) {
+	mgr, _ := newManagerDB(t)
+	// An empty required value is what a prompt would have to be asked about; the refusal must come first.
+	empty := map[string]string{"subdomain": ""}
+	fields := []CredentialField{{Key: "subdomain", Label: "Subdomain", Required: true}}
+	Registry["gate-prompt"] = PlatformDef{ID: "gate-prompt", Name: "Gate", Methods: []AuthMethod{MethodOAuth, MethodOAuth1},
+		OAuth:  &OAuthConfig{AuthURL: "https://provider.invalid/authorize", TokenURL: "https://provider.invalid/token", ClientID: "cid", ConnectFields: fields},
+		OAuth1: &OAuth1Config{}, Fields: map[AuthMethod][]CredentialField{MethodOAuth1: fields}}
+	t.Cleanup(func() { delete(Registry, "gate-prompt") })
+	setBrowserRefusal(t, "this process runs inside a coder turn")
+	for _, method := range []AuthMethod{MethodOAuth, MethodOAuth1} {
+		_, err := mgr.Connect(context.Background(), "gate-prompt", ConnectOptions{Method: method, FieldValues: empty, ProfileID: "default"})
+		if err == nil || !strings.Contains(err.Error(), "coder turn") {
+			t.Errorf("%s: err %v; want the browser refusal before any field", method, err)
+		}
+	}
+}
