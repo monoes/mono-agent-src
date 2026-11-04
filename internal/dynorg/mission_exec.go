@@ -381,6 +381,9 @@ func (c *Conductor) liveSpend(w *worker, m Model, run *monomind.TurnResult) {
 		w.liveCost = cost
 	}
 	c.mu.Unlock()
+	if c.chargeLive(w, cost) {
+		return // a run holding a reservation charges into it, never into the session's spend directly
+	}
 	if grew {
 		c.chargeSession(w)
 	}
@@ -397,6 +400,17 @@ func (c *Conductor) chargeSession(w *worker) {
 	if !c.recordSpend(ctx, mc, w) {
 		return
 	}
+	c.afterCharge(w)
+}
+
+// afterCharge applies the session's budget (the 90 percent warning, the 100 percent halt) after a charge.
+func (c *Conductor) afterCharge(w *worker) {
+	mc, err := c.missions()
+	if err != nil || w.task == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(c.ctx), 10*time.Second)
+	defer cancel()
 	if se, err := mc.Store.GetSession(ctx, mc.ProfileID, w.task.session, missionActor()); err == nil && se.State == tasks.SessionRunning {
 		c.missionBudget(ctx, se)
 	}
@@ -410,6 +424,10 @@ func (c *Conductor) recordSpend(ctx context.Context, mc *MissionRun, w *worker) 
 	// spent before the write commits would lose a failed charge permanently;
 	// dropping the lock around the write would double-charge concurrent reports.
 	w.task.spendMu.Lock()
+	if a := w.task.acct; a != nil && a.mode == modeReserve {
+		w.task.spendMu.Unlock() // this run's cost goes into its reservation (chargeLive, endRun), not the session directly
+		return false
+	}
 	c.mu.Lock()
 	cost := w.cost + w.liveCost
 	c.mu.Unlock()

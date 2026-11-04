@@ -143,6 +143,9 @@ func (s *Store) Reserve(ctx context.Context, profileID string, sessionID int64, 
 		if !isOpenSession(se) {
 			return sessionNotReady("session #%d is %s: nothing is reserved on it", sessionID, closedWord(se))
 		}
+		if err := s.refuseWhileCapRuns(ctx, x, profileID, sessionID); err != nil {
+			return err
+		}
 		c, err := s.commitmentTx(ctx, x, profileID, sessionID)
 		if err != nil {
 			return err

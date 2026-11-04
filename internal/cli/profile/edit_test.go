@@ -173,6 +173,8 @@ var seedOverrides = map[string]map[string]any{
 	// 154: a report of that exec's cost (the row it reports on is live and has an exec id).
 	"task_session_reservation_costs": {"seq": 1, "final": 0, "reported_at": "2026-10-05T12:00:00Z"},
 	"coder_session_asks":             {"importance": "normal"},
+	// 157: a registered cap run (presence only, no money).
+	"task_session_cap_runs": {"session_id": 1, "lease_until": "2026-10-05T12:00:00Z", "created_at": "2026-10-05T12:00:00Z"},
 }
 
 // notProfileOwned are tables with a column that looks like a link to a

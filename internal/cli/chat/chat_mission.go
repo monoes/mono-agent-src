@@ -74,6 +74,16 @@ func missionToggleOn(db *sql.DB, profileID, conversationID string) bool {
 	return err == nil && s.Mission
 }
 
+// workerReservationsOn is the operator's switch for the conversation's mission workers (`coder sessions
+// settings set --patch '{"mission_worker_reservations":true}'`), read at the start of every worker run. A store
+// that cannot answer is an error, which the conductor reads as off: the run is accounted on the cap.
+func workerReservationsOn(db *sql.DB, profileID, conversationID string) func(context.Context) (bool, error) {
+	return func(context.Context) (bool, error) {
+		s, err := coderhost.NewStore(db).GetSettings(profileID, conversationID)
+		return err == nil && s.MissionWorkerReservations, err
+	}
+}
+
 // missionRun connects the conductor's mission tools (mission_next, mission_assign,
 // mission_report, mission_verify, mission_finish, org_spawn's task_id) to the profile's
 // task store. It is nil unless the lead is a confirmed mission planner; the session is
@@ -83,7 +93,8 @@ func missionRun(m *dynorg.MissionConfig, db *sql.DB, turnID string) *dynorg.Miss
 		return nil
 	}
 	return &dynorg.MissionRun{Store: m.Store, ProfileID: m.ProfileID, Tokens: agenttokens.NewStore(db),
-		Owner: dynorg.TurnOwner(m.ProfileID, m.ConversationID, turnID), Live: turnRunning(db, m.ProfileID),
+		WorkerReservations: workerReservationsOn(db, m.ProfileID, m.ConversationID),
+		Owner:              dynorg.TurnOwner(m.ProfileID, m.ConversationID, turnID), Live: turnRunning(db, m.ProfileID),
 		Children: newMissionChildren(db, m.ProfileID, m.ConversationID)}
 }
 
