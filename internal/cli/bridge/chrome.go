@@ -213,7 +213,16 @@ func EnsureConnected(bridge ConnChecker, timeout time.Duration, h Hints) error {
 		return nil
 	}
 
-	// 3. Chrome is not running, so launch it once.
+	// 3. Chrome is not running, so launch it once. Opening a browser window on the user's screen
+	// is the operator's act (like the pairing page above): a model's turn must not cause it. No
+	// refusal func means no operator check was wired, which is a refusal too.
+	why := "no operator check is wired"
+	if h.Refusal != nil {
+		why = h.Refusal()
+	}
+	if why != "" {
+		return fmt.Errorf("no browser is running and this process may not launch one (%s) — start your browser (and the monoagent bridge) yourself, in your own terminal or session, then run the command again", why)
+	}
 	chromePath := findLocalChromePath()
 	if chromePath == "" {
 		return fmt.Errorf("Chrome extension is installed, but Google Chrome executable was not found on this machine")
