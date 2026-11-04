@@ -83,6 +83,11 @@ func (r *runner) resolveSubNodes(rootID string, exprCtx ExpressionContext, depth
 				return nil, fmt.Errorf("sub-node %s (%s): %w", n.ID, n.Name, err)
 			}
 		}
+		if d, ok := executor.(CredentialDestinations); ok {
+			if err := CheckSendDestinations(secrets.WithAccessNode(r.ctx, n.ID, n.Name), n.Type, d.CredentialDestinationKeys(), resolved); err != nil {
+				return nil, fmt.Errorf("sub-node %s (%s): %w", n.ID, n.Name, err)
+			}
+		}
 		children, err := r.resolveSubNodes(n.ID, exprCtx, depth+1)
 		if err != nil {
 			return nil, err
@@ -138,6 +143,11 @@ func (r *runner) callTool(ctx context.Context, n WorkflowNode, base ExpressionCo
 			return nil, fmt.Errorf("tool %q: %w", n.Name, err)
 		}
 		if err := secrets.ResolveConfig(secrets.WithAccessNodeType(secrets.WithAccessNode(ctx, n.ID, n.Name), n.Type), db, profile, stored, resolved); err != nil {
+			return nil, fmt.Errorf("tool %q: %w", n.Name, err)
+		}
+	}
+	if d, ok := executor.(CredentialDestinations); ok {
+		if err := CheckSendDestinations(secrets.WithAccessNode(ctx, n.ID, n.Name), n.Type, d.CredentialDestinationKeys(), resolved); err != nil {
 			return nil, fmt.Errorf("tool %q: %w", n.Name, err)
 		}
 	}

@@ -256,6 +256,15 @@ func (r *runner) prepare(node WorkflowNode) (*nodeTask, error) {
 		}
 	}
 
+	// Under agent access a node that names a destination sends nothing the
+	// run read from the vault to a host the grant does not (it may refuse a
+	// node that read no secret itself: see CheckSendDestinations).
+	if d, ok := executor.(CredentialDestinations); ok {
+		if err := CheckSendDestinations(ctx, node.Type, d.CredentialDestinationKeys(), resolvedConfig); err != nil {
+			return nil, fmt.Errorf("node %s (%s): %w", node.ID, node.Name, err)
+		}
+	}
+
 	// AI sub-nodes attached through ai_… connections, resolved for the node.
 	subNodes, err := r.resolveSubNodes(node.ID, exprCtx, 0)
 	if err != nil {

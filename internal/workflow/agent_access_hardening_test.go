@@ -133,6 +133,21 @@ func (e *accessEnv) run(t *testing.T, wf *Workflow, store WorkflowStore) (string
 	return exec.ID, err
 }
 
+// runStored runs the stored workflow cur once.
+func (e *accessEnv) runStored(t *testing.T, cur *Workflow) (string, error) {
+	t.Helper()
+	dag, err := BuildDAG(cur.Nodes, cur.Connections)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exec := &WorkflowExecution{ID: uuid.NewString(), WorkflowID: cur.ID, ProfileID: "default", TriggerType: "trigger.schedule", TriggerNodeID: cur.ID + "-t"}
+	if err := e.store.CreateExecution(e.ctx, exec); err != nil {
+		t.Fatal(err)
+	}
+	err = RunExecution(e.ctx, exec, cur, dag, e.reg, e.store, nil, NewExpressionEngine(), zerolog.Nop())
+	return exec.ID, err
+}
+
 func (e *accessEnv) stored(t *testing.T, execID string) string {
 	t.Helper()
 	ex, err := e.store.GetExecution(e.ctx, execID)
