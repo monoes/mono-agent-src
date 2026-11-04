@@ -216,7 +216,7 @@ func (d Deps) newImportCmd() *cobra.Command {
 			wf.UpdatedAt = time.Now().UTC()
 			if status == ImportUnchanged {
 				recordImport(importIndexEntry{ID: wf.ID, Name: wf.Name, Source: source, Hash: hash})
-				return d.printWorkflowImport(cmd, &wf, status, warnings, nil, nil, raw, yes, replaceAutomations, inputFile, importCopy{})
+				return d.printWorkflowImport(cmd, &wf, status, warnings, nil, nil, raw, yes, replaceAutomations, inputFile, importCopy{}, "")
 			}
 
 			// workflow_nodes.id and workflow_connections.id are globally
@@ -344,12 +344,17 @@ func (d Deps) newImportCmd() *cobra.Command {
 				}
 			}
 
-			if err := d.CreateWorkflow(operator.ApprovingContext(ctx), store, &wf, overwrite); err != nil {
+			actx := operator.ApprovingContext(ctx)
+			if err := d.CreateWorkflow(actx, store, &wf, overwrite); err != nil {
 				return err
+			}
+			note := ""
+			if status != ImportUnchanged { // nothing was written, so there is nothing to say was not approved
+				note = operator.UnapprovedNote(actx, "imported", wf.ID)
 			}
 
 			recordImport(importIndexEntry{ID: wf.ID, Name: wf.Name, Source: source, Hash: hash})
-			return d.printWorkflowImport(cmd, &wf, status, warnings, remapped, remappedConns, raw, yes, replaceAutomations, inputFile, copied)
+			return d.printWorkflowImport(cmd, &wf, status, warnings, remapped, remappedConns, raw, yes, replaceAutomations, inputFile, copied, note)
 		},
 	}
 

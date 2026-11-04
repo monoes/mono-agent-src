@@ -341,12 +341,14 @@ func (d Deps) newTemplatesUseCmd() *cobra.Command {
 
 			store := d.WorkflowStore(db)
 			ctx := context.Background()
-			if err := d.CreateWorkflow(operator.ApprovingContext(ctx), store, &wf, false); err != nil {
+			actx := operator.ApprovingContext(ctx)
+			if err := d.CreateWorkflow(actx, store, &wf, false); err != nil {
 				return err
 			}
 
+			note := operator.NoteUnapproved(actx, "created", wf.ID)
 			if d.JSONOutput() {
-				return json.NewEncoder(os.Stdout).Encode(wf)
+				return json.NewEncoder(os.Stdout).Encode(operator.WithNote(wf, note))
 			}
 			fmt.Fprintf(os.Stdout, "Created workflow %q from template %q  (id: %s, %d nodes, %d connections)\n",
 				wf.Name, args[0], wf.ID, len(wf.Nodes), len(wf.Connections))

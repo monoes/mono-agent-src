@@ -156,7 +156,11 @@ func (d Deps) newActivateCmd() *cobra.Command {
 
 			// The operator's approval rides the activation itself: one publication writes the flag and the
 			// approval, and only for the definition this command read (or --expect named).
-			if err := engine.ActivateWorkflowWith(operator.ApprovingContext(ctx), args[0], workflow.ActivateOptions{ExpectHash: expect}); err != nil {
+			actx := operator.ApprovingContext(ctx)
+			if note := operator.CannotApproveNote(actx, args[0], false); note != "" {
+				fmt.Fprintln(os.Stderr, "Note: "+note)
+			}
+			if err := engine.ActivateWorkflowWith(actx, args[0], workflow.ActivateOptions{ExpectHash: expect}); err != nil {
 				if errors.Is(err, workflow.ErrChangedSincePreview) {
 					return fmt.Errorf("activate workflow: %w: nothing was activated or approved; look at it again with `workflow get %s --json` and pass the review_hash it prints to --expect", err, args[0])
 				}
@@ -465,12 +469,14 @@ func (d Deps) newCreateCmd() *cobra.Command {
 			ctx := context.Background()
 			// Same persistence as import: file store plus the SQLite rows
 			// that `workflow run --json` and executions read.
-			if err := d.CreateWorkflow(operator.ApprovingContext(ctx), store, wf, false); err != nil {
+			actx := operator.ApprovingContext(ctx)
+			if err := d.CreateWorkflow(actx, store, wf, false); err != nil {
 				return fmt.Errorf("create workflow: %w", err)
 			}
 
+			note := operator.NoteUnapproved(actx, "created", wf.ID)
 			if d.JSONOutput() {
-				return json.NewEncoder(os.Stdout).Encode(wf)
+				return json.NewEncoder(os.Stdout).Encode(operator.WithNote(wf, note))
 			}
 			fmt.Fprintf(os.Stdout, "Created workflow: %s  (id: %s)\n", wf.Name, wf.ID)
 			return nil
