@@ -10,6 +10,7 @@ package testhome
 
 import (
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testmode"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -52,6 +53,7 @@ const UnderTestEnv = "MONOAGENT_UNDER_TEST"
 func run(m *testing.M) int {
 	realHome, _ = os.UserHomeDir()
 	os.Setenv(UnderTestEnv, "1")
+	testmode.On = true
 	// No test probes or binds the user's real bridge on its default ports
 	// (9222/9323): a test that wants a bridge names its own port. Port 1 is
 	// never listening; the dial guard (network.go) fails the run on a dial to

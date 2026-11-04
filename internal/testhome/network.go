@@ -21,9 +21,8 @@ type dialFunc func(ctx context.Context, network, addr string) (net.Conn, error)
 // it) refuse to dial anything but loopback, so a test that forgets to inject
 // a fake server fails fast instead of reaching a live service.
 func blockNetwork() {
-	if os.Getenv(AllowNetworkEnv) == "1" {
-		return
-	}
+	// Installed even with AllowNetworkEnv: that opens the network, never the
+	// real bridge's ports.
 	t, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
 		return
@@ -66,7 +65,7 @@ func loopbackOnly(next dialFunc) dialFunc {
 			dialedMu.Unlock()
 			return nil, fmt.Errorf("testhome: test dialed %s, the real extension bridge's port: tests use a private port (the port override is honoured in test binaries)", addr)
 		}
-		if !isLoopback(addr) {
+		if !isLoopback(addr) && os.Getenv(AllowNetworkEnv) != "1" {
 			return nil, fmt.Errorf("testhome: test dialed %s %s: tests may only reach loopback (set %s=1 to allow the network)", network, addr, AllowNetworkEnv)
 		}
 		return next(ctx, network, addr)

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -28,6 +29,9 @@ import (
 // to. A listener that does not know the token cannot produce it; one that
 // forwards the question to the real bridge gets a proof for the real port,
 // not its own. The token never leaves the process until the proof verifies.
+
+// maxStatusBody bounds a status answer (a real one is a few hundred bytes).
+const maxStatusBody = 64 << 10
 
 const (
 	healthPath = "/monoagent/health"
@@ -130,7 +134,10 @@ func verifyBridge(client *http.Client, baseURL, token string) error {
 	if err != nil {
 		return err
 	}
-	resp, err := client.Do(req)
+	// A status answer is never followed to another address, and is bounded.
+	c := *client
+	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := c.Do(req)
 	if err != nil {
 		return fmt.Errorf("no bridge answering at %s: %w", baseURL, err)
 	}
@@ -139,7 +146,7 @@ func verifyBridge(client *http.Client, baseURL, token string) error {
 		return fmt.Errorf("%s is held by something that is not a monoagent bridge (HTTP %d)", baseURL, resp.StatusCode)
 	}
 	var st Status
-	if err := json.NewDecoder(resp.Body).Decode(&st); err != nil || st.Service != ServiceName {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxStatusBody)).Decode(&st); err != nil || st.Service != ServiceName {
 		return fmt.Errorf("%s is held by something that is not a monoagent bridge", baseURL)
 	}
 	if st.Proof == "" {

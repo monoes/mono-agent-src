@@ -1,6 +1,7 @@
 package extension
 
 import (
+	"encoding/json"
 	"errors"
 	"go/ast"
 	"go/parser"
@@ -11,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -223,5 +226,51 @@ func TestDiagnoseBridges_ClassifiesTheCandidates(t *testing.T) {
 	}
 	if st, err := CheckPairing(old.URL); st != PairingUnknown || !errors.Is(err, ErrBridgeNoProof) {
 		t.Errorf("CheckPairing on an older bridge: %v %v", st, err)
+	}
+}
+
+// A status answer is never followed to another address, and a huge one is cut
+// off: the probe must not be steered by (or choked on) a listener's reply.
+func TestVerifyBridge_DoesNotFollowRedirectsAndCapsTheBody(t *testing.T) {
+	withTempHome(t)
+	token, _ := generateToken()
+	var mu sync.Mutex
+	hit := 0
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		hit++
+		mu.Unlock()
+		_ = json.NewEncoder(w).Encode(Status{Service: ServiceName})
+	}))
+	defer target.Close()
+	redirector := httptest.NewServer(http.RedirectHandler(target.URL+healthPath, http.StatusFound))
+	defer redirector.Close()
+	err := verifyBridge(&http.Client{}, redirector.URL, token)
+	if err == nil || !strings.Contains(err.Error(), "HTTP 302") {
+		t.Fatalf("redirecting listener: %v, want it refused as not a bridge (HTTP 302)", err)
+	}
+	mu.Lock()
+	if hit != 0 {
+		t.Errorf("the redirect was followed (%d hits)", hit)
+	}
+	mu.Unlock()
+
+	var sent int64
+	big := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		chunk := []byte(strings.Repeat(" ", 32<<10))
+		for i := 0; i < 1600; i++ { // 50 MB if nobody stops reading
+			n, err := w.Write(chunk)
+			atomic.AddInt64(&sent, int64(n))
+			if err != nil {
+				return
+			}
+		}
+	}))
+	defer big.Close()
+	if err := verifyBridge(&http.Client{}, big.URL, token); err == nil {
+		t.Fatal("an endless answer was accepted")
+	}
+	if got := atomic.LoadInt64(&sent); got > 8<<20 {
+		t.Errorf("the probe let %d bytes through: the body is not capped", got)
 	}
 }

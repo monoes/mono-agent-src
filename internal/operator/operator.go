@@ -31,12 +31,12 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"testing"
 
 	"github.com/monoes/mono-agent/internal/browserctl"
 	"github.com/monoes/mono-agent/internal/extension"
 	"github.com/monoes/mono-agent/internal/hilsend"
 	"github.com/monoes/mono-agent/internal/orgsign"
+	"github.com/monoes/mono-agent/internal/testmode"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -317,7 +317,7 @@ func init() {
 	extension.SetPortEnvPolicy(func() bool {
 		// A go-test binary keeps the variable (tests isolate themselves from the
 		// real bridge with it); only operator's own tests enforce the policy.
-		if testing.Testing() && !enforcePortPolicyInTest {
+		if testmode.On && !enforcePortPolicyInTest {
 			return true
 		}
 		return Marker() == "" && InTurn() == ""

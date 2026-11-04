@@ -164,3 +164,25 @@ func TestTestBinaryCannotDialTheRealBridgePorts(t *testing.T) {
 		t.Error("a private port was refused")
 	}
 }
+
+// MONOAGENT_TEST_ALLOW_NETWORK opens the network for live smoke tests; it must
+// never open the real bridge's ports.
+func TestAllowNetworkNeverOpensTheRealBridgePorts(t *testing.T) {
+	t.Setenv(AllowNetworkEnv, "1")
+	dial := loopbackOnly(func(ctx context.Context, network, addr string) (net.Conn, error) {
+		t.Errorf("a dial to %s reached the network", addr)
+		return nil, nil
+	})
+	if _, err := dial(context.Background(), "tcp", "127.0.0.1:9222"); err == nil {
+		t.Error("9222 was dialable with the network allowed")
+	}
+	dialedMu.Lock()
+	dialed = nil
+	dialedMu.Unlock()
+	called := false
+	ok := loopbackOnly(func(ctx context.Context, network, addr string) (net.Conn, error) { called = true; return nil, nil })
+	_, _ = ok(context.Background(), "tcp", "example.com:443")
+	if !called {
+		t.Error("the network was not opened for another host")
+	}
+}

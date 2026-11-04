@@ -58,15 +58,9 @@ mono_check_clean() {
   fi
 }
 
-# mono_private_operator_env: for scripts that run a PRIVATE bridge on their own
-# port (MONOAGENT_EXTENSION_PORT). The port variable is honoured only for the
-# operator's own terminal, so (1) every agent/run marker is cleared (this list is
-# operator.MarkerEnv(); internal/operator's TestMonoShMarkerListMatches holds it
-# equal) and (2) the script re-runs itself in a private network namespace
-# (`unshare -rn`, loopback only), so a process that is still counted as marked
-# (a parent that is an agent) can never fall back to the default ports 9222/9323,
-# the user's real bridge. Call it first: mono_private_operator_env "$0" "$@"
-mono_private_operator_env() {
+# mono_clear_markers: unset every agent/run marker (this list is
+# operator.MarkerEnv(); internal/operator's TestMonoShMarkerListMatches holds it equal).
+mono_clear_markers() {
   local v
   for v in CLAUDECODE CLAUDE_CODE_ENTRYPOINT MONOMIND_ORG_ROLE MONOMIND_SDK_AGENT MONOMIND_AGENT_EXEC AI_AGENT AGENT \
     CODEX_SANDBOX CODEX_SANDBOX_NETWORK_DISABLED CODEX_THREAD_ID CODEX_CI OPENCODE OPENCODE_PID ANTIGRAVITY_AGENT GEMINI_CLI \
@@ -75,9 +69,49 @@ mono_private_operator_env() {
     MONOAGENT_WORKFLOW_RUN MONOAGENT_AI_CALLER MONOAGENT_AGENT_KIND MONOAGENT_AGENT_KIND_TOKEN; do
     unset "$v"
   done
-  if [ -z "${MONO_E2E_IN_NETNS:-}" ]; then
-    command -v unshare >/dev/null || { echo "refusing: no unshare, cannot isolate from the real bridge" >&2; exit 97; }
-    export MONO_E2E_IN_NETNS=1
-    exec unshare -rn sh -c 'ip link set lo up 2>/dev/null; exec "$@"' sh "$@"
+}
+
+# mono_in_private_net: true inside a network namespace with nothing but loopback,
+# where the user's real bridge on 9222/9323 does not exist.
+mono_in_private_net() {
+  # a fresh namespace has only `lo` (reading /proc/1/ns/net is not allowed from inside a user namespace)
+  command -v ip >/dev/null 2>&1 && ip -o link show 2>/dev/null | awk -F': ' '$2 !~ /^lo(@|$)/ {other=1} END {exit other}' && ip -o link show lo >/dev/null 2>&1
+}
+
+# mono_private_operator_env: for a script that runs a PRIVATE bridge on its own port
+# (MONOAGENT_EXTENSION_PORT). The variable is honoured only for the operator's own
+# terminal, so a script run from an agent's shell would fall back to the default
+# ports (the real bridge). So: every marker is cleared, and the script re-runs
+# itself in a private network namespace (loopback only). The namespace is entered
+# with root mapping just to bring `lo` up; the script itself then runs as the
+# current user (Chromium refuses to run as root). Call first:
+#   mono_private_operator_env bash "$0" "$@"
+# Without `unshare` (macOS) the script is SKIPPED (exit 0) with a message.
+mono_private_operator_env() {
+  mono_clear_markers
+  mono_in_private_net && return 0
+  if ! command -v unshare >/dev/null 2>&1 || [ ! -r /proc/self/ns/net ]; then
+    echo "SKIP: no network namespaces here (no unshare): this script would reach the real extension bridge from a marked shell, so it does not run" >&2
+    exit 0
   fi
+  local uid gid
+  uid="$(id -u)"; gid="$(id -g)"
+  exec unshare -rn sh -c 'ip link set lo up || { echo "cannot bring loopback up in the private namespace" >&2; exit 97; }
+    u="$1"; g="$2"; shift 2; exec unshare --map-user="$u" --map-group="$g" "$@"' sh "$uid" "$gid" "$@"
+}
+
+# mono_require_private_net: for a multi-script stack (setup.sh starts daemons that
+# the next script talks to, so one namespace per script cannot work): refuse
+# unless the whole stack runs from a shell that is already in a private network
+# namespace (see mono_private_shell). Skips on macOS.
+mono_require_private_net() {
+  mono_clear_markers
+  mono_in_private_net && return 0
+  if ! command -v unshare >/dev/null 2>&1 || [ ! -r /proc/self/ns/net ]; then
+    echo "SKIP: no network namespaces here (no unshare): this stack would reach the real extension bridge from a marked shell, so it does not run" >&2
+    exit 0
+  fi
+  echo "refusing: run this e2e stack from a private network namespace so a marked shell cannot fall back to the real bridge on 9222/9323:" >&2
+  echo "  unshare -rn sh -c 'ip link set lo up; exec unshare --map-user=\$(id -u) --map-group=\$(id -g) bash'   (then run setup.sh, regress-*.sh, teardown.sh there)" >&2
+  exit 97
 }

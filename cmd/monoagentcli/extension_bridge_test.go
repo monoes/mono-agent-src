@@ -2,8 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -68,4 +74,45 @@ func TestSetupExtensionBridge_RelaysThroughARunningBridge(t *testing.T) {
 	if _, err := extension.FetchStatus(base); err != nil {
 		t.Errorf("the running bridge stopped answering after a workflow-style setup: %v", err)
 	}
+}
+
+// An old bridge (status shape, no proof) must give ONE clear error at once, and
+// must not start a second server or wait on waitForRelay.
+func TestSetupExtensionBridge_OldBridgeSaysSoOnceAndAtOnce(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	if _, err := extension.CurrentToken(); err != nil { // a token exists, so proofs are required
+		t.Fatal(err)
+	}
+	old := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(extension.Status{Service: extension.ServiceName, PID: 1}) // no Proof
+	}))
+	defer old.Close()
+	port := old.Listener.Addr().(*net.TCPAddr).Port
+	t.Setenv(extension.ExtensionPortEnv, strconv.Itoa(port))
+
+	r, w, _ := os.Pipe()
+	saved := os.Stderr
+	os.Stderr = w
+	start := time.Now()
+	b := setupExtensionBridge(newExtensionBridgeLogger(), 100*time.Millisecond)
+	el := time.Since(start)
+	os.Stderr = saved
+	w.Close()
+	out, _ := io.ReadAll(r)
+	if _, ok := b.(*extension.RemoteBridge); !ok {
+		t.Fatalf("got %T", b)
+	}
+	if el > 2*time.Second {
+		t.Errorf("took %v: it waited", el)
+	}
+	s := string(out)
+	if n := strings.Count(s, "restart it"); n != 1 {
+		t.Errorf("want the restart advice exactly once, got %d:\n%s", n, s)
+	}
+	if strings.Contains(s, "not monoagent relays") {
+		t.Errorf("misleading text:\n%s", s)
+	}
+	t.Logf("stderr:\n%s", s)
 }
