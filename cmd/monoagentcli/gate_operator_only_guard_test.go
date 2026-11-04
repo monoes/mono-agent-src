@@ -45,6 +45,7 @@ var legacyMarkerChecks = map[string]allowed{
 	"internal/cli/node/run.go":                      {2, heldB + " (node run: the credential destinations and the unapproved step; vault.secret_get is converted)"},
 	"internal/cli/people/import.go":                 {4, heldB + " (people import)"},
 	"internal/cli/org/sign.go":                      {2, "class C: org sign has its own signature guard; not decided (issue 1333)"},
+	"internal/jev/jevconf/key.go":                   {1, "library layer: cannot import opgate; the TYPESAFE_BASE_URL override is honoured only for the operator's own terminal: marker (operator.Refusal) + turn verdict (operator.InTurn) + unapproved ctx"},
 	"internal/nodes/agent_run_gate.go":              {1, heldB + " (node run of browser packages)"},
 	"internal/nodes/browserjev/gate.go":             {1, "engine node gate (IsAgentContext), not a CLI verb gate"},
 	"internal/nodes/publication/register.go":        {1, heldB + " (publication register)"},
