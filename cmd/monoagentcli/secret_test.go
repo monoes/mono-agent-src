@@ -23,16 +23,7 @@ func newSecretCLITestDB(t *testing.T) string {
 	asOperatorProcess(t) // the commands that print secrets refuse an agent's shell
 	keyring.MockInit()
 	dbPath := filepath.Join(t.TempDir(), "cli-secret-test.db")
-	db, err := storage.NewDatabase(dbPath)
-	if err != nil {
-		t.Fatalf("NewDatabase: %v", err)
-	}
-	if err := db.ApplyMigrations(); err != nil {
-		t.Fatalf("ApplyMigrations: %v", err)
-	}
-	if err := db.DB.Close(); err != nil {
-		t.Fatalf("closing seed db: %v", err)
-	}
+	writeMigratedDB(t, dbPath)
 	return dbPath
 }
 
