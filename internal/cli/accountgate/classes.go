@@ -63,7 +63,7 @@ var accountClasses = map[string]string{
 	// signed out, because a run must always be stoppable, whatever the account, the network or the
 	// key store. Exactly this verb: not the doomsday group, no sibling (start, finish, rubric, status,
 	// render and the rest wait for a login). It is still operator-only (requireOperator and
-	// opgate.Refusal), so signed out is not "anyone". TestOnlyStopOfDoomsdayIsOpen holds it.
+	// opgate.Refusal), so signed out is not "anyone". TestOnlyStopOfTheDoomsdayGroupIsExempt holds it.
 	"doomsday stop": ClassOpen,
 
 	"daemon":           ClassServe,

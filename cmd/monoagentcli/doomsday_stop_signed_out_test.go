@@ -179,3 +179,23 @@ func TestSignedOutStopRefusesATurnWhateverDatabaseItNames(t *testing.T) {
 		}
 	}
 }
+
+// The late refresher (armed for every other command after five minutes) is NOT armed for `doomsday stop`: a long
+// Stop must not contact monoes.me or read the key store.
+func TestStopArmsNoLateRefresherButOtherCommandsDo(t *testing.T) {
+	accounttest.Install(t, accounttest.SignedIn)
+	freshHome(t)
+	armed := 0
+	prevAfter := afterFunc
+	afterFunc = func(d time.Duration, f func()) *time.Timer { armed++; return time.NewTimer(time.Hour) }
+	t.Cleanup(func() { afterFunc = prevAfter })
+
+	runMain(t, "--profile", "default", "doomsday", "stop")
+	if armed != 0 {
+		t.Fatalf("the late refresher was armed %d times for doomsday stop", armed)
+	}
+	runMain(t, "version")
+	if armed != 1 {
+		t.Fatalf("armed %d times after a normal command, want 1", armed)
+	}
+}
