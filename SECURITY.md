@@ -2110,7 +2110,14 @@ that works a task acts on them. The defences:
   wait per host took 40 s): the scan first asks every entry without waiting, so a turn
   in any readable database is found at once and a dead host's locked database costs
   nothing, then waits for the locked live hosts in turn until the budget is spent; hosts
-  still locked or not reached are reported busy (fail closed). A locked database that no running host
+  still locked or not reached are reported busy (fail closed). Any non-answer from a LIVE
+  host is busy, not only a lock: no answer in time, SQLITE_PROTOCOL, and any SQLite result
+  code that is not on the damage list (so a code not known yet fails closed). Only damage
+  is skipped, and the operator let through: SQLITE_ERROR (a missing table or column),
+  PERM, READONLY, IOERR, CORRUPT, CANTOPEN, AUTH and NOTADB, and errors without a SQLite
+  code (not a regular file, cannot be stat'ed, permission). A dead host's entry is skipped
+  whatever it answers. The entry file in the message is shell-quoted when it holds a space
+  or a quote. A locked database that no running host
   owns (none registered, or only a dead host) counts as no turn recorded, so a dead
   host never locks the operator out of a repair. The residual: a same-user process
   can still kill the host or delete its registry entry, which turns the refusal back

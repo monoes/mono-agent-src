@@ -231,7 +231,7 @@ func recoveryNamedVerdict(path string, busy []error) (bool, error) {
 		if in {
 			return true, nil
 		}
-	} else if file, ok := coderhost.LiveHostEntryOf(path); ok && errors.Is(err, coderhost.ErrDatabaseBusy) {
+	} else if file, ok := coderhost.LiveHostEntryOf(path); ok && coderhost.IsNonAnswer(err) {
 		busy = append([]error{&coderhost.BusyHostError{DB: path, File: file}}, busy...)
 	}
 	if joined := coderhost.JoinBusy(busy...); joined != nil {

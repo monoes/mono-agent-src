@@ -261,3 +261,26 @@ func TestTheBusyMessageStripsControlCharactersFromARecordedPath(t *testing.T) {
 		t.Fatalf("the sanitized message is not the expected one: %q", err.Error())
 	}
 }
+
+// A registry directory with a space and a single quote in its name: the entry file in the message is
+// shell-quoted so the operator can paste it into rm.
+func TestTheBusyMessageQuotesTheEntryFileOfAnOddlyNamedRegistry(t *testing.T) {
+	if coderhost.ProcStamp(os.Getpid()) == "" {
+		t.Skip("process ancestry cannot be read here")
+	}
+	dir := filepath.Join(t.TempDir(), "co der's hosts")
+	coderhost.SetRegistryDirForTest(t, dir)
+	coderhost.SetBusyTimeoutForTest(t, 200*time.Millisecond)
+	db := newHILTestDB(t)
+	registerLive(t, db)
+	lockDB(t, db)
+	_, err := (&globalConfig{DBPath: db}).callerInATurnFor(true)
+	if !errors.Is(err, coderhost.ErrDatabaseBusy) {
+		t.Fatalf("not the busy error: %v", err)
+	}
+	file := entryFileOf(t, dir, db)
+	want := "'" + strings.ReplaceAll(file, "'", `'\''`) + "'"
+	if !strings.Contains(err.Error(), "is "+want+": if that host") {
+		t.Fatalf("the entry file is not shell-quoted: %q (want %s)", err.Error(), want)
+	}
+}

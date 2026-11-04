@@ -182,3 +182,177 @@ func TestIsBusyCoversBusyAndLockedInEveryForm(t *testing.T) {
 		t.Fatalf("driver text leaked: %v", err)
 	}
 }
+
+// A scripted check on one registered database: each call answers the next outcome.
+func scripted(t *testing.T, outcomes ...error) *int {
+	t.Helper()
+	calls := new(int)
+	prev := registeredDBCheck
+	registeredDBCheck = func(string, time.Duration) (bool, error) {
+		i := *calls
+		*calls++
+		if i >= len(outcomes) {
+			i = len(outcomes) - 1
+		}
+		return false, outcomes[i]
+	}
+	t.Cleanup(func() { registeredDBCheck = prev })
+	return calls
+}
+
+func registerOne(t *testing.T) {
+	t.Helper()
+	path, release := lockedDB(t, "one.db")
+	release()
+	unregister, err := RegisterHostDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(unregister)
+}
+
+// The classification: on a LIVE host a non-answer (timeout, lock, SQLITE_PROTOCOL, an unknown code) is busy, in
+// pass 1 and in pass 2; damage (not a database, corrupt, cannot open, missing table, not a file) is skipped.
+func TestANonAnswerOnALiveHostIsBusyInBothPassesAndDamageIsSkipped(t *testing.T) {
+	needAncestry(t)
+	timeout := fmt.Errorf("%w within 1s", ErrNoAnswer)
+	protocol, unknown := &coded{15}, &coded{99}
+	damaged := []error{&coded{26}, &coded{11}, &coded{14}, &coded{1}, &coded{3}, &coded{10}, errors.New("x is not a regular file")}
+	for _, c := range []struct {
+		name     string
+		outcomes []error // pass 1, then pass 2
+		busy     bool
+	}{
+		{"timeout in pass 1", []error{timeout}, true},
+		{"timeout in pass 2", []error{ErrDatabaseBusy, timeout}, true},
+		{"protocol in pass 1 and 2", []error{protocol, protocol}, true},
+		{"protocol in pass 1, locked in pass 2", []error{protocol, ErrDatabaseBusy}, true},
+		{"locked in pass 1, protocol in pass 2", []error{ErrDatabaseBusy, protocol}, true},
+		{"an unknown code in pass 1", []error{unknown, unknown}, true},
+		{"locked, then damaged", []error{ErrDatabaseBusy, &coded{26}}, false},
+		{"locked, then readable", []error{ErrDatabaseBusy, nil}, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			registryDirOf(t)
+			SetBusyTimeoutForTest(t, 50*time.Millisecond)
+			registerOne(t)
+			scripted(t, c.outcomes...)
+			in, skipped, busy := CallerInARegisteredTurnLenient("")
+			if in || (len(busy) == 1) != c.busy {
+				t.Fatalf("in=%v busy=%v skipped=%v, want busy=%v", in, busy, skipped, c.busy)
+			}
+			if !c.busy && len(busy) != 0 {
+				t.Fatalf("busy = %v", busy)
+			}
+		})
+	}
+	for _, d := range damaged {
+		t.Run(fmt.Sprintf("damage %v", d), func(t *testing.T) {
+			registryDirOf(t)
+			registerOne(t)
+			scripted(t, d)
+			in, skipped, busy := CallerInARegisteredTurnLenient("")
+			if in || len(busy) != 0 || len(skipped) != 1 {
+				t.Fatalf("a damaged database of a live host: in=%v skipped=%v busy=%v; it must be skipped (the operator is let through)", in, skipped, busy)
+			}
+		})
+	}
+}
+
+// The same non-answers on a DEAD host are skipped, and a dead host is asked once, without waiting.
+func TestANonAnswerOnADeadHostIsSkipped(t *testing.T) {
+	needAncestry(t)
+	for _, e := range []error{fmt.Errorf("%w within 1s", ErrNoAnswer), &coded{15}, ErrDatabaseBusy} {
+		t.Run(e.Error(), func(t *testing.T) {
+			dir := registryDirOf(t)
+			path, release := lockedDB(t, "dead.db")
+			release()
+			registerRaw(t, dir, canonicalOrSelf(t, path), 1, "no-such-start-stamp")
+			setLiveness(t, func(int) string { return "another-stamp" }, func(int) error { return nil })
+			calls := scripted(t, e)
+			in, skipped, busy := CallerInARegisteredTurnLenient("")
+			if in || len(skipped) != 0 || len(busy) != 0 || *calls != 1 {
+				t.Fatalf("in=%v skipped=%v busy=%v calls=%d", in, skipped, busy, *calls)
+			}
+		})
+	}
+}
+
+// A lock released and retaken between statements gives the check mixed outcomes: whatever it sees, the verdict
+// is never "damaged, let through" and never a turn.
+func TestAToggledLockNeverMakesALiveHostLookDamaged(t *testing.T) {
+	needAncestry(t)
+	registryDirOf(t)
+	SetBusyTimeoutForTest(t, 20*time.Millisecond)
+	path := filepath.Join(t.TempDir(), "toggle.db")
+	sdb, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	conn, err := sdb.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, "PRAGMA journal_mode=DELETE"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, "CREATE TABLE coder_sessions (id INTEGER, turn_pid INTEGER, turn_stamp TEXT)"); err != nil {
+		t.Fatal(err)
+	}
+	stop, stopped := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(stopped)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			if _, err := conn.ExecContext(ctx, "BEGIN EXCLUSIVE"); err == nil {
+				time.Sleep(40 * time.Millisecond)
+				_, _ = conn.ExecContext(ctx, "ROLLBACK")
+			}
+			time.Sleep(3 * time.Millisecond)
+		}
+	}()
+	t.Cleanup(func() { close(stop); <-stopped; conn.Close(); sdb.Close() })
+	unregister, err := RegisterHostDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(unregister)
+	var sawBusy, sawClear int
+	for i := 0; i < 40; i++ {
+		in, skipped, busy := CallerInARegisteredTurnLenient("")
+		if in || len(skipped) != 0 || len(busy) > 1 {
+			t.Fatalf("round %d: in=%v skipped=%v busy=%v", i, in, skipped, busy)
+		}
+		if len(busy) == 1 {
+			sawBusy++
+		} else {
+			sawClear++
+		}
+	}
+	t.Logf("toggled lock: %d busy, %d clear", sawBusy, sawClear)
+	if sawBusy == 0 {
+		t.Fatal("the lock never made a round busy: the test does not exercise the toggling")
+	}
+}
+
+// The entry file is shell-quoted in the message when it needs it, with the sanitized path.
+func TestTheBusyMessageShellQuotesAnEntryFileWithASpaceAndAQuote(t *testing.T) {
+	e := &BusyHostError{DB: "/d.db", File: "/x/co der's hosts/ab\ncd"}
+	want := `the registry entry for it is '/x/co der'\''s hosts/abcd': if that host`
+	if !strings.Contains(e.Error(), want) {
+		t.Fatalf("%q does not contain %q", e.Error(), want)
+	}
+	plain := &BusyHostError{DB: "/d.db", File: "/x/hosts/abcd"}
+	if !strings.Contains(plain.Error(), "is /x/hosts/abcd: if") {
+		t.Fatalf("a plain path was quoted: %q", plain.Error())
+	}
+	many := &BusyHostError{DB: "/d.db", File: "/a b", Others: []string{"/c"}}
+	if !strings.Contains(many.Error(), "'/a b', /c:") {
+		t.Fatalf("%q", many.Error())
+	}
+}

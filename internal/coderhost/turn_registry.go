@@ -102,7 +102,7 @@ const busyListMax = 5
 func (e *BusyHostError) Error() string {
 	if len(e.Others) == 0 {
 		return "the coder host that owns " + printable(e.DB) + " is busy (database locked); wait and retry the command; the registry entry for it is " +
-			printable(e.File) + ": if that host is not running, delete this file and run the command again"
+			shellQuote(printable(e.File)) + ": if that host is not running, delete this file and run the command again"
 	}
 	files := append([]string{e.File}, e.Others...)
 	more := ""
@@ -111,7 +111,7 @@ func (e *BusyHostError) Error() string {
 		files = files[:busyListMax]
 	}
 	for i := range files {
-		files[i] = printable(files[i])
+		files[i] = shellQuote(printable(files[i]))
 	}
 	return strconv.Itoa(1+len(e.Others)) + " coder hosts are busy (database locked); wait and retry the command; the registry entries for them are " +
 		strings.Join(files, ", ") + more + ": if those hosts are not running, delete these files and run the command again"
@@ -155,6 +155,22 @@ func JoinBusy(errs ...error) error {
 	return out
 }
 
+// shellQuote quotes s for a shell when it holds anything but plain path characters (single quotes, with a
+// quote inside written as '\''), so the operator can paste the entry file into `rm`.
+func shellQuote(s string) string {
+	plain := s != ""
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("_-+=:,./@%", r)) {
+			plain = false
+			break
+		}
+	}
+	if plain {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 // printable drops control, line-separator and format characters (newlines, escapes, bidi overrides) from s.
 func printable(s string) string {
 	return strings.Map(func(r rune) rune {
@@ -163,6 +179,35 @@ func printable(s string) string {
 		}
 		return r
 	}, s)
+}
+
+// ErrNoAnswer: a check of a registered database did not answer within its time bound.
+var ErrNoAnswer = errors.New("no answer")
+
+// damagedCodes are the SQLite primary result codes that say the DATABASE is unusable, not that its host did
+// not answer: SQLITE_ERROR (1, e.g. a table or column missing), PERM (3), READONLY (8), IOERR (10), CORRUPT
+// (11), CANTOPEN (14), AUTH (23) and NOTADB (26). A recovery verb lets the operator through such a database,
+// since repairing the install is what the damage needs.
+var damagedCodes = map[int]bool{1: true, 3: true, 8: true, 10: true, 11: true, 14: true, 23: true, 26: true}
+
+// IsNonAnswer says whether err from checking the database of a coder host means "the host did not answer"
+// rather than "the database is damaged": a lock past the wait (ErrDatabaseBusy), no answer in time
+// (ErrNoAnswer), or any SQLite result code that is not in damagedCodes (SQLITE_PROTOCOL 15, NOMEM 7,
+// INTERRUPT 9, ... and codes not known yet, which fail closed). Errors without a SQLite code (the file is
+// not a regular file, it cannot be stat'ed, permission) are damage. For a LIVE host a non-answer refuses a
+// recovery verb (a turn could be behind it); for a dead host, and for damage, the entry is skipped.
+func IsNonAnswer(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, ErrDatabaseBusy) || errors.Is(err, ErrNoAnswer) {
+		return true
+	}
+	var coded interface{ Code() int }
+	if errors.As(err, &coded) {
+		return !damagedCodes[coded.Code()&0xff]
+	}
+	return false
 }
 
 // isBusy says whether err is SQLite's BUSY or LOCKED (primary result codes 5 and 6), however it is wrapped.
@@ -474,7 +519,7 @@ func checkWithTimeout(path string, wait, timeout time.Duration) (bool, error) {
 	case r := <-ch:
 		return r.in, r.err
 	case <-time.After(timeout):
-		return false, fmt.Errorf("no answer within %s", timeout)
+		return false, fmt.Errorf("%w within %s", ErrNoAnswer, timeout)
 	}
 }
 
@@ -629,17 +674,42 @@ func scanLenient(ents []registryEntry) (bool, []error, []error) {
 	var skipped, busy []error
 	var pending []registryEntry
 	deadline := time.Now().Add(scanBudget)
+	// classify files an error of a live host's check: a non-answer is busy, damage is skipped.
+	classify := func(e registryEntry, err error) {
+		if IsNonAnswer(err) {
+			busy = append(busy, &BusyHostError{DB: e.DB, File: e.file})
+		} else {
+			skipped = append(skipped, unreadableEntryError(e, err))
+		}
+	}
 	for _, e := range ents {
-		in, err := checkWithTimeout(e.DB, 0, registeredCheckTimeout)
+		if hostIsGone(e) {
+			// a dead host's database is judged when it answers at once and skipped otherwise: never waited for
+			if in, err := checkWithTimeout(e.DB, 0, registeredCheckTimeout); err == nil && in {
+				return true, skipped, nil
+			}
+			continue
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			busy = append(busy, &BusyHostError{DB: e.DB, File: e.file}) // not reached: fail closed
+			continue
+		}
+		timeout := registeredCheckTimeout
+		if limit := remaining + 500*time.Millisecond; timeout > limit {
+			timeout = limit
+		}
+		in, err := checkWithTimeout(e.DB, 0, timeout)
 		switch {
 		case err == nil && in:
 			return true, skipped, nil
 		case err == nil:
-		case hostIsGone(e):
-		case errors.Is(err, ErrDatabaseBusy):
-			pending = append(pending, e)
+		case errors.Is(err, ErrNoAnswer):
+			classify(e, err) // a hung check is not retried
+		case IsNonAnswer(err):
+			pending = append(pending, e) // locked or otherwise silent: ask again, waiting for the lock
 		default:
-			skipped = append(skipped, unreadableEntryError(e, err))
+			classify(e, err)
 		}
 	}
 	for _, e := range pending {
@@ -661,10 +731,8 @@ func scanLenient(ents []registryEntry) (bool, []error, []error) {
 		case err == nil && in:
 			return true, skipped, nil
 		case err == nil:
-		case errors.Is(err, ErrDatabaseBusy):
-			busy = append(busy, &BusyHostError{DB: e.DB, File: e.file})
 		default:
-			skipped = append(skipped, unreadableEntryError(e, err))
+			classify(e, err)
 		}
 	}
 	return false, skipped, busy
