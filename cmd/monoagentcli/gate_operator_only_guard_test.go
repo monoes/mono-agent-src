@@ -41,14 +41,13 @@ type allowed struct {
 // occurrences and the reason. A new occurrence, or an entry that no longer matches, fails the test.
 var legacyMarkerChecks = map[string]allowed{
 	"cmd/monoagentcli/login.go":                     {1, heldB + " (login of a builtin package)"},
-	"cmd/monoagentcli/hil.go":                       {6, gateImp + " (notOperator in gateVerdict); publication register is held: class B"},
-	"internal/cli/node/run.go":                      {2, heldB + " (node run: the credential destinations and the unapproved step; vault.secret_get is converted)"},
-	"internal/cli/people/import.go":                 {4, heldB + " (people import)"},
+	"cmd/monoagentcli/hil.go":                       {3, gateImp + " (notOperator in gateVerdict)"},
+	"internal/cli/node/run.go":                      {1, "node run decides with opgate.Refusal; the one marker check left only keeps a MARKED caller's send gate unchanged (the send queue is applied to unmarked callers)"},
 	"internal/cli/org/sign.go":                      {2, "class C: org sign has its own signature guard; not decided (issue 1333)"},
 	"internal/jev/jevconf/key.go":                   {1, "library layer: cannot import opgate; the TYPESAFE_BASE_URL override is honoured only for the operator's own terminal: marker (operator.Refusal) + turn verdict (operator.InTurn) + unapproved ctx"},
-	"internal/nodes/agent_run_gate.go":              {1, heldB + " (node run of browser packages)"},
+	"internal/nodes/agent_run_gate.go":              {1, "engine node: the marker half of the run gate next to node run's verdict (workflow.AgentCallerFrom), not a CLI verb gate"},
 	"internal/nodes/browserjev/gate.go":             {1, "engine node gate (IsAgentContext), not a CLI verb gate"},
-	"internal/nodes/publication/register.go":        {1, heldB + " (publication register)"},
+	"internal/nodes/publication/register.go":        {1, "engine node: the marker half of a run's verdict next to the command's (workflow.AgentCallerFrom), not a CLI verb gate"},
 	"cmd/monoagentcli/main.go":                      {1, reader + " (log filter)"},
 	"cmd/monoagentcli/task.go":                      {2, "task verbs have their own gate (personGate, NotOperator; operator.Caller names who added a task)"},
 	"cmd/monoagentcli/task_session_guard.go":        {1, "task-session scoping, not a verb gate"},

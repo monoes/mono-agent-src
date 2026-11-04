@@ -2253,7 +2253,7 @@ that works a task acts on them. The defences:
   (2) this
   change covers the commands listed above only: many other operator-only commands
   (sign-in, `org sign`,
-  node runs, people import and publications; tracked in issue 1333) still
+  tracked in issue 1333) still
   use only the operator marker check and are NOT turn-aware,
   so this does not make every operator-only command refuse a turn; (3) the test that
   keeps the wired commands in one table counts wirings per file and misses a method
@@ -2277,6 +2277,28 @@ that works a task acts on them. The defences:
   operator terminal started inside a turn gets the limits as well, like every other gated
   verb. A `MONOAGENT_ACTOR` of only spaces (an agent without a name) used to count as the
   operator for these verbs and is limited now; an empty one is not set.
+  `people import` and `publication register` use the turn-aware gate for the LIMITED flavour as well: an
+  import run by anything but the user's own terminal may not approve anyone for outreach, and a publication
+  register needs a send the user approved (`--approval`, hilsend.ClaimPublicationApproval). A marked agent,
+  the chat and a workflow keep exactly the limits and texts they had; a process inside a coder session's
+  turn that cleared its markers, and a holder of an agent token, now get them too. The engine node
+  `publication.register` cannot see a turn itself, so `publication register`'s sibling entry, `node run
+  publication.register`, decides once with the same gate and hands the node the verdict in its context
+  (`workflow.WithAgentCaller`); a run the engine or the daemon starts carries no verdict and is judged by
+  the markers and the workflow's approval as before. A database that cannot be read gives the limited
+  flavour (neither is a recovery verb), and an operator terminal started inside a turn gets the limits as
+  well, like every other gated verb.
+  `node run` decides once at its entry with the same gate and every node type gets the verdict in its context
+  (`workflow.WithAgentCaller`; it was `publication.register` alone). A process inside a coder session's turn
+  that cleared its markers, or one holding an agent token, is handled like a marked agent: a connection's secret
+  goes only to the hosts the connection names (an agent's step gets no host of its own, card or always-allow
+  rule alike); the node runs as an unapproved step (the profile's vault access grant, the file and program
+  restrictions and the audit); and a browser action of a package that is not built-in is refused before a
+  browser is connected (`BrowserNode.RunRefusal` reads the marker's text first and the command's verdict
+  second). The chat and a marked agent keep exactly the limits and texts they had; the user's own terminal is
+  unchanged, except that one started inside a turn gets these limits too. The engine, the daemon and MCP set no
+  verdict and are judged by markers and approvals as before; the send gate (`hilsend.Guard`), `browserjev`,
+  `aitask` and `people.save` still decide by the markers alone.
   `automation install <dir> --local` (and `automation new --install`) installs with local
   trust. While it is open to a turn, the `automation trust --scripts/--live` gate does not
   stop a turn from getting the same result: a turn can write its own package directory,
