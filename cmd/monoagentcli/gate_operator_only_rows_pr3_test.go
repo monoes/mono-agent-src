@@ -93,7 +93,7 @@ var browserRunTrustFamilies = []string{"automation", "record", "browser allow", 
 const (
 	readOnlyVerb  = "read-only or shows what exists"
 	notDecided    = "not part of the browser-run trust change; whether it is the user's alone is not decided (issue 1333)"
-	heldInstall   = "held: class B. The shipped action-template-generator skill, `crawl` and `ref crawling` tell an agent to run `automation install <id> --local --yes`; waits for the owner's answer (issue 1333)"
+	heldInstall   = "open on purpose, chosen by the owner (2026-11-04): the shipped action-template-generator skill, `crawl` and `ref crawling` tell an agent to run `automation install <id> --local --yes`, which installs with local trust"
 	opensNoRecord = "touches only the item or recording it names and runs nothing in a browser"
 )
 

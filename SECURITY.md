@@ -2167,8 +2167,8 @@ that works a task acts on them. The defences:
   operator for such a caller, so the token is as sensitive as the commands behind it.
   `automation install <dir> --local` (and `automation new --install`) installs with local
   trust, which `automation trust` no longer lets a turn grant; it is still open to a turn
-  because the shipped package-writing skill tells an agent to run it, and is held for the
-  owner's decision (issue 1333).
+  because the shipped package-writing skill tells an agent to run it. The owner chose to keep
+  it open (2026-11-04): it installs with local trust on purpose, so the skill keeps working.
   A bound worker's v2 task token (`mat2-`) is delivered through the credential frame
   into an in-process stash, so no environment variable carries it and neither the
   token-variable layer nor the marker check can see it; the only process that holds
