@@ -18,7 +18,9 @@ import (
 type CachedKeyer struct {
 	Derive func(ctx context.Context) ([]byte, error)
 	TTL    time.Duration
-	Now    func() time.Time
+	// Timeout bounds one derivation (default 5 s).
+	Timeout time.Duration
+	Now     func() time.Time
 
 	mu  sync.Mutex
 	key store.Keyer

@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -76,5 +77,25 @@ func TestCancelAllDoesNotHoldTheWriteLockWhileVerifying(t *testing.T) {
 		if st != "cancelled" {
 			t.Fatalf("row %d is %s", id, st)
 		}
+	}
+}
+
+// Stop's cancel commits in batches of at most cancelBatch rows, one short transaction each.
+func TestCancelAllAppliesInBatches(t *testing.T) {
+	db := openDB(t)
+	seedRun(t, db, "p", 1, `{"max_concurrent":4}`)
+	q := newQueue(t, db)
+	const rows = cancelBatch*2 + 20
+	for i := 0; i < rows; i++ {
+		enq(t, q, "l", governor.ClassNormal, fmt.Sprintf("m%03d", i))
+	}
+	commits := 0
+	q.beforeCommit = func() error { commits++; return nil }
+	n, err := q.CancelAll(context.Background(), "p", 1)
+	if err != nil || n != rows {
+		t.Fatalf("cancelled %d (%v)", n, err)
+	}
+	if want := (rows + cancelBatch - 1) / cancelBatch; commits < want {
+		t.Fatalf("%d transactions for %d rows, want at least %d (batches of %d)", commits, rows, want, cancelBatch)
 	}
 }

@@ -317,3 +317,98 @@ func TestTheRunViewReadsTheStopMarker(t *testing.T) {
 		t.Fatalf("the run view says running with the stop marker set: %v %v", ok, err)
 	}
 }
+
+// Another command that shares the turn id of a pending send (a stop or resume carries one) does not make the send look gone.
+func TestAPendingSendNextToADoneCommandOfTheSameTurnIsNotCancelled(t *testing.T) {
+	r := newGovRig(t, "")
+	r.start(t)
+	fillTwo(t, r)
+	sendRow(t, r, "conv-c", "t-c")
+	if _, err := r.db.DB.Exec(`INSERT INTO coder_session_commands (profile_id, conversation_id, kind, turn_id, message, attachments, status, wants_mission, created_at, updated_at, issuer)
+		VALUES ('p1','conv-c','resume','t-c','','','done',0,'2026-01-01T00:00:00Z','2026-01-01T00:00:00Z','')`); err != nil {
+		t.Fatalf("cannot seed a non-send command: %v", err)
+	}
+	for _, id := range []string{"c", "d", "e"} { // d and e keep the queue non-empty, so c cannot start by the fast path
+		if _, err := r.startTurn(id); !errors.Is(err, coderhost.ErrDeferred) {
+			t.Fatal(err)
+		}
+	}
+	r.l.turn(0).end()
+	waitUntil(t, "a freed", func() bool { return r.liveSlots(t) == 1 })
+	r.gw.Tick(context.Background())
+	if _, err := r.startTurn("c"); err != nil {
+		t.Fatalf("the pending send was cancelled by a done command of the same turn id: %v", err)
+	}
+}
+
+// A launch whose row the pump cancelled can be queued again if its send comes back: the wire forgets the member.
+func TestACancelledMemberCanBeQueuedAgain(t *testing.T) {
+	r := newGovRig(t, "")
+	r.start(t)
+	fillTwo(t, r)
+	sendRow(t, r, "conv-c", "t-c")
+	if _, err := r.startTurn("c"); !errors.Is(err, coderhost.ErrDeferred) {
+		t.Fatal(err)
+	}
+	if _, err := r.host.CancelPendingSends("p1", "conv-c", 1<<40, "cancelled"); err != nil {
+		t.Fatal(err)
+	}
+	r.l.turn(0).end()
+	waitUntil(t, "a freed", func() bool { return r.liveSlots(t) == 1 })
+	r.gw.Tick(context.Background()) // the pump cancels c's row
+	if n := count(t, r.db, `SELECT COUNT(*) FROM doomsday_queue WHERE state = 'queued' AND payload LIKE '%conv-c|t-c%'`); n != 0 {
+		t.Fatalf("%d rows for c still queued", n)
+	}
+	r.l.turn(1).end()
+	waitUntil(t, "b freed", func() bool { return r.liveSlots(t) == 0 })
+	// the same launch is asked again (a fresh send with a live command) with the queue full of other work
+	if _, err := r.startTurn("x"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.startTurn("y"); err != nil {
+		t.Fatal(err)
+	}
+	sendRow(t, r, "conv-c", "t-c2")
+	rg := r.gw.cur
+	if rg.isQueued(memberID("conv-c", "t-c")) {
+		t.Fatal("the wire still believes the cancelled launch is queued")
+	}
+}
+
+// A second start of a turn that is already running never runs beside the first on one slot.
+func TestASecondStartOfARunningTurnIsNotGivenItsSlot(t *testing.T) {
+	r := newGovRig(t, "")
+	r.start(t)
+	if _, err := r.startTurn("a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.startTurn("a"); err == nil {
+		t.Fatal("the same turn started twice")
+	}
+	if r.l.count() != 1 || r.liveSlots(t) != 1 {
+		t.Fatalf("starts %d, slots %d", r.l.count(), r.liveSlots(t))
+	}
+}
+
+// A key store that never answers is bounded: the derivation fails after its timeout and does not serialise the callers.
+func TestAWedgedKeyDerivationIsBoundedAndDoesNotSerialiseCallers(t *testing.T) {
+	block := make(chan struct{})
+	defer close(block)
+	c := &CachedKeyer{TTL: time.Minute, Timeout: 100 * time.Millisecond, Now: time.Now,
+		Derive: func(context.Context) ([]byte, error) { <-block; return []byte("k"), nil }}
+	start := time.Now()
+	var wg sync.WaitGroup
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := c.MAC("d", []byte("a")); err == nil {
+				t.Error("a wedged derivation answered")
+			}
+		}()
+	}
+	wg.Wait()
+	if d := time.Since(start); d > 280*time.Millisecond {
+		t.Fatalf("three callers took %v behind a wedged derivation (serialised or unbounded)", d)
+	}
+}
