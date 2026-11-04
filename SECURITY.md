@@ -2082,7 +2082,10 @@ that works a task acts on them. The defences:
   `automation doctor accept-repair`, `record verify`, `record replay` (not `--dry-run`),
   `record save` (a refused process also reads no vault secret for a recording),
   `browser allow add|remove`, `browser permissions set|site`, `coder queue add|start`
-  and `coder projects map|unmap`. A terminal started inside a coder
+  and `coder projects map|unmap`, and the two organisation commands nothing in a turn runs:
+  `org role set-access ... full` and `org teardown-profile` (not `--dry-run`; it revokes
+  the profile's API keys, org grants and endpoints; not a repair verb, because it needs the
+  profile's database to read and so cannot help a damaged one). A terminal started inside a coder
   turn, and a process that holds an agent token, is refused by them. The check reads the
   named database read-only and never creates or migrates it. `secret rebind` repairs
   an install, so it must work when the database is damaged (`extension reset`, which
@@ -2152,7 +2155,7 @@ that works a task acts on them. The defences:
   (asking the host over its peer-credential socket) is a separate, later design;
   (2) this
   change covers the commands listed above only: many other operator-only commands
-  (sign-in, the organisation guards, people and profile edits,
+  (sign-in, the other organisation guards (approve, autonomy, grant add, sign), people and profile edits,
   node runs and publications; tracked in issue 1333) still
   use only the operator marker check and are NOT turn-aware,
   so this does not make every operator-only command refuse a turn; (3) the test that
