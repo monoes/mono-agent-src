@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/doomsday/ops"
@@ -17,6 +18,7 @@ import (
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/epoch"
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/judge"
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/sstore"
+	"github.com/monoes/mono-agent/internal/doomsday/strategy/types"
 	"github.com/monoes/mono-agent/internal/monomind"
 )
 
@@ -52,17 +54,34 @@ func (m runnerJudgeModel) Complete(ctx context.Context, req judge.Request) ([]by
 	if err != nil {
 		return nil, err
 	}
+	// The reply is bounded while it streams: past the cap the turn is cancelled, so an oversized answer is never held
+	// whole. The cap is the judgment's own (judge.ReadReply applies it to what is left).
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var seen int
+	over := false
 	res, err := m.exec(ctx, monomind.ExecOptions{
 		Runtime: m.pin.Provider, Model: m.pin.Model, Prompt: req.User, SystemPrompt: req.System,
 		Cwd: cwd, Timeout: m.timeout, BudgetUSD: m.budgetUSD, MaxTurns: 1, Sandbox: monomind.TurnSandboxMode,
-	}, nil)
+	}, func(ev monomind.Event) {
+		if seen += len(ev.Text); seen > types.MaxJudgmentBytes && !over {
+			over = true
+			cancel()
+		}
+	})
+	if over {
+		return nil, judge.ErrReplyTooLong
+	}
 	if err != nil {
 		return nil, err
 	}
 	if res == nil || res.Err != nil || !res.SawDone || res.ExitCode != 0 {
 		return nil, errors.New("the judging turn did not complete")
 	}
-	return []byte(res.ResultText), nil
+	if len(res.ResultText) > types.MaxJudgmentBytes {
+		return nil, judge.ErrReplyTooLong
+	}
+	return judge.ReadReply(strings.NewReader(res.ResultText))
 }
 
 // StrategyExtras are the seams a test replaces; the zero value is production.
@@ -70,7 +89,6 @@ type StrategyExtras struct {
 	// JudgeExec is monomind.Exec; tests give a fake.
 	JudgeExec func(ctx context.Context, opts monomind.ExecOptions, onEvent func(monomind.Event)) (*monomind.TurnResult, error)
 	Clock     epoch.Clock
-	Finish    func(ctx context.Context) (BeginReport, error)
 	// Similar is the memory and knowledge lookup of the novelty gate. Nil is the production default today: the corpus is
 	// then unreachable and the gate accepts at most one unchecked proposal per epoch (Q4), still ledgered.
 	Similar SimilarFunc
@@ -98,7 +116,7 @@ func (w Wiring) StrategyHostDeps(ctx context.Context, x StrategyExtras) (Strateg
 	d := StrategyHostDeps{
 		DB: w.DB, Keys: w.Witness.Keys, Audit: NewStoreTxAppender(w.Store), Seq: WitnessSequencer(seq), Profile: w.Profile,
 		Runs:  StoreRunSource{Profile: w.Profile, Runs: w.Store, Bosses: BossSource{Wiring: w}, DB: w.DB},
-		Clock: clock, Timeout: 3 * time.Minute, Finish: x.Finish,
+		Clock: clock, Timeout: 3 * time.Minute,
 		ModelFor: func(run StrategyRun) judge.Model {
 			if run.Judge.String() == "" {
 				return nil
@@ -122,8 +140,19 @@ func (w Wiring) StrategyHostDeps(ctx context.Context, x StrategyExtras) (Strateg
 // the zero time. A generation that already has a freeze row answers "now": every judgment is then older than the subject,
 // which makes the policy wait.
 func (w Wiring) subjectChangedAt(ctx context.Context, gen int64) (time.Time, error) {
+	return w.subjectChangedAtOn(w.DB)(ctx, gen)
+}
+
+// subjectChangedAtOn is subjectChangedAt over a given database handle (the read-only verbs open their own).
+func (w Wiring) subjectChangedAtOn(db *sql.DB) func(ctx context.Context, gen int64) (time.Time, error) {
+	return func(ctx context.Context, gen int64) (time.Time, error) {
+		return subjectChanged(ctx, db, w.Profile, gen)
+	}
+}
+
+func subjectChanged(ctx context.Context, db *sql.DB, profile string, gen int64) (time.Time, error) {
 	var n int
-	err := w.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM doomsday_audit WHERE profile = ? AND generation = ? AND kind = 'finish.freeze'`, w.Profile, gen).Scan(&n)
+	err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM doomsday_audit WHERE profile = ? AND generation = ? AND kind = 'finish.freeze'`, profile, gen).Scan(&n)
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -133,12 +162,9 @@ func (w Wiring) subjectChangedAt(ctx context.Context, gen int64) (time.Time, err
 	return time.Time{}, nil
 }
 
-// StrategyHost is the ticking host over the wiring. Its Finish request is this wiring's FinishEngine.FinishBegin: the
-// engine's own preconditions are the only gate.
+// StrategyHost is the ticking host over the wiring. It holds no finish engine and calls none: all it can do about a finish
+// is record the ready marker (strategyready.go); the boss's own finish.begin is the only way one starts.
 func (w Wiring) StrategyHost(ctx context.Context, x StrategyExtras) (*StrategyHost, error) {
-	if x.Finish == nil {
-		x.Finish = w.FinishEngine().FinishBegin
-	}
 	d, err := w.StrategyHostDeps(ctx, x)
 	if err != nil {
 		return nil, err
@@ -148,7 +174,10 @@ func (w Wiring) StrategyHost(ctx context.Context, x StrategyExtras) (*StrategyHo
 
 // StrategyReader is the read-only verbs' reader over the wiring's database. It needs no witness and writes nothing.
 func (w Wiring) StrategyReader(db *sql.DB, keys sstore.Keyer) StrategyReader {
-	return NewStrategyReader(sstore.New(sstore.WrapDB(db), keys, nil), w.Store, w.Profile)
+	r := NewStrategyReader(sstore.New(sstore.WrapDB(db), keys, nil), w.Store, w.Profile).(strategyReader)
+	src := StoreRunSource{Profile: w.Profile, Runs: w.Store, Bosses: BossSource{Wiring: w}, DB: db}
+	c := readyCalc{st: r.st, db: db, profile: w.Profile, now: w.clock().Now, subject: w.subjectChangedAtOn(db), runs: src}
+	return r.withReady(c)
 }
 
 // BossStrategy runs one session-callable strategy operation for the verified lead session of the profile (the boss tools'

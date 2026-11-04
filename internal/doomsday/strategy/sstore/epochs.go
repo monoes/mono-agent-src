@@ -51,6 +51,7 @@ func (s *Store) InsertEpoch(ctx context.Context, e types.Epoch) (types.Epoch, bo
 	var out types.Epoch
 	created := false
 	err := s.inTx(ctx, e.Generation, 1, func(tx Tx) error {
+		out, created = types.Epoch{}, false
 		have, err := s.getEpoch(ctx, tx, e.Profile, e.Generation, e.Seq)
 		if err == nil {
 			if have.Trigger != e.Trigger || have.StartedAt != e.StartedAt || have.ModelPin != e.ModelPin {
@@ -93,6 +94,7 @@ func (s *Store) RecordJudgment(ctx context.Context, profile string, gen, seq int
 	rec := types.JudgmentRecord{Profile: profile, Generation: gen, EpochSeq: seq, Body: body, BodyHash: types.BodyHash(body)}
 	created := false
 	err := s.inTx(ctx, gen, 1, func(tx Tx) error {
+		created = false // a retried transaction starts from the database, not from its own earlier attempt
 		if err := requireRunning(ctx, tx, profile, gen); err != nil {
 			return err
 		}

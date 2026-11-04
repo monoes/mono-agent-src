@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"time"
 	"unicode/utf8"
 
@@ -15,6 +16,7 @@ import (
 var (
 	ErrBadJudgment    = types.ErrBadJudgment
 	ErrModelFailed    = errors.New("judge: model call failed")
+	ErrModelPanicked  = errors.New("judge: the model adapter panicked")
 	ErrBadInput       = errors.New("judge: bad input")
 	ErrNoPin          = errors.New("judge: model pin not recorded")
 	ErrNotIndependent = errors.New("judge: model pin refused by the independence rule")
@@ -26,10 +28,27 @@ var (
 
 // Model is supplied by the caller, already resolved for the judging purpose. This package never builds one.
 // Pin names the exact provider and model version in use; it is recorded with the result. Complete must honour ctx and
-// should return no more than req.MaxBytes.
+// should return no more than req.MaxBytes: it must bound what it reads (ReadReply, or a cancel once a stream passes the
+// cap), because Run can only check the size of a reply that is already in memory.
 type Model interface {
 	Pin() string
 	Complete(ctx context.Context, req Request) ([]byte, error)
+}
+
+// ErrReplyTooLong: the model's reply went past the cap before it was read to its end.
+var ErrReplyTooLong = fmt.Errorf("%w: the reply is over the size cap", types.ErrBadJudgment)
+
+// ReadReply reads at most the cap from a model's reply and refuses a longer one, WITHOUT reading the rest: the bound is
+// on the read, not on a copy that already exists. A Model that has its reply as a stream returns ReadReply(stream).
+func ReadReply(r io.Reader) ([]byte, error) {
+	b, err := io.ReadAll(io.LimitReader(r, types.MaxJudgmentBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(b) > types.MaxJudgmentBytes {
+		return nil, ErrReplyTooLong
+	}
+	return b, nil
 }
 
 // Config builds a Judge. Refuse is required: it reports whether a pin may not judge (for example because it equals the
@@ -128,6 +147,12 @@ func (j *Judge) call(ctx context.Context, req Request) ([]byte, error) {
 	defer cancel()
 	ch := make(chan reply, 1)
 	go func() {
+		// A panic in the model adapter must not take the process down: it is a failed call, with no model text.
+		defer func() {
+			if recover() != nil {
+				ch <- reply{nil, ErrModelPanicked}
+			}
+		}()
 		b, err := j.model.Complete(cctx, req)
 		ch <- reply{b, err}
 	}()

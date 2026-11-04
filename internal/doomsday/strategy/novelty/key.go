@@ -42,10 +42,20 @@ func buildStopwords() map[string]struct{} {
 // Normalise reduces a title to its key text: compatibility-decomposed (full-width and accented forms fold to plain
 // ones), marks removed, lower-cased, split on everything that is not a letter or digit, stopwords dropped, the remaining
 // words de-duplicated and sorted. The same words in any case, spacing, punctuation, script width or order give the same
-// text. Work is bounded by MaxInputBytes.
+// text. Work is bounded by MaxInputBytes. The text is capped at MaxTokens words of MaxTokenRunes runes (it is what the
+// similarity lookups receive); the KEY is not computed from the capped text but from the full one (see Key).
 func Normalise(title string) (string, error) {
+	words, err := significantWords(title)
+	if err != nil {
+		return "", err
+	}
+	return capped(words), nil
+}
+
+// significantWords is the full, sorted, de-duplicated word list of a title. Nothing is cut here.
+func significantWords(title string) ([]string, error) {
 	if len(title) > MaxInputBytes {
-		return "", ErrTooLong
+		return nil, ErrTooLong
 	}
 	if !utf8.ValidString(title) {
 		title = strings.ToValidUTF8(title, " ")
@@ -64,9 +74,6 @@ func Normalise(title string) (string, error) {
 		if w == "" {
 			continue
 		}
-		if utf8.RuneCountInString(w) > MaxTokenRunes {
-			w = string([]rune(w)[:MaxTokenRunes])
-		}
 		if _, stop := stopwords[w]; stop {
 			continue
 		}
@@ -77,20 +84,34 @@ func Normalise(title string) (string, error) {
 		out = append(out, w)
 	}
 	if len(out) == 0 {
-		return "", ErrEmptyKey
+		return nil, ErrEmptyKey
 	}
 	sort.Strings(out)
-	if len(out) > MaxTokens {
-		out = out[:MaxTokens]
-	}
-	return strings.Join(out, " "), nil
+	return out, nil
 }
 
-// Key is the normalised text and its hash, the value stored as Direction.KeyHash.
+// capped is the bounded form of the word list: at most MaxTokens words, each at most MaxTokenRunes runes.
+func capped(words []string) string {
+	if len(words) > MaxTokens {
+		words = words[:MaxTokens]
+	}
+	out := make([]string, len(words))
+	for i, w := range words {
+		if utf8.RuneCountInString(w) > MaxTokenRunes {
+			w = string([]rune(w)[:MaxTokenRunes])
+		}
+		out[i] = w
+	}
+	return strings.Join(out, " ")
+}
+
+// Key is the text for the similarity lookups (capped, as Normalise) and the key hash stored as Direction.KeyHash. The hash
+// covers the FULL normalised text, so two titles that differ only past the cap (or only past the end of a long word)
+// never collapse into one key: the cap bounds the work of the lookups, not the identity of a direction.
 func Key(title string) (string, [32]byte, error) {
-	n, err := Normalise(title)
+	words, err := significantWords(title)
 	if err != nil {
 		return "", [32]byte{}, err
 	}
-	return n, types.KeyHash(n), nil
+	return capped(words), types.KeyHash(strings.Join(words, " ")), nil
 }

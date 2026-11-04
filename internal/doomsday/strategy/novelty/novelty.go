@@ -28,7 +28,9 @@ type Hit struct {
 }
 
 // Corpus is everything the gate looks things up in. The caller supplies it; this package opens no file and no socket.
-// Each method may fail; a failure means "could not check", never "novel".
+// LedgerKey and DirectionKey read the run's own tables: a failure there (a row that fails its MAC, a missing key, a
+// database error) is a HARD error, the proposal is not taken in and the caller decides (a tampered store parks the
+// strategy). Only Similar, the optional memory and knowledge lookup, may fail into "unchecked".
 type Corpus interface {
 	// LedgerKey finds an earlier proposal of this run with the same key.
 	LedgerKey(ctx context.Context, key [32]byte) (Match, bool, error)
@@ -58,8 +60,8 @@ func New(c Corpus, threshold float64) (*Checker, error) {
 	return &Checker{corpus: c, threshold: threshold}, nil
 }
 
-// Result is the verdict on one proposal. Err is set (and Outcome empty) only for a proposal that cannot be keyed or that
-// was not looked at because the batch cap was exceeded.
+// Result is the verdict on one proposal. Err is set (and Outcome empty) only for a proposal that cannot be keyed, that
+// was not looked at because the batch cap was exceeded, or whose lookup in the run's own tables failed (ErrLookup).
 type Result struct {
 	Index      int
 	Normalised string
@@ -69,6 +71,10 @@ type Result struct {
 	Reason     string // short class-level text for the ledger
 	Err        error
 }
+
+// ErrLookup marks a proposal that was not decided because the run's own ledger or direction table could not be read. The
+// cause stays in the chain (errors.Is finds a tamper error there).
+var ErrLookup = errors.New("novelty: the run's own tables could not be read")
 
 // ErrBatchCap marks proposals beyond MaxBatch.
 var ErrBatchCap = errors.New("novelty: proposal list over the batch cap")
@@ -113,13 +119,15 @@ func (c *Checker) Check(ctx context.Context, props []types.Proposal, unchecked i
 func (c *Checker) judge(ctx context.Context, r *Result, unchecked int) int {
 	var failed bool
 	if m, ok, err := c.corpus.LedgerKey(ctx, r.KeyHash); err != nil {
-		failed = true
+		r.Err = fmt.Errorf("%w: %w", ErrLookup, err)
+		return unchecked
 	} else if ok {
 		r.Outcome, r.MatchedID, r.Reason = types.NoveltyRefusedLedger, m.ID, "same key as an earlier proposal"
 		return unchecked
 	}
 	if m, ok, err := c.corpus.DirectionKey(ctx, r.KeyHash); err != nil {
-		failed = true
+		r.Err = fmt.Errorf("%w: %w", ErrLookup, err)
+		return unchecked
 	} else if ok {
 		r.Outcome, r.MatchedID, r.Reason = types.NoveltyRefusedDirection, m.ID, "matches an open or pruned direction"
 		return unchecked

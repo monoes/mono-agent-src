@@ -25,12 +25,19 @@ type strategyReader struct {
 	st      *sstore.Store
 	runs    StrategyRunReader
 	profile string
+	ready   *readyCalc // nil: the reading is not shown (a reader built without the run source)
 }
 
 // NewStrategyReader builds the reader the verbs use. The store it reads through verifies every row's MAC; a row that
 // fails is reported as tampered, with no content, and is never hidden.
 func NewStrategyReader(st *sstore.Store, runs StrategyRunReader, profile string) StrategyReader {
 	return strategyReader{st: st, runs: runs, profile: profile}
+}
+
+// withReady shows the finish-ready reading in the status. The reading is computed, never stored or taken from the table.
+func (r strategyReader) withReady(c readyCalc) strategyReader {
+	r.ready = &c
+	return r
 }
 
 // generation resolves 0 to the open run, else the newest generation. A profile with no generation at all has none (0).
@@ -92,6 +99,13 @@ func (r strategyReader) ReadStatus(ctx context.Context, gen int64) (StrategyStat
 	}
 	if v.Criteria, err = r.criteriaCounts(ctx, g, eps); err != nil {
 		return markTampered(v, err)
+	}
+	if r.ready != nil {
+		ready, rerr := r.ready.view(ctx, g)
+		if rerr != nil {
+			return markTampered(v, rerr)
+		}
+		v.FinishReady = &ready
 	}
 	return v, nil
 }

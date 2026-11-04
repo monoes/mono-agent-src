@@ -252,3 +252,40 @@ func TestAllMetIsOnlyAnOpinion(t *testing.T) {
 		t.Fatal("no criteria must not read as met")
 	}
 }
+
+// The reply is bounded on the READ: a reader that would deliver far more than the cap is read only a little past it.
+type countingReader struct{ n int }
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	c.n += len(p)
+	for i := range p {
+		p[i] = 'x'
+	}
+	return len(p), nil
+}
+
+func TestReadReplyStopsReadingPastTheCap(t *testing.T) {
+	r := &countingReader{}
+	if _, err := ReadReply(r); !errors.Is(err, ErrReplyTooLong) || !errors.Is(err, ErrBadJudgment) {
+		t.Fatalf("got %v", err)
+	}
+	if r.n > types.MaxJudgmentBytes+64*1024 {
+		t.Fatalf("read %d bytes of an endless reply, cap %d", r.n, types.MaxJudgmentBytes)
+	}
+	b, err := ReadReply(strings.NewReader(strings.Repeat("y", types.MaxJudgmentBytes)))
+	if err != nil || len(b) != types.MaxJudgmentBytes {
+		t.Fatalf("a reply exactly at the cap: %d %v", len(b), err)
+	}
+}
+
+// A model adapter that panics is a failed call with no model text; the process and the caller go on.
+func TestAPanickingModelIsAFailedCall(t *testing.T) {
+	m := &fakeModel{pin: "p/m@1", fn: func(context.Context, Request) ([]byte, error) { panic("adapter bug: secret-text") }}
+	_, err := newJudge(t, m, nil).Run(context.Background(), input())
+	if !errors.Is(err, ErrModelFailed) && !errors.Is(err, ErrModelPanicked) {
+		t.Fatalf("got %v", err)
+	}
+	if strings.Contains(err.Error(), "secret-text") {
+		t.Fatal("the panic value reached the error")
+	}
+}

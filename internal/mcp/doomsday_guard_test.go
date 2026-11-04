@@ -18,7 +18,7 @@ import (
 // proposal for the novelty gate and a claim about a direction the caller owns. Neither can request or begin a finish
 // (TestNoStrategyToolCanRequestOrApproveAFinish). They are listed by name; any other tool that mentions the mode fails.
 var bossModeTools = map[string]bool{"session_boss_answer_ask": true, "session_boss_approve_plan": true, "session_boss_grant_budget": true,
-	"session_boss_finish_begin": true, "session_boss_strategy_propose": true, "session_boss_strategy_report": true}
+	"session_boss_finish_begin": true, "session_boss_strategy_propose": true, "session_boss_strategy_report": true, "session_boss_finish_ready": true}
 
 func TestNoToolTouchesTheOpenEndedMode(t *testing.T) {
 	s, _ := twoProfileServer(t)

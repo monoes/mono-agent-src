@@ -6,7 +6,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -17,7 +16,6 @@ import (
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/epoch"
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/judge"
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/novelty"
-	"github.com/monoes/mono-agent/internal/doomsday/strategy/policy"
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/types"
 	"github.com/monoes/mono-agent/internal/storage"
 )
@@ -87,32 +85,17 @@ func (p *passSeq) SequenceRows(ctx context.Context, _ int64, _ string, rows int,
 }
 
 type fenv struct {
-	db     *sql.DB
-	core   *store.SQLStore
-	keys   store.Keyer
-	prof   string
-	gen    int64
-	clock  *epoch.FakeClock
-	model  *scriptedModel
-	runs   *fixedRuns
-	host   *StrategyHost
-	finish *finishRecorder
-	subj   time.Time
+	db    *sql.DB
+	core  *store.SQLStore
+	keys  store.Keyer
+	prof  string
+	gen   int64
+	clock *epoch.FakeClock
+	model *scriptedModel
+	runs  *fixedRuns
+	host  *StrategyHost
+	subj  time.Time
 }
-
-type finishRecorder struct {
-	mu    sync.Mutex
-	calls int
-	rep   BeginReport
-}
-
-func (f *finishRecorder) begin(context.Context) (BeginReport, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.calls++
-	return f.rep, nil
-}
-func (f *finishRecorder) n() int { f.mu.Lock(); defer f.mu.Unlock(); return f.calls }
 
 func newFenv(t *testing.T, mut func(*StrategyHostDeps)) *fenv {
 	t.Helper()
@@ -147,12 +130,10 @@ func newFenv(t *testing.T, mut func(*StrategyHostDeps)) *fenv {
 	e.gen = g
 	e.clock = epoch.NewFakeClock(time.Unix(1_800_000_000, 0))
 	e.subj = e.clock.Now().Add(-24 * time.Hour)
-	e.finish = &finishRecorder{rep: BeginReport{Refused: "not yet"}}
 	e.runs = &fixedRuns{ok: true, run: StrategyRun{Generation: g, CharterID: c.ID(), Running: true, Boss: 7, HasBoss: true,
 		Criteria: []StrategyCriterion{{ID: store.CriterionID(0), Text: "go test ./..."}}}}
 	deps := StrategyHostDeps{DB: d.DB, Keys: keys, Audit: NewStoreTxAppender(core), Seq: &passSeq{}, Profile: e.prof, Runs: e.runs,
 		Model: e.model, Refuse: func(string) bool { return false }, Timeout: time.Second, Clock: e.clock,
-		Finish:           e.finish.begin,
 		SubjectChangedAt: func(context.Context, int64) (time.Time, error) { return e.subj, nil },
 		Similar:          func(context.Context, string) ([]novelty.Hit, error) { return nil, nil }}
 	if mut != nil {
@@ -265,27 +246,5 @@ func TestChainTxAppenderWritesStrategyKindsOnly(t *testing.T) {
 		if err := app.AppendAuditTx(bg, tx, e.prof, e.gen, k, "x"); err == nil {
 			t.Fatalf("kind %q was appended by the strategy writer", k)
 		}
-	}
-}
-
-func TestFinishFromBeginMapsOnlyAnAcceptedReport(t *testing.T) {
-	cases := []struct {
-		rep  BeginReport
-		err  error
-		want policy.Outcome
-	}{
-		{BeginReport{Accepted: true, Refused: "ignored"}, nil, policy.Outcome{Accepted: true}},
-		{BeginReport{Refused: "no criteria"}, nil, policy.Outcome{Refused: "no criteria"}},
-		{BeginReport{}, nil, policy.Outcome{Refused: "not accepted"}},
-	}
-	for _, c := range cases {
-		got, err := FinishFromBegin(func(context.Context) (BeginReport, error) { return c.rep, c.err })(bg)
-		if err != nil || got != c.want {
-			t.Errorf("%+v: got %+v err %v, want %+v", c.rep, got, err, c.want)
-		}
-	}
-	boom := errors.New("boom")
-	if _, err := FinishFromBegin(func(context.Context) (BeginReport, error) { return BeginReport{Accepted: true}, boom })(bg); !errors.Is(err, boom) {
-		t.Fatalf("an error must not become an accepted finish: %v", err)
 	}
 }

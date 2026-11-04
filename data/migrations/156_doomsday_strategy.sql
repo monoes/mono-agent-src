@@ -1,7 +1,10 @@
 -- Strategy layer of the open-ended ("doomsday") mode: directions, epochs, judgments, the novelty ledger. Additive only:
 -- nothing here starts a run, touches the charter or run tables, or enables the mode; with no rows it is inert.
 -- Every table is keyed (profile, generation, ...) so a new run never sees an old run's rows. Rows are inserted only
--- while the run is 'running', so after a Stop nothing new can be written whatever the code above does.
+-- while the run is 'running', and rows move (state, session binding, MAC) only while it is running, except that an epoch
+-- may still be closed as abandoned: after a Stop nothing else can change whatever the code above does. A row is never
+-- replaced: an INSERT (of any kind, REPLACE and UPSERT included) that collides with an existing key is refused before the
+-- conflict rule can delete the old row.
 
 CREATE TABLE IF NOT EXISTS doomsday_strategy_directions (
     profile          TEXT    NOT NULL,
@@ -68,6 +71,22 @@ CREATE TRIGGER IF NOT EXISTS doomsday_strategy_novelty_run_open BEFORE INSERT ON
 WHEN NOT EXISTS (SELECT 1 FROM doomsday_runs r WHERE r.profile = NEW.profile AND r.generation = NEW.generation AND r.state = 'running')
 BEGIN SELECT RAISE(ABORT, 'doomsday strategy rows are written only for a running run'); END;
 
+-- No REPLACE: INSERT OR REPLACE deletes the colliding row without firing the delete rules, which would walk a row back
+-- (a finished direction to proposed, an open epoch over a judged one). A BEFORE INSERT trigger runs ahead of every conflict
+-- rule, so an insert whose key exists is refused outright. (A direction also collides on its run-unique key hash.)
+CREATE TRIGGER IF NOT EXISTS doomsday_strategy_directions_no_replace BEFORE INSERT ON doomsday_strategy_directions
+WHEN EXISTS (SELECT 1 FROM doomsday_strategy_directions d WHERE d.profile = NEW.profile AND d.generation = NEW.generation AND (d.direction_id = NEW.direction_id OR d.key_hash = NEW.key_hash))
+BEGIN SELECT RAISE(ABORT, 'doomsday strategy row exists: rows are never replaced'); END;
+CREATE TRIGGER IF NOT EXISTS doomsday_strategy_epochs_no_replace BEFORE INSERT ON doomsday_strategy_epochs
+WHEN EXISTS (SELECT 1 FROM doomsday_strategy_epochs e WHERE e.profile = NEW.profile AND e.generation = NEW.generation AND e.epoch_seq = NEW.epoch_seq)
+BEGIN SELECT RAISE(ABORT, 'doomsday strategy row exists: rows are never replaced'); END;
+CREATE TRIGGER IF NOT EXISTS doomsday_strategy_judgments_no_replace BEFORE INSERT ON doomsday_strategy_judgments
+WHEN EXISTS (SELECT 1 FROM doomsday_strategy_judgments j WHERE j.profile = NEW.profile AND j.generation = NEW.generation AND j.epoch_seq = NEW.epoch_seq)
+BEGIN SELECT RAISE(ABORT, 'doomsday strategy row exists: rows are never replaced'); END;
+CREATE TRIGGER IF NOT EXISTS doomsday_strategy_novelty_no_replace BEFORE INSERT ON doomsday_strategy_novelty
+WHEN NEW.novelty_id IS NOT NULL AND EXISTS (SELECT 1 FROM doomsday_strategy_novelty n WHERE n.novelty_id = NEW.novelty_id)
+BEGIN SELECT RAISE(ABORT, 'doomsday strategy row exists: rows are never replaced'); END;
+
 -- A judgment belongs to an open epoch of the same run (one per epoch by the primary key).
 CREATE TRIGGER IF NOT EXISTS doomsday_strategy_judgments_needs_open_epoch BEFORE INSERT ON doomsday_strategy_judgments
 WHEN NOT EXISTS (SELECT 1 FROM doomsday_strategy_epochs e WHERE e.profile = NEW.profile AND e.generation = NEW.generation AND e.epoch_seq = NEW.epoch_seq AND e.state = 'open')
@@ -84,6 +103,7 @@ CREATE TRIGGER IF NOT EXISTS doomsday_strategy_novelty_no_delete BEFORE DELETE O
 CREATE TRIGGER IF NOT EXISTS doomsday_strategy_directions_no_delete BEFORE DELETE ON doomsday_strategy_directions BEGIN SELECT RAISE(ABORT, 'doomsday_strategy_directions is never deleted'); END;
 CREATE TRIGGER IF NOT EXISTS doomsday_strategy_directions_forward_only BEFORE UPDATE ON doomsday_strategy_directions
 WHEN NOT (
+    EXISTS (SELECT 1 FROM doomsday_runs r WHERE r.profile = OLD.profile AND r.generation = OLD.generation AND r.state = 'running') AND
     NEW.profile = OLD.profile AND NEW.generation = OLD.generation AND NEW.direction_id = OLD.direction_id AND
     NEW.key_hash = OLD.key_hash AND NEW.title = OLD.title AND NEW.proposer_session = OLD.proposer_session AND
     NEW.created_epoch = OLD.created_epoch AND (OLD.session_id = '' OR NEW.session_id = OLD.session_id) AND
@@ -96,12 +116,15 @@ BEGIN SELECT RAISE(ABORT, 'doomsday strategy direction moves forward only'); END
 -- Epochs are never deleted; only the state, the one-time judgment hash and the MAC change, state forward
 -- (open -> judged|bad-judgment|abandoned, judged -> applied|abandoned).
 CREATE TRIGGER IF NOT EXISTS doomsday_strategy_epochs_no_delete BEFORE DELETE ON doomsday_strategy_epochs BEGIN SELECT RAISE(ABORT, 'doomsday_strategy_epochs is never deleted'); END;
+-- While the run is running an epoch moves forward; after a Stop the one move left is the closing of an unfinished epoch
+-- as abandoned (the epoch engine does it on its next tick).
 CREATE TRIGGER IF NOT EXISTS doomsday_strategy_epochs_forward_only BEFORE UPDATE ON doomsday_strategy_epochs
 WHEN NOT (
     NEW.profile = OLD.profile AND NEW.generation = OLD.generation AND NEW.epoch_seq = OLD.epoch_seq AND
     NEW.trigger = OLD.trigger AND NEW.started_at = OLD.started_at AND NEW.model_pin = OLD.model_pin AND
     (OLD.judgment_hash = x'' OR NEW.judgment_hash = OLD.judgment_hash) AND
     ((OLD.state = 'open' AND NEW.state IN ('judged','bad-judgment','abandoned')) OR
-     (OLD.state = 'judged' AND NEW.state IN ('applied','abandoned')))
+     (OLD.state = 'judged' AND NEW.state IN ('applied','abandoned'))) AND
+    (NEW.state = 'abandoned' OR EXISTS (SELECT 1 FROM doomsday_runs r WHERE r.profile = OLD.profile AND r.generation = OLD.generation AND r.state = 'running'))
 )
 BEGIN SELECT RAISE(ABORT, 'doomsday strategy epoch moves forward only'); END;

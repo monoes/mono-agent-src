@@ -76,26 +76,6 @@ func (p policySink) Record(ctx context.Context, kind, detail string) error {
 	return p.seq.SequenceRows(ctx, p.gen, "strategy", 1, write)
 }
 
-// FinishFromBegin adapts the cli FinishEngine's FinishBegin to the policy's narrow Finish seam. It maps the report and
-// nothing else: the engine's own preconditions and the later verifier remain the only gate, and a report that is not
-// Accepted is a refusal whatever else it says.
-func FinishFromBegin(begin func(ctx context.Context) (BeginReport, error)) policy.FinishFunc {
-	return func(ctx context.Context) (policy.Outcome, error) {
-		rep, err := begin(ctx)
-		if err != nil {
-			return policy.Outcome{}, err
-		}
-		if !rep.Accepted {
-			why := rep.Refused
-			if why == "" {
-				why = "not accepted"
-			}
-			return policy.Outcome{Refused: why}, nil
-		}
-		return policy.Outcome{Accepted: true}, nil
-	}
-}
-
 // runStateDB answers "is this generation running" from the run table, never from a local flag.
 type runStateDB struct {
 	db      sstore.Querier
@@ -214,6 +194,11 @@ func (s strategySink) Propose(ctx context.Context, p ops.StrategyProposal) (ops.
 	}
 	in := out[0]
 	if in.Err != nil {
+		if errors.Is(in.Err, sstore.ErrTampered) || errors.Is(in.Err, sstore.ErrKey) {
+			// The run's own ledger or direction table failed verification: nothing is taken in, and the layer is parked
+			// (recorded once per call; the ticking host parks on its own next read of the same rows).
+			_ = h.policySink(p.Generation).Record(ctx, types.KindParked, "a stored strategy row failed verification at intake")
+		}
 		return ops.ProposeOutcome{}, in.Err
 	}
 	return ops.ProposeOutcome{Accepted: in.Accepted(), DirectionID: in.DirectionID, Outcome: in.Outcome, MatchedID: in.MatchedID}, nil

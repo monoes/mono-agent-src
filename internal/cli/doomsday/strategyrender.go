@@ -35,8 +35,24 @@ type StrategyStatusView struct {
 	Directions   map[string]int `json:"directions,omitempty"` // state -> count
 	ParkedFinish int            `json:"parked_finish_rounds"`
 	Criteria     map[string]int `json:"criteria,omitempty"` // judge reading -> count, from the latest judgment
-	Tampered     bool           `json:"tampered,omitempty"`
-	Note         string         `json:"note,omitempty"`
+	// FinishReady is the reading the boss sees. It is a marker only: strategy never begins a finish, the boss does.
+	FinishReady *FinishReadyView `json:"finish_ready,omitempty"`
+	Tampered    bool             `json:"tampered,omitempty"`
+	Note        string           `json:"note,omitempty"`
+}
+
+// FinishReadyView is whether the run reads as ready for a finish, and if not why not. It is derived on every read from the
+// latest judged epoch and host-side facts (see strategyready.go), so a stale judgment, a later bad judgment or a direction
+// the judgment never saw makes it false at once. Ready is a reading, never a request: only the boss's own finish.begin
+// call begins a finish.
+type FinishReadyView struct {
+	Ready              bool   `json:"ready"`
+	Reason             string `json:"reason"`
+	Action             string `json:"action,omitempty"`
+	Epoch              int64  `json:"epoch,omitempty"`                // the judged epoch the reading is bound to
+	JudgmentAgeSeconds int64  `json:"judgment_age_seconds,omitempty"` // since that epoch began
+	Recorded           bool   `json:"marker_recorded,omitempty"`      // the audit chain holds this epoch's ready marker
+	GaveUp             bool   `json:"gave_up,omitempty"`              // the bound of parked finish rounds is spent
 }
 
 // EpochView is one epoch without its judgment text.
@@ -176,6 +192,13 @@ func renderStrategyStatus(w io.Writer, v StrategyStatusView) error {
 	fmt.Fprintf(w, "directions: %s\n", counts(v.Directions))
 	if len(v.Criteria) > 0 {
 		fmt.Fprintf(w, "criteria (judge reading, not verified): %s\n", counts(v.Criteria))
+	}
+	if r := v.FinishReady; r != nil {
+		if r.Ready {
+			fmt.Fprintf(w, "finish ready: YES (epoch %d, judgment %ds old; a reading for the boss, strategy does not begin a finish)\n", r.Epoch, r.JudgmentAgeSeconds)
+		} else {
+			fmt.Fprintf(w, "finish ready: no (%s)\n", RedactText(r.Reason, strategyNoteCap))
+		}
 	}
 	if v.Note != "" {
 		fmt.Fprintln(w, RedactText(v.Note, strategyNoteCap))

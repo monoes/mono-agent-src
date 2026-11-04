@@ -73,6 +73,34 @@ func TestNormaliseBoundsOutput(t *testing.T) {
 	}
 }
 
+// The cap bounds the work, not the identity: titles that differ only after the 64th sorted word, or only after the 64th
+// rune of a long word, have the same capped text and DIFFERENT keys.
+func TestKeyHashCoversTheWholeNormalisedTextNotTheCappedPart(t *testing.T) {
+	words := func(n int, last string) string {
+		var b strings.Builder
+		for i := 0; i < n; i++ {
+			b.WriteString("a" + string(rune('a'+i/26)) + string(rune('a'+i%26)) + " ")
+		}
+		return b.String() + last
+	}
+	t1, h1, err1 := Key(words(70, "zzzone"))
+	t2, h2, err2 := Key(words(70, "zzztwo"))
+	if err1 != nil || err2 != nil {
+		t.Fatal(err1, err2)
+	}
+	if t1 != t2 {
+		t.Fatalf("the capped texts differ, the case does not exercise the cap: %q %q", t1, t2)
+	}
+	if h1 == h2 {
+		t.Fatal("two different titles collapsed to one key through the token cap")
+	}
+	_, l1, _ := Key(strings.Repeat("z", MaxTokenRunes) + "one")
+	_, l2, _ := Key(strings.Repeat("z", MaxTokenRunes) + "two")
+	if l1 == l2 {
+		t.Fatal("two different long words collapsed to one key through the rune cap")
+	}
+}
+
 func TestKeyDeterministicAndDomainHash(t *testing.T) {
 	n1, h1, _ := Key("Ship the importer")
 	n2, h2, _ := Key("importer ship")

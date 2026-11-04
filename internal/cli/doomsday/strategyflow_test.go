@@ -26,9 +26,14 @@ func (e *fenv) propose(t *testing.T, title string) ops.ProposeOutcome {
 	return out
 }
 
-// A4/A5 at the host: whatever the judge says, a finish is requested only when every condition of the policy holds, and
-// never by any of the others. The positive control proves the table can reach a request at all.
-func TestHostRequestsAFinishOnlyWhenEveryConditionHolds(t *testing.T) {
+func (e *fenv) markers(t *testing.T) int {
+	return e.count(t, `SELECT count(*) FROM doomsday_audit WHERE profile=? AND generation=? AND kind=?`, e.prof, e.gen, types.KindFinishReady)
+}
+
+// A4/A5 at the host: whatever the judge says, the ready marker is written only when every condition of the policy holds,
+// and never by any of the others. The positive control proves the table can reach a marker at all. Nothing here can begin
+// a finish: the host has no finish engine to call.
+func TestHostMarksReadyOnlyWhenEveryConditionHolds(t *testing.T) {
 	cases := []struct {
 		name string
 		deps func(*StrategyHostDeps)
@@ -36,10 +41,9 @@ func TestHostRequestsAFinishOnlyWhenEveryConditionHolds(t *testing.T) {
 		want int
 	}{
 		{"all conditions hold", nil, nil, 1},
+		{"no boss recorded does not matter: the boss is not who is asked", nil, func(e *fenv) { e.runs.set(func(r *StrategyRun) { r.HasBoss = false }) }, 1},
 		{"criterion only progressing", nil, func(e *fenv) { e.model.set(types.CritProgressing) }, 0},
 		{"criterion regressed", nil, func(e *fenv) { e.model.set(types.CritRegressed) }, 0},
-		{"no boss recorded", nil, func(e *fenv) { e.runs.set(func(r *StrategyRun) { r.HasBoss = false }) }, 0},
-		{"no finish engine", func(d *StrategyHostDeps) { d.Finish = nil }, nil, 0},
 		{"subject time unknown", func(d *StrategyHostDeps) { d.SubjectChangedAt = nil }, nil, 0},
 		{"subject changed after the judgment", nil, func(e *fenv) { e.subj = e.clock.Now().Add(40 * time.Minute) }, 0},
 		{"charter without criteria", nil, func(e *fenv) { e.runs.set(func(r *StrategyRun) { r.Criteria = nil }) }, 0},
@@ -51,54 +55,62 @@ func TestHostRequestsAFinishOnlyWhenEveryConditionHolds(t *testing.T) {
 			if c.pre != nil {
 				c.pre(e)
 			}
-			_, _ = e.host.Tick(bg) // errors are allowed here (an input with no criteria); only the call count matters
+			_, _ = e.host.Tick(bg) // errors are allowed here (an input with no criteria); only the markers matter
 			e.clock.Advance(31 * time.Minute)
 			_, _ = e.host.Tick(bg)
-			if got := e.finish.n(); got != c.want {
-				t.Fatalf("finish begin called %d times, want %d", got, c.want)
+			if got := e.markers(t); got != c.want {
+				t.Fatalf("%d ready markers, want %d", got, c.want)
+			}
+			if e.count(t, `SELECT count(*) FROM doomsday_audit WHERE kind LIKE 'finish.%' OR kind = 'denied-attempt'`) != 0 {
+				t.Fatal("a finish row exists: the host asked the finish engine for something")
 			}
 		})
 	}
 }
 
-// A refused finish is parked: no immediate retry on the same judgment, a new epoch brings a new request, and the engine's
-// answer is what was recorded (the audit has the request BEFORE the park).
+// A finish that is already under way (the finish engine froze the subject) is never marked ready again.
+func TestHostWritesNoMarkerOnceAFinishIsUnderWay(t *testing.T) {
+	e := newFenv(t, nil)
+	e.model.set(types.CritPlausiblyMet)
+	// the chain is not verified here, only counted: a freeze row is what the finish engine writes when it has begun
+	if _, err := e.db.Exec(`INSERT INTO doomsday_audit(profile, generation, seq, kind, payload, prev, mac) VALUES (?, ?, 9999, 'finish.freeze', '{}', x'', x'')`, e.prof, e.gen); err != nil {
+		t.Fatal(err)
+	}
+	e.tickAfter(t, 31*time.Minute)
+	if e.markers(t) != 0 {
+		t.Fatal("a marker was written for a run whose finish is under way")
+	}
+}
+
+// A refused begin of the boss is a parked round in the finish engine's own record: the next epoch is opened for it, that
+// epoch's judgment is not newer than the park, so no marker is written for it; a later judgment is marked again.
 func TestHostParkedFinishWaitsForANewJudgment(t *testing.T) {
 	e := newFenv(t, nil)
 	e.model.set(types.CritPlausiblyMet)
 	e.tickAfter(t, 31*time.Minute)
-	if e.finish.n() != 1 {
-		t.Fatalf("calls %d", e.finish.n())
+	if e.markers(t) != 1 {
+		t.Fatalf("markers %d", e.markers(t))
 	}
-	tk := e.tickAfter(t, time.Minute)
-	if e.finish.n() != 1 || tk.Decision == nil || tk.Decision.Action != "park" {
-		t.Fatalf("calls %d decision %+v", e.finish.n(), tk.Decision)
+	if _, err := e.core.AppendAudit(bg, e.prof, e.gen, KindFinishDenied, "a person item is open"); err != nil {
+		t.Fatal(err)
 	}
-	e.tickAfter(t, 6*time.Minute)
-	if e.finish.n() != 2 {
-		t.Fatalf("a new judgment should bring a new request, calls %d", e.finish.n())
+	tk := e.tickAfter(t, 6*time.Minute)
+	if tk.Epoch == nil || tk.Epoch.Trigger != types.TriggerFinishParked {
+		t.Fatalf("the park did not open an epoch: %+v", tk.Epoch)
 	}
-	kinds := strings.Join(e.auditKinds(t), ",")
-	if !strings.Contains(kinds, "strategy.finish.requested,strategy.finish.parked") {
-		t.Fatalf("audit %s", kinds)
+	if tk.Decision == nil || tk.Decision.Action != "park" || e.markers(t) != 1 {
+		t.Fatalf("decision %+v markers %d", tk.Decision, e.markers(t))
+	}
+	e.tickAfter(t, 31*time.Minute)
+	if e.markers(t) != 2 {
+		t.Fatalf("a newer judgment should be marked again, markers %d", e.markers(t))
 	}
 	if err := e.core.VerifyAudit(bg, e.prof, e.gen); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestHostAnAcceptedFinishIsNotRequestedAgain(t *testing.T) {
-	e := newFenv(t, nil)
-	e.finish.rep = BeginReport{Accepted: true}
-	e.model.set(types.CritPlausiblyMet)
-	e.tickAfter(t, 31*time.Minute)
-	e.tickAfter(t, 31*time.Minute)
-	if e.finish.n() != 1 {
-		t.Fatalf("calls %d", e.finish.n())
-	}
-}
-
-// A6: after any Stop the host starts no epoch, calls no judge and asks for no finish, whatever the clock says.
+// A6: after any Stop the host starts no epoch, calls no judge and writes no marker, whatever the clock says.
 func TestHostIsInertAfterStop(t *testing.T) {
 	e := newFenv(t, nil)
 	e.model.set(types.CritPlausiblyMet)
@@ -108,7 +120,7 @@ func TestHostIsInertAfterStop(t *testing.T) {
 	if tk.Epoch == nil || tk.Epoch.Outcome != epoch.OutcomeInert {
 		t.Fatalf("%+v", tk.Epoch)
 	}
-	if e.model.calls != 0 || e.finish.n() != 0 || e.count(t, `SELECT count(*) FROM doomsday_strategy_epochs`) != epochs {
+	if e.model.calls != 0 || e.markers(t) != 0 || e.count(t, `SELECT count(*) FROM doomsday_strategy_epochs`) != epochs {
 		t.Fatal("the host acted after Stop")
 	}
 	if _, err := e.host.Sink().Propose(bg, ops.StrategyProposal{Profile: e.prof, Generation: e.gen,

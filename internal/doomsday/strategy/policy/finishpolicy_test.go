@@ -3,6 +3,8 @@ package policy
 import (
 	"context"
 	"errors"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,14 +21,14 @@ func met(ids ...string) *types.Judgment {
 	return j
 }
 
-// good is a state in which a request is allowed; each test spoils exactly one thing.
+// good is a state in which the run reads as ready; each test spoils exactly one thing.
 func good() State {
-	return State{RunRunning: true, Caller: "boss", Boss: "boss", CriterionIDs: []string{"c1", "c2"}, Judgment: met("c1", "c2"),
-		JudgmentAt: t0.Add(-time.Minute), Now: t0}
+	return State{RunRunning: true, CriterionIDs: []string{"c1", "c2"}, Judgment: met("c1", "c2"), EpochSeq: 3, JudgmentHash: "ab12",
+		SubjectKnown: true, JudgmentAt: t0.Add(-time.Minute), Now: t0}
 }
 
-func TestDecideRequestsOnlyWhenEverythingHolds(t *testing.T) {
-	if d := (Config{}).Decide(good()); d.Action != ActionRequest || d.Reason != ReasonRequested {
+func TestDecideIsReadyOnlyWhenEverythingHolds(t *testing.T) {
+	if d := (Config{}).Decide(good()); d.Action != ActionReady || d.Reason != ReasonReady || !d.Ready() {
 		t.Fatalf("good state: %v", d)
 	}
 }
@@ -40,11 +42,10 @@ func TestDecideRefusals(t *testing.T) {
 	}{
 		{"run not running", func(s *State) { s.RunRunning = false }, ActionWait, ReasonRunNotRunning},
 		{"finish in progress", func(s *State) { s.FinishInProgress = true }, ActionWait, ReasonInProgress},
-		{"planner asks", func(s *State) { s.Caller = "planner-1" }, ActionWait, ReasonNotBoss},
-		{"empty caller and boss", func(s *State) { s.Caller, s.Boss = "", "" }, ActionWait, ReasonNotBoss},
-		{"no boss known", func(s *State) { s.Boss = "" }, ActionWait, ReasonNotBoss},
 		{"no criteria", func(s *State) { s.CriterionIDs, s.Judgment = nil, met() }, ActionWait, ReasonNoCriteria},
 		{"no judgment", func(s *State) { s.Judgment = nil }, ActionWait, ReasonNoJudgment},
+		{"a later bad judgment clears an earlier all-met one", func(s *State) { s.LatestBad = true }, ActionWait, ReasonLatestBad},
+		{"subject time unknown", func(s *State) { s.SubjectKnown = false }, ActionWait, ReasonSubjectUnknown},
 		{"zero judgment time", func(s *State) { s.JudgmentAt = time.Time{} }, ActionWait, ReasonStale},
 		{"judgment from the future", func(s *State) { s.JudgmentAt = t0.Add(time.Second) }, ActionWait, ReasonStale},
 		{"judgment too old", func(s *State) { s.JudgmentAt = t0.Add(-2*types.DefaultEpochInterval - time.Second) }, ActionWait, ReasonStale},
@@ -52,8 +53,10 @@ func TestDecideRefusals(t *testing.T) {
 		{"subject changed at judgment time", func(s *State) { s.SubjectChangedAt = s.JudgmentAt }, ActionWait, ReasonStale},
 		{"one criterion not met", func(s *State) { s.Judgment.Criteria[1].Status = types.CritProgressing }, ActionWait, ReasonNotAllMet},
 		{"one criterion missing", func(s *State) { s.Judgment = met("c1") }, ActionWait, ReasonNotAllMet},
+		{"the charter's criteria changed", func(s *State) { s.CriterionIDs = []string{"c1", "c2", "c3"} }, ActionWait, ReasonNotAllMet},
 		{"unknown extra criterion", func(s *State) { s.Judgment = met("c1", "c2", "c3") }, ActionWait, ReasonNotAllMet},
 		{"regressed", func(s *State) { s.Judgment.Criteria[0].Status = types.CritRegressed }, ActionWait, ReasonNotAllMet},
+		{"a direction proposed after the judgment", func(s *State) { s.OpenDirectionIDs = []string{"d-new"} }, ActionWait, ReasonUnjudgedDirection},
 		{"parked and judgment not newer", func(s *State) { s.LastParkedAt = s.JudgmentAt }, ActionPark, ReasonAwaitingNewJudg},
 		{"parked after judgment", func(s *State) { s.LastParkedAt = s.JudgmentAt.Add(time.Second) }, ActionPark, ReasonAwaitingNewJudg},
 		{"fifth parked round", func(s *State) { s.ParkedRounds = types.MaxParkedFinishRounds }, ActionGiveUp, ReasonParkedRounds},
@@ -70,11 +73,20 @@ func TestDecideRefusals(t *testing.T) {
 	}
 }
 
-func TestDecideParkedThenNewerJudgmentRequestsAgain(t *testing.T) {
+func TestDecideCoveredDirectionsStayReady(t *testing.T) {
+	s := good()
+	s.Judgment.Directions = []types.DirectionAssessment{{ID: "d1", Verdict: types.VerdictKeep}}
+	s.OpenDirectionIDs = []string{"d1"}
+	if d := (Config{}).Decide(s); !d.Ready() {
+		t.Fatalf("%v", d)
+	}
+}
+
+func TestDecideParkedThenNewerJudgmentIsReadyAgain(t *testing.T) {
 	s := good()
 	s.LastParkedAt = s.JudgmentAt.Add(-time.Second)
 	s.ParkedRounds = types.MaxParkedFinishRounds - 1
-	if d := (Config{}).Decide(s); d.Action != ActionRequest {
+	if d := (Config{}).Decide(s); !d.Ready() {
 		t.Fatalf("the last allowed round: %v", d)
 	}
 }
@@ -82,20 +94,12 @@ func TestDecideParkedThenNewerJudgmentRequestsAgain(t *testing.T) {
 func TestDecideLastRoundBoundary(t *testing.T) {
 	s := good()
 	s.ParkedRounds = types.MaxParkedFinishRounds - 1
-	if (Config{}).Decide(s).Action != ActionRequest {
-		t.Fatal("4 parked rounds still allow a request")
+	if !(Config{}).Decide(s).Ready() {
+		t.Fatal("4 parked rounds still allow the marker")
 	}
 	s.ParkedRounds = types.MaxParkedFinishRounds
 	if (Config{}).Decide(s).Action != ActionGiveUp {
 		t.Fatal("the bound is reached")
-	}
-}
-
-func TestDecideGiveUpIsForTheBossOnly(t *testing.T) {
-	s := good()
-	s.ParkedRounds, s.Caller = 9, "planner"
-	if d := (Config{}).Decide(s); d.Action == ActionGiveUp {
-		t.Fatalf("a planner must not trigger the notification path: %v", d)
 	}
 }
 
@@ -119,49 +123,51 @@ func TestDecideHonoursAConfiguredAge(t *testing.T) {
 
 // ---- Runner ----
 
-type fakeFinish struct {
-	calls int
-	out   Outcome
-	err   error
-}
-
-func (f *fakeFinish) Begin(context.Context) (Outcome, error) { f.calls++; return f.out, f.err }
-
 type fakeSink struct {
-	kinds []string
-	err   error
+	kinds   []string
+	details []string
+	err     error
 }
 
-func (s *fakeSink) Record(_ context.Context, kind, _ string) error {
+func (s *fakeSink) Record(_ context.Context, kind, detail string) error {
 	if s.err != nil {
 		return s.err
 	}
-	s.kinds = append(s.kinds, kind)
+	s.kinds, s.details = append(s.kinds, kind), append(s.details, detail)
 	return nil
 }
 
-func TestRunnerRequestsAndRecordsFirst(t *testing.T) {
-	f, s := &fakeFinish{out: Outcome{Accepted: true}}, &fakeSink{}
-	d, err := (Runner{Finish: f, Sink: s}).Step(context.Background(), good())
-	if err != nil || d.Action != ActionRequest || f.calls != 1 {
-		t.Fatalf("%v %v calls=%d", d, err, f.calls)
+func TestRunnerRecordsTheReadyMarkerBoundToTheEpochAndJudgment(t *testing.T) {
+	s := &fakeSink{}
+	d, err := (Runner{Sink: s}).Step(context.Background(), good())
+	if err != nil || !d.Ready() {
+		t.Fatalf("%v %v", d, err)
 	}
-	if len(s.kinds) != 1 || s.kinds[0] != types.KindFinishRequested {
-		t.Fatalf("lines: %v", s.kinds)
+	if len(s.kinds) != 1 || s.kinds[0] != types.KindFinishReady || !strings.Contains(s.details[0], "epoch=3 judgment=ab12") {
+		t.Fatalf("lines: %v %v", s.kinds, s.details)
 	}
 }
 
-func TestRunnerNeverAsksOnAnyOtherDecision(t *testing.T) {
-	f, s := &fakeFinish{}, &fakeSink{}
-	r := Runner{Finish: f, Sink: s}
+func TestRunnerRecordsTheMarkerOnlyOnce(t *testing.T) {
+	s := &fakeSink{}
+	st := good()
+	st.ReadyRecorded = true
+	if _, err := (Runner{Sink: s}).Step(context.Background(), st); err != nil || len(s.kinds) != 0 {
+		t.Fatalf("err=%v lines=%v", err, s.kinds)
+	}
+}
+
+func TestRunnerWritesNothingOnAnyOtherDecision(t *testing.T) {
+	s := &fakeSink{}
+	r := Runner{Sink: s}
 	for _, spoil := range []func(*State){
-		func(st *State) { st.Caller = "planner" },
 		func(st *State) { st.CriterionIDs = nil },
 		func(st *State) { st.Judgment = nil },
+		func(st *State) { st.LatestBad = true },
 		func(st *State) { st.SubjectChangedAt = st.JudgmentAt },
 		func(st *State) { st.FinishInProgress = true },
 		func(st *State) { st.RunRunning = false },
-		func(st *State) { st.ParkedRounds = types.MaxParkedFinishRounds },
+		func(st *State) { st.LastParkedAt = st.JudgmentAt },
 	} {
 		st := good()
 		spoil(&st)
@@ -169,37 +175,36 @@ func TestRunnerNeverAsksOnAnyOtherDecision(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if f.calls != 0 {
-		t.Fatalf("finish engine asked %d times", f.calls)
+	if len(s.kinds) != 0 {
+		t.Fatalf("lines written: %v", s.kinds)
 	}
 }
 
-func TestRunnerEngineRefusalIsRecordedAsParked(t *testing.T) {
-	f, s := &fakeFinish{out: Outcome{Refused: "3 person item(s) are open"}}, &fakeSink{}
-	if _, err := (Runner{Finish: f, Sink: s}).Step(context.Background(), good()); err != nil {
-		t.Fatal(err)
-	}
-	if len(s.kinds) != 2 || s.kinds[1] != types.KindFinishParked {
-		t.Fatalf("lines: %v", s.kinds)
+// The Runner has no finish engine to call: its only seam is the audit sink, so it cannot begin, request or approve one.
+func TestRunnerHasNoWayToCallAFinishEngine(t *testing.T) {
+	rt := reflect.TypeOf(Runner{})
+	for i := 0; i < rt.NumField(); i++ {
+		if n := rt.Field(i).Name; n != "Config" && n != "Sink" {
+			t.Errorf("Runner has a field %q besides the config and the sink", n)
+		}
 	}
 }
 
-func TestRunnerNoAuditNoRequest(t *testing.T) {
-	f := &fakeFinish{out: Outcome{Accepted: true}}
-	_, err := (Runner{Finish: f, Sink: &fakeSink{err: errors.New("disk")}}).Step(context.Background(), good())
-	if !errors.Is(err, ErrAudit) || f.calls != 0 {
-		t.Fatalf("err=%v calls=%d", err, f.calls)
+func TestRunnerNoAuditSurfacesAndIsNotRetried(t *testing.T) {
+	_, err := (Runner{Sink: &fakeSink{err: errors.New("disk")}}).Step(context.Background(), good())
+	if !errors.Is(err, ErrAudit) {
+		t.Fatalf("err=%v", err)
 	}
-	if _, err = (Runner{Finish: f}).Step(context.Background(), good()); !errors.Is(err, ErrAudit) || f.calls != 0 {
-		t.Fatalf("nil sink: err=%v calls=%d", err, f.calls)
+	if _, err = (Runner{}).Step(context.Background(), good()); !errors.Is(err, ErrAudit) {
+		t.Fatalf("nil sink: err=%v", err)
 	}
 }
 
 func TestRunnerGiveUpNotifiesOnce(t *testing.T) {
-	f, s := &fakeFinish{}, &fakeSink{}
+	s := &fakeSink{}
 	st := good()
 	st.ParkedRounds = types.MaxParkedFinishRounds
-	r := Runner{Finish: f, Sink: s}
+	r := Runner{Sink: s}
 	if d, err := r.Step(context.Background(), st); err != nil || d.Action != ActionGiveUp {
 		t.Fatalf("%v %v", d, err)
 	}
@@ -207,23 +212,16 @@ func TestRunnerGiveUpNotifiesOnce(t *testing.T) {
 	if _, err := r.Step(context.Background(), st); err != nil {
 		t.Fatal(err)
 	}
-	if len(s.kinds) != 1 || s.kinds[0] != types.KindFinishGaveUp || f.calls != 0 {
-		t.Fatalf("lines %v calls %d", s.kinds, f.calls)
+	if len(s.kinds) != 1 || s.kinds[0] != types.KindFinishGaveUp {
+		t.Fatalf("lines %v", s.kinds)
 	}
 }
 
-func TestRunnerEngineErrorSurfaces(t *testing.T) {
-	f := &fakeFinish{err: errors.New("boom")}
-	if _, err := (Runner{Finish: f, Sink: &fakeSink{}}).Step(context.Background(), good()); err == nil {
-		t.Fatal("want error")
-	}
-}
-
-func TestRunnerCancelledContextAsksNothing(t *testing.T) {
+func TestRunnerCancelledContextWritesNothing(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	f := &fakeFinish{}
-	if _, err := (Runner{Finish: f, Sink: &fakeSink{}}).Step(ctx, good()); err == nil || f.calls != 0 {
-		t.Fatalf("err=%v calls=%d", err, f.calls)
+	s := &fakeSink{}
+	if _, err := (Runner{Sink: s}).Step(ctx, good()); err == nil || len(s.kinds) != 0 {
+		t.Fatalf("err=%v lines=%v", err, s.kinds)
 	}
 }

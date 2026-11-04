@@ -38,6 +38,8 @@ func init() {
 	mcp.SetBossFinishBeginner(bossFinishBeginner)
 	// The strategy layer: its two session-callable operations as boss tools, and its read-only verbs.
 	mcp.SetBossStrategyCaller(bossStrategyOp)
+	// The boss's read-only reading of the strategy layer's finish-ready marker; the boss then calls finish.begin itself.
+	mcp.SetBossFinishReadyReader(bossFinishReady)
 	doomsdayStrategyReader = strategyReaderFor
 	doomsdayEngine = func(cfg *globalConfig) doomsdaycli.Engine {
 		db, err := initDB(cfg)

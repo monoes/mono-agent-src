@@ -166,10 +166,8 @@ type StrategyHostDeps struct {
 	Epoch  epoch.Config  // Profile and Generation are set by the host
 	Policy policy.Config // MaxJudgmentAge
 
-	// Finish is FinishEngine.FinishBegin. Nil means strategy never requests a finish.
-	Finish func(ctx context.Context) (BeginReport, error)
 	// SubjectChangedAt is the last change of the verified subject (a new freeze or a new subject digest). Nil means it
-	// cannot be told, and then no finish is ever requested (an unknown time is read as stale, which fails closed).
+	// cannot be told, and then the run never reads as ready (an unknown time fails closed).
 	SubjectChangedAt func(ctx context.Context, generation int64) (time.Time, error)
 
 	// Optional sources. Nil means the corresponding trigger never fires.
@@ -194,15 +192,15 @@ type StrategyHost struct {
 	gen    *genState // owned by Tick
 }
 
-// genState is the in-memory state of one generation. A restart rebuilds it from the database (see syncGen).
+// genState is the in-memory state of one generation. A restart rebuilds it from the database (see syncGen). Nothing in it
+// is authority or the only copy of a fact: the parked rounds and the give-up come from the epochs table and the audit
+// chain on every step, and readyTried only keeps the ready marker from being written twice in one process.
 type genState struct {
-	gen          int64
-	engine       *epoch.Engine
-	parks        int
-	lastParkedAt time.Time
-	gaveUp       bool
-	finishing    bool
-	parked       bool
+	gen        int64
+	engine     *epoch.Engine
+	readyTried int64 // the epoch whose ready marker was last attempted (written or failed): no retry loop
+	gaveUpSent bool  // the give-up line was attempted in this process: no retry loop on a failing write
+	parked     bool
 }
 
 // NewStrategyHost validates the dependencies and builds the host. It reads and writes nothing.
@@ -249,13 +247,12 @@ type HostTick struct {
 	Generation int64
 	Idle       string // "no-run" or "parked" when nothing was done
 	Epoch      *epoch.TickResult
-	Decision   *policy.Decision
-	Finish     *policy.Outcome // the finish engine's answer, when a finish was requested
+	Decision   *policy.Decision // the reading of the finish-ready policy; a marker may have been recorded, nothing was asked
 }
 
-// Tick advances the strategy layer by at most one epoch step and one finish-policy step. With no open run it does
-// nothing. After a Stop it only lets the engine close an unfinished epoch as abandoned; no finish is ever requested for
-// a run that is not running. A stored row that fails its MAC parks the strategy for that generation (not the run).
+// Tick advances the strategy layer by at most one epoch step and one finish-ready step. With no open run it does
+// nothing. After a Stop it only lets the engine close an unfinished epoch as abandoned; nothing else is written. The tick
+// never begins, requests or approves a finish: the finish-ready step reads the tables and may record one marker. A stored row that fails its MAC parks the strategy for that generation (not the run).
 func (h *StrategyHost) Tick(ctx context.Context) (HostTick, error) {
 	if h.opsOnly {
 		return HostTick{Idle: "no-run"}, errors.New("strategy host: this host takes operations only")
@@ -290,8 +287,8 @@ func (h *StrategyHost) Tick(ctx context.Context) (HostTick, error) {
 	if res.Outcome == epoch.OutcomeInert || !run.Running {
 		return out, nil
 	}
-	dec, fo, serr := h.finishStep(ctx, gs, run)
-	out.Decision, out.Finish = dec, fo
+	dec, serr := h.finishStep(ctx, gs, run)
+	out.Decision = dec
 	if serr != nil && errors.Is(serr, sstore.ErrTampered) {
 		return out, h.noteTamper(ctx, gs, run, serr)
 	}
@@ -318,16 +315,6 @@ func (h *StrategyHost) syncGen(ctx context.Context, run StrategyRun) (*genState,
 		return h.gen, nil
 	}
 	gs := &genState{gen: run.Generation}
-	eps, err := h.store.ListEpochs(ctx, h.d.Profile, run.Generation)
-	if err != nil {
-		return nil, err
-	}
-	for _, e := range eps {
-		if e.Trigger == types.TriggerFinishParked {
-			gs.parks++
-			gs.lastParkedAt = time.Unix(e.StartedAt, 0) // the park preceded the epoch it triggered
-		}
-	}
 	cfg := h.d.Epoch
 	cfg.Profile, cfg.Generation = h.d.Profile, run.Generation
 	model := h.d.Model
@@ -372,7 +359,11 @@ func (in hostInputs) Snapshot(ctx context.Context) (epoch.Snapshot, error) {
 			last[c.ID] = c.Status
 		}
 	}
-	snap := epoch.Snapshot{FinishParks: in.gs.parks}
+	rounds, err := h.finishRounds(ctx, run.Generation)
+	if err != nil {
+		return epoch.Snapshot{}, err
+	}
+	snap := epoch.Snapshot{FinishParks: rounds}
 	for _, c := range run.Criteria {
 		snap.Criteria = append(snap.Criteria, judge.CriterionInput{ID: c.ID, Text: c.Text, LastStatus: last[c.ID]})
 	}
@@ -393,7 +384,42 @@ func (in hostInputs) Snapshot(ctx context.Context) (epoch.Snapshot, error) {
 	return snap, nil
 }
 
-// latestJudgment is the newest judgment that is not a bad one, with its epoch.
+// finishRounds is how many times the FINISH ENGINE's own record shows a finish that did not go through: parked rounds and
+// refused begin attempts of the boss, counted from the audit chain (read-only; nothing is asked of the engine).
+func (h *StrategyHost) finishRounds(ctx context.Context, gen int64) (int, error) {
+	return h.ready().auditCount(ctx, gen, `kind IN ('finish.park', ?)`, KindFinishDenied)
+}
+
+func (h *StrategyHost) ready() readyCalc {
+	return readyCalc{st: h.store, db: h.d.DB, profile: h.d.Profile, cfg: h.d.Policy, now: h.d.Clock.Now, subject: h.d.SubjectChangedAt, runs: h.d.Runs}
+}
+
+// finishStep reads the finish-ready state from the tables and records the marker. It calls nobody: the host holds no finish
+// engine. The reading is host-derived (strategyready.go); only the per-criterion statuses of the judgment come from model
+// text.
+func (h *StrategyHost) finishStep(ctx context.Context, gs *genState, run StrategyRun) (*policy.Decision, error) {
+	st, err := h.ready().state(ctx, run)
+	if err != nil {
+		return nil, err
+	}
+	if gs.readyTried == st.EpochSeq && st.EpochSeq != 0 {
+		st.ReadyRecorded = true // attempted already in this process: at most one write per epoch, no retry loop
+	} else if h.d.Policy.Decide(st).Ready() {
+		gs.readyTried = st.EpochSeq
+	}
+	if gs.gaveUpSent {
+		st.GaveUpNotified = true
+	}
+	runner := policy.Runner{Config: h.d.Policy, Sink: h.policySink(run.Generation)}
+	dec, err := runner.Step(ctx, st)
+	if dec.Action == policy.ActionGiveUp {
+		gs.gaveUpSent = true
+	}
+	return &dec, err
+}
+
+// latestJudgment is the newest judgment that is not a bad one, with its epoch. It feeds the judge its own previous reading
+// of each criterion; the finish-ready reading does not use it (it asks the LATEST closed epoch, bad ones included).
 func (h *StrategyHost) latestJudgment(ctx context.Context, gen int64) (types.Judgment, types.Epoch, bool, error) {
 	eps, err := h.store.ListEpochs(ctx, h.d.Profile, gen)
 	if err != nil {
@@ -415,67 +441,4 @@ func (h *StrategyHost) latestJudgment(ctx context.Context, gen int64) (types.Jud
 		return j, e, true, nil
 	}
 	return types.Judgment{}, types.Epoch{}, false, nil
-}
-
-// finishStep builds the policy state from the database and lets the policy decide. The policy runs as the run's root
-// boss (only when a boss is recorded); it can only ask the finish engine to begin, and the engine decides.
-func (h *StrategyHost) finishStep(ctx context.Context, gs *genState, run StrategyRun) (*policy.Decision, *policy.Outcome, error) {
-	if h.d.Finish == nil || !run.HasBoss {
-		return nil, nil, nil
-	}
-	st := policy.State{RunRunning: run.Running, Caller: bossName(run.Boss), Boss: bossName(run.Boss), CriterionIDs: run.CriterionIDs(),
-		ParkedRounds: gs.parks, LastParkedAt: gs.lastParkedAt, FinishInProgress: gs.finishing, GaveUpNotified: gs.gaveUp, Now: h.d.Clock.Now()}
-	if j, e, found, err := h.latestJudgment(ctx, run.Generation); err != nil {
-		return nil, nil, err
-	} else if found {
-		st.Judgment, st.JudgmentAt = &j, time.Unix(e.StartedAt, 0)
-	}
-	if h.d.SubjectChangedAt != nil {
-		t, err := h.d.SubjectChangedAt(ctx, run.Generation)
-		if err != nil {
-			return nil, nil, fmt.Errorf("strategy host: subject time: %w", err)
-		}
-		st.SubjectChangedAt = t
-	} else {
-		st.JudgmentAt = time.Time{} // unknown subject time: the judgment is read as stale
-	}
-	var fo policy.Outcome
-	begin := FinishFromBegin(h.d.Finish)
-	runner := policy.Runner{Config: h.d.Policy, Sink: &countingSink{h: h, gs: gs, inner: h.policySink(run.Generation)},
-		Finish: policy.FinishFunc(func(ctx context.Context) (policy.Outcome, error) {
-			o, err := begin(ctx)
-			fo = o
-			return o, err
-		})}
-	dec, err := runner.Step(ctx, st)
-	switch dec.Action {
-	case policy.ActionGiveUp:
-		gs.gaveUp = err == nil
-	case policy.ActionRequest:
-		if err == nil && fo.Accepted {
-			gs.finishing = true
-		}
-		return &dec, &fo, err
-	}
-	return &dec, nil, err
-}
-
-func bossName(id int64) string { return fmt.Sprintf("session:%d", id) }
-
-// countingSink counts parked finish rounds as the policy records them.
-type countingSink struct {
-	h     *StrategyHost
-	gs    *genState
-	inner policy.Sink
-}
-
-func (c *countingSink) Record(ctx context.Context, kind, detail string) error {
-	if err := c.inner.Record(ctx, kind, detail); err != nil {
-		return err
-	}
-	if kind == types.KindFinishParked {
-		c.gs.parks++
-		c.gs.lastParkedAt = c.h.d.Clock.Now()
-	}
-	return nil
 }

@@ -89,6 +89,13 @@ const (
 	dirActive   = `UPDATE doomsday_strategy_directions SET state = 'active'`
 	dirStalled  = `UPDATE doomsday_strategy_directions SET state = 'stalled'`
 	epochJudged = `UPDATE doomsday_strategy_epochs SET state = 'judged'`
+
+	// REPLACE spellings: the conflict rule would delete the old row without any delete rule running.
+	replaceDir      = `INSERT OR REPLACE INTO doomsday_strategy_directions (profile, generation, direction_id, key_hash, title, state, mac) VALUES ('p', 1, 'd1', x'aa', 't', 'proposed', x'01')`
+	replaceDirByKey = `INSERT OR REPLACE INTO doomsday_strategy_directions (profile, generation, direction_id, key_hash, title, state, mac) VALUES ('p', 1, 'd2', x'aa', 't', 'proposed', x'01')`
+	replaceEpoch    = `INSERT OR REPLACE INTO doomsday_strategy_epochs (profile, generation, epoch_seq, trigger, started_at, state, mac) VALUES ('p', 1, 1, 'timer', 1, 'open', x'01')`
+	replaceJudg     = `INSERT OR REPLACE INTO doomsday_strategy_judgments (profile, generation, epoch_seq, body, body_hash, mac) VALUES ('p', 1, 1, '{"x":1}', x'cc', x'01')`
+	replaceNov      = `INSERT OR REPLACE INTO doomsday_strategy_novelty (novelty_id, profile, generation, epoch_seq, key_hash, outcome, mac) VALUES (1, 'p', 1, 1, x'ab', 'accepted', x'01')`
 )
 
 // The statements that remove rows are spelled without the literal keyword pair so that no shell-text gate trips on a
@@ -116,6 +123,13 @@ var trigCases = []trigCase{
 	{"epoch removed", "doomsday_strategy_epochs_no_delete", []string{runRow, epochRow}, removeFrom("doomsday_strategy_epochs"), "never deleted"},
 	{"epoch backwards", "doomsday_strategy_epochs_forward_only", []string{runRow, epochRow, epochJudged}, `UPDATE doomsday_strategy_epochs SET state = 'open'`, "forward only"},
 	{"epoch skipping judged", "doomsday_strategy_epochs_forward_only", []string{runRow, epochRow}, `UPDATE doomsday_strategy_epochs SET state = 'applied'`, "forward only"},
+	{"direction replaced back to proposed", "doomsday_strategy_directions_no_replace", []string{runRow, dirRow, dirActive}, replaceDir, "never replaced"},
+	{"direction replaced under another id by its key", "doomsday_strategy_directions_no_replace", []string{runRow, dirRow, dirActive}, replaceDirByKey, "never replaced"},
+	{"epoch replaced back to open", "doomsday_strategy_epochs_no_replace", []string{runRow, epochRow, epochJudged}, replaceEpoch, "never replaced"},
+	{"judgment body replaced", "doomsday_strategy_judgments_no_replace", []string{runRow, epochRow, judgRow}, replaceJudg, "never replaced"},
+	{"novelty row replaced by id", "doomsday_strategy_novelty_no_replace", []string{runRow, novRow}, replaceNov, "never replaced"},
+	{"direction moved after a stop", "doomsday_strategy_directions_forward_only", []string{runRow, dirRow, stopRun}, dirActive, "forward only"},
+	{"epoch judged after a stop", "doomsday_strategy_epochs_forward_only", []string{runRow, epochRow, stopRun}, epochJudged, "forward only"},
 	{"epoch trigger rewritten", "doomsday_strategy_epochs_forward_only", []string{runRow, epochRow}, `UPDATE doomsday_strategy_epochs SET trigger = 'new-evidence'`, "forward only"},
 	{"epoch judgment hash replaced", "doomsday_strategy_epochs_forward_only", []string{runRow, epochRow, `UPDATE doomsday_strategy_epochs SET state = 'judged', judgment_hash = x'01'`}, `UPDATE doomsday_strategy_epochs SET state = 'applied', judgment_hash = x'02'`, "forward only"},
 }
@@ -212,5 +226,20 @@ func TestMigration156LegalPathAndKeyUniqueness(t *testing.T) {
 	}
 	if _, err := db.DB.Exec(`INSERT INTO doomsday_runs (profile, generation, charter_id, state, mac) VALUES ('p', 2, 'c2', 'running', x'01')`); err == nil {
 		t.Fatal("a second active run for the profile was accepted (the 153 index is gone)")
+	}
+}
+
+// A Stop closes every move but one: an epoch left unfinished can still be closed as abandoned, and nothing else moves.
+func TestMigration156AfterAStopOnlyAbandoningAnEpochIsLeft(t *testing.T) {
+	db := open156(t)
+	if err := db.ApplyMigrations(); err != nil {
+		t.Fatal(err)
+	}
+	applyAll(t, db, []string{runRow, dirRow, epochRow, stopRun})
+	if _, err := db.DB.Exec(dirActive); err == nil {
+		t.Fatal("a direction moved after the stop")
+	}
+	if _, err := db.DB.Exec(`UPDATE doomsday_strategy_epochs SET state = 'abandoned', mac = x'03'`); err != nil {
+		t.Fatalf("closing an unfinished epoch after the stop: %v", err)
 	}
 }

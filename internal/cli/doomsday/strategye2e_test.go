@@ -15,7 +15,6 @@ import (
 	"github.com/monoes/mono-agent/internal/doomsday/stop"
 	"github.com/monoes/mono-agent/internal/doomsday/store"
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/epoch"
-	"github.com/monoes/mono-agent/internal/doomsday/strategy/judge"
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/novelty"
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/types"
 	"github.com/monoes/mono-agent/internal/monomind"
@@ -61,14 +60,26 @@ func (f *fakeJudge) exec(_ context.Context, opts monomind.ExecOptions, _ func(mo
 	return &monomind.TurnResult{SawDone: true, ResultText: string(b)}, nil
 }
 
+// fakeStopClock gives the read-only readers the rig's clock (their production clock is the wiring's).
+type fakeStopClock struct{ c *epoch.FakeClock }
+
+func (f fakeStopClock) Now() time.Time                       { return f.c.Now() }
+func (f fakeStopClock) After(time.Duration) <-chan time.Time { return make(chan time.Time) }
+
+// wiring is the rig's wiring with the rig's clock, for the readers that tell the age of a judgment.
+func (r *stratRig) wiring() Wiring {
+	w := r.w
+	w.Clock = fakeStopClock{r.clock}
+	return w
+}
+
 type stratRig struct {
 	*finRig
-	top    int64
-	clock  *epoch.FakeClock
-	judge  *fakeJudge
-	host   *StrategyHost
-	deps   StrategyHostDeps
-	begins int
+	top   int64
+	clock *epoch.FakeClock
+	judge *fakeJudge
+	host  *StrategyHost
+	deps  StrategyHostDeps
 }
 
 func noHits(context.Context, string) ([]novelty.Hit, error) { return nil, nil }
@@ -84,8 +95,7 @@ func newStratRig(t *testing.T, charter string, mut func(*StrategyHostDeps)) *str
 	if err := fr.boss(t, r.top); err != nil {
 		t.Fatal(err)
 	}
-	d, err := fr.w.StrategyHostDeps(bg, StrategyExtras{JudgeExec: r.judge.exec, Clock: r.clock, Similar: noHits,
-		Finish: func(ctx context.Context) (BeginReport, error) { r.begins++; return fr.fe.FinishBegin(ctx) }})
+	d, err := fr.w.StrategyHostDeps(bg, StrategyExtras{JudgeExec: r.judge.exec, Clock: r.clock, Similar: noHits})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,6 +137,22 @@ func (r *stratRig) count(t *testing.T, q string, args ...any) int {
 	return n
 }
 
+// notFinished: the run is still running and nothing finish-related was written by anybody: no finish row, no stop intent.
+// The strategy layer holds no finish engine, so this is what "it never began one" looks like in the database.
+func (r *stratRig) notFinished(t *testing.T) {
+	t.Helper()
+	if run, _ := r.w.Store.GetRun(bg, "p1", 1); run.State != store.StateRunning {
+		t.Fatalf("the run is %s", run.State)
+	}
+	if n := r.count(t, `SELECT COUNT(*) FROM doomsday_audit WHERE profile='p1' AND generation=1 AND (kind LIKE 'finish.%' OR kind = ?)`, KindFinishDenied); n != 0 {
+		t.Fatalf("%d finish rows exist, nobody asked for a finish", n)
+	}
+}
+
+func (r *stratRig) ready(t *testing.T) int {
+	return r.count(t, `SELECT COUNT(*) FROM doomsday_audit WHERE profile='p1' AND generation=1 AND kind=?`, types.KindFinishReady)
+}
+
 func (r *stratRig) strategyRows(t *testing.T) int {
 	return r.count(t, `SELECT COUNT(*) FROM doomsday_audit WHERE profile = 'p1' AND generation = 1 AND kind LIKE 'strategy.%'`)
 }
@@ -165,39 +191,14 @@ func (r *stratRig) witnessAccepts(t *testing.T) {
 	}
 }
 
-// More than five strategy rows and a finish request on a live witness: the chain verifies, the witness accepts every
+// More than five strategy rows and a ready marker on a live witness: the chain verifies, the witness accepts every
 // transition, and a writer that bypassed the witness (the mutant: the strategy store run without its sequencer) is caught
-// at the next admission as row 5. A proposal is two rows in one transition, so the pending range covers both.
-func TestStrategyRowsAndAFinishRequestAreWitnessed(t *testing.T) {
-	r := newStratRig(t, finishCharterJSON, nil)
-	for _, title := range []string{"index the corpus first", "write the migration script", "add a smoke test"} {
-		if res, err := r.propose(t, title); err != nil || !res.Accepted {
-			t.Fatalf("propose %q: %+v %v", title, res, err)
-		}
-	}
-	r.witnessAccepts(t)
-	r.judge.set(types.CritPlausiblyMet)
-	tk := r.tickAfter(t, 31*time.Minute)
-	if tk.Epoch == nil || tk.Epoch.Outcome != epoch.OutcomeApplied || tk.Decision == nil || tk.Decision.Action != "request" || tk.Finish == nil || !tk.Finish.Accepted {
-		t.Fatalf("tick %+v epoch %+v decision %+v finish %+v", tk, tk.Epoch, tk.Decision, tk.Finish)
-	}
-	if n := r.strategyRows(t); n <= 5 {
-		t.Fatalf("only %d strategy rows", n)
-	}
-	for _, kind := range []string{types.KindProposal, types.KindNovelty, types.KindEpochBegin, types.KindJudgment, types.KindFinishRequested} {
-		if r.count(t, `SELECT COUNT(*) FROM doomsday_audit WHERE profile='p1' AND generation=1 AND kind=?`, kind) == 0 {
-			t.Errorf("no %s row", kind)
-		}
-	}
-	if run, _ := r.w.Store.GetRun(bg, "p1", 1); run.State != store.StateQuiescent || run.Cause != store.FinishCause {
-		t.Fatalf("the finish was not begun: %+v", run)
-	}
-	r.witnessAccepts(t)
-	if r.count(t, `SELECT COUNT(*) FROM doomsday_audit WHERE profile='p1' AND generation=1 AND kind LIKE 'finish.%'`) != 0 && r.begins != 1 {
-		t.Fatalf("finish begins = %d", r.begins)
-	}
-}
-
+// at the next admission as row 5. A proposal is two rows in one transition, so the pending range covers both. The marker is
+// all the strategy layer does about a finish: the run keeps running and the boss decides.
+// The marker is written once per judged epoch: more ticks on the same epoch, and a restarted host, write nothing more.
+// countSeq counts the witnessed transitions the host starts.
+// A marker write that fails is not retried tick after tick (the 17k-rows-a-day shape of a retry loop): one attempt per
+// epoch in a process, whatever the failure, and the failure is a plain error, not a parked run.
 // A chained row written outside the witnessed sequence is the unwitnessed writer: the next admission fails closed at row 5.
 // This pins that the test above can tell the difference.
 func TestAnUnwitnessedStrategyRowFailsTheGenerationClosed(t *testing.T) {
@@ -237,9 +238,10 @@ func TestStrategyEpochAndABadJudgmentChangesNothing(t *testing.T) {
 		r.count(t, `SELECT COUNT(*) FROM doomsday_strategy_judgments`) != 0 {
 		t.Fatal("the bad judgment was not recorded as a bad-judgment epoch without a stored judgment")
 	}
-	if r.count(t, `SELECT COUNT(*) FROM doomsday_strategy_directions WHERE state = 'proposed'`) != before || r.begins != 0 {
-		t.Fatal("a bad judgment changed a direction or asked for a finish")
+	if r.count(t, `SELECT COUNT(*) FROM doomsday_strategy_directions WHERE state = 'proposed'`) != before || r.ready(t) != 0 {
+		t.Fatal("a bad judgment changed a direction or marked the run ready")
 	}
+	r.notFinished(t)
 	if again := r.tickAfter(t, time.Minute); again.Epoch.Outcome != epoch.OutcomeIdle || r.judge.n() != 1 {
 		t.Fatalf("a second judging inside the floor: %+v, calls %d", again.Epoch, r.judge.n())
 	}
@@ -304,72 +306,13 @@ func TestStrategyProposalNoveltyOnTheRealStack(t *testing.T) {
 	r.witnessAccepts(t)
 }
 
-// A4/A5 on the real finish engine: the finish is begun only by the strategy host for the recorded boss, from a fresh judgment
-// in which every criterion is plausibly met; any other judgment, a missing boss and a charter without criteria never begin
-// it, and the run stays running.
-func TestStrategyNeverBeginsAFinishWithoutAFreshAllMetJudgmentAndABoss(t *testing.T) {
-	for _, c := range []struct {
-		name   string
-		status types.CriterionStatus
-		boss   bool
-	}{
-		{"progressing", types.CritProgressing, true},
-		{"regressed", types.CritRegressed, true},
-		{"not started", types.CritNotStarted, true},
-		{"all met but no boss recorded", types.CritPlausiblyMet, false},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			r := newStratRig(t, finishCharterJSON, func(d *StrategyHostDeps) {
-				if !c.boss {
-					inner := d.Runs
-					d.Runs = noBoss{inner}
-				}
-			})
-			r.judge.set(c.status)
-			r.tickAfter(t, 31*time.Minute)
-			if r.begins != 0 {
-				t.Fatalf("the finish was requested")
-			}
-			if run, _ := r.w.Store.GetRun(bg, "p1", 1); run.State != store.StateRunning {
-				t.Fatalf("the run is %s", run.State)
-			}
-		})
-	}
-	t.Run("a charter with no criteria", func(t *testing.T) {
-		r := newStratRig(t, goodCharter, nil)
-		r.judge.set(types.CritPlausiblyMet)
-		r.tickAfter(t, 31*time.Minute)
-		if r.begins != 0 {
-			t.Fatal("a charter with no criteria requested a finish")
-		}
-	})
-	t.Run("a stale judgment", func(t *testing.T) {
-		r := newStratRig(t, finishCharterJSON, nil)
-		r.judge.set(types.CritPlausiblyMet)
-		r.deps.SubjectChangedAt = nil // an unknown subject time reads as stale
-		h, err := NewStrategyHost(r.deps)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, _ = h.Tick(bg)
-		r.clock.Advance(31 * time.Minute)
-		if _, err := h.Tick(bg); err != nil {
-			t.Fatal(err)
-		}
-		if r.begins != 0 {
-			t.Fatal("a judgment of unknown freshness requested a finish")
-		}
-	})
-}
-
-type noBoss struct{ StrategyRunSource }
-
-func (n noBoss) Current(ctx context.Context) (StrategyRun, bool, error) {
-	run, ok, err := n.StrategyRunSource.Current(ctx)
-	run.Boss, run.HasBoss = 0, false
-	return run, ok, err
-}
-
+// A4/A5 on the real stack: the run reads as ready, and the marker is written, only from a fresh judgment in which every
+// criterion is plausibly met; any other judgment, an unknown subject time and a charter without criteria never mark it,
+// and in no case does anything begin a finish: the run stays running with no finish row. The first case is the positive
+// control that proves the table can reach a marker at all.
+// A later bad judgment, a later reading that is not all met, a stale judgment and a direction proposed after the judgment
+// each CLEAR the ready reading: it is true only while the LATEST judged epoch is the fresh all-met one that saw every open
+// direction.
 // No model-callable path can request, approve or begin a finish through strategy: the strategy operations refuse every
 // other name, the internal one has no session entry, the typed allowlist of approvals does not list them, and only the
 // recorded boss's tree may call at all. Nothing changes on a refusal.
@@ -409,11 +352,17 @@ func TestNoSessionCallablePathRequestsApprovesOrBeginsAFinishThroughStrategy(t *
 	if _, err := r.w.BossStrategy(bg, r.top, ops.OpStrategyPropose, json.RawMessage(`{"title":"t","rationale":"r","criteria":["c0"],"finish":true}`)); !errors.Is(err, ops.ErrBadArguments) {
 		t.Errorf("an unknown field: %v", err)
 	}
-	if after := r.count(t, `SELECT COUNT(*) FROM doomsday_audit`); after != before || r.begins != 0 {
-		t.Fatalf("a refused call wrote %d rows, begins %d", after-before, r.begins)
+	if after := r.count(t, `SELECT COUNT(*) FROM doomsday_audit`); after != before {
+		t.Fatalf("a refused call wrote %d rows", after-before)
 	}
+	r.notFinished(t)
 }
 
+// The strategy host never calls any FinishBegin, and has nothing to call one with. Two proofs. Structure: the production
+// strategy files name no finish engine, no BeginFinish and no FinishBegin, and neither the host's dependencies nor the
+// extras carry a function that returns a BeginReport (the seam the old design injected). Behaviour: a whole run of
+// the host (every epoch, an all-met judgment, a ready marker, a give-up, a restart) leaves the run running and writes no
+// finish row, no stop intent and no refusal; the only way a finish begins is the boss's call (the control at the end).
 // A6: after a Stop nothing new is written (no proposal, no epoch, no judge call, no finish request) and the epoch left open
 // is closed as abandoned, even though the run has already quiesced between two ticks.
 func TestStrategyAfterStopWritesNothingNewAndAbandonsOpenEpochs(t *testing.T) {
@@ -437,8 +386,8 @@ func TestStrategyAfterStopWritesNothingNewAndAbandonsOpenEpochs(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		r.tickAfter(t, 40*time.Minute)
 	}
-	if r.judge.n() != calls || r.begins != 0 {
-		t.Fatalf("judge calls %d -> %d, begins %d", calls, r.judge.n(), r.begins)
+	if r.judge.n() != calls || r.ready(t) != 0 {
+		t.Fatalf("judge calls %d -> %d, ready markers %d", calls, r.judge.n(), r.ready(t))
 	}
 	ep, err := r.host.store.GetEpoch(bg, "p1", 1, 1)
 	if err != nil || ep.State != types.EpochAbandoned {
@@ -492,39 +441,10 @@ func TestStrategyRestartResumesWithoutDoubleJudging(t *testing.T) {
 	r.witnessAccepts(t)
 }
 
-// A8: the sixth parked round does not request again: five requests, each refused by the finish engine and parked, then the
-// layer gives up once and goes on working; the status verb shows the five rounds.
-func TestStrategyStopsRequestingAfterFiveParkedRounds(t *testing.T) {
-	refusals := 0
-	r := newStratRig(t, finishCharterJSON, func(d *StrategyHostDeps) {
-		d.Finish = func(context.Context) (BeginReport, error) {
-			refusals++
-			return BeginReport{Refused: "a person item is open"}, nil
-		}
-	})
-	r.judge.set(types.CritPlausiblyMet)
-	for i := 0; i < 8; i++ {
-		r.tickAfter(t, 31*time.Minute)
-	}
-	if refusals != types.MaxParkedFinishRounds {
-		t.Fatalf("the finish was requested %d times, want %d", refusals, types.MaxParkedFinishRounds)
-	}
-	if r.count(t, `SELECT COUNT(*) FROM doomsday_audit WHERE profile='p1' AND generation=1 AND kind=?`, types.KindFinishGaveUp) != 1 {
-		t.Fatal("the operator was not told exactly once")
-	}
-	if run, _ := r.w.Store.GetRun(bg, "p1", 1); run.State != store.StateRunning {
-		t.Fatalf("the run is %s", run.State)
-	}
-	if r.judge.n() < 8 { // epochs go on: the layer keeps judging while it no longer asks
-		t.Fatalf("judge calls %d", r.judge.n())
-	}
-	v, err := r.w.StrategyReader(r.w.DB, r.w.Witness.Keys).ReadStatus(bg, 0)
-	if err != nil || v.ParkedFinish != types.MaxParkedFinishRounds {
-		t.Fatalf("%+v %v", v, err)
-	}
-	r.witnessAccepts(t)
-}
-
+// A8: the give-up. The parked rounds are the FINISH ENGINE's own record (the boss's begin attempts that were refused),
+// read from the audit chain; each new one opens one epoch, five are the bound, and then the layer stops marking, tells the
+// operator exactly once and goes on judging. The give-up survives a restart: a new host neither repeats the line nor
+// forgets the rounds. The strategy layer asks the engine for none of it.
 func TestStrategyOpsHostNeverTicks(t *testing.T) {
 	r := newStratRig(t, finishCharterJSON, nil)
 	h, err := NewStrategyOpsHost(r.deps)
@@ -546,47 +466,4 @@ func TestStrategyHostRefusesToExistWithoutAWitnessedSequence(t *testing.T) {
 	if _, err := NewStrategyOpsHost(d); err == nil {
 		t.Fatal("an ops host without a sequencer was built")
 	}
-}
-
-// The judge is the charter's boss pin run through the product's runner with one turn and no tools; it can never be the
-// finish verifier's pin (the independence rule), and a run with no pin has no judge.
-func TestStrategyJudgeModelIsTheBossPinAndNeverTheVerifier(t *testing.T) {
-	var got monomind.ExecOptions
-	x := StrategyExtras{JudgeExec: func(_ context.Context, o monomind.ExecOptions, _ func(monomind.Event)) (*monomind.TurnResult, error) {
-		got = o
-		return &monomind.TurnResult{SawDone: true, ResultText: "{}"}, nil
-	}}
-	r := newStratRig(t, finishCharterJSON, nil)
-	d, err := r.w.StrategyHostDeps(bg, x)
-	if err != nil {
-		t.Fatal(err)
-	}
-	run, ok, err := d.Runs.Current(bg)
-	if err != nil || !ok {
-		t.Fatal(ok, err)
-	}
-	m := d.ModelFor(run)
-	if m == nil || m.Pin() != "p/m@1" || run.Verifier.String() != "p/v@2" {
-		t.Fatalf("pin %v, verifier %v", m, run.Verifier)
-	}
-	if _, err := m.Complete(bg, judgeRequest("sys", "user")); err != nil {
-		t.Fatal(err)
-	}
-	if got.Runtime != "p" || got.Model != "m" || got.MaxTurns != 1 || got.Sandbox != monomind.TurnSandboxMode || got.Prompt != "user" || got.SystemPrompt != "sys" {
-		t.Fatalf("%+v", got)
-	}
-	refuse := d.RefuseFor(run)
-	if refuse(run.Judge.String()) || !refuse(run.Verifier.String()) {
-		t.Fatal("the independence rule does not separate the judge from the verifier")
-	}
-	if d.ModelFor(StrategyRun{}) != nil {
-		t.Fatal("a run with no pin got a judge")
-	}
-	if !d.RefuseFor(StrategyRun{})("anything") {
-		t.Fatal("a run with no verifier pin must refuse every judge")
-	}
-}
-
-func judgeRequest(system, user string) judge.Request {
-	return judge.Request{System: system, User: user, MaxBytes: 1024}
 }

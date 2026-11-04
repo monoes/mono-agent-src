@@ -161,3 +161,19 @@ func TestImportsStayNarrow(t *testing.T) {
 		}
 	}
 }
+
+// The only variable text the judge sees is capped by the host: a title far past its cap and a criterion text far past the
+// field cap are cut in the prompt, whoever wrote them.
+func TestPromptClipsTitlesAndCriterionText(t *testing.T) {
+	long := strings.Repeat("A", 5000)
+	req, err := BuildPrompt(Input{
+		Criteria:   []CriterionInput{{ID: "c1", Text: long}},
+		Directions: []DirectionInput{{ID: "d1", Title: long, State: types.DirActive}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(req.User, "A") > maxTitleLen+MaxFieldText {
+		t.Fatalf("%d untrusted bytes reached the prompt", strings.Count(req.User, "A"))
+	}
+}

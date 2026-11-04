@@ -76,6 +76,7 @@ func bossTools() []tool {
 			}, "request_id", "amount_usd"),
 		},
 		bossFinishTool(),
+		bossFinishReadyTool(),
 	}, bossStrategyTools()...)
 }
 

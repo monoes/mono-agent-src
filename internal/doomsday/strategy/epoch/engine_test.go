@@ -458,3 +458,39 @@ func TestNoGoroutinesNoInitNoForbiddenImports(t *testing.T) {
 		}
 	}
 }
+
+// seqRun answers Running from a script: the engine asks once at the top of a tick and once more just before it opens an
+// epoch (and once more after the judge). A Stop that lands between the first two must end the tick cleanly.
+type seqRun struct {
+	mu      sync.Mutex
+	answers []bool
+	asked   int
+}
+
+func (r *seqRun) Running(context.Context) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	i := r.asked
+	r.asked++
+	if i >= len(r.answers) {
+		return r.answers[len(r.answers)-1], nil
+	}
+	return r.answers[i], nil
+}
+
+// The run quiesces after the tick began and before the epoch is opened: nothing is inserted, no judge call is made, and
+// the result is the clean inert one (not an error from a refused write). The database trigger would refuse the insert too;
+// this is the engine's own check, which gives the quiet answer.
+func TestStopBetweenTheTriggerAndTheEpochInsertIsAQuietInert(t *testing.T) {
+	h := newHarness(t, nil)
+	h.deps.Run = &seqRun{answers: []bool{true, false}}
+	h.eng = h.newEngine()
+	h.clk.Advance(31 * time.Minute)
+	r, err := h.eng.Tick(context.Background())
+	if err != nil || r.Outcome != OutcomeInert || r.Held != HeldNotRunning {
+		t.Fatalf("%+v %v", r, err)
+	}
+	if h.st.inserts != 0 || h.jd.count() != 0 || len(h.st.epochs) != 0 {
+		t.Fatalf("inserts=%d judge=%d epochs=%d: something was written after the run quiesced", h.st.inserts, h.jd.count(), len(h.st.epochs))
+	}
+}

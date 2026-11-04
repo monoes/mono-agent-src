@@ -96,19 +96,20 @@ func TestPruningOnlyClosesTheDoorToNewWork(t *testing.T) {
 
 type fakeCorpus struct {
 	ledger map[[32]byte]string
-	down   bool
+	down   bool  // the memory and knowledge lookup is unreachable
+	own    error // the run's own ledger and direction lookups fail
 }
 
 func (c *fakeCorpus) LedgerKey(_ context.Context, k [32]byte) (novelty.Match, bool, error) {
-	if c.down {
-		return novelty.Match{}, false, errors.New("down")
+	if c.own != nil {
+		return novelty.Match{}, false, c.own
 	}
 	id, ok := c.ledger[k]
 	return novelty.Match{ID: id}, ok, nil
 }
 func (c *fakeCorpus) DirectionKey(context.Context, [32]byte) (novelty.Match, bool, error) {
-	if c.down {
-		return novelty.Match{}, false, errors.New("down")
+	if c.own != nil {
+		return novelty.Match{}, false, c.own
 	}
 	return novelty.Match{}, false, nil
 }
@@ -222,6 +223,20 @@ func TestSubmitCorpusDownAllowsOneUncheckedPerEpoch(t *testing.T) {
 	got, _, _ = p.Submit(context.Background(), 2, 1, []types.Proposal{prop("three")})
 	if got[0].Accepted() {
 		t.Fatal("the allowance carries across calls in one epoch")
+	}
+}
+
+// A tampered or unreadable ledger is not an unreachable corpus: the proposal is not taken in, nothing is stored, and the
+// tamper error reaches the caller so it can park the strategy.
+func TestSubmitTamperedLedgerIsAHardErrorNotAnUncheckedAcceptance(t *testing.T) {
+	l := &fakeLedger{}
+	p := newProposer(t, &fakeCorpus{own: sstore.ErrTampered}, l, runState{ok: true})
+	got, unchecked, err := p.Submit(context.Background(), 2, 0, []types.Proposal{prop("one")})
+	if err != nil || got[0].Accepted() || got[0].Outcome != "" || !errors.Is(got[0].Err, sstore.ErrTampered) || unchecked != 0 {
+		t.Fatalf("%+v %d %v", got[0], unchecked, err)
+	}
+	if len(l.accepted)+len(l.refusals) != 0 {
+		t.Fatal("something was stored")
 	}
 }
 

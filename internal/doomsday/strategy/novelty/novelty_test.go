@@ -110,8 +110,6 @@ func TestThresholdBoundary(t *testing.T) {
 
 func TestUncheckedAllowanceIsOnePerEpoch(t *testing.T) {
 	for _, mk := range []func(*fakeCorpus){
-		func(f *fakeCorpus) { f.ledgerErr = errors.New("down") },
-		func(f *fakeCorpus) { f.dirErr = errors.New("down") },
 		func(f *fakeCorpus) { f.simErr = errors.New("down") },
 	} {
 		f := newFake()
@@ -219,5 +217,28 @@ func TestOversizeTitleCostsNothing(t *testing.T) {
 	res, _ := c.Check(context.Background(), []types.Proposal{{Title: string(big)}}, 0)
 	if res[0].Err != ErrTooLong || f.calls != 0 {
 		t.Fatalf("%+v calls=%d", res[0], f.calls)
+	}
+}
+
+// A failure of the run's own ledger or direction lookup is not "corpus unavailable": it is a hard error, nothing is
+// accepted unchecked, and the cause (a tamper error among them) stays findable.
+func TestAFailedLedgerOrDirectionLookupIsAHardErrorNotUnchecked(t *testing.T) {
+	tamper := errors.New("a stored row failed verification")
+	for name, mk := range map[string]func(*fakeCorpus){
+		"ledger":    func(f *fakeCorpus) { f.ledgerErr = tamper },
+		"direction": func(f *fakeCorpus) { f.dirErr = tamper },
+	} {
+		f := newFake()
+		mk(f)
+		c, _ := New(f, 0)
+		res, u := c.Check(context.Background(), []types.Proposal{{Title: "one idea"}, {Title: "other thing"}}, 0)
+		for i, r := range res {
+			if r.Outcome != "" || !errors.Is(r.Err, ErrLookup) || !errors.Is(r.Err, tamper) {
+				t.Fatalf("%s %d: %+v", name, i, r)
+			}
+		}
+		if u != 0 {
+			t.Fatalf("%s: the unchecked allowance was spent (%d)", name, u)
+		}
 	}
 }

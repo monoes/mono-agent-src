@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Typed errors. Callers match with errors.Is / errors.As; none of them carries row content.
@@ -125,24 +126,65 @@ func (s *Store) verify(canonical, stored []byte) error {
 	return nil
 }
 
-// inTx runs fn in one transaction: commit on nil, rollback otherwise. gen and rows name the chained rows the transaction
-// writes, for the sequencer.
+// MaxBusyRetries bounds how often a whole write transaction is run again after SQLite refused it as busy.
+const MaxBusyRetries = 3
+
+// busyBackoff is the pause before a retry (a variable so a test can make it zero).
+var busyBackoff = 25 * time.Millisecond
+
+// isBusy: SQLite's busy and locked answers, among them SQLITE_BUSY_SNAPSHOT (517), which busy_timeout does not wait out
+// (a deferred transaction that read, then found the database changed, can only start again).
+func isBusy(err error) bool {
+	if err == nil {
+		return false
+	}
+	m := strings.ToLower(err.Error())
+	return strings.Contains(m, "database is locked") || strings.Contains(m, "sqlite_busy") || strings.Contains(m, "database table is locked")
+}
+
+// inTx runs fn in one transaction: commit on nil, rollback otherwise (also when fn panics: the deferred rollback frees
+// the write lock before the panic travels on to the loop's recover). A busy refusal runs the WHOLE transaction again, at
+// most MaxBusyRetries times; fn is therefore written so that a second run starts from the database, not from its own
+// earlier attempt. gen and rows name the chained rows the transaction writes, for the sequencer; the retries happen
+// inside one witnessed transition.
 func (s *Store) inTx(ctx context.Context, gen int64, rows int, fn func(Tx) error) error {
 	run := func(ctx context.Context) error {
-		tx, err := s.db.Begin(ctx)
-		if err != nil {
-			return err
+		var err error
+		for attempt := 0; attempt <= MaxBusyRetries; attempt++ {
+			if err = s.attempt(ctx, fn); !isBusy(err) {
+				return err
+			}
+			select {
+			case <-ctx.Done():
+				return err
+			case <-time.After(time.Duration(attempt+1) * busyBackoff):
+			}
 		}
-		if err := fn(tx); err != nil {
-			_ = tx.Rollback()
-			return err
-		}
-		return tx.Commit()
+		return err
 	}
 	if s.seq == nil {
 		return run(ctx)
 	}
 	return s.seq.SequenceRows(ctx, gen, "strategy", rows, run)
+}
+
+func (s *Store) attempt(ctx context.Context, fn func(Tx) error) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	done := false
+	defer func() {
+		if !done {
+			_ = tx.Rollback()
+		}
+	}()
+	if err := fn(tx); err != nil {
+		return err
+	}
+	err = tx.Commit()
+	done = err == nil
+	return err
 }
 
 func (s *Store) appendAudit(ctx context.Context, tx Tx, profile string, gen int64, kind, payload string) error {
@@ -152,8 +194,8 @@ func (s *Store) appendAudit(ctx context.Context, tx Tx, profile string, gen int6
 	return nil
 }
 
-// requireRunning refuses unless the run is in state running. The database trigger refuses inserts too; moves are
-// updates, which the trigger does not cover, so this is the check that closes them after a Stop.
+// requireRunning refuses unless the run is in state running. The database triggers refuse inserts and moves after a Stop
+// too (migration 156); this check gives the typed error before the statement runs.
 func requireRunning(ctx context.Context, q Querier, profile string, gen int64) error {
 	var state string
 	err := q.QueryRowContext(ctx, `SELECT state FROM doomsday_runs WHERE profile = ? AND generation = ?`, profile, gen).Scan(&state)

@@ -3270,4 +3270,7 @@ function that does what the guarded one does), and it skips directories named `s
   The strategy layer adds two lead tools, `session_boss_strategy_propose` and `session_boss_strategy_report`: a proposal for the novelty
   gate and a claim about a direction the caller owns. Neither can request or begin a finish, raise a limit or touch an approval; the judge
   intake `strategy.epoch` is not session-callable. Their rows are `strategy.*` audit kinds reserved to the store's strategy writer and written
-  inside the witnessed sequence.
+  inside the witnessed sequence. The strategy layer never begins a finish and never acts as the boss (the host holds no finish engine): it records a
+  `strategy.finish.ready` marker per judged epoch and the top lead reads it through the read-only `session_boss_finish_ready`; only the lead's own
+  `session_boss_finish_begin`, with its boss check, begins one. The only model text in that reading is the judge's per-criterion statuses; criteria,
+  run and epoch state, times, direction ids and the finish engine's rounds are host-derived, and no title or note enters it.

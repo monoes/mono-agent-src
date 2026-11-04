@@ -30,8 +30,24 @@ func (l *StrategyLoop) logf(format string, args ...any) {
 	}
 }
 
-// Step is one tick: build the host if there is none, then Tick it. It returns what the tick did.
-func (l *StrategyLoop) Step(ctx context.Context) (HostTick, error) {
+// ErrStrategyPanicked is what a recovered panic in a tick or in building the host reports. The panic value is not carried:
+// it may hold text the layer must not repeat.
+var ErrStrategyPanicked = errors.New("strategy: a tick panicked and was recovered; the host is rebuilt for the next one")
+
+// Step is one tick: build the host if there is none, then Tick it. It returns what the tick did. A panic anywhere inside
+// (the store, the judge adapter, a seam) is recovered: the tick is over, the host is dropped so the next tick builds a
+// fresh one from the database, the coder host process is not touched, and the log line is class-level only.
+func (l *StrategyLoop) Step(ctx context.Context) (tk HostTick, err error) {
+	if err := ctx.Err(); err != nil {
+		return HostTick{}, err // no tick after the loop was told to stop
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			l.host = nil
+			l.logf("doomsday strategy: a tick panicked (%T) and was recovered", r)
+			tk, err = HostTick{Idle: "parked"}, ErrStrategyPanicked
+		}
+	}()
 	if l.host == nil {
 		h, err := l.Build(ctx)
 		if err != nil {
@@ -40,6 +56,22 @@ func (l *StrategyLoop) Step(ctx context.Context) (HostTick, error) {
 		l.host = h
 	}
 	return l.host.Tick(ctx)
+}
+
+// Start runs the loop in its own goroutine under a context derived from parent. The returned stop cancels it and WAITS until
+// the goroutine has returned: after stop there is no tick in flight and none will start, so the caller may close the
+// database. Calling stop twice is fine.
+func (l *StrategyLoop) Start(parent context.Context) (stop func()) {
+	ctx, cancel := context.WithCancel(parent)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		l.Run(ctx)
+	}()
+	return func() {
+		cancel()
+		<-done
+	}
 }
 
 // Run ticks until ctx is done.
