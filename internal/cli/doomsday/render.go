@@ -52,6 +52,9 @@ func Render(c Charter, hash string) string {
 	l := c.Limits
 	w("Limits: tree depth %d (maximum %d), live sessions per tree %d, max concurrent processes %d,", l.TreeDepth, MaxTreeDepth, l.LivePerTree, l.MaxConcurrent)
 	w("  spawns per lead per 10 minutes %d, open sessions %d, sessions alive or queued %d.", l.SpawnRate, l.OpenSessions, l.MaxTotal)
+	if l.QueueMaxRows != 0 || l.QueueMaxBytes != 0 || l.SafeMinConcurrent != 0 {
+		w("  resource governor: queue at most %d rows and %d bytes (0 = default), safe minimum concurrency %d (0 = default).", l.QueueMaxRows, l.QueueMaxBytes, l.SafeMinConcurrent)
+	}
 	if l.NoCeiling {
 		w("Budget: NO CEILING of the charter's own (a bound of an ancestor or a reservation still applies).")
 	} else {

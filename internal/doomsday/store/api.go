@@ -57,6 +57,11 @@ type Limits struct {
 	MaxTotal      int   `json:"max_total"`
 	BudgetMicro   int64 `json:"budget_micro"`
 	NoCeiling     bool  `json:"no_ceiling"`
+	// The resource governor's numbers (canon version 3). Zero means the governor's compile-time default. They can only
+	// bound the queue and name the floor of the governor; none of them can raise max_concurrent.
+	QueueMaxRows      int   `json:"queue_max_rows,omitempty"`
+	QueueMaxBytes     int64 `json:"queue_max_bytes,omitempty"`
+	SafeMinConcurrent int   `json:"safe_min_concurrent,omitempty"`
 }
 
 // PerAsk are the limits inside which the boss may auto-approve (Q5). Declared false means nothing is auto-approved.
@@ -96,6 +101,10 @@ type Charter struct {
 	PerAsk      PerAsk      `json:"per_ask"`
 	// Typed carries the constraints of the typed operations (note 13.4); empty enables none of them.
 	Typed Typed `json:"typed"`
+
+	// legacy marks a charter loaded from a row written under LegacyCanonVersion: it encodes without the governor's limits
+	// so its stored hash, id and MAC still verify. Only the loader sets it.
+	legacy bool
 }
 
 // Run is the run row of one generation.

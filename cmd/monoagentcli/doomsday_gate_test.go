@@ -41,7 +41,11 @@ func TestDoomsdayVerbsAreExactlyTheClassifiedOnes(t *testing.T) {
 		got = append(got, c.Name())
 	}
 	sort.Strings(got)
-	if strings.Join(got, ",") != "feed,finish,overview,render,rubric,start,status,stop,strategy" {
+	want := "feed,finish,overview,render,rubric,start,status,stop,strategy"
+	if doomsdayBuilt { // the governor's read-only status group is part of a build with the mode only (doomsday_governor_gate_test.go)
+		want = "feed,finish,governor,overview,render,rubric,start,status,stop,strategy"
+	}
+	if strings.Join(got, ",") != want {
 		t.Fatalf("doomsday verbs changed: %v: classify the new verb and its gate", got)
 	}
 }

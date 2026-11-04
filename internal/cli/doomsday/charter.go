@@ -13,6 +13,8 @@ import (
 	"io"
 	"sort"
 	"strings"
+
+	"github.com/monoes/mono-agent/internal/doomsday/store"
 )
 
 // Line is one separately ticked lifted-authority line (spec 3.1).
@@ -71,6 +73,11 @@ type Limits struct {
 	// ConcurrentAboveLive is the explicit choice max_concurrent above
 	// live_per_tree needs.
 	ConcurrentAboveLive bool `json:"concurrent_above_live,omitempty"`
+	// The resource governor's numbers; zero is its default (500 rows, 8 MiB, safe minimum 2). They bound the queue of
+	// launches waiting for a slot and the concurrency used when the machine cannot be read; none raises max_concurrent.
+	QueueMaxRows      int   `json:"queue_max_rows,omitempty"`
+	QueueMaxBytes     int64 `json:"queue_max_bytes,omitempty"`
+	SafeMinConcurrent int   `json:"safe_min_concurrent,omitempty"`
 }
 
 // Pin names one model exactly as the host reports it (Q6).
@@ -217,6 +224,12 @@ func (c Charter) Validate() error {
 	}
 	if l.MaxConcurrent > l.LivePerTree && !l.ConcurrentAboveLive {
 		add("max_concurrent %d is above live_per_tree %d: set concurrent_above_live to choose that on purpose", l.MaxConcurrent, l.LivePerTree)
+	}
+	if l.QueueMaxRows < 0 || l.QueueMaxRows > store.MaxQueueRows || l.QueueMaxBytes < 0 || l.QueueMaxBytes > store.MaxQueueBytes {
+		add("queue_max_rows is 0..%d and queue_max_bytes 0..%d (0 is the default)", store.MaxQueueRows, store.MaxQueueBytes)
+	}
+	if l.SafeMinConcurrent < 0 || l.SafeMinConcurrent > l.MaxConcurrent {
+		add("safe_min_concurrent %d is outside 0..max_concurrent (0 is the default)", l.SafeMinConcurrent)
 	}
 	if l.MaxTotal < l.LivePerTree {
 		add("max_total %d is below live_per_tree %d", l.MaxTotal, l.LivePerTree)

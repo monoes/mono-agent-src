@@ -20,6 +20,9 @@ type StrategyLoop struct {
 	Build func(ctx context.Context) (*StrategyHost, error)
 	Every time.Duration
 	Logf  func(format string, args ...any)
+	// AfterStep, when set, runs after every tick on the same goroutine (the resource governor's pump and report ride on
+	// this loop). It must honour ctx and recover its own panics; it is not called once ctx is done.
+	AfterStep func(ctx context.Context)
 
 	host *StrategyHost
 }
@@ -91,6 +94,9 @@ func (l *StrategyLoop) Run(ctx context.Context) {
 			}
 		} else if err == nil {
 			lastErr = ""
+		}
+		if l.AfterStep != nil && ctx.Err() == nil {
+			l.AfterStep(ctx)
 		}
 		select {
 		case <-ctx.Done():
