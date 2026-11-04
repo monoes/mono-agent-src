@@ -11,7 +11,17 @@ import (
 
 // CanonVersion is the version of the canonical encoding. It is part of the hashed bytes, so a change of the rules
 // can never make an old hash match a new form.
-const CanonVersion = 2
+const CanonVersion = 3
+
+// LegacyCanonVersion is the version before the governor's limits: a charter stored under it keeps verifying, and its
+// governor limits read as unset (their defaults). Nothing new is ever written under it.
+const LegacyCanonVersion = 2
+
+// Governor limit bounds (Validate).
+const (
+	MaxQueueRows  = 100000
+	MaxQueueBytes = 1 << 30
+)
 
 const charterDomain = "monoes/doomsday/charter/v1"
 
@@ -61,6 +71,12 @@ func (c Charter) Validate() error {
 		}
 	}
 	l := c.Limits
+	if l.QueueMaxRows < 0 || l.QueueMaxRows > MaxQueueRows || l.QueueMaxBytes < 0 || l.QueueMaxBytes > MaxQueueBytes {
+		return bad("queue_max_rows is 0..%d and queue_max_bytes 0..%d", MaxQueueRows, MaxQueueBytes)
+	}
+	if l.SafeMinConcurrent < 0 || l.SafeMinConcurrent > l.MaxConcurrent {
+		return bad("safe_min_concurrent %d is outside 0..max_concurrent", l.SafeMinConcurrent)
+	}
 	if l.TreeDepth < 1 || l.TreeDepth > MaxTreeDepth {
 		return bad("tree_depth %d outside 1..%d", l.TreeDepth, MaxTreeDepth)
 	}
@@ -148,6 +164,10 @@ func (c Charter) normalized() Charter {
 // the generation. Two charters differing in any field never encode alike.
 func (c Charter) Canonical() []byte {
 	c = c.normalized()
+	ver := int64(CanonVersion)
+	if c.legacy {
+		ver = LegacyCanonVersion
+	}
 	var b []byte
 	str := func(s string) {
 		b = binary.AppendUvarint(b, uint64(len(s)))
@@ -163,7 +183,7 @@ func (c Charter) Canonical() []byte {
 	}
 	pin := func(p Pin) { str(p.Provider); str(p.Model); str(p.Version); str(p.PurposePolicy) }
 	str(charterDomain)
-	num(CanonVersion)
+	num(ver)
 	str(c.Profile)
 	num(c.Generation)
 	str(c.Goal)
@@ -179,6 +199,11 @@ func (c Charter) Canonical() []byte {
 	}
 	num(l.BudgetMicro)
 	flag(l.NoCeiling)
+	if !c.legacy {
+		num(int64(l.QueueMaxRows))
+		num(l.QueueMaxBytes)
+		num(int64(l.SafeMinConcurrent))
+	}
 	num(int64(len(c.Lines)))
 	for _, ln := range c.Lines {
 		str(ln)
@@ -198,6 +223,15 @@ func (c Charter) Canonical() []byte {
 	}
 	c.Typed.appendCanonical(str, num, flag)
 	return b
+}
+
+// canonVersion is the version this charter encodes under: a charter loaded from a legacy row encodes as it was
+// written, so it keeps its hash, id and MAC.
+func (c Charter) canonVersion() int {
+	if c.legacy {
+		return LegacyCanonVersion
+	}
+	return CanonVersion
 }
 
 // Hash is SHA-256 over Canonical.

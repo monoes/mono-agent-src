@@ -53,7 +53,7 @@ func nextGeneration(ctx context.Context, q DBTX, profile string) (int64, error) 
 }
 
 func (s *SQLStore) charterMAC(c Charter, hash [32]byte) ([]byte, error) {
-	return s.keys.MAC("charter", hash[:], b(c.Profile), i64(c.Generation), b(c.ID()), i64(CanonVersion))
+	return s.keys.MAC("charter", hash[:], b(c.Profile), i64(c.Generation), b(c.ID()), i64(int64(c.canonVersion())))
 }
 
 func (s *SQLStore) runMAC(r Run) ([]byte, error) {
@@ -101,7 +101,7 @@ func (s *SQLStore) Enter(ctx context.Context, c Charter, confirmed [32]byte, by 
 	}
 	body, _ := json.Marshal(c.normalized())
 	if _, err := tx.ExecContext(ctx, `INSERT INTO doomsday_charters(profile, generation, charter_id, canon_version, charter_hash, body, mac, created_at) VALUES (?,?,?,?,?,?,?,?)`,
-		c.Profile, c.Generation, c.ID(), CanonVersion, hash[:], string(body), mac, s.now().Unix()); err != nil {
+		c.Profile, c.Generation, c.ID(), c.canonVersion(), hash[:], string(body), mac, s.now().Unix()); err != nil {
 		return Run{}, err
 	}
 	// Re-hash what was actually stored, in this transaction.
@@ -145,12 +145,19 @@ func loadCharterRow(ctx context.Context, q DBTX, s *SQLStore, profile string, ge
 	if err != nil {
 		return Charter{}, err
 	}
-	if ver != CanonVersion {
+	if ver != CanonVersion && ver != LegacyCanonVersion {
 		return Charter{}, ErrUnknownSchema
 	}
 	var c Charter
 	if json.Unmarshal([]byte(body), &c) != nil || c.Profile != profile || c.Generation != generation {
 		return Charter{}, ErrUnverifiable
+	}
+	if ver == LegacyCanonVersion {
+		// An old row has no governor limits; one that names any is not what was hashed.
+		if c.Limits.QueueMaxRows != 0 || c.Limits.QueueMaxBytes != 0 || c.Limits.SafeMinConcurrent != 0 {
+			return Charter{}, ErrUnverifiable
+		}
+		c.legacy = true
 	}
 	h := c.Hash()
 	if !bytes.Equal(h[:], hash) || c.ID() != id {

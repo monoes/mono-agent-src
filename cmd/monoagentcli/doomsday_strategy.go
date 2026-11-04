@@ -65,6 +65,8 @@ func startStrategyLoop(cfg *globalConfig, db *sql.DB) {
 			return w.StrategyHost(ctx, doomsdaycli.StrategyExtras{})
 		},
 		Logf: func(f string, a ...any) { fmt.Fprintf(os.Stderr, f+"\n", a...) },
+		// The resource governor pumps its queue and reports on this loop; with no running run it does nothing.
+		AfterStep: processGovernor(cfg, db).Tick,
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	stop := loop.Start(ctx)

@@ -26,12 +26,16 @@ var doomsdayStrategyReader func(*globalConfig) doomsdaycli.StrategyReader
 
 var doomsdayChat func(cfg *globalConfig, d *chatcli.Deps)
 
+// doomsdayExtra is set by the same build: it adds the groups only a build with the mode has (the governor's read-only
+// status). Nil leaves the group as it is.
+var doomsdayExtra func(cfg *globalConfig, grp *cobra.Command, d doomsdaycli.Deps)
+
 func newDoomsdayCmd(cfg *globalConfig) *cobra.Command {
 	// Both questions are the turn-aware ones every operator-only verb asks: requireOperator, and opgate.Refusal
 	// (agent tokens, markers, a coder session's turn). doomsday_gate_test.go and the rows of
 	// operatorOnlyRows hold them.
 	gate := cfg.requireOperator
-	return doomsdaycli.NewCommand(doomsdaycli.Deps{
+	deps := doomsdaycli.Deps{
 		Engine: func() doomsdaycli.Engine {
 			if doomsdayEngine == nil {
 				return nil
@@ -54,5 +58,10 @@ func newDoomsdayCmd(cfg *globalConfig) *cobra.Command {
 			}
 			return doomsdayStrategyReader(cfg)
 		},
-	})
+	}
+	grp := doomsdaycli.NewCommand(deps)
+	if doomsdayExtra != nil {
+		doomsdayExtra(cfg, grp, deps)
+	}
+	return grp
 }

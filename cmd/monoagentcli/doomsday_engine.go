@@ -30,6 +30,8 @@ func init() {
 	// Depth limits as charter inputs: every tasks and coder-host store of this process reads the profile's open run, and
 	// is what it always was while there is none.
 	doomsdaycli.InstallDepthPolicies()
+	// live_per_tree as a lowering of the tree's live-session limit (never a raise).
+	doomsdaycli.InstallLivePolicy()
 	// The lead-facing boss tools of the MCP server: each call installs the route on its own coder store, and the route
 	// is the mode off whenever the profile has no running run (a build without the mode never sets this).
 	mcp.SetBossRouteInstaller(bossRouteInstaller)
@@ -40,6 +42,8 @@ func init() {
 	// The boss's read-only reading of the strategy layer's finish-ready marker; the boss then calls finish.begin itself.
 	mcp.SetBossFinishReadyReader(bossFinishReady)
 	doomsdayStrategyReader = strategyReaderFor
+	// `doomsday governor status`: the governor's read model (read-only).
+	doomsdayExtra = governorGroupFor
 	doomsdayEngine = func(cfg *globalConfig) doomsdaycli.Engine {
 		db, err := initDB(cfg)
 		if err != nil {
@@ -72,6 +76,8 @@ func init() {
 			if err := g.Install(st, h); err != nil {
 				fmt.Fprintf(os.Stderr, "coder host: the open-ended mode's launcher hooks could not be installed (turns are ticketed around their start instead): %v\n", err)
 			}
+			// The resource governor admits a turn before the gate takes its ticket; with no running run it is a plain call.
+			governLauncher(cfg, st, h, db)
 			// The strategy layer's host is ticked from this process; with no run open a tick reads and writes nothing.
 			startStrategyLoop(cfg, db)
 		}
@@ -139,8 +145,10 @@ func doomsdayWiring(cfg *globalConfig, db *sql.DB) doomsdaycli.Wiring {
 		Probe:   stop.Probe,
 		Kernel:  doomsdayKernel(),
 		Host:    stop.SystemHost(),
-		Tokens:  doomsdaycli.CoderTokens{DB: db, Profile: cfg.ProfileID, Host: coderhost.NewStore(db)},
-		DB:      db,
+		// Stop's token revocation and queue cancel; the governor's queue is cancelled with the host's pending sends.
+		Tokens: doomsdaycli.GovernedTokens{Inner: doomsdaycli.CoderTokens{DB: db, Profile: cfg.ProfileID, Host: coderhost.NewStore(db)}, DB: db, Profile: cfg.ProfileID, Keys: keys,
+			Logf: func(f string, a ...any) { fmt.Fprintf(os.Stderr, f+"\n", a...) }},
+		DB: db,
 		// The witness of note 13.5: the pinned connection on the database file, the vault-derived MAC keys, and the OS
 		// secret store of the anchor (a run on a machine with none is `anchor-bound: no` and says so).
 		Witness: &doomsdaycli.WitnessSetup{DBPath: expandPath(cfg.DBPath), Keys: keys, Secrets: stop.OSSecretStore{},
