@@ -63,6 +63,14 @@ func Build(db *sql.DB) *workflow.NodeTypeRegistry {
 	// (workflow.RedactReplies); hilsend tells what sends.
 	workflow.SetSendClassifier(hilsend.MaySend)
 	registry := workflow.NewNodeTypeRegistry()
+	// The egress class of each type, for a host-bound agent-access grant
+	// (egress.go); an alias is classified as the type it names.
+	workflow.SetEgressClassifier(func(nodeType string) (workflow.Egress, bool) {
+		if to, ok := registry.Aliases()[nodeType]; ok {
+			nodeType = to
+		}
+		return classifyEgress(nodeType)
+	})
 	control.RegisterAll(registry)
 	data.RegisterAll(registry)
 	httpnodes.RegisterAll(registry)

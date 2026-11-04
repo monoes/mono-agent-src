@@ -227,25 +227,35 @@ func (a *accessState) resolved(ctx context.Context, name, value string) error {
 // run has read one (see below), the step resolved one (whatever form it took on the way out: a Basic header
 // built from it, say), or one of texts holds a tracked value.
 func (a *accessState) carries(ctx context.Context, texts []string) bool {
+	return a.carryReason(ctx, texts) != ""
+}
+
+// carryReason says why a send carries a secret: "" for it does not, else a
+// phrase for the refusal: this step read one, an earlier step of the run did,
+// or the send's own text holds one.
+func (a *accessState) carryReason(ctx context.Context, texts []string) string {
 	n, _ := ctx.Value(accessNodeKey{}).(accessNode)
 	a.mu.Lock()
 	_, resolvedHere := a.nodes[n.id]
 	read := a.read
 	a.mu.Unlock()
+	if resolvedHere {
+		return "this step read a secret from the vault"
+	}
 	// Data flows between steps in forms nobody can list (a transformed echo
 	// of the secret), so once any step of the run has read one every send of
 	// the run is held to the grant's hosts.
-	if resolvedHere || read {
-		return true
+	if read {
+		return "an earlier step of the run read a secret from the vault, and every send of the run is held to the hosts agent access names"
 	}
 	for _, v := range a.values() {
 		for _, t := range texts {
 			if strings.Contains(t, v) {
-				return true
+				return "this send carries a secret from the vault"
 			}
 		}
 	}
-	return false
+	return ""
 }
 
 // track remembers value, and the forms a step commonly derives from it, for
@@ -382,8 +392,8 @@ func CheckSendHost(ctx context.Context, rawURL string, texts ...string) error {
 	if a == nil {
 		return nil
 	}
-	carries := a.carries(ctx, texts)
-	if !carries {
+	why := a.carryReason(ctx, texts)
+	if why == "" {
 		return nil
 	}
 	g, err := GetAgentAccess(ctx, a.db, a.profileID)
@@ -394,9 +404,37 @@ func CheckSendHost(ctx context.Context, rawURL string, texts ...string) error {
 		return fmt.Errorf("%w: agent access was turned off or has expired", ErrHostNotAllowed)
 	}
 	if !g.allowsHost(rawURL) {
-		return fmt.Errorf("%w: %q is not one of %s (secret agent-access on --host)", ErrHostNotAllowed, HostOf(rawURL), strings.Join(g.Hosts, ", "))
+		return fmt.Errorf("%w: %q is not one of %s (secret agent-access on --host); %s", ErrHostNotAllowed, HostOf(rawURL), strings.Join(g.Hosts, ", "), why)
 	}
 	return nil
+}
+
+// HostBoundCarry says why a step of a run under agent access, whose
+// destination nothing can derive, may not run: its run carries a secret
+// (CheckSendHost's rule) and the grant binds hosts, so a send to somewhere
+// the list cannot check would break the binding. "" when the run is under no
+// agent access, carries nothing, or the grant names no hosts (--any-host).
+// An error when the grant cannot be read (fail closed).
+func HostBoundCarry(ctx context.Context, texts ...string) (string, error) {
+	a := accessOf(ctx)
+	if a == nil {
+		return "", nil
+	}
+	why := a.carryReason(ctx, texts)
+	if why == "" {
+		return "", nil
+	}
+	g, err := GetAgentAccess(ctx, a.db, a.profileID)
+	if err != nil {
+		return "", fmt.Errorf("%w: agent access could not be checked: %v", ErrHostNotAllowed, err)
+	}
+	if g == nil {
+		return "", fmt.Errorf("%w: agent access was turned off or has expired", ErrHostNotAllowed)
+	}
+	if g.AnyHost {
+		return "", nil
+	}
+	return why, nil
 }
 
 // CheckSendVia is CheckSendHost for a request that goes through a proxy or

@@ -47,11 +47,20 @@ func (e *WorkflowEngine) ResolveCredentials(ctx context.Context, nodeType string
 // (CheckDestinationKeys) unless the user approved w's definition.
 func (e *WorkflowEngine) ResolveTriggerCredentials(ctx context.Context, w *Workflow, nodeType string, keys [][]string, cfg map[string]interface{}) (map[string]interface{}, error) {
 	out, use := e.resolveCredentials(ctx, nodeType, cfg)
-	if use == nil || len(keys) == 0 {
+	if len(keys) == 0 {
 		return out, nil
 	}
-	approved, _ := operatorApproved(ctx, e.store, w)
-	if err := CheckDestinationKeys(keys, use, approved, out, out); err != nil {
+	if use != nil {
+		approved, _ := operatorApproved(ctx, e.store, w)
+		if err := CheckDestinationKeys(keys, use, approved, out, out); err != nil {
+			return nil, fmt.Errorf("%s: %w", nodeType, err)
+		}
+	}
+	// Defence in depth: queue/DB consumers do not resolve vault secrets today
+	// (they run under no agent-access state, so this is a no-op in
+	// production). If one ever does, it sends nothing the run read from the
+	// vault to a host the grant does not name (CheckEgress).
+	if err := CheckEgress(ctx, nodeType, keys, out); err != nil {
 		return nil, fmt.Errorf("%s: %w", nodeType, err)
 	}
 	return out, nil

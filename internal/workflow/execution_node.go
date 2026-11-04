@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/secrets"
-	"github.com/monoes/mono-agent/internal/vault"
 )
 
 // nodeTask is one node run that prepare set up and finish completes.
@@ -233,27 +232,8 @@ func (r *runner) prepare(node WorkflowNode) (*nodeTask, error) {
 		return nil, fmt.Errorf("node %s (%s): resolve config: %w", node.ID, node.Name, err)
 	}
 	restorePerItemFields(resolvedConfig, fieldState)
-	if err := checkStoredFields(executor, stored, resolvedConfig); err != nil {
+	if err := resolveNodeConfig(ctx, node.Type, executor, cred, stored, resolvedConfig); err != nil {
 		return nil, fmt.Errorf("node %s (%s): %w", node.ID, node.Name, err)
-	}
-	if err := checkCredentialUse(ctx, executor, cred, stored, resolvedConfig); err != nil {
-		return nil, fmt.Errorf("node %s (%s): %w", node.ID, node.Name, err)
-	}
-
-	// Resolve @img-NNN references to absolute vault file paths.
-	if vaultDB := vault.DBFromContext(ctx); vaultDB != nil {
-		profile, perr := vault.ProfileIDFromContext(ctx)
-		if perr != nil {
-			return nil, fmt.Errorf("node %s (%s) ran without a profile: %w", node.ID, node.Name, perr)
-		}
-		if err := vault.ResolveConfig(ctx, vaultDB, stored, resolvedConfig); err != nil {
-			return nil, fmt.Errorf("node %s (%s): %w", node.ID, node.Name, err)
-		}
-		// Resolve @secret:<name> references to decrypted vault values; a run
-		// the user hasn't approved resolves none, and the step doesn't run.
-		if err := secrets.ResolveConfig(ctx, vaultDB, profile, stored, resolvedConfig); err != nil {
-			return nil, fmt.Errorf("node %s (%s): %w", node.ID, node.Name, err)
-		}
 	}
 
 	// AI sub-nodes attached through ai_… connections, resolved for the node.

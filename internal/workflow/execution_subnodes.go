@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/monoes/mono-agent/internal/secrets"
-	"github.com/monoes/mono-agent/internal/vault"
 )
 
 // maxSubNodeDepth bounds sub-nodes of sub-nodes (a retriever's vector store's
@@ -65,23 +64,8 @@ func (r *runner) resolveSubNodes(rootID string, exprCtx ExpressionContext, depth
 			return nil, fmt.Errorf("sub-node %s (%s): resolve config: %w", n.ID, n.Name, err)
 		}
 		restorePerItemFields(resolved, held)
-		if err := checkStoredFields(executor, stored, resolved); err != nil {
+		if err := resolveNodeConfig(secrets.WithAccessNodeType(secrets.WithAccessNode(r.ctx, n.ID, n.Name), n.Type), n.Type, executor, cred, stored, resolved); err != nil {
 			return nil, fmt.Errorf("sub-node %s (%s): %w", n.ID, n.Name, err)
-		}
-		if err := checkCredentialUse(r.ctx, executor, cred, stored, resolved); err != nil {
-			return nil, fmt.Errorf("sub-node %s (%s): %w", n.ID, n.Name, err)
-		}
-		if db := vault.DBFromContext(r.ctx); db != nil {
-			profile, perr := vault.ProfileIDFromContext(r.ctx)
-			if perr != nil {
-				return nil, fmt.Errorf("sub-node %s (%s) ran without a profile: %w", n.ID, n.Name, perr)
-			}
-			if err := vault.ResolveConfig(r.ctx, db, stored, resolved); err != nil {
-				return nil, fmt.Errorf("sub-node %s (%s): %w", n.ID, n.Name, err)
-			}
-			if err := secrets.ResolveConfig(secrets.WithAccessNodeType(secrets.WithAccessNode(r.ctx, n.ID, n.Name), n.Type), db, profile, stored, resolved); err != nil {
-				return nil, fmt.Errorf("sub-node %s (%s): %w", n.ID, n.Name, err)
-			}
 		}
 		children, err := r.resolveSubNodes(n.ID, exprCtx, depth+1)
 		if err != nil {
@@ -123,23 +107,8 @@ func (r *runner) callTool(ctx context.Context, n WorkflowNode, base ExpressionCo
 		return nil, fmt.Errorf("tool %q: resolve config: %w", n.Name, err)
 	}
 	restorePerItemFields(resolved, held)
-	if err := checkStoredFields(executor, stored, resolved); err != nil {
+	if err := resolveNodeConfig(secrets.WithAccessNodeType(secrets.WithAccessNode(ctx, n.ID, n.Name), n.Type), n.Type, executor, cred, stored, resolved); err != nil {
 		return nil, fmt.Errorf("tool %q: %w", n.Name, err)
-	}
-	if err := checkCredentialUse(ctx, executor, cred, stored, resolved); err != nil {
-		return nil, fmt.Errorf("tool %q: %w", n.Name, err)
-	}
-	if db := vault.DBFromContext(ctx); db != nil {
-		profile, perr := vault.ProfileIDFromContext(ctx)
-		if perr != nil {
-			return nil, fmt.Errorf("tool %q ran without a profile: %w", n.Name, perr)
-		}
-		if err := vault.ResolveConfig(ctx, db, stored, resolved); err != nil {
-			return nil, fmt.Errorf("tool %q: %w", n.Name, err)
-		}
-		if err := secrets.ResolveConfig(secrets.WithAccessNodeType(secrets.WithAccessNode(ctx, n.ID, n.Name), n.Type), db, profile, stored, resolved); err != nil {
-			return nil, fmt.Errorf("tool %q: %w", n.Name, err)
-		}
 	}
 	input := NodeInput{
 		Items: []Item{NewItem(args)}, NodeOutputs: r.nodeOutputs,
