@@ -72,7 +72,7 @@ func (p probe) Execute(ctx context.Context, _ workflow.NodeInput, _ map[string]i
 func TestNodeRunInATurnRunsAsAnUnapprovedStep(t *testing.T) {
 	for _, c := range callerContexts() {
 		t.Run(c.name, func(t *testing.T) {
-			dbPath := nodeVaultTestDB(t) // clears the markers: set the caller up after it
+			dbPath := migratedTestDB(t) // clears the markers: set the caller up after it
 			c.setup(t)
 			var seen []context.Context
 			d := testDeps(dbPath, "default", false)
@@ -110,7 +110,7 @@ func TestNodeRunInATurnGetsNoDestinationOfItsOwn(t *testing.T) {
 	defer srv.Close()
 	for _, c := range callerContexts() {
 		t.Run(c.name, func(t *testing.T) {
-			dbPath := nodeVaultTestDB(t)
+			dbPath := migratedTestDB(t)
 			c.setup(t)
 			mu.Lock()
 			auths = nil
@@ -144,7 +144,7 @@ func TestNodeRunInATurnRunsNoRecordedBrowserAction(t *testing.T) {
 	t.Cleanup(func() { action.SetDefSource(nil) })
 	for _, c := range callerContexts() {
 		t.Run(c.name, func(t *testing.T) {
-			dbPath := nodeVaultTestDB(t)
+			dbPath := migratedTestDB(t)
 			c.setup(t)
 			d := testDeps(dbPath, "default", false)
 			d.BuildRegistry = func(*sql.DB) *workflow.NodeTypeRegistry {
@@ -211,7 +211,7 @@ func (c countingDevto) Execute(context.Context, workflow.NodeInput, map[string]i
 func TestNodeRunSendInATurnIsQueuedForApproval(t *testing.T) {
 	for _, c := range callerContexts() {
 		t.Run(c.name, func(t *testing.T) {
-			dbPath := nodeVaultTestDB(t)
+			dbPath := migratedTestDB(t)
 			c.setup(t)
 			runs := 0
 			d := testDeps(dbPath, "default", false)

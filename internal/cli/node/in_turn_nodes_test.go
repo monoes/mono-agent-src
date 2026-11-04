@@ -224,7 +224,7 @@ func registryTypes(t *testing.T) []registryType {
 // the run with everything the recorder was sent.
 func runRaw(t *testing.T, c callerContext, nodeType string, mk func(port int) map[string]interface{}, grant *secrets.AccessGrant, extra ...string) (secretRun, string) {
 	t.Helper()
-	dbPath := nodeVaultTestDB(t)
+	dbPath := migratedTestDB(t)
 	c.setup(t)
 	seedVaultSecret(t, dbPath, "vs", inTurnSecret)
 	port, wire := rawRecorder(t, strings.Contains(nodeType, "postgres") || strings.HasSuffix(nodeType, "timescaledb") || strings.HasSuffix(nodeType, "cratedb") || strings.HasSuffix(nodeType, "questdb"))
@@ -287,6 +287,9 @@ var looseText = map[string]bool{"vault.secret_get": true}
 // noGrantRun: types the run with the profile's agent access on is not compared for, with the reason.
 var noGrantRun = map[string]string{"vault.secret_get": "a reveal needs the profile's Reveal level, which 6b puts on the same verdict"}
 
+// sameAsPostgres: the PostgreSQL-wire siblings run db.postgres's code; agent access on is run for db.postgres.
+var sameAsPostgres = map[string]bool{"db.cratedb": true, "db.questdb": true, "db.timescaledb": true}
+
 func shortErr(r secretRun) string {
 	if r.err == nil {
 		return "<nil>"
@@ -347,7 +350,7 @@ func TestNodeRunInATurnReferenceCasesForEveryNodeThatReadsSecrets(t *testing.T) 
 			if (off.err == nil) != (base.err == nil) || off.audit != base.audit || off.audit != 0 || (!looseText[rt.name] && refusedText(off) != refusedText(base)) {
 				t.Fatalf("%s access off: in a turn: %s refused=%v audit=%d; marked agent: %s refused=%v audit=%d", rt.name, shortErr(off), refusedText(off), off.audit, shortErr(base), refusedText(base), base.audit)
 			}
-			if _, skip := noGrantRun[rt.name]; skip {
+			if _, skip := noGrantRun[rt.name]; skip || sameAsPostgres[rt.name] {
 				return
 			}
 			// agent access on: what a marked agent can do, and audited
@@ -394,8 +397,12 @@ func TestNodeRunInATurnConnectionDestinationsForEveryNodeThatHasThem(t *testing.
 		}
 		ran++
 		t.Run(rt.name, func(t *testing.T) {
-			for _, c := range []callerContext{callerContexts()[1], callerContexts()[5]} {
-				dbPath := nodeVaultTestDB(t)
+			contexts := []callerContext{callerContexts()[1]}
+			if ran == 1 { // the marked agent's refusal is the same code: once is enough
+				contexts = append(contexts, callerContexts()[5])
+			}
+			for _, c := range contexts {
+				dbPath := migratedTestDB(t)
 				c.setup(t)
 				d := testDeps(dbPath, "default", false)
 				d.ResolveCredential = func(_ context.Context, _ *connections.Store, k, _ string) (map[string]interface{}, error) {
@@ -482,7 +489,11 @@ func TestNodeRunInATurnDatabaseAndMCPNodes(t *testing.T) {
 		if gm.audit == 0 {
 			t.Fatalf("%s: the marked agent under a grant resolved nothing (%s)", name, shortErr(gm))
 		}
-		for _, c := range callerContexts() {
+		contexts := callerContexts()
+		if name != "db.postgres" { // the node cannot tell the callers apart, only the verdict can: see db.postgres
+			contexts = []callerContext{contexts[0], contexts[1], contexts[5]}
+		}
+		for _, c := range contexts {
 			t.Run(name+"/"+c.name, func(t *testing.T) {
 				if !c.agent {
 					r, wire := runRaw(t, c, name, mk, nil)
@@ -541,4 +552,39 @@ func TestNodeRunInATurnMCPStdioStartsNoProgram(t *testing.T) {
 			})
 		}
 	}
+}
+
+var (
+	templateOnce sync.Once
+	templateDB   []byte
+)
+
+// migratedTestDB is nodeVaultTestDB with the schema already applied: one migrated database is made for the whole
+// test binary and copied into each test's own path, so a run does not pay for every migration again (under -race
+// that cost dominated these tests).
+func migratedTestDB(t *testing.T) string {
+	t.Helper()
+	path := nodeVaultTestDB(t) // clears the markers and gives the test its own HOME
+	templateOnce.Do(func() {
+		tmpl := filepath.Join(os.TempDir(), fmt.Sprintf("node-template-%d.db", os.Getpid()))
+		defer os.Remove(tmpl)
+		db, err := storage.NewDatabase(tmpl)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := db.ApplyMigrations(); err != nil {
+			t.Fatal(err)
+		}
+		db.Close()
+		if templateDB, err = os.ReadFile(tmpl); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if templateDB == nil {
+		t.Fatal("no template database")
+	}
+	if err := os.WriteFile(path, templateDB, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }

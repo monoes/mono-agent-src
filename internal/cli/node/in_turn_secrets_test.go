@@ -35,7 +35,7 @@ type secretRun struct {
 // (nil: the profile's agent access is off).
 func runWithSecret(t *testing.T, c callerContext, nodeType string, config func(url string) string, grant *secrets.AccessGrant) secretRun {
 	t.Helper()
-	dbPath := nodeVaultTestDB(t) // clears the markers: set the caller up after it
+	dbPath := migratedTestDB(t) // clears the markers: set the caller up after it
 	c.setup(t)
 	seedVaultSecret(t, dbPath, "vs", inTurnSecret)
 	srv, got := requestRecorder(t)
@@ -90,6 +90,16 @@ func requestRecorder(t *testing.T) (*httptest.Server, func() []string) {
 	}
 }
 
+// contextsFor: every caller for the case that names the node's main path, only a process in a turn (and the marked
+// agent it is compared with) for the others: the node cannot tell the callers apart, only the verdict can.
+func contextsFor(name string) []callerContext {
+	all := callerContexts()
+	if name == secretNodes[0].name {
+		return all
+	}
+	return []callerContext{all[0], all[1], all[5]}
+}
+
 var secretNodes = []struct {
 	name, nodeType string
 	config         func(url string) string
@@ -111,7 +121,7 @@ var secretNodes = []struct {
 func TestNodeRunInATurnResolvesNoSecretWithAgentAccessOff(t *testing.T) {
 	for _, n := range secretNodes {
 		marked := runWithSecret(t, callerContexts()[5], n.nodeType, n.config, nil)
-		for _, c := range callerContexts() {
+		for _, c := range contextsFor(n.name) {
 			if !c.agent {
 				continue
 			}
@@ -151,7 +161,7 @@ func TestNodeRunInATurnWithAgentAccessIsTheMarkedAgentsResult(t *testing.T) {
 		if n.name == "http.request body" && (marked.audit == 0 || len(marked.bodies) != 1) {
 			t.Fatalf("the marked agent's run under the grant resolved nothing (audit %d, bodies %q): the test proves nothing", marked.audit, marked.bodies)
 		}
-		for _, c := range callerContexts() {
+		for _, c := range contextsFor(n.name) {
 			if !c.agent {
 				continue
 			}
@@ -181,7 +191,7 @@ func TestNodeRunInATurnSendsAConnectionOnlyToItsHosts(t *testing.T) {
 				name = c.name + "/--credential"
 			}
 			t.Run(name, func(t *testing.T) {
-				dbPath := nodeVaultTestDB(t)
+				dbPath := migratedTestDB(t)
 				c.setup(t)
 				srv, got := requestRecorder(t)
 				d := testDeps(dbPath, "default", false)
