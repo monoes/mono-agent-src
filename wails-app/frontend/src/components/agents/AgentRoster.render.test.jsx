@@ -287,8 +287,14 @@ describe('AgentRoster', () => {
 
   it('turns automatic re-validation on after confirming, and off without asking', async () => {
     mockConfirm.mockResolvedValue(true)
-    api.setAgentRosterAutoRevalidate.mockImplementation(async on => ({ ...autoOff, enabled: on }))
+    // The panel reloads its status whenever the roster arrives, and that reload can land after
+    // the toggle's own answer. A fixed autoOff reply would then switch the box back off, so the
+    // fake daemon keeps the setting it was given, as the real one does.
+    let enabled = false
+    api.agentRosterAutoRevalidate.mockImplementation(async () => ({ ...autoOff, enabled }))
+    api.setAgentRosterAutoRevalidate.mockImplementation(async on => { enabled = on; return { ...autoOff, enabled } })
     render(<AgentRoster />)
+    await waitFor(() => expect(row('claude/haiku')).toBeTruthy())
     const box = await screen.findByLabelText(/Re-check stale models automatically/)
     fireEvent.click(box)
     await waitFor(() => expect(api.setAgentRosterAutoRevalidate).toHaveBeenCalledWith(true))
