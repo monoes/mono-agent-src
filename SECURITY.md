@@ -189,6 +189,16 @@ reads; values an agent already retrieved cannot be recalled.
   file, shell, code and the rest) is refused the reference. A request that
   carries a secret may use a `proxy` only when its host is on the list, and
   never with `allow_unauthorized_certs`.
+- **Entries no grant covers.** `httpapi-token` (the HTTP API's bearer) and
+  `agent-token-*` are never read by an agent: not by a run's `@secret:`
+  reference, not as plaintext under Reveal, and a grant cannot name them
+  (`agent-access on --secret httpapi-token` is refused). One predicate
+  (`secrets.AgentCannotRead`) decides this for every one of those gates; before it,
+  `permit()` refused only `agent-token-*`, so under `agent-access on` a workflow that
+  referenced `@secret:httpapi-token` resolved to the full-scope HTTP API bearer while
+  the Reveal check already refused it. Grants made before host binding read as
+  `--any-host` (migration 111 gave those rows `any_host = 1`); `secret agent-access`
+  shows `host_binding` (`hosts` or `none`) in `--json`.
 - **What still leaks.** A step can still move a value inside the run (an
   `http.request` whose response or another step's output is used as a field,
   a code step) or send it somewhere a host list does not look: the list
