@@ -7,7 +7,6 @@ package bridge
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -88,6 +87,13 @@ func NewServer(logger zerolog.Logger, o Options) *extension.Server {
 // deadline cannot outlast it by more than one probe (each is bounded by the
 // status probe timeout).
 func FindRunning(ctx context.Context, addrs []string) (extension.Status, string, bool) {
+	// A candidate that proves it holds the pairing token wins over one that
+	// merely answers the status shape (callers send the token to the result).
+	if base, ok := extension.PickBridge(addrs); ok {
+		if st, err := extension.FetchStatus(base); err == nil {
+			return st, base, true
+		}
+	}
 	for _, addr := range addrs {
 		if ctx.Err() != nil {
 			break
@@ -160,7 +166,7 @@ func Addr(st extension.Status, base string) string {
 // otherwise the shared default port — whose EADDRINUSE fallback to 9323
 // (e.g. when Chrome's own CDP holds 9222) lives in extension.Server.
 func ListenAddr() string {
-	if p := strings.TrimSpace(os.Getenv(extension.ExtensionPortEnv)); p != "" {
+	if p := extension.PortOverride(); p != "" {
 		return "127.0.0.1:" + p
 	}
 	return "127.0.0.1:" + extension.DefaultExtensionPort
@@ -171,7 +177,7 @@ func ListenAddr() string {
 // the default port and its 9323 fallback (mirroring extension.Server's bind
 // candidates).
 func ProbeAddrs() []string {
-	if p := strings.TrimSpace(os.Getenv(extension.ExtensionPortEnv)); p != "" {
+	if p := extension.PortOverride(); p != "" {
 		return []string{"http://127.0.0.1:" + p}
 	}
 	return []string{

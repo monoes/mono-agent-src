@@ -1016,6 +1016,36 @@ against an agent running as you:
   A per-browser token, however, speaks only for the instance it was paired
   with: it cannot connect as another instance, and no connection replaces a
   socket that authenticated with a different per-browser token.
+- The relay token only goes to a bridge that proves it holds it. A client
+  probes `/monoagent/health?nonce=<fresh hex>` first and the bridge answers
+  with `proof`, an HMAC-SHA256 keyed by the token over `v1`, the nonce, the
+  path, the host the client dialled and the port the bridge is bound to; the
+  client verifies it in constant time before any request carrying the token
+  goes out (relay, routing, capture, pairing check and pairing-page request all
+  do; a source pin test fails if a function sends the token header without the
+  prover). A loopback listener that merely speaks the status shape (any process
+  can bind one, no secret needed) therefore never receives the token. A bridge
+  that sends no proof (one older than this) is refused on every port, with an
+  error telling the operator to restart it (update the bridge FIRST: until it
+  is restarted an old bridge fails closed for every caller); `monoagentcli update` restarts a
+  stale bridge onto the new binary. When several addresses are candidates
+  (9222 and 9323) all are probed and the one that proves wins, so a squatter
+  cannot hide the real bridge. `MONOAGENT_EXTENSION_PORT` is honoured only for
+  the operator's own terminal (`operator` installs that check when it is linked,
+  which the command line, the daemon and the desktop app all do; the app has
+  only the marker half, since the in-turn check is registered by the command
+  line alone). A binary that does not link `operator` at all honours the
+  variable (`OperatorProcess()` is true when no policy is installed) and relies
+  on the proof alone. Test binaries keep the variable (tests isolate themselves
+  with it) and `internal/testhome` fails any test run that dials 9222/9323. Every request to a bridge uses one HTTP client that refuses redirects, so
+  a bridge replaced after its proof cannot bounce the token and body elsewhere.
+  The e2e scripts' private-network-namespace check (`mono_in_private_net`) only
+  tests that the namespace holds nothing but `lo`: a host whose only interface
+  is `lo` counts as private, and a real bridge could listen on that host's
+  loopback. Test binaries are recognised by `internal/testmode.On` (set by
+  `testhome.Main`, not settable from the environment); several other production
+  files still call `testing.Testing()` for their own guards, as before. Residual: the relay itself is still loopback TCP
+  (any local user can bind a port; they cannot obtain the token).
 - A browser holding the shared bridge token can claim any valid profile id,
   and with sets up to 64 at once, and receive those profiles' browser
   commands and session data. A browser with a token of its own is limited to

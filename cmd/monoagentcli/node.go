@@ -96,10 +96,10 @@ func extensionProbeAddrs() []string { return bridge.ProbeAddrs() }
 // returning a bridge through it, or nil if none appears within timeout. The
 // wait covers the gap between another process binding the port and its HTTP
 // server actually serving.
-func waitForRelay(addr string, timeout time.Duration) browserpkg.ExtensionBridge {
+func waitForRelay(addrs []string, timeout time.Duration) browserpkg.ExtensionBridge {
 	deadline := time.Now().Add(timeout)
 	for {
-		if extension.Probe(addr) {
+		if addr, ok := extension.PickBridge(addrs); ok {
 			return &extension.RemoteBridge{Sender: extension.NewRemoteSender(addr)}
 		}
 		if time.Now().After(deadline) {
@@ -118,11 +118,18 @@ func waitForRelay(addr string, timeout time.Duration) browserpkg.ExtensionBridge
 // false, since there is no Rod/Chromium fallback to degrade to.
 func setupExtensionBridge(logger zerolog.Logger, waitForConnection time.Duration) browserpkg.ExtensionBridge {
 	probeAddrs := extensionProbeAddrs()
-	for _, addr := range probeAddrs {
-		if extension.Probe(addr) {
-			fmt.Fprintln(os.Stderr, "  Reusing existing extension connection (shared with another monoagentcli process)")
-			return &extension.RemoteBridge{Sender: extension.NewRemoteSender(addr)}
-		}
+	if addr, ok := extension.PickBridge(probeAddrs); ok {
+		fmt.Fprintln(os.Stderr, "  Reusing existing extension connection (shared with another monoagentcli process)")
+		return &extension.RemoteBridge{Sender: extension.NewRemoteSender(addr)}
+	}
+
+	// A bridge answers but cannot prove it holds our token (older than this CLI,
+	// or another pairing token): say so now, once. Starting our own server would
+	// only fail to bind and wait ~10 s to say a misleading "ports held by
+	// processes that are not monoagent relays".
+	if addr, err := extension.DiagnoseBridges(probeAddrs); err != nil {
+		fmt.Fprintln(os.Stderr, "  "+err.Error())
+		return &extension.RemoteBridge{Sender: extension.NewRemoteSender(addr)} // every use fails at once with that error
 	}
 
 	// Same wiring an `extension serve` bridge gets (see extension_serve.go),
@@ -145,11 +152,9 @@ func setupExtensionBridge(logger zerolog.Logger, waitForConnection time.Duration
 		if err != nil {
 			// Note: with the server-side fallback (9222 → 9323) an errCh
 			// delivery now means BOTH candidate ports failed to bind.
-			for _, addr := range probeAddrs {
-				if remote := waitForRelay(addr, 5*time.Second); remote != nil {
-					fmt.Fprintln(os.Stderr, "  Reusing existing extension connection (another process owns the extension port)")
-					return remote
-				}
+			if remote := waitForRelay(probeAddrs, 5*time.Second); remote != nil {
+				fmt.Fprintln(os.Stderr, "  Reusing existing extension connection (another process owns the extension port)")
+				return remote
 			}
 			fmt.Fprintf(os.Stderr, "  Extension ports %s are held by processes that are not monoagent relays (%v)\n", strings.Join(probeAddrs, ", "), err)
 			fmt.Fprintln(os.Stderr, "  Free them (e.g. a Chrome started with --remote-debugging-port=9222) or set MONOAGENT_EXTENSION_PORT, and retry.")

@@ -5,7 +5,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"strings"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/browserdetect"
@@ -58,7 +57,7 @@ func FallbackPortHint(bridge ConnChecker) string {
 	// An operator who set the port themselves has not "fallen back" to
 	// anything, and telling them a Chrome is holding 9222 when they asked
 	// for 9400 sends them after a problem they do not have.
-	if strings.TrimSpace(os.Getenv(extension.ExtensionPortEnv)) != "" {
+	if extension.PortOverride() != "" {
 		return ""
 	}
 	return fmt.Sprintf("\nNote: the bridge is listening on %s, not the usual port %s, because another program already holds %s "+

@@ -79,6 +79,9 @@ type Status struct {
 	// the count is public here; which profile each one runs is behind the
 	// relay token, at /monoagent/browsers.
 	Browsers int `json:"browsers"`
+	// Proof answers a request carrying a `nonce`: HMAC-SHA256 of the
+	// pairing token over it (see proof.go). Absent otherwise.
+	Proof string `json:"proof,omitempty"`
 }
 
 // SetVersion records the build string reported in Status. Optional: an
@@ -152,7 +155,7 @@ func FetchStatus(baseURL string) (Status, error) {
 // FetchStatusTimeout is FetchStatus with a caller-chosen budget, for
 // callers polled in the background (`monoagentcli summary`).
 func FetchStatusTimeout(baseURL string, timeout time.Duration) (Status, error) {
-	client := &http.Client{Timeout: timeout}
+	client := newBridgeClient(timeout)
 	resp, err := client.Get(baseURL + "/monoagent/health")
 	if err != nil {
 		return Status{}, fmt.Errorf("no bridge answering at %s: %w", baseURL, err)
