@@ -8,7 +8,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/monoes/mono-agent/internal/operator"
+	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/peoplereview"
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/spf13/cobra"
@@ -149,8 +150,8 @@ func (d Deps) newPeopleReviewApproveCmd() *cobra.Command {
   monoagentcli people review approve 3f2a… --send --send-workflow "LinkedIn DMs"`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if why := operator.Refusal(); why != "" {
-				return d.InvalidInput("only the user approves a person for outreach, which lets their drafted DM go out: "+
+			if why := opgate.Refusal(); why != "" {
+				return clicore.OperatorOnly("only the user approves a person for outreach, which lets their drafted DM go out: "+
 					"the user approves %s in their own terminal or on the Human in Loop page; this is not the user's terminal: %s", args[0], why)
 			}
 			if send && sendPlan {

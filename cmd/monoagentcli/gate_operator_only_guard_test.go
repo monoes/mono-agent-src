@@ -48,11 +48,6 @@ var legacyMarkerChecks = map[string]allowed{
 	"cmd/monoagentcli/browser_permissions.go":       {2, pr3},
 	"internal/cli/chat/coder_queue.go":              {1, pr3},
 	"internal/cli/record/analyze.go":                {1, pr3},
-	"internal/cli/profile/documents_remove.go":      {1, pr4},
-	"internal/cli/profile/edit.go":                  {1, pr4},
-	"internal/cli/profile/folder.go":                {1, pr4},
-	"internal/cli/people/messages_drafts.go":        {1, pr4},
-	"internal/cli/people/review.go":                 {1, heldB + " (people review approve is converted in PR 4)"},
 	"internal/cli/org/role.go":                      {1, pr5},
 	"internal/cli/org/profile_lifecycle.go":         {1, pr5},
 	"cmd/monoagentcli/login.go":                     {1, heldB + " (login of a builtin package)"},
@@ -146,10 +141,9 @@ func TestNoMarkerOnlyOperatorChecksOutsideTheGate(t *testing.T) {
 // pendingOperatorOnly lists, with a reason, the commands that carry the operator-only help text and are
 // not rows of operatorOnlyRows yet. Converting a command moves it to the table.
 var pendingOperatorOnly = map[string]string{
-	"record save":                pr3,
-	"people messages send-draft": pr4,
-	"org teardown-profile":       pr5,
-	"login":                      heldB,
+	"record save":          pr3,
+	"org teardown-profile": pr5,
+	"login":                heldB,
 }
 
 // turnAwareCommands carry the help text and were behind the turn-aware gate before the table.
@@ -169,6 +163,8 @@ var verbsWithoutTheHelpText = map[string]bool{
 	"secret agent-access": true, "secret agent-access audit": true, "secret export": true,
 	"connect get-oauth-client": true, "profile info get": true, "workflow run": true,
 	"extension pair": true, "extension install": true,
+	"profile update": true, "profile delete": true, "profile backups purge": true, "profile move": true,
+	"profile create": true, "profile documents remove": true, "people review approve": true,
 }
 
 func treeKeys(t *testing.T) (all map[string]bool, withHelp []string) {

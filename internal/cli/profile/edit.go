@@ -13,7 +13,8 @@ import (
 	"golang.org/x/text/unicode/norm"
 
 	"github.com/monoes/mono-agent/internal/attachments"
-	"github.com/monoes/mono-agent/internal/operator"
+	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/procbind"
 	"github.com/monoes/mono-agent/internal/secrets"
 	"github.com/monoes/mono-agent/internal/workflow"
@@ -21,10 +22,12 @@ import (
 
 // refuseNotOperator refuses changing or deleting a profile to anyone but the
 // user: a profile holds their accounts and data, and a chat, a workflow run
-// or an agent must not be able to rename it or erase it.
-func (d Deps) refuseNotOperator(what string) error {
-	if why := operator.Refusal(); why != "" {
-		return d.InvalidInput("only the user %s a profile (it holds their accounts and data); the user runs this in their own terminal or in the app's Settings: %s", what, why)
+// or an agent must not be able to rename it or erase it. refusal is the turn-aware
+// gate (opgate.Refusal), or opgate.RecoveryRefusal for the delete, which clears
+// an install that a damaged database must not lock the user out of.
+func (d Deps) refuseNotOperator(what string, refusal func() string) error {
+	if why := refusal(); why != "" {
+		return clicore.OperatorOnly("only the user %s a profile (it holds their accounts and data); the user runs this in their own terminal or in the app's Settings: %s", what, why)
 	}
 	return nil
 }
@@ -74,7 +77,7 @@ func (d Deps) newProfileUpdateCmd() *cobra.Command {
 		Short: "Rename a profile or change its icon",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := d.refuseNotOperator("renames or re-icons"); err != nil {
+			if err := d.refuseNotOperator("renames or re-icons", opgate.Refusal); err != nil {
 				return err
 			}
 			nameSet, iconSet := cmd.Flags().Changed("name"), cmd.Flags().Changed("icon")
@@ -203,7 +206,7 @@ func (d Deps) newProfileDeleteCmd() *cobra.Command {
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !summary {
-				if err := d.refuseNotOperator("deletes"); err != nil {
+				if err := d.refuseNotOperator("deletes", opgate.RecoveryRefusal); err != nil {
 					return err
 				}
 				if confirmName == "" {
@@ -455,7 +458,7 @@ func (d Deps) newProfileBackupsCmd() *cobra.Command {
 		Long:  "Delete every pre-delete-profile-*.db snapshot. " + backupNote + " Only the user can run it.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := d.refuseNotOperator("purges backups of"); err != nil {
+			if err := d.refuseNotOperator("purges backups of", opgate.Refusal); err != nil {
 				return err
 			}
 			if !yes {

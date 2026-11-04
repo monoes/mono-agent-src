@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/profiledir"
 	"github.com/monoes/mono-agent/internal/storage"
 )
@@ -41,10 +42,14 @@ func mustProfileJSON(t *testing.T, dbPath string, v interface{}, args ...string)
 func exitCodeOf(t *testing.T, err error) int {
 	t.Helper()
 	var ce *cliError
-	if !errors.As(err, &ce) {
+	if errors.As(err, &ce) {
+		return ce.code
+	}
+	var oe *clicore.Error // operator-only refusals are the CLI's own error type
+	if !errors.As(err, &oe) {
 		t.Fatalf("error %v carries no exit code", err)
 	}
-	return ce.code
+	return oe.Code
 }
 
 func TestProfileCreateListGet(t *testing.T) {
