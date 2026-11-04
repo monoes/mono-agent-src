@@ -89,3 +89,15 @@ var errBusyStandIn = &standInErr{}
 type standInErr struct{}
 
 func (*standInErr) Error() string { return "busy stand-in" }
+
+// One wording for "the gate could not place this process": the operator package's prefix (what the
+// approval notes match on) and this package's (what the reveal refusals match on, and what the real gate
+// in cmd/monoagentcli prints) must be the same text, or one of them stops recognising the other.
+func TestTheUnplacedPrefixIsTheOperatorPackagesOnePlusTheParenthesis(t *testing.T) {
+	if UnplacedPrefix != operator.UnplacedPrefix+" (" {
+		t.Fatalf("opgate.UnplacedPrefix = %q, operator.UnplacedPrefix = %q", UnplacedPrefix, operator.UnplacedPrefix)
+	}
+	if !Unplaced(UnplacedPrefix + "database is locked)") {
+		t.Fatal("a reason that starts with the prefix is not unplaced")
+	}
+}
