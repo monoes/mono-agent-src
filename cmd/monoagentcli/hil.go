@@ -167,7 +167,20 @@ func (c *globalConfig) gateRefusal(recovery bool) string {
 // error names the database and the entry file), so a turn hidden behind it is not silent. A seam for tests.
 var recoverySkippedEntry = func(err error) { fmt.Fprintln(os.Stderr, "warning: "+err.Error()) }
 
-func registerOperatorGate(cfg *globalConfig) { opgate.Register(cfg.gateRefusal) }
+func registerOperatorGate(cfg *globalConfig) {
+	opgate.Register(cfg.gateRefusal)
+	opgate.RegisterRecovery(cfg.gateRecovery)
+}
+
+// gateRecovery is gateRefusal(true) that also hands back the busy-host error, when that is why the command
+// is refused, so the command can say "wait and retry" instead of "only the operator can".
+func (c *globalConfig) gateRecovery() (string, error) {
+	v := c.gateVerdict(true, "do this")
+	if v.err != nil && errors.Is(v.err, coderhost.ErrDatabaseBusy) {
+		return v.why, v.err
+	}
+	return v.why, nil
+}
 
 // callerInATurn says whether this process descends from a recorded coder turn. It never creates
 // the database: no file (a fresh machine, doctor before init) or no coder_sessions table means no
@@ -184,10 +197,11 @@ func (c *globalConfig) callerInATurnFor(recovery bool) (bool, error) {
 	// The database the process names is only half of the question: --db-path or another HOME must not hide a
 	// turn, so every running coder host's database (the turn registry) is checked too. An override only adds checks.
 	var in bool
+	var busy []error
 	if recovery {
 		// an unreadable entry is skipped, never allowed to hide a turn recorded in a readable database
 		var skipped []error
-		in, skipped = coderhost.CallerInARegisteredTurnLenient(path)
+		in, skipped, busy = coderhost.CallerInARegisteredTurnLenient(path)
 		for _, e := range skipped {
 			recoverySkippedEntry(e)
 		}
@@ -201,11 +215,29 @@ func (c *globalConfig) callerInATurnFor(recovery bool) (bool, error) {
 	if in {
 		return true, nil
 	}
-	in, err := callerInATurnNamed(path)
-	if err != nil && recovery {
-		return false, nil
+	if recovery {
+		return recoveryNamedVerdict(path, busy)
 	}
-	return in, err
+	return callerInATurnNamed(path)
+}
+
+// recoveryNamedVerdict is the last step of the recovery flavour: the database the process names, then the busy
+// live hosts the registry scan found. A lock on the database of a live coder host could be hiding a turn:
+// refuse with "wait and retry", naming every busy host. A dead host's lock, or a database no live host owns,
+// never locks the operator out of a repair, and is not waited for.
+func recoveryNamedVerdict(path string, busy []error) (bool, error) {
+	in, err := coderhost.CallerInATurnAtRecovery(path)
+	if err == nil {
+		if in {
+			return true, nil
+		}
+	} else if file, ok := coderhost.LiveHostEntryOf(path); ok && coderhost.IsNonAnswer(err) {
+		busy = append([]error{&coderhost.BusyHostError{DB: path, File: file}}, busy...)
+	}
+	if joined := coderhost.JoinBusy(busy...); joined != nil {
+		return false, joined
+	}
+	return false, nil
 }
 
 // callerInATurnNamed is the check of the database the process names, as it was before the registry. It is
