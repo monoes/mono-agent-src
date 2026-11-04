@@ -39,8 +39,26 @@ func TestPeopleReviewApproveAsksTheTurnAwareGate(t *testing.T) {
 	if cat, intro, _ := personRow(t, db, "id = ?", "p1"); cat != peoplereview.Pending || intro != "drafted" {
 		t.Fatalf("a refused approve changed p1: %q %q", cat, intro)
 	}
-	if _, err := runReview(t, cfg, "reject", "p2"); err != nil || category(t, db, "p2") != peoplereview.Rejected {
-		t.Fatalf("reject in a turn: %v", err)
+}
+
+// Rejecting can undo an approval, so it is the user's as well: a process inside a turn is refused (before
+// the person is looked up) and an approved person stays approved.
+func TestPeopleReviewRejectAsksTheTurnAwareGate(t *testing.T) {
+	cfg, db := newReviewCLITestDB(t)
+	asOperator(t)
+	if _, err := runReview(t, cfg, "approve", "p1", "--intro", "Hi"); err != nil {
+		t.Fatal(err)
+	}
+	refusedInATurn(t)
+	for _, id := range []string{"p1", "p2", "no-such-person"} {
+		_, err := runReview(t, cfg, "reject", id)
+		requireRefused(t, "reject "+id, err)
+	}
+	if got := category(t, db, "p1"); got != peoplereview.Approved {
+		t.Fatalf("a refused reject changed the approved person to %q", got)
+	}
+	if got := category(t, db, "p2"); got != peoplereview.Pending {
+		t.Fatalf("a refused reject changed p2 to %q", got)
 	}
 }
 
@@ -61,5 +79,29 @@ func TestSendDraftAsksTheTurnAwareGate(t *testing.T) {
 	}
 	if m := fetchPersonMessage(t, dbPath, "m-draft"); m == nil || m.Status != "draft" {
 		t.Fatalf("the draft is %+v, want it still a draft", m)
+	}
+}
+
+// reject-draft deletes any draft and, best effort, its mailbox copy: refused inside a turn, the draft row
+// stays and the mailbox node never runs.
+func TestRejectDraftAsksTheTurnAwareGate(t *testing.T) {
+	refusedInATurn(t)
+	dbPath := newMessagesCLITestDB(t)
+	seedPersonMessage(t, dbPath, "m-draft", "EXT-DRAFT", "outbound", "", "draft", `{"connection_id":"outlook"}`)
+	runs := 0
+	stubOutlookNode(t, func(*sql.DB, map[string]interface{}) ([]workflow.NodeOutput, error) {
+		runs++
+		return nodeOutput(map[string]interface{}{"status": "deleted"}), nil
+	})
+	cfg := &testConfig{DBPath: dbPath, ProfileID: "default"}
+	for _, id := range []string{"m-draft", "no-such-message"} {
+		_, err := runPeople(t, cfg, "messages", "reject-draft", id)
+		requireRefused(t, "reject-draft "+id, err)
+	}
+	if runs != 0 {
+		t.Fatalf("the mailbox node ran %d time(s): the copy in the mailbox was deleted", runs)
+	}
+	if m := fetchPersonMessage(t, dbPath, "m-draft"); m == nil || m.Status != "draft" {
+		t.Fatalf("the draft is %+v, want it still there", m)
 	}
 }

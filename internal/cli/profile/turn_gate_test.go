@@ -62,24 +62,23 @@ func TestProfileVerbsAskTheTurnAwareGate(t *testing.T) {
 	}
 }
 
-// `profile delete` is the recovery verb: its gate is RecoveryRefusal, the others' is Refusal.
-func TestProfileDeleteAsksTheRecoveryGateAndTheOthersTheOrdinaryOne(t *testing.T) {
+// Every verb asks the ordinary gate, `profile delete` included: it is not a recovery verb, so a recovery
+// gate that lets the operator through changes nothing for it.
+func TestProfileDeleteAsksTheOrdinaryGateNotTheRecoveryOne(t *testing.T) {
 	dbPath := newProfileDocsCLITestDB(t)
 	mustProfileJSON(t, dbPath, &profileCreateResult{}, "create", "Mine")
 
 	inATurn(t, "ordinary gate", "")
-	_, err := runProfileJSON(t, dbPath, "delete", "Mine")
-	if err == nil || strings.Contains(err.Error(), "ordinary gate") || strings.Contains(err.Error(), "only the user") {
-		t.Fatalf("delete with a recovery gate that lets the operator through: %v", err)
-	}
-	for _, args := range [][]string{{"update", "Mine", "--name", "x"}, {"backups", "purge", "--yes"}} {
+	for _, args := range [][]string{{"delete", "Mine"}, {"update", "Mine", "--name", "x"}, {"backups", "purge", "--yes"}} {
 		_, err := runProfileJSON(t, dbPath, args...)
 		requireRefusedByTheGate(t, strings.Join(args, " "), err, "ordinary gate")
 	}
 
 	inATurn(t, "", "recovery gate")
-	_, err = runProfileJSON(t, dbPath, "delete", "Mine")
-	requireRefusedByTheGate(t, "delete", err, "recovery gate")
+	_, err := runProfileJSON(t, dbPath, "delete", "Mine")
+	if err == nil || strings.Contains(err.Error(), "recovery gate") || strings.Contains(err.Error(), "only the user") {
+		t.Fatalf("delete with an ordinary gate that lets the operator through: %v", err)
+	}
 }
 
 // `documents remove --delete-file` deletes a file from the profile folder: a process inside a turn is

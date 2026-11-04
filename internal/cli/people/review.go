@@ -136,7 +136,7 @@ func (d Deps) newPeopleReviewApproveCmd() *cobra.Command {
 		Long: "Marks a person approved. --intro replaces the drafted introduction.\n\n" +
 			"Only the user approves: approving lets the drafted DM go out, so an agent, the chat " +
 			"or a workflow run is refused (exit 3) and nothing changes. They may queue a person " +
-			"(category pending_approval) or reject one.\n\n" +
+			"(category pending_approval); rejecting one is the user's too.\n\n" +
 			"--send then runs the dispatch workflow with the person as trigger input " +
 			"({person_id, platform, platform_username, introduction}) and waits for it. The " +
 			"workflow is --send-workflow (an id or part of a name) or, by convention, the " +
@@ -219,8 +219,13 @@ func (d Deps) newPeopleReviewRejectCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "reject <person-id>",
 		Short: "Reject a person so they leave the queue",
-		Args:  cobra.ExactArgs(1),
+		Long: "Marks a person rejected, an approved one included. " + clicore.OperatorOnlyHelp + " Rejecting can undo an " +
+			"approval, so it is not left to an agent.",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if why := opgate.Refusal(); why != "" {
+				return clicore.OperatorOnly("only the user rejects a person (it can undo an approval): the user rejects %s in their own terminal or on the Human in Loop page; this is not the user's terminal: %s", args[0], why)
+			}
 			db, err := d.OpenDB()
 			if err != nil {
 				return fmt.Errorf("initializing database: %w", err)

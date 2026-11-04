@@ -647,7 +647,7 @@ dangerous calls.
   `agent-mode env|token create|token revoke`, `extension assign|bind|unbind|autopair|approve|deny|reset|
   browsers allow|browsers revoke|pair --open|install --zip` and `jev enable|key set|adopt|remove`, `profile update|delete|move|backups purge`,
   `profile create --root-dir`, `profile documents remove --delete-file`,
-  `people review approve` and `people messages send-draft` also refuse a
+  `people review approve|reject` and `people messages send-draft|reject-draft` also refuse a
   process inside a coder session's turn and one that holds an agent token
   (`internal/cli/opgate`, SECURITY.md; the rest are tracked in issue 1333). `httpapi-token` is a reserved vault entry: only
   the server and the user's own `secret add|update|rm|import` write it
