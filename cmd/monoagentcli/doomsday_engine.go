@@ -69,6 +69,8 @@ func init() {
 			// The strategy layer's host is ticked from this process; with no run open a tick reads and writes nothing.
 			startStrategyLoop(cfg, db)
 		}
+		// The coder host joins the strategy loop after its Run returned, before the database closes.
+		chatcli.HostStopped = stopStrategyLoop
 		// Reconcile of worktrees resolves begun merges first and keeps the worktrees of unresolved ones (note
 		// 13.3 section 5.1). A database that cannot be opened keeps every turn's worktree.
 		dynorg.SetReconcileGuard(func(ctx context.Context, cwd string, active func(string) bool) func(string) bool {
