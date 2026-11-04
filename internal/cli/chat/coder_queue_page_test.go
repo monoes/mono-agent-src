@@ -114,12 +114,12 @@ func TestCoderQueueTabChoice(t *testing.T) {
 
 // The map decides where a queued chat's full-access agent works: an agent
 // may read it but not change it.
-func TestCoderProjectsRefusedInsideAnAgent(t *testing.T) {
+func TestCoderProjectsRefusedWhereTheOperatorGateRefuses(t *testing.T) {
 	dbPath := queueTestDB(t)
 	project := t.TempDir()
 	t.Setenv("CLAUDECODE", "1")
 	for _, args := range [][]string{{"projects", "map", "http://localhost:3000", project}, {"projects", "unmap", "http://localhost:3000"}} {
-		if out, code := runCoderCLI(t, dbPath, args...); code != 3 || !strings.Contains(out, `"code":"agent_context"`) {
+		if out, code := runCoderCLIGated(t, dbPath, args...); code != 3 || !strings.Contains(out, `"code":"operator_only"`) {
 			t.Errorf("%v inside an agent: exit %d %s", args, code, out)
 		}
 	}
@@ -183,5 +183,25 @@ func TestCleanLineDropsFormatCharacters(t *testing.T) {
 		if strings.ContainsRune(it.Prompt, r) || strings.ContainsRune(readReadme(t, dbPath, it.ID), r) {
 			t.Errorf("U+%04X reached the prompt or README", r)
 		}
+	}
+}
+
+// The gate comes before the arguments are looked at: a refused caller is told it is refused, not that its
+// origin or folder is wrong. A process the gate lets through gets the argument errors.
+func TestCoderProjectsGateComesBeforeTheArguments(t *testing.T) {
+	dbPath := queueTestDB(t)
+	for _, args := range [][]string{{"projects", "map", "not an origin", "/no/such/folder"}, {"projects", "unmap", "not an origin"}} {
+		t.Run("refused/"+args[1], func(t *testing.T) {
+			t.Setenv("CLAUDECODE", "1")
+			if out, code := runCoderCLIGated(t, dbPath, args...); code != 3 || !strings.Contains(out, `"code":"operator_only"`) {
+				t.Errorf("%v: exit %d %s", args, code, out)
+			}
+		})
+		t.Run("operator/"+args[1], func(t *testing.T) {
+			t.Setenv("CLAUDECODE", "")
+			if out, code := runCoderCLIGated(t, dbPath, args...); code == 0 || strings.Contains(out, "operator_only") {
+				t.Errorf("%v: exit %d %s (want the argument error)", args, code, out)
+			}
+		})
 	}
 }

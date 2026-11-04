@@ -52,7 +52,7 @@ type Deps struct {
 	// EnsureConnected waits up to timeout for the bridge's browser (the CLI's
 	// ensureExtensionConnected).
 	EnsureConnected func(bridge browserpkg.ExtensionBridge, timeout time.Duration) error
-	// Refusal is operator.Refusal: why this process may not do what only the user does, "" for
+	// Refusal is opgate.Refusal: why this process may not do what only the user does, "" for
 	// the user. Re-recording a selector in the user's browser, accepting a selector repair and
 	// changing a package's trust flags are the user's; nil refuses (clicore.OperatorRefusal).
 	Refusal func() string

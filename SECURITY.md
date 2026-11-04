@@ -2077,7 +2077,12 @@ that works a task acts on them. The defences:
   trust commands: `agent purposes set|reset`, `agent-mode env` and
   `agent-mode token create|revoke`, `extension assign|bind|unbind|autopair|approve|deny|reset`,
   `extension browsers allow|revoke`, `extension pair --open`, `extension install --zip`,
-  and `jev enable` and `jev key set|adopt|remove`. A terminal started inside a coder
+  and `jev enable` and `jev key set|adopt|remove`, and the commands that trust a browser
+  run with the user's sign-ins: `automation trust` with a flag, `automation rerecord`,
+  `automation doctor accept-repair`, `record verify`, `record replay` (not `--dry-run`),
+  `record save` (a refused process also reads no vault secret for a recording),
+  `browser allow add|remove`, `browser permissions set|site`, `coder queue add|start`
+  and `coder projects map|unmap`. A terminal started inside a coder
   turn, and a process that holds an agent token, is refused by them. The check reads the
   named database read-only and never creates or migrates it. `secret rebind` repairs
   an install, so it must work when the database is damaged (`extension reset`, which
@@ -2147,12 +2152,23 @@ that works a task acts on them. The defences:
   (asking the host over its peer-credential socket) is a separate, later design;
   (2) this
   change covers the commands listed above only: many other operator-only commands
-  (sign-in, automation, records, the organisation guards, people and profile edits,
+  (sign-in, the organisation guards, people and profile edits,
   node runs and publications; tracked in issue 1333) still
   use only the operator marker check and are NOT turn-aware,
   so this does not make every operator-only command refuse a turn; (3) the test that
   keeps the wired commands in one table counts wirings per file and misses a method
   value or a verb that never calls the gate: an inventory, not a coverage proof.
+  A browser bridge started from a shell inside a coder session's turn is refused for
+  the operator-only verbs it runs for the browser (`coder queue add`, `record save`,
+  `record verify`), because the gate follows the process ancestry and the bridge does not
+  hide it from its children; restart it from your own terminal. The supported bridge is the
+  systemd user service. The bridge itself stays a gate-free path for anything that
+  authenticates to it (the pairing token): it runs `record save` and `coder queue add` as the
+  operator for such a caller, so the token is as sensitive as the commands behind it.
+  `automation install <dir> --local` (and `automation new --install`) installs with local
+  trust, which `automation trust` no longer lets a turn grant; it is still open to a turn
+  because the shipped package-writing skill tells an agent to run it. The owner chose to keep
+  it open (2026-11-04): it installs with local trust on purpose, so the skill keeps working.
   A bound worker's v2 task token (`mat2-`) is delivered through the credential frame
   into an in-process stash, so no environment variable carries it and neither the
   token-variable layer nor the marker check can see it; the only process that holds

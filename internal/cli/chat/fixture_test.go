@@ -51,6 +51,7 @@ func testDeps(c *testConfig) *Deps {
 			return id, nil
 		},
 		RequireOperator:   func(string) error { return nil },
+		OperatorRefusal:   func() string { return "" },
 		PublicationPrompt: func() string { return "Register what you publish." },
 	}
 }
