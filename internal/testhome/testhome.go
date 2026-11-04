@@ -18,7 +18,8 @@ import (
 )
 
 // Main points HOME (and USERPROFILE) at a fresh temp dir, makes
-// http.DefaultTransport refuse non-loopback hosts (see AllowNetworkEnv), runs
+// http.DefaultTransport refuse non-loopback hosts (see AllowNetworkEnv), puts failing stubs of systemctl, launchctl and
+// schtasks first on PATH and fails the run if a test called one (guardServiceManagers), runs
 // the tests, removes the dir and exits. Go's build and module caches, and the user cache
 // dir (rod's browser download), keep their real locations so tests that
 // build binaries or launch a browser don't start cold.
@@ -53,6 +54,19 @@ func run(m *testing.M) int {
 	os.Setenv(UnderTestEnv, "1")
 	keepCaches()
 	blockNetwork()
+	check, cleanup := guardServiceManagers()
+	defer cleanup()
+	code := runIn(m)
+	if called := check(); called != "" {
+		fmt.Fprintf(os.Stderr, "testhome: the tests ran a real service manager (they must inject a fake):\n%s\n", called)
+		if code == 0 {
+			code = 1
+		}
+	}
+	return code
+}
+
+func runIn(m *testing.M) int {
 	if home := os.Getenv("HOME"); os.Getenv(KeepHomeEnv) == "1" && keepable(home) {
 		return m.Run()
 	}

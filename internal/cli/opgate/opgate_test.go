@@ -62,3 +62,30 @@ func TestSetForTestRestoresTheApprovalTurnCheck(t *testing.T) {
 		t.Fatal("the cleanup left the turn check installed")
 	}
 }
+
+// SetForTest replaces BOTH flavours: a recovery body registered earlier (the real tree's busy-aware check) is
+// gone for the rest of the test and comes back afterwards, so a test's stand-in body is never bypassed by it.
+func TestSetForTestClearsTheRecoveryBodyOfAnEarlierRegistration(t *testing.T) {
+	prev := recoveryBody
+	recoveryBody = func() (string, error) { return "", errBusyStandIn }
+	t.Cleanup(func() { recoveryBody = prev })
+	outer := recoveryBody
+	t.Run("inside", func(t *testing.T) {
+		SetForTest(t, func(recovery bool) string { return "stand-in" })
+		if recoveryBody != nil {
+			t.Fatal("SetForTest left the earlier recovery body in place")
+		}
+		if why, busy := RecoveryCheck(); why != "stand-in" || busy != nil {
+			t.Fatalf("RecoveryCheck = %q, %v; want the stand-in body's answer", why, busy)
+		}
+	})
+	if recoveryBody == nil || outer == nil {
+		t.Fatal("the earlier recovery body was not restored")
+	}
+}
+
+var errBusyStandIn = &standInErr{}
+
+type standInErr struct{}
+
+func (*standInErr) Error() string { return "busy stand-in" }

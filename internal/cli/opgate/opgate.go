@@ -26,6 +26,10 @@ type body func(recovery bool) string
 
 var registered body
 
+// recoveryBody is the registered recovery check that can also say "the owning host is busy": a refusal that is
+// not an operator-only one. Nil unless cmd/monoagentcli registered it.
+var recoveryBody func() (why string, busy error)
+
 // Refusal is why this process may not do what only the user does, or "" for the user.
 func Refusal() string {
 	if registered != nil {
@@ -37,10 +41,36 @@ func Refusal() string {
 // RecoveryRefusal is Refusal for a command that repairs an install: an unreadable or absent
 // database is "no turn recorded" and does not refuse.
 func RecoveryRefusal() string {
+	if recoveryBody != nil {
+		why, busy := recoveryBody()
+		if busy != nil && why == "" {
+			why = busy.Error()
+		}
+		return why
+	}
 	if registered != nil {
 		return registered(true)
 	}
 	return operator.Refusal()
+}
+
+// RecoveryCheck is RecoveryRefusal for a command that tells a busy host apart: busy is non-nil when the
+// database of a live coder host is locked past the wait and no turn was found elsewhere, which the command
+// hands back as it is (a plain error: wait and retry), not as an operator-only refusal. why is as RecoveryRefusal's.
+func RecoveryCheck() (why string, busy error) {
+	if recoveryBody != nil {
+		return recoveryBody()
+	}
+	return RecoveryRefusal(), nil
+}
+
+// RegisterRecovery installs the recovery check that reports a busy host. Same caller rule as Register.
+func RegisterRecovery(f func() (string, error)) {
+	pc, _, _, ok := runtime.Caller(1)
+	if fn := runtime.FuncForPC(pc); !ok || fn == nil || !(strings.HasPrefix(fn.Name(), "main.") || strings.HasPrefix(fn.Name(), "github.com/monoes/mono-agent/cmd/monoagentcli.")) {
+		panic("opgate.RegisterRecovery may only be called from cmd/monoagentcli")
+	}
+	recoveryBody = f
 }
 
 // Register installs the turn-aware body. Only package main of cmd/monoagentcli may call it (a
@@ -80,7 +110,8 @@ func SetForTest(t testing.TB, f func(recovery bool) string) {
 	if !testing.Testing() {
 		panic("opgate.SetForTest is a test seam and may only be used from a test binary")
 	}
-	prev := registered
+	prev, prevRecovery := registered, recoveryBody
 	install(f)
-	t.Cleanup(func() { install(prev) })
+	recoveryBody = nil // a stand-in body answers for both flavours
+	t.Cleanup(func() { install(prev); recoveryBody = prevRecovery })
 }

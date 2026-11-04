@@ -6,13 +6,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/monoes/mono-agent/internal/operator"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/orgdecide"
 	"github.com/monoes/mono-agent/internal/orgdesign"
 )
 
-// What is not the operator's own terminal (internal/operator: an agent, the
-// chat, a workflow) may make an org's autonomy stricter or leave it as it is,
+// What is not the operator's own terminal (opgate: an agent, the chat, a
+// workflow, a process inside a coder session's turn) may make an org's autonomy stricter or leave it as it is,
 // never let it approve more without a person: autonomy full is refused, and
 // so is any change autonomyWidening finds. Level manual and mid stay anyone's.
 
@@ -21,7 +21,7 @@ func (env *orgEnv) refuseFullAutonomy(full bool, org string) error {
 	if !full {
 		return nil
 	}
-	if why := operator.Refusal(); why != "" {
+	if why := opgate.Refusal(); why != "" {
 		return env.d.InvalidInput("autonomy full lets org %s's decider handle everything with no person involved, which is the user's to choose: %s; "+
 			"set manual or mid, or run it yourself from a terminal or the app", org, why)
 	}
@@ -31,7 +31,7 @@ func (env *orgEnv) refuseFullAutonomy(full bool, org string) error {
 // refuseWidening refuses a change from before to after that would approve
 // more without a person.
 func (env *orgEnv) refuseWidening(before, after *orgdecide.Autonomy, org string) error {
-	why := operator.Refusal()
+	why := opgate.Refusal()
 	if why == "" {
 		return nil
 	}
@@ -97,7 +97,7 @@ func autonomyWidening(before, after *orgdecide.Autonomy) string {
 // already paused for longer keeps its pause (and `pause --all` still pauses
 // the rest).
 func pauseUntil(a *orgdecide.Autonomy, until time.Time) time.Time {
-	if operator.Refusal() != "" && a.PausedUntil != nil && a.PausedUntil.After(until) {
+	if opgate.Refusal() != "" && a.PausedUntil != nil && a.PausedUntil.After(until) {
 		return *a.PausedUntil
 	}
 	return until
