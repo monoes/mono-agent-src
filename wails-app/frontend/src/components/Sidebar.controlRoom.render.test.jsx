@@ -123,6 +123,22 @@ describe('the probe keeps its last good answer and paces itself', () => {
     await tick(1_100)
     expect(api.probe).toHaveBeenCalledTimes(n + 1)
   })
+  it('a good probe resets the failure count: fail, ok, fail retries after 5 s again, not 15 s', async () => {
+    setup()
+    const api = { probe: vi.fn().mockResolvedValue({ error: 'x' }) }
+    renderHook(() => useControlRoomProbe(api))
+    await tick(0)                    // first failure: retry in 5 s
+    api.probe.mockResolvedValue(run)
+    await tick(5_100)                // ok: next in 15 s (a run exists), not another short retry
+    const afterOk = api.probe.mock.calls.length
+    await tick(10_000)
+    expect(api.probe).toHaveBeenCalledTimes(afterOk)
+    api.probe.mockResolvedValue({ error: 'x' })
+    await tick(5_100)                // this probe fails
+    const n = api.probe.mock.calls.length
+    await tick(5_100)
+    expect(api.probe).toHaveBeenCalledTimes(n + 1)
+  })
   it('does not ask at all while the window is hidden, and asks again on return', async () => {
     setup()
     const api = { probe: vi.fn().mockResolvedValue(run) }

@@ -39,9 +39,17 @@ func verifiedView() store.View {
 	return store.View{Run: store.Run{Generation: 1}, Chain: store.ChainState{Verified: true, HeadSeq: 5, HeadMAC: []byte{1}}}
 }
 
+// errStubHung is what a blocking stub returns when its context never ended: the deadline under test is gone, and the
+// test fails after a few seconds instead of holding the runner until the package timeout.
+var errStubHung = errors.New("test stub: the context never ended")
+
 func blockUntilDone(ctx context.Context) (store.View, error) {
-	<-ctx.Done()
-	return store.View{}, ctx.Err()
+	select {
+	case <-ctx.Done():
+		return store.View{}, ctx.Err()
+	case <-time.After(5 * time.Second):
+		return store.View{}, errStubHung
+	}
 }
 
 // The shipped budget ends before the desktop binding's 15 s read timeout, with room for process start and printing.
@@ -101,5 +109,24 @@ func TestReadViewRetryOutOfTimeKeepsTheFirstAnswer(t *testing.T) {
 	}
 	if time.Since(start) > 2*time.Second {
 		t.Fatalf("the retry ran for %s past the shared budget", time.Since(start))
+	}
+}
+
+// The caller's own cancel or deadline is not the read's budget running out: it must not read as read_timeout.
+func TestReadViewCallerEndingIsNotAReadTimeout(t *testing.T) {
+	withBudget(t, 5*time.Second)
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	short, cancelShort := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancelShort()
+	for name, parent := range map[string]context.Context{"cancelled": cancelled, "caller deadline": short} {
+		t.Run(name, func(t *testing.T) {
+			bs := &budgetStore{script: []func(context.Context) (store.View, error){blockUntilDone}}
+			e := &StoreEngine{Store: bs, Profile: "p1"}
+			_, err := e.ReadView(parent, store.ViewQuery{})
+			if err == nil || errors.Is(err, store.ErrViewTimeout) || errors.Is(err, errStubHung) {
+				t.Fatalf("err %v: a caller that gave up is not read_timeout", err)
+			}
+		})
 	}
 }

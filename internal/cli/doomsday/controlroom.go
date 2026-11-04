@@ -64,7 +64,8 @@ func (d Deps) newOverview() *cobra.Command {
 		Long: "Control room: the run's state, tree clusters, spend and integrity (read-only; available:false when the mode is off, " +
 			"there is no run, or the read failed: reason error and a non-zero exit). integrity.chain_verified is yes only when the audit " +
 			"chain verified AND its head is consistent with the stop witness (not \"latest\": rolling back both the database and the " +
-			"witness file to an older matching pair also reads yes; the read creates and migrates nothing but the operator gate may still touch the database file); unanchored means consistent but not compared with the witness " +
+			"witness file to an older matching pair also reads yes; the read itself creates and migrates nothing and never creates monoagent.db, but process start may create automations/index.json, .lock and .claude_init in a fresh HOME and the operator gate may still touch the database file). " +
+			"Limits of the off state: deleting the witness AND the database (or the doomsday tables) reads off while a run may be live; a witness left behind after a manual database reset makes that profile read db_unavailable until its witness directory is removed; unanchored means consistent but not compared with the witness " +
 			"(not healthy). Spend totals are not authenticated (spend.counters_authenticated is false). " + clicore.OperatorOnlyHelp,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -91,7 +92,8 @@ func (d Deps) newFeed() *cobra.Command {
 		Use:   "feed",
 		Short: "Control room: the decision feed, newest first, redacted (read-only)",
 		Long: "Control room: the decision feed, newest first. Rows show the class, amounts and references of a decision, never " +
-			"its text. Read-only; available:false when the mode is off, there is no run, or the read failed (reason error, non-zero exit). " + clicore.OperatorOnlyHelp,
+			"its text. Read-only (the read creates and migrates nothing and never creates monoagent.db; process start may create automations/index.json, .lock and .claude_init in a fresh HOME); available:false when the mode is off, there is no run, or the read failed (reason error, non-zero exit). " +
+			"Deleting the witness AND the database reads off while a run may be live; a witness left after a manual database reset reads db_unavailable until its witness directory is removed. " + clicore.OperatorOnlyHelp,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := d.operatorGate("read the open-ended run's decision feed"); err != nil {

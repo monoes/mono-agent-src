@@ -40,15 +40,27 @@ func witnessHoldsRun(cfg *globalConfig) bool {
 	if p := cfg.ProfileID; p == "" || p == "." || p == ".." || filepath.Base(p) != p {
 		return false
 	}
-	path := filepath.Join(doomsdayRunDirPath(cfg), "witness")
+	runDir := doomsdayRunDirPath(cfg)
+	// The run directory and its parent must be real directories: a link there would send the read elsewhere.
+	for _, d := range []string{filepath.Dir(runDir), runDir} {
+		if st, err := os.Lstat(d); err != nil || !st.IsDir() {
+			return false
+		}
+	}
+	path := filepath.Join(runDir, "witness")
 	if st, err := os.Lstat(path); err != nil || !st.Mode().IsRegular() {
 		return false
 	}
-	f, err := os.Open(path)
+	// Open without following a link or blocking on a FIFO (the path may have been swapped since the Lstat), then
+	// judge the file actually opened.
+	f, err := openWitnessNoFollow(path)
 	if err != nil {
 		return false
 	}
 	defer f.Close()
+	if st, err := f.Stat(); err != nil || !st.Mode().IsRegular() {
+		return false
+	}
 	b, _ := io.ReadAll(io.LimitReader(f, witnessReadCap))
 	return bytes.Contains(b, []byte(`"t":"committed"`)) || bytes.Contains(b, []byte(`"t":"pending"`))
 }

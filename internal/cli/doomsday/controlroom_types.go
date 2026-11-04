@@ -9,6 +9,9 @@ package doomsday
 //     a missing database or one without the mode's tables is "off" only when the profile's witness directory holds no
 //     committed or pending record; otherwise it is the read error db_unavailable (a run existed);
 //     nothing else is set then, and the app shows nothing.
+//     The reverse limit: deleting the witness AND the database (or the doomsday tables) reads "off" while a run may be
+//     live, since nothing is left to say one existed; and a witness left behind after a manual database reset makes
+//     that profile read db_unavailable until its witness directory is removed.
 //   - Rows carry no timestamps (the audit stream has none), so there is no feed time and no rate: spend.rate_basis is
 //     "none" and a client may estimate a rate from successive polls, labelled approximate (generated_at is the poll
 //     time). The tree has no depth or parent: members are registered by kind and liveness only.
@@ -17,8 +20,9 @@ package doomsday
 //     so a chain whose tail was cut is consistent in itself). "yes" does not mean "latest": rolling back BOTH the
 //     database and the witness file to an older matching pair still reads yes (a documented limit). The dbid record
 //     and the OS secret store's generation anchor are not consulted by this read, and deleting the witness gives only
-//     "unanchored", never "yes". The read creates and migrates nothing, but the operator gate around it may still
-//     touch the database file. A read that loses a race with the writer is retried once; the whole read, retry
+//     "unanchored", never "yes". The read creates and migrates nothing and never creates monoagent.db, but process
+//     start may create automations/index.json, .lock and .claude_init in a fresh HOME, and the operator gate around
+//     it may still touch the database file. A read that loses a race with the writer is retried once; the whole read, retry
 //     included, ends within ReadTotalBudget and a slow one is read_timeout. "unanchored" is a consistent chain with no witness to
 //     compare (integrity.reason says why: no_witness, no_witness_record, witness_unreadable); tree, spend and the feed
 //     are shown, but the app must not show the run as healthy. "no" is a chain that does not verify, an empty chain, a
