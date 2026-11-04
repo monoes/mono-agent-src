@@ -173,8 +173,8 @@ func TestLapsedCapRunLosesToAReservationButSurvivesWithout(t *testing.T) {
 	if err := s.HeartbeatCapRun(bg, "default", a.ID, "o1"); !errors.Is(err, ErrReservationLost) {
 		t.Fatalf("it must stop: %v", err)
 	}
-	if capRows(t, s, sid) != 0 {
-		t.Fatal("the lost row stays")
+	if err := s.HeartbeatCapRun(bg, "default", a.ID, "o1"); !errors.Is(err, ErrReservationLost) {
+		t.Fatalf("and it stays lost: %v", err)
 	}
 }
 
