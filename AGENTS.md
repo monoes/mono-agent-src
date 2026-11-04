@@ -4683,3 +4683,13 @@ criteria run under process limits (CPU, address space, open files, file size, pr
 kernel allows an unprivileged user namespace, without a network (`denied(enforced)`; otherwise `denied(declared-only)`, and
 `doomsday finish --require-net-deny` parks with `enforcement-required`); each round's verification unit is witnessed and a `verify`
 member of the run registry.
+Two more lead tools belong to the strategy layer (`internal/mcp/boss_tools_strategy.go`, `-tags doomsday` only, same rules): `session_boss_strategy_propose`
+(strategy.propose: a direction for the novelty gate) and `session_boss_strategy_report` (strategy.report: a direction the caller owns is stalled or finished).
+They go through `mcp.SetBossStrategyCaller` into `ops.StrategyOps`, whose own allowlist (`ops.AllowedStrategy`) is the only one it reads; they take no operation
+name and cannot request, approve or begin a finish (`TestNoStrategyToolCanRequestOrApproveAFinish`). `strategy.epoch`, the judge intake, has no tool. The host
+loop (`cli/doomsday.StrategyLoop`, started with the coder host) is the only thing that ticks the epoch engine; every strategy write is a witnessed transition
+(`store.AppendStrategyAuditTx` inside `stop.Sequencer.SequenceRows`), so a strategy row can never be an unwitnessed writer (row 5).
+The strategy layer NEVER begins a finish and holds no finish engine (`TestTheStrategyHostNeverCallsAnyFinishBegin`): when the latest judged epoch is fresh and
+every criterion reads plausibly met, nothing is asked of anyone; one `strategy.finish.ready` audit row is written per judged epoch, `doomsday strategy status`
+shows `finish_ready` (and why not), and the boss reads the same reading through the read-only `session_boss_finish_ready` (top lead only), then decides and calls
+`session_boss_finish_begin` itself. A later bad judgment, a stale one, a reading that is not all met or a direction the judgment never saw clear the reading.

@@ -35,6 +35,11 @@ func init() {
 	mcp.SetBossRouteInstaller(bossRouteInstaller)
 	// And its finish.begin: the boss starts the finish through the ops package's enforcement function, on the open run.
 	mcp.SetBossFinishBeginner(bossFinishBeginner)
+	// The strategy layer: its two session-callable operations as boss tools, and its read-only verbs.
+	mcp.SetBossStrategyCaller(bossStrategyOp)
+	// The boss's read-only reading of the strategy layer's finish-ready marker; the boss then calls finish.begin itself.
+	mcp.SetBossFinishReadyReader(bossFinishReady)
+	doomsdayStrategyReader = strategyReaderFor
 	doomsdayEngine = func(cfg *globalConfig) doomsdaycli.Engine {
 		db, err := initDB(cfg)
 		if err != nil {
@@ -67,7 +72,11 @@ func init() {
 			if err := g.Install(st, h); err != nil {
 				fmt.Fprintf(os.Stderr, "coder host: the open-ended mode's launcher hooks could not be installed (turns are ticketed around their start instead): %v\n", err)
 			}
+			// The strategy layer's host is ticked from this process; with no run open a tick reads and writes nothing.
+			startStrategyLoop(cfg, db)
 		}
+		// The coder host joins the strategy loop after its Run returned, before the database closes.
+		chatcli.HostStopped = stopStrategyLoop
 		// Reconcile of worktrees resolves begun merges first and keeps the worktrees of unresolved ones (note
 		// 13.3 section 5.1). A database that cannot be opened keeps every turn's worktree.
 		dynorg.SetReconcileGuard(func(ctx context.Context, cwd string, active func(string) bool) func(string) bool {

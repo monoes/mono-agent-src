@@ -20,6 +20,10 @@ var doomsdayReadEngine func(*globalConfig) doomsdaycli.Engine
 
 // doomsdayChat is set by the same build: it hands the chat commands the resolver of the open run's merge gate
 // (chatcli.Deps.DoomsdayMerge) and installs the worktree reconcile guard. Nil leaves merges and reconcile as they were.
+// doomsdayStrategyReader is set by the same build: the read-only reader of the `doomsday strategy` verbs. Nil leaves
+// them printing "off".
+var doomsdayStrategyReader func(*globalConfig) doomsdaycli.StrategyReader
+
 var doomsdayChat func(cfg *globalConfig, d *chatcli.Deps)
 
 func newDoomsdayCmd(cfg *globalConfig) *cobra.Command {
@@ -44,5 +48,11 @@ func newDoomsdayCmd(cfg *globalConfig) *cobra.Command {
 		OperatorRefusal: opgate.Refusal,
 		StdinIsTerminal: stdinIsTerminal,
 		JSONOutput:      func() bool { return cfg.JSONOutput },
+		StrategyReader: func() doomsdaycli.StrategyReader {
+			if doomsdayStrategyReader == nil {
+				return nil
+			}
+			return doomsdayStrategyReader(cfg)
+		},
 	})
 }

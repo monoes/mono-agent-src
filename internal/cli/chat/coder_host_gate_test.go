@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -926,4 +927,52 @@ func TestTheExportedHostBuiltHookSeesTheRealHost(t *testing.T) {
 	}
 	cancel()
 	<-errc
+}
+
+// The exported stop hook runs once, after the host's Run returned and before the command returns, so what an extension
+// started from HostBuilt is joined while the database is still open; it is nil by default.
+func TestTheExportedHostStoppedHookRunsAfterRunAndBeforeTheCommandReturns(t *testing.T) {
+	if HostStopped != nil {
+		t.Fatal("HostStopped is set in a default build")
+	}
+	asOperator(t)
+	dbPath := newChatCLITestDB(t)
+	cfg := testDeps(&testConfig{DBPath: dbPath, ProfileID: "default", JSONOutput: true})
+	cfg.RequireOperator = func(string) error { return nil }
+	built := make(chan struct{}, 1)
+	var calls atomic.Int32
+	var returned atomic.Bool
+	var calledBeforeReturn atomic.Bool
+	HostBuilt = func(*coderhost.Store, *coderhost.Host, *sql.DB) { built <- struct{}{} }
+	HostStopped = func() {
+		calls.Add(1)
+		calledBeforeReturn.Store(!returned.Load())
+	}
+	t.Cleanup(func() { HostBuilt, HostStopped = nil, nil })
+	t.Cleanup(func() { RegisterChildTokenMinter(nil) })
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := newCoderHostRunCmd(cfg)
+	cmd.SetContext(ctx)
+	cmd.SetArgs([]string{"--poll=20ms"})
+	cmd.SilenceUsage, cmd.SilenceErrors = true, true
+	errc := make(chan error, 1)
+	go func() { err := cmd.Execute(); returned.Store(true); errc <- err }()
+	select {
+	case <-built:
+	case <-time.After(20 * time.Second):
+		cancel()
+		t.Fatalf("the host did not start: %v", <-errc)
+	}
+	if calls.Load() != 0 {
+		t.Fatal("HostStopped ran while the host was still running")
+	}
+	cancel()
+	select {
+	case <-errc:
+	case <-time.After(20 * time.Second):
+		t.Fatal("the host did not stop")
+	}
+	if calls.Load() != 1 || !calledBeforeReturn.Load() {
+		t.Fatalf("HostStopped ran %d times (before the command returned: %v), want once, before", calls.Load(), calledBeforeReturn.Load())
+	}
 }

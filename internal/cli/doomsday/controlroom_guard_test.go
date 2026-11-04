@@ -47,7 +47,7 @@ func TestControlRoomVerbsAreRegisteredReadOnlyAndExactly(t *testing.T) {
 		}
 	}
 	// the group's verbs are the existing ones plus exactly the control room's
-	existing := map[string]bool{"start": true, "stop": true, "status": true, "render": true, "finish": true, "rubric": true}
+	existing := map[string]bool{"start": true, "stop": true, "status": true, "render": true, "finish": true, "rubric": true, "strategy": true}
 	for _, v := range ControlRoomVerbs {
 		existing[v] = true
 	}

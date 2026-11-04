@@ -29,6 +29,8 @@ type Deps struct {
 	StdinIsTerminal func() bool
 	// JSONOutput is --json.
 	JSONOutput func() bool
+	// StrategyReader is the read-only reader of the strategy verbs; nil (every default build) is the layer being off.
+	StrategyReader func() StrategyReader
 }
 
 func (d Deps) engine() Engine {
@@ -50,7 +52,8 @@ func NewCommand(d Deps) *cobra.Command {
 		Short:  "Open-ended mode: start, stop, status, render (the user's own)",
 		Hidden: true,
 	}
-	cmd.AddCommand(d.newStart(), d.newStop(), d.newStatus(), d.newRender(), d.newFinish(), d.newRubric(), d.newOverview(), d.newFeed())
+	cmd.AddCommand(d.newStart(), d.newStop(), d.newStatus(), d.newRender(), d.newFinish(), d.newRubric(), d.newOverview(), d.newFeed(),
+		StrategyCommands(StrategyDeps{Reader: d.StrategyReader, JSONOutput: d.JSONOutput}))
 	return cmd
 }
 

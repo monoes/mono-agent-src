@@ -49,7 +49,7 @@ func bossInstaller() BossRouteInstaller {
 
 func bossTools() []tool {
 	write := map[string]bool{"readOnlyHint": false, "destructiveHint": false}
-	return []tool{
+	return append([]tool{
 		{
 			name: "session_boss_answer_ask", mutating: true, annotations: write, handler: toolSessionBossAnswerAsk,
 			description: bossIntro + "Answers a critical ask addressed to you (ask_id), where otherwise only the person answers. The answer reaches the asker sealed, as quoted data. Returns {askId, status, commandId, turnId, session}.",
@@ -76,7 +76,8 @@ func bossTools() []tool {
 			}, "request_id", "amount_usd"),
 		},
 		bossFinishTool(),
-	}
+		bossFinishReadyTool(),
+	}, bossStrategyTools()...)
 }
 
 // bossScope is the lead's store and scope with the open run's route installed on the store. No installer, or one
