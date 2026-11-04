@@ -24,3 +24,11 @@ func ApprovedWorkflowChild() bool {
 	}
 	return Marker() == workflow.EnvWorkflowRun && !unapprovedAncestor()
 }
+
+// UnapprovedRunProcess reports whether this process comes from a run nobody
+// approved: it carries workflow.EnvUnapprovedRun, or a parent process does
+// (or the parents can't be read to their end). `workflow run` from such a
+// process marks its run as called by an unapproved workflow.
+func UnapprovedRunProcess() bool {
+	return os.Getenv(workflow.EnvUnapprovedRun) != "" || unapprovedAncestor()
+}

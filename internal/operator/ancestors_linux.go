@@ -24,7 +24,7 @@ func ancestorMarker() string {
 }
 
 // unapprovedAncestor reports whether one of this process's parents carries
-// workflow.EnvUnapprovedRun (or the chain is too deep to tell): a child that
+// workflow.EnvUnapprovedRun (or the chain can't be read to its end): a child that
 // dropped its own copy still comes from an unapproved run.
 func unapprovedAncestor() bool {
 	if testing.Testing() && !ancestorsInTests {
@@ -37,17 +37,25 @@ func unapprovedAncestor() bool {
 }
 
 // walkUnapproved climbs from pid and reports whether a parent has the mark.
+// It fails closed: a parent whose environment can't be read or whose own
+// parent can't be found, a chain deeper than ancestorMaxDepth, and a
+// process already handed to init (a double fork: its real parents are out
+// of reach) all count as unapproved. Only a walk that reaches init through
+// readable parents, none marked, is clean.
 func walkUnapproved(pid int, marked func(int) (bool, error), parent func(int) (int, bool)) bool {
+	if pid <= 1 && pid != ancestorsStopAt {
+		return true
+	}
 	for depth := 0; pid > 1 && pid != ancestorsStopAt; depth++ {
 		if depth == ancestorMaxDepth {
 			return true
 		}
-		if m, _ := marked(pid); m {
+		if m, err := marked(pid); m || err != nil {
 			return true
 		}
 		ppid, ok := parent(pid)
 		if !ok {
-			return false
+			return true
 		}
 		pid = ppid
 	}

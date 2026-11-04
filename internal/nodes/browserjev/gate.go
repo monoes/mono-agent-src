@@ -10,6 +10,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/browserctl"
 	"github.com/monoes/mono-agent/internal/hilsend"
+	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/orgsign"
 	"github.com/monoes/mono-agent/internal/vault"
 	"github.com/monoes/mono-agent/internal/workflow"
@@ -115,12 +116,21 @@ func envCaller() (caller, bool) {
 // one — holds it to the same level. A kind the caller declared but could
 // not prove follows as "kind/declared" ("other/org").
 func MarkAICaller(data map[string]interface{}) {
-	if c, ok := envCaller(); ok && data != nil {
+	if data == nil {
+		return
+	}
+	if c, ok := envCaller(); ok {
 		mark := c.kind
 		if c.declared != "" {
 			mark += "/" + c.declared
 		}
 		data[workflow.AICallerKey] = mark
+		return
+	}
+	// A command a workflow node started in a run nobody approved (or one such a run called) that
+	// starts another run: that run is called by an unapproved workflow, whatever its own markers.
+	if operator.UnapprovedRunProcess() {
+		data[workflow.AICallerKey] = workflow.UnapprovedWorkflowCaller
 	}
 }
 
