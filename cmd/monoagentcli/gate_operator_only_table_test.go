@@ -21,7 +21,7 @@ type opRow struct {
 // later change that converts more verbs adds rows here and removes them from the pending lists of the
 // guards.
 func operatorOnlyRows() []opRow {
-	return append(append(operatorOnlyRowsPR2(), operatorOnlyRowsPR3()...), []opRow{
+	return append(append(append(operatorOnlyRowsPR2(), operatorOnlyRowsPR3()...), operatorOnlyRowsPR5()...), []opRow{
 		{path: "api key create", build: newAPICmd, args: []string{"key", "create", "--name", "x"}},
 		{path: "api key update", build: newAPICmd, args: []string{"key", "update", "k1", "--name", "y"}},
 		{path: "api key revoke", build: newAPICmd, args: []string{"key", "revoke", "k1", "--yes"}},

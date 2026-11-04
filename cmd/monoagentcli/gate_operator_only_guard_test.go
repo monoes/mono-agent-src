@@ -27,7 +27,6 @@ const (
 	turnAware = "already behind the turn-aware gate (requireOperator, personGate)"
 	classC    = "class C: no local operator check; whether it should refuse an agent locally is not decided (issue 1333)"
 	pr4       = "converted in PR 4 (profile and people)"
-	pr5       = "converted in PR 5 (org verbs that only refuse)"
 	heldB     = "held: class B, the verb has an agent path next to the operator's; waits for the owner's answers (issue 1333)"
 	reader    = "reader, not a verb gate: redaction, display or engine behaviour that follows the marker"
 	gateImp   = "the gate's own implementation"
@@ -46,8 +45,6 @@ var legacyMarkerChecks = map[string]allowed{
 	"internal/cli/profile/folder.go":                {1, pr4},
 	"internal/cli/people/messages_drafts.go":        {1, pr4},
 	"internal/cli/people/review.go":                 {1, heldB + " (people review approve is converted in PR 4)"},
-	"internal/cli/org/role.go":                      {1, pr5},
-	"internal/cli/org/profile_lifecycle.go":         {1, pr5},
 	"cmd/monoagentcli/login.go":                     {1, heldB + " (login of a builtin package)"},
 	"cmd/monoagentcli/hil.go":                       {6, gateImp + " (notOperator in gateVerdict); publication register is held: class B"},
 	"internal/cli/node/run.go":                      {3, heldB + " (node run, node run vault.secret_get)"},
@@ -140,7 +137,6 @@ func TestNoMarkerOnlyOperatorChecksOutsideTheGate(t *testing.T) {
 // not rows of operatorOnlyRows yet. Converting a command moves it to the table.
 var pendingOperatorOnly = map[string]string{
 	"people messages send-draft": pr4,
-	"org teardown-profile":       pr5,
 	"login":                      heldB,
 }
 
@@ -160,7 +156,7 @@ var turnAwareCommands = map[string]string{
 var verbsWithoutTheHelpText = map[string]bool{
 	"secret agent-access": true, "secret agent-access audit": true, "secret export": true,
 	"connect get-oauth-client": true, "profile info get": true, "workflow run": true,
-	"extension pair": true, "extension install": true,
+	"extension pair": true, "extension install": true, "org role set-access": true,
 	"automation trust": true, "automation rerecord": true, "automation doctor accept-repair": true,
 	"record verify": true, "record replay": true, "browser allow add": true, "browser allow remove": true,
 	"browser permissions set": true, "browser permissions site": true,
