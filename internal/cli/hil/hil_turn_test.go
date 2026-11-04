@@ -40,4 +40,10 @@ func TestHILListHidesReplyTokensFromAProcessInACoderTurnWithoutMarkers(t *testin
 	if err != nil || len(theirs) != 1 || theirs[0].ReadonlyData["link"] != hidden {
 		t.Errorf("a coder turn without markers: %+v %v", theirs, err)
 	}
+	// A process the gate cannot place is hidden from like an agent: no error, and the link stays hidden.
+	opgate.SetForTest(t, func(bool) string { return opgate.UnplacedPrefix + "database is locked)" })
+	unplaced, err := runHIL(t, cfg, "list")
+	if err != nil || len(unplaced) != 1 || unplaced[0].ReadonlyData["link"] != hidden {
+		t.Errorf("an unplaced process: %+v %v", unplaced, err)
+	}
 }

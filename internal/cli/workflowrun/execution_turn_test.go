@@ -52,11 +52,17 @@ func TestReplyTokensAreHiddenFromAProcessInACoderTurnWithoutMarkers(t *testing.T
 
 	detail, summary, rr := shown()
 	if !strings.Contains(detail, token) || !strings.Contains(summary, token) || rr != nil {
-		t.Fatalf("the user's terminal must see the token:\n%s\n%s\nredactor %v", detail, summary, rr)
+		t.Fatalf("the user's terminal must see the token:\n%s\n%s\nredactor set %v", detail, summary, rr != nil)
 	}
 	opgate.SetForTest(t, func(bool) string { return "this process runs inside a coder turn" })
 	detail, summary, rr = shown()
 	if strings.Contains(detail, token) || strings.Contains(summary, token) || rr == nil {
-		t.Errorf("a coder turn without markers sees the token:\n%s\n%s\nredactor %v", detail, summary, rr)
+		t.Errorf("a coder turn without markers sees the token:\n%s\n%s\nredactor set %v", detail, summary, rr != nil)
+	}
+	// A process the gate cannot place is hidden from like an agent: no error, and the token stays hidden.
+	opgate.SetForTest(t, func(bool) string { return opgate.UnplacedPrefix + "database is locked)" })
+	detail, summary, rr = shown()
+	if strings.Contains(detail, token) || strings.Contains(summary, token) || rr == nil {
+		t.Errorf("an unplaced process sees the token:\n%s\n%s\nredactor set %v", detail, summary, rr != nil)
 	}
 }

@@ -46,4 +46,10 @@ func TestSummaryHidesReplyTokensFromAProcessInACoderTurnWithoutMarkers(t *testin
 	if err != nil || strings.Contains(theirs, token) {
 		t.Errorf("a coder turn without markers sees the token: %v\n%s", err, theirs)
 	}
+	// A process the gate cannot place is hidden from like an agent: no error, and the token stays hidden.
+	opgate.SetForTest(t, func(bool) string { return opgate.UnplacedPrefix + "database is locked)" })
+	unplaced, err := runSummary(t, cfg, "--section", "executions")
+	if err != nil || strings.Contains(unplaced, token) {
+		t.Errorf("an unplaced process sees the token: %v\n%s", err, unplaced)
+	}
 }
