@@ -152,7 +152,7 @@ func newExtensionBrowsersRevokeCmd(cfg *Deps) *cobra.Command {
 		Example: "  monoagentcli extension browsers revoke 3f2a9c",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := cfg.operatorOnly("extension browsers revoke cuts a browser off from MonoAgent"); err != nil {
+			if err := cfg.operatorOnlyRecovery("extension browsers revoke cuts a browser off from MonoAgent"); err != nil {
 				return err
 			}
 			gone, err := extension.RevokePairedBrowser(args[0])

@@ -4,6 +4,9 @@
 # profile with no browser gets the explanatory error, and several profiles
 # can share one browser. Never touches the
 # real HOME, port 9222, or the user's browsers.
+#
+# Run it from a plain terminal, not from inside a coder session's turn or an agent shell: it calls
+# `extension unbind` and `extension assign`, which are operator-only and refuse a turn (exit 3).
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"

@@ -209,7 +209,7 @@ func newExtensionResetCmd(cfg *Deps) *cobra.Command {
 			"reset\" before handing this machine to someone else.\n" + clicore.OperatorOnlyHelp,
 		Example: "  monoagentcli extension reset",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := cfg.operatorOnly("extension reset revokes the pairing token, which cuts the browser off until it pairs again"); err != nil {
+			if err := cfg.operatorOnlyRecovery("extension reset revokes the pairing token, which cuts the browser off until it pairs again"); err != nil {
 				return err
 			}
 			if err := extension.ResetToken(); err != nil {

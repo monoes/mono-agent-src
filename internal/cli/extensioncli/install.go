@@ -70,14 +70,17 @@ func newExtensionInstallCmd(cfg *Deps) *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
+			// The gate comes first: a process that cannot place its home must still be refused, not told about the home.
+			if zipPath != "" {
+				if err := cfg.operatorOnly("extension install --zip puts code the CLI does not ship where the browser loads the extension from"); err != nil {
+					return err
+				}
+			}
 			dir, err := extensionDir()
 			if err != nil {
 				return err
 			}
 			if zipPath != "" {
-				if err := cfg.operatorOnly("extension install --zip puts code the CLI does not ship where the browser loads the extension from"); err != nil {
-					return err
-				}
 				b, err := os.ReadFile(zipPath)
 				if err != nil {
 					return fmt.Errorf("read %s: %w", zipPath, err)

@@ -26,7 +26,6 @@ import (
 const (
 	turnAware = "already behind the turn-aware gate (requireOperator, personGate)"
 	classC    = "class C: no local operator check; whether it should refuse an agent locally is not decided (issue 1333)"
-	pr2       = "converted in PR 2 (identity and trust: agent purposes, agent-mode, extension, jev)"
 	pr3       = "converted in PR 3 (browser-run trust: automation, record, browser allow and permissions, chat coder queue)"
 	pr4       = "converted in PR 4 (profile and people)"
 	pr5       = "converted in PR 5 (org verbs that only refuse)"
@@ -43,10 +42,6 @@ type allowed struct {
 // legacyMarkerChecks is the T1 allow-list: file (slash-separated from the repo root) to the number of
 // occurrences and the reason. A new occurrence, or an entry that no longer matches, fails the test.
 var legacyMarkerChecks = map[string]allowed{
-	"cmd/monoagentcli/agent.go":                     {1, pr2},
-	"cmd/monoagentcli/agent_mode.go":                {1, pr2},
-	"cmd/monoagentcli/extension_adapter.go":         {1, pr2},
-	"cmd/monoagentcli/jev_adapter.go":               {1, pr2},
 	"cmd/monoagentcli/automation.go":                {1, pr3},
 	"cmd/monoagentcli/record.go":                    {1, pr3},
 	"cmd/monoagentcli/browser_allow.go":             {2, pr3},
@@ -151,24 +146,6 @@ func TestNoMarkerOnlyOperatorChecksOutsideTheGate(t *testing.T) {
 // pendingOperatorOnly lists, with a reason, the commands that carry the operator-only help text and are
 // not rows of operatorOnlyRows yet. Converting a command moves it to the table.
 var pendingOperatorOnly = map[string]string{
-	"agent purposes set":         pr2,
-	"agent purposes reset":       pr2,
-	"agent-mode env":             pr2,
-	"agent-mode token create":    pr2,
-	"agent-mode token revoke":    pr2,
-	"extension assign":           pr2,
-	"extension autopair":         pr2,
-	"extension bind":             pr2,
-	"extension browsers allow":   pr2,
-	"extension browsers revoke":  pr2,
-	"extension reset":            pr2,
-	"extension unbind":           pr2,
-	"jev enable":                 pr2,
-	"jev key adopt":              pr2,
-	"jev key remove":             pr2,
-	"jev key set":                pr2,
-	"extension approve":          "pending triage: not in the inventory of issue 1333, to be classified",
-	"extension deny":             "pending triage: not in the inventory of issue 1333, to be classified",
 	"record save":                pr3,
 	"people messages send-draft": pr4,
 	"org teardown-profile":       pr5,
@@ -191,6 +168,7 @@ var turnAwareCommands = map[string]string{
 var verbsWithoutTheHelpText = map[string]bool{
 	"secret agent-access": true, "secret agent-access audit": true, "secret export": true,
 	"connect get-oauth-client": true, "profile info get": true, "workflow run": true,
+	"extension pair": true, "extension install": true,
 }
 
 func treeKeys(t *testing.T) (all map[string]bool, withHelp []string) {

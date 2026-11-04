@@ -31,7 +31,7 @@ test("a bridge nobody is signed in to: sign in, and the window updates by itself
 
 test("a request waiting for the owner says where to approve it, and offers no token box", () => {
   const v = S.view({ status: "unpaired", reason: "pair_waiting" });
-  assert.match(v.state, /Waiting for approval in the MonoAgent app \(or run monoagentcli extension approve <id> --code <code>\)/);
+  assert.match(v.state, /Waiting for approval in the MonoAgent app \(or, in your own terminal, not one started from a coder session, run monoagentcli extension approve <id> --code <code>\)/);
   assert.equal(v.unpaired, false);
   assert.equal(v.pair, "");
   assert.equal(v.code, "", "no code from the bridge, none shown");
@@ -75,7 +75,7 @@ test("what is kept is named, and said not to be sent until sign-in", () => {
 test("a waiting request spells out the approve command with its own id and code", () => {
   const v = S.view({ status: "unpaired", reason: "pair_waiting", code: "Q9R-KWK", claimId: "1a2b3c4d5e6f" });
   assert.equal(v.command, "monoagentcli extension approve 1a2b3c4d --code Q9R-KWK");
-  assert.match(v.lead, /Approve it from a terminal/);
+  assert.match(v.lead, /Approve it from your own terminal \(not one started from a coder session\)/);
   assert.deepEqual(v.more.map((m) => m.cmd), ["monoagentcli extension deny 1a2b3c4d"]);
 });
 

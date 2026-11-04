@@ -31,11 +31,15 @@ type Deps struct {
 	// ServingCommand marks a long-running command that serves (the account's serving guard).
 	ServingCommand func(c *cobra.Command) *cobra.Command
 	// Refusal says why this process is not the operator's own terminal (""
-	// when it is; operator.Refusal). What changes which browser or profile
+	// when it is; opgate.Refusal). What changes which browser or profile
 	// the extension acts as, which bridge it pairs with, or what code it
 	// runs is the user's: bind, unbind, assign, reset, pair --open and install
 	// --zip. Nil refuses (clicore.OperatorRefusal).
 	Refusal func() string
+	// RecoveryRefusal is Refusal for `extension reset` and `extension browsers revoke`, which an operator with
+	// a damaged install needs: an unreadable database must not lock them out of
+	// revoking the pairing token (opgate.RecoveryRefusal). Nil: Refusal.
+	RecoveryRefusal func() string
 	// StdinIsTerminal says whether a person can type at the command (nil:
 	// clicore.StdinIsTerminal). `extension approve` asks for its code there.
 	StdinIsTerminal func() bool
@@ -44,6 +48,18 @@ type Deps struct {
 // operatorOnly refuses what only the user does, naming what and why.
 func (cfg *Deps) operatorOnly(what string) error {
 	if why := clicore.OperatorRefusal(cfg.Refusal); why != "" {
+		return clicore.OperatorOnly("%s, which only the user does: %s; run it yourself in your terminal, or use the app or the extension's side panel", what, why)
+	}
+	return nil
+}
+
+// operatorOnlyRecovery is operatorOnly for the recovery verb, which asks RecoveryRefusal when it is wired.
+func (cfg *Deps) operatorOnlyRecovery(what string) error {
+	refusal := cfg.RecoveryRefusal
+	if refusal == nil {
+		refusal = cfg.Refusal
+	}
+	if why := clicore.OperatorRefusal(refusal); why != "" {
 		return clicore.OperatorOnly("%s, which only the user does: %s; run it yourself in your terminal, or use the app or the extension's side panel", what, why)
 	}
 	return nil

@@ -10,6 +10,7 @@ import (
 	taskcli "github.com/monoes/mono-agent/internal/cli/task"
 	"github.com/monoes/mono-agent/internal/cli/workflowrun"
 	"github.com/monoes/mono-agent/internal/coderhost"
+	"github.com/monoes/mono-agent/internal/extension"
 	"github.com/monoes/mono-agent/internal/storage"
 )
 
@@ -18,6 +19,7 @@ import (
 func opEnv(t *testing.T) *globalConfig {
 	t.Helper()
 	cfg := sendEnv(t)
+	t.Setenv(extension.ExtensionPortEnv, "1") // the extension verbs probe for a bridge: never the real one
 	opgate.SetForTest(t, cfg.gateRefusal)
 	t.Cleanup(func() { workflowrun.FullOutputs = false })
 	return cfg

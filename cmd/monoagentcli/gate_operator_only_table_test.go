@@ -21,7 +21,7 @@ type opRow struct {
 // later change that converts more verbs adds rows here and removes them from the pending lists of the
 // guards.
 func operatorOnlyRows() []opRow {
-	return []opRow{
+	return append(operatorOnlyRowsPR2(), []opRow{
 		{path: "api key create", build: newAPICmd, args: []string{"key", "create", "--name", "x"}},
 		{path: "api key update", build: newAPICmd, args: []string{"key", "update", "k1", "--name", "y"}},
 		{path: "api key revoke", build: newAPICmd, args: []string{"key", "revoke", "k1", "--yes"}},
@@ -41,7 +41,7 @@ func operatorOnlyRows() []opRow {
 		// B5 control room: read-only, but the feed shows run internals, so the same gate.
 		{path: "doomsday overview", build: newDoomsdayCmd, args: []string{"overview"}},
 		{path: "doomsday feed", build: newDoomsdayCmd, args: []string{"feed"}},
-	}
+	}...)
 }
 
 // newWorkflowRunWithFullOutputs is `workflow run` with the flag the real tree binds to workflowrun.FullOutputs
