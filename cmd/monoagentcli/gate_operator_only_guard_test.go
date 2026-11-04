@@ -49,7 +49,7 @@ var legacyMarkerChecks = map[string]allowed{
 	"internal/nodes/browserjev/gate.go":             {1, "engine node gate (IsAgentContext), not a CLI verb gate"},
 	"internal/nodes/publication/register.go":        {1, "engine node: the marker half of a run's verdict next to the command's (workflow.AgentCallerFrom), not a CLI verb gate"},
 	"cmd/monoagentcli/main.go":                      {1, reader + " (log filter)"},
-	"cmd/monoagentcli/task.go":                      {2, "task verbs have their own gate (personGate, NotOperator; operator.Caller names who added a task)"},
+	"cmd/monoagentcli/task.go":                      {5, "task verbs have their own gate (personGate, NotOperator); taskCallerDeps stays marker-only for the gate's own steps, taskDeps swaps in the turn-aware operator.NotUser and taskAddedBy (operator.Caller names a marked caller)"},
 	"cmd/monoagentcli/task_session_guard.go":        {1, "task-session scoping, not a verb gate"},
 	"internal/cli/task/task.go":                     {2, "task verbs have their own gate (personGate, NotOperator)"},
 	"internal/browserctl/context.go":                {1, "definition of IsAgentContext"},

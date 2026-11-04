@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/monoes/mono-agent/internal/browserctl"
 	taskcli "github.com/monoes/mono-agent/internal/cli/task"
 	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/storage"
@@ -26,6 +27,11 @@ var taskCallerDeps = taskcli.Deps{Getenv: os.Getenv, NotOperator: operator.Refus
 
 func taskDeps(cfg *globalConfig) taskcli.Deps {
 	d := taskCallerDeps
+	// Limits and provenance are the turn-aware gate's decision (the marker alone would give an unmarked process in a
+	// coder turn the operator's limits and "you"). taskCallerDeps itself stays marker-only: the gate's own steps read
+	// it (gateVerdict), and asking the gate from there would recurse.
+	d.NotOperator = operator.NotUser
+	d.AddedBy = taskAddedBy
 	d.JSONOutput = func() bool { return cfg.JSONOutput }
 	d.ProfileID = func() string { return cfg.ProfileID }
 	d.OpenDB = func() (*storage.Database, error) { return initDB(cfg) }
@@ -43,6 +49,19 @@ func taskDeps(cfg *globalConfig) taskcli.Deps {
 // docs/mastermind/specs/2026-10-05-task-board-design.md).
 func newTaskCmd(cfg *globalConfig) *cobra.Command {
 	return taskcli.NewCommand(taskDeps(cfg))
+}
+
+// taskAddedBy names who adds a task when it is not the operator's terminal: operator.Caller for a marked
+// process, and an agent of unproven kind (as a marked agent that names none) for one the turn-aware gate
+// refuses without a marker. "" for the operator.
+func taskAddedBy() string {
+	if by := operator.Caller(); by != "" {
+		return by
+	}
+	if operator.NotUser() != "" {
+		return "agent:" + browserctl.KindOther
+	}
+	return ""
 }
 
 // taskCaller says who runs a command: the operator, or an AI agent.
