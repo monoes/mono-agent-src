@@ -27,6 +27,7 @@ const (
 	turnAware = "already behind the turn-aware gate (requireOperator, personGate)"
 	classC    = "class C: no local operator check; whether it should refuse an agent locally is not decided (issue 1333)"
 	pr4       = "converted in PR 4 (profile and people)"
+	pr6c      = "converted in PR 6c (mode switch): open to agents for a built-in package, so no row; login_turn_gate_test.go holds its contexts"
 	pr5       = "converted in PR 5 (org verbs that only refuse)"
 	heldB     = "held: class B, the verb has an agent path next to the operator's; waits for the owner's answers (issue 1333)"
 	reader    = "reader, not a verb gate: redaction, display or engine behaviour that follows the marker"
@@ -43,7 +44,6 @@ type allowed struct {
 var legacyMarkerChecks = map[string]allowed{
 	"internal/cli/org/role.go":                      {1, pr5},
 	"internal/cli/org/profile_lifecycle.go":         {1, pr5},
-	"cmd/monoagentcli/login.go":                     {1, heldB + " (login of a builtin package)"},
 	"cmd/monoagentcli/hil.go":                       {6, gateImp + " (notOperator in gateVerdict); publication register is held: class B"},
 	"internal/cli/node/run.go":                      {3, heldB + " (node run, node run vault.secret_get)"},
 	"internal/cli/secret/secret.go":                 {2, heldB + " (secret reveal under a Reveal grant)"},
@@ -135,7 +135,7 @@ func TestNoMarkerOnlyOperatorChecksOutsideTheGate(t *testing.T) {
 // not rows of operatorOnlyRows yet. Converting a command moves it to the table.
 var pendingOperatorOnly = map[string]string{
 	"org teardown-profile": pr5,
-	"login":                heldB,
+	"login":                pr6c,
 }
 
 // turnAwareCommands carry the help text and were behind the turn-aware gate before the table.

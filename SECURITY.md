@@ -2177,6 +2177,14 @@ that works a task acts on them. The defences:
   systemd user service. The bridge itself stays a gate-free path for anything that
   authenticates to it (the pairing token): it runs `record save` and `coder queue add` as the
   operator for such a caller, so the token is as sensitive as the commands behind it.
+  `login <package>`, `login confirm <package>` and `login names` use the turn-aware gate for the LIMITED
+  flavour, not for a refusal of everything: a built-in package's login is open to agents by design and
+  works for every caller; a package that is not built-in names its own login page and the cookies its
+  login keeps (#898), so it is refused (operator_only, before any browser is asked) to a marked agent, the
+  chat, a workflow, and now to a process inside a coder session's turn that cleared its markers and to
+  a holder of an agent token. A database that cannot be read gives the limited flavour too (login is not a
+  recovery verb). An operator terminal started inside a turn gets the limits as well, like every other
+  gated verb.
   `automation install <dir> --local` (and `automation new --install`) installs with local
   trust. While it is open to a turn, the `automation trust --scripts/--live` gate does not
   stop a turn from getting the same result: a turn can write its own package directory,

@@ -653,7 +653,7 @@ dangerous calls.
   `profile documents remove --delete-file`, `people review approve|reject` and
   `people messages send-draft|reject-draft` also refuse a
   process inside a coder session's turn and one that holds an agent token
-  (`internal/cli/opgate`, SECURITY.md; the rest are tracked in issue 1333). `httpapi-token` is a reserved vault entry: only
+  (`internal/cli/opgate`, SECURITY.md; the rest are tracked in issue 1333). `login <package>`, `login confirm` and `login names` stay open to the chat and to agents for a built-in package; a non-built-in package (`local`, `recorded`, an installed one) is refused to a marked agent, and now equally to a process inside a coder session's turn or holding an agent token. `httpapi-token` is a reserved vault entry: only
   the server and the user's own `secret add|update|rm|import` write it
   (`secrets.ErrReservedEntry` otherwise, checked in the secrets package;
   an agent's import skips it), and its bearer is the field `token`; tools
