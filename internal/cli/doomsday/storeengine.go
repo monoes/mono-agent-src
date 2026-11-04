@@ -211,7 +211,8 @@ func toStore(c Charter, profile string, gen int64) store.Charter {
 		Profile: profile, Generation: gen, Goal: c.Goal,
 		Limits: store.Limits{TreeDepth: c.Limits.TreeDepth, LivePerTree: c.Limits.LivePerTree, SpawnRate: c.Limits.SpawnRate,
 			OpenSessions: c.Limits.OpenSessions, MaxConcurrent: c.Limits.MaxConcurrent, MaxTotal: c.Limits.MaxTotal,
-			BudgetMicro: c.Limits.BudgetMicro, NoCeiling: c.Limits.NoCeiling},
+			BudgetMicro: c.Limits.BudgetMicro, NoCeiling: c.Limits.NoCeiling,
+			QueueMaxRows: c.Limits.QueueMaxRows, QueueMaxBytes: c.Limits.QueueMaxBytes, SafeMinConcurrent: c.Limits.SafeMinConcurrent},
 		BossPin:     store.Pin{Provider: c.Pins.Boss.Provider, Model: c.Pins.Boss.Model, Version: c.Pins.Boss.Version, PurposePolicy: c.Pins.Judging},
 		VerifierPin: store.Pin{Provider: c.Pins.Verifier.Provider, Model: c.Pins.Verifier.Model, Version: c.Pins.Verifier.Version, PurposePolicy: c.Pins.Judging},
 	}

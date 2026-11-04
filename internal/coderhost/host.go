@@ -376,6 +376,14 @@ func (h *Host) Tick() error {
 				}
 				return h.L.Start(c.ProfileID, c.ConversationID, c.TurnID, message, c.Attachments, token)
 			})
+			if errors.Is(err, ErrDeferred) { // the governor of an open-ended run has no room now: the send stays pending, in order
+				if capped {
+					h.Store.DropTurnCap(c.ProfileID, c.ConversationID, c.TurnID)
+				}
+				h.settle(x)
+				blocked[k] = true
+				continue
+			}
 			if err != nil {
 				if capped {
 					if len(TurnsPending(err)) > 0 || TurnStarted(err) { // the process was created (it may be running, or have run and ended, and spent): its cap stays, as a started turn's does

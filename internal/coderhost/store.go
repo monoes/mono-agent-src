@@ -124,6 +124,8 @@ type Store struct {
 	binder *procbind.Binder
 	// depthPolicy widens the depth limit for charter trees only (SetDepthPolicy); nil: MaxSessionDepth.
 	depthPolicy DepthPolicy
+	// livePolicy can only lower the live-session limit of a charter tree (SetLivePolicy); nil: MaxLiveSessionsPerTree.
+	livePolicy LivePolicy
 	// doomsday routes a boss's typed operations (SetDoomsdayRoute); nil: the mode is off and nothing changes.
 	doomsday *DoomsdayRoute
 	// dispatch gives the store's own dispatches (spawn, token mint) a ticket (SetDispatchGate); nil: no ticket.
@@ -168,7 +170,7 @@ type Store struct {
 
 // NewStore wraps an open, migrated database.
 func NewStore(db *sql.DB) *Store {
-	s := &Store{db: db, now: time.Now, depthPolicy: defaultDepthPolicy(db)}
+	s := &Store{db: db, now: time.Now, depthPolicy: defaultDepthPolicy(db), livePolicy: defaultLivePolicy(db)}
 	if procbind.IssuanceOn() { // the only place a verifier is installed outside a test: v2 secrets are denied until issuance is on
 		s.v2 = &procbind.V2Check{DB: db}
 	}

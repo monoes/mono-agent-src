@@ -484,12 +484,13 @@ func (s *Store) spawnWith(c Caller, req SpawnRequest, hk spawnHooks) (Spawned, e
 		undo()
 		return Spawned{}, fmt.Errorf("%w: %v", ErrLimit, err)
 	}
-	if n, err := s.liveInTree(c.ProfileID, c.ConversationID); err != nil || n-1 > MaxLiveSessionsPerTree {
+	liveMax := s.liveCeiling(c.ProfileID, c.ConversationID)
+	if n, err := s.liveInTree(c.ProfileID, c.ConversationID); err != nil || n-1 > liveMax {
 		undo() // checked after the link, so two spawns racing for the last place cannot both keep it
 		if err != nil {
 			return Spawned{}, err
 		}
-		return Spawned{}, fmt.Errorf("%w: the tree already holds %d live sessions below its root (at most %d)", ErrLimit, n-1, MaxLiveSessionsPerTree)
+		return Spawned{}, fmt.Errorf("%w: the tree already holds %d live sessions below its root (at most %d)", ErrLimit, n-1, liveMax)
 	}
 	if hk.onCreated != nil {
 		if err := hk.onCreated(conv.ID); err != nil {
