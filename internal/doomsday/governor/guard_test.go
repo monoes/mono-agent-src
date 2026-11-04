@@ -132,7 +132,6 @@ func importsGovernor(f srcFile) bool {
 // The files outside the governor tree that may import it: the integrator's, every one tagged. A8: no CLI verb, MCP tool,
 // workflow node, pane binding, coder-host tool or store function imports the governor, so none can reach a mutator.
 var allowedImporters = []string{
-	"cmd/monoagentcli/doomsday_governor.go",
 	"internal/cli/doomsday/governorlauncher.go",
 	"internal/cli/doomsday/governortokens.go",
 	"internal/cli/doomsday/governorverbs.go",
