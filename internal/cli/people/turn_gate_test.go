@@ -3,11 +3,15 @@ package people
 import (
 	"database/sql"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/cli/opgate"
+	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/peoplereview"
+	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -103,5 +107,72 @@ func TestRejectDraftAsksTheTurnAwareGate(t *testing.T) {
 	}
 	if m := fetchPersonMessage(t, dbPath, "m-draft"); m == nil || m.Status != "draft" {
 		t.Fatalf("the draft is %+v, want it still there", m)
+	}
+}
+
+// people import by anyone but the user may not approve a person for outreach: a file that names the category
+// approved is refused whole. A process inside a coder turn that cleared its markers is handled like a marked
+// agent, with the very text a marked agent gets; the user's own terminal imports approved people.
+func TestPeopleImportInATurnIsHandledLikeAMarkedAgent(t *testing.T) {
+	t.Setenv("MONOMIND_BIN", "/bin/true")
+	importOf := func(t *testing.T, cfg *testConfig, body string) error {
+		t.Helper()
+		file := filepath.Join(t.TempDir(), "p.json")
+		if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, err := runPeople(t, cfg, "import", "--file", file, "--platform", "linkedin")
+		return err
+	}
+	const approvedFile = `[{"username":"ann-new","full_name":"Ann","category":"approved"}]`
+	count := func(db *storage.Database) int {
+		var n int
+		if err := db.DB.QueryRow(`SELECT COUNT(*) FROM people WHERE platform_username = 'ann-new'`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	// the marked agent's refusal, the reference text
+	cfg, db := newReviewCLITestDB(t)
+	t.Setenv("CLAUDECODE", "1")
+	opgate.SetForTest(t, nil)
+	markedWhy := operator.Refusal()
+	marked := importOf(t, cfg, approvedFile)
+	if markedWhy == "" || marked == nil || exitCode(marked) != 3 || !strings.Contains(marked.Error(), "nothing was imported") || !strings.Contains(marked.Error(), markedWhy) {
+		t.Fatalf("marked agent: %v", marked)
+	}
+	if n := count(db); n != 0 {
+		t.Fatalf("a refused import stored %d rows", n)
+	}
+
+	cfg, db = newReviewCLITestDB(t)
+	opgate.SetForTest(t, func(bool) string { return "in a coder turn" })
+	inTurn := importOf(t, cfg, approvedFile)
+	if want := strings.ReplaceAll(marked.Error(), markedWhy, "in a coder turn"); inTurn == nil || inTurn.Error() != want {
+		t.Fatalf("in a turn:\n got: %v\nwant: %s", inTurn, want)
+	}
+	if n := count(db); n != 0 {
+		t.Fatalf("a refused import stored %d rows", n)
+	}
+	// what is not an approval is stored as written; an approved person whose text changes goes back to the queue
+	if err := importOf(t, cfg, `[{"username":"ann-new","full_name":"Ann"},{"username":"p1-user","introduction":"rewritten","category":"approved"}]`); err == nil {
+		t.Fatal("a rewrite of a pending person's text, named approved, was accepted")
+	}
+	if err := importOf(t, cfg, `[{"username":"ann-new","full_name":"Ann"}]`); err != nil {
+		t.Fatalf("a plain import in a turn: %v", err)
+	}
+	if cat, _, ok := personRow(t, db, "platform_username = ?", "ann-new"); !ok || strings.EqualFold(cat, peoplereview.Approved) {
+		t.Fatalf("the imported person is %q (found %v)", cat, ok)
+	}
+
+	// the user's terminal approves
+	cfg, db = newReviewCLITestDB(t)
+	opgate.SetForTest(t, func(bool) string { return "" })
+	if err := importOf(t, cfg, approvedFile); err != nil {
+		t.Fatalf("operator import: %v", err)
+	}
+	if cat, _, ok := personRow(t, db, "platform_username = ?", "ann-new"); !ok || cat != peoplereview.Approved {
+		t.Fatalf("the operator's import stored %q (found %v), want approved", cat, ok)
 	}
 }

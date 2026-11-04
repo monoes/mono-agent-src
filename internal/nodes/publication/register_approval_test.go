@@ -14,6 +14,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/browserctl"
 	"github.com/monoes/mono-agent/internal/hilsend"
+	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/publication"
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/vault"
@@ -242,5 +243,98 @@ func TestRegisterNamesAFailedApprovalCheck(t *testing.T) {
 	err = workflow.RunExecution(ctx, exec, wf, dag, reg, brokenApprovals{store}, nil, workflow.NewExpressionEngine(), zerolog.Nop())
 	if err == nil || !strings.Contains(err.Error(), "could not be checked (database is locked)") || strings.Contains(err.Error(), "changed since") {
 		t.Errorf("the register's refusal: %v", err)
+	}
+}
+
+// A command that runs the node for a caller it judged an agent's although the process carries no marker
+// (a process inside a coder turn that cleared its markers) says so in ctx (workflow.WithAgentCaller): the
+// run takes the agent path, as a marked agent's does. Without the verdict nothing changes.
+func TestRegisterTakesTheAgentPathFromTheCommandsVerdict(t *testing.T) {
+	asTheUsersRun(t)
+	db, err := storage.NewDatabase(filepath.Join(t.TempDir(), "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err = db.ApplyMigrations(); err != nil {
+		t.Fatal(err)
+	}
+	ctx := vault.ContextWithProfileID(vault.ContextWithDB(context.Background(), db.DB), "default")
+	in := workflow.NodeInput{ExecutionID: "execution", NodeID: "register", Items: []workflow.Item{workflow.NewItem(map[string]interface{}{"text": "hello"})}}
+	config := func(approval string) map[string]interface{} {
+		return map[string]interface{}{"platform": "email", "kind": "post", "body": "{{ $json.text }}", "approval": approval}
+	}
+	count := func() int {
+		entries, err := publication.NewStore(db.DB, "default").List(ctx, publication.Filter{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(entries)
+	}
+	const why = "this command runs inside a coder session's turn, so a model is running it"
+	inTurn := workflow.WithAgentCaller(ctx, why)
+	for _, approval := range []string{"", "missing"} {
+		_, err := (&RegisterNode{}).Execute(inTurn, in, config(approval))
+		if err == nil || !strings.Contains(err.Error(), "needs an approved send") || !strings.HasSuffix(err.Error(), "This run is not the user's: "+why) {
+			t.Errorf("in a turn, approval %q: %v", approval, err)
+		}
+	}
+	if n := count(); n != 0 {
+		t.Fatalf("%d publications registered in a turn without approval", n)
+	}
+	// a marker wins: the text of the marked path is the one operator.Refusal gives, whatever ctx carries
+	t.Setenv("CLAUDECODE", "1")
+	_, err = (&RegisterNode{}).Execute(inTurn, in, config(""))
+	if err == nil || strings.Contains(err.Error(), why) || !strings.Contains(err.Error(), "This run is not the user's: "+operator.Refusal()) {
+		t.Errorf("marked and in a turn: %v", err)
+	}
+	t.Setenv("CLAUDECODE", "")
+
+	id := sentSend(t, ctx, db.DB)
+	if _, err := (&RegisterNode{}).Execute(inTurn, in, config(id)); err != nil {
+		t.Errorf("in a turn with a sent send: %v", err)
+	}
+	if n := count(); n != 1 {
+		t.Errorf("%d publications, want the send's one", n)
+	}
+	again := workflow.NodeInput{ExecutionID: "execution-2", NodeID: "register", Items: in.Items}
+	if _, err := (&RegisterNode{}).Execute(inTurn, again, config(id)); err == nil || !strings.Contains(err.Error(), "already registered a publication") {
+		t.Errorf("the approval again: %v", err)
+	}
+	// no verdict, no marker: the user's own run, byte for byte as before
+	if _, err := (&RegisterNode{}).Execute(ctx, workflow.NodeInput{ExecutionID: "mine", NodeID: "register", Items: in.Items}, config("")); err != nil {
+		t.Errorf("the user's own run: %v", err)
+	}
+	if n := count(); n != 2 {
+		t.Errorf("%d publications, want 2", n)
+	}
+}
+
+// A registration that fails after the approval was claimed gives the claim back (the failure here is an
+// invalid URL, which the claim does not look at): the same send registers a valid publication afterwards.
+func TestRegisterGivesTheClaimBackWhenTheRegistrationFails(t *testing.T) {
+	asTheUsersRun(t)
+	db, err := storage.NewDatabase(filepath.Join(t.TempDir(), "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err = db.ApplyMigrations(); err != nil {
+		t.Fatal(err)
+	}
+	ctx := vault.ContextWithProfileID(vault.ContextWithDB(context.Background(), db.DB), "default")
+	run := workflow.WithTrigger(ctx, "trigger.manual", map[string]interface{}{workflow.AICallerKey: "chat"})
+	in := workflow.NodeInput{ExecutionID: "execution", NodeID: "register", Items: []workflow.Item{workflow.NewItem(nil)}}
+	id := sentSend(t, ctx, db.DB)
+	config := func(remote, url string) map[string]interface{} {
+		return map[string]interface{}{"platform": "email", "kind": "post", "body": "hello", "approval": id, "remote_id": remote, "url": url}
+	}
+	if _, err := (&RegisterNode{}).Execute(run, in, config("9", "ftp://example.test/x")); err == nil || !strings.Contains(err.Error(), "HTTP(S) URLs") {
+		t.Fatalf("an invalid publication: %v", err)
+	}
+	// another execution: the same one would match the failed attempt's idempotency key and pass as a retry
+	again := workflow.NodeInput{ExecutionID: "execution-2", NodeID: "register", Items: in.Items}
+	if _, err := (&RegisterNode{}).Execute(run, again, config("1", "")); err != nil {
+		t.Fatalf("the approval was not given back after the failed registration: %v", err)
 	}
 }
