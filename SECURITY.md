@@ -2143,9 +2143,18 @@ that works a task acts on them. The defences:
   into "no turn recorded"; and it can forge a live entry (its own pid) for a database
   file it then locks, which makes these verbs say "wait and retry" until the entry is
   deleted. That is a denial of the repair verbs, not a bypass: nothing is let through.
-  Like the rest of this layer it is a courtesy, not a barrier. `secret reveal` and
-  `node run vault.secret_get` keep the marker check alone, as before: they have an
-  agent path under the profile's Reveal access level and are held for a decision.
+  Like the rest of this layer it is a courtesy, not a barrier.
+  `secret reveal` and
+  `node run vault.secret_get` have an agent path under the profile's Reveal access level
+  (audited by name) next to the operator's, and the gate decides which one a process gets:
+  a marked agent, the chat and a workflow keep the path and the texts they always had; a
+  process inside a coder session's turn that cleared its markers, a holder of an agent
+  token, and a process that cannot be placed (an unreadable database; these are not repair
+  verbs) now get the same path, so they read a secret only under Reveal and are otherwise
+  refused with the same text. `node run vault.secret_get` then also runs as the unapproved
+  step a marked agent's run is, so the engine's node audits the reveal. An operator terminal
+  started inside a turn gets the agent limits too, like every other gated verb. The rest of
+  `node run` (credential destinations, the unapproved step of other nodes) is still marker-only.
   The database it reads is not only the one the process names: every running coder
   host records the database it runs turns against in the turn registry, one file per
   database under `<the OS user's passwd home>/.monoagent/coder-hosts/` (directory
