@@ -42,12 +42,12 @@ func TestPausedSessionKeepsItsAccountingRowsAlive(t *testing.T) {
 				t.Fatalf("the cap run's row lapsed under a paused session and let a reservation in: %v", err)
 			}
 			r.ex.release(a.ID)
-			eventually(t, "the run to end", func() bool { return r.capRuns() == 0 })
-			if mode == "reserve" {
-				if rows := r.resvRows(); rows[0].state != tasks.ReservationSettled {
-					t.Fatalf("its final charge must land: %+v", rows)
+			eventually(t, "the run to end", func() bool {
+				if mode == "reserve" {
+					return r.resvRows()[0].state == tasks.ReservationSettled
 				}
-			}
+				return r.capRuns() == 0
+			})
 		})
 	}
 }

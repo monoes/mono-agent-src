@@ -72,6 +72,7 @@ func (c *Conductor) missionTick(mc *MissionRun) {
 			c.renewLeadLeases(c.ctx, mc, sid)
 			c.cutOverlong(mc, sid)
 		}
+		c.heartbeatAccounting(c.ctx, mc, sid) // every live state: a paused session's runs go on
 		c.noteRetirements(mc, sid)
 		c.missionReconcile(c.ctx, sid)
 	}
@@ -123,11 +124,18 @@ func (c *Conductor) sessionWorkers(sid int64) []*worker {
 	return out
 }
 
+// heartbeatAccounting renews the accounting rows of the session's live workers, whatever state the session is in.
+func (c *Conductor) heartbeatAccounting(ctx context.Context, mc *MissionRun, sid int64) {
+	now := c.cfg.Now()
+	for _, w := range c.sessionWorkers(sid) {
+		c.heartbeat(ctx, mc, w, now) // on its own clock; verifiers hold one too
+	}
+}
+
 // renewLeases renews the claim of every live worker, a third of a lease apart.
 func (c *Conductor) renewLeases(ctx context.Context, mc *MissionRun, sid int64) {
 	now := c.cfg.Now()
 	for _, w := range c.sessionWorkers(sid) {
-		c.heartbeat(ctx, mc, w, now) // its accounting row, on its own clock; verifiers hold one too
 		if w.task.verifier {
 			continue // it holds no claim to renew
 		}

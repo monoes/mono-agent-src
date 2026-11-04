@@ -361,6 +361,9 @@ func (c *Conductor) execOnce(ctx context.Context, w *worker, m Model, prompt, re
 			}
 		}
 		monomind.ApplyEventToResult(&run, ev)
+		if ev.Type == monomind.EventStart || ev.Type == monomind.EventUsage {
+			c.noteStarted(w, acct)
+		}
 		if w.task != nil {
 			c.liveSpend(w, m, &run)
 		}
@@ -377,7 +380,7 @@ func (c *Conductor) execOnce(ctx context.Context, w *worker, m Model, prompt, re
 	// Exec's result is the turn's final accounting; the events are the
 	// fallback when it returned none.
 	run = finalRun(res, run)
-	c.noteFinal(w, acct, m, &run)
+	c.noteFinal(w, acct, m, &run, res, err)
 	c.mu.Lock()
 	if run.HasInputTokens || run.HasOutputTokens {
 		w.inTok += run.InputTokens

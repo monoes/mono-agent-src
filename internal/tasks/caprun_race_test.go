@@ -132,3 +132,43 @@ func runModeRace(t *testing.T, seed int64) {
 		t.Fatalf("seed %d: cap runs left registered", seed)
 	}
 }
+
+// No double grant, per path, between two processes on one session, seeded start order, 60 rounds each (a fresh session
+// per round): a cap run against a reservation, and a reservation against a reservation for the last dollar. Exactly one
+// of the two wins every round; the loser is refused (ErrAccountingMode, ErrLimit) and holds nothing.
+func TestTwoProcessesNeverBothGetTheSameDollarOnAnyPath(t *testing.T) {
+	stores := processes(t, 2)
+	rnd := rand.New(rand.NewSource(77))
+	for round := 0; round < 60; round++ {
+		for _, path := range []string{"cap-vs-reserve", "reserve-vs-reserve"} {
+			session := seedBudget(t, stores[0].db, 1)
+			first := rnd.Intn(2)
+			var wins atomic.Int32
+			var wg sync.WaitGroup
+			for p := 0; p < 2; p++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					s, owner := stores[(p+first)%2], fmt.Sprintf("p%d", p)
+					var err error
+					if path == "cap-vs-reserve" && p == 0 {
+						_, err = s.BeginCapRun(bg, "default", session, owner, "r")
+					} else {
+						_, err = s.ReserveExecAsk(bg, "default", session, owner, owner, "e1", 0, 1)
+					}
+					switch {
+					case err == nil:
+						wins.Add(1)
+					case errors.Is(err, ErrAccountingMode), errors.Is(err, ErrLimit):
+					default:
+						t.Errorf("%s round %d: %v", path, round, err)
+					}
+				}()
+			}
+			wg.Wait()
+			if wins.Load() != 1 {
+				t.Fatalf("%s round %d: %d winners for one dollar", path, round, wins.Load())
+			}
+		}
+	}
+}

@@ -1941,7 +1941,16 @@ registers nothing and runs on the cap as before. A run's cost is what THAT run r
 worker's cumulative counter; a final cost below what the run streamed keeps the higher charge (a charge is never
 lowered) and the cap path's baseline is re-based to the counter, so the next run is charged in full. Cost the cap path has not
 recorded when a run enters reserve mode is recorded first (never inside the grant), and the run is refused until it is.
-A run that reported no cost at all is charged its whole grant. The row is renewed on the watch tick a third of its
+What a run costs when it fails, by how far it got: a start failure (no start or usage event, Exec returned an error and
+no result) is $0, so a broken start retried N times costs nothing; a run that started (a start or usage event) and reported
+no cost is charged its whole grant, one that reported a cost is charged that cost (its peak); an ambiguous start (a result
+came back without a start event, no cost) is charged the whole grant, never an undercount. The rows of every live worker
+are renewed on the watch tick whatever state the session is in (a paused session's runs go on). A charge that fails while
+streaming is noticed once per failure class and retried at the next renewal and at the settle, never per event; a cost that
+is not a finite non-negative number is ignored. The latch is a lease: a cap run that is alive but whose row lapsed (a machine
+suspended past lease plus grace, a forward clock jump) can let a reservation in until its next renewal finds it lost and
+stops it, so overspend is bounded by one run's cap; a reservation's own renewal does not look for cap runs, its money stays
+safe through the commitment. The row is renewed on the watch tick a third of its
 2-minute lease apart (a heartbeat of an earlier run cannot stop the next one: handles are fenced by row id); a lost row
 stops the worker and the operator is told its id and the run's cost, and settles it with
 `task session reservation resolve ID --usd N`. A settle that fails for good tells the operator the same way.

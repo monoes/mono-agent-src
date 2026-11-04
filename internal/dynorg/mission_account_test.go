@@ -74,10 +74,12 @@ func TestWorkerReservationEachRunIsChargedItsOwnCostOnce(t *testing.T) {
 // is charged its own cost in full, in either mode. On the cap the baseline is re-based to the counter; left at the
 // streamed figure the next run's first dollars would read as recorded already (a lost charge).
 func TestLowerFinalCostLosesNoCharge(t *testing.T) {
-	for _, mode := range []string{"cap", "reserve"} {
+	for _, mode := range []string{"legacy", "cap", "reserve"} {
 		t.Run(mode, func(t *testing.T) {
 			r := newRig(t, rigOpts{budget: 100})
-			r.mc.WorkerReservations = func(context.Context) (bool, error) { return mode == "reserve", nil }
+			if mode != "legacy" { // legacy: no switch wired at all, nothing registered
+				r.mc.WorkerReservations = func(context.Context) (bool, error) { return mode == "reserve", nil }
+			}
 			sx := &scripted{steps: []step{
 				{stream: []float64{0.4}, final: 0.2},       // charged 0.4 (the peak)
 				{stream: []float64{0.3}, final: 0.3},       // its own 0.3 in full -> 0.7
@@ -246,6 +248,9 @@ func TestWorkerReservationLostStopsTheWorkerAndNamesTheCost(t *testing.T) {
 	r.next(r.c)
 	eventually(t, "the charge", func() bool { return spendNear(r.session().SpentUSD, 0.4) })
 	r.clk.advance(tasks.ReservationLease + tasks.ReservationGrace + time.Second) // a suspend: the lease lapsed and was swept
+	if _, err := r.store.ExpireStale(tbg, "default", r.sid); err != nil {        // the sweep, called here so the order against the heartbeat is fixed
+		t.Fatal(err)
+	}
 	eventually(t, "the notice", func() bool { return countNotices(r.em, "mission.reservation_lost") >= 1 })
 	b, _ := json.Marshal(r.em.find("notice"))
 	if !strings.Contains(string(b), "0.400000") || !strings.Contains(string(b), "task session reservation resolve") {

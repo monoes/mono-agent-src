@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
@@ -67,6 +68,13 @@ type runAcct struct {
 	// streamed: the run reported some cost while it ran. finalOK/final: its final accounting (runCost).
 	streamed, finalOK, ran bool
 	final                  float64
+	// started: the runtime showed it started (a start or usage event). unclear: no start was seen but Exec came back with
+	// a result (or without an error), so it is unknown whether the model was called.
+	started, unclear bool
+	// backoff: the last streamed charge failed; no further per-event attempt until the heartbeat or the settle retries.
+	// noted is the failure classes already told to the operator for this run.
+	backoff bool
+	noted   map[string]bool
 	// lost: the store no longer holds the row for us. The run is being stopped and nothing more is charged to it.
 	lost bool
 }
@@ -178,19 +186,38 @@ func (c *Conductor) rebaseSpent(w *worker) {
 	w.task.spendMu.Unlock()
 }
 
+// finiteCost says whether a reported figure is a usable number of dollars; anything else is ignored, so one bad report
+// cannot poison a run's peak.
+func finiteCost(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) && v >= 0 }
+
+// noteStarted records that the runtime showed life (a start or usage event) in this run.
+func (c *Conductor) noteStarted(w *worker, a *runAcct) {
+	if a == nil {
+		return
+	}
+	w.task.spendMu.Lock()
+	a.started = true
+	w.task.spendMu.Unlock()
+}
+
 // noteFinal records the final accounting of the run (what Exec returned), before endRun settles it.
-func (c *Conductor) noteFinal(w *worker, a *runAcct, m Model, run *monomind.TurnResult) {
+func (c *Conductor) noteFinal(w *worker, a *runAcct, m Model, run *monomind.TurnResult, res *monomind.TurnResult, execErr error) {
 	if a == nil {
 		return
 	}
 	cost, _, ok := runCost(m, run)
 	w.task.spendMu.Lock()
-	a.final, a.finalOK = cost, ok
+	if ok && finiteCost(cost) {
+		a.final, a.finalOK = cost, true
+	}
+	a.unclear = !a.started && (res != nil || execErr == nil)
 	w.task.spendMu.Unlock()
 }
 
 // chargeLive charges the cost a reserving run has reported so far into its reservation (and so into the session's spend,
-// in one write). It says whether the run is a reserving one: if not, the caller records on the cap.
+// in one write). It says whether the run is a reserving one: if not, the caller records on the cap. A figure that is not a
+// finite non-negative number is ignored. After a failed write there is no further attempt per event (the stream is never
+// held up by a store that is busy): the heartbeat or the settle retries.
 func (c *Conductor) chargeLive(w *worker, cost float64) bool {
 	w.task.spendMu.Lock()
 	a := w.task.acct
@@ -198,41 +225,80 @@ func (c *Conductor) chargeLive(w *worker, cost float64) bool {
 		w.task.spendMu.Unlock()
 		return false
 	}
-	a.streamed = true
-	a.peak = max(a.peak, cost)
-	if a.lost || a.peak <= a.charged {
+	a.started = true
+	if finiteCost(cost) {
+		a.streamed = true
+		a.peak = max(a.peak, cost)
+	}
+	if a.lost || a.backoff || a.peak <= a.charged {
 		w.task.spendMu.Unlock()
 		return true
 	}
+	peak := a.peak
+	w.task.spendMu.Unlock()
+	c.pushCharge(w, a, peak)
+	return true
+}
+
+// pushCharge writes the run's peak into its reservation. spendMu is NOT held across the store call: the charge is a
+// maximum, so two writers cannot overcharge.
+func (c *Conductor) pushCharge(w *worker, a *runAcct, peak float64) {
 	mc, _ := c.missions()
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(c.ctx), 10*time.Second)
 	defer cancel()
-	peak, was := a.peak, a.charged
 	err := mc.Store.ChargeExec(ctx, mc.ProfileID, a.id, c.ownerID, peak, false)
+	w.task.spendMu.Lock()
 	if err == nil {
-		a.charged = peak
+		a.charged = max(a.charged, peak)
+		a.backoff = false
 		w.task.spendMu.Unlock()
 		c.afterCharge(w)
-		return true
+		return
 	}
+	class := "write"
+	if errors.Is(err, tasks.ErrLimit) {
+		class = "limit"
+	}
+	first := !a.noted[class]
+	if a.noted == nil {
+		a.noted = map[string]bool{}
+	}
+	a.noted[class] = true
+	a.backoff = !errors.Is(err, tasks.ErrReservationLost)
+	was := a.charged
 	w.task.spendMu.Unlock()
 	if errors.Is(err, tasks.ErrReservationLost) {
 		c.accountingLost(w, a)
-	} else {
-		c.notice("mission.spend", fmt.Sprintf("The cost of %s ($%.4f) could not be added to the session: %v", w.id, peak-was, err), chatevents.SeverityWarning)
+	} else if first {
+		c.notice("mission.spend", fmt.Sprintf("The cost of %s ($%.4f) could not be added to the session: %v. It is retried at the next renewal and at the end of the run.", w.id, peak-was, err), chatevents.SeverityWarning)
 	}
-	return true
+}
+
+// retryCharge is the heartbeat's retry of a charge that failed while streaming.
+func (c *Conductor) retryCharge(w *worker, a *runAcct) {
+	w.task.spendMu.Lock()
+	if a.mode != modeReserve || !a.backoff || a.lost || w.task.acct != a {
+		w.task.spendMu.Unlock()
+		return
+	}
+	a.backoff = false
+	peak := a.peak
+	w.task.spendMu.Unlock()
+	c.pushCharge(w, a, peak)
 }
 
 // endRun leaves the accounting mode when the run is over and its cost is in the worker's counter.
 //   - cap: the registration is removed.
-//   - reserve, the run never reached Exec: the reservation is released.
-//   - reserve otherwise: it is settled with the run's own cost (its peak or its final figure, whichever is higher); a run
-//     that reported no cost at all is charged its whole grant (the store's rule: nothing says it cost less).
+//   - reserve, the run never reached Exec, or failed to START (no start or usage event, and Exec returned an error and no
+//     result: the runtime was never called): the reservation is released at $0 beyond what was charged, so a broken start
+//     retried N times costs nothing.
+//   - reserve, a run that reported a cost: settled with the run's own cost, its peak or its final figure, whichever is higher.
+//   - reserve, a run that reported none but STARTED (a start or usage event) or whose start is UNCLEAR (a result came back
+//     without a start event): charged its whole grant, because nothing says it cost less.
 //
 // A final charge that cannot be recorded leaves the row to lapse and be resolved by the operator, who is ALWAYS told
 // its id and the run's cost. Either way everything up to the counter now counts as handled, so the cap path never
-// records it a second time.
+// records it a second time. spendMu is not held across a store call.
 func (c *Conductor) endRun(w *worker, a *runAcct) {
 	if a == nil {
 		return
@@ -247,27 +313,31 @@ func (c *Conductor) endRun(w *worker, a *runAcct) {
 	counter := w.cost + w.liveCost
 	c.mu.Unlock()
 	w.task.spendMu.Lock()
-	defer w.task.spendMu.Unlock()
 	if w.task.acct == a {
 		w.task.acct = nil
 	}
+	if a.mode == modeReserve && a.ran {
+		w.task.spent = counter
+	}
+	ran, lost, streamed, finalOK := a.ran, a.lost, a.streamed, a.finalOK
+	grant := a.started || a.unclear
+	total := max(a.peak, a.final)
+	w.task.spendMu.Unlock()
 	if a.mode == modeCap {
 		_ = mc.Store.EndCapRun(ctx, mc.ProfileID, a.id, c.ownerID) // a failure lapses the row: it frees the mode after the grace
 		return
 	}
-	if !a.ran {
+	if lost {
+		return // the notice named the cost when it was lost
+	}
+	if !ran || (!streamed && !finalOK && !grant) {
 		if err := mc.Store.ReleaseReservation(ctx, mc.ProfileID, a.id, c.ownerID); err != nil && !errors.Is(err, tasks.ErrReservationLost) {
 			c.notice("mission.reservation", fmt.Sprintf("Reservation #%d of %s (session #%d) could not be released: %v. It lapses and is resolved with `task session reservation resolve %d --usd 0`.", a.id, a.ref, a.sid, err, a.id), chatevents.SeverityWarning)
 		}
 		return
 	}
-	total := max(a.peak, a.final)
-	w.task.spent = counter
-	if a.lost {
-		return // the notice named the cost when it was lost
-	}
 	for i := 0; i < settleAttempts; i++ {
-		if a.finalOK || a.streamed {
+		if finalOK || streamed {
 			err = mc.Store.ChargeExec(ctx, mc.ProfileID, a.id, c.ownerID, total, true)
 		} else {
 			total = 0
@@ -336,6 +406,7 @@ func (c *Conductor) heartbeat(ctx context.Context, mc *MissionRun, w *worker, no
 		c.msched.mu.Lock()
 		w.task.hbAt = now
 		c.msched.mu.Unlock()
+		c.retryCharge(w, a)
 	case errors.Is(err, tasks.ErrReservationLost):
 		c.accountingLost(w, a)
 	}
