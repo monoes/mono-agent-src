@@ -13,7 +13,7 @@ import (
 	"github.com/monoes/mono-agent/internal/doomsday/ops"
 )
 
-var bossToolNames = []string{"session_boss_answer_ask", "session_boss_approve_plan", "session_boss_grant_budget", "session_boss_finish_begin"}
+var bossToolNames = []string{"session_boss_answer_ask", "session_boss_approve_plan", "session_boss_grant_budget", "session_boss_finish_begin", "session_boss_strategy_propose", "session_boss_strategy_report", "session_boss_finish_ready"}
 
 // bossCharters, bossLedger and bossSink are the fakes under the real enforcer: the charter the run holds, the
 // cumulative counters, and the audit and person-item sinks.

@@ -64,6 +64,7 @@ func (w Wiring) Engine() *StoreEngine {
 		CreateUnit:       w.createUnit,
 		Boss:             w.designateBoss,
 		AfterEnter:       func(_ context.Context, gen int64) error { return w.RunDir.CreateSecret(uint64(gen)) },
+		HeadAnchor:       w.headAnchor(),
 	}
 	if seq != nil {
 		e.Anchored = seq.Entered

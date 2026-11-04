@@ -9,6 +9,9 @@ import (
 	"github.com/monoes/mono-agent/internal/extension"
 )
 
+// operatorOnly is the refusal of the operator's own terminal: none.
+func operatorOnly() string { return "" }
+
 // noHints is a CLI around EnsureConnected with nothing to add.
 var noHints = Hints{Route: func(ConnChecker) string { return "" }, RouteWaitPoll: 5 * time.Millisecond,
 	Lifetime: func(ConnChecker) string { return "" }}
@@ -89,7 +92,7 @@ func TestTryOpenPairingPage_RetriesUntilReadyThenOpensOnce(t *testing.T) {
 
 	// Not ready yet: must not open anything, and must not set *opened so
 	// the caller's poll loop keeps retrying.
-	tryOpenPairingPage(bridge, &opened)
+	tryOpenPairingPage(bridge, &opened, operatorOnly)
 	if opened {
 		t.Fatalf("opened flag set before the bridge reported ready")
 	}
@@ -99,7 +102,7 @@ func TestTryOpenPairingPage_RetriesUntilReadyThenOpensOnce(t *testing.T) {
 
 	// Now ready: must open exactly the URL PairingURL returned, exactly once.
 	bridge.ready = true
-	tryOpenPairingPage(bridge, &opened)
+	tryOpenPairingPage(bridge, &opened, operatorOnly)
 	if !opened {
 		t.Fatalf("opened flag not set after the bridge became ready")
 	}
@@ -108,7 +111,7 @@ func TestTryOpenPairingPage_RetriesUntilReadyThenOpensOnce(t *testing.T) {
 	}
 
 	// A subsequent call (e.g. the next poll iteration) must not open again.
-	tryOpenPairingPage(bridge, &opened)
+	tryOpenPairingPage(bridge, &opened, operatorOnly)
 	if len(openedURLs) != 1 {
 		t.Fatalf("openURLInBrowser called again after already opened: %v", openedURLs)
 	}
@@ -125,7 +128,7 @@ func TestTryOpenPairingPage_GivesUpOnBridgeWithoutPairingURL(t *testing.T) {
 	bridge := &mockBridge{connected: false}
 	opened := false
 
-	tryOpenPairingPage(bridge, &opened)
+	tryOpenPairingPage(bridge, &opened, operatorOnly)
 	if !opened {
 		t.Fatalf("expected tryOpenPairingPage to give up immediately (set opened=true) for a bridge with no PairingURL")
 	}
@@ -134,7 +137,7 @@ func TestTryOpenPairingPage_GivesUpOnBridgeWithoutPairingURL(t *testing.T) {
 	}
 
 	// Must stay given-up on repeated calls too.
-	tryOpenPairingPage(bridge, &opened)
+	tryOpenPairingPage(bridge, &opened, operatorOnly)
 	if called {
 		t.Fatalf("openURLInBrowser called on a later poll despite having given up")
 	}

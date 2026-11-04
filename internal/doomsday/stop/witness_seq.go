@@ -193,6 +193,16 @@ func (s *Sequencer) Check(ctx context.Context, gen int64) error {
 // write at least one chained row or none (an atomic transaction). ending marks a transition to stop-requested or
 // later; ended marks the one that ends the generation.
 func (s *Sequencer) Sequence(ctx context.Context, gen int64, kind string, ending, ended bool, fn func(context.Context) error) error {
+	return s.SequenceRows(ctx, gen, kind, ending, ended, 1, fn)
+}
+
+// SequenceRows is Sequence for a transition that writes rows chained rows in one transaction (a strategy write adds its
+// row's audit lines together): the pending line covers the whole range, so a crash after the commit is classified as a
+// commit (row 3), not as a database ahead of the witness (row 5). fn must write all of the rows or none.
+func (s *Sequencer) SequenceRows(ctx context.Context, gen int64, kind string, ending, ended bool, rows int, fn func(context.Context) error) error {
+	if rows < 1 {
+		rows = 1
+	}
 	unlock, err := s.W.lockBounded()
 	if err != nil {
 		return fmt.Errorf("stop: the witness lock cannot be taken: %w", err)
@@ -209,7 +219,7 @@ func (s *Sequencer) Sequence(ctx context.Context, gen int64, kind string, ending
 	if err != nil {
 		return err
 	}
-	pend := Record{T: RecPending, Gen: gen, From: h.Seq + 1, To: h.Seq + 1, DBHead: hex.EncodeToString(h.MAC), Ending: ending, Extra: kind}
+	pend := Record{T: RecPending, Gen: gen, From: h.Seq + 1, To: h.Seq + int64(rows), DBHead: hex.EncodeToString(h.MAC), Ending: ending, Extra: kind}
 	if err := s.W.Append(pend); err != nil { // record-then-act: no pending line, no transition
 		return fmt.Errorf("stop: the witness could not record the transition, so it was not made: %w", err)
 	}

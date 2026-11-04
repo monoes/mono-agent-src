@@ -139,3 +139,4 @@
 153_doomsday_store.sql
 154_task_reservation_exec.sql
 155_doomsday_governor.sql
+156_doomsday_strategy.sql

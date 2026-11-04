@@ -17,31 +17,49 @@ import (
 // the session and every budgeted ancestor have the room. Sessions with no budget on the way are not limited. The
 // $0.01 minimum of a worker reservation does not apply: a carve is checked against the room, whatever its size.
 func AdmitHold(ctx context.Context, x Queryer, profileID string, sessionID int64, carve float64) (string, error) {
-	s := NewStore(nil)
-	c, err := s.commitmentTx(ctx, x, profileID, sessionID)
+	c, err := ReadCommitment(ctx, x, profileID, sessionID)
 	if err != nil {
 		return "", err
 	}
-	return s.fits(ctx, x, profileID, sessionID, toMicros(carve), c)
+	return AdmitHoldWith(ctx, x, profileID, sessionID, carve, c)
+}
+
+// ReadCommitment is Store.Commitment on the caller's own transaction: the way for another store to read the
+// commitment of a session in the same snapshot as its other budget reads, and hand it to AdmitHoldWith or
+// AdmitRaiseWith, so one decision walks the tree once.
+func ReadCommitment(ctx context.Context, x Queryer, profileID string, sessionID int64) (Commitment, error) {
+	return NewStore(nil).commitmentTx(ctx, x, profileID, sessionID)
+}
+
+// AdmitHoldWith is AdmitHold for a caller that has read the commitment c of the session already, in the same
+// transaction: it does not read it again.
+func AdmitHoldWith(ctx context.Context, x Queryer, profileID string, sessionID int64, carve float64, c Commitment) (string, error) {
+	return NewStore(nil).fits(ctx, x, profileID, sessionID, toMicros(carve), c)
 }
 
 // AdmitRaise is AdmitHold for a raise of the cap of the coder child with the conversation conv. A child that is also
 // a task session below this one contributes the larger of its cap and its task hold, so the hold to admit is the
 // change of that contribution (nothing when the task hold covers the raise); a child that is not linked is a new hold.
 func AdmitRaise(ctx context.Context, x Queryer, profileID string, sessionID int64, conv string, raise float64) (string, error) {
+	c0, err := ReadCommitment(ctx, x, profileID, sessionID)
+	if err != nil {
+		return "", err
+	}
+	return AdmitRaiseWith(ctx, x, profileID, sessionID, conv, raise, c0)
+}
+
+// AdmitRaiseWith is AdmitRaise for a caller that has read the commitment c0 of the session already, in the same
+// transaction.
+func AdmitRaiseWith(ctx context.Context, x Queryer, profileID string, sessionID int64, conv string, raise float64, c0 Commitment) (string, error) {
 	var linked int64
 	err := x.QueryRowContext(ctx, `SELECT child_session_id FROM v_mission_child_linked WHERE profile_id = ? AND conversation_id = ? AND session_id = ? LIMIT 1`, profileID, conv, sessionID).Scan(&linked)
 	if errors.Is(err, sql.ErrNoRows) {
-		return AdmitHold(ctx, x, profileID, sessionID, raise)
+		return AdmitHoldWith(ctx, x, profileID, sessionID, raise, c0)
 	}
 	if err != nil {
 		return "", fmt.Errorf("tasks: reading the link of conversation %s: %w", echo(conv), err)
 	}
 	s := NewStore(nil)
-	c0, err := s.commitmentTx(ctx, x, profileID, sessionID)
-	if err != nil {
-		return "", err
-	}
 	c1, err := s.commitWalkWith(ctx, x, profileID, sessionID, 1, map[int64]bool{sessionID: true}, hypo{capConv: conv, capDelta: raise})
 	if err != nil {
 		return "", err

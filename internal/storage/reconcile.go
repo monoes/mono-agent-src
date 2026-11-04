@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+
+	"github.com/monoes/mono-agent/internal/dbconn"
 )
 
 // vaultKeysPerProfileDDL is the per-profile vault_keys shape introduced by
@@ -91,6 +93,7 @@ func (d *Database) reconcileVaultKeys(ctx context.Context) error {
 	defer conn.Close()
 
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		dbconn.AbandonBegin(conn)
 		return fmt.Errorf("storage: reconcile: begin tx: %w", err)
 	}
 	committed := false
@@ -163,6 +166,7 @@ func (d *Database) reconcileProfilesRootDir(ctx context.Context) error {
 	defer conn.Close()
 
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		dbconn.AbandonBegin(conn)
 		return fmt.Errorf("storage: reconcile: begin tx: %w", err)
 	}
 	committed := false
@@ -219,6 +223,7 @@ func (d *Database) reconcileProfilesIcon(ctx context.Context) error {
 	defer conn.Close()
 
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		dbconn.AbandonBegin(conn)
 		return fmt.Errorf("storage: reconcile: begin tx: %w", err)
 	}
 	committed := false

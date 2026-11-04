@@ -155,7 +155,8 @@ func runLocal(args []string, stdout, stderr io.Writer) int {
 	root.SetArgs(args)
 	applyClassification(root)
 
-	if g != nil {
+	// Not for `doomsday stop`: it is open signed out and must never reach monoes.me or the key store, however long it runs.
+	if g != nil && !isSignedOutOnlyStop(root, args) {
 		defer armLateRefresher(ctx, g)()
 	}
 

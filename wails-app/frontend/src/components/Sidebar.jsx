@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import {
   LayoutDashboard, Users,
   Terminal, PlayCircle, Settings, Image, Mail, KeyRound,
-  ChevronDown, Plus, Check, Building2, FolderOpen, FolderCog, Loader2, Briefcase, FileText, IdCard, Send, KanbanSquare
+  ChevronDown, Plus, Check, Building2, FolderOpen, FolderCog, Loader2, Briefcase, FileText, IdCard, Send, KanbanSquare, Radar
 } from 'lucide-react'
 import { GetVersion } from '../wailsjs/go/main/App'
 import * as WailsApp from '../wailsjs/go/main/App'
@@ -35,6 +35,7 @@ const NAV_ITEMS = [
   { id: 'documents',   labelKey: 'documents',   icon: FileText,        section: 'DATA' },
   { id: 'info',        labelKey: 'info',        icon: IdCard,          section: 'DATA' },
   { id: 'tasks',       labelKey: 'tasks',       icon: KanbanSquare,    section: 'DATA' },
+  { id: 'controlroom', labelKey: 'controlroom', icon: Radar,           section: 'DATA', hidden: true }, // shown only when the probe says so
   { id: 'logs',        labelKey: 'logs',        icon: Terminal,        section: 'DEBUG' },
   { id: 'settings',    labelKey: 'settings',    icon: Settings,        section: 'SYSTEM' },
 ]
@@ -45,7 +46,7 @@ function requestNotifyPermission() {
   }
 }
 
-export default function Sidebar({ activePage, onNavigate, stats, dbConnected }) {
+export default function Sidebar({ activePage, onNavigate, stats, dbConnected, controlRoom = null }) {
   const { t } = useTranslation()
   const [ver, setVer] = useState(null)
   const [profiles, setProfiles] = useState([])
@@ -197,7 +198,8 @@ export default function Sidebar({ activePage, onNavigate, stats, dbConnected }) 
     return null
   }
 
-  const sections = [...new Set(NAV_ITEMS.map(i => i.section))]
+  const navItems = NAV_ITEMS.filter(i => !i.hidden || (i.id === 'controlroom' && controlRoom?.show))
+  const sections = [...new Set(navItems.map(i => i.section))]
 
   return (
     <aside className="sidebar">
@@ -339,7 +341,7 @@ export default function Sidebar({ activePage, onNavigate, stats, dbConnected }) 
         {sections.map(section => (
           <div key={section}>
             <div className="nav-section-label">{t(`sidebar.section.${section}`)}</div>
-            {NAV_ITEMS.filter(i => i.section === section).map(item => {
+            {navItems.filter(i => i.section === section).map(item => {
               const Icon = item.icon
               const badge = getBadge(item.id)
               const isActive = activePage === item.id
@@ -358,6 +360,9 @@ export default function Sidebar({ activePage, onNavigate, stats, dbConnected }) 
                 >
                   <Icon className="nav-icon" size={15} />
                   <span>{label}</span>
+                  {item.id === 'controlroom' && controlRoom?.running && (
+                    <span className="nav-badge" data-testid="nav-run-active">{t('sidebar.runActive')}</span>
+                  )}
                   {badge != null && (
                     <span className="nav-badge" aria-label={`${badge} items`}>{badge > 999 ? '999+' : badge}</span>
                   )}

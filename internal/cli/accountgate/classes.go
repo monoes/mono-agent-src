@@ -42,7 +42,7 @@ const (
 //
 // Open is the way in and nothing else: signing in (account, and the library
 // aliases of it), help, the version, and update, so that a broken install can
-// be fixed. Everything else, ref, doctor, setup, release and the completion
+// be fixed, and `doomsday stop`, so that an open-ended run can always be stopped. Everything else, ref, doctor, setup, release and the completion
 // scripts included, waits for a login.
 //
 // help, completion and __complete are cobra's own: it adds them while a
@@ -58,6 +58,13 @@ var accountClasses = map[string]string{
 	"library logout": ClassOpen,
 	"library status": ClassOpen,
 	"help":           ClassOpen,
+
+	// The one exemption outside the way in (the user's decision): Stop of the open-ended mode works
+	// signed out, because a run must always be stoppable, whatever the account, the network or the
+	// key store. Exactly this verb: not the doomsday group, no sibling (start, finish, rubric, status,
+	// render and the rest wait for a login). It is still operator-only (requireOperator and
+	// opgate.Refusal), so signed out is not "anyone". TestOnlyStopOfTheDoomsdayGroupIsExempt holds it.
+	"doomsday stop": ClassOpen,
 
 	"daemon":           ClassServe,
 	"daemon install":   ClassGated,

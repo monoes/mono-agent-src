@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/vault"
 )
 
@@ -24,16 +23,7 @@ func newApplicationCLITestDB(t *testing.T) string {
 	// tests sharing this helper put their own fake monomind on PATH.)
 	t.Cleanup(vault.Wait)
 	dbPath := filepath.Join(t.TempDir(), "cli-application-test.db")
-	db, err := storage.NewDatabase(dbPath)
-	if err != nil {
-		t.Fatalf("NewDatabase: %v", err)
-	}
-	if err := db.ApplyMigrations(); err != nil {
-		t.Fatalf("ApplyMigrations: %v", err)
-	}
-	if err := db.DB.Close(); err != nil {
-		t.Fatalf("closing seed db: %v", err)
-	}
+	writeMigratedDB(t, dbPath)
 	return dbPath
 }
 

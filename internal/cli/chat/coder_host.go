@@ -157,6 +157,12 @@ var hostBuilt func(h *coderhost.Host)
 // session or command it is asked about.
 var HostBuilt func(st *coderhost.Store, h *coderhost.Host, db *sql.DB)
 
+// HostStopped, when set by a build that extends the host, is called once after the host's Run returned and its own helper
+// goroutines have ended, before the command returns (and so before the deferred database close). An extension that started
+// background work from HostBuilt joins it here, so nothing of it writes after the database is closed. It is nil in every
+// default build.
+var HostStopped func()
+
 // retentionSweepEvery is how often the host runs the sweep of the retained v2 rows after the first one at its start.
 var retentionSweepEvery = time.Hour
 
@@ -310,6 +316,9 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 			stop()
 			<-purged    // the sweep does not outlive the host
 			<-published // no write of the info file after the deferred remove
+			if HostStopped != nil {
+				HostStopped() // an extension joins what it started from HostBuilt before the database closes
+			}
 			logf("coder host stopped; running turns keep going")
 			return err
 		},

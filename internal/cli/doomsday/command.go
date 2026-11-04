@@ -18,6 +18,9 @@ type Deps struct {
 	// Engine is the store/stop adapter; nil, or a nil result, is the mode
 	// being off (Off): nothing can start.
 	Engine func() Engine
+	// ReadEngine is the engine of the control room's read verbs: the store and the witness file, without the stop
+	// machinery (no pinned connection, no secret store). Nil, or a nil result, falls back to Engine.
+	ReadEngine func() Engine
 	// RequireOperator is the CLI's operator check (nil error for the user).
 	RequireOperator func(what string) error
 	// OperatorRefusal is opgate.Refusal: why this process is not the user, "" for the user.
@@ -26,6 +29,8 @@ type Deps struct {
 	StdinIsTerminal func() bool
 	// JSONOutput is --json.
 	JSONOutput func() bool
+	// StrategyReader is the read-only reader of the strategy verbs; nil (every default build) is the layer being off.
+	StrategyReader func() StrategyReader
 }
 
 func (d Deps) engine() Engine {
@@ -47,7 +52,8 @@ func NewCommand(d Deps) *cobra.Command {
 		Short:  "Open-ended mode: start, stop, status, render (the user's own)",
 		Hidden: true,
 	}
-	cmd.AddCommand(d.newStart(), d.newStop(), d.newStatus(), d.newRender(), d.newFinish(), d.newRubric())
+	cmd.AddCommand(d.newStart(), d.newStop(), d.newStatus(), d.newRender(), d.newFinish(), d.newRubric(), d.newOverview(), d.newFeed(),
+		StrategyCommands(StrategyDeps{Reader: d.StrategyReader, JSONOutput: d.JSONOutput}))
 	return cmd
 }
 

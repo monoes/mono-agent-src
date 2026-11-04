@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
 
 	chatcli "github.com/monoes/mono-agent/internal/cli/chat"
@@ -36,12 +35,24 @@ func init() {
 	mcp.SetBossRouteInstaller(bossRouteInstaller)
 	// And its finish.begin: the boss starts the finish through the ops package's enforcement function, on the open run.
 	mcp.SetBossFinishBeginner(bossFinishBeginner)
+	// The strategy layer: its two session-callable operations as boss tools, and its read-only verbs.
+	mcp.SetBossStrategyCaller(bossStrategyOp)
+	// The boss's read-only reading of the strategy layer's finish-ready marker; the boss then calls finish.begin itself.
+	mcp.SetBossFinishReadyReader(bossFinishReady)
+	doomsdayStrategyReader = strategyReaderFor
 	doomsdayEngine = func(cfg *globalConfig) doomsdaycli.Engine {
 		db, err := initDB(cfg)
 		if err != nil {
-			return doomsdaycli.Off{} // fails closed: nothing starts
+			return engineForOpenFailure(err)
 		}
 		return doomsdayWiring(cfg, db.DB).FinishEngine()
+	}
+	doomsdayReadEngine = func(cfg *globalConfig) doomsdaycli.Engine {
+		db, err := openReadDB(cfg) // the read verbs create and migrate nothing
+		if err != nil {
+			return engineForOpenFailure(err)
+		}
+		return doomsdayWiring(cfg, db).ReadEngine()
 	}
 	doomsdayChat = func(cfg *globalConfig, d *chatcli.Deps) {
 		// A conductor's merges go through the open run's gate and journal; the resolver reads the run on every
@@ -61,7 +72,11 @@ func init() {
 			if err := g.Install(st, h); err != nil {
 				fmt.Fprintf(os.Stderr, "coder host: the open-ended mode's launcher hooks could not be installed (turns are ticketed around their start instead): %v\n", err)
 			}
+			// The strategy layer's host is ticked from this process; with no run open a tick reads and writes nothing.
+			startStrategyLoop(cfg, db)
 		}
+		// The coder host joins the strategy loop after its Run returned, before the database closes.
+		chatcli.HostStopped = stopStrategyLoop
 		// Reconcile of worktrees resolves begun merges first and keeps the worktrees of unresolved ones (note
 		// 13.3 section 5.1). A database that cannot be opened keeps every turn's worktree.
 		dynorg.SetReconcileGuard(func(ctx context.Context, cwd string, active func(string) bool) func(string) bool {
@@ -74,6 +89,17 @@ func init() {
 			return r.GuardTurns(ctx, cwd, active)
 		})
 	}
+}
+
+// engineForOpenFailure is the engine when the database cannot be opened. Nothing starts either way (fails closed), but
+// a read verb must not call that "off": the database may be locked, corrupt or unmigratable while a run is live, so it
+// gets doomsdaycli.Unreadable (an error result, non-zero exit). Client mode never opens the local database, so it is
+// the mode off there.
+func engineForOpenFailure(err error) doomsdaycli.Engine {
+	if errors.Is(err, errClientModeDB) || errors.Is(err, errNoReadableSchema) {
+		return doomsdaycli.Off{}
+	}
+	return doomsdaycli.Unreadable{Err: err}
 }
 
 var (
@@ -103,7 +129,7 @@ func processHostGate(cfg *globalConfig, db *sql.DB) *doomsdaycli.HostGate {
 // directory next to the database, the stop package's containment probe and kernel, real token revocation.
 func doomsdayWiring(cfg *globalConfig, db *sql.DB) doomsdaycli.Wiring {
 	keys := doomsdaycli.VaultKeyer{DB: db, Profile: cfg.ProfileID}
-	runDir := filepath.Join(filepath.Dir(expandPath(cfg.DBPath)), "doomsday", cfg.ProfileID)
+	runDir := doomsdayRunDirPath(cfg)
 	return doomsdaycli.Wiring{
 		// The entry refuses a charter whose 13.4 constraints would only ever deny (ops.EntryCheck, under the host's own spend bounds).
 		Store:   store.New(db, keys).WithEntryCheck(ops.EntryCheck(coderhost.SpendBounds())),

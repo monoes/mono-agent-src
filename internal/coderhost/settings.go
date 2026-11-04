@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/monoes/mono-agent/internal/dbconn"
 )
 
 // Settings are the per-session knobs of a coder session. They are stored as one
@@ -321,6 +323,7 @@ func (s *Store) updateSettings(profileID, conversationID string, strict bool, ch
 	}
 	defer conn.Close()
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		dbconn.AbandonBegin(conn)
 		return Settings{}, fmt.Errorf("coder host: begin settings write: %w", err)
 	}
 	committed := false

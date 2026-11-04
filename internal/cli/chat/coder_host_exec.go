@@ -72,6 +72,9 @@ type execLauncher struct {
 	afterExitRevoke func()
 }
 
+// afterWaiterStarted is a test seam: it runs right after the exit waiter started, before the legacy token is bound.
+var afterWaiterStarted func()
+
 // releaseTimeout bounds the release hook: a hook that does not answer in time refuses (a seam for tests). The hook runs on the start's
 // goroutine, outside the host's lock, but a blocked start would hold up the command that asked for it.
 var releaseTimeout = 30 * time.Second
@@ -345,6 +348,9 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 		// unreaped child, so its start time still names it. It is then reaped by the waiter and fails with its real exit status.
 		stamp = exitedChildStamp(cmd.Process.Pid)
 	}
+	// The stamp the legacy token is bound with, read while nothing can have reaped the child (the waiter starts later): after a reap the
+	// number may name another process, and its stamp would bind the token to it.
+	bindStamp := coderhost.ProcStamp(cmd.Process.Pid)
 	t := &execTurn{pid: cmd.Process.Pid, stamp: stamp, done: make(chan struct{}), strict: bd != nil}
 	t.ownRevoke = func() error {
 		err := l.revokeTurnTokens(profileID, conversationID, turnID)
@@ -420,6 +426,9 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 		}
 	}
 	startWaiter()
+	if afterWaiterStarted != nil {
+		afterWaiterStarted()
+	}
 	if l.beforeRelease != nil {
 		// A refused release is a start that failed after the process existed: StartedError on purpose (the spend cap stays counted, the
 		// command fails, nothing retries it). The stop is the ordinary one (SIGTERM, then the grace): a bound child that has not been given
@@ -431,7 +440,7 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 		}
 	}
 	if ct != nil && bd == nil { // a bound launch binds the child's token inside its own transaction
-		if err := l.child.bind(profileID, conversationID, ct, t.pid, coderhost.ProcStamp(t.pid)); err != nil {
+		if err := l.child.bind(profileID, conversationID, ct, t.pid, bindStamp); err != nil {
 			return nil, t.fail(err)
 		}
 	}
@@ -451,7 +460,7 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 			}
 		}
 	} else if l.bind != nil {
-		if err := l.bind(profileID, conversationID, turnID, t.pid, coderhost.ProcStamp(t.pid)); errors.Is(err, coderhost.ErrHostInsideTurn) {
+		if err := l.bind(profileID, conversationID, turnID, t.pid, bindStamp); errors.Is(err, coderhost.ErrHostInsideTurn) {
 			// the host runs inside a session's turn: no token is bound, so the master tools refuse in this turn
 			if rerr := l.revokeSession(profileID, conversationID); rerr != nil {
 				return nil, t.fail(&coderhost.TokensLiveError{Err: rerr})

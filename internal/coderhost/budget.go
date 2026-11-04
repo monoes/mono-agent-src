@@ -1,6 +1,7 @@
 package coderhost
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -98,23 +99,50 @@ func (s *Store) spentIn(q querier, profileID, conversationID string) (float64, e
 }
 
 // TurnCap is the spend cap the session's next turn runs under: capped is false for a session
-// with no budget; a capped session with (almost) nothing left gets errBudgetUsedUp.
+// with no budget; a capped session with (almost) nothing left gets errBudgetUsedUp. The budget, the spend
+// and the carve are read in one snapshot, so a carve, a raise or a settle that commits meanwhile cannot give
+// a cap that no state of the rows ever had.
 func (s *Store) TurnCap(profileID, conversationID string) (capUSD float64, capped bool, err error) {
-	budget, err := s.Budget(profileID, conversationID)
-	if err != nil || budget <= 0 {
+	// A session with no budget has no cap to agree with anything: it is answered without a transaction. (The
+	// budget is read again in the snapshot below, so a budget set meanwhile is not mixed with older rows.)
+	if budget, err := s.Budget(profileID, conversationID); err != nil || budget <= 0 {
 		return 0, false, err
 	}
-	spent, err := s.Spent(profileID, conversationID)
-	if err != nil {
+	type capRead struct{ budget, spent, carved float64 }
+	r, err := inSnapshot(s.db, func(q querier) (capRead, error) {
+		var r capRead
+		var err error
+		if r.budget, err = budgetIn(q, profileID, conversationID); err != nil || r.budget <= 0 {
+			return r, err
+		}
+		if r.spent, err = s.spentIn(q, profileID, conversationID); err != nil {
+			return r, err
+		}
+		r.carved, err = carvedIn(q, profileID, conversationID)
+		return r, err
+	})
+	if err != nil || r.budget <= 0 {
 		return 0, false, err
 	}
-	carved, err := s.Carved(profileID, conversationID)
-	if err != nil {
-		return 0, false, err
-	}
+	budget, spent, carved := r.budget, r.spent, r.carved
 	left := budget - carved - spent
 	if left < minCap {
 		return 0, true, fmt.Errorf("%w ($%.2f budget, $%.2f spent, $%.2f given to children)", errBudgetUsedUp, budget, spent, carved)
 	}
 	return left, true, nil
+}
+
+// inSnapshot runs fn on one read snapshot of the database: a transaction of its own when q is the database (or
+// anything that can begin one), q itself when it already is a transaction. Reads in fn see one state of the rows.
+func inSnapshot[T any](q querier, fn func(querier) (T, error)) (T, error) {
+	if b, ok := q.(interface{ Begin() (*sql.Tx, error) }); ok {
+		tx, err := b.Begin()
+		if err != nil {
+			var zero T
+			return zero, err
+		}
+		defer tx.Rollback()
+		return fn(tx)
+	}
+	return fn(q)
 }

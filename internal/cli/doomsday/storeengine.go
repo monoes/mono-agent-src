@@ -40,6 +40,8 @@ type StoreEngine struct {
 	// Anchored runs once the run is recorded: the anchor in the OS secret store and the generation counter (note 13.5
 	// section 5). bound false carries why rollback detection is weaker; an error is reported with the run id.
 	Anchored func(ctx context.Context, generation int64) (bound bool, why string, err error)
+	// HeadAnchor compares the audit head the control room reads with the witness. Nil: the head is never anchored.
+	HeadAnchor HeadAnchorFunc
 	// Boss records which top-level lead mission is the run's boss (Wiring.DesignateBoss). Nil: no boss can be named.
 	Boss func(ctx context.Context, session int64, entry Entry) error
 }

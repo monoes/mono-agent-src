@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/dbconn"
 	"github.com/monoes/mono-agent/internal/procbind"
 )
 
@@ -271,6 +272,7 @@ func (h *BindingHost) writeHostRow(ctx context.Context, key []byte, profile, gen
 	}
 	defer conn.Close()
 	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		dbconn.AbandonBegin(conn)
 		return 0, err
 	}
 	committed := false
