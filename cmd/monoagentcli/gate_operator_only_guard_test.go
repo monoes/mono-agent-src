@@ -42,7 +42,6 @@ type allowed struct {
 var legacyMarkerChecks = map[string]allowed{
 	"cmd/monoagentcli/login.go":                     {1, heldB + " (login of a builtin package)"},
 	"cmd/monoagentcli/hil.go":                       {3, gateImp + " (notOperator in gateVerdict)"},
-	"internal/cli/node/run.go":                      {1, "node run decides with opgate.Refusal; the one marker check left only keeps a MARKED caller's send gate unchanged (the send queue is applied to unmarked callers)"},
 	"internal/cli/org/sign.go":                      {2, "class C: org sign has its own signature guard; not decided (issue 1333)"},
 	"internal/nodes/agent_run_gate.go":              {1, "engine node: the marker half of the run gate next to node run's verdict (workflow.AgentCallerFrom), not a CLI verb gate"},
 	"internal/nodes/browserjev/gate.go":             {1, "engine node gate (IsAgentContext), not a CLI verb gate"},
