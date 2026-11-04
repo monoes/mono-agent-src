@@ -44,6 +44,9 @@ var dbAllowedReaders = map[string]map[string]string{
 		"app_orgs.go":            "org project root (mkdir of the layout, no database write)",
 		"app_documents_watch.go": "document watcher root",
 		"app_monomind_init.go":   "IsMonomindInitialized folder check",
+		// ValidProfileID is a pure syntax check; the signed-out Stop reads
+		// the state file, never the database.
+		"profile_selection.go": "profile id syntax check for the persisted-profile Stop",
 	},
 	"github.com/monoes/mono-agent/internal/vault": {
 		// One lookup per <img> request of the vault image handler.
