@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -974,5 +975,51 @@ func TestTheExportedHostStoppedHookRunsAfterRunAndBeforeTheCommandReturns(t *tes
 	}
 	if calls.Load() != 1 || !calledBeforeReturn.Load() {
 		t.Fatalf("HostStopped ran %d times (before the command returned: %v), want once, before", calls.Load(), calledBeforeReturn.Load())
+	}
+}
+
+// A HostStopped that never returns (a seam that ignores its context) does not hold the host open: the command returns after
+// hostStopWait and says which hook did not stop in time.
+func TestAHostStoppedThatNeverReturnsDoesNotHoldTheHostOpen(t *testing.T) {
+	asOperator(t)
+	dbPath := newChatCLITestDB(t)
+	cfg := testDeps(&testConfig{DBPath: dbPath, ProfileID: "default", JSONOutput: true})
+	cfg.RequireOperator = func(string) error { return nil }
+	built := make(chan struct{}, 1)
+	forever := make(chan struct{})
+	var entered atomic.Bool
+	HostBuilt = func(*coderhost.Store, *coderhost.Host, *sql.DB) { built <- struct{}{} }
+	HostStopped = func() { entered.Store(true); <-forever }
+	oldWait := hostStopWait
+	hostStopWait = 300 * time.Millisecond
+	t.Cleanup(func() { HostBuilt, HostStopped, hostStopWait = nil, nil, oldWait; close(forever) })
+	t.Cleanup(func() { RegisterChildTokenMinter(nil) })
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := newCoderHostRunCmd(cfg)
+	cmd.SetContext(ctx)
+	cmd.SetArgs([]string{"--poll=20ms"})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SilenceUsage, cmd.SilenceErrors = true, true
+	errc := make(chan error, 1)
+	go func() { errc <- cmd.Execute() }()
+	select {
+	case <-built:
+	case <-time.After(20 * time.Second):
+		cancel()
+		t.Fatalf("the host did not start: %v", <-errc)
+	}
+	cancel()
+	select {
+	case <-errc:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the host stayed open behind a HostStopped that never returns")
+	}
+	if !entered.Load() {
+		t.Fatal("HostStopped was not called")
+	}
+	if !strings.Contains(out.String(), "HostStopped") {
+		t.Fatalf("the host did not say which hook was left behind: %q", out.String())
 	}
 }
