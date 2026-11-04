@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	browserpkg "github.com/monoes/mono-agent/internal/browser"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/cli/revealgate"
 	cfgpkg "github.com/monoes/mono-agent/internal/config"
 	"github.com/monoes/mono-agent/internal/connections"
@@ -364,6 +365,12 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 			if operator.Refusal() != "" {
 				ctx = workflow.WithUnapprovedStep(ctx, profiledir.Root(rawDB, d.ProfileID()), "node run")
 				ctx = secrets.WithAccessNodeType(secrets.WithAccessNode(ctx, input.NodeID, input.NodeName), nodeType)
+			}
+			// A process inside a coder turn that cleared its markers is an agent's too: the one node
+			// that tells an agent's run from the user's by more than the marker (publication.register)
+			// takes the verdict from ctx. Only that, not the unapproved-step limits above.
+			if nodeType == "publication.register" {
+				ctx = workflow.WithAgentCaller(ctx, opgate.Refusal())
 			}
 			outputs, err := executor.Execute(ctx, input, config)
 			outputs = workflow.MaskAgentNodeOutputs(ctx, outputs)

@@ -38,7 +38,10 @@ func (*RegisterNode) Execute(ctx context.Context, in workflow.NodeInput, config 
 	// A run an AI started is not the operator's: what it registers belongs to
 	// a send the user approved and that was sent, named by approval, as
 	// `publication register` asks of an agent.
-	aiRun := operator.AIRun(ctx)
+	// A command that runs this node (`node run`) says when its process is an agent's although it
+	// carries no marker (workflow.WithAgentCaller); the engine sets nothing.
+	callerWhy := workflow.AgentCallerFrom(ctx)
+	aiRun := operator.AIRun(ctx) || callerWhy != ""
 	items := in.Items
 	if len(items) == 0 {
 		items = []workflow.Item{workflow.NewItem(nil)}
@@ -117,8 +120,12 @@ func (*RegisterNode) Execute(ctx context.Context, in workflow.NodeInput, config 
 		var claim *hilsend.PublicationClaim
 		if aiRun {
 			if claim, err = hilsend.ClaimPublicationApproval(ctx, db, profile, approval, entry); err != nil {
-				if why := operator.Refusal(); why != "" {
-					// The engine itself is marked: say so, and how to fix it.
+				why := operator.Refusal()
+				if why == "" {
+					why = callerWhy
+				}
+				if why != "" {
+					// The engine itself is marked, or the command that ran this was an agent's: say so, and how to fix it.
 					return nil, fmt.Errorf("publication.register item %d: %w (set approval to the send's id). This run is not the user's: %s", i, err, why)
 				}
 				if cerr := workflow.ApprovalCheckError(ctx); cerr != nil {
