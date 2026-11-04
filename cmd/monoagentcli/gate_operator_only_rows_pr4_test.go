@@ -37,7 +37,6 @@ const readOnlyListing = "read-only or shows what exists"
 
 // openInTheProfileAndPeopleChange are the leaves next to a converted verb that stay open on purpose.
 var openInTheProfileAndPeopleChange = map[string]string{
-	"people review reject": "only takes a person out of the outreach queue; nothing is sent, and the GUI and agents both reject",
 	"people review list":   readOnlyListing,
 	"profile folder":       "prints the folder (and creates its missing layout inside the folder the profile already has); it chooses nothing",
 	"profile documents rm": "removes the document from MonoAgent and never deletes a file; only --delete-file of `documents remove` does",
