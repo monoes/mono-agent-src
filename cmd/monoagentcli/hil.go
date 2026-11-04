@@ -149,7 +149,7 @@ func (c *globalConfig) gateVerdict(recovery bool, what string) gateVerdict {
 	in, err := c.callerInATurnFor(recovery)
 	if err != nil {
 		// fails closed: a process that cannot be placed is not let through
-		return gateVerdict{why: "cannot tell whether a coder session's turn runs this command (" + err.Error() + ")", err: err}
+		return gateVerdict{why: opgate.UnplacedPrefix + err.Error() + ")", err: err}
 	}
 	if in {
 		return gateVerdict{why: "this command runs inside a coder session's turn, so a model is running it", sep: "; "}
