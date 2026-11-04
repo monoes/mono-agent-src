@@ -127,7 +127,8 @@ func (d Deps) newVersionsRestoreCmd() *cobra.Command {
 					return err
 				}
 				restored := v.Snapshot.Apply(wf)
-				if err := store.SaveWorkflowWithNote(operator.ApprovingContext(ctx), restored, fmt.Sprintf("restored from version %d", n)); err != nil {
+				actx := operator.ApprovingContext(ctx)
+				if err := store.SaveWorkflowWithNote(actx, restored, fmt.Sprintf("restored from version %d", n)); err != nil {
 					return fmt.Errorf("restore version %d: %w", n, err)
 				}
 				// An old version may not pass today's checks: say so, but
@@ -136,7 +137,7 @@ func (d Deps) newVersionsRestoreCmd() *cobra.Command {
 				for _, e := range workflow.ValidateWorkflow(restored, workflow.ValidateOptions{}).Errors {
 					warnings = append(warnings, "fails `workflow validate`: "+e)
 				}
-				note := operator.NoteUnapproved("restored", wf.ID)
+				note := operator.NoteUnapproved(actx, "restored", wf.ID)
 				if d.JSONOutput() {
 					return json.NewEncoder(os.Stdout).Encode(operator.WithNote(map[string]any{
 						"workflow_id": wf.ID, "restored_from": n, "version": restored.Version, "warnings": warnings,

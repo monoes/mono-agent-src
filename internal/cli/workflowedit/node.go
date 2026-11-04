@@ -87,10 +87,11 @@ func (d Deps) newNodeAddCmd() *cobra.Command {
 			}
 
 			existing = append(existing, newNode)
-			if err := store.SaveWorkflowNodes(approving(ctx, expect), workflowID, existing); err != nil {
+			actx := approving(ctx, expect)
+			if err := store.SaveWorkflowNodes(actx, workflowID, existing); err != nil {
 				return fmt.Errorf("save nodes: %w", err)
 			}
-			note := operator.NoteUnapproved("edited", workflowID)
+			note := operator.NoteUnapproved(actx, "edited", workflowID)
 
 			if d.JSONOutput() {
 				return json.NewEncoder(os.Stdout).Encode(operator.WithNote(newNode, note))
@@ -214,10 +215,11 @@ func (d Deps) newNodeSetCmd() *cobra.Command {
 				return d.NotFound("node %q not found in workflow %q", nodeID, workflowID)
 			}
 
-			if err := store.SaveWorkflowNodes(approving(ctx, expect), workflowID, wf.Nodes); err != nil {
+			actx := approving(ctx, expect)
+			if err := store.SaveWorkflowNodes(actx, workflowID, wf.Nodes); err != nil {
 				return fmt.Errorf("save nodes: %w", err)
 			}
-			note := operator.NoteUnapproved("edited", workflowID)
+			note := operator.NoteUnapproved(actx, "edited", workflowID)
 			if d.JSONOutput() {
 				for i := range wf.Nodes {
 					if wf.Nodes[i].ID == nodeID {
@@ -291,10 +293,11 @@ func (d Deps) newNodeRemoveCmd() *cobra.Command {
 				newConns = append(newConns, c)
 			}
 
-			if err := store.SaveWorkflowGraph(approving(ctx, expect), workflowID, newNodes, newConns); err != nil {
+			actx := approving(ctx, expect)
+			if err := store.SaveWorkflowGraph(actx, workflowID, newNodes, newConns); err != nil {
 				return fmt.Errorf("save workflow: %w", err)
 			}
-			note := operator.NoteUnapproved("edited", workflowID)
+			note := operator.NoteUnapproved(actx, "edited", workflowID)
 
 			if d.JSONOutput() {
 				return json.NewEncoder(os.Stdout).Encode(operator.WithNote(removed, note))
@@ -359,10 +362,11 @@ func (d Deps) newConnectCmd() *cobra.Command {
 			}
 			wf.Connections = append(wf.Connections, conn)
 
-			if err := store.SaveWorkflowConnections(approving(ctx, expect), workflowID, wf.Connections); err != nil {
+			actx := approving(ctx, expect)
+			if err := store.SaveWorkflowConnections(actx, workflowID, wf.Connections); err != nil {
 				return fmt.Errorf("save connections: %w", err)
 			}
-			note := operator.NoteUnapproved("edited", workflowID)
+			note := operator.NoteUnapproved(actx, "edited", workflowID)
 
 			if d.JSONOutput() {
 				return json.NewEncoder(os.Stdout).Encode(operator.WithNote(conn, note))
@@ -417,10 +421,11 @@ func (d Deps) newDisconnectCmd() *cobra.Command {
 				return fmt.Errorf("connection %q not found in workflow %q", connID, workflowID)
 			}
 
-			if err := store.SaveWorkflowConnections(approving(ctx, expect), workflowID, newConns); err != nil {
+			actx := approving(ctx, expect)
+			if err := store.SaveWorkflowConnections(actx, workflowID, newConns); err != nil {
 				return fmt.Errorf("save connections: %w", err)
 			}
-			_ = operator.NoteUnapproved("edited", workflowID)
+			_ = operator.NoteUnapproved(actx, "edited", workflowID)
 			fmt.Fprintf(os.Stdout, "Connection %s removed.\n", connID)
 			return nil
 		},
@@ -445,12 +450,13 @@ func parseNodeHandle(s string) (nodeID, handle string, err error) {
 // approving makes the change that follows also record the workflow as the operator's own, in the
 // same commit, unless an AI is the one editing.
 func approving(ctx context.Context, expect string) context.Context {
-	if operator.NotApproving() {
-		return ctx
+	actx := operator.ApprovingContext(ctx)
+	if !operator.Approves(actx) {
+		return actx
 	}
 	// The approval covers what the operator read: if the workflow changed since, the edit is
 	// refused instead of approving someone else's change along with it.
-	return workflow.WithExpectHash(workflow.WithApproval(ctx), expect)
+	return workflow.WithExpectHash(actx, expect)
 }
 
 // reviewOf is the review hash of a workflow as it was read ("" for no workflow at all).

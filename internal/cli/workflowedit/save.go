@@ -59,7 +59,8 @@ func (d Deps) newSaveCmd() *cobra.Command {
 			store := d.WorkflowStore(db)
 			ctx := context.Background()
 
-			wf, err := d.SaveDocument(operator.ApprovingContext(ctx), store, d.ProfileID(), doc)
+			actx := operator.ApprovingContext(ctx)
+			wf, err := d.SaveDocument(actx, store, d.ProfileID(), doc)
 			if err != nil {
 				return err
 			}
@@ -74,7 +75,7 @@ func (d Deps) newSaveCmd() *cobra.Command {
 				wf.CreatedAt.UTC().Format(time.RFC3339), wf.UpdatedAt.UTC().Format(time.RFC3339))
 			_, _ = db.DB.ExecContext(ctx, `UPDATE workflows SET profile_id = ? WHERE id = ?`, d.ProfileID(), wf.ID)
 
-			note := operator.NoteUnapproved("saved", wf.ID)
+			note := operator.NoteUnapproved(actx, "saved", wf.ID)
 			if d.JSONOutput() {
 				summary := *wf
 				summary.Nodes, summary.Connections = nil, nil

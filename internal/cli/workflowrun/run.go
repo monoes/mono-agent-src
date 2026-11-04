@@ -172,7 +172,11 @@ func (d Deps) newTemplatesRunCmd() *cobra.Command {
 			}
 			// One publication stores the whole definition and, for the operator, approves it in the same
 			// commit: nothing can be written between the creation and the approval.
-			if err := engine.CreateWorkflow(operator.ApprovingContext(ctx), &wf); err != nil {
+			actx := operator.ApprovingContext(ctx)
+			if note := operator.CannotApproveNote(actx, wf.ID); note != "" {
+				fmt.Fprintln(os.Stderr, "Note: "+note)
+			}
+			if err := engine.CreateWorkflow(actx, &wf); err != nil {
 				return fmt.Errorf("create workflow from template: %w", err)
 			}
 			if !keep {

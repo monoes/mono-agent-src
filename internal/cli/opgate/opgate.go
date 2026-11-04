@@ -66,7 +66,7 @@ func install(f body) {
 	operator.SetTurnVerdict(func() (why string) {
 		defer func() {
 			if recover() != nil {
-				why = "cannot tell whether a coder session's turn runs this command"
+				why = operator.UnplacedPrefix
 			}
 		}()
 		return f(false)

@@ -133,7 +133,7 @@ func TestApprovingContextConsultsTheInstalledTurnCheck(t *testing.T) {
 	asOperator(t)
 	t.Cleanup(func() { SetTurnVerdict(nil) })
 	ctx := context.Background()
-	approves := func() bool { return ApprovingContext(ctx) != ctx }
+	approves := func() bool { return workflowApproves(ApprovingContext(ctx)) }
 
 	SetTurnVerdict(nil)
 	if !approves() || NotApproving() {
@@ -147,16 +147,66 @@ func TestApprovingContextConsultsTheInstalledTurnCheck(t *testing.T) {
 	if approves() || !NotApproving() || InTurn() == "" {
 		t.Fatal("a process inside a turn approves")
 	}
-	if !strings.Contains(UnapprovedNote("saved", "wf-9"), "NOT approved") || !strings.Contains(UnapprovedNote("saved", "wf-9"), "workflow activate wf-9") {
-		t.Fatalf("note = %q", UnapprovedNote("saved", "wf-9"))
+	actx := ApprovingContext(ctx)
+	if n := UnapprovedNote(actx, "saved", "wf-9"); !strings.Contains(n, "NOT approved") || !strings.Contains(n, "workflow activate wf-9") || !strings.Contains(n, "inside a turn") {
+		t.Fatalf("note = %q", n)
 	}
 	t.Setenv(hilsend.EnvAgentContext, "coder")
-	if approves() || UnapprovedNote("saved", "wf-9") != "" {
+	if approves() || UnapprovedNote(ApprovingContext(ctx), "saved", "wf-9") != "" || CannotApproveNote(ApprovingContext(ctx), "wf-9") != "" {
 		t.Fatal("a marked process approves, or its output gained a note")
 	}
 	SetTurnVerdict(nil)
 	if approves() {
 		t.Fatal("a marked process approves")
+	}
+}
+
+// workflowApproves reports whether ApprovingContext decided to approve (the cmd/monoagentcli tests read
+// the approval row itself).
+func workflowApproves(ctx context.Context) bool { return Approves(ctx) }
+
+// The verdict is asked once per command and the note reads that answer: a verdict that flips between
+// two asks (a transient lock) can not make the note disagree with what was written.
+func TestTheNoteReadsTheVerdictTheWriteUsed(t *testing.T) {
+	asOperator(t)
+	t.Cleanup(func() { SetTurnVerdict(nil) })
+	for name, answers := range map[string][]string{"clear then turn": {"", "in a turn"}, "turn then clear": {"in a turn", ""}} {
+		t.Run(name, func(t *testing.T) {
+			calls := 0
+			SetTurnVerdict(func() string { a := answers[min(calls, len(answers)-1)]; calls++; return a })
+			actx := ApprovingContext(context.Background())
+			wrote := workflowApproves(actx)
+			noted := UnapprovedNote(actx, "saved", "wf-1") != ""
+			cannot := CannotApproveNote(actx, "wf-1") != ""
+			if wrote == noted || wrote == cannot {
+				t.Fatalf("approval written = %v, note = %v, up-front note = %v", wrote, noted, cannot)
+			}
+			if wrote != (answers[0] == "") {
+				t.Fatalf("the write did not use the first answer")
+			}
+			ApprovingContext(actx) // a second use of the same context does not ask again
+			if calls != 1 {
+				t.Fatalf("the verdict was asked %d times", calls)
+			}
+		})
+	}
+}
+
+// The note says the real cause (the turn check's own text), and for a process the check could not place
+// it says to retry, not to approve elsewhere.
+func TestTheNoteNamesTheCause(t *testing.T) {
+	asOperator(t)
+	t.Cleanup(func() { SetTurnVerdict(nil) })
+	for _, c := range []struct{ why, want, notWant string }{
+		{"MONOAGENT_SESSION_TOKEN is set, so a process holding an agent token is running this command", "agent token", "wait and retry"},
+		{"this command runs inside a coder session's turn, so a model is running it", "coder session's turn", "wait and retry"},
+		{UnplacedPrefix + " (database is locked)", "wait and retry", "workflow activate wf-2` in your own terminal"},
+	} {
+		SetTurnVerdict(func() string { return c.why })
+		n := UnapprovedNote(ApprovingContext(context.Background()), "saved", "wf-2")
+		if !strings.Contains(n, c.want) || strings.Contains(n, c.notWant) {
+			t.Errorf("%q: note %q", c.why, n)
+		}
 	}
 }
 

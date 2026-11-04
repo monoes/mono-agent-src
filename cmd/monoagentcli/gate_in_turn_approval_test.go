@@ -31,7 +31,8 @@ const execWorkflowDoc = `{"name":"Exec","nodes":[{"id":"t","type":"trigger.manua
 type approvalFlavour struct {
 	name     string
 	approves bool
-	inTurn   bool // no marker, yet not approving: the not-approved note is printed
+	inTurn   bool   // no marker, yet not approving: the not-approved note is printed
+	cause    string // what the note says the cause is
 	enter    func(t *testing.T, cfg *globalConfig)
 }
 
@@ -41,22 +42,22 @@ func approvalFlavours() []approvalFlavour {
 		{name: "operator", approves: true, enter: func(t *testing.T, cfg *globalConfig) { gate(t, cfg) }},
 		{name: "marked agent", enter: func(t *testing.T, cfg *globalConfig) { asAgentProcess(t); gate(t, cfg) }},
 		{name: "marked agent without the hook", enter: func(t *testing.T, cfg *globalConfig) { asAgentProcess(t); opgate.SetForTest(t, nil) }},
-		{name: "in a turn, markers cleared", inTurn: true, enter: func(t *testing.T, cfg *globalConfig) {
+		{name: "in a turn, markers cleared", inTurn: true, cause: "runs inside a coder session's turn", enter: func(t *testing.T, cfg *globalConfig) {
 			if coderhost.ProcStamp(os.Getpid()) == "" {
 				t.Skip("process ancestry cannot be read here")
 			}
 			markThisProcessAsACoderTurn(t, cfg)
 			gate(t, cfg)
 		}},
-		{name: "token holder", inTurn: true, enter: func(t *testing.T, cfg *globalConfig) {
+		{name: "token holder", inTurn: true, cause: "agent token", enter: func(t *testing.T, cfg *globalConfig) {
 			t.Setenv(taskcli.PersonTokenEnv()[0], "x")
 			gate(t, cfg)
 		}},
-		{name: "turn of a registered host, other --db-path", inTurn: true, enter: func(t *testing.T, cfg *globalConfig) {
+		{name: "turn of a registered host, other --db-path", inTurn: true, cause: "runs inside a coder session's turn", enter: func(t *testing.T, cfg *globalConfig) {
 			registeredTurnDB(t) // a turn in a database this command does not name
 			gate(t, cfg)
 		}},
-		{name: "unreadable database", inTurn: true, enter: func(t *testing.T, cfg *globalConfig) {
+		{name: "unreadable database", inTurn: true, cause: "wait and retry", enter: func(t *testing.T, cfg *globalConfig) {
 			bad := filepath.Join(t.TempDir(), "bad.db")
 			if err := os.WriteFile(bad, []byte("this is not a database, and it is long enough to be read as a header, or not"), 0o600); err != nil {
 				t.Fatal(err)
@@ -316,8 +317,17 @@ func TestOnlyTheOperatorsOwnTerminalApprovesWhatItPublishes(t *testing.T) {
 				}
 				// not silent for the in-turn case, byte-identical for the others
 				noted := strings.Contains(stderr, "NOT approved")
-				if noted != (f.inTurn && !c.refuses && !f.approves) {
+				if noted != (f.inTurn && !c.refuses) {
 					t.Fatalf("note on stderr = %v, in-turn = %v, stderr: %q", noted, f.inTurn, stderr)
+				}
+				if f.inTurn {
+					want := "NOT approved"
+					if c.refuses {
+						want = "cannot approve a workflow"
+					}
+					if c.name != "node disconnect" && (!strings.Contains(stderr, want) || !strings.Contains(stderr, f.cause)) {
+						t.Fatalf("stderr does not say %q with the cause %q: %q", want, f.cause, stderr)
+					}
 				}
 				if f.inTurn && !c.refuses {
 					var m map[string]any
@@ -357,9 +367,15 @@ func TestRegisteringTheGateInstallsTheApprovalHook(t *testing.T) {
 // approve: a new caller of workflow.WithApproval anywhere else fails here until it is routed through them.
 func TestOnlyTheOperatorHelpersTurnTheApprovalOn(t *testing.T) {
 	allowed := map[string]bool{
-		"internal/operator/operator.go":     true,
-		"internal/cli/workflowedit/node.go": true,
-		"internal/workflow/publish.go":      true, // the definition
+		"internal/operator/operator.go":               true,
+		"internal/cli/workflowedit/node.go":           true, // approving()
+		"internal/cli/workflowedit/save.go":           true,
+		"internal/cli/workflowio/import.go":           true,
+		"internal/cli/workflowmanage/manage.go":       true,
+		"internal/cli/workflowmanage/versions.go":     true,
+		"internal/cli/workflowtemplates/templates.go": true,
+		"internal/cli/workflowrun/run.go":             true,
+		"internal/workflow/publish.go":                true, // the definition
 	}
 	root := filepath.Join("..", "..")
 	for _, base := range []string{"cmd", "internal", "wails-app"} {
@@ -373,8 +389,7 @@ func TestOnlyTheOperatorHelpersTurnTheApprovalOn(t *testing.T) {
 			}
 			rel, _ := filepath.Rel(root, path)
 			rel = filepath.ToSlash(rel)
-			if (strings.Contains(string(b), "WithApproval(") || strings.Contains(string(b), "ApprovingContext(")) && !allowed[rel] &&
-				!strings.HasPrefix(rel, "internal/cli/workflow") {
+			if (strings.Contains(string(b), "WithApproval(") || strings.Contains(string(b), "ApprovingContext(")) && !allowed[rel] {
 				t.Errorf("%s turns the operator's approval on; route it through operator.ApprovingContext", rel)
 			}
 			return nil
@@ -382,5 +397,31 @@ func TestOnlyTheOperatorHelpersTurnTheApprovalOn(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// Nothing written, nothing to say: an import of a definition that is already there and unchanged prints
+// no "imported but NOT approved" note and gains no approval_note.
+func TestImportOfAnUnchangedDefinitionSaysNothingAboutApproval(t *testing.T) {
+	if coderhost.ProcStamp(os.Getpid()) == "" {
+		t.Skip("process ancestry cannot be read here")
+	}
+	_, cfg := persistTestEnv(t)
+	asOperatorProcess(t)
+	seedMigratedDB(t, cfg.DBPath)
+	file := writeDoc(t)
+	opgate.SetForTest(t, cfg.gateRefusal)
+	if _, err := cliOf(t, cfg, "import", "--file", file); err != nil {
+		t.Fatal(err)
+	}
+	markThisProcessAsACoderTurn(t, cfg)
+	var out string
+	var err error
+	stderr := captureStderrOf(t, func() { out, err = cliOf(t, cfg, "import", "--file", file) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "unchanged") || strings.Contains(stderr, "NOT approved") || strings.Contains(out, "approval_note") {
+		t.Fatalf("an unchanged import talks about approval: out %s stderr %q", out, stderr)
 	}
 }
