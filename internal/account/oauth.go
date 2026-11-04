@@ -89,6 +89,10 @@ func pinToBase(baseURL, endpoint, fallback string) string {
 	return baseURL + p
 }
 
+// ErrBrowserRefused is what AuthorizeOptions.Open wraps when the caller may not open a browser at all (an
+// agent's turn): there is nobody to finish the sign-in, so AuthorizeInBrowser ends at once instead of waiting.
+var ErrBrowserRefused = errors.New("opening a browser is the user's own")
+
 // AuthorizeOptions controls AuthorizeInBrowser.
 type AuthorizeOptions struct {
 	Open        func(string) error // opens the authorization URL (the system browser); nil = don't

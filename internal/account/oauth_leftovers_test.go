@@ -3,6 +3,7 @@ package account_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -281,5 +282,20 @@ func TestLogoutKeepsAMarkThatIsAheadOfTheClock(t *testing.T) {
 	}
 	if got := leftByLogout(t, store); got.HW.Before(ahead) {
 		t.Fatalf("the mark went back from %v to %v", ahead, got.HW)
+	}
+}
+
+// An opener that refuses (the caller is not the user) ends the sign-in at once: nobody can finish it, so it
+// does not wait out its timeout.
+func TestAuthorizeEndsAtOnceWhenTheOpenIsRefused(t *testing.T) {
+	refused := fmt.Errorf("%w: this process runs inside a coder turn", account.ErrBrowserRefused)
+	o := account.AuthorizeOptions{Label: "account login", Timeout: 3 * time.Second, Open: func(string) error { return refused }}
+	start := time.Now()
+	_, err := account.AuthorizeInBrowser(context.Background(), "https://monoes.example/authorize", nil, o)
+	if !errors.Is(err, account.ErrBrowserRefused) || strings.Contains(err.Error(), "no answer from the browser") {
+		t.Fatalf("a refused open: %v", err)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Errorf("a refused open waited %v", d)
 	}
 }
