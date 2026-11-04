@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/monoes/mono-agent/internal/coderspend"
+	"github.com/monoes/mono-agent/internal/dbconn"
 	"github.com/monoes/mono-agent/internal/procbind"
 )
 
@@ -346,6 +347,7 @@ func (s *AIStore) deleteConversationInTx(id, profileID string, guard func(ctx co
 	defer conn.Close()
 
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		dbconn.AbandonBegin(conn)
 		return fmt.Errorf("begin delete conversation: %w", err)
 	}
 	committed := false

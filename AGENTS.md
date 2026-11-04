@@ -438,7 +438,9 @@ command without a valid sign-in is refused (exit 4, `login_required`).
 **What is open** (never needs a sign-in) is the way in and nothing else: the `account`
 commands, `library login`, `library logout` and `library status`, `help` (and `--help` on
 any command; `monoagentcli` alone prints the help, which says to sign in first),
-`version`, and `update`, so that a broken install can be fixed. Every other command is
+`version`, and `update`, so that a broken install can be fixed, and `doomsday stop`, so that
+an open-ended run can always be stopped (it needs no sign-in and no network, but is still
+operator-only; no other `doomsday` verb is open). Every other command is
 gated: `ref`, `doctor` (with `doctor fix`), `setup`, `release`, `completion` and
 `__complete` (shell Tab completion) included, and local-only ones (`people`, `secret`,
 `image`, `profile`, `config`) too.

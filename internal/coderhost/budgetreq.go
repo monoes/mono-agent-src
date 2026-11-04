@@ -415,6 +415,11 @@ func (s *Store) grantBudget(profileID string, id int64, usd float64) (BudgetRequ
 // budget (task_sessions.budget_usd), which it does not raise and which is not a total cap over the lead's own
 // session.
 func (s *Store) budgetRaiseRefusal(q querier, b BudgetRequest, usd float64) (string, error) {
+	// every limit below reads one snapshot (a caller that passes the database gets one here)
+	return inSnapshot(q, func(q querier) (string, error) { return s.budgetRaiseRefusalIn(q, b, usd) })
+}
+
+func (s *Store) budgetRaiseRefusalIn(q querier, b BudgetRequest, usd float64) (string, error) {
 	holder := "" // the session whose budget the raised cap is carved from
 	share := 100
 	if b.Target == TargetChild {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+
+	"github.com/monoes/mono-agent/internal/dbconn"
 )
 
 // MigrateProfileVaultKeys moves one profile's vault_secrets rows off the
@@ -86,6 +88,7 @@ func MigrateProfileVaultKeys(ctx context.Context, db *sql.DB, profileID string) 
 	defer conn.Close()
 
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		dbconn.AbandonBegin(conn)
 		return 0, []error{fmt.Errorf("secrets.MigrateProfileVaultKeys: begin tx: %w", err)}
 	}
 	committed := false

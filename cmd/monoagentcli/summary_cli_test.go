@@ -20,11 +20,9 @@ func newSummaryCLITestDB(t *testing.T) *globalConfig {
 	// Never probe the developer's real extension bridge.
 	t.Setenv(extension.ExtensionPortEnv, "1")
 	dbPath := filepath.Join(t.TempDir(), "s.db")
+	writeMigratedDB(t, dbPath)
 	db, err := storage.NewDatabase(dbPath)
 	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.DB.Exec(`INSERT INTO workflows (id, name, is_active, profile_id) VALUES ('w1','A',1,'default');

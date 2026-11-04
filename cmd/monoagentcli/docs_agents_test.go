@@ -14,7 +14,7 @@ import (
 // opening or closing a command takes a deliberate edit of the table, these lists
 // and the documents.
 var (
-	openCommands    = []string{"version", "help", "update", "account", "library login", "library logout", "library status"}
+	openCommands    = []string{"version", "help", "update", "account", "library login", "library logout", "library status", "doomsday stop"}
 	servingCommands = []string{"daemon", "httpapi", "mcp", "extension serve"}
 )
 

@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+
+	"github.com/monoes/mono-agent/internal/dbconn"
 )
 
 // Row is the key of the saved settings in the settings table (key TEXT PRIMARY KEY, value
@@ -92,6 +94,7 @@ func update(ctx context.Context, db *sql.DB, opts updateOpts, fn func(s *Setting
 	}
 	defer conn.Close()
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		dbconn.AbandonBegin(conn)
 		return false, fmt.Errorf("saved API settings: %w", err)
 	}
 	committed := false

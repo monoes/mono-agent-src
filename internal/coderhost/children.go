@@ -217,14 +217,24 @@ func childCwd(parentCwd, asked string) (string, error) {
 // Carved is the budget the children of a session hold; Remaining is what the
 // session can still hand out (-1 when it has no cap).
 func (s *Store) Carved(profileID, conversationID string) (carved float64, err error) {
-	err = s.db.QueryRow(`SELECT COALESCE(SUM(budget_usd), 0) FROM coder_sessions WHERE profile_id = ? AND parent_conversation_id = ?`, profileID, conversationID).Scan(&carved)
+	return carvedIn(s.db, profileID, conversationID)
+}
+
+// carvedIn is Carved read through q (a snapshot, when it must agree with the rows read beside it).
+func carvedIn(q querier, profileID, conversationID string) (carved float64, err error) {
+	err = q.QueryRow(`SELECT COALESCE(SUM(budget_usd), 0) FROM coder_sessions WHERE profile_id = ? AND parent_conversation_id = ?`, profileID, conversationID).Scan(&carved)
 	return carved, err
 }
 
 // Budget returns a session's cap (0 = none).
 func (s *Store) Budget(profileID, conversationID string) (float64, error) {
+	return budgetIn(s.db, profileID, conversationID)
+}
+
+// budgetIn is Budget read through q.
+func budgetIn(q querier, profileID, conversationID string) (float64, error) {
 	var b float64
-	err := s.db.QueryRow(`SELECT budget_usd FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, profileID, conversationID).Scan(&b)
+	err := q.QueryRow(`SELECT budget_usd FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, profileID, conversationID).Scan(&b)
 	return b, err
 }
 
