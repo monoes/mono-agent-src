@@ -11,9 +11,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/cli/orgenv"
 	"github.com/monoes/mono-agent/internal/monomind"
-	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/orgdesign"
 	"github.com/monoes/mono-agent/internal/orggrant"
 	"github.com/monoes/mono-agent/internal/storage"
@@ -229,8 +229,8 @@ func newOrgGrantAddCmd(env *orgEnv) *cobra.Command {
 			}
 			outbound := orggrant.OutboundNodes(wf)
 			// What is not the operator's own terminal (an agent, the chat,
-			// a workflow: internal/operator) grants only calls that ask first.
-			why := operator.Refusal()
+			// a workflow, a process inside a coder turn: opgate) grants only calls that ask first.
+			why := opgate.Refusal()
 			if !cmd.Flags().Changed("approval") {
 				// C-34: side effects outside mono-agent need a decision by default.
 				approval = "none"

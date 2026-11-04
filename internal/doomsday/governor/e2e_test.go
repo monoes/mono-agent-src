@@ -265,8 +265,18 @@ func TestLastSlotRaceAndLeakReconcile(t *testing.T) {
 			w.view.mu.Lock()
 			w.view.up[id] = true
 			w.view.mu.Unlock()
-			if w.s.TryAdmit(ctx, "", governor.Request{Kind: governor.KindProcess, MemberID: id}) == nil {
-				admitted.Add(1)
+			// a busy database (24 racers on one writer, -race on a loaded runner) refuses a start after its bounded retries:
+			// that is a fail-closed refusal, not a lost race, so the racer asks again until the answer is a verdict
+			for try := 0; try < 200; try++ {
+				err := w.s.TryAdmit(ctx, "", governor.Request{Kind: governor.KindProcess, MemberID: id})
+				if err == nil {
+					admitted.Add(1)
+					return
+				}
+				if errors.Is(err, governor.ErrNoSlot) {
+					return
+				}
+				time.Sleep(20 * time.Millisecond)
 			}
 		}(i)
 	}

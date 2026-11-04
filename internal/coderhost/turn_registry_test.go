@@ -422,7 +422,7 @@ func TestAHungDatabaseCheckTimesOutAndFailsClosedWithTheRemedy(t *testing.T) {
 	block := make(chan struct{})
 	defer close(block)
 	prevCheck, prevTimeout := registeredDBCheck, registeredCheckTimeout
-	registeredDBCheck = func(string) (bool, error) { <-block; return false, nil }
+	registeredDBCheck = func(string, time.Duration) (bool, error) { <-block; return false, nil }
 	registeredCheckTimeout = 200 * time.Millisecond
 	defer func() { registeredDBCheck, registeredCheckTimeout = prevCheck, prevTimeout }()
 	in, err := gateWithin(t, 5*time.Second)
