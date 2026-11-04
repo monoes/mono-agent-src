@@ -132,3 +132,30 @@ func TestProbeAddrsPortEnvIsOperatorOnly(t *testing.T) {
 		t.Fatalf("non-operator listen: %s", got)
 	}
 }
+
+// A squatter that never proves cannot hide the real bridge on the other
+// candidate, in either order, and a lone squatter is not picked.
+func TestFindRunningTakesTheCandidateThatProves(t *testing.T) {
+	t.Setenv(extension.ExtensionPortEnv, "")
+	srv := extension.NewServer(strings.TrimPrefix(closedAddr(t), "http://"), zerolog.Nop())
+	errCh := srv.StartAsync(context.Background())
+	t.Cleanup(func() { srv.Close() }) //nolint:errcheck
+	addr, err := WaitForBind(context.Background(), srv, errCh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	realURL := "http://" + addr
+	squatter := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(extension.Status{Service: extension.ServiceName, PID: 666}) // never a proof
+	}))
+	defer squatter.Close()
+	for _, addrs := range [][]string{{squatter.URL, realURL}, {realURL, squatter.URL}} {
+		st, base, ok := FindRunning(context.Background(), addrs)
+		if !ok || base != realURL || st.PID == 666 {
+			t.Fatalf("FindRunning(%v) = %+v %q %v, want the proving bridge %s", addrs, st, base, ok, realURL)
+		}
+	}
+	if base, ok := extension.PickBridge([]string{squatter.URL}); ok {
+		t.Fatalf("PickBridge took the squatter %s", base)
+	}
+}

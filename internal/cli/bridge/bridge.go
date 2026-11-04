@@ -87,6 +87,13 @@ func NewServer(logger zerolog.Logger, o Options) *extension.Server {
 // deadline cannot outlast it by more than one probe (each is bounded by the
 // status probe timeout).
 func FindRunning(ctx context.Context, addrs []string) (extension.Status, string, bool) {
+	// A candidate that proves it holds the pairing token wins over one that
+	// merely answers the status shape (callers send the token to the result).
+	if base, ok := extension.PickBridge(addrs); ok {
+		if st, err := extension.FetchStatus(base); err == nil {
+			return st, base, true
+		}
+	}
 	for _, addr := range addrs {
 		if ctx.Err() != nil {
 			break

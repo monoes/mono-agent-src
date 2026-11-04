@@ -39,10 +39,13 @@ const (
 	proofNonceBytes    = 16
 )
 
-// proofFor is the proof for a status request carrying nonce, answered on port.
-func proofFor(token, nonce, path, port string) string {
+// proofFor is the proof for a status request carrying nonce, answered on port
+// for a client that dialled host ("127.0.0.1" and "::1" are different hosts).
+// The format is unreleased before this change, so no old/new pair exists: a
+// bridge from before proofs sends none and is refused (ErrBridgeNoProof).
+func proofFor(token, nonce, path, host, port string) string {
 	m := hmac.New(sha256.New, []byte(token))
-	m.Write([]byte(proofVersion + "\n" + nonce + "\n" + path + "\n" + port))
+	m.Write([]byte(proofVersion + "\n" + nonce + "\n" + path + "\n" + strings.ToLower(host) + "\n" + port))
 	return hex.EncodeToString(m.Sum(nil))
 }
 
@@ -59,11 +62,20 @@ func validNonce(n string) bool {
 
 // Why a bridge could not be proven.
 var (
-	// ErrBridgeNoProof: the status answered without a proof (an older bridge).
-	ErrBridgeNoProof = errors.New("the bridge is older and cannot prove it holds your token: restart it (the daemon, or `systemctl --user restart` its service, or `monoagentcli extension serve`) so it runs the current version")
+	// ErrBridgeNoProof: the status answered without a proof (an older bridge, or
+	// a listener that is not the bridge). Never sent the token, on any port.
+	ErrBridgeNoProof = errors.New("the bridge is older than this CLI (it cannot prove it is the real one): restart it: `systemctl --user restart monoagent-bridge` (or `monoagentcli update` restarts it)")
 	// ErrBridgeBadProof: the listener answered the status shape but its proof is wrong.
 	ErrBridgeBadProof = errors.New("the listener answering as the bridge did not prove it holds your pairing token: not sending the token to it")
 )
+
+// noProofError is ErrBridgeNoProof naming the port that answered.
+type noProofError struct{ port string }
+
+func (e *noProofError) Error() string {
+	return "the bridge on " + e.port + " is older than this CLI (it cannot prove it is the real one): restart it: `systemctl --user restart monoagent-bridge` (or `monoagentcli update` restarts it)"
+}
+func (e *noProofError) Is(t error) bool { return t == ErrBridgeNoProof }
 
 // PortEnvPolicy, when set, says whether this process may take the bridge
 // port from ExtensionPortEnv. It lives behind a hook because the check
@@ -99,21 +111,6 @@ func PortOverride() string {
 	return p
 }
 
-// oldBridgeAccepted is the transitional rule for a bridge that sends no
-// proof: only the operator's own terminal, only the default ports, and only
-// when no port override is in play.
-func oldBridgeAccepted(baseURL string) bool {
-	if !OperatorProcess() || strings.TrimSpace(os.Getenv(ExtensionPortEnv)) != "" {
-		return false
-	}
-	u, err := url.Parse(baseURL)
-	if err != nil {
-		return false
-	}
-	p := u.Port()
-	return p == DefaultExtensionPort || p == FallbackExtensionPort
-}
-
 // verifyBridge asks baseURL's status with a fresh nonce and checks the proof
 // against token. No request it sends carries the token.
 func verifyBridge(client *http.Client, baseURL, token string) error {
@@ -145,24 +142,57 @@ func verifyBridge(client *http.Client, baseURL, token string) error {
 		return fmt.Errorf("%s is held by something that is not a monoagent bridge", baseURL)
 	}
 	if st.Proof == "" {
-		return ErrBridgeNoProof
+		return &noProofError{port: u.Port()}
 	}
 	port := u.Port()
 	if port == "" {
 		_, port, _ = net.SplitHostPort(u.Host)
 	}
-	want := proofFor(token, nonce, healthPath, port)
+	want := proofFor(token, nonce, healthPath, u.Hostname(), port)
 	if !hmac.Equal([]byte(want), []byte(strings.ToLower(st.Proof))) {
 		return ErrBridgeBadProof
 	}
 	return nil
 }
 
-// proveBridge is verifyBridge plus the transitional rule for old bridges.
+// proveBridge checks that the listener at baseURL holds token. There is no
+// exception: a listener that sends no proof (an old bridge, or a squatter) never
+// receives the token, on any port.
 func proveBridge(client *http.Client, baseURL, token string) error {
-	err := verifyBridge(client, baseURL, token)
-	if errors.Is(err, ErrBridgeNoProof) && oldBridgeAccepted(baseURL) {
-		return nil
+	return verifyBridge(client, baseURL, token)
+}
+
+// requestHost is the host part of a request's Host header, without brackets.
+func requestHost(r *http.Request) string {
+	h := r.Host
+	if hh, _, err := net.SplitHostPort(h); err == nil {
+		h = hh
 	}
-	return err
+	return strings.Trim(h, "[]")
+}
+
+// PickBridge chooses which of the candidate bridge base URLs to talk to: every
+// candidate is probed and one that PROVES it holds the token wins, so a squatter
+// that never proves cannot hide the real bridge on another candidate. With none
+// proving it returns false (callers then get the prover's error on use).
+func PickBridge(addrs []string) (string, bool) {
+	token, _ := loadToken()
+	if token == "" {
+		for _, a := range addrs {
+			if _, err := FetchStatus(a); err == nil {
+				return a, true
+			}
+		}
+		return "", false
+	}
+	return pickBridge(addrs, token)
+}
+
+func pickBridge(addrs []string, token string) (string, bool) {
+	for _, a := range addrs {
+		if verifyBridge(&http.Client{}, a, token) == nil {
+			return a, true
+		}
+	}
+	return "", false
 }

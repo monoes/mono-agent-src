@@ -63,6 +63,13 @@ func RequestPairingURL(baseURL string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read the pairing token: %w", err)
 	}
+	switch err := proveBridge(&http.Client{}, baseURL, token); {
+	case err == nil:
+	case errors.Is(err, ErrBridgeBadProof):
+		return "", ErrPairingTokenRefused
+	default:
+		return "", err
+	}
 	req, err := http.NewRequest(http.MethodPost, baseURL+"/monoagent/pair/nonce", nil)
 	if err != nil {
 		return "", err

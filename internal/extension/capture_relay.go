@@ -134,6 +134,9 @@ func (r *RemoteSender) CapturePage(req CaptureRequest) (*capture.Result, error) 
 	if enc := targetValues(req.Target).Encode(); enc != "" {
 		url += "&" + enc
 	}
+	if err := r.prove(); err != nil {
+		return nil, err
+	}
 	httpReq, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, err

@@ -429,7 +429,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		}
 		if addr, ok := s.Addr(); ok && s.token != "" {
 			_, port, _ := net.SplitHostPort(addr)
-			st.Proof = proofFor(s.token, nonce, healthPath, port)
+			st.Proof = proofFor(s.token, nonce, healthPath, requestHost(r), port)
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")

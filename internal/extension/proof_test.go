@@ -73,33 +73,33 @@ func TestProof_VerificationTable(t *testing.T) {
 	var mu sync.Mutex
 	var recorded []string // proofs the right-token bridge gave for earlier nonces
 	right := func(n, port string) string {
-		p := proofFor(token, n, healthPath, port)
+		p := proofFor(token, n, healthPath, "127.0.0.1", port)
 		mu.Lock()
 		recorded = append(recorded, p)
 		mu.Unlock()
 		return p
 	}
 	// a proof for another endpoint path / another port, with the right token
-	otherPath := func(n, port string) string { return proofFor(token, n, "/monoagent/relay", port) }
-	otherPort := func(n, port string) string { return proofFor(token, n, healthPath, "1") }
+	otherPath := func(n, port string) string { return proofFor(token, n, "/monoagent/relay", "127.0.0.1", port) }
+	otherPort := func(n, port string) string { return proofFor(token, n, healthPath, "127.0.0.1", "1") }
 	cases := []struct {
 		name    string
 		proof   func(n, port string) string
 		wantErr error // nil: relays; else what stops it
 	}{
 		{"right token", right, nil},
-		{"wrong token", func(n, port string) string { return proofFor("not-the-token", n, healthPath, port) }, ErrBridgeBadProof},
+		{"wrong token", func(n, port string) string { return proofFor("not-the-token", n, healthPath, "127.0.0.1", port) }, ErrBridgeBadProof},
 		{"proof for another path", otherPath, ErrBridgeBadProof},
 		{"proof for another port (a forwarded answer)", otherPort, ErrBridgeBadProof},
 		{"replayed proof (a stale nonce's)", func(n, port string) string {
 			mu.Lock()
 			defer mu.Unlock()
 			if len(recorded) == 0 {
-				return proofFor(token, "00000000000000000000000000000000", healthPath, port)
+				return proofFor(token, "00000000000000000000000000000000", healthPath, "127.0.0.1", port)
 			}
 			return recorded[0]
 		}, ErrBridgeBadProof},
-		{"missing proof, overridden port (old bridge)", nil, ErrBridgeNoProof},
+		{"missing proof (an old bridge or a squatter)", nil, ErrBridgeNoProof},
 		{"garbage proof", func(n, port string) string { return "zz" }, ErrBridgeBadProof},
 	}
 	for _, c := range cases {
@@ -133,32 +133,23 @@ func TestProof_VerificationTable(t *testing.T) {
 	}
 }
 
-func TestProof_OldBridgeRuleIsDefaultPortsAndOperatorOnly(t *testing.T) {
-	t.Setenv(ExtensionPortEnv, "")
-	t.Cleanup(func() { SetPortEnvPolicy(nil) })
-	for _, base := range []string{"http://127.0.0.1:9222", "http://127.0.0.1:9323"} {
-		if !oldBridgeAccepted(base) {
-			t.Errorf("operator, default port, no override: %s must be accepted (transitional)", base)
-		}
+func TestProof_ProoflessListenerIsNeverSentTheTokenOnAnyPort(t *testing.T) {
+	withTempHome(t)
+	_, _ = generateToken()
+	f := newFakeBridge(t, nil)
+	err := relayOnce(f.URL)
+	if !errors.Is(err, ErrBridgeNoProof) || !strings.Contains(err.Error(), "systemctl --user restart monoagent-bridge") || !strings.Contains(err.Error(), "bridge on "+strings.TrimPrefix(f.URL, "http://127.0.0.1:")) {
+		t.Fatalf("err = %v, want the actionable old-bridge error naming the port", err)
 	}
-	if oldBridgeAccepted("http://127.0.0.1:9400") {
-		t.Error("an old bridge on a non-default port was accepted")
-	}
-	t.Setenv(ExtensionPortEnv, "9222")
-	if oldBridgeAccepted("http://127.0.0.1:9222") {
-		t.Error("an old bridge was accepted although the port is overridden by env")
-	}
-	t.Setenv(ExtensionPortEnv, "")
-	SetPortEnvPolicy(func() bool { return false })
-	if oldBridgeAccepted("http://127.0.0.1:9222") {
-		t.Error("an old bridge was accepted for a process that is not the operator's terminal")
+	if f.tokenSeen() {
+		t.Fatal("the token reached a proof-less listener")
 	}
 }
 
 func TestProof_TokenNeverGoesBeforeTheProofVerifies(t *testing.T) {
 	withTempHome(t)
 	token, _ := generateToken()
-	f := newFakeBridge(t, func(n, port string) string { return proofFor(token, n, healthPath, port) })
+	f := newFakeBridge(t, func(n, port string) string { return proofFor(token, n, healthPath, "127.0.0.1", port) })
 	if err := relayOnce(f.URL); err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +201,7 @@ func TestProof_ServerAnswersOnlyAWellFormedNonceAndNeverTheToken(t *testing.T) {
 	var st Status
 	_ = json.Unmarshal([]byte(body), &st)
 	u, _ := url.Parse(base)
-	if st.Proof != proofFor(token, nonce, healthPath, u.Port()) {
+	if st.Proof != proofFor(token, nonce, healthPath, "127.0.0.1", u.Port()) {
 		t.Errorf("proof = %q", st.Proof)
 	}
 	if code, body := get(""); code != 200 || strings.Contains(body, "proof") {
