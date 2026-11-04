@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"syscall"
 	"testing"
 	"time"
@@ -45,8 +46,58 @@ var ErrRegistryUnsupported = fmt.Errorf("%w: process ancestry cannot be read on 
 // database on a hung mount cannot wedge every gated verb. Past it the check is an error like any unreadable one.
 var registeredCheckTimeout = 3 * time.Second
 
+// busyTimeout is how long a check of one database waits for a lock held on it. It is a variable only for the
+// seam below; nothing in production assigns it.
+var busyTimeout = 5 * time.Second
+
+// SetBusyTimeoutForTest sets the wait for a locked database for the rest of the test. It panics outside a test
+// binary and must not be combined with t.Parallel (the variable is shared).
+func SetBusyTimeoutForTest(t testing.TB, d time.Duration) {
+	t.Helper()
+	if !testing.Testing() {
+		panic("coderhost.SetBusyTimeoutForTest is a test seam and may only be used from a test binary")
+	}
+	t.Setenv("MONOAGENT_BUSY_TIMEOUT_TEST", "1") // makes t.Parallel panic
+	prev := busyTimeout
+	busyTimeout = d
+	t.Cleanup(func() { busyTimeout = prev })
+}
+
+// ErrDatabaseBusy: a database is locked by another process past the wait for it (SQLite BUSY or LOCKED). Test
+// it with errors.Is. It says nothing else about the database, which may be fine.
+var ErrDatabaseBusy = errors.New("database busy (locked)")
+
+// BusyHostError is ErrDatabaseBusy as the operator reads it: the live coder host that owns DB holds it locked.
+// The text names only DB (the path the operator named or the registry recorded) and carries nothing of the
+// database or of the driver's error.
+type BusyHostError struct{ DB string }
+
+func (e *BusyHostError) Error() string {
+	return "the coder host that owns " + e.DB + " is busy (database locked); wait and retry the command"
+}
+
+func (e *BusyHostError) Is(target error) bool { return target == ErrDatabaseBusy }
+
+// isBusy says whether err is SQLite's BUSY or LOCKED (primary result codes 5 and 6), however it is wrapped.
+func isBusy(err error) bool {
+	var coded interface{ Code() int }
+	if errors.As(err, &coded) {
+		c := coded.Code() & 0xff
+		return c == 5 || c == 6
+	}
+	return false
+}
+
 // registeredDBCheck is the check of one registered database (a variable so a test can stand in for a hung one).
-var registeredDBCheck = CallerInATurnAt
+// It waits for a lock at most two thirds of registeredCheckTimeout, so a locked database answers
+// ErrDatabaseBusy before checkWithTimeout gives up on it.
+var registeredDBCheck = func(path string) (bool, error) {
+	wait := busyTimeout
+	if limit := registeredCheckTimeout * 2 / 3; wait > limit {
+		wait = limit
+	}
+	return callerInATurnAtWait(path, wait)
+}
 
 const (
 	registryEntryMax = 4096
@@ -261,8 +312,19 @@ func registeredEntries() ([]registryEntry, error) {
 
 // CallerInATurnAt says whether the calling process descends from a turn recorded in the database at path,
 // opened read-only: it never creates, migrates or writes it. A missing file or no coder_sessions table is
-// "not in a turn"; any other failure is an error (the caller refuses).
-func CallerInATurnAt(path string) (bool, error) {
+// "not in a turn"; any other failure is an error (the caller refuses). A lock held past the busy timeout is
+// ErrDatabaseBusy.
+func CallerInATurnAt(path string) (bool, error) { return callerInATurnAtWait(path, busyTimeout) }
+
+func callerInATurnAtWait(path string, wait time.Duration) (bool, error) {
+	in, err := callerInATurnAtRaw(path, wait)
+	if err != nil && isBusy(err) {
+		return false, fmt.Errorf("%w", ErrDatabaseBusy) // the driver's text stays out of every message
+	}
+	return in, err
+}
+
+func callerInATurnAtRaw(path string, wait time.Duration) (bool, error) {
 	if !ancestrySupported {
 		return false, nil
 	}
@@ -277,7 +339,7 @@ func CallerInATurnAt(path string) (bool, error) {
 	if !fi.Mode().IsRegular() {
 		return false, fmt.Errorf("%s is not a regular file", path)
 	}
-	db, err := sql.Open("sqlite", "file:"+(&url.URL{Path: path}).EscapedPath()+"?mode=ro&_pragma=busy_timeout(5000)")
+	db, err := sql.Open("sqlite", "file:"+(&url.URL{Path: path}).EscapedPath()+"?mode=ro&_pragma=busy_timeout("+strconv.FormatInt(wait.Milliseconds(), 10)+")")
 	if err != nil {
 		return false, err
 	}
@@ -357,7 +419,7 @@ func hostIsGone(e registryEntry) bool {
 // courtesy layer already does not stop (SECURITY.md). A database that is readable is always judged, host dead
 // or not, and a live host's unreadable database always refuses.
 func CallerInARegisteredTurn(named string) (bool, error) {
-	in, skipped := scanRegisteredTurns(named, false)
+	in, skipped, _ := scanRegisteredTurns(named, false)
 	if in {
 		return true, nil
 	}
@@ -371,25 +433,47 @@ func CallerInARegisteredTurn(named string) (bool, error) {
 // entry whose database cannot be read is skipped (and returned in skipped, so a caller can say so) instead
 // of ending the scan, so a turn recorded in ANY readable database is still found, wherever the unreadable
 // entry sorts. in is true as soon as one readable database holds the caller as a turn.
-func CallerInARegisteredTurnLenient(named string) (in bool, skipped []error) {
+//
+// An entry that is locked past the wait (ErrDatabaseBusy) is not an unreadable one when its host is alive: it
+// is returned in busy as a *BusyHostError, because a live host's database is exactly where a turn would be
+// recorded and a lock held on it could hide that turn. A locked database of a dead host is skipped as before.
+func CallerInARegisteredTurnLenient(named string) (in bool, skipped, busy []error) {
 	return scanRegisteredTurns(named, true)
+}
+
+// HostOwnsLiveDB says whether the database at path is the one a registered, still running coder host records.
+func HostOwnsLiveDB(path string) bool {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	ents, err := registeredEntries()
+	if err != nil {
+		return false
+	}
+	for _, e := range ents {
+		if efi, err := os.Stat(e.DB); err == nil && os.SameFile(fi, efi) && !hostIsGone(e) {
+			return true
+		}
+	}
+	return false
 }
 
 // scanRegisteredTurns is the one per-entry check behind both variants. Strict (lenient false) stops at the
 // first unreadable live-host entry and returns its error; lenient records it and goes on.
-func scanRegisteredTurns(named string, lenient bool) (bool, []error) {
+func scanRegisteredTurns(named string, lenient bool) (bool, []error, []error) {
 	if !ancestrySupported {
-		return false, nil
+		return false, nil, nil
 	}
 	ents, err := registeredEntries()
 	if err != nil {
-		return false, nil
+		return false, nil, nil
 	}
 	var namedInfo os.FileInfo
 	if named != "" {
 		namedInfo, _ = os.Stat(named)
 	}
-	var skipped []error
+	var skipped, busy []error
 	for _, e := range ents {
 		if namedInfo != nil {
 			if fi, err := os.Stat(e.DB); err == nil && os.SameFile(namedInfo, fi) {
@@ -401,15 +485,19 @@ func scanRegisteredTurns(named string, lenient bool) (bool, []error) {
 			if hostIsGone(e) {
 				continue
 			}
+			if lenient && errors.Is(err, ErrDatabaseBusy) {
+				busy = append(busy, &BusyHostError{DB: e.DB})
+				continue
+			}
 			skipped = append(skipped, fmt.Errorf("turn registry: the database %s of a coder host cannot be read (%v); the registry entry for it is %s; if that host is no longer running, delete this file and run the command again", e.DB, err, e.file))
 			if lenient {
 				continue
 			}
-			return false, skipped
+			return false, skipped, busy
 		}
 		if in {
-			return true, skipped
+			return true, skipped, busy
 		}
 	}
-	return false, skipped
+	return false, skipped, busy
 }

@@ -2092,8 +2092,16 @@ that works a task acts on them. The defences:
   recorded in ANY readable database still refuses it: the scan of the registry goes on
   past an unreadable entry (wherever it sorts) instead of stopping at it, which only the
   other verbs do. The named database is opened read-only, only as a regular file (a FIFO
-  cannot hang it) and with a bounded wait for a lock; a lock that outlasts the wait
-  refuses the other verbs and counts as no turn recorded for the repair verbs. `secret reveal` and
+  cannot hang it) and with a bounded wait for a lock. A lock that outlasts the wait
+  refuses the other verbs. For the repair verbs it depends on who owns the locked
+  database: if a running coder host owns it (the named database, or a registered
+  one), the verb is refused with a plain "wait and retry" message (not an
+  operator-only one), because the lock could be hiding a turn; a turn found in any
+  readable database still decides first. A locked database that no running host
+  owns (none registered, or only a dead host) counts as no turn recorded, so a dead
+  host never locks the operator out of a repair. The residual: a same-user process
+  can still kill the host or delete its registry entry, which turns the refusal back
+  into "no turn recorded"; like the rest of this layer it is a courtesy, not a barrier. `secret reveal` and
   `node run vault.secret_get` keep the marker check alone, as before: they have an
   agent path under the profile's Reveal access level and are held for a decision.
   The database it reads is not only the one the process names: every running coder

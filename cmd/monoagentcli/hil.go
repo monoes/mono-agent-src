@@ -162,7 +162,20 @@ func (c *globalConfig) gateRefusal(recovery bool) string {
 // registerOperatorGate makes cfg's turn-aware gate the answer of every command that asks opgate. It runs
 // when the real command tree is built, before any command, so a process that never builds it (library use,
 // the tests of other packages) keeps operator.Refusal.
-func registerOperatorGate(cfg *globalConfig) { opgate.Register(cfg.gateRefusal) }
+func registerOperatorGate(cfg *globalConfig) {
+	opgate.Register(cfg.gateRefusal)
+	opgate.RegisterRecovery(cfg.gateRecovery)
+}
+
+// gateRecovery is gateRefusal(true) that also hands back the busy-host error, when that is why the command
+// is refused, so the command can say "wait and retry" instead of "only the operator can".
+func (c *globalConfig) gateRecovery() (string, error) {
+	v := c.gateVerdict(true, "do this")
+	if v.err != nil && errors.Is(v.err, coderhost.ErrDatabaseBusy) {
+		return v.why, v.err
+	}
+	return v.why, nil
+}
 
 // callerInATurn says whether this process descends from a recorded coder turn. It never creates
 // the database: no file (a fresh machine, doctor before init) or no coder_sessions table means no
@@ -179,9 +192,10 @@ func (c *globalConfig) callerInATurnFor(recovery bool) (bool, error) {
 	// The database the process names is only half of the question: --db-path or another HOME must not hide a
 	// turn, so every running coder host's database (the turn registry) is checked too. An override only adds checks.
 	var in bool
+	var busy []error
 	if recovery {
 		// an unreadable entry is skipped, never allowed to hide a turn recorded in a readable database
-		in, _ = coderhost.CallerInARegisteredTurnLenient(path)
+		in, _, busy = coderhost.CallerInARegisteredTurnLenient(path)
 	} else {
 		var err error
 		in, err = coderhost.CallerInARegisteredTurn(path)
@@ -194,7 +208,18 @@ func (c *globalConfig) callerInATurnFor(recovery bool) (bool, error) {
 	}
 	in, err := callerInATurnNamed(path)
 	if err != nil && recovery {
+		// A lock on the database of a live coder host could be hiding a turn: refuse with "wait and retry". A
+		// dead host's lock, or a database no live host owns, never locks the operator out of a repair.
+		if errors.Is(err, coderhost.ErrDatabaseBusy) && coderhost.HostOwnsLiveDB(path) {
+			return false, &coderhost.BusyHostError{DB: path}
+		}
+		if len(busy) > 0 {
+			return false, busy[0]
+		}
 		return false, nil
+	}
+	if recovery && !in && len(busy) > 0 {
+		return false, busy[0]
 	}
 	return in, err
 }

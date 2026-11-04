@@ -35,7 +35,7 @@ func TestTheLenientScanFindsATurnPastAnUnreadableEntryAndTheStrictScanStopsAtIt(
 		return false, nil
 	}
 
-	if in, skipped := CallerInARegisteredTurnLenient(""); !in || len(skipped) != 1 || !strings.Contains(skipped[0].Error(), "a-junk.db") {
+	if in, skipped, _ := CallerInARegisteredTurnLenient(""); !in || len(skipped) != 1 || !strings.Contains(skipped[0].Error(), "a-junk.db") {
 		t.Fatalf("lenient: in=%v skipped=%v; want the turn found and the junk entry reported", in, skipped)
 	}
 	if in, err := CallerInARegisteredTurn(""); in || err == nil || !strings.Contains(err.Error(), "a-junk.db") {
@@ -48,7 +48,7 @@ func TestTheLenientScanFindsATurnPastAnUnreadableEntryAndTheStrictScanStopsAtIt(
 		}
 		return false, nil
 	}
-	if in, skipped := CallerInARegisteredTurnLenient(""); in || len(skipped) != 1 {
+	if in, skipped, _ := CallerInARegisteredTurnLenient(""); in || len(skipped) != 1 {
 		t.Fatalf("lenient with no readable turn: in=%v skipped=%v; want not in a turn, one entry skipped", in, skipped)
 	}
 }
