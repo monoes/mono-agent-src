@@ -19,6 +19,7 @@ import (
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/connections"
+	"github.com/monoes/mono-agent/internal/hilsend"
 	"github.com/monoes/mono-agent/internal/nodes"
 	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/workflow"
@@ -192,5 +193,45 @@ func TestBrowserRunRefusalReadsTheMarkerThenTheCarrier(t *testing.T) {
 	both := b.RunRefusal(workflow.WithAgentCaller(context.Background(), "in a turn"))
 	if marked == nil || both == nil || marked.Error() != both.Error() || !strings.Contains(marked.Error(), operator.Refusal()) {
 		t.Fatalf("marked: %v\nmarked and a verdict: %v", marked, both)
+	}
+}
+
+// countingDevto is service.devto that counts the articles it publishes.
+type countingDevto struct{ runs *int }
+
+func (countingDevto) Type() string { return "service.devto" }
+func (c countingDevto) Execute(context.Context, workflow.NodeInput, map[string]interface{}) ([]workflow.NodeOutput, error) {
+	*c.runs++
+	return []workflow.NodeOutput{{Handle: "main", Items: []workflow.Item{{JSON: map[string]interface{}{"id": "1"}}}}}, nil
+}
+
+// A send started by an agent, or by a process the markers do not show, is queued for approval and does not run: the send gate
+// (hilsend.Guard) is asked with the command's verdict as well as the markers, so a process inside a coder turn
+// that cleared its markers is queued like a marked agent. The user's own terminal sends.
+func TestNodeRunSendInATurnIsQueuedForApproval(t *testing.T) {
+	for _, c := range callerContexts() {
+		t.Run(c.name, func(t *testing.T) {
+			dbPath := nodeVaultTestDB(t)
+			c.setup(t)
+			runs := 0
+			d := testDeps(dbPath, "default", false)
+			d.BuildRegistry = func(*sql.DB) *workflow.NodeTypeRegistry {
+				workflow.SetExecGuard(hilsend.Guard) // as noderegistry.Build does
+				r := workflow.NewNodeTypeRegistry()
+				r.Register("service.devto", func() workflow.NodeExecutor { return countingDevto{&runs} })
+				return r
+			}
+			payload := `{"config":{"operation":"publish_article","title":"Hello","body_markdown":"Hi all","api_key":"k"}}`
+			out, err := runNodeSubcmdStdin(t, d, payload, "service.devto")
+			if err != nil {
+				t.Fatalf("%v\n%s", err, out)
+			}
+			// The chat and a workflow run are marked callers whose sends this gate never queued: unchanged.
+			want := c.agent && c.name != "marked chat" && c.name != "marked workflow"
+			queued := strings.Contains(out, "hil_id")
+			if queued != want || (runs == 0) != want {
+				t.Fatalf("queued = %v, ran %d time(s), want queued = %v\n%s", queued, runs, want, out)
+			}
+		})
 	}
 }

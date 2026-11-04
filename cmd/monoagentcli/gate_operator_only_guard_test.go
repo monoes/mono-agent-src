@@ -45,7 +45,7 @@ var legacyMarkerChecks = map[string]allowed{
 	"internal/cli/org/profile_lifecycle.go":         {1, pr5},
 	"cmd/monoagentcli/login.go":                     {1, heldB + " (login of a builtin package)"},
 	"cmd/monoagentcli/hil.go":                       {3, gateImp + " (notOperator in gateVerdict)"},
-	"internal/cli/node/run.go":                      {1, heldB + " (node run vault.secret_get); node run itself decides with opgate.Refusal"},
+	"internal/cli/node/run.go":                      {2, heldB + " (node run vault.secret_get); node run decides with opgate.Refusal, and asks the markers only to leave a marked caller's send gate unchanged"},
 	"internal/cli/secret/secret.go":                 {2, heldB + " (secret reveal under a Reveal grant)"},
 	"internal/cli/revealgate/revealgate.go":         {1, "RefuseMarkerOnly, the marker-only helper of the held class B reveal paths"},
 	"internal/cli/org/approve_guard.go":             {2, heldB + " (org approve)"},
