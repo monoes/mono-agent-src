@@ -77,6 +77,14 @@ func (s *Store) liveCapRunsBelowTx(ctx context.Context, x dbx, profileID string,
 	return out, nil
 }
 
+// cutText is text a worker chose, cut to at most n runes for an error that echoes it.
+func cutText(v string, n int) string {
+	if r := []rune(v); len(r) > n {
+		return string(r[:n]) + "..."
+	}
+	return v
+}
+
 // refuseLoweringWhileCapRuns is ErrAccountingMode while a live cap run is on the session or below it. A cap run holds
 // no money and reads what is left of the budget as it starts, so a budget lowered under it (or set where there was
 // none) is not accounted against what it may still spend. It names up to five runs.
@@ -87,14 +95,15 @@ func (s *Store) refuseLoweringWhileCapRuns(ctx context.Context, x dbx, se Sessio
 	}
 	var named []string
 	for _, r := range runs[:min(len(runs), 5)] {
-		named = append(named, fmt.Sprintf("run %q of owner %q on session #%d", r.RunRef, r.OwnerID, r.SessionID))
+		named = append(named, fmt.Sprintf("run %q of owner %q on session #%d", cutText(r.RunRef, 40), cutText(r.OwnerID, 40), r.SessionID))
 	}
 	more := ""
 	if len(runs) > len(named) {
 		more = fmt.Sprintf(" and %d more", len(runs)-len(named))
 	}
-	return fmt.Errorf("%w: %d run(s) on session #%d or below are accounted on its cap, so its budget is not lowered while they run: %s%s. Pause the session so its runs drain, then set the budget",
-		ErrAccountingMode, len(runs), se.ID, strings.Join(named, ", "), more)
+	return fmt.Errorf("%w: %d run(s) on session #%d or below are accounted on its cap, so its budget is not lowered while they run: %s%s. Pausing does not stop a run: stop the session (task session stop) or its worker, or wait for the runs to end "+
+		"(a run whose process died is dead %s after its last heartbeat), then set the budget",
+		ErrAccountingMode, len(runs), se.ID, strings.Join(named, ", "), more, ReservationLease+ReservationGrace)
 }
 
 // liveReservationsTx counts the reservations of the session that are live and not lapsed past the grace.

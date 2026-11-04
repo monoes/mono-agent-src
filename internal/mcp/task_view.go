@@ -64,6 +64,8 @@ func taskToolErr(err error) error {
 		code = "not_claimant"
 	case errors.Is(err, tasks.ErrLimit):
 		code, repeats = "limit", tasks.ErrLimit
+	case errors.Is(err, tasks.ErrAccountingMode):
+		code, repeats = "accounting_mode", tasks.ErrAccountingMode
 	case errors.Is(err, tasks.ErrInvalid):
 		code, repeats = "invalid_input", tasks.ErrInvalid
 	default:

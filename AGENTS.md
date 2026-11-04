@@ -1943,8 +1943,8 @@ follows it, and the operator-only conversation setting `mission_worker_reservati
 (`coder sessions settings set CONVERSATION --patch '{"mission_worker_reservations":true}'`, written only through
 `coderhost.Store.UpdateSettings`) only picks the mode of an idle session, so flipping it mid-run changes nothing until the
 in-flight runs have drained. The same latch holds the operator's budget: `set-budget` that lowers a budget (or sets one where there was none)
-is refused with `ErrAccountingMode`, naming the runs, while a live cap run is on the session or below it (pause the session so its
-runs drain, then retry); a raise, a restated budget and removing the budget are not refused. A setting that cannot be read means off, with one notice; a Conductor with no switch wired
+is refused with `ErrAccountingMode`, naming the runs, while a live cap run is on the session or below it (pausing does not stop a run: stop the session or its worker, or wait
+for the runs to end; a dead process's row frees 3 minutes after its last heartbeat; then retry); a raise, a restated budget and removing the budget are not refused. A setting that cannot be read means off, with one notice; a Conductor with no switch wired
 registers nothing and runs on the cap as before. A run's cost is what THAT run reported, never a difference of the
 worker's cumulative counter; a final cost below what the run streamed keeps the higher charge (a charge is never
 lowered) and the cap path's baseline is re-based to the counter, so the next run is charged in full. Cost the cap path has not

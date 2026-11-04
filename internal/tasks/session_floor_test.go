@@ -330,7 +330,7 @@ func TestSetBudgetRefusalCutsLongRunRefsAndOwners(t *testing.T) {
 	s, db, _ := newTestStore(t)
 	id := rsession(t, s, db, 10)
 	long := strings.Repeat("x", 200)
-	if _, err := s.BeginCapRun(bg, "default", id, long, long+"-ref"); err != nil {
+	if _, err := s.BeginCapRun(bg, "default", id, long[:120], long+"-ref"); err != nil {
 		t.Fatal(err)
 	}
 	_, err := setBudget(s, id, 5)
