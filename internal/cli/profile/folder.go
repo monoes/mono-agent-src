@@ -9,7 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/monoes/mono-agent/internal/operator"
+	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/profiledir"
 	"github.com/monoes/mono-agent/internal/vault"
 )
@@ -64,12 +65,12 @@ func (d Deps) newProfileMoveCmd() *cobra.Command {
 			"workflow run is refused (exit 3). --check stays open.",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			newRoot := strings.TrimSpace(args[1])
 			if !check {
 				if err := d.refuseFolderChoice(); err != nil {
 					return err
 				}
 			}
+			newRoot := strings.TrimSpace(args[1])
 			if newRoot == "" {
 				return d.InvalidInput("no folder chosen")
 			}
@@ -150,12 +151,12 @@ func (d Deps) newProfileMoveCmd() *cobra.Command {
 const folderIsTheUsers = "workflow runs the user never approved may read and write in it, hidden files included"
 
 // refuseFolderChoice refuses setting or changing a profile's folder to anyone
-// but the user (operator.Refusal): the folder is a trusted zone for runs of
+// but the user (opgate.Refusal): the folder is a trusted zone for runs of
 // workflows the user never approved, so an agent pointing it at the home or
 // at ~/.ssh would hand those runs everything there.
 func (d Deps) refuseFolderChoice() error {
-	if why := operator.Refusal(); why != "" {
-		return d.InvalidInput("only the user sets or moves a profile's folder (%s); the user runs this in their own terminal or "+
+	if why := opgate.Refusal(); why != "" {
+		return clicore.OperatorOnly("only the user sets or moves a profile's folder (%s); the user runs this in their own terminal or "+
 			"in the app's profile settings, and a profile created without --root-dir gets its own folder: %s", folderIsTheUsers, why)
 	}
 	return nil

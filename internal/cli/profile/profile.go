@@ -174,6 +174,11 @@ func (d Deps) newProfileCreateCmd() *cobra.Command {
 			"agent-avatars manifest.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if strings.TrimSpace(rootDir) != "" {
+				if err := d.refuseFolderChoice(); err != nil {
+					return err
+				}
+			}
 			name := norm.NFC.String(strings.TrimSpace(args[0]))
 			if err := validateProfileName(name); err != nil {
 				return d.InvalidInput("%v", err)
@@ -183,9 +188,6 @@ func (d Deps) newProfileCreateCmd() *cobra.Command {
 			}
 			rootDir = strings.TrimSpace(rootDir)
 			if rootDir != "" {
-				if err := d.refuseFolderChoice(); err != nil {
-					return err
-				}
 				if err := d.validateFolderChoice(rootDir); err != nil {
 					return err
 				}
