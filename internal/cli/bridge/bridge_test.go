@@ -111,3 +111,24 @@ func TestNewServerWiresWhatEveryOwnerNeeds(t *testing.T) {
 		t.Fatal("the capture summaries were not installed on the server")
 	}
 }
+
+// The probe list ignores MONOAGENT_EXTENSION_PORT for a process that is not the
+// operator's own terminal, and follows it for the operator.
+func TestProbeAddrsPortEnvIsOperatorOnly(t *testing.T) {
+	t.Cleanup(func() { extension.SetPortEnvPolicy(nil) })
+	t.Setenv(extension.ExtensionPortEnv, "9400")
+	extension.SetPortEnvPolicy(func() bool { return true })
+	if got := ProbeAddrs(); len(got) != 1 || got[0] != "http://127.0.0.1:9400" {
+		t.Fatalf("operator: %v", got)
+	}
+	if got := ListenAddr(); got != "127.0.0.1:9400" {
+		t.Fatalf("operator listen: %s", got)
+	}
+	extension.SetPortEnvPolicy(func() bool { return false })
+	if got := ProbeAddrs(); len(got) != 2 || got[0] != "http://127.0.0.1:"+extension.DefaultExtensionPort {
+		t.Fatalf("non-operator probes %v, want the default ports", got)
+	}
+	if got := ListenAddr(); got != "127.0.0.1:"+extension.DefaultExtensionPort {
+		t.Fatalf("non-operator listen: %s", got)
+	}
+}

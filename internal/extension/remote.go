@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -61,9 +62,30 @@ func NewRemoteSender(baseURL string) *RemoteSender {
 // "something answered" is never mistaken for "a bridge answered": relaying
 // commands into a Chrome CDP (or anything else that happens to hold the
 // port) would wait forever for a reply that cannot come.
+//
+// Where this process holds the pairing token the listener must also prove it
+// holds it (proof.go) — otherwise any loopback listener on the probed port
+// would pass and then be sent the token.
 func Probe(baseURL string) bool {
-	_, err := FetchStatus(baseURL)
+	token, _ := loadToken()
+	if token == "" {
+		_, err := FetchStatus(baseURL)
+		return err == nil
+	}
+	err := proveBridge(&http.Client{}, baseURL, token)
+	if errors.Is(err, ErrBridgeNoProof) || errors.Is(err, ErrBridgeBadProof) {
+		fmt.Fprintf(os.Stderr, "warning: %s: %v\n", baseURL, err)
+	}
 	return err == nil
+}
+
+// prove checks that the listener at baseURL holds the token, before any
+// request carrying it goes out. With no token there is nothing to protect.
+func (r *RemoteSender) prove() error {
+	if r.token == "" {
+		return nil
+	}
+	return proveBridge(r.client, r.baseURL, r.token)
 }
 
 func (r *RemoteSender) SendCommand(cmd *Command, timeout time.Duration) (*Response, error) {
@@ -83,6 +105,9 @@ func (r *RemoteSender) SendCommandTo(t Target, cmd *Command, timeout time.Durati
 	url := fmt.Sprintf("%s/monoagent/relay?timeout_ms=%d", r.baseURL, timeout.Milliseconds())
 	if enc := targetValues(t).Encode(); enc != "" {
 		url += "&" + enc
+	}
+	if err := r.prove(); err != nil {
+		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout+r.requestSlack())
 	defer cancel()
@@ -248,6 +273,9 @@ func (r *RemoteSender) SetBinding(instance string, profiles []string, label stri
 // getRoute does one authenticated GET against a routing endpoint and turns
 // its error body back into the error the bridge raised.
 func (r *RemoteSender) getRoute(path string, out any) error {
+	if err := r.prove(); err != nil {
+		return err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), routeProbeTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, r.baseURL+path, nil)

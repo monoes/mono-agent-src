@@ -33,6 +33,7 @@ import (
 	"strings"
 
 	"github.com/monoes/mono-agent/internal/browserctl"
+	"github.com/monoes/mono-agent/internal/extension"
 	"github.com/monoes/mono-agent/internal/hilsend"
 	"github.com/monoes/mono-agent/internal/orgsign"
 	"github.com/monoes/mono-agent/internal/workflow"
@@ -301,4 +302,12 @@ func WithNote(v any, note string) any {
 	n, _ := json.Marshal(note)
 	m["approval_note"] = n
 	return m
+}
+
+// The extension bridge's client honours MONOAGENT_EXTENSION_PORT only for the
+// operator's own terminal (extension.PortOverride): a marked or in-turn process
+// that could set it would send its relay, token included, to a listener of its
+// own. internal/extension cannot import this package, so it takes the check here.
+func init() {
+	extension.SetPortEnvPolicy(func() bool { return Marker() == "" && InTurn() == "" })
 }

@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -194,7 +193,7 @@ const ExtensionPortEnv = "MONOAGENT_EXTENSION_PORT"
 
 // resolveListenAddr applies ExtensionPortEnv to addr, replacing its port.
 func resolveListenAddr(addr string) (string, error) {
-	raw := strings.TrimSpace(os.Getenv(ExtensionPortEnv))
+	raw := PortOverride()
 	if raw == "" {
 		return addr, nil
 	}
@@ -421,8 +420,20 @@ func (s *Server) Close() error {
 // It also answers the extension popup's "what is going on?" — see Status in
 // status.go for the shape and for why it is safe to serve without auth.
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	st := s.Status()
+	if r.URL.Query().Has(nonceParam) {
+		nonce := r.URL.Query().Get(nonceParam)
+		if !validNonce(nonce) {
+			http.Error(w, "bad nonce", http.StatusBadRequest)
+			return
+		}
+		if addr, ok := s.Addr(); ok && s.token != "" {
+			_, port, _ := net.SplitHostPort(addr)
+			st.Proof = proofFor(s.token, nonce, healthPath, port)
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(s.Status())
+	_ = json.NewEncoder(w).Encode(st)
 }
 
 // Addr returns the address this server actually bound (which may differ

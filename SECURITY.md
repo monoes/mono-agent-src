@@ -967,6 +967,17 @@ against an agent running as you:
   A per-browser token, however, speaks only for the instance it was paired
   with: it cannot connect as another instance, and no connection replaces a
   socket that authenticated with a different per-browser token.
+- The relay token only goes to a bridge that proves it holds it. A client
+  probes `/monoagent/health?nonce=<fresh hex>` first and the bridge answers
+  with `proof`, an HMAC-SHA256 keyed by the token over `v1`, the nonce, the
+  path and the port it is bound to; the client verifies it in constant time
+  before any request carrying the token goes out. A loopback listener that
+  merely speaks the status shape (any process can bind one, no secret needed)
+  therefore never receives the token. `MONOAGENT_EXTENSION_PORT` is honoured
+  only for the operator's own terminal: in a marked or in-turn process it is
+  ignored with a warning. A bridge older than this (no `proof`) is accepted
+  only on the default ports 9222/9323, for the operator's terminal, with no
+  override set; restart the bridge after updating.
 - A browser holding the shared bridge token can claim any valid profile id,
   and with sets up to 64 at once, and receive those profiles' browser
   commands and session data. A browser with a token of its own is limited to

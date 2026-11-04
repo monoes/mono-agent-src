@@ -79,6 +79,9 @@ type Status struct {
 	// the count is public here; which profile each one runs is behind the
 	// relay token, at /monoagent/browsers.
 	Browsers int `json:"browsers"`
+	// Proof answers a request carrying a `nonce`: HMAC-SHA256 of the
+	// pairing token over it (see proof.go). Absent otherwise.
+	Proof string `json:"proof,omitempty"`
 }
 
 // SetVersion records the build string reported in Status. Optional: an
