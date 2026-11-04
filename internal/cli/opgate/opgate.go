@@ -21,6 +21,14 @@ import (
 	"github.com/monoes/mono-agent/internal/operator"
 )
 
+// UnplacedPrefix starts the reason of a process the gate could not place (the database or the turn
+// registry cannot be read): the refusal is then not about who it is, and a retry or a repair can change it.
+// cmd/monoagentcli words the reason with it, and a test there keeps the two in step.
+const UnplacedPrefix = "cannot tell whether a coder session's turn runs this command ("
+
+// Unplaced says whether why, a Refusal, is the reason of a process that could not be placed.
+func Unplaced(why string) bool { return strings.HasPrefix(why, UnplacedPrefix) }
+
 // body answers for one process; recovery selects the recovery flavour.
 type body func(recovery bool) string
 

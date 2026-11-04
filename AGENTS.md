@@ -322,6 +322,10 @@ monoagentcli --profile work secret agent-access reveal --yes
 - **Reveal** additionally permits `secret reveal <name> --reveal` and
   `node run vault.secret_get` / MCP `node_run` to return plaintext. Internal API
   bearer and agent-token entries remain excluded from plaintext agent retrieval.
+  A process inside a coder session's turn (markers cleared or not), one holding an
+  agent token, and one that cannot be placed get this agent path, not the operator's:
+  `secret reveal` and `node run vault.secret_get` print plaintext to them only under
+  Reveal, audited (`internal/cli/opgate`).
 
 Agents may inspect the level but cannot change it or clear its audit. Existing
 `on` / `off` commands remain aliases for scoped Use / Strict; existing grants

@@ -16,7 +16,7 @@ import (
 // cannot slip past it. Three guards, each with a list that shrinks as the remaining verbs are converted:
 //
 //	T1 no source outside internal/cli/opgate (and internal/operator) asks the marker-only check
-//	   (operator.Refusal, operator.Marker, notOperator, IsAgentContext, revealgate.RefuseMarkerOnly)
+//	   (operator.Refusal, operator.Marker, notOperator, IsAgentContext)
 //	   except where a reason says why;
 //	T2 every command whose help carries the operator-only text has a row of operatorOnlyRows or a
 //	   pending entry with a reason, and the cmOperatorOnly families of the client-mode table are each
@@ -42,9 +42,7 @@ type allowed struct {
 var legacyMarkerChecks = map[string]allowed{
 	"cmd/monoagentcli/login.go":                     {1, heldB + " (login of a builtin package)"},
 	"cmd/monoagentcli/hil.go":                       {3, gateImp + " (notOperator in gateVerdict)"},
-	"internal/cli/node/run.go":                      {2, heldB + " (node run vault.secret_get); node run decides with opgate.Refusal, and asks the markers only to leave a marked caller's send gate unchanged"},
-	"internal/cli/secret/secret.go":                 {2, heldB + " (secret reveal under a Reveal grant)"},
-	"internal/cli/revealgate/revealgate.go":         {1, "RefuseMarkerOnly, the marker-only helper of the held class B reveal paths"},
+	"internal/cli/node/run.go":                      {1, "node run decides with opgate.Refusal; the one marker check left only keeps a MARKED caller's send gate unchanged (the send queue is applied to unmarked callers)"},
 	"internal/cli/org/sign.go":                      {2, "class C: org sign has its own signature guard; not decided (issue 1333)"},
 	"internal/nodes/agent_run_gate.go":              {1, "engine node: the marker half of the run gate next to node run's verdict (workflow.AgentCallerFrom), not a CLI verb gate"},
 	"internal/nodes/browserjev/gate.go":             {1, "engine node gate (IsAgentContext), not a CLI verb gate"},

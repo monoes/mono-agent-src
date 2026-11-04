@@ -12,8 +12,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/cli/revealgate"
-	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/secrets"
 
 	"github.com/spf13/cobra"
@@ -351,13 +351,15 @@ func (d Deps) revealAndPrint(cmd *cobra.Command, name string) error {
 	if profileID == "" {
 		return ErrProfileRequired
 	}
-	if operator.Refusal() != "" {
+	// The agent path is for whatever opgate refuses: a marked agent, the chat, a token holder, and a
+	// process inside a coder turn that cleared its markers (or that cannot be placed).
+	if agentWhy := opgate.Refusal(); agentWhy != "" {
 		allowed, err := secrets.CanAgentReveal(cmd.Context(), db.DB, profileID, name)
 		if err != nil {
 			return err
 		}
 		if !allowed {
-			return revealgate.RefuseMarkerOnly("secret reveal")
+			return revealgate.RefuseFor("secret reveal", agentWhy)
 		}
 		if err := secrets.AuthorizeAgentReveal(cmd.Context(), db.DB, profileID, name); err != nil {
 			return err

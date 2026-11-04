@@ -159,8 +159,10 @@ func TestStopExcludesBegunOperationAndStaysPending(t *testing.T) {
 	s.Gate = g
 	first := startOpOn(t, g)
 	done := make(chan Report, 1)
+	before := fc.waiters()
 	go func() { done <- s.Stop(bg, 7, "ch1", "operator") }()
 	waitSealed(t, g)
+	waitTimers(t, fc, before) // the close wait is registered: an Advance before it would be lost and Stop would never return
 	fc.Advance(DefaultTClose)
 	var rep Report
 	select {
