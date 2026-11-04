@@ -70,6 +70,27 @@ func TestSourcePin_EveryTokenSenderGoesThroughTheProver(t *testing.T) {
 			}
 		}
 	}
+	// every request goes through newBridgeClient (it refuses redirects): no other http.Client literal
+	for _, pkg := range pkgs {
+		for file, f := range pkg.Files {
+			for _, d := range f.Decls {
+				fn, ok := d.(*ast.FuncDecl)
+				if !ok || fn.Body == nil || fn.Name.Name == "newBridgeClient" {
+					continue
+				}
+				ast.Inspect(fn.Body, func(n ast.Node) bool {
+					if cl, ok := n.(*ast.CompositeLit); ok {
+						if se, ok := cl.Type.(*ast.SelectorExpr); ok && se.Sel.Name == "Client" {
+							if id, ok := se.X.(*ast.Ident); ok && id.Name == "http" {
+								t.Errorf("%s: %s builds its own http.Client: use newBridgeClient (it refuses redirects, which would carry the token and body elsewhere)", filepath.Base(file), fn.Name.Name)
+							}
+						}
+					}
+					return true
+				})
+			}
+		}
+	}
 	if senders < 4 {
 		t.Fatalf("found %d token senders, expected at least 4 (the pin is not looking at the right code)", senders)
 	}
@@ -245,7 +266,7 @@ func TestVerifyBridge_DoesNotFollowRedirectsAndCapsTheBody(t *testing.T) {
 	defer target.Close()
 	redirector := httptest.NewServer(http.RedirectHandler(target.URL+healthPath, http.StatusFound))
 	defer redirector.Close()
-	err := verifyBridge(&http.Client{}, redirector.URL, token)
+	err := verifyBridge(newBridgeClient(0), redirector.URL, token)
 	if err == nil || !strings.Contains(err.Error(), "HTTP 302") {
 		t.Fatalf("redirecting listener: %v, want it refused as not a bridge (HTTP 302)", err)
 	}
@@ -267,10 +288,75 @@ func TestVerifyBridge_DoesNotFollowRedirectsAndCapsTheBody(t *testing.T) {
 		}
 	}))
 	defer big.Close()
-	if err := verifyBridge(&http.Client{}, big.URL, token); err == nil {
+	if err := verifyBridge(newBridgeClient(0), big.URL, token); err == nil {
 		t.Fatal("an endless answer was accepted")
 	}
 	if got := atomic.LoadInt64(&sent); got > 8<<20 {
 		t.Errorf("the probe let %d bytes through: the body is not capped", got)
+	}
+}
+
+// A bridge that proved itself and then answers a token-carrying request with a
+// redirect: the second listener must receive nothing (no token, no body), and the
+// caller gets an error. One case per token sender.
+func TestEveryTokenSenderRefusesToFollowARedirect(t *testing.T) {
+	withTempHome(t)
+	token, _ := generateToken()
+	senders := map[string]func(base string) error{
+		"SendCommandTo": func(b string) error {
+			_, err := NewRemoteSender(b).SendCommand(&Command{Type: CmdCreateTab, Params: map[string]interface{}{"url": "secret-body"}}, time.Second)
+			return err
+		},
+		"Browsers":          func(b string) error { _, err := NewRemoteSender(b).Browsers(); return err },
+		"ResolveTarget":     func(b string) error { _, err := NewRemoteSender(b).ResolveTarget(Target{}); return err },
+		"CapturePage":       func(b string) error { _, err := NewRemoteSender(b).CapturePage(CaptureRequest{}); return err },
+		"CheckPairing":      func(b string) error { _, err := CheckPairing(b); return err },
+		"RequestPairingURL": func(b string) error { _, err := RequestPairingURL(b); return err },
+	}
+	for name, send := range senders {
+		t.Run(name, func(t *testing.T) {
+			second := newFakeBridge(t, nil) // records everything it is sent
+			var mu sync.Mutex
+			code := 307
+			first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == healthPath {
+					st := Status{Service: ServiceName}
+					if n := r.URL.Query().Get(nonceParam); n != "" {
+						st.Proof = proofFor(token, n, healthPath, "127.0.0.1", strings.TrimPrefix(r.Host, "127.0.0.1:"))
+					}
+					_ = json.NewEncoder(w).Encode(st)
+					return
+				}
+				mu.Lock()
+				c := code
+				mu.Unlock()
+				http.Redirect(w, r, second.URL+r.URL.Path, c)
+			}))
+			defer first.Close()
+			_ = send(first.URL)
+			second.mu.Lock()
+			defer second.mu.Unlock()
+			if len(second.reqs) != 0 {
+				t.Fatalf("the redirect was followed: the second listener got %+v", second.reqs)
+			}
+		})
+	}
+	// the error is clear for the relay
+	second := newFakeBridge(t, nil)
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == healthPath {
+			st := Status{Service: ServiceName}
+			if n := r.URL.Query().Get(nonceParam); n != "" {
+				st.Proof = proofFor(token, n, healthPath, "127.0.0.1", strings.TrimPrefix(r.Host, "127.0.0.1:"))
+			}
+			_ = json.NewEncoder(w).Encode(st)
+			return
+		}
+		http.Redirect(w, r, second.URL, http.StatusFound)
+	}))
+	defer first.Close()
+	_, err := NewRemoteSender(first.URL).SendCommand(&Command{Type: CmdCreateTab}, time.Second)
+	if err == nil || !strings.Contains(err.Error(), "302") {
+		t.Errorf("relay redirected: err = %v, want a clear 302 error", err)
 	}
 }

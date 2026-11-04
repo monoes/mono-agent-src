@@ -100,6 +100,13 @@ mono_private_operator_env() {
     u="$1"; g="$2"; shift 2; exec unshare --map-user="$u" --map-group="$g" "$@"' sh "$uid" "$gid" "$@"
 }
 
+# mono_private_shell_recipe prints the command a person pastes to get a shell in a
+# private namespace as THEMSELVES. The uid is computed by the person's shell,
+# outside the namespace (inside it `id -u` is 0, and Chromium refuses to run as root).
+mono_private_shell_recipe() {
+  printf '%s\n' 'unshare -rn sh -c "ip link set lo up; exec unshare --map-user=$(id -u) --map-group=$(id -g) bash"'
+}
+
 # mono_require_private_net: for a multi-script stack (setup.sh starts daemons that
 # the next script talks to, so one namespace per script cannot work): refuse
 # unless the whole stack runs from a shell that is already in a private network
@@ -112,6 +119,6 @@ mono_require_private_net() {
     exit 0
   fi
   echo "refusing: run this e2e stack from a private network namespace so a marked shell cannot fall back to the real bridge on 9222/9323:" >&2
-  echo "  unshare -rn sh -c 'ip link set lo up; exec unshare --map-user=\$(id -u) --map-group=\$(id -g) bash'   (then run setup.sh, regress-*.sh, teardown.sh there)" >&2
+  echo "  $(mono_private_shell_recipe)   (then run setup.sh, regress-*.sh, teardown.sh there)" >&2
   exit 97
 }

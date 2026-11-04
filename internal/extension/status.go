@@ -155,7 +155,7 @@ func FetchStatus(baseURL string) (Status, error) {
 // FetchStatusTimeout is FetchStatus with a caller-chosen budget, for
 // callers polled in the background (`monoagentcli summary`).
 func FetchStatusTimeout(baseURL string, timeout time.Duration) (Status, error) {
-	client := &http.Client{Timeout: timeout}
+	client := newBridgeClient(timeout)
 	resp, err := client.Get(baseURL + "/monoagent/health")
 	if err != nil {
 		return Status{}, fmt.Errorf("no bridge answering at %s: %w", baseURL, err)

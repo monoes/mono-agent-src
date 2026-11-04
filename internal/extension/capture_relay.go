@@ -146,7 +146,7 @@ func (r *RemoteSender) CapturePage(req CaptureRequest) (*capture.Result, error) 
 
 	// A capture can legitimately outlast the shared client's fixed
 	// timeout, so this one request gets a client sized to the capture.
-	client := &http.Client{Timeout: timeout + 30*time.Second}
+	client := newBridgeClient(timeout + 30*time.Second)
 	httpResp, err := client.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("relay request: %w", err)

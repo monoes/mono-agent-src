@@ -2,8 +2,10 @@ package operator
 
 import (
 	"os"
+	"os/exec"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -65,5 +67,36 @@ func TestMonoShMarkerListMatches(t *testing.T) {
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
 		t.Fatalf("scripts/lib/mono.sh clears %v, operator.MarkerEnv() is %v", got, want)
+	}
+}
+
+// The recipe mono.sh prints for opening a private-namespace shell must give the
+// person's own uid inside (the uid is computed outside the namespace; computed
+// inside it is 0 and Chromium refuses to run as root).
+func TestMonoShPrivateShellRecipeKeepsTheCallersUid(t *testing.T) {
+	out, err := exec.Command("bash", "-c", ". ../../scripts/lib/mono.sh; mono_private_shell_recipe").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipe := strings.TrimSpace(string(out))
+	if !strings.HasSuffix(recipe, ` bash"`) {
+		t.Fatalf("unexpected recipe %q", recipe)
+	}
+	if strings.Contains(recipe, `\$(id`) || strings.HasPrefix(strings.TrimPrefix(recipe, "unshare -rn sh -c "), "'") {
+		t.Fatalf("the uid would be computed inside the namespace: %q", recipe)
+	}
+	if _, err := exec.LookPath("unshare"); err != nil {
+		t.Skip("no unshare")
+	}
+	if err := exec.Command("unshare", "-rn", "true").Run(); err != nil {
+		t.Skip("user namespaces unavailable here: " + err.Error())
+	}
+	probe := strings.TrimSuffix(recipe, ` bash"`) + ` id -u"`
+	got, err := exec.Command("bash", "-c", probe).Output()
+	if err != nil {
+		t.Skip("the nested namespace cannot be created here: " + err.Error())
+	}
+	if want := strconv.Itoa(os.Getuid()); strings.TrimSpace(string(got)) != want {
+		t.Fatalf("the recipe runs as uid %q inside, want %s", got, want)
 	}
 }

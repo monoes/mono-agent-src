@@ -67,7 +67,7 @@ func CheckPairing(baseURL string) (PairingState, error) {
 		// Prove the listener holds the token before sending it. A wrong proof
 		// is what a different token looks like from here (and what a
 		// listener that never held it looks like).
-		switch err := proveBridge(&http.Client{}, baseURL, token); {
+		switch err := proveBridge(newBridgeClient(0), baseURL, token); {
 		case err == nil:
 		case errors.Is(err, ErrBridgeBadProof):
 			return PairingMismatch, nil
@@ -80,7 +80,7 @@ func CheckPairing(baseURL string) (PairingState, error) {
 		return PairingUnknown, err
 	}
 	req.Header.Set(tokenHeader, token)
-	resp, err := (&http.Client{Timeout: statusProbeTimeout}).Do(req)
+	resp, err := newBridgeClient(statusProbeTimeout).Do(req)
 	if err != nil {
 		return PairingUnknown, err
 	}

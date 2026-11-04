@@ -988,7 +988,14 @@ against an agent running as you:
   line alone). A binary that does not link `operator` at all honours the
   variable (`OperatorProcess()` is true when no policy is installed) and relies
   on the proof alone. Test binaries keep the variable (tests isolate themselves
-  with it) and `internal/testhome` fails any test run that dials 9222/9323. Residual: the relay itself is still loopback TCP
+  with it) and `internal/testhome` fails any test run that dials 9222/9323. Every request to a bridge uses one HTTP client that refuses redirects, so
+  a bridge replaced after its proof cannot bounce the token and body elsewhere.
+  The e2e scripts' private-network-namespace check (`mono_in_private_net`) only
+  tests that the namespace holds nothing but `lo`: a host whose only interface
+  is `lo` counts as private, and a real bridge could listen on that host's
+  loopback. Test binaries are recognised by `internal/testmode.On` (set by
+  `testhome.Main`, not settable from the environment); several other production
+  files still call `testing.Testing()` for their own guards, as before. Residual: the relay itself is still loopback TCP
   (any local user can bind a port; they cannot obtain the token).
 - A browser holding the shared bridge token can claim any valid profile id,
   and with sets up to 64 at once, and receive those profiles' browser

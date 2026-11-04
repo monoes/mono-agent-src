@@ -52,7 +52,7 @@ func (r *RemoteSender) requestSlack() time.Duration {
 // than proceeding unauthenticated.
 func NewRemoteSender(baseURL string) *RemoteSender {
 	token, _ := loadToken()
-	return &RemoteSender{baseURL: baseURL, token: token, client: &http.Client{}}
+	return &RemoteSender{baseURL: baseURL, token: token, client: newBridgeClient(0)}
 }
 
 // Probe reports whether a Server is actually listening and reachable at
@@ -71,7 +71,7 @@ func Probe(baseURL string) bool {
 		_, err := FetchStatus(baseURL)
 		return err == nil
 	}
-	return proveBridge(&http.Client{}, baseURL, token) == nil
+	return proveBridge(newBridgeClient(0), baseURL, token) == nil
 }
 
 // prove checks that the listener at baseURL holds the token, before any

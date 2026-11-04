@@ -16,6 +16,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 )
 
 // The bridge proves it holds the pairing token before a client sends it.
@@ -134,10 +135,8 @@ func verifyBridge(client *http.Client, baseURL, token string) error {
 	if err != nil {
 		return err
 	}
-	// A status answer is never followed to another address, and is bounded.
-	c := *client
-	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	resp, err := c.Do(req)
+	// A status answer is bounded (and the client refuses redirects: newBridgeClient).
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("no bridge answering at %s: %w", baseURL, err)
 	}
@@ -198,7 +197,7 @@ func PickBridge(addrs []string) (string, bool) {
 
 func pickBridge(addrs []string, token string) (string, bool) {
 	for _, a := range addrs {
-		if verifyBridge(&http.Client{}, a, token) == nil {
+		if verifyBridge(newBridgeClient(0), a, token) == nil {
 			return a, true
 		}
 	}
@@ -219,7 +218,7 @@ func DiagnoseBridges(addrs []string) (string, error) {
 	}
 	mismatch, mismatchAddr := error(nil), ""
 	for _, a := range addrs {
-		switch err := verifyBridge(&http.Client{}, a, token); {
+		switch err := verifyBridge(newBridgeClient(0), a, token); {
 		case errors.Is(err, ErrBridgeNoProof):
 			return a, err
 		case errors.Is(err, ErrBridgeBadProof) && mismatch == nil:
@@ -227,4 +226,17 @@ func DiagnoseBridges(addrs []string) (string, error) {
 		}
 	}
 	return mismatchAddr, mismatch
+}
+
+// newBridgeClient is the one HTTP client every request to a bridge uses. It
+// refuses to follow any redirect: a request that carries the pairing token (and
+// its body) must go to the address that proved itself, never wherever that
+// address points next (a bridge replaced after the proof could otherwise 302 the
+// token elsewhere). timeout 0 means none. TestSourcePin forbids any other
+// http.Client literal in this package.
+func newBridgeClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout:       timeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
 }
