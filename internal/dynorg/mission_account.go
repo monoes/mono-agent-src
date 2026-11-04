@@ -60,6 +60,7 @@ const (
 // runAcct is the accounting of one run of a mission worker. Its fields are guarded by the task's spendMu.
 type runAcct struct {
 	mode acctMode
+	grant float64 // what the reservation holds (its amount): the least a run without a usable report is charged
 	id   int64 // the reservation or cap-run row of this run: the handle every later call is fenced by
 	ref  string
 	sid  int64
@@ -164,7 +165,7 @@ func (c *Conductor) enterReserve(ctx context.Context, mc *MissionRun, w *worker,
 	if r.Bounded {
 		opts.BudgetUSD = r.AmountUSD
 	}
-	a := &runAcct{mode: modeReserve, id: r.ID, ref: w.id, sid: w.task.session}
+	a := &runAcct{mode: modeReserve, id: r.ID, ref: w.id, sid: w.task.session, grant: r.AmountUSD}
 	c.install(w, a)
 	return a, nil
 }
@@ -331,7 +332,7 @@ func (c *Conductor) endRun(w *worker, a *runAcct) {
 	ran, lost, streamed, finalOK := a.ran, a.lost, a.streamed, a.finalOK
 	grant := a.started || a.unclear || a.badReport
 	total := max(a.peak, a.final)
-	bad := a.badReport
+	bad, held := a.badReport, a.grant
 	w.task.spendMu.Unlock()
 	if a.mode == modeCap {
 		_ = mc.Store.EndCapRun(ctx, mc.ProfileID, a.id, c.ownerID) // a failure lapses the row: it frees the mode after the grace
@@ -347,10 +348,14 @@ func (c *Conductor) endRun(w *worker, a *runAcct) {
 		return
 	}
 	for i := 0; i < settleAttempts; i++ {
-		if (finalOK || streamed) && !bad {
+		switch {
+		case bad: // no less than the grant, and no less than the highest figure seen (an unpushed overrun included)
+			total = max(total, held)
 			err = mc.Store.ChargeExec(ctx, mc.ProfileID, a.id, c.ownerID, total, true)
-		} else {
-			total = 0
+		case finalOK || streamed:
+			err = mc.Store.ChargeExec(ctx, mc.ProfileID, a.id, c.ownerID, total, true)
+		default:
+			total = held // charged its whole grant
 			err = mc.Store.SettleExecNoReport(ctx, mc.ProfileID, a.id, c.ownerID)
 		}
 		if err == nil || errors.Is(err, tasks.ErrReservationLost) {
@@ -361,14 +366,19 @@ func (c *Conductor) endRun(w *worker, a *runAcct) {
 		}
 	}
 	if err != nil {
-		c.noticeUnrecorded(a, total, err)
+		c.noticeUnrecorded(a, total, err, !finalOK && !streamed || bad)
 	}
 }
 
 // noticeUnrecorded tells the operator what a run cost in total and how to settle its reservation.
-func (c *Conductor) noticeUnrecorded(a *runAcct, total float64, why error) {
-	c.notice("mission.reservation_lost", fmt.Sprintf("The budget reservation #%d of %s on session #%d was not settled (%v); the run cost $%.6f in total, of which part may not be in the session's spend. "+
-		"Once the reservation has expired, settle it with `task session reservation resolve %d --usd %.6f`.", a.id, a.ref, a.sid, why, total, a.id, total), chatevents.SeverityError)
+// atLeast says the figure is the least the run is charged (its whole grant: no usable cost was reported), not a measured cost.
+func (c *Conductor) noticeUnrecorded(a *runAcct, total float64, why error, atLeast bool) {
+	what := "the run cost"
+	if atLeast {
+		what = "no usable cost was reported, so the run is charged at least its whole grant:"
+	}
+	c.notice("mission.reservation_lost", fmt.Sprintf("The budget reservation #%d of %s on session #%d was not settled (%v); %s $%.6f in total, of which part may not be in the session's spend. "+
+		"Once the reservation has expired, settle it with `task session reservation resolve %d --usd %.6f`.", a.id, a.ref, a.sid, why, what, total, a.id, total), chatevents.SeverityError)
 }
 
 // accountingLost stops the worker whose row is gone. A handle that is no longer the worker's current run (its run ended
@@ -383,7 +393,7 @@ func (c *Conductor) accountingLost(w *worker, a *runAcct) {
 	total := max(a.peak, a.final)
 	w.task.spendMu.Unlock()
 	if a.mode == modeReserve {
-		c.noticeUnrecorded(a, total, tasks.ErrReservationLost)
+		c.noticeUnrecorded(a, total, tasks.ErrReservationLost, false)
 	} else {
 		c.notice("mission.accounting_lost", fmt.Sprintf("The accounting registration of %s on session #%d was lost (a reservation took the session): the worker is stopped.", a.ref, a.sid), chatevents.SeverityError)
 	}
