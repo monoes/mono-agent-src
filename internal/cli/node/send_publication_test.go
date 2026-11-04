@@ -5,10 +5,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/browserctl"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/hilsend"
+	publicationnodes "github.com/monoes/mono-agent/internal/nodes/publication"
 	"github.com/monoes/mono-agent/internal/orgsign"
 	"github.com/monoes/mono-agent/internal/publication"
 	"github.com/monoes/mono-agent/internal/workflow"
@@ -102,5 +105,44 @@ func TestAnApprovedSendsRunSpendsItsApproval(t *testing.T) {
 	}
 	if claim, err := hilsend.ClaimPublicationApproval(ctx, db.DB, "default", id, recorded[0]); err != nil || claim != nil {
 		t.Errorf("the send's own publication again: %v %v", claim, err)
+	}
+}
+
+// `node run publication.register` asks the turn-aware gate once and hands the node the verdict: a process
+// inside a coder turn that cleared its markers registers only what an approved send made, the user's own
+// terminal registers as before, and a node other than the register node is not asked.
+func TestNodeRunRegisterTakesTheTurnAwareVerdict(t *testing.T) {
+	asTheOperator(t)
+	d := testDeps(nodeVaultTestDB(t), "default", false)
+	d.BuildRegistry = func(*sql.DB) *workflow.NodeTypeRegistry {
+		r := workflow.NewNodeTypeRegistry()
+		publicationnodes.RegisterAll(r)
+		return r
+	}
+	payload := `{"config":{"platform":"email","kind":"post","body":"hello"},"input":[{"json":{}}]}`
+	count := func() int {
+		db, err := d.OpenDB()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		entries, err := publication.NewStore(db.DB, "default").List(context.Background(), publication.Filter{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(entries)
+	}
+	asked := 0
+	opgate.SetForTest(t, func(bool) string { asked++; return "in a coder turn" })
+	out, err := runNodeSubcmdStdin(t, d, payload, "publication.register")
+	if err == nil || !strings.Contains(err.Error(), "needs an approved send") || !strings.Contains(err.Error(), "This run is not the user's: in a coder turn") {
+		t.Fatalf("in a turn: %v\n%s", err, out)
+	}
+	if n := count(); n != 0 || asked != 1 {
+		t.Fatalf("in a turn: %d publications registered, the gate asked %d times", n, asked)
+	}
+	opgate.SetForTest(t, func(bool) string { return "" })
+	if out, err = runNodeSubcmdStdin(t, d, payload, "publication.register"); err != nil || count() != 1 {
+		t.Fatalf("the user's terminal: %v\n%s (%d publications)", err, out, count())
 	}
 }

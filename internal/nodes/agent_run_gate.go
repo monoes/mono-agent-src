@@ -34,6 +34,10 @@ func (b *BrowserNode) RunRefusal(ctx context.Context) error {
 		return nil
 	}
 	why := operator.Refusal()
+	if why == "" {
+		// a command that ran this node and found its process an agent's without a marker (workflow.WithAgentCaller)
+		why = workflow.AgentCallerFrom(ctx)
+	}
 	if why == "" && workflow.AIAuthoredFrom(ctx) {
 		why = "it runs as a step the user hasn't approved"
 	}

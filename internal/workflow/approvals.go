@@ -53,6 +53,26 @@ func AIAuthoredFrom(ctx context.Context) bool {
 	return v
 }
 
+type agentCallerKey struct{}
+
+// WithAgentCaller carries, in ctx, the verdict of the command that runs a node: why the process that
+// runs it is not the user's own terminal (internal/cli/opgate.Refusal, decided once at the command's
+// entry). A node whose engine-level test cannot see that (a process inside a coder turn carries no
+// marker) reads it with AgentCallerFrom. An empty why leaves ctx as it is.
+func WithAgentCaller(ctx context.Context, why string) context.Context {
+	if why == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, agentCallerKey{}, why)
+}
+
+// AgentCallerFrom is why the command that runs this node decided its process is not the user's own
+// terminal, or "" when it carried no verdict (every run the engine starts).
+func AgentCallerFrom(ctx context.Context) string {
+	why, _ := ctx.Value(agentCallerKey{}).(string)
+	return why
+}
+
 // WithUnapproved marks ctx as a run of a definition the operator never
 // approved (WithAIAuthored) and keeps its file steps to FileGuard: out of
 // the hidden files of the home outside project, the profile's project
