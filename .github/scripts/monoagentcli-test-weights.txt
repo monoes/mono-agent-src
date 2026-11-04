@@ -4,6 +4,7 @@
 # not finished when that run hit its own 120m limit carry 26 x their non-race time (the median
 # race/non-race ratio). Only the relative sizes matter. A test missing from this file weighs the
 # median of the file. Refresh occasionally: nothing breaks if it goes stale, the split just drifts.
+TestABlankActorIsLimitedAndAnEmptyOneIsNotSet 1
 TestAChatBuiltWorkflowIsTheOperatorsOnlyOnceTheyActivateIt 6
 TestACommandWithItsOwnPreRunStillGetsTheGate 0
 TestADatabaseBeforeTheTurnBoundMigrationIsReadByTheGate 9
@@ -386,6 +387,8 @@ TestMCPCommandNeedsAProfileOnlyInGrantMode 0
 TestMCPCommandRefusesGrantModeWithAPIOnly 0
 TestMCPCommandRefusesGrantModeWithTheExposureFlag 0
 TestMCPCommandRefusesTasksOnlyWithAPIOnlyOrGrant 0
+TestMarkedCallersGetTheMarkerTextFromEveryFlavourOfTheGate 1
+TestMarkedCallersGetTheSameWhyFromTheTurnAwareGateAsFromTheMarkerCheck 2
 TestMarkerOnlyChecksAreFoundWhateverTheImportIsCalled 0
 TestMessageTemplateCommandKeepsTemplateAlias 0
 TestMissionToggleIsRefusedByTheProductionGate 54
@@ -423,6 +426,11 @@ TestOperatorOnlyVerbsRefuseTheEnvironmentContexts 9
 TestOperatorTaskOpsAreRefusedByTheProductionGate 211
 TestOperatorTaskOpsPassTheGateForTheOperator 23
 TestOrgAdapterWiring 5
+TestOrgApproveOfASendingAutomationIsRefusedToAMarkedAgentAndToAProcessInATurn 2
+TestOrgAutonomyEndingAPauseSoonerIsRefusedToAMarkedAgentAndToAProcessInATurn 5
+TestOrgAutonomyFullIsRefusedToAMarkedAgentAndToAProcessInATurn 3
+TestOrgAutonomyWideningIsRefusedToAMarkedAgentAndToAProcessInATurn 4
+TestOrgGrantAddWithoutApprovalIsRefusedToAMarkedAgentAndToAProcessInATurn 2
 TestOrgLaunchesIssueAnOrgKindToken 0
 TestOrgRoleSetAccessRefusedInATurnReachesNoMonomindAndScopedStaysOpen 1
 TestOrgServeStartsTheGuardOnlyWhenItServes 0

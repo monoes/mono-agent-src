@@ -654,7 +654,7 @@ dangerous calls.
   `people messages send-draft|reject-draft`, `org role set-access ... full` and
   `org teardown-profile` (not `--dry-run`) also refuse a
   process inside a coder session's turn and one that holds an agent token
-  (`internal/cli/opgate`, SECURITY.md; the rest are tracked in issue 1333). `httpapi-token` is a reserved vault entry: only
+  (`internal/cli/opgate`, SECURITY.md; the rest are tracked in issue 1333). `org approve`, `org chat approve`, `org autonomy set|pause|resume` and `org grant add` stay open to the chat with their limits (no approval of a sending call, no `full` or widening, no shorter pause, no `--approval none`); a process inside a coder session's turn or holding an agent token gets the same limits as a marked agent. `httpapi-token` is a reserved vault entry: only
   the server and the user's own `secret add|update|rm|import` write it
   (`secrets.ErrReservedEntry` otherwise, checked in the secrets package;
   an agent's import skips it), and its bearer is the field `token`; tools
