@@ -23,6 +23,22 @@ func ancestorMarker() string {
 	return walkAncestors(os.Getppid(), processMarker, parentOf)
 }
 
+// unapprovedAncestor reports whether one of this process's parents carries
+// workflow.EnvUnapprovedRun (or the chain is too deep to tell): a child that
+// dropped its own copy still comes from an unapproved run.
+func unapprovedAncestor() bool {
+	if testing.Testing() && !ancestorsInTests {
+		return false
+	}
+	return walkAncestors(os.Getppid(), func(pid int) string {
+		env, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/environ")
+		if err == nil && bytes.Contains(append([]byte{0}, env...), []byte("\x00"+workflow.EnvUnapprovedRun+"=1\x00")) {
+			return workflow.EnvUnapprovedRun
+		}
+		return ""
+	}, parentOf) != ""
+}
+
 // walkAncestors climbs from pid through parent and names the first process
 // marker marks; "" when it reaches init (pid 1), ancestorsStopAt or a
 // parent it can't read first. A chain still climbing after ancestorMaxDepth

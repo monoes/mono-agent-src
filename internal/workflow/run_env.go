@@ -30,6 +30,19 @@ func RunEnv(env []string, executionID string) []string {
 const EnvUnapprovedRun = "MONOAGENT_UNAPPROVED_RUN"
 
 // RunEnvFor is RunEnv for the node run in ctx.
+// It also appends EnvUnapprovedRun when the run is of a definition the user
+// never approved (AIAuthoredFrom) or was called by one (CalledByUnapproved).
 func RunEnvFor(ctx context.Context, env []string, executionID string) []string {
-	return RunEnv(env, executionID)
+	env = RunEnv(env, executionID)
+	if RunIsUnapproved(ctx) {
+		env = append(env, EnvUnapprovedRun+"=1")
+	}
+	return env
+}
+
+// RunIsUnapproved reports whether the run in ctx is of a definition the user
+// never approved, or was called by one.
+func RunIsUnapproved(ctx context.Context) bool {
+	_, called := CalledByUnapproved(TriggerDataFrom(ctx))
+	return AIAuthoredFrom(ctx) || called
 }

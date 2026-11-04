@@ -134,3 +134,37 @@ func TestWalkAncestors(t *testing.T) {
 		t.Errorf("ancestorTooDeep = %q", ancestorTooDeep)
 	}
 }
+
+// A helper process: prints what ApprovedWorkflowChild says there.
+func TestApprovedChildHelper(t *testing.T) {
+	if os.Getenv("OPERATOR_TEST_APPROVED_HELPER") == "" {
+		t.Skip("helper process")
+	}
+	ancestorsInTests = true
+	ancestorsStopAt, _ = strconv.Atoi(os.Getenv("OPERATOR_TEST_APPROVED_HELPER"))
+	fmt.Printf("approved=%v\n", ApprovedWorkflowChild())
+}
+
+// A child cannot downgrade itself by dropping its own copy of the
+// unapproved-run mark: a parent still carries it.
+func TestAParentsUnapprovedMarkKeepsAChildUnapproved(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh")
+	}
+	helper := fmt.Sprintf("env -u %s OPERATOR_TEST_APPROVED_HELPER=%d %q -test.run='^TestApprovedChildHelper$'; true", workflow.EnvUnapprovedRun, os.Getpid(), os.Args[0])
+	for _, c := range []struct {
+		parent []string
+		want   string
+	}{
+		{[]string{workflow.EnvWorkflowRun + "=exec-1", workflow.EnvUnapprovedRun + "=1"}, "approved=false"},
+		{[]string{workflow.EnvWorkflowRun + "=exec-1"}, "approved=true"},
+	} {
+		cmd := exec.Command(sh, "-c", helper)
+		cmd.Env = append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME")}, c.parent...)
+		out, err := cmd.CombinedOutput()
+		if err != nil || !strings.Contains(string(out), c.want) {
+			t.Errorf("parent %v: %v\n%s\nwant %s", c.parent, err, out, c.want)
+		}
+	}
+}

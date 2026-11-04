@@ -208,6 +208,9 @@ func (n *SSHNode) Execute(ctx context.Context, input workflow.NodeInput, config 
 		}
 		opened.Store(true)
 		_ = s.Setenv(workflow.EnvWorkflowRun, workflow.RunMarker(input.ExecutionID))
+		if workflow.RunIsUnapproved(ctx) {
+			_ = s.Setenv(workflow.EnvUnapprovedRun, "1")
+		}
 		return s, nil
 	})
 	if err != nil {
@@ -216,6 +219,9 @@ func (n *SSHNode) Execute(ctx context.Context, input workflow.NodeInput, config 
 	defer session.Close()
 	if exportsMarker(target) {
 		command = markedCommand(input.ExecutionID, command)
+		if workflow.RunIsUnapproved(ctx) {
+			command = "export " + workflow.EnvUnapprovedRun + "=1; " + command
+		}
 	}
 
 	var stdoutBuf, stderrBuf bytes.Buffer
