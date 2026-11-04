@@ -64,11 +64,18 @@ func (p policySink) Record(ctx context.Context, kind, detail string) error {
 		if err != nil {
 			return err
 		}
+		done := false
+		defer func() {
+			if !done {
+				_ = tx.Rollback() // also when the appender panics: the loop recovers, the write lock must not stay held
+			}
+		}()
 		if err := p.app.AppendAuditTx(ctx, tx, p.profile, p.gen, kind, detail); err != nil {
-			_ = tx.Rollback()
 			return err
 		}
-		return tx.Commit()
+		err = tx.Commit()
+		done = err == nil
+		return err
 	}
 	if p.seq == nil {
 		return errors.New("strategy audit: no witnessed sequence is wired")
