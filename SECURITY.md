@@ -2082,7 +2082,10 @@ that works a task acts on them. The defences:
   `automation doctor accept-repair`, `record verify`, `record replay` (not `--dry-run`),
   `record save` (a refused process also reads no vault secret for a recording),
   `browser allow add|remove`, `browser permissions set|site`, `coder queue add|start`
-  and `coder projects map|unmap`, and the profile and people commands:
+  and `coder projects map|unmap`, the two organisation commands nothing in a turn runs,
+  `org role set-access ... full` and `org teardown-profile` (not `--dry-run`; it revokes
+  the profile's API keys, org grants and endpoints; not a repair verb, because it needs the
+  profile's database to read and so cannot help a damaged one), and the profile and people commands:
   `profile update` (rename, re-icon), `profile delete`, `profile backups purge`,
   `profile move`, `profile create --root-dir`, `profile documents remove --delete-file`
   (the flag only; without it the document is removed from MonoAgent and the file stays),
@@ -2164,7 +2167,7 @@ that works a task acts on them. The defences:
   (asking the host over its peer-credential socket) is a separate, later design;
   (2) this
   change covers the commands listed above only: many other operator-only commands
-  (sign-in, the organisation guards,
+  (sign-in, the other organisation guards (approve, autonomy, grant add, sign),
   node runs, people import and publications; tracked in issue 1333) still
   use only the operator marker check and are NOT turn-aware,
   so this does not make every operator-only command refuse a turn; (3) the test that
