@@ -2158,6 +2158,17 @@ that works a task acts on them. The defences:
   so this does not make every operator-only command refuse a turn; (3) the test that
   keeps the wired commands in one table counts wirings per file and misses a method
   value or a verb that never calls the gate: an inventory, not a coverage proof.
+  A browser bridge started from a shell inside a coder session's turn is refused for
+  the operator-only verbs it runs for the browser (`coder queue add`, `record save`,
+  `record verify`), because the gate follows the process ancestry and the bridge does not
+  hide it from its children; restart it from your own terminal. The supported bridge is the
+  systemd user service. The bridge itself stays a gate-free path for anything that
+  authenticates to it (the pairing token): it runs `record save` and `coder queue add` as the
+  operator for such a caller, so the token is as sensitive as the commands behind it.
+  `automation install <dir> --local` (and `automation new --install`) installs with local
+  trust, which `automation trust` no longer lets a turn grant; it is still open to a turn
+  because the shipped package-writing skill tells an agent to run it, and is held for the
+  owner's decision (issue 1333).
   A bound worker's v2 task token (`mat2-`) is delivered through the credential frame
   into an in-process stash, so no environment variable carries it and neither the
   token-variable layer nor the marker check can see it; the only process that holds

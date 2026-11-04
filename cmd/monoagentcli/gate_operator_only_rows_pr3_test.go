@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"testing"
 
@@ -81,5 +82,102 @@ func TestRecordReplayDryRunStaysOpenInsideACoderTurn(t *testing.T) {
 	err := opRow{build: newRecordCmd, args: []string{"replay", "no-such-recording", "--dry-run"}}.run(t, cfg)
 	if err == nil || isOperatorOnly(err) {
 		t.Fatalf("replay --dry-run in a turn: %v (want the recording not found, not a refusal)", err)
+	}
+}
+
+// browserRunTrustFamilies are the command families PR 3 converted verbs in. Every leaf command of them is
+// either a row of operatorOnlyRows (it asks the gate) or listed in openInTheBrowserRunTrustFamilies with the
+// reason it does not: a converted verb whose row is deleted, and a new verb nobody decided about, both fail.
+var browserRunTrustFamilies = []string{"automation", "record", "browser allow", "browser permissions", "coder queue", "coder projects"}
+
+const (
+	readOnlyVerb  = "read-only or shows what exists"
+	notDecided    = "not part of the browser-run trust change; whether it is the user's alone is not decided (issue 1333)"
+	heldInstall   = "held: class B. The shipped action-template-generator skill, `crawl` and `ref crawling` tell an agent to run `automation install <id> --local --yes`; waits for the owner's answer (issue 1333)"
+	opensNoRecord = "touches only the item or recording it names and runs nothing in a browser"
+)
+
+var openInTheBrowserRunTrustFamilies = map[string]string{
+	"automation list": readOnlyVerb, "automation show": readOnlyVerb, "automation validate": readOnlyVerb,
+	"automation test": readOnlyVerb + " (--live is not supported)", "automation export": readOnlyVerb, "automation pack": readOnlyVerb,
+	"automation install": heldInstall, "automation new": heldInstall + " (--install installs as local)",
+	"automation enable": notDecided, "automation disable": notDecided, "automation uninstall": notDecided,
+	"automation restore": notDecided, "automation rollback": notDecided,
+	"browser allow list": readOnlyVerb, "coder projects list": readOnlyVerb,
+	"coder queue list": readOnlyVerb, "coder queue show": readOnlyVerb, "coder queue image": readOnlyVerb,
+	"coder queue dismiss": opensNoRecord,
+	"record list":         readOnlyVerb, "record show": readOnlyVerb, "record api": readOnlyVerb,
+	"record analyze": notDecided + " (the AI call reads a recording; it runs nothing in a browser)", "record delete": opensNoRecord,
+}
+
+func TestEveryLeafOfTheBrowserRunTrustFamiliesIsARowOrAnAcknowledgedOpenVerb(t *testing.T) {
+	all, _ := treeKeys(t)
+	rows := map[string]bool{}
+	for _, r := range operatorOnlyRows() {
+		rows[r.path] = true
+	}
+	root := newRootCmd()
+	var bad []string
+	seen := map[string]bool{}
+	for _, c := range allCommands(root) {
+		k := commandKey(c)
+		in := false
+		for _, f := range browserRunTrustFamilies {
+			in = in || k == f || strings.HasPrefix(k, f+" ")
+		}
+		if !in || c.HasSubCommands() || c.Hidden {
+			continue
+		}
+		seen[k] = true
+		_, open := openInTheBrowserRunTrustFamilies[k]
+		switch {
+		case rows[k] && open:
+			bad = append(bad, k+": both a row and an open verb")
+		case !rows[k] && !open:
+			bad = append(bad, k+": a leaf of a converted family with no row and no entry in openInTheBrowserRunTrustFamilies")
+		}
+	}
+	for k, why := range openInTheBrowserRunTrustFamilies {
+		if !all[k] || !seen[k] {
+			bad = append(bad, k+": listed as open, but not a leaf command of the tree")
+		}
+		if why == "" {
+			bad = append(bad, k+": an open verb needs a reason")
+		}
+	}
+	for _, r := range operatorOnlyRowsPR3() {
+		if !seen[r.path] {
+			bad = append(bad, r.path+": a PR 3 row whose command is not a leaf of a converted family")
+		}
+	}
+	sort.Strings(bad)
+	if len(bad) > 0 {
+		t.Fatalf("the converted families, the rows and the open verbs disagree:\n%s", strings.Join(bad, "\n"))
+	}
+}
+
+// The flags of `automation trust` that change a package's trust gate in every spelling, and the bare form
+// (which shows the package) stays open to a process the gate refuses.
+func TestAutomationTrustGatesEveryFlagAndStaysOpenToShow(t *testing.T) {
+	needAncestry(t)
+	for _, flag := range []string{"--scripts", "--no-scripts", "--live", "--no-live"} {
+		cfg := opEnv(t)
+		markThisProcessAsACoderTurn(t, cfg)
+		err := opRow{build: newAutomationCmd, args: []string{"trust", flag, "no-such-package"}}.run(t, cfg)
+		requireOperatorOnly(t, err)
+		if !strings.Contains(err.Error(), "coder session's turn") {
+			t.Errorf("trust %s in a turn: %v", flag, err)
+		}
+	}
+	cfg := opEnv(t)
+	markThisProcessAsACoderTurn(t, cfg)
+	err := opRow{build: newAutomationCmd, args: []string{"trust", "no-such-package"}}.run(t, cfg)
+	if err == nil || isOperatorOnly(err) {
+		t.Fatalf("trust show in a turn: %v (want the package not found, not a refusal)", err)
+	}
+	// both flags of a pair are a usage error before any gate, for everyone
+	cfg = opEnv(t)
+	if err := (opRow{build: newAutomationCmd, args: []string{"trust", "--live", "--no-live", "x"}}).run(t, cfg); err == nil || isOperatorOnly(err) {
+		t.Fatalf("--live --no-live: %v", err)
 	}
 }
