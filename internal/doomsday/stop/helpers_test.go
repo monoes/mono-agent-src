@@ -40,6 +40,26 @@ func (c *fakeClock) After(d time.Duration) <-chan time.Time {
 	return ch
 }
 
+// waiters is how many timers are registered and not yet fired.
+func (c *fakeClock) waiters() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.subs)
+}
+
+// waitTimers spins until more than before timers are registered: the code under test has reached its wait on the clock, so
+// an Advance after it cannot be lost (an Advance before it fires nothing and the wait then never ends).
+func waitTimers(t *testing.T, c *fakeClock, before int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for c.waiters() <= before {
+		if time.Now().After(deadline) {
+			t.Fatal("the code under test never waited on the clock")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 func (c *fakeClock) Advance(d time.Duration) {
 	c.mu.Lock()
 	c.now = c.now.Add(d)

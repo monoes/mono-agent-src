@@ -21,6 +21,14 @@ import (
 	"github.com/monoes/mono-agent/internal/operator"
 )
 
+// UnplacedPrefix starts the reason of a process the gate could not place (the database or the turn
+// registry cannot be read): the refusal is then not about who it is, and a retry or a repair can change it.
+// cmd/monoagentcli words the reason with it, and a test there keeps the two in step.
+const UnplacedPrefix = "cannot tell whether a coder session's turn runs this command ("
+
+// Unplaced says whether why, a Refusal, is the reason of a process that could not be placed.
+func Unplaced(why string) bool { return strings.HasPrefix(why, UnplacedPrefix) }
+
 // body answers for one process; recovery selects the recovery flavour.
 type body func(recovery bool) string
 
@@ -81,7 +89,26 @@ func Register(f func(recovery bool) string) {
 	if fn := runtime.FuncForPC(pc); !ok || fn == nil || !(strings.HasPrefix(fn.Name(), "main.") || strings.HasPrefix(fn.Name(), "github.com/monoes/mono-agent/cmd/monoagentcli.")) {
 		panic("opgate.Register may only be called from cmd/monoagentcli")
 	}
+	install(f)
+}
+
+// install makes f the registered body and the turn check operator.ApprovingContext consults, so a
+// process that registers no body approves by marker alone. The check is the verdict of Refusal, and
+// anything that goes wrong in it (a panic on an unset database path) counts as inside a turn.
+func install(f body) {
 	registered = f
+	if f == nil {
+		operator.SetTurnVerdict(nil)
+		return
+	}
+	operator.SetTurnVerdict(func() (why string) {
+		defer func() {
+			if recover() != nil {
+				why = operator.UnplacedPrefix
+			}
+		}()
+		return f(false)
+	})
 }
 
 // SetForTest replaces the registered body for the rest of the test; nil restores the default. It
@@ -92,6 +119,7 @@ func SetForTest(t testing.TB, f func(recovery bool) string) {
 		panic("opgate.SetForTest is a test seam and may only be used from a test binary")
 	}
 	prev, prevRecovery := registered, recoveryBody
-	registered, recoveryBody = f, nil // a stand-in body answers for both flavours
-	t.Cleanup(func() { registered, recoveryBody = prev, prevRecovery })
+	install(f)
+	recoveryBody = nil // a stand-in body answers for both flavours
+	t.Cleanup(func() { install(prev); recoveryBody = prevRecovery })
 }

@@ -39,6 +39,30 @@ func TestRegisterRefusesAnyCallerOutsideCmdMonoagentcli(t *testing.T) {
 	Register(func(bool) string { return "" })
 }
 
+// The registered body is also the turn check operator.ApprovingContext consults; a body that panics
+// counts as inside a turn, and clearing the body (or the test's cleanup) removes the check.
+func TestTheRegisteredBodyIsTheApprovalTurnCheck(t *testing.T) {
+	SetForTest(t, func(bool) string { return "in a turn" })
+	if operator.InTurn() == "" {
+		t.Fatal("the registered body is not the approval turn check")
+	}
+	SetForTest(t, func(bool) string { panic("no database path") })
+	if operator.InTurn() == "" {
+		t.Fatal("a panicking body did not fail to the in-a-turn answer")
+	}
+	SetForTest(t, nil)
+	if operator.InTurn() != "" {
+		t.Fatal("with no body the turn check is still installed")
+	}
+}
+
+func TestSetForTestRestoresTheApprovalTurnCheck(t *testing.T) {
+	t.Run("inner", func(t *testing.T) { SetForTest(t, func(bool) string { return "x" }) })
+	if operator.InTurn() != "" {
+		t.Fatal("the cleanup left the turn check installed")
+	}
+}
+
 // SetForTest replaces BOTH flavours: a recovery body registered earlier (the real tree's busy-aware check) is
 // gone for the rest of the test and comes back afterwards, so a test's stand-in body is never bypassed by it.
 func TestSetForTestClearsTheRecoveryBodyOfAnEarlierRegistration(t *testing.T) {

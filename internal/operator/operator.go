@@ -27,6 +27,8 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 
@@ -159,14 +161,144 @@ func Refusal() string {
 	return why + " (" + inheritedHint + ")"
 }
 
+// turnVerdict says why this process runs inside a coder session's turn ("" when it does not). Only
+// a process that registered the turn-aware gate (internal/cli/opgate.Register, the command line)
+// has one; every other process (the app, the daemon, MCP servers, library use) judges by Marker alone.
+var turnVerdict func() string
+
+// SetTurnVerdict installs the turn check ApprovingContext and NotApproving consult after Marker;
+// nil removes it. It is called from opgate only, never at package init: the check may open the
+// database, and operator must stay free of it.
+func SetTurnVerdict(f func() string) { turnVerdict = f }
+
+// InTurn says why this process counts as a coder turn's although it carries no marker (a turn whose
+// whole process chain was stripped of its markers): "" when it does not, or when no turn check is
+// installed.
+func InTurn() string {
+	if turnVerdict == nil {
+		return ""
+	}
+	return turnVerdict()
+}
+
+// UnplacedPrefix starts the verdict text of a process the turn check could not place (the database or
+// a turn-registry entry could not be read): the one cause whose fix is a retry, not an approval.
+const UnplacedPrefix = "cannot tell whether a coder session's turn runs this command"
+
+// verdict is the answer to "may this process approve?", asked once per command and carried in the
+// context ApprovingContext returns, so the write and the note read the same answer.
+type verdict struct {
+	why    string // "" approves; else the cause: Refusal's text for a marker, the turn check's own text otherwise
+	marked bool   // a marker names the process: its output stays as it was, no note
+}
+
+type verdictKey struct{}
+
+func verdictIn(ctx context.Context) *verdict {
+	v, _ := ctx.Value(verdictKey{}).(*verdict)
+	return v
+}
+
+func askVerdict() *verdict {
+	if Marker() != "" {
+		return &verdict{why: Refusal(), marked: true}
+	}
+	return &verdict{why: InTurn()}
+}
+
+// NotApproving reports whether a publication made by this process must not record the operator's
+// approval: an agent runs it (Marker) or it runs inside a coder turn (InTurn). A person at their own
+// terminal is the only process that approves.
+func NotApproving() bool { return askVerdict().why != "" }
+
 // ApprovingContext makes the publication that is made with the returned context also record its
 // resulting definition as the operator's, in the same commit as the rows (unless an agent is
-// running this command). It is the only way an operator command approves a workflow: the approval
-// is written with the change that makes the definition (a save, or the activation), never in a step
-// after it, so it cannot cover a change made in between.
+// running this command, or this process runs inside a coder turn: NotApproving). It is the only way
+// an operator command approves a workflow: the approval is written with the change that makes the
+// definition (a save, or the activation), never in a step after it, so it cannot cover a change made
+// in between. The verdict is asked once and rides in the returned context: pass that context to
+// NoteUnapproved and CannotApproveNote so a note never disagrees with what was written.
 func ApprovingContext(ctx context.Context) context.Context {
-	if Marker() != "" {
+	v := verdictIn(ctx)
+	if v == nil {
+		v = askVerdict()
+		ctx = context.WithValue(ctx, verdictKey{}, v)
+	}
+	if v.why != "" {
 		return ctx
 	}
 	return workflow.WithApproval(ctx)
+}
+
+// Approves reports whether ctx, as ApprovingContext returned it, approves the publication made with it.
+func Approves(ctx context.Context) bool {
+	v := verdictIn(ctx)
+	return v != nil && v.why == ""
+}
+
+// cause says why this process did not approve and how the user fixes it, from the verdict text itself.
+func (v *verdict) cause(id string) string {
+	if strings.HasPrefix(v.why, UnplacedPrefix) {
+		return v.why + ". The database or the turn registry could not be read, so nothing was approved: wait and retry, " +
+			"or fix the problem the message names (`monoagentcli doctor` lists it); approving from another terminal is refused for the same reason until it reads"
+	}
+	return v.why + ". To approve it, run `monoagentcli workflow activate " + id + "` in your own terminal, or approve it in the app"
+}
+
+// UnapprovedNote is the line a command prints when it saved a workflow without approving it
+// because the process is not the operator's own terminal; ctx is what ApprovingContext returned.
+// "" for the operator, for a marked process (whose output stays as it was) and for a ctx that did
+// not come from ApprovingContext. what is "saved", "imported" and so on.
+func UnapprovedNote(ctx context.Context, what, id string) string {
+	v := verdictIn(ctx)
+	if v == nil || v.marked || v.why == "" {
+		return ""
+	}
+	return "this workflow was " + what + " but NOT approved: " + v.cause(id) + "."
+}
+
+// CannotApproveNote is said up front by a command that needs the operator's approval to go on: an
+// activation (which only succeeds for a definition already approved) or, with newWorkflow, a template
+// run (whose temporary workflow is new, so it has no approval and the run is refused). "" when this
+// process approves or is marked.
+func CannotApproveNote(ctx context.Context, id string, newWorkflow bool) string {
+	v := verdictIn(ctx)
+	if v == nil || v.marked || v.why == "" {
+		return ""
+	}
+	tail := "Activation only succeeds for a definition you already approved."
+	if newWorkflow {
+		tail = "The temporary workflow this run creates is new and cannot be approved here, so the run will be refused."
+	}
+	return "this process cannot approve a workflow: " + v.cause(id) + ". " + tail
+}
+
+// NoteUnapproved prints the UnapprovedNote on stderr (nothing for the operator and for a marked
+// process), and returns it for the --json result.
+func NoteUnapproved(ctx context.Context, what, id string) string {
+	note := UnapprovedNote(ctx, what, id)
+	if note != "" {
+		fmt.Fprintln(os.Stderr, "Note: "+note)
+	}
+	return note
+}
+
+// WithNote is v, or, when note is not empty, v with "approved": false and "approval_note": note added to
+// its JSON object. The operator's and a marked process's result is v itself, byte for byte.
+func WithNote(v any, note string) any {
+	if note == "" {
+		return v
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return v
+	}
+	var m map[string]json.RawMessage
+	if json.Unmarshal(raw, &m) != nil {
+		return v
+	}
+	m["approved"] = json.RawMessage("false")
+	n, _ := json.Marshal(note)
+	m["approval_note"] = n
+	return m
 }

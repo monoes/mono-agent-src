@@ -12,7 +12,7 @@ import (
 // countMarkerOnlyChecks counts, in one Go source, the marker-only operator checks that T1 (the guard
 // of gate_operator_only_guard_test.go) allow-lists: operator.Refusal, Marker, MarkerEnv and Caller through the
 // package internal/operator under whatever local name it is imported (a renamed or a dot import
-// included), revealgate.RefuseMarkerOnly likewise, and the identifiers notOperator and IsAgentContext.
+// included), and the identifiers notOperator and IsAgentContext.
 // It reads the syntax tree, so comments and strings never count and an import alias cannot hide a call.
 func countMarkerOnlyChecks(t testing.TB, name string, src []byte) int {
 	t.Helper()
@@ -22,8 +22,7 @@ func countMarkerOnlyChecks(t testing.TB, name string, src []byte) int {
 	}
 	// package path -> the selectors that are marker-only checks
 	watched := map[string]map[string]bool{
-		"github.com/monoes/mono-agent/internal/operator":       {"Refusal": true, "Marker": true, "MarkerEnv": true, "Caller": true},
-		"github.com/monoes/mono-agent/internal/cli/revealgate": {"RefuseMarkerOnly": true},
+		"github.com/monoes/mono-agent/internal/operator": {"Refusal": true, "Marker": true, "MarkerEnv": true, "Caller": true},
 	}
 	local := map[string]map[string]bool{} // local package name -> watched selectors
 	dot := map[string]bool{}              // selectors reachable unqualified through a dot import

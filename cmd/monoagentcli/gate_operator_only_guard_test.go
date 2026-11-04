@@ -16,7 +16,7 @@ import (
 // cannot slip past it. Three guards, each with a list that shrinks as the remaining verbs are converted:
 //
 //	T1 no source outside internal/cli/opgate (and internal/operator) asks the marker-only check
-//	   (operator.Refusal, operator.Marker, notOperator, IsAgentContext, revealgate.RefuseMarkerOnly)
+//	   (operator.Refusal, operator.Marker, notOperator, IsAgentContext)
 //	   except where a reason says why;
 //	T2 every command whose help carries the operator-only text has a row of operatorOnlyRows or a
 //	   pending entry with a reason, and the cmOperatorOnly families of the client-mode table are each
@@ -42,9 +42,7 @@ type allowed struct {
 // occurrences and the reason. A new occurrence, or an entry that no longer matches, fails the test.
 var legacyMarkerChecks = map[string]allowed{
 	"cmd/monoagentcli/hil.go":                       {6, gateImp + " (notOperator in gateVerdict); publication register is held: class B"},
-	"internal/cli/node/run.go":                      {3, heldB + " (node run, node run vault.secret_get)"},
-	"internal/cli/secret/secret.go":                 {2, heldB + " (secret reveal under a Reveal grant)"},
-	"internal/cli/revealgate/revealgate.go":         {1, "RefuseMarkerOnly, the marker-only helper of the held class B reveal paths"},
+	"internal/cli/node/run.go":                      {2, heldB + " (node run: the credential destinations and the unapproved step; vault.secret_get is converted)"},
 	"internal/cli/people/import.go":                 {4, heldB + " (people import)"},
 	"internal/cli/org/sign.go":                      {2, "class C: org sign has its own signature guard; not decided (issue 1333)"},
 	"internal/nodes/agent_run_gate.go":              {1, heldB + " (node run of browser packages)"},
@@ -62,7 +60,6 @@ var legacyMarkerChecks = map[string]allowed{
 	"internal/cli/secret/update.go":                 {1, reader + " (warnDropped)"},
 	"internal/cli/summary/summary.go":               {1, reader},
 	"internal/cli/workflowaitask/workflowaitask.go": {1, reader + " (the audit line's actor)"},
-	"internal/cli/workflowedit/node.go":             {1, reader},
 	"internal/cli/workflowmanage/manage.go":         {1, reader},
 	"internal/cli/workflowrun/execution.go":         {2, reader},
 	"internal/cli/workflowrun/summary.go":           {2, reader},
