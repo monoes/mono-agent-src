@@ -19,6 +19,9 @@ var oauth1Browser = openBrowser
 // oauth_token_secret, and extras such as screen_name). Timeout defaults to
 // 5 minutes.
 func RunOAuth1Flow(ctx context.Context, cfg OAuth1Config, consumerKey, consumerSecret string, timeout time.Duration, progress func(msg, kind string)) (map[string]string, error) {
+	if err := refuseBrowserOpen(); err != nil {
+		return nil, err
+	}
 	if timeout == 0 {
 		timeout = 5 * time.Minute
 	}
