@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"sort"
@@ -126,6 +127,10 @@ type accessNode struct{ id, name, typ string }
 // not hold.
 var hostCheckedNodes = map[string]bool{"http.request": true, "http.graphql": true, "mcp.call": true, "trigger.sse": true}
 
+// ChecksHostAtSend reports whether a node of type typ holds what it sends to
+// the grant's hosts itself, at the send (CheckSendHost).
+func ChecksHostAtSend(typ string) bool { return hostCheckedNodes[typ] }
+
 // WithAccessNodeType names the type of the step ctx runs. Under a grant that
 // names hosts (not --any-host) only the types with a destination check may
 // read secrets. A context with no type (no step) is not held to this.
@@ -155,10 +160,33 @@ func UnderAgentAccess(ctx context.Context) bool { return accessOf(ctx) != nil }
 // ordinary text.
 const MinTrackedLen = 6
 
+// AgentCannotRead is the one predicate for the vault entries no agent
+// access reads, whatever the grant says: the HTTP API's bearer
+// (ReservedEntry) and the agent tokens (AgentTokenPrefix), in any case and
+// with spaces around the name. permit (a run's @secret reference), CanAgentReveal
+// (a plaintext read) and the grant's own --secret list all use it, so the
+// gates cannot disagree about which entries are off limits.
+func AgentCannotRead(name string) bool { return reservedName(name) }
+
+// ErrGrantNamesReserved is the refusal of a grant that names an entry
+// AgentCannotRead.
+var ErrGrantNamesReserved = errors.New("agent access cannot cover this entry: the HTTP API's bearer (httpapi-token) and the agent tokens (agent-token-*) are never read by an agent")
+
+// ValidateGrantSecrets refuses a grant that names an entry agents can
+// never read: naming it would suggest a cover the gates do not give.
+func ValidateGrantSecrets(names []string) error {
+	for _, n := range names {
+		if AgentCannotRead(n) {
+			return fmt.Errorf("%q: %w", strings.TrimSpace(n), ErrGrantNamesReserved)
+		}
+	}
+	return nil
+}
+
 // permit is the grant's say on reading secret name now; it fails closed.
 func (a *accessState) permit(ctx context.Context, ref, name string) error {
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(name)), AgentTokenPrefix) {
-		return &refusedError{ref + " is not read from the vault: agent tokens are never read by a run"}
+	if AgentCannotRead(name) {
+		return &refusedError{ref + " is not read from the vault: it is the HTTP API's bearer or an agent token, which a run never reads"}
 	}
 	g, err := GetAgentAccess(ctx, a.db, a.profileID)
 	if err != nil {
@@ -482,6 +510,9 @@ func SetAgentAccessGrant(ctx context.Context, db *sql.DB, profileID string, g Ac
 	if g.Level == "reveal" && !g.AnyHost {
 		return fmt.Errorf("reveal requires --any-host: plaintext cannot be bound to a destination")
 	}
+	if err := ValidateGrantSecrets(g.Secrets); err != nil {
+		return err
+	}
 	names, _ := json.Marshal(g.Secrets)
 	hosts, _ := json.Marshal(g.Hosts)
 	var n, h interface{}
@@ -565,7 +596,7 @@ func CanAgentReveal(ctx context.Context, db *sql.DB, profileID, name string) (bo
 	if err != nil {
 		return false, err
 	}
-	return g != nil && g.Level == "reveal" && g.AnyHost && g.allowsSecret(name) && !IsReservedEntry(name), nil
+	return g != nil && g.Level == "reveal" && g.AnyHost && g.allowsSecret(name) && !AgentCannotRead(name), nil
 }
 
 // AuthorizeAgentReveal rechecks policy and records a name-only audit before

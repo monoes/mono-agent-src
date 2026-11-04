@@ -24,6 +24,14 @@ export MONOAGENT_DEV_ENFORCE_FROM=2999-01-01T00:00:00Z
 export E2E_PASSWORD='S3cr3t-Pa55word!'
 export E2E_SITE="http://crm.e2e.test:$E2E_FIXTURE_PORT"
 
+# The port override is honoured only for the operator's own terminal; from a marked
+# shell the CLI would fall back to the real bridge on 9222/9323. This stack starts
+# daemons that later scripts reach, so it needs ONE private network namespace for
+# the whole run (see mono_require_private_net), not one per script.
+# shellcheck source=../../scripts/lib/mono.sh
+. "$REPO_ROOT/scripts/lib/mono.sh"
+mono_require_private_net
+
 for p in "$E2E_BRIDGE_PORT" "$E2E_CDP_PORT" "$E2E_FIXTURE_PORT"; do
   if [ "$p" = 9222 ]; then
     echo "e2e: refusing to use port 9222 (the user's bridge)" >&2

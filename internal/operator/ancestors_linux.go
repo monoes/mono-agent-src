@@ -9,9 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"testing"
 
 	"github.com/monoes/mono-agent/internal/browserctl"
+	"github.com/monoes/mono-agent/internal/testmode"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -19,7 +19,7 @@ import (
 // init: processMarker, or ancestorTooDeep; "" when none does. A parent
 // whose /proc entries can't be read (another user's) ends the walk.
 func ancestorMarker() string {
-	if testing.Testing() && !ancestorsInTests {
+	if testmode.On && !ancestorsInTests {
 		return ""
 	}
 	return walkAncestors(os.Getppid(), processMarker, parentOf)

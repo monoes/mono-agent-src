@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Security: the TypeSafe Jev key no longer goes to a host the environment names, and its read is gated like a secret (a fix for marked agents too).** Any process that could run a Jev surface (`ai.choose`, `browser.jev`, `human_in_loop` auto-decide, `jev ask|models|key test`, the capture, people, inbox, retry, org-decider and `auto`-model surfaces) with its own `TYPESAFE_BASE_URL` received the stored key; the lookup also skipped the unapproved-step refusal and, under agent access, the grant check and the audit. Now an unapproved step reads the stored key only under agent access (checked, audited), and the key goes only to the TypeSafe host. **Behaviour change:** a stored key or a step's `api_key` used with a custom `TYPESAFE_BASE_URL` (a proxy or self-hosted TypeSafe) now fails with `TYPESAFE_BASE_URL ignored: it pairs only with TYPESAFE_API_KEY from your own terminal`; the override works with `TYPESAFE_API_KEY` from your own terminal, as https (or http to localhost). The Jev client no longer uses `HTTP_PROXY`/`HTTPS_PROXY`.
+
 - **A long list of task sessions renders a bounded strip.** The session tabs and tree draw the first 100 and offer "Show 100 more sessions"; the chosen session is always on screen.
 
 - **The app can delete a chat without stopping the processes it left running.** When a delete is kept because some of those processes are still running, the history panel offers "Delete anyway": it names the processes, asks again, and only then deletes the chat and leaves them running (the CLI's `--abandon-processes`). Nothing is left running without that second confirmation.

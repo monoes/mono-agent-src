@@ -331,6 +331,8 @@ Agents may inspect the level but cannot change it or clear its audit. Existing
 `on` / `off` commands remain aliases for scoped Use / Strict; existing grants
 migrate to Use. `--secret`, `--expires`, and Use's `--host` constraints still apply;
 Reveal requires any-host access because plaintext cannot be bound to a destination.
+Grants made before host binding read as `--any-host`; `secret agent-access` shows `host_binding`.
+`httpapi-token` and `agent-token-*` can never be named in a grant or read by an agent (`secrets.AgentCannotRead`).
 Every agent read under a grant is audited by name, never value (`secret agent-access
 audit`). Policy changes take effect on subsequent reads, including active runs;
 previously retrieved values cannot be recalled. Encryption on disk is unchanged.
@@ -658,10 +660,14 @@ dangerous calls.
   `people messages send-draft|reject-draft`, `org role set-access ... full` and
   `org teardown-profile` (not `--dry-run`) also refuse a
   process inside a coder session's turn and one that holds an agent token
-  (`internal/cli/opgate`, SECURITY.md; the rest are tracked in issue 1333). `org approve`, `org chat approve`, `org autonomy set|pause|resume` and `org grant add` stay open to the chat with their limits (no approval of a sending call, no `full` or widening, no shorter pause, no `--approval none`); a process inside a coder session's turn or holding an agent token gets the same limits as a marked agent. `people import` and `publication register` keep the limits a marked agent has (an import may not approve anyone for outreach; a registration needs an approved send, `--approval`) and now apply them to a process inside a coder session's turn that cleared its markers and to an agent token holder; `node run` decides once with the same gate and hands every node the verdict in its context: a process inside a turn that cleared its markers gets a marked agent's limits there (no destination host of its own for a connection's secret, an unapproved step, no non-builtin browser package). `httpapi-token` is a reserved vault entry: only
+  (`internal/cli/opgate`, SECURITY.md; the rest are tracked in issue 1333). `org approve`, `org chat approve`, `org autonomy set|pause|resume` and `org grant add` stay open to the chat with their limits (no approval of a sending call, no `full` or widening, no shorter pause, no `--approval none`); a process inside a coder session's turn or holding an agent token gets the same limits as a marked agent. `people import` and `publication register` keep the limits a marked agent has (an import may not approve anyone for outreach; a registration needs an approved send, `--approval`) and now apply them to a process inside a coder session's turn that cleared its markers and to an agent token holder; `node run` decides once with the same gate and hands every node the verdict in its context: a process inside a turn that cleared its markers gets a marked agent's limits there (no destination host of its own for a connection's secret, an unapproved step, no non-builtin browser package). `login <package>`, `login confirm` and `login names` stay open to the chat and to agents for a built-in package; a non-built-in package (`local`, `recorded`, an installed one) is refused to a marked agent, and now equally to a process inside a coder session's turn or holding an agent token. `httpapi-token` is a reserved vault entry: only
   the server and the user's own `secret add|update|rm|import` write it
   (`secrets.ErrReservedEntry` otherwise, checked in the secrets package;
-  an agent's import skips it), and its bearer is the field `token`; tools
+  an agent's import skips it; a process inside a coder session's turn, one
+  holding an agent token and one the gate cannot place get the same refusal as
+  a marked agent, and `secret update`'s dropped-field warning gives them the
+  count, not the names: a terminal started inside a turn can no longer write
+  the entry, run it from your own terminal), and its bearer is the field `token`; tools
   and workflows read secrets' metadata and write other entries as before.
   The `--help` of each of these says so ("The user's own: an agent, the
   chat or a workflow is refused"), and a nil operator check refuses
@@ -1926,6 +1932,34 @@ A second call on an unchanged state writes nothing more; work reopened after a p
 gets a new report and card when its integration check settles again. A `close_proposed`
 session event, written after the card, records that the card went out. Each
 mission worker's exec is capped by the session's remaining `budget_usd`.
+**Worker accounting modes (#1248, #1160; the operator switch is off by default).** A mission worker's run is accounted
+in ONE of two modes per session at a time: on the session's cap (the run reads what is left from one `Commitment`
+snapshot and its cost is added to the spend as it streams; the run registers in `task_session_cap_runs` while it
+runs, migration 157) or as a reservation (`ReserveExecAsk`: the grant is decided in the store's own transaction from the
+same commitment, the cost is charged into it as it streams and it is settled with the run's own final cost). The
+store refuses a reservation while a live cap run is registered on the session and a cap run while a live reservation
+exists, so two workers can never each hold the same dollar, across processes; a run that finds the other mode in flight
+follows it, and the operator-only conversation setting `mission_worker_reservations`
+(`coder sessions settings set CONVERSATION --patch '{"mission_worker_reservations":true}'`, written only through
+`coderhost.Store.UpdateSettings`) only picks the mode of an idle session, so flipping it mid-run changes nothing until the
+in-flight runs have drained. A setting that cannot be read means off, with one notice; a Conductor with no switch wired
+registers nothing and runs on the cap as before. A run's cost is what THAT run reported, never a difference of the
+worker's cumulative counter; a final cost below what the run streamed keeps the higher charge (a charge is never
+lowered) and the cap path's baseline is re-based to the counter, so the next run is charged in full. Cost the cap path has not
+recorded when a run enters reserve mode is recorded first (never inside the grant), and the run is refused until it is.
+What a run costs when it fails, by how far it got: a start failure (no start or usage event, Exec returned an error and
+no result) is $0, so a broken start retried N times costs nothing; a run that started (a start or usage event) and reported
+no cost is charged its whole grant, one that reported a cost is charged that cost (its peak); an ambiguous start (a result
+came back without a start event, no cost) is charged the whole grant, never an undercount. That includes a failure the real Exec returns as a result with no start event (for example an auth failure): each retry of it is charged the whole grant (owner policy), so the retries are bounded: after 3 start-less failures in a row on a session (`maxStartlessFailures`; a run that showed a start event resets the count; the count is per Conductor, not stored) the session is paused with the scheduler's existing park (only the operator resumes it), its workers are stopped, no run starts, and the operator gets one notice: "Session #N: the runtime failed 3 times without starting (last worker W); each failure was charged the whole grant ($T in total); check the login." A run with no start event that came back without an error AND without a done event (a runner that exits 0 having done nothing) counts as start-less too; a clean done with no start event is charged the grant but neither counted nor parked. The most a session loses to a start-less loop is 3 grants (default grant $1.00, or the turn's remaining worker budget) per Conductor plus the runs already in flight when the block is set (capped by the worker concurrency, once per block). The count is in memory: the pause survives a Conductor restart, but a restart loop with fewer than 3 failures per cycle can burn up to 2 grants per cycle, which the session's budget caps. The failed-settle notice of a run charged at its grant says "at least its whole grant" and names the grant. A run that reported a figure that is not a usable cost (not a number, negative, or above the store's $1e9 limit) is charged no less than its whole grant. The rows of every live worker
+are renewed on the watch tick whatever state the session is in (a paused session's runs go on). A charge that fails while
+streaming is noticed once per failure class and retried at the next renewal and at the settle, never per event; a cost that
+is not a finite non-negative number is ignored. The latch is a lease: a cap run that is alive but whose row lapsed (a machine
+suspended past lease plus grace, a forward clock jump) can let a reservation in until its next renewal finds it lost and
+stops it, so overspend is bounded by one run's cap; a reservation's own renewal does not look for cap runs, its money stays
+safe through the commitment. The row is renewed on the watch tick a third of its
+2-minute lease apart (a heartbeat of an earlier run cannot stop the next one: handles are fenced by row id); a lost row
+stops the worker and the operator is told its id and the run's cost, and settles it with
+`task session reservation resolve ID --usd N`. A settle that fails for good tells the operator the same way.
 Worker and verifier briefs fence foreign text in a per-brief random delimiter
 (`<<<DATA-xxxxxxxx` ... `DATA-xxxxxxxx>>>`). One task gets at most 6 workers per turn and 12
 in all, whichever route starts them. A mission closes only if the integration check's
@@ -2931,7 +2965,7 @@ a model's own answer or default through autonomy (`answer-`, `checkin-`, `master
 A model's answer is only text: it can never confirm a mission, approve a plan, close, resolve a gate or change a setting, access or
 budget (`coderhost/autonomy_noapproval_test.go`, `autonomy_guard_test.go`).
 Operator-only coder settings (`coderhost.OperatorOnly`): `checkin_limit`, `autonomy_preset`, `autonomy_classes`, `max_children`,
-`max_concurrent`, `max_depth`, `mesh_accept`, `agent_approval`, `approval_ceiling_usd`, `mission`, and `mission_directions`. Agent-adjustable on descendants (`coderhost.AgentAdjustable`): `checkin_minutes`, `skip_if_unchanged`, `checkin_triggers`,
+`max_concurrent`, `max_depth`, `mesh_accept`, `agent_approval`, `approval_ceiling_usd`, `mission`, `mission_directions`, and `mission_worker_reservations`. Agent-adjustable on descendants (`coderhost.AgentAdjustable`): `checkin_minutes`, `skip_if_unchanged`, `checkin_triggers`,
 `silent_minutes`, `active_hours`, `mesh_visible`, `mesh_alias`. A test fails for a setting in neither list.
 Operator-only verbs that are not settings: `task session person inbox|full|approve|deny|ask|answer-ask`, `task session retire-worker`,
 `coder sessions spawn-intents list|resolve`, `coder sessions mission-children enable|disable|set|list|resolve-charge`,
@@ -2993,7 +3027,7 @@ monoagentcli --profile work coder host stop                        # the host on
 - **Settings** (`sessions settings get|set`, JSON in `--patch`, only the named settings change, a name that is
   not a setting is refused): `checkin_minutes`, `skip_if_unchanged`, `checkin_triggers`, `silent_minutes`,
   `active_hours` (`HH:MM-HH:MM`, local time), `checkin_limit`, `autonomy_preset`, `autonomy_classes`,
-  `max_children`, `max_concurrent`, `max_depth`, `agent_approval`, `approval_ceiling_usd`, `mission_directions`, `mesh_visible`, `mesh_alias`, `mesh_accept`. `get` lists which
+  `max_children`, `max_concurrent`, `max_depth`, `agent_approval`, `approval_ceiling_usd`, `mission_directions`, `mission_worker_reservations`, `mesh_visible`, `mesh_alias`, `mesh_accept`. `get` lists which
   are operator-only and the values each allows. `max_concurrent` (1 to 10,
   default 2) is the most children of one master that run a turn at once: a send to a further child, from a person
   or a master, stays pending and starts when a slot frees. Sends keep their order within a chat; across chats
@@ -4289,8 +4323,25 @@ probabilities, in one ~100–300 ms request. It **never generates text**.
 - **Key**: the machine-wide vault entry `typesafe`, shared by every profile (a
   key still held in a profile's vault works as a fallback; `jev key adopt`
   copies it to the machine vault), else `TYPESAFE_API_KEY`
-  (`TYPESAFE_DEFAULT_MODEL` / `TYPESAFE_BASE_URL` override the model and
-  host). `doctor` reports it as `jev.key`.
+  (`TYPESAFE_DEFAULT_MODEL` overrides the model). `doctor` reports it as
+  `jev.key`.
+- **The key goes where `jevconf` says, nowhere else.** Every user of the key
+  builds its client with `jevconf.NewClient` / `jevconf.ResolveClient` (which
+  derive the key's source themselves); never `jev.NewClient`, a `jev.Client`
+  literal, `jevconf.ResolveKey` for a send, or `TYPESAFE_BASE_URL` directly
+  (`source_pin_test.go` in `internal/jev/jevconf` reads the syntax, import
+  aliases included, and fails for a caller that does). The lookup of the stored
+  key is a secret read like `@secret:typesafe`: refused in an unapproved step,
+  and under agent access checked against the grant (fail closed) and audited.
+  A stored key (vault, profile vault, a step's own `api_key`) is sent only to
+  `jev.DefaultBaseURL`. `TYPESAFE_BASE_URL` pairs only with `TYPESAFE_API_KEY`,
+  only for the operator's own terminal, and only as https (http only to
+  localhost, 127.0.0.1 or [::1]; http to a LAN host is refused). Set in any
+  other case it is an **error** (`TYPESAFE_BASE_URL ignored: it pairs only with
+  TYPESAFE_API_KEY from your own terminal`), never a silent send to the
+  default host. The keyed client uses no proxy (`HTTP_PROXY` is not read);
+  `SSL_CERT_FILE` / `SSL_CERT_DIR` still extend the system roots (the standard
+  library offers no way to ignore them).
 
 ```bash
 printf '%s' "$KEY" | monoagentcli jev key set          # or: Settings › TypeSafe Jev in the app
@@ -4482,7 +4533,7 @@ keys and the clock, and panic outside a test binary.
 | `MONOAGENT_FILE_KEYRING_PASSPHRASE_FILE` | Path to a chmod-600 file whose first line is the file-keyring passphrase — the non-interactive source for the desktop app and services (a path, never the passphrase itself). Default: unset — use `~/.monoagent/keyring-passphrase` when `secret keyring set-passphrase` wrote one, else prompt on stdin, or on `/dev/tty` when stdin carries the command's input. |
 | `MONOAGENT_ALLOW_ENV_TEMPLATES` | Set to `1` to let `{{ $env.* }}` template expressions read OS environment variables (see `ref expressions`). Default: unset — `$env` references resolve to empty. |
 | `MONOAGENT_CRASH_REPORT` | Set to `1` to allow crash reports to be filed to GitHub (also requires the `monomind` CLI on `PATH`). Default: unset — crash reports stay in local files under `~/.monoagent/crashes/`. |
-| `MONOAGENT_EXTENSION_PORT` | Bind-port override for the browser-extension bridge server; the extension probes this port and falls back to 9323. Default: unset — 9323 only. |
+| `MONOAGENT_EXTENSION_PORT` | Bind-port override for the browser-extension bridge server; the extension probes this port and falls back to 9323. Default: unset — 9323 only. Honoured only for the operator's own terminal (ignored with a warning in a marked or in-turn process); the client sends the relay token only to a bridge that proves it holds it, and refuses an older bridge that cannot (restart it; SECURITY.md). |
 | `MONOAGENT_SUMMARY_RUNTIME` | Agent runtime the extension bridge uses to write `summary.md` for captures saved with "Save page summary" / "Save video summary" (`extension serve --summary-runtime` wins over it). This is the default: a capture can name its own installed runtime and model (the side panel's "AI for summaries" picker, or `capture page --summary-runtime/--summary-model`), and `summary.json` records the pair used. `off` disables summaries; each capture that asked then records why in `summary.json`. Default: unset — `claude`. |
 | `MONOES_BASE_URL` | monoes.me host for the `library` commands. Default: unset — `https://monoes.me`. Plain `http` is accepted only for a loopback host (a local dev server). A default build refuses to sign in to any other host; that needs `-tags devaccount`. A default build's sign-in, refresh and first-run adoption always go to `https://monoes.me` (spec D24). |
 | `MONOAGENT_DEV_ENFORCE_FROM` | Forces the warn period (a future date such as `2999-01-01T00:00:00Z`) or enforcement (a past date) for a test: an RFC 3339 time. Read only by a `-tags devaccount` build; a default build does not read it, so it never relaxes anything. Default: unset — the date compiled into the binary (2026-10-11 UTC). |

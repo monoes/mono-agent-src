@@ -9,6 +9,10 @@
 #
 #   MONOMIND_WORKTREE=~/src/monomind scripts/e2e/org-unification.sh
 set -u
+# The daemon starts the extension bridge: from a marked shell the port override below would be
+# ignored and it would reach the real bridge. Cleared markers + a private network namespace.
+. "$(cd "$(dirname "$0")/../.." && pwd)/scripts/lib/mono.sh"
+mono_private_operator_env bash "$0" "$@"
 export GOMODCACHE="$(go env GOMODCACHE)" GOCACHE="$(go env GOCACHE)" GOPATH="$(go env GOPATH)"
 E2E="${E2E_DIR:-$(mktemp -d)}"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"

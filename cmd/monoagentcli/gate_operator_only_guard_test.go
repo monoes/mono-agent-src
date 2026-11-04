@@ -27,6 +27,7 @@ const (
 	turnAware = "already behind the turn-aware gate (requireOperator, personGate)"
 	classC    = "class C: no local operator check; whether it should refuse an agent locally is not decided (issue 1333)"
 	pr4       = "converted in PR 4 (profile and people)"
+	pr6c      = "converted in PR 6c (mode switch): open to agents for a built-in package, so no row; login_turn_gate_test.go holds its contexts"
 	heldB     = "held: class B, the verb has an agent path next to the operator's; waits for the owner's answers (issue 1333)"
 	reader    = "reader, not a verb gate: redaction, display or engine behaviour that follows the marker"
 	gateImp   = "the gate's own implementation"
@@ -40,22 +41,20 @@ type allowed struct {
 // legacyMarkerChecks is the T1 allow-list: file (slash-separated from the repo root) to the number of
 // occurrences and the reason. A new occurrence, or an entry that no longer matches, fails the test.
 var legacyMarkerChecks = map[string]allowed{
-	"cmd/monoagentcli/login.go":                     {1, heldB + " (login of a builtin package)"},
 	"cmd/monoagentcli/hil.go":                       {3, gateImp + " (notOperator in gateVerdict)"},
 	"internal/cli/org/sign.go":                      {2, "class C: org sign has its own signature guard; not decided (issue 1333)"},
+	"internal/jev/jevconf/key.go":                   {1, "library layer: cannot import opgate; the TYPESAFE_BASE_URL override is honoured only for the operator's own terminal: marker (operator.Refusal) + turn verdict (operator.InTurn) + unapproved ctx"},
 	"internal/nodes/agent_run_gate.go":              {1, "engine node: the marker half of the run gate next to node run's verdict (workflow.AgentCallerFrom), not a CLI verb gate"},
 	"internal/nodes/browserjev/gate.go":             {1, "engine node gate (IsAgentContext), not a CLI verb gate"},
 	"internal/nodes/publication/register.go":        {1, "engine node: the marker half of a run's verdict next to the command's (workflow.AgentCallerFrom), not a CLI verb gate"},
 	"cmd/monoagentcli/main.go":                      {1, reader + " (log filter)"},
-	"cmd/monoagentcli/task.go":                      {2, "task verbs have their own gate (personGate, NotOperator; operator.Caller names who added a task)"},
+	"cmd/monoagentcli/task.go":                      {5, "task verbs have their own gate (personGate, NotOperator); taskCallerDeps stays marker-only for the gate's own steps, taskDeps swaps in the turn-aware operator.NotUser and taskAddedBy (operator.Caller names a marked caller)"},
 	"cmd/monoagentcli/task_session_guard.go":        {1, "task-session scoping, not a verb gate"},
 	"internal/cli/task/task.go":                     {2, "task verbs have their own gate (personGate, NotOperator)"},
 	"internal/browserctl/context.go":                {1, "definition of IsAgentContext"},
 	"internal/browserctl/permissions.go":            {1, "browser permission engine, not a CLI verb gate"},
 	"internal/cli/doctor/doctor.go":                 {1, reader + " (file previews)"},
 	"internal/cli/hil/hil.go":                       {1, reader + " (reply tokens hidden from an agent's list)"},
-	"internal/cli/secret/reserved.go":               {2, reader + " (the reserved entry's write context and message)"},
-	"internal/cli/secret/update.go":                 {1, reader + " (warnDropped)"},
 	"internal/cli/summary/summary.go":               {1, reader},
 	"internal/cli/workflowaitask/workflowaitask.go": {1, reader + " (the audit line's actor)"},
 	"internal/cli/workflowmanage/manage.go":         {1, reader},
@@ -123,7 +122,7 @@ func TestNoMarkerOnlyOperatorChecksOutsideTheGate(t *testing.T) {
 // pendingOperatorOnly lists, with a reason, the commands that carry the operator-only help text and are
 // not rows of operatorOnlyRows yet. Converting a command moves it to the table.
 var pendingOperatorOnly = map[string]string{
-	"login": heldB,
+	"login": pr6c,
 }
 
 // turnAwareCommands carry the help text and were behind the turn-aware gate before the table.

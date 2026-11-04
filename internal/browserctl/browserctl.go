@@ -12,7 +12,6 @@
 package browserctl
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -52,8 +51,14 @@ const DefaultTimeout = 30 * time.Second
 // FindBridge returns a sender for the bridge already running at the
 // MONOAGENT_EXTENSION_PORT port, else at 9222 or its 9323 fallback.
 func FindBridge() (Sender, error) {
-	_, base, ok := bridge.FindRunning(context.Background(), bridge.ProbeAddrs())
+	addrs := bridge.ProbeAddrs()
+	base, ok := extension.PickBridge(addrs)
 	if !ok {
+		// A bridge older than this CLI, or one with another pairing token, is
+		// named as such; only then is it "no bridge".
+		if _, err := extension.DiagnoseBridges(addrs); err != nil {
+			return nil, err
+		}
 		return nil, ErrNoBridge
 	}
 	return extension.NewRemoteSender(base), nil

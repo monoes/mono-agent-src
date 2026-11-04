@@ -158,6 +158,7 @@ func (a *addrBridge) Addr() (string, bool) { return a.addr, a.bound }
 // refusal — never turns up. "Enable it in chrome://extensions" is then advice
 // about the one thing that isn't broken, so the failure has to name the port.
 func TestFallbackPortHint(t *testing.T) {
+	t.Setenv(extension.ExtensionPortEnv, "") // the test binaries default it to a closed port
 	hint := FallbackPortHint(&addrBridge{addr: "127.0.0.1:9323", bound: true})
 	for _, want := range []string{"127.0.0.1:9323", "9222", "--remote-debugging-port", "ws://127.0.0.1:9323/monoagent"} {
 		if !strings.Contains(hint, want) {

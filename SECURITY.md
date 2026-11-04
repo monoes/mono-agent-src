@@ -189,6 +189,16 @@ reads; values an agent already retrieved cannot be recalled.
   file, shell, code and the rest) is refused the reference. A request that
   carries a secret may use a `proxy` only when its host is on the list, and
   never with `allow_unauthorized_certs`.
+- **Entries no grant covers.** `httpapi-token` (the HTTP API's bearer) and
+  `agent-token-*` are never read by an agent: not by a run's `@secret:`
+  reference, not as plaintext under Reveal, and a grant cannot name them
+  (`agent-access on --secret httpapi-token` is refused). One predicate
+  (`secrets.AgentCannotRead`) decides this for every one of those gates; before it,
+  `permit()` refused only `agent-token-*`, so under `agent-access on` a workflow that
+  referenced `@secret:httpapi-token` resolved to the full-scope HTTP API bearer while
+  the Reveal check already refused it. Grants made before host binding read as
+  `--any-host` (migration 111 gave those rows `any_host = 1`); `secret agent-access`
+  shows `host_binding` (`hosts` or `none`) in `--json`.
 - **What still leaks.** A step can still move a value inside the run (an
   `http.request` whose response or another step's output is used as a field,
   a code step) or send it somewhere a host list does not look: the list
@@ -456,6 +466,45 @@ What stays open:
 
 - A workflow you approved may name a host for a connection that names
   none, and the secret goes there whoever runs the workflow.
+
+### The TypeSafe key went to any host `TYPESAFE_BASE_URL` named, up to the fix for #1333
+
+Before this fix the TypeSafe Jev key could be sent to a host of the caller's
+choosing, and read without the vault's agent-access check. This is a fix for
+marked agents too, not only for processes a coder turn runs, and it was
+there from the start: `jevconf.ResolveKey` read the stored `typesafe` entry
+(or `TYPESAFE_API_KEY`) with no check of the unapproved-step refusal, and
+the Jev client sent it as `Authorization: Bearer` to the host in
+`TYPESAFE_BASE_URL`, which the caller's environment sets. An agent (or an AI's
+step) that ran `ai.choose`, `browser.jev`, `human_in_loop` auto-decide or any
+other Jev surface, or `jev models` / `jev key test` / `jev ask`, with
+`TYPESAFE_BASE_URL=http://its-own-listener` got the stored key there, whether
+agent access was off or on (under a grant the implicit read skipped the
+per-secret check and the audit that an explicit `@secret:` reference gets).
+
+Now the lookup of the stored key is a secret read like any other
+(`secrets.RefusedReference`, and `secrets.Resolve` under agent access: its
+grant, which fails closed when it cannot be read, its node-type rule and an
+audit row named `typesafe`), and the key goes only where `jevconf.BaseURL`
+says. **A stored key, and a step's own `api_key`, always goes to the TypeSafe
+host; a `TYPESAFE_BASE_URL` that used to redirect it (a proxy, a self-hosted
+TypeSafe) is now an error for it** (`TYPESAFE_BASE_URL ignored: it pairs only
+with TYPESAFE_API_KEY from your own terminal`), not a silent send to the
+default host. The override pairs only with `TYPESAFE_API_KEY`, only from the
+operator's own terminal (no marker, no coder turn, no unapproved step), and
+only as https, or http to localhost, 127.0.0.1 or [::1] (`http` to a LAN host
+is refused). The Jev client reads no proxy environment (`HTTP_PROXY`,
+`HTTPS_PROXY`), so the key is never handed to a proxy; `SSL_CERT_FILE` and
+`SSL_CERT_DIR` still extend the roots it trusts, as the standard library offers
+no way to ignore them. The class is held by a source pin
+(`internal/jev/jevconf/source_pin_test.go`, syntax and import aware): no code
+outside `internal/jev` builds a Jev client or a `jev.Client`, resolves a key for
+a send apart from `jevconf.ResolveClient`, or names `TYPESAFE_BASE_URL`.
+
+What stays open: a `TYPESAFE_API_KEY` you put in an agent's environment is the
+agent's to spend, on the TypeSafe host; and an agent that runs `jev ask` with
+the stored key (outside a step, no agent-access check there) spends the
+stored key on the TypeSafe host.
 
 ### File-based keyring fallback (weaker posture)
 
@@ -967,6 +1016,36 @@ against an agent running as you:
   A per-browser token, however, speaks only for the instance it was paired
   with: it cannot connect as another instance, and no connection replaces a
   socket that authenticated with a different per-browser token.
+- The relay token only goes to a bridge that proves it holds it. A client
+  probes `/monoagent/health?nonce=<fresh hex>` first and the bridge answers
+  with `proof`, an HMAC-SHA256 keyed by the token over `v1`, the nonce, the
+  path, the host the client dialled and the port the bridge is bound to; the
+  client verifies it in constant time before any request carrying the token
+  goes out (relay, routing, capture, pairing check and pairing-page request all
+  do; a source pin test fails if a function sends the token header without the
+  prover). A loopback listener that merely speaks the status shape (any process
+  can bind one, no secret needed) therefore never receives the token. A bridge
+  that sends no proof (one older than this) is refused on every port, with an
+  error telling the operator to restart it (update the bridge FIRST: until it
+  is restarted an old bridge fails closed for every caller); `monoagentcli update` restarts a
+  stale bridge onto the new binary. When several addresses are candidates
+  (9222 and 9323) all are probed and the one that proves wins, so a squatter
+  cannot hide the real bridge. `MONOAGENT_EXTENSION_PORT` is honoured only for
+  the operator's own terminal (`operator` installs that check when it is linked,
+  which the command line, the daemon and the desktop app all do; the app has
+  only the marker half, since the in-turn check is registered by the command
+  line alone). A binary that does not link `operator` at all honours the
+  variable (`OperatorProcess()` is true when no policy is installed) and relies
+  on the proof alone. Test binaries keep the variable (tests isolate themselves
+  with it) and `internal/testhome` fails any test run that dials 9222/9323. Every request to a bridge uses one HTTP client that refuses redirects, so
+  a bridge replaced after its proof cannot bounce the token and body elsewhere.
+  The e2e scripts' private-network-namespace check (`mono_in_private_net`) only
+  tests that the namespace holds nothing but `lo`: a host whose only interface
+  is `lo` counts as private, and a real bridge could listen on that host's
+  loopback. Test binaries are recognised by `internal/testmode.On` (set by
+  `testhome.Main`, not settable from the environment); several other production
+  files still call `testing.Testing()` for their own guards, as before. Residual: the relay itself is still loopback TCP
+  (any local user can bind a port; they cannot obtain the token).
 - A browser holding the shared bridge token can claim any valid profile id,
   and with sets up to 64 at once, and receive those profiles' browser
   commands and session data. A browser with a token of its own is limited to
@@ -1779,7 +1858,7 @@ that works a task acts on them. The defences:
   child has none; the operator's budget for a child is above 0 and at most the parent's, 0 is refused under a parent
   that has a budget, and approving a child with no budget under such a parent is refused until the operator sets
   one. Each child is checked on its own: the sum of the children's budgets and a roll-up of their spend are not
-  accounted in this change (the operator cannot set a budget below what the session and the sessions below it have spent or reserved, nor while a worker holds an uncapped reservation, and an operator spend is whole micro-dollars up to $1e9; until the next change a parent's budget can still be set below the sum of its children's budgets). An agent starts at most 12 open children below
+  accounted in this change (the operator cannot set a budget below what the session and the sessions below it have spent or reserved, nor while a worker holds an uncapped reservation, and an operator spend is whole micro-dollars up to $1e9; until the next change a parent's budget can still be set below the sum of its children's budgets). A session's workers are accounted in one mode at a time, enforced by the store across processes (reservations and registered cap runs refuse each other inside the write transaction); the operator-only setting `mission_worker_reservations` (off by default, never changeable by an agent's session token or a master) only picks the mode of an idle session. A failed run is charged by how far it got: a start failure costs $0, a run that started and reported no cost the whole grant, one that reported a cost that cost, an ambiguous start the whole grant. A failure returned as a result with no start event counts as an ambiguous start (the whole grant per retry, bounded: after 3 in a row on a session it is paused and the operator told, so a wrong login loses at most 3 grants per Conductor plus the runs already in flight when the block is set; a run with no start and no done event counts too; the count is in memory, so a restart loop can burn up to 2 grants per cycle, capped by the session's budget), and an unusable cost report settles at no less than the grant. The latch is a lease (a cap run whose row lapsed while it was alive can let a reservation in until its next renewal; overspend is bounded by one run's cap). The accounting owner id of a Conductor is random and never derived from the process id. An agent starts at most 12 open children below
   one parent; lowering a parent clamps every session below it, open or closed, at any depth). No session is started below an archived or closed one. A session can never exceed the minimum of its whole ancestor chain, closed and archived ancestors included (access, `max_tasks`, `max_depth` and the smallest nonzero budget): the store computes that ceiling when the session is created, updated or approved, and does not trust a stored limit of a closed session in between. An agent creates a session only below one it works in, and a
   `--client-id` answers an agent only with a session below the same parent, of the same kind, in its own subtree.
   An agent renames only a draft it started from its own chat. Only the in-process mission planner (set by trusted
@@ -2073,7 +2152,13 @@ that works a task acts on them. The defences:
   the same layers: `secret agent-access` (and clearing its audit), `secret rebind`,
   `api key create|update|revoke`, `api config set|unset`, and every command that prints
   decrypted secrets (`secret export`, `connect get-oauth-client --reveal`,
-  `profile info get --reveal`, `workflow run --full-outputs`), and the identity and
+  `profile info get --reveal`, `workflow run --full-outputs`), the writes of the
+  reserved vault entry `httpapi-token`, the HTTP API's bearer (`secret add|update|rm|import`
+  name it: a refused process gets the marked agent's refusal, exit 3, and an import skips it;
+  whoever writes it chooses the bearer the API accepts; a terminal started inside a coder
+  turn can no longer write it, run it from your own terminal; the server's own first-use
+  generation of a random bearer and `agent-mode token create|revoke`'s `agent-token-*`
+  entries are not this path), and the identity and
   trust commands: `agent purposes set|reset`, `agent-mode env` and
   `agent-mode token create|revoke`, `extension assign|bind|unbind|autopair|approve|deny|reset`,
   `extension browsers allow|revoke`, `extension pair --open`, `extension install --zip`,
@@ -2260,6 +2345,14 @@ that works a task acts on them. The defences:
   unchanged, except that one started inside a turn gets these limits too. The engine, the daemon and MCP set no
   verdict and are judged by markers and approvals as before; the send gate (`hilsend.Guard`), `browserjev`,
   `aitask` and `people.save` still decide by the markers alone.
+  `login <package>`, `login confirm <package>` and `login names` use the turn-aware gate for the LIMITED
+  flavour, not for a refusal of everything: a built-in package's login is open to agents by design and
+  works for every caller; a package that is not built-in names its own login page and the cookies its
+  login keeps (#898), so it is refused (operator_only, before any browser is asked) to a marked agent, the
+  chat, a workflow, and now to a process inside a coder session's turn that cleared its markers and to
+  a holder of an agent token. A database that cannot be read gives the limited flavour too (login is not a
+  recovery verb). An operator terminal started inside a turn gets the limits as well, like every other
+  gated verb.
   `automation install <dir> --local` (and `automation new --install`) installs with local
   trust. While it is open to a turn, the `automation trust --scripts/--live` gate does not
   stop a turn from getting the same result: a turn can write its own package directory,

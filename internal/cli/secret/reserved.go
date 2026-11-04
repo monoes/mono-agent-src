@@ -7,15 +7,16 @@ import (
 	"io"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
-	"github.com/monoes/mono-agent/internal/operator"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/secrets"
 )
 
 // writeCtx lets the user's own command write the reserved vault entry
-// (secrets.ReservedEntry, the HTTP API's bearer). An agent's shell, the chat
-// and a workflow get no such context, and secrets refuses the write.
+// (secrets.ReservedEntry, the HTTP API's bearer). An agent's shell, the chat,
+// a workflow and a process inside a coder turn (whatever its environment says:
+// opgate.Refusal) get no such context, and secrets refuses the write.
 func writeCtx(ctx context.Context) context.Context {
-	if operator.Refusal() == "" {
+	if opgate.Refusal() == "" {
 		return secrets.AllowReservedWrite(ctx)
 	}
 	return ctx
@@ -25,8 +26,12 @@ func writeCtx(ctx context.Context) context.Context {
 // given the operator-only exit (3, operator_only).
 func writeErr(what string, err error) error {
 	if errors.Is(err, secrets.ErrReservedEntry) {
+		why := opgate.Refusal()
+		if opgate.Unplaced(why) { // it may be the user, for whom "run it yourself" cannot succeed
+			return clicore.OperatorOnly("%s: %v: %s; retry, or repair the database", what, err, why)
+		}
 		return clicore.OperatorOnly("%s: %v: %s; run it yourself in your terminal or the app (its bearer is the field token: --field token=<value>)",
-			what, err, operator.Refusal())
+			what, err, why)
 	}
 	return fmt.Errorf("%s: %w", what, err)
 }

@@ -2,6 +2,7 @@ package secrets
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -21,8 +22,16 @@ func TestAgentRevealPolicyScopeExpiryAndRevocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	check("default", "password", false)
-	grant := AccessGrant{Level: "reveal", AnyHost: true, Secrets: []string{"password", ReservedEntry, "agent-token-ci"}}
+	grant := AccessGrant{Level: "reveal", AnyHost: true, Secrets: []string{"password"}}
 	if err := SetAgentAccessGrant(ctx, db.DB, "default", grant); err != nil {
+		t.Fatal(err)
+	}
+	// A grant cannot name the reserved entries (6i); a row stored by an older
+	// version that does still does not cover them.
+	if err := SetAgentAccessGrant(ctx, db.DB, "default", AccessGrant{Level: "reveal", AnyHost: true, Secrets: []string{"password", ReservedEntry}}); !errors.Is(err, ErrGrantNamesReserved) {
+		t.Fatalf("a grant naming the bearer: %v", err)
+	}
+	if _, err := db.DB.Exec(`UPDATE profile_agent_secret_access SET secret_names = ?`, `["password","`+ReservedEntry+`","agent-token-ci"]`); err != nil {
 		t.Fatal(err)
 	}
 	check("default", "password", true)

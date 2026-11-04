@@ -229,7 +229,7 @@ func orgsSection(folder string, n int) Section {
 // the first that answers.
 func probeExtension() Extension {
 	addrs := []string{"http://127.0.0.1:" + extension.DefaultExtensionPort, "http://127.0.0.1:" + extension.FallbackExtensionPort}
-	if p := strings.TrimSpace(os.Getenv(extension.ExtensionPortEnv)); p != "" {
+	if p := extension.PortOverride(); p != "" {
 		addrs = []string{"http://127.0.0.1:" + p}
 	}
 	found := make([]*Extension, len(addrs))

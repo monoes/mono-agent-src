@@ -1,6 +1,8 @@
 package testhome
 
 import (
+	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -134,4 +136,53 @@ func accountHome(t *testing.T) string {
 		t.Skipf("account home: %v", err)
 	}
 	return home
+}
+
+// A test binary must never dial the real extension bridge (9222/9323): the
+// dial is refused and recorded, and Main fails the run for it.
+func TestTestBinaryCannotDialTheRealBridgePorts(t *testing.T) {
+	dial := loopbackOnly(func(ctx context.Context, network, addr string) (net.Conn, error) {
+		t.Errorf("a dial to %s reached the network", addr)
+		return nil, nil
+	})
+	for _, addr := range []string{"127.0.0.1:9222", "127.0.0.1:9323", "[::1]:9222", "localhost:9323"} {
+		if _, err := dial(context.Background(), "tcp", addr); err == nil {
+			t.Errorf("%s: dial allowed", addr)
+		}
+	}
+	if got := len(RealBridgeDialed()); got != 4 {
+		t.Errorf("recorded %d dials, want 4", got)
+	}
+	// another loopback port is fine; reset what this test recorded so Main does not fail the run for it
+	dialedMu.Lock()
+	dialed = nil
+	dialedMu.Unlock()
+	called := false
+	ok := loopbackOnly(func(ctx context.Context, network, addr string) (net.Conn, error) { called = true; return nil, nil })
+	_, _ = ok(context.Background(), "tcp", "127.0.0.1:9232")
+	if !called {
+		t.Error("a private port was refused")
+	}
+}
+
+// MONOAGENT_TEST_ALLOW_NETWORK opens the network for live smoke tests; it must
+// never open the real bridge's ports.
+func TestAllowNetworkNeverOpensTheRealBridgePorts(t *testing.T) {
+	t.Setenv(AllowNetworkEnv, "1")
+	dial := loopbackOnly(func(ctx context.Context, network, addr string) (net.Conn, error) {
+		t.Errorf("a dial to %s reached the network", addr)
+		return nil, nil
+	})
+	if _, err := dial(context.Background(), "tcp", "127.0.0.1:9222"); err == nil {
+		t.Error("9222 was dialable with the network allowed")
+	}
+	dialedMu.Lock()
+	dialed = nil
+	dialedMu.Unlock()
+	called := false
+	ok := loopbackOnly(func(ctx context.Context, network, addr string) (net.Conn, error) { called = true; return nil, nil })
+	_, _ = ok(context.Background(), "tcp", "example.com:443")
+	if !called {
+		t.Error("the network was not opened for another host")
+	}
 }

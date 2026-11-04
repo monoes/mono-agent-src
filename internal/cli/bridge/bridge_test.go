@@ -87,7 +87,7 @@ func TestWaitForBindReportsWhyNoPortWasBound(t *testing.T) {
 }
 
 func TestWaitForBindReturnsTheBoundAddress(t *testing.T) {
-	t.Parallel()
+	t.Setenv(extension.ExtensionPortEnv, "") // the test binaries default it to a closed port
 	srv := extension.NewServer("127.0.0.1:0", zerolog.Nop())
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -109,5 +109,53 @@ func TestNewServerWiresWhatEveryOwnerNeeds(t *testing.T) {
 	})
 	if installed != srv {
 		t.Fatal("the capture summaries were not installed on the server")
+	}
+}
+
+// The probe list ignores MONOAGENT_EXTENSION_PORT for a process that is not the
+// operator's own terminal, and follows it for the operator.
+func TestProbeAddrsPortEnvIsOperatorOnly(t *testing.T) {
+	t.Cleanup(func() { extension.SetPortEnvPolicy(nil) })
+	t.Setenv(extension.ExtensionPortEnv, "9400")
+	extension.SetPortEnvPolicy(func() bool { return true })
+	if got := ProbeAddrs(); len(got) != 1 || got[0] != "http://127.0.0.1:9400" {
+		t.Fatalf("operator: %v", got)
+	}
+	if got := ListenAddr(); got != "127.0.0.1:9400" {
+		t.Fatalf("operator listen: %s", got)
+	}
+	extension.SetPortEnvPolicy(func() bool { return false })
+	if got := ProbeAddrs(); len(got) != 2 || got[0] != "http://127.0.0.1:"+extension.DefaultExtensionPort {
+		t.Fatalf("non-operator probes %v, want the default ports", got)
+	}
+	if got := ListenAddr(); got != "127.0.0.1:"+extension.DefaultExtensionPort {
+		t.Fatalf("non-operator listen: %s", got)
+	}
+}
+
+// A squatter that never proves cannot hide the real bridge on the other
+// candidate, in either order, and a lone squatter is not picked.
+func TestFindRunningTakesTheCandidateThatProves(t *testing.T) {
+	t.Setenv(extension.ExtensionPortEnv, "")
+	srv := extension.NewServer(strings.TrimPrefix(closedAddr(t), "http://"), zerolog.Nop())
+	errCh := srv.StartAsync(context.Background())
+	t.Cleanup(func() { srv.Close() }) //nolint:errcheck
+	addr, err := WaitForBind(context.Background(), srv, errCh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	realURL := "http://" + addr
+	squatter := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(extension.Status{Service: extension.ServiceName, PID: 666}) // never a proof
+	}))
+	defer squatter.Close()
+	for _, addrs := range [][]string{{squatter.URL, realURL}, {realURL, squatter.URL}} {
+		st, base, ok := FindRunning(context.Background(), addrs)
+		if !ok || base != realURL || st.PID == 666 {
+			t.Fatalf("FindRunning(%v) = %+v %q %v, want the proving bridge %s", addrs, st, base, ok, realURL)
+		}
+	}
+	if base, ok := extension.PickBridge([]string{squatter.URL}); ok {
+		t.Fatalf("PickBridge took the squatter %s", base)
 	}
 }

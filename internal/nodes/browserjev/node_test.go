@@ -226,7 +226,8 @@ func TestInvalidJevAnswerExecutesNothing(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"model": "jev-test", "answers": answers})
 	}))
 	t.Cleanup(srv.Close)
-	t.Setenv("TYPESAFE_BASE_URL", srv.URL)
+	t.Setenv("TYPESAFE_BASE_URL", "")
+	jevtest.DefaultHost(t, srv.URL)
 	drv := &fakeDriver{}
 	_, err := testNode(drv, zurich).Execute(testCtx(), workflow.NodeInput{},
 		map[string]interface{}{"url": "u", "goal": "g", "api_key": "k"})
@@ -294,7 +295,8 @@ func TestUnresolvedSecretFallsBackToEnv(t *testing.T) {
 		w.WriteHeader(401)
 	}))
 	t.Cleanup(srv.Close)
-	t.Setenv("TYPESAFE_BASE_URL", srv.URL)
+	t.Setenv("TYPESAFE_BASE_URL", "")
+	jevtest.DefaultHost(t, srv.URL)
 	n := testNode(&fakeDriver{}, zurich)
 	t.Setenv("TYPESAFE_API_KEY", "env-key")
 	_, _ = n.Execute(testCtx(), workflow.NodeInput{},

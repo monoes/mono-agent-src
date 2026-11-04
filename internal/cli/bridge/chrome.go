@@ -5,7 +5,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"strings"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/browserdetect"
@@ -58,7 +57,7 @@ func FallbackPortHint(bridge ConnChecker) string {
 	// An operator who set the port themselves has not "fallen back" to
 	// anything, and telling them a Chrome is holding 9222 when they asked
 	// for 9400 sends them after a problem they do not have.
-	if strings.TrimSpace(os.Getenv(extension.ExtensionPortEnv)) != "" {
+	if extension.PortOverride() != "" {
 		return ""
 	}
 	return fmt.Sprintf("\nNote: the bridge is listening on %s, not the usual port %s, because another program already holds %s "+
@@ -120,6 +119,18 @@ var (
 	findLocalChromePath = browserdetect.FindBrowser
 	isChromeRunning     = browserdetect.IsBrowserRunning
 )
+
+// startBrowser launches the browser at path and reaps it. A var so tests can observe the launch
+// without starting a real browser.
+var startBrowser = func(path string) error {
+	cmd := exec.Command(path)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	// Reap the launched browser so it never lingers as a zombie child.
+	go func() { _ = cmd.Wait() }()
+	return nil
+}
 
 func getExtensionDir() string { return browserdetect.ExtensionDir() }
 
@@ -201,19 +212,25 @@ func EnsureConnected(bridge ConnChecker, timeout time.Duration, h Hints) error {
 		return nil
 	}
 
-	// 3. Chrome is not running, so launch it once.
+	// 3. Chrome is not running, so launch it once. Opening a browser window on the user's screen
+	// is the operator's act (like the pairing page above): a model's turn must not cause it. No
+	// refusal func means no operator check was wired, which is a refusal too.
+	why := "no operator check is wired"
+	if h.Refusal != nil {
+		why = h.Refusal()
+	}
+	if why != "" {
+		return fmt.Errorf("no browser is running and this process may not launch one (%s) — start your browser (and the monoagent bridge) yourself, in your own terminal or session, then run the command again", why)
+	}
 	chromePath := findLocalChromePath()
 	if chromePath == "" {
 		return fmt.Errorf("Chrome extension is installed, but Google Chrome executable was not found on this machine")
 	}
 
 	fmt.Fprintln(os.Stderr, "Chrome is not running — launching it to connect the MonoAgent extension...")
-	chromeCmd := exec.Command(chromePath)
-	if err := chromeCmd.Start(); err != nil {
+	if err := startBrowser(chromePath); err != nil {
 		return fmt.Errorf("launching Chrome: %w", err)
 	}
-	// Reap the launched browser so it never lingers as a zombie child.
-	go func() { _ = chromeCmd.Wait() }()
 
 	deadline := time.Now().Add(timeout)
 	for !bridge.IsConnected() && time.Now().Before(deadline) {

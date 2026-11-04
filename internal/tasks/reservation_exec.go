@@ -22,6 +22,18 @@ import (
 // new hold. execID is 1 to 256 bytes with no NUL and MUST be unique per launch (a fresh id for every run, never one
 // derived from the worker alone): reusing an id of a finished run returns that run's ended row, not a new hold.
 func (s *Store) ReserveExec(ctx context.Context, profileID string, sessionID int64, ownerID, workerRef, execID string, want float64) (Reservation, error) {
+	return s.ReserveExecAsk(ctx, profileID, sessionID, ownerID, workerRef, execID, want, 0)
+}
+
+// ReserveExecAsk is ReserveExec for a run that may name no limit of its own: with want 0 and ask above 0, a session that
+// has a budget (its own or an ancestor's) is asked for min(ask, what is left), decided in the same transaction as the
+// grant, so a run does not take all that is left and serialize its siblings. A session with no budget on the way is
+// still not bounded, and a named want is used as it is. Like Reserve it is refused with ErrAccountingMode while a
+// run accounted on the session's cap is in flight (migration 157).
+func (s *Store) ReserveExecAsk(ctx context.Context, profileID string, sessionID int64, ownerID, workerRef, execID string, want, ask float64) (Reservation, error) {
+	if err := reservationAmount("the ask", ask); err != nil {
+		return Reservation{}, err
+	}
 	if err := reservationText("the owner id", ownerID, maxOwnerIDBytes); err != nil {
 		return Reservation{}, err
 	}
@@ -51,9 +63,21 @@ func (s *Store) ReserveExec(ctx context.Context, profileID string, sessionID int
 		if !isOpenSession(se) {
 			return false, sessionNotReady("session #%d is %s: nothing is reserved on it", sessionID, closedWord(se))
 		}
+		if err := s.refuseWhileCapRuns(ctx, x, profileID, sessionID); err != nil {
+			return false, err
+		}
 		c, err := s.commitmentTx(ctx, x, profileID, sessionID)
 		if err != nil {
 			return false, err
+		}
+		if want == 0 && ask > 0 {
+			if _, budgeted := c.leftMicros(); budgeted {
+				want = ask
+			} else if _, anc, err := s.ancestorGrant(ctx, x, profileID, sessionID, toMicros(MaxBudgetUSD)); err != nil {
+				return false, err
+			} else if anc {
+				want = ask
+			}
 		}
 		amount, bounded, err := s.grantFor(ctx, x, profileID, sessionID, want, c)
 		if err != nil {

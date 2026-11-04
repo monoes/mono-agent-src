@@ -2,6 +2,7 @@ package jevcli
 
 import (
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/jev/jevtest"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -30,7 +31,8 @@ func TestJevKeySetStatusTestRemove(t *testing.T) {
 		_, _ = w.Write([]byte(`{"data":[{"id":"jev-latest"}]}`))
 	}))
 	t.Cleanup(srv.Close)
-	t.Setenv("TYPESAFE_BASE_URL", srv.URL)
+	t.Setenv("TYPESAFE_BASE_URL", "")
+	jevtest.DefaultHost(t, srv.URL)
 
 	// No key yet: status says none, test reports ok=false with exit 0.
 	out, _, err := runJev(t, cfg, "", "key", "test")
