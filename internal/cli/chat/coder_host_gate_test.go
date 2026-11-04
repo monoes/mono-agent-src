@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -998,7 +997,7 @@ func TestAHostStoppedThatNeverReturnsDoesNotHoldTheHostOpen(t *testing.T) {
 	cmd := newCoderHostRunCmd(cfg)
 	cmd.SetContext(ctx)
 	cmd.SetArgs([]string{"--poll=20ms"})
-	var out bytes.Buffer
+	var out hostStopLog
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
 	cmd.SilenceUsage, cmd.SilenceErrors = true, true
@@ -1039,7 +1038,7 @@ func TestAHostStoppedThatPanicsDoesNotCrashTheHost(t *testing.T) {
 	cmd := newCoderHostRunCmd(cfg)
 	cmd.SetContext(ctx)
 	cmd.SetArgs([]string{"--poll=20ms"})
-	var out bytes.Buffer
+	var out hostStopLog
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
 	cmd.SilenceUsage, cmd.SilenceErrors = true, true
@@ -1060,4 +1059,22 @@ func TestAHostStoppedThatPanicsDoesNotCrashTheHost(t *testing.T) {
 	if !strings.Contains(out.String(), "panicked") {
 		t.Fatalf("the panic was not logged: %q", out.String())
 	}
+}
+
+// hostStopLog is the host's log in a test: the host's helper goroutines log to it while the test reads it.
+type hostStopLog struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (l *hostStopLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.Write(p)
+}
+
+func (l *hostStopLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.String()
 }
