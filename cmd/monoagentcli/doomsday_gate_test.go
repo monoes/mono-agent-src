@@ -41,7 +41,7 @@ func TestDoomsdayVerbsAreExactlyTheClassifiedOnes(t *testing.T) {
 		got = append(got, c.Name())
 	}
 	sort.Strings(got)
-	if strings.Join(got, ",") != "finish,render,rubric,start,status,stop" {
+	if strings.Join(got, ",") != "feed,finish,overview,render,rubric,start,status,stop" {
 		t.Fatalf("doomsday verbs changed: %v: classify the new verb and its gate", got)
 	}
 }

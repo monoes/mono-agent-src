@@ -446,6 +446,22 @@ export function DoctorAutomations(arg1) {
   return window['go']['main']['App']['DoctorAutomations'](arg1);
 }
 
+export function DoomsdayFeed(arg1, arg2) {
+  return window['go']['main']['App']['DoomsdayFeed'](arg1, arg2);
+}
+
+export function DoomsdayOverview() {
+  return window['go']['main']['App']['DoomsdayOverview']();
+}
+
+export function DoomsdayProbe() {
+  return window['go']['main']['App']['DoomsdayProbe']();
+}
+
+export function DoomsdayStop() {
+  return window['go']['main']['App']['DoomsdayStop']();
+}
+
 export function EnableAutomation(arg1) {
   return window['go']['main']['App']['EnableAutomation'](arg1);
 }
