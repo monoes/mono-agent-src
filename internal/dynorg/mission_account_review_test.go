@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -179,5 +180,69 @@ func TestFailedSettleNoticeOfAGrantRunNamesTheGrant(t *testing.T) {
 	b, _ := json.Marshal(r.em.find("notice"))
 	if !strings.Contains(string(b), "reservation resolve 1 --usd 1.000000") || !strings.Contains(string(b), "at least") {
 		t.Fatalf("the notice must name the grant: %s", b)
+	}
+}
+
+// A start-less failure (a result came back, no start event, an error in it: a login that is wrong) is charged the whole
+// grant, so it is bounded: after maxStartlessFailures in a row on a session the session is paused (the existing park of a
+// session: only the operator resumes it), the operator is told once, and no further run starts. A run that started resets
+// the count; the operator's resume clears the block.
+func TestStartlessFailuresAreBoundedAndParkTheSession(t *testing.T) {
+	r := newResvRig(t, rigOpts{budget: 100})
+	bad := step{noStart: true, noCost: true, resErr: true}
+	sx := &scripted{steps: []step{bad, bad, bad, bad, bad}}
+	c := scriptedConductor(r, sx)
+	w := directWorker(r, "w-1")
+	r.approve()
+	for i := 0; i < maxStartlessFailures; i++ {
+		_, _ = c.execOnce(tbg, w, opus, "doing task", "")
+	}
+	if got := r.session().SpentUSD; !spendNear(got, float64(maxStartlessFailures)*missionExecAskUSD) {
+		t.Fatalf("spent %v: %d failures, each charged the whole grant", got, maxStartlessFailures)
+	}
+	if r.session().State != tasks.SessionPaused {
+		t.Fatalf("the session is %s, want paused", r.session().State)
+	}
+	if n := countNotices(r.em, "mission.runtime_failing"); n != 1 {
+		t.Fatalf("%d notices, want 1", n)
+	}
+	b, _ := json.Marshal(r.em.find("notice"))
+	for _, want := range []string{"failed 3 times without starting", "charged the whole grant", "check the login", "w-1", fmt.Sprintf("session #%d", r.sid), "$3.00"} {
+		if !strings.Contains(string(b), want) {
+			t.Fatalf("the notice lacks %q: %s", want, b)
+		}
+	}
+	if _, err := c.execOnce(tbg, w, opus, "doing task", ""); err == nil || sx.runs() != maxStartlessFailures {
+		t.Fatalf("a run was started after the block: %v (runs %d)", err, sx.runs())
+	}
+	if got := r.session().SpentUSD; !spendNear(got, 3) || countNotices(r.em, "mission.runtime_failing") != 1 {
+		t.Fatalf("nothing more is charged or told: %v", got)
+	}
+	// the operator resumes: the block is lifted by the next watch tick
+	if _, err := r.store.ResumeSession(tbg, "default", r.sid, operator); err != nil {
+		t.Fatal(err)
+	}
+	c.missionWatch(r.sid)
+	eventually(t, "the block to lift", func() bool {
+		_, err := c.execOnce(tbg, w, opus, "doing task", "")
+		return err == nil || sx.runs() > maxStartlessFailures
+	})
+}
+
+func TestARunThatStartedResetsTheStartlessCount(t *testing.T) {
+	r := newResvRig(t, rigOpts{budget: 100})
+	bad := step{noStart: true, noCost: true, resErr: true}
+	sx := &scripted{steps: []step{bad, bad, {final: 0.1}, bad, bad}}
+	c := scriptedConductor(r, sx)
+	w := directWorker(r, "w-1")
+	r.approve()
+	for i := 0; i < 5; i++ {
+		_, _ = c.execOnce(tbg, w, opus, "doing task", "")
+	}
+	if r.session().State == tasks.SessionPaused || countNotices(r.em, "mission.runtime_failing") != 0 || sx.runs() != 5 {
+		t.Fatalf("state %s, notices %d, runs %d: a success in between resets the count", r.session().State, countNotices(r.em, "mission.runtime_failing"), sx.runs())
+	}
+	if got := r.session().SpentUSD; !spendNear(got, 4*missionExecAskUSD+0.1) {
+		t.Fatalf("spent %v", got)
 	}
 }

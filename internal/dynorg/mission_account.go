@@ -38,6 +38,10 @@ import (
 // not take all that is left and serialize its siblings. Below $0.01 left the run is refused (errBudgetRefused).
 const missionExecAskUSD = 1.00
 
+// maxStartlessFailures is how many start-less failures in a row (a result with an error and no start event, each charged the
+// whole grant) a session takes before it is paused. A run that started resets the count. See startlessFailure.
+const maxStartlessFailures = 3
+
 // settleAttempts bounds the retries of the final charge when it fails for a reason other than a lost reservation.
 const settleAttempts = 3
 
@@ -59,11 +63,11 @@ const (
 
 // runAcct is the accounting of one run of a mission worker. Its fields are guarded by the task's spendMu.
 type runAcct struct {
-	mode acctMode
+	mode  acctMode
 	grant float64 // what the reservation holds (its amount): the least a run without a usable report is charged
-	id   int64 // the reservation or cap-run row of this run: the handle every later call is fenced by
-	ref  string
-	sid  int64
+	id    int64   // the reservation or cap-run row of this run: the handle every later call is fenced by
+	ref   string
+	sid   int64
 	// peak is the highest cost THIS run has reported; charged is what the store was told.
 	peak, charged float64
 	// streamed: the run reported some cost while it ran. finalOK/final: its final accounting (runCost).
