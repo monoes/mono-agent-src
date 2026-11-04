@@ -2,8 +2,10 @@ package dynorg
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -142,4 +144,40 @@ func TestNonFiniteAndNegativeCostsAreIgnored(t *testing.T) {
 		t.Fatalf("peak %v spent %v: a bad figure poisoned the run", peak, r.session().SpentUSD)
 	}
 	c.endRun(w, a)
+}
+
+// An overrun above the grant that could not be pushed while streaming is still charged when a bad report arrives: the
+// run settles at no less than max(its peak, its grant).
+func TestBadReportAfterAnUnpushedOverrunChargesThePeak(t *testing.T) {
+	r := newResvRig(t, rigOpts{budget: 100})
+	if _, err := r.db.Exec(`CREATE TRIGGER block_charge BEFORE UPDATE OF charged_usd ON task_session_reservations WHEN NEW.state = 'live'
+		BEGIN SELECT RAISE(ABORT, 'database is busy'); END`); err != nil {
+		t.Fatal(err)
+	}
+	sx := &scripted{steps: []step{{stream: []float64{2.5}, final: math.NaN()}}}
+	c := scriptedConductor(r, sx)
+	w := directWorker(r, "w-1")
+	r.approve()
+	r.runOnce(c, w, tbg)
+	if got := r.session().SpentUSD; !spendNear(got, 2.5) {
+		t.Fatalf("spent %v: the overrun above the grant of %v went uncharged", got, missionExecAskUSD)
+	}
+}
+
+// The notice of a settle that failed for a run charged at its grant names the grant, not $0, so resolving by it cannot undercharge.
+func TestFailedSettleNoticeOfAGrantRunNamesTheGrant(t *testing.T) {
+	r := newResvRig(t, rigOpts{budget: 100})
+	if _, err := r.db.Exec(`CREATE TRIGGER block_settle BEFORE UPDATE ON task_session_reservations WHEN NEW.state = 'settled'
+		BEGIN SELECT RAISE(ABORT, 'database is busy'); END`); err != nil {
+		t.Fatal(err)
+	}
+	sx := &scripted{steps: []step{{err: errors.New("died")}}} // started, no cost: charged its whole grant
+	c := scriptedConductor(r, sx)
+	w := directWorker(r, "w-1")
+	r.approve()
+	_, _ = c.execOnce(tbg, w, opus, "doing task", "")
+	b, _ := json.Marshal(r.em.find("notice"))
+	if !strings.Contains(string(b), "reservation resolve 1 --usd 1.000000") || !strings.Contains(string(b), "at least") {
+		t.Fatalf("the notice must name the grant: %s", b)
+	}
 }
