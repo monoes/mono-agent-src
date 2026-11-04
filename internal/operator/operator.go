@@ -181,6 +181,13 @@ func InTurn() string {
 	return turnVerdict()
 }
 
+// NotUser says why this process is not the user's own terminal, as the turn-aware gate
+// (internal/cli/opgate.Refusal, non-recovery flavour) would, for a package that cannot import opgate:
+// Refusal's text for a marked process, else InTurn's. "" for the user. A process that registered no
+// turn check (the app, the daemon, library use) is judged by its marker alone. A test in
+// cmd/monoagentcli holds it to opgate.Refusal's verdict in every context.
+func NotUser() string { return askVerdict().why }
+
 // UnplacedPrefix starts the verdict text of a process the turn check could not place (the database or
 // a turn-registry entry could not be read): the one cause whose fix is a retry, not an approval.
 const UnplacedPrefix = "cannot tell whether a coder session's turn runs this command"

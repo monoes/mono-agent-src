@@ -661,7 +661,11 @@ dangerous calls.
   (`internal/cli/opgate`, SECURITY.md; the rest are tracked in issue 1333). `org approve`, `org chat approve`, `org autonomy set|pause|resume` and `org grant add` stay open to the chat with their limits (no approval of a sending call, no `full` or widening, no shorter pause, no `--approval none`); a process inside a coder session's turn or holding an agent token gets the same limits as a marked agent. `httpapi-token` is a reserved vault entry: only
   the server and the user's own `secret add|update|rm|import` write it
   (`secrets.ErrReservedEntry` otherwise, checked in the secrets package;
-  an agent's import skips it), and its bearer is the field `token`; tools
+  an agent's import skips it; a process inside a coder session's turn, one
+  holding an agent token and one the gate cannot place get the same refusal as
+  a marked agent, and `secret update`'s dropped-field warning gives them the
+  count, not the names: a terminal started inside a turn can no longer write
+  the entry, run it from your own terminal), and its bearer is the field `token`; tools
   and workflows read secrets' metadata and write other entries as before.
   The `--help` of each of these says so ("The user's own: an agent, the
   chat or a workflow is refused"), and a nil operator check refuses

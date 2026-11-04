@@ -2073,7 +2073,13 @@ that works a task acts on them. The defences:
   the same layers: `secret agent-access` (and clearing its audit), `secret rebind`,
   `api key create|update|revoke`, `api config set|unset`, and every command that prints
   decrypted secrets (`secret export`, `connect get-oauth-client --reveal`,
-  `profile info get --reveal`, `workflow run --full-outputs`), and the identity and
+  `profile info get --reveal`, `workflow run --full-outputs`), the writes of the
+  reserved vault entry `httpapi-token`, the HTTP API's bearer (`secret add|update|rm|import`
+  name it: a refused process gets the marked agent's refusal, exit 3, and an import skips it;
+  whoever writes it chooses the bearer the API accepts; a terminal started inside a coder
+  turn can no longer write it, run it from your own terminal; the server's own first-use
+  generation of a random bearer and `agent-mode token create|revoke`'s `agent-token-*`
+  entries are not this path), and the identity and
   trust commands: `agent purposes set|reset`, `agent-mode env` and
   `agent-mode token create|revoke`, `extension assign|bind|unbind|autopair|approve|deny|reset`,
   `extension browsers allow|revoke`, `extension pair --open`, `extension install --zip`,
