@@ -166,7 +166,7 @@ func secretReaderConfig(nodeType, pkg string, port int) map[string]interface{} {
 			c["operation"] = "search"
 		case "db.redis":
 			c["operation"] = "get"
-			c["connection_string"] = "redis://" + hostPort
+			c["connection_string"] = "redis://" + hostPort + "?max_retries=-1&dial_timeout=1s&read_timeout=1s&write_timeout=1s"
 		}
 		for _, k := range []string{"query", "params", "data", "where", "query_replacement", "values", "value_to_match_on", "conditions", "bind_params", "values_to_send",
 			"dn", "target_dn", "attribute_id", "value", "attributes", "base_dn", "search_text", "custom_filter", "search_for",
