@@ -74,10 +74,11 @@ func (d Deps) newSaveCmd() *cobra.Command {
 				wf.CreatedAt.UTC().Format(time.RFC3339), wf.UpdatedAt.UTC().Format(time.RFC3339))
 			_, _ = db.DB.ExecContext(ctx, `UPDATE workflows SET profile_id = ? WHERE id = ?`, d.ProfileID(), wf.ID)
 
+			note := operator.NoteUnapproved("saved", wf.ID)
 			if d.JSONOutput() {
 				summary := *wf
 				summary.Nodes, summary.Connections = nil, nil
-				return json.NewEncoder(os.Stdout).Encode(summary)
+				return json.NewEncoder(os.Stdout).Encode(operator.WithNote(summary, note))
 			}
 			fmt.Fprintf(os.Stdout, "Saved workflow: %s  (id: %s)\n", wf.Name, wf.ID)
 			return nil

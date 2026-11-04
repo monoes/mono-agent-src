@@ -68,7 +68,6 @@ var legacyMarkerChecks = map[string]allowed{
 	"internal/cli/secret/update.go":                 {1, reader + " (warnDropped)"},
 	"internal/cli/summary/summary.go":               {1, reader},
 	"internal/cli/workflowaitask/workflowaitask.go": {1, reader + " (the audit line's actor)"},
-	"internal/cli/workflowedit/node.go":             {1, reader},
 	"internal/cli/workflowmanage/manage.go":         {1, reader},
 	"internal/cli/workflowrun/execution.go":         {2, reader},
 	"internal/cli/workflowrun/summary.go":           {2, reader},

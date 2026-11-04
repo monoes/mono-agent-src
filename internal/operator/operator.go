@@ -27,6 +27,8 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 
@@ -159,14 +161,81 @@ func Refusal() string {
 	return why + " (" + inheritedHint + ")"
 }
 
+// turnVerdict says why this process runs inside a coder session's turn ("" when it does not). Only
+// a process that registered the turn-aware gate (internal/cli/opgate.Register, the command line)
+// has one; every other process (the app, the daemon, MCP servers, library use) judges by Marker alone.
+var turnVerdict func() string
+
+// SetTurnVerdict installs the turn check ApprovingContext and NotApproving consult after Marker;
+// nil removes it. It is called from opgate only, never at package init: the check may open the
+// database, and operator must stay free of it.
+func SetTurnVerdict(f func() string) { turnVerdict = f }
+
+// InTurn says why this process counts as a coder turn's although it carries no marker (a turn whose
+// whole process chain was stripped of its markers): "" when it does not, or when no turn check is
+// installed.
+func InTurn() string {
+	if turnVerdict == nil {
+		return ""
+	}
+	return turnVerdict()
+}
+
+// NotApproving reports whether a publication made by this process must not record the operator's
+// approval: an agent runs it (Marker) or it runs inside a coder turn (InTurn). A person at their own
+// terminal is the only process that approves.
+func NotApproving() bool { return Marker() != "" || InTurn() != "" }
+
+// UnapprovedNote is the line a command prints when it saved or activated a workflow without
+// approving it because the process runs inside a coder turn; "" for the operator and for a marked
+// process (whose output stays as it was). what is "saved" or "activated".
+func UnapprovedNote(what, id string) string {
+	if Marker() != "" || InTurn() == "" {
+		return ""
+	}
+	return "this workflow was " + what + " but NOT approved: this command ran inside a coder session's turn, so its program-running nodes stay blocked. " +
+		"To approve it, run `monoagentcli workflow activate " + id + "` in your own terminal, or approve it in the app."
+}
+
 // ApprovingContext makes the publication that is made with the returned context also record its
 // resulting definition as the operator's, in the same commit as the rows (unless an agent is
-// running this command). It is the only way an operator command approves a workflow: the approval
-// is written with the change that makes the definition (a save, or the activation), never in a step
-// after it, so it cannot cover a change made in between.
+// running this command, or this process runs inside a coder turn: NotApproving). It is the only way
+// an operator command approves a workflow: the approval is written with the change that makes the
+// definition (a save, or the activation), never in a step after it, so it cannot cover a change made
+// in between.
 func ApprovingContext(ctx context.Context) context.Context {
-	if Marker() != "" {
+	if NotApproving() {
 		return ctx
 	}
 	return workflow.WithApproval(ctx)
+}
+
+// NoteUnapproved prints the UnapprovedNote of a saved or activated workflow on stderr (nothing for the
+// operator and for a marked process), and returns it for the --json result.
+func NoteUnapproved(what, id string) string {
+	note := UnapprovedNote(what, id)
+	if note != "" {
+		fmt.Fprintln(os.Stderr, "Note: "+note)
+	}
+	return note
+}
+
+// WithNote is v, or, when note is not empty, v with "approved": false and "approval_note": note added to
+// its JSON object. The operator's and a marked process's result is v itself, byte for byte.
+func WithNote(v any, note string) any {
+	if note == "" {
+		return v
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return v
+	}
+	var m map[string]json.RawMessage
+	if json.Unmarshal(raw, &m) != nil {
+		return v
+	}
+	m["approved"] = json.RawMessage("false")
+	n, _ := json.Marshal(note)
+	m["approval_note"] = n
+	return m
 }

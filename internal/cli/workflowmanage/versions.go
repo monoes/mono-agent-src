@@ -136,10 +136,11 @@ func (d Deps) newVersionsRestoreCmd() *cobra.Command {
 				for _, e := range workflow.ValidateWorkflow(restored, workflow.ValidateOptions{}).Errors {
 					warnings = append(warnings, "fails `workflow validate`: "+e)
 				}
+				note := operator.NoteUnapproved("restored", wf.ID)
 				if d.JSONOutput() {
-					return json.NewEncoder(os.Stdout).Encode(map[string]any{
+					return json.NewEncoder(os.Stdout).Encode(operator.WithNote(map[string]any{
 						"workflow_id": wf.ID, "restored_from": n, "version": restored.Version, "warnings": warnings,
-					})
+					}, note))
 				}
 				fmt.Fprintf(os.Stdout, "Restored workflow %s to version %d (now version %d)\n", wf.ID, n, restored.Version)
 				for _, w := range warnings {

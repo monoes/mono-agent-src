@@ -469,8 +469,9 @@ func (d Deps) newCreateCmd() *cobra.Command {
 				return fmt.Errorf("create workflow: %w", err)
 			}
 
+			note := operator.NoteUnapproved("created", wf.ID)
 			if d.JSONOutput() {
-				return json.NewEncoder(os.Stdout).Encode(wf)
+				return json.NewEncoder(os.Stdout).Encode(operator.WithNote(wf, note))
 			}
 			fmt.Fprintf(os.Stdout, "Created workflow: %s  (id: %s)\n", wf.Name, wf.ID)
 			return nil

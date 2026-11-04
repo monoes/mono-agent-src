@@ -345,8 +345,9 @@ func (d Deps) newTemplatesUseCmd() *cobra.Command {
 				return err
 			}
 
+			note := operator.NoteUnapproved("created", wf.ID)
 			if d.JSONOutput() {
-				return json.NewEncoder(os.Stdout).Encode(wf)
+				return json.NewEncoder(os.Stdout).Encode(operator.WithNote(wf, note))
 			}
 			fmt.Fprintf(os.Stdout, "Created workflow %q from template %q  (id: %s, %d nodes, %d connections)\n",
 				wf.Name, args[0], wf.ID, len(wf.Nodes), len(wf.Connections))

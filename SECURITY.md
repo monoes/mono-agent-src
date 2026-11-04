@@ -2093,7 +2093,14 @@ that works a task acts on them. The defences:
   `profile backups list` stay open. They have no agent
   path: no shipped skill, template, MCP or chat tool runs them, and the desktop app runs
   them as the user. A terminal started inside a coder
-  turn, and a process that holds an agent token, is refused by them. The check reads the
+  turn, and a process that holds an agent token, is refused by them.
+  The same holds for approving a workflow: `workflow save|import|create|versions restore|templates use|node add|set|remove`
+  record the definition as the operator's only for a process that is neither marked, nor holds an agent
+  token, nor runs inside a coder turn (`operator.ApprovingContext`, with the turn check the command line
+  installs). A terminal started inside a turn no longer approves: the save still happens and the workflow
+  stays unapproved (program-running nodes stay refused), `workflow activate` is refused, and the user
+  approves it from their own terminal (`workflow activate <id>`) or in the app. A process that cannot
+  be placed (unreadable database) is treated as inside a turn. The check reads the
   named database read-only and never creates or migrates it. `secret rebind` repairs
   an install, so it must work when the database is damaged (`extension reset`, which
   revokes the shared pairing token, and `extension browsers revoke`, which cuts one

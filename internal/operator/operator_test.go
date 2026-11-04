@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -123,5 +124,51 @@ func TestRefusalSaysHowToFixAnInheritedMarker(t *testing.T) {
 	}
 	if h := InheritedHint(); !strings.HasPrefix(h, "If you started the MonoAgent app") || !strings.HasSuffix(h, "for the daemon).") {
 		t.Errorf("InheritedHint() = %q", h)
+	}
+}
+
+// The turn check the command line installs makes a process with no marker stop approving; a process
+// that installed none is judged by marker alone, and an agent's marker still decides first.
+func TestApprovingContextConsultsTheInstalledTurnCheck(t *testing.T) {
+	asOperator(t)
+	t.Cleanup(func() { SetTurnVerdict(nil) })
+	ctx := context.Background()
+	approves := func() bool { return ApprovingContext(ctx) != ctx }
+
+	SetTurnVerdict(nil)
+	if !approves() || NotApproving() {
+		t.Fatal("the operator with no turn check does not approve")
+	}
+	SetTurnVerdict(func() string { return "" })
+	if !approves() {
+		t.Fatal("a turn check that finds no turn stopped the operator from approving")
+	}
+	SetTurnVerdict(func() string { return "inside a turn" })
+	if approves() || !NotApproving() || InTurn() == "" {
+		t.Fatal("a process inside a turn approves")
+	}
+	if !strings.Contains(UnapprovedNote("saved", "wf-9"), "NOT approved") || !strings.Contains(UnapprovedNote("saved", "wf-9"), "workflow activate wf-9") {
+		t.Fatalf("note = %q", UnapprovedNote("saved", "wf-9"))
+	}
+	t.Setenv(hilsend.EnvAgentContext, "coder")
+	if approves() || UnapprovedNote("saved", "wf-9") != "" {
+		t.Fatal("a marked process approves, or its output gained a note")
+	}
+	SetTurnVerdict(nil)
+	if approves() {
+		t.Fatal("a marked process approves")
+	}
+}
+
+func TestWithNoteLeavesTheOperatorsResultAlone(t *testing.T) {
+	in := map[string]any{"id": "a"}
+	if got := WithNote(in, ""); got == nil || len(got.(map[string]any)) != 1 {
+		t.Fatalf("got %v", got)
+	}
+	m := WithNote(struct {
+		ID string `json:"id"`
+	}{"a"}, "n").(map[string]json.RawMessage)
+	if string(m["approved"]) != "false" || string(m["approval_note"]) != `"n"` || string(m["id"]) != `"a"` {
+		t.Fatalf("got %v", m)
 	}
 }

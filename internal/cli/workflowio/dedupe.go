@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/cli/workflowbundle"
+	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -362,8 +363,12 @@ func (d Deps) printWorkflowImport(cmd *cobra.Command, wf *workflow.Workflow, sta
 	})
 	missing, installCmd := missingBundleHint(bundled, inputFile)
 
+	note := operator.NoteUnapproved("imported", wf.ID)
 	if d.JSONOutput() {
 		out := map[string]interface{}{"id": wf.ID, "name": wf.Name, "status": status}
+		if note != "" {
+			out["approved"], out["approval_note"] = false, note
+		}
 		if len(warnings) > 0 {
 			out["warnings"] = warnings
 		}
