@@ -12,6 +12,9 @@ type PumpResult struct {
 	Admitted []Admitted
 	Skipped  int // items the decoder could not read; they stay queued
 	Deferred int // items left queued because a slot, the provider or the tree had no room
+	// Cancelled counts rows whose send is gone; Duplicates counts rows for a launch that already held its slot.
+	Cancelled  int
+	Duplicates int
 }
 
 // Pump admits as many queued launches as free slots allow, in service order (boss class first, then leads round
@@ -37,46 +40,77 @@ func (s *Scheduler) Pump(ctx context.Context) (PumpResult, error) {
 	if !eff.Admitting || eff.Value < 1 {
 		return res, nil
 	}
-	items, err := s.cfg.Queue.Peek(ctx, s.l.Profile, s.l.Generation, s.cfg.PeekPage)
-	if err != nil {
-		return res, err
-	}
 	s.admitMu.Lock()
 	defer s.admitMu.Unlock()
-	for _, it := range items {
-		if s.stopped.Load() {
-			return res, ErrStopped
-		}
-		if err := ctx.Err(); err != nil {
+	// Items passed over (a provider backing off, no room for it) must not hide the ones behind them: the page grows,
+	// bounded by maxPage, and only rows not yet looked at are judged.
+	seen := map[int64]bool{}
+	for page := s.cfg.PeekPage; ; page = min(page*2, maxPage) {
+		items, err := s.cfg.Queue.Peek(ctx, s.l.Profile, s.l.Generation, page)
+		if err != nil {
 			return res, err
 		}
-		provider, req, derr := s.decode(it)
-		if derr != nil {
-			res.Skipped++
-			continue
-		}
-		err := s.admitLocked(ctx, eff, provider, req)
-		switch {
-		case err == nil:
-		case errors.Is(err, governor.ErrNoSlot):
-			res.Deferred++
-			if s.processFull(ctx, eff) {
-				return res, nil
+		fresh := 0
+		for _, it := range items {
+			if seen[it.QID] {
+				continue
 			}
-			continue
-		default:
-			return res, err
-		}
-		if merr := s.cfg.Queue.MarkAdmitted(ctx, s.l.Profile, s.l.Generation, it.QID); merr != nil {
-			s.undo(provider, req.MemberID)
-			if errors.Is(merr, governor.ErrNotQueued) {
-				continue // cancelled or taken meanwhile: nothing to run, nothing leaked
+			seen[it.QID] = true
+			fresh++
+			if s.stopped.Load() {
+				return res, ErrStopped
 			}
-			return res, merr
+			if err := ctx.Err(); err != nil {
+				return res, err
+			}
+			done, err := s.pumpOne(ctx, eff, it, &res)
+			if err != nil || done {
+				return res, err
+			}
 		}
-		res.Admitted = append(res.Admitted, Admitted{Item: it, Provider: provider, Request: req})
+		if fresh == 0 || page >= maxPage {
+			return res, nil
+		}
 	}
-	return res, nil
+}
+
+// pumpOne judges one queued item. done means the process slots are full and the rest cannot fit.
+func (s *Scheduler) pumpOne(ctx context.Context, eff governor.Effective, it governor.Item, res *PumpResult) (done bool, err error) {
+	if s.cfg.Stale != nil && s.cfg.Stale(ctx, it) { // its send is gone: cancel the row, reserve nothing
+		if cerr := s.cfg.Queue.Cancel(ctx, s.l.Profile, s.l.Generation, it.QID); cerr != nil && !errors.Is(cerr, governor.ErrNotQueued) {
+			return false, cerr
+		}
+		res.Cancelled++
+		return false, nil
+	}
+	provider, req, derr := s.decode(it)
+	if derr != nil {
+		res.Skipped++
+		return false, nil
+	}
+	switch err := s.admitLocked(ctx, eff, provider, req); {
+	case err == nil:
+	case errors.Is(err, governor.ErrAlreadyHeld): // a second row for a launch that already holds its slot: consume it
+		if merr := s.cfg.Queue.MarkAdmitted(ctx, s.l.Profile, s.l.Generation, it.QID); merr != nil && !errors.Is(merr, governor.ErrNotQueued) {
+			return false, merr
+		}
+		res.Duplicates++
+		return false, nil
+	case errors.Is(err, governor.ErrNoSlot):
+		res.Deferred++
+		return s.processFull(ctx, eff), nil
+	default:
+		return false, err
+	}
+	if merr := s.cfg.Queue.MarkAdmitted(ctx, s.l.Profile, s.l.Generation, it.QID); merr != nil {
+		s.undo(provider, req.MemberID)
+		if errors.Is(merr, governor.ErrNotQueued) {
+			return false, nil // cancelled or taken meanwhile: nothing to run, nothing leaked
+		}
+		return false, merr
+	}
+	res.Admitted = append(res.Admitted, Admitted{Item: it, Provider: provider, Request: req})
+	return false, nil
 }
 
 func (s *Scheduler) decode(it governor.Item) (provider string, r governor.Request, err error) {

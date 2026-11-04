@@ -46,9 +46,20 @@ func (c *CachedKeyer) MAC(domain string, parts ...[]byte) ([]byte, error) {
 }
 
 func (c *CachedKeyer) keyer() (store.Keyer, error) {
+	now := time.Now
+	if c.Now != nil {
+		now = c.Now
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.key != nil && now().Sub(c.at) < c.TTL {
+		return c.key, nil
+	}
 	key, err := c.Derive(context.Background())
 	if err != nil {
+		c.key = nil
 		return nil, err
 	}
-	return store.NewHMACKeyer(key), nil
+	c.key, c.at = store.NewHMACKeyer(key), now()
+	return c.key, nil
 }

@@ -87,7 +87,8 @@ func (g governedLauncher) start(profileID, conversationID, turnID string, mk fun
 func (rg *runGov) admit(ctx context.Context, member, conv, provider string) error {
 	rg.mu.Lock()
 	defer rg.mu.Unlock()
-	if rg.claim(member) {
+	if rg.claim(member) || rg.holdsSlot(ctx, member) { // reserved for this launch by the queue, even after the claim time
+		rg.markStarted(member)
 		return nil
 	}
 	req := governor.Request{Kind: governor.KindProcess, MemberID: member}
@@ -100,6 +101,9 @@ func (rg *runGov) admit(ctx context.Context, member, conv, provider string) erro
 			rg.markStarted(member)
 			rg.publishLocked(ctx, false)
 			return nil
+		case errors.Is(err, governor.ErrAlreadyHeld): // taken for this launch meanwhile
+			rg.markStarted(member)
+			return nil
 		case errors.Is(err, governor.ErrNoSlot):
 			rg.setStarting(member, false) // no slot was taken: fall through to the queue
 		default:
@@ -111,15 +115,20 @@ func (rg *runGov) admit(ctx context.Context, member, conv, provider string) erro
 	}
 	if !rg.isQueued(member) {
 		pl, _ := json.Marshal(govPayload{M: member, P: provider})
-		if _, err := rg.s.Enqueue(ctx, governor.Item{Lead: conv, Class: governor.ClassNormal, Payload: pl}); err != nil {
-			if errors.Is(err, governor.ErrQueueFull) {
-				return fmt.Errorf("%w: the open-ended run's queue of waiting launches is full (at most %d rows and %d bytes); the send was refused", coderhost.ErrLimit, rg.lim.QueueMaxRows, rg.lim.QueueMaxBytes)
+		if !rg.queuedInDB(ctx, pl) { // idempotent: a restarted host finds its earlier row
+			if _, err := rg.s.Enqueue(ctx, governor.Item{Lead: conv, Class: governor.ClassNormal, Payload: pl}); err != nil {
+				if errors.Is(err, governor.ErrQueueFull) {
+					return fmt.Errorf("%w: the open-ended run's queue of waiting launches is full (at most %d rows and %d bytes); the send was refused", coderhost.ErrLimit, rg.lim.QueueMaxRows, rg.lim.QueueMaxBytes)
+				}
+				return govRefusal(err)
 			}
-			return govRefusal(err)
+			rg.dirty.Store(true)
 		}
 		rg.setQueued(member)
 	}
-	rg.pumpLocked(ctx)
+	if rg.dirty.Load() || time.Since(rg.lastPump) >= govPumpEvery { // waiting sends asked again with nothing changed do not each pump
+		rg.pumpLocked(ctx)
+	}
 	rg.publishLocked(ctx, false)
 	if rg.claim(member) {
 		return nil

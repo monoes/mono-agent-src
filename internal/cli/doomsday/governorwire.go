@@ -11,6 +11,7 @@ import (
 	"math/rand/v2"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/doomsday/governor"
@@ -41,6 +42,7 @@ const (
 	govClaimTTL       = 30 * time.Second // a slot the queue reserved for a send that never claimed it is given back after this
 	govReconcileEvery = 30 * time.Second
 	govPublishEvery   = 2 * time.Second
+	govPumpEvery      = 2 * time.Second // waiting sends asked again with nothing changed pump at most this often
 	govStateKey       = "snapshot"
 	govMemberPrefix   = "turn|"
 )
@@ -100,6 +102,8 @@ type runGov struct {
 	queued   map[string]bool      // guarded by liveMu: members with a queue row
 	admitted map[string]time.Time // reserved by the queue, not yet claimed by the send
 	lastRec  time.Time
+	lastPump time.Time
+	dirty    atomic.Bool // something changed (a release, a new waiting launch): the next ask pumps at once
 	lastPub  time.Time
 
 	liveMu   sync.Mutex
@@ -165,7 +169,7 @@ func (w *GovernorWire) build(ctx context.Context, r store.Run) (*runGov, error) 
 	rg.slots = slots.New(w.DB, rg)
 	rg.q = queue.New(w.DB, w.Keys)
 	rg.pol = policy.New(clock, policy.WithJitter(rand.Float64))
-	rg.s, err = sched.New(sched.Config{Limits: lim, Sampler: sampler, Policy: rg.pol, Slots: rg.slots, Queue: rg.q, View: rg, Clock: clock, Decode: decodeItem})
+	rg.s, err = sched.New(sched.Config{Limits: lim, Sampler: sampler, Policy: rg.pol, Slots: rg.slots, Queue: rg.q, View: rg, Clock: clock, Decode: decodeItem, Stale: rg.stale})
 	if err != nil {
 		return nil, err
 	}
@@ -303,6 +307,7 @@ func (rg *runGov) release(m string) {
 	delete(rg.admitted, m)
 	delete(rg.queued, m)
 	rg.liveMu.Unlock()
+	rg.dirty.Store(true)
 	ctx, cancel := context.WithTimeout(context.Background(), govCallTimeout)
 	defer cancel()
 	if err := rg.s.Release(ctx, m); err != nil {
@@ -312,6 +317,8 @@ func (rg *runGov) release(m string) {
 
 // pumpLocked admits queued launches into free slots and records the reservations. rg.mu is held.
 func (rg *runGov) pumpLocked(ctx context.Context) {
+	rg.lastPump = time.Now()
+	rg.dirty.Store(false)
 	res, err := rg.s.Pump(ctx)
 	if err != nil && !errors.Is(err, governor.ErrNotRunning) {
 		rg.w.logf("doomsday governor: pump: %v", err)
@@ -352,10 +359,14 @@ func (w *GovernorWire) Tick(ctx context.Context) {
 	if rg == nil || err != nil {
 		return
 	}
+	rg.tickLocked(tctx) // the lock is released by a defer: a panic recovered above must not leave admission blocked
+}
+
+func (rg *runGov) tickLocked(ctx context.Context) {
 	rg.mu.Lock()
-	rg.pumpLocked(tctx)
-	rg.publishLocked(tctx, true)
-	rg.mu.Unlock()
+	defer rg.mu.Unlock()
+	rg.pumpLocked(ctx)
+	rg.publishLocked(ctx, true)
 }
 
 // published is the host's last report: derived display state, never read as authority.
@@ -423,4 +434,37 @@ func parsePublished(raw string) (published, bool) {
 		return published{}, false
 	}
 	return p, true
+}
+
+// stale says whether the send behind a queued launch is gone: its command exists and is no longer pending (cancelled by a
+// stop or the person, failed, done). A launch with no command row at all is not judged.
+func (rg *runGov) stale(ctx context.Context, it governor.Item) bool {
+	_, req, err := decodeItem(it)
+	if err != nil {
+		return false
+	}
+	conv, turn, ok := splitMember(req.MemberID)
+	if !ok {
+		return false
+	}
+	var status string
+	err = rg.w.DB.QueryRowContext(ctx, `SELECT status FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND turn_id = ? ORDER BY id DESC LIMIT 1`,
+		rg.lim.Profile, conv, turn).Scan(&status)
+	return err == nil && status != "pending"
+}
+
+// holdsSlot says whether the member already holds a live slot (reserved for it by the queue, or kept from before a restart).
+func (rg *runGov) holdsSlot(ctx context.Context, m string) bool {
+	var n int
+	err := rg.w.DB.QueryRowContext(ctx, `SELECT count(*) FROM doomsday_slots WHERE profile = ? AND generation = ? AND member_id = ? AND released_at IS NULL`,
+		rg.lim.Profile, rg.lim.Generation, m).Scan(&n)
+	return err == nil && n > 0
+}
+
+// queuedInDB says whether a queued row already names this launch, so a restarted host does not queue it twice.
+func (rg *runGov) queuedInDB(ctx context.Context, payload []byte) bool {
+	var n int
+	err := rg.w.DB.QueryRowContext(ctx, `SELECT count(*) FROM doomsday_queue WHERE profile = ? AND generation = ? AND state = 'queued' AND payload = ?`,
+		rg.lim.Profile, rg.lim.Generation, string(payload)).Scan(&n)
+	return err == nil && n > 0
 }

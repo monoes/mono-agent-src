@@ -373,6 +373,7 @@ func TestStopCancelsTheQueueAndAWedgedGovernorDoesNotBlockIt(t *testing.T) {
 	if err := g.CancelQueue(context.Background(), 1); err != nil {
 		t.Fatal(err)
 	}
+	waitUntil(t, "the governor's cancel", func() bool { return count(t, r.db, `SELECT COUNT(*) FROM doomsday_queue WHERE state = 'queued'`) == 0 })
 	if inner.cancels != 1 || count(t, r.db, `SELECT COUNT(*) FROM doomsday_queue WHERE state = 'queued'`) != 0 || count(t, r.db, `SELECT COUNT(*) FROM doomsday_queue WHERE state = 'cancelled'`) != 1 {
 		t.Fatalf("cancels %d; the waiting launch must be cancelled", inner.cancels)
 	}

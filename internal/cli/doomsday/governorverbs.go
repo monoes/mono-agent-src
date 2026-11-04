@@ -182,10 +182,50 @@ func (r GovernorReader) Read(ctx context.Context, generation int64) (GovernorVie
 	if !ok || now().Sub(time.Unix(p.At, 0)) > GovernorStaleAfter || run.State != store.StateRunning {
 		return v, nil // a report that cannot be read, is old, or belongs to a run that is stopping shows no decision
 	}
-	eff := min(max(p.Effective, 0), v.Cap) // display only; the cap is the charter's whatever the row says
-	v.HostReporting, v.ReportedAt, v.Effective, v.Admitting, v.Reasons = true, p.At, &eff, &p.Admitting, p.Reasons
+	// The report row is unauthenticated: it is display only, reported by the host and unverified. Everything taken from it is
+	// clamped, filtered to known names, stripped of control characters and bounded, so a forged row can say nothing but plain,
+	// small text; the cap and the counts above come from the verified charter and the slot and queue tables.
+	eff := min(max(p.Effective, 0), v.Cap)
+	v.HostReporting, v.ReportedAt, v.Effective, v.Admitting = true, p.At, &eff, &p.Admitting
+	for _, rs := range p.Reasons {
+		if knownReasons[rs] && len(v.Reasons) < len(knownReasons) {
+			v.Reasons = append(v.Reasons, rs)
+		}
+	}
 	for _, pr := range p.Providers {
-		v.Providers = append(v.Providers, GovernorBackoff{Provider: pr.Provider, Value: pr.Value, LeftSecs: pr.LeftSecs})
+		if len(v.Providers) >= maxViewProviders {
+			break
+		}
+		v.Providers = append(v.Providers, GovernorBackoff{Provider: plainName(pr.Provider), Value: min(max(pr.Value, 0), v.Cap), LeftSecs: min(max(pr.LeftSecs, 0), maxBackoffSecs)})
 	}
 	return v, nil
+}
+
+// Bounds of what the view takes from the host's unauthenticated report.
+const (
+	maxViewProviders = 64
+	maxBackoffSecs   = 3600 // the policy never backs off longer than ten minutes
+	maxNameBytes     = 64
+)
+
+var knownReasons = map[string]bool{
+	string(governor.ReasonLoad): true, string(governor.ReasonMemory): true, string(governor.ReasonMemoryStop): true,
+	string(governor.ReasonDisk): true, string(governor.ReasonProvider): true, string(governor.ReasonSampleFail): true,
+	string(governor.ReasonRecovering): true,
+}
+
+// plainName keeps printable ASCII only (anything else becomes '?') and at most maxNameBytes of it.
+func plainName(s string) string {
+	b := make([]byte, 0, min(len(s), maxNameBytes))
+	for _, r := range s {
+		if len(b) >= maxNameBytes {
+			break
+		}
+		if r >= 0x20 && r < 0x7f {
+			b = append(b, byte(r))
+		} else {
+			b = append(b, '?')
+		}
+	}
+	return string(b)
 }

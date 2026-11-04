@@ -26,6 +26,8 @@ const (
 	DefaultSampleEvery   = time.Second
 	DefaultSampleTimeout = 2 * time.Second
 	DefaultPeekPage      = 64
+	// maxPage is the most rows one pump looks at (the queue's own Peek limit).
+	maxPage              = 500
 	DefaultCancelTimeout = 5 * time.Second
 	// MaxProviders bounds the provider names the scheduler remembers for its snapshot.
 	MaxProviders = 64
