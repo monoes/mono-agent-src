@@ -156,7 +156,7 @@ func JoinBusy(errs ...error) error {
 }
 
 // shellQuote quotes s for a shell when it holds anything but plain path characters (single quotes, with a
-// quote inside written as '\''), so the operator can paste the entry file into `rm`.
+// quote inside written as '\”), so the operator can paste the entry file into `rm`.
 func shellQuote(s string) string {
 	plain := s != ""
 	for _, r := range s {
