@@ -412,3 +412,63 @@ func TestAWedgedKeyDerivationIsBoundedAndDoesNotSerialiseCallers(t *testing.T) {
 		t.Fatalf("three callers took %v behind a wedged derivation (serialised or unbounded)", d)
 	}
 }
+
+// A finished turn gives its member back: the same conversation and turn can start again, and the wire no longer thinks it runs.
+func TestAFinishedTurnCanStartAgainForTheSameMember(t *testing.T) {
+	r := newGovRig(t, "")
+	r.start(t)
+	tn, err := r.startTurn("a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := memberID("conv-a", "t-a")
+	if !r.gw.cur.isStarted(m) {
+		t.Fatal("a running turn is not marked started")
+	}
+	r.l.turn(0).end()
+	if err := tn.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if r.gw.cur.isStarted(m) {
+		t.Fatal("a finished turn is still marked started")
+	}
+	if _, err := r.startTurn("a"); err != nil {
+		t.Fatalf("the same member could not start again after its turn finished: %v", err)
+	}
+}
+
+// A start the launcher fails leaves the member startable and not marked started.
+func TestAFailedStartLeavesTheMemberStartable(t *testing.T) {
+	r := newGovRig(t, "")
+	r.start(t)
+	r.l.err = errors.New("no such runtime")
+	if _, err := r.startTurn("a"); err == nil {
+		t.Fatal("the failing launcher started")
+	}
+	m := memberID("conv-a", "t-a")
+	if r.gw.cur.isStarted(m) {
+		t.Fatal("a failed start left the member marked started")
+	}
+	r.l.err = nil
+	if _, err := r.startTurn("a"); err != nil {
+		t.Fatalf("the member could not start after a failed start: %v", err)
+	}
+}
+
+// After Stop nothing is marked started: a refused start leaves no trace in the wire's sets.
+func TestAfterStopTheMemberIsNotMarkedStarted(t *testing.T) {
+	r := newGovRig(t, "")
+	r.start(t)
+	if _, err := r.startTurn("a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.w.RunDir.WriteMarker(1, "", "test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.startTurn("b"); !refused(err) {
+		t.Fatalf("a start after Stop: %v", err)
+	}
+	if r.gw.cur.isStarted(memberID("conv-b", "t-b")) {
+		t.Fatal("a refused start after Stop is marked started")
+	}
+}
