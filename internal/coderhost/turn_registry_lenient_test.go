@@ -1,11 +1,14 @@
 package coderhost
 
 import (
+	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The lenient scan (the recovery verbs) skips an unreadable live-host entry and still judges the entries
@@ -50,5 +53,45 @@ func TestTheLenientScanFindsATurnPastAnUnreadableEntryAndTheStrictScanStopsAtIt(
 	}
 	if in, skipped, _ := CallerInARegisteredTurnLenient(""); in || len(skipped) != 1 {
 		t.Fatalf("lenient with no readable turn: in=%v skipped=%v; want not in a turn, one entry skipped", in, skipped)
+	}
+}
+
+// A locked database must answer ErrDatabaseBusy inside registeredCheckTimeout: the registry check waits for the
+// lock only two thirds of it, so a scan reports a busy live host instead of abandoning the check as "no answer".
+func TestTheRegistryCheckAnswersBusyBeforeItIsAbandoned(t *testing.T) {
+	needAncestry(t)
+	registryDirOf(t)
+	db := filepath.Join(t.TempDir(), "host.db")
+	sdb, err := sql.Open("sqlite", "file:"+db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	conn, err := sdb.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{"PRAGMA journal_mode=DELETE", "CREATE TABLE coder_sessions (id INTEGER)", "BEGIN EXCLUSIVE"} {
+		if _, err := conn.ExecContext(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	t.Cleanup(func() { _, _ = conn.ExecContext(ctx, "ROLLBACK"); conn.Close(); sdb.Close() })
+	unregister, err := RegisterHostDB(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(unregister)
+
+	prevTimeout := registeredCheckTimeout
+	registeredCheckTimeout = 600 * time.Millisecond // the lock wait is capped at 400 ms; the default 5 s is far above
+	t.Cleanup(func() { registeredCheckTimeout = prevTimeout })
+	start := time.Now()
+	in, skipped, busy := CallerInARegisteredTurnLenient("")
+	if in || len(skipped) != 0 || len(busy) != 1 || !errors.Is(busy[0], ErrDatabaseBusy) {
+		t.Fatalf("in=%v skipped=%v busy=%v: a locked live host was not reported busy within the bound", in, skipped, busy)
+	}
+	if took := time.Since(start); took >= registeredCheckTimeout {
+		t.Fatalf("answered after %s, not inside the %s bound", took, registeredCheckTimeout)
 	}
 }

@@ -91,7 +91,18 @@ func registerDead(t *testing.T, dir, db string) {
 	}
 }
 
-func wantRetryText(t *testing.T, err error, db string) {
+// entryFileOf is the registry entry file of the database at path (the file name is the hash of its canonical path).
+func entryFileOf(t *testing.T, dir, path string) string {
+	t.Helper()
+	canon, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte(canon))
+	return filepath.Join(dir, hex.EncodeToString(sum[:]))
+}
+
+func wantRetryText(t *testing.T, err error, db, entryFile string) {
 	t.Helper()
 	if err == nil {
 		t.Fatal("a recovery verb saw no turn although the live host's database is locked")
@@ -99,7 +110,8 @@ func wantRetryText(t *testing.T, err error, db string) {
 	if !errors.Is(err, coderhost.ErrDatabaseBusy) {
 		t.Fatalf("not the busy error: %v", err)
 	}
-	want := "the coder host that owns " + db + " is busy (database locked); wait and retry the command"
+	want := "the coder host that owns " + db + " is busy (database locked); wait and retry the command; the registry entry for it is " +
+		entryFile + ": if that host is not running, delete this file and run the command again"
 	if err.Error() != want {
 		t.Fatalf("message %q, want %q", err.Error(), want)
 	}
@@ -110,13 +122,13 @@ func wantRetryText(t *testing.T, err error, db string) {
 
 // (a) the named database is the live host's and is locked.
 func TestARecoveryVerbIsToldToRetryWhenTheNamedLiveHostDatabaseIsLocked(t *testing.T) {
-	busySetup(t)
+	dir := busySetup(t)
 	db := newHILTestDB(t)
 	registerLive(t, db)
 	lockDB(t, db)
 	cfg := &globalConfig{DBPath: db}
 	_, err := cfg.callerInATurnFor(true)
-	wantRetryText(t, err, db)
+	wantRetryText(t, err, db, entryFileOf(t, dir, db))
 	why, busy := cfg.gateRecovery()
 	if busy == nil || why == "" {
 		t.Fatalf("gateRecovery did not report the busy host: %q %v", why, busy)
@@ -125,14 +137,14 @@ func TestARecoveryVerbIsToldToRetryWhenTheNamedLiveHostDatabaseIsLocked(t *testi
 
 // (a2) the process names another database; the live host's registered one is locked.
 func TestARecoveryVerbIsToldToRetryWhenARegisteredLiveHostDatabaseIsLocked(t *testing.T) {
-	busySetup(t)
+	dir := busySetup(t)
 	host := newHILTestDB(t)
 	registerLive(t, host)
 	lockDB(t, host)
 	cfg := &globalConfig{DBPath: newHILTestDB(t)}
 	canon, _ := filepath.EvalSymlinks(host)
 	_, err := cfg.callerInATurnFor(true)
-	wantRetryText(t, err, canon)
+	wantRetryText(t, err, canon, entryFileOf(t, dir, host))
 }
 
 // (b) the same lock on the database of a dead host: the operator is let through.
@@ -205,9 +217,9 @@ func TestATurnInAReadableDatabaseWinsOverABusyLiveHostDatabase(t *testing.T) {
 	}
 }
 
-// (f) the message names nothing but the one database.
-func TestTheBusyMessageNamesNoOtherPath(t *testing.T) {
-	busySetup(t)
+// (f) the message names the one database and its entry file, and nothing of another host.
+func TestTheBusyMessageNamesOnlyTheDatabaseAndItsEntryFile(t *testing.T) {
+	dir := busySetup(t)
 	other := newHILTestDB(t)
 	registerLive(t, other) // another host, readable
 	host := newHILTestDB(t)
@@ -215,14 +227,37 @@ func TestTheBusyMessageNamesNoOtherPath(t *testing.T) {
 	lockDB(t, host)
 	_, err := (&globalConfig{DBPath: newHILTestDB(t)}).callerInATurnFor(true)
 	canon, _ := filepath.EvalSymlinks(host)
-	wantRetryText(t, err, canon)
-	for _, bad := range []string{other, "sqlite", "SQLITE", "coder-hosts"} {
+	wantRetryText(t, err, canon, entryFileOf(t, dir, host))
+	_, err = (&globalConfig{DBPath: host}).callerInATurnFor(true)
+	wantRetryText(t, err, host, entryFileOf(t, dir, host))
+	for _, bad := range []string{other, filepath.Base(entryFileOf(t, dir, other)), "sqlite", "SQLITE"} {
 		if strings.Contains(err.Error(), bad) {
 			t.Fatalf("the message leaks %q: %v", bad, err)
 		}
 	}
-	_, werr := (&globalConfig{DBPath: host}).callerInATurnFor(true)
-	if strings.Contains(werr.Error(), other) {
-		t.Fatalf("the message names another host's path: %v", werr)
+}
+
+// The registry is writable by the same OS user, so the path an entry records is untrusted text: control
+// characters and newlines in it never reach the operator's terminal.
+func TestTheBusyMessageStripsControlCharactersFromARecordedPath(t *testing.T) {
+	dir := busySetup(t)
+	host := filepath.Join(t.TempDir(), "hil\n\x1b[31mred\r\u2028x.db")
+	writeMigratedDB(t, host)
+	registerLive(t, host)
+	lockDB(t, host)
+	_, err := (&globalConfig{DBPath: newHILTestDB(t)}).callerInATurnFor(true)
+	if err == nil || !errors.Is(err, coderhost.ErrDatabaseBusy) {
+		t.Fatalf("not the busy error: %v", err)
+	}
+	for _, r := range err.Error() {
+		if r < 0x20 || r == 0x7f || r == 0x2028 || r == 0x2029 {
+			t.Fatalf("a control character reached the message: %q", err.Error())
+		}
+	}
+	want := filepath.Join(filepath.Dir(host), "hil[31mredx.db")
+	canon, _ := filepath.EvalSymlinks(filepath.Dir(host))
+	want = filepath.Join(canon, "hil[31mredx.db")
+	if !strings.Contains(err.Error(), "owns "+want+" is busy") || !strings.Contains(err.Error(), entryFileOf(t, dir, host)) {
+		t.Fatalf("the sanitized message is not the expected one: %q", err.Error())
 	}
 }

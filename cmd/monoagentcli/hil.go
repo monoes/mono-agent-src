@@ -210,8 +210,8 @@ func (c *globalConfig) callerInATurnFor(recovery bool) (bool, error) {
 	if err != nil && recovery {
 		// A lock on the database of a live coder host could be hiding a turn: refuse with "wait and retry". A
 		// dead host's lock, or a database no live host owns, never locks the operator out of a repair.
-		if errors.Is(err, coderhost.ErrDatabaseBusy) && coderhost.HostOwnsLiveDB(path) {
-			return false, &coderhost.BusyHostError{DB: path}
+		if file, ok := coderhost.LiveHostEntryOf(path); ok && errors.Is(err, coderhost.ErrDatabaseBusy) {
+			return false, &coderhost.BusyHostError{DB: path, File: file}
 		}
 		if len(busy) > 0 {
 			return false, busy[0]

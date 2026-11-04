@@ -15,9 +15,11 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
+	"unicode"
 
 	_ "modernc.org/sqlite" // the driver of the read-only opens below (already linked by internal/storage)
 
@@ -68,15 +70,27 @@ func SetBusyTimeoutForTest(t testing.TB, d time.Duration) {
 var ErrDatabaseBusy = errors.New("database busy (locked)")
 
 // BusyHostError is ErrDatabaseBusy as the operator reads it: the live coder host that owns DB holds it locked.
-// The text names only DB (the path the operator named or the registry recorded) and carries nothing of the
-// database or of the driver's error.
-type BusyHostError struct{ DB string }
+// File is the registry entry that names the host, so an operator whose host is not really running can delete
+// it. The text carries nothing of the database or of the driver's error. The registry is writable by the
+// same OS user, so both paths are untrusted text: Error strips control characters from them.
+type BusyHostError struct{ DB, File string }
 
 func (e *BusyHostError) Error() string {
-	return "the coder host that owns " + e.DB + " is busy (database locked); wait and retry the command"
+	return "the coder host that owns " + printable(e.DB) + " is busy (database locked); wait and retry the command; the registry entry for it is " +
+		printable(e.File) + ": if that host is not running, delete this file and run the command again"
 }
 
 func (e *BusyHostError) Is(target error) bool { return target == ErrDatabaseBusy }
+
+// printable drops control, line-separator and format characters (newlines, escapes, bidi overrides) from s.
+func printable(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == '\u2028' || r == '\u2029' {
+			return -1
+		}
+		return r
+	}, s)
+}
 
 // isBusy says whether err is SQLite's BUSY or LOCKED (primary result codes 5 and 6), however it is wrapped.
 func isBusy(err error) bool {
@@ -441,22 +455,23 @@ func CallerInARegisteredTurnLenient(named string) (in bool, skipped, busy []erro
 	return scanRegisteredTurns(named, true)
 }
 
-// HostOwnsLiveDB says whether the database at path is the one a registered, still running coder host records.
-func HostOwnsLiveDB(path string) bool {
+// LiveHostEntryOf returns the registry entry file of the registered, still running coder host whose database
+// is the file at path ("", false when there is none).
+func LiveHostEntryOf(path string) (file string, ok bool) {
 	fi, err := os.Stat(path)
 	if err != nil {
-		return false
+		return "", false
 	}
 	ents, err := registeredEntries()
 	if err != nil {
-		return false
+		return "", false
 	}
 	for _, e := range ents {
 		if efi, err := os.Stat(e.DB); err == nil && os.SameFile(fi, efi) && !hostIsGone(e) {
-			return true
+			return e.file, true
 		}
 	}
-	return false
+	return "", false
 }
 
 // scanRegisteredTurns is the one per-entry check behind both variants. Strict (lenient false) stops at the
@@ -486,7 +501,7 @@ func scanRegisteredTurns(named string, lenient bool) (bool, []error, []error) {
 				continue
 			}
 			if lenient && errors.Is(err, ErrDatabaseBusy) {
-				busy = append(busy, &BusyHostError{DB: e.DB})
+				busy = append(busy, &BusyHostError{DB: e.DB, File: e.file})
 				continue
 			}
 			skipped = append(skipped, fmt.Errorf("turn registry: the database %s of a coder host cannot be read (%v); the registry entry for it is %s; if that host is no longer running, delete this file and run the command again", e.DB, err, e.file))
