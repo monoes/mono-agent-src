@@ -164,6 +164,49 @@ func TestGovernorHoldsTheCapDefersTheRestAndLeaksNoTicket(t *testing.T) {
 	}
 }
 
+// Through the real host: sends beyond the cap stay pending (not failed), in order, and start as turns end.
+func TestTheHostKeepsSendsPendingBeyondTheCapAndStartsThemAsTurnsEnd(t *testing.T) {
+	r := newGovRig(t, "")
+	r.start(t)
+	send := func(conv, turn string) coderhost.Command {
+		c, err := r.host.Enqueue(coderhost.Command{ProfileID: "p1", ConversationID: conv, Kind: coderhost.KindSend, TurnID: turn, Message: "go"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	cmds := []coderhost.Command{send("c1", "t1"), send("c2", "t2"), send("c3", "t3")}
+	status := func(c coderhost.Command) string {
+		got, _, err := r.host.GetCommand(c.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got.Status
+	}
+	_ = r.h.Tick()
+	if r.l.count() != 2 || status(cmds[0]) != coderhost.CmdDone || status(cmds[1]) != coderhost.CmdDone || status(cmds[2]) != coderhost.CmdPending {
+		t.Fatalf("starts %d, statuses %v %v %v: the third send must wait, pending", r.l.count(), status(cmds[0]), status(cmds[1]), status(cmds[2]))
+	}
+	for i := 0; i < 3; i++ { // passes while full change nothing and fail nothing
+		_ = r.h.Tick()
+	}
+	if r.l.count() != 2 || status(cmds[2]) != coderhost.CmdPending || r.liveSlots(t) != 2 {
+		t.Fatalf("starts %d, third %v, slots %d after more passes", r.l.count(), status(cmds[2]), r.liveSlots(t))
+	}
+	r.l.turn(0).end() // the host's watcher sees the turn end and the slot is released
+	waitUntil(t, "the freed slot", func() bool { return r.liveSlots(t) == 1 })
+	_ = r.h.Tick()
+	if r.l.count() != 3 || status(cmds[2]) != coderhost.CmdDone {
+		t.Fatalf("starts %d, third %v after a slot freed", r.l.count(), status(cmds[2]))
+	}
+	if n := count(t, r.db, `SELECT COUNT(*) FROM doomsday_slots WHERE released_at IS NULL`); n > 2 {
+		t.Fatalf("%d live slots under a cap of 2", n)
+	}
+	r.l.turn(1).end()
+	r.l.turn(2).end()
+	waitUntil(t, "all slots released", func() bool { return r.liveSlots(t) == 0 })
+}
+
 // The line is fair: a slot that frees while a launch waits goes to the one waiting, not to a fresh arrival.
 func TestAFreshArrivalDoesNotJumpTheQueue(t *testing.T) {
 	r := newGovRig(t, "")
