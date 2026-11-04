@@ -126,7 +126,7 @@ func TestNonFiniteAndNegativeCostsAreIgnored(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, bad := range []float64{math.NaN(), math.Inf(1), math.Inf(-1), -1} {
+	for _, bad := range []float64{math.NaN(), math.Inf(1), math.Inf(-1), -1, 2e9, tasks.MaxBudgetUSD * 1.0000001} {
 		c.chargeLive(w, bad)
 	}
 	c.chargeLive(w, 0.25)

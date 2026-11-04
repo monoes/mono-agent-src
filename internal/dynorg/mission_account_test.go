@@ -247,11 +247,16 @@ func TestWorkerReservationLostStopsTheWorkerAndNamesTheCost(t *testing.T) {
 	r.ex.onRun = func(ctx context.Context, id int64, on func(monomind.Event)) { on(usageCost(0.4)) }
 	r.next(r.c)
 	eventually(t, "the charge", func() bool { return spendNear(r.session().SpentUSD, 0.4) })
-	r.clk.advance(tasks.ReservationLease + tasks.ReservationGrace + time.Second) // a suspend: the lease lapsed and was swept
-	if _, err := r.store.ExpireStale(tbg, "default", r.sid); err != nil {        // the sweep, called here so the order against the heartbeat is fixed
-		t.Fatal(err)
-	}
-	eventually(t, "the notice", func() bool { return countNotices(r.em, "mission.reservation_lost") >= 1 })
+	// A suspend: the lease lapses and is swept. A tick that began before the advance may still renew the lapsed row once
+	// (by design), so the advance and the sweep repeat until the loss is seen.
+	eventually(t, "the notice", func() bool {
+		r.clk.advance(tasks.ReservationLease + tasks.ReservationGrace + time.Second)
+		if _, err := r.store.ExpireStale(tbg, "default", r.sid); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(20 * time.Millisecond)
+		return countNotices(r.em, "mission.reservation_lost") >= 1
+	})
 	b, _ := json.Marshal(r.em.find("notice"))
 	if !strings.Contains(string(b), "0.400000") || !strings.Contains(string(b), "task session reservation resolve") {
 		t.Fatalf("the notice names the number and the way out: %s", b)
