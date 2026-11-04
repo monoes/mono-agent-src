@@ -4,6 +4,8 @@ package operator
 
 import (
 	"bytes"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -37,20 +39,22 @@ func unapprovedAncestor() bool {
 }
 
 // walkUnapproved climbs from pid and reports whether a parent has the mark.
-// It fails closed: a parent whose environment can't be read or whose own
-// parent can't be found, a chain deeper than ancestorMaxDepth, and a
-// process already handed to init (a double fork: its real parents are out
-// of reach) all count as unapproved. Only a walk that reaches init through
-// readable parents, none marked, is clean.
+// It fails closed on a broken chain: a parent that has gone or whose own
+// parent can't be found, and a chain deeper than ancestorMaxDepth. A parent
+// whose environment is closed to this user (permission denied) is not
+// broken: a marked workflow child is this user's own process, and its
+// environment is readable, so what can't be read is systemd --user, sshd's
+// privsep children or a root-owned service, never a workflow run. Reaching
+// init (or pid 0 of a container) through links like these is clean. The
+// limit: a process a double fork handed to init has lost its real parents,
+// and looks clean; only a per-run approval record closes that.
 func walkUnapproved(pid int, marked func(int) (bool, error), parent func(int) (int, bool)) bool {
-	if pid <= 1 && pid != ancestorsStopAt {
-		return true
-	}
 	for depth := 0; pid > 1 && pid != ancestorsStopAt; depth++ {
 		if depth == ancestorMaxDepth {
 			return true
 		}
-		if m, err := marked(pid); m || err != nil {
+		m, err := marked(pid)
+		if m || (err != nil && !errors.Is(err, fs.ErrPermission)) {
 			return true
 		}
 		ppid, ok := parent(pid)
