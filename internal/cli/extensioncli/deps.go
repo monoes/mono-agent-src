@@ -40,6 +40,9 @@ type Deps struct {
 	// a damaged install needs: an unreadable database must not lock them out of
 	// revoking the pairing token (opgate.RecoveryRefusal). Nil: Refusal.
 	RecoveryRefusal func() string
+	// RecoveryCheck is RecoveryRefusal that also tells a busy coder host apart: its busy error is handed back
+	// as it is (wait and retry), not as an operator-only refusal (opgate.RecoveryCheck). Nil: RecoveryRefusal.
+	RecoveryCheck func() (string, error)
 	// StdinIsTerminal says whether a person can type at the command (nil:
 	// clicore.StdinIsTerminal). `extension approve` asks for its code there.
 	StdinIsTerminal func() bool
@@ -55,6 +58,16 @@ func (cfg *Deps) operatorOnly(what string) error {
 
 // operatorOnlyRecovery is operatorOnly for the recovery verb, which asks RecoveryRefusal when it is wired.
 func (cfg *Deps) operatorOnlyRecovery(what string) error {
+	if cfg.RecoveryCheck != nil {
+		why, busy := cfg.RecoveryCheck()
+		if busy != nil {
+			return busy
+		}
+		if why != "" {
+			return clicore.OperatorOnly("%s, which only the user does: %s; run it yourself in your terminal, or use the app or the extension's side panel", what, why)
+		}
+		return nil
+	}
 	refusal := cfg.RecoveryRefusal
 	if refusal == nil {
 		refusal = cfg.Refusal

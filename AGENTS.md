@@ -650,10 +650,11 @@ dangerous calls.
   `record verify|replay|save` (`replay --dry-run` stays open), `browser allow add|remove`,
   `browser permissions set|site`, `coder queue add|start`, `coder projects map|unmap`,
   `profile update|delete|move|backups purge`, `profile create --root-dir`,
-  `profile documents remove --delete-file`, `people review approve|reject` and
-  `people messages send-draft|reject-draft` also refuse a
+  `profile documents remove --delete-file`, `people review approve|reject`,
+  `people messages send-draft|reject-draft`, `org role set-access ... full` and
+  `org teardown-profile` (not `--dry-run`) also refuse a
   process inside a coder session's turn and one that holds an agent token
-  (`internal/cli/opgate`, SECURITY.md; the rest are tracked in issue 1333). `people import` and `publication register` keep the limits a marked agent has (an import may not approve anyone for outreach; a registration needs an approved send, `--approval`) and now apply them to a process inside a coder session's turn that cleared its markers and to an agent token holder; `node run publication.register` hands the node the same verdict. `httpapi-token` is a reserved vault entry: only
+  (`internal/cli/opgate`, SECURITY.md; the rest are tracked in issue 1333). `org approve`, `org chat approve`, `org autonomy set|pause|resume` and `org grant add` stay open to the chat with their limits (no approval of a sending call, no `full` or widening, no shorter pause, no `--approval none`); a process inside a coder session's turn or holding an agent token gets the same limits as a marked agent. `people import` and `publication register` keep the limits a marked agent has (an import may not approve anyone for outreach; a registration needs an approved send, `--approval`) and now apply them to a process inside a coder session's turn that cleared its markers and to an agent token holder; `node run publication.register` hands the node the same verdict. `httpapi-token` is a reserved vault entry: only
   the server and the user's own `secret add|update|rm|import` write it
   (`secrets.ErrReservedEntry` otherwise, checked in the secrets package;
   an agent's import skips it), and its bearer is the field `token`; tools

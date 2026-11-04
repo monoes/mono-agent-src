@@ -11,9 +11,9 @@ import (
 
 	"github.com/monoes/mono-agent/internal/apikeys"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/cli/orgenv"
 	"github.com/monoes/mono-agent/internal/monomind"
-	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/orgdecide"
 	"github.com/monoes/mono-agent/internal/orggrant"
 )
@@ -130,12 +130,16 @@ func newOrgTeardownProfileCmd(env *orgEnv) *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
+			// The gate is first: a refused caller learns nothing about the profile and
+			// changes nothing. An ordinary strict gate, not a recovery one (see the test).
+			if !dryRun {
+				if why := opgate.Refusal(); why != "" {
+					return clicore.OperatorOnly("teardown-profile revokes the profile's API keys, org grants and endpoints, which cuts off whatever uses them and only the user decides: %s; "+
+						"run it yourself in your terminal or the app (--dry-run shows what it would do)", why)
+				}
+			}
 			if env.Project() != "" {
 				return env.d.InvalidInput("teardown-profile acts on a whole profile; select it with --profile, not --project")
-			}
-			if why := operator.Refusal(); why != "" && !dryRun {
-				return clicore.OperatorOnly("teardown-profile revokes the profile's API keys, org grants and endpoints, which cuts off whatever uses them and only the user decides: %s; "+
-					"run it yourself in your terminal or the app (--dry-run shows what it would do)", why)
 			}
 			db, profileID, root, err := env.Profile()
 			if err != nil {

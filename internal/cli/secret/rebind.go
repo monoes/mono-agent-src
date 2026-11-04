@@ -27,7 +27,11 @@ func (d Deps) newSecretRebindCmd() *cobra.Command {
 		Example: `  monoagentcli --profile work secret rebind --from /home/old/.monoagent/monoagent.db`,
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if why := opgate.RecoveryRefusal(); why != "" {
+			why, busy := opgate.RecoveryCheck()
+			if busy != nil {
+				return busy
+			}
+			if why != "" {
 				return clicore.OperatorOnly("secret rebind decides which database may open the vault, which only the user does: %s; run it yourself in your terminal or the app", why)
 			}
 			db, err := d.OpenDB()

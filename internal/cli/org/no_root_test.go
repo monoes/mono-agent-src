@@ -3,6 +3,7 @@ package org
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -82,5 +83,20 @@ func TestOrgSummaryWithUnopenableDBKeepsLocalFacts(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(cwd); len(entries) != 0 {
 		t.Fatalf("summary wrote under the current directory: %v", entries)
+	}
+}
+
+// noRootGuard is exactly these verbs. Each is outside requireRoot's up-front root lookup (which opens
+// the database) for a reason written next to its entry; adding one is a decision, and so is removing one
+// (the two operator-gated verbs must stay in it, or a refused caller reaches the database first).
+func TestNoRootGuardIsExactlyTheseVerbs(t *testing.T) {
+	want := []string{"org role set-access", "org sections-runtimes", "org summary", "org teardown-profile"}
+	var got []string
+	for k := range noRootGuard {
+		got = append(got, k)
+	}
+	sort.Strings(got)
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("noRootGuard = %v, want exactly %v", got, want)
 	}
 }

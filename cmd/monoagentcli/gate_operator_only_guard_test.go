@@ -27,7 +27,6 @@ const (
 	turnAware = "already behind the turn-aware gate (requireOperator, personGate)"
 	classC    = "class C: no local operator check; whether it should refuse an agent locally is not decided (issue 1333)"
 	pr4       = "converted in PR 4 (profile and people)"
-	pr5       = "converted in PR 5 (org verbs that only refuse)"
 	heldB     = "held: class B, the verb has an agent path next to the operator's; waits for the owner's answers (issue 1333)"
 	reader    = "reader, not a verb gate: redaction, display or engine behaviour that follows the marker"
 	gateImp   = "the gate's own implementation"
@@ -41,16 +40,11 @@ type allowed struct {
 // legacyMarkerChecks is the T1 allow-list: file (slash-separated from the repo root) to the number of
 // occurrences and the reason. A new occurrence, or an entry that no longer matches, fails the test.
 var legacyMarkerChecks = map[string]allowed{
-	"internal/cli/org/role.go":                      {1, pr5},
-	"internal/cli/org/profile_lifecycle.go":         {1, pr5},
 	"cmd/monoagentcli/login.go":                     {1, heldB + " (login of a builtin package)"},
 	"cmd/monoagentcli/hil.go":                       {3, gateImp + " (notOperator in gateVerdict)"},
 	"internal/cli/node/run.go":                      {3, heldB + " (node run, node run vault.secret_get)"},
 	"internal/cli/secret/secret.go":                 {2, heldB + " (secret reveal under a Reveal grant)"},
 	"internal/cli/revealgate/revealgate.go":         {1, "RefuseMarkerOnly, the marker-only helper of the held class B reveal paths"},
-	"internal/cli/org/approve_guard.go":             {2, heldB + " (org approve)"},
-	"internal/cli/org/autonomy_guard.go":            {3, heldB + " (org autonomy)"},
-	"internal/cli/org/grants.go":                    {1, heldB + " (org grant add)"},
 	"internal/cli/org/sign.go":                      {2, "class C: org sign has its own signature guard; not decided (issue 1333)"},
 	"internal/nodes/agent_run_gate.go":              {1, heldB + " (node run of browser packages)"},
 	"internal/nodes/browserjev/gate.go":             {1, "engine node gate (IsAgentContext), not a CLI verb gate"},
@@ -133,8 +127,7 @@ func TestNoMarkerOnlyOperatorChecksOutsideTheGate(t *testing.T) {
 // pendingOperatorOnly lists, with a reason, the commands that carry the operator-only help text and are
 // not rows of operatorOnlyRows yet. Converting a command moves it to the table.
 var pendingOperatorOnly = map[string]string{
-	"org teardown-profile": pr5,
-	"login":                heldB,
+	"login": heldB,
 }
 
 // turnAwareCommands carry the help text and were behind the turn-aware gate before the table.
@@ -153,7 +146,7 @@ var turnAwareCommands = map[string]string{
 var verbsWithoutTheHelpText = map[string]bool{
 	"secret agent-access": true, "secret agent-access audit": true, "secret export": true,
 	"connect get-oauth-client": true, "profile info get": true, "workflow run": true,
-	"extension pair": true, "extension install": true,
+	"extension pair": true, "extension install": true, "org role set-access": true,
 	"automation trust": true, "automation rerecord": true, "automation doctor accept-repair": true,
 	"record verify": true, "record replay": true, "browser allow add": true, "browser allow remove": true,
 	"browser permissions set": true, "browser permissions site": true,
