@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/dbconn"
 	"github.com/monoes/mono-agent/internal/profiledir"
 	"sync"
 	"time"
@@ -197,6 +198,7 @@ func bootstrapDEKLocked(ctx context.Context, db *sql.DB, profileID string) ([]by
 	defer conn.Close()
 
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		dbconn.AbandonBegin(conn)
 		return nil, fmt.Errorf("secrets: bootstrapDEKLocked: begin tx: %w", err)
 	}
 	committed := false

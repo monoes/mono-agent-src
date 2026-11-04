@@ -308,6 +308,11 @@ jobs:
         run: bash .github/scripts/ci-run-matches-merge_test.sh
       - name: Test the monoagentcli shard split
         run: bash .github/scripts/monoagentcli-shard_test.sh
+      - name: Test the monoagentcli weights check
+        run: bash .github/scripts/monoagentcli-weights-check_test.sh
+      # Lists the test names only (nothing runs). Fails when a batch of new tests has no weight, which would unbalance a shard.
+      - name: Check the monoagentcli test weights
+        run: go test ./cmd/monoagentcli -list '^(Test|Example)' | bash .github/scripts/monoagentcli-weights-check.sh
       - name: Test the release guard
         run: bash scripts/check-release-tags-test.sh
       - name: Test the rollout guard

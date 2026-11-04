@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
 
 	chatcli "github.com/monoes/mono-agent/internal/cli/chat"
@@ -44,9 +43,16 @@ func init() {
 	doomsdayEngine = func(cfg *globalConfig) doomsdaycli.Engine {
 		db, err := initDB(cfg)
 		if err != nil {
-			return doomsdaycli.Off{} // fails closed: nothing starts
+			return engineForOpenFailure(err)
 		}
 		return doomsdayWiring(cfg, db.DB).FinishEngine()
+	}
+	doomsdayReadEngine = func(cfg *globalConfig) doomsdaycli.Engine {
+		db, err := openReadDB(cfg) // the read verbs create and migrate nothing
+		if err != nil {
+			return engineForOpenFailure(err)
+		}
+		return doomsdayWiring(cfg, db).ReadEngine()
 	}
 	doomsdayChat = func(cfg *globalConfig, d *chatcli.Deps) {
 		// A conductor's merges go through the open run's gate and journal; the resolver reads the run on every
@@ -85,6 +91,17 @@ func init() {
 	}
 }
 
+// engineForOpenFailure is the engine when the database cannot be opened. Nothing starts either way (fails closed), but
+// a read verb must not call that "off": the database may be locked, corrupt or unmigratable while a run is live, so it
+// gets doomsdaycli.Unreadable (an error result, non-zero exit). Client mode never opens the local database, so it is
+// the mode off there.
+func engineForOpenFailure(err error) doomsdaycli.Engine {
+	if errors.Is(err, errClientModeDB) || errors.Is(err, errNoReadableSchema) {
+		return doomsdaycli.Off{}
+	}
+	return doomsdaycli.Unreadable{Err: err}
+}
+
 var (
 	hostGateMu sync.Mutex
 	hostGates  = map[string]*doomsdaycli.HostGate{}
@@ -112,7 +129,7 @@ func processHostGate(cfg *globalConfig, db *sql.DB) *doomsdaycli.HostGate {
 // directory next to the database, the stop package's containment probe and kernel, real token revocation.
 func doomsdayWiring(cfg *globalConfig, db *sql.DB) doomsdaycli.Wiring {
 	keys := doomsdaycli.VaultKeyer{DB: db, Profile: cfg.ProfileID}
-	runDir := filepath.Join(filepath.Dir(expandPath(cfg.DBPath)), "doomsday", cfg.ProfileID)
+	runDir := doomsdayRunDirPath(cfg)
 	return doomsdaycli.Wiring{
 		// The entry refuses a charter whose 13.4 constraints would only ever deny (ops.EntryCheck, under the host's own spend bounds).
 		Store:   store.New(db, keys).WithEntryCheck(ops.EntryCheck(coderhost.SpendBounds())),

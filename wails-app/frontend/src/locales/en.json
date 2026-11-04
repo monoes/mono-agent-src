@@ -18,8 +18,10 @@
       "info": "Info",
       "tasks": "Tasks",
       "logs": "Live Logs",
+      "controlroom": "Control room",
       "settings": "Settings"
     },
+    "runActive": "run active",
     "section": {
       "MAIN": "MAIN",
       "DATA": "DATA",
@@ -2489,5 +2491,99 @@
     "saveFailed": "Could not change the mission setting: {{error}}",
     "runningSession": "Running a mission (session {{id}})",
     "unreadable": "Mission state unknown"
+  },
+  "controlRoom": {
+    "title": "Control room",
+    "subtitle": "Live view of the open-ended run. You can read it and stop it; it can only be started from the terminal.",
+    "loading": "Loading...",
+    "off": "The open-ended mode is not available in this install.",
+    "noRun": "There is no run for this profile.",
+    "error": "Could not read the control room: {{message}}",
+    "integrity": {
+      "yes": "Audit chain verified",
+      "no": "Audit chain does NOT verify",
+      "unanchored": "Audit chain NOT anchored",
+      "unknown": "Audit chain not checked"
+    },
+    "run": {
+      "active": "Run active",
+      "stopping": "Run stopping",
+      "ended": "Run ended",
+      "generation": "generation {{n}}",
+      "charter": "Charter"
+    },
+    "errorCode": {
+      "db_unavailable": "The run's database could not be opened, so the control room cannot show it. The run may still be going; Stop is still available.",
+      "read_timeout": "Reading the run took too long and was given up on. The run may still be going; Stop is still available.",
+      "read_failed": "Reading the run failed. The run may still be going; Stop is still available.",
+      "unknown": "Reading the run failed for a reason this version does not know. The run may still be going; Stop is still available."
+    },
+    "unanchored": {
+      "title": "Audit chain not anchored",
+      "body": "The audit chain is consistent with itself, but the stop witness could not confirm where it ends, so rows cut from the end cannot be ruled out. The numbers below are shown, but do not treat this run as verified."
+    },
+    "reason": {
+      "no_witness": "There is no stop witness for this run, so there is nothing to compare the chain with.",
+      "no_witness_record": "The stop witness has no record for this run yet, so the end of the chain could not be confirmed.",
+      "witness_unreadable": "The stop witness could not be read (it is missing, damaged or being written), so the end of the chain could not be confirmed.",
+      "behind_witness": "The chain ends before the point the stop witness recorded: the end of the audit chain has been cut off.",
+      "witness_mismatch": "The audit chain and the stop witness disagree about where the chain ends.",
+      "does_not_verify": "A row of the audit chain does not match its signature or its place in the chain, or the chain is empty or has no run row.",
+      "key_unavailable": "The key that checks the audit chain was not available, so the chain could not be checked.",
+      "other": "The audit chain could not be confirmed."
+    },
+    "badChain": {
+      "titleNo": "The audit chain does not verify",
+      "titleUnknown": "The audit chain could not be checked",
+      "body": "The tree, the spend and the decision feed are hidden because they cannot be trusted. Stop is still available."
+    },
+    "tree": {
+      "title": "Members by kind",
+      "counts": "{{live}} live of {{total}}",
+      "row": "{{live}} / {{total}}",
+      "empty": "No members registered.",
+      "truncated": "Some kinds are not shown."
+    },
+    "spend": {
+      "title": "Spend",
+      "meter": "Spend against the cap",
+      "noCeiling": "This run has no spend ceiling.",
+      "noBudget": "No spend budget is set.",
+      "over": "Over the cap.",
+      "rate": "About {{rate}} per hour (approx, from this window)",
+      "rateNone": "Rate: not enough readings yet (approx, from this window)",
+      "split": "asks {{ask}}, grants {{grant}}",
+      "unauthenticated": "These counters are not authenticated: the totals are not covered by the audit chain's signatures."
+    },
+    "feed": {
+      "title": "Decisions",
+      "empty": "No decisions yet.",
+      "older": "Older decisions",
+      "exceeded": "over: {{what}}",
+      "class": {
+        "run": "run",
+        "approval": "approval",
+        "plan": "plan",
+        "ask_answer": "ask answered",
+        "grant": "grant",
+        "spend": "spend",
+        "park": "parked",
+        "finish": "finish",
+        "refusal": "refused",
+        "other": "other"
+      }
+    },
+    "stop": {
+      "title": "Stop",
+      "unknown": "Run state unknown: the last read failed, so a run may still be going. Stop is offered because it needs no information from the read.",
+      "cannot": "Stop ends the run and cannot be undone; resuming means a new run started in the terminal. The result below is exactly what the command said.",
+      "button": "Stop run",
+      "stopping": "Stopping...",
+      "confirmTitle": "Confirm stop",
+      "confirmBody": "Stop the run now?",
+      "confirm": "Yes, stop the run",
+      "cancel": "Cancel",
+      "failed": "NOT confirmed stopped"
+    }
   }
 }

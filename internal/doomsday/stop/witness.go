@@ -2,6 +2,7 @@ package stop
 
 import (
 	"bytes"
+	"crypto/hmac"
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
@@ -94,7 +95,7 @@ func (w Witness) scan() (recs []Record, last []byte, damaged bool, err error) {
 	}
 	sync := b[len(magic) : len(magic)+syncLen]
 	hm, err := w.mac([]byte("header"), sync)
-	if err != nil || !bytes.Equal(hm, b[len(magic)+syncLen:len(magic)+syncLen+macLen]) {
+	if err != nil || !hmac.Equal(hm, b[len(magic)+syncLen:len(magic)+syncLen+macLen]) {
 		return nil, nil, true, ErrWitnessDamaged
 	}
 	last = hm
@@ -143,7 +144,7 @@ func (w Witness) parseAt(b []byte, pos int) (Record, int, bool) {
 	}
 	body := b[hdr : hdr+4+ln]
 	m, err := w.mac(body)
-	if err != nil || !bytes.Equal(m, b[hdr+4+ln:end]) {
+	if err != nil || !hmac.Equal(m, b[hdr+4+ln:end]) {
 		return rec, 0, false
 	}
 	if json.Unmarshal(b[hdr+4:hdr+4+ln], &rec) != nil {

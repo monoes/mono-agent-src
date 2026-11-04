@@ -11,7 +11,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/monomind"
-	"github.com/monoes/mono-agent/internal/storage"
 )
 
 func withFallbackCaps(t *testing.T, caps ...string) {
@@ -30,16 +29,7 @@ func newSandboxTestDB(t *testing.T) string {
 	t.Setenv("HOME", t.TempDir())
 	asOperatorProcess(t) // setting the fallback is the operator's
 	dbPath := filepath.Join(t.TempDir(), "sandbox-test.db")
-	db, err := storage.NewDatabase(dbPath)
-	if err != nil {
-		t.Fatalf("NewDatabase: %v", err)
-	}
-	if err := db.ApplyMigrations(); err != nil {
-		t.Fatalf("ApplyMigrations: %v", err)
-	}
-	if err := db.DB.Close(); err != nil {
-		t.Fatalf("closing seed db: %v", err)
-	}
+	writeMigratedDB(t, dbPath)
 	return dbPath
 }
 

@@ -14,6 +14,10 @@ import (
 // variable to turn the mode on; wiring an engine is a code change.
 var doomsdayEngine func(*globalConfig) doomsdaycli.Engine
 
+// doomsdayReadEngine is set by the same build: the engine of the control room's read verbs (no witness sequencer
+// just to read). Nil falls back to doomsdayEngine.
+var doomsdayReadEngine func(*globalConfig) doomsdaycli.Engine
+
 // doomsdayChat is set by the same build: it hands the chat commands the resolver of the open run's merge gate
 // (chatcli.Deps.DoomsdayMerge) and installs the worktree reconcile guard. Nil leaves merges and reconcile as they were.
 // doomsdayStrategyReader is set by the same build: the read-only reader of the `doomsday strategy` verbs. Nil leaves
@@ -33,6 +37,12 @@ func newDoomsdayCmd(cfg *globalConfig) *cobra.Command {
 				return nil
 			}
 			return doomsdayEngine(cfg)
+		},
+		ReadEngine: func() doomsdaycli.Engine {
+			if doomsdayReadEngine == nil {
+				return nil
+			}
+			return doomsdayReadEngine(cfg)
 		},
 		RequireOperator: gate,
 		OperatorRefusal: opgate.Refusal,

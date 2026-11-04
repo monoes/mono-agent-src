@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/monoes/mono-agent/internal/dbconn"
 )
 
 // SaveInput is one file SaveBytes stores, already checked by its caller
@@ -111,6 +113,7 @@ func SaveBytes(ctx context.Context, db *sql.DB, profileID string, in SaveInput) 
 	}
 	defer conn.Close()
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		dbconn.AbandonBegin(conn)
 		return SavedItem{}, fmt.Errorf("vault.SaveBytes: begin tx: %w", err)
 	}
 	committed := false

@@ -226,6 +226,14 @@ export function DismissOrgChat(arg1:string,arg2:string,arg3:string):Promise<stri
 
 export function DoctorAutomations(arg1:string):Promise<string>;
 
+export function DoomsdayFeed(arg1:number,arg2:number):Promise<string>;
+
+export function DoomsdayOverview():Promise<string>;
+
+export function DoomsdayProbe():Promise<string>;
+
+export function DoomsdayStop():Promise<string>;
+
 export function EnableAutomation(arg1:string):Promise<string>;
 
 export function EvaluateApplication(arg1:string,arg2:string):Promise<main.FitVerdictInfo>;

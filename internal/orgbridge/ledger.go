@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/monoes/mono-agent/internal/dbconn"
 )
 
 // Crossing directions recorded in org_bridge_calls.
@@ -153,6 +154,7 @@ func (l *Ledger) Admit(ctx context.Context, c Call, lim Limits) (Admission, erro
 	}
 	defer conn.Close()
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		dbconn.AbandonBegin(conn)
 		return Admission{}, fmt.Errorf("orgbridge: ledger: begin: %w", err)
 	}
 	committed := false

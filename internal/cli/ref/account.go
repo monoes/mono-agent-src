@@ -70,7 +70,9 @@ STATES
 WHAT STAYS OPEN
   Open: account (all subcommands), library login, library logout, library
   status, help (and --help on any command), version, update (so a broken
-  install can be fixed). monoagentcli with no arguments prints the help.
+  install can be fixed), doomsday stop (an open-ended run can always be
+  stopped; it needs no sign-in and no network, and stays operator-only).
+  monoagentcli with no arguments prints the help.
   Everything else is gated, ref (this page), doctor, doctor fix, setup,
   release, completion and __complete included, and local-only commands,
   daemon install, daemon restart, daemon uninstall and org serve.

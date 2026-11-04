@@ -18,6 +18,7 @@ import (
 var (
 	pinnedOpen = []string{
 		"account", "account login", "account logout", "account status",
+		"doomsday stop",
 		"help",
 		"library login", "library logout", "library status",
 		"update", "version",
