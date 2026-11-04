@@ -2164,7 +2164,7 @@ that works a task acts on them. The defences:
   (asking the host over its peer-credential socket) is a separate, later design;
   (2) this
   change covers the commands listed above only: many other operator-only commands
-  (sign-in, the organisation guards,
+  (sign-in, `org sign`,
   node runs, people import and publications; tracked in issue 1333) still
   use only the operator marker check and are NOT turn-aware,
   so this does not make every operator-only command refuse a turn; (3) the test that
@@ -2177,6 +2177,17 @@ that works a task acts on them. The defences:
   systemd user service. The bridge itself stays a gate-free path for anything that
   authenticates to it (the pairing token): it runs `record save` and `coder queue add` as the
   operator for such a caller, so the token is as sensitive as the commands behind it.
+  The org verbs the chat legitimately drives use the turn-aware gate for the LIMITED flavour,
+  not for a refusal of everything: `org approve` and `org chat approve` (an approval of a call
+  that sends a message to a person is refused; others pass), `org autonomy set|pause|resume`
+  (never `full`, never a widening, a pause is never shortened) and `org grant add` (a grant
+  asks for approval; `--approval none` is refused). A marked agent, the chat and a workflow
+  get exactly the texts and limits they always had; a process inside a coder session's turn
+  that cleared its markers, and a holder of an agent token, now get the same limits. A
+  database that cannot be read gives the limited flavour too (these are not recovery verbs,
+  and the limited flavour does not lock the operator out of anything an agent may do). An
+  operator terminal started inside a turn gets the limits as well, like every other gated
+  verb.
   `automation install <dir> --local` (and `automation new --install`) installs with local
   trust. While it is open to a turn, the `automation trust --scripts/--live` gate does not
   stop a turn from getting the same result: a turn can write its own package directory,
