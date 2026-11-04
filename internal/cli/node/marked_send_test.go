@@ -8,8 +8,6 @@ import (
 
 	"github.com/monoes/mono-agent/internal/browserctl"
 	"github.com/monoes/mono-agent/internal/hilsend"
-	"github.com/monoes/mono-agent/internal/operator"
-	"github.com/monoes/mono-agent/internal/orgsign"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -32,8 +30,9 @@ func TestNodeRunOfASendFromAMarkedProcessWaits(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			for _, k := range append(append(orgsign.AgentContextMarkers(), operator.MarkerEnv()...), hilsend.EnvAgentContext, "MONOAGENT_ACTOR",
-				hilsend.EnvApprovalID, hilsend.EnvApprovalProof) {
+			dbPath := migratedTestDB(t) // clears the markers: set the caller up after it
+			asTheOperator(t)
+			for _, k := range []string{hilsend.EnvAgentContext, "MONOAGENT_ACTOR", hilsend.EnvApprovalID, hilsend.EnvApprovalProof} {
 				t.Setenv(k, "")
 			}
 			if _, agent := hilsend.Detect(); agent {
@@ -43,7 +42,7 @@ func TestNodeRunOfASendFromAMarkedProcessWaits(t *testing.T) {
 				t.Setenv(c.env, c.val)
 			}
 			var runs atomic.Int32
-			d := testDeps(nodeVaultTestDB(t), "default", false)
+			d := testDeps(dbPath, "default", false)
 			d.BuildRegistry = func(*sql.DB) *workflow.NodeTypeRegistry {
 				workflow.SetExecGuard(hilsend.Guard) // as noderegistry.Build does
 				r := workflow.NewNodeTypeRegistry()

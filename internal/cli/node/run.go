@@ -22,7 +22,6 @@ import (
 	"github.com/monoes/mono-agent/internal/logging"
 	"github.com/monoes/mono-agent/internal/nodes"
 	peoplenodes "github.com/monoes/mono-agent/internal/nodes/people"
-	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/profiledir"
 	"github.com/monoes/mono-agent/internal/publication"
 	"github.com/monoes/mono-agent/internal/secrets"
@@ -286,10 +285,12 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 			if rawDB != nil {
 				guardCtx = vault.ContextWithProfileID(vault.ContextWithDB(guardCtx, rawDB), d.ProfileID())
 			}
-			if callerWhy != "" && operator.Refusal() == "" {
-				// The guard tells an agent by its markers or by an unapproved run in ctx; a process the
-				// markers do not show (inside a coder turn, an agent token) is the second kind, like the
-				// step below. A marked caller is asked exactly as before.
+			if callerWhy != "" {
+				// The guard tells an agent by hilsend.Detect's markers or by an unapproved run in ctx. Any
+				// other caller that is not the user's terminal (a process a workflow node started, the
+				// chat's run, one inside a coder turn that shows no marker, an agent token) is the second
+				// kind, like the step below: its send waits for approval. The user's terminal is asked
+				// exactly as before.
 				guardCtx = workflow.WithAIAuthored(guardCtx)
 			}
 			if queued, handled, gerr := workflow.RunExecGuard(guardCtx, nodeType, workflow.NodeInput{Items: inputItems}, config); handled {
