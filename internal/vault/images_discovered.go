@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+
+	"github.com/monoes/mono-agent/internal/dbconn"
 )
 
 // RegisterDiscoveredImage records an image file found on disk under the
@@ -39,6 +41,7 @@ func RegisterDiscoveredImage(ctx context.Context, db *sql.DB, profileID, path, f
 	defer conn.Close()
 
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		dbconn.AbandonBegin(conn)
 		return "", false, fmt.Errorf("vault.RegisterDiscoveredImage: begin tx: %w", err)
 	}
 	committed := false

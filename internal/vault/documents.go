@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/monoes/mono-agent/internal/dbconn"
 )
 
 // DocumentEntry is one row from vault_documents.
@@ -105,6 +107,7 @@ func RegisterDocument(ctx context.Context, db *sql.DB, src, source string, appli
 	defer conn.Close()
 
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		dbconn.AbandonBegin(conn)
 		return "", fmt.Errorf("vault.RegisterDocument: begin tx: %w", err)
 	}
 	committed := false
@@ -333,6 +336,7 @@ func RegisterDiscoveredDocument(ctx context.Context, db *sql.DB, profileID, path
 	defer conn.Close()
 
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		dbconn.AbandonBegin(conn)
 		return "", false, fmt.Errorf("vault.RegisterDiscoveredDocument: begin tx: %w", err)
 	}
 	committed := false

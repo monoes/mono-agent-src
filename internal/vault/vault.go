@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/monoes/mono-agent/internal/dbconn"
 	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/profiledir"
 )
@@ -132,6 +133,7 @@ func Register(ctx context.Context, db *sql.DB, src, source, workflowID, executio
 	defer conn.Close()
 
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		dbconn.AbandonBegin(conn)
 		return "", fmt.Errorf("vault.Register: begin tx: %w", err)
 	}
 	committed := false

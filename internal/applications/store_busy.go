@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"strings"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/dbconn"
 )
 
 // Taking the write lock waits up to the connection's busy timeout (5 s). A writer that holds
@@ -28,11 +30,18 @@ func isBusy(err error) bool {
 func beginImmediate(ctx context.Context, conn *sql.Conn) error {
 	for attempt := 0; ; attempt++ {
 		_, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`)
-		if err == nil || !isBusy(err) || attempt >= busyRetries {
+		if err == nil {
+			return nil
+		}
+		// A busy BEGIN opens nothing, so the retries need no rollback between them; the connection is abandoned once,
+		// when the loop gives up, so a rollback that drops it cannot turn a later attempt's error into sql.ErrConnDone.
+		if !isBusy(err) || attempt >= busyRetries {
+			dbconn.AbandonBegin(conn)
 			return err
 		}
 		select {
 		case <-ctx.Done():
+			dbconn.AbandonBegin(conn)
 			return err
 		case <-time.After(busyBackoff << attempt):
 		}

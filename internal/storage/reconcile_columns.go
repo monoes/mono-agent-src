@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+
+	"github.com/monoes/mono-agent/internal/dbconn"
 )
 
 // addedColumn is a column that code added after its table was first
@@ -75,6 +77,7 @@ func (d *Database) addColumnLocked(ctx context.Context, c addedColumn) error {
 	}
 	defer conn.Close()
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		dbconn.AbandonBegin(conn)
 		return fmt.Errorf("storage: reconcile: begin tx: %w", err)
 	}
 	committed := false
