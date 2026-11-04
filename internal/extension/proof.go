@@ -66,7 +66,8 @@ var (
 	// a listener that is not the bridge). Never sent the token, on any port.
 	ErrBridgeNoProof = errors.New("the bridge is older than this CLI (it cannot prove it is the real one): restart it: `systemctl --user restart monoagent-bridge` (or `monoagentcli update` restarts it)")
 	// ErrBridgeBadProof: the listener answered the status shape but its proof is wrong.
-	ErrBridgeBadProof = errors.New("the listener answering as the bridge did not prove it holds your pairing token: not sending the token to it")
+	ErrBridgeBadProof = errors.New("the listener answering as the bridge did not prove it holds your pairing token: not sending the token to it. " +
+		"Either this is a different pairing token than the bridge's (the token was reset, or the bridge runs under another HOME): run `monoagentcli extension status` and re-pair; or it is not the bridge")
 )
 
 // noProofError is ErrBridgeNoProof naming the port that answered.
@@ -195,4 +196,28 @@ func pickBridge(addrs []string, token string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// DiagnoseBridges classifies the candidate bridge addresses by probing each
+// with a proof request, and words ONE error from the result: a bridge older than
+// this CLI (restart it) first, then a bridge that proves nothing it should
+// (token mismatch: the pairing hint). It returns the address the error is about,
+// or "" and nil when nothing is wrong with any candidate (not a bridge, or not
+// answering: the caller's own "no bridge" wording applies). No request it sends
+// carries the token.
+func DiagnoseBridges(addrs []string) (string, error) {
+	token, _ := loadToken()
+	if token == "" {
+		return "", nil
+	}
+	mismatch, mismatchAddr := error(nil), ""
+	for _, a := range addrs {
+		switch err := verifyBridge(&http.Client{}, a, token); {
+		case errors.Is(err, ErrBridgeNoProof):
+			return a, err
+		case errors.Is(err, ErrBridgeBadProof) && mismatch == nil:
+			mismatch, mismatchAddr = err, a
+		}
+	}
+	return mismatchAddr, mismatch
 }

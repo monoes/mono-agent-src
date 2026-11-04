@@ -96,16 +96,36 @@ func TestPairNonceIsGatedLikeTheRelay(t *testing.T) {
 
 func TestRequestPairingURLOnAnOlderBridge(t *testing.T) {
 	setHome(t, t.TempDir())
-	if _, err := CurrentToken(); err != nil {
+	token, err := CurrentToken()
+	if err != nil {
 		t.Fatal(err)
 	}
-	old := httptest.NewServer(http.NotFoundHandler())
+	// a bridge that proves its token but predates the pairing page: 404 there
+	old := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != healthPath {
+			http.NotFound(w, r)
+			return
+		}
+		st := Status{Service: ServiceName}
+		if n := r.URL.Query().Get(nonceParam); n != "" {
+			st.Proof = proofFor(token, n, healthPath, "127.0.0.1", strings.TrimPrefix(r.Host, "127.0.0.1:"))
+		}
+		_ = json.NewEncoder(w).Encode(st)
+	}))
 	defer old.Close()
 	if _, err := RequestPairingURL(old.URL); !errors.Is(err, ErrPairingPageUnsupported) {
 		t.Fatalf("older bridge: %v, want ErrPairingPageUnsupported", err)
 	}
 
 	odd := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == healthPath {
+			st := Status{Service: ServiceName}
+			if n := r.URL.Query().Get(nonceParam); n != "" {
+				st.Proof = proofFor(token, n, healthPath, "127.0.0.1", strings.TrimPrefix(r.Host, "127.0.0.1:"))
+			}
+			_ = json.NewEncoder(w).Encode(st)
+			return
+		}
 		_, _ = w.Write([]byte(`{"url":"https://evil.test/monoagent/pair?n=1"}`))
 	}))
 	defer odd.Close()

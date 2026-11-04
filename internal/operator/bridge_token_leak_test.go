@@ -64,6 +64,8 @@ func (r *rogueListener) tokenSeen(token string) bool {
 // because the listener cannot prove it holds the token. Never touches the real
 // bridge ports: a non-operator's probe list is checked, not probed.
 func TestPortEnvNeverDeliversTheTokenToAnUntrustedListener(t *testing.T) {
+	enforcePortPolicyInTest = true
+	t.Cleanup(func() { enforcePortPolicyInTest = false })
 	token, err := extension.CurrentToken()
 	if err != nil {
 		t.Fatal(err)

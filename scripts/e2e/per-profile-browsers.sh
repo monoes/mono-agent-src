@@ -9,6 +9,11 @@
 # `extension unbind` and `extension assign`, which are operator-only and refuse a turn (exit 3).
 set -euo pipefail
 
+# The port override is the operator's alone, and a script must never fall back to the
+# real bridge on 9222/9323: clear every marker and run in a private network namespace.
+. "$(cd "$(dirname "$0")/../.." && pwd)/scripts/lib/mono.sh"
+mono_private_operator_env bash "$0" "$@"
+
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 W="${W:-$HOME/scratch/per-profile-e2e-$(date +%Y%m%d-%H%M%S)}"
 H="$W/home"

@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"io/fs"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -179,5 +180,48 @@ func TestProof_BoundToTheDialledHost(t *testing.T) {
 	f := newFakeBridge(t, func(n, port string) string { return proofFor(token, n, healthPath, "::1", port) })
 	if err := relayOnce(f.URL); !errors.Is(err, ErrBridgeBadProof) {
 		t.Fatalf("a proof for [::1] accepted for a 127.0.0.1 dial: %v", err)
+	}
+}
+
+// One classified answer per probe result: older bridge, token mismatch, and
+// neither (not a bridge / nothing there) which leaves the caller's own wording.
+func TestDiagnoseBridges_ClassifiesTheCandidates(t *testing.T) {
+	withTempHome(t)
+	token, _ := generateToken()
+	old := newFakeBridge(t, nil)
+	wrong := newFakeBridge(t, func(n, port string) string { return proofFor("other", n, healthPath, "127.0.0.1", port) })
+	notBridge := httptest.NewServer(http.NotFoundHandler())
+	defer notBridge.Close()
+	good := newFakeBridge(t, func(n, port string) string { return proofFor(token, n, healthPath, "127.0.0.1", port) })
+
+	if a, err := DiagnoseBridges([]string{notBridge.URL, old.URL}); a != old.URL || !errors.Is(err, ErrBridgeNoProof) ||
+		!strings.Contains(err.Error(), "older than this CLI") || strings.Contains(err.Error(), "Chrome") {
+		t.Errorf("old bridge: %q %v", a, err)
+	}
+	a, err := DiagnoseBridges([]string{wrong.URL, notBridge.URL})
+	if a != wrong.URL || !errors.Is(err, ErrBridgeBadProof) {
+		t.Fatalf("mismatch: %q %v", a, err)
+	}
+	for _, hint := range []string{"extension status", "re-pair", "pairing token"} {
+		if !strings.Contains(err.Error(), hint) {
+			t.Errorf("the mismatch text lacks %q (the pairing hint): %v", hint, err)
+		}
+	}
+	if a, err := DiagnoseBridges([]string{notBridge.URL, "http://127.0.0.1:1"}); err != nil || a != "" {
+		t.Errorf("not a bridge / nothing there: %q %v", a, err)
+	}
+	if _, err := DiagnoseBridges([]string{good.URL}); err != nil {
+		t.Errorf("a proving bridge: %v", err)
+	}
+	// older wins over mismatch, whatever the order
+	if _, err := DiagnoseBridges([]string{wrong.URL, old.URL}); !errors.Is(err, ErrBridgeNoProof) {
+		t.Errorf("old + mismatch: %v", err)
+	}
+	// the same classification through CheckPairing: a wrong proof is the pairing mismatch
+	if st, err := CheckPairing(wrong.URL); st != PairingMismatch || err != nil {
+		t.Errorf("CheckPairing on a different token: %v %v", st, err)
+	}
+	if st, err := CheckPairing(old.URL); st != PairingUnknown || !errors.Is(err, ErrBridgeNoProof) {
+		t.Errorf("CheckPairing on an older bridge: %v %v", st, err)
 	}
 }

@@ -52,11 +52,24 @@ const UnderTestEnv = "MONOAGENT_UNDER_TEST"
 func run(m *testing.M) int {
 	realHome, _ = os.UserHomeDir()
 	os.Setenv(UnderTestEnv, "1")
+	// No test probes or binds the user's real bridge on its default ports
+	// (9222/9323): a test that wants a bridge names its own port. Port 1 is
+	// never listening; the dial guard (network.go) fails the run on a dial to
+	// the real ports anyway. (internal/extension.ExtensionPortEnv.)
+	if os.Getenv("MONOAGENT_EXTENSION_PORT") == "" {
+		os.Setenv("MONOAGENT_EXTENSION_PORT", "1")
+	}
 	keepCaches()
 	blockNetwork()
 	check, cleanup := guardServiceManagers()
 	defer cleanup()
 	code := runIn(m)
+	if d := RealBridgeDialed(); len(d) > 0 {
+		fmt.Fprintf(os.Stderr, "testhome: the tests dialed the real extension bridge's ports (they must use a private port): %v\n", d)
+		if code == 0 {
+			code = 1
+		}
+	}
 	if called := check(); called != "" {
 		fmt.Fprintf(os.Stderr, "testhome: the tests ran a real service manager (they must inject a fake):\n%s\n", called)
 		if code == 0 {

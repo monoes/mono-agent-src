@@ -87,7 +87,7 @@ func TestWaitForBindReportsWhyNoPortWasBound(t *testing.T) {
 }
 
 func TestWaitForBindReturnsTheBoundAddress(t *testing.T) {
-	t.Parallel()
+	t.Setenv(extension.ExtensionPortEnv, "") // the test binaries default it to a closed port
 	srv := extension.NewServer("127.0.0.1:0", zerolog.Nop())
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

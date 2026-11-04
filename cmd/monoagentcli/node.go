@@ -123,6 +123,15 @@ func setupExtensionBridge(logger zerolog.Logger, waitForConnection time.Duration
 		return &extension.RemoteBridge{Sender: extension.NewRemoteSender(addr)}
 	}
 
+	// A bridge answers but cannot prove it holds our token (older than this CLI,
+	// or another pairing token): say so now, once. Starting our own server would
+	// only fail to bind and wait ~10 s to say a misleading "ports held by
+	// processes that are not monoagent relays".
+	if addr, err := extension.DiagnoseBridges(probeAddrs); err != nil {
+		fmt.Fprintln(os.Stderr, "  "+err.Error())
+		return &extension.RemoteBridge{Sender: extension.NewRemoteSender(addr)} // every use fails at once with that error
+	}
+
 	// Same wiring an `extension serve` bridge gets (see extension_serve.go),
 	// so a workflow that has to start its own bridge is not a lesser one
 	// than the bridge it would otherwise have relayed through.

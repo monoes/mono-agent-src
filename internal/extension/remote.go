@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -72,11 +71,7 @@ func Probe(baseURL string) bool {
 		_, err := FetchStatus(baseURL)
 		return err == nil
 	}
-	err := proveBridge(&http.Client{}, baseURL, token)
-	if errors.Is(err, ErrBridgeNoProof) || errors.Is(err, ErrBridgeBadProof) {
-		fmt.Fprintf(os.Stderr, "warning: %s: %v\n", baseURL, err)
-	}
-	return err == nil
+	return proveBridge(&http.Client{}, baseURL, token) == nil
 }
 
 // prove checks that the listener at baseURL holds the token, before any

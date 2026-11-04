@@ -57,3 +57,27 @@ mono_check_clean() {
     exit 97
   fi
 }
+
+# mono_private_operator_env: for scripts that run a PRIVATE bridge on their own
+# port (MONOAGENT_EXTENSION_PORT). The port variable is honoured only for the
+# operator's own terminal, so (1) every agent/run marker is cleared (this list is
+# operator.MarkerEnv(); internal/operator's TestMonoShMarkerListMatches holds it
+# equal) and (2) the script re-runs itself in a private network namespace
+# (`unshare -rn`, loopback only), so a process that is still counted as marked
+# (a parent that is an agent) can never fall back to the default ports 9222/9323,
+# the user's real bridge. Call it first: mono_private_operator_env "$0" "$@"
+mono_private_operator_env() {
+  local v
+  for v in CLAUDECODE CLAUDE_CODE_ENTRYPOINT MONOMIND_ORG_ROLE MONOMIND_SDK_AGENT MONOMIND_AGENT_EXEC AI_AGENT AGENT \
+    CODEX_SANDBOX CODEX_SANDBOX_NETWORK_DISABLED CODEX_THREAD_ID CODEX_CI OPENCODE OPENCODE_PID ANTIGRAVITY_AGENT GEMINI_CLI \
+    GROK_SESSION_ID GROK_MANAGED_BY_NPM COPILOT_CLI_BINARY_VERSION COPILOT_AGENT_SESSION_ID CRUSH PI_CODING_AGENT QWEN_CODE \
+    PI_SESSION_ID DSH_SHELL DSH_SESSION_ID MONOMIND_CLINE_TURN MONOMIND_AIDER MONOAGENT_AGENT_CONTEXT MONOAGENT_ACTOR \
+    MONOAGENT_WORKFLOW_RUN MONOAGENT_AI_CALLER MONOAGENT_AGENT_KIND MONOAGENT_AGENT_KIND_TOKEN; do
+    unset "$v"
+  done
+  if [ -z "${MONO_E2E_IN_NETNS:-}" ]; then
+    command -v unshare >/dev/null || { echo "refusing: no unshare, cannot isolate from the real bridge" >&2; exit 97; }
+    export MONO_E2E_IN_NETNS=1
+    exec unshare -rn sh -c 'ip link set lo up 2>/dev/null; exec "$@"' sh "$@"
+  fi
+}

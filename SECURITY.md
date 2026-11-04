@@ -977,15 +977,18 @@ against an agent running as you:
   prover). A loopback listener that merely speaks the status shape (any process
   can bind one, no secret needed) therefore never receives the token. A bridge
   that sends no proof (one older than this) is refused on every port, with an
-  error telling the operator to restart it; `monoagentcli update` restarts a
+  error telling the operator to restart it (update the bridge FIRST: until it
+  is restarted an old bridge fails closed for every caller); `monoagentcli update` restarts a
   stale bridge onto the new binary. When several addresses are candidates
   (9222 and 9323) all are probed and the one that proves wins, so a squatter
   cannot hide the real bridge. `MONOAGENT_EXTENSION_PORT` is honoured only for
   the operator's own terminal (`operator` installs that check when it is linked,
   which the command line, the daemon and the desktop app all do; the app has
   only the marker half, since the in-turn check is registered by the command
-  line alone). A binary that does not link `operator` honours the variable, and
-  relies on the proof alone. Residual: the relay itself is still loopback TCP
+  line alone). A binary that does not link `operator` at all honours the
+  variable (`OperatorProcess()` is true when no policy is installed) and relies
+  on the proof alone. Test binaries keep the variable (tests isolate themselves
+  with it) and `internal/testhome` fails any test run that dials 9222/9323. Residual: the relay itself is still loopback TCP
   (any local user can bind a port; they cannot obtain the token).
 - A browser holding the shared bridge token can claim any valid profile id,
   and with sets up to 64 at once, and receive those profiles' browser
