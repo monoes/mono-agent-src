@@ -67,7 +67,7 @@ func InitProfile(ctx context.Context, opts InitOptions) error {
 		opts.Prepare(cmd)
 	}
 	cmd.Dir = opts.Root // init has no --project flag and ignores MONOMIND_CWD
-	cmd.Env = PinEnvIn(append(os.Environ(), "CI=true"), bin, opts.Root)
+	cmd.Env = PinEnvIn(append(ScrubDestinations(os.Environ()), "CI=true"), bin, opts.Root)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
@@ -118,7 +118,7 @@ func registerViaInit(ctx context.Context, bin, root string, prepare func(*exec.C
 		prepare(cmd)
 	}
 	cmd.Dir = root
-	cmd.Env = PinEnvIn(append(os.Environ(), "CI=true"), bin, root)
+	cmd.Env = PinEnvIn(append(ScrubDestinations(os.Environ()), "CI=true"), bin, root)
 	out, err := cmd.Output()
 	var res struct {
 		Registered bool `json:"claude_project_registered"`
@@ -175,7 +175,7 @@ func registerClaudeCodeProject(ctx context.Context, root string, prepare func(*e
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, claudeBin, "-p", "monomind initialized")
-	cmd.Env = PinEnvIn(os.Environ(), claudeBin, root)
+	cmd.Env = PinEnvIn(ScrubDestinations(os.Environ()), claudeBin, root)
 	if prepare != nil {
 		prepare(cmd)
 	}

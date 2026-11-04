@@ -2434,7 +2434,11 @@ monoagentcli --profile work chat --mode coder --cwd ~/code/app -- "…"   # one 
 A claude coder lead caps its own agent launches: `MONOMIND_CODER_MAX_AGENTS`
 (default 40) and `MONOMIND_CODER_MAX_REVIEW_AGENTS` (default 12), with the
 subagent model pinned through `CLAUDE_CODE_SUBAGENT_MODEL`. Both caps pass
-through `FilteredEnviron`. A `result` event's `unexpected_models` and
+through `FilteredEnviron`, which also drops the provider-destination variables
+(base URLs, proxies, CA bundles; SECURITY.md "Where the monomind runner sends
+its traffic") for any process that is not the operator's own terminal; every
+new `os/exec` of the runner builds its environment through it or
+`monomind.ScrubDestinations`. A `result` event's `unexpected_models` and
 `context_warning` (monomind 2.24.4) appear as `coder.result` warnings in the
 turn journal. For a claude coder turn the context warning is not shown: the
 turn ends by compacting the session (`/compact` on the resumed session, which

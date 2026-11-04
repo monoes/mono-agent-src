@@ -44,6 +44,9 @@ var operatorEnvVars = []string{
 // removed. Exported so command builders outside this package (e.g. the
 // chat KG tools) build children with the identical stripped base before
 // appending their own explicit MONOMIND_* values.
+//
+// It also drops the variables that decide where the runner sends its provider
+// traffic (ScrubDestinations) unless this process is the operator's own.
 func FilteredEnviron() []string {
 	env := os.Environ()
 	out := make([]string, 0, len(env))
@@ -68,7 +71,7 @@ func FilteredEnviron() []string {
 		}
 		out = append(out, kv)
 	}
-	return out
+	return ScrubDestinations(out)
 }
 
 // envSlice flattens a map into KEY=VALUE strings.

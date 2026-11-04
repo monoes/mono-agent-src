@@ -76,7 +76,7 @@ func (c *startCapture) startDrain(ctx context.Context, bin, root string) error {
 	defer readyRead.Close()
 	defer readyWrite.Close()
 	helper := exec.Command(node, "-e", startDrainScript)
-	helper.Env = PinEnvIn(os.Environ(), bin, root)
+	helper.Env = PinEnvIn(ScrubDestinations(os.Environ()), bin, root)
 	helper.Stdin, helper.Stdout, helper.Stderr = input, c.f, readyWrite
 	helper, err = startDetached(helper)
 	if err != nil {

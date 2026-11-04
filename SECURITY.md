@@ -3378,3 +3378,21 @@ function that does what the guarded one does), and it skips directories named `s
   `strategy.finish.ready` marker per judged epoch and the top lead reads it through the read-only `session_boss_finish_ready`; only the lead's own
   `session_boss_finish_begin`, with its boss check, begins one. The only model text in that reading is the judge's per-criterion statuses; criteria,
   run and epoch state, times, direction ids and the finish engine's rounds are host-derived, and no title or note enters it.
+
+## Where the monomind runner sends its traffic
+
+The monomind runner holds the provider login. The variables that decide where
+its provider traffic goes (`*_BASE_URL`, `*_API_BASE`, `*_API_HOST`,
+`OLLAMA_*`, proxy variables in either case, `*_CA_BUNDLE`, `SSL_CERT_*`,
+`NODE_EXTRA_CA_CERTS`, and `*_URL`, `*_ENDPOINT*` or `*_BASE*` on a name with a
+provider word such as ANTHROPIC, OPENAI, GOOGLE, AWS or AZURE) are dropped
+from the environment of every runner call (`monomind.FilteredEnviron`,
+`ScrubDestinations`) unless the calling process is the operator's own
+terminal (no `operator.Marker`, not inside a coder turn). An agent, a coder
+turn, a chat run or a workflow node therefore cannot redirect the runner, and
+the provider key it carries, to a host it listens on; an operator with a
+corporate gateway or proxy keeps theirs. Provider key variables are not
+destinations and still reach the runner. A process that registered no check
+(the desktop app) judges by the agent-context variables in its own
+environment. A test pins every `os/exec` use in the packages that start the
+runner.

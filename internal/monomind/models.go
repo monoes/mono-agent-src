@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"slices"
 	"strings"
@@ -233,7 +234,9 @@ func builtinModels(ctx context.Context, runtimeID, binary string) ([]RuntimeMode
 func listAntigravityModels(ctx context.Context, binary string) ([]RuntimeModel, error) {
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(cctx, binary, "models").Output()
+	cmd := exec.CommandContext(cctx, binary, "models")
+	cmd.Env = ScrubDestinations(os.Environ()) // the agent's own login: not for a caller to redirect
+	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("agy models: %w", err)
 	}
@@ -288,7 +291,9 @@ type codexModelCatalog struct {
 func listCodexModels(ctx context.Context, binary string) ([]RuntimeModel, error) {
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(cctx, binary, "debug", "models").Output()
+	cmd := exec.CommandContext(cctx, binary, "debug", "models")
+	cmd.Env = ScrubDestinations(os.Environ()) // the agent's own login: not for a caller to redirect
+	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("codex debug models: %w", err)
 	}

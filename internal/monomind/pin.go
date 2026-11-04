@@ -138,14 +138,14 @@ func nodeDirFor(bin string) string {
 // through PinEnv.
 func Command(bin string, args ...string) *exec.Cmd {
 	cmd := exec.Command(bin, args...)
-	cmd.Env = PinEnv(os.Environ(), bin)
+	cmd.Env = PinEnv(ScrubDestinations(os.Environ()), bin)
 	return cmd
 }
 
 // CommandContext is Command with exec.CommandContext.
 func CommandContext(ctx context.Context, bin string, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Env = PinEnv(os.Environ(), bin)
+	cmd.Env = PinEnv(ScrubDestinations(os.Environ()), bin)
 	return cmd
 }
 

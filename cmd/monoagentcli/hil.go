@@ -21,6 +21,7 @@ import (
 	taskcli "github.com/monoes/mono-agent/internal/cli/task"
 	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/hilsend"
+	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/publication"
 	"github.com/monoes/mono-agent/internal/storage"
@@ -173,6 +174,15 @@ var recoverySkippedEntry = func(err error) { fmt.Fprintln(os.Stderr, "warning: "
 func registerOperatorGate(cfg *globalConfig) {
 	opgate.Register(cfg.gateRefusal)
 	opgate.RegisterRecovery(cfg.gateRecovery)
+	// The monomind runner holds the provider login: only the operator's own terminal may point it elsewhere.
+	monomind.SetOperatorCheck(func() (operatorOwn bool) {
+		defer func() {
+			if recover() != nil {
+				operatorOwn = false // a verdict that cannot be read counts as not the operator's
+			}
+		}()
+		return opgate.Refusal() == ""
+	})
 }
 
 // gateRecovery is gateRefusal(true) that also hands back the busy-host error, when that is why the command
