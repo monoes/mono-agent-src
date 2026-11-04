@@ -228,7 +228,9 @@ func (c *Conductor) noteFinal(w *worker, a *runAcct, m Model, run *monomind.Turn
 		a.badReport = true
 	}
 	a.unclear = !a.started && (res != nil || execErr == nil)
-	a.startlessFail = a.unclear && (execErr != nil || (res != nil && res.Err != nil))
+	// a run that did not complete cleanly (an error, or no done event) with no start event is a start-less failure; a clean
+	// done with no start event finished a turn: charged the grant per policy, but not counted and never parking
+	a.startlessFail = a.unclear && !(execErr == nil && res != nil && res.Err == nil && res.SawDone)
 	w.task.spendMu.Unlock()
 }
 
@@ -467,7 +469,9 @@ type startlessState struct {
 // maxStartlessFailures in a row on a session it is PAUSED with the scheduler's existing park (missionHalt's: only the operator
 // resumes it), the workers are stopped, the operator is told once, and enterRun starts nothing until the operator has
 // resumed. A run that started resets the count. The most a session loses is maxStartlessFailures grants per Conductor
-// (the count is not stored: a restarted turn starts it again). The failure is not told apart from a model that was in
+// plus the runs already in flight when the block is set (at most the worker concurrency, once per block). The count is not
+// stored (a restarted turn starts it again; the pause is stored and survives a restart; a restart loop with fewer than
+// maxStartlessFailures failures per cycle can burn up to 2 grants per cycle, which the session's budget caps). The failure is not told apart from a model that was in
 // fact called, so no failure is charged less than the grant.
 func (c *Conductor) startlessOutcome(w *worker, a *runAcct, started, startless bool, grant float64) {
 	c.slMu.Lock()
