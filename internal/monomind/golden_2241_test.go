@@ -7,11 +7,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/monoes/mono-agent/internal/daemonhb"
 )
 
 // Golden tests against output recorded from a real monomind 2.24.1 sections
@@ -124,6 +127,25 @@ func TestGolden_OrgListKeepsRealItems(t *testing.T) {
 	}
 }
 
+// exitedPID returns the pid of a process that has just exited and been reaped,
+// confirmed dead by the same probe OrgStatus uses. A fixed number cannot stand
+// for a dead process: on a busy runner the kernel may have handed it to a live
+// one. Should the pid be reused between the exit and the check, start another.
+func exitedPID(t *testing.T) int {
+	t.Helper()
+	for i := 0; i < 20; i++ {
+		cmd := exec.Command(os.Args[0], "-test.run=^$")
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("start a short-lived process: %v", err)
+		}
+		if pid := cmd.ProcessState.Pid(); !daemonhb.ProcessAlive(pid) {
+			return pid
+		}
+	}
+	t.Fatal("no dead pid found")
+	return 0
+}
+
 func TestGolden_OrgStatusShapes(t *testing.T) {
 	type status struct {
 		V        int      `json:"v"`
@@ -161,7 +183,7 @@ func TestGolden_OrgStatusShapes(t *testing.T) {
 
 	// The recorded run's pid is long gone: a runtime.json that still says
 	// running is reported stopped (#294), whatever else the payload carries.
-	dead, _ := json.Marshal(map[string]any{"status": "running", "pid": st.PID})
+	dead, _ := json.Marshal(map[string]any{"status": "running", "pid": exitedPID(t)})
 	if err := os.WriteFile(filepath.Join(rtDir, "runtime.json"), dead, 0o644); err != nil {
 		t.Fatal(err)
 	}
