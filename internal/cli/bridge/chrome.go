@@ -121,6 +121,18 @@ var (
 	isChromeRunning     = browserdetect.IsBrowserRunning
 )
 
+// startBrowser launches the browser at path and reaps it. A var so tests can observe the launch
+// without starting a real browser.
+var startBrowser = func(path string) error {
+	cmd := exec.Command(path)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	// Reap the launched browser so it never lingers as a zombie child.
+	go func() { _ = cmd.Wait() }()
+	return nil
+}
+
 func getExtensionDir() string { return browserdetect.ExtensionDir() }
 
 // isExtensionInstalled reports whether the extension was found. When the
@@ -208,12 +220,9 @@ func EnsureConnected(bridge ConnChecker, timeout time.Duration, h Hints) error {
 	}
 
 	fmt.Fprintln(os.Stderr, "Chrome is not running — launching it to connect the MonoAgent extension...")
-	chromeCmd := exec.Command(chromePath)
-	if err := chromeCmd.Start(); err != nil {
+	if err := startBrowser(chromePath); err != nil {
 		return fmt.Errorf("launching Chrome: %w", err)
 	}
-	// Reap the launched browser so it never lingers as a zombie child.
-	go func() { _ = chromeCmd.Wait() }()
 
 	deadline := time.Now().Add(timeout)
 	for !bridge.IsConnected() && time.Now().Before(deadline) {
