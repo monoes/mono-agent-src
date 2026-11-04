@@ -36,7 +36,9 @@ const (
 // DefaultModel tracks the newest Jev release.
 const DefaultModel = "jev-latest"
 
-// DefaultBaseURL is TypeSafe's API host; TYPESAFE_BASE_URL overrides it.
+// DefaultBaseURL is TypeSafe's API host. NewClient reads TYPESAFE_BASE_URL, but
+// only jevconf.ClientFor builds a client for a resolved key: it sends a stored
+// key here and lets the override pair with TYPESAFE_API_KEY alone.
 var DefaultBaseURL = "https://api.typesafe.ai"
 
 // ErrNoAPIKey is returned when neither config nor TYPESAFE_API_KEY has a key.

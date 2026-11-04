@@ -157,6 +157,7 @@ func TestRecorderCountsTokensOfRejectedAnswers(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	t.Setenv("TYPESAFE_BASE_URL", srv.URL)
+	jevtest.DefaultHost(t, srv.URL)
 	c, err := NewClient(context.Background(), db, "p1", "k", "", Capture)
 	if err != nil {
 		t.Fatal(err)

@@ -468,6 +468,7 @@ func TestLowConfidenceStepsCounted(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	t.Setenv("TYPESAFE_BASE_URL", srv.URL)
+	jevtest.DefaultHost(t, srv.URL)
 	res := runNode(t, testNode(&fakeDriver{}, zurich))
 	if res["status"] != "done" || res["low_confidence_steps"] != 1 {
 		t.Fatalf("status=%v low_confidence_steps=%v", res["status"], res["low_confidence_steps"])

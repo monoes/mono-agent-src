@@ -154,7 +154,7 @@ func newJevKeyTestCmd(d Deps) *cobra.Command {
 				return fail(err)
 			}
 			res["key_source"] = source
-			c, err := jev.NewClient(key, "")
+			c, err := jevconf.ClientFor(cmd.Context(), key, source, "")
 			if err != nil {
 				return fail(err)
 			}

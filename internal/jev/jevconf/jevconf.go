@@ -100,11 +100,11 @@ func NewClient(ctx context.Context, db *sql.DB, profileID, explicitKey, model st
 	if profileID == "" {
 		return nil, fmt.Errorf("jev: %w", profiledir.ErrNoProfile)
 	}
-	key, _, err := ResolveKey(ctx, db, profileID, explicitKey)
+	key, source, err := ResolveKey(ctx, db, profileID, explicitKey)
 	if err != nil {
 		return nil, err
 	}
-	c, err := jev.NewClient(key, model)
+	c, err := ClientFor(ctx, key, source, model)
 	if err != nil {
 		return nil, err
 	}

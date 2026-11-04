@@ -5,10 +5,14 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
+	"os"
 	"sort"
 	"strings"
 
 	"github.com/monoes/mono-agent/internal/jev"
+	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/profiledir"
 	"github.com/monoes/mono-agent/internal/secrets"
 )
@@ -90,7 +94,17 @@ func ResolveKey(ctx context.Context, db *sql.DB, profileID, explicit string) (ke
 	}
 	var unreadable error
 	for _, c := range order {
-		v, found, rerr := entryValue(ctx, db, c.scope, c.name)
+		// The stored key is a secret like any other: an unapproved step reads
+		// it only under the profile's agent access, within its grant and
+		// audited, whether the step named it (@secret:typesafe) or the lookup
+		// found it by itself.
+		if err := secrets.RefusedReference(ctx, secretRef(c.name)); err != nil {
+			return "", "", err
+		}
+		v, found, rerr := readEntry(ctx, db, c.scope, c.name)
+		if errors.Is(rerr, secrets.ErrResolveRefused) {
+			return "", "", rerr
+		}
 		switch {
 		case rerr != nil:
 			if unreadable == nil {
@@ -107,6 +121,97 @@ func ResolveKey(ctx context.Context, db *sql.DB, profileID, explicit string) (ke
 		return "", "", fmt.Errorf("%w: %v", ErrKeyUnreadable, unreadable)
 	}
 	return "", "", jev.ErrNoAPIKey
+}
+
+func secretRef(name string) string { return "@secret:" + name }
+
+// readEntry is entryValue for the key's own lookup. Under agent access it goes
+// through secrets.Resolve, which checks the grant (the secret's name, the
+// step's node type) and writes the audit row, as for an explicit reference;
+// anywhere else it is entryValue itself.
+func readEntry(ctx context.Context, db *sql.DB, scope, name string) (value string, found bool, err error) {
+	if !secrets.UnderAgentAccess(ctx) {
+		return entryValue(ctx, db, scope, name)
+	}
+	entries, err := secrets.List(ctx, db, scope)
+	if err != nil {
+		return "", false, err
+	}
+	for _, e := range entries {
+		if e.Name != name {
+			continue
+		}
+		v, err := secrets.Resolve(ctx, db, scope, secretRef(name))
+		if err != nil {
+			return "", true, err
+		}
+		return strings.TrimSpace(v), true, nil
+	}
+	return "", false, nil
+}
+
+// MayNameHost reports whether the caller of ctx may decide where a key goes by
+// TYPESAFE_BASE_URL: only the operator's own terminal. A marked process (an
+// agent, the chat, a workflow's child, a process of a coder turn that cleared
+// its markers, a token holder) and a step the user did not approve (refused,
+// or run under agent access) control their environment and their step.
+func MayNameHost(ctx context.Context) bool {
+	return operator.Refusal() == "" && operator.InTurn() == "" &&
+		secrets.ResolveRefusal(ctx) == "" && !secrets.UnderAgentAccess(ctx)
+}
+
+// ErrBaseURL is wrapped by the refusal of a TYPESAFE_BASE_URL that cannot
+// carry a key.
+var ErrBaseURL = errors.New("jev: TYPESAFE_BASE_URL must be an https URL (http only to this machine)")
+
+// BaseURL is the host a client sending a key of source (as ResolveKey names
+// it) calls. A key the user stored (the vault, a profile's vault, a step's
+// config, which may be a resolved @secret: reference) goes only to
+// jev.DefaultBaseURL: TYPESAFE_BASE_URL is ignored for it, so no environment
+// can redirect a stored key. The override pairs only with TYPESAFE_API_KEY
+// (SourceEnv), only for the operator's own terminal (MayNameHost), and only
+// as an https URL, or http to this machine.
+func BaseURL(ctx context.Context, source string) (string, error) {
+	base := strings.TrimRight(jev.DefaultBaseURL, "/")
+	b := strings.TrimSpace(os.Getenv("TYPESAFE_BASE_URL"))
+	if b == "" || source != SourceEnv || !MayNameHost(ctx) {
+		return base, nil
+	}
+	u, err := url.Parse(b)
+	if err != nil || u.Host == "" || u.User != nil {
+		return "", ErrBaseURL
+	}
+	switch {
+	case u.Scheme == "https":
+	case u.Scheme == "http" && isLoopbackHost(u.Hostname()):
+	default:
+		return "", ErrBaseURL
+	}
+	return strings.TrimRight(b, "/"), nil
+}
+
+func isLoopbackHost(h string) bool {
+	if h == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(h)
+	return ip != nil && ip.IsLoopback()
+}
+
+// ClientFor is jev.NewClient for a key ResolveKey returned (source is the
+// second value it gave): the one place a client is built from a resolved key,
+// so the key goes where BaseURL says and nowhere else.
+func ClientFor(ctx context.Context, key, source, model string) (*jev.Client, error) {
+	base, err := BaseURL(ctx, source)
+	if err != nil {
+		return nil, err
+	}
+	c, err := jev.NewClient(key, model)
+	if err != nil {
+		return nil, err
+	}
+	c.BaseURL = base
+	return c, nil
 }
 
 // KeySource reports where ResolveKey would look for the key, in the same
