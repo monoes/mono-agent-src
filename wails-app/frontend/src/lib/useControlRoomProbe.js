@@ -8,6 +8,10 @@ import { usePageVisible } from './usePageVisible.js'
 export const PROBE_POLL_MS = 15000       // a run exists: the nav chip must follow it
 export const PROBE_IDLE_POLL_MS = 60000  // the last good answer said off / no run: nothing to follow
 
+// After a failed probe the next try comes sooner (5 s, 15 s), then the normal cadence: a first failure must not hide
+// the nav item for a whole idle period while a run may be live.
+export const PROBE_RETRY_MS = [5000, 15000]
+
 export const probeDelay = (probe) => (probe?.run_exists ? PROBE_POLL_MS : PROBE_IDLE_POLL_MS)
 
 export function probeShows(probe, uiFlag) {
@@ -29,11 +33,13 @@ export function useControlRoomProbe(api = controlRoomApi) {
     if (!visible) return undefined
     let cancelled = false
     let timer = null
+    let failures = 0
     const read = async () => {
       const p = await api.probe()
       if (cancelled) return
-      if (!p?.error) { last.current = p; setProbe(p) }
-      timer = setTimeout(read, probeDelay(last.current))
+      if (!p?.error) { failures = 0; last.current = p; setProbe(p) } else failures++
+      const retry = failures > 0 ? PROBE_RETRY_MS[failures - 1] : undefined
+      timer = setTimeout(read, retry ?? probeDelay(last.current))
     }
     read()
     return () => { cancelled = true; clearTimeout(timer) }

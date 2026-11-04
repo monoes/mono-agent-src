@@ -102,6 +102,22 @@ describe('states of the page', () => {
     await show(doc, 'cr-stop')
     expect(screen.getByRole('button', { name: /Stop run/ })).toBeEnabled()
   })
+  it.each([
+    ['no', { ...unverified, integrity: { chain_verified: 'no', head_seq: 0 } }],
+    ['unknown', { ...running, integrity: { chain_verified: 'unknown' } }],
+    ['unanchored', { ...golden('overview_unanchored') }],
+    ['a missing integrity block', { ...running, integrity: undefined }],
+  ])('chain %s with a run row saying ended: Stop stays enabled', async (_n, doc) => {
+    await show({ ...doc, run: { ...doc.run, state: 'quiescent', active: false } }, 'cr-stop')
+    expect(screen.getByRole('button', { name: /Stop run/ })).toBeEnabled()
+  })
+  it('the first poll still pending: Stop is offered as "run state unknown"', async () => {
+    api.overview.mockReturnValue(new Promise(() => {}))
+    render(<ControlRoom api={api} />)
+    expect(await screen.findByTestId('cr-loading')).toBeInTheDocument()
+    expect(screen.getByTestId('cr-stop-unknown')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Stop run/ })).toBeEnabled()
+  })
   it('a quiescent run: ended, Stop disabled', async () => {
     await show({ ...running, run: { ...running.run, state: 'quiescent', active: false, stopping: true } }, 'cr-stop')
     expect(screen.getByTestId('cr-run-state')).toHaveTextContent('Run ended')
@@ -210,10 +226,11 @@ describe('Stop survives a failed poll', () => {
     expect(screen.getByTestId('cr-error')).toBeInTheDocument()
     expect(screen.getByTestId('cr-stop')).toBeInTheDocument()
   })
-  it('the last known ended run keeps Stop disabled under an error', async () => {
+  it('the last known ended run keeps Stop enabled under an error (a stale row must not lock the operator out)', async () => {
     await firstOk({ ...running, run: { ...running.run, state: 'quiescent', active: false } })
-    await laterPoll({ error: 'x' })
     expect(screen.getByRole('button', { name: /Stop run/ })).toBeDisabled()
+    await laterPoll({ error: 'x' })
+    expect(screen.getByRole('button', { name: /Stop run/ })).toBeEnabled()
   })
   it('a bad chain keeps Stop, and an error after it too', async () => {
     await firstOk(unverified)

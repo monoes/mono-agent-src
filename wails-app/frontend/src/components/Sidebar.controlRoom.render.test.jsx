@@ -82,6 +82,23 @@ describe('the probe keeps its last good answer and paces itself', () => {
     await tick(15_000)
     expect(result.current).toEqual({ show: true, running: true })
   })
+  it('a failed first probe is retried after 5 s, then 15 s, then the normal cadence', async () => {
+    setup()
+    const api = { probe: vi.fn().mockResolvedValue({ error: 'timeout' }) }
+    const { result } = renderHook(() => useControlRoomProbe(api))
+    await tick(0)
+    expect(api.probe).toHaveBeenCalledTimes(1)
+    await tick(4_900)
+    expect(api.probe).toHaveBeenCalledTimes(1)
+    await tick(200)
+    expect(api.probe).toHaveBeenCalledTimes(2)
+    await tick(14_800)
+    expect(api.probe).toHaveBeenCalledTimes(2)
+    api.probe.mockResolvedValue(run)
+    await tick(300)
+    expect(api.probe).toHaveBeenCalledTimes(3)
+    expect(result.current).toEqual({ show: true, running: true })
+  })
   it('a good probe that says no run does hide it again', async () => {
     setup()
     const api = { probe: vi.fn().mockResolvedValue(run) }

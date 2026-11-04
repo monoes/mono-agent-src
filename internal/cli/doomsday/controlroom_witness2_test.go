@@ -29,6 +29,11 @@ func TestCheckHeadAgainstWitnessKnowsANewerGeneration(t *testing.T) {
 		{"a newer generation only announced (a refused entry leaves that)", []stop.Record{g1, {T: stop.RecPending, Gen: 2, To: 1}}, true, ""},
 		{"a newer generation with only a header-like record", []stop.Record{g1, {T: stop.RecHeader, Gen: 2}}, true, ""},
 		{"an announced transition naming another head", []stop.Record{{T: stop.RecCommitted, Gen: 1, To: 4, Head: "aa"}, {T: stop.RecPending, Gen: 1, To: 5, Head: "ff"}}, false, store.ReasonWitnessMismatch},
+		{"an announced transition of ANOTHER generation does not announce this head", []stop.Record{{T: stop.RecCommitted, Gen: 1, To: 4, Head: "aa"}, {T: stop.RecPending, Gen: 2, To: 5, Head: hx}}, false, store.ReasonWitnessMismatch},
+		{"an announced transition of another generation with no head either", []stop.Record{{T: stop.RecCommitted, Gen: 1, To: 4, Head: "aa"}, {T: stop.RecPending, Gen: 2, To: 5}}, false, store.ReasonWitnessMismatch},
+		// The documented crash window is one transition: committed 3 and pending 9 with the database cut to 4 is not it.
+		{"a pending record naming a later seq than the head", []stop.Record{{T: stop.RecCommitted, Gen: 1, To: 3, Head: "aa"}, {T: stop.RecPending, Gen: 1, To: 9, Head: hx}}, false, store.ReasonWitnessMismatch},
+		{"a pending record naming a later seq than the head, no head named", []stop.Record{{T: stop.RecCommitted, Gen: 1, To: 3, Head: "aa"}, {T: stop.RecPending, Gen: 1, To: 9}}, false, store.ReasonWitnessMismatch},
 		{"an announced transition naming this head", []stop.Record{{T: stop.RecCommitted, Gen: 1, To: 4, Head: "aa"}, {T: stop.RecPending, Gen: 1, To: 5, Head: hx}}, true, ""},
 	}
 	for _, c := range cases {

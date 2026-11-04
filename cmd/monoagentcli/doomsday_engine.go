@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
 
 	chatcli "github.com/monoes/mono-agent/internal/cli/chat"
@@ -121,7 +120,7 @@ func processHostGate(cfg *globalConfig, db *sql.DB) *doomsdaycli.HostGate {
 // directory next to the database, the stop package's containment probe and kernel, real token revocation.
 func doomsdayWiring(cfg *globalConfig, db *sql.DB) doomsdaycli.Wiring {
 	keys := doomsdaycli.VaultKeyer{DB: db, Profile: cfg.ProfileID}
-	runDir := filepath.Join(filepath.Dir(expandPath(cfg.DBPath)), "doomsday", cfg.ProfileID)
+	runDir := doomsdayRunDirPath(cfg)
 	return doomsdaycli.Wiring{
 		// The entry refuses a charter whose 13.4 constraints would only ever deny (ops.EntryCheck, under the host's own spend bounds).
 		Store:   store.New(db, keys).WithEntryCheck(ops.EntryCheck(coderhost.SpendBounds())),

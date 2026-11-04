@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/doomsday/stop"
 	"github.com/monoes/mono-agent/internal/doomsday/store"
@@ -32,6 +33,13 @@ func (u Unreadable) ReadView(context.Context, store.ViewQuery) (store.View, erro
 	return store.View{}, fmt.Errorf("%w: %v", ErrUnreadable, u.Err)
 }
 
+// ReadTotalBudget is the time one read verb may take in all: the first read, the witness comparison and the one retry
+// share it as a single deadline. The desktop binding gives the whole process 15 s, so this ends well before it and a
+// slow read is reported as read_timeout by the CLI rather than killed from outside.
+const ReadTotalBudget = 8 * time.Second
+
+var readTotalBudget = ReadTotalBudget
+
 // Reasons of an unanchored chain (ChainState.Reason while Verified and not Anchored).
 const (
 	// AnchorNoWitness: this install wired no witness to compare the head with.
@@ -55,7 +63,13 @@ func (e *StoreEngine) ReadView(ctx context.Context, q store.ViewQuery) (store.Vi
 	if !ok {
 		return store.View{}, ErrOff
 	}
+	parent := ctx
+	ctx, cancel := context.WithTimeout(parent, readTotalBudget)
+	defer cancel()
 	v, err := e.readOnce(ctx, rv, q)
+	if err = totalTimeout(parent, ctx, err); err != nil && !errors.Is(err, store.ErrNoRun) {
+		return v, err
+	}
 	if errors.Is(err, store.ErrNoRun) {
 		// No run row: a witness that remembers any generation says the rows were removed, not that none ever ran.
 		if e.HeadAnchor != nil {
@@ -70,10 +84,23 @@ func (e *StoreEngine) ReadView(ctx context.Context, q store.ViewQuery) (store.Vi
 	}
 	// The snapshot and the witness are read one after the other with no lock, so a transition committed between them
 	// reads as a cut tail. A real cut persists: read both again, once, and report only what persists.
-	if v2, err2 := e.readOnce(ctx, rv, q); err2 == nil || !errors.Is(err2, store.ErrNoRun) {
+	// The retry has only what is left of the shared deadline; if that runs out the first answer stands (the witness
+	// still disagreed with it, so it is the red one), never a timeout that would hide it.
+	v2, err2 := e.readOnce(ctx, rv, q)
+	if err2 = totalTimeout(parent, ctx, err2); err2 == nil || (!errors.Is(err2, store.ErrNoRun) && !errors.Is(err2, store.ErrViewTimeout)) {
 		v, err = v2, err2
 	}
 	return v, err
+}
+
+// totalTimeout turns the shared deadline running out (the caller's own context still alive) into ErrViewTimeout, the
+// error the store gives when its own budget runs out, so both read as read_timeout.
+func totalTimeout(parent, shared context.Context, err error) error {
+	if err != nil && parent.Err() == nil && errors.Is(shared.Err(), context.DeadlineExceeded) && !errors.Is(err, store.ErrViewTimeout) &&
+		!errors.Is(err, store.ErrNoRun) {
+		return fmt.Errorf("%w (total budget %s)", store.ErrViewTimeout, readTotalBudget)
+	}
+	return err
 }
 
 // witnessDisagrees says whether the view was withheld because the witness contradicts the chain.

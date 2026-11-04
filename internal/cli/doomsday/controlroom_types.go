@@ -6,13 +6,20 @@ package doomsday
 //
 //   - `doomsday overview --json` is Overview, `doomsday feed --json [--before SEQ] [--limit N]` is FeedPage.
 //   - available is false when the mode is not built in (reason "off") or the profile has no run (reason "no_run");
+//     a missing database or one without the mode's tables is "off" only when the profile's witness directory holds no
+//     committed or pending record; otherwise it is the read error db_unavailable (a run existed);
 //     nothing else is set then, and the app shows nothing.
 //   - Rows carry no timestamps (the audit stream has none), so there is no feed time and no rate: spend.rate_basis is
 //     "none" and a client may estimate a rate from successive polls, labelled approximate (generated_at is the poll
 //     time). The tree has no depth or parent: members are registered by kind and liveness only.
 //   - integrity.chain_verified is "yes" only when the audit chain was walked from its run.enter row, every MAC and link
-//     matched AND the head agrees with the stop witness (an independent record: the run row does not bind the head, so
-//     a chain whose tail was cut is consistent in itself). "unanchored" is a consistent chain with no witness to
+//     matched AND the head is CONSISTENT WITH the stop witness (an independent record: the run row does not bind the head,
+//     so a chain whose tail was cut is consistent in itself). "yes" does not mean "latest": rolling back BOTH the
+//     database and the witness file to an older matching pair still reads yes (a documented limit). The dbid record
+//     and the OS secret store's generation anchor are not consulted by this read, and deleting the witness gives only
+//     "unanchored", never "yes". The read creates and migrates nothing, but the operator gate around it may still
+//     touch the database file. A read that loses a race with the writer is retried once; the whole read, retry
+//     included, ends within ReadTotalBudget and a slow one is read_timeout. "unanchored" is a consistent chain with no witness to
 //     compare (integrity.reason says why: no_witness, no_witness_record, witness_unreadable); tree, spend and the feed
 //     are shown, but the app must not show the run as healthy. "no" is a chain that does not verify, an empty chain, a
 //     head behind or contradicting the witness (reasons behind_witness, witness_mismatch) or a run whose row or
@@ -125,7 +132,7 @@ type Counter struct {
 }
 
 // IntegrityInfo is the badge. ChainVerified is "yes" only when the whole audit chain was walked, every MAC matched
-// and the head agrees with the witness; HeadPrefix is the first 16 hex digits of the head MAC (the same as `status`).
+// and the head is consistent with the witness (not "latest"); HeadPrefix is the first 16 hex digits of the head MAC (the same as `status`).
 type IntegrityInfo struct {
 	ChainVerified string `json:"chain_verified"`
 	Reason        string `json:"reason,omitempty"`

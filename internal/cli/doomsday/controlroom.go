@@ -63,7 +63,8 @@ func (d Deps) newOverview() *cobra.Command {
 		Short: "Control room: the run's state, tree clusters, spend and integrity (read-only)",
 		Long: "Control room: the run's state, tree clusters, spend and integrity (read-only; available:false when the mode is off, " +
 			"there is no run, or the read failed: reason error and a non-zero exit). integrity.chain_verified is yes only when the audit " +
-			"chain verified AND its head agrees with the stop witness; unanchored means consistent but not compared with the witness " +
+			"chain verified AND its head is consistent with the stop witness (not \"latest\": rolling back both the database and the " +
+			"witness file to an older matching pair also reads yes; the read creates and migrates nothing but the operator gate may still touch the database file); unanchored means consistent but not compared with the witness " +
 			"(not healthy). Spend totals are not authenticated (spend.counters_authenticated is false). " + clicore.OperatorOnlyHelp,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {

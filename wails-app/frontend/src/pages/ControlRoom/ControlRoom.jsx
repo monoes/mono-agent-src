@@ -17,10 +17,13 @@ export default function ControlRoom({ isActive = true, api = controlRoomApi }) {
   const { t } = useTranslation()
   const { doc, view, lastRun, feed, rate, loadOlder, refresh } = useControlRoom(isActive, api)
   const run = view.state === 'error' ? lastRun?.run : doc?.run
-  // Stop takes no argument, so it is offered whenever a run may exist: in every ok state, and under every error
-  // banner (a failed first poll or a failed read says nothing about the run). With no known run it says so.
-  const showStop = view.state === 'ok' || (view.state === 'error' && doc !== null)
+  // Stop takes no argument, so it is offered whenever a run may exist: in every ok state, under every error banner
+  // and during the very first poll (doc null reads as an error view). With no known run it says "run state unknown".
+  const showStop = view.state === 'ok' || view.state === 'error'
   const runUnknown = view.state === 'error' && !lastRun
+  // Stop is disabled only when a poll whose chain verified (yes) says the run is not active. Any other chain, any
+  // error and a stale last-known run keep it enabled: a forged or stale ended row must not lock the operator out.
+  const stopDisabled = view.state === 'ok' && view.chain === 'yes' && !!run && !run.active
   return (
     <div className="cr-page" data-testid="cr-page">
       <div className="page-header">
@@ -51,7 +54,7 @@ export default function ControlRoom({ isActive = true, api = controlRoomApi }) {
             )}
           </>
         ) : null}
-        {showStop ? <StopPanel api={api} disabled={!!run && !run.active} unknown={runUnknown} onDone={refresh} /> : null}
+        {showStop ? <StopPanel api={api} disabled={stopDisabled} unknown={runUnknown} onDone={refresh} /> : null}
       </div>
     </div>
   )
