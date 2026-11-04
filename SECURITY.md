@@ -2165,7 +2165,7 @@ that works a task acts on them. The defences:
   (2) this
   change covers the commands listed above only: many other operator-only commands
   (sign-in, the organisation guards,
-  node runs; tracked in issue 1333) still
+  tracked in issue 1333) still
   use only the operator marker check and are NOT turn-aware,
   so this does not make every operator-only command refuse a turn; (3) the test that
   keeps the wired commands in one table counts wirings per file and misses a method
@@ -2188,6 +2188,17 @@ that works a task acts on them. The defences:
   the markers and the workflow's approval as before. A database that cannot be read gives the limited
   flavour (neither is a recovery verb), and an operator terminal started inside a turn gets the limits as
   well, like every other gated verb.
+  `node run` decides once at its entry with the same gate and every node type gets the verdict in its context
+  (`workflow.WithAgentCaller`; it was `publication.register` alone). A process inside a coder session's turn
+  that cleared its markers, or one holding an agent token, is handled like a marked agent: a connection's secret
+  goes only to the hosts the connection names (an agent's step gets no host of its own, card or always-allow
+  rule alike); the node runs as an unapproved step (the profile's vault access grant, the file and program
+  restrictions and the audit); and a browser action of a package that is not built-in is refused before a
+  browser is connected (`BrowserNode.RunRefusal` reads the marker's text first and the command's verdict
+  second). The chat and a marked agent keep exactly the limits and texts they had; the user's own terminal is
+  unchanged, except that one started inside a turn gets these limits too. The engine, the daemon and MCP set no
+  verdict and are judged by markers and approvals as before; the send gate (`hilsend.Guard`), `browserjev`,
+  `aitask` and `people.save` still decide by the markers alone.
   `automation install <dir> --local` (and `automation new --install`) installs with local
   trust. While it is open to a turn, the `automation trust --scripts/--live` gate does not
   stop a turn from getting the same result: a turn can write its own package directory,

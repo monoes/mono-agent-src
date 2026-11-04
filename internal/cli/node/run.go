@@ -22,7 +22,6 @@ import (
 	"github.com/monoes/mono-agent/internal/logging"
 	"github.com/monoes/mono-agent/internal/nodes"
 	peoplenodes "github.com/monoes/mono-agent/internal/nodes/people"
-	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/profiledir"
 	"github.com/monoes/mono-agent/internal/publication"
 	"github.com/monoes/mono-agent/internal/secrets"
@@ -269,7 +268,12 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 			// The connection's secret goes only to the hosts it names, or, from
 			// the user's own terminal, to one the config names; an agent's step
 			// gets no host of its own, card or always-allow rule alike.
-			if err := workflow.CheckCredentialDestinations(factory(), cred, operator.Refusal() == "", config, config); err != nil {
+			// callerWhy is the one verdict of this command on who runs it: "" for the user's own terminal,
+			// else why not (a marked agent, the chat, a workflow, an agent token, a process inside a coder
+			// turn that cleared its markers). Everything below that tells an agent's run from the user's
+			// reads it; nothing asks again.
+			callerWhy := opgate.Refusal()
+			if err := workflow.CheckCredentialDestinations(factory(), cred, callerWhy == "", config, config); err != nil {
 				return fmt.Errorf("node %s: %w", nodeType, err)
 			}
 
@@ -290,7 +294,7 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 			// (nodes.BrowserNode.RunRefusal): refused before a browser is
 			// connected, or launched.
 			if bn, ok := factory().(*nodes.BrowserNode); ok {
-				if err := bn.RunRefusal(context.Background()); err != nil {
+				if err := bn.RunRefusal(workflow.WithAgentCaller(context.Background(), callerWhy)); err != nil {
 					return clicore.OperatorOnly("node %s: %v", nodeType, err)
 				}
 			}
@@ -362,16 +366,13 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 			// them, not approved by the user: it runs as a step of a workflow
 			// the user hasn't approved, honoring its profile's vault access
 			// grant and file/program restrictions, as MCP node_run does.
-			if operator.Refusal() != "" {
+			if callerWhy != "" {
 				ctx = workflow.WithUnapprovedStep(ctx, profiledir.Root(rawDB, d.ProfileID()), "node run")
 				ctx = secrets.WithAccessNodeType(secrets.WithAccessNode(ctx, input.NodeID, input.NodeName), nodeType)
 			}
-			// A process inside a coder turn that cleared its markers is an agent's too: the one node
-			// that tells an agent's run from the user's by more than the marker (publication.register)
-			// takes the verdict from ctx. Only that, not the unapproved-step limits above.
-			if nodeType == "publication.register" {
-				ctx = workflow.WithAgentCaller(ctx, opgate.Refusal())
-			}
+			// A node that tells an agent's run from the user's by more than the marker (the browser
+			// packages' run gate, publication.register) takes this command's verdict from ctx.
+			ctx = workflow.WithAgentCaller(ctx, callerWhy)
 			outputs, err := executor.Execute(ctx, input, config)
 			outputs = workflow.MaskAgentNodeOutputs(ctx, outputs)
 			err = workflow.MaskAgentNodeError(ctx, err)

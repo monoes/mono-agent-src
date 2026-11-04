@@ -653,7 +653,7 @@ dangerous calls.
   `profile documents remove --delete-file`, `people review approve|reject` and
   `people messages send-draft|reject-draft` also refuse a
   process inside a coder session's turn and one that holds an agent token
-  (`internal/cli/opgate`, SECURITY.md; the rest are tracked in issue 1333). `people import` and `publication register` keep the limits a marked agent has (an import may not approve anyone for outreach; a registration needs an approved send, `--approval`) and now apply them to a process inside a coder session's turn that cleared its markers and to an agent token holder; `node run publication.register` hands the node the same verdict. `httpapi-token` is a reserved vault entry: only
+  (`internal/cli/opgate`, SECURITY.md; the rest are tracked in issue 1333). `people import` and `publication register` keep the limits a marked agent has (an import may not approve anyone for outreach; a registration needs an approved send, `--approval`) and now apply them to a process inside a coder session's turn that cleared its markers and to an agent token holder; `node run` decides once with the same gate and hands every node the verdict in its context: a process inside a turn that cleared its markers gets a marked agent's limits there (no destination host of its own for a connection's secret, an unapproved step, no non-builtin browser package). `httpapi-token` is a reserved vault entry: only
   the server and the user's own `secret add|update|rm|import` write it
   (`secrets.ErrReservedEntry` otherwise, checked in the secrets package;
   an agent's import skips it), and its bearer is the field `token`; tools
