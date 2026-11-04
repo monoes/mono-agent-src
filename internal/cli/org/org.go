@@ -61,7 +61,7 @@ func NewCommand(d Deps) *cobra.Command {
 		env.newOrgValidateCmd(root),
 		newOrgSectionsRuntimesCmd(),
 		newOrgReloadCmd(root),
-		env.newOrgRoleCmd(root),
+		env.newOrgRoleCmd(env.RootErr),
 		newOrgCreateJSONCmd(env),
 		newOrgSignCmd(env),
 		newOrgAutomationCmd(env),
@@ -97,6 +97,8 @@ func NewCommand(d Deps) *cobra.Command {
 var noRootGuard = map[string]bool{
 	"org sections-runtimes": true, // needs no folder
 	"org summary":           true, // reports local facts without a database (it errors itself when there is no folder)
+	"org role set-access":   true, // its operator gate comes first: the root lookup opens the database, so it looks the root up itself, after the gate
+	"org teardown-profile":  true, // same; it opens the profile through env.Profile, which reports a database that cannot be opened
 }
 
 // requireRoot makes every other org subcommand that acts on a folder fail up

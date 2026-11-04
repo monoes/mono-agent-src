@@ -309,3 +309,32 @@ func TestRegisterTakesTheAgentPathFromTheCommandsVerdict(t *testing.T) {
 		t.Errorf("%d publications, want 2", n)
 	}
 }
+
+// A registration that fails after the approval was claimed gives the claim back (the failure here is an
+// invalid URL, which the claim does not look at): the same send registers a valid publication afterwards.
+func TestRegisterGivesTheClaimBackWhenTheRegistrationFails(t *testing.T) {
+	asTheUsersRun(t)
+	db, err := storage.NewDatabase(filepath.Join(t.TempDir(), "db.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err = db.ApplyMigrations(); err != nil {
+		t.Fatal(err)
+	}
+	ctx := vault.ContextWithProfileID(vault.ContextWithDB(context.Background(), db.DB), "default")
+	run := workflow.WithTrigger(ctx, "trigger.manual", map[string]interface{}{workflow.AICallerKey: "chat"})
+	in := workflow.NodeInput{ExecutionID: "execution", NodeID: "register", Items: []workflow.Item{workflow.NewItem(nil)}}
+	id := sentSend(t, ctx, db.DB)
+	config := func(remote, url string) map[string]interface{} {
+		return map[string]interface{}{"platform": "email", "kind": "post", "body": "hello", "approval": id, "remote_id": remote, "url": url}
+	}
+	if _, err := (&RegisterNode{}).Execute(run, in, config("9", "ftp://example.test/x")); err == nil || !strings.Contains(err.Error(), "HTTP(S) URLs") {
+		t.Fatalf("an invalid publication: %v", err)
+	}
+	// another execution: the same one would match the failed attempt's idempotency key and pass as a retry
+	again := workflow.NodeInput{ExecutionID: "execution-2", NodeID: "register", Items: in.Items}
+	if _, err := (&RegisterNode{}).Execute(run, again, config("1", "")); err != nil {
+		t.Fatalf("the approval was not given back after the failed registration: %v", err)
+	}
+}

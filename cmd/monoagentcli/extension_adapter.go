@@ -23,6 +23,7 @@ func extensionDeps(cfg *globalConfig) extensioncli.Deps {
 		ServingCommand:   func(c *cobra.Command) *cobra.Command { return servingCommand(c) },
 		Refusal:          opgate.Refusal,
 		RecoveryRefusal:  opgate.RecoveryRefusal,
+		RecoveryCheck:    opgate.RecoveryCheck,
 	}
 }
 

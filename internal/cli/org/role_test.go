@@ -28,7 +28,7 @@ func runOrgRole(t *testing.T, root string, args ...string) (string, error) {
 	d.CapabilityProbe = func(*cobra.Command) (*monomind.CapabilitySet, error) {
 		return monomind.NewCapabilitySet("9.0.0", roleCaps...), nil
 	}
-	cmd := newEnv(d, nil).newOrgRoleCmd(func() string { return root })
+	cmd := newEnv(d, nil).newOrgRoleCmd(func() (string, error) { return root, nil })
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetArgs(args)

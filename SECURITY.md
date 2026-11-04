@@ -2082,7 +2082,10 @@ that works a task acts on them. The defences:
   `automation doctor accept-repair`, `record verify`, `record replay` (not `--dry-run`),
   `record save` (a refused process also reads no vault secret for a recording),
   `browser allow add|remove`, `browser permissions set|site`, `coder queue add|start`
-  and `coder projects map|unmap`, and the profile and people commands:
+  and `coder projects map|unmap`, the two organisation commands nothing in a turn runs,
+  `org role set-access ... full` and `org teardown-profile` (not `--dry-run`; it revokes
+  the profile's API keys, org grants and endpoints; not a repair verb, because it needs the
+  profile's database to read and so cannot help a damaged one), and the profile and people commands:
   `profile update` (rename, re-icon), `profile delete`, `profile backups purge`,
   `profile move`, `profile create --root-dir`, `profile documents remove --delete-file`
   (the flag only; without it the document is removed from MonoAgent and the file stays),
@@ -2109,8 +2112,38 @@ that works a task acts on them. The defences:
   recorded in ANY readable database still refuses it: the scan of the registry goes on
   past an unreadable entry (wherever it sorts) instead of stopping at it, which only the
   other verbs do. The named database is opened read-only, only as a regular file (a FIFO
-  cannot hang it) and with a bounded wait for a lock; a lock that outlasts the wait
-  refuses the other verbs and counts as no turn recorded for the repair verbs. `secret reveal` and
+  cannot hang it) and with a bounded wait for a lock. A lock that outlasts the wait
+  refuses the other verbs. For the repair verbs it depends on who owns the locked
+  database: if a running coder host owns it (the named database, or a registered
+  one), the verb is refused with a plain "wait and retry" message (not an
+  operator-only one, with its own `--json` code `host_busy`; it names every busy host's
+  entry file, the first five and "and N more") that names the database and the registry entry file (delete that
+  file if the host is not running; control characters are stripped from both paths,
+  since the registry is writable by the same user), because the lock could be hiding a turn; a turn found in any
+  readable database still decides first. The wait for locks is bounded as a whole
+  (8 seconds for the registry scan, measured 8.0 s for 20 locked live hosts, where one
+  wait per host took 40 s): the scan first asks every entry without waiting, so a turn
+  in any readable database is found at once and a dead host's locked database costs
+  nothing, then waits for the locked live hosts in turn until the budget is spent; hosts
+  still locked or not reached are reported busy (fail closed). Any non-answer from a LIVE
+  host is busy, not only a lock: no answer in time, SQLITE_PROTOCOL, and any SQLite result
+  code that is not on the damage list (so a code not known yet fails closed). Only damage
+  is skipped, and the operator let through: SQLITE_ERROR (a missing table or column),
+  PERM, READONLY, IOERR, CORRUPT, CANTOPEN, AUTH and NOTADB (the plain codes), and errors without a SQLite
+  code (not a regular file, cannot be stat'ed, permission). The extended code is read first: IOERR_LOCK,
+  IOERR_BLOCKED, IOERR_RDLOCK, IOERR_SHMLOCK, IOERR_CHECKRESERVEDLOCK, IOERR_SHMOPEN, IOERR_SHMSIZE, IOERR_SHMMAP, IOERR_NOMEM, READONLY_RECOVERY,
+  READONLY_CANTINIT and READONLY_CANTLOCK are non-answers (busy) although their primary
+  code is on the damage list; CANTOPEN under descriptor pressure has no extended code of
+  its own, so it cannot be told apart and counts as damage. A dead host's entry is skipped
+  whatever it answers. The entry file in the message is shell-quoted when it holds a space
+  or a quote. A locked database that no running host
+  owns (none registered, or only a dead host) counts as no turn recorded, so a dead
+  host never locks the operator out of a repair. The residual: a same-user process
+  can still kill the host or delete its registry entry, which turns the refusal back
+  into "no turn recorded"; and it can forge a live entry (its own pid) for a database
+  file it then locks, which makes these verbs say "wait and retry" until the entry is
+  deleted. That is a denial of the repair verbs, not a bypass: nothing is let through.
+  Like the rest of this layer it is a courtesy, not a barrier. `secret reveal` and
   `node run vault.secret_get` keep the marker check alone, as before: they have an
   agent path under the profile's Reveal access level and are held for a decision.
   The database it reads is not only the one the process names: every running coder
@@ -2164,7 +2197,7 @@ that works a task acts on them. The defences:
   (asking the host over its peer-credential socket) is a separate, later design;
   (2) this
   change covers the commands listed above only: many other operator-only commands
-  (sign-in, the organisation guards,
+  (sign-in, `org sign`,
   tracked in issue 1333) still
   use only the operator marker check and are NOT turn-aware,
   so this does not make every operator-only command refuse a turn; (3) the test that
@@ -2177,6 +2210,18 @@ that works a task acts on them. The defences:
   systemd user service. The bridge itself stays a gate-free path for anything that
   authenticates to it (the pairing token): it runs `record save` and `coder queue add` as the
   operator for such a caller, so the token is as sensitive as the commands behind it.
+  The org verbs the chat legitimately drives use the turn-aware gate for the LIMITED flavour,
+  not for a refusal of everything: `org approve` and `org chat approve` (an approval of a call
+  that sends a message to a person is refused; others pass), `org autonomy set|pause|resume`
+  (never `full`, never a widening, a pause is never shortened) and `org grant add` (a grant
+  asks for approval; `--approval none` is refused). A marked agent, the chat and a workflow
+  get exactly the texts and limits they always had; a process inside a coder session's turn
+  that cleared its markers, and a holder of an agent token, now get the same limits. A
+  database that cannot be read gives the limited flavour too (these are not recovery verbs,
+  and the limited flavour does not lock the operator out of anything an agent may do). An
+  operator terminal started inside a turn gets the limits as well, like every other gated
+  verb. A `MONOAGENT_ACTOR` of only spaces (an agent without a name) used to count as the
+  operator for these verbs and is limited now; an empty one is not set.
   `people import` and `publication register` use the turn-aware gate for the LIMITED flavour as well: an
   import run by anything but the user's own terminal may not approve anyone for outreach, and a publication
   register needs a send the user approved (`--approval`, hilsend.ClaimPublicationApproval). A marked agent,

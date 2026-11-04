@@ -214,3 +214,37 @@ func TestMarkedCallersGetTheSamePublicationRefusalWhateverCombinationOfMarkersTh
 		t.Fatalf("only %d marker combinations were exercised: the matrix is stale", cases)
 	}
 }
+
+// A registration that fails after the approval was claimed gives the claim back: the same approved send can
+// register a valid publication afterwards (the failure is an invalid URL, which the claim does not look at).
+func TestPublicationRegisterGivesTheClaimBackWhenTheRegistrationFails(t *testing.T) {
+	cfg := sendEnv(t)
+	swapRunner(t)
+	id := queueViaNodeRun(t, cfg, sendConfig)
+	asOperatorProcess(t)
+	if _, err := runSendCLI(t, cfg, newHILCmd(cfg), "resolve", id, "--approve"); err != nil {
+		t.Fatal(err)
+	}
+	asOperatorProcess(t)
+	opgate.SetForTest(t, cfg.gateRefusal)
+	t.Setenv(coderhost.SessionTokenEnv, "session-token")
+	register := func(entry string) error {
+		cmd := newPublicationCmd(cfg)
+		cmd.SetIn(strings.NewReader(entry))
+		_, err := runSendCLI(t, cfg, cmd, "register", "--stdin-json", "--approval", id)
+		return err
+	}
+	bad := strings.Replace(pubEntry, `"remote_id":"1"`, `"remote_id":"9","url":"ftp://example.test/x"`, 1)
+	if err := register(bad); err == nil || !strings.Contains(err.Error(), "HTTP(S) URLs") {
+		t.Fatalf("an invalid publication: %v", err)
+	}
+	if n := registeredCount(t, cfg); n != 0 {
+		t.Fatalf("%d publications after the failed registration", n)
+	}
+	if err := register(pubEntry); err != nil {
+		t.Fatalf("the approval was not given back after the failed registration: %v", err)
+	}
+	if n := registeredCount(t, cfg); n != 1 {
+		t.Fatalf("%d publications, want 1", n)
+	}
+}
