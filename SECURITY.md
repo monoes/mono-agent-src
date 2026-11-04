@@ -2114,8 +2114,12 @@ that works a task acts on them. The defences:
   host is busy, not only a lock: no answer in time, SQLITE_PROTOCOL, and any SQLite result
   code that is not on the damage list (so a code not known yet fails closed). Only damage
   is skipped, and the operator let through: SQLITE_ERROR (a missing table or column),
-  PERM, READONLY, IOERR, CORRUPT, CANTOPEN, AUTH and NOTADB, and errors without a SQLite
-  code (not a regular file, cannot be stat'ed, permission). A dead host's entry is skipped
+  PERM, READONLY, IOERR, CORRUPT, CANTOPEN, AUTH and NOTADB (the plain codes), and errors without a SQLite
+  code (not a regular file, cannot be stat'ed, permission). The extended code is read first: IOERR_LOCK,
+  IOERR_BLOCKED, IOERR_RDLOCK, IOERR_SHMLOCK, IOERR_CHECKRESERVEDLOCK, READONLY_RECOVERY,
+  READONLY_CANTINIT and READONLY_CANTLOCK are non-answers (busy) although their primary
+  code is on the damage list; CANTOPEN under descriptor pressure has no extended code of
+  its own, so it cannot be told apart and counts as damage. A dead host's entry is skipped
   whatever it answers. The entry file in the message is shell-quoted when it holds a space
   or a quote. A locked database that no running host
   owns (none registered, or only a dead host) counts as no turn recorded, so a dead

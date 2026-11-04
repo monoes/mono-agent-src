@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 // lockedDB creates a journal_mode=DELETE database with a coder_sessions table and holds BEGIN EXCLUSIVE on it
@@ -354,5 +356,62 @@ func TestTheBusyMessageShellQuotesAnEntryFileWithASpaceAndAQuote(t *testing.T) {
 	many := &BusyHostError{DB: "/d.db", File: "/a b", Others: []string{"/c"}}
 	if !strings.Contains(many.Error(), "'/a b', /c:") {
 		t.Fatalf("%q", many.Error())
+	}
+}
+
+// Extended result codes are classified before the primary one: the lock and recovery forms of IOERR and
+// READONLY are non-answers of a live host, while the plain codes (and AUTH) stay damage. The constants are the
+// driver's own.
+func TestExtendedCodesAreClassifiedBeforeThePrimaryCode(t *testing.T) {
+	needAncestry(t)
+	transient := map[string]int{
+		"IOERR_LOCK": sqlite3.SQLITE_IOERR_LOCK, "IOERR_BLOCKED": sqlite3.SQLITE_IOERR_BLOCKED,
+		"IOERR_RDLOCK": sqlite3.SQLITE_IOERR_RDLOCK, "IOERR_SHMLOCK": sqlite3.SQLITE_IOERR_SHMLOCK,
+		"IOERR_CHECKRESERVEDLOCK": sqlite3.SQLITE_IOERR_CHECKRESERVEDLOCK,
+		"READONLY_RECOVERY":       sqlite3.SQLITE_READONLY_RECOVERY, "READONLY_CANTINIT": sqlite3.SQLITE_READONLY_CANTINIT,
+		"READONLY_CANTLOCK": sqlite3.SQLITE_READONLY_CANTLOCK,
+	}
+	if len(transient) != len(transientExtendedCodes) {
+		t.Fatalf("the table holds %d codes, the test %d", len(transientExtendedCodes), len(transient))
+	}
+	damage := map[string]int{
+		"IOERR": sqlite3.SQLITE_IOERR, "READONLY": sqlite3.SQLITE_READONLY, "AUTH": sqlite3.SQLITE_AUTH,
+		"CANTOPEN": sqlite3.SQLITE_CANTOPEN, "CORRUPT": sqlite3.SQLITE_CORRUPT, "NOTADB": sqlite3.SQLITE_NOTADB,
+		"READONLY_DBMOVED": sqlite3.SQLITE_READONLY_DBMOVED, "READONLY_ROLLBACK": sqlite3.SQLITE_READONLY_ROLLBACK,
+		"IOERR_READ": sqlite3.SQLITE_IOERR_READ, "CANTOPEN_ISDIR": sqlite3.SQLITE_CANTOPEN_ISDIR, "AUTH_USER": sqlite3.SQLITE_AUTH_USER,
+	}
+	for name, code := range transient {
+		t.Run("live "+name, func(t *testing.T) {
+			registryDirOf(t)
+			registerOne(t)
+			scripted(t, &coded{int(code)})
+			in, skipped, busy := CallerInARegisteredTurnLenient("")
+			if in || len(busy) != 1 || len(skipped) != 0 {
+				t.Fatalf("%s (%d): in=%v busy=%v skipped=%v, want busy", name, code, in, busy, skipped)
+			}
+		})
+		t.Run("dead "+name, func(t *testing.T) {
+			dir := registryDirOf(t)
+			path, release := lockedDB(t, "dead.db")
+			release()
+			registerRaw(t, dir, canonicalOrSelf(t, path), 1, "no-such-start-stamp")
+			setLiveness(t, func(int) string { return "another-stamp" }, func(int) error { return nil })
+			scripted(t, &coded{int(code)})
+			in, skipped, busy := CallerInARegisteredTurnLenient("")
+			if in || len(busy) != 0 || len(skipped) != 0 {
+				t.Fatalf("%s: in=%v busy=%v skipped=%v, want skipped silently", name, in, busy, skipped)
+			}
+		})
+	}
+	for name, code := range damage {
+		t.Run("live damage "+name, func(t *testing.T) {
+			registryDirOf(t)
+			registerOne(t)
+			scripted(t, &coded{int(code)})
+			in, skipped, busy := CallerInARegisteredTurnLenient("")
+			if in || len(busy) != 0 || len(skipped) != 1 {
+				t.Fatalf("%s (%d): in=%v busy=%v skipped=%v, want skipped (damage)", name, code, in, busy, skipped)
+			}
+		})
 	}
 }

@@ -190,6 +190,23 @@ var ErrNoAnswer = errors.New("no answer")
 // since repairing the install is what the damage needs.
 var damagedCodes = map[int]bool{1: true, 3: true, 8: true, 10: true, 11: true, 14: true, 23: true, 26: true}
 
+// transientExtendedCodes are EXTENDED result codes whose primary code is on the damage list but that say the
+// file could not be locked or recovered right now, not that it is damaged: IOERR_LOCK, IOERR_BLOCKED,
+// IOERR_RDLOCK, IOERR_SHMLOCK, IOERR_CHECKRESERVEDLOCK, READONLY_RECOVERY, READONLY_CANTINIT and
+// READONLY_CANTLOCK. They are matched first, on the whole code; a plain IOERR, READONLY or CANTOPEN stays
+// damage (CANTOPEN under file-descriptor pressure has no extended code of its own, so it cannot be told apart
+// and is treated as damage).
+var transientExtendedCodes = map[int]bool{
+	10 | 15<<8: true, // SQLITE_IOERR_LOCK 3850
+	10 | 11<<8: true, // SQLITE_IOERR_BLOCKED 2826
+	10 | 9<<8:  true, // SQLITE_IOERR_RDLOCK 2314
+	10 | 20<<8: true, // SQLITE_IOERR_SHMLOCK 5130
+	10 | 14<<8: true, // SQLITE_IOERR_CHECKRESERVEDLOCK 3594
+	8 | 1<<8:   true, // SQLITE_READONLY_RECOVERY 264
+	8 | 5<<8:   true, // SQLITE_READONLY_CANTINIT 1288
+	8 | 2<<8:   true, // SQLITE_READONLY_CANTLOCK 520
+}
+
 // IsNonAnswer says whether err from checking the database of a coder host means "the host did not answer"
 // rather than "the database is damaged": a lock past the wait (ErrDatabaseBusy), no answer in time
 // (ErrNoAnswer), or any SQLite result code that is not in damagedCodes (SQLITE_PROTOCOL 15, NOMEM 7,
@@ -205,6 +222,9 @@ func IsNonAnswer(err error) bool {
 	}
 	var coded interface{ Code() int }
 	if errors.As(err, &coded) {
+		if transientExtendedCodes[coded.Code()] {
+			return true
+		}
 		return !damagedCodes[coded.Code()&0xff]
 	}
 	return false
