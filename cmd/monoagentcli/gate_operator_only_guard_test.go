@@ -55,7 +55,6 @@ var legacyMarkerChecks = map[string]allowed{
 	"internal/browserctl/permissions.go":            {1, "browser permission engine, not a CLI verb gate"},
 	"internal/cli/doctor/doctor.go":                 {1, reader + " (file previews)"},
 	"internal/cli/workflowaitask/workflowaitask.go": {1, "label only, not a decision: the audit line names a marked caller (operator.Caller), \"operator\" otherwise; it grants and withholds nothing (issue 1425)"},
-	"internal/cli/workflowmanage/manage.go":         {1, reader},
 	"internal/config/writeguard.go":                 {1, "reserved config writes, engine level"},
 }
 
