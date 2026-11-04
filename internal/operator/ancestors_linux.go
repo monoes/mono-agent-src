@@ -29,7 +29,7 @@ func ancestorMarker() string {
 // workflow.EnvUnapprovedRun (or the chain can't be read to its end): a child that
 // dropped its own copy still comes from an unapproved run.
 func unapprovedAncestor() bool {
-	if testing.Testing() && !ancestorsInTests {
+	if testmode.On && !ancestorsInTests {
 		return false
 	}
 	return walkUnapproved(os.Getppid(), func(pid int) (bool, error) {
