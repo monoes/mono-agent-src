@@ -328,6 +328,9 @@ func (rg *runGov) pumpLocked(ctx context.Context) {
 		rg.admitted[a.Request.MemberID] = time.Now()
 		delete(rg.queued, a.Request.MemberID)
 	}
+	for _, m := range res.Dropped { // a cancelled or duplicate row: the launch is no longer queued, and may be queued again
+		delete(rg.queued, m)
+	}
 	// reservations nobody claimed in time are no longer live: the reconcile below gives their slots back
 	for m, at := range rg.admitted {
 		if time.Since(at) >= govClaimTTL {
@@ -436,7 +439,7 @@ func parsePublished(raw string) (published, bool) {
 	return p, true
 }
 
-// stale says whether the send behind a queued launch is gone: its command exists and is no longer pending (cancelled by a
+// stale says whether the send behind a queued launch is gone: its send command exists and is no longer pending (cancelled by a
 // stop or the person, failed, done). A launch with no command row at all is not judged.
 func (rg *runGov) stale(ctx context.Context, it governor.Item) bool {
 	_, req, err := decodeItem(it)
@@ -448,7 +451,7 @@ func (rg *runGov) stale(ctx context.Context, it governor.Item) bool {
 		return false
 	}
 	var status string
-	err = rg.w.DB.QueryRowContext(ctx, `SELECT status FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND turn_id = ? ORDER BY id DESC LIMIT 1`,
+	err = rg.w.DB.QueryRowContext(ctx, `SELECT status FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND turn_id = ? AND kind = 'send' ORDER BY id DESC LIMIT 1`,
 		rg.lim.Profile, conv, turn).Scan(&status)
 	return err == nil && status != "pending"
 }
@@ -467,4 +470,10 @@ func (rg *runGov) queuedInDB(ctx context.Context, payload []byte) bool {
 	err := rg.w.DB.QueryRowContext(ctx, `SELECT count(*) FROM doomsday_queue WHERE profile = ? AND generation = ? AND state = 'queued' AND payload = ?`,
 		rg.lim.Profile, rg.lim.Generation, string(payload)).Scan(&n)
 	return err == nil && n > 0
+}
+
+func (rg *runGov) isStarted(m string) bool {
+	rg.liveMu.Lock()
+	defer rg.liveMu.Unlock()
+	return rg.started[m]
 }

@@ -15,6 +15,8 @@ type PumpResult struct {
 	// Cancelled counts rows whose send is gone; Duplicates counts rows for a launch that already held its slot.
 	Cancelled  int
 	Duplicates int
+	// Dropped names the members whose rows were cancelled or consumed as duplicates: the caller forgets that they wait.
+	Dropped []string
 }
 
 // Pump admits as many queued launches as free slots allow, in service order (boss class first, then leads round
@@ -76,16 +78,17 @@ func (s *Scheduler) Pump(ctx context.Context) (PumpResult, error) {
 
 // pumpOne judges one queued item. done means the process slots are full and the rest cannot fit.
 func (s *Scheduler) pumpOne(ctx context.Context, eff governor.Effective, it governor.Item, res *PumpResult) (done bool, err error) {
+	provider, req, derr := s.decode(it)
+	if derr != nil {
+		res.Skipped++
+		return false, nil
+	}
 	if s.cfg.Stale != nil && s.cfg.Stale(ctx, it) { // its send is gone: cancel the row, reserve nothing
 		if cerr := s.cfg.Queue.Cancel(ctx, s.l.Profile, s.l.Generation, it.QID); cerr != nil && !errors.Is(cerr, governor.ErrNotQueued) {
 			return false, cerr
 		}
 		res.Cancelled++
-		return false, nil
-	}
-	provider, req, derr := s.decode(it)
-	if derr != nil {
-		res.Skipped++
+		res.Dropped = append(res.Dropped, req.MemberID)
 		return false, nil
 	}
 	switch err := s.admitLocked(ctx, eff, provider, req); {
@@ -95,6 +98,7 @@ func (s *Scheduler) pumpOne(ctx context.Context, eff governor.Effective, it gove
 			return false, merr
 		}
 		res.Duplicates++
+		res.Dropped = append(res.Dropped, req.MemberID)
 		return false, nil
 	case errors.Is(err, governor.ErrNoSlot):
 		res.Deferred++

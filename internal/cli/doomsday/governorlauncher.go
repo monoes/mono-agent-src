@@ -87,6 +87,9 @@ func (g governedLauncher) start(profileID, conversationID, turnID string, mk fun
 func (rg *runGov) admit(ctx context.Context, member, conv, provider string) error {
 	rg.mu.Lock()
 	defer rg.mu.Unlock()
+	if rg.isStarted(member) { // this turn already runs on its slot: a second start never shares it
+		return fmt.Errorf("%w: that turn is already running", coderhost.ErrDeferred)
+	}
 	if rg.claim(member) || rg.holdsSlot(ctx, member) { // reserved for this launch by the queue, even after the claim time
 		rg.markStarted(member)
 		return nil

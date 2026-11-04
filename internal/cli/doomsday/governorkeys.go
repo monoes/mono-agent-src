@@ -53,15 +53,47 @@ func (c *CachedKeyer) keyer() (store.Keyer, error) {
 		now = c.Now
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.key != nil && now().Sub(c.at) < c.TTL {
-		return c.key, nil
+		k := c.key
+		c.mu.Unlock()
+		return k, nil
 	}
-	key, err := c.Derive(context.Background())
-	if err != nil {
-		c.key = nil
-		return nil, err
+	c.mu.Unlock()
+	// The derivation (a key store read) runs outside the lock and is bounded: a wedged store fails each caller after the
+	// timeout instead of queueing them all behind one.
+	timeout := c.Timeout
+	if timeout <= 0 {
+		timeout = defaultDeriveTimeout
 	}
-	c.key, c.at = store.NewHMACKeyer(key), now()
-	return c.key, nil
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	type result struct {
+		key []byte
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				ch <- result{err: fmt.Errorf("%w: the key derivation panicked", store.ErrUnverifiable)}
+			}
+		}()
+		k, err := c.Derive(ctx)
+		ch <- result{k, err}
+	}()
+	select {
+	case res := <-ch:
+		if res.err != nil {
+			return nil, res.err
+		}
+		k := store.NewHMACKeyer(res.key)
+		c.mu.Lock()
+		c.key, c.at = k, now()
+		c.mu.Unlock()
+		return k, nil
+	case <-ctx.Done():
+		return nil, fmt.Errorf("%w: the key derivation timed out", store.ErrUnverifiable)
+	}
 }
+
+const defaultDeriveTimeout = 5 * time.Second
