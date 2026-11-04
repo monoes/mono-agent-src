@@ -100,6 +100,12 @@ func StartURL(platform string) string {
 			return u
 		}
 	}
+	return BuiltinStartURL(platform)
+}
+
+// BuiltinStartURL is the start page of a platform that predates automation
+// packages, "about:blank" for any other; it reads no package.
+func BuiltinStartURL(platform string) string {
 	if u := builtinStartURLs[strings.ToLower(platform)]; u != "" {
 		return u
 	}

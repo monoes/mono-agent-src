@@ -91,9 +91,14 @@ func (d Deps) newLoginNamesCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// One read of each package decides the gate and names the page to open.
+			pages := map[string]startPage{}
+			for _, p := range platforms {
+				pages[p] = d.startPageOf(p)
+			}
 			if why := clicore.OperatorRefusal(d.Refusal); why != "" {
 				for _, p := range platforms {
-					if trust, ok := d.pageTrust(p); ok && trust != automation.TrustBuiltin {
+					if trust, ok := pages[p].trust, pages[p].named; ok && trust != automation.TrustBuiltin {
 						return clicore.OperatorOnly("login names opens %s's site in the user's browser, and %s is a %s package, whose site is named in files anyone with the user's files can write, so only the user reads its name: %s; "+
 							"pass --platform for a built-in one, or the user runs `monoagentcli login names` in their own terminal", p, p, trust, why)
 					}
@@ -106,7 +111,7 @@ func (d Deps) newLoginNamesCmd() *cobra.Command {
 					return err
 				}
 				for _, p := range platforms {
-					names[p] = d.readAccountName(bridge, p)
+					names[p] = d.readAccountName(bridge, p, pages[p].url)
 				}
 			}
 			saved := map[string]string{}
@@ -160,7 +165,35 @@ func nameless(ctx context.Context, db *sql.DB, profileID, only string) ([]string
 	return out, rows.Err()
 }
 
-// pageTrust is the trust tier of the package whose start page
+// startPage is what one read of the package that names platform's start
+// page yields: the page, the package's trust tier, and whether a package
+// names the page at all.
+type startPage struct {
+	url, trust string
+	named      bool
+}
+
+// startPageOf reads platform's package once (browserpkg.StartURL would read
+// it again) and returns its start page and trust tier.
+func (d Deps) startPageOf(platform string) startPage {
+	_, _ = d.OpenRegistry() // boots the action source, as a login lookup would
+	var pkg action.PackageContext
+	if src := action.CurrentDefSource(); src != nil {
+		pkg = src.Package(strings.ToLower(platform))
+	}
+	if pkg == nil {
+		return startPage{url: browserpkg.BuiltinStartURL(platform)}
+	}
+	sp := startPage{url: pkg.StartURL(), named: true}
+	if sp.url == "" {
+		sp.url = browserpkg.BuiltinStartURL(platform)
+	}
+	if t, ok := pkg.(interface{ Trust() string }); ok {
+		sp.trust = t.Trust()
+	}
+	return sp
+}
+
 // readAccountName opens for platform (browserpkg.StartURL reads the same
 // action source), and whether a package names that page at all.
 func (d Deps) pageTrust(platform string) (string, bool) {
@@ -179,10 +212,10 @@ func (d Deps) pageTrust(platform string) (string, bool) {
 	return "", true
 }
 
-// readAccountName opens platform's start page in a tab, reads the account
-// name and closes the tab again.
-func (d Deps) readAccountName(bridge browserpkg.ExtensionBridge, platform string) string {
-	tabID, err := bridge.CreateTab(browserpkg.StartURL(platform))
+// readAccountName opens url (platform's start page) in a tab, reads the
+// account name and closes the tab again.
+func (d Deps) readAccountName(bridge browserpkg.ExtensionBridge, platform, url string) string {
+	tabID, err := bridge.CreateTab(url)
 	if err != nil {
 		return ""
 	}

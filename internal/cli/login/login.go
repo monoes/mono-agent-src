@@ -291,6 +291,10 @@ func (d Deps) newLoginConfirmCmd() *cobra.Command {
 				return err
 			}
 
+			if err := checkTabOnSite(bridge.NewPage(tabID), platform, bot.PlatformRegistry[platform]().LoginURL()); err != nil {
+				return err
+			}
+
 			rawCookies, err := bridge.NewPage(tabID).GetCookies()
 			if err != nil {
 				return fmt.Errorf("reading cookies from login tab: %w", err)
