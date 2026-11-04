@@ -169,10 +169,14 @@ func TestAParentsUnapprovedMarkKeepsAChildUnapproved(t *testing.T) {
 	}
 }
 
-// The unapproved-run walk fails closed: a parent whose environment can't be
-// read, a parent chain that can't be followed to its end, or one already
-// handed to init (a double fork) is not proof the run was approved.
-func TestWalkUnapprovedFailsClosed(t *testing.T) {
+// The unapproved-run walk fails closed on a broken chain (a parent that can't
+// be found or has gone, a chain too deep), not on a parent whose environment
+// is closed to this user: a marked workflow child is this user's own
+// process and its environment is readable, so a permission error marks
+// systemd --user, sshd's privsep children and root-owned services, never a
+// workflow run. Reaching init (or pid 0 of a container) through readable,
+// unmarked links is clean.
+func TestWalkUnapprovedFailsClosedOnABrokenChain(t *testing.T) {
 	chain := map[int]int{50: 40, 40: 30, 30: 1}
 	parent := func(pid int) (int, bool) { p, ok := chain[pid]; return p, ok }
 	never := func(int) (bool, error) { return false, nil }
@@ -182,13 +186,21 @@ func TestWalkUnapprovedFailsClosed(t *testing.T) {
 	if !walkUnapproved(50, func(pid int) (bool, error) { return pid == 30, nil }, parent) {
 		t.Error("a marked grandparent counts")
 	}
-	if !walkUnapproved(50, func(pid int) (bool, error) { return false, os.ErrPermission }, parent) {
-		t.Error("an unreadable parent environment is not clean")
+	if walkUnapproved(50, func(pid int) (bool, error) {
+		if pid == 30 { // systemd --user: not dumpable, closed to its own user
+			return false, os.ErrPermission
+		}
+		return false, nil
+	}, parent) {
+		t.Error("a chain ending in an unreadable systemd --user is clean")
+	}
+	if !walkUnapproved(50, func(pid int) (bool, error) { return false, os.ErrNotExist }, parent) {
+		t.Error("a parent that has gone is not clean")
 	}
 	if !walkUnapproved(50, never, func(pid int) (int, bool) { return 0, false }) {
 		t.Error("a chain that can't be followed is not clean")
 	}
-	if !walkUnapproved(1, never, parent) {
-		t.Error("a process already handed to init is not clean")
+	if walkUnapproved(1, never, parent) || walkUnapproved(0, never, parent) {
+		t.Error("a service started by init, or a container entrypoint (parent 0 or 1), is clean")
 	}
 }
