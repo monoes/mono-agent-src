@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/monomind"
-	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/peoplereview"
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/spf13/cobra"
@@ -92,7 +92,7 @@ func (d Deps) newPeopleImportCmd() *cobra.Command {
 			var nodes []monomind.KGNode
 			// Run by anyone but the user, the import may not approve anyone
 			// for outreach (peoplereview.NotOperatorCategory).
-			notOperator := operator.Refusal()
+			notTheUser := opgate.Refusal()
 
 			for _, raw := range rawPeople {
 				username, _ := raw["platform_username"].(string)
@@ -130,7 +130,7 @@ func (d Deps) newPeopleImportCmd() *cobra.Command {
 					personID = id
 				}
 
-				if notOperator != "" {
+				if notTheUser != "" {
 					stored, err := peoplereview.StoredPerson(cmd.Context(), tx, d.ProfileID(), strings.ToLower(platform), username)
 					if err != nil {
 						tx.Rollback()
@@ -139,7 +139,7 @@ func (d Deps) newPeopleImportCmd() *cobra.Command {
 					category, err = peoplereview.NotOperatorCategory(stored, category, category != "", introduction, "an import an agent, the chat or a workflow runs")
 					if err != nil {
 						tx.Rollback()
-						return d.InvalidInput("importing %s: %v (%s); nothing was imported", username, err, notOperator)
+						return d.InvalidInput("importing %s: %v (%s); nothing was imported", username, err, notTheUser)
 					}
 				}
 
