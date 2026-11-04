@@ -178,8 +178,11 @@ func TestMissionBudgetRefusalReadsTheCommitmentOnce(t *testing.T) {
 }
 
 // A second process flips the lead between its two states for a while; no TurnCap in this process may answer
-// anything but one of them (5 or 10).
+// anything but one of them (5 or 10). The test is only worth anything if the other process really flipped while
+// it read: it runs until both states were answered and at least flipsNeeded changes of state were seen, and fails
+// (never skips) when the other process did not get there in time.
 func TestTurnCapNeverMixesStatesOfAnotherProcess(t *testing.T) {
+	const flipsNeeded = 10
 	st, lead, child := leadWithChild(t)
 	var path string
 	var seq int
@@ -187,25 +190,42 @@ func TestTurnCapNeverMixesStatesOfAnotherProcess(t *testing.T) {
 	if err := st.db.QueryRow(`PRAGMA database_list`).Scan(&seq, &name, &path); err != nil || path == "" {
 		t.Fatalf("database file: %q %v", path, err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestCapReadFlipperProcess$", "-test.timeout=10s")
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestCapReadFlipperProcess$", "-test.timeout=20s")
 	cmd.Env = append(os.Environ(), "CAPREAD_FLIP_DB="+path, "CAPREAD_FLIP_LEAD="+lead, "CAPREAD_FLIP_CHILD="+child)
 	cmd.WaitDelay = time.Second
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { cancel(); _ = cmd.Wait() })
-	end := time.Now().Add(1500 * time.Millisecond)
-	for n := 0; time.Now().Before(end); n++ {
+	seen := map[float64]bool{}
+	flips, last := 0, 0.0
+	deadline := time.Now().Add(8 * time.Second)
+	var settled time.Time
+	for n := 0; time.Now().Before(deadline); n++ {
 		capUSD, _, err := st.TurnCap("p", lead)
 		if err != nil || (capUSD != 5 && capUSD != 10) {
 			t.Fatalf("read %d: TurnCap = %v, %v: neither of the two states the other process writes", n, capUSD, err)
 		}
+		seen[capUSD] = true
+		if last != 0 && capUSD != last {
+			flips++
+		}
+		last = capUSD
+		if len(seen) == 2 && flips >= flipsNeeded {
+			if settled.IsZero() {
+				settled = time.Now()
+			} else if time.Since(settled) > time.Second {
+				return
+			}
+		}
 	}
+	t.Fatalf("the other process did not flip the lead while it was read (answers seen %v, %d changes of state, want both and %d): the test proved nothing", seen, flips, flipsNeeded)
 }
 
-// TestCapReadFlipperProcess is the other process of the test above; it does nothing when run on its own.
+// TestCapReadFlipperProcess is the other process of the test above; it does nothing when run on its own. It
+// flips until its parent kills it, with a deadline of its own.
 func TestCapReadFlipperProcess(t *testing.T) {
 	path := os.Getenv("CAPREAD_FLIP_DB")
 	if path == "" {
@@ -216,7 +236,7 @@ func TestCapReadFlipperProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	end := time.Now().Add(2500 * time.Millisecond)
+	end := time.Now().Add(15 * time.Second)
 	for i := 0; time.Now().Before(end); i++ {
 		if err := flipLead(db, os.Getenv("CAPREAD_FLIP_LEAD"), os.Getenv("CAPREAD_FLIP_CHILD"), i%2 == 0); err != nil {
 			t.Fatal(err)

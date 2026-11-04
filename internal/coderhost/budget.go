@@ -103,6 +103,11 @@ func (s *Store) spentIn(q querier, profileID, conversationID string) (float64, e
 // and the carve are read in one snapshot, so a carve, a raise or a settle that commits meanwhile cannot give
 // a cap that no state of the rows ever had.
 func (s *Store) TurnCap(profileID, conversationID string) (capUSD float64, capped bool, err error) {
+	// A session with no budget has no cap to agree with anything: it is answered without a transaction. (The
+	// budget is read again in the snapshot below, so a budget set meanwhile is not mixed with older rows.)
+	if budget, err := s.Budget(profileID, conversationID); err != nil || budget <= 0 {
+		return 0, false, err
+	}
 	type capRead struct{ budget, spent, carved float64 }
 	r, err := inSnapshot(s.db, func(q querier) (capRead, error) {
 		var r capRead
