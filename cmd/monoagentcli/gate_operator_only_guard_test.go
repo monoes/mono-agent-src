@@ -27,6 +27,7 @@ const (
 	turnAware = "already behind the turn-aware gate (requireOperator, personGate)"
 	classC    = "class C: no local operator check; whether it should refuse an agent locally is not decided (issue 1333)"
 	pr4       = "converted in PR 4 (profile and people)"
+	pr6c      = "converted in PR 6c (mode switch): open to agents for a built-in package, so no row; login_turn_gate_test.go holds its contexts"
 	heldB     = "held: class B, the verb has an agent path next to the operator's; waits for the owner's answers (issue 1333)"
 	reader    = "reader, not a verb gate: redaction, display or engine behaviour that follows the marker"
 	gateImp   = "the gate's own implementation"
@@ -40,7 +41,6 @@ type allowed struct {
 // legacyMarkerChecks is the T1 allow-list: file (slash-separated from the repo root) to the number of
 // occurrences and the reason. A new occurrence, or an entry that no longer matches, fails the test.
 var legacyMarkerChecks = map[string]allowed{
-	"cmd/monoagentcli/login.go":                     {1, heldB + " (login of a builtin package)"},
 	"cmd/monoagentcli/hil.go":                       {3, gateImp + " (notOperator in gateVerdict)"},
 	"internal/cli/node/run.go":                      {1, "node run decides with opgate.Refusal; the one marker check left only keeps a MARKED caller's send gate unchanged (the send queue is applied to unmarked callers)"},
 	"internal/cli/org/sign.go":                      {2, "class C: org sign has its own signature guard; not decided (issue 1333)"},
@@ -122,7 +122,7 @@ func TestNoMarkerOnlyOperatorChecksOutsideTheGate(t *testing.T) {
 // pendingOperatorOnly lists, with a reason, the commands that carry the operator-only help text and are
 // not rows of operatorOnlyRows yet. Converting a command moves it to the table.
 var pendingOperatorOnly = map[string]string{
-	"login": heldB,
+	"login": pr6c,
 }
 
 // turnAwareCommands carry the help text and were behind the turn-aware gate before the table.
