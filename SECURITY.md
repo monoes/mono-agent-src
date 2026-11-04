@@ -2181,7 +2181,7 @@ that works a task acts on them. The defences:
   `profile backups list` stay open. They have no agent
   path: no shipped skill, template, MCP or chat tool runs them, and the desktop app runs
   them as the user. A terminal started inside a coder
-  turn, and a process that holds an agent token, is refused by them.
+  turn, and a process that holds an agent token, is refused by them. The reply tokens in a run's data are hidden from the same processes (a coder turn that cleared its markers, an agent token holder, a process the gate cannot place): `workflow execution`, `workflow executions`, the run summary of `workflow run` and `retry`, `summary` and `hil list`.
   The same holds for approving a workflow: `workflow save|import|create|versions restore|templates use|node add|set|remove`
   record the definition as the operator's only for a process that is neither marked, nor holds an agent
   token, nor runs inside a coder turn (`operator.ApprovingContext`, with the turn check the command line
