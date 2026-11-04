@@ -181,13 +181,15 @@ func (s *Server) profileAuth(need agenttokens.Scope, h http.HandlerFunc) http.Ha
 		}
 		var matched []string
 		for _, id := range candidates {
+			// Authentication only reads: a profile with no token yet has none to
+			// match (the server mints at start, never for a request).
 			want, err := s.readToken(ctx, id)
-			if err == nil && want == "" {
-				want, err = ensureToken(ctx, s.rt.db.DB, id)
-			}
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, "resolve bearer credential: "+err.Error())
 				return
+			}
+			if want == "" {
+				want = s.decoyToken // never equal to a presented bearer; keeps the comparison work
 			}
 			if constantTimeEqual(got, want) {
 				matched = append(matched, id)
@@ -296,7 +298,7 @@ func allProfileIDs(ctx context.Context, db *sql.DB) ([]string, error) {
 
 // ensureTokens gives every existing profile its token, so that `secret list`
 // shows it from the first start. Best effort: a profile created later gets its
-// token on its first request.
+// token at the next start; a request never mints one.
 func (s *Server) ensureTokens(ctx context.Context) {
 	if account.Require(ctx) != nil { // a locked server does not open the vault
 		return
