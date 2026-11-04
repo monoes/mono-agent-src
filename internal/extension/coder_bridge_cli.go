@@ -18,7 +18,13 @@ import (
 // markers. Every command a coder.* request runs (Run) is without
 // coderAgentEnv: the request came from the person's browser, so a bridge
 // that happens to run under an agent's shell must not make it an agent's
-// request. A coder turn (Start: coder.send, which only runs after the
+// request by its environment. That is all the stripping does: the CLI's
+// turn-aware gate (opgate) also follows the process ancestry, so a bridge
+// started from a shell inside a coder session's turn is refused for the
+// operator-only verbs it runs (coder queue add, record save, ...) whatever its
+// children's environment says. The supported bridge is the systemd user
+// service (SECURITY.md); one started from a turn shell is restarted from the
+// user's own terminal. A coder turn (Start: coder.send, which only runs after the
 // desktop-started check) is also without the run markers (coderTurnEnv): a
 // bridge started from a chat or a workflow run must not make the person's
 // own follow-up a run's turn, which the coder-turn gate refuses. The bridge

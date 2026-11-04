@@ -132,6 +132,9 @@ func newCoderProjectsCmd(cfg *Deps) *cobra.Command {
 		Short: "Send a site's queued coder chats to a folder",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := requireProjectsOperator(cfg); err != nil {
+				return err
+			}
 			origin, err := normalizeOrigin(args[0])
 			if err != nil {
 				return err
@@ -156,6 +159,9 @@ func newCoderProjectsCmd(cfg *Deps) *cobra.Command {
 		Short: "Forget a site's folder",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := requireProjectsOperator(cfg); err != nil {
+				return err
+			}
 			origin, err := normalizeOrigin(args[0])
 			if err != nil {
 				return err
@@ -181,17 +187,17 @@ func newCoderProjectsCmd(cfg *Deps) *cobra.Command {
 	return cmd
 }
 
-// changeCoderProjects applies change to the map. Only the operator may: the
-// map decides which folder a queued chat's full-access agent works in. An
-// agent is told so first; a workflow's processes and the chat's runs are
-// refused too.
+// requireProjectsOperator is the gate of the verbs that change the map. Only the
+// operator may: the map decides which folder a queued chat's full-access agent
+// works in. An agent, a workflow's processes and the chat's runs are refused,
+// and so is a shell inside a coder turn (the CLI's turn-aware check). It comes
+// before the arguments are looked at, so a refused caller is told it is refused.
+func requireProjectsOperator(cfg *Deps) error {
+	return requireUser(cfg, "change which folder a site's coder chats use")
+}
+
+// changeCoderProjects applies change to the map, for a caller requireProjectsOperator let through.
 func changeCoderProjects(cmd *cobra.Command, cfg *Deps, change func([]coderProject) ([]coderProject, error)) error {
-	if err := refuseInAgent("changing which folder a site's coder chats use"); err != nil {
-		return err
-	}
-	if err := clicore.RequireOperator(cfg.RequireOperator, "change which folder a site's coder chats use"); err != nil {
-		return err
-	}
 	db, err := cfg.OpenDB()
 	if err != nil {
 		return fmt.Errorf("initializing database: %w", err)

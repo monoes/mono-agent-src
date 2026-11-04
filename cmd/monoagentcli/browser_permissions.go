@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/browserctl"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 )
 
 // browser permissions — what each kind of agent may do in the browser and
@@ -87,7 +88,7 @@ func newBrowserPermissionsCmd(cfg *globalConfig) *cobra.Command {
 		Example: "  monoagentcli browser permissions set chat dev\n  monoagentcli browser permissions set all full",
 		Args:    cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if why := notOperator(); why != "" {
+			if why := opgate.Refusal(); why != "" {
 				return operatorOnlyError("%s: an agent may not change browser permissions: ask the user to run `monoagentcli browser permissions set %s %s` or use Settings → Agent browser permissions", why, args[0], args[1])
 			}
 			kinds := []string{args[0]}
@@ -113,7 +114,7 @@ func newBrowserPermissionsCmd(cfg *globalConfig) *cobra.Command {
 		Example: "  monoagentcli browser permissions site https://github.com allow\n  monoagentcli browser permissions site bank.example block",
 		Args:    cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if why := notOperator(); why != "" {
+			if why := opgate.Refusal(); why != "" {
 				return operatorOnlyError("%s: an agent may not change browser permissions: ask the user to run `monoagentcli browser permissions site %s %s` or use Settings → Agent browser permissions", why, args[0], args[1])
 			}
 			return withPermissions(cfg, func(p *browserctl.Permissions) error {

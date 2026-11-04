@@ -2077,7 +2077,12 @@ that works a task acts on them. The defences:
   trust commands: `agent purposes set|reset`, `agent-mode env` and
   `agent-mode token create|revoke`, `extension assign|bind|unbind|autopair|approve|deny|reset`,
   `extension browsers allow|revoke`, `extension pair --open`, `extension install --zip`,
-  and `jev enable` and `jev key set|adopt|remove`, and the profile and people commands:
+  and `jev enable` and `jev key set|adopt|remove`, the commands that trust a browser
+  run with the user's sign-ins: `automation trust` with a flag, `automation rerecord`,
+  `automation doctor accept-repair`, `record verify`, `record replay` (not `--dry-run`),
+  `record save` (a refused process also reads no vault secret for a recording),
+  `browser allow add|remove`, `browser permissions set|site`, `coder queue add|start`
+  and `coder projects map|unmap`, and the profile and people commands:
   `profile update` (rename, re-icon), `profile delete`, `profile backups purge`,
   `profile move`, `profile create --root-dir`, `profile documents remove --delete-file`
   (the flag only; without it the document is removed from MonoAgent and the file stays),
@@ -2159,12 +2164,26 @@ that works a task acts on them. The defences:
   (asking the host over its peer-credential socket) is a separate, later design;
   (2) this
   change covers the commands listed above only: many other operator-only commands
-  (sign-in, automation, records, the organisation guards,
+  (sign-in, the organisation guards,
   node runs, people import and publications; tracked in issue 1333) still
   use only the operator marker check and are NOT turn-aware,
   so this does not make every operator-only command refuse a turn; (3) the test that
   keeps the wired commands in one table counts wirings per file and misses a method
   value or a verb that never calls the gate: an inventory, not a coverage proof.
+  A browser bridge started from a shell inside a coder session's turn is refused for
+  the operator-only verbs it runs for the browser (`coder queue add`, `record save`,
+  `record verify`), because the gate follows the process ancestry and the bridge does not
+  hide it from its children; restart it from your own terminal. The supported bridge is the
+  systemd user service. The bridge itself stays a gate-free path for anything that
+  authenticates to it (the pairing token): it runs `record save` and `coder queue add` as the
+  operator for such a caller, so the token is as sensitive as the commands behind it.
+  `automation install <dir> --local` (and `automation new --install`) installs with local
+  trust. While it is open to a turn, the `automation trust --scripts/--live` gate does not
+  stop a turn from getting the same result: a turn can write its own package directory,
+  install it with `--local`, and get Source=local and Trust=local (scripts allowed, live
+  runs counted as confirmed). It is open because the shipped package-writing skill tells an
+  agent to run it; the owner chose to keep it open (2026-11-04), so the skill keeps working.
+  What gates the RUN of a package in the user's browser was not traced for this change.
   A bound worker's v2 task token (`mat2-`) is delivered through the credential frame
   into an in-process stash, so no environment variable carries it and neither the
   token-variable layer nor the marker check can see it; the only process that holds

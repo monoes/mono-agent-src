@@ -4,6 +4,7 @@ package extension
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,9 +17,11 @@ import (
 // fakeCLIScript writes a stand-in for monoagentcli: `coder list` says the
 // conversation was started in the desktop app, a turn (`chat --conversation`)
 // writes its environment to envOut, is admitted and finishes. `coder queue
-// add` refuses an agent the way the real one does (any variable of
-// browserctl.AgentContextEnv, which coderAgentEnv is held equal to, set) and
-// otherwise queues; anything else writes its environment and refuses.
+// add` refuses the way the real one does (operator_only): a process that
+// carries a variable of browserctl.AgentContextEnv (which coderAgentEnv is
+// held equal to), or that descends from a coder session's turn, which the
+// stand-in cannot compute and reads from MONOAGENT_TEST_IN_TURN (a variable
+// no env stripping removes, like the ancestry itself); otherwise it queues; anything else writes its environment and refuses.
 func fakeCLIScript(t *testing.T) (bin, envOut string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -26,7 +29,8 @@ func fakeCLIScript(t *testing.T) (bin, envOut string) {
 	script := "#!/bin/sh\n" +
 		`case "$*" in` + "\n" +
 		`  *"coder queue add"*) for k in ` + strings.Join(coderAgentEnv(), " ") + `; do eval "v=\${$k}"; ` +
-		`if [ -n "$v" ]; then echo "{\"error\":\"queueing a coder chat is refused inside an agent ($k is set)\",\"code\":\"agent_context\"}"; exit 3; fi; done; ` +
+		`if [ -n "$v" ]; then echo "{\"error\":\"only the user can queue a coder chat: $k is set\",\"code\":\"operator_only\"}"; exit 3; fi; done; ` +
+		`if [ -n "$MONOAGENT_TEST_IN_TURN" ]; then echo "{\"error\":\"only the user can queue a coder chat: this command runs inside a coder session's turn\",\"code\":\"operator_only\"}"; exit 3; fi; ` +
 		`echo '{"id":"20261015-120000-abcdef","kind":"tokens"}';;` + "\n" +
 		`  *"coder list"*) echo '{"conversations":[{"id":"c1","cwd":"/w","startedInDesktop":true,"running":false}]}';;` + "\n" +
 		`  *"chat --conversation"*|*"chat --profile"*) env > '` + envOut + `'; echo '{"admitted":true,"turn":{"id":"t"}}'; echo '{"seq":1,"type":"turn.finished","payload":{"status":"completed"}}';;` + "\n" +
@@ -126,8 +130,9 @@ func TestOnlyCoderTurnsLoseTheRunMarkers(t *testing.T) {
 	}
 }
 
-// A bridge in an agent's shell still queues the person's coder chats:
-// `coder queue add` never sees the bridge's agent markers.
+// A bridge whose environment carries agent markers, but that does not descend
+// from a coder session's turn, still queues the person's coder chats: `coder
+// queue add` never sees the bridge's agent markers.
 func TestCoderQueueFromABridgeInAnAgentShell(t *testing.T) {
 	withRunMarkers(t)
 	bin, _ := fakeCLIScript(t)
@@ -148,4 +153,28 @@ func TestCoderQueueFromABridgeInAnAgentShell(t *testing.T) {
 	if out, err := (&cliChatBackend{bin: bin}).run(context.Background(), "coder", "queue", "add"); err == nil {
 		t.Errorf("the stand-in queued with CLAUDECODE set: %s", out)
 	}
+}
+
+// A bridge started from a shell inside a coder session's turn is refused, even though the child's
+// environment is cleared of every agent marker: the turn-aware gate follows the process ancestry, not the
+// environment. That is the posture (SECURITY.md): the supported bridge is the systemd user service, and one
+// started from a turn shell cannot queue coder chats until it is restarted from the user's own terminal.
+//
+// The shell stand-in only simulates the ancestry (MONOAGENT_TEST_IN_TURN): this test stays green if the
+// real gate stops reading the parent's /proc environment or process tree. The real ancestry check is
+// covered by the gate tests in cmd/monoagentcli (markThisProcessAsACoderTurn), not here.
+func TestCoderQueueFromABridgeInATurnShellIsRefused(t *testing.T) {
+	withRunMarkers(t)
+	t.Setenv("MONOAGENT_TEST_IN_TURN", "1")
+	bin, envOut := fakeCLIScript(t)
+	srv := NewServer("127.0.0.1:0", zerolog.Nop())
+	registerCoderBridge(srv, &cliCoder{chat: cliChatBackend{bin: bin}})
+	h, _ := srv.handlerFor(MethodCoderQueue)
+	_, err := h(context.Background(), &Request{Method: MethodCoderQueue,
+		Params: map[string]any{"kind": "tokens", "tabId": float64(5), "profile": "default"}}, func(string, string) {})
+	var re *RequestError
+	if !errors.As(err, &re) || re.Code != "operator_only" {
+		t.Fatalf("coder.queue from a bridge inside a turn shell: %v, want operator_only", err)
+	}
+	_ = envOut // the child's markers are cleared by cliCoder (TestOnlyCoderTurnsLoseTheRunMarkers), yet it was refused
 }

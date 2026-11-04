@@ -493,8 +493,8 @@ func newCoderCmd(cfg *Deps) *cobra.Command {
 			"setup for that agent (its instructions files, skills, hooks, MCP servers). It is off until " +
 			"enabled here. Web pages and files in the folder can carry instructions that steer it, so " +
 			"only point it at folders you trust. A workflow's processes and the chat's runs can't start a " +
-			"coder chat: start it from the app or your own terminal, or have the workflow queue one with " +
-			"`coder queue add` for the app's Start.",
+			"coder chat: start it from the app or your own terminal, or ask the operator to queue one for " +
+			"the app's Start by running `coder queue add` in their own terminal (queueing is the operator's too).",
 	}
 	cmd.AddCommand(newCoderStatusCmd(cfg), newCoderEnableCmd(cfg), newCoderDisableCmd(cfg), newCoderSetCmd(cfg), newCoderWorkspaceCmd(cfg), newCoderStopBackgroundCmd(cfg),
 		newCoderQueueCmd(cfg), newCoderProjectsCmd(cfg), newCoderListCmd(cfg), newCoderHostCmd(cfg), newCoderSessionsCmd(cfg))
