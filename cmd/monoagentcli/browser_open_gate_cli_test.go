@@ -35,3 +35,13 @@ func TestAccountLoginRefusedByTheGateEndsAtOnce(t *testing.T) {
 		t.Errorf("a refused sign-in took %v; want it to end at once", elapsed)
 	}
 }
+
+// The operator's own terminal keeps the sign-in as it was: the page opens, the line says so, the wait goes on.
+func TestAccountLoginByTheOperatorOpensTheBrowser(t *testing.T) {
+	f := newLibFixture(t) // its opener follows the authorize URL back to the CLI's loopback listener
+	opgate.SetForTest(t, func(bool) string { return "" })
+	_, errOut, err := runCLI(t, f.home, "account", "login", "--timeout", "20s")
+	if err != nil || !strings.Contains(errOut, "Opening your browser to log in to monoes.me") {
+		t.Errorf("operator sign-in: err %v, stderr:\n%s", err, errOut)
+	}
+}

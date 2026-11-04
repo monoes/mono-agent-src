@@ -196,6 +196,9 @@ func AuthorizeInBrowser(ctx context.Context, endpoint string, params url.Values,
 		// The URL was shown, so the user can open it by hand and the wait goes on; a wait that
 		// ends without an answer says that the browser could not be opened.
 		openErr = o.Open(authURL)
+		if errors.Is(openErr, ErrBrowserRefused) {
+			return nil, fmt.Errorf("%s: %w", o.Label, openErr)
+		}
 	}
 	select {
 	case res := <-done:

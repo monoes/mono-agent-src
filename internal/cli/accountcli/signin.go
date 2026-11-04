@@ -66,12 +66,18 @@ func (s SignIn) signIn(cmd *cobra.Command, f *signInFlags, name string) (st acco
 		}
 		if f.noBrowser {
 			fmt.Fprintf(stderr, "Open this URL to log in to monoes.me:\n\n  %s\n\nWaiting for the sign-in to finish…\n", u)
-		} else {
-			fmt.Fprintf(stderr, "Opening your browser to log in to monoes.me…\nIf it does not open, visit:\n\n  %s\n\n", u)
 		}
 	}}
 	if !f.noBrowser {
-		opts.Open = s.OpenLoginURL
+		opts.Open = func(u string) error {
+			err := s.OpenLoginURL(u)
+			// A refused open is not an open: it says nothing of opening and the sign-in ends at once.
+			if errors.Is(err, account.ErrBrowserRefused) || s.JSONOutput() {
+				return err
+			}
+			fmt.Fprintf(stderr, "Opening your browser to log in to monoes.me…\nIf it does not open, visit:\n\n  %s\n\n", u)
+			return err
+		}
 	}
 	st, err = account.Login(cmd.Context(), opts)
 	return st, false, signInErr(err)

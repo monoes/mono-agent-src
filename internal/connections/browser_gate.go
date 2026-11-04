@@ -14,7 +14,7 @@ func refuseBrowserOpen() error {
 		return nil
 	}
 	if why := BrowserRefusal(); why != "" {
-		return fmt.Errorf("opening a browser for an OAuth authorization is the user's own: %s; run `monoagentcli connect` yourself in your terminal, or connect in the app", why)
+		return fmt.Errorf("opening a browser is the user's own: %s; run `monoagentcli connect` yourself in your terminal, or connect in the app", why)
 	}
 	return nil
 }
