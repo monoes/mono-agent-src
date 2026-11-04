@@ -4,7 +4,9 @@ import "fmt"
 
 // BrowserRefusal is why this process may not open a browser window on the user's screen for an OAuth
 // authorization, "" for the user's own terminal (the CLI sets it to opgate.Refusal; this package cannot
-// import it). Nil asks nothing, which is what library use and the tests of other packages get.
+// import it). Nil means "open": it asks nothing, which is what library use and the tests of other packages get,
+// so a host that embeds this package and may run for an agent must set the hook (cmd/monoagentcli registers
+// it in init()); an unset hook is not a refusal.
 var BrowserRefusal func() string
 
 // refuseBrowserOpen is the error that stops an OAuth flow before it starts a callback server or opens a

@@ -106,6 +106,12 @@ messages, not a barrier:
   address.
 - The extension commands that redirect the browser are yours: see
   "Extension commands that only the user runs" below.
+- Opening a page in your browser for an OAuth connect or the monoes.me
+  sign-in is yours too: an agent's turn is refused before anything opens or
+  listens and is told to run the command in your terminal. The OAuth flows
+  ask `connections.BrowserRefusal`, which is nil (meaning "open") unless the
+  host sets it, so a program that embeds the package must set it;
+  `cmd/monoagentcli` registers it in `init()`.
 - Writing secrets, connections and profiles stays open to an agent on
   purpose (`secret add|update|rm`, `connect save|set-oauth-client`,
   `profile create`): none of them shows a decrypted value. The exception is
