@@ -11,6 +11,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/aitask"
 	chatcli "github.com/monoes/mono-agent/internal/cli/chat"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 )
 
 // A confined AI task's agent may run only the commands on its allow-list
@@ -69,7 +70,7 @@ func taskProfile(dbPath, taskID string) (id, name, kind string, err error) {
 // the chat sets it on every confined turn, open or over (chat_aitask.go).
 func guardTaskSession(cmd *cobra.Command, dbPath string, profileSets int) error {
 	taskID := os.Getenv(aitask.EnvTaskID)
-	if taskID == "" || notOperator() == "" {
+	if taskID == "" || opgate.Refusal() == "" {
 		return nil
 	}
 	refuse := func(format string, a ...any) error {

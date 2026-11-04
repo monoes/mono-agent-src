@@ -11,9 +11,9 @@ import (
 	"text/tabwriter"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/commsync"
 	"github.com/monoes/mono-agent/internal/daemonhb"
-	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/workflow"
 	"github.com/spf13/cobra"
 )
@@ -138,7 +138,7 @@ func executionDetail(ctx context.Context, db *sql.DB, profileID, executionID str
 	// chat's runs and a workflow's process, as its links are below
 	// (workflow.ReplyRedactor).
 	var rr *workflow.ReplyRedactor
-	if operator.Marker() != "" {
+	if opgate.Refusal() != "" {
 		rr = workflow.NewReplyRedactor(ctx, db, executionID)
 	}
 	d.Error = rr.String(d.Error)
@@ -175,7 +175,7 @@ func executionDetail(ctx context.Context, db *sql.DB, profileID, executionID str
 		// A reply that lets a message to a person go out is answered by
 		// that person or the user, not an agent, the chat's runs or a
 		// workflow's process: they don't get its links.
-		if operator.Marker() != "" {
+		if opgate.Refusal() != "" {
 			d.Waiting = workflow.RedactReplies(d.Waiting)
 		}
 	}

@@ -11,9 +11,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/automation"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/daemonhb"
 	"github.com/monoes/mono-agent/internal/extension"
-	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/summary"
 	"github.com/monoes/mono-agent/internal/workflow"
@@ -60,7 +60,7 @@ func (d Deps) newSummaryCmd() *cobra.Command {
 			}
 			// A run's error can hold a reply's token: a marked process
 			// doesn't get it (workflow.ReplyRedactor).
-			if operator.Marker() != "" && s.Executions != nil {
+			if opgate.Refusal() != "" && s.Executions != nil {
 				ids := make([]string, len(s.Executions.Recent))
 				for i, r := range s.Executions.Recent {
 					ids[i] = r.ID

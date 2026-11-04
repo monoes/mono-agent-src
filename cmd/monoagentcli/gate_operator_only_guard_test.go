@@ -50,17 +50,12 @@ var legacyMarkerChecks = map[string]allowed{
 	"internal/nodes/publication/register.go":        {1, "engine node: the marker half of a run's verdict next to the command's (workflow.AgentCallerFrom), not a CLI verb gate"},
 	"cmd/monoagentcli/main.go":                      {1, reader + " (log filter)"},
 	"cmd/monoagentcli/task.go":                      {5, "task verbs have their own gate (personGate, NotOperator); taskCallerDeps stays marker-only for the gate's own steps, taskDeps swaps in the turn-aware operator.NotUser and taskAddedBy (operator.Caller names a marked caller)"},
-	"cmd/monoagentcli/task_session_guard.go":        {1, "task-session scoping, not a verb gate"},
 	"internal/cli/task/task.go":                     {2, "task verbs have their own gate (personGate, NotOperator)"},
 	"internal/browserctl/context.go":                {1, "definition of IsAgentContext"},
 	"internal/browserctl/permissions.go":            {1, "browser permission engine, not a CLI verb gate"},
 	"internal/cli/doctor/doctor.go":                 {1, reader + " (file previews)"},
-	"internal/cli/hil/hil.go":                       {1, reader + " (reply tokens hidden from an agent's list)"},
-	"internal/cli/summary/summary.go":               {1, reader},
-	"internal/cli/workflowaitask/workflowaitask.go": {1, reader + " (the audit line's actor)"},
+	"internal/cli/workflowaitask/workflowaitask.go": {1, "label only, not a decision: the audit line names a marked caller (operator.Caller), \"operator\" otherwise; it grants and withholds nothing (issue 1425)"},
 	"internal/cli/workflowmanage/manage.go":         {1, reader},
-	"internal/cli/workflowrun/execution.go":         {2, reader},
-	"internal/cli/workflowrun/summary.go":           {2, reader},
 	"internal/config/writeguard.go":                 {1, "reserved config writes, engine level"},
 }
 

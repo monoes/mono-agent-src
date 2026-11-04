@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/commsync"
 	"github.com/monoes/mono-agent/internal/daemonhb"
 	"github.com/monoes/mono-agent/internal/hilsend"
 	"github.com/monoes/mono-agent/internal/hilsuggest"
 	"github.com/monoes/mono-agent/internal/jev/jevconf"
-	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/workflow"
 	"github.com/spf13/cobra"
 )
@@ -124,7 +124,7 @@ func (d Deps) newHILListCmd() *cobra.Command {
 			if suggest || resuggest {
 				suggestHILItems(cmd.Context(), db.DB, d.ProfileID(), items, resuggest)
 			}
-			if operator.Marker() != "" {
+			if opgate.Refusal() != "" {
 				hideReplyTokens(cmd.Context(), db.DB, items)
 			}
 

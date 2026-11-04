@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
-	"github.com/monoes/mono-agent/internal/operator"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
@@ -105,7 +105,7 @@ func executionSummaryFromStore(ctx context.Context, db *storage.Database, execut
 	// Reply tokens in the run's data are hidden from a marked process, as
 	// in `workflow execution` (workflow.ReplyRedactor).
 	var rr *workflow.ReplyRedactor
-	if operator.Marker() != "" {
+	if opgate.Refusal() != "" {
 		rr = workflow.NewReplyRedactor(ctx, db.DB, executionID)
 	}
 	summary := executionSummaryJSON{
@@ -164,7 +164,7 @@ func truncateOutputItems(items []workflow.Item) []workflow.Item {
 // replyRedactor hides the reply tokens of executionID's data from a marked
 // process (nil for the user's own terminal); done closes what it opened.
 func (d Deps) replyRedactor(ctx context.Context, executionID string) (rr *workflow.ReplyRedactor, done func()) {
-	if operator.Marker() == "" {
+	if opgate.Refusal() == "" {
 		return nil, func() {}
 	}
 	db, err := d.OpenDB()
