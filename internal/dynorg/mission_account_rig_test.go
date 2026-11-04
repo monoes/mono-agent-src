@@ -65,10 +65,12 @@ func (r *missionRig) clockedConductor(lim Limits) *Conductor {
 
 // step is one scripted run: it streams the cumulative costs, then (unless block) ends with the final cost.
 type step struct {
-	stream []float64
-	final  float64
-	noCost bool // the run's result reports no cost at all
-	block  bool // wait for the context instead of ending
+	stream  []float64
+	final   float64
+	noCost  bool  // the run's result reports no cost at all
+	noStart bool  // no start event is emitted
+	err     error // Exec fails with this (no result) after its events
+	block   bool  // wait for the context instead of ending
 }
 
 type scripted struct {
@@ -90,7 +92,9 @@ func (s *scripted) exec(ctx context.Context, o monomind.ExecOptions, on func(mon
 	s.n++
 	s.budgets = append(s.budgets, o.BudgetUSD)
 	s.mu.Unlock()
-	on(monomind.Event{Type: monomind.EventStart})
+	if !st.noStart {
+		on(monomind.Event{Type: monomind.EventStart})
+	}
 	for _, c := range st.stream {
 		on(usageCost(c))
 	}
@@ -105,6 +109,12 @@ func (s *scripted) exec(ctx context.Context, o monomind.ExecOptions, on func(mon
 	}
 	if st.block {
 		<-ctx.Done()
+	}
+	if st.err != nil {
+		return nil, st.err
+	}
+	if st.block && st.noStart {
+		return nil, ctx.Err()
 	}
 	res := &monomind.TurnResult{SawDone: true, ResultText: "ok", StopReason: monomind.StopEndTurn, CostUSD: st.final, HasCostUSD: !st.noCost}
 	return res, nil
