@@ -11,20 +11,19 @@ import (
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
-// hilsend.Detect does not read MONOAGENT_WORKFLOW_RUN or MONOAGENT_AI_CALLER
-// on purpose: `node run` takes one verdict on who runs it (opgate.Refusal,
-// operator.Marker's list, those two included) and, for anything but the
-// user's terminal, runs the node as an unapproved step, which hilsend.Guard
-// holds like an agent's. A process a workflow node started, or the chat's
-// run, therefore cannot send a message to a person without an approval,
-// while the operator's terminal still sends at once.
+// hilsend.Detect does not read MONOAGENT_WORKFLOW_RUN or MONOAGENT_AI_CALLER.
+// `node run` decides for those: the chat's run, and a process a workflow node
+// started in a run the user never approved (or one such a run called:
+// workflow.EnvUnapprovedRun) are held like an agent's. A process a workflow
+// the user approved started, and the operator's terminal, send at once.
 func TestNodeRunOfASendFromAMarkedProcessWaits(t *testing.T) {
 	cfg := map[string]interface{}{"chat_id": "42", "text": "Hi Ada"}
 	cases := []struct {
 		name, env, val string
 		wantHeld       bool
 	}{
-		{"workflow node's child", workflow.EnvWorkflowRun, "exec-1", true},
+		{"unapproved workflow's child", workflow.EnvUnapprovedRun, "1", true},
+		{"approved workflow's child", workflow.EnvWorkflowRun, "exec-1", false},
 		{"chat's run", browserctl.EnvAICaller, browserctl.KindChat, true},
 		{"operator terminal", "", "", false},
 	}
@@ -32,7 +31,7 @@ func TestNodeRunOfASendFromAMarkedProcessWaits(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			dbPath := migratedTestDB(t) // clears the markers: set the caller up after it
 			asTheOperator(t)
-			for _, k := range []string{hilsend.EnvAgentContext, "MONOAGENT_ACTOR", hilsend.EnvApprovalID, hilsend.EnvApprovalProof} {
+			for _, k := range []string{hilsend.EnvAgentContext, "MONOAGENT_ACTOR", hilsend.EnvApprovalID, hilsend.EnvApprovalProof, workflow.EnvUnapprovedRun} {
 				t.Setenv(k, "")
 			}
 			if _, agent := hilsend.Detect(); agent {
@@ -40,6 +39,9 @@ func TestNodeRunOfASendFromAMarkedProcessWaits(t *testing.T) {
 			}
 			if c.env != "" {
 				t.Setenv(c.env, c.val)
+			}
+			if c.env == workflow.EnvUnapprovedRun {
+				t.Setenv(workflow.EnvWorkflowRun, "exec-1") // every node's child has it too
 			}
 			var runs atomic.Int32
 			d := testDeps(dbPath, "default", false)

@@ -226,9 +226,9 @@ func TestNodeRunSendInATurnIsQueuedForApproval(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%v\n%s", err, out)
 			}
-			// Every caller that is not the user's terminal is queued, the chat's run and a workflow node's child
-			// included (hilsend.Detect does not see their markers; the command's verdict does).
-			want := c.agent
+			// A workflow node's child is held only when its run was unapproved (marked_send_test.go); the chat's
+			// run and every other caller that is not the user's terminal is held.
+			want := c.agent && c.name != "marked workflow"
 			queued := strings.Contains(out, "hil_id")
 			if queued != want || (runs == 0) != want {
 				t.Fatalf("queued = %v, ran %d time(s), want queued = %v\n%s", queued, runs, want, out)
