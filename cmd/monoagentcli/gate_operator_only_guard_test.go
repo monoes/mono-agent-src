@@ -55,8 +55,6 @@ var legacyMarkerChecks = map[string]allowed{
 	"internal/browserctl/permissions.go":            {1, "browser permission engine, not a CLI verb gate"},
 	"internal/cli/doctor/doctor.go":                 {1, reader + " (file previews)"},
 	"internal/cli/hil/hil.go":                       {1, reader + " (reply tokens hidden from an agent's list)"},
-	"internal/cli/secret/reserved.go":               {2, reader + " (the reserved entry's write context and message)"},
-	"internal/cli/secret/update.go":                 {1, reader + " (warnDropped)"},
 	"internal/cli/summary/summary.go":               {1, reader},
 	"internal/cli/workflowaitask/workflowaitask.go": {1, reader + " (the audit line's actor)"},
 	"internal/cli/workflowmanage/manage.go":         {1, reader},

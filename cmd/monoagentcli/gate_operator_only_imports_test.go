@@ -22,7 +22,7 @@ func countMarkerOnlyChecks(t testing.TB, name string, src []byte) int {
 	}
 	// package path -> the selectors that are marker-only checks
 	watched := map[string]map[string]bool{
-		"github.com/monoes/mono-agent/internal/operator": {"Refusal": true, "Marker": true, "MarkerEnv": true, "Caller": true},
+		"github.com/monoes/mono-agent/internal/operator": {"Refusal": true, "Marker": true, "MarkerEnv": true, "Caller": true, "NotUser": true},
 	}
 	local := map[string]map[string]bool{} // local package name -> watched selectors
 	dot := map[string]bool{}              // selectors reachable unqualified through a dot import

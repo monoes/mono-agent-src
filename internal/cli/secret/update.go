@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/connections"
-	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/secrets"
 
 	"github.com/spf13/cobra"
@@ -224,7 +224,8 @@ func (d Deps) mergeFields(cmd *cobra.Command, db *sql.DB, profileID, id, name st
 
 // warnDropped says, once a replace has been written, which fields of the
 // entry it dropped: by name to the user, and only how many to an agent, the
-// chat or a workflow, which see an entry's field count and no field names.
+// chat, a workflow or a process inside a coder turn (opgate.Refusal), which see an entry's
+// field count and no field names.
 func warnDropped(w io.Writer, name string, dropped []string) {
 	if len(dropped) == 0 {
 		return
@@ -233,7 +234,7 @@ func warnDropped(w io.Writer, name string, dropped []string) {
 	if len(dropped) == 1 {
 		what = "1 field"
 	}
-	if operator.Refusal() == "" {
+	if opgate.Refusal() == "" {
 		quoted := make([]string, len(dropped))
 		for i, f := range dropped {
 			quoted[i] = strconv.Quote(f)
