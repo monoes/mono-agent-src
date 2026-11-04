@@ -48,6 +48,8 @@ type Config struct {
 	View    governor.RunView
 	Clock   governor.Clock
 	Decode  Decoder
+	// Stale, when set, says whether a queued launch's send is gone; the pump cancels such a row instead of admitting it.
+	Stale func(context.Context, governor.Item) bool
 
 	// Wall stamps Snapshot.LastSample (default time.Now); it never feeds a decision.
 	Wall          func() time.Time

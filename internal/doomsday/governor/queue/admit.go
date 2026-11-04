@@ -73,3 +73,8 @@ func (q *Queue) CancelAll(ctx context.Context, profile string, generation int64)
 	}
 	return n, nil
 }
+
+// Cancel is not implemented yet.
+func (q *Queue) Cancel(ctx context.Context, profile string, generation int64, qid int64) error {
+	return fmt.Errorf("todo")
+}

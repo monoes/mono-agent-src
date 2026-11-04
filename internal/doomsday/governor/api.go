@@ -204,6 +204,8 @@ type Queue interface {
 	// CancelAll moves every queued item to cancelled and returns how many; used by Stop and on quiescence. A stopped
 	// run's queue never resumes.
 	CancelAll(ctx context.Context, profile string, generation int64) (int, error)
+	// Cancel moves one queued item to cancelled (a launch whose send is gone); ErrNotQueued when it is not queued.
+	Cancel(ctx context.Context, profile string, generation int64, qid int64) error
 	// Depth is the pending count and pending bytes.
 	Depth(ctx context.Context, profile string, generation int64) (rows int, bytes int64, err error)
 }

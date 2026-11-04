@@ -77,3 +77,32 @@ func TestADeferredLaunchKeepsTheSendPendingAndStartsItLater(t *testing.T) {
 		t.Fatalf("after room, started %v: the first send must go first, alone (one turn per session)", started)
 	}
 }
+
+type deferOne struct {
+	*fakeLauncher
+	turn string
+	on   bool
+}
+
+func (d *deferOne) Start(p, c, turn, m string, a []string, tok string) (Turn, error) {
+	if d.on && turn == d.turn {
+		return nil, fmt.Errorf("no room: %w", ErrDeferred)
+	}
+	return d.fakeLauncher.Start(p, c, turn, m, a, tok)
+}
+
+// A deferred send keeps the later sends of the same chat behind it: they do not start first in the same pass.
+func TestADeferredSendKeepsTheLaterSendsOfTheChatInOrder(t *testing.T) {
+	h, l, st := newHost(t)
+	d := &deferOne{fakeLauncher: l, turn: "t1", on: true}
+	h.L = d
+	send(t, st, "c1", "t1", "first")
+	send(t, st, "c1", "t2", "second")
+	_ = h.Tick()
+	l.mu.Lock()
+	n := len(l.started)
+	l.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("started %v: the second send overtook the deferred first one", l.started)
+	}
+}

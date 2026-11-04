@@ -180,3 +180,16 @@ func TestStepBackNeverShortensAnExistingWindow(t *testing.T) {
 		t.Fatalf("window shortened from %v to %v", first, second)
 	}
 }
+
+// A clock that steps backwards never shortens a window: the policy forces the reading monotonic.
+func TestABackwardsClockNeverShortensABackoff(t *testing.T) {
+	p, c := newP()
+	c.now = 100 * time.Second
+	_ = p.Provider(lim, "x") // the policy sees 100s
+	c.now = 50 * time.Second
+	p.RateLimited("B", 10*time.Second) // recorded while the clock reads 50s: it counts from 100s
+	c.now = 100 * time.Second
+	if pe := p.Provider(lim, "B"); pe.Value >= lim.MaxConcurrent {
+		t.Fatalf("a window recorded after a backwards step ended early: %+v", pe)
+	}
+}

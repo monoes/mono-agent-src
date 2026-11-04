@@ -236,3 +236,19 @@ func TestCancelledContextLeavesNoSlotAndNoOpenTransaction(t *testing.T) {
 		_ = e.s.Release(ctx, "p", 1, proc(i).MemberID)
 	}
 }
+
+// The store applies the lower of the limit and the Limits it is given, on its own: a limit above the cap passed in is held to
+// that cap even where the charter's own number (the trigger's) is higher.
+func TestReserveClampsTheLimitToTheCapItWasGiven(t *testing.T) {
+	e := newEnv(t) // the charter says capProcess (4)
+	low := e.l
+	low.MaxConcurrent = 2
+	for i := 0; i < 2; i++ {
+		if err := e.s.Reserve(ctx, low, 1000, proc(i)); err != nil {
+			t.Fatalf("slot %d: %v", i, err)
+		}
+	}
+	if err := e.s.Reserve(ctx, low, 1000, proc(9)); !errors.Is(err, governor.ErrNoSlot) {
+		t.Fatalf("a limit above the given cap admitted past it: %v", err)
+	}
+}
