@@ -189,6 +189,32 @@ reads; values an agent already retrieved cannot be recalled.
   file, shell, code and the rest) is refused the reference. A request that
   carries a secret may use a `proxy` only when its host is on the list, and
   never with `allow_unauthorized_certs`.
+- **The host list reaches every node type that names a destination.** The
+  rule above also holds a node that is not one of those four but names a host
+  of its own (`http.ssh`, `http.ftp`, the `queue.*` brokers, `db.ldap`,
+  `db.snowflake`, `comm.email_*`, `service.jira`, `service.mastodon`,
+  `service.salesforce`, `service.shopify`, the `vector.*` types, an AI
+  sub-node or tool, and the queue/database trigger sources): before the node
+  runs, each host its destination keys name (the keys that also guard a saved
+  connection's secret, `CredentialDestinationKeys`) must be on the list, or the
+  node is refused with the same "goes only to a host agent access names"
+  error. Because the host check holds a whole run once any step of it has read
+  a secret, this can refuse a node that did not read a secret itself: it is the
+  rule `http.request` and `mcp.call` already had, now applied to every node
+  type with destination keys. It matters because another step can pass a
+  secret on through the run's data into such a node's fields. Nodes with no
+  destination key (a vendor's fixed API host) are not checked: the host list
+  does not bind what such a node sends to its fixed host, and content
+  exfiltration through a permitted destination is tracked in issue #1418.
+  `--any-host` and a grant made before host binding (migration 111 gave those
+  rows `any_host = 1`, so they read, and show in `secret agent-access`, as
+  `--any-host`: "no host binding") are not held. `secret agent-access` shows
+  `host_binding` (`hosts` or `none`) in `--json` for exactly this.
+- **Entries no grant covers.** `httpapi-token` (the HTTP API's bearer) and
+  `agent-token-*` are never read by an agent: not by a run's `@secret:`
+  reference, not as plaintext under Reveal, and a grant cannot name them
+  (`agent-access on --secret httpapi-token` is refused). One predicate
+  (`secrets.AgentCannotRead`) decides this for every one of those gates.
 - **What still leaks.** A step can still move a value inside the run (an
   `http.request` whose response or another step's output is used as a field,
   a code step) or send it somewhere a host list does not look: the list

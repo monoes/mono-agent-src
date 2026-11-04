@@ -331,6 +331,13 @@ Agents may inspect the level but cannot change it or clear its audit. Existing
 `on` / `off` commands remain aliases for scoped Use / Strict; existing grants
 migrate to Use. `--secret`, `--expires`, and Use's `--host` constraints still apply;
 Reveal requires any-host access because plaintext cannot be bound to a destination.
+A `--host` grant binds a secret only to the destinations a node names: the http
+nodes at the send, every other node type with destination keys
+(`CredentialDestinationKeys`) before it runs, so it can refuse a node that read no
+secret itself once any step of the run did. It does not bind content sent to a
+fixed vendor host (issue #1418). Grants made before host binding read as
+`--any-host`; `secret agent-access` shows `host_binding`. `httpapi-token` and
+`agent-token-*` cannot be named in a grant (`secrets.AgentCannotRead`).
 Every agent read under a grant is audited by name, never value (`secret agent-access
 audit`). Policy changes take effect on subsequent reads, including active runs;
 previously retrieved values cannot be recalled. Encryption on disk is unchanged.
