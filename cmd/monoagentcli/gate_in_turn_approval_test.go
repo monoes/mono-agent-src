@@ -425,3 +425,38 @@ func TestImportOfAnUnchangedDefinitionSaysNothingAboutApproval(t *testing.T) {
 		t.Fatalf("an unchanged import talks about approval: out %s stderr %q", out, stderr)
 	}
 }
+
+// The node edits ask once: a verdict that flips between two asks (a transient lock) must not leave the
+// approval and the note disagreeing. The hook is installed straight on operator, so each edit asks it
+// directly; re-asking in approving() makes this red.
+func TestNodeEditsAskTheVerdictOnce(t *testing.T) {
+	edits := map[string][]string{
+		"node add":    {"node", "add", "wf-ff", "--type", "core.set", "--name", "More"},
+		"node set":    {"node", "set", "wf-ff", "x", "--config", `{"command":"false"}`},
+		"node remove": {"node", "remove", "wf-ff", "x"},
+	}
+	for name, args := range edits {
+		for _, order := range [][]string{{"", "in a turn"}, {"in a turn", ""}} {
+			t.Run(name+"/"+order[0]+"|"+order[1], func(t *testing.T) {
+				_, cfg := persistTestEnv(t)
+				asOperatorProcess(t)
+				seedMigratedDB(t, cfg.DBPath)
+				opgate.SetForTest(t, nil)
+				seedAIWorkflow(t, cfg, "wf-ff", false)
+				calls := 0
+				operator.SetTurnVerdict(func() string { a := order[min(calls, 1)]; calls++; return a })
+				t.Cleanup(func() { operator.SetTurnVerdict(nil) })
+				var err error
+				stderr := captureStderrOf(t, func() { _, err = cliOf(t, cfg, args...) })
+				operator.SetTurnVerdict(nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				approved, noted := isApprovedNow(t, cfg, "wf-ff"), strings.Contains(stderr, "NOT approved")
+				if approved == noted || approved != (order[0] == "") {
+					t.Fatalf("approved = %v, note = %v (first answer %q): %q", approved, noted, order[0], stderr)
+				}
+			})
+		}
+	}
+}

@@ -257,14 +257,20 @@ func UnapprovedNote(ctx context.Context, what, id string) string {
 	return "this workflow was " + what + " but NOT approved: " + v.cause(id) + "."
 }
 
-// CannotApproveNote is said up front by a command that can only succeed for a definition the operator
-// already approved (an activation, a template run); "" when this process approves or is marked.
-func CannotApproveNote(ctx context.Context, id string) string {
+// CannotApproveNote is said up front by a command that needs the operator's approval to go on: an
+// activation (which only succeeds for a definition already approved) or, with newWorkflow, a template
+// run (whose temporary workflow is new, so it has no approval and the run is refused). "" when this
+// process approves or is marked.
+func CannotApproveNote(ctx context.Context, id string, newWorkflow bool) string {
 	v := verdictIn(ctx)
 	if v == nil || v.marked || v.why == "" {
 		return ""
 	}
-	return "this process cannot approve a workflow: " + v.cause(id) + ". Activation only succeeds for a definition you already approved."
+	tail := "Activation only succeeds for a definition you already approved."
+	if newWorkflow {
+		tail = "The temporary workflow this run creates is new and cannot be approved here, so the run will be refused."
+	}
+	return "this process cannot approve a workflow: " + v.cause(id) + ". " + tail
 }
 
 // NoteUnapproved prints the UnapprovedNote on stderr (nothing for the operator and for a marked

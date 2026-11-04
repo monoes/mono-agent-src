@@ -157,7 +157,7 @@ func (d Deps) newActivateCmd() *cobra.Command {
 			// The operator's approval rides the activation itself: one publication writes the flag and the
 			// approval, and only for the definition this command read (or --expect named).
 			actx := operator.ApprovingContext(ctx)
-			if note := operator.CannotApproveNote(actx, args[0]); note != "" {
+			if note := operator.CannotApproveNote(actx, args[0], false); note != "" {
 				fmt.Fprintln(os.Stderr, "Note: "+note)
 			}
 			if err := engine.ActivateWorkflowWith(actx, args[0], workflow.ActivateOptions{ExpectHash: expect}); err != nil {

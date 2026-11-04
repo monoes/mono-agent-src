@@ -152,7 +152,7 @@ func TestApprovingContextConsultsTheInstalledTurnCheck(t *testing.T) {
 		t.Fatalf("note = %q", n)
 	}
 	t.Setenv(hilsend.EnvAgentContext, "coder")
-	if approves() || UnapprovedNote(ApprovingContext(ctx), "saved", "wf-9") != "" || CannotApproveNote(ApprovingContext(ctx), "wf-9") != "" {
+	if approves() || UnapprovedNote(ApprovingContext(ctx), "saved", "wf-9") != "" || CannotApproveNote(ApprovingContext(ctx), "wf-9", false) != "" {
 		t.Fatal("a marked process approves, or its output gained a note")
 	}
 	SetTurnVerdict(nil)
@@ -177,7 +177,7 @@ func TestTheNoteReadsTheVerdictTheWriteUsed(t *testing.T) {
 			actx := ApprovingContext(context.Background())
 			wrote := workflowApproves(actx)
 			noted := UnapprovedNote(actx, "saved", "wf-1") != ""
-			cannot := CannotApproveNote(actx, "wf-1") != ""
+			cannot := CannotApproveNote(actx, "wf-1", false) != ""
 			if wrote == noted || wrote == cannot {
 				t.Fatalf("approval written = %v, note = %v, up-front note = %v", wrote, noted, cannot)
 			}
@@ -220,5 +220,37 @@ func TestWithNoteLeavesTheOperatorsResultAlone(t *testing.T) {
 	}{"a"}, "n").(map[string]json.RawMessage)
 	if string(m["approved"]) != "false" || string(m["approval_note"]) != `"n"` || string(m["id"]) != `"a"` {
 		t.Fatalf("got %v", m)
+	}
+}
+
+// The up-front note says what the command will do: an activation only works for an approved definition,
+// a template run's temporary workflow is new and is refused.
+func TestCannotApproveNoteIsWordedPerCommand(t *testing.T) {
+	asOperator(t)
+	t.Cleanup(func() { SetTurnVerdict(nil) })
+	SetTurnVerdict(func() string { return "inside a turn" })
+	actx := ApprovingContext(context.Background())
+	if n := CannotApproveNote(actx, "wf-1", false); !strings.Contains(n, "already approved") || strings.Contains(n, "temporary") {
+		t.Errorf("activate: %q", n)
+	}
+	if n := CannotApproveNote(actx, "wf-1", true); !strings.Contains(n, "temporary workflow") || !strings.Contains(n, "refused") || strings.Contains(n, "already approved") {
+		t.Errorf("templates run: %q", n)
+	}
+}
+
+// Approves is false for a context ApprovingContext never saw, and follows the stored verdict otherwise.
+func TestApprovesReadsOnlyTheStoredVerdict(t *testing.T) {
+	asOperator(t)
+	t.Cleanup(func() { SetTurnVerdict(nil) })
+	if Approves(context.Background()) {
+		t.Fatal("a context with no stored verdict approves")
+	}
+	SetTurnVerdict(nil)
+	if !Approves(ApprovingContext(context.Background())) {
+		t.Fatal("the operator's stored verdict does not approve")
+	}
+	SetTurnVerdict(func() string { return "inside a turn" })
+	if Approves(ApprovingContext(context.Background())) {
+		t.Fatal("a stored not-approving verdict approves")
 	}
 }
