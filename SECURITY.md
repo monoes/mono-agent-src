@@ -199,6 +199,25 @@ reads; values an agent already retrieved cannot be recalled.
   the Reveal check already refused it. Grants made before host binding read as
   `--any-host` (migration 111 gave those rows `any_host = 1`); `secret agent-access`
   shows `host_binding` (`hosts` or `none`) in `--json`.
+- **Egress classes: a run that carries a host-bound grant's secret.** Every node
+  type is classified (`internal/noderegistry/egress.go`): *none* (no network I/O:
+  pure data, control, local stores), *checked* (the engine derives its
+  destinations from the resolved config and holds each to the grant's hosts
+  before the node runs: its destination keys, the hosts of a `connection_string`
+  for the database types (`db.postgres`, `mysql`, `mssql`, `oracle`, `mongodb`,
+  `redis`, `cratedb`, `questdb`, `timescaledb`), and every config value that is a
+  URL) or *unchecked* (network I/O to somewhere the config does not name: a
+  vendor's fixed API host, a browser, a model provider, a shell; also any type
+  nobody classified). In such a run an unchecked node is refused with an error
+  naming the type and saying an earlier step read a secret, even if it read none
+  itself. A run that read no secret, `--any-host` and an approved workflow are
+  unchanged. One check, in the one function every config resolution ends in
+  (the batch, each item of a per-item run, loop iterations, sub-nodes and tool
+  calls, trigger sources), so a new path cannot skip it. Not covered: content
+  sent to a checked type's fixed vendor host (issue #1418), a secret carried by a
+  file or other static data into a later run, and a destination a node derives
+  inside `Execute` rather than reads from its config. A grant made before host
+  binding reads as `--any-host` (migration 111) and is not held.
 - **What still leaks.** A step can still move a value inside the run (an
   `http.request` whose response or another step's output is used as a field,
   a code step) or send it somewhere a host list does not look: the list

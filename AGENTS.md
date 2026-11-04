@@ -331,6 +331,13 @@ Agents may inspect the level but cannot change it or clear its audit. Existing
 `on` / `off` commands remain aliases for scoped Use / Strict; existing grants
 migrate to Use. `--secret`, `--expires`, and Use's `--host` constraints still apply;
 Reveal requires any-host access because plaintext cannot be bound to a destination.
+A `--host` grant binds a secret by node type (`workflow.Egress`, classified in
+`internal/noderegistry/egress.go`): in a run that carries a secret read under it,
+`none` types run, `checked` types (destination keys, database connection strings,
+URL values) must name only granted hosts, and `unchecked` types (the default for a
+type nobody classified) are refused, even a node that read no secret itself.
+Add every new node type to the table (a test fails otherwise). Content sent to a
+fixed vendor host is not bound (issue #1418).
 Grants made before host binding read as `--any-host`; `secret agent-access` shows `host_binding`.
 `httpapi-token` and `agent-token-*` can never be named in a grant or read by an agent (`secrets.AgentCannotRead`).
 Every agent read under a grant is audited by name, never value (`secret agent-access
