@@ -138,7 +138,8 @@ func executionDetail(ctx context.Context, db *sql.DB, profileID, executionID str
 	// chat's runs and a workflow's process, as its links are below
 	// (workflow.ReplyRedactor).
 	var rr *workflow.ReplyRedactor
-	if opgate.Refusal() != "" {
+	redact := opgate.Refusal() != ""
+	if redact {
 		rr = workflow.NewReplyRedactor(ctx, db, executionID)
 	}
 	d.Error = rr.String(d.Error)
@@ -175,7 +176,7 @@ func executionDetail(ctx context.Context, db *sql.DB, profileID, executionID str
 		// A reply that lets a message to a person go out is answered by
 		// that person or the user, not an agent, the chat's runs or a
 		// workflow's process: they don't get its links.
-		if opgate.Refusal() != "" {
+		if redact {
 			d.Waiting = workflow.RedactReplies(d.Waiting)
 		}
 	}
