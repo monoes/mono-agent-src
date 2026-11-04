@@ -1,0 +1,347 @@
+package dynorg
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/monoes/mono-agent/internal/ai/chatevents"
+	"github.com/monoes/mono-agent/internal/monomind"
+	"github.com/monoes/mono-agent/internal/tasks"
+)
+
+// How a mission worker's run is accounted against its session (#1248, #1160). A run is in ONE of two modes:
+//
+//   - reserve: the run takes a reservation (tasks.ReserveExecAsk), its cost is charged into it as it streams and it is
+//     settled with the run's own final cost when the run ends;
+//   - cap: the run reads what the session has left (missionExecCap, one Commitment snapshot) and its cost is added to the
+//     spend as it streams (recordSpend), as before this change.
+//
+// The mode is latched per session in the STORE (migration 157), across processes: a cap run registers while it runs,
+// and the store refuses a reservation while one is registered, and a registration while a reservation is live. So the
+// setting (WorkerReservations) only picks the mode of an idle session: a run that finds the other mode in flight
+// follows it, and a flip of the setting changes nothing for a session until its in-flight runs have drained. With no
+// WorkerReservations hook nothing here applies (nil: the cap, unregistered, exactly as before).
+//
+// A run's cost is what THAT run reported (liveCost while it streams, runCost at its end), never a difference of the
+// worker's cumulative counter, so a worker's earlier runs, a fallback model's run and a lower final figure cannot move
+// the number of another run. The store keeps the largest figure a run reported and never lowers a charge, so a final
+// cost below what was streamed leaves the higher charge: the run is charged its peak. The worker's counter and the
+// cap path's recorded spend (task.spent) are advanced to the counter when the run ends, so the cap path never records
+// again what the reservation did.
+
+// missionExecAskUSD is what a run asks of a budgeted session when the turn names no limit of its own: a worker must
+// not take all that is left and serialize its siblings. Below $0.01 left the run is refused (errBudgetRefused).
+const missionExecAskUSD = 1.00
+
+// settleAttempts bounds the retries of the final charge when it fails for a reason other than a lost reservation.
+const settleAttempts = 3
+
+// newOwnerID is 128 random bits in hex: the name of one Conductor on the rows it writes.
+func newOwnerID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic("dynorg: no randomness for the accounting owner id: " + err.Error())
+	}
+	return hex.EncodeToString(b[:])
+}
+
+type acctMode int
+
+const (
+	modeCap acctMode = iota + 1
+	modeReserve
+)
+
+// runAcct is the accounting of one run of a mission worker. Its fields are guarded by the task's spendMu.
+type runAcct struct {
+	mode acctMode
+	id   int64 // the reservation or cap-run row of this run: the handle every later call is fenced by
+	ref  string
+	sid  int64
+	// peak is the highest cost THIS run has reported; charged is what the store was told.
+	peak, charged float64
+	// streamed: the run reported some cost while it ran. finalOK/final: its final accounting (runCost).
+	streamed, finalOK, ran bool
+	final                  float64
+	// lost: the store no longer holds the row for us. The run is being stopped and nothing more is charged to it.
+	lost bool
+}
+
+// reservationSetting reads the operator's switch. Anything but a clear yes, an unreadable setting included, is no.
+func (c *Conductor) reservationSetting(ctx context.Context, mc *MissionRun) bool {
+	on, err := mc.WorkerReservations(ctx)
+	if err != nil {
+		if c.settingNoted.CompareAndSwap(false, true) {
+			c.notice("mission.reservations_setting", "The setting for worker budget reservations could not be read ("+err.Error()+"): workers are accounted on the session's cap this run.", chatevents.SeverityWarning)
+		}
+		return false
+	}
+	return on
+}
+
+// enterRun enters the accounting mode of a mission worker's run and returns its handle (nil for a worker that is no
+// mission worker, or when the Conductor has no WorkerReservations hook). The setting picks the mode first; when the
+// store says the other mode is in flight on the session the run follows it. A session that is neither (both refused at
+// once, a flip racing the drain) refuses the start, which the scheduler retries like any budget refusal.
+func (c *Conductor) enterRun(ctx context.Context, w *worker, opts *monomind.ExecOptions) (*runAcct, error) {
+	if w.task == nil {
+		return nil, nil
+	}
+	mc, err := c.missions()
+	if err != nil || mc.WorkerReservations == nil {
+		return nil, nil
+	}
+	first, second := c.enterCap, c.enterReserve
+	if c.reservationSetting(ctx, mc) {
+		first, second = second, first
+	}
+	a, err := first(ctx, mc, w, opts)
+	if errors.Is(err, tasks.ErrAccountingMode) {
+		a, err = second(ctx, mc, w, opts)
+	}
+	if errors.Is(err, tasks.ErrAccountingMode) {
+		return nil, fmt.Errorf("%w: session #%d is changing its accounting mode: %v", errBudgetRefused, w.task.session, err)
+	}
+	if errors.Is(err, tasks.ErrLimit) {
+		return nil, fmt.Errorf("%w: %v", errBudgetRefused, err)
+	}
+	return a, err
+}
+
+func (c *Conductor) install(w *worker, a *runAcct) {
+	w.task.spendMu.Lock()
+	w.task.acct = a
+	w.task.spendMu.Unlock()
+	c.msched.mu.Lock()
+	w.task.hbAt = c.cfg.Now()
+	c.msched.mu.Unlock()
+}
+
+func (c *Conductor) enterCap(ctx context.Context, mc *MissionRun, w *worker, _ *monomind.ExecOptions) (*runAcct, error) {
+	r, err := mc.Store.BeginCapRun(ctx, mc.ProfileID, w.task.session, c.ownerID, w.id)
+	if err != nil {
+		return nil, err
+	}
+	a := &runAcct{mode: modeCap, id: r.ID, ref: w.id, sid: w.task.session}
+	c.install(w, a)
+	return a, nil
+}
+
+// enterReserve takes the run's money out of the session's budget, in the store's own transaction (the grant is decided
+// from one Commitment there, not from a read of ours). Cost the cap path has not recorded yet is recorded FIRST, so it
+// never shares this run's grant; if it cannot be recorded the run is refused and retried.
+func (c *Conductor) enterReserve(ctx context.Context, mc *MissionRun, w *worker, opts *monomind.ExecOptions) (*runAcct, error) {
+	c.recordSpend(ctx, mc, w)
+	c.mu.Lock()
+	counter := w.cost + w.liveCost
+	c.mu.Unlock()
+	w.task.spendMu.Lock()
+	carried := counter - w.task.spent
+	w.task.spendMu.Unlock()
+	if carried > 1e-9 {
+		return nil, fmt.Errorf("%w: $%.6f of an earlier run's cost is not in the session's spend yet", errBudgetRefused, carried)
+	}
+	execID := fmt.Sprintf("%s/%d", c.ownerID, c.execSeq.Add(1)) // one per launch, never reused
+	r, err := mc.Store.ReserveExecAsk(ctx, mc.ProfileID, w.task.session, c.ownerID, w.id, execID, opts.BudgetUSD, missionExecAskUSD)
+	if err != nil {
+		return nil, err
+	}
+	if r.Bounded {
+		opts.BudgetUSD = r.AmountUSD
+	}
+	a := &runAcct{mode: modeReserve, id: r.ID, ref: w.id, sid: w.task.session}
+	c.install(w, a)
+	return a, nil
+}
+
+// rebaseSpent keeps the cap path's baseline from running ahead of the worker's counter. A run's final cost can be below
+// what it streamed: the streamed charge stays in the session's spend (a charge is never lowered), but the counter fell
+// to the final figure, so a baseline left at the streamed one would make the next run's first dollars read as already
+// recorded (a lost charge). From here on the counter and the baseline are one scale again: everything up to the counter
+// is recorded, and only a rise of the counter is new. Cost the counter holds above the baseline (a failed write) is not
+// touched: it stays carried until recorded.
+func (c *Conductor) rebaseSpent(w *worker) {
+	if w.task == nil {
+		return
+	}
+	c.mu.Lock()
+	counter := w.cost + w.liveCost
+	c.mu.Unlock()
+	w.task.spendMu.Lock()
+	if w.task.spent > counter {
+		w.task.spent = counter
+	}
+	w.task.spendMu.Unlock()
+}
+
+// noteFinal records the final accounting of the run (what Exec returned), before endRun settles it.
+func (c *Conductor) noteFinal(w *worker, a *runAcct, m Model, run *monomind.TurnResult) {
+	if a == nil {
+		return
+	}
+	cost, _, ok := runCost(m, run)
+	w.task.spendMu.Lock()
+	a.final, a.finalOK = cost, ok
+	w.task.spendMu.Unlock()
+}
+
+// chargeLive charges the cost a reserving run has reported so far into its reservation (and so into the session's spend,
+// in one write). It says whether the run is a reserving one: if not, the caller records on the cap.
+func (c *Conductor) chargeLive(w *worker, cost float64) bool {
+	w.task.spendMu.Lock()
+	a := w.task.acct
+	if a == nil || a.mode != modeReserve {
+		w.task.spendMu.Unlock()
+		return false
+	}
+	a.streamed = true
+	a.peak = max(a.peak, cost)
+	if a.lost || a.peak <= a.charged {
+		w.task.spendMu.Unlock()
+		return true
+	}
+	mc, _ := c.missions()
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(c.ctx), 10*time.Second)
+	defer cancel()
+	peak, was := a.peak, a.charged
+	err := mc.Store.ChargeExec(ctx, mc.ProfileID, a.id, c.ownerID, peak, false)
+	if err == nil {
+		a.charged = peak
+		w.task.spendMu.Unlock()
+		c.afterCharge(w)
+		return true
+	}
+	w.task.spendMu.Unlock()
+	if errors.Is(err, tasks.ErrReservationLost) {
+		c.accountingLost(w, a)
+	} else {
+		c.notice("mission.spend", fmt.Sprintf("The cost of %s ($%.4f) could not be added to the session: %v", w.id, peak-was, err), chatevents.SeverityWarning)
+	}
+	return true
+}
+
+// endRun leaves the accounting mode when the run is over and its cost is in the worker's counter.
+//   - cap: the registration is removed.
+//   - reserve, the run never reached Exec: the reservation is released.
+//   - reserve otherwise: it is settled with the run's own cost (its peak or its final figure, whichever is higher); a run
+//     that reported no cost at all is charged its whole grant (the store's rule: nothing says it cost less).
+//
+// A final charge that cannot be recorded leaves the row to lapse and be resolved by the operator, who is ALWAYS told
+// its id and the run's cost. Either way everything up to the counter now counts as handled, so the cap path never
+// records it a second time.
+func (c *Conductor) endRun(w *worker, a *runAcct) {
+	if a == nil {
+		return
+	}
+	mc, err := c.missions()
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(c.ctx), 10*time.Second)
+	defer cancel()
+	c.mu.Lock()
+	counter := w.cost + w.liveCost
+	c.mu.Unlock()
+	w.task.spendMu.Lock()
+	defer w.task.spendMu.Unlock()
+	if w.task.acct == a {
+		w.task.acct = nil
+	}
+	if a.mode == modeCap {
+		_ = mc.Store.EndCapRun(ctx, mc.ProfileID, a.id, c.ownerID) // a failure lapses the row: it frees the mode after the grace
+		return
+	}
+	if !a.ran {
+		if err := mc.Store.ReleaseReservation(ctx, mc.ProfileID, a.id, c.ownerID); err != nil && !errors.Is(err, tasks.ErrReservationLost) {
+			c.notice("mission.reservation", fmt.Sprintf("Reservation #%d of %s (session #%d) could not be released: %v. It lapses and is resolved with `task session reservation resolve %d --usd 0`.", a.id, a.ref, a.sid, err, a.id), chatevents.SeverityWarning)
+		}
+		return
+	}
+	total := max(a.peak, a.final)
+	w.task.spent = counter
+	if a.lost {
+		return // the notice named the cost when it was lost
+	}
+	for i := 0; i < settleAttempts; i++ {
+		if a.finalOK || a.streamed {
+			err = mc.Store.ChargeExec(ctx, mc.ProfileID, a.id, c.ownerID, total, true)
+		} else {
+			total = 0
+			err = mc.Store.SettleExecNoReport(ctx, mc.ProfileID, a.id, c.ownerID)
+		}
+		if err == nil || errors.Is(err, tasks.ErrReservationLost) {
+			break
+		}
+	}
+	if err != nil {
+		c.noticeUnrecorded(a, total, err)
+	}
+}
+
+// noticeUnrecorded tells the operator what a run cost in total and how to settle its reservation.
+func (c *Conductor) noticeUnrecorded(a *runAcct, total float64, why error) {
+	c.notice("mission.reservation_lost", fmt.Sprintf("The budget reservation #%d of %s on session #%d was not settled (%v); the run cost $%.6f in total, of which part may not be in the session's spend. "+
+		"Once the reservation has expired, settle it with `task session reservation resolve %d --usd %.6f`.", a.id, a.ref, a.sid, why, total, a.id, total), chatevents.SeverityError)
+}
+
+// accountingLost stops the worker whose row is gone. A handle that is no longer the worker's current run (its run ended
+// and another began while a heartbeat was in flight) is ignored: it must neither stop the new run nor name the wrong row.
+func (c *Conductor) accountingLost(w *worker, a *runAcct) {
+	w.task.spendMu.Lock()
+	if w.task.acct != a || a.lost {
+		w.task.spendMu.Unlock()
+		return
+	}
+	a.lost = true
+	total := max(a.peak, a.final)
+	w.task.spendMu.Unlock()
+	if a.mode == modeReserve {
+		c.noticeUnrecorded(a, total, tasks.ErrReservationLost)
+	} else {
+		c.notice("mission.accounting_lost", fmt.Sprintf("The accounting registration of %s on session #%d was lost (a reservation took the session): the worker is stopped.", a.ref, a.sid), chatevents.SeverityError)
+	}
+	c.msched.mu.Lock()
+	w.task.stopped = "its budget accounting was lost"
+	c.msched.mu.Unlock()
+	_, _ = c.Stop(w.id)
+}
+
+// heartbeat renews the row of w's run, a third of a lease apart (its own clock: the lease is 2 minutes, not the claim's).
+func (c *Conductor) heartbeat(ctx context.Context, mc *MissionRun, w *worker, now time.Time) {
+	w.task.spendMu.Lock()
+	a := w.task.acct
+	lost := a != nil && a.lost
+	w.task.spendMu.Unlock()
+	if a == nil || lost {
+		return
+	}
+	c.msched.mu.Lock()
+	due := now.Sub(w.task.hbAt) >= tasks.ReservationLease/3
+	c.msched.mu.Unlock()
+	if !due {
+		return
+	}
+	var err error
+	if a.mode == modeReserve {
+		err = mc.Store.Heartbeat(ctx, mc.ProfileID, a.id, c.ownerID)
+	} else {
+		err = mc.Store.HeartbeatCapRun(ctx, mc.ProfileID, a.id, c.ownerID)
+	}
+	switch {
+	case err == nil:
+		c.msched.mu.Lock()
+		w.task.hbAt = now
+		c.msched.mu.Unlock()
+	case errors.Is(err, tasks.ErrReservationLost):
+		c.accountingLost(w, a)
+	}
+}
+
+// expireStale lets the store lapse the reservations whose owners have gone (any process may).
+func (c *Conductor) expireStale(ctx context.Context, mc *MissionRun, sid int64) {
+	_, _ = mc.Store.ExpireStale(ctx, mc.ProfileID, sid) // a hold a dead Conductor left stays held: only the lease and grace fence it
+}

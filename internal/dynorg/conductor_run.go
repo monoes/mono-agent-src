@@ -319,8 +319,14 @@ func (c *Conductor) execOnce(ctx context.Context, w *worker, m Model, prompt, re
 		opts.BudgetUSD = remaining
 	}
 	c.mu.Unlock()
-	if w.task != nil {
-		// a mission worker is also capped by what its session has left (the operator's budget)
+	acct, err := c.enterRun(ctx, w, &opts) // nil unless a mission worker with the accounting hook
+	if err != nil {
+		return nil, err
+	}
+	defer c.endRun(w, acct)
+	if w.task != nil && (acct == nil || acct.mode == modeCap) {
+		// a mission worker on the cap is capped by what its session has left (the operator's budget); a reserving
+		// one was granted its cap by the reservation (opts.BudgetUSD)
 		left, bounded, err := c.missionExecCap(ctx, w)
 		if err != nil {
 			return nil, err
@@ -337,6 +343,11 @@ func (c *Conductor) execOnce(ctx context.Context, w *worker, m Model, prompt, re
 	opts.SystemPrompt = workerSystemPrompt(w.staff, dir, w.files, c.spawnsOn(w, m, opts.Access)) + c.profileSection() + c.worktreeRule(w) + missionRule(w)
 	c.workerTools(w, m, &opts)
 	var run monomind.TurnResult
+	if acct != nil {
+		w.task.spendMu.Lock()
+		acct.ran = true // from here on a reservation settles; before it, it is released
+		w.task.spendMu.Unlock()
+	}
 	ectx, ecancel := context.WithCancel(ctx)
 	defer ecancel()
 	// refused is set when the start event says the confined run isn't
@@ -366,6 +377,7 @@ func (c *Conductor) execOnce(ctx context.Context, w *worker, m Model, prompt, re
 	// Exec's result is the turn's final accounting; the events are the
 	// fallback when it returned none.
 	run = finalRun(res, run)
+	c.noteFinal(w, acct, m, &run)
 	c.mu.Lock()
 	if run.HasInputTokens || run.HasOutputTokens {
 		w.inTok += run.InputTokens
@@ -375,6 +387,7 @@ func (c *Conductor) execOnce(ctx context.Context, w *worker, m Model, prompt, re
 	c.addRunCostLocked(w, m, &run)
 	w.liveCost = 0 // it is in cost now
 	c.mu.Unlock()
+	c.rebaseSpent(w)
 	// A run that completed anyway stays done; budgetErrLocked refuses
 	// what comes next.
 	if overBudget.Load() && cutShort(&run) {

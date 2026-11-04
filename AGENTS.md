@@ -1926,6 +1926,25 @@ A second call on an unchanged state writes nothing more; work reopened after a p
 gets a new report and card when its integration check settles again. A `close_proposed`
 session event, written after the card, records that the card went out. Each
 mission worker's exec is capped by the session's remaining `budget_usd`.
+**Worker accounting modes (#1248, #1160; the operator switch is off by default).** A mission worker's run is accounted
+in ONE of two modes per session at a time: on the session's cap (the run reads what is left from one `Commitment`
+snapshot and its cost is added to the spend as it streams; the run registers in `task_session_cap_runs` while it
+runs, migration 157) or as a reservation (`ReserveExecAsk`: the grant is decided in the store's own transaction from the
+same commitment, the cost is charged into it as it streams and it is settled with the run's own final cost). The
+store refuses a reservation while a live cap run is registered on the session and a cap run while a live reservation
+exists, so two workers can never each hold the same dollar, across processes; a run that finds the other mode in flight
+follows it, and the operator-only conversation setting `mission_worker_reservations`
+(`coder sessions settings set CONVERSATION --patch '{"mission_worker_reservations":true}'`, written only through
+`coderhost.Store.UpdateSettings`) only picks the mode of an idle session, so flipping it mid-run changes nothing until the
+in-flight runs have drained. A setting that cannot be read means off, with one notice; a Conductor with no switch wired
+registers nothing and runs on the cap as before. A run's cost is what THAT run reported, never a difference of the
+worker's cumulative counter; a final cost below what the run streamed keeps the higher charge (a charge is never
+lowered) and the cap path's baseline is re-based to the counter, so the next run is charged in full. Cost the cap path has not
+recorded when a run enters reserve mode is recorded first (never inside the grant), and the run is refused until it is.
+A run that reported no cost at all is charged its whole grant. The row is renewed on the watch tick a third of its
+2-minute lease apart (a heartbeat of an earlier run cannot stop the next one: handles are fenced by row id); a lost row
+stops the worker and the operator is told its id and the run's cost, and settles it with
+`task session reservation resolve ID --usd N`. A settle that fails for good tells the operator the same way.
 Worker and verifier briefs fence foreign text in a per-brief random delimiter
 (`<<<DATA-xxxxxxxx` ... `DATA-xxxxxxxx>>>`). One task gets at most 6 workers per turn and 12
 in all, whichever route starts them. A mission closes only if the integration check's
@@ -2931,7 +2950,7 @@ a model's own answer or default through autonomy (`answer-`, `checkin-`, `master
 A model's answer is only text: it can never confirm a mission, approve a plan, close, resolve a gate or change a setting, access or
 budget (`coderhost/autonomy_noapproval_test.go`, `autonomy_guard_test.go`).
 Operator-only coder settings (`coderhost.OperatorOnly`): `checkin_limit`, `autonomy_preset`, `autonomy_classes`, `max_children`,
-`max_concurrent`, `max_depth`, `mesh_accept`, `agent_approval`, `approval_ceiling_usd`, `mission`, and `mission_directions`. Agent-adjustable on descendants (`coderhost.AgentAdjustable`): `checkin_minutes`, `skip_if_unchanged`, `checkin_triggers`,
+`max_concurrent`, `max_depth`, `mesh_accept`, `agent_approval`, `approval_ceiling_usd`, `mission`, `mission_directions`, and `mission_worker_reservations`. Agent-adjustable on descendants (`coderhost.AgentAdjustable`): `checkin_minutes`, `skip_if_unchanged`, `checkin_triggers`,
 `silent_minutes`, `active_hours`, `mesh_visible`, `mesh_alias`. A test fails for a setting in neither list.
 Operator-only verbs that are not settings: `task session person inbox|full|approve|deny|ask|answer-ask`, `task session retire-worker`,
 `coder sessions spawn-intents list|resolve`, `coder sessions mission-children enable|disable|set|list|resolve-charge`,
@@ -2993,7 +3012,7 @@ monoagentcli --profile work coder host stop                        # the host on
 - **Settings** (`sessions settings get|set`, JSON in `--patch`, only the named settings change, a name that is
   not a setting is refused): `checkin_minutes`, `skip_if_unchanged`, `checkin_triggers`, `silent_minutes`,
   `active_hours` (`HH:MM-HH:MM`, local time), `checkin_limit`, `autonomy_preset`, `autonomy_classes`,
-  `max_children`, `max_concurrent`, `max_depth`, `agent_approval`, `approval_ceiling_usd`, `mission_directions`, `mesh_visible`, `mesh_alias`, `mesh_accept`. `get` lists which
+  `max_children`, `max_concurrent`, `max_depth`, `agent_approval`, `approval_ceiling_usd`, `mission_directions`, `mission_worker_reservations`, `mesh_visible`, `mesh_alias`, `mesh_accept`. `get` lists which
   are operator-only and the values each allows. `max_concurrent` (1 to 10,
   default 2) is the most children of one master that run a turn at once: a send to a further child, from a person
   or a master, stays pending and starts when a slot frees. Sends keep their order within a chat; across chats
