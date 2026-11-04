@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	chatcli "github.com/monoes/mono-agent/internal/cli/chat"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/storage"
 )
 
@@ -20,6 +21,7 @@ func chatDeps(cfg *globalConfig) chatcli.Deps {
 		OpenDB:            func() (*storage.Database, error) { return initDB(cfg) },
 		ResolveProfileID:  resolveProfileID,
 		RequireOperator:   cfg.requireOperator,
+		OperatorRefusal:   opgate.Refusal,
 		PublicationPrompt: func() string { return publicationAgentPrompt(cfg) },
 	}
 	if doomsdayChat != nil { // only an engine built with the open-ended mode

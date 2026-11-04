@@ -35,6 +35,7 @@ func TestRecordSecretLookupIsTheUsersOnly(t *testing.T) {
 	db.Close()
 	d := testDeps(false, dbPath)
 	d.ProfileID = func() string { return "default" }
+	d.Refusal = operator.Refusal
 	lookup := func() (string, bool) {
 		l, release := d.VaultSecretLookup(context.Background(), "example-go")
 		defer release()

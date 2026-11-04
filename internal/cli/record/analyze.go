@@ -15,7 +15,6 @@ import (
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/nodes"
-	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/recordanalyze"
 	"github.com/monoes/mono-agent/internal/recording"
 	"github.com/monoes/mono-agent/internal/secrets"
@@ -47,7 +46,7 @@ func (d Deps) VaultSecretLookup(ctx context.Context, automationID string) (func(
 	}
 	// What an agent, the chat or a workflow replays reads no secret: the
 	// recording, and the page it types into, may be theirs.
-	if why := operator.Refusal(); why != "" {
+	if why := clicore.OperatorRefusal(d.Refusal); why != "" {
 		ctx = secrets.RefuseResolving(ctx, why)
 	}
 	return nodes.SecretLookup(ctx, db.DB, d.ProfileID(), automationID), func() { db.Close() }

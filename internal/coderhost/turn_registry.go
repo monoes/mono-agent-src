@@ -65,22 +65,95 @@ func SetBusyTimeoutForTest(t testing.TB, d time.Duration) {
 	t.Cleanup(func() { busyTimeout = prev })
 }
 
+// scanBudget bounds the whole wait for locks in one scan of the registry (all entries together): a pile of busy
+// live hosts must not make a recovery verb wait entries x the lock wait. Past it the entries not yet answered
+// are reported busy (the verb refuses with the retry text: fail closed). A variable for the seam below.
+var scanBudget = 8 * time.Second
+
+// SetScanBudgetForTest sets scanBudget for the rest of the test (no t.Parallel; test binary only).
+func SetScanBudgetForTest(t testing.TB, d time.Duration) {
+	t.Helper()
+	if !testing.Testing() {
+		panic("coderhost.SetScanBudgetForTest is a test seam and may only be used from a test binary")
+	}
+	t.Setenv("MONOAGENT_SCAN_BUDGET_TEST", "1") // makes t.Parallel panic
+	prev := scanBudget
+	scanBudget = d
+	t.Cleanup(func() { scanBudget = prev })
+}
+
 // ErrDatabaseBusy: a database is locked by another process past the wait for it (SQLite BUSY or LOCKED). Test
 // it with errors.Is. It says nothing else about the database, which may be fine.
 var ErrDatabaseBusy = errors.New("database busy (locked)")
 
 // BusyHostError is ErrDatabaseBusy as the operator reads it: the live coder host that owns DB holds it locked.
 // File is the registry entry that names the host, so an operator whose host is not really running can delete
-// it. The text carries nothing of the database or of the driver's error. The registry is writable by the
-// same OS user, so both paths are untrusted text: Error strips control characters from them.
-type BusyHostError struct{ DB, File string }
+// it; Others are the entry files of further busy live hosts (JoinBusy). The text carries nothing of the
+// database or of the driver's error. The registry is writable by the same OS user, so every path is untrusted
+// text: Error and JSONErrorFields strip control characters from them.
+type BusyHostError struct {
+	DB, File string
+	Others   []string
+}
+
+// busyListMax is how many entry files a busy message names before it says "and N more".
+const busyListMax = 5
 
 func (e *BusyHostError) Error() string {
-	return "the coder host that owns " + printable(e.DB) + " is busy (database locked); wait and retry the command; the registry entry for it is " +
-		printable(e.File) + ": if that host is not running, delete this file and run the command again"
+	if len(e.Others) == 0 {
+		return "the coder host that owns " + printable(e.DB) + " is busy (database locked); wait and retry the command; the registry entry for it is " +
+			printable(e.File) + ": if that host is not running, delete this file and run the command again"
+	}
+	files := append([]string{e.File}, e.Others...)
+	more := ""
+	if len(files) > busyListMax {
+		more = " and " + strconv.Itoa(len(files)-busyListMax) + " more"
+		files = files[:busyListMax]
+	}
+	for i := range files {
+		files[i] = printable(files[i])
+	}
+	return strconv.Itoa(1+len(e.Others)) + " coder hosts are busy (database locked); wait and retry the command; the registry entries for them are " +
+		strings.Join(files, ", ") + more + ": if those hosts are not running, delete these files and run the command again"
 }
 
 func (e *BusyHostError) Is(target error) bool { return target == ErrDatabaseBusy }
+
+// JSONErrorFields is the --json error document of the refusal: the code host_busy (not operator_only), and
+// the entry files (sanitized, at most busyListMax).
+func (e *BusyHostError) JSONErrorFields() map[string]any {
+	files := []string{printable(e.File)}
+	for _, o := range e.Others {
+		if len(files) < busyListMax {
+			files = append(files, printable(o))
+		}
+	}
+	return map[string]any{"code": "host_busy", "entries": files, "busy_count": 1 + len(e.Others)}
+}
+
+// JoinBusy folds the *BusyHostError values in errs (one per busy live host) into one that names all of them.
+// nil when there are none.
+func JoinBusy(errs ...error) error {
+	var out *BusyHostError
+	for _, err := range errs {
+		var b *BusyHostError
+		if !errors.As(err, &b) {
+			continue
+		}
+		if out == nil {
+			c := *b
+			c.Others = append([]string(nil), b.Others...)
+			out = &c
+			continue
+		}
+		out.Others = append(out.Others, b.File)
+		out.Others = append(out.Others, b.Others...)
+	}
+	if out == nil {
+		return nil
+	}
+	return out
+}
 
 // printable drops control, line-separator and format characters (newlines, escapes, bidi overrides) from s.
 func printable(s string) string {
@@ -102,15 +175,21 @@ func isBusy(err error) bool {
 	return false
 }
 
-// registeredDBCheck is the check of one registered database (a variable so a test can stand in for a hung one).
-// It waits for a lock at most two thirds of registeredCheckTimeout, so a locked database answers
-// ErrDatabaseBusy before checkWithTimeout gives up on it.
-var registeredDBCheck = func(path string) (bool, error) {
+// registeredDBCheck is the check of one registered database, waiting at most wait for a lock (a variable so a
+// test can stand in for a hung one).
+var registeredDBCheck = func(path string, wait time.Duration) (bool, error) {
+	return callerInATurnAtWait(path, wait)
+}
+
+// lockWait is how long one registered database's check waits for a lock: the busy timeout, but at most two
+// thirds of registeredCheckTimeout, so a locked database answers ErrDatabaseBusy before checkWithTimeout gives
+// up on it.
+func lockWait() time.Duration {
 	wait := busyTimeout
 	if limit := registeredCheckTimeout * 2 / 3; wait > limit {
 		wait = limit
 	}
-	return callerInATurnAtWait(path, wait)
+	return wait
 }
 
 const (
@@ -330,6 +409,16 @@ func registeredEntries() ([]registryEntry, error) {
 // ErrDatabaseBusy.
 func CallerInATurnAt(path string) (bool, error) { return callerInATurnAtWait(path, busyTimeout) }
 
+// CallerInATurnAtRecovery is CallerInATurnAt for the commands that repair an install: a lock is waited for
+// only when a running coder host owns the database (a lock on any other database is not worth the wait: it
+// would not refuse the verb anyway), so a dead host's locked database costs nothing.
+func CallerInATurnAtRecovery(path string) (bool, error) {
+	if _, ok := LiveHostEntryOf(path); !ok {
+		return callerInATurnAtWait(path, 0)
+	}
+	return CallerInATurnAt(path)
+}
+
 func callerInATurnAtWait(path string, wait time.Duration) (bool, error) {
 	in, err := callerInATurnAtRaw(path, wait)
 	if err != nil && isBusy(err) {
@@ -368,9 +457,9 @@ func callerInATurnAtRaw(path string, wait time.Duration) (bool, error) {
 	return NewStore(db).CallerInATurn()
 }
 
-// checkWithTimeout runs registeredDBCheck on path and gives up after registeredCheckTimeout. A check stuck in
+// checkWithTimeout runs registeredDBCheck on path (waiting at most wait for a lock) and gives up after timeout. A check stuck in
 // a system call cannot be interrupted, so it is abandoned (the CLI exits soon after); the answer is an error.
-func checkWithTimeout(path string) (bool, error) {
+func checkWithTimeout(path string, wait, timeout time.Duration) (bool, error) {
 	type result struct {
 		in  bool
 		err error
@@ -378,14 +467,14 @@ func checkWithTimeout(path string) (bool, error) {
 	ch := make(chan result, 1)
 	check := registeredDBCheck // read here, not in the goroutine: an abandoned goroutine must not read the package var after a test restored it
 	go func() {
-		in, err := check(path)
+		in, err := check(path, wait)
 		ch <- result{in, err}
 	}()
 	select {
 	case r := <-ch:
 		return r.in, r.err
-	case <-time.After(registeredCheckTimeout):
-		return false, fmt.Errorf("no answer within %s", registeredCheckTimeout)
+	case <-time.After(timeout):
+		return false, fmt.Errorf("no answer within %s", timeout)
 	}
 }
 
@@ -488,30 +577,94 @@ func scanRegisteredTurns(named string, lenient bool) (bool, []error, []error) {
 	if named != "" {
 		namedInfo, _ = os.Stat(named)
 	}
-	var skipped, busy []error
+	var todo []registryEntry
 	for _, e := range ents {
 		if namedInfo != nil {
 			if fi, err := os.Stat(e.DB); err == nil && os.SameFile(namedInfo, fi) {
 				continue
 			}
 		}
-		in, err := checkWithTimeout(e.DB)
+		todo = append(todo, e)
+	}
+	if !lenient {
+		return scanStrict(todo)
+	}
+	return scanLenient(todo)
+}
+
+func unreadableEntryError(e registryEntry, err error) error {
+	return fmt.Errorf("turn registry: the database %s of a coder host cannot be read (%v); the registry entry for it is %s; if that host is no longer running, delete this file and run the command again", e.DB, err, e.file)
+}
+
+// scanStrict stops at the first unreadable live-host entry. A dead host's database is never waited for (its
+// lock wait is 0): its busy answer is skipped like any unreadable one.
+func scanStrict(ents []registryEntry) (bool, []error, []error) {
+	var skipped []error
+	for _, e := range ents {
+		gone := hostIsGone(e)
+		wait := lockWait()
+		if gone {
+			wait = 0
+		}
+		in, err := checkWithTimeout(e.DB, wait, registeredCheckTimeout)
 		if err != nil {
-			if hostIsGone(e) {
+			if gone {
 				continue
 			}
-			if lenient && errors.Is(err, ErrDatabaseBusy) {
-				busy = append(busy, &BusyHostError{DB: e.DB, File: e.file})
-				continue
-			}
-			skipped = append(skipped, fmt.Errorf("turn registry: the database %s of a coder host cannot be read (%v); the registry entry for it is %s; if that host is no longer running, delete this file and run the command again", e.DB, err, e.file))
-			if lenient {
-				continue
-			}
-			return false, skipped, busy
+			return false, append(skipped, unreadableEntryError(e, err)), nil
 		}
 		if in {
-			return true, skipped, busy
+			return true, skipped, nil
+		}
+	}
+	return false, skipped, nil
+}
+
+// scanLenient is the scan of the commands that repair an install, in two passes under one overall budget
+// (scanBudget). Pass 1 asks every entry WITHOUT waiting for a lock, so a turn recorded in any readable
+// database is found at once and a dead host's locked database costs nothing (it is skipped). Pass 2 waits for
+// the locks of the live hosts that were busy, one after the other, until the budget is spent; the entries
+// still locked then, and those not reached, are reported busy (fail closed: the verb says "wait and retry").
+func scanLenient(ents []registryEntry) (bool, []error, []error) {
+	var skipped, busy []error
+	var pending []registryEntry
+	deadline := time.Now().Add(scanBudget)
+	for _, e := range ents {
+		in, err := checkWithTimeout(e.DB, 0, registeredCheckTimeout)
+		switch {
+		case err == nil && in:
+			return true, skipped, nil
+		case err == nil:
+		case hostIsGone(e):
+		case errors.Is(err, ErrDatabaseBusy):
+			pending = append(pending, e)
+		default:
+			skipped = append(skipped, unreadableEntryError(e, err))
+		}
+	}
+	for _, e := range pending {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			busy = append(busy, &BusyHostError{DB: e.DB, File: e.file})
+			continue
+		}
+		wait := lockWait()
+		if wait > remaining {
+			wait = remaining
+		}
+		timeout := registeredCheckTimeout
+		if limit := remaining + 500*time.Millisecond; timeout > limit {
+			timeout = limit
+		}
+		in, err := checkWithTimeout(e.DB, wait, timeout)
+		switch {
+		case err == nil && in:
+			return true, skipped, nil
+		case err == nil:
+		case errors.Is(err, ErrDatabaseBusy):
+			busy = append(busy, &BusyHostError{DB: e.DB, File: e.file})
+		default:
+			skipped = append(skipped, unreadableEntryError(e, err))
 		}
 	}
 	return false, skipped, busy

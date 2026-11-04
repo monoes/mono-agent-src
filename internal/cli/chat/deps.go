@@ -32,6 +32,10 @@ type Deps struct {
 	ResolveProfileID func(db *sql.DB, idOrName string) (string, error)
 	// RequireOperator refuses an agent: only the operator may do what.
 	RequireOperator func(what string) error
+	// OperatorRefusal is opgate.Refusal: why this process is not the user's own terminal (an agent token, a marker,
+	// a coder session's turn, a process that cannot be placed), "" for the user. The verbs that only the user does
+	// (coder queue add and start, coder projects map and unmap) ask it first; nil refuses.
+	OperatorRefusal func() string
 	// PublicationPrompt is the agents' instruction to register what they publish.
 	PublicationPrompt func() string
 	// DoomsdayMerge is set only by an engine built with the open-ended mode: for a database it returns the

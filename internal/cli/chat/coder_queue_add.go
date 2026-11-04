@@ -156,7 +156,7 @@ func newCoderQueueAddCmd(cfg *Deps) *cobra.Command {
 			strings.Join(queueKinds, ", ") + ".",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if err := refuseInAgent("queueing a coder chat"); err != nil {
+			if err := requireUser(cfg, "queue a coder chat"); err != nil {
 				return err
 			}
 			if stdinJSON {

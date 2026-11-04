@@ -645,7 +645,10 @@ dangerous calls.
   `node run vault.secret_get`, `secret agent-access`, `secret rebind`, `api key
   create|update|revoke`, `api config set|unset`, `agent purposes set|reset`,
   `agent-mode env|token create|token revoke`, `extension assign|bind|unbind|autopair|approve|deny|reset|
-  browsers allow|browsers revoke|pair --open|install --zip` and `jev enable|key set|adopt|remove` also refuse a
+  browsers allow|browsers revoke|pair --open|install --zip`, `jev enable|key set|adopt|remove`,
+  `automation trust` with a flag, `automation rerecord`, `automation doctor accept-repair`,
+  `record verify|replay|save` (`replay --dry-run` stays open), `browser allow add|remove`,
+  `browser permissions set|site`, `coder queue add|start` and `coder projects map|unmap` also refuse a
   process inside a coder session's turn and one that holds an agent token
   (`internal/cli/opgate`, SECURITY.md; the rest are tracked in issue 1333). `httpapi-token` is a reserved vault entry: only
   the server and the user's own `secret add|update|rm|import` write it

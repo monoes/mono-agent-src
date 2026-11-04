@@ -28,7 +28,7 @@ func TestTheLenientScanFindsATurnPastAnUnreadableEntryAndTheStrictScanStopsAtIt(
 	}
 	prev := registeredDBCheck
 	t.Cleanup(func() { registeredDBCheck = prev })
-	registeredDBCheck = func(p string) (bool, error) {
+	registeredDBCheck = func(p string, _ time.Duration) (bool, error) {
 		switch filepath.Base(p) {
 		case "a-junk.db":
 			return false, errUnreadable
@@ -45,7 +45,7 @@ func TestTheLenientScanFindsATurnPastAnUnreadableEntryAndTheStrictScanStopsAtIt(
 		t.Fatalf("strict: in=%v err=%v; want the unreadable entry to refuse", in, err)
 	}
 
-	registeredDBCheck = func(p string) (bool, error) {
+	registeredDBCheck = func(p string, _ time.Duration) (bool, error) {
 		if filepath.Base(p) == "a-junk.db" {
 			return false, errUnreadable
 		}

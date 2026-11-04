@@ -422,7 +422,7 @@ func TestAHungDatabaseCheckTimesOutAndFailsClosedWithTheRemedy(t *testing.T) {
 	block := make(chan struct{})
 	defer close(block)
 	prevCheck, prevTimeout := registeredDBCheck, registeredCheckTimeout
-	registeredDBCheck = func(string) (bool, error) { <-block; return false, nil }
+	registeredDBCheck = func(string, time.Duration) (bool, error) { <-block; return false, nil }
 	registeredCheckTimeout = 200 * time.Millisecond
 	defer func() { registeredDBCheck, registeredCheckTimeout = prevCheck, prevTimeout }()
 	in, err := gateWithin(t, 5*time.Second)
@@ -474,5 +474,42 @@ func TestAReadableDatabaseOfADeadHostIsStillChecked(t *testing.T) {
 	registerRaw(t, dir, canonicalOrSelf(t, x), os.Getpid(), "bogus-stamp")
 	if in, err := gateWithin(t, 6*time.Second); !in || err != nil {
 		t.Fatalf("%v %v", in, err)
+	}
+}
+
+// busy_timeout(5000) on the read-only open is what makes a briefly locked database wait instead of failing at
+// once, and a long lock fail after a bounded wait. No other test holds a lock, so removing the pragma (or an
+// unbounded wait) is caught only here.
+func TestALockedDatabaseIsWaitedOnForTheBusyTimeoutThenAnError(t *testing.T) {
+	needAncestry(t)
+	path := testdb.Path(t)
+	markTurn(t, path)
+	w, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	w.SetMaxOpenConns(1)
+	// a rollback-journal database: in WAL mode readers are never blocked by a writer
+	if _, err := w.Exec(`PRAGMA journal_mode = DELETE`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Exec(`BEGIN EXCLUSIVE`); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	in, err := CallerInATurnAt(path)
+	waited := time.Since(start)
+	if in || err == nil {
+		t.Fatalf("a database locked for longer than the timeout: in=%v err=%v", in, err)
+	}
+	if waited < 4*time.Second || waited > 12*time.Second {
+		t.Fatalf("waited %v on the lock, want about the 5 s busy timeout", waited)
+	}
+	if _, err := w.Exec(`ROLLBACK`); err != nil {
+		t.Fatal(err)
+	}
+	if in, err := CallerInATurnAt(path); err != nil || !in {
+		t.Fatalf("after the lock is released: in=%v err=%v", in, err)
 	}
 }

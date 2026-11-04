@@ -26,7 +26,6 @@ import (
 const (
 	turnAware = "already behind the turn-aware gate (requireOperator, personGate)"
 	classC    = "class C: no local operator check; whether it should refuse an agent locally is not decided (issue 1333)"
-	pr3       = "converted in PR 3 (browser-run trust: automation, record, browser allow and permissions, chat coder queue)"
 	pr4       = "converted in PR 4 (profile and people)"
 	pr5       = "converted in PR 5 (org verbs that only refuse)"
 	heldB     = "held: class B, the verb has an agent path next to the operator's; waits for the owner's answers (issue 1333)"
@@ -42,12 +41,6 @@ type allowed struct {
 // legacyMarkerChecks is the T1 allow-list: file (slash-separated from the repo root) to the number of
 // occurrences and the reason. A new occurrence, or an entry that no longer matches, fails the test.
 var legacyMarkerChecks = map[string]allowed{
-	"cmd/monoagentcli/automation.go":                {1, pr3},
-	"cmd/monoagentcli/record.go":                    {1, pr3},
-	"cmd/monoagentcli/browser_allow.go":             {2, pr3},
-	"cmd/monoagentcli/browser_permissions.go":       {2, pr3},
-	"internal/cli/chat/coder_queue.go":              {1, pr3},
-	"internal/cli/record/analyze.go":                {1, pr3},
 	"internal/cli/profile/documents_remove.go":      {1, pr4},
 	"internal/cli/profile/edit.go":                  {1, pr4},
 	"internal/cli/profile/folder.go":                {1, pr4},
@@ -146,7 +139,6 @@ func TestNoMarkerOnlyOperatorChecksOutsideTheGate(t *testing.T) {
 // pendingOperatorOnly lists, with a reason, the commands that carry the operator-only help text and are
 // not rows of operatorOnlyRows yet. Converting a command moves it to the table.
 var pendingOperatorOnly = map[string]string{
-	"record save":                pr3,
 	"people messages send-draft": pr4,
 	"org teardown-profile":       pr5,
 	"login":                      heldB,
@@ -169,6 +161,10 @@ var verbsWithoutTheHelpText = map[string]bool{
 	"secret agent-access": true, "secret agent-access audit": true, "secret export": true,
 	"connect get-oauth-client": true, "profile info get": true, "workflow run": true,
 	"extension pair": true, "extension install": true,
+	"automation trust": true, "automation rerecord": true, "automation doctor accept-repair": true,
+	"record verify": true, "record replay": true, "browser allow add": true, "browser allow remove": true,
+	"browser permissions set": true, "browser permissions site": true,
+	"coder queue add": true, "coder queue start": true, "coder projects map": true, "coder projects unmap": true,
 }
 
 func treeKeys(t *testing.T) (all map[string]bool, withHelp []string) {
