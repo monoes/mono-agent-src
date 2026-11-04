@@ -115,13 +115,15 @@ func TestALateClaimStartsTheSend(t *testing.T) {
 	r := newGovRig(t, "")
 	r.start(t)
 	fillTwo(t, r)
-	if _, err := r.startTurn("c"); !errors.Is(err, coderhost.ErrDeferred) {
-		t.Fatal(err)
+	for _, id := range []string{"c", "d", "e"} { // e stays queued, so the queue is not empty at the late claim
+		if _, err := r.startTurn(id); !errors.Is(err, coderhost.ErrDeferred) {
+			t.Fatal(err)
+		}
 	}
 	r.l.turn(0).end()
 	r.l.turn(1).end()
 	waitUntil(t, "a, b freed", func() bool { return r.liveSlots(t) == 0 })
-	r.gw.Tick(context.Background()) // the pump reserves for c
+	r.gw.Tick(context.Background()) // the pump reserves for c and d
 	rg := r.gw.cur
 	m := memberID("conv-c", "t-c")
 	rg.liveMu.Lock()
@@ -134,8 +136,8 @@ func TestALateClaimStartsTheSend(t *testing.T) {
 	if _, err := r.startTurn("c"); err != nil {
 		t.Fatalf("a late claim: %v", err)
 	}
-	if r.liveSlots(t) != 1 {
-		t.Fatalf("%d slots for one turn", r.liveSlots(t))
+	if r.liveSlots(t) != 2 {
+		t.Fatalf("%d slots for c and d", r.liveSlots(t))
 	}
 }
 
