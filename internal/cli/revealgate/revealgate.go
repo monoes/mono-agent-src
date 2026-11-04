@@ -9,7 +9,6 @@ package revealgate
 import (
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/cli/opgate"
-	"github.com/monoes/mono-agent/internal/operator"
 )
 
 // Refuse refuses what, a command that prints decrypted secrets, when this
@@ -18,11 +17,13 @@ import (
 // the code operator_only, with the reason. It is nil for the operator.
 func Refuse(what string) error { return refuse(what, opgate.Refusal()) }
 
-// RefuseMarkerOnly is Refuse as it was before the turn-aware gate: it asks the
-// environment markers alone (operator.Refusal). It is for the commands that have
-// an agent path next to the operator's (a reveal under the profile's Reveal
-// access level), which are held for a decision (issue 1333) and keep their behaviour.
-func RefuseMarkerOnly(what string) error { return refuse(what, operator.Refusal()) }
+// RefuseFor is Refuse for a command that has an agent path next to the operator's (a reveal under
+// the profile's Reveal access level): the caller asks opgate.Refusal once, takes the agent path
+// when it is not empty, and hands the same answer here when the level does not allow the reveal,
+// so the decision and the refusal text cannot disagree. A process inside a coder turn that cleared
+// its markers, an agent token holder and a process that cannot be placed are on the agent path
+// like a marked agent.
+func RefuseFor(what, why string) error { return refuse(what, why) }
 
 func refuse(what, why string) error {
 	if why == "" {

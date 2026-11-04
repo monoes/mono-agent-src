@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	browserpkg "github.com/monoes/mono-agent/internal/browser"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/cli/revealgate"
 	cfgpkg "github.com/monoes/mono-agent/internal/config"
 	"github.com/monoes/mono-agent/internal/connections"
@@ -179,14 +180,19 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 					return fmt.Errorf("invalid --config JSON: %w", err)
 				}
 			}
+			// vault.secret_get is on the agent path for whatever opgate refuses (a marked agent, the chat, a
+			// token holder, a process inside a coder turn that cleared its markers): the profile's Reveal
+			// level decides, and the run below is an unapproved step that audits the reveal.
+			revealAgentWhy := ""
 			if nodeType == "vault.secret_get" {
+				revealAgentWhy = opgate.Refusal()
 				name, _ := config["name"].(string)
 				allowed, err := secrets.CanAgentReveal(cmd.Context(), rawDB, d.ProfileID(), name)
 				if err != nil {
 					return fmt.Errorf("checking vault reveal access: %w", err)
 				}
 				if !allowed {
-					if err := revealgate.RefuseMarkerOnly("node run vault.secret_get"); err != nil {
+					if err := revealgate.RefuseFor("node run vault.secret_get", revealAgentWhy); err != nil {
 						return err
 					}
 				}
@@ -361,7 +367,7 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 			// them, not approved by the user: it runs as a step of a workflow
 			// the user hasn't approved, honoring its profile's vault access
 			// grant and file/program restrictions, as MCP node_run does.
-			if operator.Refusal() != "" {
+			if operator.Refusal() != "" || revealAgentWhy != "" {
 				ctx = workflow.WithUnapprovedStep(ctx, profiledir.Root(rawDB, d.ProfileID()), "node run")
 				ctx = secrets.WithAccessNodeType(secrets.WithAccessNode(ctx, input.NodeID, input.NodeName), nodeType)
 			}
