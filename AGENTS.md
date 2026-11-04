@@ -1944,7 +1944,7 @@ recorded when a run enters reserve mode is recorded first (never inside the gran
 What a run costs when it fails, by how far it got: a start failure (no start or usage event, Exec returned an error and
 no result) is $0, so a broken start retried N times costs nothing; a run that started (a start or usage event) and reported
 no cost is charged its whole grant, one that reported a cost is charged that cost (its peak); an ambiguous start (a result
-came back without a start event, no cost) is charged the whole grant, never an undercount. The rows of every live worker
+came back without a start event, no cost) is charged the whole grant, never an undercount. That includes a failure the real Exec returns as a result with no start event (for example an auth failure): each retry of it is charged the whole grant (owner policy). A run that reported a figure that is not a usable cost (not a number, negative, or above the store's $1e9 limit) is charged no less than its whole grant. The rows of every live worker
 are renewed on the watch tick whatever state the session is in (a paused session's runs go on). A charge that fails while
 streaming is noticed once per failure class and retried at the next renewal and at the settle, never per event; a cost that
 is not a finite non-negative number is ignored. The latch is a lease: a cap run that is alive but whose row lapsed (a machine

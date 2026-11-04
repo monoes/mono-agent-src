@@ -68,6 +68,11 @@ func TestFailedRunsAreChargedByHowFarTheyGot(t *testing.T) {
 		{"started then died", step{err: boom}, missionExecAskUSD},
 		{"died after a streamed cost", step{stream: []float64{0.3}, err: boom}, 0.3},
 		{"ambiguous start", step{noStart: true, noCost: true}, missionExecAskUSD},
+		// the real Exec returns a result after launch: a failure that came back as a result with no start event is
+		// ambiguous too (it is not known that the model was not called), so each retry is charged the whole grant
+		{"auth failure returned as a result", step{noStart: true, noCost: true, resErr: true}, missionExecAskUSD},
+		// a final figure that is not a number after a lower streamed cost: never an undercount
+		{"unusable final after a streamed cost", step{stream: []float64{0.3}, final: math.NaN()}, missionExecAskUSD},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

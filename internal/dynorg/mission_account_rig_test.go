@@ -69,6 +69,7 @@ type step struct {
 	final   float64
 	noCost  bool  // the run's result reports no cost at all
 	noStart bool  // no start event is emitted
+	resErr  bool  // the result carries a protocol error (a failure that came back as a result)
 	err     error // Exec fails with this (no result) after its events
 	block   bool  // wait for the context instead of ending
 }
@@ -117,6 +118,9 @@ func (s *scripted) exec(ctx context.Context, o monomind.ExecOptions, on func(mon
 		return nil, ctx.Err()
 	}
 	res := &monomind.TurnResult{SawDone: true, ResultText: "ok", StopReason: monomind.StopEndTurn, CostUSD: st.final, HasCostUSD: !st.noCost}
+	if st.resErr {
+		res.Err = &monomind.ProtocolError{Code: "auth", Message: "auth failed", Fatal: true}
+	}
 	return res, nil
 }
 

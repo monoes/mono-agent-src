@@ -74,7 +74,10 @@ type runAcct struct {
 	// backoff: the last streamed charge failed; no further per-event attempt until the heartbeat or the settle retries.
 	// noted is the failure classes already told to the operator for this run.
 	backoff bool
-	noted   map[string]bool
+	// badReport: the run reported a figure that is not a usable cost. Its cost is then unknown beyond what was seen, so it
+	// settles at no less than its whole grant (never an undercount).
+	badReport bool
+	noted     map[string]bool
 	// lost: the store no longer holds the row for us. The run is being stopped and nothing more is charged to it.
 	lost bool
 }
@@ -186,9 +189,11 @@ func (c *Conductor) rebaseSpent(w *worker) {
 	w.task.spendMu.Unlock()
 }
 
-// finiteCost says whether a reported figure is a usable number of dollars; anything else is ignored, so one bad report
-// cannot poison a run's peak.
-func finiteCost(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) && v >= 0 }
+// finiteCost says whether a reported figure is a usable number of dollars (finite, not negative, within the store's limit);
+// anything else is ignored, so one bad report cannot poison a run's peak, and the run is flagged (see runAcct.badReport).
+func finiteCost(v float64) bool {
+	return !math.IsNaN(v) && !math.IsInf(v, 0) && v >= 0 && v <= tasks.MaxBudgetUSD
+}
 
 // noteStarted records that the runtime showed life (a start or usage event) in this run.
 func (c *Conductor) noteStarted(w *worker, a *runAcct) {
@@ -209,6 +214,8 @@ func (c *Conductor) noteFinal(w *worker, a *runAcct, m Model, run *monomind.Turn
 	w.task.spendMu.Lock()
 	if ok && finiteCost(cost) {
 		a.final, a.finalOK = cost, true
+	} else if ok {
+		a.badReport = true
 	}
 	a.unclear = !a.started && (res != nil || execErr == nil)
 	w.task.spendMu.Unlock()
@@ -229,6 +236,8 @@ func (c *Conductor) chargeLive(w *worker, cost float64) bool {
 	if finiteCost(cost) {
 		a.streamed = true
 		a.peak = max(a.peak, cost)
+	} else {
+		a.badReport = true
 	}
 	if a.lost || a.backoff || a.peak <= a.charged {
 		w.task.spendMu.Unlock()
@@ -320,8 +329,9 @@ func (c *Conductor) endRun(w *worker, a *runAcct) {
 		w.task.spent = counter
 	}
 	ran, lost, streamed, finalOK := a.ran, a.lost, a.streamed, a.finalOK
-	grant := a.started || a.unclear
+	grant := a.started || a.unclear || a.badReport
 	total := max(a.peak, a.final)
+	bad := a.badReport
 	w.task.spendMu.Unlock()
 	if a.mode == modeCap {
 		_ = mc.Store.EndCapRun(ctx, mc.ProfileID, a.id, c.ownerID) // a failure lapses the row: it frees the mode after the grace
@@ -337,7 +347,7 @@ func (c *Conductor) endRun(w *worker, a *runAcct) {
 		return
 	}
 	for i := 0; i < settleAttempts; i++ {
-		if finalOK || streamed {
+		if (finalOK || streamed) && !bad {
 			err = mc.Store.ChargeExec(ctx, mc.ProfileID, a.id, c.ownerID, total, true)
 		} else {
 			total = 0
@@ -345,6 +355,9 @@ func (c *Conductor) endRun(w *worker, a *runAcct) {
 		}
 		if err == nil || errors.Is(err, tasks.ErrReservationLost) {
 			break
+		}
+		if i+1 < settleAttempts {
+			time.Sleep(time.Duration(i+1) * 100 * time.Millisecond) // a short back-off between attempts
 		}
 	}
 	if err != nil {
