@@ -163,6 +163,9 @@ var HostBuilt func(st *coderhost.Store, h *coderhost.Host, db *sql.DB)
 // default build.
 var HostStopped func()
 
+// hostStopWait is how long the host waits for HostStopped before it exits without it: the same grace a stopped turn gets.
+var hostStopWait = hostTurnGrace
+
 // retentionSweepEvery is how often the host runs the sweep of the retained v2 rows after the first one at its start.
 var retentionSweepEvery = time.Hour
 
@@ -317,7 +320,23 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 			<-purged    // the sweep does not outlive the host
 			<-published // no write of the info file after the deferred remove
 			if HostStopped != nil {
-				HostStopped() // an extension joins what it started from HostBuilt before the database closes
+				// an extension joins what it started from HostBuilt before the database closes, but a seam of it that ignores
+				// its context must not hold the host open: after hostStopWait the host logs it and exits without it
+				stopped := make(chan struct{})
+				go func() {
+					defer close(stopped)
+					defer func() {
+						if r := recover(); r != nil { // the host is not taken down by an extension's shutdown
+							logf("coder host: the extension's shutdown (HostStopped) panicked (%T)", r)
+						}
+					}()
+					HostStopped()
+				}()
+				select {
+				case <-stopped:
+				case <-time.After(hostStopWait):
+					logf("coder host: the extension's shutdown (HostStopped) did not finish within %s; exiting without it", hostStopWait)
+				}
 			}
 			logf("coder host stopped; running turns keep going")
 			return err

@@ -976,3 +976,105 @@ func TestTheExportedHostStoppedHookRunsAfterRunAndBeforeTheCommandReturns(t *tes
 		t.Fatalf("HostStopped ran %d times (before the command returned: %v), want once, before", calls.Load(), calledBeforeReturn.Load())
 	}
 }
+
+// A HostStopped that never returns (a seam that ignores its context) does not hold the host open: the command returns after
+// hostStopWait and says which hook did not stop in time.
+func TestAHostStoppedThatNeverReturnsDoesNotHoldTheHostOpen(t *testing.T) {
+	asOperator(t)
+	dbPath := newChatCLITestDB(t)
+	cfg := testDeps(&testConfig{DBPath: dbPath, ProfileID: "default", JSONOutput: true})
+	cfg.RequireOperator = func(string) error { return nil }
+	built := make(chan struct{}, 1)
+	forever := make(chan struct{})
+	var entered atomic.Bool
+	HostBuilt = func(*coderhost.Store, *coderhost.Host, *sql.DB) { built <- struct{}{} }
+	HostStopped = func() { entered.Store(true); <-forever }
+	oldWait := hostStopWait
+	hostStopWait = 300 * time.Millisecond
+	t.Cleanup(func() { HostBuilt, HostStopped, hostStopWait = nil, nil, oldWait; close(forever) })
+	t.Cleanup(func() { RegisterChildTokenMinter(nil) })
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := newCoderHostRunCmd(cfg)
+	cmd.SetContext(ctx)
+	cmd.SetArgs([]string{"--poll=20ms"})
+	var out hostStopLog
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SilenceUsage, cmd.SilenceErrors = true, true
+	errc := make(chan error, 1)
+	go func() { errc <- cmd.Execute() }()
+	select {
+	case <-built:
+	case <-time.After(20 * time.Second):
+		cancel()
+		t.Fatalf("the host did not start: %v", <-errc)
+	}
+	cancel()
+	select {
+	case <-errc:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the host stayed open behind a HostStopped that never returns")
+	}
+	if !entered.Load() {
+		t.Fatal("HostStopped was not called")
+	}
+	if !strings.Contains(out.String(), "HostStopped") {
+		t.Fatalf("the host did not say which hook was left behind: %q", out.String())
+	}
+}
+
+// A HostStopped that panics is logged and does not take the host down.
+func TestAHostStoppedThatPanicsDoesNotCrashTheHost(t *testing.T) {
+	asOperator(t)
+	dbPath := newChatCLITestDB(t)
+	cfg := testDeps(&testConfig{DBPath: dbPath, ProfileID: "default", JSONOutput: true})
+	cfg.RequireOperator = func(string) error { return nil }
+	built := make(chan struct{}, 1)
+	HostBuilt = func(*coderhost.Store, *coderhost.Host, *sql.DB) { built <- struct{}{} }
+	HostStopped = func() { panic("boom") }
+	t.Cleanup(func() { HostBuilt, HostStopped = nil, nil })
+	t.Cleanup(func() { RegisterChildTokenMinter(nil) })
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := newCoderHostRunCmd(cfg)
+	cmd.SetContext(ctx)
+	cmd.SetArgs([]string{"--poll=20ms"})
+	var out hostStopLog
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SilenceUsage, cmd.SilenceErrors = true, true
+	errc := make(chan error, 1)
+	go func() { errc <- cmd.Execute() }()
+	select {
+	case <-built:
+	case <-time.After(20 * time.Second):
+		cancel()
+		t.Fatalf("the host did not start: %v", <-errc)
+	}
+	cancel()
+	select {
+	case <-errc:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the host did not stop")
+	}
+	if !strings.Contains(out.String(), "panicked") {
+		t.Fatalf("the panic was not logged: %q", out.String())
+	}
+}
+
+// hostStopLog is the host's log in a test: the host's helper goroutines log to it while the test reads it.
+type hostStopLog struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (l *hostStopLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.Write(p)
+}
+
+func (l *hostStopLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.String()
+}
