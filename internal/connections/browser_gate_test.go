@@ -72,3 +72,30 @@ func TestRunOAuth1Flow_BrowserOpenIsTheUsersOwn(t *testing.T) {
 		t.Errorf("err %v, page opened %q; want the refusal and nothing opened", err, *pages)
 	}
 }
+
+// A refused connect says nothing about opening a browser: the progress line is the operator's.
+func TestConnectOAuthProgressDoesNotClaimAnOpenWhenRefused(t *testing.T) {
+	mgr, _ := newManagerDB(t)
+	Registry["gate-progress"] = PlatformDef{ID: "gate-progress", Name: "Gate", Methods: []AuthMethod{MethodOAuth},
+		OAuth: &OAuthConfig{AuthURL: "https://provider.invalid/authorize", TokenURL: "https://provider.invalid/token", ClientID: "cid", CallbackPort: freePort(t)}}
+	t.Cleanup(func() { delete(Registry, "gate-progress") })
+	for _, tc := range []struct {
+		why       string
+		wantLine  bool
+		wantError string
+	}{{"this process runs inside a coder turn", false, "coder turn"}, {"", true, ""}} {
+		setBrowserRefusal(t, tc.why)
+		fakeOpen(t)
+		var lines []string
+		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+		_, err := mgr.ConnectOAuthWithProgress(ctx, "gate-progress", func(msg, _ string) { lines = append(lines, msg) }, "", "", "default")
+		cancel()
+		said := strings.Contains(strings.Join(lines, "\n"), "Opening browser")
+		if said != tc.wantLine {
+			t.Errorf("refusal %q: progress %q; want an opening line: %v", tc.why, lines, tc.wantLine)
+		}
+		if tc.wantError != "" && (err == nil || !strings.Contains(err.Error(), tc.wantError)) {
+			t.Errorf("refusal %q: err %v; want the refusal", tc.why, err)
+		}
+	}
+}
