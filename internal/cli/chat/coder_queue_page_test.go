@@ -114,12 +114,12 @@ func TestCoderQueueTabChoice(t *testing.T) {
 
 // The map decides where a queued chat's full-access agent works: an agent
 // may read it but not change it.
-func TestCoderProjectsRefusedInsideAnAgent(t *testing.T) {
+func TestCoderProjectsRefusedWhereTheOperatorGateRefuses(t *testing.T) {
 	dbPath := queueTestDB(t)
 	project := t.TempDir()
 	t.Setenv("CLAUDECODE", "1")
 	for _, args := range [][]string{{"projects", "map", "http://localhost:3000", project}, {"projects", "unmap", "http://localhost:3000"}} {
-		if out, code := runCoderCLI(t, dbPath, args...); code != 3 || !strings.Contains(out, `"code":"agent_context"`) {
+		if out, code := runCoderCLIGated(t, dbPath, args...); code != 3 || !strings.Contains(out, `"code":"operator_only"`) {
 			t.Errorf("%v inside an agent: exit %d %s", args, code, out)
 		}
 	}

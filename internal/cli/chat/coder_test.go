@@ -19,6 +19,7 @@ import (
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
 	"github.com/monoes/mono-agent/internal/health"
 	"github.com/monoes/mono-agent/internal/monomind"
+	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/storage"
 )
 
@@ -72,6 +73,21 @@ func writeCoderMonomind(t *testing.T, transcript string) (bin, argsLog string) {
 func runCoderCLI(t *testing.T, dbPath string, args ...string) (string, int) {
 	t.Helper()
 	cmd := newCoderCmd(testDeps(&testConfig{DBPath: dbPath, ProfileID: "default", JSONOutput: true}))
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs(args)
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	err := cmd.Execute()
+	return out.String(), exitCodeFor(err)
+}
+
+// runCoderCLIGated is runCoderCLI with the CLI's operator check stood in by the environment markers:
+// a process that carries one is refused, as cmd/monoagentcli's gate refuses it.
+func runCoderCLIGated(t *testing.T, dbPath string, args ...string) (string, int) {
+	t.Helper()
+	deps := testDeps(&testConfig{DBPath: dbPath, ProfileID: "default", JSONOutput: true})
+	deps.OperatorRefusal = operator.Refusal
+	cmd := newCoderCmd(deps)
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetArgs(args)

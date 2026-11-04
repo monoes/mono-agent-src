@@ -233,18 +233,19 @@ func TestCoderQueueAddStdinJSON(t *testing.T) {
 	}
 }
 
-func TestCoderQueueRefusedInsideAnAgent(t *testing.T) {
+// The gate is the CLI's operator check (Deps.RequireOperator): queueing and starting a coder chat ask it, so
+// whatever it refuses (a marked agent here) is refused with operator_only, before the verb does anything.
+func TestCoderQueueRefusedWhereTheOperatorGateRefuses(t *testing.T) {
 	dbPath := queueTestDB(t)
 	fb := withFakeBrowser(t)
 	it := queueAdd(t, dbPath, "--kind", "tokens")
 
-	// Any variable the `browser` commands count as an agent's counts here.
 	for _, marker := range []string{"CLAUDECODE", "MONOAGENT_AGENT_CONTEXT", "MONOAGENT_ACTOR"} {
 		t.Run(marker, func(t *testing.T) {
 			t.Setenv(marker, "1")
 			for _, args := range [][]string{{"queue", "add", "--kind", "tokens"}, {"queue", "start", it.ID}} {
-				out, code := runCoderCLI(t, dbPath, args...)
-				if code != 3 || !strings.Contains(out, `"code":"agent_context"`) || !strings.Contains(out, marker) {
+				out, code := runCoderCLIGated(t, dbPath, args...)
+				if code != 3 || !strings.Contains(out, `"code":"operator_only"`) || !strings.Contains(out, "only the user can") || !strings.Contains(out, marker) {
 					t.Errorf("%v with %s set: exit %d %s", args, marker, code, out)
 				}
 			}
@@ -252,6 +253,22 @@ func TestCoderQueueRefusedInsideAnAgent(t *testing.T) {
 	}
 	if len(fb.calls) != 3 { // the first add's eval, screenshot, tokens
 		t.Errorf("the refused add still ran %d browser commands", len(fb.calls)-3)
+	}
+}
+
+// A gate that is not wired refuses (clicore.RequireOperator), so the queue verbs never run unguarded.
+func TestCoderQueueRefusesWhenTheOperatorGateIsNotWired(t *testing.T) {
+	dbPath := queueTestDB(t)
+	deps := testDeps(&testConfig{DBPath: dbPath, ProfileID: "default", JSONOutput: true})
+	deps.OperatorRefusal = nil
+	for _, args := range [][]string{{"queue", "add", "--kind", "tokens"}, {"queue", "start", "q1"}, {"projects", "unmap", "http://localhost:3000"}} {
+		cmd := newCoderCmd(deps)
+		cmd.SetOut(&strings.Builder{})
+		cmd.SetArgs(args)
+		cmd.SilenceErrors, cmd.SilenceUsage = true, true
+		if code := exitCodeFor(cmd.Execute()); code != 3 {
+			t.Errorf("%v with no gate wired: exit %d", args, code)
+		}
 	}
 }
 

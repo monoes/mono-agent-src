@@ -16,9 +16,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/monoes/mono-agent/internal/browserctl"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
-	"github.com/monoes/mono-agent/internal/operator"
 )
 
 // `coder queue …`: coder chats the browser extension queued (C5 of
@@ -155,24 +153,13 @@ func listQueueItems(cfg *Deps, profile string, all bool) ([]queueItem, error) {
 	return out, nil
 }
 
-// refuseInAgent refuses what inside a coding agent or org role: queueing
-// and starting coder chats, and choosing their folders, are the person's. It asks the detector the
-// `browser` commands use (browserctl.IsAgentContext), so the two never
-// disagree about who is an agent. A courtesy guard, like org signing's: an
-// agent can unset its env.
-func refuseInAgent(what string) error {
-	if !browserctl.IsAgentContext() {
-		return nil
+// requireUser is the gate of the coder queue and projects verbs that only the user runs: the shared turn-aware
+// refusal first (it refuses as operator_only whatever the database says), then the CLI's own operator check.
+func requireUser(cfg *Deps, what string) error {
+	if why := clicore.OperatorRefusal(cfg.OperatorRefusal); why != "" {
+		return clicore.OperatorOnly("only the user can %s: %s; run it yourself in a terminal", what, why)
 	}
-	m := "an agent marker"
-	for _, k := range browserctl.AgentContextEnv() {
-		if strings.TrimSpace(os.Getenv(k)) != "" {
-			m = k
-			break
-		}
-	}
-	return &coderError{code: "agent_context", err: &clicore.Error{Code: 3,
-		Msg: fmt.Sprintf("%s is refused inside an agent (%s is set): only the person does that. %s", what, m, operator.InheritedHint())}}
+	return clicore.RequireOperator(cfg.RequireOperator, what)
 }
 
 func printQueueJSON(cmd *cobra.Command, v any) error {

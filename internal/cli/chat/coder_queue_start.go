@@ -44,7 +44,7 @@ func newCoderQueueStartCmd(cfg *Deps) *cobra.Command {
 			"same conversation and turn again. Refused inside an agent.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := refuseInAgent("starting a queued coder chat"); err != nil {
+			if err := requireUser(cfg, "start a queued coder chat"); err != nil {
 				return err
 			}
 			res, err := startQueueItem(cmd, cfg, args[0], cwd, runtimeID, model, effort)
