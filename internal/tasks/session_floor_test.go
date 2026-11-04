@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -210,4 +211,113 @@ func TestSetBudgetEqualToTheCommitmentIsAllowedAtLargeAmounts(t *testing.T) {
 	if _, err := setBudget(s, id, 554943471.278773); err != nil {
 		t.Fatalf("a budget equal to the committed spend: %v", err)
 	}
+}
+
+// wantCapRunRefusal checks the refusal of a budget write while cap runs are live: the typed accounting-mode error, the
+// runs named (session, owner, ref) and the way out told.
+func wantCapRunRefusal(t *testing.T, err error, parts ...string) {
+	t.Helper()
+	if !errors.Is(err, ErrAccountingMode) {
+		t.Fatalf("want an accounting-mode refusal, got %v", err)
+	}
+	for _, p := range append(parts, "pause the session") {
+		if !strings.Contains(err.Error(), p) {
+			t.Errorf("the refusal %q does not show %q", err, p)
+		}
+	}
+}
+
+func TestSetBudgetLowerRefusedWhileACapRunIsLiveOnTheSession(t *testing.T) {
+	s, db, _ := newTestStore(t)
+	id := rsession(t, s, db, 10)
+	if _, err := s.BeginCapRun(bg, "default", id, "owner-a", "run-a"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := setBudget(s, id, 6)
+	wantCapRunRefusal(t, err, "owner-a", "run-a", "#"+fmt.Sprint(id))
+	if budgetNow(t, s, id) != 10 || eventCount(t, s, id, "limits") != 0 {
+		t.Fatal("a refused write changed the session")
+	}
+}
+
+func TestSetBudgetRefusedWhileACapRunIsLiveOnADescendant(t *testing.T) {
+	s, db, _ := newTestStore(t)
+	root := rsession(t, s, db, 20)
+	kid := rkid(t, s, db, root, 6, "running")
+	grand := rkid(t, s, db, kid, 4, "running")
+	run, err := s.BeginCapRun(bg, "default", grand, "owner-g", "run-g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = setBudget(s, root, 12)
+	wantCapRunRefusal(t, err, "owner-g", "run-g", "#"+fmt.Sprint(grand))
+	if budgetNow(t, s, root) != 20 || budgetNow(t, s, kid) != 6 {
+		t.Fatal("a refused write changed the tree")
+	}
+	// the run's own session is covered too
+	if _, err := setBudget(s, grand, 3); err == nil {
+		t.Fatal("a lowering on the run's own session must be refused")
+	}
+	if err := s.EndCapRun(bg, "default", run.ID, "owner-g"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := setBudget(s, root, 12); err != nil {
+		t.Fatalf("after the run ended: %v", err)
+	}
+}
+
+func TestSetBudgetAllowedWithALapsedOrEndedCapRun(t *testing.T) {
+	s, db, clk := newTestStore(t)
+	id := rsession(t, s, db, 10)
+	run, err := s.BeginCapRun(bg, "default", id, "o", "r")
+	if err != nil {
+		t.Fatal(err)
+	}
+	clk.advance(ReservationLease + ReservationGrace - time.Second)
+	if _, err := setBudget(s, id, 6); err == nil {
+		t.Fatal("within the grace the run still counts")
+	}
+	clk.advance(2 * time.Second)
+	if _, err := setBudget(s, id, 6); err != nil {
+		t.Fatalf("a lapsed run counts for nothing: %v", err)
+	}
+	run2, err := s.BeginCapRun(bg, "default", id, "o", "r2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.EndCapRun(bg, "default", run2.ID, "o"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := setBudget(s, id, 5); err != nil {
+		t.Fatalf("after EndCapRun: %v", err)
+	}
+	_ = run
+}
+
+// Raising the budget, removing it, or restating it cannot overspend a run that reads what is left: allowed while runs are live.
+func TestSetBudgetRaiseRemoveAndRestateAllowedWhileACapRunIsLive(t *testing.T) {
+	s, db, _ := newTestStore(t)
+	id := rsession(t, s, db, 10)
+	if _, err := s.BeginCapRun(bg, "default", id, "o", "r"); err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range []float64{10, 15, 0} {
+		if _, err := setBudget(s, id, b); err != nil {
+			t.Fatalf("budget %v: %v", b, err)
+		}
+	}
+	// from no budget to a budget is a lowering: the run started with no cap
+	_, err := setBudget(s, id, 8)
+	wantCapRunRefusal(t, err, "r")
+}
+
+func TestSetBudgetWithOnlyAReservationLiveStillFollowsTheFloorRules(t *testing.T) {
+	s, db, _ := newTestStore(t)
+	id := rsession(t, s, db, 10)
+	rreserve(t, s, id, "p", 2)
+	if _, err := setBudget(s, id, 6); err != nil {
+		t.Fatalf("a reservation alone is the floor's business: %v", err)
+	}
+	_, err := setBudget(s, id, 1)
+	wantFloorRefusal(t, err, "reservations $2.0000")
 }
