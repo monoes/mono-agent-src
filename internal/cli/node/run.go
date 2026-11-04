@@ -180,6 +180,13 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 					return fmt.Errorf("invalid --config JSON: %w", err)
 				}
 			}
+			// Decided before anything is resolved: the saved connection below, the secret references in the
+			// node (ctx, further down) and the destinations are all judged by this one answer.
+			// callerWhy is the one verdict of this command on who runs it: "" for the user's own terminal,
+			// else why not (a marked agent, the chat, a workflow, an agent token, a process inside a coder
+			// turn that cleared its markers). Everything below that tells an agent's run from the user's
+			// reads it; nothing asks again.
+			callerWhy := opgate.Refusal()
 			if nodeType == "vault.secret_get" {
 				name, _ := config["name"].(string)
 				allowed, err := secrets.CanAgentReveal(cmd.Context(), rawDB, d.ProfileID(), name)
@@ -269,11 +276,6 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 			// The connection's secret goes only to the hosts it names, or, from
 			// the user's own terminal, to one the config names; an agent's step
 			// gets no host of its own, card or always-allow rule alike.
-			// callerWhy is the one verdict of this command on who runs it: "" for the user's own terminal,
-			// else why not (a marked agent, the chat, a workflow, an agent token, a process inside a coder
-			// turn that cleared its markers). Everything below that tells an agent's run from the user's
-			// reads it; nothing asks again.
-			callerWhy := opgate.Refusal()
 			if err := workflow.CheckCredentialDestinations(factory(), cred, callerWhy == "", config, config); err != nil {
 				return fmt.Errorf("node %s: %w", nodeType, err)
 			}
