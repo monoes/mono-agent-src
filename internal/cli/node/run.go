@@ -180,19 +180,21 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 					return fmt.Errorf("invalid --config JSON: %w", err)
 				}
 			}
-			// vault.secret_get is on the agent path for whatever opgate refuses (a marked agent, the chat, a
-			// token holder, a process inside a coder turn that cleared its markers): the profile's Reveal
-			// level decides, and the run below is an unapproved step that audits the reveal.
-			revealAgentWhy := ""
+			// Decided before anything is resolved: the saved connection below, the secret references in the
+			// node (ctx, further down) and the destinations are all judged by this one answer.
+			// callerWhy is the one verdict of this command on who runs it: "" for the user's own terminal,
+			// else why not (a marked agent, the chat, a workflow, an agent token, a process inside a coder
+			// turn that cleared its markers). Everything below that tells an agent's run from the user's
+			// reads it; nothing asks again.
+			callerWhy := opgate.Refusal()
 			if nodeType == "vault.secret_get" {
-				revealAgentWhy = opgate.Refusal()
 				name, _ := config["name"].(string)
 				allowed, err := secrets.CanAgentReveal(cmd.Context(), rawDB, d.ProfileID(), name)
 				if err != nil {
 					return fmt.Errorf("checking vault reveal access: %w", err)
 				}
 				if !allowed {
-					if err := revealgate.RefuseFor("node run vault.secret_get", revealAgentWhy); err != nil {
+					if err := revealgate.RefuseFor("node run vault.secret_get", callerWhy); err != nil {
 						return err
 					}
 				}
@@ -274,7 +276,7 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 			// The connection's secret goes only to the hosts it names, or, from
 			// the user's own terminal, to one the config names; an agent's step
 			// gets no host of its own, card or always-allow rule alike.
-			if err := workflow.CheckCredentialDestinations(factory(), cred, operator.Refusal() == "", config, config); err != nil {
+			if err := workflow.CheckCredentialDestinations(factory(), cred, callerWhy == "", config, config); err != nil {
 				return fmt.Errorf("node %s: %w", nodeType, err)
 			}
 
@@ -283,6 +285,12 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 			guardCtx := context.Background()
 			if rawDB != nil {
 				guardCtx = vault.ContextWithProfileID(vault.ContextWithDB(guardCtx, rawDB), d.ProfileID())
+			}
+			if callerWhy != "" && operator.Refusal() == "" {
+				// The guard tells an agent by its markers or by an unapproved run in ctx; a process the
+				// markers do not show (inside a coder turn, an agent token) is the second kind, like the
+				// step below. A marked caller is asked exactly as before.
+				guardCtx = workflow.WithAIAuthored(guardCtx)
 			}
 			if queued, handled, gerr := workflow.RunExecGuard(guardCtx, nodeType, workflow.NodeInput{Items: inputItems}, config); handled {
 				if gerr != nil {
@@ -295,7 +303,7 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 			// (nodes.BrowserNode.RunRefusal): refused before a browser is
 			// connected, or launched.
 			if bn, ok := factory().(*nodes.BrowserNode); ok {
-				if err := bn.RunRefusal(context.Background()); err != nil {
+				if err := bn.RunRefusal(workflow.WithAgentCaller(context.Background(), callerWhy)); err != nil {
 					return clicore.OperatorOnly("node %s: %v", nodeType, err)
 				}
 			}
@@ -367,10 +375,13 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 			// them, not approved by the user: it runs as a step of a workflow
 			// the user hasn't approved, honoring its profile's vault access
 			// grant and file/program restrictions, as MCP node_run does.
-			if operator.Refusal() != "" || revealAgentWhy != "" {
+			if callerWhy != "" {
 				ctx = workflow.WithUnapprovedStep(ctx, profiledir.Root(rawDB, d.ProfileID()), "node run")
 				ctx = secrets.WithAccessNodeType(secrets.WithAccessNode(ctx, input.NodeID, input.NodeName), nodeType)
 			}
+			// A node that tells an agent's run from the user's by more than the marker (the browser
+			// packages' run gate, publication.register) takes this command's verdict from ctx.
+			ctx = workflow.WithAgentCaller(ctx, callerWhy)
 			outputs, err := executor.Execute(ctx, input, config)
 			outputs = workflow.MaskAgentNodeOutputs(ctx, outputs)
 			err = workflow.MaskAgentNodeError(ctx, err)

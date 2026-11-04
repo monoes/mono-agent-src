@@ -111,3 +111,18 @@ func TestAStoreWithoutApprovalsApprovesEveryRun(t *testing.T) {
 		t.Error("a store without approvals marked a run")
 	}
 }
+
+// The verdict of the command that runs a node travels in ctx: unset, it is "" (every run the engine
+// starts), and an empty verdict leaves ctx alone.
+func TestAgentCallerTravelsInTheContext(t *testing.T) {
+	ctx := context.Background()
+	if got := AgentCallerFrom(ctx); got != "" {
+		t.Fatalf("a bare context carries the verdict %q", got)
+	}
+	if got := AgentCallerFrom(WithAgentCaller(ctx, "")); got != "" {
+		t.Fatalf("an empty verdict was stored: %q", got)
+	}
+	if got := AgentCallerFrom(WithAgentCaller(ctx, "in a coder turn")); got != "in a coder turn" {
+		t.Fatalf("verdict = %q", got)
+	}
+}

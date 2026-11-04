@@ -99,6 +99,7 @@ func (d Deps) newSecretAgentAccessCmd() *cobra.Command {
 					out["secrets"] = g.Secrets
 					out["hosts"] = g.Hosts
 					out["any_host"] = g.AnyHost
+					out["host_binding"] = hostBinding(g)
 					out["expires_at"] = g.ExpiresAt
 				}
 				return enc.Encode(out)
@@ -111,7 +112,7 @@ func (d Deps) newSecretAgentAccessCmd() *cobra.Command {
 			fmt.Fprintf(w, "Level: %s (profile %s)\n", level, profileID)
 			fmt.Fprintf(w, "  secrets: %s\n", orAll(g.Secrets))
 			if g.AnyHost {
-				fmt.Fprintln(w, "  hosts:   ANY (a secret can be sent to any address a workflow names)")
+				fmt.Fprintln(w, "  hosts:   ANY (no host binding: a secret can be sent to any address a workflow names; a grant made before host binding looks the same, so run agent-access on --host to bind it)")
 			} else {
 				fmt.Fprintf(w, "  hosts:   %s\n", strings.Join(g.Hosts, ", "))
 			}
@@ -132,6 +133,15 @@ func (d Deps) newSecretAgentAccessCmd() *cobra.Command {
 	return cmd
 }
 
+// hostBinding names how a grant is bound: "hosts" (named hosts) or "none"
+// (--any-host, or a grant made before host binding, which reads the same).
+func hostBinding(g *secrets.AccessGrant) string {
+	if g.AnyHost {
+		return "none"
+	}
+	return "hosts"
+}
+
 func orAll(names []string) string {
 	if len(names) == 0 {
 		return "all"
@@ -146,6 +156,9 @@ func buildGrant(names, hosts []string, anyHost bool, expires string) (secrets.Ac
 		if n = strings.TrimSpace(n); n != "" {
 			g.Secrets = append(g.Secrets, n)
 		}
+	}
+	if err := secrets.ValidateGrantSecrets(g.Secrets); err != nil {
+		return g, err
 	}
 	for _, h := range hosts {
 		if h = strings.TrimSpace(h); h == "" {

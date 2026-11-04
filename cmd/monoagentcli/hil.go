@@ -149,7 +149,7 @@ func (c *globalConfig) gateVerdict(recovery bool, what string) gateVerdict {
 	in, err := c.callerInATurnFor(recovery)
 	if err != nil {
 		// fails closed: a process that cannot be placed is not let through
-		return gateVerdict{why: "cannot tell whether a coder session's turn runs this command (" + err.Error() + ")", err: err}
+		return gateVerdict{why: opgate.UnplacedPrefix + err.Error() + ")", err: err}
 	}
 	if in {
 		return gateVerdict{why: "this command runs inside a coder session's turn, so a model is running it", sep: "; "}
@@ -255,8 +255,8 @@ func callerInATurnNamed(path string) (bool, error) { return coderhost.CallerInAT
 func notOperator() string { return operator.Refusal() }
 
 // requirePublicationApproval gates `publication register` from whatever is not
-// the operator's own terminal (notOperator: an agent, the chat's runs, what a
-// workflow node starts): a publication it claims must be the one a send the
+// the operator's own terminal (opgate.Refusal: an agent, the chat's runs, what a
+// workflow node starts, a process inside a coder turn): a publication it claims must be the one a send the
 // operator approved made, and that approval registers it alone
 // (hilsend.ClaimPublicationApproval). approvalID names the send item (as returned
 // when it was queued); an approved send registers its own publication, so this is
@@ -265,7 +265,8 @@ func notOperator() string { return operator.Refusal() }
 // registration fails.
 func requirePublicationApproval(cfg *globalConfig, approvalID string, e publication.Entry) (release func(), err error) {
 	release = func() {}
-	if notOperator() == "" {
+	why := opgate.Refusal()
+	if why == "" {
 		return release, nil
 	}
 	var claim *hilsend.PublicationClaim
@@ -273,10 +274,10 @@ func requirePublicationApproval(cfg *globalConfig, approvalID string, e publicat
 		var cerr error
 		claim, cerr = hilsend.ClaimPublicationApproval(context.Background(), db, cfg.ProfileID, approvalID, e)
 		if errors.Is(cerr, hilsend.ErrPublicationNeedsApproval) {
-			return operatorOnlyError("registering a publication from an agent needs an approved send: prepare the send (it is queued for approval, and registers itself once approved), or pass --approval <hil id> of a send that was approved and sent. Asked because %s", notOperator())
+			return operatorOnlyError("registering a publication from an agent needs an approved send: prepare the send (it is queued for approval, and registers itself once approved), or pass --approval <hil id> of a send that was approved and sent. Asked because %s", why)
 		}
 		if cerr != nil {
-			return operatorOnlyError("%v (asked because %s)", cerr, notOperator())
+			return operatorOnlyError("%v (asked because %s)", cerr, why)
 		}
 		return nil
 	})

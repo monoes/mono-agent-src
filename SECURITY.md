@@ -189,6 +189,16 @@ reads; values an agent already retrieved cannot be recalled.
   file, shell, code and the rest) is refused the reference. A request that
   carries a secret may use a `proxy` only when its host is on the list, and
   never with `allow_unauthorized_certs`.
+- **Entries no grant covers.** `httpapi-token` (the HTTP API's bearer) and
+  `agent-token-*` are never read by an agent: not by a run's `@secret:`
+  reference, not as plaintext under Reveal, and a grant cannot name them
+  (`agent-access on --secret httpapi-token` is refused). One predicate
+  (`secrets.AgentCannotRead`) decides this for every one of those gates; before it,
+  `permit()` refused only `agent-token-*`, so under `agent-access on` a workflow that
+  referenced `@secret:httpapi-token` resolved to the full-scope HTTP API bearer while
+  the Reveal check already refused it. Grants made before host binding read as
+  `--any-host` (migration 111 gave those rows `any_host = 1`); `secret agent-access`
+  shows `host_binding` (`hosts` or `none`) in `--json`.
 - **What still leaks.** A step can still move a value inside the run (an
   `http.request` whose response or another step's output is used as a field,
   a code step) or send it somewhere a host list does not look: the list
@@ -2220,7 +2230,7 @@ that works a task acts on them. The defences:
   (2) this
   change covers the commands listed above only: many other operator-only commands
   (sign-in, `org sign`,
-  node runs, people import and publications; tracked in issue 1333) still
+  tracked in issue 1333) still
   use only the operator marker check and are NOT turn-aware,
   so this does not make every operator-only command refuse a turn; (3) the test that
   keeps the wired commands in one table counts wirings per file and misses a method
@@ -2244,6 +2254,36 @@ that works a task acts on them. The defences:
   operator terminal started inside a turn gets the limits as well, like every other gated
   verb. A `MONOAGENT_ACTOR` of only spaces (an agent without a name) used to count as the
   operator for these verbs and is limited now; an empty one is not set.
+  `people import` and `publication register` use the turn-aware gate for the LIMITED flavour as well: an
+  import run by anything but the user's own terminal may not approve anyone for outreach, and a publication
+  register needs a send the user approved (`--approval`, hilsend.ClaimPublicationApproval). A marked agent,
+  the chat and a workflow keep exactly the limits and texts they had; a process inside a coder session's
+  turn that cleared its markers, and a holder of an agent token, now get them too. The engine node
+  `publication.register` cannot see a turn itself, so `publication register`'s sibling entry, `node run
+  publication.register`, decides once with the same gate and hands the node the verdict in its context
+  (`workflow.WithAgentCaller`); a run the engine or the daemon starts carries no verdict and is judged by
+  the markers and the workflow's approval as before. A database that cannot be read gives the limited
+  flavour (neither is a recovery verb), and an operator terminal started inside a turn gets the limits as
+  well, like every other gated verb.
+  `node run` decides once at its entry with the same gate and every node type gets the verdict in its context
+  (`workflow.WithAgentCaller`; it was `publication.register` alone). A process inside a coder session's turn
+  that cleared its markers, or one holding an agent token, is handled like a marked agent: a connection's secret
+  goes only to the hosts the connection names (an agent's step gets no host of its own, card or always-allow
+  rule alike); the node runs as an unapproved step (the profile's vault access grant, the file and program
+  restrictions and the audit); and a browser action of a package that is not built-in is refused before a
+  browser is connected (`BrowserNode.RunRefusal` reads the marker's text first and the command's verdict
+  second). The chat and a marked agent keep exactly the limits and texts they had; the user's own terminal is
+  unchanged, except that one started inside a turn gets these limits too. The engine, the daemon and MCP set no
+  verdict and are judged by markers and approvals as before; the send gate (`hilsend.Guard`), `browserjev`,
+  `aitask` and `people.save` still decide by the markers alone.
+  `login <package>`, `login confirm <package>` and `login names` use the turn-aware gate for the LIMITED
+  flavour, not for a refusal of everything: a built-in package's login is open to agents by design and
+  works for every caller; a package that is not built-in names its own login page and the cookies its
+  login keeps (#898), so it is refused (operator_only, before any browser is asked) to a marked agent, the
+  chat, a workflow, and now to a process inside a coder session's turn that cleared its markers and to
+  a holder of an agent token. A database that cannot be read gives the limited flavour too (login is not a
+  recovery verb). An operator terminal started inside a turn gets the limits as well, like every other
+  gated verb.
   `automation install <dir> --local` (and `automation new --install`) installs with local
   trust. While it is open to a turn, the `automation trust --scripts/--live` gate does not
   stop a turn from getting the same result: a turn can write its own package directory,
