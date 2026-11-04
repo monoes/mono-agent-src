@@ -4,21 +4,21 @@ import (
 	"context"
 	"strings"
 
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/cli/orgenv"
 	"github.com/monoes/mono-agent/internal/monomind"
-	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/orgdecide"
 )
 
 // refuseSendingApproval refuses `org approve <org> <role> <action>` to what
-// is not the operator's own terminal (internal/operator: an agent, the chat,
-// a workflow) unless one of org's pending approvals is exactly role's
+// is not the operator's own terminal (opgate: an agent, the chat, a workflow,
+// a process inside a coder session's turn) unless one of org's pending approvals is exactly role's
 // action, and approving its stored action lets no message to a person go out
 // (refuseSendingAction). A typed variant of a pending action (another case,
 // spaces) matches none, so it is refused even if monomind would take it.
 // The operator approves anything, as before.
 func (env *orgEnv) refuseSendingApproval(ctx context.Context, org, role, action string) error {
-	why := operator.Refusal()
+	why := opgate.Refusal()
 	if why == "" {
 		return nil
 	}
@@ -41,7 +41,7 @@ func (env *orgEnv) refuseSendingApproval(ctx context.Context, org, role, action 
 // refuseChatApproval is refuseSendingApproval for `org chat approve`, which
 // found the pending approval itself: action is its stored action.
 func (env *orgEnv) refuseChatApproval(ctx context.Context, org, action string) error {
-	why := operator.Refusal()
+	why := opgate.Refusal()
 	if why == "" {
 		return nil
 	}
