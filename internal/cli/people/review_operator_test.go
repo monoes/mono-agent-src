@@ -35,7 +35,7 @@ func personRow(t *testing.T, db *storage.Database, where string, args ...any) (c
 }
 
 // Approving lets the drafted DM go out, so only the user approves, in every
-// form; queueing and rejecting stay open (#831 S5).
+// form; queueing stays open, rejecting is the user's too (#831 S5).
 func TestPeopleReviewApproveIsTheUsers(t *testing.T) {
 	for _, marker := range notOperatorMarkers {
 		for _, args := range [][]string{
@@ -54,7 +54,7 @@ func TestPeopleReviewApproveIsTheUsers(t *testing.T) {
 				if cat, intro, _ := personRow(t, db, "id = ?", "p1"); cat != peoplereview.Pending || intro != "drafted" {
 					t.Fatalf("approve as %s changed p1: %q %q", marker, cat, intro)
 				}
-				if _, err := runReview(t, cfg, "reject", "p2"); err != nil || category(t, db, "p2") != peoplereview.Rejected {
+				if _, err := runReview(t, cfg, "reject", "p2"); exitCode(err) != 3 || !strings.Contains(err.Error(), "only the user rejects") || category(t, db, "p2") == peoplereview.Rejected {
 					t.Fatalf("reject as %s: %v", marker, err)
 				}
 			})

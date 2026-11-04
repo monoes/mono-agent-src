@@ -13,6 +13,7 @@ import (
 	"github.com/olekukonko/tablewriter/renderer"
 	"github.com/olekukonko/tablewriter/tw"
 
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/connections"
 	"github.com/monoes/mono-agent/internal/jev/jevconf"
 	"github.com/monoes/mono-agent/internal/storage"
@@ -49,6 +50,10 @@ func exitCode(err error) int {
 	var ce *cliError
 	if errors.As(err, &ce) {
 		return ce.code
+	}
+	var oe *clicore.Error // operator-only refusals are the CLI's own error type
+	if errors.As(err, &oe) {
+		return oe.Code
 	}
 	if err != nil {
 		return 1

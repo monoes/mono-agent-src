@@ -40,11 +40,6 @@ type allowed struct {
 // legacyMarkerChecks is the T1 allow-list: file (slash-separated from the repo root) to the number of
 // occurrences and the reason. A new occurrence, or an entry that no longer matches, fails the test.
 var legacyMarkerChecks = map[string]allowed{
-	"internal/cli/profile/documents_remove.go":      {1, pr4},
-	"internal/cli/profile/edit.go":                  {1, pr4},
-	"internal/cli/profile/folder.go":                {1, pr4},
-	"internal/cli/people/messages_drafts.go":        {1, pr4},
-	"internal/cli/people/review.go":                 {1, heldB + " (people review approve is converted in PR 4)"},
 	"cmd/monoagentcli/login.go":                     {1, heldB + " (login of a builtin package)"},
 	"cmd/monoagentcli/hil.go":                       {6, gateImp + " (notOperator in gateVerdict); publication register is held: class B"},
 	"internal/cli/node/run.go":                      {3, heldB + " (node run, node run vault.secret_get)"},
@@ -136,8 +131,7 @@ func TestNoMarkerOnlyOperatorChecksOutsideTheGate(t *testing.T) {
 // pendingOperatorOnly lists, with a reason, the commands that carry the operator-only help text and are
 // not rows of operatorOnlyRows yet. Converting a command moves it to the table.
 var pendingOperatorOnly = map[string]string{
-	"people messages send-draft": pr4,
-	"login":                      heldB,
+	"login": heldB,
 }
 
 // turnAwareCommands carry the help text and were behind the turn-aware gate before the table.
@@ -161,6 +155,8 @@ var verbsWithoutTheHelpText = map[string]bool{
 	"record verify": true, "record replay": true, "browser allow add": true, "browser allow remove": true,
 	"browser permissions set": true, "browser permissions site": true,
 	"coder queue add": true, "coder queue start": true, "coder projects map": true, "coder projects unmap": true,
+	"profile update": true, "profile delete": true, "profile backups purge": true, "profile move": true,
+	"profile create": true, "profile documents remove": true, "people review approve": true,
 }
 
 func treeKeys(t *testing.T) (all map[string]bool, withHelp []string) {

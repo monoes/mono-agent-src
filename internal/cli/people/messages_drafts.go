@@ -8,7 +8,7 @@ import (
 	"os"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
-	"github.com/monoes/mono-agent/internal/operator"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/spf13/cobra"
 )
@@ -80,7 +80,7 @@ func (d Deps) newPeopleMessagesSendDraftCmd() *cobra.Command {
 			"subject and text live in the mailbox, so an approval card for an agent's send-draft could not show them.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if why := operator.Refusal(); why != "" {
+			if why := opgate.Refusal(); why != "" {
 				return clicore.OperatorOnly("people messages send-draft sends a draft as the mailbox holds it, its recipients and text included, which no approval card shows, so only the user sends it: %s; "+
 					"they send %s in their own terminal or the app", why, args[0])
 			}
@@ -155,8 +155,14 @@ func (d Deps) newPeopleMessagesRejectDraftCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "reject-draft <message-id>",
 		Short: "Discard a draft message",
-		Args:  cobra.ExactArgs(1),
+		Long: "Deletes a draft from the database and, best effort, from the mailbox. " + clicore.OperatorOnlyHelp + " A draft may be " +
+			"one the user wrote, and its mailbox copy goes with it.",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if why := opgate.Refusal(); why != "" {
+				return clicore.OperatorOnly("people messages reject-draft deletes a draft and its mailbox copy, whoever wrote it, so only the user discards one: %s; "+
+					"they discard %s in their own terminal or the app", why, args[0])
+			}
 			db, err := d.OpenDB()
 			if err != nil {
 				return fmt.Errorf("initializing database: %w", err)

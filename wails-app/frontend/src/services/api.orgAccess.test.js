@@ -18,7 +18,7 @@ describe('org full-access api wrappers (#205)', () => {
   })
 
   it('orgRoleSetAccess rejects with the CLI refusal verbatim, code included', async () => {
-    GoApp.OrgRoleSetAccess.mockResolvedValue(JSON.stringify({ error: 'granting full access is human-only', code: 'invalid_input' }))
-    await expect(api.orgRoleSetAccess('growth', 'builder', 'full')).rejects.toMatchObject({ message: 'granting full access is human-only', code: 'invalid_input' })
+    GoApp.OrgRoleSetAccess.mockResolvedValue(JSON.stringify({ error: 'granting full access is human-only', code: 'operator_only' }))
+    await expect(api.orgRoleSetAccess('growth', 'builder', 'full')).rejects.toMatchObject({ message: 'granting full access is human-only', code: 'operator_only' })
   })
 })
