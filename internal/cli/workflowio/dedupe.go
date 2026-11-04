@@ -349,7 +349,7 @@ func shellQuoteArg(s string) string {
 // import result (JSON or human), including the status and, when bundled
 // packages are missing, which ones and the exact command installing them.
 func (d Deps) printWorkflowImport(cmd *cobra.Command, wf *workflow.Workflow, status string, warnings []string,
-	remapped, remappedConns map[string]string, raw []byte, yes, replaceAutomations bool, inputFile string, copied importCopy) error {
+	remapped, remappedConns map[string]string, raw []byte, yes, replaceAutomations bool, inputFile string, copied importCopy, note string) error {
 	// Bundled automations (workflow export --bundle-automations):
 	// report present/missing ones, install missing with --yes or
 	// after a prompt (only when stdin is free, i.e. --file).
@@ -362,8 +362,14 @@ func (d Deps) printWorkflowImport(cmd *cobra.Command, wf *workflow.Workflow, sta
 	})
 	missing, installCmd := missingBundleHint(bundled, inputFile)
 
+	if note != "" {
+		fmt.Fprintln(os.Stderr, "Note: "+note)
+	}
 	if d.JSONOutput() {
 		out := map[string]interface{}{"id": wf.ID, "name": wf.Name, "status": status}
+		if note != "" {
+			out["approved"], out["approval_note"] = false, note
+		}
 		if len(warnings) > 0 {
 			out["warnings"] = warnings
 		}

@@ -4008,7 +4008,17 @@ monoagentcli --profile <id> --json browser network --tab 812 --failed
   nothing about who called it. The refusal tells the operator to review the
   workflow (`workflow get <id> --json`) and to pass what they saw to
   `workflow activate <id> --expect <review_hash>`: a bare `workflow activate`
-  approves the definition as it is when it reads it. Limits: the gate is on
+  approves the definition as it is when it reads it. A process inside a coder
+  session's turn counts as an agent here even when its markers are cleared
+  (a terminal started from inside a turn included): `operator.ApprovingContext`
+  and the node edits stop approving once `opgate.Register` has installed the
+  turn check (`operator.SetTurnVerdict`; the command line only, the app, the
+  daemon, MCP and library users keep the marker check). `workflow save`,
+  `import`, `create`, `versions restore`, `templates use` and `node add|set|remove`
+  still publish, but the definition stays unapproved (stderr says so, and a
+  `--json` result gains `"approved": false` and `"approval_note"`); `workflow
+  activate` and `templates run` are refused with the approval error. To approve,
+  run `workflow activate <id>` in your own terminal or save it in the app. Limits: the gate is on
   switching on (inactive to active). An agent's edit of a workflow that is
   already active keeps its flag, so it stays armed, and its runs are AI runs
   (no secrets, no programs, file steps under FileGuard) until the operator

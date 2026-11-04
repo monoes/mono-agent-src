@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -123,5 +124,133 @@ func TestRefusalSaysHowToFixAnInheritedMarker(t *testing.T) {
 	}
 	if h := InheritedHint(); !strings.HasPrefix(h, "If you started the MonoAgent app") || !strings.HasSuffix(h, "for the daemon).") {
 		t.Errorf("InheritedHint() = %q", h)
+	}
+}
+
+// The turn check the command line installs makes a process with no marker stop approving; a process
+// that installed none is judged by marker alone, and an agent's marker still decides first.
+func TestApprovingContextConsultsTheInstalledTurnCheck(t *testing.T) {
+	asOperator(t)
+	t.Cleanup(func() { SetTurnVerdict(nil) })
+	ctx := context.Background()
+	approves := func() bool { return workflowApproves(ApprovingContext(ctx)) }
+
+	SetTurnVerdict(nil)
+	if !approves() || NotApproving() {
+		t.Fatal("the operator with no turn check does not approve")
+	}
+	SetTurnVerdict(func() string { return "" })
+	if !approves() {
+		t.Fatal("a turn check that finds no turn stopped the operator from approving")
+	}
+	SetTurnVerdict(func() string { return "inside a turn" })
+	if approves() || !NotApproving() || InTurn() == "" {
+		t.Fatal("a process inside a turn approves")
+	}
+	actx := ApprovingContext(ctx)
+	if n := UnapprovedNote(actx, "saved", "wf-9"); !strings.Contains(n, "NOT approved") || !strings.Contains(n, "workflow activate wf-9") || !strings.Contains(n, "inside a turn") {
+		t.Fatalf("note = %q", n)
+	}
+	t.Setenv(hilsend.EnvAgentContext, "coder")
+	if approves() || UnapprovedNote(ApprovingContext(ctx), "saved", "wf-9") != "" || CannotApproveNote(ApprovingContext(ctx), "wf-9", false) != "" {
+		t.Fatal("a marked process approves, or its output gained a note")
+	}
+	SetTurnVerdict(nil)
+	if approves() {
+		t.Fatal("a marked process approves")
+	}
+}
+
+// workflowApproves reports whether ApprovingContext decided to approve (the cmd/monoagentcli tests read
+// the approval row itself).
+func workflowApproves(ctx context.Context) bool { return Approves(ctx) }
+
+// The verdict is asked once per command and the note reads that answer: a verdict that flips between
+// two asks (a transient lock) can not make the note disagree with what was written.
+func TestTheNoteReadsTheVerdictTheWriteUsed(t *testing.T) {
+	asOperator(t)
+	t.Cleanup(func() { SetTurnVerdict(nil) })
+	for name, answers := range map[string][]string{"clear then turn": {"", "in a turn"}, "turn then clear": {"in a turn", ""}} {
+		t.Run(name, func(t *testing.T) {
+			calls := 0
+			SetTurnVerdict(func() string { a := answers[min(calls, len(answers)-1)]; calls++; return a })
+			actx := ApprovingContext(context.Background())
+			wrote := workflowApproves(actx)
+			noted := UnapprovedNote(actx, "saved", "wf-1") != ""
+			cannot := CannotApproveNote(actx, "wf-1", false) != ""
+			if wrote == noted || wrote == cannot {
+				t.Fatalf("approval written = %v, note = %v, up-front note = %v", wrote, noted, cannot)
+			}
+			if wrote != (answers[0] == "") {
+				t.Fatalf("the write did not use the first answer")
+			}
+			ApprovingContext(actx) // a second use of the same context does not ask again
+			if calls != 1 {
+				t.Fatalf("the verdict was asked %d times", calls)
+			}
+		})
+	}
+}
+
+// The note says the real cause (the turn check's own text), and for a process the check could not place
+// it says to retry, not to approve elsewhere.
+func TestTheNoteNamesTheCause(t *testing.T) {
+	asOperator(t)
+	t.Cleanup(func() { SetTurnVerdict(nil) })
+	for _, c := range []struct{ why, want, notWant string }{
+		{"MONOAGENT_SESSION_TOKEN is set, so a process holding an agent token is running this command", "agent token", "wait and retry"},
+		{"this command runs inside a coder session's turn, so a model is running it", "coder session's turn", "wait and retry"},
+		{UnplacedPrefix + " (database is locked)", "wait and retry", "workflow activate wf-2` in your own terminal"},
+	} {
+		SetTurnVerdict(func() string { return c.why })
+		n := UnapprovedNote(ApprovingContext(context.Background()), "saved", "wf-2")
+		if !strings.Contains(n, c.want) || strings.Contains(n, c.notWant) {
+			t.Errorf("%q: note %q", c.why, n)
+		}
+	}
+}
+
+func TestWithNoteLeavesTheOperatorsResultAlone(t *testing.T) {
+	in := map[string]any{"id": "a"}
+	if got := WithNote(in, ""); got == nil || len(got.(map[string]any)) != 1 {
+		t.Fatalf("got %v", got)
+	}
+	m := WithNote(struct {
+		ID string `json:"id"`
+	}{"a"}, "n").(map[string]json.RawMessage)
+	if string(m["approved"]) != "false" || string(m["approval_note"]) != `"n"` || string(m["id"]) != `"a"` {
+		t.Fatalf("got %v", m)
+	}
+}
+
+// The up-front note says what the command will do: an activation only works for an approved definition,
+// a template run's temporary workflow is new and is refused.
+func TestCannotApproveNoteIsWordedPerCommand(t *testing.T) {
+	asOperator(t)
+	t.Cleanup(func() { SetTurnVerdict(nil) })
+	SetTurnVerdict(func() string { return "inside a turn" })
+	actx := ApprovingContext(context.Background())
+	if n := CannotApproveNote(actx, "wf-1", false); !strings.Contains(n, "already approved") || strings.Contains(n, "temporary") {
+		t.Errorf("activate: %q", n)
+	}
+	if n := CannotApproveNote(actx, "wf-1", true); !strings.Contains(n, "temporary workflow") || !strings.Contains(n, "refused") || strings.Contains(n, "already approved") {
+		t.Errorf("templates run: %q", n)
+	}
+}
+
+// Approves is false for a context ApprovingContext never saw, and follows the stored verdict otherwise.
+func TestApprovesReadsOnlyTheStoredVerdict(t *testing.T) {
+	asOperator(t)
+	t.Cleanup(func() { SetTurnVerdict(nil) })
+	if Approves(context.Background()) {
+		t.Fatal("a context with no stored verdict approves")
+	}
+	SetTurnVerdict(nil)
+	if !Approves(ApprovingContext(context.Background())) {
+		t.Fatal("the operator's stored verdict does not approve")
+	}
+	SetTurnVerdict(func() string { return "inside a turn" })
+	if Approves(ApprovingContext(context.Background())) {
+		t.Fatal("a stored not-approving verdict approves")
 	}
 }
