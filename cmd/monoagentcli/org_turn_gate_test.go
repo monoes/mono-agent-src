@@ -251,20 +251,76 @@ func TestOrgApproveOfASendingAutomationIsRefusedToAMarkedAgentAndToAProcessInATu
 	})
 }
 
-// The marked path is byte-identical: for a marked caller the registered turn-aware gate answers exactly what
-// operator.Refusal did before these verbs asked opgate.
+// The marked path is byte-identical: for a marked caller, whatever combination of markers it carries (and a
+// token on top), the registered turn-aware gate answers exactly what operator.Refusal did before these verbs
+// asked opgate. The markers come from operator.MarkerEnv; every single one and every pair is tried, alone and
+// together with the chat and the workflow markers, with the values the real callers use.
 func TestMarkedCallersGetTheSameWhyFromTheTurnAwareGateAsFromTheMarkerCheck(t *testing.T) {
-	for _, ctx := range orgGateContexts() {
-		if !strings.HasPrefix(ctx.name, "marked") {
-			continue
+	f := orgGateFixture(t)
+	names := operator.MarkerEnv()
+	clear := func(t *testing.T) {
+		for _, k := range names {
+			t.Setenv(k, "")
 		}
-		t.Run(ctx.name, func(t *testing.T) {
-			f := orgGateFixture(t)
-			ctx.setup(t, f)
-			if got, want := opgate.Refusal(), operator.Refusal(); got == "" || got != want {
-				t.Fatalf("turn-aware gate %q, marker check %q", got, want)
+	}
+	var combos [][]string
+	for i, a := range names {
+		combos = append(combos, []string{a})
+		for _, b := range names[i+1:] {
+			combos = append(combos, []string{a, b})
+		}
+	}
+	for _, extra := range [][]string{nil, {browserctl.EnvAICaller}, {workflow.EnvWorkflowRun}, {browserctl.EnvAICaller, workflow.EnvWorkflowRun}} {
+		for _, token := range []bool{false, true} {
+			for _, c := range combos {
+				t.Run("", func(t *testing.T) {
+					clear(t)
+					for _, k := range append(append([]string{}, c...), extra...) {
+						v := "x"
+						if k == browserctl.EnvAICaller {
+							v = browserctl.KindChat
+						}
+						t.Setenv(k, v)
+					}
+					if token {
+						t.Setenv(coderhost.SessionTokenEnv, "session-token")
+					}
+					want := operator.Refusal()
+					if want == "" {
+						return // a combination that does not mark the caller is not this test's
+					}
+					if got := opgate.Refusal(); got != want {
+						t.Fatalf("markers %v+%v token=%v\n got: %s\nwant: %s", c, extra, token, got, want)
+					}
+				})
 			}
-		})
+		}
+	}
+	_ = f
+}
+
+// Also for the registered body asked directly, and the recovery flavour: the marker text comes before any turn check.
+func TestMarkedCallersGetTheMarkerTextFromEveryFlavourOfTheGate(t *testing.T) {
+	f := orgGateFixture(t)
+	asAgentProcess(t)
+	want := operator.Refusal()
+	if want == "" || f.cfg.gateRefusal(false) != want || f.cfg.gateRefusal(true) != want {
+		t.Fatalf("flavours: %q %q want %q", f.cfg.gateRefusal(false), f.cfg.gateRefusal(true), want)
+	}
+}
+
+// A MONOAGENT_ACTOR of only spaces is an agent without a name for the task callers and was no marker for
+// operator.Refusal: it is limited now (an intended tightening, no flow exports one); an empty one is not set.
+func TestABlankActorIsLimitedAndAnEmptyOneIsNotSet(t *testing.T) {
+	f := orgGateFixture(t)
+	opgate.SetForTest(t, f.cfg.gateRefusal)
+	t.Setenv("MONOAGENT_ACTOR", "   ")
+	if operator.Refusal() != "" || opgate.Refusal() == "" {
+		t.Fatalf("marker check %q, gate %q", operator.Refusal(), opgate.Refusal())
+	}
+	t.Setenv("MONOAGENT_ACTOR", "")
+	if opgate.Refusal() != "" {
+		t.Fatalf("an empty MONOAGENT_ACTOR refused: %s", opgate.Refusal())
 	}
 }
 

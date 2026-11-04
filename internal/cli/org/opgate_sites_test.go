@@ -2,10 +2,13 @@ package org
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/cli/opgate"
+	"github.com/monoes/mono-agent/internal/monomind"
 )
 
 const turnStandIn = "stand-in: a model's shell inside a coder turn"
@@ -62,5 +65,49 @@ func TestOrgAutonomyAndGrantAddAskTheTurnAwareGate(t *testing.T) {
 	}
 	if g := f.mustRun(t, "grant", "add", "growth", "--role", "lead", "--automation", "summarize")["grant"].(map[string]interface{}); g["approval"] != "required" {
 		t.Errorf("a grant without --approval: %v", g)
+	}
+}
+
+func TestOrgApproveAsksTheTurnAwareGate(t *testing.T) {
+	dir := t.TempDir()
+	argsLog := filepath.Join(dir, "args.log")
+	bin := filepath.Join(dir, "monomind")
+	pending := `{"v":1,"items":[` +
+		`{"roleId":"writer","action":"monoagent__automation_send","question":"q","ts":1,"approved":null,"requestId":"r1"},` +
+		`{"roleId":"writer","action":"monoagent__automation_sum","question":"q","ts":2,"approved":null,"requestId":"r2"}]}`
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"+
+		`if [ "$1" = "--version" ]; then echo '{"v":1,"version":"9.0.0","min_caller":"1.0.0","capabilities":["agent-exec","agent-scan","org-json-v1"]}'; exit 0; fi`+"\n"+
+		`case "$*" in *"org approvals"*) echo '`+pending+`'; exit 0 ;; esac`+"\n"+
+		`echo "$*" >> '`+argsLog+"'\necho '{\"v\":1,\"ok\":true}'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(monomind.EnvOverride, bin)
+	t.Setenv("HOME", t.TempDir())
+	asInATurn(t)
+	cfg := &testConfig{DBPath: filepath.Join(t.TempDir(), "o.db"), ProfileID: "default"}
+	seedSendingGrants(t, cfg.DBPath, "growth", "writer")
+	run := func(args ...string) error {
+		var err error
+		captureStdout(t, func() {
+			cmd := newOrgCmd(cfg)
+			cmd.SetArgs(args)
+			cmd.SilenceErrors, cmd.SilenceUsage = true, true
+			err = cmd.Execute()
+		})
+		return err
+	}
+	if err := run("approve", "growth", "writer", "monoagent__automation_send"); exitCodeFor(err) != 3 ||
+		!strings.Contains(err.Error(), "which only the user approves: "+turnStandIn+"; deny it") {
+		t.Fatalf("approve of a sending automation: %v", err)
+	}
+	if err := run("approve", "growth", "writer", "MONOAGENT__AUTOMATION_SEND"); exitCodeFor(err) != 3 || !strings.Contains(err.Error(), "no pending approval of exactly") ||
+		!strings.Contains(err.Error(), turnStandIn) {
+		t.Fatalf("approve of a variant: %v", err)
+	}
+	if b, _ := os.ReadFile(argsLog); strings.Contains(strings.ToLower(string(b)), "automation_send") {
+		t.Fatalf("a refused approval reached monomind:\n%s", b)
+	}
+	if err := run("approve", "growth", "writer", "monoagent__automation_sum"); err != nil {
+		t.Fatalf("approving one that sends nothing: %v", err)
 	}
 }

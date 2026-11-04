@@ -2187,7 +2187,8 @@ that works a task acts on them. The defences:
   database that cannot be read gives the limited flavour too (these are not recovery verbs,
   and the limited flavour does not lock the operator out of anything an agent may do). An
   operator terminal started inside a turn gets the limits as well, like every other gated
-  verb.
+  verb. A `MONOAGENT_ACTOR` of only spaces (an agent without a name) used to count as the
+  operator for these verbs and is limited now; an empty one is not set.
   `automation install <dir> --local` (and `automation new --install`) installs with local
   trust. While it is open to a turn, the `automation trust --scripts/--live` gate does not
   stop a turn from getting the same result: a turn can write its own package directory,

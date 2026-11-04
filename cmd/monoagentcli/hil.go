@@ -119,15 +119,21 @@ type gateVerdict struct {
 	err      error
 }
 
-// gateVerdict asks, in this order, like the person gate of the task verbs: a process that holds an
-// agent token (an agent, whatever else its environment says); anything the environment and the
-// operator marker ancestry name as not the operator; a process inside a coder session's turn (a
-// model's shell that carries no marker). A courtesy layer, not proof: SECURITY.md says so.
+// gateVerdict asks, in this order: anything the environment and the operator marker ancestry name as
+// not the operator (notOperator, first because its text is exactly what a marked caller was always told,
+// whatever else it holds); a process that holds an agent token; the task caller's own refusal; a process
+// inside a coder session's turn (a model's shell that carries no marker). A courtesy layer, not proof:
+// SECURITY.md says so.
 //
 // recovery is for the commands that repair an install: an unreadable or absent database, or a turn
 // registry entry that cannot be read, is then "no turn recorded" and does not refuse; a turn
 // recorded in a readable database still does. Otherwise a process that cannot be placed is refused.
 func (c *globalConfig) gateVerdict(recovery bool, what string) gateVerdict {
+	// A marked caller (any combination of markers) gets exactly the text operator.Refusal gave before this gate
+	// existed, whatever else it holds: the marker decision comes first.
+	if why := notOperator(); why != "" {
+		return gateVerdict{why: why, sep: ": "}
+	}
 	for _, key := range taskcli.PersonTokenEnv() {
 		if os.Getenv(key) != "" {
 			return gateVerdict{why: key + " is set, so a process holding an agent token is running this command", sep: "; "}
@@ -139,9 +145,6 @@ func (c *globalConfig) gateVerdict(recovery bool, what string) gateVerdict {
 			why = why[:i]
 		}
 		return gateVerdict{why: why, err: err}
-	}
-	if why := notOperator(); why != "" {
-		return gateVerdict{why: why, sep: ": "}
 	}
 	in, err := c.callerInATurnFor(recovery)
 	if err != nil {
