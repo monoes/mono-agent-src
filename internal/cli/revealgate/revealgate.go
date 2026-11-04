@@ -23,7 +23,15 @@ func Refuse(what string) error { return refuse(what, opgate.Refusal()) }
 // so the decision and the refusal text cannot disagree. A process inside a coder turn that cleared
 // its markers, an agent token holder and a process that cannot be placed are on the agent path
 // like a marked agent.
-func RefuseFor(what, why string) error { return refuse(what, why) }
+//
+// A process the gate could not place (opgate.Unplaced: the database cannot be read) may be the
+// operator, for whom "run it yourself" cannot succeed, so its refusal says to retry or repair.
+func RefuseFor(what, why string) error {
+	if opgate.Unplaced(why) {
+		return clicore.OperatorOnly("%s prints decrypted secrets, which only the user reads: %s; retry, or repair the database", what, why)
+	}
+	return refuse(what, why)
+}
 
 func refuse(what, why string) error {
 	if why == "" {

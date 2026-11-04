@@ -20,6 +20,7 @@ const (
 	revealValue   = "level-secret-value"
 	revealRefusal = "secret reveal prints decrypted secrets, which only the user reads: "
 	revealTail    = "; run it yourself in your terminal or the app"
+	revealRepair  = "; retry, or repair the database"
 )
 
 func revealAuditRows(t *testing.T, dbPath string) int {
@@ -71,9 +72,7 @@ func revealContexts() []revealContext {
 		{"marked agent", func(t *testing.T) { t.Setenv("CLAUDECODE", "1") }, operator.Refusal},
 		{"in a turn, markers cleared", standIn("stand-in: inside a coder turn"), func() string { return "stand-in: inside a coder turn" }},
 		{"token holder", standIn("stand-in: an agent token"), func() string { return "stand-in: an agent token" }},
-		{"database unreadable", standIn("stand-in: cannot tell whether a coder session's turn runs this command (boom)"), func() string {
-			return "stand-in: cannot tell whether a coder session's turn runs this command (boom)"
-		}},
+		{"database unreadable", standIn(opgate.UnplacedPrefix + "boom)"), func() string { return opgate.UnplacedPrefix + "boom)" }},
 	}
 }
 
@@ -88,7 +87,7 @@ func TestSecretRevealRefusesTheAgentPathBelowTheRevealLevel(t *testing.T) {
 				if err == nil || clicore.ExitCodeFor(err) != 3 {
 					t.Fatalf("not refused (exit 3): %v", err)
 				}
-				if want := revealRefusal + c.why() + revealTail; err.Error() != want {
+				if want := revealRefusal + c.why() + revealTailFor(c.why()); err.Error() != want {
 					t.Fatalf("refusal text\n got: %s\nwant: %s", err.Error(), want)
 				}
 				if strings.Contains(out, revealValue) || strings.Contains(err.Error(), revealValue) {
@@ -142,4 +141,12 @@ func TestSecretRevealOperatorIsUnchanged(t *testing.T) {
 	if n := revealAuditRows(t, db); n != 0 {
 		t.Fatalf("the operator's reveal wrote %d audit row(s)", n)
 	}
+}
+
+// revealTailFor is how a refusal ends: a process the gate could not place is told to retry or repair.
+func revealTailFor(why string) string {
+	if opgate.Unplaced(why) {
+		return revealRepair
+	}
+	return revealTail
 }

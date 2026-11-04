@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
+	"io"
+	"os"
 	"strings"
 	"testing"
 
@@ -52,7 +55,7 @@ func revealGateContexts() []revealGateContext {
 				return coderhost.SessionTokenEnv + " is set, so a process holding an agent token is running this command"
 			}},
 		{name: "database unreadable", setup: func(t *testing.T, cfg *globalConfig) { withoutCoderSessionsColumn(t, cfg.DBPath) },
-			wantPart: "cannot tell whether a coder session's turn runs this command"},
+			wantPart: opgate.UnplacedPrefix},
 	}
 }
 
@@ -114,6 +117,9 @@ func checkRevealRefusal(t *testing.T, c revealGateContext, what string, err erro
 	}
 	head := what + " prints decrypted secrets, which only the user reads: "
 	tail := "; run it yourself in your terminal or the app"
+	if c.wantPart == opgate.UnplacedPrefix { // a process that could not be placed may be the operator
+		tail = "; retry, or repair the database"
+	}
 	msg := err.Error()
 	if c.why != nil {
 		if want := head + c.why() + tail; msg != want {
@@ -240,5 +246,118 @@ func TestMarkedCombinationsKeepTheMarkerRefusalText(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func revealVerbNamed(v revealVerb, name string) revealVerb {
+	switch v.what {
+	case "secret reveal":
+		v.run = func(t *testing.T, cfg *globalConfig) (string, error) {
+			return runSendCLI(t, cfg, newSecretCmd(cfg), "reveal", name, "--reveal")
+		}
+	default:
+		v.run = func(t *testing.T, cfg *globalConfig) (string, error) {
+			return runSendCLI(t, cfg, newNodeRunCmd(cfg), "vault.secret_get", "--config", `{"name":"`+name+`"}`, "--output", "json")
+		}
+	}
+	return v
+}
+
+// everything a command wrote to stdout and stderr while it ran.
+func bothStreams(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stderr
+	os.Stderr = w
+	done := make(chan []byte)
+	go func() { b, _ := io.ReadAll(r); done <- b }()
+	var out string
+	func() {
+		defer func() { os.Stderr = orig; w.Close() }()
+		out = captureStdout(t, fn)
+	}()
+	return out + string(<-done)
+}
+
+// When the audit row of an agent's reveal cannot be written, the value is withheld: the command fails and
+// neither stream carries the plaintext, for every agent context and both verbs.
+func TestRevealVerbsWithholdThePlaintextWhenTheAuditCannotBeWritten(t *testing.T) {
+	for _, v := range revealVerbs() {
+		for _, c := range revealGateContexts() {
+			t.Run(v.name+"/"+c.name, func(t *testing.T) {
+				cfg := revealGateFixture(t, "reveal")
+				db, err := storage.NewDatabase(cfg.DBPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := db.DB.Exec(`CREATE TRIGGER audit_broken BEFORE INSERT ON profile_agent_secret_audit BEGIN SELECT RAISE(ABORT, 'audit broken'); END`); err != nil {
+					t.Fatal(err)
+				}
+				db.DB.Close()
+				c.setup(t, cfg)
+				var out string
+				var runErr error
+				all := bothStreams(t, func() { out, runErr = v.run(t, cfg) })
+				if runErr == nil {
+					t.Fatalf("the command succeeded with no audit row: %q", out)
+				}
+				if strings.Contains(all+out+runErr.Error(), revealSecretValue) {
+					t.Fatalf("plaintext reached the output: %q %q %v", all, out, runErr)
+				}
+				if n := revealGateAuditRows(t, cfg); n != 0 {
+					t.Fatalf("%d audit rows", n)
+				}
+			})
+		}
+	}
+}
+
+// A refused caller causes no lookup of the entry and no keyring access: the gate runs first. The keyring
+// fails every call and the name is one the vault does not hold, so a lookup would answer "no secret named" and
+// a decrypt would answer the keyring's error; the refusal is all a refused caller sees. The operator control
+// shows the same setup does reach the lookup.
+func TestRevealVerbsRefuseBeforeAnyLookupOrKeyringAccess(t *testing.T) {
+	for _, v := range revealVerbs() {
+		for _, level := range []string{"strict", "use"} {
+			for _, c := range revealGateContexts() {
+				for _, name := range []string{"vs", "missing"} {
+					t.Run(v.name+"/"+level+"/"+c.name+"/"+name, func(t *testing.T) {
+						cfg := revealGateFixture(t, level)
+						keyring.MockInitWithError(errors.New("keyring touched"))
+						c.setup(t, cfg)
+						out, err := revealVerbNamed(v, name).run(t, cfg)
+						checkRevealRefusal(t, c, v.what, err)
+						if strings.Contains(out+err.Error(), "keyring touched") || strings.Contains(out+err.Error(), "no secret named") {
+							t.Fatalf("the command looked the entry up or touched the keyring: %q %v", out, err)
+						}
+					})
+				}
+			}
+		}
+		t.Run(v.name+"/operator control", func(t *testing.T) {
+			cfg := revealGateFixture(t, "strict")
+			keyring.MockInitWithError(errors.New("keyring touched"))
+			_, err := revealVerbNamed(v, "missing").run(t, cfg)
+			if err == nil || !strings.Contains(err.Error(), "no secret named") {
+				t.Fatalf("the operator's lookup of a missing name: %v", err)
+			}
+		})
+	}
+}
+
+// The gate marks a process it could not place, and only that one: the reveal verbs word that refusal for a
+// caller who may be the operator (retry or repair), nothing else.
+func TestOnlyAnUnplacedProcessIsMarkedUnplaced(t *testing.T) {
+	for _, c := range revealGateContexts() {
+		t.Run(c.name, func(t *testing.T) {
+			cfg := revealGateFixture(t, "strict")
+			c.setup(t, cfg)
+			if got, want := opgate.Unplaced(opgate.Refusal()), c.wantPart == opgate.UnplacedPrefix; got != want {
+				t.Fatalf("Unplaced(%q) = %v, want %v", opgate.Refusal(), got, want)
+			}
+		})
 	}
 }

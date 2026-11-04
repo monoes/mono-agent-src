@@ -18,9 +18,10 @@ import (
 // contexts are in cmd/monoagentcli; here the registered body is a stand-in.
 
 const (
-	nodeRevealValue = "node-reveal-value"
-	nodeRevealTail  = "; run it yourself in your terminal or the app"
-	nodeRevealHead  = "node run vault.secret_get prints decrypted secrets, which only the user reads: "
+	nodeRevealValue  = "node-reveal-value"
+	nodeRevealTail   = "; run it yourself in your terminal or the app"
+	nodeRevealRepair = "; retry, or repair the database"
+	nodeRevealHead   = "node run vault.secret_get prints decrypted secrets, which only the user reads: "
 )
 
 func nodeRevealFixture(t *testing.T, level string) string {
@@ -71,7 +72,7 @@ func nodeRevealContexts() []nodeRevealContext {
 		{"marked agent", func(t *testing.T) { t.Setenv("CLAUDECODE", "1") }, operator.Refusal},
 		standIn("stand-in: inside a coder turn"),
 		standIn("stand-in: an agent token"),
-		standIn("stand-in: cannot tell whether a coder session's turn runs this command (boom)"),
+		standIn(opgate.UnplacedPrefix + "boom)"),
 	}
 }
 
@@ -91,7 +92,7 @@ func TestNodeRunVaultSecretGetRefusesTheAgentPathBelowTheRevealLevel(t *testing.
 				if code := clicore.ExitCodeFor(err); code != 3 {
 					t.Fatalf("exit %d: %v", code, err)
 				}
-				if want := nodeRevealHead + c.why() + nodeRevealTail; err.Error() != want {
+				if want := nodeRevealHead + c.why() + nodeRevealTailFor(c.why()); err.Error() != want {
 					t.Fatalf("refusal text\n got: %s\nwant: %s", err.Error(), want)
 				}
 				if strings.Contains(out, nodeRevealValue) || strings.Contains(err.Error(), nodeRevealValue) {
@@ -145,4 +146,12 @@ func TestNodeRunVaultSecretGetOperatorIsUnchanged(t *testing.T) {
 	if n := nodeRevealAuditRows(t, dbPath); n != 0 {
 		t.Fatalf("%d audit row(s) for the operator", n)
 	}
+}
+
+// nodeRevealTailFor is how a refusal ends: a process the gate could not place is told to retry or repair.
+func nodeRevealTailFor(why string) string {
+	if opgate.Unplaced(why) {
+		return nodeRevealRepair
+	}
+	return nodeRevealTail
 }
