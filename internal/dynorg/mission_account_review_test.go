@@ -207,7 +207,7 @@ func TestStartlessFailuresAreBoundedAndParkTheSession(t *testing.T) {
 		t.Fatalf("%d notices, want 1", n)
 	}
 	b, _ := json.Marshal(r.em.find("notice"))
-	for _, want := range []string{"failed 3 times without starting", "charged the whole grant", "check the login", "w-1", fmt.Sprintf("session #%d", r.sid), "$3.00"} {
+	for _, want := range []string{"failed 3 times without starting", "charged the whole grant", "check the login", "w-1", fmt.Sprintf("Session #%d", r.sid), "$3.00"} {
 		if !strings.Contains(string(b), want) {
 			t.Fatalf("the notice lacks %q: %s", want, b)
 		}

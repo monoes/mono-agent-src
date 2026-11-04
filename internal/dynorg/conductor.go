@@ -112,6 +112,9 @@ type Conductor struct {
 	// 128 random bits, never derived from the process id. execSeq numbers its runs, so an exec id is never reused.
 	ownerID string
 	execSeq atomic.Int64
+	// slMu guards startless (mission_account.go): per session, the start-less failures in a row.
+	slMu      sync.Mutex
+	startless map[int64]*startlessState
 	// settingNoted: the "setting unreadable" notice went out (once per Conductor).
 	settingNoted atomic.Bool
 }

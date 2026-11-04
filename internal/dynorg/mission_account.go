@@ -76,6 +76,8 @@ type runAcct struct {
 	// started: the runtime showed it started (a start or usage event). unclear: no start was seen but Exec came back with
 	// a result (or without an error), so it is unknown whether the model was called.
 	started, unclear bool
+	// startlessFail: the run failed with a result and no start event, so it is charged its whole grant (startlessFailure).
+	startlessFail bool
 	// backoff: the last streamed charge failed; no further per-event attempt until the heartbeat or the settle retries.
 	// noted is the failure classes already told to the operator for this run.
 	backoff bool
@@ -110,6 +112,9 @@ func (c *Conductor) enterRun(ctx context.Context, w *worker, opts *monomind.Exec
 	mc, err := c.missions()
 	if err != nil || mc.WorkerReservations == nil {
 		return nil, nil
+	}
+	if c.startlessBlocked(w.task.session) {
+		return nil, fmt.Errorf("%w: the runtime failed %d times without starting on session #%d: it is parked until the operator resumes it", errBudgetRefused, maxStartlessFailures, w.task.session)
 	}
 	first, second := c.enterCap, c.enterReserve
 	if c.reservationSetting(ctx, mc) {
@@ -223,6 +228,7 @@ func (c *Conductor) noteFinal(w *worker, a *runAcct, m Model, run *monomind.Turn
 		a.badReport = true
 	}
 	a.unclear = !a.started && (res != nil || execErr == nil)
+	a.startlessFail = a.unclear && (execErr != nil || (res != nil && res.Err != nil))
 	w.task.spendMu.Unlock()
 }
 
@@ -337,6 +343,7 @@ func (c *Conductor) endRun(w *worker, a *runAcct) {
 	grant := a.started || a.unclear || a.badReport
 	total := max(a.peak, a.final)
 	bad, held := a.badReport, a.grant
+	started, startless := a.started, a.startlessFail
 	w.task.spendMu.Unlock()
 	if a.mode == modeCap {
 		_ = mc.Store.EndCapRun(ctx, mc.ProfileID, a.id, c.ownerID) // a failure lapses the row: it frees the mode after the grace
@@ -344,6 +351,9 @@ func (c *Conductor) endRun(w *worker, a *runAcct) {
 	}
 	if lost {
 		return // the notice named the cost when it was lost
+	}
+	if ran {
+		defer c.startlessOutcome(w, a, started, startless, held)
 	}
 	if !ran || (!streamed && !finalOK && !grant) {
 		if err := mc.Store.ReleaseReservation(ctx, mc.ProfileID, a.id, c.ownerID); err != nil && !errors.Is(err, tasks.ErrReservationLost) {
@@ -442,4 +452,93 @@ func (c *Conductor) heartbeat(ctx context.Context, mc *MissionRun, w *worker, no
 // expireStale lets the store lapse the reservations whose owners have gone (any process may).
 func (c *Conductor) expireStale(ctx context.Context, mc *MissionRun, sid int64) {
 	_, _ = mc.Store.ExpireStale(ctx, mc.ProfileID, sid) // a hold a dead Conductor left stays held: only the lease and grace fence it
+}
+
+// startlessState is a session's run of start-less failures in this Conductor.
+type startlessState struct {
+	n          int
+	charged    float64
+	blocked    bool
+	pausedSeen bool
+}
+
+// startlessOutcome keeps the count of start-less failures. A start-less failure (a result with an error and no start
+// event: a wrong login, say) is charged the whole grant, so a retry loop would drain the budget one grant at a time. After
+// maxStartlessFailures in a row on a session it is PAUSED with the scheduler's existing park (missionHalt's: only the operator
+// resumes it), the workers are stopped, the operator is told once, and enterRun starts nothing until the operator has
+// resumed. A run that started resets the count. The most a session loses is maxStartlessFailures grants per Conductor
+// (the count is not stored: a restarted turn starts it again). The failure is not told apart from a model that was in
+// fact called, so no failure is charged less than the grant.
+func (c *Conductor) startlessOutcome(w *worker, a *runAcct, started, startless bool, grant float64) {
+	c.slMu.Lock()
+	if c.startless == nil {
+		c.startless = map[int64]*startlessState{}
+	}
+	st := c.startless[a.sid]
+	if st == nil {
+		st = &startlessState{}
+		c.startless[a.sid] = st
+	}
+	if started {
+		if !st.blocked {
+			st.n, st.charged = 0, 0
+		}
+		c.slMu.Unlock()
+		return
+	}
+	if !startless || st.blocked {
+		c.slMu.Unlock()
+		return
+	}
+	st.n++
+	st.charged += grant
+	block, n, charged := st.n >= maxStartlessFailures, st.n, st.charged
+	if block {
+		st.blocked = true
+	}
+	c.slMu.Unlock()
+	if !block {
+		return
+	}
+	mc, err := c.missions()
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(c.ctx), 10*time.Second)
+	defer cancel()
+	paused := "The session is paused: resume it once the login is fixed."
+	if _, err := mc.Store.PauseSession(ctx, mc.ProfileID, a.sid, tasks.Actor{Kind: tasks.Agent, Name: missionConductorName, Session: a.sid}); err == nil {
+		c.slMu.Lock()
+		st.pausedSeen = true // we paused it: a later running state is the operator's resume
+		c.slMu.Unlock()
+	} else {
+		paused = "The session could not be paused (" + err.Error() + "): no further run starts from this turn; pause and resume the session after fixing the login."
+	}
+	c.notice("mission.runtime_failing", fmt.Sprintf("Session #%d: the runtime failed %d times without starting (last worker %s); each failure was charged the whole grant ($%.2f in total); check the login. %s",
+		a.sid, n, w.id, charged, paused), chatevents.SeverityError)
+	c.stopSessionWorkers(a.sid, "the runtime failed without starting")
+}
+
+// startlessBlocked says whether the session is parked by startlessOutcome.
+func (c *Conductor) startlessBlocked(sid int64) bool {
+	c.slMu.Lock()
+	defer c.slMu.Unlock()
+	st := c.startless[sid]
+	return st != nil && st.blocked
+}
+
+// startlessTick lifts the block once the operator has resumed the session: it was seen not running (paused) and is
+// running again.
+func (c *Conductor) startlessTick(sid int64, state tasks.SessionState) {
+	c.slMu.Lock()
+	defer c.slMu.Unlock()
+	st := c.startless[sid]
+	if st == nil || !st.blocked {
+		return
+	}
+	if state != tasks.SessionRunning {
+		st.pausedSeen = true
+	} else if st.pausedSeen {
+		delete(c.startless, sid)
+	}
 }
