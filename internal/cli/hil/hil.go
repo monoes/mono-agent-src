@@ -124,7 +124,7 @@ func (d Deps) newHILListCmd() *cobra.Command {
 			if suggest || resuggest {
 				suggestHILItems(cmd.Context(), db.DB, d.ProfileID(), items, resuggest)
 			}
-			if operator.Marker() != "" {
+			if operator.NotUser() != "" {
 				hideReplyTokens(cmd.Context(), db.DB, items)
 			}
 
@@ -176,7 +176,7 @@ func (d Deps) newHILListCmd() *cobra.Command {
 	return cmd
 }
 
-// hideReplyTokens hides, for a marked process, the reply tokens in items'
+// hideReplyTokens hides, for a process that is not the user's own terminal, the reply tokens in items'
 // data, as in the run's data (workflow.ReplyRedactor): a token there can
 // answer a reply that opens once the item is approved.
 func hideReplyTokens(ctx context.Context, db *sql.DB, items []hilItem) {

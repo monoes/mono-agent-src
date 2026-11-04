@@ -171,6 +171,7 @@ func (c *globalConfig) gateRefusal(recovery bool) string {
 var recoverySkippedEntry = func(err error) { fmt.Fprintln(os.Stderr, "warning: "+err.Error()) }
 
 func registerOperatorGate(cfg *globalConfig) {
+	logGateRegistered.Store(true)
 	opgate.Register(cfg.gateRefusal)
 	opgate.RegisterRecovery(cfg.gateRecovery)
 }

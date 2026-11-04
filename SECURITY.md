@@ -2259,6 +2259,17 @@ that works a task acts on them. The defences:
   one that refuses it, and its commands and shells get the token through
   `MONOAGENT_TASK_BINDING`, which the token-variable layer refuses
   (`TestTheProcessHoldingAV2TaskTokenIsRefusedByTheTurnAncestry`).
+- **Reply tokens and links follow the gate's verdict, not the marker alone:** the CLI's
+  views of a run and of a Human-in-Loop item (`workflow execution|executions|run|retry`,
+  `summary`, `hil list`) and the process's own log lines hide a reply's token, and the links
+  of a reply that lets a message to a person go out, from every process the gate would
+  limit: a marked one, one inside a coder session's turn that cleared its markers, one
+  holding an agent token, one the gate cannot place (it hides). A marked caller's output
+  is unchanged. A terminal started inside a coder turn therefore sees redacted reply
+  links and tokens; read them in your own terminal or the app. The log filter asks the
+  turn check once, at the first line written after the gate registers, and keeps the
+  answer; lines before the gate registers are judged by the marker alone. This hiding is
+  a speed bump, not a boundary (AGENTS.md).
 - **Limits that stop a loop from flooding the board:** 2,000 open
   tasks per profile (every
   task that is not archived, Done ones included; a task that comes back

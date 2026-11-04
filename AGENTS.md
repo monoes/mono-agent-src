@@ -4136,6 +4136,15 @@ the session, a later one of which may send. Only a node's own reply link (a
 `sendAndWait` message's) in front of nothing that sends is listed for an
 agent.
 
+A process inside a coder session's turn that cleared its markers, one holding
+an agent token and one the gate cannot place (an unreadable database) count as
+these callers for every view in this section that hides a reply (`workflow
+execution`, `workflow executions`, `summary`, `workflow run`/`retry`, `hil
+list` and the process's own log lines), judged as `operator.NotUser` does
+(the gate's verdict, `internal/cli/opgate`); a marked caller's output is
+unchanged. A terminal started inside a turn sees redacted reply links and
+tokens: use your own terminal, or the app, to read them.
+
 Its token stays out of the run's data too, as a node can put
 `$execution.resumeUrl` or a reply link in its items or its error. Those
 callers see `[reply token hidden]` in its place in `workflow execution`,

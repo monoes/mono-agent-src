@@ -30,6 +30,7 @@ const (
 	heldB     = "held: class B, the verb has an agent path next to the operator's; waits for the owner's answers (issue 1333)"
 	reader    = "reader, not a verb gate: redaction, display or engine behaviour that follows the marker"
 	gateImp   = "the gate's own implementation"
+	redaction = "reply-token redaction: the hook-aware helper (operator.NotUser), not a verb gate"
 )
 
 type allowed struct {
@@ -48,19 +49,19 @@ var legacyMarkerChecks = map[string]allowed{
 	"internal/nodes/agent_run_gate.go":              {1, heldB + " (node run of browser packages)"},
 	"internal/nodes/browserjev/gate.go":             {1, "engine node gate (IsAgentContext), not a CLI verb gate"},
 	"internal/nodes/publication/register.go":        {1, heldB + " (publication register)"},
-	"cmd/monoagentcli/main.go":                      {1, reader + " (log filter)"},
+	"cmd/monoagentcli/main.go":                      {2, redaction + " (log filter; Marker picks the no-database filter for a marked process)"},
 	"cmd/monoagentcli/task.go":                      {2, "task verbs have their own gate (personGate, NotOperator; operator.Caller names who added a task)"},
 	"cmd/monoagentcli/task_session_guard.go":        {1, "task-session scoping, not a verb gate"},
 	"internal/cli/task/task.go":                     {2, "task verbs have their own gate (personGate, NotOperator)"},
 	"internal/browserctl/context.go":                {1, "definition of IsAgentContext"},
 	"internal/browserctl/permissions.go":            {1, "browser permission engine, not a CLI verb gate"},
 	"internal/cli/doctor/doctor.go":                 {1, reader + " (file previews)"},
-	"internal/cli/hil/hil.go":                       {1, reader + " (reply tokens hidden from an agent's list)"},
-	"internal/cli/summary/summary.go":               {1, reader},
+	"internal/cli/hil/hil.go":                       {1, redaction + " (hil list)"},
+	"internal/cli/summary/summary.go":               {1, redaction},
 	"internal/cli/workflowaitask/workflowaitask.go": {1, reader + " (the audit line's actor)"},
-	"internal/cli/workflowmanage/manage.go":         {1, reader},
-	"internal/cli/workflowrun/execution.go":         {2, reader},
-	"internal/cli/workflowrun/summary.go":           {2, reader},
+	"internal/cli/workflowmanage/manage.go":         {1, redaction},
+	"internal/cli/workflowrun/execution.go":         {2, redaction},
+	"internal/cli/workflowrun/summary.go":           {2, redaction},
 	"internal/config/writeguard.go":                 {1, "reserved config writes, engine level"},
 }
 

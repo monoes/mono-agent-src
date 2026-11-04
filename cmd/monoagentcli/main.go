@@ -10,6 +10,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -77,16 +78,61 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
-// agentLogFilter keeps reply tokens out of the log lines of a process an
-// agent, the chat's runs or a workflow's process started (a node's error can
-// hold one); with no database open yet, every candidate is hidden
-// (workflow.ReplyRedactor). The user's own terminal gets nil: no filter.
+// agentLogFilter keeps reply tokens out of the log lines of a process that is not the user's own
+// terminal: one an agent, the chat's runs or a workflow's process started (a node's error can hold a
+// token), or one inside a coder turn that cleared its markers. With no database open yet, every candidate
+// is hidden (workflow.ReplyRedactor). A marked process gets that filter outright and no database is
+// opened for it. Any other process gets a lazy one: the turn check (operator.NotUser) opens the
+// coder-sessions database, and the filter is installed before the root command, its flags and the gate
+// exist, so it asks at the first line written once the gate is registered and keeps the answer.
 func agentLogFilter() func(string) string {
-	if operator.Marker() == "" {
-		return nil
+	hide := workflow.NewReplyRedactor(context.Background(), nil).String
+	if operator.Marker() != "" {
+		return hide
 	}
-	return workflow.NewReplyRedactor(context.Background(), nil).String
+	var state atomic.Int32 // logUndecided, logDeciding, logHide or logShow
+	return func(s string) string {
+		switch state.Load() {
+		case logShow:
+			return s
+		case logHide, logDeciding:
+			return hide(s) // while the check runs (it can log itself) lines fail closed
+		}
+		if !logGateReady() {
+			return s // before the gate is registered the process can only be judged by its marker: none
+		}
+		if !state.CompareAndSwap(logUndecided, logDeciding) {
+			return hide(s)
+		}
+		verdict := logHide // a check that panics or cannot answer hides
+		func() {
+			defer func() {
+				recover()
+				state.Store(verdict)
+			}()
+			if operator.NotUser() == "" {
+				verdict = logShow
+			}
+		}()
+		if verdict == logShow {
+			return s
+		}
+		return hide(s)
+	}
 }
+
+const (
+	logUndecided int32 = iota
+	logDeciding
+	logHide
+	logShow
+)
+
+// logGateRegistered is set by registerOperatorGate; a test binary binds its own gate (opgate.SetForTest)
+// and counts as registered.
+var logGateRegistered atomic.Bool
+
+func logGateReady() bool { return logGateRegistered.Load() || inTestBinary() }
 
 // exitCredFrame is the exit code of a turn whose credential frame was missing or malformed (EX_SOFTWARE).
 const exitCredFrame = 70

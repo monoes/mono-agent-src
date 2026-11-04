@@ -429,9 +429,9 @@ func (d Deps) newExecutionsCmd() *cobra.Command {
 }
 
 // replyRedactor hides reply tokens in a run's error and trigger data from a
-// marked process (workflow.ReplyRedactor); the user's own terminal gets nil.
+// process that is not the user's own terminal (marked or inside a coder turn; workflow.ReplyRedactor); the user's own terminal gets nil.
 func replyRedactor(ctx context.Context, db *sql.DB, executionIDs ...string) *workflow.ReplyRedactor {
-	if operator.Marker() == "" {
+	if operator.NotUser() == "" {
 		return nil
 	}
 	return workflow.NewReplyRedactor(ctx, db, executionIDs...)

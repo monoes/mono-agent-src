@@ -105,7 +105,7 @@ func executionSummaryFromStore(ctx context.Context, db *storage.Database, execut
 	// Reply tokens in the run's data are hidden from a marked process, as
 	// in `workflow execution` (workflow.ReplyRedactor).
 	var rr *workflow.ReplyRedactor
-	if operator.Marker() != "" {
+	if operator.NotUser() != "" {
 		rr = workflow.NewReplyRedactor(ctx, db.DB, executionID)
 	}
 	summary := executionSummaryJSON{
@@ -161,10 +161,10 @@ func truncateOutputItems(items []workflow.Item) []workflow.Item {
 	return workflow.TruncateItems(items)
 }
 
-// replyRedactor hides the reply tokens of executionID's data from a marked
-// process (nil for the user's own terminal); done closes what it opened.
+// replyRedactor hides the reply tokens of executionID's data from a process that
+// is not the user's own terminal (marked or inside a coder turn; nil for the user); done closes what it opened.
 func (d Deps) replyRedactor(ctx context.Context, executionID string) (rr *workflow.ReplyRedactor, done func()) {
-	if operator.Marker() == "" {
+	if operator.NotUser() == "" {
 		return nil, func() {}
 	}
 	db, err := d.OpenDB()
