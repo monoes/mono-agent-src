@@ -49,7 +49,10 @@ func TestAgentAccessStatusFlagsGrantsWithNoHostBinding(t *testing.T) {
 	if out := json(); !strings.Contains(out, `"any_host": true`) || !strings.Contains(out, `"host_binding": "none"`) {
 		t.Errorf("--any-host: %s", out)
 	}
-	if out := text(); !strings.Contains(out, "ANY (no host binding") {
+	if out := json(); !strings.Contains(out, `"carrying_runs_refuse_unchecked_nodes": false`) {
+		t.Errorf("--any-host json: %s", out)
+	}
+	if out := text(); strings.Contains(out, "refuses node types") || !strings.Contains(out, "ANY (no host binding") {
 		t.Errorf("--any-host text: %s", out)
 	}
 	if _, err := runSecretCmd(t, db, "agent-access", "on", "--yes", "--host", "a.example"); err != nil {
@@ -57,6 +60,12 @@ func TestAgentAccessStatusFlagsGrantsWithNoHostBinding(t *testing.T) {
 	}
 	if out := json(); !strings.Contains(out, `"any_host": false`) || !strings.Contains(out, `"host_binding": "hosts"`) {
 		t.Errorf("--host: %s", out)
+	}
+	if out := json(); !strings.Contains(out, `"carrying_runs_refuse_unchecked_nodes": true`) {
+		t.Errorf("--host json: %s", out)
+	}
+	if out := text(); !strings.Contains(out, "refuses node types whose destinations cannot be checked") {
+		t.Errorf("--host text lacks the note: %s", out)
 	}
 	if out := text(); strings.Contains(out, "no host binding") || !strings.Contains(out, "a.example") {
 		t.Errorf("--host text: %s", out)

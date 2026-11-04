@@ -70,7 +70,10 @@ func EgressOf(nodeType string) Egress {
 // secret, when an earlier step of the run did: that is CheckSendHost's rule
 // for http and mcp, now for every node type.
 func CheckEgress(ctx context.Context, nodeType string, keys [][]string, resolved map[string]interface{}) error {
-	// The http nodes, mcp.call and trigger.sse check every hop at the send.
+	// A legacy name is the type that runs it (the http nodes, mcp.call and
+	// trigger.sse check every hop at the send; the table classifies the
+	// canonical type).
+	nodeType = CanonicalNodeType(nodeType)
 	if !secrets.UnderAgentAccess(ctx) || secrets.ChecksHostAtSend(nodeType) {
 		return nil
 	}

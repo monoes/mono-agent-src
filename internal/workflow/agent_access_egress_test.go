@@ -406,3 +406,32 @@ func TestEverySecretResolutionGoesThroughResolveNodeConfig(t *testing.T) {
 		}
 	}
 }
+
+// A legacy name or alias of a type is that type for the egress check: an alias
+// of http.request, http.graphql or mcp.call is skipped like the type itself
+// (their per-hop check at the send applies), and an alias of a checked type is
+// checked.
+func TestEgressCheckFollowsAliases(t *testing.T) {
+	e := newHostBound(t)
+	for alias, canonical := range map[string]string{"test_alias_request": "http.request", "test_alias_graphql": "http.graphql", "test_alias_mcp": "mcp.call", "test_alias_probe": "test.destprobe"} {
+		legacyNodeTypes[alias] = canonical
+		alias := alias
+		t.Cleanup(func() { delete(legacyNodeTypes, alias) })
+	}
+	ctx := secrets.AllowResolving(e.ctx, e.db.DB, "default", secrets.AccessOrigin{WorkflowID: "w", ExecutionID: "x"})
+	if _, err := secrets.Resolve(secrets.WithAccessNode(ctx, "n", "N"), e.db.DB, "default", "@secret:vs"); err != nil {
+		t.Fatal(err)
+	}
+	ctx = secrets.WithAccessNode(ctx, "m", "M")
+	cfg := map[string]interface{}{"url": "https://evil.example/x"}
+	for _, typ := range []string{"http.request", "test_alias_request", "http.graphql", "test_alias_graphql", "mcp.call", "test_alias_mcp"} {
+		if err := CheckEgress(ctx, typ, [][]string{{"url"}}, cfg); err != nil {
+			t.Errorf("%s: skipped at the engine like the canonical type, got %v", typ, err)
+		}
+	}
+	for _, typ := range []string{"test.destprobe", "test_alias_probe"} {
+		if err := CheckEgress(ctx, typ, [][]string{{"url"}}, cfg); !errors.Is(err, secrets.ErrHostNotAllowed) {
+			t.Errorf("%s: a checked type's outside host was not refused: %v", typ, err)
+		}
+	}
+}

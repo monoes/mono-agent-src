@@ -100,6 +100,10 @@ func (d Deps) newSecretAgentAccessCmd() *cobra.Command {
 					out["hosts"] = g.Hosts
 					out["any_host"] = g.AnyHost
 					out["host_binding"] = hostBinding(g)
+					// Only meaningful with a host binding: a run that carries a
+					// secret read under it refuses node types whose destinations
+					// the engine cannot check (workflow.EgressUnchecked).
+					out["carrying_runs_refuse_unchecked_nodes"] = !g.AnyHost
 					out["expires_at"] = g.ExpiresAt
 				}
 				return enc.Encode(out)
@@ -115,6 +119,7 @@ func (d Deps) newSecretAgentAccessCmd() *cobra.Command {
 				fmt.Fprintln(w, "  hosts:   ANY (no host binding: a secret can be sent to any address a workflow names; a grant made before host binding looks the same, so run agent-access on --host to bind it)")
 			} else {
 				fmt.Fprintf(w, "  hosts:   %s\n", strings.Join(g.Hosts, ", "))
+				fmt.Fprintln(w, "  note:    a run that carries one of these secrets refuses node types whose destinations cannot be checked (most vendor nodes); use --any-host or an approved workflow for those")
 			}
 			if g.ExpiresAt != nil {
 				fmt.Fprintf(w, "  expires: %s\n", g.ExpiresAt.Local().Format(time.RFC3339))
