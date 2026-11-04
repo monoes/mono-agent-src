@@ -36,7 +36,9 @@ const (
 // DefaultModel tracks the newest Jev release.
 const DefaultModel = "jev-latest"
 
-// DefaultBaseURL is TypeSafe's API host; TYPESAFE_BASE_URL overrides it.
+// DefaultBaseURL is TypeSafe's API host. NewClient reads TYPESAFE_BASE_URL, but
+// only jevconf.ClientFor builds a client for a resolved key: it sends a stored
+// key here and lets the override pair with TYPESAFE_API_KEY alone.
 var DefaultBaseURL = "https://api.typesafe.ai"
 
 // ErrNoAPIKey is returned when neither config nor TYPESAFE_API_KEY has a key.
@@ -165,9 +167,20 @@ func NewClient(apiKey, model string) (*Client, error) {
 		APIKey:  apiKey,
 		BaseURL: strings.TrimRight(base, "/"),
 		Model:   model,
-		HTTP:    credhttp.Client(&http.Client{Timeout: 25 * time.Second}), // a redirect elsewhere gets no API key
+		// A redirect elsewhere gets no API key, and no proxy sees it: the key goes to the
+		// host itself, whatever HTTP_PROXY / HTTPS_PROXY say. (SSL_CERT_FILE / SSL_CERT_DIR
+		// still extend the system roots: the standard library offers no way to ignore them
+		// short of shipping our own root list.)
+		HTTP:    credhttp.Client(&http.Client{Timeout: 25 * time.Second, Transport: keyedTransport()}),
 		Retries: 2,
 	}, nil
+}
+
+// keyedTransport is the default transport without a proxy.
+func keyedTransport() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.Proxy = nil
+	return t
 }
 
 // Ask sends the questions about state in one request and validates every

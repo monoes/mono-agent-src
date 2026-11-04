@@ -467,6 +467,45 @@ What stays open:
 - A workflow you approved may name a host for a connection that names
   none, and the secret goes there whoever runs the workflow.
 
+### The TypeSafe key went to any host `TYPESAFE_BASE_URL` named, up to the fix for #1333
+
+Before this fix the TypeSafe Jev key could be sent to a host of the caller's
+choosing, and read without the vault's agent-access check. This is a fix for
+marked agents too, not only for processes a coder turn runs, and it was
+there from the start: `jevconf.ResolveKey` read the stored `typesafe` entry
+(or `TYPESAFE_API_KEY`) with no check of the unapproved-step refusal, and
+the Jev client sent it as `Authorization: Bearer` to the host in
+`TYPESAFE_BASE_URL`, which the caller's environment sets. An agent (or an AI's
+step) that ran `ai.choose`, `browser.jev`, `human_in_loop` auto-decide or any
+other Jev surface, or `jev models` / `jev key test` / `jev ask`, with
+`TYPESAFE_BASE_URL=http://its-own-listener` got the stored key there, whether
+agent access was off or on (under a grant the implicit read skipped the
+per-secret check and the audit that an explicit `@secret:` reference gets).
+
+Now the lookup of the stored key is a secret read like any other
+(`secrets.RefusedReference`, and `secrets.Resolve` under agent access: its
+grant, which fails closed when it cannot be read, its node-type rule and an
+audit row named `typesafe`), and the key goes only where `jevconf.BaseURL`
+says. **A stored key, and a step's own `api_key`, always goes to the TypeSafe
+host; a `TYPESAFE_BASE_URL` that used to redirect it (a proxy, a self-hosted
+TypeSafe) is now an error for it** (`TYPESAFE_BASE_URL ignored: it pairs only
+with TYPESAFE_API_KEY from your own terminal`), not a silent send to the
+default host. The override pairs only with `TYPESAFE_API_KEY`, only from the
+operator's own terminal (no marker, no coder turn, no unapproved step), and
+only as https, or http to localhost, 127.0.0.1 or [::1] (`http` to a LAN host
+is refused). The Jev client reads no proxy environment (`HTTP_PROXY`,
+`HTTPS_PROXY`), so the key is never handed to a proxy; `SSL_CERT_FILE` and
+`SSL_CERT_DIR` still extend the roots it trusts, as the standard library offers
+no way to ignore them. The class is held by a source pin
+(`internal/jev/jevconf/source_pin_test.go`, syntax and import aware): no code
+outside `internal/jev` builds a Jev client or a `jev.Client`, resolves a key for
+a send apart from `jevconf.ResolveClient`, or names `TYPESAFE_BASE_URL`.
+
+What stays open: a `TYPESAFE_API_KEY` you put in an agent's environment is the
+agent's to spend, on the TypeSafe host; and an agent that runs `jev ask` with
+the stored key (outside a step, no agent-access check there) spends the
+stored key on the TypeSafe host.
+
 ### File-based keyring fallback (weaker posture)
 
 When `MONOAGENT_ALLOW_FILE_KEYRING=1` is set and no OS keyring is

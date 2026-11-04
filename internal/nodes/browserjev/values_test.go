@@ -467,7 +467,8 @@ func TestLowConfidenceStepsCounted(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"model": "jev-test", "answers": answers})
 	}))
 	t.Cleanup(srv.Close)
-	t.Setenv("TYPESAFE_BASE_URL", srv.URL)
+	t.Setenv("TYPESAFE_BASE_URL", "")
+	jevtest.DefaultHost(t, srv.URL)
 	res := runNode(t, testNode(&fakeDriver{}, zurich))
 	if res["status"] != "done" || res["low_confidence_steps"] != 1 {
 		t.Fatalf("status=%v low_confidence_steps=%v", res["status"], res["low_confidence_steps"])

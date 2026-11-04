@@ -149,12 +149,10 @@ func newJevKeyTestCmd(d Deps) *cobra.Command {
 				}
 				return jevKeyErr(e)
 			}
-			key, source, err := jevconf.ResolveKey(cmd.Context(), db.DB, d.ProfileID(), "")
-			if err != nil {
-				return fail(err)
+			c, source, err := jevconf.ResolveClient(cmd.Context(), db.DB, d.ProfileID(), "", "")
+			if source != "" {
+				res["key_source"] = source
 			}
-			res["key_source"] = source
-			c, err := jev.NewClient(key, "")
 			if err != nil {
 				return fail(err)
 			}

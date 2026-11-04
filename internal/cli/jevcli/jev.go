@@ -31,8 +31,8 @@ func NewCommand(d Deps) *cobra.Command {
 			"from a closed set of options, and every implicit surface is off until\n" +
 			"`jev enable <surface>` for the profile.\n" +
 			"\n" +
-			"Key: the machine-wide vault, shared by all profiles (`jev key set`, key on stdin; a key in a profile's vault still works as a fallback; `jev key adopt` copies it), else TYPESAFE_API_KEY. TYPESAFE_DEFAULT_MODEL and\n" +
-			"TYPESAFE_BASE_URL override the model and API host.",
+			"Key: the machine-wide vault, shared by all profiles (`jev key set`, key on stdin; a key in a profile's vault still works as a fallback; `jev key adopt` copies it), else TYPESAFE_API_KEY. TYPESAFE_DEFAULT_MODEL overrides the model.\n" +
+			"TYPESAFE_BASE_URL overrides the API host for a TYPESAFE_API_KEY only (https, or http to this machine), from your own terminal: a stored key always goes to the default host.",
 	}
 	cmd.AddCommand(
 		newJevStatusCmd(d),
@@ -57,13 +57,6 @@ func jevModel() string {
 		return m
 	}
 	return jev.DefaultModel
-}
-
-func jevBaseURL() string {
-	if b := os.Getenv("TYPESAFE_BASE_URL"); b != "" {
-		return strings.TrimRight(b, "/")
-	}
-	return jev.DefaultBaseURL
 }
 
 func jevSurfaceNames() string {
@@ -124,10 +117,17 @@ func newJevStatusCmd(d Deps) *cobra.Command {
 				return fmt.Errorf("initializing database: %w", err)
 			}
 			defer db.Close()
-			st := jevStatus{ProfileID: d.ProfileID(), KeySource: "none", Model: jevModel(), BaseURL: jevBaseURL()}
+			st := jevStatus{ProfileID: d.ProfileID(), KeySource: "none", Model: jevModel(), BaseURL: jev.DefaultBaseURL}
 			// KeySource never decrypts, so status never prompts for a keyring.
 			if source, err := jevconf.KeySource(cmd.Context(), db.DB, d.ProfileID()); err == nil {
 				st.KeySource = source
+			}
+			// What a client sending that key would call (a stored key never
+			// goes to TYPESAFE_BASE_URL).
+			if b, err := jevconf.BaseURL(cmd.Context(), st.KeySource); err == nil {
+				st.BaseURL = b
+			} else {
+				st.BaseURL = "refused: " + err.Error()
 			}
 			if name, ok := jevconf.VaultKeyName(cmd.Context(), db.DB); ok {
 				st.KeyEntry = name
@@ -417,11 +417,7 @@ func newJevModelsCmd(d Deps) *cobra.Command {
 				return fmt.Errorf("initializing database: %w", err)
 			}
 			defer db.Close()
-			key, _, err := jevconf.ResolveKey(cmd.Context(), db.DB, d.ProfileID(), "")
-			if err != nil {
-				return jevKeyErr(err)
-			}
-			c, err := jev.NewClient(key, "")
+			c, _, err := jevconf.ResolveClient(cmd.Context(), db.DB, d.ProfileID(), "", "")
 			if err != nil {
 				return jevKeyErr(err)
 			}
