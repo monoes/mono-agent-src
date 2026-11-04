@@ -164,6 +164,34 @@ func TestGovernorHoldsTheCapDefersTheRestAndLeaksNoTicket(t *testing.T) {
 	}
 }
 
+// The line is fair: a slot that frees while a launch waits goes to the one waiting, not to a fresh arrival.
+func TestAFreshArrivalDoesNotJumpTheQueue(t *testing.T) {
+	r := newGovRig(t, "")
+	r.start(t)
+	var first coderhost.Turn
+	for _, id := range []string{"a", "b"} {
+		tn, err := r.startTurn(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if first == nil {
+			first = tn
+		}
+	}
+	if _, err := r.startTurn("c"); !errors.Is(err, coderhost.ErrDeferred) {
+		t.Fatalf("c: %v", err)
+	}
+	go func() { _ = first.Wait() }()
+	r.l.turn(0).end()
+	waitUntil(t, "a slot to be free", func() bool { return r.liveSlots(t) == 1 })
+	if _, err := r.startTurn("d"); !errors.Is(err, coderhost.ErrDeferred) {
+		t.Fatalf("a fresh arrival took the slot the waiting launch was owed: %v", err)
+	}
+	if _, err := r.startTurn("c"); err != nil {
+		t.Fatalf("the waiting launch did not get the freed slot: %v", err)
+	}
+}
+
 // Wait on the governed turn is what frees the slot, so the host's watcher releases it.
 func TestGovernedTurnReleasesItsSlotOnWaitAndOnlyOnce(t *testing.T) {
 	r := newGovRig(t, "")
@@ -220,13 +248,14 @@ func TestGovernorAdmitsNothingAfterTheMarker(t *testing.T) {
 	if _, err := r.w.RunDir.WriteMarker(1, "", "test"); err != nil {
 		t.Fatal(err)
 	}
-	slots, queued := r.liveSlots(t), count(t, r.db, `SELECT COUNT(*) FROM doomsday_queue`)
+	// every slot row ever written, released ones included: a reserve-then-give-back after Stop would show here
+	slots, queued := count(t, r.db, `SELECT COUNT(*) FROM doomsday_slots`), count(t, r.db, `SELECT COUNT(*) FROM doomsday_queue`)
 	for i := 0; i < 3; i++ {
 		if _, err := r.startTurn("x" + fmt.Sprint(i)); !refused(err) {
 			t.Fatalf("a start after the marker: %v", err)
 		}
 	}
-	if r.liveSlots(t) != slots || count(t, r.db, `SELECT COUNT(*) FROM doomsday_queue`) != queued || r.l.count() != 1 {
+	if count(t, r.db, `SELECT COUNT(*) FROM doomsday_slots`) != slots || count(t, r.db, `SELECT COUNT(*) FROM doomsday_queue`) != queued || r.l.count() != 1 {
 		t.Fatal("the governor reserved, queued or started something after Stop")
 	}
 }

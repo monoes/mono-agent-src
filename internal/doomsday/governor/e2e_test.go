@@ -75,6 +75,10 @@ func decode(it governor.Item) (string, governor.Request, error) {
 }
 
 func newWorld(t *testing.T, cap int, queueRows int, steps ...machine.Step) *world {
+	return newWorldBytes(t, cap, queueRows, 0, steps...)
+}
+
+func newWorldBytes(t *testing.T, cap int, queueRows int, queueBytes int64, steps ...machine.Step) *world {
 	t.Helper()
 	keyring.MockInit()
 	db, err := storage.NewDatabase(t.TempDir() + "/dd.db")
@@ -90,7 +94,7 @@ func newWorld(t *testing.T, cap int, queueRows int, steps ...machine.Step) *worl
 	c := store.Charter{
 		Profile: "p", Generation: 1, Goal: "ship it",
 		Criteria:    []store.Criterion{{Kind: "command", Spec: "go test ./...", Expected: "ok"}},
-		Limits:      store.Limits{TreeDepth: 4, LivePerTree: cap, SpawnRate: 6, OpenSessions: 50, MaxConcurrent: cap, MaxTotal: 1000, BudgetMicro: 5_000_000, QueueMaxRows: queueRows},
+		Limits:      store.Limits{TreeDepth: 4, LivePerTree: cap, SpawnRate: 6, OpenSessions: 50, MaxConcurrent: cap, MaxTotal: 1000, BudgetMicro: 5_000_000, QueueMaxRows: queueRows, QueueMaxBytes: queueBytes},
 		Lines:       []string{store.LineSpending},
 		BossPin:     store.Pin{Provider: "a", Model: "m1", Version: "v1", PurposePolicy: "j"},
 		VerifierPin: store.Pin{Provider: "a", Model: "m2", Version: "v1", PurposePolicy: "j"},
@@ -103,7 +107,7 @@ func newWorld(t *testing.T, cap int, queueRows int, steps ...machine.Step) *worl
 	}
 	view := &runView{st: st, up: map[string]bool{}}
 	w := &world{db: db.DB, st: st, view: view, smp: machine.NewFake(steps...), slot: slots.New(db.DB, view), q: queue.New(db.DB, keys),
-		l: governor.Limits{Profile: "p", Generation: 1, MaxConcurrent: cap, LivePerTree: cap, SafeMin: 1, QueueMaxRows: queueRows}}
+		l: governor.Limits{Profile: "p", Generation: 1, MaxConcurrent: cap, LivePerTree: cap, SafeMin: 1, QueueMaxRows: queueRows, QueueMaxBytes: queueBytes}}
 	clk := &clock{}
 	w.s, err = sched.New(sched.Config{Limits: w.l, Sampler: w.smp, Policy: policy.New(clk), Slots: w.slot, Queue: w.q, View: view, Clock: clk, Decode: decode,
 		SampleEvery: time.Nanosecond, SampleTimeout: 200 * time.Millisecond, CancelTimeout: 300 * time.Millisecond})
@@ -310,5 +314,29 @@ func TestAnUnreadableMachineAdmitsOnlyTheSafeMinimum(t *testing.T) {
 	}
 	if e := w.s.Effective(ctx); e.Value != 1 || e.Cap != 6 {
 		t.Fatalf("effective %+v", e)
+	}
+}
+
+// The byte bound is cumulative and counts the payload's own size: many small items cannot add up past it, and the refusals
+// store nothing (a work bound, not only a refusal message).
+func TestQueueByteBoundIsCumulativeAndAllocatesNothingPastIt(t *testing.T) {
+	ctx := context.Background()
+	w := newWorldBytes(t, 2, 500, 100)
+	payload := []byte(strings.Repeat("p", 40))
+	accepted := 0
+	for i := 0; i < 20; i++ {
+		if _, err := w.s.Enqueue(ctx, governor.Item{Lead: "l", Class: governor.ClassNormal, Payload: payload}); err == nil {
+			accepted++
+		} else if !errors.Is(err, governor.ErrQueueFull) {
+			t.Fatal(err)
+		}
+	}
+	var rows int
+	var bytes int64
+	if err := w.db.QueryRow(`SELECT COUNT(*), COALESCE(SUM(length(payload)),0) FROM doomsday_queue`).Scan(&rows, &bytes); err != nil {
+		t.Fatal(err)
+	}
+	if accepted != 2 || rows != 2 || bytes != 80 {
+		t.Fatalf("accepted %d, stored %d rows and %d payload bytes under a bound of 100 with 40-byte items", accepted, rows, bytes)
 	}
 }
