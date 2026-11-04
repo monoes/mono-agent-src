@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 )
 
 // A budget write and the registration of a cap run on the same session serialize in the store's write transaction: they
@@ -63,5 +64,43 @@ func TestBeginCapRunRacingALoweringNeverEndsWithBothAfterTheRun(t *testing.T) {
 			}
 			t.Logf("seed %d: run first %d, set first %d, both %d", seed, runFirst, setFirst, both)
 		})
+	}
+}
+
+// The helper lists the live runs of the session and of the sessions below it: not those of a sibling or of an ancestor,
+// and not a run whose lease lapsed past the grace.
+func TestLiveCapRunsBelowListsTheSubtreeOnly(t *testing.T) {
+	s, db, clk := newTestStore(t)
+	root := rsession(t, s, db, 20)
+	a := rkid(t, s, db, root, 6, "running")
+	b := rkid(t, s, db, root, 6, "running")
+	grand := rkid(t, s, db, a, 4, "running")
+	list := func(id int64) []CapRun {
+		var out []CapRun
+		err := s.tx(bg, func(x dbx) (e error) { out, e = s.liveCapRunsBelowTx(bg, x, "default", id); return })
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	old, err := s.BeginCapRun(bg, "default", b, "o", "dying")
+	if err != nil {
+		t.Fatal(err)
+	}
+	clk.advance(ReservationLease + ReservationGrace + time.Second)
+	if _, err := s.BeginCapRun(bg, "default", root, "o", "root-run"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.BeginCapRun(bg, "default", grand, "o", "grand-run"); err != nil {
+		t.Fatal(err)
+	}
+	if got := list(a); len(got) != 1 || got[0].RunRef != "grand-run" {
+		t.Fatalf("below a: %+v", got)
+	}
+	if got := list(root); len(got) != 2 {
+		t.Fatalf("below root (the lapsed run of b counts for nothing): %+v", got)
+	}
+	if got := list(b); len(got) != 0 {
+		t.Fatalf("b has only a lapsed run: %+v (%d)", got, old.ID)
 	}
 }

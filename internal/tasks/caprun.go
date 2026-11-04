@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // A session's workers are accounted in ONE mode at a time (migration 157): as reservations, which hold money out of the
@@ -44,6 +45,56 @@ func (s *Store) refuseWhileCapRuns(ctx context.Context, x dbx, profileID string,
 		return fmt.Errorf("%w: %d run(s) of session #%d are accounted on its cap, so no reservation is taken until they end", ErrAccountingMode, n, sessionID)
 	}
 	return nil
+}
+
+// liveCapRunsBelowTx lists the live cap runs of the session and of every session below it, oldest first (the same
+// liveness as the latch: a row lapsed past the grace counts for nothing). It runs inside the writing transaction of the
+// caller, so a run cannot register between the read and the write.
+func (s *Store) liveCapRunsBelowTx(ctx context.Context, x dbx, profileID string, sessionID int64) ([]CapRun, error) {
+	rows, err := x.QueryContext(ctx, `WITH RECURSIVE sub(id, depth) AS (
+			SELECT ?, 1
+			UNION
+			SELECT t.id, sub.depth + 1 FROM task_sessions t JOIN sub ON t.parent_session_id = sub.id
+			WHERE t.profile_id = ? AND sub.depth < ?)
+		SELECT id, session_id, owner_id, run_ref, lease_until FROM task_session_cap_runs
+		WHERE profile_id = ? AND lease_until >= ? AND session_id IN (SELECT id FROM sub) ORDER BY id`,
+		sessionID, profileID, s.walkLimit(ctx, sessionID), profileID, s.lapseCutoff())
+	if err != nil {
+		return nil, fmt.Errorf("tasks: reading the cap runs below session #%d: %w", sessionID, err)
+	}
+	defer rows.Close()
+	var out []CapRun
+	for rows.Next() {
+		r := CapRun{ProfileID: profileID}
+		if err := rows.Scan(&r.ID, &r.SessionID, &r.OwnerID, &r.RunRef, &r.LeaseUntil); err != nil {
+			return nil, fmt.Errorf("tasks: reading the cap runs below session #%d: %w", sessionID, err)
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("tasks: reading the cap runs below session #%d: %w", sessionID, err)
+	}
+	return out, nil
+}
+
+// refuseLoweringWhileCapRuns is ErrAccountingMode while a live cap run is on the session or below it. A cap run holds
+// no money and reads what is left of the budget as it starts, so a budget lowered under it (or set where there was
+// none) is not accounted against what it may still spend. It names up to five runs.
+func (s *Store) refuseLoweringWhileCapRuns(ctx context.Context, x dbx, se Session) error {
+	runs, err := s.liveCapRunsBelowTx(ctx, x, se.ProfileID, se.ID)
+	if err != nil || len(runs) == 0 {
+		return err
+	}
+	var named []string
+	for _, r := range runs[:min(len(runs), 5)] {
+		named = append(named, fmt.Sprintf("run %q of owner %q on session #%d", r.RunRef, r.OwnerID, r.SessionID))
+	}
+	more := ""
+	if len(runs) > len(named) {
+		more = fmt.Sprintf(" and %d more", len(runs)-len(named))
+	}
+	return fmt.Errorf("%w: %d run(s) on session #%d or below are accounted on its cap, so its budget is not lowered while they run: %s%s. Pause the session so its runs drain, then set the budget",
+		ErrAccountingMode, len(runs), se.ID, strings.Join(named, ", "), more)
 }
 
 // liveReservationsTx counts the reservations of the session that are live and not lapsed past the grace.

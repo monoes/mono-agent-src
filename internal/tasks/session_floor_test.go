@@ -220,7 +220,7 @@ func wantCapRunRefusal(t *testing.T, err error, parts ...string) {
 	if !errors.Is(err, ErrAccountingMode) {
 		t.Fatalf("want an accounting-mode refusal, got %v", err)
 	}
-	for _, p := range append(parts, "pause the session") {
+	for _, p := range append(parts, "Pause the session") {
 		if !strings.Contains(err.Error(), p) {
 			t.Errorf("the refusal %q does not show %q", err, p)
 		}
