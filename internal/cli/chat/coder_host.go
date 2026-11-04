@@ -325,6 +325,11 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 				stopped := make(chan struct{})
 				go func() {
 					defer close(stopped)
+					defer func() {
+						if r := recover(); r != nil { // the host is not taken down by an extension's shutdown
+							logf("coder host: the extension's shutdown (HostStopped) panicked (%T)", r)
+						}
+					}()
 					HostStopped()
 				}()
 				select {

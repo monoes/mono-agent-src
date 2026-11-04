@@ -1023,3 +1023,41 @@ func TestAHostStoppedThatNeverReturnsDoesNotHoldTheHostOpen(t *testing.T) {
 		t.Fatalf("the host did not say which hook was left behind: %q", out.String())
 	}
 }
+
+// A HostStopped that panics is logged and does not take the host down.
+func TestAHostStoppedThatPanicsDoesNotCrashTheHost(t *testing.T) {
+	asOperator(t)
+	dbPath := newChatCLITestDB(t)
+	cfg := testDeps(&testConfig{DBPath: dbPath, ProfileID: "default", JSONOutput: true})
+	cfg.RequireOperator = func(string) error { return nil }
+	built := make(chan struct{}, 1)
+	HostBuilt = func(*coderhost.Store, *coderhost.Host, *sql.DB) { built <- struct{}{} }
+	HostStopped = func() { panic("boom") }
+	t.Cleanup(func() { HostBuilt, HostStopped = nil, nil })
+	t.Cleanup(func() { RegisterChildTokenMinter(nil) })
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := newCoderHostRunCmd(cfg)
+	cmd.SetContext(ctx)
+	cmd.SetArgs([]string{"--poll=20ms"})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SilenceUsage, cmd.SilenceErrors = true, true
+	errc := make(chan error, 1)
+	go func() { errc <- cmd.Execute() }()
+	select {
+	case <-built:
+	case <-time.After(20 * time.Second):
+		cancel()
+		t.Fatalf("the host did not start: %v", <-errc)
+	}
+	cancel()
+	select {
+	case <-errc:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the host did not stop")
+	}
+	if !strings.Contains(out.String(), "panicked") {
+		t.Fatalf("the panic was not logged: %q", out.String())
+	}
+}
