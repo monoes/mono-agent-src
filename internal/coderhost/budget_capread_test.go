@@ -190,9 +190,9 @@ func TestTurnCapNeverMixesStatesOfAnotherProcess(t *testing.T) {
 	if err := st.db.QueryRow(`PRAGMA database_list`).Scan(&seq, &name, &path); err != nil || path == "" {
 		t.Fatalf("database file: %q %v", path, err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestCapReadFlipperProcess$", "-test.timeout=20s")
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestCapReadFlipperProcess$", "-test.timeout=35s")
 	cmd.Env = append(os.Environ(), "CAPREAD_FLIP_DB="+path, "CAPREAD_FLIP_LEAD="+lead, "CAPREAD_FLIP_CHILD="+child)
 	cmd.WaitDelay = time.Second
 	if err := cmd.Start(); err != nil {
@@ -201,7 +201,7 @@ func TestTurnCapNeverMixesStatesOfAnotherProcess(t *testing.T) {
 	t.Cleanup(func() { cancel(); _ = cmd.Wait() })
 	seen := map[float64]bool{}
 	flips, last := 0, 0.0
-	deadline := time.Now().Add(8 * time.Second)
+	deadline := time.Now().Add(20 * time.Second) // a cold -race -cpu 1 run needs about 7 s; the loop returns as soon as both states and the flips were seen
 	var settled time.Time
 	for n := 0; time.Now().Before(deadline); n++ {
 		capUSD, _, err := st.TurnCap("p", lead)
@@ -236,7 +236,7 @@ func TestCapReadFlipperProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	end := time.Now().Add(15 * time.Second)
+	end := time.Now().Add(28 * time.Second)
 	for i := 0; time.Now().Before(end); i++ {
 		if err := flipLead(db, os.Getenv("CAPREAD_FLIP_LEAD"), os.Getenv("CAPREAD_FLIP_CHILD"), i%2 == 0); err != nil {
 			t.Fatal(err)
