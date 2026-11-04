@@ -2077,19 +2077,31 @@ that works a task acts on them. The defences:
   trust commands: `agent purposes set|reset`, `agent-mode env` and
   `agent-mode token create|revoke`, `extension assign|bind|unbind|autopair|approve|deny|reset`,
   `extension browsers allow|revoke`, `extension pair --open`, `extension install --zip`,
-  and `jev enable` and `jev key set|adopt|remove`, and the commands that trust a browser
+  and `jev enable` and `jev key set|adopt|remove`, the commands that trust a browser
   run with the user's sign-ins: `automation trust` with a flag, `automation rerecord`,
   `automation doctor accept-repair`, `record verify`, `record replay` (not `--dry-run`),
   `record save` (a refused process also reads no vault secret for a recording),
   `browser allow add|remove`, `browser permissions set|site`, `coder queue add|start`
-  and `coder projects map|unmap`. A terminal started inside a coder
+  and `coder projects map|unmap`, and the profile and people commands:
+  `profile update` (rename, re-icon), `profile delete`, `profile backups purge`,
+  `profile move`, `profile create --root-dir`, `profile documents remove --delete-file`
+  (the flag only; without it the document is removed from MonoAgent and the file stays),
+  `people review approve` and `people review reject` (a reject can undo an approval),
+  `people messages send-draft` and `people messages reject-draft` (it deletes any draft
+  and its mailbox copy). `profile delete --summary` and `profile move --check` change
+  nothing and stay open. `profile folder` (it prints), `profile documents rm` and
+  `profile backups list` stay open. They have no agent
+  path: no shipped skill, template, MCP or chat tool runs them, and the desktop app runs
+  them as the user. A terminal started inside a coder
   turn, and a process that holds an agent token, is refused by them. The check reads the
   named database read-only and never creates or migrates it. `secret rebind` repairs
   an install, so it must work when the database is damaged (`extension reset`, which
   revokes the shared pairing token, and `extension browsers revoke`, which cuts one
   paired browser off, are the same kind of verb: they only revoke access, so letting
   them through cannot grant anything; `extension bind|unbind|assign|browsers allow`
-  grant or change access and stay on the ordinary gate). `extension reset` deletes only
+  grant or change access and stay on the ordinary gate; none of the profile and people
+  verbs is a repair verb: `profile delete` removes a profile and its data, so on an
+  unreadable database it is refused like the others). `extension reset` deletes only
   the shared `extension.token`, not the per-browser tokens of paired browsers: a leaked
   paired-browser token is revoked with `extension browsers revoke`, which works on a
   damaged database for that reason. For them an unreadable or
@@ -2152,8 +2164,8 @@ that works a task acts on them. The defences:
   (asking the host over its peer-credential socket) is a separate, later design;
   (2) this
   change covers the commands listed above only: many other operator-only commands
-  (sign-in, the organisation guards, people and profile edits,
-  node runs and publications; tracked in issue 1333) still
+  (sign-in, the organisation guards,
+  node runs, people import and publications; tracked in issue 1333) still
   use only the operator marker check and are NOT turn-aware,
   so this does not make every operator-only command refuse a turn; (3) the test that
   keeps the wired commands in one table counts wirings per file and misses a method
@@ -2166,9 +2178,12 @@ that works a task acts on them. The defences:
   authenticates to it (the pairing token): it runs `record save` and `coder queue add` as the
   operator for such a caller, so the token is as sensitive as the commands behind it.
   `automation install <dir> --local` (and `automation new --install`) installs with local
-  trust, which `automation trust` no longer lets a turn grant; it is still open to a turn
-  because the shipped package-writing skill tells an agent to run it. The owner chose to keep
-  it open (2026-11-04): it installs with local trust on purpose, so the skill keeps working.
+  trust. While it is open to a turn, the `automation trust --scripts/--live` gate does not
+  stop a turn from getting the same result: a turn can write its own package directory,
+  install it with `--local`, and get Source=local and Trust=local (scripts allowed, live
+  runs counted as confirmed). It is open because the shipped package-writing skill tells an
+  agent to run it; the owner chose to keep it open (2026-11-04), so the skill keeps working.
+  What gates the RUN of a package in the user's browser was not traced for this change.
   A bound worker's v2 task token (`mat2-`) is delivered through the credential frame
   into an in-process stash, so no environment variable carries it and neither the
   token-variable layer nor the marker check can see it; the only process that holds

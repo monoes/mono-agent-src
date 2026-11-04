@@ -9,8 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/monomind"
-	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/profiledir"
 	"github.com/monoes/mono-agent/internal/vault"
 
@@ -117,8 +118,8 @@ func (d Deps) newProfileDocumentsRemoveCmd() *cobra.Command {
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if deleteFile {
-				if why := operator.Refusal(); why != "" {
-					return d.InvalidInput("only the user deletes a document's file from the profile folder; an agent can remove the document from MonoAgent without --delete-file: %s", why)
+				if why := opgate.Refusal(); why != "" {
+					return clicore.OperatorOnly("only the user deletes a document's file from the profile folder; an agent can remove the document from MonoAgent without --delete-file: %s", why)
 				}
 			}
 			db, err := d.OpenDB()

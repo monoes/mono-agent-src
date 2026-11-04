@@ -159,6 +159,10 @@ func TestCoderQueueFromABridgeInAnAgentShell(t *testing.T) {
 // environment is cleared of every agent marker: the turn-aware gate follows the process ancestry, not the
 // environment. That is the posture (SECURITY.md): the supported bridge is the systemd user service, and one
 // started from a turn shell cannot queue coder chats until it is restarted from the user's own terminal.
+//
+// The shell stand-in only simulates the ancestry (MONOAGENT_TEST_IN_TURN): this test stays green if the
+// real gate stops reading the parent's /proc environment or process tree. The real ancestry check is
+// covered by the gate tests in cmd/monoagentcli (markThisProcessAsACoderTurn), not here.
 func TestCoderQueueFromABridgeInATurnShellIsRefused(t *testing.T) {
 	withRunMarkers(t)
 	t.Setenv("MONOAGENT_TEST_IN_TURN", "1")

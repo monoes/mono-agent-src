@@ -13,7 +13,8 @@ import (
 	"golang.org/x/text/unicode/norm"
 
 	"github.com/monoes/mono-agent/internal/attachments"
-	"github.com/monoes/mono-agent/internal/operator"
+	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/procbind"
 	"github.com/monoes/mono-agent/internal/secrets"
 	"github.com/monoes/mono-agent/internal/workflow"
@@ -21,10 +22,12 @@ import (
 
 // refuseNotOperator refuses changing or deleting a profile to anyone but the
 // user: a profile holds their accounts and data, and a chat, a workflow run
-// or an agent must not be able to rename it or erase it.
+// or an agent must not be able to rename it or erase it. It asks the turn-aware
+// gate (opgate.Refusal) for every verb, the delete included: a delete is not a
+// repair, so an unreadable database refuses it like the others.
 func (d Deps) refuseNotOperator(what string) error {
-	if why := operator.Refusal(); why != "" {
-		return d.InvalidInput("only the user %s a profile (it holds their accounts and data); the user runs this in their own terminal or in the app's Settings: %s", what, why)
+	if why := opgate.Refusal(); why != "" {
+		return clicore.OperatorOnly("only the user %s a profile (it holds their accounts and data); the user runs this in their own terminal or in the app's Settings: %s", what, why)
 	}
 	return nil
 }
