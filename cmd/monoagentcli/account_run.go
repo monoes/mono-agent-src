@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/spf13/cobra"
 	"io"
 	"os/signal"
 	"time"
@@ -117,4 +118,12 @@ var notifyContext = signal.NotifyContext
 func armLateRefresher(ctx context.Context, g *account.Guard) (disarm func()) {
 	t := afterFunc(account.LateRefresher, func() { startRefresher(ctx, g) })
 	return func() { t.Stop() }
+}
+
+// isSignedOutOnlyStop reports whether args resolve to `doomsday stop`, the one verb of the open-ended mode that works
+// signed out (account gate class open). Its process arms no late refresher: a Stop that runs past five minutes must
+// not contact monoes.me or read the key store (the user's rule: Stop never depends on the sign-in).
+func isSignedOutOnlyStop(root *cobra.Command, args []string) bool {
+	c, _, err := root.Find(args)
+	return err == nil && c != nil && commandKey(c) == "doomsday stop"
 }
