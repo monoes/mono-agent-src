@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
@@ -178,5 +179,73 @@ func TestARegisteredDatabaseThatCannotBeReadRefuses(t *testing.T) {
 	cfg.DBPath = newHILTestDB(t)
 	if err := cfg.requireOperator("do the thing"); err == nil || !strings.Contains(err.Error(), "turn_pid") {
 		t.Fatalf("an unreadable registered database did not refuse: %v", err)
+	}
+}
+
+// A recovery command skips a registered database it cannot read, and says so (the database and its entry file),
+// instead of dropping the error: the skip is how a turn behind that entry could go unseen.
+func TestARecoveryCommandNamesTheRegistryEntryItSkipped(t *testing.T) {
+	if coderhost.ProcStamp(os.Getpid()) == "" {
+		t.Skip("process ancestry cannot be read here")
+	}
+	coderhost.SetRegistryDirForTest(t, filepath.Join(t.TempDir(), "coder-hosts"))
+	bad := newHILTestDB(t)
+	d, err := storage.NewDatabase(bad)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.DB.Exec(`ALTER TABLE coder_sessions RENAME COLUMN turn_pid TO turn_pid_gone`); err != nil {
+		t.Fatal(err)
+	}
+	d.Close()
+	unregister, err := coderhost.RegisterHostDB(bad)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unregister()
+	var logged []string
+	old := recoverySkippedEntry
+	recoverySkippedEntry = func(err error) { logged = append(logged, err.Error()) }
+	defer func() { recoverySkippedEntry = old }()
+
+	cfg := &globalConfig{DBPath: newHILTestDB(t)}
+	if in, err := cfg.callerInATurnFor(true); in || err != nil {
+		t.Fatalf("recovery on an unreadable registered database: in=%v err=%v", in, err)
+	}
+	if len(logged) != 1 || !strings.Contains(logged[0], bad) {
+		t.Fatalf("the skipped entry was not named: %q", logged)
+	}
+	logged = nil
+	if _, err := cfg.callerInATurnFor(false); err == nil || len(logged) != 0 {
+		t.Fatalf("the non-recovery flavour must refuse and log nothing: err=%v logged=%q", err, logged)
+	}
+}
+
+// The same lock through the gate: the plain flavour refuses, the recovery flavour treats the database as
+// holding no turn (after the bounded wait), so a lock held by anything never locks the operator out of repair.
+func TestALockedDatabaseRefusesPlainAndLetsRecoveryThrough(t *testing.T) {
+	if coderhost.ProcStamp(os.Getpid()) == "" {
+		t.Skip("process ancestry cannot be read here")
+	}
+	cfg := &globalConfig{DBPath: newHILTestDB(t)}
+	markThisProcessAsACoderTurn(t, cfg)
+	w, err := sql.Open("sqlite", "file:"+cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	w.SetMaxOpenConns(1)
+	// a rollback-journal database: in WAL mode readers are never blocked by a writer
+	if _, err := w.Exec(`PRAGMA journal_mode = DELETE`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Exec(`BEGIN EXCLUSIVE`); err != nil {
+		t.Fatal(err)
+	}
+	if in, err := cfg.callerInATurnFor(false); in || err == nil {
+		t.Fatalf("plain flavour on a locked database: in=%v err=%v", in, err)
+	}
+	if in, err := cfg.callerInATurnFor(true); in || err != nil {
+		t.Fatalf("recovery flavour on a locked database: in=%v err=%v", in, err)
 	}
 }

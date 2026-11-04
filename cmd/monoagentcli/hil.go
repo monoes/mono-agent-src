@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -162,6 +163,10 @@ func (c *globalConfig) gateRefusal(recovery bool) string {
 // registerOperatorGate makes cfg's turn-aware gate the answer of every command that asks opgate. It runs
 // when the real command tree is built, before any command, so a process that never builds it (library use,
 // the tests of other packages) keeps operator.Refusal.
+// recoverySkippedEntry says on stderr that a recovery command skipped an unreadable turn-registry entry (the
+// error names the database and the entry file), so a turn hidden behind it is not silent. A seam for tests.
+var recoverySkippedEntry = func(err error) { fmt.Fprintln(os.Stderr, "warning: "+err.Error()) }
+
 func registerOperatorGate(cfg *globalConfig) { opgate.Register(cfg.gateRefusal) }
 
 // callerInATurn says whether this process descends from a recorded coder turn. It never creates
@@ -181,7 +186,11 @@ func (c *globalConfig) callerInATurnFor(recovery bool) (bool, error) {
 	var in bool
 	if recovery {
 		// an unreadable entry is skipped, never allowed to hide a turn recorded in a readable database
-		in, _ = coderhost.CallerInARegisteredTurnLenient(path)
+		var skipped []error
+		in, skipped = coderhost.CallerInARegisteredTurnLenient(path)
+		for _, e := range skipped {
+			recoverySkippedEntry(e)
+		}
 	} else {
 		var err error
 		in, err = coderhost.CallerInARegisteredTurn(path)
