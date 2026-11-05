@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/operator"
@@ -46,14 +47,46 @@ func runNodeSubcmdStdin(t *testing.T, d Deps, stdin string, args ...string) (str
 // $HOME override (via keyring.MockInit + t.Setenv), matching every other
 // vault-touching test's isolation pattern in this repo — real migrated
 // SQLite, no touching the actual user's ~/.monoagent.
-// nodeVaultTestDB is a temp HOME and the path of a database in it.
+// nodeVaultTestDB is an empty HOME and the path of a database. The HOME is the same
+// directory for every test of the binary (emptied before and after each test): the API
+// packages are parsed once per install dir, and a HOME of its own per test made every
+// `node run` parse them again, which was most of this package's time.
 func nodeVaultTestDB(t *testing.T) string {
 	t.Helper()
 	asTheOperator(t)
-	home := t.TempDir()
+	home := sharedTestHome(t)
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	return filepath.Join(t.TempDir(), "node-vault-test.db")
+}
+
+var (
+	sharedHomeOnce sync.Once
+	sharedHomeDir  string
+)
+
+// sharedTestHome returns the binary's one test HOME, emptied now and when the test ends.
+func sharedTestHome(t *testing.T) string {
+	t.Helper()
+	sharedHomeOnce.Do(func() {
+		dir, err := os.MkdirTemp("", "node-test-home-")
+		if err != nil {
+			t.Fatalf("test home: %v", err)
+		}
+		sharedHomeDir = dir
+	})
+	if sharedHomeDir == "" {
+		t.Fatal("no shared test home")
+	}
+	empty := func() {
+		entries, _ := os.ReadDir(sharedHomeDir)
+		for _, e := range entries {
+			os.RemoveAll(filepath.Join(sharedHomeDir, e.Name()))
+		}
+	}
+	empty()
+	t.Cleanup(empty)
+	return sharedHomeDir
 }
 
 // TestNodeRun_VaultContextInjected is the CLI-level regression guard for the
