@@ -35,17 +35,20 @@ func (r RunDir) SecretPath(gen uint64) string {
 }
 func (r RunDir) UnitPath(gen uint64) string { return filepath.Join(r.Dir, fmt.Sprintf("%d.unit", gen)) }
 
-// HasRunTraces says a run may have been entered on this install: the run directory holds a per-run secret (created for
-// every run, never deleted), or it cannot be listed for a reason other than not existing. A directory that does not exist
-// is a clean "no": nothing creates it before a run does. It is one directory listing, made only when the database could not
-// be read.
+// HasRunTraces says a run may have been entered on this install: the run directory holds a per-run secret, the witness or the
+// generation counter (each made by a run and none deleted by one), or it cannot be listed for a reason other than not
+// existing. A directory that does not exist is a clean "no": nothing creates it before a run does. It is one directory
+// listing, made only when the database could not be read.
+//
+// It is evidence, not proof: it assumes the run directory is not cleaned by hand. Someone who can delete all three kinds of
+// file as the same user, while the database is unreadable and this process never saw the run, turns the answer back into "no".
 func (r RunDir) HasRunTraces() bool {
-	es, err := os.ReadDir(r.Dir)
+	names, err := r.fsys().ReadDir(r.Dir)
 	if err != nil {
 		return !errors.Is(err, os.ErrNotExist)
 	}
-	for _, e := range es {
-		if strings.HasSuffix(e.Name(), ".secret") {
+	for _, n := range names {
+		if strings.HasSuffix(n, ".secret") || n == "witness" || n == "generation-counter" {
 			return true
 		}
 	}

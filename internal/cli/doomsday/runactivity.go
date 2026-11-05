@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"sync"
 	"sync/atomic"
 
 	"github.com/monoes/mono-agent/internal/doomsday/stop"
@@ -25,9 +26,13 @@ import (
 //  1. this process has seen it: any listing, or the loop's precheck, returned a row for the profile, or found one that
 //     failed to verify (RunActivity, shared by the gate, the governor and the strategy loop of the process, never
 //     cleared for the process's life); or
-//  2. the install has run traces: the run directory holds a per-run secret (stop.RunDir.HasRunTraces), which every run
-//     creates and nothing deletes, so a host that was restarted, or a run entered by another process, is known even when
-//     this process has not read the row.
+//  2. the install has run traces: the run directory holds a per-run secret, the witness or the generation counter
+//     (stop.RunDir.HasRunTraces), which every run creates and nothing deletes, so a host that was restarted, or a run
+//     entered by another process, is known even when this process has not read the row.
+//
+// After the first run ever on an install both rules stay true for good (the flag is never cleared, the files are never
+// deleted), so there an unreadable table fails closed again, as it did before this change. The fail-open only helps installs
+// that never ran the mode.
 //
 // What is NOT known: a run entered by another process after this process's last successful read, on an install whose run
 // directory has no secret yet, while the database is unreadable. The entering process writes the secret right after the
@@ -61,11 +66,31 @@ func (a *RunActivity) failOpen(runs []store.Run, err error, dir stop.RunDir) boo
 }
 
 // OpenRunPrecheck is the strategy loop's precheck: one read-only COUNT of the profile's non-quiescent runs, no key and no
-// pinned connection. True means a run is open (and records it); an unreadable table is false and quiet.
+// pinned connection. True means a run is open (and records it). An unreadable table is false: quiet while no run is known,
+// and logged once per distinct fault through logf (nil: not logged) while one is, so the loop does not go silent over a run
+// it can no longer see.
 func OpenRunPrecheck(db *sql.DB, profile string, act *RunActivity, logf func(string, ...any)) func(context.Context) bool {
+	var mu sync.Mutex
+	var last string
 	return func(ctx context.Context) bool {
 		var n int
-		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM doomsday_runs WHERE profile = ? AND state <> 'quiescent'`, profile).Scan(&n); err != nil || n == 0 {
+		err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM doomsday_runs WHERE profile = ? AND state <> 'quiescent'`, profile).Scan(&n)
+		if err != nil {
+			if logf != nil && act.Known() {
+				mu.Lock()
+				first := err.Error() != last
+				last = err.Error()
+				mu.Unlock()
+				if first {
+					logf("doomsday: the run table cannot be read while a run is known: %v", err)
+				}
+			}
+			return false
+		}
+		mu.Lock()
+		last = ""
+		mu.Unlock()
+		if n == 0 {
 			return false
 		}
 		act.markSeen()

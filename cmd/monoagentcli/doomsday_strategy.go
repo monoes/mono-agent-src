@@ -72,7 +72,7 @@ func newStrategyLoop(cfg *globalConfig, db *sql.DB) *doomsdaycli.StrategyLoop {
 	w := doomsdayWiring(cfg, db)
 	return &doomsdaycli.StrategyLoop{
 		// With no run open a tick is this one read-only count: no build (so no pinned connection and no watch), no key, no log.
-		Active: doomsdaycli.OpenRunPrecheck(db, cfg.ProfileID, processRunActivity(cfg.ProfileID), nil),
+		Active: doomsdaycli.OpenRunPrecheck(db, cfg.ProfileID, processRunActivity(cfg.ProfileID), func(f string, a ...any) { fmt.Fprintf(os.Stderr, f+"\n", a...) }),
 		Build: func(ctx context.Context) (*doomsdaycli.StrategyHost, error) {
 			return w.StrategyHost(ctx, doomsdaycli.StrategyExtras{})
 		},

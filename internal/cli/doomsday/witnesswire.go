@@ -81,20 +81,45 @@ type SeqStore struct {
 	Seq *stop.Sequencer
 	// Err is why Seq is nil: with no sequencer every chained write and every admission refuses (fail closed).
 	Err error
+	// Lazy, when set and Seq is nil, builds the sequencer on the first chained write or admission (Wiring.Chained): a store
+	// that is only constructed, as every coder host does, pins nothing. A failure is not remembered; the next use tries again.
+	Lazy func(ctx context.Context) (*stop.Sequencer, error)
+
+	mu sync.Mutex
+}
+
+// seq is the sequencer, built on first use when the store is lazy.
+func (s *SeqStore) seq(ctx context.Context) (*stop.Sequencer, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.Seq != nil {
+		return s.Seq, nil
+	}
+	if s.Lazy == nil {
+		return nil, s.unwired()
+	}
+	seq, err := s.Lazy(ctx)
+	if err != nil {
+		return nil, err
+	}
+	s.Seq = seq
+	return seq, nil
 }
 
 func (s *SeqStore) sequence(ctx context.Context, gen int64, kind string, ending, ended bool, fn func(context.Context) error) error {
-	if s.Seq == nil {
-		return s.unwired()
+	seq, err := s.seq(ctx)
+	if err != nil {
+		return err
 	}
-	return s.Seq.Sequence(ctx, gen, kind, ending, ended, fn)
+	return seq.Sequence(ctx, gen, kind, ending, ended, fn)
 }
 
 func (s *SeqStore) check(ctx context.Context, gen int64) error {
-	if s.Seq == nil {
-		return s.unwired()
+	seq, err := s.seq(ctx)
+	if err != nil {
+		return err
 	}
-	return s.Seq.Check(ctx, gen)
+	return seq.Check(ctx, gen)
 }
 
 func (s *SeqStore) unwired() error {
@@ -110,10 +135,11 @@ var (
 )
 
 func (s *SeqStore) Enter(ctx context.Context, c store.Charter, confirmed [32]byte, by string) (r store.Run, err error) {
-	if s.Seq == nil {
-		return r, s.unwired()
+	seq, err := s.seq(ctx)
+	if err != nil {
+		return r, err
 	}
-	if err = s.Seq.BeginEntry(ctx, c.Generation); err != nil {
+	if err = seq.BeginEntry(ctx, c.Generation); err != nil {
 		return r, err
 	}
 	err = s.sequence(ctx, c.Generation, stop.KindEnter, false, false, func(ctx context.Context) (e error) {
@@ -189,9 +215,13 @@ func (s *SeqStore) Register(ctx context.Context, m store.Member) error {
 
 // Chained is the store with its chained writes sequenced. When the sequencer cannot be built the store still
 // reads, and everything that would write a chained row or admit work refuses with the reason.
+//
+// The sequencer (and with it the pinned connection) is built when the store first needs it, not here: a coder host builds this
+// store whether or not a run exists, and with no run nothing may be pinned.
 func (w Wiring) Chained() *SeqStore {
-	seq, err := w.Sequencer(context.Background())
-	return &SeqStore{SQLStore: w.Store, Seq: seq, Err: err}
+	return &SeqStore{SQLStore: w.Store, Lazy: func(ctx context.Context) (*stop.Sequencer, error) {
+		return w.Sequencer(context.WithoutCancel(ctx))
+	}}
 }
 
 // Fresh is HostGate.Fresh: the freshness check of one admission over this wiring.

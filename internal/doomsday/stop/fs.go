@@ -16,6 +16,8 @@ type File interface {
 type FS interface {
 	CreateExclusive(path string, perm os.FileMode) (File, error)
 	ReadFile(path string) ([]byte, error)
+	// ReadDir lists the names in dir.
+	ReadDir(dir string) ([]string, error)
 	Remove(path string) error
 	SyncDir(dir string) error
 	MkdirAll(dir string, perm os.FileMode) error
@@ -27,7 +29,18 @@ type OSFS struct{}
 func (OSFS) CreateExclusive(path string, perm os.FileMode) (File, error) {
 	return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
 }
-func (OSFS) ReadFile(path string) ([]byte, error)        { return os.ReadFile(path) }
+func (OSFS) ReadFile(path string) ([]byte, error) { return os.ReadFile(path) }
+func (OSFS) ReadDir(dir string) ([]string, error) {
+	es, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(es))
+	for _, e := range es {
+		names = append(names, e.Name())
+	}
+	return names, nil
+}
 func (OSFS) Remove(path string) error                    { return os.Remove(path) }
 func (OSFS) MkdirAll(dir string, perm os.FileMode) error { return os.MkdirAll(dir, perm) }
 
