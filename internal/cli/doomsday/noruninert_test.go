@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/doomsday/governor/machine"
+	"github.com/monoes/mono-agent/internal/doomsday/stop"
 	"github.com/monoes/mono-agent/internal/doomsday/store"
 )
 
@@ -18,6 +19,20 @@ func pinCount() int {
 	pinsMu.Lock()
 	defer pinsMu.Unlock()
 	return len(pins)
+}
+
+// seedForeignPin puts an entry in the process-wide pin map that this test did not cause, as an earlier test of the package
+// does on a machine where pinning works (CI). The inertness assertions must hold with it there.
+func seedForeignPin(t *testing.T) {
+	t.Helper()
+	pinsMu.Lock()
+	pins["foreign\x00"+t.Name()] = &stop.Pinned{}
+	pinsMu.Unlock()
+	t.Cleanup(func() {
+		pinsMu.Lock()
+		delete(pins, "foreign\x00"+t.Name())
+		pinsMu.Unlock()
+	})
 }
 
 func dirEntries(t *testing.T, dir string) int {
@@ -70,8 +85,17 @@ func TestStrategyLoopWithAnActiveRunBuilds(t *testing.T) {
 // Run loop end to end over the real precheck and the real build: an empty database never makes a pin, writes a row, logs, or
 // makes a file in the run directory; the moment a run row exists the same loop builds (and pins).
 func TestStrategyLoopOverAnEmptyDatabaseIsInert(t *testing.T) {
-	r := newGovRig(t, "")
+	r := newGovRig(t, "") // building the rig may pin (the engine of the test wiring does)
 	r.w.DB = r.db.DB
+	seedForeignPin(t) // after the rig, so its cleanup runs before the rig's ClosePins
+	pinsBefore := pinCount()
+	var attempts atomic.Int32
+	realPin := PinFunc
+	PinFunc = func(ctx context.Context, o stop.PinOptions) (*stop.Pinned, error) {
+		attempts.Add(1)
+		return realPin(ctx, o)
+	}
+	defer func() { PinFunc = realPin }()
 	var logs atomic.Int32
 	act := &RunActivity{}
 	l := &StrategyLoop{
@@ -92,8 +116,8 @@ func TestStrategyLoopOverAnEmptyDatabaseIsInert(t *testing.T) {
 		}
 		l.AfterStep(ctx)
 	}
-	if pinCount() != 0 || logs.Load() != 0 || tableTotals(t, r) != before || dirEntries(t, r.w.RunDir.Dir) != 0 {
-		t.Fatalf("not inert: pins %d logs %d rows %d->%d dir %d", pinCount(), logs.Load(), before, tableTotals(t, r), dirEntries(t, r.w.RunDir.Dir))
+	if attempts.Load() != 0 || pinCount() != pinsBefore || logs.Load() != 0 || tableTotals(t, r) != before || dirEntries(t, r.w.RunDir.Dir) != 0 {
+		t.Fatalf("not inert: pin attempts %d, pins now %d (before %d), logs %d rows %d->%d dir %d", attempts.Load(), pinCount(), pinsBefore, logs.Load(), before, tableTotals(t, r), dirEntries(t, r.w.RunDir.Dir))
 	}
 }
 

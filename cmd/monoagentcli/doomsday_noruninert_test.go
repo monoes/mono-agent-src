@@ -25,6 +25,13 @@ func TestDoomsdayEngineWiringWithNoRunIsInert(t *testing.T) {
 	}
 	defer db.Close()
 
+	// The process keeps one gate and one governor per profile; an earlier test's (over its own database) must not stand in for these.
+	hostGateMu.Lock()
+	delete(hostGates, cfg.ProfileID)
+	hostGateMu.Unlock()
+	governorMu.Lock()
+	delete(governors, cfg.ProfileID)
+	governorMu.Unlock()
 	var pins atomic.Int32
 	realPin := doomsdaycli.PinFunc
 	doomsdaycli.PinFunc = func(context.Context, stop.PinOptions) (*stop.Pinned, error) {
