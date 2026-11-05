@@ -74,7 +74,7 @@ func seedRun(t *testing.T, st *store.SQLStore) {
 func newSeededGate(t *testing.T) *seededGate {
 	t.Helper()
 	keyring.MockInit()
-	db, err := storage.NewDatabase(t.TempDir() + "/dd.db")
+	db, err := newMigratedDatabase(t.TempDir() + "/dd.db")
 	if err != nil {
 		t.Fatal(err)
 	}

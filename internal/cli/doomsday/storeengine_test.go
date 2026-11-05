@@ -9,13 +9,12 @@ import (
 	"github.com/zalando/go-keyring"
 
 	"github.com/monoes/mono-agent/internal/doomsday/store"
-	"github.com/monoes/mono-agent/internal/storage"
 )
 
 func realEngine(t *testing.T) *StoreEngine {
 	t.Helper()
 	keyring.MockInit()
-	db, err := storage.NewDatabase(t.TempDir() + "/dd.db")
+	db, err := newMigratedDatabase(t.TempDir() + "/dd.db")
 	if err != nil {
 		t.Fatal(err)
 	}
