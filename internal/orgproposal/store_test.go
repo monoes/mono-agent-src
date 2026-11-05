@@ -511,3 +511,20 @@ func TestDeclineDoesNotDeclineWhatExpiredMeanwhile(t *testing.T) {
 		t.Fatal("an expired proposal was recorded as declined")
 	}
 }
+
+func TestLabelsAreBoundedAndStrippedOfControlCharacters(t *testing.T) {
+	s, _ := newStore(t)
+	i := in("growth", "a")
+	i.ConversationID = "c\x1b[31m\nred" + strings.Repeat("z", 300)
+	i.CreatedBy = "workflow:" + strings.Repeat("e", 300) + "\r\n"
+	p := mustCreate(t, s, i)
+	g, _ := s.Get(context.Background(), "p1", p.ID)
+	for _, v := range []string{g.ConversationID, g.CreatedBy} {
+		if len(v) > 128 || strings.ContainsAny(v, "\x1b\n\r\t\x7f") {
+			t.Errorf("label %q", v)
+		}
+	}
+	if g.Hash != g.RecomputedHash() {
+		t.Error("the hash was taken over the unclean label")
+	}
+}

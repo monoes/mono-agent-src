@@ -350,3 +350,52 @@ func TestCallerTextInAnAutonomyPreviewIsQuotedAndBounded(t *testing.T) {
 		t.Errorf("a level raised to mid is not said to widen: %q", prev)
 	}
 }
+
+func TestEveryGrantStringIsCappedAt128Bytes(t *testing.T) {
+	f := propFixture(t)
+	long := strings.Repeat("x", 129)
+	for _, field := range []string{"role", "automation", "mode", "approval"} {
+		args := map[string]string{"role": "lead", "automation": "summarize"}
+		args[field] = long
+		_, err := f.run(t, "proposal", "create", "growth", "--verb", "grant.add", "--args-json", jsonOf(t, args))
+		if err == nil || !strings.Contains(err.Error(), "longer than 128 bytes") {
+			t.Errorf("%s of 129 bytes: %v", field, err)
+		}
+	}
+}
+
+func TestEveryAutonomyStringIsCappedAt128Bytes(t *testing.T) {
+	f := propFixture(t)
+	long := strings.Repeat("m", 129)
+	for _, field := range []string{"level", "decider", "decider_runtime", "decider_model", "on_decider_failure"} {
+		_, err := f.run(t, "proposal", "create", "growth", "--verb", "autonomy.set", "--args-json", jsonOf(t, map[string]string{field: long}))
+		if err == nil || !strings.Contains(err.Error(), "longer than 128 bytes") {
+			t.Errorf("%s of 129 bytes: %v", field, err)
+		}
+	}
+}
+
+func TestOnlyAWideningChangeSaysItLetsTheOrgApproveMore(t *testing.T) {
+	f := propFixture(t)
+	const note = "approve more without a person"
+	if p := f.propose(t, "growth", "autonomy.set", `{"level":"mid"}`); !strings.Contains(p["preview_text"].(string), note) {
+		t.Errorf("manual to mid: %q", p["preview_text"])
+	}
+	if p := f.propose(t, "growth", "autonomy.set", `{"level":"manual","decider_model":"m1"}`); strings.Contains(p["preview_text"].(string), note) {
+		t.Errorf("staying at manual says it widens: %q", p["preview_text"])
+	}
+}
+
+// The labels a proposal keeps are bounded and carry no control characters.
+func TestConversationAndCreatedByAreBoundedAndCleaned(t *testing.T) {
+	f := propFixture(t)
+	p := f.propose(t, "growth", "grant.add", grantArgs, "--conversation", "c\x1b[31m\nred "+strings.Repeat("z", 300))
+	c := p["conversation_id"].(string)
+	if len(c) > 128 || strings.ContainsAny(c, "\x1b\n\r\t\x7f") {
+		t.Fatalf("conversation_id %q", c)
+	}
+	t.Setenv("MONOAGENT_ACTOR", "") // created_by is a short label too
+	if by := p["created_by"].(string); len(by) > 128 || strings.ContainsAny(by, "\x1b\n") {
+		t.Fatalf("created_by %q", by)
+	}
+}

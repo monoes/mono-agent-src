@@ -395,11 +395,12 @@ func TestConcurrentConfirmsOfDifferentProposalsKeepTheirOwnResult(t *testing.T) 
 	wg.Wait()
 	for _, p := range ps {
 		got := f.mustRun(t, "proposal", "show", p.id)["proposal"].(map[string]interface{})
-		res, _ := got["result"].(map[string]interface{})
-		g, _ := res["grant"].(map[string]interface{})
-		if got["status"] != "applied" || g["alias"] != p.alias {
+		if got["status"] != "applied" {
 			t.Errorf("proposal for %s: status %v result %v", p.alias, got["status"], got["result"])
 		}
+	}
+	if n := len(f.grants(t)); n != 4 {
+		t.Errorf("%d grants, want 4", n)
 	}
 }
 
@@ -486,5 +487,52 @@ func TestTwoAppliesInOneProcessDoNotShareACapture(t *testing.T) {
 		if got[i] != `{"who":`+strconv.Itoa(i)+`}` {
 			t.Errorf("apply %d got %q", i, got[i])
 		}
+	}
+}
+
+// A busy or broken workflow store at confirm is a read error, not a verdict: the row stays pending.
+func TestAFailedWorkflowReadAtConfirmDoesNotBurnTheProposal(t *testing.T) {
+	f := propFixture(t)
+	p := f.propose(t, "growth", "grant.add", grantArgs)
+	f.sql(t, "ALTER TABLE workflows RENAME TO workflows_away")
+	_, err := f.confirm(t, p)
+	if err == nil || strings.Contains(err.Error(), "proposal_stale") {
+		t.Fatalf("confirm with an unreadable workflow store: %v", err)
+	}
+	f.sql(t, "ALTER TABLE workflows_away RENAME TO workflows")
+	if st := f.proposalRow(t, p["id"].(string)); st != "pending" {
+		t.Fatalf("status %s after a failed read", st)
+	}
+	if _, err := f.confirm(t, p); err != nil {
+		t.Fatalf("confirm once the store reads again: %v", err)
+	}
+}
+
+// The row of an applied proposal keeps a code and a fixed sentence, as a failed one does: the sibling's output (its
+// warnings carry error text, paths) is for the operator's confirm output only, and show is open to agents.
+func TestAnAppliedRowKeepsNoTextOfTheSiblingsOutput(t *testing.T) {
+	f := propFixture(t)
+	p := f.propose(t, "growth", "grant.add", grantArgs)
+	t.Setenv("MONOMIND_BIN", "/nonexistent/secret-path/monomind") // the grant's warnings now name this path
+	out := f.mustRun(t, "proposal", "confirm", p["id"].(string), "--hash", p["hash"].(string))
+	if b, _ := json.Marshal(out["result"]); !strings.Contains(string(b), "secret-path") {
+		t.Skipf("the sibling's output carries no path here, nothing to hide: %s", b)
+	}
+	shown := f.mustRun(t, "proposal", "show", p["id"].(string))["proposal"].(map[string]interface{})
+	b, _ := json.Marshal(shown)
+	if strings.Contains(string(b), "secret-path") {
+		t.Fatalf("show hands out the sibling's output: %s", b)
+	}
+	if res, _ := shown["result"].(map[string]interface{}); res["code"] != "applied" || res["message"] == "" {
+		t.Fatalf("result %v, want a code and a fixed sentence", shown["result"])
+	}
+}
+
+func TestTheAutonomyDigestIncludesTheOrgIdentity(t *testing.T) {
+	f := propFixture(t)
+	p := f.propose(t, "growth", "autonomy.set", `{"level":"mid"}`)
+	f.editOutside(t, func(m map[string]interface{}) { m["goal"] = "a different org that happens to share the name" })
+	if _, err := f.confirm(t, p); err == nil || !strings.Contains(err.Error(), "proposal_stale") {
+		t.Fatalf("confirm of an autonomy proposal over a recreated org: %v", err)
 	}
 }
