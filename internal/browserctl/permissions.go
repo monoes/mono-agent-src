@@ -473,7 +473,9 @@ type Caller struct {
 // MONOMIND_ORG_ROLE — when a token its spawner issued vouches for it
 // (IssueAgentKind), else other with that kind as Declared: a shell is
 // never chat. chat is a process with MONOAGENT_AI_CALLER=chat and no shell
-// markers.
+// markers. A process with none of those that the turn check (SetTurnVerdict)
+// places inside a coder session's turn is other: its markers were stripped, and
+// it is not the user's own terminal.
 func AgentCaller() Caller {
 	if IsAgentContext() {
 		kind := declaredKind()
@@ -484,6 +486,9 @@ func AgentCaller() Caller {
 	}
 	if strings.TrimSpace(os.Getenv(EnvAICaller)) == KindChat {
 		return Caller{Kind: KindChat}
+	}
+	if InTurn() {
+		return Caller{Kind: KindOther}
 	}
 	return Caller{}
 }
