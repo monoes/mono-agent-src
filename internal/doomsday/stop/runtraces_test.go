@@ -50,3 +50,30 @@ func TestHasRunTraces(t *testing.T) {
 		t.Fatal("a run directory that cannot be listed is a trace")
 	}
 }
+
+// The names HasRunTraces looks for are the names the code that makes a run's files really writes: renaming either file breaks
+// this test instead of silently emptying the trace.
+func TestHasRunTracesSeesTheFilesTheWitnessAndTheCounterReallyWrite(t *testing.T) {
+	w := newWitness(t, nil)
+	a, _ := newAnchor(t)
+	c := GenCounter{Dir: w.Dir, Keys: testKeyer()}
+	if _, err := c.NextGeneration(0, w, &a); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(w.Dir.Dir, "witness")); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if !(RunDir{Dir: w.Dir.Dir}).HasRunTraces() {
+		t.Fatal("the generation counter, as the code writes it, is not seen")
+	}
+	if err := os.Remove(filepath.Join(w.Dir.Dir, "generation-counter")); err != nil {
+		t.Fatal(err)
+	}
+	d := RunDir{Dir: t.TempDir()}
+	if err := (Witness{Dir: d, Keys: testKeyer()}).Init(); err != nil {
+		t.Fatal(err)
+	}
+	if !d.HasRunTraces() {
+		t.Fatal("the witness, as the code writes it, is not seen")
+	}
+}
