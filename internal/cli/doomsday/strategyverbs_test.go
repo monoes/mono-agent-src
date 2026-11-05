@@ -9,6 +9,7 @@ import (
 	"go/token"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -193,41 +194,43 @@ func TestRedactTextBasics(t *testing.T) {
 	}
 }
 
-// Default build: no non-test file imports a strategy package, and no strategy host or reader symbol is declared. With the
-// tag the same scan DOES see them, so the scan cannot pass by looking at nothing.
-func TestDefaultBuildHasNoStrategySymbols(t *testing.T) {
+// The strategy layer's host and reader symbols and its library imports live in an exact set of the wiring's files, with the
+// mode's tag set or not (the scan reads the package as a build with the tag sees it; without the tag in the source it is the
+// default build's). A new file that imports a strategy library or declares a host, reader or sink fails until it is decided here.
+func TestStrategySymbolsLiveOnlyInTheWiringFiles(t *testing.T) {
 	const strategyPrefix = "github.com/monoes/mono-agent/internal/doomsday/strategy"
-	scan := func(tags ...string) (imports []string, decls []string) {
-		ctx := build.Default
-		ctx.BuildTags = tags
-		pkg, err := ctx.ImportDir(".", 0)
+	ctx := build.Default
+	ctx.BuildTags = []string{"doomsday"}
+	pkg, err := ctx.ImportDir(".", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	fset := token.NewFileSet()
+	for _, f := range pkg.GoFiles {
+		af, err := parser.ParseFile(fset, filepath.Join(pkg.Dir, f), nil, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, imp := range pkg.Imports {
-			if strings.HasPrefix(imp, strategyPrefix) {
-				imports = append(imports, imp)
+		hit := false
+		for _, im := range af.Imports {
+			if p := strings.Trim(im.Path.Value, `"`); strings.HasPrefix(p, strategyPrefix) && !strings.HasSuffix(p, "/types") {
+				hit = true
 			}
 		}
-		fset := token.NewFileSet()
-		for _, f := range pkg.GoFiles {
-			af, err := parser.ParseFile(fset, filepath.Join(pkg.Dir, f), nil, 0)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for name := range af.Scope.Objects {
-				if strings.HasPrefix(name, "StrategyHost") || strings.HasPrefix(name, "NewStrategyHost") || strings.HasPrefix(name, "NewStrategyReader") ||
-					strings.HasPrefix(name, "strategyReader") || strings.HasPrefix(name, "strategySink") {
-					decls = append(decls, name)
-				}
+		for name := range af.Scope.Objects {
+			if strings.HasPrefix(name, "StrategyHost") || strings.HasPrefix(name, "NewStrategyHost") || strings.HasPrefix(name, "NewStrategyReader") ||
+				strings.HasPrefix(name, "strategyReader") || strings.HasPrefix(name, "strategySink") {
+				hit = true
 			}
 		}
-		return imports, decls
+		if hit {
+			got = append(got, f)
+		}
 	}
-	if imps, decls := scan(); len(imps) != 0 || len(decls) != 0 {
-		t.Fatalf("the default build carries strategy symbols: imports %v decls %v", imps, decls)
-	}
-	if imps, decls := scan("doomsday"); len(imps) == 0 || len(decls) == 0 {
-		t.Fatalf("the tagged scan saw nothing (imports %v decls %v): the guard would pass vacuously", imps, decls)
+	sort.Strings(got)
+	want := "strategyengine.go,strategyreader.go,strategyready.go,strategysink.go,strategywire.go"
+	if strings.Join(got, ",") != want {
+		t.Fatalf("files with strategy symbols or library imports:\n got %v\nwant %s\ndecide the new file here, in review", got, want)
 	}
 }

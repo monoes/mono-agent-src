@@ -23,12 +23,9 @@ func TestDoomsdayControlRoomVerbsAreOperatorOnly(t *testing.T) {
 	}
 }
 
-// A default install has no engine: for the user both verbs answer available:false (reason off) and exit 0, so the app
-// shows nothing.
-func TestDefaultInstallControlRoomIsUnavailable(t *testing.T) {
-	if doomsdayBuilt {
-		t.Skip("built with -tags doomsday: the mode is compiled in on purpose")
-	}
+// With no run (a default install has no engine, a build with the mode has no run recorded) both verbs answer
+// available:false and exit 0, so the app shows nothing. The reason is the build's (controlRoomNoRunReason).
+func TestControlRoomWithNoRunIsUnavailable(t *testing.T) {
 	for _, verb := range doomsdaycli.ControlRoomVerbs {
 		cfg := sendEnv(t)
 		out, err := runSendCLI(t, cfg, newDoomsdayCmd(cfg), verb)
@@ -36,26 +33,7 @@ func TestDefaultInstallControlRoomIsUnavailable(t *testing.T) {
 			t.Fatalf("%s: %v\n%s", verb, err, out)
 		}
 		var doc map[string]any
-		if json.Unmarshal([]byte(out), &doc) != nil || doc["available"] != false || doc["reason"] != "off" {
-			t.Fatalf("%s on a default install: %s", verb, out)
-		}
-	}
-}
-
-// With the mode built in but no run, the same documents say no_run.
-func TestBuiltInstallWithoutARunControlRoomIsUnavailable(t *testing.T) {
-	if !doomsdayBuilt {
-		t.Skip("default build: no engine is wired")
-	}
-	for _, verb := range doomsdaycli.ControlRoomVerbs {
-		cfg := sendEnv(t)
-		out, err := runSendCLI(t, cfg, newDoomsdayCmd(cfg), verb)
-		if err != nil {
-			t.Logf("%s: %v (an engine that cannot open its store is an error result, not off)", verb, err)
-			continue
-		}
-		var doc map[string]any
-		if json.Unmarshal([]byte(out), &doc) != nil || doc["available"] != false {
+		if json.Unmarshal([]byte(out), &doc) != nil || doc["available"] != false || doc["reason"] != controlRoomNoRunReason {
 			t.Fatalf("%s with no run: %s", verb, out)
 		}
 	}
