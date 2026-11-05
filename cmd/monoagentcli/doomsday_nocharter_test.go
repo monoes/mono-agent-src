@@ -2,10 +2,14 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -53,8 +57,24 @@ func noPins(t *testing.T) *atomic.Int32 {
 	return &n
 }
 
-// tableCounts is the row count of every table of the database, read on a connection of its own.
-func tableCounts(t *testing.T, path string) map[string]int {
+// countPins counts the attempts and passes them to the real pin, for the verbs whose real no-charter answer is behind it
+// (a failing fake would answer for them). Pins made are closed at the end of the test.
+func countPins(t *testing.T) *atomic.Int32 {
+	t.Helper()
+	var n atomic.Int32
+	real := doomsdaycli.PinFunc
+	doomsdaycli.PinFunc = func(ctx context.Context, o stop.PinOptions) (*stop.Pinned, error) {
+		n.Add(1)
+		return real(ctx, o)
+	}
+	t.Cleanup(func() { doomsdaycli.PinFunc = real; doomsdaycli.ClosePins() })
+	return &n
+}
+
+// tableCounts is a snapshot of the database: for every table the row count and a checksum of all its rows' contents, and (under
+// the key "(files)") the files next to the database apart from the database itself and its -wal/-shm, so a stop marker or any
+// stray file written beside it shows. Read on a connection of its own.
+func tableCounts(t *testing.T, path string) map[string]string {
 	t.Helper()
 	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro&_pragma=busy_timeout(5000)")
 	if err != nil {
@@ -74,18 +94,45 @@ func tableCounts(t *testing.T, path string) map[string]int {
 		names = append(names, n)
 	}
 	rows.Close()
-	out := map[string]int{}
+	out := map[string]string{}
 	for _, n := range names {
-		var c int
-		if err := db.QueryRow(`SELECT COUNT(*) FROM "` + n + `"`).Scan(&c); err != nil {
+		rs, err := db.Query(`SELECT * FROM "` + n + `"`)
+		if err != nil {
 			t.Fatal(err)
 		}
-		out[n] = c
+		cols, _ := rs.Columns()
+		var lines []string
+		for rs.Next() {
+			vals := make([]any, len(cols))
+			ptrs := make([]any, len(cols))
+			for i := range vals {
+				ptrs[i] = &vals[i]
+			}
+			if err := rs.Scan(ptrs...); err != nil {
+				t.Fatal(err)
+			}
+			lines = append(lines, fmt.Sprintf("%v", vals))
+		}
+		rs.Close()
+		sort.Strings(lines)
+		sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
+		out[n] = fmt.Sprintf("%d rows, %x", len(lines), sum[:8])
 	}
+	entries, _ := os.ReadDir(filepath.Dir(path))
+	var files []string
+	for _, e := range entries {
+		switch e.Name() {
+		// the migrator's lock file is made by any command that opens the database for writing (a wired engine does)
+		case filepath.Base(path), filepath.Base(path) + "-wal", filepath.Base(path) + "-shm", filepath.Base(path) + ".migrate.lock":
+		default:
+			files = append(files, e.Name())
+		}
+	}
+	out["(files)"] = strings.Join(files, ",")
 	return out
 }
 
-func requireSameCounts(t *testing.T, label string, before, after map[string]int) {
+func requireSameCounts(t *testing.T, label string, before, after map[string]string) {
 	t.Helper()
 	var diff []string
 	for n, b := range before {
@@ -95,7 +142,7 @@ func requireSameCounts(t *testing.T, label string, before, after map[string]int)
 	}
 	sort.Strings(diff)
 	if len(diff) > 0 {
-		t.Errorf("%s changed rows of %v", label, diff)
+		t.Errorf("%s changed the contents of %v (files: before [%s] after [%s])", label, diff, before["(files)"], after["(files)"])
 	}
 }
 
@@ -105,6 +152,9 @@ type noCharterVerb struct {
 	gated bool // an operator-only verb: an agent's process is refused with exit 3
 	// readOnlyEngine: the verb reads through the read engine or a reader and must make no pinned connection.
 	readOnlyEngine bool
+	// realPin: the verb's real no-charter answer is behind the containment probe, which needs the real pin, so the test counts
+	// the attempts and lets them through instead of refusing them (a refusing fake would be the answer, and vacuous).
+	realPin bool
 	// want checks the answer of the user's own process with nothing started.
 	want func(t *testing.T, code int, stdout, stderr string)
 }
@@ -131,6 +181,19 @@ func wantRefusedOrNotAccepted(t *testing.T, code int, stdout, stderr string) {
 	wantRefusal(t, code, stdout, stderr)
 }
 
+// wantNoCharterRefusal is start/render with no charter: the build's own refusal (startRenderNoCharterRefusal), never the
+// pin refusal of a test's fake.
+func wantNoCharterRefusal(t *testing.T, code int, stdout, stderr string) {
+	t.Helper()
+	wantRefusal(t, code, stdout, stderr)
+	if strings.Contains(stdout+stderr, "pins are refused in this test") {
+		t.Errorf("the refusal is the test's own pin refusal, not the verb's: %q", stderr)
+	}
+	if !regexp.MustCompile(startRenderNoCharterRefusal).MatchString(stderr) {
+		t.Errorf("stderr %q does not match the build's refusal %q", stderr, startRenderNoCharterRefusal)
+	}
+}
+
 func wantUnavailableDoc(t *testing.T, code int, stdout, stderr string) {
 	t.Helper()
 	var doc map[string]any
@@ -149,23 +212,22 @@ func wantText(sub string) func(*testing.T, int, string, string) {
 }
 
 func noCharterVerbs(t *testing.T) []noCharterVerb {
-	file := writeDoomsdayCharter(t)
 	vs := []noCharterVerb{
-		{"start", []string{"start", "--charter", file, "--yes-i-lift", "--hash", strings.Repeat("a", 64)}, true, false, wantRefusal},
-		{"stop", []string{"stop"}, true, false, wantRefusal},
-		{"finish", []string{"finish"}, true, false, wantRefusal},
-		{"finish --begin", []string{"finish", "--begin"}, true, false, wantRefusedOrNotAccepted},
-		{"rubric", []string{"rubric", "c1", "approve", "--dossier", "abcdef12"}, true, false, wantRefusal},
-		{"render", []string{"render", "--charter", file}, false, false, wantRefusal},
-		{"overview", []string{"overview"}, true, true, wantUnavailableDoc},
-		{"feed", []string{"feed"}, true, true, wantUnavailableDoc},
-		{"status", []string{"status"}, false, false, wantText(`"active":false`)},
-		{"strategy status", []string{"strategy", "status"}, false, true, wantText(`"off":true`)},
-		{"strategy epochs", []string{"strategy", "epochs"}, false, true, wantText(`"off":true`)},
-		{"strategy directions", []string{"strategy", "directions"}, false, true, wantText(`"off":true`)},
+		{"start", []string{"start"}, true, false, true, wantNoCharterRefusal},
+		{"stop", []string{"stop"}, true, false, false, wantRefusal},
+		{"finish", []string{"finish"}, true, false, false, wantRefusal},
+		{"finish --begin", []string{"finish", "--begin"}, true, false, false, wantRefusedOrNotAccepted},
+		{"rubric", []string{"rubric", "c1", "approve", "--dossier", "abcdef12"}, true, false, false, wantRefusal},
+		{"render", []string{"render"}, false, false, true, wantNoCharterRefusal},
+		{"overview", []string{"overview"}, true, true, false, wantUnavailableDoc},
+		{"feed", []string{"feed"}, true, true, false, wantUnavailableDoc},
+		{"status", []string{"status"}, false, false, false, wantText(`"active":false`)},
+		{"strategy status", []string{"strategy", "status"}, false, true, false, wantText(`"off":true`)},
+		{"strategy epochs", []string{"strategy", "epochs"}, false, true, false, wantText(`"off":true`)},
+		{"strategy directions", []string{"strategy", "directions"}, false, true, false, wantText(`"off":true`)},
 	}
 	if governorVerbExpected {
-		vs = append(vs, noCharterVerb{"governor status", []string{"governor", "status"}, false, true, wantText(`"off":true`)})
+		vs = append(vs, noCharterVerb{"governor status", []string{"governor", "status"}, false, true, false, wantText(`"off":true`)})
 	}
 	return vs
 }
@@ -174,7 +236,12 @@ func noCharterVerbs(t *testing.T) []noCharterVerb {
 func TestEveryDoomsdayVerbWithNoCharterIsInert(t *testing.T) {
 	for _, v := range noCharterVerbs(t) {
 		t.Run(v.name, func(t *testing.T) {
-			pins := noPins(t)
+			var pins *atomic.Int32
+			if v.realPin {
+				pins = countPins(t)
+			} else {
+				pins = noPins(t)
+			}
 			accounttest.Install(t, accounttest.SignedIn)
 			home := freshHome(t)
 			asOperatorProcess(t)
@@ -186,11 +253,16 @@ func TestEveryDoomsdayVerbWithNoCharterIsInert(t *testing.T) {
 				t.Errorf("files under HOME: before [%s], after [%s]", beforeFiles, after)
 			}
 			requireSameCounts(t, v.name, beforeRows, tableCounts(t, db))
-			// The control room's read engine and the strategy and governor reads never pin. The verbs on the full engine (start,
-			// render, stop, finish, rubric, status) build its sequencer when the command constructs it, in a build with the mode
-			// wired, for the life of that one command (see the report of PR2): not asserted here, only that it is refused.
+			// The control room's read engine and the strategy and governor reads never pin (overview, feed, strategy, governor: 0).
+			// In a build with the mode wired, start, render, stop, finish, finish --begin, rubric and status build the Sequencer
+			// eagerly when the command constructs its engine and so pin (stop 2, the others 1 each, counted with a refusing pin;
+			// start and render are behind the real pin and not counted). Not a wanted state: the follow-up makes the engine lazy.
 			if v.readOnlyEngine && pins.Load() != 0 {
 				t.Errorf("%d pinned connection(s) made by a read verb", pins.Load())
+			}
+			if !v.readOnlyEngine && !v.realPin && int(pins.Load()) != wiredPins(v.name) {
+				// current wording/behaviour, changes in the follow-up PR (busy-database wording, early Stop progress line, lazy Engine)
+				t.Errorf("%d pinned connection(s) made, want %d in this build", pins.Load(), wiredPins(v.name))
 			}
 		})
 	}
@@ -273,6 +345,7 @@ func TestStopWithNoRunSaysSoAndWritesNothingSignedOut(t *testing.T) {
 	if code == 0 || code == 4 || strings.Contains(stdout, "operator_only") || strings.Contains(stderr, loginRequiredLine) {
 		t.Fatalf("exit %d, stdout %q, stderr %q: want a refusal of its own", code, stdout, stderr)
 	}
+	// current wording/behaviour, changes in the follow-up PR (busy-database wording, early Stop progress line, lazy Engine)
 	if !strings.Contains(stderr, stopNoRunText) || strings.Contains(stdout, "stopped") {
 		t.Fatalf("stdout %q, stderr %q: want %q and no claim of a stop", stdout, stderr, stopNoRunText)
 	}
@@ -282,10 +355,12 @@ func TestStopWithNoRunSaysSoAndWritesNothingSignedOut(t *testing.T) {
 	requireSameCounts(t, "stop", beforeRows, tableCounts(t, db))
 }
 
-// STOP while another connection holds the database's write lock: with no run there is nothing to stop and the answer comes
-// from reads only (WAL readers are not blocked), so it is the same refusal; either way it returns within a bound (the
-// driver's busy timeout is 5 s) and never says "stopped". The case with a run open and the lock held is
-// TestStopDuringALockedDatabaseIsBoundedAndNeverSaysStopped in internal/cli/doomsday.
+// STOP while another connection holds the database's write lock, no run. Observed (tagged build, measured 10 s): opening the
+// engine waits two busy timeouts (5 s each) and then fails, and an engine that cannot be opened because of the lock answers as
+// the mode being off: exit 1, stderr "open-ended (doomsday) mode is not available on this install", whereas the unlocked case
+// says "no open run to stop". The untagged build says the same at once. It returns within a bound, never says "stopped" and
+// needs no sign-in. The case with a run open and the lock held is TestStopDuringALockedDatabaseIsBoundedAndNeverSaysStopped
+// in internal/cli/doomsday.
 func TestStopDuringALockedDatabaseWithNoRunIsBoundedAndRefuses(t *testing.T) {
 	noPins(t)
 	accounttest.Install(t, accounttest.LockedNoLogin)
@@ -294,18 +369,23 @@ func TestStopDuringALockedDatabaseWithNoRunIsBoundedAndRefuses(t *testing.T) {
 	db := newHILTestDB(t)
 	lock := holdWriteLock(t, db)
 	defer lock()
-	beforeFiles := homeFiles(t, home)
+	beforeFiles, beforeRows := homeFiles(t, home), tableCounts(t, db)
 	start := time.Now()
 	code, stdout, stderr := runMain(t, "--db-path", db, "--profile", "default", "doomsday", "stop")
 	if d := time.Since(start); d > 45*time.Second {
 		t.Fatalf("stop took %v with the database write-locked", d)
 	}
-	if code == 0 || code == 4 || strings.Contains(stdout, "stopped") || strings.Contains(stderr, loginRequiredLine) {
-		t.Fatalf("exit %d, stdout %q, stderr %q: want a refusal that is not a stop and not the sign-in", code, stdout, stderr)
+	if code != 1 || strings.Contains(stdout, "stopped") || strings.Contains(stderr, loginRequiredLine) {
+		t.Fatalf("exit %d, stdout %q, stderr %q: want exit 1, no stop, no sign-in line", code, stdout, stderr)
+	}
+	// current wording/behaviour, changes in the follow-up PR (busy-database wording, early Stop progress line, lazy Engine)
+	if !strings.Contains(stderr, "not available on this install") {
+		t.Fatalf("stderr %q: want the observed \"not available on this install\"", stderr)
 	}
 	if after := homeFiles(t, home); after != beforeFiles {
 		t.Errorf("files under HOME: before [%s], after [%s]", beforeFiles, after)
 	}
+	requireSameCounts(t, "stop under a lock", beforeRows, tableCounts(t, db))
 }
 
 // holdWriteLock opens a second connection on the database and keeps a write transaction open until the returned release.

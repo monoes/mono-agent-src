@@ -67,8 +67,9 @@ func governorPkgs(pkgs []string) []string {
 
 // A1: the governor is linked by the integrator only. The tagged build links governor packages (the positive control that
 // the check can see them), and whatever the untagged build links is a subset of that: no build reaches the governor by
-// another path. This holds with the tag in and out of the source.
-func TestBinaryLinksTheGovernorOnlyThroughTheIntegrator(t *testing.T) {
+// another path. With the tag gone from the source the two sets are equal and this is only the positive control that the
+// check can see governor packages; the importer list below is the real guard.
+func TestBinaryLinksTheGovernorOnlyWhereTheIntegratorAllows(t *testing.T) {
 	root := repoRoot(t)
 	tagged := governorPkgs(goList(t, root, "doomsday"))
 	if len(tagged) == 0 {

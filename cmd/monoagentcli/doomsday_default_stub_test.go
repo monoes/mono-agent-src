@@ -11,10 +11,11 @@ import (
 // build-agnostic tests read these constants for the text and verbs of this build, and the removal of the tag deletes this
 // file together with the stub (doomsday_built_test.go carries the same names for the wired build).
 const (
-	governorVerbExpected   = false
-	controlRoomNoRunReason = "off"
-	finishNoRunRefusal     = "not available on this install"
-	stopNoRunText          = "not available on this install"
+	governorVerbExpected        = false
+	controlRoomNoRunReason      = "off"
+	finishNoRunRefusal          = "not available on this install"
+	startRenderNoCharterRefusal = "not available on this install"
+	stopNoRunText               = "not available on this install"
 )
 
 // A default install wires no engine at all, so nothing can read a run or start one.
@@ -39,3 +40,6 @@ func TestDefaultInstallRefusesStartStopAndRenderAsOff(t *testing.T) {
 		}
 	}
 }
+
+// wiredPins: a build without the mode wires no engine, so no verb pins.
+func wiredPins(string) int { return 0 }

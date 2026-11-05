@@ -3,6 +3,7 @@ package doomsday
 import (
 	"context"
 	"database/sql"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -46,8 +47,14 @@ func TestStopDuringALockedDatabaseIsBoundedAndNeverSaysStopped(t *testing.T) {
 	if d := time.Since(begin); d > 90*time.Second {
 		t.Fatalf("stop took %v with the database write-locked: it must be bounded", d)
 	}
-	if err == nil || !strings.Contains(out, "NOT RECORDED") || strings.HasSuffix(out, "stopped\n") {
+	// current wording/behaviour, changes in the follow-up PR (busy-database wording, early Stop progress line, lazy Engine)
+	if err == nil || !strings.Contains(out, "Stop intent NOT RECORDED in the database") || strings.HasSuffix(out, "stopped\n") {
 		t.Fatalf("stop under a locked database reported a clean stop it did not make: %v %q", err, out)
+	}
+	// The marker is written before the database is touched, so it exists although the intent could not be recorded (a regression
+	// that fails the marker instead of the intent would print another line).
+	if _, serr := os.Stat(w.w.RunDir.StopPath(1)); serr != nil {
+		t.Fatalf("no stop marker in the run dir after a stop whose intent was not recorded: %v", serr)
 	}
 	unlock()
 	runs, rerr := w.w.Store.OpenRuns(context.Background(), "p1")
