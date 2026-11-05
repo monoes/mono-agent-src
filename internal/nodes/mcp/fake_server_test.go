@@ -115,6 +115,8 @@ func (s *fakeServer) handle(m *rpcMessage) map[string]interface{} {
 			return rpcResult(m.ID, map[string]interface{}{"content": textContent(os.Getenv("FAKE_TOKEN"))})
 		case "run":
 			return rpcResult(m.ID, map[string]interface{}{"content": textContent(os.Getenv("MONOAGENT_WORKFLOW_RUN"))})
+		case "runtoken":
+			return rpcResult(m.ID, map[string]interface{}{"content": textContent(os.Getenv("MONOAGENT_RUN_TOKEN"))})
 		case "sleep":
 			time.Sleep(30 * time.Second)
 			return rpcResult(m.ID, map[string]interface{}{"content": textContent("late")})

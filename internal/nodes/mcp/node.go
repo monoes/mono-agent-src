@@ -121,6 +121,11 @@ func (n *CallNode) Execute(ctx context.Context, input workflow.NodeInput, config
 	if workflow.RunIsUnapproved(ctx) {
 		srv.Env[workflow.EnvUnapprovedRun] = "1"
 	}
+	// The run's token goes to a local server process only, and a node's own env cannot stand in for it.
+	delete(srv.Env, workflow.EnvRunToken)
+	if tok := workflow.RunTokenFrom(ctx); tok != "" && srv.Transport != "http" {
+		srv.Env[workflow.EnvRunToken] = tok
+	}
 	if srv.Transport != "http" {
 		if err := workflow.RefuseUnapprovedProgram(ctx, NodeType+" (a stdio server)", input.WorkflowID); err != nil {
 			return nil, err

@@ -416,6 +416,22 @@ func TestStdioServerMarksTheWorkflowRun(t *testing.T) {
 	}
 }
 
+// The server process carries the run's token (and only that: not one the node's env names), so a tool it
+// runs can prove its run is approved; a run with no token hands it none.
+func TestStdioServerCarriesTheRunsToken(t *testing.T) {
+	for _, c := range []struct{ name, ctxTok, want string }{{"the run's token", "tok-1", "tok-1"}, {"no token, a forged env one", "", ""}} {
+		cfg := stdioConfig(map[string]interface{}{"tool": "runtoken"})
+		cfg["env"] = map[string]interface{}{fakeServerEnv: "1", workflow.EnvRunToken: "forged"}
+		outs, err := (&CallNode{}).Execute(workflow.WithRunToken(context.Background(), c.ctxTok), workflow.NodeInput{ExecutionID: "exec-7"}, cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := outs[0].Items[0].JSON["result"]; got != c.want {
+			t.Errorf("%s: the server saw %#v, want %q", c.name, got, c.want)
+		}
+	}
+}
+
 // A vault server entry's own url wins: a node url that names another
 // address is refused, so the entry's headers cannot be sent there (#897).
 func TestServerEntryURLWins(t *testing.T) {
