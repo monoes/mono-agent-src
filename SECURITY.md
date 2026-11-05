@@ -633,8 +633,9 @@ publication claims, and its sends wait for your approval. What changes:
 - A terminal you started inside a turn is treated as the agent's, so its
   `workflow run` is an agent's run. Outside a turn nothing changes.
 - A `workflow run` that a node of a workflow you approved starts is marked as
-  another agent's run: its sends queue and non-builtin browser packages are
-  refused.
+  another agent's run when the child shows that run's approved token: its sends
+  queue and non-builtin browser packages are refused. Without the token the run
+  is marked as called by an unapproved workflow (stricter).
 - A run the chat started is refused browser packages that aren't built-in, as
   the agent's are. A bare `MONOAGENT_AI_CALLER=chat` inside a turn does not
   buy the chat's browser level; the stricter level applies.
