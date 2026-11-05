@@ -86,11 +86,37 @@ func WithRunMark(ctx context.Context, mark string) context.Context {
 	return context.WithValue(ctx, runMarkKey{}, mark)
 }
 
-// withRunMark returns data carrying the mark ctx holds. It writes into a copy: a retry's data is the
-// old run's, which stays as it was.
+// markStrictness ranks the kinds of an AI-caller mark, stricter first: "other" and a run an unapproved
+// workflow called, then every other agent kind (a kind this table does not list counts as one, never as a
+// chat or as no mark: a mark nobody knows is not trusted as the loosest), then a chat, then no mark. It is
+// the one table a retry's two marks are compared by.
+var markStrictness = map[string]int{"other": 3, UnapprovedWorkflowCaller: 3, "chat": 1}
+
+const agentKindStrictness = 2
+
+// markRank is the strictness of a mark ("kind" or "kind/declared", trimmed as the gate reads it); an
+// empty or blank mark is 0.
+func markRank(mark string) int {
+	kind, _, _ := strings.Cut(strings.TrimSpace(mark), "/")
+	if kind == "" {
+		return 0
+	}
+	if r, ok := markStrictness[kind]; ok {
+		return r
+	}
+	return agentKindStrictness
+}
+
+// withRunMark returns data carrying the mark ctx holds, or data as it is when the mark data already has is
+// at least as strict (a retry's data is the old run's: a retry never loosens a run, the old mark wins a
+// tie with its suffix, and a ctx without a mark leaves data alone). It writes into a copy: the old run's
+// data stays as it was.
 func withRunMark(ctx context.Context, data map[string]interface{}) map[string]interface{} {
 	mark, _ := ctx.Value(runMarkKey{}).(string)
-	if mark == "" {
+	if strings.TrimSpace(mark) == "" {
+		return data
+	}
+	if old, _ := data[AICallerKey].(string); markRank(old) >= markRank(mark) {
 		return data
 	}
 	out := make(map[string]interface{}, len(data)+1)
