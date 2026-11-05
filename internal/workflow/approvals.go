@@ -73,6 +73,34 @@ func AgentCallerFrom(ctx context.Context) string {
 	return why
 }
 
+type runMarkKey struct{}
+
+// WithRunMark carries, in ctx, the AI-caller mark (AICallerKey) of the command that starts runs the
+// engine builds the trigger data of itself (an evaluation's cases, a retry): the command decided it
+// once from its turn-aware verdict, like the mark `workflow run` puts in its own trigger data. An
+// empty mark leaves ctx as it is.
+func WithRunMark(ctx context.Context, mark string) context.Context {
+	if mark == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, runMarkKey{}, mark)
+}
+
+// withRunMark returns data carrying the mark ctx holds. It writes into a copy: a retry's data is the
+// old run's, which stays as it was.
+func withRunMark(ctx context.Context, data map[string]interface{}) map[string]interface{} {
+	mark, _ := ctx.Value(runMarkKey{}).(string)
+	if mark == "" {
+		return data
+	}
+	out := make(map[string]interface{}, len(data)+1)
+	for k, v := range data {
+		out[k] = v
+	}
+	out[AICallerKey] = mark
+	return out
+}
+
 // AgentRunMark is the kind an agent's `workflow run` marked this run with (AICallerKey, "coder",
 // "other", "other/org"), or "" for a run no agent started. A chat's mark is returned as "chat".
 func AgentRunMark(ctx context.Context) string {
