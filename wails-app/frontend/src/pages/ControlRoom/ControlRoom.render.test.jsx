@@ -228,7 +228,9 @@ describe('Stop survives a failed poll', () => {
   })
   it('the last known ended run keeps Stop enabled under an error (a stale row must not lock the operator out)', async () => {
     await firstOk({ ...running, run: { ...running.run, state: 'quiescent', active: false } })
-    expect(screen.getByRole('button', { name: /Stop run/ })).toBeDisabled()
+    // findByTestId can resolve on the first render (the pre-poll error view, where Stop is rightly enabled); wait for
+    // the first good poll to apply. A disabled Stop needs a poll with a verified chain that says the run is not active.
+    await waitFor(() => expect(screen.getByRole('button', { name: /Stop run/ })).toBeDisabled())
     await laterPoll({ error: 'x' })
     expect(screen.getByRole('button', { name: /Stop run/ })).toBeEnabled()
   })
