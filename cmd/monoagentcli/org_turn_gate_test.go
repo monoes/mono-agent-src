@@ -104,6 +104,7 @@ const (
 	orgGrantFmt   = `granting "summarize" to role "lead" is the user's to do: %s; ` + orgRunTail
 	orgApproveFm  = "approving " + orgApproveSend + " by writer in org growth is the user's to do: %s; " + orgRunTail
 	orgApproveSum = "approving monoagent__automation_sum by writer in org growth is the user's to do: %s; " + orgRunTail
+	orgGateFmt    = "approving gate-9 in org growth is the user's to do: %s; " + orgRunTail
 	orgResumeFmt  = "resuming autonomy is the user's to do: %s; " + orgRunTail
 	orgNoneFmt    = `a grant with --approval none lets role "lead" run "summarize" without asking, which is the user's to give: %s; leave --approval out (or pass required), ` + orgRefusedTail
 )
@@ -387,4 +388,30 @@ func orgApproveFixture(t *testing.T) (*orgCLIFixture, string) {
 		}
 	}
 	return f, argsLog
+}
+
+// Approving a decision gate is approving an approval (class B): `org gate-approve` is refused to a marked
+// agent and to a process in a turn, with nothing reaching monomind; the operator's passes.
+func TestOrgGateApproveIsRefusedToAMarkedAgentAndToAProcessInATurn(t *testing.T) {
+	gateCalls := func(argsLog string) bool {
+		b, _ := os.ReadFile(argsLog)
+		return strings.Contains(string(b), "gate-approve")
+	}
+	for _, ctx := range orgGateContexts() {
+		t.Run(ctx.name, func(t *testing.T) {
+			f, argsLog := orgApproveFixture(t)
+			ctx.setup(t, f)
+			_, err := f.run(t, "gate-approve", "growth", "gate-9", "ship", "it")
+			checkWhy(t, err, ctx, orgGateFmt)
+			if gateCalls(argsLog) {
+				t.Fatal("a refused gate approval reached monomind")
+			}
+		})
+	}
+	t.Run("operator", func(t *testing.T) {
+		f, argsLog := orgApproveFixture(t)
+		if _, err := f.run(t, "gate-approve", "growth", "gate-9", "ship", "it"); err != nil || !gateCalls(argsLog) {
+			t.Fatalf("the operator's gate approval: %v", err)
+		}
+	})
 }

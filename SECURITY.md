@@ -2341,19 +2341,21 @@ that works a task acts on them. The defences:
   authenticates to it (the pairing token): it runs `record save` and `coder queue add` as the
   operator for such a caller, so the token is as sensitive as the commands behind it.
   The org verbs that loosen what an org may do are operator-only: `org grant add` (every approval
-  mode), `org autonomy set` and `resume`, and `org approve` (and `org chat approve` of an approval: a
-  request id, `role:action` or `grant:`) are refused,
+  mode), `org autonomy set` and `resume`, `org approve`, `org gate-approve` and `org chat approve`
+  (of an approval or a `gate-` ref: approving a gate is approving an approval) are refused,
   exit 3, to a marked agent, the chat, a workflow, a holder of an agent token and a process inside a
   coder session's turn that cleared its markers, before any flag or file is read. The restrictive
-  verbs, `org grant remove` and `org autonomy pause`, stay open to them. An org's operator
+  verbs, `org grant remove` and `org autonomy pause`, stay open to them, and so do denying and rejecting
+  a gate and `org chat answer` (it only answers a pending question). The chat's `set_org_grant` and
+  `set_org_autonomy` tools therefore only propose (they run nothing and say what the user would confirm
+  in the org screen); revoking a grant still previews and applies on `confirm:true`. An org's operator
   signature is not laundered either: a write a turn (or any process the gate refuses) makes to a
   signed org lands, but the org is left unsigned until the operator reviews and signs it
   (`orgsign.Before` asks the same gate through `orgsign.SetTurnVerdict`, installed from
   `internal/cli/opgate` like `operator.SetTurnVerdict`). It fails closed: if the turn registry
   cannot be read, even the operator's own edits are not re-signed until it can. A process that
   registered no gate (the app, the daemon, library use) judges by markers alone. Not covered by
-  this decision, so left as they are: approving a GATE (`org gate-approve`, and `org chat approve` of a
-  `gate-` ref) is open to them (owner call, #1475); and these edits are not re-signed: `org automation add|remove`,
+  this decision, so left as they are (their edits are not re-signed): `org automation add|remove`,
   `org automation-role add|remove|rotate`, `org group init`, `org rename`, a workflow save that
   raises a grant tier and `workflow delete --force`; `org create-json`, library org import and the
   chat's org tools write without re-signing.

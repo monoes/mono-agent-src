@@ -111,17 +111,38 @@ func TestOrgApproveAsksTheTurnAwareGate(t *testing.T) {
 	}
 }
 
-// Gates: owner call, #1475. `org chat approve` of an APPROVAL is operator-only (class B), but a
-// gate ref (gate-...) never reaches the approval check: a turn still approves a gate through the
-// chat verb. This pins that on purpose; when the owner decides gates are class B the test flips
-// (refuseNotOperator before orgchat.Resolve when req.Approve is set, and in `org gate-approve`).
-func TestOrgChatApproveOfAGateIsNotRefusedToATurnYet(t *testing.T) {
-	cfg, fake, _ := setupOrgChat(t)
-	asInATurn(t)
-	if out, err := runOrgChat(t, cfg, "approve", "acme", "gate-1850-x1", "--", "ship", "it"); err != nil || !strings.Contains(out, `"state":"approved"`) {
-		t.Fatalf("a turn's approval of a gate (gates: owner call, #1475): %v %s", err, out)
+// Approving a gate is approving an approval (class B, decided by the user): `org chat approve` of a
+// gate- ref is the operator's only, like an approval's, and nothing reaches monomind when it is refused.
+// Rejecting a gate stays open.
+func TestOrgChatApproveOfAGateIsTheOperatorsOnly(t *testing.T) {
+	want := func(why string) string {
+		return "approving gate-1850-x1 in org acme is the user's to do: " + why + "; run it yourself from a terminal or the app"
 	}
-	if len(fake.sent) != 1 || !strings.HasPrefix(fake.sent[0], "gate gate-1850-x1") {
-		t.Fatalf("sent %v", fake.sent)
-	}
+	t.Run("turn", func(t *testing.T) {
+		cfg, fake, _ := setupOrgChat(t)
+		asInATurn(t)
+		_, err := runOrgChat(t, cfg, "approve", "acme", "gate-1850-x1", "--", "ship", "it")
+		if exitCodeFor(err) != 3 || err.Error() != want(turnStandIn) || len(fake.sent) != 0 {
+			t.Fatalf("a turn's approval of a gate: %v %v", err, fake.sent)
+		}
+		if _, err := runOrgChat(t, cfg, "deny", "acme", "gate-1850-x1"); err != nil || len(fake.sent) != 1 {
+			t.Fatalf("rejecting a gate stays open: %v %v", err, fake.sent)
+		}
+	})
+	t.Run("marked agent", func(t *testing.T) {
+		cfg, fake, _ := setupOrgChat(t)
+		asOrgOperator(t)
+		t.Setenv("CLAUDECODE", "1")
+		_, err := runOrgChat(t, cfg, "approve", "acme", "gate-1850-x1")
+		if exitCodeFor(err) != 3 || !strings.Contains(err.Error(), "approving gate-1850-x1 in org acme is the user's to do: CLAUDECODE") || len(fake.sent) != 0 {
+			t.Fatalf("a marked agent's approval of a gate: %v %v", err, fake.sent)
+		}
+	})
+	t.Run("operator", func(t *testing.T) {
+		cfg, fake, _ := setupOrgChat(t)
+		asOrgOperator(t)
+		if out, err := runOrgChat(t, cfg, "approve", "acme", "gate-1850-x1", "--", "ship", "it"); err != nil || !strings.Contains(out, `"state":"approved"`) || len(fake.sent) != 1 {
+			t.Fatalf("the operator's approval of a gate: %v %s %v", err, out, fake.sent)
+		}
+	})
 }

@@ -55,7 +55,7 @@ func NewCommand(d Deps) *cobra.Command {
 		newOrgAnswerCmd(root),
 		newOrgApproveCmd(root, env.refuseSendingApproval),
 		newOrgDenyCmd(root),
-		newOrgGateApproveCmd(root),
+		newOrgGateApproveCmd(env),
 		newOrgGateRejectCmd(root),
 		newOrgEventsCmd(root),
 		env.newOrgValidateCmd(root),
@@ -438,14 +438,18 @@ func newOrgDenyCmd(root func() string) *cobra.Command {
 	}
 }
 
-func newOrgGateApproveCmd(root func() string) *cobra.Command {
+func newOrgGateApproveCmd(env *orgEnv) *cobra.Command {
 	return &cobra.Command{
 		Use:   "gate-approve <name> <gateId> [resolution...]",
-		Short: "Approve a decision gate",
+		Short: "Approve a decision gate (operator only)",
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Approving a gate is approving an approval: the user's (class B).
+			if err := env.refuseNotOperator(fmt.Sprintf("approving %s in org %s", args[1], args[0])); err != nil {
+				return err
+			}
 			resolution := joinRemainder(args[2:])
-			out, err := monomind.OrgGateApprove(cmd.Context(), root(), args[0], args[1], resolution)
+			out, err := monomind.OrgGateApprove(cmd.Context(), env.root(), args[0], args[1], resolution)
 			if err != nil {
 				return err
 			}

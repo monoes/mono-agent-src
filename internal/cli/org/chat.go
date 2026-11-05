@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 	"sync"
@@ -264,6 +265,13 @@ func runOrgChatResolve(cmd *cobra.Command, env *orgEnv, req orgchat.Request) err
 	if err != nil {
 		return err
 	}
+	if req.Approve && strings.HasPrefix(req.Ref, "gate-") {
+		// Approving a gate is approving an approval: the user's (class B). An approval ref is checked
+		// by Allow, which says more when the approval sends.
+		if err := env.refuseNotOperator(fmt.Sprintf("approving %s in org %s", req.Ref, req.Org)); err != nil {
+			return err
+		}
+	}
 	if req.Approve {
 		req.Allow = func(action string) error { return env.refuseChatApproval(cmd.Context(), req.Org, action) }
 	}
@@ -322,7 +330,7 @@ func newOrgChatResolveCmd(env *orgEnv, verb string, approve bool) *cobra.Command
 		Long: short + ". ref is a gate id (gate-…), an approval's request id, role:action:ts, or role:action " +
 			"(its pending request). A note is kept as a gate's resolution; approvals take none. Approving an approval " +
 			"(not a gate) is the operator's only: an agent, the chat, a workflow or a coder turn is refused; denying stays open. " +
-			"Approving a gate is not covered by that rule (owner call, #1475).",
+			"Approving a gate is the operator's only too.",
 		Short: short,
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
