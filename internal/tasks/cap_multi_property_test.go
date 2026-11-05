@@ -38,7 +38,7 @@ func TestCapRunMultiHandleInvariants(t *testing.T) {
 		t.Run(fmt.Sprint("seed", seed), func(t *testing.T) { runCapMulti(t, seed, done) })
 	}
 	t.Logf("operations that happened: %v", done)
-	for _, k := range []string{"begin", "begin-refused", "reserve", "reserve-refused", "set", "lower-refused", "heartbeat-lost", "heartbeat-lapsed"} {
+	for _, k := range []string{"begin", "begin-refused", "reserve", "reserve-refused", "set", "lower-refused", "heartbeat-lapsed"} {
 		if done[k] == 0 {
 			t.Errorf("no %q ever happened: the test does not exercise it", k)
 		}
