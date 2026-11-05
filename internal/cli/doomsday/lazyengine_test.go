@@ -124,7 +124,7 @@ func TestWiringStopperCarriesTheProgressSink(t *testing.T) {
 	var got []string
 	w := r.w
 	w.Progress = func(m string) { got = append(got, m) }
-	st := w.Stopper("operator", w.ender())
+	st := w.Stopper("operator", notProvenEnder{})
 	if st.Progress == nil {
 		t.Fatal("the Stopper has no progress sink")
 	}
