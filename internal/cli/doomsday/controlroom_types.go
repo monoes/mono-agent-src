@@ -5,7 +5,7 @@ package doomsday
 // the profile's latest run:
 //
 //   - `doomsday overview --json` is Overview, `doomsday feed --json [--before SEQ] [--limit N]` is FeedPage.
-//   - available is false when the mode is not built in (reason "off") or the profile has no run (reason "no_run");
+//   - available is false when the mode is off (reason "off") or the profile has no run (reason "no_run");
 //     a missing database or one without the mode's tables is "off" only when the profile's witness directory holds no
 //     committed or pending record; otherwise it is the read error db_unavailable (a run existed);
 //     nothing else is set then, and the app shows nothing.

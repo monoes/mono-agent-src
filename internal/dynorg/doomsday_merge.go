@@ -87,8 +87,8 @@ func stepIndex(step string) int {
 	return 0
 }
 
-// resolveDoomsday is the run a merge belongs to: the fixed Config.Doomsday, else the resolver (nil when the mode
-// is not built in). A resolver error refuses the merge: a run that cannot be read is not "no run".
+// resolveDoomsday is the run a merge belongs to: the fixed Config.Doomsday, else the resolver (nil when no resolver
+// is set). A resolver error refuses the merge: a run that cannot be read is not "no run".
 func (c *Conductor) resolveDoomsday(ctx context.Context) (*DoomsdayMerge, error) {
 	if c.cfg.Doomsday != nil {
 		return c.cfg.Doomsday, nil
