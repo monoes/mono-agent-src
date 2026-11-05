@@ -35,3 +35,34 @@ func AbandonBegin(conn *sql.Conn) {
 	}
 	_ = conn.Raw(func(any) error { return driver.ErrBadConn })
 }
+
+// WithWriteTx runs fn inside a BEGIN IMMEDIATE transaction on a dedicated connection: the write lock is taken
+// before fn's first read, so a writer that commits in between cannot make a read-then-write fail at once with
+// SQLITE_BUSY_SNAPSHOT (517), which busy_timeout does not wait for; the BEGIN waits for the lock instead. A nil
+// result from fn commits; any error rolls back. The ROLLBACK does not use ctx (a cancelled one would skip it and
+// leave the write lock held), and a failed BEGIN goes through AbandonBegin. The connection is always released.
+func WithWriteTx(ctx context.Context, db *sql.DB, fn func(conn *sql.Conn) error) error {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		AbandonBegin(conn)
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
+		}
+	}()
+	if err := fn(conn); err != nil {
+		return err
+	}
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
