@@ -13,7 +13,9 @@ import (
 // runTokenApproved reports whether this process carries the token of an approved execution that is still going
 // (workflow.EnvRunToken, recorded by the engine in workflow_run_tokens). No token, a forged one, one of an
 // unapproved or finished run, and a store that cannot be read are all false: dropping the token fails closed.
-// The limit: a process of the same user that can write the database can insert an approved row of its own.
+// The limit: the token is a bearer credential, so a process of the same user that can read a live child's
+// environment (/proc/<pid>/environ) can present it until the run ends, and one that can write the database
+// can insert an approved row of its own.
 func runTokenApproved(ctx context.Context, db *sql.DB) bool {
 	ok, err := workflow.RunTokenApproved(ctx, db, os.Getenv(workflow.EnvRunToken))
 	return ok && err == nil

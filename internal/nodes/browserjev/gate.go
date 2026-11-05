@@ -116,6 +116,7 @@ func envCaller() (caller, bool) {
 // it — this one, or a daemon that adopts a --no-wait run or resumes a paused
 // one — holds it to the same level. A kind the caller declared but could
 // not prove follows as "kind/declared" ("other/org").
+// It has no production caller (`workflow run` uses MarkAICallerRun); the tests of the agent kinds use it.
 func MarkAICaller(data map[string]interface{}) { MarkAICallerRun(context.Background(), nil, data) }
 
 // MarkAICallerRun is MarkAICaller with the database the run's token is looked up in (db: the profile's). A

@@ -169,3 +169,54 @@ func TestIssueRunTokenEndsTheTokensOfTerminalExecutions(t *testing.T) {
 		t.Error("the sweep ended the token of a running execution")
 	}
 }
+
+// IssueRunToken sets the lifetime itself (48 hours) from the database's clock.
+func TestIssueRunTokenSetsA48HourLifetime(t *testing.T) {
+	db := runTokenDB(t, true)
+	if _, err := IssueRunToken(context.Background(), db, "exec-1", true); err != nil {
+		t.Fatal(err)
+	}
+	var hours float64
+	if err := db.QueryRow(`SELECT (julianday(expires_at) - julianday(created_at)) * 24 FROM workflow_run_tokens`).Scan(&hours); err != nil {
+		t.Fatal(err)
+	}
+	if hours < 47.9 || hours > 48.1 {
+		t.Errorf("lifetime %.2f hours, want 48", hours)
+	}
+}
+
+// A run that cannot record itself (no table to write the token in) hands its children no token: they are held.
+func TestRunWithoutAWritableTokenTableHandsNoToken(t *testing.T) {
+	store := newFullEngineStore(t) // no migration 160
+	db, bg := store.RawDB(), context.Background()
+	var token string
+	reg := NewNodeTypeRegistry()
+	reg.Register("test.tokenecho", func() NodeExecutor { return tokenEchoProbe{token: &token} })
+	wf := &Workflow{ID: "wf-n", Name: "NoTable", ProfileID: "default",
+		Nodes: []WorkflowNode{
+			{ID: "t", WorkflowID: "wf-n", Type: "trigger.schedule", Name: "Every hour"},
+			{ID: "p", WorkflowID: "wf-n", Type: "test.tokenecho", Name: "Echo", Config: map[string]interface{}{"n": 1}},
+		},
+		Connections: []WorkflowConnection{{ID: "c", WorkflowID: "wf-n", SourceNodeID: "t", SourceHandle: "main", TargetNodeID: "p", TargetHandle: "main"}},
+	}
+	if err := store.CreateWorkflow(bg, wf); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveWorkflowNodes(bg, wf.ID, wf.Nodes); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveWorkflowConnections(bg, wf.ID, wf.Connections); err != nil {
+		t.Fatal(err)
+	}
+	cur, _ := store.GetWorkflow(bg, wf.ID)
+	dag, _ := BuildDAG(cur.Nodes, cur.Connections)
+	ctx := vault.ContextWithProfileID(vault.ContextWithDB(bg, db), "default")
+	exec := &WorkflowExecution{ID: uuid.NewString(), WorkflowID: wf.ID, TriggerType: "trigger.schedule", TriggerNodeID: "t"}
+	token = "unset"
+	if err := RunExecution(ctx, exec, cur, dag, reg, store, nil, NewExpressionEngine(), zerolog.Nop()); err != nil {
+		t.Fatalf("RunExecution: %v", err)
+	}
+	if token != "" {
+		t.Errorf("a run that could not record itself handed its nodes a token: %q", token)
+	}
+}

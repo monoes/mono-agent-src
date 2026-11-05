@@ -289,8 +289,11 @@ func (d Deps) newRunCmd() *cobra.Command {
 			}
 			workflow.StripEngineKeys(triggerData)
 			// An agent's run stays its own in a daemon (--no-wait, a resume).
+			// The database is opened only when the verdict needs it: the user's own terminal needs no lookup.
 			var markDB *sql.DB
-			if db, err := d.OpenDB(); err == nil {
+			if operator.Marker() == "" {
+				// nothing to look up
+			} else if db, err := d.OpenDB(); err == nil {
 				markDB = db.DB
 				defer db.Close()
 			}

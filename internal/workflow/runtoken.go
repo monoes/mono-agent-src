@@ -17,9 +17,13 @@ import (
 // drops or forges the token fails closed. The database keeps only the token's hash; the token itself exists in the
 // children's environment and in the run's context, and is never logged.
 //
-// The limit: a process of the same user that can write the database can insert an approved row of its own. That is
-// the limit the operator package documents for every same-user mechanism; what this closes is a child, or a parent
-// chain, that merely drops or edits the environment it was handed.
+// The limit: the token is a bearer credential. A process of the same user can read it from a live child's
+// environment (/proc/<pid>/environ) and present it until the run ends, or write the database and insert an
+// approved row of its own. That is the limit the operator package documents for every same-user mechanism; what
+// this closes is a child, or a parent chain, that merely drops, edits or forges the environment it was handed.
+// What the run stores of its steps is masked of the token (maskValues), and a token is never logged. A token whose
+// engine crashed is ended with its execution at the next issue, else it lapses after 48 hours (a resumed run
+// gets a fresh one).
 
 // EnvRunToken carries a run's token to the processes its nodes start.
 const EnvRunToken = "MONOAGENT_RUN_TOKEN"
@@ -54,6 +58,9 @@ func IssueRunToken(ctx context.Context, db *sql.DB, executionID string, approved
 	if approved {
 		flag = 1
 	}
+	// A run left open (a crashed engine) ends with its execution; a store without executions has none to look at.
+	_, _ = db.ExecContext(ctx, `UPDATE workflow_run_tokens SET ended_at = `+sqlNow+` WHERE ended_at IS NULL AND execution_id IN
+		(SELECT id FROM workflow_executions WHERE status IN ('SUCCESS','SUCCESS_WITH_ERRORS','FAILED','CANCELLED'))`)
 	_, _ = db.ExecContext(ctx, `DELETE FROM workflow_run_tokens WHERE (ended_at IS NOT NULL AND ended_at < `+runTokenSweepAge+`) OR expires_at < `+runTokenSweepAge)
 	if _, err := db.ExecContext(ctx, `INSERT INTO workflow_run_tokens (token_hash, execution_id, approved, created_at, expires_at)
 		VALUES (?, ?, ?, `+sqlNow+`, `+runTokenLifetime+`)`, HashRunToken(token), executionID, flag); err != nil {

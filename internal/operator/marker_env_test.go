@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/browserctl"
+	"github.com/monoes/mono-agent/internal/workflow"
 )
 
 // MarkerEnv covers Marker: with every variable in it cleared a process is the
@@ -25,7 +26,9 @@ func TestMarkerEnvCoversMarker(t *testing.T) {
 		t.Fatalf("MarkerEnv cleared, Marker still says %q", m)
 	}
 	for _, k := range env {
-		if k == browserctl.EnvAgentKind || k == browserctl.EnvAgentKindToken {
+		// The kind and the run token mark nothing alone: the token is scrubbed from children with the markers
+		// because it is a credential, and it always comes with the workflow mark.
+		if k == browserctl.EnvAgentKind || k == browserctl.EnvAgentKindToken || k == workflow.EnvRunToken {
 			continue
 		}
 		t.Setenv(k, "x")

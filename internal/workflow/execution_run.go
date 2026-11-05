@@ -183,7 +183,13 @@ func RunExecution(
 		approved := !AIAuthoredFrom(ctx) && !called && strings.TrimSpace(aiStarted) == ""
 		if tok, err := IssueRunToken(ctx, db, exec.ID, approved); err == nil {
 			ctx = WithRunToken(ctx, tok)
-			defer func() { _ = EndRunToken(context.Background(), db, tok) }()
+			// What the run stores of its steps never shows the token (a node may echo its environment).
+			r.store = &maskingStore{WorkflowStore: store, run: ctx}
+			defer func() {
+				if err := EndRunToken(context.Background(), db, tok); err != nil {
+					r.logger.Warn().Err(err).Msg("run token not ended: it lapses on its own")
+				}
+			}()
 		} else {
 			r.logger.Warn().Err(err).Msg("run token not issued: this run's child processes are held as unapproved")
 		}

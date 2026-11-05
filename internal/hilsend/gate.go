@@ -41,6 +41,15 @@ const (
 	SettingKey  = "sendApproval"
 )
 
+// heldByRunToken is one clause for a send held under a workflow run's mark: it shows no approved run token (the
+// run is unapproved, an older engine started it, no token could be issued, or the child dropped it).
+func heldByRunToken() string {
+	if env(workflow.EnvWorkflowRun) == "" {
+		return ""
+	}
+	return " (This command runs under a workflow run that shows no approved run token.)"
+}
+
 func env(k string) string { return strings.TrimSpace(os.Getenv(k)) }
 
 func firstEnv(keys ...string) string {
@@ -180,7 +189,7 @@ func Guard(ctx context.Context, nodeType string, in workflow.NodeInput, config m
 		items = append(items, workflow.NewItem(map[string]interface{}{
 			"success": false, "pending": true, "status": "queued for approval", "state": string(q.State),
 			"hil_id": q.ID, "action": q.Action, "channel": q.Channel, "recipient": q.Recipient.Name,
-			"message": "Prepared but NOT sent: it waits for the operator's approval in the Human in Loop queue. Do not retry or send it another way.",
+			"message": "Prepared but NOT sent: it waits for the operator's approval in the Human in Loop queue. Do not retry or send it another way." + heldByRunToken(),
 		}))
 	}
 	return []workflow.NodeOutput{{Handle: "main", Items: items}}, true, nil

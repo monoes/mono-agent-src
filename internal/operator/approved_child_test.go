@@ -116,3 +116,26 @@ func TestUnapprovedRunProcess(t *testing.T) {
 		}
 	}
 }
+
+// A process only an agent marker shows (no workflow mark at all) is not the user's terminal either: it cannot show
+// an approved token, so a run it starts is marked as called by an unapproved workflow.
+func TestUnapprovedRunProcessCountsAnAgentMarkerWithoutAToken(t *testing.T) {
+	for _, k := range append(MarkerEnv(), workflow.EnvUnapprovedRun) {
+		t.Setenv(k, "")
+	}
+	t.Setenv("CLAUDECODE", "1")
+	if !UnapprovedRunProcess(context.Background(), tokenDB(t)) {
+		t.Error("an agent's process with no approved token is not marked")
+	}
+}
+
+// The run token is scrubbed where the markers are: an agent or coder turn started inside a run must not keep it.
+func TestMarkerEnvHoldsTheRunToken(t *testing.T) {
+	found := false
+	for _, k := range MarkerEnv() {
+		found = found || k == workflow.EnvRunToken
+	}
+	if !found {
+		t.Error("MarkerEnv does not list " + workflow.EnvRunToken)
+	}
+}

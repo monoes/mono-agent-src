@@ -725,6 +725,38 @@ it wrote by hand under `~/.monoagent/actions`. Now:
 
 We know of no use of this: it was found by code review.
 
+### What proves a workflow's child is approved (run tokens)
+
+A send, or a `workflow run`, started by a process a workflow node started is held like an agent's unless the process
+can show a **run token**. The engine records every workflow execution in `workflow_run_tokens` (migration 160) and
+hands the processes its nodes start only a random token (256 bits from `crypto/rand`, in `MONOAGENT_RUN_TOKEN`); the
+database keeps its SHA-256 only. A gate (`operator.ApprovedWorkflowChild`, `operator.UnapprovedRunProcess`,
+`browserjev.MarkAICallerRun`) looks the token up. A run is recorded as approved only when all three hold: its
+definition is one you approved, no unapproved workflow called it, and no AI started it (the chat's or an agent's
+`workflow run`). Anything else, no row, a forged or dropped token, an ended or expired row, or a database that
+cannot be read, is **held**: dropping the token fails closed.
+
+- Lifetime: the token ends with its execution; a row left open by a crashed engine is ended at the next run once its
+  execution is terminal, else it lapses after 48 hours (a paused and resumed run gets a fresh token), and rows are
+  swept a day later. A row's verdict cannot be changed after it is written (trigger).
+- Held cases to know: a `node run` outside an execution; children started over ssh (the token is never sent to a
+  remote host); MCP servers over http (only local stdio servers get it); a run that could not record itself; a
+  workflow run by an older daemon binary (it writes no rows), so **update the daemon first or together with the CLI**:
+  a new CLI under an old daemon holds every child. A chat-started run of an approved workflow is recorded
+  unapproved, so its command and Python children are held; its in-process send nodes keep following the
+  existing chat-caller path.
+- `UnapprovedRunProcess` is true for any process that something other than your own terminal marks (a workflow
+  child, a parent process's mark, an agent marker) and that cannot show an approved token, so a `workflow run` it
+  starts is marked as called by an unapproved workflow.
+- `MONOAGENT_UNAPPROVED_RUN` is deprecated and read by no gate any more; it is still set for older child binaries.
+  The token is scrubbed wherever the other markers are (`operator.MarkerEnv`), and masked in what a run stores of
+  its steps.
+- **Limits.** The token is a bearer credential, not a barrier against the same user: a process of your user can
+  insert its own approved row in the database, or read a live child's environment (`/proc/<pid>/environ`) and
+  present the token until the run ends; a step that prints its environment shows it to whoever reads the live run
+  (stored output is masked, other sinks are not). This change only stops children and parent chains that drop, edit
+  or forge the environment they were handed.
+
 ## Assistant tools (chat `--tools`)
 
 The `chat` command can expose a monoagent tool surface to the assistant
