@@ -2,6 +2,8 @@ package tasks
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 )
 
@@ -16,8 +18,11 @@ func (s *Store) Heartbeat(ctx context.Context, profileID string, id int64, owner
 		var lease string
 		err := x.QueryRowContext(ctx, `SELECT session_id, lease_until FROM task_session_reservations WHERE id = ? AND owner_id = ? AND profile_id = ? AND state = 'live'`,
 			id, ownerID, profileID).Scan(&session, &lease)
-		if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("%w: #%d", ErrReservationLost, id)
+		}
+		if err != nil {
+			return fmt.Errorf("tasks: reading reservation #%d: %w", id, err)
 		}
 		if lease < s.lapseCutoff() {
 			if err := s.refuseLapsedBesideCapRun(ctx, x, profileID, session, id); err != nil {

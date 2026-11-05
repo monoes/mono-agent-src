@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func lapse(_ *Store, clk *clock) { clk.advance(ReservationLease + ReservationGrace + time.Second) }
+func lapse(clk *clock) { clk.advance(ReservationLease + ReservationGrace + time.Second) }
 
 // A reservation inside its grace renews beside no cap run, and one lapsed past the grace with no cap run beside it
 // still renews (the suspended machine).
@@ -20,8 +20,8 @@ func TestHeartbeatRenewsInGraceAndLapsedWithoutACapRun(t *testing.T) {
 	if err := s.Heartbeat(bg, "default", r.ID, "o1"); err != nil {
 		t.Fatalf("in grace: %v", err)
 	}
-	lapse(s, clk)
-	lapse(s, clk)
+	lapse(clk)
+	lapse(clk)
 	if err := s.Heartbeat(bg, "default", r.ID, "o1"); err != nil {
 		t.Fatalf("lapsed, no cap run: %v", err)
 	}
@@ -30,13 +30,12 @@ func TestHeartbeatRenewsInGraceAndLapsedWithoutACapRun(t *testing.T) {
 	}
 }
 
-// A lapsed reservation beside a live cap run is refused and its row is not revived; a reservation inside the grace
-// is renewed even when a cap run is registered (it latched the run out, so this is the in-grace row's own business).
+// A lapsed reservation beside a live cap run is refused and its row is not revived.
 func TestHeartbeatOfALapsedReservationBesideACapRunIsLostAndNotRevived(t *testing.T) {
 	s, db, clk := newTestStore(t)
 	session := rsession(t, s, db, 10)
 	r := rreserve(t, s, session, "o1", 2)
-	lapse(s, clk)
+	lapse(clk)
 	if _, err := s.BeginCapRun(bg, "default", session, "o2", "run"); err != nil {
 		t.Fatal(err)
 	}
@@ -62,11 +61,11 @@ func TestHeartbeatOfALapsedReservationIgnoresALapsedCapRun(t *testing.T) {
 	s, db, clk := newTestStore(t)
 	session := rsession(t, s, db, 10)
 	r := rreserve(t, s, session, "o1", 2)
-	lapse(s, clk)
+	lapse(clk)
 	if _, err := s.BeginCapRun(bg, "default", session, "o2", "run"); err != nil {
 		t.Fatal(err)
 	}
-	lapse(s, clk) // the run's lease lapsed too (both rows are lapsed now)
+	lapse(clk) // the run's lease lapsed too (both rows are lapsed now)
 	if err := s.Heartbeat(bg, "default", r.ID, "o1"); err != nil {
 		t.Fatalf("a dead run blocked the renewal: %v", err)
 	}
@@ -88,7 +87,7 @@ func TestBeginCapRunRacingAHeartbeatOfALapsedReservationNeverEndsWithBothLive(t 
 				if err != nil {
 					t.Fatal(err)
 				}
-				lapse(nil, clk)
+				lapse(clk)
 				var beginErr, beatErr error
 				start := make(chan struct{})
 				var wg sync.WaitGroup
@@ -118,5 +117,20 @@ func TestBeginCapRunRacingAHeartbeatOfALapsedReservationNeverEndsWithBothLive(t 
 			}
 			t.Logf("seed %d: run first %d, heartbeat first %d", seed, beginFirst, beatFirst)
 		})
+	}
+}
+
+// A read error of the owner row (here the table is missing under the transaction) is not "the reservation is lost": the
+// worker keeps going and the next tick retries.
+func TestHeartbeatReadErrorIsNotLost(t *testing.T) {
+	s, db, _ := newTestStore(t)
+	session := rsession(t, s, db, 10)
+	r := rreserve(t, s, session, "o1", 2)
+	if _, err := db.Exec(`ALTER TABLE task_session_reservations RENAME TO task_session_reservations_away`); err != nil {
+		t.Skipf("cannot make the read fail here: %v", err)
+	}
+	err := s.Heartbeat(bg, "default", r.ID, "o1")
+	if err == nil || errors.Is(err, ErrReservationLost) {
+		t.Fatalf("got %v, want a non-lost error", err)
 	}
 }

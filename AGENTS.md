@@ -1957,7 +1957,11 @@ are renewed on the watch tick whatever state the session is in (a paused session
 streaming is noticed once per failure class and retried at the next renewal and at the settle, never per event; a cost that
 is not a finite non-negative number is ignored. The latch is a lease: a cap run that is alive but whose row lapsed (a machine
 suspended past lease plus grace, a forward clock jump) can let a reservation in until its next renewal finds it lost and
-stops it, so overspend is bounded by one run's cap; the mirror holds too: a reservation lapsed past the grace is renewed only while no live cap run is on its session (a suspended machine's reservation survives when nothing else is there), otherwise its renewal is refused as lost, the row is not revived and the worker is stopped with the settle notice. The row is renewed on the watch tick a third of its
+stops it, so overspend is bounded by one run's cap. The mirror holds too: a reservation lapsed past the grace
+is renewed only while no live cap run is on its session (a suspended machine's reservation survives when nothing else
+is there); otherwise its renewal is refused as lost, the row is not revived and the worker is stopped with the settle
+notice. A renewal that fails for another reason (a busy database) is not a loss: the worker goes on and the next tick
+retries. The row is renewed on the watch tick a third of its
 2-minute lease apart (a heartbeat of an earlier run cannot stop the next one: handles are fenced by row id); a lost row
 stops the worker and the operator is told its id and the run's cost, and settles it with
 `task session reservation resolve ID --usd N`. A settle that fails for good tells the operator the same way.
