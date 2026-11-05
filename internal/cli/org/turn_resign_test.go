@@ -22,6 +22,9 @@ type turnResignCase struct {
 	// orgs are the org files signed before the command; checked is the one whose signature must go stale.
 	orgs    []string
 	checked string
+	// operatorOnly marks a command the class-B decision refuses a turn outright (class_b_test.go):
+	// there is no turn edit to leave unsigned.
+	operatorOnly bool
 }
 
 func addAutomation(t *testing.T, f *orgCLIFixture) {
@@ -53,14 +56,14 @@ func addHolding(t *testing.T, f *orgCLIFixture) {
 }
 
 var turnResignCases = []turnResignCase{
-	{name: "grant add", setup: addAutomation, args: []string{"grant", "add", "growth", "--role", "writer", "--automation", "publish_post"}},
+	{name: "grant add", setup: addAutomation, args: []string{"grant", "add", "growth", "--role", "writer", "--automation", "publish_post"}, operatorOnly: true},
 	{name: "grant remove", setup: addGrant, args: []string{"grant", "remove", "growth", "--role", "writer", "--automation", "publish_post"}},
 	{name: "automation add", args: []string{"automation", "add", "growth", "--workflow", "@outbound", "--alias", "publish_post"}},
 	{name: "automation remove", setup: addAutomation, args: []string{"automation", "remove", "growth", "--alias", "publish_post"}},
 	{name: "automation-role add", setup: addAutomation, args: []string{"automation-role", "add", "growth", "--alias", "publish_post", "--reports-to", "lead"}},
 	{name: "automation-role remove", setup: addAutomationRole, args: []string{"automation-role", "remove", "growth", "--role", "publish-post"}},
 	{name: "automation-role rotate", setup: addAutomationRole, args: []string{"automation-role", "rotate", "growth", "--role", "publish-post"}},
-	{name: "autonomy set (non-widening)", args: []string{"autonomy", "set", "growth", "--level", "manual"}},
+	{name: "autonomy set (non-widening)", args: []string{"autonomy", "set", "growth", "--level", "manual"}, operatorOnly: true},
 	{name: "autonomy pause", args: []string{"autonomy", "pause", "growth", "--for", "30m"}},
 	{name: "group init", setup: addHolding, args: []string{"group", "init", "hq"}, orgs: []string{"hq", "sales", "support"}, checked: "hq"},
 	{name: "rename", args: []string{"rename", "growth", "beta"}, checked: "beta"},
@@ -107,6 +110,9 @@ func inTurn(t *testing.T) {
 
 func TestTurnEditLeavesASignedOrgUnsigned(t *testing.T) {
 	for _, c := range turnResignCases {
+		if c.operatorOnly {
+			continue
+		}
 		t.Run(c.name, func(t *testing.T) {
 			calls, st := runTurnResignCase(t, c, inTurn)
 			if calls != 0 || st.OK() {
@@ -130,7 +136,7 @@ func TestOperatorEditOfASignedOrgIsResigned(t *testing.T) {
 
 // A marked agent is still not re-signed.
 func TestMarkedAgentEditIsStillNotResigned(t *testing.T) {
-	for _, c := range turnResignCases[:3] {
+	for _, c := range turnResignCases[1:4] {
 		t.Run(c.name, func(t *testing.T) {
 			calls, st := runTurnResignCase(t, c, func(t *testing.T) { t.Setenv("CLAUDECODE", "1") })
 			if calls != 0 || st.OK() {

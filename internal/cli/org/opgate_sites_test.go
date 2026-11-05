@@ -50,10 +50,12 @@ func TestOrgAutonomyAndGrantAddAskTheTurnAwareGate(t *testing.T) {
 	was := f.mustRun(t, "autonomy", "show", "growth")["paused_until"]
 	asInATurn(t)
 	for name, args := range map[string][]string{
-		"full":      {"autonomy", "set", "growth", "--level", "full"},
-		"widening":  {"autonomy", "set", "growth", "--max-decisions", "50"},
-		"resume":    {"autonomy", "resume", "growth"},
-		"grantnone": {"grant", "add", "growth", "--role", "lead", "--automation", "summarize", "--approval", "none"},
+		"full":         {"autonomy", "set", "growth", "--level", "full"},
+		"widening":     {"autonomy", "set", "growth", "--max-decisions", "50"},
+		"resume":       {"autonomy", "resume", "growth"},
+		"grantnone":    {"grant", "add", "growth", "--role", "lead", "--automation", "summarize", "--approval", "none"},
+		"grantdefault": {"grant", "add", "growth", "--role", "lead", "--automation", "summarize"},
+		"setmanual":    {"autonomy", "set", "growth", "--level", "manual"},
 	} {
 		if _, err := f.run(t, args...); exitCodeFor(err) != 3 || !strings.Contains(err.Error(), turnStandIn+"; ") {
 			t.Errorf("%s: %v", name, err)
@@ -62,9 +64,6 @@ func TestOrgAutonomyAndGrantAddAskTheTurnAwareGate(t *testing.T) {
 	f.mustRun(t, "autonomy", "pause", "growth", "--for", "30m")
 	if now := f.mustRun(t, "autonomy", "show", "growth")["paused_until"]; now != was {
 		t.Errorf("a shorter pause moved the pause from %v to %v", was, now)
-	}
-	if g := f.mustRun(t, "grant", "add", "growth", "--role", "lead", "--automation", "summarize")["grant"].(map[string]interface{}); g["approval"] != "required" {
-		t.Errorf("a grant without --approval: %v", g)
 	}
 }
 
@@ -107,7 +106,7 @@ func TestOrgApproveAsksTheTurnAwareGate(t *testing.T) {
 	if b, _ := os.ReadFile(argsLog); strings.Contains(strings.ToLower(string(b)), "automation_send") {
 		t.Fatalf("a refused approval reached monomind:\n%s", b)
 	}
-	if err := run("approve", "growth", "writer", "monoagent__automation_sum"); err != nil {
-		t.Fatalf("approving one that sends nothing: %v", err)
+	if err := run("approve", "growth", "writer", "monoagent__automation_sum"); exitCodeFor(err) != 3 || !strings.Contains(err.Error(), turnStandIn) {
+		t.Fatalf("approving one that sends nothing is the user's too: %v", err)
 	}
 }

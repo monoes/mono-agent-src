@@ -110,13 +110,15 @@ func TestOrgApproveOfASendingAutomationIsTheOperatorsOnly(t *testing.T) {
 			t.Errorf("%s set: approve as another role's spelling: %v", k, err)
 		}
 		for _, args := range [][]string{
-			{"deny", "growth", "writer", "monoagent__automation_send"},
 			{"approve", "growth", "writer", "monoagent__automation_sum"},
 			{"approve", "growth", "writer", "Bash"},
 		} {
-			if err := run(args...); err != nil {
-				t.Errorf("%s set: %v: %v", k, args, err)
+			if err := run(args...); exitCodeFor(err) != 3 {
+				t.Errorf("%s set: %v is the user's too: %v", k, args, err)
 			}
+		}
+		if err := run("deny", "growth", "writer", "monoagent__automation_send"); err != nil {
+			t.Errorf("%s set: deny: %v", k, err)
 		}
 		t.Setenv(k, "")
 	}
