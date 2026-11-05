@@ -568,6 +568,15 @@ jobs:
         if: needs.changes.outputs.go == 'true'
         run: go vet ./...
 
+      # Vet type-checks the packages and their tests for the other release platforms without running anything (no cgo,
+      # no Chrome). It replaces the darwin/windows vet of the removed "Doomsday tag" job: the open-ended mode's
+      # platform-split files are part of the default tree now.
+      - name: Vet for darwin/arm64 and windows/amd64
+        if: needs.changes.outputs.go == 'true'
+        run: |
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go vet ./...
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go vet ./...
+
       # CLAUDE.md lists `gofmt -l .` as a check, but nothing enforced it, so
       # five files had drifted out of gofmt shape on master. Listing files is
       # the whole check: gofmt -l prints the offenders and exits 0 either way,
