@@ -115,3 +115,46 @@ func TestHeartbeatsRenewWhenTheOtherKindIsAbsent(t *testing.T) {
 		t.Fatalf("reservation: %v", err)
 	}
 }
+
+// The suspended machine, twice: a reservation lapsed past the grace is renewed beside a DEAD cap run, and its next
+// renewal is not refused by that run's row; a cap run lapsed past the grace is renewed beside a DEAD reservation, and
+// its next renewal is not refused by that reservation.
+func TestRenewalOfALapsedRowIsNotRefusedTheSecondTimeByTheDeadRowBesideIt(t *testing.T) {
+	s, db, clk := newTestStore(t)
+	session := rsession(t, s, db, 10)
+	r := rreserve(t, s, session, "o1", 2)
+	lapse(clk)
+	if _, err := s.BeginCapRun(bg, "default", session, "o2", "run"); err != nil {
+		t.Fatal(err)
+	}
+	lapse(clk)
+	if err := s.Heartbeat(bg, "default", r.ID, "o1"); err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	clk.advance(ReservationLease / 2)
+	if err := s.Heartbeat(bg, "default", r.ID, "o1"); err != nil {
+		t.Fatalf("second: %v", err)
+	}
+
+	other := rsession(t, s, db, 10)
+	c, err := s.BeginCapRun(bg, "default", other, "o3", "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lapse(clk)
+	lapse(clk)
+	// a reservation taken beside the dead run, whose owner then died: it lapses as well
+	r2 := rreserve(t, s, other, "o4", 2)
+	lapse(clk)
+	lapse(clk)
+	if r2.ID == 0 {
+		t.Fatal("no reservation")
+	}
+	if err := s.HeartbeatCapRun(bg, "default", c.ID, "o3"); err != nil {
+		t.Fatalf("cap run first: %v", err)
+	}
+	clk.advance(ReservationLease / 2)
+	if err := s.HeartbeatCapRun(bg, "default", c.ID, "o3"); err != nil {
+		t.Fatalf("cap run second: %v", err)
+	}
+}
