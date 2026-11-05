@@ -38,6 +38,9 @@ type Wiring struct {
 	// Witness is the note 13.5 witness setup (database path for the pinned connection, MAC keys, secret store).
 	// Without it no run can be entered and nothing chained is written.
 	Witness *WitnessSetup
+	// Progress receives the Stop order's early line, once per open run (the marker is written, the database step follows). Nil prints nothing: only
+	// the CLI sets it, a host that stops a run does not talk to a terminal.
+	Progress func(string)
 }
 
 // notProvenEnder is the Ender of an install with no Kernel: it signals nothing and says so.
@@ -47,28 +50,46 @@ func (notProvenEnder) End(context.Context, uint64, []uint64) stop.UnitOutcome {
 	return stop.UnitOutcome{Kind: stop.UnitNotProven, Note: "no containment kernel is wired, so no unit can be proven; nothing was signalled"}
 }
 
-// Engine is the StoreEngine over the wiring.
+// Engine is the StoreEngine over the wiring. The witness (and with it the pinned connection) is built when something needs it
+// (a charter is about to be entered, or a run's chained write): constructing the engine and every verb that reads or refuses
+// with no run pins nothing, reads no key and watches no file.
 func (w Wiring) Engine() *StoreEngine {
-	seq, serr := w.Sequencer(context.Background())
-	chained := &SeqStore{SQLStore: w.Store, Seq: seq, Err: serr}
-	probe := w.Probe
-	if serr != nil { // no witness, no mode
-		probe = func() error { return serr }
-	}
+	chained := w.Chained()
+	witness := func(ctx context.Context) (*stop.Sequencer, error) { return chained.seq(ctx) }
 	e := &StoreEngine{
 		Store: chained, Profile: w.Profile,
-		ContainmentProbe: probe,
-		Binding:          w.Binding,
-		StopFn:           w.stop,
-		BeforeStart:      w.recoverMerges,
-		CreateUnit:       w.createUnit,
-		Boss:             w.designateBoss,
-		AfterEnter:       func(_ context.Context, gen int64) error { return w.RunDir.CreateSecret(uint64(gen)) },
-		HeadAnchor:       w.headAnchor(),
-	}
-	if seq != nil {
-		e.Anchored = seq.Entered
-		e.BeginEntry = seq.BeginEntry
+		// No witness, no mode: asked after the containment probe, so a refusing probe never builds the witness.
+		ContainmentProbe: func() error {
+			if w.Probe == nil {
+				return errNoProbe
+			}
+			if err := w.Probe(); err != nil {
+				return err
+			}
+			_, err := witness(context.Background())
+			return err
+		},
+		Binding:     w.Binding,
+		StopFn:      w.stop,
+		BeforeStart: w.recoverMerges,
+		CreateUnit:  w.createUnit,
+		Boss:        w.designateBoss,
+		AfterEnter:  func(_ context.Context, gen int64) error { return w.RunDir.CreateSecret(uint64(gen)) },
+		HeadAnchor:  w.headAnchor(),
+		BeginEntry: func(ctx context.Context, gen int64) error {
+			seq, err := witness(ctx)
+			if err != nil {
+				return err
+			}
+			return seq.BeginEntry(ctx, gen)
+		},
+		Anchored: func(ctx context.Context, gen int64) (bool, string, error) {
+			seq, err := witness(ctx)
+			if err != nil {
+				return false, "", err
+			}
+			return seq.Entered(ctx, gen)
+		},
 	}
 	return e
 }
@@ -149,7 +170,7 @@ func (w Wiring) stop(ctx context.Context) (StopOutcome, error) {
 func (w Wiring) Stopper(by string, e stop.Ender) *stop.Stopper {
 	rs := stop.StoreRuns{Store: w.Chained(), Profile: w.Profile, By: by, Tokens: w.Tokens,
 		Runs: func(ctx context.Context) ([]stop.RunInfo, error) { return w.openInfos(ctx) }}
-	return &stop.Stopper{Dir: w.RunDir, Store: rs, Ender: e, Host: stop.ProcessHostLink{Dir: w.RunDir, Clock: w.clock()}, Clock: w.clock()}
+	return &stop.Stopper{Dir: w.RunDir, Store: rs, Ender: e, Host: stop.ProcessHostLink{Dir: w.RunDir, Clock: w.clock()}, Clock: w.clock(), Progress: w.Progress}
 }
 
 func stepDone(rep stop.Report, name string) bool {

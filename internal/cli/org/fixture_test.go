@@ -37,6 +37,7 @@ func TestMain(m *testing.M) {
 
 // testConfig is the part of the CLI's config the org commands read.
 type testConfig struct {
+	TTY        bool // stands in for a terminal on stdin
 	DBPath     string
 	ProfileID  string
 	JSONOutput bool
@@ -107,7 +108,7 @@ func testDeps(cfg *testConfig) Deps {
 			return &cliError{code: 3, msg: fmt.Sprintf(format, a...)}
 		},
 		Reported:        func(err error) error { return reportedError{err} },
-		StdinIsTerminal: func() bool { return term.IsTerminal(int(os.Stdin.Fd())) },
+		StdinIsTerminal: func() bool { return cfg.TTY || term.IsTerminal(int(os.Stdin.Fd())) },
 		Serving:         func(c *cobra.Command, _ ...func(*cobra.Command) bool) *cobra.Command { return c },
 		CapabilityProbe: func(cmd *cobra.Command) (*monomind.CapabilitySet, error) {
 			return monomind.Capabilities(cmd.Context())

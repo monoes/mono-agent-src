@@ -261,16 +261,12 @@ func TestEveryDoomsdayVerbWithNoCharterIsInert(t *testing.T) {
 				t.Errorf("files under HOME: before [%s], after [%s]", beforeFiles, after)
 			}
 			requireSameCounts(t, v.name, beforeRows, tableCounts(t, db))
-			// The control room's read engine and the strategy and governor reads never pin (overview, feed, strategy, governor: 0).
-			// In a build with the mode wired, start, render, stop, finish, finish --begin, rubric and status build the Sequencer
-			// eagerly when the command constructs its engine and so pin (stop 2, the others 1 each, counted with a refusing pin;
-			// start and render are behind the real pin and not counted). Not a wanted state: the follow-up makes the engine lazy.
-			if v.readOnlyEngine && pins.Load() != 0 {
-				t.Errorf("%d pinned connection(s) made by a read verb", pins.Load())
-			}
-			if !v.readOnlyEngine && !v.realPin && int(pins.Load()) != wiredPins(v.name) {
-				// current wording/behaviour, changes in the follow-up PR (busy-database wording, early Stop progress line, lazy Engine)
-				t.Errorf("%d pinned connection(s) made, want %d in this build", pins.Load(), wiredPins(v.name))
+			// With no charter and no run no verb makes a pinned connection (inotify watch), reads a key or touches the secret
+			// store: the read engine, the strategy and governor reads never did, and since the engine is lazy the acting verbs
+			// (stop, finish, finish --begin, rubric, status) pin only when there is a run or a charter to act on. start and
+			// render stop at the containment probe (a fake here) before the witness is built.
+			if pins.Load() != 0 {
+				t.Errorf("%d pinned connection(s) made with no charter and no run, want 0", pins.Load())
 			}
 		})
 	}
@@ -353,7 +349,6 @@ func TestStopWithNoRunSaysSoAndWritesNothingSignedOut(t *testing.T) {
 	if code == 0 || code == 4 || strings.Contains(stdout, "operator_only") || strings.Contains(stderr, loginRequiredLine) {
 		t.Fatalf("exit %d, stdout %q, stderr %q: want a refusal of its own", code, stdout, stderr)
 	}
-	// current wording/behaviour, changes in the follow-up PR (busy-database wording, early Stop progress line, lazy Engine)
 	if !strings.Contains(stderr, stopNoRunText) || strings.Contains(stdout, "stopped") {
 		t.Fatalf("stdout %q, stderr %q: want %q and no claim of a stop", stdout, stderr, stopNoRunText)
 	}
@@ -363,37 +358,56 @@ func TestStopWithNoRunSaysSoAndWritesNothingSignedOut(t *testing.T) {
 	requireSameCounts(t, "stop", beforeRows, tableCounts(t, db))
 }
 
-// STOP while another connection holds the database's write lock, no run. Observed (measured 10 s): opening the
-// engine waits two busy timeouts (5 s each) and then fails, and an engine that cannot be opened because of the lock answers as
-// the mode being off: exit 1, stderr "open-ended (doomsday) mode is not available on this install", whereas the unlocked case
-// says "no open run to stop". It returns within a bound, never says "stopped" and
-// needs no sign-in. The case with a run open and the lock held is TestStopDuringALockedDatabaseIsBoundedAndNeverSaysStopped
-// in internal/cli/doomsday.
-func TestStopDuringALockedDatabaseWithNoRunIsBoundedAndRefuses(t *testing.T) {
-	noPins(t)
-	accounttest.Install(t, accounttest.LockedNoLogin)
-	home := freshHome(t)
-	asOperatorProcess(t)
-	db := newHILTestDB(t)
-	lock := holdWriteLock(t, db)
-	defer lock()
-	beforeFiles, beforeRows := homeFiles(t, home), tableCounts(t, db)
-	start := time.Now()
-	code, stdout, stderr := runMain(t, "--db-path", db, "--profile", "default", "doomsday", "stop")
-	if d := time.Since(start); d > 45*time.Second {
-		t.Fatalf("stop took %v with the database write-locked", d)
+// A wired build whose database is locked (another connection holds the write lock) says so in its own words, for every verb
+// that needs the database: never "not available on this install" (the mode is there) and never a "no run" answer (it does not
+// know). Observed bound (10 s): opening the engine waits two busy timeouts of 5 s. Stop adds that nothing was stopped, never
+// says "stopped" and needs no sign-in. The case with a run open and the lock held is
+// TestStopDuringALockedDatabaseIsBoundedAndNeverSaysStopped in internal/cli/doomsday.
+func TestVerbsDuringALockedDatabaseSayTheDatabaseIsBusy(t *testing.T) {
+	for _, v := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"stop", []string{"stop"}, stopBusyText + dbBusyText},
+		{"status", []string{"status"}, dbBusyText},
+		{"finish", []string{"finish"}, dbBusyText},
+		{"finish --begin", []string{"finish", "--begin"}, dbBusyText},
+		{"rubric", []string{"rubric"}, dbBusyText},
+	} {
+		t.Run(v.name, func(t *testing.T) {
+			noPins(t)
+			if v.name == "stop" {
+				accounttest.Install(t, accounttest.LockedNoLogin) // stop is the one verb that passes the account gate signed out
+			} else {
+				accounttest.Install(t, accounttest.SignedIn)
+			}
+			home := freshHome(t)
+			asOperatorProcess(t)
+			db := newHILTestDB(t)
+			lock := holdWriteLock(t, db)
+			defer lock()
+			beforeFiles, beforeRows := homeFiles(t, home), tableCounts(t, db)
+			start := time.Now()
+			code, stdout, stderr := runMain(t, append([]string{"--db-path", db, "--profile", "default", "doomsday"}, v.args...)...)
+			if d := time.Since(start); d > 45*time.Second {
+				t.Fatalf("%s took %v with the database write-locked", v.name, d)
+			}
+			if code != 1 || strings.Contains(stdout, "stopped") || strings.Contains(stderr, loginRequiredLine) {
+				t.Fatalf("exit %d, stdout %q, stderr %q: want exit 1, no stop, no sign-in line", code, stdout, stderr)
+			}
+			if !strings.Contains(stderr, v.want) {
+				t.Fatalf("stderr %q: want %q", stderr, v.want)
+			}
+			if strings.Contains(stderr, notAvailableOn) || strings.Contains(stderr, stopNoRunText) || strings.Contains(stdout, "no run") {
+				t.Fatalf("stdout %q, stderr %q: a wrong statement (not available / no run) for a database that is only busy", stdout, stderr)
+			}
+			if after := homeFiles(t, home); after != beforeFiles {
+				t.Errorf("files under HOME: before [%s], after [%s]", beforeFiles, after)
+			}
+			requireSameCounts(t, v.name+" under a lock", beforeRows, tableCounts(t, db))
+		})
 	}
-	if code != 1 || strings.Contains(stdout, "stopped") || strings.Contains(stderr, loginRequiredLine) {
-		t.Fatalf("exit %d, stdout %q, stderr %q: want exit 1, no stop, no sign-in line", code, stdout, stderr)
-	}
-	// current wording/behaviour, changes in the follow-up PR (busy-database wording, early Stop progress line, lazy Engine)
-	if !strings.Contains(stderr, "not available on this install") {
-		t.Fatalf("stderr %q: want the observed \"not available on this install\"", stderr)
-	}
-	if after := homeFiles(t, home); after != beforeFiles {
-		t.Errorf("files under HOME: before [%s], after [%s]", beforeFiles, after)
-	}
-	requireSameCounts(t, "stop under a lock", beforeRows, tableCounts(t, db))
 }
 
 // holdWriteLock opens a second connection on the database and keeps a write transaction open until the returned release.
