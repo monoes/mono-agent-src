@@ -173,6 +173,7 @@ func TestTaskToolErrNamesTheCodeFirst(t *testing.T) {
 		{fmt.Errorf("%w: task #3 is inbox", tasks.ErrNotReady), "not_ready: "},
 		{fmt.Errorf("%w: claim it first", tasks.ErrNotClaimant), "not_claimant: "},
 		{fmt.Errorf("%w: 20 an hour", tasks.ErrLimit), "limit: "},
+		{fmt.Errorf("%w: runs are live", tasks.ErrAccountingMode), "accounting_mode: "},
 		{&tasks.ClaimedError{By: "agent:b#0002", Until: until}, "claimed: task is claimed by agent:b#0002 until 2026-10-06T10:30:00Z"},
 	} {
 		got := taskToolErr(c.err)
@@ -183,6 +184,7 @@ func TestTaskToolErrNamesTheCodeFirst(t *testing.T) {
 	for err, want := range map[error]string{
 		fmt.Errorf("%w: a task needs a title", tasks.ErrInvalid): "invalid_input: a task needs a title",
 		fmt.Errorf("%w: 20 an hour", tasks.ErrLimit):             "limit: 20 an hour",
+		fmt.Errorf("%w: runs are live", tasks.ErrAccountingMode): "accounting_mode: runs are live",
 	} {
 		if got := taskToolErr(err).Error(); got != want {
 			t.Errorf("%q, want %q: the sentinel's words only repeat the code", got, want)

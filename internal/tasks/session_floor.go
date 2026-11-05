@@ -12,6 +12,9 @@ import (
 //   - a worker holds a reservation with no cap (bounded 0, live or expired) on the session or any session below
 //     it: its cost is unknown, so no budget can be said to cover it. The operator stops the workers or resolves
 //     the lapsed row first;
+//   - it lowers the budget (or sets one where there was none) while a cap-mode run is live on the session or below it:
+//     a cap run holds no money, so a lowered budget is not accounted against what it may still spend (ErrAccountingMode;
+//     pause the session so its runs drain). A raise cannot make a run spend more than it was given, so it is not refused;
 //   - it is below spent + reservations + what the children have spent or reserved (Commitment.Floor; the unspent
 //     part of a child's budget is not counted: lowering a budget clamps the children's allowances). Pause the session to
 //     halt it instead of lowering a budget under what was spent.
@@ -20,6 +23,11 @@ import (
 func (s *Store) budgetFloor(ctx context.Context, x dbx, se Session, budget float64) error {
 	if budget <= 0 || budget == se.BudgetUSD {
 		return nil
+	}
+	if se.BudgetUSD <= 0 || budget < se.BudgetUSD {
+		if err := s.refuseLoweringWhileCapRuns(ctx, x, se); err != nil {
+			return err
+		}
 	}
 	if err := s.refuseUnboundedBelow(ctx, x, se); err != nil {
 		return err

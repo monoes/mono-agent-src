@@ -159,6 +159,8 @@ func (d Deps) taskErr(err error) error {
 		return taskCLIError{error: d.InvalidInput("%v", err), code: "not_claimant"}
 	case errors.Is(err, tasks.ErrLimit):
 		return taskCLIError{error: d.InvalidInput("%v", err), code: "limit"}
+	case errors.Is(err, tasks.ErrAccountingMode):
+		return taskCLIError{error: d.InvalidInput("%s", strings.TrimPrefix(err.Error(), tasks.ErrAccountingMode.Error()+": ")), code: "accounting_mode"}
 	case errors.Is(err, tasks.ErrInvalid):
 		return taskCLIError{error: d.InvalidInput("%v", err), code: "invalid_input"}
 	}
