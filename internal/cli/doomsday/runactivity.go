@@ -27,7 +27,7 @@ import (
 //     failed to verify (RunActivity, shared by the gate, the governor and the strategy loop of the process, never
 //     cleared for the process's life); or
 //  2. the database says the profile has opened a run (the insert-only doomsday_run_seen record, written in the transaction that
-//     enters a run and never removed): read once while the table can be listed, and again when it cannot; or
+//     enters a run and never removed): read once while the table can be listed, and on every call while it cannot and no run is known; or
 //  3. the install has run traces: the run directory holds a per-run secret, the witness or the generation counter
 //     (stop.RunDir.HasRunTraces), which every run creates and nothing deletes, so a host that was restarted, or a run
 //     entered by another process, is known even when this process has not read the row.
@@ -49,10 +49,11 @@ type runSeenReader interface {
 	RunEverOpened(ctx context.Context, profile string) (bool, error)
 }
 
-// seedFrom reads the database record that a run was ever opened and, if it is there, marks the profile known. A readable
-// record is read once per process; an unreadable one is tried again the next time.
-func (a *RunActivity) seedFrom(st any, profile string) {
-	if a == nil || a.seeded.Load() {
+// seedFrom reads the database record that a run was ever opened and, if it is there, marks the profile known. On the readable
+// path the record is read once per process; when the run table cannot be listed (again) it is read on every call that still
+// has no run known, because another process may have opened the first run since the last read.
+func (a *RunActivity) seedFrom(st any, profile string, unreadable bool) {
+	if a == nil || a.Known() || (!unreadable && a.seeded.Load()) {
 		return
 	}
 	r, ok := st.(runSeenReader)
@@ -86,10 +87,10 @@ func (a *RunActivity) failOpen(runs []store.Run, err error, dir stop.RunDir, st 
 		if len(runs) > 0 {
 			a.markSeen()
 		}
-		a.seedFrom(st, profile)
+		a.seedFrom(st, profile, false)
 		return false
 	case errors.Is(err, store.ErrRunsUnreadable):
-		a.seedFrom(st, profile)
+		a.seedFrom(st, profile, true)
 		return !a.Known() && !dir.HasRunTraces()
 	default:
 		a.markSeen() // a row that exists and does not verify, or a key that cannot be read: there is a run
