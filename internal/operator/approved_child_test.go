@@ -111,7 +111,7 @@ func TestUnapprovedRunProcess(t *testing.T) {
 		for k, v := range c.env {
 			t.Setenv(k, v)
 		}
-		if got := UnapprovedRunProcess(bg, db); got != c.want {
+		if got := UnapprovedRunProcess(bg, opener(db)); got != c.want {
 			t.Errorf("%s: UnapprovedRunProcess = %v, want %v", name, got, c.want)
 		}
 	}
@@ -124,7 +124,7 @@ func TestUnapprovedRunProcessCountsAnAgentMarkerWithoutAToken(t *testing.T) {
 		t.Setenv(k, "")
 	}
 	t.Setenv("CLAUDECODE", "1")
-	if !UnapprovedRunProcess(context.Background(), tokenDB(t)) {
+	if !UnapprovedRunProcess(context.Background(), opener(tokenDB(t))) {
 		t.Error("an agent's process with no approved token is not marked")
 	}
 }
@@ -137,5 +137,27 @@ func TestMarkerEnvHoldsTheRunToken(t *testing.T) {
 	}
 	if !found {
 		t.Error("MarkerEnv does not list " + workflow.EnvRunToken)
+	}
+}
+
+func opener(db *sql.DB) func() (*sql.DB, error) { return func() (*sql.DB, error) { return db, nil } }
+
+// The database is opened only for a marked process: the user's own terminal opens nothing, and a marked process
+// whose database cannot be opened is unapproved.
+func TestUnapprovedRunProcessOpensTheDatabaseOnlyWhenMarked(t *testing.T) {
+	for _, k := range append(MarkerEnv(), workflow.EnvUnapprovedRun) {
+		t.Setenv(k, "")
+	}
+	opened := 0
+	open := func() (*sql.DB, error) { opened++; return nil, context.Canceled }
+	if UnapprovedRunProcess(context.Background(), open) || opened != 0 {
+		t.Errorf("the user's terminal: opened %d time(s)", opened)
+	}
+	t.Setenv(workflow.EnvWorkflowRun, "exec-1")
+	if !UnapprovedRunProcess(context.Background(), open) || opened != 1 {
+		t.Errorf("a marked process whose database will not open: opened %d time(s)", opened)
+	}
+	if !UnapprovedRunProcess(context.Background(), nil) {
+		t.Error("a marked process with no opener is not unapproved")
 	}
 }

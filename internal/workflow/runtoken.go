@@ -60,7 +60,7 @@ func IssueRunToken(ctx context.Context, db *sql.DB, executionID string, approved
 	}
 	// A run left open (a crashed engine) ends with its execution; a store without executions has none to look at.
 	_, _ = db.ExecContext(ctx, `UPDATE workflow_run_tokens SET ended_at = `+sqlNow+` WHERE ended_at IS NULL AND execution_id IN
-		(SELECT id FROM workflow_executions WHERE status IN ('SUCCESS','SUCCESS_WITH_ERRORS','FAILED','CANCELLED'))`)
+		(SELECT id FROM workflow_executions WHERE status IN ('SUCCESS','SUCCESS_WITH_ERRORS','FAILED','CANCELLED','REJECTED'))`)
 	_, _ = db.ExecContext(ctx, `DELETE FROM workflow_run_tokens WHERE (ended_at IS NOT NULL AND ended_at < `+runTokenSweepAge+`) OR expires_at < `+runTokenSweepAge)
 	if _, err := db.ExecContext(ctx, `INSERT INTO workflow_run_tokens (token_hash, execution_id, approved, created_at, expires_at)
 		VALUES (?, ?, ?, `+sqlNow+`, `+runTokenLifetime+`)`, HashRunToken(token), executionID, flag); err != nil {

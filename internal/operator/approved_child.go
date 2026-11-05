@@ -41,6 +41,16 @@ func ApprovedWorkflowChild(ctx context.Context, db *sql.DB) bool {
 // user's own terminal marks it (Marker: a workflow node's child, a parent process's mark) and it cannot show
 // the token of an approved, live run. `workflow run` from such a process marks its run as called by an
 // unapproved workflow.
-func UnapprovedRunProcess(ctx context.Context, db *sql.DB) bool {
-	return Marker() != "" && !runTokenApproved(ctx, db)
+//
+// open opens the profile's database; it is called only when something marks the process, so the user's own
+// terminal costs no lookup. No opener, or one that fails, cannot show a token: the process counts as unapproved.
+func UnapprovedRunProcess(ctx context.Context, open func() (*sql.DB, error)) bool {
+	if Marker() == "" {
+		return false
+	}
+	if open == nil {
+		return true
+	}
+	db, err := open()
+	return err != nil || !runTokenApproved(ctx, db)
 }

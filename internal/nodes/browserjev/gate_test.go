@@ -329,7 +329,12 @@ func TestMarkAICallerMarksAnUnapprovedRunsChild(t *testing.T) {
 				t.Setenv(k, v)
 			}
 			td := map[string]interface{}{}
-			MarkAICallerRun(bg, c.db, td)
+			MarkAICallerRun(bg, func() (*sql.DB, error) {
+				if c.db == nil {
+					return nil, errors.New("no database")
+				}
+				return c.db, nil
+			}, td)
 			if got := td[workflow.AICallerKey] == workflow.UnapprovedWorkflowCaller; got != c.marks {
 				t.Fatalf("marked = %v (%v), want %v", got, td, c.marks)
 			}

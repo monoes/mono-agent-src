@@ -119,11 +119,11 @@ func envCaller() (caller, bool) {
 // It has no production caller (`workflow run` uses MarkAICallerRun); the tests of the agent kinds use it.
 func MarkAICaller(data map[string]interface{}) { MarkAICallerRun(context.Background(), nil, data) }
 
-// MarkAICallerRun is MarkAICaller with the database the run's token is looked up in (db: the profile's). A
+// MarkAICallerRun is MarkAICaller with the opener of the database the run's token is looked up in (the profile's; called only when something marks the process). A
 // process a workflow node started (or one under such a process) that cannot show the token of an approved,
-// live run (operator.UnapprovedRunProcess) marks its run as called by an unapproved workflow; with no db it
+// live run (operator.UnapprovedRunProcess) marks its run as called by an unapproved workflow; with no opener it
 // cannot, so it is marked.
-func MarkAICallerRun(ctx context.Context, db *sql.DB, data map[string]interface{}) {
+func MarkAICallerRun(ctx context.Context, open func() (*sql.DB, error), data map[string]interface{}) {
 	if data == nil {
 		return
 	}
@@ -137,7 +137,7 @@ func MarkAICallerRun(ctx context.Context, db *sql.DB, data map[string]interface{
 	}
 	// A command a workflow node started in a run nobody approved (or one such a run called) that
 	// starts another run: that run is called by an unapproved workflow, whatever its own markers.
-	if operator.UnapprovedRunProcess(ctx, db) {
+	if operator.UnapprovedRunProcess(ctx, open) {
 		data[workflow.AICallerKey] = workflow.UnapprovedWorkflowCaller
 	}
 }

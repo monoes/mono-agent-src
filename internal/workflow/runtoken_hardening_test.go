@@ -1,8 +1,10 @@
 package workflow
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -152,18 +154,22 @@ func TestIssueRunTokenEndsTheTokensOfTerminalExecutions(t *testing.T) {
 	if _, err := db.Exec(string(m)); err != nil {
 		t.Fatal(err)
 	}
-	for id, status := range map[string]string{"dead": "FAILED", "alive": "RUNNING"} {
+	for id, status := range map[string]string{"dead": "FAILED", "rejected": "REJECTED", "alive": "RUNNING"} {
 		if _, err := db.Exec(`INSERT INTO workflow_executions (id, workflow_id, status) VALUES (?, 'w', ?)`, id, status); err != nil {
 			t.Fatal(err)
 		}
 	}
 	dead, _ := IssueRunToken(bg, db, "dead", true)
+	rejected, _ := IssueRunToken(bg, db, "rejected", true)
 	alive, _ := IssueRunToken(bg, db, "alive", true)
 	if _, err := IssueRunToken(bg, db, "next", true); err != nil {
 		t.Fatal(err)
 	}
 	if ok, _ := RunTokenApproved(bg, db, dead); ok {
 		t.Error("the token of a finished execution survived the sweep")
+	}
+	if ok, _ := RunTokenApproved(bg, db, rejected); ok {
+		t.Error("the token of a rejected execution survived the sweep")
 	}
 	if ok, _ := RunTokenApproved(bg, db, alive); !ok {
 		t.Error("the sweep ended the token of a running execution")
@@ -219,4 +225,63 @@ func TestRunWithoutAWritableTokenTableHandsNoToken(t *testing.T) {
 	if token != "" {
 		t.Errorf("a run that could not record itself handed its nodes a token: %q", token)
 	}
+}
+
+// failingEcho fails with an error that carries the token it sees, as a node that reports its environment does.
+type failingEcho struct{}
+
+func (failingEcho) Type() string { return "test.failingecho" }
+func (failingEcho) Execute(ctx context.Context, _ NodeInput, _ map[string]interface{}) ([]NodeOutput, error) {
+	return nil, errors.New("boom with " + RunTokenFrom(ctx))
+}
+
+// The run's log never shows the token either: a node error is masked before it is logged.
+func TestNodeErrorIsMaskedOfTheRunTokenBeforeItIsLogged(t *testing.T) {
+	store := newFullEngineStore(t)
+	db, bg := store.RawDB(), context.Background()
+	m, _ := data.MigrationsFS.ReadFile("migrations/160_workflow_run_tokens.sql")
+	if _, err := db.Exec(string(m)); err != nil {
+		t.Fatal(err)
+	}
+	reg := NewNodeTypeRegistry()
+	reg.Register("test.failingecho", func() NodeExecutor { return failingEcho{} })
+	wf := &Workflow{ID: "wf-l", Name: "Log", ProfileID: "default",
+		Nodes: []WorkflowNode{
+			{ID: "t", WorkflowID: "wf-l", Type: "trigger.schedule", Name: "Every hour"},
+			{ID: "p", WorkflowID: "wf-l", Type: "test.failingecho", Name: "Fail", Config: map[string]interface{}{"n": 1}},
+		},
+		Connections: []WorkflowConnection{{ID: "c", WorkflowID: "wf-l", SourceNodeID: "t", SourceHandle: "main", TargetNodeID: "p", TargetHandle: "main"}},
+	}
+	if err := store.CreateWorkflow(bg, wf); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveWorkflowNodes(bg, wf.ID, wf.Nodes); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveWorkflowConnections(bg, wf.ID, wf.Connections); err != nil {
+		t.Fatal(err)
+	}
+	cur, _ := store.GetWorkflow(bg, wf.ID)
+	dag, _ := BuildDAG(cur.Nodes, cur.Connections)
+	ctx := vault.ContextWithProfileID(vault.ContextWithDB(bg, db), "default")
+	exec := &WorkflowExecution{ID: uuid.NewString(), WorkflowID: wf.ID, TriggerType: "trigger.schedule", TriggerNodeID: "t"}
+	var logs bytes.Buffer
+	_ = RunExecution(ctx, exec, cur, dag, reg, store, nil, NewExpressionEngine(), zerolog.New(&logs))
+	if !strings.Contains(logs.String(), "boom with") {
+		t.Fatalf("the node error was not logged: %s", logs.String())
+	}
+	// The token is 64 hex characters: none may follow the error's text.
+	_, after, _ := strings.Cut(logs.String(), "boom with ")
+	if len(after) >= 64 && isHex(after[:64]) {
+		t.Errorf("the log holds the run's token: %s", logs.String())
+	}
+}
+
+func isHex(s string) bool {
+	for _, c := range s {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+			return false
+		}
+	}
+	return true
 }
