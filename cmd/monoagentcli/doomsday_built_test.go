@@ -16,19 +16,12 @@ const (
 	finishNoRunRefusal          = "is not a finish"
 	startRenderNoCharterRefusal = "refuses to start here: .*(test containment probe|pinned database connection)"
 	stopNoRunText               = "no open run to stop"
+	// What a verb says when the database is locked or unreadable right now: not "not available on this install" (a wrong
+	// statement for a wired build) and not "no run" (it does not know). Stop adds what that means for an open run.
+	dbBusyText     = "the open-ended mode's database is busy or cannot be read right now; nothing was changed. Retry in a moment; if it persists, run `monoagentcli doctor`."
+	stopBusyText   = "stop could not run, so nothing was stopped and an open run stays open. "
+	notAvailableOn = "not available on this install"
 )
-
-// wiredPins is the number of pinned connections a verb makes with no charter in a wired build (counted with a refusing pin).
-// current wording/behaviour, changes in the follow-up PR (busy-database wording, early Stop progress line, lazy Engine)
-func wiredPins(verb string) int {
-	switch verb {
-	case "stop":
-		return 2
-	case "finish", "finish --begin", "rubric", "status":
-		return 1
-	}
-	return 0
-}
 
 // noRealContainment replaces the engine of the verbs that probe containment with one whose probe is a fake. The real probe
 // starts and removes a transient systemd unit through `systemctl --user` outside the scratch HOME, which a test must never
