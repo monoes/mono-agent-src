@@ -47,7 +47,6 @@ func TestStopDuringALockedDatabaseIsBoundedAndNeverSaysStopped(t *testing.T) {
 	if d := time.Since(begin); d > 90*time.Second {
 		t.Fatalf("stop took %v with the database write-locked: it must be bounded", d)
 	}
-	// current wording/behaviour, changes in the follow-up PR (busy-database wording, early Stop progress line, lazy Engine)
 	if err == nil || !strings.Contains(out, "Stop intent NOT RECORDED in the database") || strings.HasSuffix(out, "stopped\n") {
 		t.Fatalf("stop under a locked database reported a clean stop it did not make: %v %q", err, out)
 	}
