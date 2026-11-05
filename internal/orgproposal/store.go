@@ -246,6 +246,9 @@ func (s *Store) Claim(ctx context.Context, profileID, id, hash, liveDigest strin
 	if subtle.ConstantTimeCompare([]byte(hash), []byte(want)) != 1 || subtle.ConstantTimeCompare([]byte(p.Hash), []byte(want)) != 1 {
 		return nil, ErrHashMismatch
 	}
+	if s.afterGet != nil {
+		s.afterGet()
+	}
 	now := ts(s.Now())
 	if subtle.ConstantTimeCompare([]byte(liveDigest), []byte(p.StateDigest)) != 1 {
 		_, _ = s.DB.ExecContext(ctx, `UPDATE org_proposals SET status = 'stale', decided_at = ? WHERE profile_id = ? AND id = ? AND status = 'pending'`, now, profileID, id)

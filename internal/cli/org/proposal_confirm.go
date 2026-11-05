@@ -89,6 +89,9 @@ func newOrgProposalConfirmCmd(env *orgEnv) *cobra.Command {
 			}
 			doc, _ := orgdesign.Load(root, p.Org)
 			plan, planErr := env.planProposal(ctx, db, profileID, doc, p.Verb, p.ArgsJSON)
+			if plan.ReadErr != nil { // not a verdict on the proposal: nothing is claimed, the row stays pending
+				return plan.ReadErr
+			}
 			live := plan.Digest
 			if live == p.StateDigest {
 				// The org is as it was: the stored arguments must still pass what create checks, and the text the user
@@ -108,7 +111,7 @@ func newOrgProposalConfirmCmd(env *orgEnv) *cobra.Command {
 			status, stored := orgproposal.StatusApplied, string(result)
 			if applyErr != nil {
 				status = orgproposal.StatusFailed
-				stored, _ = jsonString(map[string]string{"error": applyErr.Error()})
+				stored = failureResult(applyErr) // show is open to agents: the raw error goes only to this command's own output
 			}
 			if err := st.Finish(ctx, profileID, claimed.ID, status, stored); err != nil && applyErr == nil {
 				return err
@@ -126,11 +129,6 @@ func newOrgProposalConfirmCmd(env *orgEnv) *cobra.Command {
 	c.Flags().StringVar(&hash, "hash", "", "The hash of the proposal as shown by org proposal show")
 	_ = c.MarkFlagRequired("hash")
 	return c
-}
-
-func jsonString(v any) (string, error) {
-	b, err := json.Marshal(v)
-	return string(b), err
 }
 
 // runSiblingInProcess runs the sibling command c, built from the same constructor the command tree uses, with argv as
@@ -160,4 +158,15 @@ func (env *orgEnv) runSiblingInProcess(ctx context.Context, c *cobra.Command, or
 		return json.RawMessage(`null`), nil
 	}
 	return json.RawMessage(out), nil
+}
+
+// failureResult is what the row keeps of a failed apply: a class and a fixed sentence, no text of the error (paths,
+// secrets and database text can be in it).
+func failureResult(err error) string {
+	code, msg := "failed", "the apply failed; the operator's confirm output has the reason"
+	if strings.Contains(err.Error(), "is the user's to do") {
+		code, msg = "refused", "the command refused: it is the user's to do from their own terminal or the app"
+	}
+	b, _ := json.Marshal(map[string]string{"code": code, "message": msg})
+	return string(b)
 }

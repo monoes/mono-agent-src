@@ -43,9 +43,29 @@ type grantProposalArgs struct {
 type grantState struct {
 	Role, Endpoint, WorkflowFound bool
 	Workflow, Tier                string
-	RoleGrants                    int
 	Existing                      *orggrant.Tool
 	ExistingID, ExistingUpdated   string
+	Org                           string // orgIdentity
+}
+
+// orgIdentity digests what makes this org this org: the org has no id of its own, so its goal, kind, roles with their
+// types and reporting lines, and automations. A same-named org created anew differs here (what changes as a grant is
+// added, or while the org runs, is not part of it).
+func orgIdentity(doc *orgdesign.Doc) string {
+	type role struct{ ID, Type, ReportsTo, Kind string }
+	id := struct {
+		Name, Goal, Kind string
+		Roles            []role
+		Automations      []orgdesign.AutomationRef
+	}{Name: doc.Name, Goal: doc.Goal, Kind: doc.Kind, Automations: doc.Automations}
+	for _, r := range doc.Roles {
+		rt := ""
+		if r.ReportsTo != nil {
+			rt = *r.ReportsTo
+		}
+		id.Roles = append(id.Roles, role{r.ID, r.Type, rt, r.Kind})
+	}
+	return digestOf(id)
 }
 
 // grantProposalIn is what a caller may send: every field but role and automation is optional.
@@ -94,6 +114,9 @@ type proposalPlan struct {
 	Target   string
 	Preview  string
 	Digest   string
+	// ReadErr is set when the live state could not be read: the digest is then a placeholder and says nothing about the
+	// org, so a caller must return the error and not judge the proposal by it.
+	ReadErr error
 	// sub builds the sibling command that applies it, argv are its flags; the org is its one argument.
 	sub  func(*orgEnv) *cobra.Command
 	argv []string
@@ -149,7 +172,7 @@ func (env *orgEnv) planGrant(ctx context.Context, db *storage.Database, profileI
 		}
 	}
 	// The state the grant is made against, read before anything is judged.
-	var st grantState
+	st := grantState{Org: orgIdentity(doc)}
 	var tier string
 	var wfName string
 	var ref *orgdesign.AutomationRef
@@ -166,8 +189,11 @@ func (env *orgEnv) planGrant(ctx context.Context, db *storage.Database, profileI
 	st.Tier = tier
 	var replaces bool
 	{
-		if grants, err := orggrant.NewStore(db.DB).ListGrants(ctx, profileID, doc.Name, a.Role); err == nil {
-			st.RoleGrants = len(grants)
+		grants, err := orggrant.NewStore(db.DB).ListGrants(ctx, profileID, doc.Name, a.Role)
+		if err != nil {
+			return &proposalPlan{Digest: "unreadable-state", ReadErr: err}, err
+		}
+		{
 			for _, g := range grants {
 				if t := g.Automation(); t != nil && t.Alias == a.Automation {
 					replaces, st.Existing, st.ExistingID, st.ExistingUpdated = true, t, g.ID, g.UpdatedAt.UTC().Format("2006-01-02T15:04:05.000000000Z")
@@ -221,9 +247,12 @@ func (env *orgEnv) planAutonomy(ctx context.Context, db *storage.Database, profi
 	}
 	live, err := orgdecide.NewStore(db.DB).Get(ctx, profileID, doc.Name)
 	if err != nil {
-		return &proposalPlan{Digest: "unreadable-autonomy"}, err
+		return &proposalPlan{Digest: "unreadable-state", ReadErr: err}, err
 	}
-	p := &proposalPlan{Digest: digestOf(live)}
+	p := &proposalPlan{Digest: digestOf(struct {
+		Live *orgdecide.Autonomy
+		Org  string
+	}{live, orgIdentity(doc)})}
 	after := snapshotAutonomy(live)
 	var parts []string
 	for _, v := range []string{a.Level, a.Decider, a.DeciderRuntime, a.DeciderModel, a.OnDeciderFailure} {
