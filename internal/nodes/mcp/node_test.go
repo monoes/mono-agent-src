@@ -432,6 +432,21 @@ func TestStdioServerCarriesTheRunsToken(t *testing.T) {
 	}
 }
 
+// A token the engine process itself carries (a nested run under an approved child) never reaches the server of a
+// run that has none.
+func TestStdioServerDoesNotInheritAToken(t *testing.T) {
+	t.Setenv(workflow.EnvRunToken, "parent-approved")
+	cfg := stdioConfig(map[string]interface{}{"tool": "runtoken"})
+	cfg["env"] = map[string]interface{}{fakeServerEnv: "1"}
+	outs, err := (&CallNode{}).Execute(context.Background(), workflow.NodeInput{ExecutionID: "exec-7"}, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := outs[0].Items[0].JSON["result"]; got != "" {
+		t.Errorf("the server inherited %#v", got)
+	}
+}
+
 // A vault server entry's own url wins: a node url that names another
 // address is refused, so the entry's headers cannot be sent there (#897).
 func TestServerEntryURLWins(t *testing.T) {
