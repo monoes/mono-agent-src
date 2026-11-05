@@ -320,3 +320,19 @@ func TestConfirmOutputIsOneJSONDocument(t *testing.T) {
 		t.Fatalf("stdout is not one JSON document: %q %v", out, err)
 	}
 }
+
+// The text the user confirms must be what the arguments render to: a row whose preview was rewritten (and whose hash
+// was rewritten to match, so the card and the hash agree) is refused, and nothing is applied.
+func TestConfirmRefusesAPreviewThatDoesNotDescribeTheArguments(t *testing.T) {
+	f := propFixture(t)
+	a := f.propose(t, "growth", "grant.add", grantArgs)
+	f.sql(t, `UPDATE org_proposals SET preview_text = 'Read the summarize automation (no side effects).' WHERE id = ?`, a["id"].(string))
+	shown := f.mustRun(t, "proposal", "show", a["id"].(string))["proposal"].(map[string]interface{})["hash"].(string)
+	f.sql(t, `UPDATE org_proposals SET hash = ? WHERE id = ?`, shown, a["id"].(string))
+	if _, err := f.run(t, "proposal", "confirm", a["id"].(string), "--hash", shown); err == nil || !strings.Contains(err.Error(), "proposal_hash_mismatch") {
+		t.Fatalf("a preview that does not describe the arguments: %v", err)
+	}
+	if len(f.grants(t)) != 0 || f.proposalRow(t, a["id"].(string)) != "pending" {
+		t.Fatal("applied, or moved the row")
+	}
+}
