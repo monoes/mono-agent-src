@@ -14,8 +14,11 @@ import (
 // `monoagentcli org …` — the same code path the CLI and the GUI use — so
 // grant rows, reconcile, and autonomy rules live in one place. Granting a
 // role an automation or raising an org's autonomy hands agents new power,
-// so both refuse once untrusted synced communications entered the session
-// and both preview unless confirm:true.
+// so both refuse once untrusted synced communications entered the session.
+// Both are the user's to do (class B: `org grant add` and `org autonomy set` refuse
+// the chat's marker), so they only PROPOSE: the tool runs nothing and says what the
+// user would confirm in the org screen. Revoking a grant narrows access and still
+// previews, then shells `org grant remove` on confirm:true.
 
 func orgUnificationToolDefs(def func(name, desc string, props map[string]interface{}, required []string) ToolDef) []ToolDef {
 	return []ToolDef{
@@ -25,7 +28,7 @@ func orgUnificationToolDefs(def func(name, desc string, props map[string]interfa
 			"alias":       strParam("Name the org uses for it; becomes the tool automation_<alias>"),
 			"owned":       boolParam("Whether this org owns the workflow's lifecycle (at most one org may)"),
 		}, []string{"org_name", "workflow_id", "alias"}),
-		def("set_org_grant", "Grant (or with revoke:true, revoke) one org role the right to call one of the org's automations as a tool. Workflows with outbound nodes (email, chat, social, service writes) default to needing a decision per call. Without confirm:true this only previews the change.", map[string]interface{}{
+		def("set_org_grant", "Grant (or with revoke:true, revoke) one org role the right to call one of the org's automations as a tool. Workflows with outbound nodes (email, chat, social, service writes) default to needing a decision per call. This only proposes the change: it applies nothing, and the user confirms it in the org screen. Revoking (revoke:true) previews, then applies with confirm:true.", map[string]interface{}{
 			"org_name":          strParam("The org's name"),
 			"role_id":           strParam("The agent role receiving the tool"),
 			"automation":        strParam("The automation's alias in this org"),
@@ -35,9 +38,9 @@ func orgUnificationToolDefs(def func(name, desc string, props map[string]interfa
 			"approval":          strParam("required (the default) makes every call a decision routed by the org's autonomy level; none is the user's to give and is refused here"),
 			"max_calls_per_run": intParam("Calls allowed per org run (default 20)"),
 			"revoke":            boolParam("Revoke the grant instead of setting it"),
-			"confirm":           boolParam("Must be true to apply; omit to preview"),
+			"confirm":           boolParam("Only for revoke:true: must be true to apply; omit to preview"),
 		}, []string{"org_name", "role_id", "automation"}),
-		def("set_org_autonomy", "Change who decides an org's pending approvals, questions, and gates: level manual (a human decides everything), mid (rules approve routine items, the decider handles consequential ones, a human handles irreversible ones), or full (the decider handles everything, no human: only the user sets it, in their own terminal or the app). Without confirm:true this only previews the change.", map[string]interface{}{
+		def("set_org_autonomy", "Change who decides an org's pending approvals, questions, and gates: level manual (a human decides everything), mid (rules approve routine items, the decider handles consequential ones, a human handles irreversible ones), or full (the decider handles everything, no human: only the user sets it, in their own terminal or the app). This only proposes the change: it applies nothing, and the user confirms it in the org screen.", map[string]interface{}{
 			"org_name":           strParam("The org's name"),
 			"level":              strParam("manual | mid (full is the user's to set and is refused here)"),
 			"decider":            strParam(strings.Join(orgdesign.DeciderKinds, " | ") + " (jev: TypeSafe Jev picks the verdict; the model decider handles questions and anything Jev is unsure of)"),
@@ -46,7 +49,6 @@ func orgUnificationToolDefs(def func(name, desc string, props map[string]interfa
 			"decider_runtime":    strParam("Runtime for the model decider (e.g. claude)"),
 			"policy":             strParam("Instructions the decider follows: the user writes them, and a change from here is refused"),
 			"on_decider_failure": strParam("deny | human — what full does when the decider fails"),
-			"confirm":            boolParam("Must be true to apply; omit to preview"),
 		}, []string{"org_name"}),
 	}
 }
@@ -163,11 +165,15 @@ func (mt *MonoagentTools) setOrgGrant(ctx context.Context, args string) (string,
 			cli = append(cli, "--max-calls-per-run", strconv.Itoa(a.MaxCallsPerRun))
 		}
 	}
+	if !a.Revoke {
+		// A grant is the user's to give: the chat's marker would make the CLI refuse it, so nothing runs.
+		return orgProposal("grant role "+a.RoleID+" of org "+a.OrgName+" the automation "+a.Automation+grantDetail(a), cli)
+	}
 	if !a.Confirm {
 		return marshalJSON(map[string]interface{}{
 			"would_apply": true,
-			"command":     "monoagentcli org " + strings.Join(cli, " "),
-			"note":        "this changes which automations an org role can run; call again with confirm:true to apply",
+			"command":     orgCommandLine(cli),
+			"note":        "this revokes the role's right to run the automation; call again with confirm:true to apply",
 		})
 	}
 	return mt.runOrgCLI(ctx, "set_org_grant", cli...)
@@ -182,7 +188,6 @@ type setOrgAutonomyArgs struct {
 	DeciderThreshold *float64 `json:"decider_threshold"`
 	Policy           *string  `json:"policy"`
 	OnDeciderFailure string   `json:"on_decider_failure"`
-	Confirm          bool     `json:"confirm"`
 }
 
 func (mt *MonoagentTools) setOrgAutonomy(ctx context.Context, args string) (string, error) {
@@ -233,12 +238,90 @@ func (mt *MonoagentTools) setOrgAutonomy(ctx context.Context, args string) (stri
 	if a.OnDeciderFailure != "" {
 		cli = append(cli, "--on-decider-failure", a.OnDeciderFailure)
 	}
-	if !a.Confirm {
-		return marshalJSON(map[string]interface{}{
-			"would_apply": true,
-			"command":     "monoagentcli org " + strings.Join(cli, " "),
-			"note":        "this changes who decides the org's approvals, questions, and gates; call again with confirm:true to apply",
-		})
+	// Autonomy is the user's to change: the chat's marker would make the CLI refuse it, so nothing runs.
+	return orgProposal("change org "+a.OrgName+"'s autonomy"+autonomyDetail(a), cli)
+}
+
+// orgProposal is what a tool answers for a change only the user makes: nothing was applied, and the
+// note says what the user would confirm in the org screen. command is the operator's equivalent.
+func orgProposal(change string, cli []string) (string, error) {
+	return marshalJSON(map[string]interface{}{
+		"applied":  false,
+		"proposal": change,
+		"command":  orgCommandLine(cli),
+		"note":     "proposal: confirm in the org screen. Nothing was changed; this would " + change + ".",
+	})
+}
+
+// orgCommandLine is the operator's command for args, each one shell-quoted unless it is plainly safe:
+// names an agent supplied stay one inert word when the user copies the line.
+func orgCommandLine(args []string) string {
+	q := make([]string, len(args))
+	for i, a := range args {
+		q[i] = shellWord(a)
 	}
-	return mt.runOrgCLI(ctx, "set_org_autonomy", cli...)
+	return "monoagentcli org " + strings.Join(q, " ")
+}
+
+func shellWord(s string) string {
+	safe := s != ""
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("_-.,:/=@%+", r)) {
+			safe = false
+			break
+		}
+	}
+	if safe {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+func grantDetail(a setOrgGrantArgs) string {
+	var d []string
+	if a.Mode != "" {
+		d = append(d, "mode "+a.Mode)
+	}
+	if a.Wait != nil {
+		d = append(d, "wait "+strconv.FormatBool(*a.Wait))
+	}
+	if a.TimeoutSeconds > 0 {
+		d = append(d, "timeout "+strconv.Itoa(a.TimeoutSeconds)+"s")
+	}
+	if a.Approval != "" {
+		d = append(d, "approval "+a.Approval)
+	}
+	if a.MaxCallsPerRun > 0 {
+		d = append(d, "max calls per run "+strconv.Itoa(a.MaxCallsPerRun))
+	}
+	if len(d) == 0 {
+		return ""
+	}
+	return " (" + strings.Join(d, ", ") + ")"
+}
+
+func autonomyDetail(a setOrgAutonomyArgs) string {
+	var d []string
+	if a.Level != "" {
+		d = append(d, "level "+a.Level)
+	}
+	if a.Decider != "" {
+		d = append(d, "decider "+a.Decider)
+	}
+	if a.DeciderThreshold != nil {
+		d = append(d, "decider threshold "+strconv.FormatFloat(*a.DeciderThreshold, 'f', -1, 64))
+	}
+	if a.DeciderModel != "" {
+		d = append(d, "decider model "+a.DeciderModel)
+	}
+	if a.DeciderRuntime != "" {
+		d = append(d, "decider runtime "+a.DeciderRuntime)
+	}
+	if a.OnDeciderFailure != "" {
+		d = append(d, "on decider failure "+a.OnDeciderFailure)
+	}
+	if len(d) == 0 {
+		return ""
+	}
+	return " to: " + strings.Join(d, ", ")
 }

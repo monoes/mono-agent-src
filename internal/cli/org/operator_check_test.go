@@ -89,8 +89,8 @@ func TestOrgSignIsTheOperatorsOnly(t *testing.T) {
 
 // A grant that lets a role run an automation without asking is the
 // operator's to give: an agent, the chat and a workflow are refused
-// --approval none, and their grants ask first even for an automation with
-// no outbound nodes; the operator's defaults are unchanged (#831).
+// --approval none and, since the class-B decision, any grant at all; the
+// operator's defaults are unchanged (#831).
 func TestOrgGrantWithoutApprovalIsTheOperatorsOnly(t *testing.T) {
 	f := newOrgCLIFixture(t)
 	f.mustRun(t, "automation", "add", "growth", "--workflow", f.plainWF, "--alias", "summarize")
@@ -100,9 +100,10 @@ func TestOrgGrantWithoutApprovalIsTheOperatorsOnly(t *testing.T) {
 			!strings.Contains(err.Error(), "the user's to give") {
 			t.Errorf("%s: --approval none: %v", k, err)
 		}
-		g := f.mustRun(t, "grant", "add", "growth", "--role", "lead", "--automation", "summarize")
-		if gg := g["grant"].(map[string]interface{}); gg["approval"] != "required" {
-			t.Errorf("%s: a grant without --approval: %v", k, gg)
+		// Nor does any other grant: giving one is the user's (class B).
+		if _, err := f.run(t, "grant", "add", "growth", "--role", "lead", "--automation", "summarize"); exitCodeFor(err) != 3 ||
+			!strings.Contains(err.Error(), "is the user's to do") {
+			t.Errorf("%s: a grant without --approval: %v", k, err)
 		}
 		t.Setenv(k, "")
 	}
@@ -126,9 +127,9 @@ func TestOrgAutonomyFullIsTheOperatorsOnly(t *testing.T) {
 		if got := f.mustRun(t, "autonomy", "show", "growth")["level"]; got == "full" {
 			t.Errorf("%s: the level became full", k)
 		}
-		for _, level := range []string{"manual", "mid"} {
-			if set := f.mustRun(t, "autonomy", "set", "growth", "--level", level); set["level"] != level {
-				t.Errorf("%s: --level %s: %v", k, level, set)
+		for _, level := range []string{"manual", "mid"} { // refused too (class B): any set is the user's
+			if _, err := f.run(t, "autonomy", "set", "growth", "--level", level); exitCodeFor(err) != 3 || !strings.Contains(err.Error(), "is the user's to do") {
+				t.Errorf("%s: --level %s: %v", k, level, err)
 			}
 		}
 		t.Setenv(k, "")
@@ -163,7 +164,7 @@ func TestOrgAutonomyWideningIsTheOperatorsOnly(t *testing.T) {
 			{"--max-decisions", "0"}, {"--max-decisions", "-1"}, // 0 or less runs as the default, 200
 		} {
 			_, err := f.run(t, append([]string{"autonomy", "set", "growth"}, args...)...)
-			if exitCodeFor(err) != 3 || !strings.Contains(err.Error(), "approve more without a person") || !strings.Contains(err.Error(), "inherited this marker") {
+			if exitCodeFor(err) != 3 || !strings.Contains(err.Error(), "is the user's to do") || !strings.Contains(err.Error(), "inherited this marker") {
 				t.Errorf("%s: autonomy set %v: %v", k, args, err)
 			}
 		}
@@ -174,7 +175,7 @@ func TestOrgAutonomyWideningIsTheOperatorsOnly(t *testing.T) {
 			{"--tier", "question=irreversible"}, {"--clear-tier", "tool:*"}, {"--tier", "tool:*=irreversible"},
 			{"--max-decisions", "4"}, {"--policy", "No spend over $50."}, {"--level", "manual"}, {"--level", "mid"},
 		} {
-			if _, err := f.run(t, append([]string{"autonomy", "set", "growth"}, args...)...); err != nil {
+			if _, err := f.run(t, append([]string{"autonomy", "set", "growth"}, args...)...); exitCodeFor(err) != 3 || !strings.Contains(err.Error(), "is the user's to do") {
 				t.Errorf("%s: autonomy set %v: %v", k, args, err)
 			}
 		}
@@ -202,7 +203,7 @@ func TestOrgAutonomyEndingAPauseIsTheOperatorsOnly(t *testing.T) {
 		t.Setenv(k, "x")
 		for _, args := range [][]string{{"resume", "growth"}, {"resume", "--all"}} {
 			_, err := f.run(t, append([]string{"autonomy"}, args...)...)
-			if exitCodeFor(err) != 3 || !strings.Contains(err.Error(), "ending its pause") || !strings.Contains(err.Error(), "inherited this marker") {
+			if exitCodeFor(err) != 3 || !strings.Contains(err.Error(), "resuming autonomy is the user's to do") || !strings.Contains(err.Error(), "inherited this marker") {
 				t.Errorf("%s: autonomy %v: %v", k, args, err)
 			}
 		}

@@ -2373,18 +2373,25 @@ that works a task acts on them. The defences:
   systemd user service. The bridge itself stays a gate-free path for anything that
   authenticates to it (the pairing token): it runs `record save` and `coder queue add` as the
   operator for such a caller, so the token is as sensitive as the commands behind it.
-  The org verbs the chat legitimately drives use the turn-aware gate for the LIMITED flavour,
-  not for a refusal of everything: `org approve` and `org chat approve` (an approval of a call
-  that sends a message to a person is refused; others pass), `org autonomy set|pause|resume`
-  (never `full`, never a widening, a pause is never shortened) and `org grant add` (a grant
-  asks for approval; `--approval none` is refused). A marked agent, the chat and a workflow
-  get exactly the texts and limits they always had; a process inside a coder session's turn
-  that cleared its markers, and a holder of an agent token, now get the same limits. A
-  database that cannot be read gives the limited flavour too (these are not recovery verbs,
-  and the limited flavour does not lock the operator out of anything an agent may do). An
-  operator terminal started inside a turn gets the limits as well, like every other gated
-  verb. A `MONOAGENT_ACTOR` of only spaces (an agent without a name) used to count as the
-  operator for these verbs and is limited now; an empty one is not set.
+  The org verbs that loosen what an org may do are operator-only: `org grant add` (every approval
+  mode), `org autonomy set` and `resume`, `org approve`, `org gate-approve` and `org chat approve`
+  (of an approval or a `gate-` ref: approving a gate is approving an approval) are refused,
+  exit 3, to a marked agent, the chat, a workflow, a holder of an agent token and a process inside a
+  coder session's turn that cleared its markers, before any flag or file is read. The restrictive
+  verbs, `org grant remove` and `org autonomy pause`, stay open to them, and so do denying and rejecting
+  a gate and `org chat answer` (it only answers a pending question). The chat's `set_org_grant` and
+  `set_org_autonomy` tools therefore only propose (they run nothing and say what the user would confirm
+  in the org screen); revoking a grant still previews and applies on `confirm:true`. An org's operator
+  signature is not laundered either: a write a turn (or any process the gate refuses) makes to a
+  signed org lands, but the org is left unsigned until the operator reviews and signs it
+  (`orgsign.Before` asks the same gate through `orgsign.SetTurnVerdict`, installed from
+  `internal/cli/opgate` like `operator.SetTurnVerdict`). It fails closed: if the turn registry
+  cannot be read, even the operator's own edits are not re-signed until it can. A process that
+  registered no gate (the app, the daemon, library use) judges by markers alone. Not covered by
+  this decision, so left as they are (their edits are not re-signed): `org automation add|remove`,
+  `org automation-role add|remove|rotate`, `org group init`, `org rename`, a workflow save that
+  raises a grant tier and `workflow delete --force`; `org create-json`, library org import and the
+  chat's org tools write without re-signing.
   `people import` and `publication register` use the turn-aware gate for the LIMITED flavour as well: an
   import run by anything but the user's own terminal may not approve anyone for outreach, and a publication
   register needs a send the user approved (`--approval`, hilsend.ClaimPublicationApproval). A marked agent,

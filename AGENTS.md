@@ -660,7 +660,7 @@ dangerous calls.
   `people messages send-draft|reject-draft`, `org role set-access ... full` and
   `org teardown-profile` (not `--dry-run`) also refuse a
   process inside a coder session's turn and one that holds an agent token
-  (`internal/cli/opgate`, SECURITY.md; the rest are tracked in issue 1333). The reply tokens in a run's data are hidden from the same processes (a coder turn that cleared its markers, an agent token holder, a process the gate cannot place): `workflow execution`, `workflow executions`, the run summary of `workflow run` and `retry`, `summary` and `hil list`. `org approve`, `org chat approve`, `org autonomy set|pause|resume` and `org grant add` stay open to the chat with their limits (no approval of a sending call, no `full` or widening, no shorter pause, no `--approval none`); a process inside a coder session's turn or holding an agent token gets the same limits as a marked agent. `people import` and `publication register` keep the limits a marked agent has (an import may not approve anyone for outreach; a registration needs an approved send, `--approval`) and now apply them to a process inside a coder session's turn that cleared its markers and to an agent token holder; `node run` decides once with the same gate and hands every node the verdict in its context: a process inside a turn that cleared its markers gets a marked agent's limits there (no destination host of its own for a connection's secret, an unapproved step, no non-builtin browser package). `login <package>`, `login confirm` and `login names` stay open to the chat and to agents for a built-in package; a non-built-in package (`local`, `recorded`, an installed one) is refused to a marked agent, and now equally to a process inside a coder session's turn or holding an agent token. `httpapi-token` is a reserved vault entry: only
+  (`internal/cli/opgate`, SECURITY.md; the rest are tracked in issue 1333). The reply tokens in a run's data are hidden from the same processes (a coder turn that cleared its markers, an agent token holder, a process the gate cannot place): `workflow execution`, `workflow executions`, the run summary of `workflow run` and `retry`, `summary` and `hil list`. `org approve`, `org gate-approve`, `org chat approve` (an approval or a `gate-` ref), `org autonomy set|resume` and `org grant add` (every approval mode) are operator-only: refused to a marked agent, the chat, a workflow, an agent token holder and a process inside a coder session's turn; `org grant remove` and `org autonomy pause` stay open, and the chat's `set_org_grant` (non-revoke) and `set_org_autonomy` tools only propose, running nothing. A write such a process makes to a signed org lands but leaves it unsigned until the operator signs it (`orgsign.Before` asks the gate through `orgsign.SetTurnVerdict`; fails closed, so an unreadable turn registry also withholds the operator's own re-signs). `people import` and `publication register` keep the limits a marked agent has (an import may not approve anyone for outreach; a registration needs an approved send, `--approval`) and now apply them to a process inside a coder session's turn that cleared its markers and to an agent token holder; `node run` decides once with the same gate and hands every node the verdict in its context: a process inside a turn that cleared its markers gets a marked agent's limits there (no destination host of its own for a connection's secret, an unapproved step, no non-builtin browser package). `login <package>`, `login confirm` and `login names` stay open to the chat and to agents for a built-in package; a non-built-in package (`local`, `recorded`, an installed one) is refused to a marked agent, and now equally to a process inside a coder session's turn or holding an agent token. `httpapi-token` is a reserved vault entry: only
   the server and the user's own `secret add|update|rm|import` write it
   (`secrets.ErrReservedEntry` otherwise, checked in the secrets package;
   an agent's import skips it; a process inside a coder session's turn, one
@@ -828,8 +828,9 @@ existing MCP client config that relies on them.
 - `person_upsert`, `person_delete`
 - `org_create`, `org_role_add`, `org_role_update`,
   `org_role_set_reports_to`, `org_role_remove`, `org_reload`
-- `org_automation_add`, `org_grant_set`, `org_autonomy_set` (the last two
-  preview unless `confirm:true`)
+- `org_automation_add`, `org_grant_set`, `org_autonomy_set` (the last two only
+  propose: `applied:false`, "proposal: confirm in the org screen", nothing runs;
+  `org_grant_set` with `revoke:true` still previews until `confirm:true`)
 - `task_claim`, `task_comment`, `task_finish`, `task_release`, `task_add`: an
   agent's verbs on the task board, acting as the agent the server names after
   its client (`agent:<client>#<4 hex>`); no tool approves, edits, moves or
@@ -3603,16 +3604,15 @@ monoagentcli --profile work org automation-role add growth --alias publish_post 
   unreadable workflow counts as sending). No rule, decider or delegate
   approves it (`orgdecide.ItemSends`, `RouteItem`), `decision_resolve`
   refuses it (escalate excepted), and `org autonomy needs-you` lists it.
-  `org approve` and `org chat approve` of such a call are the operator's
-  only (exit 3 with the operator refusal otherwise; deny stays open), and
+  `org approve`, `org gate-approve` and `org chat approve` are the operator's only, of any approval
+  or gate
+  (exit 3 with the operator refusal otherwise; deny stays open), and
   the chat's Bash allowlist leaves out `monomind org approve|gate-approve|answer`.
   A called workflow is found with the engine's own lookup
   (`workflow.ResolveSubWorkflow`: by id, else the one workflow of the
   profile with that exact name, files first); anything else counts as
-  sending. For anything but the operator, `org approve` checks the stored
-  action of the pending approval that matches role and action exactly, and
-  refuses when none does. `monomind org approve` run directly by an agent shell
-  is not checked (monoes/monomind#677).
+  sending. `monomind org approve` and `monomind org gate-approve` run directly by an agent shell
+  are not checked (monoes/monomind#677); only monoagentcli's own commands are operator-only.
   A grant the user made with `--approval none` still calls without a
   decision: that is their own choice.
 - The official browser read actions (find/list/scrape/export/metrics,
