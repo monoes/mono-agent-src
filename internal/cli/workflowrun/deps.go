@@ -25,6 +25,9 @@ type Deps struct {
 	BuildEngine func() (*workflow.WorkflowEngine, func(), error)
 	// NodeTypes is the registry of the node types this install has.
 	NodeTypes func() *workflow.NodeTypeRegistry
+	// InTurn says whether this process descends from a recorded coder turn (cmd/monoagentcli's turn
+	// check alone, without the markers); nil means it does not. An error is a process that could not be placed.
+	InTurn func() (bool, error)
 	// DryRun is `workflow run --dry-run`: validate and print the plan, start nothing.
 	DryRun func(cmd *cobra.Command, workflowID string) error
 }

@@ -229,3 +229,16 @@ func TestUnapprovedWorkflowsResolvedOperation(t *testing.T) {
 		}
 	}
 }
+
+// A run an agent started with `workflow run` (its mark, also from a coder turn without markers) sends
+// nothing on its own, even from a workflow the user approved; a chat's run of an approved workflow does.
+func TestAMarkedAgentRunOfAnApprovedWorkflowSendWaits(t *testing.T) {
+	asOperator(t)
+	for _, mark := range []string{"other", "coder", "other/org"} {
+		db := testDB(t)
+		sent, _ := runEmailWorkflow(t, db, true, map[string]interface{}{workflow.AICallerKey: mark})
+		if len(sent) != 0 || len(sendItems(t, db)) != 1 {
+			t.Errorf("mark %q: sent %d, queued %d; want the send queued", mark, len(sent), len(sendItems(t, db)))
+		}
+	}
+}

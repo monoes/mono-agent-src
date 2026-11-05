@@ -115,12 +115,23 @@ func envCaller() (caller, bool) {
 // it — this one, or a daemon that adopts a --no-wait run or resumes a paused
 // one — holds it to the same level. A kind the caller declared but could
 // not prove follows as "kind/declared" ("other/org").
-func MarkAICaller(data map[string]interface{}) {
+func MarkAICaller(data map[string]interface{}) { MarkAICallerFor(data, "", false) }
+
+// MarkAICallerFor is MarkAICaller for a command that also knows, from its own verdict (internal/cli/opgate.Refusal:
+// markers, agent tokens, the ancestry of a coder turn), that its process is not the user's terminal: why says so.
+// A process that shows no agent marker is then marked as another agent's (a coder turn clears its markers; the
+// marker alone said "the user"). A marker still names its own kind, except a bare MONOAGENT_AI_CALLER=chat
+// when inTurn (the process descends from a recorded coder turn): no real agent marker backs it, so the stricter
+// of chat and other applies.
+func MarkAICallerFor(data map[string]interface{}, why string, inTurn bool) {
 	if data == nil {
 		return
 	}
 	if c, ok := envCaller(); ok {
 		mark := c.kind
+		if mark == browserctl.KindChat && inTurn {
+			mark = browserctl.KindOther
+		}
 		if c.declared != "" {
 			mark += "/" + c.declared
 		}
@@ -131,6 +142,11 @@ func MarkAICaller(data map[string]interface{}) {
 	// starts another run: that run is called by an unapproved workflow, whatever its own markers.
 	if operator.UnapprovedRunProcess() {
 		data[workflow.AICallerKey] = workflow.UnapprovedWorkflowCaller
+		return
+	}
+	if why != "" {
+		data[workflow.AICallerKey] = browserctl.KindOther
+		return
 	}
 }
 
