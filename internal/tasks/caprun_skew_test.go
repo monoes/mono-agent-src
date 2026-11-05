@@ -35,7 +35,7 @@ func TestSkewCapRunHeartbeatBesideAReservationGrantedByAHandleAheadIsLost(t *tes
 		t.Fatal(err)
 	}
 	if _, err := ahead.ReserveExecAsk(bg, "default", session, "o-res", "w", "e1", 2, 0); err != nil {
-		t.Skipf("the handle ahead did not see the cap run as lapsed (%v): the setup no longer reproduces", err)
+		t.Fatalf("the handle ahead did not see the cap run as lapsed (%v): the setup no longer reproduces", err)
 	}
 	var before string
 	if err := behind.db.QueryRow(`SELECT lease_until FROM task_session_cap_runs WHERE id = ?`, c.ID).Scan(&before); err != nil {
@@ -62,7 +62,7 @@ func TestSkewReservationHeartbeatBesideACapRunRegisteredByAHandleAheadIsLost(t *
 		t.Fatal(err)
 	}
 	if _, err := ahead.BeginCapRun(bg, "default", session, "o-run", "run"); err != nil {
-		t.Skipf("the handle ahead did not see the reservation as lapsed (%v): the setup no longer reproduces", err)
+		t.Fatalf("the handle ahead did not see the reservation as lapsed (%v): the setup no longer reproduces", err)
 	}
 	var before string
 	if err := behind.db.QueryRow(`SELECT lease_until FROM task_session_reservations WHERE id = ?`, r.ID).Scan(&before); err != nil {
