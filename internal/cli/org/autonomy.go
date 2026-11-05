@@ -184,6 +184,9 @@ func newOrgAutonomySetCmd(env *orgEnv) *cobra.Command {
 			if err := env.refuseWidening(before, a, doc.Name); err != nil {
 				return err
 			}
+			if err := env.refuseNotOperator("changing org " + doc.Name + "'s autonomy"); err != nil {
+				return err
+			}
 			if err := a.Validate(); err != nil {
 				return env.d.InvalidInput("%v", err)
 			}
@@ -286,6 +289,11 @@ func newOrgAutonomyPauseCmd(env *orgEnv, pause bool) *cobra.Command {
 					return err
 				}
 				changed = append(changed, a)
+			}
+			if !pause {
+				if err := env.refuseNotOperator("resuming autonomy"); err != nil {
+					return err
+				}
 			}
 			var views []map[string]interface{}
 			for _, a := range changed {

@@ -96,11 +96,10 @@ func TestOrgApproveAsksTheTurnAwareGate(t *testing.T) {
 		return err
 	}
 	if err := run("approve", "growth", "writer", "monoagent__automation_send"); exitCodeFor(err) != 3 ||
-		!strings.Contains(err.Error(), "which only the user approves: "+turnStandIn+"; deny it") {
+		!strings.Contains(err.Error(), "is the user's to do: "+turnStandIn+"; ") {
 		t.Fatalf("approve of a sending automation: %v", err)
 	}
-	if err := run("approve", "growth", "writer", "MONOAGENT__AUTOMATION_SEND"); exitCodeFor(err) != 3 || !strings.Contains(err.Error(), "no pending approval of exactly") ||
-		!strings.Contains(err.Error(), turnStandIn) {
+	if err := run("approve", "growth", "writer", "MONOAGENT__AUTOMATION_SEND"); exitCodeFor(err) != 3 || !strings.Contains(err.Error(), "is the user's to do: "+turnStandIn) {
 		t.Fatalf("approve of a variant: %v", err)
 	}
 	if b, _ := os.ReadFile(argsLog); strings.Contains(strings.ToLower(string(b)), "automation_send") {

@@ -96,13 +96,13 @@ func TestOrgApproveOfASendingAutomationIsTheOperatorsOnly(t *testing.T) {
 
 	for _, k := range notTheOperatorMarkers() {
 		t.Setenv(k, "1")
-		if err := run("approve", "growth", "writer", "monoagent__automation_send"); exitCodeFor(err) != 3 || !strings.Contains(err.Error(), "only the user approves") {
+		if err := run("approve", "growth", "writer", "monoagent__automation_send"); exitCodeFor(err) != 3 || !strings.Contains(err.Error(), "is the user's to do") {
 			t.Errorf("%s set: approve of a sending automation: %v", k, err)
 		}
 		// A variant of its action, which a looser match in monomind might
 		// take for it, matches no pending approval exactly (#833 review, N3).
 		for _, variant := range []string{"MONOAGENT__AUTOMATION_SEND", " monoagent__automation_send", "monoagent__automation_send "} {
-			if err := run("approve", "growth", "writer", variant); exitCodeFor(err) != 3 || !strings.Contains(err.Error(), "no pending approval of exactly") {
+			if err := run("approve", "growth", "writer", variant); exitCodeFor(err) != 3 || !strings.Contains(err.Error(), "is the user's to do") {
 				t.Errorf("%s set: approve of %q: %v", k, variant, err)
 			}
 		}

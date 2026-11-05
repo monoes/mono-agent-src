@@ -229,7 +229,8 @@ func newOrgGrantAddCmd(env *orgEnv) *cobra.Command {
 			}
 			outbound := orggrant.OutboundNodes(wf)
 			// What is not the operator's own terminal (an agent, the chat,
-			// a workflow, a process inside a coder turn: opgate) grants only calls that ask first.
+			// a workflow, a process inside a coder turn: opgate) gets no grant at all (class B); a
+			// grant with --approval none is refused with the reason that is specific to it.
 			why := opgate.Refusal()
 			if !cmd.Flags().Changed("approval") {
 				// C-34: side effects outside mono-agent need a decision by default.
@@ -244,6 +245,9 @@ func newOrgGrantAddCmd(env *orgEnv) *cobra.Command {
 			if approval == "none" && why != "" {
 				return env.d.InvalidInput("a grant with --approval none lets role %q run %q without asking, which is the user's to give: %s; "+
 					"leave --approval out (or pass required), or run it yourself from a terminal or the app", role, alias, why)
+			}
+			if err := env.refuseNotOperator(fmt.Sprintf("granting %q to role %q", alias, role)); err != nil {
+				return err
 			}
 			store := orggrant.NewStore(db.DB)
 			existing, _ := store.ListGrants(ctx, profileID, doc.Name, role)

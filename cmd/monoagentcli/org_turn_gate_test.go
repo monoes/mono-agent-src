@@ -98,10 +98,9 @@ func checkWhy(t *testing.T, err error, ctx orgGateContext, format string) {
 }
 
 const (
-	orgFullFmt   = "autonomy full lets org growth's decider handle everything with no person involved, which is the user's to choose: %s; set manual or mid, " + orgRefusedTail
-	orgWidenFmt  = "--max-decisions 50 (now 5) would let org growth approve more without a person, which is the user's to choose: %s; make it stricter or leave it, " + orgRefusedTail
-	orgNoneFmt   = `a grant with --approval none lets role "lead" run "summarize" without asking, which is the user's to give: %s; leave --approval out (or pass required), ` + orgRefusedTail
-	orgApproveFm = "approving " + orgApproveSend + " lets a message to a person go out, which only the user approves: %s; deny it, or approve it yourself from a terminal or the app"
+	orgFullFmt  = "autonomy full lets org growth's decider handle everything with no person involved, which is the user's to choose: %s; set manual or mid, " + orgRefusedTail
+	orgWidenFmt = "--max-decisions 50 (now 5) would let org growth approve more without a person, which is the user's to choose: %s; make it stricter or leave it, " + orgRefusedTail
+	orgNoneFmt  = `a grant with --approval none lets role "lead" run "summarize" without asking, which is the user's to give: %s; leave --approval out (or pass required), ` + orgRefusedTail
 )
 
 func TestOrgAutonomyFullIsRefusedToAMarkedAgentAndToAProcessInATurn(t *testing.T) {
@@ -136,9 +135,9 @@ func TestOrgAutonomyWideningIsRefusedToAMarkedAgentAndToAProcessInATurn(t *testi
 			if got := fmt.Sprint(showAutonomy(t, f, "limits")); !strings.Contains(got, "5") || strings.Contains(got, "50") {
 				t.Fatalf("a refused call changed the limits: %s", got)
 			}
-			// stricter stays anyone's
-			if _, err := f.run(t, "autonomy", "set", "growth", "--max-decisions", "4"); err != nil {
-				t.Fatalf("a stricter limit was refused: %v", err)
+			// a stricter one is refused too: any autonomy set is the user's (class B)
+			if _, err := f.run(t, "autonomy", "set", "growth", "--max-decisions", "4"); err == nil || !strings.Contains(err.Error(), "is the user's to do: ") {
+				t.Fatalf("a stricter limit: %v", err)
 			}
 		})
 	}
@@ -203,10 +202,12 @@ func TestOrgGrantAddWithoutApprovalIsRefusedToAMarkedAgentAndToAProcessInATurn(t
 			if n := grantCount(t, f); n != 0 {
 				t.Fatalf("a refused call created %d grant(s)", n)
 			}
-			// without --approval the grant asks first, as it does for a marked agent
-			g := f.mustRun(t, "grant", "add", "growth", "--role", "lead", "--automation", "summarize")
-			if gg := g["grant"].(map[string]interface{}); gg["approval"] != "required" {
-				t.Fatalf("%s: a grant without --approval: %v", ctx.name, gg)
+			// no grant at all is the caller's (class B), whatever its approval mode
+			if _, err := f.run(t, "grant", "add", "growth", "--role", "lead", "--automation", "summarize"); err == nil || !strings.Contains(err.Error(), "is the user's to do: ") {
+				t.Fatalf("%s: a grant without --approval: %v", ctx.name, err)
+			}
+			if n := grantCount(t, f); n != 0 {
+				t.Fatalf("a refused call created %d grant(s)", n)
 			}
 		})
 	}
@@ -226,20 +227,18 @@ func TestOrgApproveOfASendingAutomationIsRefusedToAMarkedAgentAndToAProcessInATu
 			f, argsLog := orgApproveFixture(t)
 			ctx.setup(t, f)
 			_, err := f.run(t, "approve", "growth", "writer", orgApproveSend)
-			checkWhy(t, err, ctx, orgApproveFm)
+			if err == nil || exitCodeFor(err) != 3 || !strings.Contains(err.Error(), "is the user's to do: ") {
+				t.Fatalf("%s: approve: %v", ctx.name, err)
+			}
 			if approvedSend(argsLog) {
 				t.Fatal("a refused approval reached monomind")
 			}
-			// a variant of the pending action matches none: refused with the same why
-			_, err = f.run(t, "approve", "growth", "writer", strings.ToUpper(orgApproveSend))
-			if err == nil || !strings.Contains(err.Error(), "no pending approval of exactly") {
-				t.Fatalf("%s: a typed variant: %v", ctx.name, err)
+			// approving one that sends nothing is refused too; denying stays anyone's
+			if _, err := f.run(t, "approve", "growth", "writer", "monoagent__automation_sum"); err == nil || !strings.Contains(err.Error(), "is the user's to do: ") {
+				t.Fatalf("%s: approve of one that sends nothing: %v", ctx.name, err)
 			}
-			// denying, and approving one that sends nothing, stay anyone's
-			for _, args := range [][]string{{"deny", "growth", "writer", orgApproveSend}, {"approve", "growth", "writer", "monoagent__automation_sum"}} {
-				if _, err := f.run(t, args...); err != nil {
-					t.Fatalf("%s: %v: %v", ctx.name, args, err)
-				}
+			if _, err := f.run(t, "deny", "growth", "writer", orgApproveSend); err != nil {
+				t.Fatalf("%s: deny: %v", ctx.name, err)
 			}
 		})
 	}
