@@ -86,11 +86,11 @@ func WithRunMark(ctx context.Context, mark string) context.Context {
 	return context.WithValue(ctx, runMarkKey{}, mark)
 }
 
-// markStrictness ranks the kinds of an AI-caller mark, stricter first: "other" and a run an unapproved
-// workflow called, then every other agent kind (a kind this table does not list counts as one, never as a
+// markStrictness ranks the kinds of an AI-caller mark, stricter first: a run an unapproved workflow
+// called, then "other", then every other agent kind (a kind this table does not list counts as one, never as a
 // chat or as no mark: a mark nobody knows is not trusted as the loosest), then a chat, then no mark. It is
 // the one table a retry's two marks are compared by.
-var markStrictness = map[string]int{"other": 3, UnapprovedWorkflowCaller: 3, "chat": 1}
+var markStrictness = map[string]int{"other": 3, UnapprovedWorkflowCaller: 4, "chat": 1}
 
 const agentKindStrictness = 2
 
@@ -123,7 +123,7 @@ func withRunMark(ctx context.Context, data map[string]interface{}) map[string]in
 	for k, v := range data {
 		out[k] = v
 	}
-	out[AICallerKey] = mark
+	out[AICallerKey] = strings.TrimSpace(mark)
 	return out
 }
 
