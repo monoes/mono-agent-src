@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/dbconn"
 	"github.com/monoes/mono-agent/internal/profiledir"
 )
 
@@ -204,33 +205,32 @@ func Record(ctx context.Context, db *sql.DB, runID, caseID, kind string, data ma
 	if col == "" {
 		return fmt.Errorf("evaluation: record: unknown kind %q", kind)
 	}
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("evaluation: record: %w", err)
-	}
-	defer tx.Rollback() //nolint:errcheck
-	var raw string
-	err = tx.QueryRowContext(ctx, `SELECT `+col+` FROM evaluation_results WHERE id = ? AND run_id = ?`, caseID, runID).Scan(&raw)
-	if errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("evaluation: record: case %s of run %s not found", caseID, runID)
-	}
-	if err != nil {
-		return fmt.Errorf("evaluation: record: %w", err)
-	}
-	if afterRecordRead != nil {
-		afterRecordRead()
-	}
-	cur := map[string]interface{}{}
-	_ = json.Unmarshal([]byte(raw), &cur)
-	for k, v := range data {
-		if _, set := cur[k]; !set {
-			cur[k] = v
+	// BEGIN IMMEDIATE: the merge reads before it writes, and a writer that commits in between would make the write
+	// fail at once with SQLITE_BUSY_SNAPSHOT, which busy_timeout does not wait for (#1459).
+	return dbconn.WithWriteTx(ctx, db, func(conn *sql.Conn) error {
+		var raw string
+		err := conn.QueryRowContext(ctx, `SELECT `+col+` FROM evaluation_results WHERE id = ? AND run_id = ?`, caseID, runID).Scan(&raw)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("evaluation: record: case %s of run %s not found", caseID, runID)
 		}
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE evaluation_results SET `+col+` = ? WHERE id = ?`, encode(cur), caseID); err != nil {
-		return fmt.Errorf("evaluation: record: %w", err)
-	}
-	return tx.Commit()
+		if err != nil {
+			return fmt.Errorf("evaluation: record: %w", err)
+		}
+		if afterRecordRead != nil {
+			afterRecordRead()
+		}
+		cur := map[string]interface{}{}
+		_ = json.Unmarshal([]byte(raw), &cur)
+		for k, v := range data {
+			if _, set := cur[k]; !set {
+				cur[k] = v
+			}
+		}
+		if _, err := conn.ExecContext(ctx, `UPDATE evaluation_results SET `+col+` = ? WHERE id = ?`, encode(cur), caseID); err != nil {
+			return fmt.Errorf("evaluation: record: %w", err)
+		}
+		return nil
+	})
 }
 
 // LoadCase reads a case's recorded inputs, outputs and metrics into c.
