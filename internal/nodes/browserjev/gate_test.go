@@ -280,3 +280,23 @@ func TestAIRunFailsClosedWithoutAGuard(t *testing.T) {
 		t.Fatal("not a timeout")
 	}
 }
+
+// A `workflow run` started by a process an unapproved run's node started
+// (workflow.EnvUnapprovedRun) marks its run as one an unapproved workflow
+// called, so the engine holds its sends and browser steps like that workflow's.
+func TestMarkAICallerMarksAnUnapprovedRunsChild(t *testing.T) {
+	for _, k := range append(browserctl.AgentContextEnv(), EnvAICaller, workflow.EnvUnapprovedRun) {
+		t.Setenv(k, "")
+	}
+	data := map[string]interface{}{}
+	if MarkAICaller(data); len(data) != 0 {
+		t.Fatalf("the user's own run is not marked: %v", data)
+	}
+	t.Setenv(workflow.EnvUnapprovedRun, "1")
+	if MarkAICaller(data); data[workflow.AICallerKey] != workflow.UnapprovedWorkflowCaller {
+		t.Fatalf("an unapproved run's child's run is marked %q: %v", workflow.UnapprovedWorkflowCaller, data)
+	}
+	if _, called := workflow.CalledByUnapproved(data); !called {
+		t.Fatal("the engine does not see it as called by an unapproved workflow")
+	}
+}

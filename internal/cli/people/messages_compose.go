@@ -8,7 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/connections"
+	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/vault"
 	"github.com/monoes/mono-agent/internal/workflow"
@@ -407,6 +409,12 @@ func (d Deps) runOutlookNode(cmd *cobra.Command, db *sql.DB, connectionID string
 	// (internal/hilsend): the guard queues it as a card, and nothing runs.
 	executor := factory()
 	ctx := vault.ContextWithProfileID(vault.ContextWithDB(cmd.Context(), db), d.ProfileID())
+	if opgate.Refusal() != "" && !operator.ApprovedWorkflowChild() {
+		// The guard tells an agent by its own markers; the chat's run, a process a workflow node started
+		// in an unapproved run and one the markers do not show are not the user's either, so their sends
+		// wait too. What an approved workflow's node started sends as the workflow was written.
+		ctx = workflow.WithAIAuthored(ctx)
+	}
 	if queued, handled, gerr := workflow.RunExecGuard(ctx, executor.Type(), workflow.NodeInput{}, config); handled {
 		if gerr != nil {
 			return nil, gerr

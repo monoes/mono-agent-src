@@ -118,6 +118,9 @@ func (n *CallNode) Execute(ctx context.Context, input workflow.NodeInput, config
 		srv.Env = map[string]string{}
 	}
 	srv.Env[workflow.EnvWorkflowRun] = workflow.RunMarker(input.ExecutionID)
+	if workflow.RunIsUnapproved(ctx) {
+		srv.Env[workflow.EnvUnapprovedRun] = "1"
+	}
 	if srv.Transport != "http" {
 		if err := workflow.RefuseUnapprovedProgram(ctx, NodeType+" (a stdio server)", input.WorkflowID); err != nil {
 			return nil, err

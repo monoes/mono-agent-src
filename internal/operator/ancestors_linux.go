@@ -4,6 +4,8 @@ package operator
 
 import (
 	"bytes"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -21,6 +23,47 @@ func ancestorMarker() string {
 		return ""
 	}
 	return walkAncestors(os.Getppid(), processMarker, parentOf)
+}
+
+// unapprovedAncestor reports whether one of this process's parents carries
+// workflow.EnvUnapprovedRun (or the chain can't be read to its end): a child that
+// dropped its own copy still comes from an unapproved run.
+func unapprovedAncestor() bool {
+	if testmode.On && !ancestorsInTests {
+		return false
+	}
+	return walkUnapproved(os.Getppid(), func(pid int) (bool, error) {
+		env, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/environ")
+		return err == nil && bytes.Contains(append([]byte{0}, env...), []byte("\x00"+workflow.EnvUnapprovedRun+"=1\x00")), err
+	}, parentOf)
+}
+
+// walkUnapproved climbs from pid and reports whether a parent has the mark.
+// It fails closed on a broken chain: a parent that has gone or whose own
+// parent can't be found, and a chain deeper than ancestorMaxDepth. A parent
+// whose environment is closed to this user (permission denied) is not
+// broken: a marked workflow child is this user's own process, and its
+// environment is readable, so what can't be read is systemd --user, sshd's
+// privsep children or a root-owned service, never a workflow run. Reaching
+// init (or pid 0 of a container) through links like these is clean. The
+// limit: a process a double fork handed to init has lost its real parents,
+// and looks clean; only a per-run approval record closes that.
+func walkUnapproved(pid int, marked func(int) (bool, error), parent func(int) (int, bool)) bool {
+	for depth := 0; pid > 1 && pid != ancestorsStopAt; depth++ {
+		if depth == ancestorMaxDepth {
+			return true
+		}
+		m, err := marked(pid)
+		if m || (err != nil && !errors.Is(err, fs.ErrPermission)) {
+			return true
+		}
+		ppid, ok := parent(pid)
+		if !ok {
+			return true
+		}
+		pid = ppid
+	}
+	return false
 }
 
 // walkAncestors climbs from pid through parent and names the first process

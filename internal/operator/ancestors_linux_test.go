@@ -134,3 +134,73 @@ func TestWalkAncestors(t *testing.T) {
 		t.Errorf("ancestorTooDeep = %q", ancestorTooDeep)
 	}
 }
+
+// A helper process: prints what ApprovedWorkflowChild says there.
+func TestApprovedChildHelper(t *testing.T) {
+	if os.Getenv("OPERATOR_TEST_APPROVED_HELPER") == "" {
+		t.Skip("helper process")
+	}
+	ancestorsInTests = true
+	ancestorsStopAt, _ = strconv.Atoi(os.Getenv("OPERATOR_TEST_APPROVED_HELPER"))
+	fmt.Printf("approved=%v\n", ApprovedWorkflowChild())
+}
+
+// A child cannot downgrade itself by dropping its own copy of the
+// unapproved-run mark: a parent still carries it.
+func TestAParentsUnapprovedMarkKeepsAChildUnapproved(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh")
+	}
+	helper := fmt.Sprintf("env -u %s OPERATOR_TEST_APPROVED_HELPER=%d %q -test.run='^TestApprovedChildHelper$'; true", workflow.EnvUnapprovedRun, os.Getpid(), os.Args[0])
+	for _, c := range []struct {
+		parent []string
+		want   string
+	}{
+		{[]string{workflow.EnvWorkflowRun + "=exec-1", workflow.EnvUnapprovedRun + "=1"}, "approved=false"},
+		{[]string{workflow.EnvWorkflowRun + "=exec-1"}, "approved=true"},
+	} {
+		cmd := exec.Command(sh, "-c", helper)
+		cmd.Env = append([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + os.Getenv("HOME")}, c.parent...)
+		out, err := cmd.CombinedOutput()
+		if err != nil || !strings.Contains(string(out), c.want) {
+			t.Errorf("parent %v: %v\n%s\nwant %s", c.parent, err, out, c.want)
+		}
+	}
+}
+
+// The unapproved-run walk fails closed on a broken chain (a parent that can't
+// be found or has gone, a chain too deep), not on a parent whose environment
+// is closed to this user: a marked workflow child is this user's own
+// process and its environment is readable, so a permission error marks
+// systemd --user, sshd's privsep children and root-owned services, never a
+// workflow run. Reaching init (or pid 0 of a container) through readable,
+// unmarked links is clean.
+func TestWalkUnapprovedFailsClosedOnABrokenChain(t *testing.T) {
+	chain := map[int]int{50: 40, 40: 30, 30: 1}
+	parent := func(pid int) (int, bool) { p, ok := chain[pid]; return p, ok }
+	never := func(int) (bool, error) { return false, nil }
+	if walkUnapproved(50, never, parent) {
+		t.Error("a readable chain with no mark is clean")
+	}
+	if !walkUnapproved(50, func(pid int) (bool, error) { return pid == 30, nil }, parent) {
+		t.Error("a marked grandparent counts")
+	}
+	if walkUnapproved(50, func(pid int) (bool, error) {
+		if pid == 30 { // systemd --user: not dumpable, closed to its own user
+			return false, os.ErrPermission
+		}
+		return false, nil
+	}, parent) {
+		t.Error("a chain ending in an unreadable systemd --user is clean")
+	}
+	if !walkUnapproved(50, func(pid int) (bool, error) { return false, os.ErrNotExist }, parent) {
+		t.Error("a parent that has gone is not clean")
+	}
+	if !walkUnapproved(50, never, func(pid int) (int, bool) { return 0, false }) {
+		t.Error("a chain that can't be followed is not clean")
+	}
+	if walkUnapproved(1, never, parent) || walkUnapproved(0, never, parent) {
+		t.Error("a service started by init, or a container entrypoint (parent 0 or 1), is clean")
+	}
+}

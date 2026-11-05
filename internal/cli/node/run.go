@@ -286,10 +286,12 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 			if rawDB != nil {
 				guardCtx = vault.ContextWithProfileID(vault.ContextWithDB(guardCtx, rawDB), d.ProfileID())
 			}
-			if callerWhy != "" && operator.Refusal() == "" {
-				// The guard tells an agent by its markers or by an unapproved run in ctx; a process the
-				// markers do not show (inside a coder turn, an agent token) is the second kind, like the
-				// step below. A marked caller is asked exactly as before.
+			if callerWhy != "" && !operator.ApprovedWorkflowChild() {
+				// The guard tells an agent by hilsend.Detect's markers or by an unapproved run in ctx. Any
+				// other caller that is not the user's terminal (the chat's run, a process a workflow node
+				// started in an unapproved run, one inside a coder turn that shows no marker, an agent
+				// token) is the second kind, like the step below: its send waits for approval. What an
+				// approved workflow's node started, and the user's terminal, are asked as before.
 				guardCtx = workflow.WithAIAuthored(guardCtx)
 			}
 			if queued, handled, gerr := workflow.RunExecGuard(guardCtx, nodeType, workflow.NodeInput{Items: inputItems}, config); handled {
