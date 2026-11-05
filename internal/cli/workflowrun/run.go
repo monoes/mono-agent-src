@@ -153,6 +153,9 @@ func (d Deps) newTemplatesRunCmd() *cobra.Command {
 			if err := checkTemplateInputs(templateInputKeys(args[0]), triggerData); err != nil {
 				return err
 			}
+			// Like `workflow run`: the run is an agent's when this process is not the user's terminal.
+			closeMarkDB := d.markWithDB(cmd.Context(), triggerData)
+			defer closeMarkDB()
 
 			engine, closeBrowsers, err := d.BuildEngine()
 			if err != nil {
@@ -387,6 +390,34 @@ func (d Deps) newRunCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&timeout, "timeout", 15*time.Minute, "Maximum time to wait for the execution to finish")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Validate the workflow and print its execution plan without running it")
 	return cmd
+}
+
+// markWithDB is markAICaller with the profile's database opened only if the gate needs it (the run-token
+// lookup); the returned func closes it.
+func (d Deps) markWithDB(ctx context.Context, data map[string]interface{}) func() {
+	var opened interface{ Close() error }
+	d.markAICaller(ctx, func() (*sql.DB, error) {
+		db, err := d.OpenDB()
+		if err != nil {
+			return nil, err
+		}
+		opened = db
+		return db.DB, nil
+	}, data)
+	return func() {
+		if opened != nil {
+			opened.Close()
+		}
+	}
+}
+
+// withRunMark is ctx carrying the mark this command's verdict gives a run the engine builds the trigger
+// data of (workflow.WithRunMark).
+func (d Deps) withRunMark(ctx context.Context) (context.Context, func()) {
+	data := map[string]interface{}{}
+	closeDB := d.markWithDB(ctx, data)
+	mark, _ := data[workflow.AICallerKey].(string)
+	return workflow.WithRunMark(ctx, mark), closeDB
 }
 
 // markAICaller marks the run with the kind of the agent that starts it (browserjev.MarkAICallerFor), on this

@@ -39,7 +39,8 @@ func (d Deps) newRetryCmd() *cobra.Command {
 			}
 			defer closeBrowsers()
 
-			ctx := cmd.Context()
+			ctx, closeMarkDB := d.withRunMark(cmd.Context())
+			defer closeMarkDB()
 			orig, err := engine.GetExecution(ctx, origID)
 			if errors.Is(err, workflow.ErrExecutionNotFound) {
 				return clicore.NotFound("execution %q not found", origID)

@@ -1,6 +1,7 @@
 package workflowrun
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -47,7 +48,18 @@ func testRegistry() *workflow.NodeTypeRegistry {
 	reg := workflow.NewNodeTypeRegistry()
 	control.RegisterAll(reg)
 	evalnode.RegisterAll(reg)
+	// The bundled "hello" template starts with an http.request step; the tests have no network.
+	reg.Register("http.request", func() workflow.NodeExecutor { return stubHTTPNode{} })
 	return reg
+}
+
+// stubHTTPNode answers the template's request with a sample user.
+type stubHTTPNode struct{}
+
+func (stubHTTPNode) Type() string { return "http.request" }
+func (stubHTTPNode) Execute(_ context.Context, _ workflow.NodeInput, _ map[string]interface{}) ([]workflow.NodeOutput, error) {
+	return []workflow.NodeOutput{{Handle: "main", Items: []workflow.Item{workflow.NewItem(map[string]interface{}{"body": map[string]interface{}{
+		"name": "n", "email": "e", "company": map[string]interface{}{"name": "c"}, "address": map[string]interface{}{"city": "x"}}})}}}, nil
 }
 
 // dryRuns records the workflow ids DryRun was called with.

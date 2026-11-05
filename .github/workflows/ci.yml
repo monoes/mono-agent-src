@@ -306,6 +306,8 @@ jobs:
         run: bash .github/scripts/ci-run-is-full_test.sh
       - name: Test the release guard's PR-run identity check
         run: bash .github/scripts/ci-run-matches-merge_test.sh
+      - name: Test the internal/tasks heavy-test split
+        run: bash .github/scripts/tasks-heavy-tests_test.sh
       - name: Test the monoagentcli shard split
         run: bash .github/scripts/monoagentcli-shard_test.sh
       - name: Test the monoagentcli weights check
@@ -468,13 +470,14 @@ jobs:
         tags: [default, nosocial]
         # TEMPORARY: for tags=default the single `rest` cell is split into
         # r0..r3 (see the exclude/include below). Revert to restore it.
-        shard: [rest, r0, r1, r2, r3, '0', '1', '2', '3']
+        shard: [rest, r0, r1, r2, r3, tp, '0', '1', '2', '3']
         exclude:
           - { tags: default, shard: rest }
           - { tags: nosocial, shard: r0 }
           - { tags: nosocial, shard: r1 }
           - { tags: nosocial, shard: r2 }
           - { tags: nosocial, shard: r3 }
+          - { tags: nosocial, shard: tp }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: matrix.tags == 'default' || needs.changes.outputs.nosocial == 'true'
@@ -493,21 +496,25 @@ jobs:
         run: |
           tags=""
           if [ "$TAGS" = nosocial ]; then tags="-tags nosocial"; fi
+          # The heavy internal/tasks property tests have their own shard (tp); every other shard skips them (.github/scripts/tasks-heavy-tests.txt).
+          heavy="$(bash .github/scripts/tasks-heavy-tests.sh)"
           if [ "$SHARD" = rest ] && [ "$TAGS" = nosocial ]; then
             # The tag only changes packages that hold nosocial-tagged files;
             # the rest are already tested in the default shards. The list is
             # computed so it follows the files.
             pkgs="$(grep -rl --include='*.go' --exclude-dir=wails-app --exclude-dir=node_modules '//go:build.*nosocial' . | xargs -n1 dirname | sed 's|^\./||' | sort -u | grep -vx 'cmd/monoagentcli' | sed 's|^|./|' || true)"
             echo "nosocial packages: $pkgs"
-            if [ -n "$pkgs" ]; then go test -timeout 60m $tags $pkgs -race; fi
+            if [ -n "$pkgs" ]; then go test -timeout 60m $tags $pkgs -race -skip "^($heavy)\$"; fi
+          elif [ "$SHARD" = tp ]; then
+            go test -timeout 60m $tags ./internal/tasks -race -run "^($heavy)\$"
           elif [ "$SHARD" = rest ]; then
-            go test -timeout 60m $tags $(go list $tags ./... | grep -v -e '/cmd/monoagentcli$' -e '/internal/agentbox$') -race
+            go test -timeout 60m $tags $(go list $tags ./... | grep -v -e '/cmd/monoagentcli$' -e '/internal/agentbox$') -race -skip "^($heavy)\$"
           elif [ "$SHARD" = r0 ]; then
             go test -timeout 60m $tags ./internal/cli/chat -race
           elif [ "${SHARD#r}" != "$SHARD" ]; then
             i="${SHARD#r}"
             pkgs="$(go list $tags ./... | grep -v -e '/cmd/monoagentcli$' -e '/internal/agentbox$' | grep -vx 'github.com/monoes/mono-agent/internal/cli/chat' | awk -v s="$i" 'NR % 3 == s - 1')"
-            go test -timeout 60m $tags $pkgs -race
+            go test -timeout 60m $tags $pkgs -race -skip "^($heavy)\$"
           else
             # Split by measured weight (.github/scripts/monoagentcli-test-weights.txt), not by position: every name lands in exactly one of the four shards.
             names="$(go test $tags ./cmd/monoagentcli -list '^(Test|Example)' | grep -E '^(Test|Example)' | bash .github/scripts/monoagentcli-shard.sh "$SHARD" 4)"

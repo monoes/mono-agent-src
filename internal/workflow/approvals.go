@@ -73,6 +73,60 @@ func AgentCallerFrom(ctx context.Context) string {
 	return why
 }
 
+type runMarkKey struct{}
+
+// WithRunMark carries, in ctx, the AI-caller mark (AICallerKey) of the command that starts runs the
+// engine builds the trigger data of itself (an evaluation's cases, a retry): the command decided it
+// once from its turn-aware verdict, like the mark `workflow run` puts in its own trigger data. An
+// empty mark leaves ctx as it is.
+func WithRunMark(ctx context.Context, mark string) context.Context {
+	if mark == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, runMarkKey{}, mark)
+}
+
+// markStrictness ranks the kinds of an AI-caller mark, stricter first: a run an unapproved workflow
+// called, then "other", then every other agent kind (a kind this table does not list counts as one, never as a
+// chat or as no mark: a mark nobody knows is not trusted as the loosest), then a chat, then no mark. It is
+// the one table a retry's two marks are compared by.
+var markStrictness = map[string]int{"other": 3, UnapprovedWorkflowCaller: 4, "chat": 1}
+
+const agentKindStrictness = 2
+
+// markRank is the strictness of a mark ("kind" or "kind/declared", trimmed as the gate reads it); an
+// empty or blank mark is 0.
+func markRank(mark string) int {
+	kind, _, _ := strings.Cut(strings.TrimSpace(mark), "/")
+	if kind == "" {
+		return 0
+	}
+	if r, ok := markStrictness[kind]; ok {
+		return r
+	}
+	return agentKindStrictness
+}
+
+// withRunMark returns data carrying the mark ctx holds, or data as it is when the mark data already has is
+// at least as strict (a retry's data is the old run's: a retry never loosens a run, the old mark wins a
+// tie with its suffix, and a ctx without a mark leaves data alone). It writes into a copy: the old run's
+// data stays as it was.
+func withRunMark(ctx context.Context, data map[string]interface{}) map[string]interface{} {
+	mark, _ := ctx.Value(runMarkKey{}).(string)
+	if strings.TrimSpace(mark) == "" {
+		return data
+	}
+	if old, _ := data[AICallerKey].(string); markRank(old) >= markRank(mark) {
+		return data
+	}
+	out := make(map[string]interface{}, len(data)+1)
+	for k, v := range data {
+		out[k] = v
+	}
+	out[AICallerKey] = strings.TrimSpace(mark)
+	return out
+}
+
 // AgentRunMark is the kind an agent's `workflow run` marked this run with (AICallerKey, "coder",
 // "other", "other/org"), or "" for a run no agent started. A chat's mark is returned as "chat".
 func AgentRunMark(ctx context.Context) string {
