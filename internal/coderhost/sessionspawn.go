@@ -186,6 +186,7 @@ func (s *Store) SpawnSession(ctx context.Context, sc CallerScope, profile string
 	var made tasks.Session
 	out, err := s.spawnWith(c, SpawnRequest{Scoped: req.Kind == tasks.SessionKindResearch, BudgetUSD: budget, Access: req.Access, Runtime: req.Runtime, Model: req.Model}, spawnHooks{
 		keep:      draftOnlyGuard(profile), // the undo never deletes a conversation whose task session the operator approved
+		admit:     spawnAdmission(profile, sid),
 		onCreated: func(conv string) error { return s.setIntentChild(intent, conv) },
 		beforeMessage: func(conv string) error {
 			var err error
@@ -227,6 +228,24 @@ func (s *Store) SpawnSession(ctx context.Context, sc CallerScope, profile string
 		res.CommandID, res.TurnID = cmd.ID, cmd.TurnID
 	}
 	return res, nil
+}
+
+// spawnAdmission is the carve's admission by the reservation store's rules, run inside the carve's transaction: the
+// lead's whole commitment and every budgeted ancestor must carry the carve before it is written (tasks.AdmitHold),
+// and with it written nothing may be committed past a budget (tasks.Overcommitted), or the carve is undone. The
+// share the lead was offered (childShare) was read earlier and is only the advisory.
+func spawnAdmission(profile string, sid int64) func(q querier, usd float64, written bool) (string, error) {
+	return func(q querier, usd float64, written bool) (string, error) {
+		ctx := context.Background()
+		if written {
+			return tasks.Overcommitted(ctx, ctxQuerier{q}, profile, sid)
+		}
+		why, err := tasks.AdmitHold(ctx, ctxQuerier{q}, profile, sid, usd)
+		if why != "" {
+			why = fmt.Sprintf("the carve of $%.2f does not fit the budget of your session or of a session above it: %s", usd, why)
+		}
+		return why, err
+	}
 }
 
 // spawnRoom is mayHaveChildren with the reason a child gives when it has no room: it is at the working depth.

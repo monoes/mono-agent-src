@@ -257,6 +257,12 @@ func (s *Store) SetBudget(profileID, conversationID string, usd float64) error {
 // two spawns cannot both take the last of it. A parent without a cap hands out any
 // amount (0 = none); a parent with one hands out a positive amount that fits.
 func (s *Store) carveBudget(profileID, parent, child string, usd float64) error {
+	return s.carveBudgetAdmit(profileID, parent, child, usd, nil)
+}
+
+// carveBudgetAdmit is carveBudget with the admission of hk.admit in the same transaction: asked before the statement
+// and again after it, once the carve is in the rows every commitment reads. A reason is errCarveNoRoom with it.
+func (s *Store) carveBudgetAdmit(profileID, parent, child string, usd float64, admit func(q querier, usd float64, written bool) (string, error)) error {
 	spent, err := s.Spent(profileID, parent) // read first, and part of the statement's guard: what the master has spent is not its to give
 	if err != nil {
 		return err
@@ -266,6 +272,13 @@ func (s *Store) carveBudget(profileID, parent, child string, usd float64) error 
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if admit != nil && usd > 0 {
+		if why, err := admit(tx, usd, false); err != nil {
+			return err
+		} else if why != "" {
+			return fmt.Errorf("%w: %s", errCarveNoRoom, why)
+		}
+	}
 	res, err := tx.Exec(`UPDATE coder_sessions SET budget_usd = ?, updated_at = ?
 		WHERE profile_id = ? AND conversation_id = ? AND parent_conversation_id = ?
 		AND ( (SELECT budget_usd FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?) <= 0
@@ -283,6 +296,13 @@ func (s *Store) carveBudget(profileID, parent, child string, usd float64) error 
 	})
 	if err != nil {
 		return err
+	}
+	if admit != nil && usd > 0 {
+		if why, err := admit(tx, usd, true); err != nil {
+			return err
+		} else if why != "" {
+			return fmt.Errorf("%w: %s", errCarveNoRoom, why)
+		}
 	}
 	return tx.Commit()
 }
@@ -402,6 +422,12 @@ type spawnHooks struct {
 	// when it returns false.
 	keep func(ctx context.Context, c *sql.Conn, conversationID string) (bool, error)
 
+	// admit, when set, runs in the carve's own transaction: before the carve (written false) it returns the reason the
+	// carve of usd may not be taken, and after it (written true) the reason the tree is committed past a budget; a
+	// reason refuses the spawn and the transaction is rolled back. It is how a spawn that is a hold on a task
+	// session is admitted by the budgets above it, which the coder cap arithmetic never reads.
+	admit func(q querier, usd float64, written bool) (string, error)
+
 	ticketed bool // the spawn already holds its dispatch ticket (doomsday_ticket.go)
 }
 
@@ -498,7 +524,7 @@ func (s *Store) spawnWith(c Caller, req SpawnRequest, hk spawnHooks) (Spawned, e
 			return Spawned{}, err
 		}
 	}
-	if err := s.carveBudget(c.ProfileID, c.ConversationID, conv.ID, req.BudgetUSD); err != nil {
+	if err := s.carveBudgetAdmit(c.ProfileID, c.ConversationID, conv.ID, req.BudgetUSD, hk.admit); err != nil {
 		if !errors.Is(err, errCarveNoRoom) {
 			undo()
 			return Spawned{}, fmt.Errorf("carving the child's budget: %w", err) // a storage error is not a full limit: the task does not wait on it
