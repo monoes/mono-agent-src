@@ -42,6 +42,8 @@ func (r RunDir) UnitPath(gen uint64) string { return filepath.Join(r.Dir, fmt.Sp
 //
 // It is evidence, not proof: it assumes the run directory is not cleaned by hand. Someone who can delete all three kinds of
 // file as the same user, while the database is unreadable and this process never saw the run, turns the answer back into "no".
+// The callers therefore also ask the database's own insert-only record that a run was opened (RunActivity), so a wiped
+// directory alone no longer reopens the gate on an install that ran the mode.
 func (r RunDir) HasRunTraces() bool {
 	names, err := r.fsys().ReadDir(r.Dir)
 	if err != nil {

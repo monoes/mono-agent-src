@@ -70,7 +70,7 @@ func coderBox(s coderSettings, access, cwd, runtime, orgMode, dbPath string) (*a
 		if err != nil {
 			return nil, &boxError{CodeBoxDBPath, "the sandbox (coder.box) cannot tell where the database is, so it cannot hide it: " + err.Error()}
 		}
-		box.Protect = prot
+		box.Protect = append(prot, protectedRunState(dbPath)...)
 	}
 	return box, nil
 }
@@ -114,4 +114,16 @@ func protectedDatabase(dbPath string) ([]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// protectedRunState is the open-ended mode's run state, which sits next to the database as <dbdir>/doomsday (the run
+// directory of each profile is below it). The state directory's mask only covers it in the default layout, so with a custom
+// database path it is named here, as the database files are. The directory is next to the path as it was given, which is where
+// the mode puts it; Protect resolves a link itself. A directory that does not exist yet is left out by the box.
+func protectedRunState(dbPath string) []string {
+	abs, err := filepath.Abs(expandHome(dbPath))
+	if err != nil {
+		return nil
+	}
+	return []string{filepath.Join(filepath.Dir(abs), "doomsday")}
 }

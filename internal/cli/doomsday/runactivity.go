@@ -26,18 +26,48 @@ import (
 //  1. this process has seen it: any listing, or the loop's precheck, returned a row for the profile, or found one that
 //     failed to verify (RunActivity, shared by the gate, the governor and the strategy loop of the process, never
 //     cleared for the process's life); or
-//  2. the install has run traces: the run directory holds a per-run secret, the witness or the generation counter
+//  2. the database says the profile has opened a run (the insert-only doomsday_run_seen record, written in the transaction that
+//     enters a run and never removed): read once while the table can be listed, and again when it cannot; or
+//  3. the install has run traces: the run directory holds a per-run secret, the witness or the generation counter
 //     (stop.RunDir.HasRunTraces), which every run creates and nothing deletes, so a host that was restarted, or a run
 //     entered by another process, is known even when this process has not read the row.
 //
-// After the first run ever on an install both rules stay true for good (the flag is never cleared, the files are never
-// deleted), so there an unreadable table fails closed again, as it did before this change. The fail-open only helps installs
+// After the first run ever on an install these rules stay true for good (the flag is never cleared, the record is never
+// deleted, the files are not deleted by a run), so there an unreadable table fails closed again, as it did before this change. The fail-open only helps installs
 // that never ran the mode.
 //
 // What is NOT known: a run entered by another process after this process's last successful read, on an install whose run
 // directory has no secret yet, while the database is unreadable. The entering process writes the secret right after the
 // row, and the strategy loop's precheck re-reads every few seconds, so the window is short; it is the cost of failing open.
-type RunActivity struct{ known atomic.Bool }
+type RunActivity struct {
+	known  atomic.Bool
+	seeded atomic.Bool // the database record has been read once without error
+}
+
+// runSeenReader is the store's record that a profile has opened a run; a store without it is only the other rules.
+type runSeenReader interface {
+	RunEverOpened(ctx context.Context, profile string) (bool, error)
+}
+
+// seedFrom reads the database record that a run was ever opened and, if it is there, marks the profile known. A readable
+// record is read once per process; an unreadable one is tried again the next time.
+func (a *RunActivity) seedFrom(st any, profile string) {
+	if a == nil || a.seeded.Load() {
+		return
+	}
+	r, ok := st.(runSeenReader)
+	if !ok {
+		return
+	}
+	ever, err := r.RunEverOpened(context.Background(), profile)
+	if err != nil {
+		return
+	}
+	a.seeded.Store(true)
+	if ever {
+		a.markSeen()
+	}
+}
 
 // Known says whether this process has seen a run of the profile.
 func (a *RunActivity) Known() bool { return a != nil && a.known.Load() }
@@ -50,14 +80,16 @@ func (a *RunActivity) markSeen() {
 
 // failOpen folds one OpenRuns result into the record and says whether the dispatch may go on as if there were no run:
 // only for an unreadable listing, with no run known by either rule.
-func (a *RunActivity) failOpen(runs []store.Run, err error, dir stop.RunDir) bool {
+func (a *RunActivity) failOpen(runs []store.Run, err error, dir stop.RunDir, st any, profile string) bool {
 	switch {
 	case err == nil:
 		if len(runs) > 0 {
 			a.markSeen()
 		}
+		a.seedFrom(st, profile)
 		return false
 	case errors.Is(err, store.ErrRunsUnreadable):
+		a.seedFrom(st, profile)
 		return !a.Known() && !dir.HasRunTraces()
 	default:
 		a.markSeen() // a row that exists and does not verify, or a key that cannot be read: there is a run

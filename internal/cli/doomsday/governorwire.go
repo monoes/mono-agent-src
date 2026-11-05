@@ -120,7 +120,7 @@ type runGov struct {
 // returns an error that refuses the launch: Stop wins and a governor never admits against a run it cannot see.
 func (w *GovernorWire) For(ctx context.Context) (*runGov, error) {
 	runs, err := w.Runs.OpenRuns(ctx, w.Profile)
-	if w.activity().failOpen(runs, err, w.RunDir) {
+	if w.activity().failOpen(runs, err, w.RunDir, w.Runs, w.Profile) {
 		return nil, nil // the run table cannot be listed and no run is known: the mode is off for the profile
 	}
 	if err != nil {
