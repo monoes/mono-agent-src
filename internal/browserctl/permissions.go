@@ -467,16 +467,29 @@ type Caller struct {
 	Declared string `json:"declared,omitempty"`
 }
 
-// AgentCaller is the caller this process's environment shows. An agent
+// AgentCaller is the caller this process shows: MarkerCaller's, and for a
+// process with no marker that the turn check (SetTurnVerdict) places inside a
+// coder session's turn, other: its markers were stripped, and it is not the
+// user's own terminal. It never loosens MarkerCaller's answer.
+func AgentCaller() Caller {
+	if c := MarkerCaller(); c.Kind != "" {
+		return c
+	}
+	if InTurn() {
+		return Caller{Kind: KindOther}
+	}
+	return Caller{}
+}
+
+// MarkerCaller is the caller this process's environment shows. An agent
 // shell (IsAgentContext) is the kind it declares — coder with
 // MONOAGENT_AGENT_KIND=coder, org with MONOAGENT_AGENT_KIND=org or
 // MONOMIND_ORG_ROLE — when a token its spawner issued vouches for it
 // (IssueAgentKind), else other with that kind as Declared: a shell is
 // never chat. chat is a process with MONOAGENT_AI_CALLER=chat and no shell
-// markers. A process with none of those that the turn check (SetTurnVerdict)
-// places inside a coder session's turn is other: its markers were stripped, and
-// it is not the user's own terminal.
-func AgentCaller() Caller {
+// markers. It reads the environment only: the operator gate's own marker
+// check builds on it, so it must not ask the turn check (which asks the gate).
+func MarkerCaller() Caller {
 	if IsAgentContext() {
 		kind := declaredKind()
 		if kind != "" && kindVouched(kind) {
@@ -487,14 +500,12 @@ func AgentCaller() Caller {
 	if strings.TrimSpace(os.Getenv(EnvAICaller)) == KindChat {
 		return Caller{Kind: KindChat}
 	}
-	if InTurn() {
-		return Caller{Kind: KindOther}
-	}
 	return Caller{}
 }
 
-// AgentKind is AgentCaller's kind: "" for a human terminal.
-func AgentKind() string { return AgentCaller().Kind }
+// AgentKind is MarkerCaller's kind: "" when no marker names an agent. Marker
+// only, for the operator gate; the browser permissions use AgentCaller.
+func AgentKind() string { return MarkerCaller().Kind }
 
 // strictness orders the levels, the strictest highest. dev is stricter than
 // ask: dev refuses a new site, ask lets the agent raise an approval for it.

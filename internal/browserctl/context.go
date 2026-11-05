@@ -57,7 +57,7 @@ func ContextKey() string {
 	}
 	who, agent := hilsend.Detect()
 	if !agent {
-		switch AgentKind() {
+		switch AgentCaller().Kind {
 		case KindChat:
 			return "chat"
 		case "":

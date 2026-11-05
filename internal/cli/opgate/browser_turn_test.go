@@ -28,8 +28,9 @@ func TestAnUnmarkedProcessInATurnIsAnAgentForTheBrowserPermissions(t *testing.T)
 	if c.Kind != browserctl.KindOther {
 		t.Fatalf("AgentCaller = %+v, want kind %q", c, browserctl.KindOther)
 	}
-	if got := browserctl.AgentKind(); got != browserctl.KindOther {
-		t.Fatalf("AgentKind = %q", got)
+	// AgentKind stays marker-only: the operator gate builds on it and must not ask itself.
+	if got := browserctl.AgentKind(); got != "" {
+		t.Fatalf("AgentKind = %q, want the marker-only answer", got)
 	}
 	if p := (browserctl.Permissions{}).PolicyForCaller(c); !p.Agent {
 		t.Fatalf("policy %+v is not an agent's", p)
