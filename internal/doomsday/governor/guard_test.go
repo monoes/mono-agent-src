@@ -65,24 +65,12 @@ func governorPkgs(pkgs []string) []string {
 	return out
 }
 
-// A1: the governor is linked by the integrator only. The tagged build links governor packages (the positive control that
-// the check can see them), and whatever the untagged build links is a subset of that: no build reaches the governor by
-// another path. With the tag gone from the source the two sets are equal and this is only the positive control that the
-// check can see governor packages; the importer list below is the real guard.
+// A1: the governor is linked by the integrator only. This is the positive control that the check can see governor packages;
+// the importer list below is the real guard.
 func TestBinaryLinksTheGovernorOnlyWhereTheIntegratorAllows(t *testing.T) {
 	root := repoRoot(t)
-	tagged := governorPkgs(goList(t, root, "doomsday"))
-	if len(tagged) == 0 {
-		t.Fatal("the doomsday build links no governor package: the guard cannot see them")
-	}
-	in := map[string]bool{}
-	for _, p := range tagged {
-		in[p] = true
-	}
-	for _, p := range governorPkgs(goList(t, root, "")) {
-		if !in[p] {
-			t.Errorf("the default build links %s, which the doomsday build does not", p)
-		}
+	if len(governorPkgs(goList(t, root, ""))) == 0 {
+		t.Fatal("the build links no governor package: the guard cannot see them")
 	}
 }
 

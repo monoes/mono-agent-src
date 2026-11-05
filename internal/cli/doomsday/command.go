@@ -29,7 +29,7 @@ type Deps struct {
 	StdinIsTerminal func() bool
 	// JSONOutput is --json.
 	JSONOutput func() bool
-	// StrategyReader is the read-only reader of the strategy verbs; nil (every default build) is the layer being off.
+	// StrategyReader is the read-only reader of the strategy verbs; nil is the layer being off.
 	StrategyReader func() StrategyReader
 }
 

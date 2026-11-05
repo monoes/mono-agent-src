@@ -1,5 +1,3 @@
-//go:build doomsday
-
 package main
 
 import (
@@ -20,11 +18,9 @@ import (
 	"github.com/monoes/mono-agent/internal/mcp"
 )
 
-// This file is compiled only with -tags doomsday. A default build never wires
-// an engine, so the mode cannot start there (doomsday_gate_test.go holds it to
-// that). Containment is the stop package's probe: where it fails (no cgroup v2
+// This file wires the open-ended mode into every build; the mode itself is off until a charter starts a run
+// (doomsday_gate_test.go holds the gates). Containment is the stop package's probe: where it fails (no cgroup v2
 // delegation, macOS, Windows) the engine refuses to start.
-const doomsdayBuilt = true
 
 func init() {
 	// Depth limits as charter inputs: every tasks and coder-host store of this process reads the profile's open run, and

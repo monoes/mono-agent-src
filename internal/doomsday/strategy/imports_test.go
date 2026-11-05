@@ -13,7 +13,7 @@ import (
 )
 
 // The strategy libraries get session ids and text, nothing that carries authority: no vault, no token or approval
-// material, no finish internals, no CLI, no coder host. They are reachable only through the tagged wiring, so they also
+// material, no finish internals, no CLI, no coder host. They are reachable only through the wiring, so they also
 // start nothing at import.
 func TestStrategyPackagesImportNothingThatCarriesAuthority(t *testing.T) {
 	forbidden := []string{
@@ -45,7 +45,7 @@ func TestStrategyPackagesImportNothingThatCarriesAuthority(t *testing.T) {
 }
 
 // Outside its own tree the strategy libraries (everything but the plain types, which the ops package's operation handlers
-// name) are imported by exactly the wiring's files. This holds with the mode's build tag in the source or not.
+// name) are imported by exactly the wiring's files.
 func TestOnlyTheWiringFilesImportTheStrategyLibraries(t *testing.T) {
 	root := filepath.Join("..", "..", "..")
 	var got []string

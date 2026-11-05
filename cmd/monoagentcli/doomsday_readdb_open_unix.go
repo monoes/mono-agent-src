@@ -1,4 +1,4 @@
-//go:build doomsday && !windows
+//go:build !windows
 
 package main
 

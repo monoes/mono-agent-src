@@ -208,7 +208,7 @@ func count(t *testing.T, db *storage.Database, q string, args ...any) int {
 	return n
 }
 
-// A -tags doomsday build can start AND stop a run: against a fake containment in a scratch HOME, the whole path
+// A build can start AND stop a run: against a fake containment in a scratch HOME, the whole path
 // (probe, store entry, secret, marker, intent, real token revocation, real queue cancel, quiescent) runs.
 func TestWiredEngineStartsAndStopsARunAgainstAFakeContainment(t *testing.T) {
 	w, db := newWire(t, func() error { return nil }, fakeKernel{}, nil)

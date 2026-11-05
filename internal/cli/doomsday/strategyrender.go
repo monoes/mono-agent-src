@@ -13,7 +13,7 @@ import (
 )
 
 // The read-only views of the strategy layer (`doomsday strategy status|epochs|directions`). They are plain data with no
-// import of the strategy packages, so they exist in every build; only the tagged wiring can fill them. They are redacted
+// import of the strategy packages, only the wiring can fill them. They are redacted
 // by construction: a direction shows a capped title and no rationale, an epoch shows hashes and enums, never a judgment
 // body or a note. Every list is bounded.
 
@@ -104,7 +104,7 @@ type StrategyReader interface {
 	ReadDirections(ctx context.Context, gen int64, limit int) (StrategyDirectionsView, error)
 }
 
-// StrategyDeps is what the verbs need. A nil Reader (the default build, or a build whose engine carries no strategy
+// StrategyDeps is what the verbs need. A nil Reader (an engine that carries no strategy
 // layer) is the layer being off: every verb says so and reads nothing.
 type StrategyDeps struct {
 	Reader     func() StrategyReader

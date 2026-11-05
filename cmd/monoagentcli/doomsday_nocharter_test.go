@@ -26,7 +26,7 @@ import (
 // With no charter (no run ever started) every verb of the open-ended mode is inert, in a build with the mode compiled out and
 // in one with it wired: the same words, exit codes and non-effects through the real command tree. Nothing is created under
 // HOME, no database row changes, and no pinned connection (inotify watch) is made by a verb that only reads or refuses.
-// The text that legitimately differs between the two builds is in doomsday_default_stub_test.go / doomsday_built_test.go.
+// The text of the wired build is in doomsday_built_test.go.
 
 // homeFiles lists the files under HOME except the three a start of the process may create in a fresh HOME whatever the command
 // (automations/index.json, .lock and .claude_init: controlroom.go documents them), so a difference is the verb's own.
@@ -363,10 +363,10 @@ func TestStopWithNoRunSaysSoAndWritesNothingSignedOut(t *testing.T) {
 	requireSameCounts(t, "stop", beforeRows, tableCounts(t, db))
 }
 
-// STOP while another connection holds the database's write lock, no run. Observed (tagged build, measured 10 s): opening the
+// STOP while another connection holds the database's write lock, no run. Observed (measured 10 s): opening the
 // engine waits two busy timeouts (5 s each) and then fails, and an engine that cannot be opened because of the lock answers as
 // the mode being off: exit 1, stderr "open-ended (doomsday) mode is not available on this install", whereas the unlocked case
-// says "no open run to stop". The untagged build says the same at once. It returns within a bound, never says "stopped" and
+// says "no open run to stop". It returns within a bound, never says "stopped" and
 // needs no sign-in. The case with a run open and the lock held is TestStopDuringALockedDatabaseIsBoundedAndNeverSaysStopped
 // in internal/cli/doomsday.
 func TestStopDuringALockedDatabaseWithNoRunIsBoundedAndRefuses(t *testing.T) {
