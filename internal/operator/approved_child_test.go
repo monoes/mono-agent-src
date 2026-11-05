@@ -1,38 +1,118 @@
 package operator
 
 import (
+	"context"
+	"database/sql"
+	"path/filepath"
 	"testing"
 
+	"github.com/monoes/mono-agent/data"
 	"github.com/monoes/mono-agent/internal/browserctl"
 	"github.com/monoes/mono-agent/internal/workflow"
+	_ "modernc.org/sqlite"
 )
 
-// A workflow node's child counts as an approved workflow's only when nothing
-// else marks it: the unapproved-run mark, the chat's and every agent marker
-// each take it away.
+// tokenDB is a database with the run-token table (migration 160).
+func tokenDB(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(t.TempDir(), "runs.db")+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	m, err := data.MigrationsFS.ReadFile("migrations/160_workflow_run_tokens.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(string(m)); err != nil {
+		t.Fatal(err)
+	}
+	return db
+}
+
+// A workflow node's child counts as an approved workflow's only when the run
+// it carries the token of is recorded as approved and still going, and nothing
+// else marks it: a child that drops or forges the token, or whose store cannot
+// be read, is held like an unapproved run's.
 func TestApprovedWorkflowChild(t *testing.T) {
+	bg := context.Background()
+	db := tokenDB(t)
+	good, _ := workflow.IssueRunToken(bg, db, "exec-1", true)
+	bad, _ := workflow.IssueRunToken(bg, db, "exec-2", false)
+	ended, _ := workflow.IssueRunToken(bg, db, "exec-3", true)
+	if err := workflow.EndRunToken(bg, db, ended); err != nil {
+		t.Fatal(err)
+	}
+	closed := tokenDB(t)
+	closedTok, _ := workflow.IssueRunToken(bg, closed, "exec-4", true)
+	closed.Close()
+
+	run := map[string]string{workflow.EnvWorkflowRun: "exec-1"}
+	with := func(extra map[string]string) map[string]string {
+		m := map[string]string{}
+		for k, v := range run {
+			m[k] = v
+		}
+		for k, v := range extra {
+			m[k] = v
+		}
+		return m
+	}
 	for _, c := range []struct {
 		name string
 		env  map[string]string
+		db   *sql.DB
 		want bool
 	}{
-		{"approved workflow's child", map[string]string{workflow.EnvWorkflowRun: "exec-1"}, true},
-		{"unapproved run's child", map[string]string{workflow.EnvWorkflowRun: "exec-1", workflow.EnvUnapprovedRun: "1"}, false},
-		{"chat's run under a workflow", map[string]string{workflow.EnvWorkflowRun: "exec-1", browserctl.EnvAICaller: "chat"}, false},
-		{"an agent under a workflow", map[string]string{workflow.EnvWorkflowRun: "exec-1", "CLAUDECODE": "1"}, false},
-		{"the chat", map[string]string{browserctl.EnvAICaller: "chat"}, false},
-		{"the operator", nil, false},
+		{"approved run's child with its token", with(map[string]string{workflow.EnvRunToken: good}), db, true},
+		{"approved run's child that dropped the token", run, db, false},
+		{"child with a forged token", with(map[string]string{workflow.EnvRunToken: "0123456789abcdef0123456789abcdef"}), db, false},
+		{"unapproved run's child with its token", with(map[string]string{workflow.EnvRunToken: bad}), db, false},
+		{"unapproved run's child that wipes the old env mark", with(map[string]string{workflow.EnvRunToken: bad, workflow.EnvUnapprovedRun: ""}), db, false},
+		{"token of a finished execution", with(map[string]string{workflow.EnvRunToken: ended}), db, false},
+		{"unreadable database", with(map[string]string{workflow.EnvRunToken: closedTok}), closed, false},
+		{"no database", with(map[string]string{workflow.EnvRunToken: good}), nil, false},
+		{"token without a workflow mark", map[string]string{workflow.EnvRunToken: good}, db, false},
+		{"chat's run under a workflow", with(map[string]string{workflow.EnvRunToken: good, browserctl.EnvAICaller: "chat"}), db, false},
+		{"an agent under a workflow", with(map[string]string{workflow.EnvRunToken: good, "CLAUDECODE": "1"}), db, false},
+		{"the chat", map[string]string{browserctl.EnvAICaller: "chat"}, db, false},
+		{"the operator", nil, db, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			for _, k := range append(MarkerEnv(), workflow.EnvUnapprovedRun) {
+			for _, k := range append(MarkerEnv(), workflow.EnvUnapprovedRun, workflow.EnvRunToken) {
 				t.Setenv(k, "")
 			}
 			for k, v := range c.env {
 				t.Setenv(k, v)
 			}
-			if got := ApprovedWorkflowChild(); got != c.want {
+			if got := ApprovedWorkflowChild(bg, c.db); got != c.want {
 				t.Fatalf("ApprovedWorkflowChild = %v, want %v", got, c.want)
 			}
 		})
+	}
+}
+
+// UnapprovedRunProcess: a process under a workflow run's mark that cannot show an approved live token.
+func TestUnapprovedRunProcess(t *testing.T) {
+	bg := context.Background()
+	db := tokenDB(t)
+	good, _ := workflow.IssueRunToken(bg, db, "exec-1", true)
+	for name, c := range map[string]struct {
+		env  map[string]string
+		want bool
+	}{
+		"approved child":         {map[string]string{workflow.EnvWorkflowRun: "exec-1", workflow.EnvRunToken: good}, false},
+		"child that dropped it":  {map[string]string{workflow.EnvWorkflowRun: "exec-1"}, true},
+		"the operator's process": {nil, false},
+	} {
+		for _, k := range append(MarkerEnv(), workflow.EnvUnapprovedRun, workflow.EnvRunToken) {
+			t.Setenv(k, "")
+		}
+		for k, v := range c.env {
+			t.Setenv(k, v)
+		}
+		if got := UnapprovedRunProcess(bg, db); got != c.want {
+			t.Errorf("%s: UnapprovedRunProcess = %v, want %v", name, got, c.want)
+		}
 	}
 }
