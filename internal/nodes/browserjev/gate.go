@@ -98,7 +98,7 @@ func envCaller() (caller, bool) {
 		if m := orgsign.AgentContextMarker(); m != "" {
 			name += " (" + m + ")"
 		}
-		c := browserctl.AgentCaller()
+		c := browserctl.MarkerCaller()
 		return caller{name: name, by: browserctl.RequestedBy(), kind: c.Kind, declared: c.Declared}, true
 	}
 	if v := strings.TrimSpace(os.Getenv(EnvAICaller)); v != "" {
