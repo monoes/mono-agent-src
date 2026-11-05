@@ -409,7 +409,7 @@ func (d Deps) runOutlookNode(cmd *cobra.Command, db *sql.DB, connectionID string
 	// (internal/hilsend): the guard queues it as a card, and nothing runs.
 	executor := factory()
 	ctx := vault.ContextWithProfileID(vault.ContextWithDB(cmd.Context(), db), d.ProfileID())
-	if opgate.Refusal() != "" && !operator.ApprovedWorkflowChild() {
+	if opgate.Refusal() != "" && !operator.ApprovedWorkflowChild(cmd.Context(), db) {
 		// The guard tells an agent by its own markers; the chat's run, a process a workflow node started
 		// in an unapproved run and one the markers do not show are not the user's either, so their sends
 		// wait too. What an approved workflow's node started sends as the workflow was written.

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/logging"
@@ -173,6 +174,25 @@ func RunExecution(
 			hint = "this workflow was called by " + caller + ", which you haven't approved: " + ApproveHint(profile, caller)
 		}
 		ctx = fsconfine.GuardHiddenHome(ctx, FileGuard(project, hint))
+	}
+	// The run's token (runtoken.go): approved only when nothing makes the run an AI's. Its children carry this and
+	// nothing else to prove it; a run that cannot record itself hands none, and they are held.
+	if db := vault.DBFromContext(ctx); db != nil {
+		aiStarted, _ := exec.TriggerData[AICallerKey].(string)
+		_, called := CalledByUnapproved(exec.TriggerData)
+		approved := !AIAuthoredFrom(ctx) && !called && strings.TrimSpace(aiStarted) == ""
+		if tok, err := IssueRunToken(ctx, db, exec.ID, approved); err == nil {
+			ctx = WithRunToken(ctx, tok)
+			// What the run stores of its steps never shows the token (a node may echo its environment).
+			r.store = &maskingStore{WorkflowStore: store, run: ctx}
+			defer func() {
+				if err := EndRunToken(context.Background(), db, tok); err != nil {
+					r.logger.Warn().Err(err).Msg("run token not ended: it lapses on its own")
+				}
+			}()
+		} else {
+			r.logger.Warn().Err(err).Msg("run token not issued: this run's child processes are held as unapproved")
+		}
 	}
 	r.ctx = ctx
 

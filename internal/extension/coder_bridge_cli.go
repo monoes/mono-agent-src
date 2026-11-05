@@ -41,7 +41,7 @@ func coderAgentEnv() []string {
 
 func coderTurnEnv() []string {
 	return append(coderAgentEnv(),
-		"MONOAGENT_WORKFLOW_RUN", "MONOAGENT_AI_CALLER", "MONOAGENT_AGENT_KIND", "MONOAGENT_AGENT_KIND_TOKEN")
+		"MONOAGENT_WORKFLOW_RUN", "MONOAGENT_AI_CALLER", "MONOAGENT_AGENT_KIND", "MONOAGENT_AGENT_KIND_TOKEN", "MONOAGENT_RUN_TOKEN")
 }
 
 // without is env minus the variables named in drop.

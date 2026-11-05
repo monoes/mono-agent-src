@@ -19,6 +19,18 @@ import (
 // The values are the ones actually resolved in this run (secrets.MaskResolved),
 // so nothing else is touched; one shorter than secrets.MinTrackedLen is not.
 
+// maskValues are the values a run's stored records must not show: the secrets it read under agent access and
+// the run's own token (runtoken.go), a bearer credential a node may echo from its environment.
+func maskValues(run context.Context) []string {
+	values := secrets.ResolvedValues(run)
+	if tok := RunTokenFrom(run); tok != "" {
+		values = append(append([]string(nil), values...), tok)
+	}
+	return values
+}
+
+func maskResolved(run context.Context, s string) string { return maskString(maskValues(run), s) }
+
 // maskingStore stores a run's step records with the run's resolved secret
 // values masked. Every other call passes through.
 type maskingStore struct {
@@ -29,7 +41,7 @@ type maskingStore struct {
 // MaskAgentNodeOutputs applies the same value masking to standalone agent
 // steps that a workflow's execution store applies to persisted outputs.
 func MaskAgentNodeOutputs(ctx context.Context, outputs []NodeOutput) []NodeOutput {
-	if len(secrets.ResolvedValues(ctx)) == 0 {
+	if len(maskValues(ctx)) == 0 {
 		return outputs
 	}
 	out := append([]NodeOutput(nil), outputs...)
@@ -58,7 +70,7 @@ func (m *maskingStore) UpdateExecutionNode(ctx context.Context, en *WorkflowExec
 }
 
 func (m *maskingStore) SetExecutionNodeFinished(ctx context.Context, id, status string, out []Item, errMsg string) error {
-	return m.WorkflowStore.SetExecutionNodeFinished(ctx, id, status, maskItems(m.run, out), secrets.MaskResolved(m.run, errMsg))
+	return m.WorkflowStore.SetExecutionNodeFinished(ctx, id, status, maskItems(m.run, out), maskResolved(m.run, errMsg))
 }
 
 func (m *maskingStore) SetExecutionResumeAfter(ctx context.Context, id string, until *time.Time) error {
@@ -71,13 +83,13 @@ func (m *maskingStore) SetExecutionResumeAfter(ctx context.Context, id string, u
 // maskedNode is a copy of en (the caller's keeps the real values, which the
 // run goes on with) with its items and error masked.
 func maskedNode(run context.Context, en *WorkflowExecutionNode) *WorkflowExecutionNode {
-	if en == nil || len(secrets.ResolvedValues(run)) == 0 {
+	if en == nil || len(maskValues(run)) == 0 {
 		return en
 	}
 	c := *en
 	c.InputItems = maskItems(run, en.InputItems)
 	c.OutputItems = maskItems(run, en.OutputItems)
-	c.ErrorMessage = secrets.MaskResolved(run, en.ErrorMessage)
+	c.ErrorMessage = maskResolved(run, en.ErrorMessage)
 	return &c
 }
 
@@ -85,7 +97,7 @@ func maskedNode(run context.Context, en *WorkflowExecutionNode) *WorkflowExecuti
 // "***" (in keys and values at any depth); items without one come back as
 // they are.
 func maskItems(run context.Context, items []Item) []Item {
-	values := secrets.ResolvedValues(run)
+	values := maskValues(run)
 	if len(values) == 0 || len(items) == 0 {
 		return items
 	}
@@ -162,10 +174,10 @@ func (e *maskedError) Unwrap() error { return e.err }
 // maskRunError masks a secret value read by the run out of the error it
 // returns to its caller.
 func maskRunError(run context.Context, err error) error {
-	if err == nil || !secrets.UnderAgentAccess(run) {
+	if err == nil || (!secrets.UnderAgentAccess(run) && RunTokenFrom(run) == "") {
 		return err
 	}
-	if msg := secrets.MaskResolved(run, err.Error()); msg != err.Error() {
+	if msg := maskResolved(run, err.Error()); msg != err.Error() {
 		return &maskedError{err: err, msg: msg}
 	}
 	return err

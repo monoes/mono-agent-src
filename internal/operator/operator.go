@@ -70,10 +70,11 @@ func Marker() string {
 // browserctl.AgentKind behind it): what a process must not carry for its
 // children to count as the operator's. The extension bridge removes exactly
 // these from the side panel's coder turns (internal/extension, a test holds
-// its copy equal).
+// its copy equal). workflow.EnvRunToken is in it too: a run's token proves nothing
+// outside that run, so a step that starts an agent or a coder turn must not hand it on.
 func MarkerEnv() []string {
 	return append(browserctl.AgentContextEnv(), workflow.EnvWorkflowRun, browserctl.EnvAICaller,
-		browserctl.EnvAgentKind, browserctl.EnvAgentKindToken)
+		browserctl.EnvAgentKind, browserctl.EnvAgentKindToken, workflow.EnvRunToken)
 }
 
 // Caller names what runs this process when it is not the operator's own

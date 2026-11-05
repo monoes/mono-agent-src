@@ -286,7 +286,7 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 			if rawDB != nil {
 				guardCtx = vault.ContextWithProfileID(vault.ContextWithDB(guardCtx, rawDB), d.ProfileID())
 			}
-			if callerWhy != "" && !operator.ApprovedWorkflowChild() {
+			if callerWhy != "" && !operator.ApprovedWorkflowChild(cmd.Context(), rawDB) {
 				// The guard tells an agent by hilsend.Detect's markers or by an unapproved run in ctx. Any
 				// other caller that is not the user's terminal (the chat's run, a process a workflow node
 				// started in an unapproved run, one inside a coder turn that shows no marker, an agent
