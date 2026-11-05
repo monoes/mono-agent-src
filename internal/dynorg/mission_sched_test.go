@@ -274,8 +274,11 @@ func TestMissionBudgetWarnsAt90AndHaltsAt100(t *testing.T) {
 	if !(strings.Contains(res.Note, "halted") || strings.Contains(res.Note, "paused")) || r.session().State != tasks.SessionPaused {
 		t.Fatalf("at 100 percent the mission halts (session %s): %+v", r.session().State, res)
 	}
+	// Whoever halted first tells the operator after the pause, so the notice may land a moment after next returns.
+	eventually(t, "the halt notice", func() bool { return countNotices(r.em, "mission.budget_halt") >= 1 })
+	r.next(r.c)
 	if n := countNotices(r.em, "mission.budget_halt"); n != 1 {
-		t.Fatalf("halt notice: %d", n)
+		t.Fatalf("the halt notice goes out once: %d", n)
 	}
 }
 
