@@ -88,9 +88,7 @@ func newOrgSignCmd(env *orgEnv) *cobra.Command {
 				return errOrgSigningUnsupported
 			}
 			res.Supported = true
-			if !env.d.StdinIsTerminal() {
-				res.BlockedBy = signBlocker()
-			}
+			res.BlockedBy = signBlocker()
 			st := orgenv.SignStatus(ctx, root, name, raw)
 			res.State, res.Detail = st.State, st.Detail
 			if statusOnly {
@@ -112,6 +110,10 @@ func newOrgSignCmd(env *orgEnv) *cobra.Command {
 					}
 					return printJSONValue(res)
 				}
+				// A pty gives a turn a terminal: the gate decides who answers, not the terminal.
+				if m := signBlocker(); m != "" {
+					return &orgSignBlocked{marker: m, org: name}
+				}
 				if !confirmOrgSign(cmd.ErrOrStderr(), os.Stdin, name, res.Review) {
 					res.Message = "not signed (declined)"
 					return printJSONValue(res)
@@ -128,12 +130,12 @@ func newOrgSignCmd(env *orgEnv) *cobra.Command {
 				}
 				return env.d.InvalidInput("refusing to sign: %s is set — this is an org role or agent turn, and only the operator signs org definitions", m)
 			}
-			// A coding agent (the chat assistant included) runs commands with
-			// no terminal, and so does whatever a workflow node starts (which a
-			// chat or an org can have built), and so does a coder turn's shell
-			// whose markers were cleared: for any of them (markers, or the
-			// turn-aware gate), --yes needs a person at a TTY.
-			if m := signBlocker(); m != "" && yes && !env.d.StdinIsTerminal() {
+			// A coding agent (the chat assistant included), whatever a workflow
+			// node starts (which a chat or an org can have built) and a coder
+			// turn's shell whose markers were cleared (they can all run under a
+			// pty, so a terminal proves nothing) never sign: markers or the
+			// turn-aware gate refuse --yes (and the confirmation above).
+			if m := signBlocker(); m != "" && yes {
 				return &orgSignBlocked{marker: m, org: name}
 			}
 			if cmd.Flags().Changed("expect-hash") && expect == "" {
@@ -260,12 +262,12 @@ func signBlocker() string {
 }
 
 // orgSignBlocked is `org sign --yes` refused under an agent-context marker (or
-// the turn-aware gate's reason, marker is then that reason) with no terminal: a coding agent runs it, or the app was started from an
+// the turn-aware gate's reason, marker is then that reason) (a terminal does not matter, a pty gives an agent one): a coding agent runs it, or the app was started from an
 // AI-agent shell and inherited the marker (it is never stripped).
 type orgSignBlocked struct{ marker, org string }
 
 func (e *orgSignBlocked) Error() string {
-	return fmt.Sprintf("refusing to sign: %s there is no terminal, so an AI agent may be running this "+
+	return fmt.Sprintf("refusing to sign: %s so an AI agent may be running this "+
 		"(or the app was started from an AI-agent shell). Sign it yourself: `monoagentcli org sign %s` in a normal terminal, "+
 		"or the app started normally. %s", e.what(), e.org, operator.InheritedHint())
 }
@@ -273,9 +275,9 @@ func (e *orgSignBlocked) Error() string {
 // what is the first half of the sentence: a marker is "set", the gate's reason stands on its own.
 func (e *orgSignBlocked) what() string {
 	if e.marker == operator.Marker() {
-		return e.marker + " is set and"
+		return e.marker + " is set,"
 	}
-	return e.marker + ", and"
+	return e.marker + ","
 }
 
 func (e *orgSignBlocked) JSONErrorFields() map[string]any {
