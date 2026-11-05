@@ -18,6 +18,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/monoes/mono-agent/internal/browserctl"
 	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/orgsign"
 )
@@ -100,7 +101,7 @@ func install(f body) {
 	registered = f
 	// Every consumer that asks "is this a turn?" without importing opgate gets the same verdict:
 	// add its SetTurnVerdict here and nowhere else.
-	setters := []func(func() string){operator.SetTurnVerdict, orgsign.SetTurnVerdict}
+	setters := []func(func() string){operator.SetTurnVerdict, orgsign.SetTurnVerdict, browserctl.SetTurnVerdict}
 	if f == nil {
 		for _, set := range setters {
 			set(nil)

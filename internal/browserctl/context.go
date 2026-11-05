@@ -21,6 +21,21 @@ func IsAgentContext() bool {
 	return agent
 }
 
+// turnVerdict says why this process is not the user's own terminal although
+// no marker names it ("" when it is, or when no check is installed). Only the
+// command line has one (internal/cli/opgate installs it); browserctl cannot
+// import it, so it is a seam.
+var turnVerdict func() string
+
+// SetTurnVerdict installs the turn check InTurn consults; nil removes it.
+// Called from internal/cli/opgate only.
+func SetTurnVerdict(f func() string) { turnVerdict = f }
+
+// InTurn reports whether the turn check names this process as not the user's
+// own terminal (a coder session's turn whose markers were cleared, a process
+// that cannot be placed). False when no check is installed.
+func InTurn() bool { return turnVerdict != nil && turnVerdict() != "" }
+
 // AgentContextEnv lists every variable IsAgentContext reads, so a test can
 // clear them to act as the operator's own terminal.
 func AgentContextEnv() []string {
@@ -36,16 +51,23 @@ func RequestedBy() hilsend.PreparedBy {
 // ContextKey names this caller's session state file: the coder
 // conversation, else the org role, else "agent" for any other agent, else
 // "human".
-func ContextKey() string {
+func ContextKey() string { return ContextKeyFor(AgentCaller()) }
+
+// ContextKeyFor is ContextKey for a caller the command already worked out
+// (AgentCaller), so one command gets one verdict for its policy and its key.
+func ContextKeyFor(c Caller) string {
 	if c := strings.TrimSpace(os.Getenv(hilsend.EnvConversation)); c != "" {
 		return "conv-" + safeKey(c)
 	}
 	who, agent := hilsend.Detect()
 	if !agent {
-		if AgentKind() == KindChat {
+		switch c.Kind {
+		case KindChat:
 			return "chat"
+		case "":
+			return "human"
 		}
-		return "human"
+		return "agent"
 	}
 	if who.Role != "" {
 		if who.Org != "" {

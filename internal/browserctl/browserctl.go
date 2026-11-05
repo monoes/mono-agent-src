@@ -128,7 +128,8 @@ func Open(o Options) (*Session, error) {
 	if o.Permissions != nil {
 		perms = *o.Permissions
 	}
-	policy := perms.PolicyForCaller(AgentCaller())
+	caller := AgentCaller() // once: the policy and the key share one verdict
+	policy := perms.PolicyForCaller(caller)
 	policy.Allowlist = append(policy.Allowlist, o.Allowlist...)
 	policy.HoldLocalSubmits = o.HoldLocalSubmits
 	if policy.Agent && policy.level() == LevelOff {
@@ -138,7 +139,7 @@ func Open(o Options) (*Session, error) {
 		sender:    sender,
 		policy:    policy,
 		db:        o.DB,
-		key:       ContextKey(),
+		key:       ContextKeyFor(caller),
 		profile:   o.Profile,
 		pinOrigin: o.PinOrigin,
 	}
