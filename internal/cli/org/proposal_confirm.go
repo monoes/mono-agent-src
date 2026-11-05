@@ -123,7 +123,7 @@ func newOrgProposalConfirmCmd(env *orgEnv) *cobra.Command {
 			return printJSONValue(map[string]interface{}{"v": 1, "proposal": env.proposalView(ctx, db, profileID, root, done), "result": json.RawMessage(result)})
 		},
 	}
-	c.Flags().StringVar(&hash, "hash", "", "The hash of the proposal as shown (`org proposal show`)")
+	c.Flags().StringVar(&hash, "hash", "", "The hash of the proposal as shown by org proposal show")
 	_ = c.MarkFlagRequired("hash")
 	return c
 }
