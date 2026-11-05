@@ -34,6 +34,11 @@ const (
 	finding   = "FINDING, a marker-only decision (issue 1333 audit "
 )
 
+// Limits of T1: it reads one file at a time, so it cannot see a wrapper in another package (callers of
+// browserctl.RequestedBy or ContextKey), a direct os.Getenv("MONOAGENT_ACTOR"), or a value reference such as
+// `var f = AgentCaller`; and its counts are per file, so swapping a label for a decision inside an
+// allow-listed file keeps the count.
+
 type allowed struct {
 	n   int
 	why string
@@ -57,8 +62,8 @@ var legacyMarkerChecks = map[string]allowed{
 	"cmd/monoagentcli/browser_applyscope.go":        {1, finding + "G2): browserTaskSession confines the apply kind by AgentKind, which a cleared marker removes; waits for the browser-policy PR"},
 	"cmd/monoagentcli/browser_permissions.go":       {1, "display only: the \"you\" row of `browser permissions` names the caller's kind; it grants and withholds nothing"},
 	"cmd/monoagentcli/browser_tabs.go":              {1, finding + "G2): `browser browsers` refuses level off by AgentCaller; waits for the browser-policy PR"},
-	"internal/cli/node/run.go":                      {1, "narrowing that fails closed: ApprovedWorkflowChild exempts only a process whose Marker is exactly a workflow run's, under callerWhy from opgate; a cleared marker is not exempted"},
-	"internal/cli/people/messages_compose.go":       {1, "narrowing that fails closed: the send hold is decided by opgate.Refusal, ApprovedWorkflowChild only exempts an approved workflow's child (a cleared marker is not exempted)"},
+	"internal/cli/node/run.go":                      {1, finding + "G1): ApprovedWorkflowChild also holds when the only mark is a self-set MONOAGENT_WORKFLOW_RUN, so a model shell that exports it is exempted from the send hold; replaced by the per-run token of #1427 (PR #1462, not merged): ApprovedWorkflowChild then requires an approved live run token"},
+	"internal/cli/people/messages_compose.go":       {1, finding + "G1): ApprovedWorkflowChild also holds when the only mark is a self-set MONOAGENT_WORKFLOW_RUN, so a model shell that exports it is exempted from the send hold; replaced by the per-run token of #1427 (PR #1462, not merged): ApprovedWorkflowChild then requires an approved live run token"},
 	"internal/hilsend/gate.go":                      {2, finding + "G1d): Guard queues a send by Detect's env markers (the definition is the other occurrence); an unapproved run is still caught by unapprovedRun"},
 	"internal/nodes/aitask/node.go":                 {1, finding + "G1c): the aitask node refuses an AI run by operator.AIRun, which asks Marker; a workflow run is not marked as an AI caller"},
 	"internal/nodes/control/human_in_loop_tags.go":  {1, "label, not a decision: Detect names the org and chat an item is filed under; it grants and withholds nothing"},

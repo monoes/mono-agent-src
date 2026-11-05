@@ -83,7 +83,10 @@ func main() {
 // a node's error can hold one. With no database open yet, every candidate is hidden
 // (workflow.ReplyRedactor). The verdict is asked when a line is written, since the turn-aware gate is
 // registered after the logger starts; once it is registered the answer is kept, so a log line does not
-// open the registry again. A verdict that is being asked when it logs itself hides.
+// open the registry again. The flag is read before the verdict is asked, so a kept answer always comes from
+// the registered gate. The first ask runs inside the first log write, so while it runs other writers wait
+// on the logger's lock (worst case: the registry's own waits, once per process); the "being asked" state
+// only keeps a nested line of the ask itself from asking again, it is not deadlock protection.
 func agentLogFilter() func(string) string {
 	redact := workflow.NewReplyRedactor(context.Background(), nil).String
 	var state atomic.Int32 // 0 not asked, 1 hide, 2 show, 3 being asked
@@ -97,12 +100,13 @@ func agentLogFilter() func(string) string {
 		if !state.CompareAndSwap(0, 3) {
 			return redact(line)
 		}
+		registered := gateRegistered.Load()
 		hide := opgate.Refusal() != ""
 		next := int32(2)
 		if hide {
 			next = 1
 		}
-		if !gateRegistered.Load() {
+		if !registered {
 			next = 0 // the marker alone has answered: ask again once the gate is registered
 		}
 		state.Store(next)

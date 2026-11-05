@@ -175,10 +175,16 @@ var gateRegistered atomic.Bool
 var recoverySkippedEntry = func(err error) { fmt.Fprintln(os.Stderr, "warning: "+err.Error()) }
 
 func registerOperatorGate(cfg *globalConfig) {
-	gateRegistered.Store(true)
 	opgate.Register(cfg.gateRefusal)
+	afterGateRegister()
 	opgate.RegisterRecovery(cfg.gateRecovery)
+	// last: a log line from another goroutine must not see the flag before the gate answers (it would keep
+	// the marker-only answer for the whole process)
+	gateRegistered.Store(true)
 }
+
+// afterGateRegister is a seam for a test: it runs between the two registrations.
+var afterGateRegister = func() {}
 
 // gateRecovery is gateRefusal(true) that also hands back the busy-host error, when that is why the command
 // is refused, so the command can say "wait and retry" instead of "only the operator can".

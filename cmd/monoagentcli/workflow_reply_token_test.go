@@ -221,3 +221,30 @@ func TestAgentLogFilterHidesReplyTokensFromAnUnmarkedProcessInACoderTurn(t *test
 		t.Errorf("a cleared-marker turn's log line holds the reply token:\n%s", got)
 	}
 }
+
+// The flag that lets the log filter keep its verdict is set after the gate is registered, never before, and a
+// verdict asked before registration is not kept.
+func TestLogFilterKeepsNoVerdictFromBeforeTheGateIsRegistered(t *testing.T) {
+	asOperatorProcess(t)
+	opgate.SetForTest(t, func(bool) string { return "" })
+	gateRegistered.Store(false)
+	t.Cleanup(func() { gateRegistered.Store(false); afterGateRegister = func() {} })
+	line := "GET http://127.0.0.1:19731/reply/" + strings.Repeat("k", 43) + "\n"
+	f := agentLogFilter()
+	if f(line) != line {
+		t.Fatal("the user's terminal: the line changed")
+	}
+	opgate.SetForTest(t, func(bool) string { return "this process runs inside a coder turn" })
+	if strings.Contains(f(line), strings.Repeat("k", 43)) {
+		t.Fatal("a verdict asked before the gate was registered was kept")
+	}
+	var between bool
+	afterGateRegister = func() { between = gateRegistered.Load() }
+	registerOperatorGate(&globalConfig{})
+	if between {
+		t.Error("the flag was set before the gate was fully registered")
+	}
+	if !gateRegistered.Load() {
+		t.Error("the flag is not set after registration")
+	}
+}
