@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -69,5 +70,41 @@ func TestBossRouteInstallerIsOffWithoutAVerifiedRunningRun(t *testing.T) {
 	}
 	if _, _, err := st.BossAnswerAsk(ctx, coderhost.OperatorScope{}, "p", 1, coderhost.ClassAskCritical, "x"); !errors.Is(err, coderhost.ErrDoomsdayOff) {
 		t.Fatalf("a forged run row turned the mode on: %v", err)
+	}
+}
+
+// The production boss functions of the MCP server (the installers set in doomsday_engine.go) with no run in the profile:
+// every one is the mode off, writes nothing and pins nothing (the strategy and finish-ready paths answer before they build
+// any wiring).
+func TestEveryProductionBossFunctionIsOffWithNoRunAndWritesNothing(t *testing.T) {
+	pins := noPins(t)
+	dbPath := filepath.Join(t.TempDir(), "m.db")
+	db, err := storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.ApplyMigrations(); err != nil {
+		t.Fatal(err)
+	}
+	before := tableCounts(t, dbPath)
+	ctx := context.Background()
+	st := coderhost.NewStore(db.DB)
+	checks := map[string]error{}
+	checks["route installer"] = bossRouteInstaller(ctx, st, db.DB, dbPath, "p")
+	_, checks["finish begin"] = bossFinishBeginner(ctx, db.DB, dbPath, "p", 5)
+	_, checks["strategy propose"] = bossStrategyOp(ctx, db.DB, dbPath, "p", 5, "strategy.propose", json.RawMessage(`{}`))
+	_, checks["strategy report"] = bossStrategyOp(ctx, db.DB, dbPath, "p", 5, "strategy.report", json.RawMessage(`{}`))
+	_, checks["finish ready"] = bossFinishReady(ctx, db.DB, dbPath, "p", 5)
+	for name, err := range checks {
+		if err == nil {
+			t.Errorf("%s: no refusal with no run", name)
+		} else if name != "route installer" && !errors.Is(err, coderhost.ErrDoomsdayOff) {
+			t.Errorf("%s: %v, want the mode off", name, err)
+		}
+	}
+	requireSameCounts(t, "the boss functions", before, tableCounts(t, dbPath))
+	if pins.Load() != 0 {
+		t.Errorf("%d pinned connection(s) made with no run", pins.Load())
 	}
 }

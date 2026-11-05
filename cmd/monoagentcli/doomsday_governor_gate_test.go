@@ -10,7 +10,7 @@ import (
 	doomsdaycli "github.com/monoes/mono-agent/internal/cli/doomsday"
 )
 
-// The resource governor's one verb, `doomsday governor status`, exists only in a build with the mode, is read-only by
+// The resource governor's one verb, `doomsday governor status`, exists only where the mode is wired, is read-only by
 // construction, and is a read verb behind the sign-in like the other read verbs: gated, NOT open like Stop. The group is
 // operator-only for client mode like the rest of `doomsday` (the client-mode table classifies the group).
 
@@ -28,9 +28,9 @@ func governorGroup(t *testing.T) *cobra.Command {
 
 func TestGovernorVerbExistsOnlyInABuildWithTheMode(t *testing.T) {
 	grp := governorGroup(t)
-	if !doomsdayBuilt {
+	if !governorVerbExpected {
 		if grp != nil {
-			t.Fatal("a default build has the governor verb")
+			t.Fatal("a build without the mode has the governor verb")
 		}
 		return
 	}
@@ -59,7 +59,7 @@ func TestGovernorVerbExistsOnlyInABuildWithTheMode(t *testing.T) {
 func TestGovernorStatusTakesNoWriteArguments(t *testing.T) {
 	grp := governorGroup(t)
 	if grp == nil {
-		t.Skip("default build: no governor verb")
+		t.Skip("no governor verb in this build")
 	}
 	st, _, _ := grp.Find([]string{"status"})
 	var flags []string
@@ -71,8 +71,8 @@ func TestGovernorStatusTakesNoWriteArguments(t *testing.T) {
 
 // On a fresh database with no run the verb says off and exits cleanly.
 func TestGovernorStatusSaysOffWithNoRun(t *testing.T) {
-	if !doomsdayBuilt {
-		t.Skip("default build")
+	if !governorVerbExpected {
+		t.Skip("no governor verb in this build")
 	}
 	for _, asJSON := range []bool{true, false} {
 		cfg := sendEnv(t)

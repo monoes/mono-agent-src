@@ -42,7 +42,7 @@ func TestDoomsdayVerbsAreExactlyTheClassifiedOnes(t *testing.T) {
 	}
 	sort.Strings(got)
 	want := "feed,finish,overview,render,rubric,start,status,stop,strategy"
-	if doomsdayBuilt { // the governor's read-only status group is part of a build with the mode only (doomsday_governor_gate_test.go)
+	if governorVerbExpected { // the governor's read-only status group (doomsday_governor_gate_test.go)
 		want = "feed,finish,governor,overview,render,rubric,start,status,stop,strategy"
 	}
 	if strings.Join(got, ",") != want {
@@ -50,16 +50,10 @@ func TestDoomsdayVerbsAreExactlyTheClassifiedOnes(t *testing.T) {
 	}
 }
 
-// A default install cannot start a run: with no engine wired, a correct
-// charter, the full hash and the script flag still start nothing, and the
-// verb is not listed anywhere.
-func TestDefaultInstallCannotStartARun(t *testing.T) {
-	if doomsdayBuilt {
-		t.Skip("built with -tags doomsday: the mode is compiled in on purpose")
-	}
-	if doomsdayEngine != nil {
-		t.Fatal("an engine is wired by default: the mode would be on")
-	}
+// Nobody starts a run without the typed acknowledgement: a correct charter, a hash that is not the charter's and the
+// script flag still start nothing, and the group is not listed anywhere. No pinned connection is made for it.
+func TestStartWithAWrongHashStartsNothingAndTheGroupIsHidden(t *testing.T) {
+	noPins(t)
 	cfg := sendEnv(t)
 	cfg.JSONOutput = false
 	root := newRootCmd()
@@ -81,8 +75,8 @@ func TestDefaultInstallCannotStartARun(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			out, err := runSendCLI(t, cfg, newDoomsdayCmd(cfg), append([]string{"start"}, args...)...)
-			if err == nil || !strings.Contains(err.Error(), "not available on this install") {
-				t.Fatalf("start did not refuse as off: %v\n%s", err, out)
+			if err == nil {
+				t.Fatalf("start did not refuse: %s", out)
 			}
 			if strings.Contains(out, "started") {
 				t.Fatalf("a run started: %s", out)

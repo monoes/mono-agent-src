@@ -65,22 +65,30 @@ func governorPkgs(pkgs []string) []string {
 	return out
 }
 
-// A1: the default monoagentcli binary links no governor package at all; the tagged build does (the positive control that the
-// check can see them).
-func TestDefaultBinaryHasNoGovernorPackage(t *testing.T) {
+// A1: the governor is linked by the integrator only. The tagged build links governor packages (the positive control that
+// the check can see them), and whatever the untagged build links is a subset of that: no build reaches the governor by
+// another path. With the tag gone from the source the two sets are equal and this is only the positive control that the
+// check can see governor packages; the importer list below is the real guard.
+func TestBinaryLinksTheGovernorOnlyWhereTheIntegratorAllows(t *testing.T) {
 	root := repoRoot(t)
-	if got := governorPkgs(goList(t, root, "")); len(got) != 0 {
-		t.Fatalf("the default monoagentcli links the governor: %v", got)
-	}
-	if got := governorPkgs(goList(t, root, "doomsday")); len(got) == 0 {
+	tagged := governorPkgs(goList(t, root, "doomsday"))
+	if len(tagged) == 0 {
 		t.Fatal("the doomsday build links no governor package: the guard cannot see them")
+	}
+	in := map[string]bool{}
+	for _, p := range tagged {
+		in[p] = true
+	}
+	for _, p := range governorPkgs(goList(t, root, "")) {
+		if !in[p] {
+			t.Errorf("the default build links %s, which the doomsday build does not", p)
+		}
 	}
 }
 
 type srcFile struct {
 	path    string // relative to the module root, slash separated
 	imports []string
-	tagged  bool // //go:build doomsday
 	file    *ast.File
 }
 
@@ -108,11 +116,6 @@ func goFiles(t *testing.T, root string) []srcFile {
 			for _, im := range f.Imports {
 				sf.imports = append(sf.imports, strings.Trim(im.Path.Value, `"`))
 			}
-			head := string(raw)
-			if i := strings.Index(head, "\npackage "); i > 0 {
-				head = head[:i]
-			}
-			sf.tagged = regexp.MustCompile(`(?m)^//go:build doomsday\s*$`).MatchString(head)
 			out = append(out, sf)
 			return nil
 		})
@@ -129,7 +132,7 @@ func importsGovernor(f srcFile) bool {
 	return false
 }
 
-// The files outside the governor tree that may import it: the integrator's, every one tagged. A8: no CLI verb, MCP tool,
+// The files outside the governor tree that may import it: the integrator's. A8: no CLI verb, MCP tool,
 // workflow node, pane binding, coder-host tool or store function imports the governor, so none can reach a mutator.
 var allowedImporters = []string{
 	"internal/cli/doomsday/governorlauncher.go",
@@ -138,16 +141,13 @@ var allowedImporters = []string{
 	"internal/cli/doomsday/governorwire.go",
 }
 
-func TestOnlyTheIntegratorsTaggedFilesImportTheGovernor(t *testing.T) {
+func TestOnlyTheIntegratorsFilesImportTheGovernor(t *testing.T) {
 	var got []string
 	for _, f := range goFiles(t, repoRoot(t)) {
 		if strings.HasPrefix(f.path, "internal/doomsday/governor/") || !importsGovernor(f) {
 			continue
 		}
 		got = append(got, f.path)
-		if !f.tagged {
-			t.Errorf("%s imports the governor without //go:build doomsday: the default build would link it", f.path)
-		}
 	}
 	sort.Strings(got)
 	if strings.Join(got, ",") != strings.Join(allowedImporters, ",") {

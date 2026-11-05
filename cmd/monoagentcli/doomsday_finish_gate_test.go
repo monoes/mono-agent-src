@@ -32,16 +32,13 @@ func TestDoomsdayFinishVerbsAreOperatorOnly(t *testing.T) {
 	}
 }
 
-// A default install carries no engine, so the finish verbs refuse as off even for the user, and the group is hidden.
-func TestDefaultInstallCannotFinishARun(t *testing.T) {
-	if doomsdayBuilt {
-		t.Skip("built with -tags doomsday: the mode is compiled in on purpose")
-	}
+// Without a run the finish verbs refuse for the user (the reason is the build's, finishNoRunRefusal) and start nothing.
+func TestFinishVerbsWithNoRunRefuse(t *testing.T) {
 	cfg := sendEnv(t)
 	for verb, rest := range doomsdayFinishVerbs {
 		out, err := runSendCLI(t, cfg, newDoomsdayCmd(cfg), append([]string{verb}, rest...)...)
-		if err == nil || !strings.Contains(err.Error(), "not available on this install") && !strings.Contains(err.Error(), "only the user") {
-			t.Fatalf("%s did not refuse as off: %v\n%s", verb, err, out)
+		if err == nil || !strings.Contains(err.Error(), finishNoRunRefusal) {
+			t.Fatalf("%s did not refuse (%q): %v\n%s", verb, finishNoRunRefusal, err, out)
 		}
 	}
 }
