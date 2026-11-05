@@ -34,6 +34,10 @@ func (r RunDir) SecretPath(gen uint64) string {
 }
 func (r RunDir) UnitPath(gen uint64) string { return filepath.Join(r.Dir, fmt.Sprintf("%d.unit", gen)) }
 
+// HasRunTraces says a run was entered on this install at some point: the run directory holds a per-run secret, which is
+// created for every run and never deleted. (Skeleton: filled in by the fix commit.)
+func (r RunDir) HasRunTraces() bool { return false }
+
 // CreateSecret generates the per-run random secret (not derived from the vault key) with mode 0600.
 func (r RunDir) CreateSecret(gen uint64) error {
 	if err := r.fsys().MkdirAll(r.Dir, 0o700); err != nil {

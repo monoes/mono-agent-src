@@ -59,8 +59,18 @@ func stopStrategyLoop() {
 // a restart cannot rebuild from the database. A second call replaces the first loop (the first is stopped and joined).
 func startStrategyLoop(cfg *globalConfig, db *sql.DB) {
 	stopStrategyLoop()
+	loop := newStrategyLoop(cfg, db)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	stop := loop.Start(ctx)
+	strategyLoopMu.Lock()
+	strategyLoopStop = func() { stop(); cancel() }
+	strategyLoopMu.Unlock()
+}
+
+// newStrategyLoop is the loop of startStrategyLoop, not yet started.
+func newStrategyLoop(cfg *globalConfig, db *sql.DB) *doomsdaycli.StrategyLoop {
 	w := doomsdayWiring(cfg, db)
-	loop := &doomsdaycli.StrategyLoop{
+	return &doomsdaycli.StrategyLoop{
 		Build: func(ctx context.Context) (*doomsdaycli.StrategyHost, error) {
 			return w.StrategyHost(ctx, doomsdaycli.StrategyExtras{})
 		},
@@ -68,11 +78,6 @@ func startStrategyLoop(cfg *globalConfig, db *sql.DB) {
 		// The resource governor pumps its queue and reports on this loop; with no running run it does nothing.
 		AfterStep: processGovernor(cfg, db).Tick,
 	}
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	stop := loop.Start(ctx)
-	strategyLoopMu.Lock()
-	strategyLoopStop = func() { stop(); cancel() }
-	strategyLoopMu.Unlock()
 }
 
 // bossStrategyOp is mcp.BossStrategyCaller. Like the other boss tools it asks first whether the profile has a running run

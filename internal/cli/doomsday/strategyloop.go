@@ -24,6 +24,10 @@ type StrategyLoop struct {
 	// this loop). It must honour ctx and recover its own panics; it is not called once ctx is done.
 	AfterStep func(ctx context.Context)
 
+	// Active is the cheap precheck of every tick: whether the profile has a run that is not quiescent. Nil means "always" (a
+	// test's loop). It must not build, pin, read a key or log; false makes the tick do nothing else.
+	Active func(ctx context.Context) bool
+
 	host *StrategyHost
 }
 

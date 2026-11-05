@@ -4,7 +4,20 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 )
+
+// ErrRunsUnreadable is what OpenRuns reports when it could not even LIST the profile's non-quiescent runs: the table is
+// missing, or the database is busy, locked, closed or corrupt. No run row was read, so nothing says one exists. It is a
+// different thing from a row that exists and does not verify (ErrUnverifiable, or a key that cannot be read), which is
+// never wrapped in this error: that one always means a run is there.
+var ErrRunsUnreadable = errors.New("doomsday: the run table cannot be read")
+
+// RunsTableMissing says err is ErrRunsUnreadable because doomsday_runs does not exist (no migration applied yet), as
+// opposed to a table that is there and cannot be read. Both are unreadable; callers may tell them apart for display only.
+func RunsTableMissing(err error) bool {
+	return errors.Is(err, ErrRunsUnreadable) && strings.Contains(err.Error(), "no such table")
+}
 
 // AuditHead is the head of one generation's audit chain: the last seq and its MAC. An empty chain is seq 0.
 type AuditHead struct {

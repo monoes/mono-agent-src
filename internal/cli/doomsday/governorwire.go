@@ -73,6 +73,9 @@ type GovernorWire struct {
 	Alive func(conversation, turn string) bool
 	Logf  func(format string, args ...any)
 
+	// Activity is shared with the other parts of the engine (skeleton).
+	Activity *RunActivity
+
 	mu  sync.Mutex
 	cur *runGov
 }

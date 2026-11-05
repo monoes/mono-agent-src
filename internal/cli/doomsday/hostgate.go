@@ -54,6 +54,9 @@ type HostGate struct {
 	// InstallHooks puts Hooks on the host's launchers (chat.InstallRunHooks in production). Install reports its absence.
 	InstallHooks func(st *coderhost.Store, h *coderhost.Host, hk Hooks) error
 
+	// Activity is shared with the other parts of the engine (skeleton).
+	Activity *RunActivity
+
 	mu       sync.Mutex
 	lockHeld bool
 	gates    map[int64]*stop.Gate
