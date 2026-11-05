@@ -5,14 +5,18 @@ import (
 	"go/parser"
 	"go/token"
 	pathpkg "path"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 )
 
 // countMarkerOnlyChecks counts, in one Go source, the marker-only operator checks that T1 (the guard
-// of gate_operator_only_guard_test.go) allow-lists: operator.Refusal, Marker, MarkerEnv and Caller through the
-// package internal/operator under whatever local name it is imported (a renamed or a dot import
-// included), and the identifiers notOperator and IsAgentContext.
+// of gate_operator_only_guard_test.go) allow-lists: operator.Refusal, Marker, MarkerEnv, Caller, NotUser and AIRun
+// (and the two process checks ApprovedWorkflowChild and UnapprovedRunProcess), hilsend.Detect and
+// browserctl.AgentCaller and AgentKind through their packages under whatever local name each is imported (a renamed or a
+// dot import included), the calls and declarations of those names inside the package's own directory, and the
+// identifiers notOperator and IsAgentContext.
 // It reads the syntax tree, so comments and strings never count and an import alias cannot hide a call.
 func countMarkerOnlyChecks(t testing.TB, name string, src []byte) int {
 	t.Helper()
@@ -22,7 +26,24 @@ func countMarkerOnlyChecks(t testing.TB, name string, src []byte) int {
 	}
 	// package path -> the selectors that are marker-only checks
 	watched := map[string]map[string]bool{
-		"github.com/monoes/mono-agent/internal/operator": {"Refusal": true, "Marker": true, "MarkerEnv": true, "Caller": true, "NotUser": true},
+		"github.com/monoes/mono-agent/internal/operator": {"Refusal": true, "Marker": true, "MarkerEnv": true, "Caller": true, "NotUser": true,
+			"AIRun": true, "ApprovedWorkflowChild": true, "UnapprovedRunProcess": true},
+		"github.com/monoes/mono-agent/internal/hilsend":    {"Detect": true},
+		"github.com/monoes/mono-agent/internal/browserctl": {"AgentCaller": true, "AgentKind": true},
+	}
+	// package path -> its directory from the repo root: inside it the names are used unqualified
+	ownDir := map[string]string{
+		"github.com/monoes/mono-agent/internal/operator":   "internal/operator",
+		"github.com/monoes/mono-agent/internal/hilsend":    "internal/hilsend",
+		"github.com/monoes/mono-agent/internal/browserctl": "internal/browserctl",
+	}
+	own := map[string]bool{} // selectors a file of the package itself calls or declares unqualified
+	for path, dir := range ownDir {
+		if pathpkg.Dir(filepath.ToSlash(name)) == dir {
+			for s := range watched[path] {
+				own[s] = true
+			}
+		}
 	}
 	local := map[string]map[string]bool{} // local package name -> watched selectors
 	dot := map[string]bool{}              // selectors reachable unqualified through a dot import
@@ -49,6 +70,19 @@ func countMarkerOnlyChecks(t testing.TB, name string, src []byte) int {
 		if sel, ok := node.(*ast.SelectorExpr); ok {
 			qualified[sel.Sel] = true
 			if x, ok := sel.X.(*ast.Ident); ok && local[x.Name][sel.Sel.Name] {
+				n++
+			}
+		}
+		return true
+	})
+	ast.Inspect(f, func(node ast.Node) bool {
+		switch x := node.(type) {
+		case *ast.CallExpr:
+			if id, ok := x.Fun.(*ast.Ident); ok && own[id.Name] {
+				n++
+			}
+		case *ast.FuncDecl:
+			if x.Recv == nil && own[x.Name.Name] {
 				n++
 			}
 		}
@@ -83,10 +117,17 @@ func TestMarkerOnlyChecksAreFoundWhateverTheImportIsCalled(t *testing.T) {
 		{"blank import", "package p\nimport _ " + imp + "\n", 0},
 		{"comments and strings", "package p\nimport " + imp + "\n// operator.Refusal()\nvar _ = \"operator.Refusal\"\n", 0},
 		{"another package called operator", "package p\nimport \"example.com/operator\"\nvar _ = operator.Refusal()\n", 0},
+		{"the other entry points", "package p\nimport (\n\"github.com/monoes/mono-agent/internal/hilsend\"\nbc \"github.com/monoes/mono-agent/internal/browserctl\"\n" + imp + "\n)\nvar _, _ = hilsend.Detect()\nvar _ = bc.AgentCaller()\nvar _ = bc.AgentKind()\nvar _ = operator.AIRun\nvar _ = operator.UnapprovedRunProcess()\n", 5},
+		{"a hilsend function with the same name elsewhere", "package p\nimport \"example.com/hilsend\"\nvar _ = hilsend.Detect()\n", 0},
+		{"internal/browserctl/x: the package's own calls and declarations", "package browserctl\nfunc AgentKind() string { return AgentCaller().Kind }\nvar _ = rec.AgentKind\nvar _ = T{AgentKind: \"x\"}\n", 2},
 		{"notOperator and IsAgentContext", "package p\nvar _ = notOperator()\nvar _ = x.IsAgentContext()\n", 2},
 	}
 	for _, c := range cases {
-		if got := countMarkerOnlyChecks(t, c.name+".go", []byte(c.src)); got != c.want {
+		file := c.name + ".go" // a case named like a path stands at that path
+		if strings.HasPrefix(c.name, "internal/") {
+			file = c.name[:strings.Index(c.name, ":")] + ".go"
+		}
+		if got := countMarkerOnlyChecks(t, file, []byte(c.src)); got != c.want {
 			t.Errorf("%s: counted %d, want %d", c.name, got, c.want)
 		}
 	}

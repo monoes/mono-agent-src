@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
@@ -163,6 +164,9 @@ func (c *globalConfig) gateRefusal(recovery bool) string {
 	return c.gateVerdict(recovery, "do this").why
 }
 
+// gateRegistered says that the turn-aware gate was registered (agentLogFilter keeps its verdict only then).
+var gateRegistered atomic.Bool
+
 // registerOperatorGate makes cfg's turn-aware gate the answer of every command that asks opgate. It runs
 // when the real command tree is built, before any command, so a process that never builds it (library use,
 // the tests of other packages) keeps operator.Refusal.
@@ -172,8 +176,15 @@ var recoverySkippedEntry = func(err error) { fmt.Fprintln(os.Stderr, "warning: "
 
 func registerOperatorGate(cfg *globalConfig) {
 	opgate.Register(cfg.gateRefusal)
+	afterGateRegister()
 	opgate.RegisterRecovery(cfg.gateRecovery)
+	// last: a log line from another goroutine must not see the flag before the gate answers (it would keep
+	// the marker-only answer for the whole process)
+	gateRegistered.Store(true)
 }
+
+// afterGateRegister is a seam for a test: it runs between the two registrations.
+var afterGateRegister = func() {}
 
 // gateRecovery is gateRefusal(true) that also hands back the busy-host error, when that is why the command
 // is refused, so the command can say "wait and retry" instead of "only the operator can".

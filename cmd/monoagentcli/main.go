@@ -10,14 +10,15 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/i18n"
 	"github.com/monoes/mono-agent/internal/logging"
-	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -77,15 +78,43 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
-// agentLogFilter keeps reply tokens out of the log lines of a process an
-// agent, the chat's runs or a workflow's process started (a node's error can
-// hold one); with no database open yet, every candidate is hidden
-// (workflow.ReplyRedactor). The user's own terminal gets nil: no filter.
+// agentLogFilter keeps reply tokens out of the log lines of a process that is not the user's own terminal
+// (an agent, the chat's runs, a workflow's process, a model's shell inside a coder turn: opgate.Refusal);
+// a node's error can hold one. With no database open yet, every candidate is hidden
+// (workflow.ReplyRedactor). The verdict is asked when a line is written, since the turn-aware gate is
+// registered after the logger starts; once it is registered the answer is kept, so a log line does not
+// open the registry again. The flag is read before the verdict is asked, so a kept answer always comes from
+// the registered gate. The first ask runs inside the first log write, so while it runs other writers wait
+// on the logger's lock (worst case: the registry's own waits, once per process); the "being asked" state
+// only keeps a nested line of the ask itself from asking again, it is not deadlock protection.
 func agentLogFilter() func(string) string {
-	if operator.Marker() == "" {
-		return nil
+	redact := workflow.NewReplyRedactor(context.Background(), nil).String
+	var state atomic.Int32 // 0 not asked, 1 hide, 2 show, 3 being asked
+	return func(line string) string {
+		switch state.Load() {
+		case 1, 3:
+			return redact(line)
+		case 2:
+			return line
+		}
+		if !state.CompareAndSwap(0, 3) {
+			return redact(line)
+		}
+		registered := gateRegistered.Load()
+		hide := opgate.Refusal() != ""
+		next := int32(2)
+		if hide {
+			next = 1
+		}
+		if !registered {
+			next = 0 // the marker alone has answered: ask again once the gate is registered
+		}
+		state.Store(next)
+		if hide {
+			return redact(line)
+		}
+		return line
 	}
-	return workflow.NewReplyRedactor(context.Background(), nil).String
 }
 
 // exitCredFrame is the exit code of a turn whose credential frame was missing or malformed (EX_SOFTWARE).

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/logging"
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/workflow"
@@ -199,4 +200,51 @@ func pieceFields(from, size, n int) string {
 		f = append(f, fmt.Sprintf(`"p%d":"{{ slice $execution.resumeUrl %d %d }}"`, i, from+size*i, from+size*(i+1)))
 	}
 	return strings.Join(f, ",")
+}
+
+// The log filter follows the turn-aware verdict: a process inside a coder session's turn that carries no
+// marker has its reply links hidden from the log lines (issue 1333); the user's own terminal keeps them.
+func TestAgentLogFilterHidesReplyTokensFromAnUnmarkedProcessInACoderTurn(t *testing.T) {
+	asOperatorProcess(t)
+	token := strings.Repeat("k", 43)
+	line := "node failed: GET http://127.0.0.1:19731/reply/" + token + "\n"
+	opgate.SetForTest(t, func(bool) string { return "" })
+	if f := agentLogFilter(); f != nil && f(line) != line {
+		t.Errorf("the user's terminal outside a turn: the line changed:\n%s", f(line))
+	}
+	opgate.SetForTest(t, func(bool) string { return "this process runs inside a coder turn" })
+	f := agentLogFilter()
+	if f == nil {
+		t.Fatal("a cleared-marker turn gets no log filter")
+	}
+	if got := f(line); strings.Contains(got, token) {
+		t.Errorf("a cleared-marker turn's log line holds the reply token:\n%s", got)
+	}
+}
+
+// The flag that lets the log filter keep its verdict is set after the gate is registered, never before, and a
+// verdict asked before registration is not kept.
+func TestLogFilterKeepsNoVerdictFromBeforeTheGateIsRegistered(t *testing.T) {
+	asOperatorProcess(t)
+	opgate.SetForTest(t, func(bool) string { return "" })
+	gateRegistered.Store(false)
+	t.Cleanup(func() { gateRegistered.Store(false); afterGateRegister = func() {} })
+	line := "GET http://127.0.0.1:19731/reply/" + strings.Repeat("k", 43) + "\n"
+	f := agentLogFilter()
+	if f(line) != line {
+		t.Fatal("the user's terminal: the line changed")
+	}
+	opgate.SetForTest(t, func(bool) string { return "this process runs inside a coder turn" })
+	if strings.Contains(f(line), strings.Repeat("k", 43)) {
+		t.Fatal("a verdict asked before the gate was registered was kept")
+	}
+	var between bool
+	afterGateRegister = func() { between = gateRegistered.Load() }
+	registerOperatorGate(&globalConfig{})
+	if between {
+		t.Error("the flag was set before the gate was fully registered")
+	}
+	if !gateRegistered.Load() {
+		t.Error("the flag is not set after registration")
+	}
 }
