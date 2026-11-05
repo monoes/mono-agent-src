@@ -28,6 +28,12 @@ func (s *Store) Heartbeat(ctx context.Context, profileID string, id int64, owner
 			if err := s.refuseLapsedBesideCapRun(ctx, x, profileID, session, id); err != nil {
 				return err
 			}
+			// the cap runs beside it are dead (the check passed): drop them, or the next renewal would meet them
+			if _, err := x.ExecContext(ctx, `DELETE FROM task_session_cap_runs WHERE profile_id = ? AND session_id = ? AND lease_until < ?`, profileID, session, s.lapseCutoff()); err != nil {
+				return fmt.Errorf("tasks: sweeping the cap runs of session #%d: %w", session, err)
+			}
+		} else if err := refuseCapRunAboveReservation(ctx, x, profileID, session, id); err != nil {
+			return err
 		}
 		now := s.now().UTC()
 		res, err := x.ExecContext(ctx, `UPDATE task_session_reservations SET lease_until = MAX(lease_until, ?), heartbeat_at = ?
