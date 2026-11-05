@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/doomsday/stop"
 	"github.com/monoes/mono-agent/internal/doomsday/store"
@@ -79,31 +80,63 @@ var errNoWitness = errors.New("no witness is wired on this install, so freshness
 type SeqStore struct {
 	*store.SQLStore
 	Seq *stop.Sequencer
-	// Err is why Seq is nil: with no sequencer every chained write and every admission refuses (fail closed).
+	// Err is why a store with neither Seq nor Lazy refuses (fail closed). It is not read when Lazy is set: the build's own error
+	// is returned instead.
 	Err error
 	// Lazy, when set and Seq is nil, builds the sequencer on the first chained write or admission (Wiring.Chained): a store
 	// that is only constructed, as every coder host does, pins nothing. A failure is not remembered; the next use tries again.
 	Lazy func(ctx context.Context) (*stop.Sequencer, error)
 
-	mu sync.Mutex
+	mu     sync.Mutex
+	flight *seqFlight // the build in progress, shared by every caller that arrives meanwhile
 }
 
-// seq is the sequencer, built on first use when the store is lazy.
+type seqFlight struct {
+	done chan struct{}
+	seq  *stop.Sequencer
+	err  error
+}
+
+// seqBuildTimeout bounds one build of the sequencer (the pinned connection on a possibly busy database). A caller's own
+// cancellation does not cancel a build other callers wait on; the timeout does.
+const seqBuildTimeout = 10 * time.Second
+
+// seq is the sequencer, built on first use when the store is lazy. The build runs outside the lock and once at a time: callers
+// that arrive meanwhile wait for it, or leave when their own context ends.
 func (s *SeqStore) seq(ctx context.Context) (*stop.Sequencer, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.Seq != nil {
+		defer s.mu.Unlock()
 		return s.Seq, nil
 	}
 	if s.Lazy == nil {
+		defer s.mu.Unlock()
 		return nil, s.unwired()
 	}
-	seq, err := s.Lazy(ctx)
-	if err != nil {
-		return nil, err
+	if f := s.flight; f != nil {
+		s.mu.Unlock()
+		select {
+		case <-f.done:
+			return f.seq, f.err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
-	s.Seq = seq
-	return seq, nil
+	f := &seqFlight{done: make(chan struct{})}
+	s.flight = f
+	s.mu.Unlock()
+
+	bctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), seqBuildTimeout)
+	f.seq, f.err = s.Lazy(bctx)
+	cancel()
+	s.mu.Lock()
+	if f.err == nil {
+		s.Seq = f.seq
+	}
+	s.flight = nil
+	s.mu.Unlock()
+	close(f.done)
+	return f.seq, f.err
 }
 
 func (s *SeqStore) sequence(ctx context.Context, gen int64, kind string, ending, ended bool, fn func(context.Context) error) error {
@@ -220,7 +253,7 @@ func (s *SeqStore) Register(ctx context.Context, m store.Member) error {
 // store whether or not a run exists, and with no run nothing may be pinned.
 func (w Wiring) Chained() *SeqStore {
 	return &SeqStore{SQLStore: w.Store, Lazy: func(ctx context.Context) (*stop.Sequencer, error) {
-		return w.Sequencer(context.WithoutCancel(ctx))
+		return w.Sequencer(ctx)
 	}}
 }
 
