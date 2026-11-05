@@ -541,7 +541,7 @@ jobs:
   # cmd/monoagentcli that differs with the tag, and a vet of the tagged tree for darwin and windows.
   # It is deliberately NOT a full second cmd/monoagentcli run: that suite is the long pole of the
   # default shards. The -run list below is every test that exists only with the tag plus the tests
-  # that walk the command tree or branch on doomsdayBuilt; the drift check step fails the job
+  # that walk the command tree or must hold in both builds (the no-charter and Stop tests); the drift check step fails the job
   # when a new tag-only test is not matched by it. Trimmed by the same `go` path rule as the
   # shards (a change to internal/doomsday/** or any tagged file is a Go change; docs-only is not).
   # Remove this job together with the tag (open-ended mode in default builds, PR 3).
@@ -552,7 +552,7 @@ jobs:
     runs-on: ${{ fromJSON((((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'push') && vars.CI_RUNNER) || '"ubuntu-latest"') }}
     timeout-minutes: 45
     env:
-      DOOMSDAY_CMD_RUN: 'Doomsday|Governor|Strategy|ControlRoom|Witness|ReadEngine|DefaultInstall|BuiltInstall|OperatorOnly|ClientModeOpenFailure|SignedOut|BossFinish|BossRoute|OpenEndedMode|RecoveryVerbs|EveryCommandIsClassified|UnlistedCommandsAreGated|OpenListMatchesTheGate|ServingParentsListEverySubcommand|TheRealCommandTree|EveryLeafOf|NoMarkerOnly'
+      DOOMSDAY_CMD_RUN: 'Doomsday|Governor|Strategy|ControlRoom|Witness|ReadEngine|DefaultInstall|BuiltInstall|OperatorOnly|ClientModeOpenFailure|SignedOut|BossFinish|BossRoute|OpenEndedMode|RecoveryVerbs|EveryCommandIsClassified|UnlistedCommandsAreGated|OpenListMatchesTheGate|ServingParentsListEverySubcommand|TheRealCommandTree|EveryLeafOf|NoMarkerOnly|ProductionBoss|StopWith|StopDuring|FinishVerbsWithNoRun|StartWithAWrongHash'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
