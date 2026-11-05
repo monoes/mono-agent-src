@@ -9,6 +9,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/monomind"
+	"github.com/monoes/mono-agent/internal/orgsign/orgsigntest"
 )
 
 const turnStandIn = "stand-in: a model's shell inside a coder turn"
@@ -109,5 +110,36 @@ func TestOrgApproveAsksTheTurnAwareGate(t *testing.T) {
 	}
 	if err := run("approve", "growth", "writer", "monoagent__automation_sum"); err != nil {
 		t.Fatalf("approving one that sends nothing: %v", err)
+	}
+}
+
+// `org sign --yes` without a terminal asks the turn-aware gate, not the marker alone: a process the gate
+// refuses that carries no marker is refused like a marked agent, and signs nothing. A marked agent is
+// refused even under a gate that says nothing, and an operator the gate does not refuse still signs.
+func TestOrgSignYesAsksTheTurnAwareGate(t *testing.T) {
+	f, s, _ := newSigningFixture(t, "2.21.0")
+	orgsigntest.Sign(t, f.root, "growth")
+	asInATurn(t)
+	_, err := f.run(t, "sign", "growth", "--yes")
+	blocked, ok := err.(*orgSignBlocked)
+	if !ok || blocked.marker != turnStandIn || blocked.JSONErrorFields()["code"] != "org_sign_agent_context" {
+		t.Fatalf("cleared-marker turn: sign --yes: %v", err)
+	}
+	if st := f.mustRun(t, "sign", "growth", "--status"); st["blocked_by"] != turnStandIn {
+		t.Fatalf("status = %v", st)
+	}
+	if len(s.calls) != 0 {
+		t.Fatalf("a turn signed: %v", s.calls)
+	}
+
+	opgate.SetForTest(t, func(bool) string { return "" })
+	t.Setenv("CODEX_THREAD_ID", "x")
+	if _, err := f.run(t, "sign", "growth", "--yes"); err == nil {
+		t.Fatal("a marked agent signed")
+	}
+	t.Setenv("CODEX_THREAD_ID", "")
+
+	if signed := f.mustRun(t, "sign", "growth", "--yes"); signed["signed"] != true || len(s.calls) != 1 {
+		t.Fatalf("operator sign = %v (calls %v)", signed, s.calls)
 	}
 }
