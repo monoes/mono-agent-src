@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/aitask"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/storage"
 )
 
@@ -174,5 +175,22 @@ func TestTaskSessionGuardHoldsTheExtensionKinds(t *testing.T) {
 		if err := runGuardRoot(t, "--profile", "p1", "browser", "a11y"); err != nil && strings.Contains(err.Error(), guardMsg) {
 			t.Errorf("%s: its own profile was refused: %v", kind, err)
 		}
+	}
+}
+
+// A process inside a coder session's turn that carries the task id but no marker (its chain was stripped
+// of them) is not the operator's terminal: the guard holds it to the task's profile (issue 1425). The
+// marker alone said "operator" and let it through.
+func TestTaskSessionGuardHoldsAProcessInACoderTurnWithoutMarkers(t *testing.T) {
+	id := guardRig(t, "draft-reply")
+	asOperatorProcess(t)
+	t.Setenv(aitask.EnvTaskID, id)
+	opgate.SetForTest(t, func(bool) string { return "this process runs inside a coder turn" })
+	if err := runGuardRoot(t, "--profile", "p2", "workflow", "list"); err == nil || !strings.Contains(err.Error(), guardMsg) {
+		t.Errorf("a coder turn without markers reached another profile: %v", err)
+	}
+	opgate.SetForTest(t, func(bool) string { return "" })
+	if err := runGuardRoot(t, "--profile", "p2", "workflow", "list"); err != nil && strings.Contains(err.Error(), guardMsg) {
+		t.Errorf("the operator was refused: %v", err)
 	}
 }

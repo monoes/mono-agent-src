@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/daemonhb"
 	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/summary"
@@ -429,9 +430,11 @@ func (d Deps) newExecutionsCmd() *cobra.Command {
 }
 
 // replyRedactor hides reply tokens in a run's error and trigger data from a
-// marked process (workflow.ReplyRedactor); the user's own terminal gets nil.
+// process that is not the user: a marked one, one inside a coder session's
+// turn and one the gate cannot place (workflow.ReplyRedactor); the user's own
+// terminal gets nil.
 func replyRedactor(ctx context.Context, db *sql.DB, executionIDs ...string) *workflow.ReplyRedactor {
-	if operator.Marker() == "" {
+	if opgate.Refusal() == "" {
 		return nil
 	}
 	return workflow.NewReplyRedactor(ctx, db, executionIDs...)
