@@ -469,6 +469,8 @@ func (e *WorkflowEngine) RetryExecution(ctx context.Context, executionID string)
 	if orig.TriggerType == TriggerNodeTypeWebhook {
 		data = withoutTrace(data, WebhookTraceKey)
 	}
+	// The run keeps the stricter of the old mark and the retrier's (markStrictness): a retry never loosens it.
+	data = withRunMark(ctx, data)
 	exec := &WorkflowExecution{
 		WorkflowID:  orig.WorkflowID,
 		ProfileID:   executionProfileID(wf),

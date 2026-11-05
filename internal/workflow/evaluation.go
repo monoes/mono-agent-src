@@ -112,6 +112,7 @@ func (e *WorkflowEngine) StartEvaluationCase(ctx context.Context, workflowID, tr
 			"run_id": c.RunID, "case_id": c.CaseID, "row_id": c.RowID, "row_number": c.RowNumber, "table": c.Table,
 		},
 	}
+	data = withRunMark(ctx, data)
 	exec := &WorkflowExecution{
 		WorkflowID:    workflowID,
 		ProfileID:     executionProfileID(wf),
