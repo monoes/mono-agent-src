@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/cli/revealgate"
 	"github.com/monoes/mono-agent/internal/cli/workflowtemplates"
 	"github.com/monoes/mono-agent/internal/nodes/browserjev"
@@ -288,15 +290,16 @@ func (d Deps) newRunCmd() *cobra.Command {
 				}
 			}
 			workflow.StripEngineKeys(triggerData)
-			// An agent's run stays its own in a daemon (--no-wait, a resume).
-			// The database is opened only if the gate needs the lookup (something marks this process).
+			// An agent's run stays its own in a daemon (--no-wait, a resume). The verdict is the turn-aware one:
+			// a process inside a coder turn that shows no marker is an agent too. The database is opened only if
+			// the gate needs the run-token lookup (something marks this process).
 			var opened interface{ Close() error }
 			defer func() {
 				if opened != nil {
 					opened.Close()
 				}
 			}()
-			browserjev.MarkAICallerRun(cmd.Context(), func() (*sql.DB, error) {
+			d.markAICaller(cmd.Context(), func() (*sql.DB, error) {
 				db, err := d.OpenDB()
 				if err != nil {
 					return nil, err
@@ -384,4 +387,24 @@ func (d Deps) newRunCmd() *cobra.Command {
 	cmd.Flags().DurationVar(&timeout, "timeout", 15*time.Minute, "Maximum time to wait for the execution to finish")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Validate the workflow and print its execution plan without running it")
 	return cmd
+}
+
+// markAICaller marks the run with the kind of the agent that starts it (browserjev.MarkAICallerFor), on this
+// command's turn-aware verdict. A process the turn check could not place is marked as an agent's, and the
+// command says so once, so a refusal later is not a mystery.
+func (d Deps) markAICaller(ctx context.Context, open func() (*sql.DB, error), data map[string]interface{}) {
+	why := opgate.Refusal()
+	inTurn := false
+	if why != "" && d.InTurn != nil {
+		var err error
+		if inTurn, err = d.InTurn(); err != nil {
+			inTurn = true
+			why = opgate.UnplacedPrefix + err.Error() + ")"
+		}
+	}
+	if opgate.Unplaced(why) {
+		fmt.Fprintln(os.Stderr, "note: this process could not be placed ("+strings.TrimPrefix(why, opgate.UnplacedPrefix)+
+			" so the run is marked as an agent's run; retry once the database reads")
+	}
+	browserjev.MarkAICallerFor(ctx, open, data, why, inTurn)
 }

@@ -123,6 +123,12 @@ func (s *SQLStore) Enter(ctx context.Context, c Charter, confirmed [32]byte, by 
 		}
 		return Run{}, err
 	}
+	// The record that this profile has opened a run, in the run's own transaction (a refused entry leaves none). Only the first
+	// run writes it: a later one finds the row and skips the insert, which the table would refuse.
+	if _, err := tx.ExecContext(ctx, `INSERT INTO doomsday_run_seen(profile, first_generation, first_at)
+		SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM doomsday_run_seen WHERE profile = ?)`, c.Profile, c.Generation, s.now().Unix(), c.Profile); err != nil {
+		return Run{}, err
+	}
 	if _, err := s.appendAuditTx(ctx, tx, c.Profile, c.Generation, "run.enter", by+" "+r.CharterID); err != nil {
 		return Run{}, err
 	}

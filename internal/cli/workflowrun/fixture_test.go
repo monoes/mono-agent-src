@@ -54,6 +54,9 @@ func testRegistry() *workflow.NodeTypeRegistry {
 var dryRuns []string
 
 // testDeps is the CLI around the commands for cfg.
+// testInTurn is the turn check of the commands under test: not in a turn unless a test says so.
+var testInTurn = func() (bool, error) { return false, nil }
+
 func testDeps(cfg *testConfig) Deps {
 	return Deps{
 		JSONOutput: func() bool { return cfg.JSONOutput },
@@ -69,6 +72,7 @@ func testDeps(cfg *testConfig) Deps {
 			return engine, func() { db.Close() }, nil
 		},
 		NodeTypes: testRegistry,
+		InTurn:    func() (bool, error) { return testInTurn() },
 		DryRun: func(cmd *cobra.Command, workflowID string) error {
 			dryRuns = append(dryRuns, workflowID)
 			return errors.New("dry run")

@@ -115,6 +115,11 @@ func unapprovedRun(ctx context.Context) (PreparedBy, bool) {
 		}
 		return PreparedBy{AgentID: UnapprovedWorkflowAgent, Role: role, Workflow: wf, System: true}, true
 	}
+	// A run an agent started with `workflow run` (its mark, which a coder turn without markers gets too)
+	// waits like the agent's own; the chat's run of an approved workflow sends as before.
+	if kind := workflow.AgentRunMark(ctx); kind != "" && kind != "chat" && kind != workflow.UnapprovedWorkflowCaller {
+		return PreparedBy{AgentID: kind, Role: "an agent's workflow run", Workflow: wf}, true
+	}
 	if caller, ok := workflow.CalledByUnapproved(workflow.TriggerDataFrom(ctx)); ok {
 		role := "a workflow an unapproved workflow called"
 		switch {

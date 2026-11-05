@@ -3,13 +3,17 @@ package workflowrun
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/browserctl"
 	"github.com/monoes/mono-agent/internal/browserctl/browserctltest"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/nodes/browserjev"
+	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -229,5 +233,140 @@ func TestRunMarksAnAgentsRun(t *testing.T) {
 	browserctltest.AsAgentKind(t, browserctl.KindCoder) // what a coder turn's spawner gives its shell
 	if got := mark(); got != "coder" {
 		t.Errorf("a coder chat's run: %v", got)
+	}
+}
+
+// A process inside a coder turn that cleared its markers is still an agent: its `workflow run` is
+// marked as an agent's run (browser level, RunRefusal, AIRun and the send queue follow from the mark),
+// where the marker alone called it the user's. The user's own terminal outside a turn stays unmarked.
+func TestRunMarksARunOfAProcessInACoderTurnWithoutMarkers(t *testing.T) {
+	cfg := runDB(t, true)
+	for _, k := range append(browserctl.AgentContextEnv(), browserjev.EnvAICaller, browserctl.EnvAgentKind) {
+		t.Setenv(k, "")
+	}
+	mark := func() interface{} {
+		t.Helper()
+		out, err := runWorkflowCmdIn(t, cfg, "", "run", "w", "--no-wait", "--input", `{"who":"zed"}`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var rec map[string]string
+		if err := json.Unmarshal([]byte(out), &rec); err != nil {
+			t.Fatal(err)
+		}
+		db, err := openTestDB(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		var raw string
+		if err := db.DB.QueryRow(`SELECT trigger_data FROM workflow_executions WHERE id = ?`, rec["execution_id"]).Scan(&raw); err != nil {
+			t.Fatal(err)
+		}
+		var data map[string]interface{}
+		if err := json.Unmarshal([]byte(raw), &data); err != nil {
+			t.Fatal(err)
+		}
+		return data[workflow.AICallerKey]
+	}
+	opgate.SetForTest(t, func(bool) string { return "" })
+	if got := mark(); got != nil {
+		t.Errorf("the user's terminal outside a turn is not marked: %v", got)
+	}
+	opgate.SetForTest(t, func(bool) string { return "this process runs inside a coder turn" })
+	if got := mark(); got != browserctl.KindOther {
+		t.Errorf("a coder turn without markers is marked as an agent's run: %v", got)
+	}
+	t.Setenv("CLAUDECODE", "1")
+	browserctltest.AsAgentKind(t, browserctl.KindCoder)
+	if got := mark(); got != browserctl.KindCoder {
+		t.Errorf("a marked coder keeps its own kind: %v", got)
+	}
+}
+
+// runMarkOf starts `workflow run --no-wait` and returns the AI-caller mark its execution stored (nil: none).
+func runMarkOf(t *testing.T, cfg *testConfig) interface{} {
+	t.Helper()
+	out, err := runWorkflowCmdIn(t, cfg, "", "run", "w", "--no-wait", "--input", `{"who":"zed"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rec map[string]string
+	if err := json.Unmarshal([]byte(out), &rec); err != nil {
+		t.Fatal(err)
+	}
+	db, err := openTestDB(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var raw string
+	if err := db.DB.QueryRow(`SELECT trigger_data FROM workflow_executions WHERE id = ?`, rec["execution_id"]).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	var data map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &data); err != nil {
+		t.Fatal(err)
+	}
+	return data[workflow.AICallerKey]
+}
+
+func clearAgentEnv(t *testing.T) {
+	t.Helper()
+	for _, k := range append(browserctl.AgentContextEnv(), browserjev.EnvAICaller, browserctl.EnvAgentKind, workflow.EnvWorkflowRun, workflow.EnvUnapprovedRun) {
+		t.Setenv(k, "")
+	}
+}
+
+// A bare MONOAGENT_AI_CALLER=chat does not buy a turn the chat's browser level: a process the turn check
+// places in a recorded turn is marked other (the stricter of the two), a genuine chat process outside a turn keeps chat.
+func TestRunDoesNotHonourABareChatClaimInACoderTurn(t *testing.T) {
+	cfg := runDB(t, true)
+	clearAgentEnv(t)
+	t.Setenv(browserjev.EnvAICaller, "chat")
+	opgate.SetForTest(t, func(bool) string { return "MONOAGENT_AI_CALLER is set" })
+	prev := testInTurn
+	t.Cleanup(func() { testInTurn = prev })
+	testInTurn = func() (bool, error) { return false, nil }
+	if got := runMarkOf(t, cfg); got != browserctl.KindChat {
+		t.Errorf("a genuine chat process outside a turn: %v, want chat", got)
+	}
+	testInTurn = func() (bool, error) { return true, nil }
+	if got := runMarkOf(t, cfg); got != browserctl.KindOther {
+		t.Errorf("a chat claim inside a turn: %v, want other", got)
+	}
+}
+
+// A node of an approved workflow that runs `workflow run` (EnvWorkflowRun, no other marker) starts an agent's
+// run: marked other, so its sends queue and non-builtin browser packages are refused.
+func TestRunMarksTheChildRunOfAnApprovedWorkflowOther(t *testing.T) {
+	cfg := runDB(t, true)
+	clearAgentEnv(t)
+	t.Setenv(workflow.EnvWorkflowRun, "run-marker")
+	if got := runMarkOf(t, cfg); got != browserctl.KindOther {
+		t.Errorf("a workflow node's child run: %v, want other", got)
+	}
+}
+
+// A process the turn check cannot place is marked other, and the command says so once on stderr.
+func TestRunSaysOnStderrWhenTheProcessCannotBePlaced(t *testing.T) {
+	cfg := runDB(t, true)
+	clearAgentEnv(t)
+	opgate.SetForTest(t, func(bool) string { return operator.UnplacedPrefix + " (database is locked)" })
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stderr
+	os.Stderr = w
+	mark := runMarkOf(t, cfg)
+	os.Stderr = orig
+	w.Close()
+	buf, _ := io.ReadAll(r)
+	if mark != browserctl.KindOther {
+		t.Errorf("an unplaceable process: %v, want other", mark)
+	}
+	if n := strings.Count(string(buf), "marked as an agent's run"); n != 1 {
+		t.Errorf("stderr has the unplaced line %d times, want once:\n%s", n, buf)
 	}
 }

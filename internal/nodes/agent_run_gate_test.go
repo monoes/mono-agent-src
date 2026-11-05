@@ -235,3 +235,29 @@ func TestAnApprovedWorkflowEditedSinceRunsNoLocalBrowserAction(t *testing.T) {
 		t.Fatalf("the edited workflow's run: %v, tabs %d; want it refused before a tab", err, p.calls)
 	}
 }
+
+// A run an agent started with `workflow run` carries that as its mark (workflow.AICallerKey), also when
+// the process had no marker (a coder turn): a package that isn't built-in is not run in the user's browser.
+func TestAMarkedAgentRunRunsNoBrowserActionOfAPackageThatIsntBuiltIn(t *testing.T) {
+	prev := globalSessionProvider
+	t.Cleanup(func() { action.SetDefSource(nil); SetGlobalSessionProvider(prev) })
+	for _, k := range []string{"CLAUDECODE", "AI_AGENT"} {
+		t.Setenv(k, "")
+	}
+	for _, mark := range []string{"other", "coder", "other/org"} {
+		action.SetDefSource(liveSource{pkg: livePkg{trust: "recorded", confirmed: true}, effects: liveEffects})
+		p := &countingProvider{}
+		SetGlobalSessionProvider(p)
+		ctx := workflow.WithTrigger(context.Background(), "trigger.manual", map[string]interface{}{workflow.AICallerKey: mark})
+		if _, err := NewBrowserNode("acme", "list").Execute(ctx, workflow.NodeInput{}, map[string]interface{}{}); !errors.Is(err, ErrUserOnlyBrowserRun) || p.calls != 0 {
+			t.Errorf("mark %q: err = %v, tabs %d; want ErrUserOnlyBrowserRun before any tab", mark, err, p.calls)
+		}
+	}
+	action.SetDefSource(liveSource{pkg: livePkg{trust: "recorded", confirmed: true}, effects: liveEffects})
+	p := &countingProvider{}
+	SetGlobalSessionProvider(p)
+	ctx := workflow.WithTrigger(context.Background(), "trigger.manual", map[string]interface{}{"who": "zed"})
+	if _, err := NewBrowserNode("acme", "list").Execute(ctx, workflow.NodeInput{}, map[string]interface{}{}); errors.Is(err, ErrUserOnlyBrowserRun) || p.calls != 1 {
+		t.Errorf("the user's unmarked run: err = %v, tabs %d; want it to reach the browser", err, p.calls)
+	}
+}

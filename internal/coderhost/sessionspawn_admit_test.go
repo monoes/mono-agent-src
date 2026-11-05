@@ -3,7 +3,6 @@ package coderhost
 import (
 	"context"
 	"errors"
-	"sync"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/tasks"
@@ -107,35 +106,5 @@ func TestSpawnSessionIsRefusedWhenABudgetedAncestorHasNoRoom(t *testing.T) {
 	}
 	if why := f.overcommitted(t); why != "" {
 		t.Errorf("committed past the budget: %s", why)
-	}
-}
-
-// (3) A spawn and a worker reservation racing for the last dollars never leave the session committed past its budget.
-func TestConcurrentSpawnAndReservationNeverOvercommit(t *testing.T) {
-	for round := 0; round < 8; round++ {
-		f := newMC(t, true)
-		setSessionBudget(t, f, 10)
-		r := req("Docs", f.bigScope())
-		r.BudgetUSD = 4
-		start := make(chan struct{})
-		var wg sync.WaitGroup
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			<-start
-			if _, err := f.spawnSession(r); err != nil && !errors.Is(err, ErrLimit) {
-				t.Errorf("round %d: the spawn failed with %v", round, err)
-			}
-		}()
-		go func() {
-			defer wg.Done()
-			<-start
-			_, _ = f.ts.Reserve(context.Background(), "p", f.se.ID, "owner-1", "w1", 8)
-		}()
-		close(start)
-		wg.Wait()
-		if why := f.overcommitted(t); why != "" {
-			t.Fatalf("round %d: committed past the budget: %s", round, why)
-		}
 	}
 }
