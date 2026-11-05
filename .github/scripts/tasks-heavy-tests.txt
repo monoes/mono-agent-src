@@ -1,6 +1,7 @@
 # internal/tasks property tests that dominate the package under -race (2273 s
 # in default r3 before the split; CapRun ~573 s, MultiHandle ~130 s, Reservation
-# >300 s under -race). They run in their own "Test shard (default tp)"
+# >300 s, the two SessionTree property tests 152 s and 147 s measured
+# locally under -race). They run in their own "Test shard (default tp)"
 # (go test -run) and every other shard skips them (go test -skip), so each runs
 # exactly once. One exact test name per line; '#' lines ignored.
 # tasks-heavy-tests_test.sh checks the names exist, are unique repo-wide, and
@@ -8,3 +9,5 @@
 TestCapRunPropertyInvariants
 TestReservationPropertyInvariants
 TestCapRunMultiHandleInvariants
+TestSessionTreeCeilingProperty
+TestSessionTreeLegalOpsAreAcceptedProperty
