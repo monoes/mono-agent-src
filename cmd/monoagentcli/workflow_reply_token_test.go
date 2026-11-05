@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/logging"
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/workflow"
@@ -199,4 +200,24 @@ func pieceFields(from, size, n int) string {
 		f = append(f, fmt.Sprintf(`"p%d":"{{ slice $execution.resumeUrl %d %d }}"`, i, from+size*i, from+size*(i+1)))
 	}
 	return strings.Join(f, ",")
+}
+
+// The log filter follows the turn-aware verdict: a process inside a coder session's turn that carries no
+// marker has its reply links hidden from the log lines (issue 1333); the user's own terminal keeps them.
+func TestAgentLogFilterHidesReplyTokensFromAnUnmarkedProcessInACoderTurn(t *testing.T) {
+	asOperatorProcess(t)
+	token := strings.Repeat("k", 43)
+	line := "node failed: GET http://127.0.0.1:19731/reply/" + token + "\n"
+	opgate.SetForTest(t, func(bool) string { return "" })
+	if f := agentLogFilter(); f != nil && f(line) != line {
+		t.Errorf("the user's terminal outside a turn: the line changed:\n%s", f(line))
+	}
+	opgate.SetForTest(t, func(bool) string { return "this process runs inside a coder turn" })
+	f := agentLogFilter()
+	if f == nil {
+		t.Fatal("a cleared-marker turn gets no log filter")
+	}
+	if got := f(line); strings.Contains(got, token) {
+		t.Errorf("a cleared-marker turn's log line holds the reply token:\n%s", got)
+	}
 }

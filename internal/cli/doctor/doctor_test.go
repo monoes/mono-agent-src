@@ -3,6 +3,7 @@ package doctor
 import (
 	"bytes"
 	"context"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/workflow"
 	"os"
@@ -150,5 +151,29 @@ func TestPreviewsNeedAnOperatorOnATerminal(t *testing.T) {
 	}
 	if previewsAllowed(f) {
 		t.Fatal("a marked process on a terminal gets previews")
+	}
+}
+
+// A terminal that belongs to a process inside a coder session's turn is not the operator's, although the
+// process carries no marker (issue 1333): the previews follow the turn-aware verdict, not the marker.
+func TestPreviewsAreWithheldFromAnUnmarkedProcessInACoderTurn(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "out")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	old := stdoutIsTerminal
+	stdoutIsTerminal = func(*os.File) bool { return true }
+	t.Cleanup(func() { stdoutIsTerminal = old })
+	for _, k := range operator.MarkerEnv() {
+		t.Setenv(k, "")
+	}
+	opgate.SetForTest(t, func(bool) string { return "this process runs inside a coder turn" })
+	if previewsAllowed(f) {
+		t.Fatal("a cleared-marker turn on a terminal gets previews")
+	}
+	opgate.SetForTest(t, func(bool) string { return "" })
+	if !previewsAllowed(f) {
+		t.Fatal("a real terminal outside a turn lost its previews")
 	}
 }
