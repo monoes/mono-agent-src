@@ -48,6 +48,7 @@ type allowed struct {
 // occurrences and the reason. A new occurrence, or an entry that no longer matches, fails the test.
 var legacyMarkerChecks = map[string]allowed{
 	"cmd/monoagentcli/hil.go":                       {3, gateImp + " (notOperator in gateVerdict)"},
+	"internal/cli/org/proposal.go":                  {1, "label only, not a decision: org proposal create records who proposed (operator.Caller, \"operator\" otherwise); confirm and decline ask opgate and never read the label (#1477)"},
 	"internal/cli/org/sign.go":                      {2, "class C: org sign has its own signature guard; not decided (issue 1333)"},
 	"internal/jev/jevconf/key.go":                   {1, "library layer: cannot import opgate; the TYPESAFE_BASE_URL override is honoured only for the operator's own terminal: marker (operator.Refusal) + turn verdict (operator.InTurn) + unapproved ctx"},
 	"internal/nodes/agent_run_gate.go":              {1, "engine node: the marker half of the run gate next to node run's verdict (workflow.AgentCallerFrom), not a CLI verb gate"},

@@ -66,6 +66,7 @@ func NewCommand(d Deps) *cobra.Command {
 		newOrgSignCmd(env),
 		newOrgAutomationCmd(env),
 		newOrgGrantCmd(env),
+		newOrgProposalCmd(env),
 		newOrgEffectiveToolsCmd(env),
 		newOrgLegacyCmd(env),
 		newOrgAutonomyCmd(env),
@@ -99,6 +100,8 @@ var noRootGuard = map[string]bool{
 	"org summary":           true, // reports local facts without a database (it errors itself when there is no folder)
 	"org role set-access":   true, // its operator gate comes first: the root lookup opens the database, so it looks the root up itself, after the gate
 	"org teardown-profile":  true, // same; it opens the profile through env.Profile, which reports a database that cannot be opened
+	"org proposal confirm":  true, // same: the operator gate is first, before any id or database is looked at
+	"org proposal decline":  true, // same
 }
 
 // requireRoot makes every other org subcommand that acts on a folder fail up
@@ -127,6 +130,11 @@ func requireRootUnder(group *cobra.Command, env *orgEnv, path string) {
 
 // printOrgJSON writes a raw JSON payload to stdout with a trailing newline.
 func printOrgJSON(payload []byte) error {
+	if b := jsonCapture.Load(); b != nil { // `org proposal confirm` runs a sibling command and prints around its document
+		b.Write(payload)
+		b.WriteByte('\n')
+		return nil
+	}
 	_, err := fmt.Println(string(payload))
 	return err
 }

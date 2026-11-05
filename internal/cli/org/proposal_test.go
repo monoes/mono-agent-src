@@ -1,6 +1,7 @@
 package org
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -26,9 +27,31 @@ func propFixture(t *testing.T) *orgCLIFixture {
 	t.Helper()
 	f := newOrgCLIFixture(t)
 	f.mustRun(t, "automation", "add", "growth", "--workflow", f.plainWF, "--alias", "summarize")
-	f.mustRun(t, "automation", "add", "growth", "--workflow", f.plainWF, "--alias", "digest")
+	f.mustRun(t, "automation", "add", "growth", "--workflow", f.secondPlainWorkflow(t), "--alias", "digest")
 	f.mustRun(t, "automation", "add", "growth", "--workflow", f.outboundWF, "--alias", "publish_post")
 	return f
+}
+
+// secondPlainWorkflow is another workflow that sends nothing (an automation is one workflow).
+func (f *orgCLIFixture) secondPlainWorkflow(t *testing.T) string {
+	t.Helper()
+	db, err := storage.NewDatabase(f.cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	store := workflow.NewSQLiteWorkflowStore(db.DB)
+	wf := &workflow.Workflow{Name: "Digest", ProfileID: "default"}
+	if err := store.CreateWorkflow(context.Background(), wf); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveWorkflowNodes(context.Background(), wf.ID, []workflow.WorkflowNode{
+		{ID: wf.ID + "-t", WorkflowID: wf.ID, Type: "trigger.manual", Name: "start"},
+		{ID: wf.ID + "-n", WorkflowID: wf.ID, Type: "core.set", Name: "step"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return wf.ID
 }
 
 // The contexts that are not the operator's own terminal.

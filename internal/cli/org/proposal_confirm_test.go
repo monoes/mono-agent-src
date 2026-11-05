@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/orgsign"
 	"github.com/monoes/mono-agent/internal/orgsign/orgsigntest"
@@ -36,7 +37,7 @@ func TestConfirmAndDeclineAreRefusedToEverythingButTheOperator(t *testing.T) {
 				{"proposal", "decline", "00000000000000000000000000000000"},
 			} {
 				_, err := f.run(t, args...)
-				if err == nil || exitCodeOf(t, err) != 3 || !strings.Contains(err.Error(), "is the user's to do") {
+				if err == nil || clicore.ExitCodeFor(err) != 3 || !strings.Contains(err.Error(), "is the user's to do") {
 					t.Fatalf("%v: %v", args, err)
 				}
 				msgs = append(msgs, strings.ReplaceAll(strings.ReplaceAll(err.Error(), p["id"].(string), "ID"), a["id"].(string), "ID"))
@@ -197,7 +198,15 @@ func TestAGrantProposalGoesStaleWhenTheGrantIsRevokedOrTheRoleGoes(t *testing.T)
 		t.Fatalf("after the grant was revoked: %v", err)
 	}
 	q := f.propose(t, "growth", "grant.add", `{"role":"writer","automation":"digest"}`)
-	f.mustRun(t, "role", "remove", "growth", "writer")
+	f.editOutside(t, func(m map[string]interface{}) { // the role goes from the org file, the way a hand edit would
+		var keep []interface{}
+		for _, r := range m["roles"].([]interface{}) {
+			if r.(map[string]interface{})["id"] != "writer" {
+				keep = append(keep, r)
+			}
+		}
+		m["roles"] = keep
+	})
 	if _, err := f.confirm(t, q); err == nil || !strings.Contains(err.Error(), "proposal_stale") {
 		t.Fatalf("after the role was removed: %v", err)
 	}
@@ -248,7 +257,8 @@ func TestConfirmValidatesTheStoredArgumentsAgain(t *testing.T) {
 	a := f.propose(t, "growth", "grant.add", grantArgs)
 	f.sql(t, `UPDATE org_proposals SET args_json = ? WHERE id = ?`, `{"role":"lead","automation":"summarize","approval":"none"}`, a["id"].(string))
 	shown := f.mustRun(t, "proposal", "show", a["id"].(string))["proposal"].(map[string]interface{})["hash"].(string)
-	if _, err := f.run(t, "proposal", "confirm", a["id"].(string), "--hash", shown); err == nil || exitCodeOf(t, err) != 3 {
+	f.sql(t, `UPDATE org_proposals SET hash = ? WHERE id = ?`, shown, a["id"].(string)) // a rewrite that kept the hash column in step
+	if _, err := f.run(t, "proposal", "confirm", a["id"].(string), "--hash", shown); err == nil || exitCodeOf(t, err) != 3 || strings.Contains(err.Error(), "proposal_hash_mismatch") {
 		t.Fatalf("approval none from a rewritten row: %v", err)
 	}
 	if len(f.grants(t)) != 0 {
