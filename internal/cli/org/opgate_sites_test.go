@@ -110,3 +110,18 @@ func TestOrgApproveAsksTheTurnAwareGate(t *testing.T) {
 		t.Fatalf("approving one that sends nothing is the user's too: %v", err)
 	}
 }
+
+// Gates: owner call, #1475. `org chat approve` of an APPROVAL is operator-only (class B), but a
+// gate ref (gate-...) never reaches the approval check: a turn still approves a gate through the
+// chat verb. This pins that on purpose; when the owner decides gates are class B the test flips
+// (refuseNotOperator before orgchat.Resolve when req.Approve is set, and in `org gate-approve`).
+func TestOrgChatApproveOfAGateIsNotRefusedToATurnYet(t *testing.T) {
+	cfg, fake, _ := setupOrgChat(t)
+	asInATurn(t)
+	if out, err := runOrgChat(t, cfg, "approve", "acme", "gate-1850-x1", "--", "ship", "it"); err != nil || !strings.Contains(out, `"state":"approved"`) {
+		t.Fatalf("a turn's approval of a gate (gates: owner call, #1475): %v %s", err, out)
+	}
+	if len(fake.sent) != 1 || !strings.HasPrefix(fake.sent[0], "gate gate-1850-x1") {
+		t.Fatalf("sent %v", fake.sent)
+	}
+}

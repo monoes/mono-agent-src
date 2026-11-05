@@ -320,7 +320,9 @@ func newOrgChatResolveCmd(env *orgEnv, verb string, approve bool) *cobra.Command
 	return &cobra.Command{
 		Use: verb + " <org> <ref> [-- note...]",
 		Long: short + ". ref is a gate id (gate-…), an approval's request id, role:action:ts, or role:action " +
-			"(its pending request). A note is kept as a gate's resolution; approvals take none.",
+			"(its pending request). A note is kept as a gate's resolution; approvals take none. Approving an approval " +
+			"(not a gate) is the operator's only: an agent, the chat, a workflow or a coder turn is refused; denying stays open. " +
+			"Approving a gate is not covered by that rule (owner call, #1475).",
 		Short: short,
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
