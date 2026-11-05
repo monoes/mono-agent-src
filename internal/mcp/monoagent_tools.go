@@ -411,7 +411,7 @@ func monoagentAdaptedTools() []tool {
 		},
 		{
 			name:        "org_grant_set",
-			description: "Grant (or with revoke:true, revoke) one org role the right to call one of the org's automations as a tool. Without confirm:true, only previews.",
+			description: "Grant (or with revoke:true, revoke) one org role the right to call one of the org's automations as a tool. This only proposes the change (the user confirms it in the org screen); revoke:true previews, then applies with confirm:true.",
 			schema: objSchema(map[string]interface{}{
 				"org_name":          strParam("The org's name"),
 				"role_id":           strParam("The agent role receiving the tool"),
@@ -422,7 +422,7 @@ func monoagentAdaptedTools() []tool {
 				"approval":          strParam("none | required"),
 				"max_calls_per_run": intParam("Calls allowed per org run"),
 				"revoke":            boolParam("Revoke instead of set"),
-				"confirm":           boolParam("Must be true to apply"),
+				"confirm":           boolParam("Only for revoke:true: must be true to apply"),
 			}, "org_name", "role_id", "automation"),
 			annotations: map[string]bool{"readOnlyHint": false},
 			mutating:    true,
@@ -430,7 +430,7 @@ func monoagentAdaptedTools() []tool {
 		},
 		{
 			name:        "org_autonomy_set",
-			description: "Set who decides an org's approvals, questions, and gates: level manual, mid, or full, and the decider (model, boss, parent, or jev — TypeSafe Jev picks the verdict when its top probability reaches decider_threshold, default 0.8, else the model decider decides; needs a TypeSafe key). Without confirm:true, only previews.",
+			description: "Set who decides an org's approvals, questions, and gates: level manual, mid, or full, and the decider (model, boss, parent, or jev — TypeSafe Jev picks the verdict when its top probability reaches decider_threshold, default 0.8, else the model decider decides; needs a TypeSafe key). This only proposes the change: the user confirms it in the org screen.",
 			schema: objSchema(map[string]interface{}{
 				"org_name":           strParam("The org's name"),
 				"level":              strParam("manual | mid | full"),
@@ -440,7 +440,6 @@ func monoagentAdaptedTools() []tool {
 				"decider_runtime":    strParam("Runtime for the model decider"),
 				"policy":             strParam("Instructions the decider follows"),
 				"on_decider_failure": strParam("deny | human"),
-				"confirm":            boolParam("Must be true to apply"),
 			}, "org_name"),
 			annotations: map[string]bool{"readOnlyHint": false},
 			mutating:    true,

@@ -99,6 +99,16 @@ func AgentContextMarker() string { return firstSet(agentContextMarkers) }
 // (tests clear them to act as the operator's own terminal).
 func AgentContextMarkers() []string { return append([]string(nil), agentContextMarkers...) }
 
+// turnVerdict says why this process is not the operator's own terminal ("" when it is), as the
+// turn-aware gate (internal/cli/opgate) answers: its markers, and whether it runs inside a coder
+// session's turn whose shell carries no marker. Only a process that registered the gate (the command
+// line) has one; the app, the daemon and library use judge by AgentContextMarker alone.
+var turnVerdict func() string
+
+// SetTurnVerdict installs the verdict Before consults after the marker check; nil removes it. It is
+// called from opgate only: orgsign cannot import it (operator imports orgsign).
+func SetTurnVerdict(f func() string) { turnVerdict = f }
+
 // Pre is an org file's state just before mono-agent writes it.
 type Pre struct {
 	root, org string
@@ -132,6 +142,15 @@ func Before(ctx context.Context, s Signer, root, org, loadedSHA string, signNew 
 	if m := AgentContextMarker(); m != "" {
 		p.why = fmt.Sprintf("%s is set: an agent or org role made this change, and only the operator signs", m)
 		return p
+	}
+	// A turn whose shell lost its markers is an agent all the same: the edit lands, but its
+	// approval is not the operator's to launder. Fail closed: a verdict that cannot place the
+	// process counts as a turn.
+	if turnVerdict != nil {
+		if why := turnVerdict(); why != "" {
+			p.why = "a coder session's turn or an agent made this change, and only the operator signs: " + why
+			return p
+		}
 	}
 	// Where the stamps can't vouch for the files (a symlink on the way, an
 	// untrusted filesystem, Windows), only a monomind that enforces the

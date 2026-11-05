@@ -20,6 +20,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/browserctl"
 	"github.com/monoes/mono-agent/internal/operator"
+	"github.com/monoes/mono-agent/internal/orgsign"
 )
 
 // UnplacedPrefix starts the reason of a process the gate could not place (the database or the turn
@@ -98,9 +99,13 @@ func Register(f func(recovery bool) string) {
 // anything that goes wrong in it (a panic on an unset database path) counts as inside a turn.
 func install(f body) {
 	registered = f
+	// Every consumer that asks "is this a turn?" without importing opgate gets the same verdict:
+	// add its SetTurnVerdict here and nowhere else.
+	setters := []func(func() string){operator.SetTurnVerdict, orgsign.SetTurnVerdict, browserctl.SetTurnVerdict}
 	if f == nil {
-		operator.SetTurnVerdict(nil)
-		browserctl.SetTurnVerdict(nil)
+		for _, set := range setters {
+			set(nil)
+		}
 		return
 	}
 	check := func() (why string) {
@@ -111,8 +116,9 @@ func install(f body) {
 		}()
 		return f(false)
 	}
-	operator.SetTurnVerdict(check)
-	browserctl.SetTurnVerdict(check)
+	for _, set := range setters {
+		set(check)
+	}
 }
 
 // SetForTest replaces the registered body for the rest of the test; nil restores the default. It

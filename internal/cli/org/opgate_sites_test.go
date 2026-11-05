@@ -37,8 +37,9 @@ func TestOrgChatApproveAsksTheTurnAwareGate(t *testing.T) {
 	if len(fake.sent) != 0 {
 		t.Fatalf("sent %v", fake.sent)
 	}
-	if _, err := runOrgChat(t, cfg, "approve", "acme", "req-sum"); err != nil || len(fake.sent) != 1 {
-		t.Fatalf("approving one that sends nothing: %v %v", err, fake.sent)
+	if _, err := runOrgChat(t, cfg, "approve", "acme", "req-sum"); exitCodeFor(err) != 3 ||
+		err.Error() != "approving monoagent__automation_sum in org acme is the user's to do: "+turnStandIn+"; run it yourself from a terminal or the app" || len(fake.sent) != 0 {
+		t.Fatalf("approving one that sends nothing is the user's too: %v %v", err, fake.sent)
 	}
 }
 
@@ -50,10 +51,12 @@ func TestOrgAutonomyAndGrantAddAskTheTurnAwareGate(t *testing.T) {
 	was := f.mustRun(t, "autonomy", "show", "growth")["paused_until"]
 	asInATurn(t)
 	for name, args := range map[string][]string{
-		"full":      {"autonomy", "set", "growth", "--level", "full"},
-		"widening":  {"autonomy", "set", "growth", "--max-decisions", "50"},
-		"resume":    {"autonomy", "resume", "growth"},
-		"grantnone": {"grant", "add", "growth", "--role", "lead", "--automation", "summarize", "--approval", "none"},
+		"full":         {"autonomy", "set", "growth", "--level", "full"},
+		"widening":     {"autonomy", "set", "growth", "--max-decisions", "50"},
+		"resume":       {"autonomy", "resume", "growth"},
+		"grantnone":    {"grant", "add", "growth", "--role", "lead", "--automation", "summarize", "--approval", "none"},
+		"grantdefault": {"grant", "add", "growth", "--role", "lead", "--automation", "summarize"},
+		"setmanual":    {"autonomy", "set", "growth", "--level", "manual"},
 	} {
 		if _, err := f.run(t, args...); exitCodeFor(err) != 3 || !strings.Contains(err.Error(), turnStandIn+"; ") {
 			t.Errorf("%s: %v", name, err)
@@ -62,9 +65,6 @@ func TestOrgAutonomyAndGrantAddAskTheTurnAwareGate(t *testing.T) {
 	f.mustRun(t, "autonomy", "pause", "growth", "--for", "30m")
 	if now := f.mustRun(t, "autonomy", "show", "growth")["paused_until"]; now != was {
 		t.Errorf("a shorter pause moved the pause from %v to %v", was, now)
-	}
-	if g := f.mustRun(t, "grant", "add", "growth", "--role", "lead", "--automation", "summarize")["grant"].(map[string]interface{}); g["approval"] != "required" {
-		t.Errorf("a grant without --approval: %v", g)
 	}
 }
 
@@ -97,18 +97,17 @@ func TestOrgApproveAsksTheTurnAwareGate(t *testing.T) {
 		return err
 	}
 	if err := run("approve", "growth", "writer", "monoagent__automation_send"); exitCodeFor(err) != 3 ||
-		!strings.Contains(err.Error(), "which only the user approves: "+turnStandIn+"; deny it") {
+		!strings.Contains(err.Error(), "is the user's to do: "+turnStandIn+"; ") {
 		t.Fatalf("approve of a sending automation: %v", err)
 	}
-	if err := run("approve", "growth", "writer", "MONOAGENT__AUTOMATION_SEND"); exitCodeFor(err) != 3 || !strings.Contains(err.Error(), "no pending approval of exactly") ||
-		!strings.Contains(err.Error(), turnStandIn) {
+	if err := run("approve", "growth", "writer", "MONOAGENT__AUTOMATION_SEND"); exitCodeFor(err) != 3 || !strings.Contains(err.Error(), "is the user's to do: "+turnStandIn) {
 		t.Fatalf("approve of a variant: %v", err)
 	}
 	if b, _ := os.ReadFile(argsLog); strings.Contains(strings.ToLower(string(b)), "automation_send") {
 		t.Fatalf("a refused approval reached monomind:\n%s", b)
 	}
-	if err := run("approve", "growth", "writer", "monoagent__automation_sum"); err != nil {
-		t.Fatalf("approving one that sends nothing: %v", err)
+	if err := run("approve", "growth", "writer", "monoagent__automation_sum"); exitCodeFor(err) != 3 || !strings.Contains(err.Error(), turnStandIn) {
+		t.Fatalf("approving one that sends nothing is the user's too: %v", err)
 	}
 }
 
@@ -189,4 +188,40 @@ func TestOrgSignRefusedToTheGateWhateverTheTerminal(t *testing.T) {
 func isSignBlocked(err error) bool {
 	b, ok := err.(*orgSignBlocked)
 	return ok && b.JSONErrorFields()["code"] == "org_sign_agent_context"
+}
+
+// Approving a gate is approving an approval (class B, decided by the user): `org chat approve` of a
+// gate- ref is the operator's only, like an approval's, and nothing reaches monomind when it is refused.
+// Rejecting a gate stays open.
+func TestOrgChatApproveOfAGateIsTheOperatorsOnly(t *testing.T) {
+	want := func(why string) string {
+		return "approving gate-1850-x1 in org acme is the user's to do: " + why + "; run it yourself from a terminal or the app"
+	}
+	t.Run("turn", func(t *testing.T) {
+		cfg, fake, _ := setupOrgChat(t)
+		asInATurn(t)
+		_, err := runOrgChat(t, cfg, "approve", "acme", "gate-1850-x1", "--", "ship", "it")
+		if exitCodeFor(err) != 3 || err.Error() != want(turnStandIn) || len(fake.sent) != 0 {
+			t.Fatalf("a turn's approval of a gate: %v %v", err, fake.sent)
+		}
+		if _, err := runOrgChat(t, cfg, "deny", "acme", "gate-1850-x1"); err != nil || len(fake.sent) != 1 {
+			t.Fatalf("rejecting a gate stays open: %v %v", err, fake.sent)
+		}
+	})
+	t.Run("marked agent", func(t *testing.T) {
+		cfg, fake, _ := setupOrgChat(t)
+		asOrgOperator(t)
+		t.Setenv("CLAUDECODE", "1")
+		_, err := runOrgChat(t, cfg, "approve", "acme", "gate-1850-x1")
+		if exitCodeFor(err) != 3 || !strings.Contains(err.Error(), "approving gate-1850-x1 in org acme is the user's to do: CLAUDECODE") || len(fake.sent) != 0 {
+			t.Fatalf("a marked agent's approval of a gate: %v %v", err, fake.sent)
+		}
+	})
+	t.Run("operator", func(t *testing.T) {
+		cfg, fake, _ := setupOrgChat(t)
+		asOrgOperator(t)
+		if out, err := runOrgChat(t, cfg, "approve", "acme", "gate-1850-x1", "--", "ship", "it"); err != nil || !strings.Contains(out, `"state":"approved"`) || len(fake.sent) != 1 {
+			t.Fatalf("the operator's approval of a gate: %v %s %v", err, out, fake.sent)
+		}
+	})
 }

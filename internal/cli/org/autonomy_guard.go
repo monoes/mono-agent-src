@@ -28,6 +28,16 @@ func (env *orgEnv) refuseFullAutonomy(full bool, org string) error {
 	return nil
 }
 
+// refuseNotOperator refuses what switches an org into a looser mode to what is not the operator's own
+// terminal (opgate: an agent, the chat, a workflow, a process inside a coder session's turn), whatever
+// the change would be: what is the user's to give is not decided by comparing before and after.
+func (env *orgEnv) refuseNotOperator(what string) error {
+	if why := opgate.Refusal(); why != "" {
+		return env.d.InvalidInput("%s is the user's to do: %s; run it yourself from a terminal or the app", what, why)
+	}
+	return nil
+}
+
 // refuseWidening refuses a change from before to after that would approve
 // more without a person.
 func (env *orgEnv) refuseWidening(before, after *orgdecide.Autonomy, org string) error {

@@ -107,11 +107,15 @@ func newOrgAutonomySetCmd(env *orgEnv) *cobra.Command {
 	var tiers, clearTiers []string
 	c := &cobra.Command{
 		Use:   "set <org>",
-		Short: "Change an org's autonomy level, decider, tiers, or policy (level full is operator only)",
+		Short: "Change an org's autonomy level, decider, tiers, or policy (operator only)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			if err := env.refuseFullAutonomy(cmd.Flags().Changed("level") && level == orgdesign.LevelFull, args[0]); err != nil {
+				return err
+			}
+			// First, before any flag is checked or file read: no error of the command tells a refused caller anything.
+			if err := env.refuseNotOperator("changing org " + args[0] + "'s autonomy"); err != nil {
 				return err
 			}
 			db, profileID, root, doc, err := loadOrgForEdit(env, args[0])
@@ -233,7 +237,7 @@ func newOrgAutonomySetCmd(env *orgEnv) *cobra.Command {
 func newOrgAutonomyPauseCmd(env *orgEnv, pause bool) *cobra.Command {
 	var all bool
 	var forDur string
-	use, short := "resume <org>|--all", "Resume autonomy after a pause"
+	use, short := "resume <org>|--all", "Resume autonomy after a pause (operator only)"
 	if pause {
 		use, short = "pause <org>|--all", "Drop an org to manual right away (for a while, or until resumed)"
 	}
@@ -243,6 +247,11 @@ func newOrgAutonomyPauseCmd(env *orgEnv, pause bool) *cobra.Command {
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
+			if !pause {
+				if err := env.refuseNotOperator("resuming autonomy"); err != nil {
+					return err
+				}
+			}
 			db, profileID, root, err := env.Profile()
 			if err != nil {
 				return err
