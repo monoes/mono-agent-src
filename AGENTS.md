@@ -4769,3 +4769,9 @@ The strategy layer NEVER begins a finish and holds no finish engine (`TestTheStr
 every criterion reads plausibly met, nothing is asked of anyone; one `strategy.finish.ready` audit row is written per judged epoch, `doomsday strategy status`
 shows `finish_ready` (and why not), and the boss reads the same reading through the read-only `session_boss_finish_ready` (top lead only), then decides and calls
 `session_boss_finish_begin` itself. A later bad judgment, a stale one, a reading that is not all met or a direction the judgment never saw clear the reading.
+**No run, no mode** (`internal/cli/doomsday/runactivity.go`): while the profile has no run that is not quiescent the wired engine is inert. The strategy
+loop's tick is one read-only count (`OpenRunPrecheck`): no host is built (so no pinned connection and no inotify watch), no key or keychain is read, nothing is
+logged or written; the governor and the dispatch gate list the runs and find none. A `doomsday_runs` table that cannot be listed (missing, busy, locked, closed,
+corrupt: `store.ErrRunsUnreadable`) fails OPEN for ordinary dispatch while no run is known active, and fails CLOSED once one is: known active means this process
+has seen a run row (`RunActivity`, shared by the gate, the governor and the loop), or the run directory holds a per-run secret (`stop.RunDir.HasRunTraces`). A run
+row that exists and does not verify is a run and always refuses. Tests: `noruninert_test.go`, `hostgate_failopen_test.go`.

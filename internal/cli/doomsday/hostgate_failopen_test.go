@@ -3,6 +3,7 @@ package doomsday
 import (
 	"context"
 	"os"
+	"os/exec"
 	"testing"
 
 	"github.com/zalando/go-keyring"
@@ -154,5 +155,27 @@ func TestHostGateUnverifiableRunRowRefuses(t *testing.T) {
 	}
 	if ran, err := s.dispatch(); !refused(err) || ran {
 		t.Fatalf("a dispatch was made over a run row that does not verify: ran %v err %v", ran, err)
+	}
+}
+
+// The cgroup placer reads the run the same way: nothing to place when no run is known and the table cannot be listed, a refusal
+// once a run was seen.
+func TestHostGatePlacerFollowsTheSameRule(t *testing.T) {
+	s := newSeededGate(t)
+	s.renameRuns(t)
+	release, err := s.g.PlaceRelease(exec.Command("true"), "p1", "conv")
+	if err != nil || release == nil {
+		t.Fatalf("a placement was refused with no run known: %v", err)
+	}
+	release()
+
+	k := newSeededGate(t)
+	seedRun(t, k.st)
+	if _, err := k.dispatch(); err != nil { // the gate sees the run
+		t.Fatal(err)
+	}
+	k.renameRuns(t)
+	if _, err := k.g.PlaceRelease(exec.Command("true"), "p1", "conv"); err == nil {
+		t.Fatal("a placement was made after the run state became unreadable")
 	}
 }
