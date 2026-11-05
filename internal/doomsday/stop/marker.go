@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // RunDir is the per-profile run directory: the stop marker, the per-run secret, the key-free unit file and the
@@ -34,9 +35,22 @@ func (r RunDir) SecretPath(gen uint64) string {
 }
 func (r RunDir) UnitPath(gen uint64) string { return filepath.Join(r.Dir, fmt.Sprintf("%d.unit", gen)) }
 
-// HasRunTraces says a run was entered on this install at some point: the run directory holds a per-run secret, which is
-// created for every run and never deleted. (Skeleton: filled in by the fix commit.)
-func (r RunDir) HasRunTraces() bool { return false }
+// HasRunTraces says a run may have been entered on this install: the run directory holds a per-run secret (created for
+// every run, never deleted), or it cannot be listed for a reason other than not existing. A directory that does not exist
+// is a clean "no": nothing creates it before a run does. It is one directory listing, made only when the database could not
+// be read.
+func (r RunDir) HasRunTraces() bool {
+	es, err := os.ReadDir(r.Dir)
+	if err != nil {
+		return !errors.Is(err, os.ErrNotExist)
+	}
+	for _, e := range es {
+		if strings.HasSuffix(e.Name(), ".secret") {
+			return true
+		}
+	}
+	return false
+}
 
 // CreateSecret generates the per-run random secret (not derived from the vault key) with mode 0600.
 func (r RunDir) CreateSecret(gen uint64) error {

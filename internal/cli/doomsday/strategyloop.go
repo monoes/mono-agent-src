@@ -55,6 +55,9 @@ func (l *StrategyLoop) Step(ctx context.Context) (tk HostTick, err error) {
 			tk, err = HostTick{Idle: "parked"}, ErrStrategyPanicked
 		}
 	}()
+	if l.Active != nil && !l.Active(ctx) {
+		return HostTick{Idle: "no-run"}, nil // the whole tick with no run: one read-only count, nothing built, pinned, keyed or logged
+	}
 	if l.host == nil {
 		h, err := l.Build(ctx)
 		if err != nil {

@@ -69,6 +69,8 @@ func init() {
 		// gate whose launcher hooks cannot be installed still stands (the ticket is then taken around Start).
 		chatcli.HostBuilt = func(st *coderhost.Store, h *coderhost.Host, db *sql.DB) {
 			w := doomsdayWiring(cfg, db)
+			// A run the host starts beside is known before the first dispatch (one read-only count, no key, nothing written).
+			doomsdaycli.OpenRunPrecheck(db, cfg.ProfileID, processRunActivity(cfg.ProfileID))(context.Background())
 			g := processHostGate(cfg, db)
 			// The boss's typed operations (plan.approve, ask.answer, spend.grant) are enforced against the open run's
 			// charter, witnessed; the route is the mode off whenever no run is running.
@@ -113,6 +115,24 @@ var (
 	hostGates  = map[string]*doomsdaycli.HostGate{}
 )
 
+var (
+	runActivityMu sync.Mutex
+	runActivities = map[string]*doomsdaycli.RunActivity{}
+)
+
+// processRunActivity is the process's one record per profile of whether a run has been seen: the dispatch gate, the governor and
+// the strategy loop share it, so a run any of them saw keeps all of them fail-closed when the run table becomes unreadable.
+func processRunActivity(profile string) *doomsdaycli.RunActivity {
+	runActivityMu.Lock()
+	defer runActivityMu.Unlock()
+	a := runActivities[profile]
+	if a == nil {
+		a = &doomsdaycli.RunActivity{}
+		runActivities[profile] = a
+	}
+	return a
+}
+
 // processHostGate is the process's one HostGate per profile (merges and the coder host share it): two gates would hold
 // two stop.Gate objects for one generation, and a Stop's close, outcome and hung-starter rule would miss the other's tickets.
 func processHostGate(cfg *globalConfig, db *sql.DB) *doomsdaycli.HostGate {
@@ -123,6 +143,7 @@ func processHostGate(cfg *globalConfig, db *sql.DB) *doomsdaycli.HostGate {
 	}
 	w := doomsdayWiring(cfg, db)
 	g := &doomsdaycli.HostGate{Store: w.Chained(), Fresh: w.Fresh(), Profile: w.Profile, RunDir: w.RunDir, Kernel: w.Kernel, Journal: doomsdaycli.MergeJournal(db, w.Store),
+		Activity:  processRunActivity(w.Profile),
 		BindingOn: func() (bool, error) { return chatcli.PeercredBindingOn(db) },
 		InstallHooks: func(st *coderhost.Store, h *coderhost.Host, hk doomsdaycli.Hooks) error {
 			return chatcli.InstallRunHooks(st, h, chatcli.RunHooks{RunStamp: hk.RunStamp, BeforeRelease: hk.BeforeRelease, Place: hk.Place})

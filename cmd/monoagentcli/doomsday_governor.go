@@ -38,8 +38,8 @@ func processGovernor(cfg *globalConfig, db *sql.DB) *doomsdaycli.GovernorWire {
 	keys := doomsdaycli.VaultKeyer{DB: db, Profile: cfg.ProfileID}
 	g := &doomsdaycli.GovernorWire{
 		DB: db, Profile: cfg.ProfileID, Keys: doomsdaycli.NewCachedVaultKeyer(keys), Runs: store.New(db, keys),
-		RunDir: stop.RunDir{Dir: doomsdayRunDirPath(cfg)},
-		Dirs:   []string{filepath.Dir(expandPath(cfg.DBPath)), os.TempDir()},
+		RunDir: stop.RunDir{Dir: doomsdayRunDirPath(cfg)}, Activity: processRunActivity(cfg.ProfileID),
+		Dirs: []string{filepath.Dir(expandPath(cfg.DBPath)), os.TempDir()},
 		ProviderOf: func(profile, conv string) string {
 			a, err := ai.NewAIStore(db)
 			if err != nil {

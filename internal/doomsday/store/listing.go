@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -47,7 +48,7 @@ var (
 func (s *SQLStore) OpenRuns(ctx context.Context, profile string) ([]Run, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT generation FROM doomsday_runs WHERE profile = ? AND state <> 'quiescent' ORDER BY generation`, profile)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrRunsUnreadable, err) // nothing was listed: this says no run exists, and no run does not exist
 	}
 	var gens []int64
 	for rows.Next() {
@@ -60,6 +61,9 @@ func (s *SQLStore) OpenRuns(ctx context.Context, profile string) ([]Run, error) 
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
+		if len(gens) == 0 { // the listing failed before it named any run
+			return nil, fmt.Errorf("%w: %w", ErrRunsUnreadable, err)
+		}
 		return nil, err
 	}
 	rows.Close()
