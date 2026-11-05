@@ -37,6 +37,7 @@ func workflowRunDeps(cfg *globalConfig) workflowrun.Deps {
 			}, nil
 		},
 		NodeTypes: func() *workflow.NodeTypeRegistry { return buildNodeRegistry(cfg.Verbose, nil) },
+		InTurn:    cfg.callerInATurn,
 		DryRun: func(cmd *cobra.Command, workflowID string) error {
 			return runWorkflowDryRun(cfg, cmd, workflowID)
 		},
