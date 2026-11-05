@@ -103,7 +103,7 @@ func (g *HostGate) current(ctx context.Context) (*stop.Gate, error) {
 // currentRun is current with the run the gate belongs to.
 func (g *HostGate) currentRun(ctx context.Context) (gate *stop.Gate, r store.Run, err error) {
 	runs, err := g.Store.OpenRuns(ctx, g.Profile)
-	if g.activity().failOpen(runs, err, g.RunDir) {
+	if g.activity().failOpen(runs, err, g.RunDir, g.Store, g.Profile) {
 		return nil, r, nil // the run table cannot be listed and no run is known: the call is made plainly, as without the mode
 	}
 	if err != nil {

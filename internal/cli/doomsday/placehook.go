@@ -48,7 +48,7 @@ func (g *HostGate) placer(profile, conv string) (*stop.Placer, error) {
 		return nil, fmt.Errorf("the open-ended mode is wired for profile %q, not %q (conversation %s): nothing was started", g.Profile, profile, conv)
 	}
 	runs, err := g.Store.OpenRuns(context.Background(), g.Profile)
-	if g.activity().failOpen(runs, err, g.RunDir) {
+	if g.activity().failOpen(runs, err, g.RunDir, g.Store, g.Profile) {
 		return nil, nil // no run is known and the table cannot be listed: nothing to place
 	}
 	if err != nil {

@@ -3496,6 +3496,9 @@ function that does what the guarded one does), and it skips directories named `s
   With no run the wired mode is inert (no pinned connection, no watch, no key read, no write), and a run table that cannot be listed
   lets ordinary dispatch through only while no run is known: once this process has seen a run, or the run directory holds a
   per-run secret, an unreadable table refuses (see AGENTS.md, "No run, no mode").
+  A wiped run directory alone no longer reopens the gate (the database holds an insert-only record that the profile opened a run);
+  a wiped directory AND a database that is unreadable at process start still fails open. The record lives in the same database,
+  and binaries older than this change do not write it.
   The strategy layer adds two lead tools, `session_boss_strategy_propose` and `session_boss_strategy_report`: a proposal for the novelty
   gate and a claim about a direction the caller owns. Neither can request or begin a finish, raise a limit or touch an approval; the judge
   intake `strategy.epoch` is not session-callable. Their rows are `strategy.*` audit kinds reserved to the store's strategy writer and written

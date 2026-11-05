@@ -90,3 +90,13 @@ func (s *SQLStore) AuditHead(ctx context.Context, profile string, generation int
 	}
 	return h, err
 }
+
+// RunEverOpened says whether the profile has ever opened a run on this install: the insert-only record Enter writes in the
+// run's transaction. An error means the record could not be read, which says nothing either way.
+func (s *SQLStore) RunEverOpened(ctx context.Context, profile string) (bool, error) {
+	var n int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM doomsday_run_seen WHERE profile = ?`, profile).Scan(&n); err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
