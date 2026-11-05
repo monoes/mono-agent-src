@@ -4747,22 +4747,28 @@ For multi-step work, load only the applicable `mastermind-*` skill; do not load 
 If MCP is unavailable, run `npx -y monomind@latest doctor` and use `npx -y monomind@latest` commands.
 # monomind:end instructions:codex
 
+**The open-ended mode ships in every build** (the `doomsday` build tag is gone; `cmd/monoagentcli/doomsday_engine.go` wires it in each binary). It is off until
+the operator starts a run: that needs a charter and a bound mode (containment probe, peer-credential binding, typed phrase or `--yes-i-lift --hash`), and it
+refuses where containment is unavailable (no cgroup v2 delegation, macOS, Windows). `doomsday start`, `stop`, `finish` and `rubric` are operator-only verbs behind the
+operator gate (`stop` works signed out and offline); the read verbs (`status`, `render`, `overview`, `feed`, `strategy ...`) stay readable. With no run the wiring is
+inert (see "No run, no mode" below). Limits: a finished run sticks, and the record that a profile ever opened a run lives in the same database as the run table.
+
 **Boss tools of the open-ended mode** (`internal/mcp/boss_tools.go`): `session_boss_answer_ask`, `session_boss_approve_plan` and
 `session_boss_grant_budget` are the lead-facing mirrors of the typed operations ask.answer, plan.approve and spend.grant. Each calls
 coderhost's `BossAnswerAsk` / `BossApprovePlan` / `BossGrantBudget` as the lead whose token the process holds (never an operator
-scope), after the MCP server installs the route on its own coder store per call (`mcp.SetBossRouteInstaller`, set only by a
-`-tags doomsday` build in `cmd/monoagentcli/doomsday_engine.go`, which reads the profile's run from the database every call). With no
-installer (default build) or no running, verified run they refuse (`not_yours: ... not running`) and spend nothing; over a charter
+scope), after the MCP server installs the route on its own coder store per call (`mcp.SetBossRouteInstaller`, set by
+`cmd/monoagentcli/doomsday_engine.go`, which reads the profile's run from the database every call). With no
+installer or no running, verified run they refuse (`not_yours: ... not running`) and spend nothing; over a charter
 limit they park (`limit`). They are the only tools `internal/mcp/doomsday_guard_test.go` lets mention the mode.
 A fourth, `session_boss_finish_begin` (`internal/mcp/boss_tools_finish.go`), is the typed operation finish.begin (note 13.6 A3): no
 approval and no per-ask limit, only the top lead of the run (a lead below another lead is refused), through
-`mcp.SetBossFinishBeginner` (same build-tag rule) into the ops package's `BeginFinish` (live charter, verified caller) and then the
+`mcp.SetBossFinishBeginner` into the ops package's `BeginFinish` (live charter, verified caller) and then the
 finish engine's `FinishBegin`: the run stops with cause finish, and the operator's `doomsday finish` verbs verify and commit. Finish
 criteria run under process limits (CPU, address space, open files, file size, process count), a scratch byte cap and, where the
 kernel allows an unprivileged user namespace, without a network (`denied(enforced)`; otherwise `denied(declared-only)`, and
 `doomsday finish --require-net-deny` parks with `enforcement-required`); each round's verification unit is witnessed and a `verify`
 member of the run registry.
-Two more lead tools belong to the strategy layer (`internal/mcp/boss_tools_strategy.go`, `-tags doomsday` only, same rules): `session_boss_strategy_propose`
+Two more lead tools belong to the strategy layer (`internal/mcp/boss_tools_strategy.go`, same rules): `session_boss_strategy_propose`
 (strategy.propose: a direction for the novelty gate) and `session_boss_strategy_report` (strategy.report: a direction the caller owns is stalled or finished).
 They go through `mcp.SetBossStrategyCaller` into `ops.StrategyOps`, whose own allowlist (`ops.AllowedStrategy`) is the only one it reads; they take no operation
 name and cannot request, approve or begin a finish (`TestNoStrategyToolCanRequestOrApproveAFinish`). `strategy.epoch`, the judge intake, has no tool. The host
