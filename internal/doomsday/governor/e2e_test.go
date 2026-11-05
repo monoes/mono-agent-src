@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -79,6 +80,11 @@ func newWorld(t *testing.T, cap int, queueRows int, steps ...machine.Step) *worl
 }
 
 func newWorldBytes(t *testing.T, cap int, queueRows int, queueBytes int64, steps ...machine.Step) *world {
+	return newWorldSampler(t, cap, queueRows, queueBytes, nil, steps...)
+}
+
+// newWorldSampler is newWorldBytes with the scheduler reading wrap(fake) instead of the fake itself (nil keeps the fake).
+func newWorldSampler(t *testing.T, cap int, queueRows int, queueBytes int64, wrap func(governor.Sampler) governor.Sampler, steps ...machine.Step) *world {
 	t.Helper()
 	keyring.MockInit()
 	db, err := storage.NewDatabase(t.TempDir() + "/dd.db")
@@ -109,7 +115,11 @@ func newWorldBytes(t *testing.T, cap int, queueRows int, queueBytes int64, steps
 	w := &world{db: db.DB, st: st, view: view, smp: machine.NewFake(steps...), slot: slots.New(db.DB, view), q: queue.New(db.DB, keys),
 		l: governor.Limits{Profile: "p", Generation: 1, MaxConcurrent: cap, LivePerTree: cap, SafeMin: 1, QueueMaxRows: queueRows, QueueMaxBytes: queueBytes}}
 	clk := &clock{}
-	w.s, err = sched.New(sched.Config{Limits: w.l, Sampler: w.smp, Policy: policy.New(clk), Slots: w.slot, Queue: w.q, View: view, Clock: clk, Decode: decode,
+	var smp governor.Sampler = w.smp
+	if wrap != nil {
+		smp = wrap(smp)
+	}
+	w.s, err = sched.New(sched.Config{Limits: w.l, Sampler: smp, Policy: policy.New(clk), Slots: w.slot, Queue: w.q, View: view, Clock: clk, Decode: decode,
 		SampleEvery: time.Nanosecond, SampleTimeout: 200 * time.Millisecond, CancelTimeout: 300 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
@@ -251,13 +261,13 @@ func TestStopCancelsTheQueueAndAdmitsNothingAfterIt(t *testing.T) {
 	}
 }
 
-// Racing for the last slot admits exactly one, and a leak (a member that vanished) is reconciled, a live one is not.
-func TestLastSlotRaceAndLeakReconcile(t *testing.T) {
-	ctx := context.Background()
-	w := newWorld(t, 3, 50)
+// raceForSlots starts n racers that each ask TryAdmit for a slot of a cap-sized pool and returns how many were admitted.
+// ErrNoSlot is only a final verdict once the pool is full: while a sample refresh is in flight the other callers get the
+// safe-minimum fallback, so a refusal with free slots left is transient and the racer asks again.
+func raceForSlots(ctx context.Context, t *testing.T, w *world, n, cap int) int32 {
 	var admitted atomic.Int32
 	var wg sync.WaitGroup
-	for i := 0; i < 24; i++ {
+	for i := 0; i < n; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -267,22 +277,74 @@ func TestLastSlotRaceAndLeakReconcile(t *testing.T) {
 			w.view.mu.Unlock()
 			// a busy database (24 racers on one writer, -race on a loaded runner) refuses a start after its bounded retries:
 			// that is a fail-closed refusal, not a lost race, so the racer asks again until the answer is a verdict
-			for try := 0; try < 200; try++ {
+			for try := 0; try < 100000; try++ {
 				err := w.s.TryAdmit(ctx, "", governor.Request{Kind: governor.KindProcess, MemberID: id})
 				if err == nil {
 					admitted.Add(1)
 					return
 				}
 				if errors.Is(err, governor.ErrNoSlot) {
-					return
+					if w.live(t) >= cap {
+						return
+					}
+					runtime.Gosched()
+					continue
 				}
 				time.Sleep(20 * time.Millisecond)
 			}
 		}(i)
 	}
 	wg.Wait()
-	if admitted.Load() != 3 || w.live(t) != 3 {
-		t.Fatalf("%d admitted, %d live, want exactly the cap of 3", admitted.Load(), w.live(t))
+	return admitted.Load()
+}
+
+// gatedSampler holds the first Sample call until gate is closed, so a refresh in flight is certain, not a matter of timing.
+type gatedSampler struct {
+	inner   governor.Sampler
+	entered chan struct{}
+	gate    chan struct{}
+	once    sync.Once
+}
+
+func (g *gatedSampler) Sample(ctx context.Context) (governor.Sample, error) {
+	g.once.Do(func() { close(g.entered) })
+	<-g.gate
+	return g.inner.Sample(ctx)
+}
+
+// With a sample refresh in flight the other racers get the safe-minimum fallback (one slot): the pool must still fill to
+// exactly the cap once the refresh lands, and never past it.
+func TestLastSlotRaceDuringSampleRefresh(t *testing.T) {
+	ctx := context.Background()
+	g := &gatedSampler{entered: make(chan struct{}), gate: make(chan struct{})}
+	w := newWorldSampler(t, 3, 50, 0, func(in governor.Sampler) governor.Sampler { g.inner = in; return g })
+	done := make(chan int32)
+	go func() { done <- raceForSlots(ctx, t, w, 24, 3) }()
+	<-g.entered
+	// the fallback racers fill the one slot the safe minimum allows while the sample is held
+	for deadline := time.Now().Add(20 * time.Second); w.live(t) < 1; {
+		if time.Now().After(deadline) {
+			t.Fatal("no racer took the fallback slot")
+		}
+		runtime.Gosched()
+	}
+	close(g.gate)
+	if n := <-done; n != 3 || w.live(t) != 3 {
+		t.Fatalf("%d admitted, %d live, want exactly the cap of 3", n, w.live(t))
+	}
+}
+
+// Racing for the last slot admits exactly one, and a leak (a member that vanished) is reconciled, a live one is not.
+func TestLastSlotRaceAndLeakReconcile(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t, 3, 50)
+	// prime the cache (the fake clock is frozen, so it stays fresh): no racer then meets a refresh in flight
+	if e := w.s.Effective(ctx); e.Value != 3 {
+		t.Fatalf("primed effective cap %d, want 3", e.Value)
+	}
+	admitted := raceForSlots(ctx, t, w, 24, 3)
+	if admitted != 3 || w.live(t) != 3 {
+		t.Fatalf("%d admitted, %d live, want exactly the cap of 3", admitted, w.live(t))
 	}
 	// two members vanish without a release (a crashed host); one stays alive
 	w.view.mu.Lock()
