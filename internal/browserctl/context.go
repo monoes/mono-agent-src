@@ -51,13 +51,17 @@ func RequestedBy() hilsend.PreparedBy {
 // ContextKey names this caller's session state file: the coder
 // conversation, else the org role, else "agent" for any other agent, else
 // "human".
-func ContextKey() string {
+func ContextKey() string { return ContextKeyFor(AgentCaller()) }
+
+// ContextKeyFor is ContextKey for a caller the command already worked out
+// (AgentCaller), so one command gets one verdict for its policy and its key.
+func ContextKeyFor(c Caller) string {
 	if c := strings.TrimSpace(os.Getenv(hilsend.EnvConversation)); c != "" {
 		return "conv-" + safeKey(c)
 	}
 	who, agent := hilsend.Detect()
 	if !agent {
-		switch AgentCaller().Kind {
+		switch c.Kind {
 		case KindChat:
 			return "chat"
 		case "":

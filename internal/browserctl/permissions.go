@@ -459,7 +459,7 @@ type Caller struct {
 	// Kind is the kind of agent ("" for the user's own terminal): coder,
 	// org, chat or other.
 	Kind string `json:"kind"`
-	// Declared is a kind (coder or org) the shell declared that no token
+	// Declared is a kind (coder or org, or chat for a chat marker inside a turn) the shell declared that no token
 	// vouches for (no token, a bad one, its process gone, the records
 	// unreadable). Kind is then other, and the stricter of the two kinds'
 	// levels applies (LevelOf): a claim never loosens, and neither does a
@@ -470,15 +470,22 @@ type Caller struct {
 // AgentCaller is the caller this process shows: MarkerCaller's, and for a
 // process with no marker that the turn check (SetTurnVerdict) places inside a
 // coder session's turn, other: its markers were stripped, and it is not the
-// user's own terminal. It never loosens MarkerCaller's answer.
+// user's own terminal. It never loosens MarkerCaller's answer, and a chat
+// marker inside a turn (self-chosen, and looser than other by default) binds
+// at the stricter of chat and other (Declared). Each call asks the turn
+// check: a command calls it once and passes the Caller on.
 func AgentCaller() Caller {
-	if c := MarkerCaller(); c.Kind != "" {
+	c := MarkerCaller()
+	if c.Kind != "" && c.Kind != KindChat {
 		return c
 	}
 	if InTurn() {
+		if c.Kind == KindChat {
+			return Caller{Kind: KindOther, Declared: KindChat}
+		}
 		return Caller{Kind: KindOther}
 	}
-	return Caller{}
+	return c
 }
 
 // MarkerCaller is the caller this process's environment shows. An agent
