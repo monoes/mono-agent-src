@@ -621,6 +621,28 @@ file made public), which a grant's outbound check covers for an org role
 ([Org automations and autonomy](#org-automations-and-autonomy)); and general
 steps that can reach any address (`http.request`, `core.code`'s JavaScript).
 
+### A `workflow run` from a coder turn is an agent's run
+
+A `workflow run` started by a process inside a recorded coder turn is an agent's
+run, even when that process carries no marker: the run is marked with the same
+turn-aware check the operator-only commands use, not with the environment
+markers alone. The run gets the agent browser level, may not use a browser
+package that isn't built-in, does not count as yours for people approvals or
+publication claims, and its sends wait for your approval. What changes:
+
+- A terminal you started inside a turn is treated as the agent's, so its
+  `workflow run` is an agent's run. Outside a turn nothing changes.
+- A `workflow run` that a node of a workflow you approved starts is marked as
+  another agent's run: its sends queue and non-builtin browser packages are
+  refused.
+- A run the chat started is refused browser packages that aren't built-in, as
+  the agent's are. A bare `MONOAGENT_AI_CALLER=chat` inside a turn does not
+  buy the chat's browser level; the stricter level applies.
+- A daemon that adopts or resumes a run an agent marked queues its sends.
+- When the turn check cannot place the process (the database is unreadable or
+  locked), the run is marked as an agent's and the command prints one line
+  saying so; retry once the database reads.
+
 ### Sends that skipped approval up to v0.152.0
 
 In releases up to and including v0.152.0, an agent, the in-app chat or a
