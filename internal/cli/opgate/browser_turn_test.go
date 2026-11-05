@@ -5,6 +5,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/browserctl"
 	"github.com/monoes/mono-agent/internal/cli/opgate"
+	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -52,12 +53,49 @@ func TestAnUnmarkedProcessOutsideATurnStaysTheHumans(t *testing.T) {
 	}
 }
 
-func TestTheChatKeepsItsKindWhateverTheTurnCheckSays(t *testing.T) {
+func TestTheChatOutsideATurnKeepsItsLevel(t *testing.T) {
 	actAsUnmarkedProcess(t)
 	t.Setenv(browserctl.EnvAICaller, browserctl.KindChat)
-	opgate.SetForTest(t, func(bool) string { return "the chat runs this command" })
-	if c := browserctl.AgentCaller(); c.Kind != browserctl.KindChat {
+	opgate.SetForTest(t, func(bool) string { return "" })
+	c := browserctl.AgentCaller()
+	if c.Kind != browserctl.KindChat {
 		t.Fatalf("AgentCaller = %+v, want chat", c)
+	}
+	if got, want := (browserctl.Permissions{}).LevelOf(c), (browserctl.Permissions{}).Level(browserctl.KindChat); got != want {
+		t.Fatalf("level %q, want the chat's %q", got, want)
+	}
+}
+
+// A stripped turn that names itself the chat gets no more than an unknown agent: the chat marker is
+// self-chosen, so inside a turn the stricter of chat and other binds.
+func TestAChatMarkerInATurnNeverLoosensBelowOther(t *testing.T) {
+	actAsUnmarkedProcess(t)
+	t.Setenv(browserctl.EnvAICaller, browserctl.KindChat)
+	opgate.SetForTest(t, func(bool) string { return "this command runs inside a coder session's turn" })
+	p := browserctl.Permissions{}
+	c := browserctl.AgentCaller()
+	if got, other := p.LevelOf(c), p.Level(browserctl.KindOther); got != other {
+		t.Fatalf("level %q for %+v, want no more than other's %q", got, c, other)
+	}
+	if c.Kind == "" {
+		t.Fatalf("AgentCaller = %+v, want an agent", c)
+	}
+}
+
+// A user's terminal whose turn check cannot answer (locked or unreadable database, a panic) is
+// treated as an agent: the check fails closed.
+func TestAnUnanswerableTurnCheckFailsClosedToAnAgent(t *testing.T) {
+	actAsUnmarkedProcess(t)
+	for name, body := range map[string]func(bool) string{
+		"unplaced": func(bool) string { return operator.UnplacedPrefix + ": the database is locked" },
+		"panic":    func(bool) string { panic("unreadable") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			opgate.SetForTest(t, body)
+			if c := browserctl.AgentCaller(); c.Kind != browserctl.KindOther {
+				t.Fatalf("AgentCaller = %+v, want kind %q", c, browserctl.KindOther)
+			}
+		})
 	}
 }
 

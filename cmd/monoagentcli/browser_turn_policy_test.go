@@ -39,3 +39,14 @@ func TestBrowserCommandsFromTheUsersTerminalOutsideATurnAreUnrestricted(t *testi
 		t.Fatalf("permissions name the user as %v", you)
 	}
 }
+
+// One browser command asks the turn check once: the policy and the session key come from one verdict.
+func TestABrowserCommandAsksTheTurnCheckOnce(t *testing.T) {
+	bt := newBrowserTest(t, false)
+	asked := 0
+	opgate.SetForTest(t, func(bool) string { asked++; return "" })
+	bt.runJSON("open", "https://example.com/")
+	if asked != 1 {
+		t.Fatalf("the turn check ran %d times for one open, want 1", asked)
+	}
+}
