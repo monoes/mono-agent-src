@@ -54,6 +54,10 @@ type HostGate struct {
 	// InstallHooks puts Hooks on the host's launchers (chat.InstallRunHooks in production). Install reports its absence.
 	InstallHooks func(st *coderhost.Store, h *coderhost.Host, hk Hooks) error
 
+	// Activity is the record of whether this process has seen a run (see RunActivity); share one with the governor and the
+	// strategy loop. Nil is a private one.
+	Activity *RunActivity
+
 	mu       sync.Mutex
 	lockHeld bool
 	gates    map[int64]*stop.Gate
@@ -99,6 +103,9 @@ func (g *HostGate) current(ctx context.Context) (*stop.Gate, error) {
 // currentRun is current with the run the gate belongs to.
 func (g *HostGate) currentRun(ctx context.Context) (gate *stop.Gate, r store.Run, err error) {
 	runs, err := g.Store.OpenRuns(ctx, g.Profile)
+	if g.activity().failOpen(runs, err, g.RunDir) {
+		return nil, r, nil // the run table cannot be listed and no run is known: the call is made plainly, as without the mode
+	}
 	if err != nil {
 		return nil, r, fmt.Errorf("%w: the run state cannot be read: %v", coderhost.ErrDispatchRefused, err)
 	}
@@ -136,6 +143,15 @@ func (g *HostGate) currentRun(ctx context.Context) (gate *stop.Gate, r store.Run
 		return gate, r, fmt.Errorf("%w: %v", coderhost.ErrDispatchRefused, err)
 	}
 	return gate, r, nil
+}
+
+func (g *HostGate) activity() *RunActivity {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.Activity == nil {
+		g.Activity = &RunActivity{}
+	}
+	return g.Activity
 }
 
 func (g *HostGate) fresh(ctx context.Context, gen int64) error {

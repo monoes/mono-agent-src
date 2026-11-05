@@ -4772,3 +4772,12 @@ The strategy layer NEVER begins a finish and holds no finish engine (`TestTheStr
 every criterion reads plausibly met, nothing is asked of anyone; one `strategy.finish.ready` audit row is written per judged epoch, `doomsday strategy status`
 shows `finish_ready` (and why not), and the boss reads the same reading through the read-only `session_boss_finish_ready` (top lead only), then decides and calls
 `session_boss_finish_begin` itself. A later bad judgment, a stale one, a reading that is not all met or a direction the judgment never saw clear the reading.
+**No run, no mode** (`internal/cli/doomsday/runactivity.go`): while the profile has no run that is not quiescent the wired engine is inert. The strategy
+loop's tick is one read-only count (`OpenRunPrecheck`): no host is built (so no pinned connection and no inotify watch), no key or keychain is read, nothing is
+logged or written; the governor and the dispatch gate list the runs and find none. A `doomsday_runs` table that cannot be listed (missing, busy, locked, closed,
+corrupt: `store.ErrRunsUnreadable`) fails OPEN for ordinary dispatch while no run is known active, and fails CLOSED once one is: known active means this process
+has seen a run row (`RunActivity`, shared by the gate, the governor and the loop), or the run directory holds a per-run secret, the witness or the generation
+counter (`stop.RunDir.HasRunTraces`). A run row that exists and does not verify is a run and always refuses. Both signs are permanent: after the first run ever on an
+install (the seen flag is never cleared, the files are never deleted) an unreadable table fails closed again, exactly as before this change, so the fail-open only helps
+installs that never ran the mode. It also assumes nobody deletes the run directory's files while the database is unreadable and the run was never seen by this
+process. The chained store builds its sequencer (and the pinned connection) on first use, so constructing a coder host pins nothing. The build runs outside the store's lock, once at a time, bounded by a timeout, and a failure is retried on the next use; `doomsday stop` runs through this store too, so its first sequenced write is where the pin is now made (before, at construction). Tests: `noruninert_test.go`, `hostgate_failopen_test.go`.

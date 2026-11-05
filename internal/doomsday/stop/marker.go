@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // RunDir is the per-profile run directory: the stop marker, the per-run secret, the key-free unit file and the
@@ -33,6 +34,26 @@ func (r RunDir) SecretPath(gen uint64) string {
 	return filepath.Join(r.Dir, fmt.Sprintf("%d.secret", gen))
 }
 func (r RunDir) UnitPath(gen uint64) string { return filepath.Join(r.Dir, fmt.Sprintf("%d.unit", gen)) }
+
+// HasRunTraces says a run may have been entered on this install: the run directory holds a per-run secret, the witness or the
+// generation counter (each made by a run and none deleted by one), or it cannot be listed for a reason other than not
+// existing. A directory that does not exist is a clean "no": nothing creates it before a run does. It is one directory
+// listing, made only when the database could not be read.
+//
+// It is evidence, not proof: it assumes the run directory is not cleaned by hand. Someone who can delete all three kinds of
+// file as the same user, while the database is unreadable and this process never saw the run, turns the answer back into "no".
+func (r RunDir) HasRunTraces() bool {
+	names, err := r.fsys().ReadDir(r.Dir)
+	if err != nil {
+		return !errors.Is(err, os.ErrNotExist)
+	}
+	for _, n := range names {
+		if strings.HasSuffix(n, ".secret") || n == "witness" || n == "generation-counter" {
+			return true
+		}
+	}
+	return false
+}
 
 // CreateSecret generates the per-run random secret (not derived from the vault key) with mode 0600.
 func (r RunDir) CreateSecret(gen uint64) error {

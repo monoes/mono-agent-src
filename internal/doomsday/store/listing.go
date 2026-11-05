@@ -4,7 +4,21 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"strings"
 )
+
+// ErrRunsUnreadable is what OpenRuns reports when it could not even LIST the profile's non-quiescent runs: the table is
+// missing, or the database is busy, locked, closed or corrupt. No run row was read, so nothing says one exists. It is a
+// different thing from a row that exists and does not verify (ErrUnverifiable, or a key that cannot be read), which is
+// never wrapped in this error: that one always means a run is there.
+var ErrRunsUnreadable = errors.New("doomsday: the run table cannot be read")
+
+// RunsTableMissing says err is ErrRunsUnreadable because doomsday_runs does not exist (no migration applied yet), as
+// opposed to a table that is there and cannot be read. Both are unreadable; callers may tell them apart for display only.
+func RunsTableMissing(err error) bool {
+	return errors.Is(err, ErrRunsUnreadable) && strings.Contains(err.Error(), "no such table")
+}
 
 // AuditHead is the head of one generation's audit chain: the last seq and its MAC. An empty chain is seq 0.
 type AuditHead struct {
@@ -34,7 +48,7 @@ var (
 func (s *SQLStore) OpenRuns(ctx context.Context, profile string) ([]Run, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT generation FROM doomsday_runs WHERE profile = ? AND state <> 'quiescent' ORDER BY generation`, profile)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrRunsUnreadable, err) // nothing was listed: this says no run exists, and no run does not exist
 	}
 	var gens []int64
 	for rows.Next() {
@@ -47,6 +61,9 @@ func (s *SQLStore) OpenRuns(ctx context.Context, profile string) ([]Run, error) 
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
+		if len(gens) == 0 { // the listing failed before it named any run
+			return nil, fmt.Errorf("%w: %w", ErrRunsUnreadable, err)
+		}
 		return nil, err
 	}
 	rows.Close()

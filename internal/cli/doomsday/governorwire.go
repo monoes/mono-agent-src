@@ -73,6 +73,10 @@ type GovernorWire struct {
 	Alive func(conversation, turn string) bool
 	Logf  func(format string, args ...any)
 
+	// Activity is the record of whether this process has seen a run (see RunActivity); share one with the dispatch gate and
+	// the strategy loop. Nil is a private one.
+	Activity *RunActivity
+
 	mu  sync.Mutex
 	cur *runGov
 }
@@ -116,6 +120,9 @@ type runGov struct {
 // returns an error that refuses the launch: Stop wins and a governor never admits against a run it cannot see.
 func (w *GovernorWire) For(ctx context.Context) (*runGov, error) {
 	runs, err := w.Runs.OpenRuns(ctx, w.Profile)
+	if w.activity().failOpen(runs, err, w.RunDir) {
+		return nil, nil // the run table cannot be listed and no run is known: the mode is off for the profile
+	}
 	if err != nil {
 		return nil, fmt.Errorf("%w: the run state cannot be read: %v", errDispatchRefused, err)
 	}
@@ -147,6 +154,15 @@ func (w *GovernorWire) For(ctx context.Context) (*runGov, error) {
 		w.cur = rg
 	}
 	return w.cur, nil
+}
+
+func (w *GovernorWire) activity() *RunActivity {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.Activity == nil {
+		w.Activity = &RunActivity{}
+	}
+	return w.Activity
 }
 
 func (w *GovernorWire) build(ctx context.Context, r store.Run) (*runGov, error) {
