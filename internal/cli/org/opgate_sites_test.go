@@ -141,3 +141,52 @@ func TestOrgSignYesAsksTheTurnAwareGate(t *testing.T) {
 		t.Fatalf("operator sign = %v (calls %v)", signed, s.calls)
 	}
 }
+
+// A pty gives a turn a terminal, so the terminal does not decide who may sign: a process the gate refuses is
+// refused --yes and the interactive confirmation alike, with a terminal or without; --status and the plain
+// review stay open; the operator signs with a terminal and without one.
+func TestOrgSignRefusedToTheGateWhateverTheTerminal(t *testing.T) {
+	for _, tty := range []bool{false, true} {
+		f, s, _ := newSigningFixture(t, "2.21.0")
+		asInATurn(t)
+		hash := f.mustRun(t, "sign", "growth")["hash"] // the plain review stays open
+		f.cfg.TTY = tty
+		if tty { // the interactive confirmation: a turn answering the prompt through a pty
+			in := filepath.Join(t.TempDir(), "stdin")
+			if err := os.WriteFile(in, []byte("y\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			fh, err := os.Open(in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			prev := os.Stdin
+			os.Stdin = fh
+			t.Cleanup(func() { os.Stdin = prev; fh.Close() })
+			if _, err := f.run(t, "sign", "growth"); !isSignBlocked(err) {
+				t.Fatalf("tty=%v: interactive confirmation: %v", tty, err)
+			}
+		}
+		if _, err := f.run(t, "sign", "growth", "--yes", "--expect-hash", hash.(string)); !isSignBlocked(err) {
+			t.Fatalf("tty=%v: sign --yes --expect-hash: %v", tty, err)
+		} else if strings.Contains(err.Error(), "no terminal") {
+			t.Fatalf("tty=%v: the reason claims there is no terminal: %v", tty, err)
+		}
+		if st := f.mustRun(t, "sign", "growth", "--status"); st["blocked_by"] != turnStandIn {
+			t.Fatalf("tty=%v: status %v", tty, st)
+		}
+		if len(s.calls) != 0 {
+			t.Fatalf("tty=%v: a turn signed: %v", tty, s.calls)
+		}
+		// the operator: the gate says nothing.
+		opgate.SetForTest(t, func(bool) string { return "" })
+		if signed := f.mustRun(t, "sign", "growth", "--yes"); signed["signed"] != true || len(s.calls) != 1 {
+			t.Fatalf("tty=%v: operator sign = %v (calls %v)", tty, signed, s.calls)
+		}
+	}
+}
+
+func isSignBlocked(err error) bool {
+	b, ok := err.(*orgSignBlocked)
+	return ok && b.JSONErrorFields()["code"] == "org_sign_agent_context"
+}
