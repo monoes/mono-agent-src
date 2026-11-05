@@ -9,7 +9,6 @@ import (
 
 	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/monomind"
-	"github.com/monoes/mono-agent/internal/orgsign/orgsigntest"
 )
 
 const turnStandIn = "stand-in: a model's shell inside a coder turn"
@@ -118,7 +117,6 @@ func TestOrgApproveAsksTheTurnAwareGate(t *testing.T) {
 // refused even under a gate that says nothing, and an operator the gate does not refuse still signs.
 func TestOrgSignYesAsksTheTurnAwareGate(t *testing.T) {
 	f, s, _ := newSigningFixture(t, "2.21.0")
-	orgsigntest.Sign(t, f.root, "growth")
 	asInATurn(t)
 	_, err := f.run(t, "sign", "growth", "--yes")
 	blocked, ok := err.(*orgSignBlocked)
