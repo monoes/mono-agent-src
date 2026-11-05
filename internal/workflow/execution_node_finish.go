@@ -54,7 +54,7 @@ func (r *runner) finish(t *nodeTask) (paused bool, err error) {
 				}
 			}
 		}
-		logger.Error().Err(execErr).
+		logger.Error().Err(maskRunError(r.ctx, execErr)).
 			Str("node_id", node.ID).
 			Str("node_name", node.Name).
 			Str("on_error", onError).
@@ -182,7 +182,7 @@ func (r *runner) finish(t *nodeTask) (paused bool, err error) {
 			msg = fmt.Sprintf("routed %d item(s) to the 'error' output", len(errorHandleItems))
 		}
 		nodeErr := fmt.Errorf("node %s (%s): %s", node.ID, node.Name, msg)
-		logger.Error().Err(nodeErr).
+		logger.Error().Err(maskRunError(r.ctx, nodeErr)).
 			Str("node_id", node.ID).
 			Str("node_name", node.Name).
 			Msg("node emitted error output with no edge wired from the 'error' handle — failing node (wire an error edge or set on_error=continue/skip to tolerate)")

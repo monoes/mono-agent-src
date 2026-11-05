@@ -2,17 +2,21 @@ package browserjev
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/monoes/mono-agent/data"
 	"github.com/monoes/mono-agent/internal/browserctl"
 	"github.com/monoes/mono-agent/internal/browserctl/browserctltest"
 	"github.com/monoes/mono-agent/internal/hilsend"
 	"github.com/monoes/mono-agent/internal/jevpick"
 	"github.com/monoes/mono-agent/internal/vault"
 	"github.com/monoes/mono-agent/internal/workflow"
+	_ "modernc.org/sqlite"
 )
 
 func TestAICaller(t *testing.T) {
@@ -281,22 +285,64 @@ func TestAIRunFailsClosedWithoutAGuard(t *testing.T) {
 	}
 }
 
-// A `workflow run` started by a process an unapproved run's node started
-// (workflow.EnvUnapprovedRun) marks its run as one an unapproved workflow
-// called, so the engine holds its sends and browser steps like that workflow's.
+// A `workflow run` started by a process a workflow node started that cannot show the token of an
+// approved, live run marks its run as one an unapproved workflow called, so the engine holds its
+// sends and browser steps like that workflow's. Dropping or forging the token, an unapproved run's
+// token, a finished run's token and an unreadable store all mark it; the approved run's child and
+// the user's own terminal do not.
 func TestMarkAICallerMarksAnUnapprovedRunsChild(t *testing.T) {
-	for _, k := range append(browserctl.AgentContextEnv(), EnvAICaller, workflow.EnvUnapprovedRun) {
-		t.Setenv(k, "")
+	bg := context.Background()
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(t.TempDir(), "runs.db")+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatal(err)
 	}
-	data := map[string]interface{}{}
-	if MarkAICaller(data); len(data) != 0 {
-		t.Fatalf("the user's own run is not marked: %v", data)
+	t.Cleanup(func() { db.Close() })
+	m, _ := data.MigrationsFS.ReadFile("migrations/160_workflow_run_tokens.sql")
+	if _, err := db.Exec(string(m)); err != nil {
+		t.Fatal(err)
 	}
-	t.Setenv(workflow.EnvUnapprovedRun, "1")
-	if MarkAICaller(data); data[workflow.AICallerKey] != workflow.UnapprovedWorkflowCaller {
-		t.Fatalf("an unapproved run's child's run is marked %q: %v", workflow.UnapprovedWorkflowCaller, data)
+	good, _ := workflow.IssueRunToken(bg, db, "exec-1", true)
+	bad, _ := workflow.IssueRunToken(bg, db, "exec-2", false)
+	done, _ := workflow.IssueRunToken(bg, db, "exec-3", true)
+	if err := workflow.EndRunToken(bg, db, done); err != nil {
+		t.Fatal(err)
 	}
-	if _, called := workflow.CalledByUnapproved(data); !called {
-		t.Fatal("the engine does not see it as called by an unapproved workflow")
+	for _, c := range []struct {
+		name  string
+		env   map[string]string
+		db    *sql.DB
+		marks bool
+	}{
+		{"the user's own terminal", nil, db, false},
+		{"approved run's child", map[string]string{workflow.EnvWorkflowRun: "exec-1", workflow.EnvRunToken: good}, db, false},
+		{"child that dropped the token", map[string]string{workflow.EnvWorkflowRun: "exec-1"}, db, true},
+		{"child with a forged token", map[string]string{workflow.EnvWorkflowRun: "exec-1", workflow.EnvRunToken: "0123456789abcdef0123456789abcdef"}, db, true},
+		{"unapproved run's child", map[string]string{workflow.EnvWorkflowRun: "exec-2", workflow.EnvRunToken: bad}, db, true},
+		{"finished run's child", map[string]string{workflow.EnvWorkflowRun: "exec-3", workflow.EnvRunToken: done}, db, true},
+		{"unreadable store", map[string]string{workflow.EnvWorkflowRun: "exec-1", workflow.EnvRunToken: good}, nil, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			for _, k := range append(browserctl.AgentContextEnv(), EnvAICaller, workflow.EnvUnapprovedRun, workflow.EnvWorkflowRun, workflow.EnvRunToken) {
+				t.Setenv(k, "")
+			}
+			for k, v := range c.env {
+				t.Setenv(k, v)
+			}
+			td := map[string]interface{}{}
+			MarkAICallerRun(bg, func() (*sql.DB, error) {
+				if c.db == nil {
+					return nil, errors.New("no database")
+				}
+				return c.db, nil
+			}, td)
+			if got := td[workflow.AICallerKey] == workflow.UnapprovedWorkflowCaller; got != c.marks {
+				t.Fatalf("marked = %v (%v), want %v", got, td, c.marks)
+			}
+			if c.marks {
+				if _, called := workflow.CalledByUnapproved(td); !called {
+					t.Fatal("the engine does not see it as called by an unapproved workflow")
+				}
+			}
+		})
 	}
 }

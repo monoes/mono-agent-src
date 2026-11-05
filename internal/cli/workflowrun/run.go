@@ -2,6 +2,7 @@ package workflowrun
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -290,8 +291,22 @@ func (d Deps) newRunCmd() *cobra.Command {
 			}
 			workflow.StripEngineKeys(triggerData)
 			// An agent's run stays its own in a daemon (--no-wait, a resume). The verdict is the turn-aware one:
-			// a process inside a coder turn that shows no marker is an agent too.
-			d.markAICaller(triggerData)
+			// a process inside a coder turn that shows no marker is an agent too. The database is opened only if
+			// the gate needs the run-token lookup (something marks this process).
+			var opened interface{ Close() error }
+			defer func() {
+				if opened != nil {
+					opened.Close()
+				}
+			}()
+			d.markAICaller(cmd.Context(), func() (*sql.DB, error) {
+				db, err := d.OpenDB()
+				if err != nil {
+					return nil, err
+				}
+				opened = db
+				return db.DB, nil
+			}, triggerData)
 
 			engine, closeBrowsers, err := d.BuildEngine()
 			if err != nil {
@@ -377,7 +392,7 @@ func (d Deps) newRunCmd() *cobra.Command {
 // markAICaller marks the run with the kind of the agent that starts it (browserjev.MarkAICallerFor), on this
 // command's turn-aware verdict. A process the turn check could not place is marked as an agent's, and the
 // command says so once, so a refusal later is not a mystery.
-func (d Deps) markAICaller(data map[string]interface{}) {
+func (d Deps) markAICaller(ctx context.Context, open func() (*sql.DB, error), data map[string]interface{}) {
 	why := opgate.Refusal()
 	inTurn := false
 	if why != "" && d.InTurn != nil {
@@ -391,5 +406,5 @@ func (d Deps) markAICaller(data map[string]interface{}) {
 		fmt.Fprintln(os.Stderr, "note: this process could not be placed ("+strings.TrimPrefix(why, opgate.UnplacedPrefix)+
 			" so the run is marked as an agent's run; retry once the database reads")
 	}
-	browserjev.MarkAICallerFor(data, why, inTurn)
+	browserjev.MarkAICallerFor(ctx, open, data, why, inTurn)
 }

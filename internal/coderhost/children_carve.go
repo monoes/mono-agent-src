@@ -67,60 +67,42 @@ func (s *Store) carveBudgetAdmit(profileID, parent, child string, usd float64, a
 	// commits in between cannot make the carve's write fail at once with SQLITE_BUSY_SNAPSHOT, which busy_timeout does
 	// not wait for. The carve then waits for the lock like a statement that was first always did.
 	stamp := s.stamp() // read before the write lock is taken
-	ctx := context.Background()
-	conn, err := s.db.Conn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
-		dbconn.AbandonBegin(conn)
-		return fmt.Errorf("begin the carve: %w", err)
-	}
-	committed := false
-	defer func() {
-		if !committed {
-			_, _ = conn.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
+	return dbconn.WithWriteTx(context.Background(), s.db, func(conn *sql.Conn) error {
+		tx := connQuerier{conn}
+		if admit != nil && usd > 0 {
+			if why, err := admit(tx, usd, false); err != nil {
+				return err
+			} else if why != "" {
+				return fmt.Errorf("%w: %s", errCarveNoRoom, why)
+			}
 		}
-	}()
-	tx := connQuerier{conn}
-	if admit != nil && usd > 0 {
-		if why, err := admit(tx, usd, false); err != nil {
+		res, err := tx.Exec(`UPDATE coder_sessions SET budget_usd = ?, updated_at = ?
+			WHERE profile_id = ? AND conversation_id = ? AND parent_conversation_id = ?
+			AND ( (SELECT budget_usd FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?) <= 0
+			   OR ( ? > 0 AND ? <= (SELECT budget_usd FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?)
+			        - ? - COALESCE((SELECT SUM(budget_usd) FROM coder_sessions WHERE profile_id = ? AND parent_conversation_id = ? AND conversation_id != ?), 0) + 1e-9 ) )`,
+			usd, stamp, profileID, child, parent, profileID, parent, usd, usd, profileID, parent, spent, profileID, parent, child)
+		if err != nil {
 			return err
-		} else if why != "" {
-			return fmt.Errorf("%w: %s", errCarveNoRoom, why)
 		}
-	}
-	res, err := tx.Exec(`UPDATE coder_sessions SET budget_usd = ?, updated_at = ?
-		WHERE profile_id = ? AND conversation_id = ? AND parent_conversation_id = ?
-		AND ( (SELECT budget_usd FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?) <= 0
-		   OR ( ? > 0 AND ? <= (SELECT budget_usd FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?)
-		        - ? - COALESCE((SELECT SUM(budget_usd) FROM coder_sessions WHERE profile_id = ? AND parent_conversation_id = ? AND conversation_id != ?), 0) + 1e-9 ) )`,
-		usd, stamp, profileID, child, parent, profileID, parent, usd, usd, profileID, parent, spent, profileID, parent, child)
-	if err != nil {
-		return err
-	}
-	// Told apart inside the transaction that ran the statement: no room, or the child no longer this parent's.
-	err = carveVerdict(res, func() (bool, error) {
-		var n int
-		err := tx.QueryRow(`SELECT COUNT(*) FROM coder_sessions WHERE profile_id = ? AND conversation_id = ? AND parent_conversation_id = ?`, profileID, child, parent).Scan(&n)
-		return n > 0, err
+		// Told apart inside the transaction that ran the statement: no room, or the child no longer this parent's.
+		err = carveVerdict(res, func() (bool, error) {
+			var n int
+			err := tx.QueryRow(`SELECT COUNT(*) FROM coder_sessions WHERE profile_id = ? AND conversation_id = ? AND parent_conversation_id = ?`, profileID, child, parent).Scan(&n)
+			return n > 0, err
+		})
+		if err != nil {
+			return err
+		}
+		if admit != nil && usd > 0 {
+			if why, err := admit(tx, usd, true); err != nil {
+				return err
+			} else if why != "" {
+				return fmt.Errorf("%w: %s", errCarveNoRoom, why)
+			}
+		}
+		return nil
 	})
-	if err != nil {
-		return err
-	}
-	if admit != nil && usd > 0 {
-		if why, err := admit(tx, usd, true); err != nil {
-			return err
-		} else if why != "" {
-			return fmt.Errorf("%w: %s", errCarveNoRoom, why)
-		}
-	}
-	if _, err := conn.ExecContext(context.WithoutCancel(ctx), "COMMIT"); err != nil {
-		return fmt.Errorf("commit the carve: %w", err)
-	}
-	committed = true
-	return nil
 }
 
 // connQuerier lends the connection that holds an open transaction to the code that takes a querier.

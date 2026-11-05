@@ -4243,6 +4243,17 @@ monoagentcli --profile work people tag remove <person-id> <tag-id|name>
 monoagentcli --profile work people tag color <tag-id|name> "#00b4d8"   # recolours it for everyone
 ```
 
+## Workflow children and the run token
+
+A process a workflow node starts is "a workflow run" (`MONOAGENT_WORKFLOW_RUN`) and is never the operator. Whether
+its sends may go out as the workflow was written is decided by a per-run random token (`MONOAGENT_RUN_TOKEN`) that
+the engine records in `workflow_run_tokens` (migration 160, SHA-256 only): approved means the definition is approved,
+no unapproved workflow called the run and no AI started it. No token, a forged, ended or expired one, or an unreadable
+database is held. Held on purpose: `node run` outside an execution, ssh children, MCP http servers, runs of an older
+daemon (update the daemon first or with the CLI). `MONOAGENT_UNAPPROVED_RUN` is deprecated and read by nothing. The
+token is a bearer credential: a same-user process can write the database or read a live child's `/proc/<pid>/environ`;
+see SECURITY.md, "What proves a workflow's child is approved".
+
 ## Secrets
 
 Secrets live in an **encrypted vault** (OS keyring-wrapped key,

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/browserctl"
+	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -21,20 +22,29 @@ func TestPeopleMessageSendsFromAMarkedProcessReachTheGuardUnapproved(t *testing.
 		want           bool
 	}{
 		{"unapproved workflow's child", workflow.EnvUnapprovedRun, "1", true},
-		{"approved workflow's child", workflow.EnvWorkflowRun, "exec-1", false},
+		{"unapproved run's child with its token", workflow.EnvRunToken, "unapproved", true},
+		{"approved workflow's child that dropped the token", workflow.EnvWorkflowRun, "exec-1", true},
+		{"approved workflow's child", workflow.EnvRunToken, "approved", false},
 		{"chat's run", browserctl.EnvAICaller, browserctl.KindChat, true},
 		{"operator terminal", "", "", false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			asOperator(t)
 			t.Setenv(workflow.EnvUnapprovedRun, "")
-			if c.env != "" {
+			t.Setenv(workflow.EnvRunToken, "")
+			if c.env != "" && c.env != workflow.EnvRunToken {
 				t.Setenv(c.env, c.val)
 			}
-			if c.env == workflow.EnvUnapprovedRun {
+			if c.env == workflow.EnvUnapprovedRun || c.env == workflow.EnvRunToken {
 				t.Setenv(workflow.EnvWorkflowRun, "exec-1") // every node's child has it too
 			}
 			dbPath := newMessagesCLITestDB(t)
+			switch c.val { // the engine hands a child the token of its run
+			case "approved":
+				t.Setenv(workflow.EnvRunToken, runToken(t, dbPath, true))
+			case "unapproved":
+				t.Setenv(workflow.EnvRunToken, runToken(t, dbPath, false))
+			}
 			seedPersonMessage(t, dbPath, "m-in", "EXT-IN", "inbound", "alice@x.com", "read", `{"connection_id":"outlook"}`)
 			stubOutlookNode(t, func(*sql.DB, map[string]interface{}) ([]workflow.NodeOutput, error) {
 				return nodeOutput(map[string]interface{}{"status": "sent", "message_id": "EXT-NEW"}), nil
@@ -56,4 +66,20 @@ func TestPeopleMessageSendsFromAMarkedProcessReachTheGuardUnapproved(t *testing.
 			}
 		})
 	}
+}
+
+// runToken records an approved, live execution in the database at dbPath and returns its token: what the
+// engine hands the children of an approved workflow's node.
+func runToken(t *testing.T, dbPath string, approved bool) string {
+	t.Helper()
+	db, err := storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	tok, err := workflow.IssueRunToken(context.Background(), db.DB, "exec-1", approved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tok
 }
