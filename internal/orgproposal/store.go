@@ -35,9 +35,10 @@ const (
 
 	// TTL is how long a proposal can be confirmed.
 	TTL = 30 * time.Minute
-	// MaxPendingPerOrg caps what an agent can have waiting for one org.
-	MaxPendingPerOrg          = 5
+	// MaxPendingPerConversation caps what one conversation label can have waiting for one org; MaxPendingPerOrg is the
+	// backstop over all labels of the org, so inventing labels cannot grow the table without bound.
 	MaxPendingPerConversation = 5
+	MaxPendingPerOrg          = 50
 	// Retention is how long a decided row is kept as the audit trail.
 	Retention = 30 * 24 * time.Hour
 )
@@ -53,6 +54,8 @@ var (
 
 // Proposal is one org_proposals row. Status is the effective one: a pending row past its expiry reads as expired.
 type Proposal struct {
+	// ConversationID is a LABEL the proposer chose, never ownership: nothing may treat it as proof that a conversation
+	// made or may see the proposal. A lookup trusts the stored row and its hash, not this id.
 	ID, ProfileID, Org, ConversationID, Verb, Target string
 	ArgsJSON, PreviewText, StateDigest, Hash         string
 	CreatedBy, Status, ResultJSON                    string
@@ -97,8 +100,8 @@ func (p *Proposal) RecomputedHash() string {
 }
 
 // Create stores a pending proposal. In one transaction it expires what is past its time, drops decided rows past
-// their retention, supersedes the older pending proposal for the same target, and inserts the new row only while
-// the org has fewer than MaxPendingPerOrg pending ones (the count is part of the INSERT, so concurrent creates
+// their retention, supersedes the older pending proposal of the same conversation label for the same target, and inserts the new row only while
+// the conversation label has fewer than MaxPendingPerConversation pending ones and the org fewer than MaxPendingPerOrg (the count is part of the INSERT, so concurrent creates
 // cannot pass the cap).
 func (s *Store) Create(ctx context.Context, in Input) (*Proposal, error) {
 	var raw [16]byte
@@ -124,7 +127,7 @@ func (s *Store) Create(ctx context.Context, in Input) (*Proposal, error) {
 		{`UPDATE org_proposals SET status = 'expired', decided_at = expires_at WHERE profile_id = ? AND status = 'pending' AND expires_at <= ?`, []any{in.ProfileID, n}},
 		{`DELETE FROM org_proposals WHERE profile_id = ? AND status <> 'pending' AND COALESCE(decided_at, created_at) < ?`, []any{in.ProfileID, cutoff}},
 		{`UPDATE org_proposals SET status = 'declined', result_json = '{"reason":"superseded"}', decided_at = ?
-		   WHERE profile_id = ? AND org_name = ? AND verb = ? AND target = ? AND status = 'pending'`, []any{n, in.ProfileID, in.Org, in.Verb, in.Target}},
+		   WHERE profile_id = ? AND org_name = ? AND conversation_id = ? AND verb = ? AND target = ? AND status = 'pending'`, []any{n, in.ProfileID, in.Org, in.ConversationID, in.Verb, in.Target}},
 	} {
 		if _, err := tx.ExecContext(ctx, q.sql, q.args...); err != nil {
 			return nil, err
@@ -133,9 +136,10 @@ func (s *Store) Create(ctx context.Context, in Input) (*Proposal, error) {
 	res, err := tx.ExecContext(ctx, `INSERT INTO org_proposals (id, profile_id, org_name, conversation_id, verb, target, args_json, preview_text,
 		state_digest, hash, created_by, created_at, expires_at, status)
 		SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending'
-		WHERE (SELECT COUNT(*) FROM org_proposals WHERE profile_id = ? AND org_name = ? AND status = 'pending') < ?`,
+		WHERE (SELECT COUNT(*) FROM org_proposals WHERE profile_id = ? AND org_name = ? AND conversation_id = ? AND status = 'pending') < ?
+		  AND (SELECT COUNT(*) FROM org_proposals WHERE profile_id = ? AND org_name = ? AND status = 'pending') < ?`,
 		p.ID, p.ProfileID, p.Org, p.ConversationID, p.Verb, p.Target, p.ArgsJSON, p.PreviewText, p.StateDigest, p.Hash,
-		p.CreatedBy, ts(p.CreatedAt), ts(p.ExpiresAt), p.ProfileID, p.Org, MaxPendingPerOrg)
+		p.CreatedBy, ts(p.CreatedAt), ts(p.ExpiresAt), p.ProfileID, p.Org, p.ConversationID, MaxPendingPerConversation, p.ProfileID, p.Org, MaxPendingPerOrg)
 	if err != nil {
 		return nil, err
 	}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/monoes/mono-agent/internal/orgdesign"
 	"github.com/monoes/mono-agent/internal/orgproposal"
@@ -16,8 +17,8 @@ import (
 
 // org proposal (#1477): a chat or an agent proposes a grant or an autonomy change and the user confirms it. create,
 // list and show are anyone's: a proposal is an inert row, and an agent can do nothing to it afterwards (it cannot
-// decide, extend, revive or confirm it; a newer proposal for the same target supersedes it, and an org holds at
-// most five pending ones). confirm and decline are the user's: proposal_confirm.go.
+// decide, extend, revive or confirm it; a newer proposal for the same target and conversation label supersedes it, and a label holds
+// at most five pending ones per org; conversation_id is a label, never ownership). confirm and decline are the user's: proposal_confirm.go.
 
 func newOrgProposalCmd(env *orgEnv) *cobra.Command {
 	cmd := &cobra.Command{
@@ -74,6 +75,23 @@ func (env *orgEnv) proposalView(ctx context.Context, db *storage.Database, profi
 	}
 }
 
+// proposedBy is the label of who proposed, taken from the gate's verdict and never consulted by confirm: "operator" only
+// when the gate says this is the user's own terminal; otherwise the marker's name for the caller, else "agent:unplaced"
+// (an unmarked model shell, or a process in a coder turn) or "unplaced" (the gate could not place it).
+func proposedBy() string {
+	why := opgate.Refusal()
+	switch {
+	case why == "":
+		return "operator"
+	case opgate.Unplaced(why):
+		return "unplaced"
+	}
+	if c := operator.Caller(); c != "" {
+		return c
+	}
+	return "agent:unplaced"
+}
+
 func newOrgProposalCreateCmd(env *orgEnv) *cobra.Command {
 	var verb, argsJSON, conversation string
 	c := &cobra.Command{
@@ -83,7 +101,7 @@ func newOrgProposalCreateCmd(env *orgEnv) *cobra.Command {
 			"text the user is shown and the hash they confirm. grant.add takes role, automation and optionally mode, wait, " +
 			"timeout_seconds, max_calls_per_run, max_calls_per_day, max_output_bytes (a grant a proposal makes always asks first). " +
 			"autonomy.set takes level (manual or mid), decider, decider_runtime, decider_model, decider_threshold, on_decider_failure. " +
-			"A newer proposal for the same role and automation (or the same org's autonomy) supersedes the older pending one; an org holds at most 5 pending.",
+			"A newer proposal for the same role and automation (or the same org's autonomy) supersedes the older pending one; a conversation label holds at most 5 pending per org (conversation_id is a label, never ownership).",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -95,10 +113,7 @@ func newOrgProposalCreateCmd(env *orgEnv) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			by := operator.Caller() // a label of who proposed, never consulted by confirm
-			if by == "" {
-				by = "operator"
-			}
+			by := proposedBy()
 			p, err := orgproposal.NewStore(db.DB).Create(ctx, orgproposal.Input{ProfileID: profileID, Org: doc.Name, ConversationID: conversation,
 				Verb: verb, Target: plan.Target, ArgsJSON: plan.ArgsJSON, PreviewText: plan.Preview, StateDigest: plan.Digest, CreatedBy: by})
 			if err != nil {

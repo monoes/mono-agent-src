@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS org_proposals (
   id              TEXT PRIMARY KEY,
   profile_id      TEXT NOT NULL,
   org_name        TEXT NOT NULL,
-  conversation_id TEXT NOT NULL DEFAULT '',
+  conversation_id TEXT NOT NULL DEFAULT '',   -- a LABEL the proposer chose, never ownership: caps and supersede are per (org, label); lookups trust the row and its hash
   verb            TEXT NOT NULL CHECK (verb IN ('grant.add', 'autonomy.set')),
   target          TEXT NOT NULL DEFAULT '',   -- what a newer proposal supersedes: "<role>/<alias>" or "autonomy"
   args_json       TEXT NOT NULL,
@@ -29,6 +29,6 @@ CREATE TABLE IF NOT EXISTS org_proposals (
   decided_at      TEXT
 );
 CREATE INDEX IF NOT EXISTS org_proposals_org ON org_proposals(profile_id, org_name, status, expires_at);
--- One pending proposal per target: a newer one supersedes the older in the same transaction, and two creates that
+-- One pending proposal per target and conversation label: a newer one supersedes the older in the same transaction, and two creates that
 -- race cannot both leave a pending row.
-CREATE UNIQUE INDEX IF NOT EXISTS org_proposals_one_pending ON org_proposals(profile_id, org_name, verb, target) WHERE status = 'pending';
+CREATE UNIQUE INDEX IF NOT EXISTS org_proposals_one_pending ON org_proposals(profile_id, org_name, conversation_id, verb, target) WHERE status = 'pending';

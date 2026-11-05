@@ -71,6 +71,9 @@ type autonomyProposalArgs struct {
 	OnDeciderFailure string   `json:"on_decider_failure,omitempty"`
 }
 
+// maxProposalText bounds each caller string of a proposal.
+const maxProposalText = 128
+
 // decodeStrict reads one JSON object into v, refusing unknown fields and anything after it.
 func decodeStrict(raw string, v any) error {
 	dec := json.NewDecoder(strings.NewReader(raw))
@@ -121,6 +124,9 @@ func (env *orgEnv) planGrant(ctx context.Context, db *storage.Database, profileI
 	var in grantProposalIn
 	if err := decodeStrict(raw, &in); err != nil {
 		return &proposalPlan{Digest: "unparsable-args"}, env.d.InvalidInput("the grant arguments are not valid: %v", err)
+	}
+	if len(in.Role) > maxProposalText || len(in.Automation) > maxProposalText || len(in.Mode) > maxProposalText || len(in.Approval) > maxProposalText {
+		return &proposalPlan{Digest: "unparsable-args"}, env.d.InvalidInput("a value is longer than %d bytes", maxProposalText)
 	}
 	a := grantProposalArgs{Role: in.Role, Automation: in.Automation, Mode: in.Mode, Wait: true, TimeoutSeconds: in.TimeoutSeconds,
 		Approval: in.Approval, MaxCallsPerRun: in.MaxCallsPerRun, MaxCallsPerDay: in.MaxCallsPerDay, MaxOutputBytes: in.MaxOutputBytes}
@@ -220,7 +226,18 @@ func (env *orgEnv) planAutonomy(ctx context.Context, db *storage.Database, profi
 	p := &proposalPlan{Digest: digestOf(live)}
 	after := snapshotAutonomy(live)
 	var parts []string
-	set := func(what string, v any) { parts = append(parts, fmt.Sprintf("%s %v", what, v)) }
+	for _, v := range []string{a.Level, a.Decider, a.DeciderRuntime, a.DeciderModel, a.OnDeciderFailure} {
+		if len(v) > maxProposalText {
+			return p, env.d.InvalidInput("a value is longer than %d bytes", maxProposalText)
+		}
+	}
+	// Caller text is quoted in the preview, so it cannot pass for the sentence around it.
+	set := func(what string, v any) {
+		if s, ok := v.(string); ok {
+			v = strconv.Quote(s)
+		}
+		parts = append(parts, fmt.Sprintf("%s %v", what, v))
+	}
 	if a.Level != "" {
 		if a.Level == orgdesign.LevelFull {
 			return p, env.d.InvalidInput("level full lets the org's decider handle everything with no person involved, which is the user's to choose in their own terminal")
@@ -263,6 +280,9 @@ func (env *orgEnv) planAutonomy(ctx context.Context, db *storage.Database, profi
 	canon, _ := json.Marshal(a)
 	p.ArgsJSON, p.Target = string(canon), "autonomy"
 	p.Preview = fmt.Sprintf("Change the autonomy of org %s (now level %s, decider %s): %s.", doc.Name, live.Level, live.Decider.Kind, strings.Join(parts, ", "))
+	if orgdesign.LevelRank(after.Level) > orgdesign.LevelRank(live.Level) {
+		p.Preview += " This lets the org approve more without a person."
+	}
 	p.sub = newOrgAutonomySetCmd
 	if a.Level != "" {
 		p.argv = append(p.argv, "--level", a.Level)
