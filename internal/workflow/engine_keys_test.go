@@ -71,3 +71,36 @@ func TestAnEvaluationRowCarriesNoEngineFields(t *testing.T) {
 		t.Errorf("the row was changed: %v", row)
 	}
 }
+
+// The mark a command carries in ctx (WithRunMark) is the case's AI-caller mark; the row cannot set one, and a
+// ctx without a mark leaves the case unmarked (issue 1455).
+func TestAnEvaluationCaseTakesTheCommandsRunMark(t *testing.T) {
+	_, store := approvalsTestDB(t)
+	eng := newTestEngine(t, store, NewNodeTypeRegistry())
+	wf := approvalsTestWorkflow("wf-eval", 1)
+	wf.Nodes[0].Type = TriggerTypeEvaluation
+	createSQLWorkflow(t, store, wf)
+	base := vault.ContextWithProfileID(context.Background(), "default")
+	markOf := func(ctx context.Context) interface{} {
+		t.Helper()
+		row := map[string]interface{}{"question": "2+2", AICallerKey: "user"}
+		id, err := eng.StartEvaluationCase(ctx, "wf-eval", "wf-eval-t", row, EvaluationCase{RunID: "run-1", CaseID: "case-1"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		exec, err := store.GetExecution(ctx, id)
+		if err != nil || exec == nil {
+			t.Fatalf("the case's execution: %v", err)
+		}
+		return exec.TriggerData[AICallerKey]
+	}
+	if got := markOf(base); got != nil {
+		t.Errorf("no mark in ctx: the case is marked %v", got)
+	}
+	if got := markOf(WithRunMark(base, "")); got != nil {
+		t.Errorf("an empty mark: the case is marked %v", got)
+	}
+	if got := markOf(WithRunMark(base, "other")); got != "other" {
+		t.Errorf("the command's mark: the case is marked %v", got)
+	}
+}

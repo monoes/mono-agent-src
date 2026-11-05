@@ -54,7 +54,8 @@ func (d Deps) newEvaluateCmd() *cobra.Command {
 				return fmt.Errorf("build engine: %w", err)
 			}
 			defer closeBrowsers()
-			ctx := cmd.Context()
+			ctx, closeMarkDB := d.withRunMark(cmd.Context())
+			defer closeMarkDB()
 			if err := engine.Start(ctx); err != nil {
 				return fmt.Errorf("start engine: %w", err)
 			}
