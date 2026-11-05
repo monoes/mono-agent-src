@@ -108,7 +108,9 @@ func newOrgProposalConfirmCmd(env *orgEnv) *cobra.Command {
 				return env.proposalErr(err)
 			}
 			result, applyErr := env.runSiblingInProcess(ctx, plan.sub(env), claimed.Org, plan.argv)
-			status, stored := orgproposal.StatusApplied, string(result)
+			// The row keeps a code and a fixed sentence, as a failed one does: the sibling's output (its warnings carry
+			// error text and paths) goes to this command's own output only, and show is open to agents.
+			status, stored := orgproposal.StatusApplied, `{"code":"applied","message":"applied by the user's confirm; the confirm output has the command's result"}`
 			if applyErr != nil {
 				status = orgproposal.StatusFailed
 				stored = failureResult(applyErr) // show is open to agents: the raw error goes only to this command's own output

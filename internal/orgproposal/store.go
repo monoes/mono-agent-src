@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"strconv"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -83,6 +84,25 @@ const tsLayout = "2006-01-02T15:04:05Z"
 
 func ts(t time.Time) string { return t.UTC().Format(tsLayout) }
 
+// MaxLabelBytes bounds the labels a proposer names (conversation, created_by).
+const MaxLabelBytes = 128
+
+// cleanLabel drops control characters and cuts the label to MaxLabelBytes without splitting a character.
+func cleanLabel(v string) string {
+	out := make([]rune, 0, len(v))
+	n := 0
+	for _, r := range v {
+		if r < 0x20 || (r >= 0x7f && r <= 0x9f) {
+			continue
+		}
+		if n += utf8.RuneLen(r); n > MaxLabelBytes {
+			break
+		}
+		out = append(out, r)
+	}
+	return string(out)
+}
+
 // ComputeHash binds everything the user is shown and everything that runs: each field is length-prefixed, so a value
 // cannot move from one field into the next.
 func ComputeHash(id, profileID, org, verb, argsJSON, previewText, stateDigest string) string {
@@ -111,6 +131,7 @@ func (s *Store) Create(ctx context.Context, in Input) (*Proposal, error) {
 		return nil, err
 	}
 	now := s.Now().UTC()
+	in.ConversationID, in.CreatedBy = cleanLabel(in.ConversationID), cleanLabel(in.CreatedBy)
 	p := &Proposal{ID: hex.EncodeToString(raw[:]), ProfileID: in.ProfileID, Org: in.Org, ConversationID: in.ConversationID,
 		Verb: in.Verb, Target: in.Target, ArgsJSON: in.ArgsJSON, PreviewText: in.PreviewText, StateDigest: in.StateDigest,
 		CreatedBy: in.CreatedBy, Status: StatusPending, CreatedAt: now, ExpiresAt: now.Add(TTL)}

@@ -182,6 +182,11 @@ func (env *orgEnv) planGrant(ctx context.Context, db *storage.Database, profileI
 	st.Role, st.Endpoint = role != nil, role != nil && role.IsEndpoint()
 	if ref != nil {
 		st.Workflow = ref.WorkflowID
+		// A store that cannot be read says nothing about the workflow: that is the read's error. A workflow that is not there,
+		// or not this profile's, is a state like any other.
+		if _, err := env.OpenWorkflowStore(db).GetWorkflow(ctx, ref.WorkflowID); err != nil {
+			return &proposalPlan{Digest: "unreadable-state", ReadErr: err}, err
+		}
 		if wf, err := env.orgWorkflowIn(ctx, db, profileID, ref.WorkflowID); err == nil {
 			tier, wfName, st.WorkflowFound = orggrant.GrantTier(orggrant.OutboundNodes(wf)), wf.Name, true
 		}
