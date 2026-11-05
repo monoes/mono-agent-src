@@ -382,3 +382,42 @@ func TestReconcileDisagreements(t *testing.T) {
 type noHost struct{}
 
 func (noHost) CloseHost(context.Context, uint64) HostOutcome { return HostOutcome{Kind: HostNone} }
+
+// A stop whose database is slow says so once the marker is on disk, before the slow step starts: the operator sees that the stop
+// is under way within a moment instead of a silent wait. One line, no retry in the background.
+func TestStopAnnouncesTheIntentStepAfterTheMarkerAndBeforeTheDatabase(t *testing.T) {
+	s, st, _, _ := newStopper(t, nil)
+	st.onAdvance = func(to RunState) {
+		if to == StateStopRequested {
+			st.record("db-intent-started")
+		}
+	}
+	s.Progress = func(m string) { st.record("progress:" + m) }
+	s.Stop(bg, 7, "ch1", "operator")
+	want := []string{"progress:" + ProgressIntent, "db-intent-started"}
+	var got []string
+	for _, l := range st.log {
+		if l == want[0] || l == want[1] {
+			got = append(got, l)
+		}
+	}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("the early line must come exactly once, before the database step: %v (log %v)", got, st.log)
+	}
+	if ProgressIntent != "marker written; recording intent..." {
+		t.Fatalf("the text is part of the operator's contract: %q", ProgressIntent)
+	}
+}
+
+// No marker, no claim: where the marker could not be written the line is not printed.
+func TestStopDoesNotAnnounceWhenTheMarkerWasNotWritten(t *testing.T) {
+	fsys := newFaultFS()
+	s, _, _, _ := newStopper(t, fsys)
+	fsys.failCreate["7.stop"] = true
+	var lines []string
+	s.Progress = func(m string) { lines = append(lines, m) }
+	s.Stop(bg, 7, "ch1", "operator")
+	if len(lines) != 0 {
+		t.Fatalf("progress after a failed marker: %v", lines)
+	}
+}
