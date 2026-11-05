@@ -8,6 +8,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/agentbox"
 	"github.com/monoes/mono-agent/internal/ai"
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 )
 
 // The values of coder.box.
@@ -121,7 +122,7 @@ func protectedDatabase(dbPath string) ([]string, error) {
 // database path it is named here, as the database files are. The directory is next to the path as it was given, which is where
 // the mode puts it; Protect resolves a link itself. A directory that does not exist yet is left out by the box.
 func protectedRunState(dbPath string) []string {
-	abs, err := filepath.Abs(expandHome(dbPath))
+	abs, err := filepath.Abs(clicore.ExpandPath(dbPath))
 	if err != nil {
 		return nil
 	}

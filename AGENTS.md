@@ -4777,7 +4777,7 @@ loop's tick is one read-only count (`OpenRunPrecheck`): no host is built (so no 
 logged or written; the governor and the dispatch gate list the runs and find none. A `doomsday_runs` table that cannot be listed (missing, busy, locked, closed,
 corrupt: `store.ErrRunsUnreadable`) fails OPEN for ordinary dispatch while no run is known active, and fails CLOSED once one is: known active means this process
 has seen a run row (`RunActivity`, shared by the gate, the governor and the loop), or the database's insert-only `doomsday_run_seen` record (migration 158, written in
-the transaction that enters a run, read once while the table lists and again when it does not) says the profile opened a run, or the run directory holds a per-run secret, the witness or the generation
+the transaction that enters a run, read once while the table lists and on every call while it does not list and no run is known) says the profile opened a run, or the run directory holds a per-run secret, the witness or the generation
 counter (`stop.RunDir.HasRunTraces`). A run row that exists and does not verify is a run and always refuses. Both signs are permanent: after the first run ever on an
 install (the seen flag is never cleared, the files are never deleted) an unreadable table fails closed again, exactly as before this change, so the fail-open only helps
 installs that never ran the mode. A deleted run directory alone therefore no longer reopens the gate; what is left is a database that was unreadable from process start with the run directory wiped. The record lives in the same database, and binaries older than this change do not write it.
