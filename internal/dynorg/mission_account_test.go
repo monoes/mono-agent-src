@@ -460,6 +460,31 @@ func TestCapRunLostToAReservationStopsTheWorker(t *testing.T) {
 	}
 }
 
+// A reservation lapsed past the grace, with a cap run registered on the session meanwhile, is refused its renewal: the
+// worker is stopped and the notice names the reservation and the way out (the store does not revive the row).
+func TestReservationLostToACapRunStopsTheWorker(t *testing.T) {
+	r := newResvRig(t, rigOpts{budget: 10})
+	c := scriptedConductor(r, &scripted{})
+	w := directWorker(r, "w-1")
+	r.approve()
+	a, err := c.enterRun(tbg, w, &monomind.ExecOptions{})
+	if err != nil || a.mode != modeReserve {
+		t.Fatal(a, err)
+	}
+	w.status = chatevents.AgentWorking
+	r.clk.advance(tasks.ReservationLease + tasks.ReservationGrace + time.Second)
+	if _, err := r.store.BeginCapRun(tbg, "default", r.sid, "other-process", "run"); err != nil { // lapsed: ignored by the latch
+		t.Fatal(err)
+	}
+	c.heartbeat(tbg, r.mc, w, r.clk.now())
+	if !a.lost || w.task.stopped == "" || countNotices(r.em, "mission.reservation_lost") != 1 {
+		t.Fatalf("lost=%v stopped=%q notices=%d", a.lost, w.task.stopped, countNotices(r.em, "mission.reservation_lost"))
+	}
+	if rows := r.resvRows(); len(rows) != 1 || rows[0].state != tasks.ReservationLive {
+		t.Fatalf("the lapsed row was revived or changed: %+v", rows)
+	}
+}
+
 // A settle that fails for good tells the operator the reservation id and the way out, also at zero cost.
 func TestWorkerReservationFailedSettleAlwaysNotices(t *testing.T) {
 	r := newResvRig(t, rigOpts{budget: 10})
