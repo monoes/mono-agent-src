@@ -38,7 +38,7 @@ type Wiring struct {
 	// Witness is the note 13.5 witness setup (database path for the pinned connection, MAC keys, secret store).
 	// Without it no run can be entered and nothing chained is written.
 	Witness *WitnessSetup
-	// Progress receives the Stop order's early line (the marker is written, the database step follows). Nil prints nothing: only
+	// Progress receives the Stop order's early line, once per open run (the marker is written, the database step follows). Nil prints nothing: only
 	// the CLI sets it, a host that stops a run does not talk to a terminal.
 	Progress func(string)
 }

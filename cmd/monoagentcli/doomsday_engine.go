@@ -5,8 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 
 	chatcli "github.com/monoes/mono-agent/internal/cli/chat"
 	doomsdaycli "github.com/monoes/mono-agent/internal/cli/doomsday"
@@ -47,7 +50,7 @@ func init() {
 		}
 		w := doomsdayWiring(cfg, db.DB)
 		// The CLI's own Stop: the line that says the marker is written, before the database step that may wait on a busy database.
-		w.Progress = func(m string) { fmt.Fprintln(os.Stderr, m) }
+		w.Progress = doomsdayProgress
 		return w.FinishEngine()
 	}
 	doomsdayReadEngine = func(cfg *globalConfig) doomsdaycli.Engine {
@@ -96,6 +99,17 @@ func init() {
 			return r.GuardTurns(ctx, cwd, active)
 		})
 	}
+}
+
+// doomsdayProgressOut is where the CLI's Stop prints its early progress line (a test swaps it).
+var doomsdayProgressOut io.Writer = os.Stderr
+
+// doomsdayProgress prints the line and can never fail or end the Stop it reports on. The marker is already durable when it runs, so
+// a reader that went away (`stop 2>&1 | head -1`) must not kill the process with SIGPIPE before the intent, the revocation and the
+// unit end: with SIGPIPE ignored the write fails with EPIPE, and that error is dropped.
+func doomsdayProgress(m string) {
+	signal.Ignore(syscall.SIGPIPE)
+	_, _ = fmt.Fprintln(doomsdayProgressOut, m)
 }
 
 // engineForOpenFailure is the engine when the database cannot be opened. Nothing starts either way (fails closed), but

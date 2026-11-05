@@ -204,7 +204,7 @@ type Stopper struct {
 	Retries int           // database attempts, default 5
 	Backoff time.Duration // base back-off, default 50ms, jittered
 	Hook    Hook
-	// Progress, when set, receives one line once the marker is on disk and before the database step starts (the step that may
+	// Progress, when set, receives one line per Stop call (Stop runs once per open run) once the marker is on disk and before the database step starts (the step that may
 	// wait on a busy database for tens of seconds). Never called when the marker was not written; no retry runs behind it.
 	Progress func(string)
 	// Unrecorded is set when a stop was requested but the marker or the intent is not yet durable.

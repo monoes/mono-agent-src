@@ -392,17 +392,28 @@ func TestStopAnnouncesTheIntentStepAfterTheMarkerAndBeforeTheDatabase(t *testing
 			st.record("db-intent-started")
 		}
 	}
+	s.Hook = func(p string) {
+		if p == "marker.recorded" {
+			st.record("marker-written")
+		}
+	}
 	s.Progress = func(m string) { st.record("progress:" + m) }
-	s.Stop(bg, 7, "ch1", "operator")
-	want := []string{"progress:" + ProgressIntent, "db-intent-started"}
+	rep := s.Stop(bg, 7, "ch1", "operator")
+	want := []string{"marker-written", "progress:" + ProgressIntent, "db-intent-started"}
 	var got []string
 	for _, l := range st.log {
-		if l == want[0] || l == want[1] {
-			got = append(got, l)
+		for _, w := range want {
+			if l == w {
+				got = append(got, l)
+			}
 		}
 	}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
-		t.Fatalf("the early line must come exactly once, before the database step: %v (log %v)", got, st.log)
+		t.Fatalf("want marker < one progress line < database step: %v (log %v)", got, st.log)
+	}
+	// The line changes nothing after it: every later step still ran.
+	if !rep.Stopped() || !contains(st.log, "revoke") || !contains(st.log, "end") {
+		t.Fatalf("steps after the progress line did not all run: %s (log %v)", joined(rep), st.log)
 	}
 	if ProgressIntent != "marker written; recording intent..." {
 		t.Fatalf("the text is part of the operator's contract: %q", ProgressIntent)
