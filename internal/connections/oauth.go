@@ -48,6 +48,9 @@ func copyTokenFields(data map[string]interface{}, fields []string, extra map[str
 // Timeout defaults to 5 minutes if zero.
 // progress, if non-nil, is called with (msg, kind) at key steps; kind is "info", "success", or "error".
 func RunOAuthFlow(ctx context.Context, cfg OAuthConfig, timeout time.Duration, progress func(msg, kind string)) (*OAuthResult, error) {
+	if err := refuseBrowserOpen(); err != nil {
+		return nil, err
+	}
 	if timeout == 0 {
 		timeout = 5 * time.Minute
 	}

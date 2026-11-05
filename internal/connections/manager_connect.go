@@ -89,6 +89,10 @@ func (m *Manager) ConnectOAuthWithFields(ctx context.Context, platformID string,
 		return nil, fmt.Errorf("missing OAuth credentials — set %sCLIENT_ID and %sCLIENT_SECRET", envPrefix, envPrefix)
 	}
 
+	// A refused caller is told so before any line claims a page is opening.
+	if err := refuseBrowserOpen(); err != nil {
+		return nil, err
+	}
 	if progress != nil {
 		progress("Opening browser for authorization…", "info")
 	}

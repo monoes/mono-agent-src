@@ -82,6 +82,9 @@ func (m *Manager) Connect(ctx context.Context, platformID string, opts ConnectOp
 	// 4. Switch on method
 	switch method {
 	case MethodOAuth:
+		if err := refuseBrowserOpen(); err != nil { // before the prompts: a refused caller must not block on stdin
+			return nil, fmt.Errorf("connect: oauth: %w", err)
+		}
 		if p.OAuth != nil && len(p.OAuth.ConnectFields) > 0 {
 			if err := promptFields(p.OAuth.ConnectFields, conn, opts.FieldValues, stdinReader); err != nil {
 				return nil, fmt.Errorf("connect: fields: %w", err)
@@ -91,6 +94,9 @@ func (m *Manager) Connect(ctx context.Context, platformID string, opts ConnectOp
 			return nil, fmt.Errorf("connect: oauth: %w", err)
 		}
 	case MethodOAuth1:
+		if err := refuseBrowserOpen(); err != nil {
+			return nil, fmt.Errorf("connect: oauth1: %w", err)
+		}
 		if err := m.connectFields(p, method, conn, opts.FieldValues, stdinReader); err != nil {
 			return nil, fmt.Errorf("connect: fields: %w", err)
 		}

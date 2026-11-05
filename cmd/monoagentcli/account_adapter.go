@@ -32,7 +32,7 @@ func newAccountCmd(cfg *globalConfig) *cobra.Command {
 func addSignIn(cfg *globalConfig, cmd *cobra.Command, name string) func(*cobra.Command) (account.Status, bool, error) {
 	return accountcli.SignIn{
 		JSONOutput:   func() bool { return cfg.JSONOutput },
-		OpenLoginURL: func(u string) error { return openLoginURL(u) },
+		OpenLoginURL: openLoginURLGated,
 	}.Add(cmd, name)
 }
 
