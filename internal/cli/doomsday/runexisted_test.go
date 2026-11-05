@@ -80,3 +80,20 @@ func TestHostGateNoRunEverOpenedStillFailsOpenWithAMigratedDatabase(t *testing.T
 		t.Fatalf("a dispatch was refused over a closed database on an install that never opened a run: %v", err)
 	}
 }
+
+// A process that read the record as "never opened" must read it again when the table later cannot be listed: another process
+// may have opened the first run since, and a wiped run directory must not hide that.
+func TestHostGateRecordReadAsNeverOpenedIsReadAgainWhenTheTableTurnsUnreadable(t *testing.T) {
+	s := newSeededGate(t)
+	if ran, err := s.dispatch(); err != nil || !ran {
+		t.Fatalf("setup: with no run the dispatch is plain: %v", err)
+	}
+	seedRun(t, s.st) // another process opens the first run; this process has not listed it
+	if s.dir.HasRunTraces() {
+		t.Fatal("setup: the directory must hold no trace")
+	}
+	s.renameRuns(t)
+	if ran, err := s.dispatch(); !refused(err) || ran {
+		t.Fatalf("a dispatch was made after another process opened a run, with the table unreadable and the directory wiped: ran %v err %v", ran, err)
+	}
+}
