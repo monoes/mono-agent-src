@@ -165,7 +165,8 @@ func (s *Store) BeginCapRun(ctx context.Context, profileID string, sessionID int
 			return limit("session #%d has %d runs in flight on its cap", sessionID, live)
 		}
 		lease := s.now().UTC().Add(ReservationLease).Format(timeFmt)
-		res, err := x.ExecContext(ctx, `INSERT INTO task_session_cap_runs (profile_id, session_id, owner_id, run_ref, lease_until, created_at) VALUES (?,?,?,?,?,?)`,
+		res, err := x.ExecContext(ctx, `INSERT INTO task_session_cap_runs (profile_id, session_id, owner_id, run_ref, lease_until, created_at, reservation_mark)
+			VALUES (?,?,?,?,?,?, (SELECT COALESCE(MAX(id), 0) FROM task_session_reservations))`,
 			profileID, sessionID, ownerID, runRef, lease, s.stamp())
 		if err != nil {
 			return fmt.Errorf("tasks: registering a run on session #%d: %w", sessionID, err)
@@ -180,15 +181,61 @@ func (s *Store) BeginCapRun(ctx context.Context, profileID string, sessionID int
 	return out, err
 }
 
+// The renewal rule of the two heartbeats. A cap run and a reservation are never in flight on one session together,
+// and a renewal must not put them side by side. Leases are judged by the writer's clock, and two handles whose clocks
+// differ by more than the lease and the grace read each other's live rows as lapsed (so one registers beside the other
+// and a lease check by the other, who reads its own row as fresh, passes). The renewal therefore also rests on an ORDER
+// that no clock enters: a cap run records the newest reservation id when it registers (reservation_mark; ids only grow).
+//
+//	cap run C renewing, its lease fresh in the writer's eyes: refused (ErrReservationLost) when a reservation of the
+//	  session above C's mark exists in state live or expired, i.e. one taken after C began (it holds money beside C);
+//	reservation R renewing, its lease fresh in the writer's eyes: refused when a cap run of the session has a mark at or
+//	  above R's id (a run registered after R was taken), however its lease reads.
+//
+// A fresh lease beside a row of the other kind that was taken after it began can only come from a mislead clock: the
+// registration and the grant each refuse the other kind while it is live. When the lease is lapsed past the grace in
+// the writer's eyes (the suspended machine), the row is renewed unless a LIVE row of the other kind is beside it, as
+// before; the dead rows that were beside it are then dropped (cap runs) or left behind by the mark (a cap run moves
+// its mark to the newest id), so the next renewal does not meet them again.
+
+// refuseReservationAboveMark is ErrReservationLost when a reservation of the session above the cap run's mark is
+// live or expired (taken after the run began, and still holding money).
+func refuseReservationAboveMark(ctx context.Context, x dbx, profileID string, session, id, mark int64) error {
+	var n int
+	if err := x.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_session_reservations WHERE profile_id = ? AND session_id = ? AND id > ? AND state IN ('live','expired')`,
+		profileID, session, mark).Scan(&n); err != nil {
+		return fmt.Errorf("tasks: reading the reservations of session #%d: %w", session, err)
+	}
+	if n > 0 {
+		return fmt.Errorf("%w: cap run #%d began before %d reservation(s) of session #%d were taken", ErrReservationLost, id, n, session)
+	}
+	return nil
+}
+
+// refuseCapRunAboveReservation is ErrReservationLost when a cap run of the session registered after reservation id
+// was taken (its mark is at or above the id). Any lease: whether it is live is a clock's word.
+func refuseCapRunAboveReservation(ctx context.Context, x dbx, profileID string, session, id int64) error {
+	var n int
+	if err := x.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_session_cap_runs WHERE profile_id = ? AND session_id = ? AND reservation_mark >= ?`,
+		profileID, session, id).Scan(&n); err != nil {
+		return fmt.Errorf("tasks: reading the cap runs of session #%d: %w", session, err)
+	}
+	if n > 0 {
+		return fmt.Errorf("%w: #%d has %d cap run(s) on its session that began after it was taken", ErrReservationLost, id, n)
+	}
+	return nil
+}
+
 // HeartbeatCapRun renews the owner's registration. ErrReservationLost says it is gone (ended, swept, its session
-// deleted, another owner's), or that it lapsed past the grace and a reservation entered the session meanwhile: the
-// run must stop, it may not go on beside the hold. A lapsed row with nothing else on the session is renewed, as a
-// reservation of a suspended machine is.
+// deleted, another owner's), that a reservation was taken on the session after it began (see the renewal rule above),
+// or that it lapsed past the grace and a live reservation entered the session meanwhile: the run must stop, it may
+// not go on beside the hold. A lapsed row with nothing else on the session is renewed, as a reservation of a suspended
+// machine is.
 func (s *Store) HeartbeatCapRun(ctx context.Context, profileID string, id int64, ownerID string) error {
 	return s.tx(ctx, func(x dbx) error {
-		var session int64
+		var session, mark int64
 		var lease string
-		err := x.QueryRowContext(ctx, `SELECT session_id, lease_until FROM task_session_cap_runs WHERE id = ? AND owner_id = ? AND profile_id = ?`, id, ownerID, profileID).Scan(&session, &lease)
+		err := x.QueryRowContext(ctx, `SELECT session_id, lease_until, reservation_mark FROM task_session_cap_runs WHERE id = ? AND owner_id = ? AND profile_id = ?`, id, ownerID, profileID).Scan(&session, &lease, &mark)
 		if err != nil {
 			return fmt.Errorf("%w: cap run #%d", ErrReservationLost, id)
 		}
@@ -200,9 +247,17 @@ func (s *Store) HeartbeatCapRun(ctx context.Context, profileID string, id int64,
 			if n > 0 {
 				return fmt.Errorf("%w: cap run #%d lapsed and the session has a reservation now", ErrReservationLost, id)
 			}
+		} else if err := refuseReservationAboveMark(ctx, x, profileID, session, id, mark); err != nil {
+			return err
 		}
-		res, err := x.ExecContext(ctx, `UPDATE task_session_cap_runs SET lease_until = MAX(lease_until, ?) WHERE id = ? AND owner_id = ? AND profile_id = ?`,
-			s.now().UTC().Add(ReservationLease).Format(timeFmt), id, ownerID, profileID)
+		advance := 0 // a lapsed run that is renewed leaves the dead reservations beside it behind its mark
+		if lease < s.lapseCutoff() {
+			advance = 1
+		}
+		res, err := x.ExecContext(ctx, `UPDATE task_session_cap_runs SET lease_until = MAX(lease_until, ?),
+				reservation_mark = CASE WHEN ? = 1 THEN MAX(reservation_mark, (SELECT COALESCE(MAX(id), 0) FROM task_session_reservations)) ELSE reservation_mark END
+			WHERE id = ? AND owner_id = ? AND profile_id = ?`,
+			s.now().UTC().Add(ReservationLease).Format(timeFmt), advance, id, ownerID, profileID)
 		if err != nil {
 			return fmt.Errorf("tasks: renewing cap run #%d: %w", id, err)
 		}
