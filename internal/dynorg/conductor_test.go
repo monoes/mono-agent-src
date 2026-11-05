@@ -16,6 +16,10 @@ import (
 type recEmitter struct {
 	mu     sync.Mutex
 	events []recEvent
+	// lagCode/lag hold back the recording of the notice with that code, as a loaded box or a slow
+	// listener would.
+	lagCode string
+	lag     time.Duration
 }
 
 type recEvent struct {
@@ -24,6 +28,11 @@ type recEvent struct {
 }
 
 func (r *recEmitter) Emit(typ chatevents.EventType, payload any) {
+	if r.lagCode != "" {
+		if b, _ := json.Marshal(payload); strings.Contains(string(b), `"`+r.lagCode+`"`) {
+			time.Sleep(r.lag)
+		}
+	}
 	r.mu.Lock()
 	r.events = append(r.events, recEvent{typ, payload})
 	r.mu.Unlock()
