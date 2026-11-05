@@ -16,6 +16,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/nodemgr"
 	"github.com/monoes/mono-agent/internal/proctree"
+	"github.com/monoes/mono-agent/internal/workflow"
 )
 
 // exitGrace is how long a server gets to exit on its own after its stdin
@@ -51,7 +52,7 @@ func startStdio(command string, args []string, env map[string]string, cwd string
 		bin = p
 	}
 	cmd := exec.Command(bin, args...)
-	cmd.Env = nodemgr.UserEnv(os.Environ())
+	cmd.Env = workflow.WithoutRunToken(nodemgr.UserEnv(os.Environ())) // the engine process's own run token is never handed on
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}

@@ -40,7 +40,8 @@ func AbandonBegin(conn *sql.Conn) {
 // before fn's first read, so a writer that commits in between cannot make a read-then-write fail at once with
 // SQLITE_BUSY_SNAPSHOT (517), which busy_timeout does not wait for; the BEGIN waits for the lock instead. A nil
 // result from fn commits; any error rolls back. The ROLLBACK does not use ctx (a cancelled one would skip it and
-// leave the write lock held), and a failed BEGIN goes through AbandonBegin. The connection is always released.
+// leave the write lock held), and both a failed BEGIN and the rollback of a failed fn or COMMIT go through
+// AbandonBegin, so a connection whose ROLLBACK fails is dropped instead of returned inside the transaction. The connection is always released.
 func WithWriteTx(ctx context.Context, db *sql.DB, fn func(conn *sql.Conn) error) error {
 	conn, err := db.Conn(ctx)
 	if err != nil {
@@ -54,7 +55,7 @@ func WithWriteTx(ctx context.Context, db *sql.DB, fn func(conn *sql.Conn) error)
 	committed := false
 	defer func() {
 		if !committed {
-			_, _ = conn.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
+			AbandonBegin(conn)
 		}
 	}()
 	if err := fn(conn); err != nil {

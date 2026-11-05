@@ -8,25 +8,26 @@ import (
 	"github.com/monoes/mono-agent/internal/cli/opgate"
 )
 
-// doomsdayEngine is the store/stop adapter of the open-ended mode. It is nil
-// on every install until the mode is built in: nil means doomsdaycli.Off, which
-// refuses to start anything. Nothing reads a setting or an environment
-// variable to turn the mode on; wiring an engine is a code change.
+// doomsdayEngine is the store/stop adapter of the open-ended mode. doomsday_engine.go sets it in init() in every
+// build; it is called each time a verb asks for the engine (Deps.Engine), so the database is opened and the engine built
+// then, not at startup. The mode is off until a charter starts a run: with no run the engine refuses or reads nothing,
+// and where containment is unavailable (no cgroup v2 delegation, macOS, Windows) it refuses to start. Nothing reads a
+// setting or an environment variable to turn the mode on. Nil (only in a test that clears it) means doomsdaycli.Off.
 var doomsdayEngine func(*globalConfig) doomsdaycli.Engine
 
-// doomsdayReadEngine is set by the same build: the engine of the control room's read verbs (no witness sequencer
+// doomsdayReadEngine is set in the same init: the engine of the control room's read verbs (no witness sequencer
 // just to read). Nil falls back to doomsdayEngine.
 var doomsdayReadEngine func(*globalConfig) doomsdaycli.Engine
 
-// doomsdayChat is set by the same build: it hands the chat commands the resolver of the open run's merge gate
-// (chatcli.Deps.DoomsdayMerge) and installs the worktree reconcile guard. Nil leaves merges and reconcile as they were.
-// doomsdayStrategyReader is set by the same build: the read-only reader of the `doomsday strategy` verbs. Nil leaves
+// doomsdayStrategyReader is set in the same init: the read-only reader of the `doomsday strategy` verbs. Nil leaves
 // them printing "off".
 var doomsdayStrategyReader func(*globalConfig) doomsdaycli.StrategyReader
 
+// doomsdayChat is set in the same init: it hands the chat commands the resolver of the open run's merge gate
+// (chatcli.Deps.DoomsdayMerge) and installs the worktree reconcile guard. Nil leaves merges and reconcile as they were.
 var doomsdayChat func(cfg *globalConfig, d *chatcli.Deps)
 
-// doomsdayExtra is set by the same build: it adds the groups only a build with the mode has (the governor's read-only
+// doomsdayExtra is set in the same init: it adds the groups beyond the base verbs (the governor's read-only
 // status). Nil leaves the group as it is.
 var doomsdayExtra func(cfg *globalConfig, grp *cobra.Command, d doomsdaycli.Deps)
 

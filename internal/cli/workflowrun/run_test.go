@@ -313,7 +313,7 @@ func runMarkOf(t *testing.T, cfg *testConfig) interface{} {
 
 func clearAgentEnv(t *testing.T) {
 	t.Helper()
-	for _, k := range append(browserctl.AgentContextEnv(), browserjev.EnvAICaller, browserctl.EnvAgentKind, workflow.EnvWorkflowRun, workflow.EnvUnapprovedRun) {
+	for _, k := range append(browserctl.AgentContextEnv(), browserjev.EnvAICaller, browserctl.EnvAgentKind, workflow.EnvWorkflowRun, workflow.EnvUnapprovedRun, workflow.EnvRunToken) {
 		t.Setenv(k, "")
 	}
 }
@@ -337,14 +337,36 @@ func TestRunDoesNotHonourABareChatClaimInACoderTurn(t *testing.T) {
 	}
 }
 
-// A node of an approved workflow that runs `workflow run` (EnvWorkflowRun, no other marker) starts an agent's
-// run: marked other, so its sends queue and non-builtin browser packages are refused.
+// A node of an approved workflow that runs `workflow run` (EnvWorkflowRun and the approved run's token, no other
+// marker) starts an agent's run: marked other, so its sends queue and non-builtin browser packages are refused.
+// One that shows no approved token (dropped, or the run was unapproved) is marked as called by an unapproved workflow.
 func TestRunMarksTheChildRunOfAnApprovedWorkflowOther(t *testing.T) {
 	cfg := runDB(t, true)
 	clearAgentEnv(t)
 	t.Setenv(workflow.EnvWorkflowRun, "run-marker")
+	if got := runMarkOf(t, cfg); got != workflow.UnapprovedWorkflowCaller {
+		t.Errorf("a workflow node's child run with no token: %v, want %s", got, workflow.UnapprovedWorkflowCaller)
+	}
+	db, err := openTestDB(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	tok, err := workflow.IssueRunToken(context.Background(), db.DB, "run-marker", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(workflow.EnvRunToken, tok)
 	if got := runMarkOf(t, cfg); got != browserctl.KindOther {
-		t.Errorf("a workflow node's child run: %v, want other", got)
+		t.Errorf("a workflow node's child run with its approved token: %v, want other", got)
+	}
+	bad, err := workflow.IssueRunToken(context.Background(), db.DB, "run-bad", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(workflow.EnvRunToken, bad)
+	if got := runMarkOf(t, cfg); got != workflow.UnapprovedWorkflowCaller {
+		t.Errorf("a child of an unapproved run: %v, want %s", got, workflow.UnapprovedWorkflowCaller)
 	}
 }
 

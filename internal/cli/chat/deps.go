@@ -44,7 +44,7 @@ type Deps struct {
 	DoomsdayMerge func(db *sql.DB) func(ctx context.Context) (*dynorg.DoomsdayMerge, error)
 }
 
-// doomsdayFor is dynorg.Config.DoomsdayFor for db, or nil when the mode is not built in.
+// doomsdayFor is dynorg.Config.DoomsdayFor for db, or nil when no merge resolver is set.
 func (d *Deps) doomsdayFor(db *sql.DB) func(ctx context.Context) (*dynorg.DoomsdayMerge, error) {
 	if d.DoomsdayMerge == nil {
 		return nil

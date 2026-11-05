@@ -156,3 +156,20 @@ func TestWithWriteTxRollsBackAfterTheContextEnds(t *testing.T) {
 	}
 	dbconntest.RequireClean(t, db)
 }
+
+// A ROLLBACK that fails (not "no transaction is active") leaves the connection in an unknown state, possibly still
+// inside the transaction: WithWriteTx drops it instead of returning it to the pool.
+func TestWithWriteTxDropsAConnectionWhoseRollbackFails(t *testing.T) {
+	db, trip := dbconntest.Open(t)
+	trip.RollbackErr = errors.New("disk I/O error")
+	boom := errors.New("boom")
+	err := WithWriteTx(context.Background(), db, func(*sql.Conn) error { return boom })
+	if !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want fn's error", err)
+	}
+	trip.RollbackErr = nil
+	dbconntest.RequireClean(t, db)
+	if n := trip.Opened.Load(); n != 2 {
+		t.Fatalf("connections opened = %d, want a fresh one after the drop", n)
+	}
+}
