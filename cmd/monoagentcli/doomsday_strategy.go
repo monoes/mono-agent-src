@@ -1,5 +1,3 @@
-//go:build doomsday
-
 package main
 
 import (
@@ -19,9 +17,8 @@ import (
 	"github.com/monoes/mono-agent/internal/mcp"
 )
 
-// The strategy layer's wiring (behind -tags doomsday, like the rest of the mode): the read-only verbs' reader, the engine
-// loop that ticks the strategy host, and the boss tools' caller. A default build links none of it, and with no run open
-// every part is a no-op.
+// The strategy layer's wiring (like the rest of the mode): the read-only verbs' reader, the engine
+// loop that ticks the strategy host, and the boss tools' caller. With no run open every part is a no-op.
 
 // strategyReaderFor is the reader of `doomsday strategy status|epochs|directions`. A database that cannot be opened is the
 // layer being off.

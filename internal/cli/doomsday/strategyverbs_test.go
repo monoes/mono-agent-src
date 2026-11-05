@@ -194,14 +194,10 @@ func TestRedactTextBasics(t *testing.T) {
 	}
 }
 
-// The strategy layer's host and reader symbols and its library imports live in an exact set of the wiring's files, with the
-// mode's tag set or not (the scan reads the package as a build with the tag sees it; without the tag in the source it is the
-// default build's). The scan sets only the doomsday tag, so a file constrained by another tag or a platform is read as that
-// scan sees it. A new file that imports a strategy library or declares a host, reader or sink fails until it is decided here.
+// The strategy layer's host and reader symbols and its library imports live in an exact set of the wiring's files. A new file that imports a strategy library or declares a host, reader or sink fails until it is decided here.
 func TestStrategySymbolsLiveOnlyInTheWiringFiles(t *testing.T) {
 	const strategyPrefix = "github.com/monoes/mono-agent/internal/doomsday/strategy"
 	ctx := build.Default
-	ctx.BuildTags = []string{"doomsday"}
 	pkg, err := ctx.ImportDir(".", 0)
 	if err != nil {
 		t.Fatal(err)

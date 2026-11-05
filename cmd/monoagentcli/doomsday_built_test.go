@@ -1,5 +1,3 @@
-//go:build doomsday
-
 package main
 
 import (
@@ -11,8 +9,7 @@ import (
 	"github.com/monoes/mono-agent/internal/doomsday/stop"
 )
 
-// The text and verbs of a build with the mode wired (see doomsday_default_stub_test.go for the names). After the tag is
-// removed this is the only version of them.
+// The text and verbs of the wired build: the names the build-agnostic tests read.
 const (
 	governorVerbExpected        = true
 	controlRoomNoRunReason      = "no_run"

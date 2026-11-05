@@ -1,4 +1,4 @@
-//go:build doomsday && linux
+//go:build linux
 
 package main
 

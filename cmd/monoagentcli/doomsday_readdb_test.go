@@ -1,5 +1,3 @@
-//go:build doomsday
-
 package main
 
 import (

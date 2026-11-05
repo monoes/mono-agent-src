@@ -57,7 +57,7 @@ func TestDoomsdayStrategyVerbsAreExactlyTheThreeReadOnlyOnes(t *testing.T) {
 	}
 }
 
-// With no engine (default build) and with the engine but no run recorded (a -tags doomsday build on a fresh database),
+// With the engine but no run recorded (a fresh database),
 // every strategy verb says the layer is off, exits cleanly and starts nothing.
 func TestDoomsdayStrategyVerbsSayOffWhenNothingIsRunning(t *testing.T) {
 	for _, verb := range doomsdayStrategyVerbs {

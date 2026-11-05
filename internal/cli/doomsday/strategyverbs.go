@@ -17,7 +17,7 @@ const AnnotationReadOnly = "monoagent/read-only"
 // operator-only: each one reads through the MAC-verifying store and writes nothing.
 var StrategyVerbs = []string{"status", "epochs", "directions"}
 
-// StrategyCommands is the `strategy` group of the doomsday command. With no reader (the default build) every verb prints
+// StrategyCommands is the `strategy` group of the doomsday command. With no reader every verb prints
 // "off" and reads nothing. The integrator adds it to NewCommand (it is not added here).
 func StrategyCommands(d StrategyDeps) *cobra.Command {
 	cmd := &cobra.Command{

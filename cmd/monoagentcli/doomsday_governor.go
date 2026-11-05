@@ -1,5 +1,3 @@
-//go:build doomsday
-
 package main
 
 import (
@@ -19,7 +17,7 @@ import (
 	"github.com/monoes/mono-agent/internal/doomsday/store"
 )
 
-// The resource governor's construction in the engine (note B3). A default build links none of it; with no running run every
+// The resource governor's construction in the engine (note B3). With no running run every
 // part is a plain call.
 
 var (
