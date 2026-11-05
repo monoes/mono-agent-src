@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -12,7 +13,7 @@ import (
 // none (issue 1455). The classes below are written out here, not read from the code under test.
 func TestARunMarkNeverLoosensTheOldMark(t *testing.T) {
 	class := map[string]int{
-		"other": 3, "other/org": 3, UnapprovedWorkflowCaller: 3,
+		"other": 3, "other/org": 3, UnapprovedWorkflowCaller: 4, UnapprovedWorkflowCaller + "/x": 4,
 		"coder": 2, "apply": 2, "org": 2, "coder/org": 2, "some-future-kind": 2,
 		"chat": 1,
 		"":     0, "  ": 0, "\t": 0,
@@ -26,7 +27,7 @@ func TestARunMarkNeverLoosensTheOldMark(t *testing.T) {
 		for next, nc := range class {
 			want := old
 			if nc > oc {
-				want = next
+				want = strings.TrimSpace(next) // a winning mark is stored trimmed, never padded
 			}
 			data := map[string]interface{}{"keep": 1}
 			if old != "" {
@@ -94,7 +95,9 @@ func TestRetryExecutionKeepsTheStricterMark(t *testing.T) {
 		{"the user's run retried by an other agent", "", "other", "other"},
 		{"an agent's run retried by the user", "coder/org", "", "coder/org"},
 		{"a tie keeps the old mark with its suffix", "other/org", "other", "other/org"},
-		{"a padded retrier mark", "chat", " other ", " other "},
+		{"a padded retrier mark is stored trimmed", "chat", " other\t", "other"},
+		{"an other agent's run retried by an unapproved workflow's", "other", UnapprovedWorkflowCaller, UnapprovedWorkflowCaller},
+		{"an unapproved workflow's run retried by an other agent", UnapprovedWorkflowCaller, "other", UnapprovedWorkflowCaller},
 	} {
 		data := map[string]interface{}{"who": "zed"}
 		if c.old != "" {
@@ -121,6 +124,16 @@ func TestRetryExecutionKeepsTheStricterMark(t *testing.T) {
 		}
 		if got, _ := old.TriggerData[AICallerKey].(string); got != c.old {
 			t.Errorf("%s: the old run's row was changed to %q", c.name, got)
+		}
+	}
+}
+
+// A winning mark is stored as kind[/suffix] without the padding it came with.
+func TestAWinningRunMarkIsStoredTrimmed(t *testing.T) {
+	for _, next := range []string{" other", "other ", "\tother\n", "  coder/org  "} {
+		got := withRunMark(WithRunMark(context.Background(), next), map[string]interface{}{})
+		if want := strings.TrimSpace(next); got[AICallerKey] != want {
+			t.Errorf("retrier %q: stored %q, want %q", next, got[AICallerKey], want)
 		}
 	}
 }
