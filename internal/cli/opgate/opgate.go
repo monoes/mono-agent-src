@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/operator"
+	"github.com/monoes/mono-agent/internal/orgsign"
 )
 
 // UnplacedPrefix starts the reason of a process the gate could not place (the database or the turn
@@ -99,8 +100,17 @@ func install(f body) {
 	registered = f
 	if f == nil {
 		operator.SetTurnVerdict(nil)
+		orgsign.SetTurnVerdict(nil)
 		return
 	}
+	orgsign.SetTurnVerdict(func() (why string) {
+		defer func() {
+			if recover() != nil {
+				why = operator.UnplacedPrefix
+			}
+		}()
+		return f(false)
+	})
 	operator.SetTurnVerdict(func() (why string) {
 		defer func() {
 			if recover() != nil {
