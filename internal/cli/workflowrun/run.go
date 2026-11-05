@@ -2,6 +2,7 @@ package workflowrun
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -288,7 +289,12 @@ func (d Deps) newRunCmd() *cobra.Command {
 			}
 			workflow.StripEngineKeys(triggerData)
 			// An agent's run stays its own in a daemon (--no-wait, a resume).
-			browserjev.MarkAICaller(triggerData)
+			var markDB *sql.DB
+			if db, err := d.OpenDB(); err == nil {
+				markDB = db.DB
+				defer db.Close()
+			}
+			browserjev.MarkAICallerRun(cmd.Context(), markDB, triggerData)
 
 			engine, closeBrowsers, err := d.BuildEngine()
 			if err != nil {

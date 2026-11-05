@@ -2,6 +2,7 @@ package browserjev
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -115,7 +116,13 @@ func envCaller() (caller, bool) {
 // it — this one, or a daemon that adopts a --no-wait run or resumes a paused
 // one — holds it to the same level. A kind the caller declared but could
 // not prove follows as "kind/declared" ("other/org").
-func MarkAICaller(data map[string]interface{}) {
+func MarkAICaller(data map[string]interface{}) { MarkAICallerRun(context.Background(), nil, data) }
+
+// MarkAICallerRun is MarkAICaller with the database the run's token is looked up in (db: the profile's). A
+// process a workflow node started (or one under such a process) that cannot show the token of an approved,
+// live run (operator.UnapprovedRunProcess) marks its run as called by an unapproved workflow; with no db it
+// cannot, so it is marked.
+func MarkAICallerRun(ctx context.Context, db *sql.DB, data map[string]interface{}) {
 	if data == nil {
 		return
 	}
@@ -129,7 +136,7 @@ func MarkAICaller(data map[string]interface{}) {
 	}
 	// A command a workflow node started in a run nobody approved (or one such a run called) that
 	// starts another run: that run is called by an unapproved workflow, whatever its own markers.
-	if operator.UnapprovedRunProcess() {
+	if operator.UnapprovedRunProcess(ctx, db) {
 		data[workflow.AICallerKey] = workflow.UnapprovedWorkflowCaller
 	}
 }

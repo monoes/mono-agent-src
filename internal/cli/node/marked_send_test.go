@@ -1,6 +1,7 @@
 package node
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"sync/atomic"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/browserctl"
 	"github.com/monoes/mono-agent/internal/hilsend"
+	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -23,7 +25,9 @@ func TestNodeRunOfASendFromAMarkedProcessWaits(t *testing.T) {
 		wantHeld       bool
 	}{
 		{"unapproved workflow's child", workflow.EnvUnapprovedRun, "1", true},
-		{"approved workflow's child", workflow.EnvWorkflowRun, "exec-1", false},
+		{"unapproved run's child with its token", workflow.EnvRunToken, "unapproved", true},
+		{"approved workflow's child that dropped the token", workflow.EnvWorkflowRun, "exec-1", true},
+		{"approved workflow's child", workflow.EnvRunToken, "approved", false},
 		{"chat's run", browserctl.EnvAICaller, browserctl.KindChat, true},
 		{"operator terminal", "", "", false},
 	}
@@ -31,17 +35,23 @@ func TestNodeRunOfASendFromAMarkedProcessWaits(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			dbPath := migratedTestDB(t) // clears the markers: set the caller up after it
 			asTheOperator(t)
-			for _, k := range []string{hilsend.EnvAgentContext, "MONOAGENT_ACTOR", hilsend.EnvApprovalID, hilsend.EnvApprovalProof, workflow.EnvUnapprovedRun} {
+			for _, k := range []string{hilsend.EnvAgentContext, "MONOAGENT_ACTOR", hilsend.EnvApprovalID, hilsend.EnvApprovalProof, workflow.EnvUnapprovedRun, workflow.EnvRunToken} {
 				t.Setenv(k, "")
 			}
 			if _, agent := hilsend.Detect(); agent {
 				t.Fatal("test setup: Detect must see no agent")
 			}
-			if c.env != "" {
+			if c.env != "" && c.env != workflow.EnvRunToken {
 				t.Setenv(c.env, c.val)
 			}
-			if c.env == workflow.EnvUnapprovedRun {
+			if c.env == workflow.EnvUnapprovedRun || c.env == workflow.EnvRunToken {
 				t.Setenv(workflow.EnvWorkflowRun, "exec-1") // every node's child has it too
+			}
+			switch c.val { // the engine hands a child the token of its run
+			case "approved":
+				t.Setenv(workflow.EnvRunToken, approvedRunToken(t, dbPath, true))
+			case "unapproved":
+				t.Setenv(workflow.EnvRunToken, approvedRunToken(t, dbPath, false))
 			}
 			var runs atomic.Int32
 			d := testDeps(dbPath, "default", false)
@@ -67,4 +77,20 @@ func TestNodeRunOfASendFromAMarkedProcessWaits(t *testing.T) {
 			}
 		})
 	}
+}
+
+// approvedRunToken records an approved, live execution in the database at dbPath and returns its token: what the
+// engine hands the children of an approved workflow's node.
+func approvedRunToken(t *testing.T, dbPath string, approved bool) string {
+	t.Helper()
+	db, err := storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	tok, err := workflow.IssueRunToken(context.Background(), db.DB, "exec-1", approved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tok
 }

@@ -159,6 +159,7 @@ type tokenProbe struct {
 	approved *bool
 }
 
+func (tokenProbe) Type() string { return "test.tokenprobe" }
 func (p tokenProbe) Execute(ctx context.Context, in NodeInput, _ map[string]interface{}) ([]NodeOutput, error) {
 	*p.token = RunTokenFrom(ctx)
 	*p.approved, _ = RunTokenApproved(ctx, vault.DBFromContext(ctx), *p.token)

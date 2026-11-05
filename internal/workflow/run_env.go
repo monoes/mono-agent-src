@@ -23,7 +23,8 @@ func RunEnv(env []string, executionID string) []string {
 	return append(env, EnvWorkflowRun+"="+RunMarker(executionID))
 }
 
-// EnvUnapprovedRun marks a process a workflow node started in a run of a
+// EnvUnapprovedRun (deprecated: the gates look a run up by EnvRunToken now; it is still set for binaries from
+// before the token, which read it) marks a process a workflow node started in a run of a
 // definition the user never approved, or in a run such a workflow called:
 // what it sends waits for approval like an agent's. It only ever adds to
 // EnvWorkflowRun's mark, so a child that sets it makes itself stricter.
@@ -36,6 +37,11 @@ func RunEnvFor(ctx context.Context, env []string, executionID string) []string {
 	env = RunEnv(env, executionID)
 	if RunIsUnapproved(ctx) {
 		env = append(env, EnvUnapprovedRun+"=1")
+	}
+	// The run's token, last so a node's own settings cannot replace it. Without one (the run could not record
+	// itself, or `node run` outside an execution) the children carry none and the gates hold them.
+	if tok := RunTokenFrom(ctx); tok != "" {
+		env = append(env, EnvRunToken+"="+tok)
 	}
 	return env
 }
