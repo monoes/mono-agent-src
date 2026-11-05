@@ -411,7 +411,7 @@ func (s *Store) spawnWith(c Caller, req SpawnRequest, hk spawnHooks) (Spawned, e
 			hk.carveRefused()
 		}
 		undo()
-		return Spawned{}, fmt.Errorf("%w: the budget is more than the master has left", ErrLimit)
+		return Spawned{}, fmt.Errorf("%w: the budget is more than the master has left (%w)", ErrLimit, err)
 	}
 	cs := childSettings(ps, childLevel, s.depthCeiling(c.ProfileID, c.ConversationID))
 	// The child's starting settings replace its document, but not the operator's Mission toggle, which a

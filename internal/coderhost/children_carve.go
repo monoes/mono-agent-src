@@ -1,10 +1,13 @@
 package coderhost
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"math"
+
+	"github.com/monoes/mono-agent/internal/dbconn"
 )
 
 // Carved is the budget the children of a session hold; Remaining is what the
@@ -60,11 +63,27 @@ func (s *Store) carveBudgetAdmit(profileID, parent, child string, usd float64, a
 	if err != nil {
 		return err
 	}
-	tx, err := s.db.Begin()
+	// BEGIN IMMEDIATE (as UpdateSettings): the write lock is taken before the admission's first read, so a writer that
+	// commits in between cannot make the carve's write fail at once with SQLITE_BUSY_SNAPSHOT, which busy_timeout does
+	// not wait for. The carve then waits for the lock like a statement that was first always did.
+	stamp := s.stamp() // read before the write lock is taken
+	ctx := context.Background()
+	conn, err := s.db.Conn(ctx)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		dbconn.AbandonBegin(conn)
+		return fmt.Errorf("begin the carve: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
+		}
+	}()
+	tx := connQuerier{conn}
 	if admit != nil && usd > 0 {
 		if why, err := admit(tx, usd, false); err != nil {
 			return err
@@ -77,7 +96,7 @@ func (s *Store) carveBudgetAdmit(profileID, parent, child string, usd float64, a
 		AND ( (SELECT budget_usd FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?) <= 0
 		   OR ( ? > 0 AND ? <= (SELECT budget_usd FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?)
 		        - ? - COALESCE((SELECT SUM(budget_usd) FROM coder_sessions WHERE profile_id = ? AND parent_conversation_id = ? AND conversation_id != ?), 0) + 1e-9 ) )`,
-		usd, s.stamp(), profileID, child, parent, profileID, parent, usd, usd, profileID, parent, spent, profileID, parent, child)
+		usd, stamp, profileID, child, parent, profileID, parent, usd, usd, profileID, parent, spent, profileID, parent, child)
 	if err != nil {
 		return err
 	}
@@ -97,7 +116,24 @@ func (s *Store) carveBudgetAdmit(profileID, parent, child string, usd float64, a
 			return fmt.Errorf("%w: %s", errCarveNoRoom, why)
 		}
 	}
-	return tx.Commit()
+	if _, err := conn.ExecContext(context.WithoutCancel(ctx), "COMMIT"); err != nil {
+		return fmt.Errorf("commit the carve: %w", err)
+	}
+	committed = true
+	return nil
+}
+
+// connQuerier lends the connection that holds an open transaction to the code that takes a querier.
+type connQuerier struct{ c *sql.Conn }
+
+func (q connQuerier) Exec(query string, args ...any) (sql.Result, error) {
+	return q.c.ExecContext(context.Background(), query, args...)
+}
+func (q connQuerier) Query(query string, args ...any) (*sql.Rows, error) {
+	return q.c.QueryContext(context.Background(), query, args...)
+}
+func (q connQuerier) QueryRow(query string, args ...any) *sql.Row {
+	return q.c.QueryRowContext(context.Background(), query, args...)
 }
 
 // carveVerdict reads what the carve statement did: nil when it carved, errCarveNoRoom when it matched nothing
