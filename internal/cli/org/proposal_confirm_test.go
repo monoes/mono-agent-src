@@ -1,7 +1,11 @@
 package org
 
 import (
+	"context"
+	"time"
+
 	"encoding/json"
+	"github.com/spf13/cobra"
 	"strconv"
 	"strings"
 	"sync"
@@ -447,5 +451,40 @@ func TestAFailedApplyIsNotReadableAsRawTextThroughShow(t *testing.T) {
 	}
 	if res, _ := shown["result"].(map[string]interface{}); res["code"] != "refused" || strconv.Itoa(len(res["message"].(string))) == "0" {
 		t.Fatalf("result %v, want a code and a short message", shown["result"])
+	}
+}
+
+// Two applies in one process never share a capture: each gets the document its own command printed.
+func TestTwoAppliesInOneProcessDoNotShareACapture(t *testing.T) {
+	env := depsEnv()
+	started := [2]chan struct{}{make(chan struct{}), make(chan struct{})}
+	fake := func(i int) *cobra.Command {
+		return &cobra.Command{Use: "x", RunE: func(cmd *cobra.Command, _ []string) error {
+			close(started[i])
+			select { // without the lock the other apply starts while this one is still running
+			case <-started[1-i]:
+			case <-time.After(300 * time.Millisecond):
+			}
+			return printJSONValue(map[string]int{"who": i})
+		}}
+	}
+	var got [2]string
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			out, err := env.runSiblingInProcess(context.Background(), fake(i), "growth", nil)
+			if err != nil {
+				t.Error(err)
+			}
+			got[i] = string(out)
+		}(i)
+	}
+	wg.Wait()
+	for i := 0; i < 2; i++ {
+		if got[i] != `{"who":`+strconv.Itoa(i)+`}` {
+			t.Errorf("apply %d got %q", i, got[i])
+		}
 	}
 }
