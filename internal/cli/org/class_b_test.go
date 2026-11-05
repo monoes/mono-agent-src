@@ -1,9 +1,10 @@
 package org
 
 import (
-	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"strings"
 	"testing"
+
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 )
 
 // The class-B decision: an unmarked process inside a coder turn is treated as an agent for the
@@ -79,3 +80,22 @@ func TestClassBRestrictiveVerbsStayOpenToATurn(t *testing.T) {
 }
 
 func opgateOperator(t *testing.T) { opgate.SetForTest(t, func(bool) string { return "" }) }
+
+// A caller the gate refuses gets the refusal first, whatever else is wrong with the command: no
+// file-system or lookup error tells it anything about the machine or the org.
+func TestClassBRefusalComesBeforeLookupsAndFileReads(t *testing.T) {
+	f := newOrgCLIFixture(t)
+	asInATurn(t)
+	for name, args := range map[string][]string{
+		"set with a missing policy file": {"autonomy", "set", "growth", "--policy-file", "/nonexistent/policy.txt"},
+		"set with a bad threshold":       {"autonomy", "set", "growth", "--decider-threshold", "7"},
+		"set of a missing org":           {"autonomy", "set", "nosuchorg", "--level", "mid"},
+		"resume of a missing org":        {"autonomy", "resume", "nosuchorg"},
+		"grant add of a missing role":    {"grant", "add", "growth", "--role", "nobody", "--automation", "nothing"},
+		"grant add of a missing org":     {"grant", "add", "nosuchorg", "--role", "lead", "--automation", "x"},
+	} {
+		if _, err := f.run(t, args...); exitCodeFor(err) != 3 || !strings.Contains(err.Error(), "is the user's to do: "+turnStandIn) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}

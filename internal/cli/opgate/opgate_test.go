@@ -1,9 +1,11 @@
 package opgate
 
 import (
+	"context"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/operator"
+	"github.com/monoes/mono-agent/internal/orgsign"
 )
 
 func TestWithoutARegisteredBodyTheAnswerIsTheOperatorMarkerCheck(t *testing.T) {
@@ -99,5 +101,29 @@ func TestTheUnplacedPrefixIsTheOperatorPackagesOnePlusTheParenthesis(t *testing.
 	}
 	if !Unplaced(UnplacedPrefix + "database is locked)") {
 		t.Fatal("a reason that starts with the prefix is not unplaced")
+	}
+}
+
+// The registered body is also orgsign.Before's turn check: a missing org file is eligible for a
+// signature of the user's own new content only while no check says the process is not the user's.
+func TestTheRegisteredBodyIsTheOrgSignTurnCheck(t *testing.T) {
+	eligible := func() bool {
+		return orgsign.Before(context.Background(), nil, t.TempDir(), "x", "", true).Eligible()
+	}
+	SetForTest(t, nil)
+	if !eligible() {
+		t.Fatal("test setup: a new org's own content is not eligible with no check")
+	}
+	SetForTest(t, func(bool) string { return "in a turn" })
+	if eligible() {
+		t.Fatal("the registered body is not orgsign's turn check")
+	}
+	SetForTest(t, func(bool) string { panic("no database path") })
+	if eligible() {
+		t.Fatal("a panicking body did not withhold the signature")
+	}
+	SetForTest(t, nil)
+	if !eligible() {
+		t.Fatal("with no body the orgsign turn check is still installed")
 	}
 }

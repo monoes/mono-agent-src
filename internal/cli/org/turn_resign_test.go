@@ -136,7 +136,10 @@ func TestOperatorEditOfASignedOrgIsResigned(t *testing.T) {
 
 // A marked agent is still not re-signed.
 func TestMarkedAgentEditIsStillNotResigned(t *testing.T) {
-	for _, c := range turnResignCases[1:4] {
+	for _, c := range turnResignCases {
+		if c.name != "grant remove" && c.name != "automation add" && c.name != "automation remove" {
+			continue
+		}
 		t.Run(c.name, func(t *testing.T) {
 			calls, st := runTurnResignCase(t, c, func(t *testing.T) { t.Setenv("CLAUDECODE", "1") })
 			if calls != 0 || st.OK() {

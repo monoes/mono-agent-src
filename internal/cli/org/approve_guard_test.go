@@ -99,13 +99,6 @@ func TestOrgApproveOfASendingAutomationIsTheOperatorsOnly(t *testing.T) {
 		if err := run("approve", "growth", "writer", "monoagent__automation_send"); exitCodeFor(err) != 3 || !strings.Contains(err.Error(), "is the user's to do") {
 			t.Errorf("%s set: approve of a sending automation: %v", k, err)
 		}
-		// A variant of its action, which a looser match in monomind might
-		// take for it, matches no pending approval exactly (#833 review, N3).
-		for _, variant := range []string{"MONOAGENT__AUTOMATION_SEND", " monoagent__automation_send", "monoagent__automation_send "} {
-			if err := run("approve", "growth", "writer", variant); exitCodeFor(err) != 3 || !strings.Contains(err.Error(), "is the user's to do") {
-				t.Errorf("%s set: approve of %q: %v", k, variant, err)
-			}
-		}
 		if err := run("approve", "growth", "Writer", "monoagent__automation_sum"); exitCodeFor(err) != 3 {
 			t.Errorf("%s set: approve as another role's spelling: %v", k, err)
 		}
@@ -159,10 +152,14 @@ func TestOrgChatApproveOfASendingAutomationIsTheOperatorsOnly(t *testing.T) {
 		if len(fake.sent) != 0 {
 			t.Errorf("%s set: sent %v", k, fake.sent)
 		}
-		for _, args := range [][]string{{"deny", "acme", "req-send"}, {"approve", "acme", "req-sum"}} {
-			if _, err := runOrgChat(t, cfg, args...); err != nil {
-				t.Errorf("%s set: chat %v: %v", k, args, err)
-			}
+		if _, err := runOrgChat(t, cfg, "approve", "acme", "req-sum"); exitCodeFor(err) != 3 || !strings.Contains(err.Error(), "approving monoagent__automation_sum in org acme is the user's to do: "+k) {
+			t.Errorf("%s set: chat approve of one that sends nothing: %v", k, err)
+		}
+		if len(fake.sent) != 0 {
+			t.Errorf("%s set: sent %v", k, fake.sent)
+		}
+		if _, err := runOrgChat(t, cfg, "deny", "acme", "req-send"); err != nil {
+			t.Errorf("%s set: chat deny: %v", k, err)
 		}
 		t.Setenv(k, "")
 	}

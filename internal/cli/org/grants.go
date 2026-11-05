@@ -202,6 +202,15 @@ func newOrgGrantAddCmd(env *orgEnv) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
+			// What is not the operator's own terminal (an agent, the chat, a workflow, a process inside a
+			// coder turn: opgate) gets no grant at all (class B), and learns nothing from a lookup first.
+			if why := opgate.Refusal(); why != "" {
+				if cmd.Flags().Changed("approval") && approval == "none" {
+					return env.d.InvalidInput("a grant with --approval none lets role %q run %q without asking, which is the user's to give: %s; "+
+						"leave --approval out (or pass required), or run it yourself from a terminal or the app", role, alias, why)
+				}
+				return env.refuseNotOperator(fmt.Sprintf("granting %q to role %q", alias, role))
+			}
 			db, profileID, root, doc, release, err := loadOrgForRowEdit(env, args[0])
 			if err != nil {
 				return err
@@ -228,26 +237,15 @@ func newOrgGrantAddCmd(env *orgEnv) *cobra.Command {
 				return err
 			}
 			outbound := orggrant.OutboundNodes(wf)
-			// What is not the operator's own terminal (an agent, the chat,
-			// a workflow, a process inside a coder turn: opgate) gets no grant at all (class B); a
-			// grant with --approval none is refused with the reason that is specific to it.
-			why := opgate.Refusal()
 			if !cmd.Flags().Changed("approval") {
 				// C-34: side effects outside mono-agent need a decision by default.
 				approval = "none"
-				if len(outbound) > 0 || why != "" {
+				if len(outbound) > 0 {
 					approval = "required"
 				}
 			}
 			if approval != "none" && approval != "required" {
 				return fmt.Errorf("--approval must be none or required")
-			}
-			if approval == "none" && why != "" {
-				return env.d.InvalidInput("a grant with --approval none lets role %q run %q without asking, which is the user's to give: %s; "+
-					"leave --approval out (or pass required), or run it yourself from a terminal or the app", role, alias, why)
-			}
-			if err := env.refuseNotOperator(fmt.Sprintf("granting %q to role %q", alias, role)); err != nil {
-				return err
 			}
 			store := orggrant.NewStore(db.DB)
 			existing, _ := store.ListGrants(ctx, profileID, doc.Name, role)

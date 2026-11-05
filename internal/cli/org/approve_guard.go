@@ -25,7 +25,11 @@ func (env *orgEnv) refuseChatApproval(ctx context.Context, org, action string) e
 	if why == "" {
 		return nil
 	}
-	return env.refuseSendingAction(ctx, org, action, why)
+	if err := env.refuseSendingAction(ctx, org, action, why); err != nil {
+		return err
+	}
+	// Any other approval is the user's too (class B), as for `org approve`.
+	return env.refuseNotOperator(fmt.Sprintf("approving %s in org %s", action, org))
 }
 
 // refuseSendingAction refuses approving an approval of org for action, a

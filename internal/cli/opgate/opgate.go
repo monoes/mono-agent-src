@@ -98,27 +98,26 @@ func Register(f func(recovery bool) string) {
 // anything that goes wrong in it (a panic on an unset database path) counts as inside a turn.
 func install(f body) {
 	registered = f
+	// Every consumer that asks "is this a turn?" without importing opgate gets the same verdict:
+	// add its SetTurnVerdict here and nowhere else.
+	setters := []func(func() string){operator.SetTurnVerdict, orgsign.SetTurnVerdict}
 	if f == nil {
-		operator.SetTurnVerdict(nil)
-		orgsign.SetTurnVerdict(nil)
+		for _, set := range setters {
+			set(nil)
+		}
 		return
 	}
-	orgsign.SetTurnVerdict(func() (why string) {
+	check := func() (why string) {
 		defer func() {
 			if recover() != nil {
 				why = operator.UnplacedPrefix
 			}
 		}()
 		return f(false)
-	})
-	operator.SetTurnVerdict(func() (why string) {
-		defer func() {
-			if recover() != nil {
-				why = operator.UnplacedPrefix
-			}
-		}()
-		return f(false)
-	})
+	}
+	for _, set := range setters {
+		set(check)
+	}
 }
 
 // SetForTest replaces the registered body for the rest of the test; nil restores the default. It

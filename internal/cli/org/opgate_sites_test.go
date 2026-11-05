@@ -37,8 +37,9 @@ func TestOrgChatApproveAsksTheTurnAwareGate(t *testing.T) {
 	if len(fake.sent) != 0 {
 		t.Fatalf("sent %v", fake.sent)
 	}
-	if _, err := runOrgChat(t, cfg, "approve", "acme", "req-sum"); err != nil || len(fake.sent) != 1 {
-		t.Fatalf("approving one that sends nothing: %v %v", err, fake.sent)
+	if _, err := runOrgChat(t, cfg, "approve", "acme", "req-sum"); exitCodeFor(err) != 3 ||
+		err.Error() != "approving monoagent__automation_sum in org acme is the user's to do: "+turnStandIn+"; run it yourself from a terminal or the app" || len(fake.sent) != 0 {
+		t.Fatalf("approving one that sends nothing is the user's too: %v %v", err, fake.sent)
 	}
 }
 

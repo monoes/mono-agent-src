@@ -28,6 +28,7 @@ import (
 const (
 	orgTurnWhy       = "this command runs inside a coder session's turn, so a model is running it"
 	orgUnreadableWhy = "cannot tell whether a coder session's turn runs this command ("
+	orgRunTail       = "run it yourself from a terminal or the app"
 	orgRefusedTail   = "or run it yourself from a terminal or the app"
 	orgApproveSend   = "monoagent__automation_send"
 )
@@ -98,9 +99,13 @@ func checkWhy(t *testing.T, err error, ctx orgGateContext, format string) {
 }
 
 const (
-	orgFullFmt  = "autonomy full lets org growth's decider handle everything with no person involved, which is the user's to choose: %s; set manual or mid, " + orgRefusedTail
-	orgWidenFmt = "--max-decisions 50 (now 5) would let org growth approve more without a person, which is the user's to choose: %s; make it stricter or leave it, " + orgRefusedTail
-	orgNoneFmt  = `a grant with --approval none lets role "lead" run "summarize" without asking, which is the user's to give: %s; leave --approval out (or pass required), ` + orgRefusedTail
+	orgFullFmt    = "autonomy full lets org growth's decider handle everything with no person involved, which is the user's to choose: %s; set manual or mid, " + orgRefusedTail
+	orgSetFmt     = "changing org growth's autonomy is the user's to do: %s; " + orgRunTail
+	orgGrantFmt   = `granting "summarize" to role "lead" is the user's to do: %s; ` + orgRunTail
+	orgApproveFm  = "approving " + orgApproveSend + " by writer in org growth is the user's to do: %s; " + orgRunTail
+	orgApproveSum = "approving monoagent__automation_sum by writer in org growth is the user's to do: %s; " + orgRunTail
+	orgResumeFmt  = "resuming autonomy is the user's to do: %s; " + orgRunTail
+	orgNoneFmt    = `a grant with --approval none lets role "lead" run "summarize" without asking, which is the user's to give: %s; leave --approval out (or pass required), ` + orgRefusedTail
 )
 
 func TestOrgAutonomyFullIsRefusedToAMarkedAgentAndToAProcessInATurn(t *testing.T) {
@@ -131,14 +136,13 @@ func TestOrgAutonomyWideningIsRefusedToAMarkedAgentAndToAProcessInATurn(t *testi
 			f.mustRun(t, "autonomy", "set", "growth", "--level", "mid", "--max-decisions", "5")
 			ctx.setup(t, f)
 			_, err := f.run(t, "autonomy", "set", "growth", "--max-decisions", "50")
-			checkWhy(t, err, ctx, orgWidenFmt)
+			checkWhy(t, err, ctx, orgSetFmt)
 			if got := fmt.Sprint(showAutonomy(t, f, "limits")); !strings.Contains(got, "5") || strings.Contains(got, "50") {
 				t.Fatalf("a refused call changed the limits: %s", got)
 			}
 			// a stricter one is refused too: any autonomy set is the user's (class B)
-			if _, err := f.run(t, "autonomy", "set", "growth", "--max-decisions", "4"); err == nil || !strings.Contains(err.Error(), "is the user's to do: ") {
-				t.Fatalf("a stricter limit: %v", err)
-			}
+			_, err = f.run(t, "autonomy", "set", "growth", "--max-decisions", "4")
+			checkWhy(t, err, ctx, orgSetFmt)
 		})
 	}
 	t.Run("operator", func(t *testing.T) {
@@ -158,19 +162,7 @@ func TestOrgAutonomyEndingAPauseSoonerIsRefusedToAMarkedAgentAndToAProcessInATur
 			ctx.setup(t, f)
 			// resume is refused and leaves the pause
 			_, err := f.run(t, "autonomy", "resume", "growth")
-			if err == nil || exitCodeFor(err) != 3 || !strings.HasPrefix(err.Error(), "ending its pause (until ") {
-				t.Fatalf("resume: %v", err)
-			}
-			wantTail := " sooner would let org growth approve more without a person, which is the user's to choose: "
-			if !strings.Contains(err.Error(), wantTail) || !strings.HasSuffix(err.Error(), "; make it stricter or leave it, "+orgRefusedTail) {
-				t.Fatalf("resume text: %s", err)
-			}
-			if ctx.want != nil && !strings.Contains(err.Error(), wantTail+ctx.want()+"; make") {
-				t.Fatalf("%s: resume text carries another why: %s", ctx.name, err)
-			}
-			if ctx.wantPart != "" && !strings.Contains(err.Error(), ctx.wantPart) {
-				t.Fatalf("%s: resume text: %s", ctx.name, err)
-			}
+			checkWhy(t, err, ctx, orgResumeFmt)
 			// a shorter pause leaves the longer one
 			f.mustRun(t, "autonomy", "pause", "growth", "--for", "30m")
 			if now := showAutonomy(t, f, "paused_until"); now != was || now == nil {
@@ -203,9 +195,8 @@ func TestOrgGrantAddWithoutApprovalIsRefusedToAMarkedAgentAndToAProcessInATurn(t
 				t.Fatalf("a refused call created %d grant(s)", n)
 			}
 			// no grant at all is the caller's (class B), whatever its approval mode
-			if _, err := f.run(t, "grant", "add", "growth", "--role", "lead", "--automation", "summarize"); err == nil || !strings.Contains(err.Error(), "is the user's to do: ") {
-				t.Fatalf("%s: a grant without --approval: %v", ctx.name, err)
-			}
+			_, err = f.run(t, "grant", "add", "growth", "--role", "lead", "--automation", "summarize")
+			checkWhy(t, err, ctx, orgGrantFmt)
 			if n := grantCount(t, f); n != 0 {
 				t.Fatalf("a refused call created %d grant(s)", n)
 			}
@@ -227,15 +218,15 @@ func TestOrgApproveOfASendingAutomationIsRefusedToAMarkedAgentAndToAProcessInATu
 			f, argsLog := orgApproveFixture(t)
 			ctx.setup(t, f)
 			_, err := f.run(t, "approve", "growth", "writer", orgApproveSend)
-			if err == nil || exitCodeFor(err) != 3 || !strings.Contains(err.Error(), "is the user's to do: ") {
-				t.Fatalf("%s: approve: %v", ctx.name, err)
-			}
+			checkWhy(t, err, ctx, orgApproveFm)
 			if approvedSend(argsLog) {
 				t.Fatal("a refused approval reached monomind")
 			}
 			// approving one that sends nothing is refused too; denying stays anyone's
-			if _, err := f.run(t, "approve", "growth", "writer", "monoagent__automation_sum"); err == nil || !strings.Contains(err.Error(), "is the user's to do: ") {
-				t.Fatalf("%s: approve of one that sends nothing: %v", ctx.name, err)
+			_, err = f.run(t, "approve", "growth", "writer", "monoagent__automation_sum")
+			checkWhy(t, err, ctx, orgApproveSum)
+			if b, _ := os.ReadFile(argsLog); strings.Contains(string(b), "org approve") {
+				t.Fatalf("%s: a refused approval reached monomind:\n%s", ctx.name, b)
 			}
 			if _, err := f.run(t, "deny", "growth", "writer", orgApproveSend); err != nil {
 				t.Fatalf("%s: deny: %v", ctx.name, err)

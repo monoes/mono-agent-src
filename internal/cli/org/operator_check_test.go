@@ -164,7 +164,7 @@ func TestOrgAutonomyWideningIsTheOperatorsOnly(t *testing.T) {
 			{"--max-decisions", "0"}, {"--max-decisions", "-1"}, // 0 or less runs as the default, 200
 		} {
 			_, err := f.run(t, append([]string{"autonomy", "set", "growth"}, args...)...)
-			if exitCodeFor(err) != 3 || !strings.Contains(err.Error(), "approve more without a person") || !strings.Contains(err.Error(), "inherited this marker") {
+			if exitCodeFor(err) != 3 || !strings.Contains(err.Error(), "is the user's to do") || !strings.Contains(err.Error(), "inherited this marker") {
 				t.Errorf("%s: autonomy set %v: %v", k, args, err)
 			}
 		}
@@ -203,7 +203,7 @@ func TestOrgAutonomyEndingAPauseIsTheOperatorsOnly(t *testing.T) {
 		t.Setenv(k, "x")
 		for _, args := range [][]string{{"resume", "growth"}, {"resume", "--all"}} {
 			_, err := f.run(t, append([]string{"autonomy"}, args...)...)
-			if exitCodeFor(err) != 3 || !strings.Contains(err.Error(), "ending its pause") || !strings.Contains(err.Error(), "inherited this marker") {
+			if exitCodeFor(err) != 3 || !strings.Contains(err.Error(), "resuming autonomy is the user's to do") || !strings.Contains(err.Error(), "inherited this marker") {
 				t.Errorf("%s: autonomy %v: %v", k, args, err)
 			}
 		}
