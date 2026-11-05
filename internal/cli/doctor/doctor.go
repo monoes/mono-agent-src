@@ -10,11 +10,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/monoes/mono-agent/internal/operator"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/health"
 	"github.com/monoes/mono-agent/internal/nodemgr"
 )
@@ -336,11 +336,11 @@ func printDoctorReport(w io.Writer, rep *health.Report, fixed bool) {
 var stdoutIsTerminal = func(f *os.File) bool { return term.IsTerminal(int(f.Fd())) }
 
 // previewsAllowed says whether text taken from files may be shown on w: only on a terminal that is
-// the operator's own. A pty an agent drives is a terminal too, so the process must also not be
-// marked as an agent's.
+// the operator's own. A pty an agent drives is a terminal too, so the process must also be the user's
+// by the turn-aware verdict: not marked as an agent's and not inside a coder session's turn.
 func previewsAllowed(w io.Writer) bool {
 	f, isFile := w.(*os.File)
-	return isFile && stdoutIsTerminal(f) && operator.Marker() == ""
+	return isFile && stdoutIsTerminal(f) && opgate.Refusal() == ""
 }
 
 // printDoctorReportWith prints the text report. previews says whether text taken from files

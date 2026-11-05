@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
@@ -163,6 +164,9 @@ func (c *globalConfig) gateRefusal(recovery bool) string {
 	return c.gateVerdict(recovery, "do this").why
 }
 
+// gateRegistered says that the turn-aware gate was registered (agentLogFilter keeps its verdict only then).
+var gateRegistered atomic.Bool
+
 // registerOperatorGate makes cfg's turn-aware gate the answer of every command that asks opgate. It runs
 // when the real command tree is built, before any command, so a process that never builds it (library use,
 // the tests of other packages) keeps operator.Refusal.
@@ -171,6 +175,7 @@ func (c *globalConfig) gateRefusal(recovery bool) string {
 var recoverySkippedEntry = func(err error) { fmt.Fprintln(os.Stderr, "warning: "+err.Error()) }
 
 func registerOperatorGate(cfg *globalConfig) {
+	gateRegistered.Store(true)
 	opgate.Register(cfg.gateRefusal)
 	opgate.RegisterRecovery(cfg.gateRecovery)
 }
