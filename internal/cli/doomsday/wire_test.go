@@ -141,7 +141,7 @@ func newWire(t *testing.T, probe func() error, kernel stop.Kernel, revokeErr err
 	t.Helper()
 	keyring.MockInit()
 	dbPath := t.TempDir() + "/dd.db"
-	db, err := storage.NewDatabase(dbPath)
+	db, err := newMigratedDatabase(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}

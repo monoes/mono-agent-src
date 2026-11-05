@@ -15,7 +15,6 @@ import (
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/judge"
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/novelty"
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/types"
-	"github.com/monoes/mono-agent/internal/storage"
 )
 
 var bg = context.Background()
@@ -98,7 +97,7 @@ type fenv struct {
 func newFenv(t *testing.T, mut func(*StrategyHostDeps)) *fenv {
 	t.Helper()
 	keyring.MockInit()
-	d, err := storage.NewDatabase(t.TempDir() + "/dd.db")
+	d, err := newMigratedDatabase(t.TempDir() + "/dd.db")
 	if err != nil {
 		t.Fatal(err)
 	}
