@@ -106,7 +106,9 @@ func TestMissionVerdictStopsVerifierRetries(t *testing.T) {
 		if pass {
 			eventually(t, "verified", func() bool { return r.task(a.ID).Verified })
 		} else {
-			r.waitStatus(a.ID, tasks.StatusReady)
+			// Not waitStatus(ready): the step that returned the task to ready also starts the retry worker, which (the rig's
+			// gate being open) can send it straight back to review before the poll sees ready. The retry count cannot undo.
+			eventually(t, "the failed verdict to be counted", func() bool { return r.task(a.ID).Retries >= 1 })
 		}
 		eventually(t, "the verifier to end", func() bool { return !r.c.verifierLive(a.ID) })
 		runs := r.verifierRuns(a.ID)
