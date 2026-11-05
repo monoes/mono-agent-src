@@ -1,5 +1,5 @@
 # Seconds per cmd/monoagentcli top-level test (subtests included), used by monoagentcli-shard.sh
-# to balance the five monoagentcli test shards. Measured 2026-11-06 on a 24-core box under nokc.sh:
+# to balance the four monoagentcli test shards. Measured 2026-11-06 on a 24-core box under nokc.sh:
 # every test that takes 0.25 s or more without -race (181 of 804) was run with -race
 # (`go test -race -json -run ...`, in batches, its elapsed seconds); every other test carries its
 # non-race `go test -json` seconds times the median race/non-race ratio of the measured ones
