@@ -26,7 +26,7 @@ func TestRunSeenMigrationBackfillsFromExistingRuns(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		if _, err := d.DB.Exec("DELETE FROM schema_migrations WHERE version = 158"); err != nil {
+		if _, err := d.DB.Exec("DELETE FROM schema_migrations WHERE version = 159"); err != nil {
 			t.Fatal(err)
 		}
 		if err := d.ApplyMigrations(); err != nil {
