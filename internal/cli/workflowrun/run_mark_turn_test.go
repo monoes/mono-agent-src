@@ -156,3 +156,26 @@ func TestRetryByTheUserKeepsAnAgentsMark(t *testing.T) {
 		t.Errorf("the user's retry of an agent's run is marked %v, want it to keep %v", got, browserctl.KindOther)
 	}
 }
+
+// A chat's tool call retrying an other agent's run does not loosen it to a chat's: the stricter mark stays.
+func TestRetryByAChatDoesNotLoosenAnOtherAgentsRun(t *testing.T) {
+	cfg := runDB(t, true)
+	clearMarkers(t)
+	opgate.SetForTest(t, func(bool) string { return inCoderTurn })
+	out, err := runWorkflowCmdIn(t, cfg, "", "run", "w", "--input", `{"who":"zed"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var first executionSummaryJSON
+	if err := json.Unmarshal([]byte(out), &first); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(browserjev.EnvAICaller, "chat")
+	if out, err := runWorkflowCmdIn(t, cfg, "", "retry", first.ExecutionID); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	marks := marksOf(t, cfg, `workflow_id = 'w'`)
+	if got := marks[len(marks)-1]; got != browserctl.KindOther {
+		t.Errorf("a chat's retry of an other agent's run is marked %v, want %v", got, browserctl.KindOther)
+	}
+}
