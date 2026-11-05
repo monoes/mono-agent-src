@@ -2,14 +2,33 @@ package tasks
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 )
 
 // Heartbeat renews a live reservation's lease. It matches only the owner's live row: ErrReservationLost means
-// the reservation was expired, ended or deleted, and the worker must stop. A lapsed row that nobody has
-// expired yet is still renewed (a suspended machine survives); lease_until never moves back.
+// the reservation was expired, ended or deleted, and the worker must stop. A row inside the grace is renewed. A row
+// lapsed past the grace that nobody has expired yet is renewed only while no live cap run is on its session (a
+// suspended machine survives): it counted for nothing meanwhile, so a cap run may have begun beside it, and reviving
+// it would put both on the session (the mirror of HeartbeatCapRun). lease_until never moves back.
 func (s *Store) Heartbeat(ctx context.Context, profileID string, id int64, ownerID string) error {
 	return s.tx(ctx, func(x dbx) error {
+		var session int64
+		var lease string
+		err := x.QueryRowContext(ctx, `SELECT session_id, lease_until FROM task_session_reservations WHERE id = ? AND owner_id = ? AND profile_id = ? AND state = 'live'`,
+			id, ownerID, profileID).Scan(&session, &lease)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("%w: #%d", ErrReservationLost, id)
+		}
+		if err != nil {
+			return fmt.Errorf("tasks: reading reservation #%d: %w", id, err)
+		}
+		if lease < s.lapseCutoff() {
+			if err := s.refuseLapsedBesideCapRun(ctx, x, profileID, session, id); err != nil {
+				return err
+			}
+		}
 		now := s.now().UTC()
 		res, err := x.ExecContext(ctx, `UPDATE task_session_reservations SET lease_until = MAX(lease_until, ?), heartbeat_at = ?
 			WHERE id = ? AND owner_id = ? AND profile_id = ? AND state = 'live'`, now.Add(ReservationLease).Format(timeFmt), now.Format(timeFmt), id, ownerID, profileID)

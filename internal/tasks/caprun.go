@@ -47,6 +47,21 @@ func (s *Store) refuseWhileCapRuns(ctx context.Context, x dbx, profileID string,
 	return nil
 }
 
+// refuseLapsedBesideCapRun is ErrReservationLost for a reservation lapsed past the grace while a live cap run is on its
+// session (same liveness as the latch). It runs inside the renewing transaction, so a run cannot register between the
+// read and the write.
+func (s *Store) refuseLapsedBesideCapRun(ctx context.Context, x dbx, profileID string, sessionID, id int64) error {
+	var n int
+	if err := x.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_session_cap_runs WHERE profile_id = ? AND session_id = ? AND lease_until >= ?`,
+		profileID, sessionID, s.lapseCutoff()).Scan(&n); err != nil {
+		return fmt.Errorf("tasks: reading the cap runs of session #%d: %w", sessionID, err)
+	}
+	if n > 0 {
+		return fmt.Errorf("%w: #%d lapsed and the session has a cap run now", ErrReservationLost, id)
+	}
+	return nil
+}
+
 // liveCapRunsBelowTx lists the live cap runs of the session and of every session below it, oldest first (the same
 // liveness as the latch: a row lapsed past the grace counts for nothing). It runs inside the writing transaction of the
 // caller, so a run cannot register between the read and the write.
