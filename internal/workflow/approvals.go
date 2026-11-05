@@ -73,6 +73,14 @@ func AgentCallerFrom(ctx context.Context) string {
 	return why
 }
 
+// AgentRunMark is the kind an agent's `workflow run` marked this run with (AICallerKey, "coder",
+// "other", "other/org"), or "" for a run no agent started. A chat's mark is returned as "chat".
+func AgentRunMark(ctx context.Context) string {
+	v, _ := TriggerDataFrom(ctx)[AICallerKey].(string)
+	kind, _, _ := strings.Cut(strings.TrimSpace(v), "/")
+	return kind
+}
+
 // WithUnapproved marks ctx as a run of a definition the operator never
 // approved (WithAIAuthored) and keeps its file steps to FileGuard: out of
 // the hidden files of the home outside project, the profile's project

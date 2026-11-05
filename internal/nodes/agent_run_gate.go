@@ -38,6 +38,10 @@ func (b *BrowserNode) RunRefusal(ctx context.Context) error {
 		// a command that ran this node and found its process an agent's without a marker (workflow.WithAgentCaller)
 		why = workflow.AgentCallerFrom(ctx)
 	}
+	if why == "" && workflow.AgentRunMark(ctx) != "" {
+		// the run was started by an agent's (or the chat's) `workflow run`, whose process may show no marker
+		why = "an agent started the run"
+	}
 	if why == "" && workflow.AIAuthoredFrom(ctx) {
 		why = "it runs as a step the user hasn't approved"
 	}

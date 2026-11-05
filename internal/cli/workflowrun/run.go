@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/cli/revealgate"
 	"github.com/monoes/mono-agent/internal/cli/workflowtemplates"
 	"github.com/monoes/mono-agent/internal/nodes/browserjev"
@@ -287,8 +288,9 @@ func (d Deps) newRunCmd() *cobra.Command {
 				}
 			}
 			workflow.StripEngineKeys(triggerData)
-			// An agent's run stays its own in a daemon (--no-wait, a resume).
-			browserjev.MarkAICaller(triggerData)
+			// An agent's run stays its own in a daemon (--no-wait, a resume). The verdict is the turn-aware one:
+			// a process inside a coder turn that shows no marker is an agent too.
+			browserjev.MarkAICallerFor(triggerData, opgate.Refusal())
 
 			engine, closeBrowsers, err := d.BuildEngine()
 			if err != nil {

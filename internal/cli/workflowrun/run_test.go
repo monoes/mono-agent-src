@@ -274,6 +274,7 @@ func TestRunMarksARunOfAProcessInACoderTurnWithoutMarkers(t *testing.T) {
 	if got := mark(); got != browserctl.KindOther {
 		t.Errorf("a coder turn without markers is marked as an agent's run: %v", got)
 	}
+	t.Setenv("CLAUDECODE", "1")
 	browserctltest.AsAgentKind(t, browserctl.KindCoder)
 	if got := mark(); got != browserctl.KindCoder {
 		t.Errorf("a marked coder keeps its own kind: %v", got)
