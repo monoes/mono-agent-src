@@ -36,7 +36,8 @@ const (
 	// TTL is how long a proposal can be confirmed.
 	TTL = 30 * time.Minute
 	// MaxPendingPerOrg caps what an agent can have waiting for one org.
-	MaxPendingPerOrg = 5
+	MaxPendingPerOrg          = 5
+	MaxPendingPerConversation = 5
 	// Retention is how long a decided row is kept as the audit trail.
 	Retention = 30 * 24 * time.Hour
 )

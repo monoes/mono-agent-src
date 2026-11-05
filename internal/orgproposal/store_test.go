@@ -384,3 +384,57 @@ func TestListIsScopedToTheProfileOrgAndConversation(t *testing.T) {
 		t.Errorf("profile p2: %d", n)
 	}
 }
+
+// conversation_id is a LABEL the caller chose, never ownership: the caps and the supersede are kept per (org,
+// conversation) so one label cannot fill or clobber another's proposals.
+func inConv(org, target, conv string) Input {
+	i := in(org, target)
+	i.ConversationID = conv
+	return i
+}
+
+func TestTheCapOfFiveIsPerConversation(t *testing.T) {
+	s, _ := newStore(t)
+	for _, tg := range []string{"a", "b", "c", "d", "e"} {
+		mustCreate(t, s, inConv("growth", tg, "A"))
+	}
+	if _, err := s.Create(context.Background(), inConv("growth", "f", "A")); !errors.Is(err, ErrTooMany) {
+		t.Fatalf("sixth in the same conversation: %v", err)
+	}
+	mustCreate(t, s, inConv("growth", "a", "B")) // another conversation still has its slots
+	mustCreate(t, s, inConv("growth", "f", "B"))
+}
+
+func TestASupersedeStaysInsideItsConversation(t *testing.T) {
+	s, _ := newStore(t)
+	a := mustCreate(t, s, inConv("growth", "x", "A"))
+	b := mustCreate(t, s, inConv("growth", "x", "B"))
+	for _, p := range []*Proposal{a, b} {
+		if g, _ := s.Get(context.Background(), "p1", p.ID); g.Status != StatusPending {
+			t.Fatalf("conversation %s's pending proposal was superseded by another conversation: %s", p.ConversationID, g.Status)
+		}
+	}
+	a2 := mustCreate(t, s, inConv("growth", "x", "A"))
+	if g, _ := s.Get(context.Background(), "p1", a.ID); g.Status != StatusDeclined {
+		t.Errorf("its own conversation's older one: %s", g.Status)
+	}
+	if g, _ := s.Get(context.Background(), "p1", b.ID); g.Status != StatusPending {
+		t.Errorf("B's: %s", g.Status)
+	}
+	_ = a2
+}
+
+func TestManyConversationLabelsCannotPassTheOrgBackstop(t *testing.T) {
+	s, _ := newStore(t)
+	n := 0
+	for c := 0; c < 20; c++ {
+		for k := 0; k < MaxPendingPerConversation; k++ {
+			if _, err := s.Create(context.Background(), inConv("growth", string(rune('a'+k)), "conv-"+string(rune('a'+c)))); err == nil {
+				n++
+			}
+		}
+	}
+	if n != 50 {
+		t.Fatalf("%d pending proposals for one org, want the backstop of 50", n)
+	}
+}

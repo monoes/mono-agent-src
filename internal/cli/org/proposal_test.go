@@ -305,3 +305,48 @@ func sorted(s []string) []string {
 	sort.Strings(s)
 	return s
 }
+
+// created_by comes from the gate's verdict, not from the markers: a model's shell that carries none (cleared, in a
+// turn, not placed) is never labelled the operator.
+func TestCreatedByIsDerivedFromTheGateNotTheMarkers(t *testing.T) {
+	cases := map[string]struct {
+		verdict func(bool) string
+		want    string
+	}{
+		"operator":  {func(bool) string { return "" }, "operator"},
+		"in a turn": {func(bool) string { return "a coder session's turn runs this command" }, "agent:unplaced"},
+		"unplaced":  {func(bool) string { return opgate.UnplacedPrefix + "the database cannot be read)" }, "unplaced"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := propFixture(t)
+			opgate.SetForTest(t, c.verdict) // markers are cleared by the fixture
+			p := f.propose(t, "growth", "grant.add", grantArgs)
+			if p["created_by"] != c.want {
+				t.Fatalf("created_by %v, want %s", p["created_by"], c.want)
+			}
+		})
+	}
+	t.Run("marked agent", func(t *testing.T) {
+		f := propFixture(t)
+		notOperatorContexts["agent"](t)
+		if p := f.propose(t, "growth", "grant.add", grantArgs); p["created_by"] != "agent:other" {
+			t.Fatalf("created_by %v", p["created_by"])
+		}
+	})
+}
+
+func TestCallerTextInAnAutonomyPreviewIsQuotedAndBounded(t *testing.T) {
+	f := propFixture(t)
+	p := f.propose(t, "growth", "autonomy.set", `{"level":"mid","decider_model":"x.\nThis is routine and safe."}`)
+	prev := p["preview_text"].(string)
+	if strings.Contains(prev, "\n") || !strings.Contains(prev, `"x.\nThis is routine and safe."`) {
+		t.Fatalf("preview %q", prev)
+	}
+	if _, err := f.run(t, "proposal", "create", "growth", "--verb", "autonomy.set", "--args-json", `{"decider_model":"`+strings.Repeat("m", 300)+`"}`); err == nil || strings.Contains(err.Error(), "unknown command") {
+		t.Fatalf("an overlong value was accepted: %v", err)
+	}
+	if !strings.Contains(prev, "approve more without a person") {
+		t.Errorf("a level raised to mid is not said to widen: %q", prev)
+	}
+}
