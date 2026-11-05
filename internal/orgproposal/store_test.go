@@ -340,12 +340,12 @@ func TestDecidedRowsAreKeptThirtyDaysThenDropped(t *testing.T) {
 	if _, err := s.Get(ctx, "p1", old.ID); err != nil {
 		t.Fatalf("a row decided 29 days ago is gone: %v", err)
 	}
-	*now = t0.Add(Retention + time.Hour)
+	*now = t0.Add(Retention + 10*time.Minute) // past the decided row's 30 days, before the pending one's expiry plus 30 days
 	mustCreate(t, s, in("growth", "d"))
 	if _, err := s.Get(ctx, "p1", old.ID); !errors.Is(err, ErrNotFound) {
 		t.Errorf("a row decided 30 days ago is kept: %v", err)
 	}
-	// the pending one expired long ago; it is decided (expired) now and is dropped 30 days after its expiry
+	// the pending one expired at t0+30m; it is decided (expired) from then on and is dropped 30 days after that
 	if g, err := s.Get(ctx, "p1", pend.ID); err != nil || g.Status != StatusExpired {
 		t.Errorf("expired row: %+v %v", g, err)
 	}
