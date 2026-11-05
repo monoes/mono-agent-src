@@ -828,8 +828,9 @@ existing MCP client config that relies on them.
 - `person_upsert`, `person_delete`
 - `org_create`, `org_role_add`, `org_role_update`,
   `org_role_set_reports_to`, `org_role_remove`, `org_reload`
-- `org_automation_add`, `org_grant_set`, `org_autonomy_set` (the last two
-  preview unless `confirm:true`)
+- `org_automation_add`, `org_grant_set`, `org_autonomy_set` (the last two only
+  propose: `applied:false`, "proposal: confirm in the org screen", nothing runs;
+  `org_grant_set` with `revoke:true` still previews until `confirm:true`)
 - `task_claim`, `task_comment`, `task_finish`, `task_release`, `task_add`: an
   agent's verbs on the task board, acting as the agent the server names after
   its client (`agent:<client>#<4 hex>`); no tool approves, edits, moves or
@@ -3610,8 +3611,8 @@ monoagentcli --profile work org automation-role add growth --alias publish_post 
   A called workflow is found with the engine's own lookup
   (`workflow.ResolveSubWorkflow`: by id, else the one workflow of the
   profile with that exact name, files first); anything else counts as
-  sending. `monomind org approve` run directly by an agent shell
-  is not checked (monoes/monomind#677).
+  sending. `monomind org approve` and `monomind org gate-approve` run directly by an agent shell
+  are not checked (monoes/monomind#677); only monoagentcli's own commands are operator-only.
   A grant the user made with `--approval none` still calls without a
   decision: that is their own choice.
 - The official browser read actions (find/list/scrape/export/metrics,

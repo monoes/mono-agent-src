@@ -172,7 +172,7 @@ func (mt *MonoagentTools) setOrgGrant(ctx context.Context, args string) (string,
 	if !a.Confirm {
 		return marshalJSON(map[string]interface{}{
 			"would_apply": true,
-			"command":     "monoagentcli org " + strings.Join(cli, " "),
+			"command":     orgCommandLine(cli),
 			"note":        "this revokes the role's right to run the automation; call again with confirm:true to apply",
 		})
 	}
@@ -248,9 +248,33 @@ func orgProposal(change string, cli []string) (string, error) {
 	return marshalJSON(map[string]interface{}{
 		"applied":  false,
 		"proposal": change,
-		"command":  "monoagentcli org " + strings.Join(cli, " "),
+		"command":  orgCommandLine(cli),
 		"note":     "proposal: confirm in the org screen. Nothing was changed; this would " + change + ".",
 	})
+}
+
+// orgCommandLine is the operator's command for args, each one shell-quoted unless it is plainly safe:
+// names an agent supplied stay one inert word when the user copies the line.
+func orgCommandLine(args []string) string {
+	q := make([]string, len(args))
+	for i, a := range args {
+		q[i] = shellWord(a)
+	}
+	return "monoagentcli org " + strings.Join(q, " ")
+}
+
+func shellWord(s string) string {
+	safe := s != ""
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("_-.,:/=@%+", r)) {
+			safe = false
+			break
+		}
+	}
+	if safe {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 func grantDetail(a setOrgGrantArgs) string {
