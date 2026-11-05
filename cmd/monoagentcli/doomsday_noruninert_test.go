@@ -4,15 +4,20 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"sync/atomic"
 	"testing"
+
+	doomsdaycli "github.com/monoes/mono-agent/internal/cli/doomsday"
+	"github.com/monoes/mono-agent/internal/coderhost"
+	"github.com/monoes/mono-agent/internal/doomsday/stop"
 )
 
 // With no run the engine's wiring is inert: the strategy loop of the coder host does nothing but its precheck (no build, so
 // no pinned connection, no vault key, no log line, no run directory), and the gate, the governor and the loop share one
 // record of whether a run has been seen.
-func TestEngineWiringWithNoRunIsInert(t *testing.T) {
+func TestDoomsdayEngineWiringWithNoRunIsInert(t *testing.T) {
 	cfg := sendEnv(t)
 	db, err := initDB(cfg)
 	if err != nil {
@@ -20,6 +25,17 @@ func TestEngineWiringWithNoRunIsInert(t *testing.T) {
 	}
 	defer db.Close()
 
+	var pins atomic.Int32
+	realPin := doomsdaycli.PinFunc
+	doomsdaycli.PinFunc = func(context.Context, stop.PinOptions) (*stop.Pinned, error) {
+		pins.Add(1)
+		return nil, errors.New("counted")
+	}
+	defer func() { doomsdaycli.PinFunc = realPin }()
+
+	// What HostBuilt builds for a host: the gate, the ops route, the governor, the loop. None of it may pin with no run.
+	hg := processHostGate(cfg, db.DB)
+	doomsdayWiring(cfg, db.DB).InstallOps(coderhost.NewStore(db.DB))
 	loop := newStrategyLoop(cfg, db.DB)
 	if loop.Active == nil {
 		t.Fatal("the production strategy loop has no run precheck")
@@ -39,7 +55,16 @@ func TestEngineWiringWithNoRunIsInert(t *testing.T) {
 	if _, err := os.Stat(doomsdayRunDirPath(cfg)); !os.IsNotExist(err) {
 		t.Fatalf("the run directory exists with no run: %v", err)
 	}
-	g, hg := processGovernor(cfg, db.DB), processHostGate(cfg, db.DB)
+	if pins.Load() != 0 {
+		t.Fatalf("%d pinned connection(s) made with no run", pins.Load())
+	}
+	if err := hg.Start(coderhost.PointTurnStart, func() (coderhost.StartedProc, error) { return nil, nil }); err != nil {
+		t.Fatalf("a dispatch with no run: %v", err)
+	}
+	if pins.Load() != 0 {
+		t.Fatalf("%d pinned connection(s) made by a dispatch with no run", pins.Load())
+	}
+	g := processGovernor(cfg, db.DB)
 	if g.Activity == nil || g.Activity != hg.Activity {
 		t.Fatal("the governor and the dispatch gate do not share one record of a seen run")
 	}

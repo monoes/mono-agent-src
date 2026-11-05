@@ -75,7 +75,7 @@ func TestStrategyLoopOverAnEmptyDatabaseIsInert(t *testing.T) {
 	var logs atomic.Int32
 	act := &RunActivity{}
 	l := &StrategyLoop{
-		Active: OpenRunPrecheck(r.db.DB, "p1", act),
+		Active: OpenRunPrecheck(r.db.DB, "p1", act, nil),
 		Build: func(ctx context.Context) (*StrategyHost, error) {
 			return r.w.StrategyHost(ctx, StrategyExtras{JudgeExec: (&fakeJudge{}).exec})
 		},
@@ -101,7 +101,7 @@ func TestStrategyLoopOverAnEmptyDatabaseIsInert(t *testing.T) {
 func TestOpenRunPrecheckIsAReadOnlyCount(t *testing.T) {
 	r := newGovRig(t, "")
 	act := &RunActivity{}
-	pre := OpenRunPrecheck(r.db.DB, "p1", act)
+	pre := OpenRunPrecheck(r.db.DB, "p1", act, nil)
 	if pre(bg) || act.Known() {
 		t.Fatal("active with no run")
 	}
@@ -111,7 +111,7 @@ func TestOpenRunPrecheckIsAReadOnlyCount(t *testing.T) {
 	}
 	r2 := newGovRig(t, "")
 	r2.db.DB.Close()
-	if OpenRunPrecheck(r2.db.DB, "p1", &RunActivity{})(bg) {
+	if OpenRunPrecheck(r2.db.DB, "p1", &RunActivity{}, nil)(bg) {
 		t.Fatal("active over an unreadable database")
 	}
 }
@@ -180,5 +180,28 @@ func TestGovernorForWithARunOnDiskAndAnUnreadableTableRefuses(t *testing.T) {
 	s.renameRuns(t)
 	if _, err := gw.For(bg); err == nil { // this governor has not read the row
 		t.Fatal("not refused")
+	}
+}
+
+// A precheck that cannot read the table says so once per fault when a run is known (the loop must not go quiet over a run it
+// can no longer see), and not at all when none is known.
+func TestOpenRunPrecheckLogsAnUnreadableTableOncePerFaultOnlyWhenARunIsKnown(t *testing.T) {
+	s := newSeededGate(t)
+	seedRun(t, s.st)
+	var known, unknown atomic.Int32
+	actKnown := &RunActivity{}
+	preKnown := OpenRunPrecheck(s.db.DB, "p1", actKnown, func(string, ...any) { known.Add(1) })
+	if !preKnown(bg) {
+		t.Fatal("setup: the run must read")
+	}
+	preUnknown := OpenRunPrecheck(s.db.DB, "p1", &RunActivity{}, func(string, ...any) { unknown.Add(1) })
+	s.renameRuns(t)
+	for i := 0; i < 5; i++ {
+		if preKnown(bg) || preUnknown(bg) {
+			t.Fatal("active over an unreadable table")
+		}
+	}
+	if known.Load() != 1 || unknown.Load() != 0 {
+		t.Fatalf("log lines: known-run precheck %d (want 1), no-run precheck %d (want 0)", known.Load(), unknown.Load())
 	}
 }

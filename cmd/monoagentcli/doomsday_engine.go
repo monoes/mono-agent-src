@@ -70,7 +70,7 @@ func init() {
 		chatcli.HostBuilt = func(st *coderhost.Store, h *coderhost.Host, db *sql.DB) {
 			w := doomsdayWiring(cfg, db)
 			// A run the host starts beside is known before the first dispatch (one read-only count, no key, nothing written).
-			doomsdaycli.OpenRunPrecheck(db, cfg.ProfileID, processRunActivity(cfg.ProfileID))(context.Background())
+			doomsdaycli.OpenRunPrecheck(db, cfg.ProfileID, processRunActivity(cfg.ProfileID), nil)(context.Background())
 			g := processHostGate(cfg, db)
 			// The boss's typed operations (plan.approve, ask.answer, spend.grant) are enforced against the open run's
 			// charter, witnessed; the route is the mode off whenever no run is running.

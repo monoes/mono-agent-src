@@ -22,6 +22,9 @@ type WitnessSetup struct {
 	Warn func(string)
 }
 
+// PinFunc makes the pinned database connection (stop.Pin). It is a seam for tests, which count the attempts or refuse them.
+var PinFunc = stop.Pin
+
 var (
 	pinsMu sync.Mutex
 	pins   = map[string]*stop.Pinned{}
@@ -41,7 +44,7 @@ func (w Wiring) Sequencer(ctx context.Context) (*stop.Sequencer, error) {
 	pin := pins[key]
 	if pin == nil {
 		var err error
-		if pin, err = stop.Pin(ctx, stop.PinOptions{DBPath: ws.DBPath}); err != nil {
+		if pin, err = PinFunc(ctx, stop.PinOptions{DBPath: ws.DBPath}); err != nil {
 			return nil, fmt.Errorf("the pinned database connection cannot be made, so freshness cannot be proven: %w", err)
 		}
 		pins[key] = pin

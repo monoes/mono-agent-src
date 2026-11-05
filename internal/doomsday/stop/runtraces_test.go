@@ -29,6 +29,19 @@ func TestHasRunTraces(t *testing.T) {
 	if !(RunDir{Dir: dir}).HasRunTraces() {
 		t.Fatal("a per-run secret is a trace")
 	}
+	// Deleting only the secrets must not clear the traces: the witness and the generation counter are made by a run too.
+	for _, name := range []string{"witness", "generation-counter"} {
+		d := filepath.Join(base, "only-"+name)
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, name), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if !(RunDir{Dir: d}).HasRunTraces() {
+			t.Fatalf("a %s file alone is not a trace", name)
+		}
+	}
 	file := filepath.Join(base, "file")
 	if err := os.WriteFile(file, nil, 0o600); err != nil {
 		t.Fatal(err)

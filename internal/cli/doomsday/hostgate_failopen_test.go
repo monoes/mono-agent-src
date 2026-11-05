@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"testing"
+	"time"
 
 	"github.com/zalando/go-keyring"
 
@@ -177,5 +178,82 @@ func TestHostGatePlacerFollowsTheSameRule(t *testing.T) {
 	k.renameRuns(t)
 	if _, err := k.g.PlaceRelease(exec.Command("true"), "p1", "conv"); err == nil {
 		t.Fatal("a placement was made after the run state became unreadable")
+	}
+}
+
+// A listing that fails because its context ended is "unreadable" like any other: it must not open the gate to a run that is
+// known, and it must open it only when no run is.
+func TestHostGateCancelledListingFollowsTheKnownRunRule(t *testing.T) {
+	cancelled := func() context.Context {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		return ctx
+	}
+	expired := func() context.Context {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+		t.Cleanup(cancel)
+		time.Sleep(time.Millisecond)
+		return ctx
+	}
+	for name, mk := range map[string]func() context.Context{"cancelled": cancelled, "deadline": expired} {
+		t.Run(name+"/seen run refuses", func(t *testing.T) {
+			s := newSeededGate(t)
+			seedRun(t, s.st)
+			if _, err := s.dispatch(); err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := s.g.currentRun(mk()); !refused(err) {
+				t.Fatalf("a listing cut short let a known run through: %v", err)
+			}
+		})
+		t.Run(name+"/run on disk refuses", func(t *testing.T) {
+			s := newSeededGate(t)
+			seedRun(t, s.st)
+			if err := s.dir.CreateSecret(1); err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := s.g.currentRun(mk()); !refused(err) {
+				t.Fatalf("a listing cut short let a run on disk through: %v", err)
+			}
+		})
+		t.Run(name+"/no run known fails open", func(t *testing.T) {
+			s := newSeededGate(t)
+			if _, _, err := s.g.currentRun(mk()); err != nil {
+				t.Fatalf("a listing cut short refused with no run known: %v", err)
+			}
+		})
+	}
+}
+
+// A readable database with only finished runs is no run: ordinary dispatch goes through.
+func TestHostGateWithOnlyQuiescentRunsDispatches(t *testing.T) {
+	s := newSeededGate(t)
+	seedRun(t, s.st)
+	for _, to := range []store.RunState{store.StateStopRequested, store.StateAuthorityRevoked, store.StateCleanupPending, store.StateQuiescent} {
+		if _, err := s.st.Advance(context.Background(), "p1", 1, to, "op", "test"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if ran, err := s.dispatch(); err != nil || !ran {
+		t.Fatalf("a dispatch was refused with only a finished run: ran %v err %v", ran, err)
+	}
+}
+
+// A run row that did not verify is a run for good: when the table then becomes unreadable the gate still refuses.
+func TestHostGateUnverifiableRowThenUnreadableTableStillRefuses(t *testing.T) {
+	s := newSeededGate(t)
+	seedRun(t, s.st)
+	if _, err := s.db.DB.Exec(`DROP TRIGGER doomsday_runs_forward_only`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.DB.Exec(`UPDATE doomsday_runs SET cause = 'forged'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.dispatch(); !refused(err) {
+		t.Fatalf("setup: %v", err)
+	}
+	s.renameRuns(t)
+	if ran, err := s.dispatch(); !refused(err) || ran {
+		t.Fatalf("a row that did not verify was forgotten when the table became unreadable: ran %v err %v", ran, err)
 	}
 }

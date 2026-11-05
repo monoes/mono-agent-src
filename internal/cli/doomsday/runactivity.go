@@ -62,7 +62,7 @@ func (a *RunActivity) failOpen(runs []store.Run, err error, dir stop.RunDir) boo
 
 // OpenRunPrecheck is the strategy loop's precheck: one read-only COUNT of the profile's non-quiescent runs, no key and no
 // pinned connection. True means a run is open (and records it); an unreadable table is false and quiet.
-func OpenRunPrecheck(db *sql.DB, profile string, act *RunActivity) func(context.Context) bool {
+func OpenRunPrecheck(db *sql.DB, profile string, act *RunActivity, logf func(string, ...any)) func(context.Context) bool {
 	return func(ctx context.Context) bool {
 		var n int
 		if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM doomsday_runs WHERE profile = ? AND state <> 'quiescent'`, profile).Scan(&n); err != nil || n == 0 {
