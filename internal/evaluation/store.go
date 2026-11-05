@@ -192,6 +192,9 @@ func (s *Store) UpdateCase(ctx context.Context, c *Case, finished bool) error {
 	return nil
 }
 
+// afterRecordRead is a test hook: it runs in Record between the read of the case's column and the write.
+var afterRecordRead func()
+
 // Record merges data into a case's inputs, outputs or metrics (kind). Keys
 // the case already has keep their value: as in n8n, the first node to set
 // a name wins. It is what core.evaluation calls while a case runs; the case
@@ -213,6 +216,9 @@ func Record(ctx context.Context, db *sql.DB, runID, caseID, kind string, data ma
 	}
 	if err != nil {
 		return fmt.Errorf("evaluation: record: %w", err)
+	}
+	if afterRecordRead != nil {
+		afterRecordRead()
 	}
 	cur := map[string]interface{}{}
 	_ = json.Unmarshal([]byte(raw), &cur)
