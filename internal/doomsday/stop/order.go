@@ -187,6 +187,9 @@ const (
 	StepEnd    = "containment end"
 )
 
+// ProgressIntent is the line Stopper.Progress receives after the marker is written.
+const ProgressIntent = "marker written; recording intent..."
+
 // Stopper runs the Stop order: marker first, then the database intent, then token revocation and queue cancel,
 // then process kill. Gate is the host's own gate when Stop runs inside the host. A Stop in another process (the CLI)
 // has no Gate and must have a Host link instead: with neither, the host side is not proven and the Stop never reaches
@@ -201,6 +204,9 @@ type Stopper struct {
 	Retries int           // database attempts, default 5
 	Backoff time.Duration // base back-off, default 50ms, jittered
 	Hook    Hook
+	// Progress, when set, receives one line once the marker is on disk and before the database step starts (the step that may
+	// wait on a busy database for tens of seconds). Never called when the marker was not written; no retry runs behind it.
+	Progress func(string)
 	// Unrecorded is set when a stop was requested but the marker or the intent is not yet durable.
 	Unrecorded *UnrecordedFlag
 }
@@ -239,6 +245,9 @@ func (s *Stopper) Stop(ctx context.Context, gen uint64, charterID, cause string)
 	rep.step(StepMarker, merr)
 	rep.Marker = res.Status
 	s.Hook.at("marker.recorded")
+	if merr == nil && s.Progress != nil {
+		s.Progress(ProgressIntent)
+	}
 	if s.Gate != nil {
 		s.Gate.Seal()
 		s.Hook.at("gate.closed")

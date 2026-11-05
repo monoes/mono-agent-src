@@ -45,7 +45,10 @@ func init() {
 		if err != nil {
 			return engineForOpenFailure(err)
 		}
-		return doomsdayWiring(cfg, db.DB).FinishEngine()
+		w := doomsdayWiring(cfg, db.DB)
+		// The CLI's own Stop: the line that says the marker is written, before the database step that may wait on a busy database.
+		w.Progress = func(m string) { fmt.Fprintln(os.Stderr, m) }
+		return w.FinishEngine()
 	}
 	doomsdayReadEngine = func(cfg *globalConfig) doomsdaycli.Engine {
 		db, err := openReadDB(cfg) // the read verbs create and migrate nothing

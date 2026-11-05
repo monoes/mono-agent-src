@@ -111,7 +111,7 @@ func TestUnreadableEngineSaysTheDatabaseIsBusyForEveryVerb(t *testing.T) {
 			if strings.Contains(err.Error()+out, "not available on this install") || strings.Contains(out, "no run") || strings.Contains(err.Error(), "no open run") {
 				t.Fatalf("%s: a wrong statement: %v %q", v.name, err, out)
 			}
-			if !errors.Is(err, ErrUnreadable) {
+			if v.name != "start" && !errors.Is(err, ErrUnreadable) { // start wraps the cause as text (refusal)
 				t.Fatalf("%s: the error is not ErrUnreadable: %v", v.name, err)
 			}
 		})

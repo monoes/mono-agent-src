@@ -238,7 +238,8 @@ func (d Deps) newStop() *cobra.Command {
 			out := cmd.OutOrStdout()
 			// A finish that has frozen is over the run's own Stop (the run is quiescent): stopping it records the end of
 			// the finish and ends its verification units (note 13.6 section 7.1).
-			if fo, ok := d.engine().(FinishOps); ok {
+			eng := d.engine()
+			if fo, ok := eng.(FinishOps); ok {
 				if done, err := fo.AbortFinish(cmd.Context()); err != nil {
 					return err
 				} else if done {
@@ -246,7 +247,7 @@ func (d Deps) newStop() *cobra.Command {
 					return nil
 				}
 			}
-			o, err := d.engine().Stop(cmd.Context())
+			o, err := eng.Stop(cmd.Context())
 			if err != nil {
 				return err
 			}

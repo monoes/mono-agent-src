@@ -28,6 +28,67 @@ type Unreadable struct {
 	Err error
 }
 
+// unreadableAdvice is what an operator does about a database that is busy or unreadable right now.
+const unreadableAdvice = "the open-ended mode's database is busy or cannot be read right now; nothing was changed. Retry in a moment; if it persists, run `monoagentcli doctor`."
+
+// stopUnreadablePrefix says what an unreadable database means for a stop: it did not run.
+const stopUnreadablePrefix = "stop could not run, so nothing was stopped and an open run stays open. "
+
+// unreadableError is the answer of a verb that needs the database when it cannot be opened: the honest words (busy or
+// unreadable, retry, doctor) with the cause. It is ErrUnreadable, and still ErrOff for the callers that ask whether the verb
+// can act (it cannot), but it never reads as "not available on this install".
+type unreadableError struct {
+	prefix string
+	cause  error
+}
+
+func (e unreadableError) Error() string {
+	c := "unknown"
+	if e.cause != nil {
+		c = e.cause.Error()
+	}
+	return e.prefix + unreadableAdvice + " (cause: " + c + ")"
+}
+
+func (e unreadableError) Unwrap() []error { return []error{ErrUnreadable, ErrOff} }
+
+func (u Unreadable) err(prefix string) error { return unreadableError{prefix: prefix, cause: u.Err} }
+
+func (u Unreadable) Containment() error { return u.err("") }
+func (u Unreadable) Canonical(context.Context, Charter) (Canon, error) {
+	return Canon{}, u.err("")
+}
+func (u Unreadable) Enter(context.Context, Canon, string, Ack) (Entry, error) {
+	return Entry{}, u.err("")
+}
+func (u Unreadable) Stop(context.Context) (StopOutcome, error) {
+	return StopOutcome{}, u.err(stopUnreadablePrefix)
+}
+
+// Status is an error, never "no run": a run may be live while the database is unreadable.
+func (u Unreadable) Status(context.Context) (Status, error) { return Status{}, u.err("") }
+
+var _ FinishOps = Unreadable{}
+
+func (u Unreadable) FinishBegin(context.Context) (BeginReport, error) {
+	return BeginReport{}, u.err("")
+}
+func (u Unreadable) FinishAdvance(context.Context, FinishOptions) (FinishReport, error) {
+	return FinishReport{}, u.err("")
+}
+func (u Unreadable) FinishReverify(context.Context, FinishOptions) (FinishReport, error) {
+	return FinishReport{}, u.err("")
+}
+func (u Unreadable) RubricList(context.Context) ([]RubricItem, error) { return nil, u.err("") }
+func (u Unreadable) RubricDecide(context.Context, string, bool, string, string) error {
+	return u.err("")
+}
+
+// AbortFinish is the first step of a stop: its failure is the stop's answer.
+func (u Unreadable) AbortFinish(context.Context) (bool, error) {
+	return false, u.err(stopUnreadablePrefix)
+}
+
 // ReadView always fails with ErrUnreadable.
 func (u Unreadable) ReadView(context.Context, store.ViewQuery) (store.View, error) {
 	return store.View{}, fmt.Errorf("%w: %v", ErrUnreadable, u.Err)
