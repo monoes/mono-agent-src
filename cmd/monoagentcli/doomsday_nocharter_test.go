@@ -189,6 +189,9 @@ func wantNoCharterRefusal(t *testing.T, code int, stdout, stderr string) {
 	if strings.Contains(stdout+stderr, "pins are refused in this test") {
 		t.Errorf("the refusal is the test's own pin refusal, not the verb's: %q", stderr)
 	}
+	if strings.Contains(stderr, "systemd-run") || strings.Contains(stderr, "transient") {
+		t.Errorf("the real containment probe answered: %q", stderr)
+	}
 	if !regexp.MustCompile(startRenderNoCharterRefusal).MatchString(stderr) {
 		t.Errorf("stderr %q does not match the build's refusal %q", stderr, startRenderNoCharterRefusal)
 	}
@@ -237,8 +240,10 @@ func TestEveryDoomsdayVerbWithNoCharterIsInert(t *testing.T) {
 	for _, v := range noCharterVerbs(t) {
 		t.Run(v.name, func(t *testing.T) {
 			var pins *atomic.Int32
+			var probes *atomic.Int32
 			if v.realPin {
 				pins = countPins(t)
+				probes = noRealContainment(t) // never the real probe: it starts a transient systemd unit
 			} else {
 				pins = noPins(t)
 			}
@@ -249,6 +254,9 @@ func TestEveryDoomsdayVerbWithNoCharterIsInert(t *testing.T) {
 			beforeFiles, beforeRows := homeFiles(t, home), tableCounts(t, db)
 			code, stdout, stderr := runMain(t, append([]string{"--db-path", db, "--profile", "default", "--json", "doomsday"}, v.args...)...)
 			v.want(t, code, stdout, stderr)
+			if probes != nil && strings.Contains(stderr, "(test containment probe)") != (probes.Load() > 0) {
+				t.Errorf("the refusal %q and the %d call(s) of the injected probe disagree: the answer did not come from the injected probe", stderr, probes.Load())
+			}
 			if after := homeFiles(t, home); after != beforeFiles {
 				t.Errorf("files under HOME: before [%s], after [%s]", beforeFiles, after)
 			}

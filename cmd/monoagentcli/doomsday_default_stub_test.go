@@ -4,6 +4,7 @@ package main
 
 import (
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -43,3 +44,6 @@ func TestDefaultInstallRefusesStartStopAndRenderAsOff(t *testing.T) {
 
 // wiredPins: a build without the mode wires no engine, so no verb pins.
 func wiredPins(string) int { return 0 }
+
+// noRealContainment: a build without the mode has no engine and so no containment probe to replace.
+func noRealContainment(*testing.T) *atomic.Int32 { return new(atomic.Int32) }
