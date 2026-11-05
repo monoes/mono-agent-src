@@ -438,3 +438,76 @@ func TestManyConversationLabelsCannotPassTheOrgBackstop(t *testing.T) {
 		t.Fatalf("%d pending proposals for one org, want the backstop of 50", n)
 	}
 }
+
+func TestCreateExpiresOldPendingRowsBeforeTheCap(t *testing.T) {
+	s, now := newStore(t)
+	for _, tg := range []string{"a", "b", "c", "d", "e"} {
+		mustCreate(t, s, inConv("growth", tg, "A"))
+	}
+	*now = t0.Add(TTL + time.Minute)
+	if _, err := s.Create(context.Background(), inConv("growth", "f", "A")); err != nil {
+		t.Fatalf("a full conversation whose proposals all expired refused a new one: %v", err)
+	}
+}
+
+// The purge only ever drops decided rows: a pending row is never touched, whatever its age.
+func TestThePurgeNeverTouchesAPendingRow(t *testing.T) {
+	s, _ := newStore(t)
+	old, soon := ts(t0.Add(-40*24*time.Hour)), ts(t0.Add(time.Hour))
+	if _, err := s.DB.Exec(`INSERT INTO org_proposals (id, profile_id, org_name, verb, target, args_json, preview_text, state_digest, hash, created_at, expires_at)
+		VALUES ('ffffffffffffffffffffffffffffffff', 'p1', 'growth', 'grant.add', 'old', '{}', 'p', 'd', 'h', ?, ?)`, old, soon); err != nil {
+		t.Fatal(err)
+	}
+	mustCreate(t, s, in("growth", "a"))
+	if _, err := s.Get(context.Background(), "p1", "ffffffffffffffffffffffffffffffff"); err != nil {
+		t.Fatalf("the purge dropped a pending row: %v", err)
+	}
+}
+
+func TestClaimRechecksTheContentInItsFinalUpdate(t *testing.T) {
+	s, _ := newStore(t)
+	p := mustCreate(t, s, in("growth", "a"))
+	s.afterGet = func() {
+		if _, err := s.DB.Exec(`UPDATE org_proposals SET args_json = '{"role":"other"}' WHERE id = ?`, p.ID); err != nil {
+			t.Error(err)
+		}
+	}
+	if _, err := claim(s, p); !errors.Is(err, ErrHashMismatch) {
+		t.Fatalf("a row rewritten between the check and the claim: %v, want ErrHashMismatch", err)
+	}
+	if g, _ := s.Get(context.Background(), "p1", p.ID); g.Status != StatusPending {
+		t.Errorf("status %s", g.Status)
+	}
+}
+
+func TestClaimRefusesARewrittenHashColumn(t *testing.T) {
+	s, _ := newStore(t)
+	p := mustCreate(t, s, in("growth", "a"))
+	if _, err := s.DB.Exec(`UPDATE org_proposals SET hash = 'not-the-hash' WHERE id = ?`, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := claim(s, p); !errors.Is(err, ErrHashMismatch) {
+		t.Fatalf("a rewritten hash column: %v, want ErrHashMismatch", err)
+	}
+}
+
+func TestDeclineDoesNotDeclineWhatExpiredMeanwhile(t *testing.T) {
+	s, _ := newStore(t)
+	p := mustCreate(t, s, in("growth", "a"))
+	calls := 0
+	s.Now = func() time.Time { // the first read finds it pending, every later one is past the expiry
+		calls++
+		if calls == 1 {
+			return t0
+		}
+		return t0.Add(TTL + time.Minute)
+	}
+	if err := s.Decline(context.Background(), "p1", p.ID); !errors.Is(err, ErrExpired) {
+		t.Fatalf("decline of a proposal that expired meanwhile: %v, want ErrExpired", err)
+	}
+	var st string
+	s.DB.QueryRow(`SELECT status FROM org_proposals WHERE id = ?`, p.ID).Scan(&st)
+	if st == StatusDeclined {
+		t.Fatal("an expired proposal was recorded as declined")
+	}
+}

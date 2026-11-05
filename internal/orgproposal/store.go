@@ -73,6 +73,8 @@ type Input struct {
 type Store struct {
 	DB  *sql.DB
 	Now func() time.Time
+	// afterGet runs in Claim between the checks and the claiming UPDATE; a test uses it to rewrite the row in that window.
+	afterGet func()
 }
 
 func NewStore(db *sql.DB) *Store { return &Store{DB: db, Now: time.Now} }

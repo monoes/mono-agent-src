@@ -2,6 +2,7 @@ package org
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -334,5 +335,117 @@ func TestConfirmRefusesAPreviewThatDoesNotDescribeTheArguments(t *testing.T) {
 	}
 	if len(f.grants(t)) != 0 || f.proposalRow(t, a["id"].(string)) != "pending" {
 		t.Fatal("applied, or moved the row")
+	}
+}
+
+// A state read that fails at confirm is the read's error, not a verdict on the proposal: the row stays pending and the
+// click is not burned.
+func TestAFailedStateReadAtConfirmDoesNotBurnTheProposal(t *testing.T) {
+	for _, c := range []struct{ name, verb, args, table string }{
+		{"grant", "grant.add", grantArgs, "org_grants"},
+		{"autonomy", "autonomy.set", `{"level":"mid"}`, "org_autonomy"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := propFixture(t)
+			p := f.propose(t, "growth", c.verb, c.args)
+			f.sql(t, "ALTER TABLE "+c.table+" RENAME TO "+c.table+"_away")
+			_, err := f.confirm(t, p)
+			if err == nil || strings.Contains(err.Error(), "proposal_stale") {
+				t.Fatalf("confirm with an unreadable state: %v", err)
+			}
+			f.sql(t, "ALTER TABLE "+c.table+"_away RENAME TO "+c.table)
+			if st := f.proposalRow(t, p["id"].(string)); st != "pending" {
+				t.Fatalf("status %s after a failed read", st)
+			}
+			if _, err := f.confirm(t, p); err != nil {
+				t.Fatalf("confirm once the state reads again: %v", err)
+			}
+		})
+	}
+}
+
+// Confirms of different proposals in one process do not share a capture: each row keeps its own result.
+func TestConcurrentConfirmsOfDifferentProposalsKeepTheirOwnResult(t *testing.T) {
+	f := propFixture(t)
+	type pr struct{ id, hash, alias string }
+	var ps []pr
+	for _, role := range []string{"lead", "writer"} {
+		for _, alias := range []string{"summarize", "digest"} {
+			p := f.propose(t, "growth", "grant.add", `{"role":"`+role+`","automation":"`+alias+`"}`)
+			ps = append(ps, pr{p["id"].(string), p["hash"].(string), alias})
+		}
+	}
+	var wg sync.WaitGroup
+	for _, p := range ps {
+		wg.Add(1)
+		go func(p pr) {
+			defer wg.Done()
+			cmd := newOrgCmd(f.cfg)
+			cmd.SetArgs([]string{"proposal", "confirm", p.id, "--hash", p.hash})
+			cmd.SilenceUsage, cmd.SilenceErrors = true, true
+			if err := cmd.Execute(); err != nil {
+				t.Errorf("confirm %s: %v", p.alias, err)
+			}
+		}(p)
+	}
+	wg.Wait()
+	for _, p := range ps {
+		got := f.mustRun(t, "proposal", "show", p.id)["proposal"].(map[string]interface{})
+		res, _ := got["result"].(map[string]interface{})
+		g, _ := res["grant"].(map[string]interface{})
+		if got["status"] != "applied" || g["alias"] != p.alias {
+			t.Errorf("proposal for %s: status %v result %v", p.alias, got["status"], got["result"])
+		}
+	}
+}
+
+func TestDecodeStrictRefusesUnknownFieldsAndTrailingData(t *testing.T) {
+	var v grantProposalIn
+	for raw, ok := range map[string]bool{`{"role":"r"}`: true, `{"role":"r"} `: true, `{"role":"r","x":1}`: false, `{"role":"r"}{}`: false,
+		`{"role":"r"} x`: false, ``: false, `[]`: false} {
+		if err := decodeStrict(raw, &v); (err == nil) != ok {
+			t.Errorf("decodeStrict(%q) = %v, want ok=%v", raw, err, ok)
+		}
+	}
+}
+
+// The state a proposal is made against includes which org it is: the same name recreated as another org is stale.
+func TestARecreatedOrgInvalidatesOldProposals(t *testing.T) {
+	f := propFixture(t)
+	p := f.propose(t, "growth", "grant.add", grantArgs)
+	f.editOutside(t, func(m map[string]interface{}) { m["goal"] = "a different org that happens to share the name" })
+	if _, err := f.confirm(t, p); err == nil || !strings.Contains(err.Error(), "proposal_stale") {
+		t.Fatalf("confirm over a recreated org: %v", err)
+	}
+	if len(f.grants(t)) != 0 {
+		t.Fatal("granted")
+	}
+}
+
+// show is open to agents: a failed apply's raw error (paths, secrets) goes to the operator's confirm output only.
+func TestAFailedApplyIsNotReadableAsRawTextThroughShow(t *testing.T) {
+	f := propFixture(t)
+	p := f.propose(t, "growth", "grant.add", grantArgs)
+	var calls atomic.Int32
+	const leak = "reading /home/u/.monoagent/secret.key failed, token sk-live-123"
+	opgate.SetForTest(t, func(bool) string {
+		if calls.Add(1) == 1 {
+			return ""
+		}
+		return leak
+	})
+	_, err := f.confirm(t, p)
+	if err == nil || !strings.Contains(err.Error(), "sk-live-123") {
+		t.Fatalf("the operator's own output lost the reason: %v", err)
+	}
+	asOrgOperator(t)
+	opgate.SetForTest(t, func(bool) string { return "" })
+	shown := f.mustRun(t, "proposal", "show", p["id"].(string))["proposal"].(map[string]interface{})
+	b, _ := json.Marshal(shown)
+	if strings.Contains(string(b), "sk-live-123") || strings.Contains(string(b), "/home/u") {
+		t.Fatalf("show hands out raw error text: %s", b)
+	}
+	if res, _ := shown["result"].(map[string]interface{}); res["code"] != "refused" || strconv.Itoa(len(res["message"].(string))) == "0" {
+		t.Fatalf("result %v, want a code and a short message", shown["result"])
 	}
 }
