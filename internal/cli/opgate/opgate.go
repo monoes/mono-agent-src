@@ -18,6 +18,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/monoes/mono-agent/internal/browserctl"
 	"github.com/monoes/mono-agent/internal/operator"
 )
 
@@ -99,16 +100,19 @@ func install(f body) {
 	registered = f
 	if f == nil {
 		operator.SetTurnVerdict(nil)
+		browserctl.SetTurnVerdict(nil)
 		return
 	}
-	operator.SetTurnVerdict(func() (why string) {
+	check := func() (why string) {
 		defer func() {
 			if recover() != nil {
 				why = operator.UnplacedPrefix
 			}
 		}()
 		return f(false)
-	})
+	}
+	operator.SetTurnVerdict(check)
+	browserctl.SetTurnVerdict(check)
 }
 
 // SetForTest replaces the registered body for the rest of the test; nil restores the default. It
