@@ -83,6 +83,7 @@ func (rt *runtime) chatTools(profileID string) *aichat.MonoagentTools {
 	mt := rt.chat[profileID]
 	if mt == nil {
 		mt = aichat.NewMonoagentTools(rt.db.DB, "", profileID)
+		mt.SetUnscopedLabel("unscoped:mcp") // the label of an org proposal made here: there is no conversation
 		if rt.store != nil {
 			mt.SetWorkflowStore(rt.store)
 		}

@@ -140,7 +140,7 @@ func (mt *MonoagentTools) setOrgGrant(ctx context.Context, args string) (string,
 	if err := mt.checkInjectionGate("set_org_grant"); err != nil {
 		return "", err
 	}
-	if strings.TrimSpace(a.Approval) == "none" && !a.Revoke {
+	if strings.EqualFold(strings.TrimSpace(a.Approval), "none") && !a.Revoke {
 		// The chat is not the operator: a grant it makes always asks first
 		// (`org grant add` refuses none from it, and defaults to required).
 		return "", fmt.Errorf("set_org_grant: approval none lets the role run the automation without asking, which only the user can grant " +

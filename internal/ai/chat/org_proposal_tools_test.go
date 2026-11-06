@@ -10,12 +10,12 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/browserctl"
-	"github.com/monoes/mono-agent/internal/workflow"
 	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/orgdecide"
 	"github.com/monoes/mono-agent/internal/orgdesign"
 	"github.com/monoes/mono-agent/internal/orgproposal"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/workflow"
 )
 
 // The chat's set_org_grant and set_org_autonomy store a pending proposal (#1477) and apply nothing: the user confirms it

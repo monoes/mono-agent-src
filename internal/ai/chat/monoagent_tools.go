@@ -84,7 +84,10 @@ type WorkflowStore interface {
 func (mt *MonoagentTools) SetWorkflowStore(st WorkflowStore) {
 	mt.mu.Lock()
 	mt.store = st
-	mt.hybridStore, _ = st.(*workflow.HybridWorkflowStore)
+	// Only the CLI's hybrid store is kept for proposals; a later call with another kind of store leaves it in place.
+	if h, ok := st.(*workflow.HybridWorkflowStore); ok && h != nil {
+		mt.hybridStore = h
+	}
 	mt.mu.Unlock()
 }
 
