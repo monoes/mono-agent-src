@@ -56,6 +56,13 @@ func (s *AIStore) CreateConversationModeEffort(profileID, backend, workflowConte
 // scoped has no folder, every other level needs one. Mode is kept in step
 // (assistant for scoped, coder otherwise) for older readers.
 func (s *AIStore) CreateConversationAccess(profileID, backend, workflowContext, runtimeID, providerID, model, access, cwd, effort string) (Conversation, error) {
+	return s.CreateConversationAccessIn(profileID, backend, workflowContext, runtimeID, providerID, model, access, cwd, effort, nil)
+}
+
+// CreateConversationAccessIn is CreateConversationAccess with an inTx step that runs on the insert's own connection,
+// inside its BEGIN IMMEDIATE transaction, after the conversation row is written: an error rolls the conversation
+// back, so nothing the step sets up (the chat mode) can exist without the conversation, or the conversation without it.
+func (s *AIStore) CreateConversationAccessIn(profileID, backend, workflowContext, runtimeID, providerID, model, access, cwd, effort string, inTx func(ctx context.Context, conn *sql.Conn, conversationID string) error) (Conversation, error) {
 	if !ValidAccess(access) {
 		return Conversation{}, fmt.Errorf("create conversation: unknown access %q", access)
 	}
@@ -88,9 +95,39 @@ func (s *AIStore) CreateConversationAccess(profileID, backend, workflowContext, 
 	const q = `INSERT INTO ai_chat_conversations
 		(id, profile_id, backend, workflow_context, runtime_id, provider_id, model, session_id, mode, cwd, history_key, created_at, updated_at, effort, access)
 		VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?)`
-	if _, err := s.db.Exec(q, c.ID, c.ProfileID, c.Backend, c.WorkflowContext, c.RuntimeID, c.ProviderID, c.Model, c.Mode, c.Cwd, c.HistoryKey, c.CreatedAt, c.UpdatedAt, c.Effort, c.Access); err != nil {
+	args := []any{c.ID, c.ProfileID, c.Backend, c.WorkflowContext, c.RuntimeID, c.ProviderID, c.Model, c.Mode, c.Cwd, c.HistoryKey, c.CreatedAt, c.UpdatedAt, c.Effort, c.Access}
+	if inTx == nil {
+		if _, err := s.db.Exec(q, args...); err != nil {
+			return Conversation{}, fmt.Errorf("create conversation: %w", err)
+		}
+		return c, nil
+	}
+	ctx := context.Background()
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return Conversation{}, fmt.Errorf("create conversation: get conn: %w", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		dbconn.AbandonBegin(conn)
+		return Conversation{}, fmt.Errorf("create conversation: begin: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
+	if _, err := conn.ExecContext(ctx, q, args...); err != nil {
 		return Conversation{}, fmt.Errorf("create conversation: %w", err)
 	}
+	if err := inTx(ctx, conn, c.ID); err != nil {
+		return Conversation{}, err
+	}
+	if _, err := conn.ExecContext(context.WithoutCancel(ctx), "COMMIT"); err != nil {
+		return Conversation{}, fmt.Errorf("create conversation: commit: %w", err)
+	}
+	committed = true
 	return c, nil
 }
 
