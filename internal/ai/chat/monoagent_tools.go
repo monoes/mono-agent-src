@@ -47,6 +47,8 @@ type MonoagentTools struct {
 	// orgProjectRoot is a test/explicit override for profileRoot(); empty
 	// means resolve normally.
 	orgProjectRoot string
+	// conversationID is the chat conversation this session's tools run in: the label an org proposal is made under.
+	conversationID string
 }
 
 // NewMonoagentTools creates a MonoagentTools backed by db. selfBin is the
@@ -83,6 +85,14 @@ func (mt *MonoagentTools) workflowStore() WorkflowStore {
 	mt.mu.RLock()
 	defer mt.mu.RUnlock()
 	return mt.store
+}
+
+// SetConversationID names the chat conversation the tools run in. A proposal the tools make carries it as its label
+// (never as ownership); it is set once at session start, never from a model turn.
+func (mt *MonoagentTools) SetConversationID(id string) {
+	mt.mu.Lock()
+	mt.conversationID = id
+	mt.mu.Unlock()
 }
 
 // SetAllowRuns opts this session in to run_workflow execution.
