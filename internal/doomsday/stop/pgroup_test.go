@@ -126,6 +126,7 @@ func createPG(t *testing.T, w *fakePG, gen uint64) (UnitRecord, RunDir, *jlog) {
 
 func usePG(t *testing.T, w *fakePG) {
 	t.Helper()
+	hostAs(t, "darwin") // a recorded unit is only proven, ended or placed through its own platform's kind
 	swapContainment(t, KindPGroup, pgContainment{os: w})
 }
 
