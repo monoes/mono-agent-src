@@ -2729,6 +2729,7 @@
     "noFirstTurn": "Run started, but the boss has no first turn: steer it by typing in the chat, or press Stop in the chat header.",
     "steerBoss": "Steer the boss",
     "stopRun": "Stop the run",
+    "stopElsewhere": "The Stop button of the chat header is not available here: open the Control room and press Stop there.",
     "dismiss": "Dismiss",
     "chatFailed": "The chat could not be created, so nothing was started: {{error}}",
     "err": {

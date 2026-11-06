@@ -2587,6 +2587,7 @@
     "noFirstTurn": "La ejecucion empezo, pero el jefe no tiene primer turno: dirijalo escribiendo en el chat, o pulse Detener en la cabecera del chat.",
     "steerBoss": "Dirigir al jefe",
     "stopRun": "Detener la ejecucion",
+    "stopElsewhere": "El boton Detener de la cabecera no esta disponible aqui: abra la sala de control y pulse Detener alli.",
     "dismiss": "Cerrar",
     "chatFailed": "No se pudo crear el chat, asi que no se inicio nada: {{error}}",
     "err": {
