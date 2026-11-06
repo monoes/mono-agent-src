@@ -89,6 +89,7 @@ func coderChat(store *ai.AIStore, profileID string, conv ai.Conversation) (coder
 func newCoderListCmd(cfg *Deps) *cobra.Command {
 	var conversation string
 	var limit int
+	var all bool
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List coder conversations that ran a turn, most recent first",
@@ -116,13 +117,16 @@ func newCoderListCmd(cfg *Deps) *cobra.Command {
 				if conv.Scoped() {
 					return clicore.InvalidInput("conversation %s is not a coder conversation", conversation)
 				}
+				if isBoss(conv.ID) && !all {
+					return clicore.InvalidInput("conversation %s is a boss's: it is not a send target (--all lists it)", conversation)
+				}
 				row, _, err := coderChat(store, profileID, conv)
 				if err != nil {
 					return err
 				}
 				row.Boss = isBoss(conv.ID)
 				rows = append(rows, row)
-			} else if rows, err = coderChats(store, profileID, limit, isBoss); err != nil {
+			} else if rows, err = coderChats(store, profileID, limit, all, isBoss); err != nil {
 				return err
 			}
 			if cfg.JSONOutput() {
@@ -136,20 +140,27 @@ func newCoderListCmd(cfg *Deps) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&conversation, "conversation", "", "Only this conversation (it may have no turns yet)")
 	cmd.Flags().IntVar(&limit, "limit", 20, "Maximum conversations (1-100)")
+	cmd.Flags().BoolVar(&all, "all", false, "Also list the conversation of a run's boss (it is not a send target)")
 	clicore.WithJSONErrors(cfg.JSONOutput, cmd)
 	return cmd
 }
 
 // coderChats walks the profile's conversations, newest first, for the
 // first limit coder ones that ran a turn.
-func coderChats(store *ai.AIStore, profileID string, limit int, isBoss func(conversationID string) bool) ([]coderChatRow, error) {
+func coderChats(store *ai.AIStore, profileID string, limit int, all bool, isBoss func(conversationID string) bool) ([]coderChatRow, error) {
 	if limit <= 0 || limit > 100 {
 		return nil, clicore.InvalidInput("--limit must be between 1 and 100")
 	}
 	rows := []coderChatRow{}
 	cursor := ""
 	for {
-		convs, next, err := store.ListConversations(profileID, cursor, 200)
+		// The list is the extension's send targets: a boss's conversation is not one unless --all asks for it (the same anti-join
+		// as the history list, from the few stamped bosses).
+		also := `NOT ` + tasks.BossConversationSQL("ai_chat_conversations")
+		if all {
+			also = ""
+		}
+		convs, next, err := store.ListConversationsWhere(profileID, cursor, 200, also)
 		if err != nil {
 			return nil, err
 		}

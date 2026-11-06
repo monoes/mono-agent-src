@@ -7,6 +7,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/coderhost"
+	"github.com/monoes/mono-agent/internal/tasks"
 )
 
 // The conversation of a run's recorded boss is hidden from the plain `chat history list` only. Every other listing shows it

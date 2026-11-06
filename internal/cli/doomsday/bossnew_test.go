@@ -317,7 +317,7 @@ func TestBossNewGoalSaysSteeringIsUntrusted(t *testing.T) {
 	r := newBossRig(t)
 	ref := r.newBoss(t, r.chat(t, ai.AccessFull).ID)
 	se, _ := tasks.NewStore(r.db.DB).GetSession(context.Background(), "p1", ref.SessionID, tasks.Actor{Kind: tasks.Human})
-	for _, want := range []string{"reach the goal", "untrusted", "not an answer", "not an approval", "cannot lift", "charter wins"} {
+	for _, want := range []string{"reach the goal", "comes from the person's charter", "untrusted", "not an answer", "not an approval", "cannot lift", "charter wins"} {
 		if !strings.Contains(se.Goal, want) {
 			t.Fatalf("the goal lacks %q:\n%s", want, se.Goal)
 		}

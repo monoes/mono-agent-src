@@ -293,7 +293,7 @@ func TestQueueBossFirstTurn(t *testing.T) {
 	r := buildSteerRig(t, true, false)
 	in := BossFirstTurn{RunID: "run-1", CharterHash: "abcdef0123456789", Goal: "ship the thing"}
 	text := BossFirstTurnText(in)
-	for _, want := range []string{"boss", "run-1", "abcdef01", "ship the thing", "charter", "[OPERATOR STEERING]", "untrusted", "not an answer", "not an approval", "cannot lift", "charter wins"} {
+	for _, want := range []string{"boss", "run-1", "abcdef01", "ship the thing", "comes from the person's charter", "[OPERATOR STEERING]", "untrusted", "not an answer", "not an approval", "cannot lift", "charter wins"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the first turn lacks %q:\n%s", want, text)
 		}
