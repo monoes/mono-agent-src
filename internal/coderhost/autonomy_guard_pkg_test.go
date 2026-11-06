@@ -15,7 +15,7 @@ func TestApprovalWritersAreNamedOnlyByTheirOwners(t *testing.T) {
 	owners := map[string][]string{
 		"Confirm": {"missionconfirm.go"}, "ConsumeConfirm": {"missionconfirm.go"},
 		"PeekConfirm": {"missionconfirm.go", "host.go"}, "Revoke": {"missionconfirm.go", "host.go"},
-		"SaveSettings": {"settings.go"}, "UpdateSettings": {"settings.go", "children_control.go", "children.go"}, "SetUnattended": {"settings.go"},
+		"SaveSettings": {"settings.go"}, "UpdateSettings": {"settings.go", "chatmode.go", "children_control.go", "children.go"}, "SetUnattended": {"settings.go"},
 		"SetBudget": {"children.go", "children_carve.go"}, "carveBudget": {"children.go", "children_carve.go"}, "Spawn": {"children.go"},
 		"SetRole": {"store.go", "children.go"}, "SetChild": {"children_control.go"},
 		"SetCommand": {"store.go", "host.go"},

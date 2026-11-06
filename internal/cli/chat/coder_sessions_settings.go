@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -28,6 +29,8 @@ type sessionSettingsView struct {
 	// dashes for spaces. Empty when it has no name yet (the host then makes one from the project and time).
 	DefaultAlias string            `json:"defaultAlias"`
 	Mission      missionToggleView `json:"mission"`
+	// ChatMode is the conversation's mode (off, mission or open): chosen before the first message, locked after it.
+	ChatMode chatModeView `json:"chatMode"`
 	// MissionDirections is K as the cap reads it: Effective (not set or 0 is the default of 3) and whether the
 	// operator chose it (Explicit; an explicit 0 counts).
 	MissionDirections missionDirectionsView `json:"missionDirections"`
@@ -97,6 +100,7 @@ func sessionSettingsFrom(cfg *Deps, profileID string, conv ai.Conversation, chan
 	display, _ := chatDisplayTitle(db.DB, profileID, conv.ID) // unreadable: no default shown
 	v.DefaultAlias = coderhost.AliasFromTitle(display)
 	v.MissionDirections = missionDirectionsView{Effective: settings.EffectiveMissionDirections(), Explicit: settings.MissionDirectionsExplicit()}
+	v.ChatMode = chatModeOf(context.Background(), db.DB, profileID, conv, settings.ChatMode)
 	v.Mission = missionToggleOf(context.Background(), tasks.NewStore(db.DB), profileID, conv, settings.Mission)
 	if x, ok, err := cs.GetSession(profileID, conv.ID); err != nil {
 		return v, err
@@ -146,7 +150,7 @@ func newCoderSessionsSettingsGetCmd(cfg *Deps) *cobra.Command {
 }
 
 func newCoderSessionsSettingsSetCmd(cfg *Deps) *cobra.Command {
-	var patch, unattended, role, parent, mission string
+	var patch, unattended, role, parent, mission, chatMode string
 	var budget float64
 	cmd := &cobra.Command{
 		Use:   "set CONVERSATION",
@@ -158,16 +162,22 @@ func newCoderSessionsSettingsSetCmd(cfg *Deps) *cobra.Command {
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if sessionTokenFromEnv() != "" { // a master's turn: agent-adjustable settings of its descendants only
-				return masterSet(cfg, cmd, args[0], patch, unattended != "" || role != "" || parent != "" || mission != "" || cmd.Flags().Changed("budget-usd"))
+				return masterSet(cfg, cmd, args[0], patch, unattended != "" || role != "" || parent != "" || mission != "" || chatMode != "" || cmd.Flags().Changed("budget-usd"))
 			}
 			if err := clicore.RequireOperator(cfg.RequireOperator, "change a coder session's settings"); err != nil {
 				return err
 			}
-			if patch == "" && unattended == "" && role == "" && mission == "" && !cmd.Flags().Changed("budget-usd") {
-				return clicore.InvalidInput("nothing to change: give --patch, --unattended, --role, --mission and/or --budget-usd")
+			if patch == "" && unattended == "" && role == "" && mission == "" && chatMode == "" && !cmd.Flags().Changed("budget-usd") {
+				return clicore.InvalidInput("nothing to change: give --patch, --unattended, --role, --chat-mode, --mission and/or --budget-usd")
 			}
 			if mission != "" && mission != "on" && mission != "off" {
 				return clicore.InvalidInput("--mission is on or off")
+			}
+			if chatMode != "" && !coderhost.ValidChatMode(chatMode) {
+				return clicore.InvalidInput("--chat-mode is %s", strings.Join(coderhost.ChatModes, ", "))
+			}
+			if chatMode != "" && mission != "" {
+				return clicore.InvalidInput("give --chat-mode or --mission, not both (--mission is the old spelling: on is mission, off is off)")
 			}
 			if parent != "" && role != "child" {
 				return clicore.InvalidInput("--parent goes with --role child")
@@ -185,8 +195,8 @@ func newCoderSessionsSettingsSetCmd(cfg *Deps) *cobra.Command {
 			}
 			cs := coderhost.NewStore(db.DB)
 			var changed []string
-			if patch != "" || mission != "" {
-				keys, err := setSettingsAsOperator(cfg, cs, profileID, args[0], patch, mission)
+			if patch != "" || mission != "" || chatMode != "" {
+				keys, err := setSettingsAsOperator(cfg, cs, profileID, args[0], patch, mission, chatMode)
 				if err != nil {
 					db.Close()
 					return err
@@ -230,7 +240,8 @@ func newCoderSessionsSettingsSetCmd(cfg *Deps) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&patch, "patch", "", "JSON object with the settings to change")
 	cmd.Flags().StringVar(&unattended, "unattended", "", "true or false: false turns off the host's own scheduled check-ins for the session")
-	cmd.Flags().StringVar(&mission, "mission", "", "on or off: the chat's Mission toggle (the operator's; needs coding access or more; stays on while the chat has an open mission session; it governs the missions the toggle starts: a mission confirmed on a single send is separate and off is not a stop, use task session stop)")
+	cmd.Flags().StringVar(&chatMode, "chat-mode", "", "off, mission or open: the chat's mode, chosen before its first message and locked after it (the operator's; mission and open need coding access or more; open is not available yet)")
+	cmd.Flags().StringVar(&mission, "mission", "", "Deprecated, use --chat-mode: on is mission, off is off (the operator's; needs coding access or more; stays on while the chat has an open mission session; it governs the missions the toggle starts: a mission confirmed on a single send is separate and off is not a stop, use task session stop)")
 	cmd.Flags().StringVar(&role, "role", "", "solo, master or child (a child needs --parent: a master with room for it)")
 	cmd.Flags().Float64Var(&budget, "budget-usd", 0, "The session's spend cap in USD that its children are carved from (0 = none; not below what its children hold)")
 	cmd.Flags().StringVar(&parent, "parent", "", "the master conversation, with --role child")

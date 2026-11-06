@@ -180,7 +180,7 @@ export function ControlOrg(arg1:string,arg2:string):Promise<string>;
 
 export function CreateChatConversation(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
 
-export function CreateChatConversationAccess(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string):Promise<main.Conversation>;
+export function CreateChatConversationAccess(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string):Promise<main.Conversation>;
 
 export function CreateCoderConversation(arg1:string,arg2:string,arg3:string,arg4:string,arg5:boolean):Promise<string>;
 
@@ -287,6 +287,8 @@ export function GetChatConversationRecord(arg1:string):Promise<main.ChatConversa
 export function GetChatEvents(arg1:string,arg2:string,arg3:number,arg4:number):Promise<string>;
 
 export function GetChatMissionToggle(arg1:string):Promise<string>;
+
+export function GetChatModeOptions(arg1:string):Promise<string>;
 
 export function GetChatTurns(arg1:string,arg2:string,arg3:number):Promise<string>;
 
@@ -768,6 +770,8 @@ export function SetBrowserSiteRule(arg1:string,arg2:string):Promise<string>;
 export function SetChatAccess(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<main.AccessChange>;
 
 export function SetChatMissionToggle(arg1:string,arg2:boolean):Promise<string>;
+
+export function SetChatMode(arg1:string,arg2:string):Promise<string>;
 
 export function SetChatOrgMode(arg1:string,arg2:string):Promise<string>;
 

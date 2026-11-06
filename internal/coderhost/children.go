@@ -420,7 +420,7 @@ func (s *Store) spawnWith(c Caller, req SpawnRequest, hk spawnHooks) (Spawned, e
 	// operator committed since SetRole (even 0) stays. cur is read in this very transaction, and no other
 	// writer makes the field set (it is a pointer, absent until someone chooses it).
 	if _, err := s.UpdateSettings(c.ProfileID, conv.ID, func(_ context.Context, _ *sql.Conn, cur Settings) (Settings, error) {
-		cs.Mission = cur.Mission
+		cs.ChatMode, cs.Mission = cur.ChatMode, cur.Mission
 		if cur.MissionDirections != nil {
 			cs.MissionDirections = cur.MissionDirections
 		}

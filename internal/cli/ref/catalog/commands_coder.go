@@ -37,9 +37,16 @@ var coderCommandDocs = []cmdDoc{
 	},
 	{
 		Name:     "coder sessions list",
-		Short:    "List the sessions the host knows, most recently changed first: state, access, waiting commands",
+		Short:    "List the sessions the host knows, most recently changed first: state, access, chat mode, waiting commands",
 		Usage:    "monoagentcli [--profile P] coder sessions list",
 		Examples: []string{"monoagentcli --profile work coder sessions list --json"},
+	},
+	{
+		Name:     "coder sessions chat-modes",
+		Short:    "Which chat modes (off, mission, open) can be chosen at an access level, and why a disabled one is not: for a chat that does not exist yet",
+		Usage:    "monoagentcli [--profile P] coder sessions chat-modes [--access scoped|coding|workspace|full]",
+		Flags:    `  --access string   scoped, coding, workspace or full (default full)`,
+		Examples: []string{"monoagentcli --profile work coder sessions chat-modes --access coding --json"},
 	},
 	{
 		Name:  "coder sessions send",
@@ -264,22 +271,23 @@ var coderCommandDocs = []cmdDoc{
 	},
 	{
 		Name:     "coder sessions settings get",
-		Short:    "A session's settings, its role, whether it runs unattended, which settings are the operator's, what each allows, and for a master its check-ins in a row against the limit",
+		Short:    "A session's settings, its role, whether it runs unattended, which settings are the operator's, what each allows, the chat mode (off, mission or open: locked from the first message on, with the modes that can be chosen), and for a master its check-ins in a row against the limit",
 		Usage:    "monoagentcli [--profile P] coder sessions settings get CONVERSATION",
 		Examples: []string{"monoagentcli --profile work coder sessions settings get <conv> --json"},
 	},
 	{
 		Name:  "coder sessions settings set",
 		Short: "Change settings with a JSON object naming only the settings to change (the operator only)",
-		Usage: "monoagentcli [--profile P] coder sessions settings set CONVERSATION [--patch JSON] [--unattended true|false] [--role solo|master|child] [--parent MASTER] [--budget-usd N] [--mission on|off]",
+		Usage: "monoagentcli [--profile P] coder sessions settings set CONVERSATION [--patch JSON] [--unattended true|false] [--role solo|master|child] [--parent MASTER] [--budget-usd N] [--chat-mode off|mission|open] [--mission on|off]",
 		Flags: `  --patch string       JSON object with the settings to change; a name that is not a setting is refused
   --unattended string  true or false: false turns off the host's own scheduled check-ins for the session (a message you send runs either way)
   --role string        solo, master or child (a child needs --parent: a master with room for it)
   --parent string      The master conversation, with --role child
   --budget-usd float   The session's spend cap in USD that its children are carved from (0 = none)
-  --mission string     on or off: the chat's Mission toggle. On, every turn is a confirmed mission; it needs coding access or more, and it stays on (off is refused, naming the session) while the chat has an open mission session`,
+  --chat-mode string   off, mission or open: the chat's mode. It is chosen before the first message and refused once the chat has one; mission and open need coding access or more; open is not available yet
+  --mission string     Deprecated, use --chat-mode: on is mission, off is off. On, every turn is a confirmed mission; it needs coding access or more, and it stays on (off is refused, naming the session) while the chat has an open mission session`,
 		Examples: []string{
-			"monoagentcli --profile work coder sessions settings set <conv> --mission on",
+			"monoagentcli --profile work coder sessions settings set <conv> --chat-mode mission",
 			`monoagentcli --profile work coder sessions settings set <conv> --patch '{"checkin_minutes": 30, "checkin_limit": 12}'`,
 			`monoagentcli --profile work coder sessions settings set <conv> --patch '{"mission_directions": 2}'`,
 			"monoagentcli --profile work coder sessions settings set <conv> --role master",

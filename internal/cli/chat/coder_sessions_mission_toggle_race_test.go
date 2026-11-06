@@ -111,7 +111,7 @@ func TestAnOffThatComesWhileAMissionSessionIsBeingAddedIsRefused(t *testing.T) {
 			go func() {
 				defer wg.Done()
 				cs := coderhost.NewStore(db.DB)
-				_, offErr = setSettingsAsOperator(f.cfg, cs, "default", f.conv.ID, "", "off")
+				_, offErr = setSettingsAsOperator(f.cfg, cs, "default", f.conv.ID, "", "off", "")
 			}()
 			select { // a check that is not held back by this transaction passes at once
 			case <-reached:

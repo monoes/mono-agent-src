@@ -55,6 +55,7 @@ type HistoryRow struct {
 	Effort          string   `json:"effort,omitempty"`
 	Access          string   `json:"access,omitempty"`
 	Mode            string   `json:"mode,omitempty"`
+	ChatMode        string   `json:"chatMode,omitempty"` // off, mission or open (only chats above the scoped level have one other than off)
 	OrgMode         string   `json:"orgMode,omitempty"`
 	Cwd             string   `json:"cwd,omitempty"`
 	WorkflowContext string   `json:"workflowContext,omitempty"`
@@ -176,9 +177,10 @@ type historyQuerier interface {
 // histSQL reads every row in ONE statement: the latest turn, the first turn
 // (its text titles the chat) and the latest bound AI task come in as joins on
 // indexed lookups, so a page costs one query however many rows it holds.
-const histSQL = `SELECT id, workflow_context, runtime_id, model, mode, cwd, updated_at, effort, org_mode, access,
+const histSQL = `SELECT id, workflow_context, runtime_id, model, mode, cwd, updated_at, effort, org_mode, access, chat_mode,
 	status, first_prompt, task_id, task_status, task_goal, application_id, custom_title FROM (
 SELECT c.id, c.workflow_context, c.runtime_id, c.model, c.mode, c.cwd, c.updated_at, c.effort, c.org_mode, c.access,
+	COALESCE((SELECT s.chat_mode FROM coder_sessions s WHERE s.profile_id = c.profile_id AND s.conversation_id = c.id), 'off') AS chat_mode,
 	CASE
 		WHEN COALESCE(k.status, '') = 'needs_user' THEN 'needs'
 		WHEN lt.status = 'active' THEN 'running'
@@ -235,7 +237,7 @@ func queryHistoryRows(db historyQuerier, profileID string, f historyFilter, limi
 	for rows.Next() {
 		var r HistoryRow
 		var first, custom string
-		if err := rows.Scan(&r.ID, &r.WorkflowContext, &r.Runtime, &r.Model, &r.Mode, &r.Cwd, &r.UpdatedAt, &r.Effort, &r.OrgMode, &r.Access,
+		if err := rows.Scan(&r.ID, &r.WorkflowContext, &r.Runtime, &r.Model, &r.Mode, &r.Cwd, &r.UpdatedAt, &r.Effort, &r.OrgMode, &r.Access, &r.ChatMode,
 			&r.Status, &first, &r.TaskID, &r.TaskStatus, &r.TaskGoal, &r.ApplicationID, &custom); err != nil {
 			return nil, fmt.Errorf("scan history: %w", err)
 		}

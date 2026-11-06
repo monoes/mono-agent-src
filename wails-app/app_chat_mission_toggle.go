@@ -30,3 +30,29 @@ func (a *App) SetChatMissionToggle(conversationID string, on bool) string {
 	}
 	return a.jsonResult("coder", "sessions", "settings", "set", "--mission="+state, "--", conversationID)
 }
+
+// ─── Chat mode (off | mission | open) ───────────────────────────────────────
+//
+// The mode is chosen before the first message and locked after it; the CLI
+// enforces both. GetChatMissionToggle's answer carries it as "chatMode"
+// ({mode, locked, reason, options}); a chat that does not exist yet asks for the
+// options of its access level; the mode of a new chat goes to
+// CreateChatConversationAccess, which sets it with the conversation.
+
+// SetChatMode runs `coder sessions settings set --chat-mode MODE` and returns the
+// settings after the change, or the CLI's refusal (locked, not available, access).
+func (a *App) SetChatMode(conversationID, mode string) string {
+	if err := a.signedOut(); err != nil {
+		return loginRequiredJSON(err)
+	}
+	return a.jsonResult("coder", "sessions", "settings", "set", "--chat-mode="+mode, "--", conversationID)
+}
+
+// GetChatModeOptions runs `coder sessions chat-modes --access LEVEL`: the three
+// choices and why a disabled one is disabled, for a chat that is not made yet.
+func (a *App) GetChatModeOptions(access string) string {
+	if err := a.signedOut(); err != nil {
+		return loginRequiredJSON(err)
+	}
+	return a.jsonResult("coder", "sessions", "chat-modes", "--access="+access)
+}

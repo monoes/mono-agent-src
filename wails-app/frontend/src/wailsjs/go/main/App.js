@@ -354,8 +354,8 @@ export function CreateChatConversation(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['CreateChatConversation'](arg1, arg2, arg3, arg4);
 }
 
-export function CreateChatConversationAccess(arg1, arg2, arg3, arg4, arg5, arg6) {
-  return window['go']['main']['App']['CreateChatConversationAccess'](arg1, arg2, arg3, arg4, arg5, arg6);
+export function CreateChatConversationAccess(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
+  return window['go']['main']['App']['CreateChatConversationAccess'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
 }
 
 export function CreateCoderConversation(arg1, arg2, arg3, arg4, arg5) {
@@ -568,6 +568,10 @@ export function GetChatEvents(arg1, arg2, arg3, arg4) {
 
 export function GetChatMissionToggle(arg1) {
   return window['go']['main']['App']['GetChatMissionToggle'](arg1);
+}
+
+export function GetChatModeOptions(arg1) {
+  return window['go']['main']['App']['GetChatModeOptions'](arg1);
 }
 
 export function GetChatTurns(arg1, arg2, arg3) {
@@ -1532,6 +1536,10 @@ export function SetChatAccess(arg1, arg2, arg3, arg4) {
 
 export function SetChatMissionToggle(arg1, arg2) {
   return window['go']['main']['App']['SetChatMissionToggle'](arg1, arg2);
+}
+
+export function SetChatMode(arg1, arg2) {
+  return window['go']['main']['App']['SetChatMode'](arg1, arg2);
 }
 
 export function SetChatOrgMode(arg1, arg2) {
