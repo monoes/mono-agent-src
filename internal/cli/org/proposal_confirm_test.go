@@ -2,6 +2,7 @@ package org
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/storage"
 	"time"
 
 	"encoding/json"
@@ -509,22 +510,47 @@ func TestAFailedWorkflowReadAtConfirmDoesNotBurnTheProposal(t *testing.T) {
 }
 
 // The row of an applied proposal keeps a code and a fixed sentence, as a failed one does: the sibling's output (its
-// warnings carry error text, paths) is for the operator's confirm output only, and show is open to agents.
+// warnings carry error text, paths) is for the operator's confirm output only, and show is open to agents. The test
+// reads the row itself and takes what to look for from the sibling's own output, so it does not depend on a warning.
 func TestAnAppliedRowKeepsNoTextOfTheSiblingsOutput(t *testing.T) {
 	f := propFixture(t)
 	p := f.propose(t, "growth", "grant.add", grantArgs)
-	t.Setenv("MONOMIND_BIN", "/nonexistent/secret-path/monomind") // the grant's warnings now name this path
-	out := f.mustRun(t, "proposal", "confirm", p["id"].(string), "--hash", p["hash"].(string))
-	if b, _ := json.Marshal(out["result"]); !strings.Contains(string(b), "secret-path") {
-		t.Skipf("the sibling's output carries no path here, nothing to hide: %s", b)
+	cmd := newOrgCmd(f.cfg)
+	cmd.SetArgs([]string{"proposal", "confirm", p["id"].(string), "--hash", p["hash"].(string)})
+	var runErr error
+	stdout := captureStdout(t, func() { runErr = cmd.Execute() })
+	if runErr != nil {
+		t.Fatal(runErr)
 	}
-	shown := f.mustRun(t, "proposal", "show", p["id"].(string))["proposal"].(map[string]interface{})
-	b, _ := json.Marshal(shown)
-	if strings.Contains(string(b), "secret-path") {
-		t.Fatalf("show hands out the sibling's output: %s", b)
+	var doc struct {
+		Result map[string]interface{} `json:"result"`
 	}
-	if res, _ := shown["result"].(map[string]interface{}); res["code"] != "applied" || res["message"] == "" {
-		t.Fatalf("result %v, want a code and a fixed sentence", shown["result"])
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &doc); err != nil || doc.Result["tool_name"] == nil {
+		t.Fatalf("the operator's confirm output lost the command's result: %q %v", stdout, err)
+	}
+	db, err := storage.NewDatabase(f.cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var row string
+	if err := db.DB.QueryRow(`SELECT result_json FROM org_proposals WHERE id = ?`, p["id"].(string)).Scan(&row); err != nil {
+		t.Fatal(err)
+	}
+	const fixed = `{"code":"applied","message":"applied by the user's confirm; the confirm output has the command's result"}`
+	if row != fixed {
+		t.Fatalf("result_json = %s, want the fixed document %s", row, fixed)
+	}
+	// and nothing the sibling printed: its grant id, tool name and workflow name are always in its output
+	grant := doc.Result["grant"].(map[string]interface{})
+	for _, secret := range []string{grant["id"].(string), doc.Result["tool_name"].(string), grant["workflow_name"].(string), "reconcile"} {
+		if strings.Contains(row, secret) {
+			t.Errorf("the row holds %q of the sibling's output", secret)
+		}
+	}
+	shown, _ := json.Marshal(f.mustRun(t, "proposal", "show", p["id"].(string))["proposal"].(map[string]interface{})["result"])
+	if strings.Contains(string(shown), grant["id"].(string)) {
+		t.Errorf("show hands out the sibling's output: %s", shown)
 	}
 }
 

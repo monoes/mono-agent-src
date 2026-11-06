@@ -399,3 +399,14 @@ func TestConversationAndCreatedByAreBoundedAndCleaned(t *testing.T) {
 		t.Fatalf("created_by %q", by)
 	}
 }
+
+// create answers a store failure with a fixed sentence: the database's text (table names, paths) stays out of what an
+// agent reads.
+func TestCreateDoesNotReturnTheStoresErrorText(t *testing.T) {
+	f := propFixture(t)
+	f.sql(t, "ALTER TABLE org_proposals RENAME TO org_proposals_away")
+	_, err := f.run(t, "proposal", "create", "growth", "--verb", "grant.add", "--args-json", grantArgs)
+	if err == nil || strings.Contains(err.Error(), "org_proposals") || strings.Contains(err.Error(), "no such table") {
+		t.Fatalf("create: %v", err)
+	}
+}
