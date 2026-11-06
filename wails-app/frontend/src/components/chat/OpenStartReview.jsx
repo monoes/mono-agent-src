@@ -19,7 +19,7 @@ function runWords(output, t) {
   } catch { return '' }
 }
 
-export function OpenStartReview({ charter, preview, bossSession, onStarted }) {
+export function OpenStartReview({ charter, preview, bossSession, onStarted, onUnknown }) {
   const { t } = useTranslation()
   const [phrase, setPhrase] = useState('')
   const [busy, setBusy] = useState(false)
@@ -37,11 +37,11 @@ export function OpenStartReview({ charter, preview, bossSession, onStarted }) {
       if (r?.ok && r?.started) {
         setStarted(r); onStarted?.(r)
         window.dispatchEvent(new Event(CONTROL_ROOM_CHANGED)) // the nav asks again now, not at its next poll
-      } else if (r?.state === 'unknown') setUnknown(String(r.detail || t('openStart.unknown')))
+      } else if (r?.state === 'unknown') { setUnknown(String(r.detail || t('openStart.unknown'))); onUnknown?.() }
       else setError(String(r?.detail || r?.error || t('openStart.startFailed')))
     } catch (e) {
       // The call itself failed: whether the run started is not known, so this is not a plain error and not a retry.
-      setUnknown(t('openStart.unknown') + ' ' + String(e?.message || e))
+      setUnknown(t('openStart.unknown') + ' ' + String(e?.message || e)); onUnknown?.()
     } finally {
       setBusy(false)
     }

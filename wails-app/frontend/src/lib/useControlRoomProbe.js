@@ -2,7 +2,7 @@
 // answer is hidden until it says so. Shown whenever the probe says the mode is available (a run is not required);
 // `running` only drives the nav chip. Paused while the window is hidden.
 import { useEffect, useRef, useState } from 'react'
-import { controlRoomApi } from '../services/controlRoom.js'
+import { controlRoomApi, CONTROL_ROOM_CHANGED } from '../services/controlRoom.js'
 import { usePageVisible } from './usePageVisible.js'
 
 export const PROBE_POLL_MS = 15000       // a run exists: the nav chip must follow it
@@ -12,7 +12,7 @@ export const PROBE_IDLE_POLL_MS = 60000  // the last good answer said off / no r
 // the nav item for a whole idle period while a run may be live.
 export const PROBE_RETRY_MS = [5000, 15000]
 
-export const CONTROL_ROOM_CHANGED = 'monoagent:controlroom-changed'
+export { CONTROL_ROOM_CHANGED }
 
 export const probeDelay = (probe) => (probe?.run_exists ? PROBE_POLL_MS : PROBE_IDLE_POLL_MS)
 
@@ -36,8 +36,8 @@ export function useControlRoomProbe(api = controlRoomApi) {
     let again = false // a change was announced while a read was in flight: one more read after it
     const read = async () => {
       inflight = true
-      const p = await api.probe()
-      inflight = false
+      let p
+      try { p = await api.probe() } finally { inflight = false } // a rejected probe must not leave "in flight" set for good
       if (cancelled) return
       if (again) { again = false; failures = 0; read(); return }
       if (!p?.error) { failures = 0; last.current = p; setProbe(p) } else failures++

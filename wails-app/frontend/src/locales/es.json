@@ -2563,6 +2563,7 @@
       "perAsk": "Cada limite por peticion necesita un numero, un acceso que no sea full y topes de la ejecucion al menos iguales a los de cada peticion."
     },
     "removeN": "Quitar el criterio {{n}}",
+    "mayExist": "Un inicio anterior termino sin una respuesta clara, asi que puede haber una ejecucion. Revisa la sala de control antes de empezar otra; la CLI solo permite una a la vez y es la unica proteccion.",
     "unknown": "La ejecucion pudo empezar: revisa la sala de control y pulsa Detener si esta en marcha.",
     "reviewTitle": "Revisar antes de empezar"
   }

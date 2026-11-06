@@ -45,6 +45,7 @@ export function OpenStartForm({ bossSession = null, onStarted }) {
   const [reviewError, setReviewError] = useState('')
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(false) // started: nothing can be submitted again
+  const [mayExist, setMayExist] = useState(false) // a start ended unknown: a run may exist
 
   useEffect(() => {
     let live = true
@@ -189,9 +190,10 @@ export function OpenStartForm({ bossSession = null, onStarted }) {
             <Err id="open-err-perask">{err.perAsk}</Err>
           </section>
 
+          {mayExist && <p role="alert" data-testid="open-may-exist" style={{ ...small, color: 'var(--red)' }}>{t('openStart.mayExist')}</p>}
           <button type="button" className="btn btn-sm" disabled={busy || done} onClick={doReview}>{t('openStart.review')}</button>
           {reviewError && <p role="alert" style={{ ...small, color: 'var(--red)' }}>{reviewError}</p>}
-          {review && <OpenStartReview key={review.preview.start_token} charter={review.charter} preview={review.preview} bossSession={bossSession} onStarted={r => { setDone(true); onStarted?.(r) }} />}
+          {review && <OpenStartReview key={review.preview.start_token} charter={review.charter} preview={review.preview} bossSession={bossSession} onStarted={r => { setDone(true); onStarted?.(r) }} onUnknown={() => setMayExist(true)} />}
         </fieldset>
       )}
     </div>

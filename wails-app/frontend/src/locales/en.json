@@ -2703,6 +2703,7 @@
       "perAsk": "Every per-ask limit needs a number, an access that is not full, and run caps at least as large as the per-ask limits."
     },
     "removeN": "Remove criterion {{n}}",
+    "mayExist": "An earlier start ended without a clear answer, so a run may already exist. Check the Control room before starting again; the CLI allows one run at a time and is the only guard.",
     "unknown": "The run may have started: check the Control room and press Stop if it is running.",
     "reviewTitle": "Review before starting"
   }

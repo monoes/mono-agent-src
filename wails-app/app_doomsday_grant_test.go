@@ -3,9 +3,9 @@
 package main
 
 import (
-	"fmt"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -63,6 +63,7 @@ func newGrantRig(t *testing.T) *grantRig {
 	doomsdayGrants.reset()
 	doomsdayRenders.reset()
 	t.Cleanup(doomsdayRenders.reset)
+	dialogOpen.Store(false)
 	return g
 }
 

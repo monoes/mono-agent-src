@@ -13,9 +13,11 @@ import (
 	"errors"
 	"io/fs"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -227,6 +229,9 @@ func (a *App) DoomsdayStart(charterJSON, phrase, token string, bossSession int64
 	if bossSession <= 0 {
 		return startDoc("not_started", "", "a start needs the boss session of the chat", "invalid_input")
 	}
+	if dialogOpen.Load() {
+		return startDoc("not_started", "", "a confirmation dialog is still open: answer or close it first", "busy")
+	}
 	// One start at a time, dialog included: a second click while a confirmation is open is refused, not queued.
 	if !doomsdayStartMu.TryLock() {
 		return startDoc("not_started", "", "a start is already running", "busy")
@@ -241,6 +246,9 @@ func (a *App) DoomsdayStart(charterJSON, phrase, token string, bossSession int64
 	facts, err := doomsdayGrants.peek(pid, token, charterJSON)
 	if err != nil {
 		return startDoc("not_started", "", err.Error(), "token")
+	}
+	if strings.TrimSpace(phrase) != facts.expectedPhrase() { // before the dialog, and nothing is spent
+		return startDoc("not_started", "", "the phrase does not match the charter shown; nothing started", "phrase")
 	}
 	shown := doomsdayNow()
 	yes, returned, err := askNative(a, facts.dialogBody())
@@ -287,6 +295,10 @@ func (a *App) DoomsdayStart(charterJSON, phrase, token string, bossSession int64
 // the start as declined (a dialog that never returns must not leave every later start busy).
 var doomsdayDialogTimeout = 5 * time.Minute
 
+// dialogOpen is true while a native confirmation is on screen, including one the start stopped waiting for: it stays up
+// until the person dismisses it, and a second one must not be stacked on it.
+var dialogOpen atomic.Bool
+
 // askNative shows the confirmation and waits for it at most doomsdayDialogTimeout. returned is false when it did not
 // come back in time; a late answer is dropped.
 func askNative(a *App, body string) (yes, returned bool, err error) {
@@ -295,8 +307,11 @@ func askNative(a *App, body string) (yes, returned bool, err error) {
 		err error
 	}
 	ch := make(chan answer, 1)
+	ask := confirmNative // read once, here: the goroutine below must not read the variable again
+	dialogOpen.Store(true)
 	go func() {
-		y, e := confirmNative(a, "Start an open-ended run", body)
+		y, e := ask(a, "Start an open-ended run", body)
+		dialogOpen.Store(false) // the dialog is really gone only now, not when the wait gave up
 		ch <- answer{y, e}
 	}()
 	select {
@@ -307,6 +322,10 @@ func askNative(a *App, body string) (yes, returned bool, err error) {
 	}
 }
 
+// crashRe matches a Go crash report: its marker at the START of a line. The charter text the CLI echoes on stderr is one
+// escaped line after a fixed label ("Goal: ..."), so it cannot start a line with these words.
+var crashRe = regexp.MustCompile(`(?m)^(panic: |fatal error: |goroutine [0-9]+ \[)`)
+
 // startMayHaveHappened says whether a failed start leaves the run's state unclear. Only two outcomes are "not started":
 // the CLI could not be run at all, or it exited by itself with an explicit refusal (its JSON error envelope) and nothing
 // that says otherwise. Anything else is unknown: the command's context ended, a signal killed it, it panicked, it said
@@ -316,7 +335,7 @@ func startMayHaveHappened(err error, envelope bool, detail, stderr string) bool 
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		return true
 	}
-	if strings.Contains(detail, " started but ") || strings.Contains(stderr, "panic:") || strings.Contains(stderr, "goroutine ") {
+	if strings.Contains(detail, " started but ") || crashRe.MatchString(stderr) {
 		return true
 	}
 	var xe *exec.Error

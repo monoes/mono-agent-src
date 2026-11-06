@@ -74,6 +74,37 @@ func doomsdayArgv(profile, verb string, extra ...string) ([]string, error) {
 	return scopedCLIArgs(profile, args...)
 }
 
+// headTailBuffer keeps the first head bytes and the last tail bytes of what is written, so a crash report at the end
+// of a long stderr (after a big render) is not cut off.
+type headTailBuffer struct {
+	head, tail int
+	first      []byte
+	last       []byte
+	dropped    bool
+}
+
+func (h *headTailBuffer) Write(p []byte) (int, error) {
+	n := len(p)
+	if room := h.head - len(h.first); room > 0 {
+		take := min(room, len(p))
+		h.first = append(h.first, p[:take]...)
+		p = p[take:]
+	}
+	h.last = append(h.last, p...)
+	if len(h.last) > h.tail {
+		h.last = append([]byte(nil), h.last[len(h.last)-h.tail:]...)
+		h.dropped = true
+	}
+	return n, nil
+}
+
+func (h *headTailBuffer) String() string {
+	if h.dropped {
+		return string(h.first) + "\n...\n" + string(h.last)
+	}
+	return string(h.first) + string(h.last)
+}
+
 // cappedBuffer keeps the first max bytes and drops the rest without blocking the writer.
 type cappedBuffer struct {
 	max       int
@@ -138,16 +169,18 @@ func (a *App) execDoomsdayGrace(timeout, grace time.Duration, full []string, std
 			}
 			return nil
 		}
+		// WaitDelay also bounds how long a child that inherited the output pipes can hold Wait open after the CLI exits: a
+		// successful exit is then reported as an error. The CLI starts no such child.
 		cmd.WaitDelay = grace
 	}
 	suppressConsole(cmd)
-	out, errb := &cappedBuffer{max: doomsdayMaxOutput}, &cappedBuffer{max: 64 << 10}
+	out, errb := &cappedBuffer{max: doomsdayMaxOutput}, &headTailBuffer{head: 32 << 10, tail: 32 << 10}
 	cmd.Stdout, cmd.Stderr = out, errb
 	err = cmd.Run()
 	if err != nil && ctx.Err() != nil {
 		err = fmt.Errorf("%w: %v", ctx.Err(), err)
 	}
-	return string(out.buf), string(errb.buf), out.truncated, err
+	return string(out.buf), errb.String(), out.truncated, err
 }
 
 // doomsdayRead runs a read verb and returns its document verbatim, or an {"error"} document.

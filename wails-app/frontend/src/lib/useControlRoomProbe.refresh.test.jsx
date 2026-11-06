@@ -30,3 +30,16 @@ describe('one request chain', () => {
     expect(api.probe).toHaveBeenCalledTimes(2) // two announcements, one more read
   })
 })
+
+describe('a rejected probe', () => {
+  it('does not leave a read "in flight" for good: a later announcement still reads', async () => {
+    const api = { probe: vi.fn() }
+    api.probe.mockRejectedValueOnce(new Error('bridge gone'))
+    api.probe.mockResolvedValue({ mode_available: true, run_exists: true })
+    const { result } = renderHook(() => useControlRoomProbe(api))
+    await waitFor(() => expect(api.probe).toHaveBeenCalledTimes(1))
+    await new Promise(r => setTimeout(r, 20))
+    act(() => { window.dispatchEvent(new Event(CONTROL_ROOM_CHANGED)) })
+    await waitFor(() => expect(result.current.running).toBe(true))
+  })
+})

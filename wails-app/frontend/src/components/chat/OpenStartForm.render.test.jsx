@@ -274,3 +274,18 @@ describe('the started view and a second review', () => {
     expect(screen.getByLabelText('Type the phrase')).toHaveValue('')
   })
 })
+
+describe('after an unknown outcome', () => {
+  it('warns that a run may exist on the next review', async () => {
+    openStartApi.start.mockResolvedValue({ ok: false, started: false, state: 'unknown', detail: 'the run may have started', code: 'unknown' })
+    render(<OpenStartForm bossSession={7} />)
+    await screen.findByLabelText('Goal')
+    await fillForm()
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }))
+    await screen.findByTestId('open-review')
+    type('Type the phrase', TYPED)
+    fireEvent.click(screen.getByRole('button', { name: 'Start the run' }))
+    await screen.findByTestId('open-unknown')
+    expect(await screen.findByTestId('open-may-exist')).toHaveTextContent('may already exist')
+  })
+})

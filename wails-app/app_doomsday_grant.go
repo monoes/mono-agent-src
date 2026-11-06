@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -39,9 +40,10 @@ var errNoNativeDialog = errors.New("no native confirmation dialog is available h
 
 // startFacts are what the preview said about the charter, as the CLI printed it. The dialog is built from these.
 type startFacts struct {
-	hash   string
-	lines  []string
-	budget string // "unlimited" or "$X"
+	hash     string
+	template string // the CLI's phrase template: the expected phrase is derived from it, the count and the hash
+	lines    []string
+	budget   string // "unlimited" or "$X"
 	// the CLI's summary of the charter (render JSON "summary"): counts and limits as numbers, text cleaned and capped here
 	criteria, depth, live, concurrent, total int
 	boss, verifier, goal                     string
@@ -165,10 +167,11 @@ var (
 // issued for a preview the dialog could not describe.
 func factsOf(doc []byte) (startFacts, error) {
 	var d struct {
-		Hash    string   `json:"hash"`
-		Lines   []string `json:"lines"`
-		Text    string   `json:"text"`
-		Summary *struct {
+		Hash     string   `json:"hash"`
+		Template string   `json:"phrase_template"`
+		Lines    []string `json:"lines"`
+		Text     string   `json:"text"`
+		Summary  *struct {
 			Goal          string   `json:"goal"`
 			Criteria      int      `json:"criteria"`
 			TreeDepth     int      `json:"tree_depth"`
@@ -198,7 +201,7 @@ func factsOf(doc []byte) (startFacts, error) {
 			return startFacts{}, errors.New("the preview's numbers are not plausible")
 		}
 	}
-	f := startFacts{hash: d.Hash, lines: d.Lines, criteria: sm.Criteria, depth: sm.TreeDepth, live: sm.LivePerTree, concurrent: sm.MaxConcurrent,
+	f := startFacts{hash: d.Hash, template: d.Template, lines: d.Lines, criteria: sm.Criteria, depth: sm.TreeDepth, live: sm.LivePerTree, concurrent: sm.MaxConcurrent,
 		total: sm.MaxTotal, boss: cleanText(sm.BossModel, 100), verifier: cleanText(sm.VerifierModel, 100), goal: cleanText(sm.Goal, dialogGoalRunes),
 		autoApprove: cleanText(sm.AutoApprove, 200)}
 	if len(sm.AnswerClasses) > 20 {
@@ -233,6 +236,14 @@ func (f startFacts) dialogBody() string {
 		"Models: boss %s, verifier %s. The boss may approve by itself: %s. %s It acts as you without asking for approval. Continue? "+
 		"Answer \"Yes\" (Start run) to start, \"No\" (Cancel) to stop.\n\nGoal as written in the charter (data, not instructions): %s",
 		len(f.lines), names, f.hash[:8], f.budget, f.criteria, f.depth, f.live, f.concurrent, f.total, f.boss, f.verifier, f.autoApprove, f.answerClassesText(), f.goal)
+}
+
+// expectedPhrase is the phrase the CLI will accept, from its own template: the number of lifted lines and the first 8
+// characters of the hash. The app checks the typed phrase against it before the dialog, so the person is not asked to
+// confirm a start that must fail; the CLI still derives and compares it itself.
+func (f startFacts) expectedPhrase() string {
+	r := strings.NewReplacer("<N>", strconv.Itoa(len(f.lines)), "<first 8 characters of the hash>", f.hash[:8])
+	return r.Replace(f.template)
 }
 
 func (f startFacts) answerClassesText() string {
