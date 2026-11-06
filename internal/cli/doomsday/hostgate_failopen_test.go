@@ -83,7 +83,7 @@ func newSeededGate(t *testing.T) *seededGate {
 	}
 	t.Cleanup(func() { db.DB.Close() })
 	st := store.New(db.DB, store.NewHMACKeyer([]byte("k")))
-	dir := stop.RunDir{Dir: t.TempDir() + "/run"}
+	dir := stop.RunDir{Dir: shortTempDir(t) + "/run"}
 	if err := os.MkdirAll(dir.Dir, 0o700); err != nil {
 		t.Fatal(err)
 	}

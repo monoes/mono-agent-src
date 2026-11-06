@@ -1,13 +1,15 @@
 package stop
 
 import (
+	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
 // recContainment records that the seam, not the Linux code directly, answered.
 type recContainment struct {
-	probed, proved int
+	probed, proved, created, placed, present int
 }
 
 func (*recContainment) Kind() string { return KindCgroup2 }
@@ -19,6 +21,12 @@ func (r *recContainment) Prove(UnitRecord) (Proof, error) {
 	r.proved++
 	return Proof{Note: "seam"}, nil
 }
+func (r *recContainment) Create(context.Context, CreateArgs, uint64) (UnitRecord, error) {
+	r.created++
+	return UnitRecord{Kind: r.Kind()}, nil
+}
+func (r *recContainment) Place(UnitRecord) (Placement, error) { r.placed++; return nil, nil }
+func (r *recContainment) Present(UnitRecord) (bool, error)    { r.present++; return false, nil }
 
 func swapContainment(t *testing.T, kind string, c Containment) {
 	t.Helper()
@@ -55,13 +63,23 @@ func TestUnknownKindRefusedAndRegisteredKindDispatched(t *testing.T) {
 	}
 	r := &recContainment{}
 	swapContainment(t, "jobobject", r)
+	// a registered kind that is not THIS platform's kind is refused: a record from another OS is never proven here
+	if _, err := ProveUnit(newFakeKernel(), rec); !errors.Is(err, ErrNotProven) || r.proved != 0 {
+		t.Fatalf("a kind of another platform was dispatched to: %v %d", err, r.proved)
+	}
+	hostAs(t, "windows")
 	if p, err := ProveUnit(newFakeKernel(), rec); err != nil || p.Note != "seam" || r.proved != 1 {
 		t.Fatalf("a registered kind was not dispatched to: %+v %v %d", p, err, r.proved)
 	}
+	if _, err := ProveUnit(newFakeKernel(), testRecord()); !errors.Is(err, ErrNotProven) {
+		t.Fatalf("a cgroup2 record is proven on a Windows host: %v", err)
+	}
 }
 
+// darwin left this list when macOS got its own containment (KindPGroup); on a macOS CI runner it would have started a
+// real anchor here. "DARWIN" stays: GOOS names are exact.
 func TestUnknownPlatformStaysRefused(t *testing.T) {
-	for _, goos := range []string{"windows", "darwin", "freebsd", "", "LINUX"} {
+	for _, goos := range []string{"freebsd", "openbsd", "", "LINUX", "WINDOWS", "DARWIN"} {
 		if err := probe(goos, func() []ProbeStep { return nil }); !errors.Is(err, ErrContainmentUnavailable) {
 			t.Fatalf("%q: %v", goos, err)
 		}
@@ -97,5 +115,33 @@ func TestMalformedKindsAreRefused(t *testing.T) {
 		if _, err := ProveUnit(newFakeKernel(), rec); !errors.Is(err, ErrNotProven) {
 			t.Fatalf("%q: %v", kind, err)
 		}
+	}
+}
+
+// The Linux unit's absence check (used after its service was stopped) is the old OpenCgroup/IsAbsent decision.
+func TestCgroup2PresentFollowsTheKernel(t *testing.T) {
+	k := newFakeKernel()
+	c := cgroup2Containment{k: k}
+	if present, err := c.Present(testRecord()); err != nil || !present {
+		t.Fatalf("an openable cgroup is present: %v %v", present, err)
+	}
+	k.absent = true
+	if present, err := c.Present(testRecord()); err != nil || present {
+		t.Fatalf("an absent cgroup is not present: %v %v", present, err)
+	}
+}
+
+// A Linux unit's stop after the service stopped reports a cgroup that is still there as a straggler, never ended.
+func TestStopServiceReportsAUnitThatIsStillPresent(t *testing.T) {
+	k := newFakeKernel()
+	rec := testRecord()
+	u := UnitEnder{K: k, StopUnit: func(context.Context, string) error { return nil }}
+	out := u.stopService(bg, rec, UnitOutcome{Kind: UnitEnded})
+	if out.Kind != UnitStragglers || len(out.Survivors) != 1 || !strings.Contains(out.Survivors[0].Why, "cgroup is still present") {
+		t.Fatalf("%+v", out)
+	}
+	k.absent = true
+	if out := u.stopService(bg, rec, UnitOutcome{Kind: UnitEnded}); out.Kind != UnitEnded {
+		t.Fatalf("%+v", out)
 	}
 }

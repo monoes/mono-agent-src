@@ -3,6 +3,7 @@ package stop
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -68,6 +69,11 @@ func waitEmpty(cg Cgroup, sub string, clk Clock, d, poll time.Duration) bool {
 // signalled because every operation is relative to the descriptor.
 func EndUnit(cg Cgroup, cfg EndConfig) UnitOutcome {
 	cfg = cfg.norm()
+	if f, ok := cg.(interface{ Flat() bool }); ok && f.Flat() && len(cfg.Exclude) > 0 {
+		// A group without sub-units cannot spare the commands of a begun operation: it is left alone until the
+		// operation finishes (the Stop stays pending), never ended around it.
+		return UnitOutcome{Kind: UnitStragglers, Note: "a begun operation is finishing in a unit that cannot spare it; the unit was not ended"}
+	}
 	subs, err := cg.Subgroups()
 	if err != nil {
 		return UnitOutcome{Kind: UnitNotProven, Note: fmt.Sprintf("the unit cannot be enumerated: %v", err)}
@@ -134,9 +140,13 @@ func endSub(cg Cgroup, sub string, cfg EndConfig, out *UnitOutcome) (unknown []S
 		empty = waitEmpty(cg, sub, cfg.Clock, cfg.TKill, cfg.Poll)
 	}
 	pids, _ := cg.Procs(sub)
+	why := "did not die after the kill window"
+	if w, ok := cg.(interface{ SurvivorWhy() string }); ok {
+		why = w.SurvivorWhy()
+	}
 	for _, pid := range pids {
 		stamp, comm, _ := cg.ProcInfo(sub, pid)
-		out.Survivors = append(out.Survivors, Survivor{PID: pid, Stamp: stamp, Comm: comm, Sub: sub, Why: "did not die after the kill window"})
+		out.Survivors = append(out.Survivors, Survivor{PID: pid, Stamp: stamp, Comm: comm, Sub: sub, Why: why})
 	}
 	if len(pids) == 0 {
 		out.Survivors = append(out.Survivors, Survivor{Sub: sub, Why: "the sub-cgroup could not be removed"})
@@ -164,6 +174,7 @@ func (u UnitEnder) End(ctx context.Context, gen uint64, exclude []uint64) UnitOu
 	if u.Witness != nil {
 		cands = append(cands, u.Witness(gen)...)
 	}
+	witnessed := append([]UnitRecord(nil), cands...) // the authenticated records: what a mechanism without a namespace may act on
 	rec, ok, err := u.Dir.ReadUnitFile(gen)
 	if err != nil {
 		return UnitOutcome{Kind: UnitNotProven, Note: err.Error()}
@@ -195,7 +206,7 @@ func (u UnitEnder) End(ctx context.Context, gen uint64, exclude []uint64) UnitOu
 		notes = append(notes, "the witness and the run directory file disagree; both named units are ended")
 	}
 	for _, rec := range cands {
-		o := u.endOne(ctx, rec, cfg)
+		o := u.endOne(ctx, rec, cfg, slices.Contains(witnessed, rec))
 		res = mergeOutcome(res, o)
 		if o.Note != "" {
 			notes = append(notes, o.Note)
@@ -209,18 +220,34 @@ func (u UnitEnder) End(ctx context.Context, gen uint64, exclude []uint64) UnitOu
 	return res
 }
 
-func (u UnitEnder) endOne(ctx context.Context, rec UnitRecord, cfg EndConfig) UnitOutcome {
+// witnessOnly is implemented by a Containment whose records are authority to signal only when the witness bound them:
+// a mechanism with no namespace of its own to bound a forged record (the macOS process group).
+type witnessOnly interface{ NeedsWitness() bool }
+
+func (u UnitEnder) endOne(ctx context.Context, rec UnitRecord, cfg EndConfig, authentic bool) UnitOutcome {
 	p, err := ProveUnit(u.K, rec)
 	if err != nil {
 		return UnitOutcome{Kind: UnitNotProven, Note: err.Error()}
 	}
 	if p.Gone {
+		if p.BestEffort {
+			return UnitOutcome{Kind: UnitBestEffort, Note: p.Note}
+		}
 		return UnitOutcome{Kind: UnitEnded, Note: p.Note}
 	}
-	defer p.Cg.Close()
+	if mk, ok := containments[rec.Kind]; ok && !authentic {
+		if w, ok := mk(u.K, nil).(witnessOnly); ok && w.NeedsWitness() {
+			p.Cg.Close()
+			return UnitOutcome{Kind: UnitNotProven, Note: "the unit " + rec.Name + " is named only by the run directory, not bound in the witness, so it is not signalled"}
+		}
+	}
 	out := EndUnit(p.Cg, cfg)
+	p.Cg.Close() // before the absence check: an open handle keeps a Job Object alive
 	if out.Kind == UnitEnded && len(cfg.Exclude) == 0 && u.StopUnit != nil {
 		out = u.stopService(ctx, rec, out)
+	}
+	if p.BestEffort && out.Kind == UnitEnded {
+		out.Kind = UnitBestEffort
 	}
 	return out
 }
@@ -236,13 +263,27 @@ func (u UnitEnder) stopService(ctx context.Context, rec UnitRecord, out UnitOutc
 	if err := u.StopUnit(ctx, rec.Name); err != nil {
 		return left("the unit's service could not be stopped: " + err.Error())
 	}
-	cg, err := u.K.OpenCgroup(rec.CgroupPath)
+	mk, ok := containments[rec.Kind]
+	if !ok {
+		return left("the unit's kind is unknown, so its absence cannot be checked: " + rec.Kind)
+	}
+	what := "cgroup"
+	if rec.Kind != KindCgroup2 {
+		what = "group"
+	}
+	present, err := mk(u.K, nil).Present(rec)
+	if rec.Kind != KindCgroup2 { // a Job Object's name closes a moment after its last handle: look again, bounded
+		clk := u.Cfg.norm()
+		for i := 0; err == nil && present && i < jobPolls; i++ {
+			<-clk.Clock.After(jobPoll)
+			present, err = mk(u.K, nil).Present(rec)
+		}
+	}
 	switch {
-	case err == nil:
-		cg.Close()
-		return left("the unit's cgroup is still present after its service was stopped")
-	case !u.K.IsAbsent(err):
-		return left("the unit's cgroup cannot be checked after its service was stopped: " + err.Error())
+	case err != nil:
+		return left("the unit's " + what + " cannot be checked after its service was stopped: " + err.Error())
+	case present:
+		return left("the unit's " + what + " is still present after its service was stopped")
 	}
 	return out
 }
@@ -303,10 +344,12 @@ func mergeOutcome(a, b UnitOutcome) UnitOutcome {
 	rank := func(k UnitOutcomeKind) int {
 		switch k {
 		case UnitNotProven:
-			return 4
+			return 5
 		case UnitStragglers:
-			return 3
+			return 4
 		case UnitEndedWithUnknown:
+			return 3
+		case UnitBestEffort:
 			return 2
 		case UnitEnded:
 			return 1

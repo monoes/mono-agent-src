@@ -124,6 +124,11 @@ func (e *StoreEngine) Enter(ctx context.Context, canon Canon, expectedHash strin
 	if err := e.RequireBinding(ctx); err != nil {
 		return Entry{}, err
 	}
+	// The probe is part of the entry itself, not of the CLI verb: no starter can skip it. It also builds the witness
+	// (the pinned connection), and runs before anything is created.
+	if err := e.Containment(); err != nil {
+		return Entry{}, fmt.Errorf("the entry is refused, containment is not available: %w", err)
+	}
 	if e.BeforeStart != nil {
 		if err := e.BeforeStart(ctx); err != nil {
 			return Entry{}, fmt.Errorf("a begun merge of an earlier run could not be revisited, so nothing was started: %w", err)

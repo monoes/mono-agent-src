@@ -45,14 +45,7 @@ func (OSFS) Remove(path string) error                    { return os.Remove(path
 func (OSFS) MkdirAll(dir string, perm os.FileMode) error { return os.MkdirAll(dir, perm) }
 
 // SyncDir fsyncs a directory so a created or removed entry survives power loss.
-func (OSFS) SyncDir(dir string) error {
-	d, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	defer d.Close()
-	return d.Sync()
-}
+func (OSFS) SyncDir(dir string) error { return syncDir(dir) }
 
 // AppendSync appends data to an existing file and fsyncs the file and its directory.
 func (OSFS) AppendSync(path string, data []byte, dir string) error {

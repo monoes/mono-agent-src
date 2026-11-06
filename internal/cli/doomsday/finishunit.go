@@ -57,7 +57,7 @@ func (e *FinishEngine) sandbox(gen int64) func(ctx context.Context, round int64)
 			return finish.Sandbox{}, nil, fmt.Errorf("no witness, so no verification unit can be recorded: %w", err)
 		}
 		dir := e.unitDir(gen, round)
-		rec, err := (stop.UnitCreator{K: w.Kernel, Dir: dir, Host: w.Host, Journal: seq}).Create(ctx, uint64(gen))
+		rec, err := stop.CreateUnit(ctx, w.Kernel, stop.CreateArgs{Dir: dir, Host: w.Host, Journal: seq}, uint64(gen))
 		if err != nil {
 			return finish.Sandbox{}, nil, err
 		}
@@ -106,7 +106,7 @@ func (e *FinishEngine) endUnit(dir stop.RunDir, gen int64) []string {
 	rec, hadRec, _ := dir.ReadUnitFile(uint64(gen))
 	out := ender.End(ctx, uint64(gen), nil)
 	switch out.Kind {
-	case stop.UnitEnded, stop.UnitNone:
+	case stop.UnitEnded, stop.UnitNone, stop.UnitBestEffort:
 		if hadRec {
 			if err := w.Store.Release(ctx, w.Profile, gen, rec.Name); err != nil {
 				return []string{fmt.Sprintf("the verification unit of %s is gone but its member could not be released: %v", filepath.Base(dir.Dir), err)}

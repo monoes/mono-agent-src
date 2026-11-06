@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -26,14 +27,19 @@ func TestSnapshotDigestIsContentAndStructureAndTheCopyIsSealed(t *testing.T) {
 	if err := os.Symlink("a.txt", filepath.Join(root, "ln")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink("/etc/passwd", filepath.Join(root, "out")); err != nil {
+	// an absolute target on this OS ("/etc/passwd" is not absolute on Windows, which needs a drive)
+	outside, err := filepath.Abs(filepath.Join(t.TempDir(), "outside.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "out")); err != nil {
 		t.Fatal(err)
 	}
 	live, err := DigestTree(root, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(live.Flags) != 1 || live.Flags[0] != "out -> /etc/passwd" {
+	if len(live.Flags) != 1 || live.Flags[0] != "out -> "+outside {
 		t.Fatalf("flags %v", live.Flags)
 	}
 	dst := filepath.Join(t.TempDir(), "snap")
@@ -48,8 +54,10 @@ func TestSnapshotDigestIsContentAndStructureAndTheCopyIsSealed(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dst, "a.txt"), []byte("x"), 0o600); err == nil {
 		t.Fatal("a snapshot file is writable")
 	}
-	if err := os.WriteFile(filepath.Join(dst, "new"), []byte("x"), 0o600); err == nil {
-		t.Fatal("a snapshot directory is writable")
+	if runtime.GOOS != "windows" { // NTFS ignores a directory's mode bits: only the files are sealed there (see seal in subject.go)
+		if err := os.WriteFile(filepath.Join(dst, "new"), []byte("x"), 0o600); err == nil {
+			t.Fatal("a snapshot directory is writable")
+		}
 	}
 	if got, _ := DigestTree(dst, ""); got.Digest != live.Digest {
 		t.Fatal("the sealed snapshot digests differently from its source")
@@ -63,6 +71,9 @@ func TestSnapshotDigestIsContentAndStructureAndTheCopyIsSealed(t *testing.T) {
 	os.Chtimes(filepath.Join(root, "a.txt"), live0(), live0())
 	if same, _ := DigestTree(root, ""); same.Digest != live.Digest {
 		t.Fatal("a time change moved the digest")
+	}
+	if runtime.GOOS == "windows" {
+		return // NTFS has no executable bit: flipping it changes nothing, so it cannot be part of the digest there
 	}
 	os.Chmod(filepath.Join(root, "a.txt"), 0o755)
 	if mode, _ := DigestTree(root, ""); mode.Digest == live.Digest {

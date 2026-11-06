@@ -113,16 +113,16 @@ func (w Wiring) ender() stop.Ender {
 
 // createUnit is StoreEngine.CreateUnit: the unit is created, proven and recorded before the run exists.
 func (w Wiring) createUnit(ctx context.Context, gen int64) (func(context.Context) error, error) {
-	c := stop.UnitCreator{K: w.Kernel, Dir: w.RunDir, Host: w.Host}
 	seq, err := w.Sequencer(ctx)
 	if err != nil {
 		return nil, err
 	}
-	c.Journal = seq // unit-intent before the service, unit-bound before the unit file
-	rec, err := c.Create(ctx, uint64(gen))
+	// seq is the journal: unit-intent before the service, unit-bound before the unit file
+	rec, err := stop.CreateUnit(ctx, w.Kernel, stop.CreateArgs{Dir: w.RunDir, Host: w.Host, Journal: seq}, uint64(gen))
 	if err != nil {
 		return nil, err
 	}
+	c := stop.UnitCreator{Dir: w.RunDir, Host: w.Host}
 	return func(ctx context.Context) error { return c.Discard(ctx, rec) }, nil
 }
 
@@ -158,7 +158,9 @@ func (w Wiring) stop(ctx context.Context) (StopOutcome, error) {
 			out.Survivors = append(out.Survivors, fmt.Sprintf("pid %d (%s)", s.PID, s.Comm))
 		}
 		out.Survivors = append(out.Survivors, rep.Members...)
-		if !rep.Stopped() {
+		if rep.StoppedBestEffort() {
+			out.BestEffort = true
+		} else if !rep.Stopped() {
 			out.Incomplete = append(out.Incomplete, rep.Lines()...)
 		}
 	}

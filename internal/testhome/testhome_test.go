@@ -35,6 +35,90 @@ func TestHomeIsATempDir(t *testing.T) {
 			t.Fatalf("%s = %q, want one inside the test home", k, os.Getenv(k))
 		}
 	}
+	// On Windows the user's dirs come from these, not from HOME.
+	if runtime.GOOS == "windows" {
+		for _, k := range []string{"USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP"} {
+			if !strings.HasPrefix(os.Getenv(k), home) {
+				t.Fatalf("%s = %q, want one inside the test home", k, os.Getenv(k))
+			}
+		}
+		if tmp := os.TempDir(); !strings.HasPrefix(tmp, home) {
+			t.Fatalf("TempDir = %q, want one inside the test home", tmp)
+		}
+	}
+}
+
+// homeEnv is the redirection Main applies; asserting it for every goos keeps
+// the Windows variables covered on a host that is not Windows.
+func TestHomeEnvRedirectsEveryHomeVariable(t *testing.T) {
+	get := func(env [][2]string) map[string]string {
+		m := map[string]string{}
+		for _, kv := range env {
+			m[kv[0]] = kv[1]
+		}
+		return m
+	}
+	t.Run("windows", func(t *testing.T) {
+		dir := `C:\Users\x\AppData\Local\Temp\monoagent-testhome-1`
+		env, mkdirs := homeEnv("windows", dir)
+		m := get(env)
+		want := map[string]string{
+			"HOME":         dir,
+			"USERPROFILE":  dir,
+			"HOMEDRIVE":    "C:",
+			"HOMEPATH":     `\Users\x\AppData\Local\Temp\monoagent-testhome-1`,
+			"APPDATA":      dir + `\AppData\Roaming`,
+			"LOCALAPPDATA": dir + `\AppData\Local`,
+			"TEMP":         dir + `\AppData\Local\Temp`,
+			"TMP":          dir + `\AppData\Local\Temp`,
+		}
+		for k, v := range want {
+			if m[k] != v {
+				t.Errorf("%s = %q, want %q", k, m[k], v)
+			}
+		}
+		for _, k := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"} {
+			if !strings.HasPrefix(m[k], dir) {
+				t.Errorf("%s = %q, want one inside %s", k, m[k], dir)
+			}
+		}
+		for _, d := range []string{m["APPDATA"], m["LOCALAPPDATA"], m["TEMP"]} {
+			found := false
+			for _, x := range mkdirs {
+				found = found || x == d
+			}
+			if !found {
+				t.Errorf("%s is not created", d)
+			}
+		}
+	})
+	t.Run("windows UNC home has no drive", func(t *testing.T) {
+		m := get(func() [][2]string { e, _ := homeEnv("windows", `\\srv\share\h`); return e }())
+		if m["HOMEDRIVE"] != "" || m["HOMEPATH"] != `\\srv\share\h` {
+			t.Errorf("HOMEDRIVE=%q HOMEPATH=%q", m["HOMEDRIVE"], m["HOMEPATH"])
+		}
+	})
+	for _, goos := range []string{"linux", "darwin"} {
+		t.Run(goos, func(t *testing.T) {
+			dir := "/tmp/h"
+			env, mkdirs := homeEnv(goos, dir)
+			want := [][2]string{
+				{"HOME", dir},
+				{"USERPROFILE", dir},
+				{"XDG_CONFIG_HOME", "/tmp/h/.config"},
+				{"XDG_DATA_HOME", "/tmp/h/.local/share"},
+				{"XDG_STATE_HOME", "/tmp/h/.local/state"},
+			}
+			if len(env) != len(want) || len(mkdirs) != 0 {
+				t.Fatalf("env = %v mkdirs = %v, want %v and none", env, mkdirs, want)
+			}
+			for i := range want {
+				if env[i] != want[i] {
+					t.Errorf("env[%d] = %v, want %v", i, env[i], want[i])
+				}
+			}
+		})
+	}
 }
 
 // Main marks the process (and so every process its tests start) as under
@@ -104,13 +188,14 @@ func TestKeepHomeOnlyUnderTheTempDir(t *testing.T) {
 // between, "under the temp dir": keepable still refuses them, and still
 // keeps a folder below the home (TMPDIR=~/scratch/… makes every test home one).
 func TestKeepNeverTheAccountHomeOrAbove(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("the temp dir does not follow TMPDIR on Windows")
-	}
 	home := accountHome(t)
 	below := t.TempDir() // made before the temp dir moves
 	parent, top := filepath.Dir(home), filepath.Dir(filepath.Dir(home))
-	t.Setenv("TMPDIR", top)
+	tmpVar := "TMPDIR"
+	if runtime.GOOS == "windows" {
+		tmpVar = "TMP" // GetTempPath reads TMP first
+	}
+	t.Setenv(tmpVar, top)
 	if !underTempDir(home) {
 		t.Fatalf("setup: %s should be under the temp dir %s", home, os.TempDir())
 	}
