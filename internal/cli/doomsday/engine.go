@@ -43,6 +43,9 @@ type StopOutcome struct {
 	// Incomplete holds the report lines of any run that is not fully stopped (a step not done, the run not
 	// quiescent). Non-empty means "stopped" is never printed.
 	Incomplete []string
+	// Line, when the engine sets it, is the first line of a stop that is not a bare "stopped" (a best-effort stop says so in
+	// it). It must start with "stopped"; the command prints it, cleaned, and passes it on as the verdict.
+	Line string
 	// Runs are the runs this Stop proved stopped (every step done): the only ones whose sessions AfterStop may end.
 	Runs []RunRef
 }
@@ -90,6 +93,12 @@ type Engine interface {
 // the lines to print after the verdict and never an error: what it could not do is a line that says so.
 type AfterStopper interface {
 	AfterStop(ctx context.Context, o StopOutcome, verdict string, at time.Time) []string
+}
+
+// StopRepairer is an Engine that can finish what the last stop left: asked only when a stop found no open run (ErrNoOpenRun).
+// RepairNothing keeps the "no open run" failure; RepairDone prints its lines and exits 0; RepairFailed prints them and exits 1.
+type StopRepairer interface {
+	RepairStop(ctx context.Context, at time.Time) ([]string, RepairStatus)
 }
 
 // BossBinder is an Engine that can record which session is the run's boss (`start --boss-session`).

@@ -44,7 +44,13 @@ type Wiring struct {
 	// ChatNote writes one system message into a conversation's transcript (ai.AIStore.RecordSystemNotice in the CLI).
 	// Nil: a stop ends the sessions but leaves no message, and says so.
 	ChatNote func(ctx context.Context, conversationID, message string) error
+	// ChatNoteSince says whether the chat already holds a Stop message written at or after unix time since. Nil: the repair
+	// of a stop writes a message only for a chat in which it ended a session.
+	ChatNoteSince func(ctx context.Context, conversationID string, since int64) (bool, error)
 }
+
+// ErrNoOpenRun is why a stop has nothing to stop.
+var ErrNoOpenRun = errors.New("no open run to stop")
 
 // notProvenEnder is the Ender of an install with no Kernel: it signals nothing and says so.
 type notProvenEnder struct{}
@@ -72,14 +78,15 @@ func (w Wiring) Engine() *StoreEngine {
 			_, err := witness(context.Background())
 			return err
 		},
-		Binding:     w.Binding,
-		StopFn:      w.stop,
-		BeforeStart: w.recoverMerges,
-		CreateUnit:  w.createUnit,
-		Boss:        w.designateBoss,
-		AfterStopFn: w.afterStop,
-		AfterEnter:  func(_ context.Context, gen int64) error { return w.RunDir.CreateSecret(uint64(gen)) },
-		HeadAnchor:  w.headAnchor(),
+		Binding:      w.Binding,
+		StopFn:       w.stop,
+		BeforeStart:  w.recoverMerges,
+		CreateUnit:   w.createUnit,
+		Boss:         w.designateBoss,
+		AfterStopFn:  w.afterStop,
+		RepairStopFn: w.repairStop,
+		AfterEnter:   func(_ context.Context, gen int64) error { return w.RunDir.CreateSecret(uint64(gen)) },
+		HeadAnchor:   w.headAnchor(),
 		BeginEntry: func(ctx context.Context, gen int64) error {
 			seq, err := witness(ctx)
 			if err != nil {
@@ -149,12 +156,14 @@ func (w Wiring) stop(ctx context.Context) (StopOutcome, error) {
 		return StopOutcome{}, fmt.Errorf("the open runs cannot be read, nothing was stopped: %w", err)
 	}
 	if len(runs) == 0 {
-		return StopOutcome{}, errors.New("no open run to stop")
+		return StopOutcome{}, ErrNoOpenRun
 	}
 	st := w.Stopper("operator", w.ender())
 	out := StopOutcome{MarkerRecorded: true, IntentRecorded: true}
 	for _, r := range runs {
-		rep := st.Stop(ctx, uint64(r.Generation), r.CharterID, "operator stop")
+		rep := st.Stop(ctx, uint64(r.Generation), r.CharterID, operatorStopCause)
+		// A run counts as ended here when the Stop order proved it. PR #1503 (best-effort stop on Windows/macOS) must widen this
+		// to `rep.Stopped() || rep.StoppedBestEffort()` (TestAfterStopRunsForWhateverRunsTheOutcomeNames guards the CLI side).
 		if rep.Stopped() {
 			out.Runs = append(out.Runs, RunRef{CharterID: r.CharterID, Generation: r.Generation})
 		}

@@ -61,3 +61,19 @@ func (s *AIStore) RecordSystemNotice(profileID, conversationID, code, message st
 	}
 	return tx.Commit()
 }
+
+// HasSystemNoticeSince says whether the conversation holds a system notice with this code written at or after since.
+func (s *AIStore) HasSystemNoticeSince(profileID, conversationID, code string, since time.Time) (bool, error) {
+	if profileID == "" {
+		return false, ErrProfileRequired
+	}
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM ai_chat_turns t JOIN ai_chat_events e ON e.turn_id = t.id AND e.profile_id = t.profile_id
+		WHERE t.profile_id = ? AND t.conversation_id = ? AND t.id LIKE ? AND t.created_at >= ? AND e.type = ? AND json_extract(e.payload, '$.code') = ?`,
+		profileID, conversationID, systemTurnPrefix+"%", since.UTC().Format(time.RFC3339), string(chatevents.EventNotice), code).Scan(&n)
+	return n > 0, err
+}
+
+// IsSystem says whether the turn only carries a system notice (RecordSystemNotice): promptless, with the system id. Readers
+// of "the newest turn" of a conversation skip such turns; they are not work.
+func (t Turn) IsSystem() bool { return t.Prompt == "" && strings.HasPrefix(t.ID, systemTurnPrefix) }

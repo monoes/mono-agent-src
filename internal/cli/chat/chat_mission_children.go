@@ -200,7 +200,13 @@ func (m *missionChildren) Report(_ context.Context, childConversation string) st
 	if err != nil {
 		return ""
 	}
-	turns, _, err := store.ListTurns(childConversation, m.profileID, "", 1)
+	all, _, err := store.ListTurns(childConversation, m.profileID, "", 10)
+	var turns []ai.Turn
+	for _, t := range all {
+		if !t.IsSystem() { // a Stop's notice is not the child's report
+			turns = append(turns, t)
+		}
+	}
 	if err != nil || len(turns) == 0 {
 		return ""
 	}

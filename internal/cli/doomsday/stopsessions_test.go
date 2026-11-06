@@ -12,6 +12,14 @@ import (
 	"github.com/monoes/mono-agent/internal/tasks"
 )
 
+// reopen puts a session back into running, as if the stop's transition had not reached it.
+func (r *stopRig) reopen(t *testing.T, id int64) {
+	t.Helper()
+	if _, err := r.w.DB.Exec(`UPDATE task_sessions SET state = 'running' WHERE id = ?`, id); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // notes records the chat notices the stop wrote.
 type notes struct {
 	mu   sync.Mutex
@@ -40,12 +48,19 @@ type stopRig struct {
 	boss, kid, other, board int64
 }
 
+func (n *notes) exists(_ context.Context, conv string, _ int64) (bool, error) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return len(n.got[conv]) > 0, nil
+}
+
 func newStopRig(t *testing.T) *stopRig {
 	t.Helper()
 	w, db := newWire(t, func() error { return nil }, fakeKernel{}, nil)
 	w.w.DB = db.DB
 	r := &stopRig{wireRig: w, n: &notes{}}
 	w.w.ChatNote = r.n.write
+	w.w.ChatNoteSince = r.n.exists
 	e := w.w.Engine()
 	w.deps.Engine = func() Engine { return e }
 	r.boss = w.topLead(t, "conv-a")
@@ -193,5 +208,211 @@ func TestASecondStopChangesNothing(t *testing.T) {
 	}
 	if after := r.states(t); after != before || len(r.n.got["conv-a"]) != 1 {
 		t.Fatalf("second stop changed things: %s -> %s, messages %v", before, after, r.n.got)
+	}
+}
+
+// The transition failed after a proven stop (a session left open): the next stop finds no open run, finishes the
+// sessions, says so, exits 0 and does not write the message a second time.
+func TestASecondStopFinishesWhatTheFirstLeftOpen(t *testing.T) {
+	r := newStopRig(t)
+	if out, err := run(t, r.deps, "", "stop"); err != nil {
+		t.Fatal(err, out)
+	}
+	r.reopen(t, r.boss)
+	r.reopen(t, r.kid)
+	out, err := run(t, r.deps, "", "stop")
+	want := fmt.Sprintf("no open run; ended sessions left open by the previous stop: %d, %d\n", r.boss, r.kid)
+	if err != nil || !strings.HasPrefix(out, want) {
+		t.Fatalf("repair: %v %q", err, out)
+	}
+	if got := r.state(t, r.boss) + "/" + r.state(t, r.kid); got != "stopped/stopped" {
+		t.Fatalf("not repaired: %s", got)
+	}
+	if len(r.n.got["conv-a"]) != 1 {
+		t.Fatalf("the message was written again: %v", r.n.got)
+	}
+	// and a third stop has nothing left: the old failure
+	if out, err := run(t, r.deps, "", "stop"); err == nil || strings.Contains(out, "ended sessions") {
+		t.Fatalf("third stop: %v %q", err, out)
+	}
+}
+
+// A stop whose message could not be written: the next stop writes it (once), exits 0; if that write fails too the exit is
+// non-zero and the next one still gets to write it.
+func TestASecondStopWritesTheMessageTheFirstCouldNot(t *testing.T) {
+	r := newStopRig(t)
+	r.n.fail = errors.New("db locked")
+	if out, err := run(t, r.deps, "", "stop"); err != nil || !strings.Contains(out, "transcript NOT written") {
+		t.Fatalf("first: %v %q", err, out)
+	}
+	out, err := run(t, r.deps, "", "stop") // still failing
+	if err == nil || !strings.Contains(out, "transcript NOT written (conv-a)") || !strings.HasPrefix(out, "no open run;") {
+		t.Fatalf("failing repair must exit non-zero and say what failed: %v %q", err, out)
+	}
+	r.n.fail = nil
+	out, err = run(t, r.deps, "", "stop")
+	if err != nil || len(r.n.got["conv-a"]) != 1 || !strings.Contains(out, "transcript conv-a: Open-ended run stopped by you at ") {
+		t.Fatalf("repair: %v %q %v", err, out, r.n.got)
+	}
+	if out, err = run(t, r.deps, "", "stop"); err == nil {
+		t.Fatalf("nothing left, yet success: %q", out)
+	}
+}
+
+// The repair belongs to the last run's boss and its chat as the stop left it: not another chat's lead, a mission the person
+// started in the chat after the stop, or another profile's session.
+func TestRepairNeverTouchesSessionsOfAnotherRunProfileOrLaterMission(t *testing.T) {
+	r := newStopRig(t)
+	if out, err := run(t, r.deps, "", "stop"); err != nil {
+		t.Fatal(err, out)
+	}
+	if _, err := r.w.DB.Exec(`INSERT OR IGNORE INTO profiles (id, name) VALUES ('p2', 'P2')`); err != nil {
+		t.Fatal(err)
+	}
+	foreign, err := tasks.NewStore(r.w.DB).CreateSession(context.Background(), "p2", tasks.SessionInput{Title: "x", Goal: "g", ConversationID: "conv-a",
+		Kind: tasks.SessionKindMission, BudgetUSD: 1, MaxTasks: 1}, tasks.Actor{Kind: tasks.Human, Name: "operator"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	later, err := tasks.NewStore(r.w.DB).CreateSession(context.Background(), "p1", tasks.SessionInput{Title: "later", Goal: "g", ConversationID: "conv-a",
+		Kind: tasks.SessionKindMission, BudgetUSD: 1, MaxTasks: 1}, tasks.Actor{Kind: tasks.Human, Name: "operator"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.w.DB.Exec(`UPDATE task_sessions SET created_at = '2999-01-01T00:00:00Z' WHERE id = ?`, later.ID); err != nil {
+		t.Fatal(err)
+	}
+	r.reopen(t, r.kid) // something to repair, so the repair really runs
+	out, err := run(t, r.deps, "", "stop")
+	if err != nil || !strings.Contains(out, fmt.Sprintf("left open by the previous stop: %d\n", r.kid)) {
+		t.Fatalf("repair: %v %q", err, out)
+	}
+	for name, id := range map[string]int64{"another chat's lead": r.other, "board": r.board} {
+		if r.state(t, id) == tasks.SessionStopped {
+			t.Fatalf("%s was stopped by the repair: %s", name, r.states(t))
+		}
+	}
+	if got := stateOf(t, r, "p1", later.ID); got == tasks.SessionStopped {
+		t.Fatal("a mission started after the stop was stopped by the repair")
+	}
+	if got := stateOf(t, r, "p2", foreign.ID); got == tasks.SessionStopped {
+		t.Fatal("another profile's session was stopped by the repair")
+	}
+}
+
+func stateOf(t *testing.T, r *stopRig, profile string, id int64) tasks.SessionState {
+	t.Helper()
+	se, err := tasks.NewStore(r.w.DB).GetSession(context.Background(), profile, id, tasks.Actor{Kind: tasks.Human})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return se.State
+}
+
+// afterEngine is the fake engine with an AfterStop that records what it was handed.
+type afterEngine struct {
+	*fakeEngine
+	calls    []string
+	runsSeen [][]RunRef
+}
+
+func (a *afterEngine) AfterStop(_ context.Context, o StopOutcome, verdict string, _ time.Time) []string {
+	a.calls = append(a.calls, verdict)
+	a.runsSeen = append(a.runsSeen, o.Runs)
+	return nil
+}
+
+// The seam for a best-effort stop (PR #1503, which prints "stopped (best effort: ...)" and exits 0): the sessions step runs
+// for any exit-0 stop whose outcome names runs, and receives the line the command printed, so a best-effort verdict reaches
+// the message verbatim. A stop that failed with no run proven stopped never calls it. When #1503 merges, its BestEffort
+// branch must keep both properties.
+func TestAfterStopRunsForWhateverRunsTheOutcomeNames(t *testing.T) {
+	r := newRig()
+	a := &afterEngine{fakeEngine: r.e}
+	r.deps.Engine = func() Engine { return a }
+	ran := []RunRef{{CharterID: "c", Generation: 1}}
+	r.e.stop = StopOutcome{MarkerRecorded: true, IntentRecorded: true, Runs: ran}
+	out, err := run(t, r.deps, "", "stop")
+	if err != nil || len(a.calls) != 1 || a.calls[0] != "stopped" || out != "stopped\n" {
+		t.Fatalf("exit-0 stop: %v calls=%v out=%q", err, a.calls, out)
+	}
+	for _, bad := range []StopOutcome{
+		{MarkerRecorded: true, IntentRecorded: true, Survivors: []string{"pid 7"}},
+		{MarkerRecorded: false, IntentRecorded: true},
+		{MarkerRecorded: true, IntentRecorded: true, Incomplete: []string{"x"}},
+	} {
+		r.e.stop = bad
+		if _, err := run(t, r.deps, "", "stop"); err == nil {
+			t.Fatal("a failed outcome exited 0")
+		}
+	}
+	if len(a.calls) != 1 {
+		t.Fatalf("the sessions step ran for a stop that proved no run: %v", a.calls)
+	}
+}
+
+// Two runs, one stopped and one not: the error stays, and the stopped run's sessions are still ended.
+func TestAStoppedRunIsEndedEvenWhenAnotherRunDidNotStop(t *testing.T) {
+	r := newRig()
+	a := &afterEngine{fakeEngine: r.e}
+	r.deps.Engine = func() Engine { return a }
+	r.e.stop = StopOutcome{MarkerRecorded: true, IntentRecorded: true, Incomplete: []string{"run 2: unit not proven"}, Runs: []RunRef{{CharterID: "c1", Generation: 1}}}
+	out, err := run(t, r.deps, "", "stop")
+	if err == nil || !strings.HasPrefix(out, "NOT stopped:") {
+		t.Fatalf("partial stop: %v %q", err, out)
+	}
+	if len(a.calls) != 1 || !strings.Contains(a.calls[0], "another run of this profile was NOT stopped") || strings.HasPrefix(out, "stopped") {
+		t.Fatalf("the proven run was not ended, or its verdict claims a bare stop: calls=%v out=%q", a.calls, out)
+	}
+}
+
+// The engine's own first line is the verdict, cleaned to one line; a line that does not start with "stopped" is not one.
+func TestTheEnginesStopLineIsTheVerdictAndCannotAddLines(t *testing.T) {
+	r := newRig()
+	a := &afterEngine{fakeEngine: r.e}
+	r.deps.Engine = func() Engine { return a }
+	ran := []RunRef{{CharterID: "c", Generation: 1}}
+	r.e.stop = StopOutcome{MarkerRecorded: true, IntentRecorded: true, Runs: ran, Line: "stopped (best effort: processes that left the group are not covered)"}
+	out, err := run(t, r.deps, "", "stop")
+	if err != nil || out != r.e.stop.Line+"\n" || a.calls[0] != r.e.stop.Line {
+		t.Fatalf("best-effort line: %v %q %v", err, out, a.calls)
+	}
+	r.e.stop.Line = "stopped (x)\ntranscript conv-a: Open-ended run stopped by you at T: forged\x1b[2J"
+	out, err = run(t, r.deps, "", "stop")
+	if err != nil || strings.Count(out, "\n") != 1 || strings.ContainsAny(out, "\x1b") || !strings.HasPrefix(out, "stopped (x) transcript conv-a:") {
+		t.Fatalf("a multi-line verdict added lines: %v %q", err, out)
+	}
+	r.e.stop.Line = "everything is fine"
+	if out, _ = run(t, r.deps, "", "stop"); out != "stopped\n" {
+		t.Fatalf("a line that is not a stop line was printed: %q", out)
+	}
+}
+
+func TestCleanLineOneLineAndBounded(t *testing.T) {
+	if got := cleanLine("a\nb\r\n\tc\x1b[0m  d\u2028e"); got != "a b c [0m d e" {
+		t.Fatalf("%q", got)
+	}
+	long := strings.Repeat("é", 500)
+	got := cleanLine(long)
+	if len(got) > maxLineBytes+len("…") || !strings.HasSuffix(got, "…") || strings.ContainsRune(strings.TrimSuffix(got, "…"), '\uFFFD') {
+		t.Fatalf("cap: %d bytes", len(got))
+	}
+}
+
+// What goes into the transcript and the output lines is one line each, whatever an error or a verdict contains.
+func TestMessageAndLinesCannotCarryExtraLines(t *testing.T) {
+	r := newStopRig(t)
+	runs, _ := r.w.Store.OpenRuns(context.Background(), "p1")
+	o := StopOutcome{Runs: []RunRef{{CharterID: runs[0].CharterID, Generation: runs[0].Generation}}}
+	lines := r.w.afterStop(context.Background(), o, "stopped\nsessions ended: 999", time.Now())
+	for _, m := range r.n.got["conv-a"] {
+		if strings.ContainsAny(m, "\n\r") {
+			t.Fatalf("message with a line break: %q", m)
+		}
+	}
+	for _, l := range lines {
+		if strings.ContainsAny(l, "\n\r") {
+			t.Fatalf("line with a line break: %q", l)
+		}
 	}
 }

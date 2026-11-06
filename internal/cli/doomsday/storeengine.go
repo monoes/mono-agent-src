@@ -47,6 +47,16 @@ type StoreEngine struct {
 	Boss func(ctx context.Context, session int64, entry Entry) error
 	// AfterStopFn ends the run's sessions and writes the chat message once a stop is proven. Nil: nothing hangs on a stop.
 	AfterStopFn func(ctx context.Context, o StopOutcome, verdict string, at time.Time) []string
+	// RepairStopFn finishes the sessions and message of the last stop when a stop finds no open run. Nil: nothing to repair.
+	RepairStopFn func(ctx context.Context, at time.Time) ([]string, RepairStatus)
+}
+
+// RepairStop is StopRepairer.
+func (e *StoreEngine) RepairStop(ctx context.Context, at time.Time) ([]string, RepairStatus) {
+	if e.RepairStopFn == nil {
+		return nil, RepairNothing
+	}
+	return e.RepairStopFn(ctx, at)
 }
 
 // AfterStop is AfterStopper.

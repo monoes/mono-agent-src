@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/ai"
 	chatcli "github.com/monoes/mono-agent/internal/cli/chat"
@@ -191,6 +192,13 @@ func doomsdayWiring(cfg *globalConfig, db *sql.DB) doomsdaycli.Wiring {
 				return err
 			}
 			return as.RecordSystemNotice(cfg.ProfileID, conversationID, ai.NoticeOpenEndedStopped, message)
+		},
+		ChatNoteSince: func(_ context.Context, conversationID string, since int64) (bool, error) {
+			as, err := ai.NewAIStore(db)
+			if err != nil {
+				return false, err
+			}
+			return as.HasSystemNoticeSince(cfg.ProfileID, conversationID, ai.NoticeOpenEndedStopped, time.Unix(since, 0))
 		},
 		// The witness of note 13.5: the pinned connection on the database file, the vault-derived MAC keys, and the OS
 		// secret store of the anchor (a run on a machine with none is `anchor-bound: no` and says so).
