@@ -1,6 +1,8 @@
 package doomsday
 
 import (
+	"fmt"
+	"reflect"
 	"strings"
 	"unicode/utf8"
 
@@ -52,6 +54,26 @@ type RenderSummary struct {
 	MaxTotal      int    `json:"max_total"`
 	BossModel     string `json:"boss_model"`
 	VerifierModel string `json:"verifier_model"`
+	// AutoApprove says what the boss may approve by itself ("nothing" when no per-ask limit is declared), and
+	// AnswerClasses the critical asks it may answer by itself; both escaped.
+	AutoApprove   string   `json:"auto_approve"`
+	AnswerClasses []string `json:"answer_classes"`
+}
+
+func autoApproveText(p PerAsk) string {
+	if !p.AutoApproves() {
+		return "nothing"
+	}
+	return fmt.Sprintf("spend up to %.6f USD and %d tasks per ask, access %s, %d levels down; run caps %.6f USD and %d tasks",
+		float64(p.SpendMicro)/1e6, p.Tasks, plainN(p.Access, 40), p.Depth, float64(p.RunSpendMicro)/1e6, p.RunTasks)
+}
+
+func classesOf(p PerAsk) []string {
+	out := make([]string, 0, len(p.AnswerClasses))
+	for _, c := range p.AnswerClasses {
+		out = append(out, plainN(c, 60))
+	}
+	return out
 }
 
 func pinText(p Pin) string {
@@ -66,7 +88,8 @@ func NewRenderDoc(c Charter, hash string) RenderDoc {
 	}
 	return RenderDoc{Hash: hash, Lines: lines, LiftCount: len(lines), Text: Render(c, hash), PhraseTemplate: PhraseTemplate,
 		Summary: RenderSummary{Goal: plainN(c.Goal, 300), Criteria: len(c.Criteria), TreeDepth: c.Limits.TreeDepth, LivePerTree: c.Limits.LivePerTree,
-			MaxConcurrent: c.Limits.MaxConcurrent, MaxTotal: c.Limits.MaxTotal, BossModel: pinText(c.Pins.Boss), VerifierModel: pinText(c.Pins.Verifier)}}
+			MaxConcurrent: c.Limits.MaxConcurrent, MaxTotal: c.Limits.MaxTotal, BossModel: pinText(c.Pins.Boss), VerifierModel: pinText(c.Pins.Verifier),
+			AutoApprove: autoApproveText(c.PerAsk), AnswerClasses: classesOf(c.PerAsk)}}
 }
 
 // ValidateGUIStart holds a start from the app to what its form requires, whatever the page sent: a success criterion
@@ -81,13 +104,7 @@ func ValidateGUIStart(c Charter) error {
 	}
 	// Every text the person is shown is shown whole and as it is: the hash and the boss see all of it, so a text longer
 	// than the display cap, or one with a character a person cannot see, is refused rather than shown cut or escaped.
-	texts := []string{c.Goal, c.Pins.Judging}
-	for _, p := range []Pin{c.Pins.Boss, c.Pins.Verifier} {
-		texts = append(texts, p.Provider, p.Model, p.Version)
-	}
-	for _, k := range c.Criteria {
-		texts = append(texts, k.Text, k.Command, k.Expected)
-	}
+	texts := charterStrings(reflect.ValueOf(c)) // every string the charter carries, found by its type, so a new field is checked too
 	for _, t := range texts {
 		if utf8.RuneCountInString(t) > MaxDisplayRunes {
 			return clicore.InvalidInput("a start from the app takes text of at most %d characters in the goal, criteria and pins", MaxDisplayRunes)
@@ -103,3 +120,24 @@ func ValidateGUIStart(c Charter) error {
 
 // MaxDisplayRunes is the cap of every free text the render shows whole.
 const MaxDisplayRunes = 2000
+
+// charterStrings is every string inside v (a struct, slice or string), whatever the field is called.
+func charterStrings(v reflect.Value) []string {
+	switch v.Kind() {
+	case reflect.String:
+		return []string{v.String()}
+	case reflect.Struct:
+		var out []string
+		for i := 0; i < v.NumField(); i++ {
+			out = append(out, charterStrings(v.Field(i))...)
+		}
+		return out
+	case reflect.Slice:
+		var out []string
+		for i := 0; i < v.Len(); i++ {
+			out = append(out, charterStrings(v.Index(i))...)
+		}
+		return out
+	}
+	return nil
+}

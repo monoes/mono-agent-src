@@ -35,6 +35,13 @@ func hiddenRune(r rune) bool {
 	case r >= 0xFE00 && r <= 0xFE0F, r >= 0xE0100 && r <= 0xE01EF, r >= 0xE0000 && r <= 0xE007F: // variation selectors, tags
 		return true
 	}
+	switch r {
+	case 0x2800, 0x3164, 0x115F, 0x1160, 0xFFA0, 0x034F: // blank-looking letters and the grapheme joiner
+		return true
+	}
+	if unicode.Is(unicode.Zs, r) && r != ' ' { // no-break and other spaces that look like a space
+		return true
+	}
 	return !unicode.IsPrint(r) && r != ' ' && !unicode.IsSpace(r) // unassigned and the like
 }
 
@@ -119,7 +126,7 @@ func Render(c Charter, hash string) string {
 	w("  finishing verifier %s/%s %s.", plain(c.Pins.Verifier.Provider), plain(c.Pins.Verifier.Model), plain(c.Pins.Verifier.Version))
 	if p := c.PerAsk; p.AutoApproves() {
 		w("The boss may auto-approve an ask only when it is within: spend %.6f USD, %d tasks, access %q, %d levels below the asker.",
-			float64(p.SpendMicro)/1e6, p.Tasks, p.Access, p.Depth)
+			float64(p.SpendMicro)/1e6, p.Tasks, plain(p.Access), p.Depth)
 		w("  Run caps (all auto-approvals together): spend %.6f USD, %d tasks. Critical asks it may answer: %s.",
 			float64(p.RunSpendMicro)/1e6, p.RunTasks, classesText(p.AnswerClasses))
 		w("  Anything over a limit parks as a person item and blocks what depends on it.")
@@ -135,5 +142,9 @@ func classesText(cs []string) string {
 	if len(cs) == 0 {
 		return "none (every critical ask parks)"
 	}
-	return strings.Join(cs, ", ")
+	out := make([]string, len(cs))
+	for i, c := range cs {
+		out[i] = plain(c)
+	}
+	return strings.Join(out, ", ")
 }
