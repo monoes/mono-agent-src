@@ -143,6 +143,7 @@ func (s *Server) handleToolsCall(ctx context.Context, req rpcRequest) *rpcRespon
 // `defer s.rt.Close()` would capture s.rt at defer time — before lazy
 // bootstrap — and no-op.) Safe when the runtime was never built.
 func (s *Server) closeRuntime() {
+	s.refusals.wait() // an in-flight refusal row would otherwise rebuild the runtime just closed
 	s.rtMu.Lock()
 	rt := s.rt
 	s.rt = nil // a later Serve builds a new runtime; a closed one has no database to resolve a profile with

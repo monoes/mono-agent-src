@@ -166,6 +166,10 @@ type Server struct {
 	// to build the runtime on first use.
 	rtMu sync.Mutex
 
+	// refusals rate-limits and tracks the ledger rows of never-served
+	// grant-mode names (grant_refusal.go).
+	refusals refusalLog
+
 	// clientMu guards who this server serves (task_actor.go): the client's
 	// name from initialize, the actor name the task tools fix from it, and
 	// this server's own suffix. Requests run on goroutines of their own.
