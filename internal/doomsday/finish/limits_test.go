@@ -109,13 +109,13 @@ func TestScratchBytesIsBoundedAndCountsOnlyRegularFiles(t *testing.T) {
 	}
 }
 
-// A limit the child cannot set stops the program: it does not run with fewer limits.
-func TestAProgramDoesNotRunWhenAPrivilegedLimitCannotBeSet(t *testing.T) {
+// A request above the hard limit is lowered to the hard limit (an unprivileged process cannot raise it, and the lower
+// bound is the stricter one); the program runs. A limit that still cannot be read or set stops it (limits_clamp_test.go).
+func TestARequestAboveTheHardLimitIsClampedAndTheProgramRuns(t *testing.T) {
 	r := newRig(t)
-	// raising a hard limit above the parent's is refused for an unprivileged process: ask for more open files than the hard limit
 	r.sb.Limits = Limits{OpenFiles: 1 << 40}
 	o := r.run("command", "echo hello", "hello")
-	if o.Result != ResError || !strings.Contains(o.Detail, "limits could not be set") || strings.Contains(o.Stdout, "hello") {
+	if o.Result != ResPass || !strings.Contains(o.Stdout, "hello") {
 		t.Fatalf("%+v", o)
 	}
 }

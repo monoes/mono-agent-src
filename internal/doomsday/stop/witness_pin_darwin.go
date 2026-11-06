@@ -3,10 +3,7 @@
 package stop
 
 import (
-	"errors"
 	"fmt"
-	"os"
-	"strconv"
 	"sync"
 	"unsafe"
 
@@ -111,42 +108,30 @@ func (k *kqueueSys) Close() {
 	_ = unix.Close(k.kq)
 }
 
-// scanFDs lists the descriptors of this process through /dev/fd, each with its identity (fstat) and the path the
-// kernel reports for it (F_GETPATH; it follows a rename, so a descriptor on a moved file shows the new name). A
-// descriptor that disappears while listing is skipped; one that exists and cannot be identified fails closed, except
-// descriptors that are not files (a socket, pipe or kqueue has no path).
+// scanFDs lists the descriptors of this process through /dev/fd (names only), each with its identity (fstat) and the path
+// the kernel reports for it (F_GETPATH; it follows a rename, so a descriptor on a moved file shows the new name).
 func scanFDs() ([]fdEntry, error) {
-	names, err := os.ReadDir("/dev/fd")
-	if err != nil {
-		return nil, fmt.Errorf("stop: cannot list the descriptors: %w", err)
-	}
-	var out []fdEntry
-	for _, n := range names {
-		fd, aerr := strconv.Atoi(n.Name())
-		if aerr != nil {
-			continue
-		}
-		var st unix.Stat_t
-		if err := unix.Fstat(fd, &st); err != nil {
-			if errors.Is(err, unix.EBADF) { // closed since the listing (also the listing's own descriptor)
-				continue
+	return scanFDsVia(fdProbe{
+		Names: func() ([]string, error) { return readFDNames("/dev/fd") },
+		Stat: func(fd int) (FileID, bool, error) {
+			var st unix.Stat_t
+			if err := unix.Fstat(fd, &st); err != nil {
+				return FileID{}, false, err
 			}
-			return nil, fmt.Errorf("stop: descriptor %d cannot be identified: %w", fd, err)
-		}
-		if st.Mode&unix.S_IFMT != unix.S_IFREG && st.Mode&unix.S_IFMT != unix.S_IFDIR {
-			continue
-		}
-		var buf [unix.PathMax]byte
-		link := ""
-		if _, _, e := unix.Syscall(unix.SYS_FCNTL, uintptr(fd), unix.F_GETPATH, uintptr(unsafe.Pointer(&buf[0]))); e == 0 {
+			file := st.Mode&unix.S_IFMT == unix.S_IFREG || st.Mode&unix.S_IFMT == unix.S_IFDIR
+			return FileID{Dev: uint64(st.Dev), Ino: st.Ino}, file, nil //nolint:unconvert
+		},
+		Path: func(fd int) string {
+			var buf [unix.PathMax]byte
+			if _, _, e := unix.Syscall(unix.SYS_FCNTL, uintptr(fd), unix.F_GETPATH, uintptr(unsafe.Pointer(&buf[0]))); e != 0 {
+				return ""
+			}
 			for i, c := range buf {
 				if c == 0 {
-					link = string(buf[:i])
-					break
+					return string(buf[:i])
 				}
 			}
-		}
-		out = append(out, fdEntry{fd: fd, link: link, id: FileID{Dev: uint64(st.Dev), Ino: st.Ino}}) //nolint:unconvert
-	}
-	return out, nil
+			return ""
+		},
+	})
 }

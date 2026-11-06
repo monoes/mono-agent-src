@@ -38,16 +38,8 @@ func limitsHelper(spec, program string, argv []string) {
 	if err != nil {
 		die("%v", err)
 	}
-	// The address space last: nothing allocates much between it and the exec.
-	for _, r := range []struct {
-		name string
-		res  int
-		val  uint64
-	}{{"cpu", unix.RLIMIT_CPU, l.CPUSeconds}, {"nofile", unix.RLIMIT_NOFILE, l.OpenFiles}, {"fsize", unix.RLIMIT_FSIZE, l.FileSize},
-		{"nproc", unix.RLIMIT_NPROC, l.Procs}, {"as", unix.RLIMIT_AS, l.AddressSpace}} {
-		if err := unix.Setrlimit(r.res, &unix.Rlimit{Cur: r.val, Max: r.val}); err != nil {
-			die("%s: %v", r.name, err)
-		}
+	if err := applyLimits(osRlimits{}, l); err != nil {
+		die("%v", err)
 	}
 	die("exec %s: %v", program, syscall.Exec(program, argv, os.Environ()))
 }
@@ -59,4 +51,51 @@ func limitsArgv(l Limits, program string, args []string) (path string, argv []st
 		return "", nil, false
 	}
 	return exe, helperArgv(exe, l, program, args), true
+}
+
+// rlimits is getrlimit/setrlimit, so the clamp is tested without changing this process's limits.
+type rlimits interface {
+	Get(res int) (unix.Rlimit, error)
+	Set(res int, r unix.Rlimit) error
+}
+
+type osRlimits struct{}
+
+func (osRlimits) Get(res int) (unix.Rlimit, error) {
+	var r unix.Rlimit
+	err := unix.Getrlimit(res, &r)
+	return r, err
+}
+
+func (osRlimits) Set(res int, r unix.Rlimit) error { return unix.Setrlimit(res, &r) }
+
+// clampLimit is the limit to set for a requested one: never above the current hard limit. An unprivileged process cannot
+// raise its hard limit, and on a host whose hard limit is already lower than the request (a Mac with RLIMIT_NPROC at 2000
+// against a default of 4096) the lower one is the stricter bound the sandbox wants anyway.
+func clampLimit(requested, hard uint64) uint64 {
+	if requested > hard {
+		return hard
+	}
+	return requested
+}
+
+// applyLimits lowers each resource to its requested limit, clamped to the current hard limit. The address space is last:
+// nothing allocates much between it and the exec. A limit that cannot be read or set is an error (the caller exits).
+func applyLimits(o rlimits, l Limits) error {
+	for _, r := range []struct {
+		name string
+		res  int
+		val  uint64
+	}{{"cpu", unix.RLIMIT_CPU, l.CPUSeconds}, {"nofile", unix.RLIMIT_NOFILE, l.OpenFiles}, {"fsize", unix.RLIMIT_FSIZE, l.FileSize},
+		{"nproc", unix.RLIMIT_NPROC, l.Procs}, {"as", unix.RLIMIT_AS, l.AddressSpace}} {
+		cur, err := o.Get(r.res)
+		if err != nil {
+			return fmt.Errorf("%s: %v", r.name, err)
+		}
+		v := clampLimit(r.val, cur.Max)
+		if err := o.Set(r.res, unix.Rlimit{Cur: v, Max: v}); err != nil {
+			return fmt.Errorf("%s: %v", r.name, err)
+		}
+	}
+	return nil
 }
