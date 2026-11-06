@@ -53,6 +53,8 @@ type MonoagentTools struct {
 	// hybridStore is st of SetWorkflowStore when it is the CLI's hybrid store: the store an org proposal reads the
 	// automation's workflow from. Nil: the rows alone.
 	hybridStore *workflow.HybridWorkflowStore
+	// unscopedLabel is the label a proposal carries when there is no conversation id.
+	unscopedLabel string
 }
 
 // NewMonoagentTools creates a MonoagentTools backed by db. selfBin is the
@@ -97,6 +99,13 @@ func (mt *MonoagentTools) workflowStore() WorkflowStore {
 func (mt *MonoagentTools) SetConversationID(id string) {
 	mt.mu.Lock()
 	mt.conversationID = id
+	mt.mu.Unlock()
+}
+
+// SetUnscopedLabel names who proposes when no conversation id is set (the MCP server sets "unscoped:mcp").
+func (mt *MonoagentTools) SetUnscopedLabel(label string) {
+	mt.mu.Lock()
+	mt.unscopedLabel = label
 	mt.mu.Unlock()
 }
 

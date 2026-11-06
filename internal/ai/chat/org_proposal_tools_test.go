@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/browserctl"
+	"github.com/monoes/mono-agent/internal/workflow"
 	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/orgdecide"
 	"github.com/monoes/mono-agent/internal/orgdesign"
@@ -93,8 +94,8 @@ func TestSetOrgGrantStoresAPendingProposalAndAppliesNothing(t *testing.T) {
 	if m["tool"] != "set_org_grant" || m["applied"] != false || !hex32.MatchString(id) || m["status"] != "pending" {
 		t.Fatalf("result %s", out)
 	}
-	if h, _ := m["hash"].(string); len(h) != 64 {
-		t.Errorf("hash %q", h)
+	if _, has := m["hash"]; has {
+		t.Errorf("the result carries a hash; the card reads it from the stored row: %s", out)
 	}
 	p, err := orgproposal.NewStore(f.db.DB).Get(context.Background(), "p1", id)
 	if err != nil {
@@ -103,7 +104,7 @@ func TestSetOrgGrantStoresAPendingProposalAndAppliesNothing(t *testing.T) {
 	if p.Verb != "grant.add" || p.Org != "growth" || p.Status != orgproposal.StatusPending || p.ConversationID != "conv-7" {
 		t.Errorf("stored %+v", p)
 	}
-	if m["preview_text"] != p.PreviewText || m["hash"] != p.RecomputedHash() || m["expires_at"] == nil {
+	if m["preview_text"] != p.PreviewText || m["expires_at"] == nil {
 		t.Errorf("the result does not carry the stored preview and hash: %s", out)
 	}
 	for _, want := range []string{"lead", "summarize", "growth", "approval required", "3 calls per run"} {
@@ -292,5 +293,141 @@ func TestTheToolDescriptionsSendTheUserToTheOrgScreen(t *testing.T) {
 func orgToolDefsForTest() []ToolDef {
 	return orgUnificationToolDefs(func(name, desc string, props map[string]interface{}, required []string) ToolDef {
 		return ToolDef{Type: "function", Function: ToolFunction{Name: name, Description: desc, Parameters: map[string]interface{}{"properties": props}}}
+	})
+}
+
+// Tools without a conversation (the MCP server, a chat that is not journaled) propose under their own non-empty label,
+// never under the empty one an operator's `org proposal create` without --conversation uses: they can neither fill its
+// cap of five nor supersede what the operator has pending, and the other way round.
+func TestUnscopedToolProposalsNeverShareTheOperatorsEmptyLabel(t *testing.T) {
+	for name, tc := range map[string]struct {
+		set   func(*MonoagentTools)
+		label string
+	}{
+		"chat": {func(mt *MonoagentTools) {}, "unscoped:chat"},
+		"mcp":  {func(mt *MonoagentTools) { mt.SetUnscopedLabel("unscoped:mcp") }, "unscoped:mcp"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newProposalToolFixture(t)
+			f.mt.SetConversationID("")
+			tc.set(f.mt)
+			st := orgproposal.NewStore(f.db.DB)
+			ctx := context.Background()
+			operator := func(target string) *orgproposal.Proposal {
+				t.Helper()
+				p, err := st.Create(ctx, orgproposal.Input{ProfileID: "p1", Org: "growth", ConversationID: "", Verb: "grant.add", Target: target,
+					ArgsJSON: "{}", PreviewText: "x", StateDigest: "d", CreatedBy: "operator"})
+				if err != nil {
+					t.Fatalf("operator create %s: %v", target, err)
+				}
+				return p
+			}
+			// The operator's pending proposal for the target the tool proposes over is not superseded by the tool.
+			mine := operator("lead/summarize")
+			out, err := f.mt.Execute("set_org_grant", `{"org_name":"growth","role_id":"lead","automation":"summarize"}`)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := st.Get(ctx, "p1", decodeResult(t, out)["proposal_id"].(string))
+			if err != nil || got.ConversationID != tc.label {
+				t.Fatalf("tool label %q (%v), want %q", got.ConversationID, err, tc.label)
+			}
+			if again, _ := st.Get(ctx, "p1", mine.ID); again.Status != orgproposal.StatusPending {
+				t.Errorf("the tool superseded the operator's proposal: %s", again.Status)
+			}
+			// The tool filling its own cap does not touch the operator's bucket, and the operator is not capped by it.
+			for i := 0; i < orgproposal.MaxPendingPerConversation+1; i++ {
+				_, _ = f.mt.Execute("set_org_autonomy", `{"org_name":"growth","level":"mid"}`)
+			}
+			for i := 0; i < orgproposal.MaxPendingPerConversation-1; i++ { // 4 more: five with the first
+				operator("t" + string(rune('a'+i)))
+			}
+			if again, _ := st.Get(ctx, "p1", mine.ID); again.Status != orgproposal.StatusPending {
+				t.Errorf("the tool's flood superseded the operator's proposal: %s", again.Status)
+			}
+			// The operator filling the empty bucket does not stop the tool either.
+			if _, err := f.mt.Execute("set_org_grant", `{"org_name":"growth","role_id":"lead","automation":"summarize","max_calls_per_run":2}`); err != nil {
+				t.Errorf("the tool is capped by the operator's bucket: %v", err)
+			}
+		})
+	}
+}
+
+func TestTheToolRefusesApprovalVariantsAndNegativeLimitsBeforeStoringAnything(t *testing.T) {
+	f := newProposalToolFixture(t)
+	for _, a := range []string{
+		`"approval":"None"`, `"approval":" none "`, `"approval":"NONE"`, `"approval":"\tnone"`, `"approval":"never"`,
+		`"timeout_seconds":-1`, `"max_calls_per_run":-5`,
+	} {
+		out, err := f.mt.Execute("set_org_grant", `{"org_name":"growth","role_id":"lead","automation":"summarize",`+a+`}`)
+		if err == nil {
+			t.Errorf("%s was not refused: %s", a, out)
+		}
+	}
+	for _, v := range []string{"None", " none ", "NONE"} {
+		_, err := f.mt.Execute("set_org_grant", `{"org_name":"growth","role_id":"lead","automation":"summarize","approval":"`+v+`"}`)
+		if err == nil || !strings.Contains(err.Error(), "only the user can grant") {
+			t.Errorf("approval %q: %v", v, err)
+		}
+	}
+	if n := f.count(t, "org_proposals"); n != 0 {
+		t.Errorf("%d proposals stored", n)
+	}
+}
+
+// The grant is judged on the workflow the CLI reads: where a workflow file differs from its rows, the file speaks.
+// With the CLI's hybrid store the tier comes from the file's outbound node; with the rows alone it would not.
+func hybridFixture(t *testing.T, f *proposalToolFixture) *workflow.HybridWorkflowStore {
+	t.Helper()
+	fs, err := workflow.NewWorkflowFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	wf := &workflow.Workflow{ID: "wf-1", Name: "Digest", ProfileID: "p1", Nodes: []workflow.WorkflowNode{
+		{ID: "wf-1-t", WorkflowID: "wf-1", Type: "trigger.manual", Name: "start"},
+		{ID: "wf-1-n", WorkflowID: "wf-1", Type: "comm.slack", Name: "step"},
+	}}
+	if err := fs.SaveWorkflow(context.Background(), wf); err != nil {
+		t.Fatal(err)
+	}
+	h := workflow.NewHybridWorkflowStore(fs, workflow.NewSQLiteWorkflowStore(f.db.DB))
+	return h
+}
+
+type otherStore struct{ WorkflowStore }
+
+func (otherStore) SetWorkflowActive(context.Context, string, bool) error { return nil }
+func (otherStore) DeleteWorkflow(context.Context, string) error          { return nil }
+
+func TestAGrantProposalIsJudgedOnTheHybridStoresWorkflow(t *testing.T) {
+	const irreversible = "Risk tier of the workflow: irreversible"
+	propose := func(f *proposalToolFixture) string {
+		t.Helper()
+		out, err := f.mt.Execute("set_org_grant", `{"org_name":"growth","role_id":"lead","automation":"summarize"}`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return decodeResult(t, out)["preview_text"].(string)
+	}
+	// The hybrid store reconciles the file into the rows when it reads, so each case reads through it first.
+	t.Run("the rows alone", func(t *testing.T) {
+		if p := propose(newProposalToolFixture(t)); strings.Contains(p, irreversible) {
+			t.Fatalf("the rows already say irreversible: %s", p)
+		}
+	})
+	t.Run("the hybrid store set", func(t *testing.T) {
+		f := newProposalToolFixture(t)
+		f.mt.SetWorkflowStore(hybridFixture(t, f))
+		if p := propose(f); !strings.Contains(p, irreversible) {
+			t.Errorf("the proposal was not judged on the workflow file: %s", p)
+		}
+	})
+	t.Run("a later non-hybrid store does not drop it", func(t *testing.T) {
+		f := newProposalToolFixture(t)
+		f.mt.SetWorkflowStore(hybridFixture(t, f))
+		f.mt.SetWorkflowStore(otherStore{})
+		if p := propose(f); !strings.Contains(p, irreversible) {
+			t.Errorf("a non-hybrid SetWorkflowStore dropped the hybrid store: %s", p)
+		}
 	})
 }
