@@ -406,12 +406,12 @@ func TestQueueBossFirstTurnIsTheUsersAndNeedsALiveRun(t *testing.T) {
 	if _, err := QueueBossFirstTurn(r.cfg, r.bossCon.ID, in); err == nil {
 		t.Fatal("a session's turn queued the first turn")
 	}
-	r.cfg.OperatorRefusal = nil
+	r.cfg.OperatorRefusal = func() string { return "" } // the user's own process
 	if _, err := r.db.Exec(`UPDATE doomsday_runs SET state = 'stop-requested' WHERE profile = 'default'`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := QueueBossFirstTurn(r.cfg, r.bossCon.ID, in); err == nil {
-		t.Fatal("the first turn was queued for a run that is stopping")
+	if _, err := QueueBossFirstTurn(r.cfg, r.bossCon.ID, in); err == nil || !strings.Contains(err.Error(), "run that is going") {
+		t.Fatalf("the first turn was queued for a run that is stopping, or refused for another reason: %v", err)
 	}
 	if len(pendingCommands(t, r.dbPath)) != 0 {
 		t.Fatal("a refused first turn was queued")
