@@ -3564,6 +3564,12 @@ function that does what the guarded one does), and it skips directories named `s
   With no run the wired mode is inert (no pinned connection, no watch, no key read, no write), and a run table that cannot be listed
   lets ordinary dispatch through only while no run is known: once this process has seen a run, or the run directory holds a
   per-run secret, an unreadable table refuses (see AGENTS.md, "No run, no mode").
+- **Starting an open-ended run from the app.** The app's start form runs `doomsday start --gui-phrase`, which the audit row
+  records as ack kind `gui`. The `gui` ack is the caller's claim, in the same trust class as `script`: the CLI derives the
+  phrase again from the rendered charter and compares it, but it cannot tell the app from a script that passes the hidden
+  flag, so the operator gate (an agent, a workflow, a coder turn and the MCP server are refused) is the control. The app's
+  binding adds a one-time token bound to the exact charter it rendered and a native operating-system confirmation that
+  script in the page cannot answer; it refuses to start where no native dialog exists (`wails dev` in a browser).
   A wiped run directory alone no longer reopens the gate (the database holds an insert-only record that the profile opened a run);
   a wiped directory AND a database that is unreadable at process start still fails open. The record lives in the same database,
   and binaries older than this change do not write it.
