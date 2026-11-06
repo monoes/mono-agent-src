@@ -15,6 +15,8 @@ import (
 
 // The subject of a finish (note 13.6 section 4): a sealed snapshot of one root, named by a tree digest. The digest covers
 // content and structure (relative path, kind, the executable bit, content digest or link target), never times or owners.
+// On Windows there is no executable bit (NTFS keeps no unix mode), so there it is not part of the digest: the digest covers
+// content and structure only.
 // Links are recorded and never followed; hard links, devices, sockets and pipes refuse the snapshot. A directory named
 // ".git" is not part of the subject.
 

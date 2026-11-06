@@ -72,6 +72,9 @@ func TestSnapshotDigestIsContentAndStructureAndTheCopyIsSealed(t *testing.T) {
 	if same, _ := DigestTree(root, ""); same.Digest != live.Digest {
 		t.Fatal("a time change moved the digest")
 	}
+	if runtime.GOOS == "windows" {
+		return // NTFS has no executable bit: flipping it changes nothing, so it cannot be part of the digest there
+	}
 	os.Chmod(filepath.Join(root, "a.txt"), 0o755)
 	if mode, _ := DigestTree(root, ""); mode.Digest == live.Digest {
 		t.Fatal("the executable bit is not part of the digest")
