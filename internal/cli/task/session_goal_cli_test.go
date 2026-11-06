@@ -192,6 +192,11 @@ func TestSessionGoalCriteriaCapBoundsTheDecodedSizeSensibly(t *testing.T) {
 	if _, _, err := runTask(t, db, "default", true, huge, "session", "goal", "propose", id(s), "--criteria", "-", "--as", "lead"); exitCode(err) != 3 {
 		t.Errorf("an oversized --criteria: exit %d", exitCode(err))
 	}
+	// valid JSON that is one byte over the cap (trailing blanks) is refused too, not read as legal input
+	over := goalJSON + strings.Repeat(" ", 128<<10+1-len(goalJSON))
+	if out, _, err := runTask(t, db, "default", true, over, "session", "goal", "propose", id(s), "--criteria", "-", "--as", "lead"); exitCode(err) != 3 || !strings.Contains(out, "longer than") {
+		t.Errorf("a valid --criteria over the cap: exit %d %s", exitCode(err), out)
+	}
 }
 
 // A proposal whose rows no longer match their hash is replaced by proposing again, through the verb.

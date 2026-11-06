@@ -101,8 +101,9 @@ func (s *Store) write(ctx context.Context, profileID string, session int64, cs [
 			}
 		}
 		cur, err := readGoal(ctx, x, session)
-		// A proposal whose rows no longer match its hash cannot be read, but it is not final: proposing again replaces it.
-		replaces := err == nil || (errors.Is(err, errDamaged) && cur.State == StateProposed)
+		// A proposal whose rows no longer match its hash cannot be read, but it is not final: proposing again replaces it (a
+		// damaged goal that is confirmed or locked is refused just below, like any other).
+		replaces := err == nil || errors.Is(err, errDamaged)
 		if err != nil && !replaces && !errors.Is(err, tasks.ErrNotFound) {
 			return err
 		}
