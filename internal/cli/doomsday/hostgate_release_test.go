@@ -50,7 +50,7 @@ func newHookRig(t *testing.T, binding *atomic.Bool) *hookRig {
 	w, db := newWire(t, func() error { return nil }, fakeKernel{}, nil)
 	hl := &hookLauncher{bound: true}
 	h := &coderhost.Host{Store: w.host, L: hl}
-	g := &HostGate{Store: w.w.Chained(), Fresh: w.w.Fresh(), Profile: "p1", RunDir: w.w.RunDir,
+	g := &HostGate{HostLock: hostLockFor(t), Store: w.w.Chained(), Fresh: w.w.Fresh(), Profile: "p1", RunDir: w.w.RunDir,
 		BindingOn:    func() (bool, error) { return binding.Load(), nil },
 		InstallHooks: func(_ *coderhost.Store, _ *coderhost.Host, hk Hooks) error { hl.hk = hk; return nil }}
 	if err := g.Install(w.host, h); err != nil {
@@ -237,7 +237,7 @@ func TestInstallWithoutHooksFallsBackToTheTicketAroundStart(t *testing.T) {
 	w, db := newWire(t, func() error { return nil }, fakeKernel{}, nil)
 	l := &fakeLauncher{}
 	h := &coderhost.Host{Store: w.host, L: l}
-	g := &HostGate{Store: w.w.Chained(), Fresh: w.w.Fresh(), Profile: "p1", RunDir: w.w.RunDir, BindingOn: func() (bool, error) { return true, nil },
+	g := &HostGate{HostLock: hostLockFor(t), Store: w.w.Chained(), Fresh: w.w.Fresh(), Profile: "p1", RunDir: w.w.RunDir, BindingOn: func() (bool, error) { return true, nil },
 		InstallHooks: func(*coderhost.Store, *coderhost.Host, Hooks) error { return errors.New("not the production launcher") }}
 	if err := g.Install(w.host, h); err == nil {
 		t.Fatal("Install hid the hook failure")

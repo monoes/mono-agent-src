@@ -45,7 +45,7 @@ func TestBuildingTheHostGateAndOpsWithNoRunPinsNothing(t *testing.T) {
 	pins.Store(0)
 	keys.n.Store(0)
 
-	g := &HostGate{Store: w.Chained(), Fresh: w.Fresh(), Profile: "p1", RunDir: w.RunDir, BindingOn: func() (bool, error) { return true, nil }}
+	g := &HostGate{HostLock: hostLockFor(t), Store: w.Chained(), Fresh: w.Fresh(), Profile: "p1", RunDir: w.RunDir, BindingOn: func() (bool, error) { return true, nil }}
 	h := &coderhost.Host{Store: r.host, L: &fakeLauncher{}}
 	g.Install(r.host, h)
 	w.InstallOps(r.host)
@@ -130,7 +130,7 @@ func TestAdmissionWithNoRunCreatesNoRunDirectoryTrace(t *testing.T) {
 	r, _ := newWire(t, func() error { return nil }, fakeKernel{}, nil)
 	w := r.w
 	w.RunDir = stop.RunDir{Dir: t.TempDir() + "/never-made"}
-	g := &HostGate{Store: w.Chained(), Fresh: w.Fresh(), Profile: "p1", RunDir: w.RunDir, BindingOn: func() (bool, error) { return true, nil }}
+	g := &HostGate{HostLock: hostLockFor(t), Store: w.Chained(), Fresh: w.Fresh(), Profile: "p1", RunDir: w.RunDir, BindingOn: func() (bool, error) { return true, nil }}
 	for i := 0; i < 3; i++ {
 		if err := g.Start(coderhost.PointTurnStart, func() (coderhost.StartedProc, error) { return fakeProc{}, nil }); err != nil {
 			t.Fatal(err)

@@ -84,7 +84,7 @@ func newGovRig(t *testing.T, limits string, steps ...machine.Step) *govRig {
 	w.charter = writeCharter(t, govCharter(limits))
 	l := &blockLauncher{}
 	h := &coderhost.Host{Store: w.host, L: l}
-	g := &HostGate{Store: w.w.Chained(), Fresh: w.w.Fresh(), Profile: "p1", RunDir: w.w.RunDir, BindingOn: func() (bool, error) { return true, nil }}
+	g := &HostGate{HostLock: hostLockFor(t), Store: w.w.Chained(), Fresh: w.w.Fresh(), Profile: "p1", RunDir: w.w.RunDir, BindingOn: func() (bool, error) { return true, nil }}
 	g.Install(w.host, h)
 	if len(steps) == 0 {
 		steps = []machine.Step{{Sample: machine.Healthy()}}

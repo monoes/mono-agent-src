@@ -18,7 +18,7 @@ func TestInstallGivesTheLauncherAPlaceHookThatFollowsTheOpenRun(t *testing.T) {
 	w, _ := newWire(t, func() error { return nil }, fakeKernel{}, nil)
 	var got Hooks
 	h := &coderhost.Host{Store: w.host, L: &fakeLauncher{}}
-	g := &HostGate{Store: w.w.Store, Profile: "p1", RunDir: w.w.RunDir, Kernel: w.w.Kernel,
+	g := &HostGate{HostLock: hostLockFor(t), Store: w.w.Store, Profile: "p1", RunDir: w.w.RunDir, Kernel: w.w.Kernel,
 		InstallHooks: func(_ *coderhost.Store, _ *coderhost.Host, hk Hooks) error { got = hk; return nil }}
 	if err := g.Install(w.host, h); err != nil {
 		t.Fatal(err)

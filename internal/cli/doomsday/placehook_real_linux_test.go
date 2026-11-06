@@ -32,7 +32,7 @@ func TestRealGatePlacementBornInTicketCgroup(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = host.StopUnit(context.Background(), rec.Name) })
 
-	g := &HostGate{Store: w.w.Store, Profile: "p1", RunDir: w.w.RunDir, Kernel: w.w.Kernel}
+	g := &HostGate{HostLock: hostLockFor(t), Store: w.w.Store, Profile: "p1", RunDir: w.w.RunDir, Kernel: w.w.Kernel}
 	sleepBin, err := exec.LookPath("sleep")
 	if err != nil {
 		t.Fatal(err)

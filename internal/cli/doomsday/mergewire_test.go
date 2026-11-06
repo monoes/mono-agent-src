@@ -23,7 +23,7 @@ func withDB(w *wireRig, db *storage.Database) {
 func TestMergeForFollowsTheProfilesOpenRun(t *testing.T) {
 	w, db := newWire(t, func() error { return nil }, fakeKernel{}, nil)
 	ctx := context.Background()
-	g := &HostGate{Store: w.w.Chained(), Fresh: w.w.Fresh(), Profile: "p1", RunDir: w.w.RunDir, Kernel: w.w.Kernel, Journal: MergeJournal(db.DB, w.w.Store)}
+	g := &HostGate{HostLock: hostLockFor(t), Store: w.w.Chained(), Fresh: w.w.Fresh(), Profile: "p1", RunDir: w.w.RunDir, Kernel: w.w.Kernel, Journal: MergeJournal(db.DB, w.w.Store)}
 	if dd, err := g.MergeFor(ctx); dd != nil || err != nil {
 		t.Fatalf("no run: %v, %v", dd, err)
 	}
@@ -48,7 +48,7 @@ func TestMergeForFollowsTheProfilesOpenRun(t *testing.T) {
 	}
 	w2, _ := newWire(t, func() error { return nil }, fakeKernel{}, nil)
 	w2.start(t)
-	nojournal := &HostGate{Store: w2.w.Chained(), Fresh: w2.w.Fresh(), Profile: "p1", RunDir: w2.w.RunDir, Kernel: w2.w.Kernel}
+	nojournal := &HostGate{HostLock: hostLockFor(t), Store: w2.w.Chained(), Fresh: w2.w.Fresh(), Profile: "p1", RunDir: w2.w.RunDir, Kernel: w2.w.Kernel}
 	if dd, err := nojournal.MergeFor(ctx); dd != nil || err == nil {
 		t.Errorf("no journal: %v, %v", dd, err)
 	}

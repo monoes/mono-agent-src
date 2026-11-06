@@ -43,7 +43,7 @@ func newHostRig(t *testing.T) *hostRig {
 	w, db := newWire(t, func() error { return nil }, fakeKernel{}, nil)
 	l := &fakeLauncher{}
 	h := &coderhost.Host{Store: w.host, L: l}
-	g := &HostGate{Store: w.w.Chained(), Fresh: w.w.Fresh(), Profile: "p1", RunDir: w.w.RunDir, BindingOn: func() (bool, error) { return true, nil }}
+	g := &HostGate{HostLock: hostLockFor(t), Store: w.w.Chained(), Fresh: w.w.Fresh(), Profile: "p1", RunDir: w.w.RunDir, BindingOn: func() (bool, error) { return true, nil }}
 	g.Install(w.host, h)
 	return &hostRig{wireRig: w, db: db, l: l, h: h, gate: g}
 }
@@ -197,5 +197,20 @@ func TestAnEmergencySocketThatCannotBeBoundRefusesDispatch(t *testing.T) {
 	}
 	if err := r.startTurn(); !refused(err) || !strings.Contains(err.Error(), "emergency channel") || r.l.starts != 0 {
 		t.Fatalf("a turn started with no emergency channel: %v", err)
+	}
+}
+
+// hostLockFor is a HostLock that takes the real host lock of the run directory and releases it when the test ends: the
+// gate holds the lock for the process's life, so a test that leaves it taken keeps the file open at exit, and on Windows
+// that stops the test home from being removed.
+func hostLockFor(t *testing.T) func(stop.RunDir) (func(), error) {
+	t.Helper()
+	return func(r stop.RunDir) (func(), error) {
+		release, err := stop.AcquireHost(r)
+		if err != nil {
+			return nil, err
+		}
+		t.Cleanup(release)
+		return func() {}, nil
 	}
 }

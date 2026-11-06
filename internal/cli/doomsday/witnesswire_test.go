@@ -292,7 +292,7 @@ func TestTornFailedRecordStillRefuses(t *testing.T) {
 	if err := anchorOf(r.wireRig).Set(1, stop.AnchorRunning); err != nil { // the anchor now agrees again
 		t.Fatal(err)
 	}
-	g := &HostGate{Store: r.w.Chained(), Fresh: r.w.Fresh(), Profile: "p1", RunDir: r.w.RunDir, BindingOn: func() (bool, error) { return true, nil }}
+	g := &HostGate{HostLock: hostLockFor(t), Store: r.w.Chained(), Fresh: r.w.Fresh(), Profile: "p1", RunDir: r.w.RunDir, BindingOn: func() (bool, error) { return true, nil }}
 	if err := g.Fresh(context.Background(), 1); err == nil || !strings.Contains(err.Error(), "row 13") {
 		t.Fatalf("a torn failure record reopened the generation: %v", err)
 	}

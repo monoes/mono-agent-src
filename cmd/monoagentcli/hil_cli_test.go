@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	doomsdaycli "github.com/monoes/mono-agent/internal/cli/doomsday"
 	hilcli "github.com/monoes/mono-agent/internal/cli/hil"
 	"github.com/monoes/mono-agent/internal/storage"
 )
@@ -83,6 +84,10 @@ func newHILTestDB(t *testing.T) string {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "hil-test.db")
 	writeMigratedDB(t, dbPath)
+	// A doomsday verb pins a connection on the database for the process's life; release it when the test ends, or on
+	// Windows the open handle keeps the test home from being removed.
+	t.Cleanup(doomsdaycli.ClosePins)
+	closeEngineDBsAtEnd(t)
 	return dbPath
 }
 
