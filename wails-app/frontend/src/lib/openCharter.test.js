@@ -94,3 +94,22 @@ describe('buildCharter', () => {
     expect(buildCharter(good({ limits })).errors.limits).toBeTruthy()
   })
 })
+
+describe('the form refuses what charter.go refuses, so Review does not fail with a CLI-only message', () => {
+  const lim = over => buildCharter(good({ limits: { ...LIMIT_PRESETS.standard, ...over } })).errors.limits
+  it('tree depth is 1 to 12', () => {
+    expect(lim({ tree_depth: 13 })).toBeTruthy()
+    expect(lim({ tree_depth: 0 })).toBeTruthy()
+    expect(lim({ tree_depth: 12 })).toBeFalsy()
+  })
+  it('max total is not below live per tree', () => {
+    expect(lim({ live_per_tree: 30, max_total: 29 })).toBeTruthy()
+    expect(lim({ live_per_tree: 30, max_total: 30 })).toBeFalsy()
+  })
+  it('numbers beyond a safe integer or a sane size are refused, not rounded', () => {
+    expect(lim({ open_sessions: '9007199254740993' })).toBeTruthy()
+    expect(lim({ open_sessions: '99999999' })).toBeTruthy()
+    const on = { enabled: true, spendUsd: '1', tasks: '99999999999999999999', access: 'coding', depth: '1', runSpendUsd: '5', runTasks: '99999999999999999999' }
+    expect(buildCharter(good({ perAsk: on })).errors.perAsk).toBeTruthy()
+  })
+})
