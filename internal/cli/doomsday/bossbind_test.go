@@ -232,3 +232,29 @@ func TestStartChecksTheBossBeforeEnterAndRefusesABossItCannotRecord(t *testing.T
 		t.Fatalf("a run started with a boss no engine can record: %v", err)
 	}
 }
+
+// ONE predicate says what can be a boss, for the check before the start and the stamp after it: only a top-level
+// mission. A task, direction or research session at the top passes the lead test but is not a boss.
+func TestOnlyAMissionCanBeBossInTheCheckAndTheStamp(t *testing.T) {
+	r := newFinRig(t, finishCharterJSON)
+	ctx := context.Background()
+	r.topLead(t, "conv-m")
+	var others []int64
+	for _, kind := range []string{tasks.SessionKindDirection, tasks.SessionKindResearch, tasks.SessionKindTask} {
+		se, err := tasks.NewStore(r.w.DB).CreateSession(ctx, "p1", tasks.SessionInput{Title: "k " + kind, Goal: "g", ConversationID: "conv-" + kind,
+			Kind: kind, BudgetUSD: 1, MaxTasks: 1}, tasks.Actor{Kind: tasks.Human, Name: "operator"})
+		if err != nil {
+			t.Fatalf("%s: %v", kind, err)
+		}
+		if err := r.w.checkBoss(ctx, se.ID); err == nil {
+			t.Errorf("a top-level %s session passed the boss check", kind)
+		}
+		others = append(others, se.ID)
+	}
+	r.start(t)
+	for _, id := range others {
+		if err := r.boss(t, id); err == nil {
+			t.Errorf("session %d (not a mission) was stamped as boss", id)
+		}
+	}
+}

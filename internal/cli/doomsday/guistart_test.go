@@ -226,3 +226,69 @@ func TestCharterRefusesDuplicateKeysAndSaysWhenEmpty(t *testing.T) {
 		t.Fatalf("empty stdin: %v", err)
 	}
 }
+
+// The dialog of the app's start is built from this summary (the CLI's own words about the charter): enough that a
+// swapped charter does not look the same. Escaped, and the goal cut to its first 300 runes.
+func TestRenderDocCarriesTheSummaryTheDialogIsBuiltFrom(t *testing.T) {
+	c := Charter{Goal: "real goal‮" + strings.Repeat("x", 400), Criteria: []Criterion{{Kind: "rubric", Text: "a"}, {Kind: "rubric", Text: "b"}},
+		Limits: Limits{TreeDepth: 4, LivePerTree: 30, MaxConcurrent: 20, MaxTotal: 100},
+		Pins:   Pins{Boss: Pin{Provider: "anth​ropic", Model: "opus", Version: "4"}, Verifier: Pin{Provider: "p", Model: "son\nnet", Version: "4"}}}
+	d := NewRenderDoc(c, strings.Repeat("a", 64))
+	s := d.Summary
+	if !strings.HasPrefix(s.Goal, `real goal‮`) || len([]rune(s.Goal)) > 340 || s.Criteria != 2 ||
+		s.TreeDepth != 4 || s.LivePerTree != 30 || s.MaxConcurrent != 20 || s.MaxTotal != 100 {
+		t.Fatalf("%+v", s)
+	}
+	if s.BossModel != `anth​ropic/opus 4` || s.VerifierModel != `p/son\nnet 4` {
+		t.Fatalf("models: %q %q", s.BossModel, s.VerifierModel)
+	}
+}
+
+// Hidden characters of every kind that a model reads and a person does not are shown escaped in the render, pins
+// included; and an app start refuses them (and over-long text) outright, since the hash and the boss see all of it.
+func TestRenderEscapesHiddenCharactersEverywhere(t *testing.T) {
+	hidden := "a​b‮c\U000E0041d️e f\x00gh"
+	c := Charter{Goal: hidden, Criteria: []Criterion{{Kind: "command", Command: hidden, Expected: hidden}}, Pins: Pins{Boss: Pin{Provider: hidden, Model: hidden, Version: hidden}, Judging: hidden}}
+	out := Render(c, strings.Repeat("a", 64))
+	for _, r := range []rune{'​', '‮', 0xE0041, '️', ' ', 0, 0xE000} {
+		if strings.ContainsRune(out, r) {
+			t.Fatalf("the render carries U+%04X raw:\n%s", r, out)
+		}
+	}
+}
+
+func TestAnAppStartRefusesHiddenCharactersAndTextBeyondTheDisplayCap(t *testing.T) {
+	base := func() Charter {
+		return Charter{Goal: "g", Criteria: []Criterion{{Kind: "rubric", Text: "r"}}, Limits: Limits{LivePerTree: 30, MaxConcurrent: 30},
+			Pins: Pins{Boss: Pin{Provider: "p", Model: "m", Version: "1"}, Verifier: Pin{Provider: "p", Model: "v", Version: "1"}, Judging: "j"}}
+	}
+	if err := ValidateGUIStart(base()); err != nil {
+		t.Fatalf("a plain charter was refused: %v", err)
+	}
+	for name, mut := range map[string]func(*Charter){
+		"goal 2001 runes":   func(c *Charter) { c.Goal = strings.Repeat("é", 2001) },
+		"rubric 2001 runes": func(c *Charter) { c.Criteria[0].Text = strings.Repeat("x", 2001) },
+		"zero width":        func(c *Charter) { c.Goal = "a​b" },
+		"bidi override":     func(c *Charter) { c.Goal = "a‮b" },
+		"tag character":     func(c *Charter) { c.Criteria[0].Text = "a\U000E0041" },
+		"variation select":  func(c *Charter) { c.Goal = "a️" },
+		"line separator":    func(c *Charter) { c.Goal = "a b" },
+		"nul":               func(c *Charter) { c.Goal = "a\x00b" },
+		"private use":       func(c *Charter) { c.Goal = "a" },
+		"pin":               func(c *Charter) { c.Pins.Boss.Model = "m​" },
+		"judging":           func(c *Charter) { c.Pins.Judging = "j\U000E0041" },
+		"command":           func(c *Charter) { c.Criteria = []Criterion{{Kind: "command", Command: "ls​", Expected: "x"}} },
+	} {
+		c := base()
+		mut(&c)
+		if err := ValidateGUIStart(c); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+	c := base()
+	c.Goal = strings.Repeat("é", 2000) + "\nsecond line\twith a tab"
+	c.Goal = strings.Repeat("é", 1990) + "\nx\ty"
+	if err := ValidateGUIStart(c); err != nil {
+		t.Fatalf("2000 runes with a newline and a tab were refused: %v", err)
+	}
+}
