@@ -237,7 +237,7 @@ func newChatHistoryCreateCmd(cfg *Deps) *cobra.Command {
 				if orgMode != ai.OrgModeSolo && orgMode != ai.OrgModeDynamic {
 					return clicore.InvalidInput("--org must be solo or dynamic")
 				}
-				conv, err := createCoderConversation(cmd, cfg, level, runtimeID, model, effort, workflowID, coderFolderChoice{cwd: cwd, root: coderRoot, newWorkspace: newWorkspace, profile: profileFolder})
+				conv, err := createCoderConversation(cmd, cfg, level, runtimeID, model, effort, workflowID, chatMode, coderFolderChoice{cwd: cwd, root: coderRoot, newWorkspace: newWorkspace, profile: profileFolder})
 				if err != nil {
 					return err
 				}
@@ -245,9 +245,6 @@ func newChatHistoryCreateCmd(cfg *Deps) *cobra.Command {
 					if conv, err = setOrgMode(cfg, conv.ID, orgMode); err != nil {
 						return err
 					}
-				}
-				if err := setNewChatMode(cfg, conv.ID, chatMode); err != nil {
-					return err
 				}
 				return printConversation(cfg, conv.Record())
 			}

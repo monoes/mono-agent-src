@@ -14,7 +14,7 @@ import (
 // UnitRecord is the durable identity of a run's containment unit (note 13.2 section 4). It is recorded in the
 // witness (authenticated) and in the run directory file (key-free copy for the CLI).
 type UnitRecord struct {
-	Kind       string `json:"kind"` // "cgroup2"
+	Kind       string `json:"kind"` // KindCgroup2 ("cgroup2")
 	BootID     string `json:"boot_id"`
 	Name       string `json:"name"` // monoagent-run-<gen>-<nonce>.service
 	CgroupPath string `json:"cgroup_path"`
@@ -110,13 +110,20 @@ type Proof struct {
 	Note              string
 }
 
-// ProveUnit runs checks P1-P6 of note 13.2 section 5. Any failed check returns ErrNotProven.
+// ProveUnit proves the identity of a recorded unit through the Containment of its Kind. Any failed check returns
+// ErrNotProven; an unknown kind is not proven.
 func ProveUnit(k Kernel, rec UnitRecord) (Proof, error) {
+	mk, ok := containments[rec.Kind]
+	if !ok {
+		return Proof{}, fmt.Errorf("%w: unknown unit kind %q", ErrNotProven, rec.Kind)
+	}
+	return mk(k, nil).Prove(rec)
+}
+
+// proveCgroup2 runs checks P1-P6 of note 13.2 section 5.
+func proveCgroup2(k Kernel, rec UnitRecord) (Proof, error) {
 	fail := func(f string, a ...any) (Proof, error) {
 		return Proof{}, fmt.Errorf("%w: %s", ErrNotProven, fmt.Sprintf(f, a...))
-	}
-	if rec.Kind != "cgroup2" {
-		return fail("unknown unit kind %q", rec.Kind)
 	}
 	// P1: a different boot means every process of the unit is gone.
 	boot, err := k.BootID()

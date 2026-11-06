@@ -15,6 +15,7 @@ import (
 	"github.com/monoes/mono-agent/internal/orggrant"
 	"github.com/monoes/mono-agent/internal/profiledir"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -35,7 +36,7 @@ func newGrantFixture(t *testing.T, tool orggrant.Tool) *grantFixture {
 	t.Setenv("MONOMIND_ORG_NAME", "growth")
 	t.Setenv("MONOMIND_ORG_ROLE", "writer")
 	t.Setenv("MONOMIND_ORG_RUN", "")
-	dbPath := filepath.Join(t.TempDir(), "grant.db")
+	dbPath := testdb.Path(t)
 	db, err := storage.NewDatabase(dbPath)
 	if err != nil {
 		t.Fatal(err)

@@ -125,3 +125,16 @@ func ChatModeLockedIn(ctx context.Context, q ChatModeRow, profileID, conversatio
 		OR EXISTS (SELECT 1 FROM ai_chat_turns WHERE profile_id = ? AND conversation_id = ?)`, profileID, conversationID, profileID, conversationID).Scan(&n)
 	return n != 0, err
 }
+
+// SetNewChatModeOn gives a conversation that is being created its mode, on the connection of the transaction that
+// inserts it (ai.AIStore.CreateConversationAccessIn): the session row and the mode are written with the conversation
+// or not at all. It is the same write as every other change of the mode.
+func (s *Store) SetNewChatModeOn(ctx context.Context, conn *sql.Conn, profileID, conversationID, mode string) error {
+	if !ValidChatMode(mode) {
+		return fmt.Errorf("the chat mode is %s", strings.Join(ChatModes, ", "))
+	}
+	if err := ensureSessionOn(ctx, conn, profileID, conversationID, s.stamp()); err != nil {
+		return err
+	}
+	return writeChatMode(ctx, conn, profileID, conversationID, ChatModeOff, mode)
+}

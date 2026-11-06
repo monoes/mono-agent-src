@@ -57,6 +57,7 @@ func runTSAs(t *testing.T, deadline bool, d tsDriver) {
 	for _, cut := range tsCuts() {
 		for _, r := range tsRowsFor(cut) {
 			t.Run(fmt.Sprintf("cut-%s/%s", cut.Format("05.000000000"), r.name), func(t *testing.T) {
+				t.Parallel() // each case has a database of its own
 				want := r.atOrAfter && !(deadline && strings.HasPrefix(r.name, "equal"))
 				if got := d(t, cut, r.stamp); got != want {
 					t.Fatalf("row stamped %s against cutoff %s: at-or-after = %v, want %v", r.stamp, cut.Format(tsFixedLayout), got, want)

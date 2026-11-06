@@ -383,3 +383,16 @@ func TestSeatbeltProfileRefusesALoopAtAnEntry(t *testing.T) {
 		t.Fatalf("a loop at HOME/.ssh printed a profile:\n%s", out)
 	}
 }
+
+// A box that cannot see the host session bus must not be able to start a bus of its own either: with the address
+// unset, a CLI inside the box that touches the vault makes godbus autolaunch a dbus-daemon. The address points at
+// a path nothing listens on instead.
+func TestBwrapProfileGivesTheBoxADeadSessionBus(t *testing.T) {
+	out, _ := Profile(Bwrap)
+	if !strings.Contains(out, "--setenv DBUS_SESSION_BUS_ADDRESS unix:path=/nonexistent") {
+		t.Error("profile does not point DBUS_SESSION_BUS_ADDRESS at a dead path")
+	}
+	if strings.Contains(out, "--unsetenv DBUS_SESSION_BUS_ADDRESS") {
+		t.Error("profile unsets DBUS_SESSION_BUS_ADDRESS, which lets godbus autolaunch a bus inside the box")
+	}
+}
