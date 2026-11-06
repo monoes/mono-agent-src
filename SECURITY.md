@@ -1718,7 +1718,14 @@ layers, from strongest:
    trigger.org run started the chain; an audit workflow is not put on a
    role's chain, and `org_event` rows never raise a chain's depth. The key
    is refused if other users can read it; delete it and restart the daemon
-   to rotate it.
+   to rotate it. A grant-mode call for a tool the grant can never serve
+   (the user's `task_*`, `api_*` and other tools) is refused from its name
+   alone, with no database access; its ledger row is written afterwards in
+   the background, once per tool name per minute, for at most 128 remembered
+   names, one write at a time, and only when `--profile` and the
+   environment match the stored grant (a name whose write fails is not
+   remembered, and a non-empty but wrong environment can open and migrate
+   the database once while that check runs).
 6. **Workdir confinement of automation file paths (C-46).** Automations run
    in the daemon, outside monomind's per-role workdir confinement. So the
    grant handler puts the calling role's workdir (computed from the

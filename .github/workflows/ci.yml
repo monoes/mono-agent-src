@@ -504,8 +504,8 @@ jobs:
     if: needs.changes.outputs.go == 'true'
     runs-on: ${{ fromJSON((((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'push') && vars.CI_RUNNER) || '"ubuntu-latest"') }}
     strategy:
-      # On PR runs one failing shard cancels its queued and running siblings (the author fixes, then re-runs the failed jobs). Push runs (master, release) keep every shard running: a cancelled required check there blocks the merge and the release proof.
-      fail-fast: ${{ github.event_name == 'pull_request' }}
+      # Every shard always runs to the end, on PR runs too: one flaky shard must not cancel the healthy ones (a re-run then needs only the failed job), and a cancelled shard would also block the merge and the release proof. "Build & test (default)" and "(nosocial)" fail when any shard failed or was cancelled.
+      fail-fast: false
       matrix:
         tags: [default, nosocial]
         # TEMPORARY: for tags=default the single `rest` cell is split into
