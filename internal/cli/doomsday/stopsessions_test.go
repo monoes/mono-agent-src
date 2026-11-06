@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
 
@@ -172,12 +173,12 @@ func TestAfterStopCarriesTheVerdictVerbatimAndIsIdempotent(t *testing.T) {
 	runs, _ := r.w.Store.OpenRuns(context.Background(), "p1")
 	o := StopOutcome{MarkerRecorded: true, IntentRecorded: true, Runs: []RunRef{{CharterID: runs[0].CharterID, Generation: runs[0].Generation}}}
 	verdict := "stopped (best effort: processes of the run were not proven gone)"
-	lines := r.w.afterStop(context.Background(), o, verdict, time.Date(2026, 11, 6, 14, 3, 5, 0, time.UTC))
+	lines := r.w.afterStop(context.Background(), o, verdict, time.Date(2026, 11, 6, 14, 3, 5, 0, time.UTC)).Lines
 	want := "Open-ended run stopped by you at 2026-11-06 14:03:05 UTC: " + verdict
 	if got := r.n.got["conv-a"]; len(got) != 1 || got[0] != want {
 		t.Fatalf("message: %v, want %q (lines %v)", got, want, lines)
 	}
-	again := r.w.afterStop(context.Background(), o, verdict, time.Now())
+	again := r.w.afterStop(context.Background(), o, verdict, time.Now()).Lines
 	if len(again) != 0 || len(r.n.got["conv-a"]) != 1 {
 		t.Fatalf("the second call was not a no-op: lines %v, messages %v", again, r.n.got)
 	}
@@ -188,8 +189,8 @@ func TestAFailedTranscriptWriteIsReportedAndDoesNotUndoTheStop(t *testing.T) {
 	r := newStopRig(t)
 	r.n.fail = errors.New("db locked")
 	out, err := run(t, r.deps, "", "stop")
-	if err != nil || !strings.HasPrefix(out, "stopped\n") || !strings.Contains(out, "transcript NOT written (conv-a)") {
-		t.Fatalf("stop: %v %q", err, out)
+	if clicore.ExitCodeFor(err) != ExitCleanupFailed || !strings.HasPrefix(out, "stopped\n") || !strings.Contains(out, "transcript NOT written (conv-a)") {
+		t.Fatalf("stop: %v (exit %d) %q", err, clicore.ExitCodeFor(err), out)
 	}
 	if r.state(t, r.boss) != tasks.SessionStopped {
 		t.Fatalf("the boss was not stopped: %s", r.states(t))
@@ -242,11 +243,11 @@ func TestASecondStopFinishesWhatTheFirstLeftOpen(t *testing.T) {
 func TestASecondStopWritesTheMessageTheFirstCouldNot(t *testing.T) {
 	r := newStopRig(t)
 	r.n.fail = errors.New("db locked")
-	if out, err := run(t, r.deps, "", "stop"); err != nil || !strings.Contains(out, "transcript NOT written") {
+	if out, err := run(t, r.deps, "", "stop"); clicore.ExitCodeFor(err) != ExitCleanupFailed || !strings.HasPrefix(out, "stopped\n") || !strings.Contains(out, "transcript NOT written") {
 		t.Fatalf("first: %v %q", err, out)
 	}
 	out, err := run(t, r.deps, "", "stop") // still failing
-	if err == nil || !strings.Contains(out, "transcript NOT written (conv-a)") || !strings.HasPrefix(out, "no open run;") {
+	if clicore.ExitCodeFor(err) != ExitCleanupFailed || !strings.Contains(out, "transcript NOT written (conv-a)") || !strings.HasPrefix(out, "no open run;") {
 		t.Fatalf("failing repair must exit non-zero and say what failed: %v %q", err, out)
 	}
 	r.n.fail = nil
@@ -316,10 +317,10 @@ type afterEngine struct {
 	runsSeen [][]RunRef
 }
 
-func (a *afterEngine) AfterStop(_ context.Context, o StopOutcome, verdict string, _ time.Time) []string {
+func (a *afterEngine) AfterStop(_ context.Context, o StopOutcome, verdict string, _ time.Time) AfterReport {
 	a.calls = append(a.calls, verdict)
 	a.runsSeen = append(a.runsSeen, o.Runs)
-	return nil
+	return AfterReport{}
 }
 
 // The seam for a best-effort stop (PR #1503, which prints "stopped (best effort: ...)" and exits 0): the sessions step runs
@@ -404,7 +405,7 @@ func TestMessageAndLinesCannotCarryExtraLines(t *testing.T) {
 	r := newStopRig(t)
 	runs, _ := r.w.Store.OpenRuns(context.Background(), "p1")
 	o := StopOutcome{Runs: []RunRef{{CharterID: runs[0].CharterID, Generation: runs[0].Generation}}}
-	lines := r.w.afterStop(context.Background(), o, "stopped\nsessions ended: 999", time.Now())
+	lines := r.w.afterStop(context.Background(), o, "stopped\nsessions ended: 999", time.Now()).Lines
 	for _, m := range r.n.got["conv-a"] {
 		if strings.ContainsAny(m, "\n\r") {
 			t.Fatalf("message with a line break: %q", m)
@@ -414,5 +415,95 @@ func TestMessageAndLinesCannotCarryExtraLines(t *testing.T) {
 		if strings.ContainsAny(l, "\n\r") {
 			t.Fatalf("line with a line break: %q", l)
 		}
+	}
+}
+
+// One session that cannot be stopped: the verdict stays the first line, the line names the session, the others are still
+// ended, and the exit code (8) says the cleanup is not complete; a later stop finishes it and exits 0.
+func TestASessionThatCannotBeEndedIsNamedAndTheExitCodeSaysSo(t *testing.T) {
+	r := newStopRig(t)
+	if _, err := r.w.DB.Exec(fmt.Sprintf(`CREATE TRIGGER t5_boom BEFORE UPDATE OF state ON task_sessions WHEN NEW.id = %d BEGIN SELECT RAISE(ABORT, 'boom'); END`, r.kid)); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, r.deps, "", "stop")
+	if clicore.ExitCodeFor(err) != ExitCleanupFailed || !strings.HasPrefix(out, "stopped\n") || !strings.Contains(out, fmt.Sprintf("session %d NOT ended: ", r.kid)) {
+		t.Fatalf("stop: %v (exit %d) %q", err, clicore.ExitCodeFor(err), out)
+	}
+	if r.state(t, r.boss) != tasks.SessionStopped || r.state(t, r.kid) == tasks.SessionStopped {
+		t.Fatalf("the others must still end: %s", r.states(t))
+	}
+	if _, err := r.w.DB.Exec(`DROP TRIGGER t5_boom`); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := run(t, r.deps, "", "stop"); err != nil || !strings.Contains(out, fmt.Sprintf("left open by the previous stop: %d", r.kid)) {
+		t.Fatalf("repair: %v %q", err, out)
+	}
+}
+
+// A session that left the open states between the read and the stop is not a failure and prints nothing.
+func TestASessionAlreadyOutOfTheOpenStatesIsNotReportedAsNotEnded(t *testing.T) {
+	r := newStopRig(t)
+	if out, err := run(t, r.deps, "", "stop"); err != nil {
+		t.Fatal(err, out)
+	}
+	lines, ended, _ := r.w.endSessions(context.Background(), []runSession{{id: r.boss, conv: "conv-a"}})
+	if len(lines) != 0 || len(ended) != 0 {
+		t.Fatalf("lines %v ended %v", lines, ended)
+	}
+}
+
+// The filters that keep the step inside the run: an archived lead, another generation's boss and an archived boss's chat are
+// never touched. Mutants tried: dropping the archived filter of the leads query, comparing the generation with >=, and
+// dropping the archived filter of the stamped-chat query each turn this red.
+func TestTheStepStaysInsideTheRunsOwnGenerationAndUnarchivedSessions(t *testing.T) {
+	r := newStopRig(t)
+	ctx := context.Background()
+	run1, _ := r.w.Store.OpenRuns(ctx, "p1")
+	ref1 := RunRef{CharterID: run1[0].CharterID, Generation: run1[0].Generation}
+	ts := tasks.NewStore(r.w.DB)
+	human := tasks.Actor{Kind: tasks.Human, Name: "operator"}
+	mk := func(conv string) int64 {
+		se, err := ts.CreateSession(ctx, "p1", tasks.SessionInput{Title: "x", Goal: "g", ConversationID: conv, Kind: tasks.SessionKindMission, BudgetUSD: 1, MaxTasks: 1}, human)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return se.ID
+	}
+	archivedLead := mk("conv-a")
+	zBoss, zLead := mk("conv-z"), mk("conv-z")
+	if _, err := r.w.DB.Exec(`UPDATE task_sessions SET archived_at = '2026-01-01T00:00:00Z' WHERE id IN (?, ?)`, archivedLead, zBoss); err != nil {
+		t.Fatal(err)
+	}
+	// zBoss is stamped as run 1's boss but archived: its chat must not be reached
+	if _, err := r.w.DB.Exec(`UPDATE task_sessions SET doomsday_charter_id = ?, doomsday_generation = ? WHERE id = ?`, ref1.CharterID, ref1.Generation, zBoss); err != nil {
+		t.Fatal(err)
+	}
+	// a boss of generation 2 (another run) in conv-y, with its own lead
+	yBoss, yLead := mk("conv-y"), mk("conv-y")
+	if _, err := r.w.DB.Exec(`UPDATE task_sessions SET doomsday_charter_id = ?, doomsday_generation = ? WHERE id = ?`, ref1.CharterID, ref1.Generation+1, yBoss); err != nil {
+		t.Fatal(err)
+	}
+	r.w.afterStop(ctx, StopOutcome{Runs: []RunRef{ref1}}, "stopped", time.Now())
+	if r.state(t, r.boss) != tasks.SessionStopped {
+		t.Fatal("the run's own boss was not stopped")
+	}
+	for name, id := range map[string]int64{"archived lead": archivedLead, "lead of an archived boss's chat": zLead, "boss of generation 2": yBoss, "lead of generation 2": yLead} {
+		if r.state(t, id) == tasks.SessionStopped {
+			t.Fatalf("%s was stopped", name)
+		}
+	}
+	if len(r.n.got["conv-z"])+len(r.n.got["conv-y"]) != 0 {
+		t.Fatalf("a message went to a chat outside the run: %v", r.n.got)
+	}
+}
+
+// The outcome names a run only when the Stop order proved it stopped: with no provable unit no run is named, so nothing
+// downstream can end its sessions. Mutant tried: appending to Runs whatever the report says.
+func TestTheOutcomeNamesNoRunThatWasNotProvenStopped(t *testing.T) {
+	r := newStopRig(t)
+	r.w.Kernel = nil
+	o, err := r.w.stop(context.Background())
+	if err != nil || len(o.Runs) != 0 || len(o.Incomplete) == 0 {
+		t.Fatalf("outcome: %+v %v", o, err)
 	}
 }

@@ -90,10 +90,21 @@ type Engine interface {
 
 // AfterStopper is an Engine that moves what hangs on a stopped run to a defined state. The stop verb calls it only
 // after it has printed nothing but a proven (or best-effort) stop; verdict is the exact stop line it prints. It returns
-// the lines to print after the verdict and never an error: what it could not do is a line that says so.
+// the lines to print after the verdict; what it could not do is a line that says so, and Failed is true then (the stop
+// verb exits ExitCleanupFailed: the run IS stopped, its cleanup is not complete).
 type AfterStopper interface {
-	AfterStop(ctx context.Context, o StopOutcome, verdict string, at time.Time) []string
+	AfterStop(ctx context.Context, o StopOutcome, verdict string, at time.Time) AfterReport
 }
+
+// AfterReport is what the step after a stop printed and whether any part of it failed.
+type AfterReport struct {
+	Lines  []string
+	Failed bool
+}
+
+// ExitCleanupFailed is the exit code of a stop that stopped the run but could not end every session or write the chat
+// message (AGENTS.md exit-code table). The first line printed is still the verdict; a later stop finishes the cleanup.
+const ExitCleanupFailed = 8
 
 // StopRepairer is an Engine that can finish what the last stop left: asked only when a stop found no open run (ErrNoOpenRun).
 // RepairNothing keeps the "no open run" failure; RepairDone prints its lines and exits 0; RepairFailed prints them and exits 1.

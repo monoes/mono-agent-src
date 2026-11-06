@@ -2,6 +2,7 @@ package doomsday
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -72,13 +73,13 @@ func cleanLines(in []string) []string {
 // looks at open sessions only and writes a message only for a chat in which it ended a session. Lines are printed after
 // the verdict: "sessions ended: 4, 5", "transcript <conversation>: <message>" (the app reads the chat's own line) and a
 // "... NOT ..." line for anything it could not do.
-func (w Wiring) afterStop(ctx context.Context, o StopOutcome, verdict string, at time.Time) []string {
+func (w Wiring) afterStop(ctx context.Context, o StopOutcome, verdict string, at time.Time) AfterReport {
 	if w.DB == nil || len(o.Runs) == 0 {
-		return nil
+		return AfterReport{}
 	}
 	ids, convs, err := w.openRunSessions(ctx, o.Runs, "")
 	if err != nil {
-		return []string{"sessions NOT ended: the run's sessions cannot be read: " + err.Error()}
+		return AfterReport{Lines: cleanLines([]string{"sessions NOT ended: the run's sessions cannot be read: " + err.Error()}), Failed: true}
 	}
 	lines, ended, endedConv := w.endSessions(ctx, ids)
 	if len(ended) > 0 {
@@ -88,15 +89,27 @@ func (w Wiring) afterStop(ctx context.Context, o StopOutcome, verdict string, at
 		if !endedConv[c] {
 			continue
 		}
-		lines = append(lines, w.noteChat(ctx, c, stopMessage(verdict, at)))
+		if l := w.noteChat(ctx, c, stopMessage(verdict, at)); l != "" {
+			lines = append(lines, l)
+		}
 	}
-	return cleanLines(lines)
+	return AfterReport{Lines: cleanLines(lines), Failed: failedLines(lines)}
+}
+
+// failedLines says whether any line reports something that was not done (the lines are this file's own).
+func failedLines(lines []string) bool {
+	for _, l := range lines {
+		if strings.Contains(l, " NOT ended") || strings.HasPrefix(l, "transcript NOT written") {
+			return true
+		}
+	}
+	return false
 }
 
 // noteChat writes msg into chat c's transcript and returns the output line for it.
 func (w Wiring) noteChat(ctx context.Context, c, msg string) string {
 	if w.ChatNote == nil {
-		return "transcript NOT written (" + c + "): no chat store is wired"
+		return "" // an install with no chat store (only a test wiring): there is no transcript to write
 	}
 	if err := w.ChatNote(ctx, c, msg); err != nil {
 		return "transcript NOT written (" + c + "): " + err.Error()
@@ -110,6 +123,9 @@ func (w Wiring) endSessions(ctx context.Context, ids []runSession) (lines, ended
 	ts := tasks.NewStore(w.DB)
 	for _, s := range ids {
 		if _, err := ts.StopSession(ctx, w.Profile, s.id, tasks.Actor{Kind: tasks.Human, Name: "operator"}); err != nil {
+			if errors.Is(err, tasks.ErrNotReady) {
+				continue // already out of the open states (stopped, closed or archived between the read and now): nothing to do, nothing to report
+			}
 			lines = append(lines, fmt.Sprintf("session %d NOT ended: %v", s.id, err))
 			continue
 		}
@@ -238,9 +254,10 @@ func (w Wiring) repairStop(ctx context.Context, at time.Time) ([]string, RepairS
 			continue
 		}
 		msg := stopMessage("stopped (this stop's exact line was not kept; its sessions were ended by a later stop)", time.Unix(run.IntentAt, 0))
-		l := w.noteChat(ctx, c, msg)
-		failed = failed || strings.HasPrefix(l, "transcript NOT")
-		notes = append(notes, l)
+		if l := w.noteChat(ctx, c, msg); l != "" {
+			failed = failed || strings.HasPrefix(l, "transcript NOT")
+			notes = append(notes, l)
+		}
 	}
 	if len(ended) == 0 && len(notes) == 0 && !failed {
 		return nil, RepairNothing

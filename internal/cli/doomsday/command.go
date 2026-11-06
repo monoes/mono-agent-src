@@ -268,7 +268,7 @@ func (d Deps) newStop() *cobra.Command {
 					case RepairDone:
 						return nil
 					case RepairFailed:
-						return errors.New("the previous stop's sessions or message could not all be finished")
+						return clicore.Reported{Err: &clicore.Error{Code: ExitCleanupFailed, Msg: "the previous stop's sessions or message could not all be finished: run `doomsday stop` again"}}
 					}
 				}
 			}
@@ -308,8 +308,13 @@ func (d Deps) newStop() *cobra.Command {
 				}
 				ctx, cancel := context.WithTimeout(cmd.Context(), afterStopTimeout)
 				defer cancel()
-				for _, l := range as.AfterStop(ctx, o, verdict, time.Now()) {
+				rep := as.AfterStop(ctx, o, verdict, time.Now())
+				for _, l := range rep.Lines {
 					fmt.Fprintln(out, l)
+				}
+				if rep.Failed && failure == nil {
+					// The stop itself succeeded (the verdict is the first line); the exit code says its cleanup did not.
+					failure = clicore.Reported{Err: &clicore.Error{Code: ExitCleanupFailed, Msg: "the run is stopped, but its sessions or chat message could not all be finished: run `doomsday stop` again"}}
 				}
 			}
 			return failure

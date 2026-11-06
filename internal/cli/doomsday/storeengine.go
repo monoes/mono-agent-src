@@ -46,7 +46,7 @@ type StoreEngine struct {
 	// Boss records which top-level lead mission is the run's boss (Wiring.DesignateBoss). Nil: no boss can be named.
 	Boss func(ctx context.Context, session int64, entry Entry) error
 	// AfterStopFn ends the run's sessions and writes the chat message once a stop is proven. Nil: nothing hangs on a stop.
-	AfterStopFn func(ctx context.Context, o StopOutcome, verdict string, at time.Time) []string
+	AfterStopFn func(ctx context.Context, o StopOutcome, verdict string, at time.Time) AfterReport
 	// RepairStopFn finishes the sessions and message of the last stop when a stop finds no open run. Nil: nothing to repair.
 	RepairStopFn func(ctx context.Context, at time.Time) ([]string, RepairStatus)
 }
@@ -60,9 +60,9 @@ func (e *StoreEngine) RepairStop(ctx context.Context, at time.Time) ([]string, R
 }
 
 // AfterStop is AfterStopper.
-func (e *StoreEngine) AfterStop(ctx context.Context, o StopOutcome, verdict string, at time.Time) []string {
+func (e *StoreEngine) AfterStop(ctx context.Context, o StopOutcome, verdict string, at time.Time) AfterReport {
 	if e.AfterStopFn == nil {
-		return nil
+		return AfterReport{}
 	}
 	return e.AfterStopFn(ctx, o, verdict, at)
 }

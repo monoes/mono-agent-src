@@ -4499,6 +4499,7 @@ change is logged in the status history. `applied` is reached only through `appli
 | 5 | `chat history delete` did not delete (a process the conversation's turns started could not be stopped; `survivors_remain`, listed under `survivors`), or `chat history set-access` lowered the level but a process the conversation's turns started could not be stopped (`survivors_remain`; the JSON lists each under `lowered.survivors` with its pid, command and reason) |
 | 6 | `chat history set-access --expect L` found the conversation no longer at level L: `access_changed`, `current` is the real level, nothing was changed |
 | 7 | `update` installed the release but the daemon is down: its restart left no daemon running and a rollback did not bring one back (`--check` and `--app` still exit 0; `update --app --json` carries the outcome under `daemon`) |
+| 8 | `doomsday stop` stopped the run (its first line is the verdict) but could not end every session of the run or write the chat message: the lines after it say which; run `doomsday stop` again to finish (it exits 0 once done) |
 
 Branch on these instead of parsing stderr.
 

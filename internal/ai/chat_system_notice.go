@@ -52,7 +52,7 @@ func (s *AIStore) RecordSystemNotice(profileID, conversationID, code, message st
 		return err
 	}
 	ev, err := appendEventTx(tx, profileID, conversationID, turnID, chatevents.EventTurnFinished,
-		chatevents.TurnFinishedPayload{Status: chatevents.StatusCompleted, HistorySaved: true}, now)
+		chatevents.TurnFinishedPayload{Status: chatevents.StatusCompleted, HistorySaved: false /* no provider history row exists for a notice */}, now)
 	if err != nil {
 		return err
 	}

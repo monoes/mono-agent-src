@@ -422,3 +422,23 @@ func TestHistoryAllIDFilter(t *testing.T) {
 		t.Fatalf("unknown id = %+v", got.Items)
 	}
 }
+
+// A Stop's notice is the newest turn of the chat but not its status: a running turn still lists as running, and the title
+// still comes from the first real prompt. Mutant tried: dropping the system-turn filter of the status join lists it as done.
+func TestHistoryAllIgnoresASystemNoticeTurn(t *testing.T) {
+	noOrgs(t)
+	dbPath := newChatCLITestDB(t)
+	store, db := openTestChatStore(t, dbPath), rawDB(t, dbPath)
+	c := seedConv(t, store, db, ai.AccessScoped, "2026-10-22T10:00:05Z")
+	seedTurn(t, store, db, c.ID, "w1", "real work", "active", "2026-10-22T09:00:00Z")
+	if err := store.RecordSystemNotice("default", c.ID, "doomsday.stopped", "Open-ended run stopped by you at T: stopped"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE ai_chat_turns SET created_at = '2026-10-22T09:30:00Z' WHERE id LIKE 'system-%'`); err != nil {
+		t.Fatal(err)
+	}
+	r := rowByID(t, listAll(t, dbPath), c.ID)
+	if r.Status != histRunning || r.Title != "real work" {
+		t.Fatalf("status %q title %q, want running / real work", r.Status, r.Title)
+	}
+}

@@ -26,3 +26,14 @@ func TestSystemNoticeTurnsAreNotTheNewestTurnNorABrokenStreak(t *testing.T) {
 		t.Fatalf("a turn with a prompt was skipped: %q", id)
 	}
 }
+
+// turnFloor is when a stop must be newer than: a Stop's notice written after a person's stop must not move it.
+func TestTurnFloorIgnoresASystemNoticeTurn(t *testing.T) {
+	st, _ := parkStore(t)
+	addConversation(t, st, "a", "/w/a")
+	addTurn(t, st, "a", "turn-1", "completed", "do it", t0)
+	addTurn(t, st, "a", "system-0011", "completed", "", t0.Add(5*time.Second))
+	if got := st.turnFloor("p", "a", ""); !got.Equal(t0) {
+		t.Fatalf("turnFloor = %v, want %v", got, t0)
+	}
+}
