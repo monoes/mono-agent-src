@@ -5,25 +5,16 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/vault"
 )
 
 func newStateDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := storage.NewDatabase(filepath.Join(t.TempDir(), "state.db"))
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-	if err := db.ApplyMigrations(); err != nil {
-		t.Fatalf("apply migrations: %v", err)
-	}
-	return db.DB
+	return testdb.Open(t).DB
 }
 
 func stateInput(wf, node string) NodeInput {

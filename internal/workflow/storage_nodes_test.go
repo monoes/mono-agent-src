@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 // newMigratedStore opens a SQLite database in a temp dir, applies the real
@@ -17,14 +18,7 @@ import (
 // raw *sql.DB for direct assertions.
 func newMigratedStore(t *testing.T) (*SQLiteWorkflowStore, *sql.DB) {
 	t.Helper()
-	db, err := storage.NewDatabase(filepath.Join(t.TempDir(), "nodes.db"))
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
-	if err := db.ApplyMigrations(); err != nil {
-		t.Fatalf("apply migrations: %v", err)
-	}
+	db := testdb.Open(t)
 	return NewSQLiteWorkflowStore(db.DB), db.DB
 }
 

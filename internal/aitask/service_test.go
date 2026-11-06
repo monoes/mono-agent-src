@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 type fakeLauncher struct {
@@ -59,14 +59,7 @@ func (f *fakeLauncher) Detach(_ context.Context, id, token string) error {
 
 func newService(t *testing.T) (*Service, *fakeLauncher) {
 	t.Helper()
-	db, err := storage.NewDatabase(filepath.Join(t.TempDir(), "t.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.ApplyMigrations(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
+	db := testdb.Open(t)
 	l := &fakeLauncher{cwd: t.TempDir(), budget: 5}
 	state := t.TempDir()
 	// Snapshots are read-only folders: unlock them so the temp dir can go.

@@ -6,26 +6,18 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/jev"
 	"github.com/monoes/mono-agent/internal/jev/jevtest"
-	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 func newDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := storage.NewDatabase(filepath.Join(t.TempDir(), "d.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
-	if err := db.ApplyMigrations(); err != nil {
-		t.Fatal(err)
-	}
+	db := testdb.Open(t)
 	return db.DB
 }
 

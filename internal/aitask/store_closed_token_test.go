@@ -1,22 +1,14 @@
 package aitask
 
 import (
-	"path/filepath"
 	"testing"
 
-	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 func closedStore(t *testing.T) *Store {
 	t.Helper()
-	db, err := storage.NewDatabase(filepath.Join(t.TempDir(), "t.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.ApplyMigrations(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
+	db := testdb.Open(t)
 	return &Store{DB: db.DB, Profile: "p1"}
 }
 

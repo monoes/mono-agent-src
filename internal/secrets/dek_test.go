@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -12,21 +11,14 @@ import (
 
 	"github.com/monoes/mono-agent/internal/profiledir"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 
 	"github.com/zalando/go-keyring"
 )
 
 func newDEKTestDB(t *testing.T) *storage.Database {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "dek-test.db")
-	db, err := storage.NewDatabase(dbPath)
-	if err != nil {
-		t.Fatalf("NewDatabase: %v", err)
-	}
-	if err := db.ApplyMigrations(); err != nil {
-		t.Fatalf("ApplyMigrations: %v", err)
-	}
-	t.Cleanup(func() { db.DB.Close() })
+	db := testdb.Open(t)
 	return db
 }
 

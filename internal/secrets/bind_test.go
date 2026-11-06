@@ -12,10 +12,12 @@ import (
 	"github.com/zalando/go-keyring"
 
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 func openAt(t *testing.T, path string) *storage.Database {
 	t.Helper()
+	testdb.MustSeed(path)
 	db, err := storage.NewDatabase(path)
 	if err != nil {
 		t.Fatalf("NewDatabase: %v", err)

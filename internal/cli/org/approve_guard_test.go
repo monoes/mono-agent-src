@@ -12,6 +12,7 @@ import (
 	"github.com/monoes/mono-agent/internal/orgdesign"
 	"github.com/monoes/mono-agent/internal/orggrant"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -25,6 +26,7 @@ func notTheOperatorMarkers() []string {
 // dbPath: send, whose workflow sends an email, and sum, whose doesn't.
 func seedSendingGrants(t *testing.T, dbPath, org, role string) {
 	t.Helper()
+	testdb.MustSeed(dbPath)
 	db, err := storage.NewDatabase(dbPath)
 	if err != nil {
 		t.Fatal(err)

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 // The v2 tables of the peer-credential binding design (section 7): rows are insert-only, and a row
@@ -27,14 +28,7 @@ const day = 24 * time.Hour
 
 func newDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := storage.NewDatabase(filepath.Join(t.TempDir(), "p.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.ApplyMigrations(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
+	db := testdb.Open(t)
 	return db.DB
 }
 

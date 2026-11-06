@@ -1,22 +1,14 @@
 package aitask
 
 import (
-	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 func TestForApplicationPrefersTheOpenTaskThenTheLatest(t *testing.T) {
-	db, err := storage.NewDatabase(filepath.Join(t.TempDir(), "t.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.ApplyMigrations(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
+	db := testdb.Open(t)
 
 	clock := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
 	s := &Store{DB: db.DB, Profile: "p1", Now: func() time.Time { clock = clock.Add(time.Minute); return clock }}

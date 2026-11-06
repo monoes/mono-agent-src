@@ -21,6 +21,7 @@ import (
 	"github.com/monoes/mono-agent/internal/orgdesign"
 	"github.com/monoes/mono-agent/internal/profiledir"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/testhome"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
@@ -71,6 +72,7 @@ func newOrgCLIFixture(t *testing.T) *orgCLIFixture {
 	t.Setenv("MONOMIND_BIN", fake)
 
 	dbPath := filepath.Join(home, "test.db")
+	testdb.MustSeed(dbPath)
 	db, err := storage.NewDatabase(dbPath)
 	if err != nil {
 		t.Fatal(err)
@@ -115,6 +117,7 @@ func (f *orgCLIFixture) orgCmd() *cobra.Command {
 	fail := func(format string, a ...interface{}) error { return fmt.Errorf(format, a...) }
 	return org.NewCommand(org.Deps{
 		OpenDB: func() (*storage.Database, error) {
+			testdb.MustSeed(f.cfg.DBPath)
 			db, err := storage.NewDatabase(f.cfg.DBPath)
 			if err != nil {
 				return nil, err

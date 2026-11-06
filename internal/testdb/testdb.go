@@ -50,6 +50,23 @@ func build() ([]byte, error) {
 	return os.ReadFile(path)
 }
 
+// MustSeed puts a copy of the migrated database at path unless a file is
+// already there, for fixtures that open a database by a path of their own and
+// then call ApplyMigrations (which finds nothing left to do). A file that
+// exists, such as an older schema a test wrote on purpose, is left alone.
+func MustSeed(path string) {
+	if _, err := os.Stat(path); err == nil {
+		return
+	}
+	once.Do(func() { template, buildErr = build() })
+	if buildErr != nil {
+		panic("testdb: migrating the template database: " + buildErr.Error())
+	}
+	if err := os.WriteFile(path, template, 0o600); err != nil {
+		panic("testdb: " + err.Error())
+	}
+}
+
 // Path returns the path of a migrated database of its own, in t.TempDir().
 func Path(t testing.TB) string {
 	t.Helper()

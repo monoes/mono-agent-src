@@ -6,11 +6,13 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 func TestPeopleMessagesReadUnread(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dbPath := filepath.Join(t.TempDir(), "m.db")
+	testdb.MustSeed(dbPath)
 	db, err := storage.NewDatabase(dbPath)
 	if err != nil {
 		t.Fatal(err)
