@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 // newStatusCLITestDB applies every real migration (via the same
@@ -17,6 +18,7 @@ func newStatusCLITestDB(t *testing.T) string {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "cli-status-test.db")
 
+	testdb.MustSeed(dbPath)
 	db, err := storage.NewDatabase(dbPath)
 	if err != nil {
 		t.Fatalf("NewDatabase: %v", err)

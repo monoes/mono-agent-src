@@ -17,6 +17,7 @@ import (
 	"github.com/monoes/mono-agent/internal/connections"
 	"github.com/monoes/mono-agent/internal/jev/jevconf"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -84,6 +85,7 @@ func testDeps(cfg *testConfig) Deps {
 		JSONOutput: func() bool { return cfg.JSONOutput },
 		ProfileID:  func() string { return cfg.ProfileID },
 		OpenDB: func() (*storage.Database, error) {
+			testdb.MustSeed(cfg.DBPath)
 			db, err := storage.NewDatabase(cfg.DBPath)
 			if err != nil {
 				return nil, err

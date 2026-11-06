@@ -10,6 +10,7 @@ import (
 	"github.com/monoes/mono-agent/internal/jev/jevtest"
 	"github.com/monoes/mono-agent/internal/peoplelinks"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 func newLinksCLITestDB(t *testing.T) (*testConfig, *storage.Database) {
@@ -18,6 +19,7 @@ func newLinksCLITestDB(t *testing.T) (*testConfig, *storage.Database) {
 	t.Setenv("TYPESAFE_API_KEY", "test-key")
 	t.Setenv("TYPESAFE_DEFAULT_MODEL", "")
 	dbPath := filepath.Join(t.TempDir(), "links.db")
+	testdb.MustSeed(dbPath)
 	db, err := storage.NewDatabase(dbPath)
 	if err != nil {
 		t.Fatal(err)

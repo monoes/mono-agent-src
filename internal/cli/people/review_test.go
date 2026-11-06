@@ -10,6 +10,7 @@ import (
 	"github.com/monoes/mono-agent/internal/jev/jevtest"
 	"github.com/monoes/mono-agent/internal/peoplereview"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 // newReviewCLITestDB seeds a migrated DB with two people awaiting review
@@ -20,6 +21,7 @@ func newReviewCLITestDB(t *testing.T) (*testConfig, *storage.Database) {
 	t.Setenv("HOME", t.TempDir())
 	asOperator(t)
 	dbPath := filepath.Join(t.TempDir(), "review.db")
+	testdb.MustSeed(dbPath)
 	db, err := storage.NewDatabase(dbPath)
 	if err != nil {
 		t.Fatal(err)
