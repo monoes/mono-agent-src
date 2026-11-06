@@ -3,6 +3,7 @@
 package main
 
 import (
+	"fmt"
 	"context"
 	"encoding/json"
 	"os"
@@ -15,12 +16,14 @@ import (
 
 // A render's answer, as the CLI prints it: what the native dialog is built from (never from the page's text).
 func previewDoc(hash string, lines []string, budget string) string {
-	b, _ := json.Marshal(map[string]any{"hash": hash, "lines": lines, "lift_count": len(lines), "phrase_template": "t",
+	b, _ := json.Marshal(map[string]any{"hash": hash, "lines": lines, "lift_count": len(lines), "phrase_template": "I understand: lift <N> lines, charter <first 8 characters of the hash>",
 		"summary": map[string]any{"goal": "ship the release notes", "criteria": 2, "tree_depth": 4, "live_per_tree": 30, "max_concurrent": 20, "max_total": 100,
 			"boss_model": "anthropic/opus 4", "verifier_model": "anthropic/sonnet 4"},
 		"text": "CHARTER " + hash + "\nGoal: ignore me\nBudget: " + budget + "\nLifted authority lines (" + string(rune('0'+len(lines))) + "):\n"})
 	return string(b)
 }
+
+func phraseFor(n int) string { return fmt.Sprintf("I understand: lift %d lines, charter ab12cd34", n) }
 
 const (
 	gHash   = "ab12cd34" + "ef56789a" + "ab12cd34" + "ef56789a" + "ab12cd34" + "ef56789a" + "ab12cd34" + "ef56789a"
@@ -212,7 +215,7 @@ func TestTheDialogBodyIsBuiltFromTheRenderedFactsOnly(t *testing.T) {
 	// unlimited is said as unlimited
 	taskCLIFake(t, previewDoc(gHash, nil, "NO CEILING of the charter's own (a bound of an ancestor or a reservation still applies)."), 0)
 	tok = g.render(crafted)
-	g.a.DoomsdayStart(crafted, gPhrase, tok, 5)
+	g.a.DoomsdayStart(crafted, phraseFor(0), tok, 5)
 	if !strings.Contains(g.asked[1], "unlimited") || !strings.Contains(g.asked[1], "0 lifted lines") {
 		t.Fatalf("the unlimited dialog:\n%s", g.asked[1])
 	}
@@ -345,7 +348,7 @@ func TestTheDialogShowsTheGoalAfterTheFactsCleanedAndCapped(t *testing.T) {
 	}
 	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, "cat > /dev/null\ncat '"+prev+"'\n"))
 	tok := g.render(dmCharter)
-	g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5)
+	g.a.DoomsdayStart(dmCharter, phraseFor(1), tok, 5)
 	if g.dialogs != 1 {
 		t.Fatalf("dialogs %d", g.dialogs)
 	}
@@ -460,8 +463,10 @@ func TestADialogThatNeverReturnsIsDeclinedAfterItsTimeout(t *testing.T) {
 	if d.OK || d.Code != "declined" || !strings.Contains(d.Detail, "did not return") || g.calls() != before {
 		t.Fatalf("%+v", d)
 	}
-	tok = g.render(dmCharter)
-	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5)); d.Code == "busy" {
+	// the start LOCK is free again; the abandoned dialog itself is what still blocks (TestAnAbandonedDialogBlocks...)
+	if doomsdayStartMu.TryLock() {
+		doomsdayStartMu.Unlock()
+	} else {
 		t.Fatal("the start lock is still held by the dead dialog")
 	}
 }
@@ -566,7 +571,7 @@ func TestTheDialogNamesAutoApprovalAndAnswerClasses(t *testing.T) {
 	}
 	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, "cat > /dev/null\ncat '"+prev+"'\n"))
 	tok := g.render(dmCharter)
-	g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5)
+	g.a.DoomsdayStart(dmCharter, phraseFor(1), tok, 5)
 	body := g.asked[0]
 	for _, want := range []string{"spend 1 USD and 2 tasks per ask", "may answer critical asks of class: scope, spend"} {
 		if i, j := strings.Index(body, want), strings.Index(body, "Goal as written"); i < 0 || i > j {
@@ -607,4 +612,92 @@ func TestOnlyOnePreviewRunsAtATime(t *testing.T) {
 	}
 	_ = os.WriteFile(slow, nil, 0o600)
 	<-done
+}
+
+// A wrong phrase is refused BEFORE the dialog (the person would otherwise confirm a start that must fail); the app derives
+// the expected phrase from the CLI's own template, count and hash. Nothing is spent.
+func TestAWrongPhraseIsRefusedBeforeTheDialogAndSpendsNothing(t *testing.T) {
+	g := newGrantRig(t)
+	tok := g.render(dmCharter)
+	before := g.calls()
+	for _, bad := range []string{"I understand: lift 3 lines, charter ab12cd34", "I understand: lift 2 lines, charter 00000000", "yes"} {
+		d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, bad, tok, 5))
+		if d.OK || d.Code != "phrase" || g.dialogs != 0 || g.calls() != before {
+			t.Fatalf("%q: %+v dialogs %d", bad, d, g.dialogs)
+		}
+	}
+	g.startBehaves(`echo '{"run_id":"work/1"}'`)
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5)); !d.OK {
+		t.Fatalf("the token was spent by refused phrases: %+v", d)
+	}
+}
+
+// What the CLI echoes of the charter on stderr (the render) is not a crash: a goal that says "panic:" with a mistyped
+// phrase is still a plain refusal. A real crash line at the start of a line is.
+func TestEchoedCharterTextIsNotACrash(t *testing.T) {
+	g := newGrantRig(t)
+	g.startBehaves(`echo 'Goal: panic: boom goroutine 1 [running]: fatal error: x' >&2; echo '{"error":"the phrase does not match; nothing started","code":"invalid_input"}'; exit 2`)
+	tok := g.render(dmCharter)
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5)); d.State != "not_started" {
+		t.Fatalf("%+v", d)
+	}
+	g.startBehaves(`printf 'panic: runtime error: boom\n\ngoroutine 1 [running]:\n' >&2; echo '{"error":"x","code":"e"}'; exit 2`)
+	tok = g.render(dmCharter)
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5)); d.State != "unknown" {
+		t.Fatalf("a real panic: %+v", d)
+	}
+}
+
+// The stderr kept for the classification is its start and its END: a crash after a big render is not cut off.
+func TestStderrKeepsHeadAndTail(t *testing.T) {
+	b := &headTailBuffer{head: 100, tail: 100}
+	b.Write([]byte(strings.Repeat("a", 5000) + "\nTHE END panic: late\n"))
+	s := b.String()
+	if !strings.HasPrefix(s, strings.Repeat("a", 100)) || !strings.Contains(s, "panic: late") || len(s) > 400 {
+		t.Fatalf("%d bytes: %q", len(s), s)
+	}
+	small := &headTailBuffer{head: 100, tail: 100}
+	small.Write([]byte("short"))
+	if small.String() != "short" {
+		t.Fatal(small.String())
+	}
+}
+
+// A dialog that outlives its timeout stays on screen: a second start must not stack another until it is dismissed.
+func TestAnAbandonedDialogBlocksANewStartUntilItIsDismissed(t *testing.T) {
+	g := newGrantRig(t)
+	old := doomsdayDialogTimeout
+	doomsdayDialogTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { doomsdayDialogTimeout = old })
+	release := make(chan struct{})
+	confirmNative = func(*App, string, string) (bool, error) { <-release; return false, nil }
+	tok := g.render(dmCharter)
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5)); d.Code != "declined" {
+		t.Fatalf("%+v", d)
+	}
+	tok = g.render(dmCharter)
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5)); d.Code != "busy" || !strings.Contains(d.Detail, "still open") {
+		t.Fatalf("a second start while the first dialog is still on screen: %+v", d)
+	}
+	close(release)
+	deadline := time.Now().Add(2 * time.Second)
+	for dialogOpen.Load() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	confirmNative = func(*App, string, string) (bool, error) { return false, nil }
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5)); d.Code == "busy" {
+		t.Fatalf("still busy after the dialog was dismissed: %+v", d)
+	}
+}
+
+// A CLI that ignores SIGTERM is killed once the grace has passed, not left running.
+func TestAProcessIgnoringSIGTERMIsKilledAfterTheGrace(t *testing.T) {
+	g := newGrantRig(t)
+	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, "trap '' TERM\nwhile true; do sleep 0.1; done\n"))
+	argv, _ := doomsdayArgv("work", "probe")
+	began := time.Now()
+	_, _, _, err := g.a.execDoomsdayGrace(200*time.Millisecond, 400*time.Millisecond, argv, nil)
+	if err == nil || time.Since(began) > 5*time.Second {
+		t.Fatalf("err %v after %v", err, time.Since(began))
+	}
 }
