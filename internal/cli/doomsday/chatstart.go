@@ -150,6 +150,9 @@ func afterFailedEnter(ctx context.Context, e Engine, enterErr error, undo func(e
 	if errors.Is(enterErr, ErrRunRecorded) {
 		return enterErr
 	}
+	if errors.Is(enterErr, ErrEntryUnknown) { // the entry itself could not tell whether its run exists: the boss stays
+		return enterErr
+	}
 	now, serr := e.Status(ctx)
 	switch {
 	case serr != nil:

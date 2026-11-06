@@ -168,6 +168,19 @@ func (e *StoreEngine) Enter(ctx context.Context, canon Canon, expectedHash strin
 		return Entry{}, fmt.Errorf("the containment unit could not be created, so nothing was started: %w", err)
 	}
 	run, err := e.Store.Enter(ctx, sc, confirmed, "ack:"+ack.Kind)
+	if errors.Is(err, store.ErrCommitUnknown) {
+		// The commit reported an error, so the run may exist. Read it: found, it is this entry's run and the entry goes on; not
+		// there, the entry was refused; unreadable, the outcome is unknown and nothing is torn down (the unit stays).
+		got, gerr := e.Store.GetRun(ctx, sc.Profile, sc.Generation)
+		switch {
+		case gerr == nil && got.CharterID == sc.ID():
+			run, err = got, nil
+		case gerr != nil && errors.Is(gerr, sql.ErrNoRows):
+			// no run row: refused below
+		default:
+			return Entry{}, unknownEntry(fmt.Errorf("the run may have started but the outcome of its commit could not be read (run `doomsday stop` if it is running): %v: %w", gerr, err))
+		}
+	}
 	if err != nil {
 		if derr := discard(ctx); derr != nil {
 			err = fmt.Errorf("%w (and the unit created for it could not be removed: %v)", err, derr)
@@ -296,3 +309,15 @@ func (r recordedErr) Unwrap() error      { return r.err }
 func (recordedErr) Is(target error) bool { return target == ErrRunRecorded }
 
 func recorded(err error) error { return recordedErr{err} }
+
+// ErrEntryUnknown marks an Enter failure whose effect on the run is unknown (the commit's outcome could not be read): the run may
+// exist, nothing was torn down, and a caller that made anything for the run keeps it.
+var ErrEntryUnknown = errors.New("the outcome of the entry is unknown")
+
+type unknownErr struct{ err error }
+
+func (u unknownErr) Error() string { return u.err.Error() }
+func (u unknownErr) Unwrap() error { return u.err }
+func (unknownErr) Is(t error) bool { return t == ErrEntryUnknown }
+
+func unknownEntry(err error) error { return unknownErr{err} }
