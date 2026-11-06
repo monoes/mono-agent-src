@@ -48,34 +48,37 @@ func (s *Store) read(ctx context.Context, fn func(x tasks.Queryer) error) error 
 
 // checkMission refuses unless the session is a live mission session of the profile and its chat is in mode mission.
 // Everything unreadable or unknown is a refusal: it fails closed.
-func (s *Store) checkMission(ctx context.Context, x tasks.Queryer, profileID string, session int64) error {
+func (s *Store) checkMission(ctx context.Context, x tasks.Queryer, profileID string, session int64) (string, error) {
 	var kind, createdBy, state string
 	var conv sql.NullString
 	err := x.QueryRowContext(ctx, `SELECT kind, created_by, state, conversation_id FROM task_sessions WHERE id = ? AND profile_id = ?`, session, profileID).Scan(&kind, &createdBy, &state, &conv)
 	if err != nil {
-		return notFound(err, session)
+		return "", notFound(err, session)
 	}
 	isMission := kind == tasks.SessionKindMission || (kind == tasks.SessionKindBoard && createdBy == tasks.MissionPlannerName)
 	if !isMission {
-		return invalid("session #%d is not a mission session: only a mission has an ultimate goal", session)
+		return "", invalid("session #%d is not a mission session: only a mission has an ultimate goal", session)
 	}
 	switch state {
 	case string(tasks.SessionDraft), string(tasks.SessionRunning), string(tasks.SessionPaused):
 	default:
-		return invalid("session #%d is %s: the goal of an ended mission is not written", session, state)
+		return "", invalid("session #%d is %s: the goal of an ended mission is not written", session, state)
 	}
 	if !conv.Valid || conv.String == "" {
-		return invalid("session #%d has no chat, so it has no chat mode: the goal is written for a mission chat", session)
+		return "", invalid("session #%d has no chat, so it has no chat mode: the goal is written for a mission chat", session)
 	}
 	mode, err := s.modes.ChatMode(ctx, x, profileID, conv.String)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if mode != ChatModeMission {
-		return invalid("the chat of session #%d is not in mission mode (it is %q): only a mission chat has an ultimate goal", session, mode)
+		return "", invalid("the chat of session #%d is not in mission mode (it is %q): only a mission chat has an ultimate goal", session, mode)
 	}
-	return nil
+	return conv.String, nil
 }
+
+// errDamaged: the criteria rows of a goal do not hash to the goal's hash. readGoal still returns the goal's state.
+var errDamaged = errors.New("missionpursuit: the goal record is damaged")
 
 // readGoal reads the goal of a session and checks that its criteria rows still hash to the goal's hash.
 func readGoal(ctx context.Context, x tasks.Queryer, session int64) (Goal, error) {
@@ -108,7 +111,11 @@ func readGoal(ctx context.Context, x tasks.Queryer, session int64) (Goal, error)
 		return Goal{}, err
 	}
 	if Hash(plain) != g.Hash {
-		return Goal{}, fmt.Errorf("missionpursuit: the criteria of session #%d do not match their hash: the record is damaged", session)
+		fix := "a confirmed goal never changes, so it cannot be repaired"
+		if g.State == StateProposed {
+			fix = "propose the criteria again to replace it"
+		}
+		return g, fmt.Errorf("%w: the criteria of session #%d do not match their hash; %s", errDamaged, session, fix)
 	}
 	return g, nil
 }

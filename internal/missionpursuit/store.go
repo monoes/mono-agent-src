@@ -20,6 +20,8 @@ const (
 var (
 	// ErrGoalLocked: the goal is confirmed or locked. A changed goal means a new mission.
 	ErrGoalLocked = fmt.Errorf("%w: the mission goal is confirmed and final: a changed goal means a new mission", tasks.ErrInvalid)
+	// ErrNotConfirmed: the goal is only a proposal, so there is nothing to lock.
+	ErrNotConfirmed = fmt.Errorf("%w: the mission goal is not confirmed yet: confirm it before it can be locked", tasks.ErrInvalid)
 	// ErrStale: the criteria are not the ones the person saw.
 	ErrStale = fmt.Errorf("%w: the proposed criteria changed since you read them: read them again before you confirm", tasks.ErrInvalid)
 )
@@ -64,14 +66,12 @@ func (s *Store) WithModes(m ModeReader) *Store {
 
 func (s *Store) stamp() string { return s.now().UTC().Format(time.RFC3339) }
 
-// Propose records the criteria as a proposal, or replaces the earlier proposal with them: an agent or the operator may,
-// until the person confirms. It never confirms anything.
+// Propose records the criteria as a proposal, or replaces the earlier proposal with them: the operator, or an agent of THIS
+// mission (bound to the session, or running in the session's verified chat), until the person confirms. An agent that is
+// bound to nothing, or to another mission, is refused. It never confirms anything.
 func (s *Store) Propose(ctx context.Context, profileID string, session int64, cs []Criterion, by tasks.Actor) (Goal, error) {
 	if by.Kind != tasks.Human && by.Kind != tasks.Agent {
 		return Goal{}, operatorOnly("propose a mission goal")
-	}
-	if by.Session != 0 && by.Session != session {
-		return Goal{}, operatorOnly("propose the goal of a mission this agent does not work in")
 	}
 	return s.write(ctx, profileID, session, cs, by, false)
 }
@@ -91,17 +91,25 @@ func (s *Store) write(ctx context.Context, profileID string, session int64, cs [
 	}
 	var out Goal
 	err := s.tx(ctx, func(x tasks.Queryer) error {
-		if err := s.checkMission(ctx, x, profileID, session); err != nil {
+		conv, err := s.checkMission(ctx, x, profileID, session)
+		if err != nil {
 			return err
+		}
+		if by.Kind == tasks.Agent {
+			if err := boundTo(by, session, conv); err != nil {
+				return err
+			}
 		}
 		cur, err := readGoal(ctx, x, session)
-		if err != nil && !errors.Is(err, tasks.ErrNotFound) {
+		// A proposal whose rows no longer match its hash cannot be read, but it is not final: proposing again replaces it.
+		replaces := err == nil || (errors.Is(err, errDamaged) && cur.State == StateProposed)
+		if err != nil && !replaces && !errors.Is(err, tasks.ErrNotFound) {
 			return err
 		}
-		if err == nil && cur.State != StateProposed {
+		if replaces && cur.State != StateProposed {
 			return ErrGoalLocked
 		}
-		if err := s.writeProposal(ctx, x, session, cs, by.Label(), err == nil); err != nil {
+		if err := s.writeProposal(ctx, x, session, cs, by.Label(), replaces); err != nil {
 			return err
 		}
 		if confirm {
@@ -143,7 +151,7 @@ func (s *Store) Confirm(ctx context.Context, profileID string, session int64, wa
 	}
 	var out Goal
 	err := s.tx(ctx, func(x tasks.Queryer) error {
-		if err := s.checkMission(ctx, x, profileID, session); err != nil {
+		if _, err := s.checkMission(ctx, x, profileID, session); err != nil {
 			return err
 		}
 		cur, err := readGoal(ctx, x, session)
@@ -185,7 +193,7 @@ func (s *Store) Lock(ctx context.Context, profileID string, session int64, by ta
 	}
 	var out Goal
 	err := s.tx(ctx, func(x tasks.Queryer) error {
-		if err := s.checkMission(ctx, x, profileID, session); err != nil {
+		if _, err := s.checkMission(ctx, x, profileID, session); err != nil {
 			return err
 		}
 		now := s.stamp()
@@ -194,8 +202,15 @@ func (s *Store) Lock(ctx context.Context, profileID string, session int64, by ta
 			return fmt.Errorf("missionpursuit: locking: %w", err)
 		}
 		if n, _ := res.RowsAffected(); n != 1 {
-			if _, rerr := readGoal(ctx, x, session); rerr != nil {
+			var state string
+			if rerr := x.QueryRowContext(ctx, `SELECT state FROM mission_goals WHERE session_id = ?`, session).Scan(&state); rerr != nil {
+				if errors.Is(rerr, sql.ErrNoRows) {
+					return fmt.Errorf("%w: session #%d has no mission goal yet", tasks.ErrNotFound, session)
+				}
 				return rerr
+			}
+			if state == StateProposed {
+				return ErrNotConfirmed
 			}
 			return ErrGoalLocked
 		}
@@ -236,6 +251,19 @@ func notFound(err error, session int64) error {
 		return fmt.Errorf("%w: no session #%d in this profile", tasks.ErrNotFound, session)
 	}
 	return err
+}
+
+// boundTo says whether an agent works in this mission: it is bound to the session itself (a token the database verified), or,
+// when it is bound to no session, it runs in the session's own chat (a coder-session token the host verified). A label is
+// never read here; both come from the Actor the caller built from verified tokens.
+func boundTo(by tasks.Actor, session int64, conv string) error {
+	switch {
+	case by.Session != 0 && by.Session == session:
+		return nil
+	case by.Session == 0 && by.Conversation != "" && by.Conversation == conv:
+		return nil
+	}
+	return operatorOnly("propose the goal of a mission this agent does not work in: only the mission's own lead can")
 }
 
 func operatorOnly(what string) error {

@@ -3,10 +3,12 @@ package dynorg
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/monoes/mono-agent/internal/missionpursuit"
 	"github.com/monoes/mono-agent/internal/monomind"
+	"github.com/monoes/mono-agent/internal/tasks"
 )
 
 // The lead's tools for the ultimate goal of its mission (T6). The lead only PROPOSES the criteria: there is no tool to set,
@@ -51,6 +53,9 @@ func (c *Conductor) missionGoal(ctx context.Context, m *MissionConfig, name stri
 	if name == ToolMissionGoalStatus {
 		g, err := m.Goals.Get(ctx, m.ProfileID, se.ID)
 		if err != nil {
+			if !errors.Is(err, tasks.ErrNotFound) {
+				return "", err
+			}
 			return marshal(map[string]any{"state": "none", "next": "No goal is proposed yet: propose its criteria with mission_goal_propose."})
 		}
 		return marshal(g)

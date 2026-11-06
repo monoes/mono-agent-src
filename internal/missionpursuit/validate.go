@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/monoes/mono-agent/internal/doomsday/finish"
@@ -82,6 +83,9 @@ func validateOne(c Criterion) error {
 		return err
 	}
 	if c.Kind != KindRubric {
+		// ParsePlan is SYNTAX only: it checks that the criterion can be read, not that running it is safe. A command or output
+		// criterion will be executed by a verifier later; that verifier must sandbox it and apply an argv policy of its own.
+		// Nothing here runs a criterion, and nothing may treat a validated criterion as a safe one.
 		if _, err := finish.ParsePlan(c.Kind, c.Spec, c.Expected); err != nil {
 			return err
 		}
@@ -94,8 +98,13 @@ func cleanText(what, s string, allowBreaks bool) error {
 		return fmt.Errorf("the %s is not valid UTF-8", what)
 	}
 	for _, r := range s {
-		if (r < 0x20 && !(allowBreaks && (r == '\n' || r == '\t'))) || r == 0x7f || (r >= 0x80 && r < 0xa0) {
-			return fmt.Errorf("the %s holds a control character", what)
+		if allowBreaks && (r == '\n' || r == '\t') {
+			continue
+		}
+		// Controls (C0, DEL, C1), format characters (bidi overrides and isolates, zero-width, BOM, soft hyphen: category Cf),
+		// line and paragraph separators and private-use characters can make a criterion read differently from what it is.
+		if unicode.IsControl(r) || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp, unicode.Co) {
+			return fmt.Errorf("the %s holds a control or invisible formatting character (U+%04X)", what, r)
 		}
 	}
 	return nil

@@ -17,7 +17,9 @@ import (
 )
 
 // maxCriteriaFile bounds what `goal propose|set --criteria` reads.
-const maxCriteriaFile = 64 << 10
+// The legal maximum is 16 criteria of 2 KiB of spec and 1 KiB of expectation; JSON at worst doubles a quote or a backslash,
+// so such a set is about 100 KB. 128 KiB holds it; the decoded size is bounded again by Validate.
+const maxCriteriaFile = 128 << 10
 
 // newSessionGoalCmd is `task session goal`: the ultimate goal of a mission, as typed criteria. An agent (the mission's lead
 // included) only proposes; setting and confirming are the operator's, and a confirmed goal is final.
@@ -26,12 +28,12 @@ func (d Deps) newSessionGoalCmd() *cobra.Command {
 		Use:   "goal",
 		Short: "The ultimate goal of a mission, as typed criteria: an agent proposes, you confirm",
 		Long: `A mission chat has one ultimate goal, written as 1 to 16 criteria (command, file, output, or rubric). At least
-one is a rubric: you are always the final judge. The mission's lead (any agent) can only PROPOSE the criteria, and can
-revise its proposal until you confirm. Only you set or confirm, and a confirmed goal is final: a changed goal means a
-new mission.
+one is a rubric: you are always the final judge. The mission's lead (any agent of that mission) can only PROPOSE the
+criteria, and can revise its proposal until you confirm. Only you set or confirm.
+A confirmed goal is final: a changed goal means a new mission.
 
   goal show ID                       the goal as it stands, with its hash
-  goal propose ID --criteria FILE    record a proposal (an agent or you); '-' reads standard input
+  goal propose ID --criteria FILE    record a proposal (the mission's lead or you); '-' reads standard input
   goal set ID --criteria FILE        record the criteria and confirm them (you only)
   goal confirm ID --hash HASH        confirm the proposal whose hash you read (you only)`,
 	}
@@ -112,6 +114,14 @@ func (d Deps) newGoalProposeCmd() *cobra.Command {
 				var err error
 				if actor, err = d.authorActor(caller); err != nil {
 					return err
+				}
+				// Who an agent works for comes only from a token the database or the host verified: the mission token's
+				// session (already on the actor), else the verified chat of its coder-session token. An agent with neither
+				// is unbound, and the store refuses it.
+				if actor.Session == 0 {
+					if actor.Conversation, err = d.ownChat(); err != nil {
+						return err
+					}
 				}
 			} else if a, err := caller.operator("propose a mission goal"); err != nil {
 				return err
