@@ -2,6 +2,7 @@ package testdb
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -43,5 +44,23 @@ func TestPathIsAFreshFileEachTime(t *testing.T) {
 		if fi, err := os.Stat(p); err != nil || fi.Size() == 0 {
 			t.Errorf("%s is not a database file: %v", p, err)
 		}
+	}
+}
+
+// MustSeed fills a path that has no file, and leaves a file that is there alone.
+func TestMustSeedFillsAMissingPathAndKeepsAnExistingFile(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "new.db")
+	MustSeed(missing)
+	if fi, err := os.Stat(missing); err != nil || fi.Size() == 0 {
+		t.Fatalf("a missing path was not seeded: %v", err)
+	}
+	kept := filepath.Join(dir, "old.db")
+	if err := os.WriteFile(kept, []byte("older"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	MustSeed(kept)
+	if b, _ := os.ReadFile(kept); string(b) != "older" {
+		t.Fatal("an existing file was overwritten")
 	}
 }
