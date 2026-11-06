@@ -35,7 +35,13 @@ export default function ControlRoom({ isActive = true, api = controlRoomApi }) {
       <div className="page-body">
         {doc === null ? <p className="cr-meta" data-testid="cr-loading">{t('controlRoom.loading')}</p> : null}
         {view.state === 'off' ? <p className="cr-meta" data-testid="cr-off">{t('controlRoom.off')}</p> : null}
-        {view.state === 'no_run' ? <p className="cr-meta" data-testid="cr-no-run">{t('controlRoom.noRun')}</p> : null}
+        {view.state === 'no_run' ? (
+          <div data-testid="cr-no-run">
+            <p className="cr-meta">{t('controlRoom.noRun')}</p>
+            <p className="cr-meta">{t('controlRoom.noRunHow')}</p>
+            <pre className="cr-meta" data-testid="cr-no-run-hint">{t('controlRoom.noRunCommands')}</pre>
+          </div>
+        ) : null}
         {view.state === 'error' && doc !== null ? (
           <p className="cr-warn" role="alert" data-testid="cr-error" data-error-code={view.errorCode || ''}>
             {view.errorCode ? t(`controlRoom.errorCode.${view.errorCode}`) : t('controlRoom.error', { message: view.message })}

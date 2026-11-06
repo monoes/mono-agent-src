@@ -2523,7 +2523,9 @@
     "subtitle": "Live view of the open-ended run. You can read it and stop it; it can only be started from the terminal.",
     "loading": "Loading...",
     "off": "The open-ended mode is not available in this install.",
-    "noRun": "There is no run for this profile.",
+    "noRun": "No run yet.",
+    "noRunHow": "The open-ended mode is started from your terminal, not from here. Then this page shows the run and lets you stop it.",
+    "noRunCommands": "monoagentcli --profile <profile> doomsday render --charter <file>\nmonoagentcli --profile <profile> doomsday start --charter <file> --boss-session <N>\nmonoagentcli --profile <profile> doomsday status",
     "error": "Could not read the control room: {{message}}",
     "integrity": {
       "yes": "Audit chain verified",

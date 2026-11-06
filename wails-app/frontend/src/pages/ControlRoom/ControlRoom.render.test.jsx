@@ -42,6 +42,9 @@ describe('states of the page', () => {
   })
   it('no run: says so, nothing else', async () => {
     await show(golden('overview_no_run'), 'cr-no-run')
+    const hint = screen.getByTestId('cr-no-run-hint').textContent
+    for (const verb of ['doomsday render --charter', 'doomsday start --charter', '--boss-session', 'doomsday status']) expect(hint).toContain(verb)
+    expect(screen.queryByRole('button', { name: /start/i })).toBeNull()
     for (const id of ['cr-tree', 'cr-spend', 'cr-feed', 'cr-stop']) expect(screen.queryByTestId(id)).toBeNull()
   })
   it('healthy: header, clusters, spend, feed and Stop', async () => {
