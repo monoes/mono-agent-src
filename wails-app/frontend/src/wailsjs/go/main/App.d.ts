@@ -818,6 +818,8 @@ export function StartChatTurn(arg1:string,arg2:string,arg3:string,arg4:boolean,a
 
 export function StartOrgGroup(arg1:string):Promise<string>;
 
+export function SteerBoss(arg1:string,arg2:string):Promise<string>;
+
 export function StopAgentValidation():Promise<string>;
 
 export function StopChatAgent(arg1:string,arg2:string,arg3:string):Promise<string>;

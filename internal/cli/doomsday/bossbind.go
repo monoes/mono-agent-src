@@ -15,11 +15,6 @@ import (
 // at `start --boss-session`, stored on the session row (doomsday_charter_id, doomsday_generation) once per charter. Another
 // lead mission of the same profile is not it, and a run with no recorded boss has no boss tools.
 
-// bossEligibleSQL is the ONE predicate of what can be a run's boss: a top-level mission (the lead session test also admits
-// direction, research and task sessions a lead starts, which are not a boss), not archived. The check before the start
-// (checkBoss) and the stamp after it (designateBoss) both use it, so a session that passes the first cannot fail the second.
-const bossEligibleSQL = `COALESCE(parent_session_id, 0) = 0 AND archived_at = '' AND kind = 'mission' AND ` + coderhost.LeadSessionSQL
-
 // BossSource is ops.Bosses over the profile's database.
 type BossSource struct {
 	Wiring Wiring
@@ -43,6 +38,12 @@ func (b BossSource) BossOf(ctx context.Context, act ops.Active) (int64, bool, er
 	return id, true, nil
 }
 
+// BossCandidateSQL is the condition, over task_sessions, of a session the operator may record as the run's boss: an open top-level
+// mission session that is one of the chat's own lead kinds and has no boss yet. The stamp (`start --boss-session`) asks it, and so
+// does any check made before the start: one statement, so the two cannot disagree. (A task, direction or research session is one
+// an agent can make; it is never the boss.)
+const BossCandidateSQL = `COALESCE(parent_session_id, 0) = 0 AND archived_at = '' AND doomsday_charter_id = '' AND kind = 'mission' AND ` + coderhost.LeadSessionSQL
+
 // checkBoss is designateBoss's conditions as a read, before the run exists: the session must be an open top-level lead
 // mission of the profile that no run has stamped. It does not replace designateBoss, which stays the atomic write.
 func (w Wiring) checkBoss(ctx context.Context, session int64) error {
@@ -50,7 +51,7 @@ func (w Wiring) checkBoss(ctx context.Context, session int64) error {
 		return errors.New("no database to check the boss in")
 	}
 	var n int
-	err := w.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_sessions WHERE profile_id = ? AND id = ? AND `+bossEligibleSQL+` AND doomsday_charter_id = ''`, w.Profile, session).Scan(&n)
+	err := w.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_sessions WHERE profile_id = ? AND id = ? AND `+BossCandidateSQL, w.Profile, session).Scan(&n)
 	if err != nil {
 		return err
 	}
@@ -61,20 +62,21 @@ func (w Wiring) checkBoss(ctx context.Context, session int64) error {
 }
 
 // designateBoss stamps the named session as the boss of the entered run. It writes once: a charter that already has a boss
-// is refused, and so is a session that is not an open top-level lead mission of the profile.
+// is refused, and so is a session that is not an open top-level mission of the profile (a task, direction or research session is
+// one an agent can make, so it is never the boss).
 func (w Wiring) designateBoss(ctx context.Context, session int64, entry Entry) error {
 	if w.DB == nil {
 		return errors.New("no database to record the boss in")
 	}
 	res, err := w.DB.ExecContext(ctx, `UPDATE task_sessions SET doomsday_charter_id = ?, doomsday_generation = ?
-		WHERE profile_id = ? AND id = ? AND `+bossEligibleSQL+` AND doomsday_charter_id = ''`+`
+		WHERE profile_id = ? AND id = ? AND `+BossCandidateSQL+`
 		AND NOT EXISTS (SELECT 1 FROM task_sessions o WHERE o.profile_id = ? AND o.doomsday_charter_id = ?)`,
 		entry.CharterID, entry.Generation, w.Profile, session, w.Profile, entry.CharterID)
 	if err != nil {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n != 1 {
-		return fmt.Errorf("session %d is not an open top-level lead mission of the profile, or the run already has a boss", session)
+		return fmt.Errorf("session %d is not an open top-level mission session of the profile, or the run already has a boss", session)
 	}
 	return nil
 }

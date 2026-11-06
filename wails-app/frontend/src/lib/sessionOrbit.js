@@ -59,8 +59,36 @@ function circleOf(node) {
     kind: s.kind || 'board',
     // A circle opens a chat only when the session has one.
     canOpen: !!s.conversation_id,
+    // The operator recorded this session as the boss of the profile's open-ended run.
+    boss: s.boss === true,
   }
 }
+
+// The client id of a boss session is boss-for-<chat>-<n>, n the attempt number (tasks.BossClientID).
+export const BOSS_KEY_PREFIX = 'boss-for-'
+const OPEN_STATES = ['draft', 'running', 'paused']
+
+// frontDeskOf is the chat a boss key stands behind ('' when the id is not a boss key).
+export function frontDeskOf(session) {
+  const m = /^boss-for-(.+)-([1-9][0-9]*)$/.exec(session?.client_id || '')
+  return m ? m[1] : ''
+}
+
+// bossOf is the recorded boss of a chat: the newest session the operator stamped (the row's `boss`) whose client id names the
+// chat (open: only while the session is open). A session that only carries the key is not one.
+export function bossOf(sessions, conversationId, { open = false } = {}) {
+  if (!conversationId) return null
+  const mine = (sessions || []).filter(s => s && !s.archived && s.boss === true && frontDeskOf(s) === conversationId && (!open || OPEN_STATES.includes(s.state)))
+  return mine.sort((a, b) => b.id - a.id)[0] || null
+}
+
+// activeBoss is the profile's open-ended run's boss session while it is open (one run at a time per profile): the
+// newest recorded boss that is not archived, with its state, for the Agents page.
+export function activeBoss(sessions) {
+  const open = (sessions || []).filter(s => s && !s.archived && s.boss === true && OPEN_STATES.includes(s.state))
+  return open.sort((a, b) => b.id - a.id)[0] || null
+}
+
 
 function findNode(roots, match) {
   const stack = [...roots]
@@ -83,18 +111,24 @@ export function orbitOf(sessions, focus = {}, max = MAX_SATELLITES) {
   let node = null
   if (focus.sessionId) node = findNode(roots, s => s.id === focus.sessionId)
   else if (focus.conversationId) node = findNode(roots, s => s.conversation_id === focus.conversationId)
-  if (!node) return empty
-  const circles = node.depth >= MAX_LEVEL ? [] : node.children.map(c => circleOf(c))
+  // A chat's boss is a sibling of its own session, never a child: it joins the ring first, whether or not the chat has a
+  // mission session yet, and takes one of the slots.
+  const bossRow = focus.conversationId ? bossOf(sessions, focus.conversationId) : null
+  const bossNode = bossRow ? findNode(roots, s => s.id === bossRow.id) : null
+  const bossCircle = bossNode ? circleOf(bossNode) : null
+  if (!node && !bossCircle) return empty
+  const circles = !node || node.depth >= MAX_LEVEL ? [] : node.children.map(c => circleOf(c))
   const sorted = circles
     .map((c, i) => [c, i])
     .sort((a, b) => URGENCY[a[0].state] - URGENCY[b[0].state] || a[1] - b[1])
     .map(x => x[0])
+  const room = bossCircle ? Math.max(0, max - 1) : max
   return {
-    root: { ...circleOf(node) },
-    satellites: sorted.slice(0, max),
-    overflow: sorted.slice(max),
-    total: sorted.length,
-    level: node.depth,
+    root: node ? { ...circleOf(node) } : null,
+    satellites: bossCircle ? [bossCircle, ...sorted.slice(0, room)] : sorted.slice(0, room),
+    overflow: sorted.slice(room),
+    total: sorted.length + (bossCircle ? 1 : 0),
+    level: node ? node.depth : 0,
   }
 }
 

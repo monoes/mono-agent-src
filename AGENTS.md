@@ -4812,3 +4812,23 @@ install (the seen flag is never cleared, the files are never deleted) an unreada
 installs that never ran the mode. A deleted run directory alone therefore no longer reopens the gate; what is left is a database that was unreadable from process start with the run directory wiped. The record lives in the same database, and binaries older than this change do not write it.
 With `coder.box` on, a custom `--db-path` has `<dbdir>/doomsday` named in the box's `Protect` list like the database files (the state directory's mask covers it only in
 the default layout); with the box off (the default) or a workspace/full turn nothing confines a turn's file access. The chained store builds its sequencer (and the pinned connection) on first use, so constructing a coder host pins nothing. The build runs outside the store's lock, once at a time, bounded by a timeout, and a failure is retried on the next use; `doomsday stop` runs through this store too, so its first sequenced write is where the pin is now made (before, at construction). The CLI engine is lazy the same way: with no run and no charter, `stop`, `status`, `finish` and `rubric` pin nothing. A database that is locked or unreadable is answered as busy (retry, then `monoagentcli doctor`), never as "not available" or "no run". `doomsday stop` prints `marker written; recording intent...` on stderr (write errors and SIGPIPE ignored) before the database step. Tests: `noruninert_test.go`, `hostgate_failopen_test.go`.
+
+
+**Open-ended chat: the boss (`doomsday boss new`, `coder sessions steer`).** A chat whose mode is `open` is the front desk; the run's boss is a
+SIBLING: a top-level mission session in a conversation of its own that `doomsday boss new --conversation CHAT` makes (the user's own verb) in
+ONE transaction with its conversation, under the key `boss-for-<chat>-<n>` (`tasks.BossClientID`; the attempt number is 1 to `tasks.MaxBossAttempt`
+= 999, a taken number is skipped, a finished or archived boss is never answered again). The stamp is `start --boss-session`, and the one
+definition of which session may be stamped is `doomsday.BossCandidateSQL` (an open top-level `mission` session; a guard test holds that no
+second copy exists). What a person types goes to the boss ONLY through `coder sessions steer CHAT TEXT`: untrusted guidance in an envelope
+(`[OPERATOR STEERING]`, the text NFKC-normalised with no angle or square brackets left), refused until the boss has had its first turn, unless
+the profile's run is running and the boss session is open, at most 5 waiting, a repeat within 5 s is one message, 4000 characters (counted after
+normalising). The first turn is `chat.QueueBossFirstTurn` (the user's own; a live run; the text is `BossFirstTurnText`). Nothing else starts a
+turn in a boss's conversation: `coder sessions send` refuses it, `chat --conversation <boss> --turn T` runs only with the session token the HOST
+minted for exactly that conversation and turn (the prompt is not read: the host composes no mesh block into a boss's prompt anyway), `chat
+--resume <the boss's runtime session>` is refused, and the extension refuses a boss by name. The boss's conversation is hidden from the plain
+`chat history list` only; `list --all`, `coder sessions list`, `task session list`, the orbit, the Agents page and the task lists show it marked
+`boss`. `coder list` (the extension's follow-up targets) leaves it out unless `--all`.
+The host puts no mesh block in front of a boss's prompt, so a mesh message addressed to a boss is never delivered to it (the sender is not told:
+the mesh has no refusal to give); the boss hears the person only through the steer and the charter. A boss key is matched case-sensitively
+everywhere (`BOSS-FOR-` is no boss key). A steer or first turn queued while the first turn has finished but not yet written its turn row can be
+admitted a second time (user commands only; the bounds still hold).

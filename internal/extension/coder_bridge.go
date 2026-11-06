@@ -189,10 +189,16 @@ type coderChat struct {
 	Cwd              string `json:"cwd"`
 	StartedInDesktop bool   `json:"startedInDesktop"`
 	Running          bool   `json:"running"`
+	Boss             bool   `json:"boss"` // the conversation of an open-ended run's boss: never a send target
 }
 
 func (cb *coderBridge) chatRow(ctx context.Context, profile, conv string) (coderChat, error) {
-	out, err := cb.cli.Run(ctx, "", append(chatBase(profile), "coder", "list", "--conversation="+conv)...)
+	// --all makes the list show a boss's conversation (marked) instead of refusing to name it. A CLI that does not know the flag
+	// does not know bosses either: ask it the old way.
+	out, err := cb.cli.Run(ctx, "", append(chatBase(profile), "coder", "list", "--all", "--conversation="+conv)...)
+	if err != nil && strings.Contains(err.Error(), "unknown flag: --all") {
+		out, err = cb.cli.Run(ctx, "", append(chatBase(profile), "coder", "list", "--conversation="+conv)...)
+	}
 	if err != nil {
 		return coderChat{}, err
 	}
@@ -223,6 +229,9 @@ func (cb *coderBridge) handleSend(ctx context.Context, req *Request, _ ProgressF
 	row, err := cb.chatRow(ctx, profile, conv)
 	if err != nil {
 		return nil, err
+	}
+	if row.Boss {
+		return nil, invalidParam("this conversation belongs to an open-ended run's boss: it is not a conversation to send to")
 	}
 	if !row.StartedInDesktop {
 		return nil, &RequestError{Code: CodeNotStartedInDesktop,

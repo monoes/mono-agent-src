@@ -1,6 +1,8 @@
 package main
 
 import (
+	"database/sql"
+
 	"github.com/spf13/cobra"
 
 	chatcli "github.com/monoes/mono-agent/internal/cli/chat"
@@ -61,6 +63,18 @@ func newDoomsdayCmd(cfg *globalConfig) *cobra.Command {
 		},
 	}
 	grp := doomsdaycli.NewCommand(deps)
+	grp.AddCommand(doomsdaycli.BossCommand(doomsdaycli.BossDeps{
+		Open: func() (*sql.DB, func(), error) {
+			db, err := initDB(cfg)
+			if err != nil {
+				return nil, nil, err
+			}
+			return db.DB, func() { db.Close() }, nil
+		},
+		Profile:      func() string { return cfg.ProfileID },
+		OperatorGate: deps.OperatorGate,
+		JSON:         deps.JSONOutput,
+	}))
 	if doomsdayExtra != nil {
 		doomsdayExtra(cfg, grp, deps)
 	}

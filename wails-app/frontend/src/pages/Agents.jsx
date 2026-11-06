@@ -8,6 +8,7 @@ import { api } from '../services/api.js'
 import { confirm } from '../components/ConfirmDialog.jsx'
 import MonomindInitPrompt from '../components/MonomindInitPrompt.jsx'
 import AgentRoster from '../components/agents/AgentRoster.jsx'
+import OpenRunBoss from '../components/agents/OpenRunBoss.jsx'
 import { useSendToCoder } from '../components/bubbles/CoderBubbleContext.jsx'
 
 function statusColor(installed) {
@@ -279,6 +280,7 @@ export default function Agents() {
                   <RuntimeTile key={a.id} agent={a} onChat={onOpenChat} onInstall={onInstall} job={jobs[a.id]} />
                 ))}
               </div>
+              <OpenRunBoss />
               <AgentRoster />
             </>
           )}
