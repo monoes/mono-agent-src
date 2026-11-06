@@ -152,6 +152,7 @@ func (j *fakeWinJob) TerminateMember(pid int) error {
 func useWin(t *testing.T, w *fakeWin) jobContainment {
 	t.Helper()
 	c := jobContainment{os: w}
+	hostAs(t, "windows")
 	swapContainment(t, KindJobObject, c)
 	// swapContainment replaces the entry by a function returning c, so the real dispatch reaches the fake
 	return c

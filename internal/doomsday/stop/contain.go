@@ -86,6 +86,13 @@ var containments = map[string]func(k Kernel, steps func() []ProbeStep) Containme
 	KindJobObject: func(k Kernel, _ func() []ProbeStep) Containment { return newJobContainment(k) },
 }
 
+// hostGOOS is the OS the code runs on; tests replace it. A recorded unit is only ever proven, ended or placed
+// through the Containment of THIS platform's kind (hostKind): a record that came from another OS (a copied run
+// directory) fails closed instead of reaching a prover whose checks assume a different mechanism.
+var hostGOOS = runtime.GOOS
+
+func hostKind() string { return platformKinds[hostGOOS] }
+
 // platformKinds names the unit kind each GOOS may start; a GOOS absent here is refused. The steps of a probe are the
 // Linux steps; a mechanism with its own steps (the Job Object) ignores them.
 var platformKinds = map[string]string{"linux": KindCgroup2, "windows": KindJobObject}
@@ -134,4 +141,4 @@ func probe(goos string, linuxSteps func() []ProbeStep) error {
 
 // Probe is run at entry (before the charter becomes effective) and again at every host start of a running
 // generation. A nil result is the only way the mode may start.
-func Probe() error { return probe(runtime.GOOS, linuxProbeSteps) }
+func Probe() error { return probe(hostGOOS, linuxProbeSteps) }

@@ -87,6 +87,9 @@ func NewPlacer(k Kernel, dir RunDir, gen uint64) (Placement, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: unknown unit kind %q", ErrNotPlaced, rec.Kind)
 	}
+	if rec.Kind != hostKind() {
+		return nil, fmt.Errorf("%w: a %q unit is not placed into on %s", ErrNotPlaced, rec.Kind, hostGOOS)
+	}
 	return mk(k, nil).Place(rec)
 }
 

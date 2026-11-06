@@ -63,8 +63,16 @@ func TestUnknownKindRefusedAndRegisteredKindDispatched(t *testing.T) {
 	}
 	r := &recContainment{}
 	swapContainment(t, "jobobject", r)
+	// a registered kind that is not THIS platform's kind is refused: a record from another OS is never proven here
+	if _, err := ProveUnit(newFakeKernel(), rec); !errors.Is(err, ErrNotProven) || r.proved != 0 {
+		t.Fatalf("a kind of another platform was dispatched to: %v %d", err, r.proved)
+	}
+	hostAs(t, "windows")
 	if p, err := ProveUnit(newFakeKernel(), rec); err != nil || p.Note != "seam" || r.proved != 1 {
 		t.Fatalf("a registered kind was not dispatched to: %+v %v %d", p, err, r.proved)
+	}
+	if _, err := ProveUnit(newFakeKernel(), testRecord()); !errors.Is(err, ErrNotProven) {
+		t.Fatalf("a cgroup2 record is proven on a Windows host: %v", err)
 	}
 }
 
