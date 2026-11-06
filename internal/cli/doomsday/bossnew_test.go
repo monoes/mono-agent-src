@@ -145,7 +145,7 @@ func TestBossNewRefusals(t *testing.T) {
 		}
 	}
 	// a key taken by a session of the chat itself (an agent may link a session to its own chat)
-	if _, err := tasks.NewStore(r.db.DB).CreateSession(context.Background(), "p1", tasks.SessionInput{Title: "mine", ConversationID: coder.ID, ClientID: tasks.BossClientID(coder.ID)}, tasks.Actor{Kind: tasks.Human}); err != nil {
+	if _, err := tasks.NewStore(r.db.DB).CreateSession(context.Background(), "p1", tasks.SessionInput{Title: "mine", Kind: tasks.SessionKindMission, ConversationID: coder.ID, ClientID: tasks.BossClientID(coder.ID)}, tasks.Actor{Kind: tasks.Human}); err != nil {
 		t.Fatal(err)
 	}
 	if out, err := r.run("new", "--conversation", coder.ID); err == nil {

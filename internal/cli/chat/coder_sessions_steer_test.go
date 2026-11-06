@@ -98,24 +98,20 @@ func TestSteerRefusals(t *testing.T) {
 	}
 }
 
-// Only the user steers: a caller the operator check refuses, and a turn that holds a session token, queue nothing and
+// Only the user steers: a caller the operator check refuses, and a turn the shared turn-aware refusal names (agent tokens, markers, a coder session's turn: cmd/monoagentcli tests every context), queue nothing and
 // start no host.
 func TestSteerIsTheUsersOwn(t *testing.T) {
 	r := newSteerRig(t, true)
 	startHostProcess = func(*Deps) error { t.Error("a refused steer started the host"); return nil }
+	allow := func(string) error { return nil } // each layer is tried with the others open
 	r.cfg.RequireOperator = func(what string) error { return errors.New("operator only: " + what) }
 	if _, code := runSessionsCLI(t, r.cfg, "steer", r.front.ID, "x"); code == 0 {
 		t.Fatal("a non-operator steered")
 	}
-	r.cfg.RequireOperator = nil
+	r.cfg.RequireOperator = allow
 	r.cfg.OperatorRefusal = func() string { return "a coder session's turn" }
 	if _, code := runSessionsCLI(t, r.cfg, "steer", r.front.ID, "x"); code == 0 {
 		t.Fatal("a turn steered")
-	}
-	r.cfg.OperatorRefusal = nil
-	t.Setenv(coderhost.SessionTokenEnv, "some-token")
-	if _, code := runSessionsCLI(t, r.cfg, "steer", r.front.ID, "x"); code == 0 {
-		t.Fatal("a session token steered")
 	}
 	if len(pendingCommands(t, r.dbPath)) != 0 {
 		t.Fatal("a refused caller queued steering")

@@ -45,9 +45,6 @@ func newCoderSessionsSteerCmd(cfg *Deps) *cobra.Command {
 			if err := requireUser(cfg, "steer an open-ended run"); err != nil {
 				return err
 			}
-			if sessionTokenFromEnv() != "" { // a session's turn is never the person
-				return clicore.OperatorOnly("only the user can steer an open-ended run: this process is a session's turn")
-			}
 			text := strings.TrimSpace(args[1])
 			if text == "" || len(text) > maxSteerBytes {
 				return clicore.InvalidInput("steering is text of 1 to %d bytes", maxSteerBytes)
