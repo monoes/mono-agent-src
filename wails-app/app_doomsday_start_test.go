@@ -13,7 +13,7 @@ import (
 
 const dmCharter = `{"goal":"g","limits":{"budget_micro":1000000},"lines":["spending"]}`
 
-func startDoc(t *testing.T, s string) (d struct {
+func parseStartDoc(t *testing.T, s string) (d struct {
 	OK      bool   `json:"ok"`
 	Started bool   `json:"started"`
 	Output  string `json:"output"`
@@ -53,12 +53,12 @@ func TestDoomsdayRenderAndStartRunExactArgvWithTheCharterOnStdin(t *testing.T) {
 
 func TestDoomsdayStartAnswersWithTheCLIsWords(t *testing.T) {
 	taskCLIFake(t, `{"run_id":"work/1","hash":"h","generation":1}`, 0)
-	d := startDoc(t, newTaskTestApp(t).DoomsdayStart(dmCharter, "I understand: lift 1 lines, charter 12345678", 0))
+	d := parseStartDoc(t, newTaskTestApp(t).DoomsdayStart(dmCharter, "I understand: lift 1 lines, charter 12345678", 0))
 	if !d.OK || !d.Started || !strings.Contains(d.Output, "work/1") {
 		t.Fatalf("%+v", d)
 	}
 	taskCLIFake(t, `{"error":"the phrase does not match; nothing started","code":"invalid_input"}`, 2)
-	d = startDoc(t, newTaskTestApp(t).DoomsdayStart(dmCharter, "I understand: lift 1 lines, charter 12345678", 0))
+	d = parseStartDoc(t, newTaskTestApp(t).DoomsdayStart(dmCharter, "I understand: lift 1 lines, charter 12345678", 0))
 	if d.OK || d.Started || d.Code != "invalid_input" || !strings.Contains(d.Detail, "does not match") {
 		t.Fatalf("%+v", d)
 	}
@@ -83,7 +83,7 @@ func TestDoomsdayStartRefusesBadInputBeforeTheCLI(t *testing.T) {
 		"newline phrase": {dmCharter, good + "\nsecond", 0},
 		"negative boss":  {dmCharter, good, -1},
 	} {
-		d := startDoc(t, a.DoomsdayStart(c.charter, c.phrase, c.boss))
+		d := parseStartDoc(t, a.DoomsdayStart(c.charter, c.phrase, c.boss))
 		if d.OK || d.Code != "invalid_input" {
 			t.Errorf("%s: %+v", name, d)
 		}
@@ -98,7 +98,7 @@ func TestDoomsdayRenderAndStartNeedTheOperator(t *testing.T) {
 	opgate.SetForTest(t, func(bool) string { return "an agent's shell" })
 	log, _ := taskCLIFake(t, `{}`, 0)
 	a := newTaskTestApp(t)
-	if d := startDoc(t, a.DoomsdayStart(dmCharter, "I understand: lift 1 lines, charter 12345678", 0)); d.OK || d.Code != "operator_only" {
+	if d := parseStartDoc(t, a.DoomsdayStart(dmCharter, "I understand: lift 1 lines, charter 12345678", 0)); d.OK || d.Code != "operator_only" {
 		t.Fatalf("start: %+v", d)
 	}
 	if got := a.DoomsdayRender(dmCharter); !strings.Contains(got, "operator_only") {
@@ -119,7 +119,7 @@ func TestDoomsdayStartIsOneAtATime(t *testing.T) {
 	}
 	defer doomsdayStartMu.Unlock()
 	log, _ := taskCLIFake(t, `{}`, 0)
-	if d := startDoc(t, newTaskTestApp(t).DoomsdayStart(dmCharter, "I understand: lift 1 lines, charter 12345678", 0)); d.OK || d.Code != "busy" {
+	if d := parseStartDoc(t, newTaskTestApp(t).DoomsdayStart(dmCharter, "I understand: lift 1 lines, charter 12345678", 0)); d.OK || d.Code != "busy" {
 		t.Fatalf("%+v", d)
 	}
 	if callCount(t, log) != 0 {

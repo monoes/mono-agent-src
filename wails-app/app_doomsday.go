@@ -1,16 +1,18 @@
 // wails-app/app_doomsday.go
 //
 // The control room's bindings (docs: monoes/mono-agent-src#1157). The app never reads the run's tables: every
-// binding runs `monoagentcli --profile <active> --json doomsday <verb>` and returns the CLI's document. There are
-// exactly four bindings and three verbs the app can run, listed in doomsdayVerbs: the two read verbs, `overview` and
-// `feed`, and `stop`. Nothing here starts, approves, grants, pauses or resumes anything; doomsdayArgv refuses any other
-// verb or flag, and the CLI re-checks the operator gate of every call it gets.
+// binding runs `monoagentcli --profile <active> --json doomsday <verb>` and returns the CLI's document. The read
+// bindings, the probe and Stop run the verbs listed in doomsdayVerbs, and doomsdayArgv refuses any other verb or flag.
+// The one binding that starts a run, DoomsdayStart (app_doomsday_start.go), runs `start` with a fixed argv, only for
+// the operator, only with the phrase a person typed in the form, which the CLI derives again and compares. Nothing
+// here approves, grants, pauses or resumes anything, and the CLI re-checks the operator gate of every call it gets.
 package main
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -37,12 +39,15 @@ const (
 	doomsdayMaxLimit = 200
 )
 
-// doomsdayVerbs is the whole of what the app can run, with the flags each takes. start, approve, grant, pause,
-// resume, finish, rubric and render are the terminal's and are not here.
+// doomsdayVerbs is the whole of what the app can run through doomsdayArgv, with the flags each takes: the read verbs
+// (overview, feed, probe) and stop. render and start are not here: they take a charter and a phrase from the person
+// and have their own fixed argv (doomsdayCharterArgv, app_doomsday_start.go). approve, grant, pause, resume, finish and
+// rubric are the terminal's.
 var doomsdayVerbs = map[string][]string{
 	"overview": nil,
 	"feed":     {"--before", "--limit"},
 	"stop":     nil,
+	"probe":    nil,
 }
 
 // doomsdayArgv is the argv of one allowed verb for profile. extra is --flag=value strings; a flag the verb does not
@@ -95,11 +100,16 @@ func (a *App) runDoomsday(timeout time.Duration, verb string, extra ...string) (
 }
 
 func (a *App) runDoomsdayFor(pid string, timeout time.Duration, verb string, extra ...string) (stdout, stderr string, truncated bool, err error) {
-	cliBin, err := findMonoAgentCLI()
+	full, err := doomsdayArgv(pid, verb, extra...)
 	if err != nil {
 		return "", "", false, err
 	}
-	full, err := doomsdayArgv(pid, verb, extra...)
+	return a.execDoomsday(timeout, full, nil)
+}
+
+// execDoomsday runs the CLI with an argv that doomsdayArgv or doomsdayCharterArgv built, with stdin (nil for none).
+func (a *App) execDoomsday(timeout time.Duration, full []string, stdin io.Reader) (stdout, stderr string, truncated bool, err error) {
+	cliBin, err := findMonoAgentCLI()
 	if err != nil {
 		return "", "", false, err
 	}
@@ -110,6 +120,7 @@ func (a *App) runDoomsdayFor(pid string, timeout time.Duration, verb string, ext
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, cliBin, full...)
+	cmd.Stdin = stdin
 	suppressConsole(cmd)
 	out, errb := &cappedBuffer{max: doomsdayMaxOutput}, &cappedBuffer{max: 64 << 10}
 	cmd.Stdout, cmd.Stderr = out, errb
