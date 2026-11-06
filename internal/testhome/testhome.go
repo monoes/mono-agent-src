@@ -65,7 +65,14 @@ func run(m *testing.M) int {
 	blockNetwork()
 	check, cleanup := guardServiceManagers()
 	defer cleanup()
+	anchorsBefore := psAnchors()
 	code := runIn(m)
+	if left := checkAnchors(anchorsBefore); left != "" {
+		fmt.Fprintf(os.Stderr, "testhome: %s (a test started a real process-group unit and did not end it)\n", left)
+		if code == 0 {
+			code = 1
+		}
+	}
 	if d := RealBridgeDialed(); len(d) > 0 {
 		fmt.Fprintf(os.Stderr, "testhome: the tests dialed the real extension bridge's ports (they must use a private port): %v\n", d)
 		if code == 0 {

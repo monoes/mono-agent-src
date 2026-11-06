@@ -243,6 +243,8 @@ func TestProbeRefusesOffLinux(t *testing.T) {
 // above. Here, off macOS, its mechanism has no API: the probe still refuses, now with the macOS wording instead of
 // "darwin is not supported".
 func TestProbeOfDarwinRefusesWithTheMacOSMechanismWording(t *testing.T) {
+	// the mechanism with no API, whatever the host: on a real Mac the real one would answer instead
+	swapContainment(t, KindPGroup, pgContainment{})
 	err := probe("darwin", func() []ProbeStep { t.Fatal("linux steps consulted"); return nil })
 	if !errors.Is(err, ErrContainmentUnavailable) || !strings.Contains(err.Error(), "macOS") {
 		t.Fatalf("darwin: %v", err)
