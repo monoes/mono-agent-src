@@ -161,6 +161,8 @@ func probe(goos string, linuxSteps func() []ProbeStep) error {
 	return containments[kind](nil, linuxSteps).Probe()
 }
 
-// Probe is run at entry (before the charter becomes effective) and again at every host start of a running
-// generation. A nil result is the only way the mode may start.
+// Probe is run by every entry (StoreEngine.Enter, before anything is created), by the verbs that show or start a charter
+// and per verification unit. It is NOT re-run when a host restarts and resumes a running generation: the lock, the
+// emergency socket and the pinned connection are taken again there and fail closed on their own, but the process
+// containment and the host self-tests are not re-evaluated. A nil result is the only way the mode may start.
 func Probe() error { return probe(hostGOOS, linuxProbeSteps) }
