@@ -136,9 +136,9 @@ func TestRenderEscapesControlCharactersAndCapsLongText(t *testing.T) {
 func TestGUIStartRefusesWhatTheFormBlocks(t *testing.T) {
 	withCriterion := `"criteria":[{"kind":"rubric","text":"reads well"}],`
 	for name, c := range map[string]string{
-		"no criteria":        goodCharter,
-		"concurrent > live":  `{"goal":"g",` + withCriterion + `"limits":{"budget_micro":1,"live_per_tree":5,"max_concurrent":9,"concurrent_above_live":true},"pins":{"boss":{"provider":"p","model":"m","version":"1"},"verifier":{"provider":"p","model":"v","version":"2"},"judging_policy":"j"}}`,
-		"no budget choice":   `{"goal":"g",` + withCriterion + `"pins":{"boss":{"provider":"p","model":"m","version":"1"},"verifier":{"provider":"p","model":"v","version":"2"},"judging_policy":"j"}}`,
+		"no criteria":       goodCharter,
+		"concurrent > live": `{"goal":"g",` + withCriterion + `"limits":{"budget_micro":1,"live_per_tree":5,"max_concurrent":9,"concurrent_above_live":true},"pins":{"boss":{"provider":"p","model":"m","version":"1"},"verifier":{"provider":"p","model":"v","version":"2"},"judging_policy":"j"}}`,
+		"no budget choice":  `{"goal":"g",` + withCriterion + `"pins":{"boss":{"provider":"p","model":"m","version":"1"},"verifier":{"provider":"p","model":"v","version":"2"},"judging_policy":"j"}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			r := newRig()
@@ -209,9 +209,9 @@ func fullHashJSON(t *testing.T, r *rig, file string) string {
 // and an empty stdin says so instead of EOF.
 func TestCharterRefusesDuplicateKeysAndSaysWhenEmpty(t *testing.T) {
 	for name, c := range map[string]string{
-		"top level":  `{"goal":"a","goal":"b"}`,
-		"nested":     `{"goal":"a","limits":{"tree_depth":2,"tree_depth":3}}`,
-		"in a list":  `{"goal":"a","criteria":[{"kind":"rubric","text":"x","text":"y"}]}`,
+		"top level": `{"goal":"a","goal":"b"}`,
+		"nested":    `{"goal":"a","limits":{"tree_depth":2,"tree_depth":3}}`,
+		"in a list": `{"goal":"a","criteria":[{"kind":"rubric","text":"x","text":"y"}]}`,
 	} {
 		if _, err := LoadCharter(strings.NewReader(c)); err == nil || !strings.Contains(err.Error(), "twice") {
 			t.Errorf("%s: %v", name, err)
