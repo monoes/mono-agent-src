@@ -121,7 +121,7 @@ describe('free text is held to what the CLI will take for an app start', () => {
     expect(buildCharter(good({ criteria: [{ kind: 'rubric', text: 'x'.repeat(2001) }] })).errors.text).toBeTruthy()
   })
   it('refuses zero-width, bidi, tag, variation-selector, separator and control characters, but keeps newline and tab', () => {
-    for (const bad of ['a\u200bb', 'a\u202eb', 'a\u{E0041}', 'a\ufe0f', 'a\u2028b', 'a\u0000b', 'a\ue000']) {
+    for (const bad of ['a\u200bb', 'a\u202eb', 'a\u{E0041}', 'a\ufe0f', 'a\u2028b', 'a\u0000b', 'a\ue000', 'a\u00a0b', 'a\u3000b', 'a\u2800b', 'a\u3164b', 'a\u034fb']) {
       expect(buildCharter(good({ goal: bad })).errors.text, JSON.stringify(bad)).toBeTruthy()
     }
     expect(buildCharter(good({ goal: 'line one\n\tline two' })).errors.text).toBeFalsy()

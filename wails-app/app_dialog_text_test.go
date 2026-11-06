@@ -21,7 +21,7 @@ func TestDialogTextDoublesPercentWhereGTKReadsAFormat(t *testing.T) {
 			t.Errorf("%q -> %q", in, got)
 		}
 		// what GTK will do with it: format it with no arguments. It must come out as the original text.
-		if shown := fmt.Sprintf(got); shown != in {
+		if shown := fmt.Sprintf(got, []any{}...); shown != in {
 			t.Errorf("%q is shown as %q", in, shown)
 		}
 		for _, goos := range []string{"windows", "darwin"} {
@@ -65,9 +65,10 @@ func TestEveryMessageDialogUsesDialogText(t *testing.T) {
 				return true
 			}
 			calls++
-			for _, arg := range call.Args {
+			for _, arg := range call.Args[1:] {
 				lit, ok := arg.(*ast.CompositeLit)
 				if !ok {
+					t.Errorf("%s: build the dialog options inline so the guard can see their text", fset.Position(arg.Pos()))
 					continue
 				}
 				for _, el := range lit.Elts {
@@ -75,7 +76,8 @@ func TestEveryMessageDialogUsesDialogText(t *testing.T) {
 					if !ok {
 						continue
 					}
-					if key, _ := kv.Key.(*ast.Ident); key == nil || (key.Name != "Title" && key.Name != "Message") {
+					key, _ := kv.Key.(*ast.Ident)
+					if key == nil || (key.Name != "Title" && key.Name != "Message") {
 						continue
 					}
 					switch v := kv.Value.(type) {

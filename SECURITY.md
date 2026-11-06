@@ -3583,3 +3583,8 @@ function that does what the guarded one does), and it skips directories named `s
   CLI's own preview: the machine facts first (lifted lines, charter prefix, budget, criteria count, limits, pinned models), then the goal as data,
   cleaned and cut to 200 characters; an answer under a second after it is shown counts as a decline. The CLI refuses, for an app start,
   goal, criteria and pin text over 2000 characters or with hidden (zero-width, direction, tag, control) characters.
+  Every charter string is held to that (the check walks the charter by type), and the dialog also names the auto-approval limits and answer
+  classes. On Linux wails v2.17.0 passes a dialog's message to GTK as a printf format, so every Wails dialog of the app doubles `%` through
+  one helper (`dialogText`, guarded by a test that fails a new dialog call without it); a wails bump must be checked against that. A start that
+  fails without the CLI's own error envelope is reported as unknown, not as not started. The probe's test unit is stopped on SIGINT and SIGTERM
+  (the app sends SIGTERM first); on Windows the app can only kill it, so a leftover test unit there is not cleaned up.

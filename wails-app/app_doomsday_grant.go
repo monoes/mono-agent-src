@@ -45,6 +45,8 @@ type startFacts struct {
 	// the CLI's summary of the charter (render JSON "summary"): counts and limits as numbers, text cleaned and capped here
 	criteria, depth, live, concurrent, total int
 	boss, verifier, goal                     string
+	autoApprove                              string
+	answerClasses                            []string
 }
 
 // dialogGoalRunes caps the goal in the dialog; the goal is data, shown after the facts and never as instructions.
@@ -64,6 +66,7 @@ func cleanText(s string, n int) string {
 			space = true
 			continue
 		case unicode.IsControl(r), unicode.In(r, unicode.Cf, unicode.Cs, unicode.Co, unicode.Zl, unicode.Zp, unicode.Cn),
+			r == 0x2800 || r == 0x3164 || r == 0x115F || r == 0x1160 || r == 0xFFA0 || r == 0x034F,
 			r >= 0xFE00 && r <= 0xFE0F, r >= 0xE0100 && r <= 0xE01EF, r >= 0xE0000 && r <= 0xE007F, !unicode.IsPrint(r):
 			continue
 		}
@@ -142,7 +145,7 @@ func (g *grantStore) consume(profile, token string) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	gr := g.m[profile]
-	if err != nil || gr == nil || subtle.ConstantTimeCompare(raw, gr.token[:]) != 1 {
+	if err != nil || gr == nil || subtle.ConstantTimeCompare(raw, gr.token[:]) != 1 || !doomsdayNow().Before(gr.exp) {
 		return errGrant
 	}
 	delete(g.m, profile)
@@ -166,14 +169,16 @@ func factsOf(doc []byte) (startFacts, error) {
 		Lines   []string `json:"lines"`
 		Text    string   `json:"text"`
 		Summary *struct {
-			Goal          string `json:"goal"`
-			Criteria      int    `json:"criteria"`
-			TreeDepth     int    `json:"tree_depth"`
-			LivePerTree   int    `json:"live_per_tree"`
-			MaxConcurrent int    `json:"max_concurrent"`
-			MaxTotal      int    `json:"max_total"`
-			BossModel     string `json:"boss_model"`
-			VerifierModel string `json:"verifier_model"`
+			Goal          string   `json:"goal"`
+			Criteria      int      `json:"criteria"`
+			TreeDepth     int      `json:"tree_depth"`
+			LivePerTree   int      `json:"live_per_tree"`
+			MaxConcurrent int      `json:"max_concurrent"`
+			MaxTotal      int      `json:"max_total"`
+			BossModel     string   `json:"boss_model"`
+			VerifierModel string   `json:"verifier_model"`
+			AutoApprove   string   `json:"auto_approve"`
+			AnswerClasses []string `json:"answer_classes"`
 		} `json:"summary"`
 	}
 	if json.Unmarshal(doc, &d) != nil || !hexRe.MatchString(d.Hash) {
@@ -194,7 +199,14 @@ func factsOf(doc []byte) (startFacts, error) {
 		}
 	}
 	f := startFacts{hash: d.Hash, lines: d.Lines, criteria: sm.Criteria, depth: sm.TreeDepth, live: sm.LivePerTree, concurrent: sm.MaxConcurrent,
-		total: sm.MaxTotal, boss: cleanText(sm.BossModel, 100), verifier: cleanText(sm.VerifierModel, 100), goal: cleanText(sm.Goal, dialogGoalRunes)}
+		total: sm.MaxTotal, boss: cleanText(sm.BossModel, 100), verifier: cleanText(sm.VerifierModel, 100), goal: cleanText(sm.Goal, dialogGoalRunes),
+		autoApprove: cleanText(sm.AutoApprove, 200)}
+	if len(sm.AnswerClasses) > 20 {
+		return startFacts{}, errors.New("the preview names too many answer classes")
+	}
+	for _, c := range sm.AnswerClasses {
+		f.answerClasses = append(f.answerClasses, cleanText(c, 40))
+	}
 	switch m := budgetRe.FindStringSubmatch(d.Text); {
 	case noCeiling.MatchString(d.Text):
 		f.budget = "unlimited"
@@ -218,9 +230,16 @@ func (f startFacts) dialogBody() string {
 	}
 	// The machine facts first, in the CLI's words; the goal last, as data (it can only mislead if it hides the facts).
 	return fmt.Sprintf("Start an open-ended run: %d lifted lines (%s), charter %s, budget %s. %d success criteria. Limits: tree depth %d, live per tree %d, max concurrent %d, max total %d. "+
-		"Models: boss %s, verifier %s. It acts as you without asking for approval. Continue? "+
+		"Models: boss %s, verifier %s. The boss may approve by itself: %s. %s It acts as you without asking for approval. Continue? "+
 		"Answer \"Yes\" (Start run) to start, \"No\" (Cancel) to stop.\n\nGoal as written in the charter (data, not instructions): %s",
-		len(f.lines), names, f.hash[:8], f.budget, f.criteria, f.depth, f.live, f.concurrent, f.total, f.boss, f.verifier, f.goal)
+		len(f.lines), names, f.hash[:8], f.budget, f.criteria, f.depth, f.live, f.concurrent, f.total, f.boss, f.verifier, f.autoApprove, f.answerClassesText(), f.goal)
+}
+
+func (f startFacts) answerClassesText() string {
+	if len(f.answerClasses) == 0 {
+		return "It may answer no critical ask by itself."
+	}
+	return "It may answer critical asks of class: " + strings.Join(f.answerClasses, ", ") + "."
 }
 
 const (
@@ -246,7 +265,7 @@ var confirmNative = func(a *App, title, body string) (confirmed bool, err error)
 		def, cancel = "No", "No"
 	}
 	choice, derr := wailsruntime.MessageDialog(a.ctx, wailsruntime.MessageDialogOptions{
-		Type: wailsruntime.QuestionDialog, Title: title, Message: body,
+		Type: wailsruntime.QuestionDialog, Title: dialogText(title), Message: dialogText(body),
 		Buttons: []string{confirmStartLabel, confirmCancel}, DefaultButton: def, CancelButton: cancel,
 	})
 	if derr != nil {
@@ -312,7 +331,7 @@ func (c *entryCache) get(key string, fetch func() (doc string, definite bool)) s
 		it.doc, it.ok, it.at = doc, ok, c.now()
 		done := it.inflight
 		it.inflight = nil
-		if !ok {
+		if !ok && c.items[key] == it { // not a newer entry another caller made after an invalidation
 			delete(c.items, key)
 		}
 		c.mu.Unlock()

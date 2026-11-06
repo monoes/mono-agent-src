@@ -575,17 +575,6 @@ func TestTheDialogNamesAutoApprovalAndAnswerClasses(t *testing.T) {
 	}
 }
 
-// A '%' in the dialog's text is doubled for GTK on Linux, in the one place the options are built.
-func TestTheNativeDialogOptionsEscapeTheText(t *testing.T) {
-	o := nativeDialogOptions("linux", "100% title", "goal ends with 90%s%n")
-	if o.Title != "100%% title" || o.Message != "goal ends with 90%%s%%n" {
-		t.Fatalf("%q %q", o.Title, o.Message)
-	}
-	if o := nativeDialogOptions("windows", "100% title", "x%"); o.Title != "100% title" || o.Message != "x%" {
-		t.Fatalf("windows: %q %q", o.Title, o.Message)
-	}
-}
-
 // An entry probe that fails after a Stop cleared the cache must not delete the newer entry another caller made.
 func TestAStaleProbeFailureDoesNotDeleteANewerEntry(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)

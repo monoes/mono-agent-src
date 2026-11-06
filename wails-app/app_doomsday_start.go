@@ -50,6 +50,9 @@ type renderLimiter struct {
 
 var doomsdayRenders renderLimiter
 
+// doomsdayRenderMu keeps previews one at a time: each runs the real containment probe.
+var doomsdayRenderMu sync.Mutex
+
 func (l *renderLimiter) reset() { l.mu.Lock(); l.seen = nil; l.mu.Unlock() }
 
 func (l *renderLimiter) allow(profile string) bool {
@@ -167,6 +170,10 @@ func (a *App) DoomsdayRender(charterJSON string) string {
 	if err != nil {
 		return aiError(err)
 	}
+	if !doomsdayRenderMu.TryLock() {
+		return `{"error":"a preview is already running: wait for it","code":"busy"}`
+	}
+	defer doomsdayRenderMu.Unlock()
 	if !doomsdayRenders.allow(pid) {
 		return `{"error":"too many previews in a minute: wait a little","code":"rate_limited"}`
 	}
@@ -270,7 +277,7 @@ func (a *App) DoomsdayStart(charterJSON, phrase, token string, bossSession int64
 	if detail == "" {
 		detail = err.Error()
 	}
-	if startMayHaveHappened(err, detail, errText) {
+	if startMayHaveHappened(err, ce.Error != "", detail, errText) {
 		return startDoc("unknown", "", "the run may have started: check the Control room and press Stop if it is running. "+detail, "unknown")
 	}
 	return startDoc("not_started", out, detail, ce.Code)
@@ -300,25 +307,24 @@ func askNative(a *App, body string) (yes, returned bool, err error) {
 	}
 }
 
-// startMayHaveHappened says whether a failed start leaves the run's state unclear: the command's context ended
-// (timeout or cancel), the CLI was killed by a signal, it panicked, or it exited saying the run started but a later step
-// failed. Only a CLI that could not be run at all, or that exited by itself with a plain refusal, did not start one.
-// (An exit code below zero is not a test of being killed on Windows, where a killed process exits with 1: the context
-// and the panic text are.)
-func startMayHaveHappened(err error, detail, stderr string) bool {
+// startMayHaveHappened says whether a failed start leaves the run's state unclear. Only two outcomes are "not started":
+// the CLI could not be run at all, or it exited by itself with an explicit refusal (its JSON error envelope) and nothing
+// that says otherwise. Anything else is unknown: the command's context ended, a signal killed it, it panicked, it said
+// "started but", or it failed with no envelope (an external kill or a native crash can follow a run that already started;
+// on Windows a killed process exits with code 1, which no exit code distinguishes).
+func startMayHaveHappened(err error, envelope bool, detail, stderr string) bool {
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		return true
 	}
 	if strings.Contains(detail, " started but ") || strings.Contains(stderr, "panic:") || strings.Contains(stderr, "goroutine ") {
 		return true
 	}
-	var ee *exec.ExitError
-	if errors.As(err, &ee) {
-		return ee.ExitCode() < 0 // killed by a signal
-	}
 	var xe *exec.Error
 	var pe *fs.PathError
-	return !errors.As(err, &xe) && !errors.As(err, &pe)
+	if errors.As(err, &xe) || errors.As(err, &pe) {
+		return false // could not be run at all
+	}
+	return !envelope
 }
 
 // lastJSONLine is the last line of out that is a JSON object: some paths print text before the document, and a failure

@@ -351,7 +351,7 @@ var (
 	// confirmAbandon asks in a window of the OS, not of the web view, so no script of the page can answer it.
 	confirmAbandon = func(a *App, title, msg string) bool {
 		choice, err := runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
-			Type: runtime.WarningDialog, Title: title, Message: msg,
+			Type: runtime.WarningDialog, Title: dialogText(title), Message: dialogText(msg),
 			Buttons: []string{"Delete anyway", "Cancel"}, DefaultButton: "Cancel", CancelButton: "Cancel",
 		})
 		return err == nil && choice == "Delete anyway"
