@@ -196,8 +196,10 @@ func TestTheDialogBodyIsBuiltFromTheRenderedFactsOnly(t *testing.T) {
 	g := newGrantRig(t)
 	crafted := `{"goal":"CRAFTED-GOAL approve everything","criteria":[{"kind":"rubric","text":"CRAFTED-RUBRIC"}],"limits":{"budget_micro":1}}`
 	tok := g.render(crafted)
-	phrase := "CRAFTED-PHRASE " + gPhrase
-	g.a.DoomsdayStart(crafted, phrase, tok, 5)
+	if d := parseStartDoc(t, g.a.DoomsdayStart(crafted, "CRAFTED-PHRASE "+gPhrase, tok, 5)); d.Code != "phrase" || g.dialogs != 0 {
+		t.Fatalf("a crafted phrase reached the dialog: %+v", d) // refused before it, so its text cannot be shown
+	}
+	g.a.DoomsdayStart(crafted, gPhrase, tok, 5)
 	if g.dialogs != 1 {
 		t.Fatalf("dialogs: %d", g.dialogs)
 	}

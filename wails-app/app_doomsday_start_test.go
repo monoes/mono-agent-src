@@ -32,7 +32,7 @@ func parseStartDoc(t *testing.T, s string) (d struct {
 // supplies a charter, the phrase the person typed, the render's token and a boss session number, and none of them is a flag.
 func TestDoomsdayRenderAndStartRunExactArgvWithTheCharterOnStdin(t *testing.T) {
 	g := newGrantRig(t)
-	phrase := "--yes-i-lift x"
+	phrase := gPhrase
 	g.startBehaves(`echo '{"run_id":"work/1"}'`)
 	tok := g.render(dmCharter)
 	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, phrase, tok, 41))
@@ -41,7 +41,7 @@ func TestDoomsdayRenderAndStartRunExactArgvWithTheCharterOnStdin(t *testing.T) {
 	}
 	want := []string{
 		"--profile|work|--json|doomsday|render|--charter|-|",
-		"--profile|work|--json|doomsday|start|--charter|-|--gui-phrase=--yes-i-lift x|--boss-session=41|",
+		"--profile|work|--json|doomsday|start|--charter|-|--gui-phrase=" + gPhrase + "|--boss-session=41|",
 	}
 	if got := loggedArgs(t, g.log); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("argv:\n%q\nwant:\n%q", got, want)
