@@ -13,7 +13,7 @@ const S = (id, parent, extra = {}) => ({ id, parent_session_id: parent, conversa
 
 describe('the boss in the orbit ring', () => {
   it('is a distinct, named satellite that opens its own conversation', () => {
-    const boss = S(9, 0, { title: 'Boss', boss: true, client_id: 'boss-for-c1' })
+    const boss = S(9, 0, { title: 'Boss', boss: true, client_id: 'boss-for-c1-1' })
     const o = orbitOf([S(1, 0), S(2, 1), boss], { conversationId: 'c1' })
     const onOpen = vi.fn()
     render(<OrbitRing orbit={o} onOpen={onOpen} />)

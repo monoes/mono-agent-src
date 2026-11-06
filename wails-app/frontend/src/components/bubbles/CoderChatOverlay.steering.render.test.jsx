@@ -49,7 +49,7 @@ function Harness() {
   return <CoderBubbles store={store} onNavigate={navigate} />
 }
 
-const B = (extra = {}) => ({ id: 9, parent_session_id: 0, conversation_id: 'boss-conv', title: 'Boss', state: 'running', counts: {}, boss: true, client_id: 'boss-for-front', ...extra })
+const B = (extra = {}) => ({ id: 9, parent_session_id: 0, conversation_id: 'boss-conv', title: 'Boss', state: 'running', counts: {}, boss: true, client_id: 'boss-for-front-1', ...extra })
 const modeOf = mode => ({ chatMode: { mode, locked: true, reason: '', options: [] } })
 
 beforeEach(() => {
@@ -91,6 +91,10 @@ describe('the overlay\'s steering wiring', () => {
   })
   it('does not steer when the boss is only a session carrying the key', async () => {
     await mount('open', [B({ boss: false })])
+    expect(screen.queryByTestId('steering-bar')).toBeNull()
+  })
+  it('does not steer once the boss is finished (the run is over)', async () => {
+    await mount('open', [B({ state: 'done' })])
     expect(screen.queryByTestId('steering-bar')).toBeNull()
   })
   it('does not steer in a chat of another mode, boss or not', async () => {

@@ -14,8 +14,8 @@ import (
 // its session row, and the queue's coder chats mark it. A conversation whose session only carries the boss's client id,
 // without the operator's stamp, is no boss anywhere.
 type bossListing struct {
-	dbPath           string
-	chat, boss, fake ai.Conversation
+	dbPath                 string
+	chat, boss, fake, lead ai.Conversation
 }
 
 func seedBossListing(t *testing.T) bossListing {
@@ -26,9 +26,10 @@ func seedBossListing(t *testing.T) bossListing {
 	b.chat = seedConv(t, store, db, ai.AccessFull, "2026-10-22T10:00:03Z")
 	b.boss = seedConv(t, store, db, ai.AccessFull, "2026-10-22T10:00:02Z")
 	b.fake = seedConv(t, store, db, ai.AccessFull, "2026-10-22T10:00:01Z")
-	for _, c := range []struct{ conv, key, charter string }{{b.boss.ID, "boss-for-" + b.chat.ID, "c1"}, {b.fake.ID, "boss-for-x", ""}} {
+	b.lead = seedConv(t, store, db, ai.AccessFull, "2026-10-22T10:00:00Z") // a chat's own lead mission named at start: stamped, but no boss key
+	for _, c := range []struct{ conv, key, charter string }{{b.boss.ID, tasks.BossClientID(b.chat.ID, 1), "c1"}, {b.fake.ID, tasks.BossClientID("x", 1), ""}, {b.lead.ID, "", "c9"}} {
 		if _, err := db.Exec(`INSERT INTO task_sessions (profile_id, conversation_id, title, goal, access_level, max_tasks, max_depth, max_retries, created_by, created_at, updated_at, client_id, kind, doomsday_charter_id)
-			VALUES ('default', ?, 't', '', 'full', 10, 3, 2, 'operator', 'x', 'x', ?, 'mission', ?)`, c.conv, c.key, c.charter); err != nil {
+			VALUES ('default', ?, 't', '', 'full', 10, 3, 2, 'operator', 'x', 'x', NULLIF(?, ''), 'mission', ?)`, c.conv, c.key, c.charter); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -52,7 +53,7 @@ func TestPlainHistoryListLeavesOutARecordedBossAndNothingElse(t *testing.T) {
 	for _, c := range page.Items {
 		ids[c.ID] = true
 	}
-	if !ids[b.chat.ID] || ids[b.boss.ID] || !ids[b.fake.ID] {
+	if !ids[b.chat.ID] || ids[b.boss.ID] || !ids[b.fake.ID] || !ids[b.lead.ID] {
 		t.Fatalf("plain list ids: %v", ids)
 	}
 	if out, code := runChatHistory(t, b.dbPath, "default", "show", b.boss.ID); code != 0 {
@@ -67,7 +68,7 @@ func TestHistoryAllShowsARecordedBossWithTheBossMark(t *testing.T) {
 	for _, r := range listAll(t, b.dbPath).Items {
 		marks[r.ID] = r.Boss
 	}
-	if len(marks) != 3 || marks[b.chat.ID] || !marks[b.boss.ID] || marks[b.fake.ID] {
+	if len(marks) != 4 || marks[b.chat.ID] || !marks[b.boss.ID] || marks[b.fake.ID] || marks[b.lead.ID] {
 		t.Fatalf("--all marks: %v", marks)
 	}
 	if got := listAll(t, b.dbPath, "--id", b.boss.ID); len(got.Items) != 1 || !got.Items[0].Boss {

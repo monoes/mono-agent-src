@@ -203,7 +203,7 @@ WHERE c.profile_id = ? AND c.backend = 'agent'%s
 ) WHERE 1 = 1%s ORDER BY updated_at DESC, id DESC LIMIT ?`
 
 // histSQL is the statement with the boss mark filled in from the tasks package, which owns what a boss is.
-var histSQL = strings.Replace(histSQLTemplate, "{BOSS}", tasks.BossConversationSQL("c"), 1)
+var histSQL = strings.Replace(histSQLTemplate, "{BOSS}", strings.ReplaceAll(tasks.BossConversationSQL("c"), "%", "%%"), 1) // the statement is a Sprintf format
 
 func queryHistoryRows(db historyQuerier, profileID string, f historyFilter, limit int) ([]HistoryRow, error) {
 	args := []any{profileID}

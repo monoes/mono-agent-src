@@ -394,7 +394,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
             agentFilterTurnId={shownTurnId}
             agentFilterName={filterName}
             onClearAgentFilter={() => setSelectedAgent(null)}
-            steering={chatMode.state?.mode === 'open' && !!bossOf(orbitSessions, bubble.conversationId)}
+            steering={chatMode.state?.mode === 'open' && !!bossOf(orbitSessions, bubble.conversationId, { open: true })}
           />
           {selectedNode && (
             <StageDrawer node={selectedNode} calls={shown?.state?.agentCalls} leadInfo={{ runtime, model, effort: bubble.effort || setup.effort }}

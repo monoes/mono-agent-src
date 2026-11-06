@@ -63,42 +63,13 @@ func (s *AIStore) CreateConversationAccess(profileID, backend, workflowContext, 
 // inside its BEGIN IMMEDIATE transaction, after the conversation row is written: an error rolls the conversation
 // back, so nothing the step sets up (the chat mode) can exist without the conversation, or the conversation without it.
 func (s *AIStore) CreateConversationAccessIn(profileID, backend, workflowContext, runtimeID, providerID, model, access, cwd, effort string, inTx func(ctx context.Context, conn *sql.Conn, conversationID string) error) (Conversation, error) {
-	if !ValidAccess(access) {
-		return Conversation{}, fmt.Errorf("create conversation: unknown access %q", access)
+	c, err := NewConversation(profileID, backend, workflowContext, runtimeID, providerID, model, access, cwd, effort)
+	if err != nil {
+		return Conversation{}, err
 	}
-	if access == AccessScoped {
-		cwd = ""
-	} else if cwd == "" {
-		return Conversation{}, fmt.Errorf("create conversation: access %q needs a folder", access)
-	}
-	if profileID == "" {
-		return Conversation{}, ErrProfileRequired
-	}
-	now := nowRFC3339()
-	c := Conversation{
-		ID:              uuid.NewString(),
-		ProfileID:       profileID,
-		Backend:         backend,
-		WorkflowContext: workflowContext,
-		RuntimeID:       runtimeID,
-		ProviderID:      providerID,
-		Model:           model,
-		Effort:          effort,
-		Mode:            ModeForAccess(access),
-		Access:          access,
-		Cwd:             cwd,
-		OrgMode:         OrgModeSolo,
-		HistoryKey:      uuid.NewString(),
-		CreatedAt:       now,
-		UpdatedAt:       now,
-	}
-	const q = `INSERT INTO ai_chat_conversations
-		(id, profile_id, backend, workflow_context, runtime_id, provider_id, model, session_id, mode, cwd, history_key, created_at, updated_at, effort, access)
-		VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?)`
-	args := []any{c.ID, c.ProfileID, c.Backend, c.WorkflowContext, c.RuntimeID, c.ProviderID, c.Model, c.Mode, c.Cwd, c.HistoryKey, c.CreatedAt, c.UpdatedAt, c.Effort, c.Access}
 	if inTx == nil {
-		if _, err := s.db.Exec(q, args...); err != nil {
-			return Conversation{}, fmt.Errorf("create conversation: %w", err)
+		if err := InsertConversation(context.Background(), s.db, c); err != nil {
+			return Conversation{}, err
 		}
 		return c, nil
 	}
@@ -118,8 +89,8 @@ func (s *AIStore) CreateConversationAccessIn(profileID, backend, workflowContext
 			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
 		}
 	}()
-	if _, err := conn.ExecContext(ctx, q, args...); err != nil {
-		return Conversation{}, fmt.Errorf("create conversation: %w", err)
+	if err := InsertConversation(ctx, conn, c); err != nil {
+		return Conversation{}, err
 	}
 	if err := inTx(ctx, conn, c.ID); err != nil {
 		return Conversation{}, err
@@ -129,6 +100,56 @@ func (s *AIStore) CreateConversationAccessIn(profileID, backend, workflowContext
 	}
 	committed = true
 	return c, nil
+}
+
+// NewConversation is a conversation as CreateConversationAccess would make it, not yet stored: a caller that must store it
+// inside a transaction of its own (a boss's conversation with its session) pairs it with InsertConversation.
+func NewConversation(profileID, backend, workflowContext, runtimeID, providerID, model, access, cwd, effort string) (Conversation, error) {
+	if !ValidAccess(access) {
+		return Conversation{}, fmt.Errorf("create conversation: unknown access %q", access)
+	}
+	if access == AccessScoped {
+		cwd = ""
+	} else if cwd == "" {
+		return Conversation{}, fmt.Errorf("create conversation: access %q needs a folder", access)
+	}
+	if profileID == "" {
+		return Conversation{}, ErrProfileRequired
+	}
+	now := nowRFC3339()
+	return Conversation{
+		ID:              uuid.NewString(),
+		ProfileID:       profileID,
+		Backend:         backend,
+		WorkflowContext: workflowContext,
+		RuntimeID:       runtimeID,
+		ProviderID:      providerID,
+		Model:           model,
+		Effort:          effort,
+		Mode:            ModeForAccess(access),
+		Access:          access,
+		Cwd:             cwd,
+		OrgMode:         OrgModeSolo,
+		HistoryKey:      uuid.NewString(),
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}, nil
+}
+
+// ConversationExecer is what InsertConversation writes through: a connection, a transaction or the database handle.
+type ConversationExecer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+// InsertConversation stores a conversation made by NewConversation through x.
+func InsertConversation(ctx context.Context, x ConversationExecer, c Conversation) error {
+	const q = `INSERT INTO ai_chat_conversations
+		(id, profile_id, backend, workflow_context, runtime_id, provider_id, model, session_id, mode, cwd, history_key, created_at, updated_at, effort, access)
+		VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?)`
+	if _, err := x.ExecContext(ctx, q, c.ID, c.ProfileID, c.Backend, c.WorkflowContext, c.RuntimeID, c.ProviderID, c.Model, c.Mode, c.Cwd, c.HistoryKey, c.CreatedAt, c.UpdatedAt, c.Effort, c.Access); err != nil {
+		return fmt.Errorf("create conversation: %w", err)
+	}
+	return nil
 }
 
 // GetConversation returns a conversation, scoped to profileID —

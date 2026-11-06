@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { orbitOf, bossOf, activeBoss, frontDeskOf, MAX_SATELLITES } from './sessionOrbit.js'
 
 const S = (id, parent = 0, extra = {}) => ({ id, parent_session_id: parent, conversation_id: `c${id}`, title: `S${id}`, state: 'running', counts: {}, ...extra })
-const B = (id, front, extra = {}) => S(id, 0, { title: 'Boss', boss: true, client_id: `boss-for-${front}`, ...extra })
+const B = (id, front, extra = {}) => S(id, 0, { title: 'Boss', boss: true, client_id: `boss-for-${front}-1`, ...extra })
 
 describe('the boss in a chat orbit', () => {
   it('is the first satellite of the chat it stands behind, a sibling of the chat session', () => {
@@ -34,6 +34,19 @@ describe('the boss in a chat orbit', () => {
   })
   it('is not a satellite of its own session view', () => {
     expect(orbitOf([S(1), B(9, 'c1')], { sessionId: 1 }).satellites).toEqual([])
+  })
+})
+
+describe('boss keys', () => {
+  it('reads the chat back whatever the chat id looks like', () => {
+    expect(frontDeskOf({ client_id: 'boss-for-11111111-2222-3333-4444-123456789012-3' })).toBe('11111111-2222-3333-4444-123456789012')
+    for (const bad of ['', 'boss-for-x', 'boss-for-x-0', 'boss-for-x-1a', 'other-x-1']) expect(frontDeskOf({ client_id: bad })).toBe('')
+  })
+  it('takes the newest boss of a chat, and only an open one when asked', () => {
+    const list = [B(3, 'c1', { state: 'done' }), B(5, 'c1', { client_id: 'boss-for-c1-2' })]
+    expect(bossOf(list, 'c1').id).toBe(5)
+    expect(bossOf([B(3, 'c1', { state: 'done' })], 'c1').id).toBe(3)
+    expect(bossOf([B(3, 'c1', { state: 'done' })], 'c1', { open: true })).toBeNull()
   })
 })
 

@@ -64,15 +64,22 @@ function circleOf(node) {
   }
 }
 
-// The client id of the boss session that stands behind a front-desk chat (tasks.BossClientID).
+// The client id of a boss session is boss-for-<chat>-<n>, n the attempt number (tasks.BossClientID).
 export const BOSS_KEY_PREFIX = 'boss-for-'
 const OPEN_STATES = ['draft', 'running', 'paused']
 
-// bossOf is the recorded boss of a chat: the session the operator stamped (the row's `boss`) whose client id names the
-// chat. A session that only carries the key is not one.
-export function bossOf(sessions, conversationId) {
+// frontDeskOf is the chat a boss key stands behind ('' when the id is not a boss key).
+export function frontDeskOf(session) {
+  const m = /^boss-for-(.+)-([1-9][0-9]*)$/.exec(session?.client_id || '')
+  return m ? m[1] : ''
+}
+
+// bossOf is the recorded boss of a chat: the newest session the operator stamped (the row's `boss`) whose client id names the
+// chat (open: only while the session is open). A session that only carries the key is not one.
+export function bossOf(sessions, conversationId, { open = false } = {}) {
   if (!conversationId) return null
-  return (sessions || []).find(s => s && !s.archived && s.boss === true && s.client_id === BOSS_KEY_PREFIX + conversationId) || null
+  const mine = (sessions || []).filter(s => s && !s.archived && s.boss === true && frontDeskOf(s) === conversationId && (!open || OPEN_STATES.includes(s.state)))
+  return mine.sort((a, b) => b.id - a.id)[0] || null
 }
 
 // activeBoss is the profile's open-ended run's boss session while it is open (one run at a time per profile): the
@@ -82,11 +89,6 @@ export function activeBoss(sessions) {
   return open.sort((a, b) => b.id - a.id)[0] || null
 }
 
-// frontDeskOf is the chat a boss session stands behind ('' when the key does not name one).
-export function frontDeskOf(session) {
-  const k = session?.client_id || ''
-  return k.startsWith(BOSS_KEY_PREFIX) ? k.slice(BOSS_KEY_PREFIX.length) : ''
-}
 
 function findNode(roots, match) {
   const stack = [...roots]

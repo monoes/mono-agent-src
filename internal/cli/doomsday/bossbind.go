@@ -39,20 +39,21 @@ func (b BossSource) BossOf(ctx context.Context, act ops.Active) (int64, bool, er
 }
 
 // designateBoss stamps the named session as the boss of the entered run. It writes once: a charter that already has a boss
-// is refused, and so is a session that is not an open top-level lead mission of the profile.
+// is refused, and so is a session that is not an open top-level mission of the profile (a task, direction or research session is
+// one an agent can make, so it is never the boss).
 func (w Wiring) designateBoss(ctx context.Context, session int64, entry Entry) error {
 	if w.DB == nil {
 		return errors.New("no database to record the boss in")
 	}
 	res, err := w.DB.ExecContext(ctx, `UPDATE task_sessions SET doomsday_charter_id = ?, doomsday_generation = ?
-		WHERE profile_id = ? AND id = ? AND COALESCE(parent_session_id, 0) = 0 AND archived_at = '' AND doomsday_charter_id = '' AND `+coderhost.LeadSessionSQL+`
+		WHERE profile_id = ? AND id = ? AND COALESCE(parent_session_id, 0) = 0 AND archived_at = '' AND doomsday_charter_id = '' AND kind = 'mission' AND `+coderhost.LeadSessionSQL+`
 		AND NOT EXISTS (SELECT 1 FROM task_sessions o WHERE o.profile_id = ? AND o.doomsday_charter_id = ?)`,
 		entry.CharterID, entry.Generation, w.Profile, session, w.Profile, entry.CharterID)
 	if err != nil {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n != 1 {
-		return fmt.Errorf("session %d is not an open top-level lead mission of the profile, or the run already has a boss", session)
+		return fmt.Errorf("session %d is not an open top-level mission session of the profile, or the run already has a boss", session)
 	}
 	return nil
 }

@@ -108,7 +108,7 @@ func TestBossNewMakesASiblingSessionInItsOwnConversation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if se.Kind != tasks.SessionKindMission || se.ParentSessionID != 0 || se.ConversationID != ref.ConversationID || se.ClientID != tasks.BossClientID(front.ID) || se.Boss {
+	if se.Kind != tasks.SessionKindMission || se.ParentSessionID != 0 || se.ConversationID != ref.ConversationID || se.ClientID != tasks.BossClientID(front.ID, 1) || se.Boss {
 		t.Fatalf("session: %+v", se)
 	}
 	bc, err := r.store.GetConversation(ref.ConversationID, "p1")
@@ -150,7 +150,7 @@ func TestBossNewRefusals(t *testing.T) {
 		_ = r.db.DB.QueryRow(`SELECT COUNT(*) FROM task_sessions`).Scan(&s)
 		return c, s
 	}
-	scoped, coder := r.chat(t, ai.AccessScoped), r.chat(t, ai.AccessFull)
+	scoped := r.chat(t, ai.AccessScoped)
 	for name, front := range map[string]string{"missing": "no-such-chat", "scoped": scoped.ID} {
 		c0, s0 := count()
 		if out, err := r.run("new", "--conversation", front); err == nil {
@@ -159,13 +159,6 @@ func TestBossNewRefusals(t *testing.T) {
 		if c, s := count(); c != c0 || s != s0 {
 			t.Fatalf("%s chat created rows", name)
 		}
-	}
-	// a key taken by a session of the chat itself (an agent may link a session to its own chat)
-	if _, err := tasks.NewStore(r.db.DB).CreateSession(context.Background(), "p1", tasks.SessionInput{Title: "mine", Kind: tasks.SessionKindMission, ConversationID: coder.ID, ClientID: tasks.BossClientID(coder.ID)}, tasks.Actor{Kind: tasks.Human}); err != nil {
-		t.Fatal(err)
-	}
-	if out, err := r.run("new", "--conversation", coder.ID); err == nil {
-		t.Fatalf("took a session of the chat itself for the boss: %s", out)
 	}
 	other := r.chat(t, ai.AccessFull)
 	r.newBoss(t, other.ID)
@@ -209,5 +202,111 @@ func TestBossNewNeedsAnOpenChat(t *testing.T) {
 	open := r.chatIn(t, ai.AccessFull, coderhost.ChatModeOpen)
 	if ref := r.newBoss(t, open.ID); ref.SessionID == 0 {
 		t.Fatalf("open chat: %+v", ref)
+	}
+}
+
+func (r *bossRig) conversations() (n int) {
+	_ = r.db.DB.QueryRow(`SELECT COUNT(*) FROM ai_chat_conversations`).Scan(&n)
+	return
+}
+
+// The agent's side of a squat: a session an agent made with the key the operator's boss would take.
+func (r *bossRig) squat(t *testing.T, front ai.Conversation, n int, kind string) tasks.Session {
+	t.Helper()
+	se, err := tasks.NewStore(r.db.DB).CreateSession(context.Background(), "p1", tasks.SessionInput{Title: "squat", Kind: kind, ConversationID: front.ID, ClientID: tasks.BossClientID(front.ID, n)},
+		tasks.Actor{Kind: tasks.Agent, Name: "x", Conversation: front.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return se
+}
+
+// An agent that creates a session with the key the boss is about to take, between the operator's check and the creation,
+// is never handed to the operator as her boss: the creation sees the dedupe, refuses, and makes no conversation. The next
+// call takes the next key.
+func TestBossNewRefusesASessionAnAgentSlippedInBetween(t *testing.T) {
+	r := newBossRig(t)
+	front := r.chat(t, ai.AccessFull)
+	slipped := false
+	was := beforeBossCreate
+	beforeBossCreate = func() {
+		if !slipped {
+			slipped = true
+			r.squat(t, front, 1, tasks.SessionKindTask)
+		}
+	}
+	t.Cleanup(func() { beforeBossCreate = was })
+	before := r.conversations()
+	if out, err := r.run("new", "--conversation", front.ID); err == nil {
+		t.Fatalf("the agent's session was returned as the boss: %s", out)
+	}
+	if r.conversations() != before {
+		t.Fatal("the refused creation left a conversation behind")
+	}
+	ref := r.newBoss(t, front.ID)
+	se, _ := tasks.NewStore(r.db.DB).GetSession(context.Background(), "p1", ref.SessionID, tasks.Actor{Kind: tasks.Human})
+	if se.ClientID != tasks.BossClientID(front.ID, 2) || se.Kind != tasks.SessionKindMission {
+		t.Fatalf("the retry: %+v", se)
+	}
+}
+
+// A key somebody squatted (even archived, which keeps its unique client id) costs one attempt number, not the chat.
+func TestBossNewSkipsKeysThatAreTaken(t *testing.T) {
+	r := newBossRig(t)
+	front := r.chat(t, ai.AccessFull)
+	sq := r.squat(t, front, 1, tasks.SessionKindTask)
+	if _, err := r.db.DB.Exec(`UPDATE task_sessions SET archived_at = '2026-11-06T00:00:00Z' WHERE id = ?`, sq.ID); err != nil {
+		t.Fatal(err)
+	}
+	ref := r.newBoss(t, front.ID)
+	if ref.SessionID == sq.ID || ref.Reused {
+		t.Fatalf("the squatter's session was taken: %+v", ref)
+	}
+}
+
+// A boss that already ran (stamped, its run over) or was archived is never reused: the chat's next run gets a new boss in a
+// new conversation. A boss that is made but not yet stamped is the one a repeat call answers with, and a boss whose run is
+// going is not made again.
+func TestBossNewDoesNotReuseAFinishedBoss(t *testing.T) {
+	r := newBossRig(t)
+	front := r.chat(t, ai.AccessFull)
+	first := r.newBoss(t, front.ID)
+	if again := r.newBoss(t, front.ID); !again.Reused || again.SessionID != first.SessionID {
+		t.Fatalf("an unstamped boss is not answered again: %+v", again)
+	}
+	if _, err := r.db.DB.Exec(`INSERT INTO doomsday_runs (profile, generation, charter_id, state, mac) VALUES ('p1', 1, 'c1', 'running', x'00')`); err != nil {
+		t.Fatal(err)
+	}
+	w := Wiring{DB: r.db.DB, Profile: "p1"}
+	if err := w.designateBoss(context.Background(), first.SessionID, Entry{CharterID: "c1", Generation: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := r.run("new", "--conversation", front.ID); err == nil || !strings.Contains(err.Error(), "run is going") {
+		t.Fatalf("a second boss while the run is going: %v %s", err, out)
+	}
+	for _, state := range []string{"stop-requested", "authority-revoked", "cleanup-pending", "quiescent"} {
+		if _, err := r.db.DB.Exec(`UPDATE doomsday_runs SET state = ? WHERE profile = 'p1'`, state); err != nil {
+			t.Fatal(err)
+		}
+	}
+	second := r.newBoss(t, front.ID)
+	if second.Reused || second.SessionID == first.SessionID || second.ConversationID == first.ConversationID {
+		t.Fatalf("the finished boss came back: %+v", second)
+	}
+	se, _ := tasks.NewStore(r.db.DB).GetSession(context.Background(), "p1", second.SessionID, tasks.Actor{Kind: tasks.Human})
+	if se.ClientID != tasks.BossClientID(front.ID, 2) || se.Boss {
+		t.Fatalf("second boss: %+v", se)
+	}
+}
+
+// The boss's session goal says what operator steering is, so the statement is in front of the boss from its first turn.
+func TestBossNewGoalSaysSteeringIsUntrusted(t *testing.T) {
+	r := newBossRig(t)
+	ref := r.newBoss(t, r.chat(t, ai.AccessFull).ID)
+	se, _ := tasks.NewStore(r.db.DB).GetSession(context.Background(), "p1", ref.SessionID, tasks.Actor{Kind: tasks.Human})
+	for _, want := range []string{"reach the goal", "untrusted", "not an answer", "not an approval", "cannot lift", "charter wins"} {
+		if !strings.Contains(se.Goal, want) {
+			t.Fatalf("the goal lacks %q:\n%s", want, se.Goal)
+		}
 	}
 }
