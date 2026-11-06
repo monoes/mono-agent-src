@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/vault"
 )
 
@@ -24,15 +25,7 @@ func newTestDB(t *testing.T) *storage.Database {
 	// is removed.
 	t.Setenv("MONOMIND_BIN", "true")
 	t.Cleanup(vault.Wait)
-	dbPath := filepath.Join(t.TempDir(), "vault-documents-test.db")
-	db, err := storage.NewDatabase(dbPath)
-	if err != nil {
-		t.Fatalf("NewDatabase: %v", err)
-	}
-	if err := db.ApplyMigrations(); err != nil {
-		t.Fatalf("ApplyMigrations: %v", err)
-	}
-	t.Cleanup(func() { db.Close() })
+	db := testdb.Open(t)
 	return db
 }
 
