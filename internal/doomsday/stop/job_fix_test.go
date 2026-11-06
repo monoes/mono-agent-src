@@ -78,29 +78,6 @@ func TestProvenEmptyOfALinuxUnitStillProves(t *testing.T) {
 	}
 }
 
-// ----- P2-4: the mode does not start on Windows because of its host steps -----
-
-func TestJobProbeNamesEveryMissingHostStepAndWouldNotPassWithoutThem(t *testing.T) {
-	w := newFakeWin()
-	err := jobContainment{os: w}.Probe()
-	if !errors.Is(err, ErrContainmentUnavailable) {
-		t.Fatalf("a Windows probe passed although the mode's host pieces do not exist there: %v", err)
-	}
-	for _, step := range windowsPendingSteps() {
-		if !strings.Contains(err.Error(), step.Name) {
-			t.Errorf("the refusal does not name %q: %v", step.Name, err)
-		}
-	}
-	if len(windowsPendingSteps()) < 3 {
-		t.Fatalf("pending steps: %d (lock, peer credentials, pinned database)", len(windowsPendingSteps()))
-	}
-	hostAs(t, "windows")
-	swapContainment(t, KindJobObject, jobContainment{os: w})
-	if err := probe("windows", nil); !errors.Is(err, ErrContainmentUnavailable) {
-		t.Fatalf("Probe on a Windows host passes: %v", err)
-	}
-}
-
 func TestRunProbeAllNamesEveryFailingStep(t *testing.T) {
 	steps := []ProbeStep{
 		{"a", func() error { return nil }},

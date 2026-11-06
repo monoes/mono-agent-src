@@ -16,9 +16,9 @@ import (
 // 2026-11-06: the open-ended mode is to be enabled on every platform, and where the mechanism cannot prove that no
 // process left the group (a Windows Job Object) it is still used but is HONEST about it: Stop ends it as
 // UnitBestEffort and the report says "stopped (best effort: ...)", never a bare "stopped". The weakening is no longer
-// silent, which is what the old rule protected. A platform with no mechanism at all still refuses, and on Windows the
-// mode starts only when the probe passes ALL its steps: at this point the host pieces (lock, peer credentials, pinned
-// database) are missing there (windowsPendingSteps), so it does not start on Windows yet.
+// silent, which is what the old rule protected. A platform with no mechanism at all still refuses, and on Windows and
+// macOS the mode starts only when the probe passes ALL its steps, host steps included (lock, peer credentials, pinned
+// database: windowsHostSteps, macosHostSteps, host_probe.go), each a runtime self-test on the machine.
 var ErrContainmentUnavailable = errors.New("stop: process containment is unavailable; the open-ended mode refuses to start")
 
 // ProbeStep is one named requirement of the probe.

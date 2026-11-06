@@ -104,7 +104,7 @@ func (c jobContainment) Probe() error {
 	if c.os == nil {
 		return fmt.Errorf("%w: the Job Object mechanism is only available on Windows", ErrContainmentUnavailable)
 	}
-	return RunProbeAll(append(jobSelfTestSteps(c.os), windowsPendingSteps()...))
+	return RunProbeAll(append(jobSelfTestSteps(c.os), windowsHostSteps()...))
 }
 
 // jobSelfTestSteps proves the mechanism works here: a job is created, an anchor is put in it, a command is born in
@@ -113,15 +113,11 @@ func jobSelfTestSteps(o JobOS) []ProbeStep {
 	return []ProbeStep{{"job object create, anchor adopt and kill", func() error { return jobSelfTest(o) }}}
 }
 
-// windowsPendingSteps are what the rest of the mode still needs on Windows and does not have yet; each is a named
-// refusal so the probe says exactly why the mode does not start there. They are portable on purpose: a test pins that
-// the probe fails because of them, and the change that implements one deletes its step AND that expectation.
-func windowsPendingSteps() []ProbeStep {
-	no := func(what string) ProbeStep {
-		return ProbeStep{Name: what, Check: func() error { return errors.New("not implemented on Windows yet") }}
-	}
-	return []ProbeStep{no("host and witness lock"), no("peer credentials of the emergency channel"), no("pinned database binding")}
-}
+// windowsHostSteps are what the rest of the mode needs on Windows besides the containment: the host and witness lock
+// (LockFileEx), the peer identity of the emergency channel (peer pid and token SID) and the pinned database binding
+// (held handles). Each is a runtime self-test (host_probe.go), so the mode starts on Windows only when all three pass
+// on the machine it runs on. Deleting a step, or leaving its check nil, turns the probe red (TestHostStepsExist...).
+func windowsHostSteps() []ProbeStep { return hostProbeSteps(hostChecksNow()) }
 
 func jobSelfTest(o JobOS) error {
 	pid, stamp, err := o.StartAnchor()

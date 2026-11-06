@@ -182,39 +182,6 @@ func TestPGroupAndCgroupRecordsDoNotCrossPlatforms(t *testing.T) {
 	}
 }
 
-// ----- the macOS refusal is pinned (SEC P2-4) -----
-
-func TestPGroupProbeNamesEveryMissingHostStepAndWouldNotPassWithoutThem(t *testing.T) {
-	w := newFakePG()
-	err := pgContainment{os: w}.Probe()
-	if !errors.Is(err, ErrContainmentUnavailable) {
-		t.Fatalf("a macOS probe passed although the mode's host pieces do not exist there: %v", err)
-	}
-	// the literal name: deleting the step, or renaming it, turns this red; the change that lands the pinned binding on
-	// macOS deletes the step AND this expectation on purpose
-	if !strings.Contains(err.Error(), "pinned database binding") {
-		t.Errorf("the refusal does not name the pinned database binding: %v", err)
-	}
-	found := false
-	for _, s := range macosPendingSteps() {
-		found = found || s.Name == "pinned database binding"
-		if s.Check() == nil {
-			t.Errorf("pending step %q passes", s.Name)
-		}
-	}
-	if !found {
-		t.Fatal("the pinned database binding is no longer a pending step on macOS")
-	}
-	hostAs(t, "darwin")
-	swapContainment(t, KindPGroup, pgContainment{os: w})
-	if err := probe("darwin", nil); !errors.Is(err, ErrContainmentUnavailable) {
-		t.Fatalf("Probe on a macOS host passes: %v", err)
-	}
-	if len(w.procs) != 1 {
-		t.Fatalf("the probe left a process behind: %d", len(w.procs))
-	}
-}
-
 // ----- an anchor whose start time cannot be read is ended (SEC P2-5, ROB P2) -----
 
 func TestPGroupAnchorWithAnUnreadableStartTimeIsEnded(t *testing.T) {

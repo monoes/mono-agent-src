@@ -93,7 +93,7 @@ func (c pgContainment) Probe() error {
 	if c.os == nil {
 		return fmt.Errorf("%w: %v", ErrContainmentUnavailable, errNoPGroupOS)
 	}
-	return RunProbeAll(append(pgSelfTestSteps(c.os), macosPendingSteps()...))
+	return RunProbeAll(append(pgSelfTestSteps(c.os), macosHostSteps()...))
 }
 
 // pgSelfTestSteps proves the mechanism works here: an anchor leads a group of its own, is listed as its member and
@@ -102,16 +102,11 @@ func pgSelfTestSteps(o PGroupOS) []ProbeStep {
 	return []ProbeStep{{"process group create and kill", func() error { return pgSelfTest(o) }}}
 }
 
-// macosPendingSteps are what the rest of the mode still needs on macOS and does not have yet; each is a named refusal
-// so the probe says exactly why the mode does not start there. They are portable on purpose: a test pins that the probe
-// fails because of them (deleting one turns it red), and the change that implements one deletes its step AND that
-// expectation. The host lock (flock) and the emergency channel's peer credentials (LOCAL_PEERCRED) exist on macOS; the
-// pinned database binding watches the database file's names with inotify, which macOS does not have.
-func macosPendingSteps() []ProbeStep {
-	return []ProbeStep{{Name: "pinned database binding", Check: func() error {
-		return errors.New("not implemented on macOS yet (it watches the database file's names with inotify)")
-	}}}
-}
+// macosHostSteps are what the rest of the mode needs on macOS besides the containment: the host and witness lock (flock),
+// the peer identity of the emergency channel (LOCAL_PEERCRED) and the pinned database binding (kqueue vnode events).
+// Each is a runtime self-test (host_probe.go), so the mode starts on macOS only when all three pass on the machine it
+// runs on. Deleting a step, or leaving its check nil, turns the probe red (TestHostStepsExist...).
+func macosHostSteps() []ProbeStep { return hostProbeSteps(hostChecksNow()) }
 
 func pgSelfTest(o PGroupOS) error {
 	var nb [8]byte
