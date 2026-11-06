@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/doomsday/stop"
+	"github.com/monoes/mono-agent/internal/doomsday/store"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
 
@@ -238,25 +240,157 @@ func TestASecondStopFinishesWhatTheFirstLeftOpen(t *testing.T) {
 	}
 }
 
-// A stop whose message could not be written: the next stop writes it (once), exits 0; if that write fails too the exit is
-// non-zero and the next one still gets to write it.
-func TestASecondStopWritesTheMessageTheFirstCouldNot(t *testing.T) {
+// stopWithoutCleanup stops the run through the Stop order alone, as a stop whose transition never ran: the run is quiescent
+// by an operator stop, every session is still open and no message exists.
+func (r *stopRig) stopWithoutCleanup(t *testing.T) {
+	t.Helper()
+	runs, _ := r.w.Store.OpenRuns(context.Background(), "p1")
+	rep := r.w.Stopper("operator", r.w.ender()).Stop(context.Background(), uint64(runs[0].Generation), runs[0].CharterID, operatorStopCause)
+	if !rep.Stopped() {
+		t.Fatalf("setup: %v", rep.Lines())
+	}
+}
+
+// TRUST: a repair that ends no session in a chat writes nothing there. The run's sessions were all ended by hand, so the
+// repair has nothing to do and the old failure stands; no message claims a stop.
+func TestARepairThatEndsNothingWritesNoMessage(t *testing.T) {
 	r := newStopRig(t)
-	r.n.fail = errors.New("db locked")
-	if out, err := run(t, r.deps, "", "stop"); clicore.ExitCodeFor(err) != ExitCleanupFailed || !strings.HasPrefix(out, "stopped\n") || !strings.Contains(out, "transcript NOT written") {
-		t.Fatalf("first: %v %q", err, out)
+	r.stopWithoutCleanup(t)
+	ts := tasks.NewStore(r.w.DB)
+	for _, id := range []int64{r.kid, r.boss} {
+		if _, err := ts.StopSession(context.Background(), "p1", id, tasks.Actor{Kind: tasks.Human, Name: "operator"}); err != nil {
+			t.Fatal(err)
+		}
 	}
-	out, err := run(t, r.deps, "", "stop") // still failing
-	if clicore.ExitCodeFor(err) != ExitCleanupFailed || !strings.Contains(out, "transcript NOT written (conv-a)") || !strings.HasPrefix(out, "no open run;") {
-		t.Fatalf("failing repair must exit non-zero and say what failed: %v %q", err, out)
+	out, err := run(t, r.deps, "", "stop")
+	if err == nil || strings.Contains(out, "ended sessions") || len(r.n.got) != 0 {
+		t.Fatalf("a repair with nothing to end: %v %q notes=%v", err, out, r.n.got)
 	}
-	r.n.fail = nil
-	out, err = run(t, r.deps, "", "stop")
-	if err != nil || len(r.n.got["conv-a"]) != 1 || !strings.Contains(out, "transcript conv-a: Open-ended run stopped by you at ") {
-		t.Fatalf("repair: %v %q %v", err, out, r.n.got)
+}
+
+// TRUST: a repair that ends sessions writes one message that says exactly that: the run was stopped earlier, its sessions
+// were ended by a later stop. It never says "stopped by you at" (nothing was stopped now), and it is written once.
+func TestARepairThatEndsSessionsWritesAMessageThatSaysSo(t *testing.T) {
+	r := newStopRig(t)
+	r.stopWithoutCleanup(t)
+	out, err := run(t, r.deps, "", "stop")
+	if err != nil || !strings.HasPrefix(out, fmt.Sprintf("no open run; ended sessions left open by the previous stop: %d, %d\n", r.boss, r.kid)) {
+		t.Fatalf("repair: %v %q", err, out)
 	}
-	if out, err = run(t, r.deps, "", "stop"); err == nil {
-		t.Fatalf("nothing left, yet success: %q", out)
+	got := r.n.got["conv-a"]
+	if len(got) != 1 || !strings.HasPrefix(got[0], "Open-ended run stopped earlier; its sessions were ended by a later stop at ") || strings.Contains(got[0], "stopped by you") {
+		t.Fatalf("message: %v", got)
+	}
+	if len(r.n.got) != 1 {
+		t.Fatalf("a message went to a chat other than the ended one: %v", r.n.got)
+	}
+	if out, err := run(t, r.deps, "", "stop"); err == nil || len(r.n.got["conv-a"]) != 1 {
+		t.Fatalf("third stop: %v %q %v", err, out, r.n.got)
+	}
+}
+
+// TRUST: the first stop's message never claims a stop that failed. A run that did not stop gets none; a run that stopped while
+// another did not says so in the same line.
+func TestTheFirstStopsMessageNeverClaimsAStopThatFailed(t *testing.T) {
+	r := newStopRig(t)
+	r.w.Kernel = nil
+	e := r.w.Engine()
+	r.deps.Engine = func() Engine { return e }
+	if out, err := run(t, r.deps, "", "stop"); err == nil || len(r.n.got) != 0 {
+		t.Fatalf("failed stop: %v %q notes=%v", err, out, r.n.got)
+	}
+	r2 := newStopRig(t)
+	runs, _ := r2.w.Store.OpenRuns(context.Background(), "p1")
+	o := StopOutcome{Incomplete: []string{"run 2 not stopped"}, Runs: []RunRef{{CharterID: runs[0].CharterID, Generation: runs[0].Generation}}}
+	a := &realAfter{w: r2.wireRig}
+	r2.deps.Engine = func() Engine { return &partialEngine{fakeEngine: &fakeEngine{stop: o}, realAfter: a} }
+	if _, err := run(t, r2.deps, "", "stop"); err == nil {
+		t.Fatal("a partial stop exited 0")
+	}
+	got := r2.n.got["conv-a"]
+	if len(got) != 1 || !strings.Contains(got[0], "another run of this profile was NOT stopped") {
+		t.Fatalf("message of a partial stop: %v", got)
+	}
+}
+
+type realAfter struct{ w *wireRig }
+type partialEngine struct {
+	*fakeEngine
+	*realAfter
+}
+
+func (p *partialEngine) AfterStop(ctx context.Context, o StopOutcome, verdict string, at time.Time) AfterReport {
+	return p.w.w.afterStop(ctx, o, verdict, at)
+}
+
+// A run that finished by itself (a finish ends the run quiescent with the finish cause) is not "the last stop": a later bare
+// stop ends none of its sessions, writes no message and fails as before. Mutant tried: dropping the operator-stop cause check.
+func TestALaterStopNeverEndsTheSessionsOfAFinishEndedRun(t *testing.T) {
+	r := newStopRig(t)
+	runs, _ := r.w.Store.OpenRuns(context.Background(), "p1")
+	if rep := r.w.Stopper("operator", r.w.ender()).Stop(context.Background(), uint64(runs[0].Generation), runs[0].CharterID, store.FinishCause); !rep.Stopped() {
+		t.Fatalf("setup: %v", rep.Lines())
+	}
+	before := r.states(t)
+	out, err := run(t, r.deps, "", "stop")
+	if err == nil || strings.Contains(out, "ended sessions") || r.states(t) != before || len(r.n.got) != 0 {
+		t.Fatalf("a finish-ended run was repaired: %v %q %s notes=%v", err, out, r.states(t), r.n.got)
+	}
+}
+
+// A run stopped more than a week ago is not repaired: a hint, the old failure, nothing touched.
+func TestARunStoppedLongAgoIsLeftAlone(t *testing.T) {
+	r := newStopRig(t)
+	r.stopWithoutCleanup(t)
+	before := r.states(t)
+	lines, st := r.w.repairStop(context.Background(), time.Now().Add(8*24*time.Hour))
+	if st != RepairNothing || len(lines) != 1 || !strings.Contains(lines[0], "more than 7 days ago") || r.states(t) != before || len(r.n.got) != 0 {
+		t.Fatalf("old run: %v %v %s", lines, st, r.states(t))
+	}
+	if _, st := r.w.repairStop(context.Background(), time.Now()); st != RepairDone {
+		t.Fatalf("a fresh run was not repaired: %v", st)
+	}
+}
+
+type fakeBE struct{ stopped, best bool }
+
+func (f fakeBE) Stopped() bool           { return f.stopped }
+func (f fakeBE) StoppedBestEffort() bool { return f.best }
+
+// A report that is best-effort stopped counts as an ended run, through the optional method #1503 adds to stop.Report.
+func TestRunEndedHonoursABestEffortReport(t *testing.T) {
+	if !runEnded(fakeBE{best: true}) || !runEnded(fakeBE{stopped: true}) || runEnded(fakeBE{}) {
+		t.Fatal("runEnded")
+	}
+	if runEnded(stop.Report{}) {
+		t.Fatal("an empty report counts as ended")
+	}
+}
+
+// Enabled by merging #1503: the real Report then has StoppedBestEffort, and runEnded must read it with no edit.
+func TestRunEndedReadsTheRealBestEffortReport(t *testing.T) {
+	if _, ok := any(stop.Report{}).(interface{ StoppedBestEffort() bool }); !ok {
+		t.Skip("needs #1503: stop.Report has no StoppedBestEffort yet")
+	}
+	var _ stoppedReport = stop.Report{}
+	// With #1503, build a report whose unit ended UnitBestEffort (see its stop tests) and assert runEnded(rep) is true while
+	// rep.Stopped() is false; the merge note in the PR text names the helper to copy.
+}
+
+// The CLI side of a best-effort stop: an outcome that carries the engine's line and names its run ends the sessions, prints
+// the line first and writes it verbatim into the chat message.
+func TestABestEffortLineEndsSessionsAndReachesTheMessageVerbatim(t *testing.T) {
+	r := newStopRig(t)
+	runs, _ := r.w.Store.OpenRuns(context.Background(), "p1")
+	line := "stopped (best effort: processes that left the group are not covered)"
+	o := StopOutcome{MarkerRecorded: true, IntentRecorded: true, Line: line, Runs: []RunRef{{CharterID: runs[0].CharterID, Generation: runs[0].Generation}}}
+	r.deps.Engine = func() Engine {
+		return &partialEngine{fakeEngine: &fakeEngine{stop: o}, realAfter: &realAfter{w: r.wireRig}}
+	}
+	out, err := run(t, r.deps, "", "stop")
+	got := r.n.got["conv-a"]
+	if err != nil || !strings.HasPrefix(out, line+"\n") || len(got) != 1 || !strings.HasSuffix(got[0], ": "+line) || r.state(t, r.boss) != tasks.SessionStopped {
+		t.Fatalf("best-effort: %v %q notes=%v %s", err, out, got, r.states(t))
 	}
 }
 
@@ -386,6 +520,12 @@ func TestTheEnginesStopLineIsTheVerdictAndCannotAddLines(t *testing.T) {
 	r.e.stop.Line = "everything is fine"
 	if out, _ = run(t, r.deps, "", "stop"); out != "stopped\n" {
 		t.Fatalf("a line that is not a stop line was printed: %q", out)
+	}
+}
+
+func TestCleanLineDropsInvisibleAndBidirectionalFormatting(t *testing.T) {
+	if got := cleanLine("a\u200bb\u202ec\u2066d\ufeffe\u200fF"); got != "abcdeF" {
+		t.Fatalf("%q", got)
 	}
 }
 

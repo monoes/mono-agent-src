@@ -40,6 +40,9 @@ func cleanLine(s string) string {
 	var b strings.Builder
 	space := false
 	for _, r := range s {
+		if isInvisibleFormat(r) {
+			continue // zero-width and bidirectional marks can reorder or hide text on a terminal or in the transcript
+		}
 		if unicode.IsControl(r) || r == '\u2028' || r == '\u2029' || unicode.IsSpace(r) {
 			space = true
 			continue
@@ -59,6 +62,11 @@ func cleanLine(s string) string {
 		cut--
 	}
 	return out[:cut] + "…"
+}
+
+// isInvisibleFormat is the zero-width, directional-mark, bidirectional-override/isolate and byte-order characters.
+func isInvisibleFormat(r rune) bool {
+	return (r >= 0x200B && r <= 0x200F) || (r >= 0x202A && r <= 0x202E) || (r >= 0x2066 && r <= 0x2069) || r == 0xFEFF
 }
 
 func cleanLines(in []string) []string {
@@ -86,7 +94,7 @@ func (w Wiring) afterStop(ctx context.Context, o StopOutcome, verdict string, at
 		lines = append([]string{"sessions ended: " + strings.Join(ended, ", ")}, lines...)
 	}
 	for _, c := range convs {
-		if !endedConv[c] {
+		if endedConv[c] == 0 {
 			continue
 		}
 		if l := w.noteChat(ctx, c, stopMessage(verdict, at)); l != "" {
@@ -118,8 +126,8 @@ func (w Wiring) noteChat(ctx context.Context, c, msg string) string {
 }
 
 // endSessions stops each open session as the operator; a failure is a line, never a stop of the others.
-func (w Wiring) endSessions(ctx context.Context, ids []runSession) (lines, ended []string, endedConv map[string]bool) {
-	endedConv = map[string]bool{}
+func (w Wiring) endSessions(ctx context.Context, ids []runSession) (lines, ended []string, endedConv map[string]int) {
+	endedConv = map[string]int{}
 	ts := tasks.NewStore(w.DB)
 	for _, s := range ids {
 		if _, err := ts.StopSession(ctx, w.Profile, s.id, tasks.Actor{Kind: tasks.Human, Name: "operator"}); err != nil {
@@ -130,7 +138,7 @@ func (w Wiring) endSessions(ctx context.Context, ids []runSession) (lines, ended
 			continue
 		}
 		ended = append(ended, strconv.FormatInt(s.id, 10))
-		endedConv[s.conv] = true
+		endedConv[s.conv]++
 	}
 	return lines, ended, endedConv
 }
@@ -225,7 +233,11 @@ const (
 	RepairFailed                      // part of it failed: the lines say what, exit non-zero
 )
 
-// repairStop finishes what the last stop left. Lines are printed in place of the "no open run" failure.
+// repairWindow bounds the repair: a run stopped longer ago than this is left as it is (its sessions are the operator's by now).
+const repairWindow = 7 * 24 * time.Hour
+
+// repairStop finishes what the last stop left. Lines are printed in place of the "no open run" failure. The chat message is
+// written only for a chat in which a session was ended just now (and that does not hold this stop's message yet), and says so.
 func (w Wiring) repairStop(ctx context.Context, at time.Time) ([]string, RepairStatus) {
 	if w.DB == nil || w.Store == nil {
 		return nil, RepairNothing
@@ -238,8 +250,12 @@ func (w Wiring) repairStop(ctx context.Context, at time.Time) ([]string, RepairS
 	if err != nil || run.State != store.StateQuiescent || run.Cause != operatorStopCause {
 		return nil, RepairNothing
 	}
+	stoppedAt := time.Unix(run.IntentAt, 0)
+	if at.Sub(stoppedAt) > repairWindow {
+		return []string{"no open run; the last run was stopped more than 7 days ago, so its sessions are left as they are"}, RepairNothing
+	}
 	ref := RunRef{CharterID: run.CharterID, Generation: run.Generation}
-	notAfter := time.Unix(run.IntentAt, 0).UTC().Format("2006-01-02T15:04:05Z")
+	notAfter := stoppedAt.UTC().Format("2006-01-02T15:04:05Z")
 	ids, convs, err := w.openRunSessions(ctx, []RunRef{ref}, notAfter)
 	if err != nil {
 		return []string{"no open run; the previous stop's sessions cannot be read: " + err.Error()}, RepairFailed
@@ -248,23 +264,22 @@ func (w Wiring) repairStop(ctx context.Context, at time.Time) ([]string, RepairS
 	failed := len(lines) > 0
 	var notes []string
 	for _, c := range convs {
-		// Written only when the chat does not hold this stop's message yet (and, where that cannot be asked, only for a chat
-		// in which a session was ended just now).
-		if (w.ChatNoteSince != nil && w.chatHasNote(ctx, c, run.IntentAt)) || (w.ChatNoteSince == nil && !endedConv[c]) {
+		if endedConv[c] == 0 || (w.ChatNoteSince != nil && w.chatHasNote(ctx, c, run.IntentAt)) {
 			continue
 		}
-		msg := stopMessage("stopped (this stop's exact line was not kept; its sessions were ended by a later stop)", time.Unix(run.IntentAt, 0))
+		// Worded for what happened: the run was stopped earlier (not now), and these sessions were ended now. Never "stopped by you at <now>".
+		msg := cleanLine(fmt.Sprintf("Open-ended run stopped earlier; its sessions were ended by a later stop at %s UTC", at.UTC().Format("2006-01-02 15:04:05")))
 		if l := w.noteChat(ctx, c, msg); l != "" {
 			failed = failed || strings.HasPrefix(l, "transcript NOT")
 			notes = append(notes, l)
 		}
 	}
-	if len(ended) == 0 && len(notes) == 0 && !failed {
+	if len(ended) == 0 && !failed {
 		return nil, RepairNothing
 	}
-	head := "no open run; wrote the chat message the previous stop did not leave"
-	if len(ended) > 0 {
-		head = "no open run; ended sessions left open by the previous stop: " + strings.Join(ended, ", ")
+	head := "no open run; ended sessions left open by the previous stop: " + strings.Join(ended, ", ")
+	if len(ended) == 0 {
+		head = "no open run; the previous stop's sessions could not be ended"
 	}
 	out := cleanLines(append(append([]string{head}, lines...), notes...))
 	if failed {

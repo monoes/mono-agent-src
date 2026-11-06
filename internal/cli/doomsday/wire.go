@@ -49,6 +49,19 @@ type Wiring struct {
 	ChatNoteSince func(ctx context.Context, conversationID string, since int64) (bool, error)
 }
 
+// stoppedReport is what runEnded needs of the Stop order's report.
+type stoppedReport interface{ Stopped() bool }
+
+// runEnded says whether a run counts as ended for the step after a stop: the Stop order proved it, or (once PR #1503 adds
+// Report.StoppedBestEffort for Windows/macOS) it ended best-effort. The method is read through an optional interface so that
+// merging #1503 needs no edit here; TestRunEndedHonoursABestEffortReport holds it.
+func runEnded(rep stoppedReport) bool {
+	if be, ok := rep.(interface{ StoppedBestEffort() bool }); ok && be.StoppedBestEffort() {
+		return true
+	}
+	return rep.Stopped()
+}
+
 // ErrNoOpenRun is why a stop has nothing to stop.
 var ErrNoOpenRun = errors.New("no open run to stop")
 
@@ -162,9 +175,7 @@ func (w Wiring) stop(ctx context.Context) (StopOutcome, error) {
 	out := StopOutcome{MarkerRecorded: true, IntentRecorded: true}
 	for _, r := range runs {
 		rep := st.Stop(ctx, uint64(r.Generation), r.CharterID, operatorStopCause)
-		// A run counts as ended here when the Stop order proved it. PR #1503 (best-effort stop on Windows/macOS) must widen this
-		// to `rep.Stopped() || rep.StoppedBestEffort()` (TestAfterStopRunsForWhateverRunsTheOutcomeNames guards the CLI side).
-		if rep.Stopped() {
+		if runEnded(rep) {
 			out.Runs = append(out.Runs, RunRef{CharterID: r.CharterID, Generation: r.Generation})
 		}
 		out.MarkerRecorded = out.MarkerRecorded && stepDone(rep, stop.StepMarker)
