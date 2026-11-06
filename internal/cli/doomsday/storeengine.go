@@ -176,18 +176,18 @@ func (e *StoreEngine) Enter(ctx context.Context, canon Canon, expectedHash strin
 	}
 	// The audit row is the stream's own record that a script, not a person, may have supplied the lift.
 	if _, err := e.Store.AppendAudit(ctx, run.Profile, run.Generation, "start", fmt.Sprintf("ack=%s lines=%d", ack.Kind, ack.Lines)); err != nil {
-		return Entry{}, fmt.Errorf("the run started but its audit record failed: %w", err)
+		return Entry{}, recorded(fmt.Errorf("the run started but its audit record failed: %w", err))
 	}
 	if e.AfterEnter != nil {
 		if err := e.AfterEnter(ctx, run.Generation); err != nil {
-			return Entry{}, fmt.Errorf("run %s/%d started but its stop secret could not be created (run `doomsday stop`): %w", run.Profile, run.Generation, err)
+			return Entry{}, recorded(fmt.Errorf("run %s/%d started but its stop secret could not be created (run `doomsday stop`): %w", run.Profile, run.Generation, err))
 		}
 	}
 	ent := Entry{RunID: fmt.Sprintf("%s/%d", run.Profile, run.Generation), CharterID: run.CharterID, Hash: canon.Hash, Generation: run.Generation}
 	if e.Anchored != nil {
 		bound, why, err := e.Anchored(ctx, run.Generation)
 		if err != nil {
-			return Entry{}, fmt.Errorf("run %s started but its anchor and generation counter could not be recorded (run `doomsday stop`): %w", ent.RunID, err)
+			return Entry{}, recorded(fmt.Errorf("run %s started but its anchor and generation counter could not be recorded (run `doomsday stop`): %w", ent.RunID, err))
 		}
 		ent.AnchorBound, ent.AnchorNote = bound, why
 	}
@@ -284,3 +284,15 @@ func (k VaultKeyer) MAC(domain string, parts ...[]byte) ([]byte, error) {
 	}
 	return store.NewHMACKeyer(key).MAC(domain, parts...)
 }
+
+// ErrRunRecorded marks an Enter failure that happened AFTER this call recorded the run: the run exists and is this call's. A
+// failure without it happened before the record (a refusal), so a run that exists then is somebody else's.
+var ErrRunRecorded = errors.New("the run was recorded by this entry")
+
+type recordedErr struct{ err error }
+
+func (r recordedErr) Error() string      { return r.err.Error() }
+func (r recordedErr) Unwrap() error      { return r.err }
+func (recordedErr) Is(target error) bool { return target == ErrRunRecorded }
+
+func recorded(err error) error { return recordedErr{err} }

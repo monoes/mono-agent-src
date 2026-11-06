@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -131,7 +130,7 @@ func (d Deps) startFromChat(cmd *cobra.Command, e Engine, ch Charter, canon Cano
 	// start that was not a run yet). The Control room shows the run as soon as it exists.
 	entry, err := e.Enter(ctx, canon, canon.Hash, ack)
 	if err != nil {
-		return afterFailedEnter(ctx, e, canon.Hash, err, undo)
+		return afterFailedEnter(ctx, e, err, undo)
 	}
 	if err := bb.BindBoss(ctx, ref.SessionID, entry); err != nil {
 		return fmt.Errorf("run %s started but session %d could not be recorded as its boss, so no boss tool works (run `doomsday stop`): %w", entry.RunID, ref.SessionID, err)
@@ -143,18 +142,20 @@ func (d Deps) startFromChat(cmd *cobra.Command, e Engine, ch Charter, canon Cano
 	return d.printChatEntry(cmd.OutOrStdout(), res)
 }
 
-// afterFailedEnter decides what a failed Enter leaves. The run's existence is read again: not readable is "unknown" (the boss
-// stays, the answer says the run may exist); no run is a plain refusal (the boss is ended); a run of THIS charter is the run
-// this start made (the boss stays, a Stop ends it); a run of another charter is not ours (the boss is ended, the person is told).
-func afterFailedEnter(ctx context.Context, e Engine, hash string, enterErr error, undo func(error) error) error {
+// afterFailedEnter decides what a failed Enter leaves. A failure marked ErrRunRecorded came after this entry recorded its run: the
+// run is ours and keeps its boss (a Stop ends both). Any other failure came before the record, so a run that exists is
+// somebody else's (even one of the very same charter, started from a terminal at the same moment): the boss is ended and the
+// person is told. If the run's existence cannot be read the answer is "unknown" and the boss stays.
+func afterFailedEnter(ctx context.Context, e Engine, enterErr error, undo func(error) error) error {
+	if errors.Is(enterErr, ErrRunRecorded) {
+		return enterErr
+	}
 	now, serr := e.Status(ctx)
 	switch {
 	case serr != nil:
 		return fmt.Errorf("the run may have started but its state could not be read after the entry failed (%v): check the Control room and press Stop if it is running: %w", serr, enterErr)
 	case !now.Active:
 		return undo(enterErr)
-	case now.Hash != "" && strings.HasPrefix(hash, now.Hash):
-		return enterErr
 	default:
 		return undo(runExistsError(now.RunID))
 	}

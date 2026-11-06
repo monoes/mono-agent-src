@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -17,19 +18,20 @@ import (
 // chatEngine is a fakeEngine that can check and record a boss, report a run, and fail at a chosen step. All calls go to log.
 type chatEngine struct {
 	fakeEngine
-	log        *[]string
-	active     bool // a run exists (Status)
-	activeNow  func() bool
-	checkErr   error
-	enterErr   error
-	enterRuns  bool // Enter fails AFTER the run exists
-	bindErr    error
-	started    bool
-	hash       string // the charter hash the entry was attempted with
-	statusErr  error  // Status fails once started or after a failed Enter
-	otherRun   bool   // the run that exists is another start's
-	onCheck    func()
-	enterCalls int
+	log           *[]string
+	active        bool // a run exists (Status)
+	activeNow     func() bool
+	checkErr      error
+	enterErr      error
+	enterRuns     bool // Enter fails AFTER the run exists
+	enterRecorded bool
+	bindErr       error
+	started       bool
+	hash          string // the charter hash the entry was attempted with
+	statusErr     error  // Status fails once started or after a failed Enter
+	otherRun      bool   // the run that exists is another start's
+	onCheck       func()
+	enterCalls    int
 }
 
 func (c *chatEngine) CheckBoss(context.Context, int64) error {
@@ -46,6 +48,9 @@ func (c *chatEngine) Enter(ctx context.Context, cn Canon, h string, a Ack) (Entr
 	c.enterCalls++
 	if c.enterErr != nil {
 		c.started = c.enterRuns
+		if c.enterRecorded {
+			return Entry{}, recorded(c.enterErr)
+		}
 		return Entry{}, c.enterErr
 	}
 	c.started = true
@@ -238,7 +243,7 @@ func TestChatStartSaysWhenTheCleanupFailed(t *testing.T) {
 func TestChatStartKeepsTheBossWhenTheRunExistsAfterAFailedEntry(t *testing.T) {
 	c := newChatRig(t, guiCharter)
 	c.eng.enterErr = errors.New("run p/1 started but its anchor could not be recorded (run `doomsday stop`)")
-	c.eng.enterRuns = true
+	c.eng.enterRuns, c.eng.enterRecorded = true, true
 	_, err := c.start(t)
 	if err == nil || !strings.Contains(err.Error(), " started but ") {
 		t.Fatalf("err = %v", err)
@@ -390,5 +395,24 @@ func TestChatStartRefusesWhileAnotherStartHoldsTheLock(t *testing.T) {
 	_, err := c.start(t)
 	if err == nil || !strings.Contains(err.Error(), "a start is already in progress") || c.steps() != "lock" || c.chat.makes != 0 {
 		t.Fatalf("err=%v steps=%s", err, c.steps())
+	}
+}
+
+// A terminal start of the very same charter that wins the race makes our Enter fail BEFORE it records anything: the run that
+// exists is its, not ours, even though its hash is the same. Our boss is ended.
+func TestChatStartEndsTheBossWhenARunOfTheSameCharterIsAnothersStart(t *testing.T) {
+	c := newChatRig(t, guiCharter)
+	c.eng.enterErr = errors.New("doomsday: generation moved")
+	c.eng.enterRuns = true // a run of this very charter exists (Status carries our hash)
+	_, err := c.start(t)
+	if err == nil || !strings.Contains(err.Error(), "a run already exists for this profile") || len(c.chat.ended) != 1 {
+		t.Fatalf("err=%v ended=%v", err, c.chat.ended)
+	}
+}
+
+// The marker survives wrapping: only a failure after the record is "ours".
+func TestErrRunRecordedMarksOnlyFailuresAfterTheRecord(t *testing.T) {
+	if !errors.Is(fmt.Errorf("x: %w", recorded(errors.New("y"))), ErrRunRecorded) || errors.Is(errors.New("y"), ErrRunRecorded) {
+		t.Fatal("the marker is wrong")
 	}
 }

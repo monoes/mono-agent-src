@@ -160,7 +160,7 @@ func (l lateFailEnter) Enter(ctx context.Context, c Canon, h string, a Ack) (Ent
 	if _, err := l.StoreEngine.Enter(ctx, c, h, a); err != nil {
 		return Entry{}, err
 	}
-	return Entry{}, errors.New("run p1/1 started but its anchor could not be recorded (run `doomsday stop`)")
+	return Entry{}, recorded(errors.New("run p1/1 started but its anchor could not be recorded (run `doomsday stop`)"))
 }
 
 // An Enter that fails AFTER the run exists keeps the boss (open, unstamped, found again by the next start) and the run.
