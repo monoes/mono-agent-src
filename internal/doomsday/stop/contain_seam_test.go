@@ -61,7 +61,7 @@ func TestUnknownKindRefusedAndRegisteredKindDispatched(t *testing.T) {
 }
 
 func TestUnknownPlatformStaysRefused(t *testing.T) {
-	for _, goos := range []string{"windows", "darwin", "freebsd", "", "LINUX"} {
+	for _, goos := range []string{"darwin", "freebsd", "", "LINUX", "WINDOWS"} {
 		if err := probe(goos, func() []ProbeStep { return nil }); !errors.Is(err, ErrContainmentUnavailable) {
 			t.Fatalf("%q: %v", goos, err)
 		}
