@@ -31,14 +31,17 @@ var openModeReady = false
 
 const openModePendingReason = "not available yet: boss binding pending"
 
-// openModeProbe is the real probe of this machine (set by the CLI wiring through SetOpenModeProbe).
-var openModeProbe = func() (bool, string) { return false, "not available yet" }
+// openModeCheck is the CHEAP availability the chat paths use (set by the CLI wiring through SetOpenModeCheck): the
+// platform and a plain read of whether this profile has a run, with no host step, no witness and no unit, and no run
+// id in its reason. The real containment probe is the operator-gated `doomsday probe` and the start's own gate; chat
+// paths are reachable by agents and never run it.
+var openModeCheck = func() (bool, string) { return false, "not available yet" }
 
-// SetOpenModeProbe installs the probe and returns a function that puts the old one back.
-func SetOpenModeProbe(p func() (bool, string)) (restore func()) {
-	old := openModeProbe
-	openModeProbe = p
-	return func() { openModeProbe = old }
+// SetOpenModeCheck installs the cheap check and returns a function that puts the old one back.
+func SetOpenModeCheck(p func() (bool, string)) (restore func()) {
+	old := openModeCheck
+	openModeCheck = p
+	return func() { openModeCheck = old }
 }
 
 // SetOpenModeReady sets openModeReady and returns a function that puts the old value back. It is the seam of tests
@@ -49,13 +52,22 @@ func SetOpenModeReady(v bool) (restore func()) {
 	return func() { openModeReady = old }
 }
 
+// OpenModeNotReady is the reason the open mode is not offered at all yet, "" once the boss binding is there. It is
+// cheap: it asks no probe.
+func OpenModeNotReady() string {
+	if openModeReady {
+		return ""
+	}
+	return openModePendingReason
+}
+
 // OpenModeAvailability says whether the open-ended mode can be chosen and, when it cannot, why. It is the one
-// place the answer comes from: not ready, then the probe of this machine.
+// place the answer comes from: not ready, then the cheap check (never the real probe).
 var OpenModeAvailability = func() (ok bool, reason string) {
 	if !openModeReady {
 		return false, openModePendingReason
 	}
-	return openModeProbe()
+	return openModeCheck()
 }
 
 // ErrChatModeLocked is what a change of the mode answers once the conversation has a message.

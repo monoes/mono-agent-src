@@ -7,63 +7,55 @@ import (
 	"github.com/monoes/mono-agent/internal/coderhost"
 )
 
-// PROBE POLICY: the open mode's availability is a real probe (a transient unit, host steps). It runs only when the
-// person asks: `coder sessions chat-modes --probe` (opening the selector, pressing the check). Reading a chat's
-// settings, which the app does on a timer, never runs it, whether the chat is locked or not.
-func countingProbe(t *testing.T) *int {
+// PROBE POLICY: the chat paths (settings get on a timer, chat-modes, chat new, the mode setter) are reachable by an
+// agent. They ask only the CHEAP availability: the open mode they let through is pending, never ready, and the real
+// containment probe is not theirs to run.
+func cheap(t *testing.T, ok bool, reason string) *int {
 	t.Helper()
 	n := 0
 	t.Cleanup(coderhost.SetOpenModeReady(true))
-	t.Cleanup(coderhost.SetOpenModeProbe(func() (bool, string) { n++; return true, "" }))
+	t.Cleanup(coderhost.SetOpenModeCheck(func() (bool, string) { n++; return ok, reason }))
 	return &n
 }
 
-func TestReadingAChatModeNeverRunsTheOpenModeProbe(t *testing.T) {
-	f := newToggleFixture(t)
-	probes := countingProbe(t)
-	v, _, _ := f.run(t, f.cfg, "settings", "get", f.conv.ID)
-	if *probes != 0 {
-		t.Fatalf("an unlocked chat's settings ran the probe %d times", *probes)
-	}
-	var open *chatModeOption
-	for i := range v.ChatMode.Options {
-		if v.ChatMode.Options[i].Mode == "open" {
-			open = &v.ChatMode.Options[i]
+func openOption(v chatModeView) *chatModeOption {
+	for i := range v.Options {
+		if v.Options[i].Mode == "open" {
+			return &v.Options[i]
 		}
 	}
-	if open == nil || open.Available || !open.Pending {
-		t.Fatalf("an unchecked open option is pending, not offered: %+v", open)
+	return nil
+}
+
+func TestChatPathsOfferTheOpenModeAsPendingNeverAsReady(t *testing.T) {
+	f := newToggleFixture(t)
+	cheap(t, true, "")
+	v, _, _ := f.run(t, f.cfg, "settings", "get", f.conv.ID)
+	if o := openOption(v.ChatMode); o == nil || o.Available || !o.Pending {
+		t.Fatalf("an unchecked open option is pending, not offered: %+v", o)
 	}
 	f.startTurn(t)
-	f.run(t, f.cfg, "settings", "get", f.conv.ID)
-	if *probes != 0 {
-		t.Fatalf("a locked chat ran the probe %d times", *probes)
+	v, _, _ = f.run(t, f.cfg, "settings", "get", f.conv.ID)
+	if o := openOption(v.ChatMode); o == nil || o.Available || o.Pending {
+		t.Fatalf("a locked chat offers nothing and checks nothing: %+v", o)
 	}
-}
-
-func TestChatModesProbesOnlyWhenAsked(t *testing.T) {
-	f := newToggleFixture(t)
-	probes := countingProbe(t)
 	out, code := runSessionsCLI(t, f.cfg, "chat-modes", "--access", "full")
-	if code != 0 || *probes != 0 || !strings.Contains(out, `"pending":true`) {
-		t.Fatalf("without --probe: exit %d probes %d %s", code, *probes, out)
-	}
-	out, code = runSessionsCLI(t, f.cfg, "chat-modes", "--access", "full", "--probe")
-	if code != 0 || *probes != 1 || strings.Contains(out, `"pending":true`) {
-		t.Fatalf("with --probe: exit %d probes %d %s", code, *probes, out)
+	if code != 0 || !strings.Contains(out, `"pending":true`) {
+		t.Fatalf("chat-modes: exit %d %s", code, out)
 	}
 }
 
-// While the boss binding is pending nothing is probed and the reason is the pending one, with or without --probe.
-func TestChatModesWhileNotReadyNeverProbes(t *testing.T) {
+func TestChatPathsShowTheCheapReasonAndNotThePendingOneWhenNotReady(t *testing.T) {
 	f := newToggleFixture(t)
-	probes := 0
+	n := cheap(t, false, "an open-ended run is already active in this profile")
+	out, code := runSessionsCLI(t, f.cfg, "chat-modes", "--access", "full")
+	if code != 0 || !strings.Contains(out, "already active in this profile") || strings.Contains(out, `"pending":true`) {
+		t.Fatalf("exit %d %s", code, out)
+	}
 	t.Cleanup(coderhost.SetOpenModeReady(false))
-	t.Cleanup(coderhost.SetOpenModeProbe(func() (bool, string) { probes++; return true, "" }))
-	for _, args := range [][]string{{"chat-modes", "--access", "full"}, {"chat-modes", "--access", "full", "--probe"}} {
-		out, code := runSessionsCLI(t, f.cfg, args...)
-		if code != 0 || probes != 0 || !strings.Contains(out, "boss binding pending") {
-			t.Fatalf("%v: exit %d probes %d %s", args, code, probes, out)
-		}
+	*n = 0
+	out, code = runSessionsCLI(t, f.cfg, "chat-modes", "--access", "full")
+	if code != 0 || *n != 0 || !strings.Contains(out, "boss binding pending") {
+		t.Fatalf("not ready: exit %d checks %d %s", code, *n, out)
 	}
 }

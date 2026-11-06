@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 
@@ -10,56 +9,62 @@ import (
 	"github.com/monoes/mono-agent/internal/coderhost"
 )
 
-// availEngine is an engine with a chosen containment answer and a chosen run.
+// availEngine counts every call a host step or the witness would sit behind: none may happen on a chat path.
 type availEngine struct {
 	doomsdaycli.Off
-	containment error
-	status      doomsdaycli.Status
+	calls *int
 }
 
-func (a availEngine) Containment() error { return a.containment }
+func (a availEngine) Containment() error { *a.calls++; return nil }
 func (a availEngine) Status(context.Context) (doomsdaycli.Status, error) {
-	return a.status, nil
+	*a.calls++
+	return doomsdaycli.Status{Active: true, RunID: "secret-profile/7"}, nil
 }
 
-// The chat's mode selector asks coderhost.OpenModeAvailability. Building the chat commands wires it to the real probe
-// of the engine, so the reason a person sees is the probe's (a run in this profile, a failed containment step), not
-// the stub "not available yet".
-func TestChatDepsWireTheOpenModeAvailabilityToTheProbe(t *testing.T) {
+func chatPathSetup(t *testing.T, ready bool) (*globalConfig, *int) {
+	t.Helper()
 	oldEngine := doomsdayEngine
 	t.Cleanup(func() { doomsdayEngine = oldEngine })
-	t.Cleanup(coderhost.SetOpenModeReady(true))
-	t.Cleanup(coderhost.SetOpenModeProbe(nil))
+	t.Cleanup(coderhost.SetOpenModeReady(ready))
+	t.Cleanup(coderhost.SetOpenModeCheck(nil))
+	calls := 0
+	doomsdayEngine = func(*globalConfig) doomsdaycli.Engine { return availEngine{calls: &calls} }
 	cfg := sendEnv(t)
-	for name, c := range map[string]struct {
-		e      availEngine
-		ok     bool
-		reason string
-	}{
-		"available":    {availEngine{}, true, ""},
-		"a run exists": {availEngine{status: doomsdaycli.Status{Active: true, RunID: "default/2"}}, false, "default/2"},
-		"a step fails": {availEngine{containment: errors.New("containment unavailable: pidfd_open: nope")}, false, "pidfd_open"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			doomsdayEngine = func(*globalConfig) doomsdaycli.Engine { return c.e }
-			_ = chatDeps(cfg)
-			ok, reason := coderhost.OpenModeAvailability()
-			if ok != c.ok || !strings.Contains(reason, c.reason) || (!ok && strings.Contains(reason, "not available yet")) {
-				t.Fatalf("ok=%v reason=%q", ok, reason)
-			}
-		})
+	_ = chatDeps(cfg)
+	return cfg, &calls
+}
+
+// The chat paths (chat-modes, settings get, chat new, the mode setter) are reachable by an agent. What they ask is the
+// cheap check: no engine call (no host step, no witness, no unit), no run id in the answer.
+func TestChatPathsRunNoHostStepAndLeakNoRunID(t *testing.T) {
+	cfg, calls := chatPathSetup(t, true)
+	ok, reason := coderhost.OpenModeAvailability()
+	if !ok || reason != "" || *calls != 0 {
+		t.Fatalf("no run: ok=%v reason=%q engine calls %d", ok, reason, *calls)
+	}
+	db, err := initDB(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.DB.Exec(`INSERT INTO doomsday_runs (profile, generation, charter_id, state, mac) VALUES (?, 7, 'charter-xyz', 'running', x'00')`, cfg.ProfileID); err != nil {
+		t.Fatal(err)
+	}
+	ok, reason = coderhost.OpenModeAvailability()
+	if ok || !strings.Contains(reason, "already active") || *calls != 0 {
+		t.Fatalf("a run: ok=%v reason=%q engine calls %d", ok, reason, *calls)
+	}
+	for _, id := range []string{"7", "charter-xyz", cfg.ProfileID + "/"} {
+		if strings.Contains(reason, id) {
+			t.Fatalf("the reason leaks %q: %q", id, reason)
+		}
 	}
 }
 
-// While the boss binding is pending the wired probe is not enough: the mode stays unavailable with that reason.
-func TestWiredProbeDoesNotOfferTheModeWhileTheBossBindingIsPending(t *testing.T) {
-	oldEngine := doomsdayEngine
-	t.Cleanup(func() { doomsdayEngine = oldEngine })
-	t.Cleanup(coderhost.SetOpenModeReady(false))
-	t.Cleanup(coderhost.SetOpenModeProbe(nil))
-	doomsdayEngine = func(*globalConfig) doomsdaycli.Engine { return availEngine{} }
-	_ = chatDeps(sendEnv(t))
-	if ok, reason := coderhost.OpenModeAvailability(); ok || !strings.Contains(reason, "boss binding pending") {
+// While the boss binding is pending the check is not even asked.
+func TestWiredCheckDoesNotOfferTheModeWhileTheBossBindingIsPending(t *testing.T) {
+	_, calls := chatPathSetup(t, false)
+	if ok, reason := coderhost.OpenModeAvailability(); ok || !strings.Contains(reason, "boss binding pending") || *calls != 0 {
 		t.Fatalf("ok=%v reason=%q", ok, reason)
 	}
 }

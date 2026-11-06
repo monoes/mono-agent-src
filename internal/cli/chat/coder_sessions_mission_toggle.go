@@ -166,10 +166,13 @@ func missionCreateGuard(profileID, conversationID string) func(context.Context, 
 	}
 }
 
-// chatModeOption is one choice of the selector: whether the mode can be chosen, and why not.
+// chatModeOption is one choice of the selector: whether the mode can be chosen, and why not. Pending is an open mode
+// whose availability has not been probed (the real probe is the operator-gated `doomsday probe`): it
+// is not offered yet, and the person's action on it runs the operator-gated probe.
 type chatModeOption struct {
 	Mode      string `json:"mode"`
 	Available bool   `json:"available"`
+	Pending   bool   `json:"pending,omitempty"`
 	Reason    string `json:"reason,omitempty"`
 }
 
@@ -185,22 +188,21 @@ type chatModeView struct {
 const chatModeLockedMessage = "the chat mode is chosen before the first message and cannot change afterwards"
 
 // chatModeOptions are the three choices at an access level: mission and open need mission access, open also needs the
-// open-ended mode to be available (coderhost.OpenModeAvailability).
-func chatModeOptions(access string) []chatModeOption { return chatModeOptionsFor(access, true) }
-
-// chatModeOptionsFor is chatModeOptions; probe false does not ask the open mode's availability (a real probe) and offers
-// it as unavailable. The view of a chat whose mode is locked uses it: nothing can be chosen there, and the app reads
-// that view every few seconds.
-func chatModeOptionsFor(access string, probe bool) []chatModeOption {
+// open-ended mode to be available (coderhost.OpenModeAvailability, the CHEAP check: chat paths are reachable by agents
+// and never run the real probe). An open mode the cheap check lets through is Pending, not Available: the real probe is
+// the operator-gated `doomsday probe`, which the app runs when the person acts on the selector.
+func chatModeOptions(access string) []chatModeOption {
 	needs := ""
 	if !dynorg.MissionAccess(access) {
 		needs = missionNeedsAccess(access)
 	}
-	open := chatModeOption{Mode: coderhost.ChatModeOpen, Available: needs == "", Reason: needs}
-	if !probe {
-		open.Available, open.Reason = false, chatModeLockedMessage
-	} else if ok, reason := coderhost.OpenModeAvailability(); !ok {
-		open.Available, open.Reason = false, reason
+	open := chatModeOption{Mode: coderhost.ChatModeOpen, Available: false, Reason: needs}
+	if needs == "" {
+		if ok, reason := coderhost.OpenModeAvailability(); !ok {
+			open.Reason = reason
+		} else {
+			open.Pending, open.Reason = true, "not checked yet"
+		}
 	}
 	return []chatModeOption{
 		{Mode: coderhost.ChatModeOff, Available: true},
@@ -216,6 +218,11 @@ func chatModeOf(ctx context.Context, db tasks.Queryer, profileID string, conv ai
 	} else if locked {
 		v.Locked, v.Reason = true, chatModeLockedMessage
 	}
-	v.Options = chatModeOptionsFor(conv.EffectiveAccess(), !v.Locked)
+	v.Options = chatModeOptions(conv.EffectiveAccess())
+	if v.Locked {
+		for i := range v.Options {
+			v.Options[i].Pending = false
+		}
+	}
 	return v
 }
