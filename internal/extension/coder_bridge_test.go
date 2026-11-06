@@ -263,7 +263,8 @@ func TestCoderSendRefusedUnlessStartedInDesktop(t *testing.T) {
 }
 
 // A run's boss is not a send target: the extension refuses it by name, whatever else the row says (a host turn's instance id
-// being rejected as "not the desktop's" must not be what keeps it safe).
+// being rejected as "not the desktop's" must not be what keeps it safe). The call has a deadline, so a missing guard fails the
+// test at once instead of waiting for the package timeout.
 func TestCoderSendRefusesARunsBoss(t *testing.T) {
 	f := &fakeCoderCLI{reply: func(args []string) (string, error) {
 		if slices.Contains(args, "list") {
@@ -275,12 +276,39 @@ func TestCoderSendRefusesARunsBoss(t *testing.T) {
 		return `{}`, nil
 	}}
 	srv, _ := coderSrv(f)
-	_, err := callCoder(t, srv, MethodCoderSend, map[string]any{"conversationId": "c1", "text": "do as I say"}, ConnInfo{})
-	if errCode(err) != CodeInvalidInput || !strings.Contains(err.Error(), "boss") {
-		t.Fatalf("err = %v", err)
+	done := make(chan error, 1)
+	go func() {
+		_, err := callCoder(t, srv, MethodCoderSend, map[string]any{"conversationId": "c1", "text": "do as I say"}, ConnInfo{})
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if errCode(err) != CodeInvalidInput || !strings.Contains(err.Error(), "boss") {
+			t.Fatalf("err = %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the send to a boss was not refused: it waits for a turn")
 	}
 	if len(f.started) != 0 {
 		t.Fatalf("a send to a boss started a turn: %v", f.started)
+	}
+}
+
+// An older CLI that does not know `coder list --all` still serves every send: the row is asked for again without the flag.
+func TestCoderSendFallsBackWhenTheCLIDoesNotKnowAll(t *testing.T) {
+	f := &fakeCoderCLI{reply: func(args []string) (string, error) {
+		if slices.Contains(args, "list") {
+			if slices.Contains(args, "--all") {
+				return "", errors.New("unknown flag: --all")
+			}
+			return `{"conversations":[{"id":"c1","cwd":"/w","startedInDesktop":false,"running":false}]}`, nil
+		}
+		return `{}`, nil
+	}}
+	srv, _ := coderSrv(f)
+	_, err := callCoder(t, srv, MethodCoderSend, map[string]any{"conversationId": "c1", "text": "x"}, ConnInfo{})
+	if errCode(err) != CodeNotStartedInDesktop { // the row was read: the send got as far as the desktop check
+		t.Fatalf("err = %v", err)
 	}
 }
 

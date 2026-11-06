@@ -576,3 +576,36 @@ func TestSteerCapCountsAfterNormalising(t *testing.T) {
 		t.Fatalf("3000 characters after normalising were refused: %d %s", code, out)
 	}
 }
+
+// The bounded insert is for a person's send only: another kind, an issuer, or a turn id of another channel (ask, check-in,
+// master) is refused inside it. A first turn is refused in the insert itself once a turn exists.
+func TestBoundedSendTakesOnlyAPersonsSend(t *testing.T) {
+	r := newSteerRig(t, true)
+	cs := coderhost.NewStore(r.db)
+	base := coderhost.Command{ProfileID: "default", ConversationID: r.bossCon.ID, Kind: coderhost.KindSend, TurnID: "t-1", Message: "hello"}
+	for name, c := range map[string]coderhost.Command{
+		"pause":    {ProfileID: "default", ConversationID: r.bossCon.ID, Kind: coderhost.KindPause, TurnID: "t-1"},
+		"issuer":   func() coderhost.Command { x := base; x.Issuer = "master-conv"; return x }(),
+		"ask turn": func() coderhost.Command { x := base; x.TurnID = "ask-q-1"; return x }(),
+		"checkin":  func() coderhost.Command { x := base; x.TurnID = "checkin-1"; return x }(),
+	} {
+		if _, _, err := cs.EnqueueSendBounded(c, coderhost.SendBounds{MaxPending: 5}); err == nil {
+			t.Errorf("%s: a send that is not a person's was queued", name)
+		}
+	}
+	if n := cs.PendingFor("default", r.bossCon.ID); n != 0 {
+		t.Fatalf("%d queued by refused calls", n)
+	}
+	// the bound counts person messages only: ask notes do not fill the slots
+	for i := 0; i < 8; i++ {
+		if _, err := cs.Enqueue(coderhost.Command{ProfileID: "default", ConversationID: r.bossCon.ID, Kind: coderhost.KindSend, TurnID: fmt.Sprintf("ask-q-%d", i), Message: fmt.Sprintf("q%d", i)}); err != nil {
+			break // the channel has its own cap
+		}
+	}
+	if _, _, err := cs.EnqueueSendBounded(base, coderhost.SendBounds{MaxPending: 1}); err != nil {
+		t.Fatalf("ask notes filled the person's slots: %v", err)
+	}
+	if _, _, err := cs.EnqueueSendBounded(coderhost.Command{ProfileID: "default", ConversationID: r.bossCon.ID, Kind: coderhost.KindSend, TurnID: "t-2", Message: "another"}, coderhost.SendBounds{MaxPending: 5, NoTurnYet: true}); !errors.Is(err, coderhost.ErrTurnExists) {
+		t.Fatalf("a first turn after a turn: %v", err)
+	}
+}
