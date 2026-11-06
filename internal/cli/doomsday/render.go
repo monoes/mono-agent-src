@@ -63,7 +63,8 @@ func containmentBullet(goos string) string {
     in-place overwrite of the database file is not detected, a -wal or -shm planted before
     the host starts is not reported, and only a local APFS or HFS+ volume is accepted (a
     network share or another filesystem is refused; a cloud-synced folder cannot be told
-    apart and is not refused).`
+    apart and is not refused). Verification criteria run without an address-space limit on
+    macOS (the system refuses one); their other limits apply.`
 	}
 	return `  - This platform has no process containment: the mode does not start here.`
 }

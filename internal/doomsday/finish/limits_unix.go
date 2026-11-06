@@ -5,6 +5,7 @@ package finish
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"syscall"
 
 	"golang.org/x/sys/unix"
@@ -79,15 +80,29 @@ func clampLimit(requested, hard uint64) uint64 {
 	return requested
 }
 
+// limitsGOOS is the OS the limit set is chosen for (a test seam).
+var limitsGOOS = runtime.GOOS
+
 // applyLimits lowers each resource to its requested limit, clamped to the current hard limit. The address space is last:
 // nothing allocates much between it and the exec. A limit that cannot be read or set is an error (the caller exits).
+// macOS is the exception: its setrlimit(RLIMIT_AS) fails with EINVAL for every value (the address space is not
+// limitable there), so the address-space limit is NOT enforced on macOS and the set of limits is weaker there; the
+// others (CPU, open files, file size, process count) still are.
 func applyLimits(o rlimits, l Limits) error {
-	for _, r := range []struct {
+	set := []struct {
 		name string
 		res  int
 		val  uint64
 	}{{"cpu", unix.RLIMIT_CPU, l.CPUSeconds}, {"nofile", unix.RLIMIT_NOFILE, l.OpenFiles}, {"fsize", unix.RLIMIT_FSIZE, l.FileSize},
-		{"nproc", unix.RLIMIT_NPROC, l.Procs}, {"as", unix.RLIMIT_AS, l.AddressSpace}} {
+		{"nproc", unix.RLIMIT_NPROC, l.Procs}}
+	if limitsGOOS != "darwin" {
+		set = append(set, struct {
+			name string
+			res  int
+			val  uint64
+		}{"as", unix.RLIMIT_AS, l.AddressSpace})
+	}
+	for _, r := range set {
 		cur, err := o.Get(r.res)
 		if err != nil {
 			return fmt.Errorf("%s: %v", r.name, err)

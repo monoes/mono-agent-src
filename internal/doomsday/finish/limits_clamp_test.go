@@ -72,3 +72,29 @@ func TestApplyLimitsFailsClosedWhenALimitCannotBeReadOrSet(t *testing.T) {
 		t.Fatal("a limit that cannot be set passed")
 	}
 }
+
+// macOS cannot limit the address space (setrlimit(RLIMIT_AS) is EINVAL there): the limit is skipped on darwin and kept
+// elsewhere, and the other four are applied on both.
+func TestApplyLimitsSkipsTheAddressSpaceOnDarwinOnly(t *testing.T) {
+	old := limitsGOOS
+	t.Cleanup(func() { limitsGOOS = old })
+	l := Limits{CPUSeconds: 30, OpenFiles: 1024, FileSize: 1 << 20, Procs: 100, AddressSpace: 1 << 30}
+	for goos, wantAS := range map[string]bool{"darwin": false, "linux": true, "freebsd": true} {
+		limitsGOOS = goos
+		f := &fakeRlimits{set: map[int]unix.Rlimit{}, setErr: map[int]error{}}
+		if goos == "darwin" {
+			f.setErr[unix.RLIMIT_AS] = unix.EINVAL // what macOS answers: it must never be asked
+		}
+		if err := applyLimits(f, l); err != nil {
+			t.Fatalf("%s: %v", goos, err)
+		}
+		if _, has := f.set[unix.RLIMIT_AS]; has != wantAS {
+			t.Errorf("%s: address space set = %v, want %v", goos, has, wantAS)
+		}
+		for _, res := range []int{unix.RLIMIT_CPU, unix.RLIMIT_NOFILE, unix.RLIMIT_FSIZE, unix.RLIMIT_NPROC} {
+			if _, has := f.set[res]; !has {
+				t.Errorf("%s: resource %d not set", goos, res)
+			}
+		}
+	}
+}
