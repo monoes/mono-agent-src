@@ -26,6 +26,7 @@ import { isAgentNotSetup } from '../../lib/agentSetup.js'
 import AgentSetupLink from '../AgentSetupLink.jsx'
 import MissionCards from './mission/MissionCards.jsx'
 import MissionStrip from './mission/MissionStrip.jsx'
+import OrgProposalCard, { proposalRefs } from './OrgProposalCard.jsx'
 import { missionItems, startedProposals } from '../../lib/missionModel.js'
 import '../chat/chat.css'
 
@@ -62,6 +63,9 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
     const artifact = resolvedArtifacts[`${turnId}:${call.callId}`]
     return artifact ? <ChatArtifactCard key={call.callId} artifact={artifact} onOpenArtifact={() => openArtifact(call, artifact)} /> : null
   })
+  // A card for each org grant/autonomy proposal a call made: it reads the stored proposal, not the tool's text.
+  const orgProposalCards = (state) => proposalRefs(state.calls).map(r =>
+    <OrgProposalCard key={r.key} tool={r.tool} id={r.id} conversationId={conv.conversationId || ''} />)
   // Mission cards (propose, plan, report) from the events of every turn; the
   // latest plan or report of a session shows once, in the turn that sent it.
   const turnList = conv.messages.filter(m => m.role === 'turn').map(m => ({ key: m.turnId, state: m.state }))
@@ -182,6 +186,7 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
                     {lite ? <LiteTurn state={msg.state} turnId={msg.turnId} /> : <>
                       <ChatTimeline state={msg.state} turnId={msg.turnId} isLive={false} agentFilter={msg.turnId === agentFilterTurnId ? agentFilter : null} onNavigate={onNavigate} />
                       {artifactCards(msg.turnId, msg.state)}
+                      {orgProposalCards(msg.state)}
                       {missionCards(msg.turnId)}
                     </>}
                     <TurnStatus state={msg.state} stopRequested={false} ownedByThisInstance={msg.ownedByThisInstance} />
@@ -199,6 +204,7 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
                 {lite ? <LiteTurn state={conv.liveTurn} turnId={conv.activeTurnId} isLive /> : <>
                   <ChatTimeline state={conv.liveTurn} turnId={conv.activeTurnId} isLive agentFilter={conv.activeTurnId === agentFilterTurnId ? agentFilter : null} onNavigate={onNavigate} />
                   {artifactCards(conv.activeTurnId, conv.liveTurn)}
+                  {orgProposalCards(conv.liveTurn)}
                   {missionCards(conv.activeTurnId)}
                 </>}
                 <TurnStatus state={conv.liveTurn} stopRequested={conv.stopRequested} streamsIncrementally={streamsIncrementally} />
