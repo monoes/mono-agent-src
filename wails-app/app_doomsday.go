@@ -3,7 +3,7 @@
 // The control room's bindings (docs: monoes/mono-agent-src#1157). The app never reads the run's tables: every
 // binding runs `monoagentcli --profile <active> --json doomsday <verb>` and returns the CLI's document. The read
 // bindings, the probe and Stop run the verbs listed in doomsdayVerbs, and doomsdayArgv refuses any other verb or flag.
-// The one binding that starts a run, DoomsdayStart (app_doomsday_start.go), runs `start` with a fixed argv, only for
+// The one binding that starts a run, DoomsdayStart (the start form file), runs `start` with a fixed argv, only for
 // the operator, only with the phrase a person typed in the form, which the CLI derives again and compares. Nothing
 // here approves, grants, pauses or resumes anything, and the CLI re-checks the operator gate of every call it gets.
 package main
@@ -41,7 +41,7 @@ const (
 
 // doomsdayVerbs is the whole of what the app can run through doomsdayArgv, with the flags each takes: the read verbs
 // (overview, feed, probe) and stop. render and start are not here: they take a charter and a phrase from the person
-// and have their own fixed argv (doomsdayCharterArgv, app_doomsday_start.go). approve, grant, pause, resume, finish and
+// and have their own fixed argv (doomsdayCharterArgv, in the start form file). approve, grant, pause, resume, finish and
 // rubric are the terminal's.
 var doomsdayVerbs = map[string][]string{
 	"overview": nil,

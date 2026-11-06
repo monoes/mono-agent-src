@@ -1,4 +1,4 @@
-// wails-app/app_doomsday_start.go
+// wails-app: the start form of the open-ended chat mode
 //
 // The start form of the open-ended chat mode: the preview of a charter, the start with the phrase the person typed,
 // and the entry screen's availability. They are the CLI's own verbs (`doomsday render`, `start`, `probe`): the app
