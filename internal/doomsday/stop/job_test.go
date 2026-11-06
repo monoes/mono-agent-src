@@ -286,7 +286,8 @@ func TestPlacerAndCreateDispatchByKind(t *testing.T) {
 	if _, ok := pl.(*jobPlacer); !ok {
 		t.Fatalf("NewPlacer returned %T for a job unit", pl)
 	}
-	for _, goos := range []string{"darwin", "freebsd", ""} {
+	// darwin is not "no containment" any more (KindPGroup); on a macOS runner it would have started a real anchor here.
+	for _, goos := range []string{"freebsd", "openbsd", ""} {
 		if _, err := createUnit(bg, goos, nil, CreateArgs{Dir: dir}, 10); !errors.Is(err, ErrUnitNotCreated) {
 			t.Fatalf("%q: %v", goos, err)
 		}
