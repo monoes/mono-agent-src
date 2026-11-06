@@ -131,8 +131,11 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
   const [openStarted, setOpenStarted] = useState(false)
   // Sticky: the form stays mounted while its start is in flight (the chat is made, its mode is read again) so the answer is not lost.
   const [openEntry, setOpenEntry] = useState(false)
-  useEffect(() => { if (chatMode.state?.mode === 'open') setOpenEntry(true) }, [chatMode.state?.mode])
-  const ensureChat = useCallback(async () => bubble.conversationId || (await create()).id, [bubble.conversationId, create])
+  useEffect(() => { if (!bubble.conversationId && chatMode.state && chatMode.state.mode !== 'open') setOpenEntry(false) }, [bubble.conversationId, chatMode.state])
+  const ensureChat = useCallback(async () => {
+    setOpenEntry(true) // keep the form mounted while the chat is made and its mode read again
+    return bubble.conversationId || (await create()).id
+  }, [bubble.conversationId, create])
   // Stop of an open-ended run: shown for an open-ended chat or while the profile has a run; a Stop leaves its message in the transcript.
   const runExists = useRunExists(!!bubble.conversationId && isCoderAccess(access))
   const addSystemNotice = conv.addSystemNotice
