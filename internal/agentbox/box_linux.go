@@ -127,7 +127,8 @@ func expand(home, p string) (string, error) {
 
 // envArgs is --clearenv and one --setenv for each variable of env that the sandboxed
 // command may see: the allowlist and PassEnv (what the caller set for this turn). Ambient
-// MONOAGENT_* variables (connection secrets, task tokens) do not pass.
+// MONOAGENT_* variables (connection secrets, task tokens) do not pass. The session bus address
+// is always a dead path, so a CLI in the box that touches the vault cannot autolaunch a bus of its own.
 func (b Box) envArgs(env []string, home, mode string) []string {
 	allowed := map[string]bool{}
 	for _, k := range EnvAllowlist {
@@ -155,7 +156,9 @@ func (b Box) envArgs(env []string, home, mode string) []string {
 	for _, k := range keys {
 		out = append(out, "--setenv", k, vals[k])
 	}
-	return append(out, "--setenv", "HOME", home, "--setenv", "MONOAGENT_SANDBOX", "bwrap-"+mode)
+	// Last, so it wins over anything above: with no address godbus autolaunches a private bus in the box.
+	return append(out, "--setenv", "HOME", home, "--setenv", "MONOAGENT_SANDBOX", "bwrap-"+mode,
+		"--setenv", "DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent")
 }
 
 // fileBinds are the read-only binds of the caller's own files and of the attachments, each
