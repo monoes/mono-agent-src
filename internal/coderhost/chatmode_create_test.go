@@ -22,7 +22,9 @@ func TestConversationAndChatModeAreCreatedTogetherOrNotAtAll(t *testing.T) {
 	}
 	make := func(mode string) (ai.Conversation, error) {
 		return a.CreateConversationAccessIn("p", "agent", "", "claude", "", "m", ai.AccessFull, t.TempDir(), "",
-			func(ctx context.Context, conn *sql.Conn, id string) error { return st.SetNewChatModeOn(ctx, conn, "p", id, mode) })
+			func(ctx context.Context, conn *sql.Conn, id string) error {
+				return st.SetNewChatModeOn(ctx, conn, "p", id, mode)
+			})
 	}
 	for _, bad := range []string{"open", "doomsday"} { // open is not available yet; the other is no mode
 		if _, err := make(bad); err == nil {
