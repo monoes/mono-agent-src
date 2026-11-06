@@ -30,7 +30,7 @@ const conv = (send) => ({
 
 function Harness({ send, steering }) {
   const [draft, setDraft] = useState('')
-  return <CoderChatView conv={conv(send)} isDraft={false} access="full" setup={{ workspace: { kind: "root" }, runtime: "", model: "", effort: "" }} onSetupChange={() => {}} draft={draft} onDraftChange={setDraft} steering={steering} />
+  return <><span data-testid="draft">{draft}</span><CoderChatView conv={conv(send)} isDraft={false} access="full" setup={{ workspace: { kind: "root" }, runtime: "", model: "", effort: "" }} onSetupChange={() => {}} draft={draft} onDraftChange={setDraft} steering={steering} /></>
 }
 
 beforeEach(() => { Element.prototype.scrollTo = function scrollTo() {} })
@@ -52,13 +52,14 @@ describe('typing in a chat whose open-ended run is going', () => {
     await waitFor(() => expect(api.steerBoss).toHaveBeenCalledWith('chat-1', 'prefer the smaller change'))
     expect(send).not.toHaveBeenCalled()
     await waitFor(() => expect(screen.getByTestId('steering-bar')).toHaveTextContent('Sent to the boss: prefer the smaller change'))
+    expect(screen.getByTestId('draft')).toHaveTextContent(/^$/)
   })
   it('keeps the text and says why when the CLI refuses it', async () => {
     api.steerBoss.mockResolvedValue({ error: 'no boss is running behind chat chat-1', code: 'invalid_input' })
     render(<Harness send={vi.fn()} steering />)
     type('hello')
     await waitFor(() => expect(screen.getByTestId('steering-bar')).toHaveTextContent('Not sent: no boss is running behind chat chat-1'))
-    expect(screen.getByRole('textbox')).toHaveValue('hello')
+    expect(screen.getByTestId('draft')).toHaveTextContent('hello')
   })
   it('is an ordinary chat when no run is going: no bar, a normal send', async () => {
     const send = vi.fn(() => Promise.resolve(true))

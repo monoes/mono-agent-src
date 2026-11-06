@@ -39,7 +39,7 @@ describe('the boss in a chat orbit', () => {
 
 describe('activeBoss and frontDeskOf', () => {
   it('finds the newest open recorded boss', () => {
-    expect(activeBoss([B(3, 'a', { state: 'done' }), B(5, 'b'), B(4, 'c', { archived: true }), S(6)]).id).toBe(5)
+    expect(activeBoss([B(3, 'a', { state: 'done' }), B(5, 'b'), B(7, 'c', { archived: true }), S(6)]).id).toBe(5)
     expect(activeBoss([S(1)])).toBeNull()
     expect(activeBoss(null)).toBeNull()
   })
