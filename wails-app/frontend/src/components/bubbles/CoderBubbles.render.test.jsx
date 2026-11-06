@@ -12,6 +12,8 @@ const { api, chatAccess, listeners, mockConfirm } = vi.hoisted(() => ({
   api: {
     getChatMissionToggle: vi.fn(() => Promise.resolve({})), // the Mission switch in the pane header
     setChatMissionToggle: vi.fn(),
+    setChatMode: vi.fn(),
+    getChatModeOptions: vi.fn(() => Promise.resolve({})),
     getChatTurns: vi.fn(),
     getChatEvents: vi.fn(),
     startChatTurn: vi.fn(),
@@ -203,29 +205,21 @@ describe('coder bubbles', () => {
     expect(JSON.parse(localStorage.getItem('monoagent:coderBubbles:v1')).bubbles[0].conversationId).toBe('c9')
   })
 
-  it('does not send the first message with the Mission toggle off when applying the choice failed, and keeps the choice and the chat for the retry', async () => {
+  it('creates the chat with the mode chosen before the first message, in the same call, and writes nothing else', async () => {
     api.coderWorkspaceDefault.mockResolvedValue({ path: '/home/u/monoagent-coder', created: false })
     chatAccess.create.mockResolvedValue({ id: 'c9', cwd: '/home/u/monoagent-coder', model: 'opus', access: 'full' })
-    api.setChatMissionToggle.mockRejectedValueOnce(new Error('database is locked')).mockResolvedValue({ conversationId: 'c9', mission: { on: true, locked: false, available: true } })
+    api.getChatModeOptions.mockResolvedValue({ options: [{ mode: 'off', available: true }, { mode: 'mission', available: true }, { mode: 'open', available: false, reason: 'not available yet' }] })
     render(<Harness />)
     fireEvent.click(await screen.findByLabelText('New chat'))
     await waitFor(() => expect(screen.getByTestId('chat-setup')).toBeInTheDocument())
     await waitFor(() => expect(screen.getByLabelText('Model')).toHaveValue('opus'))
-    fireEvent.click(await screen.findByRole('switch', { name: /mission/i }))
+    fireEvent.click(await screen.findByRole('radio', { name: 'Mission' }))
     const box = within(overlay()).getByPlaceholderText('Type a message...')
     fireEvent.change(box, { target: { value: 'add a README' } })
     fireEvent.keyDown(box, { key: 'Enter' })
-    await waitFor(() => expect(api.setChatMissionToggle).toHaveBeenCalledWith('c9', true))
-    expect((await screen.findAllByText(/database is locked/)).length).toBeGreaterThan(0)
-    expect(api.startChatTurn).not.toHaveBeenCalled() // no first message with the toggle off
-    expect(store.bubbles[0].conversationId).toBeFalsy()
-    expect(screen.getByRole('switch', { name: /mission/i })).toHaveAttribute('aria-checked', 'true') // the choice stays
-    fireEvent.change(box, { target: { value: 'add a README' } })
-    fireEvent.keyDown(box, { key: 'Enter' })
+    await waitFor(() => expect(chatAccess.create).toHaveBeenCalledWith('general', 'claude', 'opus', '', 'full', '/home/u/monoagent-coder', 'mission'))
     await waitFor(() => expect(api.startChatTurn).toHaveBeenCalledWith('c9', expect.any(String), 'add a README', false, false))
-    expect(chatAccess.create).toHaveBeenCalledTimes(1) // the retry reused the chat it had made
-    expect(api.setChatMissionToggle).toHaveBeenCalledTimes(2)
-    expect(api.setChatMissionToggle).toHaveBeenLastCalledWith('c9', true)
+    expect(api.setChatMode).not.toHaveBeenCalled() // no write apart from the creation: nothing can run before it
   })
 
   it('offers the ready coder runtimes and creates the chat on the one picked, with its model and effort', async () => {

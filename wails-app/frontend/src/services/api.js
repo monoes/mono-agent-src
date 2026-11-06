@@ -274,6 +274,11 @@ export const api = {
     GoApp.SetCoderSessionSettings(conversationID, patch ? JSON.stringify(patch) : '', unattended).then(parseStreamResult),
   getChatMissionToggle: (conversationID) =>
     GoApp.GetChatMissionToggle(conversationID).then(parseStreamResult),
+  // The chat mode (off | mission | open): `settings get` carries it as "chatMode"; the options of a chat that does not exist yet.
+  setChatMode: (conversationID, mode) =>
+    GoApp.SetChatMode(conversationID, mode).then(parseStreamResult),
+  getChatModeOptions: (access) =>
+    GoApp.GetChatModeOptions(access).then(parseStreamResult),
   setChatMissionToggle: (conversationID, on) =>
     GoApp.SetChatMissionToggle(conversationID, !!on).then(parseStreamResult),
   coderStopBackground: (conversationID, turnID) =>

@@ -214,7 +214,7 @@ func printConversation(cfg *Deps, c ai.ConversationRecord) error {
 func newChatHistoryCreateCmd(cfg *Deps) *cobra.Command {
 	var runtimeID, model, effort, workflowID, mode, access, cwd string
 	var newWorkspace, coderRoot, profileFolder bool
-	var orgMode string
+	var orgMode, chatMode string
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create an agent conversation",
@@ -230,11 +230,14 @@ func newChatHistoryCreateCmd(cfg *Deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := checkNewChatMode(chatMode, level); err != nil {
+				return err
+			}
 			if level != ai.AccessScoped {
 				if orgMode != ai.OrgModeSolo && orgMode != ai.OrgModeDynamic {
 					return clicore.InvalidInput("--org must be solo or dynamic")
 				}
-				conv, err := createCoderConversation(cmd, cfg, level, runtimeID, model, effort, workflowID, coderFolderChoice{cwd: cwd, root: coderRoot, newWorkspace: newWorkspace, profile: profileFolder})
+				conv, err := createCoderConversation(cmd, cfg, level, runtimeID, model, effort, workflowID, chatMode, coderFolderChoice{cwd: cwd, root: coderRoot, newWorkspace: newWorkspace, profile: profileFolder})
 				if err != nil {
 					return err
 				}
@@ -280,6 +283,7 @@ func newChatHistoryCreateCmd(cfg *Deps) *cobra.Command {
 	cmd.Flags().BoolVar(&profileFolder, "profile-folder", false, "Coder mode: work in the folder of the profile named by --profile (see 'coder workspace default')")
 	cmd.Flags().BoolVar(&coderRoot, "coder-root", false, "Coder mode: work in the coder root folder itself (see 'coder set --workspace-root')")
 	cmd.Flags().BoolVar(&newWorkspace, "new-workspace", false, "Coder mode: work in a fresh, randomly named test folder")
+	cmd.Flags().StringVar(&chatMode, "chat-mode", "", "Coder mode: off (the default), mission or open (not available yet): the chat's mode, set together with the conversation; it is chosen before the first message and cannot change afterwards")
 	cmd.Flags().StringVar(&orgMode, "org", ai.OrgModeSolo, "Coder mode: solo, or dynamic to let the agent spawn worker agents")
 	clicore.WithJSONErrors(cfg.JSONOutput, cmd)
 	return cmd

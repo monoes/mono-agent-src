@@ -33,6 +33,7 @@ export default function HistoryRow({ row, live, mission, selected, onToggle, onO
           <span className="hist-meta">
             {runtime && <span>{runtime}</span>}
             {mission && <span className="hist-access" data-testid="hist-mission" data-mission={mission}>{t('history.mission', { state: t(`tasks.session.state.${mission}`, { defaultValue: mission }) })}</span>}
+            {row.chatMode && row.chatMode !== 'off' && <span className="hist-access" data-testid="hist-chat-mode" data-chat-mode={row.chatMode}>{t('history.chatMode', { mode: t(`chatMode.${row.chatMode}`) })}</span>}
             {row.access && <span className="hist-access" data-access={row.access}>{t(`history.access_${row.access}`, { defaultValue: row.access })}</span>}
             {isOrg && row.orgName && row.orgName !== title && <span>{row.orgName}</span>}
             {isOrg && (row.runId || row.updatedAt) && <span className="hist-run">{orgRunLabel(row)}</span>}

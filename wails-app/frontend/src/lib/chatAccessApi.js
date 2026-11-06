@@ -16,8 +16,9 @@ export const chatAccessApi = {
   // A conversation at an access level: scoped has no folder; any other level
   // works in cwd, or in the profile's folder when cwd is ''. Resolves the
   // Conversation ({id, runtimeId, model, effort, access, cwd, orgMode, …}).
-  create: (workflowID, runtimeID, model, effort, access, cwd = '') =>
-    call(() => GoApp.CreateChatConversationAccess(workflowID, runtimeID, model, effort, access, cwd)),
+  // chatMode (off | mission | open) is set by the CLI together with the conversation; '' is off.
+  create: (workflowID, runtimeID, model, effort, access, cwd = '', chatMode = '') =>
+    call(() => GoApp.CreateChatConversationAccess(workflowID, runtimeID, model, effort, access, cwd, chatMode)),
   // The conversation's authoritative record: {access, mode, runtimeId, model,
   // effort, cwd, orgMode, title (redacted), workflowContext}. The pane never
   // decides what a change means from a cached level; it asks here first.

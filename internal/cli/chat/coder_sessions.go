@@ -31,7 +31,7 @@ func newCoderSessionsCmd(cfg *Deps) *cobra.Command {
 		newCoderSessionsControlCmd(cfg, coderhost.KindPause, "Start no new turn until resumed (a running turn finishes)"),
 		newCoderSessionsControlCmd(cfg, coderhost.KindResume, "Lift a pause"))
 	cmd.AddCommand(newCoderSessionsDecisionsCmd(cfg), newCoderSessionsQuestionsCmd(cfg),
-		newCoderSessionsParkCmd(cfg), newCoderSessionsRecordCmd(cfg), newCoderSessionsMissionChildrenCmd(cfg), newCoderSessionsBudgetCmd(cfg), newCoderSessionsSpawnIntentsCmd(cfg))
+		newCoderSessionsParkCmd(cfg), newCoderSessionsRecordCmd(cfg), newCoderSessionsMissionChildrenCmd(cfg), newCoderSessionsBudgetCmd(cfg), newCoderSessionsSpawnIntentsCmd(cfg), newCoderSessionsChatModesCmd(cfg))
 	return cmd
 }
 
@@ -40,6 +40,8 @@ type sessionRow struct {
 	Access  string `json:"access"`
 	Cwd     string `json:"cwd"`
 	Waiting int    `json:"waitingCommands"`
+	// ChatMode is the conversation's mode: off, mission or open.
+	ChatMode string `json:"chatMode"`
 }
 
 func newCoderSessionsListCmd(cfg *Deps) *cobra.Command {
@@ -72,7 +74,10 @@ func newCoderSessionsListCmd(cfg *Deps) *cobra.Command {
 				if visible != nil && !visible(s.ConversationID) {
 					continue
 				}
-				r := sessionRow{Session: s, Waiting: cs.PendingFor(s.ProfileID, s.ConversationID)}
+				r := sessionRow{Session: s, Waiting: cs.PendingFor(s.ProfileID, s.ConversationID), ChatMode: coderhost.ChatModeOff}
+				if m, err := cs.ChatMode(s.ProfileID, s.ConversationID); err == nil {
+					r.ChatMode = m
+				}
 				if conv, err := store.GetConversation(s.ConversationID, profileID); err == nil {
 					r.Access, r.Cwd = string(conv.Access), conv.Cwd
 				}
@@ -82,7 +87,7 @@ func newCoderSessionsListCmd(cfg *Deps) *cobra.Command {
 				return printQueueJSON(cmd, map[string]any{"host": hostStatus(cfg), "sessions": rows})
 			}
 			for _, r := range rows {
-				fmt.Fprintf(cmd.OutOrStdout(), "%s  %-12s access=%s unattended=%v waiting=%d  %s\n", r.ConversationID, r.State, r.Access, r.Unattended, r.Waiting, r.Cwd)
+				fmt.Fprintf(cmd.OutOrStdout(), "%s  %-12s access=%s mode=%s unattended=%v waiting=%d  %s\n", r.ConversationID, r.State, r.Access, r.ChatMode, r.Unattended, r.Waiting, r.Cwd)
 			}
 			return nil
 		},

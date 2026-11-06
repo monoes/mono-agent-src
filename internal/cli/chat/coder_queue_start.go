@@ -102,7 +102,7 @@ func startQueueItem(cmd *cobra.Command, cfg *Deps, id, cwd, runtimeID, model, ef
 		// The coder root may not exist yet: set it up as `--coder-root` does.
 		choice = coderFolderChoice{root: true}
 	}
-	conv, err := createCoderConversation(cmd, cfg, ai.AccessFull, runtimeID, model, effort, "general", choice)
+	conv, err := createCoderConversation(cmd, cfg, ai.AccessFull, runtimeID, model, effort, "general", "", choice)
 	if err != nil {
 		return queueStartResult{}, err
 	}

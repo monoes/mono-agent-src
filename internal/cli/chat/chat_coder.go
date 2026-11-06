@@ -15,6 +15,7 @@ import (
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
 	"github.com/monoes/mono-agent/internal/browserctl"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/hilsend"
 	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/operator"
@@ -358,7 +359,8 @@ func coderFolder(cmd *cobra.Command, cfg *Deps, c coderFolderChoice, runtime str
 
 // createCoderConversation is `chat history create` above the scoped level
 // (--mode coder is full); runtimeID "" means claude.
-func createCoderConversation(cmd *cobra.Command, cfg *Deps, access, runtimeID, model, effort, workflowID string, folder coderFolderChoice) (ai.Conversation, error) {
+// chatMode ("" is off) is written in the transaction that inserts the conversation.
+func createCoderConversation(cmd *cobra.Command, cfg *Deps, access, runtimeID, model, effort, workflowID, chatMode string, folder coderFolderChoice) (ai.Conversation, error) {
 	// A conversation above scoped is a raise from nothing: an agent, the chat or
 	// a workflow must not make itself a full-access one to run next.
 	if err := clicore.RequireOperator(cfg.RequireOperator, "create a conversation above the scoped level"); err != nil {
@@ -376,7 +378,23 @@ func createCoderConversation(cmd *cobra.Command, cfg *Deps, access, runtimeID, m
 		return ai.Conversation{}, err
 	}
 	defer closeDB()
-	return store.CreateConversationAccess(profileID, "agent", workflowID, runtimeID, "", model, access, dir, effort)
+	if chatMode == "" || chatMode == coderhost.ChatModeOff {
+		return store.CreateConversationAccess(profileID, "agent", workflowID, runtimeID, "", model, access, dir, effort)
+	}
+	db, err := cfg.OpenDB()
+	if err != nil {
+		return ai.Conversation{}, err
+	}
+	defer db.Close()
+	cs := coderhost.NewStore(db.DB)
+	conv, err := store.CreateConversationAccessIn(profileID, "agent", workflowID, runtimeID, "", model, access, dir, effort,
+		func(ctx context.Context, conn *sql.Conn, id string) error {
+			return cs.SetNewChatModeOn(ctx, conn, profileID, id, chatMode)
+		})
+	if err != nil {
+		return ai.Conversation{}, clicore.InvalidInput("%v", err)
+	}
+	return conv, nil
 }
 
 // addAgentKind adds kind's vouched environment (browserctl.IssueAgentKind)

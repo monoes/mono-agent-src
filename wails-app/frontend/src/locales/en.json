@@ -2429,6 +2429,7 @@
     "keptOperatorOnly_other": "{{count}} chats were kept: deleting them stops processes or missions they started, which only the operator may do.",
     "deleteFailed": "Could not delete {{count}}: {{message}}",
     "dismiss": "Dismiss",
+    "chatMode": "Mode: {{mode}}",
     "mission": "Mission: {{state}}"
   },
   "chatLinks": {
@@ -2505,19 +2506,17 @@
       "hint": "The chime plays at most once every five seconds and never twice for the same item. The notification shows whatever this says."
     }
   },
-  "missionToggle": {
-    "label": "Mission",
-    "on": "on",
-    "off": "off",
-    "chip": "Mission",
-    "chipOn": "This chat runs as a mission",
-    "hint": "Run this chat as a mission: the lead plans it and works until you close it. The switch governs the missions it starts; a mission you confirm on a single send is separate, and turning this off does not stop a running mission (use stop)",
-    "locked": "This chat is running a mission",
-    "needsAccess": "Missions need coding access or more",
-    "loadFailed": "Could not read the mission setting",
-    "saveFailed": "Could not change the mission setting: {{error}}",
-    "runningSession": "Running a mission (session {{id}})",
-    "unreadable": "Mission state unknown"
+  "chatMode": {
+    "label": "Chat mode",
+    "off": "Off",
+    "mission": "Mission",
+    "open": "Open-ended",
+    "chipTitle": "Chat mode: {{mode}}",
+    "hint": "Chosen before the first message; it cannot change afterwards. Mission: the lead plans the work and goes on until you close it.",
+    "locked": "The chat mode is chosen before the first message and cannot change afterwards",
+    "unavailable": "Not available",
+    "loadFailed": "Could not read the chat mode",
+    "saveFailed": "Could not change the chat mode: {{error}}"
   },
   "controlRoom": {
     "title": "Control room",

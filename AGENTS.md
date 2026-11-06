@@ -2843,6 +2843,14 @@ record in the reserved `coder-mission-confirm/` config prefix) is a separate aut
 every other setting are written only through `Store.UpdateSettings` (one `BEGIN IMMEDIATE` read-modify-write of a patch, validated
 before it is stored), so a stale copy cannot put an operator-only value back.
 
+**The chat mode** (`coder_sessions.chat_mode`, migration 163; `coderhost/chatmode.go`): `off` | `mission` | `open`, one per coder chat. The
+Mission toggle above is its old spelling (`--mission on` is `mission`, `off` is `off`; `Settings.Mission` follows the column and is never
+stored in the document). It is chosen before the first message (`chat history create --chat-mode`, or `settings set --chat-mode` while the
+chat has no message) and never changes afterwards: a trigger refuses a change once a send is queued or a turn exists
+(`coderhost.ErrChatModeLocked`). `open` is selectable only when `coderhost.OpenModeAvailability` says so (not yet). The column is written
+in one place (`writeChatMode`, reached through `UpdateSettings`); `settings get` shows it as `chatMode`, `sessions list` and `chat history
+list` carry it, `coder sessions chat-modes --access LEVEL` lists the choices for a chat that does not exist yet.
+
 **The session tree** (`internal/tasks/session_tree.go`, `session_children.go`, `session_state.go`; migration 142). A task session may
 sit below another of the same profile.
 
@@ -2973,7 +2981,7 @@ a model's own answer or default through autonomy (`answer-`, `checkin-`, `master
 A model's answer is only text: it can never confirm a mission, approve a plan, close, resolve a gate or change a setting, access or
 budget (`coderhost/autonomy_noapproval_test.go`, `autonomy_guard_test.go`).
 Operator-only coder settings (`coderhost.OperatorOnly`): `checkin_limit`, `autonomy_preset`, `autonomy_classes`, `max_children`,
-`max_concurrent`, `max_depth`, `mesh_accept`, `agent_approval`, `approval_ceiling_usd`, `mission`, `mission_directions`, and `mission_worker_reservations`. Agent-adjustable on descendants (`coderhost.AgentAdjustable`): `checkin_minutes`, `skip_if_unchanged`, `checkin_triggers`,
+`max_concurrent`, `max_depth`, `mesh_accept`, `agent_approval`, `approval_ceiling_usd`, `mission`, `chat_mode`, `mission_directions`, and `mission_worker_reservations`. Agent-adjustable on descendants (`coderhost.AgentAdjustable`): `checkin_minutes`, `skip_if_unchanged`, `checkin_triggers`,
 `silent_minutes`, `active_hours`, `mesh_visible`, `mesh_alias`. A test fails for a setting in neither list.
 Operator-only verbs that are not settings: `task session person inbox|full|approve|deny|ask|answer-ask`, `task session retire-worker`,
 `coder sessions spawn-intents list|resolve`, `coder sessions mission-children enable|disable|set|list|resolve-charge`,
@@ -3035,7 +3043,7 @@ monoagentcli --profile work coder host stop                        # the host on
 - **Settings** (`sessions settings get|set`, JSON in `--patch`, only the named settings change, a name that is
   not a setting is refused): `checkin_minutes`, `skip_if_unchanged`, `checkin_triggers`, `silent_minutes`,
   `active_hours` (`HH:MM-HH:MM`, local time), `checkin_limit`, `autonomy_preset`, `autonomy_classes`,
-  `max_children`, `max_concurrent`, `max_depth`, `agent_approval`, `approval_ceiling_usd`, `mission_directions`, `mission_worker_reservations`, `mesh_visible`, `mesh_alias`, `mesh_accept`. `get` lists which
+  `max_children`, `max_concurrent`, `max_depth`, `agent_approval`, `approval_ceiling_usd`, `chat_mode`, `mission_directions`, `mission_worker_reservations`, `mesh_visible`, `mesh_alias`, `mesh_accept`. `get` lists which
   are operator-only and the values each allows. `max_concurrent` (1 to 10,
   default 2) is the most children of one master that run a turn at once: a send to a further child, from a person
   or a master, stays pending and starts when a slot frees. Sends keep their order within a chat; across chats
@@ -3051,6 +3059,7 @@ monoagentcli --profile work coder host stop                        # the host on
   keeps its status. If the count or the master's settings cannot be
   read (a database error, not just no stored settings) the cap holds, the send is tried again on the next pass
   and the host logs it at most once an hour per master; a stop or pause on a held chat still runs. The autonomy settings are acted on (below). `max_children` and `max_depth` hold when a child is linked.
+- **Chat mode:** `sessions settings set <conv> --chat-mode off|mission|open` (operator only) is chosen before the first message and locked from it on; `sessions chat-modes --access LEVEL` lists what can be chosen; `--mission` below is its old spelling.
 - **Mission toggle:** `sessions settings set <conv> --mission on|off` (operator only; an agent or a master with a
   token is refused, `--patch` included) is the per-chat switch for missions, the `mission` setting. On, every turn of
   the chat, from the first, is a confirmed mission (`missionConfig`), so the lead gets the mission tools and prompt

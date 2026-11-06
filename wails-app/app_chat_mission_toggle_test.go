@@ -17,10 +17,14 @@ func TestChatMissionToggleBindingsRunTheCLI(t *testing.T) {
 	}
 	a.SetChatMissionToggle("c1", true)
 	a.SetChatMissionToggle("-rf", false) // an id that reads as a flag stays after --
+	a.SetChatMode("c1", "mission")
+	a.GetChatModeOptions("full")
 	want := []string{
 		"--profile default --json coder sessions settings get -- c1",
 		"--profile default --json coder sessions settings set --mission=on -- c1",
 		"--profile default --json coder sessions settings set --mission=off -- -rf",
+		"--profile default --json coder sessions settings set --chat-mode=mission -- c1",
+		"--profile default --json coder sessions chat-modes --access=full",
 	}
 	if got := loggedArgs(t, log); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("calls = %q\nwant %q", got, want)
