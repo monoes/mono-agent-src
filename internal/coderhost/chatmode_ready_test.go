@@ -1,0 +1,27 @@
+package coderhost
+
+import "testing"
+
+// The open mode is offered only when openModeReady says the boss binding exists (T4 flips it together with the boss
+// creation and the task-session budget). While it is false the probe is not asked and the reason says why.
+func TestOpenModeIsNotOfferedWhileTheBossBindingIsPending(t *testing.T) {
+	asked := 0
+	defer SetOpenModeProbe(func() (bool, string) { asked++; return true, "" })()
+	defer SetOpenModeReady(false)()
+	ok, reason := OpenModeAvailability()
+	if ok || reason != "not available yet: boss binding pending" || asked != 0 {
+		t.Fatalf("ready=false: ok=%v reason=%q probe asked %d times", ok, reason, asked)
+	}
+}
+
+func TestOpenModeFollowsTheProbeOnceReady(t *testing.T) {
+	defer SetOpenModeReady(true)()
+	defer SetOpenModeProbe(func() (bool, string) { return false, "a run exists" })()
+	if ok, reason := OpenModeAvailability(); ok || reason != "a run exists" {
+		t.Fatalf("%v %q", ok, reason)
+	}
+	SetOpenModeProbe(func() (bool, string) { return true, "" })
+	if ok, _ := OpenModeAvailability(); !ok {
+		t.Fatal("not available although ready and the probe says so")
+	}
+}
