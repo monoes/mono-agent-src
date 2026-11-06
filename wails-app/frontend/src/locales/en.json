@@ -2690,6 +2690,7 @@
     "started": "The run started. Stop is in the chat header.",
     "noBoss": "Starting needs the boss session of this chat, which the chat creates when it starts. It is not available here yet, so Start stays disabled.",
     "err": {
+      "text": "Use at most 2000 characters in the goal, criteria and pins, with no hidden characters (zero-width, direction or tag characters).",
       "goal": "Say what the run is for.",
       "criteria": "Give at least one success criterion, each complete.",
       "limits": "Every limit is a whole number of at least 1, and max concurrent is not above live per tree.",

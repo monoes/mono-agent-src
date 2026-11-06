@@ -32,7 +32,8 @@ export function OpenStartReview({ charter, preview, bossSession, onStarted }) {
       } else if (r?.state === 'unknown') setUnknown(String(r.detail || t('openStart.unknown')))
       else setError(String(r?.detail || r?.error || t('openStart.startFailed')))
     } catch (e) {
-      setError(String(e?.message || e))
+      // The call itself failed: whether the run started is not known, so this is not a plain error and not a retry.
+      setUnknown(t('openStart.unknown') + ' ' + String(e?.message || e))
     } finally {
       setBusy(false)
     }

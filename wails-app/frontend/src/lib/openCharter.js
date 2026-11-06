@@ -11,6 +11,13 @@ export const LIMIT_PRESETS = {
   standard: { tree_depth: 4, live_per_tree: 30, max_concurrent: 30, spawn_rate: 6, open_sessions: 50, max_total: 100 },
 }
 export const LIMIT_KEYS = Object.keys(LIMIT_PRESETS.standard)
+// An app start takes goal, criteria and pins of at most MAX_TEXT characters and without a character a person cannot see
+// (control other than newline and tab, format such as zero-width, bidi and tag characters, separators, private use,
+// unassigned, variation selectors): the CLI refuses them, and so does the form, so Review does not fail on them.
+export const MAX_TEXT = 2000
+const HIDDEN = /[\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}\p{Zl}\p{Zp}\uFE00-\uFE0F\u{E0100}-\u{E01EF}]/u
+export const textProblem = s => [...String(s)].length > MAX_TEXT || [...String(s)].some(c => c !== '\n' && c !== '\t' && HIDDEN.test(c))
+
 export const MAX_TREE_DEPTH = 12 // charter.go MaxTreeDepth
 export const ASK_ACCESS = ['scoped', 'coding', 'workspace'] // never full
 
@@ -102,6 +109,9 @@ export function buildCharter(form) {
   if (!errors.limits && (limits.tree_depth > MAX_TREE_DEPTH)) errors.limits = `tree_depth is at most ${MAX_TREE_DEPTH}`
   if (!errors.limits && limits.max_concurrent > limits.live_per_tree) errors.limits = 'max concurrent is above live per tree: lower it'
   if (!errors.limits && limits.max_total < limits.live_per_tree) errors.limits = 'max total is below live per tree: raise it'
+  const texts = [form.goal, form.pins.judging, ...[form.pins.boss, form.pins.verifier].flatMap(p => [p.provider, p.model, p.version]),
+    ...form.criteria.flatMap(k => [k.text, k.command, k.expected])].filter(x => x != null)
+  if (texts.some(textProblem)) errors.text = `text of at most ${MAX_TEXT} characters without hidden characters`
   const budget = budgetChoice(form.budget.choice, form.budget.usd)
   if (budget.error) errors.budget = budget.error
   const lines = LINES.filter(l => form.lines.includes(l))

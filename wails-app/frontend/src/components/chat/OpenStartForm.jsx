@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { openStartApi } from '../../lib/openStartApi.js'
-import { ASK_ACCESS, LIMIT_KEYS, LIMIT_PRESETS, EVERYTHING_LINES, LINES, buildCharter, emptyForm } from '../../lib/openCharter.js'
+import { MAX_TEXT, ASK_ACCESS, LIMIT_KEYS, LIMIT_PRESETS, EVERYTHING_LINES, LINES, buildCharter, emptyForm } from '../../lib/openCharter.js'
 import { OpenStartReview } from './OpenStartReview.jsx'
 
 // The entry screen and the start form of the open-ended chat mode. The CLI decides what can start (the probe), what the
@@ -99,7 +99,9 @@ export function OpenStartForm({ bossSession = null, onStarted }) {
         <fieldset disabled={done} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
           <section style={box}>
             <Text label={t('openStart.goal')} value={form.goal} onChange={v => set({ goal: v })} area rows={3} errorId={err.goal ? 'open-err-goal' : undefined} />
+            <span data-testid="open-goal-count" style={small}>{[...form.goal].length}/{MAX_TEXT}</span>
             <Err id="open-err-goal">{err.goal}</Err>
+            <Err id="open-err-text">{err.text}</Err>
             {criteria.map((c, i) => (
               <div key={i} style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'flex-end' }}>
                 {c.kind === 'command' ? (

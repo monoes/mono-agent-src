@@ -121,11 +121,11 @@ describe('free text is held to what the CLI will take for an app start', () => {
     expect(buildCharter(good({ criteria: [{ kind: 'rubric', text: 'x'.repeat(2001) }] })).errors.text).toBeTruthy()
   })
   it('refuses zero-width, bidi, tag, variation-selector, separator and control characters, but keeps newline and tab', () => {
-    for (const bad of ['a​b', 'a‮b', 'a\u{E0041}', 'a️', 'a b', 'a\u0000b', 'a']) {
+    for (const bad of ['a\u200bb', 'a\u202eb', 'a\u{E0041}', 'a\ufe0f', 'a\u2028b', 'a\u0000b', 'a\ue000']) {
       expect(buildCharter(good({ goal: bad })).errors.text, JSON.stringify(bad)).toBeTruthy()
     }
     expect(buildCharter(good({ goal: 'line one\n\tline two' })).errors.text).toBeFalsy()
-    expect(buildCharter(good({ pins: { boss: pin('anthropic', 'op​us', '4'), verifier: pin('a', 's', '4'), judging: 'j' } })).errors.text).toBeTruthy()
-    expect(buildCharter(good({ pins: { boss: pin('anthropic', 'opus', '4'), verifier: pin('a', 's', '4'), judging: 'j‮' } })).errors.text).toBeTruthy()
+    expect(buildCharter(good({ pins: { boss: pin('anthropic', 'op\u200bus', '4'), verifier: pin('a', 's', '4'), judging: 'j' } })).errors.text).toBeTruthy()
+    expect(buildCharter(good({ pins: { boss: pin('anthropic', 'opus', '4'), verifier: pin('a', 's', '4'), judging: 'j\u202e' } })).errors.text).toBeTruthy()
   })
 })
