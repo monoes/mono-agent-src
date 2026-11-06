@@ -61,7 +61,8 @@ CREATE TRIGGER IF NOT EXISTS mission_goals_final_no_delete BEFORE DELETE ON miss
 WHEN OLD.state IN ('confirmed', 'locked') AND EXISTS (SELECT 1 FROM task_sessions s WHERE s.id = OLD.session_id)
 BEGIN SELECT RAISE(ABORT, 'a confirmed mission goal is never deleted: a changed goal means a new mission'); END;
 
--- The criteria of a confirmed or locked goal are frozen: no insert, no edit, no delete (except with the session).
+-- The criteria of a confirmed or locked goal are frozen: no insert, no edit, no delete. (When the session is deleted the goal
+-- row is already gone by the time its criteria are deleted by the cascade, so that delete is not stopped.)
 CREATE TRIGGER IF NOT EXISTS mission_goal_criteria_frozen_insert BEFORE INSERT ON mission_goal_criteria
 WHEN EXISTS (SELECT 1 FROM mission_goals g WHERE g.session_id = NEW.session_id AND g.state <> 'proposed')
 BEGIN SELECT RAISE(ABORT, 'the criteria of a confirmed mission goal never change'); END;
@@ -70,5 +71,4 @@ WHEN EXISTS (SELECT 1 FROM mission_goals g WHERE g.session_id IN (OLD.session_id
 BEGIN SELECT RAISE(ABORT, 'the criteria of a confirmed mission goal never change'); END;
 CREATE TRIGGER IF NOT EXISTS mission_goal_criteria_frozen_delete BEFORE DELETE ON mission_goal_criteria
 WHEN EXISTS (SELECT 1 FROM mission_goals g WHERE g.session_id = OLD.session_id AND g.state <> 'proposed')
- AND EXISTS (SELECT 1 FROM task_sessions s WHERE s.id = OLD.session_id)
 BEGIN SELECT RAISE(ABORT, 'the criteria of a confirmed mission goal never change'); END;
