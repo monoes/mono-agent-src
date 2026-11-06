@@ -126,3 +126,21 @@ func TestMissionGoalToolsAreMissionPlanTools(t *testing.T) {
 		}
 	}
 }
+
+// Only "no goal yet" reads as state none; any other failure is an error the lead sees.
+func TestMissionGoalStatusOnlyMapsNotFoundToNone(t *testing.T) {
+	c, _, db, _ := goalMission(t, "mission", true)
+	res, err := call(t, c, ToolMissionGoalStatus, map[string]any{})
+	if err != nil || res["state"] != "none" {
+		t.Fatalf("no goal yet: %v %v", res, err)
+	}
+	if _, err := call(t, c, ToolMissionGoalPropose, goalCriteriaArg()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE mission_goal_criteria SET spec = 'tampered' WHERE pos = 1`); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := call(t, c, ToolMissionGoalStatus, map[string]any{}); err == nil {
+		t.Errorf("a damaged goal answered %v instead of an error", res)
+	}
+}
