@@ -13,6 +13,7 @@ import (
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/profiledir"
+	"github.com/monoes/mono-agent/internal/tasks"
 )
 
 // `chat history list --all`: the conversations of the profile and its org runs
@@ -209,6 +210,8 @@ func queryHistoryRows(db historyQuerier, profileID string, f historyFilter, limi
 	if f.id != "" {
 		inner += ` AND c.id = ?`
 		args = append(args, f.id)
+	} else {
+		inner += ` AND NOT ` + tasks.BossConversationSQL("c") // a run's boss is shown as the boss, not as one of the person's chats
 	}
 	if f.application == histApplicationAny {
 		outer += ` AND application_id <> ''`

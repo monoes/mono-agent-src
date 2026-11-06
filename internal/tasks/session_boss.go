@@ -17,7 +17,9 @@ const BossClientIDPrefix = "boss-for-"
 
 // BossClientID is the client id of the boss session that stands behind a front-desk chat: one key per chat, so a repeated
 // creation answers with the session that exists.
-func BossClientID(frontDeskConversation string) string { return BossClientIDPrefix + frontDeskConversation }
+func BossClientID(frontDeskConversation string) string {
+	return BossClientIDPrefix + frontDeskConversation
+}
 
 // BossConversationSQL is a WHERE condition over ai_chat_conversations (alias given) that holds for the conversation of a
 // stamped boss session. The history keeps such a conversation out of the chat list; reading it by id still works.
