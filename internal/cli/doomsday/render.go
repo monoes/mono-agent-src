@@ -42,7 +42,9 @@ func containmentBullet(goos string) string {
     refuse; on one Windows 10 machine with an NTFS volume -wal and -shm were not removed when
     the last connection closed, and where they are it would refuse (availability, not safety).
     A durable write flushes the file but Windows has no directory flush, so a power cut right
-    after a create can lose the file's directory entry. Beyond that the pinned database binding is
+    after a create can lose the file's directory entry. A verification snapshot is sealed by
+    mode bits: on Windows its files are read-only but its directories stay writable, so a
+    criterion could add files to its copy. Beyond that the pinned database binding is
     weaker than on Linux, and what follows is by design and has not been verified on real
     machines: a swap that is undone again between two looks is not remembered, an in-place
     overwrite of the database file is not detected, a -wal or -shm planted before the host

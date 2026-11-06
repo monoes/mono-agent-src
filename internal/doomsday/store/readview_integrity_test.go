@@ -109,7 +109,9 @@ func TestReadViewHasATimeBudget(t *testing.T) {
 	r := enter(t, s, "p")
 	appendN(t, s, r, 20)
 	old := readViewBudget
-	readViewBudget = time.Nanosecond
+	// a budget already spent: a deadline in the past. A 1ns budget is not, on a host whose clock ticks coarsely (Windows): the
+	// deadline timer fires after the read has finished. The budget itself is a context deadline, enforced the same everywhere.
+	readViewBudget = -time.Second
 	defer func() { readViewBudget = old }()
 	if _, err := s.ReadView(ctx, "p", 0, ViewQuery{}); !errors.Is(err, ErrViewTimeout) {
 		t.Fatalf("no timeout: %v", err)

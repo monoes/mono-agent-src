@@ -192,6 +192,8 @@ func Snapshot(root, dst string) (Tree, error) {
 }
 
 // SealDirs makes the directories of a copied tree read-only, deepest first.
+// It seals by mode bits only: on Windows (NTFS) that makes the FILES read-only but a directory stays writable, so a
+// criterion could add files to its copy there (stated in the Windows entry text).
 func SealDirs(dst string, t Tree) {
 	for i := len(t.Entries) - 1; i >= 0; i-- {
 		if e := t.Entries[i]; e.Kind == 'd' {

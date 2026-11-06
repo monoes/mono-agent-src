@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -53,8 +54,10 @@ func TestSnapshotDigestIsContentAndStructureAndTheCopyIsSealed(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dst, "a.txt"), []byte("x"), 0o600); err == nil {
 		t.Fatal("a snapshot file is writable")
 	}
-	if err := os.WriteFile(filepath.Join(dst, "new"), []byte("x"), 0o600); err == nil {
-		t.Fatal("a snapshot directory is writable")
+	if runtime.GOOS != "windows" { // NTFS ignores a directory's mode bits: only the files are sealed there (see seal in subject.go)
+		if err := os.WriteFile(filepath.Join(dst, "new"), []byte("x"), 0o600); err == nil {
+			t.Fatal("a snapshot directory is writable")
+		}
 	}
 	if got, _ := DigestTree(dst, ""); got.Digest != live.Digest {
 		t.Fatal("the sealed snapshot digests differently from its source")
