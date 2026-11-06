@@ -185,7 +185,7 @@ func TestAChatProposalIsNeverLabelledOperator(t *testing.T) {
 	}
 }
 
-func TestAChatThatIsNotInAConversationProposesUnderNoLabel(t *testing.T) {
+func TestAChatThatIsNotInAConversationProposesUnderTheUnscopedChatLabel(t *testing.T) {
 	f := newProposalToolFixture(t)
 	f.mt.SetConversationID("")
 	out, err := f.mt.Execute("set_org_autonomy", `{"org_name":"growth","level":"mid"}`)
@@ -197,8 +197,8 @@ func TestAChatThatIsNotInAConversationProposesUnderNoLabel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("proposal %q: %v (%s)", id, err, out)
 	}
-	if p.ConversationID != "" {
-		t.Fatalf("label %q", p.ConversationID)
+	if p.ConversationID != "unscoped:chat" {
+		t.Fatalf("label %q, want unscoped:chat", p.ConversationID)
 	}
 }
 
