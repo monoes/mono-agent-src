@@ -68,7 +68,7 @@ func cleanText(s string, n int) string {
 			space = true
 			continue
 		case unicode.IsControl(r), unicode.In(r, unicode.Cf, unicode.Cs, unicode.Co, unicode.Zl, unicode.Zp, unicode.Cn),
-			r == 0x2800 || r == 0x3164 || r == 0x115F || r == 0x1160 || r == 0xFFA0 || r == 0x034F,
+			r == 0x180B || r == 0x180C || r == 0x180D || r == 0x180F || r == 0x17B4 || r == 0x17B5 || r == 0x2800 || r == 0x3164 || r == 0x115F || r == 0x1160 || r == 0xFFA0 || r == 0x034F,
 			r >= 0xFE00 && r <= 0xFE0F, r >= 0xE0100 && r <= 0xE01EF, r >= 0xE0000 && r <= 0xE007F, !unicode.IsPrint(r):
 			continue
 		}
@@ -259,28 +259,28 @@ const (
 )
 
 // confirmNative asks in a window of the operating system, not of the web view, so no script of the page can answer it. It
-// returns errNoNativeDialog where none can be shown. Wails v2.17 runtime.MessageDialog: QuestionDialog is Yes/No on
-// Windows and Linux (the labels given are ignored, the default is only honoured on Windows when it is "No"), and has the
-// given buttons on macOS. The default and the cancel button are always the safe one.
-var confirmNative = func(a *App, title, body string) (confirmed bool, err error) {
+// returns errNoNativeDialog where none can be shown, errDialogBusy while another dialog is open. Wails v2.17 QuestionDialog
+// is Yes/No on Windows and Linux (the labels given are ignored, the default is only honoured on Windows when it is "No"),
+// and has the given buttons on macOS. The default and the cancel button are always the safe one. Shown through showDialog.
+var confirmNative = realConfirmNative
+
+func realConfirmNative(a *App, title, body string) (bool, error) {
 	if a == nil || a.ctx == nil {
 		return false, errNoNativeDialog
 	}
-	defer func() {
-		if recover() != nil { // no frontend in the context: nothing to show a dialog in
-			confirmed, err = false, errNoNativeDialog
-		}
-	}()
 	def, cancel := confirmCancel, confirmCancel
 	if runtime.GOOS == "windows" {
 		def, cancel = "No", "No"
 	}
-	choice, derr := wailsruntime.MessageDialog(a.ctx, wailsruntime.MessageDialogOptions{
-		Type: wailsruntime.QuestionDialog, Title: dialogText(title), Message: dialogText(body),
+	choice, err := showDialog(a, wailsruntime.MessageDialogOptions{
+		Type: wailsruntime.QuestionDialog, Title: title, Message: body,
 		Buttons: []string{confirmStartLabel, confirmCancel}, DefaultButton: def, CancelButton: cancel,
 	})
-	if derr != nil {
-		return false, fmt.Errorf("%w: %v", errNoNativeDialog, derr)
+	if errors.Is(err, errDialogBusy) {
+		return false, err
+	}
+	if err != nil {
+		return false, fmt.Errorf("%w: %v", errNoNativeDialog, err)
 	}
 	return choice == confirmStartLabel || choice == "Yes", nil
 }

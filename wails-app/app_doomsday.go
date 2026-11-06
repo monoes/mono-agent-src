@@ -9,6 +9,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -100,7 +101,11 @@ func (h *headTailBuffer) Write(p []byte) (int, error) {
 
 func (h *headTailBuffer) String() string {
 	if h.dropped {
-		return string(h.first) + "\n...\n" + string(h.last)
+		last := h.last
+		if i := bytes.IndexByte(last, '\n'); i >= 0 { // the tail begins at a line boundary, not in the middle of a line
+			last = last[i+1:]
+		}
+		return string(h.first) + "\n...\n" + string(last)
 	}
 	return string(h.first) + string(h.last)
 }

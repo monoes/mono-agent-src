@@ -121,7 +121,8 @@ func ValidateGUIStart(c Charter) error {
 // MaxDisplayRunes is the cap of every free text the render shows whole.
 const MaxDisplayRunes = 2000
 
-// charterStrings is every string inside v (a struct, slice or string), whatever the field is called.
+// charterStrings is every string inside v, whatever the field is called or how it is held: strings, structs, slices,
+// arrays, pointers, interfaces and maps (keys and values).
 func charterStrings(v reflect.Value) []string {
 	switch v.Kind() {
 	case reflect.String:
@@ -132,10 +133,22 @@ func charterStrings(v reflect.Value) []string {
 			out = append(out, charterStrings(v.Field(i))...)
 		}
 		return out
-	case reflect.Slice:
+	case reflect.Slice, reflect.Array:
 		var out []string
 		for i := 0; i < v.Len(); i++ {
 			out = append(out, charterStrings(v.Index(i))...)
+		}
+		return out
+	case reflect.Ptr, reflect.Interface:
+		if v.IsNil() {
+			return nil
+		}
+		return charterStrings(v.Elem())
+	case reflect.Map:
+		var out []string
+		for _, k := range v.MapKeys() {
+			out = append(out, charterStrings(k)...)
+			out = append(out, charterStrings(v.MapIndex(k))...)
 		}
 		return out
 	}

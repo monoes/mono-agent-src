@@ -15,7 +15,7 @@ export const LIMIT_KEYS = Object.keys(LIMIT_PRESETS.standard)
 // (control other than newline and tab, format such as zero-width, bidi and tag characters, separators, private use,
 // unassigned, variation selectors): the CLI refuses them, and so does the form, so Review does not fail on them.
 export const MAX_TEXT = 2000
-const HIDDEN = /[\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}\p{Zl}\p{Zp}\uFE00-\uFE0F\u{E0100}-\u{E01EF}\u2800\u3164\u115F\u1160\uFFA0\u034F]/u
+const HIDDEN = /[\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Cn}\p{Zl}\p{Zp}\uFE00-\uFE0F\u{E0100}-\u{E01EF}\u2800\u3164\u115F\u1160\uFFA0\u034F\u180B-\u180D\u180F\u17B4\u17B5]/u
 const ODD_SPACE = /\p{Zs}/u // any space that is not the plain one: no-break, ideographic, em and the like
 export const textProblem = s => [...String(s)].length > MAX_TEXT || [...String(s)].some(c => c !== '\n' && c !== '\t' && (HIDDEN.test(c) || (c !== ' ' && ODD_SPACE.test(c))))
 

@@ -354,7 +354,7 @@ func (a *App) OpenFolderFilesPicker(title string) []string {
 		return nil
 	}
 	info := func(t, m string) {
-		_, _ = runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{Type: runtime.InfoDialog, Title: dialogText(t), Message: dialogText(m)})
+		_, _ = showDialog(a, runtime.MessageDialogOptions{Type: runtime.InfoDialog, Title: t, Message: m})
 	}
 	w := walkFolderFiles(dir)
 	if w.over {
@@ -377,8 +377,8 @@ func (a *App) OpenFolderFilesPicker(title string) []string {
 	if w.skippedN > 0 {
 		msg += fmt.Sprintf("\n%d hidden, symlinked or unreadable entries will be skipped, e.g.:\n%s", w.skippedN, strings.Join(w.skipped, "\n"))
 	}
-	choice, err := runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
-		Type: runtime.QuestionDialog, Title: "Upload folder", Message: dialogText(msg),
+	choice, err := showDialog(a, runtime.MessageDialogOptions{
+		Type: runtime.QuestionDialog, Title: "Upload folder", Message: msg,
 		Buttons: []string{"Upload", "Cancel"}, DefaultButton: "Cancel", CancelButton: "Cancel",
 	})
 	if err != nil || choice != "Upload" {

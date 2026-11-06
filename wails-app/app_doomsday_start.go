@@ -255,6 +255,9 @@ func (a *App) DoomsdayStart(charterJSON, phrase, token string, bossSession int64
 	if !returned {
 		return startDoc("not_started", "", "the confirmation did not return in time; nothing started", "declined")
 	}
+	if errors.Is(err, errDialogBusy) {
+		return startDoc("not_started", "", err.Error(), "busy")
+	}
 	if err != nil {
 		return startDoc("not_started", "", err.Error(), "no_native_dialog")
 	}
@@ -278,7 +281,7 @@ func (a *App) DoomsdayStart(charterJSON, phrase, token string, bossSession int64
 	}
 	var ce struct{ Error, Code string }
 	_ = json.Unmarshal([]byte(lastJSONLine(out)), &ce)
-	detail := cliStderr([]byte(errText))
+	detail := tailLines(cliStderr([]byte(errText)), 4, 400) // the CLI's last words, not the charter it echoed
 	if ce.Error != "" {
 		detail, out = ce.Error, ""
 	}
@@ -379,4 +382,17 @@ func charterResult(out, errText string, truncated bool, err error) string {
 		return aiError(err)
 	}
 	return cliResultJSON("monoagentcli", []byte(out), nil)
+}
+
+// tailLines is the last n lines of s, at most maxRunes of them from the end.
+func tailLines(s string, n, maxRunes int) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	out := []rune(strings.Join(lines, "\n"))
+	if len(out) > maxRunes {
+		out = out[len(out)-maxRunes:]
+	}
+	return string(out)
 }

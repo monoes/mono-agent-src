@@ -1,12 +1,9 @@
 package main
 
-import "runtime"
-
 // dialogTextFor is s as a native dialog should be given it on goos. Wails v2.17.0 on Linux passes the message to
 // gtk_message_dialog_new as the printf FORMAT with no arguments (and the title is set apart), so every '%' is doubled
-// there; macOS (NSAlert) and Windows (MessageBox) show the text as it is. Every Wails dialog call of this module builds
-// its Title and Message with dialogText (TestEveryMessageDialogUsesDialogText); a bump of wails must be checked
-// against this behaviour.
+// there; macOS (NSAlert) and Windows (MessageBox) show the text as it is. showDialog applies it to the message (not
+// the title); a bump of wails must be checked against this behaviour.
 func dialogTextFor(goos, s string) string {
 	if goos == "windows" || goos == "darwin" {
 		return s
@@ -20,5 +17,3 @@ func dialogTextFor(goos, s string) string {
 	}
 	return string(out)
 }
-
-func dialogText(s string) string { return dialogTextFor(runtime.GOOS, s) }

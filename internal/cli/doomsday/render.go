@@ -36,7 +36,7 @@ func hiddenRune(r rune) bool {
 		return true
 	}
 	switch r {
-	case 0x2800, 0x3164, 0x115F, 0x1160, 0xFFA0, 0x034F: // blank-looking letters and the grapheme joiner
+	case 0x2800, 0x3164, 0x115F, 0x1160, 0xFFA0, 0x034F, 0x180B, 0x180C, 0x180D, 0x180F, 0x17B4, 0x17B5: // blank-looking letters and the grapheme joiner
 		return true
 	}
 	if unicode.Is(unicode.Zs, r) && r != ' ' { // no-break and other spaces that look like a space
