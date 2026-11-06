@@ -46,6 +46,14 @@ func TestNotDefendedIsTrueForEachOS(t *testing.T) {
 			t.Errorf("windows text lacks %q", want)
 		}
 	}
+	for _, want := range []string{"starts on Windows only when all its host checks", "weaker than on Linux", "undone", "in-place"} {
+		if !strings.Contains(win, want) {
+			t.Errorf("windows text lacks %q", want)
+		}
+	}
+	if strings.Contains(win, "not available yet") || strings.Contains(win, "does not start there") {
+		t.Errorf("windows text still says the mode does not start: %s", win)
+	}
 	if strings.Contains(win, refuses) {
 		t.Errorf("windows text keeps the Linux refusal sentence, which is not what happens there: %s", win)
 	}
@@ -60,10 +68,13 @@ func TestNotDefendedNamesTheProcessGroupLimitsOnDarwin(t *testing.T) {
 	mac := NotDefended("darwin")
 	for _, want := range []string{"does NOT defend", "process group", "best effort", "setsid", "setpgid", "double-forks", "NOT covered",
 		"stopped (best effort: processes that left the group are not covered)", "never a bare",
-		"starts on macOS only when all its host checks", "today it does not start there"} {
+		"starts on macOS only when all its host checks", "kqueue", "weaker than on Linux", "in-place"} {
 		if !strings.Contains(mac, want) {
 			t.Errorf("darwin text lacks %q", want)
 		}
+	}
+	if strings.Contains(mac, "does not start there") || strings.Contains(mac, "not available yet") {
+		t.Errorf("darwin text still says the mode does not start: %s", mac)
 	}
 	if strings.Contains(mac, "refuses to start where its processes cannot be contained") || strings.Contains(mac, "Job Object") || strings.Contains(mac, "no process containment") {
 		t.Errorf("darwin text keeps a sentence that is not true there: %s", mac)

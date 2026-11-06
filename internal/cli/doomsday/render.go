@@ -31,15 +31,21 @@ func containmentBullet(goos string) string {
     left the job is not covered (for example one started through another service),
     so Stop prints "stopped (best effort: processes that left the group are not covered)"
     and never a bare "stopped". The mode starts on Windows only when all its host checks
-    pass (lock, peer credentials, pinned database); they are not available yet, so today
-    it does not start there.`
+    pass on this machine (lock, peer identity of the emergency channel, pinned database).
+    The pinned database binding is weaker than on Linux: it rests on the system refusing to
+    delete or rename the held database files and their directories, and on comparing file
+    identities at each look; a swap that is undone again between two looks is not
+    remembered, and an in-place overwrite of the database file is not detected.`
 	case "darwin":
 		return `  - Its processes are held in a process group, which is best effort: a process that
     calls setsid or setpgid, or double-forks out of the group, is NOT covered and cannot
     be seen, so Stop prints "stopped (best effort: processes that left the group are not covered)"
     and never a bare "stopped". The mode starts on macOS only when all its host checks
-    pass (the process group, the pinned database binding); the pinned database binding is
-    not available yet, so today it does not start there.`
+    pass on this machine (the process group, lock, peer identity, pinned database). The
+    pinned database binding is weaker than on Linux: it watches the database files and their
+    directories with kqueue (an undone swap is still remembered) but not the names, so a file
+    created under a name that was empty is not reported, and an in-place overwrite of the
+    database file is not detected.`
 	}
 	return `  - This platform has no process containment: the mode does not start here.`
 }
