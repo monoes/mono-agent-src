@@ -17,6 +17,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/zalando/go-keyring"
 )
@@ -98,7 +99,12 @@ func runIn(m *testing.M) int {
 		fmt.Fprintln(os.Stderr, "testhome:", err)
 		return 1
 	}
-	defer os.RemoveAll(dir)
+	// TEMP/TMP point inside the home on Windows, and a directory that is the
+	// working directory cannot be removed there: step out, then retry.
+	defer func() {
+		leaveHome(dir)
+		removeHome(dir, os.RemoveAll, time.Sleep, os.Stderr)
+	}()
 	env, mkdirs := homeEnv(runtime.GOOS, dir)
 	for _, d := range mkdirs {
 		if err := os.MkdirAll(d, 0o700); err != nil {

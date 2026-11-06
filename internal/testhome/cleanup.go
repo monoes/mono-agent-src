@@ -20,11 +20,30 @@ const (
 // one-line note to w when it still fails. It never changes the run's exit
 // code. os.RemoveAll deletes a symlink or junction itself and does not follow
 // it, so nothing outside dir is touched.
-func removeHome(dir string, remove func(string) error, sleep func(time.Duration), w io.Writer) {}
+func removeHome(dir string, remove func(string) error, sleep func(time.Duration), w io.Writer) {
+	var err error
+	for i := 0; i < removeAttempts; i++ {
+		if err = remove(dir); err == nil {
+			return
+		}
+		if i < removeAttempts-1 {
+			sleep(removeWait)
+		}
+	}
+	fmt.Fprintf(w, "testhome: could not remove %s: %v\n", dir, err)
+}
 
 // leaveHome moves the process out of dir when its working directory is inside
 // it: Windows cannot remove a directory that is a process's working directory.
-func leaveHome(dir string) {}
+func leaveHome(dir string) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return
+	}
+	if inside(cwd, dir) {
+		_ = os.Chdir(filepath.Dir(dir))
+	}
+}
 
 // inside reports whether path is dir or lies under it, comparing the
 // symlink-resolved forms when both resolve.
