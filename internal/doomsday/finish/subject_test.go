@@ -26,14 +26,19 @@ func TestSnapshotDigestIsContentAndStructureAndTheCopyIsSealed(t *testing.T) {
 	if err := os.Symlink("a.txt", filepath.Join(root, "ln")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink("/etc/passwd", filepath.Join(root, "out")); err != nil {
+	// an absolute target on this OS ("/etc/passwd" is not absolute on Windows, which needs a drive)
+	outside, err := filepath.Abs(filepath.Join(t.TempDir(), "outside.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "out")); err != nil {
 		t.Fatal(err)
 	}
 	live, err := DigestTree(root, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(live.Flags) != 1 || live.Flags[0] != "out -> /etc/passwd" {
+	if len(live.Flags) != 1 || live.Flags[0] != "out -> "+outside {
 		t.Fatalf("flags %v", live.Flags)
 	}
 	dst := filepath.Join(t.TempDir(), "snap")

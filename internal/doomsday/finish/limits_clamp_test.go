@@ -107,7 +107,10 @@ func TestApplyLimitsSkipsTheAddressSpaceOnDarwinOnly(t *testing.T) {
 func minProcs(req uint64) uint64 {
 	var r unix.Rlimit
 	if err := unix.Getrlimit(unix.RLIMIT_NPROC, &r); err == nil && r.Max < req {
-		return r.Max
+		req = r.Max
+	}
+	if k, ok := kernMaxProcPerUID(); ok && k < req { // macOS caps what a program sees at kern.maxprocperuid
+		req = k
 	}
 	return req
 }

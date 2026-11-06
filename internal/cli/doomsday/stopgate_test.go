@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -102,6 +103,13 @@ func TestHostGateRefusesWhenItsHostLockFileWasRemoved(t *testing.T) {
 	}
 	if err := r.startTurn(); err != nil { // control: a second turn with the lock in place is fine
 		t.Fatalf("second turn: %v", err)
+	}
+	if runtime.GOOS == "windows" {
+		// safe by share mode: the lock handle is opened without FILE_SHARE_DELETE, so the file cannot be removed at all
+		if err := os.Remove(filepath.Join(r.gate.RunDir.Dir, "host.lock")); err == nil {
+			t.Fatal("a held host lock file was removed on Windows")
+		}
+		return
 	}
 	if err := os.Remove(filepath.Join(r.gate.RunDir.Dir, "host.lock")); err != nil {
 		t.Fatal(err)

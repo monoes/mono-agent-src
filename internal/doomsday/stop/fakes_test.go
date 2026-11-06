@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -360,14 +361,25 @@ func mustNoErr(t *testing.T, err error) {
 // 104 bytes and t.TempDir() under $TMPDIR is longer).
 func shortTempDir(t *testing.T) string {
 	t.Helper()
-	base := ""
-	if fi, err := os.Stat("/tmp"); err == nil && fi.IsDir() {
-		base = "/tmp"
+	base := os.TempDir() // never a fixed directory: on Windows C:\tmp may exist outside the test's scratch area
+	if runtime.GOOS != "windows" {
+		if fi, err := os.Stat("/tmp"); err == nil && fi.IsDir() {
+			base = "/tmp"
+		}
 	}
 	d, err := os.MkdirTemp(base, "ma")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(d) })
+	t.Cleanup(func() {
+		var rerr error
+		for i := 0; i < 30; i++ { // Windows refuses to remove a file something still has open: retry briefly
+			if rerr = os.RemoveAll(d); rerr == nil {
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		t.Logf("scratch directory left behind: %v", rerr)
+	})
 	return d
 }

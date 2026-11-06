@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"os"
 	"runtime"
 	"strings"
@@ -523,5 +524,29 @@ func TestEnforcerDoesNotEndTheHostWhileTheClosingGateDrains(t *testing.T) {
 	}
 	if n := exits.Load(); n != 0 {
 		t.Fatalf("the host ended itself %d times while the closing gate drained a starter", n)
+	}
+}
+
+// "No listener" is the same on every OS: a missing socket file, ECONNREFUSED, and WSAECONNREFUSED (Windows' 10061, a
+// different number). Anything else is not absence.
+func TestAbsentRecognisesWhatMeansNoListenerOnEveryOS(t *testing.T) {
+	dial := func(e error) error {
+		return &net.OpError{Op: "dial", Net: "unix", Err: os.NewSyscallError("connect", e)}
+	}
+	for name, err := range map[string]error{
+		"missing":   dial(os.ErrNotExist),
+		"refused":   dial(syscall.ECONNREFUSED),
+		"wsa 10061": dial(syscall.Errno(10061)),
+	} {
+		if !absent(err) {
+			t.Errorf("%s is not absence", name)
+		}
+	}
+	for name, err := range map[string]error{
+		"timeout": dial(syscall.ETIMEDOUT), "reset": dial(syscall.ECONNRESET), "denied": dial(syscall.EACCES), "wsa reset 10054": dial(syscall.Errno(10054)),
+	} {
+		if absent(err) {
+			t.Errorf("%s counted as absence", name)
+		}
 	}
 }

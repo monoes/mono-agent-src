@@ -236,8 +236,12 @@ func (l ProcessHostLink) CloseHost(ctx context.Context, gen uint64) HostOutcome 
 
 // absent says the dial failed because no process listens: the socket file is missing or nobody holds it.
 func absent(err error) bool {
-	return errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED)
+	return errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, wsaConnRefused)
 }
+
+// wsaConnRefused is WSAECONNREFUSED (10061), what Windows answers for a dial to a socket file nobody listens on. It is not
+// syscall.ECONNREFUSED there (a different number), and without it a stale socket reads as a host that refused.
+const wsaConnRefused = syscall.Errno(10061)
 
 // HostWatcher runs in the host, per generation: it polls the marker and the run state (250 ms, a target, not a
 // guarantee), and on a stop (or an emergency message, Kick) closes the gate, writes the ack, and keeps the crash-only

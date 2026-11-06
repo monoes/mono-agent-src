@@ -309,6 +309,7 @@ func TestJobProbeRunsTheSelfTestAndRefusesOffWindows(t *testing.T) {
 	if err := (jobContainment{}).Probe(); !errors.Is(err, ErrContainmentUnavailable) {
 		t.Fatalf("no Windows API: %v", err)
 	}
+	swapContainment(t, KindJobObject, jobContainment{}) // the kind with no Windows API, whatever this host is (a real Windows would answer)
 	if err := probe("windows", func() []ProbeStep { t.Fatal("linux steps consulted"); return nil }); !errors.Is(err, ErrContainmentUnavailable) {
 		t.Fatalf("off Windows the job kind refuses: %v", err)
 	}
