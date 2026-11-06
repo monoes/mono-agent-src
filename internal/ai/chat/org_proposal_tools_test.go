@@ -431,3 +431,22 @@ func TestAGrantProposalIsJudgedOnTheHybridStoresWorkflow(t *testing.T) {
 		}
 	})
 }
+
+// A conversation id made only of control or format characters cleans to nothing; it must not land in the operator's
+// empty-label bucket, so the label is cleaned first and the unscoped one takes over when nothing is left.
+func TestAConversationIdThatCleansToNothingFallsBackToTheUnscopedLabel(t *testing.T) {
+	f := newProposalToolFixture(t)
+	f.mt.SetConversationID("‮​\x07\x00")
+	out, err := f.mt.Execute("set_org_autonomy", `{"org_name":"growth","level":"mid"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _ := decodeResult(t, out)["proposal_id"].(string)
+	p, err := orgproposal.NewStore(f.db.DB).Get(context.Background(), "p1", id)
+	if err != nil {
+		t.Fatalf("proposal %q: %v (%s)", id, err, out)
+	}
+	if p.ConversationID != UnscopedChatLabel {
+		t.Fatalf("label %q, want %q", p.ConversationID, UnscopedChatLabel)
+	}
+}
