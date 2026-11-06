@@ -7,7 +7,7 @@ import (
 	"syscall"
 )
 
-func hardLinked(info fs.FileInfo) bool {
+func hardLinked(_ string, info fs.FileInfo) bool {
 	st, ok := info.Sys().(*syscall.Stat_t)
 	return ok && st.Nlink > 1
 }

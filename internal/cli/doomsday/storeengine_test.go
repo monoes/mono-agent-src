@@ -89,3 +89,32 @@ func TestMappingKeepsEveryField(t *testing.T) {
 		}
 	}
 }
+
+// The containment probe is part of Enter, not of the CLI verb: any starter that calls Enter is refused when a step of
+// the probe fails, before the witness, a unit or the store is touched.
+func TestEnterRefusesWhenTheContainmentProbeFailsAndTouchesNothing(t *testing.T) {
+	file := writeCharter(t, goodCharter)
+	e := realEngine(t)
+	canon, err := e.Canonical(context.Background(), mustCharter(t, file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, began := 0, 0
+	e.CreateUnit = func(context.Context, int64) (func(context.Context) error, error) {
+		created++
+		return func(context.Context) error { return nil }, nil
+	}
+	e.BeginEntry = func(context.Context, int64) error { began++; return nil }
+	e.ContainmentProbe = func() error { return errors.New("pinned database binding: the volume is FAT") }
+	_, err = e.Enter(context.Background(), canon, canon.Hash, Ack{Kind: "script"})
+	if err == nil || !strings.Contains(err.Error(), "pinned database binding") || created != 0 || began != 0 {
+		t.Fatalf("Enter went on with a failing probe: %v created=%d began=%d", err, created, began)
+	}
+	if s, _ := e.Status(context.Background()); s.Active {
+		t.Fatal("a run exists")
+	}
+	e.ContainmentProbe = nil
+	if _, err := e.Enter(context.Background(), canon, canon.Hash, Ack{Kind: "script"}); err == nil || created != 0 {
+		t.Fatalf("Enter went on with no probe wired: %v", err)
+	}
+}

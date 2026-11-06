@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/doomsday/stop"
 )
 
 // Deps is what the commands need from the CLI.
@@ -264,6 +265,10 @@ func (d Deps) newStop() *cobra.Command {
 			case len(o.Incomplete) > 0:
 				fmt.Fprintln(out, "NOT stopped:\n  "+strings.Join(o.Incomplete, "\n  "))
 				return errors.New("the run is not fully stopped")
+			}
+			if o.BestEffort {
+				fmt.Fprintln(out, "stopped ("+stop.BestEffortNote+")")
+				return nil
 			}
 			fmt.Fprintln(out, "stopped")
 			return nil

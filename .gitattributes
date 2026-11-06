@@ -1,0 +1,2 @@
+# the golden documents are compared byte for byte: never CRLF
+internal/cli/doomsday/testdata/*.golden.json text eol=lf

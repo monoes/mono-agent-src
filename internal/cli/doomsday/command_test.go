@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -263,6 +264,10 @@ func TestRenderWritesNothingAndStatesWhatIsNotDefended(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("render lacks %q", want)
 		}
+	}
+	// The limits printed are those of THIS OS (the last bullet is true per OS), not a fixed Linux sentence.
+	if !strings.Contains(out, NotDefended(runtime.GOOS)) {
+		t.Errorf("render does not carry the not-defended text of %s", runtime.GOOS)
 	}
 }
 

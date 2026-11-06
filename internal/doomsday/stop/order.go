@@ -62,6 +62,9 @@ const (
 	UnitNotProven
 	// UnitNone: the run never had a unit (nothing to end).
 	UnitNone
+	// UnitBestEffort: the unit is gone as far as its group can tell, but the mechanism cannot prove that no process
+	// left the group (a Windows Job Object, a macOS process group). It is never reported as a bare "stopped".
+	UnitBestEffort
 )
 
 // UnitOutcome is what Ender.End returns.
@@ -112,8 +115,20 @@ func (r Report) done(name string) bool {
 }
 
 // Stopped is true only when every step is recorded and the run is quiescent: no survivor, no unknown process,
-// no live member, the barrier reached.
-func (r Report) Stopped() bool {
+// no live member, the barrier reached, and the unit's end PROVEN. A best-effort unit is never Stopped.
+func (r Report) Stopped() bool { return !r.bestEffort() && r.settled() }
+
+// StoppedBestEffort is true when everything Stopped needs holds except that the unit's mechanism cannot prove that no
+// process left the group (UnitBestEffort). It is the only way such a platform is reported as ended.
+func (r Report) StoppedBestEffort() bool { return r.bestEffort() && r.settled() }
+
+// bestEffort: the unit's end is best effort, or there was no unit on a platform whose only containment is best effort
+// (a run without a unit proves nothing about its processes there).
+func (r Report) bestEffort() bool {
+	return r.Unit.Kind == UnitBestEffort || (r.Unit.Kind == UnitNone && hostGOOS != "linux")
+}
+
+func (r Report) settled() bool {
 	if r.Final != StateQuiescent {
 		return false
 	}
@@ -125,9 +140,12 @@ func (r Report) Stopped() bool {
 	return true
 }
 
-// ExitCode is non-zero unless Stopped.
+// BestEffortNote is the limit a best-effort stop states wherever it says "stopped".
+const BestEffortNote = "best effort: processes that left the group are not covered"
+
+// ExitCode is non-zero unless Stopped or StoppedBestEffort.
 func (r Report) ExitCode() int {
-	if r.Stopped() {
+	if r.Stopped() || r.StoppedBestEffort() {
 		return 0
 	}
 	return 1
@@ -173,6 +191,8 @@ func (r Report) Lines() []string {
 	}
 	if r.Stopped() {
 		out = append(out, fmt.Sprintf("generation %d stopped (quiescent)", r.Generation))
+	} else if r.StoppedBestEffort() {
+		out = append(out, fmt.Sprintf("generation %d stopped (%s)", r.Generation, BestEffortNote))
 	} else {
 		out = append(out, fmt.Sprintf("generation %d NOT stopped: state %s", r.Generation, r.Final))
 	}
@@ -303,7 +323,7 @@ func (r Report) hostClean() bool {
 
 func unitErr(u UnitOutcome) error {
 	switch u.Kind {
-	case UnitEnded, UnitNone:
+	case UnitEnded, UnitNone, UnitBestEffort:
 		return nil
 	}
 	return fmt.Errorf("unit not proven gone (%d)", u.Kind)
