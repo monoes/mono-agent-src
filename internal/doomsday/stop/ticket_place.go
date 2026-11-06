@@ -69,7 +69,7 @@ var ErrNotPlaced = errors.New("stop: the process cannot be placed in the run's c
 
 // NewPlacer reads the generation's unit record from the run directory (the record Create wrote before the run
 // existed). No record, no placer.
-func NewPlacer(k Kernel, dir RunDir, gen uint64) (*Placer, error) {
+func NewPlacer(k Kernel, dir RunDir, gen uint64) (Placement, error) {
 	if k == nil {
 		return nil, fmt.Errorf("%w: no containment kernel is wired", ErrNotPlaced)
 	}
@@ -83,7 +83,11 @@ func NewPlacer(k Kernel, dir RunDir, gen uint64) (*Placer, error) {
 	if rec.Generation != gen {
 		return nil, fmt.Errorf("%w: the unit record names generation %d, not %d", ErrNotPlaced, rec.Generation, gen)
 	}
-	return &Placer{K: k, Rec: rec}, nil
+	mk, ok := containments[rec.Kind]
+	if !ok {
+		return nil, fmt.Errorf("%w: unknown unit kind %q", ErrNotPlaced, rec.Kind)
+	}
+	return mk(k, nil).Place(rec)
 }
 
 // Place makes cmd start in a fresh ticket sub-cgroup of the unit. release closes the descriptor and removes the

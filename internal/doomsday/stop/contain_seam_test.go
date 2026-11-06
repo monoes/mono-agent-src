@@ -1,13 +1,15 @@
 package stop
 
 import (
+	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
 // recContainment records that the seam, not the Linux code directly, answered.
 type recContainment struct {
-	probed, proved int
+	probed, proved, created, placed, present int
 }
 
 func (*recContainment) Kind() string { return KindCgroup2 }
@@ -19,6 +21,12 @@ func (r *recContainment) Prove(UnitRecord) (Proof, error) {
 	r.proved++
 	return Proof{Note: "seam"}, nil
 }
+func (r *recContainment) Create(context.Context, CreateArgs, uint64) (UnitRecord, error) {
+	r.created++
+	return UnitRecord{Kind: r.Kind()}, nil
+}
+func (r *recContainment) Place(UnitRecord) (Placement, error) { r.placed++; return nil, nil }
+func (r *recContainment) Present(UnitRecord) (bool, error)    { r.present++; return false, nil }
 
 func swapContainment(t *testing.T, kind string, c Containment) {
 	t.Helper()
@@ -97,5 +105,33 @@ func TestMalformedKindsAreRefused(t *testing.T) {
 		if _, err := ProveUnit(newFakeKernel(), rec); !errors.Is(err, ErrNotProven) {
 			t.Fatalf("%q: %v", kind, err)
 		}
+	}
+}
+
+// The Linux unit's absence check (used after its service was stopped) is the old OpenCgroup/IsAbsent decision.
+func TestCgroup2PresentFollowsTheKernel(t *testing.T) {
+	k := newFakeKernel()
+	c := cgroup2Containment{k: k}
+	if present, err := c.Present(testRecord()); err != nil || !present {
+		t.Fatalf("an openable cgroup is present: %v %v", present, err)
+	}
+	k.absent = true
+	if present, err := c.Present(testRecord()); err != nil || present {
+		t.Fatalf("an absent cgroup is not present: %v %v", present, err)
+	}
+}
+
+// A Linux unit's stop after the service stopped reports a cgroup that is still there as a straggler, never ended.
+func TestStopServiceReportsAUnitThatIsStillPresent(t *testing.T) {
+	k := newFakeKernel()
+	rec := testRecord()
+	u := UnitEnder{K: k, StopUnit: func(context.Context, string) error { return nil }}
+	out := u.stopService(bg, rec, UnitOutcome{Kind: UnitEnded})
+	if out.Kind != UnitStragglers || len(out.Survivors) != 1 || !strings.Contains(out.Survivors[0].Why, "cgroup is still present") {
+		t.Fatalf("%+v", out)
+	}
+	k.absent = true
+	if out := u.stopService(bg, rec, UnitOutcome{Kind: UnitEnded}); out.Kind != UnitEnded {
+		t.Fatalf("%+v", out)
 	}
 }

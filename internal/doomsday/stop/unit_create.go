@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"runtime"
 )
 
 // UnitHost is the seam over the service manager: it starts and stops the transient service whose cgroup is the
@@ -47,6 +48,20 @@ func (c UnitCreator) random() io.Reader {
 		return c.Rand
 	}
 	return rand.Reader
+}
+
+// CreateUnit creates the run's unit through the Containment this platform starts (platformKinds[GOOS]); where there
+// is none, no unit exists and the mode does not start.
+func CreateUnit(ctx context.Context, k Kernel, a CreateArgs, gen uint64) (UnitRecord, error) {
+	return createUnit(ctx, runtime.GOOS, k, a, gen)
+}
+
+func createUnit(ctx context.Context, goos string, k Kernel, a CreateArgs, gen uint64) (UnitRecord, error) {
+	kind, ok := platformKinds[goos]
+	if !ok {
+		return UnitRecord{}, fmt.Errorf("%w: %s has no containment", ErrUnitNotCreated, goos)
+	}
+	return containments[kind](k, nil).Create(ctx, a, gen)
 }
 
 // Create starts the unit of the generation, proves it with the same checks recovery will use (so a record that

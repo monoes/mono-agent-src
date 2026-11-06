@@ -57,7 +57,7 @@ func (e *FinishEngine) sandbox(gen int64) func(ctx context.Context, round int64)
 			return finish.Sandbox{}, nil, fmt.Errorf("no witness, so no verification unit can be recorded: %w", err)
 		}
 		dir := e.unitDir(gen, round)
-		rec, err := (stop.UnitCreator{K: w.Kernel, Dir: dir, Host: w.Host, Journal: seq}).Create(ctx, uint64(gen))
+		rec, err := stop.CreateUnit(ctx, w.Kernel, stop.CreateArgs{Dir: dir, Host: w.Host, Journal: seq}, uint64(gen))
 		if err != nil {
 			return finish.Sandbox{}, nil, err
 		}

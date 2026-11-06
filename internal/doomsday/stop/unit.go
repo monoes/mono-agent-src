@@ -27,6 +27,10 @@ type UnitRecord struct {
 	// process as a member.
 	AnchorPID   int    `json:"anchor_pid,omitempty"`
 	AnchorStamp string `json:"anchor_stamp,omitempty"`
+	// Handle is the opaque, per-Kind identity of a unit that is not a cgroup (JSON text, decoded only by the
+	// mechanism of Kind). Empty for the Linux unit, whose fields above are its handle; kept a string so a record
+	// stays comparable.
+	Handle string `json:"handle,omitempty"`
 }
 
 var unitName = regexp.MustCompile(`^monoagent-run-([0-9]+)-([0-9a-f]{32})\.service$`)
@@ -69,9 +73,12 @@ type CgroupIdentity struct {
 	IsCgroup2 bool
 }
 
-// Cgroup is an opened cgroup directory. Every operation after the identity check goes through the descriptor
-// opened by the check, never through the path again (P6).
-type Cgroup interface {
+// Cgroup is the Linux name of a Group, kept so existing code and tests read unchanged.
+type Cgroup = Group
+
+// Group is an opened containment unit (a cgroup directory on Linux, a Job Object on Windows). Every operation after
+// the identity check goes through the handle opened by the check, never through the name or path again (P6).
+type Group interface {
 	Identity() (CgroupIdentity, error)
 	Subgroups() ([]string, error)
 	Procs(sub string) ([]int, error)
@@ -107,7 +114,9 @@ type Proof struct {
 	Gone              bool // proven gone (a reboot, or the cgroup is absent): nothing to signal
 	ManagerUnverified bool // P5: the manager did not answer; advisory only, does not block
 	Cg                Cgroup
-	Note              string
+	// BestEffort: the mechanism cannot prove that no process left the group; an end of this unit is UnitBestEffort.
+	BestEffort bool
+	Note       string
 }
 
 // ProveUnit proves the identity of a recorded unit through the Containment of its Kind. Any failed check returns

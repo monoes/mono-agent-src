@@ -68,6 +68,11 @@ func waitEmpty(cg Cgroup, sub string, clk Clock, d, poll time.Duration) bool {
 // signalled because every operation is relative to the descriptor.
 func EndUnit(cg Cgroup, cfg EndConfig) UnitOutcome {
 	cfg = cfg.norm()
+	if f, ok := cg.(interface{ Flat() bool }); ok && f.Flat() && len(cfg.Exclude) > 0 {
+		// A group without sub-units cannot spare the commands of a begun operation: it is left alone until the
+		// operation finishes (the Stop stays pending), never ended around it.
+		return UnitOutcome{Kind: UnitEnded, Note: "a begun operation is finishing in a unit that cannot spare it; the unit was not ended"}
+	}
 	subs, err := cg.Subgroups()
 	if err != nil {
 		return UnitOutcome{Kind: UnitNotProven, Note: fmt.Sprintf("the unit cannot be enumerated: %v", err)}
@@ -215,12 +220,18 @@ func (u UnitEnder) endOne(ctx context.Context, rec UnitRecord, cfg EndConfig) Un
 		return UnitOutcome{Kind: UnitNotProven, Note: err.Error()}
 	}
 	if p.Gone {
+		if p.BestEffort {
+			return UnitOutcome{Kind: UnitBestEffort, Note: p.Note}
+		}
 		return UnitOutcome{Kind: UnitEnded, Note: p.Note}
 	}
-	defer p.Cg.Close()
 	out := EndUnit(p.Cg, cfg)
+	p.Cg.Close() // before the absence check: an open handle keeps a Job Object alive
 	if out.Kind == UnitEnded && len(cfg.Exclude) == 0 && u.StopUnit != nil {
 		out = u.stopService(ctx, rec, out)
+	}
+	if p.BestEffort && out.Kind == UnitEnded {
+		out.Kind = UnitBestEffort
 	}
 	return out
 }
@@ -236,13 +247,20 @@ func (u UnitEnder) stopService(ctx context.Context, rec UnitRecord, out UnitOutc
 	if err := u.StopUnit(ctx, rec.Name); err != nil {
 		return left("the unit's service could not be stopped: " + err.Error())
 	}
-	cg, err := u.K.OpenCgroup(rec.CgroupPath)
+	mk, ok := containments[rec.Kind]
+	if !ok {
+		return left("the unit's kind is unknown, so its absence cannot be checked: " + rec.Kind)
+	}
+	what := "cgroup"
+	if rec.Kind != KindCgroup2 {
+		what = "group"
+	}
+	present, err := mk(u.K, nil).Present(rec)
 	switch {
-	case err == nil:
-		cg.Close()
-		return left("the unit's cgroup is still present after its service was stopped")
-	case !u.K.IsAbsent(err):
-		return left("the unit's cgroup cannot be checked after its service was stopped: " + err.Error())
+	case err != nil:
+		return left("the unit's " + what + " cannot be checked after its service was stopped: " + err.Error())
+	case present:
+		return left("the unit's " + what + " is still present after its service was stopped")
 	}
 	return out
 }
