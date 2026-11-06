@@ -25,6 +25,7 @@ build -tags desktop,production,devaccount -o "$work/bin/tagged-among-others" .
 build -tags desktop,production -o "$work/bin/other-tags" .
 build -tags releasee2e -o "$work/bin/e2e-tagged" .
 build -tags e2estub -o "$work/bin/stub-tagged" .
+build -tags e2ehost -o "$work/bin/host-tagged" .
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 build -tags devaccount -o "$work/bin/tagged.exe" .
 
 # expect_ok / expect_fail run the guard and check its exit status (and, for a failure, that it
@@ -48,6 +49,7 @@ expect_fail "the tag among others" tagged-among-others "$work/bin/tagged-among-o
 expect_fail "a tagged Windows binary" tagged.exe "$work/bin/tagged.exe"
 expect_fail "the release e2e test tag" e2e-tagged "$work/bin/e2e-tagged"
 expect_fail "the stub-runtime e2e tag" stub-tagged "$work/bin/stub-tagged"
+expect_fail "the browser e2e host tag" host-tagged "$work/bin/host-tagged"
 
 # A folder: one tagged binary among clean ones, and a file that is not a binary.
 mkdir "$work/flat"
