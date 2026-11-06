@@ -186,13 +186,20 @@ const chatModeLockedMessage = "the chat mode is chosen before the first message 
 
 // chatModeOptions are the three choices at an access level: mission and open need mission access, open also needs the
 // open-ended mode to be available (coderhost.OpenModeAvailability).
-func chatModeOptions(access string) []chatModeOption {
+func chatModeOptions(access string) []chatModeOption { return chatModeOptionsFor(access, true) }
+
+// chatModeOptionsFor is chatModeOptions; probe false does not ask the open mode's availability (a real probe) and offers
+// it as unavailable. The view of a chat whose mode is locked uses it: nothing can be chosen there, and the app reads
+// that view every few seconds.
+func chatModeOptionsFor(access string, probe bool) []chatModeOption {
 	needs := ""
 	if !dynorg.MissionAccess(access) {
 		needs = missionNeedsAccess(access)
 	}
 	open := chatModeOption{Mode: coderhost.ChatModeOpen, Available: needs == "", Reason: needs}
-	if ok, reason := coderhost.OpenModeAvailability(); !ok {
+	if !probe {
+		open.Available, open.Reason = false, chatModeLockedMessage
+	} else if ok, reason := coderhost.OpenModeAvailability(); !ok {
 		open.Available, open.Reason = false, reason
 	}
 	return []chatModeOption{
@@ -203,11 +210,12 @@ func chatModeOptions(access string) []chatModeOption {
 }
 
 func chatModeOf(ctx context.Context, db tasks.Queryer, profileID string, conv ai.Conversation, mode string) chatModeView {
-	v := chatModeView{Mode: mode, Options: chatModeOptions(conv.EffectiveAccess())}
+	v := chatModeView{Mode: mode}
 	if locked, err := coderhost.ChatModeLockedIn(ctx, db, profileID, conv.ID); err != nil {
 		v.Locked, v.Reason = true, "the chat mode could not be checked, so it stays as it is: "+err.Error()
 	} else if locked {
 		v.Locked, v.Reason = true, chatModeLockedMessage
 	}
+	v.Options = chatModeOptionsFor(conv.EffectiveAccess(), !v.Locked)
 	return v
 }

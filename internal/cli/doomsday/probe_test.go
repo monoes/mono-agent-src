@@ -16,7 +16,7 @@ type bindingEngine struct {
 	err     error
 }
 
-func (b *bindingEngine) RequireBinding(context.Context) error { return b.binding }
+func (b *bindingEngine) RequireBinding(context.Context) error   { return b.binding }
 func (b *bindingEngine) Status(context.Context) (Status, error) { return b.status, b.err }
 
 func probeOf(t *testing.T, e Engine) ProbeResult {
