@@ -47,7 +47,7 @@ describe('the budget is chosen, never defaulted', () => {
   it('converts dollars to micro-dollars without float drift', () => {
     expect(usdToMicro('0.1')).toBe(100000)
     expect(usdToMicro('19.99')).toBe(19990000)
-    expect(usdToMicro('0.0000001')).toBe(0)
+    expect(usdToMicro('0.0000001')).toBeNaN() // finer than a micro-dollar is refused, not rounded
   })
 })
 
