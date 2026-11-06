@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -117,7 +118,10 @@ func newOrgProposalCreateCmd(env *orgEnv) *cobra.Command {
 			p, err := orgproposal.NewStore(db.DB).Create(ctx, orgproposal.Input{ProfileID: profileID, Org: doc.Name, ConversationID: conversation,
 				Verb: verb, Target: plan.Target, ArgsJSON: plan.ArgsJSON, PreviewText: plan.Preview, StateDigest: plan.Digest, CreatedBy: by})
 			if err != nil {
-				return env.proposalErr(err)
+				if known := env.proposalErr(err); known != err {
+					return known
+				}
+				return fmt.Errorf("the proposal could not be stored; try again, or check the database") // not the database's own text
 			}
 			return printJSONValue(map[string]interface{}{"v": 1, "proposal": env.proposalView(ctx, db, profileID, root, p)})
 		},
