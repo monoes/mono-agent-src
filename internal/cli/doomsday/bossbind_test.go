@@ -181,3 +181,54 @@ func TestBossOfRequiresTopLevelAndTheCurrentGeneration(t *testing.T) {
 		t.Fatalf("a stamped child was taken for the boss: %d %v %v", id, ok, err)
 	}
 }
+
+// The boss is checked BEFORE the run starts: a stale, archived-or-child or unknown session id must leave no started
+// full-access run behind (Enter creates the run; BindBoss alone cannot undo it).
+func TestAnIneligibleBossIsRefusedBeforeAnythingStarts(t *testing.T) {
+	r := newFinRig(t, finishCharterJSON)
+	ctx := context.Background()
+	top := r.topLead(t, "conv-top")
+	if err := r.w.checkBoss(ctx, top); err != nil {
+		t.Fatalf("an eligible lead was refused: %v", err)
+	}
+	kid, err := tasks.NewStore(r.w.DB).CreateSession(ctx, "p1", tasks.SessionInput{Title: "kid", Goal: "g", ParentSessionID: top,
+		Kind: tasks.SessionKindDirection, BudgetUSD: 1, MaxTasks: 1}, tasks.Actor{Kind: tasks.Human, Name: "operator"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, id := range map[string]int64{"unknown": 99999, "child": kid.ID} {
+		if err := r.w.checkBoss(ctx, id); err == nil {
+			t.Errorf("%s session %d was accepted as a boss", name, id)
+		}
+	}
+}
+
+type bossCheckEngine struct {
+	fakeEngine
+	checkErr error
+	bound    []int64
+}
+
+func (b *bossCheckEngine) CheckBoss(context.Context, int64) error { return b.checkErr }
+func (b *bossCheckEngine) BindBoss(_ context.Context, s int64, _ Entry) error {
+	b.bound = append(b.bound, s)
+	return nil
+}
+
+func TestStartChecksTheBossBeforeEnterAndRefusesABossItCannotRecord(t *testing.T) {
+	file := writeCharter(t, goodCharter)
+	e := &bossCheckEngine{checkErr: errors.New("session 9 is not an open top-level lead")}
+	r := newRig()
+	r.deps.Engine = func() Engine { return e }
+	h := fullHash(t, r, file)
+	_, err := run(t, r.deps, "", "start", "--charter", file, "--yes-i-lift", "--hash", h, "--boss-session", "9")
+	if err == nil || len(e.enters) != 0 || len(e.bound) != 0 {
+		t.Fatalf("a run started for an ineligible boss: %v enters=%d", err, len(e.enters))
+	}
+	// an engine that cannot record a boss at all refuses before it starts, too
+	r2 := newRig()
+	h2 := fullHash(t, r2, file)
+	if _, err := run(t, r2.deps, "", "start", "--charter", file, "--yes-i-lift", "--hash", h2, "--boss-session", "9"); err == nil || len(r2.e.enters) != 0 {
+		t.Fatalf("a run started with a boss no engine can record: %v", err)
+	}
+}
