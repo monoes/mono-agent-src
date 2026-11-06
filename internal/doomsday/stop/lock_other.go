@@ -15,3 +15,8 @@ func AcquireHost(RunDir) (func(), error) { return nil, errLockUnsupported }
 
 // flock has no implementation here (host_probe.go and the lock helpers are compiled everywhere).
 func flock(string, bool) (func(), error) { return nil, errLockUnsupported }
+
+// ErrHostLockLost and VerifyHostLock exist for the callers that compile everywhere; no lock is ever held here.
+var ErrHostLockLost = errors.New("stop: the host lock file was removed or replaced, so this host is no longer the only one")
+
+func VerifyHostLock(RunDir) error { return nil }

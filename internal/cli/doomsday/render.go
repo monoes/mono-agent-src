@@ -25,7 +25,9 @@ func containmentBullet(goos string) string {
 	switch goos {
 	case "linux":
 		return `  - The mode refuses to start where its processes cannot be contained, and a second
-    host on the same database is refused; it does not defend against anything else.`
+    host on the same database is refused; it does not defend against anything else.
+    A database on a network, FUSE or WSL-mounted (for example /mnt/c) filesystem is not
+    detected: changes made by another client of such a filesystem are not seen.`
 	case "windows":
 		return `  - Its processes are held in a Job Object, which is best effort: a process that
     left the job is not covered (for example one started through another service),
@@ -33,7 +35,7 @@ func containmentBullet(goos string) string {
     and never a bare "stopped". The mode starts on Windows only when all its host checks
     pass when it starts, on the volume of the database and the run directory (lock, peer
     identity of the emergency channel, pinned database); they are not re-run when a host
-    resumes. At the start the probe tries, next to the database, to move, replace and
+    resumes (they do run again for each verification unit). At the start the probe tries, next to the database, to move, replace and
     remove the database, its -wal and -shm and their directory, and requires the system
     to refuse it or the binding to report it. Beyond that the pinned database binding is
     weaker than on Linux, and what follows is by design and has not been verified on real
@@ -48,7 +50,7 @@ func containmentBullet(goos string) string {
     be seen, so Stop prints "stopped (best effort: processes that left the group are not covered)"
     and never a bare "stopped". The mode starts on macOS only when all its host checks
     pass when it starts, on the volume of the database and the run directory (the process
-    group, lock, peer identity, pinned database); they are not re-run when a host resumes.
+    group, lock, peer identity, pinned database); they are not re-run when a host resumes (they do run again for each verification unit).
     At the start the probe tries, next to the database, to move, replace and remove the
     database, its -wal and -shm and their directory, and to move the database away and back,
     and requires the binding to report each. The pinned database binding is weaker than on

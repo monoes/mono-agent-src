@@ -37,6 +37,11 @@ func TestStopBestEffortDoesNotSoftenAFailure(t *testing.T) {
 func TestNotDefendedIsTrueForEachOS(t *testing.T) {
 	const refuses = "refuses to start where its processes cannot be contained"
 	lin := NotDefended("linux")
+	for _, want := range []string{"network", "FUSE", "WSL", "not detected"} {
+		if !strings.Contains(oneLine(lin), want) {
+			t.Errorf("linux text lacks %q", want)
+		}
+	}
 	if !strings.Contains(lin, refuses) || strings.Contains(lin, "best effort") {
 		t.Fatalf("linux: %s", lin)
 	}
@@ -46,7 +51,7 @@ func TestNotDefendedIsTrueForEachOS(t *testing.T) {
 			t.Errorf("windows text lacks %q", want)
 		}
 	}
-	for _, want := range []string{"starts on Windows only when all its host checks", "weaker than on Linux", "undone", "in-place", "planted", "NTFS", "64-bit", "SQLite", "by design", "not re-run when a host resumes", "-wal"} {
+	for _, want := range []string{"starts on Windows only when all its host checks", "weaker than on Linux", "undone", "in-place", "planted", "NTFS", "64-bit", "SQLite", "by design", "not re-run when a host resumes", "-wal", "each verification unit"} {
 		if !strings.Contains(win, want) {
 			t.Errorf("windows text lacks %q", want)
 		}
@@ -68,7 +73,7 @@ func TestNotDefendedNamesTheProcessGroupLimitsOnDarwin(t *testing.T) {
 	mac := oneLine(NotDefended("darwin"))
 	for _, want := range []string{"does NOT defend", "process group", "best effort", "setsid", "setpgid", "double-forks", "NOT covered",
 		"stopped (best effort: processes that left the group are not covered)", "never a bare",
-		"starts on macOS only when all its host checks", "kqueue", "weaker than on Linux", "in-place", "planted", "APFS", "by design", "not been verified", "not re-run when a host resumes", "-wal"} {
+		"starts on macOS only when all its host checks", "kqueue", "weaker than on Linux", "in-place", "planted", "APFS", "by design", "not been verified", "not re-run when a host resumes", "-wal", "each verification unit"} {
 		if !strings.Contains(mac, want) {
 			t.Errorf("darwin text lacks %q", want)
 		}
