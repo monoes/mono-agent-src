@@ -22,12 +22,19 @@ type fakeWinProc struct {
 type fakeWin struct {
 	procs     map[int]*fakeWinProc
 	jobs      map[string]*fakeWinJob
+	holder    map[string]int // job name -> the anchor holding its last handle
+	visible   map[string]int // a terminated job stays openable for this many more looks (handles close late)
 	next      int
 	self      int
+	session   int
+	lingers   int
 	failAt    string // "create", "adopt", "anchor"
 	killed    []int
 	parentFor []int
 	terminate int
+
+	terminateErr, memberErr, killAnchorErr, parentErr error
+	childOutside                                      bool // a child born under the anchor does NOT join the job
 }
 
 type fakeWinJob struct {
@@ -36,7 +43,8 @@ type fakeWinJob struct {
 }
 
 func newFakeWin() *fakeWin {
-	w := &fakeWin{procs: map[int]*fakeWinProc{}, jobs: map[string]*fakeWinJob{}, next: 100, self: 1}
+	w := &fakeWin{procs: map[int]*fakeWinProc{}, jobs: map[string]*fakeWinJob{}, holder: map[string]int{},
+		visible: map[string]int{}, next: 100, self: 1}
 	w.procs[1] = &fakeWinProc{stamp: "s-self", comm: "monoagentcli.exe"}
 	return w
 }
@@ -45,6 +53,7 @@ func (w *fakeWin) BootID() (string, error) { return "boot-w", nil }
 func (w *fakeWin) Self() (int, string, error) {
 	return w.self, w.procs[w.self].stamp, nil
 }
+func (w *fakeWin) Session() (int, error) { return w.session, nil }
 func (w *fakeWin) StartAnchor() (int, string, error) {
 	if w.failAt == "anchor" {
 		return 0, "", errors.New("no ping.exe")
@@ -54,25 +63,31 @@ func (w *fakeWin) StartAnchor() (int, string, error) {
 	return w.next, w.procs[w.next].stamp, nil
 }
 func (w *fakeWin) KillAnchor(pid int, stamp string) error {
+	if w.killAnchorErr != nil {
+		return w.killAnchorErr
+	}
 	if p, ok := w.procs[pid]; ok && p.stamp == stamp {
 		w.killed = append(w.killed, pid)
 		w.endProc(pid)
 	}
 	return nil
 }
+
+// endProc ends a process. The anchor holds the last handle of its job: when it dies the job is closed, which kills
+// every member (KILL_ON_JOB_CLOSE) and removes the name.
 func (w *fakeWin) endProc(pid int) {
-	if p := w.procs[pid]; p != nil && p.job != "" {
-		// the job lives while a process of it lives (the anchor holds its handle)
-		p.job = ""
-	}
 	delete(w.procs, pid)
-	for name := range w.jobs {
-		if len(w.members(name)) == 0 && name != "" && !w.held(name) {
-			delete(w.jobs, name)
+	for name, h := range w.holder {
+		if h != pid {
+			continue
 		}
+		for _, m := range w.members(name) {
+			delete(w.procs, m)
+		}
+		delete(w.holder, name)
+		delete(w.jobs, name)
 	}
 }
-func (w *fakeWin) held(string) bool { return false }
 func (w *fakeWin) members(name string) []int {
 	var out []int
 	for pid, p := range w.procs {
@@ -98,6 +113,10 @@ func (w *fakeWin) OpenJob(name string) (Job, error) {
 	if j, ok := w.jobs[name]; ok {
 		return &fakeWinJob{w: w, name: j.name}, nil
 	}
+	if w.visible[name] > 0 {
+		w.visible[name]--
+		return &fakeWinJob{w: w, name: name}, nil
+	}
 	return nil, ErrJobAbsent
 }
 func (w *fakeWin) Adopt(j Job, pid int, stamp string) error {
@@ -108,7 +127,9 @@ func (w *fakeWin) Adopt(j Job, pid int, stamp string) error {
 	if p == nil || p.stamp != stamp {
 		return errors.New("not the anchor")
 	}
-	p.job = j.(*fakeWinJob).name
+	name := j.(*fakeWinJob).name
+	p.job = name
+	w.holder[name] = pid
 	return nil
 }
 func (w *fakeWin) ProcInfo(pid int) (string, string, error) {
@@ -119,28 +140,65 @@ func (w *fakeWin) ProcInfo(pid int) (string, string, error) {
 	return p.stamp, p.comm, nil
 }
 func (w *fakeWin) ParentFor(cmd *exec.Cmd, pid int, stamp string) (func(), error) {
+	if w.parentErr != nil {
+		return nil, w.parentErr
+	}
 	if p := w.procs[pid]; p == nil || p.stamp != stamp {
 		return nil, errors.New("anchor changed")
 	}
 	w.parentFor = append(w.parentFor, pid)
 	return func() {}, nil
 }
+func (w *fakeWin) SelfTestChild(pid int, stamp string) (int, func(), error) {
+	if w.parentErr != nil {
+		return 0, nil, w.parentErr
+	}
+	a := w.procs[pid]
+	if a == nil || a.stamp != stamp {
+		return 0, nil, errors.New("anchor changed")
+	}
+	w.next++
+	c := &fakeWinProc{stamp: fmt.Sprintf("s%d", w.next), comm: "ping.exe"}
+	if !w.childOutside {
+		c.job = a.job
+	}
+	w.procs[w.next] = c
+	child := w.next
+	return child, func() { delete(w.procs, child) }, nil
+}
 
-func (j *fakeWinJob) Pids() ([]int, error) { return j.w.members(j.name), nil }
-func (j *fakeWinJob) Close() error         { return nil }
+func (j *fakeWinJob) Pids() ([]int, error) {
+	m := j.w.members(j.name)
+	if _, live := j.w.jobs[j.name]; !live && j.w.visible[j.name] > 0 {
+		j.w.visible[j.name]--
+		m = append(m, 999999) // the closing handle's process is still listed for a moment
+	}
+	return m, nil
+}
+func (j *fakeWinJob) Close() error { return nil }
 func (j *fakeWinJob) Contains(pid int) (bool, error) {
 	p := j.w.procs[pid]
 	return p != nil && p.job == j.name, nil
 }
 func (j *fakeWinJob) Terminate() error {
+	if j.w.terminateErr != nil {
+		return j.w.terminateErr
+	}
 	j.w.terminate++
 	for _, pid := range j.w.members(j.name) {
-		j.w.endProc(pid)
+		delete(j.w.procs, pid)
 	}
+	delete(j.w.holder, j.name)
 	delete(j.w.jobs, j.name)
+	if j.w.lingers > 0 {
+		j.w.visible[j.name] = j.w.lingers
+	}
 	return nil
 }
 func (j *fakeWinJob) TerminateMember(pid int) error {
+	if j.w.memberErr != nil {
+		return j.w.memberErr
+	}
 	if ok, _ := j.Contains(pid); !ok {
 		return errors.New("not a member")
 	}
@@ -301,7 +359,14 @@ func TestJobAbsentIsGoneButOnlyBestEffort(t *testing.T) {
 func endWin(t *testing.T, w *fakeWin, rec UnitRecord, dir RunDir, exclude []uint64) UnitOutcome {
 	t.Helper()
 	useWin(t, w)
-	u := UnitEnder{K: newFakeKernel(), Dir: dir, Cfg: EndConfig{Clock: newStepClock(), Known: func(string, int, string) bool { return true }}}
+	u := UnitEnder{K: newFakeKernel(), Dir: dir, Cfg: EndConfig{Clock: newStepClock(), Known: func(string, int, string) bool { return true }},
+		StopUnit: func(_ context.Context, name string) error { // jobHost.StopUnit
+			j, err := w.OpenJob(jobName(name))
+			if errors.Is(err, ErrJobAbsent) {
+				return nil
+			}
+			return j.Terminate()
+		}}
 	return u.End(bg, rec.Generation, exclude)
 }
 
@@ -341,6 +406,9 @@ func TestJobStopWaitsForABegunOperationInsteadOfKillingAroundIt(t *testing.T) {
 	out := endWin(t, w, rec, dir, []uint64{3})
 	if w.terminate != 0 || len(w.members(jobName(rec.Name))) != 2 {
 		t.Fatalf("the begun operation's command was killed: terminate %d, %+v", w.terminate, out)
+	}
+	if out.Kind != UnitStragglers || out.Kind == UnitEnded || out.Kind == UnitBestEffort {
+		t.Fatalf("a unit that was not ended must not read as ended: %+v", out)
 	}
 }
 
@@ -389,8 +457,6 @@ func TestJobPlaceBornThroughTheAnchorAndRefusesAnUnprovenUnit(t *testing.T) {
 	if len(w.parentFor) != 2 || w.parentFor[0] != rec.AnchorPID {
 		t.Fatalf("children were not created under the anchor: %v", w.parentFor)
 	}
-	started := exec.Command("git")
-	started.Process = nil
 	w.procs[rec.AnchorPID].stamp = "reused"
 	if _, err := pl.Place(exec.Command("git")); !errors.Is(err, ErrNotPlaced) {
 		t.Fatalf("an unproven unit placed a command: %v", err)
