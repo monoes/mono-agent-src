@@ -16,8 +16,9 @@ import (
 // and Wait says so, in both generations; that is what lets the supervisor stop
 // them and start them again.
 func TestOrgServicesStopWhenTheirContextEnds(t *testing.T) {
-	testdb.MustSeed(t.TempDir() + "/org.db")
-	db, err := storage.NewDatabase(t.TempDir() + "/org.db")
+	dbPath := t.TempDir() + "/org.db"
+	testdb.MustSeed(dbPath)
+	db, err := storage.NewDatabase(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}

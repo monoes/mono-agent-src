@@ -22,8 +22,9 @@ func rootIDs(t *testing.T, db *storage.Database) []string {
 
 // The daemon spans the profiles that exist: a missing "default" is not added.
 func TestProfileRootsNeverInventsTheDefaultProfile(t *testing.T) {
-	testdb.MustSeed(t.TempDir() + "/org.db")
-	db, err := storage.NewDatabase(t.TempDir() + "/org.db")
+	dbPath := t.TempDir() + "/org.db"
+	testdb.MustSeed(dbPath)
+	db, err := storage.NewDatabase(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
