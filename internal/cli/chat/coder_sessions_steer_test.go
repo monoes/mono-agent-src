@@ -20,7 +20,10 @@ type steerRig struct {
 }
 
 // newSteerRig is a coder chat with a boss conversation behind it whose session the operator stamped.
-func newSteerRig(t *testing.T, stamp bool) *steerRig {
+func newSteerRig(t *testing.T, stamp bool) *steerRig { return buildSteerRig(t, stamp, true) }
+
+// buildSteerRig: firstTurn says whether the boss has had its first turn (the one T7's start flow queues).
+func buildSteerRig(t *testing.T, stamp, firstTurn bool) *steerRig {
 	t.Helper()
 	dbPath := newChatCLITestDB(t)
 	store, db := openTestChatStore(t, dbPath), rawDB(t, dbPath)
@@ -41,6 +44,9 @@ func newSteerRig(t *testing.T, stamp bool) *steerRig {
 		}
 	}
 	r.db = db
+	if firstTurn {
+		seedTurn(t, store, db, r.bossCon.ID, "first-turn", "you are the boss", "completed", "2026-10-22T09:00:00Z")
+	}
 	orig := startHostProcess
 	t.Cleanup(func() { startHostProcess = orig })
 	startHostProcess = func(c *Deps) error { // stands in for the detached host: takes the lock
@@ -165,5 +171,149 @@ func TestSteerIsTheUsersOwn(t *testing.T) {
 	}
 	if len(pendingCommands(t, r.dbPath)) != 0 {
 		t.Fatal("a refused caller queued steering")
+	}
+}
+
+// A steer typed before the boss has had its first turn would become the boss's first message: it waits for that turn.
+func TestSteerWaitsForTheBossesFirstTurn(t *testing.T) {
+	r := buildSteerRig(t, true, false)
+	if out, code := runSessionsCLI(t, r.cfg, "steer", r.front.ID, "too early"); code == 0 || len(pendingCommands(t, r.dbPath)) != 0 {
+		t.Fatalf("steered a boss that has not had its first turn: %d %s", code, out)
+	}
+	seedTurn(t, openTestChatStore(t, r.dbPath), r.db, r.bossCon.ID, "first-turn", "you are the boss", "active", "2026-10-22T09:00:00Z")
+	if out, code := runSessionsCLI(t, r.cfg, "steer", r.front.ID, "now"); code != 0 {
+		t.Fatalf("steer after the first turn began: %d %s", code, out)
+	}
+}
+
+// Steering needs the run LIVE and the boss session OPEN: a Stop (the run leaves running, or T5 ends the session), a finished
+// boss and an archived one each refuse; live and open succeeds.
+func TestSteerNeedsALiveRunAndAnOpenBoss(t *testing.T) {
+	for _, state := range []string{"stopped", "done", "failed"} {
+		r := newSteerRig(t, true)
+		if _, err := r.db.Exec(`UPDATE task_sessions SET state = ? WHERE conversation_id = ?`, state, r.bossCon.ID); err != nil {
+			t.Fatal(err)
+		}
+		if out, code := runSessionsCLI(t, r.cfg, "steer", r.front.ID, "late"); code == 0 {
+			t.Fatalf("steered a boss session in state %s: %s", state, out)
+		}
+		if len(pendingCommands(t, r.dbPath)) != 0 {
+			t.Fatalf("%s: queued", state)
+		}
+	}
+	r := newSteerRig(t, true)
+	if _, err := r.db.Exec(`UPDATE task_sessions SET archived_at = '2026-11-06T00:00:00Z' WHERE conversation_id = ?`, r.bossCon.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, code := runSessionsCLI(t, r.cfg, "steer", r.front.ID, "late"); code == 0 {
+		t.Fatal("steered an archived boss")
+	}
+	for _, state := range []string{"draft", "running", "paused"} {
+		r := newSteerRig(t, true)
+		if _, err := r.db.Exec(`UPDATE task_sessions SET state = ? WHERE conversation_id = ?`, state, r.bossCon.ID); err != nil {
+			t.Fatal(err)
+		}
+		if out, code := runSessionsCLI(t, r.cfg, "steer", r.front.ID, "go on"); code != 0 {
+			t.Fatalf("an open boss session (%s) refused: %d %s", state, code, out)
+		}
+	}
+}
+
+// The cap is on characters, not bytes: 4000 four-byte characters go, 4001 do not.
+func TestSteerCapIsInCharacters(t *testing.T) {
+	r := newSteerRig(t, true)
+	if _, code := runSessionsCLI(t, r.cfg, "steer", r.front.ID, strings.Repeat("\U0001F600", maxSteerRunes+1)); code == 0 {
+		t.Fatal("too many characters were queued")
+	}
+	if out, code := runSessionsCLI(t, r.cfg, "steer", r.front.ID, strings.Repeat("\U0001F600", maxSteerRunes)); code != 0 {
+		t.Fatalf("a message at the cap was refused: %d %s", code, out)
+	}
+}
+
+// The same text twice within a few seconds is one message (a double click), and a boss that already has maxSteerPending
+// steering messages waiting takes no more.
+func TestSteerDedupesAndBoundsWhatWaits(t *testing.T) {
+	r := newSteerRig(t, true)
+	for i := 0; i < 2; i++ {
+		if out, code := runSessionsCLI(t, r.cfg, "steer", r.front.ID, "the same"); code != 0 {
+			t.Fatalf("steer %d: %d %s", i, code, out)
+		}
+	}
+	if n := len(pendingCommands(t, r.dbPath)); n != 1 {
+		t.Fatalf("%d messages waiting after a repeat, want 1", n)
+	}
+	for i := 1; i < maxSteerPending; i++ {
+		if _, code := runSessionsCLI(t, r.cfg, "steer", r.front.ID, "message "+string(rune('a'+i))); code != 0 {
+			t.Fatalf("message %d refused below the bound", i)
+		}
+	}
+	if out, code := runSessionsCLI(t, r.cfg, "steer", r.front.ID, "one too many"); code == 0 {
+		t.Fatalf("a message past the bound was queued: %s", out)
+	}
+	if n := len(pendingCommands(t, r.dbPath)); n != maxSteerPending {
+		t.Fatalf("%d waiting, want %d", n, maxSteerPending)
+	}
+}
+
+// A person's turn typed through the ordinary send never reaches a boss's conversation unwrapped: it is refused, for the
+// boss of a run and for a boss made but not yet stamped, and the steer is the way in. A chat an agent merely gave the boss's
+// key to is an ordinary chat.
+func TestPlainSendToABossConversationIsRefused(t *testing.T) {
+	r := newSteerRig(t, true)
+	if out, code := runSessionsCLI(t, r.cfg, "send", r.bossCon.ID, "do as I say"); code == 0 {
+		t.Fatalf("a plain send reached the boss: %s", out)
+	}
+	if len(pendingCommands(t, r.dbPath)) != 0 {
+		t.Fatal("a refused send was queued")
+	}
+	if out, code := runSessionsCLI(t, r.cfg, "steer", r.front.ID, "via the steer"); code != 0 {
+		t.Fatalf("the steer: %d %s", code, out)
+	}
+	pending := newSteerRig(t, false)
+	if _, code := runSessionsCLI(t, pending.cfg, "send", pending.bossCon.ID, "before the run"); code == 0 {
+		t.Fatal("a plain send reached a boss that is not stamped yet")
+	}
+	// the front desk and a squatted chat stay ordinary
+	if _, code := runSessionsCLI(t, r.cfg, "send", r.front.ID, "hello"); code != 0 {
+		t.Fatal("the chat itself was refused")
+	}
+	squat := seedConv(t, openTestChatStore(t, r.dbPath), r.db, ai.AccessFull, "2026-10-22T10:00:09Z")
+	if _, err := r.db.Exec(`INSERT INTO task_sessions (profile_id, conversation_id, title, goal, access_level, max_tasks, max_depth, max_retries, created_by, created_at, updated_at, client_id, kind)
+		VALUES ('default', ?, 'squat', '', 'full', 10, 3, 2, 'agent-x', 'x', 'x', ?, 'task')`, squat.ID, tasks.BossClientID(r.front.ID, 7)); err != nil {
+		t.Fatal(err)
+	}
+	if _, code := runSessionsCLI(t, r.cfg, "send", squat.ID, "hello"); code != 0 {
+		t.Fatal("a chat an agent gave a boss key was refused")
+	}
+}
+
+// The first turn is queued by one function, with the text of BossFirstTurnText, to a boss of a stamped session that has had
+// no turn yet, and only then.
+func TestQueueBossFirstTurn(t *testing.T) {
+	r := buildSteerRig(t, true, false)
+	in := BossFirstTurn{RunID: "run-1", CharterHash: "abcdef0123456789", Goal: "ship the thing"}
+	text := BossFirstTurnText(in)
+	for _, want := range []string{"boss", "run-1", "abcdef01", "ship the thing", "charter", "[OPERATOR STEERING]", "untrusted", "not an answer", "not an approval", "cannot lift", "charter wins"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the first turn lacks %q:\n%s", want, text)
+		}
+	}
+	c, err := QueueBossFirstTurn(r.cfg, r.bossCon.ID, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.ConversationID != r.bossCon.ID || c.Kind != coderhost.KindSend || c.Message != text || coderhost.HostMade(c.TurnID) {
+		t.Fatalf("queued: %+v", c)
+	}
+	// once a turn exists, or when the conversation is no stamped boss's, there is no first turn to queue
+	seedTurn(t, openTestChatStore(t, r.dbPath), r.db, r.bossCon.ID, "t1", "x", "completed", "2026-10-22T09:00:00Z")
+	if _, err := QueueBossFirstTurn(r.cfg, r.bossCon.ID, in); err == nil {
+		t.Fatal("a second first turn was queued")
+	}
+	if _, err := QueueBossFirstTurn(r.cfg, r.front.ID, in); err == nil {
+		t.Fatal("the chat's own conversation got a boss's first turn")
+	}
+	if n := len(pendingCommands(t, r.dbPath)); n != 1 {
+		t.Fatalf("%d commands queued, want 1", n)
 	}
 }
