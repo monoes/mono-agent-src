@@ -31,7 +31,9 @@ const (
 )
 
 func init() {
-	runE2EHost()
+	if os.Getenv("MONOAGENT_E2E_ADDR") != "" { // a tagged build without the address is the ordinary app
+		runE2EHost()
+	}
 }
 
 type e2eHub struct {
@@ -116,7 +118,7 @@ func runE2EHost() {
 			}
 		}
 	})
-	mux.HandleFunc("/__call/", func(w http.ResponseWriter, r *http.Request) { e2eCall(app, w, r) })
+	mux.HandleFunc("/__call/", func(w http.ResponseWriter, r *http.Request) { e2eCall(app, w, r, addr) })
 	mux.Handle("/vault-image/", vaultImageHandler(app))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		p := filepath.Join(dist, filepath.Clean("/"+r.URL.Path))
@@ -143,10 +145,30 @@ func runE2EHost() {
 	os.Exit(0)
 }
 
+// e2eSameOrigin accepts a call only if its Host is the host's own loopback address and its Origin, when it has one, is that
+// address too: another web page in the same browser cannot drive the bindings.
+func e2eSameOrigin(r *http.Request, addr string) bool {
+	if r.Host != addr {
+		return false
+	}
+	if o := r.Header.Get("Origin"); o != "" && o != "http://"+addr {
+		return false
+	}
+	return true
+}
+
 // e2eCall runs one exported method of the App with the JSON arguments, like the Wails bridge does.
-func e2eCall(app *App, w http.ResponseWriter, r *http.Request) {
+func e2eCall(app *App, w http.ResponseWriter, r *http.Request, addr string) {
+	if !e2eSameOrigin(r, addr) {
+		http.Error(w, "refused: not from this page", http.StatusForbidden)
+		return
+	}
 	name := strings.TrimPrefix(r.URL.Path, "/__call/")
 	m := reflect.ValueOf(app).MethodByName(name)
+	if r.Header.Get("Content-Type") != "application/json" { // a form post from another page cannot set this without a preflight
+		http.Error(w, "refused: bindings take application/json", http.StatusUnsupportedMediaType)
+		return
+	}
 	if !m.IsValid() || name == "" || r.Method != http.MethodPost {
 		http.Error(w, "no such binding: "+name, http.StatusNotFound)
 		return
@@ -186,7 +208,7 @@ func e2eCall(app *App, w http.ResponseWriter, r *http.Request) {
 }
 
 const e2eShim = `(function () {
-  const call = name => (...args) => fetch('/__call/' + name, { method: 'POST', body: JSON.stringify(args) }).then(async r => {
+  const call = name => (...args) => fetch('/__call/' + name, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args) }).then(async r => {
     const t = await r.text()
     if (!r.ok) throw new Error(t.trim())
     return t ? JSON.parse(t) : null
