@@ -53,7 +53,7 @@ func BossKeyLike(frontDeskConversation string) string {
 // BossKeySQL is the condition, over the column col, that holds for a boss key: the prefix and an attempt number of one to three
 // digits (MaxBossAttempt is 999; TestBossKeySQLMatchesMaxBossAttempt holds the two together).
 func BossKeySQL(col string) string {
-	return fmt.Sprintf(`(%[1]s LIKE 'boss-for-%%' AND (%[1]s GLOB '*-[1-9]' OR %[1]s GLOB '*-[1-9][0-9]' OR %[1]s GLOB '*-[1-9][0-9][0-9]'))`, col)
+	return fmt.Sprintf(`(%[1]s GLOB 'boss-for-*' AND (%[1]s GLOB '*-[1-9]' OR %[1]s GLOB '*-[1-9][0-9]' OR %[1]s GLOB '*-[1-9][0-9][0-9]'))`, col)
 }
 
 // BossConversationSQL is a WHERE condition over ai_chat_conversations (alias given) that holds for the conversation of a

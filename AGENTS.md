@@ -4827,3 +4827,7 @@ minted for exactly that conversation and turn (the prompt is not read: the host 
 --resume <the boss's runtime session>` is refused, and the extension refuses a boss by name. The boss's conversation is hidden from the plain
 `chat history list` only; `list --all`, `coder sessions list`, `task session list`, the orbit, the Agents page and the task lists show it marked
 `boss`. `coder list` (the extension's follow-up targets) leaves it out unless `--all`.
+The host puts no mesh block in front of a boss's prompt, so a mesh message addressed to a boss is never delivered to it (the sender is not told:
+the mesh has no refusal to give); the boss hears the person only through the steer and the charter. A boss key is matched case-sensitively
+everywhere (`BOSS-FOR-` is no boss key). A steer or first turn queued while the first turn has finished but not yet written its turn row can be
+admitted a second time (user commands only; the bounds still hold).

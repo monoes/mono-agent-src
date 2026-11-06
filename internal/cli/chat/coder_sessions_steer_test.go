@@ -626,12 +626,10 @@ func TestQueueBossFirstTurnIsRefusedByTheInsertIfATurnAppearedMeanwhile(t *testi
 }
 
 // The token is not a bearer secret that works anywhere: a copy presented from a process OUTSIDE the turn's process tree is
-// refused (the caller's ancestry must include the turn's bound pid and start stamp), and the same token run from a CHILD of the
-// turn's process is the allowed case.
+// refused (the caller's ancestry must include the turn's bound pid and start stamp), and the same token presented from a
+// DESCENDANT of the turn's process is the allowed case. (This test process is the caller; the turn's process is a separate
+// sleeping process for the first case and this process's parent for the second.)
 func TestBossTurnTokenWorksOnlyInsideTheTurnsProcessTree(t *testing.T) {
-	if os.Getenv("BOSS_GUARD_HELPER") != "" {
-		return // the helper process runs TestBossGuardHelperProcess, not this
-	}
 	r := newSteerRig(t, true)
 	cs := coderhost.NewStore(r.db)
 	const turn = "t-treeproof"
@@ -646,18 +644,7 @@ func TestBossTurnTokenWorksOnlyInsideTheTurnsProcessTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	run := func(extraEnv ...string) error {
-		cmd := exec.Command(os.Args[0], "-test.run=^TestBossGuardHelperProcess$")
-		cmd.Env = append(os.Environ(), "BOSS_GUARD_HELPER=1", "BOSS_GUARD_DB="+r.dbPath, "BOSS_GUARD_CONV="+r.bossCon.ID, "BOSS_GUARD_TURN="+turn,
-			coderhost.SessionTokenEnv+"="+tok)
-		cmd.Env = append(cmd.Env, extraEnv...)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("%v: %s", err, out)
-		}
-		return nil
-	}
-	// the "turn process" is a separate sleeping process: this test process and its child are outside its tree
+	t.Setenv(coderhost.SessionTokenEnv, tok)
 	sl := exec.Command("sleep", "60")
 	if err := sl.Start(); err != nil {
 		t.Fatal(err)
@@ -666,26 +653,14 @@ func TestBossTurnTokenWorksOnlyInsideTheTurnsProcessTree(t *testing.T) {
 	if err := cs.BindSessionToken("default", r.bossCon.ID, turn, sl.Process.Pid, coderhost.ProcStamp(sl.Process.Pid)); err != nil {
 		t.Fatal(err)
 	}
-	if err := run(); err == nil {
+	if err := refuseBossTurnWithoutHostIdentity(context.Background(), r.cfg, "default", r.bossCon.ID, turn); err == nil {
 		t.Fatal("a token copied to a process outside the turn's process tree was accepted")
 	}
-	// the turn's process is this one: its child holding the token is inside the tree
-	if err := cs.BindSessionToken("default", r.bossCon.ID, turn, os.Getpid(), coderhost.ProcStamp(os.Getpid())); err != nil {
+	ppid := os.Getppid()
+	if err := cs.BindSessionToken("default", r.bossCon.ID, turn, ppid, coderhost.ProcStamp(ppid)); err != nil {
 		t.Fatal(err)
 	}
-	if err := run(); err != nil {
-		t.Fatalf("a child of the turn's process was refused: %v", err)
-	}
-}
-
-// TestBossGuardHelperProcess is the child process of the test above: it asks the guard and exits 0 when it lets the turn through.
-func TestBossGuardHelperProcess(t *testing.T) {
-	if os.Getenv("BOSS_GUARD_HELPER") == "" {
-		t.Skip("run by TestBossTurnTokenWorksOnlyInsideTheTurnsProcessTree")
-	}
-	cfg := testDeps(&testConfig{DBPath: os.Getenv("BOSS_GUARD_DB"), ProfileID: "default", JSONOutput: true})
-	if err := refuseBossTurnWithoutHostIdentity(context.Background(), cfg, "default", os.Getenv("BOSS_GUARD_CONV"), os.Getenv("BOSS_GUARD_TURN")); err != nil {
-		fmt.Fprintln(os.Stderr, "refused:", err)
-		os.Exit(1)
+	if err := refuseBossTurnWithoutHostIdentity(context.Background(), r.cfg, "default", r.bossCon.ID, turn); err != nil {
+		t.Fatalf("a descendant of the turn's process was refused: %v", err)
 	}
 }

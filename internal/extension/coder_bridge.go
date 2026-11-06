@@ -196,7 +196,7 @@ func (cb *coderBridge) chatRow(ctx context.Context, profile, conv string) (coder
 	// --all makes the list show a boss's conversation (marked) instead of refusing to name it. A CLI that does not know the flag
 	// does not know bosses either: ask it the old way.
 	out, err := cb.cli.Run(ctx, "", append(chatBase(profile), "coder", "list", "--all", "--conversation="+conv)...)
-	if err != nil && strings.Contains(err.Error(), "unknown flag") {
+	if err != nil && strings.Contains(err.Error(), "unknown flag: --all") {
 		out, err = cb.cli.Run(ctx, "", append(chatBase(profile), "coder", "list", "--conversation="+conv)...)
 	}
 	if err != nil {
