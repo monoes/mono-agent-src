@@ -577,8 +577,8 @@ func TestPlanGrantReadsTheWorkflowStoreOnce(t *testing.T) {
 	f := propFixture(t)
 	env := testEnv(f.cfg)
 	opens := 0
-	open := env.d.OpenWorkflowStore
-	env.d.OpenWorkflowStore = func(db *storage.Database) *workflow.HybridWorkflowStore { opens++; return open(db) }
+	open := env.OpenWorkflowStore
+	env.OpenWorkflowStore = func(db *storage.Database) *workflow.HybridWorkflowStore { opens++; return open(db) }
 	db, profileID, root, err := env.Profile()
 	if err != nil {
 		t.Fatal(err)

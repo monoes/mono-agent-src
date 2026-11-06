@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"strconv"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -87,12 +88,12 @@ func ts(t time.Time) string { return t.UTC().Format(tsLayout) }
 // MaxLabelBytes bounds the labels a proposer names (conversation, created_by).
 const MaxLabelBytes = 128
 
-// cleanLabel drops control characters and cuts the label to MaxLabelBytes without splitting a character.
-func cleanLabel(v string) string {
+// CleanLabel drops control characters, format characters (bidi, zero-width) and line/paragraph separators and cuts the label to MaxLabelBytes without splitting a character.
+func CleanLabel(v string) string {
 	out := make([]rune, 0, len(v))
 	n := 0
 	for _, r := range v {
-		if r < 0x20 || (r >= 0x7f && r <= 0x9f) {
+		if r < 0x20 || (r >= 0x7f && r <= 0x9f) || unicode.Is(unicode.Cf, r) || r == 0x2028 || r == 0x2029 {
 			continue
 		}
 		if n += utf8.RuneLen(r); n > MaxLabelBytes {
@@ -131,7 +132,7 @@ func (s *Store) Create(ctx context.Context, in Input) (*Proposal, error) {
 		return nil, err
 	}
 	now := s.Now().UTC()
-	in.ConversationID, in.CreatedBy = cleanLabel(in.ConversationID), cleanLabel(in.CreatedBy)
+	in.ConversationID, in.CreatedBy = CleanLabel(in.ConversationID), CleanLabel(in.CreatedBy)
 	p := &Proposal{ID: hex.EncodeToString(raw[:]), ProfileID: in.ProfileID, Org: in.Org, ConversationID: in.ConversationID,
 		Verb: in.Verb, Target: in.Target, ArgsJSON: in.ArgsJSON, PreviewText: in.PreviewText, StateDigest: in.StateDigest,
 		CreatedBy: in.CreatedBy, Status: StatusPending, CreatedAt: now, ExpiresAt: now.Add(TTL)}
@@ -217,6 +218,7 @@ func (s *Store) Get(ctx context.Context, profileID, id string) (*Proposal, error
 
 // List returns the profile's proposals, newest first; org and conversation narrow it when not empty.
 func (s *Store) List(ctx context.Context, profileID, org, conversation string) ([]Proposal, error) {
+	conversation = CleanLabel(conversation) // labels are kept cleaned, so the filter is matched as it was kept
 	q, args := `SELECT `+cols+` FROM org_proposals WHERE profile_id = ?`, []any{profileID}
 	if org != "" {
 		q, args = q+` AND org_name = ?`, append(args, org)
