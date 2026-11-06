@@ -1,6 +1,7 @@
 package coderhost
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -35,5 +36,41 @@ func TestTurnFloorIgnoresASystemNoticeTurn(t *testing.T) {
 	addTurn(t, st, "a", "system-0011", "completed", "", t0.Add(5*time.Second))
 	if got := st.turnFloor("p", "a", ""); !got.Equal(t0) {
 		t.Fatalf("turnFloor = %v, want %v", got, t0)
+	}
+}
+
+// OWED STOP NOTICE: the flag a stop sets when its chat message could not be written is the operator's. A master's patch that
+// names it is refused whole and changes nothing, a code outside the set cannot be stored, and the flag is never inherited by a
+// child. Mutant tried: leaving owed_stop_notice out of OperatorOnly lets the patch through.
+func TestAMasterCannotSetOrClearTheOwedStopNotice(t *testing.T) {
+	st := newStoreT(t)
+	m, _ := master(t, st, "coding")
+	a := spawn(t, st, m)
+	for _, p := range []string{
+		`{"owed_stop_notice":{"charter":"c","generation":1,"intent_at":5,"code":"plain","at":5}}`,
+		`{"owed_stop_notice":null}`,
+		`{"checkin_minutes":5,"owed_stop_notice":{"charter":"c","generation":1,"intent_at":5,"code":"plain","at":5}}`,
+	} {
+		if _, _, err := st.SetChild(m, a, []byte(p)); !errors.Is(err, ErrOperatorOnly) {
+			t.Errorf("%s: %v", p, err)
+		}
+	}
+	if got, _ := st.GetSettings("p", a); got.OwedStopNotice != nil || got.CheckinMinutes == 5 {
+		t.Fatalf("a refused patch changed the settings: %+v", got)
+	}
+	if _, _, err := DefaultSettings().Apply([]byte(`{"owed_stop_notice":{"charter":"c","generation":1,"intent_at":5,"code":"<b>x</b>","at":5}}`)); err == nil {
+		t.Fatal("a code outside the set was accepted")
+	}
+	if len(TouchesOperatorOnly([]string{"owed_stop_notice"})) != 1 || oneOf("owed_stop_notice", AgentAdjustable) {
+		t.Fatal("owed_stop_notice must be operator-only and not agent-adjustable")
+	}
+	parent := DefaultSettings()
+	parent.OwedStopNotice = &OwedStopNotice{Charter: "c", Generation: 1, IntentAt: 5, Code: "plain", At: 5}
+	if childSettings(parent, 1, 3).OwedStopNotice != nil {
+		t.Fatal("a child inherited the flag")
+	}
+	next, _, err := parent.Apply([]byte(`{"checkin_minutes":7}`))
+	if err != nil || next.OwedStopNotice == nil || next.OwedStopNotice == parent.OwedStopNotice {
+		t.Fatalf("a patch must keep the flag in a copy of its own: %+v %v", next.OwedStopNotice, err)
 	}
 }

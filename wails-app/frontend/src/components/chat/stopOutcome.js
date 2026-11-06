@@ -34,6 +34,6 @@ export function isWarnLine(line) {
 export function outcome(result) {
   const out = String(result?.output || '').trim()
   if (result?.ok && (result?.stopped || isRepair(out))) return 'ok'
-  if (!result?.ok && new RegExp('^(stopped|' + esc(heads.repairEnded) + '|' + esc(heads.repairNote) + '|' + esc(heads.repairFailed) + ')').test(out)) return 'warn'
+  if (!result?.ok && new RegExp('^(stopped|' + esc(heads.repairEnded) + '|' + esc(heads.repairNote) + '|' + esc(heads.repairFailed) + '|' + esc(heads.repairNoteFailed) + ')').test(out)) return 'warn'
   return 'fail'
 }

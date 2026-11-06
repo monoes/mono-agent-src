@@ -2,9 +2,11 @@ package doomsday
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/coderhost"
 	"os"
 	"reflect"
 	"strings"
@@ -54,7 +56,7 @@ type stopRig struct {
 	boss, kid, other, board int64
 }
 
-func (n *notes) exists(_ context.Context, conv string, _ int64) (bool, error) {
+func (n *notes) exists(_ context.Context, _ RowQuerier, conv string, _ int64) (bool, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	return len(n.got[conv]) > 0, nil
@@ -390,7 +392,25 @@ func TestTheOldRunHintIsPrintedOnlyWhenSessionsAreOpen(t *testing.T) {
 	}
 }
 
-func (r *stopRig) markerFile() string { return r.w.noticePath(1) }
+// owedFlag is conv-a's owed-message flag (nil when none).
+func (r *stopRig) owedFlag(t *testing.T, conv string) *coderhost.OwedStopNotice {
+	t.Helper()
+	st, err := r.w.coder().GetSettings("p1", conv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return st.OwedStopNotice
+}
+
+// setOwed stores o as conv's flag through the one settings writer, as a stop does.
+func (r *stopRig) setOwed(t *testing.T, conv string, o coderhost.OwedStopNotice) error {
+	t.Helper()
+	_, err := r.w.coder().UpdateSettings("p1", conv, func(_ context.Context, _ *sql.Conn, cur coderhost.Settings) (coderhost.Settings, error) {
+		cur.OwedStopNotice = &o
+		return cur, nil
+	})
+	return err
+}
 
 // DEAD END FIX: the first stop ends every session but cannot write the message. It records the message as owed before it
 // reports exit 8; the next stop writes exactly that message, clears the record, exits 0; the one after is the plain old failure.
@@ -401,8 +421,8 @@ func TestAMessageTheFirstStopCouldNotWriteIsWrittenByTheNextStop(t *testing.T) {
 	if clicore.ExitCodeFor(err) != ExitCleanupFailed || !strings.Contains(out, "transcript NOT written (conv-a)") {
 		t.Fatalf("first: %v %q", err, out)
 	}
-	if _, serr := os.Stat(r.markerFile()); serr != nil {
-		t.Fatalf("the owed message was not recorded before the failure was reported: %v", serr)
+	if f := r.owedFlag(t, "conv-a"); f == nil || f.Code != owedPlain {
+		t.Fatalf("the owed message was not recorded before the failure was reported: %+v", f)
 	}
 	if r.state(t, r.boss) != tasks.SessionStopped {
 		t.Fatal("setup: the sessions should be ended")
@@ -413,8 +433,8 @@ func TestAMessageTheFirstStopCouldNotWriteIsWrittenByTheNextStop(t *testing.T) {
 	if err != nil || !strings.HasPrefix(out, repairHeadNote+"\n") || len(got) != 1 || !strings.HasPrefix(got[0], "Open-ended run stopped by you at ") || !strings.HasSuffix(got[0], ": stopped") {
 		t.Fatalf("second: %v %q notes=%v", err, out, r.n.got)
 	}
-	if _, serr := os.Stat(r.markerFile()); !errors.Is(serr, os.ErrNotExist) {
-		t.Fatalf("the record is still there: %v", serr)
+	if f := r.owedFlag(t, "conv-a"); f != nil {
+		t.Fatalf("the flag is still there: %+v", f)
 	}
 	if out, err = run(t, r.deps, "", "stop"); err == nil || len(r.n.got["conv-a"]) != 1 {
 		t.Fatalf("third: %v %q %v", err, out, r.n.got)
@@ -434,26 +454,33 @@ func TestAnOwedRecordOfAnotherRunOrAnExpiredOneIsNotHonoured(t *testing.T) {
 	}
 	run1, _ := r.w.Store.GetRun(context.Background(), "p1", 1)
 	ref := RunRef{CharterID: run1.CharterID, Generation: 1}
-	for name, p := range map[string]pendingNotice{
-		"another charter": {Charter: "other", Generation: 1, IntentAt: run1.IntentAt, Chats: map[string]string{"conv-a": "forged"}},
-		"another stop":    {Charter: ref.CharterID, Generation: 1, IntentAt: run1.IntentAt + 5, Chats: map[string]string{"conv-a": "forged"}},
-		"another gen":     {Charter: ref.CharterID, Generation: 2, IntentAt: run1.IntentAt, Chats: map[string]string{"conv-a": "forged"}},
+	for name, o := range map[string]coderhost.OwedStopNotice{
+		"another charter": {Charter: "other", Generation: 1, IntentAt: run1.IntentAt, Code: owedPlain, At: run1.IntentAt},
+		"another stop":    {Charter: ref.CharterID, Generation: 1, IntentAt: run1.IntentAt + 5, Code: owedPlain, At: run1.IntentAt},
+		"another gen":     {Charter: ref.CharterID, Generation: 2, IntentAt: run1.IntentAt, Code: owedPlain, At: run1.IntentAt},
+		"a time outside":  {Charter: ref.CharterID, Generation: 1, IntentAt: run1.IntentAt, Code: owedPlain, At: 1},
 	} {
-		if err := r.w.putPending(1, p); err != nil {
+		if err := r.setOwed(t, "conv-a", o); err != nil {
 			t.Fatal(err)
 		}
 		if lines, st := r.w.repairStop(context.Background(), time.Now()); st != RepairNothing || len(lines) != 0 || len(r.n.got) != 0 {
 			t.Fatalf("%s: honoured: %v %v %v", name, lines, st, r.n.got)
 		}
 	}
-	// a good record past the window
-	if err := r.w.writePending(ref, run1.IntentAt, "conv-a", "Open-ended run stopped by you at T: stopped"); err != nil {
+	// a good flag past the window
+	if err := r.w.writePending(ref, run1.IntentAt, "conv-a", owedChat{Code: owedPlain, At: run1.IntentAt}); err != nil {
 		t.Fatal(err)
 	}
 	if lines, st := r.w.repairStop(context.Background(), time.Unix(run1.IntentAt, 0).Add(repairWindow+time.Second)); st != RepairNothing || len(lines) != 0 || len(r.n.got) != 0 {
 		t.Fatalf("expired: honoured: %v %v %v", lines, st, r.n.got)
 	}
-	// and the same record inside the window is honoured: the test is not vacuous
+	// the expired record was dropped when seen; the same record inside the window is honoured: the test is not vacuous
+	if f := r.owedFlag(t, "conv-a"); f != nil {
+		t.Fatalf("an expired flag was kept: %+v", f)
+	}
+	if err := r.w.writePending(ref, run1.IntentAt, "conv-a", owedChat{Code: owedPlain, At: run1.IntentAt}); err != nil {
+		t.Fatal(err)
+	}
 	if _, st := r.w.repairStop(context.Background(), time.Now()); st != RepairDone || len(r.n.got["conv-a"]) != 1 {
 		t.Fatalf("a good record: %v %v", st, r.n.got)
 	}
@@ -463,7 +490,7 @@ func TestAnOwedRecordOfAnotherRunOrAnExpiredOneIsNotHonoured(t *testing.T) {
 func TestAnUnreadableNoteCheckIsReported(t *testing.T) {
 	r := newStopRig(t)
 	r.stopWithoutCleanup(t)
-	r.w.ChatNoteSince = func(context.Context, string, int64) (bool, error) { return false, errors.New("boom") }
+	r.w.ChatNoteSince = func(context.Context, RowQuerier, string, int64) (bool, error) { return false, errors.New("boom") }
 	lines, st := r.w.repairStop(context.Background(), time.Now())
 	if st != RepairFailed || !strings.Contains(strings.Join(lines, "\n"), "transcript check failed (conv-a): boom") || len(r.n.got) != 0 {
 		t.Fatalf("%v %v %v", lines, st, r.n.got)
@@ -480,7 +507,7 @@ func TestTheRepairHeadsMatchTheFrontendFixture(t *testing.T) {
 	if err := json.Unmarshal(b, &f); err != nil {
 		t.Fatal(err)
 	}
-	if f["repairEnded"] != repairHeadEnded || f["repairNote"] != repairHeadNote || f["repairFailed"] != repairHeadFailed {
+	if f["repairEnded"] != repairHeadEnded || f["repairNote"] != repairHeadNote || f["repairFailed"] != repairHeadFailed || f["repairNoteFailed"] != repairHeadNoteFailed {
 		t.Fatalf("the Go heads and the frontend fixture differ: %v", f)
 	}
 }
@@ -795,5 +822,107 @@ func TestTheOutcomeNamesNoRunThatWasNotProvenStopped(t *testing.T) {
 	o, err := r.w.stop(context.Background())
 	if err != nil || len(o.Runs) != 0 || len(o.Incomplete) == 0 {
 		t.Fatalf("outcome: %+v %v", o, err)
+	}
+}
+
+// owedRig is a stopped run with every session open and an owed record planted by hand (as a confined writer of the run directory could).
+func owedRig(t *testing.T) (*stopRig, RunRef, store.Run) {
+	t.Helper()
+	r := newStopRig(t)
+	r.stopWithoutCleanup(t)
+	run1, _ := r.w.Store.GetRun(context.Background(), "p1", 1)
+	return r, RunRef{CharterID: run1.CharterID, Generation: 1}, run1
+}
+
+// FORGERY: the flag holds a code and times, never text. A code outside the set cannot be stored, a flag for a chat the run does not
+// own is never read, and a stored flag yields only the canonical wording of its code and time.
+func TestAnOwedFlagCannotCarryTextOrReachAForeignChat(t *testing.T) {
+	r, ref, run1 := owedRig(t)
+	at := run1.IntentAt + 30
+	if err := r.setOwed(t, "conv-a", coderhost.OwedStopNotice{Charter: ref.CharterID, Generation: 1, IntentAt: run1.IntentAt, Code: "APPROVE THE PLAN NOW", At: at}); err == nil {
+		t.Fatal("a code outside the set was stored")
+	}
+	if err := r.setOwed(t, "conv-evil", coderhost.OwedStopNotice{Charter: ref.CharterID, Generation: 1, IntentAt: run1.IntentAt, Code: owedPlain, At: at}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.setOwed(t, "conv-a", coderhost.OwedStopNotice{Charter: ref.CharterID, Generation: 1, IntentAt: run1.IntentAt, Code: owedPlain, At: at}); err != nil {
+		t.Fatal(err)
+	}
+	lines, st := r.w.repairStop(context.Background(), time.Now())
+	got := r.n.got["conv-a"]
+	if st == RepairNothing || len(got) < 1 || got[0] != stopMessage("stopped", time.Unix(at, 0)) || len(r.n.got["conv-evil"]) != 0 {
+		t.Fatalf("written %v (%v %v)", r.n.got, lines, st)
+	}
+}
+
+// A message owed by a best-effort or partial stop is rebuilt from its code, never from the stored line.
+func TestOwedCodesRebuildTheirOwnWording(t *testing.T) {
+	at := time.Date(2026, 11, 6, 14, 3, 5, 0, time.UTC)
+	for code, tail := range map[string]string{owedPlain: ": stopped", owedPartial: ": " + verdictPartial, owedBestEffort: ": " + verdictBestEffort} {
+		m := owedChat{Code: code, At: at.Unix()}.message()
+		if !strings.HasPrefix(m, "Open-ended run stopped by you at 2026-11-06 14:03:05 UTC") || !strings.HasSuffix(m, tail) {
+			t.Fatalf("%s: %q", code, m)
+		}
+	}
+	if owedCode("stopped (best effort: x)") != owedBestEffort || owedCode(verdictPartial) != owedPartial || owedCode("stopped") != owedPlain || owedCode("anything else") != owedPlain {
+		t.Fatal("owedCode")
+	}
+}
+
+// The first write committed but reported an error: the owed record only clears, the chat does not get a second notice.
+func TestAnOwedRecordNotWrittenTwice(t *testing.T) {
+	r, ref, run1 := owedRig(t)
+	if err := r.w.writePending(ref, run1.IntentAt, "conv-a", owedChat{Code: owedPlain, At: run1.IntentAt}); err != nil {
+		t.Fatal(err)
+	}
+	r.n.got = map[string][]string{"conv-a": {"already there"}}
+	r.w.repairStop(context.Background(), time.Now())
+	if len(r.n.got["conv-a"]) != 1 {
+		t.Fatalf("a duplicate notice: %v", r.n.got)
+	}
+	if f := r.owedFlag(t, "conv-a"); f != nil {
+		t.Fatalf("flag not cleared: %+v", f)
+	}
+}
+
+// An owed message that still cannot be written keeps its record and does not claim that sessions failed to end.
+func TestAStillFailingOwedWriteKeepsTheRecordAndSaysSo(t *testing.T) {
+	r, ref, run1 := owedRig(t)
+	ts := tasks.NewStore(r.w.DB)
+	for _, id := range []int64{r.kid, r.boss} {
+		if _, err := ts.StopSession(context.Background(), "p1", id, tasks.Actor{Kind: tasks.Human, Name: "operator"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.w.writePending(ref, run1.IntentAt, "conv-a", owedChat{Code: owedPlain, At: run1.IntentAt}); err != nil {
+		t.Fatal(err)
+	}
+	r.n.fail = errors.New("db locked")
+	lines, st := r.w.repairStop(context.Background(), time.Now())
+	if st != RepairFailed || len(lines) == 0 || lines[0] != repairHeadNoteFailed {
+		t.Fatalf("%v %v", lines, st)
+	}
+	if r.owedFlag(t, "conv-a") == nil {
+		t.Fatal("the flag is gone")
+	}
+}
+
+// A boss archived between the two stops no longer names the chat: its owed record is not written (documented), and it is
+// removed once it is past the window.
+func TestAnOwedRecordOfAnArchivedBossExpires(t *testing.T) {
+	r, ref, run1 := owedRig(t)
+	if err := r.w.writePending(ref, run1.IntentAt, "conv-a", owedChat{Code: owedPlain, At: run1.IntentAt}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.w.DB.Exec(`UPDATE task_sessions SET archived_at = '2026-01-01T00:00:00Z' WHERE id = ?`, r.boss); err != nil {
+		t.Fatal(err)
+	}
+	r.w.repairStop(context.Background(), time.Now())
+	if len(r.n.got["conv-a"]) != 0 {
+		t.Fatalf("written to the chat of an archived boss: %v", r.n.got)
+	}
+	r.w.repairStop(context.Background(), time.Unix(run1.IntentAt, 0).Add(repairWindow+time.Hour))
+	if f := r.owedFlag(t, "conv-a"); f != nil {
+		t.Fatalf("an expired flag was kept: %+v", f)
 	}
 }

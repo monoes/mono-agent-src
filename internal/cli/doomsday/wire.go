@@ -46,7 +46,7 @@ type Wiring struct {
 	ChatNote func(ctx context.Context, conversationID, message string) error
 	// ChatNoteSince says whether the chat already holds a Stop message written at or after unix time since. Nil: the repair
 	// of a stop writes a message only for a chat in which it ended a session.
-	ChatNoteSince func(ctx context.Context, conversationID string, since int64) (bool, error)
+	ChatNoteSince func(ctx context.Context, q RowQuerier, conversationID string, since int64) (bool, error)
 }
 
 // stoppedReport is what runEnded needs of the Stop order's report.
@@ -60,6 +60,11 @@ func runEnded(rep stoppedReport) bool {
 		return true
 	}
 	return rep.Stopped()
+}
+
+// RowQuerier is a database or a transaction connection that answers a one-row query.
+type RowQuerier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
 // ErrNoOpenRun is why a stop has nothing to stop.

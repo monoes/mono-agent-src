@@ -1,7 +1,9 @@
 package ai
 
 import (
+	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -64,11 +66,18 @@ func (s *AIStore) RecordSystemNotice(profileID, conversationID, code, message st
 
 // HasSystemNoticeSince says whether the conversation holds a system notice with this code written at or after since.
 func (s *AIStore) HasSystemNoticeSince(profileID, conversationID, code string, since time.Time) (bool, error) {
+	return HasSystemNoticeSinceIn(context.Background(), s.db, profileID, conversationID, code, since)
+}
+
+// HasSystemNoticeSinceIn is HasSystemNoticeSince read through q (a database or a transaction's connection).
+func HasSystemNoticeSinceIn(ctx context.Context, q interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}, profileID, conversationID, code string, since time.Time) (bool, error) {
 	if profileID == "" {
 		return false, ErrProfileRequired
 	}
 	var n int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM ai_chat_turns t JOIN ai_chat_events e ON e.turn_id = t.id AND e.profile_id = t.profile_id
+	err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM ai_chat_turns t JOIN ai_chat_events e ON e.turn_id = t.id AND e.profile_id = t.profile_id
 		WHERE t.profile_id = ? AND t.conversation_id = ? AND t.id LIKE ? AND t.created_at >= ? AND e.type = ? AND json_extract(e.payload, '$.code') = ?`,
 		profileID, conversationID, systemTurnPrefix+"%", since.UTC().Format(time.RFC3339), string(chatevents.EventNotice), code).Scan(&n)
 	return n > 0, err

@@ -106,7 +106,7 @@ func (w Wiring) afterStop(ctx context.Context, o StopOutcome, verdict string, at
 			// The message is owed: record it before the failure is reported, so a later stop can write it.
 			if run, intent, ok := w.runOfChat(ctx, o.Runs, c); !ok {
 				lines = append(lines, "transcript NOT recorded as owed ("+c+"): its run cannot be read")
-			} else if err := w.writePending(run, intent, c, msg); err != nil {
+			} else if err := w.writePending(run, intent, c, owedChat{Code: owedCode(verdict), At: at.Unix()}); err != nil {
 				lines = append(lines, "transcript NOT recorded as owed ("+c+"): "+err.Error())
 			}
 		}
@@ -269,6 +269,8 @@ const (
 	repairHeadEnded  = "no open run; ended sessions left open by the previous stop"
 	repairHeadNote   = "no open run; wrote the chat message the previous stop could not write"
 	repairHeadFailed = "no open run; the previous stop's sessions could not be ended"
+	// repairHeadNoteFailed: nothing was ended, and the owed chat message is still not written.
+	repairHeadNoteFailed = "no open run; the chat message the previous stop could not write is still not written"
 )
 
 // repairStop finishes what the last stop left. Lines are printed in place of the "no open run" failure. A chat message is
@@ -290,6 +292,7 @@ func (w Wiring) repairStop(ctx context.Context, at time.Time) ([]string, RepairS
 	stoppedAt := time.Unix(run.IntentAt, 0)
 	ref := RunRef{CharterID: run.CharterID, Generation: run.Generation}
 	if at.Sub(stoppedAt) > repairWindow {
+		w.dropExpiredFlags(ctx, ref) // an owed flag past the window is never honoured: drop it
 		// A hint only when something is left open; a bare stop with nothing to say stays the plain old failure.
 		if ids, _, err := w.openRunSessions(ctx, []RunRef{ref}, ""); err == nil && len(ids) > 0 {
 			return []string{"no open run; the last run was stopped more than 7 days ago, so its sessions are left as they are"}, RepairNothing
@@ -304,18 +307,27 @@ func (w Wiring) repairStop(ctx context.Context, at time.Time) ([]string, RepairS
 	lines, ended, endedConv := w.endSessions(ctx, ids)
 	failed := failedLines(lines)
 	var notes []string
-	pending := w.readPending(ref, run.IntentAt)
-	wrote := 0
+	wrote, noteFailed := 0, false
 	for _, c := range convs {
-		owed, isOwed := pending.Chats[c]
-		if isOwed {
-			// The first stop could not write this message: write that message, then clear the record.
-			l, bad := w.noteChat(ctx, c, owed)
-			notes = append(notes, l)
-			failed = failed || bad
+		if owed, isOwed := w.readPending(ref, run.IntentAt, c); isOwed {
+			// The first stop could not write this message. The text is rebuilt from the record's closed code and time, never read
+			// from the file. If the chat already holds a stop message (the first write committed and still reported an error),
+			// only the record is cleared.
+			if written, err := w.clearIfWritten(ctx, run.IntentAt, c); err != nil {
+				notes = append(notes, "transcript check failed ("+c+"): "+err.Error()+"; the owed message stays recorded")
+				failed, noteFailed = true, true
+				continue
+			} else if written {
+				continue
+			}
+			l, bad := w.noteChat(ctx, c, owed.message())
+			if l != "" {
+				notes = append(notes, l)
+			}
+			failed, noteFailed = failed || bad, noteFailed || bad
 			if !bad {
 				wrote++
-				if err := w.clearPending(ref, run.IntentAt, c); err != nil {
+				if err := w.clearPending(c); err != nil {
 					notes = append(notes, "transcript record NOT cleared ("+c+"): "+err.Error())
 					failed = true
 				}
@@ -326,7 +338,7 @@ func (w Wiring) repairStop(ctx context.Context, at time.Time) ([]string, RepairS
 			continue
 		}
 		if w.ChatNoteSince != nil {
-			has, err := w.ChatNoteSince(ctx, c, run.IntentAt)
+			has, err := w.ChatNoteSince(ctx, w.DB, c, run.IntentAt)
 			if err != nil {
 				notes = append(notes, "transcript check failed ("+c+"): "+err.Error()+"; no message written there")
 				failed = true
@@ -337,14 +349,13 @@ func (w Wiring) repairStop(ctx context.Context, at time.Time) ([]string, RepairS
 			}
 		}
 		// Worded for what happened: the run was stopped earlier (not now), and these sessions were ended now. Never "stopped by you at <now>".
-		msg := cleanLine(fmt.Sprintf("Open-ended run stopped earlier; its sessions were ended by a later stop at %s UTC", at.UTC().Format("2006-01-02 15:04:05")))
-		l, bad := w.noteChat(ctx, c, msg)
+		l, bad := w.noteChat(ctx, c, laterMessage(at))
 		if l != "" {
 			notes = append(notes, l)
 		}
 		failed = failed || bad
 		if bad {
-			if err := w.writePending(ref, run.IntentAt, c, msg); err != nil {
+			if err := w.writePending(ref, run.IntentAt, c, owedChat{Code: owedLater, At: at.Unix()}); err != nil {
 				notes = append(notes, "transcript NOT recorded as owed ("+c+"): "+err.Error())
 			}
 		}
@@ -356,6 +367,8 @@ func (w Wiring) repairStop(ctx context.Context, at time.Time) ([]string, RepairS
 	switch {
 	case len(ended) == 0 && wrote > 0:
 		head = repairHeadNote
+	case len(ended) == 0 && noteFailed && len(lines) == 0:
+		head = repairHeadNoteFailed
 	case len(ended) == 0:
 		head = repairHeadFailed
 	}
@@ -364,4 +377,19 @@ func (w Wiring) repairStop(ctx context.Context, at time.Time) ([]string, RepairS
 		return out, RepairFailed
 	}
 	return out, RepairDone
+}
+
+// dropExpiredFlags clears the owed flags of the run's chats once the run is past the repair window.
+func (w Wiring) dropExpiredFlags(ctx context.Context, ref RunRef) {
+	// Archived bosses count here: their chat is no longer one the repair writes to, and its flag must still go.
+	rows, err := w.queryRunSessions(ctx, `SELECT id, conversation_id FROM task_sessions WHERE profile_id = ? AND doomsday_charter_id = ?
+		AND doomsday_generation = ? AND COALESCE(parent_session_id, 0) = 0`, w.Profile, ref.CharterID, ref.Generation)
+	if err != nil {
+		return
+	}
+	for _, r := range rows {
+		if st, err := w.coder().GetSettings(w.Profile, r.conv); err == nil && st.OwedStopNotice != nil && st.OwedStopNotice.Charter == ref.CharterID && st.OwedStopNotice.Generation == ref.Generation {
+			_ = w.clearPending(r.conv)
+		}
+	}
 }
