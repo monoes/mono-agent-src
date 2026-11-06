@@ -1,13 +1,12 @@
 package stop
 
 import (
-	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -25,11 +24,36 @@ const (
 type hostChecks struct{ Lock, Peer, Pin func() error }
 
 var hostChecksNow = func() hostChecks {
+	d := currentProbeDirs()
 	return hostChecks{
-		Lock: func() error { return lockSelfTest(AcquireHost) },
-		Peer: func() error { return peerSelfTest(peerUID) },
-		Pin:  func() error { return pinSelfTest(realPinner) },
+		Lock: func() error { return lockSelfTest(d.Run, AcquireHost) },
+		Peer: func() error { return peerSelfTest(d.Run, peerUID) },
+		Pin:  func() error { return pinSelfTest(d.DB, realPinner, defaultPinScenarios, pinRefusalExpected) },
 	}
+}
+
+// probeDirs are where the self-tests run: next to the real database (pin) and in the real run directory (lock, peer
+// socket), so what is proven is proven on the volume the run uses. Empty means the system temp directory, which only
+// tests and a bare Probe() use; the production wiring calls ProbeAt.
+type probeDirs struct{ DB, Run string }
+
+var (
+	probeMu   sync.Mutex
+	probeCur  probeDirs
+	probeCurM sync.Mutex
+)
+
+func currentProbeDirs() probeDirs { probeCurM.Lock(); defer probeCurM.Unlock(); return probeCur }
+
+// ProbeAt is Probe with the self-tests run in dbDir (the directory of the database file) and runDir.
+func ProbeAt(dbDir, runDir string) error {
+	probeMu.Lock()
+	defer probeMu.Unlock()
+	probeCurM.Lock()
+	probeCur = probeDirs{DB: dbDir, Run: runDir}
+	probeCurM.Unlock()
+	defer func() { probeCurM.Lock(); probeCur = probeDirs{}; probeCurM.Unlock() }()
+	return Probe()
 }
 
 func hostProbeSteps(h hostChecks) []ProbeStep {
@@ -42,18 +66,34 @@ func hostProbeSteps(h hostChecks) []ProbeStep {
 	return []ProbeStep{step(stepHostLock, h.Lock), step(stepPeer, h.Peer), step(stepPin, h.Pin)}
 }
 
-func scratchDir(prefix string) (string, func(), error) {
-	d, err := os.MkdirTemp("", prefix)
+// scratchDir makes a private directory under parent (the system temp directory when parent is empty), after the
+// volume of parent was found fit for the binding. The returned function removes it, and anything a scenario renamed it
+// to (extra names), whatever the outcome.
+func scratchDir(parent, prefix string) (string, func(...string), error) {
+	if parent == "" {
+		parent = os.TempDir()
+	} else if err := os.MkdirAll(parent, 0o700); err != nil {
+		return "", nil, err
+	}
+	if err := checkVolume(parent); err != nil {
+		return "", nil, err
+	}
+	d, err := os.MkdirTemp(parent, prefix)
 	if err != nil {
 		return "", nil, err
 	}
-	return d, func() { _ = os.RemoveAll(d) }, nil
+	return d, func(extra ...string) {
+		_ = os.RemoveAll(d)
+		for _, e := range extra {
+			_ = os.RemoveAll(e)
+		}
+	}, nil
 }
 
 // lockSelfTest: a second host on one run directory is refused, a released lock can be taken again, and the witness
 // lock excludes a second holder.
-func lockSelfTest(acquire func(RunDir) (func(), error)) error {
-	dir, done, err := scratchDir("ma-lock")
+func lockSelfTest(parent string, acquire func(RunDir) (func(), error)) error {
+	dir, done, err := scratchDir(parent, ".ma-lock-")
 	if err != nil {
 		return err
 	}
@@ -93,8 +133,8 @@ func lockSelfTest(acquire func(RunDir) (func(), error)) error {
 }
 
 // peerSelfTest: a connection from this process to a listener of ours is identified as this user.
-func peerSelfTest(peer func(net.Conn) (uint32, error)) error {
-	dir, done, err := scratchDir("ma-peer")
+func peerSelfTest(parent string, peer func(net.Conn) (uint32, error)) error {
+	dir, done, err := scratchDir(parent, ".ma-peer-")
 	if err != nil {
 		return err
 	}
@@ -102,7 +142,7 @@ func peerSelfTest(peer func(net.Conn) (uint32, error)) error {
 	path := filepath.Join(dir, "s")
 	ln, err := net.Listen("unix", path)
 	if err != nil {
-		return fmt.Errorf("a unix socket cannot be made: %w", err)
+		return fmt.Errorf("a unix socket cannot be made at %q (%d bytes; a socket path is limited to about 104, so a long run directory or TMPDIR refuses the mode): %w", path, len(path), err)
 	}
 	defer ln.Close()
 	type acc struct {
@@ -134,91 +174,4 @@ func peerSelfTest(peer func(net.Conn) (uint32, error)) error {
 		return fmt.Errorf("the peer was identified as %d, not as this user", uid)
 	}
 	return nil
-}
-
-// pinner is what pinSelfTest needs of a pinned connection.
-type pinner interface {
-	Check() error
-	Do(ctx context.Context, fn func(c *sql.Conn, precommit func() error) error) error
-	discard()
-}
-
-func realPinner(ctx context.Context, o PinOptions) (pinner, error) {
-	p, err := Pin(ctx, o)
-	if err != nil {
-		return nil, err
-	}
-	return p, nil
-}
-
-func (p *Pinned) discard() { p.mu.Lock(); p.discardLocked(); p.mu.Unlock() }
-
-// pinSelfTest pins a scratch database and proves the binding does what the mode relies on: the pin reports nothing while
-// the file is untouched, the connection works, and a rename of the database away, and a rename of another file over
-// it, are each either refused by the system or reported by the pin. A rename that happened and was NOT reported fails
-// the step.
-func pinSelfTest(mk func(context.Context, PinOptions) (pinner, error)) error {
-	scenarios := map[string]func(db, other string) error{
-		"moving the database away": func(db, _ string) error { return os.Rename(db, db+".moved") },
-		"replacing the database":   func(db, other string) error { return os.Rename(other, db) },
-	}
-	for name, op := range scenarios {
-		if err := pinScenario(mk, op); err != nil {
-			return fmt.Errorf("%s: %w", name, err)
-		}
-	}
-	return nil
-}
-
-func pinScenario(mk func(context.Context, PinOptions) (pinner, error), op func(db, other string) error) error {
-	dir, done, err := scratchDir("ma-pin")
-	if err != nil {
-		return err
-	}
-	defer done()
-	db, other := filepath.Join(dir, "p.db"), filepath.Join(dir, "o.db")
-	if err := makeScratchDB(db); err != nil {
-		return err
-	}
-	if err := os.WriteFile(other, []byte("x"), 0o600); err != nil {
-		return err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	p, err := mk(ctx, PinOptions{DBPath: db})
-	if err != nil {
-		return fmt.Errorf("the database cannot be pinned: %w", err)
-	}
-	defer p.discard()
-	if err := p.Check(); err != nil {
-		return fmt.Errorf("an untouched pinned database is reported as swapped: %w", err)
-	}
-	if err := p.Do(ctx, func(c *sql.Conn, _ func() error) error {
-		_, err := c.ExecContext(ctx, `INSERT INTO t(x) VALUES (1)`)
-		return err
-	}); err != nil {
-		return fmt.Errorf("the pinned connection does not work: %w", err)
-	}
-	if err := op(db, other); err != nil { // refused by the system: the binding holds, and the pin must stay quiet
-		if cerr := p.Check(); cerr != nil {
-			return fmt.Errorf("the system refused the change but the pin reports a swap anyway: %w", cerr)
-		}
-		return nil
-	}
-	if err := p.Check(); !errors.Is(err, ErrPinSwapped) {
-		return fmt.Errorf("the database was changed and the pin did not report it (%v)", err)
-	}
-	return nil
-}
-
-func makeScratchDB(path string) error {
-	db, err := sql.Open("sqlite", pinDSN(path)+"?_pragma=journal_mode(WAL)")
-	if err != nil {
-		return err
-	}
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS t(x INTEGER)`); err != nil {
-		_ = db.Close()
-		return err
-	}
-	return db.Close()
 }
