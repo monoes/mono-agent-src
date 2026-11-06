@@ -6,28 +6,6 @@ import (
 	"testing"
 )
 
-// Revoking narrows what a role can run: it stays a preview until confirmed, then shells `org grant remove`.
-func TestSetOrgGrant_RevokePreviewsUntilConfirmedThenShellsCLI(t *testing.T) {
-	db := newMonoagentTestDB(t)
-	mt := NewMonoagentTools(db.DB, "/bin/monoagentcli", "p1")
-	var gotArgs []string
-	stubRunSelfExec(t, func(ctx context.Context, bin string, args ...string) ([]byte, error) {
-		gotArgs = args
-		return []byte("warning: something on stderr\n{\"v\":1,\"org\":\"growth\"}\n"), nil
-	})
-	preview, err := mt.Execute("set_org_grant", `{"org_name":"growth","role_id":"lead","automation":"publish_post","revoke":true}`)
-	if err != nil || !strings.Contains(preview, "would_apply") || gotArgs != nil {
-		t.Fatalf("expected a preview without exec, got %s (args %v, err %v)", preview, gotArgs, err)
-	}
-	out, err := mt.Execute("set_org_grant", `{"org_name":"growth","role_id":"lead","automation":"publish_post","revoke":true,"confirm":true}`)
-	if err != nil || !strings.HasPrefix(out, `{"v":1`) {
-		t.Fatalf("output = %q (%v)", out, err)
-	}
-	if want := "--profile p1 org grant remove growth --role lead --automation publish_post"; strings.Join(gotArgs, " ") != want {
-		t.Fatalf("args = %q, want %q", strings.Join(gotArgs, " "), want)
-	}
-}
-
 func TestSetOrgGrant_RefusedAfterSyncedComms(t *testing.T) {
 	db := newMonoagentTestDB(t)
 	mt := NewMonoagentTools(db.DB, "/bin/monoagentcli", "default")

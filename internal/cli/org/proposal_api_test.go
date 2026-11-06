@@ -47,7 +47,9 @@ func TestCreateProposalRefusesWhatTheCommandRefuses(t *testing.T) {
 		{"growth", "grant.add", `{"role":"lead","automation":"summarize","approval":"none"}`, "always asks first"},
 		{"growth", "autonomy.set", `{"level":"full"}`, "level full"},
 		{"growth", "autonomy.set", `{"policy":"x"}`, "not valid"},
-		{"growth", "grant.remove", `{}`, "not one a proposal can carry"},
+		{"growth", "grant.rm", `{}`, "not one a proposal can carry"},
+		{"growth", "grant.remove", `{}`, "names a role and an automation"},
+		{"growth", "grant.remove", grantArgs, "has no grant"},
 		{"nowhere", "grant.add", grantArgs, "not found"},
 	} {
 		r := req

@@ -20,7 +20,7 @@ import (
 	"github.com/monoes/mono-agent/internal/storage"
 )
 
-// What a proposal can ask for (#1477): a grant (`org grant add`) or a change of the autonomy level and its decider
+// What a proposal can ask for (#1477): a grant (`org grant add`), the revoking of one (`org grant remove`, proposal_revoke.go) or a change of the autonomy level and its decider
 // (`org autonomy set`). Approval none, level full and the policy have no field here, so no proposal can carry them,
 // and an unknown field is refused, so none can be added by a rewritten row either. The arguments are stored in one
 // canonical form with every default filled in, so that what the user confirms is what the preview says and not
@@ -137,10 +137,12 @@ func (env *orgEnv) planProposal(ctx context.Context, db *storage.Database, profi
 	switch verb {
 	case orgproposal.VerbGrantAdd:
 		return env.planGrant(ctx, db, profileID, doc, raw)
+	case orgproposal.VerbGrantRemove:
+		return env.planRevoke(ctx, db, profileID, doc, raw)
 	case orgproposal.VerbAutonomySet:
 		return env.planAutonomy(ctx, db, profileID, doc, raw)
 	}
-	return &proposalPlan{Digest: "unknown-verb"}, env.d.InvalidInput("verb %q is not one a proposal can carry: grant.add or autonomy.set", verb)
+	return &proposalPlan{Digest: "unknown-verb"}, env.d.InvalidInput("verb %q is not one a proposal can carry: grant.add, grant.remove or autonomy.set", verb)
 }
 
 func (env *orgEnv) planGrant(ctx context.Context, db *storage.Database, profileID string, doc *orgdesign.Doc, raw string) (*proposalPlan, error) {

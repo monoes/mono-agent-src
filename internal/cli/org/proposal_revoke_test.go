@@ -3,6 +3,7 @@ package org
 import (
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
@@ -126,17 +127,30 @@ func TestTwoConfirmsOfARevokeAtOnceApplyOnce(t *testing.T) {
 	f := grantedFixture(t)
 	p := f.propose(t, "growth", "grant.remove", revokeArgs)
 	var wg sync.WaitGroup
-	errs := make([]error, 2)
-	for i := range errs {
+	var won, refused atomic.Int32
+	for i := 0; i < 2; i++ {
 		wg.Add(1)
-		go func(i int) {
+		go func() {
 			defer wg.Done()
-			_, errs[i] = f.run(t, "proposal", "confirm", p["id"].(string), "--hash", p["hash"].(string))
-		}(i)
+			cmd := newOrgCmd(f.cfg)
+			cmd.SetArgs([]string{"proposal", "confirm", p["id"].(string), "--hash", p["hash"].(string)})
+			cmd.SilenceUsage, cmd.SilenceErrors = true, true
+			switch err := cmd.Execute(); {
+			case err == nil:
+				won.Add(1)
+			case strings.Contains(err.Error(), "proposal_already_decided"):
+				refused.Add(1)
+			default:
+				t.Errorf("confirm: %v", err)
+			}
+		}()
 	}
 	wg.Wait()
-	if (errs[0] == nil) == (errs[1] == nil) {
-		t.Fatalf("exactly one confirm must win: %v / %v", errs[0], errs[1])
+	if won.Load() != 1 || refused.Load() != 1 {
+		t.Fatalf("%d confirms won, %d refused as already decided", won.Load(), refused.Load())
+	}
+	if gr := f.grants(t); len(gr) != 1 {
+		t.Fatalf("grants %v", gr)
 	}
 }
 

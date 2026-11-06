@@ -171,7 +171,7 @@ func TestTheProposalCreatorRefusesWhatTheToolsRefuse(t *testing.T) {
 		"bad decider":           {"autonomy.set", `{"decider":"coin"}`},
 		"bad threshold":         {"autonomy.set", `{"decider_threshold":7}`},
 		"verb approval.set":     {"approval.set", `{"level":"none"}`},
-		"verb grant.remove":     {"grant.remove", grantArgs},
+		"revoke without a grant": {"grant.remove", grantArgs},
 		"verb empty":            {"", grantArgs},
 		"unknown org":           {"grant.add", grantArgs},
 		"an id the agent chose": {"grant.add", `{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","role":"lead","automation":"summarize"}`},

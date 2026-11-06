@@ -4,13 +4,13 @@ import { ShieldCheck } from 'lucide-react'
 import { api } from '../../services/api.js'
 import './mission/mission.css'
 
-// The card of an org proposal a chat tool made (set_org_grant, set_org_autonomy; #1477). The tool result is only a
+// The card of an org proposal a chat tool made (set_org_grant with its revoke, set_org_autonomy; #1477). The tool result is only a
 // POINTER: the card reads the stored proposal through the CLI and shows ITS preview and hash, never the result's text.
 // Confirm sends the hash the card displayed, so the CLI refuses a row rewritten after it was drawn. The conversation
 // on the row is a label, not ownership: it decides nothing here (the id is 128 random bits and the authority is the
 // CLI's operator-only confirm), so only the verb is checked against the tool that pointed at the row.
 
-const VERB_OF_TOOL = { set_org_grant: 'grant.add', set_org_autonomy: 'autonomy.set' }
+const VERBS_OF_TOOL = { set_org_grant: ['grant.add', 'grant.remove'], set_org_autonomy: ['autonomy.set'] }
 const ID = /^[0-9a-f]{32}$/
 const PREFIX = 'mcp__monoagent__'
 
@@ -21,7 +21,7 @@ export function proposalRefs(calls) {
   const seen = new Set()
   Object.values(calls || {}).forEach(call => {
     const name = typeof call?.name === 'string' && call.name.startsWith(PREFIX) ? call.name.slice(PREFIX.length) : call?.name
-    if (!VERB_OF_TOOL[name] || call.status !== 'completed' || call.ok === false || typeof call.result !== 'string') return
+    if (!VERBS_OF_TOOL[name] || call.status !== 'completed' || call.ok === false || typeof call.result !== 'string') return
     let r
     try { r = JSON.parse(call.result) } catch { return }
     const id = r && typeof r === 'object' ? r.proposal_id : null
@@ -61,7 +61,7 @@ export default function OrgProposalCard({ tool, id }) {
   }, [id])
   useEffect(() => { load() }, [load])
 
-  const foreign = !!row && row.verb !== VERB_OF_TOOL[tool]
+  const foreign = !!row && !(VERBS_OF_TOOL[tool] || []).includes(row.verb)
   if (missing || foreign) {
     return (
       <section className="ms-card" data-testid="org-proposal" aria-label={t('bubbles.orgProposal.unavailableLabel')}>
@@ -87,8 +87,8 @@ export default function OrgProposalCard({ tool, id }) {
     } finally { if (alive.current) setBusy(false) }
   }
   return (
-    <section className="ms-card" data-testid="org-proposal" data-status={status} aria-label={t('bubbles.orgProposal.label', { org: row.org })}>
-      <div className="ms-card-head"><ShieldCheck size={12} aria-hidden="true" /> <strong>{t('bubbles.orgProposal.title', { org: row.org })}</strong>
+    <section className="ms-card" data-testid="org-proposal" data-status={status} data-verb={row.verb} aria-label={t('bubbles.orgProposal.label', { org: row.org })}>
+      <div className="ms-card-head"><ShieldCheck size={12} aria-hidden="true" /> <strong>{t(row.verb === 'grant.remove' ? 'bubbles.orgProposal.titleRevoke' : 'bubbles.orgProposal.title', { org: row.org })}</strong>
         <span className={`ts-chip ts-chip--${status}`} data-testid="org-proposal-status">{t(`bubbles.orgProposal.status.${status}`, { defaultValue: status })}</span>
       </div>
       <pre className="ms-text" data-testid="org-proposal-preview" style={{ whiteSpace: 'pre-wrap', fontFamily: 'var(--font-mono)', margin: '6px 0 0' }}>{row.preview_text}</pre>
