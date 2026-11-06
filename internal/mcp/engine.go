@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -176,8 +177,18 @@ func migrateProfilesToPerProfileKeys(ctx context.Context, db *sql.DB) {
 // It is race-safe: request handlers run on separate goroutines and may
 // call it simultaneously on first use.
 func (s *Server) runtime() (*runtime, error) {
+	return s.runtimeAt(nil)
+}
+
+// runtimeAt is runtime, except that with an epoch it builds nothing once
+// closeRuntime has run since that epoch was read: work that outlives its
+// caller (the refusal row) must not rebuild a database nobody will close.
+func (s *Server) runtimeAt(epoch *uint64) (*runtime, error) {
 	s.rtMu.Lock()
 	defer s.rtMu.Unlock()
+	if epoch != nil && *epoch != s.epoch {
+		return nil, errRuntimeClosed
+	}
 	if s.rt != nil {
 		return s.rt, nil
 	}
@@ -187,6 +198,19 @@ func (s *Server) runtime() (*runtime, error) {
 	}
 	s.rt = rt
 	return rt, nil
+}
+
+var errRuntimeClosed = errors.New("mcp: runtime closed")
+
+// sqlDB returns the open database once, under the runtime's lock; nil after
+// Close.
+func (rt *runtime) sqlDB() *sql.DB {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if rt.db == nil {
+		return nil
+	}
+	return rt.db.DB
 }
 
 // Close releases the runtime's engine and database. Safe on nil receivers

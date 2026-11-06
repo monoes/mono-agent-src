@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/daemonhb"
 	"github.com/monoes/mono-agent/internal/orgbridge"
+	"github.com/monoes/mono-agent/internal/orgdecide"
 	"github.com/monoes/mono-agent/internal/orgdesign"
 	"github.com/monoes/mono-agent/internal/orggrant"
+	"github.com/monoes/mono-agent/internal/orggroup"
 	"github.com/monoes/mono-agent/internal/profiledir"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
@@ -72,29 +75,17 @@ func metaFrom(ctx context.Context) callMeta {
 // provider args in the org JSON — so an unset variable must refuse rather
 // than wave the call through.
 func (s *Server) grantScope(ctx context.Context) (*orggrant.Bundle, *runtime, error) {
-	rt, err := s.runtime()
-	if err != nil {
-		return nil, nil, err
-	}
-	b, err := orggrant.NewStore(rt.db.DB).ResolveBundle(ctx, s.opts.Grant)
-	if errors.Is(err, orggrant.ErrNotFound) {
-		return nil, nil, fmt.Errorf("%s: grant %s does not exist", codeRefusedGrant, s.opts.Grant)
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-	// The grant fixes the profile, and --profile must name it: a grant server
-	// without one is refused, so a copied grant id cannot be served unchecked.
+	return s.grantScopeAt(ctx, nil)
+}
+
+// grantScopeAt is grantScope; with an epoch it builds no runtime after
+// closeRuntime (see runtimeAt).
+func (s *Server) grantScopeAt(ctx context.Context, epoch *uint64) (*orggrant.Bundle, *runtime, error) {
+	// The refusals that need no grant row come first, so they hold with no
+	// database access and whatever the state of ctx: the profile flag and
+	// the environment are the process's own, not the bundle's.
 	if s.opts.Profile == "" {
 		return nil, nil, fmt.Errorf("%s: grant mode needs --profile <id|name>: the profile the grant %s belongs to", codeRefusedGrant, s.opts.Grant)
-	}
-	// --profile is an id or a name; compare ids.
-	want, err := resolveProfileID(rt.db.DB, s.opts.Profile)
-	if err != nil {
-		return nil, nil, fmt.Errorf("%s: %v", codeRefusedGrant, err)
-	}
-	if want != b.ProfileID {
-		return nil, nil, fmt.Errorf("%s: grant %s belongs to profile %q, not %q", codeRefusedGrant, s.opts.Grant, b.ProfileID, s.opts.Profile)
 	}
 	org, role := os.Getenv("MONOMIND_ORG_NAME"), os.Getenv("MONOMIND_ORG_ROLE")
 	if org == "" {
@@ -103,6 +94,29 @@ func (s *Server) grantScope(ctx context.Context) (*orggrant.Bundle, *runtime, er
 	if role == "" {
 		return nil, nil, fmt.Errorf("%s: grant mode needs MONOMIND_ORG_ROLE in the environment; monomind sets it for a role's tool provider", codeRefusedGrant)
 	}
+	rt, err := s.runtimeAt(epoch)
+	if err != nil {
+		return nil, nil, err
+	}
+	db := rt.sqlDB()
+	if db == nil {
+		return nil, nil, errRuntimeClosed
+	}
+	b, err := orggrant.NewStore(db).ResolveBundle(ctx, s.opts.Grant)
+	if errors.Is(err, orggrant.ErrNotFound) {
+		return nil, nil, fmt.Errorf("%s: grant %s does not exist", codeRefusedGrant, s.opts.Grant)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	// --profile is an id or a name; compare ids.
+	want, err := resolveProfileID(db, s.opts.Profile)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%s: %v", codeRefusedGrant, err)
+	}
+	if want != b.ProfileID {
+		return nil, nil, fmt.Errorf("%s: grant %s belongs to profile %q, not %q", codeRefusedGrant, s.opts.Grant, b.ProfileID, s.opts.Profile)
+	}
 	if org != b.OrgName {
 		return nil, nil, fmt.Errorf("%s: grant %s is for org %q, not %q", codeRefusedGrant, s.opts.Grant, b.OrgName, org)
 	}
@@ -110,6 +124,16 @@ func (s *Server) grantScope(ctx context.Context) (*orggrant.Bundle, *runtime, er
 		return nil, nil, fmt.Errorf("%s: grant %s is for role %q, not %q", codeRefusedGrant, s.opts.Grant, b.RoleID, role)
 	}
 	return b, rt, nil
+}
+
+// grantServesName reports whether grant mode can ever serve a tool of this
+// name: the role's automations (automation_<alias>, automation_status,
+// automation_output), the group-org tools and the decision tools. Every
+// other name, the user's own task, API and workflow tools included, is
+// refused from the name alone, before any grant row is read.
+func grantServesName(name string) bool {
+	return (strings.HasPrefix(name, "automation_") && len(name) > len("automation_")) || containsStr(orggroup.InitiatorTools, name) ||
+		name == orgdecide.ToolDecisionList || name == orgdecide.ToolDecisionResolve
 }
 
 // grantToolDefinitions lists the bundle's tools. An unusable bundle lists
@@ -210,6 +234,11 @@ func (s *Server) grantToolDefinitions(ctx context.Context) []map[string]interfac
 
 // callGrantTool serves one tools/call in grant mode.
 func (s *Server) callGrantTool(ctx context.Context, name string, args json.RawMessage) (string, error) {
+	if !grantServesName(name) {
+		err := fmt.Errorf("%s: %s is not served in grant mode: it serves only the automations your org granted you", codeRefusedGrant, name)
+		s.refusals.record(s, name)
+		return "", err
+	}
 	b, rt, err := s.grantScope(ctx)
 	if err != nil {
 		return "", err
