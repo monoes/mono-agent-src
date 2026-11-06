@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/orggrant"
 )
@@ -79,5 +80,52 @@ func TestGrantModeServedNameStaysRefusedOrFailsClosed(t *testing.T) {
 				t.Errorf("canceled context served %s: %s", name, out)
 			}
 		})
+	}
+}
+
+// A never-served name still leaves its refusal row in the ledger, written
+// after the refusal is decided and on its own context, so a canceled request
+// context does not lose it.
+func TestGrantModeNeverServedNameLeavesALedgerRow(t *testing.T) {
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	for ctxName, ctx := range map[string]context.Context{"live": context.Background(), "canceled": canceled} {
+		t.Run(ctxName, func(t *testing.T) {
+			f := newGrantFixture(t, orggrant.Tool{Wait: true})
+			if _, err := f.server.callGrantTool(ctx, "task_list", nil); err == nil || !strings.HasPrefix(err.Error(), codeRefusedGrant) {
+				t.Fatalf("task_list = %v, want a %s refusal", err, codeRefusedGrant)
+			}
+			var n int
+			if err := f.db.DB.QueryRow(`SELECT COUNT(*) FROM org_bridge_calls WHERE direction = 'role_tool' AND status = 'refused_grant' AND grant_id = ? AND org_name = 'growth' AND role_id = 'writer'`, f.grant.ID).Scan(&n); err != nil {
+				t.Fatal(err)
+			}
+			if n != 1 {
+				t.Fatalf("%d refusal rows, want 1", n)
+			}
+		})
+	}
+}
+
+// The refusal never waits longer than the ledger timeout for its row.
+func TestGrantModeRefusalIsNotHeldByTheLedgerWrite(t *testing.T) {
+	old := grantRefusalLedgerTimeout
+	grantRefusalLedgerTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { grantRefusalLedgerTimeout = old })
+	f := newGrantFixture(t, orggrant.Tool{Wait: true})
+	// Hold the database's only writer so the insert cannot finish.
+	tx, err := f.db.DB.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tx.Rollback() })
+	if _, err := tx.Exec(`UPDATE org_bridge_calls SET status = status`); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	if _, err := f.server.callGrantTool(context.Background(), "task_list", nil); err == nil || !strings.HasPrefix(err.Error(), codeRefusedGrant) {
+		t.Fatalf("task_list = %v", err)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("refusal took %v with the ledger write blocked", d)
 	}
 }

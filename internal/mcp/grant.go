@@ -126,6 +126,34 @@ func grantServesName(name string) bool {
 		name == orgdecide.ToolDecisionList || name == orgdecide.ToolDecisionResolve
 }
 
+// grantRefusalLedgerTimeout bounds the refusal row's write, and so the time
+// it can add to a refusal.
+var grantRefusalLedgerTimeout = 2 * time.Second
+
+// recordNeverServedRefusal leaves the ledger row a refused tool call has
+// always left (the same row grantRun writes for a tool the grant lacks). It
+// runs after the refusal is decided, on its own short context, and its
+// failure is ignored: the refusal never depends on the database. It adds at
+// most grantRefusalLedgerTimeout to the answer. As before, nothing is written
+// unless the process's grant resolves in this role's scope.
+func (s *Server) recordNeverServedRefusal() {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ctx, cancel := context.WithTimeout(context.Background(), grantRefusalLedgerTimeout)
+		defer cancel()
+		b, rt, err := s.grantScope(ctx)
+		if err != nil {
+			return
+		}
+		_ = orgbridge.NewLedger(rt.db.DB).Refuse(ctx, orgbridge.Call{ProfileID: b.ProfileID, Direction: orgbridge.DirRoleTool, OrgName: b.OrgName, RoleID: b.RoleID, GrantID: b.ID}, orgbridge.StatusRefusedGrant)
+	}()
+	select {
+	case <-done:
+	case <-time.After(grantRefusalLedgerTimeout):
+	}
+}
+
 // grantToolDefinitions lists the bundle's tools. An unusable bundle lists
 // nothing; the reason surfaces on the first call.
 func (s *Server) grantToolDefinitions(ctx context.Context) []map[string]interface{} {
@@ -225,7 +253,9 @@ func (s *Server) grantToolDefinitions(ctx context.Context) []map[string]interfac
 // callGrantTool serves one tools/call in grant mode.
 func (s *Server) callGrantTool(ctx context.Context, name string, args json.RawMessage) (string, error) {
 	if !grantServesName(name) {
-		return "", fmt.Errorf("%s: %s is not served in grant mode: it serves only the automations your org granted you", codeRefusedGrant, name)
+		err := fmt.Errorf("%s: %s is not served in grant mode: it serves only the automations your org granted you", codeRefusedGrant, name)
+		s.recordNeverServedRefusal()
+		return "", err
 	}
 	b, rt, err := s.grantScope(ctx)
 	if err != nil {
