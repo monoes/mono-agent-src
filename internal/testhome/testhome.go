@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/zalando/go-keyring"
 )
 
 // Main points HOME (and USERPROFILE) at a fresh temp dir, makes
@@ -54,6 +56,11 @@ func run(m *testing.M) int {
 	realHome, _ = os.UserHomeDir()
 	os.Setenv(UnderTestEnv, "1")
 	testmode.On = true
+	// No test reaches the OS keyring: on Linux go-keyring dials the session
+	// bus and, with no address set, godbus autolaunches a dbus-daemon that
+	// outlives the test. A test that wants its own store (or a failing one)
+	// calls MockInit / MockInitWithError again.
+	keyring.MockInit()
 	// No test probes or binds the user's real bridge on its default ports
 	// (9222/9323): a test that wants a bridge names its own port. Port 1 is
 	// never listening; the dial guard (network.go) fails the run on a dial to

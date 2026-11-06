@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -50,6 +51,17 @@ func poisonedPath(t *testing.T) (path string, opened <-chan struct{}) {
 	return path, ch
 }
 
+// noDisplayEnv is the test's environment without DISPLAY and WAYLAND_DISPLAY.
+func noDisplayEnv() []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "DISPLAY=") && !strings.HasPrefix(kv, "WAYLAND_DISPLAY=") {
+			env = append(env, kv)
+		}
+	}
+	return env
+}
+
 type runResult struct {
 	code   int
 	stderr string
@@ -79,7 +91,9 @@ func runWithFrame(t *testing.T, bin string, frame []byte, closeWriter bool, args
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.ExtraFiles = []*os.File{r}
-	cmd.Env = append(os.Environ(), "MONOAGENT_CRED_FD=3", "HOME="+t.TempDir())
+	cmd.Env = append(noDisplayEnv(), "MONOAGENT_CRED_FD=3", "HOME="+t.TempDir(),
+		// No Secret Service and no session bus to autolaunch: a vault touch in the child must not start a dbus-daemon.
+		"DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent", "MONOAGENT_ALLOW_FILE_KEYRING=1")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	start := time.Now()

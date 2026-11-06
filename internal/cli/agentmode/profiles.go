@@ -68,7 +68,7 @@ done
 for p in ` + shellWords(readOnlyHomePaths) + `; do
   if [ -e "$HOME/$p" ]; then set -- "$@" --ro-bind "$HOME/$p" "$HOME/$p"; fi
 done
-set -- "$@" --unsetenv DBUS_SESSION_BUS_ADDRESS --unsetenv GNOME_KEYRING_CONTROL --die-with-parent
+set -- "$@" --setenv DBUS_SESSION_BUS_ADDRESS unix:path=/nonexistent --unsetenv GNOME_KEYRING_CONTROL --die-with-parent
 i=0
 while [ "$i" -lt "$n" ]; do
   set -- "$@" "$1"
