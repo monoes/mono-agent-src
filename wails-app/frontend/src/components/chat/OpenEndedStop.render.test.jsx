@@ -181,6 +181,25 @@ describe('the result outlives the probe, and the dialog is accessible', () => {
   })
 })
 
+describe('retry survives the probe', () => {
+  it('keeps the Retry cleanup button after a partial failure even when the probe says there is no run', async () => {
+    const api = { stop: vi.fn().mockResolvedValue({ ok: false, stopped: false, output: 'stopped\nsession 4 NOT ended: boom', detail: 'exit status 8', code: '' }) }
+    const props = { conversationId: 'c1', onStopped: vi.fn(), api }
+    const ui = r => <CoderHeader cwd="/w" chatMode={chatMode('open')} openEnded={{ ...props, runExists: r }} />
+    const view = render(ui(true))
+    fireEvent.click(screen.getByRole('button', { name: /Stop run/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, stop the run' }))
+    await waitFor(() => expect(screen.getByTestId('chat-stop-result')).toHaveAttribute('data-ok', 'warn'))
+    view.rerender(ui(false)) // a stopped run is quiescent: the probe flips right away
+    expect(screen.getByRole('button', { name: 'Retry cleanup' })).toBeEnabled()
+    api.stop.mockResolvedValue({ ok: true, stopped: false, output: 'no open run; ended sessions left open by the previous stop: 4', detail: '', code: '' })
+    fireEvent.click(screen.getByRole('button', { name: 'Retry cleanup' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, stop the run' }))
+    await waitFor(() => expect(screen.getByTestId('chat-stop-result')).toHaveAttribute('data-ok', 'yes'))
+    expect(screen.queryByRole('button', { name: /Stop run|Retry cleanup/ })).toBeNull()
+  })
+})
+
 describe('reading the CLI output', () => {
   it('finds the verdict line and only this chat\'s transcript line', () => {
     const out = 'stopped\nsessions ended: 1, 2\ntranscript c1: first\ntranscript c2: second\n'

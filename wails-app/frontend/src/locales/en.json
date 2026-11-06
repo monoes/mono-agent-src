@@ -2627,7 +2627,9 @@
       "confirmBody": "Stop the run now?",
       "confirm": "Yes, stop the run",
       "cancel": "Cancel",
-      "failed": "NOT confirmed stopped"
+      "failed": "NOT confirmed stopped",
+      "partial": "Stopped, but the cleanup did not finish",
+      "retry": "Retry cleanup"
     }
   }
 }

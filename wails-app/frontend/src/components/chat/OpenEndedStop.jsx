@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { OctagonX } from 'lucide-react'
 import { controlRoomApi } from '../../services/controlRoom.js'
+import { stopLine, transcriptMessage, isRepair, isWarnLine, outcome } from './stopOutcome.js'
 
 const mono = 'var(--font-mono)'
 
@@ -13,38 +14,7 @@ export function showStop(mode, runExists) {
   return runExists === true || (mode === 'open' && runExists !== false)
 }
 
-// stopLine is the verdict line of the command's output ("stopped", or what the CLI says instead).
-export function stopLine(output) {
-  const lines = String(output || '').split('\n').map(l => l.trim()).filter(Boolean)
-  return lines.find(l => /^(stopped|NOT stopped|Stop )/.test(l)) || lines[0] || ''
-}
-
-// transcriptMessage is the message the CLI wrote into this chat's transcript, from its own "transcript <chat>: <message>"
-// line; '' when it wrote none (the chat has no session of the run).
-export function transcriptMessage(output, conversationId) {
-  const prefix = `transcript ${conversationId}: `
-  const line = String(output || '').split('\n').find(l => l.startsWith(prefix))
-  return line ? line.slice(prefix.length) : ''
-}
-
-// isRepair: a later stop that found no open run and finished what the previous one left (exit 0, no "stopped" first line).
-export function isRepair(output) {
-  return /^no open run; (ended sessions|wrote the chat message)/.test(String(output || '').trim())
-}
-
-// A line the CLI printed about something it could not do: shown as a warning, never as a success.
-export function isWarnLine(line) {
-  return /\bNOT (ended|written|stopped|RECORDED)\b|cannot be read|^Stop /.test(line)
-}
-
-// outcome classifies a Stop result: 'ok' (stopped, or a later stop finished the previous one's cleanup), 'warn' (the run IS
-// stopped but the CLI could not finish its sessions or message: exit 8, first line still "stopped"), 'fail' (anything else).
-export function outcome(result) {
-  const out = String(result?.output || '').trim()
-  if (result?.ok && (result?.stopped || isRepair(out))) return 'ok'
-  if (!result?.ok && /^(stopped|no open run; (ended sessions|wrote the chat message|the previous stop))/.test(out)) return 'warn'
-  return 'fail'
-}
+export { stopLine, transcriptMessage, isRepair, isWarnLine, outcome }
 
 export function OpenEndedStop({ chatMode, runExists, conversationId, onStopped, api = controlRoomApi }) {
   const { t } = useTranslation()
@@ -92,7 +62,7 @@ export function OpenEndedStop({ chatMode, runExists, conversationId, onStopped, 
           <button type="button" className="btn btn-danger btn-sm" onClick={confirmStop}>{t('chatMode.stop.confirm')}</button>
           <button ref={cancelBtn} type="button" className="btn btn-ghost btn-sm" onClick={() => setPhase(result ? 'done' : 'idle')}>{t('chatMode.stop.cancel')}</button>
         </span>
-      ) : offered && (
+      ) : (offered || kind === 'warn') && (
         <button ref={stopBtn} type="button" className="btn btn-danger btn-sm" title={t('chatMode.stop.title')} disabled={phase === 'stopping' || stoppedNow} onClick={() => setPhase('confirm')}>
           <OctagonX size={11} aria-hidden="true" /> {phase === 'stopping' ? t('chatMode.stop.stopping') : stoppedNow ? t('chatMode.stop.refreshing') : kind === 'warn' ? t('chatMode.stop.retry') : t('chatMode.stop.button')}
         </button>
