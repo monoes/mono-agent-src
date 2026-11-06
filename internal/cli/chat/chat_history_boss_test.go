@@ -1,10 +1,12 @@
 package chat
 
 import (
+	"context"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/coderhost"
+	"github.com/monoes/mono-agent/internal/tasks"
 )
 
 // The conversation of a run's recorded boss is hidden from the plain `chat history list` only. Every other listing shows it
@@ -101,7 +103,10 @@ func TestQueueCoderChatsMarkTheBoss(t *testing.T) {
 	store, db := openTestChatStore(t, b.dbPath), rawDB(t, b.dbPath)
 	seedTurn(t, store, db, b.boss.ID, "bt1", "steer me", "completed", "2026-10-22T09:00:00Z")
 	seedTurn(t, store, db, b.chat.ID, "ct1", "hello", "completed", "2026-10-22T09:00:00Z")
-	rows, err := coderChats(store, "default", 10)
+	rows, err := coderChats(store, "default", 10, func(id string) bool {
+		b, _ := tasks.IsBossConversation(context.Background(), db, "default", id)
+		return b
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

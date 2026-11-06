@@ -10,6 +10,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/coderhost"
+	"github.com/monoes/mono-agent/internal/tasks"
 )
 
 // `coder sessions`: the persistent view of coder conversations and the way to
@@ -42,6 +43,8 @@ type sessionRow struct {
 	Waiting int    `json:"waitingCommands"`
 	// ChatMode is the conversation's mode: off, mission or open.
 	ChatMode string `json:"chatMode"`
+	// Boss marks the conversation of a run's recorded boss.
+	Boss bool `json:"boss,omitempty"`
 }
 
 func newCoderSessionsListCmd(cfg *Deps) *cobra.Command {
@@ -75,6 +78,7 @@ func newCoderSessionsListCmd(cfg *Deps) *cobra.Command {
 					continue
 				}
 				r := sessionRow{Session: s, Waiting: cs.PendingFor(s.ProfileID, s.ConversationID), ChatMode: coderhost.ChatModeOff}
+				r.Boss, _ = tasks.IsBossConversation(cmd.Context(), db.DB, s.ProfileID, s.ConversationID)
 				if m, err := cs.ChatMode(s.ProfileID, s.ConversationID); err == nil {
 					r.ChatMode = m
 				}

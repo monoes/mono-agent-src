@@ -10,6 +10,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/tasks"
 )
 
 // `coder list`: the coder conversations that ran a turn, for the browser
@@ -35,6 +36,7 @@ type coderChatRow struct {
 	LastTurnAt       string `json:"lastTurnAt"`
 	LastTurnID       string `json:"lastTurnId"`
 	Running          bool   `json:"running"`
+	Boss             bool   `json:"boss,omitempty"` // the conversation of a run's recorded boss
 }
 
 const coderTitleMax = 80
@@ -99,6 +101,12 @@ func newCoderListCmd(cfg *Deps) *cobra.Command {
 				return err
 			}
 			defer closeDB()
+			bdb, err := cfg.OpenDB()
+			if err != nil {
+				return err
+			}
+			defer bdb.Close()
+			isBoss := func(id string) bool { b, _ := tasks.IsBossConversation(cmd.Context(), bdb.DB, profileID, id); return b }
 			rows := []coderChatRow{}
 			if conversation != "" {
 				conv, err := store.GetConversation(conversation, profileID)
@@ -112,8 +120,9 @@ func newCoderListCmd(cfg *Deps) *cobra.Command {
 				if err != nil {
 					return err
 				}
+				row.Boss = isBoss(conv.ID)
 				rows = append(rows, row)
-			} else if rows, err = coderChats(store, profileID, limit); err != nil {
+			} else if rows, err = coderChats(store, profileID, limit, isBoss); err != nil {
 				return err
 			}
 			if cfg.JSONOutput() {
@@ -133,7 +142,7 @@ func newCoderListCmd(cfg *Deps) *cobra.Command {
 
 // coderChats walks the profile's conversations, newest first, for the
 // first limit coder ones that ran a turn.
-func coderChats(store *ai.AIStore, profileID string, limit int) ([]coderChatRow, error) {
+func coderChats(store *ai.AIStore, profileID string, limit int, isBoss func(conversationID string) bool) ([]coderChatRow, error) {
 	if limit <= 0 || limit > 100 {
 		return nil, clicore.InvalidInput("--limit must be between 1 and 100")
 	}
@@ -152,6 +161,7 @@ func coderChats(store *ai.AIStore, profileID string, limit int) ([]coderChatRow,
 			if err != nil {
 				return nil, err
 			}
+			row.Boss = isBoss(c.ID)
 			if ok {
 				rows = append(rows, row)
 				if len(rows) == limit {

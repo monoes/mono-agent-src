@@ -158,6 +158,12 @@ func (s *AIStore) GetConversation(id, profileID string) (Conversation, error) {
 // cursor is the previous page's last updated_at+id (opaque to the caller);
 // empty starts from the top. Returns the next cursor, or "" when exhausted.
 func (s *AIStore) ListConversations(profileID, cursor string, limit int) ([]Conversation, string, error) {
+	return s.ListConversationsWhere(profileID, cursor, limit, "")
+}
+
+// ListConversationsWhere is ListConversations with one more condition, a constant SQL fragment over the table's own name
+// (never user input), that keeps rows out of the list: the plain history list leaves out a run's boss this way.
+func (s *AIStore) ListConversationsWhere(profileID, cursor string, limit int, also string) ([]Conversation, string, error) {
 	if profileID == "" {
 		return nil, "", ErrProfileRequired
 	}
@@ -167,6 +173,9 @@ func (s *AIStore) ListConversations(profileID, cursor string, limit int) ([]Conv
 	args := []any{profileID}
 	q := `SELECT id, profile_id, backend, workflow_context, runtime_id, provider_id, model, session_id, mode, cwd, history_key, created_at, updated_at, effort, org_mode, access
 		FROM ai_chat_conversations WHERE profile_id = ?`
+	if also != "" {
+		q += ` AND (` + also + `)`
+	}
 	if cursor != "" {
 		q += ` AND updated_at || '|' || id < ?`
 		args = append(args, cursor)

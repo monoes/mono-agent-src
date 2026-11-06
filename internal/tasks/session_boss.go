@@ -43,3 +43,14 @@ func OpenBossConversation(ctx context.Context, x Queryer, profileID, frontDeskCo
 	}
 	return conv.String, id, nil
 }
+
+// IsBossConversation says whether the conversation is that of a stamped boss session (any state): the mark the listings
+// that show conversations or sessions carry.
+func IsBossConversation(ctx context.Context, x Queryer, profileID, conversationID string) (bool, error) {
+	var n int
+	err := x.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_sessions WHERE profile_id = ? AND conversation_id = ? AND doomsday_charter_id <> ''`, profileID, conversationID).Scan(&n)
+	if err != nil {
+		return false, fmt.Errorf("tasks: looking up whether %s is a boss conversation: %w", conversationID, err)
+	}
+	return n > 0, nil
+}

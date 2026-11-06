@@ -157,7 +157,8 @@ func newChatHistoryListCmd(cfg *Deps) *cobra.Command {
 				return err
 			}
 			defer closeDB()
-			convs, next, err := store.ListConversations(profileID, cursor, n)
+			// A run's boss is shown as the boss everywhere else (list --all, sessions, orbit); the plain list is the one that leaves it out.
+			convs, next, err := store.ListConversationsWhere(profileID, cursor, n, `NOT `+tasks.BossConversationSQL("ai_chat_conversations"))
 			if err != nil {
 				return err
 			}
