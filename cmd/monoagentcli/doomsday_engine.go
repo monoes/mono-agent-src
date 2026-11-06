@@ -61,6 +61,12 @@ func init() {
 		return doomsdayWiring(cfg, db).ReadEngine()
 	}
 	doomsdayChat = func(cfg *globalConfig, d *chatcli.Deps) {
+		// The chat's mode selector offers the open-ended mode only where the real probe says a run can start, and says
+		// why when not: a run already in this profile, a failed containment step of this machine, binding off.
+		coderhost.OpenModeAvailability = func() (bool, string) {
+			r := doomsdaycli.Availability(context.Background(), doomsdayEngineFor(cfg))
+			return r.ModeAvailable, r.Reason
+		}
 		// A conductor's merges go through the open run's gate and journal; the resolver reads the run on every
 		// merge, so a run that starts or stops after the turn began is seen.
 		d.DoomsdayMerge = func(db *sql.DB) func(ctx context.Context) (*dynorg.DoomsdayMerge, error) {
@@ -99,6 +105,16 @@ func init() {
 			return r.GuardTurns(ctx, cwd, active)
 		})
 	}
+}
+
+// doomsdayEngineFor is the engine of a verb, or the mode off when none is wired.
+func doomsdayEngineFor(cfg *globalConfig) doomsdaycli.Engine {
+	if doomsdayEngine != nil {
+		if e := doomsdayEngine(cfg); e != nil {
+			return e
+		}
+	}
+	return doomsdaycli.Off{}
 }
 
 // doomsdayProgressOut is where the CLI's Stop prints its early progress line (a test swaps it).
