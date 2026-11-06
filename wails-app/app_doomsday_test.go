@@ -69,8 +69,10 @@ func TestDoomsdayArgvIsAnAllowlist(t *testing.T) {
 	}
 }
 
-// The App has exactly these Doomsday bindings; a new one fails here until it is reviewed.
-func TestDoomsdayBindingsAreFour(t *testing.T) {
+// The App has exactly these Doomsday bindings; a new one fails here until it is reviewed. The read bindings, the probe
+// and Stop were four; the open-ended start form adds three, reviewed as a set: OpenEntry (the probe verb), Render (the
+// preview) and Start (operator-gated, the typed phrase re-derived by the CLI, TestDoomsdayRenderAndStartNeedTheOperator).
+func TestDoomsdayBindingsAreExactlyTheReviewedOnes(t *testing.T) {
 	typ := reflect.TypeOf(&App{})
 	var got []string
 	for i := 0; i < typ.NumMethod(); i++ {
@@ -78,7 +80,7 @@ func TestDoomsdayBindingsAreFour(t *testing.T) {
 			got = append(got, n)
 		}
 	}
-	if strings.Join(got, ",") != "DoomsdayFeed,DoomsdayOverview,DoomsdayProbe,DoomsdayStop" {
+	if strings.Join(got, ",") != "DoomsdayFeed,DoomsdayOpenEntry,DoomsdayOverview,DoomsdayProbe,DoomsdayRender,DoomsdayStart,DoomsdayStop" {
 		t.Fatalf("doomsday bindings: %v", got)
 	}
 }
