@@ -37,6 +37,7 @@ vi.mock('../../services/api.js', () => ({
   newOrgEventsStreamId: () => 'stream',
 }))
 vi.mock('../../lib/chatAccessApi.js', () => ({ chatAccessApi: chatAccess }))
+vi.mock('../../lib/openStartApi.js', () => ({ openStartApi: { entry: vi.fn(() => Promise.resolve({ mode_available: true, platform: 'linux', not_defended: 'What this mode does NOT defend against:' })), render: vi.fn(), start: vi.fn() } }))
 vi.mock('../ConfirmDialog.jsx', () => ({ confirm: (...a) => mockConfirm(...a) }))
 
 import { readFileSync } from 'node:fs'
@@ -220,6 +221,19 @@ describe('coder bubbles', () => {
     await waitFor(() => expect(chatAccess.create).toHaveBeenCalledWith('general', 'claude', 'opus', '', 'full', '/home/u/monoagent-coder', 'mission'))
     await waitFor(() => expect(api.startChatTurn).toHaveBeenCalledWith('c9', expect.any(String), 'add a README', false, false))
     expect(api.setChatMode).not.toHaveBeenCalled() // no write apart from the creation: nothing can run before it
+  })
+
+  it('shows the open-ended entry screen instead of the composer when that mode is chosen, and creates nothing', async () => {
+    api.getChatModeOptions.mockResolvedValue({ options: [{ mode: 'off', available: true }, { mode: 'mission', available: true }, { mode: 'open', available: true }] })
+    render(<Harness />)
+    fireEvent.click(await screen.findByLabelText('New chat'))
+    fireEvent.click(await screen.findByRole('radio', { name: 'Open-ended' }))
+    expect(await screen.findByTestId('open-start')).toBeInTheDocument()
+    expect(await screen.findByText(/There is no human approval during the run/)).toBeInTheDocument()
+    expect(within(overlay()).queryByPlaceholderText('Type a message...')).toBeNull()
+    expect(chatAccess.create).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('radio', { name: 'Off' }))
+    expect(await within(overlay()).findByPlaceholderText('Type a message...')).toBeInTheDocument()
   })
 
   it('offers the ready coder runtimes and creates the chat on the one picked, with its model and effort', async () => {
