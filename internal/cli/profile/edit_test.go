@@ -160,6 +160,8 @@ var seedOverrides = map[string]map[string]any{
 	"workflow_executions":    {"status": "COMPLETED"},
 	// 160: a run token's hash and stamps in the one form its CHECKs accept; its execution is the profile's seeded one.
 	"org_proposals":           {"status": "pending", "verb": "grant.add"},
+	"mission_goals":           {"state": "proposed"},
+	"mission_goal_criteria":   {"kind": "rubric"},
 	"workflow_run_tokens":     {"token_hash": strings.Repeat("a", 64), "created_at": "2026-01-01T00:00:00Z", "expires_at": "2026-01-03T00:00:00Z"},
 	"person_links":            {"relation": "same", "status": "confirmed", "person_a": 1, "person_b": 2},
 	"application_fills":       {"status": "filled"},
