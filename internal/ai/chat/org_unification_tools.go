@@ -19,8 +19,9 @@ import (
 // the chat's marker), so they only PROPOSE: the tool stores a pending proposal
 // (orgproposal, through the same planning as `org proposal create`) and applies nothing;
 // the user confirms it on the card in the org screen. The proposal is only as strong
-// as the courtesy gate that tells the chat from the user. Revoking a grant narrows
-// access and still previews, then shells `org grant remove` on confirm:true.
+// as the courtesy gate that tells the chat from the user. Revoking a grant takes the
+// same path (verb grant.remove): the tool stores a pending proposal and the user confirms
+// it on the card; no argument of the tool makes it run anything.
 
 func orgUnificationToolDefs(def func(name, desc string, props map[string]interface{}, required []string) ToolDef) []ToolDef {
 	return []ToolDef{
@@ -30,7 +31,7 @@ func orgUnificationToolDefs(def func(name, desc string, props map[string]interfa
 			"alias":       strParam("Name the org uses for it; becomes the tool automation_<alias>"),
 			"owned":       boolParam("Whether this org owns the workflow's lifecycle (at most one org may)"),
 		}, []string{"org_name", "workflow_id", "alias"}),
-		def("set_org_grant", "Grant (or with revoke:true, revoke) one org role the right to call one of the org's automations as a tool. Workflows with outbound nodes (email, chat, social, service writes) default to needing a decision per call. This only PROPOSES the change: it stores a pending proposal and applies nothing, and the result carries the proposal_id; tell the user to confirm (or decline) the proposal in the org screen, which is the only place it takes effect, and that it expires after 30 minutes. Revoking (revoke:true) previews, then applies with confirm:true.", map[string]interface{}{
+		def("set_org_grant", "Grant (or with revoke:true, revoke) one org role the right to call one of the org's automations as a tool. Workflows with outbound nodes (email, chat, social, service writes) default to needing a decision per call. This only PROPOSES the change: it stores a pending proposal and applies nothing, and the result carries the proposal_id; tell the user to confirm (or decline) the proposal in the org screen, which is the only place it takes effect, and that it expires after 30 minutes.", map[string]interface{}{
 			"org_name":          strParam("The org's name"),
 			"role_id":           strParam("The agent role receiving the tool"),
 			"automation":        strParam("The automation's alias in this org"),
@@ -39,8 +40,7 @@ func orgUnificationToolDefs(def func(name, desc string, props map[string]interfa
 			"timeout_seconds":   intParam("Seconds to wait when wait is true (default 600)"),
 			"approval":          strParam("required (the default) makes every call a decision routed by the org's autonomy level; none is the user's to give and is refused here"),
 			"max_calls_per_run": intParam("Calls allowed per org run (default 20)"),
-			"revoke":            boolParam("Revoke the grant instead of setting it"),
-			"confirm":           boolParam("Only for revoke:true: must be true to apply; omit to preview"),
+			"revoke":            boolParam("Revoke the grant instead of setting it (also only proposed: the user confirms on the card)"),
 		}, []string{"org_name", "role_id", "automation"}),
 		def("set_org_autonomy", "Change who decides an org's pending approvals, questions, and gates: level manual (a human decides everything), mid (rules approve routine items, the decider handles consequential ones, a human handles irreversible ones), or full (the decider handles everything, no human: only the user sets it, in their own terminal or the app). This only PROPOSES the change: it stores a pending proposal and applies nothing, and the result carries the proposal_id; tell the user to confirm (or decline) the proposal in the org screen, which is the only place it takes effect, and that it expires after 30 minutes.", map[string]interface{}{
 			"org_name":           strParam("The org's name"),
@@ -129,7 +129,6 @@ type setOrgGrantArgs struct {
 	Approval       string `json:"approval"`
 	MaxCallsPerRun int    `json:"max_calls_per_run"`
 	Revoke         bool   `json:"revoke"`
-	Confirm        bool   `json:"confirm"`
 }
 
 func (mt *MonoagentTools) setOrgGrant(ctx context.Context, args string) (string, error) {
@@ -152,15 +151,15 @@ func (mt *MonoagentTools) setOrgGrant(ctx context.Context, args string) (string,
 			Approval: strings.TrimSpace(a.Approval), MaxCallsPerRun: a.MaxCallsPerRun}
 		return mt.proposeOrg(ctx, "set_org_grant", a.OrgName, orgproposal.VerbGrantAdd, in)
 	}
-	cli := []string{"grant", "remove", a.OrgName, "--role", a.RoleID, "--automation", a.Automation}
-	if !a.Confirm {
-		return marshalJSON(map[string]interface{}{
-			"would_apply": true,
-			"command":     orgCommandLine(cli),
-			"note":        "this revokes the role's right to run the automation; call again with confirm:true to apply",
-		})
-	}
-	return mt.runOrgCLI(ctx, "set_org_grant", cli...)
+	// A revoke narrows access, but it is still the user's click: the tool stores a proposal and runs nothing, whatever
+	// an older caller still passes as confirm.
+	return mt.proposeOrg(ctx, "set_org_grant", a.OrgName, orgproposal.VerbGrantRemove, revokeProposalJSON{Role: a.RoleID, Automation: a.Automation})
+}
+
+// revokeProposalJSON is the arguments of a grant.remove proposal.
+type revokeProposalJSON struct {
+	Role       string `json:"role"`
+	Automation string `json:"automation"`
 }
 
 // grantProposalJSON is the arguments of a grant.add proposal, as `org proposal create --args-json` takes them.
@@ -228,28 +227,4 @@ func (mt *MonoagentTools) setOrgAutonomy(ctx context.Context, args string) (stri
 	}
 	// Autonomy is the user's to change: the chat's marker would make the CLI refuse it, so the tool stores a proposal.
 	return mt.proposeOrg(ctx, "set_org_autonomy", a.OrgName, orgproposal.VerbAutonomySet, in)
-}
-
-// orgCommandLine is the operator's command for args, each one shell-quoted unless it is plainly safe:
-// names an agent supplied stay one inert word when the user copies the line.
-func orgCommandLine(args []string) string {
-	q := make([]string, len(args))
-	for i, a := range args {
-		q[i] = shellWord(a)
-	}
-	return "monoagentcli org " + strings.Join(q, " ")
-}
-
-func shellWord(s string) string {
-	safe := s != ""
-	for _, r := range s {
-		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("_-.,:/=@%+", r)) {
-			safe = false
-			break
-		}
-	}
-	if safe {
-		return s
-	}
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

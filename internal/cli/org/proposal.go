@@ -25,8 +25,8 @@ func newOrgProposalCmd(env *orgEnv) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "proposal",
 		Short: "Changes to an org's grants or autonomy that the user confirms",
-		Long: "A chat or an agent proposes a grant (grant.add) or an autonomy change (autonomy.set); nothing changes until the " +
-			"user confirms it with `org proposal confirm <id> --hash <hash>`, which runs the real `org grant add` / `org autonomy set`. " +
+		Long: "A chat or an agent proposes a grant (grant.add), the revoking of one (grant.remove) or an autonomy change (autonomy.set); nothing changes until the " +
+			"user confirms it with `org proposal confirm <id> --hash <hash>`, which runs the real `org grant add` / `org grant remove` / `org autonomy set`. " +
 			"A proposal lasts 30 minutes and is used once. Approval none, level full and the autonomy policy cannot be proposed.",
 	}
 	cmd.AddCommand(newOrgProposalCreateCmd(env), newOrgProposalListCmd(env), newOrgProposalShowCmd(env),
@@ -114,11 +114,12 @@ func (env *orgEnv) createProposal(ctx context.Context, db *storage.Database, pro
 func newOrgProposalCreateCmd(env *orgEnv) *cobra.Command {
 	var verb, argsJSON, conversation string
 	c := &cobra.Command{
-		Use:   "create <org> --verb grant.add|autonomy.set --args-json '{...}'",
+		Use:   "create <org> --verb grant.add|grant.remove|autonomy.set --args-json '{...}'",
 		Short: "Propose a grant or an autonomy change; nothing changes until the user confirms",
 		Long: "Stores a proposal after checking its arguments the way the command it stands for would, and prints it with the " +
 			"text the user is shown and the hash they confirm. grant.add takes role, automation and optionally mode, wait, " +
 			"timeout_seconds, max_calls_per_run, max_calls_per_day, max_output_bytes (a grant a proposal makes always asks first). " +
+			"grant.remove takes role and automation (the grant must exist). " +
 			"autonomy.set takes level (manual or mid), decider, decider_runtime, decider_model, decider_threshold, on_decider_failure. " +
 			"A newer proposal for the same role and automation (or the same org's autonomy) supersedes the older pending one; a conversation label holds at most 5 pending per org (conversation_id is a label, never ownership).",
 		Args: cobra.ExactArgs(1),
@@ -135,7 +136,7 @@ func newOrgProposalCreateCmd(env *orgEnv) *cobra.Command {
 			return printJSONValue(map[string]interface{}{"v": 1, "proposal": m})
 		},
 	}
-	c.Flags().StringVar(&verb, "verb", "", "grant.add | autonomy.set")
+	c.Flags().StringVar(&verb, "verb", "", "grant.add | grant.remove | autonomy.set")
 	c.Flags().StringVar(&argsJSON, "args-json", "", "The arguments, as one JSON object")
 	c.Flags().StringVar(&conversation, "conversation", "", "The chat conversation the proposal belongs to")
 	_ = c.MarkFlagRequired("verb")

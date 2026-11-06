@@ -411,7 +411,7 @@ func monoagentAdaptedTools() []tool {
 		},
 		{
 			name:        "org_grant_set",
-			description: "Grant (or with revoke:true, revoke) one org role the right to call one of the org's automations as a tool. This only proposes the change (the user confirms it in the org screen); revoke:true previews, then applies with confirm:true.",
+			description: "Grant (or with revoke:true, revoke) one org role the right to call one of the org's automations as a tool. This only proposes the change (the user confirms it in the org screen); so does revoke:true (a pending revoke the user confirms there).",
 			schema: objSchema(map[string]interface{}{
 				"org_name":          strParam("The org's name"),
 				"role_id":           strParam("The agent role receiving the tool"),
@@ -422,7 +422,6 @@ func monoagentAdaptedTools() []tool {
 				"approval":          strParam("none | required"),
 				"max_calls_per_run": intParam("Calls allowed per org run"),
 				"revoke":            boolParam("Revoke instead of set"),
-				"confirm":           boolParam("Only for revoke:true: must be true to apply"),
 			}, "org_name", "role_id", "automation"),
 			annotations: map[string]bool{"readOnlyHint": false},
 			mutating:    true,

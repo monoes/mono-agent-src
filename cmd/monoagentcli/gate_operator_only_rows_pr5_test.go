@@ -46,7 +46,7 @@ var openOrgLeaves = map[string]string{
 	"org grant list":         readOnlyVerb,
 	"org autonomy show":      readOnlyVerb,
 	"org grant add":          "operator-only since #1473 (org_turn_gate_test.go, class_b_test.go); the chat tool set_org_grant only proposes",
-	"org grant remove":       "narrows what a role can run; not part of this change",
+	"org grant remove":       "narrows what a role can run; stays open (#1477): the chat's revoke is a grant.remove proposal that the operator confirms",
 	"org autonomy decisions": readOnlyVerb,
 	"org autonomy needs-you": readOnlyVerb,
 	"org autonomy pause":     heldOrgB + ": the same widening guard as autonomy set (autonomy.go refuseWidening)",

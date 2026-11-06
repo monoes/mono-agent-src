@@ -1453,6 +1453,7 @@
     "orgProposal": {
       "label": "Propuesta de organización para {{org}}",
       "title": "Propuesta para {{org}}: necesita tu confirmación",
+      "titleRevoke": "Propuesta de revocación para {{org}}: necesita tu confirmación",
       "unavailableLabel": "Propuesta de organización no disponible",
       "unavailable": "Esta propuesta no está disponible aquí (no se encontró o no es del tipo que crea esta herramienta).",
       "by": "Propuesta por {{by}}",

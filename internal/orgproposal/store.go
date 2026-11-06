@@ -33,6 +33,7 @@ const (
 	StatusExpired  = "expired"
 
 	VerbGrantAdd    = "grant.add"
+	VerbGrantRemove = "grant.remove" // migration 162
 	VerbAutonomySet = "autonomy.set"
 
 	// TTL is how long a proposal can be confirmed.

@@ -59,7 +59,7 @@ func newOrgProposalDeclineCmd(env *orgEnv) *cobra.Command {
 	}
 }
 
-// The apply runs the sibling command, `org grant add` or `org autonomy set`, in THIS process, so the gate's verdict
+// The apply runs the sibling command, `org grant add`, `org grant remove` or `org autonomy set`, in THIS process, so the gate's verdict
 // stays in the process that was asked (see the note on runSiblingInProcess). Its own gate and every check of its own
 // run again; there is no other write path.
 func newOrgProposalConfirmCmd(env *orgEnv) *cobra.Command {
@@ -67,7 +67,7 @@ func newOrgProposalConfirmCmd(env *orgEnv) *cobra.Command {
 	c := &cobra.Command{
 		Use:   "confirm <id> --hash <hash>",
 		Short: "Apply a pending proposal (operator only)",
-		Long: "Applies a pending, unexpired proposal once, by running the real `org grant add` / `org autonomy set` with the " +
+		Long: "Applies a pending, unexpired proposal once, by running the real `org grant add` / `org grant remove` / `org autonomy set` with the " +
 			"stored arguments. --hash is the hash `org proposal show` printed for what the user saw; it is refused if the stored " +
 			"proposal no longer hashes to it, if the org changed since the proposal was made (stale), if it expired, or if it was " +
 			"decided already. " + clicore.OperatorOnlyHelp,

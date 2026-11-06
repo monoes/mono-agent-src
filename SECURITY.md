@@ -1311,7 +1311,7 @@ those surfaces, and they are not equally strong.
 
 ### Org grant and autonomy proposals from chat
 
-Since the chat tools `set_org_grant` and `set_org_autonomy` create real pending proposals (#1488), the app shows each as a card that reads the stored proposal (`org proposal show`), displays its preview and hash, and on a click runs the operator-only `org proposal confirm` or `decline` of the bundled CLI; the app never builds the grant or autonomy command, and the hash it sends is the one the card displayed. That confirm is exactly as strong as the operator courtesy gate that guards `org grant add` and `org autonomy set` today: it refuses a chat tool, an agent token and a marked process, but it is not a sandbox against a same-user process that leaves the marked ancestry or edits the database. In `wails dev` any same-user process can call any bound method, so a browser test of confirm proves the happy path, not agent resistance.
+Since the chat tools `set_org_grant` (a grant, or with `revoke:true` the revoking of one) and `set_org_autonomy` create real pending proposals (#1488), the app shows each as a card that reads the stored proposal (`org proposal show`), displays its preview and hash, and on a click runs the operator-only `org proposal confirm` or `decline` of the bundled CLI; the app never builds the grant, revoke or autonomy command, and the hash it sends is the one the card displayed. A revoke proposal narrows access and `org grant remove` has no gate of its own, so a same-user shell agent can still revoke directly: the click for a revoke makes the chat's path uniform and removes its second step, it is not a barrier against that agent. That confirm is exactly as strong as the operator courtesy gate that guards `org grant add` and `org autonomy set` today: it refuses a chat tool, an agent token and a marked process, but it is not a sandbox against a same-user process that leaves the marked ancestry or edits the database. In `wails dev` any same-user process can call any bound method, so a browser test of confirm proves the happy path, not agent resistance.
 
 ### Files a deleted conversation's turns left
 
@@ -2385,7 +2385,8 @@ that works a task acts on them. The defences:
   verbs, `org grant remove` and `org autonomy pause`, stay open to them, and so do denying and rejecting
   a gate and `org chat answer` (it only answers a pending question). The chat's `set_org_grant` and
   `set_org_autonomy` tools therefore only propose (they run nothing and say what the user would confirm
-  in the org screen); revoking a grant still previews and applies on `confirm:true`. An org's operator
+  in the org screen); revoking a grant is a proposal too (verb `grant.remove`, migration 162): the tool
+  stores it and nothing in a chat applies it, while `org grant remove` itself stays open to everyone. As for the other verbs, a proposal's `conversation_id` is a label the proposer chose, never ownership. An org's operator
   signature is not laundered either: a write a turn (or any process the gate refuses) makes to a
   signed org lands, but the org is left unsigned until the operator reviews and signs it
   (`orgsign.Before` asks the same gate through `orgsign.SetTurnVerdict`, installed from
