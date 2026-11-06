@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 
 	"github.com/spf13/cobra"
@@ -61,6 +62,24 @@ func newDoomsdayCmd(cfg *globalConfig) *cobra.Command {
 			}
 			return doomsdayStrategyReader(cfg)
 		},
+	}
+	deps.ChatStart = func() doomsdaycli.ChatStarter {
+		return doomsdaycli.DBChatStart{
+			Open: func() (*sql.DB, func(), error) {
+				db, err := initDB(cfg)
+				if err != nil {
+					return nil, nil, err
+				}
+				return db.DB, func() { db.Close() }, nil
+			},
+			Profile: func() string { return cfg.ProfileID },
+			// The first turn is the chat commands' own queue (the user's gate included); this only hands it the run.
+			Queue: func(_ context.Context, conv string, in doomsdaycli.FirstTurn) error {
+				d := chatDeps(cfg)
+				_, err := chatcli.QueueBossFirstTurn(&d, conv, chatcli.BossFirstTurn{RunID: in.RunID, CharterHash: in.CharterHash, Goal: in.Goal})
+				return err
+			},
+		}
 	}
 	grp := doomsdaycli.NewCommand(deps)
 	grp.AddCommand(doomsdaycli.BossCommand(doomsdaycli.BossDeps{

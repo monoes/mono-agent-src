@@ -35,6 +35,9 @@ type Deps struct {
 	JSONOutput func() bool
 	// StrategyReader is the read-only reader of the strategy verbs; nil is the layer being off.
 	StrategyReader func() StrategyReader
+	// ChatStart is what `start --chat` needs beside the engine (the boss session, its budget, its first turn). Nil: that
+	// flag is refused.
+	ChatStart func() ChatStarter
 }
 
 func (d Deps) engine() Engine {
@@ -148,6 +151,7 @@ func (d Deps) newStart() *cobra.Command {
 	var yes bool
 	var hash, guiPhrase string
 	var boss int64
+	var chat string
 	c := &cobra.Command{
 		Use:   "start",
 		Short: "Lift the lines of a charter and start a run (the user's own)",
@@ -157,6 +161,9 @@ func (d Deps) newStart() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := d.operatorGate("start an open-ended run"); err != nil {
 				return err
+			}
+			if chat != "" && (boss != 0 || guiPhrase == "") {
+				return clicore.InvalidInput("--chat is the app's start: it goes with --gui-phrase and not with --boss-session")
 			}
 			e := d.engine()
 			if err := e.Containment(); err != nil {
@@ -198,6 +205,9 @@ func (d Deps) newStart() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if chat != "" {
+				return d.startFromChat(cmd, e, ch, canon, ack, chat)
+			}
 			entry, err := e.Enter(cmd.Context(), canon, canon.Hash, ack)
 			if err != nil {
 				return err
@@ -229,6 +239,8 @@ func (d Deps) newStart() *cobra.Command {
 	c.Flags().StringVar(&guiPhrase, "gui-phrase", "", "The phrase typed in the app's start form; the CLI re-derives it and compares (recorded as a gui acknowledgement)")
 	_ = c.Flags().MarkHidden("gui-phrase")
 	c.Flags().Int64Var(&boss, "boss-session", 0, "The top-level lead mission (session id) that is the run's boss; without it no boss tool works")
+	c.Flags().StringVar(&chat, "chat", "", "The coder chat (open mode) to start from: makes its boss session, funds it from the charter, starts the run and queues the boss's first turn (the app's start)")
+	_ = c.Flags().MarkHidden("chat")
 	return c
 }
 

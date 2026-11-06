@@ -127,6 +127,12 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
   settingsOpenRef.current = settingsOpen
   const closeSettings = useCallback(() => { setSettingsOpen(false); settingsBtn.current?.focus?.() }, [])
   const conv = useCoderConversation({ conversationId: bubble.conversationId, create, access })
+  // The open-ended start needs the chat to exist: it is made here, with the mode chosen before, and its id handed to the CLI.
+  const [openStarted, setOpenStarted] = useState(false)
+  // Sticky: the form stays mounted while its start is in flight (the chat is made, its mode is read again) so the answer is not lost.
+  const [openEntry, setOpenEntry] = useState(false)
+  useEffect(() => { if (chatMode.state?.mode === 'open') setOpenEntry(true) }, [chatMode.state?.mode])
+  const ensureChat = useCallback(async () => bubble.conversationId || (await create()).id, [bubble.conversationId, create])
   // Stop of an open-ended run: shown for an open-ended chat or while the profile has a run; a Stop leaves its message in the transcript.
   const runExists = useRunExists(!!bubble.conversationId && isCoderAccess(access))
   const addSystemNotice = conv.addSystemNotice
@@ -152,6 +158,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
       access: bubble.access || s.access,
     }))
     store.unbindConversation(bubble.key)
+    setOpenEntry(false); setOpenStarted(false)
     return true
   }, [conv, bubble, store])
   const compact = useCallback(() => {
@@ -385,10 +392,11 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
                 onPointerDown={startDrag} onKeyDown={onDividerKey} />
             </>
           )}
-          {/* The open-ended mode is started from its own form, not by a first message: the form is the entry screen, and
-              the run needs the boss session the chat flow creates (bubble.bossSession, not set yet: Start stays disabled). */}
-          {!bubble.conversationId && chatMode.state?.mode === 'open' ? (
-            <OpenStartForm bossSession={bubble.bossSession || null} />
+          {/* The open-ended mode is started from its own form, not by a first message: the form is the entry screen. Start makes
+              the chat first (in the open mode) when it does not exist yet; the CLI then makes the boss behind it. A chat that is open
+              but has no message and no boss yet (an earlier start was refused) shows the form again. */}
+          {(chatMode.state?.mode === 'open' || openEntry) && !hasMessages && !openStarted && !steerChat ? (
+            <OpenStartForm ensureChat={ensureChat} onStarted={() => setOpenStarted(true)} />
           ) : (
           <CoderChatView
             conv={conv}

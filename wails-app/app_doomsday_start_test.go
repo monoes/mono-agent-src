@@ -35,13 +35,13 @@ func TestDoomsdayRenderAndStartRunExactArgvWithTheCharterOnStdin(t *testing.T) {
 	phrase := gPhrase
 	g.startBehaves(`echo '{"run_id":"work/1"}'`)
 	tok := g.render(dmCharter)
-	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, phrase, tok, 41))
+	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, phrase, tok, "chat-41"))
 	if !d.OK {
 		t.Fatalf("%+v", d)
 	}
 	want := []string{
 		"--profile|work|--json|doomsday|render|--charter|-|",
-		"--profile|work|--json|doomsday|start|--charter|-|--gui-phrase=" + gPhrase + "|--boss-session=41|",
+		"--profile|work|--json|doomsday|start|--charter|-|--gui-phrase=" + gPhrase + "|--chat=chat-41|",
 	}
 	if got := loggedArgs(t, g.log); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("argv:\n%q\nwant:\n%q", got, want)
@@ -55,13 +55,13 @@ func TestDoomsdayStartAnswersWithTheCLIsWords(t *testing.T) {
 	g := newGrantRig(t)
 	g.startBehaves(`echo '{"run_id":"work/1","hash":"h","generation":1}'`)
 	tok := g.render(dmCharter)
-	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5))
+	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5"))
 	if !d.OK || !d.Started || d.State != "started" || !strings.Contains(d.Output, "work/1") {
 		t.Fatalf("%+v", d)
 	}
 	g.startBehaves(`echo '{"error":"the phrase does not match; nothing started","code":"invalid_input"}'; exit 2`)
 	tok = g.render(dmCharter)
-	d = parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5))
+	d = parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5"))
 	if d.OK || d.Started || d.Code != "invalid_input" || !strings.Contains(d.Detail, "does not match") {
 		t.Fatalf("%+v", d)
 	}
@@ -75,20 +75,20 @@ func TestDoomsdayStartRefusesBadInputBeforeTheCLI(t *testing.T) {
 	good := gPhrase
 	for name, c := range map[string]struct {
 		charter, phrase string
-		boss            int64
+		chat            string
 	}{
-		"empty charter":  {"", good, 5},
-		"not an object":  {`["x"]`, good, 5},
-		"not json":       {`goal: x`, good, 5},
-		"huge charter":   {`{"goal":"` + strings.Repeat("x", doomsdayCharterMax) + `"}`, good, 5},
-		"empty phrase":   {dmCharter, "", 5},
-		"blank phrase":   {dmCharter, "   ", 5},
-		"long phrase":    {dmCharter, strings.Repeat("a", doomsdayPhraseMax+1), 5},
-		"newline phrase": {dmCharter, good + "\nsecond", 5},
-		"negative boss":  {dmCharter, good, -1},
-		"no boss":        {dmCharter, good, 0},
+		"empty charter":  {"", good, "chat-5"},
+		"not an object":  {`["x"]`, good, "chat-5"},
+		"not json":       {`goal: x`, good, "chat-5"},
+		"huge charter":   {`{"goal":"` + strings.Repeat("x", doomsdayCharterMax) + `"}`, good, "chat-5"},
+		"empty phrase":   {dmCharter, "", "chat-5"},
+		"blank phrase":   {dmCharter, "   ", "chat-5"},
+		"long phrase":    {dmCharter, strings.Repeat("a", doomsdayPhraseMax+1), "chat-5"},
+		"newline phrase": {dmCharter, good + "\nsecond", "chat-5"},
+		"spaced chat":    {dmCharter, good, "a b"},
+		"no chat":        {dmCharter, good, ""},
 	} {
-		d := parseStartDoc(t, g.a.DoomsdayStart(c.charter, c.phrase, tok, c.boss))
+		d := parseStartDoc(t, g.a.DoomsdayStart(c.charter, c.phrase, tok, c.chat))
 		if d.OK || d.Code != "invalid_input" {
 			t.Errorf("%s: %+v", name, d)
 		}
@@ -103,7 +103,7 @@ func TestDoomsdayRenderAndStartNeedTheOperator(t *testing.T) {
 	opgate.SetForTest(t, func(bool) string { return "an agent's shell" })
 	log, _ := taskCLIFake(t, `{}`, 0)
 	a := newTaskTestApp(t)
-	if d := parseStartDoc(t, a.DoomsdayStart(dmCharter, "I understand: lift 1 lines, charter 12345678", "", 5)); d.OK || d.Code != "operator_only" {
+	if d := parseStartDoc(t, a.DoomsdayStart(dmCharter, "I understand: lift 1 lines, charter 12345678", "", "chat-5")); d.OK || d.Code != "operator_only" {
 		t.Fatalf("start: %+v", d)
 	}
 	if got := a.DoomsdayRender(dmCharter); !strings.Contains(got, "operator_only") {

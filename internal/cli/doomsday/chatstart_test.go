@@ -24,7 +24,10 @@ type chatEngine struct {
 	started   bool
 }
 
-func (c *chatEngine) CheckBoss(context.Context, int64) error { *c.log = append(*c.log, "check"); return c.checkErr }
+func (c *chatEngine) CheckBoss(context.Context, int64) error {
+	*c.log = append(*c.log, "check")
+	return c.checkErr
+}
 func (c *chatEngine) BindBoss(context.Context, int64, Entry) error {
 	*c.log = append(*c.log, "bind")
 	return c.bindErr
@@ -44,22 +47,23 @@ func (c *chatEngine) Status(context.Context) (Status, error) {
 
 // fakeChat is the ChatStarter: it records every call and fails at the step named in fail.
 type fakeChat struct {
-	log      *[]string
-	fail     map[string]error
-	budgets  []float64
-	ended    []int64
-	turns    []FirstTurn
-	reused   bool
-	makes    int
-	endTwice map[int64]int
+	log     *[]string
+	fail    map[string]error
+	budgets []float64
+	ended   []int64
+	turns   []FirstTurn
+	reused  bool
+	makes   int
+	goals   []string
 }
 
 func (f *fakeChat) step(name string) error {
 	*f.log = append(*f.log, name)
 	return f.fail[name]
 }
-func (f *fakeChat) MakeBoss(_ context.Context, chat string) (BossRef, error) {
+func (f *fakeChat) MakeBoss(_ context.Context, chat, goal string) (BossRef, error) {
 	f.makes++
+	f.goals = append(f.goals, goal)
 	if err := f.step("make"); err != nil {
 		return BossRef{}, err
 	}
@@ -100,12 +104,13 @@ func newChatRig(t *testing.T, charter string) *chatRig {
 	c.file = writeCharter(t, charter)
 	c.hash = fullHash(t, c.rig, c.file)
 	c.terminal = false
+	c.deps.JSONOutput = func() bool { return true }
 	return c
 }
 
 func (c *chatRig) start(t *testing.T, extra ...string) (string, error) {
 	t.Helper()
-	args := append([]string{"--json", "start", "--charter", c.file, "--gui-phrase", Phrase(0, c.hash), "--chat", "front-1"}, extra...)
+	args := append([]string{"start", "--charter", c.file, "--gui-phrase", Phrase(0, c.hash), "--chat", "front-1"}, extra...)
 	return run(t, c.deps, "", args...)
 }
 
@@ -127,8 +132,9 @@ func TestChatStartRunsEveryStepInOrderAndQueuesTheFirstTurn(t *testing.T) {
 		t.Fatalf("first turn = %+v", c.chat.turns)
 	}
 	var doc struct {
-		RunID, FirstTurn string
-		Boss             int64 `json:"boss_session"`
+		RunID     string `json:"run_id"`
+		FirstTurn string `json:"first_turn"`
+		Boss      int64  `json:"boss_session"`
 	}
 	_ = json.Unmarshal([]byte(lastJSON(out)), &doc)
 	if doc.RunID != "r1" || doc.Boss != 7 || doc.FirstTurn != "queued" {
@@ -136,6 +142,9 @@ func TestChatStartRunsEveryStepInOrderAndQueuesTheFirstTurn(t *testing.T) {
 	}
 	if len(c.chat.ended) != 0 {
 		t.Fatal("a good start ended the boss")
+	}
+	if len(c.chat.goals) != 1 || c.chat.goals[0] != "ship it" {
+		t.Fatalf("the boss carries the charter's goal: %v", c.chat.goals)
 	}
 }
 

@@ -427,23 +427,23 @@ func TestDoomsdayProbeFailuresAreErrorsAndNotCached(t *testing.T) {
 	}
 }
 
-// The two verbs that take a charter have one fixed argv each: the charter on stdin, the phrase and the boss session as
+// The two verbs that take a charter have one fixed argv each: the charter on stdin, the phrase and the chat as
 // --flag=value, nothing else. No other verb gets a charter, and no flag of the script start or the lift is ever built.
 func TestDoomsdayCharterArgvIsFixed(t *testing.T) {
 	for _, verb := range []string{"stop", "overview", "probe", "finish", "rubric", "status", "start; stop", ""} {
-		if _, err := doomsdayCharterArgv("p", verb, "x", 0); err == nil {
+		if _, err := doomsdayCharterArgv("p", verb, "x", "c"); err == nil {
 			t.Errorf("doomsday %q was allowed with a charter", verb)
 		}
 	}
-	if _, err := doomsdayCharterArgv("", "render", "", 0); err == nil {
+	if _, err := doomsdayCharterArgv("", "render", "", ""); err == nil {
 		t.Fatal("no profile: the call must be refused")
 	}
-	got, err := doomsdayCharterArgv("p", "start", "-x --yes-i-lift", 7)
-	want := []string{"--profile", "p", "--json", "doomsday", "start", "--charter", "-", "--gui-phrase=-x --yes-i-lift", "--boss-session=7"}
+	got, err := doomsdayCharterArgv("p", "start", "-x --yes-i-lift", "chat-7")
+	want := []string{"--profile", "p", "--json", "doomsday", "start", "--charter", "-", "--gui-phrase=-x --yes-i-lift", "--chat=chat-7"}
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("argv = %q, %v", got, err)
 	}
-	got, _ = doomsdayCharterArgv("p", "render", "ignored", 9)
+	got, _ = doomsdayCharterArgv("p", "render", "ignored", "x")
 	want = []string{"--profile", "p", "--json", "doomsday", "render", "--charter", "-"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("render argv = %q", got)
@@ -453,6 +453,19 @@ func TestDoomsdayCharterArgvIsFixed(t *testing.T) {
 			if a == bad {
 				t.Fatalf("argv has %s", bad)
 			}
+		}
+	}
+}
+
+// The chat of a start goes in the --chat=ID form (a value, never a flag) and an empty or spaced id builds no argv at all.
+func TestDoomsdayCharterArgvChatIsAValue(t *testing.T) {
+	got, err := doomsdayCharterArgv("p", "start", "x", "--yes-i-lift")
+	if err != nil || got[len(got)-1] != "--chat=--yes-i-lift" {
+		t.Fatalf("argv = %q %v", got, err)
+	}
+	for _, bad := range []string{"", " ", "a b", "a\nb"} {
+		if _, err := doomsdayCharterArgv("p", "start", "x", bad); err == nil {
+			t.Errorf("chat %q built an argv", bad)
 		}
 	}
 }
