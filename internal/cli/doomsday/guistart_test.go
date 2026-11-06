@@ -404,3 +404,31 @@ func TestDuplicateKeysAreRefusedAfterNormalisation(t *testing.T) {
 		}
 	}
 }
+
+// charterStrings finds strings behind pointers, in maps (keys and values), arrays and interfaces too.
+func TestCharterStringsWalksEveryContainerKind(t *testing.T) {
+	s := "ptr"
+	type inner struct{ V string }
+	v := struct {
+		P  *string
+		M  map[string]string
+		A  [2]string
+		I  interface{}
+		PS *inner
+		N  *string
+	}{P: &s, M: map[string]string{"key": "val"}, A: [2]string{"a0", "a1"}, I: "iface", PS: &inner{V: "deep"}}
+	got := strings.Join(charterStrings(reflect.ValueOf(v)), ",")
+	for _, want := range []string{"ptr", "key", "val", "a0", "a1", "iface", "deep"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("%q is not found in %q", want, got)
+		}
+	}
+}
+
+func TestMongolianAndKhmerInvisiblesAreHidden(t *testing.T) {
+	for _, r := range []rune{0x180b, 0x180c, 0x180d, 0x180f, 0x17b4, 0x17b5} {
+		if !hiddenRune(r) {
+			t.Errorf("U+%04X is not treated as hidden", r)
+		}
+	}
+}

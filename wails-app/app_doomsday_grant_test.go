@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 	"os"
 	"strings"
 	"sync"
@@ -702,5 +703,46 @@ func TestAProcessIgnoringSIGTERMIsKilledAfterTheGrace(t *testing.T) {
 	_, _, _, err := g.a.execDoomsdayGrace(200*time.Millisecond, 400*time.Millisecond, argv, nil)
 	if err == nil || time.Since(began) > 5*time.Second {
 		t.Fatalf("err %v after %v", err, time.Since(began))
+	}
+}
+
+// The start dialog goes through the same helper: while another dialog is open the start is refused as busy, not hung.
+func TestAStartWhileAnotherDialogIsOpenIsBusy(t *testing.T) {
+	g := newGrantRig(t)
+	confirmNative = realConfirmNative // the real path, through showDialog and its fake runtime
+	stuck := make(chan struct{})
+	old, oldWait := dialogRun, dialogWait
+	dialogRun = func(context.Context, wailsruntime.MessageDialogOptions) (string, error) { <-stuck; return "No", nil }
+	dialogWait = 100 * time.Millisecond
+	t.Cleanup(func() { dialogRun, dialogWait = old, oldWait; close(stuck) })
+	go showDialog(g.a, wailsruntime.MessageDialogOptions{Title: "another dialog"})
+	time.Sleep(50 * time.Millisecond)
+	tok := g.render(dmCharter)
+	before := g.calls()
+	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5))
+	if d.OK || d.Code != "busy" || g.calls() != before {
+		t.Fatalf("%+v", d)
+	}
+}
+
+// The stderr tail starts at a line boundary, not in the middle of a line.
+func TestStderrTailStartsAtALineBoundary(t *testing.T) {
+	b := &headTailBuffer{head: 10, tail: 40}
+	b.Write([]byte("0123456789" + strings.Repeat("x", 500) + "\nthe last line one\nthe last line two\n"))
+	s := b.String()
+	i := strings.Index(s, "\n...\n")
+	if i < 0 || strings.HasPrefix(s[i+5:], "x") || !strings.HasPrefix(s[i+5:], "the last line") {
+		t.Fatalf("%q", s)
+	}
+}
+
+// The unknown outcome shows the CLI's last words, never the whole stderr with the charter echoed in it.
+func TestTheUnknownDetailIsOnlyTheTailOfStderr(t *testing.T) {
+	g := newGrantRig(t)
+	g.startBehaves(`printf 'CHARTER abc\nGoal: the whole echoed goal text\nLifted authority lines (1):\n' >&2; printf 'one\ntwo\nthree\nfour\nfive\nsix\n' >&2; exit 3`)
+	tok := g.render(dmCharter)
+	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5))
+	if d.State != "unknown" || strings.Contains(d.Detail, "echoed goal text") || strings.Contains(d.Detail, "CHARTER") || !strings.Contains(d.Detail, "six") {
+		t.Fatalf("%+v", d)
 	}
 }

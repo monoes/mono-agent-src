@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -8,7 +10,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // wails v2.17.0 hands a dialog's message to gtk_message_dialog_new as its printf FORMAT with no arguments, so a '%' in a
@@ -37,64 +44,147 @@ func TestDialogTextDoublesPercentWhereGTKReadsAFormat(t *testing.T) {
 	}
 }
 
-// Every Wails dialog call of this module puts its title and message through dialogText (or gives a literal): a new call
-// with dynamic text that skips it fails here. (A Dependabot bump of wails must be checked against this behaviour.)
-func TestEveryMessageDialogUsesDialogText(t *testing.T) {
-	files, _ := filepath.Glob("*.go")
+// Every Wails dialog goes through showDialog (one app-wide mutex, escaping of the message only): the module has exactly
+// one call of MessageDialog, inside app_dialog.go. The scan reads every non-test Go file under wails-app (sub-packages
+// too) and fails on a call anywhere else, on a dot-import of the wails runtime, and on the function used as a value
+// (an alias or a variable) which a call-only scan would miss.
+func TestMessageDialogIsCalledOnlyInsideTheHelper(t *testing.T) {
 	calls := 0
-	for _, f := range files {
-		if strings.HasSuffix(f, "_test.go") {
-			continue
+	_ = filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if n := d.Name(); n == "frontend" || n == "node_modules" || n == "build" || n == "vendor" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
 		}
 		fset := token.NewFileSet()
-		src, err := os.ReadFile(f)
+		src, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
 		}
-		file, err := parser.ParseFile(fset, f, src, 0)
+		file, err := parser.ParseFile(fset, path, src, 0)
 		if err != nil {
 			t.Fatal(err)
+		}
+		inHelper := filepath.Base(path) == "app_dialog.go"
+		for _, imp := range file.Imports {
+			if imp.Name != nil && imp.Name.Name == "." && strings.Contains(imp.Path.Value, "wails") {
+				t.Errorf("%s: a dot-import of the wails runtime hides dialog calls from this scan", fset.Position(imp.Pos()))
+			}
 		}
 		ast.Inspect(file, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok || sel.Sel.Name != "MessageDialog" {
-				return true
-			}
-			calls++
-			for _, arg := range call.Args[1:] {
-				lit, ok := arg.(*ast.CompositeLit)
-				if !ok {
-					t.Errorf("%s: build the dialog options inline so the guard can see their text", fset.Position(arg.Pos()))
-					continue
+			switch v := n.(type) {
+			case *ast.SelectorExpr:
+				if v.Sel.Name == "MessageDialog" {
+					calls++
+					if !inHelper {
+						t.Errorf("%s: MessageDialog outside app_dialog.go: use showDialog", fset.Position(v.Pos()))
+					}
 				}
-				for _, el := range lit.Elts {
-					kv, ok := el.(*ast.KeyValueExpr)
-					if !ok {
-						continue
-					}
-					key, _ := kv.Key.(*ast.Ident)
-					if key == nil || (key.Name != "Title" && key.Name != "Message") {
-						continue
-					}
-					switch v := kv.Value.(type) {
-					case *ast.BasicLit: // a literal has no dynamic text
-					case *ast.CallExpr:
-						if id, _ := v.Fun.(*ast.Ident); id == nil || id.Name != "dialogText" {
-							t.Errorf("%s: a dialog %s is not built with dialogText", fset.Position(kv.Pos()), key.Name)
-						}
-					default:
-						t.Errorf("%s: a dialog %s is not built with dialogText", fset.Position(kv.Pos()), key.Name)
-					}
+			case *ast.Ident:
+				if v.Name == "MessageDialog" && v.Obj == nil && !inHelper {
+					t.Errorf("%s: a bare MessageDialog: use showDialog", fset.Position(v.Pos()))
 				}
 			}
 			return true
 		})
+		return nil
+	})
+	if calls != 1 {
+		t.Fatalf("found %d uses of MessageDialog, want exactly one (in showDialog)", calls)
 	}
-	if calls < 4 {
-		t.Fatalf("found only %d MessageDialog calls: the guard is not seeing them", calls)
+}
+
+// showDialog escapes the MESSAGE (GTK formats it) and not the title (GTK sets it as plain text), and passes the result
+// through the seam of the runtime.
+func TestShowDialogEscapesTheMessageAndNotTheTitle(t *testing.T) {
+	var got wailsruntime.MessageDialogOptions
+	old, oldOS := dialogRun, dialogGOOS
+	dialogRun = func(_ context.Context, o wailsruntime.MessageDialogOptions) (string, error) {
+		got = o
+		return "Yes", nil
+	}
+	dialogGOOS = "linux"
+	t.Cleanup(func() { dialogRun, dialogGOOS = old, oldOS })
+	if c, err := showDialog(&App{}, wailsruntime.MessageDialogOptions{Title: "100% title", Message: "goal 90%s%n"}); err != nil || c != "Yes" {
+		t.Fatalf("%q %v", c, err)
+	}
+	if got.Title != "100% title" || got.Message != "goal 90%%s%%n" {
+		t.Fatalf("title %q message %q", got.Title, got.Message)
+	}
+	dialogGOOS = "windows"
+	_, _ = showDialog(&App{}, wailsruntime.MessageDialogOptions{Title: "t%", Message: "m%"})
+	if got.Title != "t%" || got.Message != "m%" {
+		t.Fatalf("windows: %q %q", got.Title, got.Message)
+	}
+}
+
+// wails on Linux has one shared channel for all dialog results, so two dialogs open at once can swap answers: the
+// helper shows one at a time, each caller gets its own answer, and one that waits too long is refused, not queued.
+func TestDialogsAreShownOneAtATimeAndAnswersNeverCross(t *testing.T) {
+	var inFlight, maxInFlight atomic.Int32
+	old := dialogRun
+	dialogRun = func(_ context.Context, o wailsruntime.MessageDialogOptions) (string, error) {
+		n := inFlight.Add(1)
+		for { // record the highest concurrency seen
+			m := maxInFlight.Load()
+			if n <= m || maxInFlight.CompareAndSwap(m, n) {
+				break
+			}
+		}
+		time.Sleep(30 * time.Millisecond)
+		inFlight.Add(-1)
+		return o.Title, nil // the answer is the caller's own title
+	}
+	t.Cleanup(func() { dialogRun = old })
+	var wg sync.WaitGroup
+	for i := 0; i < 6; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			title := fmt.Sprintf("dialog %d", i)
+			if c, err := showDialog(&App{}, wailsruntime.MessageDialogOptions{Title: title}); err != nil || c != title {
+				t.Errorf("%s got %q %v", title, c, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+	if maxInFlight.Load() != 1 {
+		t.Fatalf("%d dialogs were open at once", maxInFlight.Load())
+	}
+}
+
+func TestADialogThatNeverReturnsRefusesTheNextOneInsteadOfHangingIt(t *testing.T) {
+	stuck := make(chan struct{})
+	old, oldWait := dialogRun, dialogWait
+	dialogRun = func(context.Context, wailsruntime.MessageDialogOptions) (string, error) { <-stuck; return "Yes", nil }
+	dialogWait = 150 * time.Millisecond
+	t.Cleanup(func() { dialogRun, dialogWait = old, oldWait })
+	go showDialog(&App{}, wailsruntime.MessageDialogOptions{Title: "first"})
+	time.Sleep(50 * time.Millisecond)
+	began := time.Now()
+	if _, err := showDialog(&App{}, wailsruntime.MessageDialogOptions{Title: "second"}); !errors.Is(err, errDialogBusy) || time.Since(began) > 2*time.Second {
+		t.Fatalf("err %v after %v", err, time.Since(began))
+	}
+	close(stuck)
+}
+
+// A runtime with no window panics; the helper turns that into an error and still gives the mutex back.
+func TestAPanickingRuntimeIsAnErrorAndFreesTheDialogLock(t *testing.T) {
+	old := dialogRun
+	dialogRun = func(context.Context, wailsruntime.MessageDialogOptions) (string, error) { panic("no frontend") }
+	t.Cleanup(func() { dialogRun = old })
+	if _, err := showDialog(&App{}, wailsruntime.MessageDialogOptions{}); !errors.Is(err, errNoNativeDialog) {
+		t.Fatalf("%v", err)
+	}
+	dialogRun = func(context.Context, wailsruntime.MessageDialogOptions) (string, error) { return "ok", nil }
+	if c, err := showDialog(&App{}, wailsruntime.MessageDialogOptions{}); err != nil || c != "ok" {
+		t.Fatalf("the lock was not freed: %q %v", c, err)
 	}
 }
