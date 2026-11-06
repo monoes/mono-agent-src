@@ -15,6 +15,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/hilsend"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/testhome"
 )
 
@@ -70,6 +71,7 @@ func testDeps(cfg *testConfig) Deps {
 		JSONOutput: func() bool { return cfg.JSONOutput },
 		ProfileID:  func() string { return cfg.ProfileID },
 		OpenDB: func() (*storage.Database, error) {
+			testdb.MustSeed(cfg.DBPath)
 			db, err := storage.NewDatabase(cfg.DBPath)
 			if err != nil {
 				return nil, err
