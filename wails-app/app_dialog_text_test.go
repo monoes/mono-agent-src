@@ -165,14 +165,18 @@ func TestADialogThatNeverReturnsRefusesTheNextOneInsteadOfHangingIt(t *testing.T
 	old, oldWait := dialogRun, dialogWait
 	dialogRun = func(context.Context, wailsruntime.MessageDialogOptions) (string, error) { <-stuck; return "Yes", nil }
 	dialogWait = 150 * time.Millisecond
-	t.Cleanup(func() { dialogRun, dialogWait = old, oldWait })
-	go showDialog(&App{}, wailsruntime.MessageDialogOptions{Title: "first"})
+	var first sync.WaitGroup
+	first.Add(1)
+	go func() { defer first.Done(); showDialog(&App{}, wailsruntime.MessageDialogOptions{Title: "first"}) }()
 	time.Sleep(50 * time.Millisecond)
 	began := time.Now()
-	if _, err := showDialog(&App{}, wailsruntime.MessageDialogOptions{Title: "second"}); !errors.Is(err, errDialogBusy) || time.Since(began) > 2*time.Second {
+	_, err := showDialog(&App{}, wailsruntime.MessageDialogOptions{Title: "second"})
+	close(stuck)
+	first.Wait() // the seams are put back only after the dialog goroutine is done with them
+	dialogRun, dialogWait = old, oldWait
+	if !errors.Is(err, errDialogBusy) || time.Since(began) > 2*time.Second {
 		t.Fatalf("err %v after %v", err, time.Since(began))
 	}
-	close(stuck)
 }
 
 // A runtime with no window panics; the helper turns that into an error and still gives the mutex back.

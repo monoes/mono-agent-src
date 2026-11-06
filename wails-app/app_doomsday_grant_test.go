@@ -714,8 +714,13 @@ func TestAStartWhileAnotherDialogIsOpenIsBusy(t *testing.T) {
 	old, oldWait := dialogRun, dialogWait
 	dialogRun = func(context.Context, wailsruntime.MessageDialogOptions) (string, error) { <-stuck; return "No", nil }
 	dialogWait = 100 * time.Millisecond
-	t.Cleanup(func() { dialogRun, dialogWait = old, oldWait; close(stuck) })
-	go showDialog(g.a, wailsruntime.MessageDialogOptions{Title: "another dialog"})
+	var other sync.WaitGroup
+	other.Add(1)
+	go func() {
+		defer other.Done()
+		showDialog(g.a, wailsruntime.MessageDialogOptions{Title: "another dialog"})
+	}()
+	t.Cleanup(func() { close(stuck); other.Wait(); dialogRun, dialogWait = old, oldWait })
 	time.Sleep(50 * time.Millisecond)
 	tok := g.render(dmCharter)
 	before := g.calls()
