@@ -146,3 +146,4 @@
 160_workflow_run_tokens.sql
 161_org_proposals.sql
 162_org_proposals_revoke.sql
+163_coder_sessions_chat_mode.sql
