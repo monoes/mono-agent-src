@@ -231,12 +231,15 @@ func (a *App) DoomsdayStart(charterJSON, phrase, token string, bossSession int64
 		return startDoc("not_started", "", err.Error(), "")
 	}
 	defer doomsdayEntry.invalidate(pid)
-	facts, err := doomsdayGrants.take(pid, token, charterJSON)
+	facts, err := doomsdayGrants.peek(pid, token, charterJSON)
 	if err != nil {
 		return startDoc("not_started", "", err.Error(), "token")
 	}
 	shown := doomsdayNow()
-	yes, err := confirmNative(a, "Start an open-ended run", facts.dialogBody())
+	yes, returned, err := askNative(a, facts.dialogBody())
+	if !returned {
+		return startDoc("not_started", "", "the confirmation did not return in time; nothing started", "declined")
+	}
 	if err != nil {
 		return startDoc("not_started", "", err.Error(), "no_native_dialog")
 	}
@@ -246,6 +249,9 @@ func (a *App) DoomsdayStart(charterJSON, phrase, token string, bossSession int64
 	}
 	if !yes {
 		return startDoc("not_started", "", "the confirmation was declined; nothing started", "declined")
+	}
+	if err := doomsdayGrants.consume(pid, token); err != nil { // spent now: this preview can never start a second run
+		return startDoc("not_started", "", err.Error(), "token")
 	}
 	argv, err := doomsdayCharterArgv(pid, "start", phrase, bossSession)
 	if err != nil {
@@ -268,6 +274,30 @@ func (a *App) DoomsdayStart(charterJSON, phrase, token string, bossSession int64
 		return startDoc("unknown", "", "the run may have started: check the Control room and press Stop if it is running. "+detail, "unknown")
 	}
 	return startDoc("not_started", out, detail, ce.Code)
+}
+
+// doomsdayDialogTimeout is how long a start waits for the native dialog before it gives the start lock back and counts
+// the start as declined (a dialog that never returns must not leave every later start busy).
+var doomsdayDialogTimeout = 5 * time.Minute
+
+// askNative shows the confirmation and waits for it at most doomsdayDialogTimeout. returned is false when it did not
+// come back in time; a late answer is dropped.
+func askNative(a *App, body string) (yes, returned bool, err error) {
+	type answer struct {
+		yes bool
+		err error
+	}
+	ch := make(chan answer, 1)
+	go func() {
+		y, e := confirmNative(a, "Start an open-ended run", body)
+		ch <- answer{y, e}
+	}()
+	select {
+	case r := <-ch:
+		return r.yes, true, r.err
+	case <-time.After(doomsdayDialogTimeout):
+		return false, false, nil
+	}
 }
 
 // startMayHaveHappened says whether a failed start leaves the run's state unclear: the command's context ended

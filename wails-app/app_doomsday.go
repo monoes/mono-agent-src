@@ -308,7 +308,8 @@ func (a *App) DoomsdayStop() string {
 	}
 	defer doomsdayStopMu.Unlock()
 	defer doomsdayProbe.invalidate()
-	doomsdayGrants.dropAll() // a Stop ends any preview that was waiting to be started
+	doomsdayGrants.dropAll()      // a Stop ends any preview that was waiting to be started
+	doomsdayEntry.invalidateAll() // and a cached "cannot start here" about the run it just stopped
 	pid, err := a.stopProfileID()
 	if err != nil {
 		return stopDoc(false, "", err.Error(), "")

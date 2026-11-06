@@ -218,11 +218,10 @@ func chatModeOf(ctx context.Context, db tasks.Queryer, profileID string, conv ai
 	} else if locked {
 		v.Locked, v.Reason = true, chatModeLockedMessage
 	}
-	v.Options = chatModeOptions(conv.EffectiveAccess())
-	if v.Locked {
-		for i := range v.Options {
-			v.Options[i].Pending = false
-		}
+	if v.Locked { // nothing can be chosen, so nothing is asked, not even the cheap check
+		v.Options = []chatModeOption{{Mode: coderhost.ChatModeOff}, {Mode: coderhost.ChatModeMission}, {Mode: coderhost.ChatModeOpen, Reason: chatModeLockedMessage}}
+		return v
 	}
+	v.Options = chatModeOptions(conv.EffectiveAccess())
 	return v
 }

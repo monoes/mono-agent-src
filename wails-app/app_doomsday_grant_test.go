@@ -125,8 +125,8 @@ func TestStartRefusesAnotherCharterThanTheOnePreviewed(t *testing.T) {
 	g := newGrantRig(t)
 	for name, other := range map[string]string{"extra byte": dmCharter + " ", "other goal": strings.Replace(dmCharter, `"g"`, `"h"`, 1)} {
 		tok := g.render(dmCharter)
-		before := g.calls()
-		if d := parseStartDoc(t, g.a.DoomsdayStart(other, gPhrase, tok, 5)); d.OK || d.Code != "token" || g.calls() != before || g.dialogs != 0 {
+		before, dialogs := g.calls(), g.dialogs
+		if d := parseStartDoc(t, g.a.DoomsdayStart(other, gPhrase, tok, 5)); d.OK || d.Code != "token" || g.calls() != before || g.dialogs != dialogs {
 			t.Fatalf("%s: %+v", name, d)
 		}
 		// a refusal does not spend the token: the exact charter still starts, once

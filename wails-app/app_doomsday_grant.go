@@ -118,9 +118,9 @@ func (g *grantStore) issue(profile, charter string, f startFacts) (string, error
 
 var errGrant = errors.New("the preview is stale, used, or of another charter: preview the charter again")
 
-// take consumes the profile's grant if token is its token, the charter hashes to what was previewed, and it has not
-// expired. A wrong token does not burn the grant; a right one is gone whatever happens next.
-func (g *grantStore) take(profile, token, charter string) (startFacts, error) {
+// peek is take without spending: it checks the profile's grant (token, the exact charter bytes, not expired) and
+// returns its facts. A wrong token or a different charter spends nothing.
+func (g *grantStore) peek(profile, token, charter string) (startFacts, error) {
 	raw, err := hex.DecodeString(token)
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -128,12 +128,25 @@ func (g *grantStore) take(profile, token, charter string) (startFacts, error) {
 	if err != nil || len(raw) != 16 || gr == nil || subtle.ConstantTimeCompare(raw, gr.token[:]) != 1 {
 		return startFacts{}, errGrant
 	}
-	delete(g.m, profile)
 	sum := sha256.Sum256([]byte(charter))
 	if subtle.ConstantTimeCompare(sum[:], gr.sum[:]) != 1 || !doomsdayNow().Before(gr.exp) {
 		return startFacts{}, errGrant
 	}
 	return gr.facts, nil
+}
+
+// consume spends the profile's grant if it is still this token: called when the native dialog confirmed, so a decline
+// leaves the preview usable and a confirmed start can never be repeated with it.
+func (g *grantStore) consume(profile, token string) error {
+	raw, err := hex.DecodeString(token)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	gr := g.m[profile]
+	if err != nil || gr == nil || subtle.ConstantTimeCompare(raw, gr.token[:]) != 1 {
+		return errGrant
+	}
+	delete(g.m, profile)
+	return nil
 }
 
 func (g *grantStore) dropAll() { g.reset() }
@@ -259,6 +272,12 @@ type entryItem struct {
 }
 
 var doomsdayEntry = &entryCache{now: func() time.Time { return doomsdayNow() }, ttl: doomsdayEntryCacheTTL}
+
+func (c *entryCache) invalidateAll() {
+	c.mu.Lock()
+	c.items = nil
+	c.mu.Unlock()
+}
 
 func (c *entryCache) invalidate(key string) {
 	c.mu.Lock()

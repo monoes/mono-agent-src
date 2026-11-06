@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 )
 
 // checkDuplicateKeys refuses a JSON document in which an object repeats a key: encoding/json keeps the last value
@@ -35,9 +36,10 @@ func dupValue(dec *json.Decoder) error {
 			if err != nil {
 				return err
 			}
-			key, _ := k.(string)
+			name, _ := k.(string)
+			key := strings.ToLower(name) // encoding/json matches keys without regard to case: "Goal" and "goal" are one field
 			if seen[key] {
-				return fmt.Errorf("the charter names %q twice", key)
+				return fmt.Errorf("the charter names %q twice (keys are matched without regard to case)", name)
 			}
 			seen[key] = true
 			if err := dupValue(dec); err != nil {
