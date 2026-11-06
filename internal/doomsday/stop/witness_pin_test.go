@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"unsafe"
@@ -278,5 +279,24 @@ func TestPinHolderCheckIgnoresTheWatchsOwnDescriptors(t *testing.T) {
 	p.watch = ownsFDWatch{pinWatch: p.watch, owned: map[int]bool{int(fs[1].Fd()): true}}
 	if err := p.checkLocked(); !errors.Is(err, ErrPinSwapped) {
 		t.Fatalf("a descriptor owned by the watch counted as the connection's: %v", err)
+	}
+}
+
+// A descriptor whose path text is unknown or spelled differently is still compared by identity against the path of the
+// pinned file it holds (macOS F_GETPATH failure, APFS case and normalisation).
+func TestPinHolderCheckComparesByIdentityWhenThePathTextIsUnknown(t *testing.T) {
+	p, _, main := handPinned(t)
+	all := func(link string) []fdEntry {
+		return []fdEntry{{fd: 7, link: link, id: p.ids[0]}, {fd: 8, link: link, id: p.ids[1]}, {fd: 9, link: link, id: p.ids[2]}}
+	}
+	mustNoErr(t, p.checkHolderEntries(all("")))
+	mustNoErr(t, p.checkHolderEntries(all(strings.ToUpper(main))))
+	mustNoErr(t, os.Remove(main))
+	mustNoErr(t, os.WriteFile(main, nil, 0o600)) // the name now leads to another file
+	if err := p.checkHolderEntries(all("")); !errors.Is(err, ErrPinSwapped) {
+		t.Fatalf("a descriptor with an unknown path was not compared: %v", err)
+	}
+	if err := p.checkHolderEntries(all(strings.ToUpper(main))); !errors.Is(err, ErrPinSwapped) {
+		t.Fatalf("a descriptor with a differently spelled path was not compared: %v", err)
 	}
 }

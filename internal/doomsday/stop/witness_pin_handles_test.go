@@ -2,7 +2,6 @@ package stop
 
 import (
 	"errors"
-	"path/filepath"
 	"testing"
 )
 
@@ -28,6 +27,8 @@ type fakeHandleFS struct {
 	handles []*fakeHandle
 	openErr map[string]error
 	idErr   error
+	// openIDErr makes every handle that is opened fail to tell its identity
+	openIDErr error
 }
 
 func (f *fakeHandleFS) OpenHeld(path string, dir bool) (heldFile, error) {
@@ -38,7 +39,7 @@ func (f *fakeHandleFS) OpenHeld(path string, dir bool) (heldFile, error) {
 	if o == nil {
 		return nil, errors.New("file not found")
 	}
-	h := &fakeHandle{fs: f, obj: o}
+	h := &fakeHandle{fs: f, obj: o, idErr: f.openIDErr}
 	f.handles = append(f.handles, h)
 	return h, nil
 }
@@ -156,7 +157,6 @@ func TestHandleWatchDoesNotSeeASwapThatWasUndone(t *testing.T) {
 	f.ns[winMain] = &fakeNode{id: FileID{Dev: 7, Ino: 99}}
 	f.ns[winMain] = orig
 	mustNoErr(t, w.drain(false))
-	_ = filepath.Base(winMain)
 }
 
 func TestSqliteURIOnWindowsIsAFileURIWithForwardSlashes(t *testing.T) {
@@ -165,5 +165,18 @@ func TestSqliteURIOnWindowsIsAFileURIWithForwardSlashes(t *testing.T) {
 	}
 	if got := sqliteURI("linux", "/home/u/mono.db"); got != "file:/home/u/mono.db" {
 		t.Fatalf("%s", got)
+	}
+}
+
+func TestHandleWatchClosesAHandleWhoseIdentityCannotBeRead(t *testing.T) {
+	f := newFakeHandleFS()
+	f.openIDErr = errors.New("invalid handle")
+	if w, err := newHandleWatch(f, winMain); err == nil || w != nil {
+		t.Fatal("a watch started on a handle with no identity")
+	}
+	for _, h := range f.handles {
+		if !h.closed {
+			t.Fatal("a handle was left open after its identity failed")
+		}
 	}
 }

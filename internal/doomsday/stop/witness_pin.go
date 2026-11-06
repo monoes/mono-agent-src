@@ -23,9 +23,11 @@ import (
 //
 //   - Whatever file a SQLite reopen reads is the file the path resolves to at that moment. Making a path
 //     resolve to another file requires a namespace event on the file's name (create, delete, rename in or out)
-//     or on one of the directories above it. The host watches exactly those names with inotify from before the
-//     first stat of the pin until the end of its life; events are queued by the kernel before the system call
-//     that caused them returns, and the queue survives a swap that is undone again.
+//     or on one of the directories above it. On Linux the host watches exactly those names with inotify from
+//     before the first stat of the pin until the end of its life; events are queued by the kernel before the
+//     system call that caused them returns, and the queue survives a swap that is undone again. macOS watches the
+//     vnodes with kqueue (witness_pin_vnodes.go) and Windows holds handles that forbid the swap
+//     (witness_pin_handles.go); their weaker guarantees are stated in those files and in the entry dialog.
 //   - Every Do reads the queue before the transaction, before the commit (precommit) and after it. Any event
 //     on the database, -wal, -shm or -journal name, on a watched ancestor's entry for the path, or a queue
 //     overflow, discards the pinned connection and fails closed; the result of the operation is not accepted
@@ -35,8 +37,11 @@ import (
 //     path, identity not name) stays as a second, independent detection.
 //
 // Stated limits: a swap through a mount (outside the directory tree being watched), and an in-place overwrite
-// of the same inode (T43), are not namespace events and are not detected. Linux only; elsewhere the mode does
-// not start.
+// of the same inode (T43), are not namespace events and are not detected. The pin is implemented on Linux, macOS
+// and Windows; on any other platform Pin fails and the mode does not start. A -wal or -shm planted BEFORE the
+// host starts is not reported on any platform (it is the file that is then identified); on Windows and macOS the
+// binding also depends on the filesystem enforcing share modes or delivering kqueue events (the probe refuses
+// the volume classes it knows not to).
 
 // Errors of the pinned connection.
 var (

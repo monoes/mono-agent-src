@@ -21,8 +21,8 @@ import (
 //     held one. A path that no longer leads to the held file (deleted, replaced, redirected) fails closed.
 //
 // Not detected: an in-place overwrite of the same file (its identity is unchanged; same as T43 on Linux); a swap that
-// the system was made to allow (a handle opened earlier with FILE_SHARE_DELETE makes the pin fail at open instead) and
-// that is undone again between two checks (Windows has no queue of past name events here, so unlike Linux an undone
+// the system was made to allow (a handle opened earlier that holds DELETE access, whatever its share flags, makes the
+// host's own open fail instead, so the pin is refused) and that is undone again between two checks (Windows has no queue of past name events here, so unlike Linux an undone
 // swap is not remembered; the sharing mode is what makes it fail); a swap through a mount or junction above the
 // database that is not a rename of a held directory; and volumes whose file ids do not fit 64 bits. The weaker
 // guarantee is stated in the entry dialog for Windows.

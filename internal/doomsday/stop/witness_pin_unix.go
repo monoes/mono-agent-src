@@ -37,6 +37,10 @@ func (p *Pinned) checkHolders() error {
 	if err != nil {
 		return err
 	}
+	return p.checkHolderEntries(entries)
+}
+
+func (p *Pinned) checkHolderEntries(entries []fdEntry) error {
 	found := map[FileID]bool{}
 	own, _ := p.watch.(interface{ ownsFD(int) bool })
 	for _, e := range entries {
@@ -47,6 +51,15 @@ func (p *Pinned) checkHolders() error {
 			now, serr := statID(logical)
 			if serr != nil || now != e.id { // a swapped file: also what a " (deleted)" link shows
 				return fmt.Errorf("%w: a descriptor on %s is not the file at that path", ErrPinSwapped, filepath.Base(logical))
+			}
+		}
+		// By identity, not by name: a descriptor whose path text is unknown (macOS F_GETPATH failed) or spelled
+		// differently (case, normalisation on APFS) is still compared when it holds a pinned file.
+		for k := 0; k < 3; k++ {
+			if e.id == p.ids[k] {
+				if now, serr := statID(p.paths[k]); serr != nil || now != e.id {
+					return fmt.Errorf("%w: a descriptor on %s is not the file at that path", ErrPinSwapped, filepath.Base(p.paths[k]))
+				}
 			}
 		}
 		found[e.id] = true
