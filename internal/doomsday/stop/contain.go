@@ -7,15 +7,18 @@ import (
 	"io"
 	"os/exec"
 	"runtime"
+	"strings"
 )
 
 // ErrContainmentUnavailable means the mode must refuse to start: where no containment mechanism is available the
 // mode does not start. The first design forbade any fallback to a process group on the ground that a silent
 // weakening is exactly what the contract forbids (note 13.2 section 10). That is REVERSED by the owner's decision of
-// 2026-11-06: the open-ended mode is enabled on every platform, and where the mechanism cannot prove that no process
-// left the group (a Windows Job Object) it is still used but is HONEST about it: Stop ends it as UnitBestEffort and
-// the report says "stopped (best effort: ...)", never a bare "stopped". The weakening is no longer silent, which is
-// what the old rule protected. A platform with no mechanism at all still refuses.
+// 2026-11-06: the open-ended mode is to be enabled on every platform, and where the mechanism cannot prove that no
+// process left the group (a Windows Job Object) it is still used but is HONEST about it: Stop ends it as
+// UnitBestEffort and the report says "stopped (best effort: ...)", never a bare "stopped". The weakening is no longer
+// silent, which is what the old rule protected. A platform with no mechanism at all still refuses, and on Windows the
+// mode starts only when the probe passes ALL its steps: at this point the host pieces (lock, peer credentials, pinned
+// database) are missing there (windowsPendingSteps), so it does not start on Windows yet.
 var ErrContainmentUnavailable = errors.New("stop: process containment is unavailable; the open-ended mode refuses to start")
 
 // ProbeStep is one named requirement of the probe.
@@ -30,6 +33,21 @@ func RunProbe(steps []ProbeStep) error {
 		if err := s.Check(); err != nil {
 			return fmt.Errorf("%w: %s: %v", ErrContainmentUnavailable, s.Name, err)
 		}
+	}
+	return nil
+}
+
+// RunProbeAll runs every step and refuses naming ALL the failing ones, so an operator sees each missing piece at once
+// (the Windows probe, which has several, uses it; the Linux probe keeps RunProbe's first-failure refusal).
+func RunProbeAll(steps []ProbeStep) error {
+	var failed []string
+	for _, s := range steps {
+		if err := s.Check(); err != nil {
+			failed = append(failed, fmt.Sprintf("%s: %v", s.Name, err))
+		}
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("%w: %s", ErrContainmentUnavailable, strings.Join(failed, "; "))
 	}
 	return nil
 }
@@ -90,6 +108,13 @@ var containments = map[string]func(k Kernel, steps func() []ProbeStep) Containme
 	KindPGroup:    func(k Kernel, _ func() []ProbeStep) Containment { return newPGContainment(k) },
 }
 
+// hostGOOS is the OS the code runs on; tests replace it. A recorded unit is only ever proven, ended or placed
+// through the Containment of THIS platform's kind (hostKind): a record that came from another OS (a copied run
+// directory) fails closed instead of reaching a prover whose checks assume a different mechanism.
+var hostGOOS = runtime.GOOS
+
+func hostKind() string { return platformKinds[hostGOOS] }
+
 // platformKinds names the unit kind each GOOS may start; a GOOS absent here is refused. The steps of a probe are the
 // Linux steps; a mechanism with its own steps (the Job Object) ignores them.
 var platformKinds = map[string]string{"linux": KindCgroup2, "windows": KindJobObject, "darwin": KindPGroup}
@@ -138,4 +163,4 @@ func probe(goos string, linuxSteps func() []ProbeStep) error {
 
 // Probe is run at entry (before the charter becomes effective) and again at every host start of a running
 // generation. A nil result is the only way the mode may start.
-func Probe() error { return probe(runtime.GOOS, linuxProbeSteps) }
+func Probe() error { return probe(hostGOOS, linuxProbeSteps) }

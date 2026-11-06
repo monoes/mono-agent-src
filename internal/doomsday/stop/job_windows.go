@@ -75,6 +75,14 @@ func openChecked(pid int, stamp string, access uint32) (windows.Handle, error) {
 	return h, nil
 }
 
+func (winJobOS) Session() (int, error) {
+	var sid uint32
+	if err := windows.ProcessIdToSessionId(uint32(os.Getpid()), &sid); err != nil {
+		return 0, err
+	}
+	return int(sid), nil
+}
+
 func (winJobOS) StartAnchor() (int, string, error) {
 	sys, err := windows.GetSystemDirectory()
 	if err != nil {
@@ -86,15 +94,23 @@ func (winJobOS) StartAnchor() (int, string, error) {
 	if err := cmd.Start(); err != nil {
 		return 0, "", err
 	}
+	// Whatever fails from here on, the process just started is ended: the caller has no pid to end it with.
 	pid := cmd.Process.Pid
-	_ = cmd.Process.Release()
-	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.PROCESS_TERMINATE, false, uint32(pid))
 	if err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Process.Release()
 		return 0, "", err
 	}
 	defer windows.CloseHandle(h)
-	s, err := procStamp(h)
-	return pid, s, err
+	s, err := procStamp(h) // read while os.Process still holds the process: the pid cannot have been reused
+	if err != nil {
+		_ = windows.TerminateProcess(h, 1)
+		_ = cmd.Process.Release()
+		return 0, "", err
+	}
+	_ = cmd.Process.Release()
+	return pid, s, nil
 }
 
 func (winJobOS) KillAnchor(pid int, stamp string) error {
@@ -208,6 +224,25 @@ func (winJobOS) ParentFor(cmd *exec.Cmd, anchorPID int, anchorStamp string) (fun
 	return func() { _ = windows.CloseHandle(h) }, nil
 }
 
+// SelfTestChild starts a child under the anchor exactly as ParentFor does for a placed command.
+func (o winJobOS) SelfTestChild(anchorPID int, anchorStamp string) (int, func(), error) {
+	sys, err := windows.GetSystemDirectory()
+	if err != nil {
+		return 0, nil, err
+	}
+	cmd := exec.Command(filepath.Join(sys, "ping.exe"), "-n", "60", "127.0.0.1")
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
+	release, err := o.ParentFor(cmd, anchorPID, anchorStamp)
+	if err != nil {
+		return 0, nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		release()
+		return 0, nil, err
+	}
+	return cmd.Process.Pid, func() { _ = cmd.Process.Kill(); _, _ = cmd.Process.Wait(); release() }, nil
+}
+
 type winJob struct{ h windows.Handle }
 
 func (j *winJob) Close() error { return windows.CloseHandle(j.h) }
@@ -260,13 +295,4 @@ func (j *winJob) TerminateMember(pid int) error {
 		return errors.New("the process is not a member of the job")
 	}
 	return windows.TerminateProcess(h, 1)
-}
-
-// windowsHostSteps are what the rest of the mode still needs on Windows and does not have yet; each is a named
-// refusal so the probe says exactly why the mode does not start, and each is deleted when its implementation lands.
-func windowsHostSteps() []ProbeStep {
-	no := func(what string) ProbeStep {
-		return ProbeStep{Name: what, Check: func() error { return errors.New("not implemented on Windows yet") }}
-	}
-	return []ProbeStep{no("host and witness lock"), no("peer credentials of the emergency channel"), no("pinned database binding")}
 }

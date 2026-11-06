@@ -71,7 +71,7 @@ func EndUnit(cg Cgroup, cfg EndConfig) UnitOutcome {
 	if f, ok := cg.(interface{ Flat() bool }); ok && f.Flat() && len(cfg.Exclude) > 0 {
 		// A group without sub-units cannot spare the commands of a begun operation: it is left alone until the
 		// operation finishes (the Stop stays pending), never ended around it.
-		return UnitOutcome{Kind: UnitEnded, Note: "a begun operation is finishing in a unit that cannot spare it; the unit was not ended"}
+		return UnitOutcome{Kind: UnitStragglers, Note: "a begun operation is finishing in a unit that cannot spare it; the unit was not ended"}
 	}
 	subs, err := cg.Subgroups()
 	if err != nil {
@@ -260,6 +260,13 @@ func (u UnitEnder) stopService(ctx context.Context, rec UnitRecord, out UnitOutc
 		what = "group"
 	}
 	present, err := mk(u.K, nil).Present(rec)
+	if rec.Kind != KindCgroup2 { // a Job Object's name closes a moment after its last handle: look again, bounded
+		clk := u.Cfg.norm()
+		for i := 0; err == nil && present && i < jobPolls; i++ {
+			<-clk.Clock.After(jobPoll)
+			present, err = mk(u.K, nil).Present(rec)
+		}
+	}
 	switch {
 	case err != nil:
 		return left("the unit's " + what + " cannot be checked after its service was stopped: " + err.Error())

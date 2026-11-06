@@ -3,6 +3,7 @@ package stop
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"os/exec"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // The Windows unit: a NAMED Job Object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE. The CLI that creates it exits, so a
@@ -39,6 +41,8 @@ type Job interface {
 // JobOS is the seam over the Windows API (job_windows.go in production, a fake in tests).
 type JobOS interface {
 	BootID() (string, error)
+	// Session is the logon session of the caller.
+	Session() (int, error)
 	// Self is the pid and process start stamp of the caller.
 	Self() (pid int, stamp string, err error)
 	// StartAnchor starts the detached anchor process.
@@ -55,7 +59,16 @@ type JobOS interface {
 	// ParentFor makes cmd's child be created with the anchor as parent (so it is born in the job). release closes the
 	// handle it holds; call it after the command ended.
 	ParentFor(cmd *exec.Cmd, anchorPID int, anchorStamp string) (release func(), err error)
+	// SelfTestChild starts a harmless long-lived child created under the anchor (the way Place does) and returns its
+	// pid and a function that ends it; the probe checks that the child joined the anchor's job.
+	SelfTestChild(anchorPID int, anchorStamp string) (pid int, stop func(), err error)
 }
+
+// jobPoll is the pause between looks at a job that was just terminated: its name and member list close when the
+// last handle (the anchor's) is torn down, a moment after TerminateJobObject returns.
+var jobPoll = 50 * time.Millisecond
+
+const jobPolls = 20
 
 // jobHandle is UnitRecord.Handle of a KindJobObject unit: the job's name and the creator's identity (pid and
 // start stamp); the anchor's identity is the record's AnchorPID/AnchorStamp.
@@ -63,6 +76,9 @@ type jobHandle struct {
 	Job          string `json:"job"`
 	CreatorPID   int    `json:"creator_pid"`
 	CreatorStamp string `json:"creator_stamp"`
+	// Session is the creator's logon session. Job names are session-local: from another session a live job's name is
+	// simply not found, so "no job of that name" is never taken as "gone" while the anchor lives.
+	Session int `json:"session"`
 }
 
 func jobName(unitName string) string { return strings.TrimSuffix(unitName, ".service") }
@@ -71,10 +87,11 @@ func jobName(unitName string) string { return strings.TrimSuffix(unitName, ".ser
 // two units of one generation must never share one.
 func idFromNonce(nonce string) uint64 {
 	b, err := hex.DecodeString(nonce)
-	if err != nil || len(b) < 8 {
+	if err != nil || len(b) == 0 {
 		return 0
 	}
-	return binary.BigEndian.Uint64(b[:8]) | 1
+	sum := sha256.Sum256(b) // the whole nonce counts: two nonces that differ in any byte differ here
+	return binary.BigEndian.Uint64(sum[:8]) | 1
 }
 
 type jobContainment struct{ os JobOS }
@@ -87,13 +104,23 @@ func (c jobContainment) Probe() error {
 	if c.os == nil {
 		return fmt.Errorf("%w: the Job Object mechanism is only available on Windows", ErrContainmentUnavailable)
 	}
-	return RunProbe(append(jobSelfTestSteps(c.os), windowsHostSteps()...))
+	return RunProbeAll(append(jobSelfTestSteps(c.os), windowsPendingSteps()...))
 }
 
 // jobSelfTestSteps proves the mechanism works here: a job is created, an anchor is put in it, a command is born in
 // it and everything ends with the job.
 func jobSelfTestSteps(o JobOS) []ProbeStep {
 	return []ProbeStep{{"job object create, anchor adopt and kill", func() error { return jobSelfTest(o) }}}
+}
+
+// windowsPendingSteps are what the rest of the mode still needs on Windows and does not have yet; each is a named
+// refusal so the probe says exactly why the mode does not start there. They are portable on purpose: a test pins that
+// the probe fails because of them, and the change that implements one deletes its step AND that expectation.
+func windowsPendingSteps() []ProbeStep {
+	no := func(what string) ProbeStep {
+		return ProbeStep{Name: what, Check: func() error { return errors.New("not implemented on Windows yet") }}
+	}
+	return []ProbeStep{no("host and witness lock"), no("peer credentials of the emergency channel"), no("pinned database binding")}
 }
 
 func jobSelfTest(o JobOS) error {
@@ -118,13 +145,30 @@ func jobSelfTest(o JobOS) error {
 	if in, err := j.Contains(pid); err != nil || !in {
 		return fmt.Errorf("the anchor is not in the job (%v)", err)
 	}
+	// the mechanism Place rests on: a child created under the anchor is BORN in the anchor's job
+	child, stopChild, err := o.SelfTestChild(pid, stamp)
+	if err != nil {
+		return fmt.Errorf("a child cannot be created under the anchor: %w", err)
+	}
+	defer stopChild()
+	if in, err := j.Contains(child); err != nil || !in {
+		return fmt.Errorf("a child created under the anchor is not in the job, so commands would not be contained (%v)", err)
+	}
 	if err := j.Terminate(); err != nil {
 		return err
 	}
-	if pids, err := j.Pids(); err != nil || len(pids) != 0 {
-		return fmt.Errorf("the job still holds %d process(es) after the kill (%v)", len(pids), err)
+	var left int
+	for i := 0; i < jobPolls; i++ {
+		pids, err := j.Pids()
+		if err != nil {
+			return err
+		}
+		if left = len(pids); left == 0 {
+			return nil
+		}
+		time.Sleep(jobPoll)
 	}
-	return nil
+	return fmt.Errorf("the job still holds %d process(es) after the kill", left)
 }
 
 func (c jobContainment) Prove(rec UnitRecord) (Proof, error) {
@@ -169,7 +213,13 @@ func proveJob(o JobOS, rec UnitRecord) (Proof, error) {
 	}
 	j, err := o.OpenJob(h.Job)
 	if errors.Is(err, ErrJobAbsent) {
-		return Proof{Gone: true, BestEffort: true, Note: "the job object no longer exists"}, nil
+		// A name is session-local: from another session a live job is simply not found. Only a dead anchor (the last
+		// handle holder) makes the missing name mean gone.
+		if stamp, _, perr := o.ProcInfo(rec.AnchorPID); perr == nil && stamp == rec.AnchorStamp {
+			cur, _ := o.Session()
+			return fail("no job object of that name is visible, but its anchor process is alive (created in session %d, this is session %d)", h.Session, cur)
+		}
+		return Proof{Gone: true, BestEffort: true, Note: "the job object no longer exists and its anchor is gone"}, nil
 	}
 	if err != nil {
 		return fail("the job object cannot be opened: %v", err)
