@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"database/sql"
+	"strings"
 	"testing"
 )
 
@@ -157,14 +158,14 @@ func TestTheTwoFormsOfTheBossConversationAgree(t *testing.T) {
 		t.Fatal(err)
 	}
 	cases := map[string]bool{ // conversation -> is a boss's
-		"c-boss":     true,
-		"c-agent":    false,
-		"c-ownchat":  false,
-		"c-huge":     false,
-		"c-task":     false,
-		"c-child":    false,
-		"c-nokey":    false,
-		"c-cap":      true,
+		"c-boss":      true,
+		"c-agent":     false,
+		"c-ownchat":   false,
+		"c-huge":      false,
+		"c-task":      false,
+		"c-child":     false,
+		"c-nokey":     false,
+		"c-cap":       true,
 		"c-plainchat": false,
 	}
 	mk("c-boss", BossClientID(front, 1), SessionKindMission, "you", 0)
@@ -192,5 +193,20 @@ func TestTheTwoFormsOfTheBossConversationAgree(t *testing.T) {
 		if goForm != want || sqlForm != want || (viaSQL == 1) != want {
 			t.Errorf("%s: want %v; BossFrontDesk %v, IsBossAnyConversation %v, SQL %v", conv, want, goForm, sqlForm, viaSQL == 1)
 		}
+	}
+}
+
+// The SQL form of a boss key and the Go form share their cap: the largest attempt matches, the next one does not.
+func TestBossKeySQLMatchesMaxBossAttempt(t *testing.T) {
+	_, db, _ := newTestStore(t)
+	match := func(key string) bool {
+		var n int
+		if err := db.QueryRow(`SELECT 1 WHERE ` + strings.ReplaceAll(BossKeySQL("?"), "?", "'"+key+"'")).Scan(&n); err != nil {
+			return false
+		}
+		return n == 1
+	}
+	if !match(BossClientID("x", 1)) || !match(BossClientID("x", MaxBossAttempt)) || match(BossClientID("x", MaxBossAttempt+1)) || match("boss-for-x-0") || match("boss-for-x-01") || match("other-x-1") {
+		t.Fatal("the SQL form of the key disagrees with the cap")
 	}
 }
