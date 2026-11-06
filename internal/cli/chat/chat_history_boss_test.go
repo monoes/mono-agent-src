@@ -15,8 +15,8 @@ import (
 // its session row, and the queue's coder chats mark it. A conversation whose session only carries the boss's client id,
 // without the operator's stamp, is no boss anywhere.
 type bossListing struct {
-	dbPath                 string
-	chat, boss, fake, lead ai.Conversation
+	dbPath                       string
+	chat, boss, fake, lead, pend ai.Conversation
 }
 
 func seedBossListing(t *testing.T) bossListing {
@@ -28,9 +28,15 @@ func seedBossListing(t *testing.T) bossListing {
 	b.boss = seedConv(t, store, db, ai.AccessFull, "2026-10-22T10:00:02Z")
 	b.fake = seedConv(t, store, db, ai.AccessFull, "2026-10-22T10:00:01Z")
 	b.lead = seedConv(t, store, db, ai.AccessFull, "2026-10-22T10:00:00Z") // a chat's own lead mission named at start: stamped, but no boss key
-	for _, c := range []struct{ conv, key, charter string }{{b.boss.ID, tasks.BossClientID(b.chat.ID, 1), "c1"}, {b.fake.ID, tasks.BossClientID("x", 1), ""}, {b.lead.ID, "", "c9"}} {
+	b.pend = seedConv(t, store, db, ai.AccessFull, "2026-10-22T09:59:59Z") // a boss `boss new` made that is not stamped yet
+	for _, c := range []struct{ conv, key, charter, by string }{
+		{b.boss.ID, tasks.BossClientID(b.chat.ID, 1), "c1", "you"},
+		{b.fake.ID, tasks.BossClientID("x", 1), "", "agent-x"}, // an agent's session that carries a boss key
+		{b.lead.ID, "", "c9", "you"},
+		{b.pend.ID, tasks.BossClientID(b.chat.ID, 2), "", "you"},
+	} {
 		if _, err := db.Exec(`INSERT INTO task_sessions (profile_id, conversation_id, title, goal, access_level, max_tasks, max_depth, max_retries, created_by, created_at, updated_at, client_id, kind, doomsday_charter_id)
-			VALUES ('default', ?, 't', '', 'full', 10, 3, 2, 'operator', 'x', 'x', NULLIF(?, ''), 'mission', ?)`, c.conv, c.key, c.charter); err != nil {
+			VALUES ('default', ?, 't', '', 'full', 10, 3, 2, ?, 'x', 'x', NULLIF(?, ''), 'mission', ?)`, c.conv, c.by, c.key, c.charter); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -54,7 +60,7 @@ func TestPlainHistoryListLeavesOutARecordedBossAndNothingElse(t *testing.T) {
 	for _, c := range page.Items {
 		ids[c.ID] = true
 	}
-	if !ids[b.chat.ID] || ids[b.boss.ID] || !ids[b.fake.ID] || !ids[b.lead.ID] {
+	if !ids[b.chat.ID] || ids[b.boss.ID] || !ids[b.fake.ID] || !ids[b.lead.ID] || !ids[b.pend.ID] {
 		t.Fatalf("plain list ids: %v", ids)
 	}
 	if out, code := runChatHistory(t, b.dbPath, "default", "show", b.boss.ID); code != 0 {
@@ -69,7 +75,7 @@ func TestHistoryAllShowsARecordedBossWithTheBossMark(t *testing.T) {
 	for _, r := range listAll(t, b.dbPath).Items {
 		marks[r.ID] = r.Boss
 	}
-	if len(marks) != 4 || marks[b.chat.ID] || !marks[b.boss.ID] || marks[b.fake.ID] || marks[b.lead.ID] {
+	if len(marks) != 5 || marks[b.chat.ID] || !marks[b.boss.ID] || marks[b.fake.ID] || marks[b.lead.ID] || marks[b.pend.ID] {
 		t.Fatalf("--all marks: %v", marks)
 	}
 	if got := listAll(t, b.dbPath, "--id", b.boss.ID); len(got.Items) != 1 || !got.Items[0].Boss {
@@ -106,7 +112,7 @@ func TestCoderSessionsListMarksTheBossSession(t *testing.T) {
 func TestCoderListLeavesOutTheBossUnlessAll(t *testing.T) {
 	b := seedBossListing(t)
 	store, db := openTestChatStore(t, b.dbPath), rawDB(t, b.dbPath)
-	for i, c := range []ai.Conversation{b.boss, b.chat, b.fake, b.lead} {
+	for i, c := range []ai.Conversation{b.boss, b.chat, b.fake, b.lead, b.pend} {
 		seedTurn(t, store, db, c.ID, fmt.Sprintf("t%d", i), "hello", "completed", "2026-10-22T09:00:00Z")
 	}
 	list := func(args ...string) map[string]bool {
@@ -131,8 +137,11 @@ func TestCoderListLeavesOutTheBossUnlessAll(t *testing.T) {
 	if _, in := def[b.boss.ID]; in || len(def) != 3 || def[b.chat.ID] || def[b.fake.ID] || def[b.lead.ID] {
 		t.Fatalf("default list: %v", def)
 	}
+	if _, in := def[b.pend.ID]; in {
+		t.Fatalf("default list: %v", def)
+	}
 	all := list("--all")
-	if len(all) != 4 || !all[b.boss.ID] || all[b.chat.ID] || all[b.fake.ID] || all[b.lead.ID] {
+	if len(all) != 5 || !all[b.boss.ID] || !all[b.pend.ID] || all[b.chat.ID] || all[b.fake.ID] || all[b.lead.ID] {
 		t.Fatalf("--all list: %v", all)
 	}
 	if out, code := runCoderCLI(t, b.dbPath, "list", "--conversation", b.boss.ID); code == 0 {

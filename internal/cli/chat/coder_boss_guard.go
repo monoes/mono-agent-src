@@ -2,9 +2,6 @@ package chat
 
 import (
 	"context"
-	"database/sql"
-	"errors"
-	"time"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/coderhost"
@@ -30,13 +27,13 @@ func refuseBossConversation(ctx context.Context, cfg *Deps, profileID, conversat
 	return nil
 }
 
-// enqueueBounded queues a send under the bounds of coderhost.EnqueueSendBounded and starts the host.
-func enqueueBounded(cfg *Deps, c coderhost.Command, maxPending int, within time.Duration) (coderhost.Command, bool, error) {
+// enqueueBounded queues a person's send under the bounds of coderhost.EnqueueSendBounded and starts the host.
+func enqueueBounded(cfg *Deps, c coderhost.Command, b coderhost.SendBounds) (coderhost.Command, bool, error) {
 	db, err := cfg.OpenDB()
 	if err != nil {
 		return c, false, err
 	}
-	out, deduped, err := coderhost.NewStore(db.DB).EnqueueSendBounded(c, maxPending, within)
+	out, deduped, err := coderhost.NewStore(db.DB).EnqueueSendBounded(c, b)
 	db.Close()
 	if err != nil {
 		return out, deduped, err
@@ -49,11 +46,13 @@ func enqueueBounded(cfg *Deps, c coderhost.Command, maxPending int, within time.
 	return out, deduped, nil
 }
 
-// refuseUnqueuedBossTurn is the guard of a turn run straight through `chat --conversation C --turn T`: in the conversation of a boss
-// only a turn the host launches is run, that is, one whose id AND prompt are those of a send queued for the conversation
-// (the steer's, the first turn's). Anything else (an agent's own `chat` call, the extension's) is refused before the turn exists.
-// Another conversation is not asked. It does not rely on anything the caller says about itself.
-func refuseUnqueuedBossTurn(ctx context.Context, cfg *Deps, profileID, conversationID, turnID, prompt string) error {
+// refuseBossTurnWithoutHostIdentity is the guard of a turn run straight through `chat --conversation C --turn T`: in the
+// conversation of a boss only the HOST's own launch of the turn is run. The proof is the session token the host minted for
+// exactly this conversation and turn when it launched it (hashed in the database, bound to the turn's process, live only while
+// the turn is the session's current one): the caller must present it and it must name C and T. It is not the text of the prompt
+// (the host rewrites that), nor a row that exists (a done, failed or ask row would do), and an agent's own `chat` call has no such
+// token. Another conversation is not asked.
+func refuseBossTurnWithoutHostIdentity(ctx context.Context, cfg *Deps, profileID, conversationID, turnID string) error {
 	db, err := cfg.OpenDB()
 	if err != nil {
 		return err
@@ -66,14 +65,30 @@ func refuseUnqueuedBossTurn(ctx context.Context, cfg *Deps, profileID, conversat
 	if !ok {
 		return nil
 	}
-	var one int
-	err = db.DB.QueryRowContext(ctx, `SELECT 1 FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind = 'send' AND turn_id = ? AND message = ? LIMIT 1`,
-		profileID, conversationID, turnID, prompt).Scan(&one)
-	if err == nil {
+	caller, err := coderhost.NewStore(db.DB).CallerFor(sessionTokenFromEnv(), profileID)
+	if err == nil && caller.ConversationID == conversationID && caller.TurnID == turnID {
 		return nil
 	}
-	if errors.Is(err, sql.ErrNoRows) {
-		return clicore.InvalidInput("conversation %s is a boss's: a turn there runs only from a queued message (`coder sessions steer %s`)", conversationID, front)
+	return clicore.InvalidInput("conversation %s is a boss's: a turn there runs only as the host launches it from a queued message (`coder sessions steer %s`)", conversationID, front)
+}
+
+// refuseBossResume refuses `chat --resume <runtime session id>` (a turn outside any conversation) when the id is the runtime
+// session of a boss's conversation: resuming it would talk to the boss unwrapped, outside the host.
+func refuseBossResume(ctx context.Context, cfg *Deps, profileID, resume string) error {
+	if resume == "" {
+		return nil
 	}
-	return err
+	db, err := cfg.OpenDB()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	var n int
+	if err := db.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM ai_chat_conversations c WHERE c.profile_id = ? AND c.session_id = ? AND `+tasks.BossAnyConversationSQL("c"), profileID, resume).Scan(&n); err != nil {
+		return err
+	}
+	if n > 0 {
+		return clicore.InvalidInput("that runtime session is a boss's: it cannot be resumed from outside the host")
+	}
+	return nil
 }

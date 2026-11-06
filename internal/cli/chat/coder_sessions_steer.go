@@ -88,7 +88,7 @@ func newCoderSessionsSteerCmd(cfg *Deps) *cobra.Command {
 			}
 			// The bounds (at most maxSteerPending waiting, a repeat within steerDedupe is one message) are applied by the insert.
 			c, deduped, err := enqueueBounded(cfg, coderhost.Command{ProfileID: profileID, ConversationID: bossConv, Kind: coderhost.KindSend,
-				TurnID: "t-" + uuid.NewString(), Message: steerEnvelope(text)}, maxSteerPending, steerDedupe)
+				TurnID: "t-" + uuid.NewString(), Message: steerEnvelope(text)}, coderhost.SendBounds{MaxPending: maxSteerPending, Within: steerDedupe})
 			if errors.Is(err, coderhost.ErrTooManyWaiting) {
 				return clicore.InvalidInput("%d messages already wait for the boss: nothing was sent", maxSteerPending)
 			}

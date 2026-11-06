@@ -65,7 +65,7 @@ func QueueBossFirstTurn(cfg *Deps, bossConversation string, in BossFirstTurn) (c
 		return coderhost.Command{}, clicore.InvalidInput("conversation %s is not the conversation of a boss", bossConversation)
 	}
 	if live != bossConversation { // stamped for the profile's running run, open, not archived
-		return coderhost.Command{}, clicore.InvalidInput("the boss of conversation %s is not the open boss of a run that is going: nothing was queued", bossConversation)
+		return coderhost.Command{}, clicore.InvalidInput("the boss of conversation %s is not the open boss of a run that is going: nothing was queued (if the run only just started, try again in a moment)", bossConversation)
 	}
 	if had, err := bossHadATurn(cfg, profileID, bossConversation); err != nil {
 		return coderhost.Command{}, err
@@ -74,9 +74,9 @@ func QueueBossFirstTurn(cfg *Deps, bossConversation string, in BossFirstTurn) (c
 	}
 	// nothing may be waiting: the insert holds that bound (a concurrent caller cannot queue a second one)
 	c, _, err := enqueueBounded(cfg, coderhost.Command{ProfileID: profileID, ConversationID: bossConversation, Kind: coderhost.KindSend,
-		TurnID: "t-" + uuid.NewString(), Message: BossFirstTurnText(in)}, 1, 0)
-	if errors.Is(err, coderhost.ErrTooManyWaiting) {
-		return c, clicore.InvalidInput("a message already waits for the boss: nothing was queued")
+		TurnID: "t-" + uuid.NewString(), Message: BossFirstTurnText(in)}, coderhost.SendBounds{MaxPending: 1, NoTurnYet: true})
+	if errors.Is(err, coderhost.ErrTooManyWaiting) || errors.Is(err, coderhost.ErrTurnExists) {
+		return c, clicore.InvalidInput("a message already waits for the boss, or it already had its first turn: nothing was queued")
 	}
 	if err != nil {
 		return c, fmt.Errorf("queueing the boss's first turn: %w", err)

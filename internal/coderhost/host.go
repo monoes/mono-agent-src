@@ -334,7 +334,9 @@ func (h *Host) Tick() error {
 				return err
 			}
 			message, commit := c.Message, func() {}
-			if h.Mesh != nil {
+			// No peer content goes ahead of a boss's message: what the boss is told is its charter's and the person's steering, and
+			// the turn is checked against the host's own launch, not against its text.
+			if h.Mesh != nil && !h.Store.IsBossConversation(c.ProfileID, c.ConversationID) {
 				if ms, ok := h.meshSessionFor(c.ProfileID, c.ConversationID); ok {
 					block, done := h.Mesh.Inbox(ms)
 					switch {

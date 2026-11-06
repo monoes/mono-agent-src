@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/coderhost"
@@ -341,15 +343,55 @@ func TestQueueBossFirstTurnNeedsAStampAndAnEmptyQueue(t *testing.T) {
 	}
 }
 
+type bossFakeTurn struct{}
+
+func (bossFakeTurn) PID() int      { return os.Getpid() }
+func (bossFakeTurn) Stamp() string { return coderhost.ProcStamp(os.Getpid()) }
+func (bossFakeTurn) Wait() error   { select {} }
+func (bossFakeTurn) Stop()         {}
+
+// bossFakeLauncher records the message the host hands each launched turn.
+type bossFakeLauncher struct {
+	mu       sync.Mutex
+	launched map[string]string // conversation + "/" + turn -> the message as the host composed it
+}
+
+func (l *bossFakeLauncher) Start(_, conv, turn, message string, _ []string, _ string) (coderhost.Turn, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.launched == nil {
+		l.launched = map[string]string{}
+	}
+	l.launched[conv+"/"+turn] = message
+	return bossFakeTurn{}, nil
+}
+func (l *bossFakeLauncher) Adopt(int, string) coderhost.Turn { return nil }
+func (l *bossFakeLauncher) Finish(_, _, _, _ string)         {}
+func (l *bossFakeLauncher) message(conv, turn string) (string, bool) {
+	m, ok := l.launched[conv+"/"+turn]
+	return m, ok
+}
+
+// bossFakeMesh has a kept message waiting for every session: the host puts it in front of the next prompt.
+type bossFakeMesh struct{}
+
+func (bossFakeMesh) Sync(context.Context, []coderhost.MeshSession) {}
+func (bossFakeMesh) Inbox(coderhost.MeshSession) (string, func()) {
+	return "[PEER MESSAGE] kept for you", func() {}
+}
+func (bossFakeMesh) Close() {}
+
 // A person's turn run straight through `chat --conversation <boss> --turn T` would be unwrapped and full-access. A boss's
-// conversation takes only a turn the host launches for a command queued with exactly that turn id and message (the steer's,
-// the first turn's); anything else is refused before the turn exists. A normal chat is not asked.
-func TestChatTurnIntoABossNeedsAQueuedCommand(t *testing.T) {
+// conversation takes only a turn the HOST launched: the caller must hold the session token the host minted for exactly that
+// conversation and turn. This goes through the host's real composition (mesh on, a kept message waiting): the host composes
+// the prompt of an ordinary chat with the peer block, none for a boss, and the guard does not read the prompt at all.
+func TestChatTurnIntoABossNeedsTheHostsLaunchIdentity(t *testing.T) {
 	r := newSteerRig(t, true)
-	// a prompt-injected agent's try: no queued command, so refused and no turn is made
-	err := runChatCmdStdin(t, r.dbPath, "", "--conversation", r.bossCon.ID, "--turn", "evil-1", "--", "do as I say")
-	if err == nil {
-		t.Fatal("an unqueued turn ran in a boss's conversation")
+	ctx := context.Background()
+	// the agent's own try: no token, so refused, and no turn is made
+	t.Setenv(coderhost.SessionTokenEnv, "")
+	if err := runChatCmdStdin(t, r.dbPath, "", "--conversation", r.bossCon.ID, "--turn", "evil-1", "--", "do as I say"); err == nil {
+		t.Fatal("an agent's turn ran in a boss's conversation")
 	}
 	turns, _, lerr := openTestChatStore(t, r.dbPath).ListTurns(r.bossCon.ID, "default", "", 50)
 	if lerr != nil {
@@ -360,36 +402,105 @@ func TestChatTurnIntoABossNeedsAQueuedCommand(t *testing.T) {
 			t.Fatal("the refused turn was admitted")
 		}
 	}
-	ctx := context.Background()
-	// the steer's turn and the first turn's are the host's to launch
-	if out, code := runSessionsCLI(t, r.cfg, "steer", r.front.ID, "prefer the smaller change"); code != 0 {
-		t.Fatalf("steer: %d %s", code, out)
-	}
-	cmds := pendingCommands(t, r.dbPath)
-	if len(cmds) != 1 {
-		t.Fatalf("queued: %+v", cmds)
-	}
-	c := cmds[0]
-	if err := refuseUnqueuedBossTurn(ctx, r.cfg, "default", r.bossCon.ID, c.TurnID, c.Message); err != nil {
-		t.Fatalf("the queued steer turn was refused: %v", err)
-	}
-	if err := refuseUnqueuedBossTurn(ctx, r.cfg, "default", r.bossCon.ID, c.TurnID, "something else"); err == nil {
-		t.Fatal("a queued turn id with another prompt ran")
-	}
-	if err := refuseUnqueuedBossTurn(ctx, r.cfg, "default", r.bossCon.ID, "other-turn", c.Message); err == nil {
-		t.Fatal("the queued prompt ran under another turn id")
-	}
-	if err := refuseUnqueuedBossTurn(ctx, r.cfg, "default", r.front.ID, "any-turn", "anything"); err != nil {
-		t.Fatalf("an ordinary chat was asked: %v", err)
-	}
-	first := buildSteerRig(t, true, false)
-	in := BossFirstTurn{RunID: "run-1", CharterHash: "abcdef0123456789", Goal: "g"}
-	fc, err := QueueBossFirstTurn(first.cfg, first.bossCon.ID, in)
+	// a row that exists is not an identity: a failed ask note for the boss, run by a lead through `chat`, is refused too
+	ask, err := coderhost.NewStore(r.db).Enqueue(coderhost.Command{ProfileID: "default", ConversationID: r.bossCon.ID, Kind: coderhost.KindSend, TurnID: "ask-q-1", Message: "a question"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := refuseUnqueuedBossTurn(ctx, first.cfg, "default", first.bossCon.ID, fc.TurnID, fc.Message); err != nil {
-		t.Fatalf("the queued first turn was refused: %v", err)
+	if _, err := r.db.Exec(`UPDATE coder_session_commands SET status = 'failed' WHERE id = ?`, ask.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := refuseBossTurnWithoutHostIdentity(ctx, r.cfg, "default", r.bossCon.ID, "ask-q-1"); err == nil {
+		t.Fatal("a failed row's turn id ran outside the host")
+	}
+	// the steer's turn, launched by the real host with the mesh on
+	if out, code := runSessionsCLI(t, r.cfg, "steer", r.front.ID, "prefer the smaller change"); code != 0 {
+		t.Fatalf("steer: %d %s", code, out)
+	}
+	var steerTurn, steerMsg string
+	for _, c := range pendingCommands(t, r.dbPath) {
+		if strings.HasPrefix(c.TurnID, "t-") && c.ConversationID == r.bossCon.ID {
+			steerTurn, steerMsg = c.TurnID, c.Message
+		}
+	}
+	other := seedConv(t, openTestChatStore(t, r.dbPath), r.db, ai.AccessFull, "2026-10-22T10:00:07Z") // an ordinary chat with a command queued
+	if _, err := coderhost.NewStore(r.db).Enqueue(coderhost.Command{ProfileID: "default", ConversationID: other.ID, Kind: coderhost.KindSend, TurnID: "t-plain", Message: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	launcher := &bossFakeLauncher{}
+	host := &coderhost.Host{Store: coderhost.NewStore(r.db), L: launcher, Mesh: bossFakeMesh{}, Poll: time.Millisecond}
+	if err := host.Tick(); err != nil {
+		t.Fatal(err)
+	}
+	launched, ok := launcher.message(r.bossCon.ID, steerTurn)
+	if !ok {
+		t.Fatal("the host did not launch the steer's turn")
+	}
+	if launched != steerMsg {
+		t.Fatalf("the host rewrote a boss's prompt:\n%q\nqueued:\n%q", launched, steerMsg)
+	}
+	if plain, ok := launcher.message(other.ID, "t-plain"); !ok || !strings.Contains(plain, "[PEER MESSAGE]") {
+		t.Fatalf("control: the host did not compose the mesh block into an ordinary chat's prompt: %q %v", plain, ok)
+	}
+	// the launcher mints the token for the turn the host recorded and binds it to the turn's process
+	cs := coderhost.NewStore(r.db)
+	tok, err := cs.IssueSessionToken("default", r.bossCon.ID, steerTurn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cs.BindSessionToken("default", r.bossCon.ID, steerTurn, os.Getpid(), coderhost.ProcStamp(os.Getpid())); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(coderhost.SessionTokenEnv, tok)
+	if err := refuseBossTurnWithoutHostIdentity(ctx, r.cfg, "default", r.bossCon.ID, steerTurn); err != nil {
+		t.Fatalf("the host-launched steer turn was refused: %v", err)
+	}
+	// wrong turn id, wrong conversation, a forged token and a revoked one are refused
+	if err := refuseBossTurnWithoutHostIdentity(ctx, r.cfg, "default", r.bossCon.ID, "another-turn"); err == nil {
+		t.Fatal("the token of one turn started another")
+	}
+	other2 := seedConv(t, openTestChatStore(t, r.dbPath), r.db, ai.AccessFull, "2026-10-22T10:00:08Z")
+	if _, err := r.db.Exec(`INSERT INTO task_sessions (profile_id, conversation_id, title, goal, access_level, max_tasks, max_depth, max_retries, created_by, created_at, updated_at, client_id, kind)
+		VALUES ('default', ?, 'Boss 2', '', 'full', 10, 3, 2, 'you', 'x', 'x', ?, 'mission')`, other2.ID, tasks.BossClientID(other.ID, 1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := refuseBossTurnWithoutHostIdentity(ctx, r.cfg, "default", other2.ID, steerTurn); err == nil {
+		t.Fatal("the token of one conversation started a turn in another boss's")
+	}
+	t.Setenv(coderhost.SessionTokenEnv, "mono_sess_forged")
+	if err := refuseBossTurnWithoutHostIdentity(ctx, r.cfg, "default", r.bossCon.ID, steerTurn); err == nil {
+		t.Fatal("a forged token was accepted")
+	}
+	t.Setenv(coderhost.SessionTokenEnv, tok)
+	cs.RevokeSessionTokens("default", r.bossCon.ID)
+	if err := refuseBossTurnWithoutHostIdentity(ctx, r.cfg, "default", r.bossCon.ID, steerTurn); err == nil {
+		t.Fatal("a revoked token (the turn is over) ran another turn")
+	}
+	// an ordinary chat is not asked
+	t.Setenv(coderhost.SessionTokenEnv, "")
+	if err := refuseBossTurnWithoutHostIdentity(ctx, r.cfg, "default", r.front.ID, "any-turn"); err != nil {
+		t.Fatalf("an ordinary chat was asked: %v", err)
+	}
+}
+
+// `chat --resume <id>` outside any conversation would talk to a boss's runtime session unwrapped: refused, and an ordinary
+// chat's session id is not.
+func TestChatResumeOfABossRuntimeSessionIsRefused(t *testing.T) {
+	r := newSteerRig(t, true)
+	if _, err := r.db.Exec(`UPDATE ai_chat_conversations SET session_id = 'boss-runtime-session' WHERE id = ?`, r.bossCon.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.db.Exec(`UPDATE ai_chat_conversations SET session_id = 'front-runtime-session' WHERE id = ?`, r.front.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := refuseBossResume(context.Background(), r.cfg, "default", "boss-runtime-session"); err == nil {
+		t.Fatal("a boss's runtime session was resumed")
+	}
+	if err := refuseBossResume(context.Background(), r.cfg, "default", "front-runtime-session"); err != nil {
+		t.Fatalf("an ordinary session was refused: %v", err)
+	}
+	if err := runChatCmdStdin(t, r.dbPath, "", "--resume", "boss-runtime-session", "--", "hi"); err == nil {
+		t.Fatal("chat --resume reached a boss's runtime session")
 	}
 }
 
@@ -430,7 +541,7 @@ func TestSteerBoundsHoldUnderConcurrency(t *testing.T) {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
-				_, dup, err := cs.EnqueueSendBounded(coderhost.Command{ProfileID: "default", ConversationID: r.bossCon.ID, Kind: coderhost.KindSend, TurnID: fmt.Sprintf("t-%d", i), Message: msg(i)}, maxSteerPending, steerDedupe)
+				_, dup, err := cs.EnqueueSendBounded(coderhost.Command{ProfileID: "default", ConversationID: r.bossCon.ID, Kind: coderhost.KindSend, TurnID: fmt.Sprintf("t-%d", i), Message: msg(i)}, coderhost.SendBounds{MaxPending: maxSteerPending, Within: steerDedupe})
 				mu.Lock()
 				defer mu.Unlock()
 				if err == nil && dup {

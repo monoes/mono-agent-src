@@ -75,6 +75,11 @@ func runChat(cfg *Deps, cmd *cobra.Command, args []string, f *chatFlags) (retErr
 		attach = nil
 	}
 
+	if conversationID == "" && resume != "" {
+		if err := refuseBossResume(ctx, cfg, cfg.ProfileID(), resume); err != nil {
+			return err
+		}
+	}
 	// A journaled turn takes its runtime, model and session from
 	// the conversation, and writes the event journal instead of the
 	// legacy transcript.
@@ -91,7 +96,7 @@ func runChat(cfg *Deps, cmd *cobra.Command, args []string, f *chatFlags) (retErr
 			return err
 		}
 		defer closeJournal()
-		if err := refuseUnqueuedBossTurn(ctx, cfg, jprofile, conversationID, turnID, prompt); err != nil {
+		if err := refuseBossTurnWithoutHostIdentity(ctx, cfg, jprofile, conversationID, turnID); err != nil {
 			return err
 		}
 		attachSrc, err := journaledAttachments(jstore, jprofile, conversationID, turnID, attach)

@@ -107,7 +107,10 @@ func newCoderListCmd(cfg *Deps) *cobra.Command {
 				return err
 			}
 			defer bdb.Close()
-			isBoss := func(id string) bool { b, _ := tasks.IsBossConversation(cmd.Context(), bdb.DB, profileID, id); return b }
+			isBoss := func(id string) bool {
+				b, _ := tasks.IsBossAnyConversation(cmd.Context(), bdb.DB, profileID, id)
+				return b
+			}
 			rows := []coderChatRow{}
 			if conversation != "" {
 				conv, err := store.GetConversation(conversation, profileID)
@@ -154,9 +157,9 @@ func coderChats(store *ai.AIStore, profileID string, limit int, all bool, isBoss
 	rows := []coderChatRow{}
 	cursor := ""
 	for {
-		// The list is the extension's send targets: a boss's conversation is not one unless --all asks for it (the same anti-join
-		// as the history list, from the few stamped bosses).
-		also := `NOT ` + tasks.BossConversationSQL("ai_chat_conversations")
+		// The list is the extension's send targets: a boss's conversation (stamped or not: the one predicate the guards ask) is not one
+		// unless --all asks for it, by an anti-join from the few boss sessions.
+		also := `NOT ` + tasks.BossAnyConversationSQL("ai_chat_conversations")
 		if all {
 			also = ""
 		}
