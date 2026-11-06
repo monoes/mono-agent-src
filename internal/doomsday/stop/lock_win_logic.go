@@ -15,5 +15,14 @@ type winLockOS interface {
 
 // lockVia is flock on top of a winLockOS: a taken lock is ErrSecondHost, a failure is never a lock.
 func lockVia(o winLockOS, path string, wait bool) (func(), error) {
-	return nil, errNoUnlock // skeleton: the first commit holds the tests red
+	unlock, contended, err := o.LockFile(path, wait)
+	switch {
+	case contended:
+		return nil, ErrSecondHost
+	case err != nil:
+		return nil, err
+	case unlock == nil:
+		return nil, errNoUnlock
+	}
+	return unlock, nil
 }
