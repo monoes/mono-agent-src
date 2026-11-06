@@ -200,4 +200,3 @@ func (j *fakeWinJob) TerminateMember(pid int) error {
 	j.w.endProc(pid)
 	return nil
 }
-
