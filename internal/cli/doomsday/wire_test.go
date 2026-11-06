@@ -158,7 +158,7 @@ func newWire(t *testing.T, probe func() error, kernel stop.Kernel, revokeErr err
 	w := Wiring{
 		Store: store.New(db.DB, store.NewHMACKeyer([]byte("k"))), Profile: "p1",
 		Witness: &WitnessSetup{DBPath: dbPath, Keys: store.NewHMACKeyer([]byte("k")), Secrets: &stop.FileSecretStore{Dir: t.TempDir()}},
-		RunDir:  stop.RunDir{Dir: t.TempDir() + "/run"},
+		RunDir:  stop.RunDir{Dir: shortTempDir(t) + "/run"},
 		Probe:   probe, Kernel: kernel, Host: world,
 		Binding: func(context.Context) (bool, error) { return true, nil },
 		Tokens:  CoderTokens{DB: db.DB, Profile: "p1", Host: recordingHost{CoderHost: host, revokeErr: revokeErr}},

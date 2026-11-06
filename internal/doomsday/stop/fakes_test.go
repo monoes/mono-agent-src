@@ -199,12 +199,7 @@ func (e *fakeEnder) End(_ context.Context, _ uint64, exclude []uint64) UnitOutco
 
 func newRunDir(t *testing.T, fsys FS) RunDir {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "dd")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	return RunDir{Dir: dir, FS: fsys}
+	return RunDir{Dir: shortTempDir(t), FS: fsys}
 }
 
 // ----- containment fakes -----
@@ -359,4 +354,20 @@ func mustNoErr(t *testing.T, err error) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+// shortTempDir is a private directory with a SHORT path, for tests that bind a unix socket (macOS limits a socket path to
+// 104 bytes and t.TempDir() under $TMPDIR is longer).
+func shortTempDir(t *testing.T) string {
+	t.Helper()
+	base := ""
+	if fi, err := os.Stat("/tmp"); err == nil && fi.IsDir() {
+		base = "/tmp"
+	}
+	d, err := os.MkdirTemp(base, "ma")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(d) })
+	return d
 }

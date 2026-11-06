@@ -36,7 +36,7 @@ func TestBuildingTheHostGateAndOpsWithNoRunPinsNothing(t *testing.T) {
 	r, db := newWire(t, func() error { return nil }, fakeKernel{}, nil)
 	keys := &macCounter{in: store.NewHMACKeyer([]byte("k"))}
 	w := r.w
-	w.RunDir = stop.RunDir{Dir: t.TempDir() + "/fresh-run"} // a pin cache key no earlier test used
+	w.RunDir = stop.RunDir{Dir: shortTempDir(t) + "/fresh-run"} // a pin cache key no earlier test used
 	w.Store = store.New(db.DB, keys)
 	ws := *w.Witness
 	ws.Keys = keys
@@ -129,7 +129,7 @@ func TestAdmissionWithNoRunCreatesNoRunDirectoryTrace(t *testing.T) {
 	defer func() { PinFunc = real }()
 	r, _ := newWire(t, func() error { return nil }, fakeKernel{}, nil)
 	w := r.w
-	w.RunDir = stop.RunDir{Dir: t.TempDir() + "/never-made"}
+	w.RunDir = stop.RunDir{Dir: shortTempDir(t) + "/never-made"}
 	g := &HostGate{Store: w.Chained(), Fresh: w.Fresh(), Profile: "p1", RunDir: w.RunDir, BindingOn: func() (bool, error) { return true, nil }}
 	for i := 0; i < 3; i++ {
 		if err := g.Start(coderhost.PointTurnStart, func() (coderhost.StartedProc, error) { return fakeProc{}, nil }); err != nil {

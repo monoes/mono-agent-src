@@ -169,7 +169,7 @@ func emptyDir(t *testing.T, dir string) {
 }
 
 func TestPinSelfTestPassesHereAndLeavesNothingNextToTheDatabase(t *testing.T) {
-	parent := t.TempDir()
+	parent := shortTempDir(t)
 	mustNoErr(t, pinSelfTest(parent, mkReal, defaultPinScenarios, pinRefusalExpected))
 	emptyDir(t, parent)
 }
@@ -177,7 +177,7 @@ func TestPinSelfTestPassesHereAndLeavesNothingNextToTheDatabase(t *testing.T) {
 // refused is never true here, so the step fails on a Windows runner too (where the system itself refuses every change):
 // a blind pin cannot pass by way of "the system refused".
 func TestPinSelfTestFailsWhenTheBindingDoesNotNoticeASwap(t *testing.T) {
-	parent := t.TempDir()
+	parent := shortTempDir(t)
 	err := pinSelfTest(parent, func(ctx context.Context, o PinOptions) (pinner, error) {
 		p, err := realPinner(ctx, o)
 		if err != nil {
@@ -211,7 +211,7 @@ func (m memorylessPinner) Check() error {
 }
 
 func TestPinSelfTestNeedsTheMemoryOfAnUndoneSwap(t *testing.T) {
-	err := pinSelfTest(t.TempDir(), func(ctx context.Context, o PinOptions) (pinner, error) {
+	err := pinSelfTest(shortTempDir(t), func(ctx context.Context, o PinOptions) (pinner, error) {
 		p, err := realPinner(ctx, o)
 		if err != nil {
 			return nil, err
@@ -231,17 +231,17 @@ func TestPinSelfTestAcceptsARefusalOnlyOfTheExpectedClass(t *testing.T) {
 	sharing := errors.New("sharing violation")
 	sc := []pinScenarioDef{{Name: "refused", Op: func(string, string, string) error { return sharing }}}
 	is := func(e error) bool { return errors.Is(e, sharing) }
-	mustNoErr(t, pinSelfTest(t.TempDir(), mkReal, sc, is))
-	if err := pinSelfTest(t.TempDir(), mkReal, sc, never); err == nil {
+	mustNoErr(t, pinSelfTest(shortTempDir(t), mkReal, sc, is))
+	if err := pinSelfTest(shortTempDir(t), mkReal, sc, never); err == nil {
 		t.Fatal("an error of another class counted as the system refusing")
 	}
 	other := []pinScenarioDef{{Name: "not found", Op: func(string, string, string) error { return os.ErrNotExist }}}
-	if err := pinSelfTest(t.TempDir(), mkReal, other, is); err == nil {
+	if err := pinSelfTest(shortTempDir(t), mkReal, other, is); err == nil {
 		t.Fatal("a missing file counted as the system refusing")
 	}
 	// a refusal that nevertheless removed the database is not a refusal
 	gone := []pinScenarioDef{{Name: "gone", Op: func(db, _, _ string) error { _ = os.Remove(db); return sharing }}}
-	if err := pinSelfTest(t.TempDir(), mkReal, gone, is); err == nil {
+	if err := pinSelfTest(shortTempDir(t), mkReal, gone, is); err == nil {
 		t.Fatal("a refusal that left the database missing passed")
 	}
 }
@@ -269,7 +269,7 @@ func TestVolumeRuleRefusesWhatShareModesAndKqueueCannotBeTrustedOn(t *testing.T)
 
 func TestScratchDirAcceptsAnOrdinaryTempDir(t *testing.T) {
 	// the real check on this OS passes for an ordinary temp dir
-	if _, done, err := scratchDir(t.TempDir(), ".x-"); err != nil {
+	if _, done, err := scratchDir(shortTempDir(t), ".x-"); err != nil {
 		t.Fatal(err)
 	} else {
 		done()
@@ -320,7 +320,7 @@ func TestScratchDirIsRefusedOnAVolumeTheRuleRefusesAndOnAnError(t *testing.T) {
 	for name, c := range cases {
 		c := c
 		withVolume(t, "windows", func(string) (string, bool, error) { return c.fs, c.remote, c.err })
-		parent := t.TempDir()
+		parent := shortTempDir(t)
 		_, done, err := scratchDir(parent, ".ma-pin-")
 		if (err == nil) != c.ok {
 			t.Errorf("%s: %v", name, err)
@@ -362,7 +362,7 @@ func withDirs(t *testing.T, d probeDirs) {
 // The self-tests run where they were told to: lock and peer in the run directory, the pin next to the database, and
 // never in the system temp directory.
 func TestSelfTestsRunNextToTheGivenDirectories(t *testing.T) {
-	db, run := t.TempDir(), t.TempDir()
+	db, run := shortTempDir(t), shortTempDir(t)
 	withDirs(t, probeDirs{DB: db, Run: run})
 	var seen []string
 	withVolume(t, "linux", func(p string) (string, bool, error) { seen = append(seen, p); return "", false, nil })
@@ -396,7 +396,7 @@ func TestPinScenariosAreTheExactSet(t *testing.T) {
 }
 
 func TestShowProbeDoesNotCreateTheRunDirectory(t *testing.T) {
-	base := t.TempDir()
+	base := shortTempDir(t)
 	run := filepath.Join(base, "doomsday", "p1")
 	withDirs(t, probeDirs{DB: base, Run: run})
 	h := hostChecksNow()
@@ -418,7 +418,7 @@ func mkSock(t *testing.T, path string) {
 }
 
 func TestLeftoversOfAKilledSelfTestAreReapedOnlyWhenOurs(t *testing.T) {
-	parent := t.TempDir()
+	parent := shortTempDir(t)
 	old := time.Now().Add(-time.Hour)
 	age := func(name string, at time.Time) { mustNoErr(t, os.Chtimes(filepath.Join(parent, name), at, at)) }
 	dir := func(name string, at time.Time) {
@@ -469,7 +469,7 @@ func TestLeftoversOfAKilledSelfTestAreReapedOnlyWhenOurs(t *testing.T) {
 }
 
 func TestReaperLeavesWhatAnotherUserOwns(t *testing.T) {
-	parent := t.TempDir()
+	parent := shortTempDir(t)
 	mkSock(t, filepath.Join(parent, ".s123"))
 	mustNoErr(t, os.Mkdir(filepath.Join(parent, ".ma-pin-5"), 0o700))
 	old := time.Now().Add(-time.Hour)
@@ -488,7 +488,7 @@ func TestReaperLeavesWhatAnotherUserOwns(t *testing.T) {
 
 // Only the two directories the probe was given are swept, never an ancestor it fell back to.
 func TestReaperDoesNotSweepAnAncestorTheProbeFellBackTo(t *testing.T) {
-	base := t.TempDir()
+	base := shortTempDir(t)
 	mkSock(t, filepath.Join(base, ".s123"))
 	old := time.Now().Add(-time.Hour)
 	mustNoErr(t, os.Chtimes(filepath.Join(base, ".s123"), old, old))
@@ -503,7 +503,7 @@ func TestReaperDoesNotSweepAnAncestorTheProbeFellBackTo(t *testing.T) {
 }
 
 func TestPeerProbeSocketPathIsNoLongerThanTheRealOne(t *testing.T) {
-	p := t.TempDir()
+	p := shortTempDir(t)
 	for i := 0; i < 50; i++ {
 		if got, real := peerSockPath(p), (RunDir{Dir: p}).SockPath(1); len(got) > len(real) {
 			t.Fatalf("%s (%d) is longer than the real %s (%d)", got, len(got), real, len(real))
@@ -516,7 +516,7 @@ func TestPinSelfTestRunsAControlOperationAndRefusesWhenItFails(t *testing.T) {
 	t.Cleanup(func() { pinControl = old })
 	ran := 0
 	pinControl = func(dir string) error { ran++; return old(dir) }
-	parent := t.TempDir()
+	parent := shortTempDir(t)
 	mustNoErr(t, pinSelfTest(parent, mkReal, defaultPinScenarios, pinRefusalExpected))
 	if ran != len(defaultPinScenarios) {
 		t.Fatalf("control ran %d times", ran)
@@ -555,7 +555,7 @@ func TestPinSelfTestHostOnlyVariantClosesSQLiteBeforeTheChange(t *testing.T) {
 	closed := 0
 	sharing := errors.New("sharing violation")
 	sc := []pinScenarioDef{{Name: "refused", Op: func(string, string, string) error { return sharing }}}
-	mustNoErr(t, pinSelfTest(t.TempDir(), func(ctx context.Context, o PinOptions) (pinner, error) {
+	mustNoErr(t, pinSelfTest(shortTempDir(t), func(ctx context.Context, o PinOptions) (pinner, error) {
 		p, err := realPinner(ctx, o)
 		if err != nil {
 			return nil, err
@@ -569,7 +569,7 @@ func TestPinSelfTestHostOnlyVariantClosesSQLiteBeforeTheChange(t *testing.T) {
 
 // With age out of the way, a link that has our name and points at a socket is looked at as a link, never followed.
 func TestReaperDoesNotFollowALinkWithOurName(t *testing.T) {
-	parent, other := t.TempDir(), t.TempDir()
+	parent, other := shortTempDir(t), shortTempDir(t)
 	mkSock(t, filepath.Join(other, "real"))
 	mustNoErr(t, os.Symlink(filepath.Join(other, "real"), filepath.Join(parent, ".s111")))
 	oldAge := reapAge
