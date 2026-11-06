@@ -8,6 +8,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -29,9 +30,48 @@ const (
 	doomsdayPhraseMax = 200
 	// doomsdayRenderTimeout and doomsdayStartTimeout cover the real containment probe, which on Windows and macOS runs
 	// its host checks (up to about 30 seconds) before anything is shown or created.
+	// doomsdayProbeGrace is how long a timed-out preview, probe or start has to end after SIGTERM before it is killed.
+	doomsdayProbeGrace = 8 * time.Second
+	// doomsdayRenderPerMinute bounds previews per profile: each runs the real containment probe.
+	doomsdayRenderPerMinute = 10
+)
+
+// The timeouts are variables so a test can shorten them.
+var (
 	doomsdayRenderTimeout = 2 * time.Minute
 	doomsdayStartTimeout  = 3 * time.Minute
 )
+
+// renderLimiter allows doomsdayRenderPerMinute previews per profile in any minute.
+type renderLimiter struct {
+	mu   sync.Mutex
+	seen map[string][]time.Time
+}
+
+var doomsdayRenders renderLimiter
+
+func (l *renderLimiter) reset() { l.mu.Lock(); l.seen = nil; l.mu.Unlock() }
+
+func (l *renderLimiter) allow(profile string) bool {
+	now := doomsdayNow()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.seen == nil {
+		l.seen = map[string][]time.Time{}
+	}
+	recent := l.seen[profile][:0:0]
+	for _, t := range l.seen[profile] {
+		if now.Sub(t) < time.Minute {
+			recent = append(recent, t)
+		}
+	}
+	if len(recent) >= doomsdayRenderPerMinute {
+		l.seen[profile] = recent
+		return false
+	}
+	l.seen[profile] = append(recent, now)
+	return true
+}
 
 // doomsdayStartMu keeps two starts from running at once; a second click while one runs is refused, not queued.
 var doomsdayStartMu sync.Mutex
@@ -97,7 +137,11 @@ func (a *App) DoomsdayOpenEntry() string {
 	// The probe starts a transient unit: it runs only when the person opens the entry screen or presses a button, is
 	// shared by concurrent callers and kept 60 s per profile. Nothing polls it.
 	return doomsdayEntry.get(pid, func() (string, bool) {
-		out, errText, truncated, err := a.runDoomsday(doomsdayRenderTimeout, "probe")
+		argv, aerr := doomsdayArgv(pid, "probe")
+		if aerr != nil {
+			return aiError(aerr), false
+		}
+		out, errText, truncated, err := a.execDoomsdayGrace(doomsdayRenderTimeout, doomsdayProbeGrace, argv, nil)
 		doc := charterResult(out, errText, truncated, err)
 		var d struct {
 			Available *bool  `json:"mode_available"`
@@ -123,11 +167,14 @@ func (a *App) DoomsdayRender(charterJSON string) string {
 	if err != nil {
 		return aiError(err)
 	}
+	if !doomsdayRenders.allow(pid) {
+		return `{"error":"too many previews in a minute: wait a little","code":"rate_limited"}`
+	}
 	argv, err := doomsdayCharterArgv(pid, "render", "", 0)
 	if err != nil {
 		return aiError(err)
 	}
-	out, errText, truncated, err := a.execDoomsday(doomsdayRenderTimeout, argv, strings.NewReader(charterJSON))
+	out, errText, truncated, err := a.execDoomsdayGrace(doomsdayRenderTimeout, doomsdayProbeGrace, argv, strings.NewReader(charterJSON))
 	doc := charterResult(out, errText, truncated, err)
 	if err != nil || truncated {
 		return doc
@@ -188,9 +235,14 @@ func (a *App) DoomsdayStart(charterJSON, phrase, token string, bossSession int64
 	if err != nil {
 		return startDoc("not_started", "", err.Error(), "token")
 	}
+	shown := doomsdayNow()
 	yes, err := confirmNative(a, "Start an open-ended run", facts.dialogBody())
 	if err != nil {
 		return startDoc("not_started", "", err.Error(), "no_native_dialog")
+	}
+	if yes && doomsdayNow().Sub(shown) < dialogMinThink {
+		// A double-click or a held Enter can answer a dialog that has no default response: too fast is not a decision.
+		return startDoc("not_started", "", "the confirmation was answered too fast to be a decision; nothing started", "declined")
 	}
 	if !yes {
 		return startDoc("not_started", "", "the confirmation was declined; nothing started", "declined")
@@ -199,7 +251,7 @@ func (a *App) DoomsdayStart(charterJSON, phrase, token string, bossSession int64
 	if err != nil {
 		return startDoc("not_started", "", err.Error(), "")
 	}
-	out, errText, _, err := a.execDoomsday(doomsdayStartTimeout, argv, strings.NewReader(charterJSON))
+	out, errText, _, err := a.execDoomsdayGrace(doomsdayStartTimeout, doomsdayProbeGrace, argv, strings.NewReader(charterJSON))
 	if err == nil {
 		return startDoc("started", out, "", "")
 	}
@@ -212,17 +264,22 @@ func (a *App) DoomsdayStart(charterJSON, phrase, token string, bossSession int64
 	if detail == "" {
 		detail = err.Error()
 	}
-	if startMayHaveHappened(err, detail) {
+	if startMayHaveHappened(err, detail, errText) {
 		return startDoc("unknown", "", "the run may have started: check the Control room and press Stop if it is running. "+detail, "unknown")
 	}
 	return startDoc("not_started", out, detail, ce.Code)
 }
 
-// startMayHaveHappened says whether a failed start leaves the run's state unclear: the CLI was killed, timed out or was
-// cut off (it did not exit by itself), or it exited saying the run started but a later step failed. Only a CLI that
-// could not be run at all, or that exited by itself without saying so, did not start one.
-func startMayHaveHappened(err error, detail string) bool {
-	if strings.Contains(detail, " started but ") {
+// startMayHaveHappened says whether a failed start leaves the run's state unclear: the command's context ended
+// (timeout or cancel), the CLI was killed by a signal, it panicked, or it exited saying the run started but a later step
+// failed. Only a CLI that could not be run at all, or that exited by itself with a plain refusal, did not start one.
+// (An exit code below zero is not a test of being killed on Windows, where a killed process exits with 1: the context
+// and the panic text are.)
+func startMayHaveHappened(err error, detail, stderr string) bool {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	if strings.Contains(detail, " started but ") || strings.Contains(stderr, "panic:") || strings.Contains(stderr, "goroutine ") {
 		return true
 	}
 	var ee *exec.ExitError

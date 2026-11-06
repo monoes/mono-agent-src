@@ -12,12 +12,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -109,6 +111,14 @@ func (a *App) runDoomsdayFor(pid string, timeout time.Duration, verb string, ext
 
 // execDoomsday runs the CLI with an argv that doomsdayArgv or doomsdayCharterArgv built, with stdin (nil for none).
 func (a *App) execDoomsday(timeout time.Duration, full []string, stdin io.Reader) (stdout, stderr string, truncated bool, err error) {
+	return a.execDoomsdayGrace(timeout, 0, full, stdin)
+}
+
+// execDoomsdayGrace is execDoomsday where a timed-out or cancelled CLI is sent SIGTERM first and killed only after grace
+// (0: killed at once, as Stop wants). The probe stops its test unit on SIGTERM; a kill would leak it. Where a signal
+// cannot be sent (Windows) it is killed. A context that ended is part of the error, so callers can tell a cut-off command
+// from one that exited by itself.
+func (a *App) execDoomsdayGrace(timeout, grace time.Duration, full []string, stdin io.Reader) (stdout, stderr string, truncated bool, err error) {
 	cliBin, err := findMonoAgentCLI()
 	if err != nil {
 		return "", "", false, err
@@ -121,10 +131,22 @@ func (a *App) execDoomsday(timeout time.Duration, full []string, stdin io.Reader
 	defer cancel()
 	cmd := exec.CommandContext(ctx, cliBin, full...)
 	cmd.Stdin = stdin
+	if grace > 0 {
+		cmd.Cancel = func() error {
+			if cmd.Process.Signal(syscall.SIGTERM) != nil {
+				return cmd.Process.Kill()
+			}
+			return nil
+		}
+		cmd.WaitDelay = grace
+	}
 	suppressConsole(cmd)
 	out, errb := &cappedBuffer{max: doomsdayMaxOutput}, &cappedBuffer{max: 64 << 10}
 	cmd.Stdout, cmd.Stderr = out, errb
 	err = cmd.Run()
+	if err != nil && ctx.Err() != nil {
+		err = fmt.Errorf("%w: %v", ctx.Err(), err)
+	}
 	return string(out.buf), string(errb.buf), out.truncated, err
 }
 

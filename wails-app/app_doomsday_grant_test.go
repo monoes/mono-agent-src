@@ -57,6 +57,8 @@ func newGrantRig(t *testing.T) *grantRig {
 	}
 	t.Cleanup(func() { doomsdayNow, confirmNative = oldNow, oldConfirm; doomsdayGrants.reset() })
 	doomsdayGrants.reset()
+	doomsdayRenders.reset()
+	t.Cleanup(doomsdayRenders.reset)
 	return g
 }
 
@@ -333,7 +335,8 @@ func TestTheDialogShowsTheGoalAfterTheFactsCleanedAndCapped(t *testing.T) {
 	hostile := "line one\nline two\u202e\u200b\U000E0041" + strings.Repeat("x", 5000)
 	g := newGrantRig(t)
 	prev := g.t.TempDir() + "/p.json"
-	doc := strings.Replace(previewDoc(gHash, []string{"spending"}, "5.000000 USD for the whole run."), "ship the release notes", hostile, 1)
+	esc, _ := json.Marshal(hostile)
+	doc := strings.Replace(previewDoc(gHash, []string{"spending"}, "5.000000 USD for the whole run."), `"ship the release notes"`, string(esc), 1)
 	if err := os.WriteFile(prev, []byte(doc), 0o600); err != nil {
 		t.Fatal(err)
 	}

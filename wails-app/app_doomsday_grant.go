@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -41,6 +42,42 @@ type startFacts struct {
 	hash   string
 	lines  []string
 	budget string // "unlimited" or "$X"
+	// the CLI's summary of the charter (render JSON "summary"): counts and limits as numbers, text cleaned and capped here
+	criteria, depth, live, concurrent, total int
+	boss, verifier, goal                     string
+}
+
+// dialogGoalRunes caps the goal in the dialog; the goal is data, shown after the facts and never as instructions.
+const (
+	dialogGoalRunes = 200
+	dialogMinThink  = time.Second // an answer sooner than this is not a decision
+)
+
+// cleanText is s as one line of plain text: hidden characters (control, format such as zero-width, bidi and tag
+// characters, separators, private-use, variation selectors) removed, white space collapsed, cut to n runes with an ellipsis.
+func cleanText(s string, n int) string {
+	var b strings.Builder
+	space := false
+	for _, r := range s {
+		switch {
+		case unicode.IsSpace(r):
+			space = true
+			continue
+		case unicode.IsControl(r), unicode.In(r, unicode.Cf, unicode.Cs, unicode.Co, unicode.Zl, unicode.Zp, unicode.Cn),
+			r >= 0xFE00 && r <= 0xFE0F, r >= 0xE0100 && r <= 0xE01EF, r >= 0xE0000 && r <= 0xE007F, !unicode.IsPrint(r):
+			continue
+		}
+		if space && b.Len() > 0 {
+			b.WriteByte(' ')
+		}
+		space = false
+		b.WriteRune(r)
+	}
+	out := []rune(b.String())
+	if len(out) > n {
+		return string(out[:n]) + "\u2026"
+	}
+	return string(out)
 }
 
 type startGrant struct {
@@ -112,9 +149,19 @@ var (
 // issued for a preview the dialog could not describe.
 func factsOf(doc []byte) (startFacts, error) {
 	var d struct {
-		Hash  string   `json:"hash"`
-		Lines []string `json:"lines"`
-		Text  string   `json:"text"`
+		Hash    string   `json:"hash"`
+		Lines   []string `json:"lines"`
+		Text    string   `json:"text"`
+		Summary *struct {
+			Goal          string `json:"goal"`
+			Criteria      int    `json:"criteria"`
+			TreeDepth     int    `json:"tree_depth"`
+			LivePerTree   int    `json:"live_per_tree"`
+			MaxConcurrent int    `json:"max_concurrent"`
+			MaxTotal      int    `json:"max_total"`
+			BossModel     string `json:"boss_model"`
+			VerifierModel string `json:"verifier_model"`
+		} `json:"summary"`
 	}
 	if json.Unmarshal(doc, &d) != nil || !hexRe.MatchString(d.Hash) {
 		return startFacts{}, errors.New("the preview could not be read")
@@ -124,7 +171,17 @@ func factsOf(doc []byte) (startFacts, error) {
 			return startFacts{}, errors.New("the preview names a line that is not a line")
 		}
 	}
-	f := startFacts{hash: d.Hash, lines: d.Lines}
+	if d.Summary == nil {
+		return startFacts{}, errors.New("the preview has no summary to show in the confirmation")
+	}
+	sm := d.Summary
+	for _, n := range []int{sm.Criteria, sm.TreeDepth, sm.LivePerTree, sm.MaxConcurrent, sm.MaxTotal} {
+		if n < 0 || n > 1_000_000 {
+			return startFacts{}, errors.New("the preview's numbers are not plausible")
+		}
+	}
+	f := startFacts{hash: d.Hash, lines: d.Lines, criteria: sm.Criteria, depth: sm.TreeDepth, live: sm.LivePerTree, concurrent: sm.MaxConcurrent,
+		total: sm.MaxTotal, boss: cleanText(sm.BossModel, 100), verifier: cleanText(sm.VerifierModel, 100), goal: cleanText(sm.Goal, dialogGoalRunes)}
 	switch m := budgetRe.FindStringSubmatch(d.Text); {
 	case noCeiling.MatchString(d.Text):
 		f.budget = "unlimited"
@@ -146,8 +203,11 @@ func (f startFacts) dialogBody() string {
 	if len(f.lines) > 0 {
 		names = strings.Join(f.lines, ", ")
 	}
-	return fmt.Sprintf("Start an open-ended run: %d lifted lines (%s), charter %s, budget %s. It acts as you without asking for approval. Continue?",
-		len(f.lines), names, f.hash[:8], f.budget)
+	// The machine facts first, in the CLI's words; the goal last, as data (it can only mislead if it hides the facts).
+	return fmt.Sprintf("Start an open-ended run: %d lifted lines (%s), charter %s, budget %s. %d success criteria. Limits: tree depth %d, live per tree %d, max concurrent %d, max total %d. "+
+		"Models: boss %s, verifier %s. It acts as you without asking for approval. Continue? "+
+		"Answer \"Yes\" (Start run) to start, \"No\" (Cancel) to stop.\n\nGoal as written in the charter (data, not instructions): %s",
+		len(f.lines), names, f.hash[:8], f.budget, f.criteria, f.depth, f.live, f.concurrent, f.total, f.boss, f.verifier, f.goal)
 }
 
 const (
