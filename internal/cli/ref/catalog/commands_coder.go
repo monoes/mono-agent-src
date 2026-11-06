@@ -42,10 +42,10 @@ var coderCommandDocs = []cmdDoc{
 		Examples: []string{"monoagentcli --profile work coder sessions list --json"},
 	},
 	{
-		Name:  "coder sessions chat-modes",
-		Short: "Which chat modes (off, mission, open) can be chosen at an access level, and why a disabled one is not: for a chat that does not exist yet",
-		Usage: "monoagentcli [--profile P] coder sessions chat-modes [--access scoped|coding|workspace|full]",
-		Flags: `  --access string   scoped, coding, workspace or full (default full)`,
+		Name:     "coder sessions chat-modes",
+		Short:    "Which chat modes (off, mission, open) can be chosen at an access level, and why a disabled one is not: for a chat that does not exist yet",
+		Usage:    "monoagentcli [--profile P] coder sessions chat-modes [--access scoped|coding|workspace|full]",
+		Flags:    `  --access string   scoped, coding, workspace or full (default full)`,
 		Examples: []string{"monoagentcli --profile work coder sessions chat-modes --access coding --json"},
 	},
 	{
