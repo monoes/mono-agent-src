@@ -606,3 +606,39 @@ func TestReaperDoesNotFollowALinkWithOurName(t *testing.T) {
 		t.Fatalf("the target was removed: %v", err)
 	}
 }
+
+// The self-test's listener (a transient unix socket in the run directory, listed in internal/accountdoor) serves nothing: it
+// accepts the probe's own connection once, never reads or writes on it, and a second client that sends a request gets no
+// answer. When the self-test ends the socket is gone.
+func TestPeerSelfTestListenerServesNothingAndIsGoneAfterwards(t *testing.T) {
+	parent := shortTempDir(t)
+	var served int
+	err := peerSelfTest(parent, func(c net.Conn) (uint32, error) {
+		// the probe's client sent nothing
+		_ = c.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+		if n, _ := c.Read(make([]byte, 16)); n != 0 {
+			served++
+		}
+		// a second client with a request line: accepted by the kernel's backlog at most, never served
+		path := c.LocalAddr().String()
+		o, derr := net.DialTimeout("unix", path, time.Second)
+		if derr == nil {
+			defer o.Close()
+			_, _ = o.Write([]byte("STOP 1 deadbeef\n"))
+			_ = o.SetReadDeadline(time.Now().Add(150 * time.Millisecond))
+			if n, _ := o.Read(make([]byte, 16)); n != 0 {
+				served++
+			}
+		}
+		return uint32(os.Getuid()), nil
+	})
+	mustNoErr(t, err)
+	if served != 0 {
+		t.Fatalf("the self-test listener answered %d request(s)", served)
+	}
+	emptyDir(t, parent)
+	if c, err := net.DialTimeout("unix", filepath.Join(parent, ".s000"), 100*time.Millisecond); err == nil {
+		c.Close()
+		t.Fatal("a socket is still listening after the self-test")
+	}
+}
