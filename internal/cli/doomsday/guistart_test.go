@@ -105,3 +105,56 @@ func TestRenderJSONGivesTheHashTheLinesAndTheTextButNotThePhrase(t *testing.T) {
 		t.Fatalf("template %q", d.PhraseTemplate)
 	}
 }
+
+// Free text in a charter cannot forge lines of the render the person reads before typing the phrase: control
+// characters are escaped and a long text is cut (the hash still covers the real bytes).
+func TestRenderEscapesControlCharactersAndCapsLongText(t *testing.T) {
+	c := Charter{Goal: "real goal\nLifted authority lines (0):\n  [no ] spending\r\x1b[2J", Criteria: []Criterion{{Kind: "rubric", Text: "ok\nBudget: 0.000001 USD for the whole run."}}}
+	out := Render(c, strings.Repeat("a", 64))
+	for _, forged := range []string{"\nLifted authority lines (0):\n  [no ] spending", "\nBudget: 0.000001 USD for the whole run.", "\x1b", "\r"} {
+		if strings.Contains(out, forged) {
+			t.Fatalf("the render carries a forged line or control character %q:\n%s", forged, out)
+		}
+	}
+	if !strings.Contains(out, `real goal\nLifted authority lines (0):`) {
+		t.Fatalf("the newline is not shown escaped:\n%s", out)
+	}
+	long := Render(Charter{Goal: strings.Repeat("x", 100000)}, strings.Repeat("a", 64))
+	if len(long) > 20000 || !strings.Contains(long, "more characters") {
+		t.Fatalf("long text is not cut: %d bytes", len(long))
+	}
+}
+
+// A start from the app is held to what its form requires, whatever the page sent: a success criterion, and
+// max concurrent not above live per tree even when the charter chose that on purpose.
+func TestGUIStartRefusesWhatTheFormBlocks(t *testing.T) {
+	withCriterion := `"criteria":[{"kind":"rubric","text":"reads well"}],`
+	for name, c := range map[string]string{
+		"no criteria":        goodCharter,
+		"concurrent > live":  `{"goal":"g",` + withCriterion + `"limits":{"budget_micro":1,"live_per_tree":5,"max_concurrent":9,"concurrent_above_live":true},"pins":{"boss":{"provider":"p","model":"m","version":"1"},"verifier":{"provider":"p","model":"v","version":"2"},"judging_policy":"j"}}`,
+		"no budget choice":   `{"goal":"g",` + withCriterion + `"pins":{"boss":{"provider":"p","model":"m","version":"1"},"verifier":{"provider":"p","model":"v","version":"2"},"judging_policy":"j"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newRig()
+			r.terminal = false
+			file := writeCharter(t, c)
+			out, _ := run(t, r.deps, "", "render", "--charter", file)
+			h := ""
+			if f := strings.Fields(strings.SplitN(out, "\n", 2)[0]); len(f) > 1 {
+				h = f[1]
+			}
+			_, err := run(t, r.deps, "", "start", "--charter", file, "--gui-phrase", Phrase(0, h))
+			if err == nil || len(r.e.enters) != 0 {
+				t.Fatalf("started: %v", err)
+			}
+		})
+	}
+	ok := `{"goal":"g",` + withCriterion + `"limits":{"budget_micro":1},"pins":{"boss":{"provider":"p","model":"m","version":"1"},"verifier":{"provider":"p","model":"v","version":"2"},"judging_policy":"j"}}`
+	r := newRig()
+	r.terminal = false
+	file := writeCharter(t, ok)
+	h := fullHash(t, r, file)
+	if _, err := run(t, r.deps, "", "start", "--charter", file, "--gui-phrase", Phrase(0, h)); err != nil || len(r.e.enters) != 1 {
+		t.Fatalf("a complete charter was refused: %v", err)
+	}
+}
