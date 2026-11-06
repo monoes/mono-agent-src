@@ -2504,6 +2504,13 @@
       "partial": "Detenido, pero la limpieza no terminó"
     }
   },
+  "steering": {
+    "direct": "Hablas directamente con el jefe: lo que escribes le llega como orientación, no como una orden",
+    "banner": "Orientación: hablas con el jefe, no apruebas nada",
+    "note": "Lo que escribes aquí llega al jefe como orientación. No responde ninguna pregunta, no aprueba nada y no levanta ningún límite.",
+    "sent": "Enviado al jefe: {{text}}",
+    "failed": "No enviado: {{error}}"
+  },
   "openStart": {
     "loading": "Cargando...",
     "entryTitle": "Ejecucion abierta",
@@ -2595,12 +2602,5 @@
     "mayExist": "Un inicio anterior termino sin una respuesta clara, asi que puede haber una ejecucion. Revisa la sala de control antes de empezar otra; la CLI solo permite una a la vez y es la unica proteccion.",
     "unknown": "La ejecucion pudo empezar: revisa la sala de control y pulsa Detener si esta en marcha.",
     "reviewTitle": "Revisar antes de empezar"
-  },
-  "steering": {
-    "direct": "Hablas directamente con el jefe: lo que escribes le llega como orientación, no como una orden",
-    "banner": "Orientación: hablas con el jefe, no apruebas nada",
-    "note": "Lo que escribes aquí llega al jefe como orientación. No responde ninguna pregunta, no aprueba nada y no levanta ningún límite.",
-    "sent": "Enviado al jefe: {{text}}",
-    "failed": "No enviado: {{error}}"
   }
 }

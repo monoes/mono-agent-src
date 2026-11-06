@@ -2646,6 +2646,13 @@
       "retry": "Retry cleanup"
     }
   },
+  "steering": {
+    "direct": "You are talking directly to the boss: what you type reaches it as steering, not as a command",
+    "banner": "Steering: you are talking to the boss, not approving anything",
+    "note": "What you type here goes to the boss as guidance. It answers no question, approves nothing and lifts no limit.",
+    "sent": "Sent to the boss: {{text}}",
+    "failed": "Not sent: {{error}}"
+  },
   "openStart": {
     "loading": "Loading...",
     "entryTitle": "Open-ended run",
@@ -2737,12 +2744,5 @@
     "mayExist": "An earlier start ended without a clear answer, so a run may already exist. Check the Control room before starting again; the CLI allows one run at a time and is the only guard.",
     "unknown": "The run may have started: check the Control room and press Stop if it is running.",
     "reviewTitle": "Review before starting"
-  },
-  "steering": {
-    "direct": "You are talking directly to the boss: what you type reaches it as steering, not as a command",
-    "banner": "Steering: you are talking to the boss, not approving anything",
-    "note": "What you type here goes to the boss as guidance. It answers no question, approves nothing and lifts no limit.",
-    "sent": "Sent to the boss: {{text}}",
-    "failed": "Not sent: {{error}}"
   }
 }
