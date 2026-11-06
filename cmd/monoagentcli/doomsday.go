@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -73,6 +74,10 @@ func newDoomsdayCmd(cfg *globalConfig) *cobra.Command {
 				return db.DB, func() { db.Close() }, nil
 			},
 			Profile: func() string { return cfg.ProfileID },
+			// One start per profile at a time, across processes: a lock file next to the database.
+			LockPath: func() string {
+				return filepath.Join(filepath.Dir(expandPath(cfg.DBPath)), "doomsday-chat-start-"+cfg.ProfileID+".lock")
+			},
 			// The first turn is the chat commands' own queue (the user's gate included); this only hands it the run.
 			Queue: func(_ context.Context, conv string, in doomsdaycli.FirstTurn) error {
 				d := chatDeps(cfg)

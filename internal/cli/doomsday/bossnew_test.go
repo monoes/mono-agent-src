@@ -409,3 +409,23 @@ func TestBossCandidateSQLIsWhatTheStampAsks(t *testing.T) {
 		t.Fatalf("candidates %v (mission %d, task %d, child %d, archived %d)", got, mission, task, child, archived)
 	}
 }
+
+// After 999 attempts for one chat the refusal says what to do.
+func TestBossNewKeyExhaustionSaysToStartANewChat(t *testing.T) {
+	r := newBossRig(t)
+	front := r.chat(t, ai.AccessFull)
+	ts := tasks.NewStore(r.db.DB)
+	for n := 1; n <= tasks.MaxBossAttempt; n++ {
+		se, err := ts.CreateSession(context.Background(), "p1", tasks.SessionInput{Title: "x", Goal: "g", Kind: tasks.SessionKindMission, ClientID: tasks.BossClientID(front.ID, n)}, bossActor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ts.ArchiveSession(context.Background(), "p1", se.ID, bossActor); err != nil { // a key stays taken, archived or not
+			t.Fatal(err)
+		}
+	}
+	out, err := r.run("new", "--conversation", front.ID)
+	if err == nil || !strings.Contains(out+err.Error(), "start a new chat") {
+		t.Fatalf("%v %s", err, out)
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/monoes/mono-agent/internal/daemonhb"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
 
@@ -14,7 +15,17 @@ import (
 type DBChatStart struct {
 	Open    func() (*sql.DB, func(), error)
 	Profile func() string
-	Queue   func(ctx context.Context, bossConversation string, in FirstTurn) error
+	// LockPath is the profile's start lock file (nil: the lock cannot be taken and every start is refused).
+	LockPath func() string
+	Queue    func(ctx context.Context, bossConversation string, in FirstTurn) error
+}
+
+// Lock takes the start lock without waiting: a second start of the profile gets daemonhb.ErrHeld.
+func (s DBChatStart) Lock(context.Context) (func(), error) {
+	if s.LockPath == nil {
+		return nil, errors.New("this install has no start lock")
+	}
+	return daemonhb.LockFile(s.LockPath())
 }
 
 // MakeBoss is makeBoss: it reuses the chat's unstamped boss, so a start repeated after a dead one makes no second.

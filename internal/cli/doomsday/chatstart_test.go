@@ -1,11 +1,14 @@
 package doomsday
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/monoes/mono-agent/internal/daemonhb"
 )
 
 // The start from a chat (`start --chat CHAT`): the boss is made, given its budget, checked, the run entered, the boss
@@ -14,14 +17,19 @@ import (
 // chatEngine is a fakeEngine that can check and record a boss, report a run, and fail at a chosen step. All calls go to log.
 type chatEngine struct {
 	fakeEngine
-	log       *[]string
-	active    bool // a run exists (Status)
-	activeNow func() bool
-	checkErr  error
-	enterErr  error
-	enterRuns bool // Enter fails AFTER the run exists
-	bindErr   error
-	started   bool
+	log        *[]string
+	active     bool // a run exists (Status)
+	activeNow  func() bool
+	checkErr   error
+	enterErr   error
+	enterRuns  bool // Enter fails AFTER the run exists
+	bindErr    error
+	started    bool
+	hash       string // the charter hash the entry was attempted with
+	statusErr  error  // Status fails once started or after a failed Enter
+	otherRun   bool   // the run that exists is another start's
+	onCheck    func()
+	enterCalls int
 }
 
 func (c *chatEngine) CheckBoss(context.Context, int64) error {
@@ -34,6 +42,8 @@ func (c *chatEngine) BindBoss(context.Context, int64, Entry) error {
 }
 func (c *chatEngine) Enter(ctx context.Context, cn Canon, h string, a Ack) (Entry, error) {
 	*c.log = append(*c.log, "enter")
+	c.hash = h
+	c.enterCalls++
 	if c.enterErr != nil {
 		c.started = c.enterRuns
 		return Entry{}, c.enterErr
@@ -42,21 +52,37 @@ func (c *chatEngine) Enter(ctx context.Context, cn Canon, h string, a Ack) (Entr
 	return c.fakeEngine.Enter(ctx, cn, h, a)
 }
 func (c *chatEngine) Status(context.Context) (Status, error) {
-	return Status{Active: c.active || c.started}, nil
+	if c.statusErr != nil && c.enterCalls > 0 {
+		return Status{}, c.statusErr
+	}
+	st := Status{Active: c.active || c.started, RunID: "p1/1"}
+	if c.started && !c.otherRun {
+		st.Hash = c.hash
+	} else if c.started {
+		st.Hash = "ffff0000"
+	}
+	return st, nil
 }
 
 // fakeChat is the ChatStarter: it records every call and fails at the step named in fail.
 type fakeChat struct {
-	log     *[]string
-	fail    map[string]error
-	budgets []float64
-	ended   []int64
-	turns   []FirstTurn
-	reused  bool
-	makes   int
-	goals   []string
+	log       *[]string
+	fail      map[string]error
+	budgets   []float64
+	ended     []int64
+	turns     []FirstTurn
+	reused    bool
+	makes     int
+	goals     []string
+	endCtxErr []error
 }
 
+func (f *fakeChat) Lock(context.Context) (func(), error) {
+	if err := f.step("lock"); err != nil {
+		return nil, err
+	}
+	return func() {}, nil
+}
 func (f *fakeChat) step(name string) error {
 	*f.log = append(*f.log, name)
 	return f.fail[name]
@@ -73,7 +99,8 @@ func (f *fakeChat) SetBossBudget(_ context.Context, _ int64, usd float64) error 
 	f.budgets = append(f.budgets, usd)
 	return f.step("budget")
 }
-func (f *fakeChat) EndBoss(_ context.Context, s int64) error {
+func (f *fakeChat) EndBoss(ctx context.Context, s int64) error {
+	f.endCtxErr = append(f.endCtxErr, ctx.Err())
 	f.ended = append(f.ended, s)
 	return f.step("end")
 }
@@ -122,7 +149,7 @@ func TestChatStartRunsEveryStepInOrderAndQueuesTheFirstTurn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v %s", err, out)
 	}
-	if got := c.steps(); got != "make,budget,check,enter,bind,turn" {
+	if got := c.steps(); got != "lock,make,budget,check,enter,bind,turn" {
 		t.Fatalf("steps = %s", got)
 	}
 	if len(c.chat.budgets) != 1 || c.chat.budgets[0] != 5 {
@@ -170,10 +197,10 @@ func TestChatStartFailuresEndTheBossAndStartNothing(t *testing.T) {
 		ended bool
 		text  string
 	}{
-		{"make", func(c *chatRig) { c.chat.fail["make"] = errors.New("no such chat") }, "make", false, "no such chat"},
-		{"budget", func(c *chatRig) { c.chat.fail["budget"] = errors.New("budget refused") }, "make,budget,end", true, "budget refused"},
-		{"check", func(c *chatRig) { c.eng.checkErr = errors.New("not eligible") }, "make,budget,check,end", true, "not eligible"},
-		{"enter", func(c *chatRig) { c.eng.enterErr = errors.New("the entry is refused") }, "make,budget,check,enter,end", true, "the entry is refused"},
+		{"make", func(c *chatRig) { c.chat.fail["make"] = errors.New("no such chat") }, "lock,make", false, "no such chat"},
+		{"budget", func(c *chatRig) { c.chat.fail["budget"] = errors.New("budget refused") }, "lock,make,budget,end", true, "budget refused"},
+		{"check", func(c *chatRig) { c.eng.checkErr = errors.New("not eligible") }, "lock,make,budget,check,end", true, "not eligible"},
+		{"enter", func(c *chatRig) { c.eng.enterErr = errors.New("the entry is refused") }, "lock,make,budget,check,enter,end", true, "the entry is refused"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -259,7 +286,7 @@ func TestChatStartRefusesWhileARunExistsAndMakesNoBoss(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error()+out, "a run already exists for this profile") {
 		t.Fatalf("err = %v %s", err, out)
 	}
-	if c.steps() != "" || c.chat.makes != 0 {
+	if c.steps() != "lock" || c.chat.makes != 0 {
 		t.Fatalf("something was made: %s", c.steps())
 	}
 }
@@ -312,4 +339,56 @@ func lastJSON(out string) string {
 		}
 	}
 	return ""
+}
+
+// A failed Enter with a run that is NOT this start's (another process started one in between) ends our boss and says so.
+func TestChatStartEndsTheBossWhenTheRunAfterAFailedEntryIsAnothers(t *testing.T) {
+	c := newChatRig(t, guiCharter)
+	c.eng.enterErr = errors.New("the entry is refused")
+	c.eng.enterRuns, c.eng.otherRun = true, true
+	_, err := c.start(t)
+	if err == nil || !strings.Contains(err.Error(), "a run already exists for this profile") || len(c.chat.ended) != 1 {
+		t.Fatalf("err=%v ended=%v", err, c.chat.ended)
+	}
+}
+
+// A Status that fails after a failed Enter is UNKNOWN: the boss is kept and the answer says the run may have started.
+func TestChatStartTreatsAnUnreadableStatusAfterAFailedEntryAsUnknown(t *testing.T) {
+	c := newChatRig(t, guiCharter)
+	c.eng.enterErr = errors.New("the entry is refused")
+	c.eng.statusErr = errors.New("database is locked")
+	_, err := c.start(t)
+	if err == nil || !strings.Contains(err.Error(), " started but ") || !strings.Contains(err.Error(), "press Stop") || len(c.chat.ended) != 0 {
+		t.Fatalf("err=%v ended=%v", err, c.chat.ended)
+	}
+}
+
+// The cleanup runs on a context of its own: a cancelled CLI still ends the boss it made.
+func TestChatStartCleanupSurvivesACancelledContext(t *testing.T) {
+	c := newChatRig(t, guiCharter)
+	ctx, cancel := context.WithCancel(context.Background())
+	c.eng.checkErr = errors.New("not eligible")
+	c.eng.onCheck = cancel
+	cmd := NewCommand(c.deps)
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"start", "--charter", c.file, "--gui-phrase", Phrase(0, c.hash), "--chat", "front-1"})
+	cmd.SilenceUsage, cmd.SilenceErrors = true, true
+	if err := cmd.ExecuteContext(ctx); err == nil {
+		t.Fatal("expected a refusal")
+	}
+	if len(c.chat.ended) != 1 || c.chat.endCtxErr[0] != nil {
+		t.Fatalf("ended=%v ctx errors=%v", c.chat.ended, c.chat.endCtxErr)
+	}
+}
+
+// A second start while one holds the profile's lock is refused as busy before anything is read or made.
+func TestChatStartRefusesWhileAnotherStartHoldsTheLock(t *testing.T) {
+	c := newChatRig(t, guiCharter)
+	c.chat.fail["lock"] = daemonhb.ErrHeld
+	_, err := c.start(t)
+	if err == nil || !strings.Contains(err.Error(), "a start is already in progress") || c.steps() != "lock" || c.chat.makes != 0 {
+		t.Fatalf("err=%v steps=%s", err, c.steps())
+	}
 }

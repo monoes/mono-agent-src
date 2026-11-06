@@ -3,12 +3,16 @@ package doomsday
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/daemonhb"
 )
 
 // The start from a chat (`start --chat CHAT`, the app's path). One process makes the boss, gives it the charter's budget,
@@ -35,6 +39,8 @@ type FirstTurn struct {
 
 // ChatStarter is what the start from a chat needs beside the engine; the CLI wires the real one (DBChatStart).
 type ChatStarter interface {
+	// Lock takes the profile's start lock without waiting and returns its release; a second start gets errStartBusy.
+	Lock(ctx context.Context) (release func(), err error)
 	// MakeBoss makes the chat's boss session, or returns the unstamped one that already stands behind it.
 	MakeBoss(ctx context.Context, chat, goal string) (BossRef, error)
 	// SetBossBudget sets the boss's budget in dollars; 0 is "no ceiling of its own".
@@ -61,6 +67,13 @@ func (e conflictError) Error() string                 { return e.err.Msg }
 func (e conflictError) Unwrap() error                 { return e.err }
 func (conflictError) JSONErrorFields() map[string]any { return map[string]any{"code": "conflict"} }
 
+// errStartBusy is what a start gets while another start of this profile holds the start lock.
+var errStartBusy = errors.New("a start is already in progress for this profile: wait for it, then look at the Control room; nothing was made")
+
+// cleanupTimeout bounds the cleanup of a failed start, which runs on a context of its own: a cancelled CLI must still end
+// the boss it made.
+const cleanupTimeout = 30 * time.Second
+
 func runExistsError(runID string) error {
 	msg := "a run already exists for this profile: only one open-ended run goes at a time; open the Control room and stop it first, nothing was made"
 	if runID != "" {
@@ -81,6 +94,14 @@ func (d Deps) startFromChat(cmd *cobra.Command, e Engine, ch Charter, canon Cano
 	if cs == nil || bc == nil || bb == nil {
 		return clicore.InvalidInput("this install cannot start from a chat, so nothing was started")
 	}
+	release, err := cs.Lock(ctx)
+	if err != nil {
+		if errors.Is(err, daemonhb.ErrHeld) {
+			return conflictError{&clicore.Error{Code: 3, Msg: errStartBusy.Error()}}
+		}
+		return fmt.Errorf("the start lock could not be taken, so nothing was started: %w", err)
+	}
+	defer release()
 	st, err := e.Status(ctx)
 	if err != nil {
 		return fmt.Errorf("the profile's open-ended run cannot be read, so nothing was started: %w", err)
@@ -93,7 +114,9 @@ func (d Deps) startFromChat(cmd *cobra.Command, e Engine, ch Charter, canon Cano
 		return err
 	}
 	undo := func(cause error) error {
-		if eerr := cs.EndBoss(ctx, ref.SessionID); eerr != nil {
+		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+		defer cancel()
+		if eerr := cs.EndBoss(cctx, ref.SessionID); eerr != nil {
 			return fmt.Errorf("%w (the boss session %d could not be ended: %v; end it from the Agents page)", cause, ref.SessionID, eerr)
 		}
 		return cause
@@ -104,13 +127,11 @@ func (d Deps) startFromChat(cmd *cobra.Command, e Engine, ch Charter, canon Cano
 	if err := bc.CheckBoss(ctx, ref.SessionID); err != nil {
 		return undo(clicore.InvalidInput("%v", err))
 	}
+	// A Stop pressed before this point finds no run to stop: the entry below still happens (the person pressed Stop for a
+	// start that was not a run yet). The Control room shows the run as soon as it exists.
 	entry, err := e.Enter(ctx, canon, canon.Hash, ack)
 	if err != nil {
-		// A failure after the run was recorded leaves a run that needs its boss: keep it. Anything else made no run.
-		if now, serr := e.Status(ctx); serr == nil && !now.Active {
-			return undo(err)
-		}
-		return err
+		return afterFailedEnter(ctx, e, canon.Hash, err, undo)
 	}
 	if err := bb.BindBoss(ctx, ref.SessionID, entry); err != nil {
 		return fmt.Errorf("run %s started but session %d could not be recorded as its boss, so no boss tool works (run `doomsday stop`): %w", entry.RunID, ref.SessionID, err)
@@ -120,6 +141,23 @@ func (d Deps) startFromChat(cmd *cobra.Command, e Engine, ch Charter, canon Cano
 		res.FirstTurn, res.FirstTurnError = "failed", cleanLine(err.Error())
 	}
 	return d.printChatEntry(cmd.OutOrStdout(), res)
+}
+
+// afterFailedEnter decides what a failed Enter leaves. The run's existence is read again: not readable is "unknown" (the boss
+// stays, the answer says the run may exist); no run is a plain refusal (the boss is ended); a run of THIS charter is the run
+// this start made (the boss stays, a Stop ends it); a run of another charter is not ours (the boss is ended, the person is told).
+func afterFailedEnter(ctx context.Context, e Engine, hash string, enterErr error, undo func(error) error) error {
+	now, serr := e.Status(ctx)
+	switch {
+	case serr != nil:
+		return fmt.Errorf("the run may have started but its state could not be read after the entry failed (%v): check the Control room and press Stop if it is running: %w", serr, enterErr)
+	case !now.Active:
+		return undo(enterErr)
+	case now.Hash != "" && strings.HasPrefix(hash, now.Hash):
+		return enterErr
+	default:
+		return undo(runExistsError(now.RunID))
+	}
 }
 
 // printChatEntry is the answer of a start from a chat.
