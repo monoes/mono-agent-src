@@ -2486,6 +2486,7 @@
     "saveFailed": "No se pudo cambiar el modo del chat: {{error}}"
   },
   "steering": {
+    "direct": "Hablas directamente con el jefe: lo que escribes le llega como orientación, no como una orden",
     "banner": "Orientación: hablas con el jefe, no apruebas nada",
     "note": "Lo que escribes aquí llega al jefe como orientación. No responde ninguna pregunta, no aprueba nada y no levanta ningún límite.",
     "sent": "Enviado al jefe: {{text}}",

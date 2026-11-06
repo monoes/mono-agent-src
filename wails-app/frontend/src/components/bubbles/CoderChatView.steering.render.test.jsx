@@ -28,9 +28,9 @@ const conv = (send) => ({
   loadError: '', announcement: '', send, stop: vi.fn(), model: '',
 })
 
-function Harness({ send, steering }) {
+function Harness({ send, steering, direct = false }) {
   const [draft, setDraft] = useState('')
-  return <><span data-testid="draft">{draft}</span><CoderChatView conv={conv(send)} isDraft={false} access="full" setup={{ workspace: { kind: "root" }, runtime: "", model: "", effort: "" }} onSetupChange={() => {}} draft={draft} onDraftChange={setDraft} steering={steering} /></>
+  return <><span data-testid="draft">{draft}</span><CoderChatView conv={conv(send)} isDraft={false} access="full" setup={{ workspace: { kind: "root" }, runtime: "", model: "", effort: "" }} onSetupChange={() => {}} draft={draft} onDraftChange={setDraft} steerChat={steering ? 'chat-1' : ''} directBoss={direct} /></>
 }
 
 beforeEach(() => { Element.prototype.scrollTo = function scrollTo() {} })

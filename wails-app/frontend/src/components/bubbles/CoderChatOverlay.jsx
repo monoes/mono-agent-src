@@ -20,7 +20,7 @@ import { TaskHeaderCard } from './TaskHeaderCard.jsx'
 import { shouldCollapseOnBackdrop } from '../../lib/coderBubbles.js'
 import { LEAD_ID } from '../../lib/orgStage.js'
 import { LitePaneHeader } from './LitePaneHeader.jsx'
-import { orbitOf, bossOf } from '../../lib/sessionOrbit.js'
+import { orbitOf, bossOf, frontDeskOf } from '../../lib/sessionOrbit.js'
 import { OrgStage } from '../stage/OrgStage.jsx'
 import { StageDrawer } from '../stage/StageDrawer.jsx'
 import './bubbles.css'
@@ -113,6 +113,11 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
   const access = bubble.conversationId ? (bubble.verified ? bubble.access : '') : (setup.access || '')
   const chatMode = useChatMode(bubble.conversationId, isCoderAccess(access), access)
   chatModeRef.current = chatMode
+  // What is typed here is steering, never a plain turn: in the chat of a run that is going (mode open, its boss open) it goes to
+  // the boss behind the chat; in a boss's own conversation (opened from the orbit) it goes to the chat that boss stands behind.
+  const bossPane = bubble.conversationId ? (orbitSessions || []).find(s => s?.boss === true && s.conversation_id === bubble.conversationId) : null
+  const steerChat = bossPane ? frontDeskOf(bossPane)
+    : (chatMode.state?.mode === 'open' && bubble.conversationId && bossOf(orbitSessions, bubble.conversationId, { open: true }) ? bubble.conversationId : '')
   const confined = isConfinedTask({ kind: bubble.taskKind || view.task?.kind })
   const [settingsOpen, setSettingsOpen] = useState(false)
   const settingsBtn = useRef(null)
@@ -394,7 +399,8 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
             agentFilterTurnId={shownTurnId}
             agentFilterName={filterName}
             onClearAgentFilter={() => setSelectedAgent(null)}
-            steering={chatMode.state?.mode === 'open' && !!bossOf(orbitSessions, bubble.conversationId, { open: true })}
+            steerChat={steerChat}
+            directBoss={!!bossPane}
           />
           {selectedNode && (
             <StageDrawer node={selectedNode} calls={shown?.state?.agentCalls} leadInfo={{ runtime, model, effort: bubble.effort || setup.effort }}

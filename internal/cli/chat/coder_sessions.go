@@ -161,6 +161,9 @@ func newCoderSessionsSendCmd(cfg *Deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := refuseBossConversation(cmd.Context(), cfg, profileID, args[0]); err != nil {
+				return err
+			}
 			atts, err := attachmentSources(attach)
 			if err != nil {
 				return err

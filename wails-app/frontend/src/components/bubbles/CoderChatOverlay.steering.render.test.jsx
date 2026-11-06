@@ -15,6 +15,7 @@ const { api, chatAccess, listeners, mockConfirm, sessions } = vi.hoisted(() => (
     getChatTurns: vi.fn(),
     getChatEvents: vi.fn(),
     startChatTurn: vi.fn(),
+    steerBoss: vi.fn(),
     stopChatTurn: vi.fn(),
     coderStatus: vi.fn(),
     coderWorkspaceList: vi.fn(),
@@ -43,9 +44,9 @@ import { useCoderBubbles } from './useCoderBubbles.js'
 
 let store
 const navigate = vi.fn()
-function Harness() {
+function Harness({ id = 'front' }) {
   store = useCoderBubbles()
-  useEffect(() => { store.openConversation({ id: 'front', cwd: '/home/u/work/open', model: 'opus', access: 'full' }) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { store.openConversation({ id, cwd: '/home/u/work/open', model: 'opus', access: 'full' }) }, []) // eslint-disable-line react-hooks/exhaustive-deps
   return <CoderBubbles store={store} onNavigate={navigate} />
 }
 
@@ -102,6 +103,43 @@ describe('the overlay\'s steering wiring', () => {
     expect(screen.queryByTestId('steering-bar')).toBeNull()
     cleanup()
     await mount('off', [B()])
+    expect(screen.queryByTestId('steering-bar')).toBeNull()
+  })
+})
+
+// Opened from the orbit, the boss's real conversation can be read, and what is typed in it is steering for the boss through
+// the chat it stands behind: no plain turn is available there, whether the run is going or over.
+describe('the conversation of a boss', () => {
+  const type = (text) => {
+    const box = screen.getByRole('textbox')
+    fireEvent.change(box, { target: { value: text } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+  }
+  const mountBoss = async (rows) => {
+    api.getChatMissionToggle.mockResolvedValue(modeOf('off'))
+    sessions.list.mockResolvedValue({ sessions: rows })
+    render(<Harness id="boss-conv" />)
+    await screen.findByTestId('bubble-overlay')
+    await waitFor(() => expect(sessions.list).toHaveBeenCalled())
+    await act(async () => { await new Promise(r => setTimeout(r, 30)) })
+  }
+  it('shows the direct banner and sends through the steer of the chat behind it', async () => {
+    api.steerBoss.mockResolvedValue({ commandId: 1 })
+    await mountBoss([B()])
+    expect(await screen.findByTestId('steering-bar')).toHaveTextContent('You are talking directly to the boss')
+    type('use the smaller option')
+    await waitFor(() => expect(api.steerBoss).toHaveBeenCalledWith('front', 'use the smaller option'))
+    expect(api.startChatTurn).not.toHaveBeenCalled()
+  })
+  it('still has no plain send once the boss is finished: the steer is asked, the CLI refuses, the text stays', async () => {
+    api.steerBoss.mockResolvedValue({ error: 'no boss is running behind chat front', code: 'invalid_input' })
+    await mountBoss([B({ state: 'done' })])
+    type('are you there?')
+    await waitFor(() => expect(screen.getByTestId('steering-bar')).toHaveTextContent('Not sent: no boss is running'))
+    expect(api.startChatTurn).not.toHaveBeenCalled()
+  })
+  it('is an ordinary conversation when no boss session is its own', async () => {
+    await mountBoss([B({ conversation_id: 'somewhere-else' })])
     expect(screen.queryByTestId('steering-bar')).toBeNull()
   })
 })

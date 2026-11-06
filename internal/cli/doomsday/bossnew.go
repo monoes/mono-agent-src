@@ -128,7 +128,7 @@ func makeBoss(ctx context.Context, db *sql.DB, profile, front, goal string) (Bos
 	if other, err := otherLiveBoss(ctx, db, profile, front); err != nil {
 		return BossRef{}, err
 	} else if other != 0 {
-		return BossRef{}, clicore.InvalidInput("session %d is already a boss behind another chat: one open-ended run at a time per profile (archive it with `task session archive %d` if that run is not going to start)", other, other)
+		return BossRef{}, clicore.InvalidInput("session %d is the boss of a run that is going behind another chat: one open-ended run at a time per profile", other)
 	}
 	bc, err := ai.NewConversation(profile, "agent", "general", fc.RuntimeID, "", fc.Model, fc.EffectiveAccess(), fc.Cwd, fc.Effort)
 	if err != nil {
@@ -194,12 +194,13 @@ func existingBoss(ctx context.Context, db *sql.DB, profile, front string) (ref B
 	return ref, next, ok, rows.Err()
 }
 
-// otherLiveBoss is an open boss the operator made behind ANOTHER chat that has not run yet or whose run is going (0: none): a
-// finished run's boss does not hold the profile. A session that merely carries a boss key in its own chat is not one.
+// otherLiveBoss is a boss the operator made behind ANOTHER chat whose run is going (0: none): only one run goes at a time per
+// profile. A boss that is made but not stamped (an abandoned draft: the start did not happen) holds nothing, and neither does
+// one whose run is over. A session that merely carries a boss key in its own chat is not one.
 func otherLiveBoss(ctx context.Context, db *sql.DB, profile, front string) (int64, error) {
 	rows, err := db.QueryContext(ctx, `SELECT s.id, s.client_id, s.conversation_id FROM task_sessions s WHERE s.profile_id = ? AND s.client_id LIKE 'boss-for-%'
 		AND s.created_by = ? AND s.kind = ? AND s.archived_at = '' AND s.state IN (?, ?, ?)
-		AND (s.doomsday_charter_id = '' OR EXISTS (SELECT 1 FROM doomsday_runs r WHERE r.profile = s.profile_id AND r.charter_id = s.doomsday_charter_id AND r.generation = s.doomsday_generation AND r.state = 'running'))
+		AND EXISTS (SELECT 1 FROM doomsday_runs r WHERE r.profile = s.profile_id AND r.charter_id = s.doomsday_charter_id AND r.generation = s.doomsday_generation AND r.state = 'running')
 		ORDER BY s.id`,
 		profile, bossActor.Label(), tasks.SessionKindMission, string(tasks.SessionDraft), string(tasks.SessionRunning), string(tasks.SessionPaused))
 	if err != nil {

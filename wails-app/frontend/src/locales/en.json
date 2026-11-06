@@ -2626,6 +2626,7 @@
     }
   },
   "steering": {
+    "direct": "You are talking directly to the boss: what you type reaches it as steering, not as a command",
     "banner": "Steering: you are talking to the boss, not approving anything",
     "note": "What you type here goes to the boss as guidance. It answers no question, approves nothing and lifts no limit.",
     "sent": "Sent to the boss: {{text}}",

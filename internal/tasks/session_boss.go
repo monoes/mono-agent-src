@@ -98,3 +98,26 @@ func OpenBossConversation(ctx context.Context, x Queryer, profileID, frontDeskCo
 	}
 	return "", 0, nil
 }
+
+// BossFrontDesk says whether the conversation is the one `boss new` made for a boss session (a mission session the operator
+// made under a boss key, in a conversation of its own) and, if so, the chat it stands behind and whether the operator has
+// stamped it. A session an agent gave a boss key (its own chat, not the operator's) does not make an ordinary chat a boss's.
+func BossFrontDesk(ctx context.Context, x Queryer, profileID, conversationID string) (front string, stamped, ok bool, err error) {
+	rows, err := x.QueryContext(ctx, `SELECT client_id, doomsday_charter_id <> '' FROM task_sessions WHERE profile_id = ? AND conversation_id = ? AND kind = 'mission'
+		AND created_by = 'you' AND client_id LIKE 'boss-for-%' AND COALESCE(parent_session_id, 0) = 0 ORDER BY id DESC`, profileID, conversationID)
+	if err != nil {
+		return "", false, false, fmt.Errorf("tasks: looking up whether %s is a boss conversation: %w", conversationID, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var key string
+		var st bool
+		if err := rows.Scan(&key, &st); err != nil {
+			return "", false, false, err
+		}
+		if f, _, parsed := ParseBossClientID(key); parsed && f != conversationID {
+			return f, st, true, nil
+		}
+	}
+	return "", false, false, rows.Err()
+}

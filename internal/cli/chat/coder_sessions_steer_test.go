@@ -141,7 +141,7 @@ func TestSteerRefusals(t *testing.T) {
 		}
 	}
 	r := newSteerRig(t, true)
-	for name, text := range map[string]string{"empty": "  \n ", "huge": strings.Repeat("x", maxSteerBytes+1)} {
+	for name, text := range map[string]string{"empty": "  \n ", "huge": strings.Repeat("x", maxSteerRunes+1)} {
 		if _, code := runSessionsCLI(t, r.cfg, "steer", r.front.ID, text); code == 0 {
 			t.Fatalf("%s text was queued", name)
 		}

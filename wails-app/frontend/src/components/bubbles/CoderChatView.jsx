@@ -40,7 +40,7 @@ const srOnly = { position: 'absolute', width: 1, height: 1, padding: 0, margin: 
 // opened from an orbit: text and one-line tool chips, no mission cards or
 // templates, no attachments. conv is useCoderConversation's
 // result; draft/onDraftChange keep the unsent text across collapses.
-export function CoderChatView({ conv, isDraft, access, accessState = 'ready', onRetryAccess, setup, onSetupChange, draft, onDraftChange, initialScrollTop, onScroll, onNavigate, onOpenArtifact, runtime = '', variant = 'full', agentFilter = null, agentFilterTurnId = '', agentFilterName = '', onClearAgentFilter, steering = false }) {
+export function CoderChatView({ conv, isDraft, access, accessState = 'ready', onRetryAccess, setup, onSetupChange, draft, onDraftChange, initialScrollTop, onScroll, onNavigate, onOpenArtifact, runtime = '', variant = 'full', agentFilter = null, agentFilterTurnId = '', agentFilterName = '', onClearAgentFilter, steerChat = '', directBoss = false }) {
   const { t } = useTranslation()
   const lite = variant === 'lite'
   const setupState = useChatSetup(isDraft, setup, onSetupChange)
@@ -121,7 +121,8 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
   // The composer is disabled while blocked, but a send must not get through any other way either.
   const blockedRef = useRef(false)
   // While this chat's open-ended run is going what is typed is steering for the boss behind it, never a message to this chat.
-  const steer = useSteering(conv.conversationId || '')
+  const steering = !!steerChat
+  const steer = useSteering(steerChat)
   const send = useCallback(async (sentText) => {
     const text = typeof sentText === 'string' ? sentText : draft
     if (!text.trim() || blockedRef.current) return
@@ -238,7 +239,7 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
       {!lite && isCoderAccess(level) && !!conv.conversationId && (
         <MissionStrip conversationId={conv.conversationId} bump={allMission.length} reported={reported} closeProposed={closeProposed} />
       )}
-      {steering && <SteeringBar steer={steer} />}
+      {steering && <SteeringBar steer={steer} direct={directBoss} />}
       <ChatComposer value={draft} onChange={onDraftChange} onSend={send} onStop={conv.stop}
         streaming={conv.streaming && !steering} disabled={blocked || conv.loading}
         disabledReason={reason}

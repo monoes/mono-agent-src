@@ -160,12 +160,25 @@ func TestBossNewRefusals(t *testing.T) {
 			t.Fatalf("%s chat created rows", name)
 		}
 	}
+	// a boss that is made but not stamped (an abandoned draft) holds nothing for the other chats
 	other := r.chat(t, ai.AccessFull)
-	r.newBoss(t, other.ID)
+	otherRef := r.newBoss(t, other.ID)
 	third := r.chat(t, ai.AccessFull)
-	if out, err := r.run("new", "--conversation", third.ID); err == nil {
-		t.Fatalf("a second open boss: %s", out)
+	if ref := r.newBoss(t, third.ID); ref.SessionID == 0 || ref.SessionID == otherRef.SessionID {
+		t.Fatalf("an abandoned draft blocked another chat: %+v", ref)
 	}
+	// a boss whose run is going does: one run at a time per profile
+	if _, err := r.db.DB.Exec(`INSERT INTO doomsday_runs (profile, generation, charter_id, state, mac) VALUES ('p1', 1, 'c1', 'running', x'00')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := (Wiring{DB: r.db.DB, Profile: "p1"}).designateBoss(context.Background(), otherRef.SessionID, Entry{CharterID: "c1", Generation: 1}); err != nil {
+		t.Fatal(err)
+	}
+	fourth := r.chat(t, ai.AccessFull)
+	if out, err := r.run("new", "--conversation", fourth.ID); err == nil {
+		t.Fatalf("a second run's boss while one is going: %s", out)
+	}
+	third = fourth
 	r.gateErr = errors.New("operator_only")
 	c0, s0 := count()
 	if _, err := r.run("new", "--conversation", third.ID); err == nil || !strings.Contains(err.Error(), "operator_only") {
@@ -308,5 +321,37 @@ func TestBossNewGoalSaysSteeringIsUntrusted(t *testing.T) {
 		if !strings.Contains(se.Goal, want) {
 			t.Fatalf("the goal lacks %q:\n%s", want, se.Goal)
 		}
+	}
+}
+
+// A session under the chat's key is the operator's unstamped boss only if she made it (created_by), at the top level
+// (no parent), as a mission in a conversation of its own: any other is left alone and the boss gets the next key.
+func TestBossNewReusesOnlyTheOperatorsTopLevelMission(t *testing.T) {
+	for name, set := range map[string]string{
+		"made by an agent": `created_by = 'agent-x'`,
+		"below a parent":   `parent_session_id = (SELECT MIN(id) FROM task_sessions WHERE id <> task_sessions.id)`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newBossRig(t)
+			front := r.chat(t, ai.AccessFull)
+			other := r.chat(t, ai.AccessFull)
+			parent, err := tasks.NewStore(r.db.DB).CreateSession(context.Background(), "p1", tasks.SessionInput{Title: "parent", Kind: tasks.SessionKindMission, ConversationID: other.ID}, bossActor)
+			if err != nil {
+				t.Fatal(err)
+			}
+			first := r.newBoss(t, front.ID)
+			set = strings.ReplaceAll(set, "(SELECT MIN(id) FROM task_sessions WHERE id <> task_sessions.id)", "?")
+			args := []any{first.SessionID}
+			if strings.Contains(set, "?") {
+				args = []any{parent.ID, first.SessionID}
+			}
+			if _, err := r.db.DB.Exec(`UPDATE task_sessions SET `+set+` WHERE id = ?`, args...); err != nil {
+				t.Fatal(err)
+			}
+			again := r.newBoss(t, front.ID)
+			if again.Reused || again.SessionID == first.SessionID {
+				t.Fatalf("a session that is not the operator's top-level boss was answered again: %+v", again)
+			}
+		})
 	}
 }
