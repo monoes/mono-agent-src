@@ -18,7 +18,11 @@ func TestBossClientIDRoundTrips(t *testing.T) {
 			t.Fatalf("%q parsed as %q %d %v", key, got, n, ok)
 		}
 	}
-	for _, bad := range []string{"", "boss-for-", "boss-for-x", "boss-for-x-", "boss-for-x-1a", "boss-for-x-01", "boss-for-x-+1", "other-x-1"} {
+	// the attempt number is small: a key an agent made with a huge number is no boss key (and would not fit a client id)
+	if _, n, ok := ParseBossClientID(BossClientID("x", MaxBossAttempt)); !ok || n != MaxBossAttempt {
+		t.Fatalf("the largest attempt does not parse: %d %v", n, ok)
+	}
+	for _, bad := range []string{BossClientID("x", MaxBossAttempt+1), "boss-for-x-123456789012345678", "", "boss-for-", "boss-for-x", "boss-for-x-", "boss-for-x-1a", "boss-for-x-01", "boss-for-x-+1", "other-x-1"} {
 		if _, _, ok := ParseBossClientID(bad); ok {
 			t.Fatalf("%q parsed as a boss key", bad)
 		}

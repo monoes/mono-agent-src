@@ -355,3 +355,57 @@ func TestBossNewReusesOnlyTheOperatorsTopLevelMission(t *testing.T) {
 		})
 	}
 }
+
+// An agent that takes keys cannot lock a chat out: a key with a huge number is not a boss key, a taken small number is
+// skipped, and the first free number is used (so the key always fits a client id).
+func TestBossNewSurvivesSquattedAndHugeKeys(t *testing.T) {
+	r := newBossRig(t)
+	front := r.chat(t, ai.AccessFull)
+	r.squat(t, front, 1, tasks.SessionKindTask)
+	r.squat(t, front, tasks.MaxBossAttempt, tasks.SessionKindTask)
+	if _, err := tasks.NewStore(r.db.DB).CreateSession(context.Background(), "p1", tasks.SessionInput{Title: "huge", Kind: tasks.SessionKindTask, ConversationID: front.ID,
+		ClientID: tasks.BossClientIDPrefix + front.ID[:20] + "-123456789012345678"}, tasks.Actor{Kind: tasks.Agent, Name: "x", Conversation: front.ID}); err != nil {
+		t.Fatal(err)
+	}
+	ref := r.newBoss(t, front.ID)
+	se, _ := tasks.NewStore(r.db.DB).GetSession(context.Background(), "p1", ref.SessionID, tasks.Actor{Kind: tasks.Human})
+	if se.ClientID != tasks.BossClientID(front.ID, 2) {
+		t.Fatalf("the key: %s", se.ClientID)
+	}
+}
+
+// The predicate `--boss-session` stamps by is one exported statement (BossCandidateSQL), so a check made before the start
+// (the entry screen's) asks exactly what the stamp asks.
+func TestBossCandidateSQLIsWhatTheStampAsks(t *testing.T) {
+	r := newBossRig(t)
+	st := tasks.NewStore(r.db.DB)
+	op := tasks.Actor{Kind: tasks.Human, Name: "operator"}
+	mk := func(kind string, parent int64) int64 {
+		se, err := st.CreateSession(context.Background(), "p1", tasks.SessionInput{Title: kind, Kind: kind, ConversationID: "c-" + kind, ParentSessionID: parent}, op)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return se.ID
+	}
+	mission := mk(tasks.SessionKindMission, 0)
+	task := mk(tasks.SessionKindTask, 0)
+	child := mk(tasks.SessionKindDirection, mission)
+	archived := mk(tasks.SessionKindResearch, 0)
+	if _, err := r.db.DB.Exec(`UPDATE task_sessions SET archived_at = 'x' WHERE id = ?`, archived); err != nil {
+		t.Fatal(err)
+	}
+	var got []int64
+	rows, err := r.db.DB.Query(`SELECT id FROM task_sessions WHERE profile_id = 'p1' AND ` + BossCandidateSQL + ` ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		_ = rows.Scan(&id)
+		got = append(got, id)
+	}
+	if len(got) != 1 || got[0] != mission {
+		t.Fatalf("candidates %v (mission %d, task %d, child %d, archived %d)", got, mission, task, child, archived)
+	}
+}

@@ -262,6 +262,28 @@ func TestCoderSendRefusedUnlessStartedInDesktop(t *testing.T) {
 	}
 }
 
+// A run's boss is not a send target: the extension refuses it by name, whatever else the row says (a host turn's instance id
+// being rejected as "not the desktop's" must not be what keeps it safe).
+func TestCoderSendRefusesARunsBoss(t *testing.T) {
+	f := &fakeCoderCLI{reply: func(args []string) (string, error) {
+		if slices.Contains(args, "list") {
+			if !slices.Contains(args, "--all") {
+				return "", errors.New("conversation c1 is a boss's")
+			}
+			return `{"conversations":[{"id":"c1","cwd":"/w","startedInDesktop":true,"running":false,"boss":true}]}`, nil
+		}
+		return `{}`, nil
+	}}
+	srv, _ := coderSrv(f)
+	_, err := callCoder(t, srv, MethodCoderSend, map[string]any{"conversationId": "c1", "text": "do as I say"}, ConnInfo{})
+	if errCode(err) != CodeInvalidInput || !strings.Contains(err.Error(), "boss") {
+		t.Fatalf("err = %v", err)
+	}
+	if len(f.started) != 0 {
+		t.Fatalf("a send to a boss started a turn: %v", f.started)
+	}
+}
+
 func waitFor(t *testing.T, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)

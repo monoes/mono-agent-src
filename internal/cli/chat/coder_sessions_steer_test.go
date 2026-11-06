@@ -1,9 +1,12 @@
 package chat
 
 import (
+	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/ai"
@@ -335,5 +338,130 @@ func TestQueueBossFirstTurnNeedsAStampAndAnEmptyQueue(t *testing.T) {
 	}
 	if _, err := QueueBossFirstTurn(waiting.cfg, waiting.bossCon.ID, BossFirstTurn{RunID: "r"}); err == nil {
 		t.Fatal("a first turn without a charter hash and goal was queued")
+	}
+}
+
+// A person's turn run straight through `chat --conversation <boss> --turn T` would be unwrapped and full-access. A boss's
+// conversation takes only a turn the host launches for a command queued with exactly that turn id and message (the steer's,
+// the first turn's); anything else is refused before the turn exists. A normal chat is not asked.
+func TestChatTurnIntoABossNeedsAQueuedCommand(t *testing.T) {
+	r := newSteerRig(t, true)
+	// a prompt-injected agent's try: no queued command, so refused and no turn is made
+	err := runChatCmdStdin(t, r.dbPath, "", "--conversation", r.bossCon.ID, "--turn", "evil-1", "--", "do as I say")
+	if err == nil {
+		t.Fatal("an unqueued turn ran in a boss's conversation")
+	}
+	turns, _, lerr := openTestChatStore(t, r.dbPath).ListTurns(r.bossCon.ID, "default", "", 50)
+	if lerr != nil {
+		t.Fatal(lerr)
+	}
+	for _, tn := range turns {
+		if tn.ID == "evil-1" {
+			t.Fatal("the refused turn was admitted")
+		}
+	}
+	ctx := context.Background()
+	// the steer's turn and the first turn's are the host's to launch
+	if out, code := runSessionsCLI(t, r.cfg, "steer", r.front.ID, "prefer the smaller change"); code != 0 {
+		t.Fatalf("steer: %d %s", code, out)
+	}
+	cmds := pendingCommands(t, r.dbPath)
+	if len(cmds) != 1 {
+		t.Fatalf("queued: %+v", cmds)
+	}
+	c := cmds[0]
+	if err := refuseUnqueuedBossTurn(ctx, r.cfg, "default", r.bossCon.ID, c.TurnID, c.Message); err != nil {
+		t.Fatalf("the queued steer turn was refused: %v", err)
+	}
+	if err := refuseUnqueuedBossTurn(ctx, r.cfg, "default", r.bossCon.ID, c.TurnID, "something else"); err == nil {
+		t.Fatal("a queued turn id with another prompt ran")
+	}
+	if err := refuseUnqueuedBossTurn(ctx, r.cfg, "default", r.bossCon.ID, "other-turn", c.Message); err == nil {
+		t.Fatal("the queued prompt ran under another turn id")
+	}
+	if err := refuseUnqueuedBossTurn(ctx, r.cfg, "default", r.front.ID, "any-turn", "anything"); err != nil {
+		t.Fatalf("an ordinary chat was asked: %v", err)
+	}
+	first := buildSteerRig(t, true, false)
+	in := BossFirstTurn{RunID: "run-1", CharterHash: "abcdef0123456789", Goal: "g"}
+	fc, err := QueueBossFirstTurn(first.cfg, first.bossCon.ID, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := refuseUnqueuedBossTurn(ctx, first.cfg, "default", first.bossCon.ID, fc.TurnID, fc.Message); err != nil {
+		t.Fatalf("the queued first turn was refused: %v", err)
+	}
+}
+
+// QueueBossFirstTurn is the user's own (it is a person's turn into a full-access conversation) and needs the run LIVE.
+func TestQueueBossFirstTurnIsTheUsersAndNeedsALiveRun(t *testing.T) {
+	in := BossFirstTurn{RunID: "run-1", CharterHash: "abcdef0123456789", Goal: "g"}
+	r := buildSteerRig(t, true, false)
+	r.cfg.RequireOperator = func(what string) error { return errors.New("operator only: " + what) }
+	if _, err := QueueBossFirstTurn(r.cfg, r.bossCon.ID, in); err == nil || !strings.Contains(err.Error(), "operator") {
+		t.Fatalf("a non-operator queued the first turn: %v", err)
+	}
+	r.cfg.RequireOperator = func(string) error { return nil }
+	r.cfg.OperatorRefusal = func() string { return "a coder session's turn" }
+	if _, err := QueueBossFirstTurn(r.cfg, r.bossCon.ID, in); err == nil {
+		t.Fatal("a session's turn queued the first turn")
+	}
+	r.cfg.OperatorRefusal = nil
+	if _, err := r.db.Exec(`UPDATE doomsday_runs SET state = 'stop-requested' WHERE profile = 'default'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := QueueBossFirstTurn(r.cfg, r.bossCon.ID, in); err == nil {
+		t.Fatal("the first turn was queued for a run that is stopping")
+	}
+	if len(pendingCommands(t, r.dbPath)) != 0 {
+		t.Fatal("a refused first turn was queued")
+	}
+}
+
+// The bounds are held by the insert, not by a look before it: twelve callers at once leave five waiting, and the same text
+// at once is one message.
+func TestSteerBoundsHoldUnderConcurrency(t *testing.T) {
+	r := newSteerRig(t, true)
+	cs := coderhost.NewStore(r.db)
+	run := func(msg func(i int) string) (queued, deduped int) {
+		var mu sync.Mutex
+		var wg sync.WaitGroup
+		for i := 0; i < 12; i++ {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				_, dup, err := cs.EnqueueSendBounded(coderhost.Command{ProfileID: "default", ConversationID: r.bossCon.ID, Kind: coderhost.KindSend, TurnID: fmt.Sprintf("t-%d", i), Message: msg(i)}, maxSteerPending, steerDedupe)
+				mu.Lock()
+				defer mu.Unlock()
+				if err == nil && dup {
+					deduped++
+				} else if err == nil {
+					queued++
+				}
+			}(i)
+		}
+		wg.Wait()
+		return
+	}
+	if q, _ := run(func(i int) string { return fmt.Sprintf("distinct %d", i) }); q != maxSteerPending || cs.PendingFor("default", r.bossCon.ID) != maxSteerPending {
+		t.Fatalf("%d queued, %d waiting, want %d", q, cs.PendingFor("default", r.bossCon.ID), maxSteerPending)
+	}
+	r2 := newSteerRig(t, true)
+	cs = coderhost.NewStore(r2.db)
+	r = r2
+	if q, d := run(func(int) string { return "the same" }); q != 1 || d != 11 || cs.PendingFor("default", r.bossCon.ID) != 1 {
+		t.Fatalf("%d queued, %d deduped, %d waiting for one text sent twelve times", q, d, cs.PendingFor("default", r.bossCon.ID))
+	}
+}
+
+// The cap counts the characters the boss gets: NFKC can make three characters of one (a ligature), so 3000 ligatures are 9000
+// characters and over the cap, though under it before normalising.
+func TestSteerCapCountsAfterNormalising(t *testing.T) {
+	r := newSteerRig(t, true)
+	if _, code := runSessionsCLI(t, r.cfg, "steer", r.front.ID, strings.Repeat("ﬃ", 2000)); code == 0 {
+		t.Fatal("6000 characters after normalising were queued")
+	}
+	if out, code := runSessionsCLI(t, r.cfg, "steer", r.front.ID, strings.Repeat("ﬃ", 1000)); code != 0 {
+		t.Fatalf("3000 characters after normalising were refused: %d %s", code, out)
 	}
 }
