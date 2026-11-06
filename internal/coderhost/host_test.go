@@ -7,8 +7,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 type fakeTurn struct {
@@ -90,8 +88,7 @@ func (l *fakeLauncher) turn(id string) *fakeTurn {
 
 func newHost(t *testing.T) (*Host, *fakeLauncher, *Store) {
 	t.Helper()
-	db := testdb.Open(t)
-	t.Cleanup(func() { db.Close() })
+	db := openMigrated(t)
 	st := NewStore(db.DB)
 	l := newFakeLauncher()
 	return &Host{Store: st, L: l}, l, st
