@@ -3,6 +3,7 @@ package doomsday
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 // ErrOff is why the mode refuses on an install that was not built with it.
@@ -42,6 +43,14 @@ type StopOutcome struct {
 	// Incomplete holds the report lines of any run that is not fully stopped (a step not done, the run not
 	// quiescent). Non-empty means "stopped" is never printed.
 	Incomplete []string
+	// Runs are the runs this Stop proved stopped (every step done): the only ones whose sessions AfterStop may end.
+	Runs []RunRef
+}
+
+// RunRef names one run of the profile: its charter and generation, as stamped on its boss session.
+type RunRef struct {
+	CharterID  string
+	Generation int64
 }
 
 // Status is the read-only view of the profile's run.
@@ -74,6 +83,13 @@ type Engine interface {
 	Enter(ctx context.Context, canon Canon, expectedHash string, ack Ack) (Entry, error)
 	Stop(ctx context.Context) (StopOutcome, error)
 	Status(ctx context.Context) (Status, error)
+}
+
+// AfterStopper is an Engine that moves what hangs on a stopped run to a defined state. The stop verb calls it only
+// after it has printed nothing but a proven (or best-effort) stop; verdict is the exact stop line it prints. It returns
+// the lines to print after the verdict and never an error: what it could not do is a line that says so.
+type AfterStopper interface {
+	AfterStop(ctx context.Context, o StopOutcome, verdict string, at time.Time) []string
 }
 
 // BossBinder is an Engine that can record which session is the run's boss (`start --boss-session`).

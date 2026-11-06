@@ -41,6 +41,9 @@ type Wiring struct {
 	// Progress receives the Stop order's early line, once per open run (the marker is written, the database step follows). Nil prints nothing: only
 	// the CLI sets it, a host that stops a run does not talk to a terminal.
 	Progress func(string)
+	// ChatNote writes one system message into a conversation's transcript (ai.AIStore.RecordSystemNotice in the CLI).
+	// Nil: a stop ends the sessions but leaves no message, and says so.
+	ChatNote func(ctx context.Context, conversationID, message string) error
 }
 
 // notProvenEnder is the Ender of an install with no Kernel: it signals nothing and says so.
@@ -74,6 +77,7 @@ func (w Wiring) Engine() *StoreEngine {
 		BeforeStart: w.recoverMerges,
 		CreateUnit:  w.createUnit,
 		Boss:        w.designateBoss,
+		AfterStopFn: w.afterStop,
 		AfterEnter:  func(_ context.Context, gen int64) error { return w.RunDir.CreateSecret(uint64(gen)) },
 		HeadAnchor:  w.headAnchor(),
 		BeginEntry: func(ctx context.Context, gen int64) error {
@@ -151,6 +155,9 @@ func (w Wiring) stop(ctx context.Context) (StopOutcome, error) {
 	out := StopOutcome{MarkerRecorded: true, IntentRecorded: true}
 	for _, r := range runs {
 		rep := st.Stop(ctx, uint64(r.Generation), r.CharterID, "operator stop")
+		if rep.Stopped() {
+			out.Runs = append(out.Runs, RunRef{CharterID: r.CharterID, Generation: r.Generation})
+		}
 		out.MarkerRecorded = out.MarkerRecorded && stepDone(rep, stop.StepMarker)
 		out.IntentRecorded = out.IntentRecorded && stepDone(rep, stop.StepIntent)
 		for _, s := range append(append([]stop.Survivor{}, rep.Unit.Survivors...), rep.Unit.Unknown...) {

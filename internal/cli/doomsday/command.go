@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -265,7 +266,14 @@ func (d Deps) newStop() *cobra.Command {
 				fmt.Fprintln(out, "NOT stopped:\n  "+strings.Join(o.Incomplete, "\n  "))
 				return errors.New("the run is not fully stopped")
 			}
-			fmt.Fprintln(out, "stopped")
+			const verdict = "stopped"
+			fmt.Fprintln(out, verdict)
+			// Only here, after the stop is proven: the run's sessions leave the states that hold the chat open.
+			if as, ok := eng.(AfterStopper); ok {
+				for _, l := range as.AfterStop(cmd.Context(), o, verdict, time.Now()) {
+					fmt.Fprintln(out, l)
+				}
+			}
 			return nil
 		},
 	}

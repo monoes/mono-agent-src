@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/doomsday/store"
 	"github.com/monoes/mono-agent/internal/secrets"
@@ -44,6 +45,16 @@ type StoreEngine struct {
 	HeadAnchor HeadAnchorFunc
 	// Boss records which top-level lead mission is the run's boss (Wiring.DesignateBoss). Nil: no boss can be named.
 	Boss func(ctx context.Context, session int64, entry Entry) error
+	// AfterStopFn ends the run's sessions and writes the chat message once a stop is proven. Nil: nothing hangs on a stop.
+	AfterStopFn func(ctx context.Context, o StopOutcome, verdict string, at time.Time) []string
+}
+
+// AfterStop is AfterStopper.
+func (e *StoreEngine) AfterStop(ctx context.Context, o StopOutcome, verdict string, at time.Time) []string {
+	if e.AfterStopFn == nil {
+		return nil
+	}
+	return e.AfterStopFn(ctx, o, verdict, at)
 }
 
 // BindBoss records the boss session of a started run: only the operator's `start --boss-session` calls it.
