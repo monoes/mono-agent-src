@@ -32,7 +32,7 @@ func (mt *MonoagentTools) proposeOrg(ctx context.Context, tool, orgName, verb st
 	mt.mu.RLock()
 	conversation, files, unscoped := mt.conversationID, mt.hybridStore, mt.unscopedLabel
 	mt.mu.RUnlock()
-	if conversation == "" {
+	if conversation = orgproposal.CleanLabel(conversation); conversation == "" {
 		// Not in a conversation (the MCP server, a chat that is not journaled): never the empty label, which is the
 		// operator's own bucket for `org proposal create` without --conversation, so these proposals can neither count
 		// toward its cap nor supersede what the operator has pending.
