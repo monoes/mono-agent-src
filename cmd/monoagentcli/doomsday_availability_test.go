@@ -34,9 +34,9 @@ func TestChatDepsWireTheOpenModeAvailabilityToTheProbe(t *testing.T) {
 		ok     bool
 		reason string
 	}{
-		"available":       {availEngine{}, true, ""},
-		"a run exists":    {availEngine{status: doomsdaycli.Status{Active: true, RunID: "default/2"}}, false, "default/2"},
-		"a step fails":    {availEngine{containment: errors.New("containment unavailable: pidfd_open: nope")}, false, "pidfd_open"},
+		"available":    {availEngine{}, true, ""},
+		"a run exists": {availEngine{status: doomsdaycli.Status{Active: true, RunID: "default/2"}}, false, "default/2"},
+		"a step fails": {availEngine{containment: errors.New("containment unavailable: pidfd_open: nope")}, false, "pidfd_open"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			doomsdayEngine = func(*globalConfig) doomsdaycli.Engine { return c.e }
