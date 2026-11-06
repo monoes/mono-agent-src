@@ -2,11 +2,11 @@ package secrets
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 
 	"github.com/zalando/go-keyring"
 )
@@ -14,15 +14,7 @@ import (
 func newMigrateKVTestDB(t *testing.T) *storage.Database {
 	t.Helper()
 	keyring.MockInit()
-	dbPath := filepath.Join(t.TempDir(), "migrate-kv-test.db")
-	db, err := storage.NewDatabase(dbPath)
-	if err != nil {
-		t.Fatalf("NewDatabase: %v", err)
-	}
-	if err := db.ApplyMigrations(); err != nil {
-		t.Fatalf("ApplyMigrations: %v", err)
-	}
-	t.Cleanup(func() { db.DB.Close() })
+	db := testdb.Open(t)
 	return db
 }
 
