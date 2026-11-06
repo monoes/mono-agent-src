@@ -239,7 +239,7 @@ func TestBossRoutingIsLiveForTheRunAndOffOtherwise(t *testing.T) {
 	r.fresh(t)
 
 	// Stop: the route ends with the running state
-	if out, err := run(t, r.deps, "", "stop"); err != nil || !strings.HasSuffix(out, "stopped\n") {
+	if out, err := run(t, r.deps, "", "stop"); err != nil || !strings.HasPrefix(out, "stopped\n") {
 		t.Fatalf("stop: %v %q", err, out)
 	}
 	asked2, err := r.host.AskAncestor(lead(gc), "p1", coderhost.AskRequest{Question: "q1", Importance: coderhost.AskCritical})
