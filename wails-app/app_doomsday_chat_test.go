@@ -94,3 +94,20 @@ func TestParseChatRefusesBadSpecs(t *testing.T) {
 		}
 	}
 }
+
+// The dialog says what is made: runtime, model, effort, access and folder, all as they are.
+func TestTheNewChatTextShowsEverythingThatIsMade(t *testing.T) {
+	c, err := parseChat("", `{"runtime":"codex","model":"gpt-5","effort":"high","access":"workspace","cwd":"/srv/proj"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"codex", "model gpt-5", "effort high", "access workspace", "folder /srv/proj"} {
+		if !strings.Contains(c.text, want) {
+			t.Errorf("dialog text %q lacks %q", c.text, want)
+		}
+	}
+	d, _ := parseChat("", newChatSpec)
+	if !strings.Contains(d.text, "model default") || !strings.Contains(d.text, "effort default") {
+		t.Errorf("defaults are not shown: %q", d.text)
+	}
+}
