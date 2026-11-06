@@ -157,7 +157,9 @@ func (w Wiring) stop(ctx context.Context) (StopOutcome, error) {
 			out.Survivors = append(out.Survivors, fmt.Sprintf("pid %d (%s)", s.PID, s.Comm))
 		}
 		out.Survivors = append(out.Survivors, rep.Members...)
-		if !rep.Stopped() {
+		if rep.StoppedBestEffort() {
+			out.BestEffort = true
+		} else if !rep.Stopped() {
 			out.Incomplete = append(out.Incomplete, rep.Lines()...)
 		}
 	}

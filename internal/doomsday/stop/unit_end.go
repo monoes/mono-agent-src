@@ -303,10 +303,12 @@ func mergeOutcome(a, b UnitOutcome) UnitOutcome {
 	rank := func(k UnitOutcomeKind) int {
 		switch k {
 		case UnitNotProven:
-			return 4
+			return 5
 		case UnitStragglers:
-			return 3
+			return 4
 		case UnitEndedWithUnknown:
+			return 3
+		case UnitBestEffort:
 			return 2
 		case UnitEnded:
 			return 1

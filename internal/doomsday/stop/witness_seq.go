@@ -450,7 +450,7 @@ func NewWitnessEnder(inner Ender, seq *Sequencer) Ender { return witnessEnder{In
 
 func (e witnessEnder) End(ctx context.Context, gen uint64, exclude []uint64) UnitOutcome {
 	out := e.Inner.End(ctx, gen, exclude)
-	if out.Kind != UnitEnded && out.Kind != UnitEndedWithUnknown {
+	if out.Kind != UnitEnded && out.Kind != UnitEndedWithUnknown && out.Kind != UnitBestEffort {
 		return out
 	}
 	if len(exclude) > 0 { // tickets of begun operations are still running; the unit is not over

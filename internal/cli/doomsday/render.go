@@ -2,20 +2,38 @@ package doomsday
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 )
 
 // NotDefended is what the entry dialog says plainly about the limits of the
 // mode (Q7: no special isolation, the same trust model as ordinary sessions).
-const NotDefended = `What this mode does NOT defend against:
+func NotDefended(goos string) string { return notDefendedCommon + containmentBullet(goos) }
+
+const notDefendedCommon = `What this mode does NOT defend against:
   - It adds no isolation. Sessions run with the same trust model as any ordinary session.
   - A full-access worker running as your user can act directly on your machine and
     outlive a hard Stop; Stop ends what the host started and tracks, not what a worker
     already did or started by other means.
   - The typed phrase and the hash are an acknowledgement behind the operator gate, not
     a proof of identity. A script that supplies the flag is trusted by whoever runs it.
-  - The mode refuses to start where its processes cannot be contained, and a second
+`
+
+// containmentBullet is the last bullet, true for the OS it is printed on: Linux proves a unit gone; Windows holds
+// the processes in a Job Object, which is best effort; any other OS has no containment and the mode does not start.
+func containmentBullet(goos string) string {
+	switch goos {
+	case "linux":
+		return `  - The mode refuses to start where its processes cannot be contained, and a second
     host on the same database is refused; it does not defend against anything else.`
+	case "windows":
+		return `  - Its processes are held in a Job Object, which is best effort: a process that
+    left the job is not covered (for example one started through another service),
+    so Stop prints "stopped (best effort: processes that left the group are not covered)"
+    and never a bare "stopped". The mode does not start where the Job Object cannot be made.`
+	}
+	return `  - This platform has no process containment: the mode does not start here.`
+}
 
 // Phrase is what the operator types to lift: the number of lifted lines and
 // the first 8 hex characters of the hash.
@@ -83,7 +101,7 @@ func Render(c Charter, hash string) string {
 		w("The boss may auto-approve nothing: every giant plan and critical ask parks for a person.")
 	}
 	w("")
-	w("%s", NotDefended)
+	w("%s", NotDefended(runtime.GOOS))
 	return b.String()
 }
 

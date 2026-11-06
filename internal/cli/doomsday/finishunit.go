@@ -106,7 +106,7 @@ func (e *FinishEngine) endUnit(dir stop.RunDir, gen int64) []string {
 	rec, hadRec, _ := dir.ReadUnitFile(uint64(gen))
 	out := ender.End(ctx, uint64(gen), nil)
 	switch out.Kind {
-	case stop.UnitEnded, stop.UnitNone:
+	case stop.UnitEnded, stop.UnitNone, stop.UnitBestEffort:
 		if hadRec {
 			if err := w.Store.Release(ctx, w.Profile, gen, rec.Name); err != nil {
 				return []string{fmt.Sprintf("the verification unit of %s is gone but its member could not be released: %v", filepath.Base(dir.Dir), err)}
