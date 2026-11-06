@@ -330,6 +330,10 @@ export function ComposePersonMessage(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['ComposePersonMessage'](arg1, arg2, arg3, arg4, arg5);
 }
 
+export function ConfirmOrgProposal(arg1, arg2) {
+  return window['go']['main']['App']['ConfirmOrgProposal'](arg1, arg2);
+}
+
 export function ConfirmSocialLogin(arg1) {
   return window['go']['main']['App']['ConfirmSocialLogin'](arg1);
 }
@@ -376,6 +380,10 @@ export function CreateWorkflowFromTemplate(arg1) {
 
 export function DaemonRestart() {
   return window['go']['main']['App']['DaemonRestart']();
+}
+
+export function DeclineOrgProposal(arg1) {
+  return window['go']['main']['App']['DeclineOrgProposal'](arg1);
 }
 
 export function DeleteChatConversation(arg1) {
@@ -680,6 +688,10 @@ export function GetOrgLogs(arg1, arg2) {
 
 export function GetOrgMemoryStats(arg1) {
   return window['go']['main']['App']['GetOrgMemoryStats'](arg1);
+}
+
+export function GetOrgProposal(arg1) {
+  return window['go']['main']['App']['GetOrgProposal'](arg1);
 }
 
 export function GetOrgQuestions(arg1) {

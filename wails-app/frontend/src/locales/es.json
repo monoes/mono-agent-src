@@ -1450,6 +1450,32 @@
         "checkinWaiting_other": "Esperando por ti: se hicieron {{count}} turnos de revisión sin un mensaje tuyo. Escribe en este chat para que continúen."
       }
     },
+    "orgProposal": {
+      "label": "Propuesta de organización para {{org}}",
+      "title": "Propuesta para {{org}}: necesita tu confirmación",
+      "unavailableLabel": "Propuesta de organización no disponible",
+      "unavailable": "Esta propuesta no está disponible aquí (no se encontró o no es del tipo que crea esta herramienta).",
+      "by": "Propuesta por {{by}}",
+      "expires": "caduca {{at}}",
+      "exactly": "Confirmar autoriza exactamente el cambio mostrado arriba, nada más.",
+      "confirm": "Confirmar",
+      "decline": "Rechazar",
+      "status": {
+        "pending": "Pendiente",
+        "applying": "Aplicando",
+        "applied": "Aplicada",
+        "failed": "Fallida",
+        "expired": "Caducada",
+        "stale": "Obsoleta",
+        "declined": "Rechazada"
+      },
+      "err": {
+        "stale": "La organización cambió después de esta propuesta, por lo que no se aplicó. Pide una propuesta nueva.",
+        "expired": "Esta propuesta caducó y no se aplicó.",
+        "hash": "La propuesta guardada ya no coincide con lo que mostraba esta tarjeta, por lo que no se aplicó.",
+        "decided": "Esta propuesta ya se había decidido."
+      }
+    },
     "mission": {
       "proposeLabel": "Propuesta de misión: {{title}}",
       "planLabel": "Plan de misión: {{title}}",

@@ -1309,6 +1309,10 @@ those surfaces, and they are not equally strong.
   edited message). Long hex and base64 are left alone on purpose: they
   would also hide commit hashes and ordinary data.
 
+### Org grant and autonomy proposals from chat
+
+Since the chat tools `set_org_grant` and `set_org_autonomy` create real pending proposals (#1488), the app shows each as a card that reads the stored proposal (`org proposal show`), displays its preview and hash, and on a click runs the operator-only `org proposal confirm` or `decline` of the bundled CLI; the app never builds the grant or autonomy command, and the hash it sends is the one the card displayed. That confirm is exactly as strong as the operator courtesy gate that guards `org grant add` and `org autonomy set` today: it refuses a chat tool, an agent token and a marked process, but it is not a sandbox against a same-user process that leaves the marked ancestry or edits the database. In `wails dev` any same-user process can call any bound method, so a browser test of confirm proves the happy path, not agent resistance.
+
 ### Files a deleted conversation's turns left
 
 Deleting a conversation removes the host's log and prompt file of each of its turns and the copies of

@@ -1494,6 +1494,32 @@
         "checkinWaiting_other": "Waiting for you: {{count}} check-in turns ran with no message from you. Write to this chat to let them continue."
       }
     },
+    "orgProposal": {
+      "label": "Org proposal for {{org}}",
+      "title": "Proposal for {{org}}: needs your confirmation",
+      "unavailableLabel": "Org proposal unavailable",
+      "unavailable": "This proposal is not available here (it was not found, or it is not a proposal of this kind).",
+      "by": "Proposed by {{by}}",
+      "expires": "expires {{at}}",
+      "exactly": "Confirm authorizes exactly the change shown above, nothing else.",
+      "confirm": "Confirm",
+      "decline": "Decline",
+      "status": {
+        "pending": "Pending",
+        "applying": "Applying",
+        "applied": "Applied",
+        "failed": "Failed",
+        "expired": "Expired",
+        "stale": "Stale",
+        "declined": "Declined"
+      },
+      "err": {
+        "stale": "The org changed after this proposal was made, so it was not applied. Ask for a new proposal.",
+        "expired": "This proposal expired and was not applied.",
+        "hash": "The stored proposal no longer matches what this card showed, so it was not applied.",
+        "decided": "This proposal was already decided."
+      }
+    },
     "mission": {
       "proposeLabel": "Mission proposal: {{title}}",
       "planLabel": "Mission plan: {{title}}",

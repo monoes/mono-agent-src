@@ -168,6 +168,8 @@ export function CoderWorkspaceRoot(arg1:string):Promise<string>;
 
 export function ComposePersonMessage(arg1:string,arg2:string,arg3:string,arg4:string,arg5:boolean):Promise<main.PersonMessage>;
 
+export function ConfirmOrgProposal(arg1:string,arg2:string):Promise<string>;
+
 export function ConfirmSocialLogin(arg1:string):Promise<string>;
 
 export function ConnectPlatformOAuth(arg1:string):Promise<string>;
@@ -191,6 +193,8 @@ export function CreateResource(arg1:string,arg2:string,arg3:string,arg4:string):
 export function CreateWorkflowFromTemplate(arg1:string):Promise<main.WorkflowSummary>;
 
 export function DaemonRestart():Promise<main.DaemonRestartResult>;
+
+export function DeclineOrgProposal(arg1:string):Promise<string>;
 
 export function DeleteChatConversation(arg1:string):Promise<string>;
 
@@ -342,6 +346,8 @@ export function GetOrgGates(arg1:string):Promise<string>;
 export function GetOrgLogs(arg1:string,arg2:string):Promise<string>;
 
 export function GetOrgMemoryStats(arg1:string):Promise<string>;
+
+export function GetOrgProposal(arg1:string):Promise<string>;
 
 export function GetOrgQuestions(arg1:string):Promise<string>;
 
