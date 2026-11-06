@@ -205,3 +205,67 @@ func TestConfirmReSignsASignedOrgAfterARevoke(t *testing.T) {
 		t.Fatalf("after the operator's confirm: sign calls %d, state %+v, %v", len(s.calls), st, err)
 	}
 }
+
+// roleModes is the final grant state for summarize: role -> mode.
+func roleModes(gr []interface{}) map[string]string {
+	out := map[string]string{}
+	for _, g := range gr {
+		m := g.(map[string]interface{})
+		out[m["role"].(string)] = m["mode"].(string)
+	}
+	return out
+}
+
+// A grant.add and a grant.remove for the same role and automation may both be pending in one conversation. Whichever
+// is confirmed first applies; the other then goes stale and applies nothing.
+func TestAGrantAndARevokeOfTheSameGrantAreConfirmedInEitherOrderAndTheSecondGoesStale(t *testing.T) {
+	for _, addFirst := range []bool{true, false} {
+		name := "revoke first"
+		if addFirst {
+			name = "add first"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := grantedFixture(t)
+			add := f.propose(t, "growth", "grant.add", `{"role":"lead","automation":"summarize","mode":"status"}`, "--conversation", "c1")
+			rev := f.propose(t, "growth", "grant.remove", revokeArgs, "--conversation", "c1")
+			if f.proposalRow(t, add["id"].(string)) != "pending" || f.proposalRow(t, rev["id"].(string)) != "pending" {
+				t.Fatal("the two proposals do not both stay pending")
+			}
+			first, second := rev, add
+			if addFirst {
+				first, second = add, rev
+			}
+			if _, err := f.confirm(t, first); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.confirm(t, second); err == nil || !strings.Contains(err.Error(), "proposal_stale") {
+				t.Fatalf("the second confirm: %v", err)
+			}
+			if st := f.proposalRow(t, second["id"].(string)); st != "stale" {
+				t.Errorf("the second proposal is %s", st)
+			}
+			got := roleModes(f.grants(t))
+			want := map[string]string{"writer": "run"}
+			if addFirst {
+				want["lead"] = "status"
+			}
+			if len(got) != len(want) || got["lead"] != want["lead"] || got["writer"] != "run" {
+				t.Fatalf("final grants %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+// The grant row's last update is part of what a revoke is made against: a grant changed in place, keeping its id and
+// its tool, still makes the revoke the user was shown stale.
+func TestARevokeGoesStaleWhenTheGrantRowIsTouchedInPlace(t *testing.T) {
+	f := grantedFixture(t)
+	p := f.propose(t, "growth", "grant.remove", revokeArgs)
+	f.sql(t, `UPDATE org_grants SET updated_at = '2031-01-02T03:04:05.000000006Z' WHERE role_id = 'lead'`)
+	if _, err := f.confirm(t, p); err == nil || !strings.Contains(err.Error(), "proposal_stale") {
+		t.Fatalf("confirm after the grant row was touched: %v", err)
+	}
+	if len(f.grants(t)) != 2 {
+		t.Fatalf("grants %v", f.grants(t))
+	}
+}

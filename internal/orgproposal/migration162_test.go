@@ -36,11 +36,42 @@ func TestMigration162AllowsRevokeAndKeepsTheRowsAndIndexes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// one row of every other status, with every column set (decided_at, result_json, the stored hash)
+	for i, st := range []string{"applying", "applied", "declined", "stale"} {
+		if _, err := db.DB.Exec(`INSERT INTO org_proposals (id, profile_id, org_name, conversation_id, verb, target, args_json, preview_text,
+			state_digest, hash, created_by, created_at, expires_at, status, result_json, decided_at)
+			VALUES (?, 'p1', 'growth', 'c9', ?, ?, '{"a":1}', 'preview ' || ?, 'digest-' || ?, 'hash-' || ?, 'agent:x', '2026-11-05T12:00:00Z', '2026-11-05T12:30:00Z', ?, '{"code":"' || ? || '"}', '2026-11-05T12:10:00Z')`,
+			"id-"+st, []string{"grant.add", "autonomy.set"}[i%2], "t"+st, st, st, st, st, st); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dump := func() string {
+		rows, err := db.DB.Query(`SELECT id || '|' || profile_id || '|' || org_name || '|' || conversation_id || '|' || verb || '|' || target || '|' || args_json || '|' ||
+			preview_text || '|' || state_digest || '|' || hash || '|' || created_by || '|' || created_at || '|' || expires_at || '|' || status || '|' || result_json || '|' ||
+			COALESCE(decided_at, '<null>') FROM org_proposals ORDER BY id`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var out string
+		for rows.Next() {
+			var l string
+			if err := rows.Scan(&l); err != nil {
+				t.Fatal(err)
+			}
+			out += l + "\n"
+		}
+		return out
+	}
+	before := dump()
 	if _, err := db.DB.Exec(`DELETE FROM schema_migrations WHERE version = 162`); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.ApplyMigrations(); err != nil {
 		t.Fatalf("applying 162 again: %v", err)
+	}
+	if after := dump(); after != before || len(before) == 0 {
+		t.Fatalf("a column did not survive the migration:\nbefore %s\nafter  %s", before, after)
 	}
 	got, err := s.Get(context.Background(), "p1", old.ID)
 	if err != nil || got.Hash != old.Hash || got.Status != StatusPending {

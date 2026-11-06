@@ -830,7 +830,9 @@ existing MCP client config that relies on them.
   `org_role_set_reports_to`, `org_role_remove`, `org_reload`
 - `org_automation_add`, `org_grant_set`, `org_autonomy_set` (the last two only
   propose: `applied:false`, "proposal: confirm in the org screen", nothing runs;
-  `org_grant_set` with `revoke:true` still previews until `confirm:true`)
+  `org_grant_set` with `revoke:true` proposes too, as a `grant.remove` proposal,
+  and has no `confirm` argument; a proposal's `conversation_id` is a label,
+  never ownership)
 - `task_claim`, `task_comment`, `task_finish`, `task_release`, `task_add`: an
   agent's verbs on the task board, acting as the agent the server names after
   its client (`agent:<client>#<4 hex>`); no tool approves, edits, moves or

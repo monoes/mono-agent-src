@@ -2386,7 +2386,7 @@ that works a task acts on them. The defences:
   a gate and `org chat answer` (it only answers a pending question). The chat's `set_org_grant` and
   `set_org_autonomy` tools therefore only propose (they run nothing and say what the user would confirm
   in the org screen); revoking a grant is a proposal too (verb `grant.remove`, migration 162): the tool
-  stores it and nothing in a chat applies it, while `org grant remove` itself stays open to everyone. An org's operator
+  stores it and nothing in a chat applies it, while `org grant remove` itself stays open to everyone. As for the other verbs, a proposal's `conversation_id` is a label the proposer chose, never ownership. An org's operator
   signature is not laundered either: a write a turn (or any process the gate refuses) makes to a
   signed org lands, but the org is left unsigned until the operator reviews and signs it
   (`orgsign.Before` asks the same gate through `orgsign.SetTurnVerdict`, installed from
