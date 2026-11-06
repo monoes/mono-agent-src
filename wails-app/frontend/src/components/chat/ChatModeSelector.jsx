@@ -24,7 +24,7 @@ export function ChatModeChip({ state }) {
 
 export function ChatModeSelector({ chatMode }) {
   const { t } = useTranslation()
-  const { state, busy, error, set } = chatMode
+  const { state, busy, error, set, checking, checkOpen } = chatMode
   if (!state && !error) return null
   const locked = !!state?.locked
   const lockedWhy = state?.reason || t('chatMode.locked')
@@ -34,14 +34,15 @@ export function ChatModeSelector({ chatMode }) {
         title={locked ? lockedWhy : t('chatMode.hint')} style={{ display: 'inline-flex', gap: 2, flexShrink: 0, fontFamily: mono, fontSize: 9 }}>
         {(state?.options || []).map(o => {
           const on = state.mode === o.mode
-          const disabled = busy || locked || !o.available
-          const why = locked ? lockedWhy : !o.available ? (o.reason || t('chatMode.unavailable')) : ''
+          const pending = !!o.pending && !o.available
+          const disabled = busy || locked || (!o.available && !pending)
+          const why = locked ? lockedWhy : pending ? t('chatMode.checkHint') : !o.available ? (o.reason || t('chatMode.unavailable')) : ''
           return (
             <span key={o.mode} title={why || undefined}>
               <button type="button" role="radio" aria-checked={on} disabled={disabled} data-testid={`chat-mode-${o.mode}`}
-                onClick={() => !on && set(o.mode)} className="btn btn-ghost btn-sm"
+                onClick={() => !on && (pending ? checkOpen() : set(o.mode))} className="btn btn-ghost btn-sm"
                 style={{ fontFamily: mono, fontSize: 9, opacity: locked && on ? 0.9 : undefined, color: on ? 'var(--green)' : 'var(--text-muted)', borderColor: on ? 'var(--green)' : undefined }}>
-                {t(`chatMode.${o.mode}`)}
+                {pending && checking ? t('chatMode.checking') : t(`chatMode.${o.mode}`)}
               </button>
             </span>
           )

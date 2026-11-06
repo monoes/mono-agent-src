@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../services/api.js'
+import { openStartApi } from '../../lib/openStartApi.js'
 
 const REFRESH_MS = 15000
 
@@ -20,6 +21,7 @@ export function useChatMode(conversationId, enabled = true, access = '') {
   const [pending, setPending] = useState('off')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [checking, setChecking] = useState(false)
   const epoch = useRef(0) // a read older than a save is dropped instead of putting the old state back
   const read = useCallback(() => {
     const began = epoch.current
@@ -62,7 +64,22 @@ export function useChatMode(conversationId, enabled = true, access = '') {
     }
   }, [conversationId])
 
+  // The open mode is offered "pending": the real probe (a transient unit) runs only here, on the person's own action, and
+  // the app caches it for a minute and shares a probe in flight. Nothing reads it on a timer or on mount.
+  const checkOpen = useCallback(async () => {
+    setChecking(true); setError('')
+    try {
+      const r = await openStartApi.entry()
+      if (!r?.mode_available) { setError(tRef.current('chatMode.openRefused', { reason: String(r?.reason || r?.error || r?.detail || '') })); return }
+      await set('open')
+    } catch (err) {
+      setError(tRef.current('chatMode.openRefused', { reason: String(err?.message || err) }))
+    } finally {
+      setChecking(false)
+    }
+  }, [set])
+
   const draft = draftOptions ? { mode: pending, locked: false, options: draftOptions } : null
   const state = enabled ? (conversationId ? view : draft) : null
-  return { state, busy, error, set, refresh: read, pendingMode: () => (enabled && pendingRef.current !== 'off' ? pendingRef.current : '') }
+  return { state, busy: busy || checking, checking, checkOpen, error, set, refresh: read, pendingMode: () => (enabled && pendingRef.current !== 'off' ? pendingRef.current : '') }
 }

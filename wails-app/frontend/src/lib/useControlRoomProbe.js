@@ -12,6 +12,8 @@ export const PROBE_IDLE_POLL_MS = 60000  // the last good answer said off / no r
 // the nav item for a whole idle period while a run may be live.
 export const PROBE_RETRY_MS = [5000, 15000]
 
+export const CONTROL_ROOM_CHANGED = 'monoagent:controlroom-changed'
+
 export const probeDelay = (probe) => (probe?.run_exists ? PROBE_POLL_MS : PROBE_IDLE_POLL_MS)
 
 export function probeShows(probe) {
@@ -38,7 +40,10 @@ export function useControlRoomProbe(api = controlRoomApi) {
       timer = setTimeout(read, retry ?? probeDelay(last.current))
     }
     read()
-    return () => { cancelled = true; clearTimeout(timer) }
+    // A start or a stop says so: ask again now instead of at the next idle poll.
+    const again = () => { clearTimeout(timer); read() }
+    window.addEventListener(CONTROL_ROOM_CHANGED, again)
+    return () => { cancelled = true; clearTimeout(timer); window.removeEventListener(CONTROL_ROOM_CHANGED, again) }
   }, [api, visible])
   return { show: probeShows(probe), running: !!probe?.run_exists }
 }

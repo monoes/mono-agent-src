@@ -2516,7 +2516,10 @@
     "locked": "The chat mode is chosen before the first message and cannot change afterwards",
     "unavailable": "Not available",
     "loadFailed": "Could not read the chat mode",
-    "saveFailed": "Could not change the chat mode: {{error}}"
+    "saveFailed": "Could not change the chat mode: {{error}}",
+    "checking": "Checking...",
+    "checkHint": "Press to check that the open-ended run can start on this machine",
+    "openRefused": "The open-ended mode cannot start here: {{reason}}"
   },
   "controlRoom": {
     "title": "Control room",
@@ -2696,6 +2699,9 @@
       "verifier": "Pin a verifier (provider, model, version) that is a different model than the boss.",
       "judging": "Pin the judging policy.",
       "perAsk": "Every per-ask limit needs a number, an access that is not full, and run caps at least as large as the per-ask limits."
-    }
+    },
+    "removeN": "Remove criterion {{n}}",
+    "unknown": "The run may have started: check the Control room and press Stop if it is running.",
+    "reviewTitle": "Review before starting"
   }
 }

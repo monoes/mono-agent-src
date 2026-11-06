@@ -2472,7 +2472,10 @@
     "locked": "El modo del chat se elige antes del primer mensaje y no se puede cambiar después",
     "unavailable": "No disponible",
     "loadFailed": "No se pudo leer el modo del chat",
-    "saveFailed": "No se pudo cambiar el modo del chat: {{error}}"
+    "saveFailed": "No se pudo cambiar el modo del chat: {{error}}",
+    "checking": "Comprobando...",
+    "checkHint": "Pulsa para comprobar que la ejecucion abierta puede empezar en este equipo",
+    "openRefused": "El modo abierto no puede empezar aqui: {{reason}}"
   },
   "openStart": {
     "loading": "Cargando...",
@@ -2556,6 +2559,9 @@
       "verifier": "Fija un verificador (proveedor, modelo, version) distinto del jefe.",
       "judging": "Fija la politica de juicio.",
       "perAsk": "Cada limite por peticion necesita un numero, un acceso que no sea full y topes de la ejecucion al menos iguales a los de cada peticion."
-    }
+    },
+    "removeN": "Quitar el criterio {{n}}",
+    "unknown": "La ejecucion pudo empezar: revisa la sala de control y pulsa Detener si esta en marcha.",
+    "reviewTitle": "Revisar antes de empezar"
   }
 }

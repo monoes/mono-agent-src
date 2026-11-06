@@ -14,20 +14,24 @@ const box = { border: '1px solid var(--border)', borderRadius: 6, padding: 10, d
 const small = { fontFamily: mono, fontSize: 11, color: 'var(--text-muted)' }
 const field = { fontFamily: mono, fontSize: 11 }
 
-function Text({ id, label, value, onChange, area, ...rest }) {
+// errorId is the id of the message that explains why the field is refused; it links it to the field.
+function Text({ id, label, value, onChange, area, errorId, ...rest }) {
   const Tag = area ? 'textarea' : 'input'
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 2, ...small }}>
       {label}
-      <Tag id={id} aria-label={label} value={value} onChange={e => onChange(e.target.value)} style={field} {...rest} />
+      <Tag id={id} aria-label={label} value={value} onChange={e => onChange(e.target.value)} style={field}
+        aria-describedby={errorId} aria-invalid={errorId ? 'true' : undefined} {...rest} />
     </label>
   )
 }
 
-const PinFields = ({ t, who, pin, onChange }) => (
+const Err = ({ id, children }) => (children ? <span id={id} role="alert" style={{ ...small, color: 'var(--red)' }}>{children}</span> : null)
+
+const PinFields = ({ t, who, pin, onChange, errorId }) => (
   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
     {['provider', 'model', 'version'].map(k => (
-      <Text key={k} label={t(`openStart.${who}${k[0].toUpperCase()}${k.slice(1)}`)} value={pin[k]} onChange={v => onChange({ ...pin, [k]: v })} />
+      <Text key={k} label={t(`openStart.${who}${k[0].toUpperCase()}${k.slice(1)}`)} value={pin[k]} errorId={errorId} onChange={v => onChange({ ...pin, [k]: v })} />
     ))}
   </div>
 )
@@ -40,6 +44,7 @@ export function OpenStartForm({ bossSession = null, onStarted }) {
   const [review, setReview] = useState(null) // { charter, preview } once the CLI has rendered it
   const [reviewError, setReviewError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [done, setDone] = useState(false) // started: nothing can be submitted again
 
   useEffect(() => {
     let live = true
@@ -91,10 +96,10 @@ export function OpenStartForm({ bossSession = null, onStarted }) {
           {t('openStart.unavailable', { reason: entry.reason || entry.error || entry.detail || t('openStart.unknownReason') })}
         </p>
       ) : (
-        <>
+        <fieldset disabled={done} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
           <section style={box}>
-            <Text label={t('openStart.goal')} value={form.goal} onChange={v => set({ goal: v })} area rows={3} />
-            {err.goal && <span role="alert" style={{ ...small, color: 'var(--red)' }}>{err.goal}</span>}
+            <Text label={t('openStart.goal')} value={form.goal} onChange={v => set({ goal: v })} area rows={3} errorId={err.goal ? 'open-err-goal' : undefined} />
+            <Err id="open-err-goal">{err.goal}</Err>
             {criteria.map((c, i) => (
               <div key={i} style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'flex-end' }}>
                 {c.kind === 'command' ? (
@@ -105,14 +110,14 @@ export function OpenStartForm({ bossSession = null, onStarted }) {
                 ) : (
                   <Text label={t('openStart.criterionRubric', { n: i + 1 })} value={c.text || ''} onChange={v => setCriterion(i, { text: v })} />
                 )}
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => set({ criteria: criteria.filter((_, j) => j !== i) })}>{t('openStart.remove')}</button>
+                <button type="button" className="btn btn-ghost btn-sm" aria-label={t('openStart.removeN', { n: i + 1 })} onClick={() => set({ criteria: criteria.filter((_, j) => j !== i) })}>{t('openStart.remove')}</button>
               </div>
             ))}
             <div style={{ display: 'flex', gap: 6 }}>
               <button type="button" className="btn btn-ghost btn-sm" onClick={() => set({ criteria: [...criteria, { kind: 'command', command: '', expected: '' }] })}>{t('openStart.addCommand')}</button>
               <button type="button" className="btn btn-ghost btn-sm" onClick={() => set({ criteria: [...criteria, { kind: 'rubric', text: '' }] })}>{t('openStart.addRubric')}</button>
             </div>
-            {err.criteria && <span role="alert" style={{ ...small, color: 'var(--red)' }}>{err.criteria}</span>}
+            <Err id="open-err-criteria">{err.criteria}</Err>
           </section>
 
           <section style={box}>
@@ -124,18 +129,18 @@ export function OpenStartForm({ bossSession = null, onStarted }) {
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {LIMIT_KEYS.map(k => (
-                <Text key={k} label={t(`openStart.limit.${k}`)} value={String(form.limits[k])} onChange={v => set({ limitsPreset: 'custom', limits: { ...form.limits, [k]: v } })} />
+                <Text key={k} label={t(`openStart.limit.${k}`)} errorId={err.limits ? 'open-err-limits' : undefined} value={String(form.limits[k])} onChange={v => set({ limitsPreset: 'custom', limits: { ...form.limits, [k]: v } })} />
               ))}
             </div>
-            {err.limits && <span role="alert" style={{ ...small, color: 'var(--red)' }}>{err.limits}</span>}
+            <Err id="open-err-limits">{err.limits}</Err>
           </section>
 
-          <fieldset style={box}>
+          <fieldset style={box} aria-describedby={err.budget ? 'open-err-budget' : undefined}>
             <legend style={small}>{t('openStart.budget')}</legend>
             <label style={small}><input type="radio" name="open-budget" checked={form.budget.choice === 'unlimited'} onChange={() => set({ budget: { choice: 'unlimited', usd: '' } })} /> {t('openStart.budgetUnlimited')}</label>
             <label style={small}><input type="radio" name="open-budget" checked={form.budget.choice === 'fixed'} onChange={() => set({ budget: { ...form.budget, choice: 'fixed' } })} /> {t('openStart.budgetFixed')}</label>
             {form.budget.choice === 'fixed' && <Text label={t('openStart.budgetUsd')} value={form.budget.usd} onChange={v => set({ budget: { choice: 'fixed', usd: v } })} inputMode="decimal" />}
-            {err.budget && <span role="alert" style={{ ...small, color: 'var(--red)' }}>{err.budget}</span>}
+            <Err id="open-err-budget">{err.budget}</Err>
           </fieldset>
 
           <fieldset style={box}>
@@ -154,19 +159,19 @@ export function OpenStartForm({ bossSession = null, onStarted }) {
 
           <section style={box}>
             <span style={small}>{t('openStart.pins')}</span>
-            <PinFields t={t} who="boss" pin={form.pins.boss} onChange={p => set({ pins: { ...form.pins, boss: p } })} />
-            {err.boss && <span role="alert" style={{ ...small, color: 'var(--red)' }}>{err.boss}</span>}
-            <PinFields t={t} who="verifier" pin={form.pins.verifier} onChange={p => set({ pins: { ...form.pins, verifier: p } })} />
-            {err.verifier && <span role="alert" style={{ ...small, color: 'var(--red)' }}>{err.verifier}</span>}
-            <Text label={t('openStart.judging')} value={form.pins.judging} onChange={v => set({ pins: { ...form.pins, judging: v } })} />
-            {err.judging && <span role="alert" style={{ ...small, color: 'var(--red)' }}>{err.judging}</span>}
+            <PinFields t={t} who="boss" pin={form.pins.boss} errorId={err.boss ? 'open-err-boss' : undefined} onChange={p => set({ pins: { ...form.pins, boss: p } })} />
+            <Err id="open-err-boss">{err.boss}</Err>
+            <PinFields t={t} who="verifier" pin={form.pins.verifier} errorId={err.verifier ? 'open-err-verifier' : undefined} onChange={p => set({ pins: { ...form.pins, verifier: p } })} />
+            <Err id="open-err-verifier">{err.verifier}</Err>
+            <Text label={t('openStart.judging')} value={form.pins.judging} errorId={err.judging ? 'open-err-judging' : undefined} onChange={v => set({ pins: { ...form.pins, judging: v } })} />
+            <Err id="open-err-judging">{err.judging}</Err>
           </section>
 
           <section style={box}>
             <label style={small}><input type="checkbox" checked={form.perAsk.enabled} onChange={e => perAsk({ enabled: e.target.checked })} /> {t('openStart.perAskOn')}</label>
             {!form.perAsk.enabled && <span style={small}>{t('openStart.perAskDeny')}</span>}
             {form.perAsk.enabled && (
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }} aria-describedby={err.perAsk ? 'open-err-perask' : undefined}>
                 <Text label={t('openStart.askSpend')} value={form.perAsk.spendUsd} onChange={v => perAsk({ spendUsd: v })} />
                 <Text label={t('openStart.askTasks')} value={form.perAsk.tasks} onChange={v => perAsk({ tasks: v })} />
                 <Text label={t('openStart.askDepth')} value={form.perAsk.depth} onChange={v => perAsk({ depth: v })} />
@@ -179,13 +184,13 @@ export function OpenStartForm({ bossSession = null, onStarted }) {
                 </label>
               </div>
             )}
-            {err.perAsk && <span role="alert" style={{ ...small, color: 'var(--red)' }}>{err.perAsk}</span>}
+            <Err id="open-err-perask">{err.perAsk}</Err>
           </section>
 
-          <button type="button" className="btn btn-sm" disabled={busy} onClick={doReview}>{t('openStart.review')}</button>
+          <button type="button" className="btn btn-sm" disabled={busy || done} onClick={doReview}>{t('openStart.review')}</button>
           {reviewError && <p role="alert" style={{ ...small, color: 'var(--red)' }}>{reviewError}</p>}
-          {review && <OpenStartReview charter={review.charter} preview={review.preview} bossSession={bossSession} onStarted={onStarted} />}
-        </>
+          {review && <OpenStartReview charter={review.charter} preview={review.preview} bossSession={bossSession} onStarted={r => { setDone(true); onStarted?.(r) }} />}
+        </fieldset>
       )}
     </div>
   )
