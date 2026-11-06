@@ -13,6 +13,9 @@ import (
 	"github.com/monoes/mono-agent/internal/tasks"
 )
 
+// afterFirstTurnCheck is a seam for tests: it runs between the look at the boss's turns and the insert that holds the same bound.
+var afterFirstTurnCheck = func() {}
+
 // BossFirstTurn is what the boss is told in its first turn: the run it leads, the charter that bounds it and its goal.
 type BossFirstTurn struct {
 	RunID       string // the run's id, as `doomsday start` printed it
@@ -72,6 +75,7 @@ func QueueBossFirstTurn(cfg *Deps, bossConversation string, in BossFirstTurn) (c
 	} else if had {
 		return coderhost.Command{}, clicore.InvalidInput("the boss already had its first turn: nothing was queued")
 	}
+	afterFirstTurnCheck()
 	// nothing may be waiting: the insert holds that bound (a concurrent caller cannot queue a second one)
 	c, _, err := enqueueBounded(cfg, coderhost.Command{ProfileID: profileID, ConversationID: bossConversation, Kind: coderhost.KindSend,
 		TurnID: "t-" + uuid.NewString(), Message: BossFirstTurnText(in)}, coderhost.SendBounds{MaxPending: 1, NoTurnYet: true})

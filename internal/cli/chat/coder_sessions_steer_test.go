@@ -499,8 +499,8 @@ func TestChatResumeOfABossRuntimeSessionIsRefused(t *testing.T) {
 	if err := refuseBossResume(context.Background(), r.cfg, "default", "front-runtime-session"); err != nil {
 		t.Fatalf("an ordinary session was refused: %v", err)
 	}
-	if err := runChatCmdStdin(t, r.dbPath, "", "--resume", "boss-runtime-session", "--", "hi"); err == nil {
-		t.Fatal("chat --resume reached a boss's runtime session")
+	if err := runChatCmdStdin(t, r.dbPath, "", "--resume", "boss-runtime-session", "--", "hi"); err == nil || !strings.Contains(err.Error(), "boss's") {
+		t.Fatalf("chat --resume reached a boss's runtime session, or was refused for another reason: %v", err)
 	}
 }
 
@@ -607,5 +607,19 @@ func TestBoundedSendTakesOnlyAPersonsSend(t *testing.T) {
 	}
 	if _, _, err := cs.EnqueueSendBounded(coderhost.Command{ProfileID: "default", ConversationID: r.bossCon.ID, Kind: coderhost.KindSend, TurnID: "t-2", Message: "another"}, coderhost.SendBounds{MaxPending: 5, NoTurnYet: true}); !errors.Is(err, coderhost.ErrTurnExists) {
 		t.Fatalf("a first turn after a turn: %v", err)
+	}
+}
+
+// A turn that appears between the first turn's look at the boss and its insert is refused by the insert itself.
+func TestQueueBossFirstTurnIsRefusedByTheInsertIfATurnAppearedMeanwhile(t *testing.T) {
+	r := buildSteerRig(t, true, false)
+	store := openTestChatStore(t, r.dbPath)
+	afterFirstTurnCheck = func() { seedTurn(t, store, r.db, r.bossCon.ID, "raced", "x", "active", "2026-10-22T09:00:00Z") }
+	t.Cleanup(func() { afterFirstTurnCheck = func() {} })
+	if _, err := QueueBossFirstTurn(r.cfg, r.bossCon.ID, BossFirstTurn{RunID: "run-1", CharterHash: "abcdef0123456789", Goal: "g"}); err == nil {
+		t.Fatal("a first turn was queued for a boss that had a turn by then")
+	}
+	if len(pendingCommands(t, r.dbPath)) != 0 {
+		t.Fatal("queued")
 	}
 }
