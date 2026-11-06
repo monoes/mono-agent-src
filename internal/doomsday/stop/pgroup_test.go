@@ -14,9 +14,12 @@ import (
 
 type fakePGProc struct {
 	stamp, comm string
+	argv0       string
 	pgid, sid   int
+	ppid        int
 	zombie      bool
 	immune      bool // survives SIGKILL (a process the kernel cannot end, for the survivor report)
+	dying       int  // Members calls left before a killed process leaves (macOS ends a killed process asynchronously)
 }
 
 type fakePG struct {
@@ -28,23 +31,29 @@ type fakePG struct {
 	groupSig []string // "pgid:signal"
 	pidSig   []string
 	prepared []int
+
+	errs      map[string]error // an operation that fails: BootID Self SelfGroup KillAnchor PgidOf Members SignalGroup SignalPid Prepare Argv0
+	killDelay int              // a killed process stays listed for this many Members calls
+	zombies   bool             // a killed anchor lingers as a zombie (pid and group number stay reserved) instead of vanishing
+	stampFail bool             // StartAnchor starts the anchor and then cannot read its start time
+	members   int              // Members calls
 }
 
 func newFakePG() *fakePG {
-	w := &fakePG{procs: map[int]*fakePGProc{}, next: 100, self: 1}
-	w.procs[1] = &fakePGProc{stamp: "s-self", comm: "monoagentcli", pgid: 1, sid: 1}
+	w := &fakePG{procs: map[int]*fakePGProc{}, next: 100, self: 1, errs: map[string]error{}}
+	w.procs[1] = &fakePGProc{stamp: "s-self", comm: "monoagentcli", argv0: "monoagentcli", pgid: 1, sid: 1}
 	return w
 }
 
-func (w *fakePG) BootID() (string, error) { return "boot-m", nil }
+func (w *fakePG) BootID() (string, error) { return "boot-m", w.errs["BootID"] }
 func (w *fakePG) Self() (int, string, error) {
-	return w.self, w.procs[w.self].stamp, nil
+	return w.self, w.procs[w.self].stamp, w.errs["Self"]
 }
 func (w *fakePG) SelfGroup() (int, int, error) {
 	p := w.procs[w.self]
-	return p.pgid, p.sid, nil
+	return p.pgid, p.sid, w.errs["SelfGroup"]
 }
-func (w *fakePG) StartAnchor() (int, string, error) {
+func (w *fakePG) StartAnchor(argv0 string) (int, string, error) {
 	if w.failAt == "anchor" {
 		return 0, "", errors.New("no sleep")
 	}
@@ -53,11 +62,20 @@ func (w *fakePG) StartAnchor() (int, string, error) {
 	if w.failAt == "group" {
 		pg = 1 // the anchor did not become a group leader
 	}
-	w.procs[w.next] = &fakePGProc{stamp: fmt.Sprintf("s%d", w.next), comm: "sleep", pgid: pg, sid: w.procs[w.self].sid}
+	w.procs[w.next] = &fakePGProc{stamp: fmt.Sprintf("s%d", w.next), comm: "sleep", argv0: argv0, pgid: pg, sid: w.procs[w.self].sid, ppid: w.self}
+	if w.stampFail {
+		return w.next, "", errors.New("the anchor's start time cannot be read")
+	}
 	return w.next, w.procs[w.next].stamp, nil
 }
+
+// KillAnchor ends the anchor with that start stamp; an empty stamp means "the child this process just started and has
+// not reaped" (its pid cannot have been reused), which is what the real mechanism accepts for a start that failed.
 func (w *fakePG) KillAnchor(pid int, stamp string) error {
-	if p, ok := w.procs[pid]; ok && p.stamp == stamp {
+	if err := w.errs["KillAnchor"]; err != nil {
+		return err
+	}
+	if p, ok := w.procs[pid]; ok && (p.stamp == stamp || (stamp == "" && p.ppid == w.self && p.pgid == pid)) {
 		w.killed = append(w.killed, pid)
 		delete(w.procs, pid)
 	}
@@ -70,7 +88,20 @@ func (w *fakePG) ProcInfo(pid int) (string, string, error) {
 	}
 	return p.stamp, p.comm, nil
 }
+func (w *fakePG) Argv0(pid int) (string, error) {
+	if err := w.errs["Argv0"]; err != nil {
+		return "", err
+	}
+	p := w.procs[pid]
+	if p == nil || p.zombie {
+		return "", errors.New("no such process")
+	}
+	return p.argv0, nil
+}
 func (w *fakePG) PgidOf(pid int) (int, error) {
+	if err := w.errs["PgidOf"]; err != nil {
+		return 0, err
+	}
 	p := w.procs[pid]
 	if p == nil || p.zombie {
 		return 0, errors.New("no such process")
@@ -78,6 +109,17 @@ func (w *fakePG) PgidOf(pid int) (int, error) {
 	return p.pgid, nil
 }
 func (w *fakePG) Members(pgid int) ([]int, error) {
+	w.members++
+	if err := w.errs["Members"]; err != nil {
+		return nil, err
+	}
+	for pid, p := range w.procs { // a killed process leaves a moment after the signal
+		if p.dying > 0 {
+			if p.dying--; p.dying == 0 {
+				w.die(pid, p)
+			}
+		}
+	}
 	var out []int
 	for pid, p := range w.procs {
 		if p.pgid == pgid && !p.zombie {
@@ -86,29 +128,61 @@ func (w *fakePG) Members(pgid int) ([]int, error) {
 	}
 	return out, nil
 }
+
+// die is how a killed process leaves: gone, or (an anchor with zombies on) a zombie that still holds its pid.
+func (w *fakePG) die(pid int, p *fakePGProc) {
+	if w.zombies && p.comm == "sleep" {
+		p.zombie = true
+		return
+	}
+	delete(w.procs, pid)
+}
+func (w *fakePG) kill(pid int, p *fakePGProc) {
+	switch {
+	case p.immune:
+	case w.killDelay > 0:
+		if p.dying == 0 {
+			p.dying = w.killDelay
+		}
+	default:
+		w.die(pid, p)
+	}
+}
 func (w *fakePG) SignalGroup(pgid int, sig syscall.Signal) error {
+	if err := w.errs["SignalGroup"]; err != nil {
+		return err
+	}
 	w.groupSig = append(w.groupSig, fmt.Sprintf("%d:%d", pgid, sig))
+	if sig != syscall.SIGKILL {
+		return nil
+	}
 	for pid, p := range w.procs {
-		if p.pgid == pgid && !p.immune {
-			delete(w.procs, pid)
+		if p.pgid == pgid {
+			w.kill(pid, p)
 		}
 	}
 	return nil
 }
 func (w *fakePG) SignalPid(pid int, sig syscall.Signal) error {
+	if err := w.errs["SignalPid"]; err != nil {
+		return err
+	}
 	w.pidSig = append(w.pidSig, fmt.Sprintf("%d:%d", pid, sig))
-	if p := w.procs[pid]; p != nil && !p.immune {
-		delete(w.procs, pid)
+	if p := w.procs[pid]; p != nil && sig == syscall.SIGKILL {
+		w.kill(pid, p)
 	}
 	return nil
 }
 func (w *fakePG) Prepare(cmd *exec.Cmd, pgid int) error {
+	if err := w.errs["Prepare"]; err != nil {
+		return err
+	}
 	w.prepared = append(w.prepared, pgid)
 	return nil
 }
 
 func (w *fakePG) add(rec UnitRecord, pid int, comm string) *fakePGProc {
-	p := &fakePGProc{stamp: "m", comm: comm, pgid: rec.AnchorPID, sid: 1}
+	p := &fakePGProc{stamp: "m", comm: comm, argv0: comm, pgid: rec.AnchorPID, sid: 1}
 	w.procs[pid] = p
 	return p
 }
@@ -257,6 +331,7 @@ func TestPGroupProveAfterRebootIsGoneBestEffort(t *testing.T) {
 	w := newFakePG()
 	rec, _, _ := createPG(t, w, 7)
 	rec.BootID = "older-boot"
+	delete(w.procs, rec.AnchorPID) // after a reboot nothing of the unit is left: the anchor and the group are gone
 	p, err := proveGroup(w, rec)
 	if err != nil || !p.Gone || !p.BestEffort {
 		t.Fatalf("%+v %v", p, err)
@@ -265,10 +340,12 @@ func TestPGroupProveAfterRebootIsGoneBestEffort(t *testing.T) {
 
 // ----- end -----
 
+// endPG ends the unit as the production wiring does: the record is the witness's (authenticated) one as well as the
+// run directory's.
 func endPG(t *testing.T, w *fakePG, rec UnitRecord, dir RunDir, exclude []uint64) UnitOutcome {
 	t.Helper()
 	usePG(t, w)
-	u := UnitEnder{K: newFakeKernel(), Dir: dir, Cfg: EndConfig{Clock: newStepClock(), Known: func(string, int, string) bool { return true }}}
+	u := UnitEnder{K: newFakeKernel(), Dir: dir, Witness: func(uint64) []UnitRecord { return []UnitRecord{rec} }, Cfg: EndConfig{Clock: newStepClock(), Known: func(string, int, string) bool { return true }}}
 	return u.End(bg, rec.Generation, exclude)
 }
 
@@ -362,9 +439,13 @@ func TestPGroupStopWaitsForABegunOperationInsteadOfKillingAroundIt(t *testing.T)
 	w := newFakePG()
 	rec, dir, _ := createPG(t, w, 7)
 	w.add(rec, 500, "git")
-	endPG(t, w, rec, dir, []uint64{3})
+	out := endPG(t, w, rec, dir, []uint64{3})
 	if len(w.groupSig) != 0 || len(w.pidSig) != 0 || len(w.procs) != 3 {
 		t.Fatalf("the begun operation's command was signalled: %v %v", w.groupSig, w.pidSig)
+	}
+	// an end that did nothing is not an end; the run staying pending is pinned by TestPGroupFlatGroupWithABegunOperationKeepsTheRunPending
+	if out.Kind == UnitBestEffort || out.Kind == UnitEnded || !strings.Contains(out.Note, "not ended") {
+		t.Fatalf("the outcome of an end that did nothing must say so: %+v", out)
 	}
 }
 

@@ -59,7 +59,8 @@ func TestNotDefendedIsTrueForEachOS(t *testing.T) {
 func TestNotDefendedNamesTheProcessGroupLimitsOnDarwin(t *testing.T) {
 	mac := NotDefended("darwin")
 	for _, want := range []string{"does NOT defend", "process group", "best effort", "setsid", "setpgid", "double-forks", "NOT covered",
-		"stopped (best effort: processes that left the group are not covered)", "never a bare"} {
+		"stopped (best effort: processes that left the group are not covered)", "never a bare",
+		"starts on macOS only when all its host checks", "today it does not start there"} {
 		if !strings.Contains(mac, want) {
 			t.Errorf("darwin text lacks %q", want)
 		}

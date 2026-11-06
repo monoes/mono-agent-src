@@ -27,5 +27,8 @@ func peerUID(c net.Conn) (uint32, error) {
 	if gerr != nil {
 		return 0, gerr
 	}
+	if cred.Version != 0 { // XUCRED_VERSION: a structure of another version is not read
+		return 0, errors.New("stop: unexpected peer credential version")
+	}
 	return cred.Uid, nil
 }

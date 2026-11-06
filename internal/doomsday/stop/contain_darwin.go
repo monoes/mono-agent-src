@@ -82,24 +82,62 @@ func (darwinPG) SelfGroup() (int, int, error) {
 }
 
 // StartAnchor runs a blocking system binary as the leader of a new process group (not a new session: see
-// pgroup.go), with no input, no output and no ties to this process.
-func (d darwinPG) StartAnchor() (int, string, error) {
+// pgroup.go), with no input, no output and no ties to this process. It runs under argv0 (the unit's name), which the
+// proof reads back. The start time is read BEFORE the child is released: while it is unreaped its pid cannot be reused.
+// When the start time cannot be read the anchor is ended here and the pid is still returned, so a caller that also
+// ends it (KillAnchor with an empty stamp) finds nothing left.
+func (d darwinPG) StartAnchor(argv0 string) (int, string, error) {
 	cmd := exec.Command("/bin/sleep", "2147483647")
+	cmd.Args[0] = argv0
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		return 0, "", err
 	}
 	pid := cmd.Process.Pid
-	_ = cmd.Process.Release()
 	_, stamp, err := d.stamp(pid)
-	return pid, stamp, err
+	if err != nil || stamp == "" {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+		if err == nil {
+			err = errors.New("the anchor's start time is empty")
+		}
+		return pid, "", err
+	}
+	// reaped in the background once it ends, so a killed anchor does not stay a zombie of a long-lived host
+	go func() { _, _ = cmd.Process.Wait() }()
+	return pid, stamp, nil
 }
 
+// KillAnchor ends the anchor with that start stamp. An empty stamp names the child this process has just started and
+// not reaped: it is accepted only for a process whose parent is this process and that leads a group of its own.
 func (d darwinPG) KillAnchor(pid int, stamp string) error {
-	if _, s, err := d.stamp(pid); err != nil || s != stamp {
-		return nil // gone, or the pid is another process now: nothing of ours to end
+	if pid <= 1 {
+		return fmt.Errorf("refusing to kill process %d", pid)
+	}
+	k, err := kinfo(pid)
+	if err != nil {
+		return nil // gone: nothing of ours to end
+	}
+	if stamp == "" {
+		if int(k.Eproc.Ppid) != os.Getpid() || int(k.Eproc.Pgid) != pid {
+			return nil // not the child we started
+		}
+	} else if stampOf(k) != stamp {
+		return nil // the pid is another process now
 	}
 	return ignoreGone(unix.Kill(pid, unix.SIGKILL))
+}
+
+// Argv0 reads the name the process was started under from kern.procargs2.
+func (darwinPG) Argv0(pid int) (string, error) {
+	if _, err := kinfo(pid); err != nil {
+		return "", err
+	}
+	b, err := unix.SysctlRaw("kern.procargs2", pid)
+	if err != nil {
+		return "", err
+	}
+	return parseProcArgs2(b)
 }
 
 func (d darwinPG) ProcInfo(pid int) (string, string, error) {
@@ -160,15 +198,11 @@ func (darwinPG) Prepare(cmd *exec.Cmd, pgid int) error {
 	return nil
 }
 
-// pgroupHostSteps are what the rest of the mode still needs on macOS and does not have yet: each is a named refusal
-// so the probe says exactly why the mode does not start. The host lock (flock) and the emergency channel's peer
-// credentials (LOCAL_PEERCRED) are implemented; the pinned database binding watches the database file's names with
-// inotify, which macOS does not have.
-func pgroupHostSteps() []ProbeStep {
-	return []ProbeStep{{Name: "pinned database binding", Check: func() error { return ErrPinUnsupported }}}
-}
-
-// SystemHost is nil on macOS: there is no service manager; the Containment creates and ends the unit itself.
+// SystemHost is nil on macOS: there is no service manager; the Containment creates and ends the unit itself. ABSENT
+// (known, not done): with no UnitHost, UnitCreator.Discard (the store refused the entry after the unit was created)
+// refuses and leaves the anchor and the record, and the finish verification sandbox (finishunit.go) refuses outright.
+// Both need a host whose StopUnit proves and ends the group by name; the mode cannot start on macOS before the pinned
+// database binding exists, so neither is reachable yet.
 func SystemHost() UnitHost { return nil }
 
 // DarwinKernel is the Kernel of a macOS host. Only the boot id answers; every cgroup operation refuses, so a

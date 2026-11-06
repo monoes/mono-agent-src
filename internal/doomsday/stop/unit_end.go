@@ -3,6 +3,7 @@ package stop
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -173,6 +174,7 @@ func (u UnitEnder) End(ctx context.Context, gen uint64, exclude []uint64) UnitOu
 	if u.Witness != nil {
 		cands = append(cands, u.Witness(gen)...)
 	}
+	witnessed := append([]UnitRecord(nil), cands...) // the authenticated records: what a mechanism without a namespace may act on
 	rec, ok, err := u.Dir.ReadUnitFile(gen)
 	if err != nil {
 		return UnitOutcome{Kind: UnitNotProven, Note: err.Error()}
@@ -204,7 +206,7 @@ func (u UnitEnder) End(ctx context.Context, gen uint64, exclude []uint64) UnitOu
 		notes = append(notes, "the witness and the run directory file disagree; both named units are ended")
 	}
 	for _, rec := range cands {
-		o := u.endOne(ctx, rec, cfg)
+		o := u.endOne(ctx, rec, cfg, slices.Contains(witnessed, rec))
 		res = mergeOutcome(res, o)
 		if o.Note != "" {
 			notes = append(notes, o.Note)
@@ -218,7 +220,11 @@ func (u UnitEnder) End(ctx context.Context, gen uint64, exclude []uint64) UnitOu
 	return res
 }
 
-func (u UnitEnder) endOne(ctx context.Context, rec UnitRecord, cfg EndConfig) UnitOutcome {
+// witnessOnly is implemented by a Containment whose records are authority to signal only when the witness bound them:
+// a mechanism with no namespace of its own to bound a forged record (the macOS process group).
+type witnessOnly interface{ NeedsWitness() bool }
+
+func (u UnitEnder) endOne(ctx context.Context, rec UnitRecord, cfg EndConfig, authentic bool) UnitOutcome {
 	p, err := ProveUnit(u.K, rec)
 	if err != nil {
 		return UnitOutcome{Kind: UnitNotProven, Note: err.Error()}
@@ -228,6 +234,12 @@ func (u UnitEnder) endOne(ctx context.Context, rec UnitRecord, cfg EndConfig) Un
 			return UnitOutcome{Kind: UnitBestEffort, Note: p.Note}
 		}
 		return UnitOutcome{Kind: UnitEnded, Note: p.Note}
+	}
+	if mk, ok := containments[rec.Kind]; ok && !authentic {
+		if w, ok := mk(u.K, nil).(witnessOnly); ok && w.NeedsWitness() {
+			p.Cg.Close()
+			return UnitOutcome{Kind: UnitNotProven, Note: "the unit " + rec.Name + " is named only by the run directory, not bound in the witness, so it is not signalled"}
+		}
 	}
 	out := EndUnit(p.Cg, cfg)
 	p.Cg.Close() // before the absence check: an open handle keeps a Job Object alive

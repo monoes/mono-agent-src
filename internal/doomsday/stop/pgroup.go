@@ -13,6 +13,15 @@ import (
 	"time"
 )
 
+// pgPause is how the mechanism waits for a signal to take effect (macOS ends a killed process asynchronously); tests
+// replace it so they do not sleep.
+var pgPause = time.Sleep
+
+const (
+	pgRmdirPolls = 20                    // Members is read this many times after the group was killed ...
+	pgRmdirPoll  = 25 * time.Millisecond // ... this far apart, before the group counts as "still holding processes"
+)
+
 // The macOS unit: a PROCESS GROUP led by an ANCHOR process. The anchor (a blocking system binary, run detached) is
 // its own process-group leader, so the group's number is the anchor's pid and, while the anchor lives, nobody else
 // can hold that number. Commands are BORN in the group (SysProcAttr.Pgid), and Stop signals the group and re-sweeps
@@ -20,6 +29,12 @@ import (
 // of the group, is not a member any more and CANNOT BE SEEN from here, so every end of such a unit is
 // UnitBestEffort and never "stopped" bare. There is no launchd job. All OS calls are behind PGroupOS; this file is
 // portable, so the logic is tested on Linux with a fake and only contain_darwin.go touches macOS.
+//
+// The anchor is started under a NAME that carries the unit's generation and nonce (argv[0] of the exec, read back by
+// the proof with kern.procargs2), so a record can only name a process that was started for this unit: the pid and the
+// start time alone would let a forged record aim the kill at any process group of the same user. The key-free
+// run-directory record is never enough to signal anything either: End acts only on a record the witness bound
+// (pgContainment.NeedsWitness, enforced in UnitEnder.End).
 //
 // The anchor is NOT a new session (Setsid): a process can join a process group only inside its own session
 // (setpgid, EPERM across sessions), so a group in a session of its own could not be joined by the commands the host
@@ -35,10 +50,16 @@ type PGroupOS interface {
 	Self() (pid int, stamp string, err error)
 	// SelfGroup is the caller's process group and session.
 	SelfGroup() (pgid, sid int, err error)
-	// StartAnchor starts the detached anchor as the leader of a new process group.
-	StartAnchor() (pid int, stamp string, err error)
+	// StartAnchor starts the detached anchor as the leader of a new process group, under the name argv0. When it
+	// returns an error with a non-zero pid the anchor may be running (its start time could not be read): the caller
+	// ends it with KillAnchor(pid, stamp), and an EMPTY stamp means "the child this process just started and has not
+	// reaped", the one case where a pid is still ours.
+	StartAnchor(argv0 string) (pid int, stamp string, err error)
 	// KillAnchor ends the anchor if pid still has that start stamp (abandoning a unit that was not recorded).
 	KillAnchor(pid int, stamp string) error
+	// Argv0 is the name the process was started under (argv[0]); an error for a process that is absent or only a
+	// zombie, or whose arguments cannot be read.
+	Argv0(pid int) (string, error)
 	// ProcInfo reads the start stamp and name; an error for a process that is absent or only a zombie.
 	ProcInfo(pid int) (stamp, comm string, err error)
 	// PgidOf is the process group of pid; an error for a process that is absent or only a zombie.
@@ -72,7 +93,7 @@ func (c pgContainment) Probe() error {
 	if c.os == nil {
 		return fmt.Errorf("%w: %v", ErrContainmentUnavailable, errNoPGroupOS)
 	}
-	return RunProbe(append(pgSelfTestSteps(c.os), pgroupHostSteps()...))
+	return RunProbeAll(append(pgSelfTestSteps(c.os), macosPendingSteps()...))
 }
 
 // pgSelfTestSteps proves the mechanism works here: an anchor leads a group of its own, is listed as its member and
@@ -81,12 +102,29 @@ func pgSelfTestSteps(o PGroupOS) []ProbeStep {
 	return []ProbeStep{{"process group create and kill", func() error { return pgSelfTest(o) }}}
 }
 
+// macosPendingSteps are what the rest of the mode still needs on macOS and does not have yet; each is a named refusal
+// so the probe says exactly why the mode does not start there. They are portable on purpose: a test pins that the probe
+// fails because of them (deleting one turns it red), and the change that implements one deletes its step AND that
+// expectation. The host lock (flock) and the emergency channel's peer credentials (LOCAL_PEERCRED) exist on macOS; the
+// pinned database binding watches the database file's names with inotify, which macOS does not have.
+func macosPendingSteps() []ProbeStep {
+	return []ProbeStep{{Name: "pinned database binding", Check: func() error {
+		return errors.New("not implemented on macOS yet (it watches the database file's names with inotify)")
+	}}}
+}
+
 func pgSelfTest(o PGroupOS) error {
-	pid, stamp, err := o.StartAnchor()
+	var nb [8]byte
+	if _, err := rand.Read(nb[:]); err != nil {
+		return err
+	}
+	pid, stamp, err := o.StartAnchor(fmt.Sprintf("monoagent-probe-%x", nb))
+	if pid != 0 {
+		defer o.KillAnchor(pid, stamp)
+	}
 	if err != nil {
 		return err
 	}
-	defer o.KillAnchor(pid, stamp)
 	if g, err := o.PgidOf(pid); err != nil || g != pid {
 		return fmt.Errorf("the anchor does not lead a group of its own (%d, %v)", g, err)
 	}
@@ -100,10 +138,15 @@ func pgSelfTest(o PGroupOS) error {
 		if ms, err := o.Members(pid); err == nil && len(ms) == 0 {
 			return nil
 		}
-		time.Sleep(50 * time.Millisecond)
+		pgPause(50 * time.Millisecond)
 	}
 	return errors.New("the group still holds a process after the kill")
 }
+
+// NeedsWitness says End acts on a record of this kind only when the witness bound it: the group number has no
+// namespace of its own to bound a forged record (a cgroup path, a unit-name pattern), so the key-free run-directory
+// file is not authority to signal.
+func (pgContainment) NeedsWitness() bool { return true }
 
 func (c pgContainment) Prove(rec UnitRecord) (Proof, error) {
 	if c.os == nil {
@@ -144,20 +187,28 @@ func proveGroup(o PGroupOS, rec UnitRecord) (Proof, error) {
 	if rec.AnchorPID <= 0 || rec.AnchorStamp == "" || h.Pgid != rec.AnchorPID {
 		return fail("the unit record names no anchor that leads its group")
 	}
-	if boot, err := o.BootID(); err != nil {
-		return fail("the boot id is unreadable: %v", err)
-	} else if boot != rec.BootID {
-		return Proof{Gone: true, BestEffort: true, Note: "the machine rebooted since the unit was recorded"}, nil
+	// The boot time is NOT evidence: kern.boottime moves when the clock is stepped, so a mismatch must not read as "the
+	// machine rebooted, everything is gone". It only explains a failure; the anchor and the group decide.
+	rebooted := false
+	if boot, err := o.BootID(); err == nil && boot != rec.BootID {
+		rebooted = true
 	}
 	if stamp, _, err := o.ProcInfo(rec.AnchorPID); err != nil || stamp != rec.AnchorStamp {
 		ms, merr := o.Members(h.Pgid)
 		switch {
 		case merr != nil:
 			return fail("the group cannot be listed: %v", merr)
+		case len(ms) > 0 && rebooted:
+			return fail("the recorded anchor is gone and the boot time differs, but the group number is held by %d process(es) that are not provably this unit's (after a reboot it may belong to another process: end them by hand)", len(ms))
 		case len(ms) > 0:
 			return fail("the recorded anchor is not alive with its recorded start time, so the group number is not tied to this unit")
 		}
 		return Proof{Gone: true, BestEffort: true, Note: "the process group no longer exists"}, nil
+	}
+	// The anchor was started under this unit's name: a live process with the right pid and start time that carries a
+	// different name is not this unit's anchor, whatever the record says.
+	if a0, err := o.Argv0(rec.AnchorPID); err != nil || a0 != rec.Name {
+		return fail("the recorded anchor process was not started for this unit (its name is %q, %v)", a0, err)
 	}
 	if g, err := o.PgidOf(rec.AnchorPID); err != nil || g != h.Pgid {
 		return fail("the recorded anchor does not lead the recorded group")
@@ -250,7 +301,9 @@ func (g *pgGroup) Populated(string) (bool, error) {
 	return len(pids) > 0, err
 }
 
-// Rmdir is the "unit is empty" step: with no member left it ends the anchor too and checks that the group is gone.
+// Rmdir is the "unit is empty" step: with no member left it ends the anchor too and checks that the group is gone. A
+// signal is delivered asynchronously on macOS, so the group is read again for a short, bounded time before it counts
+// as still holding processes.
 func (g *pgGroup) Rmdir(string) error {
 	if p, err := g.Populated(""); err != nil || p {
 		return fmt.Errorf("the group still holds processes (%v)", err)
@@ -260,11 +313,16 @@ func (g *pgGroup) Rmdir(string) error {
 			return err
 		}
 	}
-	ms, err := g.os.Members(g.pgid)
-	if err != nil || len(ms) > 0 {
-		return fmt.Errorf("the group still holds %d process(es) after its anchor was ended (%v)", len(ms), err)
+	for i := 0; ; i++ {
+		ms, err := g.os.Members(g.pgid)
+		if err == nil && len(ms) == 0 {
+			return nil
+		}
+		if i >= pgRmdirPolls {
+			return fmt.Errorf("the group still holds %d process(es) after its anchor was ended (%v)", len(ms), err)
+		}
+		pgPause(pgRmdirPoll)
 	}
-	return nil
 }
 func (g *pgGroup) Close() error { return nil }
 
@@ -305,15 +363,18 @@ func createPGroup(_ context.Context, o PGroupOS, a CreateArgs, gen uint64) (Unit
 			return UnitRecord{}, fmt.Errorf("%w: the witness refused the unit intent: %v", ErrUnitNotCreated, err)
 		}
 	}
-	apid, astamp, err := o.StartAnchor()
-	if err != nil {
-		return UnitRecord{}, fmt.Errorf("%w: the anchor process could not be started: %v", ErrUnitNotCreated, err)
-	}
+	apid, astamp, err := o.StartAnchor(name)
 	abandon := func(cause error) error {
 		if kerr := o.KillAnchor(apid, astamp); kerr != nil {
 			return fmt.Errorf("%w: %v; the anchor process %d could not be ended either (%v) and is still running", ErrUnitNotCreated, cause, apid, kerr)
 		}
 		return fmt.Errorf("%w: %v", ErrUnitNotCreated, cause)
+	}
+	if err != nil {
+		if apid == 0 {
+			return UnitRecord{}, fmt.Errorf("%w: the anchor process could not be started: %v", ErrUnitNotCreated, err)
+		}
+		return UnitRecord{}, abandon(fmt.Errorf("the anchor process was started but not identified: %v", err))
 	}
 	if g, err := o.PgidOf(apid); err != nil || g != apid {
 		return UnitRecord{}, abandon(fmt.Errorf("the anchor is not the leader of a group of its own (%d, %v)", g, err))
@@ -390,4 +451,28 @@ func (p *pgPlacer) place(cmd *exec.Cmd) (func(), error) {
 		return nil, fmt.Errorf("%w: %v", ErrNotPlaced, err)
 	}
 	return func() {}, nil
+}
+
+// parseProcArgs2 reads argv[0] out of a kern.procargs2 answer: an int32 argc, the executable path, NUL padding, then
+// the argument strings.
+func parseProcArgs2(b []byte) (string, error) {
+	bad := errors.New("the process arguments are not in the expected form")
+	if len(b) < 5 || (b[0]|b[1]|b[2]|b[3]) == 0 {
+		return "", bad
+	}
+	i := 4
+	for i < len(b) && b[i] != 0 { // the executable path
+		i++
+	}
+	for i < len(b) && b[i] == 0 { // its padding
+		i++
+	}
+	j := i
+	for j < len(b) && b[j] != 0 {
+		j++
+	}
+	if j == i || j >= len(b) {
+		return "", bad
+	}
+	return string(b[i:j]), nil
 }
