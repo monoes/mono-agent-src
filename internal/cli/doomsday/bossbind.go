@@ -15,6 +15,11 @@ import (
 // at `start --boss-session`, stored on the session row (doomsday_charter_id, doomsday_generation) once per charter. Another
 // lead mission of the same profile is not it, and a run with no recorded boss has no boss tools.
 
+// bossEligibleSQL is the ONE predicate of what can be a run's boss: a top-level mission (the lead session test also admits
+// direction, research and task sessions a lead starts, which are not a boss), not archived. The check before the start
+// (checkBoss) and the stamp after it (designateBoss) both use it, so a session that passes the first cannot fail the second.
+const bossEligibleSQL = `COALESCE(parent_session_id, 0) = 0 AND archived_at = '' AND kind = 'mission' AND ` + coderhost.LeadSessionSQL
+
 // BossSource is ops.Bosses over the profile's database.
 type BossSource struct {
 	Wiring Wiring
@@ -45,8 +50,7 @@ func (w Wiring) checkBoss(ctx context.Context, session int64) error {
 		return errors.New("no database to check the boss in")
 	}
 	var n int
-	err := w.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_sessions WHERE profile_id = ? AND id = ? AND COALESCE(parent_session_id, 0) = 0
-		AND archived_at = '' AND doomsday_charter_id = '' AND `+coderhost.LeadSessionSQL, w.Profile, session).Scan(&n)
+	err := w.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_sessions WHERE profile_id = ? AND id = ? AND `+bossEligibleSQL+` AND doomsday_charter_id = ''`, w.Profile, session).Scan(&n)
 	if err != nil {
 		return err
 	}
@@ -63,7 +67,7 @@ func (w Wiring) designateBoss(ctx context.Context, session int64, entry Entry) e
 		return errors.New("no database to record the boss in")
 	}
 	res, err := w.DB.ExecContext(ctx, `UPDATE task_sessions SET doomsday_charter_id = ?, doomsday_generation = ?
-		WHERE profile_id = ? AND id = ? AND COALESCE(parent_session_id, 0) = 0 AND archived_at = '' AND doomsday_charter_id = '' AND `+coderhost.LeadSessionSQL+`
+		WHERE profile_id = ? AND id = ? AND `+bossEligibleSQL+` AND doomsday_charter_id = ''`+`
 		AND NOT EXISTS (SELECT 1 FROM task_sessions o WHERE o.profile_id = ? AND o.doomsday_charter_id = ?)`,
 		entry.CharterID, entry.Generation, w.Profile, session, w.Profile, entry.CharterID)
 	if err != nil {

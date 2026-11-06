@@ -25,10 +25,24 @@ func Phrase(lines int, hash string) string {
 	return fmt.Sprintf("I understand: lift %d lines, charter %s", lines, short(hash))
 }
 
-// plain is free text as one safe line of the render: control characters (a newline would forge a line of what the person
-// is asked to read) are shown escaped, and a long text is cut. The hash still covers the real bytes.
-func plain(s string) string {
-	const maxRunes = 2000
+// hiddenRune says whether r is a character that is not shown as itself: a control character, a format character
+// (zero width, bidi overrides, Unicode tag characters), a surrogate, a private-use or unassigned code point, a line or
+// paragraph separator, or a variation selector. A person does not see them; a model may read them.
+func hiddenRune(r rune) bool {
+	switch {
+	case unicode.IsControl(r), unicode.In(r, unicode.Cf, unicode.Cs, unicode.Co, unicode.Zl, unicode.Zp):
+		return true
+	case r >= 0xFE00 && r <= 0xFE0F, r >= 0xE0100 && r <= 0xE01EF, r >= 0xE0000 && r <= 0xE007F: // variation selectors, tags
+		return true
+	}
+	return !unicode.IsPrint(r) && r != ' ' && !unicode.IsSpace(r) // unassigned and the like
+}
+
+// plain is free text as one safe line of the render: hidden characters (a newline would forge a line of what the
+// person is asked to read) are shown escaped, and a long text is cut. The hash still covers the real bytes.
+func plain(s string) string { return plainN(s, 2000) }
+
+func plainN(s string, maxRunes int) string {
 	var b strings.Builder
 	n := 0
 	for _, r := range s {
@@ -37,9 +51,15 @@ func plain(s string) string {
 			break
 		}
 		n++
-		if unicode.IsControl(r) {
-			q := strconv.QuoteRune(r)
-			b.WriteString(q[1 : len(q)-1])
+		if hiddenRune(r) || r == '\n' || r == '\t' || r == '\r' {
+			if r < 0x80 {
+				q := strconv.QuoteRune(r)
+				b.WriteString(q[1 : len(q)-1])
+			} else if r > 0xFFFF {
+				fmt.Fprintf(&b, `\U%08x`, r)
+			} else {
+				fmt.Fprintf(&b, `\u%04x`, r)
+			}
 		} else {
 			b.WriteRune(r)
 		}
@@ -95,8 +115,8 @@ func Render(c Charter, hash string) string {
 	if !c.Has(LinePlatformCaps) {
 		w("  (platform caps are ticked by name only; the \"everything\" preset never ticks them)")
 	}
-	w("Pinned models: boss %s/%s %s, judging policy %s.", c.Pins.Boss.Provider, c.Pins.Boss.Model, c.Pins.Boss.Version, c.Pins.Judging)
-	w("  finishing verifier %s/%s %s.", c.Pins.Verifier.Provider, c.Pins.Verifier.Model, c.Pins.Verifier.Version)
+	w("Pinned models: boss %s/%s %s, judging policy %s.", plain(c.Pins.Boss.Provider), plain(c.Pins.Boss.Model), plain(c.Pins.Boss.Version), plain(c.Pins.Judging))
+	w("  finishing verifier %s/%s %s.", plain(c.Pins.Verifier.Provider), plain(c.Pins.Verifier.Model), plain(c.Pins.Verifier.Version))
 	if p := c.PerAsk; p.AutoApproves() {
 		w("The boss may auto-approve an ask only when it is within: spend %.6f USD, %d tasks, access %q, %d levels below the asker.",
 			float64(p.SpendMicro)/1e6, p.Tasks, p.Access, p.Depth)
