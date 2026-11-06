@@ -3,28 +3,20 @@ package noderegistry
 import (
 	"context"
 	"database/sql"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/apipkg"
 	"github.com/monoes/mono-agent/internal/hilsend"
 	"github.com/monoes/mono-agent/internal/operator"
-	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/vault"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
 func sendsDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := storage.NewDatabase(filepath.Join(t.TempDir(), "sends.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := db.ApplyMigrations(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
+	db := testdb.Open(t)
 	return db.DB
 }
 
