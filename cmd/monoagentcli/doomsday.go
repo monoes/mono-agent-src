@@ -35,6 +35,9 @@ var doomsdayChat func(cfg *globalConfig, d *chatcli.Deps)
 // status). Nil leaves the group as it is.
 var doomsdayExtra func(cfg *globalConfig, grp *cobra.Command, d doomsdaycli.Deps)
 
+// doomsdayFirstTurnHook is nil in every shipped build. Only the e2estub file sets it, to make the first-turn queue fail on demand.
+var doomsdayFirstTurnHook func() error
+
 func newDoomsdayCmd(cfg *globalConfig) *cobra.Command {
 	// Both questions are the turn-aware ones every operator-only verb asks: requireOperator, and opgate.Refusal
 	// (agent tokens, markers, a coder session's turn). doomsday_gate_test.go and the rows of
@@ -80,6 +83,11 @@ func newDoomsdayCmd(cfg *globalConfig) *cobra.Command {
 			},
 			// The first turn is the chat commands' own queue (the user's gate included); this only hands it the run.
 			Queue: func(_ context.Context, conv string, in doomsdaycli.FirstTurn) error {
+				if doomsdayFirstTurnHook != nil { // nil in every shipped build (see doomsday_e2e_stub.go)
+					if err := doomsdayFirstTurnHook(); err != nil {
+						return err
+					}
+				}
 				d := chatDeps(cfg)
 				_, err := chatcli.QueueBossFirstTurn(&d, conv, chatcli.BossFirstTurn{RunID: in.RunID, CharterHash: in.CharterHash, Goal: in.Goal})
 				return err

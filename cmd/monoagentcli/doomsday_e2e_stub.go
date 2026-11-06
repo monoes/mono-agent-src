@@ -21,8 +21,21 @@ import (
 // manager and cgroup tree where the host's containment would be, because a private namespace has neither. No shipped build
 // carries this file; nothing here is reachable without the tag.
 
+// The two switches of the negative runs are files in the scratch HOME, read at every use: .e2e-refuse-entry makes the unit of a
+// run fail to start (the entry is refused after the boss exists), .e2e-fail-first-turn makes the first-turn queue fail.
+func e2eSwitch(name string) bool {
+	_, err := os.Stat(filepath.Join(os.Getenv("HOME"), name))
+	return err == nil
+}
+
 func init() {
 	coderhost.SetOpenModeReady(true)
+	doomsdayFirstTurnHook = func() error {
+		if e2eSwitch(".e2e-fail-first-turn") {
+			return errors.New("e2e stub: the first-turn queue is made to fail")
+		}
+		return nil
+	}
 	doomsdayWiringHook = func(w *doomsdaycli.Wiring) {
 		world := &e2eWorld{}
 		w.Probe = func() error { return nil }
@@ -42,6 +55,9 @@ type e2eWorld struct {
 }
 
 func (w *e2eWorld) StartUnit(context.Context, string, string) error {
+	if e2eSwitch(".e2e-refuse-entry") {
+		return errors.New("e2e stub: the unit is made to fail")
+	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.present = true
