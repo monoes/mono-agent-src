@@ -12,6 +12,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
 
@@ -104,6 +105,11 @@ func makeBoss(ctx context.Context, db *sql.DB, profile, front, goal string) (Bos
 	}
 	if fc.Scoped() {
 		return BossRef{}, clicore.InvalidInput("chat %s is a scoped chat; an open-ended run needs a coder chat", front)
+	}
+	if mode, err := coderhost.ChatModeIn(ctx, db, profile, front); err != nil {
+		return BossRef{}, err
+	} else if mode != coderhost.ChatModeOpen {
+		return BossRef{}, clicore.InvalidInput("chat %s's mode is %s; a boss stands behind a chat whose mode is open (it is chosen before the first message and cannot change afterwards): nothing was made", front, mode)
 	}
 	key := tasks.BossClientID(front)
 	if ref, ok, err := existingBoss(ctx, db, profile, front, key); err != nil || ok {

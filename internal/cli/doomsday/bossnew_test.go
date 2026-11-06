@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/ai"
+	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
@@ -31,6 +32,10 @@ func newBossRig(t *testing.T) *bossRig {
 	if _, err := db.DB.Exec(`INSERT OR IGNORE INTO profiles (id, name) VALUES ('p1', 'P1')`); err != nil {
 		t.Fatal(err)
 	}
+	// The open mode's availability is the seam T3 fills in; a chat can only be made open while it says yes.
+	was := coderhost.OpenModeAvailability
+	coderhost.OpenModeAvailability = func() (bool, string) { return true, "" }
+	t.Cleanup(func() { coderhost.OpenModeAvailability = was })
 	st, err := ai.NewAIStore(db.DB)
 	if err != nil {
 		t.Fatal(err)
@@ -38,7 +43,13 @@ func newBossRig(t *testing.T) *bossRig {
 	return &bossRig{db: db, store: st}
 }
 
+// chat is a chat in the open mode, the only one a boss stands behind.
 func (r *bossRig) chat(t *testing.T, access string) ai.Conversation {
+	t.Helper()
+	return r.chatIn(t, access, coderhost.ChatModeOpen)
+}
+
+func (r *bossRig) chatIn(t *testing.T, access, mode string) ai.Conversation {
 	t.Helper()
 	cwd := ""
 	if access != ai.AccessScoped {
@@ -47,6 +58,11 @@ func (r *bossRig) chat(t *testing.T, access string) ai.Conversation {
 	c, err := r.store.CreateConversationAccess("p1", "agent", "general", "claude", "", "sonnet", access, cwd, "high")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if mode != coderhost.ChatModeOff && access != ai.AccessScoped {
+		if err := coderhost.NewStore(r.db.DB).SetChatMode("p1", c.ID, mode); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return c
 }
@@ -164,5 +180,34 @@ func TestBossNewRefusals(t *testing.T) {
 	}
 	if c, s := count(); c != c0 || s != s0 {
 		t.Fatal("a refused caller created rows")
+	}
+}
+
+// A boss stands behind a chat whose mode is open, chosen before its first message: an off chat, a mission chat and a
+// chat that does not exist get a clear refusal and nothing is created.
+func TestBossNewNeedsAnOpenChat(t *testing.T) {
+	r := newBossRig(t)
+	count := func() (c, se int) {
+		_ = r.db.DB.QueryRow(`SELECT COUNT(*) FROM ai_chat_conversations`).Scan(&c)
+		_ = r.db.DB.QueryRow(`SELECT COUNT(*) FROM task_sessions`).Scan(&se)
+		return
+	}
+	for _, mode := range []string{coderhost.ChatModeOff, coderhost.ChatModeMission} {
+		front := r.chatIn(t, ai.AccessFull, mode)
+		c0, s0 := count()
+		out, err := r.run("new", "--conversation", front.ID)
+		if err == nil || !strings.Contains(err.Error(), "mode is "+mode) || !strings.Contains(err.Error(), "open") {
+			t.Fatalf("%s chat: %v %s", mode, err, out)
+		}
+		if c, s := count(); c != c0 || s != s0 {
+			t.Fatalf("%s chat created rows", mode)
+		}
+	}
+	if _, err := r.run("new", "--conversation", "no-such-chat"); err == nil || !strings.Contains(err.Error(), "no chat") {
+		t.Fatalf("missing chat: %v", err)
+	}
+	open := r.chatIn(t, ai.AccessFull, coderhost.ChatModeOpen)
+	if ref := r.newBoss(t, open.ID); ref.SessionID == 0 {
+		t.Fatalf("open chat: %+v", ref)
 	}
 }
