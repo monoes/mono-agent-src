@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -151,12 +153,21 @@ func TestGrantModeRefusalRowsAreLimitedPerNamePerMinute(t *testing.T) {
 	if n := refusalRows(t, f); n != 3 {
 		t.Fatalf("%d rows a minute later, want 3", n)
 	}
-	for i := 0; i < grantRefusalMaxNames*2; i++ {
+	oldMax := grantRefusalMaxNames
+	grantRefusalMaxNames = 4
+	t.Cleanup(func() { grantRefusalMaxNames = oldMax })
+	for i := 0; i < 12; i++ {
 		refuseOnce(t, f.server, context.Background(), "flood_"+strconv.Itoa(i))
 		f.server.refusals.wait()
 	}
-	if n := refusalRows(t, f); n > 3+grantRefusalMaxNames {
-		t.Fatalf("%d rows after a flood of distinct names, want at most %d", n, 3+grantRefusalMaxNames)
+	f.server.refusals.mu.Lock()
+	remembered := len(f.server.refusals.last)
+	f.server.refusals.mu.Unlock()
+	if remembered > 4 {
+		t.Fatalf("%d names remembered, cap is 4", remembered)
+	}
+	if n := refusalRows(t, f); n > 3+4 { // the three earlier rows, then at most the cap
+		t.Fatalf("%d rows after a flood of distinct names, want at most 7", n)
 	}
 }
 
@@ -225,5 +236,127 @@ func TestGrantModeUnsetEnvironmentBeatsUnknownGrant(t *testing.T) {
 	_, err := f.server.callGrantTool(context.Background(), "automation_publish", nil)
 	if err == nil || !strings.HasPrefix(err.Error(), codeRefusedGrant) || !strings.Contains(err.Error(), "MONOMIND_ORG_NAME") {
 		t.Fatalf("got %v, want the MONOMIND_ORG_NAME refusal", err)
+	}
+}
+
+// stall makes the abandonable work block until release() at the given hook,
+// reporting when it got there.
+func stall(t *testing.T, hook *func()) (entered <-chan struct{}, release func()) {
+	t.Helper()
+	in, gate := make(chan struct{}, 8), make(chan struct{})
+	*hook = func() { in <- struct{}{}; <-gate }
+	var once sync.Once
+	release = func() { once.Do(func() { close(gate) }) }
+	t.Cleanup(func() { release(); *hook = nil })
+	return in, release
+}
+
+func shortLedger(t *testing.T, d time.Duration) {
+	t.Helper()
+	old := grantRefusalLedgerTimeout
+	grantRefusalLedgerTimeout = d
+	t.Cleanup(func() { grantRefusalLedgerTimeout = old })
+}
+
+func runtimeBuilt(s *Server) bool {
+	s.rtMu.Lock()
+	defer s.rtMu.Unlock()
+	return s.rt != nil
+}
+
+// Work that outlives its deadline and the server's close builds no runtime.
+func TestGrantModeAbandonedRefusalWorkBuildsNoRuntimeAfterClose(t *testing.T) {
+	shortLedger(t, 20*time.Millisecond)
+	f := newGrantFixture(t, orggrant.Tool{Wait: true})
+	f.server.closeRuntime() // the fixture may have built none; start closed
+	entered, release := stall(t, &grantRefusalBeforeScope)
+	refuseOnce(t, f.server, context.Background(), "task_list")
+	<-entered
+	f.server.refusals.wait() // the deadline passes with the work still stalled
+	f.server.closeRuntime()
+	release()
+	f.server.refusals.work.Wait()
+	if runtimeBuilt(f.server) {
+		t.Fatal("abandoned work rebuilt the runtime after closeRuntime")
+	}
+}
+
+// A stalled write that returns after closeRuntime closed the database neither
+// panics nor writes.
+func TestGrantModeAbandonedRefusalWorkSurvivesAClosedDatabase(t *testing.T) {
+	shortLedger(t, 500*time.Millisecond)
+	f := newGrantFixture(t, orggrant.Tool{Wait: true})
+	if _, err := f.server.runtime(); err != nil { // built up front: the scope read is then quick
+		t.Fatal(err)
+	}
+	entered, release := stall(t, &grantRefusalAfterScope)
+	refuseOnce(t, f.server, context.Background(), "task_list")
+	<-entered
+	f.server.refusals.wait()
+	f.server.closeRuntime()
+	release()
+	f.server.refusals.work.Wait() // a panic here would fail the run
+	var n int
+	if err := f.db.DB.QueryRow(`SELECT COUNT(*) FROM org_bridge_calls WHERE status = 'refused_grant'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("%d rows written through a closed runtime", n)
+	}
+}
+
+// One write is in flight at a time: a second refusal while the first is
+// stalled starts no second one.
+func TestGrantModeRefusalRowsAreSingleFlight(t *testing.T) {
+	shortLedger(t, 10*time.Second)
+	f := newGrantFixture(t, orggrant.Tool{Wait: true})
+	var started int32
+	entered, release := stall(t, &grantRefusalBeforeScope)
+	inner := grantRefusalBeforeScope
+	grantRefusalBeforeScope = func() { atomic.AddInt32(&started, 1); inner() }
+	refuseOnce(t, f.server, context.Background(), "task_list")
+	<-entered
+	refuseOnce(t, f.server, context.Background(), "task_next")
+	refuseOnce(t, f.server, context.Background(), "api_status")
+	if f.server.refusals.admit("another_name") {
+		f.server.refusals.release()
+		t.Fatal("a second write slot was handed out while one write was in flight")
+	}
+	if n := atomic.LoadInt32(&started); n != 1 {
+		t.Fatalf("%d writes started while one was in flight, want 1", n)
+	}
+	release()
+	f.server.refusals.wait()
+}
+
+// closeRuntime waits for the write that holds the slot, up to its deadline.
+func TestGrantModeCloseRuntimeWaitsForTheRefusalWrite(t *testing.T) {
+	shortLedger(t, 300*time.Millisecond)
+	f := newGrantFixture(t, orggrant.Tool{Wait: true})
+	entered, release := stall(t, &grantRefusalBeforeScope)
+	refuseOnce(t, f.server, context.Background(), "task_list")
+	<-entered
+	start := time.Now()
+	f.server.closeRuntime()
+	if d := time.Since(start); d < 150*time.Millisecond {
+		t.Fatalf("closeRuntime returned after %v without waiting for the write", d)
+	}
+	release()
+	f.server.refusals.work.Wait()
+}
+
+// A name whose write failed is not remembered, so the next refusal retries.
+func TestGrantModeFailedRefusalWriteIsNotRemembered(t *testing.T) {
+	s := brokenDBServer(t)
+	t.Setenv("MONOMIND_ORG_NAME", "growth")
+	t.Setenv("MONOMIND_ORG_ROLE", "writer")
+	refuseOnce(t, s, context.Background(), "task_list")
+	s.refusals.wait()
+	s.refusals.work.Wait()
+	s.refusals.mu.Lock()
+	n := len(s.refusals.last)
+	s.refusals.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("%d names remembered after a failed write", n)
 	}
 }

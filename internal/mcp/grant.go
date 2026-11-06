@@ -75,6 +75,12 @@ func metaFrom(ctx context.Context) callMeta {
 // provider args in the org JSON — so an unset variable must refuse rather
 // than wave the call through.
 func (s *Server) grantScope(ctx context.Context) (*orggrant.Bundle, *runtime, error) {
+	return s.grantScopeAt(ctx, nil)
+}
+
+// grantScopeAt is grantScope; with an epoch it builds no runtime after
+// closeRuntime (see runtimeAt).
+func (s *Server) grantScopeAt(ctx context.Context, epoch *uint64) (*orggrant.Bundle, *runtime, error) {
 	// The refusals that need no grant row come first, so they hold with no
 	// database access and whatever the state of ctx: the profile flag and
 	// the environment are the process's own, not the bundle's.
@@ -88,11 +94,15 @@ func (s *Server) grantScope(ctx context.Context) (*orggrant.Bundle, *runtime, er
 	if role == "" {
 		return nil, nil, fmt.Errorf("%s: grant mode needs MONOMIND_ORG_ROLE in the environment; monomind sets it for a role's tool provider", codeRefusedGrant)
 	}
-	rt, err := s.runtime()
+	rt, err := s.runtimeAt(epoch)
 	if err != nil {
 		return nil, nil, err
 	}
-	b, err := orggrant.NewStore(rt.db.DB).ResolveBundle(ctx, s.opts.Grant)
+	db := rt.sqlDB()
+	if db == nil {
+		return nil, nil, errRuntimeClosed
+	}
+	b, err := orggrant.NewStore(db).ResolveBundle(ctx, s.opts.Grant)
 	if errors.Is(err, orggrant.ErrNotFound) {
 		return nil, nil, fmt.Errorf("%s: grant %s does not exist", codeRefusedGrant, s.opts.Grant)
 	}
@@ -100,7 +110,7 @@ func (s *Server) grantScope(ctx context.Context) (*orggrant.Bundle, *runtime, er
 		return nil, nil, err
 	}
 	// --profile is an id or a name; compare ids.
-	want, err := resolveProfileID(rt.db.DB, s.opts.Profile)
+	want, err := resolveProfileID(db, s.opts.Profile)
 	if err != nil {
 		return nil, nil, fmt.Errorf("%s: %v", codeRefusedGrant, err)
 	}

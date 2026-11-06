@@ -146,6 +146,7 @@ func (s *Server) closeRuntime() {
 	s.refusals.wait() // an in-flight refusal row would otherwise rebuild the runtime just closed
 	s.rtMu.Lock()
 	rt := s.rt
+	s.epoch++
 	s.rt = nil // a later Serve builds a new runtime; a closed one has no database to resolve a profile with
 	s.rtMu.Unlock()
 	rt.Close()

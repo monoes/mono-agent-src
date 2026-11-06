@@ -21,8 +21,15 @@ const (
 	grantRefusalEvery = time.Minute
 	// grantRefusalMaxNames caps the names remembered; a flood of distinct
 	// names beyond it writes nothing more until entries age out.
-	grantRefusalMaxNames = 128
+	grantRefusalMaxNamesDefault = 128
 )
+
+// grantRefusalMaxNames is the cap on remembered names (a var for tests).
+var grantRefusalMaxNames = grantRefusalMaxNamesDefault
+
+// Test hooks: called by the abandonable work before the runtime is opened
+// and after the scope is resolved.
+var grantRefusalBeforeScope, grantRefusalAfterScope func()
 
 // refusalLog limits and tracks the ledger rows of never-served names. Its
 // zero value is ready. One write is in flight at a time; a refusal that finds
@@ -31,7 +38,8 @@ type refusalLog struct {
 	mu   sync.Mutex
 	last map[string]time.Time
 	busy bool
-	wg   sync.WaitGroup
+	wg   sync.WaitGroup // the slot holder: held at most grantRefusalLedgerTimeout
+	work sync.WaitGroup // the abandonable work itself (tests wait on it)
 }
 
 // admit reports whether a row for this name may be written now, and takes the
@@ -59,7 +67,6 @@ func (l *refusalLog) admit(name string) bool {
 			return false
 		}
 	}
-	l.last[name] = now
 	l.busy = true
 	l.wg.Add(1)
 	return true
@@ -72,7 +79,20 @@ func (l *refusalLog) release() {
 	l.wg.Done()
 }
 
-// wait returns when no row write is in flight.
+// mark remembers a name whose row was written, so a failed or dropped write
+// does not silence the next refusal of it.
+func (l *refusalLog) mark(name string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.last == nil {
+		l.last = map[string]time.Time{}
+	}
+	if len(l.last) < grantRefusalMaxNames || l.last[name] != (time.Time{}) {
+		l.last[name] = grantRefusalNow()
+	}
+}
+
+// wait returns when no row write holds the slot (at most the timeout).
 func (l *refusalLog) wait() { l.wg.Wait() }
 
 // record leaves, in the background, the ledger row a refused tool call has
@@ -87,25 +107,48 @@ func (l *refusalLog) record(s *Server, name string) {
 	if !l.admit(name) {
 		return
 	}
+	epoch := s.currentEpoch()
+	l.work.Add(1)
 	go func() {
 		defer l.release()
 		ctx, cancel := context.WithTimeout(context.Background(), grantRefusalLedgerTimeout)
 		defer cancel()
 		// The driver may not honour ctx while it waits on a lock, so the
-		// work runs apart and is abandoned at the deadline: the slot and
-		// wait() are held for at most grantRefusalLedgerTimeout.
+		// work runs apart and is abandoned at the deadline. It builds no
+		// runtime once closeRuntime has run, reads the database handle once
+		// under the runtime's lock, and never panics the process.
 		done := make(chan struct{})
 		go func() {
+			defer l.work.Done()
 			defer close(done)
-			b, rt, err := s.grantScope(ctx)
+			defer func() { _ = recover() }()
+			if grantRefusalBeforeScope != nil {
+				grantRefusalBeforeScope()
+			}
+			b, rt, err := s.grantScopeAt(ctx, &epoch)
 			if err != nil {
 				return
 			}
-			_ = orgbridge.NewLedger(rt.db.DB).Refuse(ctx, orgbridge.Call{ProfileID: b.ProfileID, Direction: orgbridge.DirRoleTool, OrgName: b.OrgName, RoleID: b.RoleID, GrantID: b.ID}, orgbridge.StatusRefusedGrant)
+			if grantRefusalAfterScope != nil {
+				grantRefusalAfterScope()
+			}
+			db := rt.sqlDB()
+			if db == nil {
+				return
+			}
+			if orgbridge.NewLedger(db).Refuse(ctx, orgbridge.Call{ProfileID: b.ProfileID, Direction: orgbridge.DirRoleTool, OrgName: b.OrgName, RoleID: b.RoleID, GrantID: b.ID}, orgbridge.StatusRefusedGrant) == nil {
+				l.mark(name)
+			}
 		}()
 		select {
 		case <-done:
 		case <-ctx.Done():
 		}
 	}()
+}
+
+func (s *Server) currentEpoch() uint64 {
+	s.rtMu.Lock()
+	defer s.rtMu.Unlock()
+	return s.epoch
 }

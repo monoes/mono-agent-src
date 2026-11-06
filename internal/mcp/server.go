@@ -165,6 +165,8 @@ type Server struct {
 	// separate goroutines, so concurrent tools/call invocations may race
 	// to build the runtime on first use.
 	rtMu sync.Mutex
+	// epoch counts closeRuntime calls, under rtMu (see runtimeAt).
+	epoch uint64
 
 	// refusals rate-limits and tracks the ledger rows of never-served
 	// grant-mode names (grant_refusal.go).
