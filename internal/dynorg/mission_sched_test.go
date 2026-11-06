@@ -266,13 +266,19 @@ func TestMissionBudgetWarnsAt90AndHaltsAt100(t *testing.T) {
 	if n := countNotices(r.em, "mission.budget_90"); n != 1 {
 		t.Fatalf("and only once: %d", n)
 	}
+	r.em.lagCode, r.em.lag = "mission.budget_halt", 300*time.Millisecond // the watcher halts first and tells the operator a moment later
 	spend(0.95)
+	eventually(t, "the watcher's halt", func() bool { return r.session().State == tasks.SessionPaused })
 	res = r.next(r.c)
-	if !strings.Contains(res.Note, "halted") || r.session().State != tasks.SessionPaused {
+	// The watcher may have paused the session before this call (then the note says it is paused) or not yet (then it says halted).
+	if !(strings.Contains(res.Note, "halted") || strings.Contains(res.Note, "paused")) || r.session().State != tasks.SessionPaused {
 		t.Fatalf("at 100 percent the mission halts (session %s): %+v", r.session().State, res)
 	}
+	// Whoever halted first tells the operator after the pause, so the notice may land a moment after next returns.
+	eventually(t, "the halt notice", func() bool { return countNotices(r.em, "mission.budget_halt") >= 1 })
+	r.next(r.c)
 	if n := countNotices(r.em, "mission.budget_halt"); n != 1 {
-		t.Fatalf("halt notice: %d", n)
+		t.Fatalf("the halt notice goes out once: %d", n)
 	}
 }
 

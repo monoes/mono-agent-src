@@ -84,6 +84,7 @@ func TestChatEvents_EveryConversationColumnHasADecision(t *testing.T) {
 		"coder_session_turn_caps.conversation_id":        "deleted",
 		"coder_sessions.conversation_id":                 "deleted",
 		"coder_sessions.parent_conversation_id":          "children detached to solo",
+		"org_proposals.conversation_id":                  "kept on purpose: a LABEL the proposer chose, never ownership; a pending row expires after 30 minutes and decided rows are purged after 30 days; confirm trusts the row and its hash, not the conversation; deleting a conversation leaves its pending proposals until they expire, and they cannot be confirmed from the GUI card because the card is mounted from the conversation (the CLI can list and decline them)",
 		"task_sessions.conversation_id":                  "open: a mission session of the deleted lead keeps running",
 	}
 	rows, err := db.Query(`SELECT m.name || '.' || p.name FROM sqlite_master m, pragma_table_info(m.name) p WHERE m.type = 'table' AND (p.name LIKE '%conversation%' OR m.name || '.' || p.name IN ('coder_session_spawns.parent', 'coder_session_spawns.child', 'coder_spawn_advice.spawner', 'coder_spawn_intents.spawner', 'coder_spawn_intents.child', 'coder_session_asks.asker_conv', 'coder_session_asks.ancestor_conv'))`)
