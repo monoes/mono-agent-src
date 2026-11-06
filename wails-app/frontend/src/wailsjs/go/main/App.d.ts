@@ -232,9 +232,15 @@ export function DoctorAutomations(arg1:string):Promise<string>;
 
 export function DoomsdayFeed(arg1:number,arg2:number):Promise<string>;
 
+export function DoomsdayOpenEntry():Promise<string>;
+
 export function DoomsdayOverview():Promise<string>;
 
 export function DoomsdayProbe():Promise<string>;
+
+export function DoomsdayRender(arg1:string):Promise<string>;
+
+export function DoomsdayStart(arg1:string,arg2:string,arg3:number):Promise<string>;
 
 export function DoomsdayStop():Promise<string>;
 

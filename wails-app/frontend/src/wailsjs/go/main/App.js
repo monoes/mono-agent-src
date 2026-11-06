@@ -458,12 +458,24 @@ export function DoomsdayFeed(arg1, arg2) {
   return window['go']['main']['App']['DoomsdayFeed'](arg1, arg2);
 }
 
+export function DoomsdayOpenEntry() {
+  return window['go']['main']['App']['DoomsdayOpenEntry']();
+}
+
 export function DoomsdayOverview() {
   return window['go']['main']['App']['DoomsdayOverview']();
 }
 
 export function DoomsdayProbe() {
   return window['go']['main']['App']['DoomsdayProbe']();
+}
+
+export function DoomsdayRender(arg1) {
+  return window['go']['main']['App']['DoomsdayRender'](arg1);
+}
+
+export function DoomsdayStart(arg1, arg2, arg3) {
+  return window['go']['main']['App']['DoomsdayStart'](arg1, arg2, arg3);
 }
 
 export function DoomsdayStop() {
