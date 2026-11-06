@@ -104,3 +104,12 @@ func withChat(doc string, c *Conversation) string {
 	b, _ := json.Marshal(m)
 	return strings.TrimSpace(string(b))
 }
+
+// docState is the state of a start document ("started", "not_started" or "unknown"), "" when it cannot be read.
+func docState(doc string) string {
+	var d struct {
+		State string `json:"state"`
+	}
+	_ = json.Unmarshal([]byte(doc), &d)
+	return d.State
+}

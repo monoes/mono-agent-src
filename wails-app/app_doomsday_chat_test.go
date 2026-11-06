@@ -111,3 +111,38 @@ func TestTheNewChatTextShowsEverythingThatIsMade(t *testing.T) {
 		t.Errorf("defaults are not shown: %q", d.text)
 	}
 }
+
+// A start that did not happen removes the chat it made (the guarded delete), so failed attempts pile up no empty chats; one that
+// may have started keeps it (the run's boss stands behind it); a delete that fails hands the chat to the page.
+func TestAFailedStartRemovesTheChatItMade(t *testing.T) {
+	script := func(startBody, deleteBody string) string {
+		return `case "$*" in *"create --workflow"*) echo '{"id":"new-chat-1","runtimeId":"claude","access":"full","cwd":"/tmp/work","mode":"coder"}';; *"history delete"*) ` + deleteBody + `;; *) ` + startBody + `;; esac`
+	}
+	refused := `echo '{"error":"the entry is refused","code":"invalid_input"}'; exit 3`
+	for name, c := range map[string]struct {
+		start, del string
+		wantDelete bool
+		wantChat   bool
+		wantState  string
+	}{
+		"refused":               {refused, "echo ok", true, false, "not_started"},
+		"refused, delete fails": {refused, "echo no >&2; exit 1", true, true, "not_started"},
+		"unknown":               {"sleep 0; kill -9 $$", "echo ok", false, true, "unknown"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			g := newGrantRig(t)
+			g.startBehaves(script(c.start, c.del))
+			tok := g.renderFor(dmCharter, "", newChatSpec)
+			raw := g.a.DoomsdayStart(dmCharter, gPhrase, tok, "", newChatSpec)
+			var d struct {
+				State string          `json:"state"`
+				Chat  json.RawMessage `json:"chat"`
+			}
+			_ = json.Unmarshal([]byte(raw), &d)
+			deleted := strings.Contains(readFile(t, g.log), "delete|")
+			if d.State != c.wantState || deleted != c.wantDelete || (len(d.Chat) > 0) != c.wantChat {
+				t.Fatalf("state=%q deleted=%v chat=%s raw=%s", d.State, deleted, d.Chat, raw)
+			}
+		})
+	}
+}

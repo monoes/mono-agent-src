@@ -298,7 +298,15 @@ func (a *App) DoomsdayStart(charterJSON, phrase, token, chatID, chatSpec string)
 		}
 		created, chatID = &conv, conv.ID
 	}
-	return withChat(a.startRun(pid, charterJSON, phrase, chatID), created)
+	doc := a.startRun(pid, charterJSON, phrase, chatID)
+	if created != nil && docState(doc) == "not_started" {
+		// A start that did not happen leaves no empty full-access chat of its own making: it goes by the app's guarded delete (the
+		// CLI's, which refuses a chat with an active turn). If that fails the chat is handed to the page instead, so it is seen.
+		if res, derr := a.DeleteChatConversations([]string{created.ID}); derr == nil && len(res.Deleted) == 1 {
+			created = nil
+		}
+	}
+	return withChat(doc, created)
 }
 
 // startRun runs the CLI's start for the chat and turns its end into the start document.
