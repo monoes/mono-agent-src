@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/vault"
 )
 
@@ -57,6 +58,7 @@ func testDeps(cfg *testConfig) Deps {
 	d.JSONOutput = func() bool { return cfg.JSONOutput }
 	d.ProfileID = func() string { return cfg.ProfileID }
 	d.OpenDB = func() (*storage.Database, error) {
+		testdb.MustSeed(cfg.DBPath)
 		db, err := storage.NewDatabase(cfg.DBPath)
 		if err != nil {
 			return nil, err
@@ -102,6 +104,7 @@ func newProfileDocsCLITestDB(t *testing.T) string {
 	// let it finish before HOME is removed.
 	t.Cleanup(vault.Wait)
 	dbPath := filepath.Join(t.TempDir(), "cli-profile-test.db")
+	testdb.MustSeed(dbPath)
 	db, err := storage.NewDatabase(dbPath)
 	if err != nil {
 		t.Fatalf("NewDatabase: %v", err)
