@@ -147,3 +147,4 @@
 161_org_proposals.sql
 162_org_proposals_revoke.sql
 163_coder_sessions_chat_mode.sql
+164_mission_goals.sql
