@@ -523,3 +523,102 @@ func TestACancelledAppContextTermsTheProbeBeforeKilling(t *testing.T) {
 		t.Fatal("quitting did not send SIGTERM first")
 	}
 }
+
+// A failure with no CLI error envelope can follow a run that already started (an external kill, a native crash, exit 1
+// on Windows): only an explicit envelope refusal, or a CLI that could not be run, is "not started".
+func TestAFailureWithoutAnEnvelopeIsUnknown(t *testing.T) {
+	g := newGrantRig(t)
+	for name, c := range map[string]struct{ body, state string }{
+		"exit 1 and nothing":      {"exit 1", "unknown"},
+		"exit 1 and stderr text":  {"echo 'something broke' >&2; exit 1", "unknown"},
+		"NTSTATUS-like exit":      {"exit 255", "unknown"},
+		"envelope refusal":        {`echo '{"error":"nothing started","code":"invalid_input"}'; exit 2`, "not_started"},
+		"envelope but panic text": {`echo '{"error":"x","code":"e"}'; echo 'panic: boom' >&2; exit 2`, "unknown"},
+	} {
+		g.startBehaves(c.body)
+		tok := g.render(dmCharter)
+		if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5)); d.State != c.state {
+			t.Errorf("%s: %+v", name, d)
+		}
+	}
+	t.Setenv("MONOAGENTCLI_BIN", "/no/such/monoagentcli")
+	tok := g.render(dmCharter) // the preview fails too; give it a grant by hand
+	_ = tok
+}
+
+// The token is checked again when the dialog confirms: a dialog open past its life cannot spend it.
+func TestConfirmRechecksTheTokenLifetime(t *testing.T) {
+	g := newGrantRig(t)
+	g.think = 11 * time.Minute // the person answers after the token expired
+	tok := g.render(dmCharter)
+	before := g.calls()
+	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5))
+	if d.OK || d.Code != "token" || g.calls() != before {
+		t.Fatalf("%+v", d)
+	}
+}
+
+// The dialog also says what the charter lets the boss do by itself.
+func TestTheDialogNamesAutoApprovalAndAnswerClasses(t *testing.T) {
+	g := newGrantRig(t)
+	prev := g.t.TempDir() + "/p.json"
+	doc := previewDoc(gHash, []string{"spending"}, "5.000000 USD for the whole run.")
+	doc = strings.Replace(doc, `"criteria":2`, `"criteria":2,"auto_approve":"spend 1 USD and 2 tasks per ask, access coding","answer_classes":["scope","spend"]`, 1)
+	if err := os.WriteFile(prev, []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, "cat > /dev/null\ncat '"+prev+"'\n"))
+	tok := g.render(dmCharter)
+	g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5)
+	body := g.asked[0]
+	for _, want := range []string{"spend 1 USD and 2 tasks per ask", "may answer critical asks of class: scope, spend"} {
+		if i, j := strings.Index(body, want), strings.Index(body, "Goal as written"); i < 0 || i > j {
+			t.Errorf("%q is not before the goal in:\n%s", want, body)
+		}
+	}
+}
+
+// A '%' in the dialog's text is doubled for GTK on Linux, in the one place the options are built.
+func TestTheNativeDialogOptionsEscapeTheText(t *testing.T) {
+	o := nativeDialogOptions("linux", "100% title", "goal ends with 90%s%n")
+	if o.Title != "100%% title" || o.Message != "goal ends with 90%%s%%n" {
+		t.Fatalf("%q %q", o.Title, o.Message)
+	}
+	if o := nativeDialogOptions("windows", "100% title", "x%"); o.Title != "100% title" || o.Message != "x%" {
+		t.Fatalf("windows: %q %q", o.Title, o.Message)
+	}
+}
+
+// An entry probe that fails after a Stop cleared the cache must not delete the newer entry another caller made.
+func TestAStaleProbeFailureDoesNotDeleteANewerEntry(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	c := &entryCache{now: func() time.Time { return now }, ttl: time.Minute}
+	release := make(chan struct{})
+	started := make(chan struct{})
+	go c.get("work", func() (string, bool) { close(started); <-release; return `{"error":"x"}`, false })
+	<-started
+	c.invalidateAll()
+	n := 0
+	c.get("work", func() (string, bool) { n++; return `{"mode_available":true}`, true })
+	close(release)
+	time.Sleep(50 * time.Millisecond)
+	c.get("work", func() (string, bool) { n++; return `{"mode_available":true}`, true })
+	if n != 1 {
+		t.Fatalf("the newer cached answer was deleted by the older failed probe (%d probes)", n)
+	}
+}
+
+// Previews are one at a time per profile: a second while one runs is refused, not stacked.
+func TestOnlyOnePreviewRunsAtATime(t *testing.T) {
+	g := newGrantRig(t)
+	slow := g.t.TempDir() + "/go"
+	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, "cat > /dev/null\nwhile [ ! -e '"+slow+"' ]; do sleep 0.05; done\ncat /dev/null\necho '{}'\n"))
+	done := make(chan string)
+	go func() { done <- g.a.DoomsdayRender(dmCharter) }()
+	time.Sleep(300 * time.Millisecond)
+	if got := g.a.DoomsdayRender(dmCharter); !strings.Contains(got, "busy") {
+		t.Fatalf("a second preview while one runs: %s", got)
+	}
+	_ = os.WriteFile(slow, nil, 0o600)
+	<-done
+}

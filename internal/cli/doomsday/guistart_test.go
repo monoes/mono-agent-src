@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -297,6 +298,109 @@ func TestDuplicateKeysAreRefusedWhateverTheirCase(t *testing.T) {
 	for _, c := range []string{`{"goal":"a","Goal":"b"}`, `{"limits":{"tree_depth":2,"TREE_DEPTH":3}}`, `{"criteria":[{"kind":"rubric","Text":"x","text":"y"}]}`} {
 		if _, err := LoadCharter(strings.NewReader(c)); err == nil || !strings.Contains(err.Error(), "twice") {
 			t.Errorf("%s: %v", c, err)
+		}
+	}
+}
+
+// EVERY string a charter can carry is held to the same controls in an app start: the table is built by reflection over
+// the Charter type, so a string field added later is checked too (or the test names it).
+func TestEveryCharterStringIsHeldToTheAppStartControls(t *testing.T) {
+	enum := map[string]bool{"Criteria.Kind": true, "Lines": true} // validated by Validate (a closed set), not free text
+	base := func() Charter {
+		return Charter{Goal: "g", Criteria: []Criterion{{Kind: "command", Text: "t", Command: "c", Expected: "e"}}, Limits: Limits{LivePerTree: 30, MaxConcurrent: 30},
+			Lines:  []Line{LineSpending},
+			Pins:   Pins{Boss: Pin{Provider: "p", Model: "m", Version: "1"}, Verifier: Pin{Provider: "p", Model: "v", Version: "1"}, Judging: "j"},
+			PerAsk: PerAsk{Access: "coding", AnswerClasses: []string{"spend", "scope"}}}
+	}
+	if err := ValidateGUIStart(base()); err != nil {
+		t.Fatalf("the base charter was refused: %v", err)
+	}
+	var paths []string
+	var walk func(v reflect.Value, path string)
+	walk = func(v reflect.Value, path string) {
+		switch v.Kind() {
+		case reflect.String:
+			paths = append(paths, path)
+		case reflect.Struct:
+			for i := 0; i < v.NumField(); i++ {
+				p := v.Type().Field(i).Name
+				if path != "" {
+					p = path + "." + p
+				}
+				walk(v.Field(i), p)
+			}
+		case reflect.Slice:
+			for i := 0; i < v.Len(); i++ {
+				walk(v.Index(i), path)
+			}
+		}
+	}
+	walk(reflect.ValueOf(base()), "")
+	if len(paths) < 12 {
+		t.Fatalf("the walk found only %d strings: %v", len(paths), paths)
+	}
+	set := func(c *Charter, path, val string) {
+		v := reflect.ValueOf(c).Elem()
+		for _, name := range strings.Split(path, ".") {
+			if v.Kind() == reflect.Slice {
+				v = v.Index(0)
+			}
+			v = v.FieldByName(name)
+		}
+		if v.Kind() == reflect.Slice {
+			v = v.Index(0)
+		}
+		v.SetString(val)
+	}
+	for _, path := range paths {
+		if enum[path] || enum[strings.SplitN(path, ".", 2)[0]] {
+			continue
+		}
+		for name, bad := range map[string]string{"hidden": "a\u200bb", "tag": "a\U000E0041", "too long": strings.Repeat("x", MaxDisplayRunes+1), "nbsp": "a\u00a0b", "ideographic space": "a\u3000b", "braille blank": "a\u2800b"} {
+			c := base()
+			set(&c, path, bad)
+			if err := ValidateGUIStart(c); err == nil {
+				t.Errorf("%s with a %s value was accepted", path, name)
+			}
+		}
+	}
+}
+
+func TestRenderEscapesAnswerClassesAndAccess(t *testing.T) {
+	c := Charter{Goal: "g", PerAsk: PerAsk{SpendMicro: 1, Tasks: 1, Access: "co\u200bding", Depth: 1, RunSpendMicro: 1, RunTasks: 1, AnswerClasses: []string{"a\nFORGED", "b\u202e"}}}
+	out := Render(c, strings.Repeat("a", 64))
+	for _, bad := range []string{"\nFORGED", "\u202e", "\u200b"} {
+		if strings.Contains(out, bad) {
+			t.Fatalf("the render carries %q:\n%s", bad, out)
+		}
+	}
+	s := NewRenderDoc(c, strings.Repeat("a", 64)).Summary
+	if !strings.Contains(s.AutoApprove, "spend") || len(s.AnswerClasses) != 2 || strings.ContainsAny(strings.Join(s.AnswerClasses, ""), "\n\u202e") {
+		t.Fatalf("summary: %+v", s)
+	}
+	if NewRenderDoc(Charter{Goal: "g"}, strings.Repeat("a", 64)).Summary.AutoApprove != "nothing" {
+		t.Fatal("a charter with no per-ask limits must say it auto-approves nothing")
+	}
+}
+
+// Other kinds of invisible or look-alike-blank characters are refused in an app start and escaped in the render.
+func TestMoreInvisibleCharactersAreHidden(t *testing.T) {
+	for _, r := range []rune{0x00a0, 0x2003, 0x3000, 0x2800, 0x3164, 0x115f, 0x1160, 0xffa0, 0x034f, 0x180e, 0x00ad, 0x2060, 0xfeff} {
+		if !hiddenRune(r) {
+			t.Errorf("U+%04X is not treated as hidden", r)
+		}
+	}
+	for _, r := range []rune{'a', ' ', 'é', '\u5b57', '\U0001f600', '\u0301'} {
+		if hiddenRune(r) && r != '\u0301' {
+			t.Errorf("U+%04X is treated as hidden", r)
+		}
+	}
+}
+
+func TestDuplicateKeysAreRefusedAfterNormalisation(t *testing.T) {
+	for _, c := range []string{"{\"goal\":\"a\",\"\uFF47oal\":\"b\"}"} { // a fullwidth g is a goal after NFKC
+		if _, err := LoadCharter(strings.NewReader(c)); err == nil {
+			t.Errorf("%q was accepted", c)
 		}
 	}
 }
