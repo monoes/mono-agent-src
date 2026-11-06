@@ -36,6 +36,7 @@ func operatorOnlyRows() []opRow {
 		{path: "workflow run", build: newWorkflowRunWithFullOutputs, args: []string{"no-such-workflow", "--full-outputs"}},
 		{path: "doomsday start", build: newDoomsdayCmd, args: []string{"start", "--charter", "{tmp}", "--yes-i-lift", "--hash", "x"}},
 		{path: "doomsday stop", build: newDoomsdayCmd, args: []string{"stop"}},
+		{path: "doomsday probe", build: newDoomsdayCmd, args: []string{"probe"}},
 		{path: "doomsday finish", build: newDoomsdayCmd, args: []string{"finish"}},
 		{path: "doomsday rubric", build: newDoomsdayCmd, args: []string{"rubric", "c1", "approve", "--dossier", "abcdef12"}},
 		// B5 control room: read-only, but the feed shows run internals, so the same gate.

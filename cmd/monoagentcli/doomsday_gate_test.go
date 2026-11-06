@@ -26,10 +26,11 @@ func writeDoomsdayCharter(t *testing.T) string {
 // stop do, and are the user's own). A new verb fails
 // TestDoomsdayVerbsAreExactlyTheClassifiedOnes until it is classified here.
 var doomsdayVerbs = map[string][]string{
-	"start":  {"--charter", "PATH", "--yes-i-lift", "--hash", "x"},
-	"stop":   {},
-	"status": nil,
-	"render": nil,
+	"start":              {"--charter", "PATH", "--yes-i-lift", "--hash", "x"},
+	"start (app phrase)": {"--charter", "PATH", "--gui-phrase", "x"},
+	"stop":               {},
+	"status":             nil,
+	"render":             nil,
 	// The finish verbs (internal/cli/doomsday/finishverbs.go) are classified, gated and tested in
 	// doomsday_finish_gate_test.go; the read-only strategy verbs in doomsday_strategy_gate_test.go.
 }
@@ -88,11 +89,11 @@ func TestStartWithAWrongHashStartsNothingAndTheGroupIsHidden(t *testing.T) {
 func TestDoomsdayWritingVerbsAreOperatorOnly(t *testing.T) {
 	file := writeDoomsdayCharter(t)
 	for ctxName, setup := range gateOSMenuContexts() {
-		for _, verb := range []string{"start", "stop"} {
+		for _, verb := range []string{"start", "start (app phrase)", "stop"} {
 			t.Run(ctxName+"/"+verb, func(t *testing.T) {
 				cfg := sendEnv(t)
 				setup(t)
-				args := []string{verb}
+				args := []string{strings.Fields(verb)[0]}
 				for _, a := range doomsdayVerbs[verb] {
 					if a == "PATH" {
 						a = file
