@@ -12,3 +12,6 @@ var errLockUnsupported = errors.New("stop: host and witness locks are only imple
 func (w Witness) LockWitness() (func(), error) { return nil, errLockUnsupported }
 
 func AcquireHost(RunDir) (func(), error) { return nil, errLockUnsupported }
+
+// flock has no implementation here (host_probe.go and the lock helpers are compiled everywhere).
+func flock(string, bool) (func(), error) { return nil, errLockUnsupported }
