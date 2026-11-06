@@ -12,7 +12,7 @@ import (
 var forbiddenVerbs = []string{"start", "approve", "pause", "resume", "grant"}
 
 // forbiddenFlags are the flags of the verbs that act; a read verb with one of them would be a way to act.
-var forbiddenFlags = []string{"yes-i-lift", "hash", "charter", "boss-session", "approve", "resume", "pause", "grant", "start"}
+var forbiddenFlags = []string{"yes-i-lift", "hash", "charter", "boss-session", "chat", "approve", "resume", "pause", "grant", "start"}
 
 func TestControlRoomVerbSetHasNoActingVerb(t *testing.T) {
 	if len(ControlRoomVerbs) == 0 {
