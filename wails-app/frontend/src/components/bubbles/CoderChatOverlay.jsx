@@ -14,6 +14,7 @@ import { ChatTitle } from './ChatTitle.jsx'
 import { chatAccessApi } from '../../lib/chatAccessApi.js'
 import { isAccess, isCoderAccess, isConfinedTask } from '../../lib/chatAccess.js'
 import { useCoderConversation } from './useCoderConversation.js'
+import { useRunExists } from '../chat/useRunExists.js'
 import { ChatResetBar } from '../chat/ChatResetBar.jsx'
 import { COMPACT_PROMPT, compactSummary, compactSeed } from '../../lib/chatCompact.js'
 import { TaskHeaderCard } from './TaskHeaderCard.jsx'
@@ -120,6 +121,10 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
   settingsOpenRef.current = settingsOpen
   const closeSettings = useCallback(() => { setSettingsOpen(false); settingsBtn.current?.focus?.() }, [])
   const conv = useCoderConversation({ conversationId: bubble.conversationId, create, access })
+  // Stop of an open-ended run: shown for an open-ended chat or while the profile has a run; a Stop leaves its message in the transcript.
+  const runExists = useRunExists(!!bubble.conversationId && isCoderAccess(access))
+  const addSystemNotice = conv.addSystemNotice
+  const onRunStopped = useCallback(message => { addSystemNotice(message); Promise.resolve().then(chatMode.refresh).catch(() => {}) }, [addSystemNotice, chatMode.refresh])
   // The first message locks the mode: ask the CLI again as soon as the chat has one, not at the next poll.
   const hasMessages = conv.messages.length > 0
   const refreshChatMode = chatMode.refresh
@@ -355,7 +360,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
           )}
         </div>
         )}
-        {!lite && (bubble.cwd || chatMode.state || chatMode.error) && <CoderHeader cwd={bubble.cwd} chatMode={chatMode} />}
+        {!lite && (bubble.cwd || chatMode.state || chatMode.error) && <CoderHeader cwd={bubble.cwd} chatMode={chatMode} openEnded={{ runExists, conversationId: bubble.conversationId, onStopped: onRunStopped }} />}
         {!lite && view.task && <TaskHeaderCard key={view.task.taskId} task={view.task} onNavigate={onNavigate} />}
         {!lite && <ChatResetBar onClear={startFresh} onCompact={compact}
           clearDisabled={conv.streaming || (!conv.conversationId && conv.messages.length === 0)}

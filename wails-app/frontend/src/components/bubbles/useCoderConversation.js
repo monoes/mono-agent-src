@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api, notify, onChatEvent } from '../../services/api.js'
 import { useChatStream, loadTurnState } from '../chat/useChatStream.js'
+import { initialChatState } from '../chat/chatReducer.js'
 import { newTurnId } from '../chat/turnIds.js'
 import { composeLiveAnnouncement } from '../chat/liveAnnouncement.js'
 import { getAssistantTools, getAssistantAllowRuns } from '../../lib/assistantTools.js'
@@ -65,7 +66,8 @@ export function useCoderConversation({ conversationId, create, access = 'full' }
       for (const turn of turns) {
         if (cancelled) return
         const user = { role: 'user', content: turn.prompt }
-        built.push(user)
+        // A turn with no prompt is a system notice (a Stop's message): it shows as its notice alone.
+        if (turn.prompt) built.push(user)
         if (turn.status === 'active' && turn.ownedByThisInstance !== false) {
           // Still running: the live stream (useChatStream) shows it.
           running = turn.id
@@ -178,6 +180,12 @@ export function useCoderConversation({ conversationId, create, access = 'full' }
     }
   }, [convId, t])
 
+  // addSystemNotice puts a system message into the shown transcript, as the same turn a reload would show for it.
+  const addSystemNotice = useCallback((message, code = 'doomsday.stopped') => {
+    const state = { ...initialChatState(), notices: [{ code, message, severity: 'info' }], terminal: { status: 'completed', reason: '', exitCode: null, historySaved: true } }
+    setMessages(msgs => [...msgs, { role: 'turn', turnId: `system-local-${msgs.length}`, state }])
+  }, [])
+
   // reset empties the chat so the next send creates a new conversation.
   // Blocked while a turn runs.
   const reset = useCallback(() => {
@@ -189,5 +197,5 @@ export function useCoderConversation({ conversationId, create, access = 'full' }
     return true
   }, [])
 
-  return { reset, messages, announcement, liveTurn, activeTurnId, streaming: !!activeTurnId, stopRequested, loading, loadError, send, stop, conversationId: convId }
+  return { reset, addSystemNotice, messages, announcement, liveTurn, activeTurnId, streaming: !!activeTurnId, stopRequested, loading, loadError, send, stop, conversationId: convId }
 }
