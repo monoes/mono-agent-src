@@ -1097,6 +1097,13 @@
         "confirmNextUnchecked": "The next run tests up to {{count}} stale model(s), {{cost}}.",
         "stateUnreadable": "Today's count can't be read, so nothing runs; turning it on again resets it."
       }
+    },
+    "boss": {
+      "title": "Open-ended run",
+      "boss": "Boss",
+      "state": "State",
+      "spent": "Spent",
+      "open": "Open its board"
     }
   },
   "aiConnections": {
@@ -1285,7 +1292,9 @@
       },
       "opensBoard": "No conversation yet: opens its task board",
       "needsYou_one": "{{count}} item needs you",
-      "needsYou_other": "{{count}} items need you"
+      "needsYou_other": "{{count}} items need you",
+      "boss": "Boss",
+      "bossNote": "Boss of the open-ended run: opens its conversation"
     },
     "lite": {
       "board": "Task board",
@@ -2613,5 +2622,11 @@
       "cancel": "Cancel",
       "failed": "NOT confirmed stopped"
     }
+  },
+  "steering": {
+    "banner": "Steering: you are talking to the boss, not approving anything",
+    "note": "What you type here goes to the boss as guidance. It answers no question, approves nothing and lifts no limit.",
+    "sent": "Sent to the boss: {{text}}",
+    "failed": "Not sent: {{error}}"
   }
 }

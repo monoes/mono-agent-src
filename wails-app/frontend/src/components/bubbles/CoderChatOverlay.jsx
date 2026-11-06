@@ -20,7 +20,7 @@ import { TaskHeaderCard } from './TaskHeaderCard.jsx'
 import { shouldCollapseOnBackdrop } from '../../lib/coderBubbles.js'
 import { LEAD_ID } from '../../lib/orgStage.js'
 import { LitePaneHeader } from './LitePaneHeader.jsx'
-import { orbitOf } from '../../lib/sessionOrbit.js'
+import { orbitOf, bossOf } from '../../lib/sessionOrbit.js'
 import { OrgStage } from '../stage/OrgStage.jsx'
 import { StageDrawer } from '../stage/StageDrawer.jsx'
 import './bubbles.css'
@@ -394,6 +394,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
             agentFilterTurnId={shownTurnId}
             agentFilterName={filterName}
             onClearAgentFilter={() => setSelectedAgent(null)}
+            steering={chatMode.state?.mode === 'open' && !!bossOf(orbitSessions, bubble.conversationId)}
           />
           {selectedNode && (
             <StageDrawer node={selectedNode} calls={shown?.state?.agentCalls} leadInfo={{ runtime, model, effort: bubble.effort || setup.effort }}

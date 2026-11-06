@@ -1053,6 +1053,13 @@
       "status": {
         "rateLimited": "⚠ límite de uso (se volverá a comprobar)"
       }
+    },
+    "boss": {
+      "title": "Ejecución abierta",
+      "boss": "Jefe",
+      "state": "Estado",
+      "spent": "Gastado",
+      "open": "Abrir su tablero"
     }
   },
   "aiConnections": {
@@ -1241,7 +1248,9 @@
       },
       "opensBoard": "Aún sin conversación: abre su tablero de tareas",
       "needsYou_one": "{{count}} elemento te necesita",
-      "needsYou_other": "{{count}} elementos te necesitan"
+      "needsYou_other": "{{count}} elementos te necesitan",
+      "boss": "Jefe",
+      "bossNote": "Jefe de la ejecución abierta: abre su conversación"
     },
     "lite": {
       "board": "Tablero de tareas",
@@ -2473,5 +2482,11 @@
     "unavailable": "No disponible",
     "loadFailed": "No se pudo leer el modo del chat",
     "saveFailed": "No se pudo cambiar el modo del chat: {{error}}"
+  },
+  "steering": {
+    "banner": "Orientación: hablas con el jefe, no apruebas nada",
+    "note": "Lo que escribes aquí llega al jefe como orientación. No responde ninguna pregunta, no aprueba nada y no levanta ningún límite.",
+    "sent": "Enviado al jefe: {{text}}",
+    "failed": "No enviado: {{error}}"
   }
 }

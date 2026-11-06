@@ -29,10 +29,11 @@ function Satellite({ c, pos, size, tabIndex, onOpen, btnRef, onKeyDown, index })
   const label = t('bubbles.orbit.satelliteLabel', { title: c.title, state: t(`bubbles.orbit.state.${c.state}`) }) +
     (c.waiting > 0 ? `, ${t('bubbles.orbit.needsYou', { count: c.waiting })}` : '') +
     (c.childCount > 0 ? `, ${t('bubbles.orbit.ownAgents', { count: c.childCount })}` : '') +
+    (c.boss ? `, ${t('bubbles.orbit.boss')}` : '') +
     (c.canOpen ? '' : `, ${t('bubbles.orbit.opensBoard')}`)
   return (
     <div className="orbit-slot" style={{ '--x': pos.x, '--y': pos.y, '--d': `${index * 40}ms` }}>
-      <button type="button" ref={btnRef} className={`orbit-sat s${c.size}`} data-state={c.state} data-level={c.level} data-needs-you={c.waiting > 0 ? 'true' : undefined}
+      <button type="button" ref={btnRef} className={`orbit-sat s${c.size}`} data-state={c.state} data-level={c.level} data-needs-you={c.waiting > 0 ? 'true' : undefined} data-boss={c.boss ? 'true' : undefined}
         style={{ '--size': `${size}px` }} tabIndex={tabIndex} aria-label={label} onClick={() => onOpen?.(c)} onKeyDown={onKeyDown}>
         <span className="orbit-face" aria-hidden="true">
           <span className="orbit-pulse" />
@@ -41,8 +42,9 @@ function Satellite({ c, pos, size, tabIndex, onOpen, btnRef, onKeyDown, index })
         <span className="orbit-mark" aria-hidden="true"><Icon size={9} strokeWidth={3} /></span>
         {c.childCount > 0 && <span className="orbit-count" aria-hidden="true">{c.childCount > 9 ? '9+' : c.childCount}</span>}
         <span className={`orbit-tip${pos.y < -10 ? ' below' : ''}`} aria-hidden="true">
-          <span className="orbit-tip-title">{c.title}</span>
+          <span className="orbit-tip-title">{c.boss ? t('bubbles.orbit.boss') : c.title}</span>
           <span>{statusLine(t, c)}</span>
+          {c.boss && <span className="orbit-tip-note">{t('bubbles.orbit.bossNote')}</span>}
           {!c.canOpen && <span className="orbit-tip-note">{t('bubbles.orbit.opensBoard')}</span>}
         </span>
       </button>
