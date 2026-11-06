@@ -144,7 +144,7 @@ func (d Deps) newGoalSetCmd() *cobra.Command {
 The goal is then final and never amended: a changed goal means a new mission.
 At least one criterion must be a rubric (you are the final judge).`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			actor, err := d.callerFor(flagAs(cmd)).operator("set a mission goal")
+			actor, err := d.personGate(cmd, "set a mission goal")
 			if err != nil {
 				return err
 			}
@@ -174,7 +174,7 @@ func (d Deps) newGoalConfirmCmd() *cobra.Command {
 revised the proposal since, the hash differs and nothing is confirmed.
 A confirmed goal is final: a changed goal means a new mission.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			actor, err := d.callerFor(flagAs(cmd)).operator("confirm a mission goal")
+			actor, err := d.personGate(cmd, "confirm a mission goal")
 			if err != nil {
 				return err
 			}

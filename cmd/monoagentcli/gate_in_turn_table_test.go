@@ -41,6 +41,8 @@ func allGatedVerbs() []gatedVerb {
 		{name: "person ask", args: []string{"session", "person", "ask", "1", "--text", "x"}, what: "answer a person item"},
 		{name: "person answer-ask", args: []string{"session", "person", "answer-ask", "--ask", "1", "--text", "x"}, what: "answer a person item"},
 		{name: "retire-worker", args: []string{"session", "retire-worker", "1", "1"}, what: "retire a session's worker"},
+		{name: "goal set", args: []string{"session", "goal", "set", "1", "--criteria", "-"}, what: "set a mission goal"},
+		{name: "goal confirm", args: []string{"session", "goal", "confirm", "1", "--hash", "x"}, what: "confirm a mission goal"},
 		{name: "edit", args: []string{"edit", "1", "--title", "x"}, what: "edit a task"},
 		{name: "move", args: []string{"move", "1", "ready"}, what: "move a task"},
 		{name: "archive", args: []string{"archive", "1"}, what: "archive tasks"},

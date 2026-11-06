@@ -147,6 +147,33 @@ var taskSessionCommandDocs = []cmdDoc{
 		Examples: []string{"monoagentcli --profile work task session close 3 --note \"reviewed\""},
 	},
 	{
+		Name:     "task session goal show",
+		Short:    "Show the ultimate goal of a mission: its criteria (c1, c2, ...), their state and the hash you confirm",
+		Usage:    "monoagentcli [--profile P] task session goal show ID",
+		Examples: []string{"monoagentcli --profile work --json task session goal show 3"},
+	},
+	{
+		Name:     "task session goal propose",
+		Short:    "Propose the criteria of a mission's ultimate goal (an agent or the operator); it stays a proposal, revisable, until the operator confirms it",
+		Usage:    "monoagentcli [--profile P] task session goal propose ID --criteria FILE|-",
+		Flags:    "  --criteria string   A JSON array of {\"kind\": command|file|output|rubric, \"spec\", \"expected\"}; at least one rubric; - reads standard input",
+		Examples: []string{"echo '[{\"kind\":\"rubric\",\"spec\":\"The report is complete\"}]' | monoagentcli --profile work task session goal propose 3 --criteria - --as lead"},
+	},
+	{
+		Name:     "task session goal set",
+		Short:    "Set the criteria of a mission's ultimate goal and confirm them in one step (the operator only). The goal is final: a changed goal means a new mission",
+		Usage:    "monoagentcli [--profile P] task session goal set ID --criteria FILE|-",
+		Flags:    "  --criteria string   A JSON array of {\"kind\", \"spec\", \"expected\"}; at least one rubric; - reads standard input",
+		Examples: []string{"monoagentcli --profile work task session goal set 3 --criteria goal.json"},
+	},
+	{
+		Name:     "task session goal confirm",
+		Short:    "Confirm the proposed criteria whose hash you read (the operator only). The goal is final: a changed goal means a new mission",
+		Usage:    "monoagentcli [--profile P] task session goal confirm ID --hash HASH",
+		Flags:    "  --hash string   The criteria hash printed by goal show; refused if the proposal was revised since",
+		Examples: []string{"monoagentcli --profile work task session goal confirm 3 --hash 9f2c..."},
+	},
+	{
 		Name:     "task session retire-worker",
 		Short:    "Retire the idle worker of a mission task so the lead cannot message it; the task's evidence is kept (the operator only)",
 		Usage:    "monoagentcli [--profile P] task session retire-worker SESSION TASK [--note TEXT]",
