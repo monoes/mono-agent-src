@@ -2687,6 +2687,7 @@
     "phraseLabel": "Type the phrase",
     "start": "Start the run",
     "startFailed": "The run did not start",
+    "startedRun": "Run {{run}}.",
     "started": "The run started. Stop is in the chat header.",
     "noBoss": "Starting needs the boss session of this chat, which the chat creates when it starts. It is not available here yet, so Start stays disabled.",
     "err": {

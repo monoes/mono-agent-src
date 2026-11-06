@@ -2547,6 +2547,7 @@
     "phraseLabel": "Escribe la frase",
     "start": "Empezar la ejecucion",
     "startFailed": "La ejecucion no empezo",
+    "startedRun": "Ejecucion {{run}}.",
     "started": "La ejecucion empezo. Detener esta en el encabezado del chat.",
     "noBoss": "Empezar necesita la sesion jefe de este chat, que el chat crea al iniciarse. Aun no esta disponible aqui, asi que Empezar sigue desactivado.",
     "err": {

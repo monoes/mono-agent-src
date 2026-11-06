@@ -10,7 +10,7 @@ const dir = join(__dirname, '..', 'components', 'chat')
 const source = ['OpenStartForm.jsx', 'OpenStartReview.jsx'].map(f => readFileSync(join(dir, f), 'utf8')).join('\n')
 const literal = [...new Set([...source.matchAll(/['"`](openStart\.[a-zA-Z0-9_.]+)['"`]/g)].map(m => m[1]))]
 const built = [
-  'openStart.removeN', 'openStart.err.text', 'openStart.unknown', 'openStart.reviewTitle',
+  'openStart.removeN', 'openStart.startedRun', 'openStart.err.text', 'openStart.unknown', 'openStart.reviewTitle',
   ...LIMIT_KEYS.map(k => `openStart.limit.${k}`), ...Object.keys(LIMIT_PRESETS).map(k => `openStart.preset.${k}`), ...LINES.map(l => `openStart.line.${l}`),
   ...['goal', 'criteria', 'limits', 'budget', 'lines', 'boss', 'verifier', 'judging', 'perAsk'].map(k => `openStart.err.${k}`),
   ...['boss', 'verifier'].flatMap(w => ['Provider', 'Model', 'Version'].map(p => `openStart.${w}${p}`)),

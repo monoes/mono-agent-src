@@ -14,3 +14,19 @@ describe('the nav probe after a start', () => {
     expect(api.probe).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('one request chain', () => {
+  it('a change announced while a read is in flight does not start a second chain: it asks once more after that read', async () => {
+    let release
+    const api = { probe: vi.fn() }
+    api.probe.mockImplementationOnce(() => new Promise(r => { release = () => r({ mode_available: true, run_exists: false }) }))
+    api.probe.mockResolvedValue({ mode_available: true, run_exists: true })
+    const { result } = renderHook(() => useControlRoomProbe(api))
+    await waitFor(() => expect(api.probe).toHaveBeenCalledTimes(1))
+    act(() => { window.dispatchEvent(new Event(CONTROL_ROOM_CHANGED)); window.dispatchEvent(new Event(CONTROL_ROOM_CHANGED)) })
+    expect(api.probe).toHaveBeenCalledTimes(1) // nothing overlaps the read in flight
+    await act(async () => { release() })
+    await waitFor(() => expect(result.current.running).toBe(true))
+    expect(api.probe).toHaveBeenCalledTimes(2) // two announcements, one more read
+  })
+})

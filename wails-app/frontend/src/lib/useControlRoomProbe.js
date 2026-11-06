@@ -32,18 +32,24 @@ export function useControlRoomProbe(api = controlRoomApi) {
     let cancelled = false
     let timer = null
     let failures = 0
+    let inflight = false
+    let again = false // a change was announced while a read was in flight: one more read after it
     const read = async () => {
+      inflight = true
       const p = await api.probe()
+      inflight = false
       if (cancelled) return
+      if (again) { again = false; failures = 0; read(); return }
       if (!p?.error) { failures = 0; last.current = p; setProbe(p) } else failures++
       const retry = failures > 0 ? PROBE_RETRY_MS[failures - 1] : undefined
       timer = setTimeout(read, retry ?? probeDelay(last.current))
     }
     read()
     // A start or a stop says so: ask again now instead of at the next idle poll.
-    const again = () => { clearTimeout(timer); read() }
-    window.addEventListener(CONTROL_ROOM_CHANGED, again)
-    return () => { cancelled = true; clearTimeout(timer); window.removeEventListener(CONTROL_ROOM_CHANGED, again) }
+    // The one chain stays one: while a read is in flight the announcement is remembered, not started beside it.
+    const changed = () => { if (inflight) { again = true; return } clearTimeout(timer); read() }
+    window.addEventListener(CONTROL_ROOM_CHANGED, changed)
+    return () => { cancelled = true; clearTimeout(timer); window.removeEventListener(CONTROL_ROOM_CHANGED, changed) }
   }, [api, visible])
   return { show: probeShows(probe), running: !!probe?.run_exists }
 }

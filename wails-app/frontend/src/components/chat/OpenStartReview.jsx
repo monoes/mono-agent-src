@@ -11,6 +11,14 @@ import { CONTROL_ROOM_CHANGED } from '../../lib/useControlRoomProbe.js'
 const mono = 'var(--font-mono)'
 const small = { fontFamily: mono, fontSize: 11, color: 'var(--text-muted)' }
 
+// runWords is the started run in words, from the CLI's document: the run's id. The raw document is not shown.
+function runWords(output, t) {
+  try {
+    const id = JSON.parse(output)?.run_id
+    return id ? t('openStart.startedRun', { run: String(id) }) : ''
+  } catch { return '' }
+}
+
 export function OpenStartReview({ charter, preview, bossSession, onStarted }) {
   const { t } = useTranslation()
   const [phrase, setPhrase] = useState('')
@@ -56,7 +64,7 @@ export function OpenStartReview({ charter, preview, bossSession, onStarted }) {
       <button type="button" className="btn btn-sm" disabled={!canStart} onClick={start}>{t('openStart.start')}</button>
       {error && <p role="alert" style={{ ...small, color: 'var(--red)' }}>{error}</p>}
       {unknown && <p role="alert" data-testid="open-unknown" style={{ ...small, color: 'var(--red)' }}>{unknown}</p>}
-      {started && <p data-testid="open-started" style={small}>{t('openStart.started')} {started.output}</p>}
+      {started && <p data-testid="open-started" style={small}>{t('openStart.started')} {runWords(started.output, t)}</p>}
     </section>
   )
 }

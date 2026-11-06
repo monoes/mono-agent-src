@@ -191,7 +191,7 @@ export function OpenStartForm({ bossSession = null, onStarted }) {
 
           <button type="button" className="btn btn-sm" disabled={busy || done} onClick={doReview}>{t('openStart.review')}</button>
           {reviewError && <p role="alert" style={{ ...small, color: 'var(--red)' }}>{reviewError}</p>}
-          {review && <OpenStartReview charter={review.charter} preview={review.preview} bossSession={bossSession} onStarted={r => { setDone(true); onStarted?.(r) }} />}
+          {review && <OpenStartReview key={review.preview.start_token} charter={review.charter} preview={review.preview} bossSession={bossSession} onStarted={r => { setDone(true); onStarted?.(r) }} />}
         </fieldset>
       )}
     </div>
