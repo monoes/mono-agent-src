@@ -204,3 +204,25 @@ func fullHashJSON(t *testing.T, r *rig, file string) string {
 	}
 	return doc.Hash
 }
+
+// A charter with a repeated key is refused (the last value would win silently, so a reader and the CLI could disagree),
+// and an empty stdin says so instead of EOF.
+func TestCharterRefusesDuplicateKeysAndSaysWhenEmpty(t *testing.T) {
+	for name, c := range map[string]string{
+		"top level":  `{"goal":"a","goal":"b"}`,
+		"nested":     `{"goal":"a","limits":{"tree_depth":2,"tree_depth":3}}`,
+		"in a list":  `{"goal":"a","criteria":[{"kind":"rubric","text":"x","text":"y"}]}`,
+	} {
+		if _, err := LoadCharter(strings.NewReader(c)); err == nil || !strings.Contains(err.Error(), "twice") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if _, err := LoadCharter(strings.NewReader(goodCharter)); err != nil {
+		t.Fatal(err)
+	}
+	r := newRig()
+	_, err := run(t, r.deps, "", "render", "--charter", "-")
+	if err == nil || !strings.Contains(err.Error(), "empty") || strings.Contains(err.Error(), "EOF") {
+		t.Fatalf("empty stdin: %v", err)
+	}
+}
