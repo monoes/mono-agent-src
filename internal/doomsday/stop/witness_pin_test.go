@@ -263,3 +263,20 @@ func TestPinDescriptorLayerAlone(t *testing.T) {
 		}
 	})
 }
+
+// a watch that owns descriptors (macOS: its event-only descriptors) must not satisfy the holder check by itself
+type ownsFDWatch struct {
+	pinWatch
+	owned map[int]bool
+}
+
+func (o ownsFDWatch) ownsFD(fd int) bool { return o.owned[fd] }
+
+func TestPinHolderCheckIgnoresTheWatchsOwnDescriptors(t *testing.T) {
+	p, fs, _ := handPinned(t)
+	mustNoErr(t, p.checkLocked())
+	p.watch = ownsFDWatch{pinWatch: p.watch, owned: map[int]bool{int(fs[1].Fd()): true}}
+	if err := p.checkLocked(); !errors.Is(err, ErrPinSwapped) {
+		t.Fatalf("a descriptor owned by the watch counted as the connection's: %v", err)
+	}
+}

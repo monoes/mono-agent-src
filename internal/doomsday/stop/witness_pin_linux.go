@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 )
@@ -48,7 +49,8 @@ func scanFDs() ([]fdEntry, error) {
 		if !ok {
 			continue
 		}
-		out = append(out, fdEntry{link: link, id: id})
+		fdn, _ := strconv.Atoi(n.Name())
+		out = append(out, fdEntry{fd: fdn, link: link, id: id})
 	}
 	return out, nil
 }

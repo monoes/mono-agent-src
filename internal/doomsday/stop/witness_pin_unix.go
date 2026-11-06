@@ -38,7 +38,11 @@ func (p *Pinned) checkHolders() error {
 		return err
 	}
 	found := map[FileID]bool{}
+	own, _ := p.watch.(interface{ ownsFD(int) bool })
 	for _, e := range entries {
+		if own != nil && own.ownsFD(e.fd) { // the watch's own descriptors are not the connection's
+			continue
+		}
 		if logical := p.logicalOf(e.link); logical != "" {
 			now, serr := statID(logical)
 			if serr != nil || now != e.id { // a swapped file: also what a " (deleted)" link shows
@@ -68,6 +72,7 @@ func (p *Pinned) logicalOf(link string) string {
 }
 
 type fdEntry struct {
+	fd   int
 	link string
 	id   FileID
 }
