@@ -2385,6 +2385,7 @@
     "keptOperatorOnly_other": "Se conservaron {{count}} chats: borrarlos detiene procesos o misiones que iniciaron, algo que solo puede hacer el operador.",
     "deleteFailed": "No se pudieron eliminar {{count}}: {{message}}",
     "dismiss": "Descartar",
+    "chatMode": "Modo: {{mode}}",
     "mission": "Misión: {{state}}"
   },
   "chatLinks": {
@@ -2461,18 +2462,16 @@
       "hint": "El aviso suena como máximo una vez cada cinco segundos y nunca dos veces por el mismo elemento. La notificación se muestra sin importar este ajuste."
     }
   },
-  "missionToggle": {
-    "label": "Misión",
-    "on": "activada",
-    "off": "desactivada",
-    "chip": "Misión",
-    "chipOn": "Este chat se ejecuta como misión",
-    "hint": "Ejecutar este chat como misión: el líder la planifica y trabaja hasta que la cierres. El interruptor gobierna las misiones que inicia; una misión que confirmas en un solo envío es aparte, y desactivarlo no detiene una misión en curso (usa detener)",
-    "locked": "Este chat está ejecutando una misión",
-    "needsAccess": "Las misiones necesitan acceso de código o superior",
-    "loadFailed": "No se pudo leer el ajuste de misión",
-    "saveFailed": "No se pudo cambiar el ajuste de misión: {{error}}",
-    "runningSession": "Ejecutando una misión (sesión {{id}})",
-    "unreadable": "Estado de la misión desconocido"
+  "chatMode": {
+    "label": "Modo del chat",
+    "off": "Desactivado",
+    "mission": "Misión",
+    "open": "Abierto",
+    "chipTitle": "Modo del chat: {{mode}}",
+    "hint": "Se elige antes del primer mensaje y no se puede cambiar después. Misión: el líder planifica el trabajo y sigue hasta que la cierres.",
+    "locked": "El modo del chat se elige antes del primer mensaje y no se puede cambiar después",
+    "unavailable": "No disponible",
+    "loadFailed": "No se pudo leer el modo del chat",
+    "saveFailed": "No se pudo cambiar el modo del chat: {{error}}"
   }
 }

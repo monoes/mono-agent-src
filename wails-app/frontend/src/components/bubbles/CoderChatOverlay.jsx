@@ -3,8 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { Minimize2, X, ChevronUp, ChevronDown } from 'lucide-react'
 import { api, notify } from '../../services/api.js'
 import { CoderHeader, CoderBadge } from '../chat/CoderHeader.jsx'
-import { MissionChip } from '../chat/MissionToggle.jsx'
-import { useMissionToggle } from '../chat/useMissionToggle.js'
+import { ChatModeChip } from '../chat/ChatModeSelector.jsx'
+import { useChatMode } from '../chat/useChatMode.js'
 import { folderName } from '../chat/useCoderMode.js'
 import { runtimeLabel } from '../../lib/runtimeLabels.js'
 import { CoderChatView } from './CoderChatView.jsx'
@@ -80,8 +80,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
   const selectedRef = useRef(null)
   const bodyRef = useRef(null)
   const pressOnBackdrop = useRef(false)
-  const missionRef = useRef(null)
-  const madeRef = useRef(null)
+  const chatModeRef = useRef(null)
 
   // create makes the conversation for a draft's first message, at the access
   // level, runtime, model and effort picked in its setup (ChatSetup). Above
@@ -98,16 +97,10 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
         cwd = workspace.path
       }
     }
-    // A conversation made for a first message whose Mission toggle could not be applied is kept for the retry
-    // (same setup), so a failed apply does not leave one more empty chat behind each time.
-    const setupKey = JSON.stringify([runtime, setup.model, setup.effort || '', access, cwd])
-    const kept = madeRef.current?.key === setupKey ? madeRef.current.made : null
-    const made = kept || await chatAccessApi.create('general', runtime, setup.model, setup.effort || '', access, cwd)
-    madeRef.current = { key: setupKey, made }
-    // The toggle chosen before the chat existed is applied BEFORE the chat is bound and before any message is
-    // sent: when it fails this throws, the first message is not sent, and the choice stays pending.
-    await missionRef.current?.applyPending(made.id)
-    madeRef.current = null
+    // The chat mode chosen before the first message goes to the CLI with the conversation, which sets it there: no
+    // separate write, and no first message that can run before it.
+    const chosenMode = chatModeRef.current?.pendingMode() || '' // '' is off, which is what a chat without a mode is
+    const made = await chatAccessApi.create('general', runtime, setup.model, setup.effort || '', access, cwd, ...(chosenMode ? [chosenMode] : []))
     const bound = {
       id: made.id, cwd: made.cwd || cwd, model: made.model || setup.model, runtime: made.runtimeId || runtime,
       access: isAccess(made.access) ? made.access : access, verified: isAccess(made.access), effort: made.effort || setup.effort || '', orgMode: made.orgMode || '',
@@ -118,8 +111,8 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
   // A conversation's level counts once the backend has said it; a cached one is a hint only.
   const verify = useVerifiedAccess(bubble, store)
   const access = bubble.conversationId ? (bubble.verified ? bubble.access : '') : (setup.access || '')
-  const mission = useMissionToggle(bubble.conversationId, isCoderAccess(access))
-  missionRef.current = mission
+  const chatMode = useChatMode(bubble.conversationId, isCoderAccess(access), access)
+  chatModeRef.current = chatMode
   const confined = isConfinedTask({ kind: bubble.taskKind || view.task?.kind })
   const [settingsOpen, setSettingsOpen] = useState(false)
   const settingsBtn = useRef(null)
@@ -127,6 +120,12 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
   settingsOpenRef.current = settingsOpen
   const closeSettings = useCallback(() => { setSettingsOpen(false); settingsBtn.current?.focus?.() }, [])
   const conv = useCoderConversation({ conversationId: bubble.conversationId, create, access })
+  // The first message locks the mode: ask the CLI again as soon as the chat has one, not at the next poll.
+  const hasMessages = conv.messages.length > 0
+  const refreshChatMode = chatMode.refresh
+  useEffect(() => {
+    if (bubble.conversationId && hasMessages) Promise.resolve().then(refreshChatMode).catch(() => {})
+  }, [bubble.conversationId, hasMessages, refreshChatMode])
 
   // Clear / Compact: the bubble goes back to a draft in the same folder and
   // model, so the next message starts a new conversation. Compact first asks
@@ -327,7 +326,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
                 {[runtime && runtimeLabel(runtime), model].filter(Boolean).join(' · ')}
               </span>
             )}
-            <MissionChip state={mission.state} />
+            <ChatModeChip state={chatMode.state} />
             {confined ? (
               <span data-testid="chip-confined" title={t('bubbles.pane.confinedWhy')} style={chip}>{t('bubbles.pane.confinedChip')}</span>
             ) : isAccess(access) ? (
@@ -356,7 +355,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
           )}
         </div>
         )}
-        {!lite && (bubble.cwd || mission.state || mission.error) && <CoderHeader cwd={bubble.cwd} mission={mission} />}
+        {!lite && (bubble.cwd || chatMode.state || chatMode.error) && <CoderHeader cwd={bubble.cwd} chatMode={chatMode} />}
         {!lite && view.task && <TaskHeaderCard key={view.task.taskId} task={view.task} onNavigate={onNavigate} />}
         {!lite && <ChatResetBar onClear={startFresh} onCompact={compact}
           clearDisabled={conv.streaming || (!conv.conversationId && conv.messages.length === 0)}
