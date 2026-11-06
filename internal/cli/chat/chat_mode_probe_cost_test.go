@@ -86,3 +86,15 @@ func TestAnAgentCannotChooseTheOpenModeEvenWhenItIsReady(t *testing.T) {
 		t.Fatalf("a chat was made for a refused caller: %d %v", len(list), err)
 	}
 }
+
+// A locked chat cannot change its mode, so reading it asks no availability at all, not even the cheap one.
+func TestReadingALockedChatAsksNoAvailability(t *testing.T) {
+	f := newToggleFixture(t)
+	n := cheap(t, true, "")
+	f.startTurn(t)
+	*n = 0
+	f.run(t, f.cfg, "settings", "get", f.conv.ID)
+	if *n != 0 {
+		t.Fatalf("a locked chat's settings asked the availability %d times", *n)
+	}
+}

@@ -292,3 +292,11 @@ func TestAnAppStartRefusesHiddenCharactersAndTextBeyondTheDisplayCap(t *testing.
 		t.Fatalf("2000 runes with a newline and a tab were refused: %v", err)
 	}
 }
+
+func TestDuplicateKeysAreRefusedWhateverTheirCase(t *testing.T) {
+	for _, c := range []string{`{"goal":"a","Goal":"b"}`, `{"limits":{"tree_depth":2,"TREE_DEPTH":3}}`, `{"criteria":[{"kind":"rubric","Text":"x","text":"y"}]}`} {
+		if _, err := LoadCharter(strings.NewReader(c)); err == nil || !strings.Contains(err.Error(), "twice") {
+			t.Errorf("%s: %v", c, err)
+		}
+	}
+}

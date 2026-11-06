@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"strings"
@@ -119,7 +120,7 @@ func TestStartNeedsTheTokenOfTheExactCharterThatWasRendered(t *testing.T) {
 	}
 }
 
-// The token is of the exact bytes previewed: any other charter is refused, and the token is spent by the attempt.
+// The token is of the exact bytes previewed: any other charter is refused (and starts nothing).
 func TestStartRefusesAnotherCharterThanTheOnePreviewed(t *testing.T) {
 	g := newGrantRig(t)
 	for name, other := range map[string]string{"extra byte": dmCharter + " ", "other goal": strings.Replace(dmCharter, `"g"`, `"h"`, 1)} {
@@ -128,8 +129,10 @@ func TestStartRefusesAnotherCharterThanTheOnePreviewed(t *testing.T) {
 		if d := parseStartDoc(t, g.a.DoomsdayStart(other, gPhrase, tok, 5)); d.OK || d.Code != "token" || g.calls() != before || g.dialogs != 0 {
 			t.Fatalf("%s: %+v", name, d)
 		}
-		if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5)); d.OK {
-			t.Fatalf("%s: the spent token started", name)
+		// a refusal does not spend the token: the exact charter still starts, once
+		g.startBehaves(`echo '{"run_id":"work/1"}'`)
+		if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5)); !d.OK {
+			t.Fatalf("%s: the exact charter was refused after a mismatch: %+v", name, d)
 		}
 	}
 }
@@ -439,5 +442,84 @@ func TestATimedOutProbeIsTermedBeforeItIsKilled(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(mark); !strings.Contains(string(b), "term") {
 		t.Fatalf("the CLI was not sent SIGTERM first")
+	}
+}
+
+// A dialog that never returns must not hold every later start `busy` until the app restarts.
+func TestADialogThatNeverReturnsIsDeclinedAfterItsTimeout(t *testing.T) {
+	g := newGrantRig(t)
+	old := doomsdayDialogTimeout
+	doomsdayDialogTimeout = 150 * time.Millisecond
+	t.Cleanup(func() { doomsdayDialogTimeout = old })
+	stuck := make(chan struct{})
+	t.Cleanup(func() { close(stuck) })
+	confirmNative = func(*App, string, string) (bool, error) { <-stuck; return true, nil }
+	tok := g.render(dmCharter)
+	before := g.calls()
+	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5))
+	if d.OK || d.Code != "declined" || !strings.Contains(d.Detail, "did not return") || g.calls() != before {
+		t.Fatalf("%+v", d)
+	}
+	tok = g.render(dmCharter)
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5)); d.Code == "busy" {
+		t.Fatal("the start lock is still held by the dead dialog")
+	}
+}
+
+// The token is spent when the dialog CONFIRMS, not before: a decline leaves the preview usable (the form's Start button
+// works again), and a confirmed start can never be repeated with the same token.
+func TestADeclineKeepsThePreviewUsableAndAConfirmedStartSpendsIt(t *testing.T) {
+	g := newGrantRig(t)
+	tok := g.render(dmCharter)
+	g.answer = false
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5)); d.Code != "declined" {
+		t.Fatalf("%+v", d)
+	}
+	g.answer = true
+	g.startBehaves(`echo '{"run_id":"work/1"}'`)
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5)); !d.OK {
+		t.Fatalf("after a decline the same preview was refused: %+v", d)
+	}
+	before := g.calls()
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5)); d.OK || d.Code != "token" || g.calls() != before {
+		t.Fatalf("a confirmed start's token was used again: %+v", d)
+	}
+}
+
+// A Stop also ends the cached "cannot start here" the entry screen may hold for up to a minute.
+func TestStopInvalidatesTheEntryProbeCache(t *testing.T) {
+	log, _ := taskCLIFake(t, `{"mode_available":false,"reason":"an open-ended run is already active"}`, 0)
+	a := newTaskTestApp(t)
+	doomsdayEntry.invalidate("work")
+	a.DoomsdayOpenEntry()
+	a.DoomsdayStop()
+	a.DoomsdayOpenEntry()
+	if n := callCount(t, log); n != 3 { // probe, stop, probe again
+		t.Fatalf("CLI calls %d, want 3: the cached answer survived the Stop", n)
+	}
+}
+
+// The last JSON object line wins even when an earlier line of human text looks like JSON.
+func TestStartTakesTheLastJSONLineWhenAnEarlierLineLooksLikeJSON(t *testing.T) {
+	g := newGrantRig(t)
+	g.startBehaves(`printf '{"note":"human line"}\n{"error":"the real refusal","code":"invalid_input"}\n'; exit 2`)
+	tok := g.render(dmCharter)
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5)); d.Code != "invalid_input" || !strings.Contains(d.Detail, "the real refusal") {
+		t.Fatalf("%+v", d)
+	}
+}
+
+// Quitting the app (its context ends) sends the CLI SIGTERM first as a timeout does, so the probe cleans up its unit.
+func TestACancelledAppContextTermsTheProbeBeforeKilling(t *testing.T) {
+	g := newGrantRig(t)
+	mark := g.t.TempDir() + "/termed"
+	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, "trap 'echo term > '"+mark+"'; exit 0' TERM\nsleep 5 &\nwait\n"))
+	ctx, cancel := context.WithCancel(context.Background())
+	g.a.ctx = ctx
+	go func() { time.Sleep(200 * time.Millisecond); cancel() }()
+	argv, _ := doomsdayArgv("work", "probe")
+	g.a.execDoomsdayGrace(time.Minute, 3*time.Second, argv, nil)
+	if b, _ := os.ReadFile(mark); !strings.Contains(string(b), "term") {
+		t.Fatal("quitting did not send SIGTERM first")
 	}
 }
