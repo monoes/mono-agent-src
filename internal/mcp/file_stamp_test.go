@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 func ownerlessFileDir(t *testing.T) (dir, path string) {
@@ -54,7 +55,7 @@ func TestNewRuntimeStampsOwnerlessWorkflowFiles(t *testing.T) {
 
 func TestGrantRuntimeStampsOwnerlessWorkflowFiles(t *testing.T) {
 	dir, path := ownerlessFileDir(t)
-	db, err := storage.NewDatabase(filepath.Join(t.TempDir(), "g.db"))
+	db, err := storage.NewDatabase(testdb.Path(t))
 	if err != nil {
 		t.Fatal(err)
 	}
