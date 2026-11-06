@@ -26,10 +26,11 @@ func writeDoomsdayCharter(t *testing.T) string {
 // stop do, and are the user's own). A new verb fails
 // TestDoomsdayVerbsAreExactlyTheClassifiedOnes until it is classified here.
 var doomsdayVerbs = map[string][]string{
-	"start":  {"--charter", "PATH", "--yes-i-lift", "--hash", "x"},
-	"stop":   {},
-	"status": nil,
-	"render": nil,
+	"start":              {"--charter", "PATH", "--yes-i-lift", "--hash", "x"},
+	"start (app phrase)": {"--charter", "PATH", "--gui-phrase", "x"},
+	"stop":               {},
+	"status":             nil,
+	"render":             nil,
 	// The finish verbs (internal/cli/doomsday/finishverbs.go) are classified, gated and tested in
 	// doomsday_finish_gate_test.go; the read-only strategy verbs in doomsday_strategy_gate_test.go.
 }
@@ -41,9 +42,9 @@ func TestDoomsdayVerbsAreExactlyTheClassifiedOnes(t *testing.T) {
 		got = append(got, c.Name())
 	}
 	sort.Strings(got)
-	want := "boss,feed,finish,overview,render,rubric,start,status,stop,strategy"
+	want := "boss,feed,finish,overview,probe,render,rubric,start,status,stop,strategy"
 	if governorVerbExpected { // the governor's read-only status group (doomsday_governor_gate_test.go)
-		want = "boss,feed,finish,governor,overview,render,rubric,start,status,stop,strategy"
+		want = "boss,feed,finish,governor,overview,probe,render,rubric,start,status,stop,strategy"
 	}
 	if strings.Join(got, ",") != want {
 		t.Fatalf("doomsday verbs changed: %v: classify the new verb and its gate", got)
@@ -88,11 +89,11 @@ func TestStartWithAWrongHashStartsNothingAndTheGroupIsHidden(t *testing.T) {
 func TestDoomsdayWritingVerbsAreOperatorOnly(t *testing.T) {
 	file := writeDoomsdayCharter(t)
 	for ctxName, setup := range gateOSMenuContexts() {
-		for _, verb := range []string{"start", "stop"} {
+		for _, verb := range []string{"start", "start (app phrase)", "stop"} {
 			t.Run(ctxName+"/"+verb, func(t *testing.T) {
 				cfg := sendEnv(t)
 				setup(t)
-				args := []string{verb}
+				args := []string{strings.Fields(verb)[0]}
 				for _, a := range doomsdayVerbs[verb] {
 					if a == "PATH" {
 						a = file

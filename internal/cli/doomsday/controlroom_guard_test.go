@@ -47,7 +47,10 @@ func TestControlRoomVerbsAreRegisteredReadOnlyAndExactly(t *testing.T) {
 		}
 	}
 	// the group's verbs are the existing ones plus exactly the control room's
-	existing := map[string]bool{"start": true, "stop": true, "status": true, "render": true, "finish": true, "rubric": true, "strategy": true}
+	existing := map[string]bool{"start": true, "stop": true, "status": true, "render": true, "finish": true, "rubric": true, "strategy": true,
+		// probe answers "can a run start here, and why not" (nothing is written, nothing is read of a run): classified on
+		// purpose and held to the same bar as a read verb just below, TestProbeVerbIsReadOnlyAndOperatorOnly.
+		"probe": true}
 	for _, v := range ControlRoomVerbs {
 		existing[v] = true
 	}
@@ -80,5 +83,22 @@ func TestControlRoomSourcesCallNoMutator(t *testing.T) {
 				t.Errorf("%s calls %s: the control room is read-only", f, m)
 			}
 		}
+	}
+}
+
+// The probe verb is not a control-room read (its document is not an overview) but it is held to the same bar: no flag
+// of a verb that acts, no sub-verbs, the operator-only help.
+func TestProbeVerbIsReadOnlyAndOperatorOnly(t *testing.T) {
+	c, _, err := NewCommand(Deps{}).Find([]string{"probe"})
+	if err != nil || c == nil || c.Name() != "probe" || c.HasSubCommands() {
+		t.Fatalf("probe: %v", err)
+	}
+	for _, f := range forbiddenFlags {
+		if c.Flags().Lookup(f) != nil {
+			t.Fatalf("probe has the acting flag --%s", f)
+		}
+	}
+	if !strings.Contains(c.Long, "operator_only") {
+		t.Fatal("probe does not carry the operator-only help")
 	}
 }

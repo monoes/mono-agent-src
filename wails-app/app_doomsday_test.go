@@ -35,7 +35,8 @@ func callCount(t *testing.T, log string) int {
 	return len(strings.Split(strings.TrimSpace(string(raw)), "\n"))
 }
 
-// The app can run overview, feed and stop and nothing else; a flag the verb does not list is refused.
+// doomsdayArgv runs overview, feed, probe and stop and nothing else; a flag the verb does not list is refused. start and
+// render are refused here on purpose: they take a charter and a phrase and have their own fixed argv (below).
 func TestDoomsdayArgvIsAnAllowlist(t *testing.T) {
 	for _, verb := range []string{"start", "approve", "grant", "pause", "resume", "finish", "rubric", "render", "status", "", "stop; start", "overview "} {
 		if _, err := doomsdayArgv("p", verb); err == nil {
@@ -63,13 +64,15 @@ func TestDoomsdayArgvIsAnAllowlist(t *testing.T) {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	if strings.Join(keys, ",") != "feed,overview,stop" {
+	if strings.Join(keys, ",") != "feed,overview,probe,stop" {
 		t.Fatalf("the verb allowlist is %v", keys)
 	}
 }
 
-// The App has exactly these Doomsday bindings; a new one fails here until it is reviewed.
-func TestDoomsdayBindingsAreFour(t *testing.T) {
+// The App has exactly these Doomsday bindings; a new one fails here until it is reviewed. The read bindings, the probe
+// and Stop were four; the open-ended start form adds three, reviewed as a set: OpenEntry (the probe verb), Render (the
+// preview) and Start (operator-gated, the typed phrase re-derived by the CLI, TestDoomsdayRenderAndStartNeedTheOperator).
+func TestDoomsdayBindingsAreExactlyTheReviewedOnes(t *testing.T) {
 	typ := reflect.TypeOf(&App{})
 	var got []string
 	for i := 0; i < typ.NumMethod(); i++ {
@@ -77,7 +80,7 @@ func TestDoomsdayBindingsAreFour(t *testing.T) {
 			got = append(got, n)
 		}
 	}
-	if strings.Join(got, ",") != "DoomsdayFeed,DoomsdayOverview,DoomsdayProbe,DoomsdayStop" {
+	if strings.Join(got, ",") != "DoomsdayFeed,DoomsdayOpenEntry,DoomsdayOverview,DoomsdayProbe,DoomsdayRender,DoomsdayStart,DoomsdayStop" {
 		t.Fatalf("doomsday bindings: %v", got)
 	}
 }
@@ -419,6 +422,36 @@ func TestDoomsdayProbeFailuresAreErrorsAndNotCached(t *testing.T) {
 		if tc.body != "" && tc.name != "timeout" { // the shared deadline has passed for the second probe
 			if n := callCount(t, log); n != 2 {
 				t.Errorf("%s: an error answer was cached (CLI ran %d times for 2 probes)", tc.name, n)
+			}
+		}
+	}
+}
+
+// The two verbs that take a charter have one fixed argv each: the charter on stdin, the phrase and the boss session as
+// --flag=value, nothing else. No other verb gets a charter, and no flag of the script start or the lift is ever built.
+func TestDoomsdayCharterArgvIsFixed(t *testing.T) {
+	for _, verb := range []string{"stop", "overview", "probe", "finish", "rubric", "status", "start; stop", ""} {
+		if _, err := doomsdayCharterArgv("p", verb, "x", 0); err == nil {
+			t.Errorf("doomsday %q was allowed with a charter", verb)
+		}
+	}
+	if _, err := doomsdayCharterArgv("", "render", "", 0); err == nil {
+		t.Fatal("no profile: the call must be refused")
+	}
+	got, err := doomsdayCharterArgv("p", "start", "-x --yes-i-lift", 7)
+	want := []string{"--profile", "p", "--json", "doomsday", "start", "--charter", "-", "--gui-phrase=-x --yes-i-lift", "--boss-session=7"}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("argv = %q, %v", got, err)
+	}
+	got, _ = doomsdayCharterArgv("p", "render", "ignored", 9)
+	want = []string{"--profile", "p", "--json", "doomsday", "render", "--charter", "-"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("render argv = %q", got)
+	}
+	for _, a := range got {
+		for _, bad := range []string{"--yes-i-lift", "--hash", "--everything", "--lift"} {
+			if a == bad {
+				t.Fatalf("argv has %s", bad)
 			}
 		}
 	}

@@ -45,10 +45,20 @@ type StoreEngine struct {
 	HeadAnchor HeadAnchorFunc
 	// Boss records which top-level lead mission is the run's boss (Wiring.DesignateBoss). Nil: no boss can be named.
 	Boss func(ctx context.Context, session int64, entry Entry) error
+	// BossCheck says whether a session may be named the run's boss, before the run exists (Wiring.checkBoss). Nil: no boss can be named.
+	BossCheck func(ctx context.Context, session int64) error
 	// AfterStopFn ends the run's sessions and writes the chat message once a stop is proven. Nil: nothing hangs on a stop.
 	AfterStopFn func(ctx context.Context, o StopOutcome, verdict string, at time.Time) AfterReport
 	// RepairStopFn finishes the sessions and message of the last stop when a stop finds no open run. Nil: nothing to repair.
 	RepairStopFn func(ctx context.Context, at time.Time) ([]string, RepairStatus)
+}
+
+// CheckBoss is BossChecker.
+func (e *StoreEngine) CheckBoss(ctx context.Context, session int64) error {
+	if e.BossCheck == nil {
+		return errors.New("this install cannot name a boss")
+	}
+	return e.BossCheck(ctx, session)
 }
 
 // RepairStop is StopRepairer.

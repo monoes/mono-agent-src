@@ -30,21 +30,23 @@ func TestOnlyDoomsdayStopRunsSignedOut(t *testing.T) {
 	accounttest.Install(t, accounttest.LockedNoLogin)
 	a := newTestApp(t)
 	typ := reflect.TypeOf(a)
-	n := 0
+	var gated []string
 	for i := 0; i < typ.NumMethod(); i++ {
 		m := typ.Method(i)
 		if !strings.HasPrefix(m.Name, "Doomsday") || m.Name == "DoomsdayStop" {
 			continue
 		}
-		n++
+		gated = append(gated, m.Name)
 		before := gateRefusals.Load()
 		callZero(t, a, m)
 		if gateRefusals.Load()-before != 1 {
 			t.Errorf("%s ran signed out", m.Name)
 		}
 	}
-	if n != 3 {
-		t.Fatalf("expected 3 gated doomsday bindings, saw %d", n)
+	// The start form (OpenEntry, Render, Start) is gated like the reads: starting a run needs the sign-in, only Stop
+	// does not. The list is exact, so a further binding that skips the gate cannot hide in a count.
+	if strings.Join(gated, ",") != "DoomsdayFeed,DoomsdayOpenEntry,DoomsdayOverview,DoomsdayProbe,DoomsdayRender,DoomsdayStart" {
+		t.Fatalf("gated doomsday bindings: %v", gated)
 	}
 }
 

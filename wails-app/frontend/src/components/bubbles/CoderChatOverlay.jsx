@@ -5,6 +5,7 @@ import { api, notify } from '../../services/api.js'
 import { CoderHeader, CoderBadge } from '../chat/CoderHeader.jsx'
 import { ChatModeChip } from '../chat/ChatModeSelector.jsx'
 import { useChatMode } from '../chat/useChatMode.js'
+import { OpenStartForm } from '../chat/OpenStartForm.jsx'
 import { folderName } from '../chat/useCoderMode.js'
 import { runtimeLabel } from '../../lib/runtimeLabels.js'
 import { CoderChatView } from './CoderChatView.jsx'
@@ -384,6 +385,11 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
                 onPointerDown={startDrag} onKeyDown={onDividerKey} />
             </>
           )}
+          {/* The open-ended mode is started from its own form, not by a first message: the form is the entry screen, and
+              the run needs the boss session the chat flow creates (bubble.bossSession, not set yet: Start stays disabled). */}
+          {!bubble.conversationId && chatMode.state?.mode === 'open' ? (
+            <OpenStartForm bossSession={bubble.bossSession || null} />
+          ) : (
           <CoderChatView
             conv={conv}
             isDraft={!bubble.conversationId}
@@ -407,6 +413,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
             steerChat={steerChat}
             directBoss={!!bossPane}
           />
+          )}
           {selectedNode && (
             <StageDrawer node={selectedNode} calls={shown?.state?.agentCalls} leadInfo={{ runtime, model, effort: bubble.effort || setup.effort }}
               turnId={shown?.turnId || ''} isLive={!!shown?.isLive} onClose={() => setSelectedAgent(null)}

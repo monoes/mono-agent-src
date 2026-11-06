@@ -2,13 +2,15 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react'
 import '../../i18n.js'
 
 // The chat mode selector in the coder header: three modes chosen before the first message, locked after it, with the
 // CLI's reasons for a disabled mode. The CLI decides; this shows it.
 const { api } = vi.hoisted(() => ({ api: { getChatMissionToggle: vi.fn(), setChatMode: vi.fn(), getChatModeOptions: vi.fn(), openPathWithOS: vi.fn() } }))
 vi.mock('../../services/api.js', () => ({ api, notify: vi.fn() }))
+const { openStartApi } = vi.hoisted(() => ({ openStartApi: { entry: vi.fn() } }))
+vi.mock('../../lib/openStartApi.js', () => ({ openStartApi }))
 
 import { CoderHeader } from './CoderHeader.jsx'
 import { ChatModeChip } from './ChatModeSelector.jsx'
@@ -136,5 +138,32 @@ describe('chat mode selector', () => {
     expect(m.tagName).toBe('BUTTON')
     m.focus()
     expect(m).toHaveFocus()
+  })
+})
+
+describe('the open mode is probed only on the person\'s action', () => {
+  const PENDING = [{ mode: 'off', available: true }, { mode: 'mission', available: true }, { mode: 'open', available: false, pending: true, reason: 'not checked yet' }]
+  it('does not probe on mount or on a timer, only when the pending open-ended option is pressed', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      api.getChatMissionToggle.mockResolvedValue(view(mode({ options: PENDING })))
+      api.setChatMode.mockResolvedValue(view(mode({ mode: 'open', options: PENDING })))
+      openStartApi.entry.mockResolvedValue({ mode_available: true })
+      render(<Harness />)
+      const open = await radio('Open-ended')
+      await act(async () => { vi.advanceTimersByTime(120000) }) // several polls of the settings: none of them probes
+      expect(openStartApi.entry).not.toHaveBeenCalled()
+      fireEvent.click(open)
+      await waitFor(() => expect(openStartApi.entry).toHaveBeenCalledTimes(1))
+      await waitFor(() => expect(api.setChatMode).toHaveBeenCalledWith('c1', 'open'))
+    } finally { vi.useRealTimers() }
+  })
+  it('does not switch to open when the probe says it cannot start, and shows why', async () => {
+    api.getChatMissionToggle.mockResolvedValue(view(mode({ options: PENDING })))
+    openStartApi.entry.mockResolvedValue({ mode_available: false, reason: 'containment unavailable: pidfd_open' })
+    render(<Harness />)
+    fireEvent.click(await radio('Open-ended'))
+    expect(await screen.findByTestId('chat-mode-error')).toHaveTextContent('pidfd_open')
+    expect(api.setChatMode).not.toHaveBeenCalled()
   })
 })

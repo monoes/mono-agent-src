@@ -8,6 +8,9 @@ const run = (call) => Promise.resolve()
   .then(r => (typeof r === 'string' ? JSON.parse(r) : r))
   .catch(e => ({ error: e?.message || String(e) }))
 
+// Said after a start or a Stop: the nav asks again now instead of at its next poll.
+export const CONTROL_ROOM_CHANGED = 'monoagent:controlroom-changed'
+
 export const controlRoomApi = {
   // {mode_available, run_exists}; both false on any failure.
   probe:    () => run(() => GoApp.DoomsdayProbe()),
@@ -15,5 +18,5 @@ export const controlRoomApi = {
   // before 0 = newest page; limit 0 = the CLI's default.
   feed:     (before = 0, limit = 0) => run(() => GoApp.DoomsdayFeed(before, limit)),
   // {ok, stopped, output, detail, code}
-  stop:     () => run(() => GoApp.DoomsdayStop()),
+  stop:     () => run(() => GoApp.DoomsdayStop()).then(r => { window.dispatchEvent(new Event(CONTROL_ROOM_CHANGED)); return r }),
 }

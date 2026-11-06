@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -55,7 +56,7 @@ func NewCommand(d Deps) *cobra.Command {
 		Short:  "Open-ended mode: start, stop, status, render (the user's own)",
 		Hidden: true,
 	}
-	cmd.AddCommand(d.newStart(), d.newStop(), d.newStatus(), d.newRender(), d.newFinish(), d.newRubric(), d.newOverview(), d.newFeed(),
+	cmd.AddCommand(d.newStart(), d.newStop(), d.newStatus(), d.newRender(), d.newFinish(), d.newRubric(), d.newOverview(), d.newFeed(), d.newProbe(),
 		StrategyCommands(StrategyDeps{Reader: d.StrategyReader, JSONOutput: d.JSONOutput}))
 	return cmd
 }
@@ -87,12 +88,16 @@ func (f *charterFlags) build(cmd *cobra.Command, e Engine) (Charter, Canon, erro
 	if f.file == "" {
 		return Charter{}, Canon{}, clicore.InvalidInput("--charter <file> is required")
 	}
-	fh, err := os.Open(f.file)
-	if err != nil {
-		return Charter{}, Canon{}, clicore.InvalidInput("cannot read the charter: %v", err)
+	var src io.Reader = cmd.InOrStdin() // "-": the app hands the charter over on stdin, so no file of it is left behind
+	if f.file != "-" {
+		fh, err := os.Open(f.file)
+		if err != nil {
+			return Charter{}, Canon{}, clicore.InvalidInput("cannot read the charter: %v", err)
+		}
+		defer fh.Close()
+		src = fh
 	}
-	defer fh.Close()
-	c, err := LoadCharter(fh)
+	c, err := LoadCharter(src)
 	if err != nil {
 		return Charter{}, Canon{}, clicore.InvalidInput("%v", err)
 	}
@@ -127,6 +132,9 @@ func (d Deps) newRender() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if d.json() {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(NewRenderDoc(ch, canon.Hash))
+			}
 			fmt.Fprintln(cmd.OutOrStdout(), Render(ch, canon.Hash))
 			return nil
 		},
@@ -138,7 +146,7 @@ func (d Deps) newRender() *cobra.Command {
 func (d Deps) newStart() *cobra.Command {
 	var f charterFlags
 	var yes bool
-	var hash string
+	var hash, guiPhrase string
 	var boss int64
 	c := &cobra.Command{
 		Use:   "start",
@@ -163,9 +171,30 @@ func (d Deps) newStart() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if guiPhrase != "" {
+				if err := ValidateGUIStart(ch); err != nil {
+					return err
+				}
+			}
+			if boss != 0 { // before anything is created: Enter starts a full-access run that a failed BindBoss cannot undo
+				if _, ok := e.(BossBinder); !ok {
+					return clicore.InvalidInput("this install cannot record a boss, so nothing was started")
+				}
+				bc, ok := e.(BossChecker)
+				if !ok {
+					return clicore.InvalidInput("this install cannot check a boss before the start, so nothing was started")
+				}
+				if err := bc.CheckBoss(cmd.Context(), boss); err != nil {
+					return clicore.InvalidInput("%v", err)
+				}
+			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintln(out, Render(ch, canon.Hash))
-			ack, err := d.acknowledge(cmd, len(ch.Lines), canon.Hash, yes, hash)
+			human := out
+			if d.json() { // stdout is the one JSON document the app parses; the render for a person goes to stderr
+				human = cmd.ErrOrStderr()
+			}
+			fmt.Fprintln(human, Render(ch, canon.Hash))
+			ack, err := d.acknowledge(cmd, len(ch.Lines), canon.Hash, yes, hash, guiPhrase)
 			if err != nil {
 				return err
 			}
@@ -197,13 +226,26 @@ func (d Deps) newStart() *cobra.Command {
 	f.add(c)
 	c.Flags().BoolVar(&yes, "yes-i-lift", false, "Script start: needs --hash with the full charter hash; recorded as a script's acknowledgement")
 	c.Flags().StringVar(&hash, "hash", "", "The full charter hash, for --yes-i-lift")
+	c.Flags().StringVar(&guiPhrase, "gui-phrase", "", "The phrase typed in the app's start form; the CLI re-derives it and compares (recorded as a gui acknowledgement)")
+	_ = c.Flags().MarkHidden("gui-phrase")
 	c.Flags().Int64Var(&boss, "boss-session", 0, "The top-level lead mission (session id) that is the run's boss; without it no boss tool works")
 	return c
 }
 
+// humanOut is where text for a person goes: stdout, or stderr under --json so that stdout stays one JSON document.
+func (d Deps) humanOut(cmd *cobra.Command) io.Writer {
+	if d.json() {
+		return cmd.ErrOrStderr()
+	}
+	return cmd.OutOrStdout()
+}
+
 // acknowledge is the typed "I understand" + hash step. There is no way to
 // start without it.
-func (d Deps) acknowledge(cmd *cobra.Command, lines int, full string, yes bool, given string) (Ack, error) {
+func (d Deps) acknowledge(cmd *cobra.Command, lines int, full string, yes bool, given, guiPhrase string) (Ack, error) {
+	if guiPhrase != "" {
+		return guiAck(lines, full, yes, given, guiPhrase)
+	}
 	if yes {
 		if given != full {
 			return Ack{}, clicore.InvalidInput("--yes-i-lift needs --hash with the full hash of the charter shown above (%s)", full)
@@ -217,7 +259,7 @@ func (d Deps) acknowledge(cmd *cobra.Command, lines int, full string, yes bool, 
 		return Ack{}, clicore.InvalidInput("start needs a terminal to type the phrase on, or --yes-i-lift with --hash")
 	}
 	want := Phrase(lines, full)
-	fmt.Fprintf(cmd.OutOrStdout(), "\nTo lift %d lines type exactly:\n  %s\n> ", lines, want)
+	fmt.Fprintf(d.humanOut(cmd), "\nTo lift %d lines type exactly:\n  %s\n> ", lines, want)
 	line, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
 	if err != nil && line == "" {
 		return Ack{}, clicore.InvalidInput("nothing was typed; nothing started")

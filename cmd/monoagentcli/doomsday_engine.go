@@ -64,6 +64,9 @@ func init() {
 		return doomsdayWiring(cfg, db).ReadEngine()
 	}
 	doomsdayChat = func(cfg *globalConfig, d *chatcli.Deps) {
+		// The chat's mode selector asks the CHEAP check only: chat paths are reachable by agents, so they run no host step,
+		// build no witness, start no unit and name no run. The real probe is the operator-gated `doomsday probe`.
+		coderhost.SetOpenModeCheck(func() (bool, string) { return cheapOpenModeCheck(cfg) })
 		// A conductor's merges go through the open run's gate and journal; the resolver reads the run on every
 		// merge, so a run that starts or stops after the turn began is seen.
 		d.DoomsdayMerge = func(db *sql.DB) func(ctx context.Context) (*dynorg.DoomsdayMerge, error) {
@@ -102,6 +105,27 @@ func init() {
 			return r.GuardTurns(ctx, cwd, active)
 		})
 	}
+}
+
+// cheapOpenModeCheck is the availability the chat paths see: whether this profile has a run that is not quiescent, from a
+// plain read-only query. The answer carries no run, generation or charter id.
+func cheapOpenModeCheck(cfg *globalConfig) (bool, string) {
+	db, err := openReadDB(cfg)
+	if errors.Is(err, errNoReadableSchema) {
+		return true, "" // no database with the mode's tables: no run
+	}
+	if err != nil {
+		return false, "the open-ended mode's state cannot be read right now"
+	}
+	defer db.Close()
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM doomsday_runs WHERE profile = ? AND state <> 'quiescent'`, cfg.ProfileID).Scan(&n); err != nil {
+		return false, "the open-ended mode's state cannot be read right now"
+	}
+	if n > 0 {
+		return false, "an open-ended run is already active in this profile: only one runs at a time"
+	}
+	return true, ""
 }
 
 // doomsdayProgressOut is where the CLI's Stop prints its early progress line (a test swaps it).
