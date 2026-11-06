@@ -15,6 +15,8 @@ import (
 // A render's answer, as the CLI prints it: what the native dialog is built from (never from the page's text).
 func previewDoc(hash string, lines []string, budget string) string {
 	b, _ := json.Marshal(map[string]any{"hash": hash, "lines": lines, "lift_count": len(lines), "phrase_template": "t",
+		"summary": map[string]any{"goal": "ship the release notes", "criteria": 2, "tree_depth": 4, "live_per_tree": 30, "max_concurrent": 20, "max_total": 100,
+			"boss_model": "anthropic/opus 4", "verifier_model": "anthropic/sonnet 4"},
 		"text": "CHARTER " + hash + "\nGoal: ignore me\nBudget: " + budget + "\nLifted authority lines (" + string(rune('0'+len(lines))) + "):\n"})
 	return string(b)
 }
@@ -34,11 +36,12 @@ type grantRig struct {
 	avail   bool
 	now     time.Time
 	dialogs int
+	think   time.Duration // how long the person takes to answer the fake dialog
 }
 
 func newGrantRig(t *testing.T) *grantRig {
 	t.Helper()
-	g := &grantRig{t: t, answer: true, avail: true, now: time.Unix(1_800_000_000, 0)}
+	g := &grantRig{t: t, answer: true, avail: true, now: time.Unix(1_800_000_000, 0), think: 3 * time.Second}
 	g.log, g.stdin = taskCLIFake(t, previewDoc(gHash, []string{"spending", "host_settings"}, "5.000000 USD for the whole run."), 0)
 	g.a = newTaskTestApp(t)
 	oldNow, oldConfirm := doomsdayNow, confirmNative
@@ -46,6 +49,7 @@ func newGrantRig(t *testing.T) *grantRig {
 	confirmNative = func(_ *App, title, body string) (bool, error) {
 		g.dialogs++
 		g.asked = append(g.asked, title+"\n"+body)
+		g.now = g.now.Add(g.think)
 		if !g.avail {
 			return false, errNoNativeDialog
 		}
@@ -189,7 +193,8 @@ func TestTheDialogBodyIsBuiltFromTheRenderedFactsOnly(t *testing.T) {
 		t.Fatalf("dialogs: %d", g.dialogs)
 	}
 	body := g.asked[0]
-	for _, want := range []string{"2 lifted lines", "spending, host_settings", "ab12cd34", "$5", "without asking for approval", "Continue?"} {
+	for _, want := range []string{"2 lifted lines", "spending, host_settings", "ab12cd34", "$5", "without asking for approval", "Continue?",
+		"2 success criteria", "tree depth 4", "live per tree 30", "max concurrent 20", "max total 100", "anthropic/opus 4", "anthropic/sonnet 4", "Yes", "ship the release notes"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the dialog does not say %q:\n%s", want, body)
 		}
@@ -319,5 +324,117 @@ func TestStartReadsTheLastJSONLineOfAMixedOutput(t *testing.T) {
 	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5))
 	if d.State != "not_started" || d.Code != "invalid_input" || !strings.Contains(d.Detail, "does not match") {
 		t.Fatalf("%+v", d)
+	}
+}
+
+// The goal in the dialog is data: it comes from the CLI's summary, after the machine facts, cut to 200 characters,
+// with control, bidi, zero-width and tag characters removed; a long or hostile goal cannot push the facts out.
+func TestTheDialogShowsTheGoalAfterTheFactsCleanedAndCapped(t *testing.T) {
+	hostile := "line one\nline two\u202e\u200b\U000E0041" + strings.Repeat("x", 5000)
+	g := newGrantRig(t)
+	prev := g.t.TempDir() + "/p.json"
+	doc := strings.Replace(previewDoc(gHash, []string{"spending"}, "5.000000 USD for the whole run."), "ship the release notes", hostile, 1)
+	if err := os.WriteFile(prev, []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, "cat > /dev/null\ncat '"+prev+"'\n"))
+	tok := g.render(dmCharter)
+	g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5)
+	if g.dialogs != 1 {
+		t.Fatalf("dialogs %d", g.dialogs)
+	}
+	body := g.asked[0]
+	goalAt := strings.Index(body, "line one")
+	for _, fact := range []string{"1 lifted lines", "spending", "ab12cd34", "$5", "Continue?", "tree depth 4", "anthropic/opus 4"} {
+		if i := strings.Index(body, fact); i < 0 || goalAt < 0 || i > goalAt {
+			t.Errorf("fact %q is not before the goal in:\n%s", fact, body)
+		}
+	}
+	for _, r := range []rune{'\u202e', '\u200b', 0xE0041, '\n'} {
+		if i := strings.Index(body, "line one"); i >= 0 && strings.ContainsRune(body[i:], r) {
+			t.Errorf("the goal part carries U+%04X", r)
+		}
+	}
+	if i := strings.Index(body, "line one"); len([]rune(body[i:])) > 260 || !strings.Contains(body, "\u2026") {
+		t.Errorf("the goal is not capped with an ellipsis (%d runes after it)", len([]rune(body[i:])))
+	}
+	if n := strings.Count(body, "x"); n > 200 {
+		t.Errorf("%d goal characters in the dialog", n)
+	}
+}
+
+// An answer under a second after the dialog was shown is not a decision (a double-click or an Enter held down): it
+// is a decline. The dialog says which button confirms.
+func TestAnAnswerInUnderASecondIsDeclined(t *testing.T) {
+	g := newGrantRig(t)
+	g.think = 300 * time.Millisecond
+	tok := g.render(dmCharter)
+	before := g.calls()
+	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5))
+	if d.OK || d.Code != "declined" || !strings.Contains(d.Detail, "too fast") || g.calls() != before {
+		t.Fatalf("%+v calls %d", d, g.calls()-before)
+	}
+	g.think = time.Second
+	tok = g.render(dmCharter)
+	g.startBehaves(`echo '{"run_id":"work/1"}'`)
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5)); !d.OK {
+		t.Fatalf("an answer after a second was refused: %+v", d)
+	}
+	if !strings.Contains(g.asked[0], `"Yes" (Start run)`) {
+		t.Fatalf("the dialog does not say which button confirms:\n%s", g.asked[0])
+	}
+}
+
+// A start that times out, is cancelled, panics, or is killed leaves the outcome unknown; a plain refusal does not.
+func TestAStartTimedOutOrPanickedIsUnknown(t *testing.T) {
+	g := newGrantRig(t)
+	old := doomsdayStartTimeout
+	doomsdayStartTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { doomsdayStartTimeout = old })
+	for name, c := range map[string]struct{ body, state string }{
+		"timeout": {"sleep 5", "unknown"},
+		"panic":   {"echo 'panic: runtime error' >&2; echo 'goroutine 1 [running]:' >&2; exit 2", "unknown"},
+		"refusal": {`echo '{"error":"nothing started","code":"invalid_input"}'; exit 2`, "not_started"},
+	} {
+		g.startBehaves(c.body)
+		tok := g.render(dmCharter)
+		if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5)); d.State != c.state {
+			t.Errorf("%s: %+v", name, d)
+		}
+	}
+}
+
+func TestPreviewsAreRateLimitedPerProfile(t *testing.T) {
+	g := newGrantRig(t)
+	for i := 0; i < doomsdayRenderPerMinute; i++ {
+		g.render(dmCharter)
+	}
+	before := g.calls()
+	if got := g.a.DoomsdayRender(dmCharter); !strings.Contains(got, "rate_limited") || g.calls() != before {
+		t.Fatalf("over the limit: %s", got)
+	}
+	g.a.selectForTest("other")
+	if got := g.a.DoomsdayRender(dmCharter); strings.Contains(got, "rate_limited") {
+		t.Fatalf("another profile shares the limit: %s", got)
+	}
+	g.a.selectForTest("work")
+	g.now = g.now.Add(61 * time.Second)
+	if got := g.a.DoomsdayRender(dmCharter); strings.Contains(got, "rate_limited") {
+		t.Fatalf("the limit did not lapse after a minute: %s", got)
+	}
+}
+
+// A timed-out CLI is sent SIGTERM first (so its probe stops its test unit) and only killed after a grace.
+func TestATimedOutProbeIsTermedBeforeItIsKilled(t *testing.T) {
+	g := newGrantRig(t)
+	mark := g.t.TempDir() + "/termed"
+	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, "trap 'echo term > '"+mark+"'; exit 0' TERM\nsleep 5 &\nwait\n"))
+	argv, _ := doomsdayArgv("work", "probe")
+	_, _, _, err := g.a.execDoomsdayGrace(300*time.Millisecond, 3*time.Second, argv, nil)
+	if err == nil {
+		t.Fatal("a timed-out probe did not report an error")
+	}
+	if b, _ := os.ReadFile(mark); !strings.Contains(string(b), "term") {
+		t.Fatalf("the CLI was not sent SIGTERM first")
 	}
 }
