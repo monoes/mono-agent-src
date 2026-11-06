@@ -1,12 +1,12 @@
 package chat
 
 import (
-	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/coderhost"
-	"github.com/monoes/mono-agent/internal/tasks"
 )
 
 // The conversation of a run's recorded boss is hidden from the plain `chat history list` only. Every other listing shows it
@@ -99,23 +99,45 @@ func TestCoderSessionsListMarksTheBossSession(t *testing.T) {
 	}
 }
 
-func TestQueueCoderChatsMarkTheBoss(t *testing.T) {
+// `coder list` feeds the browser extension as a list of chats to send follow-ups to: a boss's conversation is not one. The
+// default leaves out a stamped boss (the same anti-join as the history list); --all shows it with boss true. A normal chat, a
+// chat an agent gave a boss key without the stamp, and a stamped lead without the key stay in the default list.
+func TestCoderListLeavesOutTheBossUnlessAll(t *testing.T) {
 	b := seedBossListing(t)
 	store, db := openTestChatStore(t, b.dbPath), rawDB(t, b.dbPath)
-	seedTurn(t, store, db, b.boss.ID, "bt1", "steer me", "completed", "2026-10-22T09:00:00Z")
-	seedTurn(t, store, db, b.chat.ID, "ct1", "hello", "completed", "2026-10-22T09:00:00Z")
-	rows, err := coderChats(store, "default", 10, func(id string) bool {
-		b, _ := tasks.IsBossConversation(context.Background(), db, "default", id)
-		return b
-	})
-	if err != nil {
-		t.Fatal(err)
+	for i, c := range []ai.Conversation{b.boss, b.chat, b.fake, b.lead} {
+		seedTurn(t, store, db, c.ID, fmt.Sprintf("t%d", i), "hello", "completed", "2026-10-22T09:00:00Z")
 	}
-	marks := map[string]bool{}
-	for _, r := range rows {
-		marks[r.ID] = r.Boss
+	list := func(args ...string) map[string]bool {
+		out, code := runCoderCLI(t, b.dbPath, append([]string{"list"}, args...)...)
+		if code != 0 {
+			t.Fatalf("coder list %v: %d %s", args, code, out)
+		}
+		var doc struct {
+			Conversations []struct {
+				ID   string `json:"id"`
+				Boss bool   `json:"boss"`
+			} `json:"conversations"`
+		}
+		decodeChatJSON(t, out, &doc)
+		marks := map[string]bool{}
+		for _, c := range doc.Conversations {
+			marks[c.ID] = c.Boss
+		}
+		return marks
 	}
-	if len(marks) != 2 || !marks[b.boss.ID] || marks[b.chat.ID] {
-		t.Fatalf("queue chat marks: %v", marks)
+	def := list()
+	if _, in := def[b.boss.ID]; in || len(def) != 3 || def[b.chat.ID] || def[b.fake.ID] || def[b.lead.ID] {
+		t.Fatalf("default list: %v", def)
+	}
+	all := list("--all")
+	if len(all) != 4 || !all[b.boss.ID] || all[b.chat.ID] || all[b.fake.ID] || all[b.lead.ID] {
+		t.Fatalf("--all list: %v", all)
+	}
+	if out, code := runCoderCLI(t, b.dbPath, "list", "--conversation", b.boss.ID); code == 0 {
+		t.Fatalf("a boss's conversation was named as a send target: %s", out)
+	}
+	if out, code := runCoderCLI(t, b.dbPath, "list", "--conversation", b.boss.ID, "--all"); code != 0 || !strings.Contains(out, `"boss":true`) {
+		t.Fatalf("--conversation with --all: %d %s", code, out)
 	}
 }
