@@ -216,3 +216,27 @@ describe('accessibility', () => {
     await waitFor(() => expect(review).toHaveFocus())
   })
 })
+
+describe('the goal counter and a failed call', () => {
+  it('shows how many of 2000 characters the goal has and refuses more', async () => {
+    render(<OpenStartForm bossSession={7} />)
+    await screen.findByLabelText('Goal')
+    type('Goal', 'x'.repeat(2001))
+    expect(screen.getByTestId('open-goal-count')).toHaveTextContent('2001/2000')
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }))
+    expect(await screen.findByText(/at most 2000 characters/)).toBeInTheDocument()
+    expect(openStartApi.render).not.toHaveBeenCalled()
+  })
+  it('shows the unknown state, not a plain error, when the start call itself throws', async () => {
+    openStartApi.start.mockRejectedValue(new Error('bridge closed'))
+    render(<OpenStartForm bossSession={7} />)
+    await screen.findByLabelText('Goal')
+    await fillForm()
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }))
+    await screen.findByTestId('open-review')
+    type('Type the phrase', TYPED)
+    fireEvent.click(screen.getByRole('button', { name: 'Start the run' }))
+    expect(await screen.findByTestId('open-unknown')).toHaveTextContent('may have started')
+    expect(screen.getByRole('button', { name: 'Start the run' })).toBeDisabled()
+  })
+})

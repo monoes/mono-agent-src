@@ -113,3 +113,19 @@ describe('the form refuses what charter.go refuses, so Review does not fail with
     expect(buildCharter(good({ perAsk: on })).errors.perAsk).toBeTruthy()
   })
 })
+
+describe('free text is held to what the CLI will take for an app start', () => {
+  it('refuses a goal or a criterion over 2000 characters', () => {
+    expect(buildCharter(good({ goal: 'é'.repeat(2001) })).errors.text).toBeTruthy()
+    expect(buildCharter(good({ goal: 'é'.repeat(2000) })).errors.text).toBeFalsy()
+    expect(buildCharter(good({ criteria: [{ kind: 'rubric', text: 'x'.repeat(2001) }] })).errors.text).toBeTruthy()
+  })
+  it('refuses zero-width, bidi, tag, variation-selector, separator and control characters, but keeps newline and tab', () => {
+    for (const bad of ['a​b', 'a‮b', 'a\u{E0041}', 'a️', 'a b', 'a\u0000b', 'a']) {
+      expect(buildCharter(good({ goal: bad })).errors.text, JSON.stringify(bad)).toBeTruthy()
+    }
+    expect(buildCharter(good({ goal: 'line one\n\tline two' })).errors.text).toBeFalsy()
+    expect(buildCharter(good({ pins: { boss: pin('anthropic', 'op​us', '4'), verifier: pin('a', 's', '4'), judging: 'j' } })).errors.text).toBeTruthy()
+    expect(buildCharter(good({ pins: { boss: pin('anthropic', 'opus', '4'), verifier: pin('a', 's', '4'), judging: 'j‮' } })).errors.text).toBeTruthy()
+  })
+})
