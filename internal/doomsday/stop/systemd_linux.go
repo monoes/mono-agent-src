@@ -102,7 +102,10 @@ func selfTest(ctx context.Context, h UnitHost, k Kernel, sleepBin string) (err e
 		return fmt.Errorf("a transient service with Delegate=yes cannot be started: %w", err)
 	}
 	defer func() {
-		if serr := h.StopUnit(ctx, name); serr != nil {
+		// Not the probe's own context: an interrupted or timed-out probe has a cancelled one, and the unit must go anyway.
+		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		if serr := h.StopUnit(stopCtx, name); serr != nil {
 			err = errors.Join(err, fmt.Errorf("the self-test service %s could not be stopped: %w", name, serr))
 		}
 	}()
