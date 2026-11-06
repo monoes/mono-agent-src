@@ -92,6 +92,7 @@ type Session struct {
 	ApprovalBasis     string        `json:"approval_basis"`    // operator, lead or person; empty until approved
 	Depth             int           `json:"depth"`             // 1 for a top-level session, computed from the chain
 	Deduped           bool          `json:"deduped,omitempty"` // set by CreateSession when the client id matched an existing session
+	Boss              bool          `json:"boss,omitempty"`    // the operator recorded this session as the boss of the profile's open-ended run
 }
 
 // SessionCounts are a session's tasks per column, without the archived ones.
