@@ -240,6 +240,8 @@ func runChat(cfg *Deps, cmd *cobra.Command, args []string, f *chatFlags) (retErr
 			// os.Executable() fails, everything else still works.
 			selfBin, _ := os.Executable()
 			monoTools = aichat.NewMonoagentTools(db.DB, selfBin, profileID)
+			// The label an org proposal made by this session's tools carries.
+			monoTools.SetConversationID(conversationID)
 			// Workflows the editor or `workflow save` wrote live as files:
 			// activate and delete must reach those, not only the rows.
 			if home, err := os.UserHomeDir(); err == nil {

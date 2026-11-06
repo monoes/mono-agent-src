@@ -1,19 +1,13 @@
 package chat
 
 import (
-	"context"
 	"strings"
 	"testing"
 )
 
 // set_org_autonomy's decider-kind list matches orgdesign's (jev plan WS4).
 func TestSetOrgAutonomy_DeciderKinds(t *testing.T) {
-	db := newMonoagentTestDB(t)
-	mt := NewMonoagentTools(db.DB, "/bin/monoagentcli", "default")
-	stubRunSelfExec(t, func(ctx context.Context, bin string, args ...string) ([]byte, error) {
-		t.Fatal("exec must not run for a preview")
-		return nil, nil
-	})
+	mt := newProposalToolFixture(t).mt
 	for _, c := range []struct {
 		kind string
 		ok   bool
@@ -22,21 +16,16 @@ func TestSetOrgAutonomy_DeciderKinds(t *testing.T) {
 		if (err == nil) != c.ok {
 			t.Errorf("decider %s: out=%s err=%v", c.kind, out, err)
 		}
-		if c.ok && !strings.Contains(out, "--decider "+c.kind) {
+		if c.ok && !strings.Contains(out, `decider \"`+c.kind+`\"`) {
 			t.Errorf("decider %s: preview %s", c.kind, out)
 		}
 	}
 }
 
 func TestSetOrgAutonomy_DeciderThreshold(t *testing.T) {
-	db := newMonoagentTestDB(t)
-	mt := NewMonoagentTools(db.DB, "/bin/monoagentcli", "default")
-	stubRunSelfExec(t, func(ctx context.Context, bin string, args ...string) ([]byte, error) {
-		t.Fatal("exec must not run for a preview")
-		return nil, nil
-	})
+	mt := newProposalToolFixture(t).mt
 	out, err := mt.Execute("set_org_autonomy", `{"org_name":"growth","decider":"jev","decider_threshold":0.85}`)
-	if err != nil || !strings.Contains(out, "--decider jev --decider-threshold 0.85") {
+	if err != nil || !strings.Contains(out, "decider threshold 0.85") {
 		t.Fatalf("preview %s err=%v", out, err)
 	}
 	for _, bad := range []string{"0", "1.2"} {

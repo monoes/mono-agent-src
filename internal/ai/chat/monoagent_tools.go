@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/monoes/mono-agent/internal/profiledir"
+	"github.com/monoes/mono-agent/internal/workflow"
 )
 
 // MonoagentTools gives an AI chat turn tool access into the rest of a
@@ -49,6 +50,9 @@ type MonoagentTools struct {
 	orgProjectRoot string
 	// conversationID is the chat conversation this session's tools run in: the label an org proposal is made under.
 	conversationID string
+	// hybridStore is st of SetWorkflowStore when it is the CLI's hybrid store: the store an org proposal reads the
+	// automation's workflow from. Nil: the rows alone.
+	hybridStore *workflow.HybridWorkflowStore
 }
 
 // NewMonoagentTools creates a MonoagentTools backed by db. selfBin is the
@@ -78,6 +82,7 @@ type WorkflowStore interface {
 func (mt *MonoagentTools) SetWorkflowStore(st WorkflowStore) {
 	mt.mu.Lock()
 	mt.store = st
+	mt.hybridStore, _ = st.(*workflow.HybridWorkflowStore)
 	mt.mu.Unlock()
 }
 
