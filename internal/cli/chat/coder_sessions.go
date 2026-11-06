@@ -25,7 +25,7 @@ func newCoderSessionsCmd(cfg *Deps) *cobra.Command {
 			"from starting and `resume` lifts that. Turns run unattended: the access level of the conversation is the " +
 			"only limit, so `list` shows it.",
 	}
-	cmd.AddCommand(newCoderSessionsListCmd(cfg), newCoderSessionsSendCmd(cfg), newCoderSessionsCommandCmd(cfg), newCoderSessionsSettingsCmd(cfg),
+	cmd.AddCommand(newCoderSessionsListCmd(cfg), newCoderSessionsSendCmd(cfg), newCoderSessionsSteerCmd(cfg), newCoderSessionsCommandCmd(cfg), newCoderSessionsSettingsCmd(cfg),
 		newCoderSessionsSpawnCmd(cfg), newCoderSessionsStatusCmd(cfg),
 		newCoderSessionsControlCmd(cfg, coderhost.KindStop, "Stop the session's running turn"),
 		newCoderSessionsControlCmd(cfg, coderhost.KindPause, "Start no new turn until resumed (a running turn finishes)"),

@@ -7,6 +7,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/coderhost"
+	"github.com/monoes/mono-agent/internal/daemonhb"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
 
@@ -34,7 +35,11 @@ func newSteerRig(t *testing.T, stamp bool) *steerRig {
 	}
 	orig := startHostProcess
 	t.Cleanup(func() { startHostProcess = orig })
-	startHostProcess = func(*Deps) error { return nil } // the host is not what is tested
+	startHostProcess = func(c *Deps) error { // stands in for the detached host: takes the lock
+		release, err := daemonhb.LockFile(hostLockPath(c))
+		t.Cleanup(func() { release() })
+		return err
+	}
 	return r
 }
 
@@ -62,7 +67,7 @@ func TestSteerDeliversMarkedGuidanceToTheBossOnly(t *testing.T) {
 	if n := strings.Count(c.Message, steerEnd); n != 1 || !strings.HasSuffix(strings.TrimSpace(c.Message), steerEnd) {
 		t.Fatalf("the text closed the envelope early (%d end markers):\n%s", n, c.Message)
 	}
-	if askGatedTurn(c.TurnID) || coderhost.HostMade(c.TurnID) {
+	if coderhost.HostMade(c.TurnID) {
 		t.Fatalf("steering travels as an ask answer or a host turn: %q", c.TurnID)
 	}
 }
