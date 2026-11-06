@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -98,14 +99,55 @@ func runIn(m *testing.M) int {
 		return 1
 	}
 	defer os.RemoveAll(dir)
-	os.Setenv("HOME", dir)
-	os.Setenv("USERPROFILE", dir)
-	// The config and data dirs follow HOME only when XDG_* is unset; a user
-	// who sets them would otherwise have tests write into their real ones.
-	os.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, ".config"))
-	os.Setenv("XDG_DATA_HOME", filepath.Join(dir, ".local", "share"))
-	os.Setenv("XDG_STATE_HOME", filepath.Join(dir, ".local", "state"))
+	env, mkdirs := homeEnv(runtime.GOOS, dir)
+	for _, d := range mkdirs {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			fmt.Fprintln(os.Stderr, "testhome:", err)
+			return 1
+		}
+	}
+	for _, kv := range env {
+		os.Setenv(kv[0], kv[1])
+	}
 	return m.Run()
+}
+
+// homeEnv lists the environment (name, value pairs, in the order they are set)
+// that points the account's home, config, data, state and temp locations of
+// goos into dir, and the dirs that must exist for it. On Linux and macOS it
+// is HOME, USERPROFILE and the XDG dirs. On Windows os.UserHomeDir,
+// os.UserConfigDir and os.TempDir read USERPROFILE, APPDATA and
+// TEMP/TMP, none of which follow HOME, so they are redirected too.
+func homeEnv(goos, dir string) (env [][2]string, mkdirs []string) {
+	if goos != "windows" {
+		return [][2]string{
+			{"HOME", dir},
+			{"USERPROFILE", dir},
+			{"XDG_CONFIG_HOME", filepath.Join(dir, ".config")},
+			{"XDG_DATA_HOME", filepath.Join(dir, ".local", "share")},
+			{"XDG_STATE_HOME", filepath.Join(dir, ".local", "state")},
+		}, nil
+	}
+	join := func(elem ...string) string { return strings.Join(append([]string{dir}, elem...), `\`) }
+	drive, rest := "", dir
+	if len(dir) >= 2 && dir[1] == ':' {
+		drive, rest = dir[:2], dir[2:]
+	}
+	roaming, local := join("AppData", "Roaming"), join("AppData", "Local")
+	tmp := join("AppData", "Local", "Temp")
+	return [][2]string{
+		{"HOME", dir},
+		{"USERPROFILE", dir},
+		{"HOMEDRIVE", drive},
+		{"HOMEPATH", rest},
+		{"APPDATA", roaming},
+		{"LOCALAPPDATA", local},
+		{"TEMP", tmp},
+		{"TMP", tmp},
+		{"XDG_CONFIG_HOME", join(".config")},
+		{"XDG_DATA_HOME", join(".local", "share")},
+		{"XDG_STATE_HOME", join(".local", "state")},
+	}, []string{roaming, local, tmp}
 }
 
 // keepCaches pins cache locations derived from HOME before HOME changes.
@@ -186,5 +228,3 @@ func within(path, dir string) bool {
 	rel, err := filepath.Rel(dir, path)
 	return err == nil && !filepath.IsAbs(rel) && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
-
-func homeEnv(goos, dir string) (env [][2]string, mkdirs []string) { return nil, nil }
