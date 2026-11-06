@@ -16,8 +16,8 @@ import (
 
 // chatNameRe is a runtime or effort name; chatModelRe a model id (which may carry a slash or a colon).
 var (
-	chatNameRe  = regexp.MustCompile(`^[A-Za-z0-9._-]{1,40}$`)
-	chatModelRe = regexp.MustCompile(`^[A-Za-z0-9._:/-]{1,80}$`)
+	chatNameRe  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$`)
+	chatModelRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,79}$`)
 )
 
 // chatFolderShown is the longest folder the dialog shows whole.
@@ -75,6 +75,12 @@ func parseChat(chatID, specJSON string) (startChat, error) {
 	case sp.Cwd != "" && (!filepath.IsAbs(sp.Cwd) || filepath.Clean(sp.Cwd) != sp.Cwd || utf8.RuneCountInString(sp.Cwd) > chatFolderShown):
 		return startChat{}, errors.New("the folder of the chat to make is an absolute, clean path of at most 200 characters")
 	}
+	if sp.Cwd != "" {
+		// A symlink would make the dialog name one folder and the chat work in another: the real path is what is given.
+		if real := resolvedPath(sp.Cwd); real != sp.Cwd {
+			return startChat{}, errors.New("the folder of the chat to make is, or goes through, a symbolic link (" + cleanText(real, 120) + "): give the real path")
+		}
+	}
 	norm, _ := json.Marshal(sp)
 	folder := sp.Cwd
 	if folder == "" {
@@ -112,4 +118,18 @@ func docState(doc string) string {
 	}
 	_ = json.Unmarshal([]byte(doc), &d)
 	return d.State
+}
+
+// resolvedPath is p with every symbolic link in its existing part resolved (the part that does not exist yet is kept as it is).
+func resolvedPath(p string) string {
+	rest := ""
+	for q := p; ; q = filepath.Dir(q) {
+		if real, err := filepath.EvalSymlinks(q); err == nil {
+			return filepath.Join(real, rest)
+		}
+		if filepath.Dir(q) == q {
+			return p
+		}
+		rest = filepath.Join(filepath.Base(q), rest)
+	}
 }

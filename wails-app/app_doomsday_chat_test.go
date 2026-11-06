@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -144,5 +146,37 @@ func TestAFailedStartRemovesTheChatItMade(t *testing.T) {
 				t.Fatalf("state=%q deleted=%v chat=%s raw=%s", d.State, deleted, d.Chat, raw)
 			}
 		})
+	}
+}
+
+// A folder that is, or goes through, a symlink is refused: the dialog would name one place and the chat would work in another.
+func TestParseChatRefusesASymlinkedFolder(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	real := filepath.Join(base, "real")
+	if err := os.Mkdir(real, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skip("no symlinks here")
+	}
+	spec := func(p string) string {
+		b, _ := json.Marshal(map[string]string{"runtime": "claude", "access": "full", "cwd": p})
+		return string(b)
+	}
+	if _, err := parseChat("", spec(link)); err == nil || !strings.Contains(err.Error(), "symbolic link") {
+		t.Fatalf("the link was accepted: %v", err)
+	}
+	if _, err := parseChat("", spec(filepath.Join(link, "sub"))); err == nil {
+		t.Fatal("a path through the link was accepted")
+	}
+	if _, err := parseChat("", spec(real)); err != nil {
+		t.Fatalf("the real folder was refused: %v", err)
+	}
+	if _, err := parseChat("", spec(filepath.Join(base, "not-yet"))); err != nil {
+		t.Fatalf("a folder that does not exist yet was refused: %v", err)
 	}
 }
