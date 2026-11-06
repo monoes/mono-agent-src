@@ -69,6 +69,18 @@ func (g *grantRig) render(charter string) string {
 	return d.Token
 }
 
+// startBehaves makes the CLI answer a render with the preview and a start with the given shell body.
+func (g *grantRig) startBehaves(body string) {
+	g.t.Helper()
+	prev := g.t.TempDir() + "/preview.json"
+	if err := os.WriteFile(prev, []byte(previewDoc(gHash, []string{"spending", "host_settings"}, "5.000000 USD for the whole run.")), 0o600); err != nil {
+		g.t.Fatal(err)
+	}
+	script := "for a in \"$@\"; do printf '%s|' \"$a\"; done >> '" + g.log + "'\necho >> '" + g.log + "'\ncat > '" + g.stdin + "'\n" +
+		"case \"$*\" in *render*) cat '" + prev + "';; *)\n" + body + "\n;; esac\n"
+	g.t.Setenv("MONOAGENTCLI_BIN", fakeCLI(g.t, script))
+}
+
 func (g *grantRig) calls() int { return callCount(g.t, g.log) }
 
 func TestStartNeedsTheTokenOfTheExactCharterThatWasRendered(t *testing.T) {
@@ -79,10 +91,9 @@ func TestStartNeedsTheTokenOfTheExactCharterThatWasRendered(t *testing.T) {
 	}
 	rendered := g.calls()
 	for name, c := range map[string]struct{ charter, token string }{
-		"no token":       {dmCharter, ""},
-		"wrong token":    {dmCharter, strings.Repeat("0", 32)},
-		"other charter":  {dmCharter + " ", tok},
-		"other charter2": {strings.Replace(dmCharter, `"g"`, `"h"`, 1), tok},
+		"no token":    {dmCharter, ""},
+		"wrong token": {dmCharter, strings.Repeat("0", 32)},
+		"short token": {dmCharter, "abcd"},
 	} {
 		d := parseStartDoc(t, g.a.DoomsdayStart(c.charter, gPhrase, c.token, 5))
 		if d.OK || d.Code != "token" {
@@ -93,11 +104,27 @@ func TestStartNeedsTheTokenOfTheExactCharterThatWasRendered(t *testing.T) {
 		t.Fatalf("a refused token reached the CLI (%d calls) or the dialog (%d)", g.calls()-rendered, g.dialogs)
 	}
 	// the real token still works after wrong tries (they do not burn it), once
+	g.startBehaves(`echo '{"run_id":"work/1"}'`)
 	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5)); !d.OK {
 		t.Fatalf("the right token was refused: %+v", d)
 	}
 	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5)); d.OK || d.Code != "token" {
 		t.Fatalf("a token was used twice: %+v", d)
+	}
+}
+
+// The token is of the exact bytes previewed: any other charter is refused, and the token is spent by the attempt.
+func TestStartRefusesAnotherCharterThanTheOnePreviewed(t *testing.T) {
+	g := newGrantRig(t)
+	for name, other := range map[string]string{"extra byte": dmCharter + " ", "other goal": strings.Replace(dmCharter, `"g"`, `"h"`, 1)} {
+		tok := g.render(dmCharter)
+		before := g.calls()
+		if d := parseStartDoc(t, g.a.DoomsdayStart(other, gPhrase, tok, 5)); d.OK || d.Code != "token" || g.calls() != before || g.dialogs != 0 {
+			t.Fatalf("%s: %+v", name, d)
+		}
+		if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5)); d.OK {
+			t.Fatalf("%s: the spent token started", name)
+		}
 	}
 }
 
@@ -205,20 +232,20 @@ func TestStartRefusesNoBossAndReportsAnUnclearOutcomeAsUnknown(t *testing.T) {
 		}
 	}
 	// the CLI is killed mid-start: the run may have started
-	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, "kill -9 $$\n"))
+	g.startBehaves("kill -9 $$")
 	tok := g.render(dmCharter)
 	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5))
 	if d.OK || d.Started || d.State != "unknown" || !strings.Contains(d.Detail, "may have started") {
 		t.Fatalf("a killed start: %+v", d)
 	}
 	// the CLI says it started but could not finish (the boss record): also not "not started"
-	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, "echo '{\"error\":\"run work/1 started but session 5 could not be recorded as its boss\",\"code\":\"error\"}'\nexit 1\n"))
+	g.startBehaves(`echo '{"error":"run work/1 started but session 5 could not be recorded as its boss","code":"error"}'; exit 1`)
 	tok = g.render(dmCharter)
 	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5)); d.State != "unknown" {
 		t.Fatalf("started-but: %+v", d)
 	}
 	// a plain refusal is a refusal
-	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, "echo '{\"error\":\"the phrase does not match; nothing started\",\"code\":\"invalid_input\"}'\nexit 2\n"))
+	g.startBehaves(`echo '{"error":"the phrase does not match; nothing started","code":"invalid_input"}'; exit 2`)
 	tok = g.render(dmCharter)
 	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5)); d.State != "not_started" || d.Code != "invalid_input" {
 		t.Fatalf("a refusal: %+v", d)

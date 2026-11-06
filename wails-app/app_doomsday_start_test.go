@@ -32,14 +32,14 @@ func parseStartDoc(t *testing.T, s string) (d struct {
 // supplies a charter, the phrase the person typed, the render's token and a boss session number, and none of them is a flag.
 func TestDoomsdayRenderAndStartRunExactArgvWithTheCharterOnStdin(t *testing.T) {
 	g := newGrantRig(t)
-	tok := g.render(dmCharter)
 	phrase := "--yes-i-lift x"
+	g.startBehaves(`echo '{"run_id":"work/1"}'`)
+	tok := g.render(dmCharter)
 	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, phrase, tok, 41))
 	if !d.OK {
 		t.Fatalf("%+v", d)
 	}
 	want := []string{
-		"--profile|work|--json|doomsday|render|--charter|-|",
 		"--profile|work|--json|doomsday|render|--charter|-|",
 		"--profile|work|--json|doomsday|start|--charter|-|--gui-phrase=--yes-i-lift x|--boss-session=41|",
 	}
@@ -53,14 +53,14 @@ func TestDoomsdayRenderAndStartRunExactArgvWithTheCharterOnStdin(t *testing.T) {
 
 func TestDoomsdayStartAnswersWithTheCLIsWords(t *testing.T) {
 	g := newGrantRig(t)
+	g.startBehaves(`echo '{"run_id":"work/1","hash":"h","generation":1}'`)
 	tok := g.render(dmCharter)
-	taskCLIFake(t, `{"run_id":"work/1","hash":"h","generation":1}`, 0)
 	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5))
 	if !d.OK || !d.Started || d.State != "started" || !strings.Contains(d.Output, "work/1") {
 		t.Fatalf("%+v", d)
 	}
+	g.startBehaves(`echo '{"error":"the phrase does not match; nothing started","code":"invalid_input"}'; exit 2`)
 	tok = g.render(dmCharter)
-	taskCLIFake(t, `{"error":"the phrase does not match; nothing started","code":"invalid_input"}`, 2)
 	d = parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5))
 	if d.OK || d.Started || d.Code != "invalid_input" || !strings.Contains(d.Detail, "does not match") {
 		t.Fatalf("%+v", d)

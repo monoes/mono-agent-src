@@ -286,6 +286,7 @@ func (a *App) DoomsdayStop() string {
 	}
 	defer doomsdayStopMu.Unlock()
 	defer doomsdayProbe.invalidate()
+	doomsdayGrants.dropAll() // a Stop ends any preview that was waiting to be started
 	pid, err := a.stopProfileID()
 	if err != nil {
 		return stopDoc(false, "", err.Error(), "")
