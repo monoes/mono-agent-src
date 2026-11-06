@@ -7,20 +7,14 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 // approvalsTestDB is a migrated database (foreign keys on, as the CLI opens
 // it) and its SQLite store.
 func approvalsTestDB(t *testing.T) (*storage.Database, *SQLiteWorkflowStore) {
 	t.Helper()
-	db, err := storage.NewDatabase(filepath.Join(t.TempDir(), "approvals.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
-	if err := db.ApplyMigrations(); err != nil {
-		t.Fatal(err)
-	}
+	db := testdb.Open(t)
 	return db, NewSQLiteWorkflowStore(db.DB)
 }
 
