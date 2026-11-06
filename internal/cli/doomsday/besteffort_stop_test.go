@@ -1,0 +1,56 @@
+package doomsday
+
+import (
+	"strings"
+	"testing"
+)
+
+// On a best-effort containment the CLI prints the limit with the word and never a bare "stopped".
+func TestStopBestEffortPrintsTheLimitNeverBareStopped(t *testing.T) {
+	r := newRig()
+	r.e.stop = StopOutcome{MarkerRecorded: true, IntentRecorded: true, BestEffort: true}
+	out, err := run(t, r.deps, "", "stop")
+	if err != nil {
+		t.Fatal(err, out)
+	}
+	const want = "stopped (best effort: processes that left the group are not covered)"
+	if !strings.Contains(out, want) {
+		t.Fatalf("output lacks %q: %q", want, out)
+	}
+	for _, l := range strings.Split(out, "\n") {
+		if strings.TrimSpace(l) == "stopped" {
+			t.Fatalf("a bare stopped line in %q", out)
+		}
+	}
+}
+
+func TestStopBestEffortDoesNotSoftenAFailure(t *testing.T) {
+	r := newRig()
+	r.e.stop = StopOutcome{MarkerRecorded: true, IntentRecorded: true, BestEffort: true, Survivors: []string{"pid 7"}}
+	out, err := run(t, r.deps, "", "stop")
+	if err == nil || strings.Contains(out, "best effort") {
+		t.Fatalf("a survivor is a failure, not a best-effort stop: err=%v out=%q", err, out)
+	}
+}
+
+// The not-defended text is a function of the OS: the last bullet must be true where it is printed.
+func TestNotDefendedIsTrueForEachOS(t *testing.T) {
+	const refuses = "refuses to start where its processes cannot be contained"
+	lin := NotDefended("linux")
+	if !strings.Contains(lin, refuses) || strings.Contains(lin, "best effort") {
+		t.Fatalf("linux: %s", lin)
+	}
+	win := NotDefended("windows")
+	for _, want := range []string{"does NOT defend", "no isolation", "outlive a hard Stop", "Job Object", "best effort", "left the job"} {
+		if !strings.Contains(win, want) {
+			t.Errorf("windows text lacks %q", want)
+		}
+	}
+	if strings.Contains(win, refuses) {
+		t.Errorf("windows text keeps the Linux refusal sentence, which is not what happens there: %s", win)
+	}
+	// an OS with no containment says the mode does not start there.
+	if other := NotDefended("plan9"); !strings.Contains(other, "does not start") || strings.Contains(other, "Job Object") {
+		t.Errorf("unsupported OS: %s", other)
+	}
+}
