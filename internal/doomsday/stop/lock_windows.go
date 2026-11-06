@@ -47,3 +47,6 @@ func (realWinLock) LockFile(path string, wait bool) (func(), bool, error) {
 		_ = windows.CloseHandle(h)
 	}, false, nil
 }
+
+// verifyHeld: nothing to look at; the lock handle forbids delete and rename of the file (no FILE_SHARE_DELETE).
+func verifyHeld(string) error { return nil }

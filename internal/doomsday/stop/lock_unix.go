@@ -5,12 +5,33 @@ package stop
 import (
 	"errors"
 	"os"
+	"path/filepath"
+	"sync"
 
 	"golang.org/x/sys/unix"
 )
 
 // afterFlock is a test seam: it runs after the lock is taken and before the path is compared with the locked file.
 var afterFlock func(path string)
+
+// held are the locks this process holds, by path, so a later look can compare the locked file with the file at the path.
+// A same-user process that unlinks a held lock file lets another process lock a new one; the holder finds out here.
+// (Windows needs none: its lock handle is opened without FILE_SHARE_DELETE, so the file cannot be deleted or renamed.)
+var (
+	heldMu sync.Mutex
+	held   = map[string]*os.File{}
+)
+
+// verifyHeld: nil when this process does not hold path, or holds it and path still leads to the locked file.
+func verifyHeld(path string) error {
+	heldMu.Lock()
+	f := held[filepath.Clean(path)]
+	heldMu.Unlock()
+	if f != nil && !sameAsPath(f, path) {
+		return ErrHostLockLost
+	}
+	return nil
+}
 
 var errLockReplaced = errors.New("stop: the lock file was replaced while it was being locked")
 
@@ -51,7 +72,19 @@ func flockOnce(path string, wait bool) (func(), error) {
 		f.Close()
 		return nil, errLockReplaced
 	}
-	return func() { _ = unix.Flock(int(f.Fd()), unix.LOCK_UN); f.Close() }, nil
+	key := filepath.Clean(path)
+	heldMu.Lock()
+	held[key] = f
+	heldMu.Unlock()
+	return func() {
+		heldMu.Lock()
+		if held[key] == f {
+			delete(held, key)
+		}
+		heldMu.Unlock()
+		_ = unix.Flock(int(f.Fd()), unix.LOCK_UN)
+		f.Close()
+	}, nil
 }
 
 func sameAsPath(f *os.File, path string) bool {

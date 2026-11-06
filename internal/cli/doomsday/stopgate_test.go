@@ -2,6 +2,8 @@ package doomsday
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -85,5 +87,21 @@ func TestHostGateTakesTheHostLockAndARefusedLockRefusesTheDispatch(t *testing.T)
 	r.gate.HostLock = func(stop.RunDir) (func(), error) { took++; return func() {}, nil }
 	if err := r.startTurn(); err != nil || took != 1 {
 		t.Fatalf("turn: %v, lock taken %d times", err, took)
+	}
+}
+
+// A host whose lock file was removed (a second host could now lock a new one) refuses every dispatch from then on.
+func TestHostGateRefusesWhenItsHostLockFileWasRemoved(t *testing.T) {
+	r := newHostRig(t)
+	r.start(t)
+	r.gate.HostLock = nil // the real lock
+	if err := r.startTurn(); err != nil {
+		t.Fatalf("first turn: %v", err)
+	}
+	if err := os.Remove(filepath.Join(r.gate.RunDir.Dir, "host.lock")); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.startTurn(); !refused(err) {
+		t.Fatalf("a dispatch ran although the host lock file is gone: %v", err)
 	}
 }

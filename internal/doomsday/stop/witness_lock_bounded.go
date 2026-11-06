@@ -23,6 +23,9 @@ func (w Witness) lockBounded() (func(), error) {
 	if err := w.Dir.fsys().MkdirAll(w.Dir.Dir, 0o700); err != nil {
 		return nil, fmt.Errorf("stop: the run directory cannot be created: %w", err)
 	}
+	if err := VerifyHostLock(w.Dir); err != nil { // the host lock this process holds must still be the file at its name
+		return nil, err
+	}
 	for i := 0; i < lockTries; i++ {
 		unlock, err := flock(w.lockPath(), false)
 		if err == nil {
