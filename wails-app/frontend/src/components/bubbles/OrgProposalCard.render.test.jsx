@@ -60,6 +60,30 @@ describe('OrgProposalCard', () => {
     }
   })
 
+  it('shows a revoke proposal of set_org_grant as a revoke, and refuses it under any other tool', async () => {
+    const revoke = row({ verb: 'grant.remove', preview_text: 'Revoke the grant that lets role lead of org acme call the automation publish_post.' })
+    api.getOrgProposal.mockResolvedValue({ v: 1, proposal: revoke })
+    api.confirmOrgProposal.mockResolvedValue({ v: 1, proposal: { ...revoke, status: 'applied' }, result: { removed: true } })
+    const { unmount } = mount()
+    expect(await screen.findByTestId('org-proposal-preview')).toHaveTextContent('Revoke the grant')
+    expect(screen.getByTestId('org-proposal')).toHaveAttribute('data-verb', 'grant.remove')
+    expect(screen.getByText(/Revoke proposal for acme/)).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('org-proposal-confirm'))
+    await waitFor(() => expect(api.confirmOrgProposal).toHaveBeenCalledWith(ID, HASH))
+    unmount()
+    const other = mount({ tool: 'set_org_autonomy' })
+    expect(await screen.findByTestId('org-proposal-unavailable')).toBeInTheDocument()
+    expect(screen.queryByTestId('org-proposal-confirm')).toBeNull()
+    other.unmount()
+  })
+
+  it('refuses an autonomy proposal under set_org_grant', async () => {
+    api.getOrgProposal.mockResolvedValue({ v: 1, proposal: row({ verb: 'autonomy.set' }) })
+    mount()
+    expect(await screen.findByTestId('org-proposal-unavailable')).toBeInTheDocument()
+    expect(screen.queryByTestId('org-proposal-confirm')).toBeNull()
+  })
+
   it('shows nothing of a proposal that cannot be read', async () => {
     api.getOrgProposal.mockResolvedValue({ error: 'proposal_not_found' })
     mount()
