@@ -369,6 +369,10 @@ type bossEngine struct {
 	err   error
 }
 
+// CheckBoss is the before-the-start check; this fake's boss is always eligible (the race a later BindBoss refusal covers
+// is what the err field below plays).
+func (b *bossEngine) CheckBoss(context.Context, int64) error { return nil }
+
 func (b *bossEngine) BindBoss(_ context.Context, session int64, _ Entry) error {
 	b.bound = append(b.bound, session)
 	return b.err
