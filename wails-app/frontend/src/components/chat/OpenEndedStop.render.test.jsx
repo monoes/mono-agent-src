@@ -123,9 +123,61 @@ describe('what the result says about the parts that did not work', () => {
     expect(onStopped).toHaveBeenCalledWith('Open-ended run stopped by you at T: stopped (x)')
   })
 
-  it('a failed repair is a failure', async () => {
-    await stopWith({ ok: false, stopped: false, output: 'no open run; ended sessions left open by the previous stop: 4\ntranscript NOT written (c1): x', detail: 'exit status 1', code: '' })
+  it('a failed repair is a warning, not a success and not "NOT confirmed stopped"', async () => {
+    await stopWith({ ok: false, stopped: false, output: 'no open run; ended sessions left open by the previous stop: 4\ntranscript NOT written (c1): x', detail: 'exit status 8', code: '' })
+    expect(screen.getByTestId('chat-stop-result')).toHaveAttribute('data-ok', 'warn')
+  })
+
+  it('a stop whose cleanup failed (exit 8, first line stopped) is a warning with a retry, and still leaves its message', async () => {
+    const onStopped = await stopWith({ ok: false, stopped: false, output: 'stopped\nsession 4 NOT ended: boom', detail: 'exit status 8', code: '' })
+    expect(screen.getByTestId('chat-stop-result')).toHaveAttribute('data-ok', 'warn')
+    expect(screen.getByTestId('chat-stop-result').textContent).toContain('Stopped, but the cleanup did not finish')
+    expect(screen.getByRole('button', { name: 'Retry cleanup' })).toBeEnabled()
+    expect(onStopped).toHaveBeenCalled()
+  })
+
+  it('a NOT stopped result is still the failure', async () => {
+    await stopWith({ ok: false, stopped: false, output: 'NOT stopped: 1 process(es) survive: pid 7', detail: 'exit status 1', code: '' })
     expect(screen.getByTestId('chat-stop-result')).toHaveAttribute('data-ok', 'no')
+    expect(screen.getByTestId('chat-stop-result').textContent).toContain('NOT confirmed stopped')
+  })
+})
+
+describe('the result outlives the probe, and the dialog is accessible', () => {
+  const mount = (runExists) => {
+    const api = { stop: vi.fn().mockResolvedValue({ ok: true, stopped: true, output: 'stopped\nsessions ended: 4', detail: '', code: '' }) }
+    const props = { conversationId: 'c1', onStopped: vi.fn(), api }
+    const ui = r => <CoderHeader cwd="/w" chatMode={chatMode('open')} openEnded={{ ...props, runExists: r }} />
+    const view = render(ui(runExists))
+    return { api, view, ui }
+  }
+  const doStop = async () => {
+    fireEvent.click(screen.getByRole('button', { name: /Stop run/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, stop the run' }))
+    await waitFor(() => expect(screen.getByTestId('chat-stop-result')).toBeInTheDocument())
+  }
+
+  it('keeps the result when the probe says there is no run any more, and offers no second Stop', async () => {
+    const { view, ui } = mount(true)
+    await doStop()
+    expect(screen.getByRole('button', { name: 'Stopped, refreshing...' })).toBeDisabled() // the probe has not caught up
+    view.rerender(ui(false))
+    expect(screen.getByTestId('chat-stop-result').textContent).toContain('sessions ended: 4')
+    expect(screen.queryByRole('button', { name: /Stop run|Retry cleanup/ })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+    expect(screen.queryByTestId('chat-stop')).toBeNull()
+  })
+
+  it('the confirm dialog is modal, takes focus, closes on Escape and gives focus back', () => {
+    mount(true)
+    const open = screen.getByRole('button', { name: /Stop run/ })
+    fireEvent.click(open)
+    const dialog = screen.getByRole('alertdialog')
+    expect(dialog).toHaveAttribute('aria-modal', 'true')
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Cancel' }))
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: /Stop run/ }))
   })
 })
 

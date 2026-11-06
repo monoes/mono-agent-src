@@ -2483,7 +2483,11 @@
       "failed": "NO se confirmó la detención",
       "title": "Detiene la ejecución abierta de este perfil",
       "message": "Ejecución abierta detenida por ti a las {{time}}: {{line}}",
-      "localMessage": "{{message}} (solo se muestra aquí: la CLI no lo guardó en la transcripción)"
+      "localMessage": "{{message}} (solo se muestra aquí: la CLI no lo guardó en la transcripción)",
+      "refreshing": "Detenido, actualizando...",
+      "retry": "Reintentar limpieza",
+      "dismiss": "Cerrar",
+      "partial": "Detenido, pero la limpieza no terminó"
     }
   }
 }

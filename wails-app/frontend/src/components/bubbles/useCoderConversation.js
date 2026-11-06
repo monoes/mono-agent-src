@@ -182,7 +182,7 @@ export function useCoderConversation({ conversationId, create, access = 'full' }
 
   // addSystemNotice puts a system message into the shown transcript, as the same turn a reload would show for it.
   const addSystemNotice = useCallback((message, code = 'doomsday.stopped') => {
-    const state = { ...initialChatState(), notices: [{ code, message, severity: 'info' }], terminal: { status: 'completed', reason: '', exitCode: null, historySaved: true } }
+    const state = { ...initialChatState(), notices: [{ code, message, severity: 'info' }], terminal: { status: 'completed', reason: '', exitCode: null, historySaved: false } }
     setMessages(msgs => [...msgs, { role: 'turn', turnId: `system-local-${msgs.length}`, state }])
   }, [])
 
