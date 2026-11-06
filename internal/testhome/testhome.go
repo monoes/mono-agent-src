@@ -186,3 +186,5 @@ func within(path, dir string) bool {
 	rel, err := filepath.Rel(dir, path)
 	return err == nil && !filepath.IsAbs(rel) && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
+
+func homeEnv(goos, dir string) (env [][2]string, mkdirs []string) { return nil, nil }
