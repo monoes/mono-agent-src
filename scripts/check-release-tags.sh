@@ -101,7 +101,7 @@ if [ "$bad_nongo" -gt 0 ]; then
   exit 1
 fi
 if [ "$bad" -gt 0 ]; then
-  echo "check-release-tags: $bad binary(ies) carry the $forbidden tag" >&2
+  echo "check-release-tags: $bad binary(ies) carry a forbidden tag ($forbidden_tags)" >&2
   exit 1
 fi
 if [ "$checked" -lt "$min" ]; then

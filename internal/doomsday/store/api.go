@@ -147,12 +147,12 @@ func (r *Refusal) Error() string { return "doomsday: refused: " + r.Reason }
 
 // Sentinel errors.
 var (
-	ErrUnverifiable    = errors.New("doomsday: stored authority cannot be verified")
-	ErrBadTransition   = errors.New("doomsday: run state moves forward one step only")
-	ErrLiveMembers     = errors.New("doomsday: live members are still registered")
-	ErrActiveRun       = errors.New("doomsday: the profile already has an active run")
+	ErrUnverifiable  = errors.New("doomsday: stored authority cannot be verified")
+	ErrBadTransition = errors.New("doomsday: run state moves forward one step only")
+	ErrLiveMembers   = errors.New("doomsday: live members are still registered")
+	ErrActiveRun     = errors.New("doomsday: the profile already has an active run")
 	// ErrCommitUnknown: the entry's transaction was sent to commit and the commit reported an error, so the run row may or may not exist.
-	ErrCommitUnknown = errors.New("doomsday: the outcome of the entry's commit is unknown")
+	ErrCommitUnknown   = errors.New("doomsday: the outcome of the entry's commit is unknown")
 	ErrGenerationMoved = errors.New("doomsday: the generation is not the next one")
 	ErrHashMismatch    = errors.New("doomsday: charter hash differs from the confirmed hash")
 	ErrAlreadyConsumed = errors.New("doomsday: approval already consumed")
