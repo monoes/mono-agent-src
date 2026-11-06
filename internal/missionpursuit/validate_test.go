@@ -36,6 +36,18 @@ func TestValidateRules(t *testing.T) {
 		{"newline in a command", []Criterion{rubric, {Kind: "command", Spec: "echo hi\nrm x"}}, false},
 		{"NUL in a rubric", []Criterion{{Kind: "rubric", Spec: "a\x00b"}}, false},
 		{"newline in a rubric is prose", []Criterion{{Kind: "rubric", Spec: "line one\nline two"}}, true},
+		{"bidi override in a rubric", []Criterion{{Kind: "rubric", Spec: "safe \u202eevil"}}, false},
+		{"bidi isolate in a rubric", []Criterion{{Kind: "rubric", Spec: "a \u2066b\u2069"}}, false},
+		{"bidi embedding in a command", []Criterion{rubric, {Kind: "command", Spec: "echo \u202a hi"}}, false},
+		{"zero width space", []Criterion{{Kind: "rubric", Spec: "pass\u200bed"}}, false},
+		{"zero width joiner and direction marks", []Criterion{{Kind: "rubric", Spec: "a\u200d\u200e\u200fb"}}, false},
+		{"byte order mark", []Criterion{{Kind: "rubric", Spec: "\ufeffall good"}}, false},
+		{"soft hyphen", []Criterion{{Kind: "rubric", Spec: "all\u00adgood"}}, false},
+		{"line and paragraph separators", []Criterion{{Kind: "rubric", Spec: "a\u2028b\u2029c"}}, false},
+		{"C1 control", []Criterion{{Kind: "rubric", Spec: "a\u0085b"}}, false},
+		{"format char in expected", []Criterion{rubric, {Kind: "output", Spec: "echo hi", Expected: "hi\u202e"}}, false},
+		{"format char in a rubric's expected", []Criterion{{Kind: "rubric", Spec: "fine", Expected: "x\u200by"}}, false},
+		{"plain non-ASCII is fine", []Criterion{{Kind: "rubric", Spec: "Le résumé est complet \u2014 完成"}}, true},
 		{"invalid utf-8", []Criterion{{Kind: "rubric", Spec: "a\xffb"}}, false},
 		{"shell operator in a command", []Criterion{rubric, {Kind: "command", Spec: "make | tee x"}}, false},
 		{"absolute file path", []Criterion{rubric, {Kind: "file", Spec: "/etc/passwd", Expected: "exists"}}, false},
@@ -58,15 +70,15 @@ func TestValidateRules(t *testing.T) {
 // The store runs the same rules: an invalid set writes nothing.
 func TestInvalidCriteriaWriteNothing(t *testing.T) {
 	f := newMission(t)
-	if _, err := f.store.Propose(bg, "default", f.session, []Criterion{{Kind: "command", Spec: "true"}}, agent("lead")); err == nil {
+	if _, err := f.store.Propose(bg, "default", f.session, []Criterion{{Kind: "command", Spec: "true"}}, lead); err == nil {
 		t.Error("a proposal with no rubric was stored")
 	}
 	if n := count(t, f.db, `SELECT COUNT(*) FROM mission_goals`); n != 0 {
 		t.Errorf("%d rows", n)
 	}
 	// and a bad revision leaves the previous proposal as it was
-	g := mustPropose(t, f, goodCriteria(), agent("lead"))
-	if _, err := f.store.Propose(bg, "default", f.session, []Criterion{{Kind: "vibes", Spec: "x"}}, agent("lead")); err == nil {
+	g := mustPropose(t, f, goodCriteria(), lead)
+	if _, err := f.store.Propose(bg, "default", f.session, []Criterion{{Kind: "vibes", Spec: "x"}}, lead); err == nil {
 		t.Error("a bad revision was stored")
 	}
 	if got, _ := f.store.Get(bg, "default", f.session); got.Hash != g.Hash || len(got.Criteria) != 2 {

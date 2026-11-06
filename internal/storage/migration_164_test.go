@@ -1,14 +1,23 @@
 package storage
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 var missionGoalTables = []string{"mission_goals", "mission_goal_criteria"}
 
-// Migration 164 adds the mission goal tables. It is additive: a database at the 163 head keeps its rows, the new tables
-// are empty and a second run changes nothing.
+// Migration 164 adds the mission goal tables. It is additive: a database at the 163 head, or still at 162, keeps its rows,
+// the new tables are empty and a second run changes nothing.
 func TestMigration164AddsTheMissionGoalTablesAdditively(t *testing.T) {
+	for _, below := range []int{164, 163} { // the 163 head, then the 162 head
+		t.Run(fmt.Sprintf("from the head below %d", below), func(t *testing.T) { migration164From(t, below) })
+	}
+}
+
+func migration164From(t *testing.T, below int) {
 	db := open156(t)
-	applyMigrationsBelow(t, db, 164)
+	applyMigrationsBelow(t, db, below)
 	if _, err := db.DB.Exec(`INSERT INTO profiles (id, name) VALUES ('p', 'p')`); err != nil {
 		t.Fatal(err)
 	}
@@ -30,8 +39,10 @@ func TestMigration164AddsTheMissionGoalTablesAdditively(t *testing.T) {
 			}
 		}
 	}
-	var v int
-	if err := db.DB.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version = 164`).Scan(&v); err != nil || v != 1 {
-		t.Fatalf("164 recorded %d times, %v", v, err)
+	for _, ver := range []int{163, 164} {
+		var v int
+		if err := db.DB.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version = ?`, ver).Scan(&v); err != nil || v != 1 {
+			t.Fatalf("%d recorded %d times, %v", ver, v, err)
+		}
 	}
 }

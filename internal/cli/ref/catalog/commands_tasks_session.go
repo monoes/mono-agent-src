@@ -18,7 +18,8 @@ var taskSessionCommandDocs = []cmdDoc{
   resume   Run a paused session again (the operator only)
   stop     End it and release every claim (the operator or an agent)
   archive  Hide a session that is not running (the operator only)
-  budget   Budget, limits, access level, auto-close, spend (the operator only)`,
+  budget   Budget, limits, access level, auto-close, spend (the operator only)
+  goal     A mission's ultimate goal as typed criteria: an agent proposes, the operator sets or confirms (a changed goal means a new mission)`,
 		Examples: []string{
 			"monoagentcli --profile work task session list",
 			"monoagentcli --profile work task session plan 3",

@@ -9,7 +9,7 @@ import (
 func confirmedMission(t *testing.T) fixture {
 	t.Helper()
 	f := newMission(t)
-	g := mustPropose(t, f, goodCriteria(), agent("lead"))
+	g := mustPropose(t, f, goodCriteria(), lead)
 	if _, err := f.store.Confirm(bg, "default", f.session, g.Hash, human); err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestStateMovesForwardOnly(t *testing.T) {
 	mustRefuse(t, f, "locked_at moved", `UPDATE mission_goals SET locked_at = 'later' WHERE session_id = ?`, s)
 
 	g := newMission(t)
-	mustPropose(t, g, goodCriteria(), agent("lead"))
+	mustPropose(t, g, goodCriteria(), lead)
 	mustRefuse(t, g, "proposed straight to locked", `UPDATE mission_goals SET state = 'locked', locked_at = 'x' WHERE session_id = ?`, g.session)
 	mustRefuse(t, g, "a row born confirmed", `INSERT INTO mission_goals (session_id, state, criteria_hash, proposed_by, confirmed_by, confirmed_at, created_at, updated_at) VALUES (?, 'confirmed', 'x', 'a', 'you', 'x', 'x', 'x')`, addSession(t, g.db, "default", "mission", "chat1", "running"))
 	mustRefuse(t, g, "a row born locked", `INSERT INTO mission_goals (session_id, state, criteria_hash, proposed_by, created_at, updated_at) VALUES (?, 'locked', 'x', 'a', 'x', 'x')`, addSession(t, g.db, "default", "mission", "chat1", "running"))
@@ -70,7 +70,7 @@ func TestStateMovesForwardOnly(t *testing.T) {
 
 func TestConfirmNeedsAPersonAndARubricAtDatabase(t *testing.T) {
 	f := newMission(t)
-	mustPropose(t, f, goodCriteria(), agent("lead"))
+	mustPropose(t, f, goodCriteria(), lead)
 	s := f.session
 	mustRefuse(t, f, "confirm with nobody named", `UPDATE mission_goals SET state = 'confirmed' WHERE session_id = ?`, s)
 	mustRefuse(t, f, "confirm with a blank name", `UPDATE mission_goals SET state = 'confirmed', confirmed_by = '', confirmed_at = 'x' WHERE session_id = ?`, s)

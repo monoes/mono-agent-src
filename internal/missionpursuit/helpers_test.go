@@ -17,6 +17,9 @@ var (
 
 func agent(name string) tasks.Actor { return tasks.Actor{Kind: tasks.Agent, Name: name} }
 
+// lead is the agent of the fixture's mission chat: its verified chat is the one the session is linked to.
+var lead = tasks.Actor{Kind: tasks.Agent, Name: "lead", Conversation: "chat1"}
+
 // goodCriteria is a valid set: one machine criterion and the rubric the person decides.
 func goodCriteria() []Criterion {
 	return []Criterion{

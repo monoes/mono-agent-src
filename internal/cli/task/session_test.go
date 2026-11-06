@@ -168,6 +168,8 @@ var sessionOperatorCommands = [][]string{
 	{"session", "budget", "1", "--max-tasks", "999"},
 	{"session", "budget", "1", "--access", "full"},
 	{"session", "budget", "1", "--spend", "1"},
+	{"session", "goal", "set", "1", "--criteria", "-"},
+	{"session", "goal", "confirm", "1", "--hash", "x"},
 	{"undepend", "1", "2"},
 }
 
