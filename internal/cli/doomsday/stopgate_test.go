@@ -95,11 +95,20 @@ func TestHostGateRefusesWhenItsHostLockFileWasRemoved(t *testing.T) {
 	r := newHostRig(t)
 	r.start(t)
 	r.gate.HostLock = nil // the real lock
+	// a witness that does not verify the lock: only the gate's own look can refuse (the witness lock refuses too, in production)
+	r.gate.Fresh = func(context.Context, int64) error { return nil }
 	if err := r.startTurn(); err != nil {
 		t.Fatalf("first turn: %v", err)
 	}
+	if err := r.startTurn(); err != nil { // control: a second turn with the lock in place is fine
+		t.Fatalf("second turn: %v", err)
+	}
 	if err := os.Remove(filepath.Join(r.gate.RunDir.Dir, "host.lock")); err != nil {
 		t.Fatal(err)
+	}
+	// the look itself (a turn would also be refused later, by the witness lock its registry write takes)
+	if _, _, err := r.gate.currentRun(context.Background()); !refused(err) {
+		t.Fatalf("the gate was handed out although the host lock file is gone: %v", err)
 	}
 	if err := r.startTurn(); !refused(err) {
 		t.Fatalf("a dispatch ran although the host lock file is gone: %v", err)

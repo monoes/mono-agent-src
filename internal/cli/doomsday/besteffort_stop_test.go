@@ -51,7 +51,7 @@ func TestNotDefendedIsTrueForEachOS(t *testing.T) {
 			t.Errorf("windows text lacks %q", want)
 		}
 	}
-	for _, want := range []string{"starts on Windows only when all its host checks", "weaker than on Linux", "undone", "in-place", "planted", "NTFS", "64-bit", "SQLite", "by design", "not re-run when a host resumes", "-wal", "each verification unit"} {
+	for _, want := range []string{"starts on Windows only when all its host checks", "weaker than on Linux", "undone", "in-place", "planted", "NTFS", "64-bit", "SQLite", "by design", "not re-run when a host resumes", "-wal", "each verification unit", "with SQLite's own connection closed", "can remove -wal and -shm", "availability, not safety"} {
 		if !strings.Contains(win, want) {
 			t.Errorf("windows text lacks %q", want)
 		}

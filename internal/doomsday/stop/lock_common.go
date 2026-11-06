@@ -31,8 +31,11 @@ func AcquireHost(r RunDir) (release func(), err error) {
 
 // ErrHostLockLost: the host lock this process holds is no longer the file at its name (it was unlinked or replaced), so a
 // second host could lock a new file; nothing may go on as the only host.
-var ErrHostLockLost = errors.New("stop: the host lock file was removed or replaced, so this host is no longer the only one")
+var ErrHostLockLost = errors.New("stop: the host lock file (host.lock in the run directory) was removed or replaced, for example by a backup or cleanup tool or by a worker, so another host could now be running; restart the host")
 
 // VerifyHostLock is the look: nil when this process holds no host lock for r (an injected one, a CLI command) or holds
 // it and the file at its name is still the locked one. Windows needs no look: the lock handle forbids delete and rename.
+// Limits: the identity of the run directory is not held, so a same-user process that moves the directory away and
+// recreates it, then hard-links the (still locked) host.lock into it, passes this look; a same-user process can already
+// kill the host, so this is no new power. The look catches the removal or replacement of the file.
 func VerifyHostLock(r RunDir) error { return verifyHeld(filepath.Join(r.Dir, "host.lock")) }

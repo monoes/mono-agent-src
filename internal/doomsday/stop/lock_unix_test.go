@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -100,5 +101,14 @@ func TestWitnessLockRefusesWhenTheHostLockWasUnlinked(t *testing.T) {
 			u()
 		}
 		t.Fatalf("LockWitness was granted to a host whose lock is gone: %v", err)
+	}
+}
+
+func TestHostLockLostSaysWhyAndWhatToDo(t *testing.T) {
+	msg := ErrHostLockLost.Error()
+	for _, want := range []string{"removed or replaced", "backup or cleanup tool", "worker", "restart"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("the error lacks %q: %s", want, msg)
+		}
 	}
 }

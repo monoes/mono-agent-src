@@ -35,9 +35,12 @@ func containmentBullet(goos string) string {
     and never a bare "stopped". The mode starts on Windows only when all its host checks
     pass when it starts, on the volume of the database and the run directory (lock, peer
     identity of the emergency channel, pinned database); they are not re-run when a host
-    resumes (they do run again for each verification unit). At the start the probe tries, next to the database, to move, replace and
-    remove the database, its -wal and -shm and their directory, and requires the system
-    to refuse it or the binding to report it. Beyond that the pinned database binding is
+    resumes (they do run again for each verification unit). At the start the probe tries,
+    next to the database, to move, replace and remove the database, its -wal and -shm and
+    their directory, and requires the system to refuse it or the binding to report it. It
+    repeats these with SQLite's own connection closed, so that only the host's own holds can
+    refuse; on some Windows setups closing the last connection of a WAL database can remove
+    -wal and -shm, and the probe then refuses (availability, not safety). Beyond that the pinned database binding is
     weaker than on Linux, and what follows is by design and has not been verified on real
     machines: a swap that is undone again between two looks is not remembered, an in-place
     overwrite of the database file is not detected, a -wal or -shm planted before the host
