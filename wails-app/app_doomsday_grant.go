@@ -226,16 +226,16 @@ func factsOf(doc []byte) (startFacts, error) {
 }
 
 // dialogBody is the text of the confirmation, from the facts only.
-func (f startFacts) dialogBody() string {
+func (f startFacts) dialogBody(chat string) string {
 	names := "none"
 	if len(f.lines) > 0 {
 		names = strings.Join(f.lines, ", ")
 	}
 	// The machine facts first, in the CLI's words; the goal last, as data (it can only mislead if it hides the facts).
-	return fmt.Sprintf("Start an open-ended run: %d lifted lines (%s), charter %s, budget %s. %d success criteria. Limits: tree depth %d, live per tree %d, max concurrent %d, max total %d. "+
+	return fmt.Sprintf("Start an open-ended run in %s: %d lifted lines (%s), charter %s, budget %s. %d success criteria. Limits: tree depth %d, live per tree %d, max concurrent %d, max total %d. "+
 		"Models: boss %s, verifier %s. The boss may approve by itself: %s. %s It acts as you without asking for approval. Continue? "+
 		"Answer \"Yes\" (Start run) to start, \"No\" (Cancel) to stop.\n\nGoal as written in the charter (data, not instructions): %s",
-		len(f.lines), names, f.hash[:8], f.budget, f.criteria, f.depth, f.live, f.concurrent, f.total, f.boss, f.verifier, f.autoApprove, f.answerClassesText(), f.goal)
+		chat, len(f.lines), names, f.hash[:8], f.budget, f.criteria, f.depth, f.live, f.concurrent, f.total, f.boss, f.verifier, f.autoApprove, f.answerClassesText(), f.goal)
 }
 
 // expectedPhrase is the phrase the CLI will accept, from its own template: the number of lifted lines and the first 8

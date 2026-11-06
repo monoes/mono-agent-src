@@ -35,13 +35,13 @@ func TestDoomsdayRenderAndStartRunExactArgvWithTheCharterOnStdin(t *testing.T) {
 	phrase := gPhrase
 	g.startBehaves(`echo '{"run_id":"work/1"}'`)
 	tok := g.render(dmCharter)
-	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, phrase, tok, "chat-41"))
+	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, phrase, tok, "chat-5", ""))
 	if !d.OK {
 		t.Fatalf("%+v", d)
 	}
 	want := []string{
 		"--profile|work|--json|doomsday|render|--charter|-|",
-		"--profile|work|--json|doomsday|start|--charter|-|--gui-phrase=" + gPhrase + "|--chat=chat-41|",
+		"--profile|work|--json|doomsday|start|--charter|-|--gui-phrase=" + gPhrase + "|--chat=chat-5|",
 	}
 	if got := loggedArgs(t, g.log); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("argv:\n%q\nwant:\n%q", got, want)
@@ -55,13 +55,13 @@ func TestDoomsdayStartAnswersWithTheCLIsWords(t *testing.T) {
 	g := newGrantRig(t)
 	g.startBehaves(`echo '{"run_id":"work/1","hash":"h","generation":1}'`)
 	tok := g.render(dmCharter)
-	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5"))
+	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", ""))
 	if !d.OK || !d.Started || d.State != "started" || !strings.Contains(d.Output, "work/1") {
 		t.Fatalf("%+v", d)
 	}
 	g.startBehaves(`echo '{"error":"the phrase does not match; nothing started","code":"invalid_input"}'; exit 2`)
 	tok = g.render(dmCharter)
-	d = parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5"))
+	d = parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", ""))
 	if d.OK || d.Started || d.Code != "invalid_input" || !strings.Contains(d.Detail, "does not match") {
 		t.Fatalf("%+v", d)
 	}
@@ -88,7 +88,7 @@ func TestDoomsdayStartRefusesBadInputBeforeTheCLI(t *testing.T) {
 		"spaced chat":    {dmCharter, good, "a b"},
 		"no chat":        {dmCharter, good, ""},
 	} {
-		d := parseStartDoc(t, g.a.DoomsdayStart(c.charter, c.phrase, tok, c.chat))
+		d := parseStartDoc(t, g.a.DoomsdayStart(c.charter, c.phrase, tok, c.chat, ""))
 		if d.OK || d.Code != "invalid_input" {
 			t.Errorf("%s: %+v", name, d)
 		}
@@ -103,10 +103,10 @@ func TestDoomsdayRenderAndStartNeedTheOperator(t *testing.T) {
 	opgate.SetForTest(t, func(bool) string { return "an agent's shell" })
 	log, _ := taskCLIFake(t, `{}`, 0)
 	a := newTaskTestApp(t)
-	if d := parseStartDoc(t, a.DoomsdayStart(dmCharter, "I understand: lift 1 lines, charter 12345678", "", "chat-5")); d.OK || d.Code != "operator_only" {
+	if d := parseStartDoc(t, a.DoomsdayStart(dmCharter, "I understand: lift 1 lines, charter 12345678", "", "chat-5", "")); d.OK || d.Code != "operator_only" {
 		t.Fatalf("start: %+v", d)
 	}
-	if got := a.DoomsdayRender(dmCharter); !strings.Contains(got, "operator_only") {
+	if got := a.DoomsdayRender(dmCharter, "chat-5", ""); !strings.Contains(got, "operator_only") {
 		t.Fatalf("render: %q", got)
 	}
 	if got := a.DoomsdayOpenEntry(); !strings.Contains(got, "operator_only") {

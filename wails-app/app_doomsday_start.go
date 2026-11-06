@@ -171,7 +171,7 @@ func (a *App) DoomsdayOpenEntry() string {
 
 // DoomsdayRender is `doomsday render --charter -`: the preview the person reads before typing the phrase (the full
 // hash, every lifted line, the plain limits of the mode). It writes nothing. The document does not carry the phrase.
-func (a *App) DoomsdayRender(charterJSON string) string {
+func (a *App) DoomsdayRender(charterJSON, chatID, chatSpec string) string {
 	if err := a.signedOut(); err != nil {
 		return loginRequiredJSON(err)
 	}
@@ -179,6 +179,10 @@ func (a *App) DoomsdayRender(charterJSON string) string {
 		return taskRefusal("only the user can preview an open-ended start: " + why + " (operator_only)")
 	}
 	if err := checkCharterJSON(charterJSON); err != nil {
+		return taskRefusal(err.Error())
+	}
+	chat, err := parseChat(chatID, chatSpec)
+	if err != nil {
 		return taskRefusal(err.Error())
 	}
 	pid, err := a.profileID()
@@ -205,7 +209,7 @@ func (a *App) DoomsdayRender(charterJSON string) string {
 	if ferr != nil {
 		return taskRefusal(ferr.Error())
 	}
-	token, terr := doomsdayGrants.issue(pid, charterJSON, facts)
+	token, terr := doomsdayGrants.issue(pid, charterJSON+"\x00"+chat.key, facts)
 	if terr != nil {
 		return aiError(terr)
 	}
@@ -226,7 +230,7 @@ func (a *App) DoomsdayRender(charterJSON string) string {
 // re-checks the operator gate, derives the phrase from the charter and its hash and compares, and records `gui`.
 // The answer is {"ok","started","state","output","detail","code"}: state is started, not_started or unknown (the CLI
 // was killed or timed out, or said the run started but could not finish: the run may have started). Never retried.
-func (a *App) DoomsdayStart(charterJSON, phrase, token, chatID string) string {
+func (a *App) DoomsdayStart(charterJSON, phrase, token, chatID, chatSpec string) string {
 	if err := a.signedOut(); err != nil {
 		return loginRequiredJSON(err)
 	}
@@ -239,7 +243,8 @@ func (a *App) DoomsdayStart(charterJSON, phrase, token, chatID string) string {
 	if err := checkPhrase(phrase); err != nil {
 		return startDoc("not_started", "", err.Error(), "invalid_input")
 	}
-	if err := checkChatID(chatID); err != nil {
+	chat, err := parseChat(chatID, chatSpec)
+	if err != nil {
 		return startDoc("not_started", "", err.Error(), "invalid_input")
 	}
 	if dialogOpen.Load() {
@@ -256,7 +261,7 @@ func (a *App) DoomsdayStart(charterJSON, phrase, token, chatID string) string {
 		return startDoc("not_started", "", err.Error(), "")
 	}
 	defer doomsdayEntry.invalidate(pid)
-	facts, err := doomsdayGrants.peek(pid, token, charterJSON)
+	facts, err := doomsdayGrants.peek(pid, token, charterJSON+"\x00"+chat.key)
 	if err != nil {
 		return startDoc("not_started", "", err.Error(), "token")
 	}
@@ -264,7 +269,7 @@ func (a *App) DoomsdayStart(charterJSON, phrase, token, chatID string) string {
 		return startDoc("not_started", "", "the phrase does not match the charter shown; nothing started", "phrase")
 	}
 	shown := doomsdayNow()
-	yes, returned, err := askNative(a, facts.dialogBody())
+	yes, returned, err := askNative(a, facts.dialogBody(chat.text))
 	if !returned {
 		return startDoc("not_started", "", "the confirmation did not return in time; nothing started", "declined")
 	}
@@ -284,6 +289,20 @@ func (a *App) DoomsdayStart(charterJSON, phrase, token, chatID string) string {
 	if err := doomsdayGrants.consume(pid, token); err != nil { // spent now: this preview can never start a second run
 		return startDoc("not_started", "", err.Error(), "token")
 	}
+	// The chat is made only now, after the person said yes: a declined or mistyped start leaves no chat behind.
+	var created *Conversation
+	if chat.spec != nil {
+		conv, cerr := a.CreateChatConversationAccess("general", chat.spec.Runtime, chat.spec.Model, chat.spec.Effort, chat.spec.Access, chat.spec.Cwd, "open")
+		if cerr != nil {
+			return startDoc("not_started", "", "the chat could not be created, so nothing was started: "+cerr.Error(), "chat")
+		}
+		created, chatID = &conv, conv.ID
+	}
+	return withChat(a.startRun(pid, charterJSON, phrase, chatID), created)
+}
+
+// startRun runs the CLI's start for the chat and turns its end into the start document.
+func (a *App) startRun(pid, charterJSON, phrase, chatID string) string {
 	argv, err := doomsdayCharterArgv(pid, "start", phrase, chatID)
 	if err != nil {
 		return startDoc("not_started", "", err.Error(), "")
