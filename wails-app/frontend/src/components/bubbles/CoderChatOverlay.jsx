@@ -22,6 +22,7 @@ import { TaskHeaderCard } from './TaskHeaderCard.jsx'
 import { shouldCollapseOnBackdrop } from '../../lib/coderBubbles.js'
 import { LEAD_ID } from '../../lib/orgStage.js'
 import { LitePaneHeader } from './LitePaneHeader.jsx'
+import { OpenRunNotice, firstTurnFailedIn } from '../chat/OpenRunNotice.jsx'
 import { orbitOf, bossOf, frontDeskOf } from '../../lib/sessionOrbit.js'
 import { OrgStage } from '../stage/OrgStage.jsx'
 import { StageDrawer } from '../stage/StageDrawer.jsx'
@@ -127,15 +128,27 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
   settingsOpenRef.current = settingsOpen
   const closeSettings = useCallback(() => { setSettingsOpen(false); settingsBtn.current?.focus?.() }, [])
   const conv = useCoderConversation({ conversationId: bubble.conversationId, create, access })
-  // The open-ended start needs the chat to exist: it is made here, with the mode chosen before, and its id handed to the CLI.
+  // The open-ended start: a chat that does not exist yet is described to the start ({spec}) and made by it only after the person
+  // said yes, so a declined start leaves no chat; the chat it made comes back (onChat) and becomes this bubble's chat.
   const [openStarted, setOpenStarted] = useState(false)
-  // Sticky: the form stays mounted while its start is in flight (the chat is made, its mode is read again) so the answer is not lost.
+  const [openRun, setOpenRun] = useState(view.openRun || null) // what the start said, kept after the form is gone and across a collapse: {firstTurnFailed}
+  useEffect(() => { store.setView(bubble.key, { openRun }) }, [store, bubble.key, openRun])
+  // Sticky: the form stays mounted while its start is in flight and the made chat's mode is read again, so the answer is not lost.
   const [openEntry, setOpenEntry] = useState(false)
+  useEffect(() => { if (chatMode.state?.mode === 'open') setOpenEntry(true) }, [chatMode.state?.mode])
   useEffect(() => { if (!bubble.conversationId && chatMode.state && chatMode.state.mode !== 'open') setOpenEntry(false) }, [bubble.conversationId, chatMode.state])
-  const ensureChat = useCallback(async () => {
-    setOpenEntry(true) // keep the form mounted while the chat is made and its mode read again
-    return bubble.conversationId || (await create()).id
-  }, [bubble.conversationId, create])
+  const getOpenChat = useCallback(() => {
+    if (bubble.conversationId) return { id: bubble.conversationId }
+    const cwd = setup.workspace?.kind === 'folder' ? setup.workspace.path : ''
+    return { spec: { runtime: setup.runtime || 'claude', model: setup.model || '', effort: setup.effort || '', access: isCoderAccess(setup.access) ? setup.access : 'full', cwd } }
+  }, [bubble.conversationId, setup])
+  const onOpenChat = useCallback(made => {
+    setOpenEntry(true)
+    store.bindConversation(bubble.key, {
+      id: made.id, cwd: made.cwd || '', model: made.model || setup.model, runtime: made.runtimeId || setup.runtime,
+      access: isAccess(made.access) ? made.access : 'full', verified: isAccess(made.access), effort: made.effort || setup.effort || '', orgMode: made.orgMode || '',
+    })
+  }, [store, bubble.key, setup])
   // Stop of an open-ended run: shown for an open-ended chat or while the profile has a run; a Stop leaves its message in the transcript.
   const runExists = useRunExists(!!bubble.conversationId && isCoderAccess(access))
   const addSystemNotice = conv.addSystemNotice
@@ -377,6 +390,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
         </div>
         )}
         {!lite && (bubble.cwd || chatMode.state || chatMode.error) && <CoderHeader cwd={bubble.cwd} chatMode={chatMode} openEnded={{ runExists, conversationId: bubble.conversationId, onStopped: onRunStopped }} />}
+        {openRun?.firstTurnFailed && <OpenRunNotice onDismiss={() => setOpenRun(null)} />}
         {!lite && view.task && <TaskHeaderCard key={view.task.taskId} task={view.task} onNavigate={onNavigate} />}
         {!lite && <ChatResetBar onClear={startFresh} onCompact={compact}
           clearDisabled={conv.streaming || (!conv.conversationId && conv.messages.length === 0)}
@@ -396,10 +410,10 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
             </>
           )}
           {/* The open-ended mode is started from its own form, not by a first message: the form is the entry screen. Start makes
-              the chat first (in the open mode) when it does not exist yet; the CLI then makes the boss behind it. A chat that is open
+              the chat after the yes when it does not exist yet; the CLI then makes the boss behind it. A chat that is open
               but has no message and no boss yet (an earlier start was refused) shows the form again. */}
           {(chatMode.state?.mode === 'open' || openEntry) && !hasMessages && !openStarted && !steerChat ? (
-            <OpenStartForm ensureChat={ensureChat} onStarted={() => setOpenStarted(true)} />
+            <OpenStartForm getChat={getOpenChat} onChat={onOpenChat} onStarted={r => { setOpenStarted(true); setOpenRun({ firstTurnFailed: firstTurnFailedIn(r) }) }} />
           ) : (
           <CoderChatView
             conv={conv}

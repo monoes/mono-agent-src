@@ -2727,6 +2727,9 @@
     "started": "The run started. Stop is in the chat header.",
     "noBoss": "This chat cannot start a run from here.",
     "noFirstTurn": "Run started, but the boss has no first turn: steer it by typing in the chat, or press Stop in the chat header.",
+    "steerBoss": "Steer the boss",
+    "stopRun": "Stop the run",
+    "dismiss": "Dismiss",
     "chatFailed": "The chat could not be created, so nothing was started: {{error}}",
     "err": {
       "text": "Use at most 2000 characters in the goal, criteria and pins, with no hidden characters (zero-width, direction or tag characters).",

@@ -2585,6 +2585,9 @@
     "started": "La ejecucion empezo. Detener esta en el encabezado del chat.",
     "noBoss": "Este chat no puede iniciar una ejecucion desde aqui.",
     "noFirstTurn": "La ejecucion empezo, pero el jefe no tiene primer turno: dirijalo escribiendo en el chat, o pulse Detener en la cabecera del chat.",
+    "steerBoss": "Dirigir al jefe",
+    "stopRun": "Detener la ejecucion",
+    "dismiss": "Cerrar",
     "chatFailed": "No se pudo crear el chat, asi que no se inicio nada: {{error}}",
     "err": {
       "text": "Usa como maximo 2000 caracteres en el objetivo, los criterios y los modelos, sin caracteres ocultos (de ancho cero, de direccion o de etiqueta).",

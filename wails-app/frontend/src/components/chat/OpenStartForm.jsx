@@ -6,9 +6,9 @@ import { OpenStartReview } from './OpenStartReview.jsx'
 
 // The entry screen and the start form of the open-ended chat mode. The CLI decides what can start (the probe), what the
 // charter means (render) and whether the typed phrase is right (start); this shows the plain statements the person
-// must read, builds the charter from the form, and hands the phrase they write to the CLI. ensureChat is an async
-// function that answers with the id of the chat (creating it, in the open mode, if it does not exist yet): the CLI makes the
-// boss behind that chat when the run starts. Without it the run cannot be started from here.
+// must read, builds the charter from the form, and hands the phrase they write to the CLI. getChat is a function that answers
+// with the chat the run is for: {id} of a chat that exists, or {spec} of one the start makes after the person said yes (onChat
+// then gets it). The CLI makes the boss behind that chat when the run starts. Without it the run cannot be started from here.
 
 const mono = 'var(--font-mono)'
 const box = { border: '1px solid var(--border)', borderRadius: 6, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }
@@ -37,7 +37,7 @@ const PinFields = ({ t, who, pin, onChange, errorId }) => (
   </div>
 )
 
-export function OpenStartForm({ ensureChat = null, onStarted }) {
+export function OpenStartForm({ getChat = null, onChat, onStarted }) {
   const { t } = useTranslation()
   const [entry, setEntry] = useState(null)
   const [form, setForm] = useState(emptyForm)
@@ -68,7 +68,7 @@ export function OpenStartForm({ ensureChat = null, onStarted }) {
     if (!charter) return
     setBusy(true)
     try {
-      const preview = await openStartApi.render(charter)
+      const preview = await openStartApi.render(charter, getChat?.())
       if (preview?.error || !preview?.hash) setReviewError(String(preview?.error || preview?.detail || t('openStart.previewFailed')))
       else setReview({ charter, preview })
     } catch (e) {
@@ -194,7 +194,7 @@ export function OpenStartForm({ ensureChat = null, onStarted }) {
           {mayExist && <p role="alert" data-testid="open-may-exist" style={{ ...small, color: 'var(--red)' }}>{t('openStart.mayExist')}</p>}
           <button type="button" className="btn btn-sm" disabled={busy || done} onClick={doReview}>{t('openStart.review')}</button>
           {reviewError && <p role="alert" style={{ ...small, color: 'var(--red)' }}>{reviewError}</p>}
-          {review && <OpenStartReview key={review.preview.start_token} charter={review.charter} preview={review.preview} ensureChat={ensureChat} onStarted={r => { setDone(true); onStarted?.(r) }} onUnknown={() => setMayExist(true)} />}
+          {review && <OpenStartReview key={review.preview.start_token} charter={review.charter} preview={review.preview} getChat={getChat} onChat={onChat} onStarted={r => { setDone(true); onStarted?.(r) }} onUnknown={() => setMayExist(true)} />}
         </fieldset>
       )}
     </div>

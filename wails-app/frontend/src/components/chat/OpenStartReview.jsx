@@ -24,7 +24,7 @@ function firstTurnFailed(output) {
   try { return JSON.parse(output)?.first_turn === 'failed' } catch { return false }
 }
 
-export function OpenStartReview({ charter, preview, ensureChat, onStarted, onUnknown }) {
+export function OpenStartReview({ charter, preview, getChat, onChat, onStarted, onUnknown }) {
   const { t } = useTranslation()
   const [phrase, setPhrase] = useState('')
   const [busy, setBusy] = useState(false)
@@ -33,19 +33,13 @@ export function OpenStartReview({ charter, preview, ensureChat, onStarted, onUnk
   const [unknown, setUnknown] = useState('') // the run may have started: no second start from here
   const ref = useRef(null)
   useEffect(() => { ref.current?.focus() }, [])
-  const canStart = !!phrase.trim() && !!ensureChat && !!preview.start_token && !busy && !started && !unknown
+  const canStart = !!phrase.trim() && !!getChat && !!preview.start_token && !busy && !started && !unknown
 
   const start = async () => {
     setBusy(true); setError('')
-    let chatId
     try {
-      chatId = await ensureChat() // the chat exists before the CLI makes the boss behind it; a failure here started nothing
-    } catch (e) {
-      setError(t('openStart.chatFailed', { error: String(e?.message || e) })); setBusy(false)
-      return
-    }
-    try {
-      const r = await openStartApi.start(charter, phrase, preview.start_token, chatId)
+      const r = await openStartApi.start(charter, phrase, preview.start_token, getChat())
+      if (r?.chat) onChat?.(r.chat) // a chat the start made (after the yes) is the person's chat from now on, started or not
       if (r?.ok && r?.started) {
         setStarted(r); onStarted?.(r)
         window.dispatchEvent(new Event(CONTROL_ROOM_CHANGED)) // the nav asks again now, not at its next poll
@@ -72,7 +66,7 @@ export function OpenStartReview({ charter, preview, ensureChat, onStarted, onUnk
         {t('openStart.phraseLabel')}
         <input aria-label={t('openStart.phraseLabel')} value={phrase} onChange={e => setPhrase(e.target.value)} autoComplete="off" spellCheck={false} style={{ fontFamily: mono, fontSize: 11 }} />
       </label>
-      {!ensureChat && <p data-testid="open-no-boss" style={small}>{t('openStart.noBoss')}</p>}
+      {!getChat && <p data-testid="open-no-boss" style={small}>{t('openStart.noBoss')}</p>}
       <button type="button" className="btn btn-sm" disabled={!canStart} onClick={start}>{t('openStart.start')}</button>
       {error && <p role="alert" style={{ ...small, color: 'var(--red)' }}>{error}</p>}
       {unknown && <p role="alert" data-testid="open-unknown" style={{ ...small, color: 'var(--red)' }}>{unknown}</p>}
