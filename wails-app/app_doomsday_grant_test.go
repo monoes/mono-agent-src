@@ -541,9 +541,6 @@ func TestAFailureWithoutAnEnvelopeIsUnknown(t *testing.T) {
 			t.Errorf("%s: %+v", name, d)
 		}
 	}
-	t.Setenv("MONOAGENTCLI_BIN", "/no/such/monoagentcli")
-	tok := g.render(dmCharter) // the preview fails too; give it a grant by hand
-	_ = tok
 }
 
 // The token is checked again when the dialog confirms: a dialog open past its life cannot spend it.
