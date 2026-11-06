@@ -76,8 +76,10 @@ func TestUnknownKindRefusedAndRegisteredKindDispatched(t *testing.T) {
 	}
 }
 
+// darwin left this list when macOS got its own containment (KindPGroup); on a macOS CI runner it would have started a
+// real anchor here. "DARWIN" stays: GOOS names are exact.
 func TestUnknownPlatformStaysRefused(t *testing.T) {
-	for _, goos := range []string{"darwin", "freebsd", "", "LINUX", "WINDOWS"} {
+	for _, goos := range []string{"freebsd", "openbsd", "", "LINUX", "WINDOWS", "DARWIN"} {
 		if err := probe(goos, func() []ProbeStep { return nil }); !errors.Is(err, ErrContainmentUnavailable) {
 			t.Fatalf("%q: %v", goos, err)
 		}
