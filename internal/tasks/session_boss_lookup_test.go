@@ -18,7 +18,7 @@ func TestBossClientIDRoundTrips(t *testing.T) {
 			t.Fatalf("%q parsed as %q %d %v", key, got, n, ok)
 		}
 	}
-	for _, bad := range []string{"", "boss-for-", "boss-for-x", "boss-for-x-", "boss-for-x-1a", "other-x-1"} {
+	for _, bad := range []string{"", "boss-for-", "boss-for-x", "boss-for-x-", "boss-for-x-1a", "boss-for-x-01", "boss-for-x-+1", "other-x-1"} {
 		if _, _, ok := ParseBossClientID(bad); ok {
 			t.Fatalf("%q parsed as a boss key", bad)
 		}
@@ -70,18 +70,27 @@ func TestOpenBossConversationIsBoundToTheRunningRun(t *testing.T) {
 			t.Fatalf("a run in %s still takes steering: %q %d", state, conv, id)
 		}
 	}
-	// the stamp belongs to a run that is not the running one
-	if _, err := db.Exec(`INSERT INTO doomsday_runs (profile, generation, charter_id, state, mac) VALUES ('default', 2, 'c2', 'running', x'00')`); err != nil {
+	// the stamp belongs to a run that is not the running one (same charter id, another generation)
+	if _, err := db.Exec(`INSERT INTO doomsday_runs (profile, generation, charter_id, state, mac) VALUES ('default', 2, 'c1', 'running', x'00')`); err != nil {
 		t.Fatal(err)
 	}
 	if conv, id := find(front); conv != "" || id != 0 {
 		t.Fatalf("a finished run's boss answers for a new run: %q %d", conv, id)
 	}
+	// a boss of the chat "<front>-x" is not the boss of "<front>", though its key starts with the same text
+	other, err := s.CreateSession(bg, "default", SessionInput{Title: "other", Kind: SessionKindMission, ConversationID: "other-conv", ClientID: BossClientID(front+"-x", 1)}, human)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stampRun(t, db, other.ID, "c1", 2, "running")
+	if conv, id := find(front); conv != "" || id != 0 {
+		t.Fatalf("the boss of a chat whose id starts with this chat's id answers: %q %d", conv, id)
+	}
 	boss2, err := s.CreateSession(bg, "default", SessionInput{Title: "boss 2", Kind: SessionKindMission, ConversationID: "boss-conv-2", ClientID: BossClientID(front, 2)}, human)
 	if err != nil {
 		t.Fatal(err)
 	}
-	stampRun(t, db, boss2.ID, "c2", 2, "running")
+	stampRun(t, db, boss2.ID, "c1", 2, "running")
 	if conv, id := find(front); conv != "boss-conv-2" || id != boss2.ID {
 		t.Fatalf("the new run's boss is not found: %q %d", conv, id)
 	}

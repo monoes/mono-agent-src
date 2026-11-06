@@ -96,6 +96,9 @@ func TestSteerTextCannotForgeTheEnvelope(t *testing.T) {
 					t.Fatalf("%d occurrences of %q:\n%s", n, tag, env)
 				}
 			}
+			if strings.ContainsAny(env, "\uFF1C\uFF1E\uFF3B\uFF3D") {
+				t.Fatalf("a full-width look-alike of a marker survived:\n%s", env)
+			}
 			if !strings.HasSuffix(strings.TrimSpace(env), steerEnd) {
 				t.Fatalf("the envelope does not end with its own end marker:\n%s", env)
 			}
