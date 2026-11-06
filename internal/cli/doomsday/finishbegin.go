@@ -78,7 +78,7 @@ func (e *FinishEngine) FinishBegin(ctx context.Context) (BeginReport, error) {
 	st := w.Stopper("finish", e.ender())
 	report := st.Stop(ctx, uint64(run.Generation), run.CharterID, store.FinishCause)
 	rep.Accepted, rep.State = true, string(report.Final)
-	if !report.Stopped() {
+	if !report.Stopped() { // a best-effort stop prints its lines too: they carry the limit
 		rep.Lines = report.Lines() // the run is not quiescent yet: the finish waits for cleanup
 	}
 	return rep, nil

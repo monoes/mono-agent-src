@@ -3,6 +3,7 @@ import { FolderOpen, Copy, Check, FolderRoot } from 'lucide-react'
 import { api, notify } from '../../services/api.js'
 import { copyToClipboard } from './toolCardUtils.js'
 import { ChatModeSelector } from './ChatModeSelector.jsx'
+import { OpenEndedStop } from './OpenEndedStop.jsx'
 
 // Coder conversation header (#203): the CODER badge, the folder the agent
 // works in (full path), and Open folder / Copy path. With a `chatMode` (useChatMode)
@@ -84,7 +85,7 @@ export function CoderUsageBar({ states, model }) {
   )
 }
 
-export function CoderHeader({ cwd, chatMode }) {
+export function CoderHeader({ cwd, chatMode, openEnded }) {
   const [copied, setCopied] = useState(false)
   if (!cwd && !(chatMode && (chatMode.state || chatMode.error))) return null
   const openFolder = () => {
@@ -102,6 +103,7 @@ export function CoderHeader({ cwd, chatMode }) {
     }}>
       {cwd && <CoderBadge />}
       {chatMode && <ChatModeSelector chatMode={chatMode} />}
+      {chatMode && openEnded && <OpenEndedStop chatMode={chatMode} {...openEnded} />}
       {cwd && <><span title={cwd} data-testid="coder-cwd" style={{
         flex: '1 1 160px', minWidth: 0, fontFamily: mono, fontSize: 10, color: '#e2e8f0',
         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', direction: 'rtl', textAlign: 'left',

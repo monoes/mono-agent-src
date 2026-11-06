@@ -2527,7 +2527,23 @@
     "locked": "The chat mode is chosen before the first message and cannot change afterwards",
     "unavailable": "Not available",
     "loadFailed": "Could not read the chat mode",
-    "saveFailed": "Could not change the chat mode: {{error}}"
+    "saveFailed": "Could not change the chat mode: {{error}}",
+    "stop": {
+      "button": "Stop run",
+      "stopping": "Stopping...",
+      "confirmTitle": "Confirm stop",
+      "confirmBody": "Stop the open-ended run now? It ends the run for the whole profile and cannot be undone; the chat's sessions are stopped too.",
+      "confirm": "Yes, stop the run",
+      "cancel": "Cancel",
+      "failed": "NOT confirmed stopped",
+      "title": "Stops the open-ended run of this profile",
+      "message": "Open-ended run stopped by you at {{time}}: {{line}}",
+      "localMessage": "{{message}} (shown here only: the CLI did not save it to the transcript)",
+      "refreshing": "Stopped, refreshing...",
+      "retry": "Retry cleanup",
+      "dismiss": "Dismiss",
+      "partial": "Stopped, but the cleanup did not finish"
+    }
   },
   "controlRoom": {
     "title": "Control room",
@@ -2622,7 +2638,9 @@
       "confirmBody": "Stop the run now?",
       "confirm": "Yes, stop the run",
       "cancel": "Cancel",
-      "failed": "NOT confirmed stopped"
+      "failed": "NOT confirmed stopped",
+      "partial": "Stopped, but the cleanup did not finish",
+      "retry": "Retry cleanup"
     }
   },
   "steering": {

@@ -812,3 +812,38 @@ func TestLocalBinDescendantExecutableIsRefused(t *testing.T) {
 		t.Fatalf("a nested ~/.local/bin executable was accepted: %v", err)
 	}
 }
+
+// A box that cannot see the host session bus must not be able to start a bus of its own: with the address
+// unset, a CLI in the box that touches the vault makes godbus autolaunch a dbus-daemon. The dead address is set
+// after every other variable, so it also wins over one the caller passes.
+func TestBoxEnvGivesADeadSessionBusInBothProfiles(t *testing.T) {
+	const key, dead = "DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent"
+	for _, k := range EnvAllowlist {
+		if k == key || k == "DISPLAY" || k == "WAYLAND_DISPLAY" || k == "XDG_RUNTIME_DIR" {
+			t.Errorf("EnvAllowlist carries %s", k)
+		}
+	}
+	env := []string{"PATH=/bin", key + "=unix:path=/run/user/1000/bus", "DISPLAY=:0", "WAYLAND_DISPLAY=w0", "XDG_RUNTIME_DIR=/run/user/1000"}
+	for _, mode := range []string{"compat", "strict"} {
+		b := Box{PassEnv: []string{key, "DISPLAY"}}
+		args := b.envArgs(env, "/home/x", mode)
+		last := ""
+		for i := 0; i+2 < len(args); i++ {
+			if args[i] == "--setenv" && args[i+1] == key {
+				last = args[i+2]
+			}
+		}
+		if last != dead {
+			t.Errorf("%s: the effective %s is %q, want %q: %v", mode, key, last, dead, args)
+		}
+		if len(args) < 3 || args[len(args)-3] != "--setenv" || args[len(args)-2] != key || args[len(args)-1] != dead {
+			t.Errorf("%s: the dead bus address is not the last setting: %v", mode, args)
+		}
+	}
+	args := Box{}.envArgs(env, "/home/x", "strict")
+	for _, a := range args {
+		if a == "DISPLAY" || a == "WAYLAND_DISPLAY" || a == "XDG_RUNTIME_DIR" {
+			t.Errorf("display or runtime dir reached the box: %v", args)
+		}
+	}
+}

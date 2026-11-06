@@ -73,7 +73,25 @@ type Settings struct {
 	// session. Off by default; operator-only, and written only through Store.UpdateSettings. A run follows the mode
 	// already in flight on its session, so flipping it never mixes the two. A store that cannot answer leaves it off.
 	MissionWorkerReservations bool `json:"mission_worker_reservations"`
+
+	// OwedStopNotice: set by the operator's `doomsday stop` when it stopped a run but could not write the chat message; the
+	// next stop writes it and clears this. A closed code and times only, never text: the message is rebuilt from them. It
+	// names the run (charter, generation, the time its stop was recorded) so another run's flag is not honoured. Operator-only:
+	// an agent's patch naming it is refused, and a patch naming it cannot make a stop write anything it did not owe.
+	OwedStopNotice *OwedStopNotice `json:"owed_stop_notice,omitempty"`
 }
+
+// OwedStopNotice is the flag Settings.OwedStopNotice holds.
+type OwedStopNotice struct {
+	Charter    string `json:"charter"`
+	Generation int64  `json:"generation"`
+	IntentAt   int64  `json:"intent_at"` // unix seconds the run's stop was recorded
+	Code       string `json:"code"`      // one of OwedStopCodes
+	At         int64  `json:"at"`        // unix seconds of the stop (or, for "later", of the repair) the message is dated
+}
+
+// OwedStopCodes are the verdicts an owed message can have; the wording of each is the doomsday package's.
+var OwedStopCodes = []string{"plain", "partial", "best_effort", "later"}
 
 // AutonomyChoice overrides the preset for one class of gap.
 type AutonomyChoice struct {
@@ -96,7 +114,7 @@ var (
 
 // OperatorOnly lists the fields only the operator changes: what the session may
 // do on its own (autonomy, limits, who may message it).
-var OperatorOnly = []string{"checkin_limit", "autonomy_preset", "autonomy_classes", "max_children", "max_concurrent", "max_depth", "mesh_accept", "agent_approval", "approval_ceiling_usd", "mission", "chat_mode", "mission_directions", "mission_worker_reservations"}
+var OperatorOnly = []string{"checkin_limit", "autonomy_preset", "autonomy_classes", "max_children", "max_concurrent", "max_depth", "mesh_accept", "agent_approval", "approval_ceiling_usd", "mission", "chat_mode", "mission_directions", "mission_worker_reservations", "owed_stop_notice"}
 
 // DefaultSettings is what a session has until something is changed.
 func DefaultSettings() Settings {
@@ -199,6 +217,9 @@ func (s Settings) validateAt(depthCeiling int) error {
 	if !(s.ApprovalCeilingUSD >= 0 && s.ApprovalCeilingUSD <= 1e6) { // also false for NaN
 		return errors.New("approval_ceiling_usd must be between 0 and 1000000 (0 = no ceiling)")
 	}
+	if o := s.OwedStopNotice; o != nil && (!oneOf(o.Code, OwedStopCodes) || o.Generation <= 0 || o.At <= 0 || o.IntentAt <= 0 || o.Charter == "" || len(o.Charter) > 128) {
+		return errors.New("owed_stop_notice needs a charter, a generation, times and one of " + strings.Join(OwedStopCodes, ", "))
+	}
 	if s.AgentApproval == "lead" && s.ApprovalCeilingUSD <= 0 {
 		return errors.New("agent_approval lead needs approval_ceiling_usd above 0: a lead's approval must have a spend limit to measure by")
 	}
@@ -227,6 +248,10 @@ func (s Settings) applyAt(patch []byte, depthCeiling int) (Settings, []string, e
 	out := s
 	// The decode below writes through a non-nil pointer, so out gets a pointer of its own.
 	out.MissionDirections = cloneInt(s.MissionDirections)
+	if s.OwedStopNotice != nil {
+		c := *s.OwedStopNotice
+		out.OwedStopNotice = &c
+	}
 	// A patched map or list replaces the old one (not merged into it), and the
 	// copy shares no storage with s.
 	out.AutonomyClasses = map[string]AutonomyChoice{}

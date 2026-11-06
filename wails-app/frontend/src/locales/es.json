@@ -2483,7 +2483,23 @@
     "locked": "El modo del chat se elige antes del primer mensaje y no se puede cambiar después",
     "unavailable": "No disponible",
     "loadFailed": "No se pudo leer el modo del chat",
-    "saveFailed": "No se pudo cambiar el modo del chat: {{error}}"
+    "saveFailed": "No se pudo cambiar el modo del chat: {{error}}",
+    "stop": {
+      "button": "Detener ejecución",
+      "stopping": "Deteniendo...",
+      "confirmTitle": "Confirmar detención",
+      "confirmBody": "¿Detener ahora la ejecución abierta? Termina la ejecución de todo el perfil y no se puede deshacer; también se detienen las sesiones del chat.",
+      "confirm": "Sí, detener la ejecución",
+      "cancel": "Cancelar",
+      "failed": "NO se confirmó la detención",
+      "title": "Detiene la ejecución abierta de este perfil",
+      "message": "Ejecución abierta detenida por ti a las {{time}}: {{line}}",
+      "localMessage": "{{message}} (solo se muestra aquí: la CLI no lo guardó en la transcripción)",
+      "refreshing": "Detenido, actualizando...",
+      "retry": "Reintentar limpieza",
+      "dismiss": "Cerrar",
+      "partial": "Detenido, pero la limpieza no terminó"
+    }
   },
   "steering": {
     "direct": "Hablas directamente con el jefe: lo que escribes le llega como orientación, no como una orden",

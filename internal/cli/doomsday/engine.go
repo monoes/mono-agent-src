@@ -3,6 +3,7 @@ package doomsday
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 // ErrOff is why the mode refuses on an install that was not built with it.
@@ -39,9 +40,23 @@ type StopOutcome struct {
 	MarkerRecorded bool     // the Stop marker was durably written first
 	IntentRecorded bool     // database intent
 	Survivors      []string // processes still alive after the kill step
+	// BestEffort: every run ended, but a unit's mechanism cannot prove that no process left its group (Windows, macOS):
+	// the command prints the limit with the word and never a bare "stopped".
+	BestEffort bool
 	// Incomplete holds the report lines of any run that is not fully stopped (a step not done, the run not
 	// quiescent). Non-empty means "stopped" is never printed.
 	Incomplete []string
+	// Line, when the engine sets it, is the first line of a stop that is not a bare "stopped" (a best-effort stop says so in
+	// it). It must start with "stopped"; the command prints it, cleaned, and passes it on as the verdict.
+	Line string
+	// Runs are the runs this Stop proved stopped (every step done): the only ones whose sessions AfterStop may end.
+	Runs []RunRef
+}
+
+// RunRef names one run of the profile: its charter and generation, as stamped on its boss session.
+type RunRef struct {
+	CharterID  string
+	Generation int64
 }
 
 // Status is the read-only view of the profile's run.
@@ -74,6 +89,30 @@ type Engine interface {
 	Enter(ctx context.Context, canon Canon, expectedHash string, ack Ack) (Entry, error)
 	Stop(ctx context.Context) (StopOutcome, error)
 	Status(ctx context.Context) (Status, error)
+}
+
+// AfterStopper is an Engine that moves what hangs on a stopped run to a defined state. The stop verb calls it only
+// after it has printed nothing but a proven (or best-effort) stop; verdict is the exact stop line it prints. It returns
+// the lines to print after the verdict; what it could not do is a line that says so, and Failed is true then (the stop
+// verb exits ExitCleanupFailed: the run IS stopped, its cleanup is not complete).
+type AfterStopper interface {
+	AfterStop(ctx context.Context, o StopOutcome, verdict string, at time.Time) AfterReport
+}
+
+// AfterReport is what the step after a stop printed and whether any part of it failed.
+type AfterReport struct {
+	Lines  []string
+	Failed bool
+}
+
+// ExitCleanupFailed is the exit code of a stop that stopped the run but could not end every session or write the chat
+// message (AGENTS.md exit-code table). The first line printed is still the verdict; a later stop finishes the cleanup.
+const ExitCleanupFailed = 8
+
+// StopRepairer is an Engine that can finish what the last stop left: asked only when a stop found no open run (ErrNoOpenRun).
+// RepairNothing keeps the "no open run" failure; RepairDone prints its lines and exits 0; RepairFailed prints them and exits 1.
+type StopRepairer interface {
+	RepairStop(ctx context.Context, at time.Time) ([]string, RepairStatus)
 }
 
 // BossBinder is an Engine that can record which session is the run's boss (`start --boss-session`).

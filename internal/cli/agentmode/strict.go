@@ -84,7 +84,7 @@ for v in ` + shellWords(envAllowlist) + `; do
     set -- "$@" --setenv "$v" "$val"
   fi
 done
-set -- "$@" --setenv HOME "$H" --setenv MONOAGENT_SANDBOX bwrap-strict --tmpfs "$H" --bind "$cwd" "$cwd"
+set -- "$@" --setenv HOME "$H" --setenv MONOAGENT_SANDBOX bwrap-strict --setenv DBUS_SESSION_BUS_ADDRESS unix:path=/nonexistent --tmpfs "$H" --bind "$cwd" "$cwd"
 for p in ` + shellWords(strictRuntimeDirs) + `; do
   if [ -e "$H/$p" ]; then set -- "$@" --bind "$H/$p" "$H/$p"; fi
 done

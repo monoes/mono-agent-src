@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -33,8 +35,14 @@ func TestCriterionRunsUnderItsProcessLimits(t *testing.T) {
 	}
 	r := newRig(t)
 	r.sb.Limits = Limits{CPUSeconds: 7, OpenFiles: 33, FileSize: 4096 * 512, Procs: 3001, AddressSpace: 5 << 30}
-	o := r.run("command", bash+" -c 'ulimit -t; ulimit -n; ulimit -u; ulimit -v'", "")
-	want := "7\n33\n3001\n5242880" // -v counts KiB
+	// the process limit is the request or, when the hard limit is lower, that (the clamp never raises a hard limit)
+	procs := strconv.FormatUint(minProcs(3001), 10)
+	script, want := "ulimit -t; ulimit -n; ulimit -u; ulimit -v", "7\n33\n"+procs+"\n5242880" // -v counts KiB
+	if runtime.GOOS == "darwin" {
+		// the address space cannot be limited on macOS (limits_unix.go)
+		script, want = "ulimit -t; ulimit -n; ulimit -u", "7\n33\n"+procs
+	}
+	o := r.run("command", bash+" -c '"+script+"'", "")
 	if got := strings.TrimSpace(o.Stdout); got != want {
 		t.Fatalf("limits seen by the program = %q, want %q (%+v)", got, want, o)
 	}
@@ -109,13 +117,13 @@ func TestScratchBytesIsBoundedAndCountsOnlyRegularFiles(t *testing.T) {
 	}
 }
 
-// A limit the child cannot set stops the program: it does not run with fewer limits.
-func TestAProgramDoesNotRunWhenAPrivilegedLimitCannotBeSet(t *testing.T) {
+// A request above the hard limit is lowered to the hard limit (an unprivileged process cannot raise it, and the lower
+// bound is the stricter one); the program runs. A limit that still cannot be read or set stops it (limits_clamp_test.go).
+func TestARequestAboveTheHardLimitIsClampedAndTheProgramRuns(t *testing.T) {
 	r := newRig(t)
-	// raising a hard limit above the parent's is refused for an unprivileged process: ask for more open files than the hard limit
 	r.sb.Limits = Limits{OpenFiles: 1 << 40}
 	o := r.run("command", "echo hello", "hello")
-	if o.Result != ResError || !strings.Contains(o.Detail, "limits could not be set") || strings.Contains(o.Stdout, "hello") {
+	if o.Result != ResPass || !strings.Contains(o.Stdout, "hello") {
 		t.Fatalf("%+v", o)
 	}
 }

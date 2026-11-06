@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path/filepath"
+	"path"
 )
 
 // UnitHost is the seam over the service manager: it starts and stops the transient service whose cgroup is the
@@ -49,6 +49,20 @@ func (c UnitCreator) random() io.Reader {
 	return rand.Reader
 }
 
+// CreateUnit creates the run's unit through the Containment this platform starts (platformKinds[GOOS]); where there
+// is none, no unit exists and the mode does not start.
+func CreateUnit(ctx context.Context, k Kernel, a CreateArgs, gen uint64) (UnitRecord, error) {
+	return createUnit(ctx, hostGOOS, k, a, gen)
+}
+
+func createUnit(ctx context.Context, goos string, k Kernel, a CreateArgs, gen uint64) (UnitRecord, error) {
+	kind, ok := platformKinds[goos]
+	if !ok {
+		return UnitRecord{}, fmt.Errorf("%w: %s has no containment", ErrUnitNotCreated, goos)
+	}
+	return containments[kind](k, nil).Create(ctx, a, gen)
+}
+
 // Create starts the unit of the generation, proves it with the same checks recovery will use (so a record that
 // would later fail its own proof is refused now), and writes the key-free record create-exclusive and fsynced.
 // Any failure after the service started stops the service again and returns ErrUnitNotCreated.
@@ -81,7 +95,7 @@ func (c UnitCreator) Create(ctx context.Context, gen uint64) (UnitRecord, error)
 	if err := c.Host.StartUnit(ctx, name, fmt.Sprintf("monoagent open-ended run, generation %d", gen)); err != nil {
 		return UnitRecord{}, fmt.Errorf("%w: the service manager refused: %v", ErrUnitNotCreated, err)
 	}
-	rec := UnitRecord{Kind: KindCgroup2, BootID: boot, Name: name, CgroupPath: filepath.Join(root, name),
+	rec := UnitRecord{Kind: KindCgroup2, BootID: boot, Name: name, CgroupPath: path.Join(root, name),
 		OwnerUID: c.K.CurrentUID(), Nonce: nonce, Generation: gen}
 	if err := c.bind(&rec); err != nil {
 		return UnitRecord{}, c.abandon(ctx, name, err)

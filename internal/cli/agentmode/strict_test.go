@@ -197,3 +197,22 @@ func TestStrictRefusesForbiddenPaths(t *testing.T) {
 		}
 	}
 }
+
+// The strict box gets a dead session bus address after the allowlist loop, so a CLI in it that touches the vault
+// cannot make godbus autolaunch a bus, and the address wins even if it were ever allowlisted.
+func TestStrictProfileGivesTheBoxADeadSessionBus(t *testing.T) {
+	out, err := StrictBwrapProfile(StrictOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const dead = "--setenv DBUS_SESSION_BUS_ADDRESS unix:path=/nonexistent"
+	i, loop := strings.Index(out, dead), strings.Index(out, "\ndone\n")
+	if i < 0 || loop < 0 || i < loop {
+		t.Errorf("the dead bus address is missing or comes before the end of the allowlist loop (%d, %d)", i, loop)
+	}
+	for _, k := range []string{"DBUS_SESSION_BUS_ADDRESS", "DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"} {
+		if strings.Contains(shellWords(envAllowlist), k) {
+			t.Errorf("the allowlist carries %s", k)
+		}
+	}
+}

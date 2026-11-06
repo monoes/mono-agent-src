@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { OctagonX } from 'lucide-react'
 import { clip } from './controlRoomModel.js'
+import { outcome } from '../../components/chat/stopOutcome.js'
 
 // The only action. Two steps (click, then confirm); the call takes no argument and the CLI re-checks the operator
 // gate. The CLI's outcome is shown as it came: "NOT stopped", survivors and "NOT RECORDED" are never softened.
@@ -17,7 +18,8 @@ export default function StopPanel({ api, disabled, unknown = false, onDone }) {
     setPhase('done')
     if (onDone) onDone()
   }
-  const failed = phase === 'done' && !(result?.ok && result?.stopped)
+  const kind = phase === 'done' ? outcome(result) : ''
+  const failed = kind === 'fail'
   return (
     <section className="cr-card cr-stop" aria-label={t('controlRoom.stop.title')} data-testid="cr-stop">
       <h3>{t('controlRoom.stop.title')}</h3>
@@ -31,12 +33,13 @@ export default function StopPanel({ api, disabled, unknown = false, onDone }) {
         </div>
       ) : (
         <button type="button" className="btn btn-danger" disabled={disabled || phase === 'stopping'} onClick={() => setPhase('confirm')}>
-          <OctagonX size={14} aria-hidden="true" /> {phase === 'stopping' ? t('controlRoom.stop.stopping') : t('controlRoom.stop.button')}
+          <OctagonX size={14} aria-hidden="true" /> {phase === 'stopping' ? t('controlRoom.stop.stopping') : kind === 'warn' ? t('controlRoom.stop.retry') : t('controlRoom.stop.button')}
         </button>
       )}
       {phase === 'done' ? (
-        <div role={failed ? 'alert' : 'status'} className={failed ? 'cr-warn' : 'cr-meta'} data-testid="cr-stop-result" data-ok={failed ? 'no' : 'yes'}>
+        <div role={kind === 'ok' ? 'status' : 'alert'} className={kind === 'ok' ? 'cr-meta' : 'cr-warn'} data-testid="cr-stop-result" data-ok={kind === 'ok' ? 'yes' : kind === 'warn' ? 'warn' : 'no'}>
           {failed ? <strong>{t('controlRoom.stop.failed')}</strong> : null}
+          {kind === 'warn' ? <strong>{t('controlRoom.stop.partial')}</strong> : null}
           {result?.output ? <pre className="cr-pre">{clip(result.output, 4000)}</pre> : null}
           {result?.detail ? <pre className="cr-pre">{clip(result.detail, 4000)}</pre> : null}
           {result?.error ? <pre className="cr-pre">{clip(result.error, 4000)}</pre> : null}

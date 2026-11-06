@@ -1,0 +1,6 @@
+{
+  "repairEnded": "no open run; ended sessions left open by the previous stop",
+  "repairNote": "no open run; wrote the chat message the previous stop could not write",
+  "repairFailed": "no open run; the previous stop's sessions could not be ended",
+  "repairNoteFailed": "no open run; the chat message the previous stop could not write is still not written"
+}

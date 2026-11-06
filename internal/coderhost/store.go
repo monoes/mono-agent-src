@@ -726,9 +726,9 @@ func (s *Store) TurnActivity(profileID, conversationID, turnID string) time.Time
 	return newest
 }
 
-// LastTurn is a conversation's newest turn: its id and status ("" when it has none).
+// LastTurn is a conversation's newest turn (a system notice's promptless turn, ai.RecordSystemNotice, is not a turn of the work): its id and status ("" when it has none).
 func (s *Store) LastTurn(profileID, conversationID string) (id, status string) {
-	_ = s.db.QueryRow(`SELECT id, status FROM ai_chat_turns WHERE profile_id = ? AND conversation_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`, profileID, conversationID).Scan(&id, &status)
+	_ = s.db.QueryRow(`SELECT id, status FROM ai_chat_turns WHERE profile_id = ? AND conversation_id = ? AND NOT (prompt = '' AND id LIKE 'system-%') ORDER BY created_at DESC, rowid DESC LIMIT 1`, profileID, conversationID).Scan(&id, &status)
 	return id, status
 }
 
@@ -746,7 +746,7 @@ func (s *Store) PendingFor(profileID, conversationID string) int {
 // newest turn of any kind ended or was last touched; failed says whether the
 // newest check-in turn did not complete.
 func (s *Store) CheckinStreak(profileID, conversationID string) (streak int, lastTurnAt time.Time, lastFailed bool, err error) {
-	rows, err := s.db.Query(`SELECT id, status, updated_at FROM ai_chat_turns WHERE profile_id = ? AND conversation_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 600`, profileID, conversationID)
+	rows, err := s.db.Query(`SELECT id, status, updated_at FROM ai_chat_turns WHERE profile_id = ? AND conversation_id = ? AND NOT (prompt = '' AND id LIKE 'system-%') ORDER BY created_at DESC, rowid DESC LIMIT 600`, profileID, conversationID)
 	if err != nil {
 		return 0, time.Time{}, false, err
 	}

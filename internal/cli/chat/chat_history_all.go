@@ -196,8 +196,8 @@ SELECT c.id, c.workflow_context, c.runtime_id, c.model, c.mode, c.cwd, c.updated
 	COALESCE(k.goal, '') AS task_goal, COALESCE(k.application_id, '') AS application_id,
 	c.title AS custom_title
 FROM ai_chat_conversations c
-LEFT JOIN ai_chat_turns lt ON lt.id = (SELECT id FROM ai_chat_turns WHERE conversation_id = c.id AND profile_id = c.profile_id ORDER BY created_at DESC, id DESC LIMIT 1)
-LEFT JOIN ai_chat_turns ft ON ft.id = (SELECT id FROM ai_chat_turns WHERE conversation_id = c.id AND profile_id = c.profile_id ORDER BY created_at ASC, id ASC LIMIT 1)
+LEFT JOIN ai_chat_turns lt ON lt.id = (SELECT id FROM ai_chat_turns WHERE conversation_id = c.id AND profile_id = c.profile_id AND NOT (prompt = '' AND id LIKE 'system-%%') ORDER BY created_at DESC, id DESC LIMIT 1)
+LEFT JOIN ai_chat_turns ft ON ft.id = (SELECT id FROM ai_chat_turns WHERE conversation_id = c.id AND profile_id = c.profile_id AND NOT (prompt = '' AND id LIKE 'system-%%') ORDER BY created_at ASC, id ASC LIMIT 1)
 LEFT JOIN ai_tasks k ON k.id = (SELECT id FROM ai_tasks WHERE conversation_id = c.id AND profile_id = c.profile_id ORDER BY created_at DESC, id DESC LIMIT 1)
 WHERE c.profile_id = ? AND c.backend = 'agent'%s
 ) WHERE 1 = 1%s ORDER BY updated_at DESC, id DESC LIMIT ?`

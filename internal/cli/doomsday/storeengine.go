@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/doomsday/store"
 	"github.com/monoes/mono-agent/internal/secrets"
@@ -44,6 +45,26 @@ type StoreEngine struct {
 	HeadAnchor HeadAnchorFunc
 	// Boss records which top-level lead mission is the run's boss (Wiring.DesignateBoss). Nil: no boss can be named.
 	Boss func(ctx context.Context, session int64, entry Entry) error
+	// AfterStopFn ends the run's sessions and writes the chat message once a stop is proven. Nil: nothing hangs on a stop.
+	AfterStopFn func(ctx context.Context, o StopOutcome, verdict string, at time.Time) AfterReport
+	// RepairStopFn finishes the sessions and message of the last stop when a stop finds no open run. Nil: nothing to repair.
+	RepairStopFn func(ctx context.Context, at time.Time) ([]string, RepairStatus)
+}
+
+// RepairStop is StopRepairer.
+func (e *StoreEngine) RepairStop(ctx context.Context, at time.Time) ([]string, RepairStatus) {
+	if e.RepairStopFn == nil {
+		return nil, RepairNothing
+	}
+	return e.RepairStopFn(ctx, at)
+}
+
+// AfterStop is AfterStopper.
+func (e *StoreEngine) AfterStop(ctx context.Context, o StopOutcome, verdict string, at time.Time) AfterReport {
+	if e.AfterStopFn == nil {
+		return AfterReport{}
+	}
+	return e.AfterStopFn(ctx, o, verdict, at)
 }
 
 // BindBoss records the boss session of a started run: only the operator's `start --boss-session` calls it.
@@ -113,6 +134,11 @@ func (e *StoreEngine) Enter(ctx context.Context, canon Canon, expectedHash strin
 	copy(confirmed[:], raw)
 	if err := e.RequireBinding(ctx); err != nil {
 		return Entry{}, err
+	}
+	// The probe is part of the entry itself, not of the CLI verb: no starter can skip it. It also builds the witness
+	// (the pinned connection), and runs before anything is created.
+	if err := e.Containment(); err != nil {
+		return Entry{}, fmt.Errorf("the entry is refused, containment is not available: %w", err)
 	}
 	if e.BeforeStart != nil {
 		if err := e.BeforeStart(ctx); err != nil {

@@ -8,9 +8,12 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
+	"time"
 
+	"github.com/monoes/mono-agent/internal/ai"
 	chatcli "github.com/monoes/mono-agent/internal/cli/chat"
 	doomsdaycli "github.com/monoes/mono-agent/internal/cli/doomsday"
 	"github.com/monoes/mono-agent/internal/coderhost"
@@ -165,6 +168,9 @@ func processHostGate(cfg *globalConfig, db *sql.DB) *doomsdaycli.HostGate {
 	return g
 }
 
+// probeAt is stop.ProbeAt: a seam so a test can see which directories the wiring hands the self-tests.
+var probeAt = stop.ProbeAt
+
 // doomsdayWiring is the one construction of the engine's seams: the store over the profile's vault key, the run
 // directory next to the database, the stop package's containment probe and kernel, real token revocation.
 func doomsdayWiring(cfg *globalConfig, db *sql.DB) doomsdaycli.Wiring {
@@ -176,13 +182,25 @@ func doomsdayWiring(cfg *globalConfig, db *sql.DB) doomsdaycli.Wiring {
 		Profile: cfg.ProfileID,
 		Binding: func(context.Context) (bool, error) { return chatcli.PeercredBindingOn(db) },
 		RunDir:  stop.RunDir{Dir: runDir},
-		Probe:   stop.Probe,
-		Kernel:  doomsdayKernel(),
-		Host:    stop.SystemHost(),
+		// The self-tests run next to the real database and in the real run directory, so what they show holds on that volume.
+		Probe:  func() error { return probeAt(filepath.Dir(expandPath(cfg.DBPath)), runDir) },
+		Kernel: doomsdayKernel(),
+		Host:   stop.SystemHost(),
 		// Stop's token revocation and queue cancel; the governor's queue is cancelled with the host's pending sends.
 		Tokens: doomsdaycli.GovernedTokens{Inner: doomsdaycli.CoderTokens{DB: db, Profile: cfg.ProfileID, Host: coderhost.NewStore(db)}, DB: db, Profile: cfg.ProfileID, Keys: keys,
 			Logf: func(f string, a ...any) { fmt.Fprintf(os.Stderr, f+"\n", a...) }},
 		DB: db,
+		// A stop's message in the transcript of the run's chat: a system turn, written by the same store as every chat event.
+		ChatNote: func(_ context.Context, conversationID, message string) error {
+			as, err := ai.NewAIStore(db)
+			if err != nil {
+				return err
+			}
+			return as.RecordSystemNotice(cfg.ProfileID, conversationID, ai.NoticeOpenEndedStopped, message)
+		},
+		ChatNoteSince: func(ctx context.Context, q doomsdaycli.RowQuerier, conversationID string, since int64) (bool, error) {
+			return ai.HasSystemNoticeSinceIn(ctx, q, cfg.ProfileID, conversationID, ai.NoticeOpenEndedStopped, time.Unix(since, 0))
+		},
 		// The witness of note 13.5: the pinned connection on the database file, the vault-derived MAC keys, and the OS
 		// secret store of the anchor (a run on a machine with none is `anchor-bound: no` and says so).
 		Witness: &doomsdaycli.WitnessSetup{DBPath: expandPath(cfg.DBPath), Keys: keys, Secrets: stop.OSSecretStore{},

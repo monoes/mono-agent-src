@@ -135,6 +135,12 @@ func (g *HostGate) currentRun(ctx context.Context) (gate *stop.Gate, r store.Run
 	if r.State != store.StateRunning || g.RunDir.ReadMarker(uint64(r.Generation), r.CharterID).Stops() {
 		gate.Seal()
 	}
+	if g.lockHeld { // the host lock must still be the file at its name, or a second host could be running
+		if err := stop.VerifyHostLock(g.RunDir); err != nil {
+			gate.Seal()
+			return gate, r, fmt.Errorf("%w: %v", coderhost.ErrDispatchRefused, err)
+		}
+	}
 	if err := g.fresh(ctx, r.Generation); err != nil {
 		var fe *stop.FreshnessError
 		if !errors.As(err, &fe) || !fe.Hold {

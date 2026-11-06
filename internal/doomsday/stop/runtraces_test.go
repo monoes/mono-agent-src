@@ -77,3 +77,21 @@ func TestHasRunTracesSeesTheFilesTheWitnessAndTheCounterReallyWrite(t *testing.T
 		t.Fatal("the witness, as the code writes it, is not seen")
 	}
 }
+
+// ReadDir of a regular file says "not found" on Windows (unix: not a directory). A file at the run path is a trace anyway,
+// and a path that is not there is none.
+type notFoundFS struct{ OSFS }
+
+func (notFoundFS) ReadDir(string) ([]string, error) { return nil, os.ErrNotExist }
+
+func TestHasRunTracesTreatsAFileAtTheRunPathAsATraceWhateverErrorTheOSGives(t *testing.T) {
+	base := t.TempDir()
+	file := filepath.Join(base, "file")
+	mustNoErr(t, os.WriteFile(file, nil, 0o600))
+	if !(RunDir{Dir: file, FS: notFoundFS{}}).HasRunTraces() {
+		t.Fatal("a file at the run path, listed as not found, is not a trace")
+	}
+	if (RunDir{Dir: filepath.Join(base, "missing"), FS: notFoundFS{}}).HasRunTraces() {
+		t.Fatal("a path that is not there is a trace")
+	}
+}

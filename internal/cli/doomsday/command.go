@@ -2,15 +2,18 @@ package doomsday
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/doomsday/stop"
 )
 
 // Deps is what the commands need from the CLI.
@@ -225,6 +228,9 @@ func (d Deps) acknowledge(cmd *cobra.Command, lines int, full string, yes bool, 
 	return Ack{Kind: "terminal", Lines: lines}, nil
 }
 
+// afterStopTimeout bounds the sessions-and-message step that follows a stop.
+const afterStopTimeout = 30 * time.Second
+
 func (d Deps) newStop() *cobra.Command {
 	return &cobra.Command{
 		Use:   "stop",
@@ -243,30 +249,80 @@ func (d Deps) newStop() *cobra.Command {
 				if done, err := fo.AbortFinish(cmd.Context()); err != nil {
 					return err
 				} else if done {
+					// Deliberately no AfterStop here: ending a finish carries no proven run outcome (no Runs), so the run's
+					// sessions are left to the operator; a later normal Stop of a still-open run ends them.
 					fmt.Fprintln(out, "stopped: the finish was ended; nothing can commit or park it any more")
 					return nil
 				}
 			}
 			o, err := eng.Stop(cmd.Context())
+			if errors.Is(err, ErrNoOpenRun) {
+				// The last stop may have been proven without finishing its sessions or message: finish them.
+				if rp, ok := eng.(StopRepairer); ok {
+					rctx, cancel := context.WithTimeout(cmd.Context(), afterStopTimeout)
+					lines, st := rp.RepairStop(rctx, time.Now())
+					cancel()
+					for _, l := range lines {
+						fmt.Fprintln(out, l)
+					}
+					switch st {
+					case RepairDone:
+						return nil
+					case RepairFailed:
+						return clicore.Reported{Err: &clicore.Error{Code: ExitCleanupFailed, Msg: "the previous stop's sessions or message could not all be finished: run `doomsday stop` again"}}
+					}
+				}
+			}
 			if err != nil {
 				return err
 			}
+			var failure error
+			verdict := "stopped"
 			switch {
 			case !o.MarkerRecorded:
 				fmt.Fprintln(out, "Stop marker NOT RECORDED: the run is not known to be stopped.")
-				return errors.New("stop is NOT RECORDED")
+				failure = errors.New("stop is NOT RECORDED")
 			case len(o.Survivors) > 0:
 				fmt.Fprintf(out, "NOT stopped: %d process(es) survive: %s\n", len(o.Survivors), strings.Join(o.Survivors, ", "))
-				return fmt.Errorf("%d process(es) survive stop", len(o.Survivors))
+				failure = fmt.Errorf("%d process(es) survive stop", len(o.Survivors))
 			case !o.IntentRecorded:
 				fmt.Fprintln(out, "Stop intent NOT RECORDED in the database: not reporting stopped.")
-				return errors.New("stop intent is NOT RECORDED")
+				failure = errors.New("stop intent is NOT RECORDED")
 			case len(o.Incomplete) > 0:
 				fmt.Fprintln(out, "NOT stopped:\n  "+strings.Join(o.Incomplete, "\n  "))
-				return errors.New("the run is not fully stopped")
+				failure = errors.New("the run is not fully stopped")
+			default:
+				// The engine's own first line (PR #1503: "stopped (best effort: ...)" with exit 0) is the verdict, cleaned; only a line
+				// that starts with "stopped" counts, so nothing else can pose as one. A best-effort stop returns here like a proven one
+				// and ends the sessions too (TestAfterStopRunsForWhateverRunsTheOutcomeNames).
+				if l := cleanLine(o.Line); strings.HasPrefix(l, "stopped") {
+					verdict = l
+				}
+				if o.BestEffort {
+					// PR #1503: on Windows/macOS the stop is best effort, and the verdict never reads as a bare "stopped".
+					verdict = "stopped (" + stop.BestEffortNote + ")"
+				}
+				fmt.Fprintln(out, verdict)
 			}
-			fmt.Fprintln(out, "stopped")
-			return nil
+			// Runs lists only the runs this Stop proved stopped. When several runs are stopped and one of them fails, the others
+			// still get their sessions ended (the exit code keeps the failure); a single failed run has no entry, so nothing
+			// is touched. Bounded: a wedged database must not hang the verb after the stop itself is done.
+			if as, ok := eng.(AfterStopper); ok && len(o.Runs) > 0 {
+				if failure != nil {
+					verdict = "stopped (another run of this profile was NOT stopped)"
+				}
+				ctx, cancel := context.WithTimeout(cmd.Context(), afterStopTimeout)
+				defer cancel()
+				rep := as.AfterStop(ctx, o, verdict, time.Now())
+				for _, l := range rep.Lines {
+					fmt.Fprintln(out, l)
+				}
+				if rep.Failed && failure == nil {
+					// The stop itself succeeded (the verdict is the first line); the exit code says its cleanup did not.
+					failure = clicore.Reported{Err: &clicore.Error{Code: ExitCleanupFailed, Msg: "the run is stopped, but its sessions or chat message could not all be finished: run `doomsday stop` again"}}
+				}
+			}
+			return failure
 		},
 	}
 }

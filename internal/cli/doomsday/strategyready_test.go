@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -163,6 +164,7 @@ func TestStrategyNeverMarksReadyWithoutAFreshAllMetJudgmentAndNeverBeginsAFinish
 }
 
 func TestTheReadyReadingClearsOnStaleLaterBadLaterNotAllMetAndNewDirection(t *testing.T) {
+	skipWithoutSh(t) // the rigs are made by closures over this t, inside subtests: a Skip there would fail the subtest
 	status := func(r *stratRig) FinishReadyView {
 		t.Helper()
 		v, err := r.wiring().StrategyReader(r.w.DB, r.w.Witness.Keys).ReadStatus(bg, 0)
@@ -340,4 +342,13 @@ func TestStrategyGivesUpOnceAfterFiveParkedRoundsAndARestartDoesNotRepeatIt(t *t
 		t.Fatalf("after a restart: told %d times, markers %d -> %d", gaveUp(), marks, r.ready(t))
 	}
 	r.witnessAccepts(t)
+}
+
+// skipWithoutSh skips the test when there is no sh on PATH (the finish rigs run criteria through it; Windows has none). Call it
+// at the top of a test whose rigs are made inside subtests.
+func skipWithoutSh(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh")
+	}
 }
