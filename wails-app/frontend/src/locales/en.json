@@ -1977,6 +1977,7 @@
     "inProfile": "in {{name}}",
     "session": {
       "switcher": "Task sessions",
+      "boss": "Boss",
       "personal": "Personal",
       "header": "Session {{title}}",
       "state": {
@@ -2367,6 +2368,7 @@
     }
   },
   "history": {
+    "boss": "Boss of an open-ended run",
     "title": "History",
     "close": "Close history",
     "newChat": "New chat",

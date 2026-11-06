@@ -1933,6 +1933,7 @@
     "inProfile": "en {{name}}",
     "session": {
       "switcher": "Sesiones de tareas",
+      "boss": "Jefe",
       "personal": "Personal",
       "header": "Sesión {{title}}",
       "state": {
@@ -2323,6 +2324,7 @@
     }
   },
   "history": {
+    "boss": "Jefe de una ejecución abierta",
     "title": "Historial",
     "close": "Cerrar el historial",
     "newChat": "Nuevo chat",
