@@ -207,3 +207,22 @@ func TestChatModesListsTheChoicesAtAnAccessLevel(t *testing.T) {
 		t.Error("an unknown level was accepted")
 	}
 }
+
+func TestHistoryListRowsCarryTheChatMode(t *testing.T) {
+	noOrgs(t)
+	f := newToggleFixture(t)
+	if _, _, code := f.run(t, f.cfg, "settings", "set", f.conv.ID, "--chat-mode", "mission"); code != 0 {
+		t.Fatal("set")
+	}
+	plain, err := openTestChatStore(t, f.dbPath).CreateConversationMode("default", "agent", "general", "claude", "", "", ai.ModeCoder, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	modes := map[string]string{}
+	for _, r := range listAll(t, f.dbPath).Items {
+		modes[r.ID] = r.ChatMode
+	}
+	if modes[f.conv.ID] != "mission" || modes[plain.ID] != "off" {
+		t.Fatalf("chat modes in the history list = %v", modes)
+	}
+}

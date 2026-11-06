@@ -39,6 +39,7 @@ type HistoryRow struct {
 	Effort          string   `json:"effort"`
 	Access          string   `json:"access"`
 	Mode            string   `json:"mode"`
+	ChatMode        string   `json:"chatMode"` // off, mission or open
 	OrgMode         string   `json:"orgMode"`
 	Cwd             string   `json:"cwd"`
 	WorkflowContext string   `json:"workflowContext"`
