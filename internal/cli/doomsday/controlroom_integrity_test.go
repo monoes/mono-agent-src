@@ -158,6 +158,7 @@ func TestControlRoomGoldenFromTheRealStore(t *testing.T) {
 			}
 		}
 		want, err := os.ReadFile(path)
+		want = lf(want)
 		if err != nil || out != string(want) {
 			t.Fatalf("%s: store-to-JSON changed (%v):\n got %s\nwant %s", name, err, out, want)
 		}

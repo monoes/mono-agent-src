@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path/filepath"
+	"path"
 )
 
 // UnitHost is the seam over the service manager: it starts and stops the transient service whose cgroup is the
@@ -95,7 +95,7 @@ func (c UnitCreator) Create(ctx context.Context, gen uint64) (UnitRecord, error)
 	if err := c.Host.StartUnit(ctx, name, fmt.Sprintf("monoagent open-ended run, generation %d", gen)); err != nil {
 		return UnitRecord{}, fmt.Errorf("%w: the service manager refused: %v", ErrUnitNotCreated, err)
 	}
-	rec := UnitRecord{Kind: KindCgroup2, BootID: boot, Name: name, CgroupPath: filepath.Join(root, name),
+	rec := UnitRecord{Kind: KindCgroup2, BootID: boot, Name: name, CgroupPath: path.Join(root, name),
 		OwnerUID: c.K.CurrentUID(), Nonce: nonce, Generation: gen}
 	if err := c.bind(&rec); err != nil {
 		return UnitRecord{}, c.abandon(ctx, name, err)

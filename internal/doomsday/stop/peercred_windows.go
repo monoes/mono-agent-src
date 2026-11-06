@@ -34,12 +34,11 @@ func (realWinPeer) PeerPID(c net.Conn) (uint32, error) {
 	var pid uint32
 	var ioerr error
 	if err := raw.Control(func(fd uintptr) {
+		// The bytes-returned count is 0 on a real Windows 10 host even though the pid is right (observed), so it is not
+		// checked: the pid itself must be non-zero (peerUIDVia refuses 0) and its owner's SID must be this user's.
 		var n uint32
 		ioerr = windows.WSAIoctl(windows.Handle(fd), sioAFUnixGetPeerPID, nil, 0,
 			(*byte)(unsafe.Pointer(&pid)), uint32(unsafe.Sizeof(pid)), &n, nil, 0)
-		if ioerr == nil && n != uint32(unsafe.Sizeof(pid)) {
-			ioerr = errors.New("short answer")
-		}
 	}); err != nil {
 		return 0, err
 	}

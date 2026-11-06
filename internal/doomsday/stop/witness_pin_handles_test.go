@@ -2,6 +2,7 @@ package stop
 
 import (
 	"errors"
+	"path/filepath"
 	"testing"
 )
 
@@ -32,6 +33,7 @@ type fakeHandleFS struct {
 }
 
 func (f *fakeHandleFS) OpenHeld(path string, dir bool) (heldFile, error) {
+	path = filepath.ToSlash(path) // the watch builds Windows paths with backslashes; the fake keys are written with slashes
 	if err := f.openErr[path]; err != nil {
 		return nil, err
 	}
@@ -45,6 +47,7 @@ func (f *fakeHandleFS) OpenHeld(path string, dir bool) (heldFile, error) {
 }
 
 func (f *fakeHandleFS) IDOf(path string) (FileID, error) {
+	path = filepath.ToSlash(path)
 	if f.idErr != nil {
 		return FileID{}, f.idErr
 	}

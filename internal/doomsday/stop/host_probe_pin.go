@@ -19,7 +19,15 @@ type pinner interface {
 	closeSQLite()
 }
 
+// realPinner pins with synchronous=OFF: the scratch database holds nothing worth a flush, and on Windows the fsyncs of a WAL
+// database (with a virus scanner looking at each new file) were the bulk of a probe that took tens of seconds. Only this
+// pragma differs from the production pin.
 func realPinner(ctx context.Context, o PinOptions) (pinner, error) {
+	if o.Open == nil {
+		o.Open = func(path string) (*sql.DB, error) {
+			return sql.Open("sqlite", pinDSN(path)+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(OFF)")
+		}
+	}
 	p, err := Pin(ctx, o)
 	if err != nil {
 		return nil, err
@@ -37,7 +45,7 @@ func (p *Pinned) closeSQLite() {
 }
 
 func makeScratchDB(path string) error {
-	db, err := sql.Open("sqlite", pinDSN(path)+"?_pragma=journal_mode(WAL)")
+	db, err := sql.Open("sqlite", pinDSN(path)+"?_pragma=journal_mode(WAL)&_pragma=synchronous(OFF)")
 	if err != nil {
 		return err
 	}

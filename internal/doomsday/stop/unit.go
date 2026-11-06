@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -154,9 +154,9 @@ func proveCgroup2(k Kernel, rec UnitRecord) (Proof, error) {
 	if err != nil {
 		return fail("the delegated root is unknown: %v", err)
 	}
-	want := filepath.Join(root, rec.Name)
-	if rec.CgroupPath != want || filepath.Clean(rec.CgroupPath) != rec.CgroupPath || strings.Contains(rec.CgroupPath, "..") ||
-		filepath.Dir(rec.CgroupPath) != root {
+	want := path.Join(root, rec.Name)
+	if rec.CgroupPath != want || path.Clean(rec.CgroupPath) != rec.CgroupPath || strings.Contains(rec.CgroupPath, "..") ||
+		path.Dir(rec.CgroupPath) != root {
 		return fail("the recorded path is not the run unit path under the delegated root")
 	}
 	// P3: open the path without following links and check the descriptor.

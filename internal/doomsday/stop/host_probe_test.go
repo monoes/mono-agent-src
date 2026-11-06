@@ -2,11 +2,13 @@ package stop
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -195,13 +197,12 @@ func TestPinSelfTestFailsWhenTheBindingDoesNotNoticeASwap(t *testing.T) {
 	emptyDir(t, parent)
 }
 
-// memorylessPinner reports a swap only while a path leads elsewhere: a comparison of names with no event memory.
-type memorylessPinner struct {
-	pinner
-	ids map[string]FileID
-}
+// pathPinner is a binding with no event memory and no holds: it reports a swap only while a name leads elsewhere. It holds
+// nothing, so on any host OS (Windows included, where a real pin's handles make the system refuse the change) the self-test's
+// changes happen and only the binding's own reports decide.
+type pathPinner struct{ ids map[string]FileID }
 
-func (m memorylessPinner) Check() error {
+func (m pathPinner) Check() error {
 	for path, id := range m.ids {
 		if now, err := statID(path); err != nil || now != id {
 			return fmt.Errorf("%w: path comparison", ErrPinSwapped)
@@ -210,18 +211,29 @@ func (m memorylessPinner) Check() error {
 	return nil
 }
 
-func TestPinSelfTestNeedsTheMemoryOfAnUndoneSwap(t *testing.T) {
-	err := pinSelfTest(shortTempDir(t), func(ctx context.Context, o PinOptions) (pinner, error) {
-		p, err := realPinner(ctx, o)
+func (pathPinner) Do(context.Context, func(*sql.Conn, func() error) error) error { return nil }
+func (pathPinner) discard()                                                      {}
+func (pathPinner) closeSQLite()                                                  {}
+
+func mkFake(_ context.Context, o PinOptions) (pinner, error) {
+	ids := map[string]FileID{}
+	for _, n := range []string{o.DBPath, o.DBPath + "-wal", o.DBPath + "-shm"} {
+		if _, err := os.Stat(n); err != nil {
+			if werr := os.WriteFile(n, nil, 0o600); werr != nil {
+				return nil, werr
+			}
+		}
+		id, err := statID(n)
 		if err != nil {
 			return nil, err
 		}
-		ids := map[string]FileID{}
-		for _, n := range []string{o.DBPath, o.DBPath + "-wal", o.DBPath + "-shm"} {
-			ids[n], _ = statID(n)
-		}
-		return memorylessPinner{p, ids}, nil
-	}, defaultPinScenarios, never)
+		ids[n] = id
+	}
+	return pathPinner{ids}, nil
+}
+
+func TestPinSelfTestNeedsTheMemoryOfAnUndoneSwap(t *testing.T) {
+	err := pinSelfTest(shortTempDir(t), mkFake, defaultPinScenarios, never)
 	if err == nil || !strings.Contains(err.Error(), "away and back") {
 		t.Fatalf("a binding with no event memory passed the undone-swap scenario: %v", err)
 	}
@@ -231,17 +243,17 @@ func TestPinSelfTestAcceptsARefusalOnlyOfTheExpectedClass(t *testing.T) {
 	sharing := errors.New("sharing violation")
 	sc := []pinScenarioDef{{Name: "refused", Op: func(string, string, string) error { return sharing }}}
 	is := func(e error) bool { return errors.Is(e, sharing) }
-	mustNoErr(t, pinSelfTest(shortTempDir(t), mkReal, sc, is))
-	if err := pinSelfTest(shortTempDir(t), mkReal, sc, never); err == nil {
+	mustNoErr(t, pinSelfTest(shortTempDir(t), mkFake, sc, is))
+	if err := pinSelfTest(shortTempDir(t), mkFake, sc, never); err == nil {
 		t.Fatal("an error of another class counted as the system refusing")
 	}
 	other := []pinScenarioDef{{Name: "not found", Op: func(string, string, string) error { return os.ErrNotExist }}}
-	if err := pinSelfTest(shortTempDir(t), mkReal, other, is); err == nil {
+	if err := pinSelfTest(shortTempDir(t), mkFake, other, is); err == nil {
 		t.Fatal("a missing file counted as the system refusing")
 	}
 	// a refusal that nevertheless removed the database is not a refusal
 	gone := []pinScenarioDef{{Name: "gone", Op: func(db, _, _ string) error { _ = os.Remove(db); return sharing }}}
-	if err := pinSelfTest(shortTempDir(t), mkReal, gone, is); err == nil {
+	if err := pinSelfTest(shortTempDir(t), mkFake, gone, is); err == nil {
 		t.Fatal("a refusal that left the database missing passed")
 	}
 }
@@ -408,6 +420,16 @@ func TestShowProbeDoesNotCreateTheRunDirectory(t *testing.T) {
 	emptyDir(t, base)
 }
 
+// ageSock ages a unix socket file. os.Chtimes on an AF_UNIX socket file fails on Windows ("The file cannot be accessed by the
+// system"), so the tests that need an OLD socket cannot run there.
+func ageSock(t *testing.T, path string, at time.Time) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("os.Chtimes fails on an AF_UNIX socket file on Windows")
+	}
+	mustNoErr(t, os.Chtimes(path, at, at))
+}
+
 // mkSock makes a real unix socket file at path that stays after the listener closes.
 func mkSock(t *testing.T, path string) {
 	t.Helper()
@@ -420,7 +442,7 @@ func mkSock(t *testing.T, path string) {
 func TestLeftoversOfAKilledSelfTestAreReapedOnlyWhenOurs(t *testing.T) {
 	parent := shortTempDir(t)
 	old := time.Now().Add(-time.Hour)
-	age := func(name string, at time.Time) { mustNoErr(t, os.Chtimes(filepath.Join(parent, name), at, at)) }
+	age := func(name string, at time.Time) { ageSock(t, filepath.Join(parent, name), at) }
 	dir := func(name string, at time.Time) {
 		mustNoErr(t, os.Mkdir(filepath.Join(parent, name), 0o700))
 		mustNoErr(t, os.WriteFile(filepath.Join(parent, name, "p.db"), nil, 0o600))
@@ -474,7 +496,7 @@ func TestReaperLeavesWhatAnotherUserOwns(t *testing.T) {
 	mustNoErr(t, os.Mkdir(filepath.Join(parent, ".ma-pin-5"), 0o700))
 	old := time.Now().Add(-time.Hour)
 	for _, n := range []string{".s123", ".ma-pin-5"} {
-		mustNoErr(t, os.Chtimes(filepath.Join(parent, n), old, old))
+		ageSock(t, filepath.Join(parent, n), old)
 	}
 	oldOwn := fileOwnedByMe
 	t.Cleanup(func() { fileOwnedByMe = oldOwn })
@@ -491,7 +513,7 @@ func TestReaperDoesNotSweepAnAncestorTheProbeFellBackTo(t *testing.T) {
 	base := shortTempDir(t)
 	mkSock(t, filepath.Join(base, ".s123"))
 	old := time.Now().Add(-time.Hour)
-	mustNoErr(t, os.Chtimes(filepath.Join(base, ".s123"), old, old))
+	ageSock(t, filepath.Join(base, ".s123"), old)
 	got, err := probeParent(filepath.Join(base, "doomsday", "p1"))
 	mustNoErr(t, err)
 	if got != base {

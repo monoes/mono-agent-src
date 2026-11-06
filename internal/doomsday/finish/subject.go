@@ -122,7 +122,7 @@ func DigestTree(root, copyTo string) (Tree, error) {
 				}
 			}
 		case m.IsRegular():
-			if hardLinked(info) {
+			if hardLinked(p, info) {
 				return refuse("%s is a hard link", rel)
 			}
 			if bytes += info.Size(); bytes > MaxSnapshotBytes {

@@ -39,8 +39,10 @@ func containmentBullet(goos string) string {
     next to the database, to move, replace and remove the database, its -wal and -shm and
     their directory, and requires the system to refuse it or the binding to report it. It
     repeats these with SQLite's own connection closed, so that only the host's own holds can
-    refuse; on some Windows setups closing the last connection of a WAL database can remove
-    -wal and -shm, and the probe then refuses (availability, not safety). Beyond that the pinned database binding is
+    refuse; on one Windows 10 machine with an NTFS volume -wal and -shm were not removed when
+    the last connection closed, and where they are it would refuse (availability, not safety).
+    A durable write flushes the file but Windows has no directory flush, so a power cut right
+    after a create can lose the file's directory entry. Beyond that the pinned database binding is
     weaker than on Linux, and what follows is by design and has not been verified on real
     machines: a swap that is undone again between two looks is not remembered, an in-place
     overwrite of the database file is not detected, a -wal or -shm planted before the host

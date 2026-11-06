@@ -2,6 +2,7 @@ package stop
 
 import (
 	"errors"
+	"path/filepath"
 	"testing"
 )
 
@@ -30,6 +31,7 @@ func newFakeVnodeSys() *fakeVnodeSys {
 }
 
 func (f *fakeVnodeSys) Watch(path string) (FileID, error) {
+	path = filepath.ToSlash(path) // keys are written with slashes; filepath.Dir gives backslashes on Windows
 	if err := f.watchErr[path]; err != nil {
 		return FileID{}, err
 	}
@@ -45,6 +47,7 @@ func (f *fakeVnodeSys) Watch(path string) (FileID, error) {
 }
 
 func (f *fakeVnodeSys) IDOf(path string) (FileID, error) {
+	path = filepath.ToSlash(path)
 	if v := f.ns[path]; v != nil {
 		return v.id, nil
 	}
