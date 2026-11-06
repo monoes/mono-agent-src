@@ -1,6 +1,8 @@
 package doomsday
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -161,4 +163,44 @@ func TestGUIStartRefusesWhatTheFormBlocks(t *testing.T) {
 	if _, err := run(t, r.deps, "", "start", "--charter", file, "--gui-phrase", Phrase(0, h)); err != nil || len(r.e.enters) != 1 {
 		t.Fatalf("a complete charter was refused: %v", err)
 	}
+}
+
+// With --json stdout is the one JSON document and nothing else (the app parses it): the human render goes to stderr.
+func TestStartJSONPrintsOnlyJSONOnStdout(t *testing.T) {
+	r := newRig()
+	r.terminal = false
+	r.deps.JSONOutput = func() bool { return true }
+	file := writeCharter(t, guiCharter)
+	h := fullHashJSON(t, r, file)
+	cmd := NewCommand(r.deps)
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"start", "--charter", file, "--gui-phrase", Phrase(0, h)})
+	cmd.SilenceUsage, cmd.SilenceErrors = true, true
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var e Entry
+	if err := json.Unmarshal(stdout.Bytes(), &e); err != nil || e.RunID == "" {
+		t.Fatalf("stdout is not exactly one JSON document: %q (%v)", stdout.String(), err)
+	}
+	if !strings.Contains(stderr.String(), "Goal: ship it") {
+		t.Fatalf("the render went missing: %q", stderr.String())
+	}
+}
+
+func fullHashJSON(t *testing.T, r *rig, file string) string {
+	t.Helper()
+	d := r.deps
+	d.JSONOutput = func() bool { return true }
+	out, err := run(t, d, "", "render", "--charter", file)
+	if err != nil {
+		t.Fatal(err, out)
+	}
+	var doc RenderDoc
+	if json.Unmarshal([]byte(out), &doc) != nil {
+		t.Fatal(out)
+	}
+	return doc.Hash
 }
