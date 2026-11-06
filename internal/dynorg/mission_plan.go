@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
+	"github.com/monoes/mono-agent/internal/missionpursuit"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
 
@@ -42,6 +43,8 @@ type MissionConfig struct {
 	// BeforeCreate, when set, is run inside the transaction that adds the mission session
 	// (tasks.SessionInput.BeforeInsert); an error refuses the creation.
 	BeforeCreate func(ctx context.Context, x tasks.Queryer) error
+	// Goals, when set, offers the lead mission_goal_propose and mission_goal_status in a chat whose mode is mission.
+	Goals *missionpursuit.Store
 }
 
 // MissionAccess says whether an access level may run missions: coding and up.

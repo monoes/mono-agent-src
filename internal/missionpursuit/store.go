@@ -220,6 +220,17 @@ func (s *Store) Get(ctx context.Context, profileID string, session int64) (Goal,
 	return out, err
 }
 
+// ChatIsMission says whether the conversation's chat is in mission mode. A mode that cannot be read is not mission.
+func (s *Store) ChatIsMission(ctx context.Context, profileID, conversationID string) bool {
+	var is bool
+	err := s.read(ctx, func(x tasks.Queryer) error {
+		mode, err := s.modes.ChatMode(ctx, x, profileID, conversationID)
+		is = err == nil && mode == ChatModeMission
+		return err
+	})
+	return err == nil && is
+}
+
 func notFound(err error, session int64) error {
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("%w: no session #%d in this profile", tasks.ErrNotFound, session)
