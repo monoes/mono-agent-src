@@ -26,6 +26,7 @@ export function probeShows(probe) {
 export function useControlRoomProbe(api = controlRoomApi) {
   const visible = usePageVisible()
   const [probe, setProbe] = useState(null)
+  const [failed, setFailed] = useState(false) // the last read failed (the last good answer is kept)
   const last = useRef(null)
   useEffect(() => {
     if (!visible) return undefined
@@ -37,10 +38,12 @@ export function useControlRoomProbe(api = controlRoomApi) {
     const read = async () => {
       inflight = true
       let p
-      try { p = await api.probe() } finally { inflight = false } // a rejected probe must not leave "in flight" set for good
+      // A probe that rejects is a failed read, handled here: it never escapes as an unhandled rejection (read() is not awaited),
+      // and it must not leave "in flight" set for good.
+      try { p = await api.probe() } catch (e) { p = { error: String(e?.message || e) } } finally { inflight = false }
       if (cancelled) return
       if (again) { again = false; failures = 0; read(); return }
-      if (!p?.error) { failures = 0; last.current = p; setProbe(p) } else failures++
+      if (!p?.error) { failures = 0; last.current = p; setProbe(p); setFailed(false) } else { failures++; setFailed(true) }
       const retry = failures > 0 ? PROBE_RETRY_MS[failures - 1] : undefined
       timer = setTimeout(read, retry ?? probeDelay(last.current))
     }
@@ -51,5 +54,5 @@ export function useControlRoomProbe(api = controlRoomApi) {
     window.addEventListener(CONTROL_ROOM_CHANGED, changed)
     return () => { cancelled = true; clearTimeout(timer); window.removeEventListener(CONTROL_ROOM_CHANGED, changed) }
   }, [api, visible])
-  return { show: probeShows(probe), running: !!probe?.run_exists }
+  return { show: probeShows(probe), running: !!probe?.run_exists, failed }
 }

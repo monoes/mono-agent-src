@@ -32,14 +32,25 @@ describe('one request chain', () => {
 })
 
 describe('a rejected probe', () => {
-  it('does not leave a read "in flight" for good: a later announcement still reads', async () => {
+  it('is a failed read the hook handles itself: the error state is surfaced, nothing escapes, and a later announcement still reads', async () => {
     const api = { probe: vi.fn() }
     api.probe.mockRejectedValueOnce(new Error('bridge gone'))
     api.probe.mockResolvedValue({ mode_available: true, run_exists: true })
     const { result } = renderHook(() => useControlRoomProbe(api))
-    await waitFor(() => expect(api.probe).toHaveBeenCalledTimes(1))
-    await new Promise(r => setTimeout(r, 20))
+    await waitFor(() => expect(result.current.failed).toBe(true))
+    expect(result.current.show).toBe(false) // nothing good has been read yet
     act(() => { window.dispatchEvent(new Event(CONTROL_ROOM_CHANGED)) })
     await waitFor(() => expect(result.current.running).toBe(true))
+    expect(result.current.failed).toBe(false)
+  })
+  it('keeps the last good answer while a read fails', async () => {
+    const api = { probe: vi.fn() }
+    api.probe.mockResolvedValueOnce({ mode_available: true, run_exists: true })
+    api.probe.mockRejectedValue(new Error('bridge gone'))
+    const { result } = renderHook(() => useControlRoomProbe(api))
+    await waitFor(() => expect(result.current.running).toBe(true))
+    act(() => { window.dispatchEvent(new Event(CONTROL_ROOM_CHANGED)) })
+    await waitFor(() => expect(result.current.failed).toBe(true))
+    expect(result.current.running).toBe(true)
   })
 })
