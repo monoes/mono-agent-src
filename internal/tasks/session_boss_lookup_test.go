@@ -134,3 +134,63 @@ func TestBossConversationMarkNeedsTheStampTheKeyAndTheKind(t *testing.T) {
 		}
 	}
 }
+
+// "Is this the conversation of a boss" has one meaning wherever it is asked: the listings that must not offer it (the SQL form,
+// BossAnyConversationSQL / IsBossAnyConversation) and the guards that refuse a turn into it (BossFrontDesk) agree on every
+// kind of session, including a key whose number is past the cap.
+func TestTheTwoFormsOfTheBossConversationAgree(t *testing.T) {
+	s, db, _ := newTestStore(t)
+	front := "11111111-2222-3333-4444-555555555555"
+	mk := func(conv, key, kind, by string, parent int64) {
+		t.Helper()
+		if _, err := db.Exec(`INSERT INTO ai_chat_conversations (id, profile_id, backend, workflow_context, runtime_id, provider_id, model, session_id, mode, cwd, history_key, created_at, updated_at, effort, access)
+			VALUES (?, 'default', 'agent', 'general', 'claude', '', '', '', 'assistant', '', ?, 'x', 'x', '', 'scoped')`, conv, "h-"+conv); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`INSERT INTO task_sessions (profile_id, conversation_id, title, goal, access_level, max_tasks, max_depth, max_retries, created_by, created_at, updated_at, client_id, kind, parent_session_id)
+			VALUES ('default', ?, 't', '', 'full', 10, 3, 2, ?, 'x', 'x', NULLIF(?, ''), ?, NULLIF(?, 0))`, conv, by, key, kind, parent); err != nil {
+			t.Fatal(err)
+		}
+	}
+	root, err := s.CreateSession(bg, "default", SessionInput{Title: "root", Kind: SessionKindMission, ConversationID: "root-conv"}, human)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]bool{ // conversation -> is a boss's
+		"c-boss":     true,
+		"c-agent":    false,
+		"c-ownchat":  false,
+		"c-huge":     false,
+		"c-task":     false,
+		"c-child":    false,
+		"c-nokey":    false,
+		"c-cap":      true,
+		"c-plainchat": false,
+	}
+	mk("c-boss", BossClientID(front, 1), SessionKindMission, "you", 0)
+	mk("c-agent", BossClientID(front, 2), SessionKindMission, "agent-x", 0)
+	mk("c-ownchat", BossClientID("c-ownchat", 1), SessionKindMission, "you", 0)
+	mk("c-huge", "boss-for-"+front+"-1000", SessionKindMission, "you", 0)
+	mk("c-task", BossClientID(front, 3), SessionKindTask, "you", 0)
+	mk("c-child", BossClientID(front, 4), SessionKindMission, "you", root.ID)
+	mk("c-nokey", "", SessionKindMission, "you", 0)
+	mk("c-cap", BossClientID(front, MaxBossAttempt), SessionKindMission, "you", 0)
+	mk("c-plainchat", "other-key", SessionKindMission, "you", 0)
+	for conv, want := range cases {
+		_, _, goForm, err := BossFrontDesk(bg, db, "default", conv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sqlForm, err := IsBossAnyConversation(bg, db, "default", conv)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var viaSQL int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM ai_chat_conversations c WHERE c.id = ? AND `+BossAnyConversationSQL("c"), conv).Scan(&viaSQL); err != nil {
+			t.Fatal(err)
+		}
+		if goForm != want || sqlForm != want || (viaSQL == 1) != want {
+			t.Errorf("%s: want %v; BossFrontDesk %v, IsBossAnyConversation %v, SQL %v", conv, want, goForm, sqlForm, viaSQL == 1)
+		}
+	}
+}
