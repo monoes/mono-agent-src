@@ -62,6 +62,12 @@ var coderCommandDocs = []cmdDoc{
 		},
 	},
 	{
+		Name:     "coder sessions steer",
+		Short:    "Send the person's text to the boss behind a chat whose open-ended run is going, as untrusted guidance: never an answer, never an approval, lifts no limit (the user's own)",
+		Usage:    "monoagentcli [--profile P] coder sessions steer CHAT TEXT",
+		Examples: []string{`monoagentcli --profile work coder sessions steer <chat> "prefer the smaller change"`},
+	},
+	{
 		Name:     "coder sessions stop",
 		Short:    "End the session's running turn and drop the sends queued before the stop (the operator only)",
 		Usage:    "monoagentcli [--profile P] coder sessions stop CONVERSATION",

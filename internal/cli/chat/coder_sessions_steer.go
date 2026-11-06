@@ -42,11 +42,11 @@ func newCoderSessionsSteerCmd(cfg *Deps) *cobra.Command {
 			clicore.OperatorOnlyHelp,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if sessionTokenFromEnv() != "" { // a session's turn is never the person
-				return clicore.OperatorOnly("only the user can steer an open-ended run: this process is a session's turn")
-			}
 			if err := requireUser(cfg, "steer an open-ended run"); err != nil {
 				return err
+			}
+			if sessionTokenFromEnv() != "" { // a session's turn is never the person
+				return clicore.OperatorOnly("only the user can steer an open-ended run: this process is a session's turn")
 			}
 			text := strings.TrimSpace(args[1])
 			if text == "" || len(text) > maxSteerBytes {
