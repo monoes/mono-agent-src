@@ -8,8 +8,6 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
-
 	"github.com/monoes/mono-agent/internal/orgdesign"
 	"github.com/monoes/mono-agent/internal/orgsign"
 )
@@ -277,5 +275,5 @@ func (a *App) emitOrgDesignUpdated(orgName, origin string, deleted bool, d *orgd
 	} else {
 		payload["org"] = nil
 	}
-	runtime.EventsEmit(a.ctx, "org:designUpdated", payload)
+	eventsEmit(a.ctx, "org:designUpdated", payload)
 }

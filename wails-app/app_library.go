@@ -11,8 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 const (
@@ -24,7 +22,7 @@ const (
 // "library:login" or "account:login" (tests replace it: a bare context has no
 // Wails runtime to emit on).
 var emitLibraryEvent = func(a *App, name string, data interface{}) {
-	runtime.EventsEmit(a.ctx, name, data)
+	eventsEmit(a.ctx, name, data)
 }
 
 // LibraryStatus returns `library status [--offline]`.

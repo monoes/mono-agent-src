@@ -13,8 +13,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
-
 	"github.com/monoes/mono-agent/internal/nodemgr"
 )
 
@@ -324,7 +322,7 @@ func (a *App) startStreamed(cliBin, fixID string, args []string, busyMsg string)
 
 func (a *App) emitFixEvent(ev healthFixEvent) {
 	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, "health:fixProgress", ev)
+		eventsEmit(a.ctx, "health:fixProgress", ev)
 	}
 }
 

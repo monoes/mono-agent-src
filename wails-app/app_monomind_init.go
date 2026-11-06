@@ -12,8 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
-
 	"github.com/monoes/mono-agent/internal/profiledir"
 )
 
@@ -62,7 +60,7 @@ func (a *App) emitMonomindInitEvent(kind, message string) {
 	if a.ctx == nil {
 		return
 	}
-	runtime.EventsEmit(a.ctx, "monomind:initProgress", map[string]interface{}{
+	eventsEmit(a.ctx, "monomind:initProgress", map[string]interface{}{
 		"kind":    kind,
 		"message": message,
 	})

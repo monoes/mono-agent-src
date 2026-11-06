@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // VersionInfo is returned by GetVersion.
@@ -68,7 +66,7 @@ const updateCheckTimeout = 30 * time.Second
 func (a *App) backgroundUpdateCheck() {
 	time.Sleep(10 * time.Second)
 	if info := a.CheckForUpdate(); info.UpdateAvailable {
-		runtime.EventsEmit(a.ctx, "update:available", info)
+		eventsEmit(a.ctx, "update:available", info)
 	}
 
 	ticker := time.NewTicker(24 * time.Hour)
@@ -77,7 +75,7 @@ func (a *App) backgroundUpdateCheck() {
 		select {
 		case <-ticker.C:
 			if info := a.CheckForUpdate(); info.UpdateAvailable {
-				runtime.EventsEmit(a.ctx, "update:available", info)
+				eventsEmit(a.ctx, "update:available", info)
 			}
 		case <-a.ctx.Done():
 			return
