@@ -51,18 +51,12 @@ func TestBossExclusionIsNotCorrelatedAndKeepsRowsOfSessionlessChats(t *testing.T
 	dbPath := newChatCLITestDB(t)
 	seedScale(t, dbPath, 3000, 400)
 	db := rawDB(t, dbPath)
-	for name, q := range map[string]string{
-		"plain": `SELECT c.id FROM ai_chat_conversations c WHERE c.profile_id = 'default' AND NOT ` + tasks.BossConversationSQL("c") + ` ORDER BY c.updated_at DESC LIMIT 51`,
-		"all":   fmt.Sprintf(histSQL, histPromptBytes, "", ""),
-	} {
-		args := []any{}
-		if name == "all" {
-			args = []any{"default", 51}
-		}
+	correlated := func(q string, args ...any) (n int) {
 		rows, err := db.Query("EXPLAIN QUERY PLAN "+q, args...)
 		if err != nil {
-			t.Fatalf("%s: %v", name, err)
+			t.Fatalf("%v\n%s", err, q)
 		}
+		defer rows.Close()
 		for rows.Next() {
 			var id, parent, unused int
 			var detail string
@@ -70,17 +64,26 @@ func TestBossExclusionIsNotCorrelatedAndKeepsRowsOfSessionlessChats(t *testing.T
 				t.Fatal(err)
 			}
 			if strings.Contains(detail, "CORRELATED") {
-				t.Errorf("%s: a correlated subquery in the plan: %s", name, detail)
+				n++
 			}
 		}
-		rows.Close()
+		return n
+	}
+	// The plain list: none at all. The history: no more than the same statement without the boss mark (its other lookups are
+	// the existing indexed ones).
+	if n := correlated(`SELECT c.id FROM ai_chat_conversations c WHERE c.profile_id = 'default' AND NOT ` + tasks.BossConversationSQL("c") + ` ORDER BY c.updated_at DESC LIMIT 51`); n != 0 {
+		t.Errorf("plain list: %d correlated subqueries in the plan", n)
+	}
+	without := strings.Replace(histSQLTemplate, "{BOSS}", "0", 1)
+	if with, base := correlated(fmt.Sprintf(histSQL, histPromptBytes, "", ""), "default", 51), correlated(fmt.Sprintf(without, histPromptBytes, "", ""), "default", 51); with != base {
+		t.Errorf("--all: %d correlated subqueries in the plan, %d without the boss mark", with, base)
 	}
 	var visible int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM ai_chat_conversations c WHERE c.profile_id = 'default' AND NOT ` + tasks.BossConversationSQL("c")).Scan(&visible); err != nil {
 		t.Fatal(err)
 	}
-	if visible != 3000-4 { // 400 sessions, every 100th stamped: 4 bosses
-		t.Fatalf("%d conversations left after the exclusion, want %d", visible, 3000-4)
+	if visible != 3000-3 { // 400 sessions, every 100th stamped: 4 bosses, one of them (session 0) has no chat
+		t.Fatalf("%d conversations left after the exclusion, want %d", visible, 3000-3)
 	}
 }
 
@@ -101,7 +104,19 @@ func TestBossExclusionCostAtScale(t *testing.T) {
 	}
 	timeIt("list", "--all") // warm
 	all, plain := timeIt("list", "--all"), timeIt("list")
-	t.Logf("30000 conversations, 400 sessions: list --all %v, plain list %v", all, plain)
+	// the first form of the exclusion, a correlated EXISTS per conversation, on the same data and the same question
+	db := rawDB(t, dbPath)
+	start := time.Now()
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM ai_chat_conversations c WHERE c.profile_id = 'default' AND NOT EXISTS (SELECT 1 FROM task_sessions b WHERE b.profile_id = c.profile_id AND b.conversation_id = c.id AND b.doomsday_charter_id <> '')`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	correlatedForm := time.Since(start)
+	start = time.Now()
+	if err := db.QueryRow(`SELECT COUNT(*) FROM ai_chat_conversations c WHERE c.profile_id = 'default' AND NOT ` + tasks.BossConversationSQL("c")).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("30000 conversations, 400 sessions: list --all %v, plain list %v; counting the visible ones: correlated form %v, uncorrelated form %v", all, plain, correlatedForm, time.Since(start))
 	if all > 3*time.Second || plain > 3*time.Second {
 		t.Fatalf("a list takes seconds: --all %v plain %v", all, plain)
 	}

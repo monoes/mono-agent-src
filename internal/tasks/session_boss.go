@@ -48,10 +48,12 @@ func BossKeyLike(frontDeskConversation string) string {
 
 // BossConversationSQL is a WHERE condition over ai_chat_conversations (alias given) that holds for the conversation of a
 // stamped boss: a mission session the operator stamped as a run's boss that carries a boss key. The plain history list keeps
-// such a conversation out; every other listing shows it marked.
+// such a conversation out; every other listing shows it marked. It starts from the few stamped sessions and is evaluated
+// once per statement (an uncorrelated IN over them), not once per conversation: task_sessions has no index on its
+// conversation. The IS NOT NULL keeps a session of no chat from turning a NOT IN into "unknown" for every row.
 func BossConversationSQL(alias string) string {
-	return fmt.Sprintf(`EXISTS (SELECT 1 FROM task_sessions b WHERE b.profile_id = %[1]s.profile_id AND b.conversation_id = %[1]s.id
-		AND b.doomsday_charter_id <> '' AND b.kind = 'mission' AND b.client_id LIKE 'boss-for-%%')`, alias)
+	return fmt.Sprintf(`%s.id IN (SELECT b.conversation_id FROM task_sessions b WHERE b.doomsday_charter_id <> '' AND b.kind = 'mission'
+		AND b.client_id LIKE 'boss-for-%%' AND b.conversation_id IS NOT NULL)`, alias)
 }
 
 // IsBossConversation says whether the conversation is that of a stamped boss (any state): the mark the listings that show
