@@ -129,6 +129,9 @@ func (d Deps) newRender() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if d.json() {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(NewRenderDoc(ch, canon.Hash))
+			}
 			fmt.Fprintln(cmd.OutOrStdout(), Render(ch, canon.Hash))
 			return nil
 		},

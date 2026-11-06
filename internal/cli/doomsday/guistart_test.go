@@ -1,6 +1,7 @@
 package doomsday
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -75,5 +76,32 @@ func TestCharterFromStdinRendersAndStartsLikeAFile(t *testing.T) {
 	r.terminal = false
 	if _, err := run(t, r.deps, goodCharter, "start", "--charter", "-", "--gui-phrase", Phrase(0, h)); err != nil || len(r.e.enters) != 1 {
 		t.Fatalf("start from stdin: %v %+v", err, r.e.enters)
+	}
+}
+
+// `render --json` is the app's preview: the hash, the lifted lines by name, the text. It never carries the phrase the
+// person has to type (the form shows the hash and the lines and the person writes the phrase from them).
+func TestRenderJSONGivesTheHashTheLinesAndTheTextButNotThePhrase(t *testing.T) {
+	r := newRig()
+	r.deps.JSONOutput = func() bool { return true }
+	out, err := run(t, r.deps, goodCharter, "render", "--charter", "-", "--lift", "spending", "--lift", "platform_caps")
+	if err != nil {
+		t.Fatal(err, out)
+	}
+	var d RenderDoc
+	if json.Unmarshal([]byte(out), &d) != nil || len(d.Hash) != 64 || strings.Join(d.Lines, ",") != "spending,platform_caps" || d.LiftCount != 2 {
+		t.Fatalf("%s", out)
+	}
+	if !strings.Contains(d.Text, "Goal: ship it") || !strings.Contains(d.Text, "does NOT defend against") || !strings.HasPrefix(d.Text, "CHARTER "+d.Hash) {
+		t.Fatalf("text: %s", d.Text)
+	}
+	if strings.Contains(out, Phrase(2, d.Hash)) {
+		t.Fatalf("the preview carries the phrase: %s", out)
+	}
+	if got := strings.NewReplacer("<N>", "2", "<first 8 characters of the hash>", d.Hash[:8]).Replace(PhraseTemplate); got != Phrase(2, d.Hash) {
+		t.Fatalf("the template has drifted from Phrase: %q vs %q", got, Phrase(2, d.Hash))
+	}
+	if d.PhraseTemplate != PhraseTemplate {
+		t.Fatalf("template %q", d.PhraseTemplate)
 	}
 }
