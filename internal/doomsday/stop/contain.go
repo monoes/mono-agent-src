@@ -42,6 +42,9 @@ const KindCgroup2 = "cgroup2"
 // handle is held by an anchor process so that it outlives the CLI. Best effort (see UnitBestEffort).
 const KindJobObject = "jobobject"
 
+// KindPGroup (pgroup.go) is the macOS unit: a process group led by an anchor process, best effort (a process that
+// left the group is not seen).
+
 // Containment is the per-OS mechanism behind a run's unit. The unit's lifecycle after the proof (enumerate,
 // signal, kill, "gone") goes through the Group a Proof carries; Create and Place are the other two moments of the
 // lifecycle, so a mechanism is wholly behind this interface. A platform without an entry in platformKinds refuses
@@ -84,11 +87,12 @@ type Placement interface {
 var containments = map[string]func(k Kernel, steps func() []ProbeStep) Containment{
 	KindCgroup2:   func(k Kernel, steps func() []ProbeStep) Containment { return cgroup2Containment{k: k, steps: steps} },
 	KindJobObject: func(k Kernel, _ func() []ProbeStep) Containment { return newJobContainment(k) },
+	KindPGroup:    func(k Kernel, _ func() []ProbeStep) Containment { return newPGContainment(k) },
 }
 
 // platformKinds names the unit kind each GOOS may start; a GOOS absent here is refused. The steps of a probe are the
 // Linux steps; a mechanism with its own steps (the Job Object) ignores them.
-var platformKinds = map[string]string{"linux": KindCgroup2, "windows": KindJobObject}
+var platformKinds = map[string]string{"linux": KindCgroup2, "windows": KindJobObject, "darwin": KindPGroup}
 
 // cgroup2Containment is the Linux mechanism; its checks are the existing probe steps and ProveUnit's P1-P6.
 type cgroup2Containment struct {
@@ -127,7 +131,7 @@ func (c cgroup2Containment) Present(rec UnitRecord) (bool, error) {
 func probe(goos string, linuxSteps func() []ProbeStep) error {
 	kind, ok := platformKinds[goos]
 	if !ok {
-		return fmt.Errorf("%w: %s is not supported (Linux and Windows only)", ErrContainmentUnavailable, goos)
+		return fmt.Errorf("%w: %s is not supported (Linux, macOS and Windows only)", ErrContainmentUnavailable, goos)
 	}
 	return containments[kind](nil, linuxSteps).Probe()
 }

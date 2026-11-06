@@ -20,7 +20,7 @@ const notDefendedCommon = `What this mode does NOT defend against:
 `
 
 // containmentBullet is the last bullet, true for the OS it is printed on: Linux proves a unit gone; Windows holds
-// the processes in a Job Object, which is best effort; any other OS has no containment and the mode does not start.
+// the processes in a Job Object and macOS in a process group, both best effort; any other OS has no containment and the mode does not start.
 func containmentBullet(goos string) string {
 	switch goos {
 	case "linux":
@@ -31,6 +31,11 @@ func containmentBullet(goos string) string {
     left the job is not covered (for example one started through another service),
     so Stop prints "stopped (best effort: processes that left the group are not covered)"
     and never a bare "stopped". The mode does not start where the Job Object cannot be made.`
+	case "darwin":
+		return `  - Its processes are held in a process group, which is best effort: a process that
+    calls setsid or setpgid, or double-forks out of the group, is NOT covered and cannot
+    be seen, so Stop prints "stopped (best effort: processes that left the group are not covered)"
+    and never a bare "stopped". The mode does not start where the group cannot be made.`
 	}
 	return `  - This platform has no process containment: the mode does not start here.`
 }

@@ -139,9 +139,13 @@ func endSub(cg Cgroup, sub string, cfg EndConfig, out *UnitOutcome) (unknown []S
 		empty = waitEmpty(cg, sub, cfg.Clock, cfg.TKill, cfg.Poll)
 	}
 	pids, _ := cg.Procs(sub)
+	why := "did not die after the kill window"
+	if w, ok := cg.(interface{ SurvivorWhy() string }); ok {
+		why = w.SurvivorWhy()
+	}
 	for _, pid := range pids {
 		stamp, comm, _ := cg.ProcInfo(sub, pid)
-		out.Survivors = append(out.Survivors, Survivor{PID: pid, Stamp: stamp, Comm: comm, Sub: sub, Why: "did not die after the kill window"})
+		out.Survivors = append(out.Survivors, Survivor{PID: pid, Stamp: stamp, Comm: comm, Sub: sub, Why: why})
 	}
 	if len(pids) == 0 {
 		out.Survivors = append(out.Survivors, Survivor{Sub: sub, Why: "the sub-cgroup could not be removed"})

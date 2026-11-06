@@ -89,7 +89,7 @@ func (w *fakePG) Members(pgid int) ([]int, error) {
 func (w *fakePG) SignalGroup(pgid int, sig syscall.Signal) error {
 	w.groupSig = append(w.groupSig, fmt.Sprintf("%d:%d", pgid, sig))
 	for pid, p := range w.procs {
-		if p.pgid == pgid && !(sig == syscall.SIGKILL && p.immune) {
+		if p.pgid == pgid && !p.immune {
 			delete(w.procs, pid)
 		}
 	}
@@ -97,7 +97,7 @@ func (w *fakePG) SignalGroup(pgid int, sig syscall.Signal) error {
 }
 func (w *fakePG) SignalPid(pid int, sig syscall.Signal) error {
 	w.pidSig = append(w.pidSig, fmt.Sprintf("%d:%d", pid, sig))
-	if p := w.procs[pid]; p != nil && !(sig == syscall.SIGKILL && p.immune) {
+	if p := w.procs[pid]; p != nil && !p.immune {
 		delete(w.procs, pid)
 	}
 	return nil
@@ -425,5 +425,19 @@ func TestPGroupCreateDispatchesByPlatformAndProbeRunsTheSelfTest(t *testing.T) {
 	}
 	if err := (pgContainment{}).Probe(); !errors.Is(err, ErrContainmentUnavailable) {
 		t.Fatalf("no macOS API: %v", err)
+	}
+}
+
+func TestPGroupKillNeverSignalsTheGroupNumberOnceTheAnchorIsGone(t *testing.T) {
+	w := newFakePG()
+	rec, _, _ := createPG(t, w, 7)
+	w.add(rec, 500, "git")
+	delete(w.procs, rec.AnchorPID) // the number is no longer pinned: it may be someone else's group
+	g := &pgGroup{os: w, rec: rec, pgid: rec.AnchorPID}
+	if err := g.Kill(""); err != nil {
+		t.Fatal(err)
+	}
+	if len(w.groupSig) != 0 || len(w.pidSig) != 1 {
+		t.Fatalf("group %v pid %v", w.groupSig, w.pidSig)
 	}
 }

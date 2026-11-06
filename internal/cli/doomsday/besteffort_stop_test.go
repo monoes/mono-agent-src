@@ -54,3 +54,17 @@ func TestNotDefendedIsTrueForEachOS(t *testing.T) {
 		t.Errorf("unsupported OS: %s", other)
 	}
 }
+
+// macOS says plainly that a process that left the group is not covered, and that Stop is never a bare "stopped".
+func TestNotDefendedNamesTheProcessGroupLimitsOnDarwin(t *testing.T) {
+	mac := NotDefended("darwin")
+	for _, want := range []string{"does NOT defend", "process group", "best effort", "setsid", "setpgid", "double-forks", "NOT covered",
+		"stopped (best effort: processes that left the group are not covered)", "never a bare"} {
+		if !strings.Contains(mac, want) {
+			t.Errorf("darwin text lacks %q", want)
+		}
+	}
+	if strings.Contains(mac, "refuses to start where its processes cannot be contained") || strings.Contains(mac, "Job Object") || strings.Contains(mac, "no process containment") {
+		t.Errorf("darwin text keeps a sentence that is not true there: %s", mac)
+	}
+}
