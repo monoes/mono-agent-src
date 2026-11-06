@@ -391,7 +391,7 @@ jobs:
     name: Chrome extension
     needs: changes
     if: needs.changes.outputs.extension == 'true'
-    # Hosted: the job drives headless Chrome (extension service worker), which does not start on the self-hosted AWS runners.
+    # Hosted: the job drives headless Chrome with an extension service worker, so it runs on a hosted runner (ubuntu-latest).
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
