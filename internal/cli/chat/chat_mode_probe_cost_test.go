@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/coderhost"
 )
 
@@ -57,5 +58,31 @@ func TestChatPathsShowTheCheapReasonAndNotThePendingOneWhenNotReady(t *testing.T
 	out, code = runSessionsCLI(t, f.cfg, "chat-modes", "--access", "full")
 	if code != 0 || *n != 0 || !strings.Contains(out, "boss binding pending") {
 		t.Fatalf("not ready: exit %d checks %d %s", code, *n, out)
+	}
+}
+
+// Once the open mode is ready its cheap check alone must not let an agent choose it: both ways of setting the mode
+// (settings set --chat-mode, and creating the chat with --chat-mode) refuse a caller that is not the operator, and
+// leave the mode and the chat as they were.
+func TestAnAgentCannotChooseTheOpenModeEvenWhenItIsReady(t *testing.T) {
+	cheap(t, true, "")
+	f := newToggleFixture(t)
+	agent := testDeps(&testConfig{DBPath: f.dbPath, ProfileID: "default", JSONOutput: true})
+	agent.RequireOperator = func(what string) error { return clicore.OperatorOnly("only the user can %s", what) }
+	out, code := runSessionsCLI(t, agent, "settings", "set", f.conv.ID, "--chat-mode", "open")
+	if code == 0 || !strings.Contains(out, "operator_only") {
+		t.Fatalf("settings set: exit %d %s", code, out)
+	}
+	if v, _, _ := f.run(t, f.cfg, "settings", "get", f.conv.ID); v.ChatMode.Mode != "off" {
+		t.Fatalf("a refused change moved the mode to %q", v.ChatMode.Mode)
+	}
+	r := newAccessRig(t, true)
+	out, code = createAs(t, r.dbPath, false, "--access", "full", "--new-workspace", "--chat-mode", "open")
+	if code == 0 || !strings.Contains(out, "operator_only") {
+		t.Fatalf("chat history create: exit %d %s", code, out)
+	}
+	list, _, err := r.store.ListConversations("default", "", 100)
+	if err != nil || len(list) != 0 {
+		t.Fatalf("a chat was made for a refused caller: %d %v", len(list), err)
 	}
 }
