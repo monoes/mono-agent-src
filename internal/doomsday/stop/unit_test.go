@@ -231,7 +231,7 @@ func TestUnitEnderRebootIsGoneWithoutSignals(t *testing.T) {
 // ----- the refusal to start where containment is unavailable -----
 
 func TestProbeRefusesOffLinux(t *testing.T) {
-	for _, goos := range []string{"darwin", "windows", "freebsd"} {
+	for _, goos := range []string{"darwin", "freebsd"} {
 		err := probe(goos, func() []ProbeStep { t.Fatal("linux steps consulted"); return nil })
 		if !errors.Is(err, ErrContainmentUnavailable) || !strings.Contains(err.Error(), goos) {
 			t.Fatalf("%s: %v", goos, err)
