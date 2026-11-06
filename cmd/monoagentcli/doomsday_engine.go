@@ -11,7 +11,9 @@ import (
 	"path/filepath"
 	"sync"
 	"syscall"
+	"time"
 
+	"github.com/monoes/mono-agent/internal/ai"
 	chatcli "github.com/monoes/mono-agent/internal/cli/chat"
 	doomsdaycli "github.com/monoes/mono-agent/internal/cli/doomsday"
 	"github.com/monoes/mono-agent/internal/coderhost"
@@ -188,6 +190,17 @@ func doomsdayWiring(cfg *globalConfig, db *sql.DB) doomsdaycli.Wiring {
 		Tokens: doomsdaycli.GovernedTokens{Inner: doomsdaycli.CoderTokens{DB: db, Profile: cfg.ProfileID, Host: coderhost.NewStore(db)}, DB: db, Profile: cfg.ProfileID, Keys: keys,
 			Logf: func(f string, a ...any) { fmt.Fprintf(os.Stderr, f+"\n", a...) }},
 		DB: db,
+		// A stop's message in the transcript of the run's chat: a system turn, written by the same store as every chat event.
+		ChatNote: func(_ context.Context, conversationID, message string) error {
+			as, err := ai.NewAIStore(db)
+			if err != nil {
+				return err
+			}
+			return as.RecordSystemNotice(cfg.ProfileID, conversationID, ai.NoticeOpenEndedStopped, message)
+		},
+		ChatNoteSince: func(ctx context.Context, q doomsdaycli.RowQuerier, conversationID string, since int64) (bool, error) {
+			return ai.HasSystemNoticeSinceIn(ctx, q, cfg.ProfileID, conversationID, ai.NoticeOpenEndedStopped, time.Unix(since, 0))
+		},
 		// The witness of note 13.5: the pinned connection on the database file, the vault-derived MAC keys, and the OS
 		// secret store of the anchor (a run on a machine with none is `anchor-bound: no` and says so).
 		Witness: &doomsdaycli.WitnessSetup{DBPath: expandPath(cfg.DBPath), Keys: keys, Secrets: stop.OSSecretStore{},

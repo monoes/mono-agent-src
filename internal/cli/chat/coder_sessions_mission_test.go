@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/agenttokens"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
@@ -268,6 +269,14 @@ func TestReportIsTheLastProseOfTheChildsNewestTurn(t *testing.T) {
 	}
 	if got := mc.Report(context.Background(), m.master); got != "I changed a.go." {
 		t.Fatalf("report = %q", got)
+	}
+	// A Stop's notice is the chat's newest turn, and still not the child's report.
+	time.Sleep(1100 * time.Millisecond) // turns are ordered by second: the notice must be the newest
+	if err := store.RecordSystemNotice("default", m.master, "doomsday.stopped", "Open-ended run stopped by you at T: stopped"); err != nil {
+		t.Fatal(err)
+	}
+	if got := mc.Report(context.Background(), m.master); got != "I changed a.go." {
+		t.Fatalf("report after a system notice = %q", got)
 	}
 	if got := mc.Report(context.Background(), "no-such"); got != "" {
 		t.Fatalf("report of nothing = %q", got)

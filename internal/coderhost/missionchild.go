@@ -345,7 +345,7 @@ func (s *Store) pausedByCascade(profileID, conv, turnID string) bool {
 // never counted.
 func (s *Store) turnFloor(profileID, conv, fallback string) time.Time {
 	var at string
-	if s.db.QueryRow(`SELECT created_at FROM ai_chat_turns WHERE profile_id = ? AND conversation_id = ? ORDER BY created_at DESC LIMIT 1`, profileID, conv).Scan(&at) == nil {
+	if s.db.QueryRow(`SELECT created_at FROM ai_chat_turns WHERE profile_id = ? AND conversation_id = ? AND NOT (prompt = '' AND id LIKE 'system-%') ORDER BY created_at DESC LIMIT 1`, profileID, conv).Scan(&at) == nil {
 		if t, err := time.Parse(time.RFC3339Nano, at); err == nil {
 			return t
 		}
