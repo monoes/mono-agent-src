@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -34,9 +35,12 @@ func TestCriterionRunsUnderItsProcessLimits(t *testing.T) {
 	}
 	r := newRig(t)
 	r.sb.Limits = Limits{CPUSeconds: 7, OpenFiles: 33, FileSize: 4096 * 512, Procs: 3001, AddressSpace: 5 << 30}
-	script, want := "ulimit -t; ulimit -n; ulimit -u; ulimit -v", "7\n33\n3001\n5242880" // -v counts KiB
-	if runtime.GOOS == "darwin" {                                                        // the address space cannot be limited on macOS (limits_unix.go)
-		script, want = "ulimit -t; ulimit -n; ulimit -u", "7\n33\n3001"
+	// the process limit is the request or, when the hard limit is lower, that (the clamp never raises a hard limit)
+	procs := strconv.FormatUint(minProcs(3001), 10)
+	script, want := "ulimit -t; ulimit -n; ulimit -u; ulimit -v", "7\n33\n"+procs+"\n5242880" // -v counts KiB
+	if runtime.GOOS == "darwin" {
+		// the address space cannot be limited on macOS (limits_unix.go)
+		script, want = "ulimit -t; ulimit -n; ulimit -u", "7\n33\n"+procs
 	}
 	o := r.run("command", bash+" -c '"+script+"'", "")
 	if got := strings.TrimSpace(o.Stdout); got != want {

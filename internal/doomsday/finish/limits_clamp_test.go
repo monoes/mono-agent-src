@@ -54,7 +54,10 @@ func TestApplyLimitsNeverRaisesAHardLimitAndStillLowersTheRest(t *testing.T) {
 	if err := applyLimits(f, l); err != nil {
 		t.Fatal(err)
 	}
-	want := map[int]uint64{unix.RLIMIT_NPROC: 2000, unix.RLIMIT_NOFILE: 1024, unix.RLIMIT_AS: DefaultAddressSpace, unix.RLIMIT_CPU: 30, unix.RLIMIT_FSIZE: 1 << 20}
+	want := map[int]uint64{unix.RLIMIT_NPROC: 2000, unix.RLIMIT_NOFILE: 1024, unix.RLIMIT_CPU: 30, unix.RLIMIT_FSIZE: 1 << 20}
+	if limitsGOOS != "darwin" { // macOS cannot limit the address space: it is not set there
+		want[unix.RLIMIT_AS] = DefaultAddressSpace
+	}
 	for res, v := range want {
 		if got := f.set[res]; got.Cur != v || got.Max != v {
 			t.Errorf("resource %d set to %+v, want %d", res, got, v)
@@ -97,4 +100,14 @@ func TestApplyLimitsSkipsTheAddressSpaceOnDarwinOnly(t *testing.T) {
 			}
 		}
 	}
+}
+
+// minProcs is what a program sees as its process limit: the request, or this process's hard limit when that is lower (the
+// clamp never raises it; macOS's kern.maxprocperuid is often below the default).
+func minProcs(req uint64) uint64 {
+	var r unix.Rlimit
+	if err := unix.Getrlimit(unix.RLIMIT_NPROC, &r); err == nil && r.Max < req {
+		return r.Max
+	}
+	return req
 }
