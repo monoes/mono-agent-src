@@ -811,3 +811,4 @@ TestWorkflowValidateFile_ValidJSONShape 1
 TestWorkflowValidateKnowsTheRegisterApproval 3
 TestWorkflowVersionsCLI 9
 TestWorkflowVersionsCLIErrors 7
+TestDoomsdayWiringProbesNextToTheProfilesDatabaseAndRunDirectory 1

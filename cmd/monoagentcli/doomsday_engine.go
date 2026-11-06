@@ -166,6 +166,9 @@ func processHostGate(cfg *globalConfig, db *sql.DB) *doomsdaycli.HostGate {
 	return g
 }
 
+// probeAt is stop.ProbeAt: a seam so a test can see which directories the wiring hands the self-tests.
+var probeAt = stop.ProbeAt
+
 // doomsdayWiring is the one construction of the engine's seams: the store over the profile's vault key, the run
 // directory next to the database, the stop package's containment probe and kernel, real token revocation.
 func doomsdayWiring(cfg *globalConfig, db *sql.DB) doomsdaycli.Wiring {
@@ -178,7 +181,7 @@ func doomsdayWiring(cfg *globalConfig, db *sql.DB) doomsdaycli.Wiring {
 		Binding: func(context.Context) (bool, error) { return chatcli.PeercredBindingOn(db) },
 		RunDir:  stop.RunDir{Dir: runDir},
 		// The self-tests run next to the real database and in the real run directory, so what they show holds on that volume.
-		Probe:  func() error { return stop.ProbeAt(filepath.Dir(expandPath(cfg.DBPath)), runDir) },
+		Probe:  func() error { return probeAt(filepath.Dir(expandPath(cfg.DBPath)), runDir) },
 		Kernel: doomsdayKernel(),
 		Host:   stop.SystemHost(),
 		// Stop's token revocation and queue cancel; the governor's queue is cancelled with the host's pending sends.
