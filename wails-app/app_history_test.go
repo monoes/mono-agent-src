@@ -38,20 +38,20 @@ func TestListHistoryEmptyPageHasNoNils(t *testing.T) {
 
 func TestCreateChatConversationAccess(t *testing.T) {
 	a, log := aitaskApp(t, "echo '"+convJSON+"'\n")
-	got, err := a.CreateChatConversationAccess("general", "claude", "sonnet", "high", "coding", "")
+	got, err := a.CreateChatConversationAccess("general", "claude", "sonnet", "high", "coding", "", "")
 	if err != nil || got.ID != "c1" || got.Access != "coding" || got.RuntimeID != "claude" || got.Cwd != "/p" {
 		t.Fatalf("got %+v, %v", got, err)
 	}
-	if _, err := a.CreateChatConversationAccess("general", "claude", "", "", "scoped", ""); err != nil {
+	if _, err := a.CreateChatConversationAccess("general", "claude", "", "", "scoped", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.CreateChatConversationAccess("general", "claude", "", "", "full", "/work"); err != nil {
+	if _, err := a.CreateChatConversationAccess("general", "claude", "", "", "full", "/work", "mission"); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{
 		"--profile work --json chat history create --workflow general --runtime claude --model sonnet --effort high --access coding --profile-folder",
 		"--profile work --json chat history create --workflow general --runtime claude --access scoped",
-		"--profile work --json chat history create --workflow general --runtime claude --access full --cwd /work",
+		"--profile work --json chat history create --workflow general --runtime claude --access full --cwd /work --chat-mode mission",
 	}
 	if calls := loggedArgs(t, log); strings.Join(calls, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("calls = %v", calls)

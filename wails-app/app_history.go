@@ -113,7 +113,7 @@ func conversationOf(r ai.ConversationRecord) Conversation {
 // (scoped, coding, workspace or full; "" takes the coder default: the one the
 // operator set, else full, when coder mode is ready).
 // Above scoped it works in cwd, or in the profile's folder when cwd is empty. The GUI window runs as the operator, so any level is allowed.
-func (a *App) CreateChatConversationAccess(workflowID, runtimeID, model, effort, access, cwd string) (Conversation, error) {
+func (a *App) CreateChatConversationAccess(workflowID, runtimeID, model, effort, access, cwd, chatMode string) (Conversation, error) {
 	if err := a.signedOut(); err != nil {
 		return Conversation{}, err
 	}
@@ -139,6 +139,9 @@ func (a *App) CreateChatConversationAccess(workflowID, runtimeID, model, effort,
 				args = append(args, "--profile-folder")
 			}
 		}
+	}
+	if chatMode != "" && chatMode != "off" { // the mode is set by the CLI together with the conversation
+		args = append(args, "--chat-mode", chatMode)
 	}
 	var rec ai.ConversationRecord
 	if err := a.historyCLI(&rec, args...); err != nil {

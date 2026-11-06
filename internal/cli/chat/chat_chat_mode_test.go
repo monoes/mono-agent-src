@@ -178,3 +178,32 @@ func TestSessionsListShowsTheChatMode(t *testing.T) {
 		t.Fatalf("text list: exit %d %s", code, out)
 	}
 }
+
+func TestChatModesListsTheChoicesAtAnAccessLevel(t *testing.T) {
+	f := newToggleFixture(t)
+	type resp struct {
+		Options []chatModeOption `json:"options"`
+	}
+	get := func(access string) map[string]chatModeOption {
+		out, code := runSessionsCLI(t, f.cfg, "chat-modes", "--access", access)
+		var r resp
+		if code != 0 {
+			t.Fatalf("chat-modes %s: exit %d %s", access, code, out)
+		}
+		decodeChatJSON(t, out, &r)
+		m := map[string]chatModeOption{}
+		for _, o := range r.Options {
+			m[o.Mode] = o
+		}
+		return m
+	}
+	if m := get("full"); !m["off"].Available || !m["mission"].Available || m["open"].Available || m["open"].Reason != "not available yet" {
+		t.Errorf("full: %+v", m)
+	}
+	if m := get("scoped"); !m["off"].Available || m["mission"].Available || !strings.Contains(m["mission"].Reason, "coding, workspace or full") {
+		t.Errorf("scoped: %+v", m)
+	}
+	if _, code := runSessionsCLI(t, f.cfg, "chat-modes", "--access", "root"); code == 0 {
+		t.Error("an unknown level was accepted")
+	}
+}

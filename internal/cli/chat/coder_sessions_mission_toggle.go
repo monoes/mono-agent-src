@@ -184,9 +184,9 @@ type chatModeView struct {
 
 const chatModeLockedMessage = "the chat mode is chosen before the first message and cannot change afterwards"
 
-func chatModeOf(ctx context.Context, db tasks.Queryer, profileID string, conv ai.Conversation, mode string) chatModeView {
-	v := chatModeView{Mode: mode}
-	access := conv.EffectiveAccess()
+// chatModeOptions are the three choices at an access level: mission and open need mission access, open also needs the
+// open-ended mode to be available (coderhost.OpenModeAvailability).
+func chatModeOptions(access string) []chatModeOption {
 	needs := ""
 	if !dynorg.MissionAccess(access) {
 		needs = missionNeedsAccess(access)
@@ -195,11 +195,15 @@ func chatModeOf(ctx context.Context, db tasks.Queryer, profileID string, conv ai
 	if ok, reason := coderhost.OpenModeAvailability(); !ok {
 		open.Available, open.Reason = false, reason
 	}
-	v.Options = []chatModeOption{
+	return []chatModeOption{
 		{Mode: coderhost.ChatModeOff, Available: true},
 		{Mode: coderhost.ChatModeMission, Available: needs == "", Reason: needs},
 		open,
 	}
+}
+
+func chatModeOf(ctx context.Context, db tasks.Queryer, profileID string, conv ai.Conversation, mode string) chatModeView {
+	v := chatModeView{Mode: mode, Options: chatModeOptions(conv.EffectiveAccess())}
 	if locked, err := coderhost.ChatModeLockedIn(ctx, db, profileID, conv.ID); err != nil {
 		v.Locked, v.Reason = true, "the chat mode could not be checked, so it stays as it is: "+err.Error()
 	} else if locked {
