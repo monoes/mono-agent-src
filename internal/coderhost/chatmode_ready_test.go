@@ -25,3 +25,14 @@ func TestOpenModeFollowsTheProbeOnceReady(t *testing.T) {
 		t.Fatal("not available although ready and the probe says so")
 	}
 }
+
+// The switch ships off. The change that adds the boss creation and the task-session budget flips it and this test in the
+// same commit; nothing else may.
+func TestOpenModeShipsNotReady(t *testing.T) {
+	if openModeReady {
+		t.Fatal("openModeReady is true: the open mode is offered although the boss binding is not there")
+	}
+	if ok, reason := OpenModeAvailability(); ok || reason != "not available yet: boss binding pending" {
+		t.Fatalf("%v %q", ok, reason)
+	}
+}
