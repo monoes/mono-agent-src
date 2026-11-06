@@ -2,7 +2,9 @@ package doomsday
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
+	"unicode"
 )
 
 // NotDefended is what the entry dialog says plainly about the limits of the
@@ -23,6 +25,28 @@ func Phrase(lines int, hash string) string {
 	return fmt.Sprintf("I understand: lift %d lines, charter %s", lines, short(hash))
 }
 
+// plain is free text as one safe line of the render: control characters (a newline would forge a line of what the person
+// is asked to read) are shown escaped, and a long text is cut. The hash still covers the real bytes.
+func plain(s string) string {
+	const maxRunes = 2000
+	var b strings.Builder
+	n := 0
+	for _, r := range s {
+		if n == maxRunes {
+			fmt.Fprintf(&b, "... (%d more characters)", len([]rune(s))-maxRunes)
+			break
+		}
+		n++
+		if unicode.IsControl(r) {
+			q := strconv.QuoteRune(r)
+			b.WriteString(q[1 : len(q)-1])
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 func short(hash string) string {
 	if len(hash) < 8 {
 		return hash
@@ -36,16 +60,16 @@ func Render(c Charter, hash string) string {
 	var b strings.Builder
 	w := func(f string, a ...interface{}) { fmt.Fprintf(&b, f+"\n", a...) }
 	w("CHARTER %s", hash)
-	w("Goal: %s", c.Goal)
+	w("Goal: %s", plain(c.Goal))
 	if len(c.Criteria) == 0 {
 		w("Success criteria: none. This run never finishes on its own.")
 	} else {
 		w("Success criteria:")
 		for i, k := range c.Criteria {
 			if k.Kind == "command" {
-				w("  %d. command %q must give %q", i+1, k.Command, k.Expected)
+				w("  %d. command %q must give %q", i+1, plain(k.Command), plain(k.Expected))
 			} else {
-				w("  %d. rubric: %s", i+1, k.Text)
+				w("  %d. rubric: %s", i+1, plain(k.Text))
 			}
 		}
 	}

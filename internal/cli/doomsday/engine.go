@@ -81,6 +81,12 @@ type BossBinder interface {
 	BindBoss(ctx context.Context, session int64, entry Entry) error
 }
 
+// BossChecker is an Engine that can say, BEFORE a run starts, whether a session can be the run's boss. `start` asks it so
+// that a stale or ineligible --boss-session leaves no started full-access run behind (BindBoss runs after Enter).
+type BossChecker interface {
+	CheckBoss(ctx context.Context, session int64) error
+}
+
 // BindingRequirer is an Engine that also knows whether peer-credential binding is on: a run needs bound turns, so
 // `start` asks it before showing the charter (the StoreEngine asks again in Enter).
 type BindingRequirer interface {

@@ -168,6 +168,23 @@ func (d Deps) newStart() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if guiPhrase != "" {
+				if err := ValidateGUIStart(ch); err != nil {
+					return err
+				}
+			}
+			if boss != 0 { // before anything is created: Enter starts a full-access run that a failed BindBoss cannot undo
+				if _, ok := e.(BossBinder); !ok {
+					return clicore.InvalidInput("this install cannot record a boss, so nothing was started")
+				}
+				bc, ok := e.(BossChecker)
+				if !ok {
+					return clicore.InvalidInput("this install cannot check a boss before the start, so nothing was started")
+				}
+				if err := bc.CheckBoss(cmd.Context(), boss); err != nil {
+					return clicore.InvalidInput("%v", err)
+				}
+			}
 			out := cmd.OutOrStdout()
 			fmt.Fprintln(out, Render(ch, canon.Hash))
 			ack, err := d.acknowledge(cmd, len(ch.Lines), canon.Hash, yes, hash, guiPhrase)

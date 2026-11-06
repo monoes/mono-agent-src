@@ -44,6 +44,16 @@ type StoreEngine struct {
 	HeadAnchor HeadAnchorFunc
 	// Boss records which top-level lead mission is the run's boss (Wiring.DesignateBoss). Nil: no boss can be named.
 	Boss func(ctx context.Context, session int64, entry Entry) error
+	// BossCheck says whether a session may be named the run's boss, before the run exists (Wiring.checkBoss). Nil: no boss can be named.
+	BossCheck func(ctx context.Context, session int64) error
+}
+
+// CheckBoss is BossChecker.
+func (e *StoreEngine) CheckBoss(ctx context.Context, session int64) error {
+	if e.BossCheck == nil {
+		return errors.New("this install cannot name a boss")
+	}
+	return e.BossCheck(ctx, session)
 }
 
 // BindBoss records the boss session of a started run: only the operator's `start --boss-session` calls it.

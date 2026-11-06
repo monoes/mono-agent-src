@@ -38,6 +38,24 @@ func (b BossSource) BossOf(ctx context.Context, act ops.Active) (int64, bool, er
 	return id, true, nil
 }
 
+// checkBoss is designateBoss's conditions as a read, before the run exists: the session must be an open top-level lead
+// mission of the profile that no run has stamped. It does not replace designateBoss, which stays the atomic write.
+func (w Wiring) checkBoss(ctx context.Context, session int64) error {
+	if w.DB == nil {
+		return errors.New("no database to check the boss in")
+	}
+	var n int
+	err := w.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_sessions WHERE profile_id = ? AND id = ? AND COALESCE(parent_session_id, 0) = 0
+		AND archived_at = '' AND doomsday_charter_id = '' AND `+coderhost.LeadSessionSQL, w.Profile, session).Scan(&n)
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return fmt.Errorf("session %d is not an open top-level lead mission of the profile that no run has used, so it cannot be the boss and nothing was started", session)
+	}
+	return nil
+}
+
 // designateBoss stamps the named session as the boss of the entered run. It writes once: a charter that already has a boss
 // is refused, and so is a session that is not an open top-level lead mission of the profile.
 func (w Wiring) designateBoss(ctx context.Context, session int64, entry Entry) error {

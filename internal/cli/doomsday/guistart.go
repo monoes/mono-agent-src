@@ -46,3 +46,16 @@ func NewRenderDoc(c Charter, hash string) RenderDoc {
 	}
 	return RenderDoc{Hash: hash, Lines: lines, LiftCount: len(lines), Text: Render(c, hash), PhraseTemplate: PhraseTemplate}
 }
+
+// ValidateGUIStart holds a start from the app to what its form requires, whatever the page sent: a success criterion
+// (a run with none never finishes on its own), and max concurrent not above live per tree even where the charter chose
+// that on purpose. A budget choice is Validate's own rule (neither or both is refused). The terminal keeps its latitude.
+func ValidateGUIStart(c Charter) error {
+	switch {
+	case len(c.Criteria) == 0:
+		return clicore.InvalidInput("a start from the app needs at least one success criterion")
+	case c.Limits.MaxConcurrent > c.Limits.LivePerTree:
+		return clicore.InvalidInput("a start from the app needs max_concurrent not above live_per_tree")
+	}
+	return nil
+}

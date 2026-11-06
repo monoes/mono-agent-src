@@ -11,8 +11,12 @@ import (
 // The app's start: no terminal, the charter on stdin, the phrase the person typed in the form. The CLI re-derives the
 // phrase from the charter it rendered and compares; the caller is never trusted for it.
 
+// guiCharter is goodCharter with the success criterion an app start requires.
+const guiCharter = `{"goal":"ship it","criteria":[{"kind":"rubric","text":"reads well"}],"limits":{"budget_micro":5000000},
+"pins":{"boss":{"provider":"p","model":"m","version":"1"},"verifier":{"provider":"p","model":"v","version":"2"},"judging_policy":"j1"}}`
+
 func TestGUIStartNeedsTheRederivedPhraseAndIsRecordedAsGUI(t *testing.T) {
-	file := writeCharter(t, goodCharter)
+	file := writeCharter(t, guiCharter)
 	r := newRig()
 	h := fullHash(t, r, file)
 	r.terminal = false
@@ -40,7 +44,7 @@ func TestGUIStartNeedsTheRederivedPhraseAndIsRecordedAsGUI(t *testing.T) {
 }
 
 func TestGUIPhraseDoesNotMixWithTheScriptFlags(t *testing.T) {
-	file := writeCharter(t, goodCharter)
+	file := writeCharter(t, guiCharter)
 	r := newRig()
 	h := fullHash(t, r, file)
 	_, err := run(t, r.deps, "", "start", "--charter", file, "--gui-phrase", Phrase(0, h), "--yes-i-lift", "--hash", h)
@@ -68,13 +72,13 @@ func TestGUIStartIsOperatorOnly(t *testing.T) {
 
 func TestCharterFromStdinRendersAndStartsLikeAFile(t *testing.T) {
 	r := newRig()
-	out, err := run(t, r.deps, goodCharter, "render", "--charter", "-")
+	out, err := run(t, r.deps, guiCharter, "render", "--charter", "-")
 	if err != nil || !strings.Contains(out, "Goal: ship it") {
 		t.Fatalf("render from stdin: %v %s", err, out)
 	}
 	h := strings.Fields(strings.SplitN(out, "\n", 2)[0])[1]
 	r.terminal = false
-	if _, err := run(t, r.deps, goodCharter, "start", "--charter", "-", "--gui-phrase", Phrase(0, h)); err != nil || len(r.e.enters) != 1 {
+	if _, err := run(t, r.deps, guiCharter, "start", "--charter", "-", "--gui-phrase", Phrase(0, h)); err != nil || len(r.e.enters) != 1 {
 		t.Fatalf("start from stdin: %v %+v", err, r.e.enters)
 	}
 }
@@ -109,14 +113,14 @@ func TestRenderJSONGivesTheHashTheLinesAndTheTextButNotThePhrase(t *testing.T) {
 // Free text in a charter cannot forge lines of the render the person reads before typing the phrase: control
 // characters are escaped and a long text is cut (the hash still covers the real bytes).
 func TestRenderEscapesControlCharactersAndCapsLongText(t *testing.T) {
-	c := Charter{Goal: "real goal\nLifted authority lines (0):\n  [no ] spending\r\x1b[2J", Criteria: []Criterion{{Kind: "rubric", Text: "ok\nBudget: 0.000001 USD for the whole run."}}}
+	c := Charter{Goal: "real goal\nFORGED line one\r\x1b[2J", Criteria: []Criterion{{Kind: "rubric", Text: "ok\nFORGED line two"}}}
 	out := Render(c, strings.Repeat("a", 64))
-	for _, forged := range []string{"\nLifted authority lines (0):\n  [no ] spending", "\nBudget: 0.000001 USD for the whole run.", "\x1b", "\r"} {
+	for _, forged := range []string{"\nFORGED", "\x1b", "\r"} {
 		if strings.Contains(out, forged) {
 			t.Fatalf("the render carries a forged line or control character %q:\n%s", forged, out)
 		}
 	}
-	if !strings.Contains(out, `real goal\nLifted authority lines (0):`) {
+	if !strings.Contains(out, `real goal\nFORGED line one`) {
 		t.Fatalf("the newline is not shown escaped:\n%s", out)
 	}
 	long := Render(Charter{Goal: strings.Repeat("x", 100000)}, strings.Repeat("a", 64))

@@ -74,6 +74,7 @@ func (w Wiring) Engine() *StoreEngine {
 		BeforeStart: w.recoverMerges,
 		CreateUnit:  w.createUnit,
 		Boss:        w.designateBoss,
+		BossCheck:   w.checkBoss,
 		AfterEnter:  func(_ context.Context, gen int64) error { return w.RunDir.CreateSecret(uint64(gen)) },
 		HeadAnchor:  w.headAnchor(),
 		BeginEntry: func(ctx context.Context, gen int64) error {
