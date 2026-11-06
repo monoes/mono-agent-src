@@ -294,6 +294,25 @@ func TestCoderSendRefusesARunsBoss(t *testing.T) {
 	}
 }
 
+// Only the CLI's own "unknown flag: --all" triggers the second ask: another failure that happens to mention a flag does not.
+func TestCoderSendDoesNotRetryOnOtherErrors(t *testing.T) {
+	calls := 0
+	f := &fakeCoderCLI{reply: func(args []string) (string, error) {
+		if slices.Contains(args, "list") {
+			calls++
+			return "", errors.New("the database is locked (unknown flag: --other)")
+		}
+		return `{}`, nil
+	}}
+	srv, _ := coderSrv(f)
+	if _, err := callCoder(t, srv, MethodCoderSend, map[string]any{"conversationId": "c1", "text": "x"}, ConnInfo{}); err == nil {
+		t.Fatal("a failing list was ignored")
+	}
+	if calls != 1 {
+		t.Fatalf("the list was asked %d times", calls)
+	}
+}
+
 // An older CLI that does not know `coder list --all` still serves every send: the row is asked for again without the flag.
 func TestCoderSendFallsBackWhenTheCLIDoesNotKnowAll(t *testing.T) {
 	f := &fakeCoderCLI{reply: func(args []string) (string, error) {

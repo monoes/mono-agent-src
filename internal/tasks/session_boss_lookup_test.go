@@ -167,6 +167,7 @@ func TestTheTwoFormsOfTheBossConversationAgree(t *testing.T) {
 		"c-nokey":     false,
 		"c-cap":       true,
 		"c-plainchat": false,
+		"c-upper":     false, // SQL LIKE would match a differently cased prefix; the parser does not: neither does a boss key
 	}
 	mk("c-boss", BossClientID(front, 1), SessionKindMission, "you", 0)
 	mk("c-agent", BossClientID(front, 2), SessionKindMission, "agent-x", 0)
@@ -177,6 +178,7 @@ func TestTheTwoFormsOfTheBossConversationAgree(t *testing.T) {
 	mk("c-nokey", "", SessionKindMission, "you", 0)
 	mk("c-cap", BossClientID(front, MaxBossAttempt), SessionKindMission, "you", 0)
 	mk("c-plainchat", "other-key", SessionKindMission, "you", 0)
+	mk("c-upper", "BOSS-FOR-"+front+"-1", SessionKindMission, "you", 0)
 	for conv, want := range cases {
 		_, _, goForm, err := BossFrontDesk(bg, db, "default", conv)
 		if err != nil {
