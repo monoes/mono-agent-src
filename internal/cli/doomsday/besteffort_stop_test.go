@@ -40,13 +40,13 @@ func TestNotDefendedIsTrueForEachOS(t *testing.T) {
 	if !strings.Contains(lin, refuses) || strings.Contains(lin, "best effort") {
 		t.Fatalf("linux: %s", lin)
 	}
-	win := NotDefended("windows")
+	win := oneLine(NotDefended("windows"))
 	for _, want := range []string{"does NOT defend", "no isolation", "outlive a hard Stop", "Job Object", "best effort", "left the job"} {
 		if !strings.Contains(win, want) {
 			t.Errorf("windows text lacks %q", want)
 		}
 	}
-	for _, want := range []string{"starts on Windows only when all its host checks", "weaker than on Linux", "undone", "in-place"} {
+	for _, want := range []string{"starts on Windows only when all its host checks", "weaker than on Linux", "undone", "in-place", "planted", "NTFS", "64-bit", "SQLite", "by design", "not re-run when a host resumes", "-wal"} {
 		if !strings.Contains(win, want) {
 			t.Errorf("windows text lacks %q", want)
 		}
@@ -65,10 +65,10 @@ func TestNotDefendedIsTrueForEachOS(t *testing.T) {
 
 // macOS says plainly that a process that left the group is not covered, and that Stop is never a bare "stopped".
 func TestNotDefendedNamesTheProcessGroupLimitsOnDarwin(t *testing.T) {
-	mac := NotDefended("darwin")
+	mac := oneLine(NotDefended("darwin"))
 	for _, want := range []string{"does NOT defend", "process group", "best effort", "setsid", "setpgid", "double-forks", "NOT covered",
 		"stopped (best effort: processes that left the group are not covered)", "never a bare",
-		"starts on macOS only when all its host checks", "kqueue", "weaker than on Linux", "in-place"} {
+		"starts on macOS only when all its host checks", "kqueue", "weaker than on Linux", "in-place", "planted", "APFS", "by design", "not been verified", "not re-run when a host resumes", "-wal"} {
 		if !strings.Contains(mac, want) {
 			t.Errorf("darwin text lacks %q", want)
 		}
@@ -80,3 +80,6 @@ func TestNotDefendedNamesTheProcessGroupLimitsOnDarwin(t *testing.T) {
 		t.Errorf("darwin text keeps a sentence that is not true there: %s", mac)
 	}
 }
+
+// oneLine collapses the dialog's line breaks so a phrase is found wherever the text wraps.
+func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }

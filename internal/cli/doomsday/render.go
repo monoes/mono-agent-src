@@ -31,21 +31,34 @@ func containmentBullet(goos string) string {
     left the job is not covered (for example one started through another service),
     so Stop prints "stopped (best effort: processes that left the group are not covered)"
     and never a bare "stopped". The mode starts on Windows only when all its host checks
-    pass on this machine (lock, peer identity of the emergency channel, pinned database).
-    The pinned database binding is weaker than on Linux: it rests on the system refusing to
-    delete or rename the held database files and their directories, and on comparing file
-    identities at each look; a swap that is undone again between two looks is not
-    remembered, and an in-place overwrite of the database file is not detected.`
+    pass when it starts, on the volume of the database and the run directory (lock, peer
+    identity of the emergency channel, pinned database); they are not re-run when a host
+    resumes. At the start the probe tries, next to the database, to move, replace and
+    remove the database, its -wal and -shm and their directory, and requires the system
+    to refuse it or the binding to report it. Beyond that the pinned database binding is
+    weaker than on Linux, and what follows is by design and has not been verified on real
+    machines: a swap that is undone again between two looks is not remembered, an in-place
+    overwrite of the database file is not detected, a -wal or -shm planted before the host
+    starts is not reported, nothing checks which files SQLite's own connection holds, file
+    ids are 64-bit, and only a local NTFS volume is accepted (a network share, FAT, exFAT
+    or ReFS is refused; a cloud-synced folder cannot be told apart and is not refused).`
 	case "darwin":
 		return `  - Its processes are held in a process group, which is best effort: a process that
     calls setsid or setpgid, or double-forks out of the group, is NOT covered and cannot
     be seen, so Stop prints "stopped (best effort: processes that left the group are not covered)"
     and never a bare "stopped". The mode starts on macOS only when all its host checks
-    pass on this machine (the process group, lock, peer identity, pinned database). The
-    pinned database binding is weaker than on Linux: it watches the database files and their
-    directories with kqueue (an undone swap is still remembered) but not the names, so a file
-    created under a name that was empty is not reported, and an in-place overwrite of the
-    database file is not detected.`
+    pass when it starts, on the volume of the database and the run directory (the process
+    group, lock, peer identity, pinned database); they are not re-run when a host resumes.
+    At the start the probe tries, next to the database, to move, replace and remove the
+    database, its -wal and -shm and their directory, and to move the database away and back,
+    and requires the binding to report each. The pinned database binding is weaker than on
+    Linux: it watches the vnodes of the database files and their directories with kqueue,
+    not the names, and kqueue's reporting of a rename over a file has not been verified on
+    a real Mac. What follows is by design: a file created under a name that was empty is not reported, an
+    in-place overwrite of the database file is not detected, a -wal or -shm planted before
+    the host starts is not reported, and only a local APFS or HFS+ volume is accepted (a
+    network share or another filesystem is refused; a cloud-synced folder cannot be told
+    apart and is not refused).`
 	}
 	return `  - This platform has no process containment: the mode does not start here.`
 }
