@@ -29,5 +29,9 @@ done
 yml="$here/../workflows/ci.yml"
 grep -qF 'tasks-heavy-tests.sh' "$yml" && ok "ci.yml uses the heavy list" || bad "ci.yml does not use the heavy list"
 [ "$(grep -cE 'go test .*-skip "\^\(\$heavy\)\\\$"' "$yml")" -ge 3 ] && ok "ci.yml skips the heavy tests in nosocial rest, rest and r1-r3" || bad "ci.yml skip lines missing"
-grep -qE 'go test .*\./internal/tasks -race -run "\^\(\$heavy\)\\\$"' "$yml" && ok "ci.yml runs the heavy tests in tp" || bad "ci.yml tp run line missing"
+grep -qE 'go test .*\./internal/tasks -race -run "\^\(\$\(bash \.github/scripts/tasks-heavy-tests\.sh "\$SHARD"\)\)\\\$"' "$yml" && ok "ci.yml runs each tp shard's own heavy tests" || bad "ci.yml tp run line missing"
+t1="$(bash "$here/tasks-heavy-tests.sh" tp1)"; t2="$(bash "$here/tasks-heavy-tests.sh" tp2)"
+u="$(printf '%s\n' "${t1//|/$'\n'}" "${t2//|/$'\n'}" | sort)"
+[ "$u" = "$want" ] && ok "tp1 and tp2 together run every listed test exactly once" || bad "tp1+tp2 differ from the list: $(echo $u)"
+for sh in tp1 tp2; do grep -qxF "Test shard (default $sh)" "$here/ci-expected-shards.txt" && ok "$sh is on the release proof list" || bad "$sh missing from ci-expected-shards.txt"; done
 exit $fail
