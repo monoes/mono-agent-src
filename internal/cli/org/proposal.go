@@ -93,6 +93,24 @@ func proposedBy() string {
 	return "agent:unplaced"
 }
 
+// createProposal plans verb and argsJSON against the org and stores them as a pending proposal made by by: the one path
+// of `org proposal create` and of the chat tools, so both judge, bound and store a proposal the same way.
+func (env *orgEnv) createProposal(ctx context.Context, db *storage.Database, profileID, root string, doc *orgdesign.Doc, verb, argsJSON, conversation, by string) (map[string]interface{}, error) {
+	plan, err := env.planProposal(ctx, db, profileID, doc, verb, argsJSON)
+	if err != nil {
+		return nil, err
+	}
+	p, err := orgproposal.NewStore(db.DB).Create(ctx, orgproposal.Input{ProfileID: profileID, Org: doc.Name, ConversationID: conversation,
+		Verb: verb, Target: plan.Target, ArgsJSON: plan.ArgsJSON, PreviewText: plan.Preview, StateDigest: plan.Digest, CreatedBy: by})
+	if err != nil {
+		if known := env.proposalErr(err); known != err {
+			return nil, known
+		}
+		return nil, fmt.Errorf("the proposal could not be stored; try again, or check the database") // not the database's own text
+	}
+	return env.proposalView(ctx, db, profileID, root, p), nil
+}
+
 func newOrgProposalCreateCmd(env *orgEnv) *cobra.Command {
 	var verb, argsJSON, conversation string
 	c := &cobra.Command{
@@ -110,20 +128,11 @@ func newOrgProposalCreateCmd(env *orgEnv) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			plan, err := env.planProposal(ctx, db, profileID, doc, verb, argsJSON)
+			m, err := env.createProposal(ctx, db, profileID, root, doc, verb, argsJSON, conversation, proposedBy())
 			if err != nil {
 				return err
 			}
-			by := proposedBy()
-			p, err := orgproposal.NewStore(db.DB).Create(ctx, orgproposal.Input{ProfileID: profileID, Org: doc.Name, ConversationID: conversation,
-				Verb: verb, Target: plan.Target, ArgsJSON: plan.ArgsJSON, PreviewText: plan.Preview, StateDigest: plan.Digest, CreatedBy: by})
-			if err != nil {
-				if known := env.proposalErr(err); known != err {
-					return known
-				}
-				return fmt.Errorf("the proposal could not be stored; try again, or check the database") // not the database's own text
-			}
-			return printJSONValue(map[string]interface{}{"v": 1, "proposal": env.proposalView(ctx, db, profileID, root, p)})
+			return printJSONValue(map[string]interface{}{"v": 1, "proposal": m})
 		},
 	}
 	c.Flags().StringVar(&verb, "verb", "", "grant.add | autonomy.set")

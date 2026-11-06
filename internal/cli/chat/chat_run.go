@@ -239,22 +239,8 @@ func runChat(cfg *Deps, cmd *cobra.Command, args []string, f *chatFlags) (retErr
 			// that tool just reports itself unavailable if
 			// os.Executable() fails, everything else still works.
 			selfBin, _ := os.Executable()
-			monoTools = aichat.NewMonoagentTools(db.DB, selfBin, profileID)
-			// Workflows the editor or `workflow save` wrote live as files:
-			// activate and delete must reach those, not only the rows.
-			if home, err := os.UserHomeDir(); err == nil {
-				if store := chatWorkflowStore(db, home); store != nil {
-					monoTools.SetWorkflowStore(store)
-				}
-			}
-			// Mechanical run gate: run_workflow executes
-			// only when the session was started with runs explicitly
-			// enabled (--tools monoagent,runs). A model-supplied
-			// confirm:true can never flip this.
-			monoTools.SetAllowRuns(wantRuns)
-			if pageRead {
-				monoTools.SetPageReadOnly()
-			}
+			home, _ := os.UserHomeDir()
+			monoTools = newChatMonoagentTools(db, selfBin, home, profileID, conversationID, wantRuns, pageRead)
 		}
 	}
 
@@ -526,6 +512,29 @@ func runChat(cfg *Deps, cmd *cobra.Command, args []string, f *chatFlags) (retErr
 		return res.Err
 	}
 	return nil
+}
+
+// newChatMonoagentTools builds the monoagent tools of a chat session. conversationID is the label an org proposal made
+// by these tools carries (empty: the tools label it as unscoped); home, when not empty, is where the workflow files live.
+func newChatMonoagentTools(db *storage.Database, selfBin, home, profileID, conversationID string, wantRuns, pageRead bool) *aichat.MonoagentTools {
+	mt := aichat.NewMonoagentTools(db.DB, selfBin, profileID)
+	mt.SetConversationID(conversationID)
+	// Workflows the editor or `workflow save` wrote live as files:
+	// activate and delete must reach those, not only the rows.
+	if home != "" {
+		if store := chatWorkflowStore(db, home); store != nil {
+			mt.SetWorkflowStore(store)
+		}
+	}
+	// Mechanical run gate: run_workflow executes
+	// only when the session was started with runs explicitly
+	// enabled (--tools monoagent,runs). A model-supplied
+	// confirm:true can never flip this.
+	mt.SetAllowRuns(wantRuns)
+	if pageRead {
+		mt.SetPageReadOnly()
+	}
+	return mt
 }
 
 // chatWorkflowStore is the file-plus-SQLite workflow store the chat tools
