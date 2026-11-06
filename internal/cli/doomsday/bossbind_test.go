@@ -255,26 +255,6 @@ func TestOnlyAMissionCanBeBossInTheCheckAndTheStamp(t *testing.T) {
 	for _, id := range others {
 		if err := r.boss(t, id); err == nil {
 			t.Errorf("session %d (not a mission) was stamped as boss", id)
-
-// A session an agent can make (a task or direction session at the top level of its own chat) is never recorded as the run's
-// boss, whatever `--boss-session` names: only a mission session is.
-func TestOnlyAMissionSessionCanBeNamedBoss(t *testing.T) {
-	r := newFinRig(t, finishCharterJSON)
-	if _, err := r.w.DB.Exec(`INSERT OR IGNORE INTO profiles (id, name) VALUES ('p1', 'P1')`); err != nil {
-		t.Fatal(err)
-	}
-	var ids []int64
-	for _, kind := range []string{tasks.SessionKindTask, tasks.SessionKindDirection, tasks.SessionKindResearch} {
-		se, err := tasks.NewStore(r.w.DB).CreateSession(context.Background(), "p1", tasks.SessionInput{Title: kind, Goal: "g", ConversationID: "conv-" + kind, Kind: kind}, tasks.Actor{Kind: tasks.Human, Name: "operator"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		ids = append(ids, se.ID)
-	}
-	r.start(t)
-	for _, id := range ids {
-		if err := r.boss(t, id); err == nil {
-			t.Fatalf("session %d was named boss", id)
 		}
 	}
 }
