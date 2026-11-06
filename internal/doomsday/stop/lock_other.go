@@ -1,4 +1,4 @@
-//go:build !linux && !darwin
+//go:build !linux && !darwin && !windows
 
 package stop
 
@@ -7,7 +7,7 @@ import "errors"
 // ErrSecondHost: another host already holds this run directory.
 var ErrSecondHost = errors.New("stop: another host already holds this run directory")
 
-var errLockUnsupported = errors.New("stop: host and witness locks are only implemented on Linux and macOS; the mode does not start here")
+var errLockUnsupported = errors.New("stop: host and witness locks are only implemented on Linux, macOS and Windows; the mode does not start here")
 
 func (w Witness) LockWitness() (func(), error) { return nil, errLockUnsupported }
 

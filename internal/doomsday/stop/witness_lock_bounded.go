@@ -1,4 +1,4 @@
-//go:build linux || darwin
+//go:build linux || darwin || windows
 
 package stop
 
@@ -28,7 +28,7 @@ func (w Witness) lockBounded() (func(), error) {
 		if err == nil {
 			return unlock, nil
 		}
-		if !errors.Is(err, ErrSecondHost) { // ErrSecondHost is what flock reports for a taken lock
+		if !errors.Is(err, ErrSecondHost) { // ErrSecondHost is what flock (LockFileEx on Windows) reports for a taken lock
 			return nil, fmt.Errorf("stop: the witness lock cannot be taken: %w", err)
 		}
 		time.Sleep(lockEvery/2 + time.Duration(rand.Int64N(int64(lockEvery))))
