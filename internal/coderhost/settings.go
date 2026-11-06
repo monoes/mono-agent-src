@@ -58,10 +58,14 @@ type Settings struct {
 	MeshAlias   string `json:"mesh_alias"` // "" = the chat's name with dashes for spaces, else one made from the project and start time
 	MeshAccept  string `json:"mesh_accept"`
 
-	// Mission: the operator's switch for a mission chat. On, every turn of the
-	// conversation starts as a confirmed mission (the toggle replaces the
-	// mission_propose click). The operator sets it with `settings set --mission`,
-	// which also holds it on while the conversation has an open mission session.
+	// ChatMode: 'off' | 'mission' | 'open', the conversation's mode, chosen before its first message and locked from
+	// then on (chatmode.go). It lives in the column coder_sessions.chat_mode, not in the document: reading fills it
+	// from the column and a write moves it there.
+	ChatMode string `json:"chat_mode,omitempty"`
+
+	// Mission: the operator's switch for a mission chat, kept as the legacy spelling of ChatMode == 'mission' (a patch
+	// or `settings set --mission` still names it). On, every turn of the conversation starts as a confirmed mission.
+	// Reading fills it from the mode; it is never stored in the document.
 	Mission bool `json:"mission"`
 
 	// MissionWorkerReservations: which accounting mode a mission worker run of this conversation starts in when the
@@ -92,7 +96,7 @@ var (
 
 // OperatorOnly lists the fields only the operator changes: what the session may
 // do on its own (autonomy, limits, who may message it).
-var OperatorOnly = []string{"checkin_limit", "autonomy_preset", "autonomy_classes", "max_children", "max_concurrent", "max_depth", "mesh_accept", "agent_approval", "approval_ceiling_usd", "mission", "mission_directions", "mission_worker_reservations"}
+var OperatorOnly = []string{"checkin_limit", "autonomy_preset", "autonomy_classes", "max_children", "max_concurrent", "max_depth", "mesh_accept", "agent_approval", "approval_ceiling_usd", "mission", "chat_mode", "mission_directions", "mission_worker_reservations"}
 
 // DefaultSettings is what a session has until something is changed.
 func DefaultSettings() Settings {
@@ -108,6 +112,7 @@ func DefaultSettings() Settings {
 		MaxConcurrent:   2,
 		MaxDepth:        3,
 		AgentApproval:   "off",
+		ChatMode:        ChatModeOff,
 		MeshVisible:     true,
 		MeshAccept:      "subtree", // not "project": that trusts any local process that claims the project
 	}
@@ -272,9 +277,10 @@ func (s *Store) GetSettings(profileID, conversationID string) (Settings, error) 
 
 // settingsIn is GetSettings read through q.
 func (s *Store) settingsIn(q querier, profileID, conversationID string) (Settings, error) {
-	var raw string
-	err := q.QueryRow(`SELECT settings FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, profileID, conversationID).Scan(&raw)
-	return settingsFromRow(conversationID, raw, err, s.readCeiling())
+	var raw, mode string
+	err := q.QueryRow(`SELECT settings, chat_mode FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, profileID, conversationID).Scan(&raw, &mode)
+	out, err := settingsFromRow(conversationID, raw, err, s.readCeiling())
+	return withChatMode(out, mode), err
 }
 
 // settingsFromRow is the settings a row read gave: no row, or nothing stored, is the defaults.
@@ -341,9 +347,10 @@ func (s *Store) updateSettings(profileID, conversationID string, strict bool, ch
 	if err := ensureSessionOn(ctx, conn, profileID, conversationID, created); err != nil {
 		return Settings{}, err
 	}
-	var raw string
-	err = conn.QueryRowContext(ctx, `SELECT settings FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, profileID, conversationID).Scan(&raw)
+	var raw, was string
+	err = conn.QueryRowContext(ctx, `SELECT settings, chat_mode FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, profileID, conversationID).Scan(&raw, &was)
 	cur, err := settingsFromRow(conversationID, raw, err, s.readCeiling())
+	cur = withChatMode(cur, was)
 	if err != nil && strict {
 		return Settings{}, err
 	}
@@ -357,7 +364,17 @@ func (s *Store) updateSettings(profileID, conversationID string, strict bool, ch
 	if err := next.validateAt(s.writeCeiling(profileID, conversationID, cur.MaxDepth)); err != nil {
 		return Settings{}, err
 	}
-	out, err := json.Marshal(next)
+	mode, err := ResolveChatMode(cur, next)
+	if err != nil {
+		return Settings{}, err
+	}
+	if err := writeChatMode(ctx, conn, profileID, conversationID, cur.ChatMode, mode); err != nil {
+		return Settings{}, err
+	}
+	next = withChatMode(next, mode)
+	doc := next
+	doc.ChatMode, doc.Mission = "", false // the column is the truth, not the document
+	out, err := json.Marshal(doc)
 	if err != nil {
 		return Settings{}, err
 	}

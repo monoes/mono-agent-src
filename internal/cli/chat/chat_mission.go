@@ -70,8 +70,8 @@ func missionDirectionsReader(db *sql.DB, profileID, conversationID string) func(
 // settings set --mission on`). A store that cannot answer leaves it off: no mission
 // starts without the operator's word.
 func missionToggleOn(db *sql.DB, profileID, conversationID string) bool {
-	s, err := coderhost.NewStore(db).GetSettings(profileID, conversationID)
-	return err == nil && s.Mission
+	mode, err := coderhost.NewStore(db).ChatMode(profileID, conversationID)
+	return err == nil && mode == coderhost.ChatModeMission
 }
 
 // workerReservationsOn is the operator's switch for the conversation's mission workers (`coder sessions
