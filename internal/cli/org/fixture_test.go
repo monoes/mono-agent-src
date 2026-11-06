@@ -21,6 +21,7 @@ import (
 	"github.com/monoes/mono-agent/internal/orgdesign"
 	"github.com/monoes/mono-agent/internal/profiledir"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/testhome"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
@@ -76,6 +77,7 @@ func exitCodeFor(err error) int {
 func testDeps(cfg *testConfig) Deps {
 	return Deps{
 		OpenDB: func() (*storage.Database, error) {
+			testdb.MustSeed(cfg.DBPath)
 			db, err := storage.NewDatabase(cfg.DBPath)
 			if err != nil {
 				return nil, err
@@ -186,6 +188,7 @@ func newOrgCLIFixture(t *testing.T) *orgCLIFixture {
 	asOrgOperator(t) // a test from an agent's shell inherits its markers
 
 	dbPath := filepath.Join(home, "test.db")
+	testdb.MustSeed(dbPath)
 	db, err := storage.NewDatabase(dbPath)
 	if err != nil {
 		t.Fatal(err)

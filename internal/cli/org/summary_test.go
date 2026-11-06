@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 func runOrgSummary(t *testing.T, root string, args ...string) map[string]interface{} {
@@ -126,6 +127,7 @@ func TestOrgSummaryNeedsYouTimeoutHolds(t *testing.T) {
 func TestOrgSummaryAllProfiles(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dbPath := filepath.Join(t.TempDir(), "o.db")
+	testdb.MustSeed(dbPath)
 	db, err := storage.NewDatabase(dbPath)
 	if err != nil {
 		t.Fatal(err)
