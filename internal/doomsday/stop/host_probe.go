@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
 	"sync"
 	"time"
 )
@@ -80,12 +79,16 @@ func hostProbeSteps(h hostChecks) []ProbeStep {
 // reapAge is how old a leftover of a killed self-test must be before the next one removes it.
 var reapAge = 10 * time.Minute
 
-var scratchPrefixes = []string{".ma-pin-", ".ma-lock-"}
+// What a self-test leaves behind when it is killed has exactly these names: a scratch directory (MkdirTemp: decimal digits,
+// plus the name a scenario moved it to) or a probe socket of the length peerSockPath makes. Nothing else is ever removed.
+var (
+	leftoverDir    = regexp.MustCompile(`^\.ma-(pin|lock)-[0-9]+(\.moved)?$`)
+	leftoverSocket = regexp.MustCompile(`^\.s[0-9]{3}$`)
+)
 
-var leftoverSocket = regexp.MustCompile(`^\.s[0-9a-f]{3}$`)
-
-// reap removes what an earlier self-test that was killed left in parent: scratch directories (and the names a scenario
-// moved them to) and socket files, older than reapAge. Best effort.
+// reap removes what an earlier self-test that was killed left in parent, older than reapAge: a directory of the first
+// kind, or a unix SOCKET of the second, each looked at without following links and owned by the current user. A regular
+// file, a link or a directory of another shape with a similar name is a user's, and stays. Best effort.
 func reap(parent string) {
 	es, err := os.ReadDir(parent)
 	if err != nil {
@@ -93,16 +96,17 @@ func reap(parent string) {
 	}
 	for _, e := range es {
 		name := e.Name()
-		stale := leftoverSocket.MatchString(name) && !e.IsDir()
-		for _, p := range scratchPrefixes {
-			stale = stale || (strings.HasPrefix(name, p) && e.IsDir())
-		}
-		if !stale {
+		fi, err := os.Lstat(filepath.Join(parent, name))
+		if err != nil || time.Since(fi.ModTime()) <= reapAge || !fileOwnedByMe(fi) {
 			continue
 		}
-		if fi, err := e.Info(); err == nil && time.Since(fi.ModTime()) > reapAge {
-			_ = os.RemoveAll(filepath.Join(parent, name))
+		switch {
+		case leftoverDir.MatchString(name) && fi.IsDir():
+		case leftoverSocket.MatchString(name) && fi.Mode()&os.ModeSocket != 0 && fi.Mode()&os.ModeSymlink == 0:
+		default:
+			continue
 		}
+		_ = os.RemoveAll(filepath.Join(parent, name))
 	}
 }
 
@@ -110,6 +114,7 @@ func reap(parent string) {
 // run must not create the run directory), or the system temp directory when parent is empty. Its volume must be one the
 // binding can be trusted on, and leftovers of a killed earlier self-test are removed first.
 func probeParent(parent string) (string, error) {
+	asked := parent
 	if parent == "" {
 		parent = os.TempDir()
 	}
@@ -126,7 +131,9 @@ func probeParent(parent string) (string, error) {
 	if err := checkVolume(parent); err != nil {
 		return "", err
 	}
-	reap(parent)
+	if asked != "" && parent == asked { // only the directory the probe was given, never an ancestor it fell back to
+		reap(parent)
+	}
 	return parent, nil
 }
 
@@ -196,7 +203,7 @@ func lockSelfTest(parent string, acquire func(RunDir) (func(), error)) error {
 func peerSockPath(parent string) string {
 	var b [2]byte
 	_, _ = rand.Read(b[:])
-	return filepath.Join(parent, fmt.Sprintf(".s%03x", (int(b[0])<<8|int(b[1]))&0xfff))
+	return filepath.Join(parent, fmt.Sprintf(".s%03d", (int(b[0])<<8|int(b[1]))%1000))
 }
 
 // peerSelfTest: a connection from this process to a listener of ours is identified as this user.

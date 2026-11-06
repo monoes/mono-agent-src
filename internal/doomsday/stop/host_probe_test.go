@@ -408,27 +408,48 @@ func TestShowProbeDoesNotCreateTheRunDirectory(t *testing.T) {
 	emptyDir(t, base)
 }
 
-func TestLeftoversOfAKilledSelfTestAreReapedOnlyWhenOld(t *testing.T) {
+// mkSock makes a real unix socket file at path that stays after the listener closes.
+func mkSock(t *testing.T, path string) {
+	t.Helper()
+	ln, err := net.Listen("unix", path)
+	mustNoErr(t, err)
+	ln.(*net.UnixListener).SetUnlinkOnClose(false)
+	mustNoErr(t, ln.Close())
+}
+
+func TestLeftoversOfAKilledSelfTestAreReapedOnlyWhenOurs(t *testing.T) {
 	parent := t.TempDir()
 	old := time.Now().Add(-time.Hour)
-	mk := func(name string, age time.Time, dir bool) {
-		p := filepath.Join(parent, name)
-		if dir {
-			mustNoErr(t, os.Mkdir(p, 0o700))
-			mustNoErr(t, os.WriteFile(filepath.Join(p, "p.db"), nil, 0o600))
-		} else {
-			mustNoErr(t, os.WriteFile(p, nil, 0o600))
-		}
-		mustNoErr(t, os.Chtimes(p, age, age))
+	age := func(name string, at time.Time) { mustNoErr(t, os.Chtimes(filepath.Join(parent, name), at, at)) }
+	dir := func(name string, at time.Time) {
+		mustNoErr(t, os.Mkdir(filepath.Join(parent, name), 0o700))
+		mustNoErr(t, os.WriteFile(filepath.Join(parent, name, "p.db"), nil, 0o600))
+		age(name, at)
 	}
-	mk(".ma-pin-111", old, true)
-	mk(".ma-pin-111.moved", old, true)
-	mk(".ma-lock-222", old, true)
-	mk(".sabc", old, false)
-	mk(".ma-pin-fresh", time.Now(), true)
-	mk(".sfff", time.Now(), false)
-	mk("keep", old, true)
-	mk(".ma-pinx", old, false) // a file with a similar name: not ours
+	file := func(name string) {
+		mustNoErr(t, os.WriteFile(filepath.Join(parent, name), nil, 0o600))
+		age(name, old)
+	}
+	// ours and old: removed
+	dir(".ma-pin-111", old)
+	dir(".ma-pin-111.moved", old)
+	dir(".ma-lock-222", old)
+	mkSock(t, filepath.Join(parent, ".s123"))
+	age(".s123", old)
+	// ours but fresh: kept
+	dir(".ma-pin-333", time.Now())
+	mkSock(t, filepath.Join(parent, ".s456"))
+	// not ours, whatever the age: kept
+	dir("keep", old)
+	dir(".ma-pin-abc", old) // not digits
+	file(".ma-pinx")
+	file(".s789") // a regular file with our name
+	// sockets, old and owned by us, but not the name we generate
+	mkSock(t, filepath.Join(parent, ".sabc"))
+	mkSock(t, filepath.Join(parent, ".s1234"))
+	age(".sabc", old)
+	age(".s1234", old)
+	mustNoErr(t, os.Symlink(filepath.Join(parent, "keep"), filepath.Join(parent, ".s111"))) // a link with our name
 	_, err := probeParent(parent)
 	mustNoErr(t, err)
 	left := map[string]bool{}
@@ -436,8 +457,48 @@ func TestLeftoversOfAKilledSelfTestAreReapedOnlyWhenOld(t *testing.T) {
 	for _, e := range es {
 		left[e.Name()] = true
 	}
-	if len(left) != 4 || !left[".ma-pin-fresh"] || !left[".sfff"] || !left["keep"] || !left[".ma-pinx"] {
+	want := []string{".ma-pin-333", ".s456", "keep", ".ma-pin-abc", ".ma-pinx", ".s789", ".sabc", ".s1234", ".s111"}
+	if len(left) != len(want) {
 		t.Fatalf("left: %v", left)
+	}
+	for _, w := range want {
+		if !left[w] {
+			t.Errorf("%s was removed", w)
+		}
+	}
+}
+
+func TestReaperLeavesWhatAnotherUserOwns(t *testing.T) {
+	parent := t.TempDir()
+	mkSock(t, filepath.Join(parent, ".s123"))
+	mustNoErr(t, os.Mkdir(filepath.Join(parent, ".ma-pin-5"), 0o700))
+	old := time.Now().Add(-time.Hour)
+	for _, n := range []string{".s123", ".ma-pin-5"} {
+		mustNoErr(t, os.Chtimes(filepath.Join(parent, n), old, old))
+	}
+	oldOwn := fileOwnedByMe
+	t.Cleanup(func() { fileOwnedByMe = oldOwn })
+	fileOwnedByMe = func(os.FileInfo) bool { return false }
+	_, err := probeParent(parent)
+	mustNoErr(t, err)
+	if es, _ := os.ReadDir(parent); len(es) != 2 {
+		t.Fatalf("a leftover of another owner was removed: %v", es)
+	}
+}
+
+// Only the two directories the probe was given are swept, never an ancestor it fell back to.
+func TestReaperDoesNotSweepAnAncestorTheProbeFellBackTo(t *testing.T) {
+	base := t.TempDir()
+	mkSock(t, filepath.Join(base, ".s123"))
+	old := time.Now().Add(-time.Hour)
+	mustNoErr(t, os.Chtimes(filepath.Join(base, ".s123"), old, old))
+	got, err := probeParent(filepath.Join(base, "doomsday", "p1"))
+	mustNoErr(t, err)
+	if got != base {
+		t.Fatalf("fell back to %s", got)
+	}
+	if _, err := os.Lstat(filepath.Join(base, ".s123")); err != nil {
+		t.Fatal("the ancestor was swept")
 	}
 }
 
@@ -503,5 +564,23 @@ func TestPinSelfTestHostOnlyVariantClosesSQLiteBeforeTheChange(t *testing.T) {
 	}, sc, func(e error) bool { return errors.Is(e, sharing) }))
 	if closed != 1 {
 		t.Fatalf("SQLite was closed %d times", closed)
+	}
+}
+
+// With age out of the way, a link that has our name and points at a socket is looked at as a link, never followed.
+func TestReaperDoesNotFollowALinkWithOurName(t *testing.T) {
+	parent, other := t.TempDir(), t.TempDir()
+	mkSock(t, filepath.Join(other, "real"))
+	mustNoErr(t, os.Symlink(filepath.Join(other, "real"), filepath.Join(parent, ".s111")))
+	oldAge := reapAge
+	t.Cleanup(func() { reapAge = oldAge })
+	reapAge = -time.Hour
+	_, err := probeParent(parent)
+	mustNoErr(t, err)
+	if _, err := os.Lstat(filepath.Join(parent, ".s111")); err != nil {
+		t.Fatalf("the link was removed: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(other, "real")); err != nil {
+		t.Fatalf("the target was removed: %v", err)
 	}
 }
