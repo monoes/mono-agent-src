@@ -39,12 +39,17 @@ describe('the control room in the nav', () => {
 })
 
 describe('the probe rule', () => {
-  it('shows only when the mode is available and a run exists, or the ui flag is on', () => {
+  it('shows whenever the mode is available, with or without a run or the ui flag', () => {
     expect(probeShows(null, true)).toBe(false)
     expect(probeShows({ mode_available: false, run_exists: true }, true)).toBe(false)
-    expect(probeShows({ mode_available: true, run_exists: false }, false)).toBe(false)
+    expect(probeShows({ mode_available: true, run_exists: false }, false)).toBe(true)
     expect(probeShows({ mode_available: true, run_exists: true }, false)).toBe(true)
     expect(probeShows({ mode_available: true, run_exists: false }, true)).toBe(true)
+  })
+  it('the hook shows an idle available mode without a chip', async () => {
+    const api = { probe: vi.fn().mockResolvedValue({ mode_available: true, run_exists: false }) }
+    const { result } = renderHook(() => useControlRoomProbe(api))
+    await waitFor(() => expect(result.current).toEqual({ show: true, running: false }))
   })
   it('the hook is hidden on an error and on the unavailable answer, shown on a run', async () => {
     const api = { probe: vi.fn().mockResolvedValue({ error: 'x' }) }
