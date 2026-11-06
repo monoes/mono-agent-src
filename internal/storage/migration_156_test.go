@@ -1,14 +1,55 @@
 package storage
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
 func open156(t *testing.T) *Database {
 	t.Helper()
 	db, err := NewDatabase(filepath.Join(t.TempDir(), "monoagent.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db
+}
+
+var (
+	migrated156Once  sync.Once
+	migrated156Bytes []byte
+)
+
+// openMigrated156 opens a copy of a database that open156 made and ApplyMigrations migrated from nothing. The
+// trigger cases below share the one migration run (the migration itself is tested above); each gets its own file.
+func openMigrated156(t *testing.T) *Database {
+	t.Helper()
+	migrated156Once.Do(func() {
+		db := open156(t)
+		if err := db.ApplyMigrations(); err != nil {
+			t.Fatal(err)
+		}
+		// Everything must be in the one file that is copied, not in the write-ahead log.
+		if _, err := db.DB.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+			t.Fatal(err)
+		}
+		b, err := os.ReadFile(db.dbPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		migrated156Bytes = b
+	})
+	if migrated156Bytes == nil {
+		t.Fatal("the shared migrated database could not be made")
+	}
+	path := filepath.Join(t.TempDir(), "monoagent.db")
+	if err := os.WriteFile(path, migrated156Bytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db, err := NewDatabase(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,20 +189,14 @@ func applyAll(t *testing.T, db *Database, stmts []string) {
 func TestMigration156TriggersRefuseAndEachRefusalIsRevertProof(t *testing.T) {
 	for _, c := range trigCases {
 		t.Run(c.name, func(t *testing.T) {
-			db := open156(t)
-			if err := db.ApplyMigrations(); err != nil {
-				t.Fatal(err)
-			}
+			db := openMigrated156(t)
 			applyAll(t, db, c.setup)
 			_, err := db.DB.Exec(c.stmt)
 			if err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Fatalf("%q: got %v, want a refusal containing %q", c.stmt, err, c.want)
 			}
 
-			rev := open156(t)
-			if err := rev.ApplyMigrations(); err != nil {
-				t.Fatal(err)
-			}
+			rev := openMigrated156(t)
 			applyAll(t, rev, c.setup)
 			if _, err := rev.DB.Exec(`DROP TRIGGER ` + c.trigger); err != nil {
 				t.Fatalf("no trigger %s: %v", c.trigger, err)
