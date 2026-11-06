@@ -460,7 +460,7 @@ func (e witnessEnder) End(ctx context.Context, gen uint64, exclude []uint64) Uni
 		if e.endedWritten(rec) {
 			continue
 		}
-		if err := e.Seq.UnitEnded(rec, "rmdir"); err != nil {
+		if err := e.Seq.UnitEnded(rec, endedHow(out)); err != nil {
 			return UnitOutcome{Kind: UnitNotProven, Survivors: out.Survivors, Unknown: out.Unknown,
 				Note: "the unit is gone but its end line could not be written to the witness: " + err.Error()}
 		}
@@ -480,4 +480,13 @@ func (e witnessEnder) endedWritten(rec UnitRecord) bool {
 		}
 	}
 	return false
+}
+
+// endedHow is the label of the durable end line: "rmdir" for a cgroup whose removal proved it empty, "best-effort" for a
+// unit the mechanism could not prove.
+func endedHow(out UnitOutcome) string {
+	if out.Kind == UnitBestEffort {
+		return "best-effort"
+	}
+	return "rmdir"
 }

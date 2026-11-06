@@ -34,6 +34,10 @@ func createJob(ctx context.Context, o JobOS, a CreateArgs, gen uint64) (UnitReco
 	if err != nil {
 		return UnitRecord{}, fmt.Errorf("%w: the creator cannot be identified: %v", ErrUnitNotCreated, err)
 	}
+	sess, err := o.Session()
+	if err != nil {
+		return UnitRecord{}, fmt.Errorf("%w: the logon session is unknown: %v", ErrUnitNotCreated, err)
+	}
 	if err := a.Dir.fsys().MkdirAll(a.Dir.Dir, 0o700); err != nil {
 		return UnitRecord{}, fmt.Errorf("%w: the run directory cannot be created: %v", ErrUnitNotCreated, err)
 	}
@@ -61,7 +65,7 @@ func createJob(ctx context.Context, o JobOS, a CreateArgs, gen uint64) (UnitReco
 	if err != nil {
 		return UnitRecord{}, abandon(fmt.Errorf("the anchor could not be put in the job: %w", err))
 	}
-	h, _ := json.Marshal(jobHandle{Job: jobName(name), CreatorPID: cpid, CreatorStamp: cstamp})
+	h, _ := json.Marshal(jobHandle{Job: jobName(name), CreatorPID: cpid, CreatorStamp: cstamp, Session: sess})
 	rec := UnitRecord{Kind: KindJobObject, BootID: boot, Name: name, CgroupID: idFromNonce(nonce), Nonce: nonce,
 		Generation: gen, AnchorPID: apid, AnchorStamp: astamp, Handle: string(h)}
 	p, err := proveJob(o, rec)

@@ -116,11 +116,17 @@ func (r Report) done(name string) bool {
 
 // Stopped is true only when every step is recorded and the run is quiescent: no survivor, no unknown process,
 // no live member, the barrier reached, and the unit's end PROVEN. A best-effort unit is never Stopped.
-func (r Report) Stopped() bool { return r.Unit.Kind != UnitBestEffort && r.settled() }
+func (r Report) Stopped() bool { return !r.bestEffort() && r.settled() }
 
 // StoppedBestEffort is true when everything Stopped needs holds except that the unit's mechanism cannot prove that no
 // process left the group (UnitBestEffort). It is the only way such a platform is reported as ended.
-func (r Report) StoppedBestEffort() bool { return r.Unit.Kind == UnitBestEffort && r.settled() }
+func (r Report) StoppedBestEffort() bool { return r.bestEffort() && r.settled() }
+
+// bestEffort: the unit's end is best effort, or there was no unit on a platform whose only containment is best effort
+// (a run without a unit proves nothing about its processes there).
+func (r Report) bestEffort() bool {
+	return r.Unit.Kind == UnitBestEffort || (r.Unit.Kind == UnitNone && hostGOOS != "linux")
+}
 
 func (r Report) settled() bool {
 	if r.Final != StateQuiescent {

@@ -7,15 +7,18 @@ import (
 	"io"
 	"os/exec"
 	"runtime"
+	"strings"
 )
 
 // ErrContainmentUnavailable means the mode must refuse to start: where no containment mechanism is available the
 // mode does not start. The first design forbade any fallback to a process group on the ground that a silent
 // weakening is exactly what the contract forbids (note 13.2 section 10). That is REVERSED by the owner's decision of
-// 2026-11-06: the open-ended mode is enabled on every platform, and where the mechanism cannot prove that no process
-// left the group (a Windows Job Object) it is still used but is HONEST about it: Stop ends it as UnitBestEffort and
-// the report says "stopped (best effort: ...)", never a bare "stopped". The weakening is no longer silent, which is
-// what the old rule protected. A platform with no mechanism at all still refuses.
+// 2026-11-06: the open-ended mode is to be enabled on every platform, and where the mechanism cannot prove that no
+// process left the group (a Windows Job Object) it is still used but is HONEST about it: Stop ends it as
+// UnitBestEffort and the report says "stopped (best effort: ...)", never a bare "stopped". The weakening is no longer
+// silent, which is what the old rule protected. A platform with no mechanism at all still refuses, and on Windows the
+// mode starts only when the probe passes ALL its steps: at this point the host pieces (lock, peer credentials, pinned
+// database) are missing there (windowsPendingSteps), so it does not start on Windows yet.
 var ErrContainmentUnavailable = errors.New("stop: process containment is unavailable; the open-ended mode refuses to start")
 
 // ProbeStep is one named requirement of the probe.
@@ -30,6 +33,21 @@ func RunProbe(steps []ProbeStep) error {
 		if err := s.Check(); err != nil {
 			return fmt.Errorf("%w: %s: %v", ErrContainmentUnavailable, s.Name, err)
 		}
+	}
+	return nil
+}
+
+// RunProbeAll runs every step and refuses naming ALL the failing ones, so an operator sees each missing piece at once
+// (the Windows probe, which has several, uses it; the Linux probe keeps RunProbe's first-failure refusal).
+func RunProbeAll(steps []ProbeStep) error {
+	var failed []string
+	for _, s := range steps {
+		if err := s.Check(); err != nil {
+			failed = append(failed, fmt.Sprintf("%s: %v", s.Name, err))
+		}
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("%w: %s", ErrContainmentUnavailable, strings.Join(failed, "; "))
 	}
 	return nil
 }

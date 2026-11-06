@@ -30,7 +30,9 @@ func containmentBullet(goos string) string {
 		return `  - Its processes are held in a Job Object, which is best effort: a process that
     left the job is not covered (for example one started through another service),
     so Stop prints "stopped (best effort: processes that left the group are not covered)"
-    and never a bare "stopped". The mode does not start where the Job Object cannot be made.`
+    and never a bare "stopped". The mode starts on Windows only when all its host checks
+    pass (lock, peer credentials, pinned database); they are not available yet, so today
+    it does not start there.`
 	}
 	return `  - This platform has no process containment: the mode does not start here.`
 }
