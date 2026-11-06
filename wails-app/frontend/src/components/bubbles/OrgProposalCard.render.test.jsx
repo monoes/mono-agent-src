@@ -22,7 +22,7 @@ beforeEach(() => {
 })
 afterEach(cleanup)
 
-const mount = (props = {}) => render(<OrgProposalCard tool="set_org_grant" id={ID} conversationId="conv-1" {...props} />)
+const mount = (props = {}) => render(<OrgProposalCard tool="set_org_grant" id={ID} {...props} />)
 
 describe('OrgProposalCard', () => {
   it('shows the stored preview, and Confirm sends the hash the card displayed', async () => {
@@ -45,8 +45,12 @@ describe('OrgProposalCard', () => {
     expect(screen.getByTestId('org-proposal-preview').textContent).not.toContain('forged')
   })
 
-  it('refuses a proposal of another conversation, an empty conversation and a verb the tool does not make', async () => {
-    for (const [props, over] of [[{}, { conversation_id: 'conv-2' }], [{ conversationId: '' }, { conversation_id: '' }], [{ tool: 'set_org_autonomy' }, {}]]) {
+  it('refuses a verb the tool does not make, and treats the conversation as a label only', async () => {
+    api.getOrgProposal.mockResolvedValue({ v: 1, proposal: row({ conversation_id: 'conv-2' }) })
+    const other = mount()
+    expect(await screen.findByTestId('org-proposal-confirm')).toBeInTheDocument()
+    other.unmount()
+    for (const [props, over] of [[{ tool: 'set_org_autonomy' }, {}]]) {
       api.getOrgProposal.mockResolvedValue({ v: 1, proposal: row(over) })
       const { unmount } = mount(props)
       expect(await screen.findByTestId('org-proposal-unavailable')).toBeInTheDocument()

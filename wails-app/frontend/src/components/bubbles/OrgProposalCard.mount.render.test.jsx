@@ -66,8 +66,8 @@ describe('an org proposal in a finished turn', () => {
     expect(api.getOrgProposal).toHaveBeenCalledWith(ID)
   })
 
-  it('refuses a proposal stored under another conversation', async () => {
-    api.getOrgProposal.mockResolvedValue(stored({ conversation_id: 'other' }))
+  it('refuses a proposal whose verb is not the tool\'s', async () => {
+    api.getOrgProposal.mockResolvedValue(stored({ verb: 'autonomy.set' }))
     render(<Harness />)
     expect(await screen.findByTestId('org-proposal-unavailable')).toBeInTheDocument()
     await waitFor(() => expect(screen.queryByTestId('org-proposal-confirm')).toBeNull())

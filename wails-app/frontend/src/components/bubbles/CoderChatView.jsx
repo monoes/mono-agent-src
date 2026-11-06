@@ -65,7 +65,7 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
   })
   // A card for each org grant/autonomy proposal a call made: it reads the stored proposal, not the tool's text.
   const orgProposalCards = (state) => proposalRefs(state.calls).map(r =>
-    <OrgProposalCard key={r.key} tool={r.tool} id={r.id} conversationId={conv.conversationId || ''} />)
+    <OrgProposalCard key={r.key} tool={r.tool} id={r.id} />)
   // Mission cards (propose, plan, report) from the events of every turn; the
   // latest plan or report of a session shows once, in the turn that sent it.
   const turnList = conv.messages.filter(m => m.role === 'turn').map(m => ({ key: m.turnId, state: m.state }))

@@ -7,8 +7,8 @@ import './mission/mission.css'
 // The card of an org proposal a chat tool made (set_org_grant, set_org_autonomy; #1477). The tool result is only a
 // POINTER: the card reads the stored proposal through the CLI and shows ITS preview and hash, never the result's text.
 // Confirm sends the hash the card displayed, so the CLI refuses a row rewritten after it was drawn. The conversation
-// on the row is a label, not ownership, so it is checked here only to keep another chat's card out of this one; the
-// authority is the CLI's operator-only confirm.
+// on the row is a label, not ownership: it decides nothing here (the id is 128 random bits and the authority is the
+// CLI's operator-only confirm), so only the verb is checked against the tool that pointed at the row.
 
 const VERB_OF_TOOL = { set_org_grant: 'grant.add', set_org_autonomy: 'autonomy.set' }
 const ID = /^[0-9a-f]{32}$/
@@ -42,7 +42,7 @@ function plainError(t, msg) {
   return m
 }
 
-export default function OrgProposalCard({ tool, id, conversationId }) {
+export default function OrgProposalCard({ tool, id }) {
   const { t } = useTranslation()
   const [row, setRow] = useState(null)       // the stored proposal, as last read
   const [missing, setMissing] = useState(false)
@@ -61,7 +61,7 @@ export default function OrgProposalCard({ tool, id, conversationId }) {
   }, [id])
   useEffect(() => { load() }, [load])
 
-  const foreign = !!row && (!conversationId || row.conversation_id !== conversationId || row.verb !== VERB_OF_TOOL[tool])
+  const foreign = !!row && row.verb !== VERB_OF_TOOL[tool]
   if (missing || foreign) {
     return (
       <section className="ms-card" data-testid="org-proposal" aria-label={t('bubbles.orgProposal.unavailableLabel')}>
