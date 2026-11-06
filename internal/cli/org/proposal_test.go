@@ -394,9 +394,10 @@ func TestConversationAndCreatedByAreBoundedAndCleaned(t *testing.T) {
 	if len(c) > 128 || strings.ContainsAny(c, "\x1b\n\r\t\x7f") {
 		t.Fatalf("conversation_id %q", c)
 	}
-	t.Setenv("MONOAGENT_ACTOR", "") // created_by is a short label too
-	if by := p["created_by"].(string); len(by) > 128 || strings.ContainsAny(by, "\x1b\n") {
-		t.Fatalf("created_by %q", by)
+	// the filter takes the label as the proposer sent it, not as it was kept
+	raw := "c\x1b[31m\nred " + strings.Repeat("z", 300)
+	if l := f.mustRun(t, "proposal", "list", "--conversation", raw)["proposals"].([]interface{}); len(l) != 1 {
+		t.Fatalf("listing by the label the proposer sent found %d proposals, want 1", len(l))
 	}
 }
 

@@ -2,7 +2,9 @@ package org
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/orgdesign"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/workflow"
 	"time"
 
 	"encoding/json"
@@ -541,6 +543,13 @@ func TestAnAppliedRowKeepsNoTextOfTheSiblingsOutput(t *testing.T) {
 	if row != fixed {
 		t.Fatalf("result_json = %s, want the fixed document %s", row, fixed)
 	}
+	var keys map[string]json.RawMessage
+	_ = json.Unmarshal([]byte(row), &keys)
+	for _, k := range []string{"grant", "warnings", "reconcile", "tool_name"} {
+		if _, ok := keys[k]; ok {
+			t.Errorf("the row has the sibling's top-level key %q", k)
+		}
+	}
 	// and nothing the sibling printed: its grant id, tool name and workflow name are always in its output
 	grant := doc.Result["grant"].(map[string]interface{})
 	for _, secret := range []string{grant["id"].(string), doc.Result["tool_name"].(string), grant["workflow_name"].(string), "reconcile"} {
@@ -560,5 +569,28 @@ func TestTheAutonomyDigestIncludesTheOrgIdentity(t *testing.T) {
 	f.editOutside(t, func(m map[string]interface{}) { m["goal"] = "a different org that happens to share the name" })
 	if _, err := f.confirm(t, p); err == nil || !strings.Contains(err.Error(), "proposal_stale") {
 		t.Fatalf("confirm of an autonomy proposal over a recreated org: %v", err)
+	}
+}
+
+// planGrant reads the workflow once: a second read that fails cannot disagree with the first and stale the proposal.
+func TestPlanGrantReadsTheWorkflowStoreOnce(t *testing.T) {
+	f := propFixture(t)
+	env := testEnv(f.cfg)
+	opens := 0
+	open := env.d.OpenWorkflowStore
+	env.d.OpenWorkflowStore = func(db *storage.Database) *workflow.HybridWorkflowStore { opens++; return open(db) }
+	db, profileID, root, err := env.Profile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := orgdesign.Load(root, "growth")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.planProposal(context.Background(), db, profileID, doc, "grant.add", grantArgs); err != nil {
+		t.Fatal(err)
+	}
+	if opens != 1 {
+		t.Fatalf("the workflow store was opened %d times, want 1", opens)
 	}
 }

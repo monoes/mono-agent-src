@@ -528,3 +528,16 @@ func TestLabelsAreBoundedAndStrippedOfControlCharacters(t *testing.T) {
 		t.Error("the hash was taken over the unclean label")
 	}
 }
+
+func TestFormatAndSeparatorCharactersAreStrippedFromLabels(t *testing.T) {
+	s, _ := newStore(t)
+	i := in("growth", "a")
+	i.ConversationID = "a\u202eb\u200bc\u2028d\u2029e\ufeff"
+	p := mustCreate(t, s, i)
+	if g, _ := s.Get(context.Background(), "p1", p.ID); g.ConversationID != "abcde" {
+		t.Fatalf("label %q", g.ConversationID)
+	}
+	if l, _ := s.List(context.Background(), "p1", "", i.ConversationID); len(l) != 1 {
+		t.Fatalf("listing by the label as sent found %d, want 1", len(l))
+	}
+}
