@@ -317,3 +317,23 @@ func TestQueueBossFirstTurn(t *testing.T) {
 		t.Fatalf("%d commands queued, want 1", n)
 	}
 }
+
+// The first turn is for a boss the operator stamped and for one that has nothing waiting: an unstamped boss and a boss with a
+// message already queued get none.
+func TestQueueBossFirstTurnNeedsAStampAndAnEmptyQueue(t *testing.T) {
+	in := BossFirstTurn{RunID: "run-1", CharterHash: "abcdef0123456789", Goal: "g"}
+	unstamped := buildSteerRig(t, false, false)
+	if _, err := QueueBossFirstTurn(unstamped.cfg, unstamped.bossCon.ID, in); err == nil {
+		t.Fatal("an unstamped boss got the first turn")
+	}
+	waiting := buildSteerRig(t, true, false)
+	if _, err := QueueBossFirstTurn(waiting.cfg, waiting.bossCon.ID, in); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := QueueBossFirstTurn(waiting.cfg, waiting.bossCon.ID, in); err == nil {
+		t.Fatal("a second first turn was queued behind the first")
+	}
+	if _, err := QueueBossFirstTurn(waiting.cfg, waiting.bossCon.ID, BossFirstTurn{RunID: "r"}); err == nil {
+		t.Fatal("a first turn without a charter hash and goal was queued")
+	}
+}
