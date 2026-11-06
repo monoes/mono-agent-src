@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"errors"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -59,7 +60,8 @@ func newCoderSessionsSteerCmd(cfg *Deps) *cobra.Command {
 			if err := requireUser(cfg, "steer an open-ended run"); err != nil {
 				return err
 			}
-			text := strings.TrimSpace(args[1])
+			// The cap counts what the boss gets: the text after normalising (NFKC can make one character of three).
+			text := norm.NFKC.String(strings.TrimSpace(args[1]))
 			if text == "" || utf8.RuneCountInString(text) > maxSteerRunes {
 				return clicore.InvalidInput("steering is text of 1 to %d characters", maxSteerRunes)
 			}
@@ -72,15 +74,6 @@ func newCoderSessionsSteerCmd(cfg *Deps) *cobra.Command {
 				return err
 			}
 			bossConv, _, err := tasks.OpenBossConversation(cmd.Context(), db.DB, profileID, args[0])
-			cs := coderhost.NewStore(db.DB)
-			var waiting int
-			var dup int64
-			var isDup bool
-			message := steerEnvelope(text)
-			if err == nil && bossConv != "" {
-				waiting = cs.PendingFor(profileID, bossConv)
-				dup, isDup = cs.PendingSendLike(profileID, bossConv, message, steerDedupe)
-			}
 			db.Close()
 			if err != nil {
 				return err
@@ -93,16 +86,17 @@ func newCoderSessionsSteerCmd(cfg *Deps) *cobra.Command {
 			} else if !had {
 				return clicore.InvalidInput("the boss has not had its first turn yet: nothing was sent")
 			}
-			if isDup { // a double click: the same text is already waiting
-				return printQueueJSON(cmd, map[string]any{"commandId": dup, "conversationId": bossConv, "deduped": true})
+			// The bounds (at most maxSteerPending waiting, a repeat within steerDedupe is one message) are applied by the insert.
+			c, deduped, err := enqueueBounded(cfg, coderhost.Command{ProfileID: profileID, ConversationID: bossConv, Kind: coderhost.KindSend,
+				TurnID: "t-" + uuid.NewString(), Message: steerEnvelope(text)}, maxSteerPending, steerDedupe)
+			if errors.Is(err, coderhost.ErrTooManyWaiting) {
+				return clicore.InvalidInput("%d messages already wait for the boss: nothing was sent", maxSteerPending)
 			}
-			if waiting >= maxSteerPending {
-				return clicore.InvalidInput("%d messages already wait for the boss: nothing was sent", waiting)
-			}
-			c, err := enqueue(cfg, coderhost.Command{ProfileID: profileID, ConversationID: bossConv, Kind: coderhost.KindSend,
-				TurnID: "t-" + uuid.NewString(), Message: message}, true)
 			if err != nil {
 				return err
+			}
+			if deduped { // a double click: the same text is already waiting
+				return printQueueJSON(cmd, map[string]any{"commandId": c.ID, "conversationId": bossConv, "deduped": true})
 			}
 			return printQueueJSON(cmd, map[string]any{"commandId": c.ID, "conversationId": c.ConversationID, "turnId": c.TurnID})
 		},

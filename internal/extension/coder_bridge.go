@@ -189,10 +189,11 @@ type coderChat struct {
 	Cwd              string `json:"cwd"`
 	StartedInDesktop bool   `json:"startedInDesktop"`
 	Running          bool   `json:"running"`
+	Boss             bool   `json:"boss"` // the conversation of an open-ended run's boss: never a send target
 }
 
 func (cb *coderBridge) chatRow(ctx context.Context, profile, conv string) (coderChat, error) {
-	out, err := cb.cli.Run(ctx, "", append(chatBase(profile), "coder", "list", "--conversation="+conv)...)
+	out, err := cb.cli.Run(ctx, "", append(chatBase(profile), "coder", "list", "--all", "--conversation="+conv)...)
 	if err != nil {
 		return coderChat{}, err
 	}
@@ -223,6 +224,9 @@ func (cb *coderBridge) handleSend(ctx context.Context, req *Request, _ ProgressF
 	row, err := cb.chatRow(ctx, profile, conv)
 	if err != nil {
 		return nil, err
+	}
+	if row.Boss {
+		return nil, invalidParam("this conversation belongs to an open-ended run's boss: it is not a conversation to send to")
 	}
 	if !row.StartedInDesktop {
 		return nil, &RequestError{Code: CodeNotStartedInDesktop,

@@ -91,6 +91,9 @@ func runChat(cfg *Deps, cmd *cobra.Command, args []string, f *chatFlags) (retErr
 			return err
 		}
 		defer closeJournal()
+		if err := refuseUnqueuedBossTurn(ctx, cfg, jprofile, conversationID, turnID, prompt); err != nil {
+			return err
+		}
 		attachSrc, err := journaledAttachments(jstore, jprofile, conversationID, turnID, attach)
 		if err != nil {
 			return err

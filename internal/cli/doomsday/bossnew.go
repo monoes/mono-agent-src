@@ -158,7 +158,7 @@ func makeBoss(ctx context.Context, db *sql.DB, profile, front, goal string) (Bos
 
 // existingBoss reads the sessions made under the chat's keys. It answers with the operator's boss that is made but not yet
 // stamped (open, top level, mission, in a conversation of its own); it refuses while the chat's boss is stamped for a run
-// that is going; and it returns the attempt number the next boss takes (one past the highest key in use, archived ones
+// that is going; and it returns the attempt number the next boss takes (the first one nobody took, archived ones
 // included, since a key is never freed).
 func existingBoss(ctx context.Context, db *sql.DB, profile, front string) (ref BossRef, next int, ok bool, err error) {
 	rows, err := db.QueryContext(ctx, `SELECT s.id, s.client_id, s.conversation_id, s.kind, s.created_by, s.parent_session_id, s.archived_at, s.state, s.doomsday_charter_id,
@@ -168,7 +168,7 @@ func existingBoss(ctx context.Context, db *sql.DB, profile, front string) (ref B
 		return BossRef{}, 0, false, err
 	}
 	defer rows.Close()
-	next = 1
+	taken := map[int]bool{}
 	for rows.Next() {
 		var id int64
 		var key, kind, by, archived, state, charter string
@@ -182,9 +182,7 @@ func existingBoss(ctx context.Context, db *sql.DB, profile, front string) (ref B
 		if !parsed || f != front {
 			continue
 		}
-		if n >= next {
-			next = n + 1
-		}
+		taken[n] = true
 		mine := kind == tasks.SessionKindMission && by == bossActor.Label() && parent.Int64 == 0 && conv.String != "" && conv.String != front
 		open := archived == "" && (state == string(tasks.SessionDraft) || state == string(tasks.SessionRunning) || state == string(tasks.SessionPaused))
 		switch {
@@ -195,7 +193,16 @@ func existingBoss(ctx context.Context, db *sql.DB, profile, front string) (ref B
 			ok = true
 		}
 	}
-	return ref, next, ok, rows.Err()
+	if err := rows.Err(); err != nil {
+		return BossRef{}, 0, false, err
+	}
+	// the first attempt number nobody took (a taken key stays taken, archived or not), within the number a boss key may carry
+	for next = 1; next <= tasks.MaxBossAttempt && taken[next]; next++ {
+	}
+	if next > tasks.MaxBossAttempt && !ok {
+		return BossRef{}, 0, false, clicore.InvalidInput("every boss key of chat %s is taken: nothing was made", front)
+	}
+	return ref, next, ok, nil
 }
 
 // otherLiveBoss is a boss the operator made behind ANOTHER chat whose run is going (0: none): only one run goes at a time per

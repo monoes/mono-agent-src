@@ -14,6 +14,10 @@ import (
 // stands behind in the session's client id (BossClientID); the operator's stamp (the run's charter id on the row) is what
 // makes it the boss, and a client id alone is nothing.
 
+// MaxBossAttempt is the largest attempt number of a boss key: a bigger one is no boss key, so a key an agent made with a huge number
+// neither fits a client id nor blocks the next attempt.
+const MaxBossAttempt = 999
+
 // BossClientIDPrefix starts the client id of a boss session.
 const BossClientIDPrefix = "boss-for-"
 
@@ -35,7 +39,7 @@ func ParseBossClientID(key string) (front string, n int, ok bool) {
 		return "", 0, false
 	}
 	n, err := strconv.Atoi(rest[i+1:])
-	if err != nil || n < 1 || strconv.Itoa(n) != rest[i+1:] {
+	if err != nil || n < 1 || n > MaxBossAttempt || strconv.Itoa(n) != rest[i+1:] {
 		return "", 0, false
 	}
 	return rest[:i], n, true

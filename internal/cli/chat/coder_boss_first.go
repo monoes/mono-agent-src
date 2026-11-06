@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -39,6 +40,10 @@ func QueueBossFirstTurn(cfg *Deps, bossConversation string, in BossFirstTurn) (c
 	if strings.TrimSpace(in.RunID) == "" || strings.TrimSpace(in.CharterHash) == "" || strings.TrimSpace(in.Goal) == "" {
 		return coderhost.Command{}, clicore.InvalidInput("the first turn needs the run id, the charter hash and the goal")
 	}
+	// A person's turn into a full-access conversation: the user's own, like the steer.
+	if err := requireUser(cfg, "queue the first turn of an open-ended run's boss"); err != nil {
+		return coderhost.Command{}, err
+	}
 	profileID, err := coderConversation(cfg, bossConversation)
 	if err != nil {
 		return coderhost.Command{}, err
@@ -47,22 +52,32 @@ func QueueBossFirstTurn(cfg *Deps, bossConversation string, in BossFirstTurn) (c
 	if err != nil {
 		return coderhost.Command{}, err
 	}
-	_, stamped, ok, err := tasks.BossFrontDesk(context.Background(), db.DB, profileID, bossConversation)
-	waiting := coderhost.NewStore(db.DB).PendingFor(profileID, bossConversation)
+	front, _, ok, err := tasks.BossFrontDesk(context.Background(), db.DB, profileID, bossConversation)
+	live := ""
+	if err == nil && ok {
+		live, _, err = tasks.OpenBossConversation(context.Background(), db.DB, profileID, front)
+	}
 	db.Close()
 	if err != nil {
 		return coderhost.Command{}, err
 	}
-	if !ok || !stamped {
-		return coderhost.Command{}, clicore.InvalidInput("conversation %s is not the conversation of a recorded boss", bossConversation)
+	if !ok {
+		return coderhost.Command{}, clicore.InvalidInput("conversation %s is not the conversation of a boss", bossConversation)
+	}
+	if live != bossConversation { // stamped for the profile's running run, open, not archived
+		return coderhost.Command{}, clicore.InvalidInput("the boss of conversation %s is not the open boss of a run that is going: nothing was queued", bossConversation)
 	}
 	if had, err := bossHadATurn(cfg, profileID, bossConversation); err != nil {
 		return coderhost.Command{}, err
-	} else if had || waiting > 0 {
-		return coderhost.Command{}, clicore.InvalidInput("the boss already had its first turn, or one is waiting: nothing was queued")
+	} else if had {
+		return coderhost.Command{}, clicore.InvalidInput("the boss already had its first turn: nothing was queued")
 	}
-	c, err := enqueue(cfg, coderhost.Command{ProfileID: profileID, ConversationID: bossConversation, Kind: coderhost.KindSend,
-		TurnID: "t-" + uuid.NewString(), Message: BossFirstTurnText(in)}, true)
+	// nothing may be waiting: the insert holds that bound (a concurrent caller cannot queue a second one)
+	c, _, err := enqueueBounded(cfg, coderhost.Command{ProfileID: profileID, ConversationID: bossConversation, Kind: coderhost.KindSend,
+		TurnID: "t-" + uuid.NewString(), Message: BossFirstTurnText(in)}, 1, 0)
+	if errors.Is(err, coderhost.ErrTooManyWaiting) {
+		return c, clicore.InvalidInput("a message already waits for the boss: nothing was queued")
+	}
 	if err != nil {
 		return c, fmt.Errorf("queueing the boss's first turn: %w", err)
 	}
