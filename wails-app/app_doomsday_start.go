@@ -204,7 +204,7 @@ func (a *App) DoomsdayStart(charterJSON, phrase, token string, bossSession int64
 		return startDoc("started", out, "", "")
 	}
 	var ce struct{ Error, Code string }
-	_ = json.Unmarshal([]byte(strings.TrimSpace(out)), &ce)
+	_ = json.Unmarshal([]byte(lastJSONLine(out)), &ce)
 	detail := cliStderr([]byte(errText))
 	if ce.Error != "" {
 		detail, out = ce.Error, ""
@@ -232,6 +232,18 @@ func startMayHaveHappened(err error, detail string) bool {
 	var xe *exec.Error
 	var pe *fs.PathError
 	return !errors.As(err, &xe) && !errors.As(err, &pe)
+}
+
+// lastJSONLine is the last line of out that is a JSON object: some paths print text before the document, and a failure
+// is followed by the generic error envelope.
+func lastJSONLine(out string) string {
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if l := strings.TrimSpace(lines[i]); strings.HasPrefix(l, "{") && json.Valid([]byte(l)) {
+			return l
+		}
+	}
+	return ""
 }
 
 func startDoc(state, output, detail, code string) string {

@@ -186,7 +186,11 @@ func (d Deps) newStart() *cobra.Command {
 				}
 			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintln(out, Render(ch, canon.Hash))
+			human := out
+			if d.json() { // stdout is the one JSON document the app parses; the render for a person goes to stderr
+				human = cmd.ErrOrStderr()
+			}
+			fmt.Fprintln(human, Render(ch, canon.Hash))
 			ack, err := d.acknowledge(cmd, len(ch.Lines), canon.Hash, yes, hash, guiPhrase)
 			if err != nil {
 				return err
@@ -225,6 +229,14 @@ func (d Deps) newStart() *cobra.Command {
 	return c
 }
 
+// humanOut is where text for a person goes: stdout, or stderr under --json so that stdout stays one JSON document.
+func (d Deps) humanOut(cmd *cobra.Command) io.Writer {
+	if d.json() {
+		return cmd.ErrOrStderr()
+	}
+	return cmd.OutOrStdout()
+}
+
 // acknowledge is the typed "I understand" + hash step. There is no way to
 // start without it.
 func (d Deps) acknowledge(cmd *cobra.Command, lines int, full string, yes bool, given, guiPhrase string) (Ack, error) {
@@ -244,7 +256,7 @@ func (d Deps) acknowledge(cmd *cobra.Command, lines int, full string, yes bool, 
 		return Ack{}, clicore.InvalidInput("start needs a terminal to type the phrase on, or --yes-i-lift with --hash")
 	}
 	want := Phrase(lines, full)
-	fmt.Fprintf(cmd.OutOrStdout(), "\nTo lift %d lines type exactly:\n  %s\n> ", lines, want)
+	fmt.Fprintf(d.humanOut(cmd), "\nTo lift %d lines type exactly:\n  %s\n> ", lines, want)
 	line, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
 	if err != nil && line == "" {
 		return Ack{}, clicore.InvalidInput("nothing was typed; nothing started")

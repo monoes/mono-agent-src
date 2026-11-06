@@ -309,3 +309,15 @@ func TestOpenEntryUsesTheCacheAndNothingElseProbes(t *testing.T) {
 	}
 	_ = os.Remove(log)
 }
+
+// The real CLI prints text before its JSON on some paths and a generic error envelope after it: the binding reads the
+// last JSON object line, so a real failure still carries its code.
+func TestStartReadsTheLastJSONLineOfAMixedOutput(t *testing.T) {
+	g := newGrantRig(t)
+	g.startBehaves(`printf 'CHARTER abc\nGoal: x\n{"error":"the phrase does not match; nothing started","code":"invalid_input"}\n'; exit 2`)
+	tok := g.render(dmCharter)
+	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, 5))
+	if d.State != "not_started" || d.Code != "invalid_input" || !strings.Contains(d.Detail, "does not match") {
+		t.Fatalf("%+v", d)
+	}
+}
