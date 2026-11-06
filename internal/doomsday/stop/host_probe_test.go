@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func withHostChecks(t *testing.T, h hostChecks) {
@@ -265,7 +267,7 @@ func TestVolumeRuleRefusesWhatShareModesAndKqueueCannotBeTrustedOn(t *testing.T)
 	}
 }
 
-func TestScratchDirIsRefusedOnAVolumeTheRuleRefuses(t *testing.T) {
+func TestScratchDirAcceptsAnOrdinaryTempDir(t *testing.T) {
 	// the real check on this OS passes for an ordinary temp dir
 	if _, done, err := scratchDir(t.TempDir(), ".x-"); err != nil {
 		t.Fatal(err)
@@ -290,5 +292,216 @@ func TestProbeAtRunsTheSelfTestsInTheGivenDirectoriesAndOnlyThere(t *testing.T) 
 	}
 	if cur := currentProbeDirs(); cur != (probeDirs{}) {
 		t.Fatalf("the directories outlived the probe: %+v", cur)
+	}
+}
+
+// ----- the guards that used to pass when reverted -----
+
+func withVolume(t *testing.T, goos string, f func(string) (string, bool, error)) {
+	t.Helper()
+	oc, og := volumeClassFn, volumeGOOS
+	volumeClassFn, volumeGOOS = f, goos
+	t.Cleanup(func() { volumeClassFn, volumeGOOS = oc, og })
+}
+
+func TestScratchDirIsRefusedOnAVolumeTheRuleRefusesAndOnAnError(t *testing.T) {
+	cases := map[string]struct {
+		fs     string
+		remote bool
+		err    error
+		ok     bool
+	}{
+		"local ntfs":  {"NTFS", false, nil, true},
+		"network":     {"NTFS", true, nil, false},
+		"fat":         {"FAT32", false, nil, false},
+		"unknown":     {"", false, nil, false},
+		"call failed": {"NTFS", false, errors.New("access denied"), false},
+	}
+	for name, c := range cases {
+		c := c
+		withVolume(t, "windows", func(string) (string, bool, error) { return c.fs, c.remote, c.err })
+		parent := t.TempDir()
+		_, done, err := scratchDir(parent, ".ma-pin-")
+		if (err == nil) != c.ok {
+			t.Errorf("%s: %v", name, err)
+		}
+		if err == nil {
+			done()
+		}
+		if !c.ok {
+			emptyDir(t, parent) // refused before anything was made
+		}
+	}
+}
+
+func TestBareProbeRefusesOnWindowsAndMacOSAndLinuxIsUnchanged(t *testing.T) {
+	for _, goos := range []string{"windows", "darwin"} {
+		hostAs(t, goos)
+		h := hostChecksNow()
+		for name, f := range map[string]func() error{"lock": h.Lock, "peer": h.Peer, "pin": h.Pin} {
+			if err := f(); !errors.Is(err, errNoProbeDirs) {
+				t.Errorf("%s %s: %v", goos, name, err)
+			}
+		}
+	}
+	hostAs(t, "linux")
+	if h := hostChecksNow(); h.Lock == nil || h.Pin == nil || h.Peer == nil {
+		t.Fatal("linux checks missing")
+	}
+}
+
+func withDirs(t *testing.T, d probeDirs) {
+	t.Helper()
+	probeCurM.Lock()
+	old := probeCur
+	probeCur = d
+	probeCurM.Unlock()
+	t.Cleanup(func() { probeCurM.Lock(); probeCur = old; probeCurM.Unlock() })
+}
+
+// The self-tests run where they were told to: lock and peer in the run directory, the pin next to the database, and
+// never in the system temp directory.
+func TestSelfTestsRunNextToTheGivenDirectories(t *testing.T) {
+	db, run := t.TempDir(), t.TempDir()
+	withDirs(t, probeDirs{DB: db, Run: run})
+	var seen []string
+	withVolume(t, "linux", func(p string) (string, bool, error) { seen = append(seen, p); return "", false, nil })
+	h := hostChecksNow()
+	mustNoErr(t, h.Lock())
+	mustNoErr(t, h.Peer())
+	mustNoErr(t, h.Pin())
+	// lock, peer: run; pin: db (one look per scenario)
+	if seen[0] != run || seen[1] != run {
+		t.Fatalf("lock and peer ran in %v, not in the run directory %s", seen[:2], run)
+	}
+	for _, p := range seen[2:] {
+		if p != db {
+			t.Fatalf("the pin ran in %s, not next to the database %s", p, db)
+		}
+	}
+	emptyDir(t, db)
+	emptyDir(t, run)
+}
+
+func TestPinScenariosAreTheExactSet(t *testing.T) {
+	var names []string
+	for _, s := range defaultPinScenarios {
+		names = append(names, s.Name)
+	}
+	want := []string{"moving the database away", "replacing the database by another file", "removing the database",
+		"moving the -wal file away", "removing the -shm file", "renaming the database directory", "moving the database away and back"}
+	if strings.Join(names, "|") != strings.Join(want, "|") {
+		t.Fatalf("scenarios: %v", names)
+	}
+}
+
+func TestShowProbeDoesNotCreateTheRunDirectory(t *testing.T) {
+	base := t.TempDir()
+	run := filepath.Join(base, "doomsday", "p1")
+	withDirs(t, probeDirs{DB: base, Run: run})
+	h := hostChecksNow()
+	mustNoErr(t, h.Lock())
+	mustNoErr(t, h.Peer())
+	if _, err := os.Stat(filepath.Join(base, "doomsday")); err == nil {
+		t.Fatal("the probe created the run directory")
+	}
+	emptyDir(t, base)
+}
+
+func TestLeftoversOfAKilledSelfTestAreReapedOnlyWhenOld(t *testing.T) {
+	parent := t.TempDir()
+	old := time.Now().Add(-time.Hour)
+	mk := func(name string, age time.Time, dir bool) {
+		p := filepath.Join(parent, name)
+		if dir {
+			mustNoErr(t, os.Mkdir(p, 0o700))
+			mustNoErr(t, os.WriteFile(filepath.Join(p, "p.db"), nil, 0o600))
+		} else {
+			mustNoErr(t, os.WriteFile(p, nil, 0o600))
+		}
+		mustNoErr(t, os.Chtimes(p, age, age))
+	}
+	mk(".ma-pin-111", old, true)
+	mk(".ma-pin-111.moved", old, true)
+	mk(".ma-lock-222", old, true)
+	mk(".sabc", old, false)
+	mk(".ma-pin-fresh", time.Now(), true)
+	mk(".sfff", time.Now(), false)
+	mk("keep", old, true)
+	mk(".ma-pinx", old, false) // a file with a similar name: not ours
+	_, err := probeParent(parent)
+	mustNoErr(t, err)
+	left := map[string]bool{}
+	es, _ := os.ReadDir(parent)
+	for _, e := range es {
+		left[e.Name()] = true
+	}
+	if len(left) != 4 || !left[".ma-pin-fresh"] || !left[".sfff"] || !left["keep"] || !left[".ma-pinx"] {
+		t.Fatalf("left: %v", left)
+	}
+}
+
+func TestPeerProbeSocketPathIsNoLongerThanTheRealOne(t *testing.T) {
+	p := t.TempDir()
+	for i := 0; i < 50; i++ {
+		if got, real := peerSockPath(p), (RunDir{Dir: p}).SockPath(1); len(got) > len(real) {
+			t.Fatalf("%s (%d) is longer than the real %s (%d)", got, len(got), real, len(real))
+		}
+	}
+}
+
+func TestPinSelfTestRunsAControlOperationAndRefusesWhenItFails(t *testing.T) {
+	old := pinControl
+	t.Cleanup(func() { pinControl = old })
+	ran := 0
+	pinControl = func(dir string) error { ran++; return old(dir) }
+	parent := t.TempDir()
+	mustNoErr(t, pinSelfTest(parent, mkReal, defaultPinScenarios, pinRefusalExpected))
+	if ran != len(defaultPinScenarios) {
+		t.Fatalf("control ran %d times", ran)
+	}
+	pinControl = func(string) error { return errors.New("sharing violation") }
+	if err := pinSelfTest(parent, mkReal, defaultPinScenarios, pinRefusalExpected); err == nil || !strings.Contains(err.Error(), "control") {
+		t.Fatalf("a failing control passed: %v", err)
+	}
+	emptyDir(t, parent)
+}
+
+func TestPinVariantsAddTheHostOnlyRunOnWindowsOnly(t *testing.T) {
+	if v := pinVariants("windows"); len(v) != 2 || v[0] || !v[1] {
+		t.Fatalf("windows: %v", v)
+	}
+	for _, g := range []string{"linux", "darwin"} {
+		if v := pinVariants(g); len(v) != 1 || v[0] {
+			t.Fatalf("%s: %v", g, v)
+		}
+	}
+}
+
+// closeRecorder reports the swap checks as quiet and records that SQLite was closed in the host-only variant.
+type closeRecorder struct {
+	pinner
+	closed *int
+}
+
+func (c closeRecorder) closeSQLite() { *c.closed++ }
+func (c closeRecorder) Check() error { return nil }
+
+func TestPinSelfTestHostOnlyVariantClosesSQLiteBeforeTheChange(t *testing.T) {
+	old := pinVariantsNow
+	t.Cleanup(func() { pinVariantsNow = old })
+	pinVariantsNow = func() []bool { return []bool{false, true} }
+	closed := 0
+	sharing := errors.New("sharing violation")
+	sc := []pinScenarioDef{{Name: "refused", Op: func(string, string, string) error { return sharing }}}
+	mustNoErr(t, pinSelfTest(t.TempDir(), func(ctx context.Context, o PinOptions) (pinner, error) {
+		p, err := realPinner(ctx, o)
+		if err != nil {
+			return nil, err
+		}
+		return closeRecorder{p, &closed}, nil
+	}, sc, func(e error) bool { return errors.Is(e, sharing) }))
+	if closed != 1 {
+		t.Fatalf("SQLite was closed %d times", closed)
 	}
 }

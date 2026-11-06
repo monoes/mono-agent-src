@@ -15,6 +15,8 @@ type pinner interface {
 	Check() error
 	Do(ctx context.Context, fn func(c *sql.Conn, precommit func() error) error) error
 	discard()
+	// closeSQLite closes the SQLite connection and leaves the host's own holds in place.
+	closeSQLite()
 }
 
 func realPinner(ctx context.Context, o PinOptions) (pinner, error) {
@@ -26,6 +28,13 @@ func realPinner(ctx context.Context, o PinOptions) (pinner, error) {
 }
 
 func (p *Pinned) discard() { p.mu.Lock(); p.discardLocked(); p.mu.Unlock() }
+
+func (p *Pinned) closeSQLite() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	_ = p.conn.Close()
+	_ = p.db.Close()
+}
 
 func makeScratchDB(path string) error {
 	db, err := sql.Open("sqlite", pinDSN(path)+"?_pragma=journal_mode(WAL)")
@@ -74,16 +83,54 @@ var defaultPinScenarios = []pinScenarioDef{
 // still there), or the change happened and the pin REPORTED it (ErrPinSwapped). Any other error from the change, and a
 // change that happened and was not reported, fail the step. The rename-away-and-back scenario can only be reported by an
 // event memory, so it shows that the queue works on this machine.
+//
+// On Windows every scenario runs a second time with SQLite's own connection closed and only the host's holds in place,
+// so a refusal there is the host's. What remains unproven on any OS: a refusal that comes from a third party's handle
+// (antivirus, an indexer, a sync client) on a scratch file is told from the host's by the control operation only for
+// plain files, and the real database's own state (open handles of other programs) is not looked at.
 func pinSelfTest(parent string, mk func(context.Context, PinOptions) (pinner, error), scenarios []pinScenarioDef, refused func(error) bool) error {
-	for _, sc := range scenarios {
-		if err := pinScenario(parent, mk, sc, refused); err != nil {
-			return fmt.Errorf("%s: %w", sc.Name, err)
+	for _, closed := range pinVariantsNow() {
+		for _, sc := range scenarios {
+			if err := pinScenario(parent, mk, sc, refused, closed); err != nil {
+				name := sc.Name
+				if closed {
+					name += " (SQLite connection closed, host holds only)"
+				}
+				return fmt.Errorf("%s: %w", name, err)
+			}
 		}
 	}
 	return nil
 }
 
-func pinScenario(parent string, mk func(context.Context, PinOptions) (pinner, error), sc pinScenarioDef, refused func(error) bool) error {
+// pinVariants: with SQLite open; and, on Windows, with only the host's holds.
+func pinVariants(goos string) []bool {
+	if goos == "windows" {
+		return []bool{false, true}
+	}
+	return []bool{false}
+}
+
+var pinVariantsNow = func() []bool { return pinVariants(hostGOOS) }
+
+// pinControl is an operation on a plain scratch file in the pinned directory that holds nothing, which must succeed:
+// if the volume, a virus scanner or the directory refuses a plain rename and remove, a refusal of the pinned files proves
+// nothing about the binding.
+var pinControl = func(dir string) error {
+	c := filepath.Join(dir, "c.db")
+	if err := os.WriteFile(c, []byte("x"), 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(c, c+".moved"); err != nil {
+		return err
+	}
+	if err := os.Rename(c+".moved", c); err != nil {
+		return err
+	}
+	return os.Remove(c)
+}
+
+func pinScenario(parent string, mk func(context.Context, PinOptions) (pinner, error), sc pinScenarioDef, refused func(error) bool, closed bool) error {
 	dir, done, err := scratchDir(parent, ".ma-pin-")
 	if err != nil {
 		return err
@@ -111,6 +158,15 @@ func pinScenario(parent string, mk func(context.Context, PinOptions) (pinner, er
 		return err
 	}); err != nil {
 		return fmt.Errorf("the pinned connection does not work: %w", err)
+	}
+	if err := pinControl(dir); err != nil {
+		return fmt.Errorf("the control operation on a plain file next to the pinned database failed, so a refusal would prove nothing about the binding: %w", err)
+	}
+	if closed {
+		p.closeSQLite()
+		if err := p.Check(); err != nil {
+			return fmt.Errorf("the host's holds alone report a swap after SQLite closed: %w", err)
+		}
 	}
 	if err := sc.Op(db, other, dir); err != nil {
 		if errors.Is(err, errScenarioBroke) || refused == nil || !refused(err) {
