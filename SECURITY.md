@@ -1,12 +1,3 @@
-- **Starting an open-ended run from the app.** The app's start form runs `doomsday start --gui-phrase`, which the audit row
-  records as ack kind `gui`. The `gui` ack is the caller's claim, in the same trust class as `script`: the CLI derives the
-  phrase again from the rendered charter and compares it, but it cannot tell the app from a script that passes the hidden
-  flag, so the operator gate (an agent, a workflow, a coder turn and the MCP server are refused) is the control. The app's
-  binding adds a one-time token bound to the exact charter it rendered and a native operating-system confirmation that
-  script in the page cannot answer; it refuses to start where no native dialog exists (`wails dev` in a browser). The dialog is built in Go from the
-  CLI's own preview: the machine facts first (lifted lines, charter prefix, budget, criteria count, limits, pinned models), then the goal as data,
-  cleaned and cut to 200 characters; an answer under a second after it is shown counts as a decline. The CLI refuses, for an app start,
-  goal, criteria and pin text over 2000 characters or with hidden (zero-width, direction, tag, control) characters.
 # Security Policy
 
 Mono Agent is a workflow automation tool that runs on your machine. This document explains
@@ -3583,3 +3574,12 @@ function that does what the guarded one does), and it skips directories named `s
   `strategy.finish.ready` marker per judged epoch and the top lead reads it through the read-only `session_boss_finish_ready`; only the lead's own
   `session_boss_finish_begin`, with its boss check, begins one. The only model text in that reading is the judge's per-criterion statuses; criteria,
   run and epoch state, times, direction ids and the finish engine's rounds are host-derived, and no title or note enters it.
+- **Starting an open-ended run from the app.** The app's start form runs `doomsday start --gui-phrase`, which the audit row
+  records as ack kind `gui`. The `gui` ack is the caller's claim, in the same trust class as `script`: the CLI derives the
+  phrase again from the rendered charter and compares it, but it cannot tell the app from a script that passes the hidden
+  flag, so the operator gate (an agent, a workflow, a coder turn and the MCP server are refused) is the control. The app's
+  binding adds a one-time token bound to the exact charter it rendered and a native operating-system confirmation that
+  script in the page cannot answer; it refuses to start where no native dialog exists (`wails dev` in a browser). The dialog is built in Go from the
+  CLI's own preview: the machine facts first (lifted lines, charter prefix, budget, criteria count, limits, pinned models), then the goal as data,
+  cleaned and cut to 200 characters; an answer under a second after it is shown counts as a decline. The CLI refuses, for an app start,
+  goal, criteria and pin text over 2000 characters or with hidden (zero-width, direction, tag, control) characters.
