@@ -19,7 +19,7 @@ type Canon struct {
 
 // Ack is who acknowledged the lift, recorded with the run (Q9).
 type Ack struct {
-	Kind  string // "terminal": the typed phrase; "script": --yes-i-lift with the full hash
+	Kind  string // "terminal": the typed phrase; "script": --yes-i-lift with the full hash; "gui": the phrase typed in the app form, re-derived by the CLI
 	Lines int    // lifted lines the acknowledgement named
 }
 
