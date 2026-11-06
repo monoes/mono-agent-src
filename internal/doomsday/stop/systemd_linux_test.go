@@ -207,3 +207,31 @@ func TestSubgroupsListsTheDirectoryAgainOnEveryCall(t *testing.T) {
 		t.Fatalf("a third listing: %v", got)
 	}
 }
+
+// ctxHost records whether the context StopUnit got was still alive.
+type ctxHost struct {
+	*fakeHost
+	stopCtxErr error
+}
+
+func (h *ctxHost) StopUnit(ctx context.Context, name string) error {
+	h.stopCtxErr = ctx.Err()
+	return h.fakeHost.StopUnit(ctx, name)
+}
+
+// A probe interrupted (SIGINT, SIGTERM, the 1-minute limit) cancels its context; the test unit must still be stopped,
+// with a context that is not the cancelled one, or a transient monoagent-probe-*.service is left behind.
+func TestSelfTestStopsItsUnitEvenWhenInterrupted(t *testing.T) {
+	k := newFakeKernel()
+	k.absent = true // the self-test returns early: the unit is started, then the delegated cgroup is "missing"
+	h := &ctxHost{fakeHost: newFakeHost(k)}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_ = selfTest(ctx, h, k, "/usr/bin/sleep")
+	if len(h.started) != 1 || len(h.stopped) != 1 || h.stopped[0] != h.started[0] {
+		t.Fatalf("started %v stopped %v", h.started, h.stopped)
+	}
+	if h.stopCtxErr != nil {
+		t.Fatalf("the unit was stopped with a cancelled context: %v", h.stopCtxErr)
+	}
+}
