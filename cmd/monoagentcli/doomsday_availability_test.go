@@ -26,8 +26,10 @@ func (a availEngine) Status(context.Context) (doomsdaycli.Status, error) {
 // of the engine, so the reason a person sees is the probe's (a run in this profile, a failed containment step), not
 // the stub "not available yet".
 func TestChatDepsWireTheOpenModeAvailabilityToTheProbe(t *testing.T) {
-	oldAvail, oldEngine := coderhost.OpenModeAvailability, doomsdayEngine
-	t.Cleanup(func() { coderhost.OpenModeAvailability, doomsdayEngine = oldAvail, oldEngine })
+	oldEngine := doomsdayEngine
+	t.Cleanup(func() { doomsdayEngine = oldEngine })
+	t.Cleanup(coderhost.SetOpenModeReady(true))
+	t.Cleanup(coderhost.SetOpenModeProbe(nil))
 	cfg := sendEnv(t)
 	for name, c := range map[string]struct {
 		e      availEngine
@@ -46,5 +48,18 @@ func TestChatDepsWireTheOpenModeAvailabilityToTheProbe(t *testing.T) {
 				t.Fatalf("ok=%v reason=%q", ok, reason)
 			}
 		})
+	}
+}
+
+// While the boss binding is pending the wired probe is not enough: the mode stays unavailable with that reason.
+func TestWiredProbeDoesNotOfferTheModeWhileTheBossBindingIsPending(t *testing.T) {
+	oldEngine := doomsdayEngine
+	t.Cleanup(func() { doomsdayEngine = oldEngine })
+	t.Cleanup(coderhost.SetOpenModeReady(false))
+	t.Cleanup(coderhost.SetOpenModeProbe(nil))
+	doomsdayEngine = func(*globalConfig) doomsdaycli.Engine { return availEngine{} }
+	_ = chatDeps(sendEnv(t))
+	if ok, reason := coderhost.OpenModeAvailability(); ok || !strings.Contains(reason, "boss binding pending") {
+		t.Fatalf("ok=%v reason=%q", ok, reason)
 	}
 }

@@ -63,10 +63,10 @@ func init() {
 	doomsdayChat = func(cfg *globalConfig, d *chatcli.Deps) {
 		// The chat's mode selector offers the open-ended mode only where the real probe says a run can start, and says
 		// why when not: a run already in this profile, a failed containment step of this machine, binding off.
-		coderhost.OpenModeAvailability = func() (bool, string) {
+		coderhost.SetOpenModeProbe(func() (bool, string) {
 			r := doomsdaycli.Availability(context.Background(), doomsdayEngineFor(cfg))
 			return r.ModeAvailable, r.Reason
-		}
+		})
 		// A conductor's merges go through the open run's gate and journal; the resolver reads the run on every
 		// merge, so a run that starts or stops after the turn began is seen.
 		d.DoomsdayMerge = func(db *sql.DB) func(ctx context.Context) (*dynorg.DoomsdayMerge, error) {

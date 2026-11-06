@@ -23,9 +23,40 @@ var ChatModes = []string{ChatModeOff, ChatModeMission, ChatModeOpen}
 // ValidChatMode says whether m is one of the three modes.
 func ValidChatMode(m string) bool { return oneOf(m, ChatModes) }
 
+// openModeReady is the one switch that lets the open-ended mode be offered at all. It is false until the boss binding
+// exists: the chat flow that creates the hidden boss session, binds it (start --boss-session) and applies the
+// task-session budget. T4's change flips it together with those, and nothing else does. While it is false the
+// mode is unavailable with openModePendingReason whatever the probe says, and the probe is not asked.
+var openModeReady = false
+
+const openModePendingReason = "not available yet: boss binding pending"
+
+// openModeProbe is the real probe of this machine (set by the CLI wiring through SetOpenModeProbe).
+var openModeProbe = func() (bool, string) { return false, "not available yet" }
+
+// SetOpenModeProbe installs the probe and returns a function that puts the old one back.
+func SetOpenModeProbe(p func() (bool, string)) (restore func()) {
+	old := openModeProbe
+	openModeProbe = p
+	return func() { openModeProbe = old }
+}
+
+// SetOpenModeReady sets openModeReady and returns a function that puts the old value back. It is the seam of tests
+// (and of the change that flips the switch): no setting, flag or environment variable reaches it.
+func SetOpenModeReady(v bool) (restore func()) {
+	old := openModeReady
+	openModeReady = v
+	return func() { openModeReady = old }
+}
+
 // OpenModeAvailability says whether the open-ended mode can be chosen and, when it cannot, why. It is the one
-// place the answer comes from; nothing starts an open-ended run from a chat yet, so for now it is never available.
-var OpenModeAvailability = func() (ok bool, reason string) { return false, "not available yet" }
+// place the answer comes from: not ready, then the probe of this machine.
+var OpenModeAvailability = func() (ok bool, reason string) {
+	if !openModeReady {
+		return false, openModePendingReason
+	}
+	return openModeProbe()
+}
 
 // ErrChatModeLocked is what a change of the mode answers once the conversation has a message.
 var ErrChatModeLocked = errors.New("the chat mode is chosen before the first message and cannot change afterwards")
