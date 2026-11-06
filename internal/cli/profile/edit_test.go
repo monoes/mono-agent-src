@@ -159,6 +159,7 @@ var seedOverrides = map[string]map[string]any{
 	"application_status_log": {"actor": "user"},
 	"workflow_executions":    {"status": "COMPLETED"},
 	// 160: a run token's hash and stamps in the one form its CHECKs accept; its execution is the profile's seeded one.
+	"org_proposals":           {"status": "pending", "verb": "grant.add"},
 	"workflow_run_tokens":     {"token_hash": strings.Repeat("a", 64), "created_at": "2026-01-01T00:00:00Z", "expires_at": "2026-01-03T00:00:00Z"},
 	"person_links":            {"relation": "same", "status": "confirmed", "person_a": 1, "person_b": 2},
 	"application_fills":       {"status": "filled"},
@@ -841,5 +842,42 @@ func TestProfileDeleteRefusesWhileAWorkflowChangeIsOpen(t *testing.T) {
 	}
 	if _, err := runCaptured(t, dbPath, "get", id); err != nil {
 		t.Fatalf("the profile must still exist: %v", err)
+	}
+}
+
+// A profile delete takes the profile's org proposals with it (#1477), and only its own.
+func TestProfileDeleteRemovesItsOrgProposals(t *testing.T) {
+	dbPath := newProfileDocsCLITestDB(t)
+	id := createTestProfile(t, dbPath, "doomed")
+	other := createTestProfile(t, dbPath, "other")
+	db, err := storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, pid := range []string{id, other} {
+		if _, err := db.DB.Exec(`INSERT INTO org_proposals (id, profile_id, org_name, verb, args_json, preview_text, state_digest, hash, created_at, expires_at)
+			VALUES (?, ?, 'growth', 'grant.add', '{}', 'p', 'd', 'h', '2026-11-05T12:00:00Z', '2026-11-05T12:30:00Z')`, strings.Repeat(fmt.Sprint(i), 32), pid); err != nil {
+			t.Fatalf("seeding: %v", err)
+		}
+	}
+	db.Close()
+	if _, err := runProfileCmd(t, dbPath, "delete", id, "--yes-delete-profile", "doomed"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	db, err = storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var owners []string
+	rows, _ := db.DB.Query(`SELECT profile_id FROM org_proposals`)
+	for rows.Next() {
+		var p string
+		rows.Scan(&p)
+		owners = append(owners, p)
+	}
+	rows.Close()
+	if len(owners) != 1 || owners[0] != other {
+		t.Fatalf("proposals left after the delete: %v, want only the other profile's", owners)
 	}
 }

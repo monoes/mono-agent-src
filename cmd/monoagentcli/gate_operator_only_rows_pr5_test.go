@@ -35,7 +35,7 @@ func TestNeitherOrgVerbIsARecoveryVerb(t *testing.T) {
 
 // org families whose leaves are each a row, or open/held with a reason. A new leaf nobody decided about, and
 // a converted verb whose row is deleted, both fail.
-var orgGateFamilies = []string{"org role", "org teardown-profile", "org grant", "org autonomy", "org approve", "org chat approve", "org sign"}
+var orgGateFamilies = []string{"org role", "org teardown-profile", "org grant", "org autonomy", "org approve", "org chat approve", "org sign", "org proposal"}
 
 const (
 	heldOrgB   = "held: class B, a chat org tool or the org runner drives it with limits (issue 1333, waits for the owner's answers)"
@@ -55,6 +55,9 @@ var openOrgLeaves = map[string]string{
 	"org approve":            heldOrgB + ": the chat's bash allow-list admits `org approve`; a refused caller may approve only what sends nothing",
 	"org chat approve":       heldOrgB + ": the same approval path through the org chat",
 	"org sign":               heldOrgSig,
+	"org proposal create":    "agent-allowed (#1477): stores an inert row; nothing changes until the user confirms",
+	"org proposal list":      readOnlyVerb,
+	"org proposal show":      readOnlyVerb,
 }
 
 func TestEveryLeafOfTheOrgGateFamiliesIsARowOrAnAcknowledgedOpenVerb(t *testing.T) {

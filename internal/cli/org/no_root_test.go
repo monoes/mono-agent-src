@@ -28,6 +28,7 @@ func TestOrgCommandsWithUnopenableDBTouchNothingUnderCwd(t *testing.T) {
 		"profile": {
 			{"send", "acme", "--to", "ceo", "--body", "hi"}, {"rename", "acme", "beta"},
 			{"delete", "acme", "--force"}, {"autonomy", "show", "acme"},
+			{"proposal", "list"}, {"proposal", "show", "abc"}, {"proposal", "create", "acme", "--verb", "grant.add", "--args-json", "{}"},
 		},
 	}
 	for group, cmds := range groups {
@@ -88,9 +89,9 @@ func TestOrgSummaryWithUnopenableDBKeepsLocalFacts(t *testing.T) {
 
 // noRootGuard is exactly these verbs. Each is outside requireRoot's up-front root lookup (which opens
 // the database) for a reason written next to its entry; adding one is a decision, and so is removing one
-// (the two operator-gated verbs must stay in it, or a refused caller reaches the database first).
+// (the operator-gated verbs, set-access, teardown-profile and proposal confirm and decline, must stay in it, or a refused caller reaches the database first).
 func TestNoRootGuardIsExactlyTheseVerbs(t *testing.T) {
-	want := []string{"org role set-access", "org sections-runtimes", "org summary", "org teardown-profile"}
+	want := []string{"org proposal confirm", "org proposal decline", "org role set-access", "org sections-runtimes", "org summary", "org teardown-profile"}
 	var got []string
 	for k := range noRootGuard {
 		got = append(got, k)
