@@ -15,6 +15,8 @@ import (
 
 // The subject of a finish (note 13.6 section 4): a sealed snapshot of one root, named by a tree digest. The digest covers
 // content and structure (relative path, kind, the executable bit, content digest or link target), never times or owners.
+// On Windows there is no executable bit (NTFS keeps no unix mode), so there it is not part of the digest: the digest covers
+// content and structure only.
 // Links are recorded and never followed; hard links, devices, sockets and pipes refuse the snapshot. A directory named
 // ".git" is not part of the subject.
 
@@ -122,7 +124,7 @@ func DigestTree(root, copyTo string) (Tree, error) {
 				}
 			}
 		case m.IsRegular():
-			if hardLinked(info) {
+			if hardLinked(p, info) {
 				return refuse("%s is a hard link", rel)
 			}
 			if bytes += info.Size(); bytes > MaxSnapshotBytes {
@@ -192,6 +194,8 @@ func Snapshot(root, dst string) (Tree, error) {
 }
 
 // SealDirs makes the directories of a copied tree read-only, deepest first.
+// It seals by mode bits only: on Windows (NTFS) that makes the FILES read-only but a directory stays writable, so a
+// criterion could add files to its copy there (stated in the Windows entry text).
 func SealDirs(dst string, t Tree) {
 	for i := len(t.Entries) - 1; i >= 0; i-- {
 		if e := t.Entries[i]; e.Kind == 'd' {

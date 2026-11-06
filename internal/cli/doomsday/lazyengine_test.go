@@ -35,7 +35,7 @@ func TestEngineWithNoRunPinsNothingForStopStatusFinishAndRubric(t *testing.T) {
 	r, db := newWire(t, func() error { return nil }, fakeKernel{}, nil)
 	keys := &macCounter{in: r.w.Witness.Keys}
 	w := r.w
-	w.RunDir = stop.RunDir{Dir: t.TempDir() + "/fresh-run"} // a pin cache key no earlier test used
+	w.RunDir = stop.RunDir{Dir: shortTempDir(t) + "/fresh-run"} // a pin cache key no earlier test used
 	ws := *w.Witness
 	ws.Keys = keys
 	w.Witness = &ws
@@ -74,7 +74,7 @@ func TestEngineContainmentProbesBeforeBuildingTheWitness(t *testing.T) {
 	probeErr := errors.New("probe says no")
 	r, _ := newWire(t, func() error { return probeErr }, fakeKernel{}, nil)
 	w := r.w
-	w.RunDir = stop.RunDir{Dir: t.TempDir() + "/fresh-run-2"}
+	w.RunDir = stop.RunDir{Dir: shortTempDir(t) + "/fresh-run-2"}
 	pins := countingPins(t)
 	if err := w.Engine().Containment(); !errors.Is(err, probeErr) || pins.Load() != 0 {
 		t.Fatalf("a refusing probe: %v, %d pin(s)", err, pins.Load())

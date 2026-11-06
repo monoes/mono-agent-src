@@ -21,7 +21,7 @@ import (
 // Limits are the limits of one criterion; a zero field takes its default.
 type Limits struct {
 	CPUSeconds   uint64 // CPU time (RLIMIT_CPU)
-	AddressSpace uint64 // RLIMIT_AS, bytes
+	AddressSpace uint64 // RLIMIT_AS, bytes; NOT enforced on macOS, whose setrlimit refuses RLIMIT_AS (limits_unix.go)
 	OpenFiles    uint64 // RLIMIT_NOFILE
 	FileSize     uint64 // RLIMIT_FSIZE: the largest single file, bytes
 	Procs        uint64 // RLIMIT_NPROC: a bound per user id, so a busy user's count is in it

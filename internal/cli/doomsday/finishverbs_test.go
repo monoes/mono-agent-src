@@ -35,9 +35,7 @@ type finRig struct {
 
 func newFinRig(t *testing.T, charter string) *finRig {
 	t.Helper()
-	if _, err := exec.LookPath("sh"); err != nil {
-		t.Skip("no sh")
-	}
+	skipWithoutSh(t)
 	w, db := newWire(t, func() error { return nil }, fakeKernel{}, nil)
 	w.w.DB = db.DB
 	w.charter = writeCharter(t, charter)

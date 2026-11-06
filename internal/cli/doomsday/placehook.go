@@ -43,7 +43,7 @@ func (g *HostGate) PlaceRelease(cmd *exec.Cmd, profile, conv string) (release fu
 }
 
 // placer returns the placer of the profile's open run, nil with no run open.
-func (g *HostGate) placer(profile, conv string) (*stop.Placer, error) {
+func (g *HostGate) placer(profile, conv string) (stop.Placement, error) {
 	if profile != g.Profile {
 		return nil, fmt.Errorf("the open-ended mode is wired for profile %q, not %q (conversation %s): nothing was started", g.Profile, profile, conv)
 	}

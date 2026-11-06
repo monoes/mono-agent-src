@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	hilcli "github.com/monoes/mono-agent/internal/cli/hil"
 	"github.com/monoes/mono-agent/internal/storage"
@@ -79,9 +80,26 @@ func writeMigratedDB(t *testing.T, path string) {
 	}
 }
 
+// newHILTestDB is a migrated database in a private directory. An in-process command may still hold the file open when the test
+// ends (its handle closes with the process in production), and Windows refuses to remove an open file, so the directory is
+// removed with a few retries and a leftover is only logged, never a failure of the test.
 func newHILTestDB(t *testing.T) string {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "hil-test.db")
+	dir, err := os.MkdirTemp("", "hil-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		var rerr error
+		for i := 0; i < 30; i++ {
+			if rerr = os.RemoveAll(dir); rerr == nil {
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		t.Logf("hil test directory left behind: %v", rerr)
+	})
+	dbPath := filepath.Join(dir, "hil-test.db")
 	writeMigratedDB(t, dbPath)
 	return dbPath
 }

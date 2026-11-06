@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"os"
 	"runtime"
 	"strings"
@@ -23,7 +24,7 @@ type hostRun struct {
 
 func newHostRun(t *testing.T) (*hostRun, context.CancelFunc) {
 	t.Helper()
-	dir := RunDir{Dir: t.TempDir()}
+	dir := RunDir{Dir: shortTempDir(t)}
 	clk := newFakeClock()
 	g := NewGate(GateConfig{Generation: 5, Reg: &fakeRegistry{}, Clock: clk, TClose: 10 * time.Second, THung: 30 * time.Second})
 	h := &hostRun{gate: g, dir: dir, clk: clk, end: make(chan struct{})}
@@ -134,7 +135,7 @@ func TestStopWithoutAGateOrAHostLinkFailsClosed(t *testing.T) {
 
 // A host that never answers (a paused or hung host) is not proof of an empty gate.
 func TestAHostThatNeverAcknowledgesIsUnproven(t *testing.T) {
-	dir := RunDir{Dir: t.TempDir()}
+	dir := RunDir{Dir: shortTempDir(t)}
 	if err := dir.CreateSecret(5); err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +177,7 @@ func TestEmergencyMessageKicksTheWatcher(t *testing.T) {
 
 // A start call that never returns makes the host exit itself (crash-only), wired through the watcher.
 func TestWatcherEnforcesTheHungStarterRule(t *testing.T) {
-	dir := RunDir{Dir: t.TempDir()}
+	dir := RunDir{Dir: shortTempDir(t)}
 	clk := newFakeClock()
 	g := NewGate(GateConfig{Generation: 5, Reg: &fakeRegistry{}, Clock: clk, TClose: 10 * time.Second, THung: 30 * time.Second})
 	exited := make(chan []uint64, 1)
@@ -208,7 +209,7 @@ func TestWatcherClosesOnTheMarkerAloneAndOnTheRunState(t *testing.T) {
 	}
 	h.advanceUntil(t, func() bool { return h.gate.Sealed() })
 
-	dir := RunDir{Dir: t.TempDir()}
+	dir := RunDir{Dir: shortTempDir(t)}
 	clk := newFakeClock()
 	g := NewGate(GateConfig{Generation: 5, Reg: &fakeRegistry{}, Clock: clk})
 	var stopped atomic.Bool
@@ -244,7 +245,7 @@ func plantAck(t *testing.T, dir RunDir, a HostAck) {
 // An ack nobody signed is no ack: a planted BARRIER must not read as "host closed". Mutant tried: ReadAck without the MAC
 // check: red.
 func TestAPlantedUnsignedAckIsNotTrusted(t *testing.T) {
-	dir := RunDir{Dir: t.TempDir()}
+	dir := RunDir{Dir: shortTempDir(t)}
 	if err := dir.CreateSecret(5); err != nil {
 		t.Fatal(err)
 	}
@@ -270,7 +271,7 @@ func TestAPlantedUnsignedAckIsNotTrusted(t *testing.T) {
 // A signed ack survives a tampered field, a wrong generation and a missing secret. Mutants tried: the MAC covering fewer
 // fields, ReadAck without the generation check (M2), no nonce requirement: red.
 func TestAckMACCoversEveryFieldAndTheGeneration(t *testing.T) {
-	dir := RunDir{Dir: t.TempDir()}
+	dir := RunDir{Dir: shortTempDir(t)}
 	for _, g := range []uint64{5, 6} {
 		if err := dir.CreateSecret(g); err != nil {
 			t.Fatal(err)
@@ -336,7 +337,7 @@ func TestAckMACCoversEveryFieldAndTheGeneration(t *testing.T) {
 
 // A new host incarnation clears an earlier ack. Mutant tried: reachLocked-style removal dropped: see the cli test.
 func TestRemoveAckClearsAndIsIdempotent(t *testing.T) {
-	dir := RunDir{Dir: t.TempDir()}
+	dir := RunDir{Dir: shortTempDir(t)}
 	if err := dir.CreateSecret(5); err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +358,7 @@ func TestRemoveAckClearsAndIsIdempotent(t *testing.T) {
 // The socket missing is not proof of absence: with the host lock held the host is alive, whatever the socket says. Mutant
 // tried: HostNone on the socket alone (no hostAbsent): red.
 func TestAMissingSocketOfALiveHostIsNotAbsence(t *testing.T) {
-	dir := RunDir{Dir: t.TempDir()}
+	dir := RunDir{Dir: shortTempDir(t)}
 	if err := dir.CreateSecret(5); err != nil {
 		t.Fatal(err)
 	}
@@ -439,7 +440,7 @@ func TestASlowRegistryWriteOfStartedIsNotAHungStarter(t *testing.T) {
 // The enforcer goroutine ends with the watcher: after the gate closed no EnforceHung goroutine is left. Mutant tried: the
 // goroutine bound to the caller's context only: red (it lives on).
 func TestEnforcerStopsWhenTheGateCloses(t *testing.T) {
-	dir := RunDir{Dir: t.TempDir()}
+	dir := RunDir{Dir: shortTempDir(t)}
 	clk := newFakeClock()
 	g := NewGate(GateConfig{Generation: 5, Reg: &fakeRegistry{}, Clock: clk, TClose: 10 * time.Second, THung: 30 * time.Second})
 	w := NewHostWatcher(&HostWatcher{Gate: g, Dir: dir, Gen: 5, CharterID: "ch", Clock: clk, Tick: time.Second, Exit: func([]uint64) {}})
@@ -479,7 +480,7 @@ func TestEnforcerStopsWhenTheGateCloses(t *testing.T) {
 // starter's age passes T_hung meanwhile. Mutant tried: removing the stopEnforce call before closeAndAck (the deferred
 // one runs only after Close returned) makes Exit fire during the drain: red.
 func TestEnforcerDoesNotEndTheHostWhileTheClosingGateDrains(t *testing.T) {
-	dir := RunDir{Dir: t.TempDir()}
+	dir := RunDir{Dir: shortTempDir(t)}
 	clk := newFakeClock()
 	g := NewGate(GateConfig{Generation: 5, Reg: &fakeRegistry{}, Clock: clk, TClose: 120 * time.Second, THung: 30 * time.Second})
 	tk, err := g.Admit(Spec{Kind: KindE1, Op: "turn.start"})
@@ -523,5 +524,29 @@ func TestEnforcerDoesNotEndTheHostWhileTheClosingGateDrains(t *testing.T) {
 	}
 	if n := exits.Load(); n != 0 {
 		t.Fatalf("the host ended itself %d times while the closing gate drained a starter", n)
+	}
+}
+
+// "No listener" is the same on every OS: a missing socket file, ECONNREFUSED, and WSAECONNREFUSED (Windows' 10061, a
+// different number). Anything else is not absence.
+func TestAbsentRecognisesWhatMeansNoListenerOnEveryOS(t *testing.T) {
+	dial := func(e error) error {
+		return &net.OpError{Op: "dial", Net: "unix", Err: os.NewSyscallError("connect", e)}
+	}
+	for name, err := range map[string]error{
+		"missing":   dial(os.ErrNotExist),
+		"refused":   dial(syscall.ECONNREFUSED),
+		"wsa 10061": dial(syscall.Errno(10061)),
+	} {
+		if !absent(err) {
+			t.Errorf("%s is not absence", name)
+		}
+	}
+	for name, err := range map[string]error{
+		"timeout": dial(syscall.ETIMEDOUT), "reset": dial(syscall.ECONNRESET), "denied": dial(syscall.EACCES), "wsa reset 10054": dial(syscall.Errno(10054)),
+	} {
+		if absent(err) {
+			t.Errorf("%s counted as absence", name)
+		}
 	}
 }

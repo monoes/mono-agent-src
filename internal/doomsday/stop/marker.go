@@ -47,7 +47,13 @@ func (r RunDir) UnitPath(gen uint64) string { return filepath.Join(r.Dir, fmt.Sp
 func (r RunDir) HasRunTraces() bool {
 	names, err := r.fsys().ReadDir(r.Dir)
 	if err != nil {
-		return !errors.Is(err, os.ErrNotExist)
+		if errors.Is(err, os.ErrNotExist) {
+			// Windows answers "not found" when a regular FILE is listed as a directory (unix: not a directory). A name that
+			// exists but cannot be listed is a trace on every platform; only a name that is not there at all is none.
+			_, serr := os.Lstat(r.Dir)
+			return serr == nil
+		}
+		return true
 	}
 	for _, n := range names {
 		if strings.HasSuffix(n, ".secret") || n == "witness" || n == "generation-counter" {

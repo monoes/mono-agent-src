@@ -544,14 +544,34 @@ func TestRunEndedHonoursABestEffortReport(t *testing.T) {
 	}
 }
 
-// Enabled by merging #1503: the real Report then has StoppedBestEffort, and runEnded must read it with no edit.
+// The real Report of a best-effort unit (Windows, macOS) is not Stopped but is StoppedBestEffort, and runEnded must count it as
+// an ended run, so a best-effort stop still ends the sessions.
 func TestRunEndedReadsTheRealBestEffortReport(t *testing.T) {
-	if _, ok := any(stop.Report{}).(interface{ StoppedBestEffort() bool }); !ok {
-		t.Skip("needs #1503: stop.Report has no StoppedBestEffort yet")
+	rep := stop.Report{Final: stop.StateQuiescent, Unit: stop.UnitOutcome{Kind: stop.UnitBestEffort}}
+	if rep.Stopped() || !rep.StoppedBestEffort() {
+		t.Fatalf("the fixture is not a best-effort stop: Stopped=%v StoppedBestEffort=%v", rep.Stopped(), rep.StoppedBestEffort())
 	}
-	var _ stoppedReport = stop.Report{}
-	// With #1503, build a report whose unit ended UnitBestEffort (see its stop tests) and assert runEnded(rep) is true while
-	// rep.Stopped() is false; the merge note in the PR text names the helper to copy.
+	if !runEnded(rep) {
+		t.Fatal("runEnded misses a best-effort stop: its sessions would never end")
+	}
+	if runEnded(stop.Report{Final: stop.StateQuiescent, Steps: []stop.Step{{Name: "x", Done: false}}, Unit: stop.UnitOutcome{Kind: stop.UnitBestEffort}}) {
+		t.Fatal("a best-effort report with an undone step counts as ended")
+	}
+}
+
+// A best-effort outcome never prints as a bare "stopped" (command.go).
+func TestABestEffortOutcomePrintsItsLimit(t *testing.T) {
+	r := newStopRig(t)
+	runs, _ := r.w.Store.OpenRuns(context.Background(), "p1")
+	o := StopOutcome{MarkerRecorded: true, IntentRecorded: true, BestEffort: true, Runs: []RunRef{{CharterID: runs[0].CharterID, Generation: runs[0].Generation}}}
+	r.deps.Engine = func() Engine {
+		return &partialEngine{fakeEngine: &fakeEngine{stop: o}, realAfter: &realAfter{w: r.wireRig}}
+	}
+	out, err := run(t, r.deps, "", "stop")
+	want := "stopped (" + stop.BestEffortNote + ")\n"
+	if err != nil || !strings.HasPrefix(out, want) {
+		t.Fatalf("out=%q err=%v, want it to start with %q", out, err, want)
+	}
 }
 
 // The CLI side of a best-effort stop: an outcome that carries the engine's line and names its run ends the sessions, prints

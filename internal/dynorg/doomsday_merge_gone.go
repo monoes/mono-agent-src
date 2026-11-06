@@ -46,21 +46,9 @@ func ContainmentGone(k stop.Kernel, dir stop.RunDir, witness func(gen uint64) []
 	}
 }
 
-// unitEmpty is true when the unit is proven to have no process: a reboot, an absent cgroup, or a proven cgroup
-// whose events say it is not populated.
-func unitEmpty(k stop.Kernel, rec stop.UnitRecord) (bool, error) {
-	p, err := stop.ProveUnit(k, rec)
-	if err != nil {
-		return false, err
-	}
-	if p.Gone {
-		return true, nil
-	}
-	defer p.Cg.Close()
-	// the unit's own cgroup always holds its anchor process, so "not populated" would never be true while the
-	// service lives: the record names the anchor, and the unit is empty when nothing else is in it
-	return stop.UnitEmpty(p.Cg, rec)
-}
+// unitEmpty is true when the unit is PROVEN to have no process (stop.ProvenEmpty: a reboot, an absent cgroup, or a
+// proven cgroup that holds only its anchor); a best-effort platform's answer is never proof.
+func unitEmpty(k stop.Kernel, rec stop.UnitRecord) (bool, error) { return stop.ProvenEmpty(k, rec) }
 
 // TaskStoreRecorded answers whether the task store holds the merge record of a branch (the "merge" artifact that
 // org_merge writes). It only reads.

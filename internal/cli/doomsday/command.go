@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/doomsday/stop"
 )
 
 // Deps is what the commands need from the CLI.
@@ -296,6 +297,10 @@ func (d Deps) newStop() *cobra.Command {
 				// and ends the sessions too (TestAfterStopRunsForWhateverRunsTheOutcomeNames).
 				if l := cleanLine(o.Line); strings.HasPrefix(l, "stopped") {
 					verdict = l
+				}
+				if o.BestEffort {
+					// PR #1503: on Windows/macOS the stop is best effort, and the verdict never reads as a bare "stopped".
+					verdict = "stopped (" + stop.BestEffortNote + ")"
 				}
 				fmt.Fprintln(out, verdict)
 			}

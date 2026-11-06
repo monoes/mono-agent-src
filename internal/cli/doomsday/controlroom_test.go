@@ -100,6 +100,7 @@ func TestControlRoomGoldenDocuments(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			want = lf(want) // a Windows checkout may have turned the golden's line ends into CRLF
 			if out != string(want) {
 				t.Fatalf("contract changed (a field change is a new schema_version):\n got %s\nwant %s", out, want)
 			}
@@ -294,3 +295,6 @@ func TestControlRoomOverTheRealStoreReadsAndNeverWrites(t *testing.T) {
 		t.Fatalf("the verbs changed the audit chain: %+v -> %+v (%v)", headBefore, headAfter, err)
 	}
 }
+
+// lf is b with CRLF line ends turned into LF.
+func lf(b []byte) []byte { return []byte(strings.ReplaceAll(string(b), "\r\n", "\n")) }
