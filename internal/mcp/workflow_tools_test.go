@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -17,17 +17,7 @@ import (
 func newWorkflowToolsServer(t *testing.T, selection string, allowMutations bool) *Server {
 	t.Helper()
 	t.Setenv("MONOAGENT_MCP_WORKFLOW_TOOLS", "")
-	dbPath := filepath.Join(t.TempDir(), "mcp-test.db")
-	db, err := storage.NewDatabase(dbPath)
-	if err != nil {
-		t.Fatalf("NewDatabase: %v", err)
-	}
-	if err := db.ApplyMigrations(); err != nil {
-		t.Fatalf("ApplyMigrations: %v", err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatalf("closing seed db: %v", err)
-	}
+	dbPath := testdb.Path(t)
 	s := NewServer(Options{
 		DBPath:         dbPath,
 		Profile:        "default",

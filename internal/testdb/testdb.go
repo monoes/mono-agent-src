@@ -74,7 +74,14 @@ func Path(t testing.TB) string {
 	if buildErr != nil {
 		t.Fatalf("testdb: migrating the template database: %v", buildErr)
 	}
-	path := filepath.Join(t.TempDir(), "test.db")
+	// Not t.TempDir(): a subtest that repeats a name is called "name#01", and a "#" in the path of a
+	// database ends the file name in the DSN, so the repeats would all open one file named without it.
+	dir, err := os.MkdirTemp("", "testdb-")
+	if err != nil {
+		t.Fatalf("testdb: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	path := filepath.Join(dir, "test.db")
 	if err := os.WriteFile(path, template, 0o600); err != nil {
 		t.Fatalf("testdb: %v", err)
 	}

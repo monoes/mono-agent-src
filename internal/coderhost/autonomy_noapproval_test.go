@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -146,32 +148,46 @@ func choicesFor() []*AutonomyChoice {
 }
 
 // startedBy counts the autonomy turns the host started, by note origin, over all scenarios.
-var startedBy = map[string]int{}
+var (
+	startedMu sync.Mutex
+	startedBy = map[string]int{}
+)
 
 func TestNoAutonomyPathReachesAnApproval(t *testing.T) {
-	// One database for all scenarios (a migrated copy per scenario is too slow): each
-	// scenario has conversations of its own, and the protected state is compared
-	// across each scenario.
-	h, l, st := newHost(t)
+	// One database for all the scenarios of a preset and class (a migrated copy per scenario is
+	// too slow): each scenario has conversations of its own, and the protected state is compared
+	// across each scenario. The groups do not share a database, so they run side by side.
+	startedMu.Lock()
 	startedBy = map[string]int{}
-	i := 0
-	for _, preset := range AutonomyPresets {
-		for _, class := range GapClasses {
-			for _, ov := range choicesFor() {
-				for _, rev := range []bool{true, false} {
-					for _, who := range answerers {
-						if who.failFirst && ov != nil {
-							continue // the failure rounds are run once per preset and class, with the preset's own policy
+	startedMu.Unlock()
+	var total atomic.Int64
+	t.Run("scenarios", func(t *testing.T) {
+		for _, preset := range AutonomyPresets {
+			for _, class := range GapClasses {
+				t.Run(preset+"/"+class, func(t *testing.T) {
+					t.Parallel()
+					h, l, st := newHost(t)
+					i := 0
+					for _, ov := range choicesFor() {
+						for _, rev := range []bool{true, false} {
+							for _, who := range answerers {
+								if who.failFirst && ov != nil {
+									continue // the failure rounds are run once per preset and class, with the preset's own policy
+								}
+								i++
+								name := fmt.Sprintf("%s/%s/%+v/rev=%v/%s", preset, class, ov, rev, who.name)
+								runNoApprovalScenario(t, h, l, st, i, name, preset, class, ov, rev, who)
+							}
 						}
-						i++
-						name := fmt.Sprintf("%s/%s/%+v/rev=%v/%s", preset, class, ov, rev, who.name)
-						runNoApprovalScenario(t, h, l, st, i, name, preset, class, ov, rev, who)
 					}
-				}
+					total.Add(int64(i))
+				})
 			}
 		}
-	}
-	t.Logf("%d scenarios; autonomy turns started by origin: %v", i, startedBy)
+	})
+	startedMu.Lock()
+	defer startedMu.Unlock()
+	t.Logf("%d scenarios; autonomy turns started by origin: %v", total.Load(), startedBy)
 	// The test must not pass by starting nothing: a person's, a master's and a default's
 	// note each reached a started turn, and none of them carried a token.
 	for _, origin := range []string{"p", "m", "d"} {
@@ -268,7 +284,9 @@ func runNoApprovalScenario(t *testing.T, h *Host, l *fakeLauncher, st *Store, n 
 		for _, o := range []string{"p", "m", "d"} {
 			if strings.HasPrefix(turnOf(s), AnswerPrefix+o+"-") {
 				byOrigin[o]++
+				startedMu.Lock()
 				startedBy[o]++
+				startedMu.Unlock()
 				if tokens[i] != "" {
 					t.Errorf("%s: an answer-%s- turn carried a token", name, o)
 				}

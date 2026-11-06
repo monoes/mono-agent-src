@@ -18,6 +18,7 @@ func runBad(t *testing.T, want bool, d tsDriver) {
 	cut := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
 	for _, bad := range badStamps {
 		t.Run(fmt.Sprintf("%q", bad), func(t *testing.T) {
+			t.Parallel() // each case has a database of its own
 			if got := d(t, cut, bad); got != want {
 				t.Fatalf("unparsable %q: outcome = %v, want %v", bad, got, want)
 			}

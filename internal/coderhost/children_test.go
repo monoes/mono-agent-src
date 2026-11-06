@@ -10,14 +10,26 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/ai"
+	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 func newStoreT(t *testing.T) *Store {
 	t.Helper()
-	db := testdb.Open(t)
+	return NewStore(openMigrated(t).DB)
+}
+
+// openMigrated opens a copy of the migrated template database. Unlike testdb.Open it does not call
+// ApplyMigrations on it: the copy has nothing left to apply, and finding that out costs about as much
+// as the rest of a small test under the race detector.
+func openMigrated(t *testing.T) *storage.Database {
+	t.Helper()
+	db, err := storage.NewDatabase(testdb.Path(t))
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() { db.Close() })
-	return NewStore(db.DB)
+	return db
 }
 
 // master makes a coder conversation at access in a real folder and makes it a master.

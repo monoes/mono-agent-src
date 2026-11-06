@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 // newTestServer builds a Server backed by a fresh temp SQLite DB (real
@@ -18,17 +18,7 @@ import (
 // workflow file store, so no real user state is ever touched.
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "mcp-test.db")
-	db, err := storage.NewDatabase(dbPath)
-	if err != nil {
-		t.Fatalf("NewDatabase: %v", err)
-	}
-	if err := db.ApplyMigrations(); err != nil {
-		t.Fatalf("ApplyMigrations: %v", err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatalf("closing seed db: %v", err)
-	}
+	dbPath := testdb.Path(t)
 
 	s := NewServer(Options{
 		DBPath:       dbPath,
@@ -45,17 +35,7 @@ func newTestServer(t *testing.T) *Server {
 // change newTestServer's signature out from under the ~20 tests calling it.
 func newTestServerAllowMutations(t *testing.T, allow bool) *Server {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "mcp-test.db")
-	db, err := storage.NewDatabase(dbPath)
-	if err != nil {
-		t.Fatalf("NewDatabase: %v", err)
-	}
-	if err := db.ApplyMigrations(); err != nil {
-		t.Fatalf("ApplyMigrations: %v", err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatalf("closing seed db: %v", err)
-	}
+	dbPath := testdb.Path(t)
 
 	s := NewServer(Options{
 		DBPath:         dbPath,
