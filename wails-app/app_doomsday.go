@@ -1,21 +1,26 @@
 // wails-app/app_doomsday.go
 //
 // The control room's bindings (docs: monoes/mono-agent-src#1157). The app never reads the run's tables: every
-// binding runs `monoagentcli --profile <active> --json doomsday <verb>` and returns the CLI's document. There are
-// exactly four bindings and three verbs the app can run, listed in doomsdayVerbs: the two read verbs, `overview` and
-// `feed`, and `stop`. Nothing here starts, approves, grants, pauses or resumes anything; doomsdayArgv refuses any other
-// verb or flag, and the CLI re-checks the operator gate of every call it gets.
+// binding runs `monoagentcli --profile <active> --json doomsday <verb>` and returns the CLI's document. The read
+// bindings, the probe and Stop run the verbs listed in doomsdayVerbs, and doomsdayArgv refuses any other verb or flag.
+// The one binding that starts a run, DoomsdayStart (the start form file), runs `start` with a fixed argv, only for
+// the operator, only with the phrase a person typed in the form, which the CLI derives again and compares. Nothing
+// here approves, grants, pauses or resumes anything, and the CLI re-checks the operator gate of every call it gets.
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -37,12 +42,15 @@ const (
 	doomsdayMaxLimit = 200
 )
 
-// doomsdayVerbs is the whole of what the app can run, with the flags each takes. start, approve, grant, pause,
-// resume, finish, rubric and render are the terminal's and are not here.
+// doomsdayVerbs is the whole of what the app can run through doomsdayArgv, with the flags each takes: the read verbs
+// (overview, feed, probe) and stop. render and start are not here: they take a charter and a phrase from the person
+// and have their own fixed argv (doomsdayCharterArgv, in the start form file). approve, grant, pause, resume, finish and
+// rubric are the terminal's.
 var doomsdayVerbs = map[string][]string{
 	"overview": nil,
 	"feed":     {"--before", "--limit"},
 	"stop":     nil,
+	"probe":    nil,
 }
 
 // doomsdayArgv is the argv of one allowed verb for profile. extra is --flag=value strings; a flag the verb does not
@@ -65,6 +73,41 @@ func doomsdayArgv(profile, verb string, extra ...string) ([]string, error) {
 		args = append(args, e)
 	}
 	return scopedCLIArgs(profile, args...)
+}
+
+// headTailBuffer keeps the first head bytes and the last tail bytes of what is written, so a crash report at the end
+// of a long stderr (after a big render) is not cut off.
+type headTailBuffer struct {
+	head, tail int
+	first      []byte
+	last       []byte
+	dropped    bool
+}
+
+func (h *headTailBuffer) Write(p []byte) (int, error) {
+	n := len(p)
+	if room := h.head - len(h.first); room > 0 {
+		take := min(room, len(p))
+		h.first = append(h.first, p[:take]...)
+		p = p[take:]
+	}
+	h.last = append(h.last, p...)
+	if len(h.last) > h.tail {
+		h.last = append([]byte(nil), h.last[len(h.last)-h.tail:]...)
+		h.dropped = true
+	}
+	return n, nil
+}
+
+func (h *headTailBuffer) String() string {
+	if h.dropped {
+		last := h.last
+		if i := bytes.IndexByte(last, '\n'); i >= 0 { // the tail begins at a line boundary, not in the middle of a line
+			last = last[i+1:]
+		}
+		return string(h.first) + "\n...\n" + string(last)
+	}
+	return string(h.first) + string(h.last)
 }
 
 // cappedBuffer keeps the first max bytes and drops the rest without blocking the writer.
@@ -95,11 +138,24 @@ func (a *App) runDoomsday(timeout time.Duration, verb string, extra ...string) (
 }
 
 func (a *App) runDoomsdayFor(pid string, timeout time.Duration, verb string, extra ...string) (stdout, stderr string, truncated bool, err error) {
-	cliBin, err := findMonoAgentCLI()
+	full, err := doomsdayArgv(pid, verb, extra...)
 	if err != nil {
 		return "", "", false, err
 	}
-	full, err := doomsdayArgv(pid, verb, extra...)
+	return a.execDoomsday(timeout, full, nil)
+}
+
+// execDoomsday runs the CLI with an argv that doomsdayArgv or doomsdayCharterArgv built, with stdin (nil for none).
+func (a *App) execDoomsday(timeout time.Duration, full []string, stdin io.Reader) (stdout, stderr string, truncated bool, err error) {
+	return a.execDoomsdayGrace(timeout, 0, full, stdin)
+}
+
+// execDoomsdayGrace is execDoomsday where a timed-out or cancelled CLI is sent SIGTERM first and killed only after grace
+// (0: killed at once, as Stop wants). The probe stops its test unit on SIGTERM; a kill would leak it. Where a signal
+// cannot be sent (Windows) it is killed. A context that ended is part of the error, so callers can tell a cut-off command
+// from one that exited by itself.
+func (a *App) execDoomsdayGrace(timeout, grace time.Duration, full []string, stdin io.Reader) (stdout, stderr string, truncated bool, err error) {
+	cliBin, err := findMonoAgentCLI()
 	if err != nil {
 		return "", "", false, err
 	}
@@ -110,11 +166,26 @@ func (a *App) runDoomsdayFor(pid string, timeout time.Duration, verb string, ext
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, cliBin, full...)
+	cmd.Stdin = stdin
+	if grace > 0 {
+		cmd.Cancel = func() error {
+			if cmd.Process.Signal(syscall.SIGTERM) != nil {
+				return cmd.Process.Kill()
+			}
+			return nil
+		}
+		// WaitDelay also bounds how long a child that inherited the output pipes can hold Wait open after the CLI exits: a
+		// successful exit is then reported as an error. The CLI starts no such child.
+		cmd.WaitDelay = grace
+	}
 	suppressConsole(cmd)
-	out, errb := &cappedBuffer{max: doomsdayMaxOutput}, &cappedBuffer{max: 64 << 10}
+	out, errb := &cappedBuffer{max: doomsdayMaxOutput}, &headTailBuffer{head: 32 << 10, tail: 32 << 10}
 	cmd.Stdout, cmd.Stderr = out, errb
 	err = cmd.Run()
-	return string(out.buf), string(errb.buf), out.truncated, err
+	if err != nil && ctx.Err() != nil {
+		err = fmt.Errorf("%w: %v", ctx.Err(), err)
+	}
+	return string(out.buf), errb.String(), out.truncated, err
 }
 
 // doomsdayRead runs a read verb and returns its document verbatim, or an {"error"} document.
@@ -275,6 +346,8 @@ func (a *App) DoomsdayStop() string {
 	}
 	defer doomsdayStopMu.Unlock()
 	defer doomsdayProbe.invalidate()
+	doomsdayGrants.dropAll()      // a Stop ends any preview that was waiting to be started
+	doomsdayEntry.invalidateAll() // and a cached "cannot start here" about the run it just stopped
 	pid, err := a.stopProfileID()
 	if err != nil {
 		return stopDoc(false, "", err.Error(), "")

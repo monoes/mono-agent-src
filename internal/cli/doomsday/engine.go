@@ -20,7 +20,7 @@ type Canon struct {
 
 // Ack is who acknowledged the lift, recorded with the run (Q9).
 type Ack struct {
-	Kind  string // "terminal": the typed phrase; "script": --yes-i-lift with the full hash
+	Kind  string // "terminal": the typed phrase; "script": --yes-i-lift with the full hash; "gui": the phrase typed in the app form, re-derived by the CLI
 	Lines int    // lifted lines the acknowledgement named
 }
 
@@ -118,6 +118,12 @@ type StopRepairer interface {
 // BossBinder is an Engine that can record which session is the run's boss (`start --boss-session`).
 type BossBinder interface {
 	BindBoss(ctx context.Context, session int64, entry Entry) error
+}
+
+// BossChecker is an Engine that can say, BEFORE a run starts, whether a session can be the run's boss. `start` asks it so
+// that a stale or ineligible --boss-session leaves no started full-access run behind (BindBoss runs after Enter).
+type BossChecker interface {
+	CheckBoss(ctx context.Context, session int64) error
 }
 
 // BindingRequirer is an Engine that also knows whether peer-credential binding is on: a run needs bound turns, so

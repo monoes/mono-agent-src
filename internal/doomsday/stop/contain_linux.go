@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -93,9 +95,17 @@ func linuxProbeSteps() []ProbeStep {
 			if err != nil {
 				return err
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			// SIGINT and SIGTERM cancel the self-test instead of ending the process, so its unit is stopped on the way out
+			// (SIGKILL cannot be caught: that unit stays until `systemctl --user stop monoagent-probe-*`).
+			ctx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer stopSignals()
+			ctx, cancel := context.WithTimeout(ctx, time.Minute)
 			defer cancel()
-			return selfTest(ctx, SystemHost(), LinuxKernel{}, sleepBin)
+			err = selfTest(ctx, SystemHost(), LinuxKernel{}, sleepBin)
+			if err == nil && ctx.Err() != nil {
+				err = errors.New("the probe was interrupted")
+			}
+			return err
 		}},
 	}
 }

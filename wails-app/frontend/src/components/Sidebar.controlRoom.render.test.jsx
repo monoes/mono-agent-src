@@ -49,16 +49,16 @@ describe('the probe rule', () => {
   it('the hook shows an idle available mode without a chip', async () => {
     const api = { probe: vi.fn().mockResolvedValue({ mode_available: true, run_exists: false }) }
     const { result } = renderHook(() => useControlRoomProbe(api))
-    await waitFor(() => expect(result.current).toEqual({ show: true, running: false }))
+    await waitFor(() => expect(result.current).toMatchObject({ show: true, running: false }))
   })
   it('the hook is hidden on an error and on the unavailable answer, shown on a run', async () => {
     const api = { probe: vi.fn().mockResolvedValue({ error: 'x' }) }
     const { result, rerender } = renderHook(() => useControlRoomProbe(api))
     await waitFor(() => expect(api.probe).toHaveBeenCalled())
-    expect(result.current).toEqual({ show: false, running: false })
+    expect(result.current).toMatchObject({ show: false, running: false })
     api.probe.mockResolvedValue({ mode_available: true, run_exists: true })
     const r2 = renderHook(() => useControlRoomProbe(api))
-    await waitFor(() => expect(r2.result.current).toEqual({ show: true, running: true }))
+    await waitFor(() => expect(r2.result.current).toMatchObject({ show: true, running: true }))
     rerender()
   })
 })
@@ -79,13 +79,13 @@ describe('the probe keeps its last good answer and paces itself', () => {
     const api = { probe: vi.fn().mockResolvedValue(run) }
     const { result } = renderHook(() => useControlRoomProbe(api))
     await tick(0)
-    expect(result.current).toEqual({ show: true, running: true })
+    expect(result.current).toMatchObject({ show: true, running: true })
     api.probe.mockResolvedValue({ error: 'timeout' })
     await tick(15_000)
     expect(api.probe).toHaveBeenCalledTimes(2)
-    expect(result.current).toEqual({ show: true, running: true })
+    expect(result.current).toMatchObject({ show: true, running: true })
     await tick(15_000)
-    expect(result.current).toEqual({ show: true, running: true })
+    expect(result.current).toMatchObject({ show: true, running: true })
   })
   it('a failed first probe is retried after 5 s, then 15 s, then the normal cadence', async () => {
     setup()
@@ -102,7 +102,7 @@ describe('the probe keeps its last good answer and paces itself', () => {
     api.probe.mockResolvedValue(run)
     await tick(300)
     expect(api.probe).toHaveBeenCalledTimes(3)
-    expect(result.current).toEqual({ show: true, running: true })
+    expect(result.current).toMatchObject({ show: true, running: true })
   })
   it('a good probe that says no run does hide it again', async () => {
     setup()
@@ -111,7 +111,7 @@ describe('the probe keeps its last good answer and paces itself', () => {
     await tick(0)
     api.probe.mockResolvedValue({ mode_available: false, run_exists: false })
     await tick(15_000)
-    expect(result.current).toEqual({ show: false, running: false })
+    expect(result.current).toMatchObject({ show: false, running: false })
   })
   it('asks every 15 s while a run exists and every 60 s when the last answer said none', async () => {
     setup()

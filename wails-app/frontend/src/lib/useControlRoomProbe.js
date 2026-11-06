@@ -2,7 +2,7 @@
 // answer is hidden until it says so. Shown whenever the probe says the mode is available (a run is not required);
 // `running` only drives the nav chip. Paused while the window is hidden.
 import { useEffect, useRef, useState } from 'react'
-import { controlRoomApi } from '../services/controlRoom.js'
+import { controlRoomApi, CONTROL_ROOM_CHANGED } from '../services/controlRoom.js'
 import { usePageVisible } from './usePageVisible.js'
 
 export const PROBE_POLL_MS = 15000       // a run exists: the nav chip must follow it
@@ -11,6 +11,8 @@ export const PROBE_IDLE_POLL_MS = 60000  // the last good answer said off / no r
 // After a failed probe the next try comes sooner (5 s, 15 s), then the normal cadence: a first failure must not hide
 // the nav item for a whole idle period while a run may be live.
 export const PROBE_RETRY_MS = [5000, 15000]
+
+export { CONTROL_ROOM_CHANGED }
 
 export const probeDelay = (probe) => (probe?.run_exists ? PROBE_POLL_MS : PROBE_IDLE_POLL_MS)
 
@@ -24,21 +26,33 @@ export function probeShows(probe) {
 export function useControlRoomProbe(api = controlRoomApi) {
   const visible = usePageVisible()
   const [probe, setProbe] = useState(null)
+  const [failed, setFailed] = useState(false) // the last read failed (the last good answer is kept)
   const last = useRef(null)
   useEffect(() => {
     if (!visible) return undefined
     let cancelled = false
     let timer = null
     let failures = 0
+    let inflight = false
+    let again = false // a change was announced while a read was in flight: one more read after it
     const read = async () => {
-      const p = await api.probe()
+      inflight = true
+      let p
+      // A probe that rejects is a failed read, handled here: it never escapes as an unhandled rejection (read() is not awaited),
+      // and it must not leave "in flight" set for good.
+      try { p = await api.probe() } catch (e) { p = { error: String(e?.message || e) } } finally { inflight = false }
       if (cancelled) return
-      if (!p?.error) { failures = 0; last.current = p; setProbe(p) } else failures++
+      if (again) { again = false; failures = 0; read(); return }
+      if (!p?.error) { failures = 0; last.current = p; setProbe(p); setFailed(false) } else { failures++; setFailed(true) }
       const retry = failures > 0 ? PROBE_RETRY_MS[failures - 1] : undefined
       timer = setTimeout(read, retry ?? probeDelay(last.current))
     }
     read()
-    return () => { cancelled = true; clearTimeout(timer) }
+    // A start or a stop says so: ask again now instead of at the next idle poll.
+    // The one chain stays one: while a read is in flight the announcement is remembered, not started beside it.
+    const changed = () => { if (inflight) { again = true; return } clearTimeout(timer); read() }
+    window.addEventListener(CONTROL_ROOM_CHANGED, changed)
+    return () => { cancelled = true; clearTimeout(timer); window.removeEventListener(CONTROL_ROOM_CHANGED, changed) }
   }, [api, visible])
-  return { show: probeShows(probe), running: !!probe?.run_exists }
+  return { show: probeShows(probe), running: !!probe?.run_exists, failed }
 }

@@ -23,9 +23,52 @@ var ChatModes = []string{ChatModeOff, ChatModeMission, ChatModeOpen}
 // ValidChatMode says whether m is one of the three modes.
 func ValidChatMode(m string) bool { return oneOf(m, ChatModes) }
 
+// openModeReady is the one switch that lets the open-ended mode be offered at all. It is false until the boss binding
+// exists: the chat flow that creates the hidden boss session, binds it (start --boss-session) and applies the
+// task-session budget. T4's change flips it together with those, and nothing else does. While it is false the
+// mode is unavailable with openModePendingReason whatever the probe says, and the probe is not asked.
+var openModeReady = false
+
+const openModePendingReason = "not available yet: boss binding pending"
+
+// openModeCheck is the CHEAP availability the chat paths use (set by the CLI wiring through SetOpenModeCheck): the
+// platform and a plain read of whether this profile has a run, with no host step, no witness and no unit, and no run
+// id in its reason. The real containment probe is the operator-gated `doomsday probe` and the start's own gate; chat
+// paths are reachable by agents and never run it.
+var openModeCheck = func() (bool, string) { return false, "not available yet" }
+
+// SetOpenModeCheck installs the cheap check and returns a function that puts the old one back.
+func SetOpenModeCheck(p func() (bool, string)) (restore func()) {
+	old := openModeCheck
+	openModeCheck = p
+	return func() { openModeCheck = old }
+}
+
+// SetOpenModeReady sets openModeReady and returns a function that puts the old value back. It is the seam of tests
+// (and of the change that flips the switch): no setting, flag or environment variable reaches it.
+func SetOpenModeReady(v bool) (restore func()) {
+	old := openModeReady
+	openModeReady = v
+	return func() { openModeReady = old }
+}
+
+// OpenModeNotReady is the reason the open mode is not offered at all yet, "" once the boss binding is there. It is
+// cheap: it asks no probe.
+func OpenModeNotReady() string {
+	if openModeReady {
+		return ""
+	}
+	return openModePendingReason
+}
+
 // OpenModeAvailability says whether the open-ended mode can be chosen and, when it cannot, why. It is the one
-// place the answer comes from; nothing starts an open-ended run from a chat yet, so for now it is never available.
-var OpenModeAvailability = func() (ok bool, reason string) { return false, "not available yet" }
+// place the answer comes from: not ready, then the cheap check (never the real probe).
+var OpenModeAvailability = func() (ok bool, reason string) {
+	if !openModeReady {
+		return false, openModePendingReason
+	}
+	return openModeCheck()
+}
 
 // ErrChatModeLocked is what a change of the mode answers once the conversation has a message.
 var ErrChatModeLocked = errors.New("the chat mode is chosen before the first message and cannot change afterwards")

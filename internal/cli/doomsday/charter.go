@@ -144,6 +144,12 @@ func LoadCharter(r io.Reader) (Charter, error) {
 	if len(raw) > maxCharterBytes {
 		return Charter{}, fmt.Errorf("the charter is larger than %d bytes", maxCharterBytes)
 	}
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return Charter{}, errors.New("the charter is empty")
+	}
+	if err := checkDuplicateKeys(raw); err != nil {
+		return Charter{}, fmt.Errorf("the charter is not valid: %w", err)
+	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
 	var c Charter
