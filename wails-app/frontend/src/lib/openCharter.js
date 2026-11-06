@@ -11,6 +11,7 @@ export const LIMIT_PRESETS = {
   standard: { tree_depth: 4, live_per_tree: 30, max_concurrent: 30, spawn_rate: 6, open_sessions: 50, max_total: 100 },
 }
 export const LIMIT_KEYS = Object.keys(LIMIT_PRESETS.standard)
+export const MAX_TREE_DEPTH = 12 // charter.go MaxTreeDepth
 export const ASK_ACCESS = ['scoped', 'coding', 'workspace'] // never full
 
 const emptyPin = () => ({ provider: '', model: '', version: '' })
@@ -56,7 +57,13 @@ export function effectiveCapUsd(charterUsd, sessionUsd) {
 
 const pinOk = p => !!(p.provider.trim() && p.model.trim() && p.version.trim())
 const cleanPin = p => ({ provider: p.provider.trim(), model: p.model.trim(), version: p.version.trim() })
-const posInt = v => (/^\d+$/.test(String(v).trim()) ? Number(v) : NaN)
+// A whole number that fits a safe integer; a count above MAX_COUNT is refused as unreasonable, not rounded.
+const MAX_COUNT = 1000000
+const posInt = v => {
+  const s = String(v).trim()
+  const n = /^\d+$/.test(s) ? Number(s) : NaN
+  return Number.isSafeInteger(n) && n <= MAX_COUNT && String(n) === s.replace(/^0+(?=\d)/, '') ? n : NaN
+}
 
 function criteriaOf(list, errors) {
   const out = []
@@ -92,7 +99,9 @@ export function buildCharter(form) {
     if (!(n >= 1)) errors.limits = `${k} is a whole number of at least 1`
     limits[k] = n
   }
+  if (!errors.limits && (limits.tree_depth > MAX_TREE_DEPTH)) errors.limits = `tree_depth is at most ${MAX_TREE_DEPTH}`
   if (!errors.limits && limits.max_concurrent > limits.live_per_tree) errors.limits = 'max concurrent is above live per tree: lower it'
+  if (!errors.limits && limits.max_total < limits.live_per_tree) errors.limits = 'max total is below live per tree: raise it'
   const budget = budgetChoice(form.budget.choice, form.budget.usd)
   if (budget.error) errors.budget = budget.error
   const lines = LINES.filter(l => form.lines.includes(l))

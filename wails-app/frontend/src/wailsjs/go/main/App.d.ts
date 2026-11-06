@@ -240,7 +240,7 @@ export function DoomsdayProbe():Promise<string>;
 
 export function DoomsdayRender(arg1:string):Promise<string>;
 
-export function DoomsdayStart(arg1:string,arg2:string,arg3:number):Promise<string>;
+export function DoomsdayStart(arg1:string,arg2:string,arg3:string,arg4:number):Promise<string>;
 
 export function DoomsdayStop():Promise<string>;
 

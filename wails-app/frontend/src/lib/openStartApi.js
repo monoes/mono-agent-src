@@ -13,6 +13,7 @@ export const openStartApi = {
   entry: () => call(() => GoApp.DoomsdayOpenEntry()),
   // The preview of a charter object: {hash, lines, lift_count, text, phrase_template}. Writes nothing.
   render: charter => call(() => GoApp.DoomsdayRender(JSON.stringify(charter))),
-  // Starts the run with the phrase the person typed. bossSession is the id of the boss session, 0 for none.
-  start: (charter, phrase, bossSession = 0) => call(() => GoApp.DoomsdayStart(JSON.stringify(charter), phrase, bossSession)),
+  // Starts the run with the phrase the person typed and the token of the preview (start_token). The app also asks the
+  // person in a native dialog. {ok, started, state: started|not_started|unknown, output, detail, code}.
+  start: (charter, phrase, token, bossSession) => call(() => GoApp.DoomsdayStart(JSON.stringify(charter), phrase, token, bossSession)),
 }
