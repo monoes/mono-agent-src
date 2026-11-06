@@ -27,6 +27,16 @@ export function transcriptMessage(output, conversationId) {
   return line ? line.slice(prefix.length) : ''
 }
 
+// isRepair: a later stop that found no open run and finished what the previous one left (exit 0, no "stopped" first line).
+export function isRepair(output) {
+  return /^no open run; (ended sessions|wrote the chat message)/.test(String(output || '').trim())
+}
+
+// A line the CLI printed about something it could not do: shown as a warning, never as a success.
+export function isWarnLine(line) {
+  return /\bNOT (ended|written|stopped|RECORDED)\b|cannot be read|^Stop /.test(line)
+}
+
 export function OpenEndedStop({ chatMode, runExists, conversationId, onStopped, api = controlRoomApi }) {
   const { t } = useTranslation()
   const [phase, setPhase] = useState('idle') // idle | confirm | stopping | done
@@ -38,12 +48,13 @@ export function OpenEndedStop({ chatMode, runExists, conversationId, onStopped, 
     const r = await api.stop()
     setResult(r)
     setPhase('done')
-    if (r?.ok && r?.stopped && onStopped) {
-      const line = stopLine(r.output)
-      onStopped(transcriptMessage(r.output, conversationId) || t('chatMode.stop.message', { time: new Date().toLocaleString(), line }))
+    if (r?.ok && (r?.stopped || isRepair(r.output)) && onStopped) {
+      const saved = transcriptMessage(r.output, conversationId)
+      // When the CLI wrote no message for this chat the one shown here is only local, and says so.
+      onStopped(saved || t('chatMode.stop.localMessage', { message: t('chatMode.stop.message', { time: new Date().toLocaleString(), line: stopLine(r.output) }) }))
     }
   }
-  const failed = phase === 'done' && !(result?.ok && result?.stopped)
+  const failed = phase === 'done' && !(result?.ok && (result?.stopped || isRepair(result?.output)))
   return (
     <span data-testid="chat-stop" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontFamily: mono, fontSize: 9 }}>
       {phase === 'confirm' ? (
@@ -60,7 +71,13 @@ export function OpenEndedStop({ chatMode, runExists, conversationId, onStopped, 
       {phase === 'done' && (
         <span role={failed ? 'alert' : 'status'} data-testid="chat-stop-result" data-ok={failed ? 'no' : 'yes'} style={{ flexBasis: '100%' }}>
           {failed && <strong>{t('chatMode.stop.failed')}</strong>}
-          {[result?.output, result?.detail, result?.error].filter(Boolean).map((x, i) => <pre key={i} style={{ margin: '2px 0', whiteSpace: 'pre-wrap' }}>{String(x).slice(0, 4000)}</pre>)}
+          {[result?.output, result?.detail, result?.error].filter(Boolean).map((x, i) => (
+            <pre key={i} style={{ margin: '2px 0', whiteSpace: 'pre-wrap' }}>
+              {String(x).slice(0, 4000).split('\n').map((l, j) => (isWarnLine(l)
+                ? <span key={j} data-testid="chat-stop-warn" role="alert" style={{ display: 'block', color: 'var(--red, #ef4444)', fontWeight: 700 }}>{l}</span>
+                : <span key={j} style={{ display: 'block' }}>{l}</span>))}
+            </pre>
+          ))}
         </span>
       )}
     </span>
