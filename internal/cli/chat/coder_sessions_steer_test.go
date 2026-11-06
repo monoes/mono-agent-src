@@ -279,7 +279,7 @@ func TestPlainSendToABossConversationIsRefused(t *testing.T) {
 	}
 	squat := seedConv(t, openTestChatStore(t, r.dbPath), r.db, ai.AccessFull, "2026-10-22T10:00:09Z")
 	if _, err := r.db.Exec(`INSERT INTO task_sessions (profile_id, conversation_id, title, goal, access_level, max_tasks, max_depth, max_retries, created_by, created_at, updated_at, client_id, kind)
-		VALUES ('default', ?, 'squat', '', 'full', 10, 3, 2, 'agent-x', 'x', 'x', ?, 'task')`, squat.ID, tasks.BossClientID(r.front.ID, 7)); err != nil {
+		VALUES ('default', ?, 'squat', '', 'full', 10, 3, 2, 'agent-x', 'x', 'x', ?, 'mission')`, squat.ID, tasks.BossClientID(r.front.ID, 7)); err != nil {
 		t.Fatal(err)
 	}
 	if _, code := runSessionsCLI(t, r.cfg, "send", squat.ID, "hello"); code != 0 {
