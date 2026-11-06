@@ -9,6 +9,7 @@ vi.mock('../../services/api.js', () => ({ api: { openPathWithOS: vi.fn() }, noti
 
 import { CoderHeader } from './CoderHeader.jsx'
 import { showStop, stopLine, transcriptMessage } from './OpenEndedStop.jsx'
+import { outcome } from './stopOutcome.js'
 import { useRunExists } from './useRunExists.js'
 
 afterEach(cleanup)
@@ -197,6 +198,18 @@ describe('retry survives the probe', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Yes, stop the run' }))
     await waitFor(() => expect(screen.getByTestId('chat-stop-result')).toHaveAttribute('data-ok', 'yes'))
     expect(screen.queryByRole('button', { name: /Stop run|Retry cleanup/ })).toBeNull()
+  })
+})
+
+describe('the repair heads the CLI prints (one fixture, read by Go too)', () => {
+  it('a repair that ended sessions or wrote the owed message is a success; a failed one is a warning; other text is neither', async () => {
+    const heads = (await import('./stopOutput.fixture.json')).default
+    const ok = { ok: true, stopped: false, detail: '', code: '' }
+    expect(outcome({ ...ok, output: heads.repairEnded + ': 4, 5' })).toBe('ok')
+    expect(outcome({ ...ok, output: heads.repairNote + '\ntranscript c1: m' })).toBe('ok')
+    expect(outcome({ ok: false, stopped: false, output: heads.repairFailed })).toBe('warn')
+    expect(outcome({ ok: false, stopped: false, output: heads.repairEnded + ': 4\ntranscript NOT written (c1): x' })).toBe('warn')
+    expect(outcome({ ...ok, output: 'no open run; something else' })).toBe('fail')
   })
 })
 

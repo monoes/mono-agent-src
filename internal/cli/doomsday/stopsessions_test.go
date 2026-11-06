@@ -2,8 +2,11 @@ package doomsday
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -349,6 +352,153 @@ func TestARunStoppedLongAgoIsLeftAlone(t *testing.T) {
 	}
 	if _, st := r.w.repairStop(context.Background(), time.Now()); st != RepairDone {
 		t.Fatalf("a fresh run was not repaired: %v", st)
+	}
+}
+
+// The exact edge of the window: seven days to the second is still repaired, one second more is not.
+func TestTheRepairWindowIsExactlySevenDays(t *testing.T) {
+	for _, c := range []struct {
+		extra time.Duration
+		want  RepairStatus
+	}{{0, RepairDone}, {time.Second, RepairNothing}} {
+		r := newStopRig(t)
+		r.stopWithoutCleanup(t)
+		run, _ := r.w.Store.GetRun(context.Background(), "p1", 1)
+		_, st := r.w.repairStop(context.Background(), time.Unix(run.IntentAt, 0).Add(repairWindow+c.extra))
+		if st != c.want {
+			t.Fatalf("at the window + %v: %v, want %v", c.extra, st, c.want)
+		}
+	}
+}
+
+// The ">7 days" hint is printed only when something is actually left open; otherwise a bare stop says nothing extra.
+func TestTheOldRunHintIsPrintedOnlyWhenSessionsAreOpen(t *testing.T) {
+	r := newStopRig(t)
+	r.stopWithoutCleanup(t)
+	old := time.Now().Add(9 * 24 * time.Hour)
+	if lines, _ := r.w.repairStop(context.Background(), old); len(lines) != 1 {
+		t.Fatalf("sessions open, no hint: %v", lines)
+	}
+	ts := tasks.NewStore(r.w.DB)
+	for _, id := range []int64{r.kid, r.boss} {
+		if _, err := ts.StopSession(context.Background(), "p1", id, tasks.Actor{Kind: tasks.Human, Name: "operator"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if lines, st := r.w.repairStop(context.Background(), old); len(lines) != 0 || st != RepairNothing {
+		t.Fatalf("nothing open, yet: %v %v", lines, st)
+	}
+}
+
+func (r *stopRig) markerFile() string { return r.w.noticePath(1) }
+
+// DEAD END FIX: the first stop ends every session but cannot write the message. It records the message as owed before it
+// reports exit 8; the next stop writes exactly that message, clears the record, exits 0; the one after is the plain old failure.
+func TestAMessageTheFirstStopCouldNotWriteIsWrittenByTheNextStop(t *testing.T) {
+	r := newStopRig(t)
+	r.n.fail = errors.New("db locked")
+	out, err := run(t, r.deps, "", "stop")
+	if clicore.ExitCodeFor(err) != ExitCleanupFailed || !strings.Contains(out, "transcript NOT written (conv-a)") {
+		t.Fatalf("first: %v %q", err, out)
+	}
+	if _, serr := os.Stat(r.markerFile()); serr != nil {
+		t.Fatalf("the owed message was not recorded before the failure was reported: %v", serr)
+	}
+	if r.state(t, r.boss) != tasks.SessionStopped {
+		t.Fatal("setup: the sessions should be ended")
+	}
+	r.n.fail = nil
+	out, err = run(t, r.deps, "", "stop")
+	got := r.n.got["conv-a"]
+	if err != nil || !strings.HasPrefix(out, repairHeadNote+"\n") || len(got) != 1 || !strings.HasPrefix(got[0], "Open-ended run stopped by you at ") || !strings.HasSuffix(got[0], ": stopped") {
+		t.Fatalf("second: %v %q notes=%v", err, out, r.n.got)
+	}
+	if _, serr := os.Stat(r.markerFile()); !errors.Is(serr, os.ErrNotExist) {
+		t.Fatalf("the record is still there: %v", serr)
+	}
+	if out, err = run(t, r.deps, "", "stop"); err == nil || len(r.n.got["conv-a"]) != 1 {
+		t.Fatalf("third: %v %q %v", err, out, r.n.got)
+	}
+}
+
+// A record that cannot be honoured is not: another run's (charter, generation or stop time differ), or one past the window.
+// A chat whose sessions were ended by hand and that has no record gets nothing.
+func TestAnOwedRecordOfAnotherRunOrAnExpiredOneIsNotHonoured(t *testing.T) {
+	r := newStopRig(t)
+	r.stopWithoutCleanup(t)
+	ts := tasks.NewStore(r.w.DB)
+	for _, id := range []int64{r.kid, r.boss} {
+		if _, err := ts.StopSession(context.Background(), "p1", id, tasks.Actor{Kind: tasks.Human, Name: "operator"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run1, _ := r.w.Store.GetRun(context.Background(), "p1", 1)
+	ref := RunRef{CharterID: run1.CharterID, Generation: 1}
+	for name, p := range map[string]pendingNotice{
+		"another charter": {Charter: "other", Generation: 1, IntentAt: run1.IntentAt, Chats: map[string]string{"conv-a": "forged"}},
+		"another stop":    {Charter: ref.CharterID, Generation: 1, IntentAt: run1.IntentAt + 5, Chats: map[string]string{"conv-a": "forged"}},
+		"another gen":     {Charter: ref.CharterID, Generation: 2, IntentAt: run1.IntentAt, Chats: map[string]string{"conv-a": "forged"}},
+	} {
+		if err := r.w.putPending(1, p); err != nil {
+			t.Fatal(err)
+		}
+		if lines, st := r.w.repairStop(context.Background(), time.Now()); st != RepairNothing || len(lines) != 0 || len(r.n.got) != 0 {
+			t.Fatalf("%s: honoured: %v %v %v", name, lines, st, r.n.got)
+		}
+	}
+	// a good record past the window
+	if err := r.w.writePending(ref, run1.IntentAt, "conv-a", "Open-ended run stopped by you at T: stopped"); err != nil {
+		t.Fatal(err)
+	}
+	if lines, st := r.w.repairStop(context.Background(), time.Unix(run1.IntentAt, 0).Add(repairWindow+time.Second)); st != RepairNothing || len(lines) != 0 || len(r.n.got) != 0 {
+		t.Fatalf("expired: honoured: %v %v %v", lines, st, r.n.got)
+	}
+	// and the same record inside the window is honoured: the test is not vacuous
+	if _, st := r.w.repairStop(context.Background(), time.Now()); st != RepairDone || len(r.n.got["conv-a"]) != 1 {
+		t.Fatalf("a good record: %v %v", st, r.n.got)
+	}
+}
+
+// A chat whose note check cannot be read gets no message, and the output says so (it is not silently taken for "has one").
+func TestAnUnreadableNoteCheckIsReported(t *testing.T) {
+	r := newStopRig(t)
+	r.stopWithoutCleanup(t)
+	r.w.ChatNoteSince = func(context.Context, string, int64) (bool, error) { return false, errors.New("boom") }
+	lines, st := r.w.repairStop(context.Background(), time.Now())
+	if st != RepairFailed || !strings.Contains(strings.Join(lines, "\n"), "transcript check failed (conv-a): boom") || len(r.n.got) != 0 {
+		t.Fatalf("%v %v %v", lines, st, r.n.got)
+	}
+}
+
+// The strings the app matches on are the ones the Go side prints: one fixture, read by both.
+func TestTheRepairHeadsMatchTheFrontendFixture(t *testing.T) {
+	b, err := os.ReadFile("../../../wails-app/frontend/src/components/chat/stopOutput.fixture.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var f map[string]string
+	if err := json.Unmarshal(b, &f); err != nil {
+		t.Fatal(err)
+	}
+	if f["repairEnded"] != repairHeadEnded || f["repairNote"] != repairHeadNote || f["repairFailed"] != repairHeadFailed {
+		t.Fatalf("the Go heads and the frontend fixture differ: %v", f)
+	}
+}
+
+// If #1503 adds StoppedBestEffort to stop.Report it must be a value-receiver func() bool, or runEnded would miss it: a renamed
+// method, a pointer receiver or another signature fails here instead of silently ending no sessions.
+func TestAnyBestEffortMethodOfStopReportIsTheOneRunEndedReads(t *testing.T) {
+	for _, typ := range []reflect.Type{reflect.TypeOf(stop.Report{}), reflect.TypeOf(&stop.Report{})} {
+		for i := 0; i < typ.NumMethod(); i++ {
+			m := typ.Method(i)
+			if !strings.Contains(m.Name, "BestEffort") {
+				continue
+			}
+			if m.Name != "StoppedBestEffort" || typ.Kind() == reflect.Ptr && !reflect.TypeOf(stop.Report{}).Implements(reflect.TypeOf((*interface{ StoppedBestEffort() bool })(nil)).Elem()) ||
+				m.Type.NumIn() != 1 || m.Type.NumOut() != 1 || m.Type.Out(0).Kind() != reflect.Bool {
+				t.Fatalf("stop.Report.%s has a shape runEnded does not read (%v): update runEnded", m.Name, m.Type)
+			}
+		}
 	}
 }
 

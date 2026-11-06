@@ -97,8 +97,18 @@ func (w Wiring) afterStop(ctx context.Context, o StopOutcome, verdict string, at
 		if endedConv[c] == 0 {
 			continue
 		}
-		if l := w.noteChat(ctx, c, stopMessage(verdict, at)); l != "" {
+		msg := stopMessage(verdict, at)
+		l, failed := w.noteChat(ctx, c, msg)
+		if l != "" {
 			lines = append(lines, l)
+		}
+		if failed {
+			// The message is owed: record it before the failure is reported, so a later stop can write it.
+			if run, intent, ok := w.runOfChat(ctx, o.Runs, c); !ok {
+				lines = append(lines, "transcript NOT recorded as owed ("+c+"): its run cannot be read")
+			} else if err := w.writePending(run, intent, c, msg); err != nil {
+				lines = append(lines, "transcript NOT recorded as owed ("+c+"): "+err.Error())
+			}
 		}
 	}
 	return AfterReport{Lines: cleanLines(lines), Failed: failedLines(lines)}
@@ -107,7 +117,7 @@ func (w Wiring) afterStop(ctx context.Context, o StopOutcome, verdict string, at
 // failedLines says whether any line reports something that was not done (the lines are this file's own).
 func failedLines(lines []string) bool {
 	for _, l := range lines {
-		if strings.Contains(l, " NOT ended") || strings.HasPrefix(l, "transcript NOT written") {
+		if strings.Contains(l, " NOT ended") || strings.HasPrefix(l, "transcript NOT") {
 			return true
 		}
 	}
@@ -115,14 +125,14 @@ func failedLines(lines []string) bool {
 }
 
 // noteChat writes msg into chat c's transcript and returns the output line for it.
-func (w Wiring) noteChat(ctx context.Context, c, msg string) string {
+func (w Wiring) noteChat(ctx context.Context, c, msg string) (line string, failed bool) {
 	if w.ChatNote == nil {
-		return "" // an install with no chat store (only a test wiring): there is no transcript to write
+		return "", false // an install with no chat store (only a test wiring): there is no transcript to write
 	}
 	if err := w.ChatNote(ctx, c, msg); err != nil {
-		return "transcript NOT written (" + c + "): " + err.Error()
+		return "transcript NOT written (" + c + "): " + err.Error(), true
 	}
-	return "transcript " + c + ": " + msg
+	return "transcript " + c + ": " + msg, false
 }
 
 // endSessions stops each open session as the operator; a failure is a line, never a stop of the others.
@@ -141,6 +151,23 @@ func (w Wiring) endSessions(ctx context.Context, ids []runSession) (lines, ended
 		endedConv[s.conv]++
 	}
 	return lines, ended, endedConv
+}
+
+// runOfChat is the run of runs whose stamped boss belongs to chat c, and the time its stop was recorded.
+func (w Wiring) runOfChat(ctx context.Context, runs []RunRef, c string) (RunRef, int64, bool) {
+	for _, r := range runs {
+		rows, err := w.queryRunSessions(ctx, `SELECT id, conversation_id FROM task_sessions WHERE profile_id = ? AND doomsday_charter_id = ?
+			AND doomsday_generation = ? AND COALESCE(parent_session_id, 0) = 0 AND archived_at = '' AND conversation_id = ?`, w.Profile, r.CharterID, r.Generation, c)
+		if err != nil || len(rows) == 0 {
+			continue
+		}
+		run, err := w.Store.GetRun(ctx, w.Profile, r.Generation)
+		if err != nil {
+			return RunRef{}, 0, false
+		}
+		return r, run.IntentAt, true
+	}
+	return RunRef{}, 0, false
 }
 
 type runSession struct {
@@ -236,8 +263,18 @@ const (
 // repairWindow bounds the repair: a run stopped longer ago than this is left as it is (its sessions are the operator's by now).
 const repairWindow = 7 * 24 * time.Hour
 
-// repairStop finishes what the last stop left. Lines are printed in place of the "no open run" failure. The chat message is
-// written only for a chat in which a session was ended just now (and that does not hold this stop's message yet), and says so.
+// The first lines a repair prints. The app reads them (components/chat/stopOutcome.js builds its patterns from the same
+// strings, in stopOutput.fixture.json, and TestTheRepairHeadsMatchTheFrontendFixture ties the two).
+const (
+	repairHeadEnded  = "no open run; ended sessions left open by the previous stop"
+	repairHeadNote   = "no open run; wrote the chat message the previous stop could not write"
+	repairHeadFailed = "no open run; the previous stop's sessions could not be ended"
+)
+
+// repairStop finishes what the last stop left. Lines are printed in place of the "no open run" failure. A chat message is
+// written in two cases only: a session of that chat was ended just now (and the chat does not hold this stop's message yet),
+// or the first stop recorded that this very message is owed (a pending record of this run, inside the window). No other chat
+// is written to: a chat whose sessions were ended by hand never gets a message that claims a stop.
 func (w Wiring) repairStop(ctx context.Context, at time.Time) ([]string, RepairStatus) {
 	if w.DB == nil || w.Store == nil {
 		return nil, RepairNothing
@@ -251,44 +288,80 @@ func (w Wiring) repairStop(ctx context.Context, at time.Time) ([]string, RepairS
 		return nil, RepairNothing
 	}
 	stoppedAt := time.Unix(run.IntentAt, 0)
-	if at.Sub(stoppedAt) > repairWindow {
-		return []string{"no open run; the last run was stopped more than 7 days ago, so its sessions are left as they are"}, RepairNothing
-	}
 	ref := RunRef{CharterID: run.CharterID, Generation: run.Generation}
+	if at.Sub(stoppedAt) > repairWindow {
+		// A hint only when something is left open; a bare stop with nothing to say stays the plain old failure.
+		if ids, _, err := w.openRunSessions(ctx, []RunRef{ref}, ""); err == nil && len(ids) > 0 {
+			return []string{"no open run; the last run was stopped more than 7 days ago, so its sessions are left as they are"}, RepairNothing
+		}
+		return nil, RepairNothing
+	}
 	notAfter := stoppedAt.UTC().Format("2006-01-02T15:04:05Z")
 	ids, convs, err := w.openRunSessions(ctx, []RunRef{ref}, notAfter)
 	if err != nil {
-		return []string{"no open run; the previous stop's sessions cannot be read: " + err.Error()}, RepairFailed
+		return []string{repairHeadFailed + ": " + err.Error()}, RepairFailed
 	}
 	lines, ended, endedConv := w.endSessions(ctx, ids)
-	failed := len(lines) > 0
+	failed := failedLines(lines)
 	var notes []string
+	pending := w.readPending(ref, run.IntentAt)
+	wrote := 0
 	for _, c := range convs {
-		if endedConv[c] == 0 || (w.ChatNoteSince != nil && w.chatHasNote(ctx, c, run.IntentAt)) {
+		owed, isOwed := pending.Chats[c]
+		if isOwed {
+			// The first stop could not write this message: write that message, then clear the record.
+			l, bad := w.noteChat(ctx, c, owed)
+			notes = append(notes, l)
+			failed = failed || bad
+			if !bad {
+				wrote++
+				if err := w.clearPending(ref, run.IntentAt, c); err != nil {
+					notes = append(notes, "transcript record NOT cleared ("+c+"): "+err.Error())
+					failed = true
+				}
+			}
 			continue
+		}
+		if endedConv[c] == 0 {
+			continue
+		}
+		if w.ChatNoteSince != nil {
+			has, err := w.ChatNoteSince(ctx, c, run.IntentAt)
+			if err != nil {
+				notes = append(notes, "transcript check failed ("+c+"): "+err.Error()+"; no message written there")
+				failed = true
+				continue
+			}
+			if has {
+				continue
+			}
 		}
 		// Worded for what happened: the run was stopped earlier (not now), and these sessions were ended now. Never "stopped by you at <now>".
 		msg := cleanLine(fmt.Sprintf("Open-ended run stopped earlier; its sessions were ended by a later stop at %s UTC", at.UTC().Format("2006-01-02 15:04:05")))
-		if l := w.noteChat(ctx, c, msg); l != "" {
-			failed = failed || strings.HasPrefix(l, "transcript NOT")
+		l, bad := w.noteChat(ctx, c, msg)
+		if l != "" {
 			notes = append(notes, l)
 		}
+		failed = failed || bad
+		if bad {
+			if err := w.writePending(ref, run.IntentAt, c, msg); err != nil {
+				notes = append(notes, "transcript NOT recorded as owed ("+c+"): "+err.Error())
+			}
+		}
 	}
-	if len(ended) == 0 && !failed {
+	if len(ended) == 0 && wrote == 0 && !failed {
 		return nil, RepairNothing
 	}
-	head := "no open run; ended sessions left open by the previous stop: " + strings.Join(ended, ", ")
-	if len(ended) == 0 {
-		head = "no open run; the previous stop's sessions could not be ended"
+	head := repairHeadEnded + ": " + strings.Join(ended, ", ")
+	switch {
+	case len(ended) == 0 && wrote > 0:
+		head = repairHeadNote
+	case len(ended) == 0:
+		head = repairHeadFailed
 	}
 	out := cleanLines(append(append([]string{head}, lines...), notes...))
 	if failed {
 		return out, RepairFailed
 	}
 	return out, RepairDone
-}
-
-func (w Wiring) chatHasNote(ctx context.Context, c string, since int64) bool {
-	ok, err := w.ChatNoteSince(ctx, c, since)
-	return err != nil || ok // an unreadable answer writes nothing twice
 }
