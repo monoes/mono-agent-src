@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 func rootIDs(t *testing.T, db *storage.Database) []string {
@@ -21,6 +22,7 @@ func rootIDs(t *testing.T, db *storage.Database) []string {
 
 // The daemon spans the profiles that exist: a missing "default" is not added.
 func TestProfileRootsNeverInventsTheDefaultProfile(t *testing.T) {
+	testdb.MustSeed(t.TempDir() + "/org.db")
 	db, err := storage.NewDatabase(t.TempDir() + "/org.db")
 	if err != nil {
 		t.Fatal(err)

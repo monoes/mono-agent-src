@@ -8,6 +8,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -15,6 +16,7 @@ import (
 // and Wait says so, in both generations; that is what lets the supervisor stop
 // them and start them again.
 func TestOrgServicesStopWhenTheirContextEnds(t *testing.T) {
+	testdb.MustSeed(t.TempDir() + "/org.db")
 	db, err := storage.NewDatabase(t.TempDir() + "/org.db")
 	if err != nil {
 		t.Fatal(err)
