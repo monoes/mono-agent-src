@@ -181,9 +181,11 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      # Go build cache for the (non-race) devaccount build, which compiled cold every run. Restored
-      # on every run, saved only by a push to master (see the Test shard jobs). Best-effort and
-      # time-boxed: this is the required check, a cache outage must not fail or stall it.
+          cache: false # the explicit Go cache steps below replace it (see the Test shard jobs)
+      # Go build + module cache for the (non-race) devaccount build, which compiled cold every run.
+      # Restored on every run, saved only by a push to master (see the Test shard jobs).
+      # Best-effort and time-boxed: this is the required check and its job limit is 10 minutes, so
+      # the two cache steps may take 2 + 2 minutes at the very worst and a cold build still fits.
       - name: Work out the Go build cache key
         id: gocache
         env:
@@ -192,16 +194,19 @@ jobs:
           prefix="gobuild-doctor-$(go env GOVERSION)-"
           {
             echo "dir=$(go env GOCACHE)"
+            echo "mod=$(go env GOMODCACHE)"
             echo "prefix=$prefix"
-            echo "key=${prefix}$(date -u +%G-W%V)-$GOSUM"
+            echo "key=${prefix}$(date -u +%Y-%j)-$GOSUM"
           } >> "$GITHUB_OUTPUT"
       - name: Restore the Go build cache
         id: gocache-restore
         continue-on-error: true
-        timeout-minutes: 3
+        timeout-minutes: 2
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ steps.gocache.outputs.dir }}
+          path: |
+            ${{ steps.gocache.outputs.dir }}
+            ${{ steps.gocache.outputs.mod }}
           key: ${{ steps.gocache.outputs.key }}
           restore-keys: ${{ steps.gocache.outputs.prefix }}
       - name: Build monoagentcli
@@ -209,10 +214,12 @@ jobs:
       - name: Save the Go build cache (master push only)
         if: github.event_name == 'push' && steps.gocache-restore.outputs.cache-hit != 'true'
         continue-on-error: true
-        timeout-minutes: 3
+        timeout-minutes: 2
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ steps.gocache.outputs.dir }}
+          path: |
+            ${{ steps.gocache.outputs.dir }}
+            ${{ steps.gocache.outputs.mod }}
           key: ${{ steps.gocache.outputs.key }}
       # Profile guard (scripts/lib/mono.sh): every scoped monoagentcli call in
       # these scripts must name its profile. They run each invocation through
@@ -520,17 +527,22 @@ jobs:
         if: matrix.tags == 'default' || needs.changes.outputs.nosocial == 'true'
         with:
           go-version-file: go.mod
-          cache: ${{ runner.environment == 'github-hosted' }}
+          cache: false # the explicit Go cache steps below replace it (hosted); a persistent runner keeps its own
 
-      # Go BUILD cache for the -race compile (the module cache above does not hold it): a cold
-      # shard recompiles the whole -race tree. Restored on every run (fork PRs too: they may read
-      # the base branch's caches), SAVED only by a push to master, so PR refs do not fill the 10 GB
-      # repository cache quota with copies nobody else can read. One entry per (tags, class, Go
-      # version, ISO week, go.sum); the class is the set of shards that compile the same thing
-      # (cmd/monoagentcli shards 0-3; tp1+tp2), and only one shard of a class saves it. The week
-      # in the key refreshes the entry weekly; restore-keys fall back to the newest older one.
-      # Hosted runners only: a persistent runner keeps its own GOCACHE. Both steps are
-      # best-effort (a cache outage must never fail a shard).
+      # Go BUILD cache for the -race compile. actions/setup-go's own cache is OFF in this job: it
+      # caches GOCACHE and GOMODCACHE under one key per go.sum, which holds whatever the first job
+      # that missed had built (about 30 MB in the 2026-11-06 runs), is never refreshed, and is
+      # saved from PR refs too (quota nobody else can read). This cache replaces it: the build
+      # cache and the module cache, restored on every run (fork PRs too: they may read the base
+      # branch's caches) and SAVED only by a push to master. One entry per (tags, class, Go
+      # version, UTC day, go.sum): at most one fresh entry a day per class, so a day of master
+      # pushes does not multiply the quota spend, and the entry is at most a day old. The class is
+      # the set of shards that compile nearly the same thing: cmd/monoagentcli shards 0-3 (saved
+      # by 0), r0-r3 (saved by r0; they share their dependency compiles), tp1+tp2 (saved by tp1);
+      # the nosocial rest shard has its own. restore-keys fall back to the newest older entry.
+      # Hosted runners only: a persistent runner keeps its own caches. Both steps are best-effort
+      # (a cache outage must never fail a shard); the job has no timeout-minutes of its own
+      # (GitHub's 360 minute default), so the 4 + 4 minute budgets fit.
       - name: Work out the Go build cache key
         id: gocache
         if: runner.environment == 'github-hosted' && (matrix.tags == 'default' || needs.changes.outputs.nosocial == 'true')
@@ -541,14 +553,16 @@ jobs:
         run: |
           case "$SHARD" in
             0 | 1 | 2 | 3) class=cli saver=0 ;;
+            r0 | r1 | r2 | r3) class=r saver=r0 ;;
             tp1 | tp2) class=tp saver=tp1 ;;
             *) class="$SHARD" saver="$SHARD" ;;
           esac
           prefix="gobuild-race-$TAGS-$class-$(go env GOVERSION)-"
           {
             echo "dir=$(go env GOCACHE)"
+            echo "mod=$(go env GOMODCACHE)"
             echo "prefix=$prefix"
-            echo "key=${prefix}$(date -u +%G-W%V)-$GOSUM"
+            echo "key=${prefix}$(date -u +%Y-%j)-$GOSUM"
             echo "save=$([ "$SHARD" = "$saver" ] && echo true || echo false)"
           } >> "$GITHUB_OUTPUT"
 
@@ -559,7 +573,9 @@ jobs:
         timeout-minutes: 4
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ steps.gocache.outputs.dir }}
+          path: |
+            ${{ steps.gocache.outputs.dir }}
+            ${{ steps.gocache.outputs.mod }}
           key: ${{ steps.gocache.outputs.key }}
           restore-keys: ${{ steps.gocache.outputs.prefix }}
 
@@ -602,7 +618,9 @@ jobs:
         timeout-minutes: 4
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ steps.gocache.outputs.dir }}
+          path: |
+            ${{ steps.gocache.outputs.dir }}
+            ${{ steps.gocache.outputs.mod }}
           key: ${{ steps.gocache.outputs.key }}
 
   # internal/agentbox needs the real host root (its launcher check wants /usr/bin/bwrap
