@@ -14,18 +14,27 @@ export function showBossInAgents(navigate, { timeoutMs = 4000, intervalMs = 100,
   navigate('ai')
   return new Promise(resolve => {
     const t0 = Date.now()
+    let finished = false
+    let listening = false
     const onUser = () => cancelShowBoss()
-    const done = ok => {
+    const unlisten = () => {
+      if (!listening) return
+      listening = false
       document.removeEventListener('keydown', onUser, true)
       document.removeEventListener('pointerdown', onUser, true)
+    }
+    const done = ok => {
+      finished = true
+      unlisten()
       resolve(ok)
     }
-    // the click that started this wait is already over; only a later one counts as going elsewhere
+    // the click that started this wait is already over; only a later one counts as going elsewhere. Nothing is registered for a
+    // wait that has already ended (the section was there at once), and every listener added is removed when it ends.
     setTimeout(() => {
-      if (mine === current) {
-        document.addEventListener('keydown', onUser, true)
-        document.addEventListener('pointerdown', onUser, true)
-      }
+      if (finished || mine !== current) return
+      listening = true
+      document.addEventListener('keydown', onUser, true)
+      document.addEventListener('pointerdown', onUser, true)
     }, 0)
     const tick = () => {
       if (mine !== current) return done(false)

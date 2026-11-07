@@ -72,6 +72,36 @@ describe('the wait is cancellable', () => {
   })
 })
 
+describe('no listener is left behind', () => {
+  afterEach(() => { vi.restoreAllMocks(); document.body.innerHTML = ''; cancelShowBoss() })
+  const track = () => {
+    const live = new Map()
+    const key = (t, fn, c) => `${t}|${fn?.name}|${!!(c === true || c?.capture)}`
+    const add = vi.spyOn(document, 'addEventListener').mockImplementation((t, fn, c) => { const k = key(t, fn, c); live.set(k, (live.get(k) || 0) + 1) })
+    const rem = vi.spyOn(document, 'removeEventListener').mockImplementation((t, fn, c) => { const k = key(t, fn, c); live.set(k, (live.get(k) || 0) - 1) })
+    return { live: () => [...live.values()].reduce((a, b) => a + b, 0), adds: () => add.mock.calls.length, removes: () => rem.mock.calls.length }
+  }
+  it('the section already on the page: the wait ends at once and registers nothing that stays', async () => {
+    const el = document.createElement('section'); el.setAttribute('data-testid', 'open-run-boss'); el.tabIndex = -1; document.body.appendChild(el)
+    const t = track()
+    for (let i = 0; i < 3; i++) expect(await showBossInAgents(vi.fn(), { intervalMs: 5, timeoutMs: 100 })).toBe(true)
+    await new Promise(r => setTimeout(r, 20)) // past the zero-delay registration
+    expect(t.live()).toBe(0)
+    expect(t.adds()).toBe(t.removes())
+  })
+  it('a wait that runs out or is cancelled leaves none either', async () => {
+    const t = track()
+    expect(await showBossInAgents(vi.fn(), { intervalMs: 5, timeoutMs: 40 })).toBe(false)
+    const p = showBossInAgents(vi.fn(), { intervalMs: 5, timeoutMs: 500 })
+    await new Promise(r => setTimeout(r, 10))
+    cancelShowBoss()
+    expect(await p).toBe(false)
+    await new Promise(r => setTimeout(r, 20))
+    expect(t.live()).toBe(0)
+    expect(t.adds()).toBe(t.removes())
+  })
+})
+
 describe('the link', () => {
   it('runs before, then navigates to the Agents page', async () => {
     const navigate = vi.fn(), before = vi.fn()

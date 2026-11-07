@@ -18,7 +18,7 @@ export function useSessionOrbit(enabled) {
     setSessions(res.sessions)
   }, [])
   useEffect(() => {
-    if (!enabled) return undefined
+    if (!enabled) { epoch.current++; setSessions([]); return undefined } // nothing read while disabled, and nothing stale kept
     read()
     const timer = setInterval(() => { if (visible.current) read() }, REFRESH_MS)
     return () => { clearInterval(timer); epoch.current++ }
