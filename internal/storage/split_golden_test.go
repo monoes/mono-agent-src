@@ -82,7 +82,7 @@ func TestSplitterLeavesEveryExistingMigrationUnchanged(t *testing.T) {
 		}
 	}
 	sort.Strings(withTriggers)
-	if want := []string{"migrations/143_coder_budget_requests.sql", "migrations/148_procbind_v2_tables.sql", "migrations/149_task_session_reservations.sql", "migrations/153_doomsday_store.sql", "migrations/154_task_reservation_exec.sql", "migrations/155_doomsday_governor.sql", "migrations/156_doomsday_strategy.sql", "migrations/159_doomsday_run_seen.sql", "migrations/160_workflow_run_tokens.sql", "migrations/163_coder_sessions_chat_mode.sql"}; !reflect.DeepEqual(withTriggers, want) {
+	if want := []string{"migrations/143_coder_budget_requests.sql", "migrations/148_procbind_v2_tables.sql", "migrations/149_task_session_reservations.sql", "migrations/153_doomsday_store.sql", "migrations/154_task_reservation_exec.sql", "migrations/155_doomsday_governor.sql", "migrations/156_doomsday_strategy.sql", "migrations/159_doomsday_run_seen.sql", "migrations/160_workflow_run_tokens.sql", "migrations/163_coder_sessions_chat_mode.sql", "migrations/164_mission_goals.sql"}; !reflect.DeepEqual(withTriggers, want) {
 		t.Fatalf("migrations with triggers = %v, want %v: a new trigger migration needs this list and its split checked", withTriggers, want)
 	}
 }
