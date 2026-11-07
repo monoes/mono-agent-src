@@ -13,7 +13,7 @@ import (
 )
 
 // openRunWithBoss is a profile with an open run whose top-level lead (a chat's conversation) carries the run's stamp.
-func openRunWithBoss(t *testing.T) (Wiring, *bossRig, string) {
+func openRunWithBoss(t *testing.T, state string) (Wiring, *bossRig, string) {
 	t.Helper()
 	r := newBossRig(t)
 	conv := r.chat(t, ai.AccessFull).ID
@@ -23,7 +23,7 @@ func openRunWithBoss(t *testing.T) (Wiring, *bossRig, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.db.DB.Exec(`INSERT INTO doomsday_runs (profile, generation, charter_id, state, mac) VALUES ('p1', 1, 'c1', 'running', x'01')`); err != nil {
+	if _, err := r.db.DB.Exec(`INSERT INTO doomsday_runs (profile, generation, charter_id, state, mac) VALUES ('p1', 1, 'c1', ?, x'01')`, state); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := r.db.DB.Exec(`UPDATE task_sessions SET doomsday_charter_id = 'c1', doomsday_generation = 1 WHERE id = ?`, se.ID); err != nil {
@@ -43,7 +43,7 @@ func queueFirst(t *testing.T, db *sql.DB, conv string) {
 // after the start had succeeded), or started once a turn exists. A profile with no run has none to report.
 func TestFirstTurnOfReadsTheHostsAnswer(t *testing.T) {
 	ctx := context.Background()
-	w, r, conv := openRunWithBoss(t)
+	w, r, conv := openRunWithBoss(t, "running")
 	db := r.db.DB
 	if st, err := (Wiring{DB: db, Profile: "nobody"}).FirstTurnOf(ctx); err != nil || st.State != "" {
 		t.Fatalf("no run: %+v %v", st, err)
@@ -73,12 +73,13 @@ func TestFirstTurnOfReadsTheHostsAnswer(t *testing.T) {
 	if st, _ := w.FirstTurnOf(ctx); st.State != "started" {
 		t.Fatalf("turn exists: %+v", st)
 	}
-	// a stopped run's boss is nobody's first turn to report
-	if _, err := db.Exec(`UPDATE doomsday_runs SET state = 'quiescent'`); err != nil {
-		t.Fatal(err)
-	}
-	if st, _ := w.FirstTurnOf(ctx); st.State != "" {
-		t.Fatalf("stopped run: %+v", st)
+}
+
+// A stopped run's boss has no first turn to report.
+func TestFirstTurnOfIgnoresAStoppedRun(t *testing.T) {
+	w, _, _ := openRunWithBoss(t, "quiescent")
+	if st, err := w.FirstTurnOf(context.Background()); err != nil || st.State != "" {
+		t.Fatalf("stopped run: %+v %v", st, err)
 	}
 }
 
