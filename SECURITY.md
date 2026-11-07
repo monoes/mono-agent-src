@@ -3527,8 +3527,10 @@ pid when asked, so after a pid is recycled it names the new process. What the ke
 descriptor, so the service accepts the process at that pid only if it can read the process's descriptor table and find a unix
 socket open there whose control block is the one this end is connected to and which is connected back to this end (proc_info,
 PROC_PIDFDSOCKETINFO). A process that took over a recycled pid does not hold the connector's end, and is refused. The proof is
-made once per connection, in the connection's own goroutine after the per-peer limits, and is bounded (a peer with more than
-4096 descriptors, or a proof that takes over 500 ms, is refused). The offsets it reads are the public proc_info ABI, checked
+made once per connection, in the connection's own goroutine after the per-peer limits and the uid check, and is bounded: a
+peer with more than 4096 descriptors (all of them, as the first listing counts them) is refused, and the 500 ms budget is
+checked between descriptors, so one slow proc_info call is not interrupted. The per-peer limits are keyed by the pid read at
+accept, while serving the connection reads LOCAL_PEERPID again and the proof is made for that later pid. The offsets it reads are the public proc_info ABI, checked
 on one macOS 27 arm64 machine; Ready makes two connected pairs inside the process and fails closed, with a message, unless each
 pair's ends are found as each other's holder and the other pair's are not (so offsets that read one field twice cannot pass). The process table is read through sysctl (kern.proc.pid), and a process is pinned
 by its pid together with its start time in microseconds: the pin is alive only while the kernel still reports that pair and the
