@@ -4776,6 +4776,12 @@ refuses where containment is unavailable (no cgroup v2 delegation, macOS, Window
 operator gate (`stop` works signed out and offline); the read verbs (`status`, `render`, `overview`, `feed`, `strategy ...`) stay readable. With no run the wiring is
 inert (see "No run, no mode" below). Limits: a finished run sticks, and the record that a profile ever opened a run lives in the same database as the run table.
 
+**Two refusals with a way out.** (1) A profile that never stored a secret has no vault key; `doomsday probe` and `doomsday start` say so in plain words
+("this profile has no vault key yet: add any secret first (`monoagentcli secret add ...`), then start again") before the witness is built, and the
+start form shows the probe's reason. (2) `doomsday stop` ends "NOT stopped" with "the emergency socket is missing but the host lock is held" when a coder host is
+alive but has set up no gate for the run's generation yet (gates are created on the first dispatch of a generation). The way out: `monoagentcli coder host stop`
+(running turns keep going, the next host picks them up), then `doomsday stop` again; the host lock is an OS file lock that is released when the process exits.
+
 **Boss tools of the open-ended mode** (`internal/mcp/boss_tools.go`): `session_boss_answer_ask`, `session_boss_approve_plan` and
 `session_boss_grant_budget` are the lead-facing mirrors of the typed operations ask.answer, plan.approve and spend.grant. Each calls
 coderhost's `BossAnswerAsk` / `BossApprovePlan` / `BossGrantBudget` as the lead whose token the process holds (never an operator

@@ -205,7 +205,7 @@ func (l ProcessHostLink) CloseHost(ctx context.Context, gen uint64) HostOutcome 
 		if l.hostAbsent() {
 			return HostOutcome{Kind: HostNone, Note: "no host holds a gate of this generation (the host lock is free)"}
 		}
-		err = fmt.Errorf("the emergency socket is missing but the host lock is held: %w", err)
+		err = fmt.Errorf("the emergency socket is missing but the host lock is held (the host has set up no gate for this generation yet; to get out, stop the coder host with `monoagentcli coder host stop` (running turns keep going, the next host picks them up), then run doomsday stop again): %w", err)
 	}
 	wait, poll := l.Wait, l.Poll
 	if wait == 0 {

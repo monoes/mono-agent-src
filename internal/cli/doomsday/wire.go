@@ -32,6 +32,9 @@ type Wiring struct {
 	Clock stop.Clock
 	// Binding says whether security.peercred_binding is on; nil refuses every start ("no run without binding").
 	Binding func(ctx context.Context) (bool, error)
+	// VaultKey (VaultKeyCheck in the CLI) says whether the profile has its vault data key; asked after the containment probe passes and before
+	// the witness is built. Nil skips the step.
+	VaultKey func(ctx context.Context) error
 	// DB is the profile's database: the merge journal and the task store's merge records are read from it. Nil
 	// leaves merge recovery out (only a test that does not exercise merges leaves it nil).
 	DB *sql.DB
@@ -92,6 +95,12 @@ func (w Wiring) Engine() *StoreEngine {
 			}
 			if err := w.Probe(); err != nil {
 				return err
+			}
+			// A profile with no vault key cannot sign the witness: say so in plain words instead of the witness's refusal.
+			if w.VaultKey != nil {
+				if err := w.VaultKey(context.Background()); err != nil {
+					return err
+				}
 			}
 			_, err := witness(context.Background())
 			return err
