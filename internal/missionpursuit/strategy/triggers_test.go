@@ -43,8 +43,9 @@ func TestNeverReplacesAtDatabase(t *testing.T) {
 	f := newFixture(t)
 	f.seed(t)
 	s := f.session
+	kh := types.KeyHash("first direction")
 	mustRefuse(t, f.db, "replace a direction by id", `INSERT OR REPLACE INTO mission_strategy_directions (session_id, direction_id, key_hash, title, state) VALUES (?, 'd1', x'0a', 'other', 'proposed')`, s)
-	mustRefuse(t, f.db, "replace a direction by key", `INSERT OR REPLACE INTO mission_strategy_directions (session_id, direction_id, key_hash, title, state) VALUES (?, 'd9', ?, 'other', 'proposed')`, s, types.KeyHash("first direction")[:])
+	mustRefuse(t, f.db, "replace a direction by key", `INSERT OR REPLACE INTO mission_strategy_directions (session_id, direction_id, key_hash, title, state) VALUES (?, 'd9', ?, 'other', 'proposed')`, s, kh[:])
 	mustRefuse(t, f.db, "replace an epoch", `INSERT OR REPLACE INTO mission_strategy_epochs (session_id, epoch_seq, trigger, started_at, state) VALUES (?, 2, 'timer', 1, 'open')`, s)
 	mustRefuse(t, f.db, "upsert an epoch", `INSERT INTO mission_strategy_epochs (session_id, epoch_seq, trigger, started_at, state) VALUES (?, 1, 'timer', 1, 'open') ON CONFLICT DO UPDATE SET state = 'open'`, s)
 	mustRefuse(t, f.db, "replace a judgment", `INSERT OR REPLACE INTO mission_strategy_judgments (session_id, epoch_seq, body, body_hash) VALUES (?, 2, '{"x":1}', x'03')`, s)
