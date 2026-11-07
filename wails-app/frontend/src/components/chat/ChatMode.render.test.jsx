@@ -182,6 +182,15 @@ describe('why a mode is not available', () => {
     expect(open).toHaveAttribute('aria-description', why)
     expect(screen.getByTestId('chat-mode-why-open')).toHaveTextContent('Open-ended is not available: ' + why)
   })
+  it('shows the OS reason on the disabled open radio where the peer-credential binding cannot run', async () => {
+    const why = 'not available on this OS yet: the run needs the peer-credential binding, which exists on Linux only'
+    api.getChatMissionToggle.mockResolvedValue(view(unavailable(why)))
+    render(<Harness />)
+    const open = await radio('Open-ended')
+    expect(open).toBeDisabled()
+    expect(open).toHaveAttribute('title', why)
+    expect(screen.getByTestId('chat-mode-why-open')).toHaveTextContent(why)
+  })
   it('says "Not available" when the CLI gave no reason', async () => {
     api.getChatMissionToggle.mockResolvedValue(view(unavailable('')))
     render(<Harness />)
