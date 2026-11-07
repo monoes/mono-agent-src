@@ -140,6 +140,9 @@ func checkProcfsNamespace(status []byte, selfLink string, pid int) error {
 	return errProcfs // no NSpid line: a kernel that cannot say, so the check cannot be made
 }
 
+// NewProcs is the process-table reader of this OS.
+func NewProcs() (LinuxProcs, error) { return NewLinuxProcs() }
+
 func (p LinuxProcs) Open(pid int) (Handle, error) {
 	if !p.ok {
 		return nil, errProcfs
