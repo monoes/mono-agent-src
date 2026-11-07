@@ -134,7 +134,7 @@ func TestDarwinEntryOfATableEntry(t *testing.T) {
 	if e, ok := EntryOf(&z); !ok || !e.Zombie {
 		t.Errorf("a zombie is not marked: %+v %v", e, ok)
 	}
-	for name, tv := range map[string]unix.Timeval{"zero": {}, "negative seconds": {Sec: -1, Usec: 5}, "negative microseconds": {Sec: 0, Usec: -5}} {
+	for name, tv := range map[string]unix.Timeval{"zero": {}, "negative seconds": {Sec: -1, Usec: 5}, "negative microseconds": {Sec: 5, Usec: -5}, "microseconds past a second": {Sec: 5, Usec: 1_000_000}, "no seconds": {Sec: 0, Usec: 5}} {
 		bad := k
 		bad.Proc.P_starttime = tv
 		if _, ok := EntryOf(&bad); ok {

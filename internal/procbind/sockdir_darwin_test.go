@@ -12,7 +12,7 @@ import (
 // A profile id whose plain directory name would not fit the socket address under a deep root gets its hashed name, and the
 // service still listens and is dialed there.
 func TestDarwinALongProfileUnderADeepRootUsesTheHashedLeaf(t *testing.T) {
-	root := filepath.Join(shortDir(t), strings.Repeat("d", 24))
+	root := filepath.Join(shortDir(t), strings.Repeat("d", 18))
 	if err := os.Mkdir(root, 0o700); err != nil {
 		t.Fatal(err)
 	}

@@ -41,7 +41,7 @@ func EntryOf(k *unix.KinfoProc) (e Entry, ok bool) {
 		return Entry{}, false
 	}
 	t := k.Proc.P_starttime
-	if t.Sec <= 0 && t.Usec <= 0 {
+	if t.Sec <= 0 || t.Usec < 0 || t.Usec >= 1_000_000 { // not a time the kernel could have stamped a process with
 		return Entry{}, false
 	}
 	return Entry{Ppid: int(k.Eproc.Ppid), Start: uint64(t.Sec)*1_000_000 + uint64(t.Usec), Zombie: k.Proc.P_stat == stateZombie}, true
