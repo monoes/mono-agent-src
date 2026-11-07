@@ -41,7 +41,6 @@ func init() {
 		w.Probe = func() error { return nil }
 		w.Kernel = e2eKernel{w: world}
 		w.Host = world
-		w.Binding = func(context.Context) (bool, error) { return true, nil }
 		if w.Witness != nil {
 			w.Witness.Secrets = &stop.FileSecretStore{Dir: filepath.Join(os.Getenv("HOME"), ".e2e-secrets")}
 		}
