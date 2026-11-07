@@ -6,6 +6,8 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import '../../i18n.js'
+const { sessionsApi } = vi.hoisted(() => ({ sessionsApi: { list: vi.fn() } }))
+vi.mock('../../services/taskSessions.js', () => ({ sessionsApi }))
 import ControlRoom from './ControlRoom.jsx'
 import StopPanel from './StopPanel.jsx'
 import SpendMeter from './SpendMeter.jsx'
@@ -20,6 +22,7 @@ const page = golden('feed_page')
 
 let api
 beforeEach(() => {
+  sessionsApi.list.mockReset(); sessionsApi.list.mockResolvedValue({ sessions: [] })
   api = {
     overview: vi.fn().mockResolvedValue(running),
     feed: vi.fn().mockResolvedValue(page),

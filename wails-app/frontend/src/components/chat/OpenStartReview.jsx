@@ -19,7 +19,12 @@ function runWords(output, t) {
   } catch { return '' }
 }
 
-export function OpenStartReview({ charter, preview, bossSession, onStarted, onUnknown }) {
+// firstTurnFailed is the first turn that did not queue, from the CLI's document: the run started, the boss has nothing to do yet.
+function firstTurnFailed(output) {
+  try { return JSON.parse(output)?.first_turn === 'failed' } catch { return false }
+}
+
+export function OpenStartReview({ charter, preview, getChat, onChat, onStarted, onUnknown }) {
   const { t } = useTranslation()
   const [phrase, setPhrase] = useState('')
   const [busy, setBusy] = useState(false)
@@ -28,12 +33,13 @@ export function OpenStartReview({ charter, preview, bossSession, onStarted, onUn
   const [unknown, setUnknown] = useState('') // the run may have started: no second start from here
   const ref = useRef(null)
   useEffect(() => { ref.current?.focus() }, [])
-  const canStart = !!phrase.trim() && !!bossSession && !!preview.start_token && !busy && !started && !unknown
+  const canStart = !!phrase.trim() && !!getChat && !!preview.start_token && !busy && !started && !unknown
 
   const start = async () => {
     setBusy(true); setError('')
     try {
-      const r = await openStartApi.start(charter, phrase, preview.start_token, bossSession)
+      const r = await openStartApi.start(charter, phrase, preview.start_token, getChat())
+      if (r?.chat) onChat?.(r.chat) // a chat the start made (after the yes) is the person's chat from now on, started or not
       if (r?.ok && r?.started) {
         setStarted(r); onStarted?.(r)
         window.dispatchEvent(new Event(CONTROL_ROOM_CHANGED)) // the nav asks again now, not at its next poll
@@ -60,11 +66,12 @@ export function OpenStartReview({ charter, preview, bossSession, onStarted, onUn
         {t('openStart.phraseLabel')}
         <input aria-label={t('openStart.phraseLabel')} value={phrase} onChange={e => setPhrase(e.target.value)} autoComplete="off" spellCheck={false} style={{ fontFamily: mono, fontSize: 11 }} />
       </label>
-      {!bossSession && <p data-testid="open-no-boss" style={small}>{t('openStart.noBoss')}</p>}
+      {!getChat && <p data-testid="open-no-boss" style={small}>{t('openStart.noBoss')}</p>}
       <button type="button" className="btn btn-sm" disabled={!canStart} onClick={start}>{t('openStart.start')}</button>
       {error && <p role="alert" style={{ ...small, color: 'var(--red)' }}>{error}</p>}
       {unknown && <p role="alert" data-testid="open-unknown" style={{ ...small, color: 'var(--red)' }}>{unknown}</p>}
       {started && <p data-testid="open-started" style={small}>{t('openStart.started')} {runWords(started.output, t)}</p>}
+      {started && firstTurnFailed(started.output) && <p role="alert" data-testid="open-no-first-turn" style={{ ...small, color: 'var(--red)' }}>{t('openStart.noFirstTurn')}</p>}
     </section>
   )
 }

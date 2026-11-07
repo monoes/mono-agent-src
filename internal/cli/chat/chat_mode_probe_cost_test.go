@@ -98,3 +98,39 @@ func TestReadingALockedChatAsksNoAvailability(t *testing.T) {
 		t.Fatalf("a locked chat's settings asked the availability %d times", *n)
 	}
 }
+
+// THE FLIP SEAM: openModeReady alone opens or closes every way to the open mode. Flipped (through the test seam, never by
+// editing the constant) the mode can be chosen on an existing chat and a new chat can be created in it; flipped back,
+// both are refused with the pending reason and leave nothing in the open mode.
+func TestFlippingOpenModeReadyOpensAndClosesEveryEntry(t *testing.T) {
+	f := newToggleFixture(t)
+	r := newAccessRig(t, true)
+	t.Cleanup(coderhost.SetOpenModeCheck(func() (bool, string) { return true, "" }))
+
+	restore := coderhost.SetOpenModeReady(false)
+	out, code := runSessionsCLI(t, f.cfg, "settings", "set", f.conv.ID, "--chat-mode", "open")
+	if code == 0 || !strings.Contains(out, "boss binding pending") {
+		t.Fatalf("closed, settings set: exit %d %s", code, out)
+	}
+	out, code = createAs(t, r.dbPath, true, "--access", "full", "--new-workspace", "--chat-mode", "open")
+	if code == 0 || !strings.Contains(out, "boss binding pending") {
+		t.Fatalf("closed, chat create: exit %d %s", code, out)
+	}
+	if list, _, err := r.store.ListConversations("default", "", 100); err != nil || len(list) != 0 {
+		t.Fatalf("a chat was made while closed: %d %v", len(list), err)
+	}
+
+	restore()
+	defer coderhost.SetOpenModeReady(true)()
+	if v, _, code := f.run(t, f.cfg, "settings", "set", f.conv.ID, "--chat-mode", "open"); code != 0 || v.ChatMode.Mode != "open" {
+		t.Fatalf("open, settings set: exit %d %+v", code, v.ChatMode)
+	}
+	if out, code = createAs(t, r.dbPath, true, "--access", "full", "--new-workspace", "--chat-mode", "open"); code != 0 {
+		t.Fatalf("open, chat create: exit %d %s", code, out)
+	}
+	restore2 := coderhost.SetOpenModeReady(false)
+	defer restore2()
+	if _, code := createAs(t, r.dbPath, true, "--access", "full", "--new-workspace", "--chat-mode", "open"); code == 0 {
+		t.Fatal("flipped back, a chat was still created in the open mode")
+	}
+}

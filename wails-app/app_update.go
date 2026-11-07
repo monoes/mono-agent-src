@@ -36,7 +36,7 @@ func (a *App) AppSelfUpdate() UpdateResult {
 		return UpdateResult{Error: err.Error()}
 	}
 	return runAppUpdate(a.ctx, cliBin, exe, version,
-		func(msg string) { runtime.EventsEmit(a.ctx, "update:progress", msg) },
+		func(msg string) { eventsEmit(a.ctx, "update:progress", msg) },
 		a.quitSoon)
 }
 

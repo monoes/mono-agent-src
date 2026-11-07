@@ -138,7 +138,7 @@ func (a *App) watchSession(ctx context.Context) {
 			return
 		case <-t.C:
 			if a.syncSignedIn() {
-				runtime.EventsEmit(ctx, "account:changed")
+				eventsEmit(ctx, "account:changed")
 			}
 		}
 	}

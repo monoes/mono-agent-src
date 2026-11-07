@@ -5,7 +5,9 @@ import '@testing-library/jest-dom/vitest'
 import { render, renderHook, screen, fireEvent, waitFor, cleanup, act, within } from '@testing-library/react'
 import '../../i18n.js'
 
-const { api, chatAccess, listeners, mockConfirm } = vi.hoisted(() => ({
+const { api, chatAccess, listeners, mockConfirm, openStartApi, navigateMock } = vi.hoisted(() => ({
+  navigateMock: vi.fn(),
+  openStartApi: { entry: vi.fn(), render: vi.fn(), start: vi.fn() },
   listeners: { chat: new Set() },
   chatAccess: { create: vi.fn(), setAccess: vi.fn(), record: vi.fn() },
   mockConfirm: vi.fn(),
@@ -37,7 +39,7 @@ vi.mock('../../services/api.js', () => ({
   newOrgEventsStreamId: () => 'stream',
 }))
 vi.mock('../../lib/chatAccessApi.js', () => ({ chatAccessApi: chatAccess }))
-vi.mock('../../lib/openStartApi.js', () => ({ openStartApi: { entry: vi.fn(() => Promise.resolve({ mode_available: true, platform: 'linux', not_defended: 'What this mode does NOT defend against:' })), render: vi.fn(), start: vi.fn() } }))
+vi.mock('../../lib/openStartApi.js', () => ({ openStartApi }))
 vi.mock('../ConfirmDialog.jsx', () => ({ confirm: (...a) => mockConfirm(...a) }))
 
 import { readFileSync } from 'node:fs'
@@ -52,7 +54,7 @@ let store
 function Harness({ open }) {
   store = useCoderBubbles()
   useEffect(() => { if (open) store.openConversation(open) }, []) // eslint-disable-line react-hooks/exhaustive-deps
-  return <CoderBubbles store={store} onNavigate={() => {}} />
+  return <CoderBubbles store={store} onNavigate={navigateMock} />
 }
 
 const conv = { id: 'c1', cwd: '/home/u/monoagent-coder/20260929-brisk-otter', model: 'opus' }
@@ -72,6 +74,7 @@ beforeEach(() => {
   api.stopChatTurn.mockResolvedValue({ ok: true })
   api.getProfiles.mockResolvedValue([])
   chatAccess.record.mockResolvedValue({ access: 'full', mode: 'coder' })
+  openStartApi.entry.mockResolvedValue({ mode_available: true, platform: 'linux', not_defended: 'What this mode does NOT defend against:' })
 })
 afterEach(cleanup)
 
@@ -234,6 +237,40 @@ describe('coder bubbles', () => {
     expect(chatAccess.create).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('radio', { name: 'Off' }))
     expect(await within(overlay()).findByPlaceholderText('Type a message...')).toBeInTheDocument()
+  })
+
+  // The real overlay: the start's own words must outlive the form. The form unmounts when the run starts; a boss with no first
+  // turn is told on the chat itself, until dismissed, and the chat the start made is this bubble's chat.
+  it('shows "the boss has no first turn" in the overlay after the form is gone, and binds the chat the start made', async () => {
+    api.getChatModeOptions.mockResolvedValue({ options: [{ mode: 'off', available: true }, { mode: 'mission', available: true }, { mode: 'open', available: true }] })
+    openStartApi.render.mockResolvedValue({ start_token: 'tok-1', hash: 'ab12cd34' + 'e'.repeat(56), lines: [], lift_count: 0, text: 'CHARTER', phrase_template: 'I understand: lift <N> lines, charter <first 8 characters of the hash>' })
+    openStartApi.start.mockResolvedValue({ ok: true, started: true, output: '{"run_id":"p/1","first_turn":"failed","first_turn_error":"host not running"}', chat: { id: 'made-1', runtimeId: 'claude', access: 'full', cwd: '/w' } })
+    render(<Harness />)
+    fireEvent.click(await screen.findByLabelText('New chat'))
+    fireEvent.click(await screen.findByRole('radio', { name: 'Open-ended' }))
+    await screen.findByTestId('open-start')
+    const type = (label, value) => fireEvent.change(screen.getByLabelText(label), { target: { value } })
+    type('Goal', 'ship it')
+    fireEvent.click(screen.getByRole('button', { name: 'Add a command criterion' }))
+    type('Criterion 1 command', 'go test ./...'); type('Criterion 1 expected result', 'ok')
+    type('Boss provider', 'a'); type('Boss model', 'b'); type('Boss version', '1')
+    type('Verifier provider', 'a'); type('Verifier model', 'c'); type('Verifier version', '1')
+    type('Judging policy', 'default')
+    fireEvent.click(screen.getByLabelText('Unlimited (no ceiling of its own)'))
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }))
+    await screen.findByTestId('open-review')
+    expect(chatAccess.create).not.toHaveBeenCalled() // the start makes the chat, after the yes
+    type('Type the phrase', 'I understand: lift 0 lines, charter ab12cd34')
+    fireEvent.click(screen.getByRole('button', { name: 'Start the run' }))
+    await waitFor(() => expect(openStartApi.start).toHaveBeenCalledTimes(1))
+    expect(openStartApi.start.mock.calls[0][3].spec.access).toBe('full') // a chat to be made, not an id
+    const notice = await screen.findByTestId('open-run-notice')
+    expect(screen.queryByTestId('open-start')).toBeNull() // the form is gone ...
+    expect(notice).toHaveTextContent('the boss has no first turn') // ... and the notice is not
+    expect(within(notice).getByRole('button', { name: 'Steer the boss' })).toBeInTheDocument()
+    expect(within(notice).getByRole('button', { name: 'Stop the run' })).toBeInTheDocument()
+    fireEvent.click(within(notice).getByRole('button', { name: 'Show the boss in AI agents' }))
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith('ai'))
   })
 
   it('offers the ready coder runtimes and creates the chat on the one picked, with its model and effort', async () => {

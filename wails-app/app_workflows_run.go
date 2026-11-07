@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/workflow"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // RunWorkflow spawns `monoagentcli workflow run <id>` as a subprocess with no
@@ -162,7 +161,7 @@ func (a *App) runWorkflowProcess(id, inputJSON string) error {
 			a.emitWorkflowEvent("workflow:complete", map[string]interface{}{"workflow_id": id, "success": true})
 		}
 		if a.ctx != nil {
-			runtime.EventsEmit(a.ctx, "images:changed", map[string]interface{}{"profileID": pid, "workflow_id": id})
+			eventsEmit(a.ctx, "images:changed", map[string]interface{}{"profileID": pid, "workflow_id": id})
 		}
 	}()
 	return nil
@@ -200,7 +199,7 @@ func (w *agentSetupWatch) apply(ev map[string]interface{}) map[string]interface{
 
 func (a *App) emitWorkflowEvent(name string, data map[string]interface{}) {
 	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, name, data)
+		eventsEmit(a.ctx, name, data)
 	}
 }
 

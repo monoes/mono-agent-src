@@ -15,7 +15,6 @@ import (
 	"github.com/monoes/mono-agent/internal/capturedocs"
 	"github.com/monoes/mono-agent/internal/docscan"
 	"github.com/monoes/mono-agent/internal/profiledir"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // documentRootForActiveProfile resolves the directory the document watcher
@@ -124,7 +123,7 @@ type folderEventFunc func(name string, data map[string]interface{})
 // emitFolderEvent emits once the Wails runtime is up (emitLog's guard).
 func (a *App) emitFolderEvent(name string, data map[string]interface{}) {
 	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, name, data)
+		eventsEmit(a.ctx, name, data)
 	}
 }
 
@@ -224,7 +223,7 @@ func (a *App) startCaptureWatcher(profileID string) {
 		return // no usable profile id, so no inbox to watch
 	}
 	w := capturedocs.NewWatcher(inbox, 0, func() {
-		runtime.EventsEmit(a.ctx, "documents:changed", map[string]interface{}{"profileID": profileID, "captures": true})
+		eventsEmit(a.ctx, "documents:changed", map[string]interface{}{"profileID": profileID, "captures": true})
 	})
 	w.Start()
 	a.capWatcher = w

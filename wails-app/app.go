@@ -229,7 +229,7 @@ func (a *App) emitLog(source, level, message string) {
 	}
 	a.logsMu.Unlock()
 	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, "log:entry", entry)
+		eventsEmit(a.ctx, "log:entry", entry)
 	}
 }
 

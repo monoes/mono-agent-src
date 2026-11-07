@@ -4817,7 +4817,7 @@ the default layout); with the box off (the default) or a workspace/full turn not
 **Open-ended chat: the boss (`doomsday boss new`, `coder sessions steer`).** A chat whose mode is `open` is the front desk; the run's boss is a
 SIBLING: a top-level mission session in a conversation of its own that `doomsday boss new --conversation CHAT` makes (the user's own verb) in
 ONE transaction with its conversation, under the key `boss-for-<chat>-<n>` (`tasks.BossClientID`; the attempt number is 1 to `tasks.MaxBossAttempt`
-= 999, a taken number is skipped, a finished or archived boss is never answered again). The stamp is `start --boss-session`, and the one
+= 999, a taken number is skipped, a finished or archived boss is never answered again). The stamp is `start --boss-session` (the terminal's), or `start --chat CHAT` (hidden; the app's: it needs `--gui-phrase`, excludes `--boss-session`, is operator-gated before the flag is read, and in ONE process under a per-profile start lock (a second start is refused as busy) makes or reuses the chat's unstamped boss, sets its budget from the charter (no ceiling is 0), checks it, enters the run, records the boss and queues its first turn; a failure before the run exists ends the boss by stop then archive, a failed first turn is not an error exit but `first_turn=failed` in the answer), and the one
 definition of which session may be stamped is `doomsday.BossCandidateSQL` (an open top-level `mission` session; a guard test holds that no
 second copy exists). What a person types goes to the boss ONLY through `coder sessions steer CHAT TEXT`: untrusted guidance in an envelope
 (`[OPERATOR STEERING]`, the text NFKC-normalised with no angle or square brackets left), refused until the boss has had its first turn, unless

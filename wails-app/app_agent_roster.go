@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -49,7 +47,7 @@ func (a *App) StartAgentValidation(runtimes, models []string, staleOnly bool) st
 	}
 	args := append([]string{"--json"}, validateArgs(runtimes, models, staleOnly, false)...)
 	return a.startAgentValidation(cliBin, args, func(name string, data interface{}) {
-		runtime.EventsEmit(a.ctx, name, data)
+		eventsEmit(a.ctx, name, data)
 	})
 }
 

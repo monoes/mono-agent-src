@@ -198,6 +198,18 @@ var probeAt = stop.ProbeAt
 // doomsdayWiring is the one construction of the engine's seams: the store over the profile's vault key, the run
 // directory next to the database, the stop package's containment probe and kernel, real token revocation.
 func doomsdayWiring(cfg *globalConfig, db *sql.DB) doomsdaycli.Wiring {
+	w := doomsdayWiringReal(cfg, db)
+	if doomsdayWiringHook != nil {
+		doomsdayWiringHook(&w)
+	}
+	return w
+}
+
+// doomsdayWiringHook is nil in every shipped build. Only a file with the e2estub build tag (the stub-runtime end-to-end
+// harness, doomsday_e2e_stub.go) sets it, to put fakes where the host's containment would be.
+var doomsdayWiringHook func(*doomsdaycli.Wiring)
+
+func doomsdayWiringReal(cfg *globalConfig, db *sql.DB) doomsdaycli.Wiring {
 	keys := doomsdaycli.VaultKeyer{DB: db, Profile: cfg.ProfileID}
 	runDir := doomsdayRunDirPath(cfg)
 	return doomsdaycli.Wiring{

@@ -11,7 +11,6 @@ import (
 	"sync"
 
 	"github.com/monoes/mono-agent/internal/connections"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // oauthFlow is a running OAuth flow; oauthFlows maps a platform to its
@@ -64,7 +63,7 @@ func (a *App) ConnectPlatformOAuthFields(platformID string, fieldPairs []string,
 	go func() {
 		defer finish()
 		emit := func(msg, kind string) {
-			runtime.EventsEmit(a.ctx, "conn:progress", map[string]interface{}{
+			eventsEmit(a.ctx, "conn:progress", map[string]interface{}{
 				"platform": platformID,
 				"message":  msg,
 				"kind":     kind,
@@ -72,7 +71,7 @@ func (a *App) ConnectPlatformOAuthFields(platformID string, fieldPairs []string,
 		}
 		done := func(fields map[string]interface{}) {
 			fields["platform"] = platformID
-			runtime.EventsEmit(a.ctx, "conn:done", fields)
+			eventsEmit(a.ctx, "conn:done", fields)
 		}
 		conn, err := runOAuthConnect(ctx, cliBin, args, secretFieldsJSON, emit)
 		if err != nil {
@@ -221,7 +220,7 @@ func (a *App) LoginSocial(platform string) string {
 	}
 
 	emit := func(msg, kind string) {
-		runtime.EventsEmit(a.ctx, "conn:progress", map[string]interface{}{
+		eventsEmit(a.ctx, "conn:progress", map[string]interface{}{
 			"platform": pid,
 			"message":  msg,
 			"kind":     kind,
@@ -235,7 +234,7 @@ func (a *App) LoginSocial(platform string) string {
 
 		if startErr := cmd.Start(); startErr != nil {
 			emit(fmt.Sprintf("Failed to start login: %v", startErr), "error")
-			runtime.EventsEmit(a.ctx, "conn:done", map[string]interface{}{"platform": pid, "success": false, "error": startErr.Error()})
+			eventsEmit(a.ctx, "conn:done", map[string]interface{}{"platform": pid, "success": false, "error": startErr.Error()})
 			return
 		}
 
@@ -245,10 +244,10 @@ func (a *App) LoginSocial(platform string) string {
 		}
 
 		if waitErr := cmd.Wait(); waitErr != nil {
-			runtime.EventsEmit(a.ctx, "conn:done", map[string]interface{}{"platform": pid, "success": false, "error": waitErr.Error()})
+			eventsEmit(a.ctx, "conn:done", map[string]interface{}{"platform": pid, "success": false, "error": waitErr.Error()})
 			return
 		}
-		runtime.EventsEmit(a.ctx, "conn:opened", map[string]interface{}{"platform": pid})
+		eventsEmit(a.ctx, "conn:opened", map[string]interface{}{"platform": pid})
 	}()
 
 	return "started"
@@ -275,7 +274,7 @@ func (a *App) ConfirmSocialLogin(platform string) string {
 	}
 
 	emit := func(msg, kind string) {
-		runtime.EventsEmit(a.ctx, "conn:progress", map[string]interface{}{
+		eventsEmit(a.ctx, "conn:progress", map[string]interface{}{
 			"platform": pid,
 			"message":  msg,
 			"kind":     kind,
@@ -290,7 +289,7 @@ func (a *App) ConfirmSocialLogin(platform string) string {
 
 		if startErr := cmd.Start(); startErr != nil {
 			emit(fmt.Sprintf("Failed to start: %v", startErr), "error")
-			runtime.EventsEmit(a.ctx, "conn:done", map[string]interface{}{"platform": pid, "success": false, "error": startErr.Error()})
+			eventsEmit(a.ctx, "conn:done", map[string]interface{}{"platform": pid, "success": false, "error": startErr.Error()})
 			return
 		}
 
@@ -312,10 +311,10 @@ func (a *App) ConfirmSocialLogin(platform string) string {
 
 		waitErr := cmd.Wait()
 		if waitErr != nil {
-			runtime.EventsEmit(a.ctx, "conn:done", map[string]interface{}{"platform": pid, "success": false, "error": waitErr.Error()})
+			eventsEmit(a.ctx, "conn:done", map[string]interface{}{"platform": pid, "success": false, "error": waitErr.Error()})
 			return
 		}
-		runtime.EventsEmit(a.ctx, "conn:done", map[string]interface{}{"platform": pid, "success": true, "accountID": username})
+		eventsEmit(a.ctx, "conn:done", map[string]interface{}{"platform": pid, "success": true, "accountID": username})
 	}()
 
 	return "started"

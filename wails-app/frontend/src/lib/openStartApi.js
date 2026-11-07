@@ -12,8 +12,10 @@ export const openStartApi = {
   // {mode_available, reason, run_exists, platform, not_defended}: whether a run can start here, and why not.
   entry: () => call(() => GoApp.DoomsdayOpenEntry()),
   // The preview of a charter object: {hash, lines, lift_count, text, phrase_template}. Writes nothing.
-  render: charter => call(() => GoApp.DoomsdayRender(JSON.stringify(charter))),
+  render: (charter, chat) => call(() => GoApp.DoomsdayRender(JSON.stringify(charter), chat?.id || '', chat?.spec ? JSON.stringify(chat.spec) : '')),
   // Starts the run with the phrase the person typed and the token of the preview (start_token). The app also asks the
-  // person in a native dialog. {ok, started, state: started|not_started|unknown, output, detail, code}.
-  start: (charter, phrase, token, bossSession) => call(() => GoApp.DoomsdayStart(JSON.stringify(charter), phrase, token, bossSession)),
+  // person in a native dialog. chat is {id} of a chat that exists or {spec} of one the start makes after the person said yes
+  // (the token covers it; the answer then carries `chat`). The CLI makes the chat's boss, funds it, starts the run and queues the boss's first turn.
+  // {ok, started, state: started|not_started|unknown, output, detail, code}.
+  start: (charter, phrase, token, chat) => call(() => GoApp.DoomsdayStart(JSON.stringify(charter), phrase, token, chat?.id || '', chat?.spec ? JSON.stringify(chat.spec) : '')),
 }

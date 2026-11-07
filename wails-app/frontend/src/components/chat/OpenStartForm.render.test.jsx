@@ -7,6 +7,7 @@ import '../../i18n.js'
 
 // The entry screen and the start form of the open-ended chat mode. The CLI decides (availability, the charter, the
 // phrase); the form shows what the person must read and asks for the phrase they write from it.
+const getChat = vi.fn(), onChat = vi.fn()
 const { openStartApi } = vi.hoisted(() => ({ openStartApi: { entry: vi.fn(), render: vi.fn(), start: vi.fn() } }))
 vi.mock('../../lib/openStartApi.js', () => ({ openStartApi }))
 
@@ -19,6 +20,7 @@ const TYPED = 'I understand: lift 2 lines, charter ab12cd34'
 
 beforeEach(() => {
   vi.clearAllMocks()
+  getChat.mockReset(); getChat.mockReturnValue({ id: 'chat-7' }); onChat.mockReset()
   openStartApi.entry.mockResolvedValue(ENTRY)
   openStartApi.render.mockResolvedValue(PREVIEW)
   openStartApi.start.mockResolvedValue({ ok: true, started: true, output: '{"run_id":"p/1"}', detail: '', code: '' })
@@ -43,7 +45,7 @@ async function fillForm({ budget = 'unlimited' } = {}) {
 
 describe('the entry screen', () => {
   it('says there is no human approval, that typing is steering, where Stop is, and what this machine does not defend against', async () => {
-    render(<OpenStartForm bossSession={7} />)
+    render(<OpenStartForm getChat={getChat} onChat={onChat} />)
     expect(await screen.findByText(/There is no human approval during the run/)).toBeInTheDocument()
     expect(screen.getByText(/You can steer by typing in this chat; typing is steering for the boss, never an answer to a boss question/)).toBeInTheDocument()
     expect(screen.getByText(/Stop is in the chat header/)).toBeInTheDocument()
@@ -52,20 +54,20 @@ describe('the entry screen', () => {
   })
   it('names the reason and offers nothing to review when the mode cannot start here', async () => {
     openStartApi.entry.mockResolvedValue({ ...ENTRY, mode_available: false, reason: 'containment unavailable: cgroup v2 delegation to the user: not writable' })
-    render(<OpenStartForm bossSession={7} />)
+    render(<OpenStartForm getChat={getChat} onChat={onChat} />)
     expect(await screen.findByTestId('open-unavailable')).toHaveTextContent('cgroup v2 delegation to the user')
     expect(screen.queryByRole('button', { name: 'Review' })).toBeNull()
   })
   it('does not offer a form when the probe could not be read', async () => {
     openStartApi.entry.mockResolvedValue({ error: 'the CLI is not here' })
-    render(<OpenStartForm bossSession={7} />)
+    render(<OpenStartForm getChat={getChat} onChat={onChat} />)
     expect(await screen.findByTestId('open-unavailable')).toHaveTextContent('the CLI is not here')
   })
 })
 
 describe('the form', () => {
   it('has no budget chosen at first and will not review until one is, then maps unlimited and fixed to the charter', async () => {
-    render(<OpenStartForm bossSession={7} />)
+    render(<OpenStartForm getChat={getChat} onChat={onChat} />)
     await screen.findByLabelText('Goal')
     expect(screen.getByLabelText('A fixed budget')).not.toBeChecked()
     expect(screen.getByLabelText('Unlimited (no ceiling of its own)')).not.toBeChecked()
@@ -81,7 +83,7 @@ describe('the form', () => {
     expect(openStartApi.render.mock.calls[0][0].limits.no_ceiling).toBeUndefined()
   })
   it('lists the seven lifted lines by name, the platform caps by name only', async () => {
-    render(<OpenStartForm bossSession={7} />)
+    render(<OpenStartForm getChat={getChat} onChat={onChat} />)
     await screen.findByLabelText('Goal')
     for (const name of ['Spending', 'Destructive local actions', 'Secrets and the vault', 'Outbound to third parties', 'Installing software', 'Host settings', 'Platform caps']) {
       expect(screen.getByLabelText(name)).not.toBeChecked()
@@ -89,7 +91,7 @@ describe('the form', () => {
     expect(screen.getByTestId('open-line-platform_caps')).toHaveTextContent(/by name only/)
   })
   it('asks for at least one success criterion', async () => {
-    render(<OpenStartForm bossSession={7} />)
+    render(<OpenStartForm getChat={getChat} onChat={onChat} />)
     await screen.findByLabelText('Goal')
     type('Goal', 'x')
     fireEvent.click(screen.getByRole('button', { name: 'Review' }))
@@ -98,7 +100,7 @@ describe('the form', () => {
 })
 
 describe('the review and the typed phrase', () => {
-  async function toReview(props = { bossSession: 7 }, opts) {
+  async function toReview(props = { getChat, onChat }, opts) {
     render(<OpenStartForm {...props} />)
     await screen.findByLabelText('Goal')
     await fillForm(opts)
@@ -114,7 +116,7 @@ describe('the review and the typed phrase', () => {
     expect(document.body.textContent).not.toContain(TYPED)
     expect(screen.getByLabelText('Type the phrase')).toHaveValue('')
   })
-  it('starts only with a typed phrase, sends the phrase as typed with the boss session, and shows the answer', async () => {
+  it('starts only with a typed phrase, sends the phrase as typed with the chat the CLI makes the boss behind, and shows the answer', async () => {
     await toReview()
     const start = screen.getByRole('button', { name: 'Start the run' })
     expect(start).toBeDisabled()
@@ -122,8 +124,8 @@ describe('the review and the typed phrase', () => {
     expect(start).toBeEnabled()
     fireEvent.click(start)
     await waitFor(() => expect(openStartApi.start).toHaveBeenCalledTimes(1))
-    const [charter, phrase, token, boss] = openStartApi.start.mock.calls[0]
-    expect([phrase, token, boss, charter.goal, charter.lines]).toEqual([TYPED, 'tok-1', 7, 'ship it', ['spending', 'host_settings']])
+    const [charter, phrase, token, chat] = openStartApi.start.mock.calls[0]
+    expect([phrase, token, chat, charter.goal, charter.lines]).toEqual([TYPED, 'tok-1', { id: 'chat-7' }, 'ship it', ['spending', 'host_settings']])
     expect(await screen.findByTestId('open-started')).toBeInTheDocument()
   })
   it('shows the CLI\'s refusal when the phrase is wrong and does not look started', async () => {
@@ -134,8 +136,8 @@ describe('the review and the typed phrase', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('the phrase does not match; nothing started')
     expect(screen.queryByTestId('open-started')).toBeNull()
   })
-  it('cannot start without the boss session the chat creates, and says so', async () => {
-    await toReview({ bossSession: null })
+  it('cannot start without a way to get its chat, and says so', async () => {
+    await toReview({ getChat: null })
     type('Type the phrase', TYPED)
     expect(screen.getByRole('button', { name: 'Start the run' })).toBeDisabled()
     expect(screen.getByTestId('open-no-boss')).toBeInTheDocument()
@@ -143,7 +145,7 @@ describe('the review and the typed phrase', () => {
   })
   it('shows the CLI\'s words when the preview is refused', async () => {
     openStartApi.render.mockResolvedValue({ error: 'the charter is invalid: the goal is empty', code: 'invalid_input' })
-    render(<OpenStartForm bossSession={7} />)
+    render(<OpenStartForm getChat={getChat} onChat={onChat} />)
     await screen.findByLabelText('Goal')
     await fillForm()
     fireEvent.click(screen.getByRole('button', { name: 'Review' }))
@@ -153,7 +155,7 @@ describe('the review and the typed phrase', () => {
 })
 
 describe('after the start', () => {
-  async function toStart(props = { bossSession: 7 }) {
+  async function toStart(props = { getChat, onChat }) {
     render(<OpenStartForm {...props} />)
     await screen.findByLabelText('Goal')
     await fillForm()
@@ -165,7 +167,7 @@ describe('after the start', () => {
   it('cannot be submitted again, tells the nav to look, and calls onStarted with the CLI\'s words', async () => {
     const onStarted = vi.fn(); const seen = vi.fn()
     window.addEventListener('monoagent:controlroom-changed', seen)
-    render(<OpenStartForm bossSession={7} onStarted={onStarted} />)
+    render(<OpenStartForm getChat={getChat} onChat={onChat} onStarted={onStarted} />)
     await screen.findByLabelText('Goal')
     await fillForm()
     fireEvent.click(screen.getByRole('button', { name: 'Review' }))
@@ -196,7 +198,7 @@ describe('after the start', () => {
 
 describe('accessibility', () => {
   it('gives each Remove button its own name, and links an error to its field', async () => {
-    render(<OpenStartForm bossSession={7} />)
+    render(<OpenStartForm getChat={getChat} onChat={onChat} />)
     await screen.findByLabelText('Goal')
     fireEvent.click(screen.getByRole('button', { name: 'Add a command criterion' }))
     fireEvent.click(screen.getByRole('button', { name: 'Add a rubric criterion' }))
@@ -208,7 +210,7 @@ describe('accessibility', () => {
     expect(screen.getByLabelText('Goal')).toHaveAttribute('aria-invalid', 'true')
   })
   it('moves focus to the review when it appears', async () => {
-    render(<OpenStartForm bossSession={7} />)
+    render(<OpenStartForm getChat={getChat} onChat={onChat} />)
     await screen.findByLabelText('Goal')
     await fillForm()
     fireEvent.click(screen.getByRole('button', { name: 'Review' }))
@@ -219,7 +221,7 @@ describe('accessibility', () => {
 
 describe('the goal counter and a failed call', () => {
   it('shows how many of 2000 characters the goal has and refuses more', async () => {
-    render(<OpenStartForm bossSession={7} />)
+    render(<OpenStartForm getChat={getChat} onChat={onChat} />)
     await screen.findByLabelText('Goal')
     type('Goal', 'x'.repeat(2001))
     expect(screen.getByTestId('open-goal-count')).toHaveTextContent('2001/2000')
@@ -229,7 +231,7 @@ describe('the goal counter and a failed call', () => {
   })
   it('shows the unknown state, not a plain error, when the start call itself throws', async () => {
     openStartApi.start.mockRejectedValue(new Error('bridge closed'))
-    render(<OpenStartForm bossSession={7} />)
+    render(<OpenStartForm getChat={getChat} onChat={onChat} />)
     await screen.findByLabelText('Goal')
     await fillForm()
     fireEvent.click(screen.getByRole('button', { name: 'Review' }))
@@ -244,7 +246,7 @@ describe('the goal counter and a failed call', () => {
 describe('the started view and a second review', () => {
   it('shows only the CLI\'s words for a started run, not its raw document', async () => {
     openStartApi.start.mockResolvedValue({ ok: true, started: true, state: 'started', output: '{"run_id":"p/1","charter_id":"c","hash":"deadbeef","generation":1,"anchor_bound":false}', detail: '', code: '' })
-    render(<OpenStartForm bossSession={7} />)
+    render(<OpenStartForm getChat={getChat} onChat={onChat} />)
     await screen.findByLabelText('Goal')
     await fillForm()
     fireEvent.click(screen.getByRole('button', { name: 'Review' }))
@@ -258,7 +260,7 @@ describe('the started view and a second review', () => {
   it('a second review starts clean: the old refusal is gone and the new review has focus', async () => {
     openStartApi.start.mockResolvedValue({ ok: false, started: false, state: 'not_started', detail: 'the confirmation was declined; nothing started', code: 'declined' })
     openStartApi.render.mockResolvedValueOnce({ ...PREVIEW, start_token: 'tok-1' }).mockResolvedValueOnce({ ...PREVIEW, start_token: 'tok-2' })
-    render(<OpenStartForm bossSession={7} />)
+    render(<OpenStartForm getChat={getChat} onChat={onChat} />)
     await screen.findByLabelText('Goal')
     await fillForm()
     fireEvent.click(screen.getByRole('button', { name: 'Review' }))
@@ -278,7 +280,7 @@ describe('the started view and a second review', () => {
 describe('after an unknown outcome', () => {
   it('warns that a run may exist on the next review', async () => {
     openStartApi.start.mockResolvedValue({ ok: false, started: false, state: 'unknown', detail: 'the run may have started', code: 'unknown' })
-    render(<OpenStartForm bossSession={7} />)
+    render(<OpenStartForm getChat={getChat} onChat={onChat} />)
     await screen.findByLabelText('Goal')
     await fillForm()
     fireEvent.click(screen.getByRole('button', { name: 'Review' }))
@@ -287,5 +289,38 @@ describe('after an unknown outcome', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Start the run' }))
     await screen.findByTestId('open-unknown')
     expect(await screen.findByTestId('open-may-exist')).toHaveTextContent('may already exist')
+  })
+})
+
+describe('the chat of the start and the boss\'s first turn', () => {
+  async function toStart() {
+    render(<OpenStartForm getChat={getChat} onChat={onChat} />)
+    await screen.findByLabelText('Goal')
+    await fillForm()
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }))
+    await screen.findByTestId('open-review')
+    type('Type the phrase', TYPED)
+    fireEvent.click(screen.getByRole('button', { name: 'Start the run' }))
+  }
+  it('hands the chat the person is in to the preview and to the start, and a chat the start made to onChat', async () => {
+    getChat.mockReturnValue({ spec: { runtime: 'claude', access: 'full' } })
+    openStartApi.start.mockResolvedValue({ ok: false, started: false, state: 'not_started', detail: 'the entry is refused', code: 'invalid_input', chat: { id: 'made-1' } })
+    await toStart()
+    await screen.findByRole('alert')
+    expect(openStartApi.render.mock.calls[0][1]).toEqual({ spec: { runtime: 'claude', access: 'full' } })
+    expect(openStartApi.start.mock.calls[0][3]).toEqual({ spec: { runtime: 'claude', access: 'full' } })
+    expect(onChat).toHaveBeenCalledWith({ id: 'made-1' })
+  })
+  it('says the boss has no first turn, never silently, and keeps the run shown as started', async () => {
+    openStartApi.start.mockResolvedValue({ ok: true, started: true, output: '{"run_id":"p/1","first_turn":"failed","first_turn_error":"host not running"}', detail: '', code: '' })
+    await toStart()
+    expect(await screen.findByTestId('open-started')).toHaveTextContent('p/1')
+    expect(screen.getByTestId('open-no-first-turn')).toHaveTextContent('the boss has no first turn')
+  })
+  it('shows no first-turn warning when the turn was queued', async () => {
+    openStartApi.start.mockResolvedValue({ ok: true, started: true, output: '{"run_id":"p/1","first_turn":"queued"}', detail: '', code: '' })
+    await toStart()
+    await screen.findByTestId('open-started')
+    expect(screen.queryByTestId('open-no-first-turn')).toBeNull()
   })
 })

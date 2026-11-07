@@ -168,6 +168,21 @@ func (e *StoreEngine) Enter(ctx context.Context, canon Canon, expectedHash strin
 		return Entry{}, fmt.Errorf("the containment unit could not be created, so nothing was started: %w", err)
 	}
 	run, err := e.Store.Enter(ctx, sc, confirmed, "ack:"+ack.Kind)
+	if errors.Is(err, store.ErrCommitUnknown) {
+		// The commit reported an error, so the run may exist. Read it: found, it is this entry's run and the entry goes on; not
+		// there, the entry was refused; unreadable, the outcome is unknown and nothing is torn down (the unit stays).
+		got, gerr := e.Store.GetRun(ctx, sc.Profile, sc.Generation)
+		switch {
+		case gerr == nil && got.CharterID == sc.ID():
+			run, err = got, nil
+		case gerr == nil:
+			err = fmt.Errorf("another run holds the profile (the entry's own was not recorded): %w", err) // refused below
+		case errors.Is(gerr, sql.ErrNoRows):
+			// no run row: refused below
+		default:
+			return Entry{}, unknownEntry(fmt.Errorf("the run may have started but the outcome of its commit could not be read (run `doomsday stop` if it is running): %v: %w", gerr, err))
+		}
+	}
 	if err != nil {
 		if derr := discard(ctx); derr != nil {
 			err = fmt.Errorf("%w (and the unit created for it could not be removed: %v)", err, derr)
@@ -176,18 +191,18 @@ func (e *StoreEngine) Enter(ctx context.Context, canon Canon, expectedHash strin
 	}
 	// The audit row is the stream's own record that a script, not a person, may have supplied the lift.
 	if _, err := e.Store.AppendAudit(ctx, run.Profile, run.Generation, "start", fmt.Sprintf("ack=%s lines=%d", ack.Kind, ack.Lines)); err != nil {
-		return Entry{}, fmt.Errorf("the run started but its audit record failed: %w", err)
+		return Entry{}, recorded(fmt.Errorf("the run started but its audit record failed: %w", err))
 	}
 	if e.AfterEnter != nil {
 		if err := e.AfterEnter(ctx, run.Generation); err != nil {
-			return Entry{}, fmt.Errorf("run %s/%d started but its stop secret could not be created (run `doomsday stop`): %w", run.Profile, run.Generation, err)
+			return Entry{}, recorded(fmt.Errorf("run %s/%d started but its stop secret could not be created (run `doomsday stop`): %w", run.Profile, run.Generation, err))
 		}
 	}
 	ent := Entry{RunID: fmt.Sprintf("%s/%d", run.Profile, run.Generation), CharterID: run.CharterID, Hash: canon.Hash, Generation: run.Generation}
 	if e.Anchored != nil {
 		bound, why, err := e.Anchored(ctx, run.Generation)
 		if err != nil {
-			return Entry{}, fmt.Errorf("run %s started but its anchor and generation counter could not be recorded (run `doomsday stop`): %w", ent.RunID, err)
+			return Entry{}, recorded(fmt.Errorf("run %s started but its anchor and generation counter could not be recorded (run `doomsday stop`): %w", ent.RunID, err))
 		}
 		ent.AnchorBound, ent.AnchorNote = bound, why
 	}
@@ -284,3 +299,27 @@ func (k VaultKeyer) MAC(domain string, parts ...[]byte) ([]byte, error) {
 	}
 	return store.NewHMACKeyer(key).MAC(domain, parts...)
 }
+
+// ErrRunRecorded marks an Enter failure that happened AFTER this call recorded the run: the run exists and is this call's. A
+// failure without it happened before the record (a refusal), so a run that exists then is somebody else's.
+var ErrRunRecorded = errors.New("the run was recorded by this entry")
+
+type recordedErr struct{ err error }
+
+func (r recordedErr) Error() string      { return r.err.Error() }
+func (r recordedErr) Unwrap() error      { return r.err }
+func (recordedErr) Is(target error) bool { return target == ErrRunRecorded }
+
+func recorded(err error) error { return recordedErr{err} }
+
+// ErrEntryUnknown marks an Enter failure whose effect on the run is unknown (the commit's outcome could not be read): the run may
+// exist, nothing was torn down, and a caller that made anything for the run keeps it.
+var ErrEntryUnknown = errors.New("the outcome of the entry is unknown")
+
+type unknownErr struct{ err error }
+
+func (u unknownErr) Error() string { return u.err.Error() }
+func (u unknownErr) Unwrap() error { return u.err }
+func (unknownErr) Is(t error) bool { return t == ErrEntryUnknown }
+
+func unknownEntry(err error) error { return unknownErr{err} }

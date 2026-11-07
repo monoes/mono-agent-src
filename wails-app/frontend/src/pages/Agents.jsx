@@ -244,6 +244,9 @@ export default function Agents() {
         </div>
 
         <div className="page-body" style={{ flex: 1, overflow: 'auto' }}>
+          {/* A live open-ended run's boss is shown whatever state the rest of the page is in: a run started from a chat must not
+              need agents to be set up, installed or scanned. It renders nothing when no run's boss is open. */}
+          <OpenRunBoss />
           {loading ? (
             <div className="empty-state"><div className="spinner" /></div>
           ) : scanError ? (
@@ -280,7 +283,6 @@ export default function Agents() {
                   <RuntimeTile key={a.id} agent={a} onChat={onOpenChat} onInstall={onInstall} job={jobs[a.id]} />
                 ))}
               </div>
-              <OpenRunBoss />
               <AgentRoster />
             </>
           )}
