@@ -1,6 +1,6 @@
 // Package procchain answers "is the calling process this process, or one of its descendants?"
 // for the tokens that are bound to the process a host or conductor started (the mission tokens
-// of internal/agenttokens). Linux only: elsewhere Supported is false and a binding is not
+// of internal/agenttokens). Linux and Windows; elsewhere Supported is false and a binding is not
 // recorded or checked. internal/coderhost uses it for its session tokens.
 package procchain
 
