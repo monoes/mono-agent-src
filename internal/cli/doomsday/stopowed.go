@@ -3,6 +3,7 @@ package doomsday
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -72,13 +73,27 @@ func laterMessage(at time.Time) string {
 
 func (w Wiring) coder() *coderhost.Store { return coderhost.NewStore(w.DB) }
 
+// updateFlag changes chat conv's settings through the existing-row writer: it never creates the row of a chat deleted in
+// between (nothing is owed to a chat that is gone: ErrNoSession is not an error here), and leaves the chat's updated_at alone.
+func (w Wiring) updateFlag(conv string, change coderhost.SettingsChange) error {
+	if _, err := w.coder().UpdateExistingSettings(w.Profile, conv, change); err != nil && !errors.Is(err, coderhost.ErrNoSession) {
+		return err
+	}
+	return nil
+}
+
+// ownsFlag says whether the flag in cur names exactly this run.
+func ownsFlag(cur coderhost.Settings, run RunRef, intentAt int64) bool {
+	o := cur.OwedStopNotice
+	return o != nil && o.Charter == run.CharterID && o.Generation == run.Generation && o.IntentAt == intentAt
+}
+
 // writePending records that chat conv is owed the message of o, for run (whose stop was recorded at intentAt).
 func (w Wiring) writePending(run RunRef, intentAt int64, conv string, o owedChat) error {
-	_, err := w.coder().UpdateSettings(w.Profile, conv, func(_ context.Context, _ *sql.Conn, cur coderhost.Settings) (coderhost.Settings, error) {
+	return w.updateFlag(conv, func(_ context.Context, _ *sql.Conn, cur coderhost.Settings) (coderhost.Settings, error) {
 		cur.OwedStopNotice = &coderhost.OwedStopNotice{Charter: run.CharterID, Generation: run.Generation, IntentAt: intentAt, Code: o.Code, At: o.At}
 		return cur, nil
 	})
-	return err
 }
 
 // readPending is the message owed to chat conv by run, when its flag names exactly this run and a known code and a time inside
@@ -95,32 +110,41 @@ func (w Wiring) readPending(run RunRef, intentAt int64, conv string) (owedChat, 
 	return owedChat{Code: o.Code, At: o.At}, true
 }
 
-// clearIfWritten asks, inside the settings transaction, whether the chat already holds a stop message since the stop was recorded (the first write may have committed and still reported an error):
-// the check and the clear are one transaction, so the answer cannot change between them. written reports that the check found
-// one (the flag is then cleared and nothing is to be written).
-func (w Wiring) clearIfWritten(ctx context.Context, intentAt int64, conv string) (written bool, err error) {
-	_, err = w.coder().UpdateSettings(w.Profile, conv, func(ctx context.Context, tx *sql.Conn, cur coderhost.Settings) (coderhost.Settings, error) {
-		if w.ChatNoteSince == nil {
+// claimPending decides, inside one settings transaction, who writes the owed message of run to chat conv. If the flag no longer
+// names this run (another repair took it, or a stop of another run replaced it) nothing is claimed. If the chat already holds a
+// stop message since the stop was recorded (the first write may have committed and still reported an error), the flag is
+// cleared and written reports it. Otherwise the flag is cleared and claimed is true: only that caller writes the message, so two
+// concurrent repairs cannot both write it. A caller whose write then fails must put the flag back (writePending). A crash between
+// the claim and the write loses the notice; the stop itself is already recorded.
+func (w Wiring) claimPending(ctx context.Context, run RunRef, intentAt int64, conv string) (claimed, written bool, err error) {
+	err = w.updateFlag(conv, func(ctx context.Context, tx *sql.Conn, cur coderhost.Settings) (coderhost.Settings, error) {
+		claimed, written = false, false
+		if !ownsFlag(cur, run, intentAt) {
 			return cur, nil
 		}
-		has, cerr := w.ChatNoteSince(ctx, tx, conv, intentAt)
-		if cerr != nil {
-			return cur, cerr
+		if w.ChatNoteSince != nil {
+			has, cerr := w.ChatNoteSince(ctx, tx, conv, intentAt)
+			if cerr != nil {
+				return cur, cerr
+			}
+			written = has
 		}
-		if has {
-			written = true
+		claimed = !written
+		cur.OwedStopNotice = nil
+		return cur, nil
+	})
+	if err != nil {
+		return false, false, err
+	}
+	return claimed, written, nil
+}
+
+// clearPending removes chat conv's flag when it names this run; another run's flag stays.
+func (w Wiring) clearPending(run RunRef, intentAt int64, conv string) error {
+	return w.updateFlag(conv, func(_ context.Context, _ *sql.Conn, cur coderhost.Settings) (coderhost.Settings, error) {
+		if ownsFlag(cur, run, intentAt) {
 			cur.OwedStopNotice = nil
 		}
 		return cur, nil
 	})
-	return written, err
-}
-
-// clearPending removes chat conv's flag.
-func (w Wiring) clearPending(conv string) error {
-	_, err := w.coder().UpdateSettings(w.Profile, conv, func(_ context.Context, _ *sql.Conn, cur coderhost.Settings) (coderhost.Settings, error) {
-		cur.OwedStopNotice = nil
-		return cur, nil
-	})
-	return err
 }

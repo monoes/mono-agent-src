@@ -96,4 +96,3 @@ func TestOwedFlagWritesCreateNoRowAndKeepUpdatedAt(t *testing.T) {
 		t.Fatalf("updated_at moved: %q %v", got, err)
 	}
 }
-

@@ -90,6 +90,11 @@ type OwedStopNotice struct {
 	At         int64  `json:"at"`        // unix seconds of the stop (or, for "later", of the repair) the message is dated
 }
 
+// valid says whether the flag names a run, times and a known code.
+func (o *OwedStopNotice) valid() bool {
+	return oneOf(o.Code, OwedStopCodes) && o.Generation > 0 && o.At > 0 && o.IntentAt > 0 && o.Charter != "" && len(o.Charter) <= 128
+}
+
 // OwedStopCodes are the verdicts an owed message can have; the wording of each is the doomsday package's.
 var OwedStopCodes = []string{"plain", "partial", "best_effort", "later"}
 
@@ -217,7 +222,7 @@ func (s Settings) validateAt(depthCeiling int) error {
 	if !(s.ApprovalCeilingUSD >= 0 && s.ApprovalCeilingUSD <= 1e6) { // also false for NaN
 		return errors.New("approval_ceiling_usd must be between 0 and 1000000 (0 = no ceiling)")
 	}
-	if o := s.OwedStopNotice; o != nil && (!oneOf(o.Code, OwedStopCodes) || o.Generation <= 0 || o.At <= 0 || o.IntentAt <= 0 || o.Charter == "" || len(o.Charter) > 128) {
+	if o := s.OwedStopNotice; o != nil && !o.valid() {
 		return errors.New("owed_stop_notice needs a charter, a generation, times and one of " + strings.Join(OwedStopCodes, ", "))
 	}
 	if s.AgentApproval == "lead" && s.ApprovalCeilingUSD <= 0 {
@@ -317,11 +322,40 @@ func settingsFromRow(conversationID, raw string, err error, depthCeiling int) (S
 	if err != nil {
 		return def, fmt.Errorf("coder host: reading the settings of %s: %w", conversationID, err) // a database error is not "no settings"
 	}
-	out, _, err := def.applyAt([]byte(raw), depthCeiling)
+	rest, flag := splitStoredOwedFlag(raw)
+	out, _, err := def.applyAt([]byte(rest), depthCeiling)
 	if err != nil {
 		return def, fmt.Errorf("coder host: stored settings of %s are not valid: %w", conversationID, err)
 	}
+	out.OwedStopNotice = flag
 	return out, nil
+}
+
+// splitStoredOwedFlag takes owed_stop_notice out of a stored settings document and reads it leniently: fields this build
+// does not know (a later version's) are ignored, and a flag that is malformed or invalid is dropped, so a bad flag never
+// makes the rest of the chat's settings unreadable. Only stored documents are read this way; a patch is still strict.
+func splitStoredOwedFlag(raw string) (string, *OwedStopNotice) {
+	if !strings.Contains(raw, `"owed_stop_notice"`) {
+		return raw, nil
+	}
+	var doc map[string]json.RawMessage
+	if json.Unmarshal([]byte(raw), &doc) != nil {
+		return raw, nil
+	}
+	val, ok := doc["owed_stop_notice"]
+	if !ok {
+		return raw, nil
+	}
+	delete(doc, "owed_stop_notice")
+	rest, err := json.Marshal(doc)
+	if err != nil {
+		return raw, nil
+	}
+	var o OwedStopNotice
+	if json.Unmarshal(val, &o) != nil || !o.valid() {
+		return string(rest), nil
+	}
+	return string(rest), &o
 }
 
 // ParseSettings reads the stored settings document of a session row (as `SELECT settings FROM coder_sessions`
@@ -346,12 +380,22 @@ var settingsAfterRead func()
 // toggle) cannot be put back by a stale copy. The result is validated before it is stored. It returns the
 // settings as stored.
 func (s *Store) UpdateSettings(profileID, conversationID string, change SettingsChange) (Settings, error) {
-	return s.updateSettings(profileID, conversationID, true, change)
+	return s.updateSettings(profileID, conversationID, true, false, change)
+}
+
+// ErrNoSession is UpdateExistingSettings' answer for a conversation with no session row.
+var ErrNoSession = errors.New("coder host: no such session")
+
+// UpdateExistingSettings is UpdateSettings for bookkeeping that must not bring a session into being: it never creates
+// the row (ErrNoSession when there is none, so a chat deleted meanwhile stays deleted) and leaves updated_at alone (it is
+// not an edit of the chat). Used for the doomsday owed-notice flag.
+func (s *Store) UpdateExistingSettings(profileID, conversationID string, change SettingsChange) (Settings, error) {
+	return s.updateSettings(profileID, conversationID, true, true, change)
 }
 
 // updateSettings is UpdateSettings; strict false lets change replace a stored document that cannot be read
 // (SaveSettings does, as the way to repair one).
-func (s *Store) updateSettings(profileID, conversationID string, strict bool, change SettingsChange) (Settings, error) {
+func (s *Store) updateSettings(profileID, conversationID string, strict, existingOnly bool, change SettingsChange) (Settings, error) {
 	ctx := context.Background()
 	created, updated := s.stamp(), s.stamp() // read before the write lock is taken: a clock that writes would wait on it
 	conn, err := s.db.Conn(ctx)
@@ -369,11 +413,16 @@ func (s *Store) updateSettings(profileID, conversationID string, strict bool, ch
 			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
 		}
 	}()
-	if err := ensureSessionOn(ctx, conn, profileID, conversationID, created); err != nil {
-		return Settings{}, err
+	if !existingOnly {
+		if err := ensureSessionOn(ctx, conn, profileID, conversationID, created); err != nil {
+			return Settings{}, err
+		}
 	}
 	var raw, was string
 	err = conn.QueryRowContext(ctx, `SELECT settings, chat_mode FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, profileID, conversationID).Scan(&raw, &was)
+	if existingOnly && errors.Is(err, sql.ErrNoRows) {
+		return Settings{}, ErrNoSession
+	}
 	cur, err := settingsFromRow(conversationID, raw, err, s.readCeiling())
 	cur = withChatMode(cur, was)
 	if err != nil && strict {
@@ -403,7 +452,12 @@ func (s *Store) updateSettings(profileID, conversationID string, strict bool, ch
 	if err != nil {
 		return Settings{}, err
 	}
-	if _, err := conn.ExecContext(ctx, `UPDATE coder_sessions SET settings = ?, updated_at = ? WHERE profile_id = ? AND conversation_id = ?`, string(out), updated, profileID, conversationID); err != nil {
+	if existingOnly {
+		_, err = conn.ExecContext(ctx, `UPDATE coder_sessions SET settings = ? WHERE profile_id = ? AND conversation_id = ?`, string(out), profileID, conversationID)
+	} else {
+		_, err = conn.ExecContext(ctx, `UPDATE coder_sessions SET settings = ?, updated_at = ? WHERE profile_id = ? AND conversation_id = ?`, string(out), updated, profileID, conversationID)
+	}
+	if err != nil {
 		return Settings{}, err
 	}
 	if _, err := conn.ExecContext(context.WithoutCancel(ctx), "COMMIT"); err != nil {
@@ -421,7 +475,7 @@ func (s *Store) SaveSettings(profileID, conversationID string, v Settings) error
 	if err := v.Validate(); err != nil {
 		return err
 	}
-	_, err := s.updateSettings(profileID, conversationID, false, func(context.Context, *sql.Conn, Settings) (Settings, error) { return v, nil })
+	_, err := s.updateSettings(profileID, conversationID, false, false, func(context.Context, *sql.Conn, Settings) (Settings, error) { return v, nil })
 	return err
 }
 

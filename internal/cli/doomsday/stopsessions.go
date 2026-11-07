@@ -311,13 +311,15 @@ func (w Wiring) repairStop(ctx context.Context, at time.Time) ([]string, RepairS
 	for _, c := range convs {
 		if owed, isOwed := w.readPending(ref, run.IntentAt, c); isOwed {
 			// The first stop could not write this message. The text is rebuilt from the record's closed code and time, never read
-			// from the file. If the chat already holds a stop message (the first write committed and still reported an error),
-			// only the record is cleared.
-			if written, err := w.clearIfWritten(ctx, run.IntentAt, c); err != nil {
+			// from the file. The flag is claimed (cleared) in one transaction first, so only one repair writes it; if the chat
+			// already holds a stop message (the first write committed and still reported an error), only the record is cleared.
+			claimed, written, err := w.claimPending(ctx, ref, run.IntentAt, c)
+			if err != nil {
 				notes = append(notes, "transcript check failed ("+c+"): "+err.Error()+"; the owed message stays recorded")
 				failed, noteFailed = true, true
 				continue
-			} else if written {
+			}
+			if !claimed || written {
 				continue
 			}
 			l, bad := w.noteChat(ctx, c, owed.message())
@@ -325,12 +327,12 @@ func (w Wiring) repairStop(ctx context.Context, at time.Time) ([]string, RepairS
 				notes = append(notes, l)
 			}
 			failed, noteFailed = failed || bad, noteFailed || bad
-			if !bad {
-				wrote++
-				if err := w.clearPending(c); err != nil {
-					notes = append(notes, "transcript record NOT cleared ("+c+"): "+err.Error())
-					failed = true
+			if bad {
+				if err := w.writePending(ref, run.IntentAt, c, owed); err != nil {
+					notes = append(notes, "transcript NOT recorded as owed ("+c+"): "+err.Error())
 				}
+			} else {
+				wrote++
 			}
 			continue
 		}
@@ -379,17 +381,30 @@ func (w Wiring) repairStop(ctx context.Context, at time.Time) ([]string, RepairS
 	return out, RepairDone
 }
 
-// dropExpiredFlags clears the owed flags of the run's chats once the run is past the repair window.
+// dropExpiredFlags clears the owed flags of the run's chats, and of every earlier run's, once the run is past the repair
+// window: a flag of an earlier generation is never honoured (a repair looks at the last run only).
 func (w Wiring) dropExpiredFlags(ctx context.Context, ref RunRef) {
 	// Archived bosses count here: their chat is no longer one the repair writes to, and its flag must still go.
-	rows, err := w.queryRunSessions(ctx, `SELECT id, conversation_id FROM task_sessions WHERE profile_id = ? AND doomsday_charter_id = ?
-		AND doomsday_generation = ? AND COALESCE(parent_session_id, 0) = 0`, w.Profile, ref.CharterID, ref.Generation)
+	rows, err := w.DB.QueryContext(ctx, `SELECT conversation_id, doomsday_charter_id, doomsday_generation FROM task_sessions WHERE profile_id = ?
+		AND doomsday_charter_id != '' AND doomsday_generation <= ? AND COALESCE(parent_session_id, 0) = 0 AND conversation_id != ''`, w.Profile, ref.Generation)
 	if err != nil {
 		return
 	}
-	for _, r := range rows {
-		if st, err := w.coder().GetSettings(w.Profile, r.conv); err == nil && st.OwedStopNotice != nil && st.OwedStopNotice.Charter == ref.CharterID && st.OwedStopNotice.Generation == ref.Generation {
-			_ = w.clearPending(r.conv)
+	type owner struct {
+		conv string
+		run  RunRef
+	}
+	var owners []owner
+	for rows.Next() {
+		var o owner
+		if rows.Scan(&o.conv, &o.run.CharterID, &o.run.Generation) == nil {
+			owners = append(owners, o)
+		}
+	}
+	rows.Close()
+	for _, o := range owners {
+		if st, err := w.coder().GetSettings(w.Profile, o.conv); err == nil && st.OwedStopNotice != nil && st.OwedStopNotice.Charter == o.run.CharterID && st.OwedStopNotice.Generation == o.run.Generation {
+			_ = w.clearPending(o.run, st.OwedStopNotice.IntentAt, o.conv)
 		}
 	}
 }
