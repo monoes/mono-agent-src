@@ -88,3 +88,28 @@ func TestBoundStartRefusesAPlacementThatReplacedTheAttributes(t *testing.T) {
 		}
 	}
 }
+
+// awaitExitNoReap waits for the leader's exit while the host still holds the child (cmd.Process, not yet waited for), and
+// says no for anything it cannot observe; the strict turn is killed when it says no.
+func TestAwaitExitNoReapWaitsForTheExitOfAHeldChild(t *testing.T) {
+	_, cmd := startBoundSleeper(t)
+	res := make(chan bool, 1)
+	go func() { res <- awaitExitNoReap(cmd.Process.Pid) }()
+	select {
+	case got := <-res:
+		t.Fatalf("returned %v while the child was alive", got)
+	case <-time.After(300 * time.Millisecond):
+	}
+	_ = cmd.Process.Kill()
+	select {
+	case got := <-res:
+		if !got {
+			t.Fatal("did not report the held child's exit")
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("did not return after the child exited")
+	}
+	if awaitExitNoReap(0x7ffffff0) {
+		t.Fatal("held a process that does not exist")
+	}
+}

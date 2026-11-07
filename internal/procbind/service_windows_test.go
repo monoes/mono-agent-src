@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -142,6 +143,25 @@ func TestHelperProcess(t *testing.T) {
 	case "sleep":
 		os.Stdout.WriteString("READY\n")
 		time.Sleep(5 * time.Minute)
+	case "holder":
+		// connects, hands the connection to a child that stays, and ends
+		c, err := DialPath(filepath.Join(os.Getenv("PB_ROOT"), runDirName, "p1", sockName))
+		if err != nil {
+			return
+		}
+		rc, _ := c.SyscallConn()
+		var h syscall.Handle
+		_ = rc.Control(func(fd uintptr) {
+			h = syscall.Handle(fd)
+			_ = syscall.SetHandleInformation(h, syscall.HANDLE_FLAG_INHERIT, syscall.HANDLE_FLAG_INHERIT)
+		})
+		b := exec.Command(os.Args[0], "-test.run=^TestHelperProcess$")
+		b.Env = append(os.Environ(), helperEnv+"=sleep")
+		b.SysProcAttr = &syscall.SysProcAttr{AdditionalInheritedHandles: []syscall.Handle{h}}
+		if err := b.Start(); err != nil {
+			return
+		}
+		os.Stdout.WriteString("HOLDER " + strconv.Itoa(b.Process.Pid) + " " + strconv.Itoa(os.Getpid()) + "\n")
 	case "connect":
 		// connects and ends at once, leaving the connection behind
 		if c, err := DialPath(filepath.Join(os.Getenv("PB_ROOT"), runDirName, "p1", sockName)); err == nil {
@@ -382,5 +402,38 @@ func TestPeerThatExitedBeforeItWasPinnedIsRefused(t *testing.T) {
 	if pi, err := peerProcess(c); err == nil {
 		pi.proc.Close()
 		t.Fatal("a connector that had exited was pinned and would be served")
+	}
+}
+
+// The kernel reports the connector as the peer of a connection that it handed to another process and then ended (the
+// holder is not named), and an ended connector is not served.
+func TestPeerPIDStaysTheConnectorsAfterItHandedTheConnectionOn(t *testing.T) {
+	root := shortRoot(t)
+	l, err := ListenSecure(SocketOptions{Root: root, Profile: "p1", CreateRoot: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	cmd, r := spawn(t, "holder", "PB_ROOT="+root)
+	f := strings.Fields(readLine(t, r, "HOLDER "))
+	if len(f) != 2 {
+		t.Fatalf("holder line %v", f)
+	}
+	_ = cmd.Wait()
+	_ = l.l.SetDeadline(time.Now().Add(5 * time.Second))
+	c, err := l.AcceptUnix()
+	if err != nil {
+		t.Fatalf("the connection handed to a child was dropped with its connector: %v", err)
+	}
+	defer c.Close()
+	pid, err := peerPID(c)
+	if err != nil || strconv.Itoa(int(pid)) != f[1] {
+		t.Fatalf("the kernel names pid %d (err %v), not the connector %s (the holder is %s)", pid, err, f[1], f[0])
+	}
+	// the number is the connector's, which has ended: it is refused. The residual (documented): once that number is
+	// recycled to a live process, that process is the one pinned, because the kernel does not say who holds the connection.
+	if pi, perr := peerProcess(c); perr == nil {
+		pi.proc.Close()
+		t.Fatal("the service would serve a connection whose connector has ended")
 	}
 }
