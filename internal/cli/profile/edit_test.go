@@ -905,6 +905,7 @@ func TestProfileDeleteRemovesAConfirmedGoalAndStrategyRowsWithTheirSession(t *te
 		`INSERT INTO mission_goals (session_id, state, criteria_hash, proposed_by, created_at, updated_at) VALUES (501, 'proposed', 'h', 'lead', 'x', 'x')`,
 		`INSERT INTO mission_goal_criteria (session_id, pos, kind, spec, hash) VALUES (501, 1, 'rubric', 'good', 'h')`,
 		`UPDATE mission_goals SET state = 'confirmed', confirmed_by = 'you', confirmed_at = 'x' WHERE session_id = 501`,
+		`INSERT INTO mission_pursuit (session_id, enabled, locked_by, created_at, updated_at) VALUES (501, 1, 'you', 'x', 'x')`,
 		`INSERT INTO mission_strategy_epochs (session_id, epoch_seq, trigger, started_at, state) VALUES (501, 1, 'timer', 1, 'open')`,
 		`INSERT INTO mission_strategy_judgments (session_id, epoch_seq, body, body_hash) VALUES (501, 1, '{}', x'01')`,
 		`INSERT INTO mission_strategy_directions (session_id, direction_id, key_hash, title, state) VALUES (501, 'd', x'02', 't', 'proposed')`,
@@ -923,7 +924,7 @@ func TestProfileDeleteRemovesAConfirmedGoalAndStrategyRowsWithTheirSession(t *te
 		t.Fatal(err)
 	}
 	defer db.Close()
-	for _, tb := range []string{"task_sessions WHERE id = 501", "mission_goals", "mission_goal_criteria", "mission_strategy_epochs", "mission_strategy_judgments", "mission_strategy_directions", "mission_strategy_novelty"} {
+	for _, tb := range []string{"task_sessions WHERE id = 501", "mission_goals", "mission_goal_criteria", "mission_pursuit", "mission_strategy_epochs", "mission_strategy_judgments", "mission_strategy_directions", "mission_strategy_novelty"} {
 		var n int
 		if err := db.DB.QueryRow(`SELECT COUNT(*) FROM ` + tb).Scan(&n); err != nil || n != 0 {
 			t.Errorf("%s: %d rows left, %v", tb, n, err)
