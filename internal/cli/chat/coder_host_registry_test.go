@@ -18,6 +18,7 @@ func TestTheHostRegistersItsDatabaseWhileItRunsAndRemovesItAtExit(t *testing.T) 
 	if coderhost.ProcStamp(os.Getpid()) == "" {
 		t.Skip("process ancestry cannot be read here")
 	}
+	resetChildReadiness(t) // the host registers its launcher process-wide; restore at the end
 	regDir := filepath.Join(t.TempDir(), "coder-hosts")
 	coderhost.SetRegistryDirForTest(t, regDir)
 	cfg := testDeps(&testConfig{DBPath: newChatCLITestDB(t), ProfileID: "default", JSONOutput: true})
