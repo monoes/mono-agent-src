@@ -8,11 +8,14 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import '../../i18n.js'
 import ShowBossLink from './ShowBossLink.jsx'
-import { showBossInAgents } from '../../lib/showBoss.js'
+import { showBossInAgents, cancelShowBoss } from '../../lib/showBoss.js'
 import { CoderBubbleContext } from '../bubbles/CoderBubbleContext.jsx'
 import { CoderHeader } from '../chat/CoderHeader.jsx'
 import { OpenRunNotice } from '../chat/OpenRunNotice.jsx'
 import ControlRoom from '../../pages/ControlRoom/ControlRoom.jsx'
+
+const { sessionsApi } = vi.hoisted(() => ({ sessionsApi: { list: vi.fn() } }))
+vi.mock('../../services/taskSessions.js', () => ({ sessionsApi }))
 
 // The open run's boss is reached from the chat header, the first-turn notice and the Control room: a link that goes to the Agents
 // page and brings the boss section into view. The page is not in the sidebar, so this is how it is found.
@@ -38,6 +41,37 @@ describe('showBossInAgents', () => {
   })
 })
 
+describe('the wait is cancellable', () => {
+  afterEach(() => { document.body.innerHTML = ''; cancelShowBoss() })
+  const section = () => { const el = document.createElement('section'); el.setAttribute('data-testid', 'open-run-boss'); el.tabIndex = -1; el.scrollIntoView = vi.fn(); return el }
+  it('a newer call cancels the one before it: only the newer one focuses', async () => {
+    const first = showBossInAgents(vi.fn(), { intervalMs: 5, timeoutMs: 500 })
+    const second = showBossInAgents(vi.fn(), { intervalMs: 5, timeoutMs: 500 })
+    const el = section(); setTimeout(() => document.body.appendChild(el), 30)
+    expect(await first).toBe(false)
+    expect(await second).toBe(true)
+    expect(el.scrollIntoView).toHaveBeenCalledTimes(1)
+  })
+  it('a key press or a click while it waits cancels it: no focus after the person moved on', async () => {
+    for (const ev of ['keydown', 'pointerdown']) {
+      const p = showBossInAgents(vi.fn(), { intervalMs: 5, timeoutMs: 500 })
+      await new Promise(r => setTimeout(r, 10)) // the click that started it is over
+      document.dispatchEvent(new Event(ev, { bubbles: true }))
+      const el = section(); document.body.appendChild(el)
+      expect(await p).toBe(false)
+      expect(el.scrollIntoView).not.toHaveBeenCalled()
+      expect(document.activeElement).not.toBe(el)
+      document.body.innerHTML = ''
+    }
+  })
+  it('the click that starts it does not cancel it', async () => {
+    const el = section(); setTimeout(() => document.body.appendChild(el), 20)
+    const p = showBossInAgents(vi.fn(), { intervalMs: 5, timeoutMs: 500 })
+    document.dispatchEvent(new Event('pointerdown', { bubbles: true })) // the same click, still bubbling
+    expect(await p).toBe(true)
+  })
+})
+
 describe('the link', () => {
   it('runs before, then navigates to the Agents page', async () => {
     const navigate = vi.fn(), before = vi.fn()
@@ -45,6 +79,10 @@ describe('the link', () => {
     fireEvent.click(screen.getByRole('button', { name: LINK }))
     expect(before).toHaveBeenCalledTimes(1)
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('ai'))
+  })
+  it('is not offered when no boss session is known (show false)', () => {
+    render(<ShowBossLink navigate={vi.fn()} show={false} />)
+    expect(screen.queryByTestId('show-boss-link')).toBeNull()
   })
   it('uses the app navigation from the context, and is absent where there is none', () => {
     const navigate = vi.fn()
@@ -80,13 +118,33 @@ describe('where it is offered', () => {
     let api
     beforeEach(() => { api = { overview: vi.fn(), feed: vi.fn().mockResolvedValue(golden('feed_page')), stop: vi.fn() } })
     const mount = (doc, navigate) => { api.overview.mockResolvedValue(doc); return render(<CoderBubbleContext.Provider value={{ navigate }}><ControlRoom api={api} /></CoderBubbleContext.Provider>) }
-    it('shows it while the run is active and it goes to the Agents page', async () => {
+    const boss = { id: 7, boss: true, state: 'running', archived: false }
+    beforeEach(() => { sessionsApi.list.mockReset(); sessionsApi.list.mockResolvedValue({ sessions: [boss] }) })
+    it('shows it while the run is active and a boss session is known, and it goes to the Agents page', async () => {
       const navigate = vi.fn()
       mount(golden('overview_running'), navigate)
       fireEvent.click(await screen.findByRole('button', { name: LINK }))
       expect(navigate).toHaveBeenCalledWith('ai')
     })
-    it('is absent when there is no run', async () => {
+    it('is absent when the run is active but no boss session is known (a terminal start without --boss-session)', async () => {
+      sessionsApi.list.mockResolvedValue({ sessions: [] })
+      mount(golden('overview_running'), vi.fn())
+      await screen.findByTestId('cr-tree')
+      await waitFor(() => expect(sessionsApi.list).toHaveBeenCalled())
+      expect(screen.queryByTestId('show-boss-link')).toBeNull()
+    })
+    it('is absent for a finished run', async () => {
+      const done = JSON.parse(JSON.stringify(golden('overview_running'))); done.run.active = false
+      mount(done, vi.fn())
+      await screen.findByTestId('cr-tree')
+      expect(screen.queryByTestId('show-boss-link')).toBeNull()
+      expect(sessionsApi.list).not.toHaveBeenCalled() // nothing is read for a run that is not going
+    })
+    it('is absent under an error reading and with no run', async () => {
+      mount(golden('overview_error'), vi.fn())
+      await screen.findByTestId('cr-error')
+      expect(screen.queryByTestId('show-boss-link')).toBeNull()
+      cleanup()
       mount(golden('overview_no_run'), vi.fn())
       await screen.findByTestId('cr-no-run')
       expect(screen.queryByTestId('show-boss-link')).toBeNull()

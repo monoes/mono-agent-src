@@ -5,11 +5,13 @@ import { showBossInAgents } from '../../lib/showBoss.js'
 
 // A link to the boss of the open-ended run on the Agents page. navigate defaults to the app's own (CoderBubbleContext); without
 // one there is nowhere to go and nothing renders. before runs first (a chat overlay collapses itself so the page is seen).
-export default function ShowBossLink({ navigate, before, style }) {
+// show is false when no boss session is known for the run (a run started from a terminal without --boss-session has none, and the
+// Agents page then has no section to show): the link is not offered.
+export default function ShowBossLink({ navigate, before, style, show = true }) {
   const { t } = useTranslation()
   const ctx = useSendToCoder()
   const go = navigate || ctx?.navigate
-  if (typeof go !== 'function') return null
+  if (typeof go !== 'function' || !show) return null
   return (
     <button type="button" className="btn btn-ghost btn-sm" data-testid="show-boss-link" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, ...style }}
       onClick={() => { before?.(); showBossInAgents(go) }}>

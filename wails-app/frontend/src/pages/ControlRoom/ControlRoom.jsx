@@ -10,6 +10,8 @@ import SpendMeter from './SpendMeter.jsx'
 import DecisionFeed from './DecisionFeed.jsx'
 import StopPanel from './StopPanel.jsx'
 import ShowBossLink from '../../components/agents/ShowBossLink.jsx'
+import { useSessionOrbit } from '../../components/bubbles/useSessionOrbit.js'
+import { activeBoss } from '../../lib/sessionOrbit.js'
 import './controlRoom.css'
 
 // The doomsday control room: reads `doomsday overview` and `doomsday feed`, offers one action, Stop. It never starts
@@ -22,6 +24,11 @@ export default function ControlRoom({ isActive = true, api = controlRoomApi }) {
   // and during the very first poll (doc null reads as an error view). With no known run it says "run state unknown".
   const showStop = view.state === 'ok' || view.state === 'error'
   const runUnknown = view.state === 'error' && !lastRun
+  // the boss link is offered for an ACTIVE run of the current (ok) reading only, and only when a boss session is known (the Agents page
+  // section is that session's)
+  const runActive = view.state === 'ok' && !!run?.active
+  const { sessions: orbitSessions } = useSessionOrbit(runActive)
+  const hasBoss = !!activeBoss(orbitSessions)
   // Stop is disabled only when a poll whose chain verified (yes) says the run is not active. Any other chain, any
   // error and a stale last-known run keep it enabled: a forged or stale ended row must not lock the operator out.
   const stopDisabled = view.state === 'ok' && view.chain === 'yes' && !!run && !run.active
@@ -51,7 +58,7 @@ export default function ControlRoom({ isActive = true, api = controlRoomApi }) {
         {view.state === 'ok' ? (
           <>
             <RunHeader run={run} integrity={doc.integrity} />
-            {run?.active ? <div style={{ margin: '6px 0' }}><ShowBossLink /></div> : null}
+            {runActive ? <div style={{ margin: '6px 0' }}><ShowBossLink show={hasBoss} /></div> : null}
             {view.chain === 'unanchored' ? <UnanchoredBanner reason={doc.integrity?.reason} /> : null}
             {!hasData(view.chain) ? <BadChainBanner chain={view.chain} reason={doc.integrity?.reason} /> : (
               <div className="cr-grid">

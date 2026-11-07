@@ -1251,7 +1251,7 @@
       "needsYou_one": "{{count}} elemento te necesita",
       "needsYou_other": "{{count}} elementos te necesitan",
       "boss": "Jefe",
-      "bossNote": "Jefe de la ejecucion abierta: haga clic para abrir su conversacion, o vealo en Agentes de IA"
+      "bossNote": "Jefe de la ejecución abierta: haz clic para abrir su conversación"
     },
     "lite": {
       "board": "Tablero de tareas",
@@ -2483,7 +2483,7 @@
     "hint": "Se elige antes del primer mensaje y no se puede cambiar después. Misión: el líder planifica el trabajo y sigue hasta que la cierres.",
     "locked": "El modo del chat se elige antes del primer mensaje y no se puede cambiar después",
     "unavailable": "No disponible",
-    "whyUnavailable": "{{mode}} no esta disponible: {{reason}}",
+    "whyUnavailable": "{{mode}} no está disponible: {{reason}}",
     "loadFailed": "No se pudo leer el modo del chat",
     "saveFailed": "No se pudo cambiar el modo del chat: {{error}}",
     "checking": "Comprobando...",
@@ -2585,13 +2585,13 @@
     "startFailed": "La ejecucion no empezo",
     "startedRun": "Ejecucion {{run}}.",
     "started": "La ejecucion empezo. Detener esta en el encabezado del chat.",
-    "noBoss": "Este chat no puede iniciar una ejecucion desde aqui.",
-    "noFirstTurn": "La ejecucion empezo, pero el jefe no tiene primer turno: dirijalo escribiendo en el chat, o pulse Detener en la cabecera del chat.",
+    "noBoss": "Este chat no puede iniciar una ejecución desde aquí.",
+    "noFirstTurn": "La ejecución empezó, pero el jefe no tiene primer turno: dirígelo escribiendo en el chat, o pulsa Detener en la cabecera del chat.",
     "steerBoss": "Dirigir al jefe",
-    "stopRun": "Detener la ejecucion",
-    "stopElsewhere": "El boton Detener de la cabecera no esta disponible aqui: abra la sala de control y pulse Detener alli.",
+    "stopRun": "Detener la ejecución",
+    "stopElsewhere": "El botón Detener de la cabecera no está disponible aquí: abre la sala de control y pulsa Detener allí.",
     "dismiss": "Cerrar",
-    "chatFailed": "No se pudo crear el chat, asi que no se inicio nada: {{error}}",
+    "chatFailed": "No se pudo crear el chat, así que no se inició nada: {{error}}",
     "err": {
       "text": "Usa como maximo 2000 caracteres en el objetivo, los criterios y los modelos, sin caracteres ocultos (de ancho cero, de direccion o de etiqueta).",
       "goal": "Di para que es la ejecucion.",

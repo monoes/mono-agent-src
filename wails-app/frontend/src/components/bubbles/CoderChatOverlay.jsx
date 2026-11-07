@@ -23,7 +23,7 @@ import { shouldCollapseOnBackdrop } from '../../lib/coderBubbles.js'
 import { LEAD_ID } from '../../lib/orgStage.js'
 import { LitePaneHeader } from './LitePaneHeader.jsx'
 import { OpenRunNotice, firstTurnFailedIn } from '../chat/OpenRunNotice.jsx'
-import { orbitOf, bossOf, frontDeskOf } from '../../lib/sessionOrbit.js'
+import { orbitOf, bossOf, frontDeskOf, activeBoss } from '../../lib/sessionOrbit.js'
 import { OrgStage } from '../stage/OrgStage.jsx'
 import { StageDrawer } from '../stage/StageDrawer.jsx'
 import './bubbles.css'
@@ -389,7 +389,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
           )}
         </div>
         )}
-        {!lite && (bubble.cwd || chatMode.state || chatMode.error) && <CoderHeader cwd={bubble.cwd} chatMode={chatMode} openEnded={{ runExists, conversationId: bubble.conversationId, onStopped: onRunStopped, onShowBoss: { navigate: onNavigate, before: collapse } }} />}
+        {!lite && (bubble.cwd || chatMode.state || chatMode.error) && <CoderHeader cwd={bubble.cwd} chatMode={chatMode} openEnded={{ runExists, conversationId: bubble.conversationId, onStopped: onRunStopped, onShowBoss: { navigate: onNavigate, before: collapse, show: !!activeBoss(orbitSessions) || !!openRun } }} />}
         {openRun?.firstTurnFailed && <OpenRunNotice onDismiss={() => setOpenRun(null)} navigate={onNavigate} beforeShowBoss={collapse} />}
         {!lite && view.task && <TaskHeaderCard key={view.task.taskId} task={view.task} onNavigate={onNavigate} />}
         {!lite && <ChatResetBar onClear={startFresh} onCompact={compact}
