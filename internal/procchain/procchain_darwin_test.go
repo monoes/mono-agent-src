@@ -97,3 +97,22 @@ func TestDarwinBootStampCarriesTheBoot(t *testing.T) {
 		t.Error("the boot stamp of this process does not match its plain stamp")
 	}
 }
+
+// A process that has exited but not been waited for is a zombie: it has no stamp, so it is not "in" anything.
+func TestDarwinZombieHasNoStamp(t *testing.T) {
+	cmd := exec.Command("sleep", "0.2")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cmd.Wait() })
+	if Stamp(cmd.Process.Pid) == "" {
+		t.Fatal("a running process has no stamp")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for Stamp(cmd.Process.Pid) != "" && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if st := Stamp(cmd.Process.Pid); st != "" {
+		t.Errorf("an exited, unreaped process still has the stamp %q", st)
+	}
+}
