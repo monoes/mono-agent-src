@@ -7,6 +7,9 @@ import (
 	"os/exec"
 	"testing"
 	"time"
+	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
 // startBoundSleeper starts a real child through the bound launch (the frame pipe attached, the leader pinned).
@@ -111,5 +114,35 @@ func TestAwaitExitNoReapWaitsForTheExitOfAHeldChild(t *testing.T) {
 	}
 	if awaitExitNoReap(0x7ffffff0) {
 		t.Fatal("held a process that does not exist")
+	}
+}
+
+var procGetHandleInformation = windows.NewLazySystemDLL("kernel32.dll").NewProc("GetHandleInformation")
+
+func handleFlags(h uintptr, fl *uint32) error {
+	r, _, e := procGetHandleInformation.Call(h, uintptr(unsafe.Pointer(fl)))
+	if r == 0 {
+		return e
+	}
+	return nil
+}
+
+// The write end of the frame pipe is not inheritable (os.Pipe makes both ends so).
+func TestFramePipeWriteEndIsNotInheritable(t *testing.T) {
+	cmd := exec.Command(os.Args[0])
+	d, err := (&boundLaunch{}).attach(cmd, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.close()
+	var fl uint32
+	if err := handleFlags(d.w.Fd(), &fl); err != nil {
+		t.Fatal(err)
+	}
+	if fl&windows.HANDLE_FLAG_INHERIT != 0 {
+		t.Fatal("the write end can be inherited")
+	}
+	if err := handleFlags(d.r.Fd(), &fl); err != nil || fl&windows.HANDLE_FLAG_INHERIT == 0 {
+		t.Fatalf("the read end is not inheritable (%v): the child could not get it", err)
 	}
 }

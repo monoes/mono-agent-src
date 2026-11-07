@@ -458,7 +458,7 @@ func TestKnownGapAProcessThatClaimsTheWorkerAsItsParentIsServed(t *testing.T) {
 	}
 	ph, err := windows.OpenProcess(windows.PROCESS_CREATE_PROCESS|windows.PROCESS_DUP_HANDLE|windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(cmd.Process.Pid))
 	if err != nil {
-		t.Skipf("the worker cannot be named as a parent here: %v", err)
+		t.Fatalf("the worker cannot be named as a parent any more (%v): the gap may be closed; update the documentation and this test", err)
 	}
 	defer windows.CloseHandle(ph)
 	c := exec.Command(os.Args[0], "-test.run=^TestHelperProcess$")
@@ -466,9 +466,37 @@ func TestKnownGapAProcessThatClaimsTheWorkerAsItsParentIsServed(t *testing.T) {
 	c.SysProcAttr = &syscall.SysProcAttr{ParentProcess: syscall.Handle(ph)}
 	out, err := c.Output()
 	if err != nil {
-		t.Skipf("a process with a named parent cannot be made here: %v", err)
+		t.Fatalf("a process with a named parent cannot be made (%v): the gap may be closed; update the documentation and this test", err)
 	}
 	if !strings.Contains(string(out), "VERDICT allow") {
 		t.Fatalf("the known gap is closed (%q): update the documentation and this test", out)
+	}
+}
+
+// KNOWN GAP, second route: under the default access list the same user may open any process of its own with the rights to
+// write into it and start a thread in it (CreateRemoteThread), and the code that then runs is the member: its peer pid, user
+// and ancestry are genuine. No check of the service sees it. Hardening the access list of the turn is separate work; when it
+// lands this test must fail and be turned into a must-deny test.
+func TestKnownGapTheDefaultAccessListLetsTheSameUserWriteIntoATreeMember(t *testing.T) {
+	cmd, r := spawn(t, "sleep")
+	readLine(t, r, "READY")
+	const want = windows.PROCESS_VM_WRITE | windows.PROCESS_VM_OPERATION | windows.PROCESS_CREATE_THREAD | windows.PROCESS_VM_READ
+	h, err := windows.OpenProcess(want, false, uint32(cmd.Process.Pid))
+	if err != nil {
+		t.Fatalf("the member can no longer be opened for writing (%v): the gap may be closed; update the documentation and this test", err)
+	}
+	windows.CloseHandle(h)
+}
+
+func TestReadyNamesALongTemporaryFolderAsTheCause(t *testing.T) {
+	old := readyProbes.peerPID
+	readyProbes.peerPID = func() error { return errProbePath }
+	defer func() { readyProbes.peerPID = old }()
+	if err := Ready(); err == nil || !strings.Contains(err.Error(), "TEMP") || strings.Contains(err.Error(), "1809") {
+		t.Fatalf("Ready: %v", err)
+	}
+	readyProbes.peerPID = func() error { return errors.New("x") }
+	if err := Ready(); err == nil || !strings.Contains(err.Error(), "1809") {
+		t.Fatalf("Ready: %v", err)
 	}
 }

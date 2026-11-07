@@ -392,6 +392,9 @@ func probePeerPID() error {
 	}
 	defer os.RemoveAll(dir)
 	path := filepath.Join(dir, "p.sock")
+	if len(path) > maxSockPath {
+		return errProbePath
+	}
 	l, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
 	if err != nil {
 		return err

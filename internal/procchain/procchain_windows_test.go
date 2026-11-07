@@ -109,19 +109,18 @@ func TestRealDescendsFromThisProcessInAChild(t *testing.T) {
 	}
 }
 
-// A stamp that carries the boot is not the stamp of a process of another boot, and the boot is stable within one.
-func TestBootStampCarriesTheBootAndIsStable(t *testing.T) {
+// The stamp carries no boot part on Windows: the creation time is absolute, and a boot time that moves with the clock would make
+// a live process's recorded stamp stop matching (a host inside a turn would no longer be seen, a stopper would leave a worker).
+func TestBootStampIsTheStampAndDoesNotMoveWithTheClock(t *testing.T) {
 	a, b := BootStamp(os.Getpid()), BootStamp(os.Getpid())
-	if a == "" || a != b {
-		t.Fatalf("boot stamps %q %q", a, b)
+	if a == "" || a != b || a != Stamp(os.Getpid()) {
+		t.Fatalf("boot stamps %q %q, stamp %q", a, b, Stamp(os.Getpid()))
 	}
-	if !strings.Contains(a, "@boot-") {
-		t.Fatalf("no boot in %q", a)
+	if strings.Contains(a, "@") {
+		t.Fatalf("a boot part in %q", a)
 	}
-	if SameStamp(strings.Split(a, "@")[0]+"@boot-1", a) {
-		t.Error("a stamp of another boot matched")
-	}
-	if !SameStamp(a, Stamp(os.Getpid())) {
-		t.Error("a boot stamp does not match the plain stamp of the same process")
+	// a stamp recorded with a boot part (any value) still matches the live process
+	if !SameStamp(a+"@boot-3s-earlier", a) {
+		t.Error("a recorded boot part that differs made a live process look like another")
 	}
 }

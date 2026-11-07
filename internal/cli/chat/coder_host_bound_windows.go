@@ -42,6 +42,12 @@ func (b *boundLaunch) attach(cmd *exec.Cmd, missionToken string) (*boundDelivery
 		w.Close()
 		return nil, err
 	}
+	// os.Pipe makes both ends inheritable: the write end must not be, whatever else the host starts
+	if err := syscall.SetHandleInformation(syscall.Handle(w.Fd()), syscall.HANDLE_FLAG_INHERIT, 0); err != nil {
+		r.Close()
+		w.Close()
+		return nil, err
+	}
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
@@ -86,11 +92,6 @@ func (d *boundDelivery) start(cmd *exec.Cmd, pre func(*exec.Cmd) error) error {
 	if err != nil {
 		_ = cmd.Process.Kill()
 		return fmt.Errorf("the turn's process could not be held, so it cannot be bound: %w", err)
-	}
-	if ppid, err := (procbind.WinProcs{}).Parent(p); err != nil || ppid != os.Getpid() {
-		_ = p.Close()
-		_ = cmd.Process.Kill()
-		return errors.New("the turn's process is not this host's child, so it cannot be bound")
 	}
 	d.proc = p
 	return nil
