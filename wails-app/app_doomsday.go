@@ -43,7 +43,7 @@ const (
 )
 
 // doomsdayVerbs is the whole of what the app can run through doomsdayArgv, with the flags each takes: the read verbs
-// (overview, feed, probe) and stop. render and start are not here: they take a charter and a phrase from the person
+// (overview, feed, probe, status) and stop. render and start are not here: they take a charter and a phrase from the person
 // and have their own fixed argv (doomsdayCharterArgv, in the start form file). approve, grant, pause, resume, finish and
 // rubric are the terminal's.
 var doomsdayVerbs = map[string][]string{
@@ -51,6 +51,7 @@ var doomsdayVerbs = map[string][]string{
 	"feed":     {"--before", "--limit"},
 	"stop":     nil,
 	"probe":    nil,
+	"status":   nil,
 }
 
 // doomsdayArgv is the argv of one allowed verb for profile. extra is --flag=value strings; a flag the verb does not
@@ -237,6 +238,15 @@ func (a *App) DoomsdayOverview() string {
 		return loginRequiredJSON(err)
 	}
 	return a.doomsdayRead("overview")
+}
+
+// DoomsdayStatus is `doomsday status`: the run's state and, for a run that started from a chat, where the boss's first turn
+// stands (first_turn: pending, started, failed with first_turn_error, or none). The chat's notice reads it after the start.
+func (a *App) DoomsdayStatus() string {
+	if err := a.signedOut(); err != nil {
+		return loginRequiredJSON(err)
+	}
+	return a.doomsdayRead("status")
 }
 
 // DoomsdayFeed is `doomsday feed [--before=N] [--limit=N]`: one page of the decision feed, newest first. before 0

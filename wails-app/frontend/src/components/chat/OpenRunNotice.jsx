@@ -15,7 +15,7 @@ export function firstTurnFailedIn(r) {
 
 const root = el => el?.closest?.('[data-testid="bubble-overlay"]') || document
 
-export function OpenRunNotice({ onDismiss, navigate, beforeShowBoss }) {
+export function OpenRunNotice({ reason, onDismiss, navigate, beforeShowBoss }) {
   const { t } = useTranslation()
   const steer = e => root(e.currentTarget).querySelector('textarea')?.focus()
   const [noStop, setNoStop] = useState(false)
@@ -26,7 +26,7 @@ export function OpenRunNotice({ onDismiss, navigate, beforeShowBoss }) {
   }
   return (
     <div role="alert" data-testid="open-run-notice" style={{ ...small, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', padding: '6px 12px', borderBottom: '1px solid var(--border)', color: 'var(--red)' }}>
-      <span style={{ flex: 1 }}>{t('openStart.noFirstTurn')}</span>
+      <span style={{ flex: 1 }}>{t('openStart.noFirstTurn')}{reason ? <span data-testid="open-run-notice-why" style={{ display: 'block' }}>{t('openStart.noFirstTurnWhy', { reason })}</span> : null}</span>
       <button type="button" className="btn btn-ghost btn-sm" onClick={steer}>{t('openStart.steerBoss')}</button>
       <button type="button" className="btn btn-danger btn-sm" onClick={stop}>{t('openStart.stopRun')}</button>
       <ShowBossLink navigate={navigate} before={beforeShowBoss} />
