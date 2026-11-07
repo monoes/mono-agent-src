@@ -162,6 +162,7 @@ var seedOverrides = map[string]map[string]any{
 	"org_proposals":         {"status": "pending", "verb": "grant.add"},
 	"mission_goals":         {"state": "proposed"},
 	"mission_goal_criteria": {"kind": "rubric"},
+	"mission_pursuit": {"enabled": 0},
 	// 165: strategy rows exist only for a running session (session 1 above is seeded running), and a judgment needs an open epoch.
 	"mission_strategy_directions": {"state": "proposed"},
 	"mission_strategy_epochs":     {"trigger": "timer", "state": "open"},
