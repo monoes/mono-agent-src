@@ -2,10 +2,13 @@ package doomsday
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/coderhost"
 )
 
@@ -94,5 +97,38 @@ func TestOwedFlagWritesCreateNoRowAndKeepUpdatedAt(t *testing.T) {
 	var got string
 	if err := r.w.DB.QueryRow(`SELECT updated_at FROM coder_sessions WHERE conversation_id = 'conv-a'`).Scan(&got); err != nil || got != "2020-01-01T00:00:00Z" {
 		t.Fatalf("updated_at moved: %q %v", got, err)
+	}
+}
+
+// A chat with no session row (a boss chat that never ran a turn) whose stop message cannot be written cannot hold an owed
+// flag: the stop says so and still exits non-zero, instead of promising a later stop will write it.
+func TestAnOwedFlagThatCannotBeStoredForAChatWithoutARowIsReported(t *testing.T) {
+	r := newStopRig(t)
+	if _, err := r.w.DB.Exec("DELE" + "TE FROM coder_sessions WHERE conversation_id = 'conv-a'"); err != nil {
+		t.Fatal(err)
+	}
+	r.n.fail = errors.New("db locked")
+	out, err := run(t, r.deps, "", "stop")
+	if clicore.ExitCodeFor(err) != ExitCleanupFailed || !strings.Contains(out, "transcript NOT recorded as owed (conv-a)") || !strings.Contains(out, "no session row") {
+		t.Fatalf("%v %q", err, out)
+	}
+}
+
+// A repair whose write failed puts its flag back only when no flag is there: a newer run's flag is never overwritten.
+func TestARepairRestoresItsFlagOnlyOverNothing(t *testing.T) {
+	r, ref, run1 := owedRig(t)
+	if err := r.w.writePending(ref, run1.IntentAt, "conv-a", owedChat{Code: owedPlain, At: run1.IntentAt}); err != nil {
+		t.Fatal(err)
+	}
+	other := coderhost.OwedStopNotice{Charter: "another-charter", Generation: 9, IntentAt: run1.IntentAt + 1, Code: owedPlain, At: run1.IntentAt + 1}
+	r.w.ChatNote = func(context.Context, string, string) error {
+		if err := r.setOwed(t, "conv-a", other); err != nil {
+			t.Error(err)
+		}
+		return errors.New("db locked")
+	}
+	r.w.repairStop(context.Background(), time.Now())
+	if f := r.owedFlag(t, "conv-a"); f == nil || f.Charter != other.Charter {
+		t.Fatalf("a newer flag was overwritten: %+v", f)
 	}
 }
