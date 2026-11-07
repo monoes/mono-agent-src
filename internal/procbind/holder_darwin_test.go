@@ -3,6 +3,7 @@
 package procbind
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"net"
@@ -187,8 +188,8 @@ func TestDarwinTheLayoutSelfCheckPassesHereAndFailsReadyWhenItDoesNot(t *testing
 
 // --- what LOCAL_PEERPID names ---
 
-// TestDarwinHelperPeerPidConnector connects and starts a child that inherits the connection and writes to it; it then closes
-// its own copy, so the last process to do I/O on the connection is the child.
+// TestDarwinHelperPeerPidConnector connects, reports its pid, waits for the test's go, then runs a child that inherited the
+// connection and writes to it.
 func TestDarwinHelperPeerPidConnector(t *testing.T) {
 	sock := os.Getenv("PROCBIND_DARWIN_PEERPID_SOCK")
 	if sock == "" {
@@ -197,6 +198,7 @@ func TestDarwinHelperPeerPidConnector(t *testing.T) {
 	if os.Getenv("PROCBIND_DARWIN_PEERPID_WRITER") != "" {
 		c, err := net.FileConn(os.NewFile(3, "conn"))
 		if err == nil {
+			fmt.Println("WRITER", os.Getpid())
 			_, _ = c.Write([]byte("x"))
 		}
 		return
@@ -206,17 +208,20 @@ func TestDarwinHelperPeerPidConnector(t *testing.T) {
 		return
 	}
 	f, _ := conn.File()
+	fmt.Println("CONNECTOR", os.Getpid())
+	_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
 	child := exec.Command(os.Args[0], "-test.run=^TestDarwinHelperPeerPidConnector$")
 	child.Env = append(os.Environ(), "PROCBIND_DARWIN_PEERPID_WRITER=1")
 	child.ExtraFiles = []*os.File{f}
+	child.Stdout = os.Stdout
 	_ = child.Run()
-	fmt.Println("CONNECTOR", os.Getpid(), "WRITER", child.Process.Pid)
 	time.Sleep(2 * time.Second) // keeps its end while the test reads
 }
 
-// LOCAL_PEERPID is the process that connected, not the process that last did I/O on the connection (measured on macOS 27:
-// the pid read after another process, holding a duplicate, wrote to the socket is still the connector's).
-func TestDarwinPeerPidIsTheConnectorNotTheLastIOProcess(t *testing.T) {
+// Measured on macOS 27: LOCAL_PEERPID is the process that last did I/O on the other end, not only the one that connected.
+// Right after the accept it is the connector; once a process holding a duplicate has written, it is that process. The
+// service reads it at accept and again when it serves the connection, and the holder proof is made for the pid it reads then.
+func TestDarwinPeerPidFollowsTheProcessThatLastDidIO(t *testing.T) {
 	path := filepath.Join(shortDir(t), "s")
 	l, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
 	if err != nil {
@@ -225,58 +230,43 @@ func TestDarwinPeerPidIsTheConnectorNotTheLastIOProcess(t *testing.T) {
 	defer l.Close()
 	cmd := exec.Command(os.Args[0], "-test.run=^TestDarwinHelperPeerPidConnector$", "-test.v")
 	cmd.Env = append(os.Environ(), "PROCBIND_DARWIN_PEERPID_SOCK="+path)
-	outc := make(chan string, 1)
+	in, _ := cmd.StdinPipe()
 	pipe, _ := cmd.StdoutPipe()
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
-	go func() {
-		b := make([]byte, 4096)
-		var acc string
+	r := bufio.NewReader(pipe)
+	pidOf := func(tag string) int {
 		for {
-			n, err := pipe.Read(b)
-			acc += string(b[:n])
-			if strings.Contains(acc, "CONNECTOR") && strings.Contains(acc, "WRITER") && strings.Contains(acc, "\n") {
-				outc <- acc
-				return
-			}
+			line, err := r.ReadString('\n')
 			if err != nil {
-				outc <- acc
-				return
+				t.Fatalf("no %s line: %v", tag, err)
+			}
+			var n int
+			if _, err := fmt.Sscanf(strings.TrimSpace(line), tag+" %d", &n); err == nil {
+				return n
 			}
 		}
-	}()
+	}
+	connector := pidOf("CONNECTOR")
 	c, err := l.AcceptUnix()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	var line string
-	select {
-	case line = <-outc:
-	case <-time.After(15 * time.Second):
-		t.Fatal("no report from the helper")
+	cred, _, err := peer(c)
+	if err != nil || int(cred.Pid) != connector {
+		t.Fatalf("at accept: %+v %v, the connector is %d", cred, err, connector)
 	}
-	var connector, writer int
-	for _, l := range strings.Split(line, "\n") {
-		if strings.HasPrefix(l, "CONNECTOR") {
-			fmt.Sscanf(l, "CONNECTOR %d WRITER %d", &connector, &writer)
-		}
-	}
-	buf := make([]byte, 1)
+	_, _ = in.Write([]byte("go\n"))
+	writer := pidOf("WRITER")
 	_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
-	if _, err := c.Read(buf); err != nil {
+	if _, err := c.Read(make([]byte, 1)); err != nil {
 		t.Fatalf("the writer's byte did not arrive: %v", err)
 	}
-	cred, _, err := peer(c)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if connector == 0 || writer == 0 || connector == writer {
-		t.Fatalf("helper report %q", line)
-	}
-	if int(cred.Pid) != connector {
-		t.Fatalf("LOCAL_PEERPID after the writer %d wrote = %d, the connector is %d", writer, cred.Pid, connector)
+	cred, _, err = peer(c)
+	if err != nil || connector == writer || int(cred.Pid) != writer {
+		t.Fatalf("after the writer %d wrote: %+v %v (the connector is %d)", writer, cred, err, connector)
 	}
 }
