@@ -3517,6 +3517,20 @@ reuses its small pidfd inode numbers), the start time has a resolution of 10 ms,
 same and is held to the predecessor's allowance for that moment; it fails closed (a deny) and is
 availability only.
 
+**Binding service on macOS.** The same contract, with the kernel facilities macOS has. The peer's uid comes from
+LOCAL_PEERCRED and its pid from LOCAL_PEERPID, read from the connected socket (never from the request); a credential
+structure of an unknown version, a pid that is not a process, or a uid other than the host's is closed without an
+answer. The process table is read through sysctl (kern.proc.pid), and a process is pinned by its pid together with its
+start time in microseconds: the pin is alive only while the kernel still reports that pair and the process is not a
+zombie. Process ancestry (internal/procchain) uses the same reader, and anything it cannot read counts as no. The socket
+directory is checked as on Linux (components opened one at a time with no symlink followed, mode 0700, ours, a lock),
+but a socket path longer than the address can hold (103 bytes) is refused, and the path used to bind and connect is the
+directory descriptor's current path. Residual, not present on Linux: macOS has no pidfd, so a number can be reused
+between a check and the next use (the check and the signal that stops a turn's leader are not atomic), and the pid that
+LOCAL_PEERPID reports is the one the peer connected with. The start time makes a reused number read as a different process
+and every step of the walk is bracketed by liveness checks; the window that remains is short, it is the residual of this
+port, and it is not closed by a descriptor as on Linux.
+
 **Not part of this surface.** Running a caller's tool: the gateway returns the
 call and the caller runs it. The runtime's own native tools are a separate matter,
 covered by the classes above.
