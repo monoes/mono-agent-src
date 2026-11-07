@@ -100,3 +100,17 @@ func TestSessionPursuitStartRefusesAnUnconfirmedGoal(t *testing.T) {
 		t.Errorf("a refused start left a pursuit")
 	}
 }
+
+func TestSessionPursuitStartRefusesAnExplicitZeroLimit(t *testing.T) {
+	t.Parallel()
+	db := newTaskTestDB(t)
+	s, _ := confirmedGoalMission(t, db)
+	for _, flag := range []string{"--parked-max", "--pct"} {
+		if out, _, err := runTask(t, db, "default", true, "", "session", "pursuit", "start", id(s), flag, "0"); err == nil {
+			t.Errorf("%s 0 was accepted: %s", flag, out)
+		}
+	}
+	if pursuitExists(t, db, s) {
+		t.Errorf("a refused start left a pursuit")
+	}
+}

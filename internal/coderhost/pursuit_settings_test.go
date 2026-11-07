@@ -1,6 +1,7 @@
 package coderhost
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -172,5 +173,35 @@ func TestAnUnreadablePursuitCountsAsStartedAndKeepsTheSettings(t *testing.T) {
 	s, err := st.GetSettings("p", "a")
 	if err != nil || !s.pursuing {
 		t.Errorf("pursuing = %v, err = %v, want started and no error", s.pursuing, err)
+	}
+}
+
+// A lead chat with no live master decides soft gaps itself (ParkOwn says ErrNoMasterDecide, then RecordOwn writes the
+// model's decision). In a started pursuit nothing is decided for the person: the question parks, and RecordOwn refuses.
+func TestAPursuitLeadWithNoMasterParksOwnQuestionsAndCannotRecordDecisions(t *testing.T) {
+	st, _ := parkStore(t)
+	addConversation(t, st, "a", "/w/a")
+	c := Caller{ProfileID: "p", ConversationID: "a"}
+	req := ParkRequest{Class: "ambiguity", Question: "which port?", Options: []string{"80", "8080"}}
+	if _, err := st.ParkOwn(c, req); !errors.Is(err, ErrNoMasterDecide) {
+		t.Fatalf("control: without a pursuit and a master, ParkOwn = %v, want ErrNoMasterDecide", err)
+	}
+	rec := RecordRequest{Class: "ambiguity", Question: "which port?", Choice: "8080"}
+	if _, err := st.RecordOwn(c, rec); err != nil {
+		t.Fatalf("control: RecordOwn without a pursuit: %v", err)
+	}
+	pursueConversation(t, st, "a", true, false)
+	q, err := st.ParkOwn(c, req)
+	if err != nil || q.Status != "open" {
+		t.Errorf("in a pursuit ParkOwn = %+v, %v, want an open question for the person", q, err)
+	}
+	before := countRows(t, st, `SELECT COUNT(*) FROM coder_session_decisions WHERE made_by = 'model'`)
+	for _, class := range GapClasses {
+		if _, err := st.RecordOwn(c, RecordRequest{Class: class, Question: "q", Choice: "x"}); !errors.Is(err, ErrPolicyReserves) {
+			t.Errorf("in a pursuit RecordOwn(%s) = %v, want ErrPolicyReserves", class, err)
+		}
+	}
+	if after := countRows(t, st, `SELECT COUNT(*) FROM coder_session_decisions WHERE made_by = 'model'`); after != before {
+		t.Errorf("model decisions %d -> %d in a pursuit", before, after)
 	}
 }

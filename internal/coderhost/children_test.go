@@ -351,8 +351,8 @@ func TestToolsNeverChangeOperatorOnlySettings(t *testing.T) {
 func TestEverySettingIsClassified(t *testing.T) {
 	typ := reflect.TypeOf(Settings{})
 	for i := 0; i < typ.NumField(); i++ {
-		if typ.Field(i).PkgPath != "" {
-			continue // unexported state the store fills (pursuing): not a setting, no document or patch can name it
+		if typ.Field(i).Name == "pursuing" {
+			continue // unexported state the store fills: not a setting, no document or patch can name it; any other unexported field must be decided
 		}
 		name := strings.Split(typ.Field(i).Tag.Get("json"), ",")[0]
 		if oneOf(name, OperatorOnly) == oneOf(name, AgentAdjustable) {
