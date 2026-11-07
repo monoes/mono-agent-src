@@ -2482,6 +2482,7 @@
     "hint": "Se elige antes del primer mensaje y no se puede cambiar después. Misión: el líder planifica el trabajo y sigue hasta que la cierres.",
     "locked": "El modo del chat se elige antes del primer mensaje y no se puede cambiar después",
     "unavailable": "No disponible",
+    "whyUnavailable": "{{mode}} no esta disponible: {{reason}}",
     "loadFailed": "No se pudo leer el modo del chat",
     "saveFailed": "No se pudo cambiar el modo del chat: {{error}}",
     "checking": "Comprobando...",

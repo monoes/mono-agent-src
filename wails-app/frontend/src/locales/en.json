@@ -2526,6 +2526,7 @@
     "hint": "Chosen before the first message; it cannot change afterwards. Mission: the lead plans the work and goes on until you close it.",
     "locked": "The chat mode is chosen before the first message and cannot change afterwards",
     "unavailable": "Not available",
+    "whyUnavailable": "{{mode}} is not available: {{reason}}",
     "loadFailed": "Could not read the chat mode",
     "saveFailed": "Could not change the chat mode: {{error}}",
     "checking": "Checking...",

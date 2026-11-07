@@ -3,8 +3,8 @@ import { Rocket } from 'lucide-react'
 
 // The chat mode of a coder chat: off, mission or open-ended. It is chosen before the first message and locked
 // after it. State comes from useChatMode; the CLI decides which modes are available, why a disabled one is disabled
-// and when the mode is locked, and this only shows it: a disabled mode keeps its reason as a tooltip, and so does the
-// whole selector once it is locked.
+// and when the mode is locked, and this only shows it: a disabled mode keeps its reason as a tooltip on the radio itself (title and aria-description) and as a
+// visible line under the selector, and the whole selector has one once it is locked.
 
 const mono = 'var(--font-mono)'
 
@@ -40,6 +40,7 @@ export function ChatModeSelector({ chatMode }) {
           return (
             <span key={o.mode} title={why || undefined}>
               <button type="button" role="radio" aria-checked={on} disabled={disabled} data-testid={`chat-mode-${o.mode}`}
+                title={why || undefined} aria-description={why || undefined}
                 onClick={() => !on && (pending ? checkOpen() : set(o.mode))} className="btn btn-ghost btn-sm"
                 style={{ fontFamily: mono, fontSize: 9, opacity: locked && on ? 0.9 : undefined, color: on ? 'var(--green)' : 'var(--text-muted)', borderColor: on ? 'var(--green)' : undefined }}>
                 {pending && checking ? t('chatMode.checking') : t(`chatMode.${o.mode}`)}
@@ -48,6 +49,11 @@ export function ChatModeSelector({ chatMode }) {
           )
         })}
       </span>
+      {!locked && (state?.options || []).filter(o => !o.available && !o.pending).map(o => (
+        <span key={o.mode} role="status" data-testid={`chat-mode-why-${o.mode}`} style={{ flexBasis: '100%', fontFamily: mono, fontSize: 9, color: 'var(--text-muted)' }}>
+          {t('chatMode.whyUnavailable', { mode: t(`chatMode.${o.mode}`), reason: o.reason || t('chatMode.unavailable') })}
+        </span>
+      ))}
       {locked && <span data-testid="chat-mode-reason" style={{ fontFamily: mono, fontSize: 9, color: 'var(--text-muted)' }}>{lockedWhy}</span>}
       {error && <span role="alert" data-testid="chat-mode-error" style={{ flexBasis: '100%', fontFamily: mono, fontSize: 10, color: 'var(--red)' }}>{error}</span>}
     </>
