@@ -4,6 +4,7 @@ package procbind
 
 import (
 	"errors"
+	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
@@ -25,7 +26,15 @@ func procInfo(pid int) (ppid int, start uint64, err error) {
 		return 0, 0, errGone
 	}
 	k, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
-	if err != nil || k == nil || k.Proc.P_stat == sZOMB {
+	if err != nil {
+		return 0, 0, errGone
+	}
+	return infoOf(k)
+}
+
+// infoOf reads a table entry: a zombie, or an entry with no start time, is gone.
+func infoOf(k *unix.KinfoProc) (ppid int, start uint64, err error) {
+	if k == nil || k.Proc.P_stat == sZOMB {
 		return 0, 0, errGone
 	}
 	t := k.Proc.P_starttime
@@ -33,6 +42,36 @@ func procInfo(pid int) (ppid int, start uint64, err error) {
 		return 0, 0, errGone
 	}
 	return int(k.Eproc.Ppid), uint64(t.Sec)*1_000_000 + uint64(t.Usec), nil
+}
+
+const (
+	sysProcInfo           = 336 // proc_info(2)
+	procInfoCallPidInfo   = 2
+	procPidUniqIdentifier = 17 // PROC_PIDUNIQIDENTIFIERINFO
+	uniqIdentifierSize    = 56 // sizeof(struct proc_uniqidentifierinfo)
+	idversionOffset       = 32 // p_idversion, after p_uuid[16], p_uniqueid and p_puniqueid
+)
+
+// procIdversion is the pid version the kernel's table holds for pid: the number the audit token of a connection carries.
+func procIdversion(pid int) (uint32, error) {
+	var buf [uniqIdentifierSize]byte
+	n, _, errno := unix.Syscall6(sysProcInfo, procInfoCallPidInfo, uintptr(pid), procPidUniqIdentifier, 0, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+	if errno != 0 {
+		return 0, errGone
+	}
+	return parseIdversion(buf[:], n)
+}
+
+// parseIdversion reads p_idversion out of a proc_uniqidentifierinfo; a short answer or a zero version is an error.
+func parseIdversion(buf []byte, n uintptr) (uint32, error) {
+	if n != uniqIdentifierSize || len(buf) < uniqIdentifierSize {
+		return 0, errors.New("procbind: short process identity")
+	}
+	v := *(*uint32)(unsafe.Pointer(&buf[idversionOffset]))
+	if v == 0 {
+		return 0, errors.New("procbind: no pid version")
+	}
+	return v, nil
 }
 
 type procHandle struct {

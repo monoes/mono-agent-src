@@ -1,4 +1,4 @@
-//go:build !linux && !darwin && !darwin
+//go:build !linux && !darwin
 
 package procbind
 

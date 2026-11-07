@@ -28,11 +28,19 @@ func kinfo(pid int) (*unix.KinfoProc, bool) {
 // (kp_proc.p_starttime). "" when it cannot be read, and for a zombie, which is not a running process.
 func procStamp(pid int) string {
 	k, ok := kinfo(pid)
-	if !ok || k.Proc.P_stat == 5 /* SZOMB */ {
+	if !ok {
+		return ""
+	}
+	return stampOf(k)
+}
+
+// stampOf is the stamp of a table entry: "" for a zombie, which is not a running process, and for an entry with no start time.
+func stampOf(k *unix.KinfoProc) string {
+	if k.Proc.P_stat == 5 /* SZOMB */ {
 		return ""
 	}
 	t := k.Proc.P_starttime
-	if t.Sec == 0 && t.Usec == 0 {
+	if t.Sec <= 0 && t.Usec <= 0 {
 		return ""
 	}
 	return "start:" + strconv.FormatInt(int64(t.Sec)*1_000_000+int64(t.Usec), 10)

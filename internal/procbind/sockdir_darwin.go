@@ -3,7 +3,6 @@
 package procbind
 
 import (
-	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -66,20 +65,9 @@ func privateSocket(dirfd, uid int) error {
 }
 
 func checkPeerUID(c *net.UnixConn, uid int) error {
-	rc, err := c.SyscallConn()
+	cred, err := peerXucred(c)
 	if err != nil {
 		return err
-	}
-	var cred *unix.Xucred
-	var cerr error
-	if err := rc.Control(func(fd uintptr) { cred, cerr = unix.GetsockoptXucred(int(fd), unix.SOL_LOCAL, unix.LOCAL_PEERCRED) }); err != nil {
-		return err
-	}
-	if cerr != nil {
-		return cerr
-	}
-	if cred == nil || cred.Version != 0 {
-		return errors.New("procbind: unexpected peer credential version")
 	}
 	if int(cred.Uid) != uid {
 		return fmt.Errorf("%w: the service socket is served by uid %d, not %d", errUnsafeDir, cred.Uid, uid)

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // The macOS reader answers from the kernel's process table: these run against the real one.
@@ -114,5 +116,23 @@ func TestDarwinZombieHasNoStamp(t *testing.T) {
 	}
 	if st := Stamp(cmd.Process.Pid); st != "" {
 		t.Errorf("an exited, unreaped process still has the stamp %q", st)
+	}
+}
+
+// The guards of the stamp, on table entries the kernel would not hand out on demand.
+func TestDarwinStampOfATableEntry(t *testing.T) {
+	var k unix.KinfoProc
+	k.Proc.P_starttime = unix.Timeval{Sec: 100, Usec: 7}
+	if got := stampOf(&k); got != "start:100000007" {
+		t.Errorf("stamp = %q", got)
+	}
+	k.Proc.P_stat = 5 // a zombie
+	if got := stampOf(&k); got != "" {
+		t.Errorf("a zombie has the stamp %q", got)
+	}
+	k.Proc.P_stat = 2
+	k.Proc.P_starttime = unix.Timeval{}
+	if got := stampOf(&k); got != "" {
+		t.Errorf("an entry with no start time has the stamp %q", got)
 	}
 }
