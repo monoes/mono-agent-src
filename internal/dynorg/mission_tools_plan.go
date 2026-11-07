@@ -23,10 +23,12 @@ const (
 	ToolMissionReplan   = "mission_replan"
 )
 
+// (the goal tools, ToolMissionGoalPropose and ToolMissionGoalStatus, are in mission_goal_tools.go)
+
 // IsMissionPlanTool says whether name is one of the tools above.
 func IsMissionPlanTool(name string) bool {
 	switch name {
-	case ToolMissionPropose, ToolMissionPlan, ToolMissionAddTasks, ToolMissionSplit, ToolMissionStatus, ToolMissionReplan:
+	case ToolMissionPropose, ToolMissionPlan, ToolMissionAddTasks, ToolMissionSplit, ToolMissionStatus, ToolMissionReplan, ToolMissionGoalPropose, ToolMissionGoalStatus:
 		return true
 	}
 	return false
@@ -76,7 +78,7 @@ func MissionPlanToolSpecs(m *MissionConfig) []monomind.ToolSpec {
 	if !m.Planning() {
 		return specs
 	}
-	return append(specs,
+	return append(append(specs, missionGoalToolSpecs(m)...),
 		monomind.ToolSpec{Name: ToolMissionPlan,
 			Description: "Write the draft plan of the mission as a session on the task board: title, goal and every task. Once per conversation. Tasks are validated; a rejected plan writes nothing and lists every reason per task. Returns the review brief and the reviewer model.",
 			Schema:      obj(map[string]any{"title": str("Short name of the mission."), "goal": str("Goal, success criteria and non-goals."), "tasks": planTaskSchema()}, "title", "goal", "tasks")},
@@ -106,6 +108,8 @@ func (c *Conductor) handleMission(ctx context.Context, name string, args json.Ra
 		return "", err
 	}
 	switch name {
+	case ToolMissionGoalPropose, ToolMissionGoalStatus:
+		return c.missionGoal(ctx, m, name, args)
 	case ToolMissionPlan:
 		return c.missionPlan(ctx, m, args)
 	case ToolMissionAddTasks:

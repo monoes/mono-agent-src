@@ -18,7 +18,8 @@ var taskSessionCommandDocs = []cmdDoc{
   resume   Run a paused session again (the operator only)
   stop     End it and release every claim (the operator or an agent)
   archive  Hide a session that is not running (the operator only)
-  budget   Budget, limits, access level, auto-close, spend (the operator only)`,
+  budget   Budget, limits, access level, auto-close, spend (the operator only)
+  goal     A mission's ultimate goal as typed criteria: an agent proposes, the operator sets or confirms (a changed goal means a new mission)`,
 		Examples: []string{
 			"monoagentcli --profile work task session list",
 			"monoagentcli --profile work task session plan 3",
@@ -145,6 +146,33 @@ var taskSessionCommandDocs = []cmdDoc{
 		Usage:    "monoagentcli [--profile P] task session close ID [--note TEXT]",
 		Flags:    "  --note string   Why it is closed (kept in the session's history)",
 		Examples: []string{"monoagentcli --profile work task session close 3 --note \"reviewed\""},
+	},
+	{
+		Name:     "task session goal show",
+		Short:    "Show the ultimate goal of a mission: its criteria (c1, c2, ...), their state and the hash you confirm",
+		Usage:    "monoagentcli [--profile P] task session goal show ID",
+		Examples: []string{"monoagentcli --profile work --json task session goal show 3"},
+	},
+	{
+		Name:     "task session goal propose",
+		Short:    "Propose the criteria of a mission's ultimate goal (an agent or the operator); it stays a proposal, revisable, until the operator confirms it",
+		Usage:    "monoagentcli [--profile P] task session goal propose ID --criteria FILE|-",
+		Flags:    "  --criteria string   A JSON array of {\"kind\": command|file|output|rubric, \"spec\", \"expected\"}; at least one rubric; - reads standard input",
+		Examples: []string{"echo '[{\"kind\":\"rubric\",\"spec\":\"The report is complete\"}]' | monoagentcli --profile work task session goal propose 3 --criteria - --as lead"},
+	},
+	{
+		Name:     "task session goal set",
+		Short:    "Set the criteria of a mission's ultimate goal and confirm them in one step (the operator only). The goal is final: a changed goal means a new mission",
+		Usage:    "monoagentcli [--profile P] task session goal set ID --criteria FILE|-",
+		Flags:    "  --criteria string   A JSON array of {\"kind\", \"spec\", \"expected\"}; at least one rubric; - reads standard input",
+		Examples: []string{"monoagentcli --profile work task session goal set 3 --criteria goal.json"},
+	},
+	{
+		Name:     "task session goal confirm",
+		Short:    "Confirm the proposed criteria whose hash you read (the operator only). The goal is final: a changed goal means a new mission",
+		Usage:    "monoagentcli [--profile P] task session goal confirm ID --hash HASH",
+		Flags:    "  --hash string   The criteria hash printed by goal show; refused if the proposal was revised since",
+		Examples: []string{"monoagentcli --profile work task session goal confirm 3 --hash 9f2c..."},
 	},
 	{
 		Name:     "task session retire-worker",

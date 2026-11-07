@@ -11,6 +11,7 @@ import (
 	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/dynorg"
 	"github.com/monoes/mono-agent/internal/gitsafe"
+	"github.com/monoes/mono-agent/internal/missionpursuit"
 	"github.com/monoes/mono-agent/internal/tasks"
 	"github.com/monoes/mono-agent/internal/tasks/gitevidence"
 )
@@ -38,6 +39,7 @@ func missionConfig(ctx context.Context, db *sql.DB, profileID, conversationID st
 		}
 	}
 	m.DirectionsK = missionDirectionsReader(db, profileID, conversationID)
+	m.Goals = missionpursuit.NewStore(db) // the goal tools are listed only while the chat's mode is mission
 	if !m.Confirmed && (m.HasOpenSession(ctx) || missionToggleOn(db, profileID, conversationID)) {
 		m.Confirmed = true
 		// Confirmed by the toggle (or by a mission already open), not by the operator's hand on this turn: the

@@ -39,6 +39,8 @@ func operatorOnlyVerbs() map[string][]string {
 	m := personVerbs()
 	m["retire-worker"] = []string{"session", "retire-worker", "1", "1"}
 	m["retire-worker-without-arguments"] = []string{"session", "retire-worker"}
+	m["goal-set"] = []string{"session", "goal", "set", "1", "--criteria", "-"}
+	m["goal-confirm"] = []string{"session", "goal", "confirm", "1", "--hash", "x"}
 	return m
 }
 
