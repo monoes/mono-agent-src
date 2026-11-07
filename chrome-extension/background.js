@@ -372,6 +372,7 @@ async function getPairingToken() {
 // Why an unpaired worker is unpaired, as the side panel's sign-in screen words it.
 const AUTOPAIR_SIGNED_OUT = "bridge_signed_out";
 const AUTOPAIR_OFF = "autopair_off";
+const BRIDGE_OUTDATED = "bridge_outdated";
 const AUTOPAIR_WAITING = "pair_waiting";
 const AUTOPAIR_DENIED = "pair_denied";
 const AUTOPAIR_EXPIRED = "pair_expired";
@@ -463,6 +464,9 @@ async function tryAutoPair(manual = false) {
       autoPairDeclined = "";
       console.warn("[monoagent] automatic pairing refused:", r.error);
       setStatus("unpaired", AUTOPAIR_OFF);
+      return null;
+    case "outdated":
+      setStatus("unpaired", BRIDGE_OUTDATED);
       return null;
     default:
       setStatus("disconnected", "no_bridge");
