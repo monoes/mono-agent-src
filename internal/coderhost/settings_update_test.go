@@ -163,3 +163,32 @@ func TestSettingsAreWrittenOnlyThroughUpdateSettings(t *testing.T) {
 		})
 	}
 }
+
+// A stored owed_stop_notice that is malformed, or carries fields this build does not know (a later version's), does not
+// make the chat's settings unreadable: the flag is dropped (malformed) or read as far as it is known. (#1509)
+func TestAnUnreadableOwedFlagDoesNotInvalidateTheChatSettings(t *testing.T) {
+	st := newStoreT(t)
+	for name, doc := range map[string]string{
+		"bad code":      `{"owed_stop_notice":{"charter":"c","generation":1,"intent_at":5,"code":"nope","at":5}}`,
+		"empty":         `{"owed_stop_notice":{}}`,
+		"wrong type":    `{"owed_stop_notice":"text"}`,
+		"unknown field": `{"owed_stop_notice":{"charter":"c","generation":1,"intent_at":5,"code":"plain","at":5,"later_field":true}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := st.EnsureSession("p", "c-"+name); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := st.db.Exec(`UPDATE coder_sessions SET settings = ? WHERE conversation_id = ?`, doc, "c-"+name); err != nil {
+				t.Fatal(err)
+			}
+			got, err := st.GetSettings("p", "c-"+name)
+			if err != nil {
+				t.Fatalf("the chat's settings are unreadable: %v", err)
+			}
+			if (name == "unknown field") != (got.OwedStopNotice != nil) {
+				t.Fatalf("flag = %+v", got.OwedStopNotice)
+			}
+			patchSettings(t, st, "c-"+name, `{"checkin_minutes":7}`)
+		})
+	}
+}
