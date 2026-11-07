@@ -200,7 +200,9 @@ func TestAPanickingRuntimeIsAnErrorAndFreesTheDialogLock(t *testing.T) {
 
 // A caller of showDialog that asks a Question or a Warning must read the answer through dialogConfirmed, never by
 // comparing it with its own text: Linux and Windows do not return a custom button's text (see dialogConfirmed). A string
-// compared inside such a function is a custom answer in disguise. app_dialog.go and the helper's own file are exempt.
+// compared inside such a function is a custom answer in disguise. This is a lint, not a boundary: it does not see options
+// held in a variable, a Type from a constant, EqualFold or a switch on the answer, a wrapper that returns the raw answer, or
+// a direct call of dialogRun. app_dialog.go and the helper's own file are exempt.
 func TestDialogCallersReadTheAnswerThroughTheHelper(t *testing.T) {
 	asking := 0
 	_ = filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {

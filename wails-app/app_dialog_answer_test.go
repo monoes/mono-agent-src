@@ -23,7 +23,8 @@ func TestDialogConfirmedPerOS(t *testing.T) {
 		whatItIsAbout string
 	}{
 		{"linux", q, "Yes", true, ""}, {"linux", q, "No", false, ""}, {"linux", q, "Delete anyway", false, "GTK never returns a custom label"},
-		{"linux", q, "", false, ""}, {"linux", w, "Ok", true, ""}, {"linux", w, "Cancel", false, ""},
+		{"linux", q, "", false, ""}, {"linux", w, "Ok", true, ""}, {"linux", w, "OK", true, "GTK spells it OK"}, {"windows", w, "OK", true, ""},
+		{"darwin", q, "", false, "empty never"}, {"linux", w, "", false, ""}, {"windows", q, "", false, ""}, {"linux", w, "Cancel", false, ""},
 		{"freebsd", q, "Yes", true, "GTK too"}, {"freebsd", q, "No", false, ""},
 		{"windows", q, "Yes", true, ""}, {"windows", q, "No", false, ""}, {"windows", q, "Delete anyway", false, ""},
 		{"windows", w, "Ok", true, ""}, {"windows", w, "Cancel", false, ""}, {"windows", w, "No", false, ""},
@@ -118,5 +119,14 @@ func TestHeadTailBufferTailEdges(t *testing.T) {
 	d.Write([]byte("HEAD" + strings.Repeat("z", 50) + "\nwhole line\n"))
 	if s := d.String(); strings.Contains(s, "zz") || !strings.HasSuffix(s, "whole line\n") {
 		t.Errorf("mid-line start kept: %q", s)
+	}
+}
+
+// An empty button label never matches an empty answer on macOS.
+func TestDialogConfirmedNeedsANonEmptyButtonOnMac(t *testing.T) {
+	for _, typ := range []wailsruntime.DialogType{wailsruntime.QuestionDialog, wailsruntime.WarningDialog} {
+		if dialogConfirmed("darwin", typ, "", "") || dialogConfirmed("darwin", typ, "", "x") {
+			t.Errorf("%s: an empty button label confirmed", typ)
+		}
 	}
 }
