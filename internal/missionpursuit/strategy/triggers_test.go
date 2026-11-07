@@ -55,6 +55,19 @@ func TestNeverReplacesAtDatabase(t *testing.T) {
 	}
 }
 
+func TestASecondJudgmentOnAnOpenEpochIsRefusedAtDatabase(t *testing.T) {
+	f := newFixture(t)
+	f.seed(t)
+	s := f.session
+	mustExec(t, f.db, `INSERT INTO mission_strategy_epochs (session_id, epoch_seq, trigger, started_at, state) VALUES (?, 7, 'timer', 1, 'open')`, s)
+	mustExec(t, f.db, `INSERT INTO mission_strategy_judgments (session_id, epoch_seq, body, body_hash) VALUES (?, 7, '{"a":1}', x'07')`, s)
+	// the epoch is still open: only the later move to judged closes it, so raw SQL must not slip a second body in
+	mustRefuse(t, f.db, "a second judgment", `INSERT OR REPLACE INTO mission_strategy_judgments (session_id, epoch_seq, body, body_hash) VALUES (?, 7, '{"a":2}', x'08')`, s)
+	if n := count(t, f.db, `SELECT COUNT(*) FROM mission_strategy_judgments WHERE epoch_seq = 7 AND body = '{"a":1}'`); n != 1 {
+		t.Error("the first judgment body was replaced")
+	}
+}
+
 func TestJudgmentsAndNoveltyAreInsertOnlyAtDatabase(t *testing.T) {
 	f := newFixture(t)
 	f.seed(t)

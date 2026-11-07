@@ -66,8 +66,7 @@ BEGIN SELECT RAISE(ABORT, 'mission strategy rows are written only for a running 
 
 -- No REPLACE: INSERT OR REPLACE deletes the colliding row without firing the delete rules, which would walk a row back.
 -- A BEFORE INSERT trigger runs ahead of every conflict rule, so an insert whose key exists is refused outright.
--- (A direction also collides on its session-unique key hash. A judgment needs no rule of its own: a stored judgment means a
--- judged epoch, and the open-epoch rule below refuses a second one.)
+-- (A direction also collides on its session-unique key hash.)
 CREATE TRIGGER IF NOT EXISTS mission_strategy_directions_no_replace BEFORE INSERT ON mission_strategy_directions
 WHEN EXISTS (SELECT 1 FROM mission_strategy_directions d WHERE d.session_id = NEW.session_id AND (d.direction_id = NEW.direction_id OR d.key_hash = NEW.key_hash))
 BEGIN SELECT RAISE(ABORT, 'mission strategy row exists: rows are never replaced'); END;
@@ -76,6 +75,10 @@ WHEN EXISTS (SELECT 1 FROM mission_strategy_epochs e WHERE e.session_id = NEW.se
 BEGIN SELECT RAISE(ABORT, 'mission strategy row exists: rows are never replaced'); END;
 CREATE TRIGGER IF NOT EXISTS mission_strategy_novelty_no_replace BEFORE INSERT ON mission_strategy_novelty
 WHEN NEW.novelty_id IS NOT NULL AND EXISTS (SELECT 1 FROM mission_strategy_novelty n WHERE n.novelty_id = NEW.novelty_id)
+BEGIN SELECT RAISE(ABORT, 'mission strategy row exists: rows are never replaced'); END;
+
+CREATE TRIGGER IF NOT EXISTS mission_strategy_judgments_no_replace BEFORE INSERT ON mission_strategy_judgments
+WHEN EXISTS (SELECT 1 FROM mission_strategy_judgments j WHERE j.session_id = NEW.session_id AND j.epoch_seq = NEW.epoch_seq)
 BEGIN SELECT RAISE(ABORT, 'mission strategy row exists: rows are never replaced'); END;
 
 -- A judgment belongs to an open epoch of the same session (one per epoch by the primary key).
