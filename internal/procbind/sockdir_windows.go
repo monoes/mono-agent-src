@@ -378,3 +378,42 @@ func checkServerUser(c *net.UnixConn) error {
 	}
 	return nil
 }
+
+// probePeerPID connects a socket to itself and asks for the peer: it must be this process.
+func probePeerPID() error {
+	dir, err := os.MkdirTemp("", "mbp")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	path := filepath.Join(dir, "p.sock")
+	l, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
+	if err != nil {
+		return err
+	}
+	defer l.Close()
+	type res struct {
+		c   *net.UnixConn
+		err error
+	}
+	ch := make(chan res, 1)
+	go func() { c, err := l.AcceptUnix(); ch <- res{c, err} }()
+	cl, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: path, Net: "unix"})
+	if err != nil {
+		return err
+	}
+	defer cl.Close()
+	r := <-ch
+	if r.err != nil {
+		return r.err
+	}
+	defer r.c.Close()
+	pid, err := peerPID(r.c)
+	if err != nil {
+		return err
+	}
+	if int(pid) != os.Getpid() {
+		return errors.New("the peer pid is not this process")
+	}
+	return nil
+}
