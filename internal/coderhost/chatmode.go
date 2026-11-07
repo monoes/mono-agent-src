@@ -23,11 +23,12 @@ var ChatModes = []string{ChatModeOff, ChatModeMission, ChatModeOpen}
 // ValidChatMode says whether m is one of the three modes.
 func ValidChatMode(m string) bool { return oneOf(m, ChatModes) }
 
-// openModeReady is the one switch that lets the open-ended mode be offered at all. It is false until the boss binding
-// exists: the chat flow that creates the hidden boss session, binds it (start --boss-session) and applies the
-// task-session budget. T4's change flips it together with those, and nothing else does. While it is false the
-// mode is unavailable with openModePendingReason whatever the probe says, and the probe is not asked.
-var openModeReady = false
+// openModeReady is the one switch that lets the open-ended mode be offered at all. It is true now that the chat flow exists
+// that creates the hidden boss session, binds it (start --chat, start --boss-session), applies the task-session budget and
+// queues the boss's first turn, and the stub-runtime browser end-to-end ran green for both budgets (see the flip PR). The
+// mode is still offered only when the cheap openModeCheck says so (platform, no run on the profile); setting it back to false
+// makes the mode unavailable with openModePendingReason whatever the probe says, and the probe is not asked.
+var openModeReady = true
 
 const openModePendingReason = "not available yet: boss binding pending"
 
