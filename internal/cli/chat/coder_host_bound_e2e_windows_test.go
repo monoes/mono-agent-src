@@ -82,6 +82,8 @@ func winE2EHelper(role string) {
 	keyring.MockInit() // this process never reaches the real credential store; the parent's wrapping key is handed over in a file
 	files := os.Getenv(winE2EFiles)
 	switch role {
+	case "sleep":
+		time.Sleep(5 * time.Minute)
 	case "turn":
 		fmt.Println(`{"admitted":true,"existed":false,"turn":{"id":"t1"}}`) // the admission line the launcher waits for
 		if err := coderhost.StashCredFrame(); err != nil {
