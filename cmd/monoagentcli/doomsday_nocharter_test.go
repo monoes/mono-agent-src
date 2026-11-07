@@ -370,7 +370,6 @@ func TestVerbsDuringALockedDatabaseSayTheDatabaseIsBusy(t *testing.T) {
 		want string
 	}{
 		{"stop", []string{"stop"}, stopBusyText + dbBusyText},
-		{"status", []string{"status"}, dbBusyText},
 		{"finish", []string{"finish"}, dbBusyText},
 		{"finish --begin", []string{"finish", "--begin"}, dbBusyText},
 		{"rubric", []string{"rubric"}, dbBusyText},
@@ -408,6 +407,27 @@ func TestVerbsDuringALockedDatabaseSayTheDatabaseIsBusy(t *testing.T) {
 			requireSameCounts(t, v.name+" under a lock", beforeRows, tableCounts(t, db))
 		})
 	}
+}
+
+// `status` reads through the read-only handle (the GUI polls it), so another connection's write lock does not stop it: it answers
+// from the database, creating, migrating and writing nothing. Mutant: status through the writing engine (red: busy, exit 1).
+func TestStatusDuringALockedDatabaseReadsWithoutWriting(t *testing.T) {
+	accounttest.Install(t, accounttest.SignedIn)
+	noPins(t)
+	home := freshHome(t)
+	asOperatorProcess(t)
+	db := newHILTestDB(t)
+	lock := holdWriteLock(t, db)
+	defer lock()
+	beforeFiles, beforeRows := homeFiles(t, home), tableCounts(t, db)
+	code, stdout, stderr := runMain(t, "--db-path", db, "--profile", "default", "doomsday", "status")
+	if code != 0 || !strings.Contains(stdout, "no run") {
+		t.Fatalf("exit %d, stdout %q, stderr %q", code, stdout, stderr)
+	}
+	if after := homeFiles(t, home); after != beforeFiles {
+		t.Errorf("files under HOME: before [%s], after [%s]", beforeFiles, after)
+	}
+	requireSameCounts(t, "status under a lock", beforeRows, tableCounts(t, db))
 }
 
 // holdWriteLock opens a second connection on the database and keeps a write transaction open until the returned release.

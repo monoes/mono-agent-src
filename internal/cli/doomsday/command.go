@@ -38,6 +38,8 @@ type Deps struct {
 	// ChatStart is what `start --chat` needs beside the engine (the boss session, its budget, its first turn). Nil: that
 	// flag is refused.
 	ChatStart func() ChatStarter
+	// FirstTurn reads where the open run's boss's first turn stands, for `status`. Nil: status says nothing about it.
+	FirstTurn func(ctx context.Context) (FirstTurnState, error)
 }
 
 func (d Deps) engine() Engine {
@@ -47,6 +49,17 @@ func (d Deps) engine() Engine {
 		}
 	}
 	return Off{}
+}
+
+// statusEngine is the engine `status` reads through: the read engine where there is one (the GUI polls status, so it must
+// create, migrate, pin and write nothing), else the engine.
+func (d Deps) statusEngine() Engine {
+	if d.ReadEngine != nil {
+		if e := d.ReadEngine(); e != nil {
+			return e
+		}
+	}
+	return d.engine()
 }
 
 func (d Deps) json() bool { return d.JSONOutput != nil && d.JSONOutput() }
@@ -387,11 +400,19 @@ func (d Deps) newStatus() *cobra.Command {
 		Short: "Show the run of this profile (read-only)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			s, err := d.engine().Status(cmd.Context())
+			s, err := d.statusEngine().Status(cmd.Context())
 			if err != nil {
 				return err
 			}
 			out := cmd.OutOrStdout()
+			if s.Active && d.FirstTurn != nil {
+				// A first turn the host refused after the start succeeded is shown here; an unreadable one says so and never fails status.
+				ft, err := d.FirstTurn(cmd.Context())
+				if err != nil {
+					ft = FirstTurnState{State: "unknown", Error: err.Error()}
+				}
+				s.FirstTurn, s.FirstTurnError = ft.State, ft.Error
+			}
 			if d.json() {
 				return json.NewEncoder(out).Encode(s)
 			}
@@ -411,6 +432,14 @@ func (d Deps) newStatus() *cobra.Command {
 				s.RunID, s.State, short(s.Hash), s.Generation, s.Members, strings.Join(s.Lines, ", "))
 			if s.AuditHead != "" {
 				fmt.Fprintf(out, "audit: %d rows, head %s\n", s.AuditSeq, s.AuditHead)
+			}
+			switch s.FirstTurn {
+			case "failed":
+				fmt.Fprintf(out, "first turn failed: %s\n", s.FirstTurnError)
+			case "none":
+				fmt.Fprintln(out, "first turn: not queued (the boss has nothing to do until you type in its chat)")
+			case "unknown":
+				fmt.Fprintf(out, "first turn: unknown (%s)\n", s.FirstTurnError)
 			}
 			return nil
 		},

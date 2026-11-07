@@ -45,7 +45,7 @@ func TestOnlyDoomsdayStopRunsSignedOut(t *testing.T) {
 	}
 	// The start form (OpenEntry, Render, Start) is gated like the reads: starting a run needs the sign-in, only Stop
 	// does not. The list is exact, so a further binding that skips the gate cannot hide in a count.
-	if strings.Join(gated, ",") != "DoomsdayFeed,DoomsdayOpenEntry,DoomsdayOverview,DoomsdayProbe,DoomsdayRender,DoomsdayStart" {
+	if strings.Join(gated, ",") != "DoomsdayFeed,DoomsdayOpenEntry,DoomsdayOverview,DoomsdayProbe,DoomsdayRender,DoomsdayStart,DoomsdayStatus" {
 		t.Fatalf("gated doomsday bindings: %v", gated)
 	}
 }
