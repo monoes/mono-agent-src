@@ -887,3 +887,45 @@ func TestProfileDeleteRemovesItsOrgProposals(t *testing.T) {
 		t.Fatalf("proposals left after the delete: %v, want only the other profile's", owners)
 	}
 }
+
+// A profile that holds a confirmed mission goal and a running mission's strategy rows is deleted like any other: those
+// rows go with their session (the database refuses a hand delete of them while the session exists), so the delete
+// removes the session first.
+func TestProfileDeleteRemovesAConfirmedGoalAndStrategyRowsWithTheirSession(t *testing.T) {
+	dbPath := newProfileDocsCLITestDB(t)
+	id := createTestProfile(t, dbPath, "doomed")
+	createTestProfile(t, dbPath, "other")
+	db, err := storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`INSERT INTO task_sessions (id, profile_id, title, state, kind, created_by, created_at, updated_at) VALUES (501, '` + id + `', 't', 'running', 'mission', 'you', 'x', 'x')`,
+		`INSERT INTO mission_goals (session_id, state, criteria_hash, proposed_by, created_at, updated_at) VALUES (501, 'proposed', 'h', 'lead', 'x', 'x')`,
+		`INSERT INTO mission_goal_criteria (session_id, pos, kind, spec, hash) VALUES (501, 1, 'rubric', 'good', 'h')`,
+		`UPDATE mission_goals SET state = 'confirmed', confirmed_by = 'you', confirmed_at = 'x' WHERE session_id = 501`,
+		`INSERT INTO mission_strategy_epochs (session_id, epoch_seq, trigger, started_at, state) VALUES (501, 1, 'timer', 1, 'open')`,
+		`INSERT INTO mission_strategy_judgments (session_id, epoch_seq, body, body_hash) VALUES (501, 1, '{}', x'01')`,
+		`INSERT INTO mission_strategy_directions (session_id, direction_id, key_hash, title, state) VALUES (501, 'd', x'02', 't', 'proposed')`,
+		`INSERT INTO mission_strategy_novelty (session_id, key_hash, outcome) VALUES (501, x'02', 'accepted')`,
+	} {
+		if _, err := db.DB.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	db.Close()
+	if _, err := runCaptured(t, dbPath, "delete", id, "--yes-delete-profile", "doomed"); err != nil {
+		t.Fatal(err)
+	}
+	db, err = storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, tb := range []string{"task_sessions WHERE id = 501", "mission_goals", "mission_goal_criteria", "mission_strategy_epochs", "mission_strategy_judgments", "mission_strategy_directions", "mission_strategy_novelty"} {
+		var n int
+		if err := db.DB.QueryRow(`SELECT COUNT(*) FROM ` + tb).Scan(&n); err != nil || n != 0 {
+			t.Errorf("%s: %d rows left, %v", tb, n, err)
+		}
+	}
+}
