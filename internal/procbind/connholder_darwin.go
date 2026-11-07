@@ -5,6 +5,8 @@ package procbind
 import (
 	"errors"
 	"net"
+	"os"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -26,7 +28,6 @@ const (
 	fdInfoSize         = 8   // sizeof(struct proc_fdinfo)
 	fileInfoSize       = 24  // sizeof(struct proc_fileinfo), before the socket_info of a socket_fdinfo
 	socketFDInfoSize   = 792 // sizeof(struct socket_fdinfo)
-	maxFDListBytes     = 1 << 20
 	afUnix             = 1
 )
 
@@ -76,7 +77,7 @@ func fdSocketPCBs(pid, fd int) (own, conn uint64, err error) {
 // socketFDs lists the descriptors of pid that are sockets.
 func socketFDs(pid int) ([]int, error) {
 	n, err := procInfoCall(callPidInfo, pid, flavorListFDs, 0, nil)
-	if err != nil || n <= 0 || n > maxFDListBytes {
+	if err != nil || n <= 0 || n > maxHolderFDs*fdInfoSize {
 		return nil, errors.New("procbind: the descriptors of the process cannot be listed")
 	}
 	buf := make([]byte, n+16*fdInfoSize) // room for descriptors opened since the size was asked
@@ -93,7 +94,37 @@ func socketFDs(pid int) ([]int, error) {
 	return fds, nil
 }
 
+// maxHolderFDs and holderBudget bound the proof: one proc_info call per descriptor, so a process with a huge descriptor table
+// (or a slow table) must not be able to make the service spend its time here. A peer over either bound is refused. A client
+// that holds the connection has a handful of descriptors.
+var (
+	maxHolderFDs = 4096
+	holderBudget = 500 * time.Millisecond
+)
+
+var errHolderBudget = errors.New("procbind: the peer's descriptors could not be examined within the budget")
+
+// findHolder says whether one of fds is the peer's end of the connection whose own control block is own and whose peer's is
+// peerPCB: its control block is peerPCB and it is connected to own. info reads a descriptor's pair; a descriptor that cannot
+// be read is skipped. It gives up at the deadline.
+func findHolder(fds []int, info func(fd int) (own, conn uint64, err error), own, peerPCB uint64, deadline time.Time) error {
+	for _, fd := range fds {
+		if time.Now().After(deadline) {
+			return errHolderBudget
+		}
+		theirs, theirPeer, err := info(fd)
+		if err == nil && theirs == peerPCB && theirPeer == own {
+			return nil
+		}
+	}
+	return errors.New("procbind: the process holds no descriptor of this connection")
+}
+
+// holderProof is holdsConnection; a seam for tests.
+var holderProof = holdsConnection
+
 func holdsConnection(c *net.UnixConn, pid int) error {
+	deadline := time.Now().Add(holderBudget)
 	rc, err := c.SyscallConn()
 	if err != nil {
 		return err
@@ -110,11 +141,36 @@ func holdsConnection(c *net.UnixConn, pid int) error {
 	if err != nil {
 		return err
 	}
+	return findHolder(fds, func(fd int) (uint64, uint64, error) { return fdSocketPCBs(pid, fd) }, own, peerPCB, deadline)
+}
+
+// layoutCheck proves, on this machine, that the offsets above read what they are taken to read: two ends of a connection made
+// inside this process must each be found as the holder of the other. A kernel whose structures moved fails this, and Ready
+// then refuses instead of the service denying everything or matching garbage.
+func layoutCheck() error {
+	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
+	if err != nil {
+		return errors.New("a socket pair could not be made")
+	}
+	var conns []*net.UnixConn
 	for _, fd := range fds {
-		theirs, theirPeer, err := fdSocketPCBs(pid, fd)
-		if err == nil && theirs == peerPCB && theirPeer == own {
-			return nil
+		f := os.NewFile(uintptr(fd), "pair")
+		c, err := net.FileConn(f)
+		_ = f.Close()
+		if err != nil {
+			return errors.New("a socket pair could not be used")
+		}
+		defer c.Close()
+		uc, ok := c.(*net.UnixConn)
+		if !ok {
+			return errors.New("a socket pair is not a unix connection")
+		}
+		conns = append(conns, uc)
+	}
+	for _, c := range conns {
+		if err := holdsConnection(c, unix.Getpid()); err != nil {
+			return errors.New("the kernel's socket information has a layout this build does not know")
 		}
 	}
-	return errors.New("procbind: the process holds no descriptor of this connection")
+	return nil
 }

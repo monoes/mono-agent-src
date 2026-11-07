@@ -25,18 +25,24 @@ type peerCred struct {
 // socket's pcb is the one this end is connected to); a pid recycled after the connector let go of the connection does
 // not. The handle is the pid and the start time, checked alive after the proof.
 func peerHandle(c *net.UnixConn, _ int, cred peerCred) (Handle, error) {
-	if cred.Pid <= 0 {
-		return nil, errors.New("procbind: the peer has no usable pid")
-	}
-	h, err := NewProcHandle(int(cred.Pid))
+	h, err := pinPeer(cred)
 	if err != nil {
 		return nil, err
 	}
-	if err := holdsConnection(c, int(cred.Pid)); err != nil || !h.Alive() {
+	if err := holderProof(c, int(cred.Pid)); err != nil || !h.Alive() {
 		_ = h.Close()
 		return nil, errors.New("procbind: the process holding the peer's pid does not hold the peer's end of the connection")
 	}
 	return h, nil
+}
+
+// pinPeer pins the process at the peer's pid by pid and start time, without the proof of the connection: it is cheap, so the
+// accept loop uses it for the identity its limits are kept under; the proof is the connection's own goroutine's (serve).
+func pinPeer(cred peerCred) (Handle, error) {
+	if cred.Pid <= 0 {
+		return nil, errors.New("procbind: the peer has no usable pid")
+	}
+	return NewProcHandle(int(cred.Pid))
 }
 
 // closePeerFD closes what peer returned as its descriptor: there is none on macOS.
@@ -121,7 +127,8 @@ func peer(c *net.UnixConn) (cred peerCred, _ int, err error) {
 }
 
 // peerIdentity reads the identity of the process at the other end, once, at accept: its pid and the start time that
-// process has (microseconds). A pid the kernel hands to a new process has another start time, so it is another key.
+// process has (microseconds). It does not prove that the process holds the connection (that costs a call per descriptor of
+// the peer, so it is bounded and done in the connection's own goroutine, after the limits). A pid the kernel hands to a new process has another start time, so it is another key.
 // The handle must still be alive after the start time is read.
 func peerIdentity(c *net.UnixConn, lookup func(*net.UnixConn) (peerCred, int, error)) (peerKey, error) {
 	cred, fd, err := lookup(c)
@@ -129,7 +136,7 @@ func peerIdentity(c *net.UnixConn, lookup func(*net.UnixConn) (peerCred, int, er
 		closePeerFD(fd)
 		return peerKey{}, err
 	}
-	h, err := peerHandle(c, fd, cred)
+	h, err := pinPeer(cred)
 	if err != nil {
 		return peerKey{}, err
 	}

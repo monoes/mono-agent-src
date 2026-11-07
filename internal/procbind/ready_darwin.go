@@ -13,12 +13,14 @@ import (
 var readyProbes = struct {
 	peerPid func() bool
 	procs   func() error
+	layout  func() error
 }{
 	peerPid: PeerPidfdSupported,
 	procs: func() error {
 		_, _, err := procInfo(os.Getpid())
 		return err
 	},
+	layout: layoutCheck,
 }
 
 // Ready says whether the binding service can run on this machine: the kernel names the pid of a connected unix socket's
@@ -31,6 +33,9 @@ func Ready() error {
 	}
 	if err := readyProbes.procs(); err != nil {
 		return errors.New("this process cannot read its own entry of the process table")
+	}
+	if err := readyProbes.layout(); err != nil {
+		return errors.New("the kernel's socket information cannot be read as this build expects (the binding service would deny everything)")
 	}
 	return nil
 }
