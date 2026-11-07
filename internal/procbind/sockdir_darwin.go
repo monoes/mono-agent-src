@@ -35,14 +35,6 @@ func leafFor(o SocketOptions) string {
 	return leaf
 }
 
-// socketRoom says whether a socket under root fits an address even with the longest leaf there is (the hashed one).
-func socketRoom(root string) error {
-	if socketPathLen(root, hashedLeaf("")) > maxSockPath {
-		return fmt.Errorf("the runtime folder is too deep for a socket address (%d bytes at most)", maxSockPath)
-	}
-	return nil
-}
-
 // openBelow opens name under dirfd without following a symlink. macOS has no openat2, so what Linux asks the kernel to
 // enforce is enforced here: name is one plain component (no separator, never "." or ".."), and O_NOFOLLOW refuses it
 // when it is a symlink. Every name passed is a fixed one or a socketLeaf, so a refusal here is a bug, never input.

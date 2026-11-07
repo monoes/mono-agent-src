@@ -43,19 +43,3 @@ func TestDarwinALongProfileUnderADeepRootUsesTheHashedLeaf(t *testing.T) {
 	}
 	_ = c.Close()
 }
-
-func TestDarwinReadyRefusesARootTooDeepForAnyLeaf(t *testing.T) {
-	deep := "/" + strings.Repeat("r", 80)
-	if err := socketRoom(deep); err == nil {
-		t.Error("a root of 80 bytes was given room")
-	}
-	if err := socketRoom("/Users/alice/.monoagent/run"); err != nil {
-		t.Errorf("a normal root: %v", err)
-	}
-	old := readyProbes
-	t.Cleanup(func() { readyProbes = old })
-	readyProbes.room = func() error { return socketRoom(deep) }
-	if err := Ready(); err == nil || strings.Contains(err.Error(), deep) {
-		t.Errorf("Ready with a root too deep: %v", err)
-	}
-}
