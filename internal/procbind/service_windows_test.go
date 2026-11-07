@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/windows"
+
 	"github.com/monoes/mono-agent/internal/procchain"
 )
 
@@ -435,5 +437,38 @@ func TestPeerPIDStaysTheConnectorsAfterItHandedTheConnectionOn(t *testing.T) {
 	if pi, perr := peerProcess(c); perr == nil {
 		pi.proc.Close()
 		t.Fatal("the service would serve a connection whose connector has ended")
+	}
+}
+
+// KNOWN GAP, pinned so that nobody mistakes it for covered: a Windows process records the parent its creator names, so a
+// process of the same user that is not in the worker's tree can create a child that claims a member of the tree as its
+// parent, and the child then passes the parent walk (and inherits that parent's job, so a job would not tell it apart).
+// Linux has no equivalent: its parent is the kernel's. If this ever starts to deny, the gap is closed: update SECURITY.md.
+func TestKnownGapAProcessThatClaimsTheWorkerAsItsParentIsServed(t *testing.T) {
+	cmd, r := spawn(t, "sleep")
+	readLine(t, r, "READY")
+	other, err := OpenProcessHandle(cmd.Process.Pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	s := startService(t, other, nil)
+	if v, _ := s.verify(); v != VerdictDeny {
+		t.Fatalf("control: this process is not in the worker's tree: %v", v)
+	}
+	ph, err := windows.OpenProcess(windows.PROCESS_CREATE_PROCESS|windows.PROCESS_DUP_HANDLE|windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(cmd.Process.Pid))
+	if err != nil {
+		t.Skipf("the worker cannot be named as a parent here: %v", err)
+	}
+	defer windows.CloseHandle(ph)
+	c := exec.Command(os.Args[0], "-test.run=^TestHelperProcess$")
+	c.Env = append(os.Environ(), helperEnv+"=verify", "PB_ROOT="+s.root, "PB_KEY="+hex.EncodeToString(s.key))
+	c.SysProcAttr = &syscall.SysProcAttr{ParentProcess: syscall.Handle(ph)}
+	out, err := c.Output()
+	if err != nil {
+		t.Skipf("a process with a named parent cannot be made here: %v", err)
+	}
+	if !strings.Contains(string(out), "VERDICT allow") {
+		t.Fatalf("the known gap is closed (%q): update the documentation and this test", out)
 	}
 }
