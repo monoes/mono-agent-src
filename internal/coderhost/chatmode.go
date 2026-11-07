@@ -5,7 +5,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
+
+	"github.com/monoes/mono-agent/internal/procbind"
 )
 
 // The chat mode of a coder conversation: 'off', 'mission' or 'open' (open-ended). It is chosen before the first
@@ -62,11 +65,43 @@ func OpenModeNotReady() string {
 	return openModePendingReason
 }
 
+// OpenModeNoBindingReason is why the mode is not offered where the peer-credential binding cannot be turned on.
+const OpenModeNoBindingReason = "not available on this OS yet: the run needs the peer-credential binding, which exists on Linux only"
+
+// The binding predicate the open mode follows: the OS, and the binding service's own readiness (procbind.Ready, the one
+// the service asks before it runs). Both are seams of tests.
+var (
+	openModeGOOS         = runtime.GOOS
+	openModeBindingReady = procbind.Ready
+)
+
+// SetOpenModeBindingProbe replaces the OS and the binding readiness and returns a function that puts them back.
+func SetOpenModeBindingProbe(goos string, ready func() error) (restore func()) {
+	oldOS, oldReady := openModeGOOS, openModeBindingReady
+	openModeGOOS, openModeBindingReady = goos, ready
+	return func() { openModeGOOS, openModeBindingReady = oldOS, oldReady }
+}
+
+// openModeBindingReason is "" when the binding service can run here, else why the mode cannot be offered.
+func openModeBindingReason() string {
+	if openModeGOOS != "linux" {
+		return OpenModeNoBindingReason
+	}
+	if err := openModeBindingReady(); err != nil {
+		return "not available on this machine: the run needs the peer-credential binding, and " + err.Error()
+	}
+	return ""
+}
+
 // OpenModeAvailability says whether the open-ended mode can be chosen and, when it cannot, why. It is the one
-// place the answer comes from: not ready, then the cheap check (never the real probe).
+// place the answer comes from: not ready, then the binding (where it cannot be turned on a run cannot start), then the
+// cheap check (never the real probe).
 var OpenModeAvailability = func() (ok bool, reason string) {
 	if !openModeReady {
 		return false, openModePendingReason
+	}
+	if why := openModeBindingReason(); why != "" {
+		return false, why
 	}
 	return openModeCheck()
 }
