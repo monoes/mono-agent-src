@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/orgbridge"
@@ -42,21 +43,33 @@ type refusalLog struct {
 	mu   sync.Mutex
 	last map[string]time.Time
 	busy bool
-	wg   sync.WaitGroup // the slot holder: held at most grantRefusalLedgerTimeout
-	work sync.WaitGroup // the abandonable work itself (tests wait on it)
+	// failUntil: no attempt starts before it (set by a failed attempt).
+	failUntil time.Time
+	wg        sync.WaitGroup // the slot holder: held at most grantRefusalLedgerTimeout
+	work      sync.WaitGroup // the abandonable work itself (tests wait on it)
+}
+
+// refusalSlot is what an admitted attempt runs with, all captured under the
+// log's lock so the abandoned work reads no shared variable afterwards.
+type refusalSlot struct {
+	epoch                   uint64
+	beforeScope, afterScope func()
 }
 
 // admit reports whether a row for this name may be written now, and takes the
-// single write slot when it may.
-func (l *refusalLog) admit(name string) bool {
+// single write slot when it may. A failed attempt backs every name off for
+// grantRefusalFailBackoff, so a refusal that fails fast (wrong profile, bad
+// environment, no grant row, database error) cannot make a database open per
+// call.
+func (l *refusalLog) admit(s *Server, name string) (refusalSlot, bool) {
 	now := grantRefusalNow()
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.busy {
-		return false
+	if l.busy || now.Before(l.failUntil) {
+		return refusalSlot{}, false
 	}
 	if t, ok := l.last[name]; ok && now.Sub(t) < grantRefusalEvery {
-		return false
+		return refusalSlot{}, false
 	}
 	if l.last == nil {
 		l.last = map[string]time.Time{}
@@ -68,12 +81,19 @@ func (l *refusalLog) admit(name string) bool {
 			}
 		}
 		if _, ok := l.last[name]; !ok && len(l.last) >= grantRefusalMaxNames {
-			return false
+			return refusalSlot{}, false
 		}
 	}
 	l.busy = true
 	l.wg.Add(1)
-	return true
+	return refusalSlot{epoch: s.currentEpoch(), beforeScope: grantRefusalBeforeScope, afterScope: grantRefusalAfterScope}, true
+}
+
+// fail starts the back-off after an attempt that wrote no row.
+func (l *refusalLog) fail() {
+	l.mu.Lock()
+	l.failUntil = grantRefusalNow().Add(grantRefusalFailBackoff)
+	l.mu.Unlock()
 }
 
 func (l *refusalLog) release() {
@@ -108,10 +128,11 @@ func (l *refusalLog) wait() { l.wg.Wait() }
 // as any call; when the process's --profile or environment does not match
 // that grant, no row is written.
 func (l *refusalLog) record(s *Server, name string) {
-	if !l.admit(name) {
+	slot, ok := l.admit(s, name)
+	if !ok {
 		return
 	}
-	epoch := s.currentEpoch()
+	epoch := slot.epoch
 	l.work.Add(1)
 	go func() {
 		defer l.release()
@@ -120,33 +141,42 @@ func (l *refusalLog) record(s *Server, name string) {
 		// The driver may not honour ctx while it waits on a lock, so the
 		// work runs apart and is abandoned at the deadline. It builds no
 		// runtime once closeRuntime has run, reads the database handle once
-		// under the runtime's lock, and never panics the process.
+		// under the runtime's lock, and never panics the process. An
+		// abandoned one stuck in the driver can outlive the timeout; the
+		// back-off after a failed attempt starts at most one more per
+		// grantRefusalFailBackoff, so they are bounded by time, not capped.
 		done := make(chan struct{})
+		var wrote atomic.Bool
 		go func() {
 			defer l.work.Done()
 			defer close(done)
 			defer func() { _ = recover() }()
-			if grantRefusalBeforeScope != nil {
-				grantRefusalBeforeScope()
+			if slot.beforeScope != nil {
+				slot.beforeScope()
 			}
 			b, rt, err := s.grantScopeAt(ctx, &epoch)
 			if err != nil {
 				return
 			}
-			if grantRefusalAfterScope != nil {
-				grantRefusalAfterScope()
+			if slot.afterScope != nil {
+				slot.afterScope()
 			}
 			db := rt.sqlDB()
 			if db == nil {
 				return
 			}
 			if orgbridge.NewLedger(db).Refuse(ctx, orgbridge.Call{ProfileID: b.ProfileID, Direction: orgbridge.DirRoleTool, OrgName: b.OrgName, RoleID: b.RoleID, GrantID: b.ID}, orgbridge.StatusRefusedGrant) == nil {
+				wrote.Store(true)
 				l.mark(name)
 			}
 		}()
 		select {
 		case <-done:
+			if !wrote.Load() {
+				l.fail()
+			}
 		case <-ctx.Done():
+			l.fail()
 		}
 	}()
 }
