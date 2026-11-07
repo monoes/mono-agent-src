@@ -82,6 +82,7 @@ type headTailBuffer struct {
 	first      []byte
 	last       []byte
 	dropped    bool
+	before     byte // the byte just before last, once bytes were dropped
 }
 
 func (h *headTailBuffer) Write(p []byte) (int, error) {
@@ -93,7 +94,9 @@ func (h *headTailBuffer) Write(p []byte) (int, error) {
 	}
 	h.last = append(h.last, p...)
 	if len(h.last) > h.tail {
-		h.last = append([]byte(nil), h.last[len(h.last)-h.tail:]...)
+		cut := len(h.last) - h.tail
+		h.before = h.last[cut-1]
+		h.last = append([]byte(nil), h.last[cut:]...)
 		h.dropped = true
 	}
 	return n, nil
@@ -102,7 +105,9 @@ func (h *headTailBuffer) Write(p []byte) (int, error) {
 func (h *headTailBuffer) String() string {
 	if h.dropped {
 		last := h.last
-		if i := bytes.IndexByte(last, '\n'); i >= 0 { // the tail begins at a line boundary, not in the middle of a line
+		// the tail begins at a line boundary, not in the middle of a line: unless it already does (the byte before it was a
+		// newline), or its only newline is its last byte (cutting there would leave nothing)
+		if i := bytes.IndexByte(last, '\n'); i >= 0 && i < len(last)-1 && h.before != '\n' {
 			last = last[i+1:]
 		}
 		return string(h.first) + "\n...\n" + string(last)
