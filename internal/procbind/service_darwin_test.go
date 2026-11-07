@@ -182,18 +182,12 @@ func TestDarwinServiceRefusesAPeerWhoseCredentialsCannotBeRead(t *testing.T) {
 		"gone pid": func(*net.UnixConn) (peerCred, int, error) {
 			return peerCred{Pid: 99998, Uid: uint32(os.Getuid())}, -1, nil
 		},
-		"someone else": func(*net.UnixConn) (peerCred, int, error) {
+		"a live process that is not the connector": func(*net.UnixConn) (peerCred, int, error) {
 			return peerCred{Pid: int32(os.Getppid()), Uid: uint32(os.Getuid())}, -1, nil
 		},
 	} {
 		sock := startDServer(t, &dReg{h: self}, func(s *Server) { s.peerOf = lookup })
 		got := verifyFrom(t, sock)
-		if name == "someone else" { // a real, readable process that is not the caller: served, but it is the walk that decides
-			if got == "error" {
-				t.Errorf("%s: a live peer was refused", name)
-			}
-			continue
-		}
 		if got != "error" {
 			t.Errorf("%s: got %q, want no answer", name, got)
 		}
