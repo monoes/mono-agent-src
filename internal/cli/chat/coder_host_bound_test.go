@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -296,7 +297,11 @@ p0=$PPID; while [ -d "$d" ] && [ ! -e "$d/release" ] && kill -0 $p0 2>/dev/null;
 func TestManyBoundTurnsLeakNoDescriptors(t *testing.T) {
 	r := newBoundRig(t, "cat <&3 > /dev/null\n")
 	count := func() int {
-		ents, err := os.ReadDir("/proc/self/fd")
+		fds := "/proc/self/fd"
+		if runtime.GOOS == "darwin" {
+			fds = "/dev/fd" // lists this process's open descriptors on macOS
+		}
+		ents, err := os.ReadDir(fds)
 		if err != nil {
 			t.Fatal(err)
 		}
