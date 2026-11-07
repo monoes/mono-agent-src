@@ -65,9 +65,9 @@ func TestDarwinGoneProcessReadsAsNothing(t *testing.T) {
 	}
 }
 
-// The reader sees a child that has been re-parented to launchd as a chain that ends: DescendsFrom refuses.
-func TestDarwinOrphanDoesNotDescendFromItsFormerParent(t *testing.T) {
-	out, err := exec.Command("sh", "-c", "sleep 30 & echo $!").Output()
+// A child whose parent exited is read as a child of launchd (pid 1), where a chain ends.
+func TestDarwinAnOrphanIsReadAsChildOfLaunchd(t *testing.T) {
+	out, err := exec.Command("sh", "-c", "sleep 30 >/dev/null 2>&1 & echo $!").Output()
 	if err != nil {
 		t.Fatal(err)
 	}
