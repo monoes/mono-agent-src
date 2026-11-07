@@ -38,7 +38,7 @@ func callCount(t *testing.T, log string) int {
 // doomsdayArgv runs overview, feed, probe and stop and nothing else; a flag the verb does not list is refused. start and
 // render are refused here on purpose: they take a charter and a phrase and have their own fixed argv (below).
 func TestDoomsdayArgvIsAnAllowlist(t *testing.T) {
-	for _, verb := range []string{"start", "approve", "grant", "pause", "resume", "finish", "rubric", "render", "status", "", "stop; start", "overview "} {
+	for _, verb := range []string{"start", "approve", "grant", "pause", "resume", "finish", "rubric", "render", "", "stop; start", "overview "} {
 		if _, err := doomsdayArgv("p", verb); err == nil {
 			t.Errorf("doomsday %q was allowed", verb)
 		}
@@ -64,7 +64,7 @@ func TestDoomsdayArgvIsAnAllowlist(t *testing.T) {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	if strings.Join(keys, ",") != "feed,overview,probe,stop" {
+	if strings.Join(keys, ",") != "feed,overview,probe,status,stop" {
 		t.Fatalf("the verb allowlist is %v", keys)
 	}
 }
@@ -80,8 +80,22 @@ func TestDoomsdayBindingsAreExactlyTheReviewedOnes(t *testing.T) {
 			got = append(got, n)
 		}
 	}
-	if strings.Join(got, ",") != "DoomsdayFeed,DoomsdayOpenEntry,DoomsdayOverview,DoomsdayProbe,DoomsdayRender,DoomsdayStart,DoomsdayStop" {
+	if strings.Join(got, ",") != "DoomsdayFeed,DoomsdayOpenEntry,DoomsdayOverview,DoomsdayProbe,DoomsdayRender,DoomsdayStart,DoomsdayStatus,DoomsdayStop" {
 		t.Fatalf("doomsday bindings: %v", got)
+	}
+}
+
+// The status binding reads the run's one-line state, the boss's first turn included (#1521): exact argv, the CLI's document verbatim.
+func TestDoomsdayStatusRunsExactArgvAndReturnsVerbatim(t *testing.T) {
+	const doc = `{"active":true,"run_id":"work/1","first_turn":"failed","first_turn_error":"no run without binding"}`
+	log, _ := taskCLIFake(t, doc, 0)
+	a := newTaskTestApp(t)
+	if got := a.DoomsdayStatus(); got != doc {
+		t.Fatalf("status = %q", got)
+	}
+	raw, _ := os.ReadFile(log)
+	if strings.TrimSpace(string(raw)) != "--profile|work|--json|doomsday|status|" {
+		t.Fatalf("argv = %q", raw)
 	}
 }
 
