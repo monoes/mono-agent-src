@@ -360,3 +360,16 @@ func TestRedactAgentTokensCoversTheBoundTokenForms(t *testing.T) {
 		}
 	}
 }
+
+// Order guard (#1491): a test that registers a kind must take it out again, or a test that walks every kind
+// (redaction samples) fails under -shuffle depending on the order.
+func TestKindsRegisteredByTestsDoNotOutliveThem(t *testing.T) {
+	t.Run("a", TestUnattendedNeedsAKindThatAllowsItAndAReadOnlyLevel)
+	t.Run("b", TestCompleteRunsTheKindCheck)
+	t.Run("c", TestUnknownKindListsDescriptions)
+	for _, n := range Names() {
+		if strings.HasPrefix(n, "test-") {
+			t.Errorf("kind %q stayed registered after its test", n)
+		}
+	}
+}
