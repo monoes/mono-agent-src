@@ -242,6 +242,8 @@ export function DoomsdayRender(arg1:string,arg2:string,arg3:string):Promise<stri
 
 export function DoomsdayStart(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<string>;
 
+export function DoomsdayStatus():Promise<string>;
+
 export function DoomsdayStop():Promise<string>;
 
 export function EnableAutomation(arg1:string):Promise<string>;

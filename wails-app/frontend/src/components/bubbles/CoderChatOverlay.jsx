@@ -23,6 +23,7 @@ import { shouldCollapseOnBackdrop } from '../../lib/coderBubbles.js'
 import { LEAD_ID } from '../../lib/orgStage.js'
 import { LitePaneHeader } from './LitePaneHeader.jsx'
 import { OpenRunNotice, firstTurnFailedIn } from '../chat/OpenRunNotice.jsx'
+import { useFirstTurnWatch } from '../chat/useFirstTurnWatch.js'
 import { orbitOf, bossOf, frontDeskOf, activeBoss } from '../../lib/sessionOrbit.js'
 import { OrgStage } from '../stage/OrgStage.jsx'
 import { StageDrawer } from '../stage/StageDrawer.jsx'
@@ -133,6 +134,10 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
   const [openStarted, setOpenStarted] = useState(false)
   const [openRun, setOpenRun] = useState(view.openRun || null) // what the start said, kept after the form is gone and across a collapse: {firstTurnFailed}
   useEffect(() => { store.setView(bubble.key, { openRun }) }, [store, bubble.key, openRun])
+  // The first turn was only queued when the start answered; the host can still refuse it, and the notice then appears too.
+  useFirstTurnWatch(!!openRun?.watch,
+    reason => setOpenRun({ firstTurnFailed: true, reason }),
+    () => setOpenRun(r => (r ? { ...r, watch: false } : r)))
   // Sticky: the form stays mounted while its start is in flight and the made chat's mode is read again, so the answer is not lost.
   const [openEntry, setOpenEntry] = useState(false)
   useEffect(() => { if (chatMode.state?.mode === 'open') setOpenEntry(true) }, [chatMode.state?.mode])
@@ -390,7 +395,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
         </div>
         )}
         {!lite && (bubble.cwd || chatMode.state || chatMode.error) && <CoderHeader cwd={bubble.cwd} chatMode={chatMode} openEnded={{ runExists, conversationId: bubble.conversationId, onStopped: onRunStopped, onShowBoss: { navigate: onNavigate, before: collapse, show: !!activeBoss(orbitSessions) || !!openRun } }} />}
-        {openRun?.firstTurnFailed && <OpenRunNotice onDismiss={() => setOpenRun(null)} navigate={onNavigate} beforeShowBoss={collapse} />}
+        {openRun?.firstTurnFailed && <OpenRunNotice reason={openRun.reason} onDismiss={() => setOpenRun(null)} navigate={onNavigate} beforeShowBoss={collapse} />}
         {!lite && view.task && <TaskHeaderCard key={view.task.taskId} task={view.task} onNavigate={onNavigate} />}
         {!lite && <ChatResetBar onClear={startFresh} onCompact={compact}
           clearDisabled={conv.streaming || (!conv.conversationId && conv.messages.length === 0)}
@@ -413,7 +418,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
               the chat after the yes when it does not exist yet; the CLI then makes the boss behind it. A chat that is open
               but has no message and no boss yet (an earlier start was refused) shows the form again. */}
           {(chatMode.state?.mode === 'open' || openEntry) && !hasMessages && !openStarted && !steerChat ? (
-            <OpenStartForm getChat={getOpenChat} onChat={onOpenChat} onStarted={r => { setOpenStarted(true); setOpenRun({ firstTurnFailed: firstTurnFailedIn(r) }) }} />
+            <OpenStartForm getChat={getOpenChat} onChat={onOpenChat} onStarted={r => { const failed = firstTurnFailedIn(r); setOpenStarted(true); setOpenRun({ firstTurnFailed: failed, watch: !failed }) }} />
           ) : (
           <CoderChatView
             conv={conv}
