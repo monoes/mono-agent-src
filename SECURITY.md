@@ -3517,6 +3517,31 @@ reuses its small pidfd inode numbers), the start time has a resolution of 10 ms,
 same and is held to the predecessor's allowance for that moment; it fails closed (a deny) and is
 availability only.
 
+**Binding service on Windows.** The same contract as Linux, with the facilities Windows has, and weaker in one way that is
+stated first. **Weaker: a Windows process records the parent that its creator names** (a creator may name any process it can
+open with the create-process right as the parent, and the child then also takes that parent's job), so the parent walk proves
+"this caller names a member of the turn as its ancestor", not that it was started by one. A process of the same user outside the
+turn that opens a member of the tree can start a child that the service serves (`TestKnownGapAProcessThatClaimsTheWorkerAsItsParentIsServed`
+pins this). On Linux the parent is the kernel's, so there is no equivalent. What binding still stops on Windows is a token used by a
+process that does not know to do this (a leaked environment, a log, another program); it does not stop a program written to defeat
+it. The rest is as on Linux: the service listens on a Unix-domain socket (a named pipe would need a connection layer of its own
+and gives the same pid fact); the peer is the process the kernel names as the one that connected (SIO_AF_UNIX_GETPEERPID), pinned at
+accept with an open process handle (the number cannot move to another process while it is open) with its creation time read from the
+handle, and its user is read from that process's token and must be the host's own user; a peer that cannot be pinned, is not alive,
+has no readable user or is another user is closed without an answer. The parent walk compares creation times, so a parent number
+recycled to a younger process is refused, and a zombie, an unreadable or an exited process has no stamp and denies. The socket
+directory is made with a protected access list for the user and SYSTEM, every component is opened without following a reparse point
+and checked (owner and access list admit only the user, SYSTEM and the Administrators), the handles stay open so the directory cannot
+be renamed while the service runs, a lock file opened with no sharing allows one host, and a socket path longer than the 107 bytes of a
+Windows socket address is refused with its cause. Residual, as on macOS and not present on Linux: the kernel names the process that
+**connected** and does not say who holds the connection, so a connector that hands the connection to another process and ends, and
+whose number is recycled to a process inside the tree before the service pins it, is served as that process; the window is the accept
+latency, which a process of the same user that can suspend the host can widen. An ended connector is refused (the service never serves
+a dead peer). The boot time in a stamp moves if the clock is stepped, which makes a recorded stamp compare unequal: a refusal, never an
+accept. The turn's leader is held by a handle; a bound turn whose leader exits has its group signalled by `taskkill /T` by the leader's
+number while the child is still unreaped (the handle keeps the number its own), which cannot find a tree whose parent is gone: stragglers
+of a Windows turn may outlive their leader (job-object containment is separate work).
+
 **Not part of this surface.** Running a caller's tool: the gateway returns the
 call and the caller runs it. The runtime's own native tools are a separate matter,
 covered by the classes above.
