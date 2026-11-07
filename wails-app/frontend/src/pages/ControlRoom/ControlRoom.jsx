@@ -9,6 +9,7 @@ import TreeClusters from './TreeClusters.jsx'
 import SpendMeter from './SpendMeter.jsx'
 import DecisionFeed from './DecisionFeed.jsx'
 import StopPanel from './StopPanel.jsx'
+import ShowBossLink from '../../components/agents/ShowBossLink.jsx'
 import './controlRoom.css'
 
 // The doomsday control room: reads `doomsday overview` and `doomsday feed`, offers one action, Stop. It never starts
@@ -50,6 +51,7 @@ export default function ControlRoom({ isActive = true, api = controlRoomApi }) {
         {view.state === 'ok' ? (
           <>
             <RunHeader run={run} integrity={doc.integrity} />
+            {run?.active ? <div style={{ margin: '6px 0' }}><ShowBossLink /></div> : null}
             {view.chain === 'unanchored' ? <UnanchoredBanner reason={doc.integrity?.reason} /> : null}
             {!hasData(view.chain) ? <BadChainBanner chain={view.chain} reason={doc.integrity?.reason} /> : (
               <div className="cr-grid">

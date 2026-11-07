@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import ShowBossLink from '../agents/ShowBossLink.jsx'
 
 // What the open-ended start said that must stay on screen after its form is gone: the run started but the boss has no first
 // turn. It stays until the person dismisses it, and offers the two things that help: steer the boss (type in the chat) or Stop
@@ -14,7 +15,7 @@ export function firstTurnFailedIn(r) {
 
 const root = el => el?.closest?.('[data-testid="bubble-overlay"]') || document
 
-export function OpenRunNotice({ onDismiss }) {
+export function OpenRunNotice({ onDismiss, navigate, beforeShowBoss }) {
   const { t } = useTranslation()
   const steer = e => root(e.currentTarget).querySelector('textarea')?.focus()
   const [noStop, setNoStop] = useState(false)
@@ -28,6 +29,7 @@ export function OpenRunNotice({ onDismiss }) {
       <span style={{ flex: 1 }}>{t('openStart.noFirstTurn')}</span>
       <button type="button" className="btn btn-ghost btn-sm" onClick={steer}>{t('openStart.steerBoss')}</button>
       <button type="button" className="btn btn-danger btn-sm" onClick={stop}>{t('openStart.stopRun')}</button>
+      <ShowBossLink navigate={navigate} before={beforeShowBoss} />
       {noStop && <span data-testid="open-run-notice-nostop" style={{ flexBasis: '100%' }}>{t('openStart.stopElsewhere')}</span>}
       <button type="button" className="btn btn-ghost btn-sm" onClick={onDismiss}>{t('openStart.dismiss')}</button>
     </div>

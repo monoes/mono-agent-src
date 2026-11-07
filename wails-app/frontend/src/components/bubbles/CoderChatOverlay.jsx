@@ -389,8 +389,8 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
           )}
         </div>
         )}
-        {!lite && (bubble.cwd || chatMode.state || chatMode.error) && <CoderHeader cwd={bubble.cwd} chatMode={chatMode} openEnded={{ runExists, conversationId: bubble.conversationId, onStopped: onRunStopped }} />}
-        {openRun?.firstTurnFailed && <OpenRunNotice onDismiss={() => setOpenRun(null)} />}
+        {!lite && (bubble.cwd || chatMode.state || chatMode.error) && <CoderHeader cwd={bubble.cwd} chatMode={chatMode} openEnded={{ runExists, conversationId: bubble.conversationId, onStopped: onRunStopped, onShowBoss: { navigate: onNavigate, before: collapse } }} />}
+        {openRun?.firstTurnFailed && <OpenRunNotice onDismiss={() => setOpenRun(null)} navigate={onNavigate} beforeShowBoss={collapse} />}
         {!lite && view.task && <TaskHeaderCard key={view.task.taskId} task={view.task} onNavigate={onNavigate} />}
         {!lite && <ChatResetBar onClear={startFresh} onCompact={compact}
           clearDisabled={conv.streaming || (!conv.conversationId && conv.messages.length === 0)}

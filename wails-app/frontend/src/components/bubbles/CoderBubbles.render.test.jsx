@@ -5,7 +5,8 @@ import '@testing-library/jest-dom/vitest'
 import { render, renderHook, screen, fireEvent, waitFor, cleanup, act, within } from '@testing-library/react'
 import '../../i18n.js'
 
-const { api, chatAccess, listeners, mockConfirm, openStartApi } = vi.hoisted(() => ({
+const { api, chatAccess, listeners, mockConfirm, openStartApi, navigateMock } = vi.hoisted(() => ({
+  navigateMock: vi.fn(),
   openStartApi: { entry: vi.fn(), render: vi.fn(), start: vi.fn() },
   listeners: { chat: new Set() },
   chatAccess: { create: vi.fn(), setAccess: vi.fn(), record: vi.fn() },
@@ -53,7 +54,7 @@ let store
 function Harness({ open }) {
   store = useCoderBubbles()
   useEffect(() => { if (open) store.openConversation(open) }, []) // eslint-disable-line react-hooks/exhaustive-deps
-  return <CoderBubbles store={store} onNavigate={() => {}} />
+  return <CoderBubbles store={store} onNavigate={navigateMock} />
 }
 
 const conv = { id: 'c1', cwd: '/home/u/monoagent-coder/20260929-brisk-otter', model: 'opus' }
@@ -268,8 +269,8 @@ describe('coder bubbles', () => {
     expect(notice).toHaveTextContent('the boss has no first turn') // ... and the notice is not
     expect(within(notice).getByRole('button', { name: 'Steer the boss' })).toBeInTheDocument()
     expect(within(notice).getByRole('button', { name: 'Stop the run' })).toBeInTheDocument()
-    fireEvent.click(within(notice).getByRole('button', { name: 'Dismiss' }))
-    expect(screen.queryByTestId('open-run-notice')).toBeNull()
+    fireEvent.click(within(notice).getByRole('button', { name: 'Show the boss in AI agents' }))
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith('ai'))
   })
 
   it('offers the ready coder runtimes and creates the chat on the one picked, with its model and effort', async () => {

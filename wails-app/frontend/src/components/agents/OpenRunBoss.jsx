@@ -15,7 +15,7 @@ export default function OpenRunBoss() {
   const state = orbitState(boss)
   const spent = Number(boss.spent_usd) || 0
   return (
-    <section data-testid="open-run-boss" aria-label={t('agents.boss.title')} style={{ marginTop: 16, padding: 12, border: '1px solid var(--border-active)', borderRadius: 'var(--radius-lg)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+    <section data-testid="open-run-boss" tabIndex={-1} aria-label={t('agents.boss.title')} style={{ marginTop: 16, padding: 12, border: '1px solid var(--border-active)', borderRadius: 'var(--radius-lg)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
       <Crown size={16} aria-hidden="true" style={{ color: 'var(--cyan)' }} />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, flex: 1 }}>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 600 }}>{t('agents.boss.title')}</span>

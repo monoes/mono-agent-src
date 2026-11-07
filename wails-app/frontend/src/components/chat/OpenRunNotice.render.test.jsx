@@ -33,3 +33,12 @@ describe('the first-turn notice', () => {
     expect(screen.getByTestId('open-run-notice-nostop')).toBeInTheDocument()
   })
 })
+
+describe('dismissing', () => {
+  it('calls onDismiss from the Dismiss button', () => {
+    const onDismiss = vi.fn()
+    render(<OpenRunNotice onDismiss={onDismiss} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+    expect(onDismiss).toHaveBeenCalledTimes(1)
+  })
+})

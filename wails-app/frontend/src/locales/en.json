@@ -1103,7 +1103,8 @@
       "boss": "Boss",
       "state": "State",
       "spent": "Spent",
-      "open": "Open its board"
+      "open": "Open its board",
+      "show": "Show the boss in AI agents"
     }
   },
   "aiConnections": {
@@ -1294,7 +1295,7 @@
       "needsYou_one": "{{count}} item needs you",
       "needsYou_other": "{{count}} items need you",
       "boss": "Boss",
-      "bossNote": "Boss of the open-ended run: opens its conversation"
+      "bossNote": "Boss of the open-ended run: click to open its conversation, or see it in AI agents"
     },
     "lite": {
       "board": "Task board",

@@ -1059,7 +1059,8 @@
       "boss": "Jefe",
       "state": "Estado",
       "spent": "Gastado",
-      "open": "Abrir su tablero"
+      "open": "Abrir su tablero",
+      "show": "Mostrar al jefe en Agentes de IA"
     }
   },
   "aiConnections": {
@@ -1250,7 +1251,7 @@
       "needsYou_one": "{{count}} elemento te necesita",
       "needsYou_other": "{{count}} elementos te necesitan",
       "boss": "Jefe",
-      "bossNote": "Jefe de la ejecución abierta: abre su conversación"
+      "bossNote": "Jefe de la ejecucion abierta: haga clic para abrir su conversacion, o vealo en Agentes de IA"
     },
     "lite": {
       "board": "Tablero de tareas",

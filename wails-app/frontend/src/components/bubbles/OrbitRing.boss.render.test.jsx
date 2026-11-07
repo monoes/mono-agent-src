@@ -19,7 +19,7 @@ describe('the boss in the orbit ring', () => {
     render(<OrbitRing orbit={o} onOpen={onOpen} />)
     const b = screen.getByRole('button', { name: 'Boss, Running, Boss' })
     expect(b).toHaveAttribute('data-boss', 'true')
-    expect(b).toHaveTextContent('Boss of the open-ended run: opens its conversation')
+    expect(b).toHaveTextContent('Boss of the open-ended run: click to open its conversation, or see it in AI agents')
     expect(screen.getByRole('button', { name: 'Agent 2, Running' })).not.toHaveAttribute('data-boss')
     fireEvent.click(b)
     expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: 9, conversationId: 'c9', boss: true }))
