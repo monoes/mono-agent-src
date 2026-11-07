@@ -68,6 +68,11 @@ type Settings struct {
 	// Reading fills it from the mode; it is never stored in the document.
 	Mission bool `json:"mission"`
 
+	// pursuing: the conversation's mission has a started pursuit (mission_pursuit.enabled, migration 165). Read-only
+	// state: the store fills it when it reads the settings, it is never part of the document (unexported, so no patch
+	// or JSON can set it) and Decide answers user-and-park for every class while it is set (pursuit_clamp.go).
+	pursuing bool
+
 	// MissionWorkerReservations: which accounting mode a mission worker run of this conversation starts in when the
 	// session is idle: a reservation per run (money held out of the budget) instead of the cap the run reads from the
 	// session. Off by default; operator-only, and written only through Store.UpdateSettings. A run follows the mode
@@ -305,7 +310,24 @@ func (s *Store) settingsIn(q querier, profileID, conversationID string) (Setting
 	var raw, mode string
 	err := q.QueryRow(`SELECT settings, chat_mode FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, profileID, conversationID).Scan(&raw, &mode)
 	out, err := settingsFromRow(conversationID, raw, err, s.readCeiling())
-	return withChatMode(out, mode), err
+	out = withChatMode(out, mode)
+	if err != nil {
+		return out, err
+	}
+	out.pursuing, err = pursuitStarted(q, profileID, conversationID)
+	return out, err
+}
+
+// pursuitStarted says whether the conversation is the chat of a mission whose pursuit the person started. A read that fails is
+// an error, never "no": the question policy is the safe side of this answer.
+func pursuitStarted(q querier, profileID, conversationID string) (bool, error) {
+	var n int
+	err := q.QueryRow(`SELECT COUNT(*) FROM mission_pursuit p JOIN task_sessions t ON t.id = p.session_id
+		WHERE p.enabled = 1 AND t.profile_id = ? AND t.conversation_id = ?`, profileID, conversationID).Scan(&n)
+	if err != nil {
+		return false, fmt.Errorf("coder host: reading the pursuit of %s: %w", conversationID, err)
+	}
+	return n > 0, nil
 }
 
 // settingsFromRow is the settings a row read gave: no row, or nothing stored, is the defaults.
