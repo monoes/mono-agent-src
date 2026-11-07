@@ -38,6 +38,8 @@ type Deps struct {
 	// ChatStart is what `start --chat` needs beside the engine (the boss session, its budget, its first turn). Nil: that
 	// flag is refused.
 	ChatStart func() ChatStarter
+	// FirstTurn reads where the open run's boss's first turn stands, for `status`. Nil: status says nothing about it.
+	FirstTurn func(ctx context.Context) (FirstTurnState, error)
 }
 
 func (d Deps) engine() Engine {
