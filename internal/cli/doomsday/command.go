@@ -394,6 +394,14 @@ func (d Deps) newStatus() *cobra.Command {
 				return err
 			}
 			out := cmd.OutOrStdout()
+			if s.Active && d.FirstTurn != nil {
+				// A first turn the host refused after the start succeeded is shown here; an unreadable one says so and never fails status.
+				ft, err := d.FirstTurn(cmd.Context())
+				if err != nil {
+					ft = FirstTurnState{State: "unknown", Error: err.Error()}
+				}
+				s.FirstTurn, s.FirstTurnError = ft.State, ft.Error
+			}
 			if d.json() {
 				return json.NewEncoder(out).Encode(s)
 			}
@@ -413,6 +421,14 @@ func (d Deps) newStatus() *cobra.Command {
 				s.RunID, s.State, short(s.Hash), s.Generation, s.Members, strings.Join(s.Lines, ", "))
 			if s.AuditHead != "" {
 				fmt.Fprintf(out, "audit: %d rows, head %s\n", s.AuditSeq, s.AuditHead)
+			}
+			switch s.FirstTurn {
+			case "failed":
+				fmt.Fprintf(out, "first turn failed: %s\n", s.FirstTurnError)
+			case "none":
+				fmt.Fprintln(out, "first turn: not queued (the boss has nothing to do until you type in its chat)")
+			case "unknown":
+				fmt.Fprintf(out, "first turn: unknown (%s)\n", s.FirstTurnError)
 			}
 			return nil
 		},

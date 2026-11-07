@@ -67,6 +67,15 @@ func newDoomsdayCmd(cfg *globalConfig) *cobra.Command {
 			return doomsdayStrategyReader(cfg)
 		},
 	}
+	// `status` shows a first turn the host refused after the start succeeded (#1521): read-only, from the host's own queue.
+	deps.FirstTurn = func(ctx context.Context) (doomsdaycli.FirstTurnState, error) {
+		db, err := initDB(cfg)
+		if err != nil {
+			return doomsdaycli.FirstTurnState{}, err
+		}
+		defer db.Close()
+		return doomsdaycli.Wiring{DB: db.DB, Profile: cfg.ProfileID}.FirstTurnOf(ctx)
+	}
 	deps.ChatStart = func() doomsdaycli.ChatStarter {
 		return doomsdaycli.DBChatStart{
 			Open: func() (*sql.DB, func(), error) {
