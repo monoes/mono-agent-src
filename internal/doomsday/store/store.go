@@ -132,11 +132,14 @@ func (s *SQLStore) Enter(ctx context.Context, c Charter, confirmed [32]byte, by 
 	if _, err := s.appendAuditTx(ctx, tx, c.Profile, c.Generation, "run.enter", by+" "+r.CharterID); err != nil {
 		return Run{}, err
 	}
-	if err := tx.Commit(); err != nil {
+	if err := commitEntry(tx); err != nil {
 		return Run{}, fmt.Errorf("%w: %v", ErrCommitUnknown, err)
 	}
 	return r, nil
 }
+
+// commitEntry commits the entry's transaction; a test replaces it to make the commit fail.
+var commitEntry = func(tx *sql.Tx) error { return tx.Commit() }
 
 // LoadCharter returns the stored charter after re-hashing it and verifying its MAC.
 func (s *SQLStore) LoadCharter(ctx context.Context, profile string, generation int64) (Charter, error) {

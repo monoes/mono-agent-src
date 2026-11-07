@@ -97,6 +97,10 @@ func runE2EHost() {
 		io.WriteString(w, e2eShim)
 	})
 	mux.HandleFunc("/__events", func(w http.ResponseWriter, r *http.Request) {
+		if !e2eSameOrigin(r, addr) {
+			http.Error(w, "refused: not from this page", http.StatusForbidden)
+			return
+		}
 		fl, ok := w.(http.Flusher)
 		if !ok {
 			http.Error(w, "no streaming", 500)
@@ -119,7 +123,14 @@ func runE2EHost() {
 		}
 	})
 	mux.HandleFunc("/__call/", func(w http.ResponseWriter, r *http.Request) { e2eCall(app, w, r, addr) })
-	mux.Handle("/vault-image/", vaultImageHandler(app))
+	vault := vaultImageHandler(app)
+	mux.HandleFunc("/vault-image/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Host != addr { // an image is read by an <img> of the page: no Origin is sent, the Host must be this host's own
+			http.Error(w, "refused: not this host", http.StatusForbidden)
+			return
+		}
+		vault.ServeHTTP(w, r)
+	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		p := filepath.Join(dist, filepath.Clean("/"+r.URL.Path))
 		if st, err := os.Stat(p); err != nil || st.IsDir() {

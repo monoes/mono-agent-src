@@ -14,8 +14,10 @@ import (
 // answers GetRun as the test says.
 type commitStore struct {
 	store.Store
-	really    bool  // the entry really commits before it reports the unknown outcome
-	getRunErr error // GetRun fails with this (nil: it reads the real row)
+	really    bool       // the entry really commits before it reports the unknown outcome
+	getRunErr error      // GetRun fails with this (nil: it reads the real row)
+	other     *store.Run // GetRun answers this run instead (a run of another charter)
+	getRuns   *int       // how many times GetRun was asked
 }
 
 func (c commitStore) Enter(ctx context.Context, ch store.Charter, h [32]byte, by string) (store.Run, error) {
@@ -28,6 +30,12 @@ func (c commitStore) Enter(ctx context.Context, ch store.Charter, h [32]byte, by
 }
 
 func (c commitStore) GetRun(ctx context.Context, p string, g int64) (store.Run, error) {
+	if c.getRuns != nil {
+		*c.getRuns++
+	}
+	if c.other != nil {
+		return *c.other, nil
+	}
 	if c.getRunErr != nil {
 		return store.Run{}, c.getRunErr
 	}
@@ -62,9 +70,13 @@ func TestEnterWithACommitErrorThatHappenedGoesOn(t *testing.T) {
 
 // A commit that reported an error and did not happen is a plain refusal, and the unit made for it is removed.
 func TestEnterWithACommitErrorThatDidNotHappenIsARefusal(t *testing.T) {
-	_, err, w := enterWith(t, commitStore{getRunErr: sql.ErrNoRows})
-	if err == nil || errors.Is(err, ErrRunRecorded) || errors.Is(err, ErrEntryUnknown) {
+	asked := 0
+	_, err, w := enterWith(t, commitStore{getRunErr: sql.ErrNoRows, getRuns: &asked})
+	if err == nil || errors.Is(err, ErrRunRecorded) || errors.Is(err, ErrEntryUnknown) || strings.Contains(err.Error(), " started but ") {
 		t.Fatalf("err = %v", err)
+	}
+	if asked != 1 { // the run was READ to tell, not assumed
+		t.Fatalf("GetRun asked %d times", asked)
 	}
 	if len(w.world.stopped) != 1 {
 		t.Fatalf("the unit made for a refused entry stays: stopped=%v", w.world.stopped)
@@ -89,5 +101,17 @@ func TestChatStartKeepsTheBossWhenTheEntryOutcomeIsUnknown(t *testing.T) {
 	_, err := c.start(t)
 	if err == nil || len(c.chat.ended) != 0 {
 		t.Fatalf("err=%v ended=%v", err, c.chat.ended)
+	}
+}
+
+// A commit error with a run row of ANOTHER charter at the generation: the entry's own was not recorded, the unit is removed, and the
+// message says another run holds the profile (not "<nil>").
+func TestEnterWithACommitErrorAndAnothersRunSaysSo(t *testing.T) {
+	_, err, w := enterWith(t, commitStore{other: &store.Run{CharterID: "someone-elses"}})
+	if err == nil || !strings.Contains(err.Error(), "another run holds the profile") || strings.Contains(err.Error(), "<nil>") || errors.Is(err, ErrEntryUnknown) {
+		t.Fatalf("err = %v", err)
+	}
+	if len(w.world.stopped) != 1 {
+		t.Fatalf("the unit stays: %v", w.world.stopped)
 	}
 }

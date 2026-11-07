@@ -36,3 +36,23 @@ func TestE2EHostRefusesCallsNotFromItsOwnPage(t *testing.T) {
 		}
 	}
 }
+
+// The event stream and the image route refuse a foreign Host (and the stream a foreign Origin) as the binding endpoint does.
+func TestE2EHostEventsAndImagesRefuseForeignHosts(t *testing.T) {
+	const addr = "127.0.0.1:34999"
+	if e2eSameOrigin(httptestRequest(addr, "http://evil.example"), addr) || e2eSameOrigin(httptestRequest("localhost:34999", ""), addr) {
+		t.Fatal("a foreign request passed the origin check the stream uses")
+	}
+	if !e2eSameOrigin(httptestRequest(addr, ""), addr) || !e2eSameOrigin(httptestRequest(addr, "http://"+addr), addr) {
+		t.Fatal("its own page was refused")
+	}
+}
+
+func httptestRequest(host, origin string) *http.Request {
+	r := httptest.NewRequest(http.MethodGet, "/__events", nil)
+	r.Host = host
+	if origin != "" {
+		r.Header.Set("Origin", origin)
+	}
+	return r
+}

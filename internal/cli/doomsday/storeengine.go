@@ -175,7 +175,9 @@ func (e *StoreEngine) Enter(ctx context.Context, canon Canon, expectedHash strin
 		switch {
 		case gerr == nil && got.CharterID == sc.ID():
 			run, err = got, nil
-		case gerr != nil && errors.Is(gerr, sql.ErrNoRows):
+		case gerr == nil:
+			err = fmt.Errorf("another run holds the profile (the entry's own was not recorded): %w", err) // refused below
+		case errors.Is(gerr, sql.ErrNoRows):
 			// no run row: refused below
 		default:
 			return Entry{}, unknownEntry(fmt.Errorf("the run may have started but the outcome of its commit could not be read (run `doomsday stop` if it is running): %v: %w", gerr, err))
