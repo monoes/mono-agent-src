@@ -299,3 +299,18 @@ func TestOpenChainPinsTheDirectoriesWhileItIsOpen(t *testing.T) {
 		t.Fatalf("the control failed: the directory could not be renamed after the handles were closed: %v", err)
 	}
 }
+
+// A service that runs as another user is refused by the dialer, whatever its socket looks like.
+func TestDialSecureRefusesAServiceOfAnotherUser(t *testing.T) {
+	s := startService(t, self(t), nil)
+	if v, err := s.verify(); err != nil || v != VerdictAllow {
+		t.Fatalf("control: %v %v", v, err)
+	}
+	old := dialUserSID
+	dialUserSID = func() (string, error) { return "S-1-5-21-1-2-3-1001", nil }
+	defer func() { dialUserSID = old }()
+	if c, err := DialSecure(SocketOptions{Root: s.root, Profile: s.profile}); err == nil {
+		c.Close()
+		t.Fatal("dialed a service that runs as another user")
+	}
+}

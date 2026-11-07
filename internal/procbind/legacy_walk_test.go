@@ -500,9 +500,9 @@ func TestIssuanceStaysOffUntilTheRevocationGuardsExist(t *testing.T) {
 // the mint only. A whole file is never allowed, so a verifier added next to a mint cannot hide in it.
 var rowKeyMintSites = map[string]bool{
 	// the host row of a binding-service start is signed under the profile's key, which a first start may create
-	"coderhost/bindinghost_linux.go:Ensure": true,
+	"coderhost/bindinghost.go:Ensure": true,
 	// the session token (and a child's task token) of a bound launch are made, with the profile's key, by the launcher
-	"cli/chat/coder_host_bound_linux.go:deliver": true,
+	"cli/chat/coder_host_bound.go:deliver": true,
 }
 
 // productionRowKeyCalls lists, as "file:Function", the functions in non-test files under internal/ that call

@@ -367,6 +367,9 @@ func DialSecure(o SocketOptions) (*net.UnixConn, error) {
 	return c, nil
 }
 
+// dialUserSID is the user a service must run as for this dialer; a variable so a test can stand in for another user.
+var dialUserSID = OwnSID
+
 // checkServerUser requires the process that accepted to run as this user.
 func checkServerUser(c *net.UnixConn) error {
 	pi, err := peerProcess(c)
@@ -374,7 +377,7 @@ func checkServerUser(c *net.UnixConn) error {
 		return fmt.Errorf("%w: the service cannot be identified: %v", errUnsafeDir, err)
 	}
 	defer pi.proc.Close()
-	me, err := OwnSID()
+	me, err := dialUserSID()
 	if err != nil || pi.sid != me {
 		return fmt.Errorf("%w: the service socket is served by another user", errUnsafeDir)
 	}

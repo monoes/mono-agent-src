@@ -85,7 +85,7 @@ func TestEveryCoderChildStartGoesThroughPlace(t *testing.T) {
 					key = k
 				}
 			}
-			if key == "" && base == "coder_host_bound_linux.go" && strings.Contains(line, "cmd.Start()") {
+			if key == "" && (base == "coder_host_bound_linux.go" || base == "coder_host_bound_windows.go") && strings.Contains(line, "cmd.Start()") {
 				key = "bound_start" // the bound launch: runs the placement (pre) just before Start
 			}
 			if key == "" {
@@ -103,16 +103,18 @@ func TestEveryCoderChildStartGoesThroughPlace(t *testing.T) {
 		t.Error("the bound launch's Start site was not found")
 	}
 	execSrc, _ := os.ReadFile(filepath.Join(dir, "coder_host_exec.go"))
-	bound, _ := os.ReadFile(filepath.Join(dir, "coder_host_bound_linux.go"))
 	if !strings.Contains(string(execSrc), "l.place(c, profileID, conversationID)") || !strings.Contains(string(execSrc), "bd.start(cmd, pre)") {
 		t.Error("the turn's process is not started through the place hook")
 	}
 	if !strings.Contains(string(execSrc), "a legacy start would run outside the placement") {
 		t.Error("a legacy start with a place hook is no longer refused")
 	}
-	i := strings.Index(string(bound), "pre(cmd)")
-	j := strings.Index(string(bound), "cmd.Start()")
-	if i < 0 || j < 0 || i > j {
-		t.Error("the placement no longer runs before the process exists")
+	for _, name := range []string{"coder_host_bound_linux.go", "coder_host_bound_windows.go"} {
+		bound, _ := os.ReadFile(filepath.Join(dir, name))
+		i := strings.Index(string(bound), "pre(cmd)")
+		j := strings.Index(string(bound), "cmd.Start()")
+		if i < 0 || j < 0 || i > j {
+			t.Errorf("%s: the placement no longer runs before the process exists", name)
+		}
 	}
 }
