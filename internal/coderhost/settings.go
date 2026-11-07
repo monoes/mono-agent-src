@@ -68,7 +68,7 @@ type Settings struct {
 	// Reading fills it from the mode; it is never stored in the document.
 	Mission bool `json:"mission"`
 
-	// pursuing: the conversation's mission has a started pursuit (mission_pursuit.enabled, migration 165). Read-only
+	// pursuing: the conversation's mission has a started pursuit (mission_pursuit.enabled, migration 166). Read-only
 	// state: the store fills it when it reads the settings, it is never part of the document (unexported, so no patch
 	// or JSON can set it) and Decide answers user-and-park for every class while it is set (pursuit_clamp.go).
 	pursuing bool
