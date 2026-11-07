@@ -185,7 +185,7 @@ func (s *Store) park(profileID, conversationID, class, question string, options 
 		return Question{}, err
 	}
 	_, has := s.hasLiveMaster(profileID, conversationID)
-	if own && !has && !HardClass(class) {
+	if own && !has && !HardClass(class) && !settings.pursuing { // in a pursuit nothing is decided for the person: it parks
 		return Question{}, ErrNoMasterDecide
 	}
 	if Decide(settings, class, reversible, has).Answerer == WhoModel {

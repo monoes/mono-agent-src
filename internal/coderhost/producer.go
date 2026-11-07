@@ -116,6 +116,13 @@ func (s *Store) RecordOwn(c Caller, r RecordRequest) (LedgerEntry, error) {
 	if HardClass(r.Class) {
 		return LedgerEntry{}, fmt.Errorf("%w (%s gaps are parked, never decided by the model)", ErrPolicyReserves, r.Class)
 	}
+	st, err := s.GetSettings(c.ProfileID, c.ConversationID)
+	if err != nil {
+		return LedgerEntry{}, err
+	}
+	if st.pursuing {
+		return LedgerEntry{}, fmt.Errorf("%w (a mission in pursuit asks the person: %s gaps are parked, never decided by the model)", ErrPolicyReserves, r.Class)
+	}
 	var recent int
 	since := s.now().Add(-recordWindow)
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM coder_session_decisions WHERE profile_id = ? AND conversation_id = ? AND made_by = 'model' AND `+tsInWindow("created_at", since),

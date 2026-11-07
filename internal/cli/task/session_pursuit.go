@@ -67,6 +67,9 @@ default 20) bound what the pursuit does while you are away.`,
 			if err != nil {
 				return err
 			}
+			if (cmd.Flags().Changed("parked-max") && parked == 0) || (cmd.Flags().Changed("pct") && pct == 0) {
+				return d.InvalidInput("--parked-max and --pct are 1 or more (leave them out for the defaults 3 and 20)")
+			}
 			return d.withPursuit(cmd, args, func(ctx context.Context, ps *missionpursuit.Store, p tasks.Profile, session int64) error {
 				pu, err := ps.Start(ctx, p.ID, session, missionpursuit.AwayLimits{ParkedMax: parked, Pct: pct}, actor)
 				if err != nil {
