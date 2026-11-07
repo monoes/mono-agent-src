@@ -161,3 +161,16 @@ func TestAPursuitParkRefusesNothingTheModelWouldHaveDecided(t *testing.T) {
 		t.Errorf("in a pursuit the question is parked for the person, got %v", err)
 	}
 }
+
+// A pursuit that cannot be read counts as started (the safe side), and the settings are still returned.
+func TestAnUnreadablePursuitCountsAsStartedAndKeepsTheSettings(t *testing.T) {
+	st, _ := parkStore(t)
+	addConversation(t, st, "a", "/w/a")
+	if _, err := st.db.Exec(`ALTER TABLE mission_pursuit RENAME TO mission_pursuit_away`); err != nil {
+		t.Fatal(err)
+	}
+	s, err := st.GetSettings("p", "a")
+	if err != nil || !s.pursuing {
+		t.Errorf("pursuing = %v, err = %v, want started and no error", s.pursuing, err)
+	}
+}

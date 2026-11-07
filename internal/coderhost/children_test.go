@@ -351,6 +351,9 @@ func TestToolsNeverChangeOperatorOnlySettings(t *testing.T) {
 func TestEverySettingIsClassified(t *testing.T) {
 	typ := reflect.TypeOf(Settings{})
 	for i := 0; i < typ.NumField(); i++ {
+		if typ.Field(i).PkgPath != "" {
+			continue // unexported state the store fills (pursuing): not a setting, no document or patch can name it
+		}
 		name := strings.Split(typ.Field(i).Tag.Get("json"), ",")[0]
 		if oneOf(name, OperatorOnly) == oneOf(name, AgentAdjustable) {
 			t.Errorf("setting %q must be in exactly one of OperatorOnly and AgentAdjustable", name)

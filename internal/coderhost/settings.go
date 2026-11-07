@@ -314,20 +314,18 @@ func (s *Store) settingsIn(q querier, profileID, conversationID string) (Setting
 	if err != nil {
 		return out, err
 	}
-	out.pursuing, err = pursuitStarted(q, profileID, conversationID)
-	return out, err
+	out.pursuing = pursuitStarted(q, profileID, conversationID)
+	return out, nil
 }
 
-// pursuitStarted says whether the conversation is the chat of a mission whose pursuit the person started. A read that fails is
-// an error, never "no": the question policy is the safe side of this answer.
-func pursuitStarted(q querier, profileID, conversationID string) (bool, error) {
+// pursuitStarted says whether the conversation is the chat of a mission whose pursuit the person started. A read that fails
+// counts as started: the pursuit's policy (the person answers, nothing takes a default) is the safe side of the doubt, and
+// the settings themselves are still readable, so a store that cannot answer does not stop the callers that only want them.
+func pursuitStarted(q querier, profileID, conversationID string) bool {
 	var n int
 	err := q.QueryRow(`SELECT COUNT(*) FROM mission_pursuit p JOIN task_sessions t ON t.id = p.session_id
 		WHERE p.enabled = 1 AND t.profile_id = ? AND t.conversation_id = ?`, profileID, conversationID).Scan(&n)
-	if err != nil {
-		return false, fmt.Errorf("coder host: reading the pursuit of %s: %w", conversationID, err)
-	}
-	return n > 0, nil
+	return err != nil || n > 0
 }
 
 // settingsFromRow is the settings a row read gave: no row, or nothing stored, is the defaults.
