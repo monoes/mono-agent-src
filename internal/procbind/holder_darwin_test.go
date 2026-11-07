@@ -316,3 +316,24 @@ func TestDarwinCheckLayoutNeedsRealPairsAndANegativeControl(t *testing.T) {
 		t.Error("unreadable descriptors passed")
 	}
 }
+
+// A peer of another uid is refused before the proof is made: no work is done for it.
+func TestDarwinAPeerOfAnotherUIDCostsNoProof(t *testing.T) {
+	self, _ := NewProcHandle(os.Getpid())
+	var calls atomic.Int32
+	old := holderProof
+	holderProof = func(c *net.UnixConn, pid int) error { calls.Add(1); return old(c, pid) }
+	t.Cleanup(func() { holderProof = old })
+	sock := startDServer(t, &dReg{h: self}, func(s *Server) { s.UID = os.Getuid() + 1 })
+	conn, err := DialUnix(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := dClient().Verify(conn, dToken, dScope); err == nil {
+		t.Fatal("a peer of another uid was answered")
+	}
+	if n := calls.Load(); n != 0 {
+		t.Errorf("%d proofs made for a peer that was refused by its uid", n)
+	}
+}
