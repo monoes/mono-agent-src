@@ -65,3 +65,13 @@ func TestHostStatusSaysWhenTheTurnRegistryIsUnavailable(t *testing.T) {
 		t.Fatalf("status reports a working registry as unavailable: %v", st)
 	}
 }
+
+// Order guard (#1507): a test that runs `coder host run` registers the launcher's child-token minter process-wide;
+// it must not outlive the test, or a later test that expects "no launcher" fails under -shuffle.
+func TestARunningHostTestLeavesNoChildTokenMinterBehind(t *testing.T) {
+	resetChildReadiness(t) // the guard's own start state, whatever ran before
+	t.Run("host", TestTheHostRegistersItsDatabaseWhileItRunsAndRemovesItAtExit)
+	if launcherMintsChildTokens() {
+		t.Fatal("a finished host test left the launcher's child-token minter registered")
+	}
+}
