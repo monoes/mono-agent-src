@@ -45,14 +45,17 @@ func TestSessionPursuitStartPauseResumeStatus(t *testing.T) {
 	if out, _, err := runTask(t, db, "default", true, "", "session", "pursuit", "start", id(s)); err == nil {
 		t.Errorf("a second start: %s", out)
 	}
+	st = pursuitDoc{}
 	mustTaskJSON(t, db, "default", &st, "", "session", "pursuit", "pause", id(s))
 	if !st.Pursuit.Paused() {
 		t.Errorf("pause: %+v", st.Pursuit)
 	}
+	st = pursuitDoc{}
 	mustTaskJSON(t, db, "default", &st, "", "session", "pursuit", "status", id(s))
 	if !st.Pursuit.Paused() {
 		t.Errorf("status after pause: %+v", st.Pursuit)
 	}
+	st = pursuitDoc{}
 	mustTaskJSON(t, db, "default", &st, "", "session", "pursuit", "resume", id(s))
 	if st.Pursuit.Paused() || !st.Pursuit.Enabled {
 		t.Errorf("resume: %+v", st.Pursuit)
