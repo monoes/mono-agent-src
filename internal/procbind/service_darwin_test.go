@@ -403,6 +403,13 @@ func startGroupLeader(t *testing.T) *exec.Cmd {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); _ = cmd.Wait() })
+	// the group has a second member once the shell has started its background job
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if out, _ := exec.Command("pgrep", "-g", itoa(cmd.Process.Pid)).Output(); len(strings.Fields(string(out))) >= 2 {
+			return cmd
+		}
+	}
+	t.Fatal("the shell started no background job")
 	return cmd
 }
 
