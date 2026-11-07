@@ -202,6 +202,7 @@ every claim. Add tasks with task add --session N --acceptance TEXT. See: monoage
 		d.newSessionBudgetCmd(),
 		d.newSessionReservationCmd(),
 		d.newSessionGoalCmd(),
+		d.newSessionPursuitCmd(),
 	)
 	for _, sub := range cmd.Commands() {
 		d.WithJSONErrors(sub)
