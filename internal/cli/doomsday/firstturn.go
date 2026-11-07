@@ -4,6 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"regexp"
+	"strings"
+	"unicode"
 
 	"github.com/monoes/mono-agent/internal/coderhost"
 )
@@ -50,7 +53,30 @@ func (w Wiring) FirstTurnOf(ctx context.Context) (FirstTurnState, error) {
 	case err != nil:
 		return FirstTurnState{}, err
 	case status == coderhost.CmdFailed:
-		return FirstTurnState{State: "failed", Error: errText}, nil
+		return FirstTurnState{State: "failed", Error: cleanReason(errText)}, nil
 	}
 	return FirstTurnState{State: "pending"}, nil
+}
+
+const maxReasonRunes = 300
+
+// ansiSeq is a terminal escape sequence (CSI or OSC); dropping only the ESC byte would leave its text behind.
+var ansiSeq = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?`)
+
+// cleanReason is the host's error text made safe to show: control characters (escape sequences included) become spaces and it
+// is cut to maxReasonRunes. The text comes from launcher and database errors, which can carry paths and raw bytes.
+func cleanReason(s string) string {
+	s = ansiSeq.ReplaceAllString(s, " ")
+	out := make([]rune, 0, len(s))
+	for _, r := range s {
+		if unicode.IsControl(r) || r == '\uFFFD' {
+			r = ' '
+		}
+		out = append(out, r)
+		if len(out) >= maxReasonRunes {
+			out = append(out, '\u2026')
+			break
+		}
+	}
+	return strings.TrimSpace(string(out))
 }

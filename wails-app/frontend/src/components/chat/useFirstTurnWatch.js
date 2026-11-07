@@ -7,6 +7,17 @@ export const FIRST_TURN_FIRST_MS = 1500
 export const FIRST_TURN_POLL_MS = 3000
 export const FIRST_TURN_POLLS = 40 // about two minutes; then the person has the chat itself to look at
 
+// Two open overlays each run a watch; the status read behind them is shared per api for a second, not one each.
+const SHARE_MS = 1000
+const shared = new WeakMap()
+function sharedStatus(api) {
+  const hit = shared.get(api)
+  if (hit && Date.now() - hit.at < SHARE_MS) return hit.p
+  const p = Promise.resolve(api.status())
+  shared.set(api, { at: Date.now(), p })
+  return p
+}
+
 // watching: true while the answer is awaited. onFailed(reason) is called once for a turn that failed or was never queued;
 // onSettled() once for one that started, a run that is gone, or the end of the polls.
 export function useFirstTurnWatch(watching, onFailed, onSettled, api = controlRoomApi) {
@@ -16,7 +27,7 @@ export function useFirstTurnWatch(watching, onFailed, onSettled, api = controlRo
     let timer = null
     let tries = 0
     const poll = async () => {
-      const s = await api.status() // never rejects
+      const s = await sharedStatus(api) // never rejects
       if (cancelled) return
       if (s?.first_turn === 'failed' || s?.first_turn === 'none') { onFailed(String(s.first_turn_error || '')); return }
       if (s?.first_turn === 'started' || (s && !s.error && s.active === false) || ++tries >= FIRST_TURN_POLLS) { onSettled(); return }

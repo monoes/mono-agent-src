@@ -57,4 +57,12 @@ describe('watching the boss\'s first turn after the start', () => {
     expect(idle).not.toHaveBeenCalled()
     expect(gone).not.toHaveBeenCalled()
   })
+  it('shares one status read between two watchers asking at the same time', async () => {
+    const status = vi.fn().mockResolvedValue({ active: true, first_turn: 'started' })
+    const api = { status }
+    renderHook(() => useFirstTurnWatch(true, vi.fn(), vi.fn(), api))
+    renderHook(() => useFirstTurnWatch(true, vi.fn(), vi.fn(), api))
+    await tick(FIRST_TURN_FIRST_MS)
+    expect(status).toHaveBeenCalledTimes(1)
+  })
 })

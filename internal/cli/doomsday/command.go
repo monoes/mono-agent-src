@@ -51,6 +51,17 @@ func (d Deps) engine() Engine {
 	return Off{}
 }
 
+// statusEngine is the engine `status` reads through: the read engine where there is one (the GUI polls status, so it must
+// create, migrate, pin and write nothing), else the engine.
+func (d Deps) statusEngine() Engine {
+	if d.ReadEngine != nil {
+		if e := d.ReadEngine(); e != nil {
+			return e
+		}
+	}
+	return d.engine()
+}
+
 func (d Deps) json() bool { return d.JSONOutput != nil && d.JSONOutput() }
 
 // NewCommand is the doomsday group. It is hidden from help: the mode is not
@@ -389,7 +400,7 @@ func (d Deps) newStatus() *cobra.Command {
 		Short: "Show the run of this profile (read-only)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			s, err := d.engine().Status(cmd.Context())
+			s, err := d.statusEngine().Status(cmd.Context())
 			if err != nil {
 				return err
 			}
