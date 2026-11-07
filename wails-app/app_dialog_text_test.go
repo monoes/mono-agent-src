@@ -55,7 +55,7 @@ func TestMessageDialogIsCalledOnlyInsideTheHelper(t *testing.T) {
 			return nil
 		}
 		if d.IsDir() {
-			if n := d.Name(); n == "frontend" || n == "node_modules" || n == "build" || n == "vendor" {
+			if d.Name() == "node_modules" {
 				return filepath.SkipDir
 			}
 			return nil
@@ -90,6 +90,11 @@ func TestMessageDialogIsCalledOnlyInsideTheHelper(t *testing.T) {
 			case *ast.Ident:
 				if v.Name == "MessageDialog" && v.Obj == nil && !inHelper {
 					t.Errorf("%s: a bare MessageDialog: use showDialog", fset.Position(v.Pos()))
+				}
+			case *ast.BasicLit:
+				// reflection (MethodByName("MessageDialog")) or any other name-based lookup would skip the selector scan
+				if v.Kind == token.STRING && strings.Contains(v.Value, "MessageDialog") && !strings.Contains(v.Value, " ") {
+					t.Errorf("%s: the name MessageDialog as a string: use showDialog", fset.Position(v.Pos()))
 				}
 			}
 			return true
@@ -190,5 +195,88 @@ func TestAPanickingRuntimeIsAnErrorAndFreesTheDialogLock(t *testing.T) {
 	dialogRun = func(context.Context, wailsruntime.MessageDialogOptions) (string, error) { return "ok", nil }
 	if c, err := showDialog(&App{}, wailsruntime.MessageDialogOptions{}); err != nil || c != "ok" {
 		t.Fatalf("the lock was not freed: %q %v", c, err)
+	}
+}
+
+// A caller of showDialog that asks a Question or a Warning must read the answer through dialogConfirmed, never by
+// comparing it with its own text: Linux and Windows do not return a custom button's text (see dialogConfirmed). A string
+// compared inside such a function is a custom answer in disguise. app_dialog.go and the helper's own file are exempt.
+func TestDialogCallersReadTheAnswerThroughTheHelper(t *testing.T) {
+	asking := 0
+	_ = filepath.WalkDir(".", func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if d.Name() == "node_modules" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") || filepath.Base(path) == "app_dialog.go" || filepath.Base(path) == "app_dialog_answer.go" {
+			return nil
+		}
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, decl := range file.Decls {
+			ast.Inspect(decl, func(n ast.Node) bool {
+				var body *ast.BlockStmt
+				switch f := n.(type) {
+				case *ast.FuncDecl:
+					body = f.Body
+				case *ast.FuncLit:
+					body = f.Body
+				}
+				if body == nil {
+					return true
+				}
+				asks, helper, compares := false, false, []token.Pos{}
+				ast.Inspect(body, func(m ast.Node) bool {
+					switch v := m.(type) {
+					case *ast.CallExpr:
+						if id, ok := v.Fun.(*ast.Ident); ok && id.Name == "showDialog" && len(v.Args) == 2 {
+							if lit, ok := v.Args[1].(*ast.CompositeLit); ok {
+								for _, e := range lit.Elts {
+									if kv, ok := e.(*ast.KeyValueExpr); ok && fmt.Sprint(kv.Key) == "Type" {
+										if sel, ok := kv.Value.(*ast.SelectorExpr); ok && (sel.Sel.Name == "QuestionDialog" || sel.Sel.Name == "WarningDialog") {
+											asks = true
+										}
+									}
+								}
+							}
+						}
+						if id, ok := v.Fun.(*ast.Ident); ok && id.Name == "dialogConfirmed" {
+							helper = true
+						}
+					case *ast.BinaryExpr:
+						if v.Op == token.EQL || v.Op == token.NEQ {
+							for _, side := range []ast.Expr{v.X, v.Y} {
+								if lit, ok := side.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+									compares = append(compares, v.Pos())
+								}
+							}
+						}
+					}
+					return true
+				})
+				if asks {
+					asking++
+					if !helper {
+						t.Errorf("%s: asks a Question/Warning through showDialog without dialogConfirmed", fset.Position(body.Pos()))
+					}
+					for _, p := range compares {
+						t.Errorf("%s: compares with a string in a function that asks a dialog: read the answer through dialogConfirmed", fset.Position(p))
+					}
+				}
+				return true
+			})
+		}
+		return nil
+	})
+	if asking < 3 { // confirmAbandon, confirmFolderUpload and realConfirmNative: a scan that finds none proves nothing
+		t.Fatalf("found %d asking callers, want at least 3", asking)
 	}
 }

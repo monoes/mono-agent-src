@@ -316,7 +316,7 @@ func asked(t *testing.T, answer bool) *[]string {
 	t.Helper()
 	var msgs []string
 	old := confirmAbandon
-	confirmAbandon = func(_ *App, _, msg string) bool { msgs = append(msgs, msg); return answer }
+	confirmAbandon = func(_ *App, _, msg string) (bool, error) { msgs = append(msgs, msg); return answer, nil }
 	t.Cleanup(func() { confirmAbandon = old })
 	return &msgs
 }
