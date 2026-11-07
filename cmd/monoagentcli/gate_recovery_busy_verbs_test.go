@@ -57,14 +57,18 @@ func TestTheRealCommandTreeRegistersTheRecoveryCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeMigratedDB(t, db)
-	registerLive(t, db)
+	// the host registers its database by the canonical path (a temp dir is behind a symlink on macOS)
+	canon, err := filepath.EvalSymlinks(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registerLive(t, canon)
 	lockDB(t, db)
 	newRootCmd()
 	why, busy := opgate.RecoveryCheck()
 	if busy == nil {
 		t.Fatalf("the real tree did not register the recovery check (answer %q)", why)
 	}
-	canon, _ := filepath.EvalSymlinks(db)
 	wantRetryText(t, busy, canon, entryFileOf(t, dir, db))
 }
 
