@@ -48,26 +48,29 @@ func init() {
 	}
 }
 
+// The fake service manager keeps its one unit as a file in the scratch HOME, so it outlives the process that started it as a real
+// unit does: `doomsday start` runs in one process (the app's child) and `doomsday stop` in another, and a unit held only in memory
+// would be absent to the second.
 type e2eWorld struct {
-	mu      sync.Mutex
-	present bool
-	ids     map[string]uint64
+	mu  sync.Mutex
+	ids map[string]uint64
 }
+
+func e2eUnitFile() string { return filepath.Join(os.Getenv("HOME"), ".e2e-unit-present") }
+
+func (w *e2eWorld) present() bool { _, err := os.Stat(e2eUnitFile()); return err == nil }
 
 func (w *e2eWorld) StartUnit(context.Context, string, string) error {
 	if e2eSwitch(".e2e-refuse-entry") {
 		return errors.New("e2e stub: the unit is made to fail")
 	}
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.present = true
-	return nil
+	return os.WriteFile(e2eUnitFile(), []byte("1"), 0o600)
 }
 
 func (w *e2eWorld) StopUnit(context.Context, string) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.present = false
+	if err := os.Remove(e2eUnitFile()); err != nil && !os.IsNotExist(err) {
+		return err
+	}
 	return nil
 }
 
@@ -80,9 +83,7 @@ func (e2eKernel) CurrentUID() uint32             { return uint32(os.Getuid()) }
 func (e2eKernel) DelegatedRoot() (string, error) { return "/e2e/user@1", nil }
 func (e2eKernel) SelfCgroup() (string, error)    { return "/e2e-self", nil }
 func (k e2eKernel) OpenCgroup(path string) (stop.Cgroup, error) {
-	k.w.mu.Lock()
-	defer k.w.mu.Unlock()
-	if !k.w.present {
+	if !k.w.present() {
 		return nil, errE2EAbsent
 	}
 	return e2eCgroup{w: k.w, path: path}, nil
