@@ -43,10 +43,17 @@ var (
 	// errDialogBusy is why a dialog was not shown: another one is still open.
 	errDialogBusy = errors.New("another dialog is still open: answer or close it first")
 	// dialogRun is the Wails runtime call; a test replaces it.
-	dialogRun = func(ctx context.Context, o wailsruntime.MessageDialogOptions) (string, error) {
-		return wailsruntime.MessageDialog(ctx, o)
-	}
+	dialogRun = realDialogRun
 )
+
+// realDialogRun is the Wails call. wails runtime.MessageDialog calls log.Fatalf (the app exits, no recover can catch it)
+// when the context is nil or carries no frontend, as before the window exists or under a dev server in a browser.
+func realDialogRun(ctx context.Context, o wailsruntime.MessageDialogOptions) (string, error) {
+	if ctx == nil || ctx.Value("frontend") == nil {
+		return "", errNoNativeDialog
+	}
+	return wailsruntime.MessageDialog(ctx, o)
+}
 
 // acquireDialog takes the dialog lock, waiting at most d.
 func acquireDialog(d time.Duration) bool {
