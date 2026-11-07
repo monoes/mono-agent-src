@@ -47,7 +47,7 @@ A confirmed goal is final: a changed goal means a new mission.
 // withGoals opens the database and hands fn the goal store, the session and the profile.
 func (d Deps) withGoals(cmd *cobra.Command, args []string, fn func(ctx context.Context, gs *missionpursuit.Store, p tasks.Profile, session int64) error) error {
 	if len(args) != 1 {
-		return d.InvalidInput("task session goal %s takes one session id, written 3 or #3 (got %d arguments)", cmd.Name(), len(args))
+		return d.InvalidInput("task session %s %s takes one session id, written 3 or #3 (got %d arguments)", cmd.Parent().Name(), cmd.Name(), len(args))
 	}
 	session, err := d.parseSessionID(args[0])
 	if err != nil {
