@@ -35,6 +35,7 @@ test("an outdated bridge says it is running, offers the manual token and a resta
   assert.doesNotMatch(v.state, /isn.t running/);
   assert.equal(v.unpaired, true, "the token box stays: manual pairing works on an old bridge");
   assert.equal(v.command, "monoagentcli doctor");
+  assert.ok(v.more.some((m) => /extension pair --open/.test(m.cmd)), "the manual path is offered");
 });
 
 test("a request waiting for the owner says where to approve it, and offers no token box", () => {

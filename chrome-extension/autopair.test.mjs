@@ -57,6 +57,17 @@ test("a bridge with /health but no /status is outdated, not down", async () => {
   assert.equal((await A.step({ fetch: impl })).kind, "outdated");
 });
 
+test("a /status that times out or 5xxs while /health answers is not outdated", async () => {
+  const bridge = { service: "monoagent-bridge", status: "connected" };
+  const five = async (url) => (url.endsWith("/monoagent/health") ? json(bridge) : json({}, 503));
+  assert.equal((await A.step({ fetch: five })).kind, "down");
+  const hang = (url, init = {}) =>
+    url.endsWith("/monoagent/health")
+      ? Promise.resolve(json(bridge))
+      : new Promise((_, reject) => init.signal && init.signal.addEventListener("abort", () => reject(new Error("aborted"))));
+  assert.equal((await A.step({ fetch: hang, timeoutMs: 30 })).kind, "down");
+});
+
 test("something else answering /health is still down", async () => {
   const impl = async (url) => (url.endsWith("/monoagent/health") ? json({ Browser: "Chrome/140" }) : json("nope", 404));
   assert.equal((await A.step({ fetch: impl })).kind, "down");
