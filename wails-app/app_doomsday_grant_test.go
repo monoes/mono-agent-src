@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	doomsdaycli "github.com/monoes/mono-agent/internal/cli/doomsday"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 	"os"
 	"strings"
@@ -749,5 +750,29 @@ func TestTheUnknownDetailIsOnlyTheTailOfStderr(t *testing.T) {
 	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", ""))
 	if d.State != "unknown" || strings.Contains(d.Detail, "echoed goal text") || strings.Contains(d.Detail, "CHARTER") || !strings.Contains(d.Detail, "six") {
 		t.Fatalf("%+v", d)
+	}
+}
+
+// On Windows the CLI's render says a program running as the person can defeat the process check; the native confirmation carries
+// that sentence (read from the render output, not written in the app), and no other OS's dialog does.
+func TestStartDialogCarriesTheWeakerProcessCheckOnWindowsOnly(t *testing.T) {
+	const sentence = "On Windows a program running as you can defeat the process check; Windows is weaker than Linux and macOS."
+	for goos, want := range map[string]bool{"windows": true, "linux": false, "darwin": false} {
+		doc := previewDoc(gHash, []string{"a", "b"}, "10.000000 USD for the whole run.")
+		var m map[string]any
+		_ = json.Unmarshal([]byte(doc), &m)
+		m["text"] = m["text"].(string) + doomsdaycli.NotDefended(goos) // what the CLI of that OS prints
+		raw, _ := json.Marshal(m)
+		f, err := factsOf(raw)
+		if err != nil {
+			t.Fatalf("%s: %v", goos, err)
+		}
+		body := f.dialogBody("a chat with 100% of %s %d")
+		if got := strings.Contains(body, sentence); got != want {
+			t.Errorf("%s: the dialog body carries the sentence = %v, want %v\n%s", goos, got, want, body)
+		}
+		if !strings.Contains(body, "a chat with 100% of %s %d") {
+			t.Errorf("%s: the chat name was altered by formatting: %s", goos, body)
+		}
 	}
 }

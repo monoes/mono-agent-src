@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/monoes/mono-agent/internal/procbind"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -251,6 +252,9 @@ func TestAHostInsideABoundTurnIsNoticedThroughItsV2Binding(t *testing.T) {
 	mint("t0", pp, "not-the-stamp") // a worker whose pid is in the chain but whose start time is another process's
 	if st.HostInsideTurn() {
 		t.Fatal("a binding with a different start stamp counted")
+	}
+	if runtime.GOOS == "linux" && BoundStamp(pp) == ProcStamp(pp) { // the guarded case below must not skip silently where stamps carry a boot
+		t.Fatal("the stamp of a bound turn carries no boot part on Linux")
 	}
 	if BoundStamp(pp) != ProcStamp(pp) { // stamps that carry a boot (Linux); Windows creation times are absolute and carry none
 		mint("t0b", pp, ProcStamp(pp)+"@another-boot") // the same process number and start tick of another boot

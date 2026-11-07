@@ -80,7 +80,14 @@ func TestBoundStartRefusesAPlacementThatReplacedTheAttributes(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = d.start(cmd, func(c *exec.Cmd) error { edit(c); return nil })
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Errorf("%s: start did not check the placement's attributes (it panicked: %v)", name, r)
+				}
+			}()
+			err = d.start(cmd, func(c *exec.Cmd) error { edit(c); return nil })
+		}()
 		if err == nil {
 			_ = cmd.Process.Kill()
 			_ = cmd.Wait()
