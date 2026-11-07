@@ -3519,17 +3519,27 @@ availability only.
 
 **Binding service on macOS.** The same contract, with the kernel facilities macOS has. The peer's uid comes from
 LOCAL_PEERCRED and its pid from LOCAL_PEERPID, read from the connected socket (never from the request); a credential
-structure of an unknown version, a pid that is not a process, or a uid other than the host's is closed without an
-answer. The process table is read through sysctl (kern.proc.pid), and a process is pinned by its pid together with its
-start time in microseconds: the pin is alive only while the kernel still reports that pair and the process is not a
-zombie. Process ancestry (internal/procchain) uses the same reader, and anything it cannot read counts as no. The socket
-directory is checked as on Linux (components opened one at a time with no symlink followed, mode 0700, ours, a lock),
-but a socket path longer than the address can hold (103 bytes) is refused, and the path used to bind and connect is the
-directory descriptor's current path. Residual, not present on Linux: macOS has no pidfd, so a number can be reused
-between a check and the next use (the check and the signal that stops a turn's leader are not atomic), and the pid that
-LOCAL_PEERPID reports is the one the peer connected with. The start time makes a reused number read as a different process
-and every step of the walk is bracketed by liveness checks; the window that remains is short, it is the residual of this
-port, and it is not closed by a descriptor as on Linux.
+structure that is short, of an unknown version or untouched (no groups), a pid that is not a process, or a uid other than
+the host's is closed without an answer. LOCAL_PEERPID is not the connector's pid for good: measured on macOS 27, it is the
+process that last did I/O on the other end (right after the accept the connector, and after a process holding a duplicate
+wrote, that process). LOCAL_PEERTOKEN (the audit token) was measured too and does not help: the kernel looks it up from the
+pid when asked, so after a pid is recycled it names the new process. What the kernel does tie to the connection is the
+descriptor, so the service accepts the process at that pid only if it can read the process's descriptor table and find a unix
+socket open there whose control block is the one this end is connected to and which is connected back to this end (proc_info,
+PROC_PIDFDSOCKETINFO). A process that took over a recycled pid does not hold the connector's end, and is refused. The proof is
+made once per connection, in the connection's own goroutine after the per-peer limits, and is bounded (a peer with more than
+4096 descriptors, or a proof that takes over 500 ms, is refused). The offsets it reads are the public proc_info ABI, checked
+on one macOS 27 arm64 machine; Ready makes a connected pair inside the process and fails closed, with a message, when the
+pair is not found as each other's holder. The process table is read through sysctl (kern.proc.pid), and a process is pinned
+by its pid together with its start time in microseconds: the pin is alive only while the kernel still reports that pair and the
+process is not a zombie. Process ancestry (internal/procchain) uses the same reader, and anything it cannot read counts as
+no. The socket directory is checked as on Linux (components opened one at a time with no symlink followed, mode 0700, ours,
+a lock); a socket path longer than the address can hold (103 bytes) is refused, a profile id that would not fit is
+replaced by its hash, and the path used to bind and connect is the directory descriptor's current path. Residual, not
+present on Linux: macOS has no pidfd, so after the proof the pin is a pid and a start time, a number can be reused between a
+later check and its next use, and the check and the signal that stops a turn's leader are not atomic. An in-tree process that
+hands the connection to an outsider lends its authority, as on Linux. A client that sends its request and closes before the
+service reads the tables is refused (usability only).
 
 **Not part of this surface.** Running a caller's tool: the gateway returns the
 call and the caller runs it. The runtime's own native tools are a separate matter,

@@ -12,7 +12,8 @@ import (
 )
 
 // peerCred is what the kernel says about the other end of a unix socket: its uid (LOCAL_PEERCRED) and its pid
-// (LOCAL_PEERPID, the pid the peer connected with). The field names are those of the Linux struct so the server reads either.
+// (LOCAL_PEERPID). Measured on macOS 27 (TestDarwinPeerPidFollowsTheProcessThatLastDidIO): that pid is the process that last
+// did I/O on the other end, the connector right after the accept, and not a number fixed at connect. The field names are those of the Linux struct so the server reads either.
 type peerCred struct {
 	Pid int32
 	Uid uint32
