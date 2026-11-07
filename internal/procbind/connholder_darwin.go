@@ -5,7 +5,6 @@ package procbind
 import (
 	"errors"
 	"net"
-	"os"
 	"time"
 	"unsafe"
 
@@ -95,7 +94,9 @@ func socketFDs(pid int) ([]int, error) {
 }
 
 // maxHolderFDs and holderBudget bound the proof: one proc_info call per descriptor, so a process with a huge descriptor table
-// (or a slow table) must not be able to make the service spend its time here. A peer over either bound is refused. A client
+// (or a slow table) must not be able to make the service spend its time here. maxHolderFDs counts ALL descriptors of the peer
+// as the first listing returns them (sockets or not); holderBudget is checked between descriptors, so one proc_info call that
+// is itself slow is not interrupted. A peer over either bound is refused. A client
 // that holds the connection has a handful of descriptors.
 var (
 	maxHolderFDs = 4096
@@ -144,33 +145,57 @@ func holdsConnection(c *net.UnixConn, pid int) error {
 	return findHolder(fds, func(fd int) (uint64, uint64, error) { return fdSocketPCBs(pid, fd) }, own, peerPCB, deadline)
 }
 
-// layoutCheck proves, on this machine, that the offsets above read what they are taken to read: two ends of a connection made
-// inside this process must each be found as the holder of the other. A kernel whose structures moved fails this, and Ready
-// then refuses instead of the service denying everything or matching garbage.
-func layoutCheck() error {
-	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
-	if err != nil {
-		return errors.New("a socket pair could not be made")
+// checkLayout is the self-check on a table it reads through info: two connections made inside this process, as descriptor
+// pairs. Each pair's ends must be each other's holder, and the other pair must NOT be (the negative control: offsets that
+// read one field twice, or any field that is the same for every socket, would otherwise accept any holder of any connected
+// socket).
+func checkLayout(info func(fd int) (own, conn uint64, err error), a, b [2]int) error {
+	bad := errors.New("the kernel's socket information has a layout this build does not know")
+	var own [2][2]uint64
+	for i, pair := range [2][2]int{a, b} {
+		o0, c0, err0 := info(pair[0])
+		o1, c1, err1 := info(pair[1])
+		if err0 != nil || err1 != nil || o0 == 0 || o1 == 0 || o0 == c0 || o1 == c1 || c0 != o1 || c1 != o0 {
+			return bad
+		}
+		own[i] = [2]uint64{o0, o1}
 	}
-	var conns []*net.UnixConn
-	for _, fd := range fds {
-		f := os.NewFile(uintptr(fd), "pair")
-		c, err := net.FileConn(f)
-		_ = f.Close()
-		if err != nil {
-			return errors.New("a socket pair could not be used")
-		}
-		defer c.Close()
-		uc, ok := c.(*net.UnixConn)
-		if !ok {
-			return errors.New("a socket pair is not a unix connection")
-		}
-		conns = append(conns, uc)
+	if own[0][0] == own[1][0] || own[0][0] == own[1][1] || own[0][1] == own[1][0] || own[0][1] == own[1][1] {
+		return bad
 	}
-	for _, c := range conns {
-		if err := holdsConnection(c, unix.Getpid()); err != nil {
-			return errors.New("the kernel's socket information has a layout this build does not know")
-		}
+	far := time.Now().Add(time.Minute)
+	o0, c0, _ := info(a[0])
+	o1, c1, _ := info(a[1])
+	// each end of a is found, among a's descriptors, as the holder of the other end ...
+	if findHolder(a[:], info, o0, c0, far) != nil || findHolder(a[:], info, o1, c1, far) != nil {
+		return bad
+	}
+	// ... and not among b's: b holds no end of a's connection
+	if findHolder(b[:], info, o0, c0, far) == nil || findHolder(b[:], info, o1, c1, far) == nil {
+		return bad
 	}
 	return nil
+}
+
+// layoutCheck proves, on this machine, that the offsets above read what they are taken to read (see checkLayout). A kernel
+// whose structures moved fails this, and Ready then refuses instead of the service denying everything or matching garbage.
+func layoutCheck() error {
+	var fds [4]int
+	for i := 0; i < 4; i += 2 {
+		p, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
+		if err != nil {
+			for _, fd := range fds[:i] {
+				unix.Close(fd)
+			}
+			return errors.New("a socket pair could not be made")
+		}
+		fds[i], fds[i+1] = p[0], p[1]
+	}
+	defer func() {
+		for _, fd := range fds {
+			unix.Close(fd)
+		}
+	}()
+	self := unix.Getpid()
+	return checkLayout(func(fd int) (uint64, uint64, error) { return fdSocketPCBs(self, fd) }, [2]int{fds[0], fds[1]}, [2]int{fds[2], fds[3]})
 }

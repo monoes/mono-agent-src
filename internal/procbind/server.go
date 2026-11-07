@@ -285,6 +285,11 @@ func (s *Server) serve(c *net.UnixConn, cs *connState) {
 		closePeerFD(pfd)
 		return
 	}
+	if int(cred.Uid) != s.UID { // before any work is done for the peer (on macOS the pinning proves the connection)
+		s.logf("procbind: refused a peer of uid %d", cred.Uid)
+		closePeerFD(pfd)
+		return
+	}
 	caller, err := peerHandle(c, pfd, cred)
 	if err != nil {
 		s.logf("procbind: the peer cannot be pinned: %v", err)
@@ -292,10 +297,6 @@ func (s *Server) serve(c *net.UnixConn, cs *connState) {
 		return
 	}
 	defer caller.Close()
-	if int(cred.Uid) != s.UID {
-		s.logf("procbind: refused a peer of uid %d", cred.Uid)
-		return
-	}
 	// the pid seen through SO_PEERCRED and the one the pidfd names must agree; 0 is a peer this
 	// service's pid namespace cannot see
 	if pid, err := caller.Pid(); cred.Pid <= 0 || err != nil || pid != int(cred.Pid) {

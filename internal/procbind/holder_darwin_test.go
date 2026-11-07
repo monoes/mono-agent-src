@@ -270,3 +270,49 @@ func TestDarwinPeerPidFollowsTheProcessThatLastDidIO(t *testing.T) {
 		t.Fatalf("after the writer %d wrote: %+v %v (the connector is %d)", writer, cred, err, connector)
 	}
 }
+
+// --- the negative control of the layout self-check ---
+
+// fakeTable gives each descriptor its (own, conn) pair.
+func fakeTable(m map[int][2]uint64) func(int) (uint64, uint64, error) {
+	return func(fd int) (uint64, uint64, error) {
+		if p, ok := m[fd]; ok {
+			return p[0], p[1], nil
+		}
+		return 0, 0, errors.New("unreadable")
+	}
+}
+
+func TestDarwinCheckLayoutNeedsRealPairsAndANegativeControl(t *testing.T) {
+	a, b := [2]int{1, 2}, [2]int{3, 4}
+	good := map[int][2]uint64{1: {10, 11}, 2: {11, 10}, 3: {20, 21}, 4: {21, 20}}
+	if err := checkLayout(fakeTable(good), a, b); err != nil {
+		t.Fatalf("a consistent table: %v", err)
+	}
+	same := map[int][2]uint64{}
+	for fd := 1; fd <= 4; fd++ {
+		same[fd] = [2]uint64{7, 7} // both offsets read the same field, the same for every socket
+	}
+	if err := checkLayout(fakeTable(same), a, b); err == nil {
+		t.Error("offsets that read one field twice passed")
+	}
+	sameField := map[int][2]uint64{1: {10, 10}, 2: {11, 11}, 3: {20, 20}, 4: {21, 21}} // own == conn for each socket
+	if err := checkLayout(fakeTable(sameField), a, b); err == nil {
+		t.Error("sockets that are their own peers passed")
+	}
+	crossed := map[int][2]uint64{1: {10, 11}, 2: {11, 10}, 3: {10, 11}, 4: {11, 10}} // b is a second view of a's connection
+	if err := checkLayout(fakeTable(crossed), a, b); err == nil {
+		t.Error("two pairs that are the same connection passed (no negative control)")
+	}
+	notPairs := map[int][2]uint64{1: {10, 11}, 2: {12, 10}, 3: {20, 21}, 4: {21, 20}}
+	if err := checkLayout(fakeTable(notPairs), a, b); err == nil {
+		t.Error("ends that are not connected to each other passed")
+	}
+	zero := map[int][2]uint64{1: {0, 0}, 2: {0, 0}, 3: {20, 21}, 4: {21, 20}}
+	if err := checkLayout(fakeTable(zero), a, b); err == nil {
+		t.Error("zero control blocks passed")
+	}
+	if err := checkLayout(fakeTable(map[int][2]uint64{}), a, b); err == nil {
+		t.Error("unreadable descriptors passed")
+	}
+}
