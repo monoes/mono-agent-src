@@ -167,7 +167,7 @@ func TestUnattendedNeedsAKindThatAllowsItAndAReadOnlyLevel(t *testing.T) {
 	if _, err := s.Submit(context.Background(), SubmitInput{Kind: "generic", Goal: "g", Access: AccessQA, Unattended: true}); code(err) != CodeInvalidInput {
 		t.Fatalf("generic does not allow unattended: %v", err)
 	}
-	Register(Kind{Name: "test-unattended", UnattendedOK: true, DefaultAccess: AccessQA})
+	registerForTest(t, Kind{Name: "test-unattended", UnattendedOK: true, DefaultAccess: AccessQA})
 	// Without a verified confinement even a qa task of an allowing kind is refused.
 	if _, err := s.Submit(context.Background(), SubmitInput{Kind: "test-unattended", Goal: "g", Unattended: true}); code(err) != CodeUnattendedNoJail {
 		t.Fatalf("unconfined: %v", err)
@@ -642,7 +642,7 @@ func TestCompleteStoresNoSecrets(t *testing.T) {
 func TestCompleteRunsTheKindCheck(t *testing.T) {
 	mode := "refuse"
 	var gotProfile string
-	Register(Kind{Name: "test-check", DefaultAccess: AccessCoding, Description: "a checked kind",
+	registerForTest(t, Kind{Name: "test-check", DefaultAccess: AccessCoding, Description: "a checked kind",
 		Check: func(_ context.Context, profile string, raw json.RawMessage) error {
 			gotProfile = profile
 			switch mode {
@@ -679,7 +679,7 @@ func TestCompleteRunsTheKindCheck(t *testing.T) {
 }
 
 func TestUnknownKindListsDescriptions(t *testing.T) {
-	Register(Kind{Name: "test-desc", Description: "says what it does"})
+	registerForTest(t, Kind{Name: "test-desc", Description: "says what it does"})
 	_, err := Lookup("nope")
 	var e *Error
 	if !errors.As(err, &e) {
@@ -828,4 +828,16 @@ func TestSubmitRefusesATaskIdInUseBeforeMakingAnything(t *testing.T) {
 	if got, err := s.Store.Get(first.ID); err != nil || got.Goal != "first" {
 		t.Fatalf("the first task changed: %+v %v", got, err)
 	}
+}
+
+// registerForTest registers k for the length of one test: the registry is process-wide, so a kind left behind is
+// seen by every later test that walks the kinds.
+func registerForTest(t *testing.T, k Kind) {
+	t.Helper()
+	Register(k)
+	t.Cleanup(func() {
+		kindsMu.Lock()
+		delete(kinds, k.Name)
+		kindsMu.Unlock()
+	})
 }
