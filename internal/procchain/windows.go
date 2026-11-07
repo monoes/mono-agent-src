@@ -3,6 +3,7 @@
 package procchain
 
 import (
+	"strconv"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -47,5 +48,18 @@ func procStamp(pid int) string { return stampOf(readProc, pid) }
 
 func parentPID(pid int) (int, bool) { return parentOf(readProc, pid) }
 
-// bootID is "": creation times count from 1601, not from boot, so a stamp is already unique across boots.
-func bootID() string { return "" }
+// bootID is the time this boot began (SYSTEM_TIMEOFDAY_INFORMATION.BootTime, the first field), so that a process of a later boot with the
+// same number is told apart even by a stamp that was recorded without a creation time to compare. "" when it cannot be read. The kernel moves
+// the boot time when the clock is stepped, which makes a stored stamp compare unequal: a refusal, never a wrong accept.
+func bootID() string {
+	var info struct {
+		BootTime, CurrentTime, TimeZoneBias int64
+		TimeZoneID, Reserved                uint32
+		BootTimeBias, SleepTimeBias         uint64
+	}
+	var n uint32
+	if err := windows.NtQuerySystemInformation(windows.SystemTimeOfDayInformation, unsafe.Pointer(&info), uint32(unsafe.Sizeof(info)), &n); err != nil || info.BootTime <= 0 {
+		return ""
+	}
+	return "boot-" + strconv.FormatInt(info.BootTime, 10)
+}

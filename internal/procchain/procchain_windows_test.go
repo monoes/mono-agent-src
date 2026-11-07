@@ -108,3 +108,20 @@ func TestRealDescendsFromThisProcessInAChild(t *testing.T) {
 		t.Error("a pid whose process has another creation time counted")
 	}
 }
+
+// A stamp that carries the boot is not the stamp of a process of another boot, and the boot is stable within one.
+func TestBootStampCarriesTheBootAndIsStable(t *testing.T) {
+	a, b := BootStamp(os.Getpid()), BootStamp(os.Getpid())
+	if a == "" || a != b {
+		t.Fatalf("boot stamps %q %q", a, b)
+	}
+	if !strings.Contains(a, "@boot-") {
+		t.Fatalf("no boot in %q", a)
+	}
+	if SameStamp(strings.Split(a, "@")[0]+"@boot-1", a) {
+		t.Error("a stamp of another boot matched")
+	}
+	if !SameStamp(a, Stamp(os.Getpid())) {
+		t.Error("a boot stamp does not match the plain stamp of the same process")
+	}
+}

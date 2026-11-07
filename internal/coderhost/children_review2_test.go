@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"github.com/monoes/mono-agent/internal/procbind"
 	"os"
-	"os/exec"
 	"strings"
 	"sync"
 	"testing"
@@ -134,7 +133,7 @@ func TestATokenPresentedOutsideTheTurnTreeSaysSoAndBindingNeedsAStamp(t *testing
 	if err := st.BindSessionToken("p", m.ConversationID, "t1", os.Getpid(), ""); err == nil {
 		t.Fatal("a token was bound without a start stamp")
 	}
-	sib := exec.Command("sleep", "30")
+	sib := sleepCmd()
 	if err := sib.Start(); err != nil {
 		t.Fatal(err)
 	}
