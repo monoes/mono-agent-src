@@ -360,3 +360,34 @@ func TestGrantModeFailedRefusalWriteIsNotRemembered(t *testing.T) {
 		t.Fatalf("%d names remembered after a failed write", n)
 	}
 }
+
+// Failed attempts (the scope check fails fast: wrong profile, bad environment,
+// missing grant, database error) are rate limited too: after one fails, no
+// further attempt opens the database until the back-off passes.
+func TestGrantModeFailedRefusalAttemptsAreBackedOff(t *testing.T) {
+	now := time.Now()
+	oldNow := grantRefusalNow
+	grantRefusalNow = func() time.Time { return now }
+	t.Cleanup(func() { grantRefusalNow = oldNow })
+	var attempts int32
+	grantRefusalBeforeScope = func() { atomic.AddInt32(&attempts, 1) }
+	t.Cleanup(func() { grantRefusalBeforeScope = nil })
+	s := brokenDBServer(t)
+	t.Setenv("MONOMIND_ORG_NAME", "growth")
+	t.Setenv("MONOMIND_ORG_ROLE", "writer")
+	for i := 0; i < 6; i++ {
+		refuseOnce(t, s, context.Background(), "flood_"+strconv.Itoa(i))
+		s.refusals.wait()
+		s.refusals.work.Wait()
+	}
+	if n := atomic.LoadInt32(&attempts); n != 1 {
+		t.Fatalf("%d attempts in a burst of failing refusals, want 1", n)
+	}
+	now = now.Add(grantRefusalFailBackoff + time.Second)
+	refuseOnce(t, s, context.Background(), "after")
+	s.refusals.wait()
+	s.refusals.work.Wait()
+	if n := atomic.LoadInt32(&attempts); n != 2 {
+		t.Fatalf("%d attempts after the back-off, want 2", n)
+	}
+}

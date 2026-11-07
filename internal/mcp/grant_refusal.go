@@ -15,6 +15,10 @@ var grantRefusalLedgerTimeout = 250 * time.Millisecond
 // grantRefusalNow is the clock of the row limit (replaced in tests).
 var grantRefusalNow = time.Now
 
+// grantRefusalFailBackoff is the quiet period after a failed attempt (scope
+// check or write): no attempt of any name starts before it passes.
+const grantRefusalFailBackoff = 5 * time.Second
+
 const (
 	// grantRefusalEvery is the least gap between two ledger rows for the same
 	// never-served name: the first refusal per minute is recorded.
