@@ -252,7 +252,7 @@ func TestDialogCallersReadTheAnswerThroughTheHelper(t *testing.T) {
 							helper = true
 						}
 					case *ast.BinaryExpr:
-						if v.Op == token.EQL || v.Op == token.NEQ {
+						if (v.Op == token.EQL || v.Op == token.NEQ) && !mentionsGOOS(v) {
 							for _, side := range []ast.Expr{v.X, v.Y} {
 								if lit, ok := side.(*ast.BasicLit); ok && lit.Kind == token.STRING {
 									compares = append(compares, v.Pos())
@@ -279,4 +279,19 @@ func TestDialogCallersReadTheAnswerThroughTheHelper(t *testing.T) {
 	if asking < 3 { // confirmAbandon, confirmFolderUpload and realConfirmNative: a scan that finds none proves nothing
 		t.Fatalf("found %d asking callers, want at least 3", asking)
 	}
+}
+
+// mentionsGOOS is true for a comparison with the operating system's name (runtime.GOOS or dialogGOOS): not an answer.
+func mentionsGOOS(b *ast.BinaryExpr) bool {
+	found := false
+	ast.Inspect(b, func(n ast.Node) bool {
+		switch v := n.(type) {
+		case *ast.SelectorExpr:
+			found = found || v.Sel.Name == "GOOS"
+		case *ast.Ident:
+			found = found || v.Name == "dialogGOOS"
+		}
+		return true
+	})
+	return found
 }

@@ -344,26 +344,36 @@ func walkFolderFiles(dir string) folderWalk {
 
 // OpenFolderFilesPicker opens a folder picker and returns the document files
 // to upload from the chosen folder, after the user confirms. Empty if
-// cancelled, declined, empty or over the caps.
-func (a *App) OpenFolderFilesPicker(title string) []string {
+// cancelled, declined, empty or over the caps. The error is why a dialog could
+// not be shown (another is still open), which the page shows.
+func (a *App) OpenFolderFilesPicker(title string) ([]string, error) {
 	if a.signedOut() != nil {
-		return nil
+		return nil, nil
 	}
 	dir, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{Title: title})
 	if err != nil || dir == "" {
-		return nil
+		return nil, nil
 	}
+	return a.confirmFolderUpload(dir)
+}
+
+// confirmFolderUpload walks dir and asks for the upload; a native dialog that cannot be shown because another is open
+// comes back as errDialogBusy.
+func (a *App) confirmFolderUpload(dir string) ([]string, error) {
+	var busy error
 	info := func(t, m string) {
-		_, _ = showDialog(a, runtime.MessageDialogOptions{Type: runtime.InfoDialog, Title: t, Message: m})
+		if _, err := showDialog(a, runtime.MessageDialogOptions{Type: runtime.InfoDialog, Title: t, Message: m}); errors.Is(err, errDialogBusy) {
+			busy = err
+		}
 	}
 	w := walkFolderFiles(dir)
 	if w.over {
 		info("Folder too large", fmt.Sprintf("%s holds more than %d documents or %d GB. Choose a smaller folder.", dir, maxFolderFiles, maxFolderBytes>>30))
-		return nil
+		return nil, busy
 	}
 	if len(w.files) == 0 {
 		info("Nothing to upload", fmt.Sprintf("%s has no supported documents (%d other files, %d hidden or unreadable entries ignored).", dir, w.unsupported, w.skippedN))
-		return nil
+		return nil, busy
 	}
 	exts := make([]string, 0, len(w.byExt))
 	for e, n := range w.byExt {
@@ -381,11 +391,14 @@ func (a *App) OpenFolderFilesPicker(title string) []string {
 		Type: runtime.QuestionDialog, Title: "Upload folder", Message: msg,
 		Buttons: []string{"Upload", "Cancel"}, DefaultButton: "Cancel", CancelButton: "Cancel",
 	})
-	if err != nil || choice != "Upload" {
-		return nil
+	if errors.Is(err, errDialogBusy) {
+		return nil, err
+	}
+	if err != nil || !dialogConfirmed(dialogGOOS, runtime.QuestionDialog, "Upload", choice) {
+		return nil, nil
 	}
 	a.issueDocPaths(w.files)
-	return w.files
+	return w.files, nil
 }
 
 // uploadDocumentArgs is the batch's `profile upload-document` argv: --no-follow
