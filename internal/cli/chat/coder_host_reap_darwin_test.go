@@ -42,7 +42,11 @@ func TestDarwinAwaitExitNoReapHoldsAChildThatAlreadyExited(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(500 * time.Millisecond)
+	for deadline := time.Now().Add(10 * time.Second); !isZombie(cmd.Process.Pid); time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the child never became a zombie")
+		}
+	}
 	if !awaitExitNoReap(cmd.Process.Pid) {
 		t.Fatal("a zombie child was not held")
 	}
@@ -60,5 +64,44 @@ func TestDarwinAwaitExitNoReapRefusesAChildThatWasReaped(t *testing.T) {
 	}
 	if awaitExitNoReap(cmd.Process.Pid) {
 		t.Error("a reaped child was held")
+	}
+}
+
+// A child killed while the wait is under way ends it at once with the child held.
+func TestDarwinAwaitExitNoReapReturnsWhenTheChildIsKilledWhileWaiting(t *testing.T) {
+	cmd := exec.Command("sleep", "60")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan bool, 1)
+	go func() { done <- awaitExitNoReap(cmd.Process.Pid) }()
+	time.Sleep(200 * time.Millisecond) // the wait is under way (a kill before it is the already-exited case, tested above)
+	_ = cmd.Process.Kill()
+	select {
+	case ok := <-done:
+		if !ok {
+			t.Error("a killed child was not held")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the wait did not end after the child was killed")
+	}
+	_ = cmd.Wait()
+}
+
+// A child that someone reaps while the wait is under way does not leave the wait blocked: it ends, within a poll, held or not.
+func TestDarwinAwaitExitNoReapEndsWhenTheChildIsReapedElsewhere(t *testing.T) {
+	cmd := exec.Command("sleep", "60")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan bool, 1)
+	go func() { done <- awaitExitNoReap(cmd.Process.Pid) }()
+	time.Sleep(200 * time.Millisecond)
+	_ = cmd.Process.Kill()
+	_ = cmd.Wait() // reaped by someone else
+	select {
+	case <-done:
+	case <-time.After(2*reapPoll + 5*time.Second):
+		t.Fatal("the wait stayed blocked on a child that was reaped")
 	}
 }

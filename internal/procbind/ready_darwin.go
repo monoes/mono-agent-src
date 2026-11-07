@@ -13,22 +13,34 @@ import (
 var readyProbes = struct {
 	peerPid func() bool
 	procs   func() error
+	room    func() error
 }{
 	peerPid: PeerPidfdSupported,
 	procs: func() error {
 		_, _, err := procInfo(os.Getpid())
 		return err
 	},
+	room: func() error {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return errors.New("the user's home folder is unknown")
+		}
+		return socketRoom(ResolveRoot(os.Getenv("XDG_RUNTIME_DIR"), home, os.Getuid()))
+	},
 }
 
 // Ready says whether the binding service can run on this machine: the kernel names the pid of a connected unix socket's
-// peer (LOCAL_PEERPID) and this process reads its own entry of the process table. The answers are fixed texts.
+// peer (LOCAL_PEERPID), this process reads its own entry of the process table, and the socket's path fits an address.
+// The answers are fixed texts.
 func Ready() error {
 	if !readyProbes.peerPid() {
 		return errors.New("the kernel cannot tell which process connected (LOCAL_PEERPID)")
 	}
 	if err := readyProbes.procs(); err != nil {
 		return errors.New("this process cannot read its own entry of the process table")
+	}
+	if err := readyProbes.room(); err != nil {
+		return errors.New("the binding service has no room for its socket: " + err.Error())
 	}
 	return nil
 }

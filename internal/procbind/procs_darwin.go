@@ -5,7 +5,7 @@ package procbind
 import (
 	"errors"
 
-	"golang.org/x/sys/unix"
+	"github.com/monoes/mono-agent/internal/procchain"
 )
 
 // macOS has no descriptor that names a process, so a Handle is the pid together with the start time the kernel
@@ -14,33 +14,16 @@ import (
 // gone. What this cannot do, unlike a pidfd, is keep the number from being reused between a check and the next use;
 // the walk brackets every read with liveness checks of the handle for that reason, and SECURITY.md states the rest.
 
-const sZOMB = 5 // p_stat of a zombie
-
 var errGone = errors.New("procbind: the process is gone")
 
 // procInfo reads one process from the kernel's table: its parent and its start time in microseconds since the epoch.
 // A process that is not there, is a zombie, or has no start time is an error.
 func procInfo(pid int) (ppid int, start uint64, err error) {
-	if pid <= 0 {
+	e, ok := procchain.ReadEntry(pid)
+	if !ok || e.Zombie {
 		return 0, 0, errGone
 	}
-	k, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
-	if err != nil {
-		return 0, 0, errGone
-	}
-	return infoOf(k)
-}
-
-// infoOf reads a table entry: a zombie, or an entry with no start time, is gone.
-func infoOf(k *unix.KinfoProc) (ppid int, start uint64, err error) {
-	if k == nil || k.Proc.P_stat == sZOMB {
-		return 0, 0, errGone
-	}
-	t := k.Proc.P_starttime
-	if t.Sec <= 0 && t.Usec <= 0 {
-		return 0, 0, errGone
-	}
-	return int(k.Eproc.Ppid), uint64(t.Sec)*1_000_000 + uint64(t.Usec), nil
+	return e.Ppid, e.Start, nil
 }
 
 type procHandle struct {

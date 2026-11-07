@@ -5,6 +5,7 @@ package procbind
 import (
 	"fmt"
 	"net"
+	"path/filepath"
 	"strings"
 	"unsafe"
 
@@ -13,6 +14,34 @@ import (
 
 // maxSockPath is the longest path a unix socket address holds on macOS (sun_path is 104 bytes, one for the NUL).
 const maxSockPath = 103
+
+// socketPathLen is the length of the socket's path for a leaf under root, as bind and connect will be given it. The root is
+// looked at as the kernel will report it (a temp dir is behind a symlink, and F_GETPATH gives the real one).
+func socketPathLen(root, leaf string) int {
+	if real, err := filepath.EvalSymlinks(root); err == nil {
+		root = real
+	}
+	return len(root) + 1 + len(runDirName) + 1 + len(leaf) + 1 + len(sockName)
+}
+
+// leafFor is the directory name of the profile under the run directory. A socket address holds 103 bytes here, so a plain
+// id that would make the path longer is replaced by its hash (shorter, fixed length); the same rule runs when the socket is
+// made and when it is dialed, so both name the same directory.
+func leafFor(o SocketOptions) string {
+	leaf := socketLeaf(o.Profile)
+	if socketPathLen(o.Root, leaf) > maxSockPath {
+		return hashedLeaf(o.Profile)
+	}
+	return leaf
+}
+
+// socketRoom says whether a socket under root fits an address even with the longest leaf there is (the hashed one).
+func socketRoom(root string) error {
+	if socketPathLen(root, hashedLeaf("")) > maxSockPath {
+		return fmt.Errorf("the runtime folder is too deep for a socket address (%d bytes at most)", maxSockPath)
+	}
+	return nil
+}
 
 // openBelow opens name under dirfd without following a symlink. macOS has no openat2, so what Linux asks the kernel to
 // enforce is enforced here: name is one plain component (no separator, never "." or ".."), and O_NOFOLLOW refuses it

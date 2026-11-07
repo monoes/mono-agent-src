@@ -19,6 +19,9 @@ func openBelow(dirfd int, name string, flags int, mode uint64) (int, error) {
 	})
 }
 
+// leafFor is the directory name of the profile under the run directory: its plain id when that is safe.
+func leafFor(o SocketOptions) string { return socketLeaf(o.Profile) }
+
 // socketPath names an entry of a held directory descriptor; it is how the kernel is asked to bind or
 // connect relative to the directory that was checked, not to whatever the path names later.
 func socketPath(dirfd int, name string) (string, error) {

@@ -117,24 +117,3 @@ func TestDarwinHoldsConnectionOnTheRealTable(t *testing.T) {
 		t.Error("a process that does not exist was taken to hold the connection")
 	}
 }
-
-func TestDarwinInfoOfATableEntry(t *testing.T) {
-	var k unix.KinfoProc
-	k.Proc.P_starttime = unix.Timeval{Sec: 5, Usec: 3}
-	k.Eproc.Ppid = 42
-	if pp, st, err := infoOf(&k); err != nil || pp != 42 || st != 5_000_003 {
-		t.Fatalf("good: %d %d %v", pp, st, err)
-	}
-	if _, _, err := infoOf(nil); err == nil {
-		t.Error("a missing entry passed")
-	}
-	z := k
-	z.Proc.P_stat = sZOMB
-	if _, _, err := infoOf(&z); err == nil {
-		t.Error("a zombie passed")
-	}
-	k.Proc.P_starttime = unix.Timeval{}
-	if _, _, err := infoOf(&k); err == nil {
-		t.Error("an entry with no start time passed")
-	}
-}

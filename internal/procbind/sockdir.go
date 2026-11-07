@@ -44,6 +44,11 @@ func socketLeaf(profile string) string {
 	if len(profile) <= maxLeafName && leafRe.MatchString(profile) {
 		return profile
 	}
+	return hashedLeaf(profile)
+}
+
+// hashedLeaf is the leaf of any profile id: "~" and the hex of the first 16 bytes of its SHA-256.
+func hashedLeaf(profile string) string {
 	h := sha256.Sum256([]byte(profile))
 	return "~" + hex.EncodeToString(h[:16])
 }
@@ -138,7 +143,7 @@ func openChain(rootfd int, o SocketOptions, create bool) (int, error) {
 	if err != nil {
 		return -1, err
 	}
-	for _, name := range []string{runDirName, socketLeaf(o.Profile)} {
+	for _, name := range []string{runDirName, leafFor(o)} {
 		if create {
 			if err := unix.Mkdirat(cur, name, 0o700); err != nil && !errors.Is(err, unix.EEXIST) {
 				unix.Close(cur)

@@ -119,20 +119,26 @@ func TestDarwinZombieHasNoStamp(t *testing.T) {
 	}
 }
 
-// The guards of the stamp, on table entries the kernel would not hand out on demand.
-func TestDarwinStampOfATableEntry(t *testing.T) {
+func TestDarwinEntryOfATableEntry(t *testing.T) {
 	var k unix.KinfoProc
-	k.Proc.P_starttime = unix.Timeval{Sec: 100, Usec: 7}
-	if got := stampOf(&k); got != "start:100000007" {
-		t.Errorf("stamp = %q", got)
+	k.Proc.P_starttime = unix.Timeval{Sec: 5, Usec: 3}
+	k.Eproc.Ppid = 42
+	if e, ok := EntryOf(&k); !ok || e.Ppid != 42 || e.Start != 5_000_003 || e.Zombie {
+		t.Fatalf("good: %+v %v", e, ok)
 	}
-	k.Proc.P_stat = 5 // a zombie
-	if got := stampOf(&k); got != "" {
-		t.Errorf("a zombie has the stamp %q", got)
+	if _, ok := EntryOf(nil); ok {
+		t.Error("a missing entry was read")
 	}
-	k.Proc.P_stat = 2
-	k.Proc.P_starttime = unix.Timeval{}
-	if got := stampOf(&k); got != "" {
-		t.Errorf("an entry with no start time has the stamp %q", got)
+	z := k
+	z.Proc.P_stat = stateZombie
+	if e, ok := EntryOf(&z); !ok || !e.Zombie {
+		t.Errorf("a zombie is not marked: %+v %v", e, ok)
+	}
+	for name, tv := range map[string]unix.Timeval{"zero": {}, "negative seconds": {Sec: -1, Usec: 5}, "negative microseconds": {Sec: 0, Usec: -5}} {
+		bad := k
+		bad.Proc.P_starttime = tv
+		if _, ok := EntryOf(&bad); ok {
+			t.Errorf("an entry with a %s start time was read", name)
+		}
 	}
 }
