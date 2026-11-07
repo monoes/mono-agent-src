@@ -384,6 +384,26 @@ func TestAMissingSocketOfALiveHostIsNotAbsence(t *testing.T) {
 	}
 }
 
+// A live host that has no gate for the generation yet (the socket missing, the lock held) is refused honestly, and the refusal
+// names the way out: stop the coder host, then stop again. Mutant tried: drop the hint from the wrapped error: red.
+func TestAMissingSocketOfALiveHostNamesTheWayOut(t *testing.T) {
+	dir := RunDir{Dir: shortTempDir(t)}
+	if err := dir.CreateSecret(5); err != nil {
+		t.Fatal(err)
+	}
+	release, err := AcquireHost(dir)
+	if err != nil {
+		t.Skipf("no host lock here: %v", err)
+	}
+	defer release()
+	got := ProcessHostLink{Dir: dir, Clock: newStepClock(), Wait: time.Second}.CloseHost(context.Background(), 5)
+	for _, want := range []string{"monoagentcli coder host stop", "run doomsday stop again"} {
+		if got.Kind != HostUnproven || !strings.Contains(got.Note, want) {
+			t.Fatalf("the refusal does not name the way out (%q): %v %q", want, got.Kind, got.Note)
+		}
+	}
+}
+
 // Only a missing or refusing socket is "absent"; a timeout or a permission error is not. Mutant tried (M8): any dial error
 // absent: red.
 func TestAbsentIsOnlyAMissingOrRefusingSocket(t *testing.T) {
