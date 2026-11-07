@@ -347,8 +347,8 @@ func walkFolderFiles(dir string) folderWalk {
 // cancelled, declined, empty or over the caps. The error is why a dialog could
 // not be shown (another is still open), which the page shows.
 func (a *App) OpenFolderFilesPicker(title string) ([]string, error) {
-	if a.signedOut() != nil {
-		return nil, nil
+	if err := a.signedOut(); err != nil {
+		return nil, err
 	}
 	dir, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{Title: title})
 	if err != nil || dir == "" {

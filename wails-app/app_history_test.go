@@ -3,11 +3,16 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 const convJSON = `{"id":"c1","profile_id":"work","backend":"agent","workflow_context":"general","runtime_id":"claude","model":"sonnet","session_id":"","mode":"coder","access":"coding","cwd":"/p","created_at":"a","updated_at":"b"}`
@@ -442,5 +447,31 @@ func TestDeleteAnywayDialogListIsBounded(t *testing.T) {
 	}
 	if got := survivorLines([]Survivor{{Pid: 7, Command: "sleep"}}); got != "sleep (pid 7)" {
 		t.Fatalf("short list = %q", got)
+	}
+}
+
+// A dialog that is busy is said so where the person asked: Delete anyway names it per chat, the folder upload returns it.
+func TestDeleteAnywayAndFolderUploadSayTheDialogIsBusy(t *testing.T) {
+	a, log := aitaskApp(t, anywayScript)
+	old := confirmAbandon
+	confirmAbandon = func(*App, string, string) (bool, error) { return false, errDialogBusy }
+	t.Cleanup(func() { confirmAbandon = old })
+	a.DeleteChatConversations([]string{"running"})
+	got, err := a.DeleteChatConversationsAnyway([]string{"running"})
+	if err != nil || !strings.Contains(got.Failed["running"], errDialogBusy.Error()) || abandoningCalls(t, log) != 0 {
+		t.Fatalf("busy not shown: %+v %v", got, err)
+	}
+	again, _ := a.DeleteChatConversationsAnyway([]string{"running"}) // the offer survives, asking again is allowed
+	if !strings.Contains(again.Failed["running"], errDialogBusy.Error()) {
+		t.Fatalf("the offer was lost: %+v", again)
+	}
+
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "a.md"), []byte("x"), 0o600)
+	oldRun := dialogRun
+	dialogRun = func(context.Context, wailsruntime.MessageDialogOptions) (string, error) { return "", errDialogBusy }
+	t.Cleanup(func() { dialogRun = oldRun })
+	if files, err := (&App{}).confirmFolderUpload(dir); len(files) != 0 || !errors.Is(err, errDialogBusy) {
+		t.Fatalf("folder upload: %v %v", files, err)
 	}
 }
