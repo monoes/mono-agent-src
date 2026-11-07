@@ -181,6 +181,8 @@ func TestPursuitCannotBeEnabledWithoutAConfirmedGoalAtDatabase(t *testing.T) {
 	f := confirmedMission(t)
 	mustRefuse(t, f, "enabled, nobody named", `INSERT INTO mission_pursuit (session_id, enabled, created_at, updated_at) VALUES (?, 1, 'x', 'x')`, f.session)
 	mustExec(t, f.db, `INSERT INTO mission_pursuit (session_id, enabled, locked_by, created_at, updated_at) VALUES (?, 1, 'you', 'x', 'x')`, f.session)
+	// enabled never goes back, even while the goal is still confirmed
+	mustRefuse(t, f, "disable", `UPDATE mission_pursuit SET enabled = 0 WHERE session_id = ?`, f.session)
 }
 
 func TestPursuitRulesAtDatabase(t *testing.T) {
