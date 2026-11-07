@@ -97,11 +97,27 @@ func run(m *testing.M) int {
 	return code
 }
 
+// ShortHome, when a package sets it (before Main), makes the throwaway HOME a short name directly under /tmp instead of a
+// long one under the OS temp dir. A package that runs the binding service on macOS needs it: a unix socket address holds
+// 103 bytes and macOS's temp dir is already ~50 of them.
+var ShortHome string
+
+func shortParent() string {
+	if ShortHome != "" {
+		return "/tmp"
+	}
+	return ""
+}
+
 func runIn(m *testing.M) int {
 	if home := os.Getenv("HOME"); os.Getenv(KeepHomeEnv) == "1" && keepable(home) {
 		return m.Run()
 	}
-	dir, err := os.MkdirTemp("", "monoagent-testhome-")
+	prefix := "monoagent-testhome-"
+	if ShortHome != "" {
+		prefix = ShortHome
+	}
+	dir, err := os.MkdirTemp(shortParent(), prefix)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "testhome:", err)
 		return 1
