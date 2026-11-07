@@ -333,7 +333,8 @@ func settingsFromRow(conversationID, raw string, err error, depthCeiling int) (S
 
 // splitStoredOwedFlag takes owed_stop_notice out of a stored settings document and reads it leniently: fields this build
 // does not know (a later version's) are ignored, and a flag that is malformed or invalid is dropped, so a bad flag never
-// makes the rest of the chat's settings unreadable. Only stored documents are read this way; a patch is still strict.
+// makes the rest of the chat's settings unreadable. The dropped flag (and the fields this build does not know) are not kept: the
+// next write of the chat's settings, from any caller, stores the document without them. Only stored documents are read this way; a patch is still strict.
 func splitStoredOwedFlag(raw string) (string, *OwedStopNotice) {
 	if !strings.Contains(raw, `"owed_stop_notice"`) {
 		return raw, nil

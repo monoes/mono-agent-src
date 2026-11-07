@@ -1728,7 +1728,7 @@ layers, from strongest:
    the database once while that check runs). Any failed attempt (the scope
    check fails, the write fails or times out) also pauses every name for 5
    seconds, so a stream of refusals that cannot be recorded opens the
-   database at most once in that time.
+   database at most once in that time. The row is best effort: under a flood of refusals, a busy database or a timeout it can be dropped.
 6. **Workdir confinement of automation file paths (C-46).** Automations run
    in the daemon, outside monomind's per-role workdir confinement. So the
    grant handler puts the calling role's workdir (computed from the

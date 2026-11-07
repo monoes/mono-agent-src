@@ -328,7 +328,7 @@ func (w Wiring) repairStop(ctx context.Context, at time.Time) ([]string, RepairS
 			}
 			failed, noteFailed = failed || bad, noteFailed || bad
 			if bad {
-				if err := w.writePending(ref, run.IntentAt, c, owed); err != nil {
+				if err := w.setPending(ref, run.IntentAt, c, owed, true); err != nil {
 					notes = append(notes, "transcript NOT recorded as owed ("+c+"): "+err.Error())
 				}
 			} else {
