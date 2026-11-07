@@ -1,4 +1,4 @@
-//go:build !linux
+//go:build !linux && !darwin && !darwin
 
 package procbind
 
@@ -6,7 +6,7 @@ import "errors"
 
 // Ready is never nil here: the binding service needs Linux.
 func Ready() error {
-	return errors.New("the binding service needs Linux")
+	return errors.New("the binding service needs Linux or macOS")
 }
 
 // PeerPidfdSupported is false off Linux: the kernel facility the binding service needs does not exist there.

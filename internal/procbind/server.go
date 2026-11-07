@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux || darwin
 
 package procbind
 
@@ -6,15 +6,11 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"io"
 	"net"
-	"strconv"
 	"sync"
 	"syscall"
 	"time"
-
-	"golang.org/x/sys/unix"
 )
 
 // Registry is the service's view of active registrations: the worker a token is bound to, as a
@@ -31,7 +27,7 @@ type LeaseRegistry interface {
 }
 
 // Server answers verification requests on a unix socket. It learns the caller from the kernel
-// (SO_PEERCRED and a pidfd from SO_PEERPIDFD), never from the request, and walks the host's
+// (SO_PEERCRED and a pidfd from SO_PEERPIDFD on Linux; LOCAL_PEERCRED and LOCAL_PEERPID on macOS), never from the request, and walks the host's
 // process table from that pidfd to the registered worker.
 type Server struct {
 	Profile    string
@@ -63,7 +59,7 @@ type Server struct {
 	track  tracker
 	// peerOf reads the other end's credentials; tests replace it to stand in for a peer the
 	// service cannot see. It is the real kernel lookup otherwise.
-	peerOf func(*net.UnixConn) (unix.Ucred, int, error)
+	peerOf func(*net.UnixConn) (peerCred, int, error)
 	// identityOf reads the key a peer's limits are kept under; tests replace it to stand in for a recycled pid.
 	identityOf func(*net.UnixConn) (peerKey, error)
 }
@@ -72,23 +68,6 @@ func (s *Server) logf(format string, args ...any) {
 	if s.Logf != nil {
 		s.Logf(format, args...)
 	}
-}
-
-// PeerPidfdSupported says whether this kernel gives a pidfd for a connected unix socket
-// (SO_PEERPIDFD, Linux 6.5). Without it the feature is unavailable, not degraded.
-func PeerPidfdSupported() bool {
-	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
-	if err != nil {
-		return false
-	}
-	defer unix.Close(fds[0])
-	defer unix.Close(fds[1])
-	fd, err := unix.GetsockoptInt(fds[0], unix.SOL_SOCKET, unix.SO_PEERPIDFD)
-	if err != nil {
-		return false
-	}
-	_ = unix.Close(fd)
-	return true
 }
 
 // unixAcceptor is what Serve needs of a listener; a *net.UnixListener is one.
@@ -180,9 +159,6 @@ type peerKey struct {
 	id    uint64
 }
 
-// startTimeOf reads a process's start time; tests replace it to reap the process in the middle of the read.
-var startTimeOf = readStartTime
-
 // peerIdentity reads the identity of the process at the other end, once, at accept. The pid comes from
 // SO_PEERCRED and the pidfd from SO_PEERPIDFD pins the process: the start time is read from procfs and then
 // the pidfd must still name the same pid, which it does only while the process has not been reaped, so the
@@ -196,71 +172,6 @@ func (s *Server) identity(c *net.UnixConn) (peerKey, error) {
 		lookup = peer
 	}
 	return peerIdentity(c, lookup)
-}
-
-func peerIdentity(c *net.UnixConn, lookup func(*net.UnixConn) (unix.Ucred, int, error)) (peerKey, error) {
-	cred, pfd, err := lookup(c)
-	if err != nil {
-		if pfd >= 0 {
-			_ = unix.Close(pfd)
-		}
-		return peerKey{}, err
-	}
-	h := HandleFromPidfd(pfd)
-	defer h.Close()
-	if cred.Pid <= 0 {
-		return peerKey{}, errors.New("procbind: the peer is not visible in this pid namespace")
-	}
-	pid := int(cred.Pid)
-	if got, err := h.Pid(); err != nil || got != pid {
-		return peerKey{}, errors.New("procbind: the peer's pidfd does not name its pid")
-	}
-	start, err := startTimeOf(pid)
-	if err != nil {
-		return peerKey{}, err
-	}
-	if got, err := h.Pid(); err != nil || got != pid {
-		return peerKey{}, errors.New("procbind: the peer was reaped while its identity was read")
-	}
-	return peerKey{pid: pid, start: start, id: pidfdID(pfd)}, nil
-}
-
-// pidfdIDsUnique says whether this kernel gives every process incarnation its own pidfd inode number: pidfs
-// (Linux 6.9 and later) on a 64-bit build, where the number is a unique 64-bit id. A 32-bit kernel hands out
-// and frees small inode numbers as pidfd inodes come and go, so a number can be reused and names nothing.
-// Tests replace it.
-var pidfdIDsUnique = func() bool {
-	var u unix.Utsname
-	if unix.Uname(&u) != nil {
-		return false
-	}
-	return idsUniqueOn(unix.ByteSliceToString(u.Release[:]), strconv.IntSize)
-}
-
-// idsUniqueOn is the rule behind pidfdIDsUnique for a kernel release and the build's int size in bits.
-func idsUniqueOn(release string, intSize int) bool {
-	return intSize == 64 && kernelAtLeast(release, 6, 9)
-}
-
-// kernelAtLeast reports whether a release string such as "7.2.5-arch1" is at least major.minor.
-func kernelAtLeast(release string, major, minor int) bool {
-	var maj, min int
-	if n, _ := fmt.Sscanf(release, "%d.%d", &maj, &min); n != 2 {
-		return false
-	}
-	return maj > major || (maj == major && min >= minor)
-}
-
-// pidfdID is the inode number of a pidfd where that number identifies one process incarnation, else 0.
-func pidfdID(pfd int) uint64 {
-	if !pidfdIDsUnique() {
-		return 0
-	}
-	var st unix.Stat_t
-	if unix.Fstat(pfd, &st) != nil {
-		return 0
-	}
-	return st.Ino
 }
 
 // connState is one tracked connection; idle until the first byte of its request has arrived.
@@ -499,37 +410,6 @@ func (r noFDReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// peer reads what the kernel says about the other end: its uid and pid at connect time and a pidfd
-// for that process.
-func peer(c *net.UnixConn) (cred unix.Ucred, pidfd int, err error) {
-	rc, err := c.SyscallConn()
-	if err != nil {
-		return cred, -1, err
-	}
-	pidfd = -1
-	var e1, e2 error
-	if err := rc.Control(func(fd uintptr) {
-		var u *unix.Ucred
-		u, e1 = unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED)
-		if e1 == nil {
-			cred = *u
-		}
-		pidfd, e2 = unix.GetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_PEERPIDFD)
-	}); err != nil {
-		return cred, -1, err
-	}
-	if e1 != nil || e2 != nil {
-		if e2 == nil && pidfd >= 0 {
-			_ = unix.Close(pidfd) // do not keep a pidfd for a peer that is refused
-		}
-		if e1 != nil {
-			return cred, -1, e1
-		}
-		return cred, -1, fmt.Errorf("SO_PEERPIDFD: %w", e2)
-	}
-	return cred, pidfd, nil
-}
-
 func deadlineOf(d time.Duration) time.Time { return time.Now().Add(d) }
 
 func (s *Server) init() {
@@ -593,12 +473,15 @@ func (s *Server) serve(c *net.UnixConn, cs *connState) {
 	cred, pfd, err := lookup(c)
 	if err != nil {
 		s.logf("procbind: peer credentials: %v", err)
-		if pfd >= 0 {
-			_ = unix.Close(pfd)
-		}
+		closePeerFD(pfd)
 		return
 	}
-	caller := HandleFromPidfd(pfd)
+	caller, err := peerHandle(pfd, cred)
+	if err != nil {
+		s.logf("procbind: the peer cannot be pinned: %v", err)
+		closePeerFD(pfd)
+		return
+	}
 	defer caller.Close()
 	if int(cred.Uid) != s.UID {
 		s.logf("procbind: refused a peer of uid %d", cred.Uid)

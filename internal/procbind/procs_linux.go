@@ -201,3 +201,6 @@ func parseStartTime(b []byte) (uint64, error) {
 	}
 	return strconv.ParseUint(string(f[19]), 10, 64)
 }
+
+// NewProcs is the process table reader of this OS.
+func NewProcs() (Procs, error) { return NewLinuxProcs() }
