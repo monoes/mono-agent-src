@@ -84,6 +84,9 @@ func newCoderSessionsSteerCmd(cfg *Deps) *cobra.Command {
 			if had, err := bossHadATurn(cfg, profileID, bossConv); err != nil {
 				return err
 			} else if !had {
+				if bossHasWaitingCommand(cfg, profileID, bossConv) {
+					return clicore.InvalidInput("the boss's first turn is queued and has not started yet; try again in a moment: nothing was sent")
+				}
 				return clicore.InvalidInput("the boss has not had its first turn yet: nothing was sent")
 			}
 			// The bounds (at most maxSteerPending waiting, a repeat within steerDedupe is one message) are applied by the insert.
@@ -103,4 +106,15 @@ func newCoderSessionsSteerCmd(cfg *Deps) *cobra.Command {
 	}
 	clicore.WithJSONErrors(cfg.JSONOutput, cmd)
 	return cmd
+}
+
+// bossHasWaitingCommand says whether a command is still waiting for the boss's conversation: before its first turn row
+// exists (the host writes it when the turn STARTS) that is the first turn, queued. A read that fails says no.
+func bossHasWaitingCommand(cfg *Deps, profileID, conversation string) bool {
+	db, err := cfg.OpenDB()
+	if err != nil {
+		return false
+	}
+	defer db.Close()
+	return coderhost.NewStore(db.DB).PendingFor(profileID, conversation) > 0
 }

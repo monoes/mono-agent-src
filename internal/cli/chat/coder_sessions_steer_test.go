@@ -192,6 +192,26 @@ func TestSteerWaitsForTheBossesFirstTurn(t *testing.T) {
 	}
 }
 
+// While the boss's first turn is waiting in the queue (no turn row exists until the host starts it) the refusal says so and
+// that a retry in a moment works, instead of reading as if no first turn existed. Nothing is queued by the refused steer.
+// Mutant tried: the old sentence ("has not had its first turn yet") for the queued case: red.
+func TestSteerBeforeTheQueuedFirstTurnStartsSaysItIsQueued(t *testing.T) {
+	r := buildSteerRig(t, true, false)
+	if _, err := coderhost.NewStore(r.db).Enqueue(coderhost.Command{ProfileID: "default", ConversationID: r.bossCon.ID, Kind: coderhost.KindSend, TurnID: "first", Message: "you are the boss"}); err != nil {
+		t.Fatal(err)
+	}
+	cmd := newCoderSessionsCmd(r.cfg)
+	cmd.SetArgs([]string{"steer", r.front.ID, "too early"})
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "first turn is queued and has not started yet; try again in a moment") {
+		t.Fatalf("a steer before the queued first turn started: %v", err)
+	}
+	if n := len(pendingCommands(t, r.dbPath)); n != 1 {
+		t.Fatalf("%d command(s) queued, want only the first turn", n)
+	}
+}
+
 // Steering needs the run LIVE and the boss session OPEN: a Stop (the run leaves running, or T5 ends the session), a finished
 // boss and an archived one each refuse; live and open succeeds.
 func TestSteerNeedsALiveRunAndAnOpenBoss(t *testing.T) {

@@ -2,6 +2,8 @@ package doomsday
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -95,3 +97,18 @@ func (c *CachedKeyer) keyer() (store.Keyer, error) {
 }
 
 const defaultDeriveTimeout = 5 * time.Second
+
+// ErrNoVaultKey is why a profile that never stored a secret cannot start an open-ended run: every signed row needs the vault
+// data key, and the vault creates it with the first secret.
+var ErrNoVaultKey = errors.New("this profile has no vault key yet: add any secret first (monoagentcli secret add ...), then start again")
+
+// VaultKeyCheck says whether the profile has its vault data key. It never creates one; a key that cannot be had for another
+// reason stays that reason.
+func VaultKeyCheck(db *sql.DB, profile string) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
+		if _, err := secrets.DeriveKeyIfExists(ctx, db, profile, "doomsday/mac"); errors.Is(err, secrets.ErrNoProfileKey) {
+			return ErrNoVaultKey
+		}
+		return nil
+	}
+}
