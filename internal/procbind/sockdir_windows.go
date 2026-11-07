@@ -80,13 +80,15 @@ func privateSA(me string) (*windows.SecurityAttributes, error) {
 	return &windows.SecurityAttributes{Length: uint32(unsafe.Sizeof(windows.SecurityAttributes{})), SecurityDescriptor: sd}, nil
 }
 
-// openDir opens a directory without following a reparse point, sharing read and write but not delete, and checks it.
+// openDir opens a directory without following a reparse point, and checks it. It asks for the right to list it (an open
+// that asks only for attributes is exempt from the sharing rules) and shares read and write but not delete, so while the
+// handle is open the directory cannot be renamed or removed.
 func openDir(path string, ok trusted) (windows.Handle, error) {
 	p, err := windows.UTF16PtrFromString(path)
 	if err != nil {
 		return windows.InvalidHandle, err
 	}
-	h, err := windows.CreateFile(p, windows.READ_CONTROL|windows.FILE_READ_ATTRIBUTES, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, nil,
+	h, err := windows.CreateFile(p, windows.READ_CONTROL|windows.FILE_READ_ATTRIBUTES|windows.FILE_LIST_DIRECTORY, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, nil,
 		windows.OPEN_EXISTING, windows.FILE_FLAG_BACKUP_SEMANTICS|windows.FILE_FLAG_OPEN_REPARSE_POINT, 0)
 	if err != nil {
 		return windows.InvalidHandle, fmt.Errorf("%w: %s: %v", errUnsafeDir, filepath.Base(path), err)

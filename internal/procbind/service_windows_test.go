@@ -142,6 +142,12 @@ func TestHelperProcess(t *testing.T) {
 	case "sleep":
 		os.Stdout.WriteString("READY\n")
 		time.Sleep(5 * time.Minute)
+	case "connect":
+		// connects and ends at once, leaving the connection behind
+		if c, err := DialPath(filepath.Join(os.Getenv("PB_ROOT"), runDirName, "p1", sockName)); err == nil {
+			_ = c
+			os.Stdout.WriteString("CONNECTED\n")
+		}
 	case "verify":
 		key, _ := hex.DecodeString(os.Getenv("PB_KEY"))
 		c, err := DialSecure(SocketOptions{Root: os.Getenv("PB_ROOT"), Profile: "p1"})
@@ -337,5 +343,44 @@ func TestWinProcsStartIsTheCreationTimeOfTheProcess(t *testing.T) {
 	defer c.Close()
 	if s, _ := (WinProcs{}).Start(c); s <= got {
 		t.Fatalf("a child (%d) is not younger than this process (%d)", s, got)
+	}
+}
+
+// A connector that has already exited when the service looks at it is not served, even while its process object still
+// exists (a handle to it is held elsewhere): an exited process is never taken for the live one that held its number.
+func TestPeerThatExitedBeforeItWasPinnedIsRefused(t *testing.T) {
+	root := shortRoot(t)
+	l, err := ListenSecure(SocketOptions{Root: root, Profile: "p1", CreateRoot: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	cmd, r := spawn(t, "connect", "PB_ROOT="+root)
+	readLine(t, r, "CONNECTED")
+	w, err := OpenProcessHandle(cmd.Process.Pid) // keeps the exited process's object, and so its number, alive
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	_ = cmd.Process.Kill()
+	_, _ = cmd.Process.Wait()
+	deadline := time.Now().Add(10 * time.Second)
+	for w.Alive() && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if w.Alive() {
+		t.Fatal("the connector did not exit")
+	}
+	// Windows drops a connection whose client has gone before it is accepted; if one is handed over it must be refused
+	_ = l.l.SetDeadline(time.Now().Add(3 * time.Second))
+	c, err := l.AcceptUnix()
+	if err != nil {
+		t.Logf("the dead connector's connection was not handed over: %v", err)
+		return
+	}
+	defer c.Close()
+	if pi, err := peerProcess(c); err == nil {
+		pi.proc.Close()
+		t.Fatal("a connector that had exited was pinned and would be served")
 	}
 }

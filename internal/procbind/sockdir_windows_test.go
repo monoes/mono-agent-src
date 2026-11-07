@@ -242,3 +242,60 @@ func TestDialSecureCreatesNothingAndRefusesASocketOthersCanOpen(t *testing.T) {
 		t.Fatal("dialed a socket whose access list admits Everyone")
 	}
 }
+
+// openDir itself refuses a junction: it is opened as the reparse point it is, not followed.
+func TestOpenDirRefusesAJunctionAndAFile(t *testing.T) {
+	ok, _, _ := trustedSet()
+	base := shortRoot(t)
+	_, me, _ := trustedSet()
+	sa, err := privateSA(me)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{base, filepath.Join(base, "real")} {
+		p, _ := windows.UTF16PtrFromString(d)
+		if err := windows.CreateDirectory(p, sa); err != nil && !errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
+			t.Fatal(err)
+		}
+	}
+	link := filepath.Join(base, "link")
+	if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, filepath.Join(base, "real")).CombinedOutput(); err != nil {
+		t.Skipf("no junction here: %v %s", err, out)
+	}
+	if h, err := openDir(link, ok); err == nil {
+		windows.CloseHandle(h)
+		t.Fatal("a junction was opened as a plain directory")
+	}
+	file := filepath.Join(base, "file")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if h, err := openDir(file, ok); err == nil {
+		windows.CloseHandle(h)
+		t.Fatal("a file was opened as a directory")
+	}
+	if h, err := openDir(filepath.Join(base, "real"), ok); err != nil {
+		t.Fatalf("a plain directory of the user's: %v", err)
+	} else {
+		windows.CloseHandle(h)
+	}
+}
+
+// The held handles are what keeps the checked directory the one the socket is reached through: while they are open
+// the directory cannot be renamed away (and replaced); once they are closed it can.
+func TestOpenChainPinsTheDirectoriesWhileItIsOpen(t *testing.T) {
+	root := shortRoot(t)
+	o := SocketOptions{Root: root, Profile: "p1", CreateRoot: true}
+	ch, err := openChain(o, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaf := profileDir(root)
+	if err := os.Rename(leaf, leaf+"x"); err == nil {
+		t.Fatal("the profile directory was renamed while its handle was held")
+	}
+	ch.close()
+	if err := os.Rename(leaf, leaf+"x"); err != nil {
+		t.Fatalf("the control failed: the directory could not be renamed after the handles were closed: %v", err)
+	}
+}
