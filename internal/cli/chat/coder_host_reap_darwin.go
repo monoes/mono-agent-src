@@ -12,13 +12,13 @@ import (
 )
 
 // reapPoll is how long one wait in the kernel lasts before the child is looked at again.
-const reapPoll = time.Second
+var reapPoll = time.Second
 
 // awaitExitNoReap returns once the child pid has exited, leaving it unreaped (kqueue's NOTE_EXIT reports the exit
 // without waiting for the child): the pid, and with it the process group named by it, stays this child's until cmd.Wait
 // collects it. It reports whether it held the child that way; a number that is neither running nor an unreaped
-// zombie is not held. The wait is in slices of reapPoll, and at each the child is looked at: one that is no longer in
-// the table (waited for by someone else) ends the wait with false instead of leaving it blocked.
+// zombie is not held. The wait is in slices of reapPoll: the thread is back in Go between slices, never blocked in the kernel
+// for longer than one.
 func awaitExitNoReap(pid int) bool {
 	kq, err := unix.Kqueue()
 	if err != nil {
@@ -37,11 +37,8 @@ func awaitExitNoReap(pid int) bool {
 			return isZombie(pid)
 		}
 		switch {
-		case n == 0: // nothing yet
+		case n == 0: // nothing yet: wait again, so no single wait in the kernel lasts longer than a slice
 			change = nil
-			if _, ok := procchain.ReadEntry(pid); !ok {
-				return false
-			}
 		case out[0].Flags&unix.EV_ERROR != 0:
 			return unix.Errno(out[0].Data) == unix.ESRCH && isZombie(pid) // already exited: held only if still unreaped
 		case out[0].Fflags&unix.NOTE_EXIT != 0:

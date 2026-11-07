@@ -25,7 +25,7 @@ type peerCred struct {
 // socket's pcb is the one this end is connected to); a pid recycled after the connector let go of the connection does
 // not. The handle is the pid and the start time, checked alive after the proof.
 func peerHandle(c *net.UnixConn, _ int, cred peerCred) (Handle, error) {
-	if cred.Pid <= 1 {
+	if cred.Pid <= 0 {
 		return nil, errors.New("procbind: the peer has no usable pid")
 	}
 	h, err := NewProcHandle(int(cred.Pid))
