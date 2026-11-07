@@ -2,7 +2,7 @@ package coderhost
 
 import "testing"
 
-// The open mode is offered only when openModeReady says the boss binding exists (T4 flips it together with the boss
+// The open mode is offered only when openModeReady says the boss binding exists (the flip PR turned it on together with the boss
 // creation and the task-session budget). While it is false the check is not asked and the reason says why.
 func TestOpenModeIsNotOfferedWhileTheBossBindingIsPending(t *testing.T) {
 	asked := 0
@@ -26,13 +26,17 @@ func TestOpenModeFollowsTheProbeOnceReady(t *testing.T) {
 	}
 }
 
-// The switch ships off. The change that adds the boss creation and the task-session budget flips it and this test in the
-// same commit; nothing else may.
-func TestOpenModeShipsNotReady(t *testing.T) {
-	if openModeReady {
-		t.Fatal("openModeReady is true: the open mode is offered although the boss binding is not there")
+// The switch ships on (the flip PR): the open mode follows the cheap check. Turning it off again (SetOpenModeReady(false), the one
+// seam) is the way to withdraw the mode; TestOpenModeIsNotOfferedWhileTheBossBindingIsPending holds that.
+func TestOpenModeShipsReady(t *testing.T) {
+	if !openModeReady {
+		t.Fatal("openModeReady is false: the open mode is not offered although the boss binding exists")
 	}
-	if ok, reason := OpenModeAvailability(); ok || reason != "not available yet: boss binding pending" {
+	defer SetOpenModeCheck(func() (bool, string) { return true, "" })()
+	if ok, reason := OpenModeAvailability(); !ok || reason != "" {
 		t.Fatalf("%v %q", ok, reason)
+	}
+	if r := OpenModeNotReady(); r != "" {
+		t.Fatalf("not ready reason %q", r)
 	}
 }
