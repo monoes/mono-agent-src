@@ -197,7 +197,7 @@ func TestChatModesListsTheChoicesAtAnAccessLevel(t *testing.T) {
 		}
 		return m
 	}
-	if m := get("full"); !m["off"].Available || !m["mission"].Available || m["open"].Available || m["open"].Reason != "not available yet: boss binding pending" {
+	if m := get("full"); !m["off"].Available || !m["mission"].Available || m["open"].Available || m["open"].Reason != "not available yet" {
 		t.Errorf("full: %+v", m)
 	}
 	if m := get("scoped"); !m["off"].Available || m["mission"].Available || !strings.Contains(m["mission"].Reason, "coding, workspace or full") {
