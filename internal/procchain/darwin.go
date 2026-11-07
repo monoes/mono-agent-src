@@ -28,7 +28,7 @@ func kinfo(pid int) (*unix.KinfoProc, bool) {
 // (kp_proc.p_starttime). "" when it cannot be read, and for a zombie, which is not a running process.
 func procStamp(pid int) string {
 	k, ok := kinfo(pid)
-	if !ok || k.Proc.Stat == 5 /* SZOMB */ {
+	if !ok || k.Proc.P_stat == 5 /* SZOMB */ {
 		return ""
 	}
 	t := k.Proc.P_starttime
