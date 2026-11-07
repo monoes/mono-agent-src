@@ -470,12 +470,12 @@ export function DoomsdayProbe() {
   return window['go']['main']['App']['DoomsdayProbe']();
 }
 
-export function DoomsdayRender(arg1) {
-  return window['go']['main']['App']['DoomsdayRender'](arg1);
+export function DoomsdayRender(arg1, arg2, arg3) {
+  return window['go']['main']['App']['DoomsdayRender'](arg1, arg2, arg3);
 }
 
-export function DoomsdayStart(arg1, arg2, arg3, arg4) {
-  return window['go']['main']['App']['DoomsdayStart'](arg1, arg2, arg3, arg4);
+export function DoomsdayStart(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['DoomsdayStart'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function DoomsdayStop() {

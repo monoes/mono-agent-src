@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"os/exec"
 	"strconv"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ParkedTab is the tab a fill left open for the person to submit in.
@@ -154,7 +152,7 @@ func (a *App) StartApplicationQueue(ids []string, maxParked int) error {
 			status, message = "error", failed
 		}
 		if a.ctx != nil {
-			runtime.EventsEmit(a.ctx, "applications:queueStatus", map[string]any{"status": status, "message": message})
+			eventsEmit(a.ctx, "applications:queueStatus", map[string]any{"status": status, "message": message})
 		}
 	}()
 	return nil

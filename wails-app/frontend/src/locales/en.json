@@ -1103,7 +1103,8 @@
       "boss": "Boss",
       "state": "State",
       "spent": "Spent",
-      "open": "Open its board"
+      "open": "Open its board",
+      "show": "Show the boss in AI agents"
     }
   },
   "aiConnections": {
@@ -1294,7 +1295,7 @@
       "needsYou_one": "{{count}} item needs you",
       "needsYou_other": "{{count}} items need you",
       "boss": "Boss",
-      "bossNote": "Boss of the open-ended run: opens its conversation"
+      "bossNote": "Boss of the open-ended run: click to open its conversation"
     },
     "lite": {
       "board": "Task board",
@@ -2526,6 +2527,7 @@
     "hint": "Chosen before the first message; it cannot change afterwards. Mission: the lead plans the work and goes on until you close it.",
     "locked": "The chat mode is chosen before the first message and cannot change afterwards",
     "unavailable": "Not available",
+    "whyUnavailable": "{{mode}} is not available: {{reason}}",
     "loadFailed": "Could not read the chat mode",
     "saveFailed": "Could not change the chat mode: {{error}}",
     "checking": "Checking...",
@@ -2725,7 +2727,13 @@
     "startFailed": "The run did not start",
     "startedRun": "Run {{run}}.",
     "started": "The run started. Stop is in the chat header.",
-    "noBoss": "Starting needs the boss session of this chat, which the chat creates when it starts. It is not available here yet, so Start stays disabled.",
+    "noBoss": "This chat cannot start a run from here.",
+    "noFirstTurn": "Run started, but the boss has no first turn: steer it by typing in the chat, or press Stop in the chat header.",
+    "steerBoss": "Steer the boss",
+    "stopRun": "Stop the run",
+    "stopElsewhere": "The Stop button of the chat header is not available here: open the Control room and press Stop there.",
+    "dismiss": "Dismiss",
+    "chatFailed": "The chat could not be created, so nothing was started: {{error}}",
     "err": {
       "text": "Use at most 2000 characters in the goal, criteria and pins, with no hidden characters (zero-width, direction or tag characters).",
       "goal": "Say what the run is for.",

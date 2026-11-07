@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fails when a Go binary that is about to ship was built with the devaccount or releasee2e tag
+# Fails when a Go binary that is about to ship was built with the devaccount, releasee2e, e2estub or e2ehost tag
 # (spec D11, D24): devaccount trusts a development signing key anyone can sign with, releasee2e pins
 # a test update key and redirects the update client to a loopback server. It reads the build settings every
 # Go binary carries (`go version -m`), whatever OS it was built for.
@@ -14,7 +14,7 @@
 # pass by checking nothing.
 set -euo pipefail
 
-forbidden_tags="devaccount releasee2e"
+forbidden_tags="devaccount releasee2e e2estub e2ehost"
 min=1
 allow=" "
 while [ "$#" -gt 0 ]; do
@@ -101,7 +101,7 @@ if [ "$bad_nongo" -gt 0 ]; then
   exit 1
 fi
 if [ "$bad" -gt 0 ]; then
-  echo "check-release-tags: $bad binary(ies) carry the $forbidden tag" >&2
+  echo "check-release-tags: $bad binary(ies) carry a forbidden tag ($forbidden_tags)" >&2
   exit 1
 fi
 if [ "$checked" -lt "$min" ]; then

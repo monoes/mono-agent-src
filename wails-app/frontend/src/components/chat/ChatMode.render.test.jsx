@@ -167,3 +167,38 @@ describe('the open mode is probed only on the person\'s action', () => {
     expect(api.setChatMode).not.toHaveBeenCalled()
   })
 })
+
+// A disabled mode says WHY on the radio itself (title and description for assistive technology) and in a visible line, from the
+// CLI's own reason; with no reason it still says it is not available.
+describe('why a mode is not available', () => {
+  const unavailable = reason => mode({ options: [OPTIONS[0], OPTIONS[1], { mode: 'open', available: false, ...(reason ? { reason } : {}) }] })
+  it('shows the reason on the disabled radio and under the selector', async () => {
+    const why = 'an open-ended run is already active in this profile: only one runs at a time, stop it first'
+    api.getChatMissionToggle.mockResolvedValue(view(unavailable(why)))
+    render(<Harness />)
+    const open = await radio('Open-ended')
+    expect(open).toBeDisabled()
+    expect(open).toHaveAttribute('title', why)
+    expect(open).toHaveAttribute('aria-description', why)
+    expect(screen.getByTestId('chat-mode-why-open')).toHaveTextContent('Open-ended is not available: ' + why)
+  })
+  it('says "Not available" when the CLI gave no reason', async () => {
+    api.getChatMissionToggle.mockResolvedValue(view(unavailable('')))
+    render(<Harness />)
+    const open = await radio('Open-ended')
+    expect(open).toHaveAttribute('title', 'Not available')
+    expect(screen.getByTestId('chat-mode-why-open')).toHaveTextContent('Open-ended is not available: Not available')
+  })
+  it('shows no such line for an available mode, nor once the chat is locked (the locked reason is shown instead)', async () => {
+    api.getChatMissionToggle.mockResolvedValue(view(mode({ options: [OPTIONS[0], OPTIONS[1], { mode: 'open', available: true }] })))
+    const { unmount } = render(<Harness />)
+    await radio('Open-ended')
+    expect(screen.queryByTestId('chat-mode-why-open')).toBeNull()
+    unmount()
+    api.getChatMissionToggle.mockResolvedValue(view(mode({ locked: true, reason: 'locked: it has a message', options: [OPTIONS[0], OPTIONS[1], { mode: 'open', available: false, reason: 'x' }] })))
+    render(<Harness />)
+    await radio('Open-ended')
+    expect(screen.queryByTestId('chat-mode-why-open')).toBeNull()
+    expect(screen.getByTestId('chat-mode-reason')).toHaveTextContent('locked: it has a message')
+  })
+})

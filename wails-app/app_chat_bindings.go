@@ -8,7 +8,6 @@ import (
 
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ─── Wails bindings ─────────────────────────────────────────────────────────
@@ -320,7 +319,7 @@ func clampChatLimit(limit int) int {
 // subscribes to.
 func wailsChatEmitter(ctx context.Context) chatEventEmitter {
 	return func(ev chatevents.Event) {
-		runtime.EventsEmit(ctx, "chat:event", ev)
+		eventsEmit(ctx, "chat:event", ev)
 	}
 }
 

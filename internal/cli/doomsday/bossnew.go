@@ -200,7 +200,7 @@ func existingBoss(ctx context.Context, db *sql.DB, profile, front string) (ref B
 	for next = 1; next <= tasks.MaxBossAttempt && taken[next]; next++ {
 	}
 	if next > tasks.MaxBossAttempt && !ok {
-		return BossRef{}, 0, false, clicore.InvalidInput("every boss key of chat %s is taken: nothing was made", front)
+		return BossRef{}, 0, false, clicore.InvalidInput("too many boss attempts for this chat (%d): start a new chat; nothing was made", tasks.MaxBossAttempt)
 	}
 	return ref, next, ok, nil
 }

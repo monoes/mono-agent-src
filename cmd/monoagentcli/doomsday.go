@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"database/sql"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -33,6 +35,9 @@ var doomsdayChat func(cfg *globalConfig, d *chatcli.Deps)
 // status). Nil leaves the group as it is.
 var doomsdayExtra func(cfg *globalConfig, grp *cobra.Command, d doomsdaycli.Deps)
 
+// doomsdayFirstTurnHook is nil in every shipped build. Only the e2estub file sets it, to make the first-turn queue fail on demand.
+var doomsdayFirstTurnHook func() error
+
 func newDoomsdayCmd(cfg *globalConfig) *cobra.Command {
 	// Both questions are the turn-aware ones every operator-only verb asks: requireOperator, and opgate.Refusal
 	// (agent tokens, markers, a coder session's turn). doomsday_gate_test.go and the rows of
@@ -61,6 +66,33 @@ func newDoomsdayCmd(cfg *globalConfig) *cobra.Command {
 			}
 			return doomsdayStrategyReader(cfg)
 		},
+	}
+	deps.ChatStart = func() doomsdaycli.ChatStarter {
+		return doomsdaycli.DBChatStart{
+			Open: func() (*sql.DB, func(), error) {
+				db, err := initDB(cfg)
+				if err != nil {
+					return nil, nil, err
+				}
+				return db.DB, func() { db.Close() }, nil
+			},
+			Profile: func() string { return cfg.ProfileID },
+			// One start per profile at a time, across processes: a lock file next to the database.
+			LockPath: func() string {
+				return filepath.Join(filepath.Dir(expandPath(cfg.DBPath)), "doomsday-chat-start-"+cfg.ProfileID+".lock")
+			},
+			// The first turn is the chat commands' own queue (the user's gate included); this only hands it the run.
+			Queue: func(_ context.Context, conv string, in doomsdaycli.FirstTurn) error {
+				if doomsdayFirstTurnHook != nil { // nil in every shipped build (see doomsday_e2e_stub.go)
+					if err := doomsdayFirstTurnHook(); err != nil {
+						return err
+					}
+				}
+				d := chatDeps(cfg)
+				_, err := chatcli.QueueBossFirstTurn(&d, conv, chatcli.BossFirstTurn{RunID: in.RunID, CharterHash: in.CharterHash, Goal: in.Goal})
+				return err
+			},
+		}
 	}
 	grp := doomsdaycli.NewCommand(deps)
 	grp.AddCommand(doomsdaycli.BossCommand(doomsdaycli.BossDeps{

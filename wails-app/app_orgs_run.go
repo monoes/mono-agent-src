@@ -10,8 +10,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // StreamOrgEvents starts a live tail of an org's bus event log. Each event
@@ -74,13 +72,13 @@ func (a *App) StreamOrgEvents(orgName, streamID string) string {
 			if len(line) == 0 || line[0] != '{' {
 				continue
 			}
-			runtime.EventsEmit(a.ctx, "org:event", map[string]interface{}{
+			eventsEmit(a.ctx, "org:event", map[string]interface{}{
 				"orgName": orgName,
 				"event":   json.RawMessage(append([]byte(nil), line...)),
 			})
 		}
 		_ = waitChatProcess(cmd)
-		runtime.EventsEmit(a.ctx, "org:eventsClosed", map[string]interface{}{"orgName": orgName})
+		eventsEmit(a.ctx, "org:eventsClosed", map[string]interface{}{"orgName": orgName})
 	}()
 	return `{"ok":true}`
 }
@@ -221,8 +219,8 @@ func (a *App) RunOrg(orgName, task string) string {
 	a.runningCmds[key] = cmd
 	a.runningMu.Unlock()
 
-	runtime.EventsEmit(a.ctx, "org:runStatus", orgRunStatusEvent(orgName, "running", "", ""))
-	emit := func(ev map[string]interface{}) { runtime.EventsEmit(a.ctx, "org:runStatus", ev) }
+	eventsEmit(a.ctx, "org:runStatus", orgRunStatusEvent(orgName, "running", "", ""))
+	emit := func(ev map[string]interface{}) { eventsEmit(a.ctx, "org:runStatus", ev) }
 	// The run id appears once the org writes its runtime file, a moment after
 	// the start: repeat the running event with it when it does.
 	go func() {

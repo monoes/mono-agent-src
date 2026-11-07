@@ -1059,7 +1059,8 @@
       "boss": "Jefe",
       "state": "Estado",
       "spent": "Gastado",
-      "open": "Abrir su tablero"
+      "open": "Abrir su tablero",
+      "show": "Mostrar al jefe en Agentes de IA"
     }
   },
   "aiConnections": {
@@ -1250,7 +1251,7 @@
       "needsYou_one": "{{count}} elemento te necesita",
       "needsYou_other": "{{count}} elementos te necesitan",
       "boss": "Jefe",
-      "bossNote": "Jefe de la ejecución abierta: abre su conversación"
+      "bossNote": "Jefe de la ejecución abierta: haz clic para abrir su conversación"
     },
     "lite": {
       "board": "Tablero de tareas",
@@ -2482,6 +2483,7 @@
     "hint": "Se elige antes del primer mensaje y no se puede cambiar después. Misión: el líder planifica el trabajo y sigue hasta que la cierres.",
     "locked": "El modo del chat se elige antes del primer mensaje y no se puede cambiar después",
     "unavailable": "No disponible",
+    "whyUnavailable": "{{mode}} no está disponible: {{reason}}",
     "loadFailed": "No se pudo leer el modo del chat",
     "saveFailed": "No se pudo cambiar el modo del chat: {{error}}",
     "checking": "Comprobando...",
@@ -2583,7 +2585,13 @@
     "startFailed": "La ejecucion no empezo",
     "startedRun": "Ejecucion {{run}}.",
     "started": "La ejecucion empezo. Detener esta en el encabezado del chat.",
-    "noBoss": "Empezar necesita la sesion jefe de este chat, que el chat crea al iniciarse. Aun no esta disponible aqui, asi que Empezar sigue desactivado.",
+    "noBoss": "Este chat no puede iniciar una ejecución desde aquí.",
+    "noFirstTurn": "La ejecución empezó, pero el jefe no tiene primer turno: dirígelo escribiendo en el chat, o pulsa Detener en la cabecera del chat.",
+    "steerBoss": "Dirigir al jefe",
+    "stopRun": "Detener la ejecución",
+    "stopElsewhere": "El botón Detener de la cabecera no está disponible aquí: abre la sala de control y pulsa Detener allí.",
+    "dismiss": "Cerrar",
+    "chatFailed": "No se pudo crear el chat, así que no se inició nada: {{error}}",
     "err": {
       "text": "Usa como maximo 2000 caracteres en el objetivo, los criterios y los modelos, sin caracteres ocultos (de ancho cero, de direccion o de etiqueta).",
       "goal": "Di para que es la ejecucion.",

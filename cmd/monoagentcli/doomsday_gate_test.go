@@ -28,6 +28,7 @@ func writeDoomsdayCharter(t *testing.T) string {
 var doomsdayVerbs = map[string][]string{
 	"start":              {"--charter", "PATH", "--yes-i-lift", "--hash", "x"},
 	"start (app phrase)": {"--charter", "PATH", "--gui-phrase", "x"},
+	"start (app chat)":   {"--charter", "PATH", "--gui-phrase", "x", "--chat", "c"},
 	"stop":               {},
 	"status":             nil,
 	"render":             nil,
@@ -89,7 +90,7 @@ func TestStartWithAWrongHashStartsNothingAndTheGroupIsHidden(t *testing.T) {
 func TestDoomsdayWritingVerbsAreOperatorOnly(t *testing.T) {
 	file := writeDoomsdayCharter(t)
 	for ctxName, setup := range gateOSMenuContexts() {
-		for _, verb := range []string{"start", "start (app phrase)", "stop"} {
+		for _, verb := range []string{"start", "start (app phrase)", "start (app chat)", "stop"} {
 			t.Run(ctxName+"/"+verb, func(t *testing.T) {
 				cfg := sendEnv(t)
 				setup(t)
