@@ -304,6 +304,10 @@ func TestDarwinCheckLayoutNeedsRealPairsAndANegativeControl(t *testing.T) {
 	if err := checkLayout(fakeTable(crossed), a, b); err == nil {
 		t.Error("two pairs that are the same connection passed (no negative control)")
 	}
+	selfPeered := map[int][2]uint64{1: {10, 10}, 2: {10, 10}, 3: {20, 20}, 4: {20, 20}} // each pair one value, apart from the other
+	if err := checkLayout(fakeTable(selfPeered), a, b); err == nil {
+		t.Error("sockets that are their own peers, apart from the other pair, passed")
+	}
 	notPairs := map[int][2]uint64{1: {10, 11}, 2: {12, 10}, 3: {20, 21}, 4: {21, 20}}
 	if err := checkLayout(fakeTable(notPairs), a, b); err == nil {
 		t.Error("ends that are not connected to each other passed")

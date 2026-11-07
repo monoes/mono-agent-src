@@ -151,17 +151,12 @@ func holdsConnection(c *net.UnixConn, pid int) error {
 // socket).
 func checkLayout(info func(fd int) (own, conn uint64, err error), a, b [2]int) error {
 	bad := errors.New("the kernel's socket information has a layout this build does not know")
-	var own [2][2]uint64
-	for i, pair := range [2][2]int{a, b} {
+	for _, pair := range [2][2]int{a, b} {
 		o0, c0, err0 := info(pair[0])
 		o1, c1, err1 := info(pair[1])
 		if err0 != nil || err1 != nil || o0 == 0 || o1 == 0 || o0 == c0 || o1 == c1 || c0 != o1 || c1 != o0 {
 			return bad
 		}
-		own[i] = [2]uint64{o0, o1}
-	}
-	if own[0][0] == own[1][0] || own[0][0] == own[1][1] || own[0][1] == own[1][0] || own[0][1] == own[1][1] {
-		return bad
 	}
 	far := time.Now().Add(time.Minute)
 	o0, c0, _ := info(a[0])
