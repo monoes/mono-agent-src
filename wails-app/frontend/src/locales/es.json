@@ -1053,6 +1053,13 @@
       "status": {
         "rateLimited": "⚠ límite de uso (se volverá a comprobar)"
       }
+    },
+    "boss": {
+      "title": "Ejecución abierta",
+      "boss": "Jefe",
+      "state": "Estado",
+      "spent": "Gastado",
+      "open": "Abrir su tablero"
     }
   },
   "aiConnections": {
@@ -1241,7 +1248,9 @@
       },
       "opensBoard": "Aún sin conversación: abre su tablero de tareas",
       "needsYou_one": "{{count}} elemento te necesita",
-      "needsYou_other": "{{count}} elementos te necesitan"
+      "needsYou_other": "{{count}} elementos te necesitan",
+      "boss": "Jefe",
+      "bossNote": "Jefe de la ejecución abierta: abre su conversación"
     },
     "lite": {
       "board": "Tablero de tareas",
@@ -1924,6 +1933,7 @@
     "inProfile": "en {{name}}",
     "session": {
       "switcher": "Sesiones de tareas",
+      "boss": "Jefe",
       "personal": "Personal",
       "header": "Sesión {{title}}",
       "state": {
@@ -2314,6 +2324,7 @@
     }
   },
   "history": {
+    "boss": "Jefe de una ejecución abierta",
     "title": "Historial",
     "close": "Cerrar el historial",
     "newChat": "Nuevo chat",
@@ -2492,6 +2503,13 @@
       "dismiss": "Cerrar",
       "partial": "Detenido, pero la limpieza no terminó"
     }
+  },
+  "steering": {
+    "direct": "Hablas directamente con el jefe: lo que escribes le llega como orientación, no como una orden",
+    "banner": "Orientación: hablas con el jefe, no apruebas nada",
+    "note": "Lo que escribes aquí llega al jefe como orientación. No responde ninguna pregunta, no aprueba nada y no levanta ningún límite.",
+    "sent": "Enviado al jefe: {{text}}",
+    "failed": "No enviado: {{error}}"
   },
   "openStart": {
     "loading": "Cargando...",

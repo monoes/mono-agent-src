@@ -1634,6 +1634,10 @@ export function StartOrgGroup(arg1) {
   return window['go']['main']['App']['StartOrgGroup'](arg1);
 }
 
+export function SteerBoss(arg1, arg2) {
+  return window['go']['main']['App']['SteerBoss'](arg1, arg2);
+}
+
 export function StopAgentValidation() {
   return window['go']['main']['App']['StopAgentValidation']();
 }

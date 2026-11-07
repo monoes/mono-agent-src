@@ -4,6 +4,7 @@ import { Check, MessageSquare, Pause, Play, Square, Archive, CircleCheck } from 
 import { confirm } from '../ConfirmDialog.jsx'
 import BudgetFlag from './BudgetFlag.jsx'
 import StateChip from './StateChip.jsx'
+import BossBadge from './BossBadge.jsx'
 import { actionsFor, nearBudget, openBelow, progress, spendParts } from '../../lib/taskSessionModel.js'
 
 const ICONS = { approve: Check, pause: Pause, resume: Play, stop: Square, close: CircleCheck, archive: Archive }
@@ -42,6 +43,7 @@ export default function SessionHeader({ sessions = [], session, view, onView, on
       <div className="ts-head-row">
         <h2 className="ts-title">{session.title}</h2>
         <StateChip session={session} />
+        <BossBadge session={session} />
         {session.archived && <span className="ts-chip ts-chip--archived">{t('tasks.session.archived')}</span>}
         <span data-testid="ts-head-progress">{t('tasks.session.progress', { done: progress(session) })}</span>
         <span data-testid="ts-head-spend" className={nearBudget(session) ? 'ts-near' : undefined}>

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import BudgetFlag from './BudgetFlag.jsx'
 import StateChip from './StateChip.jsx'
+import BossBadge from './BossBadge.jsx'
 import SessionNew from './SessionNew.jsx'
 import SessionRename from './SessionRename.jsx'
 import SessionTree from './SessionTree.jsx'
@@ -55,6 +56,7 @@ export default function SessionSwitcher({ sessions, selectedId, onSelect, error 
         return tab(s.id, <span className="ts-tab-title" title={s.title}>{s.title}</span>, (
           <span className="ts-tab-meta">
             <StateChip session={s} />
+            <BossBadge session={s} />
             <BudgetFlag session={s} />
             {s.created_by && s.created_by !== 'you' && <span className="ts-by" data-testid="ts-creator">{t('tasks.session.by', { who: s.created_by })}</span>}
             <span data-testid="ts-progress">{progress(s)}</span>

@@ -10,6 +10,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/tasks"
 )
 
 // `coder list`: the coder conversations that ran a turn, for the browser
@@ -35,6 +36,7 @@ type coderChatRow struct {
 	LastTurnAt       string `json:"lastTurnAt"`
 	LastTurnID       string `json:"lastTurnId"`
 	Running          bool   `json:"running"`
+	Boss             bool   `json:"boss,omitempty"` // the conversation of a run's recorded boss
 }
 
 const coderTitleMax = 80
@@ -87,6 +89,7 @@ func coderChat(store *ai.AIStore, profileID string, conv ai.Conversation) (coder
 func newCoderListCmd(cfg *Deps) *cobra.Command {
 	var conversation string
 	var limit int
+	var all bool
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List coder conversations that ran a turn, most recent first",
@@ -99,6 +102,15 @@ func newCoderListCmd(cfg *Deps) *cobra.Command {
 				return err
 			}
 			defer closeDB()
+			bdb, err := cfg.OpenDB()
+			if err != nil {
+				return err
+			}
+			defer bdb.Close()
+			isBoss := func(id string) bool {
+				b, _ := tasks.IsBossAnyConversation(cmd.Context(), bdb.DB, profileID, id)
+				return b
+			}
 			rows := []coderChatRow{}
 			if conversation != "" {
 				conv, err := store.GetConversation(conversation, profileID)
@@ -108,12 +120,16 @@ func newCoderListCmd(cfg *Deps) *cobra.Command {
 				if conv.Scoped() {
 					return clicore.InvalidInput("conversation %s is not a coder conversation", conversation)
 				}
+				if isBoss(conv.ID) && !all {
+					return clicore.InvalidInput("conversation %s is a boss's: it is not a send target (--all lists it)", conversation)
+				}
 				row, _, err := coderChat(store, profileID, conv)
 				if err != nil {
 					return err
 				}
+				row.Boss = isBoss(conv.ID)
 				rows = append(rows, row)
-			} else if rows, err = coderChats(store, profileID, limit); err != nil {
+			} else if rows, err = coderChats(store, profileID, limit, all, isBoss); err != nil {
 				return err
 			}
 			if cfg.JSONOutput() {
@@ -127,20 +143,27 @@ func newCoderListCmd(cfg *Deps) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&conversation, "conversation", "", "Only this conversation (it may have no turns yet)")
 	cmd.Flags().IntVar(&limit, "limit", 20, "Maximum conversations (1-100)")
+	cmd.Flags().BoolVar(&all, "all", false, "Also list the conversation of a run's boss (it is not a send target)")
 	clicore.WithJSONErrors(cfg.JSONOutput, cmd)
 	return cmd
 }
 
 // coderChats walks the profile's conversations, newest first, for the
 // first limit coder ones that ran a turn.
-func coderChats(store *ai.AIStore, profileID string, limit int) ([]coderChatRow, error) {
+func coderChats(store *ai.AIStore, profileID string, limit int, all bool, isBoss func(conversationID string) bool) ([]coderChatRow, error) {
 	if limit <= 0 || limit > 100 {
 		return nil, clicore.InvalidInput("--limit must be between 1 and 100")
 	}
 	rows := []coderChatRow{}
 	cursor := ""
 	for {
-		convs, next, err := store.ListConversations(profileID, cursor, 200)
+		// The list is the extension's send targets: a boss's conversation (stamped or not: the one predicate the guards ask) is not one
+		// unless --all asks for it, by an anti-join from the few boss sessions.
+		also := `NOT ` + tasks.BossAnyConversationSQL("ai_chat_conversations")
+		if all {
+			also = ""
+		}
+		convs, next, err := store.ListConversationsWhere(profileID, cursor, 200, also)
 		if err != nil {
 			return nil, err
 		}
@@ -152,6 +175,7 @@ func coderChats(store *ai.AIStore, profileID string, limit int) ([]coderChatRow,
 			if err != nil {
 				return nil, err
 			}
+			row.Boss = isBoss(c.ID)
 			if ok {
 				rows = append(rows, row)
 				if len(rows) == limit {

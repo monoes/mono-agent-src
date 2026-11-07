@@ -10,6 +10,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/coderhost"
+	"github.com/monoes/mono-agent/internal/tasks"
 )
 
 // `coder sessions`: the persistent view of coder conversations and the way to
@@ -25,7 +26,7 @@ func newCoderSessionsCmd(cfg *Deps) *cobra.Command {
 			"from starting and `resume` lifts that. Turns run unattended: the access level of the conversation is the " +
 			"only limit, so `list` shows it.",
 	}
-	cmd.AddCommand(newCoderSessionsListCmd(cfg), newCoderSessionsSendCmd(cfg), newCoderSessionsCommandCmd(cfg), newCoderSessionsSettingsCmd(cfg),
+	cmd.AddCommand(newCoderSessionsListCmd(cfg), newCoderSessionsSendCmd(cfg), newCoderSessionsSteerCmd(cfg), newCoderSessionsCommandCmd(cfg), newCoderSessionsSettingsCmd(cfg),
 		newCoderSessionsSpawnCmd(cfg), newCoderSessionsStatusCmd(cfg),
 		newCoderSessionsControlCmd(cfg, coderhost.KindStop, "Stop the session's running turn"),
 		newCoderSessionsControlCmd(cfg, coderhost.KindPause, "Start no new turn until resumed (a running turn finishes)"),
@@ -42,6 +43,8 @@ type sessionRow struct {
 	Waiting int    `json:"waitingCommands"`
 	// ChatMode is the conversation's mode: off, mission or open.
 	ChatMode string `json:"chatMode"`
+	// Boss marks the conversation of a run's recorded boss.
+	Boss bool `json:"boss,omitempty"`
 }
 
 func newCoderSessionsListCmd(cfg *Deps) *cobra.Command {
@@ -75,6 +78,7 @@ func newCoderSessionsListCmd(cfg *Deps) *cobra.Command {
 					continue
 				}
 				r := sessionRow{Session: s, Waiting: cs.PendingFor(s.ProfileID, s.ConversationID), ChatMode: coderhost.ChatModeOff}
+				r.Boss, _ = tasks.IsBossConversation(cmd.Context(), db.DB, s.ProfileID, s.ConversationID)
 				if m, err := cs.ChatMode(s.ProfileID, s.ConversationID); err == nil {
 					r.ChatMode = m
 				}
@@ -155,6 +159,9 @@ func newCoderSessionsSendCmd(cfg *Deps) *cobra.Command {
 			}
 			profileID, err := coderConversation(cfg, args[0])
 			if err != nil {
+				return err
+			}
+			if err := refuseBossConversation(cmd.Context(), cfg, profileID, args[0]); err != nil {
 				return err
 			}
 			atts, err := attachmentSources(attach)

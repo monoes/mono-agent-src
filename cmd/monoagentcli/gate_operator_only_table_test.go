@@ -38,6 +38,10 @@ func operatorOnlyRows() []opRow {
 		{path: "doomsday stop", build: newDoomsdayCmd, args: []string{"stop"}},
 		{path: "doomsday probe", build: newDoomsdayCmd, args: []string{"probe"}},
 		{path: "doomsday finish", build: newDoomsdayCmd, args: []string{"finish"}},
+		// The boss session of a run started from a chat: it creates a conversation and a session, so only the user.
+		// Steering of an open-ended run's boss: a message to a full-access turn, so only the user (a session's turn never is).
+		{path: "coder sessions steer", build: newCoderCmd, args: []string{"sessions", "steer", "c1", "x"}},
+		{path: "doomsday boss new", build: newDoomsdayCmd, args: []string{"boss", "new", "--conversation", "c1"}},
 		{path: "doomsday rubric", build: newDoomsdayCmd, args: []string{"rubric", "c1", "approve", "--dossier", "abcdef12"}},
 		// B5 control room: read-only, but the feed shows run internals, so the same gate.
 		{path: "doomsday overview", build: newDoomsdayCmd, args: []string{"overview"}},

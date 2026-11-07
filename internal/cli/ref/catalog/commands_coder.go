@@ -49,6 +49,15 @@ var coderCommandDocs = []cmdDoc{
 		Examples: []string{"monoagentcli --profile work coder sessions chat-modes --access coding --json"},
 	},
 	{
+		Name:  "coder list",
+		Short: "List the coder conversations that ran a turn, newest first: the follow-up targets of the browser extension. A run's boss conversation (stamped or not) is not one and is left out unless --all",
+		Usage: "monoagentcli [--profile P] coder list [--conversation ID] [--limit N] [--all]",
+		Flags: `  --conversation string   Only this conversation (a boss's is refused unless --all)
+  --limit int             Maximum conversations (1-100) (default 20)
+  --all                   Also list the conversation of a run's boss, marked "boss": true (it is not a send target)`,
+		Examples: []string{"monoagentcli --profile work coder list --limit 5 --json"},
+	},
+	{
 		Name:  "coder sessions send",
 		Short: "Queue a message for a coder conversation; the host starts the turn when the session is free (the operator only; with a master's session token: a descendant only, as a master-made turn)",
 		Usage: "monoagentcli [--profile P] coder sessions send CONVERSATION MESSAGE [--turn ID] [--attach FILE]... [--mission] [--no-host]",
@@ -60,6 +69,12 @@ var coderCommandDocs = []cmdDoc{
 			`monoagentcli --profile work coder sessions send <conv> "run the tests and fix what fails"`,
 			`monoagentcli --profile work coder sessions send <conv> "what is in this log?" --attach ./build.log`,
 		},
+	},
+	{
+		Name:     "coder sessions steer",
+		Short:    "Send the person's text to the boss behind a chat whose open-ended run is going, as untrusted guidance: never an answer, never an approval, lifts no limit (the user's own). Refused until the boss has had its first turn and unless the run is going and the boss session open; at most 5 messages wait, the same text twice within 5 s is one, and the text is at most 4000 characters after normalising",
+		Usage:    "monoagentcli [--profile P] coder sessions steer CHAT TEXT",
+		Examples: []string{`monoagentcli --profile work coder sessions steer <chat> "prefer the smaller change"`},
 	},
 	{
 		Name:     "coder sessions stop",

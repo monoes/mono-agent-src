@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import BudgetFlag from './BudgetFlag.jsx'
 import StateChip from './StateChip.jsx'
+import BossBadge from './BossBadge.jsx'
 import { SESSION_PAGE, capSessionRows, progress, sessionTree, spendParts, visibleRows } from '../../lib/taskSessionModel.js'
 
 // The strip as a collapsible tree (treeview pattern) once some session has a
@@ -83,6 +84,7 @@ export default function SessionTree({ sessions, selectedId, onSelect, ui }) {
         {s && (
           <span className="ts-tab-meta">
             <StateChip session={s} />
+            <BossBadge session={s} />
             <BudgetFlag session={s} />
             {s.created_by && s.created_by !== 'you' && <span className="ts-by" data-testid="ts-creator">{t('tasks.session.by', { who: s.created_by })}</span>}
             <span data-testid="ts-progress">{progress(s)}</span>

@@ -279,6 +279,9 @@ export const api = {
     GoApp.SetChatMode(conversationID, mode).then(parseStreamResult),
   getChatModeOptions: (access) =>
     GoApp.GetChatModeOptions(access).then(parseStreamResult),
+  // Steering for the boss behind a chat whose open-ended run is going (`coder sessions steer`): never an answer, never an approval.
+  steerBoss: (conversationID, text) =>
+    GoApp.SteerBoss(conversationID, text).then(parseStreamResult),
   setChatMissionToggle: (conversationID, on) =>
     GoApp.SetChatMissionToggle(conversationID, !!on).then(parseStreamResult),
   coderStopBackground: (conversationID, turnID) =>

@@ -13,6 +13,7 @@ import (
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/profiledir"
+	"github.com/monoes/mono-agent/internal/tasks"
 )
 
 // `chat history list --all`: the conversations of the profile and its org runs
@@ -57,6 +58,7 @@ type HistoryRow struct {
 	Mode            string   `json:"mode,omitempty"`
 	ChatMode        string   `json:"chatMode,omitempty"` // off, mission or open (only chats above the scoped level have one other than off)
 	OrgMode         string   `json:"orgMode,omitempty"`
+	Boss            bool     `json:"boss,omitempty"` // the conversation of a run's recorded boss (the plain list leaves it out; this one shows it, marked)
 	Cwd             string   `json:"cwd,omitempty"`
 	WorkflowContext string   `json:"workflowContext,omitempty"`
 	TaskID          string   `json:"taskId,omitempty"`
@@ -177,10 +179,11 @@ type historyQuerier interface {
 // histSQL reads every row in ONE statement: the latest turn, the first turn
 // (its text titles the chat) and the latest bound AI task come in as joins on
 // indexed lookups, so a page costs one query however many rows it holds.
-const histSQL = `SELECT id, workflow_context, runtime_id, model, mode, cwd, updated_at, effort, org_mode, access, chat_mode,
+const histSQLTemplate = `SELECT id, workflow_context, runtime_id, model, mode, cwd, updated_at, effort, org_mode, access, chat_mode, boss,
 	status, first_prompt, task_id, task_status, task_goal, application_id, custom_title FROM (
 SELECT c.id, c.workflow_context, c.runtime_id, c.model, c.mode, c.cwd, c.updated_at, c.effort, c.org_mode, c.access,
 	COALESCE((SELECT s.chat_mode FROM coder_sessions s WHERE s.profile_id = c.profile_id AND s.conversation_id = c.id), 'off') AS chat_mode,
+	CASE WHEN {BOSS} THEN 1 ELSE 0 END AS boss,
 	CASE
 		WHEN COALESCE(k.status, '') = 'needs_user' THEN 'needs'
 		WHEN lt.status = 'active' THEN 'running'
@@ -198,6 +201,9 @@ LEFT JOIN ai_chat_turns ft ON ft.id = (SELECT id FROM ai_chat_turns WHERE conver
 LEFT JOIN ai_tasks k ON k.id = (SELECT id FROM ai_tasks WHERE conversation_id = c.id AND profile_id = c.profile_id ORDER BY created_at DESC, id DESC LIMIT 1)
 WHERE c.profile_id = ? AND c.backend = 'agent'%s
 ) WHERE 1 = 1%s ORDER BY updated_at DESC, id DESC LIMIT ?`
+
+// histSQL is the statement with the boss mark filled in from the tasks package, which owns what a boss is.
+var histSQL = strings.Replace(histSQLTemplate, "{BOSS}", strings.ReplaceAll(tasks.BossConversationSQL("c"), "%", "%%"), 1) // the statement is a Sprintf format
 
 func queryHistoryRows(db historyQuerier, profileID string, f historyFilter, limit int) ([]HistoryRow, error) {
 	args := []any{profileID}
@@ -237,7 +243,7 @@ func queryHistoryRows(db historyQuerier, profileID string, f historyFilter, limi
 	for rows.Next() {
 		var r HistoryRow
 		var first, custom string
-		if err := rows.Scan(&r.ID, &r.WorkflowContext, &r.Runtime, &r.Model, &r.Mode, &r.Cwd, &r.UpdatedAt, &r.Effort, &r.OrgMode, &r.Access, &r.ChatMode,
+		if err := rows.Scan(&r.ID, &r.WorkflowContext, &r.Runtime, &r.Model, &r.Mode, &r.Cwd, &r.UpdatedAt, &r.Effort, &r.OrgMode, &r.Access, &r.ChatMode, &r.Boss,
 			&r.Status, &first, &r.TaskID, &r.TaskStatus, &r.TaskGoal, &r.ApplicationID, &custom); err != nil {
 			return nil, fmt.Errorf("scan history: %w", err)
 		}
