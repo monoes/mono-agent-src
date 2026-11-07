@@ -3,6 +3,9 @@
 package procbind
 
 import (
+	"net"
+	"os/exec"
+	"path/filepath"
 	"testing"
 	"unsafe"
 
@@ -39,48 +42,79 @@ func TestDarwinCheckXucredRefusesWhatIsNotAFilledInCredential(t *testing.T) {
 	}
 }
 
-func TestDarwinJoinPeerRefusesAnswersThatDisagree(t *testing.T) {
+func TestDarwinJoinPeerRefusesWhatIsNotAProcessNumber(t *testing.T) {
 	x, _ := goodXucred()
-	tok := [tokenWords]uint32{501, 501, 20, 501, 20, 4242, 100, 777}
-	size := unsafe.Sizeof(tok)
-	cred, err := joinPeer(x, 4242, tok, size)
-	if err != nil || cred.Pid != 4242 || cred.Uid != 501 || cred.Pidversion != 777 {
+	cred, err := joinPeer(x, 4242)
+	if err != nil || cred.Pid != 4242 || cred.Uid != 501 {
 		t.Fatalf("good answers: %+v %v", cred, err)
 	}
-	for name, c := range map[string]struct {
-		pid  int
-		tok  [tokenWords]uint32
-		size uintptr
-	}{
-		"pid 0":            {0, tok, size},
-		"negative pid":     {-5, tok, size},
-		"pid out of range": {1<<30 + 1, tok, size},
-		"short token":      {4242, tok, size - 4},
-		"token of a pid":   {4243, tok, size},
-		"token of a user":  {4242, [tokenWords]uint32{501, 502, 20, 501, 20, 4242, 100, 777}, size},
-		"no pid version":   {4242, [tokenWords]uint32{501, 501, 20, 501, 20, 4242, 100, 0}, size},
-	} {
-		if _, err := joinPeer(x, c.pid, c.tok, c.size); err == nil {
-			t.Errorf("%s: accepted", name)
+	for _, pid := range []int{0, -5, 1<<30 + 1} {
+		if _, err := joinPeer(x, pid); err == nil {
+			t.Errorf("pid %d accepted", pid)
 		}
 	}
 }
 
-func TestDarwinParseIdversionRefusesShortAndZero(t *testing.T) {
-	buf := make([]byte, uniqIdentifierSize)
-	buf[idversionOffset] = 9
-	if v, err := parseIdversion(buf, uniqIdentifierSize); err != nil || v != 9 {
-		t.Fatalf("good: %d %v", v, err)
+func TestDarwinSocketPCBsRefuseWhatIsNotAConnectedUnixSocket(t *testing.T) {
+	good := make([]byte, socketFDInfoSize)
+	*(*uint64)(unsafe.Pointer(&good[offPCB])) = 7
+	*(*uint64)(unsafe.Pointer(&good[offConnPCB])) = 9
+	*(*int32)(unsafe.Pointer(&good[offFamily])) = afUnix
+	if own, conn, err := socketPCBs(good, socketFDInfoSize); err != nil || own != 7 || conn != 9 {
+		t.Fatalf("good: %d %d %v", own, conn, err)
 	}
-	if _, err := parseIdversion(buf, uniqIdentifierSize-8); err == nil {
+	if _, _, err := socketPCBs(good, socketFDInfoSize-8); err == nil {
 		t.Error("a short answer passed")
 	}
-	if _, err := parseIdversion(buf[:20], uniqIdentifierSize); err == nil {
+	if _, _, err := socketPCBs(good[:100], socketFDInfoSize); err == nil {
 		t.Error("a short buffer passed")
 	}
-	buf[idversionOffset] = 0
-	if _, err := parseIdversion(buf, uniqIdentifierSize); err == nil {
-		t.Error("a zero pid version passed")
+	inet := append([]byte(nil), good...)
+	*(*int32)(unsafe.Pointer(&inet[offFamily])) = 2
+	if _, _, err := socketPCBs(inet, socketFDInfoSize); err == nil {
+		t.Error("an inet socket passed")
+	}
+	for _, off := range []int{offPCB, offConnPCB} {
+		z := append([]byte(nil), good...)
+		*(*uint64)(unsafe.Pointer(&z[off])) = 0
+		if _, _, err := socketPCBs(z, socketFDInfoSize); err == nil {
+			t.Errorf("a zero control block at %d passed", off)
+		}
+	}
+}
+
+// On the real table: the process that was connected to holds the connection; another process does not.
+func TestDarwinHoldsConnectionOnTheRealTable(t *testing.T) {
+	path := filepath.Join(shortDir(t), "s")
+	l, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	nc := exec.Command("nc", "-U", path)
+	in, _ := nc.StdinPipe()
+	if err := nc.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = in.Close(); _ = nc.Process.Kill(); _ = nc.Wait() }()
+	c, err := l.AcceptUnix()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if err := holdsConnection(c, nc.Process.Pid); err != nil {
+		t.Errorf("the connector does not hold its connection: %v", err)
+	}
+	other := exec.Command("sleep", "30")
+	if err := other.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = other.Process.Kill(); _ = other.Wait() }()
+	if err := holdsConnection(c, other.Process.Pid); err == nil {
+		t.Error("an unrelated process was taken to hold the connection")
+	}
+	if err := holdsConnection(c, 0x7ffffff0); err == nil {
+		t.Error("a process that does not exist was taken to hold the connection")
 	}
 }
 
@@ -102,16 +136,5 @@ func TestDarwinInfoOfATableEntry(t *testing.T) {
 	k.Proc.P_starttime = unix.Timeval{}
 	if _, _, err := infoOf(&k); err == nil {
 		t.Error("an entry with no start time passed")
-	}
-}
-
-// The kernel's own answers for a live process: the pid version in the table is the one in the token of a connection.
-func TestDarwinThePidversionOfTheTableIsThatOfTheToken(t *testing.T) {
-	v, err := procIdversion(1)
-	if err != nil || v == 0 {
-		t.Fatalf("pid version of launchd: %d %v", v, err)
-	}
-	if _, err := procIdversion(0x7ffffff0); err == nil {
-		t.Error("a pid version for a process that does not exist")
 	}
 }

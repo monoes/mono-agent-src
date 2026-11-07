@@ -15,7 +15,9 @@ import (
 type peerCred = unix.Ucred
 
 // peerHandle pins the peer: on Linux the pidfd the kernel gave for the connection (SO_PEERPIDFD).
-func peerHandle(pfd int, _ peerCred) (Handle, error) { return HandleFromPidfd(pfd), nil }
+func peerHandle(_ *net.UnixConn, pfd int, _ peerCred) (Handle, error) {
+	return HandleFromPidfd(pfd), nil
+}
 
 // closePeerFD closes what peer returned as its descriptor when the peer is refused.
 func closePeerFD(pfd int) {

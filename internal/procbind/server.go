@@ -476,7 +476,7 @@ func (s *Server) serve(c *net.UnixConn, cs *connState) {
 		closePeerFD(pfd)
 		return
 	}
-	caller, err := peerHandle(pfd, cred)
+	caller, err := peerHandle(c, pfd, cred)
 	if err != nil {
 		s.logf("procbind: the peer cannot be pinned: %v", err)
 		closePeerFD(pfd)

@@ -11,43 +11,36 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// peerCred is what the kernel says about the other end of a unix socket: its uid (LOCAL_PEERCRED), its pid (LOCAL_PEERPID)
-// and its pid version (LOCAL_PEERTOKEN, the audit token the kernel attached to the connection at connect time). The pid
-// version changes whenever a pid is given to a new process or a process executes a new image, so (pid, pid version)
-// names one incarnation and the pid alone does not. The field names of Uid and Pid are those of the Linux struct.
+// peerCred is what the kernel says about the other end of a unix socket: its uid (LOCAL_PEERCRED) and its pid
+// (LOCAL_PEERPID, the pid the peer connected with). The field names are those of the Linux struct so the server reads either.
 type peerCred struct {
-	Pid        int32
-	Uid        uint32
-	Pidversion uint32
+	Pid int32
+	Uid uint32
 }
 
-// peerHandle pins the peer and requires that the process now holding its pid is the one that connected: its pid version,
-// read from the kernel's table, must be the one in the token the kernel attached to the connection. macOS has no pidfd,
-// so the handle is the pid and the start time; a pid recycled between the connect and this call has another pid version
-// and is refused.
-func peerHandle(_ int, cred peerCred) (Handle, error) {
-	if cred.Pid <= 1 || cred.Pidversion == 0 {
-		return nil, errors.New("procbind: the peer has no usable identity")
+// peerHandle pins the peer. LOCAL_PEERPID is a number the kernel remembers from the connect, and macOS attaches no
+// descriptor to the connection (LOCAL_PEERTOKEN is looked up from the pid when it is asked, so it names whoever holds the
+// number now). What the kernel does tie to the connection is the descriptor: the peer's end of the socket is open in the
+// process that holds it. So the process now at the peer's pid is accepted only if it holds that end of THIS connection (its
+// socket's pcb is the one this end is connected to); a pid recycled after the connector let go of the connection does
+// not. The handle is the pid and the start time, checked alive after the proof.
+func peerHandle(c *net.UnixConn, _ int, cred peerCred) (Handle, error) {
+	if cred.Pid <= 1 {
+		return nil, errors.New("procbind: the peer has no usable pid")
 	}
 	h, err := NewProcHandle(int(cred.Pid))
 	if err != nil {
 		return nil, err
 	}
-	v, err := procIdversion(int(cred.Pid))
-	if err != nil || v != cred.Pidversion || !h.Alive() {
+	if err := holdsConnection(c, int(cred.Pid)); err != nil || !h.Alive() {
 		_ = h.Close()
-		return nil, errors.New("procbind: the process holding the peer's pid is not the one that connected")
+		return nil, errors.New("procbind: the process holding the peer's pid does not hold the peer's end of the connection")
 	}
 	return h, nil
 }
 
 // closePeerFD closes what peer returned as its descriptor: there is none on macOS.
 func closePeerFD(int) {}
-
-const (
-	localPeerToken = 6 // LOCAL_PEERTOKEN
-	tokenWords     = 8 // audit_token_t: uid, euid, egid, ruid, rgid, pid, asid, pidversion
-)
 
 // getsockoptRaw reads a socket option of the peer into p and returns the length the kernel gave, so a short answer is seen.
 func getsockoptRaw(c *net.UnixConn, opt int, p unsafe.Pointer, size uintptr) (uintptr, error) {
@@ -95,25 +88,15 @@ func peerXucred(c *net.UnixConn) (*unix.Xucred, error) {
 	return &x, nil
 }
 
-// joinPeer puts the three answers of the kernel together and refuses any that is missing or disagrees with another: the pid
-// must be a process number, and the token must name that pid and that effective uid and carry a pid version.
-func joinPeer(x *unix.Xucred, pid int, tok [tokenWords]uint32, tokLen uintptr) (peerCred, error) {
-	switch {
-	case pid <= 0 || pid > 1<<30:
+// joinPeer puts the answers of the kernel together and refuses a pid that is not a process number.
+func joinPeer(x *unix.Xucred, pid int) (peerCred, error) {
+	if pid <= 0 || pid > 1<<30 {
 		return peerCred{}, errors.New("LOCAL_PEERPID: the kernel names no process")
-	case tokLen != unsafe.Sizeof(tok):
-		return peerCred{}, errors.New("LOCAL_PEERTOKEN: short answer")
-	case int(tok[5]) != pid:
-		return peerCred{}, errors.New("LOCAL_PEERTOKEN: names another process than LOCAL_PEERPID")
-	case tok[1] != x.Uid:
-		return peerCred{}, errors.New("LOCAL_PEERTOKEN: names another user than LOCAL_PEERCRED")
-	case tok[7] == 0:
-		return peerCred{}, errors.New("LOCAL_PEERTOKEN: no pid version")
 	}
-	return peerCred{Pid: int32(pid), Uid: x.Uid, Pidversion: tok[7]}, nil
+	return peerCred{Pid: int32(pid), Uid: x.Uid}, nil
 }
 
-// peer reads what the kernel says about the other end: its uid, the pid it connected with and its audit token. The
+// peer reads what the kernel says about the other end: its uid and the pid it connected with. The
 // descriptor result is always -1 (macOS has no pidfd). Anything the kernel does not say, or says in a form this code does
 // not know, is an error: the peer is refused.
 func peer(c *net.UnixConn) (cred peerCred, _ int, err error) {
@@ -133,12 +116,7 @@ func peer(c *net.UnixConn) (cred peerCred, _ int, err error) {
 	if e != nil {
 		return cred, -1, fmt.Errorf("LOCAL_PEERPID: %w", e)
 	}
-	var tok [tokenWords]uint32
-	n, err := getsockoptRaw(c, localPeerToken, unsafe.Pointer(&tok[0]), unsafe.Sizeof(tok))
-	if err != nil {
-		return cred, -1, fmt.Errorf("LOCAL_PEERTOKEN: %w", err)
-	}
-	cred, err = joinPeer(x, pid, tok, n)
+	cred, err = joinPeer(x, pid)
 	return cred, -1, err
 }
 
@@ -151,7 +129,7 @@ func peerIdentity(c *net.UnixConn, lookup func(*net.UnixConn) (peerCred, int, er
 		closePeerFD(fd)
 		return peerKey{}, err
 	}
-	h, err := peerHandle(fd, cred)
+	h, err := peerHandle(c, fd, cred)
 	if err != nil {
 		return peerKey{}, err
 	}
