@@ -10,6 +10,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/dynorg"
 	"github.com/monoes/mono-agent/internal/procbind"
 )
@@ -174,8 +175,8 @@ func newCoderSetCmd(cfg *Deps) *cobra.Command {
 				if ctx == nil {
 					ctx = context.Background()
 				}
-				var runs int
-				if err := s.tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM doomsday_runs WHERE state <> 'quiescent'`).Scan(&runs); err != nil {
+				runs, err := coderhost.OpenRunCount(ctx, s.tx)
+				if err != nil {
 					return fmt.Errorf("could not check for an open-ended run: %w", err)
 				}
 				if runs > 0 {
