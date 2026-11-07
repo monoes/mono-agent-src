@@ -252,9 +252,11 @@ func TestAHostInsideABoundTurnIsNoticedThroughItsV2Binding(t *testing.T) {
 	if st.HostInsideTurn() {
 		t.Fatal("a binding with a different start stamp counted")
 	}
-	mint("t0b", pp, ProcStamp(pp)+"@another-boot") // the same process number and start tick of another boot
-	if st.HostInsideTurn() {
-		t.Fatal("a binding of another boot counted")
+	if BoundStamp(pp) != ProcStamp(pp) { // stamps that carry a boot (Linux); Windows creation times are absolute and carry none
+		mint("t0b", pp, ProcStamp(pp)+"@another-boot") // the same process number and start tick of another boot
+		if st.HostInsideTurn() {
+			t.Fatal("a binding of another boot counted")
+		}
 	}
 	id := mint("t1", pp, BoundStamp(pp))
 	if !st.HostInsideTurn() {
