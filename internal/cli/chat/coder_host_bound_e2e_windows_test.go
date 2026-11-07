@@ -69,12 +69,17 @@ func winE2EWrite(files, name, text string) {
 	_ = os.WriteFile(filepath.Join(files, name), []byte(text), 0o600)
 }
 
-// TestHelperBoundWinE2E is the turn (and the sibling) of the test below; it does nothing in a normal run.
-func TestHelperBoundWinE2E(t *testing.T) {
-	role := os.Getenv(winE2ERole)
-	if role == "" {
-		t.Skip("helper process only")
+// init makes this test binary the turn (and the sibling and the descendant) of the test below when the role is set in
+// its environment: it runs before the flags are read, so the host can start it with its own arguments as a real turn.
+func init() {
+	if role := os.Getenv(winE2ERole); role != "" {
+		winE2EHelper(role)
+		os.Exit(0)
 	}
+}
+
+func winE2EHelper(role string) {
+	keyring.MockInit() // this process never reaches the real credential store; the parent's wrapping key is handed over in a file
 	files := os.Getenv(winE2EFiles)
 	switch role {
 	case "turn":
@@ -111,6 +116,9 @@ func TestHelperBoundWinE2E(t *testing.T) {
 		// the stores' own verify path (VerifySessionToken -> V2Check -> the service), from the turn itself
 		verify := func(name string) {
 			if _, err := coderhost.NewStore(sqldb).VerifySessionToken(secret); err != nil {
+				reasons := ""
+				_, _ = procbind.V2Check{DB: sqldb, Logf: func(f string, a ...any) { reasons += fmt.Sprintf(f, a...) + "; " }}.Verify(context.Background(), procbind.KindSession, secret)
+				winE2EWrite(files, name+"-why", err.Error()+" | "+reasons)
 				winE2EWrite(files, name, "deny")
 				return
 			}
@@ -118,7 +126,7 @@ func TestHelperBoundWinE2E(t *testing.T) {
 		}
 		verify("storeself")
 		// a descendant of the turn is inside its process tree
-		d := exec.Command(os.Args[0], "-test.run=TestHelperBoundWinE2E", "-test.count=1")
+		d := exec.Command(os.Args[0])
 		d.Env = append(os.Environ(), winE2ERole+"=descendant", winE2EToken+"="+id)
 		_ = d.Run()
 		winE2EWait(filepath.Join(files, "go2"))
@@ -137,18 +145,27 @@ func TestABoundTurnIsAllowedItsOwnTokenAndASiblingIsNot(t *testing.T) {
 		t.Skipf("the machine cannot run the binding service: %v", err)
 	}
 	files := t.TempDir()
+	shortHome := os.Getenv("USERPROFILE") // the process's own test home: a Windows socket path holds 107 bytes, the per-test one is longer
 	dbPath := newChatCLITestDB(t)
+	t.Setenv("HOME", shortHome)
+	t.Setenv("USERPROFILE", shortHome)
 	db, err := storage.NewDatabase(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
 	setCoderSettings(t, dbPath, coderSettings{Enabled: true, PeercredBinding: true})
+	if home, err := os.UserHomeDir(); err != nil || os.MkdirAll(filepath.Join(home, ".monoagent"), 0o700) != nil { // the runtime root is made below it
+		t.Fatalf("no home folder to place the socket under: %v", err)
+	}
 
 	// the turn: this test binary, run as the helper
-	bin := filepath.Join(files, "turn.cmd")
-	script := "@echo off\r\n\"" + os.Args[0] + "\" -test.run=TestHelperBoundWinE2E -test.count=1\r\n"
-	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+	bin := filepath.Join(files, "turn.exe") // this test binary, which becomes the turn when the role is set
+	self, err := os.ReadFile(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, self, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv(winE2ERole, "turn")
@@ -172,10 +189,16 @@ func TestABoundTurnIsAllowedItsOwnTokenAndASiblingIsNot(t *testing.T) {
 		revoke: store.RevokeSessionTokensErr}
 	boundCopy := *legacy
 	boundCopy.bound = newBoundLaunch(db.DB, binding, binding.Binder, store, nil)
-	g := &gatedLauncher{db: db.DB, svc: binding, inner: legacy, bound: &boundCopy}
+	g := &gatedLauncher{db: db.DB, svc: binding, inner: legacy, bound: &boundCopy, logf: t.Logf}
 
 	turn, err := g.Start("default", "c1", "t1", "hello", nil, "")
 	if err != nil {
+		if logs, _ := filepath.Glob(filepath.Join(files, "turns", "*")); len(logs) > 0 {
+			for _, l := range logs {
+				b, _ := os.ReadFile(l)
+				t.Logf("turn log %s:\n%s", filepath.Base(l), b)
+			}
+		}
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { winE2EWrite(files, "release", "x"); _ = turn.Wait() })
@@ -213,7 +236,7 @@ func TestABoundTurnIsAllowedItsOwnTokenAndASiblingIsNot(t *testing.T) {
 	}
 	// a sibling: a process of the same user that is not a descendant of the turn
 	tokenID := read("tokenid")
-	sib := exec.Command(os.Args[0], "-test.run=TestHelperBoundWinE2E", "-test.count=1")
+	sib := exec.Command(os.Args[0])
 	sib.Env = append(os.Environ(), winE2ERole+"=sibling", winE2EToken+"="+tokenID)
 	if out, err := sib.CombinedOutput(); err != nil {
 		t.Fatalf("the sibling: %v\n%s", err, out)
@@ -225,7 +248,8 @@ func TestABoundTurnIsAllowedItsOwnTokenAndASiblingIsNot(t *testing.T) {
 		t.Fatalf("a descendant of the turn asked about its token: %q, want allow", got)
 	}
 	if got := read("storeself"); got != "allow" {
-		t.Fatalf("the turn through the store's verify path: %q, want allow", got)
+		why, _ := os.ReadFile(filepath.Join(files, "storeself-why"))
+		t.Fatalf("the turn through the store's verify path: %q, want allow (%s)", got, why)
 	}
 	// the conversation's tokens are revoked: the registration is gone and the turn's next question is denied
 	if err := store.RevokeSessionTokensErr("default", "c1"); err != nil {
