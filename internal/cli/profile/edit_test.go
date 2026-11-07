@@ -162,6 +162,7 @@ var seedOverrides = map[string]map[string]any{
 	"org_proposals":           {"status": "pending", "verb": "grant.add"},
 	"mission_goals":           {"state": "proposed"},
 	"mission_goal_criteria":   {"kind": "rubric"},
+	"mission_pursuit":         {"enabled": 0},
 	"workflow_run_tokens":     {"token_hash": strings.Repeat("a", 64), "created_at": "2026-01-01T00:00:00Z", "expires_at": "2026-01-03T00:00:00Z"},
 	"person_links":            {"relation": "same", "status": "confirmed", "person_a": 1, "person_b": 2},
 	"application_fills":       {"status": "filled"},
