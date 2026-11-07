@@ -25,7 +25,7 @@ func procInfo(pid int) (ppid int, start uint64, err error) {
 		return 0, 0, errGone
 	}
 	k, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
-	if err != nil || k == nil || int(k.Proc.P_pid) != pid || k.Proc.P_stat == sZOMB {
+	if err != nil || k == nil || k.Proc.P_stat == sZOMB {
 		return 0, 0, errGone
 	}
 	t := k.Proc.P_starttime

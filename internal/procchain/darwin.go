@@ -18,7 +18,7 @@ func kinfo(pid int) (*unix.KinfoProc, bool) {
 		return nil, false
 	}
 	k, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
-	if err != nil || k == nil || int(k.Proc.P_pid) != pid {
+	if err != nil || k == nil {
 		return nil, false
 	}
 	return k, true

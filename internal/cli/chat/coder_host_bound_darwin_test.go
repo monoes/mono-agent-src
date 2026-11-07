@@ -80,9 +80,10 @@ func TestDarwinBoundKillDoesNotSignalAProcessThatIsNotTheHeldOne(t *testing.T) {
 	}
 	d.proc.worker = deadHandle{} // the pinned pair no longer names a live process
 	d.kill()
-	time.Sleep(200 * time.Millisecond)
-	if err := syscall.Kill(cmd.Process.Pid, 0); err != nil {
-		t.Fatal("a process whose pinned pair was gone was signalled")
+	time.Sleep(300 * time.Millisecond)
+	var ws syscall.WaitStatus
+	if p, _ := syscall.Wait4(cmd.Process.Pid, &ws, syscall.WNOHANG, nil); p != 0 {
+		t.Fatalf("a process whose pinned pair was gone was signalled (%v)", ws)
 	}
 	d.proc.release() // idempotent
 	d.proc.release()
