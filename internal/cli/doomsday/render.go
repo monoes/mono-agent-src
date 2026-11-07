@@ -10,7 +10,18 @@ import (
 
 // NotDefended is what the entry dialog says plainly about the limits of the
 // mode (Q7: no special isolation, the same trust model as ordinary sessions).
-func NotDefended(goos string) string { return notDefendedCommon + containmentBullet(goos) }
+func NotDefended(goos string) string {
+	return notDefendedCommon + windowsProcessCheckBullet(goos) + containmentBullet(goos)
+}
+
+// windowsProcessCheckBullet is the plain sentence the person sees before a run can start on Windows: the process check
+// (the peer-credential binding) is weaker there, because a Windows process records the parent its creator names.
+func windowsProcessCheckBullet(goos string) string {
+	if goos != "windows" {
+		return ""
+	}
+	return "  - On Windows a program running as you can defeat the process check; Windows is weaker than Linux and macOS.\n"
+}
 
 const notDefendedCommon = `What this mode does NOT defend against:
   - It adds no isolation. Sessions run with the same trust model as any ordinary session.
