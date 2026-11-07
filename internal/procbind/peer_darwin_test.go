@@ -3,6 +3,7 @@
 package procbind
 
 import (
+	"bufio"
 	"fmt"
 	"net"
 	"os"
@@ -41,6 +42,7 @@ func TestDarwinHelperHandoff(t *testing.T) {
 	}
 	_ = f.Close()
 	_ = conn.Close() // this process, the one the kernel names as the peer, lets go of the connection
+	fmt.Println("LETGO")
 	_ = child.Wait()
 }
 
@@ -63,18 +65,43 @@ func TestDarwinHelperHolder(t *testing.T) {
 
 func TestDarwinConnectorThatLetGoOfTheConnectionIsNotServed(t *testing.T) {
 	self, _ := NewProcHandle(os.Getpid())
-	sock := startDServer(t, &dReg{h: self}, nil)
+	path := filepath.Join(shortDir(t), "s")
+	l, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	cmd := exec.Command(os.Args[0], "-test.run=^TestDarwinHelperHandoff$", "-test.v")
-	cmd.Env = append(os.Environ(), "PROCBIND_DARWIN_HANDOFF_SOCK="+sock)
-	out, _ := cmd.CombinedOutput()
+	cmd.Env = append(os.Environ(), "PROCBIND_DARWIN_HANDOFF_SOCK="+path)
+	pipe, _ := cmd.StdoutPipe()
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+	r := bufio.NewReader(pipe)
+	// the connection waits in the backlog until the process at the peer's pid has let go of it; only then is it accepted
+	for {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			t.Fatalf("helper ended before letting go: %v", err)
+		}
+		if strings.HasPrefix(line, "LETGO") {
+			break
+		}
+	}
+	serveListener(t, l, &dReg{h: self}, nil)
 	got := ""
-	for _, l := range strings.Split(string(out), "\n") {
-		if v, ok := strings.CutPrefix(l, "RESULT="); ok {
-			got = v
+	for {
+		line, err := r.ReadString('\n')
+		if v, ok := strings.CutPrefix(line, "RESULT="); ok {
+			got = strings.TrimSpace(v)
+			break
+		}
+		if err != nil {
+			break
 		}
 	}
 	if got != "error" {
-		t.Fatalf("a connection held by a process other than the one at the peer's pid got %q, want no answer\n%s", got, out)
+		t.Fatalf("a connection held by a process other than the one at the peer's pid got %q, want no answer", got)
 	}
 }
 

@@ -67,6 +67,13 @@ func startDServer(t *testing.T, reg Registry, tweak func(*Server)) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	serveListener(t, l, reg, tweak)
+	return path
+}
+
+// serveListener serves registry reg on l until the test ends.
+func serveListener(t *testing.T, l *net.UnixListener, reg Registry, tweak func(*Server)) {
+	t.Helper()
 	procs, _ := NewProcs()
 	var mu sync.Mutex
 	over := false
@@ -85,7 +92,6 @@ func startDServer(t *testing.T, reg Registry, tweak func(*Server)) string {
 	done := make(chan struct{})
 	go func() { defer close(done); _ = s.Serve(l) }()
 	t.Cleanup(func() { _ = l.Close(); <-done })
-	return path
 }
 
 // TestDarwinHelperVerify is the verifier as a separate process: it prints RESULT=<verdict or error>.
