@@ -138,20 +138,22 @@ func TestFlippingOpenModeReadyOpensAndClosesEveryEntry(t *testing.T) {
 	}
 }
 
-// ON WINDOWS the open mode is not offered: chat-modes lists it unavailable with the OS reason, a new chat in
-// the open mode is refused with it before anything is created, and the cheap check is not asked.
+// Where the binding service cannot run (any OS, Windows included) the open mode is not offered: chat-modes lists it
+// unavailable with the service's own reason, a new chat in the open mode is refused with it before anything is created,
+// and the cheap check is not asked.
 func TestOpenModeIsRefusedWhereTheBindingCannotRun(t *testing.T) {
-	for _, goos := range []string{"windows"} {
+	const svc = "this Windows cannot tell which process connected to a local socket"
+	for _, goos := range []string{"windows", "linux", "darwin"} {
 		t.Run(goos, func(t *testing.T) {
 			asked := cheap(t, true, "")
-			t.Cleanup(coderhost.SetOpenModeBindingProbe(goos, func() error { return errors.New("the binding service needs Linux or macOS") }))
+			t.Cleanup(coderhost.SetOpenModeBindingProbe(goos, func() error { return errors.New(svc) }))
 			r := newAccessRig(t, true)
 			opt := openOption(chatModeView{Options: chatModeOptions("full")})
-			if opt == nil || opt.Available || opt.Pending || opt.Reason != coderhost.OpenModeNoBindingReason {
+			if opt == nil || opt.Available || opt.Pending || !strings.Contains(opt.Reason, svc) {
 				t.Fatalf("option %+v", opt)
 			}
 			out, code := createAs(t, r.dbPath, true, "--access", "full", "--new-workspace", "--chat-mode", "open")
-			if code == 0 || !strings.Contains(out, coderhost.OpenModeNoBindingReason) {
+			if code == 0 || !strings.Contains(out, svc) {
 				t.Fatalf("chat create: exit %d %s", code, out)
 			}
 			if list, _, err := r.store.ListConversations("default", "", 100); err != nil || len(list) != 0 {
