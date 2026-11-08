@@ -106,10 +106,10 @@ func TestDirectionsAndEpochsComeFromTheStrategyStore(t *testing.T) {
 	if len(s.Directions) != 0 || s.Epochs.Count != 0 || s.Epochs.HasLatest {
 		t.Errorf("empty: %+v", s)
 	}
-	if _, _, err := st.InsertEpoch(bg, types.Epoch{Profile: prof, Generation: 1, Seq: 1, Trigger: types.TriggerTimer, StartedAt: 100, State: types.EpochOpen}); err != nil {
+	if _, _, err := st.InsertEpoch(bg, types.Epoch{Profile: prof, Generation: 1, Seq: 1, Trigger: types.TriggerTimer, StartedAt: 100, ModelPin: "fake/judge/1", State: types.EpochOpen}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := st.InsertEpoch(bg, types.Epoch{Profile: prof, Generation: 1, Seq: 2, Trigger: types.TriggerFinishParked, StartedAt: 200, State: types.EpochOpen}); err != nil {
+	if _, _, err := st.InsertEpoch(bg, types.Epoch{Profile: prof, Generation: 1, Seq: 2, Trigger: types.TriggerFinishParked, StartedAt: 200, ModelPin: "fake/judge/1", State: types.EpochOpen}); err != nil {
 		t.Fatal(err)
 	}
 	d := types.Direction{Profile: prof, Generation: 1, ID: "d1", KeyHash: [32]byte{1}, Title: "t", State: types.DirProposed, CreatedEpoch: 2}
