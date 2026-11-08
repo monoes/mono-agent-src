@@ -81,6 +81,9 @@ func TestOnlyTheWiringFilesImportTheStrategyLibraries(t *testing.T) {
 	want := []string{
 		"internal/cli/doomsday/strategyengine.go", "internal/cli/doomsday/strategyreader.go", "internal/cli/doomsday/strategyready.go",
 		"internal/cli/doomsday/strategysink.go", "internal/cli/doomsday/strategywire.go",
+		// The mission pursuit loop (T6, S4) runs the same epoch engine over a mission's own store: the host's loop, off unless
+		// the person started a pursuit. Its own import guard is coderhost/pursuit_guard_test.go.
+		"internal/coderhost/pursuit.go", "internal/coderhost/pursuit_facts.go", "internal/coderhost/pursuit_wake.go",
 	}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("importers of the strategy libraries changed:\n got %v\nwant %v\ndecide the new importer here, in review", got, want)
