@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/types"
@@ -77,8 +78,10 @@ func (f DirectionFacts) check() error {
 	if f.SpendKnown && f.SpendPermille < 0 {
 		return errors.New("negative spend")
 	}
-	if f.TasksDone+f.TasksFailed+f.TasksOpen+f.TasksBlocked+f.CriteriaChecked+f.EvidenceRows == 0 {
-		return errors.New("no host-observed activity")
+	// Without a single checked criterion, tasks and evidence alone would score a direction up to 7.0 (done tasks and
+	// evidence rows are cheap to produce); the criteria are what ties a score to the goal.
+	if f.CriteriaChecked == 0 {
+		return errors.New("no criteria checked")
 	}
 	return nil
 }
@@ -119,5 +122,12 @@ type Ranked struct {
 	Err       error
 }
 
-// Pick is a stub.
-func Pick(r []Ranked) (types.Direction, bool) { return types.Direction{}, len(r) > 0 }
+// Pick returns the direction to give new work, or false (none) when nothing is scored. policy.Rank keeps an unscored
+// direction (at minus infinity) and still returns a first element when every direction is unscored; taking that element
+// would hand work to a direction nobody could measure. S4 MUST choose through Pick, never through ranked[0].
+func Pick(r []Ranked) (types.Direction, bool) {
+	if len(r) == 0 || r[0].Err != nil || math.IsNaN(r[0].Score) || math.IsInf(r[0].Score, 0) {
+		return types.Direction{}, false
+	}
+	return r[0].Direction, true
+}

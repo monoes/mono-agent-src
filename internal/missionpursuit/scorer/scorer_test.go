@@ -72,16 +72,16 @@ func TestUnscoredFailsClosed(t *testing.T) {
 	for name, f := range map[string]DirectionFacts{
 		"zero criteria":         {TasksDone: 1, EvidenceRows: 5, SpendKnown: true},
 		"zero criteria, strong": {TasksDone: 10, EvidenceRows: 5, SpendKnown: true, SpendPermille: 0},
-		"no activity":         {SpendKnown: true},
-		"negative count":      {TasksDone: -1, CriteriaChecked: 1},
-		"negative open":       {TasksDone: 1, TasksOpen: -1},
-		"passed over checked": {TasksDone: 1, CriteriaChecked: 1, CriteriaPassed: 2},
-		"count over bound":    {TasksDone: over},
-		"checked over bound":  {TasksDone: 1, CriteriaChecked: over, CriteriaPassed: 1},
-		"evidence over bound": {TasksDone: 1, EvidenceRows: over},
-		"negative spend":      {TasksDone: 1, SpendKnown: true, SpendPermille: -5},
-		"negative evidence":   {TasksDone: 1, EvidenceRows: -1},
-		"negative passed":     {TasksDone: 1, CriteriaChecked: 1, CriteriaPassed: -1},
+		"no activity":           {SpendKnown: true},
+		"negative count":        {TasksDone: -1, CriteriaChecked: 1},
+		"negative open":         {TasksDone: 1, TasksOpen: -1},
+		"passed over checked":   {TasksDone: 1, CriteriaChecked: 1, CriteriaPassed: 2},
+		"count over bound":      {TasksDone: over},
+		"checked over bound":    {TasksDone: 1, CriteriaChecked: over, CriteriaPassed: 1},
+		"evidence over bound":   {TasksDone: 1, EvidenceRows: over},
+		"negative spend":        {TasksDone: 1, SpendKnown: true, SpendPermille: -5},
+		"negative evidence":     {TasksDone: 1, EvidenceRows: -1},
+		"negative passed":       {TasksDone: 1, CriteriaChecked: 1, CriteriaPassed: -1},
 	} {
 		if s, err := score(t, f); !errors.Is(err, ErrUnscored) || s != 0 {
 			t.Errorf("%s: got %v %v, want ErrUnscored", name, s, err)
@@ -266,7 +266,9 @@ func TestPickNoneWhenTopIsUnscored(t *testing.T) {
 // End to end with the engine's ranking, converted field for field.
 func TestPickOverPolicyRank(t *testing.T) {
 	ff := &fakeFacts{m: map[string]DirectionFacts{"good": good}}
-	mk := func(id, sess string) types.Direction { return types.Direction{ID: id, State: types.DirActive, SessionID: sess} }
+	mk := func(id, sess string) types.Direction {
+		return types.Direction{ID: id, State: types.DirActive, SessionID: sess}
+	}
 	pick := func(ds ...types.Direction) (string, bool) {
 		r, err := policy.Rank(context.Background(), ds, New(ff))
 		if err != nil {
