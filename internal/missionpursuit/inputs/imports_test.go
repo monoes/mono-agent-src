@@ -1,6 +1,7 @@
 package inputs
 
 import (
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"io/fs"
@@ -76,7 +77,8 @@ func TestThePackageImportsNothingThatCarriesAuthority(t *testing.T) {
 
 var writeSQL = regexp.MustCompile(`(?i)\b(insert|update|delete|replace|drop|alter|create|pragma|attach|vacuum)\b`)
 
-// Nothing here writes: no Exec call, no write statement in a string, and none of the strategy store's writers.
+// Nothing here writes: no Exec call, no write keyword in ANY string literal (raw or interpreted, anywhere in the file), and
+// none of the strategy store's writers.
 func TestThePackageHasNoWriter(t *testing.T) {
 	writers := []string{".Exec(", ".ExecContext(", "BeginTx(", ".Begin(", "InsertEpoch", "RecordJudgment", "MoveEpoch", "AcceptProposal",
 		"MoveDirection", "RecordRefusal"}
@@ -86,15 +88,19 @@ func TestThePackageHasNoWriter(t *testing.T) {
 				t.Errorf("%s calls %s", p, w)
 			}
 		}
-		for _, line := range strings.Split(src, "\n") {
-			s := strings.TrimSpace(line)
-			if strings.HasPrefix(s, "//") {
-				continue
-			}
-			if i := strings.Index(s, "`"); i >= 0 && writeSQL.MatchString(s[i:]) {
-				t.Errorf("%s: SQL string with a write keyword: %s", p, s)
-			}
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, p, src, 0)
+		if err != nil {
+			t.Fatalf("%s: %v", p, err)
 		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			if lit, ok := n.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+				if v, uerr := strconv.Unquote(lit.Value); uerr == nil && writeSQL.MatchString(v) {
+					t.Errorf("%s: string literal with a write keyword: %s", p, lit.Value)
+				}
+			}
+			return true
+		})
 	}
 }
 
@@ -102,11 +108,16 @@ func TestThePackageHasNoWriter(t *testing.T) {
 func TestOnlyTheWiringFilesImportThePackage(t *testing.T) {
 	root := filepath.Join("..", "..", "..")
 	var got []string
+	visited := 0
 	for _, top := range []string{"internal", "cmd", "wails-app"} {
-		_ = filepath.WalkDir(filepath.Join(root, top), func(p string, d fs.DirEntry, err error) error {
-			if err != nil || d.IsDir() || !strings.HasSuffix(p, ".go") {
+		werr := filepath.WalkDir(filepath.Join(root, top), func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() || !strings.HasSuffix(p, ".go") {
 				return nil
 			}
+			visited++
 			rel, _ := filepath.Rel(root, p)
 			rel = filepath.ToSlash(rel)
 			if strings.HasPrefix(rel, "internal/missionpursuit/inputs/") {
@@ -114,7 +125,7 @@ func TestOnlyTheWiringFilesImportThePackage(t *testing.T) {
 			}
 			f, perr := parser.ParseFile(token.NewFileSet(), p, nil, parser.ImportsOnly)
 			if perr != nil {
-				return nil
+				return perr
 			}
 			for _, im := range f.Imports {
 				if path, _ := strconv.Unquote(im.Path.Value); strings.HasSuffix(path, "/internal/missionpursuit/inputs") {
@@ -124,6 +135,12 @@ func TestOnlyTheWiringFilesImportThePackage(t *testing.T) {
 			}
 			return nil
 		})
+		if werr != nil {
+			t.Fatalf("walking %s: %v", top, werr)
+		}
+	}
+	if visited == 0 {
+		t.Fatal("the walk visited no Go files: the guard would pass on nothing")
 	}
 	sort.Strings(got)
 	if len(got) != 0 {

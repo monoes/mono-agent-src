@@ -37,4 +37,18 @@
 //
 // The Snapshot is the plain-types counterpart of the epoch engine's Snapshot; it does not carry the success criteria or the
 // direction activity (the lead's progress), which the host loop supplies from its own rows when it wires the engine.
+//
+// # Requirements for the S4 caller
+//
+//   - Wire inputs.Reader as the RunState of the epoch engine and the policy intake. NEVER the mission strategy store's own
+//     Running/RunOf: they answer true for every session whose state is 'running', with no pursuit, an unstarted one, or a
+//     paused one. A test pins the difference by name.
+//   - A Snapshot is not a transaction. Its reads are separate statements, so Run.Running true inside a Snapshot is advice, not
+//     a lease: re-run Check immediately before each spend or wake of the lead, and treat its answer as the only one.
+//   - An unknown budget (Budget.Known false, for example the default budget_usd of 0) is UNKNOWN, never unlimited. A caller
+//     must not read it as permission to spend; the away rule fails closed on it.
+//   - EvidenceSeq is bumpable by an agent (it is the highest id of rows agents can add). Use it as a change signal only, and
+//     rate-limit the epochs it can trigger; never as proof of progress.
+//   - The strings in Directions and Epochs (titles, proposer and lead sessions, model pins) are untrusted text. Do not compare,
+//     parse or act on them; pass them to the judge as data.
 package inputs
