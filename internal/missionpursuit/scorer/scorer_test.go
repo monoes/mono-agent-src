@@ -54,6 +54,11 @@ func TestScoreValues(t *testing.T) {
 	if want := (3*4.5 + 10 + 10 + 9) / 6.0; err != nil || math.Abs(got-want) > 1e-9 {
 		t.Fatalf("mixed facts: got %v want %v (%v)", got, want, err)
 	}
+	// no finished task yet: the risk reads as the worst even when criteria pass. success 6, cost 0, risk 10, effort 1
+	got, err = score(t, DirectionFacts{TasksOpen: 2, CriteriaChecked: 2, CriteriaPassed: 2, SpendKnown: true})
+	if want := (3*6.0 + 10 + 0 + 9) / 6.0; err != nil || math.Abs(got-want) > 1e-9 {
+		t.Fatalf("unproven facts: got %v want %v (%v)", got, want, err)
+	}
 	// unknown spend reads as the worst cost; failures with no success read as the worst risk
 	got, err = score(t, DirectionFacts{TasksFailed: 3})
 	if want := (0 + 0 + 0 + 10) / 6.0; err != nil || math.Abs(got-want) > 1e-9 {
@@ -64,16 +69,16 @@ func TestScoreValues(t *testing.T) {
 func TestUnscoredFailsClosed(t *testing.T) {
 	over := MaxCount + 1
 	for name, f := range map[string]DirectionFacts{
-		"no activity":           {SpendKnown: true},
-		"negative count":        {TasksDone: -1, CriteriaChecked: 1},
-		"negative open":         {TasksDone: 1, TasksOpen: -1},
-		"passed over checked":   {TasksDone: 1, CriteriaChecked: 1, CriteriaPassed: 2},
-		"count over bound":      {TasksDone: over},
-		"checked over bound":    {TasksDone: 1, CriteriaChecked: over, CriteriaPassed: 1},
-		"evidence over bound":   {TasksDone: 1, EvidenceRows: over},
-		"negative spend":        {TasksDone: 1, SpendKnown: true, SpendPermille: -5},
-		"negative evidence":     {TasksDone: 1, EvidenceRows: -1},
-		"negative passed":       {TasksDone: 1, CriteriaChecked: 1, CriteriaPassed: -1},
+		"no activity":         {SpendKnown: true},
+		"negative count":      {TasksDone: -1, CriteriaChecked: 1},
+		"negative open":       {TasksDone: 1, TasksOpen: -1},
+		"passed over checked": {TasksDone: 1, CriteriaChecked: 1, CriteriaPassed: 2},
+		"count over bound":    {TasksDone: over},
+		"checked over bound":  {TasksDone: 1, CriteriaChecked: over, CriteriaPassed: 1},
+		"evidence over bound": {TasksDone: 1, EvidenceRows: over},
+		"negative spend":      {TasksDone: 1, SpendKnown: true, SpendPermille: -5},
+		"negative evidence":   {TasksDone: 1, EvidenceRows: -1},
+		"negative passed":     {TasksDone: 1, CriteriaChecked: 1, CriteriaPassed: -1},
 	} {
 		if s, err := score(t, f); !errors.Is(err, ErrUnscored) || s != 0 {
 			t.Errorf("%s: got %v %v, want ErrUnscored", name, s, err)
