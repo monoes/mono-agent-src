@@ -18,8 +18,8 @@ func (d Deps) newSessionPursuitCmd() *cobra.Command {
 		Short: "Start, pause or resume the pursuit of a mission's confirmed goal (you only); status reads it",
 		Long: `A mission whose goal you confirmed can be pursued without end. Starting the pursuit locks the goal with it
 (a locked goal is final), and sets how far the pursuit may run while you are away: stop after PARKED-MAX questions
-wait for you, or after PCT percent of the budget is spent, since you last acted. In a pursuit every question goes
-to you and parks until you answer; none is answered by the model or by a default.
+wait for you, or after PCT percent of the budget is spent, since you last acted. Who answers a question
+and what happens to one nobody answers stay the chat's autonomy settings, as for any other mission.
 Only you start, pause or resume; an agent is refused.
 
   pursuit start ID [--parked-max N] [--pct N]   start it (the goal must be confirmed); defaults 3 and 20

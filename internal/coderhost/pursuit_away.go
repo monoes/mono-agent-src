@@ -1,13 +1,7 @@
 package coderhost
 
-// The question policy of a mission in pursuit (T6). While the person is away the pursuit must never act on a guess: every
-// question goes to the person and parks until they answer, whatever the preset or a per-class override says, for every
-// class (the soft ones too: ambiguity, scope growth, a failed check). Nothing answers it for them and no default is
-// taken when it waits, so the wait is bounded by AwayState, not by a timeout.
-
-// PursuitClamp is the decision of a mission in pursuit, whatever the settings decided: the person answers, and an
-// unanswered question parks. Decide applies it when the mission's pursuit is started (Settings.pursuing).
-func PursuitClamp(Decision) Decision { return Decision{Answerer: WhoUser, Fallback: FallbackPark} }
+// The away state of a pursuit (T6): what it counts while the person is away. It is pure data and nothing feeds it yet.
+// It does not touch the question policy: Decide is the same for a mission in pursuit as for any other.
 
 // AwayState is what a pursuit counts while the person is away: the questions parked for them and the money spent since
 // their last action. The pursuit stops opening new work when WaitingForYou. Pure data: the host feeds it from rows.
