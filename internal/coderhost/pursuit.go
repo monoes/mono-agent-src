@@ -44,6 +44,14 @@ const (
 	//
 	// MaxPursuitWakesPerHour: wake-ups across ALL missions of this host in any hour (queued, ran or lost alike).
 	MaxPursuitWakesPerHour = missionpursuit.MaxHostWakesPerHour
+
+	// MaxPursuitJudgeCallsPerHour: judge calls across ALL missions of this host in any hour (a call that failed or was cut
+	// off counts: it was paid for). Reaching it opens no epoch until the oldest call leaves the hour.
+	MaxPursuitJudgeCallsPerHour = missionpursuit.MaxHostJudgeCallsPerHour
+
+	// MaxBadJudgeRounds: this many judge rounds in a row that failed (invalid or oversized answer, model failure) stop the
+	// pursuit and make it wait for the person ("judge-failing"); the person acting starts the count again.
+	MaxBadJudgeRounds = missionpursuit.MaxBadJudgeRounds
 )
 
 const (
@@ -59,6 +67,8 @@ const (
 	pursuitWaitingLimits = "limits"
 	pursuitWaitingEngine = "engine-parked"
 	pursuitWaitingWakes  = "wakes"
+	pursuitWaitingJudge  = "judge-failing"
+	pursuitWaitingLead   = "lead-uncapped"
 )
 
 // PursuitDeps turns the loop on. Model is the judge (resolved by the caller for the judging purpose) and Refuse its
@@ -106,6 +116,15 @@ type pursuitState struct {
 	BudgetMicro int64
 	HourWakes   int
 	HourFreesAt string
+	// the judge and the lead's turns (migration 168)
+	BadRounds     int    // judge rounds in a row that failed
+	BaseJudgeID   int64  // the judge ledger's highest id when the person last acted
+	BaseLeadMicro int64  // the lead's and its helpers' turn-journal spend then
+	JudgeMicro    int64  // judge spend since the person last acted (shown)
+	LeadMicro     int64  // lead and helper turn spend since then (shown)
+	JudgeCalls    int    // judge calls since then (shown)
+	HourJudges    int    // judge calls of all missions in the last hour (shown)
+	LastRound     string // how the latest judge round ended
 }
 
 // pursuitIfDue starts a pass in its own goroutine when one is due and none is running: a judge call can take minutes and
@@ -214,7 +233,11 @@ func (h *Host) pursuingMissions(ctx context.Context) ([]pursuitMission, error) {
 func (h *Host) pursue(ctx context.Context, m pursuitMission) {
 	rd := inputs.New(h.Store.db)
 	g, ok := h.pursuitGate(ctx, rd, m)
-	if !ok || g.st.Waiting != "" {
+	if !ok {
+		return
+	}
+	h.pursuitBind(ctx, m) // bookkeeping on rows the host owns: no spend, so it also runs while the pursuit waits
+	if g.st.Waiting != "" {
 		return
 	}
 	run, err := h.pursuitRunOf(m, g.goal)
@@ -234,6 +257,7 @@ func (h *Host) pursue(ctx context.Context, m pursuitMission) {
 			h.logf("coder host: pursuit of session %d: epoch: %v", m.ID, err)
 		}
 		h.noteEngineResult(m, run, res, err)
+		h.pursuitPropose(ctx, rd, m, g.goal, res)
 	}
 	h.pursuitWake(ctx, rd, m, g)
 }
@@ -244,6 +268,9 @@ func (h *Host) pursue(ctx context.Context, m pursuitMission) {
 func (h *Host) pursuitMayTick(ctx context.Context, m pursuitMission, g pursuitGateResult) bool {
 	if h.pursuitUndelivered(g) {
 		return false
+	}
+	if g.hourJudges >= MaxPursuitJudgeCallsPerHour {
+		return false // the host-wide cap on judge calls in an hour is used; it frees as the oldest call leaves the hour
 	}
 	if why := h.pursuitDeliverable(m, g); why != "" {
 		return false
@@ -313,7 +340,7 @@ func (h *Host) noteEngineResult(m pursuitMission, run *pursuitRun, res epoch.Tic
 			h.logf("coder host: pursuit of session %d: the epoch engine holds (%s)", m.ID, held)
 		}
 	}
-	_ = err
+	h.noteJudgeRound(m, res, err)
 }
 
 func (d *PursuitDeps) timeout() time.Duration {
@@ -331,11 +358,12 @@ func (h *Host) pursuitRunning(ctx context.Context, rd *inputs.Reader, session in
 
 // pursuitGateResult is a fresh read of a started pursuit that may go on.
 type pursuitGateResult struct {
-	st        pursuitState
-	snap      inputs.Snapshot
-	goal      missionpursuit.Goal
-	delivered bool // the latest applied epoch's wake-up is queued or ran (filled by the gate)
-	hourWakes int  // pursuit wake-ups of ALL missions in the last hour
+	st         pursuitState
+	snap       inputs.Snapshot
+	goal       missionpursuit.Goal
+	delivered  bool // the latest applied epoch's wake-up is queued or ran (filled by the gate)
+	hourWakes  int  // pursuit wake-ups of ALL missions in the last hour
+	hourJudges int  // judge calls of ALL missions in the last hour
 }
 
 // pursuitGate reads the run state, the confirmed goal, the facts and the away counters in one go and says whether the
@@ -376,14 +404,34 @@ func (h *Host) pursuitGate(ctx context.Context, rd *inputs.Reader, m pursuitMiss
 		h.logf("coder host: pursuit of session %d: %v", m.ID, err)
 		return g, false
 	}
+	// What the 20% rule counts beyond the mission session's own meter, all measured by the host: the judge ledger, and the
+	// turn journals of the lead and its helpers.
+	judgeID, err := h.Store.judgeLedgerHead(m.ID)
+	if err != nil {
+		h.logf("coder host: pursuit of session %d: %v", m.ID, err)
+		return g, false
+	}
+	leadNow, err := h.Store.leadTurnSpendMicro(m, tree)
+	if err != nil {
+		h.logf("coder host: pursuit of session %d: %v", m.ID, err)
+		return g, false
+	}
 	changed := !found
 	switch {
 	case !found:
-		st = pursuitState{SessionID: m.ID, PersonAt: pa, BaseSpentMicro: spent}
+		st = pursuitState{SessionID: m.ID, PersonAt: pa, BaseSpentMicro: spent, BaseJudgeID: judgeID, BaseLeadMicro: leadNow}
 	case pa.After(st.PersonAt):
-		st.PersonAt, st.BaseSpentMicro, st.WakesSince = pa, spent, 0 // the person acted: the counters start again
+		// the person acted: the counters start again, the judge-failing stop is lifted
+		st.PersonAt, st.BaseSpentMicro, st.WakesSince = pa, spent, 0
+		st.BaseJudgeID, st.BaseLeadMicro, st.BadRounds = judgeID, leadNow, 0
 		changed = true
 	}
+	judgeMicro, judgeCalls, err := h.Store.judgeSpendAfter(m.ID, st.BaseJudgeID)
+	if err != nil {
+		h.logf("coder host: pursuit of session %d: %v", m.ID, err)
+		return g, false
+	}
+	leadMicro := max(leadNow-st.BaseLeadMicro, 0)
 	parked, err := h.Store.parkedSince(m, tree, st.PersonAt)
 	if err != nil {
 		h.logf("coder host: pursuit of session %d: %v", m.ID, err)
@@ -393,19 +441,32 @@ func (h *Host) pursuitGate(ctx context.Context, rd *inputs.Reader, m pursuitMiss
 	if snap.Budget.Known {
 		away.BudgetMicro = usdMicro(snap.Budget.BudgetUSD)
 		away.Spend(spent - st.BaseSpentMicro)
+		away.Spend(judgeMicro)
+		away.Spend(leadMicro)
 	}
 	hourN, freesAt, err := h.Store.pursuitWakesLastHour()
 	if err != nil {
 		h.logf("coder host: pursuit of session %d: %v", m.ID, err)
 		return g, false
 	}
-	g.hourWakes = hourN
-	shown := pursuitState{Parked: parked, SpentAway: away.SpentMicro, BudgetMicro: away.BudgetMicro, HourWakes: hourN, HourFreesAt: freesAt}
-	if shown.Parked != st.Parked || shown.SpentAway != st.SpentAway || shown.BudgetMicro != st.BudgetMicro || shown.HourWakes != st.HourWakes || shown.HourFreesAt != st.HourFreesAt {
+	hourJ, err := h.Store.pursuitJudgeCallsLastHour()
+	if err != nil {
+		h.logf("coder host: pursuit of session %d: %v", m.ID, err)
+		return g, false
+	}
+	g.hourWakes, g.hourJudges = hourN, hourJ
+	shown := pursuitState{Parked: parked, SpentAway: away.SpentMicro, BudgetMicro: away.BudgetMicro, HourWakes: hourN, HourFreesAt: freesAt,
+		JudgeMicro: judgeMicro, LeadMicro: leadMicro, JudgeCalls: judgeCalls, HourJudges: hourJ}
+	if shown.Parked != st.Parked || shown.SpentAway != st.SpentAway || shown.BudgetMicro != st.BudgetMicro || shown.HourWakes != st.HourWakes || shown.HourFreesAt != st.HourFreesAt ||
+		shown.JudgeMicro != st.JudgeMicro || shown.LeadMicro != st.LeadMicro || shown.JudgeCalls != st.JudgeCalls || shown.HourJudges != st.HourJudges {
 		st.Parked, st.SpentAway, st.BudgetMicro, st.HourWakes, st.HourFreesAt = shown.Parked, shown.SpentAway, shown.BudgetMicro, shown.HourWakes, shown.HourFreesAt
+		st.JudgeMicro, st.LeadMicro, st.JudgeCalls, st.HourJudges = shown.JudgeMicro, shown.LeadMicro, shown.JudgeCalls, shown.HourJudges
 		changed = true
 	}
 	waiting := awayReason(away, snap.Budget.Known, st.WakesSince, pur.WakesMax)
+	if waiting == "" {
+		waiting = h.pursuitStopReason(m, st)
+	}
 	if h.pursuitEngineParked(m.ID) {
 		waiting = pursuitWaitingEngine
 	}
@@ -458,8 +519,10 @@ func usdMicro(usd float64) int64 {
 func (s *Store) pursuitStateOf(session int64) (pursuitState, bool, error) {
 	st := pursuitState{SessionID: session}
 	var at string
-	err := s.db.QueryRow(`SELECT person_at, base_spent_micro, waiting, woken_epoch, wakes_since, parked, spent_away_micro, budget_micro, hour_wakes, hour_frees_at FROM mission_pursuit_state WHERE session_id = ?`, session).
-		Scan(&at, &st.BaseSpentMicro, &st.Waiting, &st.WokenEpoch, &st.WakesSince, &st.Parked, &st.SpentAway, &st.BudgetMicro, &st.HourWakes, &st.HourFreesAt)
+	err := s.db.QueryRow(`SELECT person_at, base_spent_micro, waiting, woken_epoch, wakes_since, parked, spent_away_micro, budget_micro, hour_wakes, hour_frees_at,
+		bad_rounds, base_judge_id, base_lead_micro, judge_micro, lead_micro, judge_calls, hour_judges, last_round FROM mission_pursuit_state WHERE session_id = ?`, session).
+		Scan(&at, &st.BaseSpentMicro, &st.Waiting, &st.WokenEpoch, &st.WakesSince, &st.Parked, &st.SpentAway, &st.BudgetMicro, &st.HourWakes, &st.HourFreesAt,
+			&st.BadRounds, &st.BaseJudgeID, &st.BaseLeadMicro, &st.JudgeMicro, &st.LeadMicro, &st.JudgeCalls, &st.HourJudges, &st.LastRound)
 	if errors.Is(err, sql.ErrNoRows) {
 		return pursuitState{SessionID: session}, false, nil
 	}
@@ -481,10 +544,15 @@ func (s *Store) savePursuitState(st pursuitState, now time.Time) error {
 	if !st.PersonAt.IsZero() {
 		at = st.PersonAt.UTC().Format(time.RFC3339Nano)
 	}
-	_, err := s.db.Exec(`INSERT INTO mission_pursuit_state (session_id, person_at, base_spent_micro, waiting, woken_epoch, wakes_since, parked, spent_away_micro, budget_micro, hour_wakes, hour_frees_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	_, err := s.db.Exec(`INSERT INTO mission_pursuit_state (session_id, person_at, base_spent_micro, waiting, woken_epoch, wakes_since, parked, spent_away_micro, budget_micro, hour_wakes, hour_frees_at,
+		bad_rounds, base_judge_id, base_lead_micro, judge_micro, lead_micro, judge_calls, hour_judges, last_round, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(session_id) DO UPDATE SET person_at = excluded.person_at, base_spent_micro = excluded.base_spent_micro, waiting = excluded.waiting,
 		wakes_since = excluded.wakes_since, parked = excluded.parked, spent_away_micro = excluded.spent_away_micro, budget_micro = excluded.budget_micro,
-		hour_wakes = excluded.hour_wakes, hour_frees_at = excluded.hour_frees_at, updated_at = excluded.updated_at`, st.SessionID, at, st.BaseSpentMicro, st.Waiting, st.WokenEpoch, st.WakesSince, st.Parked, st.SpentAway, st.BudgetMicro, st.HourWakes, st.HourFreesAt, now.UTC().Format(time.RFC3339Nano))
+		hour_wakes = excluded.hour_wakes, hour_frees_at = excluded.hour_frees_at, bad_rounds = excluded.bad_rounds, base_judge_id = excluded.base_judge_id,
+		base_lead_micro = excluded.base_lead_micro, judge_micro = excluded.judge_micro, lead_micro = excluded.lead_micro, judge_calls = excluded.judge_calls,
+		hour_judges = excluded.hour_judges, last_round = excluded.last_round, updated_at = excluded.updated_at`,
+		st.SessionID, at, st.BaseSpentMicro, st.Waiting, st.WokenEpoch, st.WakesSince, st.Parked, st.SpentAway, st.BudgetMicro, st.HourWakes, st.HourFreesAt,
+		st.BadRounds, st.BaseJudgeID, st.BaseLeadMicro, st.JudgeMicro, st.LeadMicro, st.JudgeCalls, st.HourJudges, st.LastRound, now.UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return fmt.Errorf("saving the pursuit state: %w", err)
 	}
@@ -500,7 +568,7 @@ func (h *Host) pursuitRunOf(m pursuitMission, goal missionpursuit.Goal) (*pursui
 		return r, nil
 	}
 	d := h.Pursuit
-	jd, err := judge.New(judge.Config{Model: d.Model, Refuse: d.Refuse, Timeout: d.Timeout})
+	jd, err := judge.New(judge.Config{Model: meteredModel{inner: d.Model, store: h.Store, session: m.ID}, Refuse: d.Refuse, Timeout: d.Timeout})
 	if err != nil {
 		return nil, err
 	}

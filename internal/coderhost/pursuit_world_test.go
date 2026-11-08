@@ -12,6 +12,7 @@ import (
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/epoch"
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/judge"
 	"github.com/monoes/mono-agent/internal/missionpursuit"
+	"github.com/monoes/mono-agent/internal/missionpursuit/judgecost"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
 
@@ -22,6 +23,12 @@ type fakeJudge struct {
 	calls  int
 	onCall func()                                         // runs inside Complete, before the reply
 	reply  func(n int, criteria, directions []string) any // nil: keep everything
+	// cost is what each call reports to the host (judgecost); noCost makes a call report nothing, as a runtime that does not
+	// measure cost; failWith makes a call fail after it was made (and, unless noCost, charged).
+	cost     float64
+	noCost   bool
+	failWith error
+	prompts  []string // every prompt the judge was given
 }
 
 func (f *fakeJudge) Pin() string { return "fake/judge@1" }
@@ -30,9 +37,20 @@ func (f *fakeJudge) Complete(ctx context.Context, req judge.Request) ([]byte, er
 	f.mu.Lock()
 	f.calls++
 	n := f.calls
+	f.prompts = append(f.prompts, req.System+"\n"+req.User)
 	f.mu.Unlock()
 	if f.onCall != nil {
 		f.onCall()
+	}
+	if !f.noCost {
+		c := f.cost
+		if c == 0 {
+			c = 0.01
+		}
+		judgecost.Report(ctx, c, true)
+	}
+	if f.failWith != nil {
+		return nil, f.failWith
 	}
 	var doc struct {
 		Criteria   []struct{ ID string } `json:"criteria"`
@@ -114,7 +132,7 @@ func newPursuitWorldWith(t *testing.T, started bool) *pworld {
 	}
 	w.exec(`INSERT OR IGNORE INTO profiles (id, name) VALUES ('p', 'p')`)
 	w.exec(`INSERT INTO task_sessions (id, profile_id, conversation_id, title, state, kind, budget_usd, created_by, created_at, updated_at) VALUES (77, 'p', 'm', 't', 'running', 'mission', 10, 'you', ?, ?)`, clk.Now().Format(time.RFC3339), clk.Now().Format(time.RFC3339))
-	w.exec(`UPDATE coder_sessions SET chat_mode = 'mission' WHERE profile_id = 'p' AND conversation_id = 'm'`)
+	w.exec(`UPDATE coder_sessions SET chat_mode = 'mission', budget_usd = 0.2 WHERE profile_id = 'p' AND conversation_id = 'm'`) // a lead with its own cap
 	if started {
 		mp := missionpursuit.NewStore(st.db)
 		op := tasks.Actor{Kind: tasks.Human, Name: "you"}

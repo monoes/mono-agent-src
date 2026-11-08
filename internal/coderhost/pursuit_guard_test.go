@@ -45,14 +45,16 @@ func TestThePursuitFilesImportNothingThatCarriesAuthority(t *testing.T) {
 	allowed := map[string]bool{
 		"context": true, "crypto/rand": true, "encoding/hex": true, "database/sql": true, "errors": true, "fmt": true, "math": true, "sort": true, "strconv": true,
 		"strings": true, "sync": true, "sync/atomic": true, "time": true, "unicode/utf8": true,
-		"github.com/monoes/mono-agent/internal/doomsday/strategy/epoch":  true,
-		"github.com/monoes/mono-agent/internal/doomsday/strategy/judge":  true,
-		"github.com/monoes/mono-agent/internal/doomsday/strategy/policy": true,
-		"github.com/monoes/mono-agent/internal/doomsday/strategy/types":  true,
-		"github.com/monoes/mono-agent/internal/missionpursuit":           true,
-		"github.com/monoes/mono-agent/internal/missionpursuit/inputs":    true,
-		"github.com/monoes/mono-agent/internal/missionpursuit/scorer":    true,
-		"github.com/monoes/mono-agent/internal/missionpursuit/strategy":  true,
+		"github.com/monoes/mono-agent/internal/doomsday/strategy/epoch":   true,
+		"github.com/monoes/mono-agent/internal/doomsday/strategy/judge":   true,
+		"github.com/monoes/mono-agent/internal/doomsday/strategy/novelty": true, // S5a: the novelty gate of the proposals the host writes (pursuit_propose.go)
+		"github.com/monoes/mono-agent/internal/doomsday/strategy/policy":  true,
+		"github.com/monoes/mono-agent/internal/doomsday/strategy/types":   true,
+		"github.com/monoes/mono-agent/internal/missionpursuit":            true,
+		"github.com/monoes/mono-agent/internal/missionpursuit/inputs":     true,
+		"github.com/monoes/mono-agent/internal/missionpursuit/judgecost":  true, // S5a: a dependency-free context helper (no process, no network)
+		"github.com/monoes/mono-agent/internal/missionpursuit/scorer":     true,
+		"github.com/monoes/mono-agent/internal/missionpursuit/strategy":   true,
 	}
 	for name, f := range pursuitSources(t) {
 		for _, im := range f.Imports {
@@ -92,7 +94,8 @@ func constString(e ast.Expr) (string, bool) {
 func TestThePursuitLoopWritesOnlyItsOwnStateAndTheQueue(t *testing.T) {
 	write := regexp.MustCompile(`(?is)\b(INSERT|UPDATE|DELETE|REPLACE|ALTER|DROP|CREATE)\b`)
 	target := regexp.MustCompile(`(?is)\b(?:INTO|UPDATE|FROM|TABLE)\s+([a-z_]+)`)
-	mayExec := map[string]bool{"savePursuitState": true, "EnqueueWithPursuit": true}
+	// S5a: the judge ledger is written by two functions only, before a judge call (at the cap) and after it (settled once)
+	mayExec := map[string]bool{"savePursuitState": true, "EnqueueWithPursuit": true, "reserveJudgeCall": true, "settleJudgeCall": true}
 	denied := map[string]bool{"SaveSettings": true, "UpdateSettings": true, "SetBudget": true, "SaveCheckin": true, "Enqueue": true,
 		"EnqueueWithCheckin": true, "IssueSessionToken": true, "ChargeChild": true, "RevokeSessionTokens": true,
 		"Confirm": true, "Pause": true, "Resume": true, "Start": true, "Propose": true, "Set": true}
@@ -104,12 +107,23 @@ func TestThePursuitLoopWritesOnlyItsOwnStateAndTheQueue(t *testing.T) {
 				return
 			}
 			for _, m := range target.FindAllStringSubmatch(s, -1) {
-				if m[1] != "mission_pursuit_state" && !strings.EqualFold(m[1], "set") {
+				if m[1] != "mission_pursuit_state" && m[1] != "mission_pursuit_spend" && !strings.EqualFold(m[1], "set") {
 					bad = append(bad, name+": "+strings.TrimSpace(s))
 				}
 			}
 		}
 		for _, d := range f.Decls {
+			// a SQL text kept in a package-level const or var is scanned like one inside a function
+			if gd, ok := d.(*ast.GenDecl); ok && (gd.Tok == token.CONST || gd.Tok == token.VAR) {
+				ast.Inspect(gd, func(n ast.Node) bool {
+					if e, ok := n.(ast.Expr); ok {
+						if s, ok := constString(e); ok {
+							check(s)
+						}
+					}
+					return true
+				})
+			}
 			fd, ok := d.(*ast.FuncDecl)
 			if !ok || fd.Body == nil {
 				continue
@@ -253,4 +267,38 @@ func TestThePursuitIsOffUnlessTheHostIsGivenIt(t *testing.T) {
 		t.Fatal("a host has a pursuit by default")
 	}
 	h.pursuitIfDue(context.Background())
+}
+
+// The selectors the pursuit files use on the packages that export writers or authority are listed here. A new one is decided in
+// review. missionpursuit exports the goal/pursuit writers (Set, Start, ...): only reads and constants may be named; the
+// strategy store's writers are named only by the two files that must write a proposal or a link (MoveDirection, AcceptProposal
+// through policy.Proposer).
+func TestThePursuitFilesNameOnlyListedExportsOfThePackagesThatCarryWriters(t *testing.T) {
+	allowed := map[string]map[string]bool{
+		"missionpursuit": {"Goal": true, "NewStore": true, "Get": true, "GetPursuit": true, "StateConfirmed": true, "StateLocked": true, "MaxHostWakesPerHour": true, "MaxHostJudgeCallsPerHour": true,
+			"MaxBadJudgeRounds": true, "MaxWakesMax": true, "WaitingWhy": true},
+		"strategy":  {"NewStore": true, "Store": true},
+		"policy":    {"Proposer": true, "Rank": true, "AcceptsNewWork": true},
+		"novelty":   {"New": true, "Corpus": true, "Match": true, "Hit": true},
+		"judgecost": {"PerCallCapUSD": true, "With": true},
+	}
+	// the strategy store's methods are not selectors on the package: they are listed by name, with the one file each may be in
+	writers := map[string]string{"MoveDirection": "pursuit_propose.go", "AcceptProposal": "", "RecordRefusal": "", "InsertEpoch": "", "MoveEpoch": "", "RecordJudgment": ""}
+	for name, f := range pursuitSources(t) {
+		ast.Inspect(f, func(n ast.Node) bool {
+			sel, ok := n.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			if id, ok := sel.X.(*ast.Ident); ok {
+				if list, guarded := allowed[id.Name]; guarded && !list[sel.Sel.Name] {
+					t.Errorf("%s uses %s.%s: decide it in review", name, id.Name, sel.Sel.Name)
+				}
+			}
+			if only, isWriter := writers[sel.Sel.Name]; isWriter && name != only {
+				t.Errorf("%s uses the strategy writer %s", name, sel.Sel.Name)
+			}
+			return true
+		})
+	}
 }

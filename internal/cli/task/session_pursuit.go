@@ -79,10 +79,20 @@ func (d Deps) writeProgress(cmd *cobra.Command, p tasks.Profile, pu missionpursu
 		fmt.Fprintf(w, "; the oldest leaves the hour at %s", pr.HostFreesAt)
 	}
 	fmt.Fprintln(w)
+	fmt.Fprintf(w, "  of that, the judge cost $%.2f in %d call(s) (a call whose cost the runtime did not report is counted at $0.50), the lead's and helpers' turns $%.2f\n",
+		pr.JudgeSpendUSD, pr.JudgeCalls, pr.LeadSpendUSD)
+	fmt.Fprintf(w, "  this host, last hour: %d of %d judge call(s); judge rounds that failed in a row: %d of %d", pr.HostJudges, pr.HostJudgesMax, pr.BadRounds, pr.BadRoundsMax)
+	if pr.LastRound != "" {
+		fmt.Fprintf(w, "; the last round ended: %s", pr.LastRound)
+	}
+	fmt.Fprintln(w)
 	if pr.Why != "" {
 		fmt.Fprintf(w, "  %s\n", pr.Why)
 	}
-	fmt.Fprintf(w, "  as of %s; judge calls, wake-up turns and running children may cost more than the metered spend\n", pr.AsOf)
+	if pu.Paused() {
+		fmt.Fprintln(w, "  paused: nothing is woken and nothing is judged, and the lead's check-ins do not come back; only your resume starts it again")
+	}
+	fmt.Fprintf(w, "  as of %s; a helper that has not ended is counted from its own turn journal; closing the mission stays yours\n", pr.AsOf)
 	return nil
 }
 

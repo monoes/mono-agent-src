@@ -142,17 +142,18 @@ func TestSessionPursuitStatusShowsHowFarEveryLimitHasComeAndWhyItWaits(t *testin
 		t.Fatal(err)
 	}
 	defer d.Close()
-	if _, err := d.DB.Exec(`INSERT INTO mission_pursuit_state (session_id, waiting, wakes_since, parked, spent_away_micro, budget_micro, hour_wakes, hour_frees_at, updated_at)
-		VALUES (?, 'wakes', 4, 1, 2500000, 10000000, 3, '2026-11-08T13:00:00Z', '2026-11-08T12:00:00Z')`, s); err != nil {
+	if _, err := d.DB.Exec(`INSERT INTO mission_pursuit_state (session_id, waiting, wakes_since, parked, spent_away_micro, budget_micro, hour_wakes, hour_frees_at, updated_at, judge_micro, lead_micro, judge_calls, bad_rounds, hour_judges, last_round)
+		VALUES (?, 'wakes', 4, 1, 2500000, 10000000, 3, '2026-11-08T13:00:00Z', '2026-11-08T12:00:00Z', 1500000, 700000, 3, 2, 5, 'invalid')`, s); err != nil {
 		t.Fatal(err)
 	}
 	st.Progress = missionpursuit.Progress{}
 	mustTaskJSON(t, db, "default", &st, "", "session", "pursuit", "status", id(s))
-	if !st.Progress.Seen || st.Progress.WakesUsed != 4 || st.Progress.Waiting != "wakes" || st.Progress.SpentAwayUSD != 2.5 || st.Progress.HostWakes != 3 {
+	if !st.Progress.Seen || st.Progress.WakesUsed != 4 || st.Progress.Waiting != "wakes" || st.Progress.SpentAwayUSD != 2.5 || st.Progress.HostWakes != 3 ||
+		st.Progress.JudgeSpendUSD != 1.5 || st.Progress.LeadSpendUSD != 0.7 || st.Progress.JudgeCalls != 3 || st.Progress.BadRounds != 2 || st.Progress.BadRoundsMax != 3 || st.Progress.HostJudges != 5 || st.Progress.HostJudgesMax != 12 || st.Progress.LastRound != "invalid" {
 		t.Fatalf("progress = %+v", st.Progress)
 	}
 	text, _, err = runTask(t, db, "default", false, "", "session", "pursuit", "status", id(s))
-	for _, want := range []string{"4 of 4 wake-up(s)", "1 of 3 parked", "$2.50 metered spend", "$10.00 budget", "3 of 12 pursuit wake-up(s)", "2026-11-08T13:00:00Z", "waiting for you: the pursuit woke the lead", "may cost more than the metered spend"} {
+	for _, want := range []string{"4 of 4 wake-up(s)", "1 of 3 parked", "$2.50 metered spend", "$10.00 budget", "3 of 12 pursuit wake-up(s)", "2026-11-08T13:00:00Z", "waiting for you: the pursuit woke the lead", "judge cost $1.50 in 3 call(s)", "turns $0.70", "5 of 12 judge call(s)", "failed in a row: 2 of 3", "the last round ended: invalid", "closing the mission stays yours"} {
 		if err != nil || !strings.Contains(text, want) {
 			t.Errorf("text status lacks %q: %v\n%s", want, err, text)
 		}

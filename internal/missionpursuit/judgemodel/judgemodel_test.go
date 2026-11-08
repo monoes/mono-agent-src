@@ -63,7 +63,9 @@ func TestACompletedCallReturnsTheReplyAndReportsTheCostTheRuntimeMeasured(t *tes
 }
 
 func TestACallThatReportsNoCostIsReportedUnknownNotFree(t *testing.T) {
-	m := newModel(t, func(context.Context, monomind.ExecOptions, func(monomind.Event)) (*monomind.TurnResult, error) { return done("{}"), nil })
+	m := newModel(t, func(context.Context, monomind.ExecOptions, func(monomind.Event)) (*monomind.TurnResult, error) {
+		return done("{}"), nil
+	})
 	ctx, rep := sinkCtx()
 	if _, err := m.Complete(ctx, judge.Request{}); err != nil {
 		t.Fatal(err)
