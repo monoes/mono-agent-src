@@ -95,7 +95,6 @@ func TestTheOperatorsApprovalIsAPersonAction(t *testing.T) {
 	se, ts := missionFor(t, st, "m2", false)
 	st.db.Exec(`INSERT OR IGNORE INTO mission_pursuit (session_id, enabled, locked_by, created_at, updated_at) VALUES (?, 0, '', 'x', 'x')`, se.ID)
 	before := (&pworld{t: t, st: st, h: h}).personAtOf(se.ID, "m2")
-	time.Sleep(1100 * time.Millisecond) // the approval is stamped by the real clock, in a later second than the draft's events
 	if _, err := ts.ApproveSession(bg, "p", se.ID, human); err != nil {
 		t.Fatal(err)
 	}
@@ -165,5 +164,49 @@ func TestAQueuedWakeUpIsCheckedAgainstTheConditionsOfItsDeliveryWhenItIsAboutToR
 				t.Fatal("the queued wake-up ran after its conditions were gone")
 			}
 		})
+	}
+}
+
+func (w *pworld) sendFromHost(turn, issuer string) {
+	w.exec(`INSERT INTO coder_session_commands (profile_id, conversation_id, kind, turn_id, message, attachments, status, created_at, updated_at, issuer) VALUES ('p', 'm', 'send', ?, 'x', '[]', 'done', ?, ?, ?)`,
+		turn, w.clk.Now().Format(time.RFC3339Nano), w.clk.Now().Format(time.RFC3339Nano), issuer)
+}
+
+// A model default (answer-d-) and a master's answer (answer-m-) are notes with an empty issuer or the master's: they are not the
+// person. Only answer-p- and ask-p- are. Widening the person prefixes (answer-p- to answer-) fails here.
+func TestOnlyThePersonsOwnAnswerNotesMoveThePersonActionTime(t *testing.T) {
+	for _, c := range []struct {
+		turn   string
+		person bool
+	}{
+		{answerTurnID(answerFromDefault), false},
+		{answerTurnID(answerFromMaster), false},
+		{askTurnID("m"), false},
+		{answerTurnID(answerFromPerson), true},
+		{askTurnID(askFromPerson), true},
+	} {
+		t.Run(c.turn[:8], func(t *testing.T) {
+			w := newPursuitWorld(t)
+			w.backdatePursuit()
+			before := w.personAt()
+			w.advance(time.Minute)
+			w.sendFromHost(c.turn, "")
+			got := w.personAt()
+			if moved := got.After(before); moved != c.person {
+				t.Fatalf("%s: the person action time moved = %v, want %v", c.turn, moved, c.person)
+			}
+		})
+	}
+}
+
+// What counts as the person is pinned: adding an event kind or a prefix is a decision for review, not a quiet edit. Read the
+// comment above personEventKinds in pursuit_person.go before changing this list: a kind that host automation also writes under
+// the operator's label would let the host reset the very counters the pursuit's limits are measured by.
+func TestThePersonActionSourcesArePinned(t *testing.T) {
+	if len(personEventKinds) != 1 || personEventKinds[0] != "approved" {
+		t.Fatalf("personEventKinds = %v: only \"approved\" is a kind a person alone causes; see the comment on personEventKinds before adding one", personEventKinds)
+	}
+	if answerFromPerson != "p" || askFromPerson != "p" || AnswerPrefix != "answer-" || AskPrefix != "ask-" {
+		t.Fatalf("the person's note prefixes changed (%q%q-, %q%q-): pursuit_person.go counts exactly these as the person", AnswerPrefix, answerFromPerson, AskPrefix, askFromPerson)
 	}
 }
