@@ -50,7 +50,7 @@ func TestErrorsAnswerToTheSstoreSentinels(t *testing.T) {
 	}
 }
 
-// Only named wiring files import this package; today there are none. A new importer is decided here, in review: the store
+// Only named wiring files import this package; today the read-only inputs adapter (see the want list). A new importer is decided here, in review: the store
 // is not tamper-evident and must have no CLI or MCP writer of its own.
 func TestOnlyTheWiringFilesImportTheMissionStrategyStore(t *testing.T) {
 	root := filepath.Join("..", "..", "..")
@@ -83,7 +83,9 @@ func TestOnlyTheWiringFilesImportTheMissionStrategyStore(t *testing.T) {
 		})
 	}
 	sort.Strings(got)
-	var want []string
+	// inputs/snapshot.go only READS (OpenDirections, ListEpochs, ParkedFinishRounds); its own guard test forbids every writer
+	// and every Exec. Its test file seeds rows through the writers, which is why that file is named too.
+	want := []string{"internal/missionpursuit/inputs/snapshot.go", "internal/missionpursuit/inputs/snapshot_test.go"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("importers of the mission strategy store changed:\n got %v\nwant %v\ndecide the new importer here, in review", got, want)
 	}
