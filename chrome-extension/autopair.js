@@ -25,6 +25,8 @@
  *   denied      the owner said no;
  *   expired     nobody answered in time (or the bridge forgot the request);
  *   down        no bridge on any port: "MonoAgent isn't running";
+ *   outdated    a bridge answers /monoagent/health but has no /monoagent/status:
+ *               it is running, and older than this extension;
  *   signed_out  the bridge is up and nobody is signed in: poll, claim the
  *               moment that changes;
  *   disabled    pairing is off on this machine: the manual path;
@@ -75,6 +77,24 @@
     return Promise.race([attempt, deadline]).finally(() => clearTimeout(timer));
   }
 
+  /**
+   * outdated asks whether one base is a bridge too old to have /status: its
+   * /status is a 404 and its /health is the bridge's. A timeout or a 5xx on
+   * /status is a busy bridge, not an old one.
+   */
+  async function outdated(fetchImpl, base, ms) {
+    const gone = await withDeadline(fetchImpl, `${base}/monoagent/status`, { method: "GET" }, ms);
+    if (!gone || gone.status !== 404) return false;
+    const res = await withDeadline(fetchImpl, `${base}/monoagent/health`, { method: "GET" }, ms);
+    if (!res || !res.ok) return false;
+    try {
+      const doc = await res.json();
+      return !!doc && doc.service === SERVICE;
+    } catch {
+      return false;
+    }
+  }
+
   /** status asks one base; the document only counts when it says it is the bridge. */
   async function status(fetchImpl, base, ms) {
     const res = await withDeadline(fetchImpl, `${base}/monoagent/status`, { method: "GET" }, ms);
@@ -102,7 +122,12 @@
     const list = bases(d.known);
     const found = await Promise.all(list.map((b) => status(fetchImpl, b, ms)));
     const at = found.findIndex((s) => s);
-    if (at === -1) return { kind: "down" };
+    if (at === -1) {
+      // Nothing answered /status. A bridge that predates the route 404s it
+      // and still answers /health: that one is running, not missing.
+      const up = await Promise.all(list.map((b) => outdated(fetchImpl, b, ms)));
+      return { kind: up.some(Boolean) ? "outdated" : "down" };
+    }
     const base = list[at];
     const s = found[at];
     const wsUrl = `ws://${base.slice("http://".length)}/monoagent`;

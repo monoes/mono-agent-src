@@ -1,4 +1,4 @@
-//go:build !linux
+//go:build !linux && !darwin
 
 package procbind
 
@@ -25,5 +25,5 @@ type Stopper struct {
 }
 
 func (s Stopper) StopLeader(int, string) StopResult {
-	return StopResult{Outcome: StopHeld, Cause: "the binding service needs Linux"}
+	return StopResult{Outcome: StopHeld, Cause: "the binding service needs Linux or macOS"}
 }

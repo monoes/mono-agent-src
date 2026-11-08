@@ -4,6 +4,7 @@ import '@testing-library/jest-dom/vitest'
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
 import Documents from './Documents.jsx'
 import * as WailsApp from '../wailsjs/go/main/App'
+import { onApiError } from '../services/api.js'
 
 vi.mock('../components/ConfirmDialog.jsx', () => ({
   confirm: vi.fn(() => Promise.resolve(true)),
@@ -18,6 +19,8 @@ vi.mock('../wailsjs/go/main/App', () => ({
   RestoreExcludedDocument: vi.fn(),
   UploadProfileDocument: vi.fn(),
   OpenAnyFilePicker: vi.fn(),
+  OpenFolderFilesPicker: vi.fn(),
+  UploadProfileDocuments: vi.fn(),
   SearchProfileKnowledge: vi.fn(),
   AddDocumentTag: vi.fn(),
   RemoveDocumentTag: vi.fn(),
@@ -174,5 +177,20 @@ describe('Documents tags', () => {
     expect(screen.getByText('resume.pdf')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
     expect(screen.getByText('notes.md')).toBeInTheDocument()
+  })
+})
+
+describe('Documents folder upload', () => {
+  it('shows why the folder dialog could not be shown (another dialog is open) instead of nothing', async () => {
+    WailsApp.OpenFolderFilesPicker.mockRejectedValue('another dialog is still open: answer or close it first')
+    const seen = []
+    const off = onApiError((d) => seen.push(d))
+    await renderLoaded()
+    fireEvent.click(screen.getByRole('button', { name: /Upload folder/ }))
+    await waitFor(() => expect(seen.length).toBe(1))
+    off()
+    expect(seen[0].op).toBe('upload')
+    expect(seen[0].message).toMatch(/another dialog is still open/)
+    expect(WailsApp.UploadProfileDocuments).not.toHaveBeenCalled()
   })
 })

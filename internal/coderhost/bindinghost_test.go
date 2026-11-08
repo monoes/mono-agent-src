@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux || darwin
 
 package coderhost
 
@@ -46,7 +46,7 @@ func hostRow(t *testing.T, st *Store, profile string) procbind.HostRow {
 // register puts the test process itself in the Binder as the worker of a token and returns what a verifier needs.
 func register(t *testing.T, h *BindingHost, profile string) (token, scope string) {
 	t.Helper()
-	procs, err := procbind.NewLinuxProcs()
+	procs, err := procbind.NewProcs()
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -349,12 +349,16 @@ const offerLifetime = 10 * time.Minute
 var (
 	abandonNow = time.Now
 	// confirmAbandon asks in a window of the OS, not of the web view, so no script of the page can answer it.
-	confirmAbandon = func(a *App, title, msg string) bool {
+	// A Question (Yes/No on Linux and Windows): a Warning has no way to say no there. err is errDialogBusy or errNoNativeDialog.
+	confirmAbandon = func(a *App, title, msg string) (bool, error) {
 		choice, err := showDialog(a, runtime.MessageDialogOptions{
-			Type: runtime.WarningDialog, Title: title, Message: msg,
+			Type: runtime.QuestionDialog, Title: title, Message: msg,
 			Buttons: []string{"Delete anyway", "Cancel"}, DefaultButton: "Cancel", CancelButton: "Cancel",
 		})
-		return err == nil && choice == "Delete anyway"
+		if err != nil {
+			return false, err
+		}
+		return dialogConfirmed(dialogGOOS, runtime.QuestionDialog, "Delete anyway", choice), nil
 	}
 )
 
@@ -380,7 +384,13 @@ func (a *App) DeleteChatConversationsAnyway(ids []string) (DeleteChatResult, err
 			continue
 		}
 		msg := fmt.Sprintf("Delete this chat without stopping the %d process(es) it left running?\n\n%s\n\nThey keep running after the chat is gone and nothing will stop them for you.", len(off.survivors), survivorLines(off.survivors))
-		if !confirmAbandon(a, "Delete chat anyway", msg) {
+		confirmed, askErr := confirmAbandon(a, "Delete chat anyway", msg)
+		if errors.Is(askErr, errDialogBusy) { // nothing was asked: say so, and keep the offer
+			a.offer(profile, id, off.survivors)
+			res.Failed[id] = askErr.Error()
+			continue
+		}
+		if !confirmed {
 			a.offer(profile, id, off.survivors) // asking again is allowed; every ask is the native dialog
 			res.Kept[id] = DeleteKept{Code: keptSurvivorsRemain, Message: "not deleted", Stopped: []int{}, Survivors: off.survivors}
 			continue

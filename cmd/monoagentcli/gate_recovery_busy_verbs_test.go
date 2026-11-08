@@ -64,8 +64,8 @@ func TestTheRealCommandTreeRegistersTheRecoveryCheck(t *testing.T) {
 	if busy == nil {
 		t.Fatalf("the real tree did not register the recovery check (answer %q)", why)
 	}
-	canon, _ := filepath.EvalSymlinks(db)
-	wantRetryText(t, busy, canon, entryFileOf(t, dir, db))
+	// the message names the database as the command resolved it, not a canonical path (a temp dir is behind a symlink on macOS)
+	wantRetryText(t, busy, db, entryFileOf(t, dir, db))
 }
 
 // The busy refusal has its own --json code (host_busy, not operator_only) and a non-zero exit that is not

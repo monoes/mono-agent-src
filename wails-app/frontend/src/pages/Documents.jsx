@@ -261,7 +261,16 @@ export default function Documents({ isActive = true }) {
   }
 
   const handleUpload = async () => uploadPaths(await WailsApp.OpenAnyFilesPicker('Select documents to upload'))
-  const handleUploadFolder = async () => uploadPaths(await WailsApp.OpenFolderFilesPicker('Select a folder to upload'))
+  const handleUploadFolder = async () => {
+    let paths
+    try {
+      paths = await WailsApp.OpenFolderFilesPicker('Select a folder to upload')
+    } catch (e) {
+      notify('upload', String(e)) // e.g. another dialog is still open: answer or close it first
+      return
+    }
+    return uploadPaths(paths)
+  }
 
   // Returns whether indexing succeeded, so bulk callers (runBulkIndex) can
   // tally failures for their own summary notify() without duplicating this

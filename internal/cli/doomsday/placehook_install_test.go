@@ -85,8 +85,10 @@ func TestEveryCoderChildStartGoesThroughPlace(t *testing.T) {
 					key = k
 				}
 			}
-			if key == "" && (base == "coder_host_bound_linux.go" || base == "coder_host_bound_windows.go") && strings.Contains(line, "cmd.Start()") {
-				key = "bound_start" // the bound launch: runs the placement (pre) just before Start
+			// the bound launch (one file per OS that can run it): the turn's own process, started by boundDelivery.start right after the
+			// placement hook (pre) ran on the command and before the process exists; the checks below hold each file to that order
+			if key == "" && boundLaunchFiles[base] && strings.Contains(line, "cmd.Start()") {
+				key = "bound_start:" + base
 			}
 			if key == "" {
 				t.Errorf("%s starts a process that is not classified: %s", base, strings.TrimSpace(line))
@@ -99,9 +101,6 @@ func TestEveryCoderChildStartGoesThroughPlace(t *testing.T) {
 			t.Errorf("inventory entry %q matches no start site any more: update the inventory", k)
 		}
 	}
-	if !seen["bound_start"] {
-		t.Error("the bound launch's Start site was not found")
-	}
 	execSrc, _ := os.ReadFile(filepath.Join(dir, "coder_host_exec.go"))
 	if !strings.Contains(string(execSrc), "l.place(c, profileID, conversationID)") || !strings.Contains(string(execSrc), "bd.start(cmd, pre)") {
 		t.Error("the turn's process is not started through the place hook")
@@ -109,7 +108,10 @@ func TestEveryCoderChildStartGoesThroughPlace(t *testing.T) {
 	if !strings.Contains(string(execSrc), "a legacy start would run outside the placement") {
 		t.Error("a legacy start with a place hook is no longer refused")
 	}
-	for _, name := range []string{"coder_host_bound_linux.go", "coder_host_bound_windows.go"} {
+	for name := range boundLaunchFiles {
+		if !seen["bound_start:"+name] {
+			t.Errorf("the bound launch's Start site was not found in %s", name)
+		}
 		bound, _ := os.ReadFile(filepath.Join(dir, name))
 		i := strings.Index(string(bound), "pre(cmd)")
 		j := strings.Index(string(bound), "cmd.Start()")
@@ -118,3 +120,6 @@ func TestEveryCoderChildStartGoesThroughPlace(t *testing.T) {
 		}
 	}
 }
+
+// boundLaunchFiles are the files that start a coder turn through the bound launch, one per OS that can run it.
+var boundLaunchFiles = map[string]bool{"coder_host_bound_linux.go": true, "coder_host_bound_darwin.go": true, "coder_host_bound_windows.go": true}

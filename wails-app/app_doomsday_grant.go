@@ -293,7 +293,7 @@ func realConfirmNative(a *App, title, body string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("%w: %v", errNoNativeDialog, err)
 	}
-	return choice == confirmStartLabel || choice == "Yes", nil
+	return dialogConfirmed(dialogGOOS, wailsruntime.QuestionDialog, confirmStartLabel, choice), nil
 }
 
 // entryCache keeps the entry probe's answer per profile for ttl, and lets one probe run at a time per profile: callers

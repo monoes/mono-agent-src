@@ -478,6 +478,10 @@ export function DoomsdayStart(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['DoomsdayStart'](arg1, arg2, arg3, arg4, arg5);
 }
 
+export function DoomsdayStatus() {
+  return window['go']['main']['App']['DoomsdayStatus']();
+}
+
 export function DoomsdayStop() {
   return window['go']['main']['App']['DoomsdayStop']();
 }

@@ -1,26 +1,12 @@
+//go:build linux || darwin || windows
+
 package procbind
 
 import (
-	"errors"
-	"io"
 	"net"
 	"sync"
 	"time"
 )
-
-// peerKey is the identity a peer's limits are kept under: its pid and the time that process started
-// (field 22 of /proc/<pid>/stat). A pid the kernel hands to a new process is a different key, so the new
-// process starts with a full allowance instead of inheriting the drained one of its predecessor.
-//
-// The start time is in clock ticks (10 ms), so a pid recycled within one tick would share it. Where the
-// kernel numbers process file descriptors (pidfs, Linux 6.9) the key also carries id, the inode number of the
-// peer's pidfd, which names one process incarnation and is never reused; elsewhere id is 0 and the same-tick
-// reuse is the residual SECURITY.md states.
-type peerKey struct {
-	pid   int
-	start uint64
-	id    uint64
-}
 
 // connState is one tracked connection; idle until the first byte of its request has arrived.
 type connState struct {
@@ -211,25 +197,4 @@ func (t *tracker) busy(cs *connState) bool {
 	}
 	cs.idle = false
 	return true
-}
-
-var errEvicted = errors.New("procbind: the connection was taken for another peer")
-
-// busyReader marks its connection busy, atomically with the first byte read, and fails if the
-// connection had been taken before that.
-type busyReader struct {
-	r      io.Reader
-	mark   func() bool
-	marked bool
-}
-
-func (b *busyReader) Read(p []byte) (int, error) {
-	n, err := b.r.Read(p)
-	if n > 0 && !b.marked {
-		b.marked = true
-		if !b.mark() {
-			return 0, errEvicted
-		}
-	}
-	return n, err
 }

@@ -1725,7 +1725,10 @@ layers, from strongest:
    names, one write at a time, and only when `--profile` and the
    environment match the stored grant (a name whose write fails is not
    remembered, and a non-empty but wrong environment can open and migrate
-   the database once while that check runs).
+   the database once while that check runs). Any failed attempt (the scope
+   check fails, the write fails or times out) also pauses every name for 5
+   seconds, so a stream of refusals that cannot be recorded opens the
+   database at most once in that time. The row is best effort: under a flood of refusals, a busy database or a timeout it can be dropped.
 6. **Workdir confinement of automation file paths (C-46).** Automations run
    in the daemon, outside monomind's per-role workdir confinement. So the
    grant handler puts the calling role's workdir (computed from the
@@ -3516,6 +3519,32 @@ full allowance; the table of peers and the shared limits are unchanged. Residual
 reuses its small pidfd inode numbers), the start time has a resolution of 10 ms, so a pid recycled within the same tick as its predecessor looks the
 same and is held to the predecessor's allowance for that moment; it fails closed (a deny) and is
 availability only.
+
+**Binding service on macOS.** The same contract, with the kernel facilities macOS has. The peer's uid comes from
+LOCAL_PEERCRED and its pid from LOCAL_PEERPID, read from the connected socket (never from the request); a credential
+structure that is short, of an unknown version or untouched (no groups), a pid that is not a process, or a uid other than
+the host's is closed without an answer. LOCAL_PEERPID is not the connector's pid for good: measured on macOS 27, it is the
+process that last did I/O on the other end (right after the accept the connector, and after a process holding a duplicate
+wrote, that process). LOCAL_PEERTOKEN (the audit token) was measured too and does not help: the kernel looks it up from the
+pid when asked, so after a pid is recycled it names the new process. What the kernel does tie to the connection is the
+descriptor, so the service accepts the process at that pid only if it can read the process's descriptor table and find a unix
+socket open there whose control block is the one this end is connected to and which is connected back to this end (proc_info,
+PROC_PIDFDSOCKETINFO). A process that took over a recycled pid does not hold the connector's end, and is refused. The proof is
+made once per connection, in the connection's own goroutine after the per-peer limits and the uid check, and is bounded: a
+peer with more than 4096 descriptors (all of them, as the first listing counts them) is refused, and the 500 ms budget is
+checked between descriptors, so one slow proc_info call is not interrupted. The per-peer limits are keyed by the pid read at
+accept, while serving the connection reads LOCAL_PEERPID again and the proof is made for that later pid. The offsets it reads are the public proc_info ABI, checked
+on one macOS 27 arm64 machine; Ready makes two connected pairs inside the process and fails closed, with a message, unless each
+pair's ends are found as each other's holder and the other pair's are not (so offsets that read one field twice cannot pass). The process table is read through sysctl (kern.proc.pid), and a process is pinned
+by its pid together with its start time in microseconds: the pin is alive only while the kernel still reports that pair and the
+process is not a zombie. Process ancestry (internal/procchain) uses the same reader, and anything it cannot read counts as
+no. The socket directory is checked as on Linux (components opened one at a time with no symlink followed, mode 0700, ours,
+a lock); a socket path longer than the address can hold (103 bytes) is refused, a profile id that would not fit is
+replaced by its hash, and the path used to bind and connect is the directory descriptor's current path. Residual, not
+present on Linux: macOS has no pidfd, so after the proof the pin is a pid and a start time, a number can be reused between a
+later check and its next use, and the check and the signal that stops a turn's leader are not atomic. An in-tree process that
+hands the connection to an outsider lends its authority, as on Linux. A client that sends its request and closes before the
+service reads the tables is refused (usability only).
 
 **Binding service on Windows.** The same contract as Linux, with the facilities Windows has, and **much weaker against a same-user
 adversary**, which is stated first. The Windows binding stops a leaked token used by a program that does not know the tricks below

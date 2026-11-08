@@ -90,6 +90,12 @@ func newStopRig(t *testing.T) *stopRig {
 	if err := w.boss(t, r.boss); err != nil {
 		t.Fatal(err)
 	}
+	// The chats are coder chats: the host keeps a session row for each (the owed flag is written to an existing row only).
+	for _, c := range []string{"conv-a", "conv-b"} {
+		if _, err := coderhost.NewStore(db.DB).EnsureSession("p1", c); err != nil {
+			t.Fatal(err)
+		}
+	}
 	return r
 }
 

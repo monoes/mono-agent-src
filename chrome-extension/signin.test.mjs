@@ -29,6 +29,15 @@ test("a bridge nobody is signed in to: sign in, and the window updates by itself
   assert.equal(v.unpaired, false, "no token field: this browser pairs itself");
 });
 
+test("an outdated bridge says it is running, offers the manual token and a restart", () => {
+  const v = S.view({ status: "unpaired", reason: "bridge_outdated" });
+  assert.match(v.state, /MonoAgent is running, but its background service is older/);
+  assert.doesNotMatch(v.state, /isn.t running/);
+  assert.equal(v.unpaired, true, "the token box stays: manual pairing works on an old bridge");
+  assert.equal(v.command, "monoagentcli doctor");
+  assert.ok(v.more.some((m) => /extension pair --open/.test(m.cmd)), "the manual path is offered");
+});
+
 test("a request waiting for the owner says where to approve it, and offers no token box", () => {
   const v = S.view({ status: "unpaired", reason: "pair_waiting" });
   assert.match(v.state, /Waiting for approval in the MonoAgent app \(or, in your own terminal, not one started from a coder session, run monoagentcli extension approve <id> --code <code>\)/);

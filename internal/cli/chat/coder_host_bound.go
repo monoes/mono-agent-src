@@ -1,4 +1,4 @@
-//go:build linux || windows
+//go:build linux || darwin || windows
 
 package chat
 
@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -18,15 +19,15 @@ import (
 
 // A turn launched with peer-credential binding on is started and handed its credentials in this order (design 3c):
 //
-//  1. the process is started with a held pidfd, with NO token in its environment or arguments, and the read end of a
+//  1. the process is started with a hold on it (a pidfd on Linux; its pid and start time on macOS), with NO token in its environment or arguments, and the read end of a
 //     frame pipe (the host keeps the write end, close-on-exec, so no other turn can inherit it);
 //  2. its start stamp is read and it is confirmed alive;
-//  3. the token is registered, pending, with a handle of its own (a dup of the pidfd);
+//  3. the token is registered, pending, with a handle of its own;
 //  4. ONE write transaction re-reads that the session's current turn is this turn and inserts the token and its
 //     binding (worker pid, stamp, host generation);
 //  5. the revocation row is read, the entry is activated, and only then is the frame written and the pipe closed.
 //
-// A failure before step 5 kills the turn through the pidfd, unregisters the entry and revokes whatever was inserted:
+// A failure before step 5 kills the turn through that hold, unregisters the entry and revokes whatever was inserted:
 // nothing was delivered. The turn itself waits for the frame (10 s) and ends if it does not come.
 
 // boundHost is what the bound launch needs of the host's binding services.
@@ -62,12 +63,11 @@ func newBoundLaunch(db *sql.DB, host boundHost, binder *procbind.Binder, store *
 	return &boundLaunch{db: db, host: host, binder: binder}
 }
 
-// boundDelivery is one turn's frame pipe, process handle and registration. osDelivery holds what is specific to the OS
-// (the pidfd of Linux, the process handle of Windows).
+// boundDelivery is one turn's frame pipe, process hold and registration.
 type boundDelivery struct {
-	b    *boundLaunch
-	r, w *os.File
-	osDelivery
+	b            *boundLaunch
+	r, w         *os.File
+	proc         workerProc
 	missionToken string
 	// child, when set, is the mission child whose task token this turn also gets (a v2 mission token, owner = the run).
 	child *childToken
@@ -76,8 +76,43 @@ type boundDelivery struct {
 	onKill func()
 }
 
+// attach prepares cmd for a bound launch: the frame pipe and its marker (attachPipe, per OS), nothing else.
+func (b *boundLaunch) attach(cmd *exec.Cmd, missionToken string) (*boundDelivery, error) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := attachPipe(cmd, r, w); err != nil {
+		r.Close()
+		w.Close()
+		return nil, err
+	}
+	return &boundDelivery{b: b, r: r, w: w, proc: newWorkerProc(), missionToken: missionToken}, nil
+}
+
 // setOnKill sets the hook called before the leader is killed.
 func (d *boundDelivery) setOnKill(f func()) { d.onKill = f }
+
+// kill ends the turn's leader (never by group), by the handle the launch holds of it.
+func (d *boundDelivery) kill() {
+	if d.b != nil && d.b.beforeKill != nil {
+		d.b.beforeKill()
+	}
+	if d.onKill != nil {
+		d.onKill() // before the signal: the exit it causes must find the turn already marked as being stopped
+	}
+	d.proc.kill()
+	if d.b != nil && d.b.afterKill != nil {
+		d.b.afterKill()
+	}
+}
+
+// close releases the pipe and the hold on the process; safe to call once.
+func (d *boundDelivery) close() {
+	d.w.Close()
+	d.r.Close()
+	d.proc.release()
+}
 
 // boundToken is one token of a launch on its way to the frame.
 type boundToken struct {
@@ -136,7 +171,7 @@ func (d *boundDelivery) deliver(profile, conv, turn string, pid int, stamp strin
 	}
 	defer zeroSecrets()
 	binder := b.binder
-	// every entry has a handle of its own: a dup of the pidfd
+	// every entry has a handle of its own: a dup of the pidfd on Linux, a copy of the pinned (pid, start time) on macOS
 	registered := []*boundToken{}
 	undo := func(err error, minted bool) error {
 		for _, t := range registered {
@@ -156,7 +191,7 @@ func (d *boundDelivery) deliver(profile, conv, turn string, pid int, stamp strin
 		return err
 	}
 	for _, t := range toks {
-		h, err := d.holdWorker()
+		h, err := d.proc.handle()
 		if err != nil {
 			return undo(fmt.Errorf("could not hold the turn's process: %w", err), false)
 		}

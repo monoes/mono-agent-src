@@ -26,6 +26,7 @@ func chatPathSetup(t *testing.T, ready bool) (*globalConfig, *int) {
 	oldEngine := doomsdayEngine
 	t.Cleanup(func() { doomsdayEngine = oldEngine })
 	t.Cleanup(coderhost.SetOpenModeReady(ready))
+	t.Cleanup(coderhost.SetOpenModeBindingProbe("linux", func() error { return nil }))
 	t.Cleanup(coderhost.SetOpenModeCheck(nil))
 	calls := 0
 	doomsdayEngine = func(*globalConfig) doomsdaycli.Engine { return availEngine{calls: &calls} }

@@ -197,15 +197,29 @@ func TestRedactTextBasics(t *testing.T) {
 // The strategy layer's host and reader symbols and its library imports live in an exact set of the wiring's files. A new file that imports a strategy library or declares a host, reader or sink fails until it is decided here.
 func TestStrategySymbolsLiveOnlyInTheWiringFiles(t *testing.T) {
 	const strategyPrefix = "github.com/monoes/mono-agent/internal/doomsday/strategy"
-	ctx := build.Default
-	pkg, err := ctx.ImportDir(".", 0)
-	if err != nil {
-		t.Fatal(err)
+	// the files of every OS (linux, darwin, windows), not only this one's
+	var files []string
+	seenFile := map[string]bool{}
+	dir := "."
+	for _, goos := range []string{"linux", "darwin", "windows"} {
+		ctx := build.Default
+		ctx.GOOS = goos
+		pkg, err := ctx.ImportDir(".", 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dir = pkg.Dir
+		for _, f := range pkg.GoFiles {
+			if !seenFile[f] {
+				seenFile[f] = true
+				files = append(files, f)
+			}
+		}
 	}
 	var got []string
 	fset := token.NewFileSet()
-	for _, f := range pkg.GoFiles {
-		af, err := parser.ParseFile(fset, filepath.Join(pkg.Dir, f), nil, 0)
+	for _, f := range files {
+		af, err := parser.ParseFile(fset, filepath.Join(dir, f), nil, 0)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -15,6 +15,7 @@ func TestOpenModeIsNotOfferedWhileTheBossBindingIsPending(t *testing.T) {
 }
 
 func TestOpenModeFollowsTheProbeOnceReady(t *testing.T) {
+	defer SetOpenModeBindingProbe("linux", func() error { return nil })()
 	defer SetOpenModeReady(true)()
 	defer SetOpenModeCheck(func() (bool, string) { return false, "a run exists" })()
 	if ok, reason := OpenModeAvailability(); ok || reason != "a run exists" {
@@ -29,6 +30,7 @@ func TestOpenModeFollowsTheProbeOnceReady(t *testing.T) {
 // The switch ships on (the flip PR): the open mode follows the cheap check. Turning it off again (SetOpenModeReady(false), the one
 // seam) is the way to withdraw the mode; TestOpenModeIsNotOfferedWhileTheBossBindingIsPending holds that.
 func TestOpenModeShipsReady(t *testing.T) {
+	defer SetOpenModeBindingProbe("linux", func() error { return nil })()
 	if !openModeReady {
 		t.Fatal("openModeReady is false: the open mode is not offered although the boss binding exists")
 	}

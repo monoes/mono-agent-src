@@ -33,10 +33,10 @@ func startBoundSleeper(t *testing.T) (*boundDelivery, *exec.Cmd) {
 // The turn's leader is ended through its own pinned handle, and every registry entry gets a handle of its own.
 func TestBoundLeaderIsEndedThroughItsOwnHandleAndEntriesHoldTheirOwn(t *testing.T) {
 	d, _ := startBoundSleeper(t)
-	if d.proc == nil || !d.proc.Alive() {
+	if d.proc.p == nil || !d.proc.p.Alive() {
 		t.Fatal("the leader is not pinned and alive after the start")
 	}
-	h, err := d.holdWorker()
+	h, err := d.proc.handle()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,10 +44,10 @@ func TestBoundLeaderIsEndedThroughItsOwnHandleAndEntriesHoldTheirOwn(t *testing.
 		t.Fatal("the held copy does not see the leader alive")
 	}
 	_ = h.Close() // an entry closing its handle must not close the turn's
-	if !d.proc.Alive() {
+	if !d.proc.p.Alive() {
 		t.Fatal("closing an entry's handle closed the turn's")
 	}
-	h2, err := d.holdWorker()
+	h2, err := d.proc.handle()
 	if err != nil {
 		t.Fatal(err)
 	}

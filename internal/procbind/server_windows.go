@@ -67,6 +67,34 @@ func (s *Server) logf(format string, args ...any) {
 
 // PeerPidfdSupported: see ready_windows.go.
 
+// peerKey is the identity a peer's limits are kept under: its pid and the creation time of that process (a pid the kernel
+// hands to a new process is a different key).
+type peerKey struct {
+	pid   int
+	start uint64
+	id    uint64
+}
+
+var errEvicted = errors.New("procbind: the connection was taken for another peer")
+
+// busyReader marks its connection busy, atomically with the first byte read, and fails if the connection had been taken before that.
+type busyReader struct {
+	r      io.Reader
+	mark   func() bool
+	marked bool
+}
+
+func (b *busyReader) Read(p []byte) (int, error) {
+	n, err := b.r.Read(p)
+	if n > 0 && !b.marked {
+		b.marked = true
+		if !b.mark() {
+			return 0, errEvicted
+		}
+	}
+	return n, err
+}
+
 type unixAcceptor interface {
 	AcceptUnix() (*net.UnixConn, error)
 }

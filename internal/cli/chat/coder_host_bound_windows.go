@@ -14,46 +14,53 @@ import (
 	"github.com/monoes/mono-agent/internal/procbind"
 )
 
-// osDelivery is what a Windows turn holds: a handle of its leader with the right to end it, pinned right after the
-// start while the host's own child handle keeps the process object (and so its number) from being given away.
-type osDelivery struct{ proc *procbind.ProcHandle }
+// workerProc is the launch's hold on the turn's process: a handle of its leader with the right to end it, pinned right after
+// the start while the host's own child handle keeps the process object (and so its number) from being given away.
+type workerProc struct{ p *procbind.ProcHandle }
 
-// holdWorker is a handle of its own (a duplicate) for one registry entry.
-func (d *boundDelivery) holdWorker() (procbind.Handle, error) {
-	if d.proc == nil {
-		return nil, errors.New("the turn has no process handle")
+func newWorkerProc() workerProc { return workerProc{} }
+
+// kill ends the turn's leader through its own handle (never by number or group).
+func (p *workerProc) kill() {
+	if p.p != nil {
+		_ = p.p.Terminate()
 	}
-	return d.proc.Dup()
 }
 
-// attach prepares cmd for a bound launch: the frame pipe's read end is the only handle the child inherits, and its
-// number (not a credential) goes to the child in CredFDEnv. The write end stays with the host and is not inheritable.
-func (b *boundLaunch) attach(cmd *exec.Cmd, missionToken string) (*boundDelivery, error) {
-	if cmd.SysProcAttr != nil && len(cmd.SysProcAttr.AdditionalInheritedHandles) != 0 {
-		return nil, errors.New("inherited handles already set")
+func (p *workerProc) release() {
+	if p.p != nil {
+		_ = p.p.Close()
+		p.p = nil
 	}
-	r, w, err := os.Pipe()
-	if err != nil {
-		return nil, err
+}
+
+// handle is a handle of its own (a duplicate) for one registry entry.
+func (p *workerProc) handle() (procbind.Handle, error) {
+	if p.p == nil {
+		return nil, errors.New("the turn has no process handle")
+	}
+	return p.p.Dup()
+}
+
+// attachPipe makes the read end the only handle the child inherits, and puts its number (not a credential) in CredFDEnv.
+// os.Pipe makes both ends inheritable: the write end, which stays with the host, must not be.
+func attachPipe(cmd *exec.Cmd, r, w *os.File) error {
+	if cmd.SysProcAttr != nil && len(cmd.SysProcAttr.AdditionalInheritedHandles) != 0 {
+		return errors.New("inherited handles already set")
 	}
 	h := syscall.Handle(r.Fd())
 	if err := syscall.SetHandleInformation(h, syscall.HANDLE_FLAG_INHERIT, syscall.HANDLE_FLAG_INHERIT); err != nil {
-		r.Close()
-		w.Close()
-		return nil, err
+		return err
 	}
-	// os.Pipe makes both ends inheritable: the write end must not be, whatever else the host starts
 	if err := syscall.SetHandleInformation(syscall.Handle(w.Fd()), syscall.HANDLE_FLAG_INHERIT, 0); err != nil {
-		r.Close()
-		w.Close()
-		return nil, err
+		return err
 	}
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	cmd.SysProcAttr.AdditionalInheritedHandles = []syscall.Handle{h}
 	cmd.Env = append(cmd.Env, coderhost.CredFDEnv+"="+strconv.FormatUint(uint64(h), 10))
-	return &boundDelivery{b: b, r: r, w: w, missionToken: missionToken}, nil
+	return nil
 }
 
 const (
@@ -93,32 +100,6 @@ func (d *boundDelivery) start(cmd *exec.Cmd, pre func(*exec.Cmd) error) error {
 		_ = cmd.Process.Kill()
 		return fmt.Errorf("the turn's process could not be held, so it cannot be bound: %w", err)
 	}
-	d.proc = p
+	d.proc = workerProc{p: p}
 	return nil
-}
-
-// kill ends the turn's leader through its own handle (never by number or group).
-func (d *boundDelivery) kill() {
-	if d.b != nil && d.b.beforeKill != nil {
-		d.b.beforeKill()
-	}
-	if d.onKill != nil {
-		d.onKill() // before the end: the exit it causes must find the turn already marked as being stopped
-	}
-	if d.proc != nil {
-		_ = d.proc.Terminate()
-	}
-	if d.b != nil && d.b.afterKill != nil {
-		d.b.afterKill()
-	}
-}
-
-// close releases the pipe and the process handle; safe to call once.
-func (d *boundDelivery) close() {
-	d.w.Close()
-	d.r.Close()
-	if d.proc != nil {
-		_ = d.proc.Close()
-		d.proc = nil
-	}
 }

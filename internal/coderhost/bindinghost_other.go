@@ -1,4 +1,4 @@
-//go:build !linux && !windows
+//go:build !linux && !darwin && !windows
 
 package coderhost
 
@@ -11,7 +11,7 @@ import (
 	"github.com/monoes/mono-agent/internal/procbind"
 )
 
-// BindingHost is the binding service's owner; the service needs Linux, so here it never runs.
+// BindingHost is the binding service's owner; the service needs Linux or macOS, so here it never runs.
 type BindingHost struct {
 	DB     *sql.DB
 	Binder *procbind.Binder
@@ -23,7 +23,7 @@ type BindingHost struct {
 func (h *BindingHost) Generation(string) (string, bool) { return "", false }
 func (h *BindingHost) Running(string) bool              { return false }
 func (h *BindingHost) Ensure(context.Context, string) error {
-	return errors.New("the binding service needs Linux")
+	return errors.New("the binding service needs Linux or macOS")
 }
 func (h *BindingHost) Shutdown() {}
 

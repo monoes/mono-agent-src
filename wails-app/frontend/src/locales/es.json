@@ -2587,6 +2587,7 @@
     "started": "La ejecucion empezo. Detener esta en el encabezado del chat.",
     "noBoss": "Este chat no puede iniciar una ejecución desde aquí.",
     "noFirstTurn": "La ejecución empezó, pero el jefe no tiene primer turno: dirígelo escribiendo en el chat, o pulsa Detener en la cabecera del chat.",
+    "noFirstTurnWhy": "Lo que dijo el anfitrión: {{reason}}",
     "steerBoss": "Dirigir al jefe",
     "stopRun": "Detener la ejecución",
     "stopElsewhere": "El botón Detener de la cabecera no está disponible aquí: abre la sala de control y pulsa Detener allí.",

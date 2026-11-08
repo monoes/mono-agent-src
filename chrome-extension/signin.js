@@ -43,6 +43,11 @@
         out.more = [{ note: "Not you? Deny it:", cmd: `monoagentcli extension deny ${id}` }];
       }
       if (s.code) out.code = `Code: ${s.code} \u2014 approve only the request that shows this code.`;
+    } else if (unpaired && s.reason === "bridge_outdated") {
+      // The bridge is up but too old to pair a new browser by itself.
+      out.unpaired = true;
+      out.state = "MonoAgent is running, but its background service is older than this extension. Restart it to update. This window updates automatically.";
+      out.pair = `Or pair by hand now: run ${PAIR_COMMAND} and paste the token it prints below.`;
     } else if (unpaired && (s.reason === "pair_denied" || s.reason === "pair_expired")) {
       out.unpaired = true;
       out.state = s.reason === "pair_denied" ? "The request to pair this browser was denied." : "The request to pair this browser expired before it was approved.";
@@ -52,7 +57,11 @@
       out.unpaired = true;
       out.pair = `This browser could not connect to MonoAgent by itself. After you sign in, run ${PAIR_COMMAND}, or paste the token it prints below.`;
     }
-    if (unpaired && (s.reason === "pair_denied" || s.reason === "pair_expired")) {
+    if (unpaired && s.reason === "bridge_outdated") {
+      out.lead = "Restart MonoAgent's background service (or quit and reopen the app), or check what is out of date:";
+      out.command = "monoagentcli doctor";
+      out.more = [{ note: "Pair by hand:", cmd: `${PAIR_COMMAND} --open` }];
+    } else if (unpaired && (s.reason === "pair_denied" || s.reason === "pair_expired")) {
       out.lead = "Ask again with Check again, or pair this browser by hand:";
       out.command = `${PAIR_COMMAND} --open`;
       out.more = [{ note: "See how new browsers pair:", cmd: "monoagentcli extension autopair" }];

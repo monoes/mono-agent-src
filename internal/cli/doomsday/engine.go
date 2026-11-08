@@ -76,6 +76,9 @@ type Status struct {
 	Finish       string `json:"finish,omitempty"`
 	FinishReason string `json:"finish_reason,omitempty"`
 	FinishRound  int64  `json:"finish_round,omitempty"`
+	// FirstTurn and FirstTurnError say where the boss's first turn stands (see FirstTurnState); only `status` fills them.
+	FirstTurn      string `json:"first_turn,omitempty"`
+	FirstTurnError string `json:"first_turn_error,omitempty"`
 }
 
 // Engine is what the store and stop packages give the CLI. Enter must
