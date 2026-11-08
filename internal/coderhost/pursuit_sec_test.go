@@ -138,11 +138,11 @@ func TestMorePersonActionsResetTheCounters(t *testing.T) {
 			w.exec(`INSERT INTO coder_session_asks (profile_id, asker_session, asker_conv, ancestor_session, level, bytes, status, answered_by, answered_at, importance, question, created_at) VALUES ('p', 77, 'm', 0, 'root', 1, 'answered', 'person', ?, 'critical', 'q', ?)`,
 				w.clk.Now().Format(time.RFC3339Nano), w.clk.Now().Format(time.RFC3339Nano))
 		}},
-		{"the person acts on the mission session (a plan answered)", func(w *pworld) {
-			w.exec(`INSERT INTO task_session_events (session_id, at, actor, kind, note) VALUES (77, ?, 'you', 'plan', '')`, w.clk.Now().Format(time.RFC3339Nano))
-		}},
-		{"the operator approves the session", func(w *pworld) {
-			w.exec(`UPDATE task_sessions SET approved_by = 'you', approved_at = ? WHERE id = 77`, w.clk.Now().Format(time.RFC3339Nano))
+		{"the person answers a plan (the note the operator's surface queues)", func(w *pworld) {
+			if _, err := w.st.TellLeadAboutPlan(bg, "p", "m", 77, PlanAsked, "which?"); err != nil {
+				w.t.Fatal(err)
+			}
+			w.endCommandsDone() // the note has been delivered
 		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -170,9 +170,6 @@ func TestAnAgentsRecordsAreNotPersonActions(t *testing.T) {
 		name string
 		act  func(w *pworld)
 	}{
-		{"an agent's session event", func(w *pworld) {
-			w.exec(`INSERT INTO task_session_events (session_id, at, actor, kind, note) VALUES (77, ?, 'agent:lead', 'plan', '')`, w.clk.Now().Format(time.RFC3339Nano))
-		}},
 		{"an ask answered by a lead", func(w *pworld) {
 			w.exec(`INSERT INTO coder_session_asks (profile_id, asker_session, asker_conv, ancestor_session, level, bytes, status, answered_by, answered_at, importance, question, created_at) VALUES ('p', 77, 'm', 0, 'root', 1, 'answered', 'master:k1', ?, 'critical', 'q', ?)`,
 				w.clk.Now().Format(time.RFC3339Nano), w.clk.Now().Format(time.RFC3339Nano))

@@ -113,7 +113,7 @@ func newPursuitWorldWith(t *testing.T, started bool) *pworld {
 		t.Fatal(err)
 	}
 	w.exec(`INSERT OR IGNORE INTO profiles (id, name) VALUES ('p', 'p')`)
-	w.exec(`INSERT INTO task_sessions (id, profile_id, conversation_id, title, state, kind, budget_usd, created_by, created_at, updated_at) VALUES (77, 'p', 'm', 't', 'running', 'mission', 10, 'you', 'x', 'x')`)
+	w.exec(`INSERT INTO task_sessions (id, profile_id, conversation_id, title, state, kind, budget_usd, created_by, created_at, updated_at) VALUES (77, 'p', 'm', 't', 'running', 'mission', 10, 'you', ?, ?)`, clk.Now().Format(time.RFC3339), clk.Now().Format(time.RFC3339))
 	w.exec(`UPDATE coder_sessions SET chat_mode = 'mission' WHERE profile_id = 'p' AND conversation_id = 'm'`)
 	if started {
 		mp := missionpursuit.NewStore(st.db)

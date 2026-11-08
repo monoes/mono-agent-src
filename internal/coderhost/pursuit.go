@@ -588,9 +588,29 @@ func (h *Host) pursuitWakeStillAllowed(x Session) string {
 	if g.st.Waiting != "" {
 		return missionpursuit.WaitingWhy(g.st.Waiting)
 	}
+	return h.pursuitStillDeliverable(x, g)
+}
+
+// pursuitStillDeliverable is the run-time half of the wake-up's conditions, the ones that can change while it waits: the
+// lead unattended, inside its active hours, the mission with open work, and the host-made turns in a row below the limit.
+// (The lead being free is the host's own queue order; the hourly cap was decided when the wake-up was queued.)
+func (h *Host) pursuitStillDeliverable(x Session, g pursuitGateResult) string {
+	lead, found, err := h.Store.GetSession(x.ProfileID, x.ConversationID)
+	switch {
+	case err != nil || !found:
+		return readFailed + "the lead's session does not read"
+	case !lead.Unattended:
+		return "the lead is not unattended"
+	}
 	settings, err := h.Store.GetSettings(x.ProfileID, x.ConversationID)
-	if err != nil {
+	switch {
+	case err != nil:
 		return readFailed + "the session's settings do not read: " + err.Error()
+	case !withinActiveHours(settings.ActiveHours, h.Store.now()):
+		return "outside the lead's active hours"
+	}
+	if t := g.snap.Tasks; t.Open()-t.Blocked <= 0 {
+		return "the mission has no open work"
 	}
 	return h.pursuitStreakStop(x.ProfileID, x.ConversationID, settings)
 }

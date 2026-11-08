@@ -10,6 +10,8 @@
 --   wakes_since        wake-ups of the lead queued since the person last acted (a hard stop that does not depend on the meter)
 --   woken_epoch        the latest epoch whose wake-up of the lead was queued: a restart never wakes the lead twice for
 --                      one epoch
+-- This migration is UNRELEASED (it is not in master and no database has applied it), so it is edited in place as the pursuit
+-- loop's design settled; a released migration would get a new number instead.
 -- Not tamper-evident (no MAC): a writer with the database file can write anything, as with mission_pursuit.
 CREATE TABLE IF NOT EXISTS mission_pursuit_state (
   session_id       INTEGER PRIMARY KEY REFERENCES task_sessions(id) ON DELETE CASCADE,
