@@ -200,7 +200,7 @@ func TestAPanicInOnePassIsContainedAndTheNextPassRuns(t *testing.T) {
 		t.Fatal("the panic was not logged")
 	}
 	boom = false
-	w.h.pursuitBackoff = nil // the back-off after a panic is its own business
+	w.advance(pursuitPanicBackoff + time.Second) // the one-minute back-off after a panic
 	w.pass()
 	w.advance(31 * time.Minute)
 	w.pass()

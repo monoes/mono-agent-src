@@ -1,6 +1,7 @@
 package coderhost
 
 import (
+	"context"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -116,5 +117,5 @@ func TestThePursuitIsOffUnlessTheHostIsGivenIt(t *testing.T) {
 	if h.Pursuit != nil {
 		t.Fatal("a host has a pursuit by default")
 	}
-	h.pursuitIfDue(nil) //nolint:staticcheck // a nil ctx must not matter when the loop is off
+	h.pursuitIfDue(context.Background())
 }

@@ -92,6 +92,7 @@ func TestAScriptedPursuitFromStartToPause(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.setLead("idle", "")
+	w.endCommandsDone() // the fake launcher never finishes its turn
 
 	// A third question is parked: the limit. No epoch 3, the stored state says waiting for the person.
 	w.advance(31 * time.Minute)

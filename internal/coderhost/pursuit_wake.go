@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/types"
 	"github.com/monoes/mono-agent/internal/missionpursuit/inputs"
 	"github.com/monoes/mono-agent/internal/missionpursuit/scorer"
+	"github.com/monoes/mono-agent/internal/missionpursuit/strategy"
 )
 
 // The wake-up: when an epoch was applied and the lead has not been woken for it, the lead gets ONE host-made send, if it is
@@ -22,20 +24,72 @@ import (
 
 var errEpochWoken = errors.New("coder host: the lead was already woken for this epoch")
 
-// EnqueueWithPursuit queues the wake-up and marks the epoch as woken in one transaction. It fails when the epoch is not
-// newer than the one already woken, and then queues nothing.
-func (s *Store) EnqueueWithPursuit(c Command, session, epoch int64) (Command, error) {
+// maxWakeTries bounds how often the wake-up of one epoch is queued: the first, and again each time a queued one ended
+// without running (the lead was busy for its whole life, a short pause, an expiry).
+const maxWakeTries = 3
+
+// pursuitWakeTurn is the turn id of a wake-up for an epoch: "pursuit-<epoch>-<random>".
+func pursuitWakeTurn(epoch int64, rnd string) string {
+	return PursuitTurnPrefix + strconv.FormatInt(epoch, 10) + "-" + rnd
+}
+
+// wakeCounts says how many wake-ups of the epoch are waiting or ran (live) and how many ended without running (lost).
+func (s *Store) wakeCounts(q querier, m pursuitMission, epoch int64) (live, lost int, err error) {
+	rows, err := q.Query(`SELECT status, COUNT(*) FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind = 'send' AND turn_id LIKE ? GROUP BY status`,
+		m.Profile, m.Conv, PursuitTurnPrefix+strconv.FormatInt(epoch, 10)+"-%")
+	if err != nil {
+		return 0, 0, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var st string
+		var n int
+		if err := rows.Scan(&st, &n); err != nil {
+			return 0, 0, err
+		}
+		if st == CmdFailed {
+			lost += n
+		} else {
+			live += n
+		}
+	}
+	return live, lost, rows.Err()
+}
+
+// wakeDelivered says the lead owes nothing for the latest epoch: it is not an applied one, it was woken for (a wake-up
+// waits or ran), or the tries are used up. A read that fails says "delivered": nothing is queued or spent on a guess.
+func (s *Store) wakeDelivered(m pursuitMission, ep inputs.EpochFacts, woken int64) bool {
+	if !ep.HasLatest || ep.Latest.State != types.EpochApplied || ep.Latest.Seq < woken {
+		return true
+	}
+	if ep.Latest.Seq > woken {
+		return false
+	}
+	live, lost, err := s.wakeCounts(s.db, m, ep.Latest.Seq)
+	return err != nil || live > 0 || lost >= maxWakeTries
+}
+
+// EnqueueWithPursuit queues the wake-up and marks the epoch as woken in one transaction. It fails, queueing nothing, when
+// the epoch is older than the one already woken, when the same epoch's wake-up waits or ran, or when its tries are used up.
+func (s *Store) EnqueueWithPursuit(c Command, m pursuitMission, epoch int64) (Command, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return c, err
 	}
 	defer tx.Rollback() //nolint:errcheck // after commit it is a no-op
-	res, err := tx.Exec(`UPDATE mission_pursuit_state SET woken_epoch = ?, updated_at = ? WHERE session_id = ? AND woken_epoch < ?`,
-		epoch, s.now().UTC().Format(time.RFC3339Nano), session, epoch)
+	res, err := tx.Exec(`UPDATE mission_pursuit_state SET woken_epoch = ?, updated_at = ? WHERE session_id = ? AND woken_epoch <= ?`,
+		epoch, s.now().UTC().Format(time.RFC3339Nano), m.ID, epoch)
 	if err != nil {
 		return c, err
 	}
 	if n, _ := res.RowsAffected(); n != 1 {
+		return c, errEpochWoken
+	}
+	live, lost, err := s.wakeCounts(tx, m, epoch)
+	if err != nil {
+		return c, err
+	}
+	if live > 0 || lost >= maxWakeTries {
 		return c, errEpochWoken
 	}
 	got, err := s.enqueueOn(tx, c)
@@ -48,24 +102,27 @@ func (s *Store) EnqueueWithPursuit(c Command, session, epoch int64) (Command, er
 	return got, nil
 }
 
-func (h *Host) pursuitWake(ctx context.Context, rd *inputs.Reader, m pursuitMission, run *pursuitRun) {
-	if m.Conv == "" {
+// pursuitWake queues the wake-up the latest applied epoch earned, from the gate the pass just read (spend and away counters
+// do not change by a judge call, so the gate is not read twice); the run state is read again right before.
+func (h *Host) pursuitWake(ctx context.Context, rd *inputs.Reader, m pursuitMission, g pursuitGateResult) {
+	if g.st.Waiting != "" {
 		return
 	}
-	g, ok := h.pursuitGate(ctx, rd, m) // run state, goal and away limits, read now
-	if !ok || g.st.Waiting != "" {
+	// the epoch may have been applied by this very pass: read the latest one again
+	ep, found, err := strategy.NewStore(h.Store.db).LatestEpoch(ctx, strconv.FormatInt(m.ID, 10), 1)
+	if err != nil || !found || ep.State != types.EpochApplied {
 		return
 	}
-	ep := g.snap.Epochs
-	if !ep.HasLatest || ep.Latest.State != types.EpochApplied || ep.Latest.Seq <= g.st.WokenEpoch {
+	g.snap.Epochs = inputs.EpochFacts{HasLatest: true, Latest: ep, Count: ep.Seq}
+	st, _, err := h.Store.pursuitStateOf(m.ID)
+	if err != nil || h.Store.wakeDelivered(m, g.snap.Epochs, st.WokenEpoch) {
 		return
 	}
-	lead, found, err := h.Store.GetSession(m.Profile, m.Conv)
-	if err != nil || !found || lead.State != StateIdle || lead.TurnID != "" || h.Store.PendingFor(m.Profile, m.Conv) > 0 {
+	g.snap.Tasks, err = h.pursuitTasks(ctx, rd, m.ID, g.snap.Tasks)
+	if err != nil {
 		return
 	}
-	settings, err := h.Store.GetSettings(m.Profile, m.Conv)
-	if err != nil || !withinActiveHours(settings.ActiveHours, h.Store.now()) {
+	if why := h.pursuitDeliverable(m, g); why != "" {
 		return
 	}
 	focus, picked := h.pursuitFocus(ctx, m, g)
@@ -75,11 +132,19 @@ func (h *Host) pursuitWake(ctx context.Context, rd *inputs.Reader, m pursuitMiss
 	turn := make([]byte, 8)
 	_, _ = rand.Read(turn)
 	_, err = h.Store.EnqueueWithPursuit(Command{ProfileID: m.Profile, ConversationID: m.Conv, Kind: KindSend,
-		TurnID: PursuitTurnPrefix + hex.EncodeToString(turn), Message: pursuitDigest(ep.Latest, g, focus, picked)}, m.ID, ep.Latest.Seq)
+		TurnID: pursuitWakeTurn(ep.Seq, hex.EncodeToString(turn)), Message: pursuitDigest(ep, g, focus, picked)}, m, ep.Seq)
 	if err != nil && !errors.Is(err, errEpochWoken) {
 		h.logf("coder host: pursuit of session %d: waking the lead: %v", m.ID, err)
 	}
-	_ = run
+}
+
+// pursuitTasks re-reads the task counts, which a long judge call can have changed (the work may have ended meanwhile).
+func (h *Host) pursuitTasks(ctx context.Context, rd *inputs.Reader, session int64, was inputs.TaskCounts) (inputs.TaskCounts, error) {
+	s, err := rd.Snapshot(ctx, session)
+	if err != nil || !s.Run.Running {
+		return was, errors.New("the pursuit is not running")
+	}
+	return s.Tasks, nil
 }
 
 // pursuitFocus picks the direction to give new work: the best SCORED one, through scorer.Pick, never the first of a

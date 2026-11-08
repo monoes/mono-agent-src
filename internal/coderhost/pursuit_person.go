@@ -14,6 +14,8 @@ import (
 //   - a message reached the lead's chats with no issuer (an agent's send carries its issuer) and a turn id that is not a
 //     host-made one (check-ins, answers, master sends, and the pursuit's own wake-ups all are).
 //
+// The newest 50 answers and 50 messages are read: more host-made sends than that after a person's message, before the
+// loop first sees it (a long outage), hide it; once seen it is stored and cannot regress.
 // A time that does not read counts for nothing here (it can never reset the counters), and a question time that does not
 // read counts as parked (it can only make the limit tighter).
 
@@ -44,11 +46,14 @@ func (s *Store) missionTree(m pursuitMission) ([]string, error) {
 func placeholders(n int) string { return strings.TrimSuffix(strings.Repeat("?,", n), ",") }
 
 // personActionAt is the latest action of the person the host's records show (the zero time when none).
-func (s *Store) personActionAt(m pursuitMission) (time.Time, error) {
+func (s *Store) personActionAt(m pursuitMission, tree []string) (time.Time, error) {
 	var best time.Time
 	take := func(v string) {
-		if t, err := time.Parse(time.RFC3339Nano, v); err == nil && t.After(best) {
-			best = t
+		// The pursuit row is stamped in whole seconds, the answers and messages in nanoseconds: all are compared in whole
+		// seconds. A clock stepped back makes a later action look older than the one already seen; it is then not noticed
+		// and the limits stay on (fail closed).
+		if t, err := time.Parse(time.RFC3339Nano, v); err == nil && t.Truncate(time.Second).After(best) {
+			best = t.Truncate(time.Second)
 		}
 	}
 	var moved string
@@ -56,9 +61,8 @@ func (s *Store) personActionAt(m pursuitMission) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("reading the pursuit row: %w", err)
 	}
 	take(moved)
-	tree, err := s.missionTree(m)
-	if err != nil || len(tree) == 0 {
-		return best, err
+	if len(tree) == 0 {
+		return best, nil
 	}
 	args := []any{m.Profile, WhoUser}
 	for _, c := range tree {
@@ -102,10 +106,9 @@ func (s *Store) personActionAt(m pursuitMission) (time.Time, error) {
 }
 
 // parkedSince counts the questions of the mission's chats that were parked after since and still wait for an answer.
-func (s *Store) parkedSince(m pursuitMission, since time.Time) (int, error) {
-	tree, err := s.missionTree(m)
-	if err != nil || len(tree) == 0 {
-		return 0, err
+func (s *Store) parkedSince(m pursuitMission, tree []string, since time.Time) (int, error) {
+	if len(tree) == 0 {
+		return 0, nil
 	}
 	args := []any{m.Profile}
 	for _, c := range tree {
@@ -122,7 +125,7 @@ func (s *Store) parkedSince(m pursuitMission, since time.Time) (int, error) {
 		if err := rows.Scan(&at); err != nil {
 			return 0, err
 		}
-		if t, err := time.Parse(time.RFC3339Nano, at); err != nil || t.After(since) {
+		if t, err := time.Parse(time.RFC3339Nano, at); err != nil || t.Truncate(time.Second).After(since) {
 			n++
 		}
 	}

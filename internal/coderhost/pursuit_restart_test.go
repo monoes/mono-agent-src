@@ -37,7 +37,7 @@ func TestARestartDoesNotOpenOrWakeTwice(t *testing.T) {
 
 func TestARestartWakesTheLeadForAnEpochItCouldNotWakeFor(t *testing.T) {
 	w := newPursuitWorld(t)
-	w.setLead("running", "turn-busy") // the lead is in a turn when the epoch lands
+	w.model.onCall = func() { w.setLead("running", "turn-busy") } // the lead is in a turn when the epoch lands
 	w.firstEpoch()
 	if got := w.epochs(); len(got) != 1 || got[0] != "1:applied" || len(w.wakes()) != 0 {
 		t.Fatalf("epochs %v wake-ups %d", got, len(w.wakes()))
@@ -79,7 +79,7 @@ func TestTheWakeUpIsQueuedOnceWhateverTheNumberOfTries(t *testing.T) {
 	w.firstEpoch()
 	lead := pursuitMission{ID: pursuitSession, Profile: "p", Conv: "m"}
 	c := Command{ProfileID: "p", ConversationID: "m", Kind: KindSend, TurnID: PursuitTurnPrefix + "again", Message: "again"}
-	if _, err := w.st.EnqueueWithPursuit(c, lead.ID, 1); err == nil {
+	if _, err := w.st.EnqueueWithPursuit(c, lead, 1); err == nil {
 		t.Fatal("a second wake-up for the same epoch was queued")
 	}
 	if len(w.wakes()) != 1 {

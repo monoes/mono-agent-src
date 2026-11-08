@@ -117,6 +117,7 @@ func newPursuitWorldWith(t *testing.T, started bool) *pworld {
 		}
 		clk.Advance(2 * time.Second) // everything after the start is after the person's last action
 	}
+	w.exec(`INSERT INTO tasks (profile_id, title, status, position, session_id, kind, created_at, updated_at) VALUES ('p', 'open work', 'ready', 0, 77, 'task', 'x', 'x')`)
 	h.Logf = t.Logf
 	h.Pursuit = &PursuitDeps{Model: w.model, Refuse: func(string) bool { return false }, Clock: clk,
 		Interval: 30 * time.Minute, EvidenceGap: 30 * time.Minute}
@@ -220,3 +221,11 @@ func (l *fakeLauncher) startedWith(prefix string) bool {
 }
 
 func sha256Of(s string) []byte { h := sha256.Sum256([]byte(s)); return h[:] }
+
+func goalOf(w *pworld) missionpursuit.Goal {
+	g, err := missionpursuit.NewStore(w.st.db).Get(context.Background(), "p", pursuitSession)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	return g
+}

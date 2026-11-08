@@ -13,6 +13,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/epoch"
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/judge"
+	"github.com/monoes/mono-agent/internal/doomsday/strategy/types"
 	"github.com/monoes/mono-agent/internal/missionpursuit"
 	"github.com/monoes/mono-agent/internal/missionpursuit/inputs"
 	"github.com/monoes/mono-agent/internal/missionpursuit/strategy"
@@ -20,8 +21,11 @@ import (
 
 // The host's pursuit loop (T6, S4): the one thing that wakes the lead of a mission whose pursuit the person started.
 //
-// It is OFF unless the host is given PursuitDeps (a judge model), and per mission unless the person started the pursuit
-// (mission_pursuit.enabled, set only with a confirmed goal) and has not paused it. Everything it spends (a judge call, a
+// It is OFF unless the host is given PursuitDeps (a judge model): with none, nothing here runs AND the check-ins of a
+// mission whose pursuit is started go on as before (the exclusion below is gated on the same switch, so a started
+// pursuit never leaves a lead without a waker). Per mission it runs only when the person started the pursuit
+// (mission_pursuit.enabled, set only with a confirmed goal) and has not paused it. A paused pursuit wakes nothing, check-ins
+// included: only the person's resume does (owner decision Q4). Everything it spends (a judge call, a
 // wake-up of the lead) is re-checked against the run state in the same breath: inputs.Check is read again immediately
 // before each, never taken from an earlier Snapshot. An unreadable answer is "stop". It adds no verb, route or tool: it
 // reads host rows, writes its own state table (mission_pursuit_state) and queues one host-made send per applied epoch.
@@ -42,6 +46,7 @@ const (
 	pursuitWaitingParked = "parked"
 	pursuitWaitingSpend  = "spend"
 	pursuitWaitingLimits = "limits"
+	pursuitWaitingEngine = "engine-parked"
 )
 
 // PursuitDeps turns the loop on. Model is the judge (resolved by the caller for the judging purpose) and Refuse its
@@ -129,8 +134,12 @@ func (h *Host) pursuitPass(ctx context.Context) {
 func (h *Host) pursueGuarded(ctx context.Context, m pursuitMission) {
 	h.pursuitMu.Lock()
 	until := h.pursuitBackoff[m.ID]
+	if !until.IsZero() && !h.Store.now().Before(until) {
+		delete(h.pursuitBackoff, m.ID) // expired: not kept
+		until = time.Time{}
+	}
 	h.pursuitMu.Unlock()
-	if !until.IsZero() && h.Store.now().Before(until) {
+	if !until.IsZero() {
 		return
 	}
 	defer func() {
@@ -180,29 +189,96 @@ func (h *Host) pursuingMissions(ctx context.Context) ([]pursuitMission, error) {
 	return out, nil
 }
 
-// pursue is one mission's turn in a pass: the gate, at most one epoch step, and the wake-up of the lead the epoch earned.
+// pursue is one mission's turn in a pass: the gate (read once), at most one epoch step, and the wake-up of the lead the
+// epoch earned. The judge is paid for only when the wake-up it earns could be delivered (pursuitDeliverable), and not
+// inside the engine's own floor between two epochs (no snapshot is read then either).
 func (h *Host) pursue(ctx context.Context, m pursuitMission) {
 	rd := inputs.New(h.Store.db)
-	gate, ok := h.pursuitGate(ctx, rd, m)
-	if !ok || gate.st.Waiting != "" {
+	g, ok := h.pursuitGate(ctx, rd, m)
+	if !ok || g.st.Waiting != "" {
 		return
 	}
-	run, err := h.pursuitRunOf(m, gate.goal)
+	run, err := h.pursuitRunOf(m, g.goal)
 	if err != nil {
 		h.logf("coder host: pursuit of session %d: %v", m.ID, err)
 		return
 	}
-	// The gate was read a moment ago: read the run state again right before the judge is paid for.
-	if !h.pursuitRunning(ctx, rd, m.ID) {
-		return
+	if h.pursuitMayTick(ctx, m, g) {
+		// The gate was read a moment ago: read the run state again right before the judge is paid for.
+		if !h.pursuitRunning(ctx, rd, m.ID) {
+			return
+		}
+		tctx, cancel := context.WithTimeout(ctx, h.Pursuit.timeout()+pursuitPassSlack)
+		res, err := run.engine.Tick(tctx)
+		cancel()
+		if err != nil && ctx.Err() == nil {
+			h.logf("coder host: pursuit of session %d: epoch: %v", m.ID, err)
+		}
+		h.noteEngineResult(m, run, res, err)
 	}
-	tctx, cancel := context.WithTimeout(ctx, h.Pursuit.timeout()+pursuitPassSlack)
-	_, err = run.engine.Tick(tctx)
-	cancel()
-	if err != nil && ctx.Err() == nil {
-		h.logf("coder host: pursuit of session %d: epoch: %v", m.ID, err)
+	h.pursuitWake(ctx, rd, m, g)
+}
+
+// pursuitMayTick says whether an epoch step may spend now: the wake-up it earns must be deliverable, the lead must not owe
+// an undelivered one already, and the engine's floor between two epochs must have passed (the engine would hold it anyway,
+// after reading a whole snapshot). An epoch the engine left unfinished is resumed under the same conditions.
+func (h *Host) pursuitMayTick(ctx context.Context, m pursuitMission, g pursuitGateResult) bool {
+	if h.pursuitUndelivered(g) {
+		return false
 	}
-	h.pursuitWake(ctx, rd, m, run)
+	if why := h.pursuitDeliverable(m, g); why != "" {
+		return false
+	}
+	if ep := g.snap.Epochs; ep.HasLatest && (ep.Latest.State != types.EpochOpen && ep.Latest.State != types.EpochJudged) && h.Pursuit.clock().Now().Sub(time.Unix(ep.Latest.StartedAt, 0)) < types.MinEpochInterval {
+		return false
+	}
+	return true
+}
+
+// pursuitUndelivered: an applied epoch whose wake-up is still owed (not queued yet, or queued and lost).
+func (h *Host) pursuitUndelivered(g pursuitGateResult) bool {
+	return !g.delivered
+}
+
+// pursuitDeliverable says why the lead cannot be woken now, or "": no chat, outside its active hours, not unattended,
+// in a turn or with a message waiting, or no open work for it (the check-in this replaces had each of these conditions).
+func (h *Host) pursuitDeliverable(m pursuitMission, g pursuitGateResult) string {
+	if m.Conv == "" {
+		return "the mission is bound to no chat"
+	}
+	lead, found, err := h.Store.GetSession(m.Profile, m.Conv)
+	switch {
+	case err != nil || !found:
+		return "the lead's session does not read"
+	case !lead.Unattended:
+		return "the lead is not unattended"
+	case lead.State != StateIdle || lead.TurnID != "" || h.Store.PendingFor(m.Profile, m.Conv) > 0:
+		return "the lead is not free"
+	}
+	settings, err := h.Store.GetSettings(m.Profile, m.Conv)
+	if err != nil || !withinActiveHours(settings.ActiveHours, h.Store.now()) {
+		return "outside the lead's active hours"
+	}
+	if t := g.snap.Tasks; t.Open()-t.Blocked <= 0 {
+		return "the mission has no open work"
+	}
+	return ""
+}
+
+// noteEngineResult keeps what a tick said that the person should be able to see: a parked engine is recorded (the next
+// gate stores it as "engine-parked") and a held reason is logged when it changes.
+func (h *Host) noteEngineResult(m pursuitMission, run *pursuitRun, res epoch.TickResult, err error) {
+	held := string(res.Held)
+	if res.Held == epoch.HeldParked {
+		run.parked = true
+	}
+	if held != run.lastHeld {
+		run.lastHeld = held
+		if held != "" {
+			h.logf("coder host: pursuit of session %d: the epoch engine holds (%s)", m.ID, held)
+		}
+	}
+	_ = err
 }
 
 func (d *PursuitDeps) timeout() time.Duration {
@@ -220,9 +296,10 @@ func (h *Host) pursuitRunning(ctx context.Context, rd *inputs.Reader, session in
 
 // pursuitGateResult is a fresh read of a started pursuit that may go on.
 type pursuitGateResult struct {
-	st   pursuitState
-	snap inputs.Snapshot
-	goal missionpursuit.Goal
+	st        pursuitState
+	snap      inputs.Snapshot
+	goal      missionpursuit.Goal
+	delivered bool // the latest applied epoch's wake-up is queued or ran (filled by the gate)
 }
 
 // pursuitGate reads the run state, the confirmed goal, the facts and the away counters in one go and says whether the
@@ -247,7 +324,12 @@ func (h *Host) pursuitGate(ctx context.Context, rd *inputs.Reader, m pursuitMiss
 		h.logf("coder host: pursuit of session %d: the pursuit record does not read (%v)", m.ID, err)
 		return g, false
 	}
-	pa, err := h.Store.personActionAt(m)
+	tree, err := h.Store.missionTree(m)
+	if err != nil {
+		h.logf("coder host: pursuit of session %d: %v", m.ID, err)
+		return g, false
+	}
+	pa, err := h.Store.personActionAt(m, tree)
 	if err != nil {
 		h.logf("coder host: pursuit of session %d: %v", m.ID, err)
 		return g, false
@@ -266,7 +348,7 @@ func (h *Host) pursuitGate(ctx context.Context, rd *inputs.Reader, m pursuitMiss
 		st.PersonAt, st.BaseSpentMicro = pa, spent // the person acted: the counters start again
 		changed = true
 	}
-	parked, err := h.Store.parkedSince(m, st.PersonAt)
+	parked, err := h.Store.parkedSince(m, tree, st.PersonAt)
 	if err != nil {
 		h.logf("coder host: pursuit of session %d: %v", m.ID, err)
 		return g, false
@@ -276,7 +358,11 @@ func (h *Host) pursuitGate(ctx context.Context, rd *inputs.Reader, m pursuitMiss
 		away.BudgetMicro = usdMicro(snap.Budget.BudgetUSD)
 		away.Spend(spent - st.BaseSpentMicro)
 	}
-	if waiting := awayReason(away, snap.Budget.Known); waiting != st.Waiting {
+	waiting := awayReason(away, snap.Budget.Known)
+	if h.pursuitEngineParked(m.ID) {
+		waiting = pursuitWaitingEngine
+	}
+	if waiting != st.Waiting {
 		st.Waiting, changed = waiting, true
 	}
 	if changed {
@@ -287,6 +373,7 @@ func (h *Host) pursuitGate(ctx context.Context, rd *inputs.Reader, m pursuitMiss
 	}
 	g.st = st
 	g.snap, g.goal = snap, goal
+	g.delivered = h.Store.wakeDelivered(m, snap.Epochs, st.WokenEpoch)
 	return g, true
 }
 
@@ -336,7 +423,8 @@ func (s *Store) pursuitStateOf(session int64) (pursuitState, bool, error) {
 	return st, true, nil
 }
 
-// savePursuitState writes the state; the woken epoch only ever moves forward.
+// savePursuitState writes the state. It never writes woken_epoch on an existing row: that moves only in EnqueueWithPursuit,
+// in the transaction that queues the wake-up.
 func (s *Store) savePursuitState(st pursuitState, now time.Time) error {
 	at := ""
 	if !st.PersonAt.IsZero() {
@@ -383,7 +471,18 @@ func (h *Host) pursuitRunOf(m pursuitMission, goal missionpursuit.Goal) (*pursui
 	return r, nil
 }
 
-type pursuitRun struct{ engine *epoch.Engine }
+type pursuitRun struct {
+	engine   *epoch.Engine
+	parked   bool   // the engine reported itself parked (a stored row failed verification): it stays so until a restart
+	lastHeld string // the last reason the engine held, so that a reason is logged when it changes and not at every pass
+}
+
+func (h *Host) pursuitEngineParked(session int64) bool {
+	h.pursuitMu.Lock()
+	defer h.pursuitMu.Unlock()
+	r := h.pursuitRuns[session]
+	return r != nil && r.parked
+}
 
 // The pursuit fields of the Host, kept together here.
 type pursuitHostState struct {
@@ -399,6 +498,9 @@ type pursuitHostState struct {
 // sessionPursuing says whether the person started the pursuit of the mission session (paused or not: a paused pursuit
 // still wakes nothing but the person's resume).
 func (h *Host) sessionPursuing(session int64) (bool, error) {
+	if !h.Pursuit.ready() {
+		return false, nil // no loop is wired: the check-ins go on
+	}
 	var n int
 	err := h.Store.db.QueryRow(`SELECT COUNT(*) FROM mission_pursuit WHERE session_id = ? AND enabled = 1`, session).Scan(&n)
 	return n > 0, err
@@ -408,6 +510,9 @@ func (h *Host) sessionPursuing(session int64) (bool, error) {
 // fails says no: the pursuit loop reads the same rows and cannot wake the lead either, so nothing is woken twice, and a
 // check-in's own failed-read handling stays as it was.
 func (h *Host) conversationPursuing(profileID, conversationID string) bool {
+	if !h.Pursuit.ready() {
+		return false
+	}
 	var n int
 	err := h.Store.db.QueryRow(`SELECT COUNT(*) FROM task_sessions s JOIN mission_pursuit p ON p.session_id = s.id
 		WHERE s.profile_id = ? AND s.conversation_id = ? AND s.archived_at = '' AND p.enabled = 1`, profileID, conversationID).Scan(&n)

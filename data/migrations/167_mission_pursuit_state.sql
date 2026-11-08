@@ -18,3 +18,7 @@ CREATE TABLE IF NOT EXISTS mission_pursuit_state (
   woken_epoch      INTEGER NOT NULL DEFAULT 0 CHECK (woken_epoch >= 0),
   updated_at       TEXT NOT NULL
 );
+
+-- The loop walks a mission's chats downwards (parent_conversation_id) on every pass; without this index each step scans the
+-- profile's whole coder_sessions table. Additive and idempotent.
+CREATE INDEX IF NOT EXISTS idx_coder_sessions_parent ON coder_sessions(profile_id, parent_conversation_id);
