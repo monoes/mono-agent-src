@@ -159,19 +159,23 @@ var seedOverrides = map[string]map[string]any{
 	"application_status_log": {"actor": "user"},
 	"workflow_executions":    {"status": "COMPLETED"},
 	// 160: a run token's hash and stamps in the one form its CHECKs accept; its execution is the profile's seeded one.
-	"org_proposals":           {"status": "pending", "verb": "grant.add"},
-	"mission_goals":           {"state": "proposed"},
-	"mission_goal_criteria":   {"kind": "rubric"},
-	"workflow_run_tokens":     {"token_hash": strings.Repeat("a", 64), "created_at": "2026-01-01T00:00:00Z", "expires_at": "2026-01-03T00:00:00Z"},
-	"person_links":            {"relation": "same", "status": "confirmed", "person_a": 1, "person_b": 2},
-	"application_fills":       {"status": "filled"},
-	"application_tabs":        {"state": "parked"},
-	"application_links":       {"kind": "task"},
-	"task_deps":               {"task_id": 1, "depends_on_task_id": 2},
-	"coder_session_commands":  {"kind": "send"},
-	"coder_session_decisions": {"made_by": "model"},
-	"coder_mission_children":  {"origin": "lead", "state": "marked"},
-	"coder_budget_requests":   {"target": "lead", "status": "open"},
+	"org_proposals":         {"status": "pending", "verb": "grant.add"},
+	"mission_goals":         {"state": "proposed"},
+	"mission_goal_criteria": {"kind": "rubric"},
+	// 165: strategy rows exist only for a running session (session 1 above is seeded running), and a judgment needs an open epoch.
+	"mission_strategy_directions": {"state": "proposed"},
+	"mission_strategy_epochs":     {"trigger": "timer", "state": "open"},
+	"mission_strategy_novelty":    {"outcome": "accepted"},
+	"workflow_run_tokens":         {"token_hash": strings.Repeat("a", 64), "created_at": "2026-01-01T00:00:00Z", "expires_at": "2026-01-03T00:00:00Z"},
+	"person_links":                {"relation": "same", "status": "confirmed", "person_a": 1, "person_b": 2},
+	"application_fills":           {"status": "filled"},
+	"application_tabs":            {"state": "parked"},
+	"application_links":           {"kind": "task"},
+	"task_deps":                   {"task_id": 1, "depends_on_task_id": 2},
+	"coder_session_commands":      {"kind": "send"},
+	"coder_session_decisions":     {"made_by": "model"},
+	"coder_mission_children":      {"origin": "lead", "state": "marked"},
+	"coder_budget_requests":       {"target": "lead", "status": "open"},
 	// 149: a live reservation, with stamps in the one text form its CHECK accepts. Deleting the profile (or its
 	// session) removes the row, which is how a reservation's money comes back; there is no rule to retain it.
 	"task_session_reservations": {"session_id": 1, "state": "live", "lease_until": "2026-10-05T12:00:00Z", "heartbeat_at": "2026-10-05T12:00:00Z", "created_at": "2026-10-05T12:00:00Z", "bounded": 1, "exec_id": "e1"},
@@ -230,7 +234,7 @@ func TestDeleteCoversEveryTableOfTheProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 	// a reservation is on a session of its own profile (a trigger holds it), so session 1 is this profile's
-	if _, err := conn.ExecContext(ctx, `INSERT INTO task_sessions (id, profile_id, title, created_by, created_at, updated_at) VALUES (1, ?, 's', 'you', 'x', 'x')`, id); err != nil {
+	if _, err := conn.ExecContext(ctx, `INSERT INTO task_sessions (id, profile_id, title, state, created_by, created_at, updated_at) VALUES (1, ?, 's', 'running', 'you', 'x', 'x')`, id); err != nil {
 		t.Fatal(err)
 	}
 	before := map[string]int{}
@@ -881,5 +885,47 @@ func TestProfileDeleteRemovesItsOrgProposals(t *testing.T) {
 	rows.Close()
 	if len(owners) != 1 || owners[0] != other {
 		t.Fatalf("proposals left after the delete: %v, want only the other profile's", owners)
+	}
+}
+
+// A profile that holds a confirmed mission goal and a running mission's strategy rows is deleted like any other: those
+// rows go with their session (the database refuses a hand delete of them while the session exists), so the delete
+// removes the session first.
+func TestProfileDeleteRemovesAConfirmedGoalAndStrategyRowsWithTheirSession(t *testing.T) {
+	dbPath := newProfileDocsCLITestDB(t)
+	id := createTestProfile(t, dbPath, "doomed")
+	createTestProfile(t, dbPath, "other")
+	db, err := storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`INSERT INTO task_sessions (id, profile_id, title, state, kind, created_by, created_at, updated_at) VALUES (501, '` + id + `', 't', 'running', 'mission', 'you', 'x', 'x')`,
+		`INSERT INTO mission_goals (session_id, state, criteria_hash, proposed_by, created_at, updated_at) VALUES (501, 'proposed', 'h', 'lead', 'x', 'x')`,
+		`INSERT INTO mission_goal_criteria (session_id, pos, kind, spec, hash) VALUES (501, 1, 'rubric', 'good', 'h')`,
+		`UPDATE mission_goals SET state = 'confirmed', confirmed_by = 'you', confirmed_at = 'x' WHERE session_id = 501`,
+		`INSERT INTO mission_strategy_epochs (session_id, epoch_seq, trigger, started_at, state) VALUES (501, 1, 'timer', 1, 'open')`,
+		`INSERT INTO mission_strategy_judgments (session_id, epoch_seq, body, body_hash) VALUES (501, 1, '{}', x'01')`,
+		`INSERT INTO mission_strategy_directions (session_id, direction_id, key_hash, title, state) VALUES (501, 'd', x'02', 't', 'proposed')`,
+		`INSERT INTO mission_strategy_novelty (session_id, key_hash, outcome) VALUES (501, x'02', 'accepted')`,
+	} {
+		if _, err := db.DB.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	db.Close()
+	if _, err := runCaptured(t, dbPath, "delete", id, "--yes-delete-profile", "doomed"); err != nil {
+		t.Fatal(err)
+	}
+	db, err = storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, tb := range []string{"task_sessions WHERE id = 501", "mission_goals", "mission_goal_criteria", "mission_strategy_epochs", "mission_strategy_judgments", "mission_strategy_directions", "mission_strategy_novelty"} {
+		var n int
+		if err := db.DB.QueryRow(`SELECT COUNT(*) FROM ` + tb).Scan(&n); err != nil || n != 0 {
+			t.Errorf("%s: %d rows left, %v", tb, n, err)
+		}
 	}
 }
