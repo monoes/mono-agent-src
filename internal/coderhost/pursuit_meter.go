@@ -150,6 +150,9 @@ func (h *Host) noteJudgeRound(m pursuitMission, res epoch.TickResult, _ error) {
 		st.BadRounds++
 	}
 	st.LastRound = round
+	if st.Waiting == "" {
+		st.Waiting = h.pursuitStopReason(m, st) // the stop shows at once, not at the next pass
+	}
 	if err := h.Store.savePursuitState(st, h.Pursuit.clock().Now()); err != nil && !errors.Is(err, context.Canceled) {
 		h.logf("coder host: pursuit of session %d: %v", m.ID, err)
 	}

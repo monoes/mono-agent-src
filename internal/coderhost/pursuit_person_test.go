@@ -44,7 +44,7 @@ func TestTheSpendLimitStopsNewEpochs(t *testing.T) {
 	w := newPursuitWorld(t)
 	w.pass()
 	w.advance(31 * time.Minute)
-	w.setSpent(1.99) // 19.9% of 10 USD since the person acted
+	w.setSpent(1.98) // 19.8% of 10 USD since the person acted; the scripted judge's call adds 0.01 (S5a: the judge is on the meter)
 	w.pass()
 	if len(w.epochs()) != 1 || w.waiting() != "" {
 		t.Fatalf("below 20%%: epochs %v waiting %q", w.epochs(), w.waiting())

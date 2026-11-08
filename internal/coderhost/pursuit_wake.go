@@ -178,6 +178,15 @@ func pursuitDigest(ep types.Epoch, g pursuitGateResult, focus types.Direction, p
 		fmt.Fprintf(&b, "- direction %s: %s\n", d.ID, d.State)
 		n++
 	}
+	unlinked := 0
+	for _, d := range g.snap.Directions {
+		if d.State == types.DirProposed && d.SessionID == "" {
+			unlinked++
+		}
+	}
+	if unlinked > 0 {
+		fmt.Fprintf(&b, "%d direction(s) are proposed and have no session yet: to work on one, start a direction session; the host links it to the oldest one.\n", unlinked)
+	}
 	if picked && hostID.MatchString(focus.ID) {
 		fmt.Fprintf(&b, "Focus: %s (the best measured).\n", focus.ID)
 	} else {
