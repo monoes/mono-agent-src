@@ -217,6 +217,10 @@ func factsOf(doc []byte) (startFacts, error) {
 	if m := processCheckRe.FindStringSubmatch(d.Text); m != nil {
 		f.processCheck = cleanText(m[1], 300)
 	}
+	if dialogGOOS == "windows" && f.processCheck == "" {
+		// a command-line tool that does not print the sentence would give a dialog without the warning the person must see
+		return startFacts{}, errors.New("this version cannot show the Windows process-check warning; update the command-line tool")
+	}
 	switch m := budgetRe.FindStringSubmatch(d.Text); {
 	case noCeiling.MatchString(d.Text):
 		f.budget = "unlimited"

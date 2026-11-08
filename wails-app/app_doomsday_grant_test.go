@@ -776,3 +776,30 @@ func TestStartDialogCarriesTheWeakerProcessCheckOnWindowsOnly(t *testing.T) {
 		}
 	}
 }
+
+// A Windows app paired with a command-line tool whose render lacks the Windows sentence refuses to start, in plain words,
+// instead of showing a dialog without the warning; the other OSes do not need the sentence.
+func TestWindowsStartIsRefusedWhenTheRenderLacksTheProcessCheckSentence(t *testing.T) {
+	old := dialogGOOS
+	defer func() { dialogGOOS = old }()
+	doc := []byte(previewDoc(gHash, []string{"a", "b"}, "10.000000 USD for the whole run."))
+	for goos, wantErr := range map[string]bool{"windows": true, "linux": false, "darwin": false} {
+		dialogGOOS = goos
+		_, err := factsOf(doc)
+		if (err != nil) != wantErr {
+			t.Errorf("%s: err = %v, want error = %v", goos, err, wantErr)
+		}
+		if wantErr && (err == nil || !strings.Contains(err.Error(), "update the command-line tool")) {
+			t.Errorf("%s: the refusal is not plain: %v", goos, err)
+		}
+	}
+	// with the sentence present, Windows is served
+	dialogGOOS = "windows"
+	var m map[string]any
+	_ = json.Unmarshal(doc, &m)
+	m["text"] = m["text"].(string) + doomsdaycli.NotDefended("windows")
+	raw, _ := json.Marshal(m)
+	if _, err := factsOf(raw); err != nil {
+		t.Errorf("windows with the sentence: %v", err)
+	}
+}
