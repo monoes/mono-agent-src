@@ -3,6 +3,7 @@ package dynorg
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/doomsday/store"
