@@ -15,6 +15,8 @@ export const controlRoomApi = {
   // {mode_available, run_exists}; both false on any failure.
   probe:    () => run(() => GoApp.DoomsdayProbe()),
   overview: () => run(() => GoApp.DoomsdayOverview()),
+  // The run's state and where the boss's first turn stands: {active, first_turn, first_turn_error}.
+  status:   () => run(() => GoApp.DoomsdayStatus()),
   // before 0 = newest page; limit 0 = the CLI's default.
   feed:     (before = 0, limit = 0) => run(() => GoApp.DoomsdayFeed(before, limit)),
   // {ok, stopped, output, detail, code}

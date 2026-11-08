@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -79,7 +78,7 @@ func TestATokenWorksOnlyForTheTurnsProcessAndItsDescendants(t *testing.T) {
 		}
 	}
 	// a sibling: a process that is not an ancestor of the caller, even with the right stamp
-	sib := exec.Command("sleep", "30")
+	sib := sleepCmd()
 	if err := sib.Start(); err != nil {
 		t.Fatal(err)
 	}

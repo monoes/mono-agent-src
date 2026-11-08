@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux || darwin
 
 package chat
 
@@ -72,7 +72,7 @@ func TestThePublisherShowsARunningServiceAndItsCounts(t *testing.T) {
 		b := readInfo(t, infoPath).Binding
 		return len(b) == 1 && b[0].Running && b[0].Start == 1 && b[0].Active == 0
 	})
-	procs, err := procbind.NewLinuxProcs()
+	procs, err := procbind.NewProcs()
 	if err != nil {
 		t.Fatal(err)
 	}

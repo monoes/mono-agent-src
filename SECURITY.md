@@ -1725,7 +1725,10 @@ layers, from strongest:
    names, one write at a time, and only when `--profile` and the
    environment match the stored grant (a name whose write fails is not
    remembered, and a non-empty but wrong environment can open and migrate
-   the database once while that check runs).
+   the database once while that check runs). Any failed attempt (the scope
+   check fails, the write fails or times out) also pauses every name for 5
+   seconds, so a stream of refusals that cannot be recorded opens the
+   database at most once in that time. The row is best effort: under a flood of refusals, a busy database or a timeout it can be dropped.
 6. **Workdir confinement of automation file paths (C-46).** Automations run
    in the daemon, outside monomind's per-role workdir confinement. So the
    grant handler puts the calling role's workdir (computed from the
@@ -3516,6 +3519,69 @@ full allowance; the table of peers and the shared limits are unchanged. Residual
 reuses its small pidfd inode numbers), the start time has a resolution of 10 ms, so a pid recycled within the same tick as its predecessor looks the
 same and is held to the predecessor's allowance for that moment; it fails closed (a deny) and is
 availability only.
+
+**Binding service on macOS.** The same contract, with the kernel facilities macOS has. The peer's uid comes from
+LOCAL_PEERCRED and its pid from LOCAL_PEERPID, read from the connected socket (never from the request); a credential
+structure that is short, of an unknown version or untouched (no groups), a pid that is not a process, or a uid other than
+the host's is closed without an answer. LOCAL_PEERPID is not the connector's pid for good: measured on macOS 27, it is the
+process that last did I/O on the other end (right after the accept the connector, and after a process holding a duplicate
+wrote, that process). LOCAL_PEERTOKEN (the audit token) was measured too and does not help: the kernel looks it up from the
+pid when asked, so after a pid is recycled it names the new process. What the kernel does tie to the connection is the
+descriptor, so the service accepts the process at that pid only if it can read the process's descriptor table and find a unix
+socket open there whose control block is the one this end is connected to and which is connected back to this end (proc_info,
+PROC_PIDFDSOCKETINFO). A process that took over a recycled pid does not hold the connector's end, and is refused. The proof is
+made once per connection, in the connection's own goroutine after the per-peer limits and the uid check, and is bounded: a
+peer with more than 4096 descriptors (all of them, as the first listing counts them) is refused, and the 500 ms budget is
+checked between descriptors, so one slow proc_info call is not interrupted. The per-peer limits are keyed by the pid read at
+accept, while serving the connection reads LOCAL_PEERPID again and the proof is made for that later pid. The offsets it reads are the public proc_info ABI, checked
+on one macOS 27 arm64 machine; Ready makes two connected pairs inside the process and fails closed, with a message, unless each
+pair's ends are found as each other's holder and the other pair's are not (so offsets that read one field twice cannot pass). The process table is read through sysctl (kern.proc.pid), and a process is pinned
+by its pid together with its start time in microseconds: the pin is alive only while the kernel still reports that pair and the
+process is not a zombie. Process ancestry (internal/procchain) uses the same reader, and anything it cannot read counts as
+no. The socket directory is checked as on Linux (components opened one at a time with no symlink followed, mode 0700, ours,
+a lock); a socket path longer than the address can hold (103 bytes) is refused, a profile id that would not fit is
+replaced by its hash, and the path used to bind and connect is the directory descriptor's current path. Residual, not
+present on Linux: macOS has no pidfd, so after the proof the pin is a pid and a start time, a number can be reused between a
+later check and its next use, and the check and the signal that stops a turn's leader are not atomic. An in-tree process that
+hands the connection to an outsider lends its authority, as on Linux. A client that sends its request and closes before the
+service reads the tables is refused (usability only).
+
+**Binding service on Windows.** The same contract as Linux, with the facilities Windows has, and **much weaker against a same-user
+adversary**, which is stated first. The Windows binding stops a leaked token used by a program that does not know the tricks below
+(an environment dump, a log, another program, a sibling tool). It does **not** stop same-user malware, or an agent that is written
+(or talked into) defeating it, and **a process-ancestry gate is not a boundary on Windows**. Two routes, each a few lines of
+ordinary Windows API and no privilege: (1) **Parent claim.** A Windows process records the parent that its creator names (any
+process the creator can open with the create-process right), and the child also takes that parent's token, job and inheritable
+handles, so a process of the same user outside the turn can start a child that the walk takes for a descendant
+(`TestKnownGapAProcessThatClaimsTheWorkerAsItsParentIsServed`). (2) **Injection.** Under the default access list the same user can open
+any process of its own with the rights to write into it and start a thread in it (`CreateRemoteThread`), and the code that then runs is
+a tree member: its peer pid, user and ancestry are genuine (`TestKnownGapTheDefaultAccessListLetsTheSameUserWriteIntoATreeMember`).
+Closing both needs the turn's processes started with an access list that denies those rights to everyone but SYSTEM, which is separate
+work; a job object, a restricted token or a distinct integrity level do not help, since the spoofed child inherits them from the
+claimed parent. On Linux and macOS the parent is the kernel's, so an attacker needs code running inside the tree. Consequences: the
+gates that ask "is this caller inside a coder turn" (`HostInsideTurn`, `CallerInATurn`, the v1 mission and session token process
+checks, which are newly active on Windows: before, they did nothing) can be escaped by one `CreateProcess` naming another parent, or by
+launching through WMI or Task Scheduler without any trick; they restrain an agent that does not try. Availability change: because the
+Windows parent of a detached tool is dead or recycled once its launcher exits, such a tool is now denied (`ErrNotInWorkerTree`) where
+it was not checked before, and `BindMissionProcess` refuses an empty stamp.
+
+What is enforced, as on Linux: the service listens on a Unix-domain socket (a named pipe would need a connection layer of its own and
+gives the same pid fact); the peer is the process the kernel names as the one that connected (SIO_AF_UNIX_GETPEERPID), pinned at accept
+with an open process handle (the number cannot move to another process while it is open) with its creation time read from the handle,
+and its user is read from that process's token and must be the host's own user; a peer that cannot be pinned, is not alive, has no
+readable user or is another user is closed without an answer. The parent walk compares creation times, so a parent number recycled to
+a younger process is refused, and a zombie, an unreadable or an exited process has no stamp and denies. The stamp has no boot part on
+Windows (creation times are absolute, and the kernel's boot time moves when the clock is stepped, which would make a live turn's stamp
+stop matching). The socket directory is made with a protected access list for the user and SYSTEM, every component is opened without
+following a reparse point and checked (owner and access list admit only the user, SYSTEM, the Administrators and CREATOR OWNER), the
+handles stay open so the directory cannot be renamed while the service runs, a lock file opened with no sharing allows one host, and a
+socket path longer than the 107 bytes of a Windows socket address is refused with its cause. The frame pipe's write end is not
+inheritable. Residual, as on macOS and not present on Linux: the kernel names the process that **connected** and does not say who holds
+the connection, so a connector that hands the connection to another process and ends, and whose number is recycled to a process inside
+the tree before the service pins it, is served as that process; the window is the accept latency, which a process of the same user that
+can suspend the host can widen. An ended connector is refused. The turn's leader is held by a handle; a bound turn whose leader exits
+has its group signalled by `taskkill /T` by the leader's number while the child is still unreaped, which cannot find a tree whose
+parent is gone: stragglers of a Windows turn may outlive their leader (job-object containment is separate work).
 
 **Not part of this surface.** Running a caller's tool: the gateway returns the
 call and the caller runs it. The runtime's own native tools are a separate matter,

@@ -3,6 +3,7 @@ package dynorg
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/doomsday/store"
@@ -47,7 +48,7 @@ func TestRecoveryNeverEndsALiveMerge(t *testing.T) {
 	}
 	t.Run("a member with no open operation is not released while its process runs", func(t *testing.T) {
 		r := newDDRig(t)
-		if err := r.st.Register(ctx, store.Member{Profile: "p", Generation: r.run.Generation, ID: "merge-live-1", Kind: "merge", Pid: 4242, Stamp: "host"}); err != nil {
+		if err := r.st.Register(ctx, store.Member{Profile: "p", Generation: r.run.Generation, ID: "merge-live-1", Kind: "merge", Pid: os.Getpid(), Stamp: "host"}); err != nil {
 			t.Fatal(err)
 		}
 		rec := MergeRecovery{Profile: "p", Members: r.st, Journal: r.journal(),

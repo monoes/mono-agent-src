@@ -318,7 +318,7 @@ func TestGrantModeRefusalRowsAreSingleFlight(t *testing.T) {
 	<-entered
 	refuseOnce(t, f.server, context.Background(), "task_next")
 	refuseOnce(t, f.server, context.Background(), "api_status")
-	if f.server.refusals.admit("another_name") {
+	if _, ok := f.server.refusals.admit(f.server, "another_name"); ok {
 		f.server.refusals.release()
 		t.Fatal("a second write slot was handed out while one write was in flight")
 	}
@@ -358,5 +358,67 @@ func TestGrantModeFailedRefusalWriteIsNotRemembered(t *testing.T) {
 	s.refusals.mu.Unlock()
 	if n != 0 {
 		t.Fatalf("%d names remembered after a failed write", n)
+	}
+}
+
+// Failed attempts (the scope check fails fast: wrong profile, bad environment,
+// missing grant, database error) are rate limited too: after one fails, no
+// further attempt opens the database until the back-off passes.
+func TestGrantModeFailedRefusalAttemptsAreBackedOff(t *testing.T) {
+	now := time.Now()
+	oldNow := grantRefusalNow
+	grantRefusalNow = func() time.Time { return now }
+	t.Cleanup(func() { grantRefusalNow = oldNow })
+	var attempts int32
+	grantRefusalBeforeScope = func() { atomic.AddInt32(&attempts, 1) }
+	t.Cleanup(func() { grantRefusalBeforeScope = nil })
+	s := brokenDBServer(t)
+	t.Setenv("MONOMIND_ORG_NAME", "growth")
+	t.Setenv("MONOMIND_ORG_ROLE", "writer")
+	for i := 0; i < 6; i++ {
+		refuseOnce(t, s, context.Background(), "flood_"+strconv.Itoa(i))
+		s.refusals.wait()
+		s.refusals.work.Wait()
+	}
+	if n := atomic.LoadInt32(&attempts); n != 1 {
+		t.Fatalf("%d attempts in a burst of failing refusals, want 1", n)
+	}
+	now = now.Add(grantRefusalFailBackoff + time.Second)
+	refuseOnce(t, s, context.Background(), "after")
+	s.refusals.wait()
+	s.refusals.work.Wait()
+	if n := atomic.LoadInt32(&attempts); n != 2 {
+		t.Fatalf("%d attempts after the back-off, want 2", n)
+	}
+}
+
+// An admitted attempt carries its epoch and test hooks as they were at
+// admission: a later change of the globals or of the epoch does not reach it.
+func TestGrantModeAdmittedRefusalCapturesEpochAndHooks(t *testing.T) {
+	s := brokenDBServer(t)
+	s.rtMu.Lock()
+	s.epoch = 7
+	s.rtMu.Unlock()
+	var first int32
+	grantRefusalBeforeScope = func() { atomic.AddInt32(&first, 1) }
+	t.Cleanup(func() { grantRefusalBeforeScope, grantRefusalAfterScope = nil, nil })
+	slot, ok := s.refusals.admit(s, "task_list")
+	if !ok {
+		t.Fatal("not admitted")
+	}
+	defer s.refusals.release()
+	s.rtMu.Lock()
+	s.epoch = 8
+	s.rtMu.Unlock()
+	grantRefusalBeforeScope = nil
+	if slot.epoch != 7 {
+		t.Fatalf("slot epoch %d, want the admission-time 7", slot.epoch)
+	}
+	if slot.beforeScope == nil {
+		t.Fatal("slot lost the hook set at admission")
+	}
+	slot.beforeScope()
+	if atomic.LoadInt32(&first) != 1 {
+		t.Fatal("slot hook is not the one set at admission")
 	}
 }

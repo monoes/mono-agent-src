@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -15,6 +16,7 @@ func cheap(t *testing.T, ok bool, reason string) *int {
 	t.Helper()
 	n := 0
 	t.Cleanup(coderhost.SetOpenModeReady(true))
+	t.Cleanup(coderhost.SetOpenModeBindingProbe("linux", func() error { return nil }))
 	t.Cleanup(coderhost.SetOpenModeCheck(func() (bool, string) { n++; return ok, reason }))
 	return &n
 }
@@ -106,6 +108,7 @@ func TestFlippingOpenModeReadyOpensAndClosesEveryEntry(t *testing.T) {
 	f := newToggleFixture(t)
 	r := newAccessRig(t, true)
 	t.Cleanup(coderhost.SetOpenModeCheck(func() (bool, string) { return true, "" }))
+	t.Cleanup(coderhost.SetOpenModeBindingProbe("linux", func() error { return nil }))
 
 	restore := coderhost.SetOpenModeReady(false)
 	out, code := runSessionsCLI(t, f.cfg, "settings", "set", f.conv.ID, "--chat-mode", "open")
@@ -132,5 +135,33 @@ func TestFlippingOpenModeReadyOpensAndClosesEveryEntry(t *testing.T) {
 	defer restore2()
 	if _, code := createAs(t, r.dbPath, true, "--access", "full", "--new-workspace", "--chat-mode", "open"); code == 0 {
 		t.Fatal("flipped back, a chat was still created in the open mode")
+	}
+}
+
+// Where the binding service cannot run (any OS, Windows included) the open mode is not offered: chat-modes lists it
+// unavailable with the service's own reason, a new chat in the open mode is refused with it before anything is created,
+// and the cheap check is not asked.
+func TestOpenModeIsRefusedWhereTheBindingCannotRun(t *testing.T) {
+	const svc = "this Windows cannot tell which process connected to a local socket"
+	for _, goos := range []string{"windows", "linux", "darwin"} {
+		t.Run(goos, func(t *testing.T) {
+			asked := cheap(t, true, "")
+			t.Cleanup(coderhost.SetOpenModeBindingProbe(goos, func() error { return errors.New(svc) }))
+			r := newAccessRig(t, true)
+			opt := openOption(chatModeView{Options: chatModeOptions("full")})
+			if opt == nil || opt.Available || opt.Pending || !strings.Contains(opt.Reason, svc) {
+				t.Fatalf("option %+v", opt)
+			}
+			out, code := createAs(t, r.dbPath, true, "--access", "full", "--new-workspace", "--chat-mode", "open")
+			if code == 0 || !strings.Contains(out, svc) {
+				t.Fatalf("chat create: exit %d %s", code, out)
+			}
+			if list, _, err := r.store.ListConversations("default", "", 100); err != nil || len(list) != 0 {
+				t.Fatalf("a chat was made: %d %v", len(list), err)
+			}
+			if *asked != 0 {
+				t.Fatalf("the cheap check was asked %d times", *asked)
+			}
+		})
 	}
 }

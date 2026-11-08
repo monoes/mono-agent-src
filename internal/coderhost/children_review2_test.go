@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"github.com/monoes/mono-agent/internal/procbind"
 	"os"
-	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -134,7 +134,7 @@ func TestATokenPresentedOutsideTheTurnTreeSaysSoAndBindingNeedsAStamp(t *testing
 	if err := st.BindSessionToken("p", m.ConversationID, "t1", os.Getpid(), ""); err == nil {
 		t.Fatal("a token was bound without a start stamp")
 	}
-	sib := exec.Command("sleep", "30")
+	sib := sleepCmd()
 	if err := sib.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -253,9 +253,14 @@ func TestAHostInsideABoundTurnIsNoticedThroughItsV2Binding(t *testing.T) {
 	if st.HostInsideTurn() {
 		t.Fatal("a binding with a different start stamp counted")
 	}
-	mint("t0b", pp, ProcStamp(pp)+"@another-boot") // the same process number and start tick of another boot
-	if st.HostInsideTurn() {
-		t.Fatal("a binding of another boot counted")
+	if runtime.GOOS == "linux" && BoundStamp(pp) == ProcStamp(pp) { // the guarded case below must not skip silently where stamps carry a boot
+		t.Fatal("the stamp of a bound turn carries no boot part on Linux")
+	}
+	if BoundStamp(pp) != ProcStamp(pp) { // stamps that carry a boot (Linux); Windows creation times are absolute and carry none
+		mint("t0b", pp, ProcStamp(pp)+"@another-boot") // the same process number and start tick of another boot
+		if st.HostInsideTurn() {
+			t.Fatal("a binding of another boot counted")
+		}
 	}
 	id := mint("t1", pp, BoundStamp(pp))
 	if !st.HostInsideTurn() {

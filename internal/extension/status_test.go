@@ -3,6 +3,8 @@ package extension
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -19,6 +21,32 @@ import (
 // it alongside the HTTP base URL, the extension WebSocket URL, and the
 // buffer its logger writes to (so a test can assert on how an event was
 // logged, not just that it happened).
+// healthyWithin is how long a test server gets to answer its health probe. A loaded CI runner can take several
+// seconds to schedule the listener goroutine (#1458); a healthy server answers within milliseconds, so the bound
+// only matters when the server is really broken.
+const healthyWithin = 20 * time.Second
+
+// waitHealthy polls base until the bridge answers, the server's start fails (startErr carries the reason: a port
+// taken between freePort and the listen, say) or within runs out. The error names what was seen last.
+func waitHealthy(base string, startErr <-chan error, within time.Duration) error {
+	deadline := time.Now().Add(within)
+	for !Probe(base) {
+		select {
+		case err, ok := <-startErr:
+			if ok && err != nil {
+				return fmt.Errorf("server failed to start for %s: %w", base, err)
+			}
+		default:
+		}
+		if time.Now().After(deadline) {
+			_, lastErr := FetchStatus(base)
+			return fmt.Errorf("server never became healthy at %s after %s: last probe: %v", base, within, lastErr)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return nil
+}
+
 func startStatusTestServer(t *testing.T) (*Server, string, string, *syncBuffer) {
 	t.Helper()
 	setHome(t, t.TempDir())
@@ -29,16 +57,12 @@ func startStatusTestServer(t *testing.T) (*Server, string, string, *syncBuffer) 
 
 	logs := &syncBuffer{}
 	srv := NewServer("127.0.0.1:9222", zerolog.New(logs))
-	srv.StartAsync(context.Background())
+	startErr := srv.StartAsync(context.Background())
 	t.Cleanup(func() { srv.Close() }) //nolint:errcheck
 
 	base := "http://127.0.0.1:" + strconv.Itoa(port)
-	deadline := time.Now().Add(3 * time.Second)
-	for !Probe(base) {
-		if time.Now().After(deadline) {
-			t.Fatalf("server never became healthy at %s", base)
-		}
-		time.Sleep(20 * time.Millisecond)
+	if err := waitHealthy(base, startErr, healthyWithin); err != nil {
+		t.Fatal(err)
 	}
 	return srv, base, "ws://127.0.0.1:" + strconv.Itoa(port) + "/monoagent", logs
 }
@@ -295,5 +319,49 @@ func TestHealth_ReportsInFlightWork(t *testing.T) {
 	<-done
 	if got := fetchHealth(t, base); got.InFlight != 0 {
 		t.Errorf("inFlight = %d after the command settled, want 0", got.InFlight)
+	}
+}
+
+// #1458: the wait for a test server must report why the server is not up and must not give up before a slow
+// runner has scheduled it.
+func TestWaitHealthyReportsAFailedStartAtOnce(t *testing.T) {
+	setHome(t, t.TempDir())
+	startErr := make(chan error, 1)
+	startErr <- errors.New("listen tcp: address already in use")
+	begin := time.Now()
+	err := waitHealthy("http://127.0.0.1:"+strconv.Itoa(freePort(t)), startErr, 10*time.Second)
+	if err == nil || !strings.Contains(err.Error(), "address already in use") {
+		t.Fatalf("err = %v, want the start error named", err)
+	}
+	if time.Since(begin) > 3*time.Second {
+		t.Fatalf("a failed start took %s to report", time.Since(begin))
+	}
+}
+
+func TestWaitHealthyOutlastsASlowStart(t *testing.T) {
+	setHome(t, t.TempDir())
+	port := freePort(t)
+	t.Setenv(ExtensionPortEnv, strconv.Itoa(port))
+	srv := NewServer("127.0.0.1:9222", zerolog.New(&syncBuffer{}))
+	t.Cleanup(func() { srv.Close() }) //nolint:errcheck
+	var startErr <-chan error
+	started := make(chan struct{})
+	go func() {
+		time.Sleep(1500 * time.Millisecond)
+		startErr = srv.StartAsync(context.Background())
+		close(started)
+	}()
+	if err := waitHealthy("http://127.0.0.1:"+strconv.Itoa(port), nil, 10*time.Second); err != nil {
+		t.Fatalf("a server that starts 1.5s late: %v", err)
+	}
+	<-started
+	_ = startErr
+}
+
+func TestWaitHealthyNamesTheLastProbeWhenNothingAnswers(t *testing.T) {
+	setHome(t, t.TempDir())
+	err := waitHealthy("http://127.0.0.1:"+strconv.Itoa(freePort(t)), nil, 300*time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), "never became healthy") || !strings.Contains(err.Error(), "last probe") {
+		t.Fatalf("err = %v", err)
 	}
 }

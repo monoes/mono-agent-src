@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux || darwin
 
 package procbind
 
@@ -6,15 +6,11 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"io"
 	"net"
-	"strconv"
 	"sync"
 	"syscall"
 	"time"
-
-	"golang.org/x/sys/unix"
 )
 
 // Registry is the service's view of active registrations: the worker a token is bound to, as a
@@ -31,7 +27,7 @@ type LeaseRegistry interface {
 }
 
 // Server answers verification requests on a unix socket. It learns the caller from the kernel
-// (SO_PEERCRED and a pidfd from SO_PEERPIDFD), never from the request, and walks the host's
+// (SO_PEERCRED and a pidfd from SO_PEERPIDFD on Linux; LOCAL_PEERCRED and LOCAL_PEERPID on macOS), never from the request, and walks the host's
 // process table from that pidfd to the registered worker.
 type Server struct {
 	Profile    string
@@ -63,7 +59,7 @@ type Server struct {
 	track  tracker
 	// peerOf reads the other end's credentials; tests replace it to stand in for a peer the
 	// service cannot see. It is the real kernel lookup otherwise.
-	peerOf func(*net.UnixConn) (unix.Ucred, int, error)
+	peerOf func(*net.UnixConn) (peerCred, int, error)
 	// identityOf reads the key a peer's limits are kept under; tests replace it to stand in for a recycled pid.
 	identityOf func(*net.UnixConn) (peerKey, error)
 }
@@ -72,23 +68,6 @@ func (s *Server) logf(format string, args ...any) {
 	if s.Logf != nil {
 		s.Logf(format, args...)
 	}
-}
-
-// PeerPidfdSupported says whether this kernel gives a pidfd for a connected unix socket
-// (SO_PEERPIDFD, Linux 6.5). Without it the feature is unavailable, not degraded.
-func PeerPidfdSupported() bool {
-	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
-	if err != nil {
-		return false
-	}
-	defer unix.Close(fds[0])
-	defer unix.Close(fds[1])
-	fd, err := unix.GetsockoptInt(fds[0], unix.SOL_SOCKET, unix.SO_PEERPIDFD)
-	if err != nil {
-		return false
-	}
-	_ = unix.Close(fd)
-	return true
 }
 
 // unixAcceptor is what Serve needs of a listener; a *net.UnixListener is one.
@@ -180,9 +159,6 @@ type peerKey struct {
 	id    uint64
 }
 
-// startTimeOf reads a process's start time; tests replace it to reap the process in the middle of the read.
-var startTimeOf = readStartTime
-
 // peerIdentity reads the identity of the process at the other end, once, at accept. The pid comes from
 // SO_PEERCRED and the pidfd from SO_PEERPIDFD pins the process: the start time is read from procfs and then
 // the pidfd must still name the same pid, which it does only while the process has not been reaped, so the
@@ -196,262 +172,6 @@ func (s *Server) identity(c *net.UnixConn) (peerKey, error) {
 		lookup = peer
 	}
 	return peerIdentity(c, lookup)
-}
-
-func peerIdentity(c *net.UnixConn, lookup func(*net.UnixConn) (unix.Ucred, int, error)) (peerKey, error) {
-	cred, pfd, err := lookup(c)
-	if err != nil {
-		if pfd >= 0 {
-			_ = unix.Close(pfd)
-		}
-		return peerKey{}, err
-	}
-	h := HandleFromPidfd(pfd)
-	defer h.Close()
-	if cred.Pid <= 0 {
-		return peerKey{}, errors.New("procbind: the peer is not visible in this pid namespace")
-	}
-	pid := int(cred.Pid)
-	if got, err := h.Pid(); err != nil || got != pid {
-		return peerKey{}, errors.New("procbind: the peer's pidfd does not name its pid")
-	}
-	start, err := startTimeOf(pid)
-	if err != nil {
-		return peerKey{}, err
-	}
-	if got, err := h.Pid(); err != nil || got != pid {
-		return peerKey{}, errors.New("procbind: the peer was reaped while its identity was read")
-	}
-	return peerKey{pid: pid, start: start, id: pidfdID(pfd)}, nil
-}
-
-// pidfdIDsUnique says whether this kernel gives every process incarnation its own pidfd inode number: pidfs
-// (Linux 6.9 and later) on a 64-bit build, where the number is a unique 64-bit id. A 32-bit kernel hands out
-// and frees small inode numbers as pidfd inodes come and go, so a number can be reused and names nothing.
-// Tests replace it.
-var pidfdIDsUnique = func() bool {
-	var u unix.Utsname
-	if unix.Uname(&u) != nil {
-		return false
-	}
-	return idsUniqueOn(unix.ByteSliceToString(u.Release[:]), strconv.IntSize)
-}
-
-// idsUniqueOn is the rule behind pidfdIDsUnique for a kernel release and the build's int size in bits.
-func idsUniqueOn(release string, intSize int) bool {
-	return intSize == 64 && kernelAtLeast(release, 6, 9)
-}
-
-// kernelAtLeast reports whether a release string such as "7.2.5-arch1" is at least major.minor.
-func kernelAtLeast(release string, major, minor int) bool {
-	var maj, min int
-	if n, _ := fmt.Sscanf(release, "%d.%d", &maj, &min); n != 2 {
-		return false
-	}
-	return maj > major || (maj == major && min >= minor)
-}
-
-// pidfdID is the inode number of a pidfd where that number identifies one process incarnation, else 0.
-func pidfdID(pfd int) uint64 {
-	if !pidfdIDsUnique() {
-		return 0
-	}
-	var st unix.Stat_t
-	if unix.Fstat(pfd, &st) != nil {
-		return 0
-	}
-	return st.Ino
-}
-
-// connState is one tracked connection; idle until the first byte of its request has arrived.
-type connState struct {
-	c       *net.UnixConn
-	key     peerKey
-	seq     uint64 // admission order, for choosing the oldest idle connection
-	idle    bool
-	removed bool
-}
-
-type peerState struct {
-	conns  []*connState
-	tokens float64
-	last   time.Time
-}
-
-// tracker keeps the connections of each peer process: a cap per peer, a connection rate per peer, and,
-// when every slot is taken, the right of a peer with fewer connections to take an idle slot from the
-// peer with the most. A process that floods the service is held to its share (and its idle connections
-// are the first to go) instead of denying everyone else.
-type tracker struct {
-	mu       sync.Mutex
-	max      int
-	perPeer  int
-	perRate  int
-	total    int
-	seq      uint64
-	peers    map[peerKey]*peerState
-	lastPrun time.Time
-	now      func() time.Time // time.Now unless a test supplies a clock
-}
-
-func (t *tracker) clock() time.Time {
-	if t.now != nil {
-		return t.now()
-	}
-	return time.Now()
-}
-
-// maxPeerRecords bounds the peer table. Peers with a connection are at most max (one connection each at
-// least); the rest are idle records kept only until their allowance has refilled.
-func maxPeerRecords(t *tracker) int { return t.max + 1024 }
-
-// admit decides one new connection of the peer key. The peer's own rate and cap are checked first. If
-// every slot is taken, a victim is chosen but NOT yet touched; only when the shared rate token
-// (takeGlobal) has been taken is the victim closed and the newcomer admitted, so a refused newcomer
-// never costs another connection its slot.
-func (t *tracker) admit(key peerKey, c *net.UnixConn, takeGlobal func() bool) (*connState, string) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	now := t.clock()
-	t.prune(now)
-	p := t.peers[key]
-	isNew := p == nil
-	if isNew {
-		p = &peerState{tokens: float64(t.perRate), last: now}
-	}
-	tokens := p.tokens + now.Sub(p.last).Seconds()*float64(t.perRate)
-	if tokens > float64(t.perRate) {
-		tokens = float64(t.perRate)
-	}
-	if tokens < 1 {
-		return nil, "peer connection rate exceeded"
-	}
-	if len(p.conns) >= t.perPeer {
-		return nil, "peer connection limit reached"
-	}
-	var victim *connState
-	var victimPeer *peerState
-	var victimKey peerKey
-	if t.total >= t.max {
-		if victim, victimPeer, victimKey = t.pickVictim(len(p.conns)); victim == nil {
-			return nil, "no free slot"
-		}
-	}
-	if !takeGlobal() {
-		return nil, "connection rate exceeded"
-	}
-	if victim != nil {
-		t.remove(victimPeer, victim)
-		_ = victimKey
-		_ = victim.c.Close() // its handler sees a closed connection and ends
-	}
-	if isNew {
-		if len(t.peers) >= maxPeerRecords(t) {
-			t.dropOldestEmpty()
-		}
-		t.peers[key] = p
-	}
-	p.tokens, p.last = tokens-1, now
-	t.seq++
-	cs := &connState{c: c, key: key, seq: t.seq, idle: true}
-	p.conns = append(p.conns, cs)
-	t.total++
-	return cs, ""
-}
-
-// pickVictim chooses the connection to take when every slot is busy: among the peers that hold more
-// connections than the newcomer (mine) and have an idle one, the peer with the most; among equals the one
-// whose oldest idle connection is the oldest. The choice does not depend on map order.
-func (t *tracker) pickVictim(mine int) (*connState, *peerState, peerKey) {
-	var best *connState
-	var bestPeer *peerState
-	var bestKey peerKey
-	bestN := 0
-	for key, p := range t.peers {
-		if len(p.conns) <= mine {
-			continue
-		}
-		var oldest *connState
-		for _, cs := range p.conns {
-			if cs.idle && (oldest == nil || cs.seq < oldest.seq) {
-				oldest = cs
-			}
-		}
-		if oldest == nil {
-			continue
-		}
-		if best == nil || len(p.conns) > bestN || (len(p.conns) == bestN && oldest.seq < best.seq) {
-			best, bestPeer, bestKey, bestN = oldest, p, key, len(p.conns)
-		}
-	}
-	return best, bestPeer, bestKey
-}
-
-func (t *tracker) remove(p *peerState, cs *connState) {
-	if cs.removed {
-		return
-	}
-	cs.removed = true
-	for i, x := range p.conns {
-		if x == cs {
-			p.conns = append(p.conns[:i], p.conns[i+1:]...)
-			break
-		}
-	}
-	t.total--
-}
-
-// prune forgets peers with no connection whose allowance has had time to refill (a full burst takes
-// perRate/perRate = 1 s), at most once a second; a recycled pid is a different key anyway (peerKey), and a key that comes back starts from a full allowance.
-func (t *tracker) prune(now time.Time) {
-	if now.Sub(t.lastPrun) < time.Second && len(t.peers) < maxPeerRecords(t) {
-		return
-	}
-	t.lastPrun = now
-	for key, p := range t.peers {
-		if len(p.conns) == 0 && now.Sub(p.last) >= time.Second {
-			delete(t.peers, key)
-		}
-	}
-}
-
-// dropOldestEmpty makes room in a full table by forgetting the idle record seen longest ago.
-func (t *tracker) dropOldestEmpty() {
-	var oldestKey peerKey
-	found := false
-	var oldest time.Time
-	for key, p := range t.peers {
-		if len(p.conns) == 0 && (!found || p.last.Before(oldest)) {
-			oldestKey, oldest, found = key, p.last, true
-		}
-	}
-	if found {
-		delete(t.peers, oldestKey)
-	}
-}
-
-func (t *tracker) release(cs *connState) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if p := t.peers[cs.key]; p != nil {
-		t.remove(p, cs)
-	}
-}
-
-// busy marks a connection whose request has begun to arrive: it is working, not waiting, and is not
-// evicted. It reports false if the connection was already taken, so the handler stops instead of
-// answering on a closed connection.
-func (t *tracker) busy(cs *connState) bool {
-	if cs == nil {
-		return true
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if cs.removed {
-		return false
-	}
-	cs.idle = false
-	return true
 }
 
 var errEvicted = errors.New("procbind: the connection was taken for another peer")
@@ -497,37 +217,6 @@ func (r noFDReader) Read(p []byte) (int, error) {
 		return 0, errPassedFD
 	}
 	return n, err
-}
-
-// peer reads what the kernel says about the other end: its uid and pid at connect time and a pidfd
-// for that process.
-func peer(c *net.UnixConn) (cred unix.Ucred, pidfd int, err error) {
-	rc, err := c.SyscallConn()
-	if err != nil {
-		return cred, -1, err
-	}
-	pidfd = -1
-	var e1, e2 error
-	if err := rc.Control(func(fd uintptr) {
-		var u *unix.Ucred
-		u, e1 = unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED)
-		if e1 == nil {
-			cred = *u
-		}
-		pidfd, e2 = unix.GetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_PEERPIDFD)
-	}); err != nil {
-		return cred, -1, err
-	}
-	if e1 != nil || e2 != nil {
-		if e2 == nil && pidfd >= 0 {
-			_ = unix.Close(pidfd) // do not keep a pidfd for a peer that is refused
-		}
-		if e1 != nil {
-			return cred, -1, e1
-		}
-		return cred, -1, fmt.Errorf("SO_PEERPIDFD: %w", e2)
-	}
-	return cred, pidfd, nil
 }
 
 func deadlineOf(d time.Duration) time.Time { return time.Now().Add(d) }
@@ -593,17 +282,21 @@ func (s *Server) serve(c *net.UnixConn, cs *connState) {
 	cred, pfd, err := lookup(c)
 	if err != nil {
 		s.logf("procbind: peer credentials: %v", err)
-		if pfd >= 0 {
-			_ = unix.Close(pfd)
-		}
+		closePeerFD(pfd)
 		return
 	}
-	caller := HandleFromPidfd(pfd)
-	defer caller.Close()
-	if int(cred.Uid) != s.UID {
+	if int(cred.Uid) != s.UID { // before any work is done for the peer (on macOS the pinning proves the connection)
 		s.logf("procbind: refused a peer of uid %d", cred.Uid)
+		closePeerFD(pfd)
 		return
 	}
+	caller, err := peerHandle(c, pfd, cred)
+	if err != nil {
+		s.logf("procbind: the peer cannot be pinned: %v", err)
+		closePeerFD(pfd)
+		return
+	}
+	defer caller.Close()
 	// the pid seen through SO_PEERCRED and the one the pidfd names must agree; 0 is a peer this
 	// service's pid namespace cannot see
 	if pid, err := caller.Pid(); cred.Pid <= 0 || err != nil || pid != int(cred.Pid) {
