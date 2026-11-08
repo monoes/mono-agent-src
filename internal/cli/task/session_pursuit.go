@@ -49,29 +49,62 @@ func (d Deps) writePursuit(cmd *cobra.Command, p tasks.Profile, pu missionpursui
 	if pu.Paused() {
 		state = "paused by " + pu.PausedBy
 	}
-	fmt.Fprintf(w, "%s the pursuit of mission session #%d: %s\n  started by %s; away limits: %d parked question(s) or %d%% of the budget since you last acted\n",
-		verb, pu.SessionID, state, pu.LockedBy, pu.ParkedMax, pu.Pct)
+	fmt.Fprintf(w, "%s the pursuit of mission session #%d: %s\n  started by %s; away limits: %d parked question(s), %d%% of the budget (metered spend) or %d wake-up(s) of the lead since you last acted\n",
+		verb, pu.SessionID, state, pu.LockedBy, pu.ParkedMax, pu.Pct, pu.WakesMax)
+	return nil
+}
+
+// writeProgress prints what the pursuit loop last recorded: how far each away limit has come, the host-wide hourly cap, and
+// in plain words why the pursuit waits for you.
+func (d Deps) writeProgress(cmd *cobra.Command, p tasks.Profile, pu missionpursuit.Pursuit, pr missionpursuit.Progress) error {
+	if d.JSONOutput() {
+		return d.WriteJSON(cmd.OutOrStdout(), map[string]any{"profile": p, "pursuit": pu, "progress": pr})
+	}
+	if err := d.writePursuit(cmd, p, pu, "Showing"); err != nil {
+		return err
+	}
+	w := cmd.OutOrStdout()
+	if !pr.Seen {
+		fmt.Fprintln(w, "  the pursuit loop has not looked at it yet (it runs only on a host with the loop wired)")
+		return nil
+	}
+	fmt.Fprintf(w, "  since you last acted: %d of %d wake-up(s), %d of %d parked question(s), $%.2f metered spend", pr.WakesUsed, pr.WakesMax, pr.Parked, pr.ParkedMax, pr.SpentAwayUSD)
+	if pr.BudgetUSD > 0 {
+		fmt.Fprintf(w, " of a $%.2f budget (limit %d%%)", pr.BudgetUSD, pr.PctMax)
+	} else {
+		fmt.Fprint(w, " (the budget is not known)")
+	}
+	fmt.Fprintf(w, "\n  this host, last hour: %d of %d pursuit wake-up(s)", pr.HostWakes, pr.HostWakesMax)
+	if pr.HostFreesAt != "" {
+		fmt.Fprintf(w, "; the oldest leaves the hour at %s", pr.HostFreesAt)
+	}
+	fmt.Fprintln(w)
+	if pr.Why != "" {
+		fmt.Fprintf(w, "  %s\n", pr.Why)
+	}
+	fmt.Fprintf(w, "  as of %s; judge calls, wake-up turns and running children may cost more than the metered spend\n", pr.AsOf)
 	return nil
 }
 
 func (d Deps) newPursuitStartCmd() *cobra.Command {
-	var parked, pct int
+	var parked, pct, wakes int
 	cmd := &cobra.Command{
-		Use:   "start ID [--parked-max N] [--pct N]",
+		Use:   "start ID [--parked-max N] [--pct N] [--wakes-max N]",
 		Short: "Start the pursuit of a mission whose goal you confirmed; locks the goal (you only)",
 		Long: `Start the pursuit and lock the goal in one step. Only you may. The goal must be confirmed
 (goal set, or goal confirm); a locked goal is final. --parked-max (1 to 20, default 3) and --pct (1 to 100,
-default 20) bound what the pursuit does while you are away.`,
+default 20) and --wakes-max (1 to 50, default 6: how often the pursuit may wake the lead) bound what the pursuit does while you
+are away; a wake-up count does not depend on the meter. They are fixed once the pursuit has started.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			actor, err := d.personGate(cmd, "start a mission's pursuit")
 			if err != nil {
 				return err
 			}
-			if (cmd.Flags().Changed("parked-max") && parked == 0) || (cmd.Flags().Changed("pct") && pct == 0) {
-				return d.InvalidInput("--parked-max and --pct are 1 or more (leave them out for the defaults 3 and 20)")
+			if (cmd.Flags().Changed("parked-max") && parked == 0) || (cmd.Flags().Changed("pct") && pct == 0) || (cmd.Flags().Changed("wakes-max") && wakes == 0) {
+				return d.InvalidInput("--parked-max, --pct and --wakes-max are 1 or more (leave them out for the defaults 3, 20 and 6)")
 			}
 			return d.withPursuit(cmd, args, func(ctx context.Context, ps *missionpursuit.Store, p tasks.Profile, session int64) error {
-				pu, err := ps.Start(ctx, p.ID, session, missionpursuit.AwayLimits{ParkedMax: parked, Pct: pct}, actor)
+				pu, err := ps.Start(ctx, p.ID, session, missionpursuit.AwayLimits{ParkedMax: parked, Pct: pct, Wakes: wakes}, actor)
 				if err != nil {
 					return d.taskErr(err)
 				}
@@ -81,6 +114,7 @@ default 20) bound what the pursuit does while you are away.`,
 	}
 	cmd.Flags().IntVar(&parked, "parked-max", 0, "Stop after this many questions wait for you since you last acted (1 to 20; default 3)")
 	cmd.Flags().IntVar(&pct, "pct", 0, "Stop after this percent of the budget is spent since you last acted (1 to 100; default 20)")
+	cmd.Flags().IntVar(&wakes, "wakes-max", 0, "Stop after the pursuit woke the lead this many times since you last acted (1 to 50; default 6)")
 	return cmd
 }
 
@@ -127,14 +161,18 @@ func (d Deps) newPursuitResumeCmd() *cobra.Command {
 func (d Deps) newPursuitStatusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status ID",
-		Short: "Show a mission's pursuit (read only)",
+		Short: "Show a mission's pursuit, how far its away limits have come and why it waits (read only)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return d.withPursuit(cmd, args, func(ctx context.Context, ps *missionpursuit.Store, p tasks.Profile, session int64) error {
 				pu, err := ps.GetPursuit(ctx, p.ID, session)
 				if err != nil {
 					return d.taskErr(err)
 				}
-				return d.writePursuit(cmd, p, pu, "Showing")
+				pr, err := ps.GetProgress(ctx, p.ID, session)
+				if err != nil {
+					return d.taskErr(err)
+				}
+				return d.writeProgress(cmd, p, pu, pr)
 			})
 		},
 	}

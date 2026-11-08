@@ -77,7 +77,7 @@ func (s *Store) EnqueueWithPursuit(c Command, m pursuitMission, epoch int64) (Co
 		return c, err
 	}
 	defer tx.Rollback() //nolint:errcheck // after commit it is a no-op
-	res, err := tx.Exec(`UPDATE mission_pursuit_state SET woken_epoch = ?, updated_at = ? WHERE session_id = ? AND woken_epoch <= ?`,
+	res, err := tx.Exec(`UPDATE mission_pursuit_state SET woken_epoch = ?, wakes_since = wakes_since + 1, updated_at = ? WHERE session_id = ? AND woken_epoch <= ?`,
 		epoch, s.now().UTC().Format(time.RFC3339Nano), m.ID, epoch)
 	if err != nil {
 		return c, err
@@ -118,10 +118,14 @@ func (h *Host) pursuitWake(ctx context.Context, rd *inputs.Reader, m pursuitMiss
 	if err != nil || h.Store.wakeDelivered(m, g.snap.Epochs, st.WokenEpoch) {
 		return
 	}
-	g.snap.Tasks, err = h.pursuitTasks(ctx, rd, m.ID, g.snap.Tasks)
-	if err != nil {
+	// The wake-up is a spend of the lead's attention: the whole gate is read again now (a judge call can take minutes: the
+	// work may have ended, a limit may have been reached, the person may have paused), not taken from the start of the pass.
+	g2, ok := h.pursuitGate(ctx, rd, m)
+	if !ok || g2.st.Waiting != "" {
 		return
 	}
+	g2.snap.Epochs = g.snap.Epochs
+	g = g2
 	if why := h.pursuitDeliverable(m, g); why != "" {
 		return
 	}
@@ -136,15 +140,6 @@ func (h *Host) pursuitWake(ctx context.Context, rd *inputs.Reader, m pursuitMiss
 	if err != nil && !errors.Is(err, errEpochWoken) {
 		h.logf("coder host: pursuit of session %d: waking the lead: %v", m.ID, err)
 	}
-}
-
-// pursuitTasks re-reads the task counts, which a long judge call can have changed (the work may have ended meanwhile).
-func (h *Host) pursuitTasks(ctx context.Context, rd *inputs.Reader, session int64, was inputs.TaskCounts) (inputs.TaskCounts, error) {
-	s, err := rd.Snapshot(ctx, session)
-	if err != nil || !s.Run.Running {
-		return was, errors.New("the pursuit is not running")
-	}
-	return s.Tasks, nil
 }
 
 // pursuitFocus picks the direction to give new work: the best SCORED one, through scorer.Pick, never the first of a

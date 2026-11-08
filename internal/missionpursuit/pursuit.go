@@ -15,12 +15,15 @@ const (
 	MaxParkedMax     = 20 // the most the person can allow
 	DefaultPct       = 20 // share of the budget spent since then
 	MaxPct           = 100
+	DefaultWakesMax  = 6 // wake-ups of the lead queued since then (a count, so it does not depend on the meter)
+	MaxWakesMax      = 50
 )
 
 // AwayLimits are the two away limits of a pursuit. A zero field means its default.
 type AwayLimits struct {
 	ParkedMax int `json:"parked_max"`
 	Pct       int `json:"pct"`
+	Wakes     int `json:"wakes"` // wake-ups of the lead since the person last acted
 }
 
 // resolve fills the defaults and refuses a value outside 1..max.
@@ -30,6 +33,12 @@ func (l AwayLimits) resolve() (AwayLimits, error) {
 	}
 	if l.Pct == 0 {
 		l.Pct = DefaultPct
+	}
+	if l.Wakes == 0 {
+		l.Wakes = DefaultWakesMax
+	}
+	if l.Wakes < 1 || l.Wakes > MaxWakesMax {
+		return l, invalid("the away limit on wake-ups is 1 to %d (got %d)", MaxWakesMax, l.Wakes)
 	}
 	if l.ParkedMax < 1 || l.ParkedMax > MaxParkedMax {
 		return l, invalid("the away limit on parked questions is 1 to %d (got %d)", MaxParkedMax, l.ParkedMax)
@@ -46,6 +55,7 @@ type Pursuit struct {
 	Enabled   bool   `json:"enabled"`
 	ParkedMax int    `json:"away_budget_parked_max"`
 	Pct       int    `json:"away_budget_pct"`
+	WakesMax  int    `json:"away_wakes_max"`
 	PausedBy  string `json:"paused_by,omitempty"`
 	LockedBy  string `json:"locked_by,omitempty"`
 }
@@ -91,8 +101,8 @@ func (s *Store) Start(ctx context.Context, profileID string, session int64, limi
 			return ErrGoalLocked
 		}
 		now := s.stamp()
-		if _, err := x.ExecContext(ctx, `INSERT INTO mission_pursuit (session_id, enabled, away_budget_parked_max, away_budget_pct, locked_by, created_at, updated_at) VALUES (?, 1, ?, ?, ?, ?, ?)`,
-			session, lim.ParkedMax, lim.Pct, by.Label(), now, now); err != nil {
+		if _, err := x.ExecContext(ctx, `INSERT INTO mission_pursuit (session_id, enabled, away_budget_parked_max, away_budget_pct, away_wakes_max, locked_by, created_at, updated_at) VALUES (?, 1, ?, ?, ?, ?, ?, ?)`,
+			session, lim.ParkedMax, lim.Pct, lim.Wakes, by.Label(), now, now); err != nil {
 			return fmt.Errorf("missionpursuit: starting: %w", err)
 		}
 		if _, err := s.lockIn(ctx, x, profileID, session); err != nil {
@@ -163,8 +173,8 @@ func (s *Store) GetPursuit(ctx context.Context, profileID string, session int64)
 func readPursuit(ctx context.Context, x tasks.Queryer, session int64) (Pursuit, error) {
 	p := Pursuit{SessionID: session}
 	var enabled int
-	err := x.QueryRowContext(ctx, `SELECT enabled, away_budget_parked_max, away_budget_pct, paused_by, locked_by FROM mission_pursuit WHERE session_id = ?`, session).
-		Scan(&enabled, &p.ParkedMax, &p.Pct, &p.PausedBy, &p.LockedBy)
+	err := x.QueryRowContext(ctx, `SELECT enabled, away_budget_parked_max, away_budget_pct, away_wakes_max, paused_by, locked_by FROM mission_pursuit WHERE session_id = ?`, session).
+		Scan(&enabled, &p.ParkedMax, &p.Pct, &p.WakesMax, &p.PausedBy, &p.LockedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Pursuit{}, ErrNotStarted
 	}

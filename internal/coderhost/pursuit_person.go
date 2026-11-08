@@ -11,6 +11,8 @@ import (
 //   - the pursuit row moved (the person started, paused or resumed it: only the operator's store calls write it),
 //   - a question of the mission's chats was answered BY THE PERSON (answered_by = user; a master's or the model's answer
 //     is not),
+//   - an ask was answered by the person (answered_by = person), the mission session's history shows an action under the
+//     operator's label (a plan answered or approved), or the session was approved by the operator,
 //   - a message reached the lead's chats with no issuer (an agent's send carries its issuer) and a turn id that is not a
 //     host-made one (check-ins, answers, master sends, and the pursuit's own wake-ups all are).
 //
@@ -20,6 +22,9 @@ import (
 // read counts as parked (it can only make the limit tighter).
 
 const maxTreeConversations = 200
+
+// personActorLabel is how the task store writes an action of the operator (tasks.Actor{Kind: Human}.Label()).
+const personActorLabel = "you"
 
 // missionTree is the lead's conversation and the conversations below it (children, grandchildren, ...), bounded.
 func (s *Store) missionTree(m pursuitMission) ([]string, error) {
@@ -84,6 +89,42 @@ func (s *Store) personActionAt(m pursuitMission, tree []string) (time.Time, erro
 	if err := rows.Err(); err != nil {
 		return time.Time{}, err
 	}
+	// an ask (a critical question to the person) the person answered
+	args = []any{m.Profile}
+	for _, c := range tree {
+		args = append(args, c)
+	}
+	rows, err = s.db.Query(`SELECT answered_at FROM coder_session_asks WHERE profile_id = ? AND status = 'answered' AND answered_by = 'person' AND asker_conv IN (`+placeholders(len(tree))+`) ORDER BY id DESC LIMIT 50`, args...)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("reading the answered asks: %w", err)
+	}
+	for rows.Next() {
+		var at string
+		if err := rows.Scan(&at); err != nil {
+			rows.Close()
+			return time.Time{}, err
+		}
+		take(at)
+	}
+	rows.Close()
+	// the mission session's own history: what the person did to it (a plan answered or approved, a task closed, a limit
+	// changed) is written with the operator's label; approval stamps the session itself
+	evs, err := s.db.Query(`SELECT at FROM task_session_events WHERE session_id = ? AND actor = ? ORDER BY id DESC LIMIT 50`, m.ID, personActorLabel)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("reading the session history: %w", err)
+	}
+	for evs.Next() {
+		var at string
+		if err := evs.Scan(&at); err != nil {
+			evs.Close()
+			return time.Time{}, err
+		}
+		take(at)
+	}
+	evs.Close()
+	var approved string
+	_ = s.db.QueryRow(`SELECT approved_at FROM task_sessions WHERE id = ? AND approved_by = ?`, m.ID, personActorLabel).Scan(&approved)
+	take(approved)
 	args = []any{m.Profile}
 	for _, c := range tree {
 		args = append(args, c)

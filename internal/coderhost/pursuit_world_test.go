@@ -92,6 +92,15 @@ const pursuitSession = 77
 
 func newPursuitWorld(t *testing.T) *pworld { return newPursuitWorldWith(t, true) }
 
+// newPursuitWorldLimits is the world with a pursuit started with the given away limits.
+func newPursuitWorldLimits(t *testing.T, lim missionpursuit.AwayLimits) *pworld {
+	startLimits = lim
+	defer func() { startLimits = missionpursuit.AwayLimits{} }()
+	return newPursuitWorldWith(t, true)
+}
+
+var startLimits missionpursuit.AwayLimits
+
 // newPursuitWorldWith is the world with or without the started pursuit row.
 func newPursuitWorldWith(t *testing.T, started bool) *pworld {
 	t.Helper()
@@ -112,7 +121,7 @@ func newPursuitWorldWith(t *testing.T, started bool) *pworld {
 		if _, err := mp.Set(context.Background(), "p", 77, []missionpursuit.Criterion{{Kind: missionpursuit.KindRubric, Spec: "it is good"}}, op); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := mp.Start(context.Background(), "p", 77, missionpursuit.AwayLimits{}, op); err != nil {
+		if _, err := mp.Start(context.Background(), "p", 77, startLimits, op); err != nil {
 			t.Fatal(err)
 		}
 		clk.Advance(2 * time.Second) // everything after the start is after the person's last action

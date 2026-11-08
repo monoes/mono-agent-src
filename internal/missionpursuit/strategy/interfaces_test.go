@@ -95,8 +95,8 @@ func TestOnlyTheWiringFilesImportTheMissionStrategyStore(t *testing.T) {
 	}
 	sort.Strings(got)
 	// inputs/snapshot.go only READS (OpenDirections, ListEpochs, ParkedFinishRounds); its own guard test forbids every writer
-	// and every Exec. Its test file seeds rows through the writers, which is why that file is named too; coderhost/pursuit.go builds the epoch engine's store over it (the pursuit loop, S4); wiring_test.go compares the store's own RunState with the pursuit one.
-	want := []string{"internal/coderhost/pursuit.go", "internal/missionpursuit/inputs/snapshot.go", "internal/missionpursuit/inputs/snapshot_test.go", "internal/missionpursuit/inputs/wiring_test.go"}
+	// and every Exec. Its test file seeds rows through the writers, which is why that file is named too; coderhost/pursuit.go builds the epoch engine and pursuit_wake.go reads its latest epoch's store over it (the pursuit loop, S4); wiring_test.go compares the store's own RunState with the pursuit one.
+	want := []string{"internal/coderhost/pursuit.go", "internal/coderhost/pursuit_wake.go", "internal/missionpursuit/inputs/snapshot.go", "internal/missionpursuit/inputs/snapshot_test.go", "internal/missionpursuit/inputs/wiring_test.go"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("importers of the mission strategy store changed:\n got %v\nwant %v\ndecide the new importer here, in review", got, want)
 	}

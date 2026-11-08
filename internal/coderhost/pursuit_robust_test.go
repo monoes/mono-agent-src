@@ -217,3 +217,13 @@ func TestNoJudgeCallInsideTheEpochFloor(t *testing.T) {
 func (w *pworld) endCommandsDone() {
 	w.exec(`UPDATE coder_session_commands SET status = 'done' WHERE status = 'pending'`)
 }
+
+func TestALostWakeUpIsRetriedBeforeAnyNewEpochOpens(t *testing.T) {
+	w, id := lostWakeFixture(t)
+	w.endCommand(id, CmdFailed)
+	w.advance(31 * time.Minute)
+	w.pass()
+	if len(w.epochs()) != 1 || w.model.count() != 1 || len(w.wakes()) != 1 {
+		t.Fatalf("epochs %v, judge calls %d, wake-ups %d: the owed wake-up comes before a new epoch", w.epochs(), w.model.count(), len(w.wakes()))
+	}
+}
