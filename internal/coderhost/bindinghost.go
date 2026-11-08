@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux || darwin
 
 package coderhost
 
@@ -240,7 +240,7 @@ func (h *BindingHost) Ensure(ctx context.Context, profile string) error {
 	if err != nil {
 		return fail(fmt.Errorf("the binding service could not get its answer key: %w", err))
 	}
-	procs, err := procbind.NewLinuxProcs()
+	procs, err := procbind.NewProcs()
 	if err != nil {
 		return fail(errors.New("the binding service cannot read the process table"))
 	}

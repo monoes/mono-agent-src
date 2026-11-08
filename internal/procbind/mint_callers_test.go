@@ -13,7 +13,7 @@ import (
 
 // mintTxAllowed are the production files that may reference MintTx. Each must end every token of a request by its own id on any error
 // and validate the request (profile, scope, expiry) first; see the contract on MintTx.
-var mintTxAllowed = []string{"cli/chat/coder_host_bound_linux.go"}
+var mintTxAllowed = []string{"cli/chat/coder_host_bound.go"}
 
 // mintTxFiles lists, relative to root, the non-test Go files outside the procbind package that reference MintTx (any selector under an
 // import alias, a bare name through a dot import, or the function as a value).

@@ -1,4 +1,4 @@
-//go:build !linux
+//go:build !linux && !darwin
 
 package chat
 
@@ -7,7 +7,7 @@ import (
 	"os/exec"
 )
 
-// boundLaunch is never set off Linux: peer-credential binding needs it.
+// boundLaunch is never set off Linux and macOS: peer-credential binding needs it.
 type boundLaunch struct{}
 
 type boundDelivery struct {
@@ -15,16 +15,16 @@ type boundDelivery struct {
 }
 
 func (b *boundLaunch) attach(*exec.Cmd, string) (*boundDelivery, error) {
-	return nil, errors.New("peer-credential binding needs Linux")
+	return nil, errors.New("peer-credential binding needs Linux or macOS")
 }
 func (d *boundDelivery) start(*exec.Cmd, func(*exec.Cmd) error) error {
-	return errors.New("peer-credential binding needs Linux")
+	return errors.New("peer-credential binding needs Linux or macOS")
 }
 func (d *boundDelivery) setOnKill(func()) {}
 func (d *boundDelivery) kill()            {}
 func (d *boundDelivery) close()           {}
 func (d *boundDelivery) deliver(string, string, string, int, string, func() error) error {
-	return errors.New("peer-credential binding needs Linux")
+	return errors.New("peer-credential binding needs Linux or macOS")
 }
 
 // newBoundLaunch is nil off Linux: a launcher without one cannot launch a bound turn, and the gate refuses "on".

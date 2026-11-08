@@ -88,8 +88,8 @@ func depsSeams(files []*ast.File) map[string]bool {
 	return out
 }
 
-// parseDir parses the non-test .go files of dir that this platform builds
-// (go/build's constraint check), grouped by package name.
+// parseDir parses the non-test .go files of dir that any platform builds (go/build's constraint check for linux, darwin
+// and windows), grouped by package name: a file another OS builds is scanned too, so a guard run on one OS sees them all.
 func parseDir(t *testing.T, fset *token.FileSet, dir string) map[string][]*ast.File {
 	t.Helper()
 	entries, err := os.ReadDir(dir)
@@ -102,7 +102,7 @@ func parseDir(t *testing.T, fset *token.FileSet, dir string) map[string][]*ast.F
 		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		if ok, err := build.Default.MatchFile(dir, name); err != nil || !ok {
+		if !matchesAnyOS(dir, name) {
 			continue
 		}
 		f, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
@@ -112,4 +112,16 @@ func parseDir(t *testing.T, fset *token.FileSet, dir string) map[string][]*ast.F
 		out[f.Name.Name] = append(out[f.Name.Name], f)
 	}
 	return out
+}
+
+// matchesAnyOS says whether the file is built on linux, darwin or windows.
+func matchesAnyOS(dir, name string) bool {
+	for _, goos := range []string{"linux", "darwin", "windows"} {
+		ctx := build.Default
+		ctx.GOOS = goos
+		if ok, err := ctx.MatchFile(dir, name); err == nil && ok {
+			return true
+		}
+	}
+	return false
 }
