@@ -45,163 +45,61 @@ func pursueConversation(t *testing.T, st *Store, conv string, enabled, paused bo
 	_ = on
 }
 
-func TestSettingsCarryThePursuitFlagFromTheStore(t *testing.T) {
-	for _, c := range []struct {
-		name            string
-		row             bool
-		enabled, paused bool
-		want            bool
-	}{
-		{"no pursuit row", false, false, false, false},
-		{"a row not enabled", true, false, false, false},
-		{"started", true, true, false, true},
-		{"started and paused", true, true, true, true},
-	} {
-		st, _ := parkStore(t)
-		addConversation(t, st, "a", "/w/a")
-		if c.row {
-			pursueConversation(t, st, "a", c.enabled, c.paused)
-		}
-		s, err := st.GetSettings("p", "a")
-		if err != nil || s.pursuing != c.want {
-			t.Errorf("%s: pursuing = %v, %v, want %v", c.name, s.pursuing, err, c.want)
-		}
-	}
-}
-
-// The flag is never stored in the settings document, and a document cannot set it.
-func TestThePursuitFlagIsNotPartOfTheStoredSettings(t *testing.T) {
-	st, _ := parkStore(t)
-	addConversation(t, st, "a", "/w/a")
-	pursueConversation(t, st, "a", true, false)
-	s, _ := st.GetSettings("p", "a")
-	if err := st.SaveSettings("p", "a", s); err != nil {
-		t.Fatal(err)
-	}
-	var raw string
-	if err := st.db.QueryRow(`SELECT settings FROM coder_sessions WHERE conversation_id = 'a'`).Scan(&raw); err != nil {
-		t.Fatal(err)
-	}
-	if containsFold(raw, "pursu") {
-		t.Errorf("the stored settings mention the pursuit: %s", raw)
-	}
-	cur := DefaultSettings()
-	next, _, err := cur.Apply([]byte(`{"pursuing": true, "Pursuing": true}`))
-	if err == nil && next.pursuing {
-		t.Errorf("a settings document set the pursuit flag")
-	}
-}
-
-func containsFold(s, sub string) bool {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if equalFold(s[i:i+len(sub)], sub) {
-			return true
-		}
-	}
-	return false
-}
-
-func equalFold(a, b string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		x, y := a[i], b[i]
-		if 'A' <= x && x <= 'Z' {
-			x += 'a' - 'A'
-		}
-		if 'A' <= y && y <= 'Z' {
-			y += 'a' - 'A'
-		}
-		if x != y {
-			return false
-		}
-	}
-	return true
-}
-
-// In a pursuit the person is the only answerer: a question the policy would let the model settle is parked for them, and
-// no default is taken when nobody answers within ParkTimeout. The same question in a mission with no pursuit takes it.
-func TestAPursuitParksEveryQuestionForThePersonAndTakesNoDefault(t *testing.T) {
-	for _, pursue := range []bool{false, true} {
+// A started pursuit, running or paused, changes nothing about who answers a gap or what a waiting question does: the
+// non-hard classes may take their default after ParkTimeout, the hard ones never do and wait for the person.
+func TestAPursuitLeavesTheQuestionPolicyAsItIs(t *testing.T) {
+	for _, state := range []string{"none", "started", "paused"} {
 		st, clk := parkStore(t)
 		addConversation(t, st, "a", "/w/a")
 		setSettings(t, st, "a", `{"autonomy_preset": "decide-and-log", "autonomy_classes": {"ambiguity": {"who": "user", "fallback": "take_default"}}}`)
-		if pursue {
+		switch state {
+		case "started":
 			pursueConversation(t, st, "a", true, false)
+		case "paused":
+			pursueConversation(t, st, "a", true, true)
 		}
-		q, err := st.Park("p", "a", "ambiguity", "which port?", []string{"80", "8080"}, "8080", false)
+		soft, err := st.Park("p", "a", "ambiguity", "which port?", []string{"80", "8080"}, "8080", false)
 		if err != nil {
-			t.Fatalf("pursue=%v: %v", pursue, err)
+			t.Fatalf("%s: %v", state, err)
+		}
+		hard, err := st.Park("p", "a", "risky_action", "delete it?", []string{"yes", "no"}, "yes", false)
+		if err != nil {
+			t.Fatalf("%s: %v", state, err)
 		}
 		clk.t = clk.t.Add(ParkTimeout + time.Second)
 		n, err := st.ApplyDefaults()
 		if err != nil {
 			t.Fatal(err)
 		}
-		status := questionOf(t, st, q.ID).Status
-		if pursue && (n != 0 || status != "open") {
-			t.Errorf("in a pursuit: %d defaults applied, status %s: the question must wait for the person", n, status)
+		if got := questionOf(t, st, soft.ID).Status; n != 1 || got == "open" {
+			t.Errorf("%s: %d defaults applied, soft question %s: a non-hard class still takes its default", state, n, got)
 		}
-		if !pursue && (n != 1 || status == "open") {
-			t.Errorf("without a pursuit: %d defaults applied, status %s: the control lost its default", n, status)
+		if got := questionOf(t, st, hard.ID).Status; got != "open" {
+			t.Errorf("%s: the hard question is %s: it waits for the person", state, got)
 		}
 	}
 }
 
-// A class the preset would give to the model is parked, not decided, in a pursuit (Park refuses it only when the model decides).
-func TestAPursuitParkRefusesNothingTheModelWouldHaveDecided(t *testing.T) {
-	st, _ := parkStore(t)
-	addConversation(t, st, "a", "/w/a")
-	setSettings(t, st, "a", `{"autonomy_preset": "decide-and-log"}`)
-	if _, err := st.Park("p", "a", "ambiguity", "which?", nil, "", true); err == nil {
-		t.Fatal("control: decide-and-log should let the model decide an ambiguity (ErrModelDecides)")
-	}
-	pursueConversation(t, st, "a", true, false)
-	if _, err := st.Park("p", "a", "ambiguity", "which?", nil, "", true); err != nil {
-		t.Errorf("in a pursuit the question is parked for the person, got %v", err)
-	}
-}
-
-// A pursuit that cannot be read counts as started (the safe side), and the settings are still returned.
-func TestAnUnreadablePursuitCountsAsStartedAndKeepsTheSettings(t *testing.T) {
-	st, _ := parkStore(t)
-	addConversation(t, st, "a", "/w/a")
-	if _, err := st.db.Exec(`ALTER TABLE mission_pursuit RENAME TO mission_pursuit_away`); err != nil {
-		t.Fatal(err)
-	}
-	s, err := st.GetSettings("p", "a")
-	if err != nil || !s.pursuing {
-		t.Errorf("pursuing = %v, err = %v, want started and no error", s.pursuing, err)
-	}
-}
-
-// A lead chat with no live master decides soft gaps itself (ParkOwn says ErrNoMasterDecide, then RecordOwn writes the
-// model's decision). In a started pursuit nothing is decided for the person: the question parks, and RecordOwn refuses.
-func TestAPursuitLeadWithNoMasterParksOwnQuestionsAndCannotRecordDecisions(t *testing.T) {
-	st, _ := parkStore(t)
-	addConversation(t, st, "a", "/w/a")
-	c := Caller{ProfileID: "p", ConversationID: "a"}
-	req := ParkRequest{Class: "ambiguity", Question: "which port?", Options: []string{"80", "8080"}}
-	if _, err := st.ParkOwn(c, req); !errors.Is(err, ErrNoMasterDecide) {
-		t.Fatalf("control: without a pursuit and a master, ParkOwn = %v, want ErrNoMasterDecide", err)
-	}
-	rec := RecordRequest{Class: "ambiguity", Question: "which port?", Choice: "8080"}
-	if _, err := st.RecordOwn(c, rec); err != nil {
-		t.Fatalf("control: RecordOwn without a pursuit: %v", err)
-	}
-	pursueConversation(t, st, "a", true, false)
-	q, err := st.ParkOwn(c, req)
-	if err != nil || q.Status != "open" {
-		t.Errorf("in a pursuit ParkOwn = %+v, %v, want an open question for the person", q, err)
-	}
-	before := countRows(t, st, `SELECT COUNT(*) FROM coder_session_decisions WHERE made_by = 'model'`)
-	for _, class := range GapClasses {
-		if _, err := st.RecordOwn(c, RecordRequest{Class: class, Question: "q", Choice: "x"}); !errors.Is(err, ErrPolicyReserves) {
-			t.Errorf("in a pursuit RecordOwn(%s) = %v, want ErrPolicyReserves", class, err)
+// The own-decision paths are what they are without a pursuit: no master means the model decides a soft gap and records
+// it, a hard class is never recorded, and a started pursuit does not change either.
+func TestAPursuitLeavesTheOwnDecisionPathsAsTheyAre(t *testing.T) {
+	for _, pursue := range []bool{false, true} {
+		st, _ := parkStore(t)
+		addConversation(t, st, "a", "/w/a")
+		if pursue {
+			pursueConversation(t, st, "a", true, false)
 		}
-	}
-	if after := countRows(t, st, `SELECT COUNT(*) FROM coder_session_decisions WHERE made_by = 'model'`); after != before {
-		t.Errorf("model decisions %d -> %d in a pursuit", before, after)
+		c := Caller{ProfileID: "p", ConversationID: "a"}
+		if _, err := st.ParkOwn(c, ParkRequest{Class: "ambiguity", Question: "which port?"}); !errors.Is(err, ErrNoMasterDecide) {
+			t.Errorf("pursue=%v: ParkOwn of a soft class with no master = %v, want ErrNoMasterDecide", pursue, err)
+		}
+		if _, err := st.RecordOwn(c, RecordRequest{Class: "ambiguity", Question: "q", Choice: "x"}); err != nil {
+			t.Errorf("pursue=%v: RecordOwn of a soft class: %v", pursue, err)
+		}
+		for _, class := range []string{"risky_action", "missing_credential", "plan_approval"} {
+			if _, err := st.RecordOwn(c, RecordRequest{Class: class, Question: "q", Choice: "x"}); !errors.Is(err, ErrPolicyReserves) {
+				t.Errorf("pursue=%v: RecordOwn(%s) = %v, want ErrPolicyReserves (the hard-class rule)", pursue, class, err)
+			}
+		}
 	}
 }

@@ -44,18 +44,13 @@ func HardClass(class string) bool {
 // whether the session has a master to ask, who answers and what the fallback is.
 // It is a pure function of the settings. The result is always clamped: a hard
 // class is never answered by the model and never takes a default; a master that
-// does not exist is replaced by the user; an unknown class goes to the user. A mission whose pursuit is started
-// (Settings.pursuing, read from the store) overrides all of it: the user answers and an unanswered question parks.
+// does not exist is replaced by the user; an unknown class goes to the user.
 func Decide(s Settings, class string, reversible, hasMaster bool) Decision {
 	d := presetDecision(s.AutonomyPreset, class, reversible)
 	if c, ok := s.AutonomyClasses[class]; ok {
 		d = Decision{Answerer: c.Who, Fallback: c.Fallback}
 	}
-	d = clamp(d, class, hasMaster)
-	if s.pursuing {
-		return PursuitClamp(d) // a mission in pursuit: the person answers every class, nothing takes a default
-	}
-	return d
+	return clamp(d, class, hasMaster)
 }
 
 func presetDecision(preset, class string, reversible bool) Decision {

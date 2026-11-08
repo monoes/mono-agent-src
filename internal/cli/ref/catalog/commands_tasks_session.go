@@ -176,7 +176,7 @@ var taskSessionCommandDocs = []cmdDoc{
 	},
 	{
 		Name:     "task session pursuit start",
-		Short:    "Start the pursuit of a mission whose goal is confirmed, and lock the goal with it (the operator only). In a pursuit every question goes to the operator and parks",
+		Short:    "Start the pursuit of a mission whose goal is confirmed, and lock the goal with it (the operator only)",
 		Usage:    "monoagentcli [--profile P] task session pursuit start ID [--parked-max N] [--pct N]",
 		Flags:    "  --parked-max int   Stop after this many questions wait for you since you last acted (1 to 20; default 3)\n  --pct int          Stop after this percent of the budget is spent since you last acted (1 to 100; default 20)",
 		Examples: []string{"monoagentcli --profile work task session pursuit start 3 --parked-max 5"},

@@ -68,11 +68,6 @@ type Settings struct {
 	// Reading fills it from the mode; it is never stored in the document.
 	Mission bool `json:"mission"`
 
-	// pursuing: the conversation's mission has a started pursuit (mission_pursuit.enabled, migration 166). Read-only
-	// state: the store fills it when it reads the settings, it is never part of the document (unexported, so no patch
-	// or JSON can set it) and Decide answers user-and-park for every class while it is set (pursuit_clamp.go).
-	pursuing bool
-
 	// MissionWorkerReservations: which accounting mode a mission worker run of this conversation starts in when the
 	// session is idle: a reservation per run (money held out of the budget) instead of the cap the run reads from the
 	// session. Off by default; operator-only, and written only through Store.UpdateSettings. A run follows the mode
@@ -310,22 +305,7 @@ func (s *Store) settingsIn(q querier, profileID, conversationID string) (Setting
 	var raw, mode string
 	err := q.QueryRow(`SELECT settings, chat_mode FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, profileID, conversationID).Scan(&raw, &mode)
 	out, err := settingsFromRow(conversationID, raw, err, s.readCeiling())
-	out = withChatMode(out, mode)
-	if err != nil {
-		return out, err
-	}
-	out.pursuing = pursuitStarted(q, profileID, conversationID)
-	return out, nil
-}
-
-// pursuitStarted says whether the conversation is the chat of a mission whose pursuit the person started. A read that fails
-// counts as started: the pursuit's policy (the person answers, nothing takes a default) is the safe side of the doubt, and
-// the settings themselves are still readable, so a store that cannot answer does not stop the callers that only want them.
-func pursuitStarted(q querier, profileID, conversationID string) bool {
-	var n int
-	err := q.QueryRow(`SELECT COUNT(*) FROM mission_pursuit p JOIN task_sessions t ON t.id = p.session_id
-		WHERE p.enabled = 1 AND t.profile_id = ? AND t.conversation_id = ?`, profileID, conversationID).Scan(&n)
-	return err != nil || n > 0
+	return withChatMode(out, mode), err
 }
 
 // settingsFromRow is the settings a row read gave: no row, or nothing stored, is the defaults.
