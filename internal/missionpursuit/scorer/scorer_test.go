@@ -3,6 +3,7 @@ package scorer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"reflect"
 	"testing"
@@ -60,7 +61,7 @@ func TestScoreValues(t *testing.T) {
 		t.Fatalf("unproven facts: got %v want %v (%v)", got, want, err)
 	}
 	// unknown spend reads as the worst cost; failures with no success read as the worst risk
-	got, err = score(t, DirectionFacts{TasksFailed: 3})
+	got, err = score(t, DirectionFacts{TasksFailed: 3, CriteriaChecked: 1})
 	if want := (0 + 0 + 0 + 10) / 6.0; err != nil || math.Abs(got-want) > 1e-9 {
 		t.Fatalf("failed facts: got %v want %v (%v)", got, want, err)
 	}
@@ -69,6 +70,8 @@ func TestScoreValues(t *testing.T) {
 func TestUnscoredFailsClosed(t *testing.T) {
 	over := MaxCount + 1
 	for name, f := range map[string]DirectionFacts{
+		"zero criteria":         {TasksDone: 1, EvidenceRows: 5, SpendKnown: true},
+		"zero criteria, strong": {TasksDone: 10, EvidenceRows: 5, SpendKnown: true, SpendPermille: 0},
 		"no activity":         {SpendKnown: true},
 		"negative count":      {TasksDone: -1, CriteriaChecked: 1},
 		"negative open":       {TasksDone: 1, TasksOpen: -1},
@@ -109,7 +112,7 @@ func TestUnscoredFailsClosed(t *testing.T) {
 
 // Agent-written text (title, proposer) never reaches the score or the facts lookup.
 func TestAgentTextIsIgnored(t *testing.T) {
-	ff := &fakeFacts{m: map[string]DirectionFacts{"s1": {TasksFailed: 3, TasksOpen: 1}}}
+	ff := &fakeFacts{m: map[string]DirectionFacts{"s1": {TasksFailed: 3, TasksOpen: 1, CriteriaChecked: 1}}}
 	base, err := New(ff).Score(context.Background(), dir("s1"))
 	if err != nil {
 		t.Fatal(err)
@@ -169,17 +172,17 @@ func TestDeterministicBoundedAndMonotone(t *testing.T) {
 		}
 	}
 	// more failures never raise the score; unknown spend never beats known spend
-	lo, _ := score(t, DirectionFacts{TasksDone: 5, TasksFailed: 5, SpendKnown: true})
-	hi, _ := score(t, DirectionFacts{TasksDone: 5, SpendKnown: true})
+	lo, _ := score(t, DirectionFacts{CriteriaChecked: 1, CriteriaPassed: 1, TasksDone: 5, TasksFailed: 5, SpendKnown: true})
+	hi, _ := score(t, DirectionFacts{CriteriaChecked: 1, CriteriaPassed: 1, TasksDone: 5, SpendKnown: true})
 	if lo >= hi {
 		t.Errorf("failures did not lower the score: %v >= %v", lo, hi)
 	}
-	unk, _ := score(t, DirectionFacts{TasksDone: 5})
+	unk, _ := score(t, DirectionFacts{CriteriaChecked: 1, CriteriaPassed: 1, TasksDone: 5})
 	if unk >= hi {
 		t.Errorf("unknown spend scored %v, known %v", unk, hi)
 	}
-	over, _ := score(t, DirectionFacts{TasksDone: 5, SpendKnown: true, SpendPermille: 9000})
-	max1000, _ := score(t, DirectionFacts{TasksDone: 5, SpendKnown: true, SpendPermille: 1000})
+	over, _ := score(t, DirectionFacts{CriteriaChecked: 1, CriteriaPassed: 1, TasksDone: 5, SpendKnown: true, SpendPermille: 9000})
+	max1000, _ := score(t, DirectionFacts{CriteriaChecked: 1, CriteriaPassed: 1, TasksDone: 5, SpendKnown: true, SpendPermille: 1000})
 	if over != max1000 {
 		t.Errorf("over-budget spend is not capped: %v vs %v", over, max1000)
 	}
@@ -187,7 +190,7 @@ func TestDeterministicBoundedAndMonotone(t *testing.T) {
 
 // The arithmetic is mission_evaluate's: the weighted score equals dynorg.Rank over the criteria the scorer derives.
 func TestParityWithMissionEvaluate(t *testing.T) {
-	for _, f := range []DirectionFacts{good, {TasksFailed: 3}, {TasksDone: 2, TasksOpen: 2, CriteriaChecked: 2, CriteriaPassed: 1, SpendKnown: true, SpendPermille: 400}} {
+	for _, f := range []DirectionFacts{good, {TasksFailed: 3, CriteriaChecked: 1}, {TasksDone: 2, TasksOpen: 2, CriteriaChecked: 2, CriteriaPassed: 1, SpendKnown: true, SpendPermille: 400}} {
 		c := criteria(f)
 		r := dynorg.Rank([]dynorg.DirCandidate{{Title: "x", Scores: map[string]float64{
 			dynorg.CritSuccess: c.success, dynorg.CritCost: c.cost, dynorg.CritRisk: c.risk, dynorg.CritEffort: c.effort}}}, dynorg.DefaultWeights, 1)
@@ -217,7 +220,7 @@ func contains(xs []string, s string) bool {
 
 // Through the engine's own ranking: an unreadable direction ranks last, a proven one first.
 func TestRankingPutsUnscoredLast(t *testing.T) {
-	ff := &fakeFacts{m: map[string]DirectionFacts{"good": good, "bad": {TasksFailed: 4, SpendKnown: true}}}
+	ff := &fakeFacts{m: map[string]DirectionFacts{"good": good, "bad": {TasksFailed: 4, CriteriaChecked: 1, SpendKnown: true}}}
 	mk := func(id, sess string) types.Direction {
 		return types.Direction{ID: id, State: types.DirActive, SessionID: sess}
 	}
@@ -234,5 +237,52 @@ func TestRankingPutsUnscoredLast(t *testing.T) {
 	}
 	if !math.IsInf(r[2].Score, -1) || r[2].Err == nil {
 		t.Errorf("unscored direction not marked: %+v", r[2])
+	}
+}
+
+func ranked(id string, sc float64, err error) Ranked {
+	return Ranked{Direction: types.Direction{ID: id}, Score: sc, Err: err}
+}
+
+// A ranking always returns its first element, scored or not; Pick is what turns "everything unscored" into "no direction".
+func TestPickNoneWhenTopIsUnscored(t *testing.T) {
+	unscored := fmt.Errorf("%w: x", ErrUnscored)
+	for name, r := range map[string][]Ranked{
+		"empty":        nil,
+		"all unscored": {ranked("a", math.Inf(-1), unscored), ranked("b", math.Inf(-1), unscored)},
+		"error top":    {ranked("a", 7, errors.New("boom")), ranked("b", 3, nil)},
+		"-Inf top":     {ranked("a", math.Inf(-1), nil)},
+		"NaN top":      {ranked("a", math.NaN(), nil)},
+	} {
+		if d, ok := Pick(r); ok || d.ID != "" {
+			t.Errorf("%s: picked %q", name, d.ID)
+		}
+	}
+	if d, ok := Pick([]Ranked{ranked("one", 4, nil), ranked("u", math.Inf(-1), unscored)}); !ok || d.ID != "one" {
+		t.Errorf("one scored: %v %v", d.ID, ok)
+	}
+}
+
+// End to end with the engine's ranking, converted field for field.
+func TestPickOverPolicyRank(t *testing.T) {
+	ff := &fakeFacts{m: map[string]DirectionFacts{"good": good}}
+	mk := func(id, sess string) types.Direction { return types.Direction{ID: id, State: types.DirActive, SessionID: sess} }
+	pick := func(ds ...types.Direction) (string, bool) {
+		r, err := policy.Rank(context.Background(), ds, New(ff))
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := make([]Ranked, len(r))
+		for i, x := range r {
+			out[i] = Ranked(x)
+		}
+		d, ok := Pick(out)
+		return d.ID, ok
+	}
+	if id, ok := pick(mk("a", "gone"), mk("b", "")); ok {
+		t.Errorf("all unscored picked %q", id)
+	}
+	if id, ok := pick(mk("a", "gone"), mk("c", "good")); !ok || id != "c" {
+		t.Errorf("one scored: %q %v", id, ok)
 	}
 }

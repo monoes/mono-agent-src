@@ -111,3 +111,13 @@ func criteria(f DirectionFacts) crit {
 	c.effort = maxScore * float64(min(f.TasksOpen+f.TasksBlocked, effortCap)) / effortCap
 	return c
 }
+
+// Ranked mirrors policy.Ranked field for field, so that a ranking converts with Ranked(x).
+type Ranked struct {
+	Direction types.Direction
+	Score     float64
+	Err       error
+}
+
+// Pick is a stub.
+func Pick(r []Ranked) (types.Direction, bool) { return types.Direction{}, len(r) > 0 }
