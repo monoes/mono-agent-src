@@ -2,6 +2,7 @@ package coderhost
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"strings"
 	"sync"
@@ -10,6 +11,8 @@ import (
 
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/epoch"
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/judge"
+	"github.com/monoes/mono-agent/internal/missionpursuit"
+	"github.com/monoes/mono-agent/internal/tasks"
 )
 
 // fakeJudge is the scripted judge model of the pursuit tests: it keeps every direction and calls every criterion
@@ -17,7 +20,7 @@ import (
 type fakeJudge struct {
 	mu     sync.Mutex
 	calls  int
-	onCall func()                                        // runs inside Complete, before the reply
+	onCall func()                                         // runs inside Complete, before the reply
 	reply  func(n int, criteria, directions []string) any // nil: keep everything
 }
 
@@ -93,27 +96,28 @@ func newPursuitWorld(t *testing.T) *pworld { return newPursuitWorldWith(t, true)
 func newPursuitWorldWith(t *testing.T, started bool) *pworld {
 	t.Helper()
 	h, _, st := newHost(t)
-	clk := epoch.NewFakeClock(time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC))
+	clk := epoch.NewFakeClock(time.Now().UTC().Truncate(time.Second))
 	st.now = clk.Now
 	w := &pworld{t: t, h: h, st: st, clk: clk, model: &fakeJudge{}}
 	addConversation(t, st, "m", "/work/m")
 	if _, err := st.EnsureSession("p", "m"); err != nil {
 		t.Fatal(err)
 	}
-	began := clk.Now().Add(-time.Hour).Format(time.RFC3339)
-	qs := []string{
-		`INSERT OR IGNORE INTO profiles (id, name) VALUES ('p', 'p')`,
-		`INSERT INTO task_sessions (id, profile_id, conversation_id, title, state, kind, budget_usd, created_by, created_at, updated_at) VALUES (77, 'p', 'm', 't', 'running', 'mission', 10, 'you', 'x', 'x')`,
-		`INSERT INTO mission_goals (session_id, state, criteria_hash, proposed_by, created_at, updated_at) VALUES (77, 'proposed', 'h', 'lead', 'x', 'x')`,
-		`INSERT INTO mission_goal_criteria (session_id, pos, kind, spec, expected, hash) VALUES (77, 1, 'rubric', 'it is good', '', 'h')`,
-		`UPDATE mission_goals SET state = 'confirmed', confirmed_by = 'you', confirmed_at = 'x' WHERE session_id = 77`,
-	}
+	w.exec(`INSERT OR IGNORE INTO profiles (id, name) VALUES ('p', 'p')`)
+	w.exec(`INSERT INTO task_sessions (id, profile_id, conversation_id, title, state, kind, budget_usd, created_by, created_at, updated_at) VALUES (77, 'p', 'm', 't', 'running', 'mission', 10, 'you', 'x', 'x')`)
+	w.exec(`UPDATE coder_sessions SET chat_mode = 'mission' WHERE profile_id = 'p' AND conversation_id = 'm'`)
 	if started {
-		qs = append(qs, `INSERT INTO mission_pursuit (session_id, enabled, locked_by, created_at, updated_at) VALUES (77, 1, 'you', '`+began+`', '`+began+`')`)
+		mp := missionpursuit.NewStore(st.db)
+		op := tasks.Actor{Kind: tasks.Human, Name: "you"}
+		if _, err := mp.Set(context.Background(), "p", 77, []missionpursuit.Criterion{{Kind: missionpursuit.KindRubric, Spec: "it is good"}}, op); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := mp.Start(context.Background(), "p", 77, missionpursuit.AwayLimits{}, op); err != nil {
+			t.Fatal(err)
+		}
+		clk.Advance(2 * time.Second) // everything after the start is after the person's last action
 	}
-	for _, q := range qs {
-		w.exec(q)
-	}
+	h.Logf = t.Logf
 	h.Pursuit = &PursuitDeps{Model: w.model, Refuse: func(string) bool { return false }, Clock: clk,
 		Interval: 30 * time.Minute, EvidenceGap: 30 * time.Minute}
 	return w
@@ -200,7 +204,7 @@ func (w *pworld) openDirection(id, title string, leadSession int64) {
 		w.exec(`INSERT INTO task_sessions (id, profile_id, title, state, kind, parent_session_id, created_by, created_at, updated_at) VALUES (?, 'p', 'd', 'running', 'direction', 77, 'you', 'x', 'x')`, leadSession)
 	}
 	w.exec(`INSERT INTO mission_strategy_directions (session_id, direction_id, key_hash, title, state, lead_session, created_epoch) VALUES (77, ?, ?, ?, 'proposed', ?, 0)`,
-		id, []byte(id), title, lead)
+		id, sha256Of(id), title, lead)
 }
 
 // startedWith says whether a turn whose id starts with prefix was started.
@@ -214,3 +218,5 @@ func (l *fakeLauncher) startedWith(prefix string) bool {
 	}
 	return false
 }
+
+func sha256Of(s string) []byte { h := sha256.Sum256([]byte(s)); return h[:] }

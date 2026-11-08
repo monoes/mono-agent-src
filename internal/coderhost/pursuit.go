@@ -239,10 +239,12 @@ func (h *Host) pursuitGate(ctx context.Context, rd *inputs.Reader, m pursuitMiss
 	}
 	goal, err := missionpursuit.NewStore(h.Store.db).Get(ctx, m.Profile, m.ID)
 	if err != nil || (goal.State != missionpursuit.StateConfirmed && goal.State != missionpursuit.StateLocked) || len(goal.Criteria) == 0 {
+		h.logf("coder host: pursuit of session %d: no confirmed goal with a criterion (%v)", m.ID, err)
 		return g, false // no confirmed goal with a criterion: nothing to pursue
 	}
 	pur, err := missionpursuit.NewStore(h.Store.db).GetPursuit(ctx, m.Profile, m.ID)
 	if err != nil || !pur.Enabled {
+		h.logf("coder host: pursuit of session %d: the pursuit record does not read (%v)", m.ID, err)
 		return g, false
 	}
 	pa, err := h.Store.personActionAt(m)
@@ -392,4 +394,36 @@ type pursuitHostState struct {
 	pursuitCursor  int64
 	pursuitBackoff map[int64]time.Time
 	pursuitRuns    map[int64]*pursuitRun
+}
+
+// sessionPursuing says whether the person started the pursuit of the mission session (paused or not: a paused pursuit
+// still wakes nothing but the person's resume).
+func (h *Host) sessionPursuing(session int64) (bool, error) {
+	var n int
+	err := h.Store.db.QueryRow(`SELECT COUNT(*) FROM mission_pursuit WHERE session_id = ? AND enabled = 1`, session).Scan(&n)
+	return n > 0, err
+}
+
+// conversationPursuing says whether the conversation is the lead of a mission whose pursuit is started. A read that
+// fails says no: the pursuit loop reads the same rows and cannot wake the lead either, so nothing is woken twice, and a
+// check-in's own failed-read handling stays as it was.
+func (h *Host) conversationPursuing(profileID, conversationID string) bool {
+	var n int
+	err := h.Store.db.QueryRow(`SELECT COUNT(*) FROM task_sessions s JOIN mission_pursuit p ON p.session_id = s.id
+		WHERE s.profile_id = ? AND s.conversation_id = ? AND s.archived_at = '' AND p.enabled = 1`, profileID, conversationID).Scan(&n)
+	return err == nil && n > 0
+}
+
+// pursuitWakeStillAllowed re-checks, when a wake-up is about to run, that the pursuit still runs. It returns why not, or "".
+func (h *Host) pursuitWakeStillAllowed(x Session) string {
+	var id int64
+	err := h.Store.db.QueryRow(`SELECT s.id FROM task_sessions s JOIN mission_pursuit p ON p.session_id = s.id
+		WHERE s.profile_id = ? AND s.conversation_id = ? AND s.archived_at = '' AND p.enabled = 1 ORDER BY s.id DESC LIMIT 1`, x.ProfileID, x.ConversationID).Scan(&id)
+	if err != nil {
+		return "the session is no longer the lead of a started pursuit"
+	}
+	if !h.pursuitRunning(context.Background(), inputs.New(h.Store.db), id) {
+		return "the mission's pursuit is paused or stopped"
+	}
+	return ""
 }

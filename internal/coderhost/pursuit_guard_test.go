@@ -40,7 +40,7 @@ func pursuitSources(t *testing.T) map[string]*ast.File {
 
 func TestThePursuitFilesImportNothingThatCarriesAuthority(t *testing.T) {
 	allowed := map[string]bool{
-		"context": true, "database/sql": true, "errors": true, "fmt": true, "math": true, "sort": true, "strconv": true,
+		"context": true, "crypto/rand": true, "encoding/hex": true, "database/sql": true, "errors": true, "fmt": true, "math": true, "sort": true, "strconv": true,
 		"strings": true, "sync": true, "sync/atomic": true, "time": true, "unicode/utf8": true,
 		"github.com/monoes/mono-agent/internal/doomsday/strategy/epoch":  true,
 		"github.com/monoes/mono-agent/internal/doomsday/strategy/judge":  true,
@@ -79,7 +79,7 @@ func TestThePursuitLoopWritesOnlyItsOwnStateAndTheQueue(t *testing.T) {
 				return true
 			}
 			for _, m := range target.FindAllStringSubmatch(s, -1) {
-				if m[1] != "mission_pursuit_state" {
+				if m[1] != "mission_pursuit_state" && !strings.EqualFold(m[1], "set") {
 					bad = append(bad, name+": "+strings.TrimSpace(s))
 				}
 			}

@@ -2,6 +2,9 @@ package coderhost
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/missionpursuit"
+	"github.com/monoes/mono-agent/internal/tasks"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -181,8 +184,8 @@ func pursuitCheckinFixture(t *testing.T, w *pworld, withChildren bool) {
 			t.Fatal(err)
 		}
 	}
-	setSettings(t, w.st, "m", `{"unattended": true, "checkin_minutes": 15}`)
-	w.exec(`INSERT INTO tasks (profile_id, title, status, session_id, kind, created_at, updated_at) VALUES ('p', 'x', 'ready', 77, 'task', 'x', 'x')`)
+	setSettings(t, w.st, "m", `{"checkin_minutes": 15, "skip_if_unchanged": false}`)
+	w.exec(`INSERT INTO tasks (profile_id, title, status, position, session_id, kind, created_at, updated_at) VALUES ('p', 'x', 'ready', 0, 77, 'task', 'x', 'x')`)
 	w.h.checkinPass(w.clk.Now()) // first sight
 }
 
@@ -221,12 +224,22 @@ func (p panicClock) Now() time.Time {
 func TestAPassServesOnlyAFewMissionsAndTheRestOnTheNextPass(t *testing.T) {
 	w := newPursuitWorld(t)
 	for i := 0; i < maxPursuitsPerPass+3; i++ {
-		id := 200 + i
-		w.exec(`INSERT INTO task_sessions (id, profile_id, title, state, kind, budget_usd, created_by, created_at, updated_at) VALUES (?, 'p', 't', 'running', 'mission', 10, 'you', 'x', 'x')`, id)
-		w.exec(`INSERT INTO mission_goals (session_id, state, criteria_hash, proposed_by, created_at, updated_at) VALUES (?, 'proposed', 'h', 'lead', 'x', 'x')`, id)
-		w.exec(`INSERT INTO mission_goal_criteria (session_id, pos, kind, spec, expected, hash) VALUES (?, 1, 'rubric', 'ok', '', 'h')`, id)
-		w.exec(`UPDATE mission_goals SET state = 'confirmed', confirmed_by = 'you', confirmed_at = 'x' WHERE session_id = ?`, id)
-		w.exec(`INSERT INTO mission_pursuit (session_id, enabled, locked_by, created_at, updated_at) VALUES (?, 1, 'you', ?, ?)`, id, w.clk.Now().Format(time.RFC3339), w.clk.Now().Format(time.RFC3339))
+		id := int64(200 + i)
+		conv := "c" + strconv.FormatInt(id, 10)
+		addConversation(t, w.st, conv, "/work/"+conv)
+		if _, err := w.st.EnsureSession("p", conv); err != nil {
+			t.Fatal(err)
+		}
+		w.exec(`UPDATE coder_sessions SET chat_mode = 'mission' WHERE conversation_id = ?`, conv)
+		w.exec(`INSERT INTO task_sessions (id, profile_id, conversation_id, title, state, kind, budget_usd, created_by, created_at, updated_at) VALUES (?, 'p', ?, 't', 'running', 'mission', 10, 'you', 'x', 'x')`, id, conv)
+		mp := missionpursuit.NewStore(w.st.db)
+		op := tasks.Actor{Kind: tasks.Human, Name: "you"}
+		if _, err := mp.Set(context.Background(), "p", id, []missionpursuit.Criterion{{Kind: missionpursuit.KindRubric, Spec: "ok"}}, op); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := mp.Start(context.Background(), "p", id, missionpursuit.AwayLimits{}, op); err != nil {
+			t.Fatal(err)
+		}
 	}
 	count := func() int {
 		var n int

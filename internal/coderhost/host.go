@@ -87,6 +87,10 @@ type Host struct {
 	readHolds map[int64]*readHold  // commands held for a failed read, Tick only
 	capLogged map[string]time.Time // when each unreadable cap was last logged
 	capHeld   map[string][2]string // chats whose sends the max_concurrent cap held on the last pass (profile, conversation); Tick only
+
+	// Pursuit, when set, turns on the mission pursuit loop (pursuit.go). Nil: the loop is off.
+	Pursuit *PursuitDeps
+	pursuitHostState
 }
 
 func key(profileID, conversationID string) string { return profileID + "\x00" + conversationID }
@@ -267,6 +271,13 @@ func (h *Host) Tick() error {
 			if strings.HasPrefix(c.TurnID, CheckinTurnPrefix) {
 				if reason := h.checkinStillAllowed(x, h.Store.now()); reason != "" {
 					h.recheckFailed(c, reason, k, blocked)
+					continue
+				}
+			}
+			// A wake-up of the pursuit loop runs only while the person's pursuit still runs.
+			if strings.HasPrefix(c.TurnID, PursuitTurnPrefix) {
+				if reason := h.pursuitWakeStillAllowed(x); reason != "" {
+					h.end(c, CmdFailed, reason)
 					continue
 				}
 			}
@@ -514,7 +525,8 @@ func (h *Host) Run(ctx context.Context) error {
 	if err := h.Recover(); err != nil {
 		return err
 	}
-	defer h.retries.Wait() // no retry of a hold outlives Run: the registry and the database are closed after it returns
+	defer h.pursuitWG.Wait() // a pursuit pass ends before the database is closed
+	defer h.retries.Wait()   // no retry of a hold outlives Run: the registry and the database are closed after it returns
 	poll := h.Poll
 	if poll <= 0 {
 		poll = 500 * time.Millisecond
@@ -534,6 +546,7 @@ func (h *Host) Run(ctx context.Context) error {
 			h.logf("coder host: %v", err)
 		}
 		h.checkinIfDue()
+		h.pursuitIfDue(ctx)
 		select {
 		case <-ctx.Done():
 			return nil

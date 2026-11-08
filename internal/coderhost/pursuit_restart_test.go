@@ -15,7 +15,7 @@ func (w *pworld) restart() {
 }
 
 func (w *pworld) setLead(state, turn string) {
-	w.exec(`UPDATE coder_sessions SET state = ?, turn_id = ? WHERE profile_id = 'p' AND conversation_id = 'm'`, state, turn)
+	w.exec(`UPDATE coder_sessions SET state = ?, turn_id = ?, turn_pid = 0 WHERE profile_id = 'p' AND conversation_id = 'm'`, state, turn)
 }
 
 func TestARestartDoesNotOpenOrWakeTwice(t *testing.T) {

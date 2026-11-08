@@ -137,7 +137,7 @@ func TestOnlyTheHostsOwnRecordsCountAsAPersonAction(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			w := newPursuitWorld(t)
 			w.pass()
-			w.park(3)
+			w.park(4) // one of them may be settled by someone else: three still wait
 			w.advance(31 * time.Minute)
 			w.pass()
 			w.advance(time.Minute)

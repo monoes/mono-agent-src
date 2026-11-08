@@ -84,7 +84,9 @@ func TestAScriptedPursuitFromStartToPause(t *testing.T) {
 		t.Fatalf("weak=%s strong=%s", w.directionState("weak"), w.directionState("strong"))
 	}
 	if len(w.wakes()) != 1 {
-		t.Fatalf("wake-ups after epoch 2: %d", len(w.wakes()))
+		stt, _, _ := w.st.pursuitStateOf(77)
+		x, _, _ := w.st.GetSession("p", "m")
+		t.Fatalf("wake-ups after epoch 2: %d; state %+v; lead %+v pending %d", len(w.wakes()), stt, x, w.st.PendingFor("p", "m"))
 	}
 	if err := w.h.Tick(); err != nil {
 		t.Fatal(err)

@@ -178,6 +178,7 @@ func looksLikeSQL(s string) bool {
 // rule and added, with the test above or its own, covering it.
 func TestEveryCommandQueueingSiteIsKnown(t *testing.T) {
 	want := map[string]int{ // call sites per function
+		"pursuit_wake.go:EnqueueWithPursuit": 1, // enqueueOn (in the woken-epoch transaction): the pursuit loop's host-made wake-up (pursuit- turn id, no issuer, no mission marker; it approves nothing), queued once per applied epoch while the person's pursuit runs
 		"store.go:EnqueueWithCheckin":        1, // enqueueOn (in the check-in's transaction): a host check-in (checkin- turn id, no issuer; it approves nothing), written with its baseline
 		"children_control.go:SendToChild":    1, // Enqueue: a master's send (master- turn id, issuer)
 		"children_control.go:ControlChild":   1, // Enqueue: pause/resume/stop by a master

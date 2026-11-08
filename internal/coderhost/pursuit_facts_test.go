@@ -12,7 +12,7 @@ import (
 // addTask adds a task to a session with the given host fields.
 func (w *pworld) addTask(session int64, status string, blocked, verified, retries int) int64 {
 	w.t.Helper()
-	res, err := w.st.db.Exec(`INSERT INTO tasks (profile_id, title, status, session_id, kind, blocked, verified, retries, created_at, updated_at) VALUES ('p', 't', ?, ?, 'task', ?, ?, ?, 'x', ?)`,
+	res, err := w.st.db.Exec(`INSERT INTO tasks (profile_id, title, status, position, session_id, kind, blocked, verified, retries, created_at, updated_at) VALUES ('p', 't', ?, 0, ?, 'task', ?, ?, ?, 'x', ?)`,
 		status, session, blocked, verified, retries, w.clk.Now().Format(time.RFC3339Nano))
 	if err != nil {
 		w.t.Fatal(err)
@@ -52,7 +52,7 @@ func TestFactsCountEachTaskOnceAndOnlyVerifiedWorkAsDone(t *testing.T) {
 	w.addTask(301, "ready", 1, 0, 0)    // blocked, no failure yet: blocked
 	w.addTask(301, "ready", 0, 0, 0)    // open
 	w.addTask(301, "in_progress", 0, 0, 0)
-	w.exec(`INSERT INTO tasks (profile_id, title, status, session_id, kind, created_at, updated_at) VALUES ('p', 'e', 'ready', 301, 'epic', 'x', 'x')`) // an epic is not work
+	w.exec(`INSERT INTO tasks (profile_id, title, status, position, session_id, kind, created_at, updated_at) VALUES ('p', 'e', 'ready', 0, 301, 'epic', 'x', 'x')`) // an epic is not work
 	f, err := w.factsFor().DirectionFacts(context.Background(), "301")
 	if err != nil {
 		t.Fatal(err)
@@ -91,6 +91,7 @@ func TestFactsRefuseASessionThatIsNotTheMissionsDirection(t *testing.T) {
 			t.Errorf("session %q was read", id)
 		}
 	}
+	w.addTask(301, "ready", 0, 0, 0)
 	if _, err := w.factsFor().DirectionFacts(context.Background(), "301"); err != nil {
 		t.Fatalf("the mission's own direction session: %v", err)
 	}
@@ -99,7 +100,7 @@ func TestFactsRefuseASessionThatIsNotTheMissionsDirection(t *testing.T) {
 func TestFactsRefuseALeadSessionTwoDirectionsShare(t *testing.T) {
 	w := newPursuitWorld(t)
 	w.openDirection("d1", "x", 301)
-	w.exec(`INSERT INTO mission_strategy_directions (session_id, direction_id, key_hash, title, state, lead_session, created_epoch) VALUES (77, 'd2', x'02', 'y', 'proposed', '301', 0)`)
+	w.exec(`INSERT INTO mission_strategy_directions (session_id, direction_id, key_hash, title, state, lead_session, created_epoch) VALUES (77, 'd2', zeroblob(32), 'y', 'proposed', '301', 0)`)
 	dirs, err := w.dirs()
 	if err != nil || len(dirs) != 2 {
 		t.Fatalf("dirs = %v %v", dirs, err)
