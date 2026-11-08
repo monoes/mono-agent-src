@@ -143,7 +143,8 @@ func TestOnlyTheWiringFilesImportThePackage(t *testing.T) {
 		t.Fatal("the walk visited no Go files: the guard would pass on nothing")
 	}
 	sort.Strings(got)
-	if len(got) != 0 {
+	// the pursuit loop (T6, S4) is the one caller: its run state, snapshots and wake-up gate
+	if want := []string{"internal/coderhost/pursuit.go", "internal/coderhost/pursuit_facts.go", "internal/coderhost/pursuit_wake.go"}; strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("importers of the mission pursuit inputs changed: %v\ndecide the new importer here, in review", got)
 	}
 }

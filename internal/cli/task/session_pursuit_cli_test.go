@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/missionpursuit"
+	"github.com/monoes/mono-agent/internal/storage"
 )
 
 type pursuitDoc struct {
@@ -112,5 +113,48 @@ func TestSessionPursuitStartRefusesAnExplicitZeroLimit(t *testing.T) {
 	}
 	if pursuitExists(t, db, s) {
 		t.Errorf("a refused start left a pursuit")
+	}
+}
+
+func TestSessionPursuitStatusShowsHowFarEveryLimitHasComeAndWhyItWaits(t *testing.T) {
+	t.Parallel()
+	db := newTaskTestDB(t)
+	s, _ := confirmedGoalMission(t, db)
+	var st struct {
+		Pursuit  missionpursuit.Pursuit  `json:"pursuit"`
+		Progress missionpursuit.Progress `json:"progress"`
+	}
+	mustTaskJSON(t, db, "default", &st, "", "session", "pursuit", "start", id(s), "--wakes-max", "4")
+	if st.Pursuit.WakesMax != 4 {
+		t.Fatalf("start: %+v", st.Pursuit)
+	}
+	st.Progress = missionpursuit.Progress{}
+	mustTaskJSON(t, db, "default", &st, "", "session", "pursuit", "status", id(s))
+	if st.Progress.Seen || st.Progress.WakesMax != 4 || st.Progress.HostWakesMax != 12 || st.Progress.ParkedMax != 3 {
+		t.Fatalf("progress before the loop looked: %+v", st.Progress)
+	}
+	text, _, err := runTask(t, db, "default", false, "", "session", "pursuit", "status", id(s))
+	if err != nil || !strings.Contains(text, "has not looked at it yet") || !strings.Contains(text, "4 wake-up(s)") {
+		t.Fatalf("text status: %v %q", err, text)
+	}
+	d, err := storage.NewDatabase(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if _, err := d.DB.Exec(`INSERT INTO mission_pursuit_state (session_id, waiting, wakes_since, parked, spent_away_micro, budget_micro, hour_wakes, hour_frees_at, updated_at)
+		VALUES (?, 'wakes', 4, 1, 2500000, 10000000, 3, '2026-11-08T13:00:00Z', '2026-11-08T12:00:00Z')`, s); err != nil {
+		t.Fatal(err)
+	}
+	st.Progress = missionpursuit.Progress{}
+	mustTaskJSON(t, db, "default", &st, "", "session", "pursuit", "status", id(s))
+	if !st.Progress.Seen || st.Progress.WakesUsed != 4 || st.Progress.Waiting != "wakes" || st.Progress.SpentAwayUSD != 2.5 || st.Progress.HostWakes != 3 {
+		t.Fatalf("progress = %+v", st.Progress)
+	}
+	text, _, err = runTask(t, db, "default", false, "", "session", "pursuit", "status", id(s))
+	for _, want := range []string{"4 of 4 wake-up(s)", "1 of 3 parked", "$2.50 metered spend", "$10.00 budget", "3 of 12 pursuit wake-up(s)", "2026-11-08T13:00:00Z", "waiting for you: the pursuit woke the lead", "may cost more than the metered spend"} {
+		if err != nil || !strings.Contains(text, want) {
+			t.Errorf("text status lacks %q: %v\n%s", want, err, text)
+		}
 	}
 }

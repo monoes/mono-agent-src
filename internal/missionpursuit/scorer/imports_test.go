@@ -78,6 +78,9 @@ func TestNothingImportsTheScorerYet(t *testing.T) {
 			}
 			for _, im := range f.Imports {
 				if path, _ := strconv.Unquote(im.Path.Value); strings.HasSuffix(path, "/internal/missionpursuit/scorer") {
+					if r := filepath.ToSlash(rel); r == "internal/coderhost/pursuit_facts.go" || r == "internal/coderhost/pursuit_wake.go" {
+						continue // the pursuit loop's facts adapter and focus pick (S4)
+					}
 					t.Errorf("%s imports the scorer: decide the new importer here, in review", rel)
 				}
 			}

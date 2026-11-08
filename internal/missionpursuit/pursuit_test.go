@@ -114,15 +114,18 @@ func TestAwayLimitsAreValidated(t *testing.T) {
 		want    AwayLimits
 		invalid bool
 	}{
-		{AwayLimits{}, AwayLimits{3, 20}, false},
-		{AwayLimits{1, 1}, AwayLimits{1, 1}, false},
-		{AwayLimits{20, 100}, AwayLimits{20, 100}, false},
-		{AwayLimits{5, 0}, AwayLimits{5, 20}, false},
-		{AwayLimits{0, 50}, AwayLimits{3, 50}, false},
-		{AwayLimits{-1, 20}, AwayLimits{}, true},
-		{AwayLimits{21, 20}, AwayLimits{}, true},
-		{AwayLimits{3, -1}, AwayLimits{}, true},
-		{AwayLimits{3, 101}, AwayLimits{}, true},
+		{AwayLimits{}, AwayLimits{ParkedMax: 3, Pct: 20, Wakes: 6}, false},
+		{AwayLimits{ParkedMax: 1, Pct: 1}, AwayLimits{ParkedMax: 1, Pct: 1, Wakes: 6}, false},
+		{AwayLimits{ParkedMax: 20, Pct: 100}, AwayLimits{ParkedMax: 20, Pct: 100, Wakes: 6}, false},
+		{AwayLimits{ParkedMax: 5, Pct: 0}, AwayLimits{ParkedMax: 5, Pct: 20, Wakes: 6}, false},
+		{AwayLimits{ParkedMax: 0, Pct: 50}, AwayLimits{ParkedMax: 3, Pct: 50, Wakes: 6}, false},
+		{AwayLimits{ParkedMax: -1, Pct: 20}, AwayLimits{}, true},
+		{AwayLimits{ParkedMax: 21, Pct: 20}, AwayLimits{}, true},
+		{AwayLimits{ParkedMax: 3, Pct: -1}, AwayLimits{}, true},
+		{AwayLimits{ParkedMax: 3, Pct: 101}, AwayLimits{}, true},
+		{AwayLimits{Wakes: 51}, AwayLimits{}, true},
+		{AwayLimits{Wakes: -1}, AwayLimits{}, true},
+		{AwayLimits{Wakes: 9}, AwayLimits{ParkedMax: 3, Pct: 20, Wakes: 9}, false},
 	} {
 		f := confirmedMission(t)
 		p, err := f.store.Start(bg, "default", f.session, c.in, human)
@@ -133,7 +136,7 @@ func TestAwayLimitsAreValidated(t *testing.T) {
 			}
 			continue
 		}
-		if err != nil || (AwayLimits{p.ParkedMax, p.Pct}) != c.want {
+		if err != nil || (AwayLimits{ParkedMax: p.ParkedMax, Pct: p.Pct, Wakes: p.WakesMax}) != c.want {
 			t.Errorf("%+v: got %+v, %v, want %+v", c.in, p, err, c.want)
 		}
 	}

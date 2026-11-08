@@ -1,10 +1,10 @@
 package coderhost
 
-// The away state of a pursuit (T6): what it counts while the person is away. It is pure data and nothing feeds it yet.
+// The away state of a pursuit (T6): what it counts while the person is away. It is pure data; the pursuit loop (pursuit.go) feeds it from host rows.
 // It does not touch the question policy: Decide is the same for a mission in pursuit as for any other.
 
 // AwayState is what a pursuit counts while the person is away: the questions parked for them and the money spent since
-// their last action. The pursuit stops opening new work when WaitingForYou. Pure data: the host feeds it from rows.
+// their last action. The pursuit stops opening new work when WaitingForYou. Pure data.
 type AwayState struct {
 	ParkedMax   int   // stop at this many parked questions (1..20)
 	Pct         int   // or at this percent of the budget spent (1..100)

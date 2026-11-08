@@ -32,6 +32,9 @@ type missionFact struct {
 	// verified=1 after the operator closes it, so Done and Verified overlap and must not be summed). It is
 	// not part of the digest or of the change signal.
 	Open int `json:"-"`
+	// Pursuing: the person started the mission's pursuit. The pursuit loop is then the only thing that wakes the lead, so
+	// open() is false. Not part of the digest.
+	Pursuing bool `json:"-"`
 	// What the re-evaluation triggers compare (checkin_reeval.go): the OPEN direction sessions with their numbers,
 	// the open research sessions, a cursor for each kind (the newest session id seen, so a session created after it
 	// is new) and the share of the budget the tree spent. All are numbers from the host's rows, omitted when there are
@@ -101,6 +104,11 @@ func (h *Host) missionSince(profileID, conversationID string, was *missionFact) 
 	}
 	defer rows.Close()
 	f := &missionFact{State: state}
+	if on, err := h.sessionPursuing(id); err != nil {
+		return nil, false
+	} else {
+		f.Pursuing = on
+	}
 	for rows.Next() {
 		var st string
 		var blocked, verified, n int
@@ -168,7 +176,7 @@ func missionLine(m *missionFact) string {
 // open says whether a running mission still has work the lead can move (see missionFact.Open). A blocked task
 // waits for the operator and a verified one for the operator's close: nothing a lead does hastens either.
 func (m *missionFact) open() bool {
-	return m != nil && m.State == string(tasks.SessionRunning) && m.Open > 0
+	return m != nil && !m.Pursuing && m.State == string(tasks.SessionRunning) && m.Open > 0
 }
 
 // leadWithOpenWork is the rule that lets a session without children be checked in on: its
@@ -207,6 +215,8 @@ func (h *Host) liveChildren(profileID, conversationID string) (int, error) {
 // conversation must be bound to a RUNNING task session with open work.
 func (h *Host) checkinTargetStillValid(x Session, liveChildren int) string {
 	switch {
+	case h.conversationPursuing(x.ProfileID, x.ConversationID):
+		return "the session's mission is in pursuit: the pursuit loop wakes it, not a check-in"
 	case !x.Unattended:
 		return "the session is no longer an unattended master"
 	case x.Role == "child":

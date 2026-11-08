@@ -49,11 +49,16 @@ func TestStrategyPackagesImportNothingThatCarriesAuthority(t *testing.T) {
 func TestOnlyTheWiringFilesImportTheStrategyLibraries(t *testing.T) {
 	root := filepath.Join("..", "..", "..")
 	var got []string
+	visited := 0
 	for _, top := range []string{"internal", "cmd", "wails-app"} {
-		_ = filepath.WalkDir(filepath.Join(root, top), func(p string, d fs.DirEntry, err error) error {
-			if err != nil || d.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
+		werr := filepath.WalkDir(filepath.Join(root, top), func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err // an unreadable directory must not hide an importer
+			}
+			if d.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
 				return nil
 			}
+			visited++
 			rel, _ := filepath.Rel(root, p)
 			rel = filepath.ToSlash(rel)
 			if strings.HasPrefix(rel, "internal/doomsday/strategy/") {
@@ -61,11 +66,11 @@ func TestOnlyTheWiringFilesImportTheStrategyLibraries(t *testing.T) {
 			}
 			src, rerr := os.ReadFile(p)
 			if rerr != nil {
-				return nil
+				return rerr
 			}
 			f, perr := parser.ParseFile(token.NewFileSet(), p, src, parser.ImportsOnly)
 			if perr != nil {
-				return nil
+				return perr
 			}
 			for _, im := range f.Imports {
 				path, _ := strconv.Unquote(im.Path.Value)
@@ -76,11 +81,20 @@ func TestOnlyTheWiringFilesImportTheStrategyLibraries(t *testing.T) {
 			}
 			return nil
 		})
+		if werr != nil {
+			t.Fatalf("walking %s: %v", top, werr)
+		}
+	}
+	if visited < 500 {
+		t.Fatalf("only %d Go files visited: the walk is not looking at the tree", visited)
 	}
 	sort.Strings(got)
 	want := []string{
 		"internal/cli/doomsday/strategyengine.go", "internal/cli/doomsday/strategyreader.go", "internal/cli/doomsday/strategyready.go",
 		"internal/cli/doomsday/strategysink.go", "internal/cli/doomsday/strategywire.go",
+		// The mission pursuit loop (T6, S4) runs the same epoch engine over a mission's own store: the host's loop, off unless
+		// the person started a pursuit. Its own import guard is coderhost/pursuit_guard_test.go.
+		"internal/coderhost/pursuit.go", "internal/coderhost/pursuit_facts.go", "internal/coderhost/pursuit_wake.go",
 	}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("importers of the strategy libraries changed:\n got %v\nwant %v\ndecide the new importer here, in review", got, want)

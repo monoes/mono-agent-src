@@ -1078,3 +1078,56 @@ func (l *hostStopLog) String() string {
 	defer l.mu.Unlock()
 	return l.buf.String()
 }
+
+// The production `coder host run` does not wire the pursuit loop (the real judge comes with a later slice), so a started
+// pursuit must change nothing about check-ins there: the host it builds has no Pursuit, and the lead of a mission whose
+// pursuit is started is not held back from check-ins. Wiring a judge into the production host fails the first check and
+// must come with its own decision.
+func TestTheProductionHostDoesNotWireThePursuitAndKeepsTheCheckIns(t *testing.T) {
+	asOperator(t)
+	dbPath := newChatCLITestDB(t)
+	db, err := storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`INSERT INTO task_sessions (id, profile_id, conversation_id, title, state, kind, created_by, created_at, updated_at) VALUES (77, 'default', 'lead-chat', 't', 'running', 'mission', 'you', 'x', 'x')`,
+		`INSERT INTO mission_goals (session_id, state, criteria_hash, proposed_by, created_at, updated_at) VALUES (77, 'proposed', 'h', 'lead', 'x', 'x')`,
+		`INSERT INTO mission_goal_criteria (session_id, pos, kind, spec, expected, hash) VALUES (77, 1, 'rubric', 'ok', '', 'h')`,
+		`UPDATE mission_goals SET state = 'confirmed', confirmed_by = 'you', confirmed_at = 'x' WHERE session_id = 77`,
+		`INSERT INTO mission_pursuit (session_id, enabled, locked_by, created_at, updated_at) VALUES (77, 1, 'you', 'x', 'x')`,
+	} {
+		if _, err := db.DB.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	db.Close()
+	cfg := testDeps(&testConfig{DBPath: dbPath, ProfileID: "default", JSONOutput: true})
+	cfg.RequireOperator = func(string) error { return nil }
+	builtc := make(chan *coderhost.Host, 1)
+	old := hostBuilt
+	hostBuilt = func(h *coderhost.Host) { builtc <- h }
+	t.Cleanup(func() { hostBuilt = old })
+	t.Cleanup(func() { RegisterChildTokenMinter(nil) })
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := newCoderHostRunCmd(cfg)
+	cmd.SetContext(ctx)
+	cmd.SetArgs([]string{"--poll=20ms"})
+	cmd.SilenceUsage, cmd.SilenceErrors = true, true
+	errc := make(chan error, 1)
+	go func() { errc <- cmd.Execute() }()
+	var built *coderhost.Host
+	select {
+	case built = <-builtc:
+	case <-time.After(20 * time.Second):
+		cancel()
+		t.Fatalf("the host was not built: %v", <-errc)
+	}
+	defer func() { cancel(); <-errc }()
+	if built.Pursuit != nil {
+		t.Fatal("the production host wires the pursuit loop: decide it (and the check-in exclusion) in review")
+	}
+	if built.PursuitHoldsCheckins("default", "lead-chat") {
+		t.Fatal("a started pursuit holds the check-ins of a lead on a host that does not run the loop")
+	}
+}
