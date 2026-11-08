@@ -65,11 +65,8 @@ func OpenModeNotReady() string {
 	return openModePendingReason
 }
 
-// OpenModeNoBindingReason is why the mode is not offered on Windows, where there is no peer-credential binding.
-const OpenModeNoBindingReason = "not available on Windows yet: the run needs the peer-credential binding, which Windows does not have"
-
-// The binding predicate the open mode follows: the OS, and the binding service's own readiness (procbind.Ready, the one
-// the service asks before it runs). Both are seams of tests.
+// The binding predicate the open mode follows: the binding service's own readiness (procbind.Ready, the one
+// the service asks before it runs). Both are seams of tests (the OS no longer decides anything).
 var (
 	openModeGOOS         = runtime.GOOS
 	openModeBindingReady = procbind.Ready
@@ -82,12 +79,9 @@ func SetOpenModeBindingProbe(goos string, ready func() error) (restore func()) {
 	return func() { openModeGOOS, openModeBindingReady = oldOS, oldReady }
 }
 
-// openModeBindingReason is "" when the binding service can run here, else why the mode cannot be offered. Linux and
-// macOS follow the service's own readiness; Windows is refused with the OS reason.
+// openModeBindingReason is "" when the binding service can run here, else why the mode cannot be offered. Linux,
+// macOS and Windows follow the service's own readiness.
 func openModeBindingReason() string {
-	if openModeGOOS == "windows" {
-		return OpenModeNoBindingReason
-	}
 	if err := openModeBindingReady(); err != nil {
 		return "not available on this machine: the run needs the peer-credential binding, and " + err.Error()
 	}

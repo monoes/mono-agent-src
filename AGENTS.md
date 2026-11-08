@@ -2847,7 +2847,7 @@ before it is stored), so a stale copy cannot put an operator-only value back.
 Mission toggle above is its old spelling (`--mission on` is `mission`, `off` is `off`; `Settings.Mission` follows the column and is never
 stored in the document). It is chosen before the first message (`chat history create --chat-mode`, or `settings set --chat-mode` while the
 chat has no message) and never changes afterwards: a trigger refuses a change once a send is queued or a turn exists
-(`coderhost.ErrChatModeLocked`). `open` is selectable only when `coderhost.OpenModeAvailability` says so (only where the peer-credential binding can run: Linux and macOS, each by the binding service's own readiness; Windows is refused with the OS reason). The column is written
+(`coderhost.ErrChatModeLocked`). `open` is selectable only when `coderhost.OpenModeAvailability` says so (only where the peer-credential binding can run: Linux, macOS and Windows, each by the binding service's own readiness and with the service's own reason when it cannot; the Windows binding is weaker and the start confirmation says so). The column is written
 in one place (`writeChatMode`, reached through `UpdateSettings`); `settings get` shows it as `chatMode`, `sessions list` and `chat history
 list` carry it, `coder sessions chat-modes --access LEVEL` lists the choices for a chat that does not exist yet.
 
