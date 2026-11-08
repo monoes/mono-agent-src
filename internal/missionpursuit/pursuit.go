@@ -100,6 +100,9 @@ func (s *Store) Start(ctx context.Context, profileID string, session int64, limi
 			}
 			return ErrGoalLocked
 		}
+		if !hasRubric(g.Criteria) {
+			return invalid("a mission needs at least one rubric criterion before it can be pursued: you are always the last judge, so state what you will judge yourself")
+		}
 		now := s.stamp()
 		if _, err := x.ExecContext(ctx, `INSERT INTO mission_pursuit (session_id, enabled, away_budget_parked_max, away_budget_pct, away_wakes_max, locked_by, created_at, updated_at) VALUES (?, 1, ?, ?, ?, ?, ?, ?)`,
 			session, lim.ParkedMax, lim.Pct, lim.Wakes, by.Label(), now, now); err != nil {
@@ -112,6 +115,16 @@ func (s *Store) Start(ctx context.Context, profileID string, session int64, limi
 		return err
 	})
 	return out, err
+}
+
+// hasRubric says whether a criterion is one the person decides.
+func hasRubric(cs []StoredCriterion) bool {
+	for _, c := range cs {
+		if c.Kind == KindRubric {
+			return true
+		}
+	}
+	return false
 }
 
 // Pause stops the pursuit from opening new work until the person resumes it. Only the operator may.
