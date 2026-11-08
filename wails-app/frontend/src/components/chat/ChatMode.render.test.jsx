@@ -182,7 +182,7 @@ describe('why a mode is not available', () => {
     expect(open).toHaveAttribute('aria-description', why)
     expect(screen.getByTestId('chat-mode-why-open')).toHaveTextContent('Open-ended is not available: ' + why)
   })
-  it('shows the binding service's reason on the disabled open radio on Windows when the binding cannot run', async () => {
+  it('shows the reason of the binding service on the disabled open radio on Windows when the binding cannot run', async () => {
     const why = 'not available on this machine: the run needs the peer-credential binding, and this Windows cannot tell which process connected to a local socket'
     api.getChatMissionToggle.mockResolvedValue(view(unavailable(why)))
     render(<Harness />)
