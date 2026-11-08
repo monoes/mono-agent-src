@@ -338,7 +338,7 @@ func TestAMergeMemberStaysLiveWhenItsEndCannotBeRecorded(t *testing.T) {
 func TestALiveMergeMemberBlocksQuiescenceUntilALaterStartProvesItGone(t *testing.T) {
 	r := newDDRig(t)
 	ctx := context.Background()
-	if err := r.st.Register(ctx, store.Member{Profile: "p", Generation: r.run.Generation, ID: "merge-dead-1", Kind: "merge", Pid: 4242, Stamp: "host"}); err != nil {
+	if err := r.st.Register(ctx, store.Member{Profile: "p", Generation: r.run.Generation, ID: "merge-dead-1", Kind: "merge", Pid: deadPID(t), Stamp: "host"}); err != nil {
 		t.Fatal(err)
 	}
 	for _, to := range []store.RunState{store.StateStopRequested, store.StateAuthorityRevoked, store.StateCleanupPending} {
