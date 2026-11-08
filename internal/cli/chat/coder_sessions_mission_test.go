@@ -132,6 +132,7 @@ func missionReady(t *testing.T, m masterTurn) *missionChildren {
 }
 
 func TestChildSpawnerIsNotReadyUntilTheLauncherMintsChildTokens(t *testing.T) {
+	resetChildReadiness(t) // no minter and no host probe left by an earlier test
 	m := newMasterTurn(t)
 	mc := newMissionChildren(nil, "default", m.master)
 	if mc.Ready() {
