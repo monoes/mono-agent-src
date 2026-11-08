@@ -32,7 +32,7 @@ func (s *scene) seed(step int, pinned bool) {
 	s.t.Helper()
 	ctx := context.Background()
 	dd := s.r.doomsday()
-	if err := dd.Members.Register(ctx, store.Member{Profile: "p", Generation: s.r.run.Generation, ID: s.op, Kind: "merge", Pid: 4242, Stamp: "host"}); err != nil {
+	if err := dd.Members.Register(ctx, store.Member{Profile: "p", Generation: s.r.run.Generation, ID: s.op, Kind: "merge", Pid: deadPID(s.t), Stamp: "host"}); err != nil {
 		s.t.Fatal(err)
 	}
 	must := func(err error) {
