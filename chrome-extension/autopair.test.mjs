@@ -48,6 +48,31 @@ test("no bridge on any port: down", async () => {
   assert.equal((await A.step({ fetch: b.impl })).kind, "down");
 });
 
+test("a bridge with /health but no /status is outdated, not down", async () => {
+  const impl = async (url) => {
+    if (url === "http://127.0.0.1:9222/monoagent/health") return json({ service: "monoagent-bridge", status: "connected" });
+    if (url.startsWith("http://127.0.0.1:9222/")) return json("404 page not found", 404);
+    throw new TypeError("refused");
+  };
+  assert.equal((await A.step({ fetch: impl })).kind, "outdated");
+});
+
+test("a /status that times out or 5xxs while /health answers is not outdated", async () => {
+  const bridge = { service: "monoagent-bridge", status: "connected" };
+  const five = async (url) => (url.endsWith("/monoagent/health") ? json(bridge) : json({}, 503));
+  assert.equal((await A.step({ fetch: five })).kind, "down");
+  const hang = (url, init = {}) =>
+    url.endsWith("/monoagent/health")
+      ? Promise.resolve(json(bridge))
+      : new Promise((_, reject) => init.signal && init.signal.addEventListener("abort", () => reject(new Error("aborted"))));
+  assert.equal((await A.step({ fetch: hang, timeoutMs: 30 })).kind, "down");
+});
+
+test("something else answering /health is still down", async () => {
+  const impl = async (url) => (url.endsWith("/monoagent/health") ? json({ Browser: "Chrome/140" }) : json("nope", 404));
+  assert.equal((await A.step({ fetch: impl })).kind, "down");
+});
+
 test("the fallback port is found", async () => {
   const b = fakeBridge({ ports: [9323], doc: { signedIn: true } });
   const r = await A.step({ fetch: b.impl });
