@@ -35,9 +35,9 @@ import (
 // carry a mission confirmation, and the person's own messages are told apart from it by this prefix.
 const PursuitTurnPrefix = "pursuit-"
 
-// Hard stops that do not depend on the meter. The 20% rule sees only the metered spend of the mission session
-// (task_sessions.spent_usd): the judge calls, the lead's wake-up turns and running children are not all in it, so
-// unknown cost is never taken as free. These two bound the pursuit's activity by count instead.
+// Hard stops that do not depend on the meter. The 20% rule counts the mission session's metered spend, the judge ledger and
+// the lead's and helpers' turn journals (pursuit_meter.go); unknown cost is never taken as free. These bound the pursuit's
+// activity by count as well.
 const (
 	// The wake-ups of one lead since the person last acted are limited per mission (mission_pursuit.away_wakes_max, default
 	// 6, set when the person starts the pursuit); reaching it is "waiting for you".

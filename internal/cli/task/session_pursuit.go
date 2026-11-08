@@ -23,7 +23,7 @@ and what happens to one nobody answers stay the chat's autonomy settings, as for
 Only you start, pause or resume; an agent is refused.
 
   pursuit start ID [--parked-max N] [--pct N]   start it (the goal must be confirmed); defaults 3 and 20
-  pursuit pause ID                              stop new work until you resume
+  pursuit pause ID                              stop new work until you resume (it does not hand the lead back to check-ins)
   pursuit resume ID                             let it go on
   pursuit status ID                             show it (read only)`,
 	}
@@ -102,7 +102,8 @@ func (d Deps) newPursuitStartCmd() *cobra.Command {
 		Use:   "start ID [--parked-max N] [--pct N] [--wakes-max N]",
 		Short: "Start the pursuit of a mission whose goal you confirmed; locks the goal (you only)",
 		Long: `Start the pursuit and lock the goal in one step. Only you may. The goal must be confirmed
-(goal set, or goal confirm); a locked goal is final. --parked-max (1 to 20, default 3) and --pct (1 to 100,
+(goal set, or goal confirm) and must carry at least one rubric criterion, because you are always the last judge; a locked
+goal is final. --parked-max (1 to 20, default 3) and --pct (1 to 100,
 default 20) and --wakes-max (1 to 50, default 6: how often the pursuit may wake the lead) bound what the pursuit does while you
 are away; a wake-up count does not depend on the meter. They are fixed once the pursuit has started.`,
 		RunE: func(cmd *cobra.Command, args []string) error {

@@ -140,8 +140,10 @@ func TestACallThatCannotBeRecordedIsNotMade(t *testing.T) {
 // the judge's answer goes through the one validation chain; failing rounds in a row stop the pursuit
 func TestFailingJudgeRoundsInARowStopThePursuitUntilThePersonActs(t *testing.T) {
 	for name, set := range map[string]func(*fakeJudge){
-		"the model fails":       func(f *fakeJudge) { f.failWith = errors.New("transport down") },
-		"the answer is invalid": func(f *fakeJudge) { f.reply = func(int, []string, []string) any { return map[string]any{"criteria": 1, "unknown": true} } },
+		"the model fails": func(f *fakeJudge) { f.failWith = errors.New("transport down") },
+		"the answer is invalid": func(f *fakeJudge) {
+			f.reply = func(int, []string, []string) any { return map[string]any{"criteria": 1, "unknown": true} }
+		},
 		"the answer is oversized": func(f *fakeJudge) {
 			f.failWith = judge.ErrReplyTooLong
 		},

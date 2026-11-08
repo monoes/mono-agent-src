@@ -195,7 +195,7 @@ var taskSessionCommandDocs = []cmdDoc{
 	},
 	{
 		Name:     "task session pursuit status",
-		Short:    "Show a mission's pursuit: started by, paused or running, its away limits, how far each has come (wake-ups, parked questions, metered spend, the host-wide hourly cap) and why it waits for you (read only)",
+		Short:    "Show a mission's pursuit: started by, paused or running, its away limits, how far each has come (wake-ups, parked questions, metered spend, the judge's and the lead's spend, failed judge rounds, the host-wide hourly caps) and why it waits for you (read only)",
 		Usage:    "monoagentcli [--profile P] task session pursuit status ID",
 		Examples: []string{"monoagentcli --profile work task session pursuit status 3"},
 	},
