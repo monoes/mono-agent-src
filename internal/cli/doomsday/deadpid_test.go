@@ -2,6 +2,7 @@ package doomsday
 
 import (
 	"os"
+	"os/exec"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/daemonhb"
@@ -11,7 +12,11 @@ import (
 // gone. A fixed number such as 4242 is a live process on a busy runner.
 func deadPID(t *testing.T) int {
 	t.Helper()
-	return os.Getpid()
+	c := exec.Command(os.Args[0], "-test.run=^$")
+	if err := c.Run(); err != nil {
+		t.Fatalf("starting a short-lived child: %v", err)
+	}
+	return c.ProcessState.Pid()
 }
 
 func TestDeadPIDIsNotAliveForTheRealProbe(t *testing.T) {
