@@ -138,13 +138,13 @@ func TestFlippingOpenModeReadyOpensAndClosesEveryEntry(t *testing.T) {
 	}
 }
 
-// WHERE THE BINDING CANNOT RUN the open mode is not offered: chat-modes lists it unavailable with the OS reason, a new chat in
+// ON WINDOWS the open mode is not offered: chat-modes lists it unavailable with the OS reason, a new chat in
 // the open mode is refused with it before anything is created, and the cheap check is not asked.
 func TestOpenModeIsRefusedWhereTheBindingCannotRun(t *testing.T) {
-	for _, goos := range []string{"darwin", "windows"} {
+	for _, goos := range []string{"windows"} {
 		t.Run(goos, func(t *testing.T) {
 			asked := cheap(t, true, "")
-			t.Cleanup(coderhost.SetOpenModeBindingProbe(goos, func() error { return errors.New("the binding service needs Linux") }))
+			t.Cleanup(coderhost.SetOpenModeBindingProbe(goos, func() error { return errors.New("the binding service needs Linux or macOS") }))
 			r := newAccessRig(t, true)
 			opt := openOption(chatModeView{Options: chatModeOptions("full")})
 			if opt == nil || opt.Available || opt.Pending || opt.Reason != coderhost.OpenModeNoBindingReason {
