@@ -1,4 +1,4 @@
-//go:build linux || darwin
+//go:build linux || darwin || windows
 
 package coderhost
 
@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"os"
 	"sort"
 	"sync"
 	"time"
@@ -108,13 +107,7 @@ func (h *BindingHost) options(profile string) (procbind.SocketOptions, error) {
 	if h.Root != "" {
 		return procbind.SocketOptions{Root: h.Root, Profile: profile}, nil
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return procbind.SocketOptions{}, errors.New("the user's home folder is unknown")
-	}
-	xdg := os.Getenv("XDG_RUNTIME_DIR")
-	root := procbind.ResolveRoot(xdg, home, os.Getuid())
-	return procbind.SocketOptions{Root: root, Profile: profile, CreateRoot: root != xdg}, nil
+	return defaultSocketOptions(profile)
 }
 
 // Running says whether the profile's service is up.
@@ -250,8 +243,10 @@ func (h *BindingHost) Ensure(ctx context.Context, profile string) error {
 	if err := ctx.Err(); err != nil { // the deadline passed since the last step that watched it: record nothing
 		return fail(fmt.Errorf("the binding service start ran out of time: %w", err))
 	}
-	srv := &procbind.Server{Profile: profile, Generation: generation, Key: answerKey, Leases: h.Binder, Procs: procs, UID: os.Getuid(),
-		Logf: func(f string, a ...any) { h.logf("binding service: "+f, a...) }}
+	srv, err := newBindingServer(profile, generation, answerKey, h.Binder, procs, func(f string, a ...any) { h.logf("binding service: "+f, a...) })
+	if err != nil {
+		return fail(err)
+	}
 	s := &bindingService{l: l, done: make(chan struct{}), seq: seq, generation: generation}
 	go func() {
 		defer close(s.done)

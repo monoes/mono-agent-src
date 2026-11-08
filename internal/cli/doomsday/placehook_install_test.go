@@ -122,4 +122,4 @@ func TestEveryCoderChildStartGoesThroughPlace(t *testing.T) {
 }
 
 // boundLaunchFiles are the files that start a coder turn through the bound launch, one per OS that can run it.
-var boundLaunchFiles = map[string]bool{"coder_host_bound_linux.go": true, "coder_host_bound_darwin.go": true}
+var boundLaunchFiles = map[string]bool{"coder_host_bound_linux.go": true, "coder_host_bound_darwin.go": true, "coder_host_bound_windows.go": true}

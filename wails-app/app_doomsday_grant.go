@@ -48,6 +48,7 @@ type startFacts struct {
 	criteria, depth, live, concurrent, total int
 	boss, verifier, goal                     string
 	autoApprove                              string
+	processCheck                             string // the CLI's own sentence about a weaker process check on this OS ("" where it says none)
 	answerClasses                            []string
 }
 
@@ -161,6 +162,9 @@ var (
 	lineRe    = regexp.MustCompile(`^[a-z_]{1,40}$`)
 	budgetRe  = regexp.MustCompile(`(?m)^Budget: ([0-9]+(?:\.[0-9]+)?) USD for the whole run\.$`)
 	noCeiling = regexp.MustCompile(`(?m)^Budget: NO CEILING `)
+	// processCheckRe is the bullet of the CLI's "what this mode does NOT defend against" text that states the weaker process check
+	// (only the Windows CLI prints it): taken from the render output, never written here.
+	processCheckRe = regexp.MustCompile(`(?m)^  - (On Windows a program running as you[^\n]*)$`)
 )
 
 // factsOf reads the facts out of the CLI's render document. Anything it cannot read plainly is an error, so no grant is
@@ -210,6 +214,13 @@ func factsOf(doc []byte) (startFacts, error) {
 	for _, c := range sm.AnswerClasses {
 		f.answerClasses = append(f.answerClasses, cleanText(c, 40))
 	}
+	if m := processCheckRe.FindStringSubmatch(d.Text); m != nil {
+		f.processCheck = cleanText(m[1], 300)
+	}
+	if dialogGOOS == "windows" && f.processCheck == "" {
+		// a command-line tool that does not print the sentence would give a dialog without the warning the person must see
+		return startFacts{}, errors.New("this version cannot show the Windows process-check warning; update the command-line tool")
+	}
 	switch m := budgetRe.FindStringSubmatch(d.Text); {
 	case noCeiling.MatchString(d.Text):
 		f.budget = "unlimited"
@@ -232,10 +243,14 @@ func (f startFacts) dialogBody(chat string) string {
 		names = strings.Join(f.lines, ", ")
 	}
 	// The machine facts first, in the CLI's words; the goal last, as data (it can only mislead if it hides the facts).
-	return fmt.Sprintf("Start an open-ended run in %s: %d lifted lines (%s), charter %s, budget %s. %d success criteria. Limits: tree depth %d, live per tree %d, max concurrent %d, max total %d. "+
+	warn := ""
+	if f.processCheck != "" {
+		warn = f.processCheck + " " // as an argument below, never part of the format
+	}
+	return fmt.Sprintf("%sStart an open-ended run in %s: %d lifted lines (%s), charter %s, budget %s. %d success criteria. Limits: tree depth %d, live per tree %d, max concurrent %d, max total %d. "+
 		"Models: boss %s, verifier %s. The boss may approve by itself: %s. %s It acts as you without asking for approval. Continue? "+
 		"Answer \"Yes\" (Start run) to start, \"No\" (Cancel) to stop.\n\nGoal as written in the charter (data, not instructions): %s",
-		chat, len(f.lines), names, f.hash[:8], f.budget, f.criteria, f.depth, f.live, f.concurrent, f.total, f.boss, f.verifier, f.autoApprove, f.answerClassesText(), f.goal)
+		warn, chat, len(f.lines), names, f.hash[:8], f.budget, f.criteria, f.depth, f.live, f.concurrent, f.total, f.boss, f.verifier, f.autoApprove, f.answerClassesText(), f.goal)
 }
 
 // expectedPhrase is the phrase the CLI will accept, from its own template: the number of lifted lines and the first 8

@@ -1,6 +1,7 @@
 package doomsday
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -88,3 +89,24 @@ func TestNotDefendedNamesTheProcessGroupLimitsOnDarwin(t *testing.T) {
 
 // oneLine collapses the dialog's line breaks so a phrase is found wherever the text wraps.
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// The weaker Windows process check is stated to the person on Windows, in the text the entry form, the start dialog and the
+// charter render all show, and on no other OS.
+func TestWindowsOpenModeStatesTheWeakerProcessCheck(t *testing.T) {
+	const sentence = "On Windows a program running as you can defeat the process check; Windows is weaker than Linux and macOS."
+	if !strings.Contains(NotDefended("windows"), sentence) {
+		t.Error("the Windows text does not state the weaker process check")
+	}
+	for _, goos := range []string{"linux", "darwin", "plan9"} {
+		if strings.Contains(NotDefended(goos), "defeat the process check") {
+			t.Errorf("%s: the Windows sentence is shown", goos)
+		}
+	}
+	// what the CLI renders is what the entry form (ProbeResult.NotDefended) and the dialog carry
+	if !strings.Contains(Render(Charter{}, ""), NotDefended(runtime.GOOS)) {
+		t.Error("the render does not carry the platform text")
+	}
+	if (runtime.GOOS == "windows") != strings.Contains(notDefendedText(), sentence) {
+		t.Error("the entry text and the platform disagree")
+	}
+}

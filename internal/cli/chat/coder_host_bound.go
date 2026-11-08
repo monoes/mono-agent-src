@@ -1,4 +1,4 @@
-//go:build linux || darwin
+//go:build linux || darwin || windows
 
 package chat
 
@@ -76,19 +76,17 @@ type boundDelivery struct {
 	onKill func()
 }
 
-// attach prepares cmd for a bound launch: the frame pipe on descriptor 3 and its marker, nothing else.
+// attach prepares cmd for a bound launch: the frame pipe and its marker (attachPipe, per OS), nothing else.
 func (b *boundLaunch) attach(cmd *exec.Cmd, missionToken string) (*boundDelivery, error) {
-	r, w, err := os.Pipe() // close-on-exec both ends; the child gets r only through ExtraFiles
+	r, w, err := os.Pipe()
 	if err != nil {
 		return nil, err
 	}
-	if len(cmd.ExtraFiles) != 0 {
+	if err := attachPipe(cmd, r, w); err != nil {
 		r.Close()
 		w.Close()
-		return nil, errors.New("extra files already set")
+		return nil, err
 	}
-	cmd.ExtraFiles = []*os.File{r}
-	cmd.Env = append(cmd.Env, coderhost.CredFDEnv+"=3")
 	return &boundDelivery{b: b, r: r, w: w, proc: newWorkerProc(), missionToken: missionToken}, nil
 }
 

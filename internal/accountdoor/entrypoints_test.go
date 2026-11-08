@@ -32,6 +32,7 @@ var doors = map[string]string{
 	"internal/openaiapi/register.go":       "/v1 routes, each behind Gateway.auth",
 	"internal/openaiapi/serve.go":          "dedicated /v1 listener and its /health",
 	"internal/procbind/sockdir.go":         "the binding service's unix socket: a 0700 directory of the user, peers of that uid only, and it answers whether a caller may use a bound token; it runs no workflow, calls no gated command and uses no account, so a locked account gains nothing through it; nothing starts it yet",
+	"internal/procbind/sockdir_windows.go": "the Windows binding service's unix socket (and Ready's one-shot self-connect probe in a temp directory): a directory of the user with a protected access list, peers of that user only (the peer's process token is read), and it answers whether a caller may use a bound token; it runs no workflow, calls no gated command and uses no account, so a locked account gains nothing through it; nothing starts it unless the binding setting is on",
 	"internal/orgbridge/receiver.go":       "POST /org-endpoint/{id}: Receiver.ServeHTTP gate first",
 	"internal/workflow/webhook_server.go":  "webhook listener: WebhookServer.ServeHTTP gate first",
 }
