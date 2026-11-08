@@ -175,6 +175,31 @@ var taskSessionCommandDocs = []cmdDoc{
 		Examples: []string{"monoagentcli --profile work task session goal confirm 3 --hash 9f2c..."},
 	},
 	{
+		Name:     "task session pursuit start",
+		Short:    "Start the pursuit of a mission whose goal is confirmed, and lock the goal with it (the operator only)",
+		Usage:    "monoagentcli [--profile P] task session pursuit start ID [--parked-max N] [--pct N]",
+		Flags:    "  --parked-max int   Stop after this many questions wait for you since you last acted (1 to 20; default 3)\n  --pct int          Stop after this percent of the budget is spent since you last acted (1 to 100; default 20)",
+		Examples: []string{"monoagentcli --profile work task session pursuit start 3 --parked-max 5"},
+	},
+	{
+		Name:     "task session pursuit pause",
+		Short:    "Pause a mission's pursuit: no new work until the operator resumes it (the operator only)",
+		Usage:    "monoagentcli [--profile P] task session pursuit pause ID",
+		Examples: []string{"monoagentcli --profile work task session pursuit pause 3"},
+	},
+	{
+		Name:     "task session pursuit resume",
+		Short:    "Resume a paused pursuit (the operator only)",
+		Usage:    "monoagentcli [--profile P] task session pursuit resume ID",
+		Examples: []string{"monoagentcli --profile work task session pursuit resume 3"},
+	},
+	{
+		Name:     "task session pursuit status",
+		Short:    "Show a mission's pursuit: started by, paused or running, and its away limits (read only)",
+		Usage:    "monoagentcli [--profile P] task session pursuit status ID",
+		Examples: []string{"monoagentcli --profile work task session pursuit status 3"},
+	},
+	{
 		Name:     "task session retire-worker",
 		Short:    "Retire the idle worker of a mission task so the lead cannot message it; the task's evidence is kept (the operator only)",
 		Usage:    "monoagentcli [--profile P] task session retire-worker SESSION TASK [--note TEXT]",

@@ -187,38 +187,44 @@ func (s *Store) confirm(ctx context.Context, x tasks.Queryer, session int64, by 
 	return nil
 }
 
-// Lock makes a confirmed goal terminal. Only the operator may. Nothing calls it yet: the pursuit that will lock the goal comes later.
+// Lock makes a confirmed goal terminal. Only the operator may. Starting a pursuit does it (Start); nothing else calls it.
 func (s *Store) Lock(ctx context.Context, profileID string, session int64, by tasks.Actor) (Goal, error) {
 	if by.Kind != tasks.Human {
 		return Goal{}, operatorOnly("lock a mission goal")
 	}
 	var out Goal
 	err := s.tx(ctx, func(x tasks.Queryer) error {
-		if _, err := s.checkMission(ctx, x, profileID, session); err != nil {
-			return err
-		}
-		now := s.stamp()
-		res, err := x.ExecContext(ctx, `UPDATE mission_goals SET state = 'locked', locked_at = ?, updated_at = ? WHERE session_id = ? AND state = 'confirmed'`, now, now, session)
-		if err != nil {
-			return fmt.Errorf("missionpursuit: locking: %w", err)
-		}
-		if n, _ := res.RowsAffected(); n != 1 {
-			var state string
-			if rerr := x.QueryRowContext(ctx, `SELECT state FROM mission_goals WHERE session_id = ?`, session).Scan(&state); rerr != nil {
-				if errors.Is(rerr, sql.ErrNoRows) {
-					return fmt.Errorf("%w: session #%d has no mission goal yet", tasks.ErrNotFound, session)
-				}
-				return rerr
-			}
-			if state == StateProposed {
-				return ErrNotConfirmed
-			}
-			return ErrGoalLocked
-		}
-		out, err = readGoal(ctx, x, session)
+		var err error
+		out, err = s.lockIn(ctx, x, profileID, session)
 		return err
 	})
 	return out, err
+}
+
+// lockIn locks the confirmed goal inside the transaction of x.
+func (s *Store) lockIn(ctx context.Context, x tasks.Queryer, profileID string, session int64) (Goal, error) {
+	if _, err := s.checkMission(ctx, x, profileID, session); err != nil {
+		return Goal{}, err
+	}
+	now := s.stamp()
+	res, err := x.ExecContext(ctx, `UPDATE mission_goals SET state = 'locked', locked_at = ?, updated_at = ? WHERE session_id = ? AND state = 'confirmed'`, now, now, session)
+	if err != nil {
+		return Goal{}, fmt.Errorf("missionpursuit: locking: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		var state string
+		if rerr := x.QueryRowContext(ctx, `SELECT state FROM mission_goals WHERE session_id = ?`, session).Scan(&state); rerr != nil {
+			if errors.Is(rerr, sql.ErrNoRows) {
+				return Goal{}, fmt.Errorf("%w: session #%d has no mission goal yet", tasks.ErrNotFound, session)
+			}
+			return Goal{}, rerr
+		}
+		if state == StateProposed {
+			return Goal{}, ErrNotConfirmed
+		}
+		return Goal{}, ErrGoalLocked
+	}
+	return readGoal(ctx, x, session)
 }
 
 // Get is the goal of a mission session of the profile; tasks.ErrNotFound when there is none.

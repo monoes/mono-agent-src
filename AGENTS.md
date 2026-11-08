@@ -1746,7 +1746,7 @@ one (an agent's `release` can put back into Ready only a task it holds),
 unless the user delegates two abilities (below). The operator commands
 (`board`, `edit`, `move`, `approve`, `archive`, `unarchive`, `add --ready`,
 `agents allow`, `agents deny`, `session approve`, `session resume`,
-`session close`, `session retire-worker`, `session archive`, `session budget`, `session reservation resolve`, `session goal set`, `session goal confirm` and `undepend`) refuse an agent: a caller counts as an
+`session close`, `session retire-worker`, `session archive`, `session budget`, `session reservation resolve`, `session goal set`, `session goal confirm`, `session pursuit start`, `session pursuit pause`, `session pursuit resume` and `undepend`) refuse an agent: a caller counts as an
 agent when an agent-context environment variable such as `CLAUDECODE` is
 set, or `--as` is given, or `MONOAGENT_ACTOR` is set, and the refusal is
 exit 3 with code `operator_only`. Ask the user; do not look for a way
@@ -2983,7 +2983,7 @@ budget (`coderhost/autonomy_noapproval_test.go`, `autonomy_guard_test.go`).
 Operator-only coder settings (`coderhost.OperatorOnly`): `checkin_limit`, `autonomy_preset`, `autonomy_classes`, `max_children`,
 `max_concurrent`, `max_depth`, `mesh_accept`, `agent_approval`, `approval_ceiling_usd`, `mission`, `chat_mode`, `mission_directions`, `mission_worker_reservations`, and `owed_stop_notice`. Agent-adjustable on descendants (`coderhost.AgentAdjustable`): `checkin_minutes`, `skip_if_unchanged`, `checkin_triggers`,
 `silent_minutes`, `active_hours`, `mesh_visible`, `mesh_alias`. A test fails for a setting in neither list.
-Operator-only verbs that are not settings: `task session person inbox|full|approve|deny|ask|answer-ask`, `task session retire-worker`, `task session goal set|confirm` (an agent only proposes, with `task session goal propose`: the criteria of a mission's ultimate goal, at least one a rubric; a confirmed goal is final, a changed goal means a new mission),
+Operator-only verbs that are not settings: `task session person inbox|full|approve|deny|ask|answer-ask`, `task session retire-worker`, `task session goal set|confirm` (an agent only proposes, with `task session goal propose`: the criteria of a mission's ultimate goal, at least one a rubric; a confirmed goal is final, a changed goal means a new mission), `task session pursuit start|pause|resume` (the person starts the pursuit of a mission whose goal is confirmed, which locks the goal with it and sets the away limits (parked questions 1-20, default 3; budget share 1-100 percent, default 20); the question policy (who answers, defaults after the park timeout) is unchanged by a pursuit; `pursuit status` reads it and is open to agents; this is the policy record only, no loop runs from it yet),
 `coder sessions spawn-intents list|resolve`, `coder sessions mission-children enable|disable|set|list|resolve-charge`,
 `coder sessions budget list|grant|decline` and `agent purposes set|reset`.
 What separates "operator" from "agent" in the CLI is the process environment and ancestry (SECURITY.md, "Missions: summary of the
