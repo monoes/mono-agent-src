@@ -50,16 +50,21 @@ func TestErrorsAnswerToTheSstoreSentinels(t *testing.T) {
 	}
 }
 
-// Only named wiring files import this package; today there are none. A new importer is decided here, in review: the store
+// Only named wiring files import this package; today the read-only inputs adapter (see the want list). A new importer is decided here, in review: the store
 // is not tamper-evident and must have no CLI or MCP writer of its own.
 func TestOnlyTheWiringFilesImportTheMissionStrategyStore(t *testing.T) {
 	root := filepath.Join("..", "..", "..")
 	var got []string
+	visited := 0
 	for _, top := range []string{"internal", "cmd", "wails-app"} {
-		_ = filepath.WalkDir(filepath.Join(root, top), func(p string, d fs.DirEntry, err error) error {
-			if err != nil || d.IsDir() || !strings.HasSuffix(p, ".go") {
+		werr := filepath.WalkDir(filepath.Join(root, top), func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() || !strings.HasSuffix(p, ".go") {
 				return nil
 			}
+			visited++
 			rel, _ := filepath.Rel(root, p)
 			rel = filepath.ToSlash(rel)
 			if strings.HasPrefix(rel, "internal/missionpursuit/strategy/") {
@@ -67,11 +72,11 @@ func TestOnlyTheWiringFilesImportTheMissionStrategyStore(t *testing.T) {
 			}
 			src, rerr := os.ReadFile(p)
 			if rerr != nil {
-				return nil
+				return rerr
 			}
 			f, perr := parser.ParseFile(token.NewFileSet(), p, src, parser.ImportsOnly)
 			if perr != nil {
-				return nil
+				return perr
 			}
 			for _, im := range f.Imports {
 				if path, _ := strconv.Unquote(im.Path.Value); strings.HasSuffix(path, "/internal/missionpursuit/strategy") {
@@ -81,9 +86,17 @@ func TestOnlyTheWiringFilesImportTheMissionStrategyStore(t *testing.T) {
 			}
 			return nil
 		})
+		if werr != nil {
+			t.Fatalf("walking %s: %v", top, werr)
+		}
+	}
+	if visited == 0 {
+		t.Fatal("the walk visited no Go files: the guard would pass on nothing")
 	}
 	sort.Strings(got)
-	var want []string
+	// inputs/snapshot.go only READS (OpenDirections, ListEpochs, ParkedFinishRounds); its own guard test forbids every writer
+	// and every Exec. Its test file seeds rows through the writers, which is why that file is named too; wiring_test.go compares the store's own RunState with the pursuit one.
+	want := []string{"internal/missionpursuit/inputs/snapshot.go", "internal/missionpursuit/inputs/snapshot_test.go", "internal/missionpursuit/inputs/wiring_test.go"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("importers of the mission strategy store changed:\n got %v\nwant %v\ndecide the new importer here, in review", got, want)
 	}
