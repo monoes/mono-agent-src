@@ -2,41 +2,8 @@ package coderhost
 
 import "testing"
 
-func TestPursuitClampSendsEveryClassToTheUserAndParks(t *testing.T) {
-	for _, who := range []string{WhoUser, WhoMaster, WhoModel, "", "bogus"} {
-		for _, fb := range []string{FallbackPark, FallbackTakeDefault, "", "bogus"} {
-			got := PursuitClamp(Decision{Answerer: who, Fallback: fb})
-			if got != (Decision{Answerer: WhoUser, Fallback: FallbackPark}) {
-				t.Errorf("PursuitClamp(%q, %q) = %+v, want user and park", who, fb, got)
-			}
-		}
-	}
-}
-
-func TestDecideInPursuitIsUserAndParkForEveryClassAndSetting(t *testing.T) {
-	presets := []string{"ask-always", "ask-on-risk", "decide-and-log", "bogus", ""}
-	for _, preset := range presets {
-		for _, class := range append(append([]string{}, GapClasses...), "unknown_class") {
-			for _, rev := range []bool{false, true} {
-				for _, master := range []bool{false, true} {
-					s := DefaultSettings()
-					s.AutonomyPreset = preset
-					s.pursuing = true
-					if got := Decide(s, class, rev, master); got != (Decision{WhoUser, FallbackPark}) {
-						t.Errorf("preset %q class %s rev=%v master=%v: %+v", preset, class, rev, master, got)
-					}
-					// a per-class override that names the model and a default changes nothing in pursuit (a non-hard class)
-					s.AutonomyClasses = map[string]AutonomyChoice{class: {Who: WhoModel, Fallback: FallbackTakeDefault}}
-					if got := Decide(s, class, rev, master); got != (Decision{WhoUser, FallbackPark}) {
-						t.Errorf("override, class %s: %+v", class, got)
-					}
-				}
-			}
-		}
-	}
-}
-
-// Without a pursuit Decide is what it was: the preset, the per-class override, then the clamp.
+// Decide is what it was: the preset, the per-class override, then the clamp. A mission in pursuit, started or paused, is
+// the same as any other, because Decide reads only the settings.
 func TestDecideWithoutPursuitIsUnchanged(t *testing.T) {
 	reference := func(s Settings, class string, rev, master bool) Decision {
 		d := presetDecision(s.AutonomyPreset, class, rev)
