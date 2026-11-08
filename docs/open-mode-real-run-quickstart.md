@@ -2,7 +2,7 @@
 
 What this is: you start a run from a chat in **Open-ended** mode. A boss agent plans and spawns coding sessions on its own until the budget or limits run out, or you press Stop. No human approval happens during the run. The sessions run as your user (files, network, database, keychain) and add no isolation of their own. Use a throwaway profile and folder. Commands below take `--profile "$P"`.
 
-**Do not:** use your real social or mail profile; `kill -9` the host; use `--everything` or `--lift`; switch `coder set --peercred-binding off` while a run is open (master does not refuse it, the run's turns just stop starting); use `doomsday render`/`probe` as a "dry run" (probe runs the real containment steps).
+**Do not:** use your real social or mail profile; `kill -9` the host; use `--everything` or `--lift`; switch `coder set --peercred-binding off` while a run is open (it is refused while the run is not quiescent); use `doomsday render`/`probe` as a "dry run" (probe runs the real containment steps).
 
 ## 1. Prerequisites
 
@@ -10,7 +10,7 @@ What this is: you start a run from a chat in **Open-ended** mode. A boss agent p
 |---|---|---|
 | Linux | cgroup v2 and a systemd user session with delegation; run from a desktop login (not an ssh or tty `session-N.scope`) | Stop proves the run's unit is gone and prints a bare `stopped` |
 | macOS | local APFS/HFS+ volume | best effort: processes held in a process group; a process that left the group is not covered |
-| Windows | local NTFS volume | best effort: processes held in a Job Object; a process that left the job is not covered |
+| Windows | local NTFS volume | best effort: processes held in a Job Object; a process that left the job is not covered. The process check is also weaker than on Linux/macOS (a program running as you can defeat it); the start confirmation says so |
 
 Both:
 
