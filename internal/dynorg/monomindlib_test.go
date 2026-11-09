@@ -2,6 +2,7 @@ package dynorg
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,7 +10,7 @@ import (
 
 func TestAgentBodyFromRegistryAndFolders(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	must := func(err error) {
 		t.Helper()
 		if err != nil {

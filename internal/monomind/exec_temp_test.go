@@ -3,6 +3,7 @@ package monomind
 import (
 	"context"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -66,8 +67,7 @@ func execWithAllFiles(t *testing.T, bin string) {
 // monoagent home, which no sandboxed turn can write.
 func TestExecWritesItsFilesInAPrivateFolderByDefault(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	bin, record := recordingMonomind(t)
 
 	execWithAllFiles(t, bin)
@@ -94,8 +94,7 @@ func TestExecWritesItsFilesInAPrivateFolderByDefault(t *testing.T) {
 // with the system temp directory.
 func TestExecFallsBackToTheSystemTempDirectory(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	if err := os.WriteFile(filepath.Join(home, ".monoagent"), []byte("a file, not a folder"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -115,8 +114,7 @@ func TestExecFallsBackToTheSystemTempDirectory(t *testing.T) {
 // else is.
 func TestPrivateFolderSweepsStaleFilesOnly(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	private := filepath.Join(home, ".monoagent", "tmp")
 	if err := os.MkdirAll(private, 0o700); err != nil {
 		t.Fatal(err)
@@ -151,8 +149,7 @@ func TestPrivateFolderSweepsStaleFilesOnly(t *testing.T) {
 // looser is tightened, because it holds prompts.
 func TestPrivateFolderIsTightenedTo0700(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	private := filepath.Join(home, ".monoagent", "tmp")
 	if err := os.MkdirAll(private, 0o755); err != nil {
 		t.Fatal(err)

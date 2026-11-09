@@ -3,6 +3,7 @@ package account_test
 import (
 	"context"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -45,8 +46,7 @@ func TestAStoreWithoutASealerUsesTheQuietKeyringSealer(t *testing.T) {
 
 func quietSealerChecks(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	passphrase := filepath.Join(t.TempDir(), "passphrase")
 	if err := os.WriteFile(passphrase, []byte("a passphrase for this test\n"), 0o600); err != nil {
 		t.Fatal(err)

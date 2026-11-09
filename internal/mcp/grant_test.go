@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +30,7 @@ type grantFixture struct {
 func newGrantFixture(t *testing.T, tool orggrant.Tool) *grantFixture {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv("MONOAGENT_DAEMON_HEARTBEAT", filepath.Join(home, "hb.json"))
 	// The env monomind gives a role's tool provider; grant mode refuses to
 	// serve without it.

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,7 +17,7 @@ import (
 // side says to recreate it — not to re-import with --yes.
 func TestWorkflowBundleLocalOnlyPackage(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	writeLegacyFile(t, home, "devsite", "get_heading",
 		`{"actionType":"get_heading","platform":"devsite","steps":[{"id":"o","type":"navigate","url":"http://localhost:8099/"}]}`)
 	reg, err := openAutomationRegistry()
@@ -43,7 +44,7 @@ func TestWorkflowBundleLocalOnlyPackage(t *testing.T) {
 
 	// Importing: JSON lists it without an install command; human output
 	// says to recreate it and never suggests --yes.
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	cfg2 := &globalConfig{DBPath: filepath.Join(t.TempDir(), "dst.db"), JSONOutput: true, ProfileID: "default"}
 	var res map[string]any
 	if err := json.Unmarshal([]byte(runWorkflowSubcmd(t, cfg2, "import", "--file", file)), &res); err != nil {
@@ -73,7 +74,7 @@ func TestWorkflowBundleLocalOnlyPackage(t *testing.T) {
 // silently; --replace-automations (+ --yes) replaces it after the review.
 func TestWorkflowBundleDiffersSameVersion(t *testing.T) {
 	// Sender: acme-test 1.0.0 that also allows *.example.com.
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	dir := writeTestAutomationID(t, "acme-test")
 	manifest := filepath.Join(dir, "automation.json")
 	b, _ := os.ReadFile(manifest)
@@ -99,7 +100,7 @@ func TestWorkflowBundleDiffersSameVersion(t *testing.T) {
 	}
 
 	// Recipient: the plain acme-test 1.0.0 is installed already.
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	installTestAutomation(t)
 	cfg2 := &globalConfig{DBPath: filepath.Join(t.TempDir(), "dst.db"), JSONOutput: true, ProfileID: "default"}
 	item := func(args ...string) bundleImportItem {
@@ -162,7 +163,7 @@ func TestWorkflowBundleDiffersSameVersion(t *testing.T) {
 // An --automation-domains id the export does not use is refused, naming
 // the ids it does use, instead of being silently ignored.
 func TestWorkflowBundleUnknownDomainsID(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	installTestAutomation(t)
 	cfg := &globalConfig{DBPath: filepath.Join(t.TempDir(), "src.db"), JSONOutput: true, ProfileID: "default"}
 	id := importWorkflowJSON(t, cfg, bundleTestWorkflow)

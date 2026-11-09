@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"testing"
@@ -26,7 +27,7 @@ func withFallbackCaps(t *testing.T, caps ...string) {
 // the operator's own terminal.
 func newSandboxTestDB(t *testing.T) string {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	asOperatorProcess(t) // setting the fallback is the operator's
 	dbPath := filepath.Join(t.TempDir(), "sandbox-test.db")
 	writeMigratedDB(t, dbPath)

@@ -3,6 +3,7 @@ package workflowrun
 import (
 	"context"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"math"
 	"path/filepath"
 	"strings"
@@ -23,7 +24,7 @@ import (
 // evaluation trigger and a set step; "nometrics" lacks a setMetrics node.
 func evalDB(t *testing.T, jsonOut bool) *testConfig {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	cfg := &testConfig{DBPath: filepath.Join(t.TempDir(), "e.db"), JSONOutput: jsonOut, ProfileID: "default"}
 	db, err := openTestDB(cfg)
 	if err != nil {

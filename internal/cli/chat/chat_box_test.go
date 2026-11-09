@@ -2,6 +2,7 @@ package chat
 
 import (
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -157,8 +158,7 @@ func TestCoderBoxRefusesATamperedSetting(t *testing.T) {
 
 func TestCoderBoxProtectsTheConfiguredDatabase(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("HOME", dir)
-	t.Setenv("USERPROFILE", dir)
+	testhome.SetHome(t, dir)
 	real := filepath.Join(dir, "data", "private", "agent.db")
 	os.MkdirAll(filepath.Dir(real), 0o700)
 	os.WriteFile(real, []byte("db"), 0o600)
@@ -207,8 +207,7 @@ func TestCoderBoxRefusesAProjectThatHoldsTheDatabase(t *testing.T) {
 		t.Skip("bwrap not installed")
 	}
 	dir := t.TempDir()
-	t.Setenv("HOME", dir)
-	t.Setenv("USERPROFILE", dir)
+	testhome.SetHome(t, dir)
 	os.MkdirAll(filepath.Join(dir, "proj"), 0o700)
 	os.WriteFile(filepath.Join(dir, "proj", "agent.db"), []byte("db"), 0o600)
 	b, err := coderBox(coderSettings{Box: "strict"}, ai.AccessCoding, filepath.Join(dir, "proj"), "claude", "", "~/proj/agent.db")

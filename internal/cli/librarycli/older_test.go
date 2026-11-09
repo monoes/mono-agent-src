@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,8 +46,7 @@ func newOlderRig(t *testing.T) *olderRig {
 	account.SetSealerForTest(t, account.NewMemorySealer())
 	libraryfake.TrustKey(t)
 	account.SetProductionHostForTest(t, r.fake.URL)
-	t.Setenv("HOME", r.home)
-	t.Setenv("USERPROFILE", r.home)
+	testhome.SetHome(t, r.home)
 	account.SetUserHomeForTest(t, r.home)
 	r.dbPath = filepath.Join(r.home, ".monoagent", "monoagent.db")
 	r.dbArg = r.dbPath

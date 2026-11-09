@@ -1,6 +1,7 @@
 package nodes
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"testing"
@@ -26,7 +27,7 @@ func writeFile(t *testing.T, path, body string) {
 // one gets a form generated from its inputs.
 func TestInstalledPackage_FormsAndNodes(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	reg, err := BootAutomations(filepath.Join(home, ".monoagent"))
 	t.Cleanup(func() { action.SetDefSource(nil) })
 	if err != nil {

@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,7 +11,7 @@ import (
 // The standalone runtime stamps ownerless workflow files when it opens its
 // file store.
 func TestNewRuntimeStampsOwnerlessWorkflowFiles(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	dir := filepath.Join(t.TempDir(), "wf")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)

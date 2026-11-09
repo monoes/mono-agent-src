@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -68,7 +69,7 @@ func lastExecLine(t *testing.T, argsLog string) string {
 }
 
 func TestAgentTestIsSandboxed(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	_, argsLog := writeSandboxMonomind(t, "2.18.5", false, sandboxTranscript(""))
 	cmd := newAgentTestCmd(&globalConfig{})
 	cmd.SetArgs([]string{"codex"})

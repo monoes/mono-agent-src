@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -46,7 +47,7 @@ func TestMoveProfileFolderRefusesWhenOrgsCannotStop(t *testing.T) {
 	}
 	a := newTestApp(t)
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	argvLog := filepath.Join(home, "argv.log")
 	fake := filepath.Join(home, "monoagentcli")
 	script := "#!/bin/sh\necho \"$*\" >> " + argvLog + "\n" +

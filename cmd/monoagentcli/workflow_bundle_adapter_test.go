@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/workflow"
@@ -11,7 +12,7 @@ import (
 // `workflow export`/`import` are the other workflow_bundle_*_test.go files; the confirmation
 // sentinel is pinned by TestWorkflowBundleDiffersSameVersion.
 func TestWorkflowBundleAdapterWiring(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	if _, err := workflowBundleDeps().ParseAutomationDomains([]string{"a"}); exitCodeFor(err) != 3 {
 		t.Fatalf("bad --automation-domains: exit %d (%v), want 3", exitCodeFor(err), err)
 	}

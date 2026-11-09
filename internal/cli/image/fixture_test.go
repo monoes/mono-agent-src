@@ -187,7 +187,7 @@ func seedProfiles(t *testing.T, dbPath string, ids ...string) {
 // the vault stay out of the real home.
 func newProfileDocsCLITestDB(t *testing.T) string {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Cleanup(vault.Wait)
 	dbPath := filepath.Join(t.TempDir(), "cli-image-test.db")
 	db, err := storage.NewDatabase(dbPath)

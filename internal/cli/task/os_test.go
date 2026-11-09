@@ -2,6 +2,7 @@ package task
 
 import (
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -22,7 +23,7 @@ func newTaskOSTest(t *testing.T) (db, dest, cli string, refreshes *int) {
 	t.Helper()
 	db = newTaskTestDB(t)
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows
 	if got, err := os.UserHomeDir(); err != nil || got != home {
 		t.Fatalf("the home folder is %q (%v), not the test's own %q: refusing to run near a real Services folder", got, err, home)

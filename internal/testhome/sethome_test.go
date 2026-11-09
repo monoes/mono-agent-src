@@ -103,6 +103,14 @@ func TestHomeOnlyEnv(t *testing.T) {
 	})
 }
 
+func TestHomeOnlyEnvEmptyHomeStaysEmpty(t *testing.T) {
+	for _, kv := range homeOnlyEnv("windows", "") {
+		if kv[1] != "" {
+			t.Errorf("%s = %q, want empty: a join would resolve against the drive root", kv[0], kv[1])
+		}
+	}
+}
+
 func TestSetHomeMovesBothVariables(t *testing.T) {
 	dir := t.TempDir()
 	SetHome(t, dir)

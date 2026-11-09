@@ -2,6 +2,7 @@ package dynorg
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -78,7 +79,7 @@ func TestEveryWorkerKnowsItsProfileID(t *testing.T) {
 // the coder level of the user's browser permissions applies to it.
 func TestWorkersAreKindCoder(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	for _, k := range append(browserctl.AgentContextEnv(), browserctl.EnvAgentKind, browserctl.EnvAgentKindToken, browserctl.EnvAICaller) {
 		t.Setenv(k, "")
 	}
@@ -122,7 +123,7 @@ func TestWorkersAreKindCoder(t *testing.T) {
 // A worker's record exists while its run does.
 func TestWorkersKindRecordLivesWithTheRun(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	seen := make(chan bool, 1)
 	ex := &execScript{}
 	c := New(context.Background(), Config{Cwd: "/w", Limits: Limits{MaxAgents: 1, MaxConcurrent: 1},

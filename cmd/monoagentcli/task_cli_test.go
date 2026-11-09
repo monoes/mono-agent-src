@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"io"
 	"strings"
 	"testing"
@@ -23,7 +24,7 @@ import (
 // an agent's session), so operator commands run.
 func newTaskTestDB(t *testing.T) string {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	for _, m := range append(browserctl.AgentContextEnv(), browserctl.EnvAICaller, workflow.EnvWorkflowRun) {
 		t.Setenv(m, "")
 	}

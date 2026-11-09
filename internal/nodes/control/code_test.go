@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"strings"
 	"testing"
 	"time"
@@ -162,7 +163,7 @@ func TestCodeNode_InputItemsExposed(t *testing.T) {
 // TestCodeNode_ExecutionAndWorkflow: the Code node reads $execution (with the
 // resume URL a core.wait webhook or form answers) and $workflow, as in n8n.
 func TestCodeNode_ExecutionAndWorkflow(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Setenv("MONOAGENT_PUBLIC_URL", "https://hooks.example.com")
 	n := &CodeNode{}
 	out, err := n.Execute(context.Background(), workflow.NodeInput{ExecutionID: "e1", WorkflowID: "w1"},

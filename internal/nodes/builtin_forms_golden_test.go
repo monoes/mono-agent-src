@@ -3,6 +3,7 @@ package nodes
 import (
 	"encoding/json"
 	"flag"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"testing"
@@ -20,7 +21,7 @@ var updateForms = flag.Bool("update-forms", false, "rewrite testdata/builtin_for
 func TestBuiltinForms_Golden(t *testing.T) {
 	path := filepath.Join("testdata", "builtin_forms.golden.json")
 	if *updateForms {
-		t.Setenv("HOME", t.TempDir())
+		testhome.SetHome(t, t.TempDir())
 		action.SetDefSource(nil)
 		out := map[string]json.RawMessage{}
 		for _, nt := range browserNodeTypes() {
@@ -66,7 +67,7 @@ func TestBuiltinForms_Golden(t *testing.T) {
 	}
 
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	action.SetDefSource(nil)
 	check("legacy")
 

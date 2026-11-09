@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"reflect"
 	"strings"
 	"testing"
@@ -182,8 +183,7 @@ func TestWithoutServiceFixes(t *testing.T) {
 func TestSetupFixesSaysWhenThePassLimitStopsIt(t *testing.T) {
 	keyring.MockInit()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	cfg := testDeps(true)
 	n := 0
 	reg := health.NewRegistry([]health.Check{{ID: "t.endless", Group: "t", Title: "Endless",

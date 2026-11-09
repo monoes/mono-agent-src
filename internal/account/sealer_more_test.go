@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -268,8 +269,7 @@ func sealerFreshProcessChecks(t *testing.T) {
 	isolate := func(t *testing.T, fileKeyring string) (home string) {
 		t.Helper()
 		home = t.TempDir()
-		t.Setenv("HOME", home)
-		t.Setenv("USERPROFILE", home)
+		testhome.SetHome(t, home)
 		t.Setenv("MONOAGENT_ALLOW_FILE_KEYRING", fileKeyring)
 		t.Setenv("MONOAGENT_FILE_KEYRING_PASSPHRASE_FILE", "")
 		return home

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -86,7 +87,7 @@ func (f *chatFake) Gate(_ context.Context, _, _, id string, approve bool, note s
 // folder, points the chat at fakes, and returns the config and the fake.
 func setupOrgChat(t *testing.T) (*testConfig, *chatFake, string) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	cfg := &testConfig{DBPath: filepath.Join(t.TempDir(), "chat.db"), ProfileID: "default"}
 	env := testEnv(cfg)
 	root := env.root()

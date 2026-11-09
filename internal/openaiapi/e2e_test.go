@@ -3,6 +3,7 @@ package openaiapi
 import (
 	"context"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -57,7 +58,7 @@ func TestEndToEndThroughTheRealExec(t *testing.T) {
 		t.Skip("the fake monomind is a shell script")
 	}
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	binDir := t.TempDir() // outside the turn's folder: monomind.Exec refuses a binary inside its cwd
 	bin := filepath.Join(binDir, "monomind")
 	if err := os.WriteFile(bin, []byte(fakeMonomind), 0o755); err != nil {

@@ -2,6 +2,7 @@ package orggrant_test
 
 import (
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,7 +22,7 @@ import (
 // automation packages from the repo standing in for an installed home.
 func registry(t *testing.T) *workflow.NodeTypeRegistry {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	action.SetDefSource(nil)
 	action.SetTestFallback(automations.FS())
 	t.Cleanup(func() { action.SetTestFallback(nil) })

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"testing"
@@ -147,7 +148,7 @@ func TestAutomationDoctorSuggestsRerecord(t *testing.T) {
 
 func TestAutomationRerecordResetsHealth(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	cfg := &testConfig{DBPath: filepath.Join(home, ".monoagent", "monoagent.db")}
 	// No database: nothing to reset, and none is created.
 	if err := testDeps(cfg).resetRerecordedHealth("acme", "save.button"); err != nil {

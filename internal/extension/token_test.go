@@ -3,6 +3,7 @@ package extension
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,8 +17,7 @@ import (
 // setHome points both variables os.UserHomeDir reads (HOME on Unix, USERPROFILE on Windows) at dir.
 func setHome(t testing.TB, dir string) {
 	t.Helper()
-	t.Setenv("HOME", dir)
-	t.Setenv("USERPROFILE", dir)
+	testhome.SetHome(t, dir)
 }
 
 func withTempHome(t *testing.T) {

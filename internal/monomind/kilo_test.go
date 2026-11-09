@@ -1,6 +1,7 @@
 package monomind
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,8 +13,7 @@ func TestKiloExecutablePin(t *testing.T) {
 	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("USERPROFILE", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	for _, tc := range []struct {
 		name, override, searchPath, want string
 		shims                            bool

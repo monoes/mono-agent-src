@@ -3,6 +3,7 @@ package doctor
 import (
 	"context"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -110,7 +111,7 @@ func (f *fakeAutostart) Restart(context.Context) error {
 // The login service runs the daemon with the defaults: it is started only
 // when doctor runs with them too.
 func TestStartDaemonUsesTheServiceOnlyWithDefaults(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Setenv("MONOAGENT_DAEMON_HEARTBEAT", filepath.Join(t.TempDir(), "hb.json"))
 	as := &fakeAutostart{installed: true}
 	if err := startDaemon(context.Background(), []string{"daemon"}, as, func(string) {}); err != nil || as.started != 1 {
@@ -125,7 +126,7 @@ func TestStartDaemonUsesTheServiceOnlyWithDefaults(t *testing.T) {
 // What a restart asks before it stops the daemon is the refusal startDaemon would give after: a
 // daemon that cannot be started again is not stopped, and the two say the same thing.
 func TestDaemonStartBlockedIsTheRefusalStartDaemonGives(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Setenv("MONOAGENT_DAEMON_HEARTBEAT", filepath.Join(t.TempDir(), "hb.json"))
 	ctx := context.Background()
 	custom := []string{"daemon", "--db-path", "/tmp/x.db"}

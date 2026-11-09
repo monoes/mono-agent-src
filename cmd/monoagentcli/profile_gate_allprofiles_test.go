@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -24,7 +25,7 @@ func runGateCLIOn(dbPath string, args ...string) (string, error) {
 // --profile; without either the command is refused; with both it still runs
 // where it did before.
 func TestAllProfilesFlagMakesTheCommandGlobal(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	cases := []struct {
 		name   string
 		args   []string // the command without --all-profiles

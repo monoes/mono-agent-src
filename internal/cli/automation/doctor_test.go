@@ -3,6 +3,7 @@ package automation
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,7 +73,7 @@ func installTestAutomation(t *testing.T) {
 }
 
 func TestAutomationDoctorJSON(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	installTestAutomation(t)
 
 	cfg := &testConfig{DBPath: filepath.Join(t.TempDir(), "doctor.db"), JSONOutput: true, ProfileID: "default"}
@@ -158,7 +159,7 @@ func TestAutomationDoctorJSON(t *testing.T) {
 }
 
 func TestAutomationDoctorWithoutDatabase(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	installTestAutomation(t)
 	dbPath := filepath.Join(t.TempDir(), "never.db")
 	cfg := &testConfig{DBPath: dbPath, JSONOutput: true, ProfileID: "default"}
@@ -180,7 +181,7 @@ func TestAutomationDoctorWithoutDatabase(t *testing.T) {
 // A health row for a key the installed version no longer declares is
 // reported stale: flagged, status "stale", no re-record suggestion.
 func TestAutomationDoctorStaleSelector(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	installTestAutomation(t)
 	cfg := &testConfig{DBPath: filepath.Join(t.TempDir(), "doctor.db"), JSONOutput: true, ProfileID: "default"}
 	db, err := testDeps(cfg).OpenDB()
@@ -246,7 +247,7 @@ func TestAutomationDoctorStaleSelector(t *testing.T) {
 // After a re-record resets a selector's health, doctor reports it ok with
 // no suggestion and shows when it was re-recorded.
 func TestAutomationDoctorAfterRerecordReset(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	installTestAutomation(t)
 	cfg := &testConfig{DBPath: filepath.Join(t.TempDir(), "doctor.db"), JSONOutput: true, ProfileID: "default"}
 	db, err := testDeps(cfg).OpenDB()

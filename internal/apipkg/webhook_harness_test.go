@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"net/http"
 	"os"
 	"reflect"
@@ -55,7 +56,7 @@ func testHook(cfg map[string]any) workflow.AppWebhook {
 }
 
 func TestCatalogWebhooks(t *testing.T) {
-	t.Setenv("HOME", t.TempDir()) // catalog packages only
+	testhome.SetHome(t, t.TempDir()) // catalog packages only
 	Reload()
 	t.Cleanup(Reload)
 	pkgs, _ := Load()

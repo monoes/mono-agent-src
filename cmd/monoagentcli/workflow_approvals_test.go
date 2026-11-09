@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"path/filepath"
 	"testing"
 
@@ -11,7 +12,7 @@ import (
 // definitions its workflows have then (workflow.BackfillApprovals): the
 // step is registered with every open of the database (#831 round 4, R1).
 func TestTheFirstOpenApprovesTheWorkflowsThereAre(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	path := filepath.Join(t.TempDir(), "wf.db")
 	open := func() *storage.Database {
 		t.Helper()

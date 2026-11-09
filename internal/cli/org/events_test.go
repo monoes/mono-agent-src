@@ -5,6 +5,7 @@ package org
 import (
 	"errors"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -36,7 +37,7 @@ exec sleep 60
 		t.Fatal(err)
 	}
 	t.Setenv(monomind.EnvOverride, bin)
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 
 	r, w, err := os.Pipe()
 	if err != nil {

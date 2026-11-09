@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"testing"
@@ -18,7 +19,7 @@ func realTree(t *testing.T) string {
 	t.Helper()
 	asOperatorProcess(t)
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv(extension.ExtensionPortEnv, "1") // the extension verbs probe for a bridge: never the real one
 	opgate.SetForTest(t, nil)                 // restores the default after the test, whatever the build registers
 	prev := inTestBinary

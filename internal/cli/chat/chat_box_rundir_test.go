@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,8 +18,7 @@ import (
 func runDirRig(t *testing.T) (home, db, runDir string) {
 	t.Helper()
 	home = t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	db = filepath.Join(home, "srv", "data", "agent.db")
 	runDir = filepath.Join(filepath.Dir(db), "doomsday", "p1")
 	if err := os.MkdirAll(runDir, 0o700); err != nil {

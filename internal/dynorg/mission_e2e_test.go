@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -100,7 +101,7 @@ func newE2E(t *testing.T) *e2eRig {
 	t.Helper()
 	// nothing may leave the scratch: a home of its own, a dead platform address, and every
 	// run goes through the fake exec (counted by the tests)
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Setenv("MONOES_BASE_URL", "http://127.0.0.1:9")
 	db := openMissionDB(t)
 	store := tasks.NewStore(db)

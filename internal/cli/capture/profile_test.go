@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,8 +21,7 @@ import (
 func profileFixture(t *testing.T) (*testConfig, string) {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	t.Setenv(capture.InboxEnv, filepath.Join(home, "default-inbox"))
 
 	dbPath := filepath.Join(home, ".monoagent", "monoagent.db")

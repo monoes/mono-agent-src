@@ -2,6 +2,7 @@ package nodemgr
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,7 +16,7 @@ import (
 func TestActivateAgain(t *testing.T) {
 	m := testManager(t)
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	m.Root, m.NpmRoot = filepath.Join(home, ".monoagent", "node"), filepath.Join(home, ".monoagent", "npm-global")
 	m.BaseURL = fakeDist(t, m, map[string][]byte{
 		"24.1.0": nodeArchive(t, m, "24.1.0"), "26.1.0": nodeArchive(t, m, "26.1.0"),

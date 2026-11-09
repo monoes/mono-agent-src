@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"io"
 	"path/filepath"
 	"slices"
@@ -33,7 +34,7 @@ func TestRecordReplayAndVerifyRefuseAnAgentThroughTheCLI(t *testing.T) {
 		t.Setenv(k, "")
 	}
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv(capture.InboxEnv, filepath.Join(home, "inbox"))
 	t.Cleanup(func() { recording.SetAllProfiles() })
 	ingestClickRecording(t, "rec-op")

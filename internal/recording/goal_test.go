@@ -2,6 +2,7 @@ package recording
 
 import (
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -135,7 +136,7 @@ func TestIngestKeepsThePageTitleWithoutHiddenText(t *testing.T) {
 // A recording kept before the cleaning still reads back clean, for the
 // analysis and for `record list` and `record show`.
 func TestARecordingKeptBeforeReadsBackClean(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	dir := writeRecording(t, filepath.Join(t.TempDir(), "inbox"), "rec-old", time.Date(2026, 9, 1, 9, 0, 0, 0, time.UTC), 1)
 	file := filepath.Join(dir, capture.MetaFile)
 	raw, err := os.ReadFile(file)

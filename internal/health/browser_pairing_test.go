@@ -2,6 +2,7 @@ package health
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,8 +16,7 @@ import (
 func pairingEnv(t *testing.T, authStatus int) *Env {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/monoagent/auth" {
 			http.NotFound(w, r)

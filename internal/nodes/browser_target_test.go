@@ -3,6 +3,7 @@ package nodes
 import (
 	"context"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"strings"
 	"testing"
 
@@ -26,7 +27,7 @@ func (p *sessionRecorder) GetPage(_ context.Context, _ string, username string) 
 // "username" field is the browser session. With no target the node fails as
 // missing target_url — the session placeholder never stands in for it.
 func TestListUserPosts_TargetIsNotTheSession(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	action.SetDefSource(nil)
 	rec := &sessionRecorder{}
 	prev := globalSessionProvider
@@ -63,7 +64,7 @@ func TestListUserPosts_TargetIsNotTheSession(t *testing.T) {
 // every required field of the new generated form and passes the action's
 // input validation.
 func TestOldGenericConfigFitsGeneratedForms(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	action.SetDefSource(nil)
 	rec := &sessionRecorder{}
 	prev := globalSessionProvider
@@ -96,7 +97,7 @@ func TestOldGenericConfigFitsGeneratedForms(t *testing.T) {
 // editor pre-fill of limit) runs find_by_keyword: its result cap is
 // optional with a default.
 func TestFindByKeyword_RequiredFieldsOnly(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	action.SetDefSource(nil)
 	prev := globalSessionProvider
 	SetGlobalSessionProvider(&sessionRecorder{})

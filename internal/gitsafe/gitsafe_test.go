@@ -2,6 +2,7 @@ package gitsafe
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -108,7 +109,7 @@ func TestCommandRunsNoProgramTheRepositoryNames(t *testing.T) {
 	if err := os.Remove(marker); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	other := t.TempDir()
 	t.Setenv("GIT_DIR", other) // would redirect every git call; Command drops it

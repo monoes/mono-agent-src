@@ -7,6 +7,7 @@ package main
 
 import (
 	"bytes"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -144,8 +145,7 @@ func TestTheTaskSkillNamesTheRealTaskTools(t *testing.T) {
 
 func TestTheTaskSkillIsInstalledCreateOnly(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	skills := filepath.Join(home, ".claude", "skills")
 	if err := os.MkdirAll(skills, 0o755); err != nil {
 		t.Fatal(err)
@@ -181,8 +181,7 @@ func TestFirstRunCheckCreatesPrivateStateDir(t *testing.T) {
 		t.Skip("Unix modes do not apply on Windows")
 	}
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("CODEX_HOME", filepath.Join(home, ".codex"))
 	runClaudeFirstRunCheck()

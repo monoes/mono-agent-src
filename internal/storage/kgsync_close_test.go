@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -160,8 +161,7 @@ func TestBatchUpsertPeopleStartsEveryProfilesSync(t *testing.T) {
 func slowFakeMonomind(t *testing.T) (ran, release string) {
 	t.Helper()
 	dir := t.TempDir()
-	t.Setenv("HOME", dir)
-	t.Setenv("USERPROFILE", dir)
+	testhome.SetHome(t, dir)
 	ran, release = filepath.Join(dir, "ran"), filepath.Join(dir, "release")
 	script := "#!/bin/sh\necho \"$MONOMIND_CWD\" >> '" + ran + "'\n" +
 		"i=0\nwhile [ ! -e '" + release + "' ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done\n"

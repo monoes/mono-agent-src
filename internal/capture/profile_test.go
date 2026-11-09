@@ -3,6 +3,7 @@ package capture
 import (
 	"database/sql"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,8 +20,7 @@ import (
 func profileHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	t.Setenv(InboxEnv, filepath.Join(home, "default-inbox"))
 	return home
 }

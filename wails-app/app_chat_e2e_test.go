@@ -4,6 +4,7 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -46,7 +47,7 @@ if [ "$1" = "agent" ] && [ "$2" = "exec" ]; then
 fi
 exit 2
 `), 0o755)
-	t.Setenv("HOME", filepath.Join(dir, "home"))
+	testhome.SetHome(t, filepath.Join(dir, "home"))
 	t.Setenv("MONOMIND_BIN", monomind)
 
 	emitter := &collectingEmitter{}

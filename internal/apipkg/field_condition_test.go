@@ -1,6 +1,7 @@
 package apipkg
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"regexp"
 	"strings"
 	"testing"
@@ -12,7 +13,7 @@ import (
 // joins every visible_for entry, so a legacy-only field shows (and is
 // checked) only while its toggle is on.
 func TestFieldOwnDependsOnNarrowsVisibleFor(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	Reload()
 	t.Cleanup(Reload)
 	s, err := workflow.LoadDefaultSchema("app.openai_api")
@@ -42,7 +43,7 @@ func TestFieldOwnDependsOnNarrowsVisibleFor(t *testing.T) {
 // TestFieldLabelsNameNoN8nVersions: labels are what the form shows; which
 // n8n version a field came from is importer plumbing.
 func TestFieldLabelsNameNoN8nVersions(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	Reload()
 	t.Cleanup(Reload)
 	re := regexp.MustCompile(`(?i)n8n`)

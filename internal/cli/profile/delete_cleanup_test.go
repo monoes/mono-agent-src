@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"testing"
@@ -132,7 +133,7 @@ func TestPruneBackupsKeepsNewestAndRecent(t *testing.T) {
 // folder is skipped, and so is a file reached through a linked folder.
 func TestRemoveAttachmentsDoesNotFollowSymlinks(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	dir := attachments.Dir()
 	outside := t.TempDir()
 	secret := filepath.Join(outside, "secret.txt")

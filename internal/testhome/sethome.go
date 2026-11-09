@@ -27,6 +27,9 @@ func homeOnlyEnv(goos, dir string) [][2]string {
 	if goos != "windows" {
 		return env
 	}
+	if dir == "" { // a test of "no home at all": nothing may resolve against a drive root
+		return append(env, [2]string{"HOMEDRIVE", ""}, [2]string{"HOMEPATH", ""}, [2]string{"APPDATA", ""}, [2]string{"LOCALAPPDATA", ""})
+	}
 	drive, rest := "", dir
 	if len(dir) >= 2 && dir[1] == ':' {
 		drive, rest = dir[:2], dir[2:]

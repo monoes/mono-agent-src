@@ -1,6 +1,7 @@
 package apipkg
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -164,7 +165,7 @@ func TestSubfieldsAreChecked(t *testing.T) {
 // where Load reports it. UndeclaredIn judges over it and names the op.
 func TestCatalogReadsNoInstalledPackage(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	dir := filepath.Join(home, ".monoagent", "apipkgs", "broken")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"reflect"
 	"strings"
 	"testing"
@@ -71,7 +72,7 @@ func (r botRegistry) GetAdapter(string) (action.BotAdapter, bool) { return r.bot
 
 func setupSend(t *testing.T, bot *flakyBot) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	action.SetDefSource(sendSource{})
 	prevSP, prevBR := globalSessionProvider, globalBotRegistry
 	SetGlobalSessionProvider(pageProvider{})

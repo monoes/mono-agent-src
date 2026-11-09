@@ -2,6 +2,7 @@ package record
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"path/filepath"
 	"testing"
 
@@ -17,7 +18,7 @@ import (
 // recording and the page may be the agent's; the user's run reads them.
 func TestRecordSecretLookupIsTheUsersOnly(t *testing.T) {
 	keyring.MockInit()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	for _, k := range operator.MarkerEnv() {
 		t.Setenv(k, "")
 	}

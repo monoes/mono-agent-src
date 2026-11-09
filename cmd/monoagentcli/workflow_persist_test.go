@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,7 +24,7 @@ func persistTestEnv(t *testing.T) (home string, cfg *globalConfig) {
 		t.Setenv(k, "")
 	}
 	home = t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	return home, &globalConfig{DBPath: filepath.Join(t.TempDir(), "wf.db"), JSONOutput: true, ProfileID: "default"}
 }
 

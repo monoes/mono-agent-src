@@ -2,6 +2,7 @@ package summarycli
 
 import (
 	"bytes"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,7 +13,7 @@ import (
 
 func TestReadOnlyHybridStoreLeavesWorkflowFilesAlone(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	dir := filepath.Join(home, ".monoagent", "workflows")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
@@ -37,7 +38,7 @@ func TestReadOnlyHybridStoreLeavesWorkflowFilesAlone(t *testing.T) {
 // A poll creates nothing: with no workflows folder, none appears.
 func TestReadOnlyHybridStoreDoesNotCreateTheWorkflowsFolder(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	db, err := storage.NewDatabase(testdb.Path(t))
 	if err != nil {
 		t.Fatal(err)

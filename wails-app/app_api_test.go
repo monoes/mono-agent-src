@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -354,8 +355,7 @@ func TestAPIRealCLI(t *testing.T) {
 		t.Skip("set API_REAL_CLI=1 and MONOAGENTCLI_BIN to run against the real CLI")
 	}
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	t.Setenv("MONOAGENT_DAEMON_HEARTBEAT", filepath.Join(t.TempDir(), "none.json"))
 	t.Setenv("MONOAGENT_HTTPAPI_ADDR", "127.0.0.1:1")
 	t.Setenv("MONOAGENT_API_V1_ADDR", "")

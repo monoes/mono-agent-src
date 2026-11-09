@@ -2,6 +2,7 @@ package recording
 
 import (
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -19,7 +20,7 @@ func (c *clock) now() time.Time { return c.t }
 
 func newIngest(t *testing.T) (*Ingest, string, *clock) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	inbox := filepath.Join(t.TempDir(), "inbox")
 	c := &clock{t: time.Date(2026, 9, 25, 10, 0, 0, 0, time.UTC)}
 	return &Ingest{Writer: &capture.Writer{Inbox: inbox, Now: c.now}, Now: c.now}, inbox, c

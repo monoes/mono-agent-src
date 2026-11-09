@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"path/filepath"
 	"testing"
 
@@ -29,7 +30,7 @@ func edgesOf(t *testing.T, cfg *globalConfig, wfID string) map[string]string {
 // with the store-level upsert in place, adding or updating a node must keep
 // every existing edge without the CLI re-saving connections.
 func TestWorkflowNodeAddSetPreserveEdgesCLI(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	cfg := &globalConfig{DBPath: filepath.Join(t.TempDir(), "nodes.db"), JSONOutput: true, ProfileID: "default"}
 
 	var created workflow.Workflow

@@ -2,6 +2,7 @@ package tlsserve
 
 import (
 	"bytes"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +30,7 @@ func writePair(t *testing.T, dir, name string) (certPath, keyPath string, der []
 func noEnvironmentPair(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv(testCertEnv, "")
 	t.Setenv(testKeyEnv, "")
 	return home

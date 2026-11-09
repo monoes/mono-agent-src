@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,7 +15,7 @@ import (
 // the run and executions routes (X-Full-Outputs or not) and of the HIL list,
 // and an approval whose data holds the placeholder is refused.
 func TestRoutesHideReplyTokensInRunData(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Setenv("MONOAGENT_PUBLIC_URL", "http://127.0.0.1:19725")
 	s := newTestServer(t, true)
 	tok := testToken(t, s, "default")

@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -253,7 +254,7 @@ func TestActivatePrefersSuitableSystemNode(t *testing.T) {
 	m := testManager(t)
 	m.BaseURL = fakeDist(t, m, map[string][]byte{"24.1.0": nodeArchive(t, m, "24.1.0")}, false).URL
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	m.Root, m.NpmRoot = filepath.Join(home, ".monoagent", "node"), filepath.Join(home, ".monoagent", "npm-global")
 	if _, err := m.Install(context.Background(), "24.1.0", nil); err != nil {
 		t.Fatal(err)

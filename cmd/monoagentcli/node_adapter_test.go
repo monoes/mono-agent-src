@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,8 +19,7 @@ import (
 func TestNodeAdapterWiring(t *testing.T) {
 	keyring.MockInit()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	dbPath := filepath.Join(home, "node-adapter.db")
 	db, err := storage.NewDatabase(dbPath)
 	if err != nil {

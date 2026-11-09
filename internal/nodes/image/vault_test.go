@@ -2,6 +2,7 @@ package image
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,7 +18,7 @@ import (
 // write into the real user's ~/.monoagent/profiles/default/vault/.
 func newImageVaultTestCtx(t *testing.T) context.Context {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	// The vault syncs each file into the knowledge graph in the background:
 	// run a no-op instead of the real monomind, and let it finish before HOME
 	// is removed.

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"io"
 	"os"
 	"path/filepath"
@@ -175,7 +176,7 @@ func TestMonoagentToolSpecsAdvertisesSaveDocument(t *testing.T) {
 // touches the developer's real ~/.monoagent.
 func newChatCLITestDB(t *testing.T) string {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	// A copy of the one migrated template (internal/testdb), not 130+
 	// migrations run again for every test.

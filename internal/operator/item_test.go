@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"strings"
 	"testing"
 	"time"
@@ -18,7 +19,7 @@ import (
 // Human-in-Loop node.
 func hilItems(t *testing.T, db *sql.DB) (submit, site, send, node string) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	ctx := context.Background()
 	it, err := browserctl.CreateSubmitItem(ctx, db, browserctl.SubmitRequest{Profile: "p1", URL: "https://shop.example.com/cart",
 		Form: browserctl.FormSummary{Action: "https://shop.example.com/pay", Method: "post", Submitter: "#pay"}})

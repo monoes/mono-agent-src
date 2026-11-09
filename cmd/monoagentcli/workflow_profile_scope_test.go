@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"strings"
 	"testing"
 
@@ -63,7 +64,7 @@ func TestWorkflowImportSavesIntoTheTargetProfile(t *testing.T) {
 // get` keeps: another profile's workflow is not found, so its node configs
 // cannot be listed, read as inputs, validated or edited.
 func TestWorkflowCommandsDoNotReachAnotherProfilesWorkflow(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	cfg := twoProfileDB(t) // w1 is default's, w2 is p-work's
 	for _, args := range [][]string{
 		{"get", "w2"},

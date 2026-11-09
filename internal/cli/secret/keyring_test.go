@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -46,8 +47,7 @@ func keyringStatus(t *testing.T) secrets.KeyringStatusInfo {
 func keyringTestHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	t.Setenv("MONOAGENT_FILE_KEYRING_PASSPHRASE_FILE", "")
 	return home
 }

@@ -3,6 +3,7 @@ package apipkg
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"strings"
 	"testing"
 )
@@ -12,7 +13,7 @@ import (
 // before anything runs. Every required select of a package schema (and of
 // a native schema a package extends) starts on a value.
 func TestRequiredSelectsHaveDefaults(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	Reload()
 	t.Cleanup(Reload)
 	for _, p := range packages() {

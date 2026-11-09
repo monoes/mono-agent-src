@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"io"
 	"path/filepath"
 	"strings"
@@ -27,7 +28,7 @@ type browserTest struct {
 
 func newBrowserTest(t *testing.T, agent bool) *browserTest {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	for _, k := range browserctl.AgentContextEnv() {
 		t.Setenv(k, "")
 	}

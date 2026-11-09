@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -89,7 +90,7 @@ func forceKeyringFirstUseWriteFails(t *testing.T) {
 func TestFileKeyringFallback_FirstUseCreationRoutesToFallback(t *testing.T) {
 	resetKEKState(t)
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv(fileKeyringEnv, "1")
 	warns := captureFileKeyringWarns(t)
 	forceKeyringFirstUseWriteFails(t)
@@ -124,7 +125,7 @@ func TestFileKeyringFallback_FirstUseCreationRoutesToFallback(t *testing.T) {
 func TestFileKeyringFallback_FirstUseCreationFailsClosedWithoutEnv(t *testing.T) {
 	resetKEKState(t)
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv(fileKeyringEnv, "")
 	forceKeyringFirstUseWriteFails(t)
 	ctx := context.Background()
@@ -151,7 +152,7 @@ func TestFileKeyringFallback_FirstUseCreationFailsClosedWithoutEnv(t *testing.T)
 func TestFileKeyringFallback_RoundTrip(t *testing.T) {
 	resetKEKState(t)
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv(fileKeyringEnv, "1")
 	warns := captureFileKeyringWarns(t)
 	forceKeyringUnavailable(t)
@@ -268,7 +269,7 @@ func TestFileKeyringFallback_RoundTrip(t *testing.T) {
 func TestFileKeyringFallback_FailsClosedWithoutEnv(t *testing.T) {
 	resetKEKState(t)
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv(fileKeyringEnv, "")
 	forceKeyringUnavailable(t)
 	ctx := context.Background()
@@ -295,7 +296,7 @@ func TestFileKeyringFallback_FailsClosedWithoutEnv(t *testing.T) {
 func TestFileKeyringFallback_MigratesLegacyRawKEK(t *testing.T) {
 	resetKEKState(t)
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv(fileKeyringEnv, "1")
 	warns := captureFileKeyringWarns(t)
 	forceKeyringUnavailable(t)

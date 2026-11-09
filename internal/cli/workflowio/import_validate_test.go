@@ -2,6 +2,7 @@ package workflowio
 
 import (
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"strings"
 	"testing"
 )
@@ -9,7 +10,7 @@ import (
 // QA-A U7: a file that fails `workflow validate` is imported, with a
 // warning for each error.
 func TestImportWarnsWhenInvalid(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	cfg := newTestConfig(t)
 	const invalid = `{"name":"invalid","nodes":[
   {"id":"t","type":"trigger.manual","name":"T","position":{"x":0,"y":0},"config":{}},

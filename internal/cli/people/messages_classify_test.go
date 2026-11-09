@@ -3,6 +3,7 @@ package people
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"strings"
 	"testing"
 
@@ -40,7 +41,7 @@ func storeClassification(t *testing.T, dbPath, id string, c messageClassificatio
 }
 
 func TestStoreMessageClassificationKeepsMetadata(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	dbPath := newMessagesCLITestDB(t)
 	seedPersonMessage(t, dbPath, "m1", "E1", "inbound", "Bob", "sent", richMetadata)
 	seedPersonMessage(t, dbPath, "m-empty", "E2", "inbound", "Bob", "sent", "")
@@ -146,7 +147,7 @@ func TestInboxSenderName(t *testing.T) {
 
 func seedInboxMessages(t *testing.T) string {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Setenv("TYPESAFE_API_KEY", "test-key")
 	dbPath := newMessagesCLITestDB(t)
 	classified, _ := withMessageClassification(`{"_source":{"source":"outlook"}}`,

@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -45,7 +46,7 @@ func configValue(t *testing.T, dbPath, name string) (string, bool) {
 // an agent (exit 3, operator_only) and leave them as they were. The
 // operator still writes them, and any other row is anyone's (#831 F1).
 func TestConfigReservedRowsAreTheOperators(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	asOperatorProcess(t)
 	cfg := &globalConfig{DBPath: testdb.Path(t), JSONOutput: true}
 	run := func(args ...string) error {

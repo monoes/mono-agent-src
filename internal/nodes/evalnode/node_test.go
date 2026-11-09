@@ -137,7 +137,7 @@ func TestMetricErrors(t *testing.T) {
 // fakeTurns replaces monomind with reply and records each turn.
 func fakeTurns(t *testing.T, reply func(system, prompt string) string) *[]monomind.ExecOptions {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	var mu sync.Mutex
 	var seen []monomind.ExecOptions
 	oldEnsure, oldExec := ensureMonomind, execTurn

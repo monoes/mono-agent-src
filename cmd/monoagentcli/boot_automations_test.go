@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,7 +40,7 @@ func runRoot(t *testing.T, args ...string) (string, error) {
 // node registry first (node schema) and to workflow validation.
 func TestCLI_BootsInstalledAutomations(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	skipAutomationBoot = false
 	t.Cleanup(func() { skipAutomationBoot = true; action.SetDefSource(nil) })
 
@@ -130,7 +131,7 @@ func TestNeedsAutomations(t *testing.T) {
 // automation action, including an installed package that isn't a built-in.
 func TestNeedsBrowserSession(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	reg, err := nodes.BootAutomations(filepath.Join(home, ".monoagent"))
 	t.Cleanup(func() { action.SetDefSource(nil) })
 	if err != nil {
@@ -174,7 +175,7 @@ func TestNeedsBrowserSession(t *testing.T) {
 // under its own name, and the built-in nodes stay in the other section.
 func TestNodePalette_InstalledAutomationGetsItsOwnSection(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	skipAutomationBoot = false
 	t.Cleanup(func() { skipAutomationBoot = true; action.SetDefSource(nil) })
 

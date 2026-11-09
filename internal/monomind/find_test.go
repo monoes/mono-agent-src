@@ -1,6 +1,7 @@
 package monomind
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -66,8 +67,7 @@ func TestFind_NvmInstallInvisibleToGUIPath(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	t.Setenv(EnvOverride, "")
 	t.Setenv("PATH", "/usr/bin:/bin")
 
@@ -89,8 +89,7 @@ func TestFind_NvmInstallInvisibleToGUIPath(t *testing.T) {
 // ~/.monoagent/npm-global and must be found without being on PATH.
 func TestCandidatePaths_IncludesManagedNpmPrefix(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv(EnvOverride, "")
 	want := filepath.Join(home, ".monoagent", "npm-global", "bin", "monomind")
@@ -112,8 +111,7 @@ func TestFindAll_ListsShadowedCopies(t *testing.T) {
 		t.Skip("unix layout")
 	}
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	t.Setenv(EnvOverride, "")
 	sys := t.TempDir()
 	old := filepath.Join(sys, "monomind")

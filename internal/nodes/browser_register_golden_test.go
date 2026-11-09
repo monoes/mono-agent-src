@@ -3,6 +3,7 @@ package nodes
 import (
 	"errors"
 	"flag"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"sort"
@@ -69,7 +70,7 @@ func diffTypes(t *testing.T, label string, want, got []string) {
 // the registered browser node types equal the pre-package list (captured
 // from the legacy loader on origin/master behaviour).
 func TestBrowserNodeTypes_LegacyGolden(t *testing.T) {
-	t.Setenv("HOME", t.TempDir()) // no ~/.monoagent/actions leaking in
+	testhome.SetHome(t, t.TempDir()) // no ~/.monoagent/actions leaking in
 	action.SetDefSource(nil)
 	got := browserNodeTypes()
 	if *updateGolden {
@@ -89,7 +90,7 @@ func TestBrowserNodeTypes_LegacyGolden(t *testing.T) {
 // are registered — existing workflows keep resolving.
 func TestBrowserNodeTypes_RegistryGolden(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	if _, err := automations.Tree().ReadDir("automations"); err != nil {
 		t.Fatalf("embedded automations: %v", err)
 	}

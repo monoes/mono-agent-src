@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -39,7 +40,7 @@ func TestTheCommandHasItsFlagsAndSubcommands(t *testing.T) {
 // is no such command. Mounted under a root, as in the real CLI, because cobra
 // already refuses stray words on a root command.
 func TestTheDaemonRefusesAnUnknownSubcommand(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	built := false
 	root := &cobra.Command{Use: "monoagentcli"}
 	root.AddCommand(NewCommand(Deps{BuildEngine: func() (*workflow.WorkflowEngine, func(), error) {
@@ -66,7 +67,7 @@ func TestTheDaemonRefusesAnUnknownSubcommand(t *testing.T) {
 // The daemon takes the home's lock before anything starts, and an engine that
 // cannot be built ends the command with the reason.
 func TestTheDaemonStopsWhenTheEngineCannotBeBuilt(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	boom := errors.New("boom")
 	c := NewCommand(Deps{BuildEngine: func() (*workflow.WorkflowEngine, func(), error) { return nil, func() {}, boom }})
 	c.SetArgs([]string{"--bridge=false"})

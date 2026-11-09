@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,7 +18,7 @@ import (
 // a file on disk) and one in another profile, under a temp HOME.
 func newImageCLITestDB(t *testing.T) (*testConfig, string) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Setenv("PATH", t.TempDir()) // no monomind: Register's knowledge-graph sync is a no-op
 	t.Cleanup(vault.Wait)
 	dir := t.TempDir()

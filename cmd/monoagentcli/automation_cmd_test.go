@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,8 +21,7 @@ import (
 // returns stdout and stderr separately (stdout must stay pure JSON).
 func runAutomationCLI(t *testing.T, home string, args ...string) (string, string, error) {
 	t.Helper()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	t.Setenv("MONOAGENT_TEST_NO_BROWSER", "1")
 	root := newRootCmd()
 	var out, errOut bytes.Buffer

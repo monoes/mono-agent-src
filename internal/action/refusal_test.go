@@ -2,13 +2,14 @@ package action
 
 import (
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"testing"
 )
 
 // A security refusal ends the run even when the step says onError continue.
 func TestRefusalsAreFatal(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	imp := &coreTrustPkg{fakePkg: fakePkg{id: "imp"}, trust: "imported"}
 	def := &ActionDef{ActionType: "t", SideEffects: "read", Steps: []StepDef{
 		{ID: "up", Type: "upload", Selector: "#f", Text: "/etc/passwd", OnError: &ErrorHandlerDef{Action: ErrorActionContinue}},

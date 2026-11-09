@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"io"
 	"testing"
 
@@ -96,7 +97,7 @@ func runWith(t *testing.T, d Deps, args ...string) (string, error) {
 // which falls back to $HOME, so HOME is a temporary directory and the test is not parallel.
 func homeDB(t *testing.T) string {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	// The vault syncs each file into the knowledge graph in the background;
 	// let it finish before HOME is removed.
 	t.Cleanup(vault.Wait)

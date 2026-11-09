@@ -3,6 +3,7 @@ package automation
 import (
 	"bytes"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -424,7 +425,7 @@ func TestConcurrentWritersKeepIndexConsistent(t *testing.T) {
 
 func TestDefaultHonoursHOME(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	r, err := Default()
 	if err != nil {
 		t.Fatal(err)

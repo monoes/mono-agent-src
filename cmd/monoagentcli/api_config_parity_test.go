@@ -11,6 +11,7 @@ package main
 
 import (
 	"database/sql"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"strings"
 	"testing"
 
@@ -90,7 +91,7 @@ func TestSavedSettingsAreHeldToTheRuleOfTheFlagsAndTheEnvironment(t *testing.T) 
 	for _, sp := range apiconfig.Specs() {
 		specs[sp.Key] = sp
 	}
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	db := testdb.Open(t).DB
 	seen := map[string][2]bool{} // key -> an accepted and a refused row exist
 	for _, r := range parityRows {

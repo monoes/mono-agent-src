@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"strings"
 	"testing"
@@ -67,7 +68,7 @@ func blockedAt(seq int64, url string) extension.BlockedSubmit {
 }
 
 func TestExtGuardHoldsSubmitsAsBrowserSubmitItems(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	fakeResubmit(t)
 	db := testdb.Open(t).DB
 	ctx := vault.ContextWithProfileID(vault.ContextWithDB(context.Background(), db), "p1")
@@ -140,7 +141,7 @@ func TestExtGuardHoldsSubmitsAsBrowserSubmitItems(t *testing.T) {
 // Only the user's own approval counts: one an agent could set (MCP, the
 // HTTP API) is not used.
 func TestExtGuardIgnoresApprovalsMadeElsewhere(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	db := testdb.Open(t).DB
 	ctx := vault.ContextWithProfileID(vault.ContextWithDB(context.Background(), db), "p1")
 	g, err := armGuard(ctx, &fakeGuardPage{})
@@ -190,7 +191,7 @@ func TestExtGuardRearmsAndRecoversRecords(t *testing.T) {
 // A click the page did not react to is not a failed submit: the run goes on
 // and its own "nothing changed" check watches the page.
 func TestExtGuardTreatsAnUnansweredClickAsSent(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	fakeResubmit(t)
 	db := testdb.Open(t).DB
 	ctx := vault.ContextWithProfileID(vault.ContextWithDB(context.Background(), db), "p1")
@@ -210,7 +211,7 @@ func TestExtGuardTreatsAnUnansweredClickAsSent(t *testing.T) {
 // An approval is handed back when nothing reached the page, and used up
 // when something did.
 func TestExtGuardHandsBackAnUnsentApproval(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	fakeResubmit(t)
 	db := testdb.Open(t).DB
 	ctx := vault.ContextWithProfileID(vault.ContextWithDB(context.Background(), db), "p1")
@@ -340,7 +341,7 @@ func (b *bridgeStub) SendCommand(cmd *extension.Command, _ time.Duration) (*exte
 // unbound (browserctl repeats only top-frame submits), and its approval is
 // refused and handed back instead of being retried in the top frame.
 func TestExtGuardRefusesASubmitHeldInAFrame(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	db := testdb.Open(t).DB
 	ctx := vault.ContextWithProfileID(vault.ContextWithDB(context.Background(), db), "p1")
 	stub := &bridgeStub{}

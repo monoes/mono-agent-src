@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -310,7 +311,7 @@ func useFakeMonomind(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the fake monomind is a shell script")
 	}
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	bin := filepath.Join(t.TempDir(), "monomind")
 	if err := os.WriteFile(bin, []byte(fakeMonomind), 0o755); err != nil {
 		t.Fatal(err)

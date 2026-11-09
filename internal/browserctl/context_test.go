@@ -69,7 +69,7 @@ func TestContextKeyAndGroupTitle(t *testing.T) {
 }
 
 func TestStateRoundTrip(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	if st := LoadState("human"); st.TabID != 0 {
 		t.Fatalf("fresh state = %+v", st)

@@ -3,6 +3,7 @@ package apipkg
 import (
 	"context"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -63,7 +64,7 @@ func runWaitOp(t *testing.T) func(p *Package, params, cred, input map[string]any
 // GitHub's dispatchAndWait hands the run the execution's resume URL, pauses,
 // and outputs what the GitHub workflow posts back to it.
 func TestDispatchAndWaitCallback(t *testing.T) {
-	t.Setenv("HOME", t.TempDir()) // the reply key file
+	testhome.SetHome(t, t.TempDir()) // the reply key file
 	t.Setenv("MONOAGENT_PUBLIC_URL", "https://hooks.example.com")
 	pkg, _ := ByID("github")
 	srv := newMockServer(t, nil, 204)
@@ -112,7 +113,7 @@ func TestDispatchAndWaitCallback(t *testing.T) {
 // A failed dispatch fails the node and leaves nothing waiting, so a retry
 // dispatches again.
 func TestDispatchAndWaitFailedDispatch(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	pkg, _ := ByID("github")
 	srv := newMockServer(t, map[string]any{"message": "Not Found"}, 404)
 	ctx := waitDB(t)

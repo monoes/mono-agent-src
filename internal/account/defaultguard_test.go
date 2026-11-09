@@ -1,6 +1,7 @@
 package account_test
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,8 +13,7 @@ import (
 // nothing, so `doctor` on a fresh home stays write-free.
 func TestNewDefaultGuardCreatesNothing(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	g, err := account.NewDefaultGuard()
 	if err != nil {
 		t.Fatal(err)
@@ -48,8 +48,7 @@ func TestSetHostForTestRestoresTheHost(t *testing.T) {
 // depends on no key store, and gets the key store back afterwards.
 func TestSetSealerForTestSealsTheDefaultStoreWithTheTestsSealer(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	mine := account.NewMemorySealer()
 	dir := filepath.Join(home, ".monoagent", "account")
 	t.Run("hook", func(t *testing.T) {

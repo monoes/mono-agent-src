@@ -3,6 +3,7 @@ package account_test
 import (
 	"context"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -378,8 +379,7 @@ func TestAReadThatSucceedsForgetsEarlierFailures(t *testing.T) {
 func TestAGuardWithNoStoreReadsTheSessionInTheHomeDirectory(t *testing.T) {
 	f := accounttest.New(t)
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	g := account.NewGuard(account.GuardOptions{Now: f.Clock.Now})
 	t.Cleanup(g.Close)
 	if st := g.Status(); st.State != account.StateLocked || st.Reason != account.ReasonNotLoggedIn {

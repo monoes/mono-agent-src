@@ -2,6 +2,7 @@ package orgdecide
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"testing"
@@ -38,7 +39,7 @@ func TestModelDeciderParsesStreamedDeltas(t *testing.T) {
 // do not collect session state per decision (C-46 live gate).
 func TestModelDeciderRunsInAnEmptyFolder(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	// Something a previous decision left behind is cleared first.
 	leftover := filepath.Join(home, ".monoagent", "decider", "leftover")
 	if err := os.MkdirAll(leftover, 0o700); err != nil {

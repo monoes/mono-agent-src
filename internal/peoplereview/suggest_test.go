@@ -3,6 +3,7 @@ package peoplereview
 import (
 	"context"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"strings"
 	"testing"
 
@@ -13,7 +14,7 @@ import (
 
 func suggestEnv(t *testing.T) *jevtest.Server {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Setenv("TYPESAFE_API_KEY", "test-key")
 	return jevtest.NewServer(t, func(req jev.Request) map[string]string {
 		raw, _ := json.Marshal(req.State)

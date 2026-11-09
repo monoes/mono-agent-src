@@ -3,6 +3,7 @@ package automation
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,7 +14,7 @@ import (
 )
 
 func TestAutomationDoctorRepairProposalAndAccept(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	installTestAutomation(t)
 
 	cfg := &testConfig{DBPath: filepath.Join(t.TempDir(), "doctor.db"), JSONOutput: true, ProfileID: "default"}

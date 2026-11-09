@@ -4,6 +4,7 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -248,8 +249,7 @@ func TestRevealMissingLaunchesNothing(t *testing.T) {
 
 func TestChatPathHomeExpansion(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	_ = os.WriteFile(filepath.Join(home, "n.md"), []byte("x"), 0o644)
 	realHome, _ := filepath.EvalSymlinks(home)
 	if p, _, err := resolveChatToken("", "~/n.md"); err != nil || p != filepath.Join(realHome, "n.md") {

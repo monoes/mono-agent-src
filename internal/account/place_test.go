@@ -1,6 +1,7 @@
 package account
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"testing"
@@ -38,8 +39,7 @@ func TestEveryHostButLoopbackIsProduction(t *testing.T) {
 // would take $HOME.
 func TestHomeFromPasswdHasNoFallback(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	passwd := filepath.Join(t.TempDir(), "passwd")
 	if err := os.WriteFile(passwd, []byte("root:x:0:0:root:/root:/bin/sh\n# 1000 is not here\n#old:x:1000:1000::/home/old:/bin/sh\n  # ada:x:1002:1002::/home/x:/bin/sh\nada:x:1001:1001::/home/ada:/bin/sh\nbroken:1000\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -58,8 +58,7 @@ func TestHomeFromPasswdHasNoFallback(t *testing.T) {
 // sets to a directory of its own. (Run without cgo too: CGO_ENABLED=0 reads /etc/passwd.)
 func TestUserHomeIsNotHOME(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	got, err := userHome()
 	if err != nil {
 		t.Skip("the system has no entry for this user:", err)

@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"path/filepath"
 	"testing"
 	"time"
@@ -12,7 +13,7 @@ import (
 // A profile's engine outlives the tool call that first started it: after that
 // call's context is cancelled, a later run on the same profile still executes.
 func TestEngineOutlivesTheCallThatStartedIt(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	rt, err := newRuntime(Options{DBPath: filepath.Join(t.TempDir(), "m.db"), WorkflowsDir: filepath.Join(t.TempDir(), "wf")})
 	if err != nil {
 		t.Fatal(err)

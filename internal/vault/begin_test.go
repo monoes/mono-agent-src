@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"testing"
@@ -56,7 +57,7 @@ func TestCancelledBeginLeavesNoOpenTransactionOnThePooledConnection(t *testing.T
 	}
 	for name, run := range tests {
 		t.Run(name, func(t *testing.T) {
-			t.Setenv("HOME", t.TempDir())
+			testhome.SetHome(t, t.TempDir())
 			db, trip := dbconntest.Open(t)
 			h := &handle{DB: db}
 			for _, ddl := range []string{

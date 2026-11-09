@@ -1,6 +1,7 @@
 package apipkg
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"strings"
 	"testing"
 )
@@ -71,7 +72,7 @@ func opByKey(p *Package, key string) (*Operation, bool) {
 // TestCatalogLoads: Load sees every catalog package with no errors, and
 // the node types and n8n types are unique.
 func TestCatalogLoads(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	Reload()
 	t.Cleanup(Reload)
 	pkgs, err := Load()

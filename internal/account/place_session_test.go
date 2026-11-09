@@ -2,6 +2,7 @@ package account_test
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,8 +61,7 @@ func (r *sessionRig) sent() int { return len(r.fake.TokenRequests()) - r.signReq
 // at makes home the HOME of the process.
 func (r *sessionRig) at(t *testing.T, home string) {
 	t.Helper()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 }
 
 // accountDir is the account folder under home.

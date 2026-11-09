@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -73,8 +74,7 @@ func TestReadsCreateNothing(t *testing.T) {
 
 func TestDefaultDirFollowsHomeAndTouchesNothing(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	got, err := account.DefaultDir()
 	if want := filepath.Join(home, ".monoagent", "account"); err != nil || got != want {
 		t.Fatalf("DefaultDir = %q, %v, want %q", got, err, want)
@@ -93,8 +93,7 @@ func TestDefaultDirFollowsHomeAndTouchesNothing(t *testing.T) {
 }
 
 func TestStoreWithoutAHome(t *testing.T) {
-	t.Setenv("HOME", "")
-	t.Setenv("USERPROFILE", "")
+	testhome.SetHome(t, "")
 	st := account.OpenStore("", nil)
 	if sess, err := st.Load(); sess != nil || err != nil {
 		t.Fatalf("Load = a session %v, %v: with no home there is no session, not an error", sess != nil, err)

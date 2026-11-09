@@ -3,6 +3,7 @@ package account_test
 import (
 	"context"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -127,8 +128,7 @@ func TestWithoutAHomeTheWorkingDirectoryIsNeverReadWrittenOrDeleted(t *testing.T
 	before := snapshot(t, cwd)
 
 	t.Chdir(cwd)
-	t.Setenv("HOME", "")
-	t.Setenv("USERPROFILE", "")
+	testhome.SetHome(t, "")
 	cs := &countingSealer{inner: account.NewMemorySealer()}
 	st := account.OpenStore("", cs)
 

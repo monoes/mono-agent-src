@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"testing"
@@ -16,7 +17,7 @@ import (
 func TestProfileDocumentsListIncludesBrowserCaptures(t *testing.T) {
 	dbPath := newProfileDocsCLITestDB(t) // sets its own HOME; ours must win
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	const profile = "p-captures"
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -297,7 +298,7 @@ func runWorkflowSubcmd(t *testing.T, cfg *globalConfig, args ...string) string {
 func TestWorkflowExportImportRoundtrip(t *testing.T) {
 	// Isolate the hybrid store's file half (~/.monoagent/workflows).
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 
 	dbPath := filepath.Join(t.TempDir(), "roundtrip.db")
 	cfg := &globalConfig{DBPath: dbPath, JSONOutput: true, ProfileID: "default"}
@@ -468,7 +469,7 @@ func TestWorkflowExportImportRoundtrip(t *testing.T) {
 // empty node types and FK-dangling connections.
 func TestWorkflowImportLegacyFormat(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	dbPath := filepath.Join(t.TempDir(), "legacy.db")
 	cfg := &globalConfig{DBPath: dbPath, JSONOutput: true, ProfileID: "default"}
 
@@ -540,7 +541,7 @@ func TestWorkflowImportLegacyFormat(t *testing.T) {
 // be rejected with exit 3 and never persisted.
 func TestWorkflowImportRejectsEmptyNodeType(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	dbPath := filepath.Join(t.TempDir(), "empty-type.db")
 	// The rejected import bails before initDB, so the DB must exist already
 	// for the not-persisted assertion below to query it.
@@ -588,7 +589,7 @@ func TestWorkflowImportRejectsEmptyNodeType(t *testing.T) {
 // missing --file is not-found (exit 2); any other IO error is a plain
 // error (exit 1).
 func TestWorkflowImportFileErrorClassification(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	cfg := &globalConfig{DBPath: filepath.Join(t.TempDir(), "io.db"), ProfileID: "default"}
 
 	cmd := newWorkflowImportCmd(cfg)
@@ -612,7 +613,7 @@ func TestWorkflowImportFileErrorClassification(t *testing.T) {
 // TestWorkflowDeleteNonexistentIsNotFound guards RV4-4: deleting an unknown
 // workflow must exit 2 (and must not spin up the engine to find that out).
 func TestWorkflowDeleteNonexistentIsNotFound(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	cfg := &globalConfig{DBPath: filepath.Join(t.TempDir(), "delete.db"), ProfileID: "default"}
 
 	cmd := newWorkflowDeleteCmd(cfg)
@@ -632,7 +633,7 @@ func TestWorkflowDeleteNonexistentIsNotFound(t *testing.T) {
 // short-lived engine, where the run died cancelled the moment the CLI exited.
 func TestWorkflowRunNoWaitPersistsUnownedQueued(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	dbPath := filepath.Join(t.TempDir(), "nowait.db")
 	cfg := &globalConfig{DBPath: dbPath, JSONOutput: true, ProfileID: "default"}
 
@@ -695,7 +696,7 @@ func TestNormalizeLegacyWorkflowJSON_Passthrough(t *testing.T) {
 // nodes and connections, edges preserved.
 func TestWorkflowImportNodeIDCollision(t *testing.T) {
 	// Isolate the hybrid store's file half (~/.monoagent/workflows).
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 
 	dbPath := filepath.Join(t.TempDir(), "import.db")
 	cfg := &globalConfig{DBPath: dbPath, ProfileID: "default"}
@@ -804,7 +805,7 @@ const duplicateConnectionWorkflowFile = `{
 // nodes behind just because their connections rolled back.
 func TestWorkflowImportAtomicity_FreshCreateCleansUpOnPersistFailure(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	dbPath := filepath.Join(t.TempDir(), "atomic-fresh.db")
 	cfg := &globalConfig{DBPath: dbPath, ProfileID: "default"}
 
@@ -850,7 +851,7 @@ func TestWorkflowImportAtomicity_FreshCreateCleansUpOnPersistFailure(t *testing.
 // SaveWorkflowConnections failed and forced the rollback.
 func TestWorkflowImportAtomicity_OverwriteRestoresPreviousOnPersistFailure(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	dbPath := filepath.Join(t.TempDir(), "atomic-overwrite.db")
 	cfg := &globalConfig{DBPath: dbPath, JSONOutput: true, ProfileID: "default"}
 
@@ -966,7 +967,7 @@ func TestWorkflowImportAtomicity_OverwriteRestoresPreviousOnPersistFailure(t *te
 // merge with or leave any of them behind.
 func TestWorkflowImportAtomicity_SuccessfulOverwriteReplacesContent(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	dbPath := filepath.Join(t.TempDir(), "atomic-overwrite-ok.db")
 	cfg := &globalConfig{DBPath: dbPath, JSONOutput: true, ProfileID: "default"}
 
@@ -1040,7 +1041,7 @@ func TestWorkflowImportAtomicity_SuccessfulOverwriteReplacesContent(t *testing.T
 // shared helper, not a separate implementation.
 func TestWorkflowTemplatesUse_PersistsSuccessfully(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	dbPath := filepath.Join(t.TempDir(), "templates-use.db")
 	cfg := &globalConfig{DBPath: dbPath, JSONOutput: true, ProfileID: "default"}
 
