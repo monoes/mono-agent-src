@@ -12,39 +12,40 @@ import (
 )
 
 // OPT-IN smoke test of the one thing this repository cannot show by itself: what the external `monomind agent exec` does with
-// --budget-usd. The pursuit's per-wake cap X and the judge's per-call cap are REQUESTS to that runner; the host reads the cost
-// the runner reports afterwards. This test starts one real turn under a tiny cap, with a prompt that would cost far more, and
-// RECORDS what happened (it asserts nothing about the runner, only that the turn ran):
+// --budget-usd. The pursuit's per-wake cap X and the judge's per-call cap are REQUESTS to that runner (it may overshoot by one
+// model call); the host reads the cost the runner reports afterwards. This test starts one real turn under a tiny cap, with a
+// prompt that would cost far more, and RECORDS what happened (it asserts nothing about the runner, only that the turn ran):
 //
 //	did the turn stop before it finished, and with what stop reason?
 //	what cost did the runner report, and was it above the cap (an overshoot)?
-//	did any usage event report a cost, or did the turn report none (the host then charges the whole cap)?
+//	did the turn report a cost at all (if not, the host charges the whole cap)?
 //
-// It never runs by default: it needs the build tag and a pin, and it spends real money on a real account.
+// It works with any installed runtime and uses THAT RUNTIME'S OWN EXISTING LOGIN on this machine (claude, codex, opencode,
+// hermes, ...): this code never reads, stores or passes a key. It opens no monoagent database (the turn runs in a fresh
+// temporary folder), so it touches nothing of ~/.monoagent. It never runs by default and never in CI: it needs the build tag
+// and the variables below, and it spends real money on the login's account.
 //
-//	HOME=<a fresh scratch dir, never your real home> \
-//	MONOAGENT_SMOKE_PIN=<runtime/model>   a model that costs a little, so that the cap can bind (a :free model reports $0)
-//	MONOAGENT_SMOKE_CAP_USD=0.01          optional, default 0.01
+//	MONOAGENT_SMOKE_CONFIRM=spend-real-money
+//	MONOAGENT_SMOKE_RUNTIME=claude|codex|opencode|hermes|...   the runtime to drive (its own login is used)
+//	MONOAGENT_SMOKE_MODEL=<model>                              optional; the runtime's default when empty
+//	MONOAGENT_SMOKE_CAP_USD=0.05                               optional; default 0.05, at most 0.10
 //	go test -tags realrunner -count=1 -v -timeout 300s -run TestRealRunnerRecordsWhatItDoesUnderATinyCap ./internal/monomind
-//
-// The runner needs its provider's credential in the environment (for an OpenRouter-backed runtime OPENROUTER_API_KEY).
 func TestRealRunnerRecordsWhatItDoesUnderATinyCap(t *testing.T) {
-	pin := strings.TrimSpace(os.Getenv("MONOAGENT_SMOKE_PIN"))
-	if pin == "" {
-		t.Skip("MONOAGENT_SMOKE_PIN (runtime/model) is not set: this smoke test spends real money and is opt-in")
+	runtime := strings.TrimSpace(os.Getenv("MONOAGENT_SMOKE_RUNTIME"))
+	if runtime == "" || os.Getenv("MONOAGENT_SMOKE_CONFIRM") != "spend-real-money" {
+		t.Skip("MONOAGENT_SMOKE_RUNTIME and MONOAGENT_SMOKE_CONFIRM=spend-real-money are not both set: this smoke test spends real money and is opt-in")
 	}
-	runtime, model, ok := strings.Cut(pin, "/")
-	if !ok || runtime == "" || model == "" {
-		t.Fatalf("MONOAGENT_SMOKE_PIN %q is not runtime/model", pin)
-	}
-	capUSD := 0.01
+	model := strings.TrimSpace(os.Getenv("MONOAGENT_SMOKE_MODEL"))
+	capUSD := 0.05
 	if raw := os.Getenv("MONOAGENT_SMOKE_CAP_USD"); raw != "" {
 		v, err := strconv.ParseFloat(raw, 64)
-		if err != nil || !(v > 0) || v > 1 {
-			t.Fatalf("MONOAGENT_SMOKE_CAP_USD %q must be a number above 0 and at most 1", raw)
+		if err != nil || !(v > 0) || v > 0.10 {
+			t.Fatalf("MONOAGENT_SMOKE_CAP_USD %q must be a number above 0 and at most 0.10", raw)
 		}
 		capUSD = v
 	}
+	t.Logf("LOGIN this run relies on the %q runtime's own login on this machine; no key is read or passed by this test. The cap $%.4f is a REQUEST to the runner and may be overshot by one call.", runtime, capUSD)
+	pin := runtime + "/" + model
 	cwd := t.TempDir()
 	events := map[string]int{}
 	var costs []float64
