@@ -19,6 +19,11 @@ func TestPlaceRefusesACommandThatIsNotInItsOwnProcessGroupAndAfterClose(t *testi
 	if _, err := g.Place(c); err == nil {
 		t.Fatal("a command in somebody else's group was placed")
 	}
+	n := exec.Command("/bin/true")
+	n.SysProcAttr = &syscall.SysProcAttr{}
+	if _, err := g.Place(n); err == nil {
+		t.Fatal("a command with Setpgid off was placed")
+	}
 	ok := exec.Command("/bin/true")
 	ok.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	rel, err := g.Place(ok)
