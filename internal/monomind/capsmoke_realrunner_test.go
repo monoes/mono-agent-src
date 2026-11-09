@@ -25,8 +25,10 @@ import (
 //
 // It works with any installed runtime and uses THAT RUNTIME'S OWN EXISTING LOGIN on this machine (claude, codex, opencode,
 // hermes, ...): OUR code never reads, stores or passes a key. But the runner inherits the ambient environment (monomind's
-// FilteredEnviron strips only CLAUDE_CODE_* and MONOMIND_*), so a provider key that is set in the shell (ANTHROPIC_API_KEY,
-// OPENAI_API_KEY, ...) would reach the runtime and may be what it bills; the test prints a warning (names only) when one is set. It opens no monoagent database (the turn runs in a fresh
+// FilteredEnviron strips only CLAUDE_CODE_* and MONOMIND_*), so the harness REMOVES every provider key variable (smokeProviderKeyVars: OPENROUTER, ANTHROPIC, OPENAI, GEMINI, GOOGLE, MISTRAL,
+// GROQ, XAI, AZURE_OPENAI, AWS key/secret/session/bedrock-bearer, CLAUDE_CODE_USE_BEDROCK/VERTEX) from its own environment before the
+// runner starts, so that only the runtime's own login can be used, and prints the NAMES removed (never a value). Everything the runner
+// says that is logged goes through redactSecrets (key, bearer, JWT, long hex/base64 shapes). It opens no monoagent database (the turn runs in a fresh
 // temporary folder), so it touches nothing of ~/.monoagent. It never runs by default and never in CI: it needs the build tag
 // and the variables below, and it spends real money on the login's account.
 //
@@ -72,12 +74,18 @@ func TestRealRunnerRecordsWhatItDoesUnderATinyCap(t *testing.T) {
 		}
 		capUSD = v
 	}
-	for _, k := range []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "MISTRAL_API_KEY", "XAI_API_KEY", "GROQ_API_KEY"} {
-		if os.Getenv(k) != "" {
-			t.Logf("WARNING %s is set in this environment: the runner inherits it, so it may use that key instead of the runtime's own login", k)
+	// Only the runtime's own login may be used: every provider key variable is removed from this process (the runner inherits
+	// the environment) for the duration of the test, and the NAMES removed are printed, never a value.
+	removed, old := scrubProviderEnv(os.LookupEnv, os.Unsetenv)
+	t.Cleanup(func() {
+		for k, v := range old {
+			os.Setenv(k, v)
 		}
+	})
+	if len(removed) > 0 {
+		t.Logf("WARNING these provider key variables were set in this environment and are REMOVED for the runner, so that only the runtime's own login is used: %s", strings.Join(removed, ", "))
 	}
-	t.Logf("LOGIN this run relies on the %q runtime's own login on this machine; no key is read or passed by OUR code (the runner still inherits the environment). The cap $%.4f is a REQUEST to the runner and may be overshot by one call.", runtime, capUSD)
+	t.Logf("LOGIN this run relies on the %q runtime's own login on this machine; no key is read or passed by OUR code (provider key variables are removed from the child's environment). The cap $%.4f is a REQUEST to the runner and may be overshot by one call.", runtime, capUSD)
 	pin := runtime + "/" + model
 	opts := ExecOptions{Env: map[string]string{}}
 	if os.Getenv("MONOAGENT_SMOKE_ALLOW_INSTALL") != "1" {
@@ -122,14 +130,14 @@ func TestRealRunnerRecordsWhatItDoesUnderATinyCap(t *testing.T) {
 	})
 	elapsed := time.Since(start).Round(time.Millisecond)
 	if err != nil && res == nil {
-		t.Fatalf("the turn did not run at all: %v", err)
+		t.Fatalf("the turn did not run at all: %s", redactSecrets(fmt.Sprint(err)))
 	}
 	t.Logf("RECORD pin=%s cap=$%.4f elapsed=%s events=%v assistant_bytes=%d usage_costs=%v", pin, capUSD, elapsed, events, assistantBytes, costs)
 	if res == nil {
-		t.Logf("RECORD no result (err=%v)", err)
+		t.Logf("RECORD no result (err=%s)", redactSecrets(fmt.Sprint(err)))
 		return
 	}
-	t.Logf("RECORD exit=%d stop_reason=%q saw_done=%v has_cost=%v cost=$%.6f err=%v result_bytes=%d", res.ExitCode, res.StopReason, res.SawDone, res.HasCostUSD, res.CostUSD, res.Err, len(res.ResultText))
+	t.Logf("RECORD exit=%d stop_reason=%q saw_done=%v has_cost=%v cost=$%.6f err=%v result_bytes=%d", res.ExitCode, res.StopReason, res.SawDone, res.HasCostUSD, res.CostUSD, redactSecrets(fmt.Sprint(res.Err)), len(res.ResultText))
 	// A verdict needs a real, completed turn: an error result (for example "Not logged in") reports cost 0 and says nothing about the cap.
 	if why := incompleteTurn(res, err, assistantBytes); why != "" {
 		t.Errorf("VERDICT INCONCLUSIVE: the turn did not complete (%s); nothing is learned about the cap", why)
@@ -149,11 +157,11 @@ func TestRealRunnerRecordsWhatItDoesUnderATinyCap(t *testing.T) {
 func incompleteTurn(res *TurnResult, err error, assistantBytes int) string {
 	switch {
 	case res == nil:
-		return fmt.Sprintf("no result, err=%v", err)
+		return redactSecrets(fmt.Sprintf("no result, err=%v", err))
 	case err != nil:
-		return fmt.Sprintf("exec error: %v", err)
+		return redactSecrets(fmt.Sprintf("exec error: %v", err))
 	case res.Err != nil:
-		return fmt.Sprintf("the runner returned an error result: %v", res.Err)
+		return redactSecrets(fmt.Sprintf("the runner returned an error result: %v", res.Err))
 	case res.ExitCode != 0:
 		return fmt.Sprintf("exit code %d", res.ExitCode)
 	case !res.SawDone:
