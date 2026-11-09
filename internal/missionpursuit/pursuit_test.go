@@ -1,6 +1,8 @@
 package missionpursuit
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/tasks"
@@ -219,5 +221,26 @@ func TestSessionDeleteCascadesToThePursuit(t *testing.T) {
 		if n := count(t, f.db, `SELECT COUNT(*) FROM `+tb); n != 0 {
 			t.Errorf("%s keeps %d rows after the session was deleted", tb, n)
 		}
+	}
+}
+
+// A goal cannot be confirmed without a rubric criterion, so a started pursuit always has one. The pursuit says it again by
+// itself, in plain words: the test takes the goal rule away (a raw writer could) to show the pursuit's own refusal.
+func TestStartNeedsARubricCriterion(t *testing.T) {
+	f := newMission(t)
+	cs := []Criterion{{Kind: "command", Spec: "go test", Expected: "exit:0"}}
+	mustExec(t, f.db, `INSERT INTO mission_goals (session_id, state, criteria_hash, proposed_by, created_at, updated_at) VALUES (?, 'proposed', ?, 'lead', 'x', 'x')`, f.session, Hash(cs))
+	mustExec(t, f.db, `INSERT INTO mission_goal_criteria (session_id, pos, kind, spec, expected, hash) VALUES (?, 1, 'command', 'go test', 'exit:0', ?)`, f.session, criterionHash(cs[0]))
+	mustExec(t, f.db, `DROP TRIGGER mission_goals_forward_only`)
+	mustExec(t, f.db, `UPDATE mission_goals SET state = 'confirmed', confirmed_by = 'you', confirmed_at = 'x' WHERE session_id = ?`, f.session)
+	_, err := f.store.Start(bg, "default", f.session, AwayLimits{}, human)
+	if err == nil || !strings.Contains(err.Error(), "rubric") || !errors.Is(err, tasks.ErrInvalid) {
+		t.Fatalf("start: %v (want a plain refusal that names the rubric criterion)", err)
+	}
+	if n := count(t, f.db, `SELECT COUNT(*) FROM mission_pursuit`); n != 0 {
+		t.Errorf("%d pursuit rows after the refusal", n)
+	}
+	if s := goalState(t, f); s != StateConfirmed {
+		t.Errorf("a refused start moved the goal to %s", s)
 	}
 }

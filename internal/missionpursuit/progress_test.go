@@ -32,7 +32,7 @@ func TestProgressShowsWhatTheLoopRecordedInPlainWords(t *testing.T) {
 	if !strings.Contains(p.Why, "waiting for you") || !strings.Contains(p.Why, "woke the lead") {
 		t.Fatalf("why = %q", p.Why)
 	}
-	for _, w := range []string{"parked", "spend", "wakes", "budget-unknown", "limits", "engine-parked", "something-new"} {
+	for _, w := range []string{"parked", "spend", "wakes", "budget-unknown", "limits", "engine-parked", "judge-failing", "lead-uncapped", "meter-unreadable", "something-new"} {
 		if !strings.HasPrefix(WaitingWhy(w), "waiting for you") {
 			t.Errorf("%s has no plain words: %q", w, WaitingWhy(w))
 		}

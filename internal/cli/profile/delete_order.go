@@ -13,7 +13,7 @@ func sessionsBeforeTheirReservations(scope []scopeEntry) []scopeEntry {
 	var held, heldReports []scopeEntry
 	for _, e := range scope {
 		switch {
-		case e.Table == "task_session_reservations" || strings.HasPrefix(e.Table, "mission_goal") || e.Table == "mission_pursuit" || strings.HasPrefix(e.Table, "mission_strategy_"):
+		case e.Table == "task_session_reservations" || strings.HasPrefix(e.Table, "mission_goal") || e.Table == "mission_pursuit" || e.Table == "mission_pursuit_spend" || strings.HasPrefix(e.Table, "mission_strategy_"):
 			held = append(held, e)
 			continue
 		case e.Table == "task_session_reservation_costs":

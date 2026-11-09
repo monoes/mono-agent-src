@@ -8,9 +8,13 @@
 //
 // # What the away limits can and cannot see
 //
-// The away-spend rule (a share of the budget since the person last acted) reads the METERED spend of the mission session
-// only. The judge calls of the strategy engine, the wake-up turns of the lead and children that are still running are not
-// all in that meter, so unknown cost is never taken as free: the pursuit is also bounded by counts that do not depend on
-// the meter (parked questions, wake-ups of the lead since the person last acted, and a host-wide cap of wake-ups per hour),
-// and by the epoch engine's own floor and hourly cap. Progress (GetProgress) shows how far each has come.
+// The away-spend rule (a share of the budget since the person last acted) counts three things the host measured: the
+// METERED spend of the mission session, the judge ledger (every judge call is a row written before the call at the per-call
+// cap and settled once with the cost the runtime reported; unknown cost stays at the cap, never free), and the turn
+// journals of the lead and its helpers. A helper that ended is on the session meter as well, so it can be counted twice:
+// the stop then comes earlier, never later. What no ledger holds is bounded by counts that do not depend on a meter: parked
+// questions, wake-ups of the lead since the person last acted, a host-wide cap of wake-ups per hour and of judge calls per
+// hour, and three judge rounds in a row that fail (the pursuit then waits for the person). The question policy is not
+// touched by a pursuit: Decide is the same as for any mission, so these limits carry the brake. Progress (GetProgress)
+// shows how far each has come.
 package missionpursuit

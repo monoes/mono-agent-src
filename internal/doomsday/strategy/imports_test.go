@@ -94,7 +94,8 @@ func TestOnlyTheWiringFilesImportTheStrategyLibraries(t *testing.T) {
 		"internal/cli/doomsday/strategysink.go", "internal/cli/doomsday/strategywire.go",
 		// The mission pursuit loop (T6, S4) runs the same epoch engine over a mission's own store: the host's loop, off unless
 		// the person started a pursuit. Its own import guard is coderhost/pursuit_guard_test.go.
-		"internal/coderhost/pursuit.go", "internal/coderhost/pursuit_facts.go", "internal/coderhost/pursuit_wake.go",
+		"internal/coderhost/pursuit.go", "internal/coderhost/pursuit_facts.go", "internal/coderhost/pursuit_meter.go", "internal/coderhost/pursuit_propose.go", "internal/coderhost/pursuit_wake.go",
+		"internal/missionpursuit/judgemodel/judgemodel.go", // S5a: the judge model adapter over the monomind runner; no production caller until the wiring slice
 	}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("importers of the strategy libraries changed:\n got %v\nwant %v\ndecide the new importer here, in review", got, want)
