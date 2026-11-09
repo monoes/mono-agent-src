@@ -293,6 +293,8 @@ func TestAJudgeThatEqualsTheLeadsPinMakesThePursuitWait(t *testing.T) {
 		"the same runtime and model":      "fake/judge",
 		"the same model, another version": "fake/judge@9",
 		"a lead that is not pinned":       "",
+		"the same name in another case":   "Fake/JUDGE",
+		"the same name with padding":      "  fake/judge  ",
 	} {
 		t.Run(name, func(t *testing.T) {
 			w := newPursuitWorld(t)

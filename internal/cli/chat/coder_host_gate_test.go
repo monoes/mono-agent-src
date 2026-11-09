@@ -1184,13 +1184,15 @@ func TestTheProductionHostTakesTheWakeCapFromItsOwnSetting(t *testing.T) {
 
 func TestTheProductionHostStaysOffWithAnInvalidSetting(t *testing.T) {
 	for name, env := range map[string]map[string]string{
-		"a pin with no model":      {envPursuitJudge: "claude"},
-		"a pin with a space":       {envPursuitJudge: "claude/my model"},
-		"a zero wake cap":          {envPursuitJudge: "claude/haiku", envPursuitWakeCap: "0"},
-		"a negative wake cap":      {envPursuitJudge: "claude/haiku", envPursuitWakeCap: "-1"},
-		"a wake cap above the max": {envPursuitJudge: "claude/haiku", envPursuitWakeCap: "10.5"},
-		"a wake cap that is text":  {envPursuitJudge: "claude/haiku", envPursuitWakeCap: "two"},
-		"a wake cap of NaN":        {envPursuitJudge: "claude/haiku", envPursuitWakeCap: "NaN"},
+		"a pin with no model":        {envPursuitJudge: "claude"},
+		"a pin with a space":         {envPursuitJudge: "claude/my model"},
+		"a zero wake cap":            {envPursuitJudge: "claude/haiku", envPursuitWakeCap: "0"},
+		"a negative wake cap":        {envPursuitJudge: "claude/haiku", envPursuitWakeCap: "-1"},
+		"a wake cap above the max":   {envPursuitJudge: "claude/haiku", envPursuitWakeCap: "10.5"},
+		"a wake cap that is text":    {envPursuitJudge: "claude/haiku", envPursuitWakeCap: "two"},
+		"a wake cap below the floor": {envPursuitJudge: "claude/haiku", envPursuitWakeCap: "0.001"},
+		"a wake cap of only spaces":  {envPursuitJudge: "claude/haiku", envPursuitWakeCap: "   "},
+		"a wake cap of NaN":          {envPursuitJudge: "claude/haiku", envPursuitWakeCap: "NaN"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			built, cfg := runProductionHost(t, env)
