@@ -120,6 +120,9 @@ func validate(req Request) Reason {
 	if len(req.Criteria) > MaxCriteria {
 		return ReasonTooManyCriteria
 	}
+	if (req.LeadPinNow != nil) == req.NoLeadReread { // neither (silently skipped) or both (ambiguous)
+		return ReasonBadRequest
+	}
 	if !hashRE.MatchString(req.GoalHash) || len(req.Criteria) == 0 || req.Root == "" || !filepath.IsAbs(req.Root) {
 		return ReasonBadRequest
 	}
@@ -322,21 +325,35 @@ func abandoned(ctx, runCtx context.Context, res *Result) bool {
 	return true
 }
 
-// placeBoth places a command in the process group and, when there is one, the confinement; both are released.
+// placeBoth places a command in the process group and, when there is one, the confinement; both are released. The release
+// it returns is never nil (the sandbox defers it after the program started), even when a confiner returned nil, and a
+// confiner that rewrote the command's process attributes so that it is no longer in its own process group is refused.
 func placeBoth(gp *GroupPlace, conf Confiner) func(*exec.Cmd) (func(), error) {
-	if conf == nil {
-		return gp.Place
-	}
 	return func(cmd *exec.Cmd) (func(), error) {
 		rg, err := gp.Place(cmd)
 		if err != nil {
 			return nil, err
+		}
+		if conf == nil {
+			return rg, nil
 		}
 		rc, err := conf.Place(cmd)
 		if err != nil {
 			rg()
 			return nil, err
 		}
-		return func() { rc(); rg() }, nil
+		if _, err := gp.Place(cmd); err != nil { // the group requirement must still hold after the confiner touched cmd
+			if rc != nil {
+				rc()
+			}
+			rg()
+			return nil, errors.New("the confiner changed the command so it is no longer in its own process group")
+		}
+		return func() {
+			if rc != nil {
+				rc()
+			}
+			rg()
+		}, nil
 	}
 }

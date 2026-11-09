@@ -124,7 +124,7 @@ func (r *rig) checker() *Checker {
 }
 
 func (r *rig) req(cs ...Criterion) Request {
-	return Request{Root: r.root, GoalHash: h64("goal"), Round: 1, Criteria: cs, JudgePin: judgePin, LeadPin: leadPin}
+	return Request{Root: r.root, GoalHash: h64("goal"), Round: 1, Criteria: cs, JudgePin: judgePin, LeadPin: leadPin, LeadPinNow: func() string { return leadPin }}
 }
 
 func (r *rig) run(cs ...Criterion) Result {
@@ -141,8 +141,9 @@ func (r *rig) run(cs ...Criterion) Result {
 
 // needsRealSandbox skips a test that starts a program where the platform cannot start one without a network.
 //
-// Where CI is set (or MONOAGENT_REQUIRE_SANDBOX_TESTS=1) a missing sandbox FAILS instead of skipping: a hosted runner that
-// forbids user namespaces must not turn the group-kill, environment and path tests into silent skips. Locally it skips.
+// Where MONOAGENT_REQUIRE_SANDBOX_TESTS=1 a missing sandbox FAILS instead of skipping, so a job that is known to allow user
+// namespaces cannot turn the group-kill, environment and path tests into silent skips. Without it (a developer machine, a
+// hosted runner that forbids them) the test skips and says why.
 func needsRealSandbox(t *testing.T, programs ...string) {
 	t.Helper()
 	why := ""
@@ -160,7 +161,7 @@ func needsRealSandbox(t *testing.T, programs ...string) {
 	if why == "" {
 		return
 	}
-	if os.Getenv("CI") != "" || os.Getenv("MONOAGENT_REQUIRE_SANDBOX_TESTS") == "1" {
+	if os.Getenv("MONOAGENT_REQUIRE_SANDBOX_TESTS") == "1" {
 		t.Fatalf("the real-program tests are required here: %s", why)
 	}
 	t.Skip(why)

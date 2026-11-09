@@ -122,9 +122,12 @@ type Request struct {
 	JudgePin, LeadPin string
 	// ExpectDigest, when set, is the tree digest the host saw while the tree was quiet; a snapshot that differs is stale.
 	ExpectDigest string
-	// LeadPinNow, when set, is read again after the reviewer call; if the lead's model is no longer independent of the checker
+	// LeadPinNow is read again after the reviewer call; if the lead's model is no longer independent of the checker
 	// and the judge (or differs from LeadPin), the check is blocked (lead-changed).
 	LeadPinNow func() string
+	// NoLeadReread says explicitly that the lead pin is not re-read (it is not applicable). Exactly one of LeadPinNow and
+	// NoLeadReread is required: a re-read that is silently absent is a bad request.
+	NoLeadReread bool
 }
 
 // CriterionResult is what one criterion measured, bounded and stripped. Digests are the evidence, excerpts are for the

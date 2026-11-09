@@ -41,7 +41,7 @@ func TestPlaceRefusesACommandThatIsNotInItsOwnProcessGroupAndAfterClose(t *testi
 // What a program left behind in its group when it ended is killed when its criterion is released.
 func TestReleaseKillsWhatTheLeaderLeftInItsGroup(t *testing.T) {
 	if _, err := os.Stat("/bin/sh"); err != nil || !onSystemPath("sleep") {
-		if os.Getenv("CI") != "" || os.Getenv("MONOAGENT_REQUIRE_SANDBOX_TESTS") == "1" {
+		if os.Getenv("MONOAGENT_REQUIRE_SANDBOX_TESTS") == "1" {
 			t.Fatal("/bin/sh or sleep is missing")
 		}
 		t.Skip("/bin/sh or sleep is missing")

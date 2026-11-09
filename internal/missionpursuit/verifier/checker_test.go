@@ -511,7 +511,6 @@ func TestALeadThatChangedDuringTheReviewBlocksButIsStillCharged(t *testing.T) {
 		"changed":          {func() string { return "other/model" }, OutcomeBlocked, ReasonLeadChanged},
 		"now the checker":  {func() string { return checkerPin }, OutcomeBlocked, ReasonLeadChanged},
 		"now unknown":      {func() string { return "" }, OutcomeBlocked, ReasonLeadChanged},
-		"not asked":        {nil, OutcomePassedMachine, ReasonNone},
 	} {
 		r := newRig(t, true)
 		k := r.checker()
@@ -521,5 +520,58 @@ func TestALeadThatChangedDuringTheReviewBlocksButIsStillCharged(t *testing.T) {
 		if err != nil || got.Outcome != c.outcome || got.Reason != c.reason || len(r.meter.settled) != 1 {
 			t.Errorf("%s: %v %s %v", name, err, dump(got), r.meter.settled)
 		}
+	}
+}
+
+// Revert proof: dropping the requirement lets a request with no re-read through silently.
+func TestTheLeadRereadIsRequiredUnlessExplicitlyNotApplicable(t *testing.T) {
+	r := newRig(t, true)
+	k := r.checker()
+	q := r.req(fileExists("c1"))
+	q.LeadPinNow = nil
+	if got, _ := k.Run(context.Background(), q); got.Reason != ReasonBadRequest {
+		t.Fatalf("silently skipped: %s", dump(got))
+	}
+	q.NoLeadReread = true
+	if got, _ := k.Run(context.Background(), q); got.Outcome != OutcomePassedMachine {
+		t.Fatalf("explicit: %s", dump(got))
+	}
+	q.LeadPinNow = func() string { return leadPin }
+	if got, _ := k.Run(context.Background(), q); got.Reason != ReasonBadRequest {
+		t.Fatalf("both: %s", dump(got))
+	}
+}
+
+// Revert proof: a nil release from the confiner panics in the sandbox's deferred call after the program started.
+func TestAConfinerThatReturnsANilReleaseDoesNotPanic(t *testing.T) {
+	needsRealSandbox(t)
+	r := newRig(t, true)
+	r.cfg.NetDenyAvailable = nil
+	r.conf.NilRelease = true
+	if got := r.run(crit("c1", "command", "true", "exit:0")); got.Outcome != OutcomePassedMachine {
+		t.Fatalf("%s", dump(got))
+	}
+}
+
+func TestAConfinerThatDropsTheProcessGroupIsRefused(t *testing.T) {
+	needsRealSandbox(t)
+	r := newRig(t, true)
+	r.cfg.NetDenyAvailable = nil
+	r.conf.Clobber = true
+	got := r.run(crit("c1", "command", "true", "exit:0"))
+	if got.Outcome != OutcomeError || got.Criteria[0].Result != ResError {
+		t.Fatalf("%s", dump(got))
+	}
+}
+
+func TestTheDocsSayWhatTheHostMustDoItself(t *testing.T) {
+	d := mustRead(t, "doc.go")
+	for _, want := range []string{"claim of the caller", "end in fail", "network-namespace canary", "measured", "check-", "context-aware", "MONOAGENT_REQUIRE_SANDBOX_TESTS"} {
+		if !strings.Contains(d, want) {
+			t.Errorf("doc.go does not say %q", want)
+		}
+	}
+	if strings.Contains(d, "through the sandbox") {
+		t.Error("doc.go says the self test runs canaries through a sandbox the package does not give it")
 	}
 }

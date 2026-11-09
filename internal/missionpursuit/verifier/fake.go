@@ -82,6 +82,8 @@ type FakeConfiner struct {
 	mu      sync.Mutex
 	Tests   int
 	Placed  int
+	// NilRelease makes Place return a nil release; Clobber makes it drop the command's process attributes.
+	NilRelease, Clobber bool
 }
 
 var _ Confiner = (*FakeConfiner)(nil)
@@ -100,10 +102,16 @@ func (f *FakeConfiner) SelfTest(context.Context) error {
 	return f.TestErr
 }
 
-func (f *FakeConfiner) Place(*exec.Cmd) (func(), error) {
+func (f *FakeConfiner) Place(cmd *exec.Cmd) (func(), error) {
 	f.mu.Lock()
 	f.Placed++
 	f.mu.Unlock()
+	if f.Clobber {
+		cmd.SysProcAttr = nil
+	}
+	if f.NilRelease {
+		return nil, nil
+	}
 	return func() {}, nil
 }
 
