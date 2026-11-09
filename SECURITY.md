@@ -3546,19 +3546,37 @@ later check and its next use, and the check and the signal that stops a turn's l
 hands the connection to an outsider lends its authority, as on Linux. A client that sends its request and closes before the
 service reads the tables is refused (usability only).
 
-**Binding service on Windows.** The same contract as Linux, with the facilities Windows has, and **much weaker against a same-user
-adversary**, which is stated first. The Windows binding stops a leaked token used by a program that does not know the tricks below
-(an environment dump, a log, another program, a sibling tool). It does **not** stop same-user malware, or an agent that is written
-(or talked into) defeating it, and **a process-ancestry gate is not a boundary on Windows**. Two routes, each a few lines of
-ordinary Windows API and no privilege: (1) **Parent claim.** A Windows process records the parent that its creator names (any
+**Binding service on Windows.** The same contract as Linux, with the facilities Windows has, and **still weaker against a same-user
+adversary than Linux and macOS**, which is stated first. The Windows binding stops a leaked token used by a program that does not know
+the tricks below (an environment dump, a log, another program, a sibling tool), and since the access-list hardening below it also
+stops the two direct routes at the turn's worker and at the host. It does **not** stop every same-user program, or an agent that is
+written (or talked into) defeating it, and **a process-ancestry gate is still not a boundary on Windows**. The two routes, each a few
+lines of ordinary Windows API and no privilege: (1) **Parent claim.** A Windows process records the parent that its creator names (any
 process the creator can open with the create-process right), and the child also takes that parent's token, job and inheritable
-handles, so a process of the same user outside the turn can start a child that the walk takes for a descendant
-(`TestKnownGapAProcessThatClaimsTheWorkerAsItsParentIsServed`). (2) **Injection.** Under the default access list the same user can open
-any process of its own with the rights to write into it and start a thread in it (`CreateRemoteThread`), and the code that then runs is
-a tree member: its peer pid, user and ancestry are genuine (`TestKnownGapTheDefaultAccessListLetsTheSameUserWriteIntoATreeMember`).
-Closing both needs the turn's processes started with an access list that denies those rights to everyone but SYSTEM, which is separate
-work; a job object, a restricted token or a distinct integrity level do not help, since the spoofed child inherits them from the
-claimed parent. On Linux and macOS the parent is the kernel's, so an attacker needs code running inside the tree. Consequences: the
+handles, so a process of the same user outside the turn can start a child that the walk takes for a descendant. (2) **Injection.**
+Under the default access list the same user can open any process of its own with the rights to write into it and start a thread in
+it (`CreateRemoteThread`), and the code that then runs is a tree member: its peer pid, user and ancestry are genuine.
+**Hardening (`internal/procbind/procacl*.go`).** The turn's worker is created with a process security descriptor that is an
+allow-list: PROCESS_TERMINATE, PROCESS_QUERY_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION, READ_CONTROL and SYNCHRONIZE for the user
+(what `doomsday stop`, `coder host stop`, `taskkill`, `os.FindProcess`, the ancestry walk and the pinning of the peer by handle need),
+everything for SYSTEM, and an empty OWNER RIGHTS entry so that the owner cannot write the list back; nobody else, and no other right
+for the user, so create-process (naming it as a parent), create-thread, VM read/write/operation, duplicate-handle, suspend/resume,
+set-quota, set-information, write-DAC and write-owner are refused with access denied (`TestLockedWorkerCannotBeClaimedAsAParent`,
+`TestLockedWorkerRefusesInjectionAndKeepsWhatTheHostNeeds`, `TestANonElevatedSameUserProcessCannotOpenALockedWorker`). The worker's
+main thread is created with the same kind of list (no suspend, no get/set-context), and the host process locks itself the same way
+when it starts the binding service (`LockSelf`). The host's own handle to the worker it started is full-access whatever the list
+says. **What this does not close, each pinned by a test so that nobody mistakes it for covered:** (a) **the tools the worker
+starts** carry the default list, because a token's default access list cannot be narrowed for processes without narrowing it for
+every pipe, event and file the process creates (a tested attempt made `CreatePipe` fail with access denied), so a same-user process
+can still name a tool of the worker (the shell or the CLI it started) as its parent and the child passes the walk
+(`TestKnownGapATokenDefaultAccessListLeavesAToolOfTheWorkerClaimable`); (b) **threads the worker makes after it starts** carry the
+default list, whose set-context and suspend rights are what thread-hijack injections need
+(`TestKnownGapOtherThreadsOfALockedWorkerKeepTheDefaultAccessList`); (c) **an elevated administrator** (SeDebugPrivilege or
+SeTakeOwnershipPrivilege, which are present in an elevated token and can be enabled by the process) skips every access list
+(`TestKnownGapAnElevatedProcessWithDebugPrivilegeOpensALockedWorker`), which is the class of attacker the Linux and macOS binding
+does not stop either (root); (d) a job object, a restricted token or a distinct integrity level do not help, since the spoofed child
+inherits them from the claimed parent. On Linux and macOS the parent is the kernel's, so an attacker needs code running inside the
+tree. Consequences: the
 gates that ask "is this caller inside a coder turn" (`HostInsideTurn`, `CallerInATurn`, the v1 mission and session token process
 checks, which are newly active on Windows: before, they did nothing) can be escaped by one `CreateProcess` naming another parent, or by
 launching through WMI or Task Scheduler without any trick; they restrain an agent that does not try. Availability change: because the

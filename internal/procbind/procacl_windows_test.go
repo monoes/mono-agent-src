@@ -46,6 +46,47 @@ var keptProcessRights = map[string]uint32{
 	"READ_CONTROL":  windows.READ_CONTROL,
 }
 
+// withoutDebugPrivileges switches off SeDebugPrivilege and SeTakeOwnershipPrivilege of this process until the test ends. A session
+// started by a service (ssh, a scheduled task) can have them enabled from the start, and a process that holds SeDebugPrivilege
+// is let through every access list: the tests of the lists must not run with it, as the host does not. The state is restored.
+func withoutDebugPrivileges(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{"SeDebugPrivilege", "SeTakeOwnershipPrivilege"} {
+		setPrivilege(t, name, false)
+	}
+}
+
+// setPrivilege sets the state of one privilege of this process's token and puts it back when the test ends.
+func setPrivilege(t *testing.T, name string, on bool) bool {
+	t.Helper()
+	var tok windows.Token
+	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_ADJUST_PRIVILEGES|windows.TOKEN_QUERY, &tok); err != nil {
+		t.Fatal(err)
+	}
+	var luid windows.LUID
+	if err := windows.LookupPrivilegeValue(nil, windows.StringToUTF16Ptr(name), &luid); err != nil {
+		tok.Close()
+		t.Fatal(err)
+	}
+	attr := uint32(0)
+	if on {
+		attr = windows.SE_PRIVILEGE_ENABLED
+	}
+	next := windows.Tokenprivileges{PrivilegeCount: 1, Privileges: [1]windows.LUIDAndAttributes{{Luid: luid, Attributes: attr}}}
+	var prev windows.Tokenprivileges
+	var n uint32
+	err := windows.AdjustTokenPrivileges(tok, false, &next, uint32(unsafe.Sizeof(prev)), &prev, &n)
+	if err != nil || prev.PrivilegeCount != 1 { // not held (a process that is not elevated): nothing to switch, nothing to restore
+		tok.Close()
+		return false
+	}
+	t.Cleanup(func() {
+		_ = windows.AdjustTokenPrivileges(tok, false, &prev, 0, nil, nil)
+		tok.Close()
+	})
+	return true
+}
+
 // openAs is OpenProcess with the rights, closed at once: only whether the kernel allows it matters.
 func openAs(pid int, rights uint32) error {
 	h, err := windows.OpenProcess(rights, false, uint32(pid))
@@ -100,6 +141,7 @@ func isDenied(err error) bool { return errors.Is(err, windows.ERROR_ACCESS_DENIE
 // Control: without the access list the worker can be named as a parent and the child is served as a descendant. This is what the
 // access list closes; if it ever stops being possible the tests below prove nothing.
 func TestControlAWorkerWithTheDefaultAccessListCanBeClaimedAsAParent(t *testing.T) {
+	withoutDebugPrivileges(t)
 	cmd, r := spawn(t, "sleep")
 	readLine(t, r, "READY")
 	other, err := OpenProcessHandle(cmd.Process.Pid)
@@ -150,6 +192,7 @@ func claimAsParent(t *testing.T, s *svc, ph windows.Handle) string {
 // A same-user process cannot name the locked worker as its parent: the right is not given, and a handle that lacks it makes
 // CreateProcess fail with access denied, so no child that the walk would take for a descendant exists.
 func TestLockedWorkerCannotBeClaimedAsAParent(t *testing.T) {
+	withoutDebugPrivileges(t)
 	cmd, r := spawnLocked(t, "sleep")
 	readLine(t, r, "READY")
 	if other, err := OpenProcessHandle(cmd.Process.Pid); err != nil {
@@ -197,6 +240,7 @@ func rawClaim(ph windows.Handle) error {
 // Writing into, starting a thread in, duplicating from, suspending and re-listing the locked worker are all refused; what the
 // host, the service and the owner need is not.
 func TestLockedWorkerRefusesInjectionAndKeepsWhatTheHostNeeds(t *testing.T) {
+	withoutDebugPrivileges(t)
 	cmd, r := spawnLocked(t, "sleep")
 	readLine(t, r, "READY")
 	for name, rights := range deniedProcessRights {
@@ -233,6 +277,7 @@ func TestLockedWorkerRefusesInjectionAndKeepsWhatTheHostNeeds(t *testing.T) {
 // locked list, a tool that the worker starts is served, and the worker is found by os.FindProcess (the host liveness probe) and
 // stopped by handle.
 func TestLockedWorkerIsStillServedPinnedAndStopped(t *testing.T) {
+	withoutDebugPrivileges(t)
 	cmd, r, in := spawnLockedIn(t, "relay")
 	pid := cmd.Process.Pid
 	w, err := OpenWorkerHandle(pid)
@@ -275,6 +320,7 @@ func TestLockedWorkerIsStillServedPinnedAndStopped(t *testing.T) {
 
 // taskkill is what `coder host stop` uses for a turn; it needs nothing but the right to end the process.
 func TestLockedWorkerIsStoppedByTaskkill(t *testing.T) {
+	withoutDebugPrivileges(t)
 	cmd, r := spawnLocked(t, "sleep")
 	readLine(t, r, "READY")
 	if out, err := exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(cmd.Process.Pid)).CombinedOutput(); err != nil {
@@ -291,6 +337,7 @@ func TestLockedWorkerIsStoppedByTaskkill(t *testing.T) {
 
 // The host process itself is locked the same way, and can still be found, queried and ended by the rest of the system.
 func TestLockSelfLocksTheProcessAndKeepsItReadable(t *testing.T) {
+	withoutDebugPrivileges(t)
 	cmd, r := spawn(t, "locksself")
 	readLine(t, r, "LOCKED")
 	for name, rights := range deniedProcessRights {
@@ -310,6 +357,7 @@ func TestLockSelfLocksTheProcessAndKeepsItReadable(t *testing.T) {
 
 // A same-user process that is NOT elevated (the common attacker) is refused by the locked list and not by the default one.
 func TestANonElevatedSameUserProcessCannotOpenALockedWorker(t *testing.T) {
+	withoutDebugPrivileges(t)
 	// the worker and the attacker are both ordinary processes of the user: the same (medium) integrity level, as in real use. An
 	// elevated host would put the worker above a medium attacker, and the integrity level alone would then refuse it.
 	tok := restrictedMediumToken(t)
@@ -420,11 +468,15 @@ func restrictedMediumToken(t *testing.T) windows.Token {
 // RESIDUAL, pinned so that nobody mistakes it for covered (SECURITY.md): the tools a worker starts keep the default list, so
 // one of them can still be named as a parent by a same-user process, and the child then passes the walk as that tool's descendant.
 func TestKnownGapATokenDefaultAccessListLeavesAToolOfTheWorkerClaimable(t *testing.T) {
+	withoutDebugPrivileges(t)
 	cmd, r, in := spawnLockedIn(t, "kid")
 	io.WriteString(in, "go\n")
 	kid, err := strconv.Atoi(readLine(t, r, "KID "))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if k, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, uint32(kid)); err == nil { // the worker's tool outlives it
+		t.Cleanup(func() { _ = windows.TerminateProcess(k, 1); windows.CloseHandle(k) })
 	}
 	w, err := OpenWorkerHandle(cmd.Process.Pid)
 	if err != nil {
@@ -445,6 +497,7 @@ func TestKnownGapATokenDefaultAccessListLeavesAToolOfTheWorkerClaimable(t *testi
 // RESIDUAL: only the main thread of the worker is created with the locked list; the threads the worker makes later take the
 // default one, whose set-context right is what the thread-hijack injections need. The main thread is locked.
 func TestKnownGapOtherThreadsOfALockedWorkerKeepTheDefaultAccessList(t *testing.T) {
+	withoutDebugPrivileges(t)
 	cmd, r := spawnLocked(t, "sleep")
 	readLine(t, r, "READY")
 	const hijack = 0x0002 | 0x0008 | 0x0010 // THREAD_SUSPEND_RESUME | GET_CONTEXT | SET_CONTEXT
@@ -513,27 +566,17 @@ func threadCreated(t *testing.T, id uint32) uint64 {
 // RESIDUAL: an elevated process can enable SeDebugPrivilege, which skips every access list. Only an elevated administrator
 // has it, which is the class of attacker the Linux and macOS binding does not stop either (root).
 func TestKnownGapAnElevatedProcessWithDebugPrivilegeOpensALockedWorker(t *testing.T) {
-	if !windows.GetCurrentProcessToken().IsElevated() {
-		t.Skip("this test process is not elevated")
-	}
+	withoutDebugPrivileges(t)
 	cmd, r := spawnLocked(t, "sleep")
 	readLine(t, r, "READY")
-	var tok windows.Token
-	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_ADJUST_PRIVILEGES|windows.TOKEN_QUERY, &tok); err != nil {
-		t.Fatal(err)
+	const inject = windows.PROCESS_CREATE_THREAD | windows.PROCESS_VM_WRITE | windows.PROCESS_VM_OPERATION
+	if err := openAs(cmd.Process.Pid, inject); !isDenied(err) {
+		t.Fatalf("without SeDebugPrivilege the locked worker opened for injection: %v", err)
 	}
-	defer tok.Close()
-	var luid windows.LUID
-	if err := windows.LookupPrivilegeValue(nil, windows.StringToUTF16Ptr("SeDebugPrivilege"), &luid); err != nil {
-		t.Fatal(err)
+	if !setPrivilege(t, "SeDebugPrivilege", true) {
+		t.Skip("this process does not hold SeDebugPrivilege (it is not an elevated administrator)")
 	}
-	on := windows.Tokenprivileges{PrivilegeCount: 1, Privileges: [1]windows.LUIDAndAttributes{{Luid: luid, Attributes: windows.SE_PRIVILEGE_ENABLED}}}
-	if err := windows.AdjustTokenPrivileges(tok, false, &on, 0, nil, nil); err != nil {
-		t.Skipf("SeDebugPrivilege cannot be enabled: %v", err)
-	}
-	off := windows.Tokenprivileges{PrivilegeCount: 1, Privileges: [1]windows.LUIDAndAttributes{{Luid: luid}}}
-	defer windows.AdjustTokenPrivileges(tok, false, &off, 0, nil, nil)
-	if err := openAs(cmd.Process.Pid, windows.PROCESS_CREATE_THREAD|windows.PROCESS_VM_WRITE|windows.PROCESS_VM_OPERATION); err != nil {
-		t.Fatalf("an elevated process with SeDebugPrivilege cannot open the locked worker (%v): the residual may be gone; update SECURITY.md and this test", err)
+	if err := openAs(cmd.Process.Pid, inject); err != nil {
+		t.Fatalf("a process with SeDebugPrivilege enabled cannot open the locked worker (%v): the residual may be gone; update SECURITY.md and this test", err)
 	}
 }

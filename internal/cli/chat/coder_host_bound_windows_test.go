@@ -73,6 +73,8 @@ func TestBoundStartRefusesAPlacementThatReplacedTheAttributes(t *testing.T) {
 		"no inherited handle": func(c *exec.Cmd) { c.SysProcAttr.AdditionalInheritedHandles = nil },
 		"no detach flags":     func(c *exec.Cmd) { c.SysProcAttr.CreationFlags = 0 },
 		"another struct":      func(c *exec.Cmd) { c.SysProcAttr = nil },
+		"no process list":     func(c *exec.Cmd) { c.SysProcAttr.ProcessAttributes = nil },
+		"no thread list":      func(c *exec.Cmd) { c.SysProcAttr.ThreadAttributes = nil },
 	} {
 		cmd := exec.Command(os.Args[0])
 		cmd.Env = append(os.Environ(), winE2ERole+"=sleep")
@@ -96,6 +98,46 @@ func TestBoundStartRefusesAPlacementThatReplacedTheAttributes(t *testing.T) {
 		if err == nil || cmd.Process != nil {
 			t.Errorf("%s: the turn was started (%v)", name, err)
 		}
+	}
+}
+
+// The worker the launch starts carries the locked access list: a process of the same user cannot name it as a parent, start a
+// thread in it or write into it, and what the host needs (its handle, the query and wait rights) is there. The test switches off
+// SeDebugPrivilege, which a service-started session can have enabled and which skips every list.
+func TestBoundStartLocksTheWorkersAccessList(t *testing.T) {
+	var tok windows.Token
+	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_ADJUST_PRIVILEGES|windows.TOKEN_QUERY, &tok); err != nil {
+		t.Fatal(err)
+	}
+	defer tok.Close()
+	for _, name := range []string{"SeDebugPrivilege", "SeTakeOwnershipPrivilege"} {
+		var luid windows.LUID
+		if err := windows.LookupPrivilegeValue(nil, windows.StringToUTF16Ptr(name), &luid); err != nil {
+			t.Fatal(err)
+		}
+		off := windows.Tokenprivileges{PrivilegeCount: 1, Privileges: [1]windows.LUIDAndAttributes{{Luid: luid}}}
+		var prev windows.Tokenprivileges
+		var n uint32
+		if windows.AdjustTokenPrivileges(tok, false, &off, uint32(unsafe.Sizeof(prev)), &prev, &n) == nil && prev.PrivilegeCount == 1 {
+			defer windows.AdjustTokenPrivileges(tok, false, &prev, 0, nil, nil)
+		}
+	}
+	d, cmd := startBoundSleeper(t)
+	for name, rights := range map[string]uint32{
+		"CREATE_PROCESS": windows.PROCESS_CREATE_PROCESS, "CREATE_THREAD": windows.PROCESS_CREATE_THREAD,
+		"VM_WRITE": windows.PROCESS_VM_WRITE, "VM_OPERATION": windows.PROCESS_VM_OPERATION, "DUP_HANDLE": windows.PROCESS_DUP_HANDLE,
+	} {
+		h, err := windows.OpenProcess(rights, false, uint32(cmd.Process.Pid))
+		if err == nil {
+			windows.CloseHandle(h)
+			t.Errorf("the started worker opened with %s", name)
+		}
+	}
+	if !d.proc.p.Alive() {
+		t.Fatal("the host's pinned handle cannot see the locked worker")
+	}
+	if sid, err := d.proc.p.UserSID(); err != nil || sid == "" {
+		t.Fatalf("the locked worker's user cannot be read: %q %v", sid, err)
 	}
 }
 

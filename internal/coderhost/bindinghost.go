@@ -203,6 +203,9 @@ func (h *BindingHost) Ensure(ctx context.Context, profile string) error {
 	if err := procbind.Ready(); err != nil {
 		return fmt.Errorf("the binding service cannot run here: %w", err)
 	}
+	if err := procbind.LockSelf(); err != nil { // the host holds the turns' registry: on Windows a same-user process must not write into it
+		return fmt.Errorf("the binding service cannot lock the host process: %w", err)
+	}
 	opts, err := h.options(profile)
 	if err != nil {
 		return err

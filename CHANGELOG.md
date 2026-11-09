@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Security: on Windows a turn's worker and the host process are created with a locked process access list.** A program running as you can no longer name the worker (or the host) as its parent, start a thread in it, write into or read it, duplicate a handle from it or suspend it; ending it (`coder host stop`, `doomsday stop`, `taskkill`), the ancestry check and the host's own handle are unchanged. It is still weaker than Linux and macOS: the tools a worker starts and the threads it makes later keep the default list, and an elevated administrator skips every list, so the start confirmation keeps saying that Windows is weaker. SECURITY.md has the exact residual.
+
 - **The open-ended chat mode is offered on macOS.** It follows the peer-credential binding service's own readiness there, as on Linux (a Mac whose kernel or process table cannot supply it is refused with the service's reason). The binding is weaker on macOS than on Linux (no process file descriptor; see SECURITY.md).
 - **The open-ended chat mode is offered on Windows.** It follows the binding service's own readiness there too (a Windows older than 10 version 1809 is refused with the service's reason). The Windows binding is weaker than on Linux and macOS (a program running as you can defeat the process check), and the start confirmation says so.
 
