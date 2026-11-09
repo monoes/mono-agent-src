@@ -76,6 +76,15 @@ func (k *Checker) review(ctx context.Context, req Request, tree finish.Tree, ev 
 	case rerr != nil:
 		return blocked(ReasonReviewerUnavailable)
 	}
+	if req.LeadPinNow != nil {
+		// The lead's model is read again now that the money is spent: a lead that changed (or is no longer known) while the
+		// reviewer was out blocks the check. The spend was settled above.
+		if now := req.LeadPinNow(); PinKey(now) == "" || PinKey(now) != PinKey(req.LeadPin) {
+			return blocked(ReasonLeadChanged)
+		} else if ok, _ := Independent(req.JudgePin, k.cfg.Checker, now); !ok {
+			return blocked(ReasonLeadChanged)
+		}
+	}
 	res.ReviewerObserved = Excerpt(rr.Observed.Provider+"/"+rr.Observed.Model, 100)
 	res.ReviewerVerdict = rr.Verdict
 	if !rr.Observed.SameModel(k.pin) || rr.Observed.Provider == "" {

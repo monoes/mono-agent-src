@@ -2,6 +2,9 @@ package verifier
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/monoes/mono-agent/internal/doomsday/finish"
@@ -28,6 +31,12 @@ func (k *Checker) runCriteria(ctx context.Context, sb finish.Sandbox, snap strin
 				// the sandbox would run an absolute path outside its working area, such as a program in the live project folder
 				cr.Result, cr.Detail = ResError, "the program must be a name on the system path"
 				break
+			}
+			if isProgram(c.Kind) {
+				if perr := programOutside(plan.Argv[0], finish.SystemPath, []string{req.Root, k.cfg.ScratchBase}); perr != nil {
+					cr.Result, cr.Detail = ResError, perr.Error()
+					break
+				}
 			}
 			m := sb.Run(ctx, snap, tree, plan)
 			cr.Result = closedResult(m.Result)
@@ -57,5 +66,28 @@ func closedResult(r string) string {
 }
 
 // programOutside refuses a program name that resolves, through symlinks, to a file under one of roots (the project, the
-// scratch area): a link planted there would be code the workers wrote. path is the fixed system path.
-func programOutside(name, path string, roots []string) error { return nil }
+// scratch area): a link planted there would be code the workers wrote. path is the fixed system path. A link that stays
+// outside the roots is fine (/bin/sh is often a link). This is not a confinement: sh -c and python3 run anything.
+func programOutside(name, path string, roots []string) error {
+	for _, d := range filepath.SplitList(path) {
+		cand := filepath.Join(d, name)
+		st, err := os.Stat(cand)
+		if err != nil || !st.Mode().IsRegular() || st.Mode()&0o111 == 0 {
+			continue
+		}
+		real, err := filepath.EvalSymlinks(cand)
+		if err != nil {
+			return fmt.Errorf("the program cannot be resolved")
+		}
+		for _, root := range roots {
+			if rr, err := filepath.EvalSymlinks(root); err == nil {
+				root = rr
+			}
+			if real == root || strings.HasPrefix(real, root+string(filepath.Separator)) {
+				return fmt.Errorf("the program is a link into the project or the scratch area")
+			}
+		}
+		return nil
+	}
+	return nil // not on the path: the sandbox says so
+}

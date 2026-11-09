@@ -151,7 +151,7 @@ func (k *Checker) Run(ctx context.Context, req Request) (Result, error) {
 		return Result{}, ErrBusy
 	}
 	defer k.run.Unlock()
-	res := Result{Containment: Containment, ReviewerPin: k.cfg.Checker, GoalHash: req.GoalHash}
+	res := Result{Containment: ContainmentFileOnly, ReviewerPin: k.cfg.Checker, GoalHash: req.GoalHash}
 	end := func(o Outcome, r Reason) (Result, error) { res.Outcome, res.Reason = o, r; return res, nil }
 
 	if r := validate(req); r != ReasonNone {
@@ -174,6 +174,25 @@ func (k *Checker) Run(ctx context.Context, req Request) (Result, error) {
 	}
 	if machine == 0 {
 		return end(OutcomeCannotCheck, ReasonNoMachineCriteria)
+	}
+	var conf Confiner
+	if programs > 0 {
+		switch {
+		case k.cfg.Confiner != nil:
+			// A confinement that does not prove itself here and now is no confinement, and there is no fall back to the opt-in.
+			if err := k.cfg.Confiner.SelfTest(ctx); err != nil {
+				if ctx.Err() != nil {
+					return end(OutcomeAbandoned, ReasonCancelled)
+				}
+				return end(OutcomeCannotCheck, ReasonNoConfinement)
+			}
+			conf = k.cfg.Confiner
+			res.Containment = ContainmentConfinedPrefix + Excerpt(conf.Name(), 64) + " + process-group"
+		case k.cfg.AllowUnconfined:
+			res.Containment = ContainmentUnconfined
+		default:
+			return end(OutcomeCannotCheck, ReasonNoConfinement)
+		}
 	}
 	sb := finish.Sandbox{RequireNetDeny: true, NetDenyAvailable: k.cfg.NetDenyAvailable, Timeout: k.crit, OutCap: OutputCap}
 	if programs > 0 && !sb.NetEnforceable() {
@@ -245,7 +264,7 @@ func (k *Checker) Run(ctx context.Context, req Request) (Result, error) {
 
 	gp := &GroupPlace{}
 	defer gp.Close()
-	sb.Place, sb.Scratch = gp.Place, work
+	sb.Place, sb.Scratch = placeBoth(gp, conf), work
 	runCtx, cancel := context.WithTimeout(ctx, k.tot)
 	defer cancel()
 	k.runCriteria(runCtx, sb, snap, tree, req, &res)
@@ -301,4 +320,23 @@ func abandoned(ctx, runCtx context.Context, res *Result) bool {
 		return false
 	}
 	return true
+}
+
+// placeBoth places a command in the process group and, when there is one, the confinement; both are released.
+func placeBoth(gp *GroupPlace, conf Confiner) func(*exec.Cmd) (func(), error) {
+	if conf == nil {
+		return gp.Place
+	}
+	return func(cmd *exec.Cmd) (func(), error) {
+		rg, err := gp.Place(cmd)
+		if err != nil {
+			return nil, err
+		}
+		rc, err := conf.Place(cmd)
+		if err != nil {
+			rg()
+			return nil, err
+		}
+		return func() { rc(); rg() }, nil
+	}
 }
