@@ -78,6 +78,8 @@ func WaitingWhy(waiting string) string {
 		return "waiting for you: the lead has no spend cap of its own, so a wake-up could cost without limit (set a budget for the lead's chat)"
 	case "meter-unreadable":
 		return "waiting for you: the judge ledger or the turn journals could not be read, so the spend cannot be measured; it clears when they read again"
+	case "judge-pin":
+		return "waiting for you: the judge's model must differ from the lead's, and the lead's model must be known (pin the lead's model, or change the host's judge pin and restart it)"
 	case "engine-parked":
 		return "waiting for you: a stored strategy row failed verification and the strategy engine stopped"
 	}

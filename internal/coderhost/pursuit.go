@@ -99,7 +99,9 @@ func (d *PursuitDeps) clock() epoch.Clock {
 	return d.Clock
 }
 
-func (d *PursuitDeps) ready() bool { return d != nil && d.Model != nil && d.Refuse != nil }
+func (d *PursuitDeps) ready() bool {
+	return d != nil && d.Model != nil && d.Refuse != nil && d.LeadPin != nil && validWakeCap(d.WakeCapUSD)
+}
 
 // DefaultWakeCapUSD is the per-wake-up cap the product proposes; MaxWakeCapUSD is the most it may be set to (at 12 wake-ups
 // an hour host-wide that is $120 an hour of wake-ups alone).
@@ -370,12 +372,20 @@ func (h *Host) pursuitGate(ctx context.Context, rd *inputs.Reader, m pursuitMiss
 		h.logf("coder host: pursuit of session %d: %v", m.ID, err)
 		return g, false
 	}
+	// Money the lead has handed to helpers and they have not spent is committed too: a helper may spend it all after this gate.
+	carveMicro, err := h.Store.helperCarveUnspentMicro(m, tree)
+	if err != nil {
+		h.logf("coder host: pursuit of session %d: %v", m.ID, err)
+		h.stallUnreadable(m)
+		return g, false
+	}
 	away := AwayState{ParkedMax: pur.ParkedMax, Pct: pur.Pct, Parked: parked}
 	if snap.Budget.Known {
 		away.BudgetMicro = usdMicro(snap.Budget.BudgetUSD)
 		away.Spend(spent - st.BaseSpentMicro)
 		away.Spend(judgeMicro)
 		away.Spend(leadMicro)
+		away.Spend(carveMicro)
 	}
 	hourN, freesAt, err := h.Store.pursuitWakesLastHour()
 	if err != nil {
@@ -456,7 +466,7 @@ func (h *Host) pursuitRunOf(m pursuitMission, goal missionpursuit.Goal) (*pursui
 		return r, nil
 	}
 	d := h.Pursuit
-	jd, err := judge.New(judge.Config{Model: meteredModel{inner: d.Model, store: h.Store, session: m.ID}, Refuse: d.Refuse, Timeout: d.Timeout})
+	jd, err := judge.New(judge.Config{Model: meteredModel{inner: d.Model, store: h.Store, session: m.ID}, Refuse: h.pursuitRefuse(m), Timeout: d.Timeout})
 	if err != nil {
 		return nil, err
 	}
@@ -529,6 +539,9 @@ func (h *Host) conversationPursuing(profileID, conversationID string) bool {
 
 // pursuitWakeStillAllowed re-checks, when a wake-up is about to run, that the pursuit still runs. It returns why not, or "".
 func (h *Host) pursuitWakeStillAllowed(x Session) string {
+	if !h.Pursuit.ready() {
+		return errNoPursuitLoop.Error() // a wake-up queued before this host restarted with the loop off
+	}
 	m := pursuitMission{Profile: x.ProfileID, Conv: x.ConversationID}
 	err := h.Store.db.QueryRow(`SELECT s.id FROM task_sessions s JOIN mission_pursuit p ON p.session_id = s.id
 		WHERE s.profile_id = ? AND s.conversation_id = ? AND s.archived_at = '' AND p.enabled = 1 ORDER BY s.id DESC LIMIT 1`, x.ProfileID, x.ConversationID).Scan(&m.ID)

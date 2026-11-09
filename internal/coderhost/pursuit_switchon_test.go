@@ -78,29 +78,16 @@ func TestTheWakeCapIsTheHostsSettingNotAConstant(t *testing.T) {
 }
 
 func TestTheWakeCapAppliesToPursuitTurnsOnly(t *testing.T) {
-	w := newPursuitWorld(t)
-	w.leadBudget(10)
-	for _, turn := range []string{"person-1", "other-3"} {
+	for _, turn := range []string{"person-1", "other-3"} { // a turn that costs nothing reported is charged its whole cap: one turn per world
+		w := newPursuitWorld(t)
+		w.leadBudget(10)
 		send(t, w.st, "m", turn, "hello")
 		if err := w.h.Tick(); err != nil {
 			t.Fatal(err)
 		}
-		if w.launched().turn(turn) == nil {
-			var st, why string
-			_ = w.st.db.QueryRow(`SELECT status, error FROM coder_session_commands WHERE turn_id = ?`, turn).Scan(&st, &why)
-			t.Fatalf("%s did not start: %s %q", turn, st, why)
+		if got := w.launched().caps; len(got) != 1 || got[0] != 10 {
+			t.Fatalf("%s: a turn that is not a pursuit wake-up ran under caps %v, want its whole 10 USD", turn, got)
 		}
-		w.launched().turn(turn).end()
-		w.setLead("idle", "")
-		w.endCommandsDone()
-	}
-	for _, c := range w.launched().caps {
-		if c < 9 {
-			t.Fatalf("a turn that is not a pursuit wake-up was capped at X: caps %v", w.launched().caps)
-		}
-	}
-	if len(w.launched().caps) != 2 {
-		t.Fatalf("caps %v", w.launched().caps)
 	}
 }
 
@@ -375,8 +362,9 @@ func TestThePursuitIsNotReadyWithoutAValidWakeCapAndLeadPin(t *testing.T) {
 // The scripted acceptance run with the fake judge, from the start to "waiting for you": every wake turn is capped at X, the
 // away limit of wake-ups stops it, the person's action starts it again.
 func TestAScriptedPursuitFromStartToWaiting(t *testing.T) {
-	w := newPursuitWorldLimits(t, missionpursuit.AwayLimits{Wakes: 2})
+	w := newPursuitWorldLimits(t, missionpursuit.AwayLimits{Wakes: 3})
 	w.leadBudget(20)
+	w.exec(`UPDATE task_sessions SET budget_usd = 100 WHERE id = 77`) // the first wake turn is charged its whole cap: 20% of 10 USD would stop after one
 	w.h.Pursuit.MaxEpochsPerHour = 12
 	w.pass()
 	for i := 0; i < 2; i++ {
@@ -385,6 +373,9 @@ func TestAScriptedPursuitFromStartToWaiting(t *testing.T) {
 		if err := w.h.Tick(); err != nil { // the lead takes the wake-up
 			t.Fatal(err)
 		}
+		if w.launched().turn(w.lastWakeTurn()) == nil {
+			t.Fatalf("round %d: the wake-up did not start; commands %v, waiting %q, epochs %v", i, w.wakeStatuses(), w.waiting(), w.epochs())
+		}
 		w.launched().turn(w.lastWakeTurn()).end()
 		w.setLead("idle", "")
 		w.endCommandsDone()
@@ -392,14 +383,19 @@ func TestAScriptedPursuitFromStartToWaiting(t *testing.T) {
 	if got := w.launched().caps; len(got) != 2 || got[0] != DefaultWakeCapUSD || got[1] != DefaultWakeCapUSD {
 		t.Fatalf("the two wake turns ran under caps %v, want X twice", got)
 	}
+	// The third wake-up reaches the limit of 3 when it is queued, so the run-time check refuses it (it counts itself): the
+	// pursuit waits for the person.
 	w.advance(31 * time.Minute)
 	w.pass()
-	if w.waiting() != "wakes" || w.model.count() != 2 || len(w.epochs()) != 2 {
-		t.Fatalf("waiting %q, judge calls %d, epochs %v", w.waiting(), w.model.count(), w.epochs())
+	if err := w.h.Tick(); err != nil {
+		t.Fatal(err)
+	}
+	if w.waiting() != "wakes" || w.model.count() != 3 || len(w.launched().started) != 2 {
+		t.Fatalf("waiting %q, judge calls %d, turns started %d", w.waiting(), w.model.count(), len(w.launched().started))
 	}
 	w.advance(10 * time.Hour)
 	w.pass()
-	if w.model.count() != 2 {
+	if w.model.count() != 3 {
 		t.Fatal("a pursuit waiting for the person went on")
 	}
 }
