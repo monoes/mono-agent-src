@@ -125,7 +125,7 @@ func (h *Host) pursuitStopReason(m pursuitMission, st pursuitState) string {
 		return pursuitWaitingJudge
 	}
 	if m.Conv == "" {
-		return pursuitWaitingLead // no chat, no lead to cap: a wake-up is never launched uncapped
+		return pursuitWaitingNoChat // no chat, no lead to wake or to cap: a wake-up is never launched uncapped
 	}
 	if budget, err := h.Store.Budget(m.Profile, m.Conv); err != nil || !(budget > 0) {
 		return pursuitWaitingLead

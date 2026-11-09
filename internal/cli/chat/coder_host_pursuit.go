@@ -16,7 +16,7 @@ import (
 //
 //	MONOAGENT_PURSUIT_JUDGE         the judge's pin, runtime/model[@version]. Unset or empty: the loop is OFF (the default),
 //	                                and the check-ins of a mission whose pursuit was started go on as before.
-//	MONOAGENT_PURSUIT_WAKE_CAP_USD  X, the most one wake-up turn of a lead may spend; default 2; above 0 and at most 10.
+//	MONOAGENT_PURSUIT_WAKE_CAP_USD  X, the most one wake-up turn of a lead may spend; unset or empty = 2; otherwise 0.01 to 10.
 //
 // There is no live switch: turning the loop off host-wide is unsetting the first and restarting the host. A value that does
 // not parse leaves the loop OFF, with the reason shown in `coder host status` and the pursuit status.
@@ -36,10 +36,11 @@ func pursuitFromEnv(getenv func(string) string, db *sql.DB) (*coderhost.PursuitD
 		return nil, coderhost.PursuitHostInfo{Pin: pin, Reason: fmt.Sprintf(format, a...)}
 	}
 	wake := coderhost.DefaultWakeCapUSD
-	if raw := strings.TrimSpace(getenv(envPursuitWakeCap)); raw != "" {
-		x, err := strconv.ParseFloat(raw, 64)
-		if err != nil || math.IsNaN(x) || !(x > 0) || x > coderhost.MaxWakeCapUSD {
-			return off("%s must be a number above 0 and at most %g (it is %q); the pursuit loop stays off", envPursuitWakeCap, coderhost.MaxWakeCapUSD, raw)
+	// unset or empty is the default; anything else must be a number (a value of only spaces is not one)
+	if raw := getenv(envPursuitWakeCap); raw != "" {
+		x, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+		if err != nil || math.IsNaN(x) || x < coderhost.MinWakeCapUSD || x > coderhost.MaxWakeCapUSD {
+			return off("%s must be a number from %g to %g (it is %q); the pursuit loop stays off", envPursuitWakeCap, coderhost.MinWakeCapUSD, coderhost.MaxWakeCapUSD, raw)
 		}
 		wake = x
 	}

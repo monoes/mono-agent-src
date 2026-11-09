@@ -2,8 +2,11 @@ package coderhost
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+
+	"github.com/monoes/mono-agent/internal/daemonhb"
 )
 
 // What the host tells the status commands about the pursuit loop: the host flag, the judge pin and the per-wake cap. The
@@ -41,8 +44,18 @@ func ReadHostPursuit(dbPath string) (info PursuitHostInfo, found bool) {
 	return *doc.Pursuit, true
 }
 
-// ReadHostPursuitState is ReadHostPursuit plus whether the host that wrote the file is alive now.
+// ReadHostPursuitState is ReadHostPursuit plus whether the host that wrote the file is alive now: a live host holds host.lock,
+// so a lock that can be taken means the file is a leftover of a host that died. (The probe takes the lock for a moment, as
+// `coder host status` does.) The file is display-only: it can make a status wrong, never make anything run.
 func ReadHostPursuitState(dbPath string) (info PursuitHostInfo, found, alive bool) {
 	info, found = ReadHostPursuit(dbPath)
-	return info, found, found
+	if !found {
+		return info, false, false
+	}
+	release, err := daemonhb.LockFile(filepath.Join(HostDir(dbPath), "host.lock"))
+	if err == nil {
+		release()
+		return info, true, false
+	}
+	return info, true, errors.Is(err, daemonhb.ErrHeld)
 }

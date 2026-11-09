@@ -300,8 +300,13 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 			if pursuitInfo.Reason != "" {
 				logf("coder host: %s", pursuitInfo.Reason)
 			}
-			if raw, merr := json.Marshal(info); merr == nil && os.WriteFile(infoPath+".tmp", raw, 0o600) == nil {
-				_ = os.Rename(infoPath+".tmp", infoPath)
+			// host.json is display-only: if it cannot be written the status says "unavailable", the loop is unaffected
+			if raw, merr := json.Marshal(info); merr != nil {
+				logf("coder host: the pursuit status could not be encoded for host.json: %v", merr)
+			} else if werr := os.WriteFile(infoPath+".tmp", raw, 0o600); werr != nil {
+				logf("coder host: the pursuit status could not be written to host.json (the status commands will say it is unavailable): %v", werr)
+			} else if rerr := os.Rename(infoPath+".tmp", infoPath); rerr != nil {
+				logf("coder host: the pursuit status could not be moved into host.json (the status commands will say it is unavailable): %v", rerr)
 			}
 			if hostBuilt != nil {
 				hostBuilt(h)

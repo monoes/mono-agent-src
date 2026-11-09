@@ -72,15 +72,15 @@ func (d Deps) writePursuit(cmd *cobra.Command, p tasks.Profile, pu missionpursui
 // writeProgress prints what the pursuit loop last recorded: how far each away limit has come, the host-wide hourly cap, and
 // in plain words why the pursuit waits for you.
 func (d Deps) writeProgress(cmd *cobra.Command, p tasks.Profile, pu missionpursuit.Pursuit, pr missionpursuit.Progress) error {
-	host, hostFound := d.hostPursuit()
+	host, hostFound, hostAlive := d.hostPursuit()
 	if d.JSONOutput() {
-		return d.WriteJSON(cmd.OutOrStdout(), map[string]any{"profile": p, "pursuit": pu, "progress": pr, "host": map[string]any{"published": hostFound, "pursuit": host, "judge_call_cap_usd": coderhost.PursuitJudgeCallCapUSD}})
+		return d.WriteJSON(cmd.OutOrStdout(), map[string]any{"profile": p, "pursuit": pu, "progress": pr, "host": map[string]any{"published": hostFound, "running": hostAlive, "pursuit": host, "judge_call_cap_usd": coderhost.PursuitJudgeCallCapUSD}})
 	}
 	if err := d.writePursuit(cmd, p, pu, "Showing"); err != nil {
 		return err
 	}
 	w := cmd.OutOrStdout()
-	fmt.Fprintln(w, "  "+hostPursuitLine(host, hostFound))
+	fmt.Fprintln(w, "  "+hostPursuitLine(host, hostFound, hostAlive))
 	if !pr.Seen {
 		fmt.Fprintln(w, "  the pursuit loop has not looked at it yet (it runs only on a host with the loop wired)")
 		return nil
@@ -207,18 +207,24 @@ func (d Deps) newPursuitStatusCmd() *cobra.Command {
 }
 
 // hostPursuit reads what the running coder host published about the loop (host flag, judge pin, per-wake cap).
-func (d Deps) hostPursuit() (coderhost.PursuitHostInfo, bool) {
+func (d Deps) hostPursuit() (coderhost.PursuitHostInfo, bool, bool) {
 	if d.DBPath == nil {
-		return coderhost.PursuitHostInfo{}, false
+		return coderhost.PursuitHostInfo{}, false, false
 	}
-	return coderhost.ReadHostPursuit(clicore.ExpandPath(d.DBPath()))
+	return coderhost.ReadHostPursuitState(clicore.ExpandPath(d.DBPath()))
 }
 
 // hostPursuitLine says in plain words whether this host runs the loop and what a wake-up and a judge call may cost.
-func hostPursuitLine(h coderhost.PursuitHostInfo, found bool) string {
+func hostPursuitLine(h coderhost.PursuitHostInfo, found, alive bool) string {
 	switch {
 	case !found:
-		return "this host: no coder host has published its pursuit state (none is running, or it is older than this field); nothing is judged or woken without one"
+		return "this host: no coder host has published its pursuit state (none is running, it is older than this field, or its status file could not be written: status unavailable); nothing is judged or woken without a running host"
+	case !alive:
+		last := "the loop was OFF"
+		if h.Enabled {
+			last = fmt.Sprintf("the loop was ON with judge %s", h.Pin)
+		}
+		return "this host: the coder host is not running (last known: " + last + "); nothing is judged or woken until a host starts"
 	case h.Enabled:
 		return fmt.Sprintf("this host: the pursuit loop is ON; judge %s (asked to stay under $%.2f a call); a wake-up turn is capped at $%.2f or at what the lead has left, whichever is less (a request to the AI runtime, checked after the turn)",
 			h.Pin, coderhost.PursuitJudgeCallCapUSD, h.WakeCapUSD)

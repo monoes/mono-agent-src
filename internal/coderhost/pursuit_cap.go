@@ -16,8 +16,9 @@ var errWakeUncapped = errors.New("a pursuit wake-up is never started without a s
 // errNoPursuitLoop: a pursuit- turn is the loop's own; on a host where the loop is not running nothing starts one.
 var errNoPursuitLoop = errors.New("the pursuit loop is not running on this host, so its wake-up does not run")
 
-// validWakeCap says whether x is a usable per-wake-up cap: a number above 0 and at most MaxWakeCapUSD.
-func validWakeCap(x float64) bool { return !math.IsNaN(x) && x > 0 && x <= MaxWakeCapUSD }
+// validWakeCap says whether x is a usable per-wake-up cap: a number from MinWakeCapUSD (below a cent a cap would round to a
+// turn that is charged nothing) to MaxWakeCapUSD.
+func validWakeCap(x float64) bool { return !math.IsNaN(x) && x >= MinWakeCapUSD && x <= MaxWakeCapUSD }
 
 // pursuitWakeCap is the cap of a pursuit wake-up turn: the lower of what the lead has left (capUSD) and the host's X. It runs
 // only for a turn whose id starts with PursuitTurnPrefix, on the cap TurnCap just read; the cap that results is the one
@@ -66,10 +67,12 @@ func (s *Store) helperCarveUnspentMicro(m pursuitMission, tree []string) (int64,
 	return sum, nil
 }
 
-// pinKey is a pin without its version: "runtime/model@1" and "runtime/model" are the same model for the independence rule.
+// pinKey is a pin without its version, trimmed and in lower case: "runtime/model@1", "Runtime/Model" and "runtime/model" are the
+// same name for the independence rule. It compares NAMES: two names for one model (a provider alias, "opus" and
+// "claude-opus-4-5") are not recognised, so the rule is not a guarantee of different weights.
 func pinKey(p string) string {
 	k, _, _ := strings.Cut(strings.TrimSpace(p), "@")
-	return k
+	return strings.ToLower(strings.TrimSpace(k))
 }
 
 // pursuitPinWhy says why the judge may not judge this mission, or "": its pin is empty, the deployment's rule refuses it, or it
