@@ -409,8 +409,9 @@ func (w *pworld) lastWakeTurn() string {
 	return turn
 }
 
-// Two layers refuse a pursuit turn on a host where the loop is off (the run-time recheck and the cap rule); each is tested
-// alone, so that removing one is noticed.
+// Layers refuse a pursuit turn on a host where the loop is off: the run-time recheck (which also reaches the pin check of the
+// gate) and the cap rule at the start of the turn. The cap rule is tested alone; the recheck is redundant with the gate's pin
+// check by design, so removing only its own ready() test is not noticed (the turn is still refused twice over).
 func TestEachLayerRefusesAPursuitTurnOnAHostWithoutTheLoop(t *testing.T) {
 	w := newPursuitWorld(t)
 	w.queueWake()
