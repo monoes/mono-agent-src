@@ -117,6 +117,8 @@ func (LeadScope) Role() string { return WhoMaster }
 // ConversationID is the lead's own conversation, from the verified token.
 func (l LeadScope) ConversationID() string { return l.Caller.ConversationID }
 
+func (LeadScope) sealed() {}
+
 // Policy is the rules for the child sessions of one task session.
 type Policy struct {
 	ProfileID          string  `json:"profileId"`

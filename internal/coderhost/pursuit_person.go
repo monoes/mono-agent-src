@@ -17,6 +17,11 @@ import (
 //     not a host-made one, or the person's own answer notes (the reply to a plan or to an ask: answer-p-, ask-p-, queued
 //     only by the operator's surfaces).
 //
+// The plain chat send of the person is still the NEGATIVE definition (no issuer, not host-made), kept on purpose: a
+// positive marker would need a column and a migration, and every person send would have to write it. What protects it
+// is that every path that writes the queue is pinned (TestEveryPersonQueueingSiteIsKnown scans internal/ and cmd/) and
+// that the CLI verbs behind it are operator-only (RequireOperator / personGate). See issue #1548.
+//
 // NOT the operator's label in the session history as such: the label "you" is that of every Human actor, and the HOST
 // writes under it too (the charge of an ended child, an in-turn worker's spend, the conductor's close proposal, a task
 // added). Only the event kinds listed in personEventKinds, which a person alone can cause, count.

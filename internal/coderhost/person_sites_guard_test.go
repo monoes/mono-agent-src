@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,6 +20,8 @@ import (
 // pursuit_person.go). Anything that queues a command, or calls a helper that speaks for the person, anywhere in
 // internal/ or cmd/, could therefore reset the limits. This guard lists every such site; an unlisted one fails and
 // points at the review. Reviewed in the S4 pursuit loop review (wave-s4-sec2, wave-s4-sec3), issue #1548.
+
+var insertCommands = regexp.MustCompile(`(?i)INSERT\s+(?:OR\s+\w+\s+)?INTO\s+coder_session_commands`)
 
 const coderhostImport = "github.com/monoes/mono-agent/internal/coderhost"
 
@@ -47,6 +50,44 @@ var knownPersonSites = map[string]int{
 	"internal/cli/task/session_person_ask.go:newPersonAnswerAskCmd:AnswerAncestorQuestion": 1,
 	// outside coderhost, not the coder queue: the doomsday governor's own queue, in a file that imports coderhost for its Launcher type
 	"internal/cli/doomsday/governorlauncher.go:admit:Enqueue": 1,
+	// outside coderhost: the operator CLI's parked-question answer (OperatorScope), behind the operator gate
+	"internal/cli/chat/coder_sessions_autonomy.go:newQuestionsAnswerCmd:Answer": 1,
+	// names that match but are not the coder queue (reviewed false positives): other Enqueue methods
+	"internal/capturesummary/summarizer.go:Handle:Enqueue":             1, // the capture summary queue
+	"internal/cli/capturehooks/index.go:handleIndexCapture:Enqueue":    1, // the capture index queue
+	"internal/cli/capturehooks/index.go:handleIndexSummary:Enqueue":    1,
+	"internal/doomsday/governor/sched/sched.go:Enqueue:Enqueue":        1, // the governor's own queue
+	"internal/workflow/engine_loops.go:ResumeExecution:Enqueue":        1, // the workflow execution queue (ExecutionRequest)
+	"internal/workflow/engine_loops.go:adoptQueuedExecutions:Enqueue":  1,
+	"internal/workflow/engine_run.go:RetryExecution:Enqueue":           1,
+	"internal/workflow/engine_run.go:TriggerWorkflow:Enqueue":          1,
+	"internal/workflow/engine_run.go:handleTrigger:Enqueue":            1,
+	"internal/workflow/engine_subworkflow.go:StartSubWorkflow:Enqueue": 1,
+	"internal/workflow/engine_webhook.go:handleWebhookTrigger:Enqueue": 1,
+	"internal/workflow/error_workflow.go:fireErrorWorkflow:Enqueue":    1,
+	"internal/workflow/evaluation.go:StartEvaluationCase:Enqueue":      1,
+	// inside coderhost: every place that queues a command (the older TestEveryCommandQueueingSiteIsKnown holds the
+	// reasons per site; this list makes the same sites part of the whole-tree guard)
+	"internal/coderhost/ask_ancestor.go:publishAsk:enqueueOn":           1,
+	"internal/coderhost/ask_reply.go:closeAndDeliver:enqueueOn":         1,
+	"internal/coderhost/checkin.go:checkinOne:EnqueueWithCheckin":       1,
+	"internal/coderhost/children.go:spawnWith:Enqueue":                  1,
+	"internal/coderhost/children_control.go:ControlChild:Enqueue":       1,
+	"internal/coderhost/children_control.go:SendToChild:Enqueue":        1,
+	"internal/coderhost/missionchild.go:queueCascadeStop:Enqueue":       1,
+	"internal/coderhost/missionchild.go:reconcileChild:Enqueue":         1,
+	"internal/coderhost/parked_deliver.go:deliver:Enqueue":              1,
+	"internal/coderhost/person_deny.go:tellDenied:Enqueue":              1,
+	"internal/coderhost/person_plan.go:TellLeadAboutPlan:Enqueue":       1,
+	"internal/coderhost/pursuit_wake.go:EnqueueWithPursuit:enqueueOn":   1,
+	"internal/coderhost/pursuit_wake.go:pursuitWake:EnqueueWithPursuit": 1,
+	"internal/coderhost/send_bounded.go:EnqueueSendBounded:enqueueOn":   1,
+	"internal/coderhost/session_answer.go:AnswerAsMaster:Answer":        1, // the master's answer, under a token scope; the turn id is answer-m-, never reserved
+	"internal/coderhost/sessionspawn.go:SpawnSession:Enqueue":           1,
+	"internal/coderhost/store.go:Enqueue:enqueueOn":                     1,
+	"internal/coderhost/store.go:EnqueueWithCheckin:enqueueOn":          1,
+	"internal/coderhost/store.go:INSERT": 2, // enqueueOn, and enqueueCascadeResume (a resume command, never a send)
+	"internal/coderhost/treecascade.go:queueCascade:Enqueue":            1,
 	// inside coderhost: where the person's marker and reserved ids are built
 	"internal/coderhost/person_plan.go:planCommand:answerFromPerson":         1, // the plan words' turn id, marked person
 	"internal/coderhost/person_deny.go:DenyPlan:planCommand":                 1,
@@ -83,31 +124,49 @@ func scanPersonSites(base string, roots ...string) (map[string]int, int, error) 
 			rel, _ := filepath.Rel(base, path)
 			rel = filepath.ToSlash(rel)
 			inside := strings.HasPrefix(rel, "internal/coderhost/")
-			imports := false
+			dot := false // import . ".../coderhost": calls are bare identifiers
 			for _, im := range f.Imports {
-				if p, _ := strconv.Unquote(im.Path.Value); p == coderhostImport {
-					imports = true
+				if p, _ := strconv.Unquote(im.Path.Value); p == coderhostImport && im.Name != nil && im.Name.Name == "." {
+					dot = true
 				}
-			}
-			if !inside && !imports {
-				return nil
 			}
 			for _, decl := range f.Decls {
-				fd, ok := decl.(*ast.FuncDecl)
-				if !ok || fd.Body == nil {
-					continue
+				fn := ""
+				if fd, ok := decl.(*ast.FuncDecl); ok {
+					fn = fd.Name.Name
 				}
-				ast.Inspect(fd.Body, func(n ast.Node) bool {
-					name := ""
+				sel := map[*ast.Ident]bool{}
+				ast.Inspect(decl, func(n ast.Node) bool {
 					switch x := n.(type) {
-					case *ast.SelectorExpr: // every selector, so a method value counts as a call
-						name = x.Sel.Name
-						if (queueingNames[name] && !inside) || personNames[name] {
-							got[rel+":"+fd.Name.Name+":"+name]++
+					case *ast.SelectorExpr: // every selector, so a method value or an interface call counts
+						sel[x.Sel] = true
+						if queueingNames[x.Sel.Name] || personNames[x.Sel.Name] {
+							got[rel+":"+fn+":"+x.Sel.Name]++
 						}
 					case *ast.Ident:
-						if inside && personIdents[x.Name] && x.Name != fd.Name.Name {
-							got[rel+":"+fd.Name.Name+":"+x.Name]++
+						switch {
+						case sel[x]:
+						case dot && (queueingNames[x.Name] || personNames[x.Name]):
+							got[rel+":"+fn+":"+x.Name]++
+						case inside && fn != "" && personIdents[x.Name] && x.Name != fn:
+							got[rel+":"+fn+":"+x.Name]++
+						}
+					case *ast.CallExpr: // Store.Answer(profile, id, text, scope): the parked-question answer, 4 arguments
+						name := ""
+						switch fx := x.Fun.(type) {
+						case *ast.SelectorExpr:
+							name = fx.Sel.Name
+						case *ast.Ident:
+							if dot {
+								name = fx.Name
+							}
+						}
+						if name == "Answer" && len(x.Args) == 4 {
+							got[rel+":"+fn+":Answer"]++
+						}
+					case *ast.BasicLit: // a raw INSERT into the queue table, wherever it is
+						if x.Kind == token.STRING && insertCommands.MatchString(x.Value) {
+							got[rel+":INSERT"]++
 						}
 					}
 					return true
@@ -239,10 +298,10 @@ func plant(t *testing.T, src string) map[string]int {
 func TestThePersonSiteScanSeesTheShapesThatSlipPastAnImportFilter(t *testing.T) {
 	imp := `import "` + coderhostImport + `"`
 	for name, c := range map[string]struct{ src, key string }{
-		"raw insert":                  {"package evil\n\nconst q = `INSERT INTO coder_session_commands (x) VALUES (1)`\n", "evil.go:INSERT"},
+		"raw insert":                   {"package evil\n\nconst q = `INSERT INTO coder_session_commands (x) VALUES (1)`\n", "evil.go:INSERT"},
 		"interface without the import": {"package evil\n\ntype Q interface{ Enqueue(x any) }\n\nfunc F(q Q) { q.Enqueue(1) }\n", "evil.go:F:Enqueue"},
-		"dot import":                  {"package evil\n\nimport . \"" + coderhostImport + "\"\n\nfunc F() { _, _ = TellLeadAboutPlan(nil, PersonProof{}, \"p\", \"c\", 1, \"a\", \"x\") }\n", "evil.go:F:TellLeadAboutPlan"},
-		"answer":                      {"package evil\n\n" + imp + "\n\nfunc F(s *coderhost.Store) { _, _, _ = s.Answer(\"p\", 1, \"x\", coderhost.OperatorScope{}) }\n", "evil.go:F:Answer"},
+		"dot import":                   {"package evil\n\nimport . \"" + coderhostImport + "\"\n\nfunc F() { _, _ = TellLeadAboutPlan(nil, PersonProof{}, \"p\", \"c\", 1, \"a\", \"x\") }\n", "evil.go:F:TellLeadAboutPlan"},
+		"answer":                       {"package evil\n\n" + imp + "\n\nfunc F(s *coderhost.Store) { _, _, _ = s.Answer(\"p\", 1, \"x\", coderhost.OperatorScope{}) }\n", "evil.go:F:Answer"},
 	} {
 		found := false
 		for k := range plant(t, c.src) {

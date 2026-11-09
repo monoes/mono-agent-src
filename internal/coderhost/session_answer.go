@@ -19,6 +19,8 @@ func (tokenMasterScope) Role() string { return WhoMaster }
 // ConversationID is the master's own conversation, from the verified token.
 func (t tokenMasterScope) ConversationID() string { return t.conv }
 
+func (tokenMasterScope) sealed() {}
+
 // AnswerAsMaster answers the open question id of the session conv. It succeeds only for a caller
 // that Answer would accept as the session's master: conv must be a direct child of the caller, the question
 // must be conv's, and the policy must name the master for that class. A question that does not
