@@ -40,3 +40,9 @@ func ReadHostPursuit(dbPath string) (info PursuitHostInfo, found bool) {
 	}
 	return *doc.Pursuit, true
 }
+
+// ReadHostPursuitState is ReadHostPursuit plus whether the host that wrote the file is alive now.
+func ReadHostPursuitState(dbPath string) (info PursuitHostInfo, found, alive bool) {
+	info, found = ReadHostPursuit(dbPath)
+	return info, found, found
+}

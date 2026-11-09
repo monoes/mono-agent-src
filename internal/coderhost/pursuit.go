@@ -67,6 +67,7 @@ const (
 	pursuitWaitingLead   = "lead-uncapped"
 	pursuitWaitingMeter  = "meter-unreadable"
 	pursuitWaitingPin    = "judge-pin"
+	pursuitWaitingNoChat = "no-chat"
 )
 
 // PursuitDeps turns the loop on. Model is the judge (resolved by the caller for the judging purpose) and Refuse its
@@ -108,6 +109,7 @@ func (d *PursuitDeps) ready() bool {
 const (
 	DefaultWakeCapUSD = 2.0
 	MaxWakeCapUSD     = 10.0
+	MinWakeCapUSD     = 0.01
 )
 
 // pursuitMission is one mission whose pursuit is started.

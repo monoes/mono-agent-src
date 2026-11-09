@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/coderhost"
+	"github.com/monoes/mono-agent/internal/daemonhb"
 	"github.com/monoes/mono-agent/internal/missionpursuit"
 	"github.com/monoes/mono-agent/internal/storage"
 )
@@ -185,6 +186,11 @@ func TestSessionPursuitStatusShowsTheHostSwitchOn(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	release, lerr := daemonhb.LockFile(filepath.Join(dir, "host.lock")) // a live host holds its lock
+	if lerr != nil {
+		t.Fatal(lerr)
+	}
+	defer release()
 	host := func(doc string) {
 		if err := os.WriteFile(filepath.Join(dir, "host.json"), []byte(doc), 0o600); err != nil {
 			t.Fatal(err)
@@ -214,5 +220,34 @@ func TestSessionPursuitStatusShowsTheHostSwitchOn(t *testing.T) {
 	mustTaskJSON(t, db, "default", &doc, "", "session", "pursuit", "status", id(s))
 	if !doc.Host.Published || !doc.Host.Pursuit.Enabled || doc.Host.Pursuit.WakeCapUSD != 2 || doc.Host.Pursuit.Pin != "claude/haiku@4" {
 		t.Errorf("json host: %+v", doc.Host)
+	}
+}
+
+// A host.json left behind by a host that died (no lock held) does not show the loop as on.
+func TestSessionPursuitStatusDoesNotClaimTheLoopIsOnForAHostThatIsGone(t *testing.T) {
+	t.Parallel()
+	db := newTaskTestDB(t)
+	s, _ := confirmedGoalMission(t, db)
+	var st pursuitDoc
+	mustTaskJSON(t, db, "default", &st, "", "session", "pursuit", "start", id(s))
+	dir := filepath.Join(filepath.Dir(db), "coder-host")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "host.json"), []byte(`{"pid":1,"pursuit":{"enabled":true,"pin":"claude/haiku@4","wakeCapUsd":2}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, _, err := runTask(t, db, "default", false, "", "session", "pursuit", "status", id(s))
+	if err != nil || !strings.Contains(out, "host is not running") || !strings.Contains(out, "last known") || strings.Contains(out, "pursuit loop is ON") {
+		t.Fatalf("%v %q", err, out)
+	}
+	var doc struct {
+		Host struct {
+			Running bool `json:"running"`
+		} `json:"host"`
+	}
+	mustTaskJSON(t, db, "default", &doc, "", "session", "pursuit", "status", id(s))
+	if doc.Host.Running {
+		t.Fatal("json says the host runs")
 	}
 }

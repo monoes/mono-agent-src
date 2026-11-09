@@ -116,8 +116,11 @@ func TestAWakeIsNeverStartedWithoutASpendCap(t *testing.T) {
 
 func TestAnUnboundMissionWaitsLikeAnUncappedLead(t *testing.T) { // gap G2
 	w := newPursuitWorld(t)
-	if got := w.h.pursuitStopReason(pursuitMission{ID: 77, Profile: "p", Conv: ""}, pursuitState{}); got != pursuitWaitingLead {
-		t.Fatalf("a mission bound to no chat has stop reason %q, want %q", got, pursuitWaitingLead)
+	if got := w.h.pursuitStopReason(pursuitMission{ID: 77, Profile: "p", Conv: ""}, pursuitState{}); got != pursuitWaitingNoChat {
+		t.Fatalf("a mission bound to no chat has stop reason %q, want %q", got, pursuitWaitingNoChat)
+	}
+	if why := missionpursuit.WaitingWhy(pursuitWaitingNoChat); !strings.Contains(why, "no chat to wake") || strings.Contains(why, "budget") {
+		t.Fatalf("the reason text is %q", why)
 	}
 }
 
@@ -320,6 +323,11 @@ func TestTheLeadsPinIsReadAtCallTime(t *testing.T) {
 	if refuse("fake/judge@1") {
 		t.Fatal("a judge on another model than the lead was refused")
 	}
+	w.leadPin = "Fake/Judge "
+	if !refuse("fake/JUDGE@1") {
+		t.Fatal("the same name in another case was taken as another model")
+	}
+	w.leadPin = "claude/lead-model"
 	w.leadPin = "fake/judge" // the lead's model is changed to the judge's after the engine was built
 	if !refuse("fake/judge@1") {
 		t.Fatal("a judge that now equals the lead's pin was not refused at the call")
@@ -346,6 +354,8 @@ func TestThePursuitIsNotReadyWithoutAValidWakeCapAndLeadPin(t *testing.T) {
 		"NaN cap":      func(d *PursuitDeps) { d.WakeCapUSD = math.NaN() },
 		"infinite cap": func(d *PursuitDeps) { d.WakeCapUSD = math.Inf(1) },
 		"above max":    func(d *PursuitDeps) { d.WakeCapUSD = MaxWakeCapUSD + 0.01 },
+		"below floor":  func(d *PursuitDeps) { d.WakeCapUSD = 1e-9 },
+		"just below":   func(d *PursuitDeps) { d.WakeCapUSD = MinWakeCapUSD / 2 },
 		"no lead pin":  func(d *PursuitDeps) { d.LeadPin = nil },
 	} {
 		d := ok()
@@ -354,8 +364,10 @@ func TestThePursuitIsNotReadyWithoutAValidWakeCapAndLeadPin(t *testing.T) {
 			t.Errorf("%s: ready", name)
 		}
 	}
-	if d := ok(); func() bool { d.WakeCapUSD = MaxWakeCapUSD; return !d.ready() }() {
-		t.Error("the maximum itself is refused")
+	for _, edge := range []float64{MinWakeCapUSD, MaxWakeCapUSD} {
+		if d := ok(); func() bool { d.WakeCapUSD = edge; return !d.ready() }() {
+			t.Errorf("the edge %v itself is refused", edge)
+		}
 	}
 }
 
@@ -364,39 +376,67 @@ func TestThePursuitIsNotReadyWithoutAValidWakeCapAndLeadPin(t *testing.T) {
 func TestAScriptedPursuitFromStartToWaiting(t *testing.T) {
 	w := newPursuitWorldLimits(t, missionpursuit.AwayLimits{Wakes: 3})
 	w.leadBudget(20)
-	w.exec(`UPDATE task_sessions SET budget_usd = 100 WHERE id = 77`) // the first wake turn is charged its whole cap: 20% of 10 USD would stop after one
+	w.exec(`UPDATE task_sessions SET budget_usd = 100 WHERE id = 77`) // a wake turn is charged its whole cap when it reports no cost: 20% of 10 USD would stop sooner
 	w.h.Pursuit.MaxEpochsPerHour = 12
 	w.pass()
-	for i := 0; i < 2; i++ {
-		w.advance(31 * time.Minute)
-		w.pass()
-		if err := w.h.Tick(); err != nil { // the lead takes the wake-up
-			t.Fatal(err)
-		}
-		if w.launched().turn(w.lastWakeTurn()) == nil {
-			t.Fatalf("round %d: the wake-up did not start; commands %v, waiting %q, epochs %v", i, w.wakeStatuses(), w.waiting(), w.epochs())
-		}
-		w.launched().turn(w.lastWakeTurn()).end()
-		w.setLead("idle", "")
-		w.endCommandsDone()
+	w.runWakeRounds(t, 4) // one more than the limit
+	if got := w.launched().caps; len(got) != 3 || got[0] != DefaultWakeCapUSD || got[1] != DefaultWakeCapUSD || got[2] != DefaultWakeCapUSD {
+		t.Fatalf("the wake turns ran under caps %v, want X three times", got)
 	}
-	if got := w.launched().caps; len(got) != 2 || got[0] != DefaultWakeCapUSD || got[1] != DefaultWakeCapUSD {
-		t.Fatalf("the two wake turns ran under caps %v, want X twice", got)
-	}
-	// The third wake-up reaches the limit of 3 when it is queued, so the run-time check refuses it (it counts itself): the
-	// pursuit waits for the person.
-	w.advance(31 * time.Minute)
-	w.pass()
-	if err := w.h.Tick(); err != nil {
-		t.Fatal(err)
-	}
-	if w.waiting() != "wakes" || w.model.count() != 3 || len(w.launched().started) != 2 {
-		t.Fatalf("waiting %q, judge calls %d, turns started %d", w.waiting(), w.model.count(), len(w.launched().started))
+	if w.waiting() != "wakes" || w.model.count() != 3 || len(w.epochs()) != 3 {
+		t.Fatalf("waiting %q, judge calls %d, epochs %v", w.waiting(), w.model.count(), w.epochs())
 	}
 	w.advance(10 * time.Hour)
 	w.pass()
 	if w.model.count() != 3 {
 		t.Fatal("a pursuit waiting for the person went on")
+	}
+}
+
+// runWakeRounds lets rounds epochs come due, runs each wake-up the host queued and ends its turn.
+func (w *pworld) runWakeRounds(t *testing.T, rounds int) {
+	t.Helper()
+	for i := 0; i < rounds; i++ {
+		w.advance(31 * time.Minute)
+		w.pass()
+		if err := w.h.Tick(); err != nil {
+			t.Fatal(err)
+		}
+		if tn := w.launched().turn(w.lastWakeTurnOrEmpty()); tn != nil {
+			tn.end()
+		}
+		w.setLead("idle", "")
+		w.endCommandsDone()
+	}
+}
+
+func (w *pworld) lastWakeTurnOrEmpty() string {
+	var turn string
+	_ = w.st.db.QueryRow(`SELECT turn_id FROM coder_session_commands WHERE kind = 'send' AND turn_id LIKE 'pursuit-%' ORDER BY id DESC LIMIT 1`).Scan(&turn)
+	return turn
+}
+
+// A limit of N runs exactly N wake turns: not N-1 (the last one used to be refused at run time because it counted itself),
+// and never N+1. The Nth epoch's judge call is not wasted, and after the Nth wake the next pass waits and makes no call.
+func TestAWakesLimitOfNRunsExactlyNWakeTurns(t *testing.T) {
+	for _, n := range []int{1, 2, 6} {
+		t.Run(itoa(int64(n)), func(t *testing.T) {
+			w := newPursuitWorldLimits(t, missionpursuit.AwayLimits{Wakes: n})
+			w.leadBudget(20)
+			w.exec(`UPDATE task_sessions SET budget_usd = 100 WHERE id = 77`)
+			w.h.Pursuit.MaxEpochsPerHour = 12
+			w.pass()
+			w.runWakeRounds(t, n+2)
+			if got := len(w.launched().started); got != n {
+				t.Fatalf("limit %d: %d wake turns ran", n, got)
+			}
+			if w.waiting() != "wakes" || w.model.count() != n {
+				t.Fatalf("after the limit: waiting %q, judge calls %d (want wakes, %d)", w.waiting(), w.model.count(), n)
+			}
+			if st := w.wakeStatuses(); st[CmdFailed] != 0 {
+				t.Fatalf("a wake-up was queued and then refused: %v", st)
+			}
+		})
 	}
 }
 
