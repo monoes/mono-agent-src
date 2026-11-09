@@ -2519,6 +2519,8 @@
     "noApproval": "No hay aprobacion humana durante la ejecucion. Nada te preguntara: el agente jefe responde sus propias preguntas y actua con la autoridad que levantes abajo.",
     "steer": "Puedes dirigirla escribiendo en este chat; lo que escribes es direccion para el jefe, nunca la respuesta a una pregunta del jefe.",
     "stopHeader": "Detener esta en el encabezado del chat.",
+    "howTo": "Para empezar: escribe el objetivo y como comprobar que esta hecho, elige el presupuesto y la autoridad que levantas, revisa los modelos fijados y pulsa Revisar. Revisar muestra la carta; la confirmas escribiendo la frase que da, y aparece Empezar la ejecucion. Los modelos, la politica de juicio y los limites por peticion vienen con un valor prudente.",
+    "choose": "Elegir…",
     "platform": "En esta maquina ({{platform}}):",
     "unavailable": "La ejecucion abierta no puede empezar aqui: {{reason}}",
     "unknownReason": "no se pudo leer el motivo",

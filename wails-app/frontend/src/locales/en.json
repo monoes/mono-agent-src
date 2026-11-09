@@ -2661,6 +2661,8 @@
     "noApproval": "There is no human approval during the run. Nothing will ask you: the boss agent answers its own questions and acts within the authority you lift below.",
     "steer": "You can steer by typing in this chat; typing is steering for the boss, never an answer to a boss question.",
     "stopHeader": "Stop is in the chat header.",
+    "howTo": "To start: write the goal and a way to check it is done, choose the budget and the authority to lift, check the pinned models, then press Review. Review shows the charter; you confirm by typing the phrase it gives, and Start the run appears. The models, the judging policy and the per-ask limits are filled with a careful default.",
+    "choose": "Choose…",
     "platform": "On this machine ({{platform}}):",
     "unavailable": "The open-ended run cannot start here: {{reason}}",
     "unknownReason": "the reason could not be read",

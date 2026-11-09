@@ -11,6 +11,8 @@ const call = fn => Promise.resolve().then(fn).then(parse)
 export const openStartApi = {
   // {mode_available, reason, run_exists, platform, not_defended}: whether a run can start here, and why not.
   entry: () => call(() => GoApp.DoomsdayOpenEntry()),
+  // The validated model roster ({runtimes: [{runtime, version, models: [{model, state}]}]}) the pin lists are made from.
+  roster: () => call(() => GoApp.AgentRoster()),
   // The preview of a charter object: {hash, lines, lift_count, text, phrase_template}. Writes nothing.
   render: (charter, chat) => call(() => GoApp.DoomsdayRender(JSON.stringify(charter), chat?.id || '', chat?.spec ? JSON.stringify(chat.spec) : '')),
   // Starts the run with the phrase the person typed and the token of the preview (start_token). The app also asks the
