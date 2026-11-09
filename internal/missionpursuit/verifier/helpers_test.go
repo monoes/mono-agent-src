@@ -139,11 +139,39 @@ func (r *rig) run(cs ...Criterion) Result {
 }
 
 // needsRealSandbox skips a test that starts a program where the platform cannot start one without a network.
-func needsRealSandbox(t *testing.T) {
+//
+// Where CI is set (or MONOAGENT_REQUIRE_SANDBOX_TESTS=1) a missing sandbox FAILS instead of skipping: a hosted runner that
+// forbids user namespaces must not turn the group-kill, environment and path tests into silent skips. Locally it skips.
+func needsRealSandbox(t *testing.T, programs ...string) {
 	t.Helper()
-	if !platformOK || !(finish.Sandbox{}).NetEnforceable() {
-		t.Skip("no unprivileged network namespace here: programs are not started")
+	why := ""
+	switch {
+	case !platformOK || !(finish.Sandbox{}).NetEnforceable():
+		why = "no unprivileged network namespace here: programs are not started"
+	default:
+		for _, p := range append(programs, "true", "false", "echo", "env", "printf", "yes", "sh", "sleep") {
+			if !onSystemPath(p) {
+				why = p + " is not on the fixed system path of the sandbox"
+				break
+			}
+		}
 	}
+	if why == "" {
+		return
+	}
+	if os.Getenv("CI") != "" || os.Getenv("MONOAGENT_REQUIRE_SANDBOX_TESTS") == "1" {
+		t.Fatalf("the real-program tests are required here: %s", why)
+	}
+	t.Skip(why)
+}
+
+func onSystemPath(name string) bool {
+	for _, d := range filepath.SplitList(finish.SystemPath) {
+		if st, err := os.Stat(filepath.Join(d, name)); err == nil && st.Mode().IsRegular() && st.Mode()&0o111 != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func scratchEntries(t *testing.T, base string) []string {

@@ -81,6 +81,8 @@ func TestABadRequestIsRefusedBeforeAnythingRuns(t *testing.T) {
 		"bad hash":      r.req(badHash),
 		"bad kind":      r.req(badKind),
 		"duplicate id":  r.req(good, good),
+		"bad goal hash": func() Request { q := r.req(good); q.GoalHash = "xyz"; return q }(),
+		"test kind":     r.req(crit("c9", "test", "go test", "")),
 	} {
 		k := r.checker()
 		got, err := k.Run(context.Background(), req)
@@ -151,8 +153,8 @@ func TestAFailedOrBrokenCriterionNeverAsksTheReviewer(t *testing.T) {
 		t.Fatalf("%s", dump(got))
 	}
 	got = r.run(crit("c1", "test", "go test", ""))
-	if got.Outcome != OutcomeError {
-		t.Fatalf("a test criterion is never run and never a pass: %s", dump(got))
+	if got.Outcome != OutcomeCannotCheck || got.Reason != ReasonBadRequest {
+		t.Fatalf("a test criterion is refused up front, never run and never a pass: %s", dump(got))
 	}
 	if r.rev.calls != 0 || len(r.meter.reserved) != 0 {
 		t.Fatal("the reviewer was asked")
@@ -165,7 +167,7 @@ func TestAPassingMachineRunIsReviewedOnceUnderTheDesignedTurn(t *testing.T) {
 	if got.Outcome != OutcomePassedMachine || got.Reason != ReasonNone || got.ReviewerVerdict != "ok" || got.ReviewerPin != checkerPin {
 		t.Fatalf("%s", dump(got))
 	}
-	if got.SubjectDigest == "" || got.SubjectFiles != 1 || got.ResultsDigest == "" || got.Containment != "process-group (not a cgroup unit)" {
+	if got.GoalHash != h64("goal") || got.SubjectDigest == "" || got.SubjectFiles != 1 || got.ResultsDigest == "" || got.Containment != "process-group (not a cgroup unit)" {
 		t.Fatalf("%s", dump(got))
 	}
 	o := r.rev.opts
@@ -338,3 +340,57 @@ func TestACancelledContextIsAbandonedAndAsksNothing(t *testing.T) {
 }
 
 func nan() float64 { var z float64; return z / z }
+
+// The tree moving while it is copied is stale, and nothing is asked.
+func TestATreeThatMovesDuringTheCopyIsStale(t *testing.T) {
+	r := newRig(t, true)
+	r.cfg.afterCopy = func() { _ = os.WriteFile(filepath.Join(r.root, "late.txt"), []byte("x"), 0o644) }
+	got := r.run(fileExists("c1"))
+	if got.Outcome != OutcomeStale || got.Reason != ReasonSubjectChanged || r.rev.calls != 0 || len(r.meter.reserved) != 0 || len(scratchEntries(t, r.base)) != 0 {
+		t.Fatalf("%s", dump(got))
+	}
+}
+
+// A panic between the reservation and the settlement still charges the cap, once.
+func TestAPanicInTheReviewerStillSettlesTheCapOnce(t *testing.T) {
+	r := newRig(t, true)
+	r.cfg.Exec = func(context.Context, monomind.ExecOptions, func(monomind.Event)) (*monomind.TurnResult, error) {
+		panic("boom")
+	}
+	k := r.checker()
+	func() {
+		defer func() { _ = recover() }()
+		_, _ = k.Run(context.Background(), r.req(fileExists("c1")))
+	}()
+	if len(r.meter.settled) != 1 || r.meter.settled[0] != (settlement{500000, false}) {
+		t.Fatalf("%v", r.meter.settled)
+	}
+}
+
+// A cancelled context ends the snapshot at once, and the scratch area is removed when the background copy ends.
+func TestCancellationDuringTheCopyReturnsAtOnceAndCleansUp(t *testing.T) {
+	r := newRig(t, true)
+	ctx, cancel := context.WithCancel(context.Background())
+	release := make(chan struct{})
+	r.cfg.afterCopy = func() { cancel(); <-release }
+	k := r.checker()
+	got, err := k.Run(ctx, r.req(fileExists("c1")))
+	if err != nil || got.Outcome != OutcomeAbandoned || got.Reason != ReasonCancelled {
+		t.Fatalf("%v %s", err, dump(got))
+	}
+	close(release)
+	for end := time.Now().Add(5 * time.Second); time.Now().Before(end) && len(scratchEntries(t, r.base)) != 0; time.Sleep(10 * time.Millisecond) {
+	}
+	if e := scratchEntries(t, r.base); len(e) != 0 {
+		t.Fatalf("left behind: %v", e)
+	}
+}
+
+func TestResultsEchoTheGoalHashAndBoundTheReviewerTuple(t *testing.T) {
+	r := newRig(t, true)
+	r.rev.runtime, r.rev.model = "gemini\x1b", "checker-1"
+	got := r.run(fileExists("c1"))
+	if got.GoalHash != h64("goal") || strings.ContainsAny(got.ReviewerObserved, "\x1b") {
+		t.Fatalf("%s", dump(got))
+	}
+}

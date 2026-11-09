@@ -16,6 +16,9 @@ func TestExcerptStripsControlsAndBoundsOnACharacterBoundary(t *testing.T) {
 	if len(g) > ExcerptCap || !utf8.ValidString(g) || len(g) < ExcerptCap-1 {
 		t.Fatalf("len %d valid %v", len(g), utf8.ValidString(g))
 	}
+	if g := Excerpt("one\ftwo\vthree\u0085four", 100); g != "one two three four" {
+		t.Fatalf("%q", g)
+	}
 	if Excerpt("abc", 0) != "" {
 		t.Fatal("max 0")
 	}

@@ -92,7 +92,7 @@ func TestTheRunDeadlineAndCancellationEndTheWholeGroup(t *testing.T) {
 		cs := []Criterion{crit("c1", "command", "sh -c 'sleep 30 & echo $! > "+pidfile+"; sleep 30'", "exit:0"), crit("c2", "command", "true", "exit:0")}
 		ctx := context.Background()
 		if how == "deadline" {
-			r.cfg.TotalTimeout = 700 * time.Millisecond
+			r.cfg.TotalTimeout = 3 * time.Second
 		} else {
 			var cancel context.CancelFunc
 			ctx, cancel = context.WithCancel(ctx)

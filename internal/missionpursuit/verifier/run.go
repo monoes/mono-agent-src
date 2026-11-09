@@ -33,7 +33,7 @@ func (k *Checker) runCriteria(ctx context.Context, sb finish.Sandbox, snap strin
 			cr.Result = closedResult(m.Result)
 			cr.ExitCode, cr.StdoutDigest, cr.StderrDigest = m.ExitCode, m.StdoutDigest, m.StderrDigest
 			cr.Stdout, cr.Stderr = Excerpt(m.Stdout, ExcerptCap), Excerpt(m.Stderr, ExcerptCap)
-			cr.Detail, cr.Net, cr.RunsSubjectCode = Excerpt(m.Detail, detailCap), m.Net, m.RunsSubjectCode
+			cr.Detail, cr.Net, cr.RunsSubjectCode = Excerpt(m.Detail, detailCap), Excerpt(m.Net, 64), m.RunsSubjectCode
 		}
 		res.Criteria = append(res.Criteria, cr)
 	}

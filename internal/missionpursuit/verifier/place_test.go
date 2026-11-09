@@ -3,6 +3,7 @@
 package verifier
 
 import (
+	"os"
 	"os/exec"
 	"syscall"
 	"testing"
@@ -39,6 +40,12 @@ func TestPlaceRefusesACommandThatIsNotInItsOwnProcessGroupAndAfterClose(t *testi
 
 // What a program left behind in its group when it ended is killed when its criterion is released.
 func TestReleaseKillsWhatTheLeaderLeftInItsGroup(t *testing.T) {
+	if _, err := os.Stat("/bin/sh"); err != nil || !onSystemPath("sleep") {
+		if os.Getenv("CI") != "" || os.Getenv("MONOAGENT_REQUIRE_SANDBOX_TESTS") == "1" {
+			t.Fatal("/bin/sh or sleep is missing")
+		}
+		t.Skip("/bin/sh or sleep is missing")
+	}
 	g := &GroupPlace{}
 	cmd := exec.Command("/bin/sh", "-c", "sleep 60 & echo $!; exit 0")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

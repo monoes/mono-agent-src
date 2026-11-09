@@ -127,6 +127,8 @@ type CriterionResult struct {
 type Result struct {
 	Outcome Outcome
 	Reason  Reason
+	// GoalHash is the request's, echoed.
+	GoalHash string
 
 	SubjectDigest string
 	SubjectFiles  int
@@ -148,8 +150,8 @@ type Result struct {
 	CostKnown bool
 }
 
-// Verifier is one goal check. A returned error is a bug or a cancelled context the caller must not read as an outcome;
-// everything a check can conclude is an Outcome.
+// Verifier is one goal check. A cancelled context is the outcome abandoned, not an error; a returned error is a bug, a scratch
+// area that could not be made or a check already running, and the caller must not read it as an outcome.
 type Verifier interface {
 	Run(ctx context.Context, req Request) (Result, error)
 	// Pin is the checker model's pin ("runtime/model[@version]").

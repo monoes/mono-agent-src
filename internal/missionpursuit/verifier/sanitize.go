@@ -6,16 +6,17 @@ import (
 	"unicode/utf8"
 )
 
-// Excerpt makes text a program (or an agent) wrote safe to keep and show: invalid UTF-8 becomes "?", line breaks and tabs
-// become one space, every other control or format character (escape sequences, bidirectional overrides, zero-width marks) is
-// dropped, and the result is cut at max bytes on a character boundary. It is data to display and to hand to the reviewer as
+// Excerpt makes text a program (or an agent) wrote safe to keep and show: invalid UTF-8 becomes "?", whitespace controls
+// (line breaks, tabs, form feed, vertical tab, NEL, line and paragraph separators) become one space, every other control or
+// format character (the ESC byte, bidirectional overrides, zero-width marks) is dropped. Only the control character goes: the
+// printable rest of an escape sequence ("[31m") stays as plain text, which is inert in a display that does not interpret it, and the result is cut at max bytes on a character boundary. It is data to display and to hand to the reviewer as
 // data; nothing in it is ever an instruction.
 func Excerpt(s string, max int) string {
 	s = strings.ToValidUTF8(s, "?")
 	var b strings.Builder
 	for _, r := range s {
 		switch {
-		case r == '\n' || r == '\r' || r == '\t' || r == ' ' || r == ' ':
+		case r == '\n' || r == '\r' || r == '\t' || r == '\f' || r == '\v' || r == 0x85 || r == 0x2028 || r == 0x2029:
 			r = ' '
 		case unicode.IsControl(r) || unicode.Is(unicode.Cf, r):
 			continue

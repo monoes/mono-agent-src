@@ -38,10 +38,15 @@ func (f *Fake) Calls() []Request {
 }
 
 func (f *Fake) Run(ctx context.Context, req Request) (Result, error) {
+	req.Criteria = append([]Criterion(nil), req.Criteria...)
 	f.mu.Lock()
 	f.calls = append(f.calls, req)
 	f.mu.Unlock()
-	base := Result{Containment: Containment, ReviewerPin: f.pin}
+	base := Result{Containment: Containment, ReviewerPin: f.pin, GoalHash: req.GoalHash}
+	if r := validate(req); r != ReasonNone {
+		base.Outcome, base.Reason = OutcomeCannotCheck, r
+		return base, nil
+	}
 	if ok, _ := Independent(req.JudgePin, f.pin, req.LeadPin); !ok {
 		base.Outcome, base.Reason = OutcomeCannotCheck, ReasonPinNotIndependent
 		return base, nil
@@ -62,6 +67,9 @@ func (f *Fake) Run(ctx context.Context, req Request) (Result, error) {
 		<-ctx.Done()
 		base.Outcome, base.Reason = OutcomeAbandoned, ReasonCancelled
 		return base, nil
+	}
+	if st.Result.GoalHash == "" {
+		st.Result.GoalHash = req.GoalHash
 	}
 	return st.Result, st.Err
 }

@@ -39,6 +39,7 @@ type Config struct {
 	NetDenyAvailable func() bool
 
 	afterCriteria func() // test seam: runs after the criteria, before the recheck
+	afterCopy     func() // test seam: runs after the snapshot copy, before the first digest of the live folder
 }
 
 // Checker is the real Verifier: finish.Sandbox for the machine criteria, finish.RunnerVerifier for the block-only review.
@@ -100,13 +101,13 @@ func validate(req Request) Reason {
 	if len(req.Criteria) > MaxCriteria {
 		return ReasonTooManyCriteria
 	}
-	if len(req.Criteria) == 0 || req.Root == "" || !filepath.IsAbs(req.Root) {
+	if !hashRE.MatchString(req.GoalHash) || len(req.Criteria) == 0 || req.Root == "" || !filepath.IsAbs(req.Root) {
 		return ReasonBadRequest
 	}
 	seen := map[string]bool{}
 	for _, c := range req.Criteria {
 		switch c.Kind {
-		case "command", "output", "file", "test", "rubric":
+		case "command", "output", "file", "rubric": // "test" is never run by the harness, so it is refused up front
 		default:
 			return ReasonBadRequest
 		}
@@ -120,14 +121,18 @@ func validate(req Request) Reason {
 
 func isProgram(kind string) bool { return kind == "command" || kind == "output" }
 
-// Run is one goal check. Everything it can conclude is an Outcome; the error is for a scratch area that could not be made
-// and for a check already running.
+// Run is one goal check. Everything it can conclude is an Outcome, a cancelled context included (abandoned); the error is for
+// a scratch area that could not be made and for a check already running.
+//
+// Deadlines: the criteria share TotalTimeout (20 minutes) and have CriterionTimeout (2 minutes) each; the snapshot and the
+// rechecks stop at once when ctx ends (the copy finishes in the background and removes its own scratch area); the reviewer
+// call is bounded by its timeout (3 minutes by default) plus a 30 second grace.
 func (k *Checker) Run(ctx context.Context, req Request) (Result, error) {
 	if !k.run.TryLock() {
 		return Result{}, ErrBusy
 	}
 	defer k.run.Unlock()
-	res := Result{Containment: Containment, ReviewerPin: k.cfg.Checker}
+	res := Result{Containment: Containment, ReviewerPin: k.cfg.Checker, GoalHash: req.GoalHash}
 	end := func(o Outcome, r Reason) (Result, error) { res.Outcome, res.Reason = o, r; return res, nil }
 
 	if r := validate(req); r != ReasonNone {
@@ -163,18 +168,49 @@ func (k *Checker) Run(ctx context.Context, req Request) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("verifier: no scratch area: %w", err)
 	}
-	defer finish.RemoveTree(dir)
+	clean := true
+	defer func() {
+		if clean {
+			finish.RemoveTree(dir)
+		}
+	}()
 	work := filepath.Join(dir, "work")
 	if err := os.Mkdir(work, 0o700); err != nil {
 		return Result{}, fmt.Errorf("verifier: no scratch area: %w", err)
 	}
-	before, err := finish.StatManifest(req.Root)
-	if err != nil {
-		return end(OutcomeCannotCheck, ReasonSnapshotRefused)
-	}
 	snap := filepath.Join(dir, "snap")
-	tree, err := finish.Snapshot(req.Root, snap)
-	if err != nil {
+	type sealed struct {
+		before string
+		tree   finish.Tree
+		err    error
+		moved  bool
+	}
+	ch := make(chan sealed, 1)
+	go func() {
+		var s sealed
+		if s.before, s.err = finish.StatManifest(req.Root); s.err == nil {
+			s.tree, s.err = finish.Snapshot(req.Root, snap)
+		}
+		if s.err == nil {
+			if k.cfg.afterCopy != nil {
+				k.cfg.afterCopy()
+			}
+			// The tree must not have moved while it was copied.
+			live, derr := finish.DigestTree(req.Root, "")
+			s.moved = derr != nil || live.Digest != s.tree.Digest
+		}
+		ch <- s
+	}()
+	var sl sealed
+	select {
+	case sl = <-ch:
+	case <-ctx.Done():
+		clean = false // the copy is still running: it is removed when it ends
+		go func() { <-ch; finish.RemoveTree(dir) }()
+		return end(OutcomeAbandoned, ReasonCancelled)
+	}
+	before, tree := sl.before, sl.tree
+	if sl.err != nil {
 		return end(OutcomeCannotCheck, ReasonSnapshotRefused)
 	}
 	res.SubjectDigest = tree.Digest
@@ -183,9 +219,8 @@ func (k *Checker) Run(ctx context.Context, req Request) (Result, error) {
 			res.SubjectFiles++
 		}
 	}
-	// The tree must be the one the host saw quiet, and must not have moved while it was copied.
-	if live, derr := finish.DigestTree(req.Root, ""); derr != nil || live.Digest != tree.Digest ||
-		(req.ExpectDigest != "" && req.ExpectDigest != tree.Digest) {
+	// ... and must be the one the host saw quiet.
+	if sl.moved || (req.ExpectDigest != "" && req.ExpectDigest != tree.Digest) {
 		return end(OutcomeStale, ReasonSubjectChanged)
 	}
 
@@ -212,10 +247,26 @@ func (k *Checker) Run(ctx context.Context, req Request) (Result, error) {
 			return end(OutcomeCannotCheck, ReasonNoNetworkBlock)
 		}
 	}
-	after, aerr := finish.StatManifest(req.Root)
-	live, derr := finish.DigestTree(req.Root, "")
-	if aerr != nil || derr != nil || after != before || live.Digest != tree.Digest {
-		return end(OutcomeStale, ReasonSubjectChanged)
+	type rechecked struct {
+		after string
+		live  finish.Tree
+		aerr  error
+		derr  error
+	}
+	rc := make(chan rechecked, 1)
+	go func() {
+		var r rechecked
+		r.after, r.aerr = finish.StatManifest(req.Root)
+		r.live, r.derr = finish.DigestTree(req.Root, "")
+		rc <- r
+	}()
+	select {
+	case r := <-rc:
+		if r.aerr != nil || r.derr != nil || r.after != before || r.live.Digest != tree.Digest {
+			return end(OutcomeStale, ReasonSubjectChanged)
+		}
+	case <-ctx.Done():
+		return end(OutcomeAbandoned, ReasonCancelled)
 	}
 	return k.conclude(ctx, req, tree, &res)
 }

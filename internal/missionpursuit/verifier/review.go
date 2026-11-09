@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/doomsday/finish"
 )
@@ -60,7 +61,13 @@ func (k *Checker) review(ctx context.Context, req Request, tree finish.Tree, ev 
 
 	cs := &costing{inner: k.cfg.Exec}
 	rv := &finish.RunnerVerifier{Pin: k.pin, Exec: cs.exec, Workspace: k.cfg.Workspace, Timeout: k.cfg.ReviewTimeout, BudgetUSD: k.capUSD}
-	rr, rerr := rv.Review(ctx, finish.ReviewInput{Round: finish.Round{N: req.Round, Digest: tree.Digest}, Results: ev})
+	rt := k.cfg.ReviewTimeout
+	if rt <= 0 {
+		rt = 3 * time.Minute // the finish verifier's default
+	}
+	rctx, rcancel := context.WithTimeout(ctx, rt+30*time.Second)
+	defer rcancel()
+	rr, rerr := rv.Review(rctx, finish.ReviewInput{Round: finish.Round{N: req.Round, Digest: tree.Digest}, Results: ev})
 	settle(cs.charge(k.capUSD))
 	switch {
 	case ctx.Err() != nil:
@@ -69,7 +76,7 @@ func (k *Checker) review(ctx context.Context, req Request, tree finish.Tree, ev 
 	case rerr != nil:
 		return blocked(ReasonReviewerUnavailable)
 	}
-	res.ReviewerObserved = rr.Observed.Provider + "/" + rr.Observed.Model
+	res.ReviewerObserved = Excerpt(rr.Observed.Provider+"/"+rr.Observed.Model, 100)
 	res.ReviewerVerdict = rr.Verdict
 	if !rr.Observed.SameModel(k.pin) || rr.Observed.Provider == "" {
 		return blocked(ReasonReviewerPinChanged)
