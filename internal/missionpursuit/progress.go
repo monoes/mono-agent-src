@@ -22,9 +22,12 @@ const MaxBadJudgeRounds = 3
 
 // Progress is what the pursuit loop last recorded for a mission, as the status shows it: how far each away limit has come
 // and, in plain words, why the pursuit waits for the person (if it does). It is read-only data the host loop wrote from
-// its own rows (never agent text), as of AsOf. The 20% rule sees only the METERED spend of the mission session: judge
-// calls, wake-up turns and running children that the meter does not hold are not in it, which is why the counts of
-// parked questions and wake-ups bound the pursuit too.
+// its own rows (never agent text), as of AsOf. The 20% rule counts three things: the METERED spend of the mission
+// session, the judge calls (a host-written ledger, unknown cost at the per-call cap) and the turn journals of the lead and its
+// helpers, all since the person last acted. What it does not see exactly: a helper's turn that is still running is counted at
+// its cap, a helper that ended may be counted twice (the stop then comes earlier), and the check is made before the next
+// judge call, so the last call can take the spend past the limit by up to its cap ($0.50) plus the lead turn it earns. The
+// counts of parked questions, wake-ups, judge calls and failed rounds bound the pursuit too.
 type Progress struct {
 	Seen         bool    `json:"seen"` // the loop has looked at this pursuit
 	Waiting      string  `json:"waiting,omitempty"`
@@ -73,6 +76,8 @@ func WaitingWhy(waiting string) string {
 		return "waiting for you: the judge failed too many rounds in a row (its answer was invalid, too long or it did not answer); it is not called again until you act"
 	case "lead-uncapped":
 		return "waiting for you: the lead has no spend cap of its own, so a wake-up could cost without limit (set a budget for the lead's chat)"
+	case "meter-unreadable":
+		return "waiting for you: the judge ledger or the turn journals could not be read, so the spend cannot be measured; it clears when they read again"
 	case "engine-parked":
 		return "waiting for you: a stored strategy row failed verification and the strategy engine stopped"
 	}

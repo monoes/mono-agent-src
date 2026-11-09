@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/judge"
+	"github.com/monoes/mono-agent/internal/missionpursuit"
 )
 
 // S5a: the judge is on the meter. These are the money and stop rules, run against a scripted judge (never a real model).
@@ -128,12 +129,68 @@ func TestACallIsRecordedBeforeItIsMade(t *testing.T) {
 	}
 }
 
+// Only the reservation fails (the table stays readable), so the gate passes and the refusal is the metered model's own.
 func TestACallThatCannotBeRecordedIsNotMade(t *testing.T) {
 	w := newPursuitWorld(t)
-	w.exec(`ALTER TABLE mission_pursuit_spend RENAME TO mission_pursuit_spend_gone`)
+	w.exec(`CREATE TRIGGER no_reservations BEFORE INSERT ON mission_pursuit_spend BEGIN SELECT RAISE(ABORT, 'no ledger row'); END`)
 	w.rounds(2)
 	if w.model.count() != 0 {
 		t.Fatalf("%d judge calls were made without a ledger row", w.model.count())
+	}
+	if s := w.state(); s.LastRound == "" || s.LastRound == "applied" {
+		t.Fatalf("the refused call did not end as a failed round: %+v", s)
+	}
+}
+
+// An absurd reported cost is clamped per call, so the ledger's sum cannot overflow and stop every read of it.
+func TestAnAbsurdReportedCostIsClampedAndTheSumStaysReadable(t *testing.T) {
+	w := newPursuitWorld(t)
+	w.model.cost = 1e12
+	w.rounds(1)
+	rows := w.ledger()
+	if len(rows) != 1 || rows[0].Micro != maxJudgeCallMicro {
+		t.Fatalf("ledger %+v", rows)
+	}
+	if w.waiting() != "spend" {
+		t.Fatalf("waiting %q: a $1000 call is past the 20%% limit", w.waiting())
+	}
+}
+
+// A ledger that cannot be summed shows as a waiting reason, not as a pursuit that silently does nothing.
+func TestALedgerThatCannotBeReadIsAVisibleStop(t *testing.T) {
+	w := newPursuitWorld(t)
+	w.pass()
+	for i := 0; i < 2; i++ {
+		w.exec(`INSERT INTO mission_pursuit_spend (session_id, kind, at, micro, known, settled) VALUES (77, 'judge', 'x', 9000000000000000000, 0, 0)`)
+	}
+	w.advance(31 * time.Minute)
+	w.pass()
+	if w.model.count() != 0 || w.waiting() != "meter-unreadable" {
+		t.Fatalf("judge calls %d, waiting %q", w.model.count(), w.waiting())
+	}
+	if why := missionpursuit.WaitingWhy(w.waiting()); !strings.Contains(why, "could not be read") {
+		t.Fatalf("why: %q", why)
+	}
+}
+
+// The gate's write and the round's write touch their own columns: neither undoes a change the other made after its read.
+func TestStateWritesDoNotUndoEachOther(t *testing.T) {
+	w := newPursuitWorld(t)
+	w.pass()
+	stale := w.state()
+	w.exec(`UPDATE mission_pursuit_state SET wakes_since = 4, woken_epoch = 9`)
+	if err := w.st.recordJudgeRound(pursuitSession, false, "invalid", w.clk.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.st.recordJudgeRound(pursuitSession, false, "invalid", w.clk.Now()); err != nil {
+		t.Fatal(err)
+	}
+	stale.Parked = 2 // the gate writes from its earlier read
+	if err := w.st.updateGateState(stale, false, w.clk.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if s := w.state(); s.BadRounds != 2 || s.WakesSince != 4 || s.WokenEpoch != 9 || s.Parked != 2 || s.LastRound != "invalid" {
+		t.Fatalf("state %+v: a write from an earlier read undid another writer's change", s)
 	}
 }
 
@@ -192,7 +249,7 @@ func TestTheHostWideCapOnJudgeCallsIsSharedAcrossMissionsAndCountedInTheStatus(t
 	w.exec(`INSERT INTO task_sessions (id, profile_id, title, state, kind, budget_usd, created_by, created_at, updated_at) VALUES (78, 'p', 'other', 'running', 'mission', 10, 'you', 'x', 'x')`)
 	w.advance(time.Minute)
 	for i := 0; i < MaxPursuitJudgeCallsPerHour; i++ { // twelve calls another mission made in the last hour
-		w.exec(`INSERT INTO mission_pursuit_spend (session_id, kind, at, micro, known, settled) VALUES (78, 'judge', ?, 1, 1, 1)`, w.clk.Now().UTC().Format(time.RFC3339Nano))
+		w.exec(`INSERT INTO mission_pursuit_spend (session_id, kind, at, micro, known, settled) VALUES (78, 'judge', ?, 500000, 0, 0)`, w.clk.Now().UTC().Format(time.RFC3339Nano))
 	}
 	w.rounds(1)
 	if w.model.count() != 0 {
@@ -277,5 +334,25 @@ func TestPromptsCarryHostFactsOnly(t *testing.T) {
 	}
 	if !strings.Contains(p, "it is good") || !strings.Contains(p, "0 failed") {
 		t.Fatalf("the prompt lacks the person's criterion or the host's counts:\n%s", p)
+	}
+}
+
+// If a paid call's judgment cannot be recorded the epoch stays open and the next pass would resume it with another paid call;
+// the stop counts those as failed rounds, so the loop ends after MaxBadJudgeRounds calls, not after one every five seconds.
+func TestAJudgmentThatCannotBeRecordedIsAFailedRoundAndTheResumeLoopStops(t *testing.T) {
+	w := newPursuitWorld(t)
+	w.h.Pursuit.MaxEpochsPerHour = 12
+	w.pass()
+	w.exec(`CREATE TRIGGER no_judgments BEFORE INSERT ON mission_strategy_judgments BEGIN SELECT RAISE(ABORT, 'disk says no'); END`)
+	w.advance(31 * time.Minute)
+	for i := 0; i < 12; i++ {
+		w.pass()
+		w.advance(6 * time.Second)
+	}
+	if n := w.model.count(); n < 1 || n > MaxBadJudgeRounds {
+		t.Fatalf("%d judge calls over twelve passes: the resume loop must stop after %d", n, MaxBadJudgeRounds)
+	}
+	if s := w.state(); s.BadRounds < 1 || s.LastRound != "store-failed" {
+		t.Fatalf("state %+v: the failed recording was not counted", s)
 	}
 }

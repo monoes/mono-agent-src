@@ -27,7 +27,8 @@ import (
 // the judge) pairs the oldest proposed direction with it, which is what lets the scorer score it.
 
 const (
-	maxProposalsPerEpoch     = 3 // the most directions one round proposes (the novelty gate lets one unchecked proposal through per epoch anyway)
+	maxProposalsPerEpoch     = 3 // the most proposals read from one round; only the first one the gate has not seen is submitted
+	submittedPerEpoch        = 1 // the novelty gate lets one unchecked proposal through per epoch (no memory corpus), so one is submitted
 	maxOpenPursuitDirections = 8 // no proposal while this many directions are open: the lead has enough to work on
 	pursuitProposer          = "host"
 )
@@ -104,6 +105,28 @@ func (c pursuitCorpus) DirectionKey(ctx context.Context, key [32]byte) (novelty.
 	return novelty.Match{}, false, nil
 }
 
+// unseen keeps the first n proposals whose key the run has not met (no ledger row, no open or pruned direction).
+func (c pursuitCorpus) unseen(ctx context.Context, props []types.Proposal, n int) []types.Proposal {
+	var out []types.Proposal
+	for _, p := range props {
+		if len(out) >= n {
+			break
+		}
+		_, key, err := novelty.Key(p.Title)
+		if err != nil {
+			continue
+		}
+		if _, seen, err := c.LedgerKey(ctx, key); err != nil || seen {
+			continue
+		}
+		if _, seen, err := c.DirectionKey(ctx, key); err != nil || seen {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
 func (pursuitCorpus) Similar(context.Context, string) ([]novelty.Hit, error) {
 	return nil, errNoSimilarity
 }
@@ -132,7 +155,15 @@ func (h *Host) pursuitPropose(ctx context.Context, rd *inputs.Reader, m pursuitM
 	if err != nil || len(open) >= maxOpenPursuitDirections {
 		return
 	}
-	gate, err := novelty.New(pursuitCorpus{st: st, profile: prof}, 0)
+	corpus := pursuitCorpus{st: st, profile: prof}
+	// The gate lets one unchecked proposal through per round and writes every other one to its ledger as refused, which would
+	// shut that criterion out for good. So the criteria that already have a direction or a ledger row are skipped here, and one
+	// new one is submitted: each round advances the next criterion.
+	props = corpus.unseen(ctx, props, submittedPerEpoch)
+	if len(props) == 0 {
+		return
+	}
+	gate, err := novelty.New(corpus, 0)
 	if err != nil {
 		return
 	}
@@ -142,8 +173,11 @@ func (h *Host) pursuitPropose(ctx context.Context, rd *inputs.Reader, m pursuitM
 	}
 }
 
-// pursuitBind pairs proposed directions that have no session with direction sessions of this mission that no direction has
-// claimed, oldest with lowest id. The session must be a 'direction' session of this mission and profile (the scorer checks the
+// Known limit (scoring only): the pairing cannot tell which session the lead meant, so an older, still unclaimed direction session
+// can take a newer proposal; the scorer then scores that session's tasks for it. Nothing else follows from it.
+//
+// pursuitBind pairs proposed directions that have no session with direction sessions of this mission (running or ended: a session that ended before the pass still takes its direction, or the later
+// sessions would be paired with the wrong ones) that no direction has claimed, oldest with lowest id. The session must be a 'direction' session of this mission and profile (the scorer checks the
 // same again before it reads any fact). The pairing is the host's alone: the lead cannot name which session a direction means.
 func (h *Host) pursuitBind(ctx context.Context, m pursuitMission) {
 	prof := strconv.FormatInt(m.ID, 10)
@@ -168,7 +202,7 @@ func (h *Host) pursuitBind(ctx context.Context, m pursuitMission) {
 		return free[i].ID < free[j].ID
 	})
 	rows, err := h.Store.db.QueryContext(ctx, `SELECT s.id FROM task_sessions s WHERE s.kind = 'direction' AND s.profile_id = ? AND s.parent_session_id = ? AND s.archived_at = ''
-		AND s.state NOT IN ('done', 'stopped', 'failed') AND CAST(s.id AS TEXT) NOT IN (SELECT lead_session FROM mission_strategy_directions WHERE session_id = ? AND lead_session <> '')
+		AND CAST(s.id AS TEXT) NOT IN (SELECT lead_session FROM mission_strategy_directions WHERE session_id = ? AND lead_session <> '')
 		ORDER BY s.id LIMIT ?`, m.Profile, m.ID, m.ID, len(free))
 	if err != nil {
 		return

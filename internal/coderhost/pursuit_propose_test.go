@@ -226,3 +226,59 @@ func TestAScriptedPursuitWithAJudgeFromProposalToTheMoneyStop(t *testing.T) {
 		t.Fatal("a pursuit waiting for the person went on")
 	}
 }
+
+// Every criterion the judge names gets its direction, one new one per round: a criterion that is not first in a round is not
+// written off by the novelty gate.
+func TestEveryCriterionTheJudgeNamesEventuallyGetsADirection(t *testing.T) {
+	rubric := func(spec string) missionpursuit.Criterion {
+		return missionpursuit.Criterion{Kind: missionpursuit.KindRubric, Spec: spec}
+	}
+	w := newPursuitWorldCriteria(t, rubric("one"), rubric("two"), rubric("three"))
+	w.judgeSays("c1 first", "c2 second", "c3 third")
+	titles := func() string {
+		var out []string
+		for _, d := range w.strategyDirections() {
+			out = append(out, strings.TrimPrefix(d.Title, "Work toward criterion "))
+		}
+		return strings.Join(out, ",")
+	}
+	w.rounds(1)
+	if got := titles(); got != "c1" {
+		t.Fatalf("after round 1: %q", got)
+	}
+	w.rounds(1)
+	if got := titles(); got != "c1,c2" {
+		t.Fatalf("after round 2: %q: c2 was written off by the gate", got)
+	}
+	w.rounds(1)
+	w.judgeSays("only c2 now") // a later round naming c2 again adds nothing, and does not fail
+	w.rounds(1)
+	if got := titles(); got != "c1,c2,c3" {
+		t.Fatalf("after round 4: %q", got)
+	}
+	var refused int
+	_ = w.st.db.QueryRow(`SELECT COUNT(*) FROM mission_strategy_novelty WHERE session_id = 77 AND outcome LIKE 'refused%'`).Scan(&refused)
+	if refused != 0 {
+		t.Fatalf("%d refusals in the novelty ledger: a proposal the host knew was a repeat was submitted", refused)
+	}
+}
+
+// A direction session that ended before the pass still takes its direction, or the later sessions would be paired with the
+// wrong ones.
+func TestAnEndedDirectionSessionStillTakesItsDirection(t *testing.T) {
+	w := newPursuitWorldCriteria(t, missionpursuit.Criterion{Kind: missionpursuit.KindRubric, Spec: "one"}, missionpursuit.Criterion{Kind: missionpursuit.KindRubric, Spec: "two"})
+	w.judgeSays("c1", "c2")
+	w.rounds(2)
+	dirs := w.strategyDirections()
+	if len(dirs) != 2 {
+		t.Fatalf("directions %+v", dirs)
+	}
+	w.addDirectionSession(601, "direction", "p", 77, "")
+	w.exec(`UPDATE task_sessions SET state = 'done' WHERE id = 601`)
+	w.addDirectionSession(602, "direction", "p", 77, "")
+	w.pass()
+	got := w.strategyDirections()
+	if got[0].Lead != "601" || got[1].Lead != "602" {
+		t.Fatalf("directions %+v: the ended session was skipped and the next one paired with the wrong direction", got)
+	}
+}

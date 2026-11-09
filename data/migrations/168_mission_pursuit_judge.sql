@@ -18,6 +18,11 @@
 --   hour_judges      judge calls of ALL missions in the last hour, as shown
 --   last_round       how the latest judge round ended ('' none, 'applied', 'invalid', 'model-failed', 'input')
 --
+-- A reservation row is born unsettled and unknown, at no less than the per-call cap (500000 micro-USD), and an id is never
+-- replaced (an INSERT OR REPLACE would otherwise swap a reserved row for a free settled one, with no error). Like 165 and 166,
+-- the ledger refuses a replace at the insert. This migration is UNRELEASED (it is not in master and no database has applied it),
+-- so it is edited in place; a released migration would get a new number instead.
+--
 -- The pursuit may start only with a rubric criterion in its goal (the person is always the final judge). The goal rules
 -- (164) already refuse to confirm a goal without one; these triggers say it again at the pursuit itself, so a pursuit row
 -- cannot be enabled for a goal that has none, whatever path writes it.
@@ -33,6 +38,12 @@ CREATE TABLE IF NOT EXISTS mission_pursuit_spend (
 CREATE INDEX IF NOT EXISTS idx_mission_pursuit_spend_session ON mission_pursuit_spend(session_id, id);
 CREATE INDEX IF NOT EXISTS idx_mission_pursuit_spend_at ON mission_pursuit_spend(at);
 
+CREATE TRIGGER IF NOT EXISTS mission_pursuit_spend_no_replace BEFORE INSERT ON mission_pursuit_spend
+WHEN EXISTS (SELECT 1 FROM mission_pursuit_spend x WHERE x.id = NEW.id)
+BEGIN SELECT RAISE(ABORT, 'a judge spend row exists: rows are never replaced'); END;
+CREATE TRIGGER IF NOT EXISTS mission_pursuit_spend_born_reserved BEFORE INSERT ON mission_pursuit_spend
+WHEN NEW.settled <> 0 OR NEW.known <> 0 OR NEW.micro < 500000
+BEGIN SELECT RAISE(ABORT, 'a judge spend row is born unsettled, at no less than the per-call cap'); END;
 CREATE TRIGGER IF NOT EXISTS mission_pursuit_spend_settle_once BEFORE UPDATE ON mission_pursuit_spend
 WHEN NOT (OLD.settled = 0 AND NEW.settled = 1 AND NEW.id = OLD.id AND NEW.session_id = OLD.session_id AND NEW.kind = OLD.kind AND NEW.at = OLD.at)
 BEGIN SELECT RAISE(ABORT, 'a judge spend row is settled once and never changes'); END;

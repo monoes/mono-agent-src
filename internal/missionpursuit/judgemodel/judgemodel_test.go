@@ -105,7 +105,7 @@ func TestAFailedTurnStillReportsItsCost(t *testing.T) {
 func TestAnOversizedReplyIsCutOffWhileItStreamsAndStillCharged(t *testing.T) {
 	var cancelled bool
 	m := newModel(t, func(ctx context.Context, _ monomind.ExecOptions, on func(monomind.Event)) (*monomind.TurnResult, error) {
-		on(monomind.Event{Text: strings.Repeat("a", types.MaxJudgmentBytes+1)})
+		on(monomind.Event{Type: "assistant", Text: strings.Repeat("a", types.MaxJudgmentBytes+1)})
 		cancelled = ctx.Err() != nil
 		return &monomind.TurnResult{CostUSD: 0.4, HasCostUSD: true}, errors.New("cancelled")
 	})
@@ -186,5 +186,22 @@ func TestTheIndependenceRuleRefusesTheLeadAndTheVerifierAndNeverRunsVacuous(t *t
 		if r(pin) != want {
 			t.Errorf("refuse(%q) = %t", pin, !want)
 		}
+	}
+}
+
+// A result event repeats the reply it closes: counting it as well would cut a legitimate reply of more than half the cap.
+func TestAReplyOfMoreThanHalfTheCapIsNotCutBecauseTheResultEventRepeatsIt(t *testing.T) {
+	reply := `{"x":"` + strings.Repeat("a", types.MaxJudgmentBytes*3/4) + `"}`
+	m := newModel(t, func(ctx context.Context, _ monomind.ExecOptions, on func(monomind.Event)) (*monomind.TurnResult, error) {
+		on(monomind.Event{Type: "assistant", Text: reply})
+		on(monomind.Event{Type: "result", Text: reply})
+		if ctx.Err() != nil {
+			t.Error("the turn was cancelled")
+		}
+		return done(reply), nil
+	})
+	out, err := m.Complete(context.Background(), judge.Request{})
+	if err != nil || string(out) != reply {
+		t.Fatalf("a %d byte reply: %v", len(reply), err)
 	}
 }

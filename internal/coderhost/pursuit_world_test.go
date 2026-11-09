@@ -119,6 +119,9 @@ func newPursuitWorldLimits(t *testing.T, lim missionpursuit.AwayLimits) *pworld 
 
 var startLimits missionpursuit.AwayLimits
 
+// startCriteria are the goal criteria of the world; nil is the one rubric criterion.
+var startCriteria []missionpursuit.Criterion
+
 // newPursuitWorldWith is the world with or without the started pursuit row.
 func newPursuitWorldWith(t *testing.T, started bool) *pworld {
 	t.Helper()
@@ -136,7 +139,7 @@ func newPursuitWorldWith(t *testing.T, started bool) *pworld {
 	if started {
 		mp := missionpursuit.NewStore(st.db)
 		op := tasks.Actor{Kind: tasks.Human, Name: "you"}
-		if _, err := mp.Set(context.Background(), "p", 77, []missionpursuit.Criterion{{Kind: missionpursuit.KindRubric, Spec: "it is good"}}, op); err != nil {
+		if _, err := mp.Set(context.Background(), "p", 77, criteriaOfTheWorld(), op); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := mp.Start(context.Background(), "p", 77, startLimits, op); err != nil {
@@ -255,4 +258,18 @@ func goalOf(w *pworld) missionpursuit.Goal {
 		w.t.Fatal(err)
 	}
 	return g
+}
+
+func criteriaOfTheWorld() []missionpursuit.Criterion {
+	if startCriteria != nil {
+		return startCriteria
+	}
+	return []missionpursuit.Criterion{{Kind: missionpursuit.KindRubric, Spec: "it is good"}}
+}
+
+// newPursuitWorldCriteria is the world with a goal of the given criteria (c1, c2, ...).
+func newPursuitWorldCriteria(t *testing.T, cs ...missionpursuit.Criterion) *pworld {
+	startCriteria = cs
+	defer func() { startCriteria = nil }()
+	return newPursuitWorldWith(t, true)
 }

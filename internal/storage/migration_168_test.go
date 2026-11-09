@@ -92,13 +92,34 @@ func TestTheJudgeLedgerIsSettledOnceAndNeverDeleted(t *testing.T) {
 	refused168(t, db, "never changes", `UPDATE mission_pursuit_spend SET session_id = 1, kind = 'judge', settled = 0, micro = 0 WHERE id = 1`)
 	exec168(t, db, `UPDATE mission_pursuit_spend SET micro = 1200, known = 1, settled = 1 WHERE id = 1`)
 	refused168(t, db, "never changes", `UPDATE mission_pursuit_spend SET micro = 0 WHERE id = 1`)
+	refused168(t, db, "never changes", `UPDATE mission_pursuit_spend SET settled = 1 WHERE id = 1`) // settled twice
 	refused168(t, db, "never deleted", `DELETE FROM mission_pursuit_spend WHERE id = 1`)
-	refused168(t, db, "", `INSERT INTO mission_pursuit_spend (session_id, kind, at, micro) VALUES (1, 'wake', 'x', 1)`)
+	refused168(t, db, "", `INSERT INTO mission_pursuit_spend (session_id, kind, at, micro) VALUES (1, 'wake', 'x', 500000)`)
 	refused168(t, db, "", `INSERT INTO mission_pursuit_spend (session_id, kind, at, micro) VALUES (1, 'judge', 'x', -1)`)
-	// the cascade is the one delete that goes through
+	// the cascade is the one removal that goes through
 	exec168(t, db, `DELETE FROM task_sessions WHERE id = 1`)
 	var n int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM mission_pursuit_spend`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("after the session went: %d rows, %v", n, err)
 	}
+}
+
+// A reserved row (an unsettled crash row at the cap) cannot be swapped for a free one, however the writer spells the insert.
+func TestTheJudgeLedgerRefusesReplaceAndFreeOrSettledBirths(t *testing.T) {
+	db := openMigrated156(t).DB
+	exec168(t, db, `INSERT INTO profiles (id, name) VALUES ('p', 'p')`)
+	exec168(t, db, `INSERT INTO task_sessions (profile_id, title, kind, created_by, created_at, updated_at) VALUES ('p', 't', 'mission', 'you', 'x', 'x')`)
+	exec168(t, db, `INSERT INTO mission_pursuit_spend (session_id, kind, at, micro) VALUES (1, 'judge', 'x', 500000)`)
+	refused168(t, db, "never replaced", `INSERT OR REPLACE INTO mission_pursuit_spend (id, session_id, kind, at, micro, known, settled) VALUES (1, 1, 'judge', 'x', 500000, 0, 0)`)
+	refused168(t, db, "", `INSERT OR REPLACE INTO mission_pursuit_spend (id, session_id, kind, at, micro, known, settled) VALUES (1, 1, 'judge', 'x', 0, 1, 1)`)
+	refused168(t, db, "born unsettled", `INSERT INTO mission_pursuit_spend (session_id, kind, at, micro, known, settled) VALUES (1, 'judge', 'x', 1, 1, 1)`)
+	refused168(t, db, "born unsettled", `INSERT INTO mission_pursuit_spend (session_id, kind, at, micro) VALUES (1, 'judge', 'x', 499999)`)
+	refused168(t, db, "born unsettled", `INSERT INTO mission_pursuit_spend (session_id, kind, at, micro, known) VALUES (1, 'judge', 'x', 500000, 1)`)
+	var micro, settled int64
+	if err := db.QueryRow(`SELECT micro, settled FROM mission_pursuit_spend WHERE id = 1`).Scan(&micro, &settled); err != nil || micro != 500000 || settled != 0 {
+		t.Fatalf("the reserved row was changed: micro %d settled %d %v", micro, settled, err)
+	}
+	// settle it once, and not again
+	exec168(t, db, `UPDATE mission_pursuit_spend SET micro = 0, known = 1, settled = 1 WHERE id = 1`)
+	refused168(t, db, "never changes", `UPDATE mission_pursuit_spend SET micro = 1, settled = 1 WHERE id = 1`)
 }

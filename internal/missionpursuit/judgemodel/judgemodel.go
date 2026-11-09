@@ -3,8 +3,8 @@
 // working directory, the reply bounded while it streams), plus the cost of the turn: after the turn it tells the host what
 // the runtime measured through judgecost, even for a turn that failed or was cancelled.
 //
-// The prompt is whatever judge.Request carries; the pursuit host puts only facts it measured there (counts, enums, ids and
-// the goal criteria the person confirmed). This package never adds text and never reads a file.
+// The prompt is whatever judge.Request carries; the pursuit host puts there only what it measured (counts, enums, ids) and the TEXT of the goal criteria (written by the proposer,
+// confirmed by the person, frozen once confirmed). This package never adds text and never reads a file.
 //
 // It carries no key and stores nothing: the runtime is the AI account already logged in on this computer. The Pin names
 // the exact model, so a model that equals the lead's or the verifier's can be refused (Refuse).
@@ -105,6 +105,11 @@ func (m model) Complete(ctx context.Context, req judge.Request) ([]byte, error) 
 		Runtime: m.runtime, Model: m.model, Prompt: req.User, SystemPrompt: req.System,
 		Cwd: cwd, Timeout: m.timeout, BudgetUSD: judgecost.PerCallCapUSD, MaxTurns: 1, Sandbox: monomind.TurnSandboxMode,
 	}, func(ev monomind.Event) {
+		// Only the assistant's own text counts, once: a result event repeats the reply it closes, and counting it too would cut a
+		// legitimate reply of more than half the cap.
+		if ev.Type != "assistant" {
+			return
+		}
 		if seen += len(ev.Text); seen > types.MaxJudgmentBytes && !over {
 			over = true
 			cancel()

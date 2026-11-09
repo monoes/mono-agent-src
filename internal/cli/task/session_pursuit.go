@@ -11,19 +11,22 @@ import (
 )
 
 // newSessionPursuitCmd is `task session pursuit`: the person starts, pauses and resumes the perpetual pursuit of a mission's
-// confirmed goal. This is the policy record only (no loop runs from it), and every verb but status is the person's alone.
+// confirmed goal. The verbs here write the policy record; the loop that acts on it runs only on a host wired with a judge. Every verb but status is the person's alone.
 func (d Deps) newSessionPursuitCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pursuit",
 		Short: "Start, pause or resume the pursuit of a mission's confirmed goal (you only); status reads it",
 		Long: `A mission whose goal you confirmed can be pursued without end. Starting the pursuit locks the goal with it
 (a locked goal is final), and sets how far the pursuit may run while you are away: stop after PARKED-MAX questions
-wait for you, or after PCT percent of the budget is spent, since you last acted. Who answers a question
-and what happens to one nobody answers stay the chat's autonomy settings, as for any other mission.
+wait for you, or after PCT percent of the budget is spent (metered spend, the judge's calls and the lead's turns together),
+or after WAKES wake-ups of the lead, since you last acted. Who answers a question and what happens to one nobody answers stay
+the chat's autonomy settings, as for any other mission, so these limits, the host-wide hourly caps and the stop after three
+failed judge rounds in a row carry the brake. The goal must carry a rubric criterion: you are always the last judge, and
+closing the mission stays yours.
 Only you start, pause or resume; an agent is refused.
 
   pursuit start ID [--parked-max N] [--pct N]   start it (the goal must be confirmed); defaults 3 and 20
-  pursuit pause ID                              stop new work until you resume (it does not hand the lead back to check-ins)
+  pursuit pause ID                              stop new work until you resume (it does not hand the lead back to check-ins, and a judge call already running is not cancelled: it is paid for and its answer dropped)
   pursuit resume ID                             let it go on
   pursuit status ID                             show it (read only)`,
 	}
@@ -92,7 +95,7 @@ func (d Deps) writeProgress(cmd *cobra.Command, p tasks.Profile, pu missionpursu
 	if pu.Paused() {
 		fmt.Fprintln(w, "  paused: nothing is woken and nothing is judged, and the lead's check-ins do not come back; only your resume starts it again")
 	}
-	fmt.Fprintf(w, "  as of %s; a helper that has not ended is counted from its own turn journal; closing the mission stays yours\n", pr.AsOf)
+	fmt.Fprintf(w, "  as of %s; a helper that has not ended is counted from its own turn journal; the last judge call may take the spend past the limit by up to $0.50 plus the lead turn it earns; closing the mission stays yours\n", pr.AsOf)
 	return nil
 }
 

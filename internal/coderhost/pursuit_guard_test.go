@@ -95,7 +95,7 @@ func TestThePursuitLoopWritesOnlyItsOwnStateAndTheQueue(t *testing.T) {
 	write := regexp.MustCompile(`(?is)\b(INSERT|UPDATE|DELETE|REPLACE|ALTER|DROP|CREATE)\b`)
 	target := regexp.MustCompile(`(?is)\b(?:INTO|UPDATE|FROM|TABLE)\s+([a-z_]+)`)
 	// S5a: the judge ledger is written by two functions only, before a judge call (at the cap) and after it (settled once)
-	mayExec := map[string]bool{"savePursuitState": true, "EnqueueWithPursuit": true, "reserveJudgeCall": true, "settleJudgeCall": true}
+	mayExec := map[string]bool{"insertPursuitState": true, "updateGateState": true, "recordJudgeRound": true, "setPursuitWaiting": true, "EnqueueWithPursuit": true, "reserveJudgeCall": true, "settleJudgeCall": true}
 	denied := map[string]bool{"SaveSettings": true, "UpdateSettings": true, "SetBudget": true, "SaveCheckin": true, "Enqueue": true,
 		"EnqueueWithCheckin": true, "IssueSessionToken": true, "ChargeChild": true, "RevokeSessionTokens": true,
 		"Confirm": true, "Pause": true, "Resume": true, "Start": true, "Propose": true, "Set": true}
@@ -279,7 +279,7 @@ func TestThePursuitFilesNameOnlyListedExportsOfThePackagesThatCarryWriters(t *te
 			"MaxBadJudgeRounds": true, "MaxWakesMax": true, "WaitingWhy": true},
 		"strategy":  {"NewStore": true, "Store": true},
 		"policy":    {"Proposer": true, "Rank": true, "AcceptsNewWork": true},
-		"novelty":   {"New": true, "Corpus": true, "Match": true, "Hit": true},
+		"novelty":   {"New": true, "Key": true, "Corpus": true, "Match": true, "Hit": true},
 		"judgecost": {"PerCallCapUSD": true, "With": true},
 	}
 	// the strategy store's methods are not selectors on the package: they are listed by name, with the one file each may be in

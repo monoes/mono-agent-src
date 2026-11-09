@@ -2,7 +2,6 @@ package coderhost
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -48,6 +47,10 @@ func (m meteredModel) Complete(ctx context.Context, req judge.Request) (out []by
 	return m.inner.Complete(ctx, req)
 }
 
+// maxJudgeCallMicro bounds what one call can be charged ($1000): a runtime that reports an absurd amount must not make the ledger's
+// sum overflow (which would stop every read of it). A call is allowed $0.50; an amount past the clamp is already a stop.
+const maxJudgeCallMicro = 1000 * 1_000_000
+
 // reserveJudgeCall records a judge call at the per-call cap before it is made and returns its ledger id.
 func (s *Store) reserveJudgeCall(session int64) (int64, error) {
 	res, err := s.db.Exec(`INSERT INTO mission_pursuit_spend (session_id, kind, at, micro, known, settled) VALUES (?, 'judge', ?, ?, 0, 0)`,
@@ -60,6 +63,7 @@ func (s *Store) reserveJudgeCall(session int64) (int64, error) {
 
 // settleJudgeCall writes the cost a call turned out to have. A row settles once.
 func (s *Store) settleJudgeCall(id, micro int64, known bool) error {
+	micro = min(max(micro, 0), maxJudgeCallMicro)
 	k := 0
 	if known {
 		k = 1
@@ -140,20 +144,22 @@ func (h *Host) noteJudgeRound(m pursuitMission, res epoch.TickResult, _ error) {
 	default:
 		return
 	}
-	st, found, err := h.Store.pursuitStateOf(m.ID)
-	if err != nil || !found {
+	h.recordRound(m, round)
+}
+
+// noteFailedRound counts a round that cost a judge call and ended with a failure of the host's own.
+func (h *Host) noteFailedRound(m pursuitMission, round string) { h.recordRound(m, round) }
+
+func (h *Host) recordRound(m pursuitMission, round string) {
+	now := h.Pursuit.clock().Now()
+	if err := h.Store.recordJudgeRound(m.ID, round == "applied", round, now); err != nil {
+		h.logf("coder host: pursuit of session %d: %v", m.ID, err)
 		return
 	}
-	if round == "applied" {
-		st.BadRounds = 0
-	} else {
-		st.BadRounds++
-	}
-	st.LastRound = round
-	if st.Waiting == "" {
-		st.Waiting = h.pursuitStopReason(m, st) // the stop shows at once, not at the next pass
-	}
-	if err := h.Store.savePursuitState(st, h.Pursuit.clock().Now()); err != nil && !errors.Is(err, context.Canceled) {
-		h.logf("coder host: pursuit of session %d: %v", m.ID, err)
+	// the stop shows at once, not at the next pass
+	if st, found, err := h.Store.pursuitStateOf(m.ID); err == nil && found {
+		if why := h.pursuitStopReason(m, st); why != "" {
+			_ = h.Store.setPursuitWaiting(m.ID, why, true, now)
+		}
 	}
 }
