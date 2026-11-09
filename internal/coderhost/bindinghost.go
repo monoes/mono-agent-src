@@ -24,6 +24,10 @@ import (
 // generation, so an answer of the old one never verifies again.
 //
 // Nothing here issues a token: the gate (coder_host_gate.go) asks Ensure only when issuance is allowed.
+// lockHostProcess is the host process's own access list (Windows; a no-op elsewhere). It is a variable only so a test can
+// replace it: nothing in production assigns it.
+var lockHostProcess = procbind.LockSelf
+
 type BindingHost struct {
 	DB     *sql.DB
 	Binder *procbind.Binder
@@ -203,7 +207,7 @@ func (h *BindingHost) Ensure(ctx context.Context, profile string) error {
 	if err := procbind.Ready(); err != nil {
 		return fmt.Errorf("the binding service cannot run here: %w", err)
 	}
-	if err := procbind.LockSelf(); err != nil { // the host holds the turns' registry: on Windows a same-user process must not write into it
+	if err := lockHostProcess(); err != nil { // the host holds the turns' registry: on Windows a same-user process must not write into it
 		return fmt.Errorf("the binding service cannot lock the host process: %w", err)
 	}
 	opts, err := h.options(profile)
