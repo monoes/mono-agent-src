@@ -21,7 +21,9 @@ import (
 //	did the turn report a cost at all (if not, the host charges the whole cap)?
 //
 // It works with any installed runtime and uses THAT RUNTIME'S OWN EXISTING LOGIN on this machine (claude, codex, opencode,
-// hermes, ...): this code never reads, stores or passes a key. It opens no monoagent database (the turn runs in a fresh
+// hermes, ...): OUR code never reads, stores or passes a key. But the runner inherits the ambient environment (monomind's
+// FilteredEnviron strips only CLAUDE_CODE_* and MONOMIND_*), so a provider key that is set in the shell (ANTHROPIC_API_KEY,
+// OPENAI_API_KEY, ...) would reach the runtime and may be what it bills; the test prints a warning (names only) when one is set. It opens no monoagent database (the turn runs in a fresh
 // temporary folder), so it touches nothing of ~/.monoagent. It never runs by default and never in CI: it needs the build tag
 // and the variables below, and it spends real money on the login's account.
 //
@@ -44,7 +46,12 @@ func TestRealRunnerRecordsWhatItDoesUnderATinyCap(t *testing.T) {
 		}
 		capUSD = v
 	}
-	t.Logf("LOGIN this run relies on the %q runtime's own login on this machine; no key is read or passed by this test. The cap $%.4f is a REQUEST to the runner and may be overshot by one call.", runtime, capUSD)
+	for _, k := range []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "MISTRAL_API_KEY", "XAI_API_KEY", "GROQ_API_KEY"} {
+		if os.Getenv(k) != "" {
+			t.Logf("WARNING %s is set in this environment: the runner inherits it, so it may use that key instead of the runtime's own login", k)
+		}
+	}
+	t.Logf("LOGIN this run relies on the %q runtime's own login on this machine; no key is read or passed by OUR code (the runner still inherits the environment). The cap $%.4f is a REQUEST to the runner and may be overshot by one call.", runtime, capUSD)
 	pin := runtime + "/" + model
 	cwd := t.TempDir()
 	events := map[string]int{}
