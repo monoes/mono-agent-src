@@ -847,6 +847,7 @@ export default function People({ onProfile, isActive = true, onNavigate }) {
       setDebouncedSearch(search)
       setOffset(0)
     }, 300)
+    return () => clearTimeout(debounceRef.current)
   }, [search])
 
   const load = useCallback(async (opts) => {
