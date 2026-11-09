@@ -32,7 +32,7 @@ model (off by default; unset it and restart the host to turn it off for every mi
 Each epoch costs a judge call (asked to stay under $0.50) and may wake the lead for one turn capped at X (default $2, set by
 MONOAGENT_PURSUIT_WAKE_CAP_USD on the host) or at what the lead has left, whichever is less. Worst case with the defaults: about
 $15 an hour for one mission, about $30 an hour for the whole host; until the away limits stop one mission about $6.50 on a $20
-mission budget and at most about $22.50 on $100 (the smaller of the 20 percent bound and the six-wake bound applies). The caps are requests to the AI runtime, checked from the cost it reports afterwards;
+mission budget and at most about $22.50 on $100 (the 20 percent rule is the only hard bound; the six-wake figure, about $17, is typical, not a bound, because judged epochs that wake nobody are not counted by the wake limit). The caps are requests to the AI runtime, checked from the cost it reports afterwards;
 helpers the lead starts are NOT covered by X: one wake can let the lead carve its whole remaining budget to helpers, bounded only by
 the carve limits (and the money carved out and not yet spent counts in the PCT rule, so a big carve makes the pursuit wait).
 The judge's model is checked by name against the lead's (aliases are not recognised); no verifier pin exists for missions yet. The lead must have a budget and the mission a known budget, and the judge's model must differ from the lead's, or the

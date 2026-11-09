@@ -119,7 +119,7 @@ func TestAnUnboundMissionWaitsLikeAnUncappedLead(t *testing.T) { // gap G2
 	if got := w.h.pursuitStopReason(pursuitMission{ID: 77, Profile: "p", Conv: ""}, pursuitState{}); got != pursuitWaitingNoChat {
 		t.Fatalf("a mission bound to no chat has stop reason %q, want %q", got, pursuitWaitingNoChat)
 	}
-	if why := missionpursuit.WaitingWhy(pursuitWaitingNoChat); !strings.Contains(why, "no chat to wake") || strings.Contains(why, "budget") {
+	if why := missionpursuit.WaitingWhy(pursuitWaitingNoChat); !strings.Contains(why, "this mission has no chat to wake") || strings.Contains(why, "budget") {
 		t.Fatalf("the reason text is %q", why)
 	}
 }
