@@ -100,14 +100,14 @@ func TestHomeEnvRedirectsEveryHomeVariable(t *testing.T) {
 	})
 	for _, goos := range []string{"linux", "darwin"} {
 		t.Run(goos, func(t *testing.T) {
-			dir := "/tmp/h"
+			dir := "/tmp/h" // the XDG dirs are filepath.Join results: the host's separator
 			env, mkdirs := homeEnv(goos, dir)
 			want := [][2]string{
 				{"HOME", dir},
 				{"USERPROFILE", dir},
-				{"XDG_CONFIG_HOME", "/tmp/h/.config"},
-				{"XDG_DATA_HOME", "/tmp/h/.local/share"},
-				{"XDG_STATE_HOME", "/tmp/h/.local/state"},
+				{"XDG_CONFIG_HOME", filepath.FromSlash("/tmp/h/.config")},
+				{"XDG_DATA_HOME", filepath.FromSlash("/tmp/h/.local/share")},
+				{"XDG_STATE_HOME", filepath.FromSlash("/tmp/h/.local/state")},
 			}
 			if len(env) != len(want) || len(mkdirs) != 0 {
 				t.Fatalf("env = %v mkdirs = %v, want %v and none", env, mkdirs, want)
