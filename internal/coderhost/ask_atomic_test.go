@@ -57,7 +57,7 @@ func TestAnswerAndItsReplyCommitTogether(t *testing.T) {
 	if _, err := f.st.ReplyAsk(f.lead(f.rc), "p", n.AskID, "r"); err == nil {
 		t.Fatal("the crash was not seen")
 	}
-	if _, _, err := f.st.AnswerAncestorQuestion("p", c.AskID, "a"); err == nil {
+	if _, _, err := f.st.AnswerAncestorQuestion(testProof, "p", c.AskID, "a"); err == nil {
 		t.Fatal("the crash was not seen")
 	}
 	for _, id := range []int64{n.AskID, c.AskID} {
@@ -72,7 +72,7 @@ func TestAnswerAndItsReplyCommitTogether(t *testing.T) {
 	if _, err := f.st.ReplyAsk(f.lead(f.rc), "p", n.AskID, "r"); err != nil {
 		t.Fatalf("the lead's retry: %v", err)
 	}
-	if _, _, err := f.st.AnswerAncestorQuestion("p", c.AskID, "a"); err != nil {
+	if _, _, err := f.st.AnswerAncestorQuestion(testProof, "p", c.AskID, "a"); err != nil {
 		t.Fatalf("the person's retry: %v", err)
 	}
 	if len(f.commandsTo(f.cc)) != 1 || len(f.commandsTo(f.gc)) != 1 {

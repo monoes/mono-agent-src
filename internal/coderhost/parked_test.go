@@ -43,6 +43,7 @@ type masterScope struct{ conv string }
 
 func (masterScope) Role() string             { return WhoMaster }
 func (m masterScope) ConversationID() string { return m.conv }
+func (masterScope) sealed()                  {}
 
 func TestParkPutsTheSessionInWaitingUserAndOthersCarryOn(t *testing.T) {
 	h, _, st := newHost(t)

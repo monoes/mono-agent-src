@@ -15,7 +15,10 @@ import (
 //
 // The history rows are written here, in the tasks tables, because the item and the history must
 // commit together and they live in two stores of one database.
-func (s *Store) DenyPlan(ctx context.Context, it PersonItem, actor, note string) (Command, error) {
+func (s *Store) DenyPlan(ctx context.Context, proof PersonProof, it PersonItem, actor, note string) (Command, error) {
+	if err := proof.check(); err != nil {
+		return Command{}, err
+	}
 	if _, err := planCommand(it.ProfileID, it.ConversationID, it.RefID, PlanDenied, note); err != nil {
 		return Command{}, err // nothing is touched when the lead cannot be told
 	}

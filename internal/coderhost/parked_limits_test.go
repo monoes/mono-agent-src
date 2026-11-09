@@ -63,7 +63,10 @@ func TestHostHoldsMasterAndDefaultAnswersToTheLimitButNotAPersonsAnswer(t *testi
 			t.Fatalf("%s at the limit: %+v", c.TurnID, got)
 		}
 	}
-	person := enq(answerTurnID(answerFromPerson), "")
+	person, err := st.Enqueue(Command{ProfileID: "p", ConversationID: "k1", Kind: KindSend, TurnID: answerTurnID(answerFromPerson), Message: "x", person: true}) // as the person-gated paths build it
+	if err != nil {
+		t.Fatal(err)
+	}
 	_ = h.Tick()
 	if got, _, _ := st.GetCommand(person.ID); got.Status == CmdFailed {
 		t.Fatalf("a person's answer was held back: %+v", got)

@@ -96,6 +96,9 @@ type Command struct {
 	// Issuer is the master (conversation id) that queued the command; "" for a person or the
 	// host. The host runs such a command only while the target is still a child of the issuer.
 	Issuer string `json:"issuer,omitempty"`
+	// person says the command was built on a person-gated path of this package (see person_proof.go). Unexported, so no
+	// other package can set it; enqueueOn refuses the person turn-id prefixes without it.
+	person bool
 }
 
 // Session is a coder conversation as the host tracks it.
@@ -225,6 +228,9 @@ func (s *Store) enqueueOn(x querier, c Command) (Command, error) {
 	// be a mission, and a master- turn id is the master tools' alone (a caller with no issuer cannot use it).
 	if c.Issuer == "" && strings.HasPrefix(c.TurnID, MasterTurnPrefix) {
 		return c, errors.New("coder host: turn ids starting with " + MasterTurnPrefix + " belong to the master tools")
+	}
+	if reservedPersonTurn(c.TurnID) && !c.person {
+		return c, errors.New("coder host: turn ids starting with answer-p- or ask-p- belong to the person's own answers")
 	}
 	if c.WantsMission && (c.Kind != KindSend || HostMade(c.TurnID) || c.Issuer != "") {
 		return c, errors.New("coder host: only a person's send can ask for a mission")

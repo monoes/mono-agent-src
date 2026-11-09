@@ -40,6 +40,9 @@ const (
 type CallerScope interface {
 	Role() string           // WhoUser or WhoMaster
 	ConversationID() string // the master's own conversation; "" for the operator
+	// sealed keeps the interface closed: only this package can make a scope, so no other package can implement
+	// Role() == WhoUser and answer as the person (the answer is queued under the person's reserved turn id).
+	sealed()
 }
 
 // OperatorScope is the person at the operator CLI.
@@ -50,6 +53,8 @@ func (OperatorScope) Role() string { return WhoUser }
 
 // ConversationID is empty: the operator is no conversation.
 func (OperatorScope) ConversationID() string { return "" }
+
+func (OperatorScope) sealed() {}
 
 // Question is a parked question.
 type Question struct {

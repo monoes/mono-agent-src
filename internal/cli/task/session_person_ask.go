@@ -36,8 +36,13 @@ func (d Deps) newPersonAnswerAskCmd() *cobra.Command {
 		Short: "Answer a critical ask that a lead raised for you; the answer reaches the asking lead as quoted data and the item closes",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if _, err := d.personGate(cmd, personWhat); err != nil {
+			actor, err := d.personGate(cmd, personWhat)
+			if err != nil {
 				return err
+			}
+			proof, err := coderhost.ProvePerson(actor)
+			if err != nil {
+				return d.InvalidInput("%v", err)
 			}
 			if askID <= 0 {
 				return d.InvalidInput("task session person answer-ask needs the ask id (--ask)")
@@ -51,7 +56,7 @@ func (d Deps) newPersonAnswerAskCmd() *cobra.Command {
 					return err
 				}
 				defer db.Close()
-				a, c, err := coderhost.NewStore(db.DB).AnswerAncestorQuestion(p.ID, askID, text)
+				a, c, err := coderhost.NewStore(db.DB).AnswerAncestorQuestion(proof, p.ID, askID, text)
 				switch {
 				case errors.Is(err, coderhost.ErrNoQuestion), errors.Is(err, coderhost.ErrNotOpen):
 					return taskCLIError{error: d.NotFound("%v", err), code: "not_found"}
