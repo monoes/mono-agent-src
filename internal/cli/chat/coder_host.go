@@ -314,6 +314,13 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
+			// Where no signal reaches the host (Windows), `host stop` sets an event the host made for itself, and the host
+			// leaves through the same path as on SIGTERM.
+			if endWatch, werr := watchHostStop(ctx, info.Instance, stop); werr != nil {
+				logf("coder host: no stop event (%v); `host stop` will have to end this host by force", werr)
+			} else {
+				defer endWatch()
+			}
 			// The retention sweep of the v2 tables (procbind.PurgeRetained) runs at the start and then about once an hour.
 			// It reads no key and never fails the host: an error is logged and the host carries on.
 			purged := make(chan struct{})
@@ -462,13 +469,22 @@ func newCoderHostStopCmd(cfg *Deps) *cobra.Command {
 			if info.PID <= 1 || info.Stamp == "" || stampOf(info.PID) != info.Stamp {
 				return clicore.InvalidInput("host.json names a process that is not the host any more; remove %s", filepath.Join(hostDir(cfg), hostInfoFile))
 			}
-			if err := terminateProcess(info.PID); err != nil {
+			forcedWhy, err := stopHost(cfg, info)
+			if forcedWhy != "" { // said whether or not the end succeeded: the host's own cleanup did not run
+				fmt.Fprintf(cmd.ErrOrStderr(), "forced (%s); the host's own cleanup did not run\n", forcedWhy)
+			}
+			if err != nil {
 				return err
 			}
-			for i := 0; i < 100 && hostRunning(cfg); i++ {
+			for deadline := time.Now().Add(hostStopSettle); hostRunning(cfg) && time.Now().Before(deadline); {
 				time.Sleep(50 * time.Millisecond)
 			}
-			return printQueueJSON(cmd, map[string]any{"stopped": !hostRunning(cfg), "pid": info.PID})
+			res := map[string]any{"stopped": !hostRunning(cfg), "pid": info.PID}
+			if forcedWhy != "" {
+				res["forced"] = true
+				res["forcedReason"] = forcedWhy
+			}
+			return printQueueJSON(cmd, res)
 		},
 	}
 	clicore.WithJSONErrors(cfg.JSONOutput, cmd)

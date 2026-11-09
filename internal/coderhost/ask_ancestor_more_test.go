@@ -45,7 +45,7 @@ func TestOnlyOnePersonAnswerWinsARace(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if _, _, err := f.st.AnswerAncestorQuestion("p", got.AskID, "yes"); err == nil {
+			if _, _, err := f.st.AnswerAncestorQuestion(testProof, "p", got.AskID, "yes"); err == nil {
 				mu.Lock()
 				won++
 				mu.Unlock()

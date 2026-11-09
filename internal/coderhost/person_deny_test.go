@@ -45,7 +45,7 @@ func denyFacts(t *testing.T, st *Store, session int64) (cmds, events int) {
 func TestDenyPlanClosesRecordsAndTellsTheLeadOnce(t *testing.T) {
 	st, ts, c, it := giantItem(t)
 	ctx := context.Background()
-	cmd, err := st.DenyPlan(ctx, it, "you", "split it in two")
+	cmd, err := st.DenyPlan(ctx, testProof, it, "you", "split it in two")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestDenyPlanClosesRecordsAndTellsTheLeadOnce(t *testing.T) {
 		t.Fatalf("%+v", se)
 	}
 	// A second deny of the same item has nothing to close and tells nobody.
-	if _, err := st.DenyPlan(ctx, it, "you", "again"); err == nil {
+	if _, err := st.DenyPlan(ctx, testProof, it, "you", "again"); err == nil {
 		t.Fatal("a closed item was denied again")
 	}
 	if cmds, events := denyFacts(t, st, c.ID); cmds != 1 || events != 1 {
@@ -86,7 +86,7 @@ func TestDenyPlanOfAPlanApprovedMeanwhileWritesAndSendsNothing(t *testing.T) {
 	if _, err := ts.ApproveSession(ctx, "p", c.ID, opActor); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.DenyPlan(ctx, it, "you", "too late"); err == nil {
+	if _, err := st.DenyPlan(ctx, testProof, it, "you", "too late"); err == nil {
 		t.Fatal("denied a plan that runs")
 	}
 	if cmds, events := denyFacts(t, st, c.ID); cmds != 0 || events != 0 {
@@ -97,7 +97,7 @@ func TestDenyPlanOfAPlanApprovedMeanwhileWritesAndSendsNothing(t *testing.T) {
 func TestDenyPlanWithNoChatToTellChangesNothing(t *testing.T) {
 	st, _, c, it := giantItem(t)
 	it.ConversationID = ""
-	if _, err := st.DenyPlan(context.Background(), it, "you", "no"); err == nil {
+	if _, err := st.DenyPlan(context.Background(), testProof, it, "you", "no"); err == nil {
 		t.Fatal("no chat to tell")
 	}
 	if cmds, events := denyFacts(t, st, c.ID); cmds != 0 || events != 0 {
@@ -123,7 +123,7 @@ func TestDenyPlanRacingAnApprovalIsConsistent(t *testing.T) {
 		}
 		var wg sync.WaitGroup
 		wg.Add(2)
-		go func() { defer wg.Done(); _, _ = st.DenyPlan(ctx, it, "you", "no") }()
+		go func() { defer wg.Done(); _, _ = st.DenyPlan(ctx, testProof, it, "you", "no") }()
 		go func() {
 			defer wg.Done()
 			_, _ = ts.ApproveSessionAt(ctx, "p", c.ID, opActor, tasks.PlanGuard{Rev: pv.Rev, Digest: pv.Digest})

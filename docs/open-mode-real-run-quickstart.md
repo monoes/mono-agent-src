@@ -34,7 +34,7 @@ Both:
 - Linux: first line `stopped`, exit 0.
 - macOS/Windows: `stopped (best effort: processes that left the group are not covered)`, exit 0. Check by hand that nothing of the run is left running.
 - Failure lines (exit 1): `Stop marker NOT RECORDED`, `NOT stopped: N process(es) survive: ...`, `Stop intent NOT RECORDED`, or `NOT stopped:` followed by reasons (the run stays `cleanup-pending`). Run `doomsday stop` again; it is safe to repeat. Exit 8 means the run is stopped but its sessions or chat message were not all finished: run it again.
-- If the reason says the emergency socket is missing but the host lock is held: `monoagentcli --profile "$P" coder host stop` (running turns keep going; the next host picks them up), then `doomsday stop` again.
+- If the reason says the emergency socket is missing but the host lock is held: `monoagentcli --profile "$P" coder host stop` (running turns keep going; the next host picks them up), then `doomsday stop` again. On Windows the command asks the host to stop through an event it made for itself, waits up to about 20 seconds for its cleanup, and only then ends that one process through a handle it opened and checked against host.json; it prints `"forced": true` in that case, and says `stopped` only once the host lock is free. If it cannot (an error), do it by hand: the pid from `coder host status`, `taskkill /PID <pid> /F` (never `/T`, never by image name), then `doomsday stop` again.
 - `database is busy` / `stop could not run`: nothing was stopped; retry, then `monoagentcli doctor`.
 
 ## 4. Check state

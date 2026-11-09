@@ -99,6 +99,10 @@ func (s *Store) deliver(q Question) (Command, error) {
 		c.TurnID = answerTurnID(answerFromDefault)
 	case strings.HasPrefix(q.AnsweredBy, WhoMaster+":"):
 		c.TurnID, c.Issuer = answerTurnID(answerFromMaster), strings.TrimPrefix(q.AnsweredBy, WhoMaster+":")
+	case q.AnsweredBy == WhoUser: // the person's own answer: the one case that keeps the answer-p- turn id
+		c.person = true
+	default:
+		return Command{}, fmt.Errorf("coder host: question %d was answered by %q, which has no way to be told to the session", q.ID, q.AnsweredBy)
 	}
 	cmd, err := s.Enqueue(c)
 	if err != nil {
