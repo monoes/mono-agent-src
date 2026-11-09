@@ -3555,19 +3555,43 @@ later check and its next use, and the check and the signal that stops a turn's l
 hands the connection to an outsider lends its authority, as on Linux. A client that sends its request and closes before the
 service reads the tables is refused (usability only).
 
-**Binding service on Windows.** The same contract as Linux, with the facilities Windows has, and **much weaker against a same-user
-adversary**, which is stated first. The Windows binding stops a leaked token used by a program that does not know the tricks below
-(an environment dump, a log, another program, a sibling tool). It does **not** stop same-user malware, or an agent that is written
-(or talked into) defeating it, and **a process-ancestry gate is not a boundary on Windows**. Two routes, each a few lines of
-ordinary Windows API and no privilege: (1) **Parent claim.** A Windows process records the parent that its creator names (any
-process the creator can open with the create-process right), and the child also takes that parent's token, job and inheritable
-handles, so a process of the same user outside the turn can start a child that the walk takes for a descendant
-(`TestKnownGapAProcessThatClaimsTheWorkerAsItsParentIsServed`). (2) **Injection.** Under the default access list the same user can open
-any process of its own with the rights to write into it and start a thread in it (`CreateRemoteThread`), and the code that then runs is
-a tree member: its peer pid, user and ancestry are genuine (`TestKnownGapTheDefaultAccessListLetsTheSameUserWriteIntoATreeMember`).
-Closing both needs the turn's processes started with an access list that denies those rights to everyone but SYSTEM, which is separate
-work; a job object, a restricted token or a distinct integrity level do not help, since the spoofed child inherits them from the
-claimed parent. On Linux and macOS the parent is the kernel's, so an attacker needs code running inside the tree. Consequences: the
+**Binding service on Windows.** The same contract as Linux, with the facilities Windows has, and **still much weaker against a same-user
+adversary than Linux and macOS**, which is stated first. The Windows binding stops a leaked token used by a program that does not know
+the tricks below (an environment dump, a log, another program, a sibling tool). It does **not** stop same-user malware, or an agent
+that is written (or talked into) defeating it, and **a process-ancestry gate is still not a boundary on Windows**. Two routes, each a
+few lines of ordinary Windows API and no privilege: (1) **Parent claim.** A Windows process records the parent that its creator names
+(any process the creator can open with the create-process right), and the child also takes that parent's token, job and inheritable
+handles, so a process of the same user outside the turn can start a child that the walk takes for a descendant. (2) **Injection.**
+Under the default access list the same user can open any process of its own with the rights to write into it and start a thread in
+it (`CreateRemoteThread`), and the code that then runs is a tree member: its peer pid, user and ancestry are genuine.
+**Hardening (`internal/procbind/procacl*.go`) removes the cheap forms of these, not a determined same-user program.** The turn's
+worker is created, and the host process locks itself (at the start of `coder host run`, and again when the binding service starts),
+with a process security descriptor that is an allow-list: PROCESS_TERMINATE, PROCESS_QUERY_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION,
+READ_CONTROL and SYNCHRONIZE for the user, everything for SYSTEM, and an empty OWNER RIGHTS entry so that the owner cannot write the
+list back. Nothing else is given to anyone, so naming the worker or the host as a parent (create-process), `CreateRemoteThread`,
+`WriteProcessMemory` / VM read, handle duplication into or out of the process, suspend/resume, set-quota/information, write-DAC and
+write-owner are refused with access denied (`TestLockedWorkerCannotBeClaimedAsAParent`, `TestLockedWorkerRefusesInjectionAndKeepsWhatTheHostNeeds`,
+`TestANonElevatedSameUserProcessCannotOpenALockedWorker`). The worker's main thread gets the same kind of list. The host's own handle
+to a worker it started is full-access whatever the list says, and stopping (`coder host stop`, `doomsday stop`, `taskkill`), the
+ancestry walk and the pinning of a peer by handle need only rights the list keeps. PROCESS_QUERY_INFORMATION is kept because
+`os.FindProcess` (the host liveness probe) asks for it and fails without it (verified on the Windows test host); it reads no memory.
+**Intended cost to tooling:** a debugger, procdump, Process Hacker and Task Manager's memory detail can no longer open the worker or
+the host as the same user (they need VM read or more), unless they run as SYSTEM or with SeDebugPrivilege; Windows Error Reporting
+and crash dumps taken by the system are expected to still work (not tested).
+**What this does not close, each pinned by a test so that nobody mistakes it for covered:**
+(a) **the tools the worker starts** keep the default list, because a token's default access list cannot be narrowed for processes without
+narrowing it for every pipe, event and file the process creates (a tested attempt made `CreatePipe` fail with access denied), so a
+same-user process can name a live tool of the worker (the shell or the CLI it started) as its parent and the child passes the walk
+(`TestKnownGapATokenDefaultAccessListLeavesAToolOfTheWorkerClaimable`) - this is the realistic attack, and it is open;
+(b) **later threads** in the worker and in the host keep the default list (only the worker's main thread is locked), so thread
+hijack (set-context, suspend, APC) by the same user remains possible (`TestKnownGapOtherThreadsOfALockedWorkerKeepTheDefaultAccessList`);
+(c) the host is unlocked until it has started running `coder host run`, and handles opened to it before that survive;
+(d) an **elevated administrator, SeDebugPrivilege or SeTakeOwnershipPrivilege, and a session started by a service or ssh as an
+administrator**, skip every access list (`TestKnownGapAnElevatedProcessWithDebugPrivilegeOpensALockedWorker`), a class the Linux and
+macOS binding does not stop either (root);
+(e) a same-user program can replace the binaries and DLLs the worker or the host loads (files, not processes);
+(f) a job object, a restricted token or a distinct integrity level do not help, since the spoofed child inherits them from the claimed
+parent. On Linux and macOS the parent is the kernel's, so an attacker needs code running inside the tree. Consequences: the
 gates that ask "is this caller inside a coder turn" (`HostInsideTurn`, `CallerInATurn`, the v1 mission and session token process
 checks, which are newly active on Windows: before, they did nothing) can be escaped by one `CreateProcess` naming another parent, or by
 launching through WMI or Task Scheduler without any trick; they restrain an agent that does not try. Availability change: because the

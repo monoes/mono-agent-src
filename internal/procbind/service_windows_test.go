@@ -17,8 +17,6 @@ import (
 	"testing"
 	"time"
 
-	"golang.org/x/sys/windows"
-
 	"github.com/monoes/mono-agent/internal/procchain"
 )
 
@@ -170,6 +168,37 @@ func TestHelperProcess(t *testing.T) {
 			_ = c
 			os.Stdout.WriteString("CONNECTED\n")
 		}
+	case "locksself":
+		if err := LockSelf(); err != nil {
+			os.Stdout.WriteString("LOCKFAILED " + err.Error() + "\n")
+			return
+		}
+		os.Stdout.WriteString("LOCKED\n")
+		time.Sleep(5 * time.Minute)
+	case "kid":
+		// a worker that has started a tool (with the default access list) and says its number
+		_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
+		k := exec.Command(os.Args[0], "-test.run=^TestHelperProcess$")
+		k.Env = append(os.Environ(), helperEnv+"=sleep")
+		if err := k.Start(); err == nil {
+			os.Stdout.WriteString("KID " + strconv.Itoa(k.Process.Pid) + "\n")
+		}
+		time.Sleep(5 * time.Minute)
+	case "relay":
+		// a worker: starts the verifying child (with the default access list, like any tool a worker starts) and relays its verdict;
+		// it learns the service from its standard input
+		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+		c := exec.Command(os.Args[0], "-test.run=^TestHelperProcess$")
+		c.Env = append(os.Environ(), helperEnv+"=verify")
+		for _, kv := range strings.Fields(line) {
+			c.Env = append(c.Env, kv)
+		}
+		out, _ := c.Output()
+		os.Stdout.Write(out)
+		os.Stdout.WriteString("RELAYED\n")
+		time.Sleep(5 * time.Minute)
+	case "attack":
+		attackFromHelper()
 	case "verify":
 		key, _ := hex.DecodeString(os.Getenv("PB_KEY"))
 		c, err := DialSecure(SocketOptions{Root: os.Getenv("PB_ROOT"), Profile: "p1"})
@@ -438,54 +467,6 @@ func TestPeerPIDStaysTheConnectorsAfterItHandedTheConnectionOn(t *testing.T) {
 		pi.proc.Close()
 		t.Fatal("the service would serve a connection whose connector has ended")
 	}
-}
-
-// KNOWN GAP, pinned so that nobody mistakes it for covered: a Windows process records the parent its creator names, so a
-// process of the same user that is not in the worker's tree can create a child that claims a member of the tree as its
-// parent, and the child then passes the parent walk (and inherits that parent's job, so a job would not tell it apart).
-// Linux has no equivalent: its parent is the kernel's. If this ever starts to deny, the gap is closed: update SECURITY.md.
-func TestKnownGapAProcessThatClaimsTheWorkerAsItsParentIsServed(t *testing.T) {
-	cmd, r := spawn(t, "sleep")
-	readLine(t, r, "READY")
-	other, err := OpenProcessHandle(cmd.Process.Pid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer other.Close()
-	s := startService(t, other, nil)
-	if v, _ := s.verify(); v != VerdictDeny {
-		t.Fatalf("control: this process is not in the worker's tree: %v", v)
-	}
-	ph, err := windows.OpenProcess(windows.PROCESS_CREATE_PROCESS|windows.PROCESS_DUP_HANDLE|windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(cmd.Process.Pid))
-	if err != nil {
-		t.Fatalf("the worker cannot be named as a parent any more (%v): the gap may be closed; update the documentation and this test", err)
-	}
-	defer windows.CloseHandle(ph)
-	c := exec.Command(os.Args[0], "-test.run=^TestHelperProcess$")
-	c.Env = append(os.Environ(), helperEnv+"=verify", "PB_ROOT="+s.root, "PB_KEY="+hex.EncodeToString(s.key))
-	c.SysProcAttr = &syscall.SysProcAttr{ParentProcess: syscall.Handle(ph)}
-	out, err := c.Output()
-	if err != nil {
-		t.Fatalf("a process with a named parent cannot be made (%v): the gap may be closed; update the documentation and this test", err)
-	}
-	if !strings.Contains(string(out), "VERDICT allow") {
-		t.Fatalf("the known gap is closed (%q): update the documentation and this test", out)
-	}
-}
-
-// KNOWN GAP, second route: under the default access list the same user may open any process of its own with the rights to
-// write into it and start a thread in it (CreateRemoteThread), and the code that then runs is the member: its peer pid, user
-// and ancestry are genuine. No check of the service sees it. Hardening the access list of the turn is separate work; when it
-// lands this test must fail and be turned into a must-deny test.
-func TestKnownGapTheDefaultAccessListLetsTheSameUserWriteIntoATreeMember(t *testing.T) {
-	cmd, r := spawn(t, "sleep")
-	readLine(t, r, "READY")
-	const want = windows.PROCESS_VM_WRITE | windows.PROCESS_VM_OPERATION | windows.PROCESS_CREATE_THREAD | windows.PROCESS_VM_READ
-	h, err := windows.OpenProcess(want, false, uint32(cmd.Process.Pid))
-	if err != nil {
-		t.Fatalf("the member can no longer be opened for writing (%v): the gap may be closed; update the documentation and this test", err)
-	}
-	windows.CloseHandle(h)
 }
 
 func TestReadyNamesALongTemporaryFolderAsTheCause(t *testing.T) {

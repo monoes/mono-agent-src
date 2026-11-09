@@ -51,6 +51,10 @@ type hostInfo struct {
 	Held map[string]string `json:"held,omitempty"`
 }
 
+// lockHostProcessAtStart is the host's own access list at the start of `coder host run`. A variable only so a test can
+// replace it: nothing in production assigns it.
+var lockHostProcessAtStart = procbind.LockSelf
+
 func hostDir(cfg *Deps) string {
 	return filepath.Join(filepath.Dir(clicore.ExpandPath(cfg.DBPath())), "coder-host")
 }
@@ -203,6 +207,11 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := clicore.RequireOperator(cfg.RequireOperator, "run the coder host, which starts full-access turns"); err != nil {
 				return err
+			}
+			// the host locks its own access list (Windows) before it creates or opens anything; the binding host
+			// repeats it as a backstop when a service starts
+			if err := lockHostProcessAtStart(); err != nil {
+				return fmt.Errorf("the coder host could not lock its own process, so it does not start: %w", err)
 			}
 			if err := os.MkdirAll(hostDir(cfg), 0o700); err != nil {
 				return err

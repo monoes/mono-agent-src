@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -341,5 +342,31 @@ func TestEnsureChecksItsDeadlineBeforePublishing(t *testing.T) {
 	h.beforePublish = nil
 	if err := h.Ensure(context.Background(), "p"); err != nil {
 		t.Fatalf("the next start: %v", err)
+	}
+}
+
+// The host process locks its own access list (Windows) before the service listens or writes its start, and a host that cannot
+// lock it starts nothing.
+func TestEnsureLocksTheHostProcessBeforeAnythingListens(t *testing.T) {
+	h, _, _ := bindingRig(t)
+	old := lockHostProcess
+	t.Cleanup(func() { lockHostProcess = old })
+	calls := 0
+	lockHostProcess = func() error {
+		calls++
+		if len(h.svcs) != 0 { // Ensure holds the host's lock here, so Running would wait for it
+			t.Error("a service was running before the host locked itself")
+		}
+		return errors.New("no access list")
+	}
+	if err := h.Ensure(context.Background(), "p"); err == nil || !strings.Contains(err.Error(), "lock the host process") {
+		t.Fatalf("Ensure with a host that cannot lock itself: %v", err)
+	}
+	if calls != 1 || h.Running("p") {
+		t.Fatalf("lock calls %d, running %v: a host that could not lock itself started the service", calls, h.Running("p"))
+	}
+	lockHostProcess = func() error { calls++; return nil }
+	if err := h.Ensure(context.Background(), "p"); err != nil || calls != 2 {
+		t.Fatalf("Ensure after a successful lock: %v (calls %d)", err, calls)
 	}
 }
