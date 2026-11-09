@@ -129,7 +129,7 @@ func TestUnregisterRemovesOnlyItsOwnEntry(t *testing.T) {
 	}
 	// an entry of another host (another pid) for a's path is not removed by this host's unregister
 	foreign := filepath.Join(dir, entryName(canonicalOrSelf(t, a)))
-	writeEntry(t, foreign, `{"db":"`+canonicalOrSelf(t, a)+`","pid":1,"stamp":"x"}`, 0o600)
+	writeEntry(t, foreign, jsonEntry(canonicalOrSelf(t, a), 1, "x"), 0o600)
 	unA()
 	if _, err := os.Stat(foreign); err != nil {
 		t.Fatalf("unregister removed an entry that is not its own: %v", err)
@@ -143,6 +143,12 @@ func canonicalOrSelf(t *testing.T, p string) string {
 		t.Fatal(err)
 	}
 	return c
+}
+
+// jsonEntry is an entry's content with the path escaped (a Windows path has backslashes).
+func jsonEntry(db string, pid int, stamp string) string {
+	raw, _ := json.Marshal(registryEntry{DB: db, PID: pid, Stamp: stamp})
+	return string(raw)
 }
 
 func writeEntry(t *testing.T, path, content string, mode os.FileMode) {
@@ -169,15 +175,15 @@ func TestTheReaderSkipsBadEntriesAndDeletesNothing(t *testing.T) {
 	name := func(p string) string { return filepath.Join(dir, entryName(p)) }
 
 	stale := db("stale.db") // its host is long gone: harmless, listed, not deleted
-	writeEntry(t, name(stale), `{"db":"`+stale+`","pid":999999,"stamp":"gone"}`, 0o600)
+	writeEntry(t, name(stale), jsonEntry(stale, 999999, "gone"), 0o600)
 	garbage := db("garbage.db")
 	writeEntry(t, name(garbage), `not json`, 0o600)
 	big := db("big.db")
-	writeEntry(t, name(big), `{"db":"`+big+`","pad":"`+strings.Repeat("x", registryEntryMax)+`"}`, 0o600)
+	writeEntry(t, name(big), jsonEntry(big, 1, strings.Repeat("x", registryEntryMax)), 0o600)
 	loose := db("loose.db")
-	writeEntry(t, name(loose), `{"db":"`+loose+`","pid":1,"stamp":"x"}`, 0o666)
+	writeEntry(t, name(loose), jsonEntry(loose, 1, "x"), 0o666)
 	wrongName := db("wrongname.db")
-	writeEntry(t, filepath.Join(dir, strings.Repeat("a", 64)), `{"db":"`+wrongName+`","pid":1,"stamp":"x"}`, 0o600)
+	writeEntry(t, filepath.Join(dir, strings.Repeat("a", 64)), jsonEntry(wrongName, 1, "x"), 0o600)
 	relative := "relative.db"
 	writeEntry(t, name(relative), `{"db":"relative.db","pid":1,"stamp":"x"}`, 0o600)
 	writeEntry(t, filepath.Join(dir, "README"), `x`, 0o600)
@@ -347,7 +353,7 @@ func TestARegisteredDatabaseThatCannotBeQueriedIsAnError(t *testing.T) {
 // registerRaw writes an entry for db as the registry would (pid and stamp as given), creating the directory.
 func registerRaw(t *testing.T, dir, db string, pid int, stamp string) string {
 	t.Helper()
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := makeRegistryDir(dir); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := json.Marshal(registryEntry{DB: db, PID: pid, Stamp: stamp})
