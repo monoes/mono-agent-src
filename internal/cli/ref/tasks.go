@@ -61,7 +61,7 @@ WHO MAY DO WHAT
   through next, claim, comment (on a task it holds), finish and release; and run
   digest, which has no gate: it runs the same in any context, so a session-start hook
   can call it.
-  An agent may also run session pursuit status (read only), session goal show and session goal propose: it only proposes the
+  An agent may also run session pursuit status and session pursuit list (read only), session goal show and session goal propose: it only proposes the
   criteria of a mission's ultimate goal and may revise them until the operator confirms;
   a confirmed goal is final (a changed goal means a new mission).
   Only board, edit, move, approve, archive, unarchive, add --ready, agents allow,
