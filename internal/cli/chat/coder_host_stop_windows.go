@@ -16,7 +16,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func stopHostOS(cfg *Deps, info hostInfo) (bool, error) {
+func stopHostOS(cfg *Deps, info hostInfo) (string, error) {
 	return stopPinnedHost(winHostStopOps(hostStopGrace), info, filepath.Join(hostDir(cfg), hostInfoFile))
 }
 

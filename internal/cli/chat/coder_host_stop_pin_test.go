@@ -23,12 +23,16 @@ type fakePin struct {
 	terminates  int
 	closed      bool
 	sigInstance string
+	sigErr      error
 }
 
 func (p *fakePin) Stamp() string { return p.stamp }
 func (p *fakePin) Signal(i string) error {
 	p.signals++
 	p.sigInstance = i
+	if p.sigErr != nil {
+		return p.sigErr
+	}
 	if p.exitOnSig {
 		p.exited = true
 	}
@@ -62,8 +66,8 @@ func TestHostStopGracefulExitDoesNotTerminate(t *testing.T) {
 	p := &fakePin{stamp: "created:111", exitOnSig: true}
 	ops, _ := fakeOps(p, nil)
 	forced, err := stopPinnedHost(ops, testInfo, "host.json")
-	if err != nil || forced {
-		t.Fatalf("forced=%v err=%v, want a graceful stop", forced, err)
+	if err != nil || forced != "" {
+		t.Fatalf("forced=%q err=%v, want a graceful stop", forced, err)
 	}
 	if p.signals != 1 || p.sigInstance != "host-ab12cd34" || p.terminates != 0 || !p.closed {
 		t.Fatalf("signals %d (instance %q), terminates %d, closed %v", p.signals, p.sigInstance, p.terminates, p.closed)
@@ -75,8 +79,8 @@ func TestHostStopIgnoredSignalIsTerminatedOnce(t *testing.T) {
 	p := &fakePin{stamp: "created:111", exitOnTerm: true}
 	ops, opens := fakeOps(p, nil)
 	forced, err := stopPinnedHost(ops, testInfo, "host.json")
-	if err != nil || !forced {
-		t.Fatalf("forced=%v err=%v, want a forced stop", forced, err)
+	if err != nil || !strings.Contains(forced, "grace period") {
+		t.Fatalf("forced=%q err=%v, want a forced stop that names the grace period", forced, err)
 	}
 	if p.terminates != 1 || *opens != 1 {
 		t.Fatalf("terminates %d, opens %d, want 1 and 1 (the process is opened once)", p.terminates, *opens)
@@ -113,8 +117,8 @@ func TestHostStopRefusesWhatItCannotIdentifyBeforeOpening(t *testing.T) {
 func TestHostStopWithNoProcessEndsNothing(t *testing.T) {
 	ops, _ := fakeOps(nil, errHostGone)
 	forced, err := stopPinnedHost(ops, testInfo, "host.json")
-	if err != nil || forced {
-		t.Fatalf("forced=%v err=%v", forced, err)
+	if err != nil || forced != "" {
+		t.Fatalf("forced=%q err=%v", forced, err)
 	}
 }
 
@@ -138,6 +142,20 @@ func TestHostStopReportsAFailedTerminate(t *testing.T) {
 	ops, _ = fakeOps(p, nil)
 	if _, err := stopPinnedHost(ops, testInfo, "host.json"); err == nil {
 		t.Fatal("a process that did not exit after the terminate was reported as stopped")
+	}
+}
+
+// When the host cannot be asked (no event: an older host, a squatted event, another logon session) the stop goes
+// straight to the forced end, and says why.
+func TestHostStopSaysWhyTheGracefulStopWasUnavailable(t *testing.T) {
+	p := &fakePin{stamp: "created:111", exitOnTerm: true, sigErr: os.ErrNotExist}
+	ops, _ := fakeOps(p, nil)
+	why, err := stopPinnedHost(ops, testInfo, "host.json")
+	if err != nil || !strings.Contains(why, "graceful stop unavailable") || !strings.Contains(why, os.ErrNotExist.Error()) {
+		t.Fatalf("why=%q err=%v", why, err)
+	}
+	if p.terminates != 1 {
+		t.Fatalf("terminates %d, want 1", p.terminates)
 	}
 }
 
@@ -190,11 +208,11 @@ func TestHostStopReportsStoppedOnlyWhenTheLockIsFree(t *testing.T) {
 	stampOf, hostStopSettle = func(int) string { return testInfo.Stamp }, 100*time.Millisecond
 	t.Cleanup(func() { stampOf, stopHost, hostStopSettle = oldStamp, oldStop, oldSettle })
 
-	stopHost = func(*Deps, hostInfo) (bool, error) { return true, nil } // "ended", lock still held
-	if m := hostStopJSON(t, cfg); m["stopped"] != false || m["forced"] != true {
+	stopHost = func(*Deps, hostInfo) (string, error) { return "the host did not exit within its grace period", nil } // "ended", lock still held
+	if m := hostStopJSON(t, cfg); m["stopped"] != false || m["forced"] != true || m["forcedReason"] == nil {
 		t.Fatalf("lock held after the kill: %v, want stopped=false forced=true", m)
 	}
-	stopHost = func(*Deps, hostInfo) (bool, error) { release(); return false, nil } // exits, lock released
+	stopHost = func(*Deps, hostInfo) (string, error) { release(); return "", nil } // exits, lock released
 	if m := hostStopJSON(t, cfg); m["stopped"] != true || m["pid"] != float64(testInfo.PID) {
 		t.Fatalf("lock free after a graceful stop: %v", m)
 	} else if _, has := m["forced"]; has {

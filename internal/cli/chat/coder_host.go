@@ -450,7 +450,10 @@ func newCoderHostStopCmd(cfg *Deps) *cobra.Command {
 			if info.PID <= 1 || info.Stamp == "" || stampOf(info.PID) != info.Stamp {
 				return clicore.InvalidInput("host.json names a process that is not the host any more; remove %s", filepath.Join(hostDir(cfg), hostInfoFile))
 			}
-			forced, err := stopHost(cfg, info)
+			forcedWhy, err := stopHost(cfg, info)
+			if forcedWhy != "" { // said whether or not the end succeeded: the host's own cleanup did not run
+				fmt.Fprintf(cmd.ErrOrStderr(), "forced (%s); the host's own cleanup did not run\n", forcedWhy)
+			}
 			if err != nil {
 				return err
 			}
@@ -458,8 +461,9 @@ func newCoderHostStopCmd(cfg *Deps) *cobra.Command {
 				time.Sleep(50 * time.Millisecond)
 			}
 			res := map[string]any{"stopped": !hostRunning(cfg), "pid": info.PID}
-			if forced {
+			if forcedWhy != "" {
 				res["forced"] = true
+				res["forcedReason"] = forcedWhy
 			}
 			return printQueueJSON(cmd, res)
 		},

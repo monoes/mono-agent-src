@@ -10,7 +10,8 @@ import (
 )
 
 // stopHost ends the host process named by info (the caller has already checked that host.json names a live process
-// with the recorded start time). It reports whether the host had to be ended by force, so its own cleanup did not run.
+// with the recorded start time). It returns why the host had to be ended by force (its own cleanup then did not run), or ""
+// when it left by itself.
 // A variable so tests do not end a real one; the platform files set it.
 var stopHost = stopHostOS
 
@@ -54,34 +55,38 @@ type hostStopOps struct {
 // stopPinnedHost opens the host's process once, checks from that handle that it is the one host.json recorded (never
 // one that has the pid now), asks it to stop, and ends it by force through the same handle only when it did not exit
 // within the grace period. infoPath is named in the refusal.
-func stopPinnedHost(ops hostStopOps, info hostInfo, infoPath string) (bool, error) {
+func stopPinnedHost(ops hostStopOps, info hostInfo, infoPath string) (string, error) {
 	if info.PID <= 1 || info.Stamp == "" {
-		return false, clicore.InvalidInput("host.json names no process I can identify; remove %s", infoPath)
+		return "", clicore.InvalidInput("host.json names no process I can identify; remove %s", infoPath)
 	}
 	pin, err := ops.open(info.PID)
 	if errors.Is(err, errHostGone) {
-		return false, nil // the lock is what says whether it is really over
+		return "", nil // the lock is what says whether it is really over
 	}
 	if err != nil {
-		return false, err
+		return "", err
 	}
 	defer pin.Close()
 	if got := pin.Stamp(); got == "" || got != info.Stamp {
-		return false, clicore.InvalidInput("host.json names a process that is not the host any more; remove %s", infoPath)
+		return "", clicore.InvalidInput("host.json names a process that is not the host any more; remove %s", infoPath)
 	}
 	if pin.WaitExit(0) {
-		return false, nil
+		return "", nil
 	}
-	if pin.Signal(info.Instance) == nil && pin.WaitExit(ops.grace) {
-		return false, nil
+	why := "the host did not exit within its grace period"
+	if serr := pin.Signal(info.Instance); serr != nil {
+		// an older host without the event, an event another process made, or another logon session (the name is per session)
+		why = fmt.Sprintf("graceful stop unavailable: %v", serr)
+	} else if pin.WaitExit(ops.grace) {
+		return "", nil
 	}
 	if err := pin.Terminate(); err != nil {
-		return true, fmt.Errorf("the host did not exit in time and could not be ended: %w", err)
+		return why, fmt.Errorf("the host did not exit in time and could not be ended (%s): %w", why, err)
 	}
 	if !pin.WaitExit(ops.killWait) {
-		return true, errors.New("the host did not exit after it was ended")
+		return why, errors.New("the host did not exit after it was ended")
 	}
-	return true, nil
+	return why, nil
 }
 
 var hostInstanceRE = regexp.MustCompile(`^[A-Za-z0-9-]{1,64}$`)

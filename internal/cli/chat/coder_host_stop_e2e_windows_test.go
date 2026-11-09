@@ -19,7 +19,8 @@ import (
 // The real stop on Windows, with real processes: this test binary re-executed as a stand-in host that holds the host
 // lock (LockFileEx) and, if it is the cooperative one, the stop event, as `host run` does.
 //   coop: the event stops it; it leaves through its cleanup (a marker file), nothing is terminated, the lock is free.
-//   deaf: it has no event; after the grace period the pinned handle is terminated, no cleanup runs, the lock is free.
+//   deaf: it has the event and ignores it; after the grace period the pinned handle is terminated, no cleanup runs, the lock is free.
+//   noevent: no event at all (an older host): ended at once, and the reason says so.
 //   recycled: a wrong start time is refused and the process is untouched.
 
 const (
@@ -45,8 +46,12 @@ func winStopHelper(role string) {
 	defer release()
 	ctx, stop := context.WithCancel(context.Background())
 	defer stop()
-	if role == "coop" {
-		end, err := watchHostStop(ctx, os.Getenv(winStopInstance), stop)
+	if role == "coop" || role == "deaf" { // deaf: the event exists and is set, and nothing is done about it
+		onStop := stop
+		if role == "deaf" {
+			onStop = func() {}
+		}
+		end, err := watchHostStop(ctx, os.Getenv(winStopInstance), onStop)
 		if err != nil {
 			_ = os.WriteFile(filepath.Join(dir, "eventerr"), []byte(err.Error()), 0o600)
 			return
@@ -65,7 +70,11 @@ func startStopHost(t *testing.T, role string) (cmd *exec.Cmd, dir, instance stri
 	t.Helper()
 	dir = t.TempDir()
 	instance = "host-" + uuid.NewString()[:8]
-	cmd = exec.Command(os.Args[0], "-test.run=NONE")
+	self, err := os.Executable() // os.Args[0] may be relative, which exec refuses
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd = exec.Command(self, "-test.run=NONE")
 	cmd.Env = append(os.Environ(), winStopRole+"="+role, winStopDir+"="+dir, winStopInstance+"="+instance)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
@@ -98,8 +107,8 @@ func TestWindowsHostStopCooperativeHostLeavesThroughItsCleanup(t *testing.T) {
 	cmd, dir, inst := startStopHost(t, "coop")
 	info := hostInfo{PID: cmd.Process.Pid, Stamp: pidStamp(cmd.Process.Pid), Instance: inst}
 	forced, err := stopPinnedHost(winHostStopOps(20*time.Second), info, "host.json")
-	if err != nil || forced {
-		t.Fatalf("forced=%v err=%v, want a graceful stop", forced, err)
+	if err != nil || forced != "" {
+		t.Fatalf("forced=%q err=%v, want a graceful stop", forced, err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "cleanup")); err != nil {
 		t.Fatal("the host's cleanup did not run")
@@ -114,14 +123,27 @@ func TestWindowsHostStopDeafHostIsTerminatedAfterTheGrace(t *testing.T) {
 	info := hostInfo{PID: cmd.Process.Pid, Stamp: pidStamp(cmd.Process.Pid), Instance: inst}
 	start := time.Now()
 	forced, err := stopPinnedHost(winHostStopOps(500*time.Millisecond), info, "host.json")
-	if err != nil || !forced {
-		t.Fatalf("forced=%v err=%v, want a forced stop", forced, err)
+	if err != nil || !strings.Contains(forced, "grace period") {
+		t.Fatalf("forced=%q err=%v, want a forced stop after the grace period", forced, err)
 	}
 	if time.Since(start) < 400*time.Millisecond {
 		t.Fatal("the host was ended before its grace period")
 	}
 	if _, err := os.Stat(filepath.Join(dir, "cleanup")); err == nil {
 		t.Fatal("cleanup ran in a host that was ended by force")
+	}
+	if !lockFree(dir) {
+		t.Fatal("the host lock is still held after the host was ended")
+	}
+}
+
+// A host with no event (an older one) cannot be asked: it is ended at once, and the reason says so.
+func TestWindowsHostStopWithoutAnEventIsForcedAndSaysWhy(t *testing.T) {
+	cmd, dir, inst := startStopHost(t, "noevent")
+	info := hostInfo{PID: cmd.Process.Pid, Stamp: pidStamp(cmd.Process.Pid), Instance: inst}
+	forced, err := stopPinnedHost(winHostStopOps(20*time.Second), info, "host.json")
+	if err != nil || !strings.Contains(forced, "graceful stop unavailable") {
+		t.Fatalf("forced=%q err=%v", forced, err)
 	}
 	if !lockFree(dir) {
 		t.Fatal("the host lock is still held after the host was ended")
