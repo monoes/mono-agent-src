@@ -86,7 +86,7 @@ var knownPersonSites = map[string]int{
 	"internal/coderhost/sessionspawn.go:SpawnSession:Enqueue":           1,
 	"internal/coderhost/store.go:Enqueue:enqueueOn":                     1,
 	"internal/coderhost/store.go:EnqueueWithCheckin:enqueueOn":          1,
-	"internal/coderhost/store.go:INSERT": 2, // enqueueOn, and enqueueCascadeResume (a resume command, never a send)
+	"internal/coderhost/store.go:INSERT":                                2, // enqueueOn, and enqueueCascadeResume (a resume command, never a send)
 	"internal/coderhost/treecascade.go:queueCascade:Enqueue":            1,
 	// inside coderhost: where the person's marker and reserved ids are built
 	"internal/coderhost/person_plan.go:planCommand:answerFromPerson":         1, // the plan words' turn id, marked person
