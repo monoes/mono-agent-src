@@ -71,3 +71,29 @@ func TestTheCallCapIsTheJudgesCap(t *testing.T) {
 		t.Fatalf("%v != %v", DefaultCallCapUSD, judgecost.PerCallCapUSD)
 	}
 }
+
+// Revert proof: a zero cost from a turn that did not clearly complete is charged as free.
+func TestAZeroCostIsFreeOnlyFromACompletedTurn(t *testing.T) {
+	mk := func(res *monomind.TurnResult) *costing {
+		return &costing{inner: func(context.Context, monomind.ExecOptions, func(monomind.Event)) (*monomind.TurnResult, error) {
+			return res, nil
+		}}
+	}
+	for name, c := range map[string]struct {
+		res   *monomind.TurnResult
+		micro int64
+		known bool
+	}{
+		"completed with a reported zero": {&monomind.TurnResult{HasCostUSD: true, SawDone: true}, 0, true},
+		"not done":                       {&monomind.TurnResult{HasCostUSD: true}, 500000, false},
+		"non-zero exit":                  {&monomind.TurnResult{HasCostUSD: true, SawDone: true, ExitCode: 1}, 500000, false},
+		"protocol error":                 {&monomind.TurnResult{HasCostUSD: true, SawDone: true, Err: &monomind.ProtocolError{Message: "x"}}, 500000, false},
+		"failed turn with a real cost":   {&monomind.TurnResult{HasCostUSD: true, CostUSD: 0.2}, 200000, true},
+	} {
+		x := mk(c.res)
+		_, _ = x.exec(context.Background(), monomind.ExecOptions{}, nil)
+		if m, ok := x.charge(0.5); m != c.micro || ok != c.known {
+			t.Errorf("%s: %d %v", name, m, ok)
+		}
+	}
+}

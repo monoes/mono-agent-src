@@ -3,6 +3,7 @@ package verifier
 import (
 	"context"
 	"errors"
+	"os/exec"
 	"sync"
 )
 
@@ -72,4 +73,47 @@ func (f *Fake) Run(ctx context.Context, req Request) (Result, error) {
 		st.Result.GoalHash = req.GoalHash
 	}
 	return st.Result, st.Err
+}
+
+// FakeConfiner is a Confiner for tests: it confines nothing, passes or fails its self test as told, and counts what it saw.
+type FakeConfiner struct {
+	Label   string
+	TestErr error
+	mu      sync.Mutex
+	Tests   int
+	Placed  int
+}
+
+var _ Confiner = (*FakeConfiner)(nil)
+
+func (f *FakeConfiner) Name() string {
+	if f.Label == "" {
+		return "fake"
+	}
+	return f.Label
+}
+
+func (f *FakeConfiner) SelfTest(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.Tests++
+	return f.TestErr
+}
+
+func (f *FakeConfiner) Place(*exec.Cmd) (func(), error) {
+	f.mu.Lock()
+	f.Placed++
+	f.mu.Unlock()
+	return func() {}, nil
+}
+
+// CanarySpecs are the criteria a Confiner's SelfTest runs through the sandbox: each must END WITH A NON-PASS under a working
+// confinement. The first reads a file the caller made outside the work area, the second writes one there; the third reaches a
+// unix socket path. A confinement that lets one pass does not hold.
+func CanarySpecs(canaryFile, outsideFile, socketPath string) []Criterion {
+	return []Criterion{
+		{Kind: "command", Spec: "cat " + canaryFile, Expected: "exit:0"},
+		{Kind: "command", Spec: "touch " + outsideFile, Expected: "exit:0"},
+		{Kind: "command", Spec: "test -S " + socketPath, Expected: "exit:0"},
+	}
 }

@@ -98,17 +98,18 @@ type rig struct {
 	cfg   Config
 	k     *Checker
 	netOK bool
+	conf  *FakeConfiner
 }
 
 // newRig builds a checker over a fresh subject folder and scratch base. netOK is what the platform probe answers.
 func newRig(t *testing.T, netOK bool) *rig {
 	t.Helper()
-	r := &rig{t: t, root: t.TempDir(), base: t.TempDir(), meter: &fakeMeter{}, rev: okReviewer(), netOK: netOK}
+	r := &rig{t: t, root: t.TempDir(), base: t.TempDir(), meter: &fakeMeter{}, rev: okReviewer(), netOK: netOK, conf: &FakeConfiner{}}
 	if err := os.WriteFile(filepath.Join(r.root, "a.txt"), []byte("alpha"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	r.cfg = Config{Checker: checkerPin, ScratchBase: r.base, Meter: r.meter, Exec: r.rev.exec,
-		Workspace: func() (string, error) { return "/ws", nil }, NetDenyAvailable: func() bool { return r.netOK }}
+		Confiner: r.conf, Workspace: func() (string, error) { return "/ws", nil }, NetDenyAvailable: func() bool { return r.netOK }}
 	return r
 }
 

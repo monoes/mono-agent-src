@@ -1,15 +1,39 @@
 package verifier
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
-func TestPinKeyIsTheJudgesRule(t *testing.T) {
-	for in, want := range map[string]string{
-		"runtime/model@1": "runtime/model", "Runtime/Model": "runtime/model", " runtime/model ": "runtime/model",
-		"runtime/model": "runtime/model", "": "", "  ": "", "x/y@a@b": "x/y",
-	} {
-		if got := PinKey(in); got != want {
-			t.Errorf("PinKey(%q) = %q, want %q", in, got, want)
+var pinKeyVectors = []struct{ in, want string }{
+	// BEGIN SHARED PIN VECTORS (identical in internal/missionpursuit/verifier/pin_test.go and internal/coderhost/pursuit_pinkey_vectors_test.go)
+	{"runtime/model@1", "runtime/model"}, {"Runtime/Model", "runtime/model"}, {" runtime/model ", "runtime/model"},
+	{"runtime/model", "runtime/model"}, {"", ""}, {"  ", ""}, {"x/y@a@b", "x/y"}, {" Claude/Opus-4 @2026", "claude/opus-4"},
+	{"a / b", "a / b"}, {"@v", ""},
+	// END SHARED PIN VECTORS
+}
+
+func TestPinKeyMatchesTheSharedVectors(t *testing.T) {
+	for _, v := range pinKeyVectors {
+		if got := PinKey(v.in); got != v.want {
+			t.Errorf("PinKey(%q) = %q, want %q", v.in, got, v.want)
 		}
+	}
+}
+
+// The coderhost's pinKey is not importable from here (the import guard), so equality is held by one vector table that must
+// read the same in both test files.
+func TestTheVectorTableIsTheSameAsTheCoderHosts(t *testing.T) {
+	block := func(p string) string {
+		b := mustRead(t, p)
+		i, j := strings.Index(b, "// BEGIN SHARED PIN VECTORS"), strings.Index(b, "// END SHARED PIN VECTORS")
+		if i < 0 || j < i {
+			t.Fatalf("%s has no shared vector block", p)
+		}
+		return b[i:j]
+	}
+	if block("pin_test.go") != block("../../coderhost/pursuit_pinkey_vectors_test.go") {
+		t.Fatal("the vector tables differ")
 	}
 }
 

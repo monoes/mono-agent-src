@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -35,11 +36,29 @@ type Config struct {
 	ReviewTimeout time.Duration // 0: the finish verifier's default
 	// CriterionTimeout and TotalTimeout can only lower the caps (2 minutes, 20 minutes), for tests.
 	CriterionTimeout, TotalTimeout time.Duration
+	// Confiner is the confinement of project commands, proved by the caller (the host, a later slice). Without one that passes
+	// its SelfTest, command and output criteria are not run (cannot-check: no-confinement); file criteria need none.
+	Confiner Confiner
+	// AllowUnconfined runs project commands with only the process group, the limits and the empty network namespace. It exists
+	// so the host can wire a person-set opt-in later; it is false by default and every Result says UNCONFINED.
+	AllowUnconfined bool
 	// NetDenyAvailable overrides the platform probe (tests).
 	NetDenyAvailable func() bool
 
 	afterCriteria func() // test seam: runs after the criteria, before the recheck
 	afterCopy     func() // test seam: runs after the snapshot copy, before the first digest of the live folder
+}
+
+// Confiner is a confinement the host provides and proves: it is what keeps a project command from the rest of the computer
+// (see doc.go for what it must hold).
+type Confiner interface {
+	// Name is recorded in every result.
+	Name() string
+	// SelfTest proves the confinement works here and now (a canary the command must not be able to read or write, see
+	// CanarySpecs). Any error means it does not hold.
+	SelfTest(ctx context.Context) error
+	// Place makes cmd start inside the confinement, as finish.Sandbox.Place does.
+	Place(cmd *exec.Cmd) (release func(), err error)
 }
 
 // Checker is the real Verifier: finish.Sandbox for the machine criteria, finish.RunnerVerifier for the block-only review.

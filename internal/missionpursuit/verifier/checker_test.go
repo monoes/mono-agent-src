@@ -102,7 +102,7 @@ func TestNoNetworkBlockRefusesBeforeAnythingRuns(t *testing.T) {
 	if got.Outcome != OutcomeCannotCheck || got.Reason != ReasonNoNetworkBlock || Message(got.Outcome, got.Reason) != "cannot-check: no network block" {
 		t.Fatalf("%s", dump(got))
 	}
-	if got.Containment != Containment || len(got.Criteria) != 0 || r.rev.calls != 0 || len(r.meter.reserved) != 0 || len(scratchEntries(t, r.base)) != 0 {
+	if len(got.Criteria) != 0 || r.rev.calls != 0 || len(r.meter.reserved) != 0 || len(scratchEntries(t, r.base)) != 0 {
 		t.Fatalf("something ran: %s", dump(got))
 	}
 	// file criteria run no program, so they need no block
@@ -167,7 +167,7 @@ func TestAPassingMachineRunIsReviewedOnceUnderTheDesignedTurn(t *testing.T) {
 	if got.Outcome != OutcomePassedMachine || got.Reason != ReasonNone || got.ReviewerVerdict != "ok" || got.ReviewerPin != checkerPin {
 		t.Fatalf("%s", dump(got))
 	}
-	if got.GoalHash != h64("goal") || got.SubjectDigest == "" || got.SubjectFiles != 1 || got.ResultsDigest == "" || got.Containment != "process-group (not a cgroup unit)" {
+	if got.GoalHash != h64("goal") || got.SubjectDigest == "" || got.SubjectFiles != 1 || got.ResultsDigest == "" || got.Containment != ContainmentFileOnly {
 		t.Fatalf("%s", dump(got))
 	}
 	o := r.rev.opts
@@ -392,5 +392,134 @@ func TestResultsEchoTheGoalHashAndBoundTheReviewerTuple(t *testing.T) {
 	got := r.run(fileExists("c1"))
 	if got.GoalHash != h64("goal") || strings.ContainsAny(got.ReviewerObserved, "\x1b") {
 		t.Fatalf("%s", dump(got))
+	}
+}
+
+// Revert proof: dropping the confinement requirement (or the self test) runs project commands unconfined by default.
+func TestProjectCommandsAreNotRunWithoutAProvenConfinement(t *testing.T) {
+	for name, mut := range map[string]func(*rig){
+		"no confiner":         func(r *rig) { r.cfg.Confiner = nil },
+		"self test fails":     func(r *rig) { r.conf.TestErr = errors.New("canary was readable") },
+		"allow is not a pass": func(r *rig) { r.cfg.Confiner = nil; r.cfg.AllowUnconfined = false },
+	} {
+		r := newRig(t, true)
+		mut(r)
+		got := r.run(crit("c1", "command", "true", "exit:0"), fileExists("c2"))
+		if got.Outcome != OutcomeCannotCheck || got.Reason != ReasonNoConfinement || len(got.Criteria) != 0 || r.rev.calls != 0 || len(r.meter.reserved) != 0 ||
+			len(scratchEntries(t, r.base)) != 0 || r.conf.Placed != 0 {
+			t.Errorf("%s: %s", name, dump(got))
+		}
+		if m := got.Message(); m != "this computer can't confine project commands, so they are not run" {
+			t.Errorf("%s: %q", name, m)
+		}
+	}
+	// file criteria need none
+	r := newRig(t, true)
+	r.cfg.Confiner = nil
+	if got := r.run(fileExists("c1")); got.Outcome != OutcomePassedMachine || got.Containment != ContainmentFileOnly {
+		t.Fatalf("%s", dump(got))
+	}
+}
+
+func TestTheSelfTestRunsOnEveryCheck(t *testing.T) {
+	needsRealSandbox(t)
+	r := newRig(t, true)
+	r.cfg.NetDenyAvailable = nil
+	r.run(crit("c1", "command", "true", "exit:0"))
+	r.run(crit("c1", "command", "true", "exit:0"))
+	if r.conf.Tests != 2 || r.conf.Placed != 2 {
+		t.Fatalf("tests %d placed %d", r.conf.Tests, r.conf.Placed)
+	}
+}
+
+func TestTheUnconfinedOptInIsNamedInTheResultAndTheMessage(t *testing.T) {
+	needsRealSandbox(t)
+	r := newRig(t, true)
+	r.cfg.NetDenyAvailable = nil
+	r.cfg.Confiner, r.cfg.AllowUnconfined = nil, true
+	got := r.run(crit("c1", "command", "true", "exit:0"))
+	if got.Outcome != OutcomePassedMachine || got.Containment != "process-group UNCONFINED" || !strings.Contains(got.Message(), "UNCONFINED") {
+		t.Fatalf("%s %q", dump(got), got.Message())
+	}
+	r = newRig(t, true)
+	r.cfg.NetDenyAvailable = nil
+	r.conf.Label = "systemd-run"
+	got = r.run(crit("c1", "command", "true", "exit:0"))
+	if got.Containment != "confined: systemd-run + process-group" || strings.Contains(got.Message(), "UNCONFINED") {
+		t.Fatalf("%s", dump(got))
+	}
+}
+
+// The docs say plainly what the process group does not confine; a reworded doc must keep saying it.
+func TestTheDocsAreHonestAboutWhatIsNotConfined(t *testing.T) {
+	d := mustRead(t, "doc.go")
+	for _, want := range []string{"NOT confined", "unix sockets", "setsid", "/proc", "signals", "systemd-run --user", "PrivateNetwork", "ProtectHome",
+		"ProtectProc=invisible", "KillMode=control-group", "Landlock", "pivot_root", "canary", "sh -c", "AllowUnconfined"} {
+		if !strings.Contains(d, want) {
+			t.Errorf("doc.go does not say %q", want)
+		}
+	}
+	if !strings.Contains(ContainmentUnconfined, "UNCONFINED") {
+		t.Fatal(ContainmentUnconfined)
+	}
+}
+
+func TestCanarySpecsAreRunnablePlans(t *testing.T) {
+	for _, c := range CanarySpecs("/x/canary", "/x/out", "/run/sock") {
+		if _, err := finish.ParsePlan(c.Kind, c.Spec, c.Expected); err != nil {
+			t.Errorf("%q: %v", c.Spec, err)
+		}
+	}
+}
+
+// Revert proof: a no-op programOutside lets a link into the project run.
+func TestAProgramLinkedIntoTheProjectIsRefused(t *testing.T) {
+	sys, proj, other := t.TempDir(), t.TempDir(), t.TempDir()
+	for _, p := range []string{filepath.Join(proj, "evil"), filepath.Join(other, "fine")} {
+		if err := os.WriteFile(p, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(filepath.Join(proj, "evil"), filepath.Join(sys, "evil")); err != nil {
+		t.Skip("no symlinks")
+	}
+	_ = os.Symlink(filepath.Join(other, "fine"), filepath.Join(sys, "fine"))
+	if err := programOutside("evil", sys, []string{proj}); err == nil {
+		t.Fatal("a link into the project was accepted")
+	}
+	if err := programOutside("fine", sys, []string{proj}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTheReviewerTurnFailsClosedWhereItCannotBeSandboxed(t *testing.T) {
+	r := newRig(t, true)
+	r.run(fileExists("c1"))
+	if !r.rev.opts.RequireSandbox {
+		t.Fatal("the reviewer turn may run unsandboxed")
+	}
+}
+
+func TestALeadThatChangedDuringTheReviewBlocksButIsStillCharged(t *testing.T) {
+	for name, c := range map[string]struct {
+		now     func() string
+		outcome Outcome
+		reason  Reason
+	}{
+		"unchanged":        {func() string { return leadPin }, OutcomePassedMachine, ReasonNone},
+		"case and version": {func() string { return "Claude/Lead-Model@9" }, OutcomePassedMachine, ReasonNone},
+		"changed":          {func() string { return "other/model" }, OutcomeBlocked, ReasonLeadChanged},
+		"now the checker":  {func() string { return checkerPin }, OutcomeBlocked, ReasonLeadChanged},
+		"now unknown":      {func() string { return "" }, OutcomeBlocked, ReasonLeadChanged},
+		"not asked":        {nil, OutcomePassedMachine, ReasonNone},
+	} {
+		r := newRig(t, true)
+		k := r.checker()
+		q := r.req(fileExists("c1"))
+		q.LeadPinNow = c.now
+		got, err := k.Run(context.Background(), q)
+		if err != nil || got.Outcome != c.outcome || got.Reason != c.reason || len(r.meter.settled) != 1 {
+			t.Errorf("%s: %v %s %v", name, err, dump(got), r.meter.settled)
+		}
 	}
 }

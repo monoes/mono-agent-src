@@ -17,8 +17,19 @@ const (
 	DefaultCallCapUSD = 0.5
 )
 
-// Containment is what a result says about where the criteria ran.
-const Containment = "process-group (not a cgroup unit)"
+// What a result says about where the criteria ran.
+const (
+	// ContainmentUnconfined: the process group and the finish sandbox's limits and empty network namespace, and nothing else.
+	// The filesystem, unix sockets, signals and /proc are NOT confined, and a child that calls setsid escapes the group kill.
+	ContainmentUnconfined = "process-group UNCONFINED"
+	// ContainmentFileOnly: no program was run, so there was nothing to confine.
+	ContainmentFileOnly = "none (no program was run)"
+	// ContainmentConfinedPrefix is followed by the confiner's name: "confined: <name> + process-group".
+	ContainmentConfinedPrefix = "confined: "
+)
+
+// Containment is the unconfined statement, kept under its old name for callers that only want to compare.
+const Containment = ContainmentUnconfined
 
 // Outcome is the closed list of what a check concluded.
 type Outcome string
@@ -46,11 +57,13 @@ const (
 	ReasonReviewerUnavailable Reason = "reviewer-unavailable"
 	ReasonReviewerInvalid     Reason = "reviewer-invalid"
 	ReasonReviewerPinChanged  Reason = "reviewer-pin-changed"
+	ReasonLeadChanged         Reason = "lead-changed"
 	ReasonNoBudget            Reason = "no-budget"
 	// stale
 	ReasonSubjectChanged Reason = "subject-changed"
 	// cannot-check
 	ReasonNoNetworkBlock    Reason = "no-network-block"
+	ReasonNoConfinement     Reason = "no-confinement"
 	ReasonNoContainment     Reason = "no-containment"
 	ReasonPinNotIndependent Reason = "pin-not-independent"
 	ReasonSnapshotRefused   Reason = "snapshot-refused"
@@ -67,6 +80,8 @@ func Message(o Outcome, r Reason) string {
 	switch {
 	case o == OutcomeCannotCheck && r == ReasonNoNetworkBlock:
 		return "cannot-check: no network block"
+	case o == OutcomeCannotCheck && r == ReasonNoConfinement:
+		return "this computer can't confine project commands, so they are not run"
 	case o == OutcomePassedMachine:
 		return string(o)
 	case r == ReasonNone:
@@ -107,6 +122,9 @@ type Request struct {
 	JudgePin, LeadPin string
 	// ExpectDigest, when set, is the tree digest the host saw while the tree was quiet; a snapshot that differs is stale.
 	ExpectDigest string
+	// LeadPinNow, when set, is read again after the reviewer call; if the lead's model is no longer independent of the checker
+	// and the judge (or differs from LeadPin), the check is blocked (lead-changed).
+	LeadPinNow func() string
 }
 
 // CriterionResult is what one criterion measured, bounded and stripped. Digests are the evidence, excerpts are for the
@@ -148,6 +166,15 @@ type Result struct {
 	// host charged the cap).
 	CostMicro int64
 	CostKnown bool
+}
+
+// Message is the plain-words line for a person, with the loud suffix when the programs ran unconfined.
+func (r Result) Message() string {
+	m := Message(r.Outcome, r.Reason)
+	if r.Containment == ContainmentUnconfined {
+		m += " (project commands ran UNCONFINED)"
+	}
+	return m
 }
 
 // Verifier is one goal check. A cancelled context is the outcome abandoned, not an error; a returned error is a bug, a scratch
