@@ -275,7 +275,11 @@ func (d Deps) newPersonDenyCmd() *cobra.Command {
 		"note", "Why (required): kept in the session's history and sent to its lead",
 		func(cmd *cobra.Command, store *tasks.Store, cs *coderhost.Store, p tasks.Profile, it coderhost.PersonItem, actor tasks.Actor, note string) error {
 			// One transaction closes the item and writes the history; the lead is told after it commits.
-			if _, err := cs.DenyPlan(cmd.Context(), it, actor.Label(), note); err != nil {
+			proof, err := coderhost.ProvePerson(actor)
+			if err != nil {
+				return d.InvalidInput("%v", err)
+			}
+			if _, err := cs.DenyPlan(cmd.Context(), proof, it, actor.Label(), note); err != nil {
 				return d.InvalidInput("%v", err)
 			}
 			se, err := store.GetSession(cmd.Context(), p.ID, it.RefID, actor)
@@ -290,7 +294,11 @@ func (d Deps) newPersonAskCmd() *cobra.Command {
 	return d.personAnswer("ask ID --text TEXT", "Send a question about the plan to its lead; the item stays open",
 		"text", "Your question (required), sent to the lead as quoted data",
 		func(cmd *cobra.Command, _ *tasks.Store, cs *coderhost.Store, p tasks.Profile, it coderhost.PersonItem, actor tasks.Actor, text string) error {
-			c, err := cs.TellLeadAboutPlan(cmd.Context(), p.ID, it.ConversationID, it.RefID, coderhost.PlanAsked, text)
+			proof, err := coderhost.ProvePerson(actor)
+			if err != nil {
+				return d.InvalidInput("%v", err)
+			}
+			c, err := cs.TellLeadAboutPlan(cmd.Context(), proof, p.ID, it.ConversationID, it.RefID, coderhost.PlanAsked, text)
 			if err != nil {
 				return d.InvalidInput("%v", err)
 			}

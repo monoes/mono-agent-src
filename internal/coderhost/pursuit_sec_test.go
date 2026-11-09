@@ -139,7 +139,7 @@ func TestMorePersonActionsResetTheCounters(t *testing.T) {
 				w.clk.Now().Format(time.RFC3339Nano), w.clk.Now().Format(time.RFC3339Nano))
 		}},
 		{"the person answers a plan (the note the operator's surface queues)", func(w *pworld) {
-			if _, err := w.st.TellLeadAboutPlan(bg, "p", "m", 77, PlanAsked, "which?"); err != nil {
+			if _, err := w.st.TellLeadAboutPlan(bg, testProof, "p", "m", 77, PlanAsked, "which?"); err != nil {
 				w.t.Fatal(err)
 			}
 			w.endCommandsDone() // the note has been delivered

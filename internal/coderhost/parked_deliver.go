@@ -99,6 +99,8 @@ func (s *Store) deliver(q Question) (Command, error) {
 		c.TurnID = answerTurnID(answerFromDefault)
 	case strings.HasPrefix(q.AnsweredBy, WhoMaster+":"):
 		c.TurnID, c.Issuer = answerTurnID(answerFromMaster), strings.TrimPrefix(q.AnsweredBy, WhoMaster+":")
+	default: // the person's own answer: the one case that keeps the answer-p- turn id
+		c.person = true
 	}
 	cmd, err := s.Enqueue(c)
 	if err != nil {

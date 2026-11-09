@@ -149,7 +149,7 @@ func (s *Store) personActionAt(m pursuitMission, tree []string) (time.Time, erro
 		if err := rows.Scan(&turn, &at); err != nil {
 			return time.Time{}, err
 		}
-		if !HostMade(turn) || strings.HasPrefix(turn, AnswerPrefix+answerFromPerson+"-") || strings.HasPrefix(turn, AskPrefix+askFromPerson+"-") {
+		if !HostMade(turn) || reservedPersonTurn(turn) {
 			take(at)
 		}
 	}

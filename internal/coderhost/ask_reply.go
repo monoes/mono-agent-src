@@ -110,7 +110,7 @@ func (s *Store) closeAndDeliver(profileID string, id int64, askerConv, question,
 			return Command{}, err
 		}
 	}
-	cmd, err := s.enqueueOn(tx, Command{ProfileID: profileID, ConversationID: askerConv, Kind: KindSend, TurnID: askTurnID(origin), Message: replyText(id, question, from, reply)})
+	cmd, err := s.enqueueOn(tx, Command{ProfileID: profileID, ConversationID: askerConv, Kind: KindSend, TurnID: askTurnID(origin), Message: replyText(id, question, from, reply), person: origin == askFromPerson})
 	if err != nil {
 		return Command{}, err
 	}
@@ -120,7 +120,10 @@ func (s *Store) closeAndDeliver(profileID string, id int64, askerConv, question,
 // AnswerAncestorQuestion is the person's answer to a critical ask. It takes no caller: it is for the operator's
 // surfaces only (no model-facing tool reaches it), and it answers a critical ask and nothing else. The answer
 // reaches the asker as sealed quoted data.
-func (s *Store) AnswerAncestorQuestion(profileID string, id int64, answer string) (Ask, Command, error) {
+func (s *Store) AnswerAncestorQuestion(proof PersonProof, profileID string, id int64, answer string) (Ask, Command, error) {
+	if err := proof.check(); err != nil {
+		return Ask{}, Command{}, err
+	}
 	a, err := s.GetAsk(profileID, id)
 	if err != nil {
 		return Ask{}, Command{}, err
