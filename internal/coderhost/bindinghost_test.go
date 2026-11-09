@@ -354,8 +354,8 @@ func TestEnsureLocksTheHostProcessBeforeAnythingListens(t *testing.T) {
 	calls := 0
 	lockHostProcess = func() error {
 		calls++
-		if h.Running("p") {
-			t.Error("the service was running before the host locked itself")
+		if len(h.svcs) != 0 { // Ensure holds the host's lock here, so Running would wait for it
+			t.Error("a service was running before the host locked itself")
 		}
 		return errors.New("no access list")
 	}
