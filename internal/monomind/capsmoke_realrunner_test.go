@@ -4,11 +4,14 @@ package monomind
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/testhome"
 )
 
 // OPT-IN smoke test of the one thing this repository cannot show by itself: what the external `monomind agent exec` does with
@@ -31,6 +34,29 @@ import (
 //	MONOAGENT_SMOKE_RUNTIME=claude|codex|opencode|hermes|...   the runtime to drive (its own login is used)
 //	MONOAGENT_SMOKE_MODEL=<model>                              optional; the runtime's default when empty
 //	MONOAGENT_SMOKE_CAP_USD=0.05                               optional; default 0.05, at most 0.10
+//	MONOAGENT_SMOKE_RUNTIME_HOME=scratch|real                  default scratch (see below)
+//	MONOAGENT_SMOKE_RUNTIME_CONFIG_DIR=<dir>                   optional with real: the runtime's config dir
+//	MONOAGENT_SMOKE_RUNTIME_CONFIG_VAR=CLAUDE_CONFIG_DIR       optional: the variable that names it (default for claude)
+//	MONOAGENT_SMOKE_ALLOW_INSTALL=1                            optional: let monomind download its SDK (default: refused)
+//
+// WHICH LOGIN: test binaries of this package run under internal/testhome, which points HOME at a fresh empty folder, so by
+// default (scratch) the runtime cannot find its own login and answers "Not logged in" (first attempt: $0 spent, inconclusive).
+// With MONOAGENT_SMOKE_RUNTIME_HOME=real only the CHILD process gets the user's real HOME (and the config dir above, if any),
+// so the runtime finds its existing login; the test prints that path loudly, and the child process can read everything in it.
+// Monoagent state stays scratch either way, and OUR code reads and passes no key or token.
+//
+// WHICH MONOMIND: the test finds monomind like the product, except that under test only a monomind inside the temp dir, GOTMPDIR
+// or the test HOME counts (UnderTestEnv); set MONOMIND_BIN to the monomind to use (it is always honoured; without it the first
+// attempt ended in "monomind not found"). For the claude runtime monomind uses an installed Claude Code only if the binary is
+// root-owned and named claude or versions/<x.y.z>; a mise shim or a user-owned install (uid 1000) is not run ("so org roles
+// may write it"), and monomind then wants to download @anthropic-ai/claude-agent-sdk (about 300 MB). This harness sets
+// MONOMIND_NO_AUTO_INSTALL=1 for the child so nothing is downloaded; set MONOMIND_CLAUDE_PATH to a Claude Code binary monomind
+// accepts, or MONOAGENT_SMOKE_ALLOW_INSTALL=1 to allow the download. (FilteredEnviron drops ambient MONOMIND_* except
+// MONOMIND_CLAUDE_PATH, so these are passed to the child explicitly.)
+//
+// VERDICT: only a completed turn (exit 0, no error result, a done event, some assistant output) gets a verdict; anything else
+// is INCONCLUSIVE and fails the test.
+//
 //	go test -tags realrunner -count=1 -v -timeout 300s -run TestRealRunnerRecordsWhatItDoesUnderATinyCap ./internal/monomind
 func TestRealRunnerRecordsWhatItDoesUnderATinyCap(t *testing.T) {
 	runtime := strings.TrimSpace(os.Getenv("MONOAGENT_SMOKE_RUNTIME"))
@@ -53,15 +79,39 @@ func TestRealRunnerRecordsWhatItDoesUnderATinyCap(t *testing.T) {
 	}
 	t.Logf("LOGIN this run relies on the %q runtime's own login on this machine; no key is read or passed by OUR code (the runner still inherits the environment). The cap $%.4f is a REQUEST to the runner and may be overshot by one call.", runtime, capUSD)
 	pin := runtime + "/" + model
+	opts := ExecOptions{Env: map[string]string{}}
+	if os.Getenv("MONOAGENT_SMOKE_ALLOW_INSTALL") != "1" {
+		opts.Env["MONOMIND_NO_AUTO_INSTALL"] = "1" // never download an SDK during a smoke
+	}
+	switch mode := strings.TrimSpace(os.Getenv("MONOAGENT_SMOKE_RUNTIME_HOME")); mode {
+	case "", "scratch":
+		t.Logf("RUNTIME HOME scratch: the runtime sees the test's empty HOME and will most likely say it is not logged in")
+	case "real":
+		rh := testhome.RealHome()
+		if rh == "" {
+			t.Fatal("the user's real home is not known")
+		}
+		opts.Env["HOME"] = rh
+		t.Logf("RUNTIME HOME REAL: the child process (the runtime) gets HOME=%s and can read everything in it", rh)
+		if dir := strings.TrimSpace(os.Getenv("MONOAGENT_SMOKE_RUNTIME_CONFIG_DIR")); dir != "" {
+			name := strings.TrimSpace(os.Getenv("MONOAGENT_SMOKE_RUNTIME_CONFIG_VAR"))
+			if name == "" {
+				name = "CLAUDE_CONFIG_DIR"
+			}
+			opts.Env[name] = dir
+			t.Logf("RUNTIME CONFIG DIR REAL: %s=%s is passed to the child process, which can read everything in it", name, dir)
+		}
+	default:
+		t.Fatalf("MONOAGENT_SMOKE_RUNTIME_HOME %q is not scratch or real", mode)
+	}
 	cwd := t.TempDir()
 	events := map[string]int{}
 	var costs []float64
 	assistantBytes := 0
 	start := time.Now()
-	res, err := Exec(context.Background(), ExecOptions{
-		Runtime: runtime, Model: model, Cwd: cwd, BudgetUSD: capUSD, MaxTurns: 1, Timeout: 4 * time.Minute,
-		Prompt: "Write an extremely long, detailed essay of at least 4000 words about the history of the bicycle. Do not stop early.",
-	}, func(ev Event) {
+	opts.Runtime, opts.Model, opts.Cwd, opts.BudgetUSD, opts.MaxTurns, opts.Timeout = runtime, model, cwd, capUSD, 1, 4*time.Minute
+	opts.Prompt = "Write an extremely long, detailed essay of at least 4000 words about the history of the bicycle. Do not stop early."
+	res, err := Exec(context.Background(), opts, func(ev Event) {
 		events[ev.Type]++
 		if ev.Type == "assistant" {
 			assistantBytes += len(ev.Text)
@@ -80,6 +130,11 @@ func TestRealRunnerRecordsWhatItDoesUnderATinyCap(t *testing.T) {
 		return
 	}
 	t.Logf("RECORD exit=%d stop_reason=%q saw_done=%v has_cost=%v cost=$%.6f err=%v result_bytes=%d", res.ExitCode, res.StopReason, res.SawDone, res.HasCostUSD, res.CostUSD, res.Err, len(res.ResultText))
+	// A verdict needs a real, completed turn: an error result (for example "Not logged in") reports cost 0 and says nothing about the cap.
+	if why := incompleteTurn(res, err, assistantBytes); why != "" {
+		t.Errorf("VERDICT INCONCLUSIVE: the turn did not complete (%s); nothing is learned about the cap", why)
+		return
+	}
 	switch {
 	case !res.HasCostUSD:
 		t.Logf("VERDICT the runner reported NO cost: the host would charge the whole cap ($%.4f)", capUSD)
@@ -88,4 +143,23 @@ func TestRealRunnerRecordsWhatItDoesUnderATinyCap(t *testing.T) {
 	default:
 		t.Logf("VERDICT within the cap: reported $%.6f against $%.4f (stop_reason %q)", res.CostUSD, capUSD, res.StopReason)
 	}
+}
+
+// incompleteTurn says why a turn is not a completed one, or "".
+func incompleteTurn(res *TurnResult, err error, assistantBytes int) string {
+	switch {
+	case res == nil:
+		return fmt.Sprintf("no result, err=%v", err)
+	case err != nil:
+		return fmt.Sprintf("exec error: %v", err)
+	case res.Err != nil:
+		return fmt.Sprintf("the runner returned an error result: %v", res.Err)
+	case res.ExitCode != 0:
+		return fmt.Sprintf("exit code %d", res.ExitCode)
+	case !res.SawDone:
+		return "no done event"
+	case assistantBytes == 0:
+		return "no assistant output"
+	}
+	return ""
 }
