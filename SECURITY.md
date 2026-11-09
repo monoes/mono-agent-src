@@ -2326,7 +2326,15 @@ that works a task acts on them. The defences:
   The database it reads is not only the one the process names: every running coder
   host records the database it runs turns against in the turn registry, one file per
   database under `<the OS user's passwd home>/.monoagent/coder-hosts/` (directory
-  0700, files 0600, derived from the system's user database, never `$HOME`; the file
+  0700, files 0600 on Unix, derived from the system's user database, never `$HOME`; on
+  Windows the mode bits say nothing, so the owner and the DACL are checked instead: the
+  directory and each entry must be owned by the running user and no ACE may grant a write,
+  delete or permission-change right to anyone but that user, SYSTEM, Administrators and
+  CREATOR OWNER (a NULL DACL or an ACE type not understood is refused), and the directory is
+  created with a protected DACL for the user and SYSTEM. A directory first created by an
+  elevated host is owned by Administrators, so a later non-elevated host refuses it and
+  runs without the registry until the directory is deleted (availability only; it fails
+  closed); the file
   holds the absolute database path, the host's pid and its start stamp, no secret),
   and the gate checks the union of the database the process names and every
   registered one, so `--db-path`, another `HOME`, a clean environment or an empty
