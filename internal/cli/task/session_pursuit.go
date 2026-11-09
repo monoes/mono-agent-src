@@ -6,6 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/missionpursuit"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
@@ -60,13 +62,15 @@ func (d Deps) writePursuit(cmd *cobra.Command, p tasks.Profile, pu missionpursui
 // writeProgress prints what the pursuit loop last recorded: how far each away limit has come, the host-wide hourly cap, and
 // in plain words why the pursuit waits for you.
 func (d Deps) writeProgress(cmd *cobra.Command, p tasks.Profile, pu missionpursuit.Pursuit, pr missionpursuit.Progress) error {
+	host, hostFound := d.hostPursuit()
 	if d.JSONOutput() {
-		return d.WriteJSON(cmd.OutOrStdout(), map[string]any{"profile": p, "pursuit": pu, "progress": pr})
+		return d.WriteJSON(cmd.OutOrStdout(), map[string]any{"profile": p, "pursuit": pu, "progress": pr, "host": map[string]any{"published": hostFound, "pursuit": host, "judge_call_cap_usd": coderhost.PursuitJudgeCallCapUSD}})
 	}
 	if err := d.writePursuit(cmd, p, pu, "Showing"); err != nil {
 		return err
 	}
 	w := cmd.OutOrStdout()
+	fmt.Fprintln(w, "  "+hostPursuitLine(host, hostFound))
 	if !pr.Seen {
 		fmt.Fprintln(w, "  the pursuit loop has not looked at it yet (it runs only on a host with the loop wired)")
 		return nil
@@ -190,4 +194,26 @@ func (d Deps) newPursuitStatusCmd() *cobra.Command {
 			})
 		},
 	}
+}
+
+// hostPursuit reads what the running coder host published about the loop (host flag, judge pin, per-wake cap).
+func (d Deps) hostPursuit() (coderhost.PursuitHostInfo, bool) {
+	if d.DBPath == nil {
+		return coderhost.PursuitHostInfo{}, false
+	}
+	return coderhost.ReadHostPursuit(clicore.ExpandPath(d.DBPath()))
+}
+
+// hostPursuitLine says in plain words whether this host runs the loop and what a wake-up and a judge call may cost.
+func hostPursuitLine(h coderhost.PursuitHostInfo, found bool) string {
+	switch {
+	case !found:
+		return "this host: no coder host has published its pursuit state (none is running, or it is older than this field); nothing is judged or woken without one"
+	case h.Enabled:
+		return fmt.Sprintf("this host: the pursuit loop is ON; judge %s (asked to stay under $%.2f a call); a wake-up turn is capped at $%.2f or at what the lead has left, whichever is less (a request to the AI runtime, checked after the turn)",
+			h.Pin, coderhost.PursuitJudgeCallCapUSD, h.WakeCapUSD)
+	case h.Reason != "":
+		return "this host: the pursuit loop is OFF: " + h.Reason
+	}
+	return "this host: the pursuit loop is OFF (the host was started without MONOAGENT_PURSUIT_JUDGE): nothing is judged or woken, and this mission's check-ins go on"
 }

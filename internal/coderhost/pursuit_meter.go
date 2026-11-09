@@ -20,6 +20,9 @@ import (
 //     person's last action. A helper that already ended is on the mission meter as well, so it can be counted twice: the stop
 //     then comes earlier, never later.
 
+// PursuitJudgeCallCapUSD is what one judge call is asked to stay under (and is charged when the runtime reports nothing).
+const PursuitJudgeCallCapUSD = judgecost.PerCallCapUSD
+
 // meteredModel charges every call of the inner judge model. It is the only model the pursuit's judge ever sees.
 type meteredModel struct {
 	inner   judge.Model

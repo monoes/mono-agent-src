@@ -32,7 +32,7 @@ import (
 // turns still running when it starts. Stopping the host leaves the turns
 // running; see docs/mastermind/plans/2026-10-26-coder-session-host.md.
 
-const hostInfoFile = "host.json"
+const hostInfoFile = coderhost.HostInfoFile
 
 // hostInfo is what a running host writes next to its lock.
 type hostInfo struct {
@@ -49,10 +49,13 @@ type hostInfo struct {
 	// Held lists the sessions whose bound turn recovery cannot confirm gone (or whose tokens it cannot end), with the cause, by session.
 	// Operator-only in `coder host status`, like Binding.
 	Held map[string]string `json:"held,omitempty"`
+	// Pursuit is the switch-on state of the pursuit loop (the host flag, the judge pin, the per-wake cap): pins and
+	// dollars only. `task session pursuit status` reads it from here.
+	Pursuit *coderhost.PursuitHostInfo `json:"pursuit,omitempty"`
 }
 
 func hostDir(cfg *Deps) string {
-	return filepath.Join(filepath.Dir(clicore.ExpandPath(cfg.DBPath())), "coder-host")
+	return coderhost.HostDir(clicore.ExpandPath(cfg.DBPath()))
 }
 
 func hostLockPath(cfg *Deps) string { return filepath.Join(hostDir(cfg), "host.lock") }
@@ -290,6 +293,16 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 				RequireConversations: true,
 				TitleOf:              func(profileID, id string) (string, error) { return chatDisplayTitle(db.DB, profileID, id) },
 			}
+			// The pursuit loop is off unless the host was started with a judge pin (see coder_host_pursuit.go); read once, here.
+			pursuit, pursuitInfo := pursuitFromEnv(os.Getenv, db.DB)
+			h.Pursuit = pursuit
+			info.Pursuit = &pursuitInfo
+			if pursuitInfo.Reason != "" {
+				logf("coder host: %s", pursuitInfo.Reason)
+			}
+			if raw, merr := json.Marshal(info); merr == nil && os.WriteFile(infoPath+".tmp", raw, 0o600) == nil {
+				_ = os.Rename(infoPath+".tmp", infoPath)
+			}
 			if hostBuilt != nil {
 				hostBuilt(h)
 			}
@@ -360,6 +373,9 @@ func hostStatus(cfg *Deps) map[string]any {
 		if len(info.Held) > 0 && clicore.RequireOperator(cfg.RequireOperator, "see the held sessions of the coder host") == nil {
 			st["held"] = info.Held
 		}
+		if info.Pursuit != nil {
+			st["pursuit"] = *info.Pursuit
+		}
 	}
 	return st
 }
@@ -412,6 +428,9 @@ func newCoderHostStatusCmd(cfg *Deps) *cobra.Command {
 			}
 			if st["running"] == true {
 				fmt.Fprintf(cmd.OutOrStdout(), "running  pid %v  since %v\n", st["pid"], st["startedAt"])
+				if p, ok := st["pursuit"].(coderhost.PursuitHostInfo); ok {
+					fmt.Fprintln(cmd.OutOrStdout(), pursuitStatusLine(p))
+				}
 				if b, ok := st["binding"].([]coderhost.BindingStatus); ok {
 					for _, x := range b {
 						fmt.Fprintf(cmd.OutOrStdout(), "binding service  profile %s  running %v  start %d  registrations: %d pending, %d active, %d revoked\n", x.Profile, x.Running, x.Start, x.Pending, x.Active, x.Revoked)

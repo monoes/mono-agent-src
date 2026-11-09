@@ -1,9 +1,12 @@
 package task
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/missionpursuit"
 	"github.com/monoes/mono-agent/internal/storage"
 )
@@ -157,5 +160,59 @@ func TestSessionPursuitStatusShowsHowFarEveryLimitHasComeAndWhyItWaits(t *testin
 		if err != nil || !strings.Contains(text, want) {
 			t.Errorf("text status lacks %q: %v\n%s", want, err, text)
 		}
+	}
+}
+
+// The status says what the host does with the pursuit: the host flag, the judge pin and the per-wake cap, as the running
+// host published them.
+func TestSessionPursuitStatusShowsTheHostSwitchOn(t *testing.T) {
+	t.Parallel()
+	db := newTaskTestDB(t)
+	s, _ := confirmedGoalMission(t, db)
+	var st pursuitDoc
+	mustTaskJSON(t, db, "default", &st, "", "session", "pursuit", "start", id(s))
+	text := func() string {
+		out, _, err := runTask(t, db, "default", false, "", "session", "pursuit", "status", id(s))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	if out := text(); !strings.Contains(out, "no coder host has published") {
+		t.Errorf("no host: %q", out)
+	}
+	dir := filepath.Join(filepath.Dir(db), "coder-host")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	host := func(doc string) {
+		if err := os.WriteFile(filepath.Join(dir, "host.json"), []byte(doc), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	host(`{"pid":1,"pursuit":{"enabled":false}}`)
+	if out := text(); !strings.Contains(out, "pursuit loop is OFF") || !strings.Contains(out, "check-ins go on") {
+		t.Errorf("off: %q", out)
+	}
+	host(`{"pid":1,"pursuit":{"enabled":false,"pin":"x/y","reason":"MONOAGENT_PURSUIT_WAKE_CAP_USD must be a number"}}`)
+	if out := text(); !strings.Contains(out, "OFF: MONOAGENT_PURSUIT_WAKE_CAP_USD") {
+		t.Errorf("off with a reason: %q", out)
+	}
+	host(`{"pid":1,"pursuit":{"enabled":true,"pin":"claude/haiku@4","wakeCapUsd":2}}`)
+	out := text()
+	for _, want := range []string{"pursuit loop is ON", "claude/haiku@4", "capped at $2.00", "$0.50 a call"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("on: missing %q in %q", want, out)
+		}
+	}
+	var doc struct {
+		Host struct {
+			Published bool                      `json:"published"`
+			Pursuit   coderhost.PursuitHostInfo `json:"pursuit"`
+		} `json:"host"`
+	}
+	mustTaskJSON(t, db, "default", &doc, "", "session", "pursuit", "status", id(s))
+	if !doc.Host.Published || !doc.Host.Pursuit.Enabled || doc.Host.Pursuit.WakeCapUSD != 2 || doc.Host.Pursuit.Pin != "claude/haiku@4" {
+		t.Errorf("json host: %+v", doc.Host)
 	}
 }
