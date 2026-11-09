@@ -1,6 +1,7 @@
 package task
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -12,8 +13,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/monoes/mono-agent/internal/daemonhb"
-	"github.com/monoes/mono-agent/internal/doomsday/strategy/types"
-	"github.com/monoes/mono-agent/internal/missionpursuit/strategy"
 	"github.com/monoes/mono-agent/internal/storage"
 )
 
@@ -46,7 +45,7 @@ func runMission(t *testing.T, db string, s int64) {
 	}
 }
 
-// seedStrategy writes epochs and directions the way the loop does, through the strategy store.
+// seedStrategy writes epochs and directions as the loop stores them (plain rows; the importers of the strategy store are a guarded list).
 func seedStrategy(t *testing.T, db string, s int64, titles ...string) {
 	t.Helper()
 	runMission(t, db, s)
@@ -55,21 +54,21 @@ func seedStrategy(t *testing.T, db string, s int64, titles ...string) {
 		t.Fatal(err)
 	}
 	defer d.Close()
-	st, prof := strategy.NewStore(d.DB), strconv.FormatInt(s, 10)
-	for seq, trig := range []types.Trigger{types.TriggerTimer, types.TriggerFinishParked} {
-		e := types.Epoch{Profile: prof, Generation: 1, Seq: int64(seq + 1), Trigger: trig, StartedAt: 1700000000 + int64(seq), ModelPin: "fake/judge/1", State: types.EpochOpen}
-		if _, _, err := st.InsertEpoch(t.Context(), e); err != nil {
+	for seq, trig := range []string{"timer", "finish-parked"} {
+		if _, err := d.DB.Exec(`INSERT INTO mission_strategy_epochs (session_id, epoch_seq, trigger, started_at, judgment_hash, model_pin, state) VALUES (?, ?, ?, ?, x'', 'fake/judge/1', 'open')`,
+			s, seq+1, trig, 1700000000+seq); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for i, title := range titles {
-		dir := types.Direction{Profile: prof, Generation: 1, ID: "dir-" + strconv.Itoa(i), KeyHash: types.KeyHash(strings.ToLower(title)), Title: title, State: types.DirProposed, ProposerSession: "p", CreatedEpoch: 1}
-		if err := st.AcceptProposal(t.Context(), dir, types.NoveltyRow{EpochSeq: 1, Outcome: types.NoveltyAccepted}); err != nil {
+		key := sha256.Sum256([]byte(title))
+		if _, err := d.DB.Exec(`INSERT INTO mission_strategy_directions (session_id, direction_id, key_hash, title, state, proposer_session, lead_session, created_epoch) VALUES (?, ?, ?, ?, 'proposed', 'p', '', 1)`,
+			s, "dir-"+strconv.Itoa(i), key[:], title); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if len(titles) > 1 {
-		if err := st.MoveDirection(t.Context(), prof, 1, "dir-0", types.DirActive, ""); err != nil {
+		if _, err := d.DB.Exec(`UPDATE mission_strategy_directions SET state = 'active' WHERE session_id = ? AND direction_id = 'dir-0'`, s); err != nil {
 			t.Fatal(err)
 		}
 	}

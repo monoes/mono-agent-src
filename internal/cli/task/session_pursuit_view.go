@@ -2,21 +2,16 @@ package task
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"io"
-	"strconv"
 	"strings"
-	"time"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/coderhost"
-	"github.com/monoes/mono-agent/internal/doomsday/strategy/types"
 	"github.com/monoes/mono-agent/internal/missionpursuit"
-	"github.com/monoes/mono-agent/internal/missionpursuit/strategy"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
 
@@ -24,43 +19,8 @@ import (
 // within one version.
 const PursuitSchemaVersion = 1
 
-// maxIDsPerState caps the ids listed per direction state; the counts stay exact.
-const maxIDsPerState = 50
-
 // Agent text (a direction title the judge proposed, a mission title) is cut to this many characters wherever it is shown.
 const agentTextRunes = 80
-
-var directionStates = []types.DirectionState{types.DirProposed, types.DirActive, types.DirStalled, types.DirFinished, types.DirPruned}
-
-// pursuitStrategy is what the strategy engine recorded for a mission. Host-written facts only: counts, ids the host
-// generated, enums and times. No agent-authored text is in it.
-type pursuitStrategy struct {
-	Epochs         epochSummary   `json:"epochs"`
-	Directions     directionStats `json:"directions"`
-	LastJudgeRound *judgeRound    `json:"last_judge_round,omitempty"`
-}
-
-type epochSummary struct {
-	Count  int          `json:"count"`
-	Latest *latestEpoch `json:"latest,omitempty"`
-}
-
-type latestEpoch struct {
-	Seq       int64  `json:"seq"`
-	Trigger   string `json:"trigger"`
-	State     string `json:"state"`
-	StartedAt string `json:"started_at"`
-}
-
-type directionStats struct {
-	Counts map[string]int      `json:"counts"`
-	IDs    map[string][]string `json:"ids"`
-}
-
-type judgeRound struct {
-	At      string `json:"at"`      // when the latest epoch started
-	Outcome string `json:"outcome"` // applied, invalid, model-failed or input, as the loop recorded it
-}
 
 // goalCheckStub is the place of the goal check line. Nothing reads it yet: the goal checker (S7b) does not exist. When it
 // does, this value is filled from the host-measured check record, never from anything an agent wrote.
@@ -98,42 +58,14 @@ func cleanAgentText(s string) string {
 	return s
 }
 
-// readStrategy reads the epochs and directions of a mission. A mission the engine never touched yields zero counts.
-func readStrategy(ctx context.Context, db *sql.DB, session int64, pr missionpursuit.Progress) (pursuitStrategy, agentText, error) {
-	out := pursuitStrategy{Directions: directionStats{Counts: map[string]int{}, IDs: map[string][]string{}}}
-	var text agentText
-	for _, st := range directionStates {
-		out.Directions.Counts[string(st)] = 0
-		out.Directions.IDs[string(st)] = []string{}
+// readStrategy reads the epochs and directions of a mission and keeps the direction titles (agent text) apart.
+func readStrategy(ctx context.Context, ps *missionpursuit.Store, p tasks.Profile, session int64, pr missionpursuit.Progress) (missionpursuit.StrategyView, agentText, error) {
+	v, titles, err := ps.StrategyView(ctx, p.ID, session, pr)
+	at := agentText{Directions: []agentDirection{}}
+	for _, t := range titles {
+		at.Directions = append(at.Directions, agentDirection{ID: t.ID, State: t.State, Title: cleanAgentText(t.Title)})
 	}
-	text.Directions = []agentDirection{}
-	ss, prof := strategy.NewStore(db), strconv.FormatInt(session, 10)
-	eps, err := ss.ListEpochs(ctx, prof, 1)
-	if err != nil {
-		return out, text, fmt.Errorf("reading the epochs: %w", err)
-	}
-	out.Epochs.Count = len(eps)
-	if n := len(eps); n > 0 {
-		e := eps[n-1]
-		at := time.Unix(e.StartedAt, 0).UTC().Format(time.RFC3339)
-		out.Epochs.Latest = &latestEpoch{Seq: e.Seq, Trigger: string(e.Trigger), State: string(e.State), StartedAt: at}
-		if pr.LastRound != "" {
-			out.LastJudgeRound = &judgeRound{At: at, Outcome: pr.LastRound}
-		}
-	}
-	dirs, err := ss.ListDirections(ctx, prof, 1)
-	if err != nil {
-		return out, text, fmt.Errorf("reading the directions: %w", err)
-	}
-	for _, d := range dirs {
-		st := string(d.State)
-		out.Directions.Counts[st]++
-		if len(out.Directions.IDs[st]) < maxIDsPerState {
-			out.Directions.IDs[st] = append(out.Directions.IDs[st], d.ID)
-			text.Directions = append(text.Directions, agentDirection{ID: d.ID, State: st, Title: cleanAgentText(d.Title)})
-		}
-	}
-	return out, text, nil
+	return v, at, err
 }
 
 // hostRuns says whether a live coder host runs the pursuit loop.
@@ -143,7 +75,7 @@ func hostRuns(h coderhost.PursuitHostInfo, found, alive bool) bool {
 
 // writeStatus prints the status: the JSON document (schema_version, the progress block with host facts only, the strategy
 // block, the goal-check stub, and the agent text kept apart) or the plain words.
-func (d Deps) writeStatus(cmd *cobra.Command, p tasks.Profile, pu missionpursuit.Pursuit, pr missionpursuit.Progress, st pursuitStrategy, at agentText) error {
+func (d Deps) writeStatus(cmd *cobra.Command, p tasks.Profile, pu missionpursuit.Pursuit, pr missionpursuit.Progress, st missionpursuit.StrategyView, at agentText) error {
 	host, found, alive := d.hostPursuit()
 	runs := hostRuns(host, found, alive)
 	state := missionpursuit.StateOf(pu.Paused(), pr.Waiting, runs)
@@ -167,7 +99,7 @@ func (d Deps) writeStatus(cmd *cobra.Command, p tasks.Profile, pu missionpursuit
 	return nil
 }
 
-func writeStrategyLines(w io.Writer, st pursuitStrategy, at agentText) {
+func writeStrategyLines(w io.Writer, st missionpursuit.StrategyView, at agentText) {
 	if st.Epochs.Count == 0 {
 		fmt.Fprintln(w, "  epochs: none yet")
 	} else {
@@ -179,8 +111,8 @@ func writeStrategyLines(w io.Writer, st pursuitStrategy, at agentText) {
 		fmt.Fprintln(w)
 	}
 	var parts []string
-	for _, s := range directionStates {
-		parts = append(parts, fmt.Sprintf("%d %s", st.Directions.Counts[string(s)], s))
+	for _, s := range missionpursuit.DirectionStates {
+		parts = append(parts, fmt.Sprintf("%d %s", st.Directions.Counts[s], s))
 	}
 	fmt.Fprintf(w, "  directions: %s\n", strings.Join(parts, ", "))
 	for _, d := range at.Directions {

@@ -220,7 +220,7 @@ func (d Deps) newPursuitStatusCmd() *cobra.Command {
 			if err != nil {
 				return d.taskErr(err)
 			}
-			st, at, err := readStrategy(cmd.Context(), db.DB, session, pr)
+			st, at, err := readStrategy(cmd.Context(), ps, p, session, pr)
 			if err != nil {
 				return err
 			}
