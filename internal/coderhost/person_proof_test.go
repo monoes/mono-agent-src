@@ -1,6 +1,7 @@
 package coderhost
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -109,5 +110,39 @@ func TestThePersonPathsStillQueueTheirReservedTurnIds(t *testing.T) {
 	q2, _ := st.Park("p", "a", "risky_action", "again?", nil, "", false)
 	if _, cmd, err = st.Answer("p", q2.ID, "no", masterScope{conv: "m"}); err == nil && reservedPersonTurn(cmd.TurnID) {
 		t.Fatalf("a master's answer carries a person id: %+v", cmd)
+	}
+}
+
+// A package other than coderhost cannot implement CallerScope, so it cannot pose as the person to Store.Answer.
+func TestCallerScopeCannotBeImplementedOutsideThePackage(t *testing.T) {
+	ty := reflect.TypeOf((*CallerScope)(nil)).Elem()
+	sealed := false
+	for i := 0; i < ty.NumMethod(); i++ {
+		if ty.Method(i).PkgPath != "" {
+			sealed = true
+		}
+	}
+	if !sealed {
+		t.Fatal("CallerScope has only exported methods: any package can implement Role() == user and answer as the person")
+	}
+}
+
+// deliver keeps the person's answer-p- id for the person's answer alone: an answer by anyone else is refused, not
+// queued as the person's.
+func TestDeliverMarksOnlyTheUsersAnswerAsThePersons(t *testing.T) {
+	st, _ := parkStore(t)
+	addConversation(t, st, "a", "/w/a")
+	base := Question{ProfileID: "p", ConversationID: "a", Class: "risky_action", Question: "q", Answer: "x", Status: questionStatusAnswer}
+	for _, by := range []string{"someone", "", "agent:x"} {
+		q := base
+		q.AnsweredBy = by
+		if _, err := st.deliver(q); err == nil {
+			t.Errorf("an answer by %q was queued", by)
+		}
+	}
+	q := base
+	q.AnsweredBy = WhoUser
+	if cmd, err := st.deliver(q); err != nil || !reservedPersonTurn(cmd.TurnID) {
+		t.Errorf("the user's answer: %+v %v", cmd, err)
 	}
 }

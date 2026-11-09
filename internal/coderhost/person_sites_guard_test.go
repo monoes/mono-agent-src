@@ -216,3 +216,48 @@ func TestThePersonSiteScanDoesNotHideAParseError(t *testing.T) {
 		t.Fatal("a root that does not exist was skipped")
 	}
 }
+
+func plant(t *testing.T, src string) map[string]int {
+	t.Helper()
+	base := t.TempDir()
+	for _, d := range []string{"cmd", "internal/mcp/evil"} {
+		if err := os.MkdirAll(filepath.Join(base, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(base, "internal", "mcp", "evil", "evil.go"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := scanPersonSites(base, "internal", "cmd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+// The shapes a plain name-and-import scan would miss.
+func TestThePersonSiteScanSeesTheShapesThatSlipPastAnImportFilter(t *testing.T) {
+	imp := `import "` + coderhostImport + `"`
+	for name, c := range map[string]struct{ src, key string }{
+		"raw insert":                  {"package evil\n\nconst q = `INSERT INTO coder_session_commands (x) VALUES (1)`\n", "evil.go:INSERT"},
+		"interface without the import": {"package evil\n\ntype Q interface{ Enqueue(x any) }\n\nfunc F(q Q) { q.Enqueue(1) }\n", "evil.go:F:Enqueue"},
+		"dot import":                  {"package evil\n\nimport . \"" + coderhostImport + "\"\n\nfunc F() { _, _ = TellLeadAboutPlan(nil, PersonProof{}, \"p\", \"c\", 1, \"a\", \"x\") }\n", "evil.go:F:TellLeadAboutPlan"},
+		"answer":                      {"package evil\n\n" + imp + "\n\nfunc F(s *coderhost.Store) { _, _, _ = s.Answer(\"p\", 1, \"x\", coderhost.OperatorScope{}) }\n", "evil.go:F:Answer"},
+	} {
+		found := false
+		for k := range plant(t, c.src) {
+			found = found || strings.HasSuffix(k, c.key)
+		}
+		if !found {
+			t.Errorf("%s: the planted site was not seen", name)
+		}
+	}
+}
+
+func TestNewQueueingCallersInsideCoderhostAreListed(t *testing.T) {
+	for _, k := range []string{"internal/coderhost/children_control.go:SendToChild:Enqueue", "internal/coderhost/store.go:INSERT"} {
+		if knownPersonSites[k] == 0 {
+			t.Errorf("%s is not listed: the guard does not cover the queueing callers inside coderhost", k)
+		}
+	}
+}
