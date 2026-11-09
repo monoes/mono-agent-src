@@ -408,3 +408,17 @@ func (w *pworld) lastWakeTurn() string {
 	}
 	return turn
 }
+
+// Two layers refuse a pursuit turn on a host where the loop is off (the run-time recheck and the cap rule); each is tested
+// alone, so that removing one is noticed.
+func TestEachLayerRefusesAPursuitTurnOnAHostWithoutTheLoop(t *testing.T) {
+	w := newPursuitWorld(t)
+	w.queueWake()
+	w.h.Pursuit = nil
+	if why := w.h.pursuitWakeStillAllowed(Session{ProfileID: "p", ConversationID: "m"}); why == "" {
+		t.Fatal("the run-time recheck lets a pursuit wake-up run with no loop")
+	}
+	if _, _, err := w.h.pursuitWakeCap(5, true, nil); err == nil {
+		t.Fatal("the cap rule lets a pursuit turn start with no loop")
+	}
+}
