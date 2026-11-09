@@ -4781,6 +4781,7 @@ inert (see "No run, no mode" below). Limits: a finished run sticks, and the reco
 start form shows the probe's reason. (2) `doomsday stop` ends "NOT stopped" with "the emergency socket is missing but the host lock is held" when a coder host is
 alive but has set up no gate for the run's generation yet (gates are created on the first dispatch of a generation). The way out: `monoagentcli coder host stop`
 (running turns keep going, the next host picks them up), then `doomsday stop` again; the host lock is an OS file lock that is released when the process exits.
+On Windows (until `coder host stop` ends the host there) the command prints the manual steps instead: the pid from `coder host status`, `taskkill /PID <pid> /F` for that one process (no `/T`, no image name), then `doomsday stop` again.
 
 **Boss tools of the open-ended mode** (`internal/mcp/boss_tools.go`): `session_boss_answer_ask`, `session_boss_approve_plan` and
 `session_boss_grant_budget` are the lead-facing mirrors of the typed operations ask.answer, plan.approve and spend.grant. Each calls

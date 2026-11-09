@@ -443,13 +443,18 @@ func newCoderHostStopCmd(cfg *Deps) *cobra.Command {
 			if info.PID <= 1 || info.Stamp == "" || stampOf(info.PID) != info.Stamp {
 				return clicore.InvalidInput("host.json names a process that is not the host any more; remove %s", filepath.Join(hostDir(cfg), hostInfoFile))
 			}
-			if err := terminateProcess(info.PID); err != nil {
+			forced, err := stopHost(cfg, info)
+			if err != nil {
 				return err
 			}
-			for i := 0; i < 100 && hostRunning(cfg); i++ {
+			for deadline := time.Now().Add(hostStopSettle); hostRunning(cfg) && time.Now().Before(deadline); {
 				time.Sleep(50 * time.Millisecond)
 			}
-			return printQueueJSON(cmd, map[string]any{"stopped": !hostRunning(cfg), "pid": info.PID})
+			res := map[string]any{"stopped": !hostRunning(cfg), "pid": info.PID}
+			if forced {
+				res["forced"] = true
+			}
+			return printQueueJSON(cmd, res)
 		},
 	}
 	clicore.WithJSONErrors(cfg.JSONOutput, cmd)
