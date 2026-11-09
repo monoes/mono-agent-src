@@ -200,8 +200,11 @@ func TestLockedWorkerCannotBeClaimedAsAParent(t *testing.T) {
 	} else {
 		other.Close()
 	}
-	if err := openAs(cmd.Process.Pid, windows.PROCESS_CREATE_PROCESS|windows.PROCESS_DUP_HANDLE|windows.PROCESS_QUERY_LIMITED_INFORMATION); !isDenied(err) {
-		t.Fatalf("the locked worker was opened for naming it as a parent: %v", err)
+	// the right to name it as a parent, alone and with what a start by Go's own exec asks for besides
+	for _, rights := range []uint32{windows.PROCESS_CREATE_PROCESS, windows.PROCESS_CREATE_PROCESS | windows.PROCESS_DUP_HANDLE | windows.PROCESS_QUERY_LIMITED_INFORMATION} {
+		if err := openAs(cmd.Process.Pid, rights); !isDenied(err) {
+			t.Fatalf("the locked worker was opened with %#x for naming it as a parent: %v", rights, err)
+		}
 	}
 	// the handle a same-user process does get (everything the list gives) is not enough to name the worker as a parent
 	ph, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.PROCESS_QUERY_INFORMATION|windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, uint32(cmd.Process.Pid))
