@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/doomsday/finish"
-	"github.com/monoes/mono-agent/internal/missionpursuit/judgecost"
 	"github.com/monoes/mono-agent/internal/monomind"
 )
 
@@ -31,7 +30,7 @@ type Config struct {
 	// the project).
 	Exec      ExecFunc
 	Workspace func() (string, error)
-	// CallCapUSD is the most one reviewer call may cost: 0 is judgecost.PerCallCapUSD.
+	// CallCapUSD is the most one reviewer call may cost: 0 is DefaultCallCapUSD.
 	CallCapUSD    float64
 	ReviewTimeout time.Duration // 0: the finish verifier's default
 	// CriterionTimeout and TotalTimeout can only lower the caps (2 minutes, 20 minutes), for tests.
@@ -76,7 +75,7 @@ func New(c Config) (*Checker, error) {
 	}
 	k.capUSD = c.CallCapUSD
 	if !(k.capUSD > 0) || k.capUSD > 100 { // also false for NaN
-		k.capUSD = judgecost.PerCallCapUSD
+		k.capUSD = DefaultCallCapUSD
 	}
 	k.crit, k.tot = lowered(c.CriterionTimeout, CriterionTimeout), lowered(c.TotalTimeout, TotalTimeout)
 	return k, nil

@@ -6,6 +6,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/monoes/mono-agent/internal/missionpursuit/judgecost"
 	"github.com/monoes/mono-agent/internal/monomind"
 )
 
@@ -62,5 +63,11 @@ func TestCostingRemembersWhatTheRuntimeSaidEvenWhenTheTurnFailed(t *testing.T) {
 	n := &costing{inner: nil}
 	if m, ok := n.charge(0.5); m != 0 || !ok {
 		t.Fatalf("%d %v", m, ok)
+	}
+}
+
+func TestTheCallCapIsTheJudgesCap(t *testing.T) {
+	if DefaultCallCapUSD != judgecost.PerCallCapUSD {
+		t.Fatalf("%v != %v", DefaultCallCapUSD, judgecost.PerCallCapUSD)
 	}
 }

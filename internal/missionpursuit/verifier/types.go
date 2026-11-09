@@ -13,6 +13,8 @@ const (
 	OutputCap        = 1 << 20 // bytes of stdout and of stderr of one criterion
 	ExcerptCap       = 1 << 10 // bytes of an excerpt kept in a result
 	detailCap        = 200
+	// DefaultCallCapUSD is the most one reviewer call may cost (the judge's per-call cap, kept equal by a test).
+	DefaultCallCapUSD = 0.5
 )
 
 // Containment is what a result says about where the criteria ran.
