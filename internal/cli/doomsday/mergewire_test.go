@@ -61,7 +61,7 @@ func TestStopAndStartRevisitAMergeMemberUntilContainmentProvesItGone(t *testing.
 	withDB(w, db)
 	ctx := context.Background()
 	w.start(t)
-	m := store.Member{Profile: "p1", Generation: 1, ID: "merge-dead-1", Kind: "merge", Pid: 4242, Stamp: "host"}
+	m := store.Member{Profile: "p1", Generation: 1, ID: "merge-dead-1", Kind: "merge", Pid: deadPID(t), Stamp: "host"}
 	if err := w.w.Store.Register(ctx, m); err != nil {
 		t.Fatal(err)
 	}
