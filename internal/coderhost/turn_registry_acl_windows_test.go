@@ -93,3 +93,9 @@ func TestWindowsRegistryRefusesAnOpenDirectoryItDidNotCreate(t *testing.T) {
 		t.Fatalf("err = %v, want ErrRegistryUnsafe", err)
 	}
 }
+
+// looseEntry lets Everyone write the entry: the mode given to writeEntry means nothing on Windows.
+func looseEntry(t *testing.T, path string) {
+	t.Helper()
+	icacls(t, path, "/grant", "*S-1-1-0:(W)")
+}

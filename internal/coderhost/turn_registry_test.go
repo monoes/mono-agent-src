@@ -182,6 +182,7 @@ func TestTheReaderSkipsBadEntriesAndDeletesNothing(t *testing.T) {
 	writeEntry(t, name(big), jsonEntry(big, 1, strings.Repeat("x", registryEntryMax)), 0o600)
 	loose := db("loose.db")
 	writeEntry(t, name(loose), jsonEntry(loose, 1, "x"), 0o666)
+	looseEntry(t, name(loose))
 	wrongName := db("wrongname.db")
 	writeEntry(t, filepath.Join(dir, strings.Repeat("a", 64)), jsonEntry(wrongName, 1, "x"), 0o600)
 	relative := "relative.db"
