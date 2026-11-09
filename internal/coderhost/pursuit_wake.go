@@ -120,7 +120,7 @@ func (h *Host) pursuitWake(ctx context.Context, rd *inputs.Reader, m pursuitMiss
 	}
 	// The wake-up is a spend of the lead's attention: the whole gate is read again now (a judge call can take minutes: the
 	// work may have ended, a limit may have been reached, the person may have paused), not taken from the start of the pass.
-	g2, ok := h.pursuitGate(ctx, rd, m)
+	g2, ok := h.pursuitGate(ctx, rd, m, 0)
 	if !ok || g2.st.Waiting != "" {
 		return
 	}

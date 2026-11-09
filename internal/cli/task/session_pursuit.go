@@ -6,6 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/missionpursuit"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
@@ -24,6 +26,17 @@ the chat's autonomy settings, as for any other mission, so these limits, the hos
 failed judge rounds in a row carry the brake. The goal must carry a rubric criterion: you are always the last judge, and
 closing the mission stays yours.
 Only you start, pause or resume; an agent is refused.
+
+What turns on, and what it costs: the loop runs only on a coder host started with MONOAGENT_PURSUIT_JUDGE set to the judge's
+model (off by default; unset it and restart the host to turn it off for every mission), and only for a mission you started.
+Each epoch costs a judge call (asked to stay under $0.50) and may wake the lead for one turn capped at X (default $2, set by
+MONOAGENT_PURSUIT_WAKE_CAP_USD on the host) or at what the lead has left, whichever is less. Worst case with the defaults: about
+$15 an hour for one mission, about $30 an hour for the whole host; until the away limits stop one mission about $6.50 on a $20
+mission budget and at most about $22.50 on $100 (the 20 percent rule is the only hard bound; the six-wake figure, about $17, is typical, not a bound, because judged epochs that wake nobody are not counted by the wake limit). The caps are requests to the AI runtime, checked from the cost it reports afterwards;
+helpers the lead starts are NOT covered by X: one wake can let the lead carve its whole remaining budget to helpers, bounded only by
+the carve limits (and the money carved out and not yet spent counts in the PCT rule, so a big carve makes the pursuit wait).
+The judge's model is checked by name against the lead's (aliases are not recognised); no verifier pin exists for missions yet. The lead must have a budget and the mission a known budget, and the judge's model must differ from the lead's, or the
+pursuit waits. pause stops one mission; a judge call or lead turn already running finishes and is paid for.
 
   pursuit start ID [--parked-max N] [--pct N]   start it (the goal must be confirmed); defaults 3 and 20
   pursuit pause ID                              stop new work until you resume (it does not hand the lead back to check-ins, and a judge call already running is not cancelled: it is paid for and its answer dropped)
@@ -60,13 +73,15 @@ func (d Deps) writePursuit(cmd *cobra.Command, p tasks.Profile, pu missionpursui
 // writeProgress prints what the pursuit loop last recorded: how far each away limit has come, the host-wide hourly cap, and
 // in plain words why the pursuit waits for you.
 func (d Deps) writeProgress(cmd *cobra.Command, p tasks.Profile, pu missionpursuit.Pursuit, pr missionpursuit.Progress) error {
+	host, hostFound, hostAlive := d.hostPursuit()
 	if d.JSONOutput() {
-		return d.WriteJSON(cmd.OutOrStdout(), map[string]any{"profile": p, "pursuit": pu, "progress": pr})
+		return d.WriteJSON(cmd.OutOrStdout(), map[string]any{"profile": p, "pursuit": pu, "progress": pr, "host": map[string]any{"published": hostFound, "running": hostAlive, "pursuit": host, "judge_call_cap_usd": coderhost.PursuitJudgeCallCapUSD}})
 	}
 	if err := d.writePursuit(cmd, p, pu, "Showing"); err != nil {
 		return err
 	}
 	w := cmd.OutOrStdout()
+	fmt.Fprintln(w, "  "+hostPursuitLine(host, hostFound, hostAlive))
 	if !pr.Seen {
 		fmt.Fprintln(w, "  the pursuit loop has not looked at it yet (it runs only on a host with the loop wired)")
 		return nil
@@ -190,4 +205,32 @@ func (d Deps) newPursuitStatusCmd() *cobra.Command {
 			})
 		},
 	}
+}
+
+// hostPursuit reads what the running coder host published about the loop (host flag, judge pin, per-wake cap).
+func (d Deps) hostPursuit() (coderhost.PursuitHostInfo, bool, bool) {
+	if d.DBPath == nil {
+		return coderhost.PursuitHostInfo{}, false, false
+	}
+	return coderhost.ReadHostPursuitState(clicore.ExpandPath(d.DBPath()))
+}
+
+// hostPursuitLine says in plain words whether this host runs the loop and what a wake-up and a judge call may cost.
+func hostPursuitLine(h coderhost.PursuitHostInfo, found, alive bool) string {
+	switch {
+	case !found:
+		return "this host: no coder host has published its pursuit state (none is running, it is older than this field, or its status file could not be written: status unavailable); nothing is judged or woken without a running host"
+	case !alive:
+		last := "the loop was OFF"
+		if h.Enabled {
+			last = fmt.Sprintf("the loop was ON with judge %s", h.Pin)
+		}
+		return "this host: the coder host is not running (last known: " + last + "); nothing is judged or woken until a host starts"
+	case h.Enabled:
+		return fmt.Sprintf("this host: the pursuit loop is ON; judge %s (asked to stay under $%.2f a call); a wake-up turn is capped at $%.2f or at what the lead has left, whichever is less (a request to the AI runtime, checked after the turn)",
+			h.Pin, coderhost.PursuitJudgeCallCapUSD, h.WakeCapUSD)
+	case h.Reason != "":
+		return "this host: the pursuit loop is OFF: " + h.Reason
+	}
+	return "this host: the pursuit loop is OFF (the host was started without MONOAGENT_PURSUIT_JUDGE): nothing is judged or woken, and this mission's check-ins go on"
 }

@@ -20,6 +20,9 @@ import (
 //     person's last action. A helper that already ended is on the mission meter as well, so it can be counted twice: the stop
 //     then comes earlier, never later.
 
+// PursuitJudgeCallCapUSD is what one judge call is asked to stay under (and is charged when the runtime reports nothing).
+const PursuitJudgeCallCapUSD = judgecost.PerCallCapUSD
+
 // meteredModel charges every call of the inner judge model. It is the only model the pursuit's judge ever sees.
 type meteredModel struct {
 	inner   judge.Model
@@ -121,10 +124,14 @@ func (h *Host) pursuitStopReason(m pursuitMission, st pursuitState) string {
 	if st.BadRounds >= MaxBadJudgeRounds {
 		return pursuitWaitingJudge
 	}
-	if m.Conv != "" {
-		if budget, err := h.Store.Budget(m.Profile, m.Conv); err != nil || !(budget > 0) {
-			return pursuitWaitingLead
-		}
+	if m.Conv == "" {
+		return pursuitWaitingNoChat // no chat, no lead to wake or to cap: a wake-up is never launched uncapped
+	}
+	if budget, err := h.Store.Budget(m.Profile, m.Conv); err != nil || !(budget > 0) {
+		return pursuitWaitingLead
+	}
+	if h.pursuitPinWhy(m) != "" {
+		return pursuitWaitingPin
 	}
 	return ""
 }

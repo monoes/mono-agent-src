@@ -144,7 +144,7 @@ func TestOnlyTheWiringFilesImportThePackage(t *testing.T) {
 	}
 	sort.Strings(got)
 	// the pursuit loop (T6, S4) is the one caller: its run state, snapshots and wake-up gate
-	if want := []string{"internal/coderhost/pursuit.go", "internal/coderhost/pursuit_facts.go", "internal/coderhost/pursuit_propose.go", "internal/coderhost/pursuit_wake.go"}; strings.Join(got, ",") != strings.Join(want, ",") {
+	if want := []string{"internal/coderhost/pursuit.go", "internal/coderhost/pursuit_facts.go", "internal/coderhost/pursuit_propose.go", "internal/coderhost/pursuit_recheck.go", "internal/coderhost/pursuit_wake.go"}; strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("importers of the mission pursuit inputs changed: %v\ndecide the new importer here, in review", got)
 	}
 }

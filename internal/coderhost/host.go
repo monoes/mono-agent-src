@@ -361,6 +361,9 @@ func (h *Host) Tick() error {
 				}
 			}
 			capUSD, capped, berr := h.Store.TurnCap(c.ProfileID, c.ConversationID)
+			if strings.HasPrefix(c.TurnID, PursuitTurnPrefix) {
+				capUSD, capped, berr = h.pursuitWakeCap(capUSD, capped, berr) // X, and never uncapped
+			}
 			if berr == nil && capped {
 				if _, ok := h.L.(BudgetLauncher); !ok {
 					berr = errors.New("this launcher cannot start a turn under a spend cap")

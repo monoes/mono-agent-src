@@ -1,0 +1,85 @@
+package chat
+
+import (
+	"database/sql"
+	"fmt"
+	"math"
+	"strconv"
+	"strings"
+
+	"github.com/monoes/mono-agent/internal/coderhost"
+	"github.com/monoes/mono-agent/internal/missionpursuit/judgemodel"
+	"github.com/monoes/mono-agent/internal/monomind"
+)
+
+// The host's switch for the pursuit loop. Two host settings, both read once, when the host starts:
+//
+//	MONOAGENT_PURSUIT_JUDGE         the judge's pin, runtime/model[@version]. Unset or empty: the loop is OFF (the default),
+//	                                and the check-ins of a mission whose pursuit was started go on as before.
+//	MONOAGENT_PURSUIT_WAKE_CAP_USD  X, the most one wake-up turn of a lead may spend; unset or empty = 2; otherwise 0.01 to 10.
+//
+// There is no live switch: turning the loop off host-wide is unsetting the first and restarting the host. A value that does
+// not parse leaves the loop OFF, with the reason shown in `coder host status` and the pursuit status.
+const (
+	envPursuitJudge   = "MONOAGENT_PURSUIT_JUDGE"
+	envPursuitWakeCap = "MONOAGENT_PURSUIT_WAKE_CAP_USD"
+)
+
+// pursuitFromEnv builds the pursuit deps from the environment, or nil with the info that says why the loop is off. db answers
+// the lead's pin at each gate and each judge call.
+func pursuitFromEnv(getenv func(string) string, db *sql.DB) (*coderhost.PursuitDeps, coderhost.PursuitHostInfo) {
+	pin := strings.TrimSpace(getenv(envPursuitJudge))
+	if pin == "" {
+		return nil, coderhost.PursuitHostInfo{}
+	}
+	off := func(format string, a ...any) (*coderhost.PursuitDeps, coderhost.PursuitHostInfo) {
+		return nil, coderhost.PursuitHostInfo{Pin: pin, Reason: fmt.Sprintf(format, a...)}
+	}
+	wake := coderhost.DefaultWakeCapUSD
+	// unset or empty is the default; anything else must be a number (a value of only spaces is not one)
+	if raw := getenv(envPursuitWakeCap); raw != "" {
+		x, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+		if err != nil || math.IsNaN(x) || x < coderhost.MinWakeCapUSD || x > coderhost.MaxWakeCapUSD {
+			return off("%s must be a number from %g to %g (it is %q); the pursuit loop stays off", envPursuitWakeCap, coderhost.MinWakeCapUSD, coderhost.MaxWakeCapUSD, raw)
+		}
+		wake = x
+	}
+	model, err := judgemodel.New(judgemodel.Config{Pin: pin})
+	if err != nil {
+		return off("%s: %v; the pursuit loop stays off", envPursuitJudge, err)
+	}
+	d := &coderhost.PursuitDeps{
+		Model:      model,
+		Refuse:     func(pin string) bool { return pin == "" }, // the lead's pin is compared per mission, at each call (LeadPin)
+		WakeCapUSD: wake,
+		LeadPin:    func(profileID, conversationID string) string { return leadPin(db, profileID, conversationID) },
+	}
+	return d, coderhost.PursuitHostInfo{Enabled: true, Pin: pin, WakeCapUSD: wake}
+}
+
+// leadPin is the runtime/model a conversation runs, as the app recorded it, or "" when it is not known (no model named: the
+// runtime's own default, which this host cannot tell from the judge's).
+func leadPin(db *sql.DB, profileID, conversationID string) string {
+	var rt, md string
+	if err := db.QueryRow(`SELECT runtime_id, model FROM ai_chat_conversations WHERE id = ? AND profile_id = ?`, conversationID, profileID).Scan(&rt, &md); err != nil {
+		return ""
+	}
+	if md = strings.TrimSpace(md); md == "" {
+		return ""
+	}
+	if rt = strings.TrimSpace(rt); rt == "" {
+		rt = monomind.DefaultCoderRuntime
+	}
+	return rt + "/" + md
+}
+
+// pursuitStatusLine is the one line `coder host status` prints for the loop.
+func pursuitStatusLine(p coderhost.PursuitHostInfo) string {
+	switch {
+	case p.Enabled:
+		return fmt.Sprintf("pursuit loop ON  judge %s  a wake-up turn is capped at $%.2f (and at what the lead has left)", p.Pin, p.WakeCapUSD)
+	case p.Reason != "":
+		return "pursuit loop OFF  " + p.Reason
+	}
+	return "pursuit loop OFF  (set " + envPursuitJudge + " to a judge model and restart the host to turn it on)"
+}
