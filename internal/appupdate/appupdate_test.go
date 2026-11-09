@@ -278,6 +278,9 @@ func TestAppUpdateMacOSSwapsBundle(t *testing.T) {
 	if readFile(t, exe) != "new app" || readFile(t, filepath.Join(macos, "monoagentcli")) != "new cli" {
 		t.Fatal("bundle not replaced")
 	}
+	if string(res.CLI) != "new cli" {
+		t.Fatalf("Result.CLI = %q, want the CLI inside the new bundle", res.CLI)
+	}
 	if got := dirNames(t, apps); len(got) != 1 {
 		t.Fatalf("leftovers next to the bundle: %v", got)
 	}
