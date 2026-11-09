@@ -301,6 +301,13 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
+			// Where no signal reaches the host (Windows), `host stop` sets an event the host made for itself, and the host
+			// leaves through the same path as on SIGTERM.
+			if endWatch, werr := watchHostStop(ctx, info.Instance, stop); werr != nil {
+				logf("coder host: no stop event (%v); `host stop` will have to end this host by force", werr)
+			} else {
+				defer endWatch()
+			}
 			// The retention sweep of the v2 tables (procbind.PurgeRetained) runs at the start and then about once an hour.
 			// It reads no key and never fails the host: an error is logged and the host carries on.
 			purged := make(chan struct{})
