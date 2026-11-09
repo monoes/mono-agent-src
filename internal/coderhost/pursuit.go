@@ -66,6 +66,7 @@ const (
 	pursuitWaitingJudge  = "judge-failing"
 	pursuitWaitingLead   = "lead-uncapped"
 	pursuitWaitingMeter  = "meter-unreadable"
+	pursuitWaitingPin    = "judge-pin"
 )
 
 // PursuitDeps turns the loop on. Model is the judge (resolved by the caller for the judging purpose) and Refuse its
@@ -76,6 +77,14 @@ type PursuitDeps struct {
 	Timeout time.Duration // one judge call; 0 = two minutes
 	Clock   epoch.Clock   // nil = the system clock
 	Every   time.Duration // spacing of passes; 0 = 5 s
+
+	// WakeCapUSD is the most one wake-up turn of the lead may spend (host-wide, X): the host starts a pursuit- turn under
+	// min(what the lead has left, X) and never without a cap. It must be above 0 and at most MaxWakeCapUSD.
+	WakeCapUSD float64
+	// LeadPin names the runtime/model a conversation runs ("" = not known). It is read at the moment of each judge call and
+	// each gate, so the independence rule follows a lead whose model changed: a judge that equals it, or a lead that is not
+	// pinned, makes the pursuit wait.
+	LeadPin func(profileID, conversationID string) string
 
 	Interval         time.Duration // the epoch timer; the engine clamps it to its code bounds
 	StallWindow      time.Duration
@@ -91,6 +100,13 @@ func (d *PursuitDeps) clock() epoch.Clock {
 }
 
 func (d *PursuitDeps) ready() bool { return d != nil && d.Model != nil && d.Refuse != nil }
+
+// DefaultWakeCapUSD is the per-wake-up cap the product proposes; MaxWakeCapUSD is the most it may be set to (at 12 wake-ups
+// an hour host-wide that is $120 an hour of wake-ups alone).
+const (
+	DefaultWakeCapUSD = 2.0
+	MaxWakeCapUSD     = 10.0
+)
 
 // pursuitMission is one mission whose pursuit is started.
 type pursuitMission struct {
