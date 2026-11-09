@@ -338,13 +338,13 @@ func canonicalDB(db string) (string, error) {
 }
 
 // checkRegistryDir refuses a directory that is a symlink, is not a directory, is not owned by this user or is
-// writable by group or others.
+// writable by group or others (on Windows: whose owner or DACL lets anyone else write, see privateACL).
 func checkRegistryDir(dir string) error {
 	fi, err := os.Lstat(dir)
 	if err != nil {
 		return err
 	}
-	if !fi.IsDir() || fi.Mode()&fs.ModeSymlink != 0 || !ownedByUs(fi) || fi.Mode().Perm()&0o022 != 0 {
+	if !fi.IsDir() || fi.Mode()&(fs.ModeSymlink|fs.ModeIrregular) != 0 || !privateToUs(dir, fi, 0o022) {
 		return fmt.Errorf("%w: %s", ErrRegistryUnsafe, dir)
 	}
 	return nil
@@ -367,7 +367,7 @@ func RegisterHostDB(path string) (unregister func(), err error) {
 	if err != nil {
 		return noop, err
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := makeRegistryDir(dir); err != nil {
 		return noop, err
 	}
 	if err := checkRegistryDir(dir); err != nil {
@@ -405,7 +405,7 @@ func RegisterHostDB(path string) (unregister func(), err error) {
 func readRegistryEntry(file string) (registryEntry, bool) {
 	var e registryEntry
 	fi, err := os.Lstat(file)
-	if err != nil || !fi.Mode().IsRegular() || !ownedByUs(fi) || fi.Mode().Perm()&0o077 != 0 || fi.Size() > registryEntryMax {
+	if err != nil || !fi.Mode().IsRegular() || !privateToUs(file, fi, 0o077) || fi.Size() > registryEntryMax {
 		return e, false
 	}
 	f, err := os.Open(file)

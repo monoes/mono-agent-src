@@ -46,9 +46,6 @@ const (
 // grants a write right to anyone but user, SYSTEM, Administrators and CREATOR OWNER. Deny ACEs are ignored
 // (they only restrict). Anything not understood is refused: it fails closed.
 func privateACL(owner string, hasDACL bool, aces []aclEntry, user, ownerToo string) bool {
-	if true {
-		return false
-	}
 	if user == "" || owner == "" || !hasDACL {
 		return false // no DACL grants everyone full access
 	}
