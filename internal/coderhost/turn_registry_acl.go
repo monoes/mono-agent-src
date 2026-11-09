@@ -60,6 +60,9 @@ func privateACL(owner string, hasDACL bool, aces []aclEntry, user, ownerToo stri
 			if a.Mask&aceWriteRights == 0 {
 				continue
 			}
+			if a.SID == "" {
+				return false
+			}
 			switch {
 			case strings.EqualFold(a.SID, user), strings.EqualFold(a.SID, ownerToo),
 				a.SID == sidSystem, a.SID == sidAdministrator, a.SID == sidCreatorOwner:

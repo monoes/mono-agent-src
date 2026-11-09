@@ -38,7 +38,7 @@ import (
 var ErrRegistryUnavailable = errors.New("turn registry unavailable")
 
 // ErrRegistryUnsafe: the registry directory is a symlink, belongs to someone else or is writable by others.
-var ErrRegistryUnsafe = errors.New("turn registry directory is not private to this user")
+var ErrRegistryUnsafe = errors.New("turn registry directory is not private to this user (on Windows a directory first created by an elevated host belongs to Administrators: delete it and start the host again)")
 
 // ErrRegistryUnsupported is an ErrRegistryUnavailable for a platform that does not read process ancestry at
 // all: nothing is written or read there, which is the design, not a fault worth printing at every start.

@@ -37,6 +37,32 @@ func TestPrivateACLDecisions(t *testing.T) {
 		{"unknown owner", "", true, ok, "", false},
 		{"sids compare case-insensitively", "s-1-5-21-1-2-3-1001", true, ok, "", true},
 	}
+	// every write right on its own is refused for a stranger (dropping one from aceWriteRights must go red)
+	for _, r := range []struct {
+		name string
+		bit  uint32
+	}{
+		{"FILE_WRITE_DATA", 0x2}, {"FILE_APPEND_DATA", 0x4}, {"FILE_WRITE_EA", 0x10}, {"FILE_DELETE_CHILD", 0x40},
+		{"FILE_WRITE_ATTRIBUTES", 0x100}, {"DELETE", 0x10000}, {"WRITE_DAC", 0x40000}, {"WRITE_OWNER", 0x80000},
+		{"GENERIC_ALL", 0x10000000}, {"GENERIC_WRITE", 0x40000000},
+	} {
+		cases = append(cases, struct {
+			name     string
+			owner    string
+			hasDACL  bool
+			aces     []aclEntry
+			ownerToo string
+			want     bool
+		}{"a stranger with only " + r.name, me, true, append(append([]aclEntry{}, ok...), allow(other, r.bit)), "", false})
+	}
+	cases = append(cases, struct {
+		name     string
+		owner    string
+		hasDACL  bool
+		aces     []aclEntry
+		ownerToo string
+		want     bool
+	}{"an allow ACE with an empty SID", me, true, append(append([]aclEntry{}, ok...), allow("", full)), "", false})
 	for _, c := range cases {
 		if got := privateACL(c.owner, c.hasDACL, c.aces, me, c.ownerToo); got != c.want {
 			t.Errorf("%s: privateACL = %v, want %v", c.name, got, c.want)

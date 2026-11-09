@@ -36,6 +36,38 @@ func TestWindowsRegistryDirIsCreatedPrivateAndWorks(t *testing.T) {
 	}
 }
 
+// Created under a parent that lets Everyone modify (and the new directory would inherit that), the directory
+// still comes out protected: no Everyone ACE, and the check accepts it.
+func TestWindowsRegistryDirCreatedUnderAnOpenParentIsStillPrivate(t *testing.T) {
+	needAncestry(t)
+	parent := t.TempDir()
+	icacls(t, parent, "/grant", "*S-1-1-0:(OI)(CI)(M)")
+	dir := filepath.Join(parent, "coder-hosts")
+	if err := makeRegistryDir(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkRegistryDir(dir); err != nil {
+		t.Fatalf("the directory it created was refused: %v", err)
+	}
+	_, hasDACL, aces, err := readACL(dir)
+	if err != nil || !hasDACL {
+		t.Fatalf("readACL: %v hasDACL=%v", err, hasDACL)
+	}
+	for _, a := range aces {
+		if a.SID == "S-1-1-0" || a.SID == "S-1-5-11" || a.SID == "S-1-5-32-545" {
+			t.Errorf("the new directory carries an ACE for %s", a.SID)
+		}
+	}
+	// and the parent really was open: a directory made the plain way is refused
+	plain := filepath.Join(parent, "plain")
+	if err := os.Mkdir(plain, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkRegistryDir(plain); !errors.Is(err, ErrRegistryUnsafe) {
+		t.Fatalf("a plain directory under the open parent: %v, want ErrRegistryUnsafe", err)
+	}
+}
+
 // Another user's write access to the directory or to an entry makes it unsafe; a read-only grant does not.
 func TestWindowsRegistryRefusesAForeignWriteACE(t *testing.T) {
 	needAncestry(t)
