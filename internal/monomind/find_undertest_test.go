@@ -59,8 +59,7 @@ func TestDiscoveryUnderTestFindsOnlyTempInstalls(t *testing.T) {
 	}
 	t.Setenv("TMPDIR", tmp)
 	t.Setenv("GOTMPDIR", "")
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	t.Setenv(EnvOverride, "")
 	real := writeFakeMonomind(t, filepath.Join(base, "real", "bin"))
 	t.Setenv("PATH", filepath.Dir(real))

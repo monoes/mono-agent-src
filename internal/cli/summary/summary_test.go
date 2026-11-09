@@ -3,6 +3,7 @@ package summarycli
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,7 +17,7 @@ import (
 
 func newSummaryCLITestDB(t *testing.T) *testConfig {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Setenv("MONOAGENT_DAEMON_HEARTBEAT", filepath.Join(t.TempDir(), "hb.json"))
 	// Never probe the developer's real extension bridge.
 	t.Setenv(extension.ExtensionPortEnv, "1")

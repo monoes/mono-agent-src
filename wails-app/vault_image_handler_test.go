@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -11,7 +12,7 @@ import (
 // escapes the vault folder.
 func TestVaultImageHandlerIsProfileScoped(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	// A profile's images live in its own vault folder, not ~/.monoagent/vault.
 	vaultDir := filepath.Join(home, ".monoagent", "profiles", "p1", ".monoagent", "vault")
 	if err := os.MkdirAll(vaultDir, 0o700); err != nil {

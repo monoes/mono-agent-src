@@ -2,6 +2,7 @@ package nodes
 
 import (
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -108,7 +109,7 @@ func TestRegisterBrowserNodes_LegacyAliasUsesOriginalName(t *testing.T) {
 // (and would run) it.
 func TestLegacyUpgrade_GoogleMapsAliasResolves(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	dir := filepath.Join(home, ".monoagent", "actions", "google_maps")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)

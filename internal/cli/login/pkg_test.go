@@ -3,6 +3,7 @@ package login
 import (
 	"bytes"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -102,7 +103,7 @@ func TestLoginReadUsername(t *testing.T) {
 func useTestLoginRegistry(t *testing.T, dbPath string) Deps {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	reg, err := nodes.BootAutomations(filepath.Join(home, ".monoagent"))
 	t.Cleanup(func() { action.SetDefSource(nil) })
 	if errors.Is(err, automation.ErrNotImplemented) {

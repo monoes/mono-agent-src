@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -17,7 +18,7 @@ import (
 // returns the fixture, the execution and its resume URL path once WAITING.
 func waitRun(t *testing.T, cfg map[string]interface{}) (*subflowFixture, string, string) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir()) // the reply key file
+	testhome.SetHome(t, t.TempDir()) // the reply key file
 	f := newSubflowFixture(t)
 	wf := f.chain(t, "w", "trigger.manual", true, workflow.WorkflowNode{Type: "core.wait", Config: cfg})
 	id, err := f.eng.TriggerWorkflow(context.Background(), wf, map[string]interface{}{"in": "x"})

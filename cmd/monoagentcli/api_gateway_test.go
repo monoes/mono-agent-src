@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/apiconfig"
@@ -49,7 +50,7 @@ func TestOpenGatewayDBLeavesTheServersProfileAlone(t *testing.T) {
 // the test's own: every variable of the API is clear except the ones given.
 func savedAPIDB(t *testing.T, saved map[string]string, env map[string]string) *sql.DB {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	for _, sp := range apiconfig.Specs() {
 		t.Setenv(sp.Env, env[sp.Env])
 	}

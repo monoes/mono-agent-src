@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,7 +15,7 @@ import (
 // there) gets it registered in place, so `image sync` does not add a second
 // row for the same file.
 func TestAutoRegisterItemImages_ProfileFolderFileIsNotDuplicated(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Setenv("MONOMIND_BIN", "true")
 	t.Cleanup(vault.Wait)
 	_, db := newMigratedStore(t)
@@ -44,7 +45,7 @@ func TestAutoRegisterItemImages_ProfileFolderFileIsNotDuplicated(t *testing.T) {
 // has switched audio and video on (`media scan on`); an image always is, and a
 // file that is no media (a text file) never is.
 func TestAutoRegisterItemImages_AudioAndVideoNeedTheOptIn(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Setenv("MONOMIND_BIN", "true")
 	t.Cleanup(vault.Wait)
 	_, db := newMigratedStore(t)

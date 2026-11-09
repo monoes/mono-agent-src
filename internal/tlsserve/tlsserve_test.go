@@ -1,6 +1,7 @@
 package tlsserve
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -54,7 +55,7 @@ func TestResolveLoopbackStaysPlain(t *testing.T) {
 
 func TestResolveNonLoopbackUsesCachedSelfSigned(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv(testCertEnv, "")
 	t.Setenv(testKeyEnv, "")
 
@@ -133,7 +134,7 @@ func TestResolveTightensTheModesOfACachedKeyAndItsFolder(t *testing.T) {
 		t.Skip("file modes are not enforced on Windows")
 	}
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv(testCertEnv, "")
 	t.Setenv(testKeyEnv, "")
 	c := testConfig("0.0.0.0:0")

@@ -1,6 +1,7 @@
 package attachments
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,7 +9,7 @@ import (
 )
 
 func TestSaveWritesFileUnderMessageDir(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 
 	path, err := Save("AAMkAGI2=", "invoice.pdf", []byte("%PDF-1.4 fake"))
 	if err != nil {
@@ -32,7 +33,7 @@ func TestSaveWritesFileUnderMessageDir(t *testing.T) {
 // A hostile filename must not escape the message directory.
 func TestSaveRejectsPathTraversal(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 
 	path, err := Save("msg1", "../../../../etc/passwd", []byte("pwned"))
 	if err != nil {
@@ -48,7 +49,7 @@ func TestSaveRejectsPathTraversal(t *testing.T) {
 
 // Re-syncing the same message must overwrite, not accumulate copies.
 func TestSaveIsIdempotentPerMessage(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 
 	first, err := Save("msg1", "report.txt", []byte("v1"))
 	if err != nil {
@@ -75,7 +76,7 @@ func TestSaveIsIdempotentPerMessage(t *testing.T) {
 // dispatches on file extension still recognizes the file. Found live against
 // a real Outlook attachment ("Verto Overview.pdf") during manual testing.
 func TestSaveRewrittenFilenameKeepsExtension(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 
 	path, err := Save("msg1", "Verto Overview.pdf", []byte("%PDF-1.4"))
 	if err != nil {
@@ -88,7 +89,7 @@ func TestSaveRewrittenFilenameKeepsExtension(t *testing.T) {
 
 // Two different messages that sanitize to the same segment must not collide.
 func TestSaveDistinguishesSimilarMessageIDs(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 
 	a, err := Save("id/one", "f.txt", []byte("a"))
 	if err != nil {

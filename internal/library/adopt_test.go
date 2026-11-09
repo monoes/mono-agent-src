@@ -3,6 +3,7 @@ package library_test
 import (
 	"context"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"testing"
@@ -31,8 +32,7 @@ func newAdoptFixture(t *testing.T) *adoptFixture {
 	t.Helper()
 	keyring.MockInit()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	fake := libraryfake.New()
 	t.Cleanup(fake.Close)
 	libraryfake.TrustKey(t)
@@ -365,8 +365,7 @@ func TestAdoptCompletesWhenTheCallerGivesUp(t *testing.T) {
 func TestAdoptWritesNothingOnAMachineWithoutAnOlderLogin(t *testing.T) {
 	keyring.MockInit()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	libraryfake.TrustKey(t)
 	account.SetHostForTest(t, "http://127.0.0.1:1") // nothing listens there: any call would fail
 	account.SetEnforceFromForTest(t, time.Now().Add(-time.Hour))

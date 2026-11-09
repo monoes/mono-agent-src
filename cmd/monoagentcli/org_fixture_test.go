@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,7 +34,7 @@ type orgCLIFixture struct {
 func newOrgCLIFixture(t *testing.T) *orgCLIFixture {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv("MONOAGENT_DAEMON_HEARTBEAT", filepath.Join(home, "hb.json"))
 	t.Setenv("MONOAGENT_API_ADDR", "")
 	fake, err := filepath.Abs(filepath.Join("..", "..", "internal", "monomind", "testdata", "fake-monomind.sh"))

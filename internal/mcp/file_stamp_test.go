@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"testing"
@@ -41,7 +42,7 @@ func fileOwner(t *testing.T, path string) string {
 // An ownerless workflow file is stamped when the MCP runtime builds its file
 // store, so it is visible without any CLI command having run first.
 func TestNewRuntimeStampsOwnerlessWorkflowFiles(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	dir, path := ownerlessFileDir(t)
 	rt, err := newRuntime(Options{DBPath: filepath.Join(t.TempDir(), "m.db"), WorkflowsDir: dir})
 	if err != nil {

@@ -3,6 +3,7 @@
 package main
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,7 +13,7 @@ import (
 // ReadHILScreenshot reads only images in ~/.monoagent/browser/hil/.
 func TestReadHILScreenshotIsConfinedToTheBrowserApprovalsFolder(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	dir := filepath.Join(home, ".monoagent", "browser", "hil")
 	shot := mustWrite(t, filepath.Join(dir, "4f1c.png"), pngBytes)
 	secret := mustWrite(t, filepath.Join(home, ".monoagent", "vault", "secret.png"), pngBytes)

@@ -3,6 +3,7 @@ package org
 import (
 	"context"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -76,7 +77,7 @@ func TestOrgApproveOfASendingAutomationIsTheOperatorsOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv(monomind.EnvOverride, bin)
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	asOrgOperator(t)
 	cfg := &testConfig{DBPath: filepath.Join(t.TempDir(), "o.db"), ProfileID: "default"}
 	seedSendingGrants(t, cfg.DBPath, "growth", "writer")

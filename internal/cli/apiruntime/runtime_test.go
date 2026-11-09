@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -20,7 +21,7 @@ import (
 
 func newAPIRuntimeForTest(t *testing.T, f Flags) (*Runtime, error) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Setenv("MONOAGENT_API_CONFINEMENT", "")
 	t.Setenv("MONOAGENT_API_CONTEXT_CONFINEMENT", "")
 	t.Setenv("MONOAGENT_API_AUTO_CONFINEMENT", "")

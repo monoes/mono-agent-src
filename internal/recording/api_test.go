@@ -2,6 +2,7 @@ package recording
 
 import (
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,7 +38,7 @@ func writeRecording(t *testing.T, inbox, recID string, started time.Time, events
 }
 
 func TestListFindLoadDelete(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	inbox := filepath.Join(t.TempDir(), "inbox")
 	SetInboxes(inbox)
 	t.Cleanup(func() { SetInboxes() })
@@ -107,7 +108,7 @@ func TestListFindLoadDelete(t *testing.T) {
 
 func TestProfileScope(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv(capture.InboxEnv, filepath.Join(home, "default-inbox"))
 	work, err := StoreDir("work")
 	if err != nil {
@@ -151,7 +152,7 @@ func TestProfileScope(t *testing.T) {
 
 func TestResolveDraftDir(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	root, _ := DraftsDir()
 	good := filepath.Join(root, "rec-1")
 	if err := os.MkdirAll(good, 0o700); err != nil {
@@ -184,7 +185,7 @@ func TestResolveDraftDir(t *testing.T) {
 
 func TestResolveDraftDirSameAnswerOutside(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	root, _ := DraftsDir()
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		t.Fatal(err)
@@ -221,7 +222,7 @@ func TestResolveDraftDirSameAnswerOutside(t *testing.T) {
 }
 
 func TestFindInvalidIDIsJustNotFound(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	SetInboxes(t.TempDir())
 	t.Cleanup(func() { SetInboxes() })
 	for _, id := range []string{"../etc", "a/b", "-rf", "missing"} {

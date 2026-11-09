@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -21,7 +22,7 @@ type admitCall struct {
 // newTraceHook serves one webhook and records what it fired with.
 func newTraceHook(t *testing.T, admit TraceAdmitter) (*WebhookServer, *[]Item) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir()) // tracesig's key lives under HOME
+	testhome.SetHome(t, t.TempDir()) // tracesig's key lives under HOME
 	s := NewWebhookServer(":0", zerolog.Nop())
 	var fired []Item
 	if err := s.Register(&WebhookRegistration{

@@ -3,6 +3,7 @@ package people
 import (
 	"context"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"path/filepath"
 	"testing"
 
@@ -14,7 +15,7 @@ import (
 // `people messages` shows the status and hil_ref of queued sends, filters by
 // --status, and keeps listing synced messages (status sent, no hil_ref).
 func TestPeopleMessagesStatusAndHilRef(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	dbPath := filepath.Join(t.TempDir(), "m.db")
 	testdb.MustSeed(dbPath)
 	db, err := storage.NewDatabase(dbPath)

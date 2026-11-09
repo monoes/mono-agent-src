@@ -2,6 +2,7 @@ package vault
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"testing"
@@ -111,8 +112,7 @@ func TestMoveFiles_OnlyMovesMatchingProfile(t *testing.T) {
 func setHomeForTest(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	return home
 }
 

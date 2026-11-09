@@ -2,6 +2,7 @@ package node
 
 import (
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"sync"
@@ -55,8 +56,7 @@ func nodeVaultTestDB(t *testing.T) string {
 	t.Helper()
 	asTheOperator(t)
 	home := sharedTestHome(t)
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	return filepath.Join(t.TempDir(), "node-vault-test.db")
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,7 +46,7 @@ func TestParseWorkflowDefinition(t *testing.T) {
 // import is idempotent: the same file again is "unchanged", --as-new copies, export prints the
 // documented file shape, and errors keep their exit codes.
 func TestImportExport(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	cfg := newTestConfig(t)
 	d := testDeps(t, cfg)
 	importID := func(args ...string) (string, string) {
@@ -151,7 +152,7 @@ const n8nKeptExpression = `{"name":"kept","nodes":[
 ],"connections":{"Start":{"main":[[{"node":"Count","type":"main","index":0}]]}}}`
 
 func TestImportFromN8n(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	cfg := newTestConfig(t)
 	_, out, _, err := run(t, testDeps(t, cfg), "", "import", "--from", "n8n", n8nFixture(t, "if_switch_merge.json"))
 	var res struct {
@@ -166,7 +167,7 @@ func TestImportFromN8n(t *testing.T) {
 // migrate copies SQLite workflows into ~/.monoagent/workflows and leaves SQLite alone.
 func TestMigrate(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	cfg := newTestConfig(t)
 	db, err := storage.NewDatabase(cfg.DBPath)
 	if err != nil {

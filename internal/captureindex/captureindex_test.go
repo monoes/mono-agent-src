@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"sync"
@@ -24,7 +25,7 @@ const (
 
 func newTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Setenv("MONOMIND_BIN", "true")
 	t.Cleanup(vault.Wait)
 	t.Setenv(capture.InboxEnv, "")

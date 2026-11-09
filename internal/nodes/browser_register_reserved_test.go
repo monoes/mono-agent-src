@@ -1,6 +1,7 @@
 package nodes
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,7 +15,7 @@ import (
 // "image.resize", and "trigger/send_dm" would pass as a trigger.
 func TestRegisterBrowserNodesSkipsBuiltinNamespaces(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	action.SetDefSource(nil)
 	for _, rel := range []string{"image/resize.json", "trigger/send_dm.json", "Core/set.json"} {
 		p := filepath.Join(home, ".monoagent", "actions", filepath.FromSlash(rel))

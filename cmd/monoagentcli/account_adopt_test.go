@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -229,8 +230,7 @@ func realAdoptRig(t *testing.T) (*adoptRig, string) {
 	r := newAdoptRig(t, accounttest.LockedNoLogin, false)
 	adoptOlderLogin = library.AdoptIntoAccount
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	account.SetHostForTest(t, "http://127.0.0.1:1")
 	account.SetEnforceFromForTest(t, time.Now().Add(-time.Hour))
 	return r, home

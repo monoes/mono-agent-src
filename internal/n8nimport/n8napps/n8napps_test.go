@@ -1,6 +1,7 @@
 package n8napps
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,7 +14,7 @@ import (
 func install(t *testing.T, pkgs map[string]string) {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	for id, js := range pkgs {
 		dir := filepath.Join(home, ".monoagent", "apipkgs", id)
 		if err := os.MkdirAll(dir, 0o755); err != nil {

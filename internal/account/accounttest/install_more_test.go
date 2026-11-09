@@ -3,6 +3,7 @@ package accounttest
 import (
 	"context"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"runtime"
 	"slices"
@@ -230,8 +231,7 @@ func TestInstallStoresExactlyTheSessionOfItsMode(t *testing.T) {
 // Nothing the fixture does goes near the default store under HOME.
 func TestInstallNeverTouchesTheDefaultStore(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	for _, c := range allModes {
 		t.Run(c.name, func(t *testing.T) {
 			g := Install(t, c.mode)

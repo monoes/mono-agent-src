@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -18,7 +19,7 @@ func hermetic(t *testing.T) {
 	t.Helper()
 	t.Setenv("MONOAGENT_HTTPAPI_ADDR", "")
 	t.Setenv("TYPESAFE_API_KEY", "")
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 }
 
 type probes struct {

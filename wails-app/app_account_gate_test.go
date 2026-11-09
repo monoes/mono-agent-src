@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -250,7 +251,7 @@ func TestStartupStartsNothingSignedOut(t *testing.T) {
 // re-read the session at once, and the signed-in work starts.
 func TestFollowSessionRereadsTheSessionTheCLIReports(t *testing.T) {
 	account.InstallForTest(t, nil) // restores the process guard when the test ends
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	fx := accounttest.New(t)
 	fx.Clock.Set(time.Now())
 	a := newTestApp(t)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,7 +18,7 @@ import (
 
 func runOrgSummary(t *testing.T, root string, args ...string) map[string]interface{} {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	cmd := newOrgCmd(&testConfig{DBPath: filepath.Join(t.TempDir(), "o.db"), ProfileID: "default"})
 	cmd.SetArgs(append([]string{"--project", root, "summary"}, args...))
 	var runErr error
@@ -68,7 +69,7 @@ func TestOrgSummaryNoOrgs(t *testing.T) {
 // The per-org budget holds even when monomind runs behind a wrapper whose
 // child keeps stdout open past the kill (e.g. an npm .cmd shim).
 func TestOrgSummaryNeedsYouTimeoutHolds(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	env := testEnv(&testConfig{DBPath: filepath.Join(t.TempDir(), "o.db"), ProfileID: "default"})
 	defer env.Close()
 	root := env.root()
@@ -125,7 +126,7 @@ func TestOrgSummaryNeedsYouTimeoutHolds(t *testing.T) {
 }
 
 func TestOrgSummaryAllProfiles(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	dbPath := filepath.Join(t.TempDir(), "o.db")
 	testdb.MustSeed(dbPath)
 	db, err := storage.NewDatabase(dbPath)

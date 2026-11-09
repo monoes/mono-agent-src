@@ -3,6 +3,7 @@
 package main
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -106,7 +107,7 @@ func TestImageWatcherLogsAFailedSync(t *testing.T) {
 func TestRestartImageWatcher_DiscoversProjectImages(t *testing.T) {
 	cliBin := buildTestCLI(t) // before HOME moves, so the build cache stays put
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv("MONOAGENTCLI_BIN", cliBin)
 	a := newTestApp(t)
 

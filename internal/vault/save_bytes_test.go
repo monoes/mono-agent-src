@@ -3,6 +3,7 @@ package vault
 import (
 	"context"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -47,8 +48,7 @@ func TestWriteNewNeverReplacesAFile(t *testing.T) {
 // is joined onto the vault folder, so one with a separator could reach out of it.
 func TestSaveBytesRefusesABadExtension(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	db, err := storage.NewDatabase(testdb.Path(t))
 	if err != nil {
 		t.Fatal(err)

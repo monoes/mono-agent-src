@@ -5,6 +5,7 @@ package autostart
 import (
 	"context"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -75,7 +76,7 @@ func TestRestartRestartsTheUnit(t *testing.T) {
 // A unit file alone isn't "starts at login": systemd must have it enabled.
 func TestStatusNeedsTheUnitEnabled(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	ctx := context.Background()
 	var state string
 	var calls [][]string

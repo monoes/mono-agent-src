@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -9,7 +10,7 @@ import (
 )
 
 func TestProfileContextCommand(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	dbPath := filepath.Join(t.TempDir(), "profile-context.db")
 	custom, _ := filepath.EvalSymlinks(t.TempDir())
 	db, err := storage.NewDatabase(dbPath)

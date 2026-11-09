@@ -1,6 +1,7 @@
 package nodes
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"path/filepath"
 	"testing"
 
@@ -29,7 +30,7 @@ func TestSocialHostDeny(t *testing.T) {
 // BootAutomations installs the rule, so every URL check sees it.
 func TestBootInstallsHostDeny(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	action.SetGlobalHostDeny(nil)
 	if _, err := BootAutomations(filepath.Join(home, ".monoagent")); err != nil {
 		t.Fatalf("BootAutomations: %v", err)
@@ -52,7 +53,7 @@ func TestBootInstallsHostDeny(t *testing.T) {
 // A default boot, failed or not, is attempted once: ensureAutomationsBooted
 // (from RegisterBrowserNodes) must not repeat it and warn a second time.
 func TestDefaultBootMarkedTried(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Cleanup(func() {
 		bootMu.Lock()
 		bootedReg, bootedHome, defaultBootTried = nil, "", false

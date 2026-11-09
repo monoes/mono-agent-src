@@ -10,6 +10,7 @@ import (
 	"crypto/tls"
 	"database/sql"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -27,7 +28,7 @@ import (
 // the test's own: every variable of the API is clear except the ones given.
 func savedAPIDB(t *testing.T, saved map[string]string, env map[string]string) *sql.DB {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	for _, sp := range apiconfig.Specs() {
 		t.Setenv(sp.Env, env[sp.Env])
 	}

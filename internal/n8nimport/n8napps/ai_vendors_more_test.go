@@ -1,6 +1,7 @@
 package n8napps
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"strings"
 	"testing"
 
@@ -12,7 +13,7 @@ import (
 // import as their API packages with the n8n credential's connection; the
 // Databricks AI Agent imports as agent.ask.
 func TestMoreAIVendorsImport(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	apipkg.Reload()
 	t.Cleanup(apipkg.Reload)
 	wf, rep, err := n8nimport.Convert([]byte(`{"name":"t","nodes":[

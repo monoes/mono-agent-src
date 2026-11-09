@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,7 +12,7 @@ import (
 
 func TestPackageUploadConfinement(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	uploads := filepath.Join(home, ".monoagent", "uploads", "imp")
 	if err := os.MkdirAll(uploads, 0o755); err != nil {
 		t.Fatal(err)
@@ -94,7 +95,7 @@ func TestUploadConfinementExemptsBuiltinAndLocal(t *testing.T) {
 // reported as refused, not as a successful "would upload".
 func TestSafeModeUploadPrecheck(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	uploads := filepath.Join(home, ".monoagent", "uploads", "rec")
 	if err := os.MkdirAll(uploads, 0o755); err != nil {
 		t.Fatal(err)

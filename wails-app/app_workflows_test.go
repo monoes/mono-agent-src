@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -58,7 +59,7 @@ func TestWorkflowBindingsThroughCLI(t *testing.T) {
 	}
 	cliBin := buildTestCLI(t) // before HOME moves, so the build cache stays put
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv("MONOAGENTCLI_BIN", cliBin)
 	t.Setenv("MONOAGENT_DAEMON_HEARTBEAT", filepath.Join(home, "hb.json"))
 	a := newTestApp(t)

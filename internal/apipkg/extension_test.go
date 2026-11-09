@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,7 +17,7 @@ import (
 func installPkg(t *testing.T, files map[string]string) {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	for id, js := range files {
 		dir := filepath.Join(home, ".monoagent", "apipkgs", id)
 		if err := os.MkdirAll(dir, 0o755); err != nil {

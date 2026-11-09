@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"io"
 	"path/filepath"
 	"testing"
@@ -19,7 +20,7 @@ import (
 // the real --json error document (one document, no second one from main).
 func TestRecordAdapterWiring(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv(capture.InboxEnv, filepath.Join(home, "inbox"))
 	t.Cleanup(func() { _ = recording.SetProfile("") })
 

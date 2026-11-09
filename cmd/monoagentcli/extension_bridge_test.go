@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"io"
 	"net"
 	"net/http"
@@ -27,8 +28,7 @@ import (
 func isolateBridgeEnv(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -80,8 +80,7 @@ func TestSetupExtensionBridge_RelaysThroughARunningBridge(t *testing.T) {
 // must not start a second server or wait on waitForRelay.
 func TestSetupExtensionBridge_OldBridgeSaysSoOnceAndAtOnce(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	if _, err := extension.CurrentToken(); err != nil { // a token exists, so proofs are required
 		t.Fatal(err)
 	}

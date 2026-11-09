@@ -2,6 +2,7 @@ package httpnodes
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -35,7 +36,7 @@ func sentTraceHeader(t *testing.T, triggerType string, data map[string]interface
 // A run on a chain sends it on, signed with this machine's key, so a
 // webhook it reaches can continue the chain; a run on no chain sends none.
 func TestRequestNodeSignsTheRunsChain(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	key, err := tracesig.Key()
 	if err != nil {
 		t.Fatal(err)
@@ -61,7 +62,7 @@ func TestRequestNodeSignsTheRunsChain(t *testing.T) {
 // of that name is replaced by the run's own, or removed when there is none
 // (a replayed token copied from input must not travel).
 func TestRequestNodeTraceHeaderCannotBeSetByTheWorkflow(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	key, _ := tracesig.Key()
 	replayed, _ := tracesig.Sign(key, "chn_victim", 0)
 	custom := map[string]interface{}{tracesig.Header: replayed}
@@ -78,7 +79,7 @@ func TestRequestNodeTraceHeaderCannotBeSetByTheWorkflow(t *testing.T) {
 // Only requests to this machine carry the token by default; other hosts get
 // it with propagate_trace (a system that returns it to a webhook here).
 func TestTraceHeaderStaysOnThisMachineByDefault(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Setenv("MONOAGENT_WEBHOOK_ADDR", "10.0.0.5:9321")
 	ctx := workflow.WithTrigger(context.Background(), workflow.TriggerTypeOrgTool,
 		map[string]interface{}{"trace": map[string]interface{}{"chain_id": "chn_run", "hop": float64(1)}})
@@ -105,7 +106,7 @@ func TestTraceHeaderStaysOnThisMachineByDefault(t *testing.T) {
 
 // An API-key auth header of the same name cannot replace the signed token.
 func TestTraceHeaderSurvivesAnAPIKeyHeaderOfTheSameName(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	key, _ := tracesig.Key()
 	var got string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -126,7 +127,7 @@ func TestTraceHeaderSurvivesAnAPIKeyHeaderOfTheSameName(t *testing.T) {
 
 // The token does not follow a redirect to another host.
 func TestTraceHeaderIsDroppedOnACrossHostRedirect(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	var atTarget string
 	reached := false
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -157,7 +158,7 @@ func TestTraceHeaderIsDroppedOnACrossHostRedirect(t *testing.T) {
 // #132 item 2: the token carries the deeper of the run's hop and the hop
 // its input item reached on the same chain (after the run's own org.send).
 func TestRequestNodeSignsTheItemsDeeperHop(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	key, _ := tracesig.Key()
 	var got string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

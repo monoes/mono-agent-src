@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,8 +17,7 @@ import (
 // setHome points both variables os.UserHomeDir reads (HOME on Unix, USERPROFILE on Windows) at dir.
 func setHome(t testing.TB, dir string) {
 	t.Helper()
-	t.Setenv("HOME", dir)
-	t.Setenv("USERPROFILE", dir)
+	testhome.SetHome(t, dir)
 }
 
 // A browser's pairing card is decided only by the operator path: `hil approve`

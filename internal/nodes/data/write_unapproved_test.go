@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"testing"
@@ -16,7 +17,7 @@ import (
 // project folder, and nothing is written; inside the project they write.
 func TestFileNodesWriteNoHiddenHomeFilesForAnUnapprovedWorkflow(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	project := filepath.Join(home, "work")
 	ctx := workflow.WithUnapproved(context.Background(), project, "")
 	in := workflow.NodeInput{Items: []workflow.Item{workflow.NewItem(map[string]interface{}{"text": "echo hi"})}}
@@ -56,7 +57,7 @@ func TestFileNodesWriteNoHiddenHomeFilesForAnUnapprovedWorkflow(t *testing.T) {
 // folder) and reads the rest.
 func TestGlobSkipsHiddenHomeFilesForAnUnapprovedWorkflow(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	for p, body := range map[string]string{"notes/sub/a.txt": "a", ".ssh/id.txt": "key"} {
 		full := filepath.Join(home, p)
 		if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
@@ -83,7 +84,7 @@ func TestGlobSkipsHiddenHomeFilesForAnUnapprovedWorkflow(t *testing.T) {
 // write rules: an expression or an unknown operation can't reach a git hook.
 func TestSpreadsheetIsHeldToTheWriteRulesUnlessItSurelyReads(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	project := filepath.Join(home, "work")
 	ctx := workflow.WithUnapproved(context.Background(), project, "")
 	hook := filepath.Join(project, ".git", "hooks", "pre-commit")

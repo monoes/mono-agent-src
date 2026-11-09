@@ -5,6 +5,7 @@ package autostart
 import (
 	"context"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,7 +41,7 @@ func TestRestartKicksTheJobAndKillsTheRunningInstance(t *testing.T) {
 // A plist alone isn't "starts at login": launchd must have the job loaded.
 func TestStatusNeedsTheJobLoaded(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	ctx := context.Background()
 	loaded := false
 	var calls [][]string

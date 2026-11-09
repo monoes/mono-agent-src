@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,7 +27,7 @@ func runIntegration(t *testing.T, jsonOut bool, args ...string) (string, error) 
 
 func integrationHome(t *testing.T) string {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	apipkg.Reload()
 	t.Cleanup(apipkg.Reload)
 	return home

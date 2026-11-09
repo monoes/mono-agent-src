@@ -3,6 +3,7 @@ package monomind
 import (
 	"context"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -70,7 +71,7 @@ func TestProjectsUnder(t *testing.T) {
 	mk("codes/app/sub/deep")                                     // depth 4: listed? (codes=1, app=2, sub=3, deep=4) → no
 	mk("node_modules/pkg")                                       // skipped dir
 	os.MkdirAll(filepath.Join(root, "docs", ".monomind"), 0o755) // bare .monomind: not initialized
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 
 	got := ProjectsUnder(root)

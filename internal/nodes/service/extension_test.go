@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -49,7 +50,7 @@ func (r *recorder) requests() []string {
 func installExtensions(t *testing.T, pkgs map[string]string) {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	for id, js := range pkgs {
 		dir := filepath.Join(home, ".monoagent", "apipkgs", id)
 		if err := os.MkdirAll(dir, 0o755); err != nil {

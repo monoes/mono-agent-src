@@ -2,6 +2,7 @@ package profiledir
 
 import (
 	"database/sql"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,8 +28,7 @@ func TestValidProfileID(t *testing.T) {
 
 func TestRoot_DefaultJoin(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 
 	got := Root(nil, "work")
 	want := filepath.Join(home, ".monoagent", "profiles", "work")
@@ -48,8 +48,7 @@ func TestRoot_DefaultJoin(t *testing.T) {
 // Root returns the dead path "" for such IDs.
 func TestRoot_RejectsTraversal(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 
 	for _, id := range []string{"", "..", "../evil", "evil/..", `..\evil`, "a..b"} {
 		if got := Root(nil, id); got != "" {
@@ -69,8 +68,7 @@ func TestRoot_RejectsTraversal(t *testing.T) {
 
 func TestEnsureLayout(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 
 	if err := EnsureLayout(nil, "../evil"); err == nil {
 		t.Error("EnsureLayout with traversal ID should fail, got nil")
@@ -103,8 +101,7 @@ func TestEnsureLayout(t *testing.T) {
 // noise in `git status` forever.
 func TestEnsureLayout_WritesMonoagentGitignore(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 
 	if err := EnsureLayout(nil, "work"); err != nil {
 		t.Fatalf("EnsureLayout: %v", err)
@@ -126,8 +123,7 @@ func TestEnsureLayout_WritesMonoagentGitignore(t *testing.T) {
 // — it must never clobber that customization back to the default content.
 func TestEnsureLayout_NeverOverwritesExistingMonoagentGitignore(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 
 	if err := EnsureLayout(nil, "work"); err != nil {
 		t.Fatalf("EnsureLayout: %v", err)
@@ -153,8 +149,7 @@ func TestEnsureLayout_NeverOverwritesExistingMonoagentGitignore(t *testing.T) {
 
 func TestIsDefaultManaged(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 
 	if !IsDefaultManaged(nil, "work") {
 		t.Error("nil db (no override possible) should report default-managed")

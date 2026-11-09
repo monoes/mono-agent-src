@@ -3,6 +3,7 @@ package nodes
 import (
 	"encoding/json"
 	"github.com/monoes/mono-agent/internal/automation"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,7 +66,7 @@ func requiredInputs(def *action.ActionDef) []requiredInput {
 // (CLI, MCP, API) would fail. Such an input belongs among the action's
 // optional inputs, with its default.
 func TestBuiltinForms_RequiredInputsAreRequiredFields(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	action.SetDefSource(nil)
 
 	for _, nt := range browserNodeTypes() {
@@ -138,7 +139,7 @@ func TestBrowserForms_HaveSessionPlatform(t *testing.T) {
 	prefix := func(nt string) string { return nt[:strings.Index(nt, ".")] }
 
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	action.SetDefSource(nil)
 	check("legacy", prefix)
 

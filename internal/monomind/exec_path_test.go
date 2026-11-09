@@ -3,6 +3,7 @@ package monomind
 import (
 	"bytes"
 	"context"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -15,8 +16,7 @@ import (
 func fakeSelf(t *testing.T, name string) (exe, home string) {
 	t.Helper()
 	home = t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	dir := t.TempDir()
 	exe = filepath.Join(dir, name)
 	for _, f := range []string{exe, filepath.Join(dir, "node")} {

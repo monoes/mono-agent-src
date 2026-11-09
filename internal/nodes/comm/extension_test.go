@@ -3,6 +3,7 @@ package comm
 import (
 	"context"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -28,7 +29,7 @@ func TestCommNodesHandResourceOpsToExtension(t *testing.T) {
 	count := func() int { mu.Lock(); defer mu.Unlock(); return len(reqs) }
 
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	for _, nt := range []string{"comm.slack", "comm.email_send"} {
 		id := strings.ReplaceAll(nt, ".", "_") + "_more"
 		dir := filepath.Join(home, ".monoagent", "apipkgs", id)

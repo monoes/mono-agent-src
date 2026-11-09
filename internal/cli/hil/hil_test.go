@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -73,7 +74,7 @@ func TestHILRejectUnknownIDIsNotFound(t *testing.T) {
 // decision per caption (default approve), and the surface switch.
 func hilSuggestEnv(t *testing.T, enabled bool, decisions map[string]string) (*testConfig, *sql.DB, *jevtest.Server) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Setenv("TYPESAFE_API_KEY", "test-key")
 	srv := jevtest.NewServer(t, func(req jev.Request) map[string]string {
 		raw, _ := json.Marshal(req.State)

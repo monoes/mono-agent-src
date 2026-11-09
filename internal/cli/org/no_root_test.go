@@ -1,6 +1,7 @@
 package org
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"sort"
@@ -35,7 +36,7 @@ func TestOrgCommandsWithUnopenableDBTouchNothingUnderCwd(t *testing.T) {
 		for _, args := range cmds {
 			name := group + "/" + strings.Join(args, " ")
 			t.Run(name, func(t *testing.T) {
-				t.Setenv("HOME", t.TempDir())
+				testhome.SetHome(t, t.TempDir())
 				t.Setenv("MONOMIND_BIN", "/nonexistent/monomind")
 				cwd := t.TempDir()
 				t.Chdir(cwd)
@@ -69,7 +70,7 @@ func TestOrgCommandsWithUnopenableDBTouchNothingUnderCwd(t *testing.T) {
 // explicit --project) when the database cannot be opened, and still writes
 // nothing under the current directory.
 func TestOrgSummaryWithUnopenableDBKeepsLocalFacts(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	project := t.TempDir()
 	writeOrgFile(t, project, "acme.json", `{"name":"acme"}`)
 	cwd := t.TempDir()

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"strings"
 	"testing"
 
@@ -14,7 +15,7 @@ import (
 func newAPITestDB(t *testing.T) string {
 	t.Helper()
 	asOperatorProcess(t) // api key create refuses an agent's shell
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Setenv("MONOAGENT_API_CONTEXT_CONFINEMENT", "")
 	return testdb.Path(t)
 }

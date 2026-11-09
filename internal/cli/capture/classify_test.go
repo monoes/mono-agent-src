@@ -3,6 +3,7 @@ package capturecli
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,7 +21,7 @@ import (
 // to switch on and threshold, when > 0, sets the capture threshold.
 func newJevTestDB(t *testing.T) string {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Setenv("TYPESAFE_API_KEY", "test-key")
 	dbPath := filepath.Join(t.TempDir(), "jev.db")
 	db, err := storage.NewDatabase(dbPath)

@@ -3,6 +3,7 @@ package action
 import (
 	"context"
 	"encoding/base64"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -178,7 +179,7 @@ func TestDownloadHelpers(t *testing.T) {
 	if _, err := ae.downloadDir(fsconfine.WithRoot(context.Background(), "")); err == nil {
 		t.Fatal("an invalid confinement must refuse downloads")
 	}
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	dir, err := ae.downloadDir(context.Background())
 	if err != nil || !strings.HasSuffix(dir, filepath.Join(".monoagent", "downloads", "testsite")) {
 		t.Fatalf("dir=%s err=%v", dir, err)

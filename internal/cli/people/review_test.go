@@ -2,6 +2,7 @@ package people
 
 import (
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,7 +19,7 @@ import (
 // file store is empty.
 func newReviewCLITestDB(t *testing.T) (*testConfig, *storage.Database) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	asOperator(t)
 	dbPath := filepath.Join(t.TempDir(), "review.db")
 	testdb.MustSeed(dbPath)

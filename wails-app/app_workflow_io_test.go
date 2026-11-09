@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -72,7 +73,7 @@ func TestExportImportRoundtripViaCLI(t *testing.T) {
 	// the real home; the import subprocesses below must only see the
 	// isolated homes (~/.monoagent of each test sandbox).
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv("MONOAGENTCLI_BIN", cliBin)
 
 	a := newTestApp(t)
@@ -120,7 +121,7 @@ func TestExportImportRoundtripViaCLI(t *testing.T) {
 
 	// A fresh machine (new HOME and database): created, data intact.
 	homeB := t.TempDir()
-	t.Setenv("HOME", homeB)
+	testhome.SetHome(t, homeB)
 	b := newTestApp(t)
 	impB, err := b.ImportWorkflow(exported)
 	if err != nil {

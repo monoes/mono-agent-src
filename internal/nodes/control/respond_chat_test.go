@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -18,7 +19,7 @@ import (
 // chatFlow saves and activates trigger.chat at path → nodes in a chain.
 func chatFlow(t *testing.T, path, mode string, nodes ...workflow.WorkflowNode) (*subflowFixture, string) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir()) // the reply key file
+	testhome.SetHome(t, t.TempDir()) // the reply key file
 	t.Setenv("MONOAGENT_PUBLIC_URL", "https://chat.example.com")
 	f := newSubflowFixture(t)
 	ctx := context.Background()

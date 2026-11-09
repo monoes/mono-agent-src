@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"path/filepath"
 	"testing"
 
@@ -60,7 +61,7 @@ func TestSecretLookup_UnknownAutomationFailsClosed(t *testing.T) {
 // An imported package reads only secrets filed under its own id.
 func TestSecretLookup_ImportedPackageNoBareFallback(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	reg, err := BootAutomations(filepath.Join(home, ".monoagent"))
 	t.Cleanup(func() { action.SetDefSource(nil) })
 	if err != nil {

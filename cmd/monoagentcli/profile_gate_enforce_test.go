@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,7 +14,7 @@ import (
 // The gate enforces by default: it refuses a scoped command run without --profile
 // before any of its work, with the CLI's invalid-input exit code.
 func TestProfileGateEnforceEndToEnd(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	dbPath := filepath.Join(t.TempDir(), "gate.db")
 	db, err := storage.NewDatabase(dbPath)
 	if err != nil {

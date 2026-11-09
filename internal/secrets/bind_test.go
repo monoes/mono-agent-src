@@ -3,6 +3,7 @@ package secrets
 import (
 	"context"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -250,7 +251,7 @@ func TestOwnInstallDB_IgnoresEnvironment(t *testing.T) {
 	if home == "" {
 		t.Skip("uid not in /etc/passwd")
 	}
-	t.Setenv("HOME", "/nonexistent-evil-home")
+	testhome.SetHome(t, "/nonexistent-evil-home")
 	t.Setenv("USER", "evil")
 	t.Setenv("LOGNAME", "evil")
 	if got, want := ownInstallDB(), filepath.Join(home, ".monoagent", "monoagent.db"); got != want {

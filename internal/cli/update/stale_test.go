@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -284,7 +285,7 @@ func TestACLIWhoseVersionCannotBeToldIsReportedWithItsCommand(t *testing.T) {
 // PATH, and no inherited variables, and a program that is not monoagentcli is not counted.
 func TestTheVersionProbeRunsInAScratchEnvironment(t *testing.T) {
 	realHome := t.TempDir()
-	t.Setenv("HOME", realHome)
+	testhome.SetHome(t, realHome)
 	t.Setenv("SECRET_FROM_THE_ENVIRONMENT", "x")
 	dir := t.TempDir()
 	seen := filepath.Join(dir, "seen")

@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/action"
@@ -171,7 +172,7 @@ func TestLoadDefaultSchema_GeneratedFromPackageInputs(t *testing.T) {
 // generated from the action's inputs (the full golden is
 // TestBuiltinForms_Golden in internal/nodes).
 func TestLoadDefaultSchema_BuiltinResolution(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	action.SetDefSource(nil)
 
 	// No schema file: generated from the action's inputs.

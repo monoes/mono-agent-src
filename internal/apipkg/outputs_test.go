@@ -2,6 +2,7 @@ package apipkg
 
 import (
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"strings"
 	"testing"
 
@@ -144,7 +145,7 @@ func TestOutputDeclValidation(t *testing.T) {
 // TestCatalogSchemasDeclareOutputs: every catalog op shows up in its node
 // schema's outputs, and extended natives keep theirs first.
 func TestCatalogSchemasDeclareOutputs(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	Reload()
 	t.Cleanup(Reload)
 	pkgs, err := Load()
@@ -227,7 +228,7 @@ func checkItemOutputs(t *testing.T, where string, p *Package, op *Operation, ite
 // catalog op (an app node, or a native node a package extends) gets no
 // unknown_upstream_field warning.
 func TestValidateCatalogChain(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	Reload()
 	t.Cleanup(Reload)
 	set := func(id string) workflow.WorkflowNode {

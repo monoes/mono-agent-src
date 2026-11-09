@@ -1,6 +1,7 @@
 package noderegistry
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"strings"
 	"testing"
 
@@ -12,7 +13,7 @@ import (
 // namespace of a built-in node type as its id. A new built-in namespace
 // fails here until it is added to automation's reservedIDs.
 func TestBuiltinNamespacesAreReserved(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	action.SetDefSource(nil) // no packages: every registered type is built in
 	for _, nt := range Build(nil).Types() {
 		ns, _, _ := strings.Cut(nt, ".")

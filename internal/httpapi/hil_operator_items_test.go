@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"net/http"
 	"strings"
 	"testing"
@@ -13,7 +14,7 @@ import (
 // asked to use and a send are refused (403) and stay pending, while a
 // workflow's Human-in-Loop item is decided as before (C10).
 func TestHilRoutesRefuseWhatOnlyTheOperatorDecides(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	s := newTestServer(t, true)
 	tok := testToken(t, s, "default")
 	db, ctx := s.rt.db.DB, context.Background()

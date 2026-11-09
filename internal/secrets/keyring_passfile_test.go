@@ -1,6 +1,7 @@
 package secrets
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -58,7 +59,7 @@ func TestPromptFilePassphrase_ConfiguredFileTooOpenIsRefused(t *testing.T) {
 
 func TestSetConfiguredPassphrase_VerifiesExistingFileKeyring(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	if err := os.MkdirAll(defaultVaultDir(), 0o700); err != nil {
 		t.Fatal(err)
 	}

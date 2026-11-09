@@ -2,6 +2,7 @@ package task
 
 import (
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"github.com/spf13/cobra"
 	"os"
 	"path/filepath"
@@ -96,7 +97,7 @@ func TestPersonGateExpandsTheNamedDatabaseBeforeComparingItWithTheRegistered(t *
 	}
 	coderhost.SetRegistryDirForTest(t, filepath.Join(t.TempDir(), "coder-hosts"))
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	junk := filepath.Join(home, "junk.db")
 	if err := os.WriteFile(junk, []byte(strings.Repeat("not a database ", 500)), 0o600); err != nil {
 		t.Fatal(err)

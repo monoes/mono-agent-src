@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"strings"
 	"testing"
 
@@ -14,7 +15,7 @@ import (
 // agent asked to use and a send are refused and stay pending, while a
 // workflow's Human-in-Loop item is decided as before (C10).
 func TestHilToolsRefuseWhatOnlyTheOperatorDecides(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	s := newTestServerAllowMutations(t, true)
 	rt, err := s.runtime()
 	if err != nil {

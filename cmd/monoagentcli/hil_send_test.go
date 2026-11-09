@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,7 +25,7 @@ import (
 // operator; asAgentProcess makes it an agent's.
 func sendEnv(t *testing.T) *globalConfig {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	asOperatorProcess(t)
 	return &globalConfig{DBPath: newHILTestDB(t), ProfileID: "default", JSONOutput: true}
 }

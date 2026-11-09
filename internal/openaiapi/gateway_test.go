@@ -3,6 +3,7 @@ package openaiapi
 import (
 	"context"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -413,7 +414,7 @@ func TestBinIsCachedButErrorsAreNot(t *testing.T) {
 }
 
 func TestConfigDefaultsAndEnv(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	cfg, err := Config{}.withDefaults()
 	if err != nil {
 		t.Fatal(err)

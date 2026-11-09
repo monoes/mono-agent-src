@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -19,7 +20,7 @@ import (
 // workflow store the CLI reads (the hybrid one: where a workflow file differs from its rows, the file speaks) (#1477).
 func TestChatSessionToolsLabelProposalsAndReadWorkflowFiles(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	db, err := storage.NewDatabase(testdb.Path(t))
 	if err != nil {
 		t.Fatal(err)

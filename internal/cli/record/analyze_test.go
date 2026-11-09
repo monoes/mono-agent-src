@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"io"
 	"os"
 	"path/filepath"
@@ -338,7 +339,7 @@ func failedVerifyReport(t *testing.T, out string, err error) {
 // TestRecordAnalyzeDefaultSecretLookup: the production lookup opens the
 // profile database and answers "not found" for a secret the vault lacks.
 func TestRecordAnalyzeDefaultSecretLookup(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	d := testDeps(false, filepath.Join(t.TempDir(), "vault.db"))
 	lookup, release := d.VaultSecretLookup(context.Background(), "example-go")
 	defer release()

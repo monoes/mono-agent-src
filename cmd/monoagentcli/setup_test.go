@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"io"
 	"os"
 	"path/filepath"
@@ -54,8 +55,7 @@ func runCLI(t *testing.T, home string, args ...string) (stdout, stderr string, e
 // runCLIIn is runCLI with stdin as the command's input.
 func runCLIIn(t *testing.T, home, stdin string, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	root := newRootCmd()
 	var out, errOut bytes.Buffer
 	root.SetOut(&out)
@@ -168,8 +168,7 @@ func TestFixUntilStableRealChecks(t *testing.T) {
 	keyring.MockInit()
 	run := func(jsonOut bool) string {
 		home := t.TempDir()
-		t.Setenv("HOME", home)
-		t.Setenv("USERPROFILE", home)
+		testhome.SetHome(t, home)
 		cmd := newDoctorCmd(&globalConfig{DBPath: filepath.Join(home, ".monoagent", "monoagent.db"), JSONOutput: jsonOut, ProfileID: "default"})
 		var out bytes.Buffer
 		cmd.SetOut(&out)

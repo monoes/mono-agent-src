@@ -3,6 +3,7 @@ package accountcli
 import (
 	"bytes"
 	"context"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,8 +26,7 @@ import (
 func ownDB(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	account.SetUserHomeForTest(t, home)
 	path := filepath.Join(home, ".monoagent", "monoagent.db")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -171,8 +171,7 @@ func TestAdoptionLeavesACopiedDatabaseAlone(t *testing.T) {
 		}},
 		{"the user's database from another HOME", "the home directory is", func(t *testing.T, r *placeRig) string {
 			other := t.TempDir()
-			t.Setenv("HOME", other)
-			t.Setenv("USERPROFILE", other)
+			testhome.SetHome(t, other)
 			return r.dbPath
 		}},
 		{"a copy beside the user's database", "the database is", func(t *testing.T, r *placeRig) string {
@@ -225,8 +224,7 @@ func TestAdoptionOnTheUsersOwnInstall(t *testing.T) {
 			if err := os.Symlink(r.home, link); err != nil {
 				t.Skip("no symlinks here:", err)
 			}
-			t.Setenv("HOME", link)
-			t.Setenv("USERPROFILE", link)
+			testhome.SetHome(t, link)
 		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {

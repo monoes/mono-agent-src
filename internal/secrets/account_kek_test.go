@@ -3,6 +3,7 @@ package secrets
 import (
 	"bytes"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,7 +23,7 @@ func TestAccountKEKReadCreatesNothing(t *testing.T) {
 	resetKEKState(t)
 	t.Setenv(fileKeyringEnv, "") // an exported MONOAGENT_ALLOW_FILE_KEYRING must not send this test to the file keyring
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows
 	keyring.MockInit()
 	for _, interactive := range []bool{true, false} {
@@ -40,7 +41,7 @@ func TestAccountKEKOSKeyringRoundTrip(t *testing.T) {
 	resetKEKState(t)
 	t.Setenv(fileKeyringEnv, "") // an exported MONOAGENT_ALLOW_FILE_KEYRING must not send this test to the file keyring
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows
 	keyring.MockInit()
 	created, found, err := AccountKEK(true, true)
@@ -76,7 +77,7 @@ func createAccountFileKEK(t *testing.T, passphrase string) (kek []byte, home str
 	t.Helper()
 	resetKEKState(t)
 	home = t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows
 	t.Setenv(fileKeyringEnv, "1")
 	t.Setenv(filePassphraseFileEnv, "") // an exported passphrase file is a source these tests must not have

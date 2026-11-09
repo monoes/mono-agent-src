@@ -1,6 +1,7 @@
 package library
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,8 +14,7 @@ import (
 // whichever one the build was given.
 func TestOlderLoginPathRefusesACopyForEverySpellingOfMonoesMe(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	account.SetUserHomeForTest(t, home)
 	own := filepath.Join(home, ".monoagent", "monoagent.db")
 	copied := filepath.Join(home, "copy.db")
@@ -42,8 +42,7 @@ func TestOlderLoginPathRefusesACopyForEverySpellingOfMonoesMe(t *testing.T) {
 // A user the system has no home directory for is refused, not taken at $HOME's word.
 func TestOlderLoginPathRefusesAUserWithoutAHome(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	account.SetUserHomeForTest(t, "")
 	if path, why := OlderLoginPath("https://monoes.me", filepath.Join(home, ".monoagent", "monoagent.db")); path != "" || why != "the system has no home directory for this OS user" {
 		t.Fatalf("%q, %q", path, why)

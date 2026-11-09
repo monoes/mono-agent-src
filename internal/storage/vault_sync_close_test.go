@@ -2,6 +2,7 @@ package storage_test
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,7 +16,7 @@ import (
 // upserts, or the node is lost when the process exits.
 func TestCloseLetsVaultImageSyncLand(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	scratch := t.TempDir()
 	marker := filepath.Join(scratch, "synced")
 	bin := filepath.Join(scratch, "monomind")

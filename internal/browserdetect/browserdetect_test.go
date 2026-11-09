@@ -2,6 +2,7 @@ package browserdetect
 
 import (
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -19,8 +20,7 @@ func TestFindBrowser(t *testing.T) {
 func TestExtensionInstalledEmptyHome(t *testing.T) {
 	empty := t.TempDir()
 	t.Setenv("CHROME_USER_DATA_DIR", empty)
-	t.Setenv("HOME", empty)
-	t.Setenv("USERPROFILE", empty)
+	testhome.SetHome(t, empty)
 	if found, checked := ExtensionInstalled(); found || !checked {
 		t.Fatalf("no browser profiles: want (false, true), got (%v, %v)", found, checked)
 	}
@@ -43,8 +43,7 @@ func TestExtensionInstalledUnreadableProfileIsUnchecked(t *testing.T) {
 	}
 	home := t.TempDir()
 	t.Setenv("CHROME_USER_DATA_DIR", "")
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 
 	dirs := UserDataDirs()
 	if len(dirs) == 0 {

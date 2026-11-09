@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -280,8 +281,7 @@ func TestTheRefresherKeepsTheClockGuardRecordOfAMachineWithNoSession(t *testing.
 // TestNothingIsCreatedOnAnEmptyHome in process_test.go.
 func TestAGatedPassOnAnEmptyHomeFromTheDateOnLeavesExactlyTheRecord(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	e := newEnv(t)
 	account.SetEnforceFromForTest(t, e.f.Clock.Now().Add(-time.Hour))
 	ctx := context.Background()

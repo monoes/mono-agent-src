@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -31,8 +32,7 @@ func TestUpsertPersonNeverStartsARealMonomind(t *testing.T) {
 	}
 	t.Setenv("TMPDIR", tmp)
 	t.Setenv("GOTMPDIR", "")
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	t.Setenv(monomind.EnvOverride, "")
 
 	fake := func(dir string) (ran string) {

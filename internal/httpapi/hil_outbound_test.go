@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"net/http"
 	"strings"
 	"testing"
@@ -14,7 +15,7 @@ import (
 // mark) with a Communications row, and it stays pending. A plain workflow
 // item is still decided.
 func TestHilRoutesRefuseAnItemThatMessagesSomeone(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	s := newTestServer(t, true)
 	tok := testToken(t, s, "default")
 	db, ctx := s.rt.db.DB, context.Background()

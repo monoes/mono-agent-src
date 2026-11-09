@@ -2,6 +2,7 @@ package secrets
 
 import (
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"sync"
@@ -223,7 +224,7 @@ func TestGetOrCreateKEK_StragglerDoesNotRaceWithFreshAttempt(t *testing.T) {
 // The file-based fallback KEK is removed with the profile, and the answer says
 // whether anything was there to remove.
 func TestDeleteProfileKEKRemovesTheFileFallbackToo(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	if removed, err := DeleteProfileKEK("gone"); err != nil || removed {
 		t.Fatalf("no key anywhere: removed %v, err %v, want false and nil", removed, err)
 	}

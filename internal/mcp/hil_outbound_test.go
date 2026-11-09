@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"strings"
 	"testing"
 
@@ -14,7 +15,7 @@ import (
 // mark) with a Communications row, and it stays pending. A plain workflow
 // item is still decided.
 func TestHilToolsRefuseAnItemThatMessagesSomeone(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	s := newTestServerAllowMutations(t, true)
 	rt, err := s.runtime()
 	if err != nil {

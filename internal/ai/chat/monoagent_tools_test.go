@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -82,8 +83,7 @@ func TestRestrictFileWriteForOrgs_FalseWithOrgProjectRootOverride(t *testing.T) 
 // default-managed rule as the GUI.
 func TestRestrictFileWriteForOrgs_DefaultProfileFollowsProfileRoot(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	db := newMonoagentTestDB(t)
 	for _, pid := range []string{"default"} {
 		mt := NewMonoagentTools(db.DB, "", pid)
@@ -1104,8 +1104,7 @@ func TestSaveDocument_RejectsOversizedContent(t *testing.T) {
 // the row survives.
 func TestSaveDocument_DefaultProfileSurvivesWatcherReconcile(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 
 	db := newMonoagentTestDB(t)
 	mt := NewMonoagentTools(db.DB, "", "default")

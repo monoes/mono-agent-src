@@ -8,6 +8,7 @@ package instagram
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"strings"
 	"testing"
 	"time"
@@ -29,7 +30,7 @@ type flow struct {
 // run executes the action and returns its result and error.
 func (f flow) run(t *testing.T, page *bottest.Page) (*action.ExecutionResult, error) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir()) // the loader's user-template fallback never sees a real home
+	testhome.SetHome(t, t.TempDir()) // the loader's user-template fallback never sees a real home
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 	ae := action.NewActionExecutor(ctx, page, nil, nil, nil, New(), zerolog.Nop())

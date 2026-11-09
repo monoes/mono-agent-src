@@ -2,6 +2,7 @@ package secrets
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"testing"
 
 	"github.com/zalando/go-keyring"
@@ -13,7 +14,7 @@ import (
 func TestPeekKEK_FileKeyringWhenKeychainSaysNotFound(t *testing.T) {
 	resetKEKState(t)
 	keyring.MockInit()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Setenv(fileKeyringEnv, "1")
 	captureFileKeyringWarns(t)
 	stubFilePassphrase(t, "correct horse battery staple")

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"io"
 	"os"
 	"path/filepath"
@@ -21,7 +22,7 @@ import (
 // file store is empty.
 func newReviewCLITestDB(t *testing.T) (*globalConfig, *storage.Database) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	dbPath := filepath.Join(t.TempDir(), "review.db")
 	db, err := storage.NewDatabase(dbPath)
 	if err != nil {

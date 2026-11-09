@@ -3,6 +3,7 @@ package applynodes_test
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"path/filepath"
 	"testing"
 
@@ -21,7 +22,7 @@ func newTestDB(t *testing.T) *storage.Database {
 	// falling back to the real $HOME when the test DB has no
 	// profiles.root_dir override. Without this, every run pollutes the
 	// developer's actual ~/.monoagent vault.
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	// The vault syncs each file into the knowledge graph in the background:
 	// run a no-op instead of the real monomind, and let it finish before HOME
 	// is removed.

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,7 +23,7 @@ func TestStartAccountGuardJudgesFromTheSessionFile(t *testing.T) {
 	account.InstallForTest(t, account.NewGuard(account.GuardOptions{Store: account.OpenStore(t.TempDir(), account.NewMemorySealer())}))
 
 	t.Run("signed in", func(t *testing.T) {
-		t.Setenv("HOME", t.TempDir())
+		testhome.SetHome(t, t.TempDir())
 		fx := accounttest.New(t)
 		fx.Clock.Set(time.Now())
 		sess := &account.Session{V: 1, Host: account.HostURL, User: &account.User{ID: "u1"}, AccessToken: fx.Token(accounttest.TokenOptions{Sub: "u1"})}
@@ -38,7 +39,7 @@ func TestStartAccountGuardJudgesFromTheSessionFile(t *testing.T) {
 	})
 
 	t.Run("no session", func(t *testing.T) {
-		t.Setenv("HOME", t.TempDir())
+		testhome.SetHome(t, t.TempDir())
 		accounttest.New(t)
 		a := newTestApp(t)
 		a.startAccountGuard()

@@ -3,6 +3,7 @@ package chat
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"io"
 	"os"
 	"path/filepath"
@@ -24,7 +25,7 @@ const notLoggedInTranscript = `  echo '{"v":1,"type":"start","runtime":"claude",
 // PATH and a HOME without any install root.
 func withoutMonomind(t *testing.T) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv(monomind.EnvOverride, filepath.Join(t.TempDir(), "no-monomind"))

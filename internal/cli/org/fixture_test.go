@@ -177,7 +177,7 @@ type orgCLIFixture struct {
 func newOrgCLIFixture(t *testing.T) *orgCLIFixture {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv("MONOAGENT_DAEMON_HEARTBEAT", filepath.Join(home, "hb.json"))
 	t.Setenv("MONOAGENT_API_ADDR", "")
 	fake, err := filepath.Abs(filepath.Join("..", "..", "monomind", "testdata", "fake-monomind.sh"))

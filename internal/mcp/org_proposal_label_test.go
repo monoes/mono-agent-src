@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/orgdesign"
@@ -14,7 +15,7 @@ import (
 // An org proposal made through MCP carries its own non-empty label: the empty one is the operator's bucket for
 // `org proposal create` without --conversation (#1477).
 func TestAnMCPOrgProposalIsLabelledUnscopedMCP(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	s := newTestServerAllowMutations(t, true)
 	profile := serverTestProfile(s)
 	db, err := storage.NewDatabase(s.opts.DBPath)

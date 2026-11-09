@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"strings"
 	"testing"
 
@@ -11,7 +12,7 @@ import (
 
 func integrationHome(t *testing.T) string {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	apipkg.Reload()
 	t.Cleanup(apipkg.Reload)
 	return home

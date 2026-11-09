@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"strings"
 	"sync"
 	"testing"
@@ -17,7 +18,7 @@ import (
 // and records each turn's options.
 func fakeTurns(t *testing.T, reply func(system, prompt string) string) *[]monomind.ExecOptions {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	var mu sync.Mutex
 	var seen []monomind.ExecOptions
 	oldEnsure, oldExec, oldScan, oldRoster := ensureMonomind, execTurn, scanRuntimes, listRoster

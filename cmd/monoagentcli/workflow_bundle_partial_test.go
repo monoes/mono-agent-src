@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -64,7 +65,7 @@ func exportBundle(t *testing.T, cfg *globalConfig, id string, extra ...string) (
 // reason and hint, and the importing side reports it as missing.
 func TestWorkflowBundlePartialExport(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	writeLegacyFile(t, home, "nosite", "get_heading",
 		`{"actionType":"get_heading","platform":"nosite","steps":[{"id":"h","type":"find_element","selector":"h1"}]}`)
 	writeLegacyFile(t, home, "examplesite", "get_heading",
@@ -115,7 +116,7 @@ func TestWorkflowBundlePartialExport(t *testing.T) {
 
 	// Fresh machine: the workflow imports, the bundled package installs, the
 	// unbundled one is reported missing with the reason and hint.
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	cfg2 := &globalConfig{DBPath: filepath.Join(t.TempDir(), "dst.db"), JSONOutput: true, ProfileID: "default"}
 	var res struct {
 		ID          string             `json:"id"`
@@ -145,7 +146,7 @@ func TestWorkflowBundlePartialExport(t *testing.T) {
 // that package's node type, while built-in actions keep theirs.
 func TestWorkflowBundleLegacyActionOnBuiltinPlatform(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	writeLegacyFile(t, home, "hackernews", "custom_scrape",
 		`{"actionType":"custom_scrape","platform":"hackernews","steps":[
   {"id":"open","type":"navigate","url":"https://news.ycombinator.com/"},
@@ -182,7 +183,7 @@ func TestWorkflowBundleLegacyActionOnBuiltinPlatform(t *testing.T) {
 
 // A failed bundle export leaves no file behind (and never an empty one).
 func TestWorkflowExportMissingWorkflowWritesNothing(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	cfg := &globalConfig{DBPath: filepath.Join(t.TempDir(), "x.db"), JSONOutput: true, ProfileID: "default"}
 	out := filepath.Join(t.TempDir(), "bundled.json")
 	captureStdout(t, func() {
@@ -203,7 +204,7 @@ func TestWorkflowExportMissingWorkflowWritesNothing(t *testing.T) {
 // notice; a package that opens a local host is never given them.
 func TestWorkflowBundleUseSuggestedDomains(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	writeLegacyFile(t, home, "examplesite", "get_heading",
 		`{"actionType":"get_heading","platform":"examplesite","steps":[{"id":"o","type":"navigate","url":"https://www.example.com/"}]}`)
 	writeLegacyFile(t, home, "devsite", "get_heading",

@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,8 +35,7 @@ func TestCoderBrowserPrompt(t *testing.T) {
 // are the coder level (browserctl.AgentKind).
 func TestCoderTurnsAreKindCoder(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	for _, k := range append(browserctl.AgentContextEnv(), browserctl.EnvAgentKind, browserctl.EnvAgentKindToken, browserctl.EnvAICaller) {
 		t.Setenv(k, "")
 	}

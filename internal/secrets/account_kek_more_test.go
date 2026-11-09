@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,7 +23,7 @@ func accountKEKTestHome(t *testing.T, fileKeyring bool) (home string) {
 	resetKEKState(t)
 	keyring.MockInit()
 	home = t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows
 	t.Setenv(fileKeyringEnv, "")
 	if fileKeyring {

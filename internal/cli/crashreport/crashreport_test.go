@@ -1,6 +1,7 @@
 package crashreport
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -16,7 +17,7 @@ import (
 // LookPath, so an empty PATH cannot change the outcome either).
 func TestReportCrashLocalOnlyDefault(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv("MONOAGENT_CRASH_REPORT", "")
 	// Strip PATH so exec.LookPath could never succeed even if reached.
 	t.Setenv("PATH", "")
@@ -61,7 +62,7 @@ func TestReportCrashLocalOnlyDefault(t *testing.T) {
 // must stay local — the env var, not the binary's presence, is the switch.
 func TestReportCrashLocalWhenNotOptedIn(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv("MONOAGENT_CRASH_REPORT", "")
 
 	binDir := t.TempDir()

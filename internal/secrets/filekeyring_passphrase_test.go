@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"io"
 	"os"
 	"path/filepath"
@@ -49,7 +50,7 @@ func passphraseIO(t *testing.T, stdin io.Reader, tty *fakeTTY) *int {
 	t.Setenv(filePassphraseFileEnv, "")
 	// A temp HOME: no configured ~/.monoagent/keyring-passphrase unless the
 	// test writes one.
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	filePassphraseFunc = promptFilePassphrase
 	passphraseStdin = stdin
 	passphrasePromptOut = io.Discard
@@ -163,7 +164,7 @@ func TestPromptFilePassphrase_EmptyStdinNamesOption(t *testing.T) {
 // same process.
 func TestFileKeyring_ValueOnStdinPassphraseOnTTY(t *testing.T) {
 	resetKEKState(t)
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Setenv(fileKeyringEnv, "1")
 	captureFileKeyringWarns(t)
 	forceKeyringUnavailable(t)
@@ -202,7 +203,7 @@ func TestFileKeyring_ValueOnStdinPassphraseOnTTY(t *testing.T) {
 func TestFileKeyring_NoTTYNoFileFailsClearly(t *testing.T) {
 	resetKEKState(t)
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv(fileKeyringEnv, "1")
 	captureFileKeyringWarns(t)
 	forceKeyringUnavailable(t)
@@ -223,7 +224,7 @@ func TestFileKeyring_NoTTYNoFileFailsClearly(t *testing.T) {
 // non-interactive source configured succeeds.
 func TestFileKeyring_NoTTYWithPassphraseFile(t *testing.T) {
 	resetKEKState(t)
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Setenv(fileKeyringEnv, "1")
 	captureFileKeyringWarns(t)
 	forceKeyringUnavailable(t)
@@ -249,7 +250,7 @@ func TestFileKeyring_NoTTYWithPassphraseFile(t *testing.T) {
 // fallback allowed.
 func TestFileKeyring_OSKeyringNeverPrompts(t *testing.T) {
 	resetKEKState(t)
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Setenv(fileKeyringEnv, "")
 	db := newSecretsTestDB(t) // keyring.MockInit: a working OS keyring
 	opens := passphraseIO(t, failReader{t}, nil)

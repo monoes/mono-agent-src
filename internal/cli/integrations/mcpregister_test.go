@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,8 +17,7 @@ import (
 // CLI call instead of running it, and registers /opt/bin/monoagentcli.
 func stubAgentRuntimes(t *testing.T, home string, onPath ...string) *[]string {
 	t.Helper()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	t.Setenv("CODEX_HOME", "")
 	t.Setenv("XDG_CONFIG_HOME", "")
 	var calls []string
@@ -328,8 +328,7 @@ func TestSkillsNoRuntimeNoWrites(t *testing.T) {
 
 func TestClaudeSkillsStateAndMCPRegistration(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	if found, _, _ := ClaudeSkillsState(); found {
 		t.Fatal("no ~/.claude: want not found")
 	}

@@ -3,6 +3,7 @@ package main
 
 import (
 	"bytes"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -17,7 +18,7 @@ func newApplicationCLITestDB(t *testing.T) string {
 	// falling back to the real $HOME when the test DB has no
 	// profiles.root_dir override. Without this, every run pollutes the
 	// developer's actual ~/.monoagent vault.
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	// The vault syncs each file into the knowledge graph in the background;
 	// let it finish before HOME is removed. (MONOMIND_BIN is left alone:
 	// tests sharing this helper put their own fake monomind on PATH.)

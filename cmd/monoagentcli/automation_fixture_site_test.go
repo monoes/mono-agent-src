@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,7 +47,7 @@ func TestAutomationFixtureFullRunPostsForm(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	run := func(args ...string) []fixtureResult {
 		t.Helper()
 		root := newRootCmd()

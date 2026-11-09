@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -21,8 +22,7 @@ import (
 // one stays.
 func TestClaudeSkillsMigrateFromFlatFiles(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	skills := filepath.Join(home, ".claude", "skills")
 	if err := os.MkdirAll(skills, 0o755); err != nil {
 		t.Fatal(err)
@@ -55,8 +55,7 @@ func TestClaudeSkillsMigrateFromFlatFiles(t *testing.T) {
 // runDoctor runs `monoagentcli <args>` against a throwaway HOME.
 func runDoctor(t *testing.T, home string, args ...string) (string, error) {
 	t.Helper()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	root := newRootCmd()
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -229,8 +228,7 @@ func TestDoctorActivatesTheManagedNode(t *testing.T) {
 // a copy another monoagent binary wrote, survives every command.
 func TestFirstRunCheckKeepsExistingSkills(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	skills := filepath.Join(home, ".claude", "skills")
 	if err := os.MkdirAll(skills, 0o755); err != nil {
 		t.Fatal(err)

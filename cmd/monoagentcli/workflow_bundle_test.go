@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,7 +29,7 @@ const bundleTestWorkflow = `{
 // machine, import into a fresh HOME: --json without --yes reports the
 // package as missing, --yes installs it.
 func TestWorkflowBundleRoundTrip(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	installTestAutomation(t)
 	cfg := &globalConfig{DBPath: filepath.Join(t.TempDir(), "src.db"), JSONOutput: true, ProfileID: "default"}
 
@@ -69,7 +70,7 @@ func TestWorkflowBundleRoundTrip(t *testing.T) {
 	}
 
 	// A fresh machine.
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	cfg2 := &globalConfig{DBPath: filepath.Join(t.TempDir(), "dst.db"), JSONOutput: true, ProfileID: "default"}
 	report := func(out string) map[string]string {
 		t.Helper()
@@ -164,7 +165,7 @@ func mustNotBeInstalled(t *testing.T, id string) {
 }
 
 func TestWorkflowBundleRefusesBadSHA(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	good := packBundle(t, "acme-test")
 	tampered := good
 	tampered.SHA256 = strings.Repeat("0", 64)
@@ -182,7 +183,7 @@ func TestWorkflowBundleRefusesBadSHA(t *testing.T) {
 }
 
 func TestWorkflowBundleRefusesKeyIDMismatch(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	// The bundle key says "harmless" but the package inside is acme-test.
 	var log bytes.Buffer
 	items := handleBundledAutomations(bundleDoc(t, map[string]bundledAutomation{"harmless": packBundle(t, "acme-test")}),
@@ -195,7 +196,7 @@ func TestWorkflowBundleRefusesKeyIDMismatch(t *testing.T) {
 }
 
 func TestWorkflowBundleNeverReplacesBuiltin(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	reg, err := openAutomationRegistry()
 	if err != nil {
 		t.Fatal(err)
@@ -247,7 +248,7 @@ func TestWorkflowBundleNeverReplacesBuiltin(t *testing.T) {
 }
 
 func TestWorkflowBundlePrintsReviewLineWithYes(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	var log bytes.Buffer
 	items := handleBundledAutomations(bundleDoc(t, map[string]bundledAutomation{"acme-test": packBundle(t, "acme-test")}),
 		bundleImportOptions{yes: true, out: &log})

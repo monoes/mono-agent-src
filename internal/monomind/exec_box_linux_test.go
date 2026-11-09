@@ -5,6 +5,7 @@ package monomind
 import (
 	"context"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -50,7 +51,7 @@ func newBoxRig(t *testing.T, script string) boxRig {
 	if err := os.WriteFile(r.bin, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("HOME", r.home)
+	testhome.SetHome(t, r.home)
 	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
 	return r
 }

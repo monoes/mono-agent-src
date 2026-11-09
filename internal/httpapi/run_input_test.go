@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"net/http"
 	"testing"
 
@@ -12,7 +13,7 @@ import (
 // The run route's input can't plant the engine's marks (who started the
 // run, which call it is), and still passes several items with _items.
 func TestRunRouteInputCantPlantTheEnginesMarks(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	s := newTestServer(t, true)
 	tok := testToken(t, s, "default")
 	wf := &workflow.Workflow{ProfileID: "default", ID: "wf-in", Name: "in", IsActive: true,

@@ -20,7 +20,7 @@ import (
 // The binary vouches for the org kind of the role shells its org runs start.
 func TestOrgLaunchesIssueAnOrgKindToken(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	if monomind.OrgKindEnv == nil {
 		t.Fatal("no org kind hook installed")
 	}
@@ -64,7 +64,7 @@ func TestDetachedOrgKeepsItsKindAfterTheLauncherExits(t *testing.T) {
 	if err := os.Mkdir(home, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	rt := filepath.Join(root, ".monomind", "orgs", "sec", "runtime.json")
 	if err := os.MkdirAll(filepath.Dir(rt), 0o755); err != nil {
 		t.Fatal(err)

@@ -3,6 +3,7 @@ package capturedocs_test
 import (
 	"context"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,7 +18,7 @@ const profileID = "711ef586-9f4b-4b1f-b2fd-cad23eec0a03"
 
 func newTestDB(t *testing.T) *storage.Database {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir()) // ProfileInbox and the vault both resolve under $HOME
+	testhome.SetHome(t, t.TempDir()) // ProfileInbox and the vault both resolve under $HOME
 	// The vault syncs each file into the knowledge graph in the background:
 	// run a no-op instead of the real monomind, and let it finish before HOME
 	// is removed.

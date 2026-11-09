@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -42,8 +43,7 @@ func newSessionsTestEnv(t *testing.T) *sessionsTestEnv {
 	t.Helper()
 	keyring.MockInit()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	dbPath := filepath.Join(home, ".monoagent", "monoagent.db")
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
 		t.Fatal(err)

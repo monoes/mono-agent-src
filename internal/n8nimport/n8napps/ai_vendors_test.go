@@ -1,6 +1,7 @@
 package n8napps
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/apipkg"
@@ -11,7 +12,7 @@ import (
 // local agent (agent.ask); every other operation imports as the vendor's
 // API package with the user's own key.
 func TestAIVendorOperationsRouteToPackages(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	apipkg.Reload()
 	t.Cleanup(apipkg.Reload)
 	wf, rep, err := n8nimport.Convert([]byte(`{"name":"t","nodes":[

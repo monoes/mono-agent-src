@@ -2,6 +2,7 @@ package people
 
 import (
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,7 +16,7 @@ import (
 
 func newLinksCLITestDB(t *testing.T) (*testConfig, *storage.Database) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Setenv("TYPESAFE_API_KEY", "test-key")
 	t.Setenv("TYPESAFE_DEFAULT_MODEL", "")
 	dbPath := filepath.Join(t.TempDir(), "links.db")

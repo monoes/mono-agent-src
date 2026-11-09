@@ -3,6 +3,7 @@ package account_test
 import (
 	"context"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"testing"
@@ -117,8 +118,7 @@ func TestRequireUsesTheInstalledGuard(t *testing.T) {
 // call that makes no guard pass.
 func TestNothingIsCreatedOnAnEmptyHome(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	f := accounttest.New(t)
 	account.SetEnforceFromForTest(t, f.Clock.Now().Add(24*time.Hour))
 	ref := &fakeRefresher{f: f, valid: "rt-1"}

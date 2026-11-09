@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"net/http"
 	"testing"
 	"time"
@@ -16,7 +17,7 @@ import (
 // runs the child and resumes the parent) to its timeout, where the run still
 // counts as in flight (timed_out). A pending review still returns at once.
 func TestRunRouteWaitThroughSubWorkflowsIsOptIn(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	rt := newTestServer(t, true).rt
 	ctx := context.Background()
 	if err := rt.store.CreateWorkflow(ctx, &workflow.Workflow{ID: "wf-parent", Name: "Parent", ProfileID: "default"}); err != nil {
@@ -64,7 +65,7 @@ func TestRunRouteWaitThroughSubWorkflowsIsOptIn(t *testing.T) {
 // and timed_out, and with the opt-in and time enough SUCCESS. A value that is
 // not a boolean is refused.
 func TestRunRouteWaitsThroughASubWorkflowWhenAsked(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	s := newTestServer(t, true)
 	tok := testToken(t, s, "default")
 	ctx := context.Background()

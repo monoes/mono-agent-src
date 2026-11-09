@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"io"
 	"net"
 	"net/http"
@@ -59,7 +60,7 @@ func TestResolveTLSConfig_LoopbackStaysPlain(t *testing.T) {
 // ~/.monoagent/webhook-tls/ (mode 0600 for the key).
 func TestResolveTLSConfig_NonLoopbackAutoGeneratesSelfSigned(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv(webhookTLSCertEnv, "")
 	t.Setenv(webhookTLSKeyEnv, "")
 
@@ -136,7 +137,7 @@ func TestResolveTLSConfig_ExplicitCertKey(t *testing.T) {
 // a real HTTPS request round-trips successfully.
 func TestWebhookServer_TLSEndToEnd(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv(webhookTLSCertEnv, "")
 	t.Setenv(webhookTLSKeyEnv, "")
 

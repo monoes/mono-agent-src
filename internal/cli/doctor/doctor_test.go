@@ -5,6 +5,7 @@ import (
 	"context"
 	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/operator"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"github.com/monoes/mono-agent/internal/workflow"
 	"os"
 	"strings"
@@ -28,7 +29,7 @@ func TestApplyReportFixesSkipsOptional(t *testing.T) {
 		{ID: "x", Status: health.StatusFail, Fix: &health.FixInfo{ID: "a"}},
 		{ID: "y", Status: health.StatusInfo, Fix: &health.FixInfo{ID: "rt:claude", Optional: true}},
 	}}
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	outcomes := applyReportFixes(context.Background(), testDeps(false), reg, rep,
 		map[string]bool{}, func(health.FixInfo) bool { return true }, func(string) {}, false)
 	if !applied["a"] || applied["claude"] {
@@ -96,7 +97,7 @@ func TestApplyReportFixesNeverAdoptsAWorkflowFile(t *testing.T) {
 	rep := &health.Report{Results: []health.Result{
 		{ID: "workflows.publications.adopt.wf-new", Status: health.StatusInfo, Fix: &adopt.FixInfo},
 	}}
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	outcomes := applyReportFixes(context.Background(), testDeps(false), reg, rep,
 		map[string]bool{}, func(health.FixInfo) bool { return true }, func(string) {}, false)
 	if len(outcomes) != 0 {

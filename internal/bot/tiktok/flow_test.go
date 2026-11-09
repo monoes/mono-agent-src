@@ -9,6 +9,7 @@ package tiktok
 import (
 	"context"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,7 +32,7 @@ type flow struct {
 // runFlow executes the action and returns its result and error.
 func runFlow(t *testing.T, p *bottest.Page, b *TikTokBot, f flow) (*action.ExecutionResult, error) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir()) // the loader's user-template fallback must not see a real ~/.monoagent
+	testhome.SetHome(t, t.TempDir()) // the loader's user-template fallback must not see a real ~/.monoagent
 	params := map[string]interface{}{
 		"delayBetweenLikes": 0.01, "delayBetweenFollows": 0.01, "delayBetweenComments": 0.01,
 		"delayBetweenMessages": 0.01, "delayBetweenReplies": 0.01, "delayBetweenActions": 0.01,

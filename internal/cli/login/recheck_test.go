@@ -3,6 +3,7 @@ package login
 import (
 	"bytes"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -111,7 +112,7 @@ func TestLoginNamesOpensThePageItDecidedOn(t *testing.T) {
 func TestLoginConfirmRefusesATabOnAnotherSite(t *testing.T) {
 	_, dbPath := newTestDB(t)
 	d := testDeps(dbPath, "default", false)
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	if err := saveLoginTabID("default", "PRODUCTHUNT", 7); err != nil {
 		t.Fatal(err)
 	}

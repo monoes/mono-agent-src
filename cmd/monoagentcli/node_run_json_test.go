@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,8 +16,7 @@ import (
 func TestNodeRunHonoursGlobalJSON(t *testing.T) {
 	keyring.MockInit()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	dbPath := filepath.Join(home, "node-json.db")
 	db, err := storage.NewDatabase(dbPath)
 	if err != nil {

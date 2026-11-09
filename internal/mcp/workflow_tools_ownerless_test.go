@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,7 +14,7 @@ import (
 // An ownerless workflow belongs to nobody: it is not served as a tool, and the
 // note of an owned one always names its profile.
 func TestOwnerlessWorkflowIsNotServedAsATool(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	dir := filepath.Join(t.TempDir(), "wf")
 	rt, err := newRuntime(Options{DBPath: filepath.Join(t.TempDir(), "m.db"), WorkflowsDir: dir})
 	if err != nil {

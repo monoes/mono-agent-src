@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -104,7 +105,7 @@ func TestWorkflowBundleLegacyAlias(t *testing.T) {
 	for _, platform := range []string{"examplesite", "example_site"} {
 		t.Run(platform, func(t *testing.T) {
 			home1 := t.TempDir()
-			t.Setenv("HOME", home1)
+			testhome.SetHome(t, home1)
 			writeLegacyHeading(t, home1, platform)
 			reg, err := openAutomationRegistry() // seeding wraps the legacy dir
 			if err != nil {
@@ -162,7 +163,7 @@ func TestWorkflowBundleLegacyAlias(t *testing.T) {
 			runNodeType(t, platform, "get_heading")
 
 			// A fresh machine without the legacy directory.
-			t.Setenv("HOME", t.TempDir())
+			testhome.SetHome(t, t.TempDir())
 			cfg2 := &globalConfig{DBPath: filepath.Join(t.TempDir(), "dst.db"), JSONOutput: true, ProfileID: "default"}
 			var res struct {
 				Automations []bundleImportItem `json:"automations"`
@@ -183,7 +184,7 @@ func TestWorkflowBundleLegacyAlias(t *testing.T) {
 // finds it through its recorded platform, so the bundle is not silently short.
 func TestPackageResolverDisabledLegacy(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	writeLegacyHeading(t, home, "example_site")
 	reg, err := openAutomationRegistry()
 	if err != nil {

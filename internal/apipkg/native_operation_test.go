@@ -2,6 +2,7 @@ package apipkg
 
 import (
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,7 +15,7 @@ import (
 // while no resource is picked, every native operation still validates
 // without a resource, and a resource's operations validate with it.
 func TestExtendedNativeOperationSelects(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	Reload()
 	t.Cleanup(Reload)
 	n := 0
@@ -109,7 +110,7 @@ func TestExtendedNativeOperationSelects(t *testing.T) {
 // options: a consumer picks the select whose depends_on matches the
 // resource and reads that select's default.
 func TestOperationSelectPerResource(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	Reload()
 	t.Cleanup(Reload)
 	for _, p := range packages() {

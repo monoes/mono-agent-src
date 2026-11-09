@@ -2,6 +2,7 @@ package shellpath
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -56,7 +57,7 @@ func TestLoginPath_ReadsShellRc(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("SHELL", sh)
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv("ENV", rc)
 	got, err := LoginPath(context.Background())
 	if err != nil {

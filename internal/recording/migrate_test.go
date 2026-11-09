@@ -2,6 +2,7 @@ package recording
 
 import (
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,7 +14,7 @@ import (
 
 func TestIngestWritesToStoreNotInbox(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv(capture.InboxEnv, filepath.Join(home, ".monomind", "inbox"))
 	in := &Ingest{}
 	for _, profile := range []string{"", "work"} {
@@ -42,7 +43,7 @@ func TestIngestWritesToStoreNotInbox(t *testing.T) {
 
 func TestMigrateMovesLegacyRecordings(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv(capture.InboxEnv, filepath.Join(home, ".monomind", "inbox"))
 	var logs []string
 	prev := Logf

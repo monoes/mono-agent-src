@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"io"
 	"os"
 	"path/filepath"
@@ -98,7 +99,7 @@ func testDeps(cfg *testConfig) Deps {
 // the vault stay out of the real home, run as the user's own terminal.
 func newProfileDocsCLITestDB(t *testing.T) string {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	asOperator(t)
 	// The vault syncs each file into the knowledge graph in the background;
 	// let it finish before HOME is removed.

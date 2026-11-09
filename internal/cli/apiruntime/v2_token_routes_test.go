@@ -2,6 +2,7 @@ package apiruntime
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -60,7 +61,7 @@ func mountedRoutes(t *testing.T) int {
 }
 
 func TestNoExtraRouteAcceptsAV2Token(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	db := testdb.Open(t).DB
 	ctx := context.Background()
 	rt, err := newAPIRuntime(db, Flags{}, func(string, ...any) {})

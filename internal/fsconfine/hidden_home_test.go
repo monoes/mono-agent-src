@@ -3,6 +3,7 @@ package fsconfine
 import (
 	"context"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"testing"
@@ -23,8 +24,7 @@ func TestUnapprovedRunsKeepOutOfHiddenHomeFiles(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	t.Setenv("PATH", filepath.Join(home, "tools")+string(os.PathListSeparator)+os.Getenv("PATH"))
 	if err := os.Symlink(filepath.Join(home, ".config"), filepath.Join(home, "notes", "cfg")); err != nil {
 		t.Fatal(err)

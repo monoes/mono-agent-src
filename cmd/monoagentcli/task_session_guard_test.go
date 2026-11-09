@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,7 +17,7 @@ const guardMsg = "an AI task's session may not do this"
 // guardRig is a home with two profiles and a task of the given kind in p1.
 func guardRig(t *testing.T, kind string) (taskID string) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	asOperatorProcess(t)
 	path := expandPath("~/.monoagent/monoagent.db")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {

@@ -2,6 +2,7 @@ package secrets
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,7 +21,7 @@ func setupNoOSKeyringFileKeyring(t *testing.T) (home string) {
 	t.Helper()
 	resetKEKState(t)
 	home = t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	t.Setenv(fileKeyringEnv, "1")
 	stubFilePassphrase(t, "correct horse battery staple")
 	return home
@@ -120,7 +121,7 @@ func TestFetchLegacyKEK_NoOSKeyring_UnreadableLegacyFileIsAnError(t *testing.T) 
 
 func TestFetchLegacyKEK_NoOSKeyring_WithoutFileKeyringFailsClosed(t *testing.T) {
 	resetKEKState(t)
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Setenv(fileKeyringEnv, "")
 	forceKeyringUnavailable(t)
 

@@ -4,6 +4,7 @@ package workflowrun
 
 import (
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,7 +23,7 @@ import (
 // and w2 (profile other), each with executions.
 func seedExecutionDB(t *testing.T) (*testConfig, *storage.Database) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Setenv("MONOAGENT_DAEMON_HEARTBEAT", filepath.Join(t.TempDir(), "hb.json"))
 	dbPath := filepath.Join(t.TempDir(), "e.db")
 	db, err := storage.NewDatabase(dbPath)

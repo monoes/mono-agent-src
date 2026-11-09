@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"io"
 	"os"
 	"path/filepath"
@@ -104,7 +105,7 @@ func TestAutomationAdapterWiring(t *testing.T) {
 		t.Setenv(k, "")
 	}
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	installTestAutomation(t)
 
 	out, errOut, err := runAutomationCLI(t, home, "automation", "doctor", "acme-test", "--json")
@@ -145,7 +146,7 @@ func TestAutomationRerecordRefusesAnAgentThroughTheCLI(t *testing.T) {
 		t.Setenv(k, "")
 	}
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	installTestAutomation(t)
 	cfg := &globalConfig{DBPath: filepath.Join(home, ".monoagent", "monoagent.db"), ProfileID: "default", JSONOutput: true}
 	run := func(args ...string) (out string, err error, bridge bool) {

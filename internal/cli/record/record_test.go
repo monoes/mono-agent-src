@@ -3,6 +3,7 @@ package record
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"io"
 	"os"
 	"path/filepath"
@@ -20,7 +21,7 @@ import (
 func recordTestHome(t *testing.T, ids ...string) string {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	// The capture inbox is isolated too, though recordings never go there.
 	t.Setenv(capture.InboxEnv, filepath.Join(home, "inbox"))
 	t.Cleanup(func() { recording.SetAllProfiles() })
@@ -167,7 +168,7 @@ func TestRecordJSONErrorsWrapIsIdempotent(t *testing.T) {
 	cmd.SetOut(&out)
 	cmd.SetErr(io.Discard)
 	cmd.SilenceUsage, cmd.SilenceErrors = true, true
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	t.Setenv(capture.InboxEnv, t.TempDir())
 	cmd.SetArgs([]string{"show", "nope"})
 	_ = cmd.Execute()

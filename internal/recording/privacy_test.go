@@ -3,6 +3,7 @@ package recording
 import (
 	"encoding/json"
 	"errors"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -123,7 +124,7 @@ func TestStartFrameCapsAndSanitises(t *testing.T) {
 }
 
 func TestFinalizePrunesOldestRecordings(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	inbox := filepath.Join(t.TempDir(), "inbox")
 	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 	var dirs []string
@@ -180,7 +181,7 @@ func TestZeroEventRecordingIsDiscarded(t *testing.T) {
 }
 
 func TestListHidesIncompleteEmptyRecordings(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	inbox := filepath.Join(t.TempDir(), "inbox")
 	SetInboxes(inbox)
 	t.Cleanup(func() { SetInboxes() })

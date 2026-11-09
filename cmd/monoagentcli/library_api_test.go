@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,7 +19,7 @@ const acmePkg = `{"$schema":"apipkg.v1","id":"acme","title":"Acme","description"
 // apiFixture is a library fixture whose apipkg cache follows its HOME.
 func apiFixture(t *testing.T) *libFixture {
 	f := newLibFixture(t)
-	t.Setenv("HOME", f.home)
+	testhome.SetHome(t, f.home)
 	apipkg.Reload()
 	t.Cleanup(apipkg.Reload)
 	return f

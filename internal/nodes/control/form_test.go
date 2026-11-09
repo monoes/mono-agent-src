@@ -2,6 +2,7 @@ package control
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -17,7 +18,7 @@ import (
 // IF Age ≥ 18 → ending text; else → page "Guardian" → ending redirect.
 func formFlow(t *testing.T) (*subflowFixture, string) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir()) // the reply key file
+	testhome.SetHome(t, t.TempDir()) // the reply key file
 	f := newSubflowFixture(t)
 	ctx := context.Background()
 	field := func(label, typ string) []interface{} {
@@ -152,7 +153,7 @@ func TestFormPages_SecondPageThenRedirect(t *testing.T) {
 
 // A form without pages answers at once, as before.
 func TestFormPages_TriggerWithoutPagesAnswersAtOnce(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	f := newSubflowFixture(t)
 	ctx := context.Background()
 	wf := &workflow.Workflow{ID: "plain", Name: "plain", ProfileID: "default", Nodes: []workflow.WorkflowNode{

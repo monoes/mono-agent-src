@@ -1,6 +1,7 @@
 package nodes
 
 import (
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"testing"
@@ -30,7 +31,7 @@ func TestBootAutomations_ACacheHitIsTheRegistryOfTheHomeItNames(t *testing.T) {
 
 	first := t.TempDir()
 	installPackage(t, filepath.Join(first, ".monoagent"), "acme-one", "list_deals")
-	t.Setenv("HOME", first)
+	testhome.SetHome(t, first)
 	if _, err := BootAutomations(""); err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +51,7 @@ func TestBootAutomations_ACacheHitIsTheRegistryOfTheHomeItNames(t *testing.T) {
 
 	second := t.TempDir()
 	installPackage(t, filepath.Join(second, ".monoagent"), "acme-two", "list_deals")
-	t.Setenv("HOME", second)
+	testhome.SetHome(t, second)
 	reg, err := BootAutomations("")
 	if err != nil {
 		t.Fatal(err)

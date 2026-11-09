@@ -149,8 +149,7 @@ func TestABoundTurnIsAllowedItsOwnTokenAndASiblingIsNot(t *testing.T) {
 	files := t.TempDir()
 	shortHome := os.Getenv("USERPROFILE") // the process's own test home: a Windows socket path holds 107 bytes, the per-test one is longer
 	dbPath := newChatCLITestDB(t)
-	t.Setenv("HOME", shortHome)
-	t.Setenv("USERPROFILE", shortHome)
+	testhome.SetHome(t, shortHome)
 	db, err := storage.NewDatabase(dbPath)
 	if err != nil {
 		t.Fatal(err)
