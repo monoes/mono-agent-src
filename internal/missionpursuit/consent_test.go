@@ -296,3 +296,16 @@ func TestPreviewWritesNothingAndRefusesAStartedPursuit(t *testing.T) {
 	_, err = f.store.Preview(bg, "default", f.session, AwayLimits{}, liveOf(okFacts()))
 	wantIs(t, err, ErrAlreadyStarted, "preview after start")
 }
+
+// The app fills the placeholders of PhraseTemplate and the CLI compares the result with Phrase: filling them in is Phrase.
+func TestFillingThePhraseTemplateReproducesThePhrase(t *testing.T) {
+	hash := strings.Repeat("0123456789abcdef", 4)
+	lim := AwayLimits{ParkedMax: 4, Pct: 35, Wakes: 9}
+	filled := strings.NewReplacer("<ID>", "12", "<first 8 characters of the hash>", hash[:8], "<percent>", "35", "<parked>", "4", "<wakes>", "9").Replace(PhraseTemplate)
+	if filled != Phrase(12, hash, lim) {
+		t.Errorf("filled template = %q, Phrase = %q", filled, Phrase(12, hash, lim))
+	}
+	if strings.Contains(filled, "<") {
+		t.Errorf("a placeholder is left: %q", filled)
+	}
+}
