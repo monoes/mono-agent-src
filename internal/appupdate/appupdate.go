@@ -65,8 +65,9 @@ type Result struct {
 	NewVersion string
 	Restart    string
 	// CLI is the CLI of this platform from the release, as the verified download holds it (Linux: the tarball's
-	// monoagentcli), so that the caller can bring other copies of the CLI onto the same release without downloading
-	// or trusting anything else. Nil where the app's download carries none (macOS, Windows: reported only).
+	// monoagentcli; macOS: the one inside the new .app), so that the caller can bring other copies of the CLI onto
+	// the same release without downloading or trusting anything else. Nil where the app's download carries none
+	// (Windows: reported only).
 	CLI []byte
 }
 
@@ -165,6 +166,7 @@ func (u Updater) Run() (Result, error) {
 
 	u.Progress("Checksum verified. Installing app update...")
 	restart := "relaunch"
+	var res Result
 	switch u.GOOS {
 	case "linux":
 		err = installLinux(u.Exe, files[asset])
@@ -172,13 +174,13 @@ func (u Updater) Run() (Result, error) {
 	case "windows":
 		err = u.installWindows(files[asset], winCLI, files[bundledCLIAssetWindows])
 	case "darwin":
-		err = u.installMacOS(files[asset])
+		res.CLI, err = u.installMacOS(files[asset])
 	}
 	if err != nil {
 		return Result{}, err
 	}
 	u.Progress("Update installed — restarting")
-	res := Result{NewVersion: tag, Restart: restart}
+	res.NewVersion, res.Restart = tag, restart
 	if u.GOOS == "linux" {
 		if _, cli, err := readLinuxTarball(files[asset]); err == nil {
 			res.CLI = cli
@@ -336,35 +338,51 @@ func windowsRestartScript(exe string, targets []string) string {
 // installMacOS unpacks the verified zip next to the .app bundle (same
 // volume), swaps the bundle — which holds the bundled CLI — and reopens it
 // after the app quits.
-func (u Updater) installMacOS(zipData []byte) error {
+func (u Updater) installMacOS(zipData []byte) ([]byte, error) {
 	// exe = /path/MonoAgent.app/Contents/MacOS/<bin>: the bundle is 3 up.
 	bundle := filepath.Dir(filepath.Dir(filepath.Dir(u.Exe)))
 	if !strings.HasSuffix(bundle, ".app") {
-		return fmt.Errorf("app is not inside a .app bundle (%s); update it by hand", bundle)
+		return nil, fmt.Errorf("app is not inside a .app bundle (%s); update it by hand", bundle)
 	}
 	stage, err := os.MkdirTemp(filepath.Dir(bundle), ".monoagent-app-update-*")
 	if err != nil {
-		return fmt.Errorf("stage dir: %v", err)
+		return nil, fmt.Errorf("stage dir: %v", err)
 	}
 	defer os.RemoveAll(stage)
 	zipPath := filepath.Join(stage, "app.zip")
 	if err := os.WriteFile(zipPath, zipData, 0o600); err != nil {
-		return fmt.Errorf("write download: %v", err)
+		return nil, fmt.Errorf("write download: %v", err)
 	}
 	// System unzip keeps the symlinks inside .app bundles.
 	if out, err := exec.Command("unzip", "-q", zipPath, "-d", stage).CombinedOutput(); err != nil {
-		return fmt.Errorf("unzip: %v — %s", err, out)
+		return nil, fmt.Errorf("unzip: %v — %s", err, out)
 	}
 	newApp := filepath.Join(stage, "MonoAgent.app")
 	if st, err := os.Stat(newApp); err != nil || !st.IsDir() {
-		return fmt.Errorf("MonoAgent.app not found in downloaded archive")
+		return nil, fmt.Errorf("MonoAgent.app not found in downloaded archive")
 	}
+	// The CLI inside the new bundle, read before the stage is removed: what the caller replaces other copies with.
+	cli := readBundledCLI(newApp)
 	if err := swapAll([]swapItem{{target: bundle, staged: newApp}}); err != nil {
-		return err
+		return nil, err
 	}
 	os.RemoveAll(bundle + ".bak")
 	_ = u.StartDetached("/bin/bash", "-c", macOSReopenCommand(bundle))
-	return nil
+	return cli, nil
+}
+
+// readBundledCLI returns the CLI inside an unpacked .app: nil when it is not a regular file or too large, so an odd
+// bundle only means other copies are reported rather than replaced.
+func readBundledCLI(app string) []byte {
+	p := filepath.Join(app, "Contents", "MacOS", "monoagentcli")
+	if st, err := os.Lstat(p); err != nil || !st.Mode().IsRegular() || st.Size() > maxTarMember {
+		return nil
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return nil
+	}
+	return b
 }
 
 // macOSReopenCommand opens bundle again once the app has quit.
