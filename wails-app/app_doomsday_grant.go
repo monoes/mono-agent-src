@@ -273,6 +273,14 @@ const (
 	confirmCancel     = "Cancel"
 )
 
+// confirmLabelFor is the affirmative button of the dialog with this title (shown on macOS only; the answer is read against it).
+func confirmLabelFor(title string) string {
+	if title == pursuitDialogTitle {
+		return pursuitStartLabel
+	}
+	return confirmStartLabel
+}
+
 // confirmNative asks in a window of the operating system, not of the web view, so no script of the page can answer it. It
 // returns errNoNativeDialog where none can be shown, errDialogBusy while another dialog is open. Wails v2.17 QuestionDialog
 // is Yes/No on Windows and Linux (the labels given are ignored, the default is only honoured on Windows when it is "No"),
@@ -287,9 +295,10 @@ func realConfirmNative(a *App, title, body string) (bool, error) {
 	if runtime.GOOS == "windows" {
 		def, cancel = "No", "No"
 	}
+	label := confirmLabelFor(title)
 	choice, err := showDialog(a, wailsruntime.MessageDialogOptions{
 		Type: wailsruntime.QuestionDialog, Title: title, Message: body,
-		Buttons: []string{confirmStartLabel, confirmCancel}, DefaultButton: def, CancelButton: cancel,
+		Buttons: []string{label, confirmCancel}, DefaultButton: def, CancelButton: cancel,
 	})
 	if errors.Is(err, errDialogBusy) {
 		return false, err
@@ -297,7 +306,7 @@ func realConfirmNative(a *App, title, body string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("%w: %v", errNoNativeDialog, err)
 	}
-	return dialogConfirmed(dialogGOOS, wailsruntime.QuestionDialog, confirmStartLabel, choice), nil
+	return dialogConfirmed(dialogGOOS, wailsruntime.QuestionDialog, label, choice), nil
 }
 
 // entryCache keeps the entry probe's answer per profile for ttl, and lets one probe run at a time per profile: callers

@@ -651,6 +651,10 @@ export function PlatformNames():Promise<Record<string, string>>;
 
 export function PromoteRoleToRoot(arg1:string,arg2:string):Promise<string>;
 
+export function PursuitStart(arg1:number,arg2:main.PursuitLimits,arg3:string,arg4:string):Promise<string>;
+
+export function PursuitStartPreview(arg1:number,arg2:main.PursuitLimits):Promise<string>;
+
 export function QueueDismiss(arg1:string):Promise<string>;
 
 export function QueueImage(arg1:string):Promise<string>;

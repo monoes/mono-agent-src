@@ -1298,6 +1298,14 @@ export function PromoteRoleToRoot(arg1, arg2) {
   return window['go']['main']['App']['PromoteRoleToRoot'](arg1, arg2);
 }
 
+export function PursuitStart(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['PursuitStart'](arg1, arg2, arg3, arg4);
+}
+
+export function PursuitStartPreview(arg1, arg2) {
+  return window['go']['main']['App']['PursuitStartPreview'](arg1, arg2);
+}
+
 export function QueueDismiss(arg1) {
   return window['go']['main']['App']['QueueDismiss'](arg1);
 }
