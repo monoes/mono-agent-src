@@ -52,7 +52,7 @@ func (h *Host) pursuitDeliverable(m pursuitMission, g pursuitGateResult) string 
 	if err != nil || !withinActiveHours(settings.ActiveHours, h.Store.now()) {
 		return "outside the lead's active hours"
 	}
-	if t := g.snap.Tasks; t.Open()-t.Blocked <= 0 {
+	if t := g.snap.Tasks; t.Workable <= 0 {
 		return "the mission has no open work"
 	}
 	if g.hourWakes >= MaxPursuitWakesPerHour {

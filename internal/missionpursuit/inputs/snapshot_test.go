@@ -49,7 +49,7 @@ func TestTaskCountsPerState(t *testing.T) {
 	if err != nil || !s.Run.Running {
 		t.Fatalf("%+v %v", s, err)
 	}
-	want := TaskCounts{Total: 10, Inbox: 1, Ready: 2, InProgress: 2, Review: 1, Done: 3, Archived: 1, Blocked: 1}
+	want := TaskCounts{Total: 10, Inbox: 1, Ready: 2, InProgress: 2, Review: 1, Done: 3, Archived: 1, Blocked: 1, Workable: 5}
 	if s.Tasks != want {
 		t.Errorf("tasks = %+v, want %+v", s.Tasks, want)
 	}
@@ -165,5 +165,35 @@ func TestEvidenceSeqGrowsWithNewEvidenceRowsOfThisSessionOnly(t *testing.T) {
 	mustExec(t, f.db, `INSERT INTO task_artifacts (task_id, kind, ref, at) VALUES (?, 'note', 'r2', 'x')`, task)
 	if b := seq(); a <= 0 || b <= a {
 		t.Errorf("seq did not grow: %d then %d", a, b)
+	}
+}
+
+// Workable is the complement of the mission close's settled test (dynorg.settled: done, or review + verified + not blocked),
+// minus what is not the lead's to move: epics, blocked tasks and archived ones. Copied, not imported, so this package keeps
+// its import guard; change both together.
+func TestWorkableMatchesTheSettledTestOfTheMissionClose(t *testing.T) {
+	for _, status := range []string{"inbox", "ready", "in_progress", "review", "done", "archived"} {
+		for _, kind := range []string{"task", "epic"} {
+			for _, blocked := range []int{0, 1} {
+				for _, verified := range []int{0, 1} {
+					f := newFixture(t)
+					f.startPursuit(t)
+					mustExec(t, f.db, `INSERT INTO tasks (profile_id, title, status, position, session_id, kind, blocked, verified, created_at, updated_at) VALUES ('default','t',?,1,?,?,?,?,'x','x')`,
+						status, f.session, kind, blocked, verified)
+					s, err := f.reader.Snapshot(bg, f.session)
+					if err != nil {
+						t.Fatal(err)
+					}
+					settled := status == "done" || (status == "review" && verified == 1 && blocked == 0)
+					want := 1
+					if settled || status == "archived" || kind == "epic" || blocked == 1 {
+						want = 0
+					}
+					if s.Tasks.Workable != want {
+						t.Errorf("%s %s blocked=%d verified=%d: Workable = %d, want %d", status, kind, blocked, verified, s.Tasks.Workable, want)
+					}
+				}
+			}
+		}
 	}
 }
