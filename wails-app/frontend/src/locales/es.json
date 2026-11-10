@@ -2616,7 +2616,7 @@
     "reviewTitle": "Revisar antes de empezar"
   },
   "pursuitStart": {
-    "open": "Iniciar persecución",
+    "open": "Preparar seguimiento activo",
     "intro": "El responsable seguirá trabajando en el objetivo de esta misión mientras estás fuera, dentro de los límites de abajo. Lee lo que muestra la CLI y escribe la frase. La app pregunta una vez más en una ventana propia.",
     "limit": {
       "parkedMax": "Preguntas en espera",
@@ -2655,18 +2655,18 @@
     "blockerHeading": "Todavía no se puede iniciar",
     "phraseIntro": "Para iniciar, escribe esta frase exactamente. Solo se compone de lo mostrado arriba.",
     "phraseLabel": "Escribe la frase",
-    "start": "Iniciar persecución",
+    "start": "Iniciar seguimiento activo",
     "reload": "Leer de nuevo",
-    "started": "La persecución ha comenzado. El objetivo ya es definitivo.",
+    "started": "El seguimiento activo ha comenzado. El objetivo ya es definitivo.",
     "unknown": "No se sabe si ha comenzado. Comprueba el estado de la misión antes de reintentar; no vuelvas a pulsar Iniciar.",
     "notStarted": "No se inició.",
     "code": {
-      "operator_only": "Solo puedes iniciar una persecución tú, no la sesión de un agente. No se inició nada.",
+      "operator_only": "Solo puedes iniciar un seguimiento activo tú, no la sesión de un agente. No se inició nada.",
       "invalid_input": "El inicio se rechazó por mal formado. Lee los hechos de nuevo.",
       "busy": "Hay otra confirmación abierta. Respóndela primero. No se inició nada.",
       "token": "Esta lectura ha caducado o fue sustituida. Lee los hechos de nuevo.",
       "phrase": "La frase no coincide. No se inició nada.",
-      "blocked": "Algo bloquea esta persecución. No se inició nada.",
+      "blocked": "Algo bloquea este seguimiento activo. No se inició nada.",
       "declined": "La confirmación se rechazó o se cerró. No se inició nada. Puedes volver a pulsar Iniciar.",
       "no_native_dialog": "Esta app no tiene una ventana donde preguntarte, así que no se inició nada.",
       "consent_stale": "Lo que se te mostró ha cambiado (el modelo, el interruptor del verificador o los costes). Léelo de nuevo.",
@@ -2674,7 +2674,7 @@
       "chat_mismatch": "Esta misión pertenece a otro chat. No se inició nada.",
       "hidden_characters": "Un criterio tiene caracteres que no se pueden mostrar con seguridad. No se inició nada.",
       "criterion_too_long": "Un criterio es demasiado largo para mostrarlo entero. No se inició nada.",
-      "already_started": "Ya hay una persecución en curso para esta misión.",
+      "already_started": "Ya hay un seguimiento activo en curso para esta misión.",
       "unknown": "No se sabe si ha comenzado. Comprueba el estado de la misión antes de reintentar; no vuelvas a pulsar Iniciar."
     }
   }

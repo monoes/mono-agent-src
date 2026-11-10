@@ -16,3 +16,4 @@
 .ms-pursuit ul { margin: 0; padding-left: 16px; }
 .ms-pursuit label { display: flex; flex-direction: column; gap: 2px; color: var(--text-muted); }
 .ms-pursuit-limits { display: flex; gap: 8px; flex-wrap: wrap; }
+.ms-pursuit li, .ms-pursuit span { overflow-wrap: anywhere; }

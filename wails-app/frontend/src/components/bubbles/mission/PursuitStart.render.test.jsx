@@ -181,6 +181,8 @@ describe('the result of Start', () => {
     expect(note).toHaveTextContent(words)
     expect(note).toHaveTextContent('cli says so')
     expect(screen.queryByTestId('pursuit-started')).toBeNull()
+    await new Promise(r => setTimeout(r, 20))
+    expect(go.PursuitStart).toHaveBeenCalledTimes(1) // no automatic retry, whatever the code
   })
   it.each([['token', 'expired'], ['stale', 'goal changed'], ['consent_stale', 'has changed']])('%s: asks to read again and the read-again button reads a fresh preview', async (code, words) => {
     go.PursuitStart.mockImplementation(() => reply(startDoc('not_started', code, '')))
@@ -204,5 +206,64 @@ describe('the result of Start', () => {
     go.PursuitStart.mockImplementation(() => reply(startDoc('not_started', 'zzz', 'their words')))
     await go1()
     expect(await screen.findByTestId('pursuit-note-zzz')).toHaveTextContent('It did not start. their words')
+  })
+})
+
+describe('text from the CLI and the lead is shown as text', () => {
+  const EVIL = ['<img src=x onerror="window.__pwn=1">', '<b>bold</b>', 'a\u202Eb', 'z\u200Bw']
+  it('criteria, blockers and cost rows show markup, bidi and zero-width characters literally and make no element', async () => {
+    go.PursuitStartPreview.mockImplementation(() => reply(preview({
+      goal: { state: 'proposed', hash: HASH, criteria: [{ id: 'c1', kind: 'file', spec: EVIL.join(' '), expected: EVIL.join(' ') }] },
+      blockers: [{ code: 'judge-pin', reason: EVIL.join(' ') }],
+      cost: { rows: ['mission_hour', 'host_hour', 'until_stop'].map(key => ({ key, usd: 1, known: true, text: EVIL.join(' ') })), text: '' },
+    })))
+    const { container } = open(); await read()
+    for (const id of ['pursuit-criteria', 'pursuit-blockers', 'pursuit-cost']) {
+      const box = screen.getByTestId(id)
+      for (const e of EVIL) expect(box.textContent).toContain(e)
+      expect(box.querySelector('img, b')).toBeNull()
+    }
+    expect(container.querySelector('img')).toBeNull()
+    expect(window.__pwn).toBeUndefined()
+  })
+})
+
+describe('hardening of the outcome', () => {
+  const go1 = async () => { open(); await read(); typePhrase(PHRASE); press() }
+  it.each([['an unparseable answer', () => Promise.resolve('not json at all')], ['an answer with no state', () => reply({ error: 'x' })], ['an answer with a state this page does not know', () => reply({ state: 'maybe' })]])('%s is unknown: Start stays disabled', async (_n, answer) => {
+    go.PursuitStart.mockImplementation(answer)
+    await go1()
+    expect(await screen.findByTestId('pursuit-note-unknown')).toHaveTextContent('do not press Start again')
+    expect(screen.getByTestId('pursuit-start')).toBeDisabled()
+    expect(screen.queryByTestId('pursuit-note-none')).toBeNull()
+  })
+  it('the limit inputs and Read are disabled while a start is in flight, and the outcome stays visible when the person tries to edit', async () => {
+    let finish
+    go.PursuitStart.mockImplementation(() => new Promise(r => { finish = () => r(JSON.stringify(startDoc('not_started', 'declined', 'no'))) }))
+    await go1()
+    await waitFor(() => expect(screen.getByLabelText('Percent of budget')).toBeDisabled())
+    expect(screen.getByLabelText('Waiting questions')).toBeDisabled()
+    expect(screen.getByLabelText('Lead wake-ups')).toBeDisabled()
+    expect(screen.getByTestId('pursuit-read')).toBeDisabled()
+    fireEvent.change(screen.getByLabelText('Percent of budget'), { target: { value: '30' } })
+    expect(screen.getByTestId('pursuit-review')).toBeInTheDocument()
+    finish()
+    expect(await screen.findByTestId('pursuit-note-declined')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByLabelText('Percent of budget')).toBeEnabled())
+  })
+  it('the limit inputs stay locked after a start so the outcome cannot be unmounted', async () => {
+    await go1()
+    expect(await screen.findByTestId('pursuit-started')).toBeInTheDocument()
+    expect(screen.getByLabelText('Percent of budget')).toBeDisabled()
+  })
+  it.each([
+    ['no limits', { limits: undefined }], ['a limit that is not a number', { limits: { parked_max: 'a', pct: 20, wakes_max: 6 } }],
+    ['no criteria', { goal: { state: 'proposed', hash: HASH } }], ['an empty criteria list', { goal: { state: 'proposed', hash: HASH, criteria: [] } }],
+    ['a criterion that is not an object', { goal: { state: 'proposed', hash: HASH, criteria: ['x'] } }],
+  ])('a preview with %s is refused with an error and no render', async (_n, over) => {
+    go.PursuitStartPreview.mockImplementation(() => reply(preview(over)))
+    open(); fireEvent.click(screen.getByTestId('pursuit-read'))
+    expect(await screen.findByTestId('pursuit-preview-error')).toHaveTextContent('could not be read')
+    expect(screen.queryByTestId('pursuit-review')).toBeNull()
   })
 })

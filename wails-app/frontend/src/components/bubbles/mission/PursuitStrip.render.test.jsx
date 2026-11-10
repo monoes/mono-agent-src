@@ -33,6 +33,12 @@ describe('pursuit start in the mission strip', () => {
     expect(go.PursuitStartPreview).not.toHaveBeenCalled()
     expect(go.PursuitStart).not.toHaveBeenCalled()
   })
+  it('the toggle and the Start button have different accessible names', async () => {
+    await strip('running')
+    fireEvent.click(screen.getByTestId('mission-pursuit'))
+    expect(screen.getByTestId('mission-pursuit')).toHaveAccessibleName('Set up a pursuit')
+    expect(screen.queryByRole('button', { name: 'Start pursuit' })).toBeNull() // only the toggle is there until the facts are read
+  })
   it('a draft mission has none', async () => {
     await strip('draft')
     expect(screen.queryByTestId('mission-pursuit')).toBeNull()

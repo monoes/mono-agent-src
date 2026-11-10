@@ -15,9 +15,15 @@ const CODES = new Set(['operator_only', 'invalid_input', 'busy', 'token', 'phras
   'chat_mismatch', 'hidden_characters', 'criterion_too_long', 'already_started', 'unknown'])
 const PREVIEW_CODES = new Set(['goal_too_long', 'unreadable', 'busy', 'rate_limited', 'operator_only'])
 
+const plainObj = v => !!v && typeof v === 'object' && !Array.isArray(v)
+// readable: a preview the review can render without throwing (the CLI and the app have checked it; this is the page's own guard).
+const readable = r => plainObj(r?.goal) && typeof r.goal.hash === 'string' && Array.isArray(r.goal.criteria) && r.goal.criteria.length > 0 &&
+  r.goal.criteria.every(c => plainObj(c) && typeof c.id === 'string' && typeof c.kind === 'string' && typeof c.spec === 'string') &&
+  plainObj(r.limits) && ['parked_max', 'pct', 'wakes_max'].every(k => Number.isInteger(r.limits[k]))
+
 const Alert = ({ children, ...rest }) => (children ? <p className="ms-error" role="alert" {...rest}>{children}</p> : null)
 
-function Review({ sessionId, preview, onReread }) {
+function Review({ sessionId, preview, onReread, onLock }) {
   const { t } = useTranslation()
   const [phrase, setPhrase] = useState('')
   const [busy, setBusy] = useState(false)
@@ -32,6 +38,7 @@ function Review({ sessionId, preview, onReread }) {
   if (preview.host?.loop_on === false) blockers.push({ code: 'host-off', reason: '' })
   const typed = !!want && phrase.trim() === want
   const done = started || unknown
+  useEffect(() => { onLock(busy || done) }, [busy, done, onLock]) // limits are not editable while a start runs or after its outcome: editing would unmount this and hide the outcome
   const canStart = typed && !!preview.start_token && blockers.length === 0 && !busy && !done
   const lim = { parkedMax: preview.limits.parked_max, pct: preview.limits.pct, wakesMax: preview.limits.wakes_max }
 
@@ -49,7 +56,9 @@ function Review({ sessionId, preview, onReread }) {
     setBusy(false)
     if (r?.ok && r?.started) { setStarted(true); return }
     const code = String(r?.code || '')
-    if (r?.state === 'unknown' || code === 'unknown') { setUnknown(true); setNote({ code: 'unknown', text: t('pursuitStart.unknown') }); return }
+    // An answer that is not a start document (unparseable, or without a state) leaves it unknown whether the CLI ran: never "did not start".
+    const known = r?.state === 'started' || r?.state === 'not_started' || r?.state === 'unknown' || r?.login_required === true
+    if (!known || r?.state === 'unknown' || code === 'unknown') { setUnknown(true); setNote({ code: 'unknown', text: t('pursuitStart.unknown') }); return }
     const text = CODES.has(code) ? t(`pursuitStart.code.${code}`) : t('pursuitStart.notStarted')
     setNote({ code, text, detail: String(r?.detail || r?.error || '') })
     if (code === 'already_started') setUnknown(true) // it is running: nothing more to press here
@@ -117,6 +126,7 @@ export default function PursuitStartForm({ sessionId }) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [round, setRound] = useState(0)
+  const [locked, setLocked] = useState(false)
   const alive = useRef(true)
   useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
   const bad = LIMITS.filter(([k]) => !limitOk(k, lim[k])).map(([k]) => k)
@@ -127,7 +137,7 @@ export default function PursuitStartForm({ sessionId }) {
     try {
       const r = await pursuitStartApi.preview(sessionId, { parkedMax: Number(lim.parkedMax) || 0, pct: Number(lim.pct) || 0, wakesMax: Number(lim.wakesMax) || 0 })
       if (!alive.current) return
-      if (r?.error || !r?.start_token || !r?.goal?.hash) {
+      if (r?.error || !r?.start_token || !readable(r)) {
         const code = String(r?.code || '')
         setError(PREVIEW_CODES.has(code) ? t(`pursuitStart.previewCode.${code}`) + ' ' + String(r?.error || '') : String(r?.error || r?.detail || t('pursuitStart.previewFailed')))
       } else { setPreview(r); setRound(n => n + 1) }
@@ -137,7 +147,7 @@ export default function PursuitStartForm({ sessionId }) {
       if (alive.current) setBusy(false)
     }
   }
-  const change = (k, v) => { setLim(l => ({ ...l, [k]: v })); setPreview(null) } // other limits, other preview
+  const change = (k, v) => { if (locked) return; setLim(l => ({ ...l, [k]: v })); setPreview(null) } // other limits, other preview
 
   return (
     <div className="ms-pursuit" data-testid="pursuit-form">
@@ -147,16 +157,16 @@ export default function PursuitStartForm({ sessionId }) {
           <label key={k}>
             {t(`pursuitStart.limit.${k}`)}
             <input type="number" inputMode="numeric" min={1} max={LIMIT_MAX[k]} step={1} aria-label={t(`pursuitStart.limit.${k}`)} value={lim[k]} placeholder={t('pursuitStart.default')}
-              aria-invalid={bad.includes(k) ? 'true' : undefined} onChange={e => change(k, e.target.value)} />
+              aria-invalid={bad.includes(k) ? 'true' : undefined} disabled={locked} onChange={e => change(k, e.target.value)} />
           </label>
         ))}
       </div>
       {bad.length > 0 && <Alert data-testid="pursuit-limit-error">{t('pursuitStart.limitBounds', { pct: LIMIT_MAX.pct })}</Alert>}
       <div className="ms-actions">
-        <button type="button" className="btn btn-secondary btn-sm" data-testid="pursuit-read" disabled={busy || bad.length > 0} onClick={read}>{t('pursuitStart.read')}</button>
+        <button type="button" className="btn btn-secondary btn-sm" data-testid="pursuit-read" disabled={busy || locked || bad.length > 0} onClick={read}>{t('pursuitStart.read')}</button>
       </div>
       <Alert data-testid="pursuit-preview-error">{error}</Alert>
-      {preview && <Review key={`${round}:${preview.start_token}`} sessionId={sessionId} preview={preview} onReread={read} />}
+      {preview && <Review key={`${round}:${preview.start_token}`} sessionId={sessionId} preview={preview} onReread={read} onLock={setLocked} />}
     </div>
   )
 }

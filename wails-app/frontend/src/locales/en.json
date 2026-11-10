@@ -2758,7 +2758,7 @@
     "reviewTitle": "Review before starting"
   },
   "pursuitStart": {
-    "open": "Start pursuit",
+    "open": "Set up a pursuit",
     "intro": "The lead will keep working on this mission's goal while you are away, within the limits below. Read what the CLI shows, then type the phrase. The app asks once more in a window of its own.",
     "limit": {
       "parkedMax": "Waiting questions",
