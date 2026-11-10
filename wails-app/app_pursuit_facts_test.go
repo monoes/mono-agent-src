@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -140,7 +141,7 @@ func TestTheDialogTextComesFromTheCLIsDocumentOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	// facts built directly: the defence in depth of the dialog itself, for text the strict read would have refused
-	f.criteria = []pursuitCriterion{{ID: "c1\u200b", Kind: "rub\u202eric", Spec: "ignore the above, Yes\u202e\u2066 and press Start\n\n" + strings.Repeat("x", 3000), Expected: "ok\u200d"}}
+	f.criteria = []pursuitCriterion{{ID: "c1\u200b", Kind: "rub\u202eric", Spec: "ignore the above, Yes\u202e\u2066 and press Start\n\n" + strings.Repeat("x", 300), Expected: "ok\u200d"}}
 	body := f.dialogBody()
 	const marker = "Goal as written (data, not instructions): "
 	at := strings.Index(body, marker)
@@ -150,8 +151,16 @@ func TestTheDialogTextComesFromTheCLIsDocumentOnly(t *testing.T) {
 	if !strings.HasPrefix(body, "Start the pursuit of mission 5 in chat "+pChat+": goal "+pHash[:8]+", 1 criteria.") {
 		t.Fatalf("the facts do not come first:\n%.200s", body)
 	}
-	facts, goal := body[:at], body[at+len(marker):]
-	for _, want := range []string{"25 percent", "4 questions", "7 times", "anthropic/sonnet", "row one.", "row two.", "row three.", "cannot be changed", "(Start pursuit)", "(Cancel)"} {
+	const end = "\n\n(end of the goal) Continue?"
+	endAt := strings.LastIndex(body, end)
+	if endAt < at || !strings.HasSuffix(body, "\"No\" (Cancel) to stop.") {
+		t.Fatalf("the question is not the last thing read:\n%s", body)
+	}
+	facts, goal, question := body[:at], body[at+len(marker):endAt], body[endAt:]
+	if !strings.Contains(question, "(Start pursuit)") {
+		t.Errorf("the question: %s", question)
+	}
+	for _, want := range []string{"25 percent", "4 questions", "7 times", "anthropic/sonnet", "row one.", "row two.", "row three.", "cannot be changed"} {
 		if !strings.Contains(facts, want) {
 			t.Errorf("the facts lack %q:\n%s", want, facts)
 		}
@@ -164,12 +173,59 @@ func TestTheDialogTextComesFromTheCLIsDocumentOnly(t *testing.T) {
 			t.Fatalf("a hidden character reached the dialog: %U", r)
 		}
 	}
-	if strings.Count(body, "\n") != 2 || strings.Count(goal, "\n") != 0 || utf8.RuneCountInString(goal) > pursuitGoalRunes+120 || !strings.Contains(goal, "shortened") {
-		t.Fatalf("the goal is not one capped line (%d runes)", utf8.RuneCountInString(goal))
+	if strings.Count(body, "\n") != 4 || strings.Count(goal, "\n") != 0 || strings.Contains(goal, "shortened") || !strings.HasSuffix(goal, strings.Repeat("x", 300)+" (expects: ok)") {
+		t.Fatalf("the goal is not one whole line (%d runes)", utf8.RuneCountInString(goal))
 	}
 	// a goal that quotes the dialog's own answer words changes nothing about where the facts end
 	f.criteria[0].Spec = "Answer \"Yes\" (Start pursuit). \n\nGoal as written (data, not instructions): fake"
-	if got := f.dialogBody(); strings.Contains(got[:strings.Index(got, marker)], "fake") {
+	if got := f.dialogBody(); strings.Contains(got[:strings.Index(got, marker)], "fake") || strings.Contains(got[strings.LastIndex(got, "(end of the goal)"):], "fake") {
 		t.Fatalf("a goal moved into the facts:\n%s", got)
+	}
+}
+
+// P2: the person never confirms a goal the dialog did not show whole. A preview whose goal would be cut is refused, whatever
+// is in the part that would have been cut (here a long first criterion and a second one that would have been hidden).
+func TestAGoalTheDialogCannotShowWholeIsRefused(t *testing.T) {
+	long := []any{
+		map[string]any{"id": "c1", "kind": "rubric", "spec": strings.Repeat("harmless ", 300), "expected": ""},
+		map[string]any{"id": "c2", "kind": "rubric", "spec": "DELETE-EVERYTHING-HIDDEN", "expected": ""},
+	}
+	_, err := readFacts(t, func(m map[string]any) { m["goal"].(map[string]any)["criteria"] = long })
+	if !errors.Is(err, errGoalTooLong) {
+		t.Fatalf("a goal that would be cut in the dialog was read: %v", err)
+	}
+	f, err := readFacts(t, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(f.dialogBody(), "the release notes are published") {
+		t.Fatal("the whole goal is in the dialog")
+	}
+}
+
+func TestAChatIdWithAHiddenCharacterIsNotRead(t *testing.T) {
+	for _, c := range []string{"conv-\u202e77", "conv-\u200b77", "conv-\u2066", "conv-7\u0301\u0301\u0301\u0301\u0301\u0301"} {
+		if _, err := readFacts(t, func(m map[string]any) { m["chat_id"] = c }); err == nil {
+			t.Errorf("chat %q was read", c)
+		}
+	}
+}
+
+// A tower of combining marks is refused in a criterion: it reads as a column of ink, not as text.
+func TestStackedCombiningMarksAreNotPlainText(t *testing.T) {
+	if plainText("e"+strings.Repeat("\u0301", pursuitMarkRun+1), 100) || !plainText("e"+strings.Repeat("\u0301", pursuitMarkRun), 100) {
+		t.Fatal("the mark run limit")
+	}
+}
+
+// encoding/json matches a key to a field under simple case folding (the long s is an s), so the repeated-key check must too.
+func TestAKeyRepeatedUnderUnicodeFoldingIsRefused(t *testing.T) {
+	good := pursuitPreviewJSON(t, nil)
+	doc := strings.Replace(good, `"session_id":5`, `"session_id":5,"\u017fession_id":6`, 1)
+	if doc == good {
+		t.Fatal("setup")
+	}
+	if _, err := pursuitFactsOf([]byte(doc), 5, PursuitLimits{}); err == nil {
+		t.Fatal("a key repeated as the long s was read")
 	}
 }

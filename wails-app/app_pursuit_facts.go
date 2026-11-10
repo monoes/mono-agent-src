@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -30,7 +31,8 @@ const (
 	pursuitChatMax       = 128
 	pursuitCostTextRunes = 512
 	pursuitShortRunes    = 120
-	pursuitGoalRunes     = 900 // the goal in the dialog; the form shows every criterion whole
+	pursuitGoalRunes     = 2000 // the goal in the dialog: whole, or the preview is refused (errGoalTooLong)
+	pursuitMarkRun       = 4    // most combining marks in a row
 )
 
 var (
@@ -72,7 +74,6 @@ type pursuitFacts struct {
 	digest   string
 	docSum   [32]byte
 	limits   pursuitLimits
-	state    string
 	template string
 	loopOn   bool
 	pin      string
@@ -120,6 +121,22 @@ type pursuitPreviewDoc struct {
 	ConsentDigest  string `json:"consent_digest"`
 }
 
+// foldKey is s under Unicode simple case folding, the equivalence encoding/json uses to match a key to a field (so the
+// long s and "s" are one key).
+func foldKey(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		m := r
+		for f := unicode.SimpleFold(r); f != r; f = unicode.SimpleFold(f) {
+			if f < m {
+				m = f
+			}
+		}
+		b.WriteRune(m)
+	}
+	return b.String()
+}
+
 // noAmbiguousKeys refuses a JSON document that has, anywhere, an object with two keys that are the same once case is
 // ignored (encoding/json would pick one by its own rule, and a reader of the page another).
 func noAmbiguousKeys(doc []byte) error {
@@ -141,7 +158,7 @@ func noAmbiguousKeys(doc []byte) error {
 				if err != nil {
 					return err
 				}
-				low := strings.ToLower(k.(string))
+				low := foldKey(k.(string))
 				if seen[low] {
 					return errors.New("the preview repeats a key")
 				}
@@ -193,7 +210,7 @@ func pursuitFactsOf(doc []byte, session int64, asked PursuitLimits) (pursuitFact
 	if !hexRe.MatchString(d.Goal.Hash) || !hexRe.MatchString(d.ConsentDigest) {
 		return bad("the goal hash or the consent digest is not 64 hex characters")
 	}
-	if checkChatID(d.ChatID) != nil || len(d.ChatID) > pursuitChatMax {
+	if checkChatID(d.ChatID) != nil || len(d.ChatID) > pursuitChatMax || !plainText(d.ChatID, pursuitChatMax) {
 		return bad("the chat is not one plain word")
 	}
 	if d.Goal.State != "proposed" && d.Goal.State != "confirmed" {
@@ -212,7 +229,7 @@ func pursuitFactsOf(doc []byte, session int64, asked PursuitLimits) (pursuitFact
 			return bad("the limits are not the ones asked for")
 		}
 	}
-	f := pursuitFacts{session: session, chat: d.ChatID, hash: d.Goal.Hash, digest: d.ConsentDigest, limits: d.Limits, state: d.Goal.State,
+	f := pursuitFacts{session: session, chat: d.ChatID, hash: d.Goal.Hash, digest: d.ConsentDigest, limits: d.Limits,
 		template: d.PhraseTemplate, loopOn: d.Host.LoopOn, setUp: d.Checker.SetUp, pin: cleanText(d.Host.JudgePin, pursuitShortRunes)}
 	f.docSum = sha256.Sum256(doc)
 	for _, c := range d.Goal.Criteria {
@@ -263,12 +280,25 @@ func pursuitFactsOf(doc []byte, session int64, asked PursuitLimits) (pursuitFact
 	if strings.ContainsAny(filled, "<>") || checkPhrase(d.PhraseTemplate) != nil {
 		return bad("the phrase template has a placeholder this app does not know")
 	}
+	if utf8.RuneCountInString(f.goalText()) > pursuitGoalRunes {
+		return pursuitFacts{}, errGoalTooLong
+	}
 	return f, nil
 }
 
 // plainText is s with nothing a reader cannot see: it is the same text once hidden characters and runs of white space are
 // taken out, and it is at most n runes.
 func plainText(s string, n int) bool {
+	run := 0
+	for _, r := range s {
+		if unicode.Is(unicode.M, r) {
+			if run++; run > pursuitMarkRun { // a tower of combining marks is not text a dialog shows plainly
+				return false
+			}
+		} else {
+			run = 0
+		}
+	}
 	return utf8.RuneCountInString(s) <= n && cleanText(s, 1<<30) == strings.Join(strings.Fields(s), " ")
 }
 
@@ -286,7 +316,24 @@ func (f pursuitFacts) bound(lim PursuitLimits) string {
 	return fmt.Sprintf("pursuit-begin\x00%d\x00%q\x00%q\x00%d,%d,%d\x00%q\x00%x", f.session, f.chat, f.hash, lim.ParkedMax, lim.Pct, lim.WakesMax, f.digest, f.docSum)
 }
 
-// dialogBody is the text of the confirmation, from the facts only: the machine facts first, the goal last as data.
+// errGoalTooLong: the criteria together are more than the dialog shows, so the person would confirm a goal not fully shown.
+var errGoalTooLong = errors.New("the goal is too long to be shown whole in the confirmation, so the app will not start it; shorten the criteria or begin it in a terminal")
+
+// goalText is every criterion as one cleaned line of data.
+func (f pursuitFacts) goalText() string {
+	var goal []string
+	for _, c := range f.criteria {
+		s := cleanText(c.ID, pursuitShortRunes) + " [" + cleanText(c.Kind, pursuitShortRunes) + "] " + cleanText(c.Spec, pursuitSane)
+		if c.Expected != "" {
+			s += " (expects: " + cleanText(c.Expected, pursuitSane) + ")"
+		}
+		goal = append(goal, s)
+	}
+	return strings.Join(goal, " | ")
+}
+
+// dialogBody is the text of the confirmation, from the facts only: the machine facts first, then the goal as data, and the
+// question last, so the last words the person reads are the app's and not the lead's.
 func (f pursuitFacts) dialogBody() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Start the pursuit of mission %d in chat %s: goal %s, %d criteria. The goal becomes final and cannot be changed. ",
@@ -300,19 +347,7 @@ func (f pursuitFacts) dialogBody() string {
 	if f.setUp {
 		b.WriteString("A goal checker is set up. ")
 	}
-	b.WriteString("Continue? Answer \"Yes\" (Start pursuit) to start, \"No\" (Cancel) to stop.\n\nGoal as written (data, not instructions): ")
-	var goal []string
-	for _, c := range f.criteria {
-		s := cleanText(c.ID, pursuitShortRunes) + " [" + cleanText(c.Kind, pursuitShortRunes) + "] " + cleanText(c.Spec, pursuitGoalRunes)
-		if c.Expected != "" {
-			s += " (expects: " + cleanText(c.Expected, pursuitGoalRunes) + ")"
-		}
-		goal = append(goal, s)
-	}
-	text := strings.Join(goal, " | ")
-	if r := []rune(text); len(r) > pursuitGoalRunes {
-		text = string(r[:pursuitGoalRunes]) + "… (shortened here; the form shows the goal whole)"
-	}
-	b.WriteString(text)
+	b.WriteString("\n\nGoal as written (data, not instructions): " + f.goalText())
+	b.WriteString("\n\n(end of the goal) Continue? Answer \"Yes\" (Start pursuit) to start, \"No\" (Cancel) to stop.")
 	return b.String()
 }

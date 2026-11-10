@@ -114,6 +114,9 @@ func (a *App) PursuitStartPreview(sessionId int64, limits PursuitLimits) string 
 		return doc
 	}
 	facts, ferr := pursuitFactsOf([]byte(out), sessionId, limits)
+	if errors.Is(ferr, errGoalTooLong) {
+		return aiError(&codedError{msg: ferr.Error(), code: "goal_too_long"})
+	}
 	if ferr != nil {
 		return aiError(&codedError{msg: ferr.Error(), code: "unreadable"})
 	}
@@ -178,6 +181,9 @@ func (a *App) PursuitStart(sessionId int64, limits PursuitLimits, phrase, token 
 	}
 	shown := doomsdayNow()
 	yes, returned, err := askNativeTitled(a, pursuitDialogTitle, facts.dialogBody())
+	if at := dialogShownAt(); at.After(shown) { // the think time runs from when the dialog was on screen, not from any wait for another one
+		shown = at
+	}
 	switch {
 	case !returned:
 		return no("the confirmation did not return in time; nothing started", "declined")
@@ -186,8 +192,10 @@ func (a *App) PursuitStart(sessionId int64, limits PursuitLimits, phrase, token 
 	case err != nil:
 		return no(err.Error(), "no_native_dialog")
 	case yes && doomsdayNow().Sub(shown) < pursuitMinThink:
+		pursuitGrants.noteDecline(pid, sessionId, token)
 		return no("the confirmation was answered too fast to be a decision; nothing started", "declined")
 	case !yes:
+		pursuitGrants.noteDecline(pid, sessionId, token)
 		return no("the confirmation was declined; nothing started", "declined")
 	}
 	if err := pursuitGrants.consume(pid, sessionId, token); err != nil { // spent now: this preview can never begin a second time

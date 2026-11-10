@@ -355,8 +355,10 @@ func askNativeTitled(a *App, title, body string) (yes, returned bool, err error)
 		err error
 	}
 	ch := make(chan answer, 1)
-	ask := confirmNative // read once, here: the goroutine below must not read the variable again
-	dialogOpen.Store(true)
+	ask := confirmNative                         // read once, here: the goroutine below must not read the variable again
+	if !dialogOpen.CompareAndSwap(false, true) { // one native confirmation at a time, whoever asks
+		return false, true, errDialogBusy
+	}
 	go func() {
 		y, e := ask(a, title, body)
 		dialogOpen.Store(false) // the dialog is really gone only now, not when the wait gave up

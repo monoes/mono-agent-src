@@ -18,10 +18,11 @@ import (
 )
 
 type pursuitGrant struct {
-	token [16]byte
-	sum   [32]byte
-	exp   int64 // unix nanoseconds
-	facts pursuitFacts
+	token    [16]byte
+	sum      [32]byte
+	exp      int64 // unix nanoseconds
+	facts    pursuitFacts
+	declines int
 }
 
 type pursuitGrantStore struct {
@@ -96,4 +97,20 @@ func (g *pursuitGrantStore) consume(profile string, session int64, token string)
 	}
 	delete(g.m, k)
 	return nil
+}
+
+// noteDecline counts a declined (or too fast) answer; a grant declined twice is dropped, so a page cannot raise the dialog again
+// and again on one preview (a new preview is rate limited).
+func (g *pursuitGrantStore) noteDecline(profile string, session int64, token string) {
+	raw, err := hex.DecodeString(token)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	k := pursuitGrantKey(profile, session)
+	gr := g.m[k]
+	if err != nil || gr == nil || subtle.ConstantTimeCompare(raw, gr.token[:]) != 1 {
+		return
+	}
+	if gr.declines++; gr.declines > 1 {
+		delete(g.m, k)
+	}
 }
