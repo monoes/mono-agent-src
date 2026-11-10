@@ -24,6 +24,10 @@ type Trip struct {
 	RollbackErr error
 	// RollbackHangs, when set before use, makes every ROLLBACK block until its context ends.
 	RollbackHangs bool
+	// BeforeExec, when set before use, runs before every statement the driver executes outside BEGIN, COMMIT and
+	// ROLLBACK, on the connection that is about to run it: the place for a competing writer to commit between a
+	// transaction's read and its write.
+	BeforeExec func(query string)
 	// Opened counts the connections the pool has opened.
 	Opened atomic.Int32
 }
@@ -57,6 +61,9 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}
+	if c.trip.BeforeExec != nil && !isTxControl(query) {
+		c.trip.BeforeExec(query)
+	}
 	res, err := c.Conn.(driver.ExecerContext).ExecContext(context.WithoutCancel(ctx), query, args)
 	if err == nil && strings.HasPrefix(query, "BEGIN") && c.trip.armed.CompareAndSwap(true, false) {
 		return nil, context.Canceled
@@ -87,4 +94,34 @@ func RequireClean(t testing.TB, db *sql.DB) {
 		t.Fatalf("the pooled connection was returned inside a transaction: %v", err)
 	}
 	_, _ = c.ExecContext(ctx, "ROLLBACK")
+}
+
+func isTxControl(q string) bool {
+	return strings.HasPrefix(q, "BEGIN") || strings.HasPrefix(q, "COMMIT") || strings.HasPrefix(q, "ROLLBACK")
+}
+
+// OpenPath is a pool over such a driver on the database file at path (made and migrated by the caller), with the
+// production options (busy timeout, foreign keys) and the default pool size; it is closed with the test.
+func OpenPath(t testing.TB, path string) (*sql.DB, *Trip) {
+	t.Helper()
+	trip := &Trip{}
+	db := sql.OpenDB(connector{dsn: "file:" + path + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)", trip: trip})
+	t.Cleanup(func() { db.Close() })
+	return db, trip
+}
+
+// CompetingWriter returns a function that commits one write on its own connection that does not wait (busy_timeout
+// 0), and says whether it was refused. Where the transaction under test holds no write lock yet it commits (and
+// the transaction's own write then fails with SQLITE_BUSY_SNAPSHOT); where it holds the lock it is refused at once.
+func CompetingWriter(t testing.TB, path string) func() (refused bool) {
+	t.Helper()
+	other, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(0)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { other.Close() })
+	return func() bool {
+		_, err := other.Exec(`CREATE TABLE IF NOT EXISTS zz_competing (x INTEGER); INSERT INTO zz_competing VALUES (1)`)
+		return err != nil
+	}
 }
