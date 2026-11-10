@@ -333,7 +333,6 @@ func TestPursuitBeginRefusesWhenWhatYouReadChanged(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
 			w := newBeginWorld(t)
 			p := w.preview(t)
 			change(w, t)
@@ -487,7 +486,6 @@ func TestPursuitPreviewDoesNotTrustAnInvalidHostFile(t *testing.T) {
 		"a bidi pin":              `{"pid":1,"pursuit":{"enabled":true,"pin":"claude/ha\u202eiku","wakeCapUsd":2}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
 			w := newBeginWorld(t)
 			w.host(doc)
 			p := w.preview(t)
