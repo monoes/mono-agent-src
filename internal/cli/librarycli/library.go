@@ -46,6 +46,7 @@ func NewCommand(deps Deps) *cobra.Command {
 		deps.WithJSONErrors(c)
 		cmd.AddCommand(c)
 	}
+	clicore.CloseAfterRun(cmd, env.Close) // a failing command skips PersistentPostRun
 	return cmd
 }
 

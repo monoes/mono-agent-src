@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -109,7 +110,7 @@ func TestAPIConfigSetToolIsTheDocumentOfAPIConfigSetAndUnsetJSON(t *testing.T) {
 		{name: "a setting saved before", saved: []string{"max_concurrent=8", "turn_timeout=20m"}, set: map[string]string{"turn_timeout": "30m"}},
 		{name: "the same value again", saved: []string{"max_concurrent=8"}, set: map[string]string{"max_concurrent": "8"}},
 		{name: "a value that spells the default", set: map[string]string{"context_confinement": "chat-only"}},
-		{name: "the TLS files", set: map[string]string{"tls_cert_file": "/etc/ssl/api.pem", "tls_key_file": "/etc/ssl/api.key"}},
+		{name: "the TLS files", set: map[string]string{"tls_cert_file": tlsFile("api.pem"), "tls_key_file": tlsFile("api.key")}},
 		{
 			name: "a setting overridden by this process's environment", saved: []string{"max_concurrent=4"}, set: map[string]string{"max_concurrent": "8"},
 			env: map[string]string{"MONOAGENT_API_MAX_CONCURRENT": "12"},
@@ -293,4 +294,12 @@ func TestAPIConfigSetToolRefusesWhatTheCommandRefusesInTheSameWords(t *testing.T
 			}
 		})
 	}
+}
+
+// tlsFile is an absolute path on every OS (a bare /etc/ssl/... is not absolute on Windows).
+func tlsFile(name string) string {
+	if runtime.GOOS == "windows" {
+		return `C:\ssl\` + name
+	}
+	return "/etc/ssl/" + name
 }

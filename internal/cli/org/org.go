@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/cli/orgenv"
 	"github.com/monoes/mono-agent/internal/logging"
 	"github.com/monoes/mono-agent/internal/monomind"
@@ -89,6 +90,7 @@ func NewCommand(d Deps) *cobra.Command {
 		newOrgTeardownProfileCmd(env),
 	)
 	requireRoot(cmd, env)
+	clicore.CloseAfterRun(cmd, env.Close) // a failing command skips PersistentPostRun
 	return cmd
 }
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"github.com/monoes/mono-agent/internal/testhome"
 	"path/filepath"
 	"strings"
@@ -37,7 +38,8 @@ func TestProfileContextCommand(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	for _, want := range []string{`"name": "Work Stuff"`, custom, "bank-login"} {
+	customJSON, _ := json.Marshal(custom) // the folder as the document spells it (backslashes escaped on Windows)
+	for _, want := range []string{`"name": "Work Stuff"`, strings.Trim(string(customJSON), `"`), "bank-login"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("profile context lacks %q:\n%s", want, out)
 		}
