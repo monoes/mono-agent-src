@@ -161,3 +161,34 @@ func TestRealOddProjectAndScratchPathsWork(t *testing.T) {
 	}
 	noUnitsLeft(t, r.c)
 }
+
+// A spin loop that runs into its CPU limit is the program's own resource result (reported as "cpu limit", an error, never a pass),
+// not "killed from outside".
+func TestRealACpuLimitIsReportedAsSuchAndNotAsAnOutsideKill(t *testing.T) {
+	r := newRealRig(t)
+	work, err := os.MkdirTemp(r.base, "crit-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{"subject", "scratch/home", "scratch/tmp"} {
+		os.MkdirAll(filepath.Join(work, d), 0o700)
+	}
+	cmd := exec.Command("/the/exe")
+	lim := finish.Limits{CPUSeconds: 2, AddressSpace: 8 << 30, OpenFiles: 256, FileSize: 1 << 20, Procs: 3001}
+	cmd.Args = finish.LimitsHelperArgv("/the/exe", lim, "/usr/bin/sh", []string{"-c", "while :; do :; done"})
+	cmd.Dir = filepath.Join(work, "subject")
+	cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + work + "/scratch/home", "TMPDIR=" + work + "/scratch/tmp"}
+	cmd.SysProcAttr = sandboxAttr()
+	release, err := r.c.Place(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.c.TakeInfra()
+	runErr := cmd.Run()
+	release()
+	infra := r.c.TakeInfra()
+	if runErr == nil || len(infra) != 1 || !strings.Contains(infra[0], "cpu limit") || strings.Contains(infra[0], "killed from outside") {
+		t.Fatalf("%v %v", runErr, infra)
+	}
+	noUnitsLeft(t, r.c)
+}

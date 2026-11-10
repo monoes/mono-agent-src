@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -298,6 +299,14 @@ func TestTheUnitsResultSeparatesAProgramFromAFailedUnit(t *testing.T) {
 		"still running (timed out by the sandbox)": {"LoadState=loaded\nActiveState=active\nResult=success\nExecMainCode=0\nExecMainStatus=0\n", 255, ""},
 		"no unit and the client failed":            {"LoadState=not-found\nActiveState=inactive\n", 1, "does not exist"},
 		"no unit and the client succeeded":         {"LoadState=not-found\nActiveState=inactive\n", 0, ""},
+		"exit 199 is the program's":                {"LoadState=loaded\nActiveState=failed\nResult=exit-code\nExecMainCode=1\nExecMainStatus=199\n", 199, ""},
+		"exit 200 is systemd's":                    {"LoadState=loaded\nActiveState=failed\nResult=exit-code\nExecMainCode=1\nExecMainStatus=200\n", 200, "200"},
+		"exit 245 is systemd's":                    {"LoadState=loaded\nActiveState=failed\nResult=exit-code\nExecMainCode=1\nExecMainStatus=245\n", 245, "245"},
+		"exit 246 is the program's":                {"LoadState=loaded\nActiveState=failed\nResult=exit-code\nExecMainCode=1\nExecMainStatus=246\n", 246, ""},
+		"cpu limit (SIGKILL at the limit)":         {"LoadState=loaded\nActiveState=failed\nResult=signal\nExecMainCode=2\nExecMainStatus=9\nLimitCPU=2\nCPUUsageNSec=2010000000\n", 255, "cpu limit"},
+		"cpu limit (SIGXCPU)":                      {"LoadState=loaded\nActiveState=failed\nResult=signal\nExecMainCode=2\nExecMainStatus=24\nLimitCPU=2\nCPUUsageNSec=2000000000\n", 255, "cpu limit"},
+		"kill with little cpu is from outside":     {"LoadState=loaded\nActiveState=failed\nResult=signal\nExecMainCode=2\nExecMainStatus=9\nLimitCPU=2\nCPUUsageNSec=30000000\n", 255, "killed"},
+		"kill with no cpu limit is from outside":   {"LoadState=loaded\nActiveState=failed\nResult=signal\nExecMainCode=2\nExecMainStatus=9\nLimitCPU=infinity\nCPUUsageNSec=9000000000\n", 255, "killed"},
 	} {
 		f := newFakeSys()
 		c := newConfiner(t, f, Config{})
@@ -316,6 +325,34 @@ func TestTheUnitsResultSeparatesAProgramFromAFailedUnit(t *testing.T) {
 		}
 		if again := c.TakeInfra(); len(again) != 0 {
 			t.Errorf("%s: the failure was not cleared by TakeInfra: %v", name, again)
+		}
+	}
+}
+
+// (1) The unit's record that cannot be read is not "nothing to report": with a failed client the unit may never have started, and
+// "exit 1" would pass.
+func TestAnUnreadableUnitRecordWithAFailedClientIsInfrastructure(t *testing.T) {
+	for name, tc := range map[string]struct {
+		code  int
+		infra bool
+	}{"client failed": {1, true}, "client succeeded": {0, false}, "client killed by the sandbox": {-1, false}} {
+		f := newFakeSys()
+		c := newConfiner(t, f, Config{})
+		f.handler = func(bin string, args []string) runResult {
+			if bin == "systemctl" && has(args, "show") && has(args, "Result") {
+				return runResult{Code: 1, Stderr: "Failed to connect to bus"}
+			}
+			return runResult{Code: -1}
+		}
+		cmd := exec.Command("/bin/sh", "-c", fmt.Sprintf("exit %d", max(tc.code, 0)))
+		if tc.code < 0 {
+			cmd = exec.Command("/bin/sh", "-c", "kill -KILL $$")
+		}
+		cmd.Run()
+		c.releaseFor(unitA, cmd)()
+		got := c.TakeInfra()
+		if tc.infra && (len(got) != 1 || !strings.Contains(got[0], "could not be read")) || !tc.infra && len(got) != 0 {
+			t.Errorf("%s: %v", name, got)
 		}
 	}
 }
@@ -364,7 +401,7 @@ func TestPlantManagerEnvSetsAndUnsetsByNameAndRefusesOtherNames(t *testing.T) {
 	}
 	undo()
 	calls := ctlCalls(f)
-	if len(calls) != 2 || calls[0] != "set-environment MONOAGENT_CANARY_MGR_ab12=v1" || calls[1] != "unset-environment MONOAGENT_CANARY_MGR_ab12" {
+	if len(calls) != 2 || calls[0] != "set-environment MONOAGENT_CANARY_MGR_ab12=v1.4242-100."+strconv.FormatInt(f.now.Unix(), 10) || calls[1] != "unset-environment MONOAGENT_CANARY_MGR_ab12" {
 		t.Fatalf("%v", calls)
 	}
 	for _, bad := range []string{"PATH", "HOME", "MONOAGENT_CANARY_MGR_x y", "MONOAGENT_TOKEN", "", "MONOAGENT_CANARY_MGR_a=b"} {
@@ -374,5 +411,71 @@ func TestPlantManagerEnvSetsAndUnsetsByNameAndRefusesOtherNames(t *testing.T) {
 	}
 	if _, err := c.PlantManagerEnv(context.Background(), "MONOAGENT_CANARY_MGR_ok", "a\nb"); err == nil {
 		t.Error("a value with a newline was planted")
+	}
+}
+
+// (6) A canary variable that a crashed host left in the manager's environment is removed at the next start: only names of the
+// canary shape, and only those whose owner is dead or that are old; this process's own and a live host's stay.
+func TestSweepUnsetsOnlyStaleCanaryVariablesOfTheManagersEnvironment(t *testing.T) {
+	f := newFakeSys()
+	c := newConfiner(t, f, Config{})
+	now := f.now.Unix()
+	env := strings.Join([]string{
+		"PATH=/usr/bin",
+		"MONOAGENT_CANARY_MGR_dead=v.99-5." + strconv.FormatInt(now, 10),         // dead owner
+		"MONOAGENT_CANARY_MGR_live=v.4243-7." + strconv.FormatInt(now, 10),       // live host, fresh
+		"MONOAGENT_CANARY_MGR_own=v.4242-100." + strconv.FormatInt(now-7200, 10), // this process (never swept, even old)
+		"MONOAGENT_CANARY_MGR_old=v.4243-7." + strconv.FormatInt(now-7200, 10),   // live host but old timestamp
+		"MONOAGENT_CANARY_MGR_noowner=plain",                                     // no owner recorded: old format, swept
+		"MONOAGENT_TOKEN=secret",                                                 // not a canary name: never touched
+		"MONOAGENT_CANARY_SECRET_abc=x",                                          // the host-side name shape: not the manager's
+	}, "\n") + "\n"
+	f.handler = func(bin string, args []string) runResult {
+		if bin == "systemctl" && has(args, "show-environment") {
+			return runResult{Stdout: env}
+		}
+		return runResult{Code: -1}
+	}
+	got, err := c.SweepEnv(context.Background())
+	sort.Strings(got)
+	if err != nil || strings.Join(got, ",") != "MONOAGENT_CANARY_MGR_dead,MONOAGENT_CANARY_MGR_noowner,MONOAGENT_CANARY_MGR_old" {
+		t.Fatalf("%v %v", got, err)
+	}
+	var unset []string
+	for _, call := range ctlCalls(f) {
+		if strings.HasPrefix(call, "unset-environment") {
+			unset = append(unset, strings.TrimPrefix(call, "unset-environment "))
+		}
+	}
+	sort.Strings(unset)
+	if strings.Join(unset, ",") != strings.Join(got, ",") {
+		t.Fatalf("unset %v, swept %v", unset, got)
+	}
+	// Sweep does it too (at host start), so one call cleans both the units and the variables
+	f.reset()
+	if _, err := c.Sweep(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, call := range ctlCalls(f) {
+		if strings.HasPrefix(call, "unset-environment") {
+			n++
+		}
+	}
+	if n != 3 {
+		t.Fatalf("Sweep unset %d variables, want 3", n)
+	}
+}
+
+// The value a canary variable is planted with records the owner and the time, so a later sweep can tell a stale one.
+func TestPlantedManagerVariablesRecordTheirOwnerAndTime(t *testing.T) {
+	f := newFakeSys()
+	c := newConfiner(t, f, Config{})
+	if _, err := c.PlantManagerEnv(context.Background(), "MONOAGENT_CANARY_MGR_ab12", "v1"); err != nil {
+		t.Fatal(err)
+	}
+	want := "set-environment MONOAGENT_CANARY_MGR_ab12=v1.4242-100." + strconv.FormatInt(f.now.Unix(), 10)
+	if calls := ctlCalls(f); len(calls) != 1 || calls[0] != want {
+		t.Fatalf("%v, want %s", calls, want)
 	}
 }
