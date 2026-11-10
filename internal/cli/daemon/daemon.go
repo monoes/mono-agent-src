@@ -74,10 +74,6 @@ func NewCommand(d Deps) *cobra.Command {
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			noteDeprecatedProfile(cmd)
-			// A service manager (launchd, systemd) starts the daemon with a bare PATH, so the runtimes the
-			// bridge lists (claude, codex, agy) and the tools it starts would be invisible; take the login
-			// shell's PATH, as the desktop app does.
-			shellpath.Apply(cmd.Context())
 			// One daemon per home, taken before anything starts: two would
 			// both fire the same schedules and run every workflow twice.
 			// The OS drops the lock if this process dies.
@@ -89,6 +85,11 @@ func NewCommand(d Deps) *cobra.Command {
 				return fmt.Errorf("daemon lock: %w", err)
 			}
 			defer releaseLock()
+
+			// A service manager (launchd, systemd) starts the daemon with a bare PATH, so the runtimes the
+			// bridge lists (claude, codex, agy) and the tools it starts would be invisible; take the login
+			// shell's PATH, as the desktop app does.
+			shellpath.Apply(cmd.Context())
 
 			engine, closeBrowsers, err := d.BuildEngine()
 			if err != nil {
