@@ -1,14 +1,12 @@
 package coderhost
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/monoes/mono-agent/internal/ai"
-	"github.com/monoes/mono-agent/internal/dbconn"
 )
 
 // Starting a mission task in a child coder session of its own (phase P-B1 of
@@ -136,8 +134,8 @@ func (s *Store) releaseReservation(profileID string, sessionID, taskID int64, ge
 	now := s.stamp()
 	// BEGIN IMMEDIATE: the row is read before it is released, and a writer that commits in between would make the
 	// write fail at once with SQLITE_BUSY_SNAPSHOT, which busy_timeout does not wait for (#1460).
-	return dbconn.WithWriteTx(context.Background(), s.db, func(conn *sql.Conn) error {
-		return s.releaseIn(connQuerier{conn}, profileID, sessionID, taskID, generation, lead, failed, why, now)
+	return s.writeTx(func(tx querier) error {
+		return s.releaseIn(tx, profileID, sessionID, taskID, generation, lead, failed, why, now)
 	})
 }
 
