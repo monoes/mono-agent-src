@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/monoes/mono-agent/internal/dbconn"
 	"github.com/monoes/mono-agent/internal/doomsday/finish"
 )
 
@@ -69,26 +70,22 @@ AND NOT EXISTS (SELECT 1 FROM doomsday_audit WHERE profile = ? AND generation = 
 // write runs one finish write: build checks the view and returns the payload, then the row is a conditional insert bound
 // to the head that was read.
 func (l *FinishLedger) write(ctx context.Context, kind string, build func(v *finishView) (any, error), extraCond string, extraArgs func(v *finishView) []any) error {
-	tx, err := l.s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	v, err := l.s.loadFinishView(ctx, tx, l.profile, l.generation)
-	if err != nil {
-		return err
-	}
-	payload, err := build(v)
-	if err != nil {
-		return err
-	}
-	if err := l.insert(ctx, tx, v, kind, payload, extraCond, extraArgs); err != nil {
-		return err
-	}
-	return tx.Commit()
+	// BEGIN IMMEDIATE: the view is read before the row is written, and a writer that commits in between would make the
+	// write fail at once with SQLITE_BUSY_SNAPSHOT (#1460).
+	return dbconn.WithWriteTx(ctx, l.s.db, func(tx *sql.Conn) error {
+		v, err := l.s.loadFinishView(ctx, tx, l.profile, l.generation)
+		if err != nil {
+			return err
+		}
+		payload, err := build(v)
+		if err != nil {
+			return err
+		}
+		return l.insert(ctx, tx, v, kind, payload, extraCond, extraArgs)
+	})
 }
 
-func (l *FinishLedger) insert(ctx context.Context, tx *sql.Tx, v *finishView, kind string, payload any, extraCond string, extraArgs func(v *finishView) []any) error {
+func (l *FinishLedger) insert(ctx context.Context, tx DBTX, v *finishView, kind string, payload any, extraCond string, extraArgs func(v *finishView) []any) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -168,30 +165,28 @@ func (l *FinishLedger) RecordEvidence(ctx context.Context, e finish.Evidence) er
 }
 
 func (l *FinishLedger) recordAdvisory(ctx context.Context, e finish.Evidence) error {
-	tx, err := l.s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	v, err := l.s.loadFinishView(ctx, tx, l.profile, l.generation)
-	if err != nil {
-		return err
-	}
-	c, ok := v.criterion(e.CriterionID)
-	if v.run.State != StateRunning || !ok || c.Rubric {
-		return fmt.Errorf("%w: advisory evidence is for a machine criterion while the run is running", ErrFinishRow)
-	}
-	e.Seq, e.Generation, e.CharterHash, e.CriterionHash, e.Round, e.FreezeSeq, e.Digest = 0, l.generation, v.facts.Charter.Hash, c.Hash, 0, 0, ""
-	body, _ := json.Marshal(e)
-	_, ok, err = l.s.appendAuditIf(ctx, tx, l.profile, l.generation, kindFinishEvidence, string(body), v.head,
-		`EXISTS (SELECT 1 FROM doomsday_runs WHERE profile = ? AND generation = ? AND state = 'running')`, l.profile, l.generation)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return ErrFinishMoved
-	}
-	return tx.Commit()
+	// BEGIN IMMEDIATE: the view is read before the row is written (#1460).
+	return dbconn.WithWriteTx(ctx, l.s.db, func(tx *sql.Conn) error {
+		v, err := l.s.loadFinishView(ctx, tx, l.profile, l.generation)
+		if err != nil {
+			return err
+		}
+		c, ok := v.criterion(e.CriterionID)
+		if v.run.State != StateRunning || !ok || c.Rubric {
+			return fmt.Errorf("%w: advisory evidence is for a machine criterion while the run is running", ErrFinishRow)
+		}
+		e.Seq, e.Generation, e.CharterHash, e.CriterionHash, e.Round, e.FreezeSeq, e.Digest = 0, l.generation, v.facts.Charter.Hash, c.Hash, 0, 0, ""
+		body, _ := json.Marshal(e)
+		_, ok, err = l.s.appendAuditIf(ctx, tx, l.profile, l.generation, kindFinishEvidence, string(body), v.head,
+			`EXISTS (SELECT 1 FROM doomsday_runs WHERE profile = ? AND generation = ? AND state = 'running')`, l.profile, l.generation)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return ErrFinishMoved
+		}
+		return nil
+	})
 }
 
 // RecordDecision appends an operator rubric decision bound to the current round and to a rubric criterion.
