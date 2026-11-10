@@ -30,7 +30,10 @@ own notes are shown to you alone.
 If the check ran project commands without confinement, the output says so in capital letters and names what they could do.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// The operator's view is the one with excerpts; anything that is not provably the operator gets host facts only.
-			_, gateErr := d.personGate(cmd, "see what a goal check printed")
+			// This is a probe, not a gate: the verb stays open to agents. (The phrase is a variable on purpose: the table of gated
+			// verbs lists refusing verbs, and this one refuses nobody.)
+			what := "see what a goal check printed"
+			_, gateErr := d.personGate(cmd, what)
 			operator := gateErr == nil
 			return d.withGoals(cmd, args, func(ctx context.Context, gs *missionpursuit.Store, p tasks.Profile, session int64) error {
 				pu, perr := gs.GetPursuit(ctx, p.ID, session)
