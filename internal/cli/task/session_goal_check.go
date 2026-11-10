@@ -9,7 +9,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/monoes/mono-agent/internal/doomsday/finish"
 	"github.com/monoes/mono-agent/internal/missionpursuit"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
@@ -241,12 +240,12 @@ func (d Deps) subjectNow(c missionpursuit.Check) (string, error) {
 	if c.SubjectRoot == "" || c.SubjectDigest == "" {
 		return "", fmt.Errorf("%w: check #%d recorded no project folder to compare with: a new check will run", tasks.ErrInvalid, c.ID)
 	}
-	tree, err := finish.DigestTree(c.SubjectRoot, "")
+	digest, err := missionpursuit.SubjectDigest(c.SubjectRoot)
 	if err != nil {
 		// The error names a path inside the project, which the mission's lead (an AI) controls: show it cleaned and cut.
 		return "", fmt.Errorf("%w: the project could not be read again (%s): a new check will run", tasks.ErrInvalid, missionpursuit.Clean(err.Error(), 300))
 	}
-	return tree.Digest, nil
+	return digest, nil
 }
 
 func (d Deps) writeAnswered(cmd *cobra.Command, p tasks.Profile, c missionpursuit.Check) error {
