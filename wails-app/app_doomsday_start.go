@@ -345,6 +345,11 @@ var dialogOpen atomic.Bool
 // askNative shows the confirmation and waits for it at most doomsdayDialogTimeout. returned is false when it did not
 // come back in time; a late answer is dropped.
 func askNative(a *App, body string) (yes, returned bool, err error) {
+	return askNativeTitled(a, "Start an open-ended run", body)
+}
+
+// askNativeTitled is askNative with the title of the dialog (the pursuit start has its own; confirmLabelFor picks the button).
+func askNativeTitled(a *App, title, body string) (yes, returned bool, err error) {
 	type answer struct {
 		yes bool
 		err error
@@ -353,7 +358,7 @@ func askNative(a *App, body string) (yes, returned bool, err error) {
 	ask := confirmNative // read once, here: the goroutine below must not read the variable again
 	dialogOpen.Store(true)
 	go func() {
-		y, e := ask(a, "Start an open-ended run", body)
+		y, e := ask(a, title, body)
 		dialogOpen.Store(false) // the dialog is really gone only now, not when the wait gave up
 		ch <- answer{y, e}
 	}()
