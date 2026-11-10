@@ -35,15 +35,21 @@ $15 an hour for one mission, about $30 an hour for the whole host; until the awa
 mission budget and at most about $22.50 on $100 (the 20 percent rule is the only hard bound; the six-wake figure, about $17, is typical, not a bound, because judged epochs that wake nobody are not counted by the wake limit). The caps are requests to the AI runtime, checked from the cost it reports afterwards;
 helpers the lead starts are NOT covered by X: one wake can let the lead carve its whole remaining budget to helpers, bounded only by
 the carve limits (and the money carved out and not yet spent counts in the PCT rule, so a big carve makes the pursuit wait).
-The judge's model is checked by name against the lead's (aliases are not recognised); no verifier pin exists for missions yet. The lead must have a budget and the mission a known budget, and the judge's model must differ from the lead's, or the
+The judge's model is checked by name against the lead's (aliases are not recognised). The lead must have a budget and the mission a known budget, and the judge's model must differ from the lead's, or the
 pursuit waits. pause stops one mission; a judge call or lead turn already running finishes and is paid for.
 
   pursuit start ID [--parked-max N] [--pct N]   start it (the goal must be confirmed); defaults 3 and 20
   pursuit pause ID                              stop new work until you resume (it does not hand the lead back to check-ins, and a judge call already running is not cancelled: it is paid for and its answer dropped)
   pursuit resume ID                             let it go on
-  pursuit status ID                             show it (read only)`,
+  pursuit status ID                             show it: limits, why it waits, epochs, directions, who has to act ("needs": you, host or none) and what you can do next (read only)
+  pursuit list                                  the missions in pursuit for this profile, one line each (read only)
+
+Words an agent or the judge wrote (a direction title, a mission title) are shown cut and marked as agent text; in the JSON they
+sit apart from the host-written fields (agent_text in status, title_agent_text in list). The status JSON carries schema_version.
+A goal checker comes later: until it exists the goal is never checked automatically and "goal_check" in the status says so.
+There is no pursuit stop: close the mission (task session close) to end the pursuit.`,
 	}
-	cmd.AddCommand(d.newPursuitStartCmd(), d.newPursuitPauseCmd(), d.newPursuitResumeCmd(), d.newPursuitStatusCmd())
+	cmd.AddCommand(d.newPursuitStartCmd(), d.newPursuitPauseCmd(), d.newPursuitResumeCmd(), d.newPursuitStatusCmd(), d.newPursuitListCmd())
 	for _, sub := range cmd.Commands() {
 		d.WithJSONErrors(sub)
 	}
@@ -70,13 +76,10 @@ func (d Deps) writePursuit(cmd *cobra.Command, p tasks.Profile, pu missionpursui
 	return nil
 }
 
-// writeProgress prints what the pursuit loop last recorded: how far each away limit has come, the host-wide hourly cap, and
+// writeProgress prints (as plain words; writeStatus makes the JSON) what the pursuit loop last recorded: how far each away limit has come, the host-wide hourly cap, and
 // in plain words why the pursuit waits for you.
 func (d Deps) writeProgress(cmd *cobra.Command, p tasks.Profile, pu missionpursuit.Pursuit, pr missionpursuit.Progress) error {
 	host, hostFound, hostAlive := d.hostPursuit()
-	if d.JSONOutput() {
-		return d.WriteJSON(cmd.OutOrStdout(), map[string]any{"profile": p, "pursuit": pu, "progress": pr, "host": map[string]any{"published": hostFound, "running": hostAlive, "pursuit": host, "judge_call_cap_usd": coderhost.PursuitJudgeCallCapUSD}})
-	}
 	if err := d.writePursuit(cmd, p, pu, "Showing"); err != nil {
 		return err
 	}
@@ -190,19 +193,38 @@ func (d Deps) newPursuitResumeCmd() *cobra.Command {
 func (d Deps) newPursuitStatusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status ID",
-		Short: "Show a mission's pursuit, how far its away limits have come and why it waits (read only)",
+		Short: "Show a mission's pursuit: how far its away limits have come, why it waits, its epochs and directions, who has to act and what you can do next (read only)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return d.withPursuit(cmd, args, func(ctx context.Context, ps *missionpursuit.Store, p tasks.Profile, session int64) error {
-				pu, err := ps.GetPursuit(ctx, p.ID, session)
-				if err != nil {
-					return d.taskErr(err)
-				}
-				pr, err := ps.GetProgress(ctx, p.ID, session)
-				if err != nil {
-					return d.taskErr(err)
-				}
-				return d.writeProgress(cmd, p, pu, pr)
-			})
+			if len(args) != 1 {
+				return d.InvalidInput("task session pursuit status takes one session id, written 3 or #3 (got %d arguments)", len(args))
+			}
+			session, err := d.parseSessionID(args[0])
+			if err != nil {
+				return err
+			}
+			db, err := d.OpenDB()
+			if err != nil {
+				return fmt.Errorf("initializing database: %w", err)
+			}
+			defer db.Close()
+			p, err := tasks.NewStore(db.DB).Profile(cmd.Context(), d.ProfileID())
+			if err != nil {
+				return d.taskErr(err)
+			}
+			ps := missionpursuit.NewStore(db.DB)
+			pu, err := ps.GetPursuit(cmd.Context(), p.ID, session)
+			if err != nil {
+				return d.taskErr(err)
+			}
+			pr, err := ps.GetProgress(cmd.Context(), p.ID, session)
+			if err != nil {
+				return d.taskErr(err)
+			}
+			st, at, err := readStrategy(cmd.Context(), ps, p, session, pr)
+			if err != nil {
+				return err
+			}
+			return d.writeStatus(cmd, p, pu, pr, st, at)
 		},
 	}
 }

@@ -195,9 +195,15 @@ var taskSessionCommandDocs = []cmdDoc{
 	},
 	{
 		Name:     "task session pursuit status",
-		Short:    "Show a mission's pursuit: started by, paused or running, its away limits, how far each has come (wake-ups, parked questions, metered spend, the judge's and the lead's spend, failed judge rounds, the host-wide hourly caps) why it waits for you, and what this host does with it: the host switch (MONOAGENT_PURSUIT_JUDGE, off by default), the judge model and the cap X on one wake-up turn (read only)",
+		Short:    "Show a mission's pursuit: started by, paused or running, its away limits, how far each has come (wake-ups, parked questions, metered spend, the judge's and the lead's spend, failed judge rounds, the host-wide hourly caps) why it waits for you, and what this host does with it: the host switch (MONOAGENT_PURSUIT_JUDGE, off by default), the judge model and the cap X on one wake-up turn; also the epochs (count, the latest one's trigger and state), the directions by state with their ids, the last judge round, the state and who has to act (needs: you, host or none), a line on what you can do next, and schema_version in --json; direction titles are agent text and sit apart in agent_text; the goal-check line is a stub until a goal checker exists (read only)",
 		Usage:    "monoagentcli [--profile P] task session pursuit status ID",
 		Examples: []string{"monoagentcli --profile work task session pursuit status 3"},
+	},
+	{
+		Name:     "task session pursuit list",
+		Short:    "List the missions in pursuit for this profile, one row each: session, state (running, paused, waiting or off-host), the waiting code, who has to act (you, host or none) and the title, shown as agent text; --json adds schema_version (read only)",
+		Usage:    "monoagentcli [--profile P] task session pursuit list",
+		Examples: []string{"monoagentcli --profile work task session pursuit list --json"},
 	},
 	{
 		Name:     "task session retire-worker",
