@@ -2240,6 +2240,21 @@
     "cardNote": "Stored encrypted on this computer. Never sent to an AI. It is filled into a website only when you press Fill card in the browser extension.",
     "filePicker": "Choose a file"
   },
+  "coderPeercred": {
+    "label": "Peer-credential binding",
+    "on": "On: a turn's tokens are bound to the process that runs it.",
+    "off": "Off (default).",
+    "hint": "The open-ended mode needs this on, and is not offered in a chat while it is off. The setting is kept for each profile.",
+    "riskTitle": "Before you switch it on",
+    "risk": {
+      "cannotRun": "Where this computer cannot run the binding service, every Coder turn is refused. It is not weakened: turns stop. It can only be switched on where the service can run.",
+      "noTurn": "It can only be switched on while no Coder turn is running.",
+      "legacy": "Tokens issued before it was switched on stay valid until they expire, so the protection starts as the old tokens run out.",
+      "offRun": "It cannot be switched off while an open-ended run is open. Stop the run first.",
+      "unattended": "The open-ended mode is an unattended, long-running coding session. Switching this on lets you start an autonomous agent on this computer."
+    },
+    "saved": "Saved."
+  },
   "coderDefault": {
     "label": "Default access for new chats",
     "hint": "What a new chat starts at when Coder mode is on and a runtime is ready. You can still pick another level in each chat.",
