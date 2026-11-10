@@ -7,7 +7,7 @@ import '../../i18n.js'
 
 // The chat mode selector in the coder header: three modes chosen before the first message, locked after it, with the
 // CLI's reasons for a disabled mode. The CLI decides; this shows it.
-const { api } = vi.hoisted(() => ({ api: { getChatMissionToggle: vi.fn(), setChatMode: vi.fn(), getChatModeOptions: vi.fn(), openPathWithOS: vi.fn() } }))
+const { api } = vi.hoisted(() => ({ api: { getChatMissionToggle: vi.fn(), setChatMode: vi.fn(), getChatModeOptions: vi.fn(), coderStatus: vi.fn(), openPathWithOS: vi.fn() } }))
 vi.mock('../../services/api.js', () => ({ api, notify: vi.fn() }))
 const { openStartApi } = vi.hoisted(() => ({ openStartApi: { entry: vi.fn() } }))
 vi.mock('../../lib/openStartApi.js', () => ({ openStartApi }))
@@ -209,5 +209,40 @@ describe('why a mode is not available', () => {
     await radio('Open-ended')
     expect(screen.queryByTestId('chat-mode-why-open')).toBeNull()
     expect(screen.getByTestId('chat-mode-reason')).toHaveTextContent('locked: it has a message')
+  })
+})
+
+describe('the open mode follows the peer-credential binding setting', () => {
+  const PENDING = [{ mode: 'off', available: true }, { mode: 'mission', available: true }, { mode: 'open', available: false, pending: true, reason: 'not checked yet' }]
+  beforeEach(() => { api.getChatMissionToggle.mockResolvedValue(view(mode({ options: PENDING }))) })
+
+  it('is not offered while binding is off, and the other modes stay', async () => {
+    api.coderStatus.mockResolvedValue({ enabled: true })
+    render(<Harness />)
+    await radio('Mission')
+    await waitFor(() => expect(screen.queryByRole('radio', { name: 'Open-ended' })).toBeNull())
+    expect(screen.getByRole('radio', { name: 'Off' })).toBeInTheDocument()
+  })
+
+  it('is offered while binding is on', async () => {
+    api.coderStatus.mockResolvedValue({ enabled: true, peercredBinding: true })
+    render(<Harness />)
+    expect(await radio('Open-ended')).toBeInTheDocument()
+  })
+
+  it('is offered when the setting cannot be read (the CLI still refuses a start)', async () => {
+    api.coderStatus.mockRejectedValue(new Error('no status'))
+    render(<Harness />)
+    expect(await radio('Open-ended')).toBeInTheDocument()
+  })
+
+  it('keeps an open mode the CLI refuses, with its reason (a machine that cannot run binding)', async () => {
+    api.coderStatus.mockResolvedValue({ enabled: true })
+    api.getChatMissionToggle.mockResolvedValue(view(mode()))
+    render(<Harness />)
+    const open = await radio('Open-ended')
+    await waitFor(() => expect(api.coderStatus).toHaveBeenCalled())
+    expect(open).toBeDisabled()
+    expect(screen.getByTestId('chat-mode-why-open')).toBeInTheDocument()
   })
 })

@@ -24,15 +24,19 @@ export function ChatModeChip({ state }) {
 
 export function ChatModeSelector({ chatMode }) {
   const { t } = useTranslation()
-  const { state, busy, error, set, checking, checkOpen } = chatMode
+  const { state, busy, error, set, checking, checkOpen, bindingOn } = chatMode
   if (!state && !error) return null
   const locked = !!state?.locked
   const lockedWhy = state?.reason || t('chatMode.locked')
+  // The open mode is not offered while peer-credential binding is known to be off (it is switched on in Settings). Only
+  // an open mode that is not yet checked is left out: one the CLI already refuses keeps its reason, and a chat that is
+  // already in the open mode (locked) keeps it.
+  const options = (state?.options || []).filter(o => !(o.mode === 'open' && o.pending && !o.available && bindingOn === false && state?.mode !== 'open'))
   return (
     <>
       <span role="radiogroup" aria-label={t('chatMode.label')} data-testid="chat-mode" data-locked={locked ? 'true' : undefined}
         title={locked ? lockedWhy : t('chatMode.hint')} style={{ display: 'inline-flex', gap: 2, flexShrink: 0, fontFamily: mono, fontSize: 9 }}>
-        {(state?.options || []).map(o => {
+        {options.map(o => {
           const on = state.mode === o.mode
           const pending = !!o.pending && !o.available
           const disabled = busy || locked || (!o.available && !pending)
@@ -49,7 +53,7 @@ export function ChatModeSelector({ chatMode }) {
           )
         })}
       </span>
-      {!locked && (state?.options || []).filter(o => !o.available && !o.pending).map(o => (
+      {!locked && options.filter(o => !o.available && !o.pending).map(o => (
         <span key={o.mode} role="status" data-testid={`chat-mode-why-${o.mode}`} style={{ flexBasis: '100%', fontFamily: mono, fontSize: 9, color: 'var(--text-muted)' }}>
           {t('chatMode.whyUnavailable', { mode: t(`chatMode.${o.mode}`), reason: o.reason || t('chatMode.unavailable') })}
         </span>

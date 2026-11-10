@@ -298,6 +298,10 @@ export function CoderSetDefaultAccess(arg1) {
   return window['go']['main']['App']['CoderSetDefaultAccess'](arg1);
 }
 
+export function CoderSetPeercredBinding(arg1) {
+  return window['go']['main']['App']['CoderSetPeercredBinding'](arg1);
+}
+
 export function ConfirmApplicationSubmitted(arg1) {
   return window['go']['main']['App']['ConfirmApplicationSubmitted'](arg1);
 }

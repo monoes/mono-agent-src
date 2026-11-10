@@ -152,6 +152,8 @@ export function CoderSetAppAccess(arg1:boolean):Promise<string>;
 
 export function CoderSetDefaultAccess(arg1:string):Promise<string>;
 
+export function CoderSetPeercredBinding(arg1:boolean):Promise<string>;
+
 export function ConfirmApplicationSubmitted(arg1:string):Promise<void>;
 
 export function CoderStatus():Promise<string>;

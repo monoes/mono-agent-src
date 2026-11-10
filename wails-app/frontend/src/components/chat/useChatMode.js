@@ -22,6 +22,9 @@ export function useChatMode(conversationId, enabled = true, access = '') {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [checking, setChecking] = useState(false)
+  // Whether peer-credential binding is on (coder status), null while unknown. The open mode needs it, so the selector
+  // does not offer the mode while it is known to be off. Unknown shows it as before: the CLI still refuses a start.
+  const [bindingOn, setBindingOn] = useState(null)
   const epoch = useRef(0) // a read older than a save is dropped instead of putting the old state back
   const read = useCallback(() => {
     const began = epoch.current
@@ -41,6 +44,13 @@ export function useChatMode(conversationId, enabled = true, access = '') {
     if (conversationId || !enabled || !access) { setDraftOptions(null); return undefined }
     let live = true
     Promise.resolve().then(() => api.getChatModeOptions(access)).then(r => { if (live) setDraftOptions(Array.isArray(r?.options) ? r.options : null) }).catch(() => { if (live) setDraftOptions(null) })
+    return () => { live = false }
+  }, [conversationId, enabled, access])
+
+  useEffect(() => {
+    if (!enabled) { setBindingOn(null); return undefined }
+    let live = true
+    Promise.resolve().then(() => api.coderStatus?.()).then(r => { if (live) setBindingOn(r && typeof r === 'object' ? !!r.peercredBinding : null) }).catch(() => { if (live) setBindingOn(null) })
     return () => { live = false }
   }, [conversationId, enabled, access])
 
@@ -81,5 +91,5 @@ export function useChatMode(conversationId, enabled = true, access = '') {
 
   const draft = draftOptions ? { mode: pending, locked: false, options: draftOptions } : null
   const state = enabled ? (conversationId ? view : draft) : null
-  return { state, busy: busy || checking, checking, checkOpen, error, set, refresh: read, pendingMode: () => (enabled && pendingRef.current !== 'off' ? pendingRef.current : '') }
+  return { bindingOn, state, busy: busy || checking, checking, checkOpen, error, set, refresh: read, pendingMode: () => (enabled && pendingRef.current !== 'off' ? pendingRef.current : '') }
 }

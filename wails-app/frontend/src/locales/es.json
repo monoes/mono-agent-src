@@ -2196,6 +2196,21 @@
     "cardNote": "Se guarda cifrada en este equipo. Nunca se envía a una IA. Solo se rellena en un sitio web cuando pulsas Rellenar tarjeta en la extensión del navegador.",
     "filePicker": "Elegir un archivo"
   },
+  "coderPeercred": {
+    "label": "Vinculación por credencial del proceso",
+    "on": "Activada: los tokens de un turno quedan ligados al proceso que lo ejecuta.",
+    "off": "Desactivada (predeterminado).",
+    "hint": "El modo abierto la necesita activada y no se ofrece en un chat mientras esté desactivada. El ajuste se guarda por perfil.",
+    "riskTitle": "Antes de activarla",
+    "risk": {
+      "cannotRun": "Donde este equipo no pueda ejecutar el servicio de vinculación, se rechaza cada turno de Coder. No se debilita: los turnos se detienen. Solo se puede activar donde el servicio pueda ejecutarse.",
+      "noTurn": "Solo se puede activar mientras no se esté ejecutando ningún turno de Coder.",
+      "legacy": "Los tokens emitidos antes de activarla siguen siendo válidos hasta que caducan, así que la protección empieza cuando se agotan los antiguos.",
+      "offRun": "No se puede desactivar mientras haya una ejecución del modo abierto en curso. Detén antes la ejecución.",
+      "unattended": "El modo abierto es una sesión de programación larga y sin supervisión. Activarla te permite iniciar un agente autónomo en este equipo."
+    },
+    "saved": "Guardado."
+  },
   "coderDefault": {
     "label": "Acceso predeterminado de los chats nuevos",
     "hint": "El nivel con el que empieza un chat nuevo cuando el modo Coder está activado y hay un entorno listo. Puedes elegir otro nivel en cada chat.",
