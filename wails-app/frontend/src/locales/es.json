@@ -2658,7 +2658,7 @@
     "start": "Iniciar persecución",
     "reload": "Leer de nuevo",
     "started": "La persecución ha comenzado. El objetivo ya es definitivo.",
-    "unknown": "No se sabe si ha comenzado. Se está comprobando; no vuelvas a pulsar Iniciar.",
+    "unknown": "No se sabe si ha comenzado. Comprueba el estado de la misión antes de reintentar; no vuelvas a pulsar Iniciar.",
     "notStarted": "No se inició.",
     "code": {
       "operator_only": "Solo puedes iniciar una persecución tú, no la sesión de un agente. No se inició nada.",
@@ -2675,7 +2675,7 @@
       "hidden_characters": "Un criterio tiene caracteres que no se pueden mostrar con seguridad. No se inició nada.",
       "criterion_too_long": "Un criterio es demasiado largo para mostrarlo entero. No se inició nada.",
       "already_started": "Ya hay una persecución en curso para esta misión.",
-      "unknown": "No se sabe si ha comenzado. Se está comprobando; no vuelvas a pulsar Iniciar."
+      "unknown": "No se sabe si ha comenzado. Comprueba el estado de la misión antes de reintentar; no vuelvas a pulsar Iniciar."
     }
   }
 }

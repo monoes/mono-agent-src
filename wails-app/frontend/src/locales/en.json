@@ -2800,7 +2800,7 @@
     "start": "Start pursuit",
     "reload": "Read again",
     "started": "The pursuit started. The goal is now final.",
-    "unknown": "Whether it started is not known. It is checking now; do not press Start again.",
+    "unknown": "Whether it started is not known. Check the mission's status before trying again; do not press Start again.",
     "notStarted": "It did not start.",
     "code": {
       "operator_only": "Only you can start a pursuit, not an agent's session. Nothing started.",
@@ -2817,7 +2817,7 @@
       "hidden_characters": "A criterion has characters that cannot be shown safely. Nothing started.",
       "criterion_too_long": "A criterion is too long to show whole. Nothing started.",
       "already_started": "A pursuit is already running for this mission.",
-      "unknown": "Whether it started is not known. It is checking now; do not press Start again."
+      "unknown": "Whether it started is not known. Check the mission's status before trying again; do not press Start again."
     }
   }
 }
