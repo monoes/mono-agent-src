@@ -289,6 +289,25 @@ func TestAppUpdateMacOSSwapsBundle(t *testing.T) {
 	}
 }
 
+func TestAppUpdateMacOSWithoutACLIOnlyLeavesResultCLINil(t *testing.T) {
+	var zbuf bytes.Buffer
+	zw := zip.NewWriter(&zbuf)
+	w, _ := zw.Create("MonoAgent.app/Contents/MacOS/monoagent-ui")
+	w.Write([]byte("new app"))
+	zw.Close()
+	srv := fakeAppRelease{assets: map[string][]byte{"MonoAgent-darwin-arm64.zip": zbuf.Bytes()}}.server(t)
+	apps := t.TempDir()
+	macos := filepath.Join(apps, "MonoAgent.app", "Contents", "MacOS")
+	os.MkdirAll(macos, 0o755)
+	exe := filepath.Join(macos, "monoagent-ui")
+	os.WriteFile(exe, []byte("old app"), 0o755)
+	var started []string
+	res, err := testUpdater(srv, "darwin", "arm64", exe, &started).Run()
+	if err != nil || res.CLI != nil || readFile(t, exe) != "new app" {
+		t.Fatalf("result = %+v, %v", res, err)
+	}
+}
+
 func TestSwapAllRollsBack(t *testing.T) {
 	dir := t.TempDir()
 	a, b := filepath.Join(dir, "a"), filepath.Join(dir, "b")
