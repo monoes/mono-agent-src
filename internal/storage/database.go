@@ -184,7 +184,19 @@ func recordMigration(e migrationExecer, version int, filename string) error {
 
 func (d *Database) applyMigrations() error {
 	ctx := context.Background()
+	if err := d.applyMigrationsOnConn(ctx); err != nil {
+		return err
+	}
+	// The migration connection is back in the pool (foreign keys ON again), so
+	// the steps below reuse it instead of opening a second connection: every
+	// new connection parses the whole schema, which costs most of an open of
+	// an already-migrated database (much more under -race).
+	return d.afterSchemaMigrations(ctx)
+}
 
+// applyMigrationsOnConn applies the pending schema migrations on one dedicated
+// connection and hands that connection back to the pool when it returns.
+func (d *Database) applyMigrationsOnConn(ctx context.Context) error {
 	// Migrations run on a single dedicated connection with foreign key
 	// enforcement DISABLED. The DSN bakes foreign_keys(ON) into every pooled
 	// connection, but table-rebuild migrations (the standard SQLite
@@ -356,7 +368,12 @@ func (d *Database) applyMigrations() error {
 
 		log.Printf("applied migration %03d (%s)", m.version, m.filename)
 	}
+	return nil
+}
 
+// afterSchemaMigrations runs the steps that follow the schema migrations, on
+// the pool (d.DB).
+func (d *Database) afterSchemaMigrations(ctx context.Context) error {
 	// Heal any schema-shape drift the recorded versions can't see (see
 	// reconcile.go for why versions alone lie). Runs on every open — every
 	// ApplyMigrations call site (CLI initDB, MCP bootstrap, wails startup)
