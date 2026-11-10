@@ -5,6 +5,7 @@ import (
 	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -65,6 +66,11 @@ func TestAutomationFixtureFullRunPostsForm(t *testing.T) {
 		return res.Results
 	}
 	safe := run()
+	// Windows: Edge is found on the PATH-less install locations but a headless launch can still fail (a session without a
+	// desktop, a managed Edge), and the runner then reports "no browser". Linux keeps the hard expectation below.
+	if runtime.GOOS == "windows" && len(safe) == 2 && strings.Contains(safe[1].Message, "no browser") {
+		t.Skip("the browser found by rod could not be launched headless on this Windows session")
+	}
 	if len(safe) != 2 || safe[1].Status != "skipped" || !strings.Contains(safe[1].Message, "--full") {
 		t.Fatalf("safe run = %+v", safe)
 	}
