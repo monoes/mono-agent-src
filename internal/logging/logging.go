@@ -21,6 +21,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -110,6 +111,7 @@ func flagValue(args []string, flag string) (string, bool) {
 // log at the same level. MONOAGENT_RUN_ID, when set, is attached to every
 // line as run_id.
 func Init(args []string, getenv func(string) string, w io.Writer) {
+	closeLogFile() // a file an earlier Init opened ends with that logger (a held file cannot be removed on Windows)
 	raw, fromFlag := LevelFlag(args)
 	if !fromFlag {
 		raw = getenv(EnvLevel)
@@ -127,7 +129,10 @@ func Init(args []string, getenv func(string) string, w io.Writer) {
 		if err != nil {
 			fileErr = fmt.Errorf("--log-file: %w — logging to stderr", err)
 		} else {
-			w = f // open for the life of the process
+			logFileMu.Lock()
+			logFile = f // open until the next Init, else the life of the process
+			logFileMu.Unlock()
+			w = f
 		}
 	}
 
@@ -154,6 +159,20 @@ func Init(args []string, getenv func(string) string, w io.Writer) {
 	}
 	if fileErr != nil {
 		slog.Warn(fileErr.Error())
+	}
+}
+
+var (
+	logFileMu sync.Mutex
+	logFile   *os.File // the --log-file the current logger writes to
+)
+
+func closeLogFile() {
+	logFileMu.Lock()
+	defer logFileMu.Unlock()
+	if logFile != nil {
+		logFile.Close() //nolint:errcheck
+		logFile = nil
 	}
 }
 
