@@ -152,3 +152,4 @@
 166_mission_pursuit.sql
 167_mission_pursuit_state.sql
 168_mission_pursuit_judge.sql
+169_mission_goal_checks.sql

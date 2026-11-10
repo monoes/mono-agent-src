@@ -24,6 +24,14 @@ func PersonTokenEnv() []string { return append([]string(nil), personTokenEnv...)
 // is the operator, and the process is not inside a coder turn. Both are a courtesy layer, not
 // proof: an agent that clears its environment AND detaches from its turn's process tree is not
 // seen; SECURITY.md says so. A variable set to the empty string does not count (lookupEnv wants a value).
+// personProbe says whether this process is the operator at their own terminal, by every layer personGate uses, for a verb that stays
+// open to agents and only shows more to the operator (goal check). It writes nothing and refuses nobody. It is not a gate: the
+// gated-verb guard lists the files that may call it, and no other verb may use the argument name `what` to hide a gate.
+func (d Deps) personProbe(cmd *cobra.Command, what string) bool {
+	_, err := d.personGate(cmd, what)
+	return err == nil
+}
+
 func (d Deps) personGate(cmd *cobra.Command, what string) (tasks.Actor, error) {
 	return d.personGateOpening(cmd, what, d.OpenDB)
 }

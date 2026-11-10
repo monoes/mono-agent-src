@@ -3,7 +3,9 @@
 package finish
 
 import (
+	"fmt"
 	"io/fs"
+	"os"
 
 	"golang.org/x/sys/windows"
 )
@@ -29,4 +31,22 @@ func hardLinked(path string, _ fs.FileInfo) bool {
 		return true
 	}
 	return info.NumberOfLinks > 1
+}
+
+// openRegular opens path and returns it only if the open handle is a regular file and the very file the walk saw (info).
+func openRegular(path string, info fs.FileInfo) (*os.File, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	st, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	if !st.Mode().IsRegular() || !os.SameFile(st, info) {
+		f.Close()
+		return nil, fmt.Errorf("changed after it was looked at, or is not a regular file")
+	}
+	return f, nil
 }

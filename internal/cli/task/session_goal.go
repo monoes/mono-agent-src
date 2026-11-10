@@ -35,9 +35,12 @@ A confirmed goal is final: a changed goal means a new mission.
   goal show ID                       the goal as it stands, with its hash
   goal propose ID --criteria FILE    record a proposal (the mission's lead or you); '-' reads standard input
   goal set ID --criteria FILE        record the criteria and confirm them (you only)
-  goal confirm ID --hash HASH        confirm the proposal whose hash you read (you only)`,
+  goal confirm ID --hash HASH        confirm the proposal whose hash you read (you only)
+  goal check ID                      the latest check of the locked goal: what the host measured, the checker's verdict, your rubric questions (read only)
+  goal answer ID --check N --criterion cK (--yes|--no) [--note T] --dossier HASH
+                                     answer one rubric criterion of a check (you only); the last yes accepts the goal`,
 	}
-	cmd.AddCommand(d.newGoalShowCmd(), d.newGoalProposeCmd(), d.newGoalSetCmd(), d.newGoalConfirmCmd())
+	cmd.AddCommand(d.newGoalShowCmd(), d.newGoalProposeCmd(), d.newGoalSetCmd(), d.newGoalConfirmCmd(), d.newGoalCheckCmd(), d.newGoalAnswerCmd())
 	for _, sub := range cmd.Commands() {
 		d.WithJSONErrors(sub)
 	}

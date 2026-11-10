@@ -58,6 +58,11 @@ type Pursuit struct {
 	WakesMax  int    `json:"away_wakes_max"`
 	PausedBy  string `json:"paused_by,omitempty"`
 	LockedBy  string `json:"locked_by,omitempty"`
+	// UnconfinedChecksOK is the person's switch (default off): goal checks may run project commands without the confinement the
+	// verifier proves. UnconfinedBy is who last changed it.
+	UnconfinedChecksOK bool   `json:"unconfined_checks_ok"`
+	UnconfinedBy       string `json:"unconfined_by,omitempty"`
+	updatedAt          string
 }
 
 // Paused says whether the person paused the pursuit.
@@ -191,9 +196,9 @@ func (s *Store) GetPursuit(ctx context.Context, profileID string, session int64)
 
 func readPursuit(ctx context.Context, x tasks.Queryer, session int64) (Pursuit, error) {
 	p := Pursuit{SessionID: session}
-	var enabled int
-	err := x.QueryRowContext(ctx, `SELECT enabled, away_budget_parked_max, away_budget_pct, away_wakes_max, paused_by, locked_by FROM mission_pursuit WHERE session_id = ?`, session).
-		Scan(&enabled, &p.ParkedMax, &p.Pct, &p.WakesMax, &p.PausedBy, &p.LockedBy)
+	var enabled, unconfined int
+	err := x.QueryRowContext(ctx, `SELECT enabled, away_budget_parked_max, away_budget_pct, away_wakes_max, paused_by, locked_by, unconfined_checks_ok, unconfined_by, updated_at FROM mission_pursuit WHERE session_id = ?`, session).
+		Scan(&enabled, &p.ParkedMax, &p.Pct, &p.WakesMax, &p.PausedBy, &p.LockedBy, &unconfined, &p.UnconfinedBy, &p.updatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Pursuit{}, ErrNotStarted
 	}
@@ -201,5 +206,6 @@ func readPursuit(ctx context.Context, x tasks.Queryer, session int64) (Pursuit, 
 		return Pursuit{}, fmt.Errorf("missionpursuit: reading the pursuit: %w", err)
 	}
 	p.Enabled = enabled == 1
+	p.UnconfinedChecksOK = unconfined == 1
 	return p, nil
 }

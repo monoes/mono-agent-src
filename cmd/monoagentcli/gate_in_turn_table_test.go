@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -45,6 +46,8 @@ func allGatedVerbs() []gatedVerb {
 		{name: "goal confirm", args: []string{"session", "goal", "confirm", "1", "--hash", "x"}, what: "confirm a mission goal"},
 		{name: "pursuit begin", args: []string{"session", "pursuit", "begin", "1", "--goal-hash", "x", "--consent", "x", "--chat", "c"}, what: "begin a mission's pursuit"},
 		{name: "pursuit start", args: []string{"session", "pursuit", "start", "1"}, what: "start a mission's pursuit"},
+		{name: "goal answer", args: []string{"session", "goal", "answer", "1", "--check", "1", "--criterion", "c2", "--yes", "--dossier", "x"}, what: "answer a mission goal check"},
+		{name: "pursuit allow-unconfined-checks", args: []string{"session", "pursuit", "allow-unconfined-checks", "1", "--on"}, what: "change whether goal checks may run unconfined"},
 		{name: "pursuit pause", args: []string{"session", "pursuit", "pause", "1"}, what: "pause a mission's pursuit"},
 		{name: "pursuit resume", args: []string{"session", "pursuit", "resume", "1"}, what: "resume a mission's pursuit"},
 		{name: "edit", args: []string{"edit", "1", "--title", "x"}, what: "edit a task"},
@@ -137,8 +140,9 @@ func TestEveryGatedVerbRefusesAProcessInsideACoderTurn(t *testing.T) {
 }
 
 var (
-	gateCallSite = regexp.MustCompile(`\.personGate(?:Opening)?\(cmd, ("[^"]+"|\w+)`)
-	gateWhatLit  = regexp.MustCompile(`(?m)^const personWhat = ("[^"]+")`)
+	gateCallSite  = regexp.MustCompile(`\.personGate(?:Opening)?\(cmd, ("[^"]+"|\w+)`)
+	probeCallSite = regexp.MustCompile(`\.personProbe\(`)
+	gateWhatLit   = regexp.MustCompile(`(?m)^const personWhat = ("[^"]+")`)
 )
 
 // The guard: every personGate call site in internal/cli/task names a phrase, and every phrase has a row
@@ -151,6 +155,8 @@ func TestEveryPersonGateCallSiteHasARowInTheGatedVerbTable(t *testing.T) {
 		t.Fatalf("no source files found: %v", err)
 	}
 	var sources []string
+	probeFiles := map[string]bool{}
+	hidden := []string{}
 	for _, f := range files {
 		if strings.HasSuffix(f, "_test.go") {
 			continue
@@ -160,6 +166,29 @@ func TestEveryPersonGateCallSiteHasARowInTheGatedVerbTable(t *testing.T) {
 			t.Fatal(err)
 		}
 		sources = append(sources, string(b))
+		// `what` as the argument is the gate handing its own parameter on: it may appear in session_person_env.go only. In any other
+		// file it would hide a gate from this guard (a verb that gates with a variable instead of a phrase).
+		if filepath.Base(f) != "session_person_env.go" {
+			for _, m := range gateCallSite.FindAllStringSubmatch(string(b), -1) {
+				if m[1] == "what" {
+					hidden = append(hidden, filepath.Base(f))
+				}
+			}
+		}
+		if probeCallSite.MatchString(string(b)) && filepath.Base(f) != "session_person_env.go" {
+			probeFiles[filepath.Base(f)] = true
+		}
+	}
+	if len(hidden) > 0 {
+		t.Fatalf("personGate is called with a variable named what in %v: use a phrase literal (a verb that only looks at who is asking uses personProbe)", hidden)
+	}
+	var probes []string
+	for f := range probeFiles {
+		probes = append(probes, f)
+	}
+	sort.Strings(probes)
+	if want := []string{"session_goal_check.go"}; !reflect.DeepEqual(probes, want) {
+		t.Fatalf("personProbe (which refuses nobody) is used in %v, want exactly %v: a new user of it is a verb that is open to agents, decide it in review", probes, want)
 	}
 	all := strings.Join(sources, "\n")
 	personWhat := ""
