@@ -86,8 +86,8 @@ func echoOrgCLI(t *testing.T, invalid bool) {
 		"  *reconcile-doc*) body=$(cat); printf '{\"v\":1,\"org\":%s,\"reconcile\":[]}\\n' \"$body\" ;;\n" +
 		"  *validate*) printf '%s\\n' '" + valid + "' ;;\n" +
 		"  *) printf '{\"ok\":true}\\n' ;;\nesac\n"
-	bin := filepath.Join(t.TempDir(), "monoagentcli")
-	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+	bin := filepath.Join(t.TempDir(), fakeCLIName)
+	if err := writeFakeCLI(bin, script); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("MONOAGENTCLI_BIN", bin)

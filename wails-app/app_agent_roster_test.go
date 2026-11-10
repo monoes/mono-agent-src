@@ -4,7 +4,6 @@ package main
 
 import (
 	"errors"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"sync"
@@ -19,13 +18,13 @@ func TestStopAgentValidationReportsTheCLIMessage(t *testing.T) {
 	withGrace(t, 5*time.Second)
 	// Like monoagentcli: one progress line, then on SIGTERM its error on
 	// stderr (after a log line) and exit 1.
-	cli := filepath.Join(t.TempDir(), "monoagentcli")
+	cli := filepath.Join(t.TempDir(), fakeCLIName)
 	script := `#!/bin/sh
 trap 'echo "2026/09/30 16:00:00 log noise" >&2; echo "validation cancelled after 1 of 3 tests" >&2; exit 1' TERM
 echo '{"type":"validate.started","runtime":"pi","model":"m"}'
 while true; do sleep 0.05; done
 `
-	if err := os.WriteFile(cli, []byte(script), 0o755); err != nil {
+	if err := writeFakeCLI(cli, script); err != nil {
 		t.Fatal(err)
 	}
 
