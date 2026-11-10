@@ -10,3 +10,9 @@
 .ms-strip-title { color: var(--text); font-family: var(--font-display); font-size: 11.5px; }
 .ms-working { margin: 4px 0 0; padding-left: 16px; }
 .ms-worker { color: var(--cyan); }
+
+.ms-pursuit { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; font-size: 11px; }
+.ms-pursuit code, .ms-pursuit pre { font-family: var(--font-mono); font-size: 11px; white-space: pre-wrap; word-break: break-word; margin: 0; }
+.ms-pursuit ul { margin: 0; padding-left: 16px; }
+.ms-pursuit label { display: flex; flex-direction: column; gap: 2px; color: var(--text-muted); }
+.ms-pursuit-limits { display: flex; gap: 8px; flex-wrap: wrap; }
