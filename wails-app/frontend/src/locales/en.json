@@ -2249,6 +2249,19 @@
     "allowsFull": "Runs commands and changes files in the folder you pick, without asking.",
     "allowsWorkspace": "Runs commands and changes files in the folder you pick, without asking, and knows about your profile."
   },
+  "coderBinding": {
+    "label": "Peer-credential binding",
+    "hint": "Ties each coder turn's tokens to the process that runs the turn. The open-ended chat mode is offered only while this is on. Off by default.",
+    "switchedOn": "Peer-credential binding is on.",
+    "switchedOff": "Peer-credential binding is off.",
+    "warnTitle": "Before you change this",
+    "warnMachine": "Switching it on where this machine cannot run the binding service refuses every coder turn instead of running them weaker. It can only be switched on where the service can run.",
+    "warnTurns": "It can only be switched on while no coder turn is running.",
+    "warnLegacy": "Tokens issued before it was switched on stay valid until they expire, so the protection starts only as the old tokens age out.",
+    "warnRun": "It cannot be switched off while an open-ended run is open. Stop the run first.",
+    "warnAgent": "The open-ended mode is an unattended, long-running coding session. Turning this on makes it possible to start an autonomous agent on this machine.",
+    "warnOperator": "Only you can change this here. It is not available to anything running inside a coder turn."
+  },
   "taskResult": {
     "diagnosis": "Diagnosis",
     "proposed": "Proposed change",

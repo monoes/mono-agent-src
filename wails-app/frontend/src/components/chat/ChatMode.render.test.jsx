@@ -57,6 +57,21 @@ describe('chat mode selector', () => {
     expect(api.setChatMode).not.toHaveBeenCalled()
   })
 
+  it('does not offer open-ended while peer-credential binding is off, says where to switch it on, and offers it once the CLI says it is on', async () => {
+    const reason = 'peer-credential binding is off: switch it on in Settings, Coder'
+    const off = [{ mode: 'off', available: true }, { mode: 'mission', available: true }, { mode: 'open', available: false, reason }]
+    const on = [{ mode: 'off', available: true }, { mode: 'mission', available: true }, { mode: 'open', available: false, pending: true, reason: 'not checked yet' }]
+    api.getChatMissionToggle.mockResolvedValue(view(mode({ options: off })))
+    const { unmount } = render(<Harness />)
+    expect(await radio('Open-ended')).toBeDisabled()
+    expect(screen.getByTestId('chat-mode-why-open')).toHaveTextContent('Settings, Coder')
+    unmount()
+    api.getChatMissionToggle.mockResolvedValue(view(mode({ options: on })))
+    render(<Harness />)
+    expect(await radio('Open-ended')).toBeEnabled()
+    expect(screen.queryByTestId('chat-mode-why-open')).toBeNull()
+  })
+
   it('chooses a mode through the CLI and shows what it stored, in the chip too', async () => {
     api.setChatMode.mockResolvedValue(view(mode({ mode: 'mission' })))
     render(<Harness />)

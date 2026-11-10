@@ -107,17 +107,25 @@ func init() {
 	}
 }
 
-// cheapOpenModeCheck is the availability the chat paths see: whether this profile has a run that is not quiescent, from a
-// plain read-only query. The answer carries no run, generation or charter id.
+// cheapOpenModeCheck is the availability the chat paths see: whether peer-credential binding is switched on in this profile (a
+// run needs every turn's tokens bound to its process, so the mode is not offered while it is off), then whether this profile has a
+// run that is not quiescent, from plain read-only queries. The answer carries no run, generation or charter id.
 func cheapOpenModeCheck(cfg *globalConfig) (bool, string) {
 	db, err := openReadDB(cfg)
 	if errors.Is(err, errNoReadableSchema) {
-		return true, "" // no database with the mode's tables: no run
+		return false, openModeBindingOffReason // no database with the mode's tables: nothing stored, so binding is off
 	}
 	if err != nil {
 		return false, "the open-ended mode's state cannot be read right now"
 	}
 	defer db.Close()
+	on, err := chatcli.PeercredBindingOn(db)
+	if err != nil {
+		return false, "the open-ended mode's state cannot be read right now"
+	}
+	if !on {
+		return false, openModeBindingOffReason
+	}
 	var n int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM doomsday_runs WHERE profile = ? AND state <> 'quiescent'`, cfg.ProfileID).Scan(&n); err != nil {
 		return false, "the open-ended mode's state cannot be read right now"
@@ -127,6 +135,9 @@ func cheapOpenModeCheck(cfg *globalConfig) (bool, string) {
 	}
 	return true, ""
 }
+
+// openModeBindingOffReason is why the mode is not offered while the setting is off, and where to switch it on.
+const openModeBindingOffReason = "peer-credential binding is off: switch it on in Settings, Coder, or with `coder set --peercred-binding on`; an open-ended run needs every turn's tokens bound to its process"
 
 // doomsdayProgressOut is where the CLI's Stop prints its early progress line (a test swaps it).
 var doomsdayProgressOut io.Writer = os.Stderr

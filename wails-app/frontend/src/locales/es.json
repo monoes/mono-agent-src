@@ -2205,6 +2205,19 @@
     "allowsFull": "Ejecuta comandos y cambia archivos en la carpeta que elijas, sin preguntar.",
     "allowsWorkspace": "Ejecuta comandos y cambia archivos en la carpeta que elijas, sin preguntar, y conoce tu perfil."
   },
+  "coderBinding": {
+    "label": "Vinculación de credenciales del proceso",
+    "hint": "Ata los tokens de cada turno de Coder al proceso que ejecuta el turno. El modo de chat abierto solo se ofrece mientras esto está activado. Desactivado por defecto.",
+    "switchedOn": "La vinculación de credenciales del proceso está activada.",
+    "switchedOff": "La vinculación de credenciales del proceso está desactivada.",
+    "warnTitle": "Antes de cambiarlo",
+    "warnMachine": "Si lo activas en un equipo que no puede ejecutar el servicio de vinculación, se rechazan todos los turnos de Coder en lugar de ejecutarlos con menos protección. Solo se puede activar donde el servicio pueda ejecutarse.",
+    "warnTurns": "Solo se puede activar mientras no haya ningún turno de Coder en curso.",
+    "warnLegacy": "Los tokens emitidos antes de activarlo siguen siendo válidos hasta que caducan, así que la protección empieza solo cuando los tokens antiguos van caducando.",
+    "warnRun": "No se puede desactivar mientras haya una ejecución abierta. Detén primero la ejecución.",
+    "warnAgent": "El modo abierto es una sesión de programación larga y sin supervisión. Activar esto permite iniciar un agente autónomo en este equipo.",
+    "warnOperator": "Solo tú puedes cambiarlo aquí. No está disponible para nada que se ejecute dentro de un turno de Coder."
+  },
   "taskResult": {
     "diagnosis": "Diagnóstico",
     "proposed": "Cambio propuesto",
