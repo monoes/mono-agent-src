@@ -51,6 +51,7 @@ func init() {
 		if err != nil {
 			return engineForOpenFailure(err)
 		}
+		doomsdayOwns(func() { db.Close() })
 		w := doomsdayWiring(cfg, db.DB)
 		// The CLI's own Stop: the line that says the marker is written, before the database step that may wait on a busy database.
 		w.Progress = doomsdayProgress
@@ -61,6 +62,7 @@ func init() {
 		if err != nil {
 			return engineForOpenFailure(err)
 		}
+		doomsdayOwns(func() { db.Close() })
 		return doomsdayWiring(cfg, db).ReadEngine()
 	}
 	doomsdayChat = func(cfg *globalConfig, d *chatcli.Deps) {
