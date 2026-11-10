@@ -39,9 +39,6 @@ type Config struct {
 	// Confiner is the confinement of project commands, proved by the caller (the host, a later slice). Without one that passes
 	// its SelfTest, command and output criteria are not run (cannot-check: no-confinement); file criteria need none.
 	Confiner Confiner
-	// AllowUnconfined runs project commands with only the process group, the limits and the empty network namespace. It exists
-	// so the host can wire a person-set opt-in later; it is false by default and every Result says UNCONFINED.
-	AllowUnconfined bool
 	// NetDenyAvailable overrides the platform probe (tests).
 	NetDenyAvailable func() bool
 
@@ -59,6 +56,19 @@ type Confiner interface {
 	SelfTest(ctx context.Context) error
 	// Place makes cmd start inside the confinement, as finish.Sandbox.Place does.
 	Place(cmd *exec.Cmd) (release func(), err error)
+}
+
+// Hider is an optional part of a Confiner: it returns a copy of the confiner for one check that also hides the live project
+// folder root from the programs (the criteria run on a sandbox copy, so the live folder is never mounted; where it lies outside
+// the places the confinement already hides, the copy must say so). The self test runs on the original, the programs on the copy.
+type Hider interface {
+	Hide(root string) Confiner
+}
+
+// LeftoverChecker is an optional part of a Confiner: it lists what a program left running after its release (units, processes).
+// The outlive, fork-bomb, memory and timeout canaries need it; a confiner without it cannot pass them (fail closed).
+type LeftoverChecker interface {
+	Leftovers(ctx context.Context) ([]string, error)
 }
 
 // Checker is the real Verifier: finish.Sandbox for the machine criteria, finish.RunnerVerifier for the block-only review.
@@ -191,7 +201,7 @@ func (k *Checker) Run(ctx context.Context, req Request) (Result, error) {
 			}
 			conf = k.cfg.Confiner
 			res.Containment = ContainmentConfinedPrefix + Excerpt(conf.Name(), 64) + " + process-group"
-		case k.cfg.AllowUnconfined:
+		case req.AllowUnconfined:
 			res.Containment = ContainmentUnconfined
 		default:
 			return end(OutcomeCannotCheck, ReasonNoConfinement)
@@ -230,14 +240,14 @@ func (k *Checker) Run(ctx context.Context, req Request) (Result, error) {
 	go func() {
 		var s sealed
 		if s.before, s.err = finish.StatManifest(req.Root); s.err == nil {
-			s.tree, s.err = finish.Snapshot(req.Root, snap)
+			s.tree, s.err = finish.SnapshotCtx(ctx, req.Root, snap)
 		}
 		if s.err == nil {
 			if k.cfg.afterCopy != nil {
 				k.cfg.afterCopy()
 			}
 			// The tree must not have moved while it was copied.
-			live, derr := finish.DigestTree(req.Root, "")
+			live, derr := finish.DigestTreeCtx(ctx, req.Root, "")
 			s.moved = derr != nil || live.Digest != s.tree.Digest
 		}
 		ch <- s
@@ -267,6 +277,9 @@ func (k *Checker) Run(ctx context.Context, req Request) (Result, error) {
 
 	gp := &GroupPlace{}
 	defer gp.Close()
+	if h, ok := conf.(Hider); ok {
+		conf = h.Hide(req.Root) // a per-check copy that also keeps the live project out of the programs' sight
+	}
 	sb.Place, sb.Scratch = placeBoth(gp, conf), work
 	runCtx, cancel := context.WithTimeout(ctx, k.tot)
 	defer cancel()
@@ -298,7 +311,7 @@ func (k *Checker) Run(ctx context.Context, req Request) (Result, error) {
 	go func() {
 		var r rechecked
 		r.after, r.aerr = finish.StatManifest(req.Root)
-		r.live, r.derr = finish.DigestTree(req.Root, "")
+		r.live, r.derr = finish.DigestTreeCtx(ctx, req.Root, "")
 		rc <- r
 	}()
 	select {

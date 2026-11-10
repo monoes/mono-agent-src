@@ -74,6 +74,21 @@ func helperArgv(exe string, l Limits, program string, args []string) []string {
 	return append([]string{exe, limitsMarker, spec, "--", program}, args...)
 }
 
+// UnwrapLimitsHelper is the inverse of helperArgv, for a confiner that starts the program itself and sets the limits another way
+// (as unit properties): it reads the command line the sandbox built (exe, marker, spec, "--", program, arguments) and returns
+// the limits, the program and its arguments. ok is false for any other shape, and for a program that is not an absolute path
+// (the sandbox resolves it before it wraps it).
+func UnwrapLimitsHelper(args []string) (l Limits, program string, programArgs []string, ok bool) {
+	if len(args) < 5 || args[1] != limitsMarker || args[3] != "--" || !filepath.IsAbs(args[4]) {
+		return Limits{}, "", nil, false
+	}
+	l, err := parseLimitsSpec(args[2])
+	if err != nil {
+		return Limits{}, "", nil, false
+	}
+	return l, args[4], append([]string(nil), args[5:]...), true
+}
+
 // parseLimitsSpec reads the helper's argument: five positive integers.
 func parseLimitsSpec(s string) (Limits, error) {
 	parts := strings.Split(s, ",")

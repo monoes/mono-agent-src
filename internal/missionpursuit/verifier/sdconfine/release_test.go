@@ -161,6 +161,30 @@ func TestLeftoversAreTheOwnUnitsThatAreNotInactive(t *testing.T) {
 	}
 }
 
+// A weak kill mode leaves the unit "inactive" with a child still in its cgroup: that is left behind, the state alone does not say.
+func TestAnInactiveUnitWhoseCgroupStillHoldsAProcessIsLeftBehind(t *testing.T) {
+	f := newFakeSys()
+	c := newConfiner(t, f, Config{})
+	f.handler = func(bin string, args []string) runResult {
+		switch {
+		case bin == "systemctl" && has(args, "list-units"):
+			return runResult{Stdout: "monoagent-check-0000000000000003.service loaded inactive dead x\n"}
+		case bin == "systemctl" && has(args, "show") && has(args, "ControlGroup"):
+			return runResult{Stdout: "/user.slice/orphan.service\n"}
+		}
+		return runResult{Code: -1}
+	}
+	f.files["/sys/fs/cgroup/user.slice/orphan.service/cgroup.procs"] = "777\n"
+	got, err := c.Leftovers(context.Background())
+	if err != nil || len(got) != 1 {
+		t.Fatalf("%v %v", got, err)
+	}
+	f.files["/sys/fs/cgroup/user.slice/orphan.service/cgroup.procs"] = ""
+	if got, err := c.Leftovers(context.Background()); err != nil || len(got) != 0 {
+		t.Fatalf("an empty cgroup was reported: %v %v", got, err)
+	}
+}
+
 func TestSweepStopsExactlyTheStaleUnitsByName(t *testing.T) {
 	f := newFakeSys()
 	c := newConfiner(t, f, Config{})

@@ -22,6 +22,10 @@ import (
 // only where MONOAGENT_REQUIRE_SANDBOX_TESTS=1. The fork-bomb and memory-hog canaries are not part of them (see
 // TestRealHeavyCanaries, off unless MONOAGENT_CONFINER_HEAVY_TESTS=1).
 
+var noMountFences = []string{"PrivateUsers", "PrivatePIDs", "ProtectProc", "ProcSubset", "ProtectSystem", "ProtectHome", "TemporaryFileSystem",
+	"InaccessiblePaths", "PrivateTmp", "PrivateDevices", "ProtectKernelTunables", "ProtectKernelModules", "ProtectKernelLogs",
+	"ProtectControlGroups", "ProtectClock", "BindPaths", "PrivateIPC", "PrivateNetwork", "CapabilityBoundingSet"}
+
 type realRig struct {
 	c                      *Confiner
 	base, home, rt, tmpdir string
@@ -151,9 +155,11 @@ func TestRealTakingAFenceOutBreaksItsCanary(t *testing.T) {
 		{"C4", []string{"ProtectHome", "TemporaryFileSystem"}},
 		{"C1", []string{"ProtectHome", "TemporaryFileSystem"}},
 		{"C7", []string{"PrivateNetwork"}},
-		{"C5", []string{"ProtectProc", "PrivatePIDs"}},
+		// A user manager implies a user namespace for every setting that needs a namespace (the mount, ipc and network ones), and a
+		// process in it cannot read the host's /proc/<pid>/environ: the host's environment stays unreadable until ALL of them are
+		// gone, so the pid, proc, user, filesystem and network fences are taken out together.
+		{"C5", noMountFences},
 		{"C6", []string{"PrivateIPC"}},
-		{"C6", []string{"PrivateUsers"}},
 		{"C6", []string{"PrivatePIDs"}},
 		{"C3", []string{"ProtectHome", "TemporaryFileSystem", "PrivateTmp"}},
 	} {
@@ -173,9 +179,11 @@ func TestRealTakingAFenceOutBreaksItsCanary(t *testing.T) {
 // outlive canary sees it. (The sweep in the cleanup ends it; its RuntimeMaxSec is the backstop.)
 func TestRealWithoutTheKillModeAndTheReleaseAnOrphanOutlivesTheCheck(t *testing.T) {
 	r := newRealRig(t)
+	// (a unit with its own pid namespace ends all its processes when its first one exits, whatever the kill mode says, so the pid
+	// namespace goes too)
 	m := mutated(r.c, func(p []string) []string {
 		var out []string
-		for _, q := range p {
+		for _, q := range without("PrivatePIDs")(p) {
 			if q == "KillMode=control-group" {
 				q = "KillMode=process"
 			}
@@ -185,6 +193,8 @@ func TestRealWithoutTheKillModeAndTheReleaseAnOrphanOutlivesTheCheck(t *testing.
 	})
 	m.noRelease = true
 	rs := r.canaries(t, m, "C10")
+	left, lerr := r.c.Leftovers(context.Background())
+	t.Logf("leftovers: %v %v", left, lerr)
 	if len(rs) != 1 || rs[0].Verdict != verifier.CanaryBroken {
 		t.Fatalf("%s", report(rs))
 	}
@@ -194,51 +204,44 @@ func TestRealWithoutTheKillModeAndTheReleaseAnOrphanOutlivesTheCheck(t *testing.
 	noUnitsLeft(t, r.c)
 }
 
-type propRow struct{ set, show, want string }
+// propRow is one property: what to set, which property to read back from the running unit, and what the read-back must show when
+// the property is applied. pinned: the manager's default equals the value, so absence cannot be seen by reading it back (the
+// property is explicit so a changed default or a drop-in cannot weaken the unit; its revert proof is the self-check refusal).
+type propRow struct {
+	set, show string
+	ok        func(out string) bool
+	pinned    bool
+}
 
-func rows(c *Confiner, work string) []propRow {
+func reads(want string) func(string) bool {
+	return func(out string) bool { return strings.Contains(out, want) }
+}
+
+func rows() []propRow {
+	eq := func(set string) propRow {
+		return propRow{set: set, show: strings.SplitN(set, "=", 2)[0], ok: reads(set)}
+	}
 	return []propRow{
-		{"PrivateNetwork=yes", "PrivateNetwork", "PrivateNetwork=yes"},
-		{"PrivateIPC=yes", "PrivateIPC", "PrivateIPC=yes"},
-		{"RestrictAddressFamilies=AF_UNIX", "RestrictAddressFamilies", "RestrictAddressFamilies=AF_UNIX"},
-		{"ProtectSystem=strict", "ProtectSystem", "ProtectSystem=strict"},
-		{"ProtectHome=tmpfs", "ProtectHome", "ProtectHome=tmpfs"},
-		{"TemporaryFileSystem=/run", "TemporaryFileSystem", "TemporaryFileSystem=/run"},
-		{"InaccessiblePaths=-/var/run -/mnt -/media", "InaccessiblePaths", "-/mnt"},
-		{"PrivateTmp=yes", "PrivateTmp", "PrivateTmp=yes"},
-		{"PrivateDevices=yes", "PrivateDevices", "PrivateDevices=yes"},
-		{"ProtectKernelTunables=yes", "ProtectKernelTunables", "ProtectKernelTunables=yes"},
-		{"ProtectKernelModules=yes", "ProtectKernelModules", "ProtectKernelModules=yes"},
-		{"ProtectKernelLogs=yes", "ProtectKernelLogs", "ProtectKernelLogs=yes"},
-		{"ProtectControlGroups=yes", "ProtectControlGroups", "ProtectControlGroups=yes"},
-		{"ProtectClock=yes", "ProtectClock", "ProtectClock=yes"},
-		{"BindPaths=" + work, "BindPaths", "BindPaths=" + work},
-		{"PrivateUsers=yes", "PrivateUsers", "PrivateUsers=yes"},
-		{"PrivatePIDs=yes", "PrivatePIDs", "PrivatePIDs=yes"},
-		{"ProtectProc=invisible", "ProtectProc", "ProtectProc=invisible"},
-		{"ProcSubset=pid", "ProcSubset", "ProcSubset=pid"},
-		{"NoNewPrivileges=yes", "NoNewPrivileges", "NoNewPrivileges=yes"},
-		{"CapabilityBoundingSet=", "CapabilityBoundingSet", "CapabilityBoundingSet=\n"},
-		{"RestrictNamespaces=yes", "RestrictNamespaces", "RestrictNamespaces=yes"},
-		{"LockPersonality=yes", "LockPersonality", "LockPersonality=yes"},
-		{"MemoryDenyWriteExecute=no", "MemoryDenyWriteExecute", "MemoryDenyWriteExecute=no"},
-		{"SystemCallFilter=@system-service", "SystemCallFilter", "@system-service"},
-		{"SystemCallFilter=~keyctl add_key request_key", "SystemCallFilter", "request_key"},
-		{"UMask=0077", "UMask", "UMask=0077"},
-		{"KeyringMode=private", "KeyringMode", "KeyringMode=private"},
-		{"MemoryMax=268435456", "MemoryMax", "MemoryMax=268435456"},
-		{"MemorySwapMax=0", "MemorySwapMax", "MemorySwapMax=0"},
-		{"TasksMax=64", "TasksMax", "TasksMax=64"},
-		{"CPUQuota=100%", "CPUQuotaPerSecUSec", "CPUQuotaPerSecUSec=1s"},
-		{"LimitCPU=300", "LimitCPU", "LimitCPU=300"},
-		{"LimitAS=8589934592", "LimitAS", "LimitAS=8589934592"},
-		{"LimitNOFILE=777", "LimitNOFILE", "LimitNOFILE=777"},
-		{"LimitFSIZE=4096", "LimitFSIZE", "LimitFSIZE=4096"},
-		{"LimitCORE=0", "LimitCORE", "LimitCORE=0"},
-		{"RuntimeMaxSec=315", "RuntimeMaxUSec", "RuntimeMaxUSec=5min 15s"},
-		{"KillMode=control-group", "KillMode", "KillMode=control-group"},
-		{"SendSIGKILL=yes", "SendSIGKILL", "SendSIGKILL=yes"},
-		{"TimeoutStopSec=5", "TimeoutStopUSec", "TimeoutStopUSec=5s"},
+		eq("PrivateNetwork=yes"), eq("PrivateIPC=yes"), eq("RestrictAddressFamilies=AF_UNIX"), eq("ProtectSystem=strict"), eq("ProtectHome=tmpfs"),
+		eq("TemporaryFileSystem=/run"),
+		{set: "InaccessiblePaths=-/var/run -/mnt -/media", show: "InaccessiblePaths", ok: reads("-/mnt")},
+		eq("PrivateTmp=yes"), eq("PrivateDevices=yes"), eq("ProtectKernelTunables=yes"), eq("ProtectKernelModules=yes"), eq("ProtectKernelLogs=yes"),
+		eq("ProtectControlGroups=yes"), eq("ProtectClock=yes"),
+		{set: "BindPaths=<work>", show: "BindPaths", ok: reads("/crit-")},
+		eq("PrivateUsers=yes"), eq("PrivatePIDs=yes"), eq("ProtectProc=invisible"), eq("ProcSubset=pid"), eq("NoNewPrivileges=yes"),
+		{set: "CapabilityBoundingSet=", show: "CapabilityBoundingSet", ok: func(o string) bool { return strings.TrimSpace(o) == "CapabilityBoundingSet=" }},
+		eq("RestrictNamespaces=yes"), eq("LockPersonality=yes"),
+		{set: "MemoryDenyWriteExecute=no", show: "MemoryDenyWriteExecute", ok: reads("=no"), pinned: true},
+		// the read-back shows the allowed list: the filter is on when it is a list of calls, and keyctl's are out of it
+		{set: "SystemCallFilter=@system-service", show: "SystemCallFilter", ok: func(o string) bool { return strings.Contains(o, " execve ") && strings.Contains(o, " write") }},
+		{set: "SystemCallFilter=~keyctl add_key request_key", show: "SystemCallFilter", ok: func(o string) bool { return !strings.Contains(o, "request_key") && strings.Contains(o, " execve ") }},
+		eq("UMask=0077"), eq("KeyringMode=private"), eq("MemoryMax=268435456"), eq("MemorySwapMax=0"), eq("TasksMax=64"),
+		{set: "CPUQuota=100%", show: "CPUQuotaPerSecUSec", ok: reads("CPUQuotaPerSecUSec=1s")},
+		eq("LimitCPU=300"), eq("LimitAS=8589934592"), eq("LimitNOFILE=777"), eq("LimitFSIZE=4096"), eq("LimitCORE=0"),
+		{set: "RuntimeMaxSec=315", show: "RuntimeMaxUSec", ok: reads("RuntimeMaxUSec=5min 15s")},
+		{set: "KillMode=control-group", show: "KillMode", ok: reads("=control-group"), pinned: true},
+		{set: "SendSIGKILL=yes", show: "SendSIGKILL", ok: reads("=yes"), pinned: true},
+		{set: "TimeoutStopSec=5", show: "TimeoutStopUSec", ok: reads("TimeoutStopUSec=5s")},
 	}
 }
 
@@ -313,50 +316,40 @@ func TestRealEveryPropertyIsAppliedByTheManagerAndItsAbsenceIsSeen(t *testing.T)
 	}
 	run := func(c *Confiner) (map[string]string, func()) {
 		unitWork, stop := startSleeper(t, r, c)
-		unit, work, _ := strings.Cut(unitWork, "|")
+		unit, _, _ := strings.Cut(unitWork, "|")
 		got := map[string]string{}
-		for _, row := range rows(c, work) {
-			got[row.show] = showUnit(t, unit, row.show)
+		for _, row := range rows() {
+			if _, ok := got[row.show]; !ok {
+				got[row.show] = showUnit(t, unit, row.show)
+			}
 		}
 		return got, stop
 	}
 	full, stop := run(r.c)
-	for _, row := range rows(r.c, "") {
-		if row.show == "BindPaths" {
-			continue // compared below, it carries this unit's own work path
-		}
-		if !strings.Contains(full[row.show], row.want) {
+	for _, row := range rows() {
+		if !row.ok(full[row.show]) {
 			t.Errorf("%s is not applied: %q", row.set, full[row.show])
 		}
 	}
-	if !strings.Contains(full["BindPaths"], "/crit-") {
-		t.Errorf("BindPaths: %q", full["BindPaths"])
-	}
 	stop()
-	for _, row := range rows(r.c, "") {
-		row := row
-		if row.show == "SystemCallFilter" && !strings.Contains(row.set, "@system-service") {
-			continue // the two filter lines share a property; the first row's drop proves the filter is read back
+	for _, row := range rows() {
+		if row.pinned {
+			continue
 		}
-		m := mutated(r.c, without(strings.SplitN(row.set, "=", 2)[0]))
-		if strings.HasPrefix(row.set, "SystemCallFilter=") {
-			m = mutated(r.c, func(p []string) []string {
-				var out []string
-				for _, q := range p {
-					if q != row.set {
-						out = append(out, q)
-					}
+		drop := func(p []string) []string {
+			var out []string
+			for _, q := range p {
+				if q == row.set || (strings.HasPrefix(q, "BindPaths=") && strings.HasPrefix(row.set, "BindPaths=")) {
+					continue
 				}
-				return out
-			})
+				out = append(out, q)
+			}
+			return out
 		}
-		got, stop := run(m)
+		got, stop := run(mutated(r.c, drop))
 		stop()
-		if strings.Contains(got[row.show], row.want) && row.show != "BindPaths" {
-			t.Errorf("%s: the unit without it still reads %q", row.set, got[row.show])
-		}
-		if row.show == "BindPaths" && strings.Contains(got[row.show], "/crit-") {
-			t.Errorf("%s: the unit without it still binds %q", row.set, got[row.show])
+		if row.ok(got[row.show]) {
+			t.Errorf("%s: the unit without it still reads %.120q", row.set, got[row.show])
 		}
 	}
 	noUnitsLeft(t, r.c)
@@ -373,6 +366,7 @@ func TestRealTheProgramsArgumentsEnvironmentAndExitStatusArriveAsTheSandboxMeant
 	for _, d := range []string{"subject", "scratch/home", "scratch/tmp"} {
 		os.MkdirAll(filepath.Join(work, d), 0o700)
 	}
+	var onPlaced func(*exec.Cmd)
 	run := func(script string) (string, int) {
 		cmd := exec.Command("/the/exe")
 		lim := finish.Limits{CPUSeconds: 20, AddressSpace: 8 << 30, OpenFiles: 256, FileSize: 1 << 20, Procs: 3001}
@@ -387,6 +381,9 @@ func TestRealTheProgramsArgumentsEnvironmentAndExitStatusArriveAsTheSandboxMeant
 			t.Fatal(err)
 		}
 		defer release()
+		if onPlaced != nil {
+			go onPlaced(cmd)
+		}
 		err = cmd.Run()
 		code := 0
 		var ee *exec.ExitError
@@ -400,9 +397,20 @@ func TestRealTheProgramsArgumentsEnvironmentAndExitStatusArriveAsTheSandboxMeant
 	if out, code := run(`echo '$HOME ${X} %h $$' "$WEIRD" "$HOME"; exit 7`); code != 7 || out != "$HOME ${X} %h $$ a$b%h "+work+"/scratch/home\n" {
 		t.Errorf("code %d out %q", code, out)
 	}
-	if _, code := run(`kill -KILL $$`); code == 0 {
+	// a unit killed from outside (the kernel's OOM kill is the same signal) ends the client with a non-zero status: it never looks
+	// like a pass. (A program cannot signal pid 1 of its own pid namespace, so the kill comes from the manager.)
+	killer := func(c *exec.Cmd) {
+		time.Sleep(700 * time.Millisecond)
+		ctl, _ := trustedBinary("/usr/bin/systemctl", "/bin/systemctl")
+		k := exec.Command(ctl, "--user", "kill", "--signal=SIGKILL", "--kill-whom=all", strings.TrimPrefix(c.Args[6], "--unit="))
+		k.Env = clientEnv(t)
+		k.Run()
+	}
+	onPlaced = killer
+	if _, code := run(`sleep 30`); code == 0 {
 		t.Error("a program killed by a signal looked like a pass")
 	}
+	onPlaced = nil
 	if _, code := run(`exit 0`); code != 0 {
 		t.Errorf("exit 0 became %d", code)
 	}

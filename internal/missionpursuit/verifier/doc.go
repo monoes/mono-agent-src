@@ -26,7 +26,7 @@
 //
 // So the checker refuses to run command and output criteria (cannot-check: no-confinement, "this computer can't confine
 // project commands, so they are not run") unless the CALLER proves a confinement: Config.Confiner, whose SelfTest must pass
-// at every check. File criteria run no program and need none. Config.AllowUnconfined exists only so the host can wire a
+// at every check. File criteria run no program and need none. Request.AllowUnconfined exists only so the host can wire a
 // person-set opt-in later; it is false by default, and every Result then says containment "process-group UNCONFINED" and
 // its Message says so.
 //
@@ -43,10 +43,18 @@
 //  2. Extend the limits-helper re-exec with mount, pid and ipc namespaces and a pivot_root into a size-capped tmpfs.
 //  3. Landlock (weakest: it limits files, not sockets already reachable or signals).
 //
+// The systemd confiner (option 1) is the sub-package sdconfine; it needs a Linux user manager and refuses, with a typed error
+// that names the missing piece, everywhere else. A confiner may also implement Hider (the per-check copy that hides the live
+// folder, used by Checker.Run) and LeftoverChecker (what a unit left behind, which the heavy canaries need).
+//
 // Confiner.SelfTest is a claim of the caller: this package cannot see inside it. S7c1 must therefore run the canary criteria
 // (CanarySpecs: read a canary file outside the work directory, create a file outside it, reach a unix socket path) itself,
 // through the same placement the real criteria get, and each canary must end in fail (a program that ran and was refused),
-// not in error (which can mean it never started). It must add a network-namespace canary too: Result.Net "denied(enforced)"
+// not in error (which can mean it never started). RunCanaries / RunCanariesWith are those canaries (C0 to C11, see
+// canaries.go): the host plants what they probe, runs them through the same placement the criteria get, and CanariesHold says
+// whether the confinement holds. A caller runs the light ones (C0 to C7) at every check and may cache the proof of the heavy ones
+// (C8 to C11: fork bomb, memory hog, an outliving child, the wall-clock kill) for ten minutes, keyed on its property list and the
+// manager's version (sdconfine does). The canaries include a network-namespace canary: Result.Net "denied(enforced)"
 // is what the finish sandbox set before the confiner's Place ran, not something measured afterwards, so a confiner that
 // rewrites the command's process attributes is only caught where it drops the process group (that is checked), and the
 // network denial has to be measured by the canary. A nil release from a confiner is tolerated.
@@ -54,9 +62,8 @@
 // # Other limits
 //
 // Request.LeadPinNow (the lead's model, read again after the reviewer call) is required; a request that cannot supply it says
-// so with NoLeadReread. For the slice that wraps this library (S7b): sweep stale check-* scratch folders at start, and make
-// finish.Snapshot and finish.DigestTree context-aware (a copy that never ends leaks a goroutine and its folder; the check
-// itself returns at once on cancellation). Tests that start real programs skip where the platform forbids user namespaces
+// so with NoLeadReread. For the slice that wraps this library (S7b): sweep stale check-* scratch folders at start. Run copies and digests with
+// finish.SnapshotCtx and DigestTreeCtx, which stop when the check is cancelled (the host's own pre-digest should use them too). Tests that start real programs skip where the platform forbids user namespaces
 // and fail instead where MONOAGENT_REQUIRE_SANDBOX_TESTS=1.
 //
 // The process-group Place (GroupPlace) kills the group at the deadline and what is left of it when a criterion ends. It is
