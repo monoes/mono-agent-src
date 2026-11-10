@@ -195,8 +195,8 @@ func TestResultsAreInsertOnlyWhileTheCheckRunsAndMatchTheLockedCriteria(t *testi
 	const ins = `INSERT INTO mission_goal_check_results (check_id, pos, criterion_hash, kind, result) VALUES (?, ?, ?, ?, ?)`
 	refused169(t, db, "running check", ins, 1, 1, "h1", "command", "pass") // no check yet
 	exec169(t, db, newCheck169)
-	refused169(t, db, "rubric", ins, 1, 2, "h2", "rubric", "person")      // a rubric criterion is the person's, never a machine result
-	refused169(t, db, "rubric", ins, 1, 2, "h2", "command", "pass")       // pos 2 is a rubric criterion whatever the row says
+	refused169(t, db, "rubric", ins, 1, 2, "h2", "rubric", "person")           // a rubric criterion is the person's, never a machine result
+	refused169(t, db, "rubric", ins, 1, 2, "h2", "command", "pass")            // pos 2 is a rubric criterion whatever the row says
 	refused169(t, db, "locked criteri", ins, 1, 1, "WRONG", "command", "pass") // the hash of the locked row
 	refused169(t, db, "locked criteri", ins, 1, 9, "h1", "command", "pass")    // no such criterion
 	refused169(t, db, "locked criteri", ins, 1, 1, "h1", "file", "pass")       // the kind of the locked row
@@ -232,7 +232,7 @@ func TestAnAnswerIsForARubricCriterionWithItsHashByANamedPerson(t *testing.T) {
 	db := world169(t)
 	exec169(t, db, newCheck169)
 	finish169(t, db, "passed-machine")
-	refused169(t, db, "rubric criterion", ans169, 1, "h1", "yes", "", "you")   // a command criterion is the machine's
+	refused169(t, db, "rubric criterion", ans169, 1, "h1", "yes", "", "you")    // a command criterion is the machine's
 	refused169(t, db, "rubric criterion", ans169, 2, "WRONG", "yes", "", "you") // the hash of the locked row
 	refused169(t, db, "rubric criterion", ans169, 2, "h3", "yes", "", "you")    // another criterion's hash
 	refused169(t, db, "rubric criterion", ans169, 9, "h2", "yes", "", "you")    // no such criterion
@@ -282,7 +282,7 @@ func TestTheSwitchForUnconfinedChecksChangesOnlyWithAPersonNamedAndTheDateMoved(
 		t.Fatalf("the switch is %d: it is born off", n)
 	}
 	const why = "unconfined"
-	refused169(t, db, why, `UPDATE mission_pursuit SET unconfined_checks_ok = 1 WHERE session_id = 1`)                      // nobody named, date unmoved
+	refused169(t, db, why, `UPDATE mission_pursuit SET unconfined_checks_ok = 1 WHERE session_id = 1`)                        // nobody named, date unmoved
 	refused169(t, db, why, `UPDATE mission_pursuit SET unconfined_checks_ok = 1, unconfined_by = 'you' WHERE session_id = 1`) // date unmoved
 	refused169(t, db, why, `UPDATE mission_pursuit SET unconfined_checks_ok = 1, updated_at = 't1' WHERE session_id = 1`)     // nobody named
 	refused169(t, db, "", `UPDATE mission_pursuit SET unconfined_checks_ok = 2, unconfined_by = 'you', updated_at = 't1' WHERE session_id = 1`)
