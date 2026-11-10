@@ -44,6 +44,7 @@ func allGatedVerbs() []gatedVerb {
 		{name: "retire-worker", args: []string{"session", "retire-worker", "1", "1"}, what: "retire a session's worker"},
 		{name: "goal set", args: []string{"session", "goal", "set", "1", "--criteria", "-"}, what: "set a mission goal"},
 		{name: "goal confirm", args: []string{"session", "goal", "confirm", "1", "--hash", "x"}, what: "confirm a mission goal"},
+		{name: "pursuit begin", args: []string{"session", "pursuit", "begin", "1", "--goal-hash", "x", "--consent", "x", "--chat", "c"}, what: "begin a mission's pursuit"},
 		{name: "pursuit start", args: []string{"session", "pursuit", "start", "1"}, what: "start a mission's pursuit"},
 		{name: "goal answer", args: []string{"session", "goal", "answer", "1", "--check", "1", "--criterion", "c2", "--yes", "--dossier", "x"}, what: "answer a mission goal check"},
 		{name: "pursuit allow-unconfined-checks", args: []string{"session", "pursuit", "allow-unconfined-checks", "1", "--on"}, what: "change whether goal checks may run unconfined"},

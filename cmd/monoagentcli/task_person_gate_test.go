@@ -43,6 +43,7 @@ func operatorOnlyVerbs() map[string][]string {
 	m["goal-confirm"] = []string{"session", "goal", "confirm", "1", "--hash", "x"}
 	m["goal-answer"] = []string{"session", "goal", "answer", "1", "--check", "1", "--criterion", "c2", "--yes", "--dossier", "x"}
 	m["pursuit-allow-unconfined-checks"] = []string{"session", "pursuit", "allow-unconfined-checks", "1", "--on"}
+	m["pursuit-begin"] = []string{"session", "pursuit", "begin", "1", "--goal-hash", "x", "--consent", "x", "--chat", "c"}
 	m["pursuit-start"] = []string{"session", "pursuit", "start", "1"}
 	m["pursuit-pause"] = []string{"session", "pursuit", "pause", "1"}
 	m["pursuit-resume"] = []string{"session", "pursuit", "resume", "1"}

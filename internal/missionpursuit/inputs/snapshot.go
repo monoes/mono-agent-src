@@ -3,9 +3,9 @@ package inputs
 import (
 	"context"
 	"fmt"
-	"math"
 	"strconv"
 
+	"github.com/monoes/mono-agent/internal/missionpursuit"
 	"github.com/monoes/mono-agent/internal/missionpursuit/strategy"
 )
 
@@ -88,8 +88,7 @@ func (r *Reader) budget(ctx context.Context, session int64) (BudgetShare, error)
 	if err := r.db.QueryRowContext(ctx, `SELECT budget_usd, spent_usd FROM task_sessions WHERE id = ?`, session).Scan(&b, &s); err != nil {
 		return BudgetShare{}, err
 	}
-	fin := func(x float64) bool { return !math.IsNaN(x) && !math.IsInf(x, 0) }
-	if !fin(b) || !fin(s) || b <= 0 || s < 0 {
+	if !missionpursuit.BudgetKnown(b, s) {
 		return BudgetShare{BudgetUSD: b, SpentUSD: s}, nil
 	}
 	return BudgetShare{Known: true, Share: s / b, BudgetUSD: b, SpentUSD: s}, nil

@@ -3,6 +3,7 @@ package task
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -18,7 +19,7 @@ func (d Deps) newSessionPursuitCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pursuit",
 		Short: "Start, pause or resume the pursuit of a mission's confirmed goal (you only); status reads it",
-		Long: `A mission whose goal you confirmed can be pursued without end. Starting the pursuit locks the goal with it
+		Long: pursuitLong(`A mission whose goal you confirmed can be pursued without end. Starting the pursuit locks the goal with it
 (a locked goal is final), and sets how far the pursuit may run while you are away: stop after PARKED-MAX questions
 wait for you, or after PCT percent of the budget is spent (metered spend, the judge's calls and the lead's turns together),
 or after WAKES wake-ups of the lead, since you last acted. Who answers a question and what happens to one nobody answers stay
@@ -29,15 +30,17 @@ Only you start, pause or resume; an agent is refused.
 
 What turns on, and what it costs: the loop runs only on a coder host started with MONOAGENT_PURSUIT_JUDGE set to the judge's
 model (off by default; unset it and restart the host to turn it off for every mission), and only for a mission you started.
-Each epoch costs a judge call (asked to stay under $0.50) and may wake the lead for one turn capped at X (default $2, set by
+Each epoch costs a judge call (asked to stay under {JUDGE}) and may wake the lead for one turn capped at X (default {X}, set by
 MONOAGENT_PURSUIT_WAKE_CAP_USD on the host) or at what the lead has left, whichever is less. Worst case with the defaults: about
-$15 an hour for one mission, about $30 an hour for the whole host; until the away limits stop one mission about $6.50 on a $20
-mission budget and at most about $22.50 on $100 (the 20 percent rule is the only hard bound; the six-wake figure, about $17, is typical, not a bound, because judged epochs that wake nobody are not counted by the wake limit). The caps are requests to the AI runtime, checked from the cost it reports afterwards;
+{MISSION_HOUR} an hour for one mission, about {HOST_HOUR} an hour for the whole host; until the away limits stop one mission about {UNTIL20} on a $20
+mission budget and at most about {UNTIL100} on $100 (the 20 percent rule is the only hard bound; judged epochs that wake nobody are not counted by the wake limit). The caps are requests to the AI runtime, checked from the cost it reports afterwards;
 helpers the lead starts are NOT covered by X: one wake can let the lead carve its whole remaining budget to helpers, bounded only by
 the carve limits (and the money carved out and not yet spent counts in the PCT rule, so a big carve makes the pursuit wait).
 The judge's model is checked by name against the lead's (aliases are not recognised). The lead must have a budget and the mission a known budget, and the judge's model must differ from the lead's, or the
 pursuit waits. pause stops one mission; a judge call or lead turn already running finishes and is paid for.
 
+  pursuit preview ID [--json]                   show everything you consent to: the goal whole, the limits, the dollars, the host, what blocks it (read only)
+  pursuit begin ID --goal-hash H --consent D --chat C   confirm the goal and start the pursuit in one step, for exactly what preview showed
   pursuit start ID [--parked-max N] [--pct N]   start it (the goal must be confirmed); defaults 3 and 20
   pursuit pause ID                              stop new work until you resume (it does not hand the lead back to check-ins, and a judge call already running is not cancelled: it is paid for and its answer dropped)
   pursuit resume ID                             let it go on
@@ -48,9 +51,11 @@ pursuit waits. pause stops one mission; a judge call or lead turn already runnin
 Words an agent or the judge wrote (a direction title, a mission title) are shown cut and marked as agent text; in the JSON they
 sit apart from the host-written fields (agent_text in status, title_agent_text in list). The status JSON carries schema_version.
 A goal checker comes later: until it exists the goal is never checked automatically and "goal_check" in the status says so.
-There is no pursuit stop: close the mission (task session close) to end the pursuit.`,
+The desktop app can begin a pursuit for you (a dialog, a phrase you type and a one-use token). A script in the app's web page can raise
+that confirmation dialog at a moment of its choosing; it cannot click Yes for you, but you might click it by habit: read the dialog.
+There is no pursuit stop: close the mission (task session close) to end the pursuit.`),
 	}
-	cmd.AddCommand(d.newPursuitStartCmd(), d.newPursuitPauseCmd(), d.newPursuitResumeCmd(), d.newPursuitStatusCmd(), d.newPursuitListCmd(), d.newPursuitUnconfinedCmd())
+	cmd.AddCommand(d.newPursuitPreviewCmd(), d.newPursuitBeginCmd(), d.newPursuitStartCmd(), d.newPursuitPauseCmd(), d.newPursuitResumeCmd(), d.newPursuitStatusCmd(), d.newPursuitListCmd(), d.newPursuitUnconfinedCmd())
 	for _, sub := range cmd.Commands() {
 		d.WithJSONErrors(sub)
 	}
@@ -256,4 +261,22 @@ func hostPursuitLine(h coderhost.PursuitHostInfo, found, alive bool) string {
 		return "this host: the pursuit loop is OFF: " + h.Reason
 	}
 	return "this host: the pursuit loop is OFF (the host was started without MONOAGENT_PURSUIT_JUDGE): nothing is judged or woken, and this mission's check-ins go on"
+}
+
+// pursuitLong fills the dollar figures of the help from the same function the dollars table, the docs and the app's dialog use.
+func pursuitLong(raw string) string {
+	rows := func(budget float64) coderhost.CostTable {
+		return coderhost.PursuitCostRows(coderhost.CostInput{WakeCapUSD: coderhost.DefaultWakeCapUSD, MissionBudgetUSD: budget, Pct: missionpursuit.DefaultPct, Wakes: missionpursuit.DefaultWakesMax})
+	}
+	by := func(t coderhost.CostTable, key string) string {
+		for _, r := range t.Rows {
+			if r.Key == key {
+				return coderhost.UsdText(r.USD)
+			}
+		}
+		return "?"
+	}
+	t20, t100 := rows(20), rows(100)
+	return strings.NewReplacer("{JUDGE}", coderhost.UsdText(coderhost.PursuitJudgeCallCapUSD), "{X}", coderhost.UsdText(coderhost.DefaultWakeCapUSD),
+		"{MISSION_HOUR}", by(t20, "mission_hour"), "{HOST_HOUR}", by(t20, "host_hour"), "{UNTIL20}", by(t20, "until_stop"), "{UNTIL100}", by(t100, "until_stop")).Replace(raw)
 }

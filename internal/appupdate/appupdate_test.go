@@ -278,11 +278,33 @@ func TestAppUpdateMacOSSwapsBundle(t *testing.T) {
 	if readFile(t, exe) != "new app" || readFile(t, filepath.Join(macos, "monoagentcli")) != "new cli" {
 		t.Fatal("bundle not replaced")
 	}
+	if string(res.CLI) != "new cli" {
+		t.Fatalf("Result.CLI = %q, want the CLI inside the new bundle", res.CLI)
+	}
 	if got := dirNames(t, apps); len(got) != 1 {
 		t.Fatalf("leftovers next to the bundle: %v", got)
 	}
 	if len(started) != 1 || !strings.Contains(started[0], "open '"+filepath.Join(apps, "MonoAgent.app")+"'") {
 		t.Fatalf("restart = %v", started)
+	}
+}
+
+func TestAppUpdateMacOSWithoutACLIOnlyLeavesResultCLINil(t *testing.T) {
+	var zbuf bytes.Buffer
+	zw := zip.NewWriter(&zbuf)
+	w, _ := zw.Create("MonoAgent.app/Contents/MacOS/monoagent-ui")
+	w.Write([]byte("new app"))
+	zw.Close()
+	srv := fakeAppRelease{assets: map[string][]byte{"MonoAgent-darwin-arm64.zip": zbuf.Bytes()}}.server(t)
+	apps := t.TempDir()
+	macos := filepath.Join(apps, "MonoAgent.app", "Contents", "MacOS")
+	os.MkdirAll(macos, 0o755)
+	exe := filepath.Join(macos, "monoagent-ui")
+	os.WriteFile(exe, []byte("old app"), 0o755)
+	var started []string
+	res, err := testUpdater(srv, "darwin", "arm64", exe, &started).Run()
+	if err != nil || res.CLI != nil || readFile(t, exe) != "new app" {
+		t.Fatalf("result = %+v, %v", res, err)
 	}
 }
 

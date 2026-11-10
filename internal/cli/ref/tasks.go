@@ -61,13 +61,13 @@ WHO MAY DO WHAT
   through next, claim, comment (on a task it holds), finish and release; and run
   digest, which has no gate: it runs the same in any context, so a session-start hook
   can call it.
-  An agent may also run session pursuit status and session pursuit list (read only), session goal show, session goal check (read only: host facts and your rubric criteria, never what a command printed)
+  An agent may also run session pursuit status, session pursuit list and session pursuit preview (read only), session goal show, session goal check (read only: host facts and your rubric criteria, never what a command printed)
   and session goal propose: it only proposes the
   criteria of a mission's ultimate goal and may revise them until the operator confirms;
   a confirmed goal is final (a changed goal means a new mission).
   Only board, edit, move, approve, archive, unarchive, add --ready, agents allow,
   agents deny, session approve, session resume, session close, session retire-worker, session archive, session archive --cascade, session budget, session reservation resolve,
-  session goal set, session goal confirm, session goal answer, session pursuit allow-unconfined-checks, session pursuit start, session pursuit pause, session pursuit resume,
+  session goal set, session goal confirm, session goal answer, session pursuit allow-unconfined-checks, session pursuit begin, session pursuit start, session pursuit pause, session pursuit resume,
   session person inbox, session person full, session person approve, session person deny, session person ask,
   session person answer-ask,
   undepend, os install and os uninstall are the operator's: they answer an agent
