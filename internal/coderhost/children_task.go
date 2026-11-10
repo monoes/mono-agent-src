@@ -1,12 +1,14 @@
 package coderhost
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/monoes/mono-agent/internal/ai"
+	"github.com/monoes/mono-agent/internal/dbconn"
 )
 
 // Starting a mission task in a child coder session of its own (phase P-B1 of
@@ -132,11 +134,15 @@ func (s *Store) abandonSpawn(c Caller, profileID string, sessionID, taskID int64
 // transaction with its audit row.
 func (s *Store) releaseReservation(profileID string, sessionID, taskID int64, generation int64, lead string, failed bool, why string) error {
 	now := s.stamp()
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
+	// BEGIN IMMEDIATE: the row is read before it is released, and a writer that commits in between would make the
+	// write fail at once with SQLITE_BUSY_SNAPSHOT, which busy_timeout does not wait for (#1460).
+	return dbconn.WithWriteTx(context.Background(), s.db, func(conn *sql.Conn) error {
+		return s.releaseIn(connQuerier{conn}, profileID, sessionID, taskID, generation, lead, failed, why, now)
+	})
+}
+
+// releaseIn is releaseReservation's read and writes, in the transaction that holds the write lock.
+func (s *Store) releaseIn(tx querier, profileID string, sessionID, taskID, generation int64, lead string, failed bool, why, now string) error {
 	lost, err := s.keepLostIdentity(tx, profileID, sessionID, taskID, generation, lead, now)
 	if err != nil {
 		return err
@@ -165,7 +171,7 @@ func (s *Store) releaseReservation(profileID string, sessionID, taskID int64, ge
 	if err := addMissionEvent(tx, profileID, sessionID, taskID, "spawn", "lead:"+lead, "released: "+why, now); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return nil
 }
 
 // keepLostIdentity is the release's guard for a row whose conversation is known to it (child id, else pending
@@ -174,7 +180,7 @@ func (s *Store) releaseReservation(profileID string, sessionID, taskID int64, ge
 // so the unresolved record is written once in this transaction (a host that wrote it first leaves it as it is)
 // and the caller keeps the row's identity, linked and failed, never marked again while the record stands. It
 // says whether it did.
-func (s *Store) keepLostIdentity(tx *sql.Tx, profileID string, sessionID, taskID, generation int64, lead, now string) (bool, error) {
+func (s *Store) keepLostIdentity(tx querier, profileID string, sessionID, taskID, generation int64, lead, now string) (bool, error) {
 	var child, pending string
 	err := tx.QueryRow(`SELECT child_conversation_id, pending_conversation_id FROM coder_mission_children
 		WHERE profile_id = ? AND session_id = ? AND task_id = ? AND lead_conversation_id = ? AND (state = 'spawning' OR (state = 'gone' AND end_reason = 'deleted')) AND generation = ?`,

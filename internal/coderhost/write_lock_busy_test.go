@@ -53,7 +53,7 @@ func TestRequestBudgetSurvivesAWriterCommittingBetweenItsReadAndItsWrite(t *test
 
 func TestGrantBudgetSurvivesAWriterCommittingBetweenItsReadAndItsWrite(t *testing.T) {
 	f, _ := budgetFix(t)
-	b := f.ask(t, TargetChild, 2)
+	b := f.ask(t, TargetChild, 1)
 	fired := f.competeOnce(t)
 	_, err := f.st.GrantBudget(OperatorScope{}, "p", b.ID, 0)
 	notLocked(t, "GrantBudget", err)
