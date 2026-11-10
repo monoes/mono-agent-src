@@ -68,6 +68,9 @@ func (h *e2eHub) subscribe() (chan []byte, func()) {
 }
 
 func e2eConfirm(_ *App, title, body string) (bool, error) {
+	if title == pursuitDialogTitle { // a pursuit start is never confirmed over HTTP: a scripted "yes" is not a person's click
+		return false, errNoNativeDialog
+	}
 	home := os.Getenv("HOME")
 	if f, err := os.OpenFile(filepath.Join(home, e2eDialogLog), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600); err == nil {
 		fmt.Fprintf(f, "--- %s\n%s\n", title, body)
