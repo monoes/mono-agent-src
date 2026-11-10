@@ -257,7 +257,10 @@ func TestAYesWithAnErrorIsNotAYes(t *testing.T) {
 	r := newPursuitRig(t)
 	tok, _ := r.preview(pLimits)
 	prior := r.calls()
-	confirmNative = func(*App, string, string) (bool, error) { return true, errors.New("the dialog failed") }
+	confirmNative = func(*App, string, string) (bool, error) {
+		r.now = r.now.Add(r.think) // a long think: only the error can stop it
+		return true, errors.New("the dialog failed")
+	}
 	if d := r.start(tok); d.OK || d.State != "not_started" || r.calls() != prior {
 		t.Fatalf("%+v", d)
 	}

@@ -221,7 +221,7 @@ func TestStackedCombiningMarksAreNotPlainText(t *testing.T) {
 // encoding/json matches a key to a field under simple case folding (the long s is an s), so the repeated-key check must too.
 func TestAKeyRepeatedUnderUnicodeFoldingIsRefused(t *testing.T) {
 	good := pursuitPreviewJSON(t, nil)
-	doc := strings.Replace(good, `"session_id":5`, `"session_id":5,"\u017fession_id":6`, 1)
+	doc := strings.Replace(good, `"session_id":5`, `"session_id":5,"\u017fession_id":5`, 1)
 	if doc == good {
 		t.Fatal("setup")
 	}
