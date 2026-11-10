@@ -86,12 +86,21 @@ func (h *Host) pursuitPinWhy(m pursuitMission) string {
 }
 
 func pinWhy(d *PursuitDeps, pin string, m pursuitMission) string {
-	switch lead := pinKey(d.LeadPin(m.Profile, m.Conv)); {
-	case pinKey(pin) == "" || d.Refuse(pin):
+	if pinKey(pin) == "" || d.Refuse(pin) {
+		return "the judge's model is not allowed to judge"
+	}
+	return LeadPinWhy(pin, d.LeadPin(m.Profile, m.Conv))
+}
+
+// LeadPinWhy is the independence rule of the judge, alone: why a judge with this pin may not judge a lead with that pin, or "".
+// A lead whose model is not known is not shown to differ. The host and `pursuit preview` both ask this.
+func LeadPinWhy(judgePin, leadPin string) string {
+	switch lead := pinKey(leadPin); {
+	case pinKey(judgePin) == "":
 		return "the judge's model is not allowed to judge"
 	case lead == "":
 		return "the lead's model is not known, so the judge cannot be shown to differ from it"
-	case lead == pinKey(pin):
+	case lead == pinKey(judgePin):
 		return "the judge's model is the lead's"
 	}
 	return ""

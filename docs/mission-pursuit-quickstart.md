@@ -28,6 +28,15 @@ monoagentcli --profile "$P" task session pursuit resume ID
 monoagentcli --profile "$P" task session pursuit status ID        # add --json for a machine-readable answer
 ```
 
+Or do the confirmation and the start in ONE step, for exactly what you read:
+
+```
+monoagentcli --profile "$P" task session pursuit preview ID [--json]      # read only: the goal whole, the dollars, the host, the blockers, the consent digest
+monoagentcli --profile "$P" task session pursuit begin ID --goal-hash HASH --consent DIGEST --chat CHAT
+```
+
+`begin` confirms the goal (if it is only a proposal) and starts the pursuit in one transaction. It refuses, writing nothing, if the goal changed (`stale`), if the model, the host switch or the costs changed since the preview (`consent_stale`), if the chat is not the mission's, if the pursuit already started, or if something blocks it: `budget-unknown`, `lead-uncapped`, `judge-pin`, `no-chat`, `host-off` (no running coder host has the loop on), `host-info-invalid` (what the host published is not a usable value), `no-rubric`. The host figures in the preview are as the host reported them; `host.json` is display-only and not proof. The desktop app starts a pursuit the same way, after a dialog and a phrase you type. **Read the dialog:** a script in the app's web page can raise the confirmation dialog at a moment of its choosing; it cannot click Yes for you, but you might click it by habit.
+
 `start` locks the goal. The away limits count since you last acted: `--parked-max` questions waiting for you (1 to 20, default 3), `--pct` percent of the mission budget spent (1 to 100, default 20), `--wakes-max` wake-ups of the lead (1 to 50, default 6). They are fixed once the pursuit has started. Only you can start, pause or resume; an agent is refused. `status` is open to agents.
 
 If the host switch is off, a started pursuit does nothing and the lead's check-ins go on.

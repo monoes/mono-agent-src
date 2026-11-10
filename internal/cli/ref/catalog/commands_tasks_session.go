@@ -175,6 +175,20 @@ var taskSessionCommandDocs = []cmdDoc{
 		Examples: []string{"monoagentcli --profile work task session goal confirm 3 --hash 9f2c..."},
 	},
 	{
+		Name:     "task session pursuit preview",
+		Short:    "Show everything you consent to when a pursuit begins, and write nothing: the goal whole with its hash, the away limits, the dollars table, the host (loop on or off, the judge model, the wake-up cap), the blockers, the chat, the consent digest; --json is what the app's start form is built from (read only; an agent may run it)",
+		Usage:    "monoagentcli [--profile P] task session pursuit preview ID [--parked-max N] [--pct N] [--wakes-max N] [--json]",
+		Flags:    "  --parked-max int   Stop after this many questions wait for you since you last acted (1 to 20; default 3)\n  --pct int          Stop after this percent of the budget is spent since you last acted (1 to 100; default 20)\n  --wakes-max int    Stop after the pursuit woke the lead this many times since you last acted (1 to 50; default 6)",
+		Examples: []string{"monoagentcli --profile work task session pursuit preview 3 --json"},
+	},
+	{
+		Name:     "task session pursuit begin",
+		Short:    "Confirm the goal and start the pursuit in one step, for exactly what pursuit preview showed; the goal becomes final (the operator only). Refused, writing nothing, when the goal, the host facts or the chat differ from the preview (stale, consent_stale, chat_mismatch), the pursuit already started, or something blocks it",
+		Usage:    "monoagentcli [--profile P] task session pursuit begin ID --goal-hash HEX64 --consent HEX64 --chat CONV [--parked-max N] [--pct N] [--wakes-max N] [--json]",
+		Flags:    "  --goal-hash string   The goal's full hash, as pursuit preview showed it\n  --consent string     The consent digest pursuit preview showed\n  --chat string        The mission's chat, as pursuit preview showed it\n  --parked-max int     Stop after this many questions wait for you since you last acted (1 to 20; default 3)\n  --pct int            Stop after this percent of the budget is spent since you last acted (1 to 100; default 20)\n  --wakes-max int      Stop after the pursuit woke the lead this many times since you last acted (1 to 50; default 6)",
+		Examples: []string{"monoagentcli --profile work task session pursuit begin 3 --goal-hash 9f2c... --consent 41ab... --chat chat1"},
+	},
+	{
 		Name:     "task session pursuit start",
 		Short:    "Start the pursuit of a mission whose goal is confirmed, and lock the goal with it (the operator only)",
 		Usage:    "monoagentcli [--profile P] task session pursuit start ID [--parked-max N] [--pct N] [--wakes-max N]",

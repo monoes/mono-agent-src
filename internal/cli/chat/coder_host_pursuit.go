@@ -9,7 +9,6 @@ import (
 
 	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/missionpursuit/judgemodel"
-	"github.com/monoes/mono-agent/internal/monomind"
 )
 
 // The host's switch for the pursuit loop. Two host settings, both read once, when the host starts:
@@ -57,20 +56,9 @@ func pursuitFromEnv(getenv func(string) string, db *sql.DB) (*coderhost.PursuitD
 	return d, coderhost.PursuitHostInfo{Enabled: true, Pin: pin, WakeCapUSD: wake}
 }
 
-// leadPin is the runtime/model a conversation runs, as the app recorded it, or "" when it is not known (no model named: the
-// runtime's own default, which this host cannot tell from the judge's).
+// leadPin is the runtime/model a conversation runs (coderhost.LeadPin: the host and `pursuit preview` read it alike).
 func leadPin(db *sql.DB, profileID, conversationID string) string {
-	var rt, md string
-	if err := db.QueryRow(`SELECT runtime_id, model FROM ai_chat_conversations WHERE id = ? AND profile_id = ?`, conversationID, profileID).Scan(&rt, &md); err != nil {
-		return ""
-	}
-	if md = strings.TrimSpace(md); md == "" {
-		return ""
-	}
-	if rt = strings.TrimSpace(rt); rt == "" {
-		rt = monomind.DefaultCoderRuntime
-	}
-	return rt + "/" + md
+	return coderhost.LeadPin(db, profileID, conversationID)
 }
 
 // pursuitStatusLine is the one line `coder host status` prints for the loop.
