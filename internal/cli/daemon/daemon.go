@@ -23,6 +23,7 @@ import (
 	"github.com/monoes/mono-agent/internal/daemonhb"
 	"github.com/monoes/mono-agent/internal/httpapi"
 	"github.com/monoes/mono-agent/internal/scheduler"
+	"github.com/monoes/mono-agent/internal/shellpath"
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
@@ -73,6 +74,10 @@ func NewCommand(d Deps) *cobra.Command {
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			noteDeprecatedProfile(cmd)
+			// A service manager (launchd, systemd) starts the daemon with a bare PATH, so the runtimes the
+			// bridge lists (claude, codex, agy) and the tools it starts would be invisible; take the login
+			// shell's PATH, as the desktop app does.
+			shellpath.Apply(cmd.Context())
 			// One daemon per home, taken before anything starts: two would
 			// both fire the same schedules and run every workflow twice.
 			// The OS drops the lock if this process dies.
