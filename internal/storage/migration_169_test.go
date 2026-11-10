@@ -158,7 +158,7 @@ func TestAnAbandonedCheckIsFinalAndHasNoOutcome(t *testing.T) {
 	} {
 		refused169(t, db, "moves forward", q)
 	}
-	refused169(t, db, "round", newCheck169) // a round is not reused
+	refused169(t, db, "round", newCheck169)                                                                                                                                            // a round is not reused
 	exec169(t, db, `INSERT INTO mission_goal_checks (session_id, goal_hash, round, state, outcome, started_at, written_by) VALUES (1, 'GH', 2, 'running', '', 't3', 'host-verifier')`) // the next check may start once none runs, with a later round
 }
 
