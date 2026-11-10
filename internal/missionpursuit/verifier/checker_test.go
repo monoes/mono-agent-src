@@ -409,8 +409,12 @@ func TestProjectCommandsAreNotRunWithoutAProvenConfinement(t *testing.T) {
 			len(scratchEntries(t, r.base)) != 0 || r.conf.Placed != 0 {
 			t.Errorf("%s: %s", name, dump(got))
 		}
-		if m := got.Message(); m != "this computer can't confine project commands, so they are not run" {
-			t.Errorf("%s: %q", name, m)
+		want := "this computer can't confine project commands, so they are not run"
+		if name == "self test fails" {
+			want += " (canary was readable)" // the status line says why, not only that
+		}
+		if m := got.Message(); m != want {
+			t.Errorf("%s: %q, want %q", name, m, want)
 		}
 	}
 	// file criteria need none

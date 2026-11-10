@@ -135,19 +135,48 @@ func TestAScratchBaseThatIsNotAnExistingSafeFolderIsAPlainErrorNotARefusal(t *te
 	}
 }
 
-func TestOldSystemdSkipsPrivatePIDsAndSaysSo(t *testing.T) {
+// systemd older than 256 has no PrivatePIDs, and C6 (the pid namespace differs) cannot pass without it: the refusal says so
+// instead of failing a canary later. C6 is not weakened.
+func TestOldSystemdIsRefusedNamingTheVersionAndWhatItLacks(t *testing.T) {
+	for _, v := range []string{"255.4-1", "252.31-1~deb12u1", "249"} {
+		f := newFakeSys()
+		f.version = v
+		c, err := newWith(context.Background(), Config{ScratchBase: t.TempDir()}, f.sys())
+		var u *Unavailable
+		if c != nil || !errors.As(err, &u) || u.Missing != MissingSystemdVersion || !strings.Contains(err.Error(), "needs 256 for PrivatePIDs") || !strings.Contains(err.Error(), strings.SplitN(v, ".", 2)[0]) {
+			t.Errorf("%s: %v %v", v, c, err)
+		}
+		for _, call := range f.called() {
+			if strings.HasPrefix(call, "systemd-run ") {
+				t.Errorf("%s: a probe unit was started on a manager that cannot pass", v)
+			}
+		}
+	}
 	f := newFakeSys()
-	f.version = "255.4-1"
 	c := newConfiner(t, f, Config{})
-	if c.privatePIDs {
-		t.Fatal("PrivatePIDs asked of a manager older than 256")
-	}
-	if _, err := newWith(context.Background(), Config{ScratchBase: t.TempDir()}, newFakeSys().sys()); err != nil {
-		t.Fatal(err)
-	}
-	f2 := newFakeSys()
-	c2 := newConfiner(t, f2, Config{})
-	if !c2.privatePIDs {
+	if !c.privatePIDs {
 		t.Fatal("PrivatePIDs not asked of systemd 262")
+	}
+}
+
+// A cancelled New is the caller's cancellation, not "the manager refused the probe".
+func TestACancelledNewReturnsTheContextErrorNotARefusal(t *testing.T) {
+	f := newFakeSys()
+	ctx, cancel := context.WithCancel(context.Background())
+	f.handler = func(bin string, a []string) runResult {
+		if bin == "systemd-run" {
+			cancel()
+			return runResult{Code: -1, Err: context.Canceled}
+		}
+		return runResult{Code: -1}
+	}
+	c, err := newWith(ctx, Config{ScratchBase: t.TempDir()}, f.sys())
+	if c != nil || !errors.Is(err, context.Canceled) || IsUnavailable(err) {
+		t.Fatalf("%v %v", c, err)
+	}
+	pre, cancel2 := context.WithCancel(context.Background())
+	cancel2()
+	if _, err := newWith(pre, Config{ScratchBase: t.TempDir()}, newFakeSys().sys()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("%v", err)
 	}
 }

@@ -147,3 +147,22 @@ func TestACancelledSelfTestRunsNothingAndReturnsTheContextError(t *testing.T) {
 		t.Fatalf("%v, %d runs", err, cc.n)
 	}
 }
+
+// A first heavy self test cannot run forever: each run has a deadline (longer for the heavy canaries).
+func TestSelfTestHasADeadlineLongerForTheHeavyCanaries(t *testing.T) {
+	c := newConfiner(t, newFakeSys(), Config{})
+	var dl []time.Duration
+	c.canaries = func(ctx context.Context, _ verifier.Confiner, _ string, o verifier.CanaryOptions) []verifier.CanaryResult {
+		d, ok := ctx.Deadline()
+		if !ok {
+			t.Error("no deadline")
+		}
+		dl = append(dl, time.Until(d))
+		return []verifier.CanaryResult{{ID: "C0", Verdict: verifier.CanaryHeld}, {ID: "C8", Heavy: !o.SkipHeavy, Verdict: verifier.CanaryHeld}}
+	}
+	c.SelfTest(context.Background())
+	c.SelfTest(context.Background())
+	if len(dl) != 2 || dl[0] < 5*time.Minute || dl[1] > 3*time.Minute || dl[1] < time.Minute {
+		t.Fatalf("deadlines %v", dl)
+	}
+}

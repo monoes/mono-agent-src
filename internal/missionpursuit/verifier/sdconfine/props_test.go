@@ -20,6 +20,8 @@ var goldenProps = []string{
 	"ProtectSystem=strict",
 	"ProtectHome=tmpfs",
 	"TemporaryFileSystem=/run",
+	"TemporaryFileSystem=/dev/shm:mode=1777",
+	"TemporaryFileSystem=/dev/pts",
 	"InaccessiblePaths=-/var/run -/mnt -/media",
 	"PrivateTmp=yes",
 	"PrivateDevices=yes",
@@ -52,6 +54,7 @@ var goldenProps = []string{
 	"LimitFSIZE=4096",
 	"LimitCORE=0",
 	"RuntimeMaxSec=22",
+	"OOMPolicy=kill",
 	"KillMode=control-group",
 	"SendSIGKILL=yes",
 	"TimeoutStopSec=5",
@@ -140,7 +143,7 @@ func TestTheLimitsOfTheSandboxBecomeUnitPropertiesAndCapsCanOnlyLower(t *testing
 	}
 }
 
-func TestTheHiddenRootAndTheWorkPathAreEscapedForTheManagerOrRefused(t *testing.T) {
+func TestTheHiddenRootIsDashedAndQuotedAndUnsafePathsAreRefusedWithATypedError(t *testing.T) {
 	s := specForTest()
 	s.Hide = "/srv/project"
 	if !strings.Contains(strings.Join(Properties(s), "\n"), "InaccessiblePaths=-/var/run -/mnt -/media -/srv/project") {
@@ -149,15 +152,28 @@ func TestTheHiddenRootAndTheWorkPathAreEscapedForTheManagerOrRefused(t *testing.
 	if err := CheckProperties(Properties(s), s); err != nil {
 		t.Fatal(err)
 	}
+	s.Hide = "/srv/My Project"
+	if !strings.Contains(strings.Join(Properties(s), "\n"), `-"/srv/My Project"`) {
+		t.Fatalf("%v", Properties(s))
+	}
+	if err := CheckProperties(Properties(s), s); err != nil {
+		t.Fatal(err)
+	}
 	s.Hide = ""
-	for _, bad := range []string{"", "rel/path", "/a b", "/a:b", "/a%b", "/a$b", "/a\nb", "/a\tb", "/a'b", "/a\\b", "/a\"b", "/a/../b", "/a//b", "/a/", "/x\x00y"} {
-		if SafePath(bad) == nil {
-			t.Errorf("%q was accepted as a path for a unit property", bad)
+	for _, bad := range []string{"", "rel/path", "/a%b", "/a\"b", "/a\nb", "/a\tb", "/a/../b", "/a//b", "/a/", "/x\x00y", "/", "/a\x7fb"} {
+		var pe *PathError
+		if err := SafePath(bad); !errors.As(err, &pe) || pe.Reason == "" {
+			t.Errorf("%q: %v", bad, err)
 		}
 	}
-	for _, ok := range []string{"/home/me/.monoagent/scratch/check-1/work", "/var/lib/x_y-z.1"} {
+	for _, ok := range []string{"/home/me/.monoagent/scratch/check-1/work", "/var/lib/x_y-z.1", "/a b", "/a:b", "/a$b", "/a'b", `/a\b`, "/h\u00e9llo"} {
 		if err := SafePath(ok); err != nil {
 			t.Errorf("%q: %v", ok, err)
+		}
+	}
+	for in, want := range map[string]string{"/plain/path": "/plain/path", "/a b": `"/a b"`, "/a:b": `"/a\:b"`, `/a\b`: `"/a\\b"`, "/a'b": `"/a'b"`, "/a$b": `"/a$b"`} {
+		if got := quoteUnit(in); got != want {
+			t.Errorf("quoteUnit(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

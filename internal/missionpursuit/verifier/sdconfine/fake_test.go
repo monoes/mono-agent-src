@@ -25,12 +25,13 @@ type fakeSys struct {
 	busErr  error
 	rtErr   error
 	id      int
+	alive   map[int]string // pid -> start time of the processes that are alive
 }
 
 const goodProbe = "memory=2147483648\npids=512\ncpu=200000 100000\n"
 
 func newFakeSys() *fakeSys {
-	return &fakeSys{goos: "linux", version: "262.1-1-arch", runtime: "/run/user/1000", now: time.Unix(1_800_000_000, 0), files: map[string]string{}}
+	return &fakeSys{goos: "linux", version: "262.1-1-arch", runtime: "/run/user/1000", now: time.Unix(1_800_000_000, 0), files: map[string]string{}, alive: map[int]string{4242: "100", 4243: "7"}}
 }
 
 func (f *fakeSys) sys() system {

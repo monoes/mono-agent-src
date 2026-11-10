@@ -48,13 +48,14 @@ func TestPlaceTurnsTheSandboxCommandIntoOneTransientServiceWithTheDesignsArgv(t 
 	if err != nil || release == nil {
 		t.Fatalf("%v", err)
 	}
-	want := []string{"/usr/bin/systemd-run", "--user", "--quiet", "--wait", "--collect", "--pipe", "--unit=monoagent-check-0000000000000001"}
+	want := []string{"/usr/bin/systemd-run", "--user", "--quiet", "--wait", "--pipe", "--unit=monoagent-check-4242-100-0000000000000001"}
 	pre := Properties(Spec{Work: testWork, Lim: finish.Limits{CPUSeconds: 7, AddressSpace: 5 << 30, OpenFiles: 33, FileSize: 4096, Procs: 3001}, Caps: c.caps, PrivatePIDs: true})
 	for _, p := range pre {
 		want = append(want, "-p", p)
 	}
-	want = append(want, "--setenv=PATH=/usr/local/bin:/usr/bin:/bin", "--setenv=HOME="+testWork+"/scratch/home", "--setenv=TMPDIR="+testWork+"/scratch/tmp", "--setenv=LANG=C",
-		"--working-directory="+testWork+"/subject", "--", "/usr/bin/sh", "-c", `echo "$$HOME" $$$$ 100%`)
+	// the program starts under env -i: the manager's environment (a login session's imported secrets) never reaches it
+	want = append(want, "--working-directory="+testWork+"/subject", "--", "/usr/bin/env", "-i", "PATH=/usr/local/bin:/usr/bin:/bin", "HOME="+testWork+"/scratch/home",
+		"TMPDIR="+testWork+"/scratch/tmp", "LANG=C", "/usr/bin/sh", "-c", `echo "$$HOME" $$$$ 100%`)
 	if !reflect.DeepEqual(cmd.Args, want) {
 		t.Fatalf("argv:\n%s\nwant\n%s", strings.Join(cmd.Args, "\n"), strings.Join(want, "\n"))
 	}
@@ -71,23 +72,54 @@ func TestPlaceTurnsTheSandboxCommandIntoOneTransientServiceWithTheDesignsArgv(t 
 	}
 }
 
-// systemd expands $VAR and $$ in the arguments of a service's command line: a criterion's own dollar signs must reach the
-// program unchanged and must not be filled in from the manager's environment.
-func TestDollarSignsInTheProgramArgumentsAreEscapedForTheManager(t *testing.T) {
+// systemd expands $VAR and $$ in a service's command line: a criterion's own dollar signs (in its arguments and in its environment
+// values, which are arguments of env now) must reach the program unchanged and must not be filled in from the manager.
+func TestDollarSignsInTheProgramArgumentsAndEnvironmentAreEscapedForTheManager(t *testing.T) {
 	c, _ := placeFor(t, nil)
 	cmd := sandboxCmd("/usr/bin/echo", "$HOME", "${X}", "$$", "a$b", "100%", "%h", ";", "plain")
+	cmd.Env = append(cmd.Env, "K=a$b%h")
 	if _, err := c.Place(cmd); err != nil {
 		t.Fatal(err)
 	}
+	i := indexOf(cmd.Args, "--")
 	got := cmd.Args[len(cmd.Args)-8:]
 	if want := []string{"$$HOME", "$${X}", "$$$$", "a$$b", "100%", "%h", ";", "plain"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("args %q, want %q", got, want)
 	}
-	// environment values are not expanded by the manager and stay as they are
-	cmd = sandboxCmd("/usr/bin/true")
-	cmd.Env = append(cmd.Env, "K=a$b%h")
-	if _, err := c.Place(cmd); err != nil || !contains(cmd.Args, "--setenv=K=a$b%h") {
-		t.Fatalf("%v %v", err, cmd.Args)
+	if !contains(cmd.Args[i:], "K=a$$b%h") {
+		t.Fatalf("the environment value is not escaped: %v", cmd.Args[i:])
+	}
+	if contains(cmd.Args, "--setenv=K=a$b%h") || strings.Contains(strings.Join(cmd.Args, "\n"), "--setenv") {
+		t.Fatal("the environment goes through --setenv, which the manager merges with its own")
+	}
+}
+
+func indexOf(xs []string, s string) int {
+	for i, x := range xs {
+		if x == s {
+			return i
+		}
+	}
+	return -1
+}
+
+// Revert proof for the scrub: the self-check refuses a command line whose program is not under env -i.
+func TestTheArgvSelfCheckRefusesAProgramNotUnderEnvDashI(t *testing.T) {
+	c, _ := placeFor(t, nil)
+	good := []string{"--user", "--unit=" + unitA, "--", c.envBin, "-i", "PATH=/usr/bin", "/usr/bin/true"}
+	if err := checkArgv(good, c.envBin); err != nil {
+		t.Fatal(err)
+	}
+	for name, bad := range map[string][]string{
+		"no env":         {"--user", "--", "/usr/bin/true"},
+		"env without -i": {"--user", "--", c.envBin, "PATH=/usr/bin", "/usr/bin/true"},
+		"setenv used":    {"--user", "--setenv=A=b", "--", c.envBin, "-i", "/usr/bin/true"},
+		"no separator":   {"--user", c.envBin, "-i"},
+		"another env":    {"--user", "--", "/tmp/env", "-i", "/usr/bin/true"},
+	} {
+		if checkArgv(bad, c.envBin) == nil {
+			t.Errorf("%s: accepted", name)
+		}
 	}
 }
 
@@ -115,15 +147,14 @@ func TestPlaceRefusesAnyShapeItDoesNotKnow(t *testing.T) {
 		"no home":                  func(c *exec.Cmd) { c.Env = c.Env[:1] },
 		"no process group":         func(c *exec.Cmd) { c.SysProcAttr.Setpgid = false },
 		"no sysprocattr":           func(c *exec.Cmd) { c.SysProcAttr = nil },
-		"work path with a space": func(c *exec.Cmd) {
-			c.Dir = "/w/a b/subject"
-			c.Env[1] = "HOME=/w/a b/scratch/home"
-			c.Env[2] = "TMPDIR=/w/a b/scratch/tmp"
+		"work path with a percent": func(c *exec.Cmd) {
+			c.Dir, c.Env[1], c.Env[2] = "/w/a%b/subject", "HOME=/w/a%b/scratch/home", "TMPDIR=/w/a%b/scratch/tmp"
 		},
-		"work path with a colon": func(c *exec.Cmd) {
-			c.Dir = "/w/a:b/subject"
-			c.Env[1] = "HOME=/w/a:b/scratch/home"
-			c.Env[2] = "TMPDIR=/w/a:b/scratch/tmp"
+		"work path with a newline": func(c *exec.Cmd) {
+			c.Dir, c.Env[1], c.Env[2] = "/w/a\nb/subject", "HOME=/w/a\nb/scratch/home", "TMPDIR=/w/a\nb/scratch/tmp"
+		},
+		"program with an equals": func(c *exec.Cmd) {
+			c.Args = finish.LimitsHelperArgv("/the/exe", finish.Limits{CPUSeconds: 1, AddressSpace: 1, OpenFiles: 1, FileSize: 1, Procs: 1}, "/usr/bin/a=b", nil)
 		},
 		"newline in an env value":  func(c *exec.Cmd) { c.Env = append(c.Env, "K=a\nb") },
 		"env entry without equals": func(c *exec.Cmd) { c.Env = append(c.Env, "KEY") },
@@ -228,5 +259,45 @@ func TestEachPlaceMakesItsOwnUnitNameAndAnOddIDIsRefused(t *testing.T) {
 	cmd := sandboxCmd("/usr/bin/true")
 	if _, err := c.Place(cmd); err == nil {
 		t.Fatal("a unit id that is not 16 hex digits was used")
+	}
+}
+
+// A work path or a live root with a space, quote, backslash, colon or dollar is quoted for the manager, not refused; one it cannot
+// carry (a percent, a double quote, a control character) is refused with a typed error that names the reason.
+func TestOddPathsAreQuotedForTheManagerOrRefusedWithATypedError(t *testing.T) {
+	for _, dir := range []string{"/w/My Project", "/w/q'uote", `/w/back\slash`, "/w/co:lon", "/w/dol$x", "/w/uni\u00e9"} {
+		c, _ := placeFor(t, nil)
+		cmd := sandboxCmd("/usr/bin/true")
+		cmd.Dir = dir + "/subject"
+		cmd.Env[1], cmd.Env[2] = "HOME="+dir+"/scratch/home", "TMPDIR="+dir+"/scratch/tmp"
+		if _, err := c.Place(cmd); err != nil {
+			t.Errorf("%q: %v", dir, err)
+			continue
+		}
+		if !contains(cmd.Args, "BindPaths="+quoteUnit(dir)) || !contains(cmd.Args, "--working-directory="+dir+"/subject") {
+			t.Errorf("%q: %v", dir, cmd.Args)
+		}
+	}
+	for _, dir := range []string{"/w/a%b", `/w/a"b`, "/w/a\nb", "/w/a\x01b"} {
+		c, _ := placeFor(t, nil)
+		cmd := sandboxCmd("/usr/bin/true")
+		cmd.Dir = dir + "/subject"
+		cmd.Env[1], cmd.Env[2] = "HOME="+dir+"/scratch/home", "TMPDIR="+dir+"/scratch/tmp"
+		before := snapshot(cmd)
+		_, err := c.Place(cmd)
+		var pe *PathError
+		if !errors.As(err, &pe) || pe.Reason == "" || snapshot(cmd) != before {
+			t.Errorf("%q: %v", dir, err)
+		}
+	}
+	// the live root, quoted in the hidden list after its dash
+	c, _ := placeFor(t, nil)
+	h := c.Hide("/home/me/My Project")
+	cmd := sandboxCmd("/usr/bin/true")
+	if _, err := h.Place(cmd); err != nil {
+		t.Fatal(err)
+	}
+	if !contains(cmd.Args, `InaccessiblePaths=-/var/run -/mnt -/media -"/home/me/My Project"`) {
+		t.Fatalf("%v", cmd.Args)
 	}
 }

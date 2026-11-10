@@ -2,6 +2,9 @@ package verifier
 
 import (
 	"context"
+	"errors"
+	"os/exec"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -110,5 +113,78 @@ func TestACancelledCheckLeavesNoScratchAreaBehind(t *testing.T) {
 	}
 	if e := scratchEntries(t, r.base); len(e) != 0 {
 		t.Fatalf("left behind: %v", e)
+	}
+}
+
+// P3: a cancellation that arrives while the snapshot is finishing is "abandoned: cancelled", never a snapshot or digest complaint.
+func TestACancellationDuringTheSnapshotIsAbandonedNotRefusedOrStale(t *testing.T) {
+	r := newRig(t, true)
+	ctx, cancel := context.WithCancel(context.Background())
+	r.cfg.afterCopy = cancel // the copy is done, the live digest is next
+	k := r.checker()
+	res, err := k.Run(ctx, r.req(fileExists("c1")))
+	if err != nil || res.Outcome != OutcomeAbandoned || res.Reason != ReasonCancelled {
+		t.Fatalf("%v %s", err, dump(res))
+	}
+}
+
+// infraConf reports, per Place, what its unit did wrong (a unit that never started, killed from outside): the criterion must not
+// read that as the program's exit code.
+type infraConf struct {
+	FakeConfiner
+	mu    sync.Mutex
+	takes int
+	infra []string
+}
+
+func (c *infraConf) TakeInfra() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.takes++
+	out := c.infra
+	c.infra = nil
+	return out
+}
+
+func (c *infraConf) Place(cmd *exec.Cmd) (func(), error) {
+	rel, err := c.FakeConfiner.Place(cmd)
+	return func() {
+		c.mu.Lock()
+		c.infra = append(c.infra, "the unit did not start (status 226)")
+		c.mu.Unlock()
+		rel()
+	}, err
+}
+
+func TestAnInfrastructureFailureOfTheConfinerIsAnErrorNotACriterionVerdict(t *testing.T) {
+	needsRealSandbox(t)
+	r := newRig(t, true)
+	r.cfg.NetDenyAvailable = nil
+	c := &infraConf{}
+	r.cfg.Confiner = c
+	// "false" with exit:1 would PASS as a program; the unit never having started must not let it
+	got := r.run(crit("c1", "command", "false", "exit:1"))
+	cr := got.Criteria[0]
+	if cr.Result != ResError || got.Outcome != OutcomeError || !strings.Contains(cr.Detail, "confinement") || !strings.Contains(cr.Detail, "226") {
+		t.Fatalf("%s", dump(got))
+	}
+	if c.takes < 2 {
+		t.Fatalf("the failures are cleared before the run and read after it (%d takes)", c.takes)
+	}
+	// without the failure, the same criterion passes as a program
+	r = newRig(t, true)
+	r.cfg.NetDenyAvailable = nil
+	if got := r.run(crit("c1", "command", "false", "exit:1")); got.Criteria[0].Result != ResPass {
+		t.Fatalf("%s", dump(got))
+	}
+}
+
+// The reason a self test failed is in the result, bounded and stripped, beside the closed reason.
+func TestASelfTestFailureKeepsItsReasonInTheResult(t *testing.T) {
+	r := newRig(t, true)
+	r.conf.TestErr = errors.New("canary check failed: C4 (secrets by path): broken: the program ran and was not refused\x1b[31m")
+	got := r.run(crit("c1", "command", "true", "exit:0"))
+	if got.Reason != ReasonNoConfinement || !strings.Contains(got.ConfinementDetail, "C4") || strings.ContainsAny(got.ConfinementDetail, "\x1b") || !strings.Contains(got.Message(), "C4") {
+		t.Fatalf("%s %q", dump(got), got.Message())
 	}
 }

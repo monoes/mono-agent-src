@@ -65,6 +65,7 @@ func newRealRig(t *testing.T) *realRig {
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
+		c.Cleanup(ctx)
 		c.Sweep(ctx)
 	})
 	return r
@@ -126,6 +127,38 @@ func mutated(c *Confiner, mut func([]string) []string) *Confiner {
 	return &m
 }
 
+// withoutExact drops only the lines that are exactly given (without drops every entry of a property).
+func withoutExact(lines ...string) func([]string) []string {
+	return func(props []string) []string {
+		var out []string
+		for _, p := range props {
+			if !contains(lines, p) {
+				out = append(out, p)
+			}
+		}
+		return out
+	}
+}
+
+// leakyEnv rewrites the command line the way a builder that forgot env -i would: the criterion's variables go through --setenv,
+// which the manager merges with its own environment.
+func leakyEnv(args []string) []string {
+	i := indexOf(args, "--")
+	if i < 0 || len(args) < i+3 || args[i+2] != "-i" {
+		return args
+	}
+	var out []string
+	var sets []string
+	j := i + 3
+	for ; j < len(args) && strings.Contains(args[j], "=") && !strings.HasPrefix(args[j], "/"); j++ {
+		sets = append(sets, "--setenv="+strings.ReplaceAll(args[j], "$$", "$"))
+	}
+	out = append(out, args[:i]...)
+	out = append(out, sets...)
+	out = append(out, "--")
+	return append(out, args[j:]...)
+}
+
 func without(names ...string) func([]string) []string {
 	return func(props []string) []string {
 		var out []string
@@ -167,6 +200,19 @@ func TestRealTakingAFenceOutBreaksItsCanary(t *testing.T) {
 		if len(rs) != 1 || rs[0].Verdict != verifier.CanaryBroken {
 			t.Errorf("without %v: %s", tc.drop, report(rs))
 		}
+	}
+	// the host's /dev/shm and /dev/pts are each hidden by a tmpfs of their own: take exactly that one out
+	for canary, line := range map[string]string{"C13": "TemporaryFileSystem=/dev/shm:mode=1777", "C14": "TemporaryFileSystem=/dev/pts"} {
+		rs := r.canaries(t, mutated(r.c, withoutExact(line)), canary)
+		if len(rs) != 1 || rs[0].Verdict != verifier.CanaryBroken {
+			t.Errorf("without %s: %s", line, report(rs))
+		}
+	}
+	// the manager's environment: a command line without env -i hands the program the manager's variables (C12 plants one there)
+	leaky := mutated(r.c, func(p []string) []string { return p })
+	leaky.mutateArgv = leakyEnv
+	if rs := r.canaries(t, leaky, "C12"); len(rs) != 1 || rs[0].Verdict != verifier.CanaryBroken {
+		t.Errorf("without env -i: %s", report(rs))
 	}
 	// the control is untouched by any of them: a fence that "holds" because everything is broken would fail here
 	if rs := r.canaries(t, mutated(r.c, without("PrivateNetwork")), "C0"); len(rs) != 1 || rs[0].Verdict != verifier.CanaryHeld {
@@ -223,7 +269,10 @@ func rows() []propRow {
 	}
 	return []propRow{
 		eq("PrivateNetwork=yes"), eq("PrivateIPC=yes"), eq("RestrictAddressFamilies=AF_UNIX"), eq("ProtectSystem=strict"), eq("ProtectHome=tmpfs"),
-		eq("TemporaryFileSystem=/run"),
+		{set: "TemporaryFileSystem=/run", show: "TemporaryFileSystem", ok: func(o string) bool { return strings.Contains(o, "/run") && !strings.Contains(o, "/run/") }},
+		{set: "TemporaryFileSystem=/dev/shm:mode=1777", show: "TemporaryFileSystem", ok: reads("/dev/shm:mode=1777")},
+		{set: "TemporaryFileSystem=/dev/pts", show: "TemporaryFileSystem", ok: reads("/dev/pts")},
+		eq("OOMPolicy=kill"),
 		{set: "InaccessiblePaths=-/var/run -/mnt -/media", show: "InaccessiblePaths", ok: reads("-/mnt")},
 		eq("PrivateTmp=yes"), eq("PrivateDevices=yes"), eq("ProtectKernelTunables=yes"), eq("ProtectKernelModules=yes"), eq("ProtectKernelLogs=yes"),
 		eq("ProtectControlGroups=yes"), eq("ProtectClock=yes"),
@@ -299,6 +348,18 @@ func showUnit(t *testing.T, unit, prop string) string {
 		t.Fatalf("show %s %s: %v", unit, prop, err)
 	}
 	return out.String()
+}
+
+func showUnitQuiet(unit, prop string) string {
+	ctl, err := trustedBinary("/usr/bin/systemctl", "/bin/systemctl")
+	if err != nil {
+		return ""
+	}
+	cmd := exec.Command(ctl, "--user", "show", "-p", prop, unit)
+	d := os.Getenv("XDG_RUNTIME_DIR")
+	cmd.Env = []string{"XDG_RUNTIME_DIR=" + d, "DBUS_SESSION_BUS_ADDRESS=unix:path=" + d + "/bus"}
+	out, _ := cmd.Output()
+	return string(out)
 }
 
 func clientEnv(t *testing.T) []string {
@@ -400,37 +461,103 @@ func TestRealTheProgramsArgumentsEnvironmentAndExitStatusArriveAsTheSandboxMeant
 	// a unit killed from outside (the kernel's OOM kill is the same signal) ends the client with a non-zero status: it never looks
 	// like a pass. (A program cannot signal pid 1 of its own pid namespace, so the kill comes from the manager.)
 	killer := func(c *exec.Cmd) {
-		time.Sleep(700 * time.Millisecond)
+		unit := strings.TrimPrefix(c.Args[6], "--unit=")
+		for i := 0; i < 100 && !strings.Contains(showUnitQuiet(unit, "ActiveState"), "active"); i++ { // wait until it runs, not a fixed time
+			time.Sleep(50 * time.Millisecond)
+		}
 		ctl, _ := trustedBinary("/usr/bin/systemctl", "/bin/systemctl")
 		k := exec.Command(ctl, "--user", "kill", "--signal=SIGKILL", "--kill-whom=all", strings.TrimPrefix(c.Args[6], "--unit="))
 		k.Env = clientEnv(t)
 		k.Run()
 	}
 	onPlaced = killer
+	r.c.TakeInfra()
 	if _, code := run(`sleep 30`); code == 0 {
 		t.Error("a program killed by a signal looked like a pass")
 	}
+	if infra := r.c.TakeInfra(); len(infra) != 1 || !strings.Contains(infra[0], "killed") {
+		t.Errorf("a unit killed from outside is not reported as infrastructure: %v", infra)
+	}
 	onPlaced = nil
+	if _, code := run(`exit 7`); code != 7 {
+		t.Errorf("exit 7 became %d", code)
+	}
+	if infra := r.c.TakeInfra(); len(infra) != 0 {
+		t.Errorf("a program's own exit status was reported as infrastructure: %v", infra)
+	}
 	if _, code := run(`exit 0`); code != 0 {
 		t.Errorf("exit 0 became %d", code)
 	}
 	noUnitsLeft(t, r.c)
 }
 
-// A stale unit (a crashed host's) is found and ended by name.
-func TestRealSweepEndsAStaleUnit(t *testing.T) {
+// A stale unit (a crashed host's: its owner pid is gone) is found and ended by name; a live host's unit is not touched.
+func TestRealSweepEndsADeadHostsUnitAndLeavesALiveOnes(t *testing.T) {
 	r := newRealRig(t)
-	unitWork, stop := startSleeper(t, r, r.c)
-	unit, _, _ := strings.Cut(unitWork, "|")
-	left, err := r.c.Leftovers(context.Background())
-	if err != nil || len(left) != 1 || left[0] != unit+".service" {
-		t.Fatalf("%v %v (want %s)", left, err, unit)
+	dead := *r.c
+	dead.owner = "2147480000-1" // no such process
+	deadUnit, stopDead := startSleeper(t, r, &dead)
+	liveUnit, stopLive := startSleeper(t, r, r.c)
+	dUnit, _, _ := strings.Cut(deadUnit, "|")
+	lUnit, _, _ := strings.Cut(liveUnit, "|")
+	own, err := r.c.Leftovers(context.Background())
+	if err != nil || len(own) != 1 || own[0] != lUnit+".service" {
+		t.Fatalf("own leftovers %v %v (want only %s)", own, err, lUnit)
 	}
 	swept, err := r.c.Sweep(context.Background())
-	if err != nil || len(swept) != 1 {
-		t.Fatalf("%v %v", swept, err)
+	if err != nil || len(swept) != 1 || swept[0] != dUnit+".service" {
+		t.Fatalf("swept %v %v (want only %s)", swept, err, dUnit)
 	}
-	stop()
+	if out := showUnitQuiet(lUnit, "ActiveState"); !strings.Contains(out, "=active") {
+		t.Fatalf("the live host's unit was touched: %q", out)
+	}
+	stopDead()
+	stopLive()
+	noUnitsLeft(t, r.c)
+}
+
+// A unit that never started (its setup failed) is infrastructure, not the program's exit status: "exit 1" would otherwise pass.
+func TestRealAUnitThatNeverStartedIsReportedNotJudged(t *testing.T) {
+	r := newRealRig(t)
+	m := mutated(r.c, func(p []string) []string {
+		var out []string
+		for _, q := range p {
+			if strings.HasPrefix(q, "BindPaths=") {
+				q = "BindPaths=/nonexistent-zz-source"
+			}
+			out = append(out, q)
+		}
+		return out
+	})
+	r.c.TakeInfra()
+	_, code := runIn(t, r, m, "exit 1")
+	infra := m.TakeInfra()
+	if code == 0 || len(infra) != 1 || !strings.Contains(infra[0], "226") {
+		t.Fatalf("code %d infra %v", code, infra)
+	}
+	// and with systemd-run itself unable to create the unit (a taken name), the client's exit 1 is not the program's
+	noUnitsLeft(t, r.c)
+}
+
+// Paths with a space, a quote, a backslash, a colon or a dollar work on a real manager (quoted, not refused).
+func TestRealOddProjectAndScratchPathsWork(t *testing.T) {
+	r := newRealRig(t)
+	for _, name := range []string{"My Project", "q'uote", `back\slash`, "co:lon", "dol$x"} {
+		base := filepath.Join(filepath.Dir(r.base), name)
+		if err := os.MkdirAll(base, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		c, err := New(context.Background(), Config{ScratchBase: base, Caps: tinyCaps()})
+		if err != nil {
+			t.Fatalf("%q: %v", name, err)
+		}
+		rr := *r
+		rr.base = base
+		out, code := runIn(t, &rr, c.Hide(filepath.Join(filepath.Dir(r.base), "live "+name)), "pwd; echo ok")
+		if code != 0 || !strings.HasSuffix(out, "/subject\nok\n") {
+			t.Errorf("%q: %d %q", name, code, out)
+		}
+	}
 	noUnitsLeft(t, r.c)
 }
 

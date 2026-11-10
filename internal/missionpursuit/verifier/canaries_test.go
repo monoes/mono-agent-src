@@ -20,7 +20,7 @@ var markerRE = regexp.MustCompile(`canary-ran:(C[0-9]+b?)`)
 
 // testWorld is a scratch area in a short directory (a unix socket path is limited to ~104 bytes).
 type testWorld struct {
-	parent, base, home, runtime, tmp string
+	parent, base, home, runtime, tmp, shm string
 }
 
 func newTestWorld(t *testing.T) testWorld {
@@ -30,8 +30,8 @@ func newTestWorld(t *testing.T) testWorld {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { finish.RemoveTree(parent) })
-	w := testWorld{parent: parent, base: filepath.Join(parent, "base"), home: filepath.Join(parent, "home"), runtime: filepath.Join(parent, "rt"), tmp: filepath.Join(parent, "tmp")}
-	for _, d := range []string{w.base, w.home, w.runtime, w.tmp} {
+	w := testWorld{parent: parent, base: filepath.Join(parent, "base"), home: filepath.Join(parent, "home"), runtime: filepath.Join(parent, "rt"), tmp: filepath.Join(parent, "tmp"), shm: filepath.Join(parent, "shm")}
+	for _, d := range []string{w.base, w.home, w.runtime, w.tmp, w.shm} {
 		if err := os.Mkdir(d, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -40,7 +40,7 @@ func newTestWorld(t *testing.T) testWorld {
 }
 
 func (w testWorld) opts(x CanaryOptions) CanaryOptions {
-	x.HomeDir, x.RuntimeDir, x.TmpDir = w.home, w.runtime, w.tmp
+	x.HomeDir, x.RuntimeDir, x.TmpDir, x.ShmDir = w.home, w.runtime, w.tmp, w.shm
 	return x
 }
 
@@ -120,7 +120,7 @@ func TestTheCanaryTableIsTheDesignsC0ToC11AndAConfinementThatHoldsPassesAll(t *t
 			t.Errorf("%s heavy = %v", r.ID, r.Heavy)
 		}
 	}
-	if got := strings.Join(ids, ","); got != "C0,C1,C2,C3,C4,C5,C6,C7,C8,C9,C10,C10b,C11" {
+	if got := strings.Join(ids, ","); got != "C0,C1,C2,C3,C4,C5,C6,C7,C8,C9,C10,C10b,C11,C12,C13,C14" {
 		t.Fatalf("canaries: %s", got)
 	}
 	if err := CanariesHold(rs); err != nil {
@@ -131,7 +131,7 @@ func TestTheCanaryTableIsTheDesignsC0ToC11AndAConfinementThatHoldsPassesAll(t *t
 // Revert proof for every verdict: a program that is NOT refused (or a control that is) makes exactly that canary broken and the
 // whole self test fail. Turning the verdict logic into "any result is fine" turns this red.
 func TestEveryCanaryEndsBrokenWhenItsProgramIsNotRefused(t *testing.T) {
-	for _, id := range []string{"C0", "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10", "C10b", "C11"} {
+	for _, id := range []string{"C0", "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "C9", "C10", "C10b", "C11", "C12", "C13", "C14"} {
 		s := &scripted{alter: map[string]func(CanaryRun) CanaryRun{id: func(r CanaryRun) CanaryRun {
 			switch id {
 			case "C0", "C10", "C10b": // must pass: make it fail
@@ -224,7 +224,7 @@ func TestTheUnitMustBeGoneAfterTheRunForTheHeavyCanaries(t *testing.T) {
 			t.Errorf("%s with a unit left behind: %q", id, v[id])
 		}
 	}
-	for _, id := range []string{"C0", "C1", "C2", "C3", "C4", "C5", "C6", "C7"} {
+	for _, id := range []string{"C0", "C1", "C2", "C3", "C4", "C5", "C6", "C7", "C12", "C13", "C14"} {
 		if v[id] != CanaryHeld {
 			t.Errorf("%s asked about units it does not care about: %q", id, v[id])
 		}
@@ -271,7 +271,7 @@ func TestSkipHeavyAndOnlySelectCanaries(t *testing.T) {
 	for _, r := range runWith(t, &scripted{}, func(o *CanaryOptions) { o.SkipHeavy = true }) {
 		ids = append(ids, r.ID)
 	}
-	if got := strings.Join(ids, ","); got != "C0,C1,C2,C3,C4,C5,C6,C7" {
+	if got := strings.Join(ids, ","); got != "C0,C1,C2,C3,C4,C5,C6,C7,C12,C13,C14" {
 		t.Fatalf("light set: %s", got)
 	}
 	rs := runWith(t, &scripted{}, func(o *CanaryOptions) { o.Only = []string{"C7", "C1"} })
@@ -293,6 +293,9 @@ func TestTheHostPlantsTheCanariesAndRemovesEverything(t *testing.T) {
 	w := newTestWorld(t)
 	before := listAll(t, w.parent)
 	var sockets, planted int
+	var secretName string
+	var shmPlanted, shmProbe, ptyArg bool
+	var shmProbePath string
 	s := &scripted{check: func(id, spec string) {
 		switch id {
 		case "C1":
@@ -326,18 +329,44 @@ func TestTheHostPlantsTheCanariesAndRemovesEverything(t *testing.T) {
 					planted++
 				}
 			}
+		case "C13":
+			ps := quotedPaths(spec)
+			if len(ps) != 2 || filepath.Dir(ps[0]) != w.shm || filepath.Dir(ps[1]) != w.shm {
+				t.Errorf("C13 paths %v are not in the shm dir", ps)
+				break
+			}
+			if _, err := os.Lstat(ps[0]); err != nil {
+				t.Errorf("C13 marker not planted: %v", err)
+			}
+			if _, err := os.Lstat(ps[1]); err == nil {
+				t.Errorf("C13 write probe exists before the run")
+			}
+			shmPlanted, shmProbe = true, true
+			shmProbePath = ps[1]
+		case "C14":
+			for _, p := range quotedPaths(spec) {
+				if !strings.HasPrefix(p, "/dev/pts/") {
+					t.Errorf("C14 names %s", p)
+				} else if _, err := os.Lstat(p); err != nil {
+					t.Errorf("C14 slave %s does not exist during the run: %v", p, err)
+				}
+				ptyArg = true
+			}
 		case "C5":
 			m := regexp.MustCompile(`/proc/(\d+)/environ`).FindStringSubmatch(spec)
 			if m == nil {
 				t.Errorf("C5 does not read a host process's environ: %s", spec)
 				break
 			}
-			if b, err := os.ReadFile("/proc/" + m[1] + "/environ"); err != nil || !strings.Contains(string(b), "MONOAGENT_CANARY_SECRET=") {
-				t.Errorf("the planted process has no secret in its environment: %v", err)
+			b, err := os.ReadFile("/proc/" + m[1] + "/environ")
+			name := regexp.MustCompile(`MONOAGENT_CANARY_SECRET_[0-9a-f]+`).FindString(spec)
+			if err != nil || name == "" || !strings.Contains(string(b), name+"=") {
+				t.Errorf("the planted process has no per-run secret in its environment (%q): %v", name, err)
 			}
-			if os.Getenv("MONOAGENT_CANARY_SECRET") == "" {
-				t.Errorf("the host did not set the secret in its own environment")
+			if name == "" || os.Getenv(name) == "" {
+				t.Errorf("the host did not set the per-run secret in its own environment")
 			}
+			secretName = name
 		}
 	}}
 	rs := runWith2(t, w, s)
@@ -353,9 +382,21 @@ func TestTheHostPlantsTheCanariesAndRemovesEverything(t *testing.T) {
 	if after := listAll(t, w.parent); strings.Join(after, "\n") != strings.Join(before, "\n") {
 		t.Fatalf("the canaries left files behind:\nbefore %v\nafter  %v", before, after)
 	}
-	if os.Getenv("MONOAGENT_CANARY_SECRET") != "" {
+	if secretName == "" || os.Getenv(secretName) != "" {
 		t.Fatal("the secret stayed in the host's environment")
 	}
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "MONOAGENT_CANARY_") {
+			t.Fatalf("a canary variable stayed in the host's environment: %.40s", kv)
+		}
+	}
+	if !shmPlanted || !shmProbe {
+		t.Fatal("C13 was not planted")
+	}
+	if _, err := os.Lstat(shmProbePath); err == nil {
+		t.Fatal("the write probe survived")
+	}
+	_ = ptyArg
 }
 
 func runWith2(t *testing.T, w testWorld, s *scripted) []CanaryResult {
@@ -379,7 +420,7 @@ func listAll(t *testing.T, root string) []string {
 func TestEveryCanaryIsARunnablePlanThatPrintsItsMarkerFirst(t *testing.T) {
 	s := &scripted{}
 	runWith(t, s, nil)
-	if len(s.specs) != 13 {
+	if len(s.specs) != 16 {
 		t.Fatalf("%d specs seen", len(s.specs))
 	}
 	for id, spec := range s.specs {
@@ -412,7 +453,10 @@ func TestACanaryRunAgainstAConfinerThatConfinesNothingIsCaught(t *testing.T) {
 	}
 	// (C5 is not in the list: the sandbox's own user namespace already keeps the program from reading the host's /proc/<pid>/environ,
 	// so it may hold without a confiner; its revert proof is the real confiner's, in sdconfine.)
-	for _, id := range []string{"C1", "C2", "C3", "C4", "C6"} {
+	if v["C12"] != CanaryHeld {
+		t.Errorf("the sandbox builds the environment from nothing, so C12 holds on its own: %+v", rs)
+	}
+	for _, id := range []string{"C1", "C2", "C3", "C4", "C6", "C13"} {
 		if v[id] != CanaryBroken {
 			t.Errorf("%s = %q with no confinement at all: %+v", id, v[id], rs)
 		}
@@ -424,5 +468,95 @@ func TestACanaryRunAgainstAConfinerThatConfinesNothingIsCaught(t *testing.T) {
 		if strings.Contains(filepath.Base(p), "canary") {
 			t.Errorf("left behind: %s", p)
 		}
+	}
+}
+
+// planterConf is a confiner that can put a variable in the manager that starts its programs (the systemd one).
+type planterConf struct {
+	FakeConfiner
+	mu               sync.Mutex
+	planted, cleaned []string
+	err              error
+}
+
+func (p *planterConf) PlantManagerEnv(_ context.Context, name, value string) (func(), error) {
+	if p.err != nil {
+		return nil, p.err
+	}
+	p.mu.Lock()
+	p.planted = append(p.planted, name+"="+value)
+	p.mu.Unlock()
+	return func() { p.mu.Lock(); p.cleaned = append(p.cleaned, name); p.mu.Unlock() }, nil
+}
+
+// C12: what the manager's own environment holds must not reach a program. The host puts a variable there (where the confiner can)
+// and the program must see none that the sandbox did not give it.
+func TestTheManagerEnvironmentIsPlantedAndRemovedAndAnyUnknownVariableIsBroken(t *testing.T) {
+	w := newTestWorld(t)
+	pc := &planterConf{}
+	s := &scripted{}
+	rs := RunCanariesWith(context.Background(), pc, w.base, w.opts(CanaryOptions{Exec: s.exec, Leftovers: noLeftovers, HasTool: func(string) bool { return true }, Only: []string{"C12"}}))
+	if CanariesHold(rs) != nil || len(pc.planted) != 1 || !strings.HasPrefix(pc.planted[0], "MONOAGENT_CANARY_MGR_") || len(pc.cleaned) != 1 || !strings.HasPrefix(pc.cleaned[0], "MONOAGENT_CANARY_MGR_") {
+		t.Fatalf("%+v planted %v cleaned %v", rs, pc.planted, pc.cleaned)
+	}
+	spec := s.specs["C12"]
+	for _, want := range []string{"env | cut -d= -f1", "grep -v -x -E", "PATH", "INVOCATION_ID"} {
+		if !strings.Contains(spec, want) {
+			t.Errorf("C12 does not say %q: %s", want, spec)
+		}
+	}
+	// a planting that fails is an error verdict, never a pass; the cleanup still ran for what was planted
+	pc = &planterConf{err: errors.New("manager refused")}
+	rs = RunCanariesWith(context.Background(), pc, w.base, w.opts(CanaryOptions{Exec: s.exec, Leftovers: noLeftovers, HasTool: func(string) bool { return true }, Only: []string{"C12"}}))
+	if v := verdicts(rs)["C12"]; v != CanaryError {
+		t.Fatalf("planting failed: %q", v)
+	}
+}
+
+// Stale plants of a run that crashed are removed at the next run; fresh ones (a run in progress) are left alone.
+func TestStaleCanaryFilesOfACrashedRunAreSweptAndFreshOnesKept(t *testing.T) {
+	w := newTestWorld(t)
+	old := time.Now().Add(-3 * time.Hour)
+	mk := func(p string, isDir bool, mt time.Time) string {
+		var err error
+		if isDir {
+			err = os.Mkdir(p, 0o700)
+		} else {
+			err = os.WriteFile(p, []byte("x"), 0o600)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.Chtimes(p, mt, mt)
+		return p
+	}
+	stale := []string{mk(filepath.Join(w.base, "canary-old"), true, old), mk(filepath.Join(w.parent, ".canary-r-old"), false, old), mk(filepath.Join(w.parent, ".canary-w-old"), false, old),
+		mk(filepath.Join(w.home, ".canary-h-old"), false, old), mk(filepath.Join(w.tmp, "monoagent-canary-old.sock"), false, old), mk(filepath.Join(w.shm, "monoagent-canary-old"), false, old)}
+	fresh := []string{mk(filepath.Join(w.base, "canary-new"), true, time.Now()), mk(filepath.Join(w.parent, ".canary-r-new"), false, time.Now()),
+		mk(filepath.Join(w.base, "check-keep"), true, old), mk(filepath.Join(w.home, "important"), false, old)}
+	runWith2(t, w, &scripted{})
+	for _, p := range stale {
+		if _, err := os.Lstat(p); err == nil {
+			t.Errorf("stale %s was not swept", p)
+		}
+	}
+	for _, p := range fresh {
+		if _, err := os.Lstat(p); err != nil {
+			t.Errorf("%s was removed: %v", p, err)
+		}
+	}
+}
+
+// Two runs that overlap in one process do not see each other's secret: the variable name is per run.
+func TestTwoOverlappingRunsUseDifferentSecretNames(t *testing.T) {
+	names := map[string]bool{}
+	for i := 0; i < 3; i++ {
+		s := &scripted{}
+		runWith(t, s, func(o *CanaryOptions) { o.Only = []string{"C5"} })
+		n := regexp.MustCompile(`MONOAGENT_CANARY_SECRET_[0-9a-f]+`).FindString(s.specs["C5"])
+		if n == "" || names[n] {
+			t.Fatalf("name %q reused or missing", n)
+		}
+		names[n] = true
 	}
 }
