@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -349,6 +350,9 @@ func approvedSend(argsLog string) bool {
 // automation, a call of one that sends nothing) and logs what it is asked to settle.
 func orgApproveFixture(t *testing.T) (*orgCLIFixture, string) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake monomind is a shell script")
+	}
 	f := orgGateFixture(t)
 	dir := t.TempDir()
 	argsLog := filepath.Join(dir, "args.log")

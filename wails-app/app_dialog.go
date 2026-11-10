@@ -5,6 +5,7 @@ import (
 	"errors"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -23,6 +24,7 @@ func showDialog(a *App, o wailsruntime.MessageDialogOptions) (choice string, err
 		return "", errDialogBusy
 	}
 	defer dialogMu.Unlock()
+	dialogShown.Store(doomsdayNow().UnixNano()) // on screen from here; a caller's think time runs from this moment
 	defer func() {
 		if recover() != nil { // no window to show it in
 			choice, err = "", errNoNativeDialog
@@ -35,6 +37,11 @@ func showDialog(a *App, o wailsruntime.MessageDialogOptions) (choice string, err
 	}
 	return dialogRun(ctx, o)
 }
+
+// dialogShown is when the last dialog got the dialog lock (unix nanoseconds, the doomsdayNow clock).
+var dialogShown atomic.Int64
+
+func dialogShownAt() time.Time { return time.Unix(0, dialogShown.Load()) }
 
 var (
 	dialogMu   sync.Mutex

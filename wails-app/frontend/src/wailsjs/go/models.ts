@@ -2742,6 +2742,22 @@ export namespace main {
 	
 	
 	
+	export class PursuitLimits {
+	    parkedMax: number;
+	    pct: number;
+	    wakesMax: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new PursuitLimits(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.parkedMax = source["parkedMax"];
+	        this.pct = source["pct"];
+	        this.wakesMax = source["wakesMax"];
+	    }
+	}
 	export class ResourceItem {
 	    id: string;
 	    name: string;

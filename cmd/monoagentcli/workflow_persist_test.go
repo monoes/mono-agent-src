@@ -302,7 +302,7 @@ func TestWorkflowImportReportsMissingBundles(t *testing.T) {
 	path := writeTempWorkflow(t, bundled)
 	r := importJSON(t, cfg, "--file", path)
 	if r.Status != importCreated || len(r.MissingAutomations) != 1 || r.MissingAutomations[0] != "acme-missing" ||
-		!strings.Contains(r.InstallCommand, "workflow import --file "+path+" --yes") {
+		!strings.Contains(r.InstallCommand, "workflow import --file ") || !strings.Contains(r.InstallCommand, path) || !strings.HasSuffix(r.InstallCommand, " --yes") { // the path is shell-quoted where it needs it (Windows)
 		t.Errorf("import = %+v", r)
 	}
 	human := &globalConfig{DBPath: cfg.DBPath, ProfileID: "default"}

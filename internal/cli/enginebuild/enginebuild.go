@@ -52,7 +52,7 @@ type Deps struct {
 // Build constructs a fully wired WorkflowEngine suitable for CLI use.
 // It creates its own scheduler (no action executor or store needed for workflow triggers).
 // The returned cleanup func closes the browser session provider and the node
-// health observers; callers should defer it alongside engine.Stop().
+// health observers, then the database; callers should defer it alongside engine.Stop().
 func Build(opts Options, deps Deps) (*workflow.WorkflowEngine, func(), error) {
 	db, err := deps.OpenDB()
 	if err != nil {
@@ -102,6 +102,7 @@ func Build(opts Options, deps Deps) (*workflow.WorkflowEngine, func(), error) {
 	return engine, func() {
 		sessionProvider.Close()
 		nodes.CloseHealthObservers()
+		db.Close() //nolint:errcheck // the command is over; a held file blocks removing its home on Windows
 	}, nil
 }
 

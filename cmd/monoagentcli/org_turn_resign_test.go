@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/cli/opgate"
@@ -71,6 +72,9 @@ func outboundize(t *testing.T, f *orgCLIFixture) {
 }
 
 func TestWorkflowSaveTierRaiseResigns(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("on Windows a changed org is never re-signed for the operator: it asks for `monomind org sign` (a stated limit)")
+	}
 	for _, c := range []struct {
 		name     string
 		verdict  string
@@ -91,6 +95,9 @@ func TestWorkflowSaveTierRaiseResigns(t *testing.T) {
 }
 
 func TestWorkflowDeleteForceResigns(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("on Windows a changed org is never re-signed for the operator: it asks for `monomind org sign` (a stated limit)")
+	}
 	for _, c := range []struct {
 		name     string
 		verdict  string

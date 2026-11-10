@@ -93,6 +93,11 @@ func TestNodeRunInATurnRunsAsAnUnapprovedStep(t *testing.T) {
 			if got := workflow.AgentCallerFrom(seen[0]) != ""; got != c.agent {
 				t.Errorf("the verdict is carried = %v, want %v", got, c.agent)
 			}
+			// ai.task and people.save tell an AI run by operator.AIRun (issue 1333, G1c): a node run here from a
+			// turn that cleared its markers must be one, whatever marker it carries.
+			if got := operator.AIRun(seen[0]); got != c.agent {
+				t.Errorf("operator.AIRun = %v, want %v", got, c.agent)
+			}
 		})
 	}
 }
