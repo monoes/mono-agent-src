@@ -9,8 +9,8 @@ import (
 // The app does not write the phrase: it fills the CLI's phrase_template with the values the CLI resolved, using the placeholder
 // names below (wails-app/app_pursuit_facts.go: phrasePlaceholders). This is the real begin: the phrase so filled from a real
 // preview is accepted, a phrase filled with any other value is not, and the template carries each placeholder exactly once.
+// Not parallel: newBeginWorld switches the process-wide session token (a parallel run of the begin tests can race on it).
 func TestPursuitBeginAcceptsThePhraseTheAppFillsFromThePreviewTemplate(t *testing.T) {
-	t.Parallel()
 	w := newBeginWorld(t)
 	p := w.preview(t, "--pct", "25", "--parked-max", "4", "--wakes-max", "7")
 	fill := func(pct, parked, wakes int) string {
