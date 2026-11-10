@@ -63,6 +63,16 @@ export function modelChoices(roster) {
   return out.sort((a, b) => Number(b.ready) - Number(a.ready))
 }
 
+// catalogChoices is the same list from the runtimes' own model lists (openStartApi.catalog), which are not validated: no
+// model is marked ready.
+export function catalogChoices(catalog) {
+  const out = []
+  for (const r of Array.isArray(catalog) ? catalog : []) {
+    for (const m of Array.isArray(r?.models) ? r.models : []) if (r?.provider && m) out.push({ provider: r.provider, model: m, version: r.version || 'unknown', ready: false })
+  }
+  return out
+}
+
 const samePin = (a, b) => a.provider === b.provider && a.model === b.model && a.version === b.version
 
 // defaultPins picks a boss (the first choice) and a verifier that is a different model; with only one model in the
