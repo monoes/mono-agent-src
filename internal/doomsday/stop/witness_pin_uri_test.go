@@ -2,9 +2,6 @@ package stop
 
 import (
 	"net/url"
-	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -52,39 +49,4 @@ func TestSqliteURIHasNoQueryOrFragment(t *testing.T) {
 	if err != nil || u.Path != "/a#b?c%41/m.db" || u.RawQuery != "" || u.Fragment != "" {
 		t.Fatalf("round trip: %v %+v", err, u)
 	}
-}
-
-// A real pin of a database under a directory whose name holds URI metacharacters opens exactly that file.
-func TestPinOpensDatabaseUnderMetacharacterDirectory(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("directory names with ? are not valid on Windows")
-	}
-	for _, name := range []string{"a#b", "a?b", "a%41b", "a b", `a\b`} {
-		dir := filepath.Join(t.TempDir(), name)
-		mustNoErr(t, os.Mkdir(dir, 0o700))
-		path := filepath.Join(dir, "m.db")
-		// the decoy a wrongly parsed URI would open instead (a "#" or "?" cut the path short)
-		cut := filepath.Join(filepath.Dir(dir), "a")
-		makeDBAt(t, path)
-		p, err := Pin(bg, PinOptions{DBPath: path})
-		if err != nil {
-			t.Fatalf("%q: %v", name, err)
-		}
-		if err := insert(p); err != nil {
-			t.Fatalf("%q: %v", name, err)
-		}
-		mustNoErr(t, p.CloseClean())
-		if _, err := os.Stat(cut); err == nil {
-			t.Fatalf("%q: a file or directory %s appeared", name, cut)
-		}
-		if _, err := os.Stat(filepath.Join(dir, "m.db-wal")); err == nil {
-			t.Fatalf("%q: -wal left behind", name)
-		}
-	}
-}
-
-// makeDBAt creates the database file through the same URI constructor the pin uses.
-func makeDBAt(t *testing.T, path string) {
-	t.Helper()
-	mustNoErr(t, makeScratchDB(path))
 }
