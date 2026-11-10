@@ -11,6 +11,11 @@
 // and /bin) with an environment of exactly XDG_RUNTIME_DIR and DBUS_SESSION_BUS_ADDRESS, so no host secret reaches a unit through
 // the client. The criterion's own environment (built from nothing by the finish sandbox) is passed with --setenv.
 //
+// One Confiner serves one Checker at a time: the record of unit failures (TakeInfra) is the confiner's, so two Checkers sharing
+// one would read each other's. (A Checker runs one check at a time, and the host has one Checker.) Programs that need a
+// pseudo-terminal get none. /dev/hugepages, where the host has a hugetlbfs mount, is not hidden (a missing directory in the private
+// /dev would stop the unit from starting; the mount is empty to a program that has no reserved pages).
+//
 // The only path writable in a unit is the check's working area. The live project is never mounted: criteria run on the
 // sandbox's copy; Hide adds the live folder to the inaccessible paths for the places the filesystem rules do not hide anyway.
 package sdconfine

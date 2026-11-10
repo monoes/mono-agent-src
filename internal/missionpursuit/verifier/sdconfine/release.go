@@ -16,6 +16,7 @@ var (
 	unitRE   = regexp.MustCompile(`^monoagent-check-([0-9]+)-([0-9]+)-[0-9a-f]{16}(\.service)?$`)
 	listedRE = regexp.MustCompile(`^monoagent-check-([0-9]+)-([0-9]+)-[0-9a-f]{16}\.service$`)
 	cabRE    = regexp.MustCompile(`^MONOAGENT_CANARY_[A-Z]+_[A-Za-z0-9]+$`)
+	mgrRE    = regexp.MustCompile(`^MONOAGENT_CANARY_MGR_[A-Za-z0-9]+$`)
 	valRE    = regexp.MustCompile(`^[0-9A-Za-z_.-]+$`)
 )
 
@@ -157,8 +158,11 @@ func (c *Confiner) classify(ctx context.Context, unit string, cmd *exec.Cmd) {
 	if cmd.ProcessState != nil {
 		client = cmd.ProcessState.ExitCode()
 	}
-	r := c.ctl(ctx, "show", "--property=LoadState,ActiveState,Result,ExecMainCode,ExecMainStatus", unit)
+	r := c.ctl(ctx, "show", "--property=LoadState,ActiveState,Result,ExecMainCode,ExecMainStatus,LimitCPU,CPUUsageNSec", unit)
 	if r.Code != 0 {
+		if client > 0 { // a failed client and a record that cannot be read: the unit may never have started, and "exit 1" must not pass
+			c.reportInfra("the unit's record could not be read (%s) and the client failed with status %d, so a unit that never started cannot be told from a program that exited", firstLine(r.Stderr, r.Err), client)
+		}
 		return
 	}
 	p := parseShow(r.Stdout)
@@ -181,12 +185,21 @@ func (c *Confiner) classify(ctx context.Context, unit string, cmd *exec.Cmd) {
 			c.reportInfra("the unit failed to set up (status %d, in systemd's reserved range), so the program did not run or its status is not its own", status)
 		}
 	case "signal":
-		if status == 9 {
-			c.reportInfra("the unit was killed from outside (SIGKILL), not by the program or its memory limit")
+		// RLIMIT_CPU ends a spinning program with SIGXCPU and then SIGKILL: the unit's own CPU time says whether it was that
+		if lim, _ := strconv.ParseInt(p["LimitCPU"], 10, 64); lim > 0 && cpuAtLimit(p["CPUUsageNSec"], lim) && (status == 9 || status == 24) {
+			c.reportInfra("cpu limit: the program used its %d seconds of CPU time and was ended by the kernel", lim)
+		} else if status == 9 {
+			c.reportInfra("the unit was killed from outside (SIGKILL), not by the program, its cpu limit or its memory limit")
 		}
 	default:
 		c.reportInfra("the unit failed: Result=%s", res)
 	}
+}
+
+// cpuAtLimit says whether the unit used (nearly) all of limit seconds of CPU time.
+func cpuAtLimit(usageNSec string, limit int64) bool {
+	n, err := strconv.ParseInt(usageNSec, 10, 64)
+	return err == nil && n >= limit*1_000_000_000*95/100
 }
 
 // gone says whether the unit is unloaded, or inactive with an empty cgroup.
@@ -287,6 +300,47 @@ func (c *Confiner) Sweep(ctx context.Context) ([]string, error) {
 		c.end(ctx, l.name)
 		out = append(out, l.name)
 	}
+	envs, err := c.SweepEnv(ctx)
+	if err != nil {
+		return out, err
+	}
+	_ = envs
+	return out, nil
+}
+
+var plantedRE = regexp.MustCompile(`\.([0-9]+)-([0-9]+)\.([0-9]+)$`)
+
+const staleEnvAfter = time.Hour
+
+// SweepEnv unsets the canary variables that a host which crashed left in the user manager's environment (Sweep does it too): only
+// names of the canary shape, and only those planted by a dead owner or more than an hour ago, or with no owner recorded. This
+// process's own variables and a live host's fresh ones stay. It returns the names it unset.
+func (c *Confiner) SweepEnv(ctx context.Context) ([]string, error) {
+	r := c.ctl(ctx, "show-environment")
+	if r.Code != 0 {
+		return nil, fmt.Errorf("sdconfine: the user manager's environment could not be read: %s", firstLine(r.Stderr, r.Err))
+	}
+	var out []string
+	for _, l := range strings.Split(r.Stdout, "\n") {
+		name, value, ok := strings.Cut(strings.TrimSpace(l), "=")
+		if !ok || !mgrRE.MatchString(name) {
+			continue
+		}
+		if m := plantedRE.FindStringSubmatch(value); m != nil {
+			if m[1]+"-"+m[2] == c.owner {
+				continue
+			}
+			ts, _ := strconv.ParseInt(m[3], 10, 64)
+			fresh := c.sys.now().Sub(time.Unix(ts, 0)) < staleEnvAfter
+			if pid, err := strconv.Atoi(m[1]); err == nil && fresh {
+				if st, err := c.sys.procStart(pid); err == nil && st == m[2] {
+					continue // a live host's, fresh
+				}
+			}
+		}
+		c.ctl(ctx, "unset-environment", name)
+		out = append(out, name)
+	}
 	return out, nil
 }
 
@@ -309,6 +363,8 @@ func (c *Confiner) PlantManagerEnv(ctx context.Context, name, value string) (fun
 	if !cabRE.MatchString(name) || !valRE.MatchString(value) {
 		return nil, fmt.Errorf("sdconfine: %q is not a canary variable the manager may be given", name)
 	}
+	// the value records who planted it and when, so a later start can tell a stale one (SweepEnv)
+	value = fmt.Sprintf("%s.%s.%d", value, c.owner, c.sys.now().Unix())
 	if r := c.ctl(ctx, "set-environment", name+"="+value); r.Code != 0 {
 		return nil, fmt.Errorf("sdconfine: the manager refused the variable: %s", firstLine(r.Stderr, r.Err))
 	}
