@@ -131,7 +131,7 @@ func DigestTree(root, copyTo string) (Tree, error) {
 				return refuse("more than %d bytes", int64(MaxSnapshotBytes))
 			}
 			e.Kind, e.Exec, e.Size = 'f', m&0o111 != 0, info.Size()
-			sum, err := sumFile(p, copyTo, rel, e.Exec)
+			sum, err := sumFile(p, copyTo, rel, e.Exec, info)
 			if err != nil {
 				return refuse("%s: %v", rel, err)
 			}
@@ -152,8 +152,11 @@ func DigestTree(root, copyTo string) (Tree, error) {
 	return t, nil
 }
 
-func sumFile(src, copyTo, rel string, exec bool) (string, error) {
-	f, err := os.Open(src)
+// sumFile hashes (and, with copyTo, copies) the regular file src that the walk saw as info. It opens the file itself without
+// following a link or waiting on a pipe, and checks that what it opened is that same regular file: a file swapped for a link,
+// a pipe or another file after the walk looked at it is refused, not read.
+func sumFile(src, copyTo, rel string, exec bool, info fs.FileInfo) (string, error) {
+	f, err := openRegular(src, info)
 	if err != nil {
 		return "", err
 	}

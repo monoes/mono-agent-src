@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -27,6 +28,13 @@ type BeginCheck struct {
 	Round       int64
 	SubjectRoot string // the project folder the host resolved
 }
+
+// CheckCapMicro is the most one check's reviewer call may cost (the library's per-call cap), in micro-USD. A check that ends
+// abandoned, and a restart's sweep, record it with cost_known = 0: the call may have been paid before the host went away.
+const CheckCapMicro = int64(verifier.DefaultCallCapUSD * 1e6)
+
+// maxCheckCostMicro bounds what Finish takes as a cost: the library charges the cap for anything it cannot believe.
+const maxCheckCostMicro = 100 * CheckCapMicro
 
 var errNoHostChecks = fmt.Errorf("%w: no host check capability", tasks.ErrInvalid)
 
@@ -54,8 +62,18 @@ func (h HostChecks) Begin(ctx context.Context, profileID string, session int64, 
 		if g.State != StateLocked || g.Hash != in.GoalHash {
 			return invalid("a check is for the locked goal as the host read it")
 		}
-		if len(in.SubjectRoot) > 4096 {
-			return invalid("the project folder path is too long")
+		if len(in.SubjectRoot) > 4096 || !filepath.IsAbs(in.SubjectRoot) || filepath.Clean(in.SubjectRoot) != in.SubjectRoot {
+			return invalid("the project folder is a clean absolute path (at most 4096 bytes)")
+		}
+		var running, last int64
+		if err := x.QueryRowContext(ctx, `SELECT COALESCE(SUM(state = 'running'), 0), COALESCE(MAX(round), -1) FROM mission_goal_checks WHERE session_id = ?`, session).Scan(&running, &last); err != nil {
+			return fmt.Errorf("missionpursuit: reading the checks: %w", err)
+		}
+		if running > 0 {
+			return ErrCheckRunning
+		}
+		if in.Round <= last {
+			return invalid("a check round is greater than every earlier round of the mission (the last is %d)", last)
 		}
 		res, err := x.ExecContext(ctx, `INSERT INTO mission_goal_checks (session_id, goal_hash, round, state, subject_root, started_at, written_by) VALUES (?, ?, ?, 'running', ?, ?, ?)`,
 			session, g.Hash, in.Round, in.SubjectRoot, h.s.stamp(), HostVerifier)
@@ -124,12 +142,15 @@ func (h HostChecks) Finish(ctx context.Context, checkID int64, res verifier.Resu
 		return invalid("the reviewer's verdict is ok or block, not %q", res.ReviewerVerdict)
 	}
 	cost := res.CostMicro
-	if cost < 0 {
-		return invalid("a check cannot cost less than nothing")
+	if cost < 0 || cost > maxCheckCostMicro {
+		return invalid("a check costs between nothing and %d micro-USD", maxCheckCostMicro)
 	}
 	known := 0
 	if res.CostKnown {
 		known = 1
+	}
+	if state == CheckAbandoned && known == 0 {
+		cost = CheckCapMicro // an abandoned check's reviewer call may have been paid: it counts at the cap, not as free
 	}
 	return h.s.tx(ctx, func(x tasks.Queryer) error {
 		var goal, st string
@@ -163,7 +184,7 @@ func (h HostChecks) AbandonRunning(ctx context.Context) (int, error) {
 	if h.s == nil {
 		return 0, errNoHostChecks
 	}
-	res, err := h.s.db.ExecContext(ctx, `UPDATE mission_goal_checks SET state = 'abandoned', outcome = '', reason = 'host-restarted', ended_at = ? WHERE state = 'running'`, h.s.stamp())
+	res, err := h.s.db.ExecContext(ctx, `UPDATE mission_goal_checks SET state = 'abandoned', outcome = '', reason = 'host-restarted', cost_micro = ?, cost_known = 0, ended_at = ? WHERE state = 'running'`, CheckCapMicro, h.s.stamp())
 	if err != nil {
 		return 0, fmt.Errorf("missionpursuit: abandoning running checks: %w", err)
 	}

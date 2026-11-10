@@ -43,7 +43,8 @@ func newCheckWorld(t *testing.T) checkWorld {
 
 func (w checkWorld) begin(t *testing.T) int64 {
 	t.Helper()
-	id, err := w.hc.Begin(bg, "default", w.session, BeginCheck{GoalHash: w.goal.Hash, Round: 1, SubjectRoot: "/work/project"})
+	round := int64(count(t, w.db, `SELECT COUNT(*) FROM mission_goal_checks WHERE session_id = ?`, w.session)) + 1
+	id, err := w.hc.Begin(bg, "default", w.session, BeginCheck{GoalHash: w.goal.Hash, Round: round, SubjectRoot: "/work/project"})
 	if err != nil {
 		t.Fatalf("begin: %v", err)
 	}
@@ -152,16 +153,15 @@ func TestBeginRefusesWhatIsNotTheLockedGoalOfAStartedPursuit(t *testing.T) {
 		t.Error("a check in another profile was accepted")
 	}
 	w.begin(t)
-	if _, err := w.hc.Begin(bg, "default", w.session, BeginCheck{GoalHash: w.goal.Hash, Round: 2}); err == nil {
-		t.Error("a second running check was accepted")
-	}
+	_, err := w.hc.Begin(bg, "default", w.session, BeginCheck{GoalHash: w.goal.Hash, Round: 2, SubjectRoot: "/work/project"})
+	wantIs(t, err, ErrCheckRunning, "a second running check")
 	// a mission with no pursuit has no check
 	f := newFixture(t, "mission", tasks.SessionKindMission)
 	if _, err := f.store.Set(bg, "default", f.session, checkCriteria(), human); err != nil {
 		t.Fatal(err)
 	}
 	g, _ := f.store.Get(bg, "default", f.session)
-	_, err := NewHostChecks(f.store).Begin(bg, "default", f.session, BeginCheck{GoalHash: g.Hash})
+	_, err = NewHostChecks(f.store).Begin(bg, "default", f.session, BeginCheck{GoalHash: g.Hash, Round: 1, SubjectRoot: "/work/project"})
 	wantIs(t, err, ErrNotStarted, "a check without a pursuit")
 }
 
@@ -368,29 +368,33 @@ func TestACheckWhoseReviewerBlockedTakesNoAnswer(t *testing.T) {
 func TestTheSwitchIsTheOperatorsAndMovesTheDate(t *testing.T) {
 	w := newCheckWorld(t)
 	for _, by := range []tasks.Actor{lead, agent("x"), {Kind: tasks.Capture, Name: "chrome"}, {}} {
-		_, err := w.store.SetUnconfinedChecks(bg, "default", w.session, true, by)
+		_, _, err := w.store.SetUnconfinedChecks(bg, "default", w.session, true, by)
 		wantIs(t, err, tasks.ErrOperatorOnly, "switch by "+by.Name)
 	}
 	p, _ := w.store.GetPursuit(bg, "default", w.session)
 	if p.UnconfinedChecksOK {
 		t.Fatal("the switch is born on")
 	}
-	if _, err := w.store.SetUnconfinedChecks(bg, "default", w.session, false, human); err == nil {
-		t.Error("switching off what is off was accepted")
+	atStart := pursuitUpdatedAt(t, w)
+	if _, changed, err := w.store.SetUnconfinedChecks(bg, "default", w.session, false, human); err != nil || changed {
+		t.Errorf("switching off what is off: changed %v, %v: it is a no-op, not an error", changed, err)
+	}
+	if pursuitUpdatedAt(t, w) != atStart {
+		t.Error("a no-op moved updated_at: it is not an action of yours")
 	}
 	// a frozen clock: the date still moves forward, because a person's action must be later than the one before it
 	frozen := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
 	w.store.now = func() time.Time { return frozen }
 	before := pursuitUpdatedAt(t, w)
-	p, err := w.store.SetUnconfinedChecks(bg, "default", w.session, true, human)
-	if err != nil || !p.UnconfinedChecksOK || p.UnconfinedBy != "you" {
+	p, changed, err := w.store.SetUnconfinedChecks(bg, "default", w.session, true, human)
+	if err != nil || !changed || !p.UnconfinedChecksOK || p.UnconfinedBy != "you" {
 		t.Fatalf("on: %+v %v", p, err)
 	}
 	mid := pursuitUpdatedAt(t, w)
 	if mid == before {
 		t.Error("switching on did not move updated_at")
 	}
-	p, err = w.store.SetUnconfinedChecks(bg, "default", w.session, false, human)
+	p, _, err = w.store.SetUnconfinedChecks(bg, "default", w.session, false, human)
 	if err != nil || p.UnconfinedChecksOK {
 		t.Fatalf("off: %+v %v", p, err)
 	}
@@ -398,7 +402,7 @@ func TestTheSwitchIsTheOperatorsAndMovesTheDate(t *testing.T) {
 		t.Errorf("a second change in the same second did not move updated_at: %s then %s", mid, after)
 	}
 	f := newMission(t) // no pursuit
-	_, err = f.store.SetUnconfinedChecks(bg, "default", f.session, true, human)
+	_, _, err = f.store.SetUnconfinedChecks(bg, "default", f.session, true, human)
 	if err == nil {
 		t.Error("the switch moved on a mission with no pursuit")
 	}
@@ -442,7 +446,7 @@ func TestACheckThatRanUnconfinedSaysSo(t *testing.T) {
 		want        bool
 	}{
 		"unconfined":    {verifier.ContainmentUnconfined, true},
-		"file only":     {verifier.ContainmentFileOnly, false},
+		"file only":     {verifier.ContainmentFileOnly, true}, // a command result exists: the string claims nothing ran, the results say otherwise
 		"confined":      {verifier.ContainmentConfinedPrefix + "box + process-group", false},
 		"empty":         {"", true}, // a program ran and nothing says it was confined
 		"something new": {"anything else", true},

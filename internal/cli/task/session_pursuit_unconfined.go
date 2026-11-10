@@ -36,15 +36,22 @@ program and need no switch.`,
 				return d.InvalidInput("give exactly one of --on and --off")
 			}
 			return d.withPursuit(cmd, args, func(ctx context.Context, ps *missionpursuit.Store, p tasks.Profile, session int64) error {
-				pu, err := ps.SetUnconfinedChecks(ctx, p.ID, session, on, actor)
+				pu, changed, err := ps.SetUnconfinedChecks(ctx, p.ID, session, on, actor)
 				if err != nil {
 					return d.taskErr(err)
 				}
 				if d.JSONOutput() {
-					return d.WriteJSON(cmd.OutOrStdout(), map[string]any{"profile": p, "pursuit": pu, "notice": noticeFor(pu)})
+					return d.WriteJSON(cmd.OutOrStdout(), map[string]any{"profile": p, "pursuit": pu, "changed": changed, "notice": noticeFor(pu)})
 				}
 				w := cmd.OutOrStdout()
 				printProfileLine(w, p)
+				if !changed {
+					fmt.Fprintf(w, "Already %s for mission session #%d: nothing changed.\n", map[bool]string{true: "on", false: "off"}[on], pu.SessionID)
+					if pu.UnconfinedChecksOK {
+						fmt.Fprintf(w, "  %s\n", missionpursuit.UnconfinedNotice)
+					}
+					return nil
+				}
 				if pu.UnconfinedChecksOK {
 					fmt.Fprintf(w, "ALLOWED: goal checks of mission session #%d may now run its project commands UNCONFINED.\n  %s\n  A confinement of the host removes this notice; turn it off again with --off.\n", pu.SessionID, missionpursuit.UnconfinedNotice)
 				} else {

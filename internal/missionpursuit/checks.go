@@ -37,6 +37,8 @@ const (
 var (
 	// ErrNoCheck: the mission has no check, or not the one named.
 	ErrNoCheck = fmt.Errorf("%w: this mission has no such goal check", tasks.ErrNotFound)
+	// ErrCheckRunning: the mission has a check running; the next one starts when it ends.
+	ErrCheckRunning = fmt.Errorf("%w: a goal check of this mission is running already", tasks.ErrInvalid)
 	// ErrDossierStale: the check is not the one the person read.
 	ErrDossierStale = fmt.Errorf("%w: the check changed since you read it: read it again before you answer", tasks.ErrInvalid)
 	// ErrSubjectChanged: the project is not the one the check ran against.
@@ -106,32 +108,34 @@ const UnconfinedNotice = "UNCONFINED: the project commands of this check ran as 
 	"They could read or write any of your files, connect to local sockets (the session bus, ssh-agent, other services), read the environment of your other processes through /proc, " +
 	"use your keyring, and leave processes behind that outlive the check (setsid)."
 
-// ranUnconfined says whether a containment string means that programs ran without the confinement the library proves. An
-// empty or unknown string counts as unconfined for a check in which a program ran: the notice is the safe reading.
+// ranUnconfined says whether a program of the check ran without a confinement the library proved. It is derived from the results:
+// when any result is of a program kind (command or output) the check counts as unconfined unless the containment string names a
+// confiner ("confined: ..."); a string that says nothing was run ("none (") counts only when no program result exists. So a
+// wrong string errs toward the notice. A check with no program result is not unconfined.
 func ranUnconfined(containment string, results []CheckResult) bool {
-	if strings.HasPrefix(containment, "confined: ") || strings.HasPrefix(containment, "none (") {
-		return false
-	}
-	if containment != "" {
-		return true
-	}
+	program := false
 	for _, r := range results {
 		if r.RunsSubjectCode || r.Kind == "command" || r.Kind == "output" {
-			return true
+			program = true
 		}
 	}
-	return false
+	if !program {
+		return false
+	}
+	return !strings.HasPrefix(containment, "confined: ")
 }
 
 // dossierHash is what the person read: the goal, the machine results, the reviewer's verdict and the project's digest, and
 // which check it is. An answer names it back, so an answer is never for a check that changed since it was read.
-func dossierHash(id int64, goalHash, resultsDigest, verdict, subjectDigest string) string {
-	sum := sha256.Sum256([]byte(fmt.Sprintf("goal-check-dossier\ncheck:%d\ngoal:%s\nresults:%s\nreviewer:%s\nsubject:%s\n", id, goalHash, resultsDigest, verdict, subjectDigest)))
+func dossierHash(id, round int64, goalHash, resultsDigest, verdict, subjectDigest string) string {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("goal-check-dossier\ncheck:%d\nround:%d\ngoal:%s\nresults:%s\nreviewer:%s\nsubject:%s\n", id, round, goalHash, resultsDigest, verdict, subjectDigest)))
 	return hex.EncodeToString(sum[:])
 }
 
-// Clean makes text from a model, a program or a person safe to show: invalid UTF-8, control, format (bidirectional, zero
-// width) and unassigned characters are replaced by a space, and the result is cut at max bytes on a character boundary.
+// Clean makes text from a model, a program or a person safe to show on one line: each run of invalid UTF-8 bytes becomes one "?",
+// newlines and tabs become spaces, control characters (Cc, which includes the ESC byte), format characters (Cf: bidirectional and
+// zero-width marks), U+2028, U+2029 and the soft hyphen become spaces, and the result is cut at max bytes on a character boundary.
+// Unassigned and private-use code points are left alone (they are not instructions to a terminal).
 func Clean(s string, max int) string {
 	s = strings.ToValidUTF8(s, "?")
 	var b strings.Builder
@@ -139,7 +143,7 @@ func Clean(s string, max int) string {
 		switch {
 		case r == '\n' || r == '\t':
 			b.WriteRune(' ')
-		case unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == ' ' || r == ' ' || r == '­':
+		case unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == 0x2028 || r == 0x2029 || r == 0xad:
 			b.WriteRune(' ')
 		default:
 			b.WriteRune(r)
@@ -228,7 +232,7 @@ func fillCheck(ctx context.Context, x tasks.Queryer, c Check, operator bool) (Ch
 	c.Containment = Clean(c.Containment, 200)
 	c.Net = Clean(c.Net, 200)
 	c.Reason = Clean(c.Reason, 200)
-	c.Dossier = dossierHash(c.ID, c.GoalHash, c.ResultsDigest, c.ReviewerVerdict, c.SubjectDigest)
+	c.Dossier = dossierHash(c.ID, c.Round, c.GoalHash, c.ResultsDigest, c.ReviewerVerdict, c.SubjectDigest)
 	c.Results = []CheckResult{}
 	rows, err := x.QueryContext(ctx, `SELECT r.pos, r.criterion_hash, r.kind, r.result, r.exit_code, r.stdout_digest, r.stderr_digest, r.runs_subject_code, r.net, r.stdout_excerpt, r.stderr_excerpt, r.detail
 	  FROM mission_goal_check_results r WHERE r.check_id = ? ORDER BY r.pos`, c.ID)
@@ -279,4 +283,35 @@ func fillCheck(ctx context.Context, x tasks.Queryer, c Check, operator bool) (Ch
 		c.Rubric = append(c.Rubric, l)
 	}
 	return c, rrows.Err()
+}
+
+// answerableErr says in plain words why the check cannot take an answer now, or nil. latestID is the mission's latest check.
+func answerableErr(c Check, latestID int64) error {
+	if c.ID != latestID {
+		return invalid("check #%d is not the latest check of this mission: read the latest one", c.ID)
+	}
+	if c.State != CheckDone || c.Outcome != OutcomePassedMachine || c.ReviewerVerdict != "ok" {
+		return invalid("check #%d did not pass its machine criteria and its reviewer (%s %s): there is nothing for you to answer", c.ID, c.State, c.Outcome)
+	}
+	return nil
+}
+
+// Answerable is nil when check id is the mission's latest, passed its machine criteria and its reviewer, and has no verdict of
+// yours yet; otherwise the reason. Callers use it before doing anything costly for an answer (the project digest).
+func (s *Store) Answerable(ctx context.Context, profileID string, session, id int64) error {
+	return s.read(ctx, func(x tasks.Queryer) error {
+		var owner int64
+		if err := x.QueryRowContext(ctx, `SELECT id FROM task_sessions WHERE id = ? AND profile_id = ?`, session, profileID).Scan(&owner); err != nil {
+			return notFound(err, session)
+		}
+		c, err := readCheckRow(ctx, x, session, id)
+		if err != nil {
+			return err
+		}
+		latest, err := readCheckRow(ctx, x, session, 0)
+		if err != nil {
+			return err
+		}
+		return answerableErr(c, latest.ID)
+	})
 }

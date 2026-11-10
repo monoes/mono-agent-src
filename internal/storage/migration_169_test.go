@@ -158,7 +158,8 @@ func TestAnAbandonedCheckIsFinalAndHasNoOutcome(t *testing.T) {
 	} {
 		refused169(t, db, "moves forward", q)
 	}
-	exec169(t, db, newCheck169) // the next check may start once none runs
+	refused169(t, db, "round", newCheck169) // a round is not reused
+	exec169(t, db, `INSERT INTO mission_goal_checks (session_id, goal_hash, round, state, outcome, started_at, written_by) VALUES (1, 'GH', 2, 'running', '', 't3', 'host-verifier')`) // the next check may start once none runs, with a later round
 }
 
 func TestAChecksDetailsAreFilledAtTheEndAndFrozenAfter(t *testing.T) {
@@ -306,4 +307,22 @@ func TestAPursuitIsBornWithTheSwitchOff(t *testing.T) {
 	exec169(t, db, `UPDATE mission_goals SET state = 'confirmed', confirmed_by = 'you', confirmed_at = 'x'`)
 	refused169(t, db, "unconfined", `INSERT INTO mission_pursuit (session_id, enabled, locked_by, unconfined_checks_ok, unconfined_by, created_at, updated_at) VALUES (1, 1, 'you', 1, 'you', 'x', 'x')`)
 	exec169(t, db, `INSERT INTO mission_pursuit (session_id, enabled, locked_by, created_at, updated_at) VALUES (1, 1, 'you', 'x', 'x')`)
+}
+
+func TestACheckRoundOnlyGrowsAndNeverBackwards(t *testing.T) {
+	db := world169(t)
+	exec169(t, db, `INSERT INTO mission_goal_checks (session_id, goal_hash, round, state, started_at, written_by) VALUES (1, 'GH', 5, 'running', 't1', 'host-verifier')`)
+	exec169(t, db, `UPDATE mission_goal_checks SET state = 'abandoned', ended_at = 't2' WHERE id = 1`)
+	for _, r := range []int{5, 4, 0} {
+		refused169(t, db, "round", `INSERT INTO mission_goal_checks (session_id, goal_hash, round, state, started_at, written_by) VALUES (1, 'GH', ?, 'running', 't3', 'host-verifier')`, r)
+	}
+	exec169(t, db, `INSERT INTO mission_goal_checks (session_id, goal_hash, round, state, started_at, written_by) VALUES (1, 'GH', 6, 'running', 't3', 'host-verifier')`)
+}
+
+func TestTheSwitchDateMovesForwardOnly(t *testing.T) {
+	db := world169(t)
+	// backwards or equal is refused even with a person named
+	refused169(t, db, "unconfined", `UPDATE mission_pursuit SET unconfined_checks_ok = 1, unconfined_by = 'you', updated_at = 's0' WHERE session_id = 1`)
+	refused169(t, db, "unconfined", `UPDATE mission_pursuit SET unconfined_checks_ok = 1, unconfined_by = 'you', updated_at = 't0' WHERE session_id = 1`)
+	exec169(t, db, `UPDATE mission_pursuit SET unconfined_checks_ok = 1, unconfined_by = 'you', updated_at = 't1' WHERE session_id = 1`)
 }

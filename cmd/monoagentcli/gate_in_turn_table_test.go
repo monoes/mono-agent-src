@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -138,8 +139,9 @@ func TestEveryGatedVerbRefusesAProcessInsideACoderTurn(t *testing.T) {
 }
 
 var (
-	gateCallSite = regexp.MustCompile(`\.personGate(?:Opening)?\(cmd, ("[^"]+"|\w+)`)
-	gateWhatLit  = regexp.MustCompile(`(?m)^const personWhat = ("[^"]+")`)
+	gateCallSite  = regexp.MustCompile(`\.personGate(?:Opening)?\(cmd, ("[^"]+"|\w+)`)
+	probeCallSite = regexp.MustCompile(`\.personProbe\(`)
+	gateWhatLit   = regexp.MustCompile(`(?m)^const personWhat = ("[^"]+")`)
 )
 
 // The guard: every personGate call site in internal/cli/task names a phrase, and every phrase has a row
@@ -152,6 +154,8 @@ func TestEveryPersonGateCallSiteHasARowInTheGatedVerbTable(t *testing.T) {
 		t.Fatalf("no source files found: %v", err)
 	}
 	var sources []string
+	probeFiles := map[string]bool{}
+	hidden := []string{}
 	for _, f := range files {
 		if strings.HasSuffix(f, "_test.go") {
 			continue
@@ -161,6 +165,29 @@ func TestEveryPersonGateCallSiteHasARowInTheGatedVerbTable(t *testing.T) {
 			t.Fatal(err)
 		}
 		sources = append(sources, string(b))
+		// `what` as the argument is the gate handing its own parameter on: it may appear in session_person_env.go only. In any other
+		// file it would hide a gate from this guard (a verb that gates with a variable instead of a phrase).
+		if filepath.Base(f) != "session_person_env.go" {
+			for _, m := range gateCallSite.FindAllStringSubmatch(string(b), -1) {
+				if m[1] == "what" {
+					hidden = append(hidden, filepath.Base(f))
+				}
+			}
+		}
+		if probeCallSite.MatchString(string(b)) && filepath.Base(f) != "session_person_env.go" {
+			probeFiles[filepath.Base(f)] = true
+		}
+	}
+	if len(hidden) > 0 {
+		t.Fatalf("personGate is called with a variable named what in %v: use a phrase literal (a verb that only looks at who is asking uses personProbe)", hidden)
+	}
+	var probes []string
+	for f := range probeFiles {
+		probes = append(probes, f)
+	}
+	sort.Strings(probes)
+	if want := []string{"session_goal_check.go"}; !reflect.DeepEqual(probes, want) {
+		t.Fatalf("personProbe (which refuses nobody) is used in %v, want exactly %v: a new user of it is a verb that is open to agents, decide it in review", probes, want)
 	}
 	all := strings.Join(sources, "\n")
 	personWhat := ""

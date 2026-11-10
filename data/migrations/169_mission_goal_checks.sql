@@ -23,7 +23,9 @@
 -- the verifier library requires (default OFF). It changes only together with the person who changed it (unconfined_by) and a
 -- moved updated_at, so a change is also a person's action for the away limits; the store method that sets it is operator-only.
 -- mission_pursuit_state.base_check_id is the highest check id when the person last acted (the checks after it are the away
--- checks the host's caps count).
+-- checks the host's caps count). NOTHING writes or reads it yet: the host step (S7c1) sets it where it sets base_judge_id.
+-- An abandoned or crashed check records cost 0 known 0 unless the host wrote the cap: the caps must count a check that is not
+-- cost_known at the cap, never sum cost_micro alone.
 CREATE TABLE IF NOT EXISTS mission_goal_checks (
   id                INTEGER PRIMARY KEY AUTOINCREMENT,
   session_id        INTEGER NOT NULL REFERENCES task_sessions(id) ON DELETE CASCADE,
@@ -74,7 +76,7 @@ CREATE TABLE IF NOT EXISTS mission_goal_answers (
   answer         TEXT    NOT NULL CHECK (answer IN ('yes', 'no')),
   note           TEXT    NOT NULL DEFAULT '' CHECK (length(note) <= 500),
   dossier_hash   TEXT    NOT NULL CHECK (dossier_hash <> ''),
-  answered_by    TEXT    NOT NULL CHECK (answered_by <> ''),
+  answered_by    TEXT    NOT NULL CHECK (answered_by <> ''), -- named (any non-empty text); that it is the person is the store's rule
   answered_at    TEXT    NOT NULL,
   PRIMARY KEY (check_id, pos)
 );
@@ -96,6 +98,13 @@ CREATE TRIGGER IF NOT EXISTS mission_goal_checks_one_running BEFORE INSERT ON mi
 WHEN NEW.state = 'running' AND NOT EXISTS (SELECT 1 FROM mission_goal_checks c WHERE c.id = NEW.id)
   AND EXISTS (SELECT 1 FROM mission_goal_checks c WHERE c.session_id = NEW.session_id AND c.state = 'running')
 BEGIN SELECT RAISE(ABORT, 'one check runs at a time for a mission: another is still running'); END;
+
+-- A check's round is the host's own count: it is greater than every earlier round of the mission (so a round is never reused).
+CREATE TRIGGER IF NOT EXISTS mission_goal_checks_round_grows BEFORE INSERT ON mission_goal_checks
+WHEN NOT EXISTS (SELECT 1 FROM mission_goal_checks c WHERE c.id = NEW.id)
+  AND NOT EXISTS (SELECT 1 FROM mission_goal_checks c WHERE c.session_id = NEW.session_id AND c.state = 'running')
+  AND EXISTS (SELECT 1 FROM mission_goal_checks c WHERE c.session_id = NEW.session_id AND c.round >= NEW.round)
+BEGIN SELECT RAISE(ABORT, 'a check round is greater than every earlier round of the mission'); END;
 
 -- Forward only. What the check was started with never changes. A running check ends once, as done (with an outcome the
 -- verifier can reach) or abandoned (with none); a done check that passed its machine criteria moves once to the person's
@@ -193,9 +202,10 @@ ALTER TABLE mission_pursuit_state ADD COLUMN base_check_id INTEGER NOT NULL DEFA
 CREATE TRIGGER IF NOT EXISTS mission_pursuit_unconfined_born BEFORE INSERT ON mission_pursuit
 WHEN NEW.unconfined_checks_ok <> 0 OR NEW.unconfined_by <> ''
 BEGIN SELECT RAISE(ABORT, 'a pursuit starts with the switch for unconfined checks off'); END;
--- The switch moves only on a started pursuit, with the person who moved it named and the date moved (so it is also the
--- person's action for the away limits); the person recorded changes only with it.
+-- The switch moves only on a started pursuit, with who moved it named (any non-empty text: that it is the person is the store's
+-- rule, since the database cannot tell) and updated_at strictly later (so it is also the person's action for the away limits);
+-- the name recorded changes only with it.
 CREATE TRIGGER IF NOT EXISTS mission_pursuit_unconfined_moves BEFORE UPDATE ON mission_pursuit
-WHEN (NEW.unconfined_checks_ok <> OLD.unconfined_checks_ok AND (NEW.unconfined_by = '' OR NEW.updated_at = OLD.updated_at OR OLD.enabled = 0))
+WHEN (NEW.unconfined_checks_ok <> OLD.unconfined_checks_ok AND (NEW.unconfined_by = '' OR NEW.updated_at <= OLD.updated_at OR OLD.enabled = 0))
   OR (NEW.unconfined_checks_ok = OLD.unconfined_checks_ok AND NEW.unconfined_by <> OLD.unconfined_by)
-BEGIN SELECT RAISE(ABORT, 'the switch for unconfined checks changes only with the person named and the date moved'); END;
+BEGIN SELECT RAISE(ABORT, 'the switch for unconfined checks changes only with the person named and the date moved forward'); END;

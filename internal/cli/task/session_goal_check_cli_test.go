@@ -132,10 +132,10 @@ func TestGoalCheckNamesWhatIsNotConfinedWheneverTheCheckRanUnconfined(t *testing
 	if !d.Check.Unconfined || !strings.Contains(d.Notice, "UNCONFINED") {
 		t.Errorf("json: unconfined %v, notice %q", d.Check.Unconfined, d.Notice)
 	}
-	calm := newCheckedMission(t, verifier.ContainmentFileOnly)
+	calm := newCheckedMission(t, verifier.ContainmentConfinedPrefix+"box + process-group")
 	text, _, _ = runTask(t, calm.db, "default", false, "", "session", "goal", "check", id(calm.session))
 	if strings.Contains(text, "UNCONFINED") {
-		t.Errorf("a check in which no program ran is marked unconfined:\n%s", text)
+		t.Errorf("a check the host confined is marked unconfined:\n%s", text)
 	}
 }
 
@@ -247,14 +247,24 @@ func TestPursuitAllowUnconfinedChecksIsTheOperatorsAndDefaultsOff(t *testing.T) 
 	asOperator(t)
 	failedTaskJSON(t, m.db, "default", 3, "session", "pursuit", "allow-unconfined-checks", id(m.session))
 	failedTaskJSON(t, m.db, "default", 3, "session", "pursuit", "allow-unconfined-checks", id(m.session), "--on", "--off")
-	failedTaskJSON(t, m.db, "default", 3, "session", "pursuit", "allow-unconfined-checks", id(m.session), "--off") // it is off already
+	var already struct {
+		Changed bool `json:"changed"`
+	}
+	mustTaskJSON(t, m.db, "default", &already, "", "session", "pursuit", "allow-unconfined-checks", id(m.session), "--off") // off already: reported, not an error
+	if already.Changed {
+		t.Error("switching off what is off said it changed something")
+	}
+	text0, _, err := runTask(t, m.db, "default", false, "", "session", "pursuit", "allow-unconfined-checks", id(m.session), "--off")
+	if err != nil || !strings.Contains(text0, "Already off") {
+		t.Errorf("already off: %v %q", err, text0)
+	}
 	var on pursuitDoc
 	mustTaskJSON(t, m.db, "default", &on, "", "session", "pursuit", "allow-unconfined-checks", id(m.session), "--on")
 	if !on.Pursuit.UnconfinedChecksOK || on.Pursuit.UnconfinedBy != "you" {
 		t.Fatalf("on: %+v", on.Pursuit)
 	}
 	text, _, err := runTask(t, m.db, "default", false, "", "session", "pursuit", "allow-unconfined-checks", id(m.session), "--off")
-	if err != nil || !strings.Contains(text, "Off") {
+	if err != nil || !strings.Contains(text, "Off:") {
 		t.Errorf("off: %v %q", err, text)
 	}
 	if d := m.read(t); d.UnconfinedChecksOK {
@@ -265,5 +275,64 @@ func TestPursuitAllowUnconfinedChecksIsTheOperatorsAndDefaultsOff(t *testing.T) 
 		if !strings.Contains(text, want) {
 			t.Errorf("the notice for turning it on lacks %q:\n%s", want, text)
 		}
+	}
+}
+
+func TestGoalCheckOfAMissionWhoseGoalIsConfirmedButNotPursuedSaysNoCheckYet(t *testing.T) {
+	t.Parallel()
+	db := newTaskTestDB(t)
+	s, _ := confirmedGoalMission(t, db) // no pursuit started
+	text, _, err := runTask(t, db, "default", false, "", "session", "goal", "check", id(s))
+	if err != nil || !strings.Contains(text, "no goal check yet") {
+		t.Errorf("a mission with no pursuit: %v %q", err, text)
+	}
+}
+
+func TestGoalCheckShowsAMicroDollarCostAndAnswerRepeatsTheUnconfinedNotice(t *testing.T) {
+	t.Parallel()
+	m := newCheckedMission(t, verifier.ContainmentUnconfined)
+	text, _, err := runTask(t, m.db, "default", false, "", "session", "goal", "check", id(m.session))
+	if err != nil || !strings.Contains(text, "cost $0.002000") {
+		t.Errorf("a cost of 2000 micro-USD: %v\n%s", err, text)
+	}
+	d := m.read(t)
+	out, _, err := runTask(t, m.db, "default", false, "", m.answerArgs(d, "c3", "--yes")...)
+	if err != nil || !strings.Contains(out, "UNCONFINED") {
+		t.Errorf("the answer to an unconfined check: %v\n%s", err, out)
+	}
+	var j struct {
+		Notice string `json:"notice"`
+	}
+	mustTaskJSON(t, m.db, "default", &j, "", m.answerArgs(d, "c4", "--yes")...)
+	if !strings.Contains(j.Notice, "UNCONFINED") {
+		t.Errorf("the json answer lacks the notice: %q", j.Notice)
+	}
+}
+
+// A check that cannot be answered is refused before the project is read: the project is gone, and the reason is still the check's.
+func TestGoalAnswerAsksTheStoreBeforeItReadsTheProject(t *testing.T) {
+	t.Parallel()
+	m := newCheckedMission(t, verifier.ContainmentFileOnly)
+	d := m.read(t)
+	d2, err := storage.NewDatabase(m.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hc := missionpursuit.NewHostChecks(missionpursuit.NewStore(d2.DB))
+	next, err := hc.Begin(context.Background(), "default", m.session, missionpursuit.BeginCheck{GoalHash: m.goal.Hash, Round: 2, SubjectRoot: m.root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := hc.Finish(context.Background(), next, verifier.Result{Outcome: verifier.OutcomeFailed, GoalHash: m.goal.Hash}); err != nil {
+		t.Fatal(err)
+	}
+	d2.Close()
+	if err := os.RemoveAll(m.root); err != nil {
+		t.Fatal(err)
+	}
+	e := failedTaskJSON(t, m.db, "default", 3, m.answerArgs(d, "c3", "--yes")...) // check 1 is not the latest any more
+	msg := e["error"].(string)
+	if !strings.Contains(msg, "not the latest check") || strings.Contains(msg, "could not be read") {
+		t.Errorf("the project was read before the check was asked: %q", msg)
 	}
 }

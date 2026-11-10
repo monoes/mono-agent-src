@@ -65,13 +65,14 @@ func (s *Store) AnswerRubric(ctx context.Context, profileID string, session int6
 		if err != nil {
 			return err
 		}
-		if latest, err := readCheckRow(ctx, x, session, 0); err != nil || latest.ID != c.ID {
-			return invalid("check #%d is not the latest check of this mission: read the latest one", c.ID)
+		latest, err := readCheckRow(ctx, x, session, 0)
+		if err != nil {
+			return err
 		}
-		if c.State != CheckDone || c.Outcome != OutcomePassedMachine || c.ReviewerVerdict != "ok" {
-			return invalid("check #%d did not pass its machine criteria and its reviewer (%s %s): there is nothing for you to answer", c.ID, c.State, c.Outcome)
+		if err := answerableErr(c, latest.ID); err != nil {
+			return err
 		}
-		if dossierHash(c.ID, c.GoalHash, c.ResultsDigest, c.ReviewerVerdict, c.SubjectDigest) != a.Dossier {
+		if dossierHash(c.ID, c.Round, c.GoalHash, c.ResultsDigest, c.ReviewerVerdict, c.SubjectDigest) != a.Dossier {
 			return ErrDossierStale
 		}
 		if a.SubjectNow == "" || a.SubjectNow != c.SubjectDigest {
@@ -143,12 +144,13 @@ func (s *Store) AnswerRubric(ctx context.Context, profileID string, session int6
 // SetUnconfinedChecks turns the person's switch for unconfined checks on or off. Only the operator may, and only on a started
 // pursuit. With it off (the default) the host refuses to run project commands that it cannot confine; with it on a check may run
 // them as the person, with no confinement beyond a process group and the library's limits. The change is the person's action:
-// it also moves mission_pursuit.updated_at.
-func (s *Store) SetUnconfinedChecks(ctx context.Context, profileID string, session int64, on bool, by tasks.Actor) (Pursuit, error) {
+// it also moves mission_pursuit.updated_at. Setting it to what it is already is not an error: nothing is written (changed is false).
+func (s *Store) SetUnconfinedChecks(ctx context.Context, profileID string, session int64, on bool, by tasks.Actor) (Pursuit, bool, error) {
 	if by.Kind != tasks.Human {
-		return Pursuit{}, operatorOnly("change whether goal checks may run unconfined")
+		return Pursuit{}, false, operatorOnly("change whether goal checks may run unconfined")
 	}
 	var out Pursuit
+	changed := false
 	err := s.tx(ctx, func(x tasks.Queryer) error {
 		if _, err := s.checkMission(ctx, x, profileID, session); err != nil {
 			return err
@@ -161,11 +163,10 @@ func (s *Store) SetUnconfinedChecks(ctx context.Context, profileID string, sessi
 			return ErrNotStarted
 		}
 		if cur.UnconfinedChecksOK == on {
-			if on {
-				return invalid("unconfined checks are allowed already")
-			}
-			return invalid("unconfined checks are not allowed")
+			out = cur // already so: nothing is written, and it is not an action of yours
+			return nil
 		}
+		changed = true
 		v := 0
 		if on {
 			v = 1
@@ -176,5 +177,5 @@ func (s *Store) SetUnconfinedChecks(ctx context.Context, profileID string, sessi
 		out, err = readPursuit(ctx, x, session)
 		return err
 	})
-	return out, err
+	return out, changed, err
 }

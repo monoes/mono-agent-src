@@ -13,97 +13,175 @@ import (
 	"testing"
 )
 
-// The host verifier's capability (HostChecks) writes a check and its machine results. Its safety is that nothing but the host
-// constructs it: no CLI verb, no MCP tool, no agent path. This guard lists every construction site in internal/, cmd/ and
-// wails-app/. A new site fails the test and must be decided in review: add it here with the reason.
-var knownHostChecksSites = map[string]string{
-	// none yet: the host step (internal/coderhost/pursuit_check.go) is the first, in the slice that wires the verifier
+// The host verifier's capability (HostChecks) writes a check and its machine results; the person's writers (AnswerRubric,
+// SetUnconfinedChecks) and the operator view of a check (LatestCheck, GetCheck) are the person's. Their safety is WHO CALLS THEM:
+// the person's writers take a tasks.Actor{Kind: Human}, which is only a struct, and other code (dynorg, coderhost) already builds
+// such an actor for host writes. So every call site in the repository is listed by directory. A new site fails the test and must
+// be decided in review.
+type sitePolicy struct {
+	names   []string // selectors (or, for the constructor, bare identifiers too) that mean the thing
+	allowed []string // directories (prefixes) where a use may be
+	defined []string // the files that define it (their declarations are not uses)
 }
 
-// allowedHostChecksDirs are where a construction site may be at all.
-var allowedHostChecksDirs = []string{"internal/coderhost/"}
+var sitePolicies = []sitePolicy{
+	{names: []string{"NewHostChecks", "HostChecks"}, allowed: []string{"internal/coderhost/"}, defined: []string{"internal/missionpursuit/checks_host.go"}},
+	{names: []string{"AnswerRubric", "SetUnconfinedChecks", "LatestCheck", "GetCheck"}, allowed: []string{"internal/cli/task/"}, defined: []string{"internal/missionpursuit/checks_answer.go", "internal/missionpursuit/checks.go"}},
+}
 
-func scanHostChecksSites(t *testing.T, base string) (sites []string, visited int) {
+// knownHostChecksSites lists the files that construct the host capability: none yet (the host step is the first, in the slice that
+// wires the verifier).
+var knownHostChecksSites = map[string]string{}
+
+// scanSites walks the whole repository under base (Go files, tests excluded; scripts, tools and tests directories included;
+// only .git and dependency folders are skipped), returns "file:Name" per use and how many files it parsed.
+func scanSites(t *testing.T, base string) (sites []string, visited int) {
 	t.Helper()
-	for _, top := range []string{"internal", "cmd", "wails-app"} {
-		err := filepath.WalkDir(filepath.Join(base, top), func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-				return nil
-			}
-			rel, _ := filepath.Rel(base, path)
-			rel = filepath.ToSlash(rel)
-			if strings.HasPrefix(rel, "internal/missionpursuit/") && !strings.Contains(strings.TrimPrefix(rel, "internal/missionpursuit/"), "/") {
-				return nil // the package's own files define it
-			}
-			f, perr := parser.ParseFile(token.NewFileSet(), path, nil, 0)
-			if perr != nil {
-				return perr
-			}
-			visited++
-			sel := map[*ast.Ident]bool{}
-			ast.Inspect(f, func(n ast.Node) bool {
-				switch x := n.(type) {
-				case *ast.SelectorExpr:
-					sel[x.Sel] = true
-					if x.Sel.Name == "NewHostChecks" || x.Sel.Name == "HostChecks" {
-						sites = append(sites, rel+":"+x.Sel.Name)
-					}
-				case *ast.Ident:
-					// a bare name: a dot import, or a copy of the name in another package that wraps it
-					if x.Name == "NewHostChecks" && !sel[x] {
-						sites = append(sites, rel+":NewHostChecks")
-					}
-				}
-				return true
-			})
-			return nil
-		})
-		if err != nil {
-			t.Fatalf("walking %s: %v", top, err)
+	watch := map[string]bool{}
+	for _, p := range sitePolicies {
+		for _, n := range p.names {
+			watch[n] = true
 		}
+	}
+	err := filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", "node_modules", "vendor":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		rel, _ := filepath.Rel(base, path)
+		rel = filepath.ToSlash(rel)
+		f, perr := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+		if perr != nil {
+			return perr
+		}
+		visited++
+		sel := map[*ast.Ident]bool{}
+		ast.Inspect(f, func(n ast.Node) bool {
+			switch x := n.(type) {
+			case *ast.SelectorExpr:
+				sel[x.Sel] = true
+				if watch[x.Sel.Name] {
+					sites = append(sites, rel+":"+x.Sel.Name)
+				}
+			case *ast.Ident:
+				// a bare name: a dot import, or the package's own code calling the constructor
+				if x.Name == "NewHostChecks" && !sel[x] {
+					sites = append(sites, rel+":NewHostChecks")
+				}
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walking %s: %v", base, err)
 	}
 	sort.Strings(sites)
 	return sites, visited
 }
 
-func TestOnlyTheHostConstructsTheCheckCapability(t *testing.T) {
-	sites, visited := scanHostChecksSites(t, filepath.Join("..", ".."))
+func TestOnlyTheRightCodeReachesTheCheckWriters(t *testing.T) {
+	sites, visited := scanSites(t, filepath.Join("..", ".."))
 	if visited < 500 {
 		t.Fatalf("the walk visited %d Go files: the guard would pass on nothing", visited)
 	}
 	for _, s := range sites {
-		file := s[:strings.Index(s, ":")]
-		ok := false
-		for _, d := range allowedHostChecksDirs {
-			ok = ok || strings.HasPrefix(file, d)
+		file, name := s[:strings.Index(s, ":")], s[strings.Index(s, ":")+1:]
+		for _, p := range sitePolicies {
+			for _, n := range p.names {
+				if n != name {
+					continue
+				}
+				ok := false
+				for _, d := range p.allowed {
+					ok = ok || strings.HasPrefix(file, d)
+				}
+				for _, d := range p.defined {
+					ok = ok || file == d
+				}
+				if !ok {
+					t.Errorf("%s: %s is reached from outside %v: decide it in review and list it here", file, name, p.allowed)
+				}
+			}
 		}
-		if !ok {
-			t.Errorf("%s reaches the host check capability from outside internal/coderhost", s)
-			continue
-		}
-		if _, known := knownHostChecksSites[file]; !known {
-			t.Errorf("%s is a new site of the host check capability: decide it in review and list it here", s)
+		if name == "NewHostChecks" && strings.HasPrefix(file, "internal/coderhost/") {
+			if _, known := knownHostChecksSites[file]; !known {
+				t.Errorf("%s is a new site of the host check capability: decide it in review and list it here", file)
+			}
 		}
 	}
 }
 
 func TestTheGuardSeesAConstructionSite(t *testing.T) {
 	dir := t.TempDir()
-	for _, d := range []string{"internal/cli/task", "cmd/x", "wails-app"} {
+	for _, d := range []string{"internal/cli/chat", "scripts/tools", "cmd/x", "wails-app"} {
 		if err := os.MkdirAll(filepath.Join(dir, d), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	src := "package task\nimport mp \"github.com/monoes/mono-agent/internal/missionpursuit\"\nfunc f(s *mp.Store) { _ = mp.NewHostChecks(s); var _ mp.HostChecks }\n"
-	if err := os.WriteFile(filepath.Join(dir, "internal/cli/task/x.go"), []byte(src), 0o644); err != nil {
+	src := "package x\nimport mp \"github.com/monoes/mono-agent/internal/missionpursuit\"\nfunc f(s *mp.Store) { _ = mp.NewHostChecks(s); var _ mp.HostChecks; s.AnswerRubric(); s.SetUnconfinedChecks() }\n"
+	for _, f := range []string{"internal/cli/chat/x.go", "scripts/tools/y.go"} {
+		if err := os.WriteFile(filepath.Join(dir, f), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sites, visited := scanSites(t, dir)
+	if visited != 2 || len(sites) != 8 {
+		t.Fatalf("visited %d, sites %v: the scan is blind (it must see scripts and tools too)", visited, sites)
+	}
+}
+
+// Nothing but NewHostChecks (and the methods of HostChecks itself) may take or return the capability: a method that hands it out
+// would give it to every caller of the Store.
+func TestNothingElseHandsOutTheCheckCapability(t *testing.T) {
+	entries, err := os.ReadDir(".")
+	if err != nil {
 		t.Fatal(err)
 	}
-	sites, visited := scanHostChecksSites(t, dir)
-	if visited != 1 || len(sites) != 2 {
-		t.Fatalf("visited %d, sites %v: the scan is blind", visited, sites)
+	mentions := func(e ast.Expr) bool {
+		found := false
+		ast.Inspect(e, func(n ast.Node) bool {
+			if id, ok := n.(*ast.Ident); ok && id.Name == "HostChecks" {
+				found = true
+			}
+			return !found
+		})
+		return found
+	}
+	seen := 0
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(token.NewFileSet(), e.Name(), nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen++
+		for _, d := range f.Decls {
+			fd, ok := d.(*ast.FuncDecl)
+			if !ok || !fd.Name.IsExported() || fd.Name.Name == "NewHostChecks" {
+				continue
+			}
+			if fd.Recv != nil && len(fd.Recv.List) == 1 && mentions(fd.Recv.List[0].Type) {
+				continue // a method of HostChecks itself
+			}
+			if mentions(fd.Type) {
+				t.Errorf("%s: %s takes or returns the host check capability", e.Name(), fd.Name.Name)
+			}
+		}
+	}
+	if seen < 8 {
+		t.Fatalf("only %d source files", seen)
 	}
 }
 

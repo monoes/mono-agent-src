@@ -30,16 +30,13 @@ own notes are shown to you alone.
 If the check ran project commands without confinement, the output says so in capital letters and names what they could do.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// The operator's view is the one with excerpts; anything that is not provably the operator gets host facts only.
-			// This is a probe, not a gate: the verb stays open to agents. (The phrase is a variable on purpose: the table of gated
-			// verbs lists refusing verbs, and this one refuses nobody.)
-			what := "see what a goal check printed"
-			_, gateErr := d.personGate(cmd, what)
-			operator := gateErr == nil
+			operator := d.personProbe(cmd, "see what a goal check printed")
 			return d.withGoals(cmd, args, func(ctx context.Context, gs *missionpursuit.Store, p tasks.Profile, session int64) error {
 				pu, perr := gs.GetPursuit(ctx, p.ID, session)
-				if perr != nil {
+				if perr != nil && !errors.Is(perr, missionpursuit.ErrNotStarted) {
 					return d.taskErr(perr)
 				}
+				pu.SessionID = session // a mission whose pursuit is not started has no check either: say that, not an error
 				c, err := gs.LatestCheck(ctx, p.ID, session, operator)
 				if err != nil && !isNoCheck(err) {
 					return d.taskErr(err)
@@ -96,7 +93,7 @@ func (d Deps) writeCheck(cmd *cobra.Command, p tasks.Profile, pu missionpursuit.
 		if c.ReviewerReason != "" {
 			fmt.Fprintf(w, " (%s)", c.ReviewerReason)
 		}
-		fmt.Fprintf(w, "; cost $%.4f%s\n", float64(c.CostMicro)/1e6, map[bool]string{true: "", false: " (charged at the cap: the runtime reported none)"}[c.CostKnown])
+		fmt.Fprintf(w, "; cost $%.6f%s\n", float64(c.CostMicro)/1e6, map[bool]string{true: "", false: " (not reported by the runtime: counted at the cap)"}[c.CostKnown])
 	}
 	if len(c.Results) > 0 {
 		fmt.Fprintln(w, "  machine criteria (measured by the host):")
@@ -206,6 +203,10 @@ Only you may answer; an agent is refused.`,
 				return d.InvalidInput("give --check N, --criterion cK and --dossier HASH, as goal check shows them")
 			}
 			return d.withGoals(cmd, args, func(ctx context.Context, gs *missionpursuit.Store, p tasks.Profile, session int64) error {
+				// First whether the check can be answered at all; only then the costly part (the project digest).
+				if err := gs.Answerable(ctx, p.ID, session, check); err != nil {
+					return d.taskErr(err)
+				}
 				read, err := gs.GetCheck(ctx, p.ID, session, check, true)
 				if err != nil {
 					return d.taskErr(err)
@@ -242,17 +243,25 @@ func (d Deps) subjectNow(c missionpursuit.Check) (string, error) {
 	}
 	tree, err := finish.DigestTree(c.SubjectRoot, "")
 	if err != nil {
-		return "", fmt.Errorf("%w: the project could not be read again (%v): a new check will run", tasks.ErrInvalid, err)
+		// The error names a path inside the project, which the mission's lead (an AI) controls: show it cleaned and cut.
+		return "", fmt.Errorf("%w: the project could not be read again (%s): a new check will run", tasks.ErrInvalid, missionpursuit.Clean(err.Error(), 300))
 	}
 	return tree.Digest, nil
 }
 
 func (d Deps) writeAnswered(cmd *cobra.Command, p tasks.Profile, c missionpursuit.Check) error {
 	if d.JSONOutput() {
-		return d.WriteJSON(cmd.OutOrStdout(), map[string]any{"profile": p, "check": c})
+		doc := map[string]any{"profile": p, "check": c}
+		if c.Unconfined {
+			doc["notice"] = missionpursuit.UnconfinedNotice
+		}
+		return d.WriteJSON(cmd.OutOrStdout(), doc)
 	}
 	w := cmd.OutOrStdout()
 	printProfileLine(w, p)
+	if c.Unconfined {
+		fmt.Fprintf(w, "*** %s ***\n", missionpursuit.UnconfinedNotice)
+	}
 	switch c.Outcome {
 	case missionpursuit.OutcomeAccepted:
 		fmt.Fprintf(w, "Accepted: you said yes to every rubric criterion of check #%d. The goal is met; closing the mission stays yours: task session close %d\n", c.ID, c.SessionID)
