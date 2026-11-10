@@ -297,6 +297,8 @@ type pursuitGateResult struct {
 	delivered  bool // the latest applied epoch's wake-up is queued or ran (filled by the gate)
 	hourWakes  int  // pursuit wake-ups of ALL missions in the last hour
 	hourJudges int  // judge calls of ALL missions in the last hour
+	// closeWakeDue: the mission is settled and owed its one close wake (pursuit_settled.go); it makes the settled quiet lift
+	closeWakeDue bool
 }
 
 // pursuitGate reads the run state, the confirmed goal, the facts and the away counters in one go and says whether the
@@ -434,6 +436,9 @@ func (h *Host) pursuitGate(ctx context.Context, rd *inputs.Reader, m pursuitMiss
 	g.st = st
 	g.snap, g.goal = snap, goal
 	g.delivered = h.Store.wakeDelivered(m, snap.Epochs, st.WokenEpoch)
+	if t := snap.Tasks; t.Workable == 0 && t.Blocked == 0 && t.Total-t.Archived >= 1 {
+		g.closeWakeDue = h.Store.pursuitCloseWakeDue(m, selfWakes)
+	}
 	return g, true
 }
 

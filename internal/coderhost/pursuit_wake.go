@@ -192,6 +192,11 @@ func pursuitDigest(ep types.Epoch, g pursuitGateResult, focus types.Direction, p
 	} else {
 		b.WriteString("No direction has measured results yet, so no direction is chosen for you.\n")
 	}
+	if g.closeWakeDue {
+		// the one close wake of a settled state: fixed words, nothing for it to move forward
+		b.WriteString("Every task is settled (done, or verified and waiting in review). Call mission_finish to integrate the mission and propose its close; the operator closes it. Do not redo finished work. This message was written by the host, not by the person.")
+		return b.String()
+	}
 	b.WriteString("Read mission_status and move the open tasks forward. Do not redo finished work. This message was written by the host, not by the person.")
 	return b.String()
 }
