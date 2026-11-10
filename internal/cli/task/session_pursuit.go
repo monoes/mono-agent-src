@@ -44,6 +44,7 @@ pursuit waits. pause stops one mission; a judge call or lead turn already runnin
   pursuit start ID [--parked-max N] [--pct N]   start it (the goal must be confirmed); defaults 3 and 20
   pursuit pause ID                              stop new work until you resume (it does not hand the lead back to check-ins, and a judge call already running is not cancelled: it is paid for and its answer dropped)
   pursuit resume ID                             let it go on
+  pursuit allow-unconfined-checks ID (--on|--off)   let goal checks run project commands without confinement (default off; you only)
   pursuit status ID                             show it: limits, why it waits, epochs, directions, who has to act ("needs": you, host or none) and what you can do next (read only)
   pursuit list                                  the missions in pursuit for this profile, one line each (read only)
 
@@ -54,7 +55,7 @@ The desktop app can begin a pursuit for you (a dialog, a phrase you type and a o
 that confirmation dialog at a moment of its choosing; it cannot click Yes for you, but you might click it by habit: read the dialog.
 There is no pursuit stop: close the mission (task session close) to end the pursuit.`),
 	}
-	cmd.AddCommand(d.newPursuitPreviewCmd(), d.newPursuitBeginCmd(), d.newPursuitStartCmd(), d.newPursuitPauseCmd(), d.newPursuitResumeCmd(), d.newPursuitStatusCmd(), d.newPursuitListCmd())
+	cmd.AddCommand(d.newPursuitPreviewCmd(), d.newPursuitBeginCmd(), d.newPursuitStartCmd(), d.newPursuitPauseCmd(), d.newPursuitResumeCmd(), d.newPursuitStatusCmd(), d.newPursuitListCmd(), d.newPursuitUnconfinedCmd())
 	for _, sub := range cmd.Commands() {
 		d.WithJSONErrors(sub)
 	}

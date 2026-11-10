@@ -5,6 +5,7 @@ import (
 	"go/token"
 	"io/fs"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -64,7 +65,8 @@ func TestThePackageImportsNothingThatCarriesAuthority(t *testing.T) {
 	}
 }
 
-// Nothing outside this package imports it yet: the host loop (a later slice) is the one importer, decided in review.
+// Only the store's host-checks file imports the library (it maps a Result to rows, S7b); the host step (a later slice) will be
+// the other importer, decided in review.
 func TestNothingImportsThePackageYet(t *testing.T) {
 	root := filepath.Join("..", "..", "..")
 	var got []string
@@ -102,8 +104,8 @@ func TestNothingImportsThePackageYet(t *testing.T) {
 		t.Fatalf("the walk visited %d Go files: the guard would pass on nothing", visited)
 	}
 	sort.Strings(got)
-	if len(got) != 0 {
-		t.Fatalf("importers of the goal verifier library: %v\ndecide the importer here, in review", got)
+	if want := []string{"internal/missionpursuit/checks_host.go"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("importers of the goal verifier library: %v, want %v\ndecide the importer here, in review", got, want)
 	}
 }
 

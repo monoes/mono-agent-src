@@ -175,6 +175,25 @@ var taskSessionCommandDocs = []cmdDoc{
 		Examples: []string{"monoagentcli --profile work task session goal confirm 3 --hash 9f2c..."},
 	},
 	{
+		Name:     "task session goal check",
+		Short:    "Show the latest check of a mission's locked goal: what the host measured for each machine criterion, the checker model's verdict, how the commands were contained (UNCONFINED is shown loudly), your rubric criteria in your own words and the dossier hash (read only; an agent sees host facts only, the operator also the cleaned output excerpts)",
+		Usage:    "monoagentcli [--profile P] task session goal check ID",
+		Examples: []string{"monoagentcli --profile work --json task session goal check 3"},
+	},
+	{
+		Name:     "task session goal answer",
+		Short:    "Answer one rubric criterion of a goal check yes or no (the operator only): one call per criterion, refused if the check or the project changed since you read it; the last yes accepts the goal, a no rejects this check and sends your note to the lead",
+		Usage:    "monoagentcli [--profile P] task session goal answer ID --check N --criterion cK (--yes | --no) [--note TEXT] --dossier HASH",
+		Flags:    "  --check int         The check you read\n  --criterion string  The rubric criterion: c1, c2, ...\n  --yes / --no        Your answer\n  --note string       Your words to the lead (up to 500 bytes)\n  --dossier string    The dossier hash goal check printed",
+		Examples: []string{"monoagentcli --profile work task session goal answer 3 --check 2 --criterion c4 --yes --dossier 9f2c..."},
+	},
+	{
+		Name:     "task session pursuit allow-unconfined-checks",
+		Short:    "Let goal checks of a mission run its project commands without confinement, or stop that (the operator only; default off): they can then read and write your files, reach local sockets, read /proc, use the keyring and leave processes behind",
+		Usage:    "monoagentcli [--profile P] task session pursuit allow-unconfined-checks ID (--on | --off)",
+		Examples: []string{"monoagentcli --profile work task session pursuit allow-unconfined-checks 3 --on"},
+	},
+	{
 		Name:     "task session pursuit preview",
 		Short:    "Show everything you consent to when a pursuit begins, and write nothing: the goal whole with its hash, the away limits, the dollars table, the host (loop on or off, the judge model, the wake-up cap), the blockers, the chat, the consent digest; --json is what the app's start form is built from (read only; an agent may run it)",
 		Usage:    "monoagentcli [--profile P] task session pursuit preview ID [--parked-max N] [--pct N] [--wakes-max N] [--json]",

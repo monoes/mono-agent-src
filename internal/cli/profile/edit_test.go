@@ -163,6 +163,10 @@ var seedOverrides = map[string]map[string]any{
 	"mission_goals":         {"state": "proposed"},
 	"mission_goal_criteria": {"kind": "rubric"},
 	"mission_pursuit":       {"enabled": 0},
+	// 169: a running check by the host verifier, a result for the command criterion at pos 2, a yes for the rubric criterion at pos 1
+	"mission_goal_checks":        {"state": "running", "written_by": "host-verifier"},
+	"mission_goal_check_results": {"pos": 2, "kind": "command", "result": "pass"},
+	"mission_goal_answers":       {"answer": "yes"},
 	// 165: strategy rows exist only for a running session (session 1 above is seeded running), and a judgment needs an open epoch.
 	"mission_pursuit_spend":       {"kind": "judge", "micro": 500000, "known": 0, "settled": 0},
 	"mission_strategy_directions": {"state": "proposed"},
@@ -186,6 +190,19 @@ var seedOverrides = map[string]map[string]any{
 	"coder_session_asks":             {"importance": "normal"},
 	// 157: a registered cap run (presence only, no money).
 	"task_session_cap_runs": {"session_id": 1, "lease_until": "2026-10-05T12:00:00Z", "created_at": "2026-10-05T12:00:00Z"},
+}
+
+// seedAfter are statements run once a table's generic row is in: the goal rows are seeded as a proposal, and a check needs a locked
+// goal with a command criterion, and an answer a check that passed.
+var seedAfter = map[string][]string{
+	"mission_goals": { // the criteria (rubric at pos 1) are seeded before the goal row
+		`INSERT INTO mission_goal_criteria (session_id, pos, kind, spec, hash) VALUES (1, 2, 'command', 'go test', 'x')`,
+		`UPDATE mission_goals SET state = 'confirmed', confirmed_by = 'you', confirmed_at = 'x' WHERE session_id = 1`,
+		`UPDATE mission_goals SET state = 'locked', locked_at = 'x' WHERE session_id = 1`,
+	},
+	"mission_goal_check_results": {
+		`UPDATE mission_goal_checks SET state = 'done', outcome = 'passed-machine', reviewer_verdict = 'ok', ended_at = 'x' WHERE id = 1`,
+	},
 }
 
 // notProfileOwned are tables with a column that looks like a link to a
@@ -285,6 +302,11 @@ func TestDeleteCoversEveryTableOfTheProfile(t *testing.T) {
 		q := fmt.Sprintf(`INSERT INTO "%s" (%s) VALUES (%s)`, e.Table, `"`+strings.Join(cols, `","`)+`"`, strings.TrimSuffix(strings.Repeat("?,", len(cols)), ","))
 		if _, err := conn.ExecContext(ctx, q, vals...); err != nil {
 			t.Errorf("seeding %s: %v (teach this test to fill it, so the delete is checked for it)", e.Table, err)
+		}
+		for _, q := range seedAfter[e.Table] {
+			if _, err := conn.ExecContext(ctx, q); err != nil {
+				t.Errorf("seeding after %s: %s: %v", e.Table, q, err)
+			}
 		}
 	}
 	before["task_sessions"]-- // session 1 above is the profile's too, and was counted as already there
@@ -904,9 +926,15 @@ func TestProfileDeleteRemovesAConfirmedGoalAndStrategyRowsWithTheirSession(t *te
 	for _, q := range []string{
 		`INSERT INTO task_sessions (id, profile_id, title, state, kind, created_by, created_at, updated_at) VALUES (501, '` + id + `', 't', 'running', 'mission', 'you', 'x', 'x')`,
 		`INSERT INTO mission_goals (session_id, state, criteria_hash, proposed_by, created_at, updated_at) VALUES (501, 'proposed', 'h', 'lead', 'x', 'x')`,
-		`INSERT INTO mission_goal_criteria (session_id, pos, kind, spec, hash) VALUES (501, 1, 'rubric', 'good', 'h')`,
+		`INSERT INTO mission_goal_criteria (session_id, pos, kind, spec, hash) VALUES (501, 1, 'rubric', 'good', 'h'), (501, 2, 'command', 'go test', 'h2')`,
 		`UPDATE mission_goals SET state = 'confirmed', confirmed_by = 'you', confirmed_at = 'x' WHERE session_id = 501`,
 		`INSERT INTO mission_pursuit (session_id, enabled, locked_by, created_at, updated_at) VALUES (501, 1, 'you', 'x', 'x')`,
+		// 169: a check of the locked goal, its machine result and the person's answer (all refused a hand delete while the session exists)
+		`UPDATE mission_goals SET state = 'locked', locked_at = 'x' WHERE session_id = 501`,
+		`INSERT INTO mission_goal_checks (id, session_id, goal_hash, state, started_at, written_by) VALUES (901, 501, 'h', 'running', 'x', 'host-verifier')`,
+		`INSERT INTO mission_goal_check_results (check_id, pos, criterion_hash, kind, result) VALUES (901, 2, 'h2', 'command', 'pass')`,
+		`UPDATE mission_goal_checks SET state = 'done', outcome = 'passed-machine', reviewer_verdict = 'ok', ended_at = 'x' WHERE id = 901`,
+		`INSERT INTO mission_goal_answers (check_id, pos, criterion_hash, answer, dossier_hash, answered_by, answered_at) VALUES (901, 1, 'h', 'yes', 'd', 'you', 'x')`,
 		`INSERT INTO mission_strategy_epochs (session_id, epoch_seq, trigger, started_at, state) VALUES (501, 1, 'timer', 1, 'open')`,
 		`INSERT INTO mission_strategy_judgments (session_id, epoch_seq, body, body_hash) VALUES (501, 1, '{}', x'01')`,
 		`INSERT INTO mission_strategy_directions (session_id, direction_id, key_hash, title, state) VALUES (501, 'd', x'02', 't', 'proposed')`,
@@ -925,7 +953,7 @@ func TestProfileDeleteRemovesAConfirmedGoalAndStrategyRowsWithTheirSession(t *te
 		t.Fatal(err)
 	}
 	defer db.Close()
-	for _, tb := range []string{"task_sessions WHERE id = 501", "mission_goals", "mission_goal_criteria", "mission_pursuit", "mission_strategy_epochs", "mission_strategy_judgments", "mission_strategy_directions", "mission_strategy_novelty"} {
+	for _, tb := range []string{"task_sessions WHERE id = 501", "mission_goals", "mission_goal_criteria", "mission_goal_checks", "mission_goal_check_results", "mission_goal_answers", "mission_pursuit", "mission_strategy_epochs", "mission_strategy_judgments", "mission_strategy_directions", "mission_strategy_novelty"} {
 		var n int
 		if err := db.DB.QueryRow(`SELECT COUNT(*) FROM ` + tb).Scan(&n); err != nil || n != 0 {
 			t.Errorf("%s: %d rows left, %v", tb, n, err)
