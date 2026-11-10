@@ -6,45 +6,57 @@ export const BOSS_SECTION = '[data-testid="open-run-boss"]'
 
 let current = 0 // the token of the wait that may still act
 
-export function cancelShowBoss() { current++ }
+let stopCurrent = null // ends the wait that may still act: clears its timers and removes its listeners
+
+export function cancelShowBoss() { current++; stopCurrent?.() }
 
 export function showBossInAgents(navigate, { timeoutMs = 4000, intervalMs = 100, find = () => document.querySelector(BOSS_SECTION) } = {}) {
   if (typeof navigate !== 'function') return Promise.resolve(false)
+  cancelShowBoss()
   const mine = ++current
   navigate('ai')
   return new Promise(resolve => {
     const t0 = Date.now()
     let finished = false
     let listening = false
+    let armTimer = null
+    let tickTimer = null
     const onUser = () => cancelShowBoss()
     const unlisten = () => {
       if (!listening) return
       listening = false
+      if (typeof document === 'undefined') return // the page is gone: there is nothing to unhook
       document.removeEventListener('keydown', onUser, true)
       document.removeEventListener('pointerdown', onUser, true)
     }
     const done = ok => {
       finished = true
+      clearTimeout(armTimer)
+      clearTimeout(tickTimer)
       unlisten()
+      if (stopCurrent === stop) stopCurrent = null
       resolve(ok)
     }
+    const stop = () => done(false)
+    stopCurrent = stop
     // the click that started this wait is already over; only a later one counts as going elsewhere. Nothing is registered for a
     // wait that has already ended (the section was there at once), and every listener added is removed when it ends.
-    setTimeout(() => {
+    armTimer = setTimeout(() => {
       if (finished || mine !== current) return
+      if (typeof document === 'undefined') return
       listening = true
       document.addEventListener('keydown', onUser, true)
       document.addEventListener('pointerdown', onUser, true)
     }, 0)
     const tick = () => {
-      if (mine !== current) return done(false)
+      if (mine !== current || typeof document === 'undefined') return done(false) // cancelled, or the page was torn down
       const el = find()
       if (el) {
         el.scrollIntoView?.({ block: 'center' })
         el.focus?.()
         done(true)
       } else if (Date.now() - t0 >= timeoutMs) done(false)
-      else setTimeout(tick, intervalMs)
+      else tickTimer = setTimeout(tick, intervalMs)
     }
     tick()
   })

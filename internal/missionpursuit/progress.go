@@ -121,3 +121,81 @@ func (s *Store) GetProgress(ctx context.Context, profileID string, session int64
 	})
 	return out, err
 }
+
+// Who has to act for the pursuit to go on (the `needs` field of the status and list documents).
+const (
+	NeedsYou  = "you"  // the person: a limit is reached, the pursuit is paused, or a setting must change
+	NeedsHost = "host" // the machine: no coder host runs the loop, or it has not looked yet, or a read clears by itself
+	NeedsNone = "none" // nothing: the pursuit is working
+)
+
+// The states of the list document: where one pursuit stands, in one word.
+const (
+	StateRunning = "running"
+	StatePaused  = "paused"
+	StateWaiting = "waiting"
+	StateOffHost = "off-host"
+)
+
+// StateOf is the one word for where a pursuit stands. Paused is the person's own choice and comes first; then a host that
+// does not run the loop (nothing moves); then a waiting reason; otherwise running. Pure: host-written facts only.
+func StateOf(paused bool, waiting string, hostRuns bool) string {
+	switch {
+	case paused:
+		return StatePaused
+	case !hostRuns:
+		return StateOffHost
+	case waiting != "":
+		return StateWaiting
+	}
+	return StateRunning
+}
+
+// NeedsOf says who has to act. A waiting reason is the person's to clear (the WaitingWhy text says "waiting for you")
+// except meter-unreadable, which clears when the ledger reads again; a host that does not run the loop, or has not looked at
+// the pursuit yet, is the host's.
+func NeedsOf(paused bool, waiting string, seen, hostRuns bool) string {
+	switch {
+	case paused:
+		return NeedsYou
+	case waiting != "" && waiting != "meter-unreadable":
+		return NeedsYou
+	case !hostRuns, !seen, waiting == "meter-unreadable":
+		return NeedsHost
+	}
+	return NeedsNone
+}
+
+// NextLine is, in plain words, what the person can do now. It is built from the same host-written facts as NeedsOf and
+// never from agent text.
+func NextLine(paused bool, waiting string, seen, hostRuns bool) string {
+	switch {
+	case paused:
+		return "Resume it (task session pursuit resume) when you want work to go on; nothing is woken or judged while it is paused."
+	case waiting == "parked", waiting == "spend", waiting == "wakes":
+		return "Look at the mission and act on it (answer a question, approve a plan, or tell the lead what you want); your action resets the away counters and the pursuit goes on. If the goal is met, close the mission."
+	case waiting == "budget-unknown":
+		return "Give the mission a budget (task session budget); the pursuit cannot measure its spend without one."
+	case waiting == "lead-uncapped":
+		return "Set a budget for the lead's chat; without one a wake-up could cost without limit."
+	case waiting == "judge-failing":
+		return "Act on the mission to try the judge again; if it keeps failing, check the judge's model (coder host status)."
+	case waiting == "judge-pin":
+		return "Change the host's judge model (MONOAGENT_PURSUIT_JUDGE) so that it differs from the lead's, and restart the coder host."
+	case waiting == "no-chat":
+		return "This mission has no chat to wake; close it, or run the work from a chat."
+	case waiting == "engine-parked":
+		return "A stored strategy row failed verification and the strategy engine stopped; look at it before you go on (coder host status)."
+	case waiting == "limits":
+		return "The away limits are out of range; this pursuit cannot go on as it is."
+	case waiting == "meter-unreadable":
+		return "Nothing to do now: the spend cannot be read at the moment and the pursuit goes on when it can."
+	case waiting != "":
+		return "Look at the mission and act on it."
+	case !hostRuns:
+		return "Start the coder host with MONOAGENT_PURSUIT_JUDGE set to the judge's model; nothing is judged or woken without it."
+	case !seen:
+		return "Nothing yet: the pursuit loop looks at a new pursuit within a few minutes."
+	}
+	return "Nothing needed: the pursuit is working. Close the mission yourself when the goal is met."
+}

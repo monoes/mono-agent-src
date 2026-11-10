@@ -66,6 +66,7 @@ var refTaskGate = []struct {
 	{"session goal answer", true, []string{"session", "goal", "answer", "1", "--check", "1", "--criterion", "c2", "--yes", "--dossier", "x"}},
 	{"session pursuit allow-unconfined-checks", true, []string{"session", "pursuit", "allow-unconfined-checks", "1", "--on"}},
 	{"session pursuit status", false, []string{"session", "pursuit", "status", "1"}},
+	{"session pursuit list", false, []string{"session", "pursuit", "list"}},
 	{"session pursuit start", true, []string{"session", "pursuit", "start", "1"}},
 	{"session pursuit pause", true, []string{"session", "pursuit", "pause", "1"}},
 	{"session pursuit resume", true, []string{"session", "pursuit", "resume", "1"}},
