@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { openStartApi } from '../../lib/openStartApi.js'
-import { MAX_TEXT, ASK_ACCESS, LIMIT_KEYS, LIMIT_PRESETS, EVERYTHING_LINES, LINES, JUDGING_POLICIES, PER_ASK_CHOICES, buildCharter, emptyForm, modelChoices, defaultPins } from '../../lib/openCharter.js'
+import { MAX_TEXT, ASK_ACCESS, LIMIT_KEYS, LIMIT_PRESETS, EVERYTHING_LINES, LINES, JUDGING_POLICIES, PER_ASK_CHOICES, buildCharter, emptyForm, modelChoices, catalogChoices, defaultPins } from '../../lib/openCharter.js'
 import { OpenStartReview } from './OpenStartReview.jsx'
 
 // The entry screen and the start form of the open-ended chat mode. The CLI decides what can start (the probe), what the
@@ -88,14 +88,18 @@ export function OpenStartForm({ getChat = null, onChat, onStarted }) {
   useEffect(() => {
     let live = true
     openStartApi.entry().then(r => { if (live) setEntry(r) }).catch(e => { if (live) setEntry({ error: String(e?.message || e) }) })
-    // The roster only fills the lists and the first pins: any failure leaves the typed fields.
-    Promise.resolve().then(() => openStartApi.roster?.()).then(r => {
-      const found = modelChoices(r)
-      if (!live || !found.length) return
+    // The models only fill the lists and the first pins: any failure leaves the typed fields.
+    const apply = found => {
+      if (!live || !found.length) return false
       setChoices(found)
       // Pins the person has not touched start as a boss and a different verifier; the form never overwrites what they chose.
       setForm(f => (f.pins.boss.provider || f.pins.verifier.provider ? f : { ...f, pins: { ...f.pins, ...defaultPins(found) } }))
-    }).catch(() => {})
+      return true
+    }
+    // The validated roster first; a machine with none falls back to the installed runtimes' own model lists.
+    Promise.resolve().then(() => openStartApi.roster?.()).then(r => modelChoices(r)).catch(() => [])
+      .then(found => apply(found) || Promise.resolve().then(() => openStartApi.catalog?.()).then(c => apply(catalogChoices(c))))
+      .catch(() => {})
     return () => { live = false }
   }, [])
 

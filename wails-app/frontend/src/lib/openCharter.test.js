@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { LINES, EVERYTHING_LINES, LIMIT_PRESETS, emptyForm, modelChoices, defaultPins, JUDGING_POLICIES, PER_ASK_CHOICES, budgetChoice, buildCharter, effectiveCapUsd, usdToMicro } from './openCharter.js'
+import { LINES, EVERYTHING_LINES, LIMIT_PRESETS, emptyForm, modelChoices, catalogChoices, defaultPins, JUDGING_POLICIES, PER_ASK_CHOICES, budgetChoice, buildCharter, effectiveCapUsd, usdToMicro } from './openCharter.js'
 
 const pin = (provider, model, version) => ({ provider, model, version })
 const good = (over = {}) => ({
@@ -168,5 +168,13 @@ describe('the model choices of the roster', () => {
     expect(d.verifier).toEqual(pin('codex', 'gpt', '0.9'))
     expect(defaultPins([{ provider: 'a', model: 'm', version: '1', ready: true }]).verifier).toEqual(pin('', '', ''))
     expect(defaultPins([])).toEqual({ boss: pin('', '', ''), verifier: pin('', '', '') })
+  })
+})
+
+describe('catalogChoices', () => {
+  it('lists every model of every runtime, none marked ready, and tolerates junk', () => {
+    expect(catalogChoices([{ provider: 'claude', version: '2', models: ['a', 'b'] }, { provider: 'x', models: [] }, null])).toEqual([
+      { provider: 'claude', model: 'a', version: '2', ready: false }, { provider: 'claude', model: 'b', version: '2', ready: false }])
+    expect(catalogChoices(undefined)).toEqual([])
   })
 })
