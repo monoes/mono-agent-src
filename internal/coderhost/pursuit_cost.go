@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"strings"
+
+	"github.com/monoes/mono-agent/internal/missionpursuit"
 )
 
 // CostInput is what the dollars table is computed from: the host's per-wake cap X, the mission's budget (0 = not known) and
@@ -13,6 +15,31 @@ type CostInput struct {
 	MissionBudgetUSD float64
 	Pct              int
 	Wakes            int
+	// HostReported says the wake-up cap is the one the host published (host.json, display-only); false means the code default,
+	// shown because no valid host report exists. The text says which.
+	HostReported bool
+}
+
+// ValidHostPursuitInfo says whether the pursuit facts the host published can be real: a loop that is on has a wake-up cap the host
+// would have accepted (validWakeCap) and a judge pin that is a printable runtime/model name. host.json is display-only and any
+// process running as the user can write it, so a value that fails here is never shown to the person as a fact.
+func ValidHostPursuitInfo(h PursuitHostInfo) bool {
+	if !h.Enabled {
+		return true
+	}
+	if !validWakeCap(h.WakeCapUSD) {
+		return false
+	}
+	p := h.Pin
+	if len(p) < 3 || len(p) > 200 || !strings.Contains(p, "/") || p != strings.TrimSpace(p) {
+		return false
+	}
+	for _, r := range p {
+		if r == ' ' || missionpursuit.HiddenRune(r) {
+			return false
+		}
+	}
+	return true
 }
 
 // CostRow is one line of the table. Known is false where the figure cannot be given (a mission with no known budget).
@@ -32,8 +59,16 @@ type CostTable struct {
 }
 
 // UsdText writes a dollar amount as the table does: $2, $0.50, $22.50.
+//
+// A value that is not a sane amount never reaches an integer conversion: a NaN or a negative number is "an unknown amount", and
+// one of a million dollars or more is "more than $1,000,000".
 func UsdText(v float64) string {
-	if v == math.Trunc(v) {
+	switch {
+	case math.IsNaN(v) || v < 0:
+		return "an unknown amount"
+	case v >= 1e6:
+		return "more than $1,000,000"
+	case v == math.Trunc(v):
 		return fmt.Sprintf("$%d", int64(v))
 	}
 	return fmt.Sprintf("$%.2f", v)
@@ -61,7 +96,11 @@ func PursuitCostRows(in CostInput) CostTable {
 		rows = append(rows, CostRow{Key: "until_stop", Text: "The mission has no known budget, so it will wait for you straight away."})
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "What this can cost you, at worst. The wake-up cap is %s and the judge is asked to stay under %s a call.\n", UsdText(x), UsdText(j))
+	source := "the default; no valid host report"
+	if in.HostReported {
+		source = "as reported by the host"
+	}
+	fmt.Fprintf(&b, "What this can cost you, at worst. The wake-up cap is %s (%s) and the judge is asked to stay under %s a call.\n", UsdText(x), source, UsdText(j))
 	for _, r := range rows {
 		b.WriteString("- " + r.Text + "\n")
 	}

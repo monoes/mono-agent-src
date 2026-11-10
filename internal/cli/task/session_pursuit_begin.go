@@ -26,29 +26,33 @@ func (d Deps) liveFacts(profileID string, session int64, shown *coderhost.CostTa
 	return func(ctx context.Context, x tasks.Queryer, chat string, lim missionpursuit.AwayLimits) (missionpursuit.LiveFacts, error) {
 		host, found, alive := d.hostPursuit()
 		on := hostRuns(host, found, alive)
-		var budget float64
-		if err := x.QueryRowContext(ctx, `SELECT budget_usd FROM task_sessions WHERE id = ? AND profile_id = ?`, session, profileID).Scan(&budget); err != nil {
+		// host.json is display-only: any process running as the user can write it. A value the host could not have accepted is
+		// never shown as a fact; it blocks (host-info-invalid), and the table is then computed from the code defaults.
+		invalid := on && !coderhost.ValidHostPursuitInfo(host)
+		reported := on && !invalid
+		var budget, spent float64
+		if err := x.QueryRowContext(ctx, `SELECT budget_usd, spent_usd FROM task_sessions WHERE id = ? AND profile_id = ?`, session, profileID).Scan(&budget, &spent); err != nil {
 			return missionpursuit.LiveFacts{}, fmt.Errorf("reading the mission budget: %w", err)
 		}
-		var leadBudget float64
 		leadCapped := false
 		if chat != "" {
+			var leadBudget float64
 			if err := x.QueryRowContext(ctx, `SELECT budget_usd FROM coder_sessions WHERE profile_id = ? AND conversation_id = ?`, profileID, chat).Scan(&leadBudget); err == nil {
-				leadCapped = leadBudget > 0
+				leadCapped = missionpursuit.BudgetKnown(leadBudget, 0)
 			}
 		}
-		x2 := host.WakeCapUSD
-		if !on || !(x2 > 0) {
-			x2 = coderhost.DefaultWakeCapUSD
+		wakeCap := coderhost.DefaultWakeCapUSD
+		if reported {
+			wakeCap = host.WakeCapUSD
 		}
-		table := coderhost.PursuitCostRows(coderhost.CostInput{WakeCapUSD: x2, MissionBudgetUSD: budget, Pct: lim.Pct, Wakes: lim.Wakes})
+		table := coderhost.PursuitCostRows(coderhost.CostInput{WakeCapUSD: wakeCap, MissionBudgetUSD: budget, Pct: lim.Pct, Wakes: lim.Wakes, HostReported: reported})
 		if shown != nil {
 			*shown = table
 		}
-		f := missionpursuit.LiveFacts{Cost: table.Text, HostOn: on, WakeCapUSD: host.WakeCapUSD, CheckerSetUp: d.checkerSetUp(),
-			BudgetKnown: budget > 0, LeadCapped: leadCapped}
-		if on {
-			f.JudgePin = host.Pin
+		f := missionpursuit.LiveFacts{Cost: table.Text, HostOn: on, HostInvalid: invalid, CheckerSetUp: d.checkerSetUp(),
+			BudgetKnown: missionpursuit.BudgetKnown(budget, spent), LeadCapped: leadCapped}
+		if reported {
+			f.JudgePin, f.WakeCapUSD = host.Pin, host.WakeCapUSD
 			if chat != "" {
 				f.PinWhy = coderhost.LeadPinWhy(host.Pin, coderhost.LeadPinIn(ctx, x, profileID, chat))
 			} else {
@@ -94,12 +98,12 @@ func (d Deps) newPursuitPreviewCmd() *cobra.Command {
 app's start form are built from. It shows the goal (state, its 64-character hash and every criterion whole), the away limits, the
 dollars table (what this can cost you, at worst), the checker (none is set up yet), the host (whether a running coder host has the
 pursuit loop on, the judge's model and the wake-up cap), the blockers that would stop a begin (budget-unknown, lead-uncapped,
-judge-pin, no-chat, host-off, no-rubric), the chat, the phrase the app asks you to type (as a template) and the consent digest:
+judge-pin, no-chat, host-off, host-info-invalid, no-rubric), the chat, the phrase the app asks you to type (as a template) and the consent digest:
 a hash over those host-side facts, which "pursuit begin --consent" must still match when you begin.
 
 The criteria are written by whoever proposed them, so they are agent text. The plain output writes any hidden character
 (zero-width, direction, tag, control) as a \uXXXX escape. With --json the criteria are given as they are, and the verb refuses
-(hidden_characters) a goal that has a hidden character or a criterion over ` + fmt.Sprint(missionpursuit.MaxDisplayRunes) + ` characters, because the app shows every criterion whole or not at all.`,
+(hidden_characters, criterion_too_long) a goal that has a hidden character or a criterion over ` + fmt.Sprint(missionpursuit.MaxDisplayRunes) + ` characters, because the app shows every criterion whole or not at all.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			lim, err := d.limitsFromFlags(cmd, parked, pct, wakes)
 			if err != nil {
@@ -111,8 +115,10 @@ The criteria are written by whoever proposed them, so they are agent text. The p
 				if err != nil {
 					return d.beginErr(err)
 				}
-				if d.JSONOutput() && !missionpursuit.DisplayableWhole(v.Goal.Criteria) {
-					return taskCLIError{error: d.InvalidInput("%v", missionpursuit.ErrHiddenText), code: "hidden_characters"}
+				if d.JSONOutput() {
+					if derr := missionpursuit.CheckDisplayable(v.Goal.Criteria); derr != nil {
+						return d.beginErr(derr)
+					}
 				}
 				return d.writePreview(cmd, p, session, v, table)
 			})
@@ -145,18 +151,21 @@ func (d Deps) writePreview(cmd *cobra.Command, p tasks.Profile, session int64, v
 	}
 	w := cmd.OutOrStdout()
 	printProfileLine(w, p)
-	fmt.Fprintf(w, "Beginning the pursuit of mission session #%d (chat %s) confirms the goal [%s] and locks it for good.\n  goal hash: %s\n", session, v.Chat, v.Goal.State, v.Goal.Hash)
+	fmt.Fprintf(w, "Beginning the pursuit of mission session #%d (chat %q) confirms the goal [%s] and locks it for good.\n  goal hash: %s\n", session, missionpursuit.EscapeHidden(v.Chat), v.Goal.State, v.Goal.Hash)
 	for _, c := range v.Goal.Criteria {
-		fmt.Fprintf(w, "  %s [%s] (written by whoever proposed it, not checked) %s\n", c.ID, c.Kind, strings.ReplaceAll(missionpursuit.EscapeHidden(c.Spec), "\n", "\n      "))
+		fmt.Fprintf(w, "  %s [%s] (written by whoever proposed it, not checked) %s\n", missionpursuit.EscapeHidden(c.ID), missionpursuit.EscapeHidden(c.Kind), strings.ReplaceAll(missionpursuit.EscapeHidden(c.Spec), "\n", "\n      "))
 		if c.Expected != "" {
 			fmt.Fprintf(w, "      expects: %s\n", missionpursuit.EscapeHidden(c.Expected))
 		}
 	}
 	fmt.Fprintf(w, "  away limits: %d parked question(s), %d percent of the budget, %d wake-up(s) of the lead\n", v.Limits.ParkedMax, v.Limits.Pct, v.Limits.Wakes)
 	fmt.Fprintln(w, "  goal checker: none is set up; the goal is never checked automatically and you decide when it is met")
-	if f.HostOn {
-		fmt.Fprintf(w, "  host: the pursuit loop is ON; judge %s; a wake-up turn is capped at %s\n", f.JudgePin, coderhost.UsdText(f.WakeCapUSD))
-	} else {
+	switch {
+	case f.HostInvalid:
+		fmt.Fprintln(w, "  host: the pursuit loop is reported ON, but its judge model or wake-up cap is not a usable value; the figures below use the code defaults")
+	case f.HostOn:
+		fmt.Fprintf(w, "  host (as reported by the host, which is not proof): the pursuit loop is ON; judge %q; a wake-up turn is capped at %s\n", f.JudgePin, coderhost.UsdText(f.WakeCapUSD))
+	default:
 		fmt.Fprintln(w, "  host: the pursuit loop is OFF (or no coder host is running)")
 	}
 	for _, line := range strings.Split(strings.TrimRight(table.Text, "\n"), "\n") {
@@ -168,8 +177,8 @@ func (d Deps) writePreview(cmd *cobra.Command, p tasks.Profile, session int64, v
 	for _, b := range blockers {
 		fmt.Fprintf(w, "  BLOCKED %s: %s\n", b.Code, b.Reason)
 	}
-	fmt.Fprintf(w, "  the app asks you to type: %s\n  consent digest: %s\n  begin with: pursuit begin %d --goal-hash %s --consent %s --chat %s\n",
-		missionpursuit.PhraseTemplate, v.Consent.Digest, session, v.Goal.Hash, v.Consent.Digest, v.Chat)
+	fmt.Fprintf(w, "  the app asks you to type: %s\n  consent digest: %s\n  begin with: pursuit begin %d --goal-hash %s --consent %s --chat %q\n",
+		missionpursuit.PhraseTemplate, v.Consent.Digest, session, v.Goal.Hash, v.Consent.Digest, missionpursuit.EscapeHidden(v.Chat))
 	return nil
 }
 
@@ -197,6 +206,8 @@ func (d Deps) beginErr(err error) error {
 		code = "chat_mismatch"
 	case errors.Is(err, missionpursuit.ErrHiddenText):
 		code = "hidden_characters"
+	case errors.Is(err, missionpursuit.ErrCriterionTooLong):
+		code = "criterion_too_long"
 	default:
 		if codes, ok := missionpursuit.IsBlocked(err); ok {
 			code, extra = "blocked", map[string]any{"blockers": codes}
@@ -219,7 +230,7 @@ leave a confirmed goal with no pursuit. Only you may; an agent is refused. You m
 goal's full hash, --consent the consent digest and --chat the mission's chat, all from "pursuit preview" with the same limits.
 It refuses, writing nothing, when the goal changed (stale), the host-side facts changed since the preview (consent_stale: the judge,
 the host switch, the costs), the pursuit already started (already_started), the chat is not the mission's (chat_mismatch) or
-something blocks it (blocked: budget-unknown, lead-uncapped, judge-pin, no-chat, host-off, no-rubric). The goal becomes final.
+something blocks it (blocked: budget-unknown, lead-uncapped, judge-pin, no-chat, host-off, host-info-invalid, no-rubric). The goal becomes final.
 "goal confirm" and "pursuit start" still work as before. --json gives {profile, pursuit, goal, via}.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			actor, err := d.personGate(cmd, "begin a mission's pursuit")
@@ -238,8 +249,13 @@ something blocks it (blocked: budget-unknown, lead-uncapped, judge-pin, no-chat,
 			gui := cmd.Flags().Changed("gui-phrase")
 			return d.withPursuit(cmd, args, func(ctx context.Context, ps *missionpursuit.Store, p tasks.Profile, session int64) error {
 				if gui {
-					// the phrase is derived again from what the person must have read; the goal hash is held to the live goal below
-					want := missionpursuit.Phrase(session, goalHash, resolvedPct(lim))
+					// the phrase is derived again from what the person must have read (limits in range first); the goal hash is
+					// held to the live goal below
+					resolved, rerr := lim.Resolved()
+					if rerr != nil {
+						return d.taskErr(rerr)
+					}
+					want := missionpursuit.Phrase(session, goalHash, resolved)
 					if strings.TrimSpace(guiPhrase) != want {
 						return d.InvalidInput("the phrase does not match; nothing started")
 					}
@@ -268,13 +284,6 @@ something blocks it (blocked: budget-unknown, lead-uncapped, judge-pin, no-chat,
 	cmd.Flags().StringVar(&guiPhrase, "gui-phrase", "", "")
 	_ = cmd.Flags().MarkHidden("gui-phrase")
 	return cmd
-}
-
-func resolvedPct(l missionpursuit.AwayLimits) int {
-	if l.Pct == 0 {
-		return missionpursuit.DefaultPct
-	}
-	return l.Pct
 }
 
 func isHex64(s string) bool {

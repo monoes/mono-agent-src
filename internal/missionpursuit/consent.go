@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"unicode"
@@ -27,16 +28,20 @@ const (
 	BlockNoChat        = "no-chat"        // the mission has no chat to wake
 	BlockHostOff       = "host-off"       // no running coder host has the pursuit loop on
 	BlockNoRubric      = "no-rubric"      // the goal has no criterion the person judges
+	// BlockHostInfoInvalid: what the host published (host.json) is not a usable pin or wake-up cap. The file is display-only: any
+	// process running as the user can write it, so a value that cannot be real is never shown as a fact.
+	BlockHostInfoInvalid = "host-info-invalid"
 )
 
 // BlockReasons says in plain words why each blocker stops a begin.
 var BlockReasons = map[string]string{
-	BlockBudgetUnknown: "the mission has no known budget, so no share of it can be measured; the pursuit would wait for you straight away",
-	BlockLeadUncapped:  "the lead has no spend cap of its own; set a budget for its chat",
-	BlockJudgePin:      "the judge's model is the lead's, or the lead's model is not known",
-	BlockNoChat:        "the mission has no chat to wake",
-	BlockHostOff:       "no running coder host has the pursuit loop on, so nothing would be judged or woken",
-	BlockNoRubric:      "the goal has no rubric criterion: you are always the last judge",
+	BlockBudgetUnknown:   "the mission has no known budget, so no share of it can be measured; the pursuit would wait for you straight away",
+	BlockLeadUncapped:    "the lead has no spend cap of its own; set a budget for its chat",
+	BlockJudgePin:        "the judge's model is the lead's, or the lead's model is not known",
+	BlockNoChat:          "the mission has no chat to wake",
+	BlockHostOff:         "no running coder host has the pursuit loop on, so nothing would be judged or woken",
+	BlockNoRubric:        "the goal has no rubric criterion: you are always the last judge",
+	BlockHostInfoInvalid: "what the host published (its judge model or wake-up cap) is not a usable value, so it cannot be shown to you as a fact",
 }
 
 // LiveFacts are the host-side facts a consent block is made of, read by the caller inside the same transaction as the begin.
@@ -44,6 +49,7 @@ var BlockReasons = map[string]string{
 type LiveFacts struct {
 	Cost         string
 	HostOn       bool
+	HostInvalid  bool // the host's published pin or cap failed validation (BlockHostInfoInvalid); they are then not part of the facts
 	JudgePin     string
 	WakeCapUSD   float64
 	CheckerSetUp bool // the goal checker (S7): until it exists this is false; the digest covers it so a later change is stale
@@ -75,8 +81,10 @@ var (
 	ErrConsentStale = fmt.Errorf("%w: what you were shown has changed (the model, the checker, the costs or the host); read it again before you begin", tasks.ErrInvalid)
 	// ErrChatMismatch: --chat is not the chat of the session.
 	ErrChatMismatch = fmt.Errorf("%w: that is not the chat of this mission session", tasks.ErrInvalid)
-	// ErrHiddenText: a start from the app shows every criterion whole, so a criterion the person cannot read in full is refused.
-	ErrHiddenText = fmt.Errorf("%w: a start from the app needs criteria without hidden characters (zero-width, direction, tag or control characters) and of at most %d characters", tasks.ErrInvalid, MaxDisplayRunes)
+	// ErrHiddenText: a start from the app shows every criterion whole, so a criterion with a character a reader cannot see is refused.
+	ErrHiddenText = fmt.Errorf("%w: this criterion contains a character the app can't show safely (zero-width, direction, tag, control or invisible filler characters, emoji variation selectors and joiners); re-propose it without it", tasks.ErrInvalid)
+	// ErrCriterionTooLong: a start from the app shows every criterion whole, so one over MaxDisplayRunes characters is refused.
+	ErrCriterionTooLong = fmt.Errorf("%w: a start from the app takes criteria of at most %d characters each; re-propose it shorter", tasks.ErrInvalid, MaxDisplayRunes)
 )
 
 // MaxDisplayRunes is the longest criterion text a start from the app takes.
@@ -104,16 +112,27 @@ func IsBlocked(err error) ([]string, bool) {
 }
 
 // PhraseTemplate is the shape of the phrase the person types; it is never the phrase itself.
-const PhraseTemplate = "I understand: pursue mission <ID>, goal <first 8 characters of the hash>, stop at <percent> percent spent"
+const PhraseTemplate = "I understand: pursue mission <ID>, goal <first 8 characters of the hash>, stop at <percent> percent spent, <parked> waiting questions or <wakes> wake-ups"
 
 // Phrase is the phrase the person types to begin a pursuit from the app: it names the mission, the start of the goal's hash and
-// the percent of the budget the pursuit may spend, so the person has to read the money limit.
-func Phrase(session int64, goalHash string, pct int) string {
+// all three away limits (the percent of the budget, the waiting questions, the wake-ups of the lead), so the person has to read
+// the limits that bound the money. lim must be resolved (Resolved).
+func Phrase(session int64, goalHash string, lim AwayLimits) string {
 	h := goalHash
 	if len(h) > 8 {
 		h = h[:8]
 	}
-	return fmt.Sprintf("I understand: pursue mission %d, goal %s, stop at %d percent spent", session, h, pct)
+	return fmt.Sprintf("I understand: pursue mission %d, goal %s, stop at %d percent spent, %d waiting questions or %d wake-ups", session, h, lim.Pct, lim.ParkedMax, lim.Wakes)
+}
+
+// Resolved is the limits with the defaults filled in, or an error for a value out of range.
+func (l AwayLimits) Resolved() (AwayLimits, error) { return l.resolve() }
+
+// BudgetKnown is the loop's predicate for a known budget: the budget is a positive finite number and the spend a finite number
+// of at least 0. Anything else (NaN, an infinity, zero, a negative) is unknown, never unlimited.
+func BudgetKnown(budget, spent float64) bool {
+	fin := func(x float64) bool { return !math.IsNaN(x) && !math.IsInf(x, 0) }
+	return fin(budget) && fin(spent) && budget > 0 && spent >= 0
 }
 
 // canonical is the encoding the digest is taken over: fixed order, one field a line, text quoted.
@@ -121,6 +140,7 @@ func canonical(session int64, chat, goalHash string, lim AwayLimits, f LiveFacts
 	var b strings.Builder
 	b.WriteString("mission-pursuit-consent-v1\n")
 	fmt.Fprintf(&b, "session=%d\nchat=%q\ngoal=%q\nlimits=%d,%d,%d\n", session, chat, goalHash, lim.ParkedMax, lim.Pct, lim.Wakes)
+	fmt.Fprintf(&b, "host_invalid=%t\n", f.HostInvalid)
 	fmt.Fprintf(&b, "host_on=%t\njudge_pin=%q\nwake_cap=%v\ncost=%q\nchecker_set_up=%t\nblockers=%q\n",
 		f.HostOn, f.JudgePin, f.WakeCapUSD, f.Cost, f.CheckerSetUp, strings.Join(blockers, ","))
 	return b.String()
@@ -139,6 +159,7 @@ func ConsentOf(session int64, chat string, g Goal, lim AwayLimits, f LiveFacts) 
 	add(f.PinWhy != "", BlockJudgePin)
 	add(chat == "", BlockNoChat)
 	add(!f.HostOn, BlockHostOff)
+	add(f.HostInvalid, BlockHostInfoInvalid)
 	add(!hasRubric(g.Criteria), BlockNoRubric)
 	sort.Strings(bl)
 	sum := sha256.Sum256([]byte(canonical(session, chat, g.Hash, lim, f, bl)))
@@ -148,6 +169,10 @@ func ConsentOf(session int64, chat string, g Goal, lim AwayLimits, f LiveFacts) 
 // HiddenRune says whether a reader cannot see r or r changes how text reads (controls, format characters such as the
 // direction overrides and zero-width characters, the tag block, separators, private-use and unassigned code points).
 func HiddenRune(r rune) bool {
+	switch r {
+	case 0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x2800, 0x3164, 0xFFA0: // blank-looking fillers and padding that no category above catches
+		return true
+	}
 	switch {
 	case unicode.IsControl(r), unicode.In(r, unicode.Cf, unicode.Co, unicode.Zl, unicode.Zp, unicode.Variation_Selector):
 		return true
@@ -173,21 +198,30 @@ func EscapeHidden(s string) string {
 	return b.String()
 }
 
-// DisplayableWhole says whether every criterion can be shown whole to a person: no hidden character, at most MaxDisplayRunes.
-func DisplayableWhole(cs []StoredCriterion) bool {
+// CheckDisplayable says whether every criterion can be shown whole to a person: ErrCriterionTooLong for a text over
+// MaxDisplayRunes, ErrHiddenText for a character a reader does not see (this includes emoji variation selectors and joiners:
+// they are refused rather than guessed at, and the criterion is proposed again without them).
+func CheckDisplayable(cs []StoredCriterion) error {
+	var hidden bool
 	for _, c := range cs {
 		for _, t := range []string{c.Spec, c.Expected} {
-			if utf8.RuneCountInString(t) > MaxDisplayRunes || !utf8.ValidString(t) {
-				return false
+			if utf8.RuneCountInString(t) > MaxDisplayRunes {
+				return ErrCriterionTooLong
+			}
+			if !utf8.ValidString(t) {
+				hidden = true
 			}
 			for _, r := range t {
 				if r != '\n' && r != '\t' && HiddenRune(r) {
-					return false
+					hidden = true
 				}
 			}
 		}
 	}
-	return true
+	if hidden {
+		return ErrHiddenText
+	}
+	return nil
 }
 
 // consentIn reads the live facts through x and derives the consent.
@@ -284,8 +318,10 @@ func (s *Store) ConfirmAndStart(ctx context.Context, profileID string, session i
 		if req.GoalHash == "" || req.GoalHash != g.Hash {
 			return ErrStale
 		}
-		if req.GUI && !DisplayableWhole(g.Criteria) {
-			return ErrHiddenText
+		if req.GUI {
+			if err := CheckDisplayable(g.Criteria); err != nil {
+				return err
+			}
 		}
 		c, err := s.consentIn(ctx, x, session, chat, g, lim, req.Live)
 		if err != nil {

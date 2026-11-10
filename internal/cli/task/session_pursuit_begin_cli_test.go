@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -14,6 +15,9 @@ import (
 	"github.com/monoes/mono-agent/internal/missionpursuit"
 	"github.com/monoes/mono-agent/internal/storage"
 )
+
+// dflt are the resolved default limits, as the phrase is built from them.
+var dflt = missionpursuit.AwayLimits{ParkedMax: missionpursuit.DefaultParkedMax, Pct: missionpursuit.DefaultPct, Wakes: missionpursuit.DefaultWakesMax}
 
 type previewDoc struct {
 	SessionID int64  `json:"session_id"`
@@ -156,7 +160,7 @@ func TestPursuitPreviewIsTheConsentBlockAndWritesNothing(t *testing.T) {
 	if p.Host["loop_on"] != true || p.Host["judge_pin"] != "claude/haiku@4" || p.Host["wake_cap_usd"] != 2.0 {
 		t.Errorf("host = %v", p.Host)
 	}
-	want := coderhost.PursuitCostRows(coderhost.CostInput{WakeCapUSD: 2, MissionBudgetUSD: 20, Pct: 20, Wakes: 6})
+	want := coderhost.PursuitCostRows(coderhost.CostInput{WakeCapUSD: 2, MissionBudgetUSD: 20, Pct: 20, Wakes: 6, HostReported: true})
 	if p.Cost.Text != want.Text || len(p.Cost.Rows) != 3 {
 		t.Errorf("cost = %q, want %q", p.Cost.Text, want.Text)
 	}
@@ -289,7 +293,7 @@ func TestPursuitBeginRefusalsWriteNothing(t *testing.T) {
 		{"a wrong chat", "chat_mismatch", []string{"--chat", "chat2"}},
 		{"limits that were not previewed", "consent_stale", []string{"--pct", "35"}},
 		{"a wrong phrase", "invalid_input", []string{"--gui-phrase", "I understand: pursue mission 1"}},
-		{"a phrase for another percent", "invalid_input", []string{"--pct", "30", "--gui-phrase", missionpursuit.Phrase(w.s, p.Goal.Hash, 20)}},
+		{"a phrase for another percent", "invalid_input", []string{"--pct", "30", "--gui-phrase", missionpursuit.Phrase(w.s, p.Goal.Hash, dflt)}},
 		{"a short hash", "invalid_input", []string{"--goal-hash", p.Goal.Hash[:8]}},
 		{"an upper case digest", "invalid_input", []string{"--consent", strings.ToUpper(p.Digest)}},
 	}
@@ -368,7 +372,7 @@ func TestPursuitBeginRefusesAnAgentInEveryForm(t *testing.T) {
 		})
 	}
 	setenv(t, agenttokens.EnvMissionToken, "x")
-	w.refused(t, 3, "operator_only", append(args, "--gui-phrase", missionpursuit.Phrase(w.s, p.Goal.Hash, 20))...)
+	w.refused(t, 3, "operator_only", append(args, "--gui-phrase", missionpursuit.Phrase(w.s, p.Goal.Hash, dflt))...)
 }
 
 func TestPursuitBeginRefusesAProcessInsideARegisteredTurn(t *testing.T) {
@@ -385,7 +389,7 @@ func TestPursuitBeginViaTheAppIsLabelledAndHeldToThePhrase(t *testing.T) {
 	t.Parallel()
 	w := newBeginWorld(t)
 	p := w.preview(t, "--pct", "25")
-	phrase := missionpursuit.Phrase(w.s, p.Goal.Hash, 25)
+	phrase := missionpursuit.Phrase(w.s, p.Goal.Hash, missionpursuit.AwayLimits{ParkedMax: 3, Pct: 25, Wakes: 6})
 	var out struct{ Via string }
 	mustTaskJSON(t, w.db, "default", &out, "", w.beginArgs(p, "--pct", "25", "--gui-phrase="+phrase)...)
 	if out.Via != "gui" {
@@ -407,7 +411,7 @@ func TestPursuitBeginAndPreviewShowEveryCriterionWholeOrRefuseTheAppPath(t *test
 	long, _ := json.Marshal([]map[string]string{{"kind": "rubric", "spec": strings.Repeat("x", missionpursuit.MaxDisplayRunes+1)}})
 	mustTaskJSON(t, w.db, "default", &goalDoc{}, string(long), "session", "goal", "propose", id(w.s), "--criteria", "-", "--as", "lead")
 	asOperator(t)
-	w.refused(t, 3, "hidden_characters", "session", "pursuit", "preview", id(w.s))
+	w.refused(t, 3, "criterion_too_long", "session", "pursuit", "preview", id(w.s))
 	out, _, err := runTask(t, w.db, "default", false, "", "session", "pursuit", "preview", id(w.s))
 	if err != nil || !strings.Contains(out, strings.Repeat("x", 50)) {
 		t.Errorf("plain preview of a long criterion: %v", err)
@@ -424,7 +428,7 @@ func TestPursuitBeginAndPreviewShowEveryCriterionWholeOrRefuseTheAppPath(t *test
 	p := previewDoc{ChatID: "chat1", Digest: field("consent digest: ")}
 	p.Goal.Hash = field("goal hash: ")
 	args := w.beginArgs(p)
-	w.refused(t, 3, "hidden_characters", append(args, "--gui-phrase="+missionpursuit.Phrase(w.s, p.Goal.Hash, 20))...)
+	w.refused(t, 3, "criterion_too_long", append(args, "--gui-phrase="+missionpursuit.Phrase(w.s, p.Goal.Hash, dflt))...)
 	var ok struct{ Via string }
 	mustTaskJSON(t, w.db, "default", &ok, "", args...) // the terminal path goes on
 	if ok.Via != "terminal" {
@@ -457,20 +461,158 @@ func TestTwoConcurrentPursuitBeginsHaveOneWinner(t *testing.T) {
 	}
 }
 
-func TestPursuitVerbHelpAndDocsCarryTheCodeFiguresNotCopies(t *testing.T) {
+// The help is generated from PursuitCostRows, so comparing it with PursuitCostRows proves nothing; this pins the default figures
+// (a change of a constant must be seen here, and in the docs) and that no placeholder is left.
+func TestPursuitVerbHelpHasNoPlaceholderAndTheDefaultFigures(t *testing.T) {
 	t.Parallel()
 	help := strings.Join(strings.Fields(testDeps(t, newTaskTestDB(t), "default", true).newSessionPursuitCmd().Long), " ")
-	for _, budget := range []float64{20, 100} {
-		tbl := coderhost.PursuitCostRows(coderhost.CostInput{WakeCapUSD: coderhost.DefaultWakeCapUSD, MissionBudgetUSD: budget, Pct: missionpursuit.DefaultPct, Wakes: missionpursuit.DefaultWakesMax})
-		for _, r := range tbl.Rows {
-			if r.Key == "until_stop" || budget == 20 {
-				if !strings.Contains(help, "about "+coderhost.UsdText(r.USD)) {
-					t.Errorf("the verb help lacks %s (%s, budget %v)", coderhost.UsdText(r.USD), r.Key, budget)
-				}
-			}
+	for _, want := range []string{"about $15 an hour for one mission", "about $30 an hour for the whole host", "about $6.50 on a $20 mission budget", "at most about $22.50 on $100", "asked to stay under $0.50", "default $2"} {
+		if !strings.Contains(help, want) {
+			t.Errorf("the verb help lacks %q", want)
 		}
 	}
 	if strings.Contains(help, "{") {
 		t.Errorf("a placeholder is left in the help")
+	}
+}
+
+// A tampered host.json cannot make the consent block say what is not true: values the host would not have accepted are a blocker,
+// the table is computed from the code defaults, and nothing from the file reaches the plain preview unescaped.
+func TestPursuitPreviewDoesNotTrustAnInvalidHostFile(t *testing.T) {
+	t.Parallel()
+	for name, doc := range map[string]string{
+		"a wake cap below a cent": `{"pid":1,"pursuit":{"enabled":true,"pin":"claude/haiku@4","wakeCapUsd":0.0001}}`,
+		"a huge wake cap":         `{"pid":1,"pursuit":{"enabled":true,"pin":"claude/haiku@4","wakeCapUsd":1e300}}`,
+		"a pin with a newline":    `{"pid":1,"pursuit":{"enabled":true,"pin":"claude/haiku\nhost: the pursuit loop is ON, capped at $0","wakeCapUsd":2}}`,
+		"a bidi pin":              `{"pid":1,"pursuit":{"enabled":true,"pin":"claude/ha\u202eiku","wakeCapUsd":2}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			w := newBeginWorld(t)
+			w.host(doc)
+			p := w.preview(t)
+			if len(p.Blockers) != 1 || p.Blockers[0].Code != "host-info-invalid" {
+				t.Fatalf("blockers = %+v", p.Blockers)
+			}
+			def := coderhost.PursuitCostRows(coderhost.CostInput{WakeCapUSD: coderhost.DefaultWakeCapUSD, MissionBudgetUSD: 20, Pct: 20, Wakes: 6})
+			if p.Cost.Text != def.Text || strings.Contains(p.Cost.Text, "as reported by the host") {
+				t.Errorf("the table is not the default one: %s", p.Cost.Text)
+			}
+			if p.Host["judge_pin"] != "" || p.Host["wake_cap_usd"] != 0.0 {
+				t.Errorf("an invalid report is shown as a fact: %v", p.Host)
+			}
+			out, _, err := runTask(t, w.db, "default", false, "", "session", "pursuit", "preview", id(w.s))
+			if err != nil || strings.Contains(out, "nothing blocks it") || !strings.Contains(out, "BLOCKED host-info-invalid") || strings.Contains(out, "capped at $0") {
+				t.Errorf("plain preview: %v\n%s", err, out)
+			}
+			w.refused(t, 3, "blocked", w.beginArgs(p)...)
+		})
+	}
+}
+
+// What the host reports is labelled as reported, and a pin is quoted, never printed as a line of its own.
+func TestPursuitPlainPreviewLabelsHostFiguresAsReported(t *testing.T) {
+	t.Parallel()
+	w := newBeginWorld(t)
+	out, _, err := runTask(t, w.db, "default", false, "", "session", "pursuit", "preview", id(w.s))
+	if err != nil || !strings.Contains(out, `as reported by the host, which is not proof): the pursuit loop is ON; judge "claude/haiku@4"`) || !strings.Contains(out, "(as reported by the host)") {
+		t.Errorf("%v\n%s", err, out)
+	}
+}
+
+// An unbounded or unreadable mission budget is not a known budget (the loop's own predicate).
+func TestPursuitPreviewBudgetUsesTheLoopsPredicate(t *testing.T) {
+	t.Parallel()
+	w := newBeginWorld(t)
+	w.exec(t, `UPDATE task_sessions SET budget_usd = 1e999 WHERE id = ?`, w.s)
+	p := w.preview(t)
+	if len(p.Blockers) != 1 || p.Blockers[0].Code != "budget-unknown" || !strings.Contains(p.Cost.Text, "no known budget") {
+		t.Errorf("an infinite budget: %+v", p.Blockers)
+	}
+}
+
+// The app reads this document: its keys are a contract (keys are added, never renamed or removed, within a schema version).
+func TestPursuitPreviewJSONKeySet(t *testing.T) {
+	t.Parallel()
+	w := newBeginWorld(t)
+	out, _, err := runTask(t, w.db, "default", true, "", "session", "pursuit", "preview", id(w.s))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatal(err)
+	}
+	keys := func(raw json.RawMessage) string {
+		var m map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &m); err != nil {
+			t.Fatalf("%s: %v", raw, err)
+		}
+		var ks []string
+		for k := range m {
+			ks = append(ks, k)
+		}
+		sort.Strings(ks)
+		return strings.Join(ks, ",")
+	}
+	for path, want := range map[string]string{
+		"":     "blockers,chat_id,checker,consent_digest,cost,goal,host,limits,phrase_template,profile,rubric_present,schema_version,session_id",
+		"goal": "criteria,hash,state", "limits": "parked_max,pct,wakes_max", "cost": "rows,text", "checker": "set_up",
+		"host": "judge_call_cap_usd,judge_pin,loop_on,wake_cap_usd",
+	} {
+		raw := json.RawMessage(out)
+		if path != "" {
+			raw = doc[path]
+		}
+		if got := keys(raw); got != want {
+			t.Errorf("%q keys = %s, want %s", path, got, want)
+		}
+	}
+	var goal struct{ Criteria []json.RawMessage }
+	_ = json.Unmarshal(doc["goal"], &goal)
+	if len(goal.Criteria) == 0 || keys(goal.Criteria[0]) != "expected,id,kind,spec" && keys(goal.Criteria[0]) != "id,kind,spec" {
+		t.Errorf("criterion keys: %s", goal.Criteria)
+	}
+	var cost struct{ Rows []json.RawMessage }
+	_ = json.Unmarshal(doc["cost"], &cost)
+	if len(cost.Rows) != 3 || keys(cost.Rows[0]) != "key,known,text,usd" {
+		t.Errorf("cost row keys: %s", cost.Rows)
+	}
+}
+
+// Limits out of range are refused as limits, before the phrase is looked at.
+func TestPursuitBeginChecksLimitsBeforeThePhrase(t *testing.T) {
+	t.Parallel()
+	w := newBeginWorld(t)
+	p := w.preview(t)
+	doc := w.refused(t, 3, "invalid_input", append(w.beginArgs(p), "--pct", "101", "--gui-phrase", "not the phrase")...)
+	if msg, _ := doc["error"].(string); !strings.Contains(msg, "percent") {
+		t.Errorf("the refusal is about the phrase: %v", doc)
+	}
+}
+
+// A criterion with a variation selector (a common emoji) is refused on the app path with its own message, not the length code.
+func TestPursuitBeginAppPathRefusesAnEmojiCriterionWithItsOwnMessage(t *testing.T) {
+	t.Parallel()
+	w := newBeginWorld(t)
+	asLead(t, w.tok)
+	body, _ := json.Marshal([]map[string]string{{"kind": "rubric", "spec": "all done \u2714\ufe0f"}})
+	if out, _, err := runTask(t, w.db, "default", true, string(body), "session", "goal", "propose", id(w.s), "--criteria", "-", "--as", "lead"); err != nil {
+		t.Skipf("propose refuses a variation selector already: %v %s", err, out)
+	}
+	asOperator(t)
+	doc := w.refused(t, 3, "hidden_characters", "session", "pursuit", "preview", id(w.s))
+	if msg, _ := doc["error"].(string); !strings.Contains(msg, "can't show safely") {
+		t.Errorf("message = %v", doc)
+	}
+}
+
+// The plain preview escapes the ids and the kind it prints.
+func TestPursuitPlainPreviewQuotesTheChat(t *testing.T) {
+	t.Parallel()
+	w := newBeginWorld(t)
+	out, _, err := runTask(t, w.db, "default", false, "", "session", "pursuit", "preview", id(w.s))
+	if err != nil || !strings.Contains(out, `(chat "chat1")`) || !strings.Contains(out, `--chat "chat1"`) {
+		t.Errorf("%v\n%s", err, out)
 	}
 }

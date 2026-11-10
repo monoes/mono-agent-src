@@ -3,6 +3,7 @@ package missionpursuit
 import (
 	"context"
 	"errors"
+	"math"
 	"strings"
 	"sync"
 	"testing"
@@ -56,7 +57,7 @@ func TestConsentDigestCoversEveryFactAndNoClock(t *testing.T) {
 	for name, mod := range map[string]func(*LiveFacts){
 		"cost": func(f *LiveFacts) { f.Cost = "other" }, "pin": func(f *LiveFacts) { f.JudgePin = "x/y" },
 		"cap": func(f *LiveFacts) { f.WakeCapUSD = 3 }, "checker": func(f *LiveFacts) { f.CheckerSetUp = true },
-		"host": func(f *LiveFacts) { f.HostOn = false },
+		"host": func(f *LiveFacts) { f.HostOn = false }, "invalid": func(f *LiveFacts) { f.HostInvalid = true },
 	} {
 		f := okFacts()
 		mod(&f)
@@ -71,9 +72,9 @@ func TestConsentDigestCoversEveryFactAndNoClock(t *testing.T) {
 
 func TestConsentBlockers(t *testing.T) {
 	g := Goal{Hash: "h", Criteria: []StoredCriterion{{Criterion: Criterion{Kind: "file", Spec: "x"}}}}
-	f := LiveFacts{PinWhy: "same"}
+	f := LiveFacts{PinWhy: "same", HostInvalid: true}
 	c := ConsentOf(1, "", g, AwayLimits{}, f)
-	want := []string{BlockBudgetUnknown, BlockHostOff, BlockJudgePin, BlockLeadUncapped, BlockNoChat, BlockNoRubric}
+	want := []string{BlockBudgetUnknown, BlockHostInfoInvalid, BlockHostOff, BlockJudgePin, BlockLeadUncapped, BlockNoChat, BlockNoRubric}
 	if strings.Join(c.Blockers, ",") != strings.Join(want, ",") {
 		t.Errorf("blockers = %v, want %v", c.Blockers, want)
 	}
@@ -84,28 +85,53 @@ func TestConsentBlockers(t *testing.T) {
 	}
 }
 
-func TestPhraseNamesMissionHashAndPercent(t *testing.T) {
-	got := Phrase(12, strings.Repeat("ab", 32), 35)
-	if got != "I understand: pursue mission 12, goal abababab, stop at 35 percent spent" {
+func TestPhraseNamesMissionHashAndEveryLimit(t *testing.T) {
+	lim := AwayLimits{ParkedMax: 4, Pct: 35, Wakes: 9}
+	got := Phrase(12, strings.Repeat("ab", 32), lim)
+	if got != "I understand: pursue mission 12, goal abababab, stop at 35 percent spent, 4 waiting questions or 9 wake-ups" {
 		t.Errorf("phrase = %q", got)
 	}
-	if Phrase(12, "ab", 35) == Phrase(12, "ab", 36) {
-		t.Errorf("the percent is not in the phrase")
+	for name, other := range map[string]AwayLimits{"pct": {ParkedMax: 4, Pct: 36, Wakes: 9}, "parked": {ParkedMax: 5, Pct: 35, Wakes: 9}, "wakes": {ParkedMax: 4, Pct: 35, Wakes: 10}} {
+		if Phrase(12, "ab", lim) == Phrase(12, "ab", other) {
+			t.Errorf("the %s limit is not in the phrase", name)
+		}
 	}
 }
 
-func TestEscapeHiddenAndDisplayableWhole(t *testing.T) {
+func TestBudgetKnownIsTheLoopsPredicate(t *testing.T) {
+	inf, nan := math.Inf(1), math.NaN()
+	for _, c := range []struct {
+		b, s float64
+		want bool
+	}{{20, 0, true}, {20, 5, true}, {0, 0, false}, {-1, 0, false}, {inf, 0, false}, {nan, 0, false}, {20, -1, false}, {20, inf, false}, {20, nan, false}} {
+		if got := BudgetKnown(c.b, c.s); got != c.want {
+			t.Errorf("BudgetKnown(%v, %v) = %v", c.b, c.s, got)
+		}
+	}
+}
+
+func TestEscapeHiddenAndCheckDisplayable(t *testing.T) {
 	if got := EscapeHidden("a\u202eb\u200bc\U000E0041"); got != `a\u202Eb\u200Bc\u{E0041}` {
 		t.Errorf("escaped = %q", got)
 	}
-	ok := []StoredCriterion{{Criterion: Criterion{Kind: "rubric", Spec: "plain text\nsecond line", Expected: "\u00e9"}}}
-	if !DisplayableWhole(ok) {
-		t.Errorf("plain text refused")
+	crit := func(spec string) []StoredCriterion {
+		return []StoredCriterion{{Criterion: Criterion{Kind: "rubric", Spec: spec}}}
 	}
-	for name, spec := range map[string]string{"bidi": "a\u202eb", "zero width": "a\u200bb", "tag": "a\U000E0041", "long": strings.Repeat("x", MaxDisplayRunes+1), "nul": "a\x00b"} {
-		if DisplayableWhole([]StoredCriterion{{Criterion: Criterion{Kind: "rubric", Spec: spec}}}) {
-			t.Errorf("%s accepted", name)
+	if err := CheckDisplayable(append(crit("plain text\nsecond line"), StoredCriterion{Criterion: Criterion{Kind: "rubric", Spec: "x", Expected: "\u00e9"}})); err != nil {
+		t.Errorf("plain text refused: %v", err)
+	}
+	for name, spec := range map[string]string{"bidi": "a\u202eb", "zero width": "a\u200bb", "tag": "a\U000E0041", "nul": "a\x00b",
+		"braille blank": "a\u2800b", "hangul filler": "a\u3164b", "choseong filler": "a\u115fb", "halfwidth filler": "a\uffa0b", "grapheme joiner": "a\u034fb",
+		"emoji variation selector": "done \u2714\ufe0f", "joiner": "a\u200db"} {
+		if err := CheckDisplayable(crit(spec)); !errors.Is(err, ErrHiddenText) {
+			t.Errorf("%s: %v", name, err)
 		}
+	}
+	if err := CheckDisplayable(crit(strings.Repeat("x", MaxDisplayRunes+1))); !errors.Is(err, ErrCriterionTooLong) || errors.Is(err, ErrHiddenText) {
+		t.Errorf("long: %v", err)
+	}
+	if err := CheckDisplayable(crit(strings.Repeat("x", MaxDisplayRunes))); err != nil {
+		t.Errorf("a criterion of exactly the cap: %v", err)
 	}
 }
 
@@ -202,7 +228,7 @@ func TestConfirmAndStartTextTooLongToShowWholeRefusesOnlyTheAppPath(t *testing.T
 	req.GUI = true
 	before := snapshot(t, f)
 	_, _, err := f.store.ConfirmAndStart(bg, "default", f.session, req, human)
-	wantIs(t, err, ErrHiddenText, "gui with a criterion too long to show whole")
+	wantIs(t, err, ErrCriterionTooLong, "gui with a criterion too long to show whole")
 	if after := snapshot(t, f); after != before {
 		t.Errorf("wrote: %v -> %v", before, after)
 	}
