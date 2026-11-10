@@ -28,9 +28,12 @@ func TestGoalAnswerShowsAProjectFilenameCleaned(t *testing.T) {
 	if !strings.Contains(out, "a new check will run") {
 		t.Errorf("the refusal was not the project-read one: %q", out)
 	}
-	text, errText, _ := runTask(t, m.db, "default", false, "", m.answerArgs(d, "c3", "--yes")...)
-	if strings.ContainsAny(text+errText, "\x1b\a") {
-		t.Errorf("terminal control bytes reached the operator in text mode: %q %q", text, errText)
+	text, errText, err := runTask(t, m.db, "default", false, "", m.answerArgs(d, "c3", "--yes")...)
+	if err == nil {
+		t.Fatal("the answer for a project with a pipe in it was accepted")
+	}
+	if strings.ContainsAny(text+errText+err.Error(), "\x1b\a") {
+		t.Errorf("terminal control bytes reached the operator in text mode: %q %q %q", text, errText, err.Error())
 	}
 	_ = os.Remove(filepath.Join(m.root, evil))
 }
