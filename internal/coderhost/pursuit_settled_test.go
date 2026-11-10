@@ -203,12 +203,14 @@ func TestAQueuedWakeRunsForTheSettledStateOnceAndIsDroppedWhenAnotherWentOut(t *
 		runs bool
 	}{
 		{"the tasks settled after the wake was queued", func(w *pworld) { w.advance(time.Second); w.settle() }, true},
-		{"the tasks settled and another wake had gone out since", func(w *pworld) {
+		{"the tasks settled and another wake had gone out before this one was queued", func(w *pworld) {
 			w.advance(time.Second)
 			w.settle()
 			w.advance(time.Second)
-			w.exec(`INSERT INTO coder_session_commands (profile_id, conversation_id, kind, turn_id, message, attachments, status, created_at, updated_at, issuer) VALUES ('p', 'm', 'send', 'pursuit-0-other', 'x', '[]', 'done', ?, ?, '')`,
-				w.clk.Now().UTC().Format(time.RFC3339Nano), w.clk.Now().UTC().Format(time.RFC3339Nano))
+			at := w.clk.Now().UTC().Format(time.RFC3339Nano)
+			w.exec(`INSERT INTO coder_session_commands (profile_id, conversation_id, kind, turn_id, message, attachments, status, created_at, updated_at, issuer) VALUES ('p', 'm', 'send', 'pursuit-0-other', 'x', '[]', 'done', ?, ?, '')`, at, at)
+			w.advance(time.Second)
+			w.exec(`UPDATE coder_session_commands SET created_at = ? WHERE turn_id LIKE 'pursuit-1-%'`, w.clk.Now().UTC().Format(time.RFC3339Nano))
 		}, false},
 		{"the tasks settled and the close was proposed", func(w *pworld) { w.advance(time.Second); w.settle(); w.propose() }, false},
 	} {
@@ -239,5 +241,21 @@ func TestAQueuedWakeIsDroppedWhenTheTasksSettleBeforeItRuns(t *testing.T) {
 	_ = w.h.Tick()
 	if w.h.L.(*fakeLauncher).startedWith(PursuitTurnPrefix) || len(w.wakes()) != 0 {
 		t.Fatal("a queued wake-up ran for a mission whose work had settled and whose close was proposed")
+	}
+}
+
+// The wake-up queued for a state that settled BEFORE it was queued runs: it is the one close wake, not a second.
+func TestTheCloseWakeQueuedAfterTheTasksSettledRunsAtItsDelivery(t *testing.T) {
+	w := newPursuitWorld(t)
+	w.advance(time.Second)
+	w.settle()
+	w.advance(time.Second)
+	w.firstEpoch()
+	if len(w.wakes()) != 1 {
+		t.Fatalf("wake-ups queued = %d, want the one close wake", len(w.wakes()))
+	}
+	_ = w.h.Tick()
+	if !w.h.L.(*fakeLauncher).startedWith(PursuitTurnPrefix) {
+		t.Fatal("the close wake dropped itself at its delivery")
 	}
 }

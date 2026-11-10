@@ -76,7 +76,7 @@ func (h *Host) pursuitStillDeliverable(x Session, g pursuitGateResult) string {
 	case !withinActiveHours(settings.ActiveHours, h.Store.now()):
 		return "outside the lead's active hours"
 	}
-	if t := g.snap.Tasks; t.Workable <= 0 {
+	if t := g.snap.Tasks; t.Workable <= 0 && !g.closeWakeDue {
 		return "the mission has no open work"
 	}
 	return h.pursuitStreakStop(x.ProfileID, x.ConversationID, settings)

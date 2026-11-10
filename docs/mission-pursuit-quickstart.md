@@ -63,6 +63,8 @@ If the host switch is off, a started pursuit does nothing and the lead's check-i
 | `limits` | the away limits are out of range |
 | `engine-parked` | a stored strategy row failed verification and the strategy engine stopped |
 
+The loop also stays quiet, with no waiting reason shown, once every task is done, verified or blocked and the lead has been woken once to close the mission; you close the mission yourself if it does not. A changed task earns one more such wake.
+
 Any waiting reason clears when you act (answer, start again, raise a limit). Right after the last allowed wake-up there may be a few seconds with no reason before `wakes` shows.
 
 ## 3. What it can cost (worst case, defaults: X = $2, judge asked to stay under $0.50)

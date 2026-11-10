@@ -82,7 +82,10 @@ func TestOneUndeliveredEpochIsEnoughUntilItIsWoken(t *testing.T) {
 
 func TestAMissionWithoutOpenWorkWhenTheEpochEndsGetsNoWakeUp(t *testing.T) {
 	w := newPursuitWorld(t)
-	w.model.onCall = func() { w.exec(`UPDATE tasks SET status = 'done', verified = 1 WHERE session_id = 77`) } // the work ends during the judge call
+	w.model.onCall = func() { // the work ends during the judge call and the lead has proposed the close
+		w.exec(`UPDATE tasks SET status = 'done', verified = 1 WHERE session_id = 77`)
+		w.propose()
+	}
 	w.firstEpoch()
 	if len(w.epochs()) != 1 || len(w.wakes()) != 0 {
 		t.Fatalf("epochs %v wake-ups %d", w.epochs(), len(w.wakes()))
