@@ -149,3 +149,27 @@ func TestEveryBrowserVerbAsksTheTurnCheckOnce(t *testing.T) {
 		}
 	}
 }
+
+// A locked database no verdict can be read from is no free pass: with the live coder host's database locked past
+// the busy timeout (a real lock, not a faked verdict), the user's terminal cannot be told from a turn, so the
+// browser verbs bind it at the other kind's level; once the lock is released the same command is unrestricted.
+func TestBrowserVerbsFailClosedWhileTheLiveHostDatabaseIsReallyLocked(t *testing.T) {
+	busySetup(t)
+	bt := newBrowserTest(t, false)
+	bt.fake.AddTab("http://localhost:3000/", "", true)
+	setLevels(t, bt, map[string]string{browserctl.KindOther: browserctl.LevelOff})
+	host := newHILTestDB(t)
+	registerLive(t, host)
+	release := lockDB(t, host)
+	opgate.SetForTest(t, bt.cfg.gateRefusal) // the real verdict, not a faked one
+
+	for _, args := range [][]string{{"browsers"}, {"tabs"}} {
+		if _, err := bt.run(args...); jsonCode(err) != "browser_off" {
+			t.Fatalf("%v with the live host's database locked: code %q: %v", args, jsonCode(err), err)
+		}
+	}
+	release()
+	if _, err := bt.run("browsers"); err != nil {
+		t.Fatalf("after the lock was released: %v", err)
+	}
+}
