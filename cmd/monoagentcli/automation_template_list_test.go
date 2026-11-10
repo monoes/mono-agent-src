@@ -11,7 +11,7 @@ import (
 func TestAutomationInstallMissingSourceFailsFirst(t *testing.T) {
 	home := t.TempDir()
 	out, _, err := runAutomationCLI(t, home, "automation", "install", filepath.Join(home, "nope.mpkg"), "--json")
-	if err == nil || strings.Contains(out, "confirmation required") || !strings.Contains(out, "no such file") {
+	if err == nil || strings.Contains(out, "confirmation required") || !(strings.Contains(out, "no such file") || strings.Contains(out, "cannot find the")) {
 		t.Fatalf("err=%v out=%s", err, out)
 	}
 }
