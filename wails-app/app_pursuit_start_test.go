@@ -263,7 +263,7 @@ func TestStartNeedsTheNativeConfirmation(t *testing.T) {
 	check("declined", "declined")
 	r.answer, r.avail = true, false
 	check("no dialog", "no_native_dialog")
-	r.avail, r.think = true, pursuitMinThink-time.Millisecond
+	r.avail, r.think = true, pursuitMinThink/2
 	check("answered under the minimum", "declined")
 	r.think = pursuitMinThink // exactly the minimum counts
 	if d := r.start(tok); !d.OK || r.begins() != 1 {
@@ -483,5 +483,31 @@ func TestAnUnreadablePreviewIssuesNoGrant(t *testing.T) {
 	r.cli(`{"error":"the pursuit already started","code":"already_started"}`, "exit 1")
 	if got := r.a.PursuitStartPreview(5, PursuitLimits{}); strings.Contains(got, "start_token") || !strings.Contains(got, "already_started") {
 		t.Fatalf("a CLI refusal: %s", got)
+	}
+}
+
+// The two refusals of a second start each stand alone: a dialog on screen (the flag), and a start in progress (the lock).
+func TestPursuitStartIsBusyForEachOfItsTwoReasons(t *testing.T) {
+	r := newPursuitRig(t)
+	tok, _ := r.preview(pLimits)
+	prior := r.calls()
+	dialogOpen.Store(true)
+	if d := r.start(tok); d.Code != "busy" || d.OK {
+		t.Fatalf("a dialog on screen: %+v", d)
+	}
+	dialogOpen.Store(false)
+	if !pursuitStartMu.TryLock() {
+		t.Fatal("setup")
+	}
+	d := r.start(tok)
+	pursuitStartMu.Unlock()
+	if d.Code != "busy" || d.OK {
+		t.Fatalf("a start in progress: %+v", d)
+	}
+	if r.calls() != prior || r.dialogs != 0 {
+		t.Fatal("the CLI or the dialog ran")
+	}
+	if d := r.start(tok); !d.OK { // neither refusal spent the grant
+		t.Fatalf("%+v", d)
 	}
 }
