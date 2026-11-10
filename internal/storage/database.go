@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -83,9 +84,10 @@ func NewDatabase(dbPath string) (*Database, error) {
 	// (a normal, supported database/sql pattern) deadlocks waiting for the
 	// pool's only connection to free up. DSN-level pragmas fix the root cause
 	// (missing busy_timeout on fresh connections) without that constraint.
+	// The path is escaped: a ?, # or % in a folder name is part of the name, not URI syntax.
 	dsn := fmt.Sprintf(
 		"file:%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)&_pragma=synchronous(NORMAL)",
-		absPath,
+		(&url.URL{Path: absPath}).EscapedPath(),
 	)
 	created := isNewFile(absPath)
 	db, err := sql.Open("sqlite", dsn)

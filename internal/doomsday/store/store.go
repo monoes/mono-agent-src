@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/dbconn"
 )
 
 // SQLStore is the SQLite implementation of Store.
@@ -212,11 +214,22 @@ var nextState = map[RunState]RunState{
 // Advance moves the run one step forward and appends the audit row in the same transaction. Quiescent is refused
 // while any member is live, whatever any repair state says.
 func (s *SQLStore) Advance(ctx context.Context, profile string, generation int64, to RunState, by, cause string) (Run, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	// BEGIN IMMEDIATE: the run is read before it is advanced, and a writer that commits in between would make the
+	// write fail at once with SQLITE_BUSY_SNAPSHOT, which busy_timeout does not wait for (#1460).
+	var r Run
+	err := dbconn.WithWriteTx(ctx, s.db, func(tx *sql.Conn) error {
+		var err error
+		r, err = s.advanceIn(ctx, tx, profile, generation, to, by, cause)
+		return err
+	})
 	if err != nil {
 		return Run{}, err
 	}
-	defer tx.Rollback()
+	return r, nil
+}
+
+// advanceIn is Advance's read, its checks and its writes, on the connection that holds the write lock.
+func (s *SQLStore) advanceIn(ctx context.Context, tx DBTX, profile string, generation int64, to RunState, by, cause string) (Run, error) {
 	r, err := getRun(ctx, tx, s, profile, generation)
 	if err != nil {
 		return Run{}, err
@@ -253,7 +266,7 @@ func (s *SQLStore) Advance(ctx context.Context, profile string, generation int64
 	if _, err := s.appendAuditTx(ctx, tx, profile, generation, "run.advance", string(from)+">"+string(to)+" "+by); err != nil {
 		return Run{}, err
 	}
-	return r, tx.Commit()
+	return r, nil
 }
 
 // Admit refuses unless the run row verifies, is the profile's highest generation and is running.

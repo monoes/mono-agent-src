@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 
@@ -28,7 +29,7 @@ func openReadOnlyDB(path string) (*sql.DB, error) {
 	}
 	_, statErr := os.Stat(abs)
 	created := errors.Is(statErr, fs.ErrNotExist)
-	db, err := sql.Open("sqlite", "file:"+abs+"?_pragma=busy_timeout(5000)&_pragma=query_only(1)")
+	db, err := sql.Open("sqlite", "file:"+(&url.URL{Path: abs}).EscapedPath()+"?_pragma=busy_timeout(5000)&_pragma=query_only(1)")
 	if err != nil {
 		return nil, fmt.Errorf("opening database: %w", err)
 	}

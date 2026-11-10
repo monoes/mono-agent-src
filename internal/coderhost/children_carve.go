@@ -105,6 +105,12 @@ func (s *Store) carveBudgetAdmit(profileID, parent, child string, usd float64, a
 	})
 }
 
+// writeTx runs fn in a BEGIN IMMEDIATE transaction (dbconn.WithWriteTx) over a querier, for the mission-child files
+// that may not import dbconn themselves.
+func (s *Store) writeTx(fn func(tx querier) error) error {
+	return dbconn.WithWriteTx(context.Background(), s.db, func(conn *sql.Conn) error { return fn(connQuerier{conn}) })
+}
+
 // connQuerier lends the connection that holds an open transaction to the code that takes a querier.
 type connQuerier struct{ c *sql.Conn }
 

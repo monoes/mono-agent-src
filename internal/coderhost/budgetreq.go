@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/dbconn"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
 
@@ -146,11 +147,22 @@ func (s *Store) RequestBudget(sc CallerScope, profileID string, sessionID int64,
 	if b.SpentUSD, err = s.Spent(profileID, b.TargetConversationID); err != nil {
 		return BudgetRequest{}, err
 	}
-	tx, err := s.db.Begin()
+	// BEGIN IMMEDIATE: the limits are read before the request is written, and a writer that commits in between would
+	// make the write fail at once with SQLITE_BUSY_SNAPSHOT, which busy_timeout does not wait for (#1460).
+	err = dbconn.WithWriteTx(context.Background(), s.db, func(conn *sql.Conn) error {
+		var err error
+		b, err = s.fileBudgetRequest(connQuerier{conn}, profileID, sessionID, b)
+		return err
+	})
 	if err != nil {
 		return BudgetRequest{}, err
 	}
-	defer func() { _ = tx.Rollback() }()
+	b.Open = true
+	return b, nil
+}
+
+// fileBudgetRequest is RequestBudget's limits and its insert, in the transaction that holds the write lock.
+func (s *Store) fileBudgetRequest(tx querier, profileID string, sessionID int64, b BudgetRequest) (BudgetRequest, error) {
 	now := s.now().UTC()
 	var perHour, perMission int
 	if err := tx.QueryRow(`SELECT
@@ -186,10 +198,6 @@ func (s *Store) RequestBudget(sc CallerScope, profileID string, sessionID int64,
 	if err := addPersonItem(tx, profileID, b.LeadConversationID, ItemBudgetRequest, "", b.ID, b.CreatedAt); err != nil {
 		return BudgetRequest{}, err
 	}
-	if err := tx.Commit(); err != nil {
-		return BudgetRequest{}, err
-	}
-	b.Open = true
 	return b, nil
 }
 
@@ -350,11 +358,20 @@ func (s *Store) grantBudget(profileID string, id int64, usd float64) (BudgetRequ
 		}
 		usd = fromMicro(grantMicro)
 	}
-	tx, err := s.db.Begin()
-	if err != nil {
-		return BudgetRequest{}, err
-	}
-	defer func() { _ = tx.Rollback() }()
+	// BEGIN IMMEDIATE: the request is read before it is answered, and a writer that commits in between would make the
+	// write fail at once with SQLITE_BUSY_SNAPSHOT, which busy_timeout does not wait for (#1460).
+	var b BudgetRequest
+	err := dbconn.WithWriteTx(context.Background(), s.db, func(conn *sql.Conn) error {
+		var err error
+		b, err = s.answerGrant(connQuerier{conn}, profileID, id, usd, grantMicro)
+		return err
+	})
+	return b, err
+}
+
+// answerGrant is grantBudget's read, its writes and its checks, in the transaction that holds the write lock. It
+// returns the request as granted.
+func (s *Store) answerGrant(tx querier, profileID string, id int64, usd float64, grantMicro int64) (BudgetRequest, error) {
 	// The status moves from open in this transaction or not at all, so two answers cannot both win.
 	b, err := s.budgetRequestIn(tx, profileID, id)
 	if err != nil {
@@ -399,9 +416,6 @@ func (s *Store) grantBudget(profileID string, id int64, usd float64) (BudgetRequ
 		} else if why != "" {
 			return BudgetRequest{}, fmt.Errorf("%w: %s", ErrLimit, why)
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return BudgetRequest{}, err
 	}
 	b.Status, b.GrantedUSD, b.AnsweredAt, b.Open = BudgetRequestGranted, usd, now, false
 	return b, nil

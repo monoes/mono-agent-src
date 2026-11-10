@@ -67,3 +67,29 @@ func WithWriteTx(ctx context.Context, db *sql.DB, fn func(conn *sql.Conn) error)
 	committed = true
 	return nil
 }
+
+// ConnTx lends the dedicated connection of a WithWriteTx to code written against an open *sql.Tx: its methods run on
+// the connection, inside the transaction, with Ctx for the calls that carry none.
+type ConnTx struct {
+	Ctx  context.Context
+	Conn *sql.Conn
+}
+
+func (c ConnTx) ExecContext(ctx context.Context, q string, args ...any) (sql.Result, error) {
+	return c.Conn.ExecContext(ctx, q, args...)
+}
+func (c ConnTx) QueryContext(ctx context.Context, q string, args ...any) (*sql.Rows, error) {
+	return c.Conn.QueryContext(ctx, q, args...)
+}
+func (c ConnTx) QueryRowContext(ctx context.Context, q string, args ...any) *sql.Row {
+	return c.Conn.QueryRowContext(ctx, q, args...)
+}
+func (c ConnTx) Exec(q string, args ...any) (sql.Result, error) {
+	return c.Conn.ExecContext(c.Ctx, q, args...)
+}
+func (c ConnTx) Query(q string, args ...any) (*sql.Rows, error) {
+	return c.Conn.QueryContext(c.Ctx, q, args...)
+}
+func (c ConnTx) QueryRow(q string, args ...any) *sql.Row {
+	return c.Conn.QueryRowContext(c.Ctx, q, args...)
+}
