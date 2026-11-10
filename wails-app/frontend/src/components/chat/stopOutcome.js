@@ -31,8 +31,18 @@ export function isWarnLine(line) {
 
 // outcome classifies a Stop result: 'ok' (stopped, or a later stop finished the previous one's cleanup), 'warn' (the run IS
 // stopped but the CLI could not finish its sessions or message: exit 8, first line still "stopped"), 'fail' (anything else).
+// isAlreadyStopped: a Stop that found no open run (the run was stopped by an earlier press, or never existed): the answer
+// the person wanted, so it is not shown as a failure.
+export function isAlreadyStopped(result) {
+  if (result?.ok) return false
+  const out = String(result?.output || '').trim()
+  if (isRepair(out) || /^stopped/.test(out)) return false
+  return /no open run to stop/.test([result?.detail, result?.error].filter(Boolean).join('\n'))
+}
+
 export function outcome(result) {
   const out = String(result?.output || '').trim()
+  if (isAlreadyStopped(result)) return 'gone'
   if (result?.ok && (result?.stopped || isRepair(out))) return 'ok'
   if (!result?.ok && new RegExp('^(stopped|' + esc(heads.repairEnded) + '|' + esc(heads.repairNote) + '|' + esc(heads.repairFailed) + '|' + esc(heads.repairNoteFailed) + ')').test(out)) return 'warn'
   return 'fail'
