@@ -41,9 +41,10 @@ pursuit waits. pause stops one mission; a judge call or lead turn already runnin
   pursuit start ID [--parked-max N] [--pct N]   start it (the goal must be confirmed); defaults 3 and 20
   pursuit pause ID                              stop new work until you resume (it does not hand the lead back to check-ins, and a judge call already running is not cancelled: it is paid for and its answer dropped)
   pursuit resume ID                             let it go on
+  pursuit allow-unconfined-checks ID (--on|--off)   let goal checks run project commands without confinement (default off; you only)
   pursuit status ID                             show it (read only)`,
 	}
-	cmd.AddCommand(d.newPursuitStartCmd(), d.newPursuitPauseCmd(), d.newPursuitResumeCmd(), d.newPursuitStatusCmd())
+	cmd.AddCommand(d.newPursuitStartCmd(), d.newPursuitPauseCmd(), d.newPursuitResumeCmd(), d.newPursuitStatusCmd(), d.newPursuitUnconfinedCmd())
 	for _, sub := range cmd.Commands() {
 		d.WithJSONErrors(sub)
 	}

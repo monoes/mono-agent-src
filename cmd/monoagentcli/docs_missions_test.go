@@ -174,7 +174,7 @@ func TestAgentsMdMissionMapMatchesTheCode(t *testing.T) {
 		t.Errorf("the text lists person verbs %v, the command has %v", listed, verbs)
 	}
 	for _, path := range [][]string{
-		{"task", "session", "retire-worker"}, {"task", "session", "goal", "set"}, {"task", "session", "goal", "confirm"}, {"task", "session", "pursuit", "start"}, {"task", "session", "pursuit", "pause"}, {"task", "session", "pursuit", "resume"}, {"coder", "sessions", "spawn-intents", "list"}, {"coder", "sessions", "spawn-intents", "resolve"},
+		{"task", "session", "retire-worker"}, {"task", "session", "goal", "set"}, {"task", "session", "goal", "confirm"}, {"task", "session", "goal", "answer"}, {"task", "session", "pursuit", "allow-unconfined-checks"}, {"task", "session", "pursuit", "start"}, {"task", "session", "pursuit", "pause"}, {"task", "session", "pursuit", "resume"}, {"coder", "sessions", "spawn-intents", "list"}, {"coder", "sessions", "spawn-intents", "resolve"},
 		{"coder", "sessions", "mission-children", "enable"}, {"coder", "sessions", "mission-children", "disable"},
 		{"coder", "sessions", "mission-children", "set"}, {"coder", "sessions", "mission-children", "list"},
 		{"coder", "sessions", "mission-children", "resolve-charge"}, {"coder", "sessions", "budget", "grant"},
