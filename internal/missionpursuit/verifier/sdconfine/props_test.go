@@ -143,7 +143,7 @@ func TestTheLimitsOfTheSandboxBecomeUnitPropertiesAndCapsCanOnlyLower(t *testing
 func TestTheHiddenRootAndTheWorkPathAreEscapedForTheManagerOrRefused(t *testing.T) {
 	s := specForTest()
 	s.Hide = "/srv/project"
-	if !strings.Contains(strings.Join(Properties(s), "\n"), "InaccessiblePaths=-/var/run -/mnt -/media /srv/project") {
+	if !strings.Contains(strings.Join(Properties(s), "\n"), "InaccessiblePaths=-/var/run -/mnt -/media -/srv/project") {
 		t.Fatalf("the live root is not hidden: %v", Properties(s))
 	}
 	if err := CheckProperties(Properties(s), s); err != nil {

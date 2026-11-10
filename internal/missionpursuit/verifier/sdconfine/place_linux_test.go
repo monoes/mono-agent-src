@@ -190,7 +190,7 @@ func TestHideGivesAPerCheckCopyThatAlsoHidesTheLiveRoot(t *testing.T) {
 	if _, err := h.Place(cmd); err != nil {
 		t.Fatal(err)
 	}
-	if !contains(cmd.Args, "InaccessiblePaths=-/var/run -/mnt -/media /srv/live-project") {
+	if !contains(cmd.Args, "InaccessiblePaths=-/var/run -/mnt -/media -/srv/live-project") {
 		t.Fatalf("the live root is not hidden: %v", cmd.Args)
 	}
 	// the original is unchanged and a second copy does not inherit the first's root

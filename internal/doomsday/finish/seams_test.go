@@ -30,6 +30,21 @@ func TestDigestTreeCtxStopsAtOnceWhenTheContextIsDone(t *testing.T) {
 	}
 }
 
+// The walk checks the context on its own (a tree of folders has no file to read).
+func TestDigestTreeCtxWalkStopsWithoutAnyFileToRead(t *testing.T) {
+	root := t.TempDir()
+	for _, d := range []string{"a/b", "c/d/e"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := DigestTreeCtx(ctx, root, ""); !errors.Is(err, context.Canceled) {
+		t.Fatalf("%v", err)
+	}
+}
+
 func TestSnapshotCtxCancelledLeavesNothingBehind(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, "big.bin", string(make([]byte, 1<<20)), 0o644)
@@ -73,5 +88,24 @@ func TestUnwrapLimitsHelperReadsWhatHelperArgvWrote(t *testing.T) {
 		if _, _, _, ok := UnwrapLimitsHelper(bad); ok {
 			t.Errorf("%s: unwrapped", name)
 		}
+	}
+}
+
+// The copy itself looks at the context between chunks (not only the walk between entries).
+func TestACopyStopsInsideAFileWhenTheContextEnds(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "big.bin", string(make([]byte, 1<<20)), 0o644)
+	st, err := os.Lstat(filepath.Join(root, "big.bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	dst := t.TempDir()
+	if _, err := sumFile(ctx, filepath.Join(root, "big.bin"), dst, "big.bin", false, st); !errors.Is(err, context.Canceled) {
+		t.Fatalf("a cancelled copy returned %v", err)
+	}
+	if sum, err := sumFile(context.Background(), filepath.Join(root, "big.bin"), "", "big.bin", false, st); err != nil || sum == "" {
+		t.Fatalf("%v", err)
 	}
 }

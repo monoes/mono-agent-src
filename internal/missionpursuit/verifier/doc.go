@@ -63,7 +63,8 @@
 //
 // Request.LeadPinNow (the lead's model, read again after the reviewer call) is required; a request that cannot supply it says
 // so with NoLeadReread. For the slice that wraps this library (S7b): sweep stale check-* scratch folders at start. Run copies and digests with
-// finish.SnapshotCtx and DigestTreeCtx, which stop when the check is cancelled (the host's own pre-digest should use them too). Tests that start real programs skip where the platform forbids user namespaces
+// the context-aware finish.SnapshotCtx and DigestTreeCtx, which stop when the check is cancelled (the host's own pre-digest
+// should use them too). Tests that start real programs skip where the platform forbids user namespaces
 // and fail instead where MONOAGENT_REQUIRE_SANDBOX_TESTS=1.
 //
 // The process-group Place (GroupPlace) kills the group at the deadline and what is left of it when a criterion ends. It is

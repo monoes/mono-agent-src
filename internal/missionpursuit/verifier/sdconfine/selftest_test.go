@@ -90,6 +90,20 @@ func TestABrokenCanaryFailsTheSelfTestByNameAndNeverCachesTheHeavyProof(t *testi
 	if err := c.SelfTest(context.Background()); err != nil || !cc.heavy[1] {
 		t.Fatalf("a failed self test cached a heavy proof: %v %v", err, cc.heavy)
 	}
+	// a proof that exists is dropped by a later failure: the next self test proves the heavy canaries again
+	if err := c.SelfTest(context.Background()); err != nil || cc.heavy[2] {
+		t.Fatalf("the proof was not used: %v %v", err, cc.heavy)
+	}
+	cc.out = func(heavy bool) []verifier.CanaryResult {
+		return []verifier.CanaryResult{{ID: "C4", Verdict: verifier.CanaryBroken}}
+	}
+	if err := c.SelfTest(context.Background()); err == nil {
+		t.Fatal("a broken light canary passed")
+	}
+	cc.out = nil
+	if err := c.SelfTest(context.Background()); err != nil || !cc.heavy[len(cc.heavy)-1] {
+		t.Fatalf("a failure left the old heavy proof in place: %v %v", err, cc.heavy)
+	}
 	// a heavy failure after a good light run is a failure too, and drops the proof
 	cc.out = func(heavy bool) []verifier.CanaryResult {
 		if heavy {

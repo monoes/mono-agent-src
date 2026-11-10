@@ -56,7 +56,7 @@ type Spec struct {
 func (s Spec) inaccessible() string {
 	v := "-/var/run -/mnt -/media"
 	if s.Hide != "" {
-		v += " " + s.Hide
+		v += " -" + s.Hide // "-": a root that is not there (hidden under /home already) is not an error
 	}
 	return v
 }
