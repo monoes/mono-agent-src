@@ -48,6 +48,7 @@ func TestNoEpochIsOpenedThatCannotBeDelivered(t *testing.T) {
 		}},
 		{"the mission has no open work", func(w *pworld) {
 			w.exec(`UPDATE tasks SET status = 'done', verified = 1 WHERE session_id = 77`)
+			w.propose() // the lead has proposed the close: nothing is left to ask of it
 		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
