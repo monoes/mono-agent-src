@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/dbconn"
 	"github.com/monoes/mono-agent/internal/profiledir"
 )
 
@@ -143,22 +144,20 @@ func insertRow(ctx context.Context, x execQuerier, t Table, data map[string]inte
 }
 
 // write runs fn in a transaction and saves columns fn added to t.
-func (s *Store) write(ctx context.Context, t *Table, fn func(tx *sql.Tx) error) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	cols := len(t.Columns)
-	if err := fn(tx); err != nil {
-		return err
-	}
-	if len(t.Columns) != cols {
-		if err := s.saveColumns(ctx, tx, *t); err != nil {
+// The write lock is taken first (dbconn.WithWriteTx): Update, Upsert and Delete read the rows before they write,
+// and a writer committing in between would otherwise fail them with SQLITE_BUSY_SNAPSHOT (#1460).
+func (s *Store) write(ctx context.Context, t *Table, fn func(tx dbconn.ConnTx) error) error {
+	return dbconn.WithWriteTx(ctx, s.db, func(conn *sql.Conn) error {
+		tx := dbconn.ConnTx{Ctx: ctx, Conn: conn}
+		cols := len(t.Columns)
+		if err := fn(tx); err != nil {
 			return err
 		}
-	}
-	return tx.Commit()
+		if len(t.Columns) != cols {
+			return s.saveColumns(ctx, tx, *t)
+		}
+		return nil
+	})
 }
 
 // Insert adds rows and returns them as stored.
@@ -169,7 +168,7 @@ func (s *Store) Insert(ctx context.Context, t *Table, rows []map[string]interfac
 	out := make([]map[string]interface{}, 0, len(rows))
 	work := *t
 	work.Columns = append([]Column(nil), t.Columns...)
-	err := s.write(ctx, &work, func(tx *sql.Tx) error {
+	err := s.write(ctx, &work, func(tx dbconn.ConnTx) error {
 		for i, data := range rows {
 			d, err := prepare(&work, data)
 			if err != nil {
@@ -218,7 +217,7 @@ func (s *Store) update(ctx context.Context, t *Table, f Filter, data map[string]
 	var out []map[string]interface{}
 	work := *t
 	work.Columns = append([]Column(nil), t.Columns...)
-	err = s.write(ctx, &work, func(tx *sql.Tx) error {
+	err = s.write(ctx, &work, func(tx dbconn.ConnTx) error {
 		d, err := prepare(&work, data)
 		if err != nil {
 			return err
@@ -295,7 +294,7 @@ func (s *Store) Delete(ctx context.Context, t Table, f Filter, dryRun bool) ([]m
 		return nil, err
 	}
 	out := []map[string]interface{}{}
-	err = s.write(ctx, &t, func(tx *sql.Tx) error {
+	err = s.write(ctx, &t, func(tx dbconn.ConnTx) error {
 		rows, err := loadRows(ctx, tx, t)
 		if err != nil {
 			return err
