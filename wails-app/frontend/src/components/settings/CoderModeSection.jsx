@@ -6,6 +6,7 @@ import FixMonomindButton from '../FixMonomindButton.jsx'
 import { missingText, monomindNeedsFix, monomindUnusable, coderReady, coderRuntimes, runtimeReadiness } from '../chat/useCoderMode.js'
 import { runtimeLabel } from '../../lib/runtimeLabels.js'
 import CoderDefaultAccess from './CoderDefaultAccess.jsx'
+import CoderPeercredBinding from './CoderPeercredBinding.jsx'
 
 // Coder mode (#203): a chat mode in which a coding agent (claude, codex,
 // opencode, …) runs with full access inside one folder. Off by default; turning it on asks for an explicit
@@ -158,6 +159,8 @@ export default function CoderModeSection() {
       )}
 
       {status && <CoderDefaultAccess status={status} onSaved={apply} />}
+
+      {status && <CoderPeercredBinding status={status} onSaved={apply} />}
 
       {status && (
         <form onSubmit={e => { e.preventDefault(); save() }} style={{ display: 'flex', flexDirection: 'column', gap: 10, opacity: enabled ? 1 : 0.6 }}>
