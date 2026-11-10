@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"log/slog"
 	"os"
@@ -387,5 +388,22 @@ func TestEnsureRunID(t *testing.T) {
 	t.Setenv(EnvRunID, "parent")
 	if got := RunID(EnsureRunID(context.Background(), "org-")); got != "parent" {
 		t.Errorf("the inherited run id was replaced: %q", got)
+	}
+}
+
+// A --log-file ends with the logger that opened it: the next Init closes it, so the file can be
+// removed (a held file cannot be on Windows, which left a test's temp dir behind).
+func TestInitClosesThePreviousLogFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cli.log")
+	initFor(t, []string{"--log-file", path}, nil)
+	logFileMu.Lock()
+	first := logFile
+	logFileMu.Unlock()
+	if first == nil {
+		t.Fatal("no log file held")
+	}
+	initFor(t, nil, nil)
+	if _, err := first.Write([]byte("x")); !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("the earlier log file is still open: %v", err)
 	}
 }

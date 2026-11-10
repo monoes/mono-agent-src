@@ -302,31 +302,27 @@ func TestAToggledLockNeverMakesALiveHostLookDamaged(t *testing.T) {
 	if _, err := conn.ExecContext(ctx, "CREATE TABLE coder_sessions (id INTEGER, turn_pid INTEGER, turn_stamp TEXT)"); err != nil {
 		t.Fatal(err)
 	}
-	stop, stopped := make(chan struct{}), make(chan struct{})
-	go func() {
-		defer close(stopped)
-		for {
-			select {
-			case <-stop:
-				return
-			default:
-			}
-			if _, err := conn.ExecContext(ctx, "BEGIN EXCLUSIVE"); err == nil {
-				time.Sleep(40 * time.Millisecond)
-				_, _ = conn.ExecContext(ctx, "ROLLBACK")
-			}
-			time.Sleep(3 * time.Millisecond)
-		}
-	}()
-	t.Cleanup(func() { close(stop); <-stopped; conn.Close(); sdb.Close() })
+	t.Cleanup(func() { conn.Close(); sdb.Close() })
 	unregister, err := RegisterHostDB(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(unregister)
+	// The test goroutine itself holds and releases the lock, so no timing decides which probes see it held.
 	var sawBusy, sawClear int
-	for i := 0; i < 40; i++ {
+	for i := 0; i < 20; i++ {
+		held := i%2 == 0
+		if held {
+			if _, err := conn.ExecContext(ctx, "BEGIN EXCLUSIVE"); err != nil {
+				t.Fatal(err)
+			}
+		}
 		in, skipped, busy := CallerInARegisteredTurnLenient("")
+		if held {
+			if _, err := conn.ExecContext(ctx, "ROLLBACK"); err != nil {
+				t.Fatal(err)
+			}
+		}
 		if in || len(skipped) != 0 || len(busy) > 1 {
 			t.Fatalf("round %d: in=%v skipped=%v busy=%v", i, in, skipped, busy)
 		}
@@ -335,11 +331,11 @@ func TestAToggledLockNeverMakesALiveHostLookDamaged(t *testing.T) {
 		} else {
 			sawClear++
 		}
+		if held != (len(busy) == 1) {
+			t.Fatalf("round %d: lock held=%v but busy=%v", i, held, busy)
+		}
 	}
 	t.Logf("toggled lock: %d busy, %d clear", sawBusy, sawClear)
-	if sawBusy == 0 {
-		t.Fatal("the lock never made a round busy: the test does not exercise the toggling")
-	}
 }
 
 // The entry file is shell-quoted in the message when it needs it, with the sanitized path.

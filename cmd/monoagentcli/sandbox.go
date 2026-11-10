@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -84,7 +85,7 @@ func readSandboxFallbackFile(path string) (string, error) {
 		}
 		return "", err
 	}
-	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro&_pragma=busy_timeout(1000)")
+	db, err := sql.Open("sqlite", "file:"+(&url.URL{Path: path}).EscapedPath()+"?mode=ro&_pragma=busy_timeout(1000)")
 	if err != nil {
 		return "", err
 	}

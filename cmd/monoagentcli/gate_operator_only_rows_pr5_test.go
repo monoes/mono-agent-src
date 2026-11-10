@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -192,6 +193,9 @@ func TestOrgVerbsAreGatedBeforeTheRootLookup(t *testing.T) {
 
 // A refused full-access grant asks monomind nothing (the role is unchanged); revoking (scoped) is not gated.
 func TestOrgRoleSetAccessRefusedInATurnReachesNoMonomindAndScopedStaysOpen(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake monomind is a shell script")
+	}
 	needAncestry(t)
 	dir := t.TempDir()
 	argsLog := filepath.Join(dir, "args.log")

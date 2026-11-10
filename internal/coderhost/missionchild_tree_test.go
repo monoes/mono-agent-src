@@ -2,7 +2,6 @@ package coderhost
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"math/rand"
 	"strings"
@@ -331,7 +330,7 @@ func TestReserveAndGrantRunTheOvercommitCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 	// something the checks before the statement cannot see appears with the carve in place
-	f.st.afterCarve = func(tx *sql.Tx) {
+	f.st.afterCarve = func(tx querier) {
 		if _, err := tx.Exec(`UPDATE task_sessions SET budget_usd = 0.5 WHERE id = ?`, f.se.ID); err != nil {
 			t.Error(err)
 		}
@@ -346,7 +345,7 @@ func TestReserveAndGrantRunTheOvercommitCheck(t *testing.T) {
 	f.st.afterCarve = nil
 
 	g, child := budgetFix(t)
-	g.st.afterCarve = func(tx *sql.Tx) {
+	g.st.afterCarve = func(tx querier) {
 		if _, err := tx.Exec(`UPDATE task_sessions SET budget_usd = 0.5 WHERE id = ?`, g.se.ID); err != nil {
 			t.Error(err)
 		}

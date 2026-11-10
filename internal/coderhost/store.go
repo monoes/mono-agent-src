@@ -143,7 +143,7 @@ type Store struct {
 	afterReserveReads func()
 	// afterCarve runs inside Reserve's and GrantBudget's transaction after the statement that took the carve or the
 	// raise and before the check of the whole tree (tests only).
-	afterCarve func(tx *sql.Tx)
+	afterCarve func(tx querier)
 	// afterSpawnSessionCreated runs in SpawnSession between the task session's creation and the ledger write (tests only: a crash there).
 	afterSpawnSessionCreated func()
 	// afterSweepRead runs in SweepSpawnIntents between its read of the due intents and its claims (tests only).

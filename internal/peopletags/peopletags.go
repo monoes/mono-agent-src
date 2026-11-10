@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/monoes/mono-agent/internal/dbconn"
 	"github.com/monoes/mono-agent/internal/profiledir"
 )
 
@@ -75,17 +76,27 @@ func Add(ctx context.Context, db *sql.DB, profileID, personID, name, color strin
 			return Tag{}, err
 		}
 	}
-	tx, err := db.BeginTx(ctx, nil)
+	// BEGIN IMMEDIATE: Add reads before it writes, and a writer that commits in between would make the write fail
+	// at once with SQLITE_BUSY_SNAPSHOT, which busy_timeout does not wait for (#1460).
+	var t Tag
+	err := dbconn.WithWriteTx(ctx, db, func(tx *sql.Conn) (err error) {
+		t, err = addTx(ctx, tx, profileID, personID, name, color)
+		return err
+	})
 	if err != nil {
 		return Tag{}, err
 	}
-	defer tx.Rollback() //nolint:errcheck
+	return t, nil
+}
+
+// addTx is Add's reads and writes, on the connection that holds the write lock.
+func addTx(ctx context.Context, tx *sql.Conn, profileID, personID, name, color string) (Tag, error) {
 	if err := personExists(ctx, tx, profileID, personID); err != nil {
 		return Tag{}, err
 	}
 
 	t := Tag{Name: name}
-	err = tx.QueryRowContext(ctx, `SELECT id, name, color FROM tags WHERE LOWER(name) = LOWER(?) AND profile_id = ?`,
+	err := tx.QueryRowContext(ctx, `SELECT id, name, color FROM tags WHERE LOWER(name) = LOWER(?) AND profile_id = ?`,
 		name, profileID).Scan(&t.ID, &t.Name, &t.Color)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
@@ -123,7 +134,7 @@ func Add(ctx context.Context, db *sql.DB, profileID, personID, name, color strin
 			return Tag{}, fmt.Errorf("tagging %s: %w", personID, err)
 		}
 	}
-	return t, tx.Commit()
+	return t, nil
 }
 
 // Remove unlinks a tag (by id or name) from a person; the tag itself stays.

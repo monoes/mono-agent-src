@@ -81,6 +81,29 @@ func TestBuildWiresTheEngine(t *testing.T) {
 	}
 }
 
+// The database Build opened is the engine's to close: left open, its file stays
+// locked on Windows, where a command's own temp dir (a test's) cannot be removed.
+func TestBuildCleanupClosesTheDatabaseItOpened(t *testing.T) {
+	db := testdb.Open(t)
+	_, cleanup, err := Build(Options{ProfileID: func() string { return "work" }}, Deps{
+		OpenDB: func() (*storage.Database, error) { return db, nil },
+		NewSessionProvider: func(zerolog.Logger, string) SessionProvider {
+			return &fakeProvider{}
+		},
+		BotRegistry: noBots{},
+		OpenWorkflowStore: func(d *storage.Database) *workflow.HybridWorkflowStore {
+			return workflow.NewHybridWorkflowStore(nil, workflow.NewSQLiteWorkflowStore(d.DB))
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanup()
+	if err := db.DB.Ping(); err == nil {
+		t.Fatal("the database is still open after cleanup")
+	}
+}
+
 func TestBuildReportsADatabaseThatDoesNotOpen(t *testing.T) {
 	boom := errors.New("boom")
 	engine, cleanup, err := Build(Options{
