@@ -1,8 +1,11 @@
 package coderhost
 
 import (
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/doomsday/strategy/types"
 )
 
 // Settled work: a mission whose every task is done, or verified and waiting in review, has nothing for the lead to do but
@@ -257,5 +260,67 @@ func TestTheCloseWakeQueuedAfterTheTasksSettledRunsAtItsDelivery(t *testing.T) {
 	_ = w.h.Tick()
 	if !w.h.L.(*fakeLauncher).startedWith(PursuitTurnPrefix) {
 		t.Fatal("the close wake dropped itself at its delivery")
+	}
+}
+
+// A wake-up that failed (never ran) is not "already woken": the settled state still earns its one close wake.
+func TestAFailedWakeDoesNotCountAsTheCloseWakeAlreadySent(t *testing.T) {
+	w := newPursuitWorld(t)
+	w.advance(time.Second)
+	w.settle()
+	w.advance(time.Second)
+	at := w.clk.Now().UTC().Format(time.RFC3339Nano)
+	w.exec(`INSERT INTO coder_session_commands (profile_id, conversation_id, kind, turn_id, message, attachments, status, created_at, updated_at, issuer) VALUES ('p', 'm', 'send', 'pursuit-0-lost', 'x', '[]', 'failed', ?, ?, '')`, at, at)
+	w.advance(time.Second)
+	w.quietRounds(3)
+	var live int
+	if err := w.st.db.QueryRow(`SELECT COUNT(*) FROM coder_session_commands WHERE substr(turn_id, 1, 8) = 'pursuit-' AND status <> 'failed'`).Scan(&live); err != nil {
+		t.Fatal(err)
+	}
+	if live != 1 || w.model.count() != 1 {
+		t.Fatalf("live wake-ups %d, judge calls %d: a failed wake-up was counted as the close wake", live, w.model.count())
+	}
+}
+
+// The close wake tells the lead the tasks are settled and to propose the close, in fixed words; every other wake text is
+// unchanged byte for byte.
+func TestTheCloseWakeTextIsAFixedSentenceAndEveryOtherWakeTextIsUnchanged(t *testing.T) {
+	g := pursuitGateResult{}
+	g.snap.Tasks.Total, g.snap.Tasks.Done, g.snap.Tasks.Ready = 3, 1, 2
+	g.snap.Tasks.Workable = 2
+	ep := types.Epoch{Seq: 4, Trigger: "timer"}
+	const other = "[PURSUIT] Epoch 4 (timer) of your mission's pursuit is done. Mission, as the host sees it: 1 of 3 task(s) done, 0 in review, 2 open, 0 blocked; the budget is not known.\n" +
+		"No direction has measured results yet, so no direction is chosen for you.\n" +
+		"Read mission_status and move the open tasks forward. Do not redo finished work. This message was written by the host, not by the person."
+	if got := pursuitDigest(ep, g, types.Direction{}, false); got != other {
+		t.Fatalf("the ordinary wake text changed:\n%s", got)
+	}
+	g.closeWakeDue = true
+	got := pursuitDigest(ep, g, types.Direction{}, false)
+	const tail = "Every task is settled (done, or verified and waiting in review). Call mission_finish to integrate the mission and propose its close; the operator closes it. Do not redo finished work. This message was written by the host, not by the person."
+	if !strings.HasSuffix(got, tail) || strings.Contains(got, "move the open tasks forward") {
+		t.Fatalf("the close wake text is wrong:\n%s", got)
+	}
+	if strings.TrimSuffix(got, tail) != strings.TrimSuffix(other, "Read mission_status and move the open tasks forward. Do not redo finished work. This message was written by the host, not by the person.") {
+		t.Fatalf("the close wake text changed more than its last sentence:\n%s", got)
+	}
+}
+
+// The wake the loop really queues for a settled mission carries the close wording.
+func TestTheQueuedCloseWakeAsksTheLeadToProposeTheClose(t *testing.T) {
+	w := newPursuitWorld(t)
+	w.advance(time.Second)
+	w.settle()
+	w.advance(time.Second)
+	w.firstEpoch()
+	ws := w.wakes()
+	if len(ws) != 1 || !strings.Contains(ws[0].Message, "Call mission_finish") || strings.Contains(ws[0].Message, "move the open tasks forward") {
+		t.Fatalf("wake-ups %+v", ws)
+	}
+	// and a mission with open work still gets the ordinary text
+	w2 := newPursuitWorld(t)
+	w2.firstEpoch()
+	if ws := w2.wakes(); len(ws) != 1 || !strings.Contains(ws[0].Message, "move the open tasks forward") {
+		t.Fatalf("ordinary wake-ups %+v", ws)
 	}
 }
