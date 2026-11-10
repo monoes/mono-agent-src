@@ -103,18 +103,24 @@ func (s *Store) Start(ctx context.Context, profileID string, session int64, limi
 		if !hasRubric(g.Criteria) {
 			return invalid("a mission needs at least one rubric criterion before it can be pursued: you are always the last judge, so state what you will judge yourself")
 		}
-		now := s.stamp()
-		if _, err := x.ExecContext(ctx, `INSERT INTO mission_pursuit (session_id, enabled, away_budget_parked_max, away_budget_pct, away_wakes_max, locked_by, created_at, updated_at) VALUES (?, 1, ?, ?, ?, ?, ?, ?)`,
-			session, lim.ParkedMax, lim.Pct, lim.Wakes, by.Label(), now, now); err != nil {
-			return fmt.Errorf("missionpursuit: starting: %w", err)
-		}
-		if _, err := s.lockIn(ctx, x, profileID, session); err != nil {
+		if err := s.insertPursuit(ctx, x, profileID, session, lim, by); err != nil {
 			return err
 		}
 		out, err = readPursuit(ctx, x, session)
 		return err
 	})
 	return out, err
+}
+
+// insertPursuit writes the pursuit row and locks the confirmed goal, inside the transaction of x.
+func (s *Store) insertPursuit(ctx context.Context, x tasks.Queryer, profileID string, session int64, lim AwayLimits, by tasks.Actor) error {
+	now := s.stamp()
+	if _, err := x.ExecContext(ctx, `INSERT INTO mission_pursuit (session_id, enabled, away_budget_parked_max, away_budget_pct, away_wakes_max, locked_by, created_at, updated_at) VALUES (?, 1, ?, ?, ?, ?, ?, ?)`,
+		session, lim.ParkedMax, lim.Pct, lim.Wakes, by.Label(), now, now); err != nil {
+		return fmt.Errorf("missionpursuit: starting: %w", err)
+	}
+	_, err := s.lockIn(ctx, x, profileID, session)
+	return err
 }
 
 // hasRubric says whether a criterion is one the person decides.
