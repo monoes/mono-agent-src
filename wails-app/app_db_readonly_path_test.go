@@ -5,6 +5,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -13,6 +15,9 @@ import (
 // The app's read handle opens the file at the given path even when a folder name holds ?, # or %.
 func TestOpenReadOnlyDBOddPath(t *testing.T) {
 	for _, dir := range []string{"a#b", "a?mode=memory", "a%41b", "a b"} {
+		if runtime.GOOS == "windows" && strings.Contains(dir, "?") {
+			continue // a folder name cannot hold ? on Windows
+		}
 		path := filepath.Join(t.TempDir(), dir, "monoagent.db")
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)

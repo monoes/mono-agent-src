@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -71,7 +72,16 @@ func fakeCLIShimMain() bool {
 		os.Stderr.WriteString("fake monoagentcli: " + err.Error() + "\n")
 		os.Exit(127)
 	}
-	cmd := exec.Command(sh, append([]string{script}, os.Args[1:]...)...)
+	// The arguments travel in the environment: the msys runtime of sh re-parses a command line and eats the quotes of
+	// a JSON argument. The prologue rebuilds "$@" from them and sources the script.
+	const prologue = `i=0; set --; while [ "$i" -lt "$SHIM_ARGC" ]; do eval "v=\$SHIM_ARG_$i"; set -- "$@" "$v"; i=$((i+1)); done; . "$SHIM_SCRIPT"`
+	env := append(os.Environ(), "SHIM_SCRIPT="+filepath.ToSlash(script), "SHIM_ARGC="+strconv.Itoa(len(os.Args)-1))
+	for i, a := range os.Args[1:] {
+		env = append(env, "SHIM_ARG_"+strconv.Itoa(i)+"="+a)
+	}
+	cmd := exec.Command(sh, "-c", prologue)
+	// Git's sh finds cat, sleep and friends next to itself, which a plain PATH does not hold.
+	cmd.Env = append(env, "PATH="+filepath.Dir(sh)+";"+os.Getenv("PATH"))
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := cmd.Run(); err != nil {
 		var ee *exec.ExitError
