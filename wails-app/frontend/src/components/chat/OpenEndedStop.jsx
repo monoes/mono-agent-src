@@ -32,7 +32,8 @@ export function OpenEndedStop({ chatMode, runExists, conversationId, onStopped, 
     was.current = phase
   }, [phase])
 
-  const offered = showStop(chatMode?.state?.mode, runExists)
+  const goneNow = phase === 'done' && outcome(result) === 'gone'
+  const offered = showStop(chatMode?.state?.mode, runExists) && !goneNow
   // The result stays until dismissed, even when the probe has caught up and says there is no run any more.
   if (!offered && !result && phase === 'idle') return null
 
@@ -42,6 +43,7 @@ export function OpenEndedStop({ chatMode, runExists, conversationId, onStopped, 
     setResult(r)
     setPhase('done')
     const kind = outcome(r)
+    if (kind === 'gone') { if (onStopped) onStopped(''); return } // already stopped: refresh the header, no transcript message
     if (kind === 'ok' || (kind === 'warn' && /^stopped/.test(String(r?.output || '').trim())) ) {
       if (onStopped) {
         const saved = transcriptMessage(r.output, conversationId)
@@ -68,10 +70,11 @@ export function OpenEndedStop({ chatMode, runExists, conversationId, onStopped, 
         </button>
       )}
       {result && phase !== 'stopping' && (
-        <span role={kind === 'ok' ? 'status' : 'alert'} data-testid="chat-stop-result" data-ok={kind === 'ok' ? 'yes' : kind === 'warn' ? 'warn' : 'no'} style={{ flexBasis: '100%' }}>
+        <span role={kind === 'ok' || kind === 'gone' ? 'status' : 'alert'} data-testid="chat-stop-result" data-ok={kind === 'ok' || kind === 'gone' ? 'yes' : kind === 'warn' ? 'warn' : 'no'} style={{ flexBasis: '100%' }}>
+          {kind === 'gone' && <span>{t('chatMode.stop.alreadyStopped')}</span>}
           {kind === 'fail' && <strong>{t('chatMode.stop.failed')}</strong>}
           {kind === 'warn' && <strong style={{ color: 'var(--red, #ef4444)' }}>{t('chatMode.stop.partial')}</strong>}
-          {[result?.output, result?.detail, result?.error].filter(Boolean).map((x, i) => (
+          {kind !== 'gone' && [result?.output, result?.detail, result?.error].filter(Boolean).map((x, i) => (
             <pre key={i} style={{ margin: '2px 0', whiteSpace: 'pre-wrap' }}>
               {String(x).slice(0, 4000).split('\n').map((l, j) => (isWarnLine(l)
                 ? <span key={j} data-testid="chat-stop-warn" role="alert" style={{ display: 'block', color: 'var(--red, #ef4444)', fontWeight: 700 }}>{l}</span>

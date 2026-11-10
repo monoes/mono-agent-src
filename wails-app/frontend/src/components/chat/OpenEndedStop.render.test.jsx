@@ -86,6 +86,18 @@ describe('the two-step stop', () => {
     expect(onStopped).not.toHaveBeenCalled()
   })
 
+  it('a stop that finds no open run is "already stopped": no failure, no Stop button, the header refreshes', async () => {
+    const { api, onStopped } = header('open', null)
+    api.stop.mockResolvedValue({ ok: false, stopped: false, output: '', detail: 'no open run to stop', code: '' })
+    fireEvent.click(screen.getByRole('button', { name: /Stop run/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, stop the run' }))
+    await waitFor(() => expect(screen.getByTestId('chat-stop-result')).toHaveAttribute('data-ok', 'yes'))
+    expect(screen.getByTestId('chat-stop-result').textContent).toContain('already stopped')
+    expect(screen.queryByText('NOT confirmed stopped')).toBeNull()
+    expect(screen.queryByRole('button', { name: /Stop run/ })).toBeNull()
+    expect(onStopped).toHaveBeenCalledWith('')
+  })
+
   it('a best-effort stop shows its words verbatim, never a bare "stopped"', async () => {
     const { api, onStopped } = header('open', true)
     api.stop.mockResolvedValue({ ok: true, stopped: true, output: 'stopped (best effort: processes were not proven gone)', detail: '', code: '' })
