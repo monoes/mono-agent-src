@@ -48,8 +48,9 @@ func scanSites(t *testing.T, base string) (sites []string, visited int) {
 			return err
 		}
 		if d.IsDir() {
-			switch d.Name() {
-			case ".git", "node_modules", "vendor":
+			// Only the repository's own .git and its root-level dependency folders are skipped: a folder that merely has such a
+			// name deeper in the tree (internal/zz/vendor) is code like any other.
+			if r, _ := filepath.Rel(base, path); r == ".git" || r == "vendor" || r == "node_modules" {
 				return filepath.SkipDir
 			}
 			return nil
@@ -71,6 +72,13 @@ func scanSites(t *testing.T, base string) (sites []string, visited int) {
 				sel[x.Sel] = true
 				if watch[x.Sel.Name] {
 					sites = append(sites, rel+":"+x.Sel.Name)
+				}
+			case *ast.BasicLit:
+				// the names as strings (reflect.MethodByName, a method table) reach the same methods
+				if x.Kind == token.STRING {
+					if v, err := strconv.Unquote(x.Value); err == nil && watch[v] {
+						sites = append(sites, rel+":"+v)
+					}
 				}
 			case *ast.Ident:
 				// a bare name: a dot import, or the package's own code calling the constructor
@@ -134,8 +142,29 @@ func TestTheGuardSeesAConstructionSite(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if err := os.MkdirAll(filepath.Join(dir, "internal/zz/vendor"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	deep := "package v\nimport mp \"github.com/monoes/mono-agent/internal/missionpursuit\"\nfunc f(s *mp.Store) { _ = mp.NewHostChecks(s) }\n"
+	if err := os.WriteFile(filepath.Join(dir, "internal/zz/vendor/x.go"), []byte(deep), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	refl := "package r\nimport \"reflect\"\nfunc g(v any) { reflect.ValueOf(v).MethodByName(\"SetUnconfinedChecks\") }\n"
+	if err := os.WriteFile(filepath.Join(dir, "scripts/tools/r.go"), []byte(refl), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	sites, visited := scanSites(t, dir)
-	if visited != 2 || len(sites) != 8 {
+	// the vendor folder at the root is skipped, the one deeper is not; a name as a string is a site
+	if err := os.MkdirAll(filepath.Join(dir, "vendor"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "vendor/v.go"), []byte(deep), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := scanSites(t, dir); len(again) != len(sites) {
+		t.Fatalf("the root vendor folder was scanned: %v then %v", sites, again)
+	}
+	if visited != 4 || len(sites) != 10 {
 		t.Fatalf("visited %d, sites %v: the scan is blind (it must see scripts and tools too)", visited, sites)
 	}
 }
