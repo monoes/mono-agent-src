@@ -43,12 +43,24 @@ type Config struct {
 
 // heavyEvery is how often the heavy canaries (C8 to C11) run again: a cached proof, keyed on the property list and the systemd
 // version, covers the self tests in between.
-const heavyEvery = 10 * time.Minute
+const (
+	heavyEvery         = 10 * time.Minute
+	lightSelfTestLimit = 2 * time.Minute
+	heavySelfTestLimit = 8 * time.Minute
+)
 
 type proofState struct {
 	mu  sync.Mutex
 	key string
 	at  time.Time
+	// run serializes self tests (and so their units): a second one would read the first's units as left behind.
+	run sync.Mutex
+}
+
+// infraState collects what the confinement itself got wrong (see verifier.InfraReporter); shared by a confiner and its copies.
+type infraState struct {
+	mu   sync.Mutex
+	list []string
 }
 
 // Confiner implements verifier.Confiner, verifier.Hider and verifier.LeftoverChecker.
@@ -62,6 +74,9 @@ type Confiner struct {
 	env         []string
 	hide        string
 	proof       *proofState
+	infra       *infraState
+	envBin      string // the trusted env, which starts every program with an empty environment
+	owner       string // <pid>-<start time> of this process: in every unit name, so a sweep knows whose units are stale
 	privatePIDs bool
 
 	logf     func(string, ...any)
@@ -69,15 +84,18 @@ type Confiner struct {
 
 	// test seams, nil or false in production: propsFn replaces the builder (the self-check must refuse what it drops), mutate
 	// alters the list AFTER the self-check (a builder bug), noRelease skips the release.
-	propsFn   func(Spec) []string
-	mutate    func([]string) []string
-	noRelease bool
+	propsFn    func(Spec) []string
+	mutate     func([]string) []string
+	mutateArgv func([]string) []string
+	noRelease  bool
 }
 
 var (
-	_ verifier.Confiner        = (*Confiner)(nil)
-	_ verifier.Hider           = (*Confiner)(nil)
-	_ verifier.LeftoverChecker = (*Confiner)(nil)
+	_ verifier.Confiner          = (*Confiner)(nil)
+	_ verifier.Hider             = (*Confiner)(nil)
+	_ verifier.InfraReporter     = (*Confiner)(nil)
+	_ verifier.ManagerEnvPlanter = (*Confiner)(nil)
+	_ verifier.LeftoverChecker   = (*Confiner)(nil)
 )
 
 // New builds the confiner, or returns a typed *Unavailable (and no confiner) naming the piece that is missing. It starts one
@@ -92,6 +110,9 @@ func probeLimits() finish.Limits {
 }
 
 func newWith(ctx context.Context, cfg Config, sys system) (*Confiner, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if sys.goos != "linux" {
 		return nil, unavailable(MissingPlatform, "systemd-run confinement exists on Linux only, not %s", sys.goos)
 	}
@@ -101,7 +122,7 @@ func newWith(ctx context.Context, cfg Config, sys system) (*Confiner, error) {
 	if st, err := os.Stat(cfg.ScratchBase); err != nil || !st.IsDir() {
 		return nil, fmt.Errorf("sdconfine: the scratch folder %s is not an existing folder", cfg.ScratchBase)
 	}
-	c := &Confiner{sys: sys, cfg: cfg, caps: cfg.Caps.normalized(), proof: &proofState{}, logf: log.Printf, canaries: verifier.RunCanariesWith}
+	c := &Confiner{sys: sys, cfg: cfg, caps: cfg.Caps.normalized(), proof: &proofState{}, infra: &infraState{}, logf: log.Printf, canaries: verifier.RunCanariesWith}
 	var err error
 	if c.runBin, err = sys.trusted("systemd-run"); err != nil {
 		return nil, unavailable(MissingSystemdRun, "%v", err)
@@ -109,6 +130,14 @@ func newWith(ctx context.Context, cfg Config, sys system) (*Confiner, error) {
 	if c.ctlBin, err = sys.trusted("systemctl"); err != nil {
 		return nil, unavailable(MissingSystemctl, "%v", err)
 	}
+	if c.envBin, err = sys.trusted("env"); err != nil {
+		return nil, unavailable(MissingEnv, "%v", err)
+	}
+	start, err := sys.procStart(sys.pid)
+	if err != nil || start == "" {
+		return nil, fmt.Errorf("sdconfine: this process's start time cannot be read: %v", err)
+	}
+	c.owner = fmt.Sprintf("%d-%s", sys.pid, start)
 	dir := sys.getenv("XDG_RUNTIME_DIR")
 	if dir == "" || !filepath.IsAbs(dir) || filepath.Clean(dir) != dir || SafePath(dir) != nil {
 		return nil, unavailable(MissingUserManager, "XDG_RUNTIME_DIR is not set to an absolute path (there is no user session here)")
@@ -123,6 +152,9 @@ func newWith(ctx context.Context, cfg Config, sys system) (*Confiner, error) {
 
 	r := c.ctl(ctx, "show", "--property=Version", "--value")
 	if r.Code != 0 {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		return nil, unavailable(MissingUserManager, "the user manager does not answer: %s", firstLine(r.Stderr, r.Err))
 	}
 	v := strings.TrimSpace(r.Stdout)
@@ -132,7 +164,10 @@ func newWith(ctx context.Context, cfg Config, sys system) (*Confiner, error) {
 	if c.version, err = strconv.Atoi(v); err != nil || c.version <= 0 {
 		return nil, unavailable(MissingUserManager, "the user manager's version %q is not a number", strings.TrimSpace(r.Stdout))
 	}
-	c.privatePIDs = c.version >= 256
+	if c.version < 256 {
+		return nil, unavailable(MissingSystemdVersion, "systemd %d is too old: needs 256 for PrivatePIDs (the pid namespace that hides the host's processes; canary C6 cannot pass without it)", c.version)
+	}
+	c.privatePIDs = true
 	if err := c.probe(ctx); err != nil {
 		return nil, err
 	}
@@ -157,7 +192,7 @@ func firstLine(s string, err error) string {
 // delegated leaves a cap silently unapplied, which is the one thing a property list cannot show.
 func (c *Confiner) probe(ctx context.Context) error {
 	spec := Spec{Work: c.cfg.ScratchBase, Lim: probeLimits(), Caps: c.caps, PrivatePIDs: c.privatePIDs}
-	unit := "monoagent-check-" + c.sys.newID()
+	unit := c.unitName(c.sys.newID())
 	defer c.release(unit)()
 	script := `c=/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup); echo memory=$(cat $c/memory.max); echo pids=$(cat $c/pids.max); echo cpu=$(cat $c/cpu.max)`
 	args, err := c.argv(spec, unit, []string{"PATH=/usr/bin:/bin"}, c.cfg.ScratchBase, "/usr/bin/sh", []string{"-c", script})
@@ -165,6 +200,9 @@ func (c *Confiner) probe(ctx context.Context) error {
 		return err
 	}
 	r := c.sys.run(ctx, c.runBin, c.env, args...)
+	if err := ctx.Err(); err != nil {
+		return err // the caller's cancellation is not "the manager refused the probe"
+	}
 	if r.Code != 0 {
 		return probeRefusal(r)
 	}
@@ -220,11 +258,19 @@ func (c *Confiner) SelfTest(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	c.proof.run.Lock()
+	defer c.proof.run.Unlock()
 	key := c.proofKey()
 	c.proof.mu.Lock()
 	heavy := c.proof.key != key || c.sys.now().Sub(c.proof.at) >= heavyEvery
 	c.proof.mu.Unlock()
-	rs := c.canaries(ctx, c, c.cfg.ScratchBase, verifier.CanaryOptions{SkipHeavy: !heavy})
+	limit := lightSelfTestLimit
+	if heavy {
+		limit = heavySelfTestLimit
+	}
+	runCtx, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
+	rs := c.canaries(runCtx, c, c.cfg.ScratchBase, verifier.CanaryOptions{SkipHeavy: !heavy})
 	if err := ctx.Err(); err != nil {
 		return err
 	}

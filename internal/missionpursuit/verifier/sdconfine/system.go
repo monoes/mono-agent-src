@@ -17,6 +17,9 @@ type runResult struct {
 type system struct {
 	goos string
 	uid  int
+	pid  int
+	// procStart is the start time of process pid (field 22 of /proc/<pid>/stat), or an error when there is no such process.
+	procStart func(pid int) (string, error)
 	// getenv reads the host's environment (only XDG_RUNTIME_DIR is ever read).
 	getenv func(string) string
 	// trusted finds a root-owned program in /usr/bin or /bin that others cannot write; never a name on PATH.

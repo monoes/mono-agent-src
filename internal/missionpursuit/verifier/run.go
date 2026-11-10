@@ -13,7 +13,7 @@ import (
 // runCriteria runs the criteria in order against the sealed snapshot; a criterion after the run's context ended is not run.
 // The results are measured by the finish sandbox (exit status, pipes, post-run digests); nothing a program wrote is read as a
 // result. Every text that came from a program or from the criterion is bounded and stripped.
-func (k *Checker) runCriteria(ctx context.Context, sb finish.Sandbox, snap string, tree finish.Tree, req Request, res *Result) {
+func (k *Checker) runCriteria(ctx context.Context, sb finish.Sandbox, conf Confiner, snap string, tree finish.Tree, req Request, res *Result) {
 	for _, c := range req.Criteria {
 		cr := CriterionResult{ID: c.ID, Hash: c.Hash, Kind: c.Kind}
 		switch {
@@ -38,7 +38,18 @@ func (k *Checker) runCriteria(ctx context.Context, sb finish.Sandbox, snap strin
 					break
 				}
 			}
+			ir, _ := conf.(InfraReporter)
+			if ir != nil {
+				ir.TakeInfra()
+			}
 			m := sb.Run(ctx, snap, tree, plan)
+			if ir != nil {
+				if infra := ir.TakeInfra(); len(infra) > 0 && isProgram(c.Kind) {
+					cr.Result, cr.Detail = ResError, Excerpt("the confinement failed, not the criterion: "+strings.Join(infra, "; "), detailCap)
+					res.Criteria = append(res.Criteria, cr)
+					continue
+				}
+			}
 			cr.Result = closedResult(m.Result)
 			cr.ExitCode, cr.StdoutDigest, cr.StderrDigest = m.ExitCode, m.StdoutDigest, m.StderrDigest
 			cr.Stdout, cr.Stderr = Excerpt(m.Stdout, ExcerptCap), Excerpt(m.Stderr, ExcerptCap)

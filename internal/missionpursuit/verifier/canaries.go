@@ -90,6 +90,15 @@ type CanaryOptions struct {
 	// HomeDir, RuntimeDir and TmpDir are where the host plants what C3 and C4 probe: the person's home, $XDG_RUNTIME_DIR and
 	// the temp dir by default.
 	HomeDir, RuntimeDir, TmpDir string
+	// ShmDir is the host's shared-memory folder (/dev/shm by default), where C13 plants a marker.
+	ShmDir string
+}
+
+// ManagerEnvPlanter is an optional part of a Confiner that starts its programs through a manager with an environment of its own
+// (systemd's user manager): C12 puts a variable there and expects no program to see it. The returned function takes it out again
+// by name.
+type ManagerEnvPlanter interface {
+	PlantManagerEnv(ctx context.Context, name, value string) (remove func(), err error)
 }
 
 // canaryStep is one program of a canary.
@@ -107,6 +116,9 @@ type canarySpec struct {
 	heavy, optional bool
 	steps           func(w *canaryWorld) ([]canaryStep, error)
 }
+
+// envAllow are the variable names a program may see: the ones the sandbox gives it and the few systemd puts in every service.
+const envAllow = `PATH|HOME|TMPDIR|XDG_CACHE_HOME|XDG_CONFIG_HOME|XDG_DATA_HOME|LANG|PWD|OLDPWD|SHLVL|_|INVOCATION_ID|JOURNAL_STREAM|SYSTEMD_EXEC_PID|MEMORY_PRESSURE_WATCH|MEMORY_PRESSURE_WRITE`
 
 const (
 	canaryLight = 20 * time.Second
@@ -147,7 +159,7 @@ func canaryTable() []canarySpec {
 			return []canaryStep{{spec: sh("C4", `for p in "$@"; do test -e "$p" && exit 0; done; exit 1`, w.secrets...), want: finish.ResFail, timeout: canaryLight, tools: []string{"sh", "test"}}}, w.err("C4")
 		}},
 		{id: "C5", name: "environment secrets and /proc of other processes", steps: func(w *canaryWorld) ([]canaryStep, error) {
-			return []canaryStep{{spec: sh("C5", `env | grep -q MONOAGENT_CANARY && exit 0; grep -aq MONOAGENT_CANARY_SECRET= "$1" && exit 0; exit 1`, "/proc/"+strconv.Itoa(w.secretPID)+"/environ"),
+			return []canaryStep{{spec: sh("C5", `env | grep -q MONOAGENT_CANARY && exit 0; grep -aq "$2"= "$1" && exit 0; exit 1`, "/proc/"+strconv.Itoa(w.secretPID)+"/environ", w.secretVar),
 				want: finish.ResFail, timeout: canaryLight, tools: []string{"sh", "env", "grep"}}}, w.err("C5")
 		}},
 		{id: "C6", name: "namespaces differ from the host's", steps: func(w *canaryWorld) ([]canaryStep, error) {
@@ -167,6 +179,21 @@ func canaryTable() []canarySpec {
 			spec: sh("C10b", `setsid sleep 600 & exit 0`), want: finish.ResPass, timeout: canaryLight, leftovers: true, tools: []string{"sh", "setsid", "sleep"}})},
 		{id: "C11", name: "wall-clock timeout kills the unit", heavy: true, steps: one(canaryStep{
 			spec: sh("C11", `exec sleep 600`), want: finish.ResTimeout, timeout: 5 * time.Second, leftovers: true, tools: []string{"sh", "sleep"}})},
+		{id: "C12", name: "the manager's environment does not reach the program", steps: func(w *canaryWorld) ([]canaryStep, error) {
+			return []canaryStep{{spec: sh("C12", `env | cut -d= -f1 | grep -v -x -E "`+envAllow+`" | grep -q .`), want: finish.ResFail, timeout: canaryLight, tools: []string{"sh", "env", "cut", "grep"}}}, w.err("C12")
+		}},
+		{id: "C13", name: "the host's /dev/shm", steps: func(w *canaryWorld) ([]canaryStep, error) {
+			return []canaryStep{{spec: sh("C13", `touch "$2"; test -e "$1" && exit 0; exit 1`, w.shmMarker, w.shmProbe), want: finish.ResFail, timeout: canaryLight, tools: []string{"sh", "touch", "test"},
+				after: func() error {
+					if _, err := os.Lstat(w.shmProbe); err == nil {
+						return errors.New("a file the program wrote in /dev/shm exists on the host afterwards")
+					}
+					return nil
+				}}}, w.err("C13")
+		}},
+		{id: "C14", name: "the host's terminals (/dev/pts)", steps: func(w *canaryWorld) ([]canaryStep, error) {
+			return []canaryStep{{spec: sh("C14", `for p in "$@" /dev/pts/[0-9]*; do test -e "$p" && exit 0; done; exit 1`, w.ptySlaves...), want: finish.ResFail, timeout: canaryLight, tools: []string{"sh", "test"}}}, w.err("C14")
+		}},
 	}
 }
 
@@ -189,7 +216,7 @@ func RunCanariesWith(ctx context.Context, conf Confiner, scratchBase string, o C
 		}
 		specs = append(specs, s)
 	}
-	w := newCanaryWorld(ctx, scratchBase, o)
+	w := newCanaryWorld(ctx, scratchBase, o, conf)
 	defer w.close()
 	run := o.Exec
 	if run == nil {
@@ -338,7 +365,16 @@ func newRealCanaryExec(conf Confiner, scratchBase string) (CanaryExec, func()) {
 		if !sb.NetEnforceable() {
 			return CanaryRun{Result: finish.ResError, Detail: "the platform cannot deny the network, so no program is started"}
 		}
+		ir, _ := conf.(InfraReporter)
+		if ir != nil {
+			ir.TakeInfra()
+		}
 		m := sb.Run(ctx, snap, tree, plan)
+		if ir != nil {
+			if infra := ir.TakeInfra(); len(infra) > 0 {
+				return CanaryRun{Result: finish.ResError, Detail: Excerpt("the confinement failed: "+strings.Join(infra, "; "), detailCap)}
+			}
+		}
 		return CanaryRun{Result: closedResult(m.Result), ExitCode: m.ExitCode, Stdout: m.Stdout, Detail: Excerpt(m.Detail, detailCap)}
 	}, closeAll
 }

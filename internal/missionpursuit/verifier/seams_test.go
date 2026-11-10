@@ -118,13 +118,21 @@ func TestACancelledCheckLeavesNoScratchAreaBehind(t *testing.T) {
 
 // P3: a cancellation that arrives while the snapshot is finishing is "abandoned: cancelled", never a snapshot or digest complaint.
 func TestACancellationDuringTheSnapshotIsAbandonedNotRefusedOrStale(t *testing.T) {
-	r := newRig(t, true)
-	ctx, cancel := context.WithCancel(context.Background())
-	r.cfg.afterCopy = cancel // the copy is done, the live digest is next
-	k := r.checker()
-	res, err := k.Run(ctx, r.req(fileExists("c1")))
-	if err != nil || res.Outcome != OutcomeAbandoned || res.Reason != ReasonCancelled {
-		t.Fatalf("%v %s", err, dump(res))
+	// the cancel arrives while the copy finishes, and the check looks at its channels only after the copy has ended, so both the
+	// finished snapshot and the cancellation are ready: whichever the select takes, the answer is "abandoned: cancelled"
+	for i := 0; i < 24; i++ {
+		r := newRig(t, true)
+		ctx, cancel := context.WithCancel(context.Background())
+		r.cfg.afterCopy = cancel // the copy is done, the live digest is next
+		r.cfg.beforeWait = func() { time.Sleep(20 * time.Millisecond) }
+		k := r.checker()
+		res, err := k.Run(ctx, r.req(fileExists("c1")))
+		if err != nil || res.Outcome != OutcomeAbandoned || res.Reason != ReasonCancelled {
+			t.Fatalf("run %d: %v %s", i, err, dump(res))
+		}
+		for deadline := time.Now().Add(5 * time.Second); len(scratchEntries(t, r.base)) != 0 && time.Now().Before(deadline); {
+			time.Sleep(20 * time.Millisecond)
+		}
 	}
 }
 

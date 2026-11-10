@@ -26,11 +26,18 @@ type canaryWorld struct {
 	secrets       []string
 	nsLinks       []string
 	secretPID     int
+	secretVar     string
+	shmMarker     string
+	shmProbe      string
+	ptySlaves     []string
 	errs          map[string]error
 	cleanup       []func()
 }
 
-const canarySecretVar = "MONOAGENT_CANARY_SECRET"
+const canarySecretPrefix = "MONOAGENT_CANARY_SECRET_"
+
+// staleAfter is how old a plant must be before the next run removes it as the leftover of a run that crashed.
+const staleAfter = time.Hour
 
 func (w *canaryWorld) err(id string) error { return w.errs[id] }
 
@@ -56,7 +63,7 @@ func plantable(p string) error {
 	return nil
 }
 
-func newCanaryWorld(ctx context.Context, scratchBase string, o CanaryOptions) *canaryWorld {
+func newCanaryWorld(ctx context.Context, scratchBase string, o CanaryOptions, conf Confiner) *canaryWorld {
 	w := &canaryWorld{errs: map[string]error{}}
 	parent := filepath.Dir(scratchBase)
 	home, runtimeDir, tmp := o.HomeDir, o.RuntimeDir, o.TmpDir
@@ -69,6 +76,11 @@ func newCanaryWorld(ctx context.Context, scratchBase string, o CanaryOptions) *c
 	if tmp == "" {
 		tmp = os.TempDir()
 	}
+	shm := o.ShmDir
+	if shm == "" {
+		shm = "/dev/shm"
+	}
+	sweepStale(scratchBase, parent, home, runtimeDir, tmp, shm)
 
 	// C1, C2: in the parent of the scratch base, which a confiner that confines nothing leaves readable and writable.
 	if err := plantable(parent); err != nil {
@@ -136,6 +148,38 @@ func newCanaryWorld(ctx context.Context, scratchBase string, o CanaryOptions) *c
 	// C5: the host's own environment and a process that holds the secret in its environment.
 	w.plantSecretProcess(ctx)
 
+	// C12: a variable in the manager that starts the programs, where the confiner has one; taken out again by name.
+	if pl, ok := conf.(ManagerEnvPlanter); ok {
+		name := "MONOAGENT_CANARY_MGR_" + randHex()
+		if undo, err := pl.PlantManagerEnv(ctx, name, randHex()); err != nil {
+			w.errs["C12"] = fmt.Errorf("the manager's environment could not be planted: %w", err)
+		} else {
+			w.cleanup = append(w.cleanup, undo)
+		}
+	}
+
+	// C13: a marker in the host's /dev/shm, and a path the program writes to there (it must not exist on the host afterwards).
+	if st, err := os.Stat(shm); err != nil || !st.IsDir() {
+		w.errs["C13"] = fmt.Errorf("no shared-memory folder at %s to plant in", shm)
+	} else {
+		w.shmMarker = filepath.Join(shm, "monoagent-canary-"+randHex())
+		w.shmProbe = filepath.Join(shm, "monoagent-canary-w-"+randHex())
+		if err := plantable(w.shmMarker); err != nil {
+			w.errs["C13"] = err
+		} else if err := os.WriteFile(w.shmMarker, []byte("canary marker\n"), 0o600); err != nil {
+			w.errs["C13"] = err
+		} else {
+			w.cleanup = append(w.cleanup, func() { os.Remove(w.shmMarker); os.Remove(w.shmProbe) })
+		}
+	}
+
+	// C14: a terminal of the host's, made by the host for the occasion (never a real one of the person's), and whatever else is
+	// in /dev/pts: a program must see none.
+	if slave, closePty, err := plantPty(); err == nil {
+		w.cleanup = append(w.cleanup, closePty)
+		w.ptySlaves = append(w.ptySlaves, slave)
+	}
+
 	// C6: the host's namespaces.
 	for _, n := range []string{"net", "pid", "mnt", "ipc", "user"} {
 		link, err := os.Readlink("/proc/self/ns/" + n)
@@ -150,15 +194,9 @@ func newCanaryWorld(ctx context.Context, scratchBase string, o CanaryOptions) *c
 
 func (w *canaryWorld) plantSecretProcess(ctx context.Context) {
 	secret := randHex() + randHex()
-	prev, had := os.LookupEnv(canarySecretVar)
-	os.Setenv(canarySecretVar, secret)
-	w.cleanup = append(w.cleanup, func() {
-		if had {
-			os.Setenv(canarySecretVar, prev)
-		} else {
-			os.Unsetenv(canarySecretVar)
-		}
-	})
+	w.secretVar = canarySecretPrefix + randHex() // per run: overlapping runs in one process never see or remove each other's
+	os.Setenv(w.secretVar, secret)
+	w.cleanup = append(w.cleanup, func() { os.Unsetenv(w.secretVar) })
 	sleepBin := ""
 	for _, d := range filepath.SplitList(finish.SystemPath) {
 		if st, err := os.Stat(filepath.Join(d, "sleep")); err == nil && st.Mode().IsRegular() && st.Mode()&0o111 != 0 {
@@ -171,7 +209,7 @@ func (w *canaryWorld) plantSecretProcess(ctx context.Context) {
 		return
 	}
 	cmd := exec.CommandContext(ctx, sleepBin, "120")
-	cmd.Env = append(os.Environ(), canarySecretVar+"="+secret)
+	cmd.Env = append(os.Environ(), w.secretVar+"="+secret)
 	if err := cmd.Start(); err != nil {
 		w.errs["C5"] = err
 		return
@@ -182,10 +220,47 @@ func (w *canaryWorld) plantSecretProcess(ctx context.Context) {
 	var b []byte
 	var err error
 	for i := 0; i < 100; i++ {
-		if b, err = os.ReadFile(fmt.Sprintf("/proc/%d/environ", w.secretPID)); err == nil && strings.Contains(string(b), canarySecretVar+"="+secret) {
+		if b, err = os.ReadFile(fmt.Sprintf("/proc/%d/environ", w.secretPID)); err == nil && strings.Contains(string(b), w.secretVar+"="+secret) {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 	w.errs["C5"] = fmt.Errorf("the host cannot read its own planted process's environment (%v), so the canary would prove nothing", err)
+}
+
+// sweepStale removes what a run that crashed left: plants older than an hour. A fresh one belongs to a run in progress.
+func sweepStale(scratchBase, parent, home, runtimeDir, tmp, shm string) {
+	cutoff := time.Now().Add(-staleAfter)
+	sweep := func(dir string, match func(name string) bool) {
+		if dir == "" {
+			return
+		}
+		ents, err := os.ReadDir(dir)
+		if err != nil {
+			return
+		}
+		for _, e := range ents {
+			if !match(e.Name()) {
+				continue
+			}
+			if info, err := e.Info(); err != nil || info.ModTime().After(cutoff) {
+				continue
+			}
+			p := filepath.Join(dir, e.Name())
+			if e.IsDir() {
+				finish.RemoveTree(p)
+			} else {
+				os.Remove(p)
+			}
+		}
+	}
+	has := func(prefix string) func(string) bool {
+		return func(n string) bool { return strings.HasPrefix(n, prefix) }
+	}
+	sweep(scratchBase, has("canary-"))
+	sweep(parent, func(n string) bool { return strings.HasPrefix(n, ".canary-r-") || strings.HasPrefix(n, ".canary-w-") })
+	sweep(home, has(".canary-h-"))
+	for _, d := range []string{runtimeDir, tmp, shm} {
+		sweep(d, has("monoagent-canary-"))
+	}
 }

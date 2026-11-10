@@ -33,8 +33,11 @@ func (c *Confiner) Place(cmd *exec.Cmd) (func(), error) {
 		return nil, errors.New("sdconfine: the command is not the shape the finish sandbox makes (the limits helper around an absolute program)")
 	}
 	dir := cmd.Dir
-	if err := SafePath(dir); err != nil || filepath.Base(dir) != "subject" {
-		return nil, fmt.Errorf("sdconfine: the working directory %q is not a safe <work>/subject path", dir)
+	if err := SafePath(dir); err != nil {
+		return nil, fmt.Errorf("sdconfine: the working directory: %w", err)
+	}
+	if filepath.Base(dir) != "subject" {
+		return nil, fmt.Errorf("sdconfine: the working directory %q is not a <work>/subject path", dir)
 	}
 	work := filepath.Dir(dir)
 	if err := SafePath(work); err != nil {
@@ -43,7 +46,7 @@ func (c *Confiner) Place(cmd *exec.Cmd) (func(), error) {
 	if err := checkEnv(cmd.Env, work); err != nil {
 		return nil, err
 	}
-	if strings.ContainsAny(prog, "$\x00\n") {
+	if strings.ContainsAny(prog, "$=\x00\n") {
 		return nil, fmt.Errorf("sdconfine: the program %q cannot be passed to the manager", prog)
 	}
 	for _, a := range progArgs {
@@ -63,7 +66,7 @@ func (c *Confiner) Place(cmd *exec.Cmd) (func(), error) {
 	if !idRE.MatchString(id) {
 		return nil, errors.New("sdconfine: the unit id is not 16 hex digits")
 	}
-	unit := "monoagent-check-" + id
+	unit := c.unitName(id)
 	spec := Spec{Work: work, Hide: c.hide, Lim: lim, Caps: c.caps, PrivatePIDs: c.privatePIDs}
 	build := c.propsFn
 	if build == nil {
@@ -80,8 +83,11 @@ func (c *Confiner) Place(cmd *exec.Cmd) (func(), error) {
 	if err != nil {
 		return nil, err
 	}
+	if c.mutateArgv != nil {
+		args = c.mutateArgv(args)
+	}
 	cmd.Path, cmd.Args, cmd.Env, cmd.Dir = c.runBin, append([]string{c.runBin}, args...), append([]string(nil), c.env...), "/"
-	return c.release(unit), nil
+	return c.releaseFor(unit, cmd), nil
 }
 
 // checkEnv accepts the environment the sandbox builds: well-formed entries with HOME and TMPDIR inside the scratch folder of

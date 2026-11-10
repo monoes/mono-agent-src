@@ -44,6 +44,7 @@ type Config struct {
 
 	afterCriteria func() // test seam: runs after the criteria, before the recheck
 	afterCopy     func() // test seam: runs after the snapshot copy, before the first digest of the live folder
+	beforeWait    func() // test seam: runs before the check waits for the snapshot goroutine
 }
 
 // Confiner is a confinement the host provides and proves: it is what keeps a project command from the rest of the computer
@@ -69,6 +70,14 @@ type Hider interface {
 // The outlive, fork-bomb, memory and timeout canaries need it; a confiner without it cannot pass them (fail closed).
 type LeftoverChecker interface {
 	Leftovers(ctx context.Context) ([]string, error)
+}
+
+// InfraReporter is an optional part of a Confiner: it says what the confinement itself got wrong while a criterion ran (a unit
+// that never started, one killed from outside), which the program's exit status cannot tell from the program's own. TakeInfra
+// returns the failures since the last call and clears them; the checker clears before each criterion and reads after it, and
+// a failure ends the criterion in error, never in a verdict.
+type InfraReporter interface {
+	TakeInfra() []string
 }
 
 // Checker is the real Verifier: finish.Sandbox for the machine criteria, finish.RunnerVerifier for the block-only review.
@@ -197,6 +206,7 @@ func (k *Checker) Run(ctx context.Context, req Request) (Result, error) {
 				if ctx.Err() != nil {
 					return end(OutcomeAbandoned, ReasonCancelled)
 				}
+				res.ConfinementDetail = Excerpt(err.Error(), 300)
 				return end(OutcomeCannotCheck, ReasonNoConfinement)
 			}
 			conf = k.cfg.Confiner
@@ -253,11 +263,17 @@ func (k *Checker) Run(ctx context.Context, req Request) (Result, error) {
 		ch <- s
 	}()
 	var sl sealed
+	if k.cfg.beforeWait != nil {
+		k.cfg.beforeWait()
+	}
 	select {
 	case sl = <-ch:
 	case <-ctx.Done():
 		clean = false // the copy is still running: it is removed when it ends
 		go func() { <-ch; finish.RemoveTree(dir) }()
+		return end(OutcomeAbandoned, ReasonCancelled)
+	}
+	if ctx.Err() != nil { // a cancellation that raced the finishing copy is a cancellation, not a refused or moved snapshot
 		return end(OutcomeAbandoned, ReasonCancelled)
 	}
 	before, tree := sl.before, sl.tree
@@ -283,7 +299,7 @@ func (k *Checker) Run(ctx context.Context, req Request) (Result, error) {
 	sb.Place, sb.Scratch = placeBoth(gp, conf), work
 	runCtx, cancel := context.WithTimeout(ctx, k.tot)
 	defer cancel()
-	k.runCriteria(runCtx, sb, snap, tree, req, &res)
+	k.runCriteria(runCtx, sb, conf, snap, tree, req, &res)
 	if k.cfg.afterCriteria != nil {
 		k.cfg.afterCriteria()
 	}

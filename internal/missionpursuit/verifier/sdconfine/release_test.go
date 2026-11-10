@@ -33,7 +33,9 @@ func ctlCalls(f *fakeSys) []string {
 func TestReleaseKillsStopsAndResetsOnlyItsOwnUnitInThatOrderAndConfirms(t *testing.T) {
 	f := newFakeSys()
 	c := newConfiner(t, f, Config{})
-	rel := c.release(unitA)
+	done := exec.Command("/bin/sh", "-c", "exit 0")
+	done.Run()
+	rel := c.releaseFor(unitA, done)
 	rel()
 	calls := ctlCalls(f)
 	if len(calls) < 5 {

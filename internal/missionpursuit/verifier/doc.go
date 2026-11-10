@@ -43,8 +43,19 @@
 //  2. Extend the limits-helper re-exec with mount, pid and ipc namespaces and a pivot_root into a size-capped tmpfs.
 //  3. Landlock (weakest: it limits files, not sockets already reachable or signals).
 //
-// The systemd confiner (option 1) is the sub-package sdconfine; it needs a Linux user manager and refuses, with a typed error
-// that names the missing piece, everywhere else. A confiner may also implement Hider (the per-check copy that hides the live
+// The systemd confiner (option 1) is the sub-package sdconfine; it needs a Linux user manager of systemd 256 or later (PrivatePIDs;
+// older ones are refused by name and version) and refuses, with a typed error that names the missing piece, everywhere else.
+// The unit's property list as accepted by systemd 262 (the sub-package's golden test pins it): PrivateNetwork, PrivateIPC,
+// RestrictAddressFamilies=AF_UNIX, ProtectSystem=strict, ProtectHome=tmpfs, TemporaryFileSystem=/run, TemporaryFileSystem=/dev/shm:mode=1777,
+// TemporaryFileSystem=/dev/pts, InaccessiblePaths=-/var/run -/mnt -/media [-<live root>], PrivateTmp, PrivateDevices,
+// ProtectKernelTunables/Modules/Logs, ProtectControlGroups, ProtectClock, BindPaths=<work>, PrivateUsers, PrivatePIDs,
+// ProtectProc=invisible, ProcSubset=pid, NoNewPrivileges, CapabilityBoundingSet= (empty), RestrictNamespaces, LockPersonality,
+// MemoryDenyWriteExecute=no, SystemCallFilter=@system-service and ~keyctl add_key request_key, UMask=0077, KeyringMode=private,
+// MemoryMax, MemorySwapMax=0, TasksMax, CPUQuota, LimitCPU/AS/NOFILE/FSIZE, LimitCORE=0, RuntimeMaxSec, OOMPolicy=kill,
+// KillMode=control-group, SendSIGKILL, TimeoutStopSec=5; the program starts as `env -i K=V... program`, so the user manager's
+// environment (a login session's imported variables) never reaches it. /dev/pts is an empty tmpfs: a program that needs a
+// pseudo-terminal (script, expect, a pty library) cannot get one in a check. A unit that fails to start, or is killed from outside,
+// is reported by the confiner (InfraReporter) and ends its criterion in error, not in a pass or fail. A confiner may also implement Hider (the per-check copy that hides the live
 // folder, used by Checker.Run) and LeftoverChecker (what a unit left behind, which the heavy canaries need).
 //
 // Confiner.SelfTest is a claim of the caller: this package cannot see inside it. S7c1 must therefore run the canary criteria

@@ -236,7 +236,7 @@ func TestHideGivesAPerCheckCopyThatAlsoHidesTheLiveRoot(t *testing.T) {
 		t.Fatal("Hide returned a shared copy")
 	}
 	// an unsafe root is refused at Place, never silently ignored (a root that is not hidden is a root the program can read)
-	bad := c.Hide("/srv/a b")
+	bad := c.Hide("/srv/a%b")
 	cmd = sandboxCmd("/usr/bin/true")
 	if _, err := bad.Place(cmd); err == nil {
 		t.Fatal("an unsafe root was ignored")
@@ -252,8 +252,8 @@ func TestEachPlaceMakesItsOwnUnitNameAndAnOddIDIsRefused(t *testing.T) {
 	if _, err := c.Place(b); err != nil {
 		t.Fatal(err)
 	}
-	if a.Args[6] == b.Args[6] || !strings.HasPrefix(a.Args[6], "--unit=monoagent-check-") {
-		t.Fatalf("%q %q", a.Args[6], b.Args[6])
+	if unitOf(a.Args) == unitOf(b.Args) || !strings.HasPrefix(unitOf(a.Args), "monoagent-check-4242-100-") {
+		t.Fatalf("%q %q", unitOf(a.Args), unitOf(b.Args))
 	}
 	c.sys.newID = func() string { return "../../evil" }
 	cmd := sandboxCmd("/usr/bin/true")
@@ -300,4 +300,13 @@ func TestOddPathsAreQuotedForTheManagerOrRefusedWithATypedError(t *testing.T) {
 	if !contains(cmd.Args, `InaccessiblePaths=-/var/run -/mnt -/media -"/home/me/My Project"`) {
 		t.Fatalf("%v", cmd.Args)
 	}
+}
+
+func unitOf(args []string) string {
+	for _, a := range args {
+		if u, ok := strings.CutPrefix(a, "--unit="); ok {
+			return u
+		}
+	}
+	return ""
 }

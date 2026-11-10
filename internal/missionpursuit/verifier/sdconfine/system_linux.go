@@ -37,17 +37,38 @@ func trustedBinary(candidates ...string) (string, error) {
 	return "", fmt.Errorf("none of %v is a root-owned file that others cannot write", candidates)
 }
 
+// procStart reads the start time of a process: the unit names carry it with the pid, so a reused pid is not taken for its dead owner.
+func procStart(pid int) (string, error) {
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return "", err
+	}
+	i := bytes.LastIndexByte(b, ')')
+	if i < 0 {
+		return "", errors.New("unreadable /proc stat")
+	}
+	f := bytes.Fields(b[i+1:])
+	if len(f) < 20 { // field 22 overall is the 20th after the command's closing parenthesis
+		return "", errors.New("short /proc stat")
+	}
+	return string(f[19]), nil
+}
+
 func defaultSystem() system {
 	return system{
-		goos:   runtime.GOOS,
-		uid:    os.Getuid(),
-		getenv: os.Getenv,
+		goos:      runtime.GOOS,
+		uid:       os.Getuid(),
+		pid:       os.Getpid(),
+		procStart: procStart,
+		getenv:    os.Getenv,
 		trusted: func(name string) (string, error) {
 			switch name {
 			case "systemd-run":
 				return trustedBinary("/usr/bin/systemd-run", "/bin/systemd-run")
 			case "systemctl":
 				return trustedBinary("/usr/bin/systemctl", "/bin/systemctl")
+			case "env":
+				return trustedBinary("/usr/bin/env", "/bin/env")
 			}
 			return "", fmt.Errorf("%s is not a program this package starts", name)
 		},

@@ -38,6 +38,13 @@ func (f *fakeSys) sys() system {
 	return system{
 		goos: f.goos,
 		uid:  1000,
+		pid:  4242,
+		procStart: func(pid int) (string, error) {
+			if st, ok := f.alive[pid]; ok {
+				return st, nil
+			}
+			return "", os.ErrNotExist
+		},
 		getenv: func(k string) string {
 			return map[string]string{"XDG_RUNTIME_DIR": f.runtime, "HOME": "/home/x", "SECRET": "s3cret"}[k]
 		},

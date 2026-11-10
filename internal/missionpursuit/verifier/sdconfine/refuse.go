@@ -15,6 +15,10 @@ const (
 	// MissingSystemdRun and MissingSystemctl: no root-owned systemd-run or systemctl in /usr/bin or /bin.
 	MissingSystemdRun Missing = "systemd-run"
 	MissingSystemctl  Missing = "systemctl"
+	// MissingEnv: no root-owned env, which starts every program with an empty environment.
+	MissingEnv Missing = "env"
+	// MissingSystemdVersion: the user manager is older than 256, which has no PrivatePIDs (Ubuntu 24.04 has 255, Debian 12 has 252).
+	MissingSystemdVersion Missing = "systemd-version"
 	// MissingUserManager: no systemd user manager answering on this user's session bus (WSL1, containers, Alpine, an ssh login
 	// with no user session), or it refused the probe unit.
 	MissingUserManager Missing = "user-manager"

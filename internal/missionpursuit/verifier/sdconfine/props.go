@@ -56,7 +56,7 @@ type Spec struct {
 func (s Spec) inaccessible() string {
 	v := "-/var/run -/mnt -/media"
 	if s.Hide != "" {
-		v += " -" + s.Hide // "-": a root that is not there (hidden under /home already) is not an error
+		v += " -" + quoteUnit(s.Hide) // "-": a root that is not there (hidden under /home already) is not an error
 	}
 	return v
 }
@@ -71,10 +71,10 @@ func Properties(s Spec) []string {
 		// network and IPC
 		"PrivateNetwork=yes", "PrivateIPC=yes", "RestrictAddressFamilies=AF_UNIX",
 		// filesystem
-		"ProtectSystem=strict", "ProtectHome=tmpfs", "TemporaryFileSystem=/run", "InaccessiblePaths=" + s.inaccessible(),
+		"ProtectSystem=strict", "ProtectHome=tmpfs", "TemporaryFileSystem=/run", "TemporaryFileSystem=/dev/shm:mode=1777", "TemporaryFileSystem=/dev/pts", "InaccessiblePaths=" + s.inaccessible(),
 		"PrivateTmp=yes", "PrivateDevices=yes",
 		"ProtectKernelTunables=yes", "ProtectKernelModules=yes", "ProtectKernelLogs=yes", "ProtectControlGroups=yes", "ProtectClock=yes",
-		"BindPaths=" + s.Work,
+		"BindPaths=" + quoteUnit(s.Work),
 		// processes and users
 		"PrivateUsers=yes",
 	}
@@ -91,7 +91,7 @@ func Properties(s Spec) []string {
 		fmt.Sprintf("LimitCPU=%d", s.Lim.CPUSeconds), fmt.Sprintf("LimitAS=%d", s.Lim.AddressSpace),
 		fmt.Sprintf("LimitNOFILE=%d", s.Lim.OpenFiles), fmt.Sprintf("LimitFSIZE=%d", s.Lim.FileSize), "LimitCORE=0",
 		fmt.Sprintf("RuntimeMaxSec=%d", s.Lim.CPUSeconds+runtimeSlack),
-		"KillMode=control-group", "SendSIGKILL=yes", "TimeoutStopSec=5",
+		"OOMPolicy=kill", "KillMode=control-group", "SendSIGKILL=yes", "TimeoutStopSec=5",
 	)
 	return p
 }
@@ -102,15 +102,15 @@ func required(s Spec) []string {
 	c := s.Caps.normalized()
 	r := []string{
 		"PrivateNetwork=yes", "PrivateIPC=yes", "RestrictAddressFamilies=AF_UNIX",
-		"ProtectSystem=strict", "ProtectHome=tmpfs", "TemporaryFileSystem=/run",
+		"ProtectSystem=strict", "ProtectHome=tmpfs", "TemporaryFileSystem=/run", "TemporaryFileSystem=/dev/shm:mode=1777", "TemporaryFileSystem=/dev/pts",
 		"PrivateTmp=yes", "PrivateDevices=yes",
 		"ProtectKernelTunables=yes", "ProtectKernelModules=yes", "ProtectKernelLogs=yes", "ProtectControlGroups=yes", "ProtectClock=yes",
 		"PrivateUsers=yes", "ProtectProc=invisible", "ProcSubset=pid", "NoNewPrivileges=yes", "CapabilityBoundingSet=",
 		"RestrictNamespaces=yes", "LockPersonality=yes", "MemoryDenyWriteExecute=no",
 		"SystemCallFilter=@system-service", "SystemCallFilter=~keyctl add_key request_key",
 		"UMask=0077", "KeyringMode=private", "MemorySwapMax=0", "LimitCORE=0",
-		"KillMode=control-group", "SendSIGKILL=yes", "TimeoutStopSec=5",
-		"InaccessiblePaths=" + s.inaccessible(), "BindPaths=" + s.Work,
+		"OOMPolicy=kill", "KillMode=control-group", "SendSIGKILL=yes", "TimeoutStopSec=5",
+		"InaccessiblePaths=" + s.inaccessible(), "BindPaths=" + quoteUnit(s.Work),
 		"MemoryMax=" + fmt.Sprint(c.MemoryBytes), "TasksMax=" + fmt.Sprint(c.Tasks), "CPUQuota=" + fmt.Sprint(c.CPUPercent) + "%",
 		"LimitCPU=" + fmt.Sprint(s.Lim.CPUSeconds), "LimitAS=" + fmt.Sprint(s.Lim.AddressSpace),
 		"LimitNOFILE=" + fmt.Sprint(s.Lim.OpenFiles), "LimitFSIZE=" + fmt.Sprint(s.Lim.FileSize),
@@ -148,17 +148,43 @@ func CheckProperties(props []string, s Spec) error {
 	return nil
 }
 
-// SafePath says whether p can be given to the manager as a path in a property or an environment value without escaping: an
-// absolute, clean path that is not the root, with no space, colon, percent, dollar, quote, backslash, backtick or control
-// character.
+// PathError is the typed refusal of a path the manager cannot be given: it names the path and the reason.
+type PathError struct {
+	Path, Reason string
+}
+
+func (e *PathError) Error() string {
+	return fmt.Sprintf("sdconfine: the path %q cannot be given to the manager: %s", e.Path, e.Reason)
+}
+
+// SafePath says whether p can be given to the manager: an absolute, clean path that is not the root, without a control
+// character, a percent sign (a specifier) or a double quote. Anything else, a space, quote, backslash, colon or dollar included,
+// is carried by quoteUnit. The refusal is a *PathError.
 func SafePath(p string) error {
-	if p == "" || !filepath.IsAbs(p) || p == "/" || filepath.Clean(p) != p {
-		return fmt.Errorf("%q is not an absolute, clean path", p)
+	switch {
+	case p == "" || !filepath.IsAbs(p):
+		return &PathError{p, "it is not an absolute path"}
+	case p == "/" || filepath.Clean(p) != p:
+		return &PathError{p, "it is the root or not a clean path"}
 	}
 	for _, r := range p {
-		if r < 0x20 || r == 0x7f || strings.ContainsRune(" :%$'\"\\`", r) {
-			return fmt.Errorf("%q has a character a unit property cannot carry", p)
+		switch {
+		case r < 0x20 || r == 0x7f:
+			return &PathError{p, "it holds a control character"}
+		case r == '%':
+			return &PathError{p, "it holds a percent sign (the manager reads it as a specifier)"}
+		case r == '"':
+			return &PathError{p, "it holds a double quote"}
 		}
 	}
 	return nil
+}
+
+// quoteUnit writes a path for a unit property: as it is when plain, else in double quotes with backslash and colon (BindPaths
+// separates source and target with it) escaped. p has passed SafePath.
+func quoteUnit(p string) string {
+	if !strings.ContainsAny(p, " \\:'$") {
+		return p
+	}
+	return `"` + strings.NewReplacer(`\`, `\\`, `:`, `\:`).Replace(p) + `"`
 }
