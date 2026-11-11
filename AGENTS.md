@@ -1031,7 +1031,7 @@ holder is not the operator's terminal, so `ai.task` refuses, `people.save` does
 not approve outreach, browser steps run at the agent level and hilsend sends
 wait for approval, also for the user's own script. Webhook, form, chat and
 trigger-source runs of active workflows and the daemon's scheduler are not
-marked (third-party-triggered by design; decision pending, #1475). Output items go
+marked (third-party-triggered by design; a documented known gap in SECURITY.md, #1475). Output items go
 through the same redaction as `workflow run --json` — pass
 `X-Full-Outputs: 1` to opt out per request, mirroring
 `workflow run --full-outputs` (the CLI flag is the operator's only; the
