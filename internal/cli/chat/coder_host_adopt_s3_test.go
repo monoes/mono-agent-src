@@ -90,7 +90,7 @@ func TestAHeldLeaderThatCannotBeConfirmedEndedIsNotMarkedReaped(t *testing.T) {
 	withKillCounter(t, func(*os.Process) error { return errors.New("not signalled") }) // the kill does nothing (and, failing, signals no group): the leader stays alive
 	oldH, oldW := holdLeader, heldGoneWait
 	holdLeader = func(int) bool { return false }
-	heldGoneWait = 150 * time.Millisecond
+	heldGoneWait = 2 * time.Second // longer than a slow host takes to admit the turn
 	t.Cleanup(func() { holdLeader, heldGoneWait = oldH, oldW })
 	r := newBoundRig(t, "")
 	var h holdRig
