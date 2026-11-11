@@ -101,3 +101,30 @@ func TestAForgedReservedTurnIdIsRefusedAtTheQueueOfAPursuedMission(t *testing.T)
 		t.Fatalf("started %v", w.l.started)
 	}
 }
+
+// The close wake: once every task is settled (done) the loop spends exactly one more epoch and one more wake-up (the lead's
+// one chance to propose the close), then pays nothing until a task changes; a task change re-arms exactly one more.
+func TestSettledWorkOfACLIBegunPursuitEarnsOneCloseWakeThenTheLoopIsQuietUntilATaskChanges(t *testing.T) {
+	w := newE2EWorld(t)
+	w.sql(`UPDATE task_sessions SET budget_usd = 1000`) // the wake turns are charged their cap: the 20% rule must not be what stops the loop
+	w.sql(`UPDATE coder_sessions SET budget_usd = 1000`)
+	w.rounds(1) // the work is open: epoch 1 and its wake-up
+	if w.wakeCount() != 1 || w.model.count() != 1 {
+		t.Fatalf("setup: %d wake turns, %d judge calls", w.wakeCount(), w.model.count())
+	}
+	w.sql(`UPDATE tasks SET status = 'done', verified = 1, updated_at = ? WHERE session_id = ?`, time.Now().UTC().Format(time.RFC3339Nano), w.s)
+	w.rounds(1)
+	if w.wakeCount() != 2 || w.model.count() != 2 {
+		t.Fatalf("the settled state earned %d wake turn(s) and %d judge call(s): exactly one more of each", w.wakeCount(), w.model.count())
+	}
+	w.rounds(4)
+	if w.wakeCount() != 2 || w.model.count() != 2 {
+		t.Fatalf("a settled mission went on paying: %d wake turns, %d judge calls", w.wakeCount(), w.model.count())
+	}
+	// a task changes (the lead found something to redo): the work is open again
+	w.sql(`UPDATE tasks SET status = 'ready', verified = 0, updated_at = ? WHERE session_id = ?`, w.clk.Now().UTC().Format(time.RFC3339Nano), w.s)
+	w.rounds(1)
+	if w.wakeCount() != 3 || w.model.count() != 3 {
+		t.Fatalf("a changed task earned %d wake turns and %d judge calls: the work is open again", w.wakeCount(), w.model.count())
+	}
+}

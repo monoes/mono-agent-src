@@ -108,4 +108,12 @@ func TestAHostWithTheLoopOffStartsNoPursuitWakeQueuedOrForged(t *testing.T) {
 	if err := w.d.DB.QueryRow(`SELECT COUNT(*) FROM coder_session_commands WHERE status = 'pending' AND substr(turn_id, 1, 8) = 'pursuit-'`).Scan(&pending); err != nil || pending != 0 {
 		t.Fatalf("%d pursuit wake(s) still wait on a host without the loop (%v): they must fail, not wait for a loop that is not there", pending, err)
 	}
+	// the control: the host that has the loop, given the next epoch's wake-up for the same lead, does run it (so the refusal above
+	// was the missing loop, not a lead that could not be woken)
+	w.advance(31 * time.Minute)
+	w.pass()
+	w.tick()
+	if w.wakeCount() != 1 {
+		t.Fatalf("the host with the loop started %d wake turn(s) for the same lead: the control failed", w.wakeCount())
+	}
 }
