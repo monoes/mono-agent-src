@@ -376,3 +376,20 @@ func TestBeforeReleaseRefusesATurnStartedBeforeTheRunOpened(t *testing.T) {
 		t.Fatalf("a consumed record refused a later release: %v", err)
 	}
 }
+
+// A run that opened between Place and Adopt: the process is adopted into it, so it is released (the later look wins).
+func TestAReleaseFollowsTheRunTheAdoptionSaw(t *testing.T) {
+	r := newHookRig(t, on())
+	hk := r.hl.hk
+	if _, err := hk.Place(exec.Command("true"), "p1", "conv"); err != nil { // no run yet
+		t.Fatal(err)
+	}
+	r.start(t)
+	withPlacement(t, &adopterPlace{unit: 9}, nil)
+	if held, err := hk.Adopt("p1", "conv", 123, "1.000001"); err != nil || !held {
+		t.Fatalf("held=%v err=%v", held, err)
+	}
+	if err := hk.BeforeRelease(context.Background(), "p1", "conv", "t1", true); err != nil {
+		t.Fatalf("a turn adopted into the open run was refused: %v", err)
+	}
+}
