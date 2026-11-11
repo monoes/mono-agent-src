@@ -58,8 +58,18 @@ func (d darwinSess) Hold(pid int, stamp string) (func(), error) {
 	return func() {
 		once.Do(func() {
 			var ws unix.WaitStatus
-			if wpid, err := unix.Wait4(pid, &ws, unix.WNOHANG, nil); err == nil && wpid == 0 {
-				go func() { _, _ = unix.Wait4(pid, &ws, 0, nil) }()
+			wpid, err := unix.Wait4(pid, &ws, unix.WNOHANG, nil)
+			for errors.Is(err, unix.EINTR) {
+				wpid, err = unix.Wait4(pid, &ws, unix.WNOHANG, nil)
+			}
+			if err == nil && wpid == 0 {
+				go func() {
+					for {
+						if _, err := unix.Wait4(pid, &ws, 0, nil); !errors.Is(err, unix.EINTR) {
+							return
+						}
+					}
+				}()
 			}
 		})
 	}, nil
@@ -72,31 +82,44 @@ func (darwinSess) Self() (int, string, error) {
 
 func (darwinSess) CurrentUID() uint32 { return uint32(os.Getuid()) }
 
-// sessProcOf reads the session of a process listed by the kernel; a session that cannot be read is -1 (such a process
-// is still a candidate child of a member, and is never taken for a member of a session).
-func sessProcOf(k *unix.KinfoProc) (SessProc, bool, error) {
-	pid := int(k.Proc.P_pid)
-	if pid <= 0 || k.Proc.P_stat == szomb {
-		return SessProc{}, false, nil
-	}
-	sid, err := unix.Getsid(pid)
-	if err != nil {
-		if errors.Is(err, unix.ESRCH) {
-			return SessProc{}, false, nil // exited since the table was read
+// The session comes from getsid(2) and everything else from the process table: two reads that are not one atomic read. The
+// session is what makes them consistent: it is read before and after the table entry and the read is accepted only when the
+// two agree. A process changes its session at most once in its life (setsid needs a process that leads no group, and makes
+// it the leader of one), so a retry always ends; pgid and ppid are data, not the key, because a member can change its group as
+// often as it likes (job control inside its session) and must not be able to starve the read this way.
+const sessReadTries = 8
+
+// kinfoSettled is kinfo for a process that may be exiting: the kernel answers EIO for the table entry of a process that is
+// past its last instruction in user space but not yet a zombie (measured on macOS 27.2 while members were being killed, and it
+// can last a few milliseconds). Such a process is shortly gone and cannot run or fork any more, so after a brief wait it reads
+// as gone, not as a failure of the whole read.
+func kinfoSettled(pid int) (*unix.KinfoProc, error) {
+	for try := 0; ; try++ {
+		k, err := kinfo(pid)
+		if err == nil || !errors.Is(err, unix.EIO) {
+			return k, err
 		}
-		sid = -1
+		if try >= 20 {
+			return nil, errGone
+		}
+		time.Sleep(time.Millisecond)
 	}
-	return SessProc{
-		PID: pid, PPID: int(k.Eproc.Ppid), PGID: int(k.Eproc.Pgid), SID: sid,
-		Stamp: fmtSessStamp(int64(k.Proc.P_starttime.Sec), int64(k.Proc.P_starttime.Usec)),
-		UID:   k.Eproc.Ucred.Uid, Comm: commOf(k),
-	}, true, nil
 }
 
-// The session comes from getsid(2) and everything else from the process table, two reads that are not one atomic read: a
-// process that calls setsid between them has its new session next to its old group (measured on macOS 27.2). A read is
-// accepted only when the table says the same before and after the session was asked; otherwise it is read again.
-const sessReadTries = 8
+// sidOf is getsid for one process: ok false when it exited, -1 for a process of another user whose session cannot be read
+// (never a member by session, still a candidate child); any other failure for a process of this user is an error.
+func sidOf(pid int, uid uint32) (sid int, ok bool, err error) {
+	sid, err = unix.Getsid(pid)
+	switch {
+	case err == nil:
+		return sid, true, nil
+	case errors.Is(err, unix.ESRCH):
+		return 0, false, nil
+	case uid != uint32(os.Getuid()):
+		return -1, true, nil
+	}
+	return 0, false, fmt.Errorf("the session of process %d cannot be read: %w", pid, err)
+}
 
 func (darwinSess) Scan() ([]SessProc, error) {
 	ks, err := unix.SysctlKinfoProcSlice("kern.proc.all")
@@ -105,75 +128,69 @@ func (darwinSess) Scan() ([]SessProc, error) {
 	}
 	out := make([]SessProc, 0, len(ks))
 	for i := range ks {
-		p, ok, err := sessProcOf(&ks[i])
-		if err != nil {
-			return nil, err
-		}
-		if ok {
-			out = append(out, p)
-		}
-	}
-	after, err := unix.SysctlKinfoProcSlice("kern.proc.all")
-	if err != nil {
-		return nil, err
-	}
-	type shape struct {
-		ppid, pgid int
-		stamp      string
-	}
-	was := make(map[int]shape, len(after))
-	for i := range after {
-		was[int(after[i].Proc.P_pid)] = shape{int(after[i].Eproc.Ppid), int(after[i].Eproc.Pgid), fmtSessStamp(int64(after[i].Proc.P_starttime.Sec), int64(after[i].Proc.P_starttime.Usec))}
-	}
-	kept := out[:0]
-	for _, p := range out {
-		if s, ok := was[p.PID]; ok && s.ppid == p.PPID && s.pgid == p.PGID && s.stamp == p.Stamp {
-			kept = append(kept, p)
+		pid := int(ks[i].Proc.P_pid)
+		if pid <= 0 || ks[i].Proc.P_stat == szomb {
 			continue
 		}
-		// changed (or gone) while the session was asked: read that one process again, consistently
-		q, err := (darwinSess{}).Info(p.PID)
+		p, err := (darwinSess{}).Info(pid) // each process is read the consistent way, the table only names them
 		switch {
 		case err == nil:
-			kept = append(kept, q)
+			out = append(out, p)
 		case errors.Is(err, errGone):
-			// it is gone
 		default:
-			// a process that cannot be read consistently is never dropped silently: it could be a member that keeps changing its
-			// group to be missed, so the whole scan fails (and a proof built on it is not a proof)
-			return nil, fmt.Errorf("process %d cannot be read consistently: %w", p.PID, err)
+			return nil, err
 		}
 	}
-	if len(kept) == 0 {
+	if len(out) == 0 {
 		return nil, errors.New("the kernel listed no process")
 	}
-	return kept, nil
+	return out, nil
 }
 
 func (darwinSess) Info(pid int) (SessProc, error) {
-	for try := 0; ; try++ {
-		k, err := kinfo(pid)
+	for try := 0; try < sessReadTries; try++ {
+		k, err := kinfoSettled(pid)
 		if err != nil {
-			return SessProc{}, err
+			return SessProc{}, fmt.Errorf("process %d (table read): %w", pid, err)
 		}
-		p, ok, err := sessProcOf(k)
+		uid := k.Eproc.Ucred.Uid
+		sid1, ok, err := sidOf(pid, uid)
 		if err != nil {
 			return SessProc{}, err
 		}
 		if !ok {
 			return SessProc{}, errGone
 		}
-		k2, err := kinfo(pid)
+		k, err = kinfoSettled(pid) // the entry is read between the two session reads
+		if err != nil {
+			return SessProc{}, fmt.Errorf("process %d (second table read): %w", pid, err)
+		}
+		sid2, ok, err := sidOf(pid, uid)
 		if err != nil {
 			return SessProc{}, err
 		}
-		if k2.Eproc.Pgid == k.Eproc.Pgid && k2.Eproc.Ppid == k.Eproc.Ppid && k2.Proc.P_starttime == k.Proc.P_starttime {
-			return p, nil
+		if !ok {
+			return SessProc{}, errGone
 		}
-		if try+1 >= sessReadTries {
-			return SessProc{}, errors.New("the process keeps changing its group or parent while it is read")
+		if sid1 != sid2 {
+			continue // the process made its session in between (once in its life): read again
 		}
+		return SessProc{
+			PID: pid, PPID: int(k.Eproc.Ppid), PGID: int(k.Eproc.Pgid), SID: sid1,
+			Stamp: stampOf(k), UID: k.Eproc.Ucred.Uid, Comm: commOf(k),
+		}, nil
 	}
+	return SessProc{}, errors.New("the session of the process kept changing while it was read")
+}
+
+// StampOf is the plain start stamp of a live process from the table alone: the identity a signal falls back to when Info
+// cannot give a consistent read.
+func (darwinSess) StampOf(pid int) (string, error) {
+	k, err := kinfoSettled(pid)
+	if err != nil {
+		return "", err
+	}
+	return stampOf(k), nil
 }
 
 func (darwinSess) Signal(pid int, sig syscall.Signal) error {
@@ -226,10 +243,11 @@ func (d darwinSess) SelfTest() (err error) {
 	}
 	leaderPID := cmd.Process.Pid
 	var seen []SessProc // every process identity whose end is checked
+	reaped := false     // once the leader is waited for its number is free to be reused: nothing is swept by it
 	defer func() {
 		// whatever the verdict, nothing the probe made is left: its own session and children are swept first (a failure
 		// before the children were recorded must not leave them sleeping), stamps verified before each signal
-		if all, e := d.Scan(); e == nil {
+		if all, e := d.Scan(); e == nil && !reaped {
 			for _, p := range all {
 				if p.PID != leaderPID && (p.SID == leaderPID || p.PPID == leaderPID) {
 					_ = d.Signal(p.PID, syscall.SIGKILL)
@@ -293,6 +311,13 @@ func (d darwinSess) SelfTest() (err error) {
 	if err := sessProbeShape(self, leader, plain, grp, own); err != nil {
 		return err
 	}
+	// the layout of the process table entry is read by offset: a wrong uid or start time (another architecture's struct) shows here
+	if leader.UID != uint32(os.Getuid()) {
+		return fmt.Errorf("the process table reports uid %d for a process of uid %d: its entry layout is not what this build reads", leader.UID, os.Getuid())
+	}
+	if us, ok := parseSessStamp(leader.Stamp); !ok || absInt64(time.Now().UnixMicro()-us) > 60_000_000 {
+		return fmt.Errorf("the process table reports start time %q for a process started just now: its entry layout is not what this build reads", leader.Stamp)
+	}
 	scan, err := d.Scan()
 	if err != nil {
 		return fmt.Errorf("the process scan fails: %w", err)
@@ -311,6 +336,7 @@ func (d darwinSess) SelfTest() (err error) {
 		}
 	}
 	_ = cmd.Wait() // reaps the leader (a zombie reads as gone, but the table slot must not stay)
+	reaped = true
 	for _, p := range seen {
 		for end := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
 			cur, e := d.Info(p.PID)
@@ -323,4 +349,11 @@ func (d darwinSess) SelfTest() (err error) {
 		}
 	}
 	return nil
+}
+
+func absInt64(n int64) int64 {
+	if n < 0 {
+		return -n
+	}
+	return n
 }

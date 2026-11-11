@@ -366,3 +366,60 @@ func TestDarwinProofWithAHeldZombieLeader(t *testing.T) {
 	}
 	fact(t, "held zombie leader: orphan found and ended, empty unit proves Gone (zombie not listed by the scan, not needed)")
 }
+
+// A member that changes its process group as fast as it can (legal inside its session) must not be able to starve the read of
+// it: Scan always completes, lists it with its session, and Stop ends it.
+func TestDarwinAMemberLoopingSetpgidCannotStarveScanOrEvadeStop(t *testing.T) {
+	tr := startPerl(t, []string{"looper1", "looper6"}, `my $L=$$;`+
+		`for my $n(map{"looper$_"}1..6){k{say($n);while(1){setpgrp(0,0);setpgrp(0,$L)}}}print "ready $$\n";sleep 60;`)
+	r := newRealRig(t)
+	r.record(tr.info("leader"))
+	g := r.group()
+	groups := map[int]bool{}
+	for i := 0; i < 200; i++ {
+		all, err := bgOS.Scan()
+		if err != nil {
+			t.Fatalf("scan %d failed under a setpgid loop: %v", i, err)
+		}
+		found := 0
+		for _, p := range all {
+			if isLooper(tr, p.PID) {
+				found++
+				groups[p.PGID] = true
+				if p.SID != tr.pid("leader") {
+					t.Fatalf("looper %d read with session %d", p.PID, p.SID)
+				}
+			}
+		}
+		if found != 6 {
+			t.Fatalf("scan %d lists %d of the 6 loopers", i, found)
+		}
+	}
+	if len(groups) < 2 {
+		t.Fatalf("the loopers never changed group while scanned (%v): the test does not exercise the race", groups)
+	}
+	mem := r.members(g)
+	for i := 1; i <= 6; i++ {
+		if !mem[tr.pid("looper"+strconv.Itoa(i))] {
+			t.Fatalf("looper%d is not a member: %v", i, mem)
+		}
+	}
+	if err := g.Kill(""); err != nil {
+		t.Fatalf("Kill: %v", err)
+	}
+	for _, n := range []string{"looper1", "looper2", "looper3", "looper4", "looper5", "looper6", "leader"} {
+		if !goneWithin(tr.pid(n), tr.stamps[tr.pid(n)], 5*time.Second) {
+			t.Fatalf("%s survived Stop", n)
+		}
+	}
+	fact(t, "setpgid-looping members: 200 scans complete, all six listed in their session, ended by Stop")
+}
+
+func isLooper(tr *tree, pid int) bool {
+	for i := 1; i <= 6; i++ {
+		if tr.pids["looper"+strconv.Itoa(i)] == pid {
+			return true
+		}
+	}
+	return false
+}

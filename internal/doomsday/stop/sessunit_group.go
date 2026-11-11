@@ -134,10 +134,59 @@ func (g *sessGroup) SurvivorWhyFor(pid int) string {
 // handle, the re-read and the signal are not atomic; the window is a few instructions.
 func (g *sessGroup) signal(m SessProc, sig syscall.Signal) error {
 	cur, err := g.c.os.Info(m.PID)
-	if err != nil || cur.Stamp != m.Stamp {
+	switch {
+	case err == nil:
+		if cur.Stamp != m.Stamp {
+			return nil
+		}
+	case errors.Is(err, errSessGone):
 		return nil
+	default:
+		// the read failed: that is not evidence the member is gone (a member must not be able to starve the kill by making
+		// itself hard to read), so the plain start stamp is the identity, and without one the failure is returned, not hidden
+		sr, ok := g.c.os.(stampReader)
+		if !ok {
+			return fmt.Errorf("member %d cannot be read before the signal: %w", m.PID, err)
+		}
+		st, serr := sr.StampOf(m.PID)
+		switch {
+		case errors.Is(serr, errSessGone):
+			return nil
+		case serr != nil:
+			return fmt.Errorf("member %d cannot be read before the signal: %w", m.PID, serr)
+		case st != m.Stamp:
+			return nil
+		}
 	}
 	return g.c.os.Signal(m.PID, sig)
+}
+
+// killRecorded is what Stop does when the unit's processes cannot be listed at all: it does not give up. Every process
+// this group has seen as a member and every recorded leader is signalled by pid and start stamp (the identity the ledger
+// and the earlier reads gave), nothing else is touched, and the answer is NOT PROVEN: the unit may hold more.
+func (g *sessGroup) killRecorded(cause error) error {
+	ids := map[int]string{}
+	g.mu.Lock()
+	for pid, st := range g.known {
+		ids[pid] = st
+	}
+	g.mu.Unlock()
+	if g.c.led != nil {
+		if ls, err := g.c.led.Leaders(g.rec.Generation); err == nil {
+			for _, l := range ls {
+				if l.Unit == g.rec.CgroupID {
+					ids[l.PID] = l.Stamp
+				}
+			}
+		}
+	}
+	for pid, st := range ids {
+		_ = g.signal(SessProc{PID: pid, Stamp: st}, sessSigStop)
+	}
+	for pid, st := range ids {
+		_ = g.signal(SessProc{PID: pid, Stamp: st}, syscall.SIGKILL)
+	}
+	return fmt.Errorf("%w: the unit's processes could not be listed (%v); the %d recorded member(s) were signalled by pid and start stamp, nothing else", ErrNotProven, cause, len(ids))
 }
 
 // Signal signals one member after checking that it is one now.
@@ -176,7 +225,7 @@ func (g *sessGroup) Kill(string) error {
 		var err error
 		if v, err = g.members(); err != nil {
 			killFrozen() // a read that fails after the freeze must not leave the unit stopped
-			return err
+			return g.killRecorded(err)
 		}
 		fresh := false
 		for _, m := range v.members {
