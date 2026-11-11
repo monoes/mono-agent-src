@@ -93,6 +93,13 @@ func TestLeaderIsRefusedAfterItsUnitEnded(t *testing.T) {
 	mustNoErr(t, r.seq.AddLeader(4, Leader{PID: 503, Stamp: "4.000004", Unit: 42}))
 }
 
+// sessionHost makes the test a host whose unit is the session kind (no platform names it yet): only there is a unit sealed.
+func sessionHost(t *testing.T) {
+	t.Helper()
+	hostAs(t, "darwin")
+	platformKindsAs(t, "darwin", KindSession)
+}
+
 type endStub struct{ f func() UnitOutcome }
 
 func (e endStub) End(context.Context, uint64, []uint64) UnitOutcome { return e.f() }
@@ -100,6 +107,7 @@ func (e endStub) End(context.Context, uint64, []uint64) UnitOutcome { return e.f
 // The end seals a session unit BEFORE it proves it: a leader recorded after the proof's last scan would run in a unit the
 // end line then reports as ended. The leader is refused during the inner end, after it, and whatever the inner end answered.
 func TestEndSealsASessionUnitBeforeItIsProven(t *testing.T) {
+	sessionHost(t)
 	for name, answer := range map[string]UnitOutcome{
 		"ended":      {Kind: UnitBestEffort},
 		"not proven": {Kind: UnitNotProven},
@@ -134,6 +142,7 @@ func TestEndSealsASessionUnitBeforeItIsProven(t *testing.T) {
 // The seal is for the end of the unit only: an end that spares a begun operation (exclude) leaves the unit open, and a unit of
 // another kind gets no new line at all (the Linux and Windows ends are as they were).
 func TestEndSealsNothingWhenTheUnitIsNotEnding(t *testing.T) {
+	sessionHost(t)
 	r := newSeqRig(t)
 	mustNoErr(t, r.seq.Bound(UnitRecord{Kind: KindSession, Generation: 3, CgroupID: 42, Name: "u"}))
 	en := NewWitnessEnder(endStub{func() UnitOutcome { return UnitOutcome{Kind: UnitStragglers} }}, r.seq)
@@ -153,6 +162,7 @@ func TestEndSealsNothingWhenTheUnitIsNotEnding(t *testing.T) {
 // A seal that cannot be written (the witness refuses, or cannot even be read) never skips the kill, and never lets the unit
 // be recorded as ended: a clean end becomes NOT PROVEN, an unclean one keeps its kind and gains the reason.
 func TestSealFailureRunsTheEndButTheUnitIsNotRecordedAsEnded(t *testing.T) {
+	sessionHost(t)
 	for name, fail := range map[string]func(r *seqRig){
 		"append refused": func(r *seqRig) { r.fs.failAppend = true },
 		"witness unreadable": func(r *seqRig) {
@@ -171,6 +181,9 @@ func TestSealFailureRunsTheEndButTheUnitIsNotRecordedAsEnded(t *testing.T) {
 			if out.Kind != UnitNotProven || out.Note == "" {
 				t.Fatalf("a unit that could not be sealed was recorded as ended: %+v", out)
 			}
+			if out := NewWitnessEnder(endStub{func() UnitOutcome { return UnitOutcome{Kind: UnitNone} }}, r.seq).End(bg, 3, nil); out.Kind != UnitNotProven {
+				t.Fatalf("a run whose unit could not be found, after a failed seal, is not clean: %+v", out)
+			}
 			out = NewWitnessEnder(endStub{func() UnitOutcome { return UnitOutcome{Kind: UnitStragglers, Note: "x"} }}, r.seq).End(bg, 3, nil)
 			if out.Kind != UnitStragglers || out.Note == "x" || out.Note == "" {
 				t.Fatalf("%+v", out)
@@ -181,6 +194,7 @@ func TestSealFailureRunsTheEndButTheUnitIsNotRecordedAsEnded(t *testing.T) {
 
 // Every attempt of a retried Stop ends the unit again: the seal is written once.
 func TestSealIsWrittenOncePerUnit(t *testing.T) {
+	sessionHost(t)
 	r := newSeqRig(t)
 	mustNoErr(t, r.seq.Bound(UnitRecord{Kind: KindSession, Generation: 3, CgroupID: 42, Name: "u"}))
 	en := NewWitnessEnder(endStub{func() UnitOutcome { return UnitOutcome{Kind: UnitStragglers} }}, r.seq)
@@ -196,5 +210,26 @@ func TestSealIsWrittenOncePerUnit(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("%d seal lines after three attempts", n)
+	}
+}
+
+// Off a session host (every platform today) the end neither reads nor writes the witness for a seal: a bound session record
+// there gets no line, and an unreadable witness does not turn a clean end into NOT PROVEN.
+func TestSealIsInactiveOffTheSessionHost(t *testing.T) {
+	r := newSeqRig(t)
+	mustNoErr(t, r.seq.Bound(UnitRecord{Kind: KindSession, Generation: 3, CgroupID: 42, Name: "u"}))
+	before, _ := r.seq.W.Records()
+	if out := NewWitnessEnder(endStub{func() UnitOutcome { return UnitOutcome{Kind: UnitEnded} }}, r.seq).End(bg, 3, nil); out.Kind != UnitEnded {
+		t.Fatalf("%+v", out)
+	}
+	after, _ := r.seq.W.Records()
+	for _, rec := range after[len(before):] {
+		if rec.T == RecUnitSealed {
+			t.Fatal("a seal was written on a host that does not run session units")
+		}
+	}
+	r.fs.failRead["witness"] = true
+	if out := NewWitnessEnder(endStub{func() UnitOutcome { return UnitOutcome{Kind: UnitEnded} }}, r.seq).End(bg, 3, nil); out.Kind != UnitEnded {
+		t.Fatalf("an unreadable witness changed the end of a platform that has no session unit: %+v", out)
 	}
 }

@@ -39,10 +39,11 @@ func (s *Sequencer) AddLeader(gen uint64, l Leader) error {
 }
 
 // sealIfEnding seals the session units of the generation when the end is not sparing a begun operation (exclude empty): a
-// begun operation's units stay open because the unit is not over.
+// begun operation's units stay open because the unit is not over. It does nothing on a host whose unit is not the session
+// kind (every platform today), so no other end reads or writes the witness more than it did.
 func (s *Sequencer) sealIfEnding(gen uint64, exclude []uint64) error {
-	if len(exclude) > 0 {
-		return nil
+	if len(exclude) > 0 || hostKind() != KindSession {
+		return nil // only a host whose unit is the session kind has anything to seal: no other platform's end reads the witness more
 	}
 	return s.sealSessionUnits(gen)
 }
@@ -77,7 +78,7 @@ func (s *Sequencer) sealSessionUnits(gen uint64) error {
 func sealFailed(out UnitOutcome, err error) UnitOutcome {
 	note := "the session unit could not be sealed against a new leader, so its end is not recorded: " + err.Error()
 	switch out.Kind {
-	case UnitEnded, UnitEndedWithUnknown, UnitBestEffort:
+	case UnitEnded, UnitEndedWithUnknown, UnitBestEffort, UnitNone:
 		return UnitOutcome{Kind: UnitNotProven, Survivors: out.Survivors, Unknown: out.Unknown, Note: note}
 	}
 	if out.Note != "" {
