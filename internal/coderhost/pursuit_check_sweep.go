@@ -28,7 +28,8 @@ type confinerHousekeeping interface {
 // pursuitCheckStart runs once, after Recover and before the first pass. A check still running in a row was started by a host
 // that is gone (or by one that began before this one), so it is ended as abandoned, at the cap; only checks that started
 // before THIS host started are touched, so a check this host (or a host that began earlier) runs is never swept from under it.
-// With the checks set up it then clears what an earlier host left outside the database: scratch folders and the confiner's units.
+// With the checks set up it then clears what an earlier host left outside the database: first the confiner's units (a unit may
+// still be using a scratch folder), then the scratch folders.
 func (h *Host) pursuitCheckStart(ctx context.Context) {
 	h.hostStart = h.Store.now()
 	if !h.Pursuit.ready() {
@@ -44,9 +45,6 @@ func (h *Host) pursuitCheckStart(ctx context.Context) {
 		return
 	}
 	v := h.Pursuit.Verifier
-	if v.Scratch != "" {
-		sweepScratch(v.Scratch, h.logf)
-	}
 	if hk, ok := v.Confiner.(confinerHousekeeping); ok {
 		if units, err := hk.Sweep(ctx); err != nil {
 			h.logf("coder host: goal checks: the sweep of a dead host's units: %v", err)
@@ -56,6 +54,9 @@ func (h *Host) pursuitCheckStart(ctx context.Context) {
 		if _, err := hk.SweepEnv(ctx); err != nil {
 			h.logf("coder host: goal checks: the sweep of the manager's variables: %v", err)
 		}
+	}
+	if v.Scratch != "" {
+		sweepScratch(v.Scratch, h.logf)
 	}
 	if why := h.checkerBroken(); why != "" {
 		h.logf("coder host: %s", why)

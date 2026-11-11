@@ -35,7 +35,7 @@ var verifierBuilder = coderhost.NewVerifierDeps
 // attachVerifier turns the goal checks on in the deps when the flag asks for them and the loop is on. With the flag unset it
 // does nothing at all (nothing is built, the info stays as it was); with the flag set and no loop it says so and builds nothing;
 // a checker that cannot be set up leaves the loop as it is, with the reason in the info.
-func attachVerifier(ctx context.Context, getenv func(string) string, d *coderhost.PursuitDeps, info *coderhost.PursuitHostInfo, scratch string, forbidden []string) {
+func attachVerifier(ctx context.Context, getenv func(string) string, d *coderhost.PursuitDeps, info *coderhost.PursuitHostInfo, scratch string, forbidden coderhost.ForbiddenFolders) {
 	pin := strings.TrimSpace(getenv(envPursuitVerifier))
 	if pin == "" {
 		return

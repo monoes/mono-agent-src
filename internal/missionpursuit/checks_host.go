@@ -186,9 +186,11 @@ func (h HostChecks) Finish(ctx context.Context, checkID int64, res verifier.Resu
 }
 
 // AbandonRunning ends the running checks that started at or before startedBefore as abandoned (a restart of the host: the
-// check that was running is gone), and says how many. The host passes its own start time, so a check started after it (by
-// this host, or by another host process that began earlier) is never swept from under its goroutine; the time has one-second
-// resolution, like the rows. A zero time is refused. An abandoned check still counts against the caps, at the cap.
+// check that was running is gone), and says how many. The host passes its own start time, so a check this host starts afterwards
+// is never swept from under its goroutine; the time has one-second resolution, like the rows, so a row stamped in the same second as the
+// start is swept. It does not protect a check of ANOTHER live host process on the same database that started before this one:
+// host.lock allows one host per database, and that is what keeps this safe. A zero time is refused. An abandoned check still
+// counts against the caps, at the cap.
 func (h HostChecks) AbandonRunning(ctx context.Context, startedBefore time.Time) (int, error) {
 	if h.s == nil {
 		return 0, errNoHostChecks

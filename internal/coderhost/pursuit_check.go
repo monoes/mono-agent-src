@@ -37,8 +37,8 @@ type VerifierDeps struct {
 	// Confiner confines the programs of command and output criteria; nil means none exists here, and such criteria are not run
 	// unless the person allowed unconfined checks for the mission.
 	Confiner verifier.Confiner
-	// Forbidden are folders no check may use as the project: one that is, contains or lies inside any of them is refused.
-	Forbidden []string
+	// Forbidden are folders no check may use as the project (see ForbiddenFolders).
+	Forbidden ForbiddenFolders
 	// New builds the verifier over the host's meter; nil builds the real one. Tests give verifier.Fake.
 	New func(verifier.Meter) (verifier.Verifier, error)
 	// QuietFor, PrepEvery and WatchEvery are 2 minutes, 30 seconds and 5 seconds when zero.
@@ -173,7 +173,7 @@ func (h *Host) prepareCheck(ctx context.Context, rd *inputs.Reader, m pursuitMis
 		return
 	}
 	now := h.Pursuit.clock().Now()
-	if !h.treeQuiet(m.ID, root, now) {
+	if !h.treeQuiet(ctx, m.ID, root, now) {
 		return
 	}
 	dctx, cancel := context.WithTimeout(ctx, preDigestTimeout)

@@ -28,7 +28,7 @@ type VerifierInfo struct {
 // either absent (macOS, Windows, no systemd user session: command criteria are not run, unless the person allowed unconfined
 // checks for a mission, where the library can) or BROKEN (a user manager that cannot fence: a refusal that nothing, including the
 // person's switch, turns into an unconfined run).
-func NewVerifierDeps(ctx context.Context, pin, scratch string, forbidden []string) (*VerifierDeps, VerifierInfo) {
+func NewVerifierDeps(ctx context.Context, pin, scratch string, forbidden ForbiddenFolders) (*VerifierDeps, VerifierInfo) {
 	pin = strings.TrimSpace(pin)
 	info := VerifierInfo{Pin: pin}
 	if rt, md, ok := strings.Cut(pin, "/"); !ok || rt == "" || md == "" || strings.ContainsAny(pin, " \t\r\n") {

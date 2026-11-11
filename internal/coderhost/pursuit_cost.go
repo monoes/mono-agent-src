@@ -104,7 +104,7 @@ func PursuitCostRows(in CostInput) CostTable {
 		b.WriteString("- " + r.Text + "\n")
 	}
 	if in.VerifierSet {
-		fmt.Fprintf(&b, "- Goal checks are ON (checker %s; programs of command criteria: %s). A command or output criterion RUNS A PROGRAM on this computer, on a copy of your project, while you are away. A check costs at most %s, at most %d an away window and %d an hour on this computer, and counts toward the percent limit.\n",
+		fmt.Fprintf(&b, "- Goal checks are ON (checker %s; programs of command criteria: %s). A command or output criterion RUNS A PROGRAM on this computer, on a copy of your project, while you are away. A check costs at most %s, at most %d an away window and %d an hour on this computer, and counts toward the percent limit. On Linux with no user session manager (or a host started before the user bus exists) there is no fence at all, and then only your per-mission switch (task session pursuit allow-unconfined-checks) lets programs run, unfenced.\n",
 			in.VerifierPin, in.Confinement, UsdText(v), missionpursuit.MaxChecksPerAwayWindow, missionpursuit.MaxHostChecksPerHour)
 	}
 	b.WriteString("- Helpers the lead starts are NOT covered by the wake-up cap. Money the lead hands to helpers counts toward the percent limit, so a big hand-out makes the pursuit wait for you.\n")

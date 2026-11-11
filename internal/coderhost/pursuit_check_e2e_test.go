@@ -46,7 +46,7 @@ func TestAScriptedPursuitFromWorkToAChecksAnswer(t *testing.T) {
 	w.exec(`UPDATE ai_chat_conversations SET cwd = ? WHERE id = 'm'`, w.root)
 	rev, conf := &stubReviewer{}, &verifier.FakeConfiner{Label: "fake"}
 	scratch := t.TempDir()
-	w.h.Pursuit.Verifier = &VerifierDeps{Pin: "gemini/checker-1", Scratch: scratch, Confiner: conf, Forbidden: []string{"/nonexistent-home"},
+	w.h.Pursuit.Verifier = &VerifierDeps{Pin: "gemini/checker-1", Scratch: scratch, Confiner: conf, Forbidden: ForbiddenFolders{Ancestors: []string{"/nonexistent-home"}},
 		QuietFor: 2 * time.Minute, PrepEvery: 30 * time.Second, WatchEvery: 20 * time.Millisecond,
 		New: func(m verifier.Meter) (verifier.Verifier, error) {
 			return verifier.New(verifier.Config{Checker: "gemini/checker-1", ScratchBase: scratch, Meter: m, Exec: rev.exec, Confiner: conf,

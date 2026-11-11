@@ -3,6 +3,8 @@ package coderhost
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -188,7 +190,7 @@ func TestTheChecksNeedTheLoopAndIndependentPinsAndAFolder(t *testing.T) {
 	})
 	t.Run("the folder is forbidden", func(t *testing.T) {
 		w := newCW(t)
-		w.dep.Forbidden = []string{w.root}
+		w.dep.Forbidden = ForbiddenFolders{Trees: []string{w.root}}
 		w.step()
 		if got := w.waiting(); got != pursuitWaitingCannotCheck {
 			t.Fatalf("waiting = %q", got)
@@ -204,24 +206,29 @@ func TestTheProjectFolderRules(t *testing.T) {
 	w := newCW(t)
 	m := pursuitMission{ID: 77, Profile: "p", Conv: "m"}
 	for name, c := range map[string]struct {
-		cwd       string
-		forbidden []string
-		ok        bool
+		cwd string
+		fb  ForbiddenFolders
+		ok  bool
 	}{
-		"a plain folder":                    {w.root, []string{"/nonexistent"}, true},
-		"the root of the computer":          {"/", nil, false},
-		"the home folder itself":            {w.root, []string{w.root}, false},
-		"a parent of the state folder":      {w.root, []string{w.root + "/sub"}, false},
-		"inside the state folder":           {w.root + "/sub", []string{w.root}, false},
-		"a folder that does not exist":      {w.root + "/nope", nil, false},
-		"a file":                            {w.root + "/a.txt", nil, false},
-		"an empty path":                     {"", nil, false},
-		"a relative path":                   {"relative/dir", nil, false},
-		"a parent of the home folder":       {"/home", []string{"/home/someone"}, false},
-		"a sibling of the forbidden folder": {w.root, []string{w.root + "-other"}, true},
+		"a plain folder":                  {w.root, ForbiddenFolders{Ancestors: []string{"/nonexistent"}}, true},
+		"the root of the computer":        {"/", ForbiddenFolders{}, false},
+		"the home folder itself":          {w.root, ForbiddenFolders{Ancestors: []string{w.root}}, false},
+		"a folder inside the home folder": {w.root, ForbiddenFolders{Ancestors: []string{filepath.Dir(w.root)}}, true},
+		"a parent of the home folder":     {filepath.Dir(w.root), ForbiddenFolders{Ancestors: []string{w.root}}, false},
+		"the state folder":                {w.root, ForbiddenFolders{Trees: []string{w.root}}, false},
+		"inside the state folder":         {w.root + "/sub", ForbiddenFolders{Trees: []string{w.root}}, false},
+		"a parent of the state folder":    {w.root, ForbiddenFolders{Trees: []string{w.root + "/sub"}}, false},
+		"a sibling of the state folder":   {w.root, ForbiddenFolders{Trees: []string{w.root + "-other"}}, true},
+		"a folder that does not exist":    {w.root + "/nope", ForbiddenFolders{}, false},
+		"a file":                          {w.root + "/a.txt", ForbiddenFolders{}, false},
+		"an empty path":                   {"", ForbiddenFolders{}, false},
+		"a relative path":                 {"relative/dir", ForbiddenFolders{}, false},
 	} {
+		if c.cwd == w.root+"/sub" {
+			_ = os.MkdirAll(c.cwd, 0o755)
+		}
 		w.exec(`UPDATE ai_chat_conversations SET cwd = ? WHERE id = 'm'`, c.cwd)
-		w.dep.Forbidden = c.forbidden
+		w.dep.Forbidden = c.fb
 		root, why := w.h.checkSubject(m)
 		if (why == "") != c.ok {
 			t.Errorf("%s: root %q why %q, want ok=%v", name, root, why, c.ok)

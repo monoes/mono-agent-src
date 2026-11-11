@@ -52,7 +52,7 @@ func TestEachOfTheNineConditionsKeepsACheckFromStarting(t *testing.T) {
 		}},
 		{"a message is queued for the lead", func(w *cworld) { send(w.t, w.st, "m", "t9", "hello") }},
 		{"the tree keeps changing", func(w *cworld) {}}, // handled below: a write before every look
-		{"the project folder is the person's home", func(w *cworld) { w.dep.Forbidden = []string{w.root} }},
+		{"the project folder is the person's home", func(w *cworld) { w.dep.Forbidden = ForbiddenFolders{Trees: []string{w.root}} }},
 		{"the lead's chat has no folder", func(w *cworld) { w.exec(`UPDATE ai_chat_conversations SET cwd = '' WHERE id = 'm'`) }},
 		{"the pursuit is paused", func(w *cworld) { w.pause() }},
 		{"the pins are not independent", func(w *cworld) { w.leadPin = "gemini/checker-1" }},

@@ -75,7 +75,7 @@ func newCW(t *testing.T) *cworld {
 	w.fn = func(_ context.Context, req verifier.Request) (verifier.Result, error) {
 		return resultOf(req, verifier.OutcomeFailed, verifier.ReasonCriteriaFailed, 0, true), nil
 	}
-	w.dep = &VerifierDeps{Pin: "gemini/checker-1", Scratch: t.TempDir(), Forbidden: []string{"/nonexistent-home"},
+	w.dep = &VerifierDeps{Pin: "gemini/checker-1", Scratch: t.TempDir(), Forbidden: ForbiddenFolders{Ancestors: []string{"/nonexistent-home"}},
 		New:      func(verifier.Meter) (verifier.Verifier, error) { return scriptVerifier{w}, nil },
 		QuietFor: 2 * time.Minute, PrepEvery: 30 * time.Second, WatchEvery: 5 * time.Millisecond}
 	w.h.Pursuit.Verifier = w.dep

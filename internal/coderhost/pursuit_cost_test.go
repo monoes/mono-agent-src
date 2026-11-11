@@ -172,7 +172,7 @@ func TestTheCostTableAddsTheGoalChecksOnlyWhenTheyAreOn(t *testing.T) {
 			t.Errorf("%s: the checks add %v, want %v", key, got, extra)
 		}
 	}
-	if strings.Contains(off.Text, "Goal checks") || !strings.Contains(on.Text, "RUNS A PROGRAM") || !strings.Contains(on.Text, "gemini/checker") || !strings.Contains(on.Text, "one last goal check") {
+	if strings.Contains(off.Text, "Goal checks") || !strings.Contains(on.Text, "RUNS A PROGRAM") || !strings.Contains(on.Text, "gemini/checker") || !strings.Contains(on.Text, "one last goal check") || !strings.Contains(on.Text, "no user session manager") || !strings.Contains(on.Text, "allow-unconfined-checks") {
 		t.Errorf("texts:\n%s\n%s", off.Text, on.Text)
 	}
 	other := PursuitCostRows(CostInput{WakeCapUSD: DefaultWakeCapUSD, MissionBudgetUSD: 20, Pct: missionpursuit.DefaultPct, Wakes: missionpursuit.DefaultWakesMax,

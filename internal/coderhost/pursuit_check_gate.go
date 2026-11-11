@@ -2,6 +2,7 @@ package coderhost
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -88,18 +89,41 @@ func (h *Host) checkSubject(m pursuitMission) (root, why string) {
 	if real == string(filepath.Separator) || real == "." {
 		return "", "bad-subject: the project folder is the root of the computer"
 	}
-	for _, f := range h.Pursuit.Verifier.Forbidden {
-		if f = filepath.Clean(f); !filepath.IsAbs(f) {
-			continue
-		}
-		if r, err := filepath.EvalSymlinks(f); err == nil {
-			f = r
-		}
-		if pathWithin(f, real) || pathWithin(real, f) {
-			return "", "bad-subject: the project folder is, contains or lies inside the person's home or the host's own state folder"
-		}
+	if why := SubjectForbidden(real, h.Pursuit.Verifier.Forbidden); why != "" {
+		return "", why
 	}
 	return real, ""
+}
+
+// ForbiddenFolders are the folders no check may use as the project. A folder that is, or contains, an Ancestors entry is refused
+// (the person's home folder: a project UNDER it is the normal case and is fine). A folder that is, contains or lies inside a Trees
+// entry is refused (the host's own state folder, which holds the database and the vault).
+type ForbiddenFolders struct{ Ancestors, Trees []string }
+
+// SubjectForbidden says why a resolved project folder may not be a check's subject under f, or "".
+func SubjectForbidden(real string, f ForbiddenFolders) string {
+	for _, a := range f.Ancestors {
+		if a = resolvedAbs(a); a != "" && pathWithin(real, a) { // the folder is a, or contains a (a parent of the home folder)
+			return "bad-subject: the project folder is the person's home folder or contains it"
+		}
+	}
+	for _, t := range f.Trees {
+		if t = resolvedAbs(t); t != "" && (pathWithin(t, real) || pathWithin(real, t)) {
+			return "bad-subject: the project folder is, contains or lies inside the host's own state folder"
+		}
+	}
+	return ""
+}
+
+// resolvedAbs is a clean absolute path with its links resolved when it exists, or "" for a path that is not absolute.
+func resolvedAbs(p string) string {
+	if p = filepath.Clean(p); !filepath.IsAbs(p) {
+		return ""
+	}
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return p
 }
 
 // pathWithin says whether child is parent or lies under it.
@@ -158,6 +182,7 @@ type checkState struct {
 	checkQuiet   map[int64]*checkQuiet
 	checkNext    map[int64]time.Time // the earliest the next preparation of a mission may start
 	checkTried   map[int64]bool      // a check was started for the mission since this host started
+	checkBig     map[int64]bool      // the project is over maxManifestEntries (logged once)
 	checkerOnce  sync.Once
 	hostStart    time.Time
 	verifierWhy  string // why the checker could not be built, "" when it could
@@ -172,6 +197,25 @@ type checkRun struct {
 type checkQuiet struct {
 	root, manifest string
 	since          time.Time
+}
+
+// A folder with more entries than this is not looked at for quiet (its manifest would be a huge string every 30 seconds while the
+// one check slot is held): such a mission is never checked, and the host log says so once.
+var maxManifestEntries = 200000 // a variable only so a test can lower it
+
+const manifestTimeout = time.Minute
+
+func (h *Host) noteBigProject(session int64) {
+	h.checkMu.Lock()
+	first := !h.checkBig[session]
+	if h.checkBig == nil {
+		h.checkBig = map[int64]bool{}
+	}
+	h.checkBig[session] = true
+	h.checkMu.Unlock()
+	if first {
+		h.logf("coder host: goal check of session %d: the project has more than %d files, so it is not checked (too-many-files)", session, maxManifestEntries)
+	}
 }
 
 // checkPrepDue says whether a preparation of this mission's check may start now, and books the next one: a tree is looked at
@@ -191,9 +235,14 @@ func (h *Host) checkPrepDue(session int64, now time.Time) bool {
 
 // treeQuiet says whether nothing in the folder has been written for QuietFor, by comparing its stat manifest with the one
 // remembered from the last look. The first look, a changed manifest or a changed folder starts the wait again.
-func (h *Host) treeQuiet(session int64, root string, now time.Time) bool {
-	manifest, err := finish.StatManifest(root)
+func (h *Host) treeQuiet(ctx context.Context, session int64, root string, now time.Time) bool {
+	mctx, cancel := context.WithTimeout(ctx, manifestTimeout)
+	manifest, err := finish.StatManifestCtx(mctx, root, maxManifestEntries)
+	cancel()
 	if err != nil {
+		if errors.Is(err, finish.ErrTooManyFiles) {
+			h.noteBigProject(session)
+		}
 		return false
 	}
 	h.checkMu.Lock()
