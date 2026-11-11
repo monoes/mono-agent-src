@@ -43,6 +43,9 @@ type DataTableNode struct{}
 
 func (n *DataTableNode) Type() string { return "core.data_table" }
 
+// PublishesToThirdParty: core.data_table sends nothing off this machine (issue #1418).
+func (DataTableNode) PublishesToThirdParty() bool { return false }
+
 // PerItemConfigFields holds the table, values and filters back from the
 // engine's one-pass resolution (first item only): each item resolves its
 // own, as n8n does.

@@ -37,6 +37,9 @@ type HumanInLoopNode struct{}
 
 func (n *HumanInLoopNode) Type() string { return "core.human_in_loop" }
 
+// PublishesToThirdParty: core.human_in_loop sends nothing off this machine (issue #1418).
+func (HumanInLoopNode) PublishesToThirdParty() bool { return false }
+
 func (n *HumanInLoopNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	db := vault.DBFromContext(ctx)
 	if db == nil {

@@ -15,6 +15,9 @@ type TagNode struct{}
 
 func (n *TagNode) Type() string { return "applications.tag" }
 
+// PublishesToThirdParty: applications.tag sends nothing off this machine (issue #1418).
+func (TagNode) PublishesToThirdParty() bool { return false }
+
 func (n *TagNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	if globalStore == nil {
 		return nil, fmt.Errorf("applications.tag: store not available (call SetGlobalStore at startup)")

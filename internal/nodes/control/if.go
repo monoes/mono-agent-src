@@ -15,6 +15,9 @@ type IfNode struct{}
 
 func (n *IfNode) Type() string { return "core.if" }
 
+// PublishesToThirdParty: core.if sends nothing off this machine (issue #1418).
+func (IfNode) PublishesToThirdParty() bool { return false }
+
 // PerItemConfigFields declares that "condition" must not be pre-resolved
 // using only the first input item: both "all" mode (which evaluates it once,
 // deliberately using item[0]) and "per_item" mode (which evaluates it fresh

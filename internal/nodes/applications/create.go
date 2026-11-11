@@ -18,6 +18,9 @@ type CreateNode struct{}
 
 func (n *CreateNode) Type() string { return "applications.create" }
 
+// PublishesToThirdParty: applications.create sends nothing off this machine (issue #1418).
+func (CreateNode) PublishesToThirdParty() bool { return false }
+
 func (n *CreateNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	if globalStore == nil {
 		return nil, fmt.Errorf("applications.create: store not available (call SetGlobalStore at startup)")

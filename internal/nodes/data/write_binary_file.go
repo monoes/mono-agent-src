@@ -17,6 +17,9 @@ type WriteBinaryFileNode struct{}
 
 func (n *WriteBinaryFileNode) Type() string { return "data.write_binary_file" }
 
+// PublishesToThirdParty: data.write_binary_file sends nothing off this machine (issue #1418).
+func (WriteBinaryFileNode) PublishesToThirdParty() bool { return false }
+
 func (n *WriteBinaryFileNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	filePath, _ := config["file_path"].(string)
 	if filePath == "" {

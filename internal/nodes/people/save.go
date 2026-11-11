@@ -49,6 +49,9 @@ type PeopleSaveNode struct{}
 
 func (n *PeopleSaveNode) Type() string { return "people.save" }
 
+// PublishesToThirdParty: people.save sends nothing off this machine (issue #1418).
+func (PeopleSaveNode) PublishesToThirdParty() bool { return false }
+
 // PerItemConfigFields declares that "introduction", "category", and "job_title" can be template expressions evaluated per item.
 func (n *PeopleSaveNode) PerItemConfigFields() []string {
 	return []string{"introduction", "category", "job_title"}

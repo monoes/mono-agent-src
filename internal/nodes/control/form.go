@@ -39,6 +39,9 @@ type FormNode struct{}
 
 func (n *FormNode) Type() string { return "core.form" }
 
+// PublishesToThirdParty: core.form sends nothing off this machine (issue #1418).
+func (FormNode) PublishesToThirdParty() bool { return false }
+
 func (n *FormNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	pass := []workflow.NodeOutput{{Handle: "main", Items: input.Items}}
 	switch op, _ := config["operation"].(string); op {

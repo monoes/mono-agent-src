@@ -34,6 +34,9 @@ type JWTNode struct {
 
 func (n *JWTNode) Type() string { return "data.jwt" }
 
+// PublishesToThirdParty: data.jwt sends nothing off this machine (issue #1418).
+func (JWTNode) PublishesToThirdParty() bool { return false }
+
 // PerItemConfigFields keeps per-item values unresolved for Execute.
 func (n *JWTNode) PerItemConfigFields() []string { return []string{"token", "claims_json"} }
 

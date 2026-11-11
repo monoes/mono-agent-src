@@ -19,6 +19,9 @@ type CompressionNode struct{}
 
 func (n *CompressionNode) Type() string { return "data.compression" }
 
+// PublishesToThirdParty: data.compression sends nothing off this machine (issue #1418).
+func (CompressionNode) PublishesToThirdParty() bool { return false }
+
 func (n *CompressionNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	operation, _ := config["operation"].(string)
 	field, _ := config["input_field"].(string)

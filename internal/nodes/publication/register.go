@@ -15,6 +15,9 @@ import (
 type RegisterNode struct{}
 
 func (*RegisterNode) Type() string { return "publication.register" }
+
+// PublishesToThirdParty: publication.register sends nothing off this machine (issue #1418).
+func (*RegisterNode) PublishesToThirdParty() bool { return false }
 func (*RegisterNode) PerItemConfigFields() []string {
 	fields := []string{"approval"} // evaluated per item, like the entry's fields
 	for key := range publication.EntrySchema() {

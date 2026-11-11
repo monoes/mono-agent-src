@@ -89,6 +89,7 @@ var localOnlyTypes = map[string]string{
 	"publication.register":    "records an address; nothing is sent there",
 	"vault.secret_get":        "reads the local vault into the run (the taint)",
 	"vault.secret_save":       "writes the local vault",
+	"vector.embeddings":       "a sub-node's configuration; it does no I/O of its own (the root node embeds)",
 	"vector.document_loader":  "loads a local file",
 	"vector.load_document":    "loads a local file",
 	"vector.split_text":       "splits text",
@@ -171,7 +172,6 @@ var publishingTypes = map[string]string{
 	"system.execute_command":      "runs a command, which can reach anywhere",
 	"system.rss_read":             "the feed it fetches",
 	"vector.embed":                "an embedding provider or a vector store",
-	"vector.embeddings":           "an embedding provider or a vector store",
 	"vector.store":                "an embedding provider or a vector store",
 }
 

@@ -19,6 +19,9 @@ type SpreadsheetNode struct{}
 
 func (n *SpreadsheetNode) Type() string { return "data.spreadsheet" }
 
+// PublishesToThirdParty: data.spreadsheet sends nothing off this machine (issue #1418).
+func (SpreadsheetNode) PublishesToThirdParty() bool { return false }
+
 func (n *SpreadsheetNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	operation, _ := config["operation"].(string)
 	filePath, _ := config["file_path"].(string)
