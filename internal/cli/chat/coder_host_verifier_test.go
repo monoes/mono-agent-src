@@ -142,3 +142,86 @@ func TestTheRealForbiddenListLetsProjectsUnderHomeThrough(t *testing.T) {
 		}
 	}
 }
+
+// Credential folders under home, the real state folder (even when the database lives elsewhere), system trees, other users'
+// homes and /tmp itself are refused, with links into them resolved; the rest of home and a project under /tmp stay allowed.
+func TestTheRealForbiddenListRefusesCredentialAndSystemFolders(t *testing.T) {
+	home := t.TempDir()
+	if r, err := filepath.EvalSymlinks(home); err == nil {
+		home = r
+	}
+	t.Setenv("HOME", home)
+	elsewhere := t.TempDir() // the database path points away from ~/.monoagent
+	cfg := testDeps(&testConfig{DBPath: filepath.Join(elsewhere, "monoagent.db"), ProfileID: "default"})
+	f := verifierForbidden(cfg)
+	mk := func(rel string) string {
+		d := filepath.Join(home, rel)
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	for _, rel := range []string{".ssh", ".gnupg", ".aws", ".azure", ".kube", ".docker", ".config", ".claude", ".monomind", ".local/share/keyrings", ".password-store", "Library/Keychains", ".monoagent"} {
+		d := mk(rel)
+		for _, dir := range []string{d, mk(rel + "/inner")} {
+			if why := coderhost.SubjectForbidden(dir, f); why == "" {
+				t.Errorf("%s was accepted", dir)
+			}
+		}
+	}
+	for _, rel := range []string{"projects/x", ".local/share/other", ".cache", "Documents"} {
+		if why := coderhost.SubjectForbidden(mk(rel), f); why != "" {
+			t.Errorf("%s refused: %s", rel, why)
+		}
+	}
+	for _, sys := range []string{"/etc", "/etc/ssh", "/proc", "/sys", "/dev", "/run", "/var/run", "/boot", "/root", "/usr", "/usr/share", "/bin", "/sbin", "/lib", "/lib64", "/var/lib", "/var/lib/x", "/tmp", "/dev/shm"} {
+		real := sys // the host resolves links first (/bin is /usr/bin on some systems)
+		if r, err := filepath.EvalSymlinks(sys); err == nil {
+			real = r
+		}
+		if why := coderhost.SubjectForbidden(real, f); why == "" && !strings.HasPrefix(home, real+"/") && real != "/dev/shm" && real != "/tmp" {
+			t.Errorf("%s (%s) was accepted", sys, real)
+		}
+	}
+	if why := coderhost.SubjectForbidden("/tmp", f); why == "" {
+		t.Error("/tmp itself was accepted")
+	}
+	if why := coderhost.SubjectForbidden("/dev/shm", f); why == "" {
+		t.Error("/dev/shm itself was accepted")
+	}
+	if why := coderhost.SubjectForbidden("/tmp/x", f); why != "" {
+		t.Errorf("a project under /tmp refused: %s", why)
+	}
+	// another user's home: a sibling of the person's home under /home
+	other := coderhost.DefaultForbidden("/home/me", "/home/me/.monoagent")
+	if why := coderhost.SubjectForbidden("/home/someone-else/proj", other); why == "" {
+		t.Error("another user's folder was accepted")
+	}
+	if why := coderhost.SubjectForbidden("/Users/other", coderhost.DefaultForbidden("/Users/me")); why == "" {
+		t.Error("another user's folder under /Users was accepted")
+	}
+	if why := coderhost.SubjectForbidden("/home/me/proj", other); why != "" {
+		t.Errorf("own project refused: %s", why)
+	}
+	// links into them are resolved by the caller before the rule: a link to ~/.ssh and to /etc resolve to refused folders
+	ssh, etc := filepath.Join(t.TempDir(), "l1"), filepath.Join(t.TempDir(), "l2")
+	if os.Symlink(filepath.Join(home, ".ssh"), ssh) == nil && os.Symlink("/etc", etc) == nil {
+		for _, l := range []string{ssh, etc} {
+			real, _ := filepath.EvalSymlinks(l)
+			if why := coderhost.SubjectForbidden(real, f); why == "" {
+				t.Errorf("a link to %s was accepted", real)
+			}
+		}
+	}
+}
+
+// A person whose home is under one of the system trees (/root) can still check their own projects.
+func TestAHomeUnderASystemTreeKeepsItsProjects(t *testing.T) {
+	f := coderhost.DefaultForbidden("/root", "/root/.monoagent")
+	if why := coderhost.SubjectForbidden("/root/proj", f); why != "" {
+		t.Errorf("a project under /root refused for a root user: %s", why)
+	}
+	if why := coderhost.SubjectForbidden("/root/.ssh", f); why == "" {
+		t.Error("/root/.ssh accepted")
+	}
+}

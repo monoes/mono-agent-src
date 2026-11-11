@@ -173,19 +173,34 @@ func (h *Host) pursuitCheckStep(ctx context.Context, rd *inputs.Reader, m pursui
 // digestTree is finish.DigestTreeCtx; a variable only so a test can count the full digests.
 var digestTree = finish.DigestTreeCtx
 
-func (h *Host) checkSeenSum(session int64) string {
+// redigestEvery: even a tree whose stat manifest is unchanged is read in full again after this long, so that a rewrite that keeps
+// every size, time, inode and change time (where the platform has them) cannot keep showing an old result for ever. A consumer of
+// a check (S7c2's accept) must compare digests, not trust this signal.
+const redigestEvery = 10 * time.Minute
+
+// checkSeenSum is the manifest hash at the last full digest, or "" when none is remembered or it is older than redigestEvery.
+func (h *Host) checkSeenSum(session int64, now time.Time) string {
 	h.checkMu.Lock()
 	defer h.checkMu.Unlock()
-	return h.checkSeen[session]
+	s := h.checkSeen[session]
+	if now.Sub(s.at) >= redigestEvery {
+		return ""
+	}
+	return s.sum
 }
 
-func (h *Host) setSeenSum(session int64, sum string) {
+func (h *Host) setSeenSum(session int64, sum string, now time.Time) {
 	h.checkMu.Lock()
 	defer h.checkMu.Unlock()
 	if h.checkSeen == nil {
-		h.checkSeen = map[int64]string{}
+		h.checkSeen = map[int64]seenSum{}
 	}
-	h.checkSeen[session] = sum
+	h.checkSeen[session] = seenSum{sum: sum, at: now}
+}
+
+type seenSum struct {
+	sum string
+	at  time.Time
 }
 
 func (h *Host) checkRunning(session int64) bool {
@@ -233,7 +248,7 @@ func (h *Host) prepareCheck(ctx context.Context, rd *inputs.Reader, m pursuitMis
 	}
 	// The cheap signal first: a tree whose stat manifest is the one at the last full digest has not changed, so it is not read
 	// again (a check that did not pass would otherwise re-digest an unchanged project every 30 seconds while holding the slot).
-	if f.HaveLatest && !acted && h.checkSeenSum(m.ID) == sum {
+	if f.HaveLatest && !acted && h.checkSeenSum(m.ID, now) == sum {
 		return
 	}
 	dctx, cancel := context.WithTimeout(ctx, preDigestTimeout)
@@ -247,7 +262,7 @@ func (h *Host) prepareCheck(ctx context.Context, rd *inputs.Reader, m pursuitMis
 	}
 	// the same subject twice is not checked again unless the person acted since
 	if f.HaveLatest && f.LatestDigest != "" && f.LatestDigest == tree.Digest && !acted {
-		h.setSeenSum(m.ID, sum)
+		h.setSeenSum(m.ID, sum, now)
 		return
 	}
 	// Everything the start rests on is read again now: the digest can take minutes.
@@ -281,7 +296,7 @@ func (h *Host) prepareCheck(ctx context.Context, rd *inputs.Reader, m pursuitMis
 		h.backoffMission(m.ID)
 		return
 	}
-	h.setSeenSum(m.ID, sum)
+	h.setSeenSum(m.ID, sum, now)
 	cctx, ccancel := context.WithCancel(ctx)
 	defer ccancel()
 	h.checkMu.Lock()

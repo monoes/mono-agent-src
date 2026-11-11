@@ -104,43 +104,6 @@ func (h *Host) checkSubject(m pursuitMission) (root, why string) {
 	return real, ""
 }
 
-// ForbiddenFolders are the folders no check may use as the project. A folder that is, or contains, an Ancestors entry is refused
-// (the person's home folder: a project UNDER it is the normal case and is fine). A folder that is, contains or lies inside a Trees
-// entry is refused (the host's own state folder, which holds the database and the vault).
-type ForbiddenFolders struct{ Ancestors, Trees []string }
-
-// SubjectForbidden says why a resolved project folder may not be a check's subject under f, or "".
-func SubjectForbidden(real string, f ForbiddenFolders) string {
-	for _, a := range f.Ancestors {
-		if a = resolvedAbs(a); a != "" && pathWithin(real, a) { // the folder is a, or contains a (a parent of the home folder)
-			return "bad-subject: the project folder is the person's home folder or contains it"
-		}
-	}
-	for _, t := range f.Trees {
-		if t = resolvedAbs(t); t != "" && (pathWithin(t, real) || pathWithin(real, t)) {
-			return "bad-subject: the project folder is, contains or lies inside the host's own state folder"
-		}
-	}
-	return ""
-}
-
-// resolvedAbs is a clean absolute path with its links resolved when it exists, or "" for a path that is not absolute.
-func resolvedAbs(p string) string {
-	if p = filepath.Clean(p); !filepath.IsAbs(p) {
-		return ""
-	}
-	if r, err := filepath.EvalSymlinks(p); err == nil {
-		return r
-	}
-	return p
-}
-
-// pathWithin says whether child is parent or lies under it.
-func pathWithin(parent, child string) bool {
-	rel, err := filepath.Rel(parent, child)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-}
-
 // checkMergesDone says whether every settled non-epic task's latest writer branch has been merged (the mission close refuses
 // on the same list, dynorg's mergesRemaining; this is its SQL form over the same artifacts: the newest branch of a task, and a
 // merge of that ref recorded after it). An unreadable answer is "not done": nothing is spent on a guess.
@@ -191,7 +154,7 @@ type checkState struct {
 	checkQuiet   map[int64]*checkQuiet
 	checkNext    map[int64]time.Time // the earliest the next preparation of a mission may start
 	checkTried   map[int64]bool      // a check was started for the mission since this host started
-	checkSeen    map[int64]string    // the stat manifest hash at the last full digest of the mission (a cheap change signal)
+	checkSeen    map[int64]seenSum   // the stat manifest hash at the last full digest of the mission (a cheap change signal)
 	checkBig     map[int64]bool      // the project is over maxManifestEntries (logged once)
 	checkerOnce  sync.Once
 	hostStart    time.Time

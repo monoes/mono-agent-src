@@ -119,3 +119,45 @@ func TestTheReviewerFailingStopFiresAcrossAwayWindows(t *testing.T) {
 		t.Error("the person acted and the stop is still there")
 	}
 }
+
+// ~/.MonoAgent is ~/.monoagent where the file system ignores case (macOS, Windows); on Linux it is another folder. The compare
+// function is run for both, so this holds on every platform.
+func TestPathsCompareWithoutCaseWhereTheFileSystemDoes(t *testing.T) {
+	if !pathWithinFold("/Users/me/.monoagent", "/Users/me/.MonoAgent/vault", true) {
+		t.Error("with folding, ~/.MonoAgent/vault is inside ~/.monoagent")
+	}
+	if pathWithinFold("/home/me/.monoagent", "/home/me/.MonoAgent/vault", false) {
+		t.Error("without folding, the two are different folders")
+	}
+	old := foldCase
+	foldCase = true
+	t.Cleanup(func() { foldCase = old })
+	f := ForbiddenFolders{Trees: []string{"/nonexistent-home/.monoagent"}}
+	if why := SubjectForbidden("/nonexistent-home/.MonoAgent/x", f); why == "" {
+		t.Error("a differently cased state folder was accepted where case is ignored")
+	}
+}
+
+// An unchanged manifest is trusted for ten minutes only: then the tree is read in full once more (a rewrite that keeps size and
+// mtime must not keep an old result for ever). Revert proof: remove the age rule and the digest count never moves.
+func TestAnUnchangedProjectIsReadInFullAgainAfterTenMinutes(t *testing.T) {
+	var n int
+	old := digestTree
+	digestTree = func(ctx context.Context, root, to string) (finish.Tree, error) { n++; return old(ctx, root, to) }
+	t.Cleanup(func() { digestTree = old })
+	w := newCW(t)
+	w.untilChecked(1)
+	base := n
+	for i := 0; i < 4; i++ {
+		w.step()
+	}
+	if n != base {
+		t.Fatalf("digests %d -> %d inside the ten minutes", base, n)
+	}
+	w.advance(11 * time.Minute)
+	w.step()
+	w.step()
+	if n != base+1 || w.checkRows() != 1 {
+		t.Errorf("digests %d -> %d, checks %v: want one more full read and no new check", base, n, w.checks())
+	}
+}

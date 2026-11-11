@@ -62,15 +62,12 @@ func hostDir(cfg *Deps) string {
 	return coderhost.HostDir(clicore.ExpandPath(cfg.DBPath()))
 }
 
-// verifierForbidden are the folders no goal check may use as the project: the person's home folder (the folder itself and
-// anything that contains it; a project under home is fine) and the folder of the host's own state (the database, the vault, the
-// scratch folder: it and everything in it).
+// verifierForbidden are the folders no goal check may use as the project (coderhost.DefaultForbidden): the person's home folder
+// itself, credential folders under it, system trees, other users' homes and the host's state, which always includes the real
+// ~/.monoagent even when the database path points elsewhere.
 func verifierForbidden(cfg *Deps) coderhost.ForbiddenFolders {
-	f := coderhost.ForbiddenFolders{Trees: []string{filepath.Dir(clicore.ExpandPath(cfg.DBPath()))}}
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		f.Ancestors = append(f.Ancestors, home)
-	}
-	return f
+	home, _ := os.UserHomeDir()
+	return coderhost.DefaultForbidden(home, filepath.Dir(clicore.ExpandPath(cfg.DBPath())))
 }
 
 func hostLockPath(cfg *Deps) string { return filepath.Join(hostDir(cfg), "host.lock") }

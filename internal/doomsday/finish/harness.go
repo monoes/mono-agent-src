@@ -342,7 +342,7 @@ func StatManifestCtx(ctx context.Context, root string, maxEntries int) (string, 
 			return err
 		}
 		rel, _ := filepath.Rel(root, p)
-		fmt.Fprintf(&b, "%s|%d|%d|%d\n", rel, info.Size(), info.Mode(), info.ModTime().UnixNano())
+		fmt.Fprintf(&b, "%s|%d|%d|%d%s\n", rel, info.Size(), info.Mode(), info.ModTime().UnixNano(), statExtra(info))
 		return nil
 	})
 	return b.String(), err
