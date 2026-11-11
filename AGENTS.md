@@ -357,16 +357,34 @@ granted secret may go, not what it is used as. Under agent access:
   address is checked; a 301/302/303 that turns a POST into a GET sends no body
   and is not refused for it.
 - The taint is per run, so a local store would carry a value to another run: the
-  nodes that write one (a data table, files, application and publication records,
-  the vault: `WritesLocalStore()`) refuse a value the run has read.
+  nodes that write one (a data table, files, chat memory, application and publication records,
+  human-in-the-loop cards, the vault: `WritesLocalStore()`) refuse a value the run
+  has read.
 - To graduate such a workflow, approve it.
 
-Known gaps: `browser.jev`, `{{secret:}}` in automations, MCP headers and env,
-and per-item database overlays resolve inside the node, so the node that reads
-is not refused by its own read (later nodes are); a body an expression builds
-from an echoed value in a form nobody lists (reversed, chunked) to a granted
-host passes the value scan; a store another process fills, or image and binary
-data, is not scanned.
+Known limits:
+
+- `browser.jev`, `{{secret:}}` in automations, MCP headers and env, and per-item
+  database overlays resolve inside the node, so the node that reads is not
+  refused by its own read (later nodes are).
+- The value scan (a request body, a store write) finds the forms masking tracks:
+  the value, base64 (four variants, aligned at the start), URL and JSON escapes,
+  `-`/`_` swaps, hex, upper and lower case. An unaligned base64, a `data.jwt`
+  token whose claims embed it, or a value split across columns or chunks passes.
+  A store write also scans the outputs of earlier nodes when a field holds an
+  expression, so a read followed by any such write is refused (a short secret
+  inside a longer number, a timestamp say, is a false positive: the message names
+  the node, the field and the secret).
+- A secret in a URL's path, fragment or user info is bound to the grant's hosts
+  but not refused as content; only the body and the query string are.
+- The child taint reads the audit: if you clear the audit between a child's
+  read and its parent's consume, the taint is lost. That lookup (`execution_id IN
+  (...)`) has no index and runs once per consume.
+- The write scan is linear and not streaming: a 50 MB row costs about 70 ms and
+  150 MB of memory under agent access. Outside it nothing is copied.
+- A store another process fills, and image or binary data, is not scanned; the
+  store-writing nodes are found by reading the packages' source
+  (`internal/noderegistry`), which is a heuristic.
 
 ## Publication history
 

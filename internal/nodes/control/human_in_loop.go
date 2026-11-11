@@ -40,6 +40,9 @@ func (n *HumanInLoopNode) Type() string { return "core.human_in_loop" }
 // PublishesToThirdParty: core.human_in_loop sends nothing off this machine (issue #1418).
 func (HumanInLoopNode) PublishesToThirdParty() bool { return false }
 
+// WritesLocalStore: a human-in-the-loop card keeps the items it shows in the approvals table (issue #1418).
+func (HumanInLoopNode) WritesLocalStore() bool { return true }
+
 func (n *HumanInLoopNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	db := vault.DBFromContext(ctx)
 	if db == nil {

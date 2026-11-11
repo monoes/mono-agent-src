@@ -114,6 +114,7 @@ type accessState struct {
 
 	mu    sync.Mutex
 	seen  map[string]struct{} // values resolved in this run, and their derived forms
+	owner map[string]string   // each tracked form, to the name of the secret it came from
 	names map[string]struct{} // secrets read in this run, by name
 	nodes map[string]struct{} // steps (by id) that resolved a secret in this run
 	read  bool                // some step of this run (or of the run that seeded it) read a secret
@@ -256,8 +257,12 @@ func (a *accessState) track(name, value string) {
 	defer a.mu.Unlock()
 	a.names[name] = struct{}{}
 	a.read = true
+	if a.owner == nil {
+		a.owner = map[string]string{}
+	}
 	for _, f := range derivedForms(value) {
 		a.seen[f] = struct{}{}
+		a.owner[f] = name
 	}
 }
 

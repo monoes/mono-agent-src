@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync/atomic"
 
 	"github.com/monoes/mono-agent/internal/secrets"
@@ -67,7 +68,20 @@ func RunExecGuardFor(ctx context.Context, e NodeExecutor, in NodeInput, config m
 		}
 		rawItems, _ := json.Marshal(items)
 		rawConfig, _ := json.Marshal(config)
-		if err := secrets.CheckStoreWrite(ctx, e.Type(), string(rawItems), string(rawConfig)); err != nil {
+		fields := []secrets.StoreField{{Name: "input items", Text: string(rawItems)}, {Name: "configuration", Text: string(rawConfig)}}
+		// A per-item field the node evaluates itself ({{ $node["Src"].json.v }})
+		// reaches the outputs of every earlier node, which are not its input.
+		if strings.Contains(string(rawConfig), "{{") && len(in.NodeOutputs) > 0 {
+			earlier := map[string][]map[string]interface{}{}
+			for name, its := range in.NodeOutputs {
+				for _, it := range its {
+					earlier[name] = append(earlier[name], it.JSON)
+				}
+			}
+			rawOut, _ := json.Marshal(earlier)
+			fields = append(fields, secrets.StoreField{Name: "expressions over the outputs of earlier nodes", Text: string(rawOut)})
+		}
+		if err := secrets.CheckStoreWrite(ctx, e.Type(), fields...); err != nil {
 			return nil, true, err
 		}
 	}

@@ -38,6 +38,9 @@ func (n *MemoryNode) Type() string { return "agent.memory" }
 // PublishesToThirdParty: agent.memory sends nothing off this machine (issue #1418).
 func (MemoryNode) PublishesToThirdParty() bool { return false }
 
+// WritesLocalStore: agent.memory's insert writes message content into the chat memory another run reads (issue #1418).
+func (MemoryNode) WritesLocalStore() bool { return true }
+
 // PerItemConfigFields holds the session key and the messages back from the
 // engine's one-pass resolution (first item only): each item resolves its own.
 func (n *MemoryNode) PerItemConfigFields() []string { return []string{"session_key", "messages"} }

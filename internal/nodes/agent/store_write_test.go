@@ -30,17 +30,17 @@ func guarded(ctx context.Context, node workflow.NodeExecutor, in workflow.NodeIn
 func TestAgentAccessTaintedRunDoesNotWriteASecretIntoChatMemory(t *testing.T) {
 	keyring.MockInit()
 	db := testdb.Open(t).DB
-	base := vault.ContextWithProfileID(vault.ContextWithDB(context.Background(), db), "p1")
+	base := vault.ContextWithProfileID(vault.ContextWithDB(context.Background(), db), "default")
 	const value = "vsecret-777"
-	if _, err := secrets.Add(base, db, "p1", "secret", "vs", map[string]string{"secret": value}, "", "", ""); err != nil {
+	if _, err := secrets.Add(base, db, "default", "secret", "vs", map[string]string{"secret": value}, "", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := secrets.SetAgentAccessGrant(base, db, "p1", secrets.AccessGrant{AnyHost: true}); err != nil {
+	if err := secrets.SetAgentAccessGrant(base, db, "default", secrets.AccessGrant{AnyHost: true}); err != nil {
 		t.Fatal(err)
 	}
-	ctx := secrets.WithAccessNodeType(secrets.WithAccessNode(secrets.AllowResolving(base, db, "p1", secrets.AccessOrigin{WorkflowID: "wf1"}), "n1", "Memory"), "agent.memory")
+	ctx := secrets.WithAccessNodeType(secrets.WithAccessNode(secrets.AllowResolving(base, db, "default", secrets.AccessOrigin{WorkflowID: "wf1"}), "n1", "Memory"), "agent.memory")
 	cfg := map[string]interface{}{"x": "@secret:vs"}
-	if err := secrets.ResolveConfig(ctx, db, "p1", map[string]interface{}{"x": "@secret:vs"}, cfg); err != nil {
+	if err := secrets.ResolveConfig(ctx, db, "default", map[string]interface{}{"x": "@secret:vs"}, cfg); err != nil {
 		t.Fatal(err)
 	}
 	node := &MemoryNode{}
@@ -62,7 +62,7 @@ func TestAgentAccessTaintedRunDoesNotWriteASecretIntoChatMemory(t *testing.T) {
 	}
 	// A fresh run (clean access state) reads the sessions back: nothing there.
 	for _, sid := range []string{"s1", "s2"} {
-		if got := stored(t, db, "p1", sid); len(got) != 0 {
+		if got := stored(t, db, "default", sid); len(got) != 0 {
 			t.Errorf("session %s holds %v for the next run to read", sid, got)
 		}
 	}

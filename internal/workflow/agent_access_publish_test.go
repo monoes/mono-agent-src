@@ -155,11 +155,15 @@ func TestAnExecutorThatDeclaresNothingPublishes(t *testing.T) {
 // Every dispatch point goes through RunExecGuardFor: any reference to
 // RunExecGuard (a call, a method value, an alias, in any package) outside
 // internal/workflow/exec_guard.go would skip the content guard; and any
-// other place that calls a node's Execute(ctx, input, config) is listed with
-// why it is guarded or why it is not an agent's path.
+// other place that calls a node's Execute(ctx, input, config), or takes
+// Execute as a method value, is listed with why it is guarded or why it is not
+// an agent's path. A call with another number of arguments (a wrapper), an
+// interface hidden behind another name, reflection and go:linkname are not
+// seen: this is a regression pin, not a proof.
 func TestNoDispatchPointReferencesRunExecGuardDirectly(t *testing.T) {
 	var bad, extra []string
 	executes := map[string]int{}
+	calls := map[*ast.SelectorExpr]bool{}
 	walk := func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -192,9 +196,20 @@ func TestNoDispatchPointReferencesRunExecGuardDirectly(t *testing.T) {
 					bad = append(bad, rel)
 				}
 			case *ast.CallExpr:
-				if sel, ok := x.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Execute" && len(x.Args) == 3 {
-					executes[rel]++
+				if sel, ok := x.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Execute" {
+					calls[sel] = true
+					if len(x.Args) == 3 {
+						executes[rel]++
+					}
 				}
+			}
+			return true
+		})
+		// A method value (f := n.Execute) is a call this scan cannot see by
+		// arity: any Execute selector that is not itself called is counted.
+		ast.Inspect(f, func(n ast.Node) bool {
+			if sel, ok := n.(*ast.SelectorExpr); ok && sel.Sel.Name == "Execute" && !calls[sel] {
+				executes[rel+" (method value)"]++
 			}
 			return true
 		})
@@ -206,14 +221,15 @@ func TestNoDispatchPointReferencesRunExecGuardDirectly(t *testing.T) {
 	}
 	// Direct node Execute calls, by file, and why each is not a way around the guard.
 	known := map[string]int{
-		"internal/workflow/execution_retry.go":    1, // runAttempt: the else branch of RunExecGuardFor
-		"internal/workflow/execution_subnodes.go": 1, // a tool call: the else branch of RunExecGuardFor
-		"internal/cli/node/run.go":                2, // :387 after RunExecGuardFor; the second saves the guarded node's own scraped profiles
-		"internal/cli/people/messages_compose.go": 1, // after RunExecGuardFor
-		"internal/mcp/node_run.go":                1, // after RunExecGuardFor
-		"internal/nodes/vector/subnodes.go":       1, // the document loader inside vector.embed / vector.store, which are publishing and guarded
-		"internal/nodes/evalnode/sheets.go":       1, // the user's own `workflow evaluate` harness reading a dataset
-		"internal/evaluation/dataset.go":          1, // the same harness
+		"internal/workflow/execution_retry.go":                     1, // runAttempt: the else branch of RunExecGuardFor
+		"internal/workflow/execution_subnodes.go":                  1, // a tool call: the else branch of RunExecGuardFor
+		"internal/cli/node/run.go":                                 2, // :387 after RunExecGuardFor; the second saves the guarded node's own scraped profiles
+		"internal/cli/people/messages_compose.go":                  1, // after RunExecGuardFor
+		"internal/mcp/node_run.go":                                 1, // after RunExecGuardFor
+		"internal/nodes/vector/subnodes.go":                        1, // the document loader inside vector.embed / vector.store, which are publishing and guarded
+		"internal/nodes/evalnode/sheets.go":                        1, // the user's own `workflow evaluate` harness reading a dataset
+		"internal/evaluation/dataset.go":                           1, // the same harness
+		"internal/nodes/service/outlook_apppass.go (method value)": 2, // service.outlook_mail, publishing and guarded at its own call, delegates to the comm.outlook nodes
 	}
 	for file, n := range executes {
 		switch {

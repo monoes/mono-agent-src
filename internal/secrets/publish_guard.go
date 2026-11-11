@@ -104,21 +104,31 @@ func TaintResolved(ctx context.Context, names []string) {
 	}
 }
 
+// StoreField is a text a store writer is given, and what it is called in a
+// refusal.
+type StoreField struct{ Name, Text string }
+
 // CheckStoreWrite refuses a write of a secret a run under agent access has
 // read into a local store another run can read back (a table, a file, a
 // record): the taint is per run, so run 2 would start clean and publish what
-// run 1 stored (issue #1418). texts are what the node is given to write. A
-// caller checks UnderAgentAccess first, so no text is built outside it.
-func CheckStoreWrite(ctx context.Context, nodeType string, texts ...string) error {
+// run 1 stored (issue #1418). fields are what the node is given to write. The
+// message names the field and the secret (a name the run itself read, never
+// its value). A caller checks UnderAgentAccess first, so no text is built
+// outside it.
+func CheckStoreWrite(ctx context.Context, nodeType string, fields ...StoreField) error {
 	a := accessOf(ctx)
 	if a == nil {
 		return nil
 	}
 	for _, v := range a.values() {
-		for _, t := range texts {
-			if strings.Contains(t, v) {
-				return fmt.Errorf("%w: %s would store a granted secret where another run can read it back and publish it; %s",
-					ErrPublishesSecret, a.who(ctx, nodeType), a.wayOut())
+		for _, f := range fields {
+			if strings.Contains(f.Text, v) {
+				a.mu.Lock()
+				owner := a.owner[v]
+				a.mu.Unlock()
+				return fmt.Errorf("%w: %s would store the value of the granted secret %q in its %s, where another run can read it back and publish it; "+
+					"if this is a coincidence (a short secret inside a longer number, a timestamp), %s",
+					ErrPublishesSecret, a.who(ctx, nodeType), owner, f.Name, a.wayOut())
 			}
 		}
 	}

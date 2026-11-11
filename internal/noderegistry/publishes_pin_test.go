@@ -41,7 +41,7 @@ var localOnlyTypes = map[string]string{
 	"core.execute_workflow":   "runs a sub-workflow; the taint is seeded into it (SeedResolved)",
 	"core.filter":             "filters items",
 	"core.form":               "serves a form on this machine; items are not sent anywhere",
-	"core.human_in_loop":      "shows the owner a card (the card itself is a persistence question, hilsend)",
+	"core.human_in_loop":      "shows the owner a card; the card is a store (see storeWriters)",
 	"core.if":                 "routes items",
 	"core.limit":              "trims items",
 	"core.merge":              "joins items",
@@ -286,6 +286,7 @@ func TestExecutorsDeclareWhatTheTableClassifies(t *testing.T) {
 var storeWriters = map[string]string{
 	"core.data_table":         "rows of a local table",
 	"agent.memory":            "chat memory messages (insert), read back by agent.memory get and agent.ask",
+	"core.human_in_loop":      "a card in the approvals table, with the items it shows",
 	"data.read_write_file":    "writes a file",
 	"data.write_binary_file":  "writes a file",
 	"data.convert_to_file":    "makes the binary a file writer stores",
