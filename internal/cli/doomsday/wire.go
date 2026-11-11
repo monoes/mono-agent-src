@@ -235,8 +235,55 @@ func (w Wiring) openInfos(ctx context.Context) ([]stop.RunInfo, error) {
 	return out, err
 }
 
-// WithLedger stub (red commit).
-func (w Wiring) WithLedger() Wiring { return w }
+// witnessLedger is the session unit's leader ledger over the profile's witness. The witness is built when a call needs it (the
+// Sequencer is a lazy, shared pin), never at construction; a call that cannot get it is an error, never an empty list.
+type witnessLedger struct{ w Wiring }
 
-// UnitEnded stub (red commit).
-func (w Wiring) UnitEnded(gen, unit uint64) (bool, error) { return false, nil }
+var _ stop.LeaderLedger = witnessLedger{}
+
+func (l witnessLedger) Leaders(gen uint64) ([]stop.Leader, error) {
+	seq, err := l.w.Sequencer(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	return seq.Leaders(gen)
+}
+
+func (l witnessLedger) AddLeader(gen uint64, x stop.Leader) error {
+	seq, err := l.w.Sequencer(context.Background())
+	if err != nil {
+		return err
+	}
+	return seq.AddLeader(gen, x)
+}
+
+func (l witnessLedger) RetireLeader(gen uint64, x stop.Leader) error {
+	seq, err := l.w.Sequencer(context.Background())
+	if err != nil {
+		return err
+	}
+	return seq.RetireLeader(gen, x)
+}
+
+// WithLedger is the wiring whose Kernel also carries the witness as the leader ledger of a session unit (stop.WithLeaderLedger): the
+// session unit finds its leaders there when it is proven, placed into, adopted into or ended, in every process that builds the
+// kernel through this wiring. No kernel stays no kernel, and a kernel that already carries a ledger is left alone.
+func (w Wiring) WithLedger() Wiring {
+	if w.Kernel == nil {
+		return w
+	}
+	if _, ok := w.Kernel.(stop.LeaderLedger); ok {
+		return w
+	}
+	w.Kernel = stop.WithLeaderLedger(w.Kernel, witnessLedger{w: w})
+	return w
+}
+
+// UnitEnded says whether the end line of the unit is in the witness: the host lets go of the leaders it holds for a unit when it is.
+func (w Wiring) UnitEnded(gen, unit uint64) (bool, error) {
+	seq, err := w.Sequencer(context.Background())
+	if err != nil {
+		return false, err
+	}
+	return seq.UnitEndedLine(gen, unit)
+}

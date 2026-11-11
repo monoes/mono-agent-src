@@ -247,3 +247,21 @@ func TestInstallGivesTheLauncherAnAdoptHook(t *testing.T) {
 		t.Fatalf("held=%v err=%v", held, err)
 	}
 }
+
+// With no way to learn of a unit's end the holds are still let go at shutdown.
+func TestHoldsWithNoEndSourceAreStillReleasedAtShutdown(t *testing.T) {
+	g, w, spy := adoptGate(t)
+	w.start(t)
+	g.UnitEnded = nil
+	withPlacement(t, &adopterPlace{unit: 9}, nil)
+	if _, err := g.Adopt("p1", "c1", 100, "1.000001"); err != nil {
+		t.Fatal(err)
+	}
+	if got := spy.got(); len(got) != 0 {
+		t.Fatalf("released early: %v", got)
+	}
+	g.ReleaseAllHolds()
+	if got := spy.got(); len(got) != 1 || got[0] != 9 {
+		t.Fatalf("released %v", got)
+	}
+}

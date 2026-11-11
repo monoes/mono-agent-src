@@ -45,32 +45,30 @@ func (g *HostGate) PlaceRelease(cmd *exec.Cmd, profile, conv string) (release fu
 // newPlacer is stop.NewPlacer; a seam so a test can hand the gate the placement of a unit kind the test host does not use.
 var newPlacer = stop.NewPlacer
 
-// Adopt stub (red commit).
-func (g *HostGate) Adopt(profile, conv string, pid int, stamp string) (held bool, err error) {
-	return false, nil
-}
-
-// ReleaseAllHolds stub (red commit).
-func (g *HostGate) ReleaseAllHolds() {}
-
 // placer returns the placer of the profile's open run, nil with no run open.
 func (g *HostGate) placer(profile, conv string) (stop.Placement, error) {
+	pl, _, err := g.placerRun(profile, conv)
+	return pl, err
+}
+
+// placerRun is placer with the generation of the run it belongs to.
+func (g *HostGate) placerRun(profile, conv string) (stop.Placement, int64, error) {
 	if profile != g.Profile {
-		return nil, fmt.Errorf("the open-ended mode is wired for profile %q, not %q (conversation %s): nothing was started", g.Profile, profile, conv)
+		return nil, 0, fmt.Errorf("the open-ended mode is wired for profile %q, not %q (conversation %s): nothing was started", g.Profile, profile, conv)
 	}
 	runs, err := g.Store.OpenRuns(context.Background(), g.Profile)
 	if g.activity().failOpen(runs, err, g.RunDir, g.Store, g.Profile) {
-		return nil, nil // no run is known and the table cannot be listed: nothing to place
+		return nil, 0, nil // no run is known and the table cannot be listed: nothing to place
 	}
 	if err != nil {
-		return nil, fmt.Errorf("the run state cannot be read (conversation %s): %w", conv, err)
+		return nil, 0, fmt.Errorf("the run state cannot be read (conversation %s): %w", conv, err)
 	}
 	if len(runs) == 0 {
-		return nil, nil
+		return nil, 0, nil
 	}
 	pl, err := newPlacer(g.Kernel, g.RunDir, uint64(runs[0].Generation))
 	if err != nil {
-		return nil, fmt.Errorf("conversation %s: %w", conv, err)
+		return nil, 0, fmt.Errorf("conversation %s: %w", conv, err)
 	}
-	return pl, nil
+	return pl, runs[0].Generation, nil
 }

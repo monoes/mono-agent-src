@@ -45,7 +45,10 @@ func TestWithLedgerLeavesNoKernelAloneAndBuildsNothingUntilUsed(t *testing.T) {
 	}
 	real := PinFunc
 	pins := 0
-	PinFunc = func(context.Context, stop.PinOptions) (*stop.Pinned, error) { pins++; return nil, errors.New("counted") }
+	PinFunc = func(context.Context, stop.PinOptions) (*stop.Pinned, error) {
+		pins++
+		return nil, errors.New("counted")
+	}
 	defer func() { PinFunc = real }()
 	r, _ := newWire(t, func() error { return nil }, fakeKernel{}, nil)
 	w := r.w.WithLedger()
