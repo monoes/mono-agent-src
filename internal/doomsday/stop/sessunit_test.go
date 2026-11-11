@@ -116,16 +116,22 @@ func TestSessEndTermsThenFreezesThenKillsAndIsBestEffort(t *testing.T) {
 		}
 	}
 	// order: every term, then every freeze, then the kills; each kill follows its own freeze
-	last := map[string]int{}
-	first := map[string]int{}
-	for i, e := range r.w.log {
-		k := e[:strings.IndexByte(e, ':')]
-		last[k] = i
-		if _, ok := first[k]; !ok {
-			first[k] = i
+	idx := func(match func(string) bool) (first, last int) {
+		first, last = -1, -1
+		for i, e := range r.w.log {
+			if match(e) {
+				if first < 0 {
+					first = i
+				}
+				last = i
+			}
 		}
+		return
 	}
-	if !(last["term"] < first["stop"]) || !(last["stop"] < first["kill"]+0 || last["stop"] < first["killgrp"]) {
+	_, lastTerm := idx(func(e string) bool { return strings.HasPrefix(e, "term:") })
+	firstStop, lastStop := idx(func(e string) bool { return strings.HasPrefix(e, "stop:") })
+	firstKill, _ := idx(func(e string) bool { return strings.HasPrefix(e, "kill") })
+	if lastTerm < 0 || firstStop < 0 || firstKill < 0 || lastTerm > firstStop || lastStop > firstKill {
 		t.Fatalf("order of term, stop, kill is wrong: %v", r.w.log)
 	}
 }
@@ -350,5 +356,18 @@ func TestSessDispatchByPlatformAndProbeRunsTheSelfTest(t *testing.T) {
 	}
 	if err := r.c.Probe(); !errors.Is(err, ErrContainmentUnavailable) || !strings.Contains(err.Error(), "host pin") {
 		t.Fatalf("a failing host step must fail the probe: %v", err)
+	}
+}
+
+// Without a leader ledger no turn could ever be recorded, so no unit is made ("no unit, no run").
+func TestSessCreateNeedsALeaderLedger(t *testing.T) {
+	r := newSessRig(t)
+	r.c.led = nil
+	a := CreateArgs{Dir: newRunDir(t, nil)}
+	if _, err := r.c.Create(bg, a, 8); !errors.Is(err, ErrUnitNotCreated) {
+		t.Fatalf("%v", err)
+	}
+	if _, ok, _ := a.Dir.ReadUnitFile(8); ok {
+		t.Fatal("a unit with no ledger left a record behind")
 	}
 }

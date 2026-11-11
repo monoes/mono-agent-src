@@ -31,7 +31,9 @@ func (g *sessGroup) Identity() (CgroupIdentity, error) {
 func (g *sessGroup) Subgroups() ([]string, error) { return []string{""}, nil }
 func (g *sessGroup) Close() error                 { return nil }
 
-// members is the unit's membership now; an ambiguous scan is an error (nothing is signalled on it).
+// members is the unit's membership now: the trusted members and the processes that cannot be tied to the unit. The
+// signaller and its ancestors are never in either (Prove already refuses a unit that holds the signaller; this is the
+// same rule again at signal time), and a member seen before stays one while it lives with the stamp it had.
 func (g *sessGroup) members() (sessView, error) {
 	v, err := g.c.view(g.rec)
 	if err != nil {
@@ -39,6 +41,18 @@ func (g *sessGroup) members() (sessView, error) {
 	}
 	if v.why != "" {
 		return v, fmt.Errorf("%w: %s", ErrNotProven, v.why)
+	}
+	self, _, err := g.c.os.Self()
+	if err != nil {
+		return v, fmt.Errorf("%w: the signaller's own identity is unknown: %v", ErrNotProven, err)
+	}
+	spared := map[int]bool{}
+	byPID := map[int]SessProc{}
+	for _, p := range v.all {
+		byPID[p.PID] = p
+	}
+	for pid := self; pid > 1 && !spared[pid]; pid = byPID[pid].PPID {
+		spared[pid] = true
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -54,20 +68,35 @@ func (g *sessGroup) members() (sessView, error) {
 			v.members = append(v.members, p)
 		}
 	}
-	sort.Slice(v.members, func(i, j int) bool { return v.members[i].PID < v.members[j].PID })
+	keep := func(in []SessProc) []SessProc {
+		var out []SessProc
+		for _, p := range in {
+			if !spared[p.PID] {
+				out = append(out, p)
+			}
+		}
+		sort.Slice(out, func(i, j int) bool { return out[i].PID < out[j].PID })
+		return out
+	}
+	v.members, v.unproven = keep(v.members), keep(v.unproven)
 	for _, m := range v.members {
 		g.known[m.PID] = m.Stamp
 	}
 	return v, nil
 }
 
+// Procs lists every process the unit still holds: the members, then the processes that cannot be tied to it. The second
+// kind is never signalled (Signal and Kill refuse it); it is listed so the end reports it as a survivor.
 func (g *sessGroup) Procs(string) ([]int, error) {
 	v, err := g.members()
 	if err != nil {
 		return nil, err
 	}
-	out := make([]int, 0, len(v.members))
+	out := make([]int, 0, len(v.members)+len(v.unproven))
 	for _, m := range v.members {
+		out = append(out, m.PID)
+	}
+	for _, m := range v.unproven {
 		out = append(out, m.PID)
 	}
 	return out, nil
@@ -80,7 +109,7 @@ func (g *sessGroup) ProcInfo(_ string, pid int) (string, string, error) {
 
 func (g *sessGroup) Populated(string) (bool, error) {
 	v, err := g.members()
-	return len(v.members) > 0, err
+	return len(v.members)+len(v.unproven) > 0, err
 }
 
 // SurvivorWhy is the reason EndUnit gives for a member that is still there after the kill, when it has no better one.
@@ -89,18 +118,26 @@ func (*sessGroup) SurvivorWhy() string { return "stayed in the session after KIL
 // SurvivorWhyFor says why a given member is still there: a process of another user cannot be signalled, any other
 // stayed after the kill.
 func (g *sessGroup) SurvivorWhyFor(pid int) string {
+	if v, err := g.members(); err == nil {
+		for _, u := range v.unproven {
+			if u.PID == pid {
+				return "was not signalled: " + v.unprovenWhy
+			}
+		}
+	}
 	if p, err := g.c.os.Info(pid); err == nil && p.UID != g.c.os.CurrentUID() {
 		return fmt.Sprintf("could not be signalled (it belongs to uid %d)", p.UID)
 	}
 	return g.SurvivorWhy()
 }
 
-// signal re-reads the process right before signalling it: a pid that is gone, was reused (another start stamp) or has
-// moved (another parent or session than the scan saw) is skipped, to be judged again by the next scan. Like every
-// pid-based kill without a handle, the re-read and the signal are not atomic; the window is a few instructions.
+// signal re-reads the process right before signalling it: a pid that is gone or whose start stamp changed (the number was
+// reused) is skipped. Identity is the pid and its start stamp and nothing else: a member that was re-parented or moved to
+// a session of its own since the scan is still the process that was seen as a member. Like every pid-based kill without a
+// handle, the re-read and the signal are not atomic; the window is a few instructions.
 func (g *sessGroup) signal(m SessProc, sig syscall.Signal) error {
 	cur, err := g.c.os.Info(m.PID)
-	if err != nil || cur.Stamp != m.Stamp || cur.SID != m.SID || cur.PPID != m.PPID {
+	if err != nil || cur.Stamp != m.Stamp {
 		return nil
 	}
 	return g.c.os.Signal(m.PID, sig)
@@ -131,20 +168,26 @@ func (g *sessGroup) Kill(string) error {
 			first = err
 		}
 	}
-	frozen := map[int]string{}
+	frozen := map[int]SessProc{} // every member that was stopped: all of them are killed, whatever happens next
+	killFrozen := func() {
+		for _, m := range frozen {
+			note(g.signal(m, syscall.SIGKILL))
+		}
+	}
 	var v sessView
 	for round := 0; ; round++ {
 		var err error
 		if v, err = g.members(); err != nil {
+			killFrozen() // a read that fails after the freeze must not leave the unit stopped
 			return err
 		}
 		fresh := false
 		for _, m := range v.members {
-			if frozen[m.PID] == m.Stamp {
+			if f, ok := frozen[m.PID]; ok && f.Stamp == m.Stamp {
 				continue
 			}
 			fresh = true
-			frozen[m.PID] = m.Stamp
+			frozen[m.PID] = m
 			note(g.signal(m, sessSigStop))
 		}
 		if !fresh {
@@ -199,8 +242,8 @@ func (g *sessGroup) Rmdir(string) error {
 	if err != nil {
 		return err
 	}
-	if len(v.members) > 0 {
-		return fmt.Errorf("the unit still holds %d process(es)", len(v.members))
+	if n := len(v.members) + len(v.unproven); n > 0 {
+		return fmt.Errorf("the unit still holds %d process(es)", n)
 	}
 	return nil
 }

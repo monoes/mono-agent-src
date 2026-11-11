@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
-	"runtime"
 	"slices"
 	"time"
 )
@@ -103,7 +102,10 @@ func (c sessContainment) Prove(rec UnitRecord) (Proof, error) {
 		return Proof{}, err
 	}
 	if len(v.members) == 0 && len(v.live) == 0 {
-		return Proof{Gone: true, BestEffort: true, Note: "no process of the run's sessions exists"}, nil
+		if len(v.unproven) > 0 {
+			return Proof{}, fmt.Errorf("%w: %s (%d process(es), none of them provably the unit's: nothing was signalled)", ErrNotProven, v.unprovenWhy, len(v.unproven))
+		}
+		return Proof{Gone: true, BestEffort: true, Note: "no process of the run's sessions exists; " + SessionBestEffortNote}, nil
 	}
 	return Proof{Cg: &sessGroup{c: c, rec: rec}, BestEffort: true, Note: SessionBestEffortNote}, nil
 }
@@ -117,20 +119,24 @@ func (c sessContainment) Present(rec UnitRecord) (bool, error) {
 	if v.why != "" {
 		return false, fmt.Errorf("%w: %s", ErrNotProven, v.why)
 	}
-	return len(v.members) > 0, nil
+	return len(v.members)+len(v.unproven) > 0, nil
 }
 
 func (c sessContainment) Create(ctx context.Context, a CreateArgs, gen uint64) (UnitRecord, error) {
 	if c.os == nil {
 		return UnitRecord{}, fmt.Errorf("%w: %v", ErrUnitNotCreated, errNoSessionOS)
 	}
-	return createSession(ctx, c.os, a, gen)
+	if c.led == nil {
+		return UnitRecord{}, fmt.Errorf("%w: %v", ErrUnitNotCreated, errNoLedger)
+	}
+	return createSession(ctx, c, a, gen)
 }
 
 // createSession makes the run's session unit: intent in the journal, then the record bound in the journal and written
 // to the key-free file. NO process is started: the record is the unit, and a turn's leader joins it at Adopt. "No unit,
 // no run" still holds, because without the record no placement is possible.
-func createSession(_ context.Context, o SessionOS, a CreateArgs, gen uint64) (UnitRecord, error) {
+func createSession(_ context.Context, c sessContainment, a CreateArgs, gen uint64) (UnitRecord, error) {
+	o := c.os
 	var rd io.Reader = rand.Reader
 	if a.Rand != nil {
 		rd = a.Rand
@@ -163,6 +169,9 @@ func createSession(_ context.Context, o SessionOS, a CreateArgs, gen uint64) (Un
 	h, _ := json.Marshal(sessHandle{CreatorPID: cpid, CreatorStamp: cstamp})
 	rec := UnitRecord{Kind: KindSession, BootID: boot, Name: name, CgroupID: idFromNonce(nonce), Nonce: nonce,
 		Generation: gen, Handle: string(h)}
+	if err := c.check(rec); err != nil { // the record must pass the proof that every later step applies to it
+		return UnitRecord{}, fmt.Errorf("%w: the new unit fails its own identity proof: %v", ErrUnitNotCreated, err)
+	}
 	if a.Journal != nil {
 		if err := a.Journal.Bound(rec); err != nil {
 			return UnitRecord{}, fmt.Errorf("%w: the witness refused the unit binding: %v", ErrUnitNotCreated, err)
@@ -199,15 +208,17 @@ func (c sessContainment) Place(rec UnitRecord) (Placement, error) {
 
 func (p *sessPlacer) Place(cmd *exec.Cmd) (func(), error) { return p.place(cmd) }
 
-func (p *sessPlacer) PlaceTicket(_ uint64, cmd *exec.Cmd) (func(), error) { return p.place(cmd) }
+// errNoAdoptPath is why a placement other than Place is refused: only a turn leader that the host starts as a session of
+// its own and then Adopts is inside this unit. A command placed any other way would run outside it while the unit
+// reports itself empty, so it is not placed at all.
+var errNoAdoptPath = errors.New("a session unit takes only a started turn leader (Place, then Adopt); this placement cannot be adopted")
 
-func (p *sessPlacer) PlaceLeased(cmd *exec.Cmd) error {
-	release, err := p.place(cmd)
-	if err != nil {
-		return err
-	}
-	runtime.AddCleanup(cmd, func(f func()) { f() }, release)
-	return nil
+func (p *sessPlacer) PlaceTicket(uint64, *exec.Cmd) (func(), error) {
+	return nil, fmt.Errorf("%w: %v", ErrNotPlaced, errNoAdoptPath)
+}
+
+func (p *sessPlacer) PlaceLeased(*exec.Cmd) error {
+	return fmt.Errorf("%w: %v", ErrNotPlaced, errNoAdoptPath)
 }
 
 func (p *sessPlacer) place(cmd *exec.Cmd) (func(), error) {
@@ -235,8 +246,12 @@ func (p *sessPlacer) Adopt(pid int, stamp string) error {
 	if p.c.led == nil {
 		return fmt.Errorf("%w: %v", ErrNotPlaced, errNoLedger)
 	}
-	if _, err := p.c.proveView(p.rec); err != nil {
+	v, err := p.c.proveView(p.rec)
+	if err != nil {
 		return fmt.Errorf("%w: %v", ErrNotPlaced, err)
+	}
+	if v.rebooted {
+		return fmt.Errorf("%w: the unit was recorded before the machine's boot time changed", ErrNotPlaced)
 	}
 	if _, ok := parseSessStamp(stamp); !ok || pid <= 1 {
 		return fmt.Errorf("%w: the leader (pid %d, start %q) cannot be checked", ErrNotPlaced, pid, stamp)
@@ -262,10 +277,10 @@ func (p *sessPlacer) Adopt(pid int, stamp string) error {
 	if err != nil {
 		return fmt.Errorf("%w: the leader ledger cannot be read: %v", ErrNotPlaced, err)
 	}
-	if slices.ContainsFunc(have, func(l Leader) bool { return l.PID == pid && l.Stamp == stamp }) {
+	if slices.ContainsFunc(have, func(l Leader) bool { return l.PID == pid && l.Stamp == stamp && l.Unit == p.rec.CgroupID }) {
 		return nil
 	}
-	if err := p.c.led.AddLeader(p.rec.Generation, Leader{PID: pid, Stamp: stamp, At: time.Now().Unix()}); err != nil {
+	if err := p.c.led.AddLeader(p.rec.Generation, Leader{PID: pid, Stamp: stamp, Unit: p.rec.CgroupID, At: time.Now().Unix()}); err != nil {
 		return fmt.Errorf("%w: the witness refused the leader: %v", ErrNotPlaced, err)
 	}
 	return nil

@@ -201,9 +201,12 @@ type fakeLedger struct {
 	readErr error
 	addErr  error
 	adds    int
+	ended   map[uint64]bool // unit ids whose end is recorded
 }
 
-func newFakeLedger() *fakeLedger { return &fakeLedger{by: map[uint64][]Leader{}} }
+func newFakeLedger() *fakeLedger {
+	return &fakeLedger{by: map[uint64][]Leader{}, ended: map[uint64]bool{}}
+}
 
 func (l *fakeLedger) Leaders(gen uint64) ([]Leader, error) {
 	l.mu.Lock()
@@ -219,6 +222,9 @@ func (l *fakeLedger) AddLeader(gen uint64, x Leader) error {
 	defer l.mu.Unlock()
 	if l.addErr != nil {
 		return l.addErr
+	}
+	if l.ended[x.Unit] {
+		return ErrUnitEnded
 	}
 	l.adds++
 	l.by[gen] = append(l.by[gen], x)
@@ -255,7 +261,7 @@ func newSessRig(t *testing.T) *sessRig {
 // record puts a leader in the ledger (what Adopt writes).
 func (r *sessRig) record(p *fakeSessProc) {
 	r.t.Helper()
-	if err := r.led.AddLeader(r.rec.Generation, Leader{PID: p.PID, Stamp: p.Stamp}); err != nil {
+	if err := r.led.AddLeader(r.rec.Generation, Leader{PID: p.PID, Stamp: p.Stamp, Unit: r.rec.CgroupID}); err != nil {
 		r.t.Fatal(err)
 	}
 }

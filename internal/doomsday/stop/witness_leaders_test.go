@@ -3,6 +3,7 @@
 package stop
 
 import (
+	"errors"
 	"testing"
 )
 
@@ -70,4 +71,23 @@ func TestSessionUnitReadsItsLeadersThroughTheKernelLedger(t *testing.T) {
 	if c3, _ := newSessContainment(nil).(sessContainment); c3.led != nil {
 		t.Fatal("a nil kernel has a ledger")
 	}
+}
+
+// A leader is never recorded after the end of its unit: the end and the append are ordered by the witness lock, so a leader
+// is either seen by the end that follows it or refused here (otherwise it would run with no way for Stop to reach it).
+func TestLeaderIsRefusedAfterItsUnitEnded(t *testing.T) {
+	r := newSeqRig(t)
+	unit := UnitRecord{Generation: 3, CgroupID: 42}
+	mustNoErr(t, r.seq.AddLeader(3, Leader{PID: 500, Stamp: "1.000001", Unit: 42}))
+	mustNoErr(t, r.seq.UnitEnded(unit, "best-effort"))
+	if err := r.seq.AddLeader(3, Leader{PID: 501, Stamp: "2.000002", Unit: 42}); !errors.Is(err, ErrUnitEnded) {
+		t.Fatalf("a leader of an ended unit was recorded: %v", err)
+	}
+	got, _ := r.seq.Leaders(3)
+	if len(got) != 1 {
+		t.Fatalf("%+v", got)
+	}
+	// another unit of the generation, and another generation, are not affected
+	mustNoErr(t, r.seq.AddLeader(3, Leader{PID: 502, Stamp: "3.000003", Unit: 43}))
+	mustNoErr(t, r.seq.AddLeader(4, Leader{PID: 503, Stamp: "4.000004", Unit: 42}))
 }

@@ -125,7 +125,9 @@ func TestSessOrphansOfADeadLeaderAreStillTheUnits(t *testing.T) {
 
 // ----- pid reuse and the start stamp -----
 
-func TestSessReusedLeaderNumberIsNotProvenAndNothingIsSignalled(t *testing.T) {
+// The number of a dead leader was taken by a stranger that leads a session of that number: the stranger and its
+// descendants are its own and are left alone (no member, nothing signalled), and the unit is gone.
+func TestSessReusedLeaderNumberLeavesTheStrangerAndItsDescendantsAlone(t *testing.T) {
 	r := newSessRig(t)
 	l := r.w.leader(500)
 	r.record(l)
@@ -133,12 +135,63 @@ func TestSessReusedLeaderNumberIsNotProvenAndNothingIsSignalled(t *testing.T) {
 	imp := r.w.put(500, 1, 500, 500, "stranger") // the number now belongs to another session leader
 	imp.Stamp = "1900000000.000001"
 	r.w.put(502, 500, 502, 502, "its-child")
-	r.useSess()
-	if _, err := r.c.Prove(r.rec); !errors.Is(err, ErrNotProven) {
-		t.Fatalf("%v", err)
+	r.w.put(503, 502, 502, 500, "its-grandchild")
+	p, err := r.c.Prove(r.rec)
+	if err != nil || !p.Gone {
+		t.Fatalf("%+v %v", p, err)
 	}
-	if out := r.end(nil); out.Kind != UnitNotProven || len(r.w.log) != 0 || !r.w.has(500) || !r.w.has(502) {
+	if out := r.end(nil); out.Kind != UnitBestEffort || len(r.w.log) != 0 || !r.w.has(500) || !r.w.has(502) || !r.w.has(503) {
 		t.Fatalf("a stranger's session was signalled: %+v %v", out, r.w.log)
+	}
+}
+
+// An orphan of the old session that is older than the stranger holding the number cannot be the stranger's: it is ended.
+// One started after the stranger, outside its descendants, cannot be told apart: it is listed and never signalled.
+func TestSessOrphansOfAReusedNumberAreSplitByStartTime(t *testing.T) {
+	r := newSessRig(t)
+	l := r.w.leader(500)
+	r.record(l)
+	delete(r.w.procs, 500)
+	old := r.w.put(501, 1, 501, 500, "old-orphan") // started before the stranger: ours
+	old.Stamp = "1850000000.000001"
+	old.noTerm = true
+	imp := r.w.put(500, 1, 500, 500, "stranger")
+	imp.Stamp = "1900000000.000001"
+	newer := r.w.put(504, 1, 504, 500, "newer-orphan") // started after it, not its descendant: cannot be told apart
+	newer.Stamp = "1900000001.000001"
+	newer.noTerm = true
+	r.w.put(502, 500, 502, 500, "its-child")
+	out := r.end(nil)
+	if r.w.has(501) {
+		t.Fatal("the old orphan was not ended")
+	}
+	if !r.w.has(500) || !r.w.has(502) || !r.w.has(504) {
+		t.Fatalf("a process that is not provably the unit's was signalled: %v", r.w.log)
+	}
+	if out.Kind != UnitStragglers || len(out.Survivors) != 1 || out.Survivors[0].PID != 504 || !strings.Contains(out.Survivors[0].Why, "was not signalled") {
+		t.Fatalf("the process that could not be tied must be listed, not hidden: %+v", out)
+	}
+}
+
+// One ambiguous number never blocks the others: the healthy leader's session is ended, the ambiguous process is listed.
+func TestSessAnAmbiguousNumberDoesNotBlockTheOtherLeaders(t *testing.T) {
+	r := newSessRig(t)
+	good := r.w.leader(520)
+	good.noTerm = true
+	r.record(good)
+	r.w.put(521, 520, 521, 520, "git").noTerm = true
+	bad := r.w.leader(500)
+	r.record(bad)
+	delete(r.w.procs, 500)
+	older := r.w.put(501, 1, 500, 500, "older-than-leader")
+	older.Stamp = "1700000000.000000"
+	older.noTerm = true
+	out := r.end(nil)
+	if r.w.has(520) || r.w.has(521) {
+		t.Fatalf("the healthy session was not ended: %v", r.w.procs)
+	}
+	if !r.w.has(501) || out.Kind != UnitStragglers || len(out.Survivors) != 1 || out.Survivors[0].PID != 501 {
+		t.Fatalf("%+v", out)
 	}
 }
 
@@ -170,18 +223,51 @@ func TestSessAProcessOlderThanTheLeaderIsNotProvablyTheUnits(t *testing.T) {
 	}
 }
 
-func TestSessBootTimeDifferenceIsNotEvidenceButFailsClosed(t *testing.T) {
+// The boot time is not evidence (the clock can be stepped): a leader alive with its exact recorded start stamp rules a
+// reboot out, so the unit is still proven. With the leader gone, the processes that carry its number after a change of
+// boot time are another boot's and are left alone.
+func TestSessBootTimeDifferenceDoesNotOutweighALiveLeader(t *testing.T) {
 	r := newSessRig(t)
 	l := r.w.leader(500)
 	r.record(l)
 	r.w.boot = "boot-other"
-	if _, err := r.c.Prove(r.rec); !errors.Is(err, ErrNotProven) {
-		t.Fatalf("a different boot time with the number in use: %v", err)
+	if p, err := r.c.Prove(r.rec); err != nil || p.Cg == nil {
+		t.Fatalf("a live recorded leader with a stepped clock: %+v %v", p, err)
 	}
 	delete(r.w.procs, 500)
+	r.w.put(501, 1, 501, 500, "after-the-boot")
 	p, err := r.c.Prove(r.rec)
 	if err != nil || !p.Gone || !p.BestEffort {
-		t.Fatalf("a different boot time with nothing in use is gone, best effort: %+v %v", p, err)
+		t.Fatalf("a different boot with the leader gone is gone, best effort: %+v %v", p, err)
+	}
+	if out := r.end(nil); !r.w.has(501) || len(r.w.log) != 0 {
+		t.Fatalf("another boot's process was signalled: %+v %v", out, r.w.log)
+	}
+}
+
+func TestSessTwoLedgerEntriesForOneNumberAreOneSession(t *testing.T) {
+	r := newSessRig(t)
+	first := r.w.leader(500) // an earlier turn's leader had this number and its own stamp
+	r.record(first)
+	delete(r.w.procs, 500)
+	second := r.w.leader(500) // a later turn leader got the same number
+	second.Stamp = "1900000000.000007"
+	r.record(second)
+	r.w.put(501, 500, 501, 500, "git")
+	v, err := r.c.view(r.rec)
+	if err != nil || len(v.members) != 2 || len(v.unproven) != 0 {
+		t.Fatalf("%+v %v", v, err)
+	}
+}
+
+func TestSessLeadersOfAnotherUnitOfTheGenerationAreNotThisUnits(t *testing.T) {
+	r := newSessRig(t)
+	l := r.w.leader(500)
+	if err := r.led.AddLeader(7, Leader{PID: l.PID, Stamp: l.Stamp, Unit: r.rec.CgroupID + 2}); err != nil {
+		t.Fatal(err)
+	}
+	if p, err := r.c.Prove(r.rec); err != nil || !p.Gone {
+		t.Fatalf("a leader recorded for another unit is in this one: %+v %v", p, err)
 	}
 }
 
@@ -196,6 +282,7 @@ func TestSessLedgerThatCannotBeCheckedIsNotProven(t *testing.T) {
 	} {
 		r := newSessRig(t)
 		r.w.leader(500)
+		bad.Unit = r.rec.CgroupID
 		if err := r.led.AddLeader(7, bad); err != nil {
 			t.Fatal(err)
 		}
@@ -209,14 +296,15 @@ func TestSessLedgerThatCannotBeCheckedIsNotProven(t *testing.T) {
 
 func TestSessProveFailsClosedOnEveryUnreadableFact(t *testing.T) {
 	for name, set := range map[string]func(r *sessRig){
-		"ledger unreadable": func(r *sessRig) { r.led.readErr = errors.New("witness unreadable") },
-		"no ledger wired":   func(r *sessRig) { r.c.led = nil },
-		"scan fails":        func(r *sessRig) { r.w.errs["Scan"] = errors.New("denied") },
-		"self unknown":      func(r *sessRig) { r.w.errs["Self"] = errors.New("no self") },
-		"no OS":             func(r *sessRig) { r.c.os = nil },
-		"no handle":         func(r *sessRig) { r.rec.Handle = "" },
-		"name mismatch":     func(r *sessRig) { r.rec.Generation = 8 },
-		"nonce mismatch":    func(r *sessRig) { r.rec.Nonce = strings.Repeat("a", 32) },
+		"ledger unreadable":  func(r *sessRig) { r.led.readErr = errors.New("witness unreadable") },
+		"no ledger wired":    func(r *sessRig) { r.c.led = nil },
+		"scan fails":         func(r *sessRig) { r.w.errs["Scan"] = errors.New("denied") },
+		"boot id unreadable": func(r *sessRig) { r.w.errs["BootID"] = errors.New("no boot id") },
+		"self unknown":       func(r *sessRig) { r.w.errs["Self"] = errors.New("no self") },
+		"no OS":              func(r *sessRig) { r.c.os = nil },
+		"no handle":          func(r *sessRig) { r.rec.Handle = "" },
+		"name mismatch":      func(r *sessRig) { r.rec.Generation = 8 },
+		"nonce mismatch":     func(r *sessRig) { r.rec.Nonce = strings.Repeat("a", 32) },
 	} {
 		r := newSessRig(t)
 		l := r.w.leader(500)
@@ -252,7 +340,7 @@ func TestSessGoneOnlyWhenEveryRecordedLeaderIsDead(t *testing.T) {
 		t.Fatal("a live leader's unit is gone")
 	}
 	delete(r.w.procs, 500)
-	if p, err := r.c.Prove(r.rec); err != nil || !p.Gone || !p.BestEffort {
+	if p, err := r.c.Prove(r.rec); err != nil || !p.Gone || !p.BestEffort || !strings.Contains(p.Note, "launchd, open or XPC") {
 		t.Fatalf("%+v %v", p, err)
 	}
 	// a second leader, alive: the unit is not gone although the first one is

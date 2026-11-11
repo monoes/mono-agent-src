@@ -74,13 +74,21 @@ type SessionOS interface {
 type Leader struct {
 	PID   int    `json:"pid"`
 	Stamp string `json:"stamp"`
-	At    int64  `json:"at"` // unix seconds, informational
+	// Unit is the identity of the unit the leader joined (UnitRecord.CgroupID), so a second unit of the same generation
+	// does not inherit the first one's leaders, and a unit that was ended takes no leader (ErrUnitEnded).
+	Unit uint64 `json:"unit"`
+	At   int64  `json:"at"` // unix seconds, informational
 }
+
+// ErrUnitEnded means the ledger refused a leader because the unit's end was already recorded.
+var ErrUnitEnded = errors.New("stop: the unit was already ended")
 
 // LeaderLedger is the append-only, authenticated list of a unit's leaders. In production it is the witness
 // (Sequencer.AddLeader / Leaders); a read that cannot be completed is an error, never an empty list.
 type LeaderLedger interface {
 	Leaders(gen uint64) ([]Leader, error)
+	// AddLeader appends a leader; it refuses with ErrUnitEnded when the unit's end line is already written (under the same
+	// lock as the append, so a leader can never be recorded after the end that did not see it).
 	AddLeader(gen uint64, l Leader) error
 }
 
@@ -117,22 +125,34 @@ func parseSessStamp(s string) (int64, bool) {
 
 // sessResolution is the unit's membership at one scan.
 type sessResolution struct {
-	members []SessProc // sorted by pid
+	members []SessProc // trusted: tied to a recorded leader; sorted by pid
 	live    []int      // recorded leaders alive with their recorded start stamp
-	// why is non-empty when the scan cannot be tied to the ledger (a leader's number held by another process, a boot
-	// time that differs while the number is in use, a leader that does not lead its session): nothing is signalled.
+	// unproven are processes that carry a recorded session number but cannot be tied to the run (the number was reused, a
+	// process is older than the leader): they are never signalled and are listed with unprovenWhy.
+	unproven    []SessProc
+	unprovenWhy string
+	// why is non-empty when the ledger itself cannot be used (an entry that cannot be checked): nothing is resolved.
 	why string
 }
 
 // resolveSession computes the members of the recorded leaders' sessions in one scan. rebooted says the boot time of
 // the unit's record differs from this machine's (not evidence by itself: the clock can be stepped).
 //
-// A session's number is its leader's pid. While the leader (pid and stamp) is alive its session is trusted. When it is
-// gone, processes that still carry that session number are the orphans of a turn, but the number may also have been
-// given to an unrelated session after the leader died; the scan trusts them only when the number is not held by another
-// live process and no one of them is older than the leader. The kernel does not hand out a number that is still a
-// session id (BSD behaviour; to be verified on the Mac in S2), which is why this is defence in depth and not the only
-// protection. Anything ambiguous is "why", never a signal.
+// A session's number is its leader's pid; each recorded number is judged on its own, so one ambiguous number never blocks
+// the others. While the leader (pid and stamp) is alive its session is trusted. When it is gone, the processes that still
+// carry the number are the orphans of a turn, but the number may also have been given to an unrelated session after the
+// leader died. The scan then separates what cannot be the new holder's from what can:
+//   - a process older than the leader cannot be this unit's session (unproven);
+//   - the live holder of the number (another start stamp) that leads a session of that number, and its descendants, are
+//     the holder's own and are left alone;
+//   - a process started before such a holder cannot be the holder's: it is an orphan of the old session (trusted); one
+//     started after it, outside the holder's descendants, cannot be told apart (unproven);
+//   - after a boot time change the old processes cannot exist: the number's processes are another boot's and are left alone
+//     (unless the recorded leader itself is alive with its exact stamp, which rules out a reboot).
+//
+// The kernel does not hand out a number that is still a process-group id (BSD behaviour), and a session's leader group
+// pins it while any process stays in it; both are to be verified on the Mac in S2, and the rules above are the defence
+// where they do not hold.
 func resolveSession(procs []SessProc, leaders []Leader, rebooted bool) sessResolution {
 	var res sessResolution
 	byPID := make(map[int]SessProc, len(procs))
@@ -163,7 +183,22 @@ func resolveSession(procs []SessProc, leaders []Leader, rebooted bool) sessResol
 			s.min = us
 		}
 	}
+	descends := func(p SessProc, root int) bool { // p is root or has root in its parent chain
+		for hops := 0; hops < len(procs)+1; hops++ {
+			if p.PID == root {
+				return true
+			}
+			q, ok := byPID[p.PPID]
+			if !ok || p.PPID <= 1 {
+				return false
+			}
+			p = q
+		}
+		return false
+	}
 	member := map[int]SessProc{}
+	unproven := map[int]SessProc{}
+	var whys []string
 	var pids []int
 	for pid := range slots {
 		pids = append(pids, pid)
@@ -171,37 +206,40 @@ func resolveSession(procs []SessProc, leaders []Leader, rebooted bool) sessResol
 	sort.Ints(pids)
 	for _, pid := range pids {
 		s := slots[pid]
-		cur, held := byPID[pid]
+		holder, held := byPID[pid]
 		alive := false
 		if held {
 			for _, st := range s.stamps {
-				alive = alive || cur.Stamp == st
+				alive = alive || holder.Stamp == st
 			}
 		}
 		inSession := bySID[pid]
-		switch {
-		case rebooted && len(inSession) > 0:
-			res.why = fmt.Sprintf("the boot time differs from the unit's and session number %d is in use by %d process(es) that are not provably this unit's (after a reboot the number may belong to another process: end them by hand)", pid, len(inSession))
-			return res
-		case alive:
-			if cur.SID != pid {
-				res.why = fmt.Sprintf("the recorded leader %d does not lead its session", pid)
-				return res
-			}
+		if alive {
 			res.live = append(res.live, pid)
-		case len(inSession) == 0:
+			if holder.SID != pid {
+				unproven[pid] = holder
+				whys = append(whys, fmt.Sprintf("the recorded leader %d does not lead its session", pid))
+				continue
+			}
+		} else if len(inSession) == 0 {
 			continue // the leader and its whole session are gone
-		case held:
-			res.why = fmt.Sprintf("the recorded leader %d is gone and its number is held by another process that is in session %d, so the session is not tied to this unit", pid, pid)
-			return res
+		} else if rebooted {
+			continue // another boot's processes carry the number: not this unit's
 		}
 		for _, p := range inSession {
 			us, ok := parseSessStamp(p.Stamp)
-			if !ok || us < s.min {
-				res.why = fmt.Sprintf("process %d in session %d is older than the unit's leader, so it is not provably this unit's", p.PID, pid)
-				return res
+			switch {
+			case !ok || us < s.min:
+				unproven[p.PID] = p
+				whys = append(whys, fmt.Sprintf("process %d in session %d is older than the unit's leader", p.PID, pid))
+			case !alive && held && holder.SID == pid && descends(p, pid):
+				// the new holder's own session: not ours
+			case !alive && held && holder.SID == pid && us >= mustParse(holder.Stamp):
+				unproven[p.PID] = p
+				whys = append(whys, fmt.Sprintf("session number %d was reused by another process and process %d cannot be told from its", pid, p.PID))
+			default:
+				member[p.PID] = p
 			}
-			member[p.PID] = p
 		}
 	}
 	// a child of a member is a member, in whatever session it has made for itself
@@ -222,15 +260,34 @@ func resolveSession(procs []SessProc, leaders []Leader, rebooted bool) sessResol
 			}
 			if _, seen := member[k.PID]; !seen {
 				member[k.PID] = k
+				delete(unproven, k.PID)
 				queue = append(queue, k.PID)
 			}
 		}
 	}
 	for _, p := range member {
+		delete(unproven, p.PID)
 		res.members = append(res.members, p)
 	}
 	sort.Slice(res.members, func(i, j int) bool { return res.members[i].PID < res.members[j].PID })
+	for _, p := range unproven {
+		res.unproven = append(res.unproven, p)
+	}
+	sort.Slice(res.unproven, func(i, j int) bool { return res.unproven[i].PID < res.unproven[j].PID })
+	if len(whys) > 0 {
+		sort.Strings(whys)
+		res.unprovenWhy = "not provably this unit's: " + whys[0]
+		if len(whys) > 1 {
+			res.unprovenWhy += fmt.Sprintf(" (and %d more)", len(whys)-1)
+		}
+	}
 	return res
+}
+
+// mustParse is the start time of a process the scan listed (a stamp that does not parse sorts first).
+func mustParse(stamp string) int64 {
+	us, _ := parseSessStamp(stamp)
+	return us
 }
 
 var errNoSessionOS = errors.New("the session mechanism is only available on macOS")
@@ -250,17 +307,24 @@ func (c sessContainment) view(rec UnitRecord) (sessView, error) {
 	if c.led == nil {
 		return sessView{}, errNoLedger
 	}
-	leaders, err := c.led.Leaders(rec.Generation)
+	all, err := c.led.Leaders(rec.Generation)
 	if err != nil {
 		return sessView{}, fmt.Errorf("the leader ledger cannot be read: %w", err)
 	}
-	all, err := c.os.Scan()
+	var leaders []Leader
+	for _, l := range all {
+		if l.Unit == rec.CgroupID { // a leader of another unit of the generation is not this unit's
+			leaders = append(leaders, l)
+		}
+	}
+	procs, err := c.os.Scan()
 	if err != nil {
 		return sessView{}, fmt.Errorf("the processes cannot be listed: %w", err)
 	}
-	rebooted := false
-	if boot, err := c.os.BootID(); err == nil && boot != rec.BootID {
-		rebooted = true
+	boot, err := c.os.BootID()
+	if err != nil {
+		return sessView{}, fmt.Errorf("the boot id is unreadable: %w", err)
 	}
-	return sessView{all: all, rebooted: rebooted, sessResolution: resolveSession(all, leaders, rebooted)}, nil
+	rebooted := boot != rec.BootID
+	return sessView{all: procs, rebooted: rebooted, sessResolution: resolveSession(procs, leaders, rebooted)}, nil
 }

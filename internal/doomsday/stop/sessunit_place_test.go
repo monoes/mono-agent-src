@@ -2,6 +2,7 @@ package stop
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -32,15 +33,12 @@ func TestSessPlaceChecksAndChangesNothing(t *testing.T) {
 	if cmd.SysProcAttr != nil || cmd.Path != path || strings.Join(cmd.Args, " ") != args || strings.Join(cmd.Env, " ") != env || cmd.Process != nil {
 		t.Fatalf("placement changed the command (the turn is a session leader by the launcher's own attributes): %+v", cmd)
 	}
-	for name, f := range map[string]func() (func(), error){
-		"PlaceTicket": func() (func(), error) { return r.placer().PlaceTicket(5, exec.Command("/bin/true")) },
-	} {
-		if _, err := f(); err != nil {
-			t.Fatalf("%s: %v", name, err)
-		}
+	// only a started turn leader that is then adopted is in the unit: a placement that cannot be adopted is refused
+	if _, err := r.placer().PlaceTicket(5, exec.Command("/bin/true")); !errors.Is(err, ErrNotPlaced) {
+		t.Fatalf("PlaceTicket: %v", err)
 	}
-	if err := r.placer().PlaceLeased(exec.Command("/bin/true")); err != nil {
-		t.Fatal(err)
+	if err := r.placer().PlaceLeased(exec.Command("/bin/true")); !errors.Is(err, ErrNotPlaced) {
+		t.Fatalf("PlaceLeased: %v", err)
 	}
 }
 
@@ -114,7 +112,7 @@ func TestSessAdoptRecordsTheLeaderAndOnlyThenItsSessionIsTheUnits(t *testing.T) 
 		t.Fatal(err)
 	}
 	got, _ := r.led.Leaders(7)
-	if len(got) != 1 || got[0].PID != 500 || got[0].Stamp != l.Stamp || got[0].At == 0 {
+	if len(got) != 1 || got[0].PID != 500 || got[0].Stamp != l.Stamp || got[0].At == 0 || got[0].Unit != r.rec.CgroupID {
 		t.Fatalf("%+v", got)
 	}
 	if v, _ := r.c.view(r.rec); len(v.members) != 2 {
@@ -162,6 +160,8 @@ func TestSessAdoptFailsWhenTheWitnessOrTheUnitCannotBeTrusted(t *testing.T) {
 		"the ledger cannot be read":    func(r *sessRig) { r.led.readErr = errors.New("x") },
 		"no ledger wired":              func(r *sessRig) { r.c.led = nil },
 		"the unit is not proven":       func(r *sessRig) { r.rec.Handle = "" },
+		"the unit's end is recorded":   func(r *sessRig) { r.led.ended[r.rec.CgroupID] = true },
+		"the boot time changed":        func(r *sessRig) { r.w.boot = "boot-other" },
 	} {
 		r := newSessRig(t)
 		l := r.w.leader(500)
@@ -243,25 +243,46 @@ func TestSessEndRacingAdoptionsLosesNoRecordedLeader(t *testing.T) {
 	}
 }
 
-func TestSessAProcessThatForksWhileTheUnitIsEndedIsStillCaught(t *testing.T) {
+// A member forks while the unit is ended: each freeze pass finds the child the pass before it could not see, until a
+// pass finds nothing new, and every process is stopped before the first kill.
+func TestSessAProcessThatForksWhileTheUnitIsFrozenIsStillCaught(t *testing.T) {
 	r := newSessRig(t)
 	l := r.w.leader(500)
 	l.noTerm = true
 	r.record(l)
-	next := 700
-	r.w.onScan = func(w *fakeSess, n int) { // a member forks a child in each of the first three scans, until it is frozen
-		if n <= 3 && !w.procs[500].stopped {
-			w.put(next, 500, next, 500, "forked").noTerm = true
-			next++
+	base := r.w.scans
+	r.w.afterScan = func(w *fakeSess, n int) { // two forks, each after the snapshot that did not yet show the new process
+		switch n - base {
+		case 1:
+			w.put(700, 500, 700, 500, "forked").noTerm = true
+		case 2:
+			w.put(701, 700, 701, 500, "forked-again").noTerm = true
 		}
 	}
-	out := r.end(nil)
-	if out.Kind != UnitBestEffort || len(out.Survivors) != 0 {
-		t.Fatalf("%+v (log %v)", out, r.w.log)
+	g := &sessGroup{c: r.c, rec: r.rec}
+	if err := g.Kill(""); err != nil {
+		t.Fatal(err)
 	}
-	for pid := range r.w.procs {
-		if pid != 1 && pid != 10 {
-			t.Fatalf("process %d survived the end", pid)
+	for _, pid := range []int{500, 700, 701} {
+		if r.w.has(pid) {
+			t.Fatalf("process %d survived (log %v)", pid, r.w.log)
+		}
+	}
+	firstKill := -1
+	for i, e := range r.w.log {
+		if strings.HasPrefix(e, "kill") && firstKill < 0 {
+			firstKill = i
+		}
+	}
+	for _, pid := range []int{500, 700, 701} {
+		stopped := -1
+		for i, e := range r.w.log {
+			if e == fmt.Sprintf("stop:%d", pid) {
+				stopped = i
+			}
+		}
+		if stopped < 0 || stopped > firstKill {
+			t.Fatalf("process %d was not frozen before the kill began: %v", pid, r.w.log)
 		}
 	}
 }
@@ -283,10 +304,50 @@ func TestSessAForkBombThatOutrunsTheFreezeIsReportedNotHidden(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "still appearing") {
 		t.Fatalf("a bound that was hit must be an error: %v", err)
 	}
-	// the freeze never reached a stable pass, so the unit was not provably emptied: a later look still finds what the
-	// bomb left, and the caller's survivor list is built from that look
-	if ps, err := g.Procs(""); err != nil || len(ps) == 0 {
-		t.Fatalf("what the bomb left is invisible: %v %v", ps, err)
+	if r.w.has(500) {
+		t.Fatal("what the freeze passes did know was not killed")
+	}
+}
+
+// A read that fails after the freeze began must not leave the unit stopped.
+func TestSessAReadThatFailsAfterTheFreezeStillKillsWhatWasFrozen(t *testing.T) {
+	r := newSessRig(t)
+	l := r.w.leader(500)
+	l.noTerm = true
+	r.record(l)
+	r.w.put(501, 500, 501, 500, "worker").noTerm = true
+	base := r.w.scans
+	r.w.afterScan = func(w *fakeSess, n int) {
+		if n == base+1 {
+			w.errs["Scan"] = errors.New("the process table cannot be read") // the freeze pass ran on scan 1; scan 2 fails
+		}
+	}
+	g := &sessGroup{c: r.c, rec: r.rec}
+	if err := g.Kill(""); err == nil {
+		t.Fatal("the failed read was not reported")
+	}
+	if r.w.has(500) || r.w.has(501) {
+		t.Fatalf("frozen processes were left stopped: %v (log %v)", r.w.procs, r.w.log)
+	}
+}
+
+// The signaller and its ancestors are never signalled, even when a scan lists them as members.
+func TestSessKillNeverSignalsTheSignallerOrItsAncestors(t *testing.T) {
+	r := newSessRig(t)
+	l := r.w.leader(500)
+	r.record(l)
+	r.w.put(501, 500, 501, 501, "stop-called-from-a-turn")
+	r.w.put(502, 501, 502, 502, "the-signaller")
+	r.w.self = 502
+	g := &sessGroup{c: r.c, rec: r.rec} // built directly: Prove would refuse this unit, and this is the second line of defence
+	_ = g.Kill("")
+	for _, pid := range []int{500, 501, 502} {
+		if !r.w.has(pid) {
+			t.Fatalf("process %d (the signaller or its ancestor) was killed: %v", pid, r.w.log)
+		}
+	}
+	if ps, _ := g.Procs(""); len(ps) != 0 {
+		t.Fatalf("the signaller's own chain is listed as holdable: %v", ps)
 	}
 }
 
@@ -323,22 +384,27 @@ func TestSessAPidThatIsReusedBetweenTheScanAndTheSignalIsNotSignalled(t *testing
 	}
 }
 
-func TestSessAMemberThatMovedBeforeTheSignalIsLeftToTheNextScan(t *testing.T) {
+// A member whose parent exited (it was re-parented) between the scan and the signal is still the process that was seen as
+// a member: it is ended in the same pass. It shares its group number with an outsider, so the group kill is not the path.
+func TestSessAMemberThatWasReparentedBeforeTheSignalIsStillEnded(t *testing.T) {
 	r := newSessRig(t)
 	l := r.w.leader(500)
 	r.record(l)
-	r.w.put(501, 500, 501, 501, "child").noTerm = true
-	done := false
+	r.w.put(501, 500, 900, 501, "child").noTerm = true
+	r.w.put(900, 1, 900, 900, "outsider")
+	base, done := r.w.scans, false
 	r.w.afterScan = func(w *fakeSess, n int) {
-		if !done && n >= 2 {
+		if !done && n == base+2 {
 			done = true
-			w.procs[501].PPID = 1 // its parent exited and it was re-parented between the scan and the signal
+			w.procs[501].PPID = 1 // its parent exited
 		}
 	}
 	g := &sessGroup{c: r.c, rec: r.rec}
 	_ = g.Kill("")
-	_ = g.Kill("") // EndUnit tries again: the process was a member when it was seen, so it is still one
 	if r.w.has(501) {
-		t.Fatalf("a member that was re-parented was dropped for good (log %v)", r.w.log)
+		t.Fatalf("a member that was re-parented was not ended (log %v)", r.w.log)
+	}
+	if !r.w.has(900) {
+		t.Fatal("the outsider that shares its group number was killed")
 	}
 }
