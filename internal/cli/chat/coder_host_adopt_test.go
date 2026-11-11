@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/coderhost"
+	"github.com/monoes/mono-agent/internal/procbind"
 )
 
 // The session unit (macOS) is joined AFTER the turn's process exists: the launcher asks its adopt hook right after the process
@@ -194,8 +195,9 @@ func TestAHeldLeaderIsNotReapedWhenItsTurnEnds(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.waitFile(r.frame)
-	if toks, _ := r.v2Rows(); toks != 1 {
-		t.Fatalf("the live turn has %d tokens", toks)
+	var id string
+	if err := r.db.DB.QueryRow(`SELECT id FROM coder_session_tokens_v2`).Scan(&id); err != nil {
+		t.Fatalf("the live turn has no token: %v", err)
 	}
 	_ = os.WriteFile(r.release, []byte("x"), 0o600)
 	done := make(chan error, 1)
@@ -215,9 +217,13 @@ func TestAHeldLeaderIsNotReapedWhenItsTurnEnds(t *testing.T) {
 	if !stillZombie(pid, 300*time.Millisecond) {
 		t.Fatal("the held leader was reaped later")
 	}
-	if toks, binds := r.v2Rows(); toks != 0 || binds != 0 {
-		// the exit's revoke ran before the turn was done
-		t.Errorf("the ended turn still has %d tokens, %d bindings", toks, binds)
+	// the exit's revoke ran before the turn was done
+	if rv, err := procbind.IsRevoked(context.Background(), r.db.DB, procbind.KindSession, id); err != nil || !rv {
+		t.Errorf("the token survived the held turn: %v %v", rv, err)
+	}
+	if l, ok := r.binder.Acquire(id, "default", procbind.SessionScope("c1", "t1")); ok {
+		l.Release()
+		t.Error("the registration survived the held turn")
 	}
 	h.reap(t)
 	if !noSuchProcess(pid) {
