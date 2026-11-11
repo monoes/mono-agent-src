@@ -3592,7 +3592,7 @@ same-user process can name a live tool of the worker (the shell or the CLI it st
 (`TestKnownGapATokenDefaultAccessListLeavesAToolOfTheWorkerClaimable`) - this is the realistic attack, and it is open;
 (b) **later threads** in the worker and in the host keep the default list (only the worker's main thread is locked), so thread
 hijack (set-context, suspend, APC) by the same user remains possible (`TestKnownGapOtherThreadsOfALockedWorkerKeepTheDefaultAccessList`);
-(c) the host is unlocked until it has started running `coder host run`, and handles opened to it before that survive;
+(c) a host started by hand (not by the CLI) is unlocked until it has started running `coder host run`, and handles opened to it before that survive; a host the CLI starts is created with the list (`TestHostStartedByTheCLIHasTheLockedListFromItsFirstInstruction`);
 (d) an **elevated administrator, SeDebugPrivilege or SeTakeOwnershipPrivilege, and a session started by a service or ssh as an
 administrator**, skip every access list (`TestKnownGapAnElevatedProcessWithDebugPrivilegeOpensALockedWorker`), a class the Linux and
 macOS binding does not stop either (root);
@@ -3618,8 +3618,7 @@ handles stay open so the directory cannot be renamed while the service runs, a l
 socket path longer than the 107 bytes of a Windows socket address is refused with its cause. The frame pipe's write end is not
 inheritable. Residual, as on macOS and not present on Linux: the kernel names the process that **connected** and does not say who holds
 the connection, so a connector that hands the connection to another process and ends, and whose number is recycled to a process inside
-the tree before the service pins it, is served as that process; the window is the accept latency, which a process of the same user that
-can suspend the host can widen. An ended connector is refused. The turn's leader is held by a handle; a bound turn whose leader exits
+the tree before the service pins it, is served as that process; the window is the accept latency (a peer created after the connection was accepted is refused, so a suspended host does not widen it). An ended connector is refused. The turn's leader is held by a handle; a bound turn whose leader exits
 has its group signalled by `taskkill /T` by the leader's number while the child is still unreaped, which cannot find a tree whose
 parent is gone: stragglers of a Windows turn may outlive their leader (job-object containment is separate work).
 
