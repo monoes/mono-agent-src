@@ -173,3 +173,98 @@ func TestWithWriteTxDropsAConnectionWhoseRollbackFails(t *testing.T) {
 		t.Fatalf("connections opened = %d, want a fresh one after the drop", n)
 	}
 }
+
+func countRows(t *testing.T, db *sql.DB) int {
+	t.Helper()
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM t`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func insertOne(conn *sql.Conn) error {
+	_, err := conn.ExecContext(context.Background(), `INSERT INTO t VALUES (1)`)
+	return err
+}
+
+// A COMMIT the engine refuses commits nothing, the error reaches the caller, and the connection is rolled back
+// before it goes back to the pool (dbconntest.CommitErr is the seam that makes the COMMIT fail).
+func TestWithWriteTxFailedCommitRollsBackAndReturnsTheError(t *testing.T) {
+	db, trip := dbconntest.Open(t)
+	if _, err := db.Exec(`CREATE TABLE t (v INTEGER)`); err != nil {
+		t.Fatal(err)
+	}
+	trip.CommitErr = errors.New("disk I/O error")
+	err := WithWriteTx(context.Background(), db, insertOne)
+	if err == nil || err.Error() != "disk I/O error" {
+		t.Fatalf("err = %v, want the commit's error", err)
+	}
+	trip.CommitErr = nil
+	dbconntest.RequireClean(t, db)
+	if n := countRows(t, db); n != 0 {
+		t.Fatalf("rows after a refused COMMIT = %d, want 0", n)
+	}
+	if err := WithWriteTx(context.Background(), db, insertOne); err != nil {
+		t.Fatalf("a retry after a refused COMMIT: %v", err)
+	}
+	if n := countRows(t, db); n != 1 {
+		t.Fatalf("rows after the retry = %d, want 1", n)
+	}
+}
+
+// A COMMIT that lands and then reports an error (the unknown outcome): the caller gets the error although the data
+// is durable, and the connection is clean.
+func TestWithWriteTxCommitThatLandsButReportsAnError(t *testing.T) {
+	db, trip := dbconntest.Open(t)
+	if _, err := db.Exec(`CREATE TABLE t (v INTEGER)`); err != nil {
+		t.Fatal(err)
+	}
+	trip.CommitErrAfter = errors.New("connection lost after commit")
+	if err := WithWriteTx(context.Background(), db, insertOne); err == nil {
+		t.Fatal("no error")
+	}
+	trip.CommitErrAfter = nil
+	dbconntest.RequireClean(t, db)
+	if n := countRows(t, db); n != 1 {
+		t.Fatalf("rows = %d, want the committed one", n)
+	}
+}
+
+// The same two outcomes for a database/sql transaction, whose Commit does not go through a COMMIT statement.
+func TestTripFailsTheCommitOfADatabaseSQLTx(t *testing.T) {
+	db, trip := dbconntest.Open(t)
+	if _, err := db.Exec(`CREATE TABLE t (v INTEGER)`); err != nil {
+		t.Fatal(err)
+	}
+	run := func() error {
+		tx, err := db.Begin()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.Exec(`INSERT INTO t VALUES (1)`); err != nil {
+			t.Fatal(err)
+		}
+		return tx.Commit()
+	}
+	trip.CommitErrAfter = errors.New("lost after commit")
+	if err := run(); err == nil {
+		t.Fatal("no error")
+	}
+	trip.CommitErrAfter = nil
+	if n := countRows(t, db); n != 1 {
+		t.Fatalf("rows after a COMMIT that landed = %d, want 1", n)
+	}
+	trip.CommitErr = errors.New("disk I/O error")
+	if err := run(); err == nil {
+		t.Fatal("no error")
+	}
+	trip.CommitErr = nil
+	// nothing was committed, and the transaction was left open on the connection (what the seam documents)
+	if _, err := db.Exec(`ROLLBACK`); err != nil {
+		t.Fatalf("the refused COMMIT left no open transaction: %v", err)
+	}
+	if n := countRows(t, db); n != 1 {
+		t.Fatalf("rows after a refused COMMIT = %d, want still 1", n)
+	}
+}

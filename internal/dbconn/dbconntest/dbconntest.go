@@ -24,6 +24,14 @@ type Trip struct {
 	RollbackErr error
 	// RollbackHangs, when set before use, makes every ROLLBACK block until its context ends.
 	RollbackHangs bool
+	// CommitErr, when set before use, is what every COMMIT returns instead of running: nothing is committed and the
+	// transaction stays open, as after a COMMIT the engine refused (the caller's rollback ends it). It covers the
+	// COMMIT statement of a dedicated connection and the Commit of a database/sql transaction.
+	CommitErr error
+	// CommitErrAfter, when set before use, makes every COMMIT run and land, and then return this error: the outcome a
+	// caller cannot tell from the error alone (a context that ends as the statement finishes, a connection that
+	// breaks after the write). CommitErr takes precedence.
+	CommitErrAfter error
 	// BeforeExec, when set before use, runs before every statement the driver executes outside BEGIN, COMMIT and
 	// ROLLBACK, on the connection that is about to run it: the place for a competing writer to commit between a
 	// transaction's read and its write.
@@ -53,7 +61,36 @@ type conn struct {
 	trip *Trip
 }
 
+// Begin wraps the transaction a database/sql Tx begins, so that its Commit goes through the same hooks as a COMMIT
+// statement on a dedicated connection.
+func (c *conn) Begin() (driver.Tx, error) {
+	tx, err := c.Conn.Begin()
+	if err != nil {
+		return nil, err
+	}
+	return &txn{Tx: tx, trip: c.trip}, nil
+}
+
+type txn struct {
+	driver.Tx
+	trip *Trip
+}
+
+func (x *txn) Commit() error {
+	if x.trip.CommitErr != nil {
+		return x.trip.CommitErr
+	}
+	err := x.Tx.Commit()
+	if err == nil && x.trip.CommitErrAfter != nil {
+		return x.trip.CommitErrAfter
+	}
+	return err
+}
+
 func (c *conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+	if c.trip.CommitErr != nil && strings.HasPrefix(query, "COMMIT") {
+		return nil, c.trip.CommitErr
+	}
 	if c.trip.RollbackErr != nil && strings.HasPrefix(query, "ROLLBACK") {
 		return nil, c.trip.RollbackErr
 	}
@@ -65,6 +102,9 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 		c.trip.BeforeExec(query)
 	}
 	res, err := c.Conn.(driver.ExecerContext).ExecContext(context.WithoutCancel(ctx), query, args)
+	if err == nil && c.trip.CommitErrAfter != nil && strings.HasPrefix(query, "COMMIT") {
+		return nil, c.trip.CommitErrAfter
+	}
 	if err == nil && strings.HasPrefix(query, "BEGIN") && c.trip.armed.CompareAndSwap(true, false) {
 		return nil, context.Canceled
 	}
