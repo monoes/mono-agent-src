@@ -97,11 +97,12 @@ func TestMissionExecCapWalksTheWholeChain(t *testing.T) {
 	r.wantCap(g, 5)
 	r.setSpent(c, 3) // C is over its $5 (3 spent + the grandchild's 5): the grandchild's ancestor refuses
 	r.wantRefused(g)
+	r.setSpent(c, 0)
 	// the grandchild of an unbudgeted middle session is bounded by the root above it
 	m := r.capKid(r.sid, 0, 0)
 	k := r.capKid(m, 4, 0)
 	r.wantCap(k, 4)
-	r.setSpent(r.sid, 7) // 7 + 5 (c) + 4 (via m) = 16: over
+	r.setSpent(r.sid, 2) // 2 + 5 (c) + 4 (via m) = 11: over
 	r.wantRefused(k)
 }
 
