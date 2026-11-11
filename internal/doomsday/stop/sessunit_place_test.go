@@ -290,29 +290,35 @@ func TestSessAForkBombThatOutrunsTheFreezeIsReportedNotHidden(t *testing.T) {
 	}
 }
 
+// The number of a member is handed to a stranger after the scan that listed it, in the freeze pass (phase 1) or after the
+// last scan, just before the kill (phase 2): the stranger must not be signalled, neither by pid nor by group number.
 func TestSessAPidThatIsReusedBetweenTheScanAndTheSignalIsNotSignalled(t *testing.T) {
-	r := newSessRig(t)
-	l := r.w.leader(500)
-	l.noTerm = true
-	r.record(l)
-	r.w.put(501, 500, 501, 500, "worker").noTerm = true
-	swapped := false
-	r.w.afterScan = func(w *fakeSess, n int) {
-		if !swapped && n >= 2 { // the first scan of the freeze pass has returned: 501 exits and its number is reused
-			swapped = true
-			delete(w.procs, 501)
-			s := w.put(501, 1, 501, 501, "stranger")
-			s.Stamp = "1900000000.000009"
+	for phase := 1; phase <= 2; phase++ {
+		r := newSessRig(t)
+		l := r.w.leader(500)
+		l.noTerm = true
+		r.record(l)
+		r.w.put(501, 500, 501, 500, "worker").noTerm = true
+		base, swapped, mark := r.w.scans, false, 0
+		r.w.afterScan = func(w *fakeSess, n int) {
+			if !swapped && n == base+phase { // that scan has returned: 501 exits and its number (and group number) is reused
+				swapped, mark = true, len(w.log)
+				delete(w.procs, 501)
+				w.put(501, 1, 501, 501, "stranger").Stamp = "1900000000.000009"
+			}
 		}
-	}
-	g := &sessGroup{c: r.c, rec: r.rec}
-	_ = g.Kill("")
-	if !r.w.has(501) {
-		t.Fatalf("the process that took over the number was killed (log %v)", r.w.log)
-	}
-	for _, e := range r.w.log {
-		if e == "stop:501" || e == "kill:501" || e == "killgrp:501" {
-			t.Fatalf("the reused number was signalled: %v", r.w.log)
+		g := &sessGroup{c: r.c, rec: r.rec}
+		_ = g.Kill("")
+		if !swapped {
+			t.Fatalf("phase %d: the scan hook never ran", phase)
+		}
+		if !r.w.has(501) {
+			t.Fatalf("phase %d: the process that took over the number was killed (log %v)", phase, r.w.log)
+		}
+		for _, e := range r.w.log[mark:] { // what was sent to the real 501 before the number moved is correct
+			if e == "stop:501" || e == "kill:501" || e == "killgrp:501" {
+				t.Fatalf("phase %d: the reused number was signalled: %v", phase, r.w.log)
+			}
 		}
 	}
 }

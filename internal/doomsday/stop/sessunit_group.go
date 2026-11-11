@@ -125,9 +125,6 @@ func (g *sessGroup) Signal(_ string, pid int, sig syscall.Signal) error {
 // process is a member is killed by its group number (atomic); everything else by pid. The first error is returned
 // after every member was tried; what is still there afterwards is the caller's survivors list.
 func (g *sessGroup) Kill(string) error {
-	if true {
-		return nil
-	}
 	var first error
 	note := func(err error) {
 		if err != nil && first == nil {

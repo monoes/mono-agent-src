@@ -134,8 +134,103 @@ type sessResolution struct {
 // session id (BSD behaviour; to be verified on the Mac in S2), which is why this is defence in depth and not the only
 // protection. Anything ambiguous is "why", never a signal.
 func resolveSession(procs []SessProc, leaders []Leader, rebooted bool) sessResolution {
-	_, _, _ = procs, leaders, rebooted
-	return sessResolution{}
+	var res sessResolution
+	byPID := make(map[int]SessProc, len(procs))
+	bySID := map[int][]SessProc{}
+	for _, p := range procs {
+		byPID[p.PID] = p
+		bySID[p.SID] = append(bySID[p.SID], p)
+	}
+	// one entry per session number: a number can be recorded twice (two turns whose leaders got the same pid)
+	type slot struct {
+		stamps []string
+		min    int64
+	}
+	slots := map[int]*slot{}
+	for _, l := range leaders {
+		us, ok := parseSessStamp(l.Stamp)
+		if l.PID <= 1 || !ok {
+			res.why = fmt.Sprintf("the ledger names a leader that cannot be checked (pid %d, start %q)", l.PID, l.Stamp)
+			return res
+		}
+		s := slots[l.PID]
+		if s == nil {
+			s = &slot{min: us}
+			slots[l.PID] = s
+		}
+		s.stamps = append(s.stamps, l.Stamp)
+		if us < s.min {
+			s.min = us
+		}
+	}
+	member := map[int]SessProc{}
+	var pids []int
+	for pid := range slots {
+		pids = append(pids, pid)
+	}
+	sort.Ints(pids)
+	for _, pid := range pids {
+		s := slots[pid]
+		cur, held := byPID[pid]
+		alive := false
+		if held {
+			for _, st := range s.stamps {
+				alive = alive || cur.Stamp == st
+			}
+		}
+		inSession := bySID[pid]
+		switch {
+		case rebooted && len(inSession) > 0:
+			res.why = fmt.Sprintf("the boot time differs from the unit's and session number %d is in use by %d process(es) that are not provably this unit's (after a reboot the number may belong to another process: end them by hand)", pid, len(inSession))
+			return res
+		case alive:
+			if cur.SID != pid {
+				res.why = fmt.Sprintf("the recorded leader %d does not lead its session", pid)
+				return res
+			}
+			res.live = append(res.live, pid)
+		case len(inSession) == 0:
+			continue // the leader and its whole session are gone
+		case held:
+			res.why = fmt.Sprintf("the recorded leader %d is gone and its number is held by another process that is in session %d, so the session is not tied to this unit", pid, pid)
+			return res
+		}
+		for _, p := range inSession {
+			us, ok := parseSessStamp(p.Stamp)
+			if !ok || us < s.min {
+				res.why = fmt.Sprintf("process %d in session %d is older than the unit's leader, so it is not provably this unit's", p.PID, pid)
+				return res
+			}
+			member[p.PID] = p
+		}
+	}
+	// a child of a member is a member, in whatever session it has made for itself
+	kids := map[int][]SessProc{}
+	for _, p := range procs {
+		kids[p.PPID] = append(kids[p.PPID], p)
+	}
+	queue := make([]int, 0, len(member))
+	for pid := range member {
+		queue = append(queue, pid)
+	}
+	for len(queue) > 0 {
+		pid := queue[0]
+		queue = queue[1:]
+		for _, k := range kids[pid] {
+			if k.PID <= 1 {
+				continue
+			}
+			if _, seen := member[k.PID]; !seen {
+				member[k.PID] = k
+				queue = append(queue, k.PID)
+			}
+		}
+	}
+	for _, p := range member {
+		res.members = append(res.members, p)
+	}
+	sort.Slice(res.members, func(i, j int) bool { return res.members[i].PID < res.members[j].PID })
+	return res
 }
 
 var errNoSessionOS = errors.New("the session mechanism is only available on macOS")
@@ -169,4 +264,3 @@ func (c sessContainment) view(rec UnitRecord) (sessView, error) {
 	}
 	return sessView{all: all, rebooted: rebooted, sessResolution: resolveSession(all, leaders, rebooted)}, nil
 }
-var _ = sort.Ints

@@ -80,7 +80,7 @@ func forGeneration(recs []Record, gen int64) []Record {
 		switch r.T {
 		case RecDBID:
 			out = append(out, r)
-		case RecAnchor, RecUnitIntent, RecUnitBound, RecUnitEnded:
+		case RecAnchor, RecUnitIntent, RecUnitBound, RecUnitEnded, RecUnitLeader:
 		default:
 			if r.Gen == gen {
 				out = append(out, r)

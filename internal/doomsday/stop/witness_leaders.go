@@ -12,9 +12,6 @@ var _ LeaderLedger = (*Sequencer)(nil)
 
 // AddLeader appends the leader line under the witness lock, fsynced. A witness that cannot take it refuses.
 func (s *Sequencer) AddLeader(gen uint64, l Leader) error {
-	if true {
-		return nil
-	}
 	b, err := json.Marshal(l)
 	if err != nil {
 		return err
@@ -26,9 +23,6 @@ func (s *Sequencer) AddLeader(gen uint64, l Leader) error {
 // that does not decode, is an error and never a shorter list: a leader that is not listed is not signalled, so an
 // incomplete list must not pass for a complete one.
 func (s *Sequencer) Leaders(gen uint64) ([]Leader, error) {
-	if true {
-		return nil, nil
-	}
 	recs, err := s.W.Records()
 	if err != nil {
 		return nil, err

@@ -98,9 +98,6 @@ func (c sessContainment) proveView(rec UnitRecord) (sessView, error) {
 // read from the ledger, their sessions are found and tied to them, and the signaller is not in the unit. A unit with no
 // process in it is gone (best effort: a process that left its sessions is not seen).
 func (c sessContainment) Prove(rec UnitRecord) (Proof, error) {
-	if true {
-		return Proof{}, ErrNotProven
-	}
 	v, err := c.proveView(rec)
 	if err != nil {
 		return Proof{}, err
@@ -134,9 +131,6 @@ func (c sessContainment) Create(ctx context.Context, a CreateArgs, gen uint64) (
 // to the key-free file. NO process is started: the record is the unit, and a turn's leader joins it at Adopt. "No unit,
 // no run" still holds, because without the record no placement is possible.
 func createSession(_ context.Context, o SessionOS, a CreateArgs, gen uint64) (UnitRecord, error) {
-	if true {
-		return UnitRecord{}, ErrUnitNotCreated
-	}
 	var rd io.Reader = rand.Reader
 	if a.Rand != nil {
 		rd = a.Rand
@@ -217,9 +211,6 @@ func (p *sessPlacer) PlaceLeased(cmd *exec.Cmd) error {
 }
 
 func (p *sessPlacer) place(cmd *exec.Cmd) (func(), error) {
-	if true {
-		return nil, ErrNotPlaced
-	}
 	if cmd == nil || cmd.Process != nil {
 		return nil, fmt.Errorf("%w: the command is nil or already started", ErrNotPlaced)
 	}
@@ -241,9 +232,6 @@ func (p *sessPlacer) place(cmd *exec.Cmd) (func(), error) {
 // later signalled. It is written to the ledger (the witness) before Adopt returns; a ledger that cannot take the line
 // refuses, and nothing is recorded.
 func (p *sessPlacer) Adopt(pid int, stamp string) error {
-	if true {
-		return ErrNotPlaced
-	}
 	if p.c.led == nil {
 		return fmt.Errorf("%w: %v", ErrNotPlaced, errNoLedger)
 	}

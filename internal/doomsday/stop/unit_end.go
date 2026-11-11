@@ -144,9 +144,14 @@ func endSub(cg Cgroup, sub string, cfg EndConfig, out *UnitOutcome) (unknown []S
 	if w, ok := cg.(interface{ SurvivorWhy() string }); ok {
 		why = w.SurvivorWhy()
 	}
+	whyFor, perPid := cg.(interface{ SurvivorWhyFor(pid int) string })
 	for _, pid := range pids {
 		stamp, comm, _ := cg.ProcInfo(sub, pid)
-		out.Survivors = append(out.Survivors, Survivor{PID: pid, Stamp: stamp, Comm: comm, Sub: sub, Why: why})
+		w := why
+		if perPid {
+			w = whyFor.SurvivorWhyFor(pid)
+		}
+		out.Survivors = append(out.Survivors, Survivor{PID: pid, Stamp: stamp, Comm: comm, Sub: sub, Why: w})
 	}
 	if len(pids) == 0 {
 		out.Survivors = append(out.Survivors, Survivor{Sub: sub, Why: "the sub-cgroup could not be removed"})
@@ -248,6 +253,9 @@ func (u UnitEnder) endOne(ctx context.Context, rec UnitRecord, cfg EndConfig, au
 	}
 	if p.BestEffort && out.Kind == UnitEnded {
 		out.Kind = UnitBestEffort
+		if out.Note == "" {
+			out.Note = p.Note // the limit the mechanism states for its own best-effort end (empty for the older kinds)
+		}
 	}
 	return out
 }
