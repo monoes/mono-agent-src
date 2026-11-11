@@ -15,8 +15,8 @@ import (
 	"github.com/monoes/mono-agent/internal/hilsuggest"
 	"github.com/monoes/mono-agent/internal/jev/jevconf"
 	"github.com/monoes/mono-agent/internal/nodes/nodeprofile"
-	"github.com/monoes/mono-agent/internal/vault"
 	"github.com/monoes/mono-agent/internal/secrets"
+	"github.com/monoes/mono-agent/internal/vault"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 

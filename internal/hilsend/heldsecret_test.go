@@ -333,3 +333,23 @@ func TestEveryHilPendingWriterIsAccountedFor(t *testing.T) {
 		}
 	}
 }
+
+// Under a host-bound grant a reference goes only to a node type that checks
+// its destination and only to a host the grant names.
+func TestAHostBoundGrantResolvesOnlyForAGrantedHost(t *testing.T) {
+	f := newHeldFix(t, secrets.AccessGrant{Hosts: []string{"a.example.test"}})
+	tok := secrets.HeldToken("vs", strings.Repeat("b", 32))
+	o := secrets.HeldOptions{Verify: func(string, string) bool { return true }, NodeType: "http.request", Card: "c1", Dry: true}
+	o.Host = "b.example.test"
+	if _, err := secrets.ResolveHeld(f.ctx, f.db, "default", "k "+tok, o); !errors.Is(err, secrets.ErrHeldRefused) {
+		t.Errorf("another host: %v", err)
+	}
+	o.Host = "a.example.test"
+	if _, err := secrets.ResolveHeld(f.ctx, f.db, "default", "k "+tok, o); err != nil {
+		t.Errorf("the granted host: %v", err)
+	}
+	o.NodeType = "comm.slack"
+	if _, err := secrets.ResolveHeld(f.ctx, f.db, "default", "k "+tok, o); !errors.Is(err, secrets.ErrHeldRefused) {
+		t.Errorf("a node type with no destination check: %v", err)
+	}
+}
