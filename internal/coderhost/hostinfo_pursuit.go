@@ -23,6 +23,15 @@ type PursuitHostInfo struct {
 	Pin        string  `json:"pin,omitempty"`        // the judge's runtime/model
 	WakeCapUSD float64 `json:"wakeCapUsd,omitempty"` // X: the most one wake-up turn of a lead may spend
 	Reason     string  `json:"reason,omitempty"`
+
+	// The goal checks (MONOAGENT_PURSUIT_VERIFIER), display only like the rest of the file. VerifierPin is what was asked for
+	// ("" = the checks are off, the default); VerifierOn says they are set up; VerifierReason says why a checker that was asked
+	// for is not (no judge, a pin that does not parse, a scratch folder that cannot be made); Confinement says what confines the
+	// programs of command criteria on this host, or what is missing.
+	VerifierPin    string `json:"verifierPin,omitempty"`
+	VerifierOn     bool   `json:"verifierOn,omitempty"`
+	VerifierReason string `json:"verifierReason,omitempty"`
+	Confinement    string `json:"confinement,omitempty"`
 }
 
 // HostDir is the folder of the coder host that serves the database at dbPath (already path-expanded).

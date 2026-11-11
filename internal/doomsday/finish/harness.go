@@ -310,10 +310,23 @@ func (h *Harness) report(ctx context.Context, v Verdict) (Report, error) {
 // StatManifest is a quick description of a root (names, sizes, kinds, modification times), compared before and after the
 // full digest of the recheck. It is a detection aid, not a lock.
 func StatManifest(root string) (string, error) {
+	return StatManifestCtx(context.Background(), root, 0)
+}
+
+// ErrTooManyFiles: the folder has more entries than the caller allows a manifest of.
+var ErrTooManyFiles = errors.New("finish: the folder has more files than a manifest may describe")
+
+// StatManifestCtx is StatManifest that stops when ctx ends and, with maxEntries above 0, refuses (ErrTooManyFiles) a folder with
+// more entries than that, so a huge tree cannot build an unbounded string.
+func StatManifestCtx(ctx context.Context, root string, maxEntries int) (string, error) {
 	var b strings.Builder
+	n := 0
 	err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
+		}
+		if cerr := ctx.Err(); cerr != nil {
+			return cerr
 		}
 		if d.Name() == ".git" {
 			if d.IsDir() {
@@ -321,12 +334,15 @@ func StatManifest(root string) (string, error) {
 			}
 			return nil
 		}
+		if n++; maxEntries > 0 && n > maxEntries {
+			return ErrTooManyFiles
+		}
 		info, err := d.Info()
 		if err != nil {
 			return err
 		}
 		rel, _ := filepath.Rel(root, p)
-		fmt.Fprintf(&b, "%s|%d|%d|%d\n", rel, info.Size(), info.Mode(), info.ModTime().UnixNano())
+		fmt.Fprintf(&b, "%s|%d|%d|%d%s\n", rel, info.Size(), info.Mode(), info.ModTime().UnixNano(), statExtra(info))
 		return nil
 	})
 	return b.String(), err

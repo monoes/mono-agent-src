@@ -49,7 +49,7 @@ func TestTaskCountsPerState(t *testing.T) {
 	if err != nil || !s.Run.Running {
 		t.Fatalf("%+v %v", s, err)
 	}
-	want := TaskCounts{Total: 10, Inbox: 1, Ready: 2, InProgress: 2, Review: 1, Done: 3, Archived: 1, Blocked: 1, Workable: 5}
+	want := TaskCounts{Total: 10, Inbox: 1, Ready: 2, InProgress: 2, Review: 1, Done: 3, Archived: 1, Blocked: 1, Workable: 5, NonEpic: 9}
 	if s.Tasks != want {
 		t.Errorf("tasks = %+v, want %+v", s.Tasks, want)
 	}
@@ -195,5 +195,18 @@ func TestWorkableMatchesTheSettledTestOfTheMissionClose(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// NonEpic is what the host's goal check needs ("at least one task that is not an epic"): epics and archived tasks do not count.
+func TestNonEpicCountsOnlyLiveTasksThatAreNotEpics(t *testing.T) {
+	f := newFixture(t)
+	f.startPursuit(t)
+	for _, c := range []struct{ status, kind string }{{"done", "task"}, {"review", "task"}, {"archived", "task"}, {"in_progress", "epic"}, {"done", "epic"}} {
+		mustExec(t, f.db, `INSERT INTO tasks (profile_id, title, status, position, session_id, kind, created_at, updated_at) VALUES ('default','t',?,1,?,?,'x','x')`, c.status, f.session, c.kind)
+	}
+	s, err := f.reader.Snapshot(bg, f.session)
+	if err != nil || s.Tasks.NonEpic != 2 {
+		t.Fatalf("NonEpic = %d, want 2: %+v %v", s.Tasks.NonEpic, s.Tasks, err)
 	}
 }

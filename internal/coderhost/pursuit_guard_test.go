@@ -56,10 +56,25 @@ func TestThePursuitFilesImportNothingThatCarriesAuthority(t *testing.T) {
 		"github.com/monoes/mono-agent/internal/missionpursuit/scorer":     true,
 		"github.com/monoes/mono-agent/internal/missionpursuit/strategy":   true,
 	}
+	// The goal check step (S7c1b) is the one part of the loop that reads the project folder and holds the verifier library; each
+	// of its files is listed with the extra imports it needs, and nothing else in the loop may have them.
+	const fin, ver, sdc = "github.com/monoes/mono-agent/internal/doomsday/finish", "github.com/monoes/mono-agent/internal/missionpursuit/verifier", "github.com/monoes/mono-agent/internal/missionpursuit/verifier/sdconfine"
+	checkExtras := map[string][]string{
+		"pursuit_check.go":         {fin, ver},
+		"pursuit_check_gate.go":    {"os", "path/filepath", "crypto/sha256", fin, ver},
+		"pursuit_check_meter.go":   {ver},
+		"pursuit_check_folders.go": {"path/filepath", "runtime"},
+		"pursuit_check_sweep.go":   {"os", "path/filepath", fin},
+		"pursuit_check_wire.go":    {"os", "os/exec", ver, sdc},
+	}
 	for name, f := range pursuitSources(t) {
+		extra := map[string]bool{}
+		for _, e := range checkExtras[name] {
+			extra[e] = true
+		}
 		for _, im := range f.Imports {
 			p, _ := strconv.Unquote(im.Path.Value)
-			if !allowed[p] {
+			if !allowed[p] && !extra[p] {
 				t.Errorf("%s imports %s: decide the new import here, in review (the loop must carry no process, network, MCP, CLI, finish or ledger authority)", name, p)
 			}
 		}
@@ -276,7 +291,11 @@ func TestThePursuitIsOffUnlessTheHostIsGivenIt(t *testing.T) {
 func TestThePursuitFilesNameOnlyListedExportsOfThePackagesThatCarryWriters(t *testing.T) {
 	allowed := map[string]map[string]bool{
 		"missionpursuit": {"Goal": true, "NewStore": true, "Get": true, "GetPursuit": true, "StateConfirmed": true, "StateLocked": true, "MaxHostWakesPerHour": true, "MaxHostJudgeCallsPerHour": true,
-			"MaxBadJudgeRounds": true, "MaxWakesMax": true, "WaitingWhy": true},
+			"MaxBadJudgeRounds": true, "MaxWakesMax": true, "WaitingWhy": true,
+			// the goal checks' reads, counts and constants (S7c1b); the writer capability is listed below, per file
+			"CheckFacts": true, "ReadCheckFacts": true, "CheckSpend": true, "CheckSpendAfter": true, "CheckHead": true, "NextCheckRound": true, "HostChecksSince": true,
+			"CheckCapMicro": true, "CheckTotalTimeout": true, "MaxChecksPerAwayWindow": true, "MaxChecksPerMissionLifetime": true, "MaxHostChecksPerHour": true,
+			"MaxBadReviewerRuns": true, "Hash": true, "Criterion": true, "NewHostChecks": true, "HostChecks": true, "BeginCheck": true},
 		"strategy":  {"NewStore": true, "Store": true},
 		"policy":    {"Proposer": true, "Rank": true, "AcceptsNewWork": true},
 		"novelty":   {"New": true, "Key": true, "Corpus": true, "Match": true, "Hit": true},
@@ -293,6 +312,15 @@ func TestThePursuitFilesNameOnlyListedExportsOfThePackagesThatCarryWriters(t *te
 			if id, ok := sel.X.(*ast.Ident); ok {
 				if list, guarded := allowed[id.Name]; guarded && !list[sel.Sel.Name] {
 					t.Errorf("%s uses %s.%s: decide it in review", name, id.Name, sel.Sel.Name)
+				}
+			}
+			if id, ok := sel.X.(*ast.Ident); ok && id.Name == "missionpursuit" {
+				// the host's check writer is constructed and used only by the two files that run and sweep checks
+				switch sel.Sel.Name {
+				case "NewHostChecks", "HostChecks", "BeginCheck":
+					if name != "pursuit_check.go" && name != "pursuit_check_sweep.go" {
+						t.Errorf("%s uses missionpursuit.%s: only pursuit_check.go and pursuit_check_sweep.go may", name, sel.Sel.Name)
+					}
 				}
 			}
 			if only, isWriter := writers[sel.Sel.Name]; isWriter && name != only {

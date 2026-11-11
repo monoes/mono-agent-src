@@ -169,6 +169,17 @@ func isProgram(kind string) bool { return kind == "command" || kind == "output" 
 // rechecks stop at once when ctx ends (the copy finishes in the background and removes its own scratch area); the reviewer
 // call is bounded by its timeout (3 minutes by default) plus a 30 second grace.
 func (k *Checker) Run(ctx context.Context, req Request) (Result, error) {
+	res, err := k.run1(ctx, req)
+	// A check that never asked the reviewer cost nothing, and that is KNOWN: the host's meter counts an unknown cost at the cap,
+	// and a failed machine check must not be charged $0.50. An abandoned check stays unknown (the host charges its cap), and a
+	// reviewer call whose cost was not reported already carries the cap with known false.
+	if err == nil && res.Outcome != OutcomeAbandoned && res.CostMicro == 0 && !res.CostKnown {
+		res.CostKnown = true
+	}
+	return res, err
+}
+
+func (k *Checker) run1(ctx context.Context, req Request) (Result, error) {
 	if !k.run.TryLock() {
 		return Result{}, ErrBusy
 	}

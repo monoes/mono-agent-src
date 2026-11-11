@@ -14,12 +14,6 @@ import (
 	"github.com/monoes/mono-agent/internal/tasks"
 )
 
-// checkerSetUp is the seam of the goal checker (S7b): until it exists no checker is set up, the consent block says
-// {set_up:false}, and the digest covers it so that a checker appearing between preview and begin makes the begin stale. The
-// command-check rules (a goal with command criteria needs the person-set unconfined switch) are added here when the checker
-// and the switch exist and can be tested; nothing here runs a criterion.
-func (d Deps) checkerSetUp() bool { return false }
-
 // liveFacts reads the host-side facts of the consent block through the connection of the begin (or the preview): the host's
 // published loop state, the budgets, the lead's pin and the cost table. shown receives the cost table the digest covers.
 func (d Deps) liveFacts(profileID string, session int64, shown *coderhost.CostTable) missionpursuit.LiveFunc {
@@ -45,11 +39,16 @@ func (d Deps) liveFacts(profileID string, session int64, shown *coderhost.CostTa
 		if reported {
 			wakeCap = host.WakeCapUSD
 		}
-		table := coderhost.PursuitCostRows(coderhost.CostInput{WakeCapUSD: wakeCap, MissionBudgetUSD: budget, Pct: lim.Pct, Wakes: lim.Wakes, HostReported: reported})
+		verifierOn := reported && host.VerifierOn
+		in := coderhost.CostInput{WakeCapUSD: wakeCap, MissionBudgetUSD: budget, Pct: lim.Pct, Wakes: lim.Wakes, HostReported: reported, VerifierSet: verifierOn}
+		if verifierOn {
+			in.VerifierPin, in.Confinement = host.VerifierPin, host.Confinement
+		}
+		table := coderhost.PursuitCostRows(in)
 		if shown != nil {
 			*shown = table
 		}
-		f := missionpursuit.LiveFacts{Cost: table.Text, HostOn: on, HostInvalid: invalid, CheckerSetUp: d.checkerSetUp(),
+		f := missionpursuit.LiveFacts{Cost: table.Text, HostOn: on, HostInvalid: invalid, CheckerSetUp: verifierOn,
 			BudgetKnown: missionpursuit.BudgetKnown(budget, spent), LeadCapped: leadCapped}
 		if reported {
 			f.JudgePin, f.WakeCapUSD = host.Pin, host.WakeCapUSD

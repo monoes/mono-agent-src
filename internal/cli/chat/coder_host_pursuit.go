@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"math"
@@ -22,7 +23,36 @@ import (
 const (
 	envPursuitJudge   = "MONOAGENT_PURSUIT_JUDGE"
 	envPursuitWakeCap = "MONOAGENT_PURSUIT_WAKE_CAP_USD"
+	// MONOAGENT_PURSUIT_VERIFIER is the goal checker's pin, runtime/model[@version], and turns the goal checks on. Unset or empty
+	// (the default): they are OFF and nothing of them is built. It works only with the judge flag above, is read once when
+	// the host starts, and has no live off (unset it and restart). See coderhost/pursuit_check.go.
+	envPursuitVerifier = "MONOAGENT_PURSUIT_VERIFIER"
 )
+
+// verifierBuilder is coderhost.NewVerifierDeps; a variable so that a test can show it is not called while the flag is off.
+var verifierBuilder = coderhost.NewVerifierDeps
+
+// attachVerifier turns the goal checks on in the deps when the flag asks for them and the loop is on. With the flag unset it
+// does nothing at all (nothing is built, the info stays as it was); with the flag set and no loop it says so and builds nothing;
+// a checker that cannot be set up leaves the loop as it is, with the reason in the info.
+func attachVerifier(ctx context.Context, getenv func(string) string, d *coderhost.PursuitDeps, info *coderhost.PursuitHostInfo, scratch string, forbidden coderhost.ForbiddenFolders) {
+	pin := strings.TrimSpace(getenv(envPursuitVerifier))
+	if pin == "" {
+		return
+	}
+	info.VerifierPin = pin
+	if d == nil {
+		info.VerifierReason = envPursuitVerifier + " is set but the pursuit loop is off (set " + envPursuitJudge + " too, and restart the host): no goal check runs"
+		return
+	}
+	vd, vi := verifierBuilder(ctx, pin, scratch, forbidden)
+	info.Confinement = vi.Confinement
+	if vd == nil {
+		info.VerifierReason = vi.Reason
+		return
+	}
+	d.Verifier, info.VerifierOn = vd, true
+}
 
 // pursuitFromEnv builds the pursuit deps from the environment, or nil with the info that says why the loop is off. db answers
 // the lead's pin at each gate and each judge call.
@@ -63,6 +93,19 @@ func leadPin(db *sql.DB, profileID, conversationID string) string {
 
 // pursuitStatusLine is the one line `coder host status` prints for the loop.
 func pursuitStatusLine(p coderhost.PursuitHostInfo) string {
+	line := pursuitLoopLine(p)
+	switch {
+	case p.VerifierOn:
+		line += "\ngoal checks ON  checker " + p.VerifierPin + "  project commands: " + p.Confinement + "  (at most $0.50 per check, 2 per away window, 6 per mission, 4 an hour on this host, one at a time)"
+	case p.VerifierReason != "":
+		line += "\ngoal checks OFF  " + p.VerifierReason
+	case p.VerifierPin != "":
+		line += "\ngoal checks OFF  " + p.VerifierPin + " was asked for and is not set up"
+	}
+	return line
+}
+
+func pursuitLoopLine(p coderhost.PursuitHostInfo) string {
 	switch {
 	case p.Enabled:
 		return fmt.Sprintf("pursuit loop ON  judge %s  a wake-up turn is capped at $%.2f (and at what the lead has left)", p.Pin, p.WakeCapUSD)

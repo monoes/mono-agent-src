@@ -80,6 +80,16 @@ func WaitingWhy(waiting string) string {
 		return "waiting for you: the judge ledger or the turn journals could not be read, so the spend cannot be measured; it clears when they read again"
 	case "judge-pin":
 		return "waiting for you: the judge's model must have a different runtime/model name from the lead's (a name check: two names for one model are not recognised), and the lead's model must be known (pin the lead's model, or change the host's judge pin and restart it)"
+	case "goal-check":
+		return "a goal check is running: nothing else is judged or woken until it ends (it ends by itself, in at most about thirteen minutes)"
+	case "goal-answer":
+		return "waiting for you: the goal check passed its machine criteria and its checker, and the criteria only you can judge are waiting for your answers (task session goal check shows it, goal answer answers)"
+	case "verifier-pin":
+		return "waiting for you: the goal checker's model must have a different runtime/model name from the judge's and the lead's, and the lead's model must be known (change MONOAGENT_PURSUIT_VERIFIER, or pin the lead's model, and restart the coder host)"
+	case "verifier-failing":
+		return "waiting for you: the goal checker could not be used by several checks in a row (unavailable, an invalid answer, or another model than its pin); it is not tried again until you act"
+	case "cannot-check":
+		return "waiting for you: the goal cannot be checked here (the project folder cannot be used, or the checker could not be built); task session goal check names why"
 	case "no-chat":
 		return "waiting for you: this mission has no chat to wake"
 	case "over-committed":
@@ -160,9 +170,9 @@ func NeedsOf(paused bool, waiting string, seen, hostRuns bool) string {
 	switch {
 	case paused:
 		return NeedsYou
-	case waiting != "" && waiting != "meter-unreadable":
+	case waiting != "" && waiting != "meter-unreadable" && waiting != "goal-check":
 		return NeedsYou
-	case !hostRuns, !seen, waiting == "meter-unreadable":
+	case !hostRuns, !seen, waiting == "meter-unreadable", waiting == "goal-check":
 		return NeedsHost
 	}
 	return NeedsNone
@@ -184,6 +194,16 @@ func NextLine(paused bool, waiting string, seen, hostRuns bool) string {
 		return "Act on the mission to try the judge again; if it keeps failing, check the judge's model (coder host status)."
 	case waiting == "judge-pin":
 		return "Change the host's judge model (MONOAGENT_PURSUIT_JUDGE) so that it differs from the lead's, and restart the coder host."
+	case waiting == "goal-check":
+		return "Nothing to do now: a goal check is running and the pursuit goes on when it ends."
+	case waiting == "goal-answer":
+		return "Read the goal check (task session goal check) and answer the criteria that are yours to judge (task session goal answer); accepting is your decision alone."
+	case waiting == "verifier-pin":
+		return "Change the host's goal checker model (MONOAGENT_PURSUIT_VERIFIER) so that it differs from the judge's and the lead's, and restart the coder host; or turn the checker off by unsetting it."
+	case waiting == "verifier-failing":
+		return "Act on the mission to try the goal checker again; if it keeps failing, check its model (coder host status)."
+	case waiting == "cannot-check":
+		return "Read why (task session goal check, coder host status): the project folder, the checker or the confinement of project commands is missing. You decide when to close the mission."
 	case waiting == "over-committed":
 		return "Raise the mission's budget (task session budget); its spend plus what was carved to helpers is past it, so no worker can start and nothing is judged or woken."
 	case waiting == "no-chat":
