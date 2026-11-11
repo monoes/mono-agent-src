@@ -117,20 +117,31 @@ func (darwinSess) Scan() ([]SessProc, error) {
 	if err != nil {
 		return nil, err
 	}
-	type shape struct{ ppid, pgid int }
+	type shape struct {
+		ppid, pgid int
+		stamp      string
+	}
 	was := make(map[int]shape, len(after))
 	for i := range after {
-		was[int(after[i].Proc.P_pid)] = shape{int(after[i].Eproc.Ppid), int(after[i].Eproc.Pgid)}
+		was[int(after[i].Proc.P_pid)] = shape{int(after[i].Eproc.Ppid), int(after[i].Eproc.Pgid), fmtSessStamp(int64(after[i].Proc.P_starttime.Sec), int64(after[i].Proc.P_starttime.Usec))}
 	}
 	kept := out[:0]
 	for _, p := range out {
-		if s, ok := was[p.PID]; ok && s.ppid == p.PPID && s.pgid == p.PGID {
+		if s, ok := was[p.PID]; ok && s.ppid == p.PPID && s.pgid == p.PGID && s.stamp == p.Stamp {
 			kept = append(kept, p)
 			continue
 		}
 		// changed (or gone) while the session was asked: read that one process again, consistently
-		if q, err := (darwinSess{}).Info(p.PID); err == nil {
+		q, err := (darwinSess{}).Info(p.PID)
+		switch {
+		case err == nil:
 			kept = append(kept, q)
+		case errors.Is(err, errGone):
+			// it is gone
+		default:
+			// a process that cannot be read consistently is never dropped silently: it could be a member that keeps changing its
+			// group to be missed, so the whole scan fails (and a proof built on it is not a proof)
+			return nil, fmt.Errorf("process %d cannot be read consistently: %w", p.PID, err)
 		}
 	}
 	if len(kept) == 0 {
@@ -205,6 +216,7 @@ func (d darwinSess) SelfTest() (err error) {
 	}
 	cmd := exec.Command("/usr/bin/perl", "-e", sessProbeScript)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.Env = []string{"PATH=/usr/bin:/bin"} // nothing of the caller's environment (PERL5OPT, PERL5LIB) reaches the script
 	out, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
@@ -215,7 +227,15 @@ func (d darwinSess) SelfTest() (err error) {
 	leaderPID := cmd.Process.Pid
 	var seen []SessProc // every process identity whose end is checked
 	defer func() {
-		// whatever the verdict, nothing the probe made is left: stamps are verified before each signal
+		// whatever the verdict, nothing the probe made is left: its own session and children are swept first (a failure
+		// before the children were recorded must not leave them sleeping), stamps verified before each signal
+		if all, e := d.Scan(); e == nil {
+			for _, p := range all {
+				if p.PID != leaderPID && (p.SID == leaderPID || p.PPID == leaderPID) {
+					_ = d.Signal(p.PID, syscall.SIGKILL)
+				}
+			}
+		}
 		for _, p := range seen {
 			if cur, e := d.Info(p.PID); e == nil && cur.Stamp == p.Stamp {
 				_ = d.Signal(p.PID, syscall.SIGKILL)
@@ -262,6 +282,12 @@ func (d darwinSess) SelfTest() (err error) {
 			return fmt.Errorf("the self-test children did not reach their group and session (%v %v %v)", e1, e2, e3)
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+	for _, p := range []SessProc{plain, grp, own} {
+		// the pids came from the child's own output: only a child of the leader is ever ended on that word
+		if p.PPID != leaderPID {
+			return fmt.Errorf("process %d, named by the self-test leader, is not its child", p.PID)
+		}
 	}
 	seen = append(seen, plain, grp, own)
 	if err := sessProbeShape(self, leader, plain, grp, own); err != nil {

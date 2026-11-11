@@ -131,6 +131,13 @@ func (tr *tree) alive(name string) bool {
 // end kills everything the tree started, each only while its pid still has the stamp it had, and reaps the leader.
 func (tr *tree) end() {
 	tr.once.Do(func() {
+		if all, err := bgOS.Scan(); err == nil { // every process of the tree's session or children, even those never reported
+			for _, p := range all {
+				if p.PID != tr.cmd.Process.Pid && (p.SID == tr.cmd.Process.Pid || p.PPID == tr.cmd.Process.Pid) {
+					_ = bgOS.Signal(p.PID, syscall.SIGKILL)
+				}
+			}
+		}
 		for pid, st := range tr.stamps {
 			if p, err := bgOS.Info(pid); err == nil && p.Stamp == st {
 				_ = bgOS.Signal(pid, syscall.SIGKILL)

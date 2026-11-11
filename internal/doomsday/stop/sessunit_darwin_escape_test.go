@@ -150,6 +150,9 @@ func TestDarwinPidAllocatorAndALiveSessionNumber(t *testing.T) {
 	if s := os.Getenv("MONOES_S2_FORKS"); s != "" {
 		n, _ = strconv.Atoi(s)
 	}
+	if n < 100000 {
+		t.Logf("S2FACT ALLOCATOR: %d forks cannot wrap the pid space (about 100000 needed, MONOES_S2_FORKS): only the trivial claim is checked", n)
+	}
 	for _, c := range []struct {
 		name, kid string
 		mustNot   bool
