@@ -253,9 +253,9 @@ func (u UnitEnder) endOne(ctx context.Context, rec UnitRecord, cfg EndConfig, au
 	}
 	if p.BestEffort && out.Kind == UnitEnded {
 		out.Kind = UnitBestEffort
-		if out.Note == "" {
-			out.Note = p.Note // the limit the mechanism states for its own best-effort end (empty for the older kinds)
-		}
+	}
+	if p.BestEffort && out.Note == "" {
+		out.Note = p.Note // the limit the mechanism states for its own best-effort end, whatever the end's kind (empty for the older kinds)
 	}
 	return out
 }

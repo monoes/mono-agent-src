@@ -3,6 +3,7 @@
 package stop
 
 import (
+	"context"
 	"errors"
 	"testing"
 )
@@ -90,4 +91,72 @@ func TestLeaderIsRefusedAfterItsUnitEnded(t *testing.T) {
 	// another unit of the generation, and another generation, are not affected
 	mustNoErr(t, r.seq.AddLeader(3, Leader{PID: 502, Stamp: "3.000003", Unit: 43}))
 	mustNoErr(t, r.seq.AddLeader(4, Leader{PID: 503, Stamp: "4.000004", Unit: 42}))
+}
+
+type endStub struct{ f func() UnitOutcome }
+
+func (e endStub) End(context.Context, uint64, []uint64) UnitOutcome { return e.f() }
+
+// The end seals a session unit BEFORE it proves it: a leader recorded after the proof's last scan would run in a unit the
+// end line then reports as ended. The leader is refused during the inner end, after it, and whatever the inner end answered.
+func TestEndSealsASessionUnitBeforeItIsProven(t *testing.T) {
+	for name, answer := range map[string]UnitOutcome{
+		"ended":      {Kind: UnitBestEffort},
+		"not proven": {Kind: UnitNotProven},
+		"stragglers": {Kind: UnitStragglers},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newSeqRig(t)
+			unit := UnitRecord{Kind: KindSession, Generation: 3, CgroupID: 42, Name: "u"}
+			mustNoErr(t, r.seq.Bound(unit))
+			var during error
+			en := NewWitnessEnder(endStub{func() UnitOutcome {
+				during = r.seq.AddLeader(3, Leader{PID: 500, Stamp: "1.000001", Unit: 42}) // the host adopts while the end runs
+				return answer
+			}}, r.seq)
+			if out := en.End(bg, 3, nil); out.Kind != answer.Kind {
+				t.Fatalf("%+v", out)
+			}
+			if !errors.Is(during, ErrUnitEnded) {
+				t.Fatalf("a leader was recorded while the unit was being ended: %v", during)
+			}
+			if err := r.seq.AddLeader(3, Leader{PID: 501, Stamp: "2.000002", Unit: 42}); !errors.Is(err, ErrUnitEnded) {
+				t.Fatalf("a leader was recorded after the end: %v", err)
+			}
+			if got, _ := r.seq.Leaders(3); len(got) != 0 {
+				t.Fatalf("%+v", got)
+			}
+			mustNoErr(t, r.seq.AddLeader(3, Leader{PID: 502, Stamp: "3.000003", Unit: 43})) // another unit is not sealed
+		})
+	}
+}
+
+// The seal is for the end of the unit only: an end that spares a begun operation (exclude) leaves the unit open, and a unit of
+// another kind gets no new line at all (the Linux and Windows ends are as they were).
+func TestEndSealsNothingWhenTheUnitIsNotEnding(t *testing.T) {
+	r := newSeqRig(t)
+	mustNoErr(t, r.seq.Bound(UnitRecord{Kind: KindSession, Generation: 3, CgroupID: 42, Name: "u"}))
+	en := NewWitnessEnder(endStub{func() UnitOutcome { return UnitOutcome{Kind: UnitStragglers} }}, r.seq)
+	en.End(bg, 3, []uint64{9})
+	mustNoErr(t, r.seq.AddLeader(3, Leader{PID: 500, Stamp: "1.000001", Unit: 42}))
+
+	r2 := newSeqRig(t)
+	mustNoErr(t, r2.seq.Bound(UnitRecord{Kind: KindCgroup2, Generation: 3, CgroupID: 7, Name: "c"}))
+	before, _ := r2.seq.W.Records()
+	NewWitnessEnder(endStub{func() UnitOutcome { return UnitOutcome{Kind: UnitStragglers} }}, r2.seq).End(bg, 3, nil)
+	after, _ := r2.seq.W.Records()
+	if len(after) != len(before) {
+		t.Fatalf("a cgroup unit's end wrote %d extra witness line(s)", len(after)-len(before))
+	}
+}
+
+func TestSealFailureMeansTheUnitIsNotEnded(t *testing.T) {
+	r := newSeqRig(t)
+	mustNoErr(t, r.seq.Bound(UnitRecord{Kind: KindSession, Generation: 3, CgroupID: 42, Name: "u"}))
+	r.fs.failAppend = true
+	ran := false
+	out := NewWitnessEnder(endStub{func() UnitOutcome { ran = true; return UnitOutcome{Kind: UnitBestEffort} }}, r.seq).End(bg, 3, nil)
+	if out.Kind != UnitNotProven || ran {
+		t.Fatalf("a unit that could not be sealed was ended: %+v (inner ran: %v)", out, ran)
+	}
 }

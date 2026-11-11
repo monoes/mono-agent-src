@@ -213,7 +213,9 @@ func TestSessConcurrentAdoptionsAreAllRecorded(t *testing.T) {
 	}
 }
 
-func TestSessEndRacingAdoptionsLosesNoRecordedLeader(t *testing.T) {
+// Goroutine safety only (run under -race): the ordering of an Adopt against an end is the witness lock's, tested with the real
+// sequencer in witness_leaders_test.go.
+func TestSessKillRacingAdoptionsIsRaceFree(t *testing.T) {
 	r := newSessRig(t)
 	var leaders []*fakeSessProc
 	for i := 0; i < 16; i++ {
@@ -406,5 +408,29 @@ func TestSessAMemberThatWasReparentedBeforeTheSignalIsStillEnded(t *testing.T) {
 	}
 	if !r.w.has(900) {
 		t.Fatal("the outsider that shares its group number was killed")
+	}
+}
+
+// A member that is re-parented stays a member for the rest of the end, and so do its children: a child forked after its parent
+// died is not reached through the parent chain any more, but it is the child of a process the unit has seen.
+func TestSessAChildOfAMemberThatLostItsParentIsStillCaught(t *testing.T) {
+	r := newSessRig(t)
+	l := r.w.leader(500)
+	r.record(l)
+	c := r.w.put(501, 500, 501, 501, "mid") // a member through its parent
+	c.noTerm = true
+	g := &sessGroup{c: r.c, rec: r.rec}
+	if ps, _ := g.Procs(""); len(ps) != 2 {
+		t.Fatalf("%v", ps)
+	}
+	delete(r.w.procs, 500) // its parent is gone: 501 is re-parented to init and has a session of its own
+	c.PPID = 1
+	r.w.put(502, 501, 502, 502, "forked-later").noTerm = true // forked after that
+	if ps, err := g.Procs(""); err != nil || len(ps) != 2 {
+		t.Fatalf("a seen member and its new child must both be listed: %v %v", ps, err)
+	}
+	_ = g.Kill("")
+	if r.w.has(501) || r.w.has(502) {
+		t.Fatalf("survivors: %v (log %v)", r.w.procs, r.w.log)
 	}
 }

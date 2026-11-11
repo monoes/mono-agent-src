@@ -80,7 +80,7 @@ func forGeneration(recs []Record, gen int64) []Record {
 		switch r.T {
 		case RecDBID:
 			out = append(out, r)
-		case RecAnchor, RecUnitIntent, RecUnitBound, RecUnitEnded, RecUnitLeader:
+		case RecAnchor, RecUnitIntent, RecUnitBound, RecUnitEnded, RecUnitLeader, RecUnitSealed:
 		default:
 			if r.Gen == gen {
 				out = append(out, r)
@@ -449,6 +449,11 @@ type witnessEnder struct {
 func NewWitnessEnder(inner Ender, seq *Sequencer) Ender { return witnessEnder{Inner: inner, Seq: seq} }
 
 func (e witnessEnder) End(ctx context.Context, gen uint64, exclude []uint64) UnitOutcome {
+	if len(exclude) == 0 {
+		if err := e.Seq.sealSessionUnits(gen); err != nil { // before the proof: a leader adopted after it would never be scanned
+			return UnitOutcome{Kind: UnitNotProven, Note: "the session unit could not be sealed against a new leader, so it was not ended: " + err.Error()}
+		}
+	}
 	out := e.Inner.End(ctx, gen, exclude)
 	if out.Kind != UnitEnded && out.Kind != UnitEndedWithUnknown && out.Kind != UnitBestEffort {
 		return out

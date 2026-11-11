@@ -28,7 +28,9 @@ import (
 // bare "stopped". The limit is the same in every build, so it is stated once here: SessionBestEffortNote.
 //
 // A same-user process can already signal every other process of that user: the unit is an honesty and cleanup
-// mechanism, not a privilege boundary, and it never signals a process it cannot tie to a recorded leader.
+// mechanism, not a privilege boundary. It signals only processes it ties to a recorded leader by session number, start
+// time and parent chain; the one case that tie cannot cover (an unrelated session reusing a dead leader's number within the
+// same boot) is stated with the residual risks of slice S1.
 
 // KindSession is the UnitRecord.Kind of the session unit. Best effort (see UnitBestEffort).
 const KindSession = "psession"
@@ -51,6 +53,8 @@ type SessProc struct {
 
 // SessionOS is the seam over the OS (contain_darwin.go in production from slice S2, a fake in tests).
 type SessionOS interface {
+	// BootID must change on every boot and on nothing else: a stepped clock must not move it (macOS: kern.bootsessionuuid, not
+	// kern.boottime). The rules of resolveSession take a difference as proof of a reboot.
 	BootID() (string, error)
 	// Self is the pid and start stamp of the caller.
 	Self() (pid int, stamp string, err error)
@@ -81,14 +85,14 @@ type Leader struct {
 }
 
 // ErrUnitEnded means the ledger refused a leader because the unit's end was already recorded.
-var ErrUnitEnded = errors.New("stop: the unit was already ended")
+var ErrUnitEnded = errors.New("stop: the unit is sealed or already ended")
 
 // LeaderLedger is the append-only, authenticated list of a unit's leaders. In production it is the witness
 // (Sequencer.AddLeader / Leaders); a read that cannot be completed is an error, never an empty list.
 type LeaderLedger interface {
 	Leaders(gen uint64) ([]Leader, error)
-	// AddLeader appends a leader; it refuses with ErrUnitEnded when the unit's end line is already written (under the same
-	// lock as the append, so a leader can never be recorded after the end that did not see it).
+	// AddLeader appends a leader; it refuses with ErrUnitEnded when the unit is sealed or its end line is written (the seal is
+	// written under the same lock before the end proves the unit, so a leader is never recorded after the proof that missed it).
 	AddLeader(gen uint64, l Leader) error
 }
 
@@ -150,10 +154,13 @@ type sessResolution struct {
 //   - after a boot time change the old processes cannot exist: the number's processes are another boot's and are left alone
 //     (unless the recorded leader itself is alive with its exact stamp, which rules out a reboot).
 //
+// seen are processes (pid -> start stamp) that an earlier read of the same end saw as members: they stay members while
+// they live with that stamp, and their children are members, though their parent has died since.
+//
 // The kernel does not hand out a number that is still a process-group id (BSD behaviour), and a session's leader group
 // pins it while any process stays in it; both are to be verified on the Mac in S2, and the rules above are the defence
 // where they do not hold.
-func resolveSession(procs []SessProc, leaders []Leader, rebooted bool) sessResolution {
+func resolveSession(procs []SessProc, leaders []Leader, rebooted bool, seen map[int]string) sessResolution {
 	var res sessResolution
 	byPID := make(map[int]SessProc, len(procs))
 	bySID := map[int][]SessProc{}
@@ -242,6 +249,12 @@ func resolveSession(procs []SessProc, leaders []Leader, rebooted bool) sessResol
 			}
 		}
 	}
+	for _, p := range procs {
+		if st, ok := seen[p.PID]; ok && st == p.Stamp {
+			member[p.PID] = p
+			delete(unproven, p.PID)
+		}
+	}
 	// a child of a member is a member, in whatever session it has made for itself
 	kids := map[int][]SessProc{}
 	for _, p := range procs {
@@ -300,7 +313,10 @@ type sessView struct {
 	sessResolution
 }
 
-func (c sessContainment) view(rec UnitRecord) (sessView, error) {
+func (c sessContainment) view(rec UnitRecord) (sessView, error) { return c.viewSeen(rec, nil) }
+
+// viewSeen is view with the members an earlier read of the same end already saw (sessGroup.known).
+func (c sessContainment) viewSeen(rec UnitRecord, seen map[int]string) (sessView, error) {
 	if c.os == nil {
 		return sessView{}, errNoSessionOS
 	}
@@ -326,5 +342,5 @@ func (c sessContainment) view(rec UnitRecord) (sessView, error) {
 		return sessView{}, fmt.Errorf("the boot id is unreadable: %w", err)
 	}
 	rebooted := boot != rec.BootID
-	return sessView{all: procs, rebooted: rebooted, sessResolution: resolveSession(procs, leaders, rebooted)}, nil
+	return sessView{all: procs, rebooted: rebooted, sessResolution: resolveSession(procs, leaders, rebooted, seen)}, nil
 }

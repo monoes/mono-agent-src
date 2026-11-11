@@ -42,6 +42,8 @@ const (
 	// RecUnitLeader is one session leader of a session unit (sessunit.go), written before its turn is released; Extra is
 	// its JSON. Transparent to Classify like the other unit lines.
 	RecUnitLeader = "unit-leader"
+	// RecUnitSealed says a session unit is being ended: no leader may be recorded after it (sessunit.go). Extra is "id=<unit id>".
+	RecUnitSealed = "unit-sealed"
 )
 
 // Record is the payload of one witness record.

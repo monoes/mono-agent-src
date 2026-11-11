@@ -205,6 +205,9 @@ func TestSessSurvivorsAreListedWithTheirOwnReason(t *testing.T) {
 	if out.Kind != UnitStragglers {
 		t.Fatalf("a survivor is never hidden behind a best-effort end: %+v", out)
 	}
+	if !strings.Contains(out.Note, "launchd, open or XPC") {
+		t.Fatalf("the limit is stated for an end that is not clean too: %q", out.Note)
+	}
 	why := map[int]string{}
 	for _, s := range out.Survivors {
 		why[s.PID] = s.Why

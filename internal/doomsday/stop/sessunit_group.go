@@ -35,7 +35,13 @@ func (g *sessGroup) Close() error                 { return nil }
 // signaller and its ancestors are never in either (Prove already refuses a unit that holds the signaller; this is the
 // same rule again at signal time), and a member seen before stays one while it lives with the stamp it had.
 func (g *sessGroup) members() (sessView, error) {
-	v, err := g.c.view(g.rec)
+	g.mu.Lock()
+	seen := make(map[int]string, len(g.known))
+	for pid, st := range g.known {
+		seen[pid] = st
+	}
+	g.mu.Unlock()
+	v, err := g.c.viewSeen(g.rec, seen)
 	if err != nil {
 		return v, err
 	}
@@ -54,20 +60,6 @@ func (g *sessGroup) members() (sessView, error) {
 	for pid := self; pid > 1 && !spared[pid]; pid = byPID[pid].PPID {
 		spared[pid] = true
 	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.known == nil {
-		g.known = map[int]string{}
-	}
-	have := map[int]bool{}
-	for _, m := range v.members {
-		have[m.PID] = true
-	}
-	for _, p := range v.all {
-		if st, ok := g.known[p.PID]; ok && st == p.Stamp && !have[p.PID] {
-			v.members = append(v.members, p)
-		}
-	}
 	keep := func(in []SessProc) []SessProc {
 		var out []SessProc
 		for _, p := range in {
@@ -79,6 +71,11 @@ func (g *sessGroup) members() (sessView, error) {
 		return out
 	}
 	v.members, v.unproven = keep(v.members), keep(v.unproven)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.known == nil {
+		g.known = map[int]string{}
+	}
 	for _, m := range v.members {
 		g.known[m.PID] = m.Stamp
 	}
