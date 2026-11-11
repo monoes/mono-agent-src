@@ -37,9 +37,16 @@ func missionGoalToolSpecs(m *MissionConfig) []monomind.ToolSpec {
 			Description: "Propose the criteria of the mission's ultimate goal: what must be true for the whole mission to be done. It stays a proposal, which you may revise by proposing again, until the person confirms it; you cannot confirm it. Once confirmed the goal is final: a changed goal means a new mission. Returns the proposal with its hash.",
 			Schema:      obj(map[string]any{"criteria": goalCriterionSchema()}, "criteria")},
 		{Name: ToolMissionGoalStatus,
-			Description: "Read the ultimate goal as it stands: its state (proposed, confirmed or locked), its criteria and their hash. Takes no arguments.",
+			Description: "Read the ultimate goal as it stands: its state (proposed, confirmed or locked), its criteria and their hash, and how its checks stand once the host runs them: the latest check's outcome, which machine criteria pass, how many of the person's criteria they have answered yes to, and whether the goal is satisfied. Ids, enums and counts only. Takes no arguments.",
 			Schema:      obj(map[string]any{})},
 	}
+}
+
+// goalStatusView is the goal and, beside it, how its checks stand: ids, enums and counts the host wrote (never a program's output,
+// the checker's words or the person's notes).
+type goalStatusView struct {
+	missionpursuit.Goal
+	Checks *missionpursuit.GoalChecks `json:"checks,omitempty"`
 }
 
 func (c *Conductor) missionGoal(ctx context.Context, m *MissionConfig, name string, args json.RawMessage) (string, error) {
@@ -58,7 +65,11 @@ func (c *Conductor) missionGoal(ctx context.Context, m *MissionConfig, name stri
 			}
 			return marshal(map[string]any{"state": "none", "next": "No goal is proposed yet: propose its criteria with mission_goal_propose."})
 		}
-		return marshal(g)
+		gc, err := m.Goals.GoalChecks(ctx, m.ProfileID, se.ID)
+		if err != nil {
+			return "", fmt.Errorf("the goal's checks could not be read: %w", err)
+		}
+		return marshal(goalStatusView{Goal: g, Checks: &gc})
 	}
 	var a struct {
 		Criteria []missionpursuit.Criterion `json:"criteria"`

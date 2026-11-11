@@ -220,6 +220,10 @@ func (c *Conductor) missionFinishStep(ctx context.Context, mc *MissionRun, sid i
 		v.Next = "The integration check ran before the tree last changed (" + why + "), so it was sent back to Ready: run it with mission_next, verify it with mission_verify, then call mission_finish again."
 		return v, nil
 	}
+	if why := c.goalCloseRefusal(ctx, sid); why != "" {
+		v.Next = "Every task is settled, but the mission's goal is not satisfied yet, so the close is not proposed: " + why + ". Do not call mission_finish again until the host wakes you with news of the goal (mission_goal_status shows the checks); the person closes a mission whose goal they judge met."
+		return v, nil
+	}
 	return c.proposeMissionClose(ctx, mc, se, plan, v)
 }
 
