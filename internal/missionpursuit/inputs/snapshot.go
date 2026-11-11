@@ -79,6 +79,9 @@ func (r *Reader) taskCounts(ctx context.Context, session int64) (TaskCounts, err
 		if blocked != 0 && status != "done" && status != "archived" {
 			c.Blocked += n
 		}
+		if status != "archived" && epic == 0 {
+			c.NonEpic += n
+		}
 		open := status != "done" && status != "archived"
 		if open && blocked == 0 && epic == 0 && !(status == "review" && verified != 0) {
 			c.Workable += n
