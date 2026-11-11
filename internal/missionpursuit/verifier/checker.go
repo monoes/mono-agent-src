@@ -39,14 +39,12 @@ type Config struct {
 	// Confiner is the confinement of project commands, proved by the caller (the host, a later slice). Without one that passes
 	// its SelfTest, command and output criteria are not run (cannot-check: no-confinement); file criteria need none.
 	Confiner Confiner
-	// AllowUnconfined runs project commands with only the process group, the limits and the empty network namespace. It exists
-	// so the host can wire a person-set opt-in later; it is false by default and every Result says UNCONFINED.
-	AllowUnconfined bool
 	// NetDenyAvailable overrides the platform probe (tests).
 	NetDenyAvailable func() bool
 
 	afterCriteria func() // test seam: runs after the criteria, before the recheck
 	afterCopy     func() // test seam: runs after the snapshot copy, before the first digest of the live folder
+	beforeWait    func() // test seam: runs before the check waits for the snapshot goroutine
 }
 
 // Confiner is a confinement the host provides and proves: it is what keeps a project command from the rest of the computer
@@ -59,6 +57,27 @@ type Confiner interface {
 	SelfTest(ctx context.Context) error
 	// Place makes cmd start inside the confinement, as finish.Sandbox.Place does.
 	Place(cmd *exec.Cmd) (release func(), err error)
+}
+
+// Hider is an optional part of a Confiner: it returns a copy of the confiner for one check that also hides the live project
+// folder root from the programs (the criteria run on a sandbox copy, so the live folder is never mounted; where it lies outside
+// the places the confinement already hides, the copy must say so). The self test runs on the original, the programs on the copy.
+type Hider interface {
+	Hide(root string) Confiner
+}
+
+// LeftoverChecker is an optional part of a Confiner: it lists what a program left running after its release (units, processes).
+// The outlive, fork-bomb, memory and timeout canaries need it; a confiner without it cannot pass them (fail closed).
+type LeftoverChecker interface {
+	Leftovers(ctx context.Context) ([]string, error)
+}
+
+// InfraReporter is an optional part of a Confiner: it says what the confinement itself got wrong while a criterion ran (a unit
+// that never started, one killed from outside), which the program's exit status cannot tell from the program's own. TakeInfra
+// returns the failures since the last call and clears them; the checker clears before each criterion and reads after it, and
+// a failure ends the criterion in error, never in a verdict.
+type InfraReporter interface {
+	TakeInfra() []string
 }
 
 // Checker is the real Verifier: finish.Sandbox for the machine criteria, finish.RunnerVerifier for the block-only review.
@@ -187,11 +206,12 @@ func (k *Checker) Run(ctx context.Context, req Request) (Result, error) {
 				if ctx.Err() != nil {
 					return end(OutcomeAbandoned, ReasonCancelled)
 				}
+				res.ConfinementDetail = Excerpt(err.Error(), 300)
 				return end(OutcomeCannotCheck, ReasonNoConfinement)
 			}
 			conf = k.cfg.Confiner
 			res.Containment = ContainmentConfinedPrefix + Excerpt(conf.Name(), 64) + " + process-group"
-		case k.cfg.AllowUnconfined:
+		case req.AllowUnconfined:
 			res.Containment = ContainmentUnconfined
 		default:
 			return end(OutcomeCannotCheck, ReasonNoConfinement)
@@ -230,24 +250,30 @@ func (k *Checker) Run(ctx context.Context, req Request) (Result, error) {
 	go func() {
 		var s sealed
 		if s.before, s.err = finish.StatManifest(req.Root); s.err == nil {
-			s.tree, s.err = finish.Snapshot(req.Root, snap)
+			s.tree, s.err = finish.SnapshotCtx(ctx, req.Root, snap)
 		}
 		if s.err == nil {
 			if k.cfg.afterCopy != nil {
 				k.cfg.afterCopy()
 			}
 			// The tree must not have moved while it was copied.
-			live, derr := finish.DigestTree(req.Root, "")
+			live, derr := finish.DigestTreeCtx(ctx, req.Root, "")
 			s.moved = derr != nil || live.Digest != s.tree.Digest
 		}
 		ch <- s
 	}()
 	var sl sealed
+	if k.cfg.beforeWait != nil {
+		k.cfg.beforeWait()
+	}
 	select {
 	case sl = <-ch:
 	case <-ctx.Done():
 		clean = false // the copy is still running: it is removed when it ends
 		go func() { <-ch; finish.RemoveTree(dir) }()
+		return end(OutcomeAbandoned, ReasonCancelled)
+	}
+	if ctx.Err() != nil { // a cancellation that raced the finishing copy is a cancellation, not a refused or moved snapshot
 		return end(OutcomeAbandoned, ReasonCancelled)
 	}
 	before, tree := sl.before, sl.tree
@@ -267,10 +293,13 @@ func (k *Checker) Run(ctx context.Context, req Request) (Result, error) {
 
 	gp := &GroupPlace{}
 	defer gp.Close()
+	if h, ok := conf.(Hider); ok {
+		conf = h.Hide(req.Root) // a per-check copy that also keeps the live project out of the programs' sight
+	}
 	sb.Place, sb.Scratch = placeBoth(gp, conf), work
 	runCtx, cancel := context.WithTimeout(ctx, k.tot)
 	defer cancel()
-	k.runCriteria(runCtx, sb, snap, tree, req, &res)
+	k.runCriteria(runCtx, sb, conf, snap, tree, req, &res)
 	if k.cfg.afterCriteria != nil {
 		k.cfg.afterCriteria()
 	}
@@ -298,7 +327,7 @@ func (k *Checker) Run(ctx context.Context, req Request) (Result, error) {
 	go func() {
 		var r rechecked
 		r.after, r.aerr = finish.StatManifest(req.Root)
-		r.live, r.derr = finish.DigestTree(req.Root, "")
+		r.live, r.derr = finish.DigestTreeCtx(ctx, req.Root, "")
 		rc <- r
 	}()
 	select {

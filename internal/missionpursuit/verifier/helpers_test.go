@@ -99,6 +99,8 @@ type rig struct {
 	k     *Checker
 	netOK bool
 	conf  *FakeConfiner
+	// unconfined is the per-check opt-in (Request.AllowUnconfined).
+	unconfined bool
 }
 
 // newRig builds a checker over a fresh subject folder and scratch base. netOK is what the platform probe answers.
@@ -124,7 +126,7 @@ func (r *rig) checker() *Checker {
 }
 
 func (r *rig) req(cs ...Criterion) Request {
-	return Request{Root: r.root, GoalHash: h64("goal"), Round: 1, Criteria: cs, JudgePin: judgePin, LeadPin: leadPin, LeadPinNow: func() string { return leadPin }}
+	return Request{Root: r.root, GoalHash: h64("goal"), Round: 1, Criteria: cs, JudgePin: judgePin, LeadPin: leadPin, LeadPinNow: func() string { return leadPin }, AllowUnconfined: r.unconfined}
 }
 
 func (r *rig) run(cs ...Criterion) Result {

@@ -225,9 +225,14 @@ func doomsdayWiringReal(cfg *globalConfig, db *sql.DB) doomsdaycli.Wiring {
 	runDir := doomsdayRunDirPath(cfg)
 	return doomsdaycli.Wiring{
 		// The entry refuses a charter whose 13.4 constraints would only ever deny (ops.EntryCheck, under the host's own spend bounds).
-		Store:    store.New(db, keys).WithEntryCheck(ops.EntryCheck(coderhost.SpendBounds())),
-		Profile:  cfg.ProfileID,
-		Binding:  func(context.Context) (bool, error) { return chatcli.PeercredBindingOn(db) },
+		Store:   store.New(db, keys).WithEntryCheck(ops.EntryCheck(coderhost.SpendBounds())),
+		Profile: cfg.ProfileID,
+		Binding: func(context.Context) (bool, error) {
+			if why := coderhost.OpenModeUnsupportedHere(); why != "" { // #1582: no run is created where its boss could not run
+				return false, doomsdaycli.UnsupportedHere(why)
+			}
+			return chatcli.PeercredBindingOn(db)
+		},
 		VaultKey: doomsdaycli.VaultKeyCheck(db, cfg.ProfileID),
 		RunDir:   stop.RunDir{Dir: runDir},
 		// The self-tests run next to the real database and in the real run directory, so what they show holds on that volume.
