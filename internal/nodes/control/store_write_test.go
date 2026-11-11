@@ -133,3 +133,32 @@ func TestStoreWriteRefusalNamesTheEarlierNode(t *testing.T) {
 		t.Errorf("the refusal must name the earlier node that held the value (Src), not Other, and never the value: %v", err)
 	}
 }
+
+// The trigger's data is scanned with the node's input.
+func TestStoreWriteScansTheTriggerData(t *testing.T) {
+	keyring.MockInit()
+	db, err := storage.NewDatabase(filepath.Join(t.TempDir(), "vault.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.ApplyMigrations(); err != nil {
+		t.Fatal(err)
+	}
+	base := vault.ContextWithProfileID(vault.ContextWithDB(context.Background(), db.DB), "default")
+	if _, err := secrets.Add(base, db.DB, "default", "secret", "vs", map[string]string{"secret": "vsecret-777"}, "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := secrets.SetAgentAccessGrant(base, db.DB, "default", secrets.AccessGrant{AnyHost: true}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := secrets.WithAccessNode(secrets.AllowResolving(base, db.DB, "default", secrets.AccessOrigin{WorkflowID: "wf1"}), "n1", "Table")
+	if err := secrets.ResolveConfig(ctx, db.DB, "default", map[string]interface{}{"x": "@secret:vs"}, map[string]interface{}{"x": "@secret:vs"}); err != nil {
+		t.Fatal(err)
+	}
+	in := workflow.NodeInput{Items: []workflow.Item{workflow.NewItem(map[string]interface{}{"n": 1})}, Trigger: map[string]interface{}{"body": "vsecret-777"}}
+	_, handled, err := workflow.RunExecGuardFor(ctx, &DataTableNode{}, in, map[string]interface{}{"operation": "insert", "table": "T"})
+	if !handled || !errors.Is(err, secrets.ErrPublishesSecret) {
+		t.Errorf("trigger data holding the secret reached a store writer: handled=%v err=%v", handled, err)
+	}
+}

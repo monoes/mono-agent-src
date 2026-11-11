@@ -278,7 +278,7 @@ Known limits:
   secret (6 characters is the minimum tracked) inside a longer number, or an
   upstream service that echoes the credential in an error body or a next-page
   link, causes real false positives; the way out is the person approving the
-  workflow. The trigger's own data is not scanned (the trigger node's output is).
+  workflow. The trigger's data is scanned with the node's input.
 - A store another process fills, and image pixels, is not scanned; the
   store-writing nodes are found by reading the packages' source
   (`internal/noderegistry`), which is a heuristic.
