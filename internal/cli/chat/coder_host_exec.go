@@ -68,6 +68,8 @@ type execLauncher struct {
 	// process attributes (Setsid, pidfd) and before the process exists, and returns a release that the launcher calls right after the start
 	// (success or failure). An error refuses the turn before anything runs. Bound launches only: a legacy start with place set fails.
 	place func(cmd *exec.Cmd, profileID, conversationID string) (release func(), err error)
+	// adopt stub (red commit).
+	adopt func(profileID, conversationID string, pid int, stamp string) (held bool, err error)
 	// afterExitRevoke is a test seam: the exit goroutine calls it once its revokes have run, before the turn is done.
 	afterExitRevoke func()
 }
