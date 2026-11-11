@@ -22,16 +22,19 @@ import (
 const heldValue = "vsecret-777"
 
 type heldFix struct {
-	db  *sql.DB
-	ctx context.Context // the agent's run, under the grant
-	st  Store
+	path string
+	sdb  *storage.Database
+	db   *sql.DB
+	ctx  context.Context // the agent's run, under the grant
+	st   Store
 }
 
 func newHeldFix(t *testing.T, g secrets.AccessGrant) *heldFix {
 	t.Helper()
 	keyring.MockInit()
 	asAgent(t)
-	d, err := storage.NewDatabase(filepath.Join(t.TempDir(), "vault.db"))
+	path := filepath.Join(t.TempDir(), "vault.db")
+	d, err := storage.NewDatabase(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +53,7 @@ func newHeldFix(t *testing.T, g secrets.AccessGrant) *heldFix {
 	if _, err := secrets.Resolve(ctx, d.DB, "default", "@secret:vs"); err != nil {
 		t.Fatal(err)
 	}
-	return &heldFix{db: d.DB, ctx: ctx, st: Store{DB: d.DB, Profile: "default"}}
+	return &heldFix{path: path, sdb: d, db: d.DB, ctx: ctx, st: Store{DB: d.DB, Profile: "default"}}
 }
 
 func (f *heldFix) hold(t *testing.T, text string) string {
@@ -164,7 +167,7 @@ func TestATypedReferenceInAFieldOrAKeyIsRefusedAndASplitOneNeverResolves(t *test
 	// Split across fields: no field holds a reference, so nothing resolves.
 	g := f.hold(t, "hi")
 	cfg2 := map[string]interface{}{"a": "@sec", "b": "ret:vs"}
-	if _, _, err := f.st.resolveHeldReplay(f.ctx, Payload{ID: g}, replay{Config: cfg2}, cfg2, false); err != nil {
+	if _, _, _, err := f.st.resolveHeldReplay(f.ctx, Payload{ID: g}, replay{Config: cfg2}, cfg2, false); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -197,17 +197,24 @@ func (n *HumanInLoopNode) createRows(ctx context.Context, db *sql.DB, input work
 			ed[i] = copyMap(item.JSON)
 		}
 	}
-	// A value the run read under agent access is not written into a card
-	// (#1594): the card is stored, shown and kept for a person who never
-	// granted it, and an approval would hand it on as the item's own data.
-	if raw, _ := json.Marshal([]interface{}{ro, ed}); secrets.HoldsTracked(ctx, string(raw)) {
-		return false, fmt.Errorf("human_in_loop: an item carries a secret the run read under agent access, and a card does not keep one: take it out of the item")
-	}
 	plan, err := autoDecideRows(ctx, db, input, config, profileID, ro, ed)
 	if err != nil {
 		return false, err
 	}
 	comms := commsItems(ctx, input, profileID)
+	// A value the run read under agent access is not written into a card
+	// (#1594): the card is stored, shown and kept for a person who never
+	// granted it, and an approval would hand it on as the item's own data.
+	// Everything the node writes is looked at: the card's two documents, the
+	// whole item (a downstream template may print any field of it) and the
+	// Communications rows built from it.
+	var itemsJSON []map[string]interface{}
+	for _, it := range input.Items {
+		itemsJSON = append(itemsJSON, it.JSON)
+	}
+	if raw, _ := json.Marshal([]interface{}{ro, ed, itemsJSON, comms}); secrets.HoldsTracked(ctx, string(raw)) {
+		return false, fmt.Errorf("human_in_loop: an item carries a secret the run read under agent access, and a card does not keep one: take it out of the item")
+	}
 	// Something that runs after this node sends a message to a person: only
 	// the operator decides its items (operator.ItemRefusal). Every item is
 	// marked, even one that got no Communications entry: the sends follow

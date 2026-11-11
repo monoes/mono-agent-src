@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/hilscrub"
 	"github.com/monoes/mono-agent/internal/monomind"
 )
 
@@ -103,6 +104,7 @@ func (d *Database) ListPersonMessages(personID, source, profileID string, limit,
 	if err := requireProfile(profileID); err != nil {
 		return nil, err
 	}
+	d.scrubHeldSends(profileID)
 	if limit <= 0 {
 		limit = 100
 	}
@@ -154,6 +156,10 @@ func (d *Database) ListPersonMessages(personID, source, profileID string, limit,
 
 // GetPersonMessage returns a single message by ID, or nil if not found.
 func (d *Database) GetPersonMessage(id string) (*PersonMessage, error) {
+	var profile string
+	if d.DB.QueryRow(`SELECT COALESCE(profile_id,'') FROM person_messages WHERE id = ?`, id).Scan(&profile) == nil {
+		d.scrubHeldSends(profile)
+	}
 	m := &PersonMessage{}
 	var sentAt sentAtValue
 	var readAt sql.NullTime
@@ -217,6 +223,7 @@ func (d *Database) ListPersonMessagesByStatus(profileID, status string) ([]*Pers
 	if err := requireProfile(profileID); err != nil {
 		return nil, err
 	}
+	d.scrubHeldSends(profileID)
 	rows, err := d.DB.Query(`
 		SELECT pm.id, pm.person_id, pm.source, pm.external_id, pm.direction,
 		       COALESCE(pm.sender,''), COALESCE(pm.subject,''), COALESCE(pm.body,''),
@@ -281,6 +288,7 @@ func (d *Database) ListAllPersonMessagesByStatus(profileID, source, status strin
 	if err := requireProfile(profileID); err != nil {
 		return nil, err
 	}
+	d.scrubHeldSends(profileID)
 	if limit <= 0 {
 		limit = 100
 	}
@@ -453,4 +461,10 @@ func (d *Database) ListPersonStatusUpdates(personID, profileID string, limit int
 		updates = append(updates, u)
 	}
 	return updates, rows.Err()
+}
+
+// scrubHeldSends removes, from the rows older versions wrote, the value of a
+// secret agent access covers, before a message is read (#1594).
+func (d *Database) scrubHeldSends(profileID string) {
+	hilscrub.Ensure(context.Background(), d.DB, profileID)
 }

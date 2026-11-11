@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/monoes/mono-agent/internal/commsync"
+	"github.com/monoes/mono-agent/internal/hilscrub"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -51,38 +52,6 @@ var (
 	// only be rejected, or the step changed and run again.
 	ErrUnreviewable = errors.New("this send can't be reviewed on its card, so it can't be approved: reject it, or change the step and run it again")
 )
-
-// replay is what approving needs to run the node again.
-type replay struct {
-	Kind       string                   `json:"kind"`
-	NodeType   string                   `json:"nodeType"`
-	Config     map[string]interface{}   `json:"config"`
-	Input      []map[string]interface{} `json:"input"`
-	TextField  string                   `json:"textField"`
-	SubjectKey string                   `json:"subjectField,omitempty"`
-	ProofHash  string                   `json:"proofHash,omitempty"`
-	Error      string                   `json:"error,omitempty"`
-	Result     json.RawMessage          `json:"result,omitempty"`
-	ResolvedAt string                   `json:"resolvedAt,omitempty"`
-	// Publication is set once a registration claimed this send's approval
-	// (ClaimPublicationApproval): one approval registers one publication.
-	Publication string `json:"publication,omitempty"`
-	// Address is the recipient as the send addresses it, what an
-	// always-allow rule made from this item is keyed on.
-	Address string `json:"address,omitempty"`
-	// Connection is the id of the saved connection a send with host keys
-	// goes through (savedConnection), which an always-allow rule made from
-	// this item is bound to (ruleAccount).
-	Connection string `json:"connection,omitempty"`
-	// RefKey is the card's own key for the references to granted secrets
-	// its text holds (heldsecret.go); empty when it holds none.
-	RefKey string `json:"refKey,omitempty"`
-}
-
-type editable struct {
-	Text    string `json:"text"`
-	Subject string `json:"subject,omitempty"`
-}
 
 func now() string { return time.Now().UTC().Format(time.RFC3339) }
 
@@ -132,7 +101,7 @@ type row struct {
 
 // find resolves an exact id or a unique id prefix.
 func (s Store) find(ctx context.Context, id string) (row, error) {
-	s.scrubOnce(ctx)
+	hilscrub.Ensure(ctx, s.DB, s.Profile)
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return row{}, ErrNotFound
@@ -222,7 +191,7 @@ func (s Store) Get(ctx context.Context, id string) (Payload, error) {
 
 // List returns this profile's send items in states (all when none), oldest first.
 func (s Store) List(ctx context.Context, states ...State) ([]Payload, error) {
-	s.scrubOnce(ctx)
+	hilscrub.Ensure(ctx, s.DB, s.Profile)
 	rows, err := s.DB.QueryContext(ctx,
 		`SELECT id, status, readonly_data, editable_data, node_config FROM hil_pending
 		 WHERE profile_id = ? AND execution_id LIKE 'send:%' ORDER BY created_at ASC, rowid ASC`, s.Profile)

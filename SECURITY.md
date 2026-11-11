@@ -189,6 +189,21 @@ reads; values an agent already retrieved cannot be recalled.
   So `agent-access on` effectively trusts the agent-written workflows with
   the secrets and hosts you name: grant only secrets you accept an agent
   using, and prefer a short `--expires`.
+- **Held sends keep a reference, never the value.** A send an agent's run
+  holds for approval does not store a secret the run read: the card, its
+  replay and its Communications row hold `[[held-secret:NAME:tag]]` (shown
+  as `<NAME secret, held>`), and the card keeps only a hash of the tag. At
+  approval the grant is read again (off, expired, narrowed or host-bound
+  against it: refused, the card stays pending, nothing is sent), the read is
+  audited by name (`workflow_id` `hil-approval`), and what the send returns
+  is masked before it is stored. A literal `@secret:` in any held send is
+  refused at approval, whatever its spelling, so an agent cannot write a
+  reference of its own. A send whose secret appears encoded, or under a name
+  with characters a reference cannot carry, is not queued; the workflow
+  Human-in-Loop node queues no item (or message) that carries one. Rows older
+  versions wrote are scrubbed before they are read, as long as a grant names
+  their secrets (whole-token matches only; a secret that is one plain word
+  under 16 letters cannot be told from ordinary text and is left).
 - **Nodes under `--host`.** With `--host` (not `--any-host`) only the nodes
   that check their destination (`http.request`, `http.graphql`, `mcp.call`,
   `trigger.sse`) read a secret; any other node (mail, chat, database,

@@ -71,7 +71,7 @@ func (d Deps) printSend(cmd *cobra.Command, p hilsend.Payload) error {
 	for _, dt := range p.Details {
 		fmt.Fprintf(w, "%s: %s\n", detailLabel(dt.Key), hilsend.OneLine(dt.Value))
 	}
-	fmt.Fprintf(w, "%s\n", p.Text)
+	fmt.Fprintf(w, "%s\n", hilsend.Friendly(p.Text))
 	if p.Error != "" {
 		fmt.Fprintf(w, "Error: %s\n", p.Error)
 	}

@@ -2,7 +2,11 @@ package secrets
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/url"
@@ -26,6 +30,42 @@ var heldNameRE = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 // HeldNameOK is true for a vault entry name a held reference can carry.
 func HeldNameOK(name string) bool { return heldNameRE.MatchString(name) }
 
+// HeldNewMAC is a fresh random tag for one reference on one card. The card
+// keeps only HeldMACHash of it, so nothing a reader of the card's data sees
+// lets anyone write a reference to another secret.
+func HeldNewMAC() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic("secrets: no randomness: " + err.Error())
+	}
+	return hex.EncodeToString(b)
+}
+
+// HeldMACHash is what a card keeps to recognise a tag.
+func HeldMACHash(mac string) string {
+	h := sha256.Sum256([]byte(mac))
+	return hex.EncodeToString(h[:])
+}
+
+// HeldMACMatches reports whether mac is the tag whose hash a card kept.
+func HeldMACMatches(kept, mac string) bool {
+	return kept != "" && subtle.ConstantTimeCompare([]byte(kept), []byte(HeldMACHash(mac))) == 1
+}
+
+// MaskValues replaces each value, and the encodings MaskResolved masks, in s
+// by "***".
+func MaskValues(values []string, s string) string {
+	var forms []string
+	for _, v := range values {
+		forms = append(forms, derivedForms(v)...)
+	}
+	sort.Slice(forms, func(i, j int) bool { return len(forms[i]) > len(forms[j]) })
+	for _, f := range forms {
+		s = strings.ReplaceAll(s, f, "***")
+	}
+	return s
+}
+
 // HeldToken is the reference to secret name with the given MAC.
 func HeldToken(name, mac string) string { return "[[held-secret:" + name + ":" + mac + "]]" }
 
@@ -40,7 +80,7 @@ func heldRefused(format string, a ...interface{}) error {
 
 // ErrLiteralRef is wrapped by the refusal of a literal @secret: reference
 // in a held send: only a reference the card guard minted resolves.
-var ErrLiteralRef = errors.New("a held send holds a literal @secret: reference, which is never resolved at approval")
+var ErrLiteralRef = errors.New("a held send may not hold a literal @secret: reference (this holds for every held send): only a reference the card guard made is resolved at approval")
 
 // HoldsTracked reports whether s holds a secret value (or a form of one)
 // that ctx's run read under agent access.
@@ -144,6 +184,9 @@ type HeldOptions struct {
 	Card string
 	// Dry checks without reading a value or writing an audit row.
 	Dry bool
+	// Resolved, when set, collects the values read, so the caller can keep
+	// them out of what the send's result and error store (MaskValues).
+	Resolved *[]string
 }
 
 // ResolveHeld turns the references the card guard minted in s into their
@@ -193,6 +236,9 @@ func ResolveHeld(ctx context.Context, db *sql.DB, profileID, s string, o HeldOpt
 			if err := a.resolved(ctx, name, val); err != nil {
 				return s, heldRefused("%s", err.Error())
 			}
+		}
+		if o.Resolved != nil && !o.Dry {
+			*o.Resolved = append(*o.Resolved, val)
 		}
 		b.WriteString(s[last:m[0]])
 		b.WriteString(val)

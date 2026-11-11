@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/hilscrub"
 	"os"
 	"strings"
 	"time"
@@ -83,6 +84,7 @@ func (d Deps) newHILListCmd() *cobra.Command {
 			}
 			defer db.Close()
 
+			hilscrub.Ensure(cmd.Context(), db.DB, d.ProfileID())
 			rows, err := db.DB.Query(
 				`SELECT h.id, h.execution_id, h.workflow_id, h.node_id, h.node_name, h.status,
 				        h.readonly_data, h.editable_data, h.node_config, h.created_at, COALESCE(w.name,'')

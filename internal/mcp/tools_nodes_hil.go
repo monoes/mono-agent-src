@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/hilscrub"
 	"slices"
 	"sort"
 	"strings"
@@ -169,6 +170,7 @@ func toolHilList(ctx context.Context, s *Server, args json.RawMessage) (interfac
 	if err != nil {
 		return nil, err
 	}
+	hilscrub.Ensure(ctx, rt.db.DB, profileOf(ctx))
 	rows, err := rt.db.DB.QueryContext(ctx,
 		`SELECT h.id, h.execution_id, h.workflow_id, h.node_id, h.node_name, h.status,
 		        h.readonly_data, h.editable_data, h.created_at, COALESCE(w.name,'')
