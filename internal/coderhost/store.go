@@ -272,9 +272,9 @@ func (s *Store) enqueueOn(x querier, c Command) (Command, error) {
 	if n, _ := res.RowsAffected(); n == 0 {
 		if masterStop { // one pending stop from the same issuer makes a new one a no-op
 			var id int64
-			if s.db.QueryRow(`SELECT id FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind = 'stop' AND status = 'pending' AND issuer = ? ORDER BY id LIMIT 1`,
+			if x.QueryRow(`SELECT id FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind = 'stop' AND status = 'pending' AND issuer = ? ORDER BY id LIMIT 1`,
 				c.ProfileID, c.ConversationID, c.Issuer).Scan(&id) == nil {
-				if got, ok, err := s.GetCommand(id); err == nil && ok {
+				if got, ok, err := getCommandOn(x, id); err == nil && ok {
 					return got, nil
 				}
 			}
@@ -359,8 +359,11 @@ func (s *Store) ExpireSends() error {
 }
 
 // GetCommand returns one command.
-func (s *Store) GetCommand(id int64) (Command, bool, error) {
-	rows, err := s.db.Query(`SELECT id, profile_id, conversation_id, kind, turn_id, message, attachments, status, error, wants_mission, created_at, updated_at, issuer
+func (s *Store) GetCommand(id int64) (Command, bool, error) { return getCommandOn(s.db, id) }
+
+// getCommandOn is GetCommand on a handle: the caller's transaction, or the store's own.
+func getCommandOn(x querier, id int64) (Command, bool, error) {
+	rows, err := x.Query(`SELECT id, profile_id, conversation_id, kind, turn_id, message, attachments, status, error, wants_mission, created_at, updated_at, issuer
 		FROM coder_session_commands WHERE id = ?`, id)
 	if err != nil {
 		return Command{}, false, err
