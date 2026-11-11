@@ -124,7 +124,7 @@ func CheckStoreWrite(ctx context.Context, nodeType string, fields ...StoreField)
 		for _, f := range fields {
 			if strings.Contains(f.Text, v) {
 				a.mu.Lock()
-				owner := a.owner[v]
+				owner := a.forms[v].name
 				a.mu.Unlock()
 				return fmt.Errorf("%w: %s would store the value of the granted secret %q in its %s, where another run can read it back and publish it; "+
 					"if this is a coincidence (a short secret inside a longer number, a timestamp), %s",

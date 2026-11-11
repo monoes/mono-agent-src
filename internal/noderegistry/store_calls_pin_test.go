@@ -75,6 +75,7 @@ func writeCallsByDir(t *testing.T) map[string][]string {
 // database or the memory store somewhere, that do not themselves put what
 // they are given where another run can read it back, and why.
 var noStoreWrite = map[string]string{
+	"core.human_in_loop":      "its card refuses a value the run read under agent access (hilscrub, #1594); not declared here so the check is not duplicated",
 	"applications.list":       "reads application records; applications.create, set_status and tag write them and declare it",
 	"core.aggregate":          "passes or reshapes items in memory; the package writes the human-in-the-loop card, the data table and static data elsewhere (declared or not a channel)",
 	"core.code":               "passes or reshapes items in memory; the package writes the human-in-the-loop card, the data table and static data elsewhere (declared or not a channel)",

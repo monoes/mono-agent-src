@@ -189,6 +189,31 @@ reads; values an agent already retrieved cannot be recalled.
   So `agent-access on` effectively trusts the agent-written workflows with
   the secrets and hosts you name: grant only secrets you accept an agent
   using, and prefer a short `--expires`.
+- **Held sends keep a reference, never the value.** A send an agent's run
+  holds for approval does not store a secret the run read: the card, its
+  replay and its Communications row hold `[[held-secret:NAME:tag]]` (shown
+  as `<NAME secret, held>`), and the card keeps only a hash of the tag. At
+  approval the grant is read again (off, expired, narrowed or host-bound
+  against it: refused, the card stays pending, nothing is sent), the read is
+  audited by name (`workflow_id` `hil-approval`), and what the send returns
+  is masked before it is stored. A literal `@secret:` in any held send is
+  refused at approval, whatever its spelling, so an agent cannot write a
+  reference of its own. A send whose secret appears encoded, or under a name
+  with characters a reference cannot carry, is not queued; the workflow
+  Human-in-Loop node queues no item (or message) that carries one. Cards (and
+  their Communications rows) written before this change are scrubbed before
+  they are read, as long as a grant names their secrets: only cards older than
+  a cutoff stored once in `settings` (`hilscrub.cutoff`), never mail you
+  received and never a newer card, so the scrub cannot be used to test guesses
+  of a secret. Whole-token matches only; a secret that is one plain word under
+  16 letters cannot be told from ordinary text and is left; only a secret's
+  current value is looked for (not one it had before a rotation); a card an
+  older bundled `monoagentcli` writes after the cutoff keeps its value; and
+  an old binary that approves a scrubbed pending card sends the literal
+  `[[held-secret:...]]` text (update every binary). A scrub that cannot write
+  (a lock held elsewhere, a read-only handle) never fails or delays a read
+  for long: the readers mask the values in memory and the next read after a
+  short back-off tries again.
 - **Nodes under `--host`.** With `--host` (not `--any-host`) only the nodes
   that check their destination (`http.request`, `http.graphql`, `mcp.call`,
   `trigger.sse`) read a secret; any other node (mail, chat, database,
@@ -242,7 +267,7 @@ granted secret may go, not what it is used as. Under agent access:
   and is not refused for it.
 - The taint is per run, so a local store would carry a value to another run: the
   nodes that write one (a data table, files, binary data, chat memory, application,
-  document and publication records, human-in-the-loop cards, the vault: `WritesLocalStore()`) refuse a value the run
+  document and publication records, the vault: `WritesLocalStore()`) refuse a value the run
   has read.
 - To graduate such a workflow, approve it.
 
@@ -2002,8 +2027,7 @@ that works a task acts on them. The defences:
   `max_tasks`, `max_depth` or budget than its parent (an agent cannot name or change a budget: a budget in a tree is the operator's to set, so an agent's
   child has none; the operator's budget for a child is above 0 and at most the parent's, 0 is refused under a parent
   that has a budget, and approving a child with no budget under such a parent is refused until the operator sets
-  one. Each child is checked on its own: the sum of the children's budgets and a roll-up of their spend are not
-  accounted in this change (the operator cannot set a budget below what the session and the sessions below it have spent or reserved, nor while a worker holds an uncapped reservation, and an operator spend is whole micro-dollars up to $1e9; until the next change a parent's budget can still be set below the sum of its children's budgets). A session's workers are accounted in one mode at a time, enforced by the store across processes (reservations and registered cap runs refuse each other inside the write transaction); the operator-only setting `mission_worker_reservations` (off by default, never changeable by an agent's session token or a master) only picks the mode of an idle session. A failed run is charged by how far it got: a start failure costs $0, a run that started and reported no cost the whole grant, one that reported a cost that cost, an ambiguous start the whole grant. A failure returned as a result with no start event counts as an ambiguous start (the whole grant per retry, bounded: after 3 in a row on a session it is paused and the operator told, so a wrong login loses at most 3 grants per Conductor plus the runs already in flight when the block is set; a run with no start and no done event counts too; the count is in memory, so a restart loop can burn up to 2 grants per cycle, capped by the session's budget), and an unusable cost report settles at no less than the grant. The same latch holds the budget: lowering a session's budget (or setting one where there was none) is refused while a live cap run is on the session or below it, inside the write transaction of the update, so a run cannot register between the check and the write (a raise is not refused; pausing does not stop a cap run, so the operator stops the session or waits for the runs, a dead process's row being dead 180 seconds after its last heartbeat). The latch is a lease (a cap run whose row lapsed while it was alive can let a reservation in until its next renewal; overspend is bounded by one run's cap). The accounting owner id of a Conductor is random and never derived from the process id. An agent starts at most 12 open children below
+  one. Each child is checked on its own when it is set: setting a parent's budget below the sum of its children's budgets is still allowed, but a cap-mode run is now bounded at run time by every ancestor's remaining budget (`ExecCap`), and reservation mode is the hard bound (the roll-up of spend is not stored; the commitment is derived on every read) (the operator cannot set a budget below what the session and the sessions below it have spent or reserved, nor while a worker holds an uncapped reservation, and an operator spend is whole micro-dollars up to $1e9). A session's workers are accounted in one mode at a time, enforced by the store across processes (reservations and registered cap runs refuse each other inside the write transaction); the operator-only setting `mission_worker_reservations` (off by default, never changeable by an agent's session token or a master) only picks the mode of an idle session. A failed run is charged by how far it got: a start failure costs $0, a run that started and reported no cost the whole grant, one that reported a cost that cost, an ambiguous start the whole grant. A failure returned as a result with no start event counts as an ambiguous start (the whole grant per retry, bounded: after 3 in a row on a session it is paused and the operator told, so a wrong login loses at most 3 grants per Conductor plus the runs already in flight when the block is set; a run with no start and no done event counts too; the count is in memory, so a restart loop can burn up to 2 grants per cycle, capped by the session's budget), and an unusable cost report settles at no less than the grant. The same latch holds the budget: lowering a session's budget (or setting one where there was none) is refused while a live cap run is on the session or below it, inside the write transaction of the update, so a run cannot register between the check and the write (a raise is not refused; pausing does not stop a cap run, so the operator stops the session or waits for the runs, a dead process's row being dead 180 seconds after its last heartbeat). The latch is a lease (a cap run whose row lapsed while it was alive can let a reservation in until its next renewal; overspend is bounded by one run's cap). A cap run (the default mode) is capped by the smaller of its session's remainder and every budgeted ancestor's allowance, the same number a reservation would be granted (`ExecCap`), and is refused when an ancestor is already over-spoken-for (children's budgets summing past it); it fails closed on an unreadable or cyclic parent chain. Stated limit: a cap run holds nothing, so concurrent cap runs each read the same remainder and can overshoot it by up to N (the conductor's concurrency, default 3) times that remainder; only reservation mode gives a hard bound. The accounting owner id of a Conductor is random and never derived from the process id. An agent starts at most 12 open children below
   one parent; lowering a parent clamps every session below it, open or closed, at any depth). No session is started below an archived or closed one. A session can never exceed the minimum of its whole ancestor chain, closed and archived ancestors included (access, `max_tasks`, `max_depth` and the smallest nonzero budget): the store computes that ceiling when the session is created, updated or approved, and does not trust a stored limit of a closed session in between. An agent creates a session only below one it works in, and a
   `--client-id` answers an agent only with a session below the same parent, of the same kind, in its own subtree.
   An agent renames only a draft it started from its own chat. Only the in-process mission planner (set by trusted
