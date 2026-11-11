@@ -32,21 +32,42 @@ func CheckPublish(ctx context.Context, nodeType string, publishes bool) error {
 	if !read {
 		return nil
 	}
-	n, _ := ctx.Value(accessNodeKey{}).(accessNode)
-	name := nodeType
-	if n.name != "" {
-		name = fmt.Sprintf("%q (%s)", n.name, nodeType)
-	}
-	return fmt.Errorf("%w: %s publishes to a third party and this run has read a secret under agent access, so it does not run; "+
-		"the person can approve the workflow to run it", ErrPublishesSecret, name)
+	return fmt.Errorf("%w: %s publishes to a third party and this run has read a granted secret, so it does not run; %s",
+		ErrPublishesSecret, a.who(ctx, nodeType), a.wayOut())
 }
 
-// CheckSendContent refuses a request whose content (its body: what the
-// destination stores or shows) holds a secret read under agent access. The
-// auth surfaces (Authorization and other headers, a credential in the query)
-// are not content and are not passed here. A destination on this machine
-// is exempt: the value does not leave it.
-func CheckSendContent(ctx context.Context, ownMachine bool, content ...string) error {
+// who names the step ctx runs for a message: its name and type.
+func (a *accessState) who(ctx context.Context, nodeType string) string {
+	n, _ := ctx.Value(accessNodeKey{}).(accessNode)
+	if nodeType == "" {
+		nodeType = n.typ
+	}
+	switch {
+	case n.name != "" && nodeType != "":
+		return fmt.Sprintf("%q (%s)", n.name, nodeType)
+	case nodeType != "":
+		return nodeType
+	}
+	return "this step"
+}
+
+// wayOut is how a person lets the step run: approving the workflow, or, for
+// a step run by itself, which has none, putting it in one.
+func (a *accessState) wayOut() string {
+	if a.origin.WorkflowID != "" {
+		return "the person can approve the workflow to run it"
+	}
+	return "this step belongs to no workflow: put it in a workflow the person approves, or have the person run it"
+}
+
+// CheckSendContent refuses a request whose content (what the destination
+// stores or shows: its body, a query parameter's name) holds a secret read
+// under agent access. field says where, for the message. The auth surfaces
+// (Authorization and other headers, a credential's value in the query) are
+// not content and are not passed here. A destination on this machine is
+// exempt: the value does not leave it. A caller checks UnderAgentAccess
+// first, so a request outside agent access never builds content.
+func CheckSendContent(ctx context.Context, ownMachine bool, field string, content ...string) error {
 	a := accessOf(ctx)
 	if a == nil || ownMachine {
 		return nil
@@ -54,9 +75,31 @@ func CheckSendContent(ctx context.Context, ownMachine bool, content ...string) e
 	for _, v := range a.values() {
 		for _, t := range content {
 			if strings.Contains(t, v) {
-				return fmt.Errorf("%w: the request's body holds a secret; a granted secret goes to a host only as authentication", ErrPublishesSecret)
+				return fmt.Errorf("%w: %s sends a granted secret in its %s, which would publish it; a granted secret goes to a host only as authentication; %s",
+					ErrPublishesSecret, a.who(ctx, ""), field, a.wayOut())
 			}
 		}
 	}
 	return nil
+}
+
+// TaintResolved makes ctx's run count names as read (a child run's reads,
+// handed back with its items): the run is tainted, and each value that can
+// still be read is tracked for masking and the content check. Unlike
+// SeedResolved it asks nothing of the grant: it only adds restrictions.
+func TaintResolved(ctx context.Context, names []string) {
+	a := accessOf(ctx)
+	if a == nil {
+		return
+	}
+	for _, name := range names {
+		if v, err := resolveEntry(ctx, a.db, a.profileID, secretRefPrefix+name, name); err == nil {
+			a.track(name, v)
+			continue
+		}
+		a.mu.Lock()
+		a.names[name] = struct{}{}
+		a.read = true
+		a.mu.Unlock()
+	}
 }

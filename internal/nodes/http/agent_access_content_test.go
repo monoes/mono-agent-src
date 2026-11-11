@@ -129,3 +129,22 @@ func TestAgentAccessSecretAsQueryParameterNameIsRefused(t *testing.T) {
 		t.Errorf("%d request(s) reached the proxy", proxy.n())
 	}
 }
+
+// A destination on this machine is exempt from the body rule, by name and by
+// address; a name that merely starts or ends like one is not.
+func TestAgentAccessBodyToThisMachineIsExempt(t *testing.T) {
+	e := newContentEnv(t, secrets.AccessGrant{AnyHost: true})
+	rec := newRecorder(t, nil)
+	local := strings.Replace(rec.URL, "127.0.0.1", "localhost", 1)
+	if err := e.send(map[string]interface{}{"url": local + "/r", "method": "POST", "body": "@secret:vs"}); err != nil {
+		t.Errorf("a body to localhost: %v", err)
+	}
+	if rec.n() != 1 {
+		t.Errorf("localhost received %d requests", rec.n())
+	}
+	for host, want := range map[string]bool{"localhost": true, "LOCALHOST": true, "127.0.0.1": true, "::1": true, "127.0.0.1.evil.com": false, "localhost.evil.com": false, "0.0.0.0": false, "vendor.example.test": false} {
+		if got := ownHost(host); got != want {
+			t.Errorf("ownHost(%q) = %v, want %v", host, got, want)
+		}
+	}
+}

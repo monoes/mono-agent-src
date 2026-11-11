@@ -42,9 +42,6 @@ type TaskNode struct{}
 
 func (n *TaskNode) Type() string { return NodeType }
 
-// PublishesToThirdParty: ai.task sends nothing off this machine (issue #1418).
-func (*TaskNode) PublishesToThirdParty() bool { return false }
-
 func (n *TaskNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	// A task is a coder conversation with a shell: a run that isn't the
 	// operator's (a workflow nobody approved, one an AI wrote or started,

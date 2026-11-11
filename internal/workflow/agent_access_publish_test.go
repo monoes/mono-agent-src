@@ -3,8 +3,10 @@ package workflow
 import (
 	"context"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -148,28 +150,44 @@ func TestAnExecutorThatDeclaresNothingPublishes(t *testing.T) {
 	}
 }
 
-// Every dispatch point goes through RunExecGuardFor: a direct RunExecGuard
-// call would skip the content guard.
-func TestNoDispatchPointCallsRunExecGuardDirectly(t *testing.T) {
+// Every dispatch point goes through RunExecGuardFor: any reference to
+// RunExecGuard (a call, a method value, an alias, in any package) outside
+// exec_guard.go would skip the content guard.
+func TestNoDispatchPointReferencesRunExecGuardDirectly(t *testing.T) {
 	var bad []string
 	walk := func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") || strings.HasSuffix(p, "exec_guard.go") {
 			return nil
 		}
-		b, _ := os.ReadFile(p)
-		for _, line := range strings.Split(string(b), "\n") {
-			if t := strings.TrimSpace(line); !strings.HasPrefix(t, "//") && strings.Contains(t, "RunExecGuard(") {
-				bad = append(bad, p)
-				break
-			}
+		f, perr := parser.ParseFile(token.NewFileSet(), p, nil, 0)
+		if perr != nil {
+			return nil
 		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			switch x := n.(type) {
+			case *ast.SelectorExpr:
+				if x.Sel.Name == "RunExecGuard" {
+					bad = append(bad, p)
+				}
+			case *ast.Ident:
+				if x.Name == "RunExecGuard" {
+					bad = append(bad, p)
+				}
+			}
+			return true
+		})
 		return nil
 	}
-	for _, root := range []string{"..", "../../cmd"} {
-		_ = filepath.WalkDir(root, walk)
+	for _, root := range []string{"..", "../../cmd", "../../wails-app"} {
+		_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+			if d != nil && d.IsDir() && (d.Name() == "node_modules" || d.Name() == ".git") {
+				return filepath.SkipDir
+			}
+			return walk(p, d, err)
+		})
 	}
 	if len(bad) > 0 {
-		t.Errorf("call workflow.RunExecGuardFor, not RunExecGuard, in: %v", bad)
+		t.Errorf("use workflow.RunExecGuardFor, not RunExecGuard, in: %v", bad)
 	}
 }
 

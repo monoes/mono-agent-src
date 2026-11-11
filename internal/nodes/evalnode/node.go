@@ -38,9 +38,6 @@ type Node struct{}
 // Type implements workflow.NodeExecutor.
 func (n *Node) Type() string { return nodeType }
 
-// PublishesToThirdParty: core.evaluation sends nothing off this machine (issue #1418).
-func (*Node) PublishesToThirdParty() bool { return false }
-
 // metricFields are the setMetrics fields resolved per item, as n8n reads
 // each item's own.
 var metricFields = []string{"expected_answer", "actual_answer", "user_query", "expected_tools",

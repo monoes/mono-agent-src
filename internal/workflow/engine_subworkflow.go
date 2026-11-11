@@ -292,8 +292,76 @@ func (e *WorkflowEngine) SubWorkflowChildren(ctx context.Context, parentExecutio
 		if err := e.fillSubWorkflowChild(ctx, &out[i]); err != nil {
 			return nil, err
 		}
+		// What a finished child read taints this run as well: its items come
+		// back in forms nobody can list (issue #1418).
+		if out[i].Done() && !out[i].Failed() {
+			if err := e.taintFromChild(ctx, db, out[i].ExecutionID); err != nil {
+				return nil, err
+			}
+		}
 	}
 	return out, nil
+}
+
+// taintFromChild makes this run (under agent access) count the secrets the
+// child run, and the runs it called, read: the audit records them by
+// execution, by name.
+func (e *WorkflowEngine) taintFromChild(ctx context.Context, db *sql.DB, childID string) error {
+	if !secrets.UnderAgentAccess(ctx) {
+		return nil
+	}
+	profile, err := vault.ProfileIDFromContext(ctx)
+	if err != nil {
+		return nil
+	}
+	names, err := childSecretNames(ctx, db, profile, childID, 0)
+	if err != nil {
+		return err
+	}
+	secrets.TaintResolved(ctx, names)
+	return nil
+}
+
+func childSecretNames(ctx context.Context, db *sql.DB, profile, execID string, depth int) ([]string, error) {
+	rows, err := db.QueryContext(ctx, `SELECT DISTINCT secret_name FROM profile_agent_secret_audit WHERE profile_id = ? AND execution_id = ?`, profile, execID)
+	if err != nil {
+		return nil, fmt.Errorf("sub-workflow: what the child read: %w", err)
+	}
+	var names []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		names = append(names, n)
+	}
+	rows.Close()
+	if depth >= 8 {
+		return names, rows.Err()
+	}
+	grand, err := db.QueryContext(ctx, `SELECT child_execution_id FROM subworkflow_runs WHERE parent_execution_id = ?`, execID)
+	if err != nil {
+		return nil, fmt.Errorf("sub-workflow: what the child read: %w", err)
+	}
+	var ids []string
+	for grand.Next() {
+		var id string
+		if err := grand.Scan(&id); err != nil {
+			grand.Close()
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	grand.Close()
+	for _, id := range ids {
+		more, err := childSecretNames(ctx, db, profile, id, depth+1)
+		if err != nil {
+			return nil, err
+		}
+		names = append(names, more...)
+	}
+	return names, nil
 }
 
 // fillSubWorkflowChild loads a child's status and, once it has finished, the
