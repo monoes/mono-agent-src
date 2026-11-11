@@ -320,3 +320,46 @@ func kinfo2(pid int) (int8, error) {
 	}
 	return k.Proc.P_stat, nil
 }
+
+// A held leader that has exited (a zombie the unit keeps for its number) is not in the scan, and the unit still proves: with an
+// orphan left in the session the proof finds the orphan (and Stop ends it); with nothing left it proves Gone. Never NOT PROVEN.
+func TestDarwinProofWithAHeldZombieLeader(t *testing.T) {
+	tr := startPerl(t, []string{"orphan"}, `k{say("orphan")};print "ready $$\n";sleep 60;`)
+	r := newRealRig(t)
+	pl, err := r.c.Place(r.rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leader := tr.info("leader")
+	// the perl leader was started by startPerl, so it is the test's child with its own session: adopt it for real
+	if err := pl.(Adopter).Adopt(leader.PID, leader.Stamp); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ReleaseUnitHolds(r.rec.CgroupID) })
+	_ = bgOS.Signal(leader.PID, syscall.SIGKILL)
+	time.Sleep(200 * time.Millisecond)
+	if st, err := kinfo2(leader.PID); err != nil || st != szomb {
+		t.Fatalf("the held leader is not a zombie: %d %v", st, err)
+	}
+	all, _ := bgOS.Scan()
+	for _, p := range all {
+		if p.PID == leader.PID {
+			fact(t, "the real scan LISTS a zombie leader: %+v", p)
+		}
+	}
+	pr, err := r.c.Prove(r.rec)
+	if err != nil || pr.Gone || pr.Cg == nil {
+		t.Fatalf("a unit whose leader exited but whose orphan lives must prove with members, not Gone/NOT PROVEN: %+v %v", pr, err)
+	}
+	if err := pr.Cg.Kill(""); err != nil {
+		t.Fatal(err)
+	}
+	if !goneWithin(tr.pid("orphan"), tr.stamps[tr.pid("orphan")], 5*time.Second) {
+		t.Fatal("the orphan of the held zombie leader survived")
+	}
+	pr, err = r.c.Prove(r.rec)
+	if err != nil || !pr.Gone {
+		t.Fatalf("an empty unit with a held zombie leader must prove Gone: %+v %v", pr, err)
+	}
+	fact(t, "held zombie leader: orphan found and ended, empty unit proves Gone (zombie not listed by the scan, not needed)")
+}
