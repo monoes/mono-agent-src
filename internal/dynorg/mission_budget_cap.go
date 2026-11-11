@@ -27,6 +27,10 @@ func (c *Conductor) missionExecCap(ctx context.Context, w *worker) (left float64
 		return 0, false, err
 	}
 	left, bounded, err = mc.Store.ExecCap(ctx, mc.ProfileID, w.task.session)
+	var oe *tasks.OverCommitError
+	if errors.As(err, &oe) {
+		return 0, true, fmt.Errorf("%w: %s", errBudgetRefused, oe.Words())
+	}
 	if errors.Is(err, tasks.ErrLimit) {
 		return 0, true, fmt.Errorf("%w: session #%d: %v", errBudgetRefused, w.task.session, err)
 	}

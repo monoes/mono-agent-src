@@ -74,7 +74,7 @@ func (s *Store) ancestorGrant(ctx context.Context, x dbx, profileID string, targ
 		}
 		t0, tg := toMicros(c0.Total()), toMicros(cg.Total())
 		if t0 > bm {
-			return 0, true, limit("session #%d: its ancestor #%d is over its budget of $%.2f (spent $%.4f, held $%.4f, children $%.4f)", target, a, budget, c0.Spent, c0.Held, c0.Children)
+			return 0, true, &OverCommitError{overCommitOf(target, a, c0)}
 		}
 		if tg > t0 {
 			g = min(g, (ga-(tg-t0))+(bm-t0))
