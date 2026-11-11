@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 var zooNames = []string{"plain", "pgjob", "sidchild", "deep", "orphan", "escapee", "noterm"}
@@ -151,14 +153,26 @@ func TestDarwinPidAllocatorAndALiveSessionNumber(t *testing.T) {
 	for _, c := range []struct {
 		name, kid string
 		mustNot   bool
+		hold      bool
 	}{
-		{"group-pinned", `k{say("kid")}`, true},
-		{"session-only", `k{setpgrp(0,0);say("kid")}`, false},
+		{"group-pinned", `k{say("kid")}`, true, false},
+		{"session-only", `k{setpgrp(0,0);say("kid")}`, false, false},
+		{"session-only-held", `k{setpgrp(0,0);say("kid")}`, true, true},
 	} {
 		tr := startPerl(t, []string{"kid"}, `$ENV{S2SLEEP}=400;`+c.kid+`;print "ready $$\n";sleep 60;`)
 		L := tr.pid("leader")
 		kid := tr.info("kid")
-		tr.reapLeader()
+		if c.hold {
+			release, err := bgOS.Hold(L, tr.stamps[L])
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = bgOS.Signal(L, syscall.SIGKILL) // the leader dies and stays a zombie: nobody reaped it
+			time.Sleep(100 * time.Millisecond)
+			t.Cleanup(release)
+		} else {
+			tr.reapLeader()
+		}
 		if p, err := bgOS.Info(kid.PID); err != nil || p.SID != L {
 			t.Fatalf("%s: the survivor lost the session: %+v %v", c.name, p, err)
 		}
@@ -179,7 +193,10 @@ func TestDarwinPidAllocatorAndALiveSessionNumber(t *testing.T) {
 		if c.mustNot && handed {
 			t.Fatalf("%s: the kernel handed out a number that a live process still has as its group and session: %s", c.name, res)
 		}
-		if handed {
+		if c.hold && (handed || (n >= 90000 && !regexp.MustCompile(`skipped=1`).MatchString(res))) {
+			t.Fatalf("%s: a held (zombie) leader's number was reused or never passed: %s", c.name, res)
+		}
+		if handed && !c.hold {
 			fact(t, "the session number WAS reused while a session member lived (leader unreaped until the unit ends is required, S3)")
 		}
 	}
@@ -249,4 +266,57 @@ func TestDarwinALaunchdJobSurvivesStop(t *testing.T) {
 		t.Fatal("the launchd job did not survive")
 	}
 	fact(t, "SURVIVES Stop: a process started through launchd (launchctl submit) pid %d", job)
+}
+
+// A held leader keeps its pid after it dies (a zombie), is not listed as a live process, and release reaps it.
+func TestDarwinAHeldLeaderKeepsItsPidAndReleaseReapsIt(t *testing.T) {
+	cmd := exec.Command("/bin/sleep", "30")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	pid := cmd.Process.Pid
+	p, err := bgOS.Info(pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bgOS.Hold(pid, p.Stamp+"1"); err == nil {
+		t.Fatal("a hold with the wrong stamp was taken")
+	}
+	if _, err := bgOS.Hold(1, "1.000001"); err == nil {
+		t.Fatal("launchd was held")
+	}
+	release, err := bgOS.Hold(pid, p.Stamp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = bgOS.Signal(pid, syscall.SIGKILL)
+	time.Sleep(200 * time.Millisecond)
+	k, err := kinfo2(pid)
+	if err != nil || k != szomb {
+		t.Fatalf("the dead held leader should be a zombie that keeps its pid: state %d %v", k, err)
+	}
+	if _, err := bgOS.Info(pid); err == nil {
+		t.Fatal("a zombie is read as a live process")
+	}
+	all, _ := bgOS.Scan()
+	for _, q := range all {
+		if q.PID == pid {
+			t.Fatal("the scan lists the zombie")
+		}
+	}
+	release()
+	release() // idempotent
+	if _, err := kinfo2(pid); err == nil {
+		t.Fatal("release did not reap the leader")
+	}
+	fact(t, "held leader: zombie keeps pid %d until release, then reaped", pid)
+}
+
+func kinfo2(pid int) (int8, error) {
+	k, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
+	if err != nil || int(k.Proc.P_pid) != pid {
+		return 0, errGone
+	}
+	return k.Proc.P_stat, nil
 }

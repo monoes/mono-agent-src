@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -36,6 +37,32 @@ func (darwinSess) BootID() (string, error) {
 		return "", errors.New("kern.bootsessionuuid is empty")
 	}
 	return id, nil
+}
+
+// Hold keeps a leader's number reserved: the leader must be this process's own unreaped child with that start stamp, and
+// from here on only release reaps it, so a leader that dies stays a zombie, which keeps its pid (and with it the session
+// number) from being handed to another process. The caller must not wait for the process itself (S3: the host's turn wait
+// for a session leader is non-reaping). release reaps a leader that has ended; one still running is reaped by a goroutine
+// when it ends, since nothing needs the number after the unit let go of it.
+func (d darwinSess) Hold(pid int, stamp string) (func(), error) {
+	p, err := d.Info(pid)
+	switch {
+	case err != nil:
+		return nil, fmt.Errorf("the leader %d cannot be held: %w", pid, err)
+	case p.Stamp != stamp:
+		return nil, fmt.Errorf("process %d is not the leader that was started (start stamp differs)", pid)
+	case p.PPID != os.Getpid():
+		return nil, fmt.Errorf("process %d is not an unreaped child of this process", pid)
+	}
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			var ws unix.WaitStatus
+			if wpid, err := unix.Wait4(pid, &ws, unix.WNOHANG, nil); err == nil && wpid == 0 {
+				go func() { _, _ = unix.Wait4(pid, &ws, 0, nil) }()
+			}
+		})
+	}, nil
 }
 
 func (darwinSess) Self() (int, string, error) {

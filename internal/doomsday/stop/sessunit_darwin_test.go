@@ -378,4 +378,14 @@ func TestDarwinPlaceAndAdoptOnTheRealOS(t *testing.T) {
 	if !r.members(r.group())[p.PID] {
 		t.Fatal("the adopted leader is not a member of its unit")
 	}
+	// the adopt took the hold: a leader that dies stays a zombie (its number stays taken) until the unit's holds are released
+	_ = bgOS.Signal(p.PID, syscall.SIGKILL)
+	time.Sleep(200 * time.Millisecond)
+	if st, err := kinfo2(p.PID); err != nil || st != szomb {
+		t.Fatalf("an adopted leader that died is not held as a zombie: %d %v", st, err)
+	}
+	ReleaseUnitHolds(r.rec.CgroupID)
+	if _, err := kinfo2(p.PID); err == nil {
+		t.Fatal("ReleaseUnitHolds did not reap the leader")
+	}
 }
