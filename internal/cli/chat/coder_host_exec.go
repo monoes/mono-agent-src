@@ -748,6 +748,9 @@ func awaitGoneUnreaped(pid int) {
 	}
 }
 
+// killLeaderProc kills the leader through its Go process handle (a seam: tests count the calls). Stub (red commit): not used yet.
+var killLeaderProc = func(p *os.Process) error { return p.Kill() }
+
 // heldGoneWait bounds awaitGoneUnreaped (a seam for tests).
 var heldGoneWait = 10 * time.Second
 

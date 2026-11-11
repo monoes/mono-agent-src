@@ -116,3 +116,10 @@ func (g *HostGate) ReleaseAllHolds() {
 		stop.ReleaseAllUnitHolds() // also the holds no watch knows of
 	}
 }
+
+// Seams (red commit): not used yet.
+var (
+	releaseUnitHolds    = stop.ReleaseUnitHolds
+	releaseAllUnitHolds = stop.ReleaseAllUnitHolds
+	holdPollMax         = 15 * time.Second
+)

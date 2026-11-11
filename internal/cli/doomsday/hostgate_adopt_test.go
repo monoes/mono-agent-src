@@ -1,6 +1,7 @@
 package doomsday
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -263,5 +264,115 @@ func TestHoldsWithNoEndSourceAreStillReleasedAtShutdown(t *testing.T) {
 	g.ReleaseAllHolds()
 	if got := spy.got(); len(got) != 1 || got[0] != 9 {
 		t.Fatalf("released %v", got)
+	}
+}
+
+// ----- the watch: a panic does not kill the host, and the poll backs off -----
+
+func TestAPanickingEndCheckDoesNotKillTheHostAndTheWatchRestarts(t *testing.T) {
+	g, w, _ := adoptGate(t)
+	w.start(t)
+	withPlacement(t, &adopterPlace{unit: 9}, nil)
+	var calls atomic.Int64
+	g.UnitEnded = func(uint64, uint64) (bool, error) {
+		if calls.Add(1) == 1 {
+			panic("boom")
+		}
+		return false, nil
+	}
+	if _, err := g.Adopt("p1", "c1", 100, "1.000001"); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "the check ran and panicked", func() bool { return calls.Load() >= 1 })
+	time.Sleep(30 * time.Millisecond)
+	if _, err := g.Adopt("p1", "c1", 101, "1.000002"); err != nil { // the next adoption starts a new watch
+		t.Fatal(err)
+	}
+	eventually(t, "a new watch asks again", func() bool { return calls.Load() >= 2 })
+}
+
+// A unit whose end is not recorded (a stop that is NOT PROVEN, or none yet) is looked for less and less often.
+func TestTheEndWatchBacksOff(t *testing.T) {
+	old := holdPollMax
+	holdPollMax = 80 * time.Millisecond
+	t.Cleanup(func() { holdPollMax = old })
+	g, w, _ := adoptGate(t)
+	g.HoldPoll = 2 * time.Millisecond
+	w.start(t)
+	withPlacement(t, &adopterPlace{unit: 9}, nil)
+	var calls atomic.Int64
+	g.UnitEnded = func(uint64, uint64) (bool, error) { calls.Add(1); return false, nil }
+	if _, err := g.Adopt("p1", "c1", 100, "1.000001"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(500 * time.Millisecond)
+	if n := calls.Load(); n < 5 || n > 25 {
+		t.Fatalf("%d checks in 500 ms with a 2 ms base poll: it does not back off (a flat poll would make ~250)", n)
+	}
+}
+
+// Production wiring: with no ReleaseHolds seam, shutdown calls the library's release of every hold (also those no watch knows of), and
+// the end of one unit calls the library's release of that unit.
+func TestShutdownAndEndReleaseThroughTheLibraryWhenNoSeamIsSet(t *testing.T) {
+	var all atomic.Int64
+	var units []uint64
+	var mu sync.Mutex
+	oldAll, oldOne := releaseAllUnitHolds, releaseUnitHolds
+	releaseAllUnitHolds = func() { all.Add(1) }
+	releaseUnitHolds = func(u uint64) { mu.Lock(); units = append(units, u); mu.Unlock() }
+	t.Cleanup(func() { releaseAllUnitHolds, releaseUnitHolds = oldAll, oldOne })
+	g, w, _ := adoptGate(t)
+	g.ReleaseHolds = nil
+	w.start(t)
+	withPlacement(t, &adopterPlace{unit: 9}, nil)
+	var ended atomic.Bool
+	g.UnitEnded = func(uint64, uint64) (bool, error) { return ended.Load(), nil }
+	if _, err := g.Adopt("p1", "c1", 100, "1.000001"); err != nil {
+		t.Fatal(err)
+	}
+	ended.Store(true)
+	eventually(t, "the unit's holds are released through the library", func() bool { mu.Lock(); defer mu.Unlock(); return len(units) == 1 && units[0] == 9 })
+	g.ReleaseAllHolds()
+	if all.Load() != 1 {
+		t.Fatalf("shutdown called the library's release-all %d times, want once", all.Load())
+	}
+}
+
+// ----- BeforeRelease: a turn started before the run opened was neither placed nor adopted into it -----
+
+func TestBeforeReleaseRefusesATurnStartedBeforeTheRunOpened(t *testing.T) {
+	r := newHookRig(t, on())
+	hk := r.hl.hk
+	if _, err := hk.Place(exec.Command("true"), "p1", "conv"); err != nil { // no run is open: the turn is started plainly
+		t.Fatal(err)
+	}
+	r.start(t) // the run opens before the turn is released
+	err := hk.BeforeRelease(context.Background(), "p1", "conv", "t1", true)
+	if !refused(err) {
+		t.Fatalf("a turn started before the run opened was released into it: %v", err)
+	}
+	if n := r.tickets(t); n != 0 {
+		t.Fatalf("a refused turn took %d ticket(s)", n)
+	}
+	// started under the open run: released
+	withPlacement(t, plainPlace{}, nil)
+	if _, err := hk.Place(exec.Command("true"), "p1", "conv"); err != nil {
+		t.Fatal(err)
+	}
+	if err := hk.BeforeRelease(context.Background(), "p1", "conv", "t2", true); err != nil {
+		t.Fatalf("a turn started under the open run was refused: %v", err)
+	}
+	// a launcher that never asked Place (no record) is as before; the record is consumed by the release it belongs to
+	if err := hk.BeforeRelease(context.Background(), "p1", "conv-other", "t3", true); err != nil {
+		t.Fatalf("a turn with no start record was refused: %v", err)
+	}
+	if _, err := hk.Place(exec.Command("true"), "p1", "conv"); err != nil {
+		t.Fatal(err)
+	}
+	if err := hk.BeforeRelease(context.Background(), "p1", "conv", "t4", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := hk.BeforeRelease(context.Background(), "p1", "conv", "t5", true); err != nil {
+		t.Fatalf("a consumed record refused a later release: %v", err)
 	}
 }
