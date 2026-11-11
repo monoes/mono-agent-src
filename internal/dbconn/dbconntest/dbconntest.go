@@ -39,6 +39,11 @@ type Trip struct {
 	// ROLLBACK, on the connection that is about to run it: the place for a competing writer to commit between a
 	// transaction's read and its write.
 	BeforeExec func(query string)
+	// BeforePrepare, when set before use, runs before every statement the driver prepares (a prepared statement, or a
+	// query: database/sql prepares those), on the connection that is about to prepare it. Statements run through a
+	// prepared statement never reach BeforeExec, so this is the place for a competing writer where code prepares
+	// its writes.
+	BeforePrepare func(query string)
 	// Opened counts the connections the pool has opened.
 	Opened atomic.Int32
 }
@@ -88,6 +93,16 @@ func (x *txn) Commit() error {
 		return x.trip.CommitErrAfter
 	}
 	return err
+}
+
+func (c *conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
+	if c.trip.BeforePrepare != nil {
+		c.trip.BeforePrepare(query)
+	}
+	if p, ok := c.Conn.(driver.ConnPrepareContext); ok {
+		return p.PrepareContext(ctx, query)
+	}
+	return c.Conn.Prepare(query)
 }
 
 func (c *conn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
