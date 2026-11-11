@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/missionpursuit"
-	"github.com/monoes/mono-agent/internal/missionpursuit/inputs"
 	"github.com/monoes/mono-agent/internal/missionpursuit/verifier"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
@@ -297,8 +296,15 @@ func TestAnAcceptedGoalWhoseWorkIsNotSettledAnymoreIsNotWokenFor(t *testing.T) {
 	w.exec(`UPDATE tasks SET status = 'ready' WHERE session_id = 77`) // the lead reopened work
 	w.advance(2 * time.Second)
 	// the settled-work gate itself (the lead's turn-limit would also hold a wake after a few passes, which must not be what this proves)
-	if g, ok := w.h.pursuitGate(context.Background(), inputs.New(w.st.db), pursuitMission{ID: 77, Profile: "p", Conv: "m"}, 0); !ok || g.acceptWakeDue {
-		t.Fatalf("the accept wake is owed for a mission with open work: ok=%v due=%v", ok, g.acceptWakeDue)
+	m := pursuitMission{ID: 77, Profile: "p", Conv: "m"}
+	var open, settled pursuitGateResult
+	open.snap.Tasks.Workable, open.snap.Tasks.NonEpic = 1, 1 // the facts the gate reads for a mission with open work, and for a settled one
+	settled.snap.Tasks.NonEpic = 1
+	if !w.h.pursuitCheckWakeFacts(context.Background(), m, 0, &open) || open.acceptWakeDue {
+		t.Fatalf("the accept wake is owed for a mission with open work")
+	}
+	if !w.h.pursuitCheckWakeFacts(context.Background(), m, 0, &settled) || !settled.acceptWakeDue {
+		t.Fatalf("the accept wake is not owed for a settled mission with an accepted check")
 	}
 	for i := 0; i < 3; i++ {
 		w.pass()
@@ -494,5 +500,21 @@ func TestAnAcceptedOverCommittedMissionGetsItsAcceptWakeOnlyAfterTheBudgetIsRais
 	}
 	if texts := w.allWakeTexts(); len(texts) != 1 || !strings.Contains(texts[0], "The person accepted the goal") {
 		t.Errorf("wake-ups: %v", texts)
+	}
+}
+
+// The park count the engine reads is clamped to its own limit, however many checks failed.
+func TestTheFinishParkCountTheEngineReadsIsClampedToItsLimit(t *testing.T) {
+	w := awake(t)
+	f := w.h.finishParksOf(pursuitMission{ID: 77, Profile: "p", Conv: "m"})
+	if f == nil {
+		t.Fatal("no feed on a host with goal checks")
+	}
+	for i := 0; i < 7; i++ {
+		w.hostCheck(verifier.OutcomeFailed, verifier.ReasonCriteriaFailed, true)
+		w.personActs()
+	}
+	if got := f(context.Background()); got != 5 {
+		t.Errorf("FinishParks = %d, want the engine's limit of 5", got)
 	}
 }
