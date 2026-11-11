@@ -271,7 +271,7 @@ func resolveSession(procs []SessProc, leaders []Leader, rebooted bool, seen map[
 			if k.PID <= 1 {
 				continue
 			}
-			if _, seen := member[k.PID]; !seen {
+			if _, already := member[k.PID]; !already {
 				member[k.PID] = k
 				delete(unproven, k.PID)
 				queue = append(queue, k.PID)

@@ -150,13 +150,51 @@ func TestEndSealsNothingWhenTheUnitIsNotEnding(t *testing.T) {
 	}
 }
 
-func TestSealFailureMeansTheUnitIsNotEnded(t *testing.T) {
+// A seal that cannot be written (the witness refuses, or cannot even be read) never skips the kill, and never lets the unit
+// be recorded as ended: a clean end becomes NOT PROVEN, an unclean one keeps its kind and gains the reason.
+func TestSealFailureRunsTheEndButTheUnitIsNotRecordedAsEnded(t *testing.T) {
+	for name, fail := range map[string]func(r *seqRig){
+		"append refused": func(r *seqRig) { r.fs.failAppend = true },
+		"witness unreadable": func(r *seqRig) {
+			r.fs.failRead["witness"] = true
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newSeqRig(t)
+			mustNoErr(t, r.seq.Bound(UnitRecord{Kind: KindSession, Generation: 3, CgroupID: 42, Name: "u"}))
+			fail(r)
+			ran := false
+			out := NewWitnessEnder(endStub{func() UnitOutcome { ran = true; return UnitOutcome{Kind: UnitBestEffort} }}, r.seq).End(bg, 3, nil)
+			if !ran {
+				t.Fatal("a failed seal skipped the kill")
+			}
+			if out.Kind != UnitNotProven || out.Note == "" {
+				t.Fatalf("a unit that could not be sealed was recorded as ended: %+v", out)
+			}
+			out = NewWitnessEnder(endStub{func() UnitOutcome { return UnitOutcome{Kind: UnitStragglers, Note: "x"} }}, r.seq).End(bg, 3, nil)
+			if out.Kind != UnitStragglers || out.Note == "x" || out.Note == "" {
+				t.Fatalf("%+v", out)
+			}
+		})
+	}
+}
+
+// Every attempt of a retried Stop ends the unit again: the seal is written once.
+func TestSealIsWrittenOncePerUnit(t *testing.T) {
 	r := newSeqRig(t)
 	mustNoErr(t, r.seq.Bound(UnitRecord{Kind: KindSession, Generation: 3, CgroupID: 42, Name: "u"}))
-	r.fs.failAppend = true
-	ran := false
-	out := NewWitnessEnder(endStub{func() UnitOutcome { ran = true; return UnitOutcome{Kind: UnitBestEffort} }}, r.seq).End(bg, 3, nil)
-	if out.Kind != UnitNotProven || ran {
-		t.Fatalf("a unit that could not be sealed was ended: %+v (inner ran: %v)", out, ran)
+	en := NewWitnessEnder(endStub{func() UnitOutcome { return UnitOutcome{Kind: UnitStragglers} }}, r.seq)
+	for i := 0; i < 3; i++ {
+		en.End(bg, 3, nil)
+	}
+	recs, _ := r.seq.W.Records()
+	n := 0
+	for _, rec := range recs {
+		if rec.T == RecUnitSealed {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("%d seal lines after three attempts", n)
 	}
 }

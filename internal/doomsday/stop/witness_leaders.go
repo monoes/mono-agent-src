@@ -38,18 +38,53 @@ func (s *Sequencer) AddLeader(gen uint64, l Leader) error {
 	return s.W.Append(Record{T: RecUnitLeader, Gen: int64(gen), Extra: string(b)})
 }
 
-// sealSessionUnits writes the seal line of every session unit of the generation that is not sealed or ended yet. Units of
-// the other kinds get no line (their end is unchanged).
+// sealIfEnding seals the session units of the generation when the end is not sparing a begun operation (exclude empty): a
+// begun operation's units stay open because the unit is not over.
+func (s *Sequencer) sealIfEnding(gen uint64, exclude []uint64) error {
+	if len(exclude) > 0 {
+		return nil
+	}
+	return s.sealSessionUnits(gen)
+}
+
+// sealSessionUnits writes the seal line of every session unit of the generation that is neither sealed nor ended. Units of
+// the other kinds get no line (their end is unchanged). A witness that cannot be read is an error, not "nothing to seal".
 func (s *Sequencer) sealSessionUnits(gen uint64) error {
+	recs, err := s.W.Records()
+	if err != nil {
+		return err
+	}
+	sealed := map[string]bool{}
+	for _, r := range recs {
+		if r.T == RecUnitSealed && uint64(r.Gen) == gen {
+			sealed[r.Extra] = true
+		}
+	}
 	for _, rec := range s.BoundUnits(gen) {
-		if rec.Kind != KindSession {
+		extra := fmt.Sprintf("id=%d", rec.CgroupID)
+		if rec.Kind != KindSession || sealed[extra] {
 			continue
 		}
-		if err := s.UnitLine(RecUnitSealed, gen, fmt.Sprintf("id=%d", rec.CgroupID)); err != nil {
+		if err := s.UnitLine(RecUnitSealed, gen, extra); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// sealFailed is the answer of an end whose seal could not be written: the kill ran, but a unit that could not be sealed is
+// not recorded as ended (a leader could still be adopted after the proof), so a clean end becomes NOT PROVEN.
+func sealFailed(out UnitOutcome, err error) UnitOutcome {
+	note := "the session unit could not be sealed against a new leader, so its end is not recorded: " + err.Error()
+	switch out.Kind {
+	case UnitEnded, UnitEndedWithUnknown, UnitBestEffort:
+		return UnitOutcome{Kind: UnitNotProven, Survivors: out.Survivors, Unknown: out.Unknown, Note: note}
+	}
+	if out.Note != "" {
+		note = out.Note + "; " + note
+	}
+	out.Note = note
+	return out
 }
 
 // Leaders returns the leaders of a generation in the order they were written. A witness that cannot be read, or a line

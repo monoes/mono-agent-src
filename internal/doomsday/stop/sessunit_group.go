@@ -214,6 +214,7 @@ func (g *sessGroup) Kill(string) error {
 	for _, m := range v.members {
 		note(g.signal(m, syscall.SIGKILL))
 	}
+	killFrozen() // whatever was stopped is killed on every path out, not only on a failed read
 	return first
 }
 
