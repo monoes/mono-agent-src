@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/missionpursuit/verifier"
 	"github.com/monoes/mono-agent/internal/tasks"
@@ -178,13 +179,19 @@ func (h HostChecks) Finish(ctx context.Context, checkID int64, res verifier.Resu
 	})
 }
 
-// AbandonRunning ends every running check as abandoned (a restart of the host: the check that was running is gone), and
-// says how many. An abandoned check still counts against the caps.
-func (h HostChecks) AbandonRunning(ctx context.Context) (int, error) {
+// AbandonRunning ends the running checks that started at or before startedBefore as abandoned (a restart of the host: the
+// check that was running is gone), and says how many. The host passes its own start time, so a check started after it (by
+// this host, or by another host process that began earlier) is never swept from under its goroutine; the time has one-second
+// resolution, like the rows. A zero time is refused. An abandoned check still counts against the caps, at the cap.
+func (h HostChecks) AbandonRunning(ctx context.Context, startedBefore time.Time) (int, error) {
 	if h.s == nil {
 		return 0, errNoHostChecks
 	}
-	res, err := h.s.db.ExecContext(ctx, `UPDATE mission_goal_checks SET state = 'abandoned', outcome = '', reason = 'host-restarted', cost_micro = ?, cost_known = 0, ended_at = ? WHERE state = 'running'`, CheckCapMicro, h.s.stamp())
+	if startedBefore.IsZero() {
+		return 0, invalid("a sweep of running checks says which started before it")
+	}
+	res, err := h.s.db.ExecContext(ctx, `UPDATE mission_goal_checks SET state = 'abandoned', outcome = '', reason = 'host-restarted', cost_micro = ?, cost_known = 0, ended_at = ? WHERE state = 'running' AND started_at <= ?`,
+		CheckCapMicro, h.s.stamp(), startedBefore.UTC().Format(time.RFC3339))
 	if err != nil {
 		return 0, fmt.Errorf("missionpursuit: abandoning running checks: %w", err)
 	}

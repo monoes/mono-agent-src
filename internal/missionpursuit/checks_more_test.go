@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/missionpursuit/verifier"
 )
@@ -122,7 +123,7 @@ func TestAnAbandonedCheckCountsAtTheCapUnlessItsCostIsKnown(t *testing.T) {
 		t.Errorf("an abandoned check with no cost: %d known %v, want the cap %d unknown", c.CostMicro, c.CostKnown, CheckCapMicro)
 	}
 	id3 := w.begin(t)
-	if n, err := w.hc.AbandonRunning(bg); err != nil || n != 1 {
+	if n, err := w.hc.AbandonRunning(bg, time.Now().Add(time.Minute)); err != nil || n != 1 {
 		t.Fatalf("sweep: %d %v", n, err)
 	}
 	if c := w.read(t, id3); c.CostMicro != CheckCapMicro || c.CostKnown {
