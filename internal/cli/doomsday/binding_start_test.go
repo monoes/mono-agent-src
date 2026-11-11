@@ -56,3 +56,18 @@ func mustCharter(t *testing.T, path string) Charter {
 	}
 	return c
 }
+
+// A Binding func that says the OS cannot run the mode at all (macOS, #1582) is answered with its own words, not wrapped as
+// an unreadable setting, so the start and the probe tell the person the true reason.
+func TestRequireBindingPassesAnUnsupportedOSReasonThrough(t *testing.T) {
+	const why = "not available on macOS yet: the boss could never take its first turn"
+	e := &StoreEngine{Binding: func(context.Context) (bool, error) { return false, UnsupportedHere(why) }}
+	err := e.RequireBinding(context.Background())
+	if err == nil || err.Error() != why {
+		t.Fatalf("err = %v", err)
+	}
+	e = &StoreEngine{Binding: func(context.Context) (bool, error) { return false, errors.New("db busy") }}
+	if err := e.RequireBinding(context.Background()); err == nil || !strings.Contains(err.Error(), "cannot be read") {
+		t.Fatalf("other errors keep their wrapping: %v", err)
+	}
+}

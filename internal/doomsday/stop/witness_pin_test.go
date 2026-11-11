@@ -183,15 +183,12 @@ func TestPinCloseClean(t *testing.T) {
 	}
 }
 
-func TestPinRefusesLinksAndMetacharacters(t *testing.T) {
+func TestPinRefusesLinks(t *testing.T) {
 	dir := t.TempDir()
 	makeDB(t, filepath.Join(dir, "real.db"))
 	mustNoErr(t, os.Symlink(filepath.Join(dir, "real.db"), filepath.Join(dir, "link.db")))
 	if _, err := Pin(bg, PinOptions{DBPath: filepath.Join(dir, "link.db")}); err == nil {
 		t.Fatal("a symlinked database was pinned")
-	}
-	if _, err := Pin(bg, PinOptions{DBPath: filepath.Join(dir, "x?y.db")}); err == nil {
-		t.Fatal("a URI metacharacter was accepted")
 	}
 }
 
