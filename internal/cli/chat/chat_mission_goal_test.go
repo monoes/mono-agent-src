@@ -47,10 +47,29 @@ func TestTheLeadsGoalCloseGateFollowsTheHostsPublishedChecks(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	publish(`{"pursuit":{"enabled":true,"verifierPin":"gemini/checker-1"}}`)
+	// the real reader: a file with no live host (nothing holds host.lock) is a leftover and adds no refusal
+	publish(`{"pursuit":{"enabled":true,"verifierPin":"gemini/checker-1","verifierOn":true}}`)
+	if why := gate(ctx, se.ID); why != "" {
+		t.Errorf("a leftover file of a host that is not running: %q", why)
+	}
+	alive := true
+	readHostState = func(path string) (coderhost.PursuitHostInfo, bool, bool) {
+		info, found := coderhost.ReadHostPursuit(path)
+		return info, found, alive
+	}
+	t.Cleanup(func() { readHostState = coderhost.ReadHostPursuitState })
 	why := gate(ctx, se.ID)
 	if why == "" || strings.Contains(why, "it is good") {
-		t.Errorf("the host runs goal checks and none passed: %q", why)
+		t.Errorf("a live host runs goal checks and none passed: %q", why)
+	}
+	alive = false
+	if why := gate(ctx, se.ID); why != "" {
+		t.Errorf("the host that published the checks is gone: %q", why)
+	}
+	alive = true
+	publish(`{"pursuit":{"enabled":true,"verifierPin":"gemini/checker-1"}}`) // asked for, not set up: no check will come
+	if why := gate(ctx, se.ID); why != "" {
+		t.Errorf("a pin asked for and not set up: %q", why)
 	}
 	publish(`{"pursuit":{"enabled":true}}`)
 	if why := gate(ctx, se.ID); why != "" {

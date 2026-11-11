@@ -46,7 +46,8 @@ func missionGoalToolSpecs(m *MissionConfig) []monomind.ToolSpec {
 // the checker's words or the person's notes).
 type goalStatusView struct {
 	missionpursuit.Goal
-	Checks *missionpursuit.GoalChecks `json:"checks,omitempty"`
+	Checks     *missionpursuit.GoalChecks `json:"checks,omitempty"`
+	ChecksNote string                     `json:"checks_note,omitempty"`
 }
 
 func (c *Conductor) missionGoal(ctx context.Context, m *MissionConfig, name string, args json.RawMessage) (string, error) {
@@ -67,7 +68,8 @@ func (c *Conductor) missionGoal(ctx context.Context, m *MissionConfig, name stri
 		}
 		gc, err := m.Goals.GoalChecks(ctx, m.ProfileID, se.ID)
 		if err != nil {
-			return "", fmt.Errorf("the goal's checks could not be read: %w", err)
+			// the goal is still shown: the checks are unknown, said in fixed words (the close is held back meanwhile: CloseRefusal fails closed)
+			return marshal(goalStatusView{Goal: g, ChecksNote: "the checks of this goal could not be read just now; treat them as unknown"})
 		}
 		return marshal(goalStatusView{Goal: g, Checks: &gc})
 	}

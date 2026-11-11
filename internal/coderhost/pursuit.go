@@ -304,13 +304,8 @@ type pursuitGateResult struct {
 	hourWakes  int  // pursuit wake-ups of ALL missions in the last hour
 	hourJudges int  // judge calls of ALL missions in the last hour
 	// closeWakeDue: the mission is settled and owed its one close wake (pursuit_settled.go); it makes the settled quiet lift
-	closeWakeDue bool
-	// The goal checks (pursuit_check_wake.go), filled only on a host that runs them: how the latest one stands, the finish parks it
-	// left (clamped), the wake-up of an epoch for a park that is owed and the accept wake that is owed.
-	goalChecks    missionpursuit.GoalChecks
-	finishParks   int
-	parkWakeDue   bool
-	acceptWakeDue bool
+	closeWakeDue   bool
+	checkWakeFacts // the goal checks' part (pursuit_check_wake.go)
 }
 
 // pursuitGate reads the run state, the confirmed goal, the facts and the away counters in one go and says whether the
@@ -466,10 +461,8 @@ func (h *Host) pursuitGate(ctx context.Context, rd *inputs.Reader, m pursuitMiss
 	if t := snap.Tasks; t.Workable == 0 && t.Blocked == 0 && t.Total-t.Archived >= 1 {
 		g.closeWakeDue = h.Store.pursuitCloseWakeDue(m, selfWakes)
 	}
-	if !h.pursuitCheckWakeFacts(ctx, m, selfWakes, &g) {
-		return g, false
-	}
-	return g, true
+	ok = h.pursuitCheckWakeFacts(ctx, m, selfWakes, &g)
+	return g, ok
 }
 
 // pursuitRunOf is the epoch engine of a mission, built once and kept; a panic or a restart builds it again over the

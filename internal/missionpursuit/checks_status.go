@@ -152,6 +152,8 @@ func (s *Store) CloseRefusal(ctx context.Context, profileID string, session int6
 		return "the goal could not be read, so the close is not proposed"
 	case g.State != StateLocked:
 		return ""
+	case !hasMachineCriterion(g):
+		return "" // only the person can judge it, and no check can be answered: the lead's proposal is not held back (the person closes)
 	}
 	if pu, err := s.GetPursuit(ctx, profileID, session); errors.Is(err, ErrNotStarted) || (err == nil && !pu.Enabled) {
 		return ""
@@ -173,9 +175,23 @@ func (s *Store) CloseRefusal(ctx context.Context, profileID string, session int6
 	if l.Outcome == OutcomePassedMachine {
 		return fmt.Sprintf("goal check #%d passed its machine criteria (%d of %d); the person has answered yes to %d of %d of the criteria that are theirs; the mission is proposed for close once they have answered every one", l.ID, l.MachinePass, l.MachineTotal, l.RubricYes, l.RubricTotal)
 	}
+	switch l.Outcome {
+	case "blocked", "stale", "cannot-check", "abandoned":
+		return fmt.Sprintf("goal check #%d did not finish (%s): the host could not complete it, and nothing you do changes that; the host tries again within its limits, and the person can decide whether the goal is met and close the mission themselves", l.ID, l.Outcome)
+	}
 	label := l.Outcome
 	if label == "" {
 		label = l.State
 	}
 	return fmt.Sprintf("the goal is not satisfied: the latest check is #%d (%s, %d of %d machine criteria pass); the work goes on until a check passes and the person has answered yes to every criterion that is theirs", l.ID, label, l.MachinePass, l.MachineTotal)
+}
+
+// hasMachineCriterion says whether the goal has a criterion the host can run (anything but a rubric).
+func hasMachineCriterion(g Goal) bool {
+	for _, c := range g.Criteria {
+		if c.Kind != KindRubric {
+			return true
+		}
+	}
+	return false
 }

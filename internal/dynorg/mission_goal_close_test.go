@@ -184,3 +184,18 @@ func TestMissionGoalStatusCarriesTheChecksAsCountsAndIds(t *testing.T) {
 		t.Errorf("after the person accepted: %v", res["checks"])
 	}
 }
+
+func TestMissionGoalStatusStillShowsTheGoalWhenTheChecksCannotBeRead(t *testing.T) {
+	g := newGoalRig(t)
+	g.check(false)
+	if _, err := g.db.Exec(`ALTER TABLE mission_goal_checks RENAME TO mission_goal_checks_gone`); err != nil {
+		t.Skipf("cannot break the checks table here: %v", err)
+	}
+	res, err := call(t, g.lead, ToolMissionGoalStatus, map[string]any{})
+	if err != nil {
+		t.Fatalf("the goal could not be read because its checks could not: %v", err)
+	}
+	if res["state"] != "locked" || res["checks"] != nil || !strings.Contains(res["checks_note"].(string), "unknown") {
+		t.Errorf("status = %v", res)
+	}
+}

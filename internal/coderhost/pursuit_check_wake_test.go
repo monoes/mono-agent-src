@@ -298,8 +298,10 @@ func TestAnAcceptedGoalWhoseWorkIsNotSettledAnymoreIsNotWokenFor(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		w.pass()
 		w.wait()
+		w.endCommandsDone() // the lead takes whatever was queued: only the settled-work gate can hold the accept wake now
+		w.advance(31 * time.Minute)
 	}
-	for _, text := range w.wakeTexts() {
+	for _, text := range w.allWakeTexts() {
 		if strings.Contains(text, "The person accepted the goal") {
 			t.Errorf("an accept wake for a mission with open work: %s", text)
 		}

@@ -221,7 +221,7 @@ func (c *Conductor) missionFinishStep(ctx context.Context, mc *MissionRun, sid i
 		return v, nil
 	}
 	if why := c.goalCloseRefusal(ctx, sid); why != "" {
-		v.Next = "Every task is settled, but the mission's goal is not satisfied yet, so the close is not proposed: " + why + ". Do not call mission_finish again until the host wakes you with news of the goal (mission_goal_status shows the checks); the person closes a mission whose goal they judge met."
+		v.Next = "Every task is settled, but the mission's goal is not satisfied yet, so the close is not proposed: " + why + ". Do not call mission_finish again until something about the goal changes (mission_goal_status shows the checks; the host wakes you when the person has accepted a check); the person closes a mission whose goal they judge met without waiting for that."
 		return v, nil
 	}
 	return c.proposeMissionClose(ctx, mc, se, plan, v)

@@ -225,3 +225,39 @@ func TestTheCloseRefusalStandsOnlyForALockedGoalOfAStartedPursuitWhoseChecksAreO
 		t.Errorf("a goal with no started pursuit: %q", why)
 	}
 }
+
+// A goal of rubric criteria only cannot be checked (the host has nothing to run, and the person can only answer a check that passed
+// its machine criteria): the person is its only judge, so the lead's proposal is not held back; the person still closes.
+func TestAGoalOfRubricCriteriaOnlyDoesNotHoldTheLeadsProposalBack(t *testing.T) {
+	f := newMission(t)
+	if _, err := f.store.Set(bg, "default", f.session, []Criterion{{Kind: "rubric", Spec: "it reads well"}}, human); err != nil {
+		t.Fatal(err)
+	}
+	mustStart(t, f)
+	if why := f.store.CloseRefusal(bg, "default", f.session, true); why != "" {
+		t.Errorf("a rubric-only goal can never be accepted by a check, yet the close is refused: %q", why)
+	}
+	// with a machine criterion it is held back, as before
+	w := newCheckWorld(t)
+	if why := w.store.CloseRefusal(bg, "default", w.session, true); why == "" {
+		t.Error("a goal with machine criteria is not held back")
+	}
+}
+
+// A check that could not finish (the machine or the checker in the way) is not "the work goes on": nothing the lead does changes it,
+// and the words say the person decides and closes.
+func TestTheRefusalForACheckThatCouldNotFinishSaysThePersonDecides(t *testing.T) {
+	w := newCheckWorld(t)
+	for _, o := range []verifier.Outcome{verifier.OutcomeCannotCheck, verifier.OutcomeBlocked} {
+		id := w.begin(t)
+		res := w.result(o, "")
+		res.Reason = verifier.ReasonNoConfinement
+		if err := w.hc.Finish(bg, id, res); err != nil {
+			t.Fatal(err)
+		}
+		why := w.store.CloseRefusal(bg, "default", w.session, true)
+		if !strings.Contains(why, "themselves") || strings.Contains(why, "work goes on") || strings.Contains(why, "no-confinement") {
+			t.Errorf("%s: %q", o, why)
+		}
+	}
+}

@@ -183,7 +183,8 @@ func TestAScriptedPursuitFromWorkToAChecksAnswer(t *testing.T) {
 	if accept != 1 || w.wakeRows() != wakesBefore+1 {
 		t.Fatalf("accept wake-ups: %d, wake-ups %d->%d (%v)", accept, wakesBefore, w.wakeRows(), w.allWakeTexts())
 	}
-	// the lead takes the wake and calls mission_finish (the dynorg tests hold what that does): the close is proposed
+	// the lead takes the wake and calls mission_finish: the close proposal is FAKED here (w.propose writes the event). That wake ->
+	// mission_finish -> GoalClose chain is covered only by the dynorg unit tests, not by this script.
 	w.endCommandsDone()
 	w.propose()
 	judges = w.model.count()

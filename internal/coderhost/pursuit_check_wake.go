@@ -122,6 +122,15 @@ func latestIsPark(gc missionpursuit.GoalChecks) bool {
 	return false
 }
 
+// checkWakeFacts is what the gate knows of the goal checks, filled only on a host that runs them: how the latest one stands, the
+// finish parks it left (clamped), whether the wake-up of an epoch for a park is owed and whether the accept wake is owed.
+type checkWakeFacts struct {
+	goalChecks    missionpursuit.GoalChecks
+	finishParks   int
+	parkWakeDue   bool
+	acceptWakeDue bool
+}
+
 // acceptWakeCounts says how many accept wakes of the check wait or ran (live) and how many ended without running (lost).
 func (s *Store) acceptWakeCounts(q querier, m pursuitMission, check int64) (live, lost int, err error) {
 	return s.wakeCountsLike(q, m, acceptTurnHead+strconv.FormatInt(check, 10)+"-%")
