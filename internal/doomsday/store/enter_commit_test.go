@@ -83,3 +83,37 @@ func TestEnterRefusalsAreNotUnknown(t *testing.T) {
 		t.Fatalf("err = %v, want ErrGenerationMoved", err)
 	}
 }
+
+// The generation is read before the charter is written: a writer that commits in between must not fail the entry
+// with SQLITE_BUSY_SNAPSHOT (#1460).
+func TestEnterSurvivesAWriterCommittingBetweenItsReadAndItsWrite(t *testing.T) {
+	s, _ := newStore(t)
+	w, fired := onWrapped(t, s)
+	c := charter("p1", 1)
+	if _, err := w.Enter(ctx, c, c.Hash(), "operator"); err != nil {
+		t.Fatalf("Enter failed when a writer committed between its read and its write: %v", err)
+	}
+	if !fired() {
+		t.Fatal("the hook never ran")
+	}
+}
+
+// A COMMIT the engine refused must not leave its connection inside the entry's transaction: the next entry runs
+// on the pool as it is and records the run.
+func TestEnterAfterARefusedCommitStillRecordsTheRun(t *testing.T) {
+	base, _ := newStore(t)
+	w, trip := onTripped(t, base)
+	c := charter("p1", 1)
+	trip.CommitErr = errors.New("disk I/O error")
+	if _, err := w.Enter(ctx, c, c.Hash(), "operator"); !errors.Is(err, ErrCommitUnknown) {
+		t.Fatalf("err = %v, want ErrCommitUnknown", err)
+	}
+	trip.CommitErr = nil
+	r, err := w.Enter(ctx, c, c.Hash(), "operator")
+	if err != nil {
+		t.Fatalf("the retry after a refused COMMIT: %v", err)
+	}
+	if got, err := base.GetRun(ctx, "p1", 1); err != nil || got != r {
+		t.Fatalf("stored run %+v %v, want %+v", got, err, r)
+	}
+}
