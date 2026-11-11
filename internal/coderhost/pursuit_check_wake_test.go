@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/missionpursuit"
+	"github.com/monoes/mono-agent/internal/missionpursuit/inputs"
 	"github.com/monoes/mono-agent/internal/missionpursuit/verifier"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
@@ -295,6 +296,10 @@ func TestAnAcceptedGoalWhoseWorkIsNotSettledAnymoreIsNotWokenFor(t *testing.T) {
 	w.answer(id, true)
 	w.exec(`UPDATE tasks SET status = 'ready' WHERE session_id = 77`) // the lead reopened work
 	w.advance(2 * time.Second)
+	// the settled-work gate itself (the lead's turn-limit would also hold a wake after a few passes, which must not be what this proves)
+	if g, ok := w.h.pursuitGate(context.Background(), inputs.New(w.st.db), pursuitMission{ID: 77, Profile: "p", Conv: "m"}, 0); !ok || g.acceptWakeDue {
+		t.Fatalf("the accept wake is owed for a mission with open work: ok=%v due=%v", ok, g.acceptWakeDue)
+	}
 	for i := 0; i < 3; i++ {
 		w.pass()
 		w.wait()
