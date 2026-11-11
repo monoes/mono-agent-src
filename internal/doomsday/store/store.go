@@ -77,11 +77,30 @@ func (s *SQLStore) Enter(ctx context.Context, c Charter, confirmed [32]byte, by 
 	if c.Hash() != confirmed {
 		return Run{}, ErrHashMismatch
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	// BEGIN IMMEDIATE: the generation and the live members are read before the charter is written, and a writer that
+	// commits in between would make the write fail at once with SQLITE_BUSY_SNAPSHOT, which busy_timeout does not
+	// wait for (#1460). An error after fn has finished can only come from the COMMIT.
+	var r Run
+	written := false
+	err := dbconn.WithWriteTx(ctx, s.db, func(tx *sql.Conn) error {
+		var err error
+		if r, err = s.enterIn(ctx, tx, c, confirmed, by); err != nil {
+			return err
+		}
+		written = true
+		return nil
+	})
 	if err != nil {
+		if written {
+			return Run{}, fmt.Errorf("%w: %v", ErrCommitUnknown, err)
+		}
 		return Run{}, err
 	}
-	defer tx.Rollback()
+	return r, nil
+}
+
+// enterIn is Enter's reads, its checks and its writes, on the connection that holds the write lock.
+func (s *SQLStore) enterIn(ctx context.Context, tx DBTX, c Charter, confirmed [32]byte, by string) (Run, error) {
 	next, err := nextGeneration(ctx, tx, c.Profile)
 	if err != nil {
 		return Run{}, err
@@ -134,14 +153,8 @@ func (s *SQLStore) Enter(ctx context.Context, c Charter, confirmed [32]byte, by 
 	if _, err := s.appendAuditTx(ctx, tx, c.Profile, c.Generation, "run.enter", by+" "+r.CharterID); err != nil {
 		return Run{}, err
 	}
-	if err := commitEntry(tx); err != nil {
-		return Run{}, fmt.Errorf("%w: %v", ErrCommitUnknown, err)
-	}
 	return r, nil
 }
-
-// commitEntry commits the entry's transaction; a test replaces it to make the commit fail.
-var commitEntry = func(tx *sql.Tx) error { return tx.Commit() }
 
 // LoadCharter returns the stored charter after re-hashing it and verifying its MAC.
 func (s *SQLStore) LoadCharter(ctx context.Context, profile string, generation int64) (Charter, error) {

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/monoes/mono-agent/internal/dbconn"
 	"github.com/monoes/mono-agent/internal/personitem"
 	"github.com/monoes/mono-agent/internal/personphoto"
 	"github.com/monoes/mono-agent/internal/util"
@@ -66,31 +67,32 @@ func (s *workflowActionStorage) SaveExtractedData(actionID string, items []map[s
 		return nil
 	}
 
-	tx, err := s.db.Begin()
-	if err != nil {
-		return fmt.Errorf("nodes: beginning SaveExtractedData transaction: %w", err)
-	}
-	defer tx.Rollback() //nolint:errcheck
-
-	profileID := s.profileID
-	if profileID == "" {
-		return errNoProfile
-	}
-	now := time.Now().UTC()
-
-	// `node run` executes a node standalone under a synthetic execution ID
-	// ("cli") that has no workflow_executions row; the FK would reject every
-	// insert and fail the whole action. Keep the targets, unattached.
-	executionID := sql.NullString{String: s.executionID, Valid: true}
-	var one int
-	if err := tx.QueryRow(`SELECT 1 FROM workflow_executions WHERE id = ?`, s.executionID).Scan(&one); err != nil {
-		if err != sql.ErrNoRows {
-			return fmt.Errorf("nodes: looking up execution %s: %w", s.executionID, err)
+	// BEGIN IMMEDIATE: the execution is looked up before the first write, and a writer that commits in between
+	// (nodes of one run save concurrently) would make the write fail at once with SQLITE_BUSY_SNAPSHOT, which
+	// busy_timeout does not wait for (#1460).
+	ctx := context.Background()
+	var photos []personphoto.Ref
+	var profileID string
+	err := dbconn.WithWriteTx(ctx, s.db, func(tx *sql.Conn) error {
+		profileID = s.profileID
+		if profileID == "" {
+			return errNoProfile
 		}
-		executionID = sql.NullString{}
-	}
+		now := time.Now().UTC()
 
-	upsertPerson, err := tx.Prepare(`
+		// `node run` executes a node standalone under a synthetic execution ID
+		// ("cli") that has no workflow_executions row; the FK would reject every
+		// insert and fail the whole action. Keep the targets, unattached.
+		executionID := sql.NullString{String: s.executionID, Valid: true}
+		var one int
+		if err := tx.QueryRowContext(ctx, `SELECT 1 FROM workflow_executions WHERE id = ?`, s.executionID).Scan(&one); err != nil {
+			if err != sql.ErrNoRows {
+				return fmt.Errorf("nodes: looking up execution %s: %w", s.executionID, err)
+			}
+			executionID = sql.NullString{}
+		}
+
+		upsertPerson, err := tx.PrepareContext(ctx, `
 		INSERT INTO people (id, platform_username, platform, full_name, image_url,
 		        website, is_verified, job_title, headline, location, about,
 		        experience, education, profile_details, profile_url, profile_id, created_at, updated_at,
@@ -108,99 +110,100 @@ func (s *workflowActionStorage) SaveExtractedData(actionID string, items []map[s
 		  about        = COALESCE(excluded.about, people.about),
 		  experience   = COALESCE(excluded.experience, people.experience),
 		  education    = COALESCE(excluded.education, people.education),
-		  profile_details = ` + personitem.DetailsMergeSQL + `,
+		  profile_details = `+personitem.DetailsMergeSQL+`,
 		  profile_url  = COALESCE(people.profile_url, excluded.profile_url),
 		  follower_count  = COALESCE(excluded.follower_count,  people.follower_count),
 		  following_count = COALESCE(excluded.following_count, people.following_count),
 		  content_count   = COALESCE(excluded.content_count,   people.content_count),
 		  updated_at   = excluded.updated_at`)
-	if err != nil {
-		return fmt.Errorf("nodes: preparing person upsert: %w", err)
-	}
-	defer upsertPerson.Close()
+		if err != nil {
+			return fmt.Errorf("nodes: preparing person upsert: %w", err)
+		}
+		defer upsertPerson.Close()
 
-	lookupPerson, err := tx.Prepare(`SELECT id FROM people WHERE platform_username = ? AND platform = ? AND profile_id = ?`)
-	if err != nil {
-		return fmt.Errorf("nodes: preparing person lookup: %w", err)
-	}
-	defer lookupPerson.Close()
+		lookupPerson, err := tx.PrepareContext(ctx, `SELECT id FROM people WHERE platform_username = ? AND platform = ? AND profile_id = ?`)
+		if err != nil {
+			return fmt.Errorf("nodes: preparing person lookup: %w", err)
+		}
+		defer lookupPerson.Close()
 
-	insertTarget, err := tx.Prepare(`
+		insertTarget, err := tx.PrepareContext(ctx, `
 		INSERT INTO workflow_node_targets
 		  (id, execution_id, node_id, person_id, platform, link, status, last_interacted_at, comment_text, metadata, created_at)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
-	if err != nil {
-		return fmt.Errorf("nodes: preparing target insert: %w", err)
-	}
-	defer insertTarget.Close()
-
-	var photos []personphoto.Ref
-	for _, item := range items {
-		platform, _ := item["platform"].(string)
-		if platform == "" {
-			platform = s.platform
+		if err != nil {
+			return fmt.Errorf("nodes: preparing target insert: %w", err)
 		}
-		// The target's link is what the node acted on (a profile, a post).
-		link, _ := item["url"].(string)
-		if link == "" {
-			link, _ = item["profile_url"].(string)
-		}
+		defer insertTarget.Close()
 
-		var personID sql.NullString
-		if ref, ok := personitem.Resolve(platform, item); ok {
-			// An item about a post or comment names its author: only the
-			// author's name describes the person, the rest is the post's.
-			// Extracted items never carry an introduction (the outreach
-			// draft): a profile's bio is its About.
-			var prof personitem.Profile
-			var isVerified, followers, following, posts interface{}
-			if ref.Author {
-				prof.FullName = ref.FullName
-			} else {
-				prof = personitem.ProfileOf(item)
-				if v, ok := item["is_verified"].(bool); ok && v {
-					isVerified = 1
+		for _, item := range items {
+			platform, _ := item["platform"].(string)
+			if platform == "" {
+				platform = s.platform
+			}
+			// The target's link is what the node acted on (a profile, a post).
+			link, _ := item["url"].(string)
+			if link == "" {
+				link, _ = item["profile_url"].(string)
+			}
+
+			var personID sql.NullString
+			if ref, ok := personitem.Resolve(platform, item); ok {
+				// An item about a post or comment names its author: only the
+				// author's name describes the person, the rest is the post's.
+				// Extracted items never carry an introduction (the outreach
+				// draft): a profile's bio is its About.
+				var prof personitem.Profile
+				var isVerified, followers, following, posts interface{}
+				if ref.Author {
+					prof.FullName = ref.FullName
+				} else {
+					prof = personitem.ProfileOf(item)
+					if v, ok := item["is_verified"].(bool); ok && v {
+						isVerified = 1
+					}
+					followers = itemCount(item, "followers_count", "follower_count")
+					following = itemCount(item, "following_count")
+					posts = itemCount(item, "content_count")
 				}
-				followers = itemCount(item, "followers_count", "follower_count")
-				following = itemCount(item, "following_count")
-				posts = itemCount(item, "content_count")
+				platformUpper := strings.ToUpper(platform)
+				if _, err := upsertPerson.Exec(
+					uuid.New().String(), ref.Username, platformUpper,
+					nullIfEmpty(prof.FullName), nullIfEmpty(prof.ImageURL), nullIfEmpty(prof.Website),
+					isVerified, nullIfEmpty(prof.JobTitle),
+					nullIfEmpty(prof.Headline), nullIfEmpty(prof.Location), nullIfEmpty(prof.About),
+					nullIfEmpty(prof.Experience), nullIfEmpty(prof.Education), nullIfEmpty(prof.Details),
+					nullIfEmpty(ref.ProfileURL),
+					profileID, now, now,
+					followers, following, posts,
+				); err != nil {
+					return fmt.Errorf("nodes: upserting person %s: %w", ref.Username, err)
+				}
+				if prof.ImageURL != "" {
+					photos = append(photos, personphoto.Ref{Platform: platformUpper, Username: ref.Username})
+				}
+				var pid string
+				if err := lookupPerson.QueryRow(ref.Username, platformUpper, profileID).Scan(&pid); err == nil {
+					personID = sql.NullString{String: pid, Valid: true}
+				}
 			}
-			platformUpper := strings.ToUpper(platform)
-			if _, err := upsertPerson.Exec(
-				uuid.New().String(), ref.Username, platformUpper,
-				nullIfEmpty(prof.FullName), nullIfEmpty(prof.ImageURL), nullIfEmpty(prof.Website),
-				isVerified, nullIfEmpty(prof.JobTitle),
-				nullIfEmpty(prof.Headline), nullIfEmpty(prof.Location), nullIfEmpty(prof.About),
-				nullIfEmpty(prof.Experience), nullIfEmpty(prof.Education), nullIfEmpty(prof.Details),
-				nullIfEmpty(ref.ProfileURL),
-				profileID, now, now,
-				followers, following, posts,
+
+			commentText, _ := item["comment_text"].(string)
+			if commentText == "" {
+				commentText, _ = item["response_text"].(string)
+			}
+
+			if _, err := insertTarget.Exec(
+				uuid.New().String(), executionID, s.nodeID, personID, strings.ToUpper(platform),
+				nullIfEmpty(link), "COMPLETED", now.Format(time.RFC3339), nullIfEmpty(commentText), nil, now,
 			); err != nil {
-				return fmt.Errorf("nodes: upserting person %s: %w", ref.Username, err)
-			}
-			if prof.ImageURL != "" {
-				photos = append(photos, personphoto.Ref{Platform: platformUpper, Username: ref.Username})
-			}
-			var pid string
-			if err := lookupPerson.QueryRow(ref.Username, platformUpper, profileID).Scan(&pid); err == nil {
-				personID = sql.NullString{String: pid, Valid: true}
+				return fmt.Errorf("nodes: inserting workflow_node_target: %w", err)
 			}
 		}
 
-		commentText, _ := item["comment_text"].(string)
-		if commentText == "" {
-			commentText, _ = item["response_text"].(string)
-		}
-
-		if _, err := insertTarget.Exec(
-			uuid.New().String(), executionID, s.nodeID, personID, strings.ToUpper(platform),
-			nullIfEmpty(link), "COMPLETED", now.Format(time.RFC3339), nullIfEmpty(commentText), nil, now,
-		); err != nil {
-			return fmt.Errorf("nodes: inserting workflow_node_target: %w", err)
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
+		return nil
+	})
+	if err != nil {
 		return err
 	}
 	// Keep a copy of each photo; one that can't be fetched keeps its URL.
