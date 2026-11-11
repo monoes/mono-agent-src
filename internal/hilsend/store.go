@@ -74,6 +74,9 @@ type replay struct {
 	// goes through (savedConnection), which an always-allow rule made from
 	// this item is bound to (ruleAccount).
 	Connection string `json:"connection,omitempty"`
+	// RefKey is the card's own key for the references to granted secrets
+	// its text holds (heldsecret.go); empty when it holds none.
+	RefKey string `json:"refKey,omitempty"`
 }
 
 type editable struct {
@@ -93,7 +96,10 @@ func IsSend(nodeConfig string) bool {
 
 // create stores a pending item.
 func (s Store) create(ctx context.Context, p Payload, rp replay) (Payload, error) {
-	p.Kind, p.ID, p.State, p.CreatedAt = "send", uuid.NewString(), StatePending, now()
+	if p.ID == "" {
+		p.ID = uuid.NewString()
+	}
+	p.Kind, p.State, p.CreatedAt = "send", StatePending, now()
 	if p.Attachments == nil {
 		p.Attachments = []Attachment{}
 	}
@@ -126,6 +132,7 @@ type row struct {
 
 // find resolves an exact id or a unique id prefix.
 func (s Store) find(ctx context.Context, id string) (row, error) {
+	s.scrubOnce(ctx)
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return row{}, ErrNotFound
@@ -215,6 +222,7 @@ func (s Store) Get(ctx context.Context, id string) (Payload, error) {
 
 // List returns this profile's send items in states (all when none), oldest first.
 func (s Store) List(ctx context.Context, states ...State) ([]Payload, error) {
+	s.scrubOnce(ctx)
 	rows, err := s.DB.QueryContext(ctx,
 		`SELECT id, status, readonly_data, editable_data, node_config FROM hil_pending
 		 WHERE profile_id = ? AND execution_id LIKE 'send:%' ORDER BY created_at ASC, rowid ASC`, s.Profile)
