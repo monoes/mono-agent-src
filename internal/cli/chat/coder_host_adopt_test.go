@@ -272,6 +272,9 @@ func TestAHeldLeaderWhoseExitCannotBeObservedIsKilledNotReaped(t *testing.T) {
 		t.Fatal("the adopt hook was never asked")
 	}
 	pid := h.pids[0]
+	if st := processState(pid); st != "Z" { // the turn ended only once the leader was dead: no polling here
+		t.Fatalf("the turn ended while its leader was still %q", st)
+	}
 	if !unreapedZombie(pid) {
 		t.Fatalf("the leader is not an unreaped zombie (state %q): killed and reaped, or still running", processState(pid))
 	}

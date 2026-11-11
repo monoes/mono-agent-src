@@ -2,6 +2,7 @@ package stop
 
 import (
 	"errors"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -322,8 +323,8 @@ func TestSessS1ChangesNoPlatformChoiceAndNoRealOS(t *testing.T) {
 	if _, ok := containments[KindSession]; !ok {
 		t.Fatal("the session kind is not registered")
 	}
-	if realSessionOS() != nil {
-		t.Fatal("S1 adds no OS binding")
+	if runtime.GOOS != "darwin" && realSessionOS() != nil { // the macOS binding exists since S2
+		t.Fatal("only macOS has an OS binding")
 	}
 	if err := (sessContainment{}).Probe(); !errors.Is(err, ErrContainmentUnavailable) {
 		t.Fatalf("with no OS binding the kind refuses: %v", err)
