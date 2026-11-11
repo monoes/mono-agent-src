@@ -87,7 +87,7 @@ func TestAHeldLeaderStillRunningWhoseExitCannotBeObservedIsKilledOnce(t *testing
 // A held leader that cannot be confirmed ended within the bound is not marked reaped (it may still be running); the turn still ends,
 // with an error that says so.
 func TestAHeldLeaderThatCannotBeConfirmedEndedIsNotMarkedReaped(t *testing.T) {
-	withKillCounter(t, func(*os.Process) error { return nil }) // the kill does nothing: the leader stays alive
+	withKillCounter(t, func(*os.Process) error { return errors.New("not signalled") }) // the kill does nothing (and, failing, signals no group): the leader stays alive
 	oldH, oldW := holdLeader, heldGoneWait
 	holdLeader = func(int) bool { return false }
 	heldGoneWait = 150 * time.Millisecond

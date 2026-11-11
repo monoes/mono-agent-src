@@ -32,10 +32,11 @@ func (g *HostGate) PlaceCmd(cmd *exec.Cmd, profile, conv string) error {
 // does nothing; with a run open and a unit that cannot be placed in, the error means cmd must not be started.
 // It is the shape chat.RunHooks.Place takes.
 func (g *HostGate) PlaceRelease(cmd *exec.Cmd, profile, conv string) (release func(), err error) {
-	pl, err := g.placer(profile, conv)
+	pl, gen, err := g.placerRun(profile, conv)
 	if err != nil {
 		return nil, err
 	}
+	g.noteStart(conv, gen)
 	if pl == nil {
 		return func() {}, nil
 	}

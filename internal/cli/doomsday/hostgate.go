@@ -74,6 +74,7 @@ type HostGate struct {
 
 	holdMu    sync.Mutex
 	holdWatch map[uint64]context.CancelFunc // unit id -> stops the watch for its end (see adopt.go)
+	started   map[string]int64              // conversation -> generation of the run Place/Adopt saw at the start (see noteStart)
 	holdsDone bool                          // ReleaseAllHolds ran: no new watch starts
 }
 

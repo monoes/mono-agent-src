@@ -3,6 +3,8 @@ package doomsday
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/doomsday/stop"
@@ -21,6 +23,7 @@ func (g *HostGate) Adopt(profile, conv string, pid int, stamp string) (held bool
 	if err != nil {
 		return false, err
 	}
+	g.noteStart(conv, gen) // the later look wins: a run that opened between Place and here is the one the process is adopted into
 	if pl == nil {
 		return false, nil
 	}
@@ -65,28 +68,43 @@ func (g *HostGate) watchHolds(gen int64, unit uint64) {
 	if poll <= 0 {
 		poll = time.Second
 	}
-	go func() {
-		tk := time.NewTicker(poll)
-		defer tk.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-tk.C:
-			}
-			if ended, err := g.UnitEnded(uint64(gen), unit); err != nil || !ended {
-				continue
-			}
+	go g.watchLoop(ctx, gen, unit, poll)
+}
+
+// watchLoop looks for the unit's end line, less and less often while it is not there (a stop that is NOT PROVEN leaves it unwritten
+// for as long as the operator takes; the poll doubles up to holdPollMax). A panic in
+// it is logged and ends only this watch, never the host: the unit's entry is dropped, so the next adoption starts a new one.
+func (g *HostGate) watchLoop(ctx context.Context, gen int64, unit uint64, poll time.Duration) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Fprintf(os.Stderr, "coder host: the watch for the end of unit %d panicked (%v); its holds are kept until the host stops or the next adoption restarts the watch\n", unit, r)
 			g.holdMu.Lock()
-			_, still := g.holdWatch[unit]
 			delete(g.holdWatch, unit)
 			g.holdMu.Unlock()
-			if still { // ReleaseAllHolds did not already take it
-				g.releaseHolds(unit)
-			}
-			return
 		}
 	}()
+	wait := poll
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+		if ended, err := g.UnitEnded(uint64(gen), unit); err != nil || !ended {
+			if wait *= 2; wait > holdPollMax {
+				wait = holdPollMax
+			}
+			continue
+		}
+		g.holdMu.Lock()
+		_, still := g.holdWatch[unit]
+		delete(g.holdWatch, unit)
+		g.holdMu.Unlock()
+		if still { // ReleaseAllHolds did not already take it
+			g.releaseHolds(unit)
+		}
+		return
+	}
 }
 
 func (g *HostGate) releaseHolds(unit uint64) {
@@ -94,7 +112,7 @@ func (g *HostGate) releaseHolds(unit uint64) {
 		g.ReleaseHolds(unit)
 		return
 	}
-	stop.ReleaseUnitHolds(unit)
+	releaseUnitHolds(unit)
 }
 
 // ReleaseAllHolds is the host's shutdown: every unit it holds leaders for is let go of, ended or not (the process is ending and its
@@ -113,11 +131,11 @@ func (g *HostGate) ReleaseAllHolds() {
 		g.releaseHolds(u)
 	}
 	if g.ReleaseHolds == nil {
-		stop.ReleaseAllUnitHolds() // also the holds no watch knows of
+		releaseAllUnitHolds() // also the holds no watch knows of
 	}
 }
 
-// Seams (red commit): not used yet.
+// Seams: the library's releases, and the longest wait between looks for a unit's end.
 var (
 	releaseUnitHolds    = stop.ReleaseUnitHolds
 	releaseAllUnitHolds = stop.ReleaseAllUnitHolds

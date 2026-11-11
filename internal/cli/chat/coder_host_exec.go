@@ -372,28 +372,36 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	held := false // the unit's hold reaps the leader (see adopt): set before the waiter starts, never changed after
 	startWaiter := func() {
 		go func() {
-			observed := false
+			observed, unconfirmed := false, false
 			if t.strict {
 				if holdLeader(t.pid) { // the leader is dead but unreaped: its group is still this turn's to signal
 					observed = true
 					t.settle()
-				} else if !held || turnAlive(t.pid) {
-					// its exit cannot be observed without reaping it: end it now, while it is still ours. A HELD leader that is neither
-					// running nor a zombie was already reaped by the unit (its number is free): nothing is signalled by number then.
-					t.holdFailed(cmd.Process.Kill)
+				} else if held && !turnAlive(t.pid) {
+					// A HELD leader that is neither running nor a zombie was already reaped by the unit (its number is free): it is not
+					// killed through the handle, and the turn is marked killed so that nothing signals the number by number afterwards.
+					t.markKilled()
+				} else {
+					// its exit cannot be observed without reaping it: end it now, while it is still ours
+					t.holdFailed(func() error { return killLeaderProc(cmd.Process) })
 				}
 			}
 			if held {
 				// The unit's hold owns the reap: a leader's session number is its pid, and only an unreaped (zombie) leader keeps the number
 				// from being given to someone else while the unit is open. cmd.Wait would reap it (and, with the number reused, could reap a
 				// stranger), so the turn ends on the observed exit alone; the exit status is not read (no consumer of it needs it).
-				if !observed {
-					awaitGoneUnreaped(t.pid)
+				if !observed && !awaitGoneUnreaped(t.pid) {
+					// It may still be running: it is NOT marked reaped (the hold keeps its number, so a stop may still signal it) and the
+					// turn ends with an error that says so.
+					unconfirmed = true
+					t.err = errors.New("the turn's leader could not be confirmed ended after it was killed; it is held by the run's unit and is ended with the unit")
 				}
 			} else {
 				t.err = cmd.Wait()
 			}
-			t.markReaped()
+			if !unconfirmed {
+				t.markReaped()
+			}
 			// before done closes: a session that sees its turn end has no token left. The turn is held here while the
 			// revoke is retried; a revoke that still fails is reported as the turn's error.
 			// The exit ends this turn's own tokens, decided here at launch (the turn id is known): never the conversation's, which
@@ -440,7 +448,15 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 			if aerr == nil { // a panic: nobody can say whether the hold was taken, so nobody else reaps either
 				held = true
 			}
-			return nil, killUnrecorded(fmt.Errorf("the turn's process could not be put in the run's unit, so it was stopped: %w", perr))
+			ferr := killUnrecorded(fmt.Errorf("the turn's process could not be put in the run's unit, so it was stopped: %w", perr))
+			select { // an unheld leader is reaped by the waiter: its real exit status is the best reason when it had already exited
+			case <-t.done:
+				if t.err != nil && !held {
+					ferr = fmt.Errorf("%w (the turn's process ended with: %v)", ferr, t.err)
+				}
+			default:
+			}
+			return nil, ferr
 		}
 	}
 	if l.onProcess != nil {
@@ -743,12 +759,16 @@ func (t *execTurn) pinned() bool {
 
 // awaitGoneUnreaped returns once pid is no longer a running process (a zombie counts as not running), bounded; it reaps nothing. It is
 // what a held leader's turn waits on when its exit could not be observed through holdLeader (the leader was killed instead).
-func awaitGoneUnreaped(pid int) {
-	for end := time.Now().Add(heldGoneWait); time.Now().Before(end) && turnAlive(pid); time.Sleep(10 * time.Millisecond) {
+func awaitGoneUnreaped(pid int) bool {
+	for end := time.Now().Add(heldGoneWait); time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
+		if !turnAlive(pid) {
+			return true
+		}
 	}
+	return !turnAlive(pid)
 }
 
-// killLeaderProc kills the leader through its Go process handle (a seam: tests count the calls). Stub (red commit): not used yet.
+// killLeaderProc kills the leader through its Go process handle (a seam: tests count the calls).
 var killLeaderProc = func(p *os.Process) error { return p.Kill() }
 
 // heldGoneWait bounds awaitGoneUnreaped (a seam for tests).
