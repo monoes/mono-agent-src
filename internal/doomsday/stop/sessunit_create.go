@@ -286,15 +286,17 @@ func (p *sessPlacer) Adopt(pid int, stamp string) error {
 	}
 	if err := p.c.led.AddLeader(p.rec.Generation, Leader{PID: pid, Stamp: stamp, Unit: p.rec.CgroupID, At: time.Now().Unix()}); err != nil {
 		dropHold(p.rec.CgroupID, pid, stamp)
-		return fmt.Errorf("%w: the witness refused the leader: %v", ErrNotPlaced, err)
+		return fmt.Errorf("%w: %w: the witness refused the leader: %v", ErrNotPlaced, ErrReapOwned, err)
 	}
 	return nil
 }
 
 var _ Adopter = (*sessPlacer)(nil)
 
-// ErrReapOwned stub (red commit).
+// ErrReapOwned is wrapped in the error of an Adopt that refused AFTER it took the leader's hold: the hold was dropped again and
+// its release reaps the leader (when it ends), so the launcher must not wait for the process itself. Every other refusal happens
+// before the hold and leaves the leader the launcher's own child to reap.
 var ErrReapOwned = errors.New("stop: the unit has taken over reaping the leader")
 
-// UnitID stub (red commit).
-func (p *sessPlacer) UnitID() uint64 { return 0 }
+// UnitID is the identity of the unit this placement belongs to (UnitRecord.CgroupID): what ReleaseUnitHolds is called with.
+func (p *sessPlacer) UnitID() uint64 { return p.rec.CgroupID }
