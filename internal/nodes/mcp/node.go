@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
 	"regexp"
 	"slices"
@@ -162,6 +163,15 @@ func (n *CallNode) Execute(ctx context.Context, input workflow.NodeInput, config
 		name, args, err := resolveCall(engine, config, item, input)
 		if err != nil {
 			return nil, err
+		}
+		// The tool's arguments are content: a granted secret reaches a remote
+		// server only as its headers (issue #1418). A server on this machine
+		// is exempt.
+		if srv.Transport == "http" {
+			raw, _ := json.Marshal(args)
+			if err := secrets.CheckSendContent(ctx, loopbackURL(srv.URL), string(raw)); err != nil {
+				return nil, fmt.Errorf("%s: %w", NodeType, err)
+			}
 		}
 		res, err := c.callTool(ctx, name, args)
 		if err != nil {
@@ -510,3 +520,18 @@ func (n *CallNode) LiteralConfigFields() []string {
 // SecretTextFields: env and header values may hold @secret references inside
 // their text (workflow.SecretTextResolver).
 func (n *CallNode) SecretTextFields() []string { return []string{"env", "headers"} }
+
+// loopbackURL reports whether rawURL names this machine (localhost or a
+// loopback address).
+func loopbackURL(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	h := u.Hostname()
+	if strings.EqualFold(strings.TrimSuffix(h, "."), "localhost") {
+		return true
+	}
+	ip := net.ParseIP(h)
+	return ip != nil && ip.IsLoopback()
+}

@@ -217,6 +217,12 @@ func send(ctx context.Context, client *http.Client, ob *outbound, maxBody int64,
 	if err := checkSecretHost(ctx, req, ob.body); err != nil {
 		return nil, err
 	}
+	// Host binding says where a secret may go, not what it is used as: in
+	// the body it would be published (issue #1418). A host on this machine is
+	// exempt.
+	if err := secrets.CheckSendContent(ctx, ownHost(req.URL.Hostname()), string(ob.body)); err != nil {
+		return nil, err
+	}
 	if pol.marked {
 		req = credhttp.Mark(req, pol.sensitive...)
 	}

@@ -2,6 +2,10 @@ package workflow
 
 import (
 	"context"
+	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -109,5 +113,61 @@ func TestAgentAccessPublishGuardLeavesCleanAndApprovedRunsAlone(t *testing.T) {
 	}
 	if err := RunExecution(e.ctx, exec, cur, dag, e.reg, e.store, nil, NewExpressionEngine(), zerolog.Nop()); err != nil {
 		t.Errorf("an operator-approved workflow was refused: %v", err)
+	}
+}
+
+// The refusal comes before the exec guard (the HIL card): a refused
+// publishing node is never offered to it, so an always-allow rule cannot let
+// it go and no card holds the value.
+func TestAgentAccessPublishRefusalIsBeforeTheExecGuard(t *testing.T) {
+	e := newAccessEnv(t)
+	pub := e.registerPublish()
+	e.grant(t, secrets.AccessGrant{AnyHost: true})
+	var offered []string
+	SetExecGuard(func(_ context.Context, nodeType string, _ NodeInput, _ map[string]interface{}) ([]NodeOutput, bool, error) {
+		offered = append(offered, nodeType)
+		return nil, false, nil
+	})
+	t.Cleanup(func() { SetExecGuard(nil) })
+	if _, err := e.run(t, chain("wf-card", step("b1", "test.publishprobe", "Post", map[string]interface{}{"text": "@secret:vs"})), nil); !errors.Is(err, secrets.ErrPublishesSecret) {
+		t.Fatalf("want ErrPublishesSecret, got %v", err)
+	}
+	if len(offered) != 0 || pub.count() != 0 {
+		t.Errorf("the guard saw %v and the node ran %d time(s)", offered, pub.count())
+	}
+}
+
+// An executor that declares nothing publishes (fail closed).
+func TestAnExecutorThatDeclaresNothingPublishes(t *testing.T) {
+	if !Publishes(&publishProbe{}) {
+		t.Error("an undeclared executor must count as publishing")
+	}
+	if Publishes(echoProbe{}) {
+		t.Error("an executor declaring false must not")
+	}
+}
+
+// Every dispatch point goes through RunExecGuardFor: a direct RunExecGuard
+// call would skip the content guard.
+func TestNoDispatchPointCallsRunExecGuardDirectly(t *testing.T) {
+	var bad []string
+	walk := func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") || strings.HasSuffix(p, "exec_guard.go") {
+			return nil
+		}
+		b, _ := os.ReadFile(p)
+		for _, line := range strings.Split(string(b), "\n") {
+			if t := strings.TrimSpace(line); !strings.HasPrefix(t, "//") && strings.Contains(t, "RunExecGuard(") {
+				bad = append(bad, p)
+				break
+			}
+		}
+		return nil
+	}
+	for _, root := range []string{"..", "../../cmd"} {
+		_ = filepath.WalkDir(root, walk)
+	}
+	if len(bad) > 0 {
+		t.Errorf("call workflow.RunExecGuardFor, not RunExecGuard, in: %v", bad)
 	}
 }
