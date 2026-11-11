@@ -36,6 +36,10 @@ func TestHILListScrubsAnOlderCardHoldingAGrantedSecret(t *testing.T) {
 		VALUES ('h1', 'ex-t', 'wf-t', 'n', 'Review', 'pending', '{}', ?, '{"outbound":false}', 'default')`, `{"note":"key is `+value+`"}`); err != nil {
 		t.Fatal(err)
 	}
+	// The card is an older one: the scrub's cutoff lies after it.
+	if _, err := sdb.DB.Exec(`INSERT OR REPLACE INTO settings (key, value) VALUES ('hilscrub.cutoff', datetime('now','+1 day'))`); err != nil {
+		t.Fatal(err)
+	}
 	sdb.Close()
 	items, err := runHIL(t, cfg, "list")
 	if err != nil || len(items) != 1 {
