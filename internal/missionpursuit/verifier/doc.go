@@ -70,6 +70,14 @@
 // rewrites the command's process attributes is only caught where it drops the process group (that is checked), and the
 // network denial has to be measured by the canary. A nil release from a confiner is tolerated.
 //
+// # Cost, and what the reviewer is shown
+//
+// Result.CostKnown is true with CostMicro 0 for a check that never reached the reviewer (failed, error, stale, cannot-check, no
+// budget): it cost nothing and the host's meter must not charge it the cap. A reviewer call whose cost the runtime did not report
+// carries the cap with CostKnown false, and an abandoned check stays unknown (the host charges its cap). The text a program
+// printed (excerpts, and the detail line) goes to the reviewer ONLY when the programs ran confined; an unconfined run shows the
+// reviewer digests, exit codes and results only (evidenceOf), because such a program could print any file the person can read.
+//
 // # Other limits
 //
 // Request.LeadPinNow (the lead's model, read again after the reviewer call) is required; a request that cannot supply it says

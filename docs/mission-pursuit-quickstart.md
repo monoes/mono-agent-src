@@ -59,6 +59,11 @@ If the host switch is off, a started pursuit does nothing and the lead's check-i
 | `no-chat` | the mission has no chat to wake |
 | `judge-pin` | the judge's model name equals the lead's, or the lead's model is not known |
 | `judge-failing` | 3 judge rounds in a row failed; it is not called again until you act |
+| `goal-check` | a goal check is running (section 7); nothing else is judged or woken until it ends, in at most about 13 minutes |
+| `goal-answer` | a goal check passed and the criteria that are yours wait for your answers (section 7) |
+| `verifier-pin` | the goal checker's model name equals the judge's or the lead's, or the lead's model is not known (section 7) |
+| `verifier-failing` | the goal checker could not be used by 3 checks in a row |
+| `cannot-check` | the goal cannot be checked here: the project folder cannot be used, or the checker could not be built |
 | `meter-unreadable` | the judge ledger or turn journals could not be read; clears when they read again |
 | `limits` | the away limits are out of range |
 | `engine-parked` | a stored strategy row failed verification and the strategy engine stopped |
@@ -109,3 +114,17 @@ Only the 20 percent rule is a hard bound. Read this too:
 ```
 
 The opt-in cap smoke test (`internal/monomind/capsmoke_realrunner_test.go`, build tag `realrunner`) spends real money and is for developers only; do not run it as part of this.
+
+## 7. Goal checks (what turns on, what it costs, what it cannot do, how to stop it)
+
+**What it does.** With the second host switch on, the host itself checks whether the goal you locked is met, while you are away. When every task of the mission is settled (done, or verified and waiting in review, with nothing blocked and no writer branch left unmerged), the lead and its helpers are idle and nothing in the project folder has been written for two minutes, the host takes a private copy of the project and re-runs the machine criteria of the locked goal on it: `file` criteria look at the copy, `command` and `output` criteria RUN A PROGRAM on this computer, on the copy, with no network. If they all pass, a third AI (the checker) is shown only the host's measurements (results, exit codes, digests, and, for programs that ran confined, a short excerpt of what they printed) and may only veto. A pass never accepts anything: the criteria that are yours (rubric) wait for your answer (`goal check`, then `goal answer`), and the mission is closed by you alone. A failed check does not wake the lead; it is shown in `pursuit status` and `goal check`.
+
+**The switch.** Start the coder host with BOTH `MONOAGENT_PURSUIT_JUDGE=runtime/model` and `MONOAGENT_PURSUIT_VERIFIER=runtime/model`, the checker's model. The checker's name must differ from the judge's and from the lead's. It is OFF unless set, works only with the judge switch on, is read once when the host starts, and `coder host status` and `pursuit status` say whether it is on and why it is not.
+
+**What it costs, at most.** Each check asks the checker one question, capped at $0.50 (a check that never reaches the checker costs nothing; a check that is cut short, or whose cost the runtime does not report, is counted at the full $0.50). Per mission: 2 checks since you last acted, 6 since your last accept or reject. This host: 4 checks an hour, one at a time, and no check runs longer than 10 minutes. The checks count toward the 20 percent rule like the judge does. Worst case: about $1 more per mission-hour (about $16 in all, was about $15) and about $2 more per host-hour (about $32, was about $30), plus one last check ($0.50) before the away stop. One accepted goal earns one wake-up of the lead after your action, at most the wake cap. A running host also uses up to two CPU cores for at most 40 minutes an hour.
+
+**What it cannot do.** It cannot accept or close: a machine pass and the checker's "ok" approve nothing. The checker cannot see the lead's words, only the host's measurements, and the lead and the judge never see a program's output. Programs that ran with a confinement are fenced by your systemd user manager (a unit per program: a private copy of the project, no network, no access to your home, other processes, secrets or sockets, a memory, task and time cap, killed with its whole process group); this needs Linux with systemd 256 or later. On macOS, Windows, or Linux without that, command criteria are not run (`cannot-check`) and only `file` criteria and your own answers work. If the fence is there but fails its self-test (a broken fence), the check is refused and the status names which test failed; nothing falls back to running unfenced. The one exception is yours: `task session pursuit allow-unconfined-checks ID --on` (terminal only, per mission, never in the app) lets programs run on this computer as you, with only a process group, no network and limits, where no fence exists at all; every result then says UNCONFINED and no program output goes to the checker.
+
+**Read before you turn it on.** The criteria you confirm are text (`go test ./...`, `sh check.sh`); the files they run are written by the workers after you confirm. A confined run cannot reach your files or the network, so `go test ./...` fails where it needs to download modules; use criteria that are self-contained. Heavy self-tests (a fork bomb, a memory hog) are for a machine you choose: run them only with `MONOAGENT_CONFINER_HEAVY_TESTS=1`, never on a shared computer.
+
+**How to stop it.** One mission: `pursuit pause ID` (a check that is running is cancelled within seconds and counted at $0.50). Everything: unset `MONOAGENT_PURSUIT_VERIFIER` and restart the coder host (a check that was running is ended as abandoned at the next start). There is no live off.

@@ -145,3 +145,31 @@ func reviewerUnusable(reason string) bool {
 	}
 	return false
 }
+
+// CheckStatus is the goal-check line of `pursuit status`: the same readers the host's gate and check step use, so what the
+// status shows is what the limits count.
+type CheckStatus struct {
+	Window   CheckSpend // the checks since the person last acted, and what they cost
+	Facts    CheckFacts
+	HostHour int // checks of all missions that started in the last hour
+}
+
+// ReadCheckStatus reads the check counts of a mission as of now.
+func ReadCheckStatus(ctx context.Context, db *sql.DB, session int64, now time.Time) (CheckStatus, error) {
+	var base int64
+	if err := db.QueryRowContext(ctx, `SELECT COALESCE((SELECT base_check_id FROM mission_pursuit_state WHERE session_id = ?), 0)`, session).Scan(&base); err != nil {
+		return CheckStatus{}, fmt.Errorf("missionpursuit: reading the check base: %w", err)
+	}
+	var out CheckStatus
+	var err error
+	if out.Window, err = CheckSpendAfter(ctx, db, session, base); err != nil {
+		return CheckStatus{}, err
+	}
+	if out.Facts, err = ReadCheckFacts(ctx, db, session, base); err != nil {
+		return CheckStatus{}, err
+	}
+	if out.HostHour, err = HostChecksSince(ctx, db, now.Add(-time.Hour)); err != nil {
+		return CheckStatus{}, err
+	}
+	return out, nil
+}

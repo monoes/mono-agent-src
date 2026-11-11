@@ -237,3 +237,23 @@ func TestThePinRuleIsTheLibrarysRule(t *testing.T) {
 		}
 	}
 }
+
+// Results that cannot be recorded are no basis for an outcome: the check ends abandoned (at the cap), never as the pass it claims.
+func TestAResultTheStoreRefusesIsNotAnOutcome(t *testing.T) {
+	w := newCW(t)
+	w.fn = func(_ context.Context, req verifier.Request) (verifier.Result, error) {
+		res := resultOf(req, verifier.OutcomePassedMachine, "", 0, true)
+		res.Criteria[0].Hash = strings.Repeat("a", 64) // not the locked criterion's hash: the database refuses it
+		return res, nil
+	}
+	w.untilChecked(1)
+	if got := w.checks(); len(got) != 1 || got[0][:11] != "1:abandoned" {
+		t.Fatalf("checks = %v, want one abandoned check", got)
+	}
+	if s := w.spend(); s.Micro != missionpursuit.CheckCapMicro {
+		t.Errorf("spend %d, want the cap", s.Micro)
+	}
+	if got := w.waiting(); got == pursuitWaitingAnswer {
+		t.Error("a check whose results were refused waits for the person's answer")
+	}
+}

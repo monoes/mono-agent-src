@@ -12,9 +12,11 @@ import (
 // condition and no check row may appear however long the loop runs. Each row is a revert proof of its condition.
 func TestACheckStartsWhenTheWorkIsSettledAndTheTreeIsQuiet(t *testing.T) {
 	w := newCW(t)
-	w.step() // the first look at the tree: not quiet yet
-	if w.checkRows() != 0 {
-		t.Fatalf("a check started on the first look: %v", w.checks())
+	for i := 0; i < 3; i++ { // 3 x 31 s: the tree has not been quiet for the 2 minutes yet
+		w.step()
+		if w.checkRows() != 0 {
+			t.Fatalf("a check started after %d looks, before the tree was quiet for two minutes: %v", i+1, w.checks())
+		}
 	}
 	w.untilChecked(1)
 	if got := w.checks(); len(got) != 1 || got[0] != "1:done:failed:criteria-failed" {
@@ -132,7 +134,9 @@ func TestSixChecksSinceTheLastVerdictAreTheMost(t *testing.T) {
 		w.touch(strings.Repeat("y", i))
 		w.advance(time.Hour) // the host's hour is not what is tested here
 		w.personActs()       // every window starts again: only the lifetime cap is left
-		w.untilChecked(min(i, missionpursuit.MaxChecksPerMissionLifetime))
+		for j := 0; j < 8; j++ {
+			w.step() // long enough for the quiet wait, whatever the cap says
+		}
 	}
 	if n := w.checkRows(); n != missionpursuit.MaxChecksPerMissionLifetime {
 		t.Fatalf("%d checks, the most since a verdict is %d: %v", n, missionpursuit.MaxChecksPerMissionLifetime, w.checks())

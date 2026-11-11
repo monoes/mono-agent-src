@@ -22,13 +22,6 @@ const PursuitSchemaVersion = 1
 // Agent text (a direction title the judge proposed, a mission title) is cut to this many characters wherever it is shown.
 const agentTextRunes = 80
 
-// goalCheckStub is the place of the goal check line. Nothing reads it yet: the goal checker (S7b) does not exist. When it
-// does, this value is filled from the host-measured check record, never from anything an agent wrote.
-type goalCheckStub struct {
-	Available bool   `json:"available"`
-	Note      string `json:"note"`
-}
-
 // agentText is the only part of the status document that carries words an agent or the judge wrote. A GUI card must not
 // read the host-written fields from here, and must show these as text, marked as agent text.
 type agentText struct {
@@ -75,13 +68,12 @@ func hostRuns(h coderhost.PursuitHostInfo, found, alive bool) bool {
 
 // writeStatus prints the status: the JSON document (schema_version, the progress block with host facts only, the strategy
 // block, the goal-check stub, and the agent text kept apart) or the plain words.
-func (d Deps) writeStatus(cmd *cobra.Command, p tasks.Profile, pu missionpursuit.Pursuit, pr missionpursuit.Progress, st missionpursuit.StrategyView, at agentText) error {
+func (d Deps) writeStatus(cmd *cobra.Command, p tasks.Profile, pu missionpursuit.Pursuit, pr missionpursuit.Progress, st missionpursuit.StrategyView, at agentText, gc goalCheckStub) error {
 	host, found, alive := d.hostPursuit()
 	runs := hostRuns(host, found, alive)
 	state := missionpursuit.StateOf(pu.Paused(), pr.Waiting, runs)
 	needs := missionpursuit.NeedsOf(pu.Paused(), pr.Waiting, pr.Seen, runs)
 	next := missionpursuit.NextLine(pu.Paused(), pr.Waiting, pr.Seen, runs)
-	gc := goalCheckStub{Note: "no goal checker exists yet: the goal is never checked automatically; you decide when the goal is met and close the mission"}
 	if d.JSONOutput() {
 		return d.WriteJSON(cmd.OutOrStdout(), map[string]any{
 			"schema_version": PursuitSchemaVersion, "profile": p, "pursuit": pu, "progress": pr,
@@ -95,7 +87,8 @@ func (d Deps) writeStatus(cmd *cobra.Command, p tasks.Profile, pu missionpursuit
 	w := cmd.OutOrStdout()
 	fmt.Fprintf(w, "  state: %s; needs: %s\n", state, needs)
 	writeStrategyLines(w, st, at)
-	fmt.Fprintf(w, "  goal check: %s\n  next: %s\n", gc.Note, next)
+	writeGoalCheck(w, gc)
+	fmt.Fprintf(w, "  next: %s\n", next)
 	return nil
 }
 
