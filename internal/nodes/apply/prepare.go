@@ -41,6 +41,9 @@ func (n *PrepareNode) Type() string { return "applications.prepare" }
 // PublishesToThirdParty: applications.prepare sends nothing off this machine (issue #1418).
 func (PrepareNode) PublishesToThirdParty() bool { return false }
 
+// WritesLocalStore: applications.prepare puts what it is given where another run can read it back (issue #1418).
+func (PrepareNode) WritesLocalStore() bool { return true }
+
 func (n *PrepareNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	if globalDB == nil {
 		return nil, fmt.Errorf("applications.prepare: database not available (call SetGlobalDB at startup)")

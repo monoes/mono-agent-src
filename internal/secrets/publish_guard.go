@@ -134,3 +134,15 @@ func CheckStoreWrite(ctx context.Context, nodeType string, fields ...StoreField)
 	}
 	return nil
 }
+
+// RunHasRead reports whether the run under agent access has read a secret:
+// the cheap test that lets a store writer skip building the texts to scan.
+func RunHasRead(ctx context.Context) bool {
+	a := accessOf(ctx)
+	if a == nil {
+		return false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.read
+}

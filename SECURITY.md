@@ -241,8 +241,8 @@ granted secret may go, not what it is used as. Under agent access:
   address is checked; a 301/302/303 that turns a POST into a GET sends no body
   and is not refused for it.
 - The taint is per run, so a local store would carry a value to another run: the
-  nodes that write one (a data table, files, chat memory, application and publication records,
-  human-in-the-loop cards, the vault: `WritesLocalStore()`) refuse a value the run
+  nodes that write one (a data table, files, binary data, chat memory, application,
+  document and publication records, human-in-the-loop cards, the vault: `WritesLocalStore()`) refuse a value the run
   has read.
 - To graduate such a workflow, approve it.
 
@@ -266,7 +266,20 @@ Known limits:
   (...)`) has no index and runs once per consume.
 - The write scan is linear and not streaming: a 50 MB row costs about 70 ms and
   150 MB of memory under agent access. Outside it nothing is copied.
-- A store another process fills, and image or binary data, is not scanned; the
+- Secret text rendered into an image's pixels is invisible to the scan
+  (`image.edit`'s text operation is scanned by its configuration only); once a
+  person approves it, `core.code` runs freely; `core.wait` with a resume form or
+  webhook shows its page text to whoever holds the resume URL; `core.form` and
+  the response nodes are publishing, so a tainted run does not reach them.
+- `core.remove_duplicates` keeps the value it de-duplicates on as a number in
+  its static data (a numeric secret stored as a number); copies of a run's data
+  in the executions table are masked for tracked forms only.
+- A refusal arrives in the middle of a run, after earlier side effects. A short
+  secret (6 characters is the minimum tracked) inside a longer number, or an
+  upstream service that echoes the credential in an error body or a next-page
+  link, causes real false positives; the way out is the person approving the
+  workflow. The trigger's own data is not scanned (the trigger node's output is).
+- A store another process fills, and image pixels, is not scanned; the
   store-writing nodes are found by reading the packages' source
   (`internal/noderegistry`), which is a heuristic.
 

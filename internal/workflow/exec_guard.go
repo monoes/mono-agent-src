@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"sync/atomic"
 
@@ -61,29 +62,57 @@ func RunExecGuardFor(ctx context.Context, e NodeExecutor, in NodeInput, config m
 	if err := secrets.CheckPublish(ctx, e.Type(), Publishes(e)); err != nil {
 		return nil, true, err
 	}
-	if w, ok := e.(StoreWriter); ok && w.WritesLocalStore() && secrets.UnderAgentAccess(ctx) {
-		items := make([]map[string]interface{}, 0, len(in.Items))
-		for _, it := range in.Items {
-			items = append(items, it.JSON)
-		}
-		rawItems, _ := json.Marshal(items)
-		rawConfig, _ := json.Marshal(config)
-		fields := []secrets.StoreField{{Name: "input items", Text: string(rawItems)}, {Name: "configuration", Text: string(rawConfig)}}
-		// A per-item field the node evaluates itself ({{ $node["Src"].json.v }})
-		// reaches the outputs of every earlier node, which are not its input.
-		if strings.Contains(string(rawConfig), "{{") && len(in.NodeOutputs) > 0 {
-			earlier := map[string][]map[string]interface{}{}
-			for name, its := range in.NodeOutputs {
-				for _, it := range its {
-					earlier[name] = append(earlier[name], it.JSON)
-				}
-			}
-			rawOut, _ := json.Marshal(earlier)
-			fields = append(fields, secrets.StoreField{Name: "expressions over the outputs of earlier nodes", Text: string(rawOut)})
-		}
-		if err := secrets.CheckStoreWrite(ctx, e.Type(), fields...); err != nil {
+	if w, ok := e.(StoreWriter); ok && w.WritesLocalStore() && secrets.RunHasRead(ctx) {
+		if err := checkStoreWrite(ctx, e.Type(), in, config); err != nil {
 			return nil, true, err
 		}
 	}
 	return RunExecGuard(ctx, e.Type(), in, config)
+}
+
+// checkStoreWrite scans what a store writer is given (its input items, binary
+// data included, its trigger data and its configuration) for a value the run
+// read; when a field holds an expression ({{ ... }}) it also scans the outputs
+// of the earlier nodes it could reach, one node at a time so a refusal names
+// the node.
+func checkStoreWrite(ctx context.Context, nodeType string, in NodeInput, config map[string]interface{}) error {
+	items := make([]map[string]interface{}, 0, len(in.Items))
+	var binary strings.Builder
+	for _, it := range in.Items {
+		items = append(items, it.JSON)
+		binaryText(&binary, it)
+	}
+	rawItems, _ := json.Marshal(items)
+	rawConfig, _ := json.Marshal(config)
+	fields := []secrets.StoreField{{Name: "input items", Text: string(rawItems)}, {Name: "configuration", Text: string(rawConfig)}}
+	if binary.Len() > 0 {
+		fields = append(fields, secrets.StoreField{Name: "binary data", Text: binary.String()})
+	}
+	if len(in.Trigger) > 0 {
+		rawTrigger, _ := json.Marshal(in.Trigger)
+		fields = append(fields, secrets.StoreField{Name: "trigger data", Text: string(rawTrigger)})
+	}
+	if strings.Contains(string(rawConfig), "{{") {
+		for name, its := range in.NodeOutputs {
+			js := make([]map[string]interface{}, 0, len(its))
+			var bin strings.Builder
+			for _, it := range its {
+				js = append(js, it.JSON)
+				binaryText(&bin, it)
+			}
+			raw, _ := json.Marshal(js)
+			fields = append(fields, secrets.StoreField{Name: "expression over the output of the earlier node " + strconv.Quote(name), Text: string(raw) + bin.String()})
+		}
+	}
+	return secrets.CheckStoreWrite(ctx, nodeType, fields...)
+}
+
+// binaryText appends an item's binary property names and bytes.
+func binaryText(b *strings.Builder, it Item) {
+	for name, data := range it.Binary {
+		b.WriteString(name)
+		b.WriteByte('\n')
+		b.Write(data)
+		b.WriteByte('\n')
+	}
 }
