@@ -30,7 +30,6 @@ var localOnlyTypes = map[string]string{
 	"ai.model":                "a sub-node's configuration; it does no I/O of its own",
 	"ai.output_parser":        "a sub-node's configuration; it does no I/O of its own",
 	"applications.create":     "local records",
-	"applications.evaluate":   "local scoring",
 	"applications.list":       "local records",
 	"applications.prepare":    "local drafting",
 	"applications.set_status": "local records",
@@ -97,6 +96,7 @@ var localOnlyTypes = map[string]string{
 // record, a response, a prompt), and what carries it. Every type of the
 // "app." family (the API packages) is publishing by rule.
 var publishingTypes = map[string]string{
+	"applications.evaluate":       "the application record goes to a model provider (matching.Evaluate)",
 	"ai.task":                     "the goal goes to a model provider when the task runs",
 	"people.save":                 "fetches the item's image_url, an address the run chooses",
 	"core.evaluation":             "its judge sends the item's text to a model provider",
@@ -248,7 +248,6 @@ func TestEverySendGateTypeIsPublishing(t *testing.T) {
 
 // The engine reads the declaration, not this table: a local-only type must
 // declare PublishesToThirdParty() == false, and a publishing type must not.
-// Red until the declarations exist.
 func TestExecutorsDeclareWhatTheTableClassifies(t *testing.T) {
 	registry := Build(nil)
 	var missing, wrong []string
@@ -273,5 +272,62 @@ func TestExecutorsDeclareWhatTheTableClassifies(t *testing.T) {
 	}
 	if len(wrong) > 0 {
 		t.Errorf("type(s) whose declaration disagrees with the table: %v", wrong)
+	}
+}
+
+// storeWriters are the local-only types that put what they are given where
+// another run can read it back: a table, a file, a record, the vault. A
+// tainted run may not write a value it read into one (the cross-run bypass:
+// run 1 stores it, run 2 starts clean and publishes it), so each declares
+// WritesLocalStore() true and the engine scans what it writes. Local-only
+// types not listed only transform items in memory (data.*, core.* flow nodes)
+// or write media (image.*: pixels, not text); people.save, applications.* and
+// publication.register... are listed or publishing as the table says.
+var storeWriters = map[string]string{
+	"core.data_table":         "rows of a local table",
+	"data.read_write_file":    "writes a file",
+	"data.write_binary_file":  "writes a file",
+	"data.convert_to_file":    "makes the binary a file writer stores",
+	"data.spreadsheet":        "writes a spreadsheet file",
+	"data.compression":        "writes archive files",
+	"documents.render":        "writes a document file",
+	"applications.create":     "an application record",
+	"applications.set_status": "an application record",
+	"applications.tag":        "an application record",
+	"vault.secret_save":       "a vault entry",
+	"publication.register":    "a publication record",
+	"image.vault_save":        "a media vault entry and its name",
+}
+
+type declaresStore interface{ WritesLocalStore() bool }
+
+func TestStoreWritersDeclareIt(t *testing.T) {
+	registry := Build(nil)
+	var missing []string
+	for nt := range storeWriters {
+		if pub, ok := classifiedPublishing(nt); !ok || pub {
+			t.Errorf("%s is a store writer and must be a classified local-only type", nt)
+			continue
+		}
+		factory, ok := registry.Get(nt)
+		if !ok {
+			t.Errorf("%s is not registered", nt)
+			continue
+		}
+		if d, ok := factory().(declaresStore); !ok || !d.WritesLocalStore() {
+			missing = append(missing, nt)
+		}
+	}
+	sort.Strings(missing)
+	if len(missing) > 0 {
+		t.Errorf("store writers that do not declare WritesLocalStore() true, so a tainted run could store a secret in them: %v", missing)
+	}
+	for _, nt := range registry.Types() {
+		factory, _ := registry.Get(nt)
+		if d, ok := factory().(declaresStore); ok && d.WritesLocalStore() {
+			if _, listed := storeWriters[nt]; !listed {
+				t.Errorf("%s declares WritesLocalStore() but is not in storeWriters", nt)
+			}
+		}
 	}
 }

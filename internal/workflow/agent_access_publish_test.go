@@ -8,6 +8,8 @@ import (
 	"go/token"
 	"io/fs"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -152,42 +154,84 @@ func TestAnExecutorThatDeclaresNothingPublishes(t *testing.T) {
 
 // Every dispatch point goes through RunExecGuardFor: any reference to
 // RunExecGuard (a call, a method value, an alias, in any package) outside
-// exec_guard.go would skip the content guard.
+// internal/workflow/exec_guard.go would skip the content guard; and any
+// other place that calls a node's Execute(ctx, input, config) is listed with
+// why it is guarded or why it is not an agent's path.
 func TestNoDispatchPointReferencesRunExecGuardDirectly(t *testing.T) {
-	var bad []string
+	var bad, extra []string
+	executes := map[string]int{}
 	walk := func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") || strings.HasSuffix(p, "exec_guard.go") {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case "node_modules", ".git", "chrome-extension", "assets", "store-assets", "frontend":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		rel, _ := filepath.Rel("../..", p)
+		rel = filepath.ToSlash(rel)
+		if !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
 			return nil
 		}
 		f, perr := parser.ParseFile(token.NewFileSet(), p, nil, 0)
 		if perr != nil {
+			t.Errorf("%s does not parse: %v", rel, perr)
 			return nil
 		}
 		ast.Inspect(f, func(n ast.Node) bool {
 			switch x := n.(type) {
 			case *ast.SelectorExpr:
-				if x.Sel.Name == "RunExecGuard" {
-					bad = append(bad, p)
+				if x.Sel.Name == "RunExecGuard" && rel != "internal/workflow/exec_guard.go" {
+					bad = append(bad, rel)
 				}
 			case *ast.Ident:
-				if x.Name == "RunExecGuard" {
-					bad = append(bad, p)
+				if x.Name == "RunExecGuard" && rel != "internal/workflow/exec_guard.go" {
+					bad = append(bad, rel)
+				}
+			case *ast.CallExpr:
+				if sel, ok := x.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Execute" && len(x.Args) == 3 {
+					executes[rel]++
 				}
 			}
 			return true
 		})
 		return nil
 	}
-	for _, root := range []string{"..", "../../cmd", "../../wails-app"} {
-		_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-			if d != nil && d.IsDir() && (d.Name() == "node_modules" || d.Name() == ".git") {
-				return filepath.SkipDir
-			}
-			return walk(p, d, err)
-		})
-	}
+	_ = filepath.WalkDir("../..", walk)
 	if len(bad) > 0 {
 		t.Errorf("use workflow.RunExecGuardFor, not RunExecGuard, in: %v", bad)
+	}
+	// Direct node Execute calls, by file, and why each is not a way around the guard.
+	known := map[string]int{
+		"internal/workflow/execution_retry.go":    1, // runAttempt: the else branch of RunExecGuardFor
+		"internal/workflow/execution_subnodes.go": 1, // a tool call: the else branch of RunExecGuardFor
+		"internal/cli/node/run.go":                2, // :387 after RunExecGuardFor; the second saves the guarded node's own scraped profiles
+		"internal/cli/people/messages_compose.go": 1, // after RunExecGuardFor
+		"internal/mcp/node_run.go":                1, // after RunExecGuardFor
+		"internal/nodes/vector/subnodes.go":       1, // the document loader inside vector.embed / vector.store, which are publishing and guarded
+		"internal/nodes/evalnode/sheets.go":       1, // the user's own `workflow evaluate` harness reading a dataset
+		"internal/evaluation/dataset.go":          1, // the same harness
+	}
+	for file, n := range executes {
+		switch {
+		case known[file] == n:
+		case strings.Contains(file, "/nodes/") || file == "internal/workflow/execution.go":
+			extra = append(extra, file+": a node calls another node's Execute directly; guard it or list it here with why")
+		default:
+			extra = append(extra, file)
+		}
+	}
+	for file, n := range known {
+		if executes[file] != n {
+			t.Errorf("%s: %d direct Execute call(s), the list says %d: update the list", file, executes[file], n)
+		}
+	}
+	if len(extra) > 0 {
+		sort.Strings(extra)
+		t.Errorf("direct Execute(ctx, input, config) calls not in the list: %v", extra)
 	}
 }
 
@@ -220,5 +264,86 @@ func TestAgentAccessChildRunTaintsItsParent(t *testing.T) {
 	}
 	if err := secrets.CheckPublish(parent, "comm.slack", true); !errors.Is(err, secrets.ErrPublishesSecret) {
 		t.Errorf("a parent that consumed a child which read a secret still publishes (issue #1418): %v", err)
+	}
+}
+
+// subWorkflowChain makes executions d0 (the parent's) .. dN, each the child of
+// the one before, all finished, and returns the last id.
+func (e *accessEnv) subWorkflowChain(t *testing.T, n int, lastStatus string) string {
+	t.Helper()
+	createSQLWorkflow(t, e.store, chain("wf-chain", step("c1", "test.echoprobe", "Echo", nil)))
+	prev := "d0"
+	for i := 1; i <= n; i++ {
+		id := "d" + strconv.Itoa(i)
+		status := "SUCCESS"
+		if i == n {
+			status = lastStatus
+		}
+		if err := e.store.CreateExecution(e.ctx, &WorkflowExecution{ID: id, WorkflowID: "wf-chain", ProfileID: "default", Status: status, TriggerType: TriggerTypeExecuteWorkflow}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.db.DB.Exec(`INSERT INTO subworkflow_runs (parent_execution_id, parent_node_id, child_execution_id, item_index, wait) VALUES (?, 'call', ?, -1, 1)`, prev, id); err != nil {
+			t.Fatal(err)
+		}
+		prev = id
+	}
+	return prev
+}
+
+func (e *accessEnv) auditRead(t *testing.T, execID string) {
+	t.Helper()
+	if _, err := e.db.DB.Exec(`INSERT INTO profile_agent_secret_audit (profile_id, at, workflow_id, execution_id, node_id, node_name, secret_name) VALUES ('default', '2026-01-01T00:00:00Z', 'wf-chain', ?, 'n', 'N', 'vs')`, execID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func parentCtxOf(e *accessEnv) context.Context {
+	parent := secrets.AllowResolving(e.ctx, e.db.DB, "default", secrets.AccessOrigin{WorkflowID: "wf-parent", ExecutionID: "d0"})
+	return WithTrigger(vault.ContextWithExecIDs(parent, "wf-parent", "d0"), "trigger.schedule", map[string]interface{}{})
+}
+
+// Review of #1418 delta: what a descendant at any depth read taints the top
+// run (MaxSubWorkflowDepth is 32), and so does a child that failed or was
+// cancelled, whose error text is returned to the parent.
+func TestAgentAccessTaintReachesTheTopRunFromAnyDepth(t *testing.T) {
+	for name, c := range map[string]struct {
+		depth  int
+		status string
+	}{
+		"a grandchild":             {2, "SUCCESS"},
+		"a descendant at depth 10": {10, "SUCCESS"},
+		"a descendant at depth 31": {31, "SUCCESS"},
+		"a failed child":           {1, "FAILED"},
+		"a cancelled grandchild":   {2, "CANCELLED"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newAccessEnv(t)
+			e.grant(t, secrets.AccessGrant{AnyHost: true})
+			eng := newTestEngine(t, e.store, e.reg)
+			last := e.subWorkflowChain(t, c.depth, c.status)
+			e.auditRead(t, last)
+			parent := parentCtxOf(e)
+			if _, err := eng.SubWorkflowChildren(parent, "d0", "call"); err != nil {
+				t.Fatal(err)
+			}
+			if err := secrets.CheckPublish(parent, "comm.slack", true); !errors.Is(err, secrets.ErrPublishesSecret) {
+				t.Errorf("the top run did not learn what %s read (issue #1418): %v", name, err)
+			}
+		})
+	}
+}
+
+// Nothing read, nothing tainted; and a child still running taints nothing yet.
+func TestAgentAccessTaintFromChildrenWaitsForAllAndNeedsARead(t *testing.T) {
+	e := newAccessEnv(t)
+	e.grant(t, secrets.AccessGrant{AnyHost: true})
+	eng := newTestEngine(t, e.store, e.reg)
+	e.subWorkflowChain(t, 3, "SUCCESS")
+	parent := parentCtxOf(e)
+	if _, err := eng.SubWorkflowChildren(parent, "d0", "call"); err != nil {
+		t.Fatal(err)
+	}
+	if err := secrets.CheckPublish(parent, "comm.slack", true); err != nil {
+		t.Errorf("a chain that read nothing tainted the parent: %v", err)
 	}
 }

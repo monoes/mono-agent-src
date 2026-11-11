@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -146,5 +147,59 @@ func TestAgentAccessBodyToThisMachineIsExempt(t *testing.T) {
 		if got := ownHost(host); got != want {
 			t.Errorf("ownHost(%q) = %v, want %v", host, got, want)
 		}
+	}
+}
+
+// Review of #1418 delta (P3): a secret written raw in the URL's query (; & +
+// % in it are not what a decoded parameter name shows) reaches the request
+// line by data flow and is refused; an auth value in the query is not.
+func TestAgentAccessSecretRawInTheQueryIsRefused(t *testing.T) {
+	e := newContentEnv(t, secrets.AccessGrant{AnyHost: true})
+	for i, v := range []string{"pass+word-123", "pass;word-123", "pass&word-123", "pass%41word-123"} {
+		name := "raw" + strconv.Itoa(i)
+		if _, err := secrets.Add(e.base, e.db.DB, "default", "secret", name, map[string]string{"secret": v}, "", "", ""); err != nil {
+			t.Fatal(err)
+		}
+		proxy := newRecorder(t, nil)
+		// The reference resolves (it is the whole field); the URL carries the
+		// value as a template over the response would.
+		err := e.send(map[string]interface{}{"url": "http://vendor.example.test/r?" + v + "=1", "proxy": proxy.URL, "method": "GET", "x": "@secret:" + name})
+		if err == nil || !strings.Contains(err.Error(), secrets.ErrPublishesSecret.Error()) {
+			t.Errorf("%q raw in the query (issue #1418): want the content refusal, got %v", v, err)
+		}
+		if proxy.n() != 0 {
+			t.Errorf("%q: %d request(s) reached the proxy", v, proxy.n())
+		}
+	}
+	// The auth value in the query is not content.
+	proxy := newRecorder(t, nil)
+	if err := e.send(map[string]interface{}{"url": "http://vendor.example.test/r", "proxy": proxy.URL, "auth_type": "api_key", "auth_api_key_in": "query",
+		"auth_api_key_name": "key", "auth_api_key_value": "@secret:vs"}); err != nil {
+		t.Errorf("a query api key: %v", err)
+	}
+}
+
+// Review of #1418 delta (P3): every hop is checked, a hop with no body too,
+// and a 301/302/303 that turns a POST into a GET is not refused for the body
+// it dropped.
+func TestAgentAccessRedirectHops(t *testing.T) {
+	e := newContentEnv(t, secrets.AccessGrant{AnyHost: true})
+	to := func(loc string) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, loc, http.StatusFound) }))
+	}
+	// A GET hop whose address carries the secret as a query name.
+	hop := to("http://vendor.example.test/r?vsecret-777=1")
+	defer hop.Close()
+	err := e.send(map[string]interface{}{"url": hop.URL + "/r", "method": "GET", "follow_redirects": true, "x": "@secret:vs"})
+	if err == nil || !strings.Contains(err.Error(), secrets.ErrPublishesSecret.Error()) {
+		t.Errorf("a redirect hop carrying the secret in its query (issue #1418): want the content refusal, got %v", err)
+	}
+	// 302 turns the POST into a GET: the body is not sent again, so the hop is
+	// not refused (the dial then fails: no such host here).
+	plain := to("http://vendor.example.test/r")
+	defer plain.Close()
+	err = e.send(map[string]interface{}{"url": plain.URL + "/r", "method": "POST", "body": "@secret:vs", "follow_redirects": true})
+	if err != nil && strings.Contains(err.Error(), secrets.ErrPublishesSecret.Error()) {
+		t.Errorf("a 302 hop that drops the body was refused for it: %v", err)
 	}
 }
