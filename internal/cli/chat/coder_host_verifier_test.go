@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
 	"strings"
@@ -102,7 +103,7 @@ func TestTheRealForbiddenListLetsProjectsUnderHomeThrough(t *testing.T) {
 	if r, err := filepath.EvalSymlinks(home); err == nil {
 		home = r
 	}
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	state := filepath.Join(home, ".monoagent")
 	for _, d := range []string{state, filepath.Join(state, "x"), filepath.Join(home, "projects", "x")} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
@@ -150,7 +151,7 @@ func TestTheRealForbiddenListRefusesCredentialAndSystemFolders(t *testing.T) {
 	if r, err := filepath.EvalSymlinks(home); err == nil {
 		home = r
 	}
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	elsewhere := t.TempDir() // the database path points away from ~/.monoagent
 	cfg := testDeps(&testConfig{DBPath: filepath.Join(elsewhere, "monoagent.db"), ProfileID: "default"})
 	f := verifierForbidden(cfg)
