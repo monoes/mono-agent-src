@@ -125,33 +125,44 @@ func UnresolveTracked(ctx context.Context, s string, token func(name string) str
 }
 
 // GrantedValues are the values of the secrets agent access covers now (name
-// -> value), for the scrub of rows that held one. Empty when there is no
-// grant or nothing readable.
-func GrantedValues(ctx context.Context, db *sql.DB, profileID string) map[string]string {
+// -> value), for the scrub of rows that held one. ok is false when the grant
+// or the vault could not be read (the scrub tries again later); no grant is
+// ok with nothing to scrub. The reads write no audit row: the values never
+// leave the scrub, they only decide what it removes.
+func GrantedValues(ctx context.Context, db *sql.DB, profileID string) (vals map[string]string, ok bool) {
 	g, err := GetAgentAccess(ctx, db, profileID)
-	if err != nil || g == nil {
-		return nil
+	if err != nil {
+		return nil, false
+	}
+	if g == nil {
+		return nil, true
 	}
 	names := g.Secrets
 	if len(names) == 0 {
 		entries, err := List(ctx, db, profileID)
 		if err != nil {
-			return nil
+			return nil, false
 		}
 		for _, e := range entries {
 			names = append(names, e.Name)
 		}
 	}
 	out := map[string]string{}
+	ok = true
 	for _, n := range names {
 		if AgentCannotRead(n) {
 			continue
 		}
-		if v, err := resolveEntry(ctx, db, profileID, secretRefPrefix+n, n); err == nil && len(v) >= MinTrackedLen {
+		v, err := resolveEntry(ctx, db, profileID, secretRefPrefix+n, n)
+		if err != nil {
+			ok = false
+			continue
+		}
+		if len(v) >= MinTrackedLen {
 			out[n] = v
 		}
 	}
-	return out
+	return out, ok
 }
 
 var literalRefRE = regexp.MustCompile(`(?i)@\s*secret\s*:`)

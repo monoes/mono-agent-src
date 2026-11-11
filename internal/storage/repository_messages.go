@@ -470,6 +470,15 @@ func (d *Database) scrubHeldSends(profileID string) {
 	}
 }
 
+// EnsureMessagesScrubbed is what a raw reader of person_messages calls
+// before it reads a profile's messages (the guard test in internal/hilscrub
+// lists the readers).
+func EnsureMessagesScrubbed(db *sql.DB, profileID string) {
+	if ReadHook != nil && db != nil {
+		ReadHook(context.Background(), db, profileID)
+	}
+}
+
 // ReadHook runs before a message of a profile is read. internal/hilscrub sets
 // it (storage cannot import it: the secrets tests import storage).
 var ReadHook func(ctx context.Context, db *sql.DB, profile string)

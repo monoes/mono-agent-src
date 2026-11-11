@@ -5,13 +5,18 @@
 package hilscrub
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -23,48 +28,144 @@ import (
 
 func init() { storage.ReadHook = Ensure }
 
-var done sync.Map // *sql.DB + profile -> struct{}
+const cutoffKey = "hilscrub.cutoff"
 
-const budget = 4 * time.Second
+const (
+	budget      = 4 * time.Second
+	writeBudget = 500 * time.Millisecond // one card's transaction
+	backoff     = 30 * time.Second       // no new attempt after a pass that failed
+)
+
+// state is one profile's: a pass holds mu (single flight: concurrent first
+// reads wait for it and then find the marker), failedAt is the back-off and
+// vals what the readers mask in memory while the rows are not clean.
+type state struct {
+	mu       sync.Mutex
+	failedAt time.Time
+	vals     map[string]string
+}
+
+var passes atomic.Int64 // passes that read the vault (tests)
+
+var states sync.Map // db pointer + profile -> *state
+
+func stateOf(db *sql.DB, profile string) *state {
+	v, _ := states.LoadOrStore(fmt.Sprintf("%p|%s", db, profile), &state{})
+	return v.(*state)
+}
+
+// MarkCutoff stores, once, the moment from which cards no longer hold a value.
+// Every writer of a card calls it before its INSERT. Best effort.
+func MarkCutoff(ctx context.Context, db *sql.DB) {
+	if db == nil {
+		return
+	}
+	var have string
+	if db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, cutoffKey).Scan(&have) == nil {
+		return // no write, so no wait for the lock
+	}
+	wctx, cancel := context.WithTimeout(ctx, writeBudget)
+	defer cancel()
+	_, _ = db.ExecContext(wctx, `INSERT OR IGNORE INTO settings (key, value) VALUES (?, datetime('now'))`, cutoffKey)
+}
+
+// fingerprint is a hash of what decides which values are covered: the grant
+// and the vault's entries, not their contents.
+func fingerprint(ctx context.Context, db *sql.DB, profile string) string {
+	var grant, vault string
+	_ = db.QueryRowContext(ctx, `SELECT COALESCE(CAST(enabled_at AS TEXT),'')||'|'||COALESCE(secret_names,'')||'|'||COALESCE(hosts,'')||'|'||COALESCE(any_host,'')||'|'||COALESCE(CAST(expires_at AS TEXT),'')||'|'||level
+		FROM profile_agent_secret_access WHERE profile_id = ?`, profile).Scan(&grant)
+	_ = db.QueryRowContext(ctx, `SELECT COUNT(*)||'|'||COALESCE(MAX(updated_at),'')||'|'||COALESCE(MAX(seq),0) FROM vault_secrets WHERE profile_id = ?`, profile).Scan(&vault)
+	h := sha256.Sum256([]byte(grant + "#" + vault))
+	return hex.EncodeToString(h[:])
+}
+
+// Mask is s with the values of a pass that did not finish replaced by "***":
+// a reader calls it on what it is about to show, so a read never shows a
+// value just because the rows could not be written. s itself when the rows are clean.
+func Mask(db *sql.DB, profile, s string) string {
+	if db == nil {
+		return s
+	}
+	st := stateOf(db, profile)
+	st.mu.Lock()
+	vals := st.vals
+	st.mu.Unlock()
+	for _, name := range byLength(vals) {
+		v := vals[name]
+		s = replaceBounded(replaceBounded(s, escaped(v), "***"), v, "***")
+	}
+	return s
+}
+
+func markerKey(profile string) string { return "hilscrub.done:" + profile }
 
 func Ensure(ctx context.Context, db *sql.DB, profile string) {
 	if db == nil || profile == "" {
 		return
 	}
-	k := fmt.Sprintf("%p|%s", db, profile)
-	if _, ok := done.Load(k); ok {
-		return
-	}
+	st := stateOf(db, profile)
+	st.mu.Lock()
+	defer st.mu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
+	MarkCutoff(ctx, db)
+	fp := fingerprint(ctx, db, profile)
+	var last string
+	if db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, markerKey(profile)).Scan(&last) == nil && last == fp {
+		st.vals = nil
+		return
+	}
+	if !st.failedAt.IsZero() && time.Since(st.failedAt) < backoff {
+		return
+	}
+	var cutoff string
+	if db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, cutoffKey).Scan(&cutoff) != nil || cutoff == "" {
+		return
+	}
+	passes.Add(1)
+	got, readable := secrets.GrantedValues(ctx, db, profile)
+	if !readable {
+		st.failedAt = time.Now() // not marked done: tried again after the back-off
+		return
+	}
 	vals := map[string]string{}
-	for n, v := range secrets.GrantedValues(ctx, db, profile) {
+	for n, v := range got {
 		if scrubbable(v) {
 			vals[n] = v
 		}
 	}
+	finish := func(clean bool) {
+		if clean {
+			st.vals, st.failedAt = nil, time.Time{}
+			wctx, cancelW := context.WithTimeout(ctx, writeBudget)
+			defer cancelW()
+			_, _ = db.ExecContext(wctx, `INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, markerKey(profile), fp)
+			return
+		}
+		st.vals, st.failedAt = vals, time.Now()
+	}
 	if len(vals) == 0 {
+		finish(true)
+		return
+	}
+	hit, err := findCards(ctx, db, profile, cutoff, vals)
+	if err != nil {
+		note(err)
+		finish(false)
 		return
 	}
 	clean := true
-	hit, err := findCards(ctx, db, profile, vals)
-	if err != nil {
-		note(err)
-		return
-	}
 	for _, id := range hit {
-		if err := scrubCard(ctx, db, profile, id, vals); err != nil {
+		wctx, cancelW := context.WithTimeout(ctx, writeBudget)
+		err := scrubCard(wctx, db, profile, id, vals)
+		cancelW()
+		if err != nil {
 			note(err)
 			clean = false
 		}
 	}
-	if err := scrubOrphanMessages(ctx, db, profile, vals); err != nil {
-		note(err)
-		clean = false
-	}
-	if clean {
-		done.Store(k, struct{}{})
-	}
+	finish(clean)
 }
 
 // note logs a failed pass without any value; a read-only handle is silent.
@@ -87,9 +188,9 @@ func occurrences(vals map[string]string) []string {
 	return out
 }
 
-func findCards(ctx context.Context, db *sql.DB, profile string, vals map[string]string) ([]string, error) {
-	q := `SELECT id FROM hil_pending WHERE profile_id = ? AND (0`
-	args := []interface{}{profile}
+func findCards(ctx context.Context, db *sql.DB, profile, cutoff string, vals map[string]string) ([]string, error) {
+	q := `SELECT id FROM hil_pending WHERE profile_id = ? AND created_at < ? AND execution_id NOT LIKE 'browser:%' AND execution_id NOT LIKE 'extpair:%' AND (0`
+	args := []interface{}{profile, cutoff}
 	for _, o := range occurrences(vals) {
 		q += ` OR instr(readonly_data, ?) > 0 OR instr(editable_data, ?) > 0 OR instr(edited_data, ?) > 0 OR instr(node_config, ?) > 0`
 		args = append(args, o, o, o, o)
@@ -168,6 +269,46 @@ func byLength(vals map[string]string) []string {
 	return names
 }
 
+// mapJSON applies f to every string (and key) of the JSON document raw, so a
+// value after an escape (\n, \t, <...>) is seen as the text it is. A document
+// that is not JSON is taken as one string.
+func mapJSON(raw string, f func(string) string) string {
+	var v interface{}
+	dec := json.NewDecoder(strings.NewReader(raw))
+	dec.UseNumber()
+	if err := dec.Decode(&v); err != nil {
+		return f(raw)
+	}
+	var walk func(interface{}) interface{}
+	walk = func(x interface{}) interface{} {
+		switch t := x.(type) {
+		case string:
+			return f(t)
+		case []interface{}:
+			for i := range t {
+				t[i] = walk(t[i])
+			}
+			return t
+		case map[string]interface{}:
+			out := make(map[string]interface{}, len(t))
+			for k, e := range t {
+				out[f(k)] = walk(e)
+			}
+			return out
+		}
+		return x
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if enc.Encode(walk(v)) != nil {
+		return raw
+	}
+	return strings.TrimSuffix(buf.String(), "\n")
+}
+
+var tokenRE = regexp.MustCompile(`\[\[held-secret:([A-Za-z0-9._-]+):([0-9a-f]{32})\]\]`)
+
 // scrubCard scrubs one card and its Communications row in one transaction,
 // reading the card inside it: a claim or a finish that came first is simply
 // what is scrubbed.
@@ -183,11 +324,19 @@ func scrubCard(ctx context.Context, db *sql.DB, profile, id string, vals map[str
 			return err
 		}
 		var cfg struct {
-			Kind string `json:"kind"`
+			Kind      string            `json:"kind"`
+			RefHashes map[string]string `json:"refHashes"`
 		}
 		_ = json.Unmarshal([]byte(r.nc), &cfg)
 		send := cfg.Kind == "send" && strings.HasPrefix(r.exec, "send:")
 		macs := map[string]string{}
+		// A card that already holds a reference to a name keeps its tag: the
+		// value an operator typed beside it joins that reference.
+		for _, m := range tokenRE.FindAllStringSubmatch(r.ed+r.edited+r.nc+r.ro, -1) {
+			if _, covered := vals[m[1]]; covered && secrets.HeldMACMatches(cfg.RefHashes[m[1]], m[2]) {
+				macs[m[1]] = m[2]
+			}
+		}
 		bad := false
 		token := func(name string) string {
 			if !send {
@@ -202,17 +351,15 @@ func scrubCard(ctx context.Context, db *sql.DB, profile, id string, vals map[str
 			}
 			return secrets.HeldToken(name, macs[name])
 		}
-		swap := func(raw string) string {
+		swapText := func(t string) string {
 			for _, name := range byLength(vals) {
-				v := vals[name]
-				if replaceBounded(raw, v, "\x00") == raw && replaceBounded(raw, escaped(v), "\x00") == raw {
-					continue
+				if v := vals[name]; strings.Contains(t, v) {
+					t = replaceBounded(t, v, token(name))
 				}
-				t := token(name)
-				raw = replaceBounded(replaceBounded(raw, escaped(v), t), v, t)
 			}
-			return raw
+			return t
 		}
+		swap := func(raw string) string { return mapJSON(raw, swapText) }
 		ro, ed, edited, nc := swap(r.ro), swap(r.ed), swap(r.edited), swap(r.nc)
 		if bad && send && r.status == "pending" {
 			if _, err := conn.ExecContext(ctx, `UPDATE hil_pending SET status = 'rejected', editable_data = '{}', readonly_data = '{}', edited_data = '{}',
@@ -220,7 +367,7 @@ func scrubCard(ctx context.Context, db *sql.DB, profile, id string, vals map[str
 				`{"kind":"send","error":"held send contained a secret that cannot be held as a reference: reject it and have the agent prepare it again"}`, r.id, profile); err != nil {
 				return err
 			}
-			_, err := conn.ExecContext(ctx, `UPDATE person_messages SET body = '', subject = '' WHERE hil_ref = ?`, r.id)
+			_, err := conn.ExecContext(ctx, `UPDATE person_messages SET body = '', subject = '' WHERE hil_ref = ? AND profile_id = ?`, r.id, profile)
 			return err
 		}
 		if len(macs) > 0 {
@@ -229,6 +376,9 @@ func scrubCard(ctx context.Context, db *sql.DB, profile, id string, vals map[str
 				hashes := map[string]string{}
 				if old, ok := m["refHashes"]; ok {
 					_ = json.Unmarshal(old, &hashes)
+					if hashes == nil {
+						hashes = map[string]string{}
+					}
 				}
 				for n, mac := range macs {
 					hashes[n] = secrets.HeldMACHash(mac)
@@ -244,65 +394,14 @@ func scrubCard(ctx context.Context, db *sql.DB, profile, id string, vals map[str
 			return err
 		}
 		var body, subject sql.NullString
-		err = conn.QueryRowContext(ctx, `SELECT body, subject FROM person_messages WHERE hil_ref = ?`, r.id).Scan(&body, &subject)
+		err = conn.QueryRowContext(ctx, `SELECT body, subject FROM person_messages WHERE hil_ref = ? AND profile_id = ?`, r.id, profile).Scan(&body, &subject)
 		if err == sql.ErrNoRows || strings.Contains(fmt.Sprint(err), "no such table") {
 			return nil
 		}
 		if err != nil {
 			return err
 		}
-		_, err = conn.ExecContext(ctx, `UPDATE person_messages SET body = ?, subject = ? WHERE hil_ref = ?`, swap(body.String), swap(subject.String), r.id)
+		_, err = conn.ExecContext(ctx, `UPDATE person_messages SET body = ?, subject = ? WHERE hil_ref = ? AND profile_id = ?`, swapText(body.String), swapText(subject.String), r.id, profile)
 		return err
 	})
-}
-
-// scrubOrphanMessages finds Communications rows that still hold a value
-// although their card is clean (a pass that stopped half way, an older
-// version) and masks it.
-func scrubOrphanMessages(ctx context.Context, db *sql.DB, profile string, vals map[string]string) error {
-	q := `SELECT id FROM person_messages WHERE profile_id = ? AND (0`
-	args := []interface{}{profile}
-	for _, o := range occurrences(vals) {
-		q += ` OR instr(body, ?) > 0 OR instr(subject, ?) > 0`
-		args = append(args, o, o)
-	}
-	rows, err := db.QueryContext(ctx, q+`)`, args...)
-	if err != nil {
-		if strings.Contains(err.Error(), "no such table") {
-			return nil
-		}
-		return err
-	}
-	var ids []string
-	for rows.Next() {
-		var id string
-		if rows.Scan(&id) == nil {
-			ids = append(ids, id)
-		}
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return err
-	}
-	for _, id := range ids {
-		err := dbconn.WithWriteTx(ctx, db, func(conn *sql.Conn) error {
-			var body, subject sql.NullString
-			if err := conn.QueryRowContext(ctx, `SELECT body, subject FROM person_messages WHERE id = ?`, id).Scan(&body, &subject); err != nil {
-				return err
-			}
-			mask := func(t string) string {
-				for _, name := range byLength(vals) {
-					t = replaceBounded(replaceBounded(t, escaped(vals[name]), "***"), vals[name], "***")
-				}
-				return t
-			}
-			_, err := conn.ExecContext(ctx, `UPDATE person_messages SET body = ?, subject = ? WHERE id = ?`, mask(body.String), mask(subject.String), id)
-			return err
-		})
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }

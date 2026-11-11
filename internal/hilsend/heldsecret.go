@@ -151,3 +151,50 @@ func (s Store) resolveHeldReplay(ctx context.Context, p Payload, rp replay, cfg 
 	cfgOut = holder.C
 	return cfgOut, holder.I, read, nil
 }
+
+// maskJSON masks the values in the strings (and keys) of a JSON result, and a
+// number that is one: the result stays valid JSON. A result that is not JSON
+// becomes one masked string.
+func maskJSON(values []string, raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return raw
+	}
+	var v interface{}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	if err := dec.Decode(&v); err != nil {
+		b, _ := json.Marshal(secrets.MaskValues(values, string(raw)))
+		return b
+	}
+	var walk func(interface{}) interface{}
+	walk = func(x interface{}) interface{} {
+		switch t := x.(type) {
+		case string:
+			return secrets.MaskValues(values, t)
+		case json.Number:
+			for _, val := range values {
+				if t.String() == val {
+					return "***"
+				}
+			}
+			return t
+		case []interface{}:
+			for i := range t {
+				t[i] = walk(t[i])
+			}
+			return t
+		case map[string]interface{}:
+			out := make(map[string]interface{}, len(t))
+			for k, e := range t {
+				out[secrets.MaskValues(values, k)] = walk(e)
+			}
+			return out
+		}
+		return x
+	}
+	b, err := json.Marshal(walk(v))
+	if err != nil {
+		return json.RawMessage(`"***"`)
+	}
+	return b
+}

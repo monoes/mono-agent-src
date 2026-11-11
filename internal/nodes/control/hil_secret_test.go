@@ -2,6 +2,10 @@ package control
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -85,3 +89,49 @@ func TestHILQueuesNothingWhenAFieldOutsideTheCardCarriesASecret(t *testing.T) {
 		t.Errorf("err=%v cards=%d messages holding the value=%d", err, n, m)
 	}
 }
+
+// Each form of a secret the node can see is refused by the tracked-value check
+// (its message names it); a value cut in two is not seen by it, which the taint
+// guard of #1418 covers.
+func TestHILRefusesEachEncodedFormOfASecretByTheTrackedValueCheck(t *testing.T) {
+	keyring.MockInit()
+	d, err := storage.NewDatabase(filepath.Join(t.TempDir(), "v.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if err := d.ApplyMigrations(); err != nil {
+		t.Fatal(err)
+	}
+	base := vault.ContextWithProfileID(vault.ContextWithDB(context.Background(), d.DB), "default")
+	const v = `vsecret-777"x`
+	if _, err := secrets.Add(base, d.DB, "default", "secret", "vs", map[string]string{"secret": v}, "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := secrets.SetAgentAccessGrant(base, d.DB, "default", secrets.AccessGrant{AnyHost: true}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := secrets.WithAccessNode(secrets.AllowResolving(base, d.DB, "default", secrets.AccessOrigin{WorkflowID: "wf"}), "n0", "Read")
+	if _, err := secrets.Resolve(ctx, d.DB, "default", "@secret:vs"); err != nil {
+		t.Fatal(err)
+	}
+	forms := map[string]string{
+		"plain": v, "base64": base64.StdEncoding.EncodeToString([]byte(v)), "hex": hex.EncodeToString([]byte(v)),
+		"url": url.QueryEscape(v), "json-escaped": strings.Trim(mustJSON(v), `"`),
+	}
+	for name, form := range forms {
+		in := workflow.NodeInput{ExecutionID: "e-" + name, WorkflowID: "w1", NodeID: "n1", NodeName: "Review",
+			Items: []workflow.Item{workflow.NewItem(map[string]interface{}{"note": "x " + form})}}
+		_, err := (&HumanInLoopNode{}).Execute(ctx, in, map[string]interface{}{})
+		if err == nil || !strings.Contains(err.Error(), "does not keep one") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	in := workflow.NodeInput{ExecutionID: "e-split", WorkflowID: "w1", NodeID: "n1", NodeName: "Review",
+		Items: []workflow.Item{workflow.NewItem(map[string]interface{}{"a": v[:5], "b": v[5:]})}}
+	if _, err := (&HumanInLoopNode{}).Execute(ctx, in, map[string]interface{}{}); err != nil && strings.Contains(err.Error(), "does not keep one") {
+		t.Errorf("a value cut in two should not be seen by this check: %v", err)
+	}
+}
+
+func mustJSON(s string) string { b, _ := json.Marshal(s); return string(b) }

@@ -111,7 +111,7 @@ func Resolve(ctx context.Context, st Store, id string, approve bool, edit Edit, 
 	if len(read) > 0 {
 		// What the send echoes back (its result, its error) is stored on the
 		// card: the values it just carried stay out of it.
-		result = json.RawMessage(secrets.MaskValues(read, string(result)))
+		result = maskJSON(read, result)
 		if runErr != nil {
 			runErr = errors.New(secrets.MaskValues(read, runErr.Error()))
 		}

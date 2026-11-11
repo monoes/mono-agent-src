@@ -281,6 +281,7 @@ func TestAnOlderRowHoldingTheValueIsScrubbedAndStaysApprovable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	f.beforeCutoff(t)
 	if !strings.Contains(f.everything(t), heldValue) {
 		t.Fatal("the fixture row should hold the value")
 	}

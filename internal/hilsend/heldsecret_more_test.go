@@ -27,7 +27,17 @@ func (f *heldFix) oldCard(t *testing.T, text string) Payload {
 	if err != nil {
 		t.Fatal(err)
 	}
+	f.beforeCutoff(t)
 	return p
+}
+
+// beforeCutoff makes every card so far an older one: the scrub's cutoff moves
+// past them.
+func (f *heldFix) beforeCutoff(t *testing.T) {
+	t.Helper()
+	if _, err := f.db.Exec(`UPDATE settings SET value = datetime('now','+1 day') WHERE key = 'hilscrub.cutoff'`); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // The card keeps hashes of its tags: the tag itself, which is what a reader
@@ -194,19 +204,38 @@ func TestTheScrubReplacesTheLongestValueFirst(t *testing.T) {
 	}
 }
 
-// A pass that stopped half way (the card clean, the Communications row not) is
-// finished by the next read.
-func TestTheScrubFindsAMessageRowWhoseCardIsAlreadyClean(t *testing.T) {
+// The scrub never reads a row that is not a card's: mail the person received
+// keeps a number that equals a granted secret.
+func TestTheScrubLeavesAMessageThatIsNoCardsAlone(t *testing.T) {
 	f := newHeldFix(t, anyHost())
+	f.addSecret(t, "pin", "123456")
 	c := f.oldCard(t, "key "+heldValue)
-	if _, err := f.db.Exec(`UPDATE hil_pending SET editable_data = '{"text":"clean"}', node_config = '{"kind":"send","config":{}}' WHERE id = ?`, c.ID); err != nil {
+	if _, err := f.db.Exec(`INSERT INTO people (id, platform_username, platform, full_name, profile_id) VALUES ('p1','u','email','U','default')`); err != nil {
 		t.Fatal(err)
 	}
-	_, _ = f.st.List(f.ctx)
+	if _, err := f.db.Exec(`INSERT INTO person_messages (id, person_id, source, direction, body, status, profile_id) VALUES ('m1','p1','email','inbound','Your order 123456 shipped; code 123456.','received','default')`); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = f.st.Get(f.ctx, c.ID)
 	var body string
-	_ = f.db.QueryRow(`SELECT body FROM person_messages WHERE hil_ref = ?`, c.ID).Scan(&body)
-	if strings.Contains(body, heldValue) {
-		t.Errorf("the message row still holds the value: %q", body)
+	_ = f.db.QueryRow(`SELECT body FROM person_messages WHERE id = 'm1'`).Scan(&body)
+	if body != "Your order 123456 shipped; code 123456." {
+		t.Errorf("inbound mail was rewritten: %q", body)
+	}
+}
+
+// A card created after the cutoff is never rewritten, so planting guesses in
+// a new card and listing it shows nothing about which one is a secret; and the
+// queue-time guard names only a secret the run itself read.
+func TestPlantedGuessesComeBackUnchanged(t *testing.T) {
+	f := newHeldFix(t, anyHost()) // the run read vs
+	f.addSecret(t, "other", "483917")
+	guesses := "483915 483916 483917 483918 and vsecret-778"
+	id := f.hold(t, "guesses: "+guesses)
+	_, _ = f.st.List(f.ctx)
+	got, _ := f.st.Get(f.ctx, id)
+	if !strings.Contains(got.Text, guesses) || strings.Contains(got.Text, "held-secret:other") {
+		t.Errorf("a planted guess came back changed: %q", got.Text)
 	}
 }
 
@@ -229,5 +258,90 @@ func TestAReadOnlyHandleSkipsTheScrubWithoutFailing(t *testing.T) {
 	}
 	if _, err := f.st.Get(f.ctx, c.ID); err != nil || strings.Contains(f.everything(t), heldValue) {
 		t.Errorf("the next read that can write scrubs: %v", err)
+	}
+}
+
+// An approval's result stays valid JSON when the secret is a number.
+func TestMaskJSONKeepsTheResultValid(t *testing.T) {
+	got := maskJSON([]string{"123456"}, json.RawMessage(`{"code":123456,"s":"pin 123456","n":[1,2]}`))
+	var m map[string]interface{}
+	if err := json.Unmarshal(got, &m); err != nil || strings.Contains(string(got), "123456") {
+		t.Errorf("%s %v", got, err)
+	}
+	if g := maskJSON([]string{"abcdef"}, json.RawMessage(`not json abcdef`)); !json.Valid(g) || strings.Contains(string(g), "abcdef") {
+		t.Errorf("%s", g)
+	}
+}
+
+// A scrub that commits between claim's read and its write is not overwritten:
+// the write is guarded by the node_config it read, and claim reads again.
+func TestAClaimDoesNotOverwriteARowScrubbedUnderIt(t *testing.T) {
+	f := newHeldFix(t, anyHost())
+	id := f.hold(t, "key "+heldValue)
+	n := 0
+	betweenReadAndWrite = func() {
+		n++
+		if n == 1 {
+			_, _ = f.db.Exec(`UPDATE hil_pending SET node_config = json_set(node_config, '$.address', 'scrubbedUnderIt') WHERE id = ?`, id)
+		}
+	}
+	defer func() { betweenReadAndWrite = nil }()
+	_, _, _, claimed, err := f.st.claim(f.ctx, id, false)
+	if err != nil || !claimed {
+		t.Fatalf("claimed=%v err=%v", claimed, err)
+	}
+	var nc string
+	_ = f.db.QueryRow(`SELECT node_config FROM hil_pending WHERE id = ?`, id).Scan(&nc)
+	if !strings.Contains(nc, "scrubbedUnderIt") {
+		t.Errorf("the claim overwrote the concurrent change: %s", nc)
+	}
+}
+
+// A secret that is a number: the stored result stays valid JSON.
+func TestAnApprovalWhoseSecretIsANumberStoresValidJSON(t *testing.T) {
+	f := newHeldFix(t, anyHost())
+	f.addSecret(t, "pin", "123456")
+	if _, err := secrets.Resolve(f.ctx, f.db, "default", "@secret:pin"); err != nil {
+		t.Fatal(err)
+	}
+	id := f.hold(t, "pin 123456")
+	echo := func(_ context.Context, r Run) (json.RawMessage, error) {
+		return json.RawMessage(`{"code":123456}`), nil
+	}
+	p, err := Resolve(f.ctx, f.st, id, true, Edit{}, false, echo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(p.Result)
+	if !json.Valid(b) || strings.Contains(f.everything(t), "123456") {
+		t.Errorf("result %s", b)
+	}
+}
+
+// While the scrub cannot write (a lock held elsewhere) a card read shows the
+// value masked, not the stored plaintext.
+func TestACardReadWhileTheScrubCannotWriteIsMasked(t *testing.T) {
+	f := newHeldFix(t, anyHost())
+	c := f.oldCard(t, "key "+heldValue)
+	conn, err := f.db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		conn.Close()
+	}()
+	got, err := f.st.Get(f.ctx, c.ID)
+	if err != nil || strings.Contains(got.Text, heldValue) {
+		t.Errorf("Get while locked: %q %v", got.Text, err)
+	}
+	list, _ := f.st.List(f.ctx)
+	for _, it := range list {
+		if strings.Contains(it.Text, heldValue) {
+			t.Errorf("List while locked shows the value")
+		}
 	}
 }
