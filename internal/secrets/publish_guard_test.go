@@ -114,3 +114,21 @@ func TestPublishRefusalNamesTheNodeAndTheWayOut(t *testing.T) {
 		}
 	}
 }
+
+// A form of a value that is also another secret's raw value is named for the
+// secret that holds it raw (the refusal's name, track's preference).
+func TestTrackPrefersTheSecretThatHoldsAFormRaw(t *testing.T) {
+	a := &accessState{seen: map[string]struct{}{}, names: map[string]struct{}{}, nodes: map[string]struct{}{}}
+	const raw = "c2VjcmV0LXZhbHVl" // base64 of "secret-value"
+	a.track("holder", "secret-value")
+	a.track("other", raw) // the raw value of "other" is the base64 form of "holder"
+	if got := a.forms[raw].name; got != "other" {
+		t.Errorf("%q is named for %q, want the secret that holds it raw (other)", raw, got)
+	}
+	a2 := &accessState{seen: map[string]struct{}{}, names: map[string]struct{}{}, nodes: map[string]struct{}{}}
+	a2.track("other", raw)
+	a2.track("holder", "secret-value") // arrives later: must not take the form from the raw holder
+	if got := a2.forms[raw].name; got != "other" {
+		t.Errorf("a later secret took %q from its raw holder: named %q", raw, got)
+	}
+}

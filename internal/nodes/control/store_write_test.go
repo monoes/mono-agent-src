@@ -46,6 +46,9 @@ func TestAgentAccessTaintedRunDoesNotWriteASecretToALocalStore(t *testing.T) {
 	row := workflow.NodeInput{Items: []workflow.Item{workflow.NewItem(map[string]interface{}{"k": cfg["x"]})}}
 
 	_, handled, err := workflow.RunExecGuardFor(ctx, node, row, insert)
+	if err != nil && !strings.Contains(err.Error(), `"vs"`) {
+		t.Errorf("the refusal must name the secret (vs), a name the run read: %v", err)
+	}
 	if !handled || !errors.Is(err, secrets.ErrPublishesSecret) {
 		t.Errorf("a tainted run wrote the secret into a data table (issue #1418): handled=%v err=%v", handled, err)
 	}
