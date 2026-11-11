@@ -400,7 +400,7 @@ func TestProjectCommandsAreNotRunWithoutAProvenConfinement(t *testing.T) {
 	for name, mut := range map[string]func(*rig){
 		"no confiner":         func(r *rig) { r.cfg.Confiner = nil },
 		"self test fails":     func(r *rig) { r.conf.TestErr = errors.New("canary was readable") },
-		"allow is not a pass": func(r *rig) { r.cfg.Confiner = nil; r.cfg.AllowUnconfined = false },
+		"allow is not a pass": func(r *rig) { r.cfg.Confiner = nil; r.unconfined = false },
 	} {
 		r := newRig(t, true)
 		mut(r)
@@ -409,8 +409,12 @@ func TestProjectCommandsAreNotRunWithoutAProvenConfinement(t *testing.T) {
 			len(scratchEntries(t, r.base)) != 0 || r.conf.Placed != 0 {
 			t.Errorf("%s: %s", name, dump(got))
 		}
-		if m := got.Message(); m != "this computer can't confine project commands, so they are not run" {
-			t.Errorf("%s: %q", name, m)
+		want := "this computer can't confine project commands, so they are not run"
+		if name == "self test fails" {
+			want += " (canary was readable)" // the status line says why, not only that
+		}
+		if m := got.Message(); m != want {
+			t.Errorf("%s: %q, want %q", name, m, want)
 		}
 	}
 	// file criteria need none
@@ -436,7 +440,7 @@ func TestTheUnconfinedOptInIsNamedInTheResultAndTheMessage(t *testing.T) {
 	needsRealSandbox(t)
 	r := newRig(t, true)
 	r.cfg.NetDenyAvailable = nil
-	r.cfg.Confiner, r.cfg.AllowUnconfined = nil, true
+	r.cfg.Confiner, r.unconfined = nil, true
 	got := r.run(crit("c1", "command", "true", "exit:0"))
 	if got.Outcome != OutcomePassedMachine || got.Containment != "process-group UNCONFINED" || !strings.Contains(got.Message(), "UNCONFINED") {
 		t.Fatalf("%s %q", dump(got), got.Message())

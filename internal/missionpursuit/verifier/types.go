@@ -128,6 +128,10 @@ type Request struct {
 	// NoLeadReread says explicitly that the lead pin is not re-read (it is not applicable). Exactly one of LeadPinNow and
 	// NoLeadReread is required: a re-read that is silently absent is a bad request.
 	NoLeadReread bool
+	// AllowUnconfined is the person's opt-in for THIS check (the host reads it from its own row, never from a flag or the
+	// environment): with no confiner it runs project commands with only the process group, the limits and the empty network
+	// namespace, and the result says UNCONFINED. It is no way around a confiner whose self test fails.
+	AllowUnconfined bool
 }
 
 // CriterionResult is what one criterion measured, bounded and stripped. Digests are the evidence, excerpts are for the
@@ -154,7 +158,9 @@ type Result struct {
 	SubjectDigest string
 	SubjectFiles  int
 	Containment   string
-	Net           string // finish.NetEnforced, or "" when nothing was run
+	// ConfinementDetail is why a confiner's self test failed (the canary id and what it saw), bounded and stripped; empty otherwise.
+	ConfinementDetail string
+	Net               string // finish.NetEnforced, or "" when nothing was run
 
 	Criteria      []CriterionResult
 	ResultsDigest string
@@ -174,6 +180,9 @@ type Result struct {
 // Message is the plain-words line for a person, with the loud suffix when the programs ran unconfined.
 func (r Result) Message() string {
 	m := Message(r.Outcome, r.Reason)
+	if r.Reason == ReasonNoConfinement && r.ConfinementDetail != "" {
+		m += " (" + r.ConfinementDetail + ")"
+	}
 	if r.Containment == ContainmentUnconfined {
 		m += " (project commands ran UNCONFINED)"
 	}
