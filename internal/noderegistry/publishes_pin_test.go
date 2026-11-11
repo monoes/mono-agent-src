@@ -25,7 +25,7 @@ import (
 
 // localOnlyTypes send nothing off this machine, and why.
 var localOnlyTypes = map[string]string{
-	"agent.memory":            "a sub-node's configuration; it does no I/O of its own",
+	"agent.memory":            "chat memory: its insert and get are a local store (see storeWriters); it sends nothing off this machine",
 	"ai.memory":               "a sub-node's configuration; it does no I/O of its own",
 	"ai.model":                "a sub-node's configuration; it does no I/O of its own",
 	"ai.output_parser":        "a sub-node's configuration; it does no I/O of its own",
@@ -285,6 +285,7 @@ func TestExecutorsDeclareWhatTheTableClassifies(t *testing.T) {
 // publication.register... are listed or publishing as the table says.
 var storeWriters = map[string]string{
 	"core.data_table":         "rows of a local table",
+	"agent.memory":            "chat memory messages (insert), read back by agent.memory get and agent.ask",
 	"data.read_write_file":    "writes a file",
 	"data.write_binary_file":  "writes a file",
 	"data.convert_to_file":    "makes the binary a file writer stores",

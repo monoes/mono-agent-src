@@ -347,3 +347,37 @@ func TestAgentAccessTaintFromChildrenWaitsForAllAndNeedsARead(t *testing.T) {
 		t.Errorf("a chain that read nothing tainted the parent: %v", err)
 	}
 }
+
+// Review of #1418 delta 2: a waiting poll (some child still running) issues
+// no lookup of what the children read; only the poll that sees all of them
+// finished does, once.
+func TestAgentAccessTaintLookupWaitsForAllChildren(t *testing.T) {
+	e := newAccessEnv(t)
+	e.grant(t, secrets.AccessGrant{AnyHost: true})
+	eng := newTestEngine(t, e.store, e.reg)
+	last := e.subWorkflowChain(t, 2, "RUNNING")
+	e.auditRead(t, last)
+	parent := parentCtxOf(e)
+	// d2 (the grandchild) is the one still running; d1 is done. A poll must not
+	// look at the audit, so it does not taint yet.
+	if _, err := e.db.DB.Exec(`UPDATE workflow_executions SET status = 'RUNNING' WHERE id = 'd1'`); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if _, err := eng.SubWorkflowChildren(parent, "d0", "call"); err != nil {
+			t.Fatal(err)
+		}
+		if err := secrets.CheckPublish(parent, "comm.slack", true); err != nil {
+			t.Fatalf("poll %d with a child still running tainted the run: %v", i, err)
+		}
+	}
+	if _, err := e.db.DB.Exec(`UPDATE workflow_executions SET status = 'SUCCESS' WHERE id = 'd1'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := eng.SubWorkflowChildren(parent, "d0", "call"); err != nil {
+		t.Fatal(err)
+	}
+	if err := secrets.CheckPublish(parent, "comm.slack", true); !errors.Is(err, secrets.ErrPublishesSecret) {
+		t.Errorf("the poll that sees every child finished did not taint: %v", err)
+	}
+}
