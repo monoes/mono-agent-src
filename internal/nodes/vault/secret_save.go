@@ -75,6 +75,9 @@ func (n *SecretSaveNode) Type() string { return "vault.secret_save" }
 // PublishesToThirdParty: vault.secret_save sends nothing off this machine (issue #1418).
 func (SecretSaveNode) PublishesToThirdParty() bool { return false }
 
+// WritesLocalStore: vault.secret_save puts what it is given where another run can read it back (issue #1418).
+func (SecretSaveNode) WritesLocalStore() bool { return true }
+
 func (n *SecretSaveNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	kind, _ := config["kind"].(string)
 	if kind == "" {

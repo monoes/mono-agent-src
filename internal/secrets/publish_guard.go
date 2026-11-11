@@ -103,3 +103,24 @@ func TaintResolved(ctx context.Context, names []string) {
 		a.mu.Unlock()
 	}
 }
+
+// CheckStoreWrite refuses a write of a secret a run under agent access has
+// read into a local store another run can read back (a table, a file, a
+// record): the taint is per run, so run 2 would start clean and publish what
+// run 1 stored (issue #1418). texts are what the node is given to write. A
+// caller checks UnderAgentAccess first, so no text is built outside it.
+func CheckStoreWrite(ctx context.Context, nodeType string, texts ...string) error {
+	a := accessOf(ctx)
+	if a == nil {
+		return nil
+	}
+	for _, v := range a.values() {
+		for _, t := range texts {
+			if strings.Contains(t, v) {
+				return fmt.Errorf("%w: %s would store a granted secret where another run can read it back and publish it; %s",
+					ErrPublishesSecret, a.who(ctx, nodeType), a.wayOut())
+			}
+		}
+	}
+	return nil
+}

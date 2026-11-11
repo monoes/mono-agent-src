@@ -22,6 +22,9 @@ func (n *ReadWriteFileNode) Type() string { return "data.read_write_file" }
 // PublishesToThirdParty: data.read_write_file sends nothing off this machine (issue #1418).
 func (ReadWriteFileNode) PublishesToThirdParty() bool { return false }
 
+// WritesLocalStore: data.read_write_file puts what it is given where another run can read it back (issue #1418).
+func (ReadWriteFileNode) WritesLocalStore() bool { return true }
+
 const readWriteNode = "data.read_write_file"
 
 var readWriteItemFields = []string{"file_selector", "file_name", "mime_type", "file_extension"}

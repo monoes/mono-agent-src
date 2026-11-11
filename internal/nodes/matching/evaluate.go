@@ -33,9 +33,6 @@ type EvaluateNode struct{}
 
 func (n *EvaluateNode) Type() string { return "applications.evaluate" }
 
-// PublishesToThirdParty: applications.evaluate sends nothing off this machine (issue #1418).
-func (EvaluateNode) PublishesToThirdParty() bool { return false }
-
 func (n *EvaluateNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	if globalDB == nil {
 		return nil, fmt.Errorf("applications.evaluate: database not available (call SetGlobalDB at startup)")

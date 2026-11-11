@@ -20,6 +20,9 @@ func (n *ConvertToFileNode) Type() string { return "data.convert_to_file" }
 // PublishesToThirdParty: data.convert_to_file sends nothing off this machine (issue #1418).
 func (ConvertToFileNode) PublishesToThirdParty() bool { return false }
 
+// WritesLocalStore: data.convert_to_file puts what it is given where another run can read it back (issue #1418).
+func (ConvertToFileNode) WritesLocalStore() bool { return true }
+
 // PerItemConfigFields holds back the calendar fields (operation "ics") and
 // file_name, which per-item operations name from the item.
 func (n *ConvertToFileNode) PerItemConfigFields() []string { return icalItemFields }

@@ -288,25 +288,30 @@ func (e *WorkflowEngine) SubWorkflowChildren(ctx context.Context, parentExecutio
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("sub-workflow: list children: %w", err)
 	}
+	all := len(out) > 0
+	ids := make([]string, 0, len(out))
 	for i := range out {
 		if err := e.fillSubWorkflowChild(ctx, &out[i]); err != nil {
 			return nil, err
 		}
-		// What a finished child read taints this run as well: its items come
-		// back in forms nobody can list (issue #1418).
-		if out[i].Done() && !out[i].Failed() {
-			if err := e.taintFromChild(ctx, db, out[i].ExecutionID); err != nil {
-				return nil, err
-			}
+		all = all && out[i].Done()
+		ids = append(ids, out[i].ExecutionID)
+	}
+	// What the finished children read taints this run as well: their items,
+	// or their error text, come back in forms nobody can list (issue #1418).
+	// Looked up once, when they have all finished, not on every poll.
+	if all {
+		if err := e.taintFromChildren(ctx, db, ids); err != nil {
+			return nil, err
 		}
 	}
 	return out, nil
 }
 
-// taintFromChild makes this run (under agent access) count the secrets the
-// child run, and the runs it called, read: the audit records them by
-// execution, by name.
-func (e *WorkflowEngine) taintFromChild(ctx context.Context, db *sql.DB, childID string) error {
+// taintFromChildren makes this run (under agent access) count the secrets the
+// child runs, and every run they called at any depth, read: the audit records
+// them by execution, by name.
+func (e *WorkflowEngine) taintFromChildren(ctx context.Context, db *sql.DB, childIDs []string) error {
 	if !secrets.UnderAgentAccess(ctx) {
 		return nil
 	}
@@ -314,7 +319,7 @@ func (e *WorkflowEngine) taintFromChild(ctx context.Context, db *sql.DB, childID
 	if err != nil {
 		return nil
 	}
-	names, err := childSecretNames(ctx, db, profile, childID, 0)
+	names, err := descendantSecretNames(ctx, db, profile, childIDs)
 	if err != nil {
 		return err
 	}
@@ -322,46 +327,78 @@ func (e *WorkflowEngine) taintFromChild(ctx context.Context, db *sql.DB, childID
 	return nil
 }
 
-func childSecretNames(ctx context.Context, db *sql.DB, profile, execID string, depth int) ([]string, error) {
-	rows, err := db.QueryContext(ctx, `SELECT DISTINCT secret_name FROM profile_agent_secret_audit WHERE profile_id = ? AND execution_id = ?`, profile, execID)
-	if err != nil {
-		return nil, fmt.Errorf("sub-workflow: what the child read: %w", err)
+// descendantSecretNames are the secrets read by the runs ids, and by those
+// they called, to MaxSubWorkflowDepth levels: one query per level to find the
+// runs, one per batch for the audit (which has no index on the execution).
+func descendantSecretNames(ctx context.Context, db *sql.DB, profile string, ids []string) ([]string, error) {
+	seen := map[string]bool{}
+	var all []string
+	level := ids
+	for depth := 0; len(level) > 0 && depth <= MaxSubWorkflowDepth; depth++ {
+		var fresh []string
+		for _, id := range level {
+			if !seen[id] {
+				seen[id] = true
+				fresh = append(fresh, id)
+			}
+		}
+		all = append(all, fresh...)
+		level = nil
+		for _, batch := range chunkStrings(fresh, 400) {
+			rows, err := db.QueryContext(ctx, `SELECT child_execution_id FROM subworkflow_runs WHERE parent_execution_id IN (`+placeholders(len(batch))+`)`, anySlice(batch)...)
+			if err != nil {
+				return nil, fmt.Errorf("sub-workflow: what the children called: %w", err)
+			}
+			for rows.Next() {
+				var id string
+				if err := rows.Scan(&id); err != nil {
+					rows.Close()
+					return nil, err
+				}
+				level = append(level, id)
+			}
+			rows.Close()
+		}
 	}
 	var names []string
-	for rows.Next() {
-		var n string
-		if err := rows.Scan(&n); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		names = append(names, n)
-	}
-	rows.Close()
-	if depth >= 8 {
-		return names, rows.Err()
-	}
-	grand, err := db.QueryContext(ctx, `SELECT child_execution_id FROM subworkflow_runs WHERE parent_execution_id = ?`, execID)
-	if err != nil {
-		return nil, fmt.Errorf("sub-workflow: what the child read: %w", err)
-	}
-	var ids []string
-	for grand.Next() {
-		var id string
-		if err := grand.Scan(&id); err != nil {
-			grand.Close()
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	grand.Close()
-	for _, id := range ids {
-		more, err := childSecretNames(ctx, db, profile, id, depth+1)
+	for _, batch := range chunkStrings(all, 400) {
+		rows, err := db.QueryContext(ctx, `SELECT DISTINCT secret_name FROM profile_agent_secret_audit WHERE profile_id = ? AND execution_id IN (`+placeholders(len(batch))+`)`,
+			append([]interface{}{profile}, anySlice(batch)...)...)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("sub-workflow: what the children read: %w", err)
 		}
-		names = append(names, more...)
+		for rows.Next() {
+			var n string
+			if err := rows.Scan(&n); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			names = append(names, n)
+		}
+		rows.Close()
 	}
 	return names, nil
+}
+
+func placeholders(n int) string { return strings.TrimSuffix(strings.Repeat("?,", n), ",") }
+
+func anySlice(s []string) []interface{} {
+	out := make([]interface{}, len(s))
+	for i, v := range s {
+		out[i] = v
+	}
+	return out
+}
+
+func chunkStrings(s []string, n int) [][]string {
+	var out [][]string
+	for len(s) > n {
+		out, s = append(out, s[:n]), s[n:]
+	}
+	if len(s) > 0 {
+		out = append(out, s)
+	}
+	return out
 }
 
 // fillSubWorkflowChild loads a child's status and, once it has finished, the

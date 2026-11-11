@@ -18,6 +18,9 @@ func (n *TagNode) Type() string { return "applications.tag" }
 // PublishesToThirdParty: applications.tag sends nothing off this machine (issue #1418).
 func (TagNode) PublishesToThirdParty() bool { return false }
 
+// WritesLocalStore: applications.tag puts what it is given where another run can read it back (issue #1418).
+func (TagNode) WritesLocalStore() bool { return true }
+
 func (n *TagNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	if globalStore == nil {
 		return nil, fmt.Errorf("applications.tag: store not available (call SetGlobalStore at startup)")

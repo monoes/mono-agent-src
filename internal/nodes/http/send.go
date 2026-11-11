@@ -116,14 +116,19 @@ func newHTTPClient(o clientOptions) (*http.Client, func()) {
 		if len(via) >= o.maxRedirects {
 			return fmt.Errorf("stopped after %d redirects", o.maxRedirects)
 		}
-		// A 307/308 sends the body again, to the host the redirect names.
-		if req.GetBody != nil && secrets.UnderAgentAccess(req.Context()) {
-			if rc, err := req.GetBody(); err == nil {
-				b, _ := io.ReadAll(rc)
-				rc.Close()
-				if err := checkSecretContent(req.Context(), client, req, b); err != nil {
-					return err
+		// Every hop is checked: its address (the server chose it) and, for a
+		// 307/308, the body that is sent again to the host it names. A
+		// 301/302/303 that turns a POST into a GET sends no body.
+		if secrets.UnderAgentAccess(req.Context()) {
+			var b []byte
+			if req.GetBody != nil {
+				if rc, err := req.GetBody(); err == nil {
+					b, _ = io.ReadAll(rc)
+					rc.Close()
 				}
+			}
+			if err := checkSecretContent(req.Context(), client, req, b, req.URL.RawQuery); err != nil {
+				return err
 			}
 		}
 		if len(via) == 0 || req.URL.Host == via[0].URL.Host {
@@ -227,7 +232,13 @@ func send(ctx context.Context, client *http.Client, ob *outbound, maxBody int64,
 	if err := checkSecretHost(ctx, req, ob.body); err != nil {
 		return nil, err
 	}
-	if err := checkSecretContent(ctx, client, req, ob.body); err != nil {
+	// The query as written is content; the api key's value, which the auth
+	// added to it, is not (its name is: see checkSecretContent).
+	raw := ob.u.RawQuery
+	if ob.auth.qName != "" {
+		raw = strings.Replace(raw, url.QueryEscape(ob.auth.qName)+"="+url.QueryEscape(ob.auth.qVal), "", 1)
+	}
+	if err := checkSecretContent(ctx, client, req, ob.body, raw); err != nil {
 		return nil, err
 	}
 	if pol.marked {
@@ -325,7 +336,7 @@ func checkSecretHost(ctx context.Context, req *http.Request, body []byte) error 
 // when what carries the request there is too: a proxy that is not this
 // machine receives the whole request, body included. Checked on every hop,
 // since a redirect sends the body again.
-func checkSecretContent(ctx context.Context, client *http.Client, req *http.Request, body []byte) error {
+func checkSecretContent(ctx context.Context, client *http.Client, req *http.Request, body []byte, rawQuery string) error {
 	if !secrets.UnderAgentAccess(ctx) {
 		return nil
 	}
@@ -333,11 +344,11 @@ func checkSecretContent(ctx context.Context, client *http.Client, req *http.Requ
 	if v, ok := client.Transport.(viaCheck); ok && v.proxy != nil && !ownHost(v.proxy.Hostname()) {
 		own = false
 	}
-	content := []string{string(body)}
+	content := []string{string(body), rawQuery}
 	for name := range req.URL.Query() {
 		content = append(content, name)
 	}
-	return secrets.CheckSendContent(ctx, own, "body or query parameter names", content...)
+	return secrets.CheckSendContent(ctx, own, "body or query string", content...)
 }
 
 // carryTexts are the parts of req a secret could ride in: its address

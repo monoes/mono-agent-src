@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"encoding/json"
 	"sync/atomic"
 
 	"github.com/monoes/mono-agent/internal/secrets"
@@ -36,6 +37,12 @@ func RunExecGuard(ctx context.Context, nodeType string, in NodeInput, config map
 // does not declare it publishes (fail closed; the pin is in noderegistry).
 type Declarer interface{ PublishesToThirdParty() bool }
 
+// StoreWriter is what a local-only executor says when it puts what it is
+// given where another run can read it back (a table, a file, a record, the
+// vault): a run under agent access that has read a secret may not write it
+// there (secrets.CheckStoreWrite).
+type StoreWriter interface{ WritesLocalStore() bool }
+
 // Publishes reports whether e publishes to third parties.
 func Publishes(e NodeExecutor) bool {
 	if d, ok := e.(Declarer); ok {
@@ -52,6 +59,17 @@ func Publishes(e NodeExecutor) bool {
 func RunExecGuardFor(ctx context.Context, e NodeExecutor, in NodeInput, config map[string]interface{}) ([]NodeOutput, bool, error) {
 	if err := secrets.CheckPublish(ctx, e.Type(), Publishes(e)); err != nil {
 		return nil, true, err
+	}
+	if w, ok := e.(StoreWriter); ok && w.WritesLocalStore() && secrets.UnderAgentAccess(ctx) {
+		items := make([]map[string]interface{}, 0, len(in.Items))
+		for _, it := range in.Items {
+			items = append(items, it.JSON)
+		}
+		rawItems, _ := json.Marshal(items)
+		rawConfig, _ := json.Marshal(config)
+		if err := secrets.CheckStoreWrite(ctx, e.Type(), string(rawItems), string(rawConfig)); err != nil {
+			return nil, true, err
+		}
 	}
 	return RunExecGuard(ctx, e.Type(), in, config)
 }

@@ -20,6 +20,9 @@ func (n *WriteBinaryFileNode) Type() string { return "data.write_binary_file" }
 // PublishesToThirdParty: data.write_binary_file sends nothing off this machine (issue #1418).
 func (WriteBinaryFileNode) PublishesToThirdParty() bool { return false }
 
+// WritesLocalStore: data.write_binary_file puts what it is given where another run can read it back (issue #1418).
+func (WriteBinaryFileNode) WritesLocalStore() bool { return true }
+
 func (n *WriteBinaryFileNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	filePath, _ := config["file_path"].(string)
 	if filePath == "" {

@@ -19,6 +19,9 @@ func (n *ImageVaultSaveNode) Type() string { return "image.vault_save" }
 // PublishesToThirdParty: image.vault_save sends nothing off this machine (issue #1418).
 func (ImageVaultSaveNode) PublishesToThirdParty() bool { return false }
 
+// WritesLocalStore: image.vault_save puts what it is given where another run can read it back (issue #1418).
+func (ImageVaultSaveNode) WritesLocalStore() bool { return true }
+
 func (n *ImageVaultSaveNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	field, _ := config["field"].(string)
 	source, _ := config["source"].(string)
