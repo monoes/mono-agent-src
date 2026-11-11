@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/storage"
 
 	"github.com/google/uuid"
 
@@ -293,6 +294,7 @@ func (mt *MonoagentTools) listMessages(args string) (string, error) {
 	if limit <= 0 {
 		limit = 50
 	}
+	storage.EnsureMessagesScrubbed(mt.db, mt.ProfileID())
 	query := `SELECT id, person_id, source, direction, COALESCE(subject,''), status, COALESCE(hil_ref,''), created_at
 	          FROM person_messages WHERE profile_id = ?`
 	params := []interface{}{mt.ProfileID()}
@@ -335,6 +337,7 @@ func (mt *MonoagentTools) getMessage(args string) (string, error) {
 		return "", fmt.Errorf("invalid args: %w", err)
 	}
 	var id, personID, source, direction, subject, body, status, hilRef, createdAt string
+	storage.EnsureMessagesScrubbed(mt.db, mt.ProfileID())
 	if err := mt.db.QueryRow(
 		`SELECT id, person_id, source, direction, COALESCE(subject,''), COALESCE(body,''), status, COALESCE(hil_ref,''), created_at
 		 FROM person_messages WHERE id = ? AND profile_id = ?`, a.MessageID, mt.ProfileID(),

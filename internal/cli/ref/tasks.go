@@ -276,9 +276,9 @@ JSON
     {"profile","created","task"}        add
     {"profile","task","events"}         show
     {"profile","session"}               session new, session approve, session pause, session resume, session stop, session close, session retire-worker, session archive, session budget, session reservation resolve
-    {"profile","sessions"}              session list
+    {"profile","sessions","over_committed"}  session list (over_committed: the sessions committed past their budget, [] when none)
     [session...]                        session tree (roots, each with "children"; a session also has parent_session_id, kind, depth, approval_basis)
-    {"profile","session","events"}      session show
+    {"profile","session","events","over_committed"}  session show (over_committed: {over, session_id, by_session_id, budget_usd, committed_usd, over_by_usd, ...}, always present)
     {"profile","session","tasks"}       session plan
     {"profile","session","task"}        next --session
     {"profile","session_id","tasks"}    list --session

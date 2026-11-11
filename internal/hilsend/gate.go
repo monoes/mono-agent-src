@@ -187,7 +187,7 @@ func Guard(ctx context.Context, nodeType string, in workflow.NodeInput, config m
 	}
 	items := make([]workflow.Item, 0, len(prepared))
 	for _, p := range prepared {
-		q, err := st.create(ctx, p.payload, p.replay)
+		q, err := st.createHeld(ctx, p.payload, p.replay)
 		if err != nil {
 			return nil, true, err
 		}

@@ -67,6 +67,7 @@ const (
 	pursuitWaitingMeter  = "meter-unreadable"
 	pursuitWaitingPin    = "judge-pin"
 	pursuitWaitingNoChat = "no-chat"
+	pursuitWaitingOver   = "over-committed"
 )
 
 // PursuitDeps turns the loop on. Model is the judge (resolved by the caller for the judging purpose) and Refuse its

@@ -92,6 +92,8 @@ func WaitingWhy(waiting string) string {
 		return "waiting for you: the goal cannot be checked here (the project folder cannot be used, or the checker could not be built); task session goal check names why"
 	case "no-chat":
 		return "waiting for you: this mission has no chat to wake"
+	case "over-committed":
+		return "waiting for you: over-committed: the mission's budget is exceeded by its own spend plus what was carved to helpers; raise the budget to resume"
 	case "engine-parked":
 		return "waiting for you: a stored strategy row failed verification and the strategy engine stopped"
 	}
@@ -202,6 +204,8 @@ func NextLine(paused bool, waiting string, seen, hostRuns bool) string {
 		return "Act on the mission to try the goal checker again; if it keeps failing, check its model (coder host status)."
 	case waiting == "cannot-check":
 		return "Read why (task session goal check, coder host status): the project folder, the checker or the confinement of project commands is missing. You decide when to close the mission."
+	case waiting == "over-committed":
+		return "Raise the mission's budget (task session budget); its spend plus what was carved to helpers is past it, so no worker can start and nothing is judged or woken."
 	case waiting == "no-chat":
 		return "This mission has no chat to wake; close it, or run the work from a chat."
 	case waiting == "engine-parked":

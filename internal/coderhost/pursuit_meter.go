@@ -134,6 +134,11 @@ func (h *Host) pursuitStopReason(m pursuitMission, st pursuitState) string {
 	if h.pursuitPinWhy(m) != "" {
 		return pursuitWaitingPin
 	}
+	// A mission committed past its budget can run no worker (every cap and reservation run under it is refused), so a judge
+	// call or a wake-up would be paid for nothing. A read that fails does not stop the pursuit: the run itself is refused anyway.
+	if h.Store.missionOverCommitted(m) {
+		return pursuitWaitingOver
+	}
 	return ""
 }
 

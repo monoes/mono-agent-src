@@ -87,6 +87,7 @@ func selectInboxCandidates(db *sql.DB, profileID, personID string, since time.Du
 	if profileID == "" {
 		return nil, errNoProfile
 	}
+	storage.EnsureMessagesScrubbed(db, profileID)
 	query := `
 		SELECT pm.id, COALESCE(pm.sender,''), COALESCE(pm.subject,''), COALESCE(pm.body,''),
 		       COALESCE(pm.metadata,''), pm.sent_at, pm.created_at, COALESCE(p.full_name,'')
