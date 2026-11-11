@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/monoes/mono-agent/internal/hilscrub"
 	"github.com/monoes/mono-agent/internal/monomind"
 )
 
@@ -466,5 +465,11 @@ func (d *Database) ListPersonStatusUpdates(personID, profileID string, limit int
 // scrubHeldSends removes, from the rows older versions wrote, the value of a
 // secret agent access covers, before a message is read (#1594).
 func (d *Database) scrubHeldSends(profileID string) {
-	hilscrub.Ensure(context.Background(), d.DB, profileID)
+	if ReadHook != nil {
+		ReadHook(context.Background(), d.DB, profileID)
+	}
 }
+
+// ReadHook runs before a message of a profile is read. internal/hilscrub sets
+// it (storage cannot import it: the secrets tests import storage).
+var ReadHook func(ctx context.Context, db *sql.DB, profile string)

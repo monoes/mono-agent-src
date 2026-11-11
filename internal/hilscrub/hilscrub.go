@@ -18,7 +18,10 @@ import (
 
 	"github.com/monoes/mono-agent/internal/dbconn"
 	"github.com/monoes/mono-agent/internal/secrets"
+	"github.com/monoes/mono-agent/internal/storage"
 )
+
+func init() { storage.ReadHook = Ensure }
 
 var done sync.Map // *sql.DB + profile -> struct{}
 
