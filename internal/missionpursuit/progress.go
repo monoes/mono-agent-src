@@ -82,6 +82,8 @@ func WaitingWhy(waiting string) string {
 		return "waiting for you: the judge's model must have a different runtime/model name from the lead's (a name check: two names for one model are not recognised), and the lead's model must be known (pin the lead's model, or change the host's judge pin and restart it)"
 	case "no-chat":
 		return "waiting for you: this mission has no chat to wake"
+	case "over-committed":
+		return "waiting for you: over-committed: the mission's budget is exceeded by its own spend plus what was carved to helpers; raise the budget to resume"
 	case "engine-parked":
 		return "waiting for you: a stored strategy row failed verification and the strategy engine stopped"
 	}
@@ -182,6 +184,8 @@ func NextLine(paused bool, waiting string, seen, hostRuns bool) string {
 		return "Act on the mission to try the judge again; if it keeps failing, check the judge's model (coder host status)."
 	case waiting == "judge-pin":
 		return "Change the host's judge model (MONOAGENT_PURSUIT_JUDGE) so that it differs from the lead's, and restart the coder host."
+	case waiting == "over-committed":
+		return "Raise the mission's budget (task session budget); its spend plus what was carved to helpers is past it, so no worker can start and nothing is judged or woken."
 	case waiting == "no-chat":
 		return "This mission has no chat to wake; close it, or run the work from a chat."
 	case waiting == "engine-parked":
