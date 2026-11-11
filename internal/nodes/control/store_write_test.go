@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/zalando/go-keyring"
@@ -98,5 +99,37 @@ func TestAgentAccessTaintedRunDoesNotWriteAnotherNodesSecretToALocalStore(t *tes
 	rows := dtRun(t, run("wf2"), nil, map[string]interface{}{"operation": "get", "table": "T"})
 	if len(rows) != 0 {
 		t.Errorf("the next run reads %v", rows)
+	}
+}
+
+// Review of #1418 delta 3: the refusal for a value reached through another
+// node's output says which node's output held it.
+func TestStoreWriteRefusalNamesTheEarlierNode(t *testing.T) {
+	keyring.MockInit()
+	db, err := storage.NewDatabase(filepath.Join(t.TempDir(), "vault.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.ApplyMigrations(); err != nil {
+		t.Fatal(err)
+	}
+	base := vault.ContextWithProfileID(vault.ContextWithDB(context.Background(), db.DB), "default")
+	if _, err := secrets.Add(base, db.DB, "default", "secret", "vs", map[string]string{"secret": "vsecret-777"}, "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := secrets.SetAgentAccessGrant(base, db.DB, "default", secrets.AccessGrant{AnyHost: true}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := secrets.WithAccessNode(secrets.AllowResolving(base, db.DB, "default", secrets.AccessOrigin{WorkflowID: "wf1"}), "n1", "Table")
+	if err := secrets.ResolveConfig(ctx, db.DB, "default", map[string]interface{}{"x": "@secret:vs"}, map[string]interface{}{"x": "@secret:vs"}); err != nil {
+		t.Fatal(err)
+	}
+	in := workflow.NodeInput{Items: []workflow.Item{workflow.NewItem(map[string]interface{}{"n": 1})},
+		NodeOutputs: map[string][]workflow.Item{"Other": {workflow.NewItem(map[string]interface{}{"v": "fine"})}, "Src": {workflow.NewItem(map[string]interface{}{"v": "vsecret-777"})}}}
+	cfg := map[string]interface{}{"operation": "insert", "table": "T", "values": map[string]interface{}{"k": `{{ $node["Src"].json.v }}`}}
+	_, _, err = workflow.RunExecGuardFor(ctx, &DataTableNode{}, in, cfg)
+	if err == nil || !strings.Contains(err.Error(), `"Src"`) || strings.Contains(err.Error(), `"Other"`) || strings.Contains(err.Error(), "vsecret-777") {
+		t.Errorf("the refusal must name the earlier node that held the value (Src), not Other, and never the value: %v", err)
 	}
 }

@@ -40,7 +40,6 @@ var localOnlyTypes = map[string]string{
 	"core.data_table":         "the local data tables",
 	"core.execute_workflow":   "runs a sub-workflow; the taint is seeded into it (SeedResolved)",
 	"core.filter":             "filters items",
-	"core.form":               "serves a form on this machine; items are not sent anywhere",
 	"core.human_in_loop":      "shows the owner a card; the card is a store (see storeWriters)",
 	"core.if":                 "routes items",
 	"core.limit":              "trims items",
@@ -96,6 +95,7 @@ var localOnlyTypes = map[string]string{
 // record, a response, a prompt), and what carries it. Every type of the
 // "app." family (the API packages) is publishing by rule.
 var publishingTypes = map[string]string{
+	"core.form":                   "its page text, response text and redirect address are served to whoever submits the form (as core.respond_webhook is)",
 	"applications.evaluate":       "the application record goes to a model provider (matching.Evaluate)",
 	"ai.task":                     "the goal goes to a model provider when the task runs",
 	"people.save":                 "fetches the item's image_url, an address the run chooses",
@@ -285,6 +285,8 @@ func TestExecutorsDeclareWhatTheTableClassifies(t *testing.T) {
 // publication.register... are listed or publishing as the table says.
 var storeWriters = map[string]string{
 	"core.data_table":         "rows of a local table",
+	"image.edit":              "its text operation renders configuration text onto an image and writes the file",
+	"applications.prepare":    "persists the CV and cover letter documents (html, pdf) that later runs read",
 	"agent.memory":            "chat memory messages (insert), read back by agent.memory get and agent.ask",
 	"core.human_in_loop":      "a card in the approvals table, with the items it shows",
 	"data.read_write_file":    "writes a file",

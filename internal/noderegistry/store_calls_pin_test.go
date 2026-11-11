@@ -12,6 +12,11 @@ import (
 	"testing"
 )
 
+// storePackages are the internal packages a node writes through without
+// calling os or sql itself: the chat memory, application and document
+// persistence, the data tables, the profile database.
+var storePackages = []string{"aimemory", "apply", "documents", "applications", "datatable", "storage", "people", "commsync"}
+
 // writeCallsByDir finds, per node package directory, the files that write
 // to a file, a database or the keyring, or use the chat-memory store.
 func writeCallsByDir(t *testing.T) map[string][]string {
@@ -28,8 +33,11 @@ func writeCallsByDir(t *testing.T) map[string][]string {
 		}
 		hit := ""
 		for _, im := range f.Imports {
-			if strings.HasSuffix(strings.Trim(im.Path.Value, `"`), "/internal/aimemory") {
-				hit = "imports aimemory"
+			path := strings.Trim(im.Path.Value, `"`)
+			for _, store := range storePackages {
+				if strings.HasSuffix(path, "/internal/"+store) {
+					hit = "imports " + store
+				}
 			}
 		}
 		ast.Inspect(f, func(n ast.Node) bool {
@@ -67,12 +75,12 @@ func writeCallsByDir(t *testing.T) map[string][]string {
 // database or the memory store somewhere, that do not themselves put what
 // they are given where another run can read it back, and why.
 var noStoreWrite = map[string]string{
+	"applications.list":       "reads application records; applications.create, set_status and tag write them and declare it",
 	"core.aggregate":          "passes or reshapes items in memory; the package writes the human-in-the-loop card, the data table and static data elsewhere (declared or not a channel)",
 	"core.code":               "passes or reshapes items in memory; the package writes the human-in-the-loop card, the data table and static data elsewhere (declared or not a channel)",
 	"core.compare_datasets":   "passes or reshapes items in memory; the package writes the human-in-the-loop card, the data table and static data elsewhere (declared or not a channel)",
 	"core.execute_workflow":   "passes or reshapes items in memory; the package writes the human-in-the-loop card, the data table and static data elsewhere (declared or not a channel)",
 	"core.filter":             "passes or reshapes items in memory; the package writes the human-in-the-loop card, the data table and static data elsewhere (declared or not a channel)",
-	"core.form":               "passes or reshapes items in memory; the package writes the human-in-the-loop card, the data table and static data elsewhere (declared or not a channel)",
 	"core.if":                 "passes or reshapes items in memory; the package writes the human-in-the-loop card, the data table and static data elsewhere (declared or not a channel)",
 	"core.limit":              "passes or reshapes items in memory; the package writes the human-in-the-loop card, the data table and static data elsewhere (declared or not a channel)",
 	"core.merge":              "passes or reshapes items in memory; the package writes the human-in-the-loop card, the data table and static data elsewhere (declared or not a channel)",
@@ -100,7 +108,6 @@ var noStoreWrite = map[string]string{
 	"image.adjust":            "edits pixels, not text; image.vault_save declares WritesLocalStore()",
 	"image.convert":           "edits pixels, not text; image.vault_save declares WritesLocalStore()",
 	"image.crop":              "edits pixels, not text; image.vault_save declares WritesLocalStore()",
-	"image.edit":              "edits pixels, not text; image.vault_save declares WritesLocalStore()",
 	"image.info":              "edits pixels, not text; image.vault_save declares WritesLocalStore()",
 	"image.remove_background": "edits pixels, not text; image.vault_save declares WritesLocalStore()",
 	"image.resize":            "edits pixels, not text; image.vault_save declares WritesLocalStore()",
