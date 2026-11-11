@@ -109,6 +109,50 @@ func TestNothingImportsThePackageYet(t *testing.T) {
 	}
 }
 
+// The systemd confiner has exactly one importer outside its own package: the host's wiring file (S7c1b), which builds it only
+// when the goal checks are switched on.
+func TestOnlyTheHostsWiringFileImportsTheConfiner(t *testing.T) {
+	root := filepath.Join("..", "..", "..")
+	var got []string
+	visited := 0
+	for _, top := range []string{"internal", "cmd", "wails-app"} {
+		werr := filepath.WalkDir(filepath.Join(root, top), func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
+				return nil
+			}
+			visited++
+			rel, _ := filepath.Rel(root, p)
+			rel = filepath.ToSlash(rel)
+			if strings.HasPrefix(rel, "internal/missionpursuit/verifier/sdconfine/") {
+				return nil
+			}
+			f, perr := parser.ParseFile(token.NewFileSet(), p, nil, parser.ImportsOnly)
+			if perr != nil {
+				return perr
+			}
+			for _, im := range f.Imports {
+				if path, _ := strconv.Unquote(im.Path.Value); strings.HasSuffix(path, "/internal/missionpursuit/verifier/sdconfine") {
+					got = append(got, rel)
+				}
+			}
+			return nil
+		})
+		if werr != nil {
+			t.Fatalf("walking %s: %v", top, werr)
+		}
+	}
+	if visited < 500 {
+		t.Fatalf("the walk visited %d Go files: the guard would pass on nothing", visited)
+	}
+	sort.Strings(got)
+	if want := []string{"internal/coderhost/pursuit_check_wire.go"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("importers of the systemd confiner: %v, want %v\ndecide the importer here, in review", got, want)
+	}
+}
+
 // No file declares an init(): the finish sandbox's limits helper is run from the command's run function, and nothing in this
 // package may do I/O before main.
 func TestThePackageDeclaresNoInit(t *testing.T) {

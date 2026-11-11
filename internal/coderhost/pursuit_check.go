@@ -277,7 +277,12 @@ func (h *Host) runCheck(ctx context.Context, cancel context.CancelFunc, rd *inpu
 			}
 		}
 	}()
-	res, err := h.checker().Run(ctx, req)
+	v := h.checker()
+	if v == nil { // the gate refuses a checker that could not be built before it gets here
+		h.endAbandoned(m, id, req.GoalHash)
+		return
+	}
+	res, err := v.Run(ctx, req)
 	if err != nil {
 		// a bug, a scratch area that could not be made: not an outcome. The check is abandoned (counted at the cap) and the mission rests.
 		h.logf("coder host: goal check of session %d did not run: %v", m.ID, err)
