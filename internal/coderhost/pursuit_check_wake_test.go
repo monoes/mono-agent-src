@@ -466,3 +466,26 @@ func TestAParkThatALaterPassingCheckOvertookEarnsNoEpochAndNoWake(t *testing.T) 
 		t.Errorf("wake-ups: %v, want the accept wake only", texts)
 	}
 }
+
+// An over-committed mission pays nothing (waiting "over-committed"): the accept wake waits too, and is sent exactly once after the
+// budget is raised, as the close wake is.
+func TestAnAcceptedOverCommittedMissionGetsItsAcceptWakeOnlyAfterTheBudgetIsRaised(t *testing.T) {
+	w := awake(t)
+	id := w.hostCheck(verifier.OutcomePassedMachine, "", false)
+	w.answer(id, true)
+	w.exec(`INSERT INTO task_sessions (id, profile_id, title, state, kind, budget_usd, parent_session_id, created_by, created_at, updated_at) VALUES (90, 'p', 'kid', 'running', 'task', 10, 77, 'you', 'x', 'x')`)
+	w.setSpent(2)
+	w.advance(2 * time.Second)
+	w.quiet(3)
+	if w.wakeRows() != 0 || w.model.count() != 0 || w.waiting() != "over-committed" {
+		t.Fatalf("wake-ups %d, judge calls %d, waiting %q: an over-committed accepted mission pays nothing", w.wakeRows(), w.model.count(), w.waiting())
+	}
+	w.exec(`UPDATE task_sessions SET budget_usd = 12 WHERE id = 77`)
+	w.quiet(4)
+	if w.wakeRows() != 1 || len(w.epochTriggers()) != 0 {
+		t.Errorf("after the raise: wake-ups %d, epochs %v, want exactly one accept wake", w.wakeRows(), w.epochTriggers())
+	}
+	if texts := w.allWakeTexts(); len(texts) != 1 || !strings.Contains(texts[0], "The person accepted the goal") {
+		t.Errorf("wake-ups: %v", texts)
+	}
+}
