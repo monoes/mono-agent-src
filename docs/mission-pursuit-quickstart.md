@@ -57,7 +57,7 @@ If the host switch is off, a started pursuit does nothing and the lead's check-i
 | `budget-unknown` | the mission has no known budget, so no share can be measured; set one |
 | `lead-uncapped` | the lead has no spend cap of its own; set a budget for its chat |
 | `no-chat` | the mission has no chat to wake |
-| `over-committed` | the mission's budget is exceeded by its own spend plus what was carved to helpers; raise the budget to resume (no worker can start, so nothing is judged or woken) |
+| `over-committed` | the mission's budget is exceeded by its own spend plus what was carved to helpers; raise the budget to resume (no worker can start, so nothing is judged or woken; a settled mission gets no close wake until you raise the budget, then the one close wake is sent) |
 | `judge-pin` | the judge's model name equals the lead's, or the lead's model is not known |
 | `judge-failing` | 3 judge rounds in a row failed; it is not called again until you act |
 | `meter-unreadable` | the judge ledger or turn journals could not be read; clears when they read again |
