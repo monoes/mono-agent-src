@@ -91,6 +91,7 @@ type CheckFacts struct {
 	LatestReason   string
 	LatestDigest   string
 	LatestVerdict  string
+	LatestContain  string    // where the programs ran; for a refused confinement, which self test failed
 	LatestStarted  time.Time // zero when it does not read
 	AwaitingPerson bool      // the latest check passed its machine criteria and its reviewer and waits for the person's answers
 	SinceVerdict   int       // checks after the latest accepted or rejected one
@@ -101,7 +102,7 @@ type CheckFacts struct {
 // acted: checks up to it do not count toward the reviewer-failing stop.
 func ReadCheckFacts(ctx context.Context, db *sql.DB, session, baseID int64) (CheckFacts, error) {
 	var f CheckFacts
-	rows, err := db.QueryContext(ctx, `SELECT id, state, outcome, reason, subject_digest, started_at, reviewer_verdict FROM mission_goal_checks WHERE session_id = ? ORDER BY id DESC LIMIT 200`, session)
+	rows, err := db.QueryContext(ctx, `SELECT id, state, outcome, reason, subject_digest, started_at, reviewer_verdict, containment FROM mission_goal_checks WHERE session_id = ? ORDER BY id DESC LIMIT 200`, session)
 	if err != nil {
 		return f, fmt.Errorf("missionpursuit: reading the checks: %w", err)
 	}
@@ -109,15 +110,15 @@ func ReadCheckFacts(ctx context.Context, db *sql.DB, session, baseID int64) (Che
 	badOpen, verdictSeen := true, false
 	for rows.Next() {
 		var id int64
-		var state, outcome, reason, digest, started, verdict string
-		if err := rows.Scan(&id, &state, &outcome, &reason, &digest, &started, &verdict); err != nil {
+		var state, outcome, reason, digest, started, verdict, contain string
+		if err := rows.Scan(&id, &state, &outcome, &reason, &digest, &started, &verdict, &contain); err != nil {
 			return f, err
 		}
 		if state == CheckRunning {
 			f.Running = true
 		}
 		if !f.HaveLatest {
-			f.HaveLatest, f.LatestID, f.LatestState, f.LatestOutcome, f.LatestReason, f.LatestDigest, f.LatestVerdict = true, id, state, outcome, reason, digest, verdict
+			f.HaveLatest, f.LatestID, f.LatestState, f.LatestOutcome, f.LatestReason, f.LatestDigest, f.LatestVerdict, f.LatestContain = true, id, state, outcome, reason, digest, verdict, contain
 			f.LatestStarted, _ = time.Parse(time.RFC3339, started)
 			f.AwaitingPerson = state == CheckDone && outcome == OutcomePassedMachine && verdict == "ok"
 		}

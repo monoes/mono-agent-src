@@ -34,11 +34,12 @@ type goalCheckStub struct {
 }
 
 type goalCheckLatest struct {
-	ID        int64  `json:"id"`
-	State     string `json:"state"`
-	Outcome   string `json:"outcome,omitempty"`
-	Reason    string `json:"reason,omitempty"`
-	StartedAt string `json:"started_at,omitempty"`
+	ID      int64  `json:"id"`
+	State   string `json:"state"`
+	Outcome string `json:"outcome,omitempty"`
+	Reason  string `json:"reason,omitempty"`
+	// Containment is where the programs ran, and for a check refused for its confinement which self test failed.
+	Containment string `json:"containment,omitempty"`
 }
 
 // readGoalCheck builds the block from the host's published state and the mission's check rows.
@@ -66,7 +67,7 @@ func readGoalCheck(ctx context.Context, db *sql.DB, session int64, host coderhos
 		g.ChecksWindow, g.ChecksSince, g.HostChecksHour = cs.Window.Count, cs.Facts.SinceVerdict, cs.HostHour
 		g.SpendUSD = float64(cs.Window.Micro) / 1e6
 		if f := cs.Facts; f.HaveLatest {
-			g.Latest = &goalCheckLatest{ID: f.LatestID, State: f.LatestState, Outcome: f.LatestOutcome, Reason: missionpursuit.Clean(f.LatestReason, 200)}
+			g.Latest = &goalCheckLatest{ID: f.LatestID, State: f.LatestState, Outcome: f.LatestOutcome, Reason: missionpursuit.Clean(f.LatestReason, 200), Containment: missionpursuit.Clean(f.LatestContain, 200)}
 		}
 	}
 	return g
@@ -93,6 +94,9 @@ func writeGoalCheck(w io.Writer, g goalCheckStub) {
 		}
 		if l.Reason != "" {
 			fmt.Fprintf(w, " (%s)", l.Reason)
+		}
+		if l.Reason == "no-confinement" && l.Containment != "" {
+			fmt.Fprintf(w, ": %s", l.Containment)
 		}
 		fmt.Fprintln(w)
 	}

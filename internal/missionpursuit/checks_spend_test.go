@@ -1,6 +1,7 @@
 package missionpursuit
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -137,5 +138,19 @@ func TestTheReviewerUnusableReasonsAreTheLibrarysWords(t *testing.T) {
 	}
 	if reviewerUnusable(string(verifier.ReasonReviewerBlocked)) || string(verifier.OutcomeBlocked) != "blocked" {
 		t.Error("a reviewer's verdict counted as an unusable reviewer, or the outcome word moved")
+	}
+}
+
+// A refused confinement names the self test that failed, in the containment of the check row.
+func TestACheckRefusedForItsConfinementKeepsWhichTestFailed(t *testing.T) {
+	w := newCheckWorld(t)
+	id := w.begin(t)
+	res := w.result(verifier.OutcomeCannotCheck, "")
+	res.Reason, res.ConfinementDetail, res.CostMicro, res.CostKnown = verifier.ReasonNoConfinement, "C4 secrets by path: the host's .ssh folder was visible", 0, true
+	if err := w.hc.Finish(bg, id, res); err != nil {
+		t.Fatal(err)
+	}
+	if c := w.read(t, id); c.Reason != "no-confinement" || !strings.Contains(c.Containment, "C4 secrets by path") {
+		t.Errorf("reason %q containment %q", c.Reason, c.Containment)
 	}
 }
