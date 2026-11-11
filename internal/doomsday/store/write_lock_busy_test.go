@@ -39,3 +39,21 @@ func TestAdvanceSurvivesAWriterCommittingBetweenItsReadAndItsWrite(t *testing.T)
 		t.Fatal("the hook never ran")
 	}
 }
+
+// The chain head is read before the next row is written: a writer that commits in between must not fail the append
+// with SQLITE_BUSY_SNAPSHOT (#1460).
+func TestAppendAuditSurvivesAWriterCommittingBetweenItsReadAndItsWrite(t *testing.T) {
+	s, _ := newStore(t)
+	r := enter(t, s, "p")
+	w, fired := onWrapped(t, s)
+	row, err := w.AppendAudit(ctx, r.Profile, r.Generation, "note", "{}")
+	if err != nil {
+		t.Fatalf("AppendAudit failed when a writer committed between its read and its write: %v", err)
+	}
+	if !fired() {
+		t.Fatal("the hook never ran")
+	}
+	if row.Seq < 2 {
+		t.Fatalf("seq = %d, want a row after the entry's", row.Seq)
+	}
+}
