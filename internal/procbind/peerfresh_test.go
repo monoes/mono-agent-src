@@ -29,7 +29,10 @@ func TestAPeerCreatedAfterTheConnectionWasAcceptedCannotBeTheConnector(t *testin
 			t.Errorf("%s: createdAfterAccept = %v, want %v", c.name, got, c.after)
 		}
 	}
-	if createdAfterAccept(0, accepted) {
-		t.Error("an unknown creation time is refused elsewhere (empty stamp), not here")
+	if !createdAfterAccept(0, accepted) {
+		t.Error("an unknown (zero) creation time must be refused, not served")
+	}
+	if !createdAfterAccept(filetimeUnixEpoch-1, accepted) {
+		t.Error("a creation time before the Unix epoch must be refused")
 	}
 }

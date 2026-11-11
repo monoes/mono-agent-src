@@ -3618,7 +3618,7 @@ handles stay open so the directory cannot be renamed while the service runs, a l
 socket path longer than the 107 bytes of a Windows socket address is refused with its cause. The frame pipe's write end is not
 inheritable. Residual, as on macOS and not present on Linux: the kernel names the process that **connected** and does not say who holds
 the connection, so a connector that hands the connection to another process and ends, and whose number is recycled to a process inside
-the tree before the service pins it, is served as that process; the window is the accept latency (a peer created after the connection was accepted is refused, so a suspended host does not widen it). An ended connector is refused. The turn's leader is held by a handle; a bound turn whose leader exits
+the tree before the service pins it, is served as that process; the window is the accept latency, which a stalled host widens (the service can only stamp the time it got to the connection, not when the client connected, so a process created while the host was stalled looks older than the accept and is served). A process created after the service accepted is refused; the check has a 250 ms slack for clocks stepped back. An ended connector is refused. The turn's leader is held by a handle; a bound turn whose leader exits
 has its group signalled by `taskkill /T` by the leader's number while the child is still unreaped, which cannot find a tree whose
 parent is gone: stragglers of a Windows turn may outlive their leader (job-object containment is separate work).
 

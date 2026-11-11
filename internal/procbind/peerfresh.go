@@ -13,10 +13,10 @@ const peerClockSlack = 250 * time.Millisecond
 // createdAfterAccept reports whether a process whose creation time is created (FILETIME ticks) came into being after the
 // service accepted the connection. The connector existed when it connected, so a process created after the accept cannot be
 // it: the kernel's peer number was handed to another process (the connector handed the connection on and ended, and its number
-// was recycled). An unknown (zero) creation time is not judged here.
+// was recycled). An unknown creation time (zero, or before the Unix epoch) is refused too: a pin that has no usable stamp cannot be shown to predate the connection.
 func createdAfterAccept(created uint64, accepted time.Time) bool {
 	if created < filetimeUnixEpoch {
-		return false
+		return true
 	}
 	c := time.Unix(0, int64(created-filetimeUnixEpoch)*100)
 	return c.After(accepted.Add(peerClockSlack))
