@@ -268,3 +268,29 @@ func TestTripFailsTheCommitOfADatabaseSQLTx(t *testing.T) {
 		t.Fatalf("rows after a refused COMMIT = %d, want still 1", n)
 	}
 }
+
+// A context that ends after fn has finished does not undo fn's writes: the COMMIT runs on a bound of its own, as
+// the ROLLBACK does. A COMMIT that lands but reports the context's end would hand the caller an error for committed
+// data (#1460).
+func TestWithWriteTxCommitsWhenTheContextEndsAfterFn(t *testing.T) {
+	db, trip := dbconntest.Open(t)
+	trip.CommitReportsContext = true
+	if _, err := db.Exec(`CREATE TABLE t (v INTEGER)`); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	err := WithWriteTx(ctx, db, func(c *sql.Conn) error {
+		if err := insertOne(c); err != nil {
+			return err
+		}
+		cancel()
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("err = %v, want the commit to go through", err)
+	}
+	if n := countRows(t, db); n != 1 {
+		t.Fatalf("rows = %d, want the committed one", n)
+	}
+	dbconntest.RequireClean(t, db)
+}

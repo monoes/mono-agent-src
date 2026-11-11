@@ -32,6 +32,9 @@ type Trip struct {
 	// caller cannot tell from the error alone (a context that ends as the statement finishes, a connection that
 	// breaks after the write). CommitErr takes precedence.
 	CommitErrAfter error
+	// CommitReportsContext makes a COMMIT statement report the end of the context it was given after it ran and
+	// landed, as modernc does for a context that ends as the statement finishes.
+	CommitReportsContext bool
 	// BeforeExec, when set before use, runs before every statement the driver executes outside BEGIN, COMMIT and
 	// ROLLBACK, on the connection that is about to run it: the place for a competing writer to commit between a
 	// transaction's read and its write.
@@ -104,6 +107,9 @@ func (c *conn) ExecContext(ctx context.Context, query string, args []driver.Name
 	res, err := c.Conn.(driver.ExecerContext).ExecContext(context.WithoutCancel(ctx), query, args)
 	if err == nil && c.trip.CommitErrAfter != nil && strings.HasPrefix(query, "COMMIT") {
 		return nil, c.trip.CommitErrAfter
+	}
+	if err == nil && c.trip.CommitReportsContext && strings.HasPrefix(query, "COMMIT") && ctx.Err() != nil {
+		return nil, ctx.Err()
 	}
 	if err == nil && strings.HasPrefix(query, "BEGIN") && c.trip.armed.CompareAndSwap(true, false) {
 		return nil, context.Canceled
