@@ -143,6 +143,16 @@ func (r Report) settled() bool {
 // BestEffortNote is the limit a best-effort stop states wherever it says "stopped".
 const BestEffortNote = "best effort: processes that left the group are not covered"
 
+// BestEffortLimit is the limit a best-effort stop of this report states: the unit mechanism's own text when it declares one (the
+// session unit's, SessionBestEffortNote, carried in the outcome of its best-effort end), the process-group wording otherwise. Only an
+// exact declared text is quoted, so no other note can pose as a limit.
+func (r Report) BestEffortLimit() string {
+	if r.Unit.Kind == UnitBestEffort && r.Unit.Note == SessionBestEffortNote {
+		return SessionBestEffortNote
+	}
+	return BestEffortNote
+}
+
 // ExitCode is non-zero unless Stopped or StoppedBestEffort.
 func (r Report) ExitCode() int {
 	if r.Stopped() || r.StoppedBestEffort() {
@@ -192,7 +202,7 @@ func (r Report) Lines() []string {
 	if r.Stopped() {
 		out = append(out, fmt.Sprintf("generation %d stopped (quiescent)", r.Generation))
 	} else if r.StoppedBestEffort() {
-		out = append(out, fmt.Sprintf("generation %d stopped (%s)", r.Generation, BestEffortNote))
+		out = append(out, fmt.Sprintf("generation %d stopped (%s)", r.Generation, r.BestEffortLimit()))
 	} else {
 		out = append(out, fmt.Sprintf("generation %d NOT stopped: state %s", r.Generation, r.Final))
 	}
@@ -352,6 +362,3 @@ func (s *Stopper) settle(ctx context.Context, gen uint64, rep *Report, cause str
 	}
 	return to
 }
-
-// BestEffortLimit stub (red commit).
-func (r Report) BestEffortLimit() string { return BestEffortNote }

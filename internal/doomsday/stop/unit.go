@@ -126,7 +126,7 @@ func ProveUnit(k Kernel, rec UnitRecord) (Proof, error) {
 	if !ok {
 		return Proof{}, fmt.Errorf("%w: unknown unit kind %q", ErrNotProven, rec.Kind)
 	}
-	if rec.Kind != hostKind() {
+	if rec.Kind != hostKind() && rec.Kind != verifyKindOf(hostGOOS) { // the run's kind, and the kind of a verification unit
 		return Proof{}, fmt.Errorf("%w: a %q unit is not proven on %s", ErrNotProven, rec.Kind, hostGOOS)
 	}
 	return mk(k, nil).Prove(rec)

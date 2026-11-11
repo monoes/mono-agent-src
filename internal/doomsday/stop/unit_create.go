@@ -56,7 +56,20 @@ func CreateUnit(ctx context.Context, k Kernel, a CreateArgs, gen uint64) (UnitRe
 }
 
 func createUnit(ctx context.Context, goos string, k Kernel, a CreateArgs, gen uint64) (UnitRecord, error) {
-	kind, ok := platformKinds[goos]
+	return createUnitOfKind(ctx, goos, platformKinds, k, a, gen)
+}
+
+// CreateVerifyUnit is CreateUnit for a finish-verification unit: the kind is the platform's verification kind (verifyKinds).
+func CreateVerifyUnit(ctx context.Context, k Kernel, a CreateArgs, gen uint64) (UnitRecord, error) {
+	kinds := map[string]string{}
+	for g := range platformKinds {
+		kinds[g] = verifyKindOf(g)
+	}
+	return createUnitOfKind(ctx, hostGOOS, kinds, k, a, gen)
+}
+
+func createUnitOfKind(ctx context.Context, goos string, kinds map[string]string, k Kernel, a CreateArgs, gen uint64) (UnitRecord, error) {
+	kind, ok := kinds[goos]
 	if !ok {
 		return UnitRecord{}, fmt.Errorf("%w: %s has no containment", ErrUnitNotCreated, goos)
 	}
@@ -155,6 +168,9 @@ func (c UnitCreator) abandon(ctx context.Context, name string, cause error) erro
 // removes its record, so the generation's next attempt can create its own. It only acts on a record this creator
 // wrote: the file is read back and must name the same unit.
 func (c UnitCreator) Discard(ctx context.Context, rec UnitRecord) error {
+	if rec.Kind == KindSession {
+		return c.discardSession(rec)
+	}
 	if c.Host == nil {
 		return errors.New("stop: no service manager is wired")
 	}
@@ -167,7 +183,14 @@ func (c UnitCreator) Discard(ctx context.Context, rec UnitRecord) error {
 	return c.Dir.fsys().Remove(c.Dir.UnitPath(rec.Generation))
 }
 
-// CreateVerifyUnit stub (red commit).
-func CreateVerifyUnit(ctx context.Context, k Kernel, a CreateArgs, gen uint64) (UnitRecord, error) {
-	return CreateUnit(ctx, k, a, gen)
+// discardSession discards a session unit: it has no service and, before the run's first turn, no process, so only its record is removed
+// (no service manager is needed, and macOS has none). A unit that already holds a leader is not discarded: a leader means a turn ran.
+func (c UnitCreator) discardSession(rec UnitRecord) error {
+	if got, ok, err := c.Dir.ReadUnitFile(rec.Generation); err != nil || !ok || got != rec {
+		return errors.New("stop: the unit record on disk is not the one being discarded; nothing was removed")
+	}
+	if n := heldCount(rec.CgroupID); n > 0 {
+		return fmt.Errorf("stop: the session unit already holds %d leader(s), so it is not discarded", n)
+	}
+	return c.Dir.fsys().Remove(c.Dir.UnitPath(rec.Generation))
 }

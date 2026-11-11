@@ -70,6 +70,10 @@ var ErrNotPlaced = errors.New("stop: the process cannot be placed in the run's c
 // NewPlacer reads the generation's unit record from the run directory (the record Create wrote before the run
 // existed). No record, no placer.
 func NewPlacer(k Kernel, dir RunDir, gen uint64) (Placement, error) {
+	return newPlacerOfKind(k, dir, gen, hostKind())
+}
+
+func newPlacerOfKind(k Kernel, dir RunDir, gen uint64, want string) (Placement, error) {
 	if k == nil {
 		return nil, fmt.Errorf("%w: no containment kernel is wired", ErrNotPlaced)
 	}
@@ -87,7 +91,7 @@ func NewPlacer(k Kernel, dir RunDir, gen uint64) (Placement, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: unknown unit kind %q", ErrNotPlaced, rec.Kind)
 	}
-	if rec.Kind != hostKind() {
+	if rec.Kind != want {
 		return nil, fmt.Errorf("%w: a %q unit is not placed into on %s", ErrNotPlaced, rec.Kind, hostGOOS)
 	}
 	return mk(k, nil).Place(rec)
@@ -153,12 +157,20 @@ func (p *Placer) PlaceLeased(cmd *exec.Cmd) error {
 	return nil
 }
 
-// verifyKinds stub (red commit).
-var verifyKinds = map[string]string{}
+// verifyKinds names the unit kind a finish-verification unit uses where it is not the platform's run kind (owner decision D3 of #1582):
+// on macOS the run's unit is the session unit, but a verification unit's creator is its placer and its criteria are not turn leaders, so
+// the process-group unit (pgroup.go) fits and is kept. Every other platform's verification unit is its run unit.
+var verifyKinds = map[string]string{"darwin": KindPGroup}
 
-func verifyKindOf(goos string) string { return platformKinds[goos] }
+// verifyKindOf is the kind of a verification unit on goos.
+func verifyKindOf(goos string) string {
+	if k, ok := verifyKinds[goos]; ok {
+		return k
+	}
+	return platformKinds[goos]
+}
 
-// NewVerifyPlacer stub (red commit).
+// NewVerifyPlacer is NewPlacer for a finish-verification unit: the record must be of the verification kind of this platform.
 func NewVerifyPlacer(k Kernel, dir RunDir, gen uint64) (Placement, error) {
-	return NewPlacer(k, dir, gen)
+	return newPlacerOfKind(k, dir, gen, verifyKindOf(hostGOOS))
 }
