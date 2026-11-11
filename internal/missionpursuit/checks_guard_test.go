@@ -29,9 +29,11 @@ var sitePolicies = []sitePolicy{
 	{names: []string{"AnswerRubric", "SetUnconfinedChecks", "LatestCheck", "GetCheck"}, allowed: []string{"internal/cli/task/"}, defined: []string{"internal/missionpursuit/checks_answer.go", "internal/missionpursuit/checks.go"}},
 }
 
-// knownHostChecksSites lists the files that construct the host capability: none yet (the host step is the first, in the slice that
-// wires the verifier).
-var knownHostChecksSites = map[string]string{}
+// knownHostChecksSites lists the files that construct the host capability: the host's check step and its start-up sweep.
+var knownHostChecksSites = map[string]string{
+	"internal/coderhost/pursuit_check.go":       "runs a check and records it",
+	"internal/coderhost/pursuit_check_sweep.go": "ends the checks an earlier host left running",
+}
 
 // scanSites walks the whole repository under base (Go files, tests excluded; scripts, tools and tests directories included;
 // only .git and dependency folders are skipped), returns "file:Name" per use and how many files it parsed.

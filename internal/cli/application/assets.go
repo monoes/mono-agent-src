@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"database/sql"
+	"github.com/monoes/mono-agent/internal/storage"
 	"os"
 	"path/filepath"
 	"strings"
@@ -245,6 +246,7 @@ func queryPeople(ctx context.Context, db *sql.DB, profileID string, ids []string
 
 func queryMessages(ctx context.Context, db *sql.DB, profileID string, ids []string) ([]AssetMessage, error) {
 	out := []AssetMessage{}
+	storage.EnsureMessagesScrubbed(db, profileID)
 	err := queryIn(ctx, db,
 		`SELECT id, source, direction, COALESCE(subject, ''), COALESCE(body, ''), COALESCE(sent_at, created_at)
 		 FROM person_messages WHERE profile_id = ? AND id IN (?) ORDER BY COALESCE(sent_at, created_at), id`, profileID, ids,

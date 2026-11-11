@@ -170,6 +170,7 @@ type missionState struct {
 	leadRenewed map[int64]time.Time
 	warned      map[int64]bool // sessions the 90 percent notice went out for
 	halted      map[int64]bool // sessions the 100 percent halt went out for
+	overNoted   map[int64]bool // over-committed sessions the operator notice went out for
 	childNoted  map[int64]bool // sessions the "no child sessions for this lead" notice went out for
 	settling    map[int64]bool // tasks whose ended child session is being taken back
 }
@@ -180,6 +181,7 @@ func (m *missionState) init() {
 		m.failures, m.warned, m.halted = map[int64]int{}, map[int64]bool{}, map[int64]bool{}
 		m.starts, m.leadRenewed = map[int64]int{}, map[int64]time.Time{}
 		m.childNoted, m.settling = map[int64]bool{}, map[int64]bool{}
+		m.overNoted = map[int64]bool{}
 	}
 }
 
@@ -493,8 +495,20 @@ func (c *Conductor) runningTasks(sid int64) []RunningTask {
 
 // missionBudget applies the session's budget: at 90 percent nothing new starts and the
 // operator is asked; at 100 percent everything stops. It returns the note for the lead, "" when
-// the budget leaves room.
+// the budget leaves room. A session (or a budgeted ancestor) committed past its budget gets a note and one operator notice
+// too (mission_overcommit.go).
 func (c *Conductor) missionBudget(ctx context.Context, se tasks.Session) string {
+	if note := c.missionSpendBudget(ctx, se); note != "" {
+		return note
+	}
+	if se.BudgetUSD > 0 && se.SpentUSD >= se.BudgetUSD {
+		return "" // spent: the halt above says it
+	}
+	return c.missionOverCommitted(ctx, se)
+}
+
+// missionSpendBudget is the 90 and 100 percent rule on the session's own spend.
+func (c *Conductor) missionSpendBudget(ctx context.Context, se tasks.Session) string {
 	if se.BudgetUSD <= 0 {
 		return ""
 	}

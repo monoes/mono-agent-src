@@ -69,6 +69,13 @@ func TestDocsDollarsAgreeWithTheCode(t *testing.T) {
 	hour := figure(t20, "mission_hour")
 	required := []float64{hour, figure(t20, "host_hour"), figure(t20, "until_stop"), figure(t100, "until_stop")}
 	allowed := map[string]bool{UsdText(hour + float64(MaxBadJudgeRounds)*j): true, UsdText(hour + x): true}
+	// with goal checks on, the same table with their dollars added (the quickstart's section on goal checks states it)
+	withChecks := func(budget float64) CostTable {
+		return PursuitCostRows(CostInput{WakeCapUSD: DefaultWakeCapUSD, MissionBudgetUSD: budget, Pct: missionpursuit.DefaultPct, Wakes: missionpursuit.DefaultWakesMax, VerifierSet: true})
+	}
+	for _, k := range []string{"mission_hour", "host_hour"} {
+		allowed[UsdText(figure(withChecks(20), k))] = true
+	}
 	for _, v := range required {
 		allowed[UsdText(v)] = true
 	}
@@ -141,5 +148,36 @@ func TestLeadPinWhy(t *testing.T) {
 		if got := LeadPinWhy(c.judge, c.lead); got != c.want {
 			t.Errorf("LeadPinWhy(%q, %q) = %q", c.judge, c.lead, got)
 		}
+	}
+}
+
+// With goal checks on the table adds their dollars (two checks a mission-hour, four an hour on the host, one more before the
+// stop), says that programs run, and a changed checker or fence changes the text the consent digest covers. With them off the
+// table is exactly the one without any of it.
+func TestTheCostTableAddsTheGoalChecksOnlyWhenTheyAreOn(t *testing.T) {
+	off, on := defaultCost(20), PursuitCostRows(CostInput{WakeCapUSD: DefaultWakeCapUSD, MissionBudgetUSD: 20, Pct: missionpursuit.DefaultPct, Wakes: missionpursuit.DefaultWakesMax,
+		VerifierSet: true, VerifierPin: "gemini/checker", Confinement: "systemd-run"})
+	get := func(tb CostTable, key string) float64 {
+		for _, r := range tb.Rows {
+			if r.Key == key {
+				return r.USD
+			}
+		}
+		t.Fatalf("no row %s", key)
+		return 0
+	}
+	v := float64(missionpursuit.CheckCapMicro) / 1e6
+	for key, extra := range map[string]float64{"mission_hour": float64(missionpursuit.MaxChecksPerAwayWindow) * v, "host_hour": float64(missionpursuit.MaxHostChecksPerHour) * v, "until_stop": v} {
+		if got := get(on, key) - get(off, key); got < extra-1e-9 || got > extra+1e-9 {
+			t.Errorf("%s: the checks add %v, want %v", key, got, extra)
+		}
+	}
+	if strings.Contains(off.Text, "Goal checks") || !strings.Contains(on.Text, "RUNS A PROGRAM") || !strings.Contains(on.Text, "gemini/checker") || !strings.Contains(on.Text, "one last goal check") || !strings.Contains(on.Text, "no user session manager") || !strings.Contains(on.Text, "allow-unconfined-checks") {
+		t.Errorf("texts:\n%s\n%s", off.Text, on.Text)
+	}
+	other := PursuitCostRows(CostInput{WakeCapUSD: DefaultWakeCapUSD, MissionBudgetUSD: 20, Pct: missionpursuit.DefaultPct, Wakes: missionpursuit.DefaultWakesMax,
+		VerifierSet: true, VerifierPin: "gemini/checker", Confinement: "BROKEN"})
+	if other.Text == on.Text {
+		t.Error("a changed fence does not change the text the consent digest covers")
 	}
 }

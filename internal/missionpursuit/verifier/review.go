@@ -13,7 +13,6 @@ import (
 // its answer can only block: "ok" leaves the outcome passed-machine, which approves nothing by itself.
 func (k *Checker) conclude(ctx context.Context, req Request, tree finish.Tree, res *Result) (Result, error) {
 	failed, errored := false, false
-	ev := make([]finish.Evidence, 0, len(res.Criteria))
 	for _, c := range res.Criteria {
 		switch c.Result {
 		case ResFail:
@@ -22,14 +21,8 @@ func (k *Checker) conclude(ctx context.Context, req Request, tree finish.Tree, r
 		default:
 			errored = true
 		}
-		if c.Result == ResPerson {
-			continue
-		}
-		// What the reviewer sees is host-measured data; the marker characters are made impossible to write.
-		ev = append(ev, finish.Evidence{CriterionID: c.ID, CriterionHash: c.Hash, Result: c.Result, ExitCode: c.ExitCode,
-			StdoutDigest: c.StdoutDigest, StderrDigest: c.StderrDigest, Net: c.Net, RunsSubjectCode: c.RunsSubjectCode,
-			Detail: defang(c.Detail), StdoutExcerpt: defang(c.Stdout), StderrExcerpt: defang(c.Stderr)})
 	}
+	ev := evidenceOf(res)
 	res.ResultsDigest = finish.ResultsDigest(ev)
 	switch {
 	case failed:
@@ -40,6 +33,27 @@ func (k *Checker) conclude(ctx context.Context, req Request, tree finish.Tree, r
 		return *res, nil
 	}
 	return k.review(ctx, req, tree, ev, res)
+}
+
+// evidenceOf is what the reviewer sees: host-measured data, with the marker characters made impossible to write. The text a
+// program printed (its excerpts, and the detail line, which can carry an operating-system error) goes to the reviewer ONLY when
+// the programs ran confined: a program that ran unconfined could print any file the person can read, and the reviewer's
+// provider would get it. For those runs the reviewer sees digests, exit codes and results only. (The person still sees the text.)
+func evidenceOf(res *Result) []finish.Evidence {
+	text := res.Containment != ContainmentUnconfined
+	ev := make([]finish.Evidence, 0, len(res.Criteria))
+	for _, c := range res.Criteria {
+		if c.Result == ResPerson {
+			continue
+		}
+		e := finish.Evidence{CriterionID: c.ID, CriterionHash: c.Hash, Result: c.Result, ExitCode: c.ExitCode,
+			StdoutDigest: c.StdoutDigest, StderrDigest: c.StderrDigest, Net: c.Net, RunsSubjectCode: c.RunsSubjectCode}
+		if text {
+			e.Detail, e.StdoutExcerpt, e.StderrExcerpt = defang(c.Detail), defang(c.Stdout), defang(c.Stderr)
+		}
+		ev = append(ev, e)
+	}
+	return ev
 }
 
 func (k *Checker) review(ctx context.Context, req Request, tree finish.Tree, ev []finish.Evidence, res *Result) (Result, error) {

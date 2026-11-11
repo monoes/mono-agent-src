@@ -103,6 +103,7 @@ func (d *Database) ListPersonMessages(personID, source, profileID string, limit,
 	if err := requireProfile(profileID); err != nil {
 		return nil, err
 	}
+	d.scrubHeldSends(profileID)
 	if limit <= 0 {
 		limit = 100
 	}
@@ -154,6 +155,10 @@ func (d *Database) ListPersonMessages(personID, source, profileID string, limit,
 
 // GetPersonMessage returns a single message by ID, or nil if not found.
 func (d *Database) GetPersonMessage(id string) (*PersonMessage, error) {
+	var profile string
+	if d.DB.QueryRow(`SELECT COALESCE(profile_id,'') FROM person_messages WHERE id = ?`, id).Scan(&profile) == nil {
+		d.scrubHeldSends(profile)
+	}
 	m := &PersonMessage{}
 	var sentAt sentAtValue
 	var readAt sql.NullTime
@@ -217,6 +222,7 @@ func (d *Database) ListPersonMessagesByStatus(profileID, status string) ([]*Pers
 	if err := requireProfile(profileID); err != nil {
 		return nil, err
 	}
+	d.scrubHeldSends(profileID)
 	rows, err := d.DB.Query(`
 		SELECT pm.id, pm.person_id, pm.source, pm.external_id, pm.direction,
 		       COALESCE(pm.sender,''), COALESCE(pm.subject,''), COALESCE(pm.body,''),
@@ -281,6 +287,7 @@ func (d *Database) ListAllPersonMessagesByStatus(profileID, source, status strin
 	if err := requireProfile(profileID); err != nil {
 		return nil, err
 	}
+	d.scrubHeldSends(profileID)
 	if limit <= 0 {
 		limit = 100
 	}
@@ -454,3 +461,24 @@ func (d *Database) ListPersonStatusUpdates(personID, profileID string, limit int
 	}
 	return updates, rows.Err()
 }
+
+// scrubHeldSends removes, from the rows older versions wrote, the value of a
+// secret agent access covers, before a message is read (#1594).
+func (d *Database) scrubHeldSends(profileID string) {
+	if ReadHook != nil {
+		ReadHook(context.Background(), d.DB, profileID)
+	}
+}
+
+// EnsureMessagesScrubbed is what a raw reader of person_messages calls
+// before it reads a profile's messages (the guard test in internal/hilscrub
+// lists the readers).
+func EnsureMessagesScrubbed(db *sql.DB, profileID string) {
+	if ReadHook != nil && db != nil {
+		ReadHook(context.Background(), db, profileID)
+	}
+}
+
+// ReadHook runs before a message of a profile is read. internal/hilscrub sets
+// it (storage cannot import it: the secrets tests import storage).
+var ReadHook func(ctx context.Context, db *sql.DB, profile string)

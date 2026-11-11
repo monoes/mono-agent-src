@@ -117,11 +117,11 @@ func TestPursuitStatusJSONGolden(t *testing.T) {
 	if ids := dirs["ids"].(map[string]any)["active"].([]any); len(ids) != 1 || ids[0] != "dir-0" {
 		t.Errorf("active ids %v", ids)
 	}
-	if got, want := keysOf(doc["goal_check"].(map[string]any)), []string{"available", "note"}; !reflect.DeepEqual(got, want) {
+	if got, want := keysOf(doc["goal_check"].(map[string]any)), []string{"available", "check_cap_usd", "checks_lifetime_max", "checks_since_last_verdict", "checks_since_you_acted", "checks_window_max", "host_checks_hour_max", "host_checks_last_hour", "note", "spend_since_you_acted_usd", "verifier"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("goal_check keys %v", got)
 	}
-	if doc["goal_check"].(map[string]any)["available"] != false {
-		t.Errorf("the stub claims a goal checker: %v", doc["goal_check"])
+	if gc := doc["goal_check"].(map[string]any); gc["available"] != false || gc["verifier"] != "off" || !strings.Contains(gc["note"].(string), "OFF (the default)") {
+		t.Errorf("a host with no verifier flag claims a goal checker: %v", gc)
 	}
 }
 
@@ -176,7 +176,7 @@ func TestPursuitStatusLastJudgeRoundAndNeeds(t *testing.T) {
 		t.Errorf("paused: %v %v", doc["state"], doc["needs"])
 	}
 	text, _, err := runTask(t, db, "default", false, "", "session", "pursuit", "status", id(s))
-	for _, want := range []string{"state: paused; needs: you", "epochs: 2", "the last judge round ended: applied", "directions: 0 proposed", "goal check: no goal checker exists yet", "next: Resume it"} {
+	for _, want := range []string{"state: paused; needs: you", "epochs: 2", "the last judge round ended: applied", "directions: 0 proposed", "goal check: goal checks are OFF (the default)", "next: Resume it"} {
 		if err != nil || !strings.Contains(text, want) {
 			t.Errorf("text status lacks %q: %v\n%s", want, err, text)
 		}
