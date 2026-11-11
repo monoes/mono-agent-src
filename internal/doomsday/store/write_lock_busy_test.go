@@ -57,3 +57,17 @@ func TestAppendAuditSurvivesAWriterCommittingBetweenItsReadAndItsWrite(t *testin
 		t.Fatalf("seq = %d, want a row after the entry's", row.Seq)
 	}
 }
+
+// ConsumeCumulative starts with its conditional insert, so there is no read before the first write and no snapshot
+// for a writer to invalidate: the deferred BEGIN was already safe and it is left as it was (#1460).
+func TestConsumeCumulativeStaysWriteFirst(t *testing.T) {
+	s, _ := newStore(t)
+	r := enter(t, s, "p")
+	w, fired := onWrapped(t, s)
+	if err := w.ConsumeCumulative(ctx, r.Profile, r.Generation, "sends", "a1", 1, 5); err != nil {
+		t.Fatalf("ConsumeCumulative: %v", err)
+	}
+	if !fired() {
+		t.Fatal("the hook never ran")
+	}
+}
