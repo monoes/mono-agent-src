@@ -42,7 +42,7 @@ func WorkAdmittingKind(kind string) bool {
 // condition did not hold and nothing was written. head, when positive, is the seq the caller read as the chain's head:
 // the row is written only while that is still the head, so a decision made on facts read in this transaction cannot be
 // inserted over a chain that has moved.
-func (s *SQLStore) appendAuditIf(ctx context.Context, tx *sql.Tx, profile string, generation int64, kind, payload string, head int64, cond string, args ...any) (AuditRow, bool, error) {
+func (s *SQLStore) appendAuditIf(ctx context.Context, tx DBTX, profile string, generation int64, kind, payload string, head int64, cond string, args ...any) (AuditRow, bool, error) {
 	var seq int64
 	var prev []byte
 	err := tx.QueryRowContext(ctx, `SELECT seq, mac FROM doomsday_audit WHERE profile = ? AND generation = ? ORDER BY seq DESC LIMIT 1`, profile, generation).Scan(&seq, &prev)

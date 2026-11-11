@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/dbconn"
 	"github.com/monoes/mono-agent/internal/procbind"
 )
 
@@ -699,19 +700,19 @@ func (s *Store) SaveCheckin(profileID, conversationID string, c Checkin) error {
 // EnqueueWithCheckin queues a command and records the scheduler's look in ONE transaction, so a failure of either leaves
 // neither: the command is never queued against a baseline that was not saved.
 func (s *Store) EnqueueWithCheckin(c Command, k Checkin) (Command, error) {
-	tx, err := s.db.Begin()
+	// BEGIN IMMEDIATE: the waiting commands are counted before the command is inserted, and a writer that commits in
+	// between would make the write fail at once with SQLITE_BUSY_SNAPSHOT, which busy_timeout does not wait for (#1460).
+	var got Command
+	err := dbconn.WithWriteTx(context.Background(), s.db, func(conn *sql.Conn) error {
+		tx := connQuerier{conn}
+		var err error
+		if got, err = s.enqueueOn(tx, c); err != nil {
+			return err
+		}
+		_, err = tx.Exec(`UPDATE coder_sessions SET checkin_at = ?, checkin_snapshot = ? WHERE profile_id = ? AND conversation_id = ?`, k.At, k.Snapshot, c.ProfileID, c.ConversationID)
+		return err
+	})
 	if err != nil {
-		return c, err
-	}
-	defer tx.Rollback() //nolint:errcheck // after commit it is a no-op
-	got, err := s.enqueueOn(tx, c)
-	if err != nil {
-		return c, err
-	}
-	if _, err := tx.Exec(`UPDATE coder_sessions SET checkin_at = ?, checkin_snapshot = ? WHERE profile_id = ? AND conversation_id = ?`, k.At, k.Snapshot, c.ProfileID, c.ConversationID); err != nil {
-		return c, err
-	}
-	if err := tx.Commit(); err != nil {
 		return c, err
 	}
 	return got, nil
