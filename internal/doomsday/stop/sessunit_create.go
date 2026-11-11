@@ -292,3 +292,9 @@ func (p *sessPlacer) Adopt(pid int, stamp string) error {
 }
 
 var _ Adopter = (*sessPlacer)(nil)
+
+// ErrReapOwned stub (red commit).
+var ErrReapOwned = errors.New("stop: the unit has taken over reaping the leader")
+
+// UnitID stub (red commit).
+func (p *sessPlacer) UnitID() uint64 { return 0 }

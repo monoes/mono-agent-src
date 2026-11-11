@@ -133,3 +133,6 @@ func (s *Sequencer) Leaders(gen uint64) ([]Leader, error) {
 	}
 	return out, nil
 }
+
+// UnitEndedLine stub (red commit).
+func (s *Sequencer) UnitEndedLine(gen, unit uint64) (bool, error) { return false, nil }
