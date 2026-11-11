@@ -44,6 +44,11 @@ const (
 	RecUnitLeader = "unit-leader"
 	// RecUnitSealed says a session unit is being ended: no leader may be recorded after it (sessunit.go). Extra is "id=<unit id>".
 	RecUnitSealed = "unit-sealed"
+	// RecUnitSessionEmpty says a recorded session leader's session was seen gone (witness_format.go): its number may be
+	// reused by an unrelated session, whose processes are then not the unit's. Extra is the leader's JSON.
+	RecUnitSessionEmpty = "unit-session-empty"
+	// RecFormat is the format-2 marker (witness_format.go); every format-2 line is written after it.
+	RecFormat = "format"
 )
 
 // Record is the payload of one witness record.
@@ -106,6 +111,7 @@ func (w Witness) scan() (recs []Record, last []byte, damaged bool, err error) {
 	last = hm
 	pos := len(magic) + syncLen + macLen
 	lastSeq := map[int64]int64{} // seqs are per generation
+	sawFormat2 := false
 	for pos < len(b) {
 		i := bytes.Index(b[pos:], sync)
 		if i < 0 {
@@ -117,8 +123,19 @@ func (w Witness) scan() (recs []Record, last []byte, damaged bool, err error) {
 			pos++ // a fragment or a fake SYNC: skip in turn
 			continue
 		}
-		if rec.WPrev != hex.EncodeToString(last) {
+		if rec.T == RecFormat { // the marker chains under a tag an older reader does not understand (witness_format.go)
+			if witnessMaxFormat < 2 {
+				return recs, last, true, ErrWitnessFormat
+			}
+			if rec.WPrev != formatTag+hex.EncodeToString(last) {
+				return recs, last, true, ErrWitnessDamaged
+			}
+			rec.WPrev, sawFormat2 = hex.EncodeToString(last), true
+		} else if rec.WPrev != hex.EncodeToString(last) {
 			// authenticated but not chaining: a replay, a fork or a deletion; never silently skipped
+			return recs, last, true, ErrWitnessDamaged
+		}
+		if isFormat2Line(rec.T) && !sawFormat2 { // a format-1 witness cannot hold a format-2 line
 			return recs, last, true, ErrWitnessDamaged
 		}
 		// An abandoned record names the seq the stream went back to (the seq before the abandoned range), so it is
@@ -163,6 +180,9 @@ func (w Witness) parseAt(b []byte, pos int) (Record, int, bool) {
 func (w Witness) Records() ([]Record, error) {
 	recs, _, damaged, err := w.scan()
 	if damaged {
+		if errors.Is(err, ErrWitnessFormat) {
+			return recs, err
+		}
 		return recs, ErrWitnessDamaged
 	}
 	return recs, err
@@ -170,9 +190,15 @@ func (w Witness) Records() ([]Record, error) {
 
 // Append adds one record under the witness lock (one critical section for every writer), fsynced. The caller
 // holds LockWitness for the whole sequencer section; Append itself only chains and writes.
-func (w Witness) Append(r Record) error {
+func (w Witness) Append(r Record) error { return w.appendTagged(r, "") }
+
+// appendTagged is Append with a prefix on the chain link (the format marker's).
+func (w Witness) appendTagged(r Record, tag string) error {
 	_, last, damaged, err := w.scan()
 	if damaged || err != nil {
+		if errors.Is(err, ErrWitnessFormat) {
+			return err
+		}
 		return ErrWitnessDamaged
 	}
 	b, rerr := w.Dir.fsys().ReadFile(w.path())
@@ -180,7 +206,7 @@ func (w Witness) Append(r Record) error {
 		return rerr
 	}
 	sync := b[len(magic) : len(magic)+syncLen]
-	r.WPrev = hex.EncodeToString(last)
+	r.WPrev = tag + hex.EncodeToString(last)
 	payload, err := json.Marshal(r)
 	if err != nil {
 		return err

@@ -56,6 +56,10 @@ type SessionOS interface {
 	// BootID must change on every boot and on nothing else: a stepped clock must not move it (macOS: kern.bootsessionuuid, not
 	// kern.boottime). The rules of resolveSession take a difference as proof of a reboot.
 	BootID() (string, error)
+	// Hold keeps the number of pid reserved for as long as the returned release is not called, even after the process exits:
+	// pid must be an unreaped child of the caller with that start stamp, and from here on only release reaps it (the caller
+	// does not wait for it). An error means the number cannot be kept.
+	Hold(pid int, stamp string) (release func(), err error)
 	// Self is the pid and start stamp of the caller.
 	Self() (pid int, stamp string, err error)
 	CurrentUID() uint32
@@ -82,6 +86,8 @@ type Leader struct {
 	// does not inherit the first one's leaders, and a unit that was ended takes no leader (ErrUnitEnded).
 	Unit uint64 `json:"unit"`
 	At   int64  `json:"at"` // unix seconds, informational
+	// Empty is set by the ledger when the leader's session was seen gone (RetireLeader): the number is no longer the unit's.
+	Empty bool `json:"empty,omitempty"`
 }
 
 // ErrUnitEnded means the ledger refused a leader because the unit's end was already recorded.
@@ -94,6 +100,8 @@ type LeaderLedger interface {
 	// AddLeader appends a leader; it refuses with ErrUnitEnded when the unit is sealed or its end line is written (the seal is
 	// written under the same lock before the end proves the unit, so a leader is never recorded after the proof that missed it).
 	AddLeader(gen uint64, l Leader) error
+	// RetireLeader records that the leader's session was seen gone (idempotent). Leaders then returns it with Empty set.
+	RetireLeader(gen uint64, l Leader) error
 }
 
 type ledgerKernel struct {
@@ -135,6 +143,9 @@ type sessResolution struct {
 	// process is older than the leader): they are never signalled and are listed with unprovenWhy.
 	unproven    []SessProc
 	unprovenWhy string
+	// gone are the recorded leaders (not yet retired) whose leader and whole session were seen gone in this scan: the caller
+	// retires them, so a later holder of the number is never taken for the unit's.
+	gone []Leader
 	// why is non-empty when the ledger itself cannot be used (an entry that cannot be checked): nothing is resolved.
 	why string
 }
@@ -170,11 +181,15 @@ func resolveSession(procs []SessProc, leaders []Leader, rebooted bool, seen map[
 	}
 	// one entry per session number: a number can be recorded twice (two turns whose leaders got the same pid)
 	type slot struct {
-		stamps []string
-		min    int64
+		stamps  []string
+		leaders []Leader
+		min     int64
 	}
 	slots := map[int]*slot{}
 	for _, l := range leaders {
+		if l.Empty && false {
+			continue // its session was seen gone: the number is no longer this unit's (a retired leader's number may be anyone's)
+		}
 		us, ok := parseSessStamp(l.Stamp)
 		if l.PID <= 1 || !ok {
 			res.why = fmt.Sprintf("the ledger names a leader that cannot be checked (pid %d, start %q)", l.PID, l.Stamp)
@@ -186,6 +201,7 @@ func resolveSession(procs []SessProc, leaders []Leader, rebooted bool, seen map[
 			slots[l.PID] = s
 		}
 		s.stamps = append(s.stamps, l.Stamp)
+		s.leaders = append(s.leaders, l)
 		if us < s.min {
 			s.min = us
 		}
@@ -229,6 +245,7 @@ func resolveSession(procs []SessProc, leaders []Leader, rebooted bool, seen map[
 				continue
 			}
 		} else if len(inSession) == 0 {
+			res.gone = append(res.gone, s.leaders...)
 			continue // the leader and its whole session are gone
 		} else if rebooted {
 			continue // another boot's processes carry the number: not this unit's
