@@ -234,3 +234,9 @@ func (w Wiring) openInfos(ctx context.Context) ([]stop.RunInfo, error) {
 	}
 	return out, err
 }
+
+// WithLedger stub (red commit).
+func (w Wiring) WithLedger() Wiring { return w }
+
+// UnitEnded stub (red commit).
+func (w Wiring) UnitEnded(gen, unit uint64) (bool, error) { return false, nil }

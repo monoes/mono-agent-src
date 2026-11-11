@@ -54,6 +54,12 @@ type HostGate struct {
 	// InstallHooks puts Hooks on the host's launchers (chat.InstallRunHooks in production). Install reports its absence.
 	InstallHooks func(st *coderhost.Store, h *coderhost.Host, hk Hooks) error
 
+	// UnitEnded says whether the end line of a unit is in the witness (Wiring.UnitEnded); ReleaseHolds lets go of the leaders the host
+	// holds for a unit (nil: stop.ReleaseUnitHolds); HoldPoll is how often the end is looked for (zero: a second). Stubs (red commit).
+	UnitEnded    func(gen, unit uint64) (bool, error)
+	ReleaseHolds func(unit uint64)
+	HoldPoll     time.Duration
+
 	// Activity is the record of whether this process has seen a run (see RunActivity); share one with the governor and the
 	// strategy loop. Nil is a private one.
 	Activity *RunActivity

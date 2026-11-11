@@ -15,6 +15,8 @@ type Hooks struct {
 	RunStamp func(profileID, conversationID string) (charterID string, generation int64)
 	// BeforeRelease is asked before anything is delivered to the turn's process; bound says whether the turn is bound.
 	BeforeRelease func(ctx context.Context, profileID, conversationID, turnID string, bound bool) error
+	// Adopt stub (red commit).
+	Adopt func(profileID, conversationID string, pid int, stamp string) (held bool, err error)
 	// Place puts the turn's process in the run's ticket cgroup before it exists; release closes the descriptor after Start.
 	Place func(cmd *exec.Cmd, profileID, conversationID string) (release func(), err error)
 }

@@ -42,6 +42,17 @@ func (g *HostGate) PlaceRelease(cmd *exec.Cmd, profile, conv string) (release fu
 	return pl.Place(cmd)
 }
 
+// newPlacer is stop.NewPlacer; a seam so a test can hand the gate the placement of a unit kind the test host does not use.
+var newPlacer = stop.NewPlacer
+
+// Adopt stub (red commit).
+func (g *HostGate) Adopt(profile, conv string, pid int, stamp string) (held bool, err error) {
+	return false, nil
+}
+
+// ReleaseAllHolds stub (red commit).
+func (g *HostGate) ReleaseAllHolds() {}
+
 // placer returns the placer of the profile's open run, nil with no run open.
 func (g *HostGate) placer(profile, conv string) (stop.Placement, error) {
 	if profile != g.Profile {
@@ -57,7 +68,7 @@ func (g *HostGate) placer(profile, conv string) (stop.Placement, error) {
 	if len(runs) == 0 {
 		return nil, nil
 	}
-	pl, err := stop.NewPlacer(g.Kernel, g.RunDir, uint64(runs[0].Generation))
+	pl, err := newPlacer(g.Kernel, g.RunDir, uint64(runs[0].Generation))
 	if err != nil {
 		return nil, fmt.Errorf("conversation %s: %w", conv, err)
 	}
