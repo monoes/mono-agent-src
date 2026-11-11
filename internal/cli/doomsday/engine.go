@@ -43,6 +43,8 @@ type StopOutcome struct {
 	// BestEffort: every run ended, but a unit's mechanism cannot prove that no process left its group (Windows, macOS):
 	// the command prints the limit with the word and never a bare "stopped".
 	BestEffort bool
+	// BestEffortLimit stub (red commit).
+	BestEffortLimit string
 	// Incomplete holds the report lines of any run that is not fully stopped (a step not done, the run not
 	// quiescent). Non-empty means "stopped" is never printed.
 	Incomplete []string

@@ -166,3 +166,8 @@ func (c UnitCreator) Discard(ctx context.Context, rec UnitRecord) error {
 	}
 	return c.Dir.fsys().Remove(c.Dir.UnitPath(rec.Generation))
 }
+
+// CreateVerifyUnit stub (red commit).
+func CreateVerifyUnit(ctx context.Context, k Kernel, a CreateArgs, gen uint64) (UnitRecord, error) {
+	return CreateUnit(ctx, k, a, gen)
+}

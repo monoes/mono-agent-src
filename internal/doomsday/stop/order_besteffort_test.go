@@ -58,3 +58,29 @@ func TestMergeOutcomeRanksBestEffortBetweenEndedAndUnknown(t *testing.T) {
 		t.Fatalf("best effort + ended = %d", got)
 	}
 }
+
+// A unit mechanism that states its own limit (the session unit) is quoted by the report; every other best-effort end, and any note that is
+// not exactly a mechanism's declared limit, keeps the process-group wording the CLI, the docs and the transcript tests pin.
+func TestBestEffortLimitIsTheUnitsOwnWhenItDeclaresOne(t *testing.T) {
+	session := Report{Generation: 7, Final: StateQuiescent, Unit: UnitOutcome{Kind: UnitBestEffort, Note: SessionBestEffortNote}}
+	if got := session.BestEffortLimit(); got != SessionBestEffortNote {
+		t.Fatalf("session limit %q", got)
+	}
+	last := func(r Report) string { l := r.Lines(); return l[len(l)-1] }
+	if got, want := last(session), "generation 7 stopped ("+SessionBestEffortNote+")"; got != want {
+		t.Fatalf("report line %q, want %q", got, want)
+	}
+	for name, note := range map[string]string{"no note": "", "a pgroup note": "no process of the group exists", "text that is not a declared limit": "best effort: anything"} {
+		r := Report{Generation: 7, Final: StateQuiescent, Unit: UnitOutcome{Kind: UnitBestEffort, Note: note}}
+		if got := r.BestEffortLimit(); got != BestEffortNote {
+			t.Errorf("%s: limit %q", name, got)
+		}
+		if got, want := last(r), "generation 7 stopped ("+BestEffortNote+")"; got != want {
+			t.Errorf("%s: report line %q", name, got)
+		}
+	}
+	// the limit is only ever stated for a best-effort end
+	if got := (Report{Final: StateQuiescent, Unit: UnitOutcome{Kind: UnitEnded, Note: SessionBestEffortNote}}).BestEffortLimit(); got != BestEffortNote {
+		t.Fatalf("a proven end carries a limit: %q", got)
+	}
+}

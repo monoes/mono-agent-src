@@ -352,3 +352,6 @@ func (s *Stopper) settle(ctx context.Context, gen uint64, rep *Report, cause str
 	}
 	return to
 }
+
+// BestEffortLimit stub (red commit).
+func (r Report) BestEffortLimit() string { return BestEffortNote }

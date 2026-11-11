@@ -152,3 +152,13 @@ func (p *Placer) PlaceLeased(cmd *exec.Cmd) error {
 	runtime.AddCleanup(cmd, func(f func()) { f() }, release)
 	return nil
 }
+
+// verifyKinds stub (red commit).
+var verifyKinds = map[string]string{}
+
+func verifyKindOf(goos string) string { return platformKinds[goos] }
+
+// NewVerifyPlacer stub (red commit).
+func NewVerifyPlacer(k Kernel, dir RunDir, gen uint64) (Placement, error) {
+	return NewPlacer(k, dir, gen)
+}
