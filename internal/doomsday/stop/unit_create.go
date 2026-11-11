@@ -184,7 +184,7 @@ func (c UnitCreator) Discard(ctx context.Context, rec UnitRecord) error {
 }
 
 // discardSession discards a session unit: it has no service and, before the run's first turn, no process, so only its record is removed
-// (no service manager is needed, and macOS has none). A unit that already holds a leader is not discarded: a leader means a turn ran.
+// (no service manager is needed, and macOS has none). The held-leader check only sees holds of THIS process (the host's are in another one), so it is a second line only: the first is that Discard runs only for a generation whose run row was never written (storeengine), before any host could adopt into the unit.
 func (c UnitCreator) discardSession(rec UnitRecord) error {
 	if got, ok, err := c.Dir.ReadUnitFile(rec.Generation); err != nil || !ok || got != rec {
 		return errors.New("stop: the unit record on disk is not the one being discarded; nothing was removed")

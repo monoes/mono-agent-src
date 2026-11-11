@@ -112,4 +112,7 @@ func (g *HostGate) ReleaseAllHolds() {
 	for _, u := range units {
 		g.releaseHolds(u)
 	}
+	if g.ReleaseHolds == nil {
+		stop.ReleaseAllUnitHolds() // also the holds no watch knows of
+	}
 }

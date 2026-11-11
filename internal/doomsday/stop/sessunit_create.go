@@ -279,13 +279,18 @@ func (p *sessPlacer) Adopt(pid int, stamp string) error {
 		return fmt.Errorf("%w: the leader ledger cannot be read: %v", ErrNotPlaced, err)
 	}
 	if slices.ContainsFunc(have, func(l Leader) bool { return l.PID == pid && l.Stamp == stamp && l.Unit == p.rec.CgroupID }) {
+		if err := holdFor(p.c.os, p.rec.CgroupID, pid, stamp); err != nil { // already recorded: it is still held (idempotent)
+			return fmt.Errorf("%w: the leader's number cannot be kept: %v", ErrNotPlaced, err)
+		}
 		return nil
 	}
 	if err := holdFor(p.c.os, p.rec.CgroupID, pid, stamp); err != nil { // the number stays reserved from here on
 		return fmt.Errorf("%w: the leader's number cannot be kept: %v", ErrNotPlaced, err)
 	}
 	if err := p.c.led.AddLeader(p.rec.Generation, Leader{PID: pid, Stamp: stamp, Unit: p.rec.CgroupID, At: time.Now().Unix()}); err != nil {
-		dropHold(p.rec.CgroupID, pid, stamp)
+		// The hold is KEPT: the launcher kills this child now, by number, and a released hold would reap it at once and free the number
+		// under that kill. The unrecorded leader's zombie is let go with the unit (ReleaseUnitHolds) or at shutdown, and is counted
+		// against sessMaxHolds meanwhile.
 		return fmt.Errorf("%w: %w: the witness refused the leader: %v", ErrNotPlaced, ErrReapOwned, err)
 	}
 	return nil
@@ -293,8 +298,8 @@ func (p *sessPlacer) Adopt(pid int, stamp string) error {
 
 var _ Adopter = (*sessPlacer)(nil)
 
-// ErrReapOwned is wrapped in the error of an Adopt that refused AFTER it took the leader's hold: the hold was dropped again and
-// its release reaps the leader (when it ends), so the launcher must not wait for the process itself. Every other refusal happens
+// ErrReapOwned is wrapped in the error of an Adopt that refused AFTER it took the leader's hold: the hold is kept (the number stays
+// reserved while the launcher ends the child), so the launcher must not wait for the process itself. Every other refusal happens
 // before the hold and leaves the leader the launcher's own child to reap.
 var ErrReapOwned = errors.New("stop: the unit has taken over reaping the leader")
 

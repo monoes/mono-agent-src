@@ -73,6 +73,20 @@ func ReleaseUnitHolds(unit uint64) {
 	delete(sessHolds.by, unit)
 }
 
+// ReleaseAllUnitHolds lets every held leader of every unit go: the host's shutdown, which also covers a hold no watch knows of (a
+// leader whose adoption was refused after the hold was taken).
+func ReleaseAllUnitHolds() {
+	sessHolds.mu.Lock()
+	defer sessHolds.mu.Unlock()
+	for unit, m := range sessHolds.by {
+		for pid, h := range m {
+			delete(m, pid)
+			h.release()
+		}
+		delete(sessHolds.by, unit)
+	}
+}
+
 // heldCount is the number of leaders a unit holds.
 func heldCount(unit uint64) int {
 	sessHolds.mu.Lock()

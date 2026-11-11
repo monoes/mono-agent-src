@@ -201,7 +201,7 @@ func (w Wiring) stop(ctx context.Context) (StopOutcome, error) {
 		out.Survivors = append(out.Survivors, rep.Members...)
 		if rep.StoppedBestEffort() {
 			out.BestEffort = true
-			if l := rep.BestEffortLimit(); l != stop.BestEffortNote {
+			if l := rep.StatedLimit(); l != stop.BestEffortNote {
 				out.BestEffortLimit = l // the unit's own limit (the session unit's); the default wording stays implicit
 			}
 		} else if !rep.Stopped() {

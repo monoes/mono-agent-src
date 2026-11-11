@@ -20,6 +20,7 @@ func TestDoomsdayWiringKernelCarriesTheWitnessLedger(t *testing.T) {
 	if _, ok := w.Kernel.(stop.LeaderLedger); !ok {
 		t.Fatalf("the wired kernel (%T) carries no leader ledger", w.Kernel)
 	}
+	t.Cleanup(func() { hostGateMu.Lock(); delete(hostGates, cfg.ProfileID); hostGateMu.Unlock() })
 	g := processHostGate(cfg, nil)
 	if _, ok := g.Kernel.(stop.LeaderLedger); !ok {
 		t.Fatalf("the host gate's kernel (%T) carries no leader ledger", g.Kernel)

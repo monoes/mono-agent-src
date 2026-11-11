@@ -377,8 +377,10 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 				if holdLeader(t.pid) { // the leader is dead but unreaped: its group is still this turn's to signal
 					observed = true
 					t.settle()
-				} else {
-					t.holdFailed(cmd.Process.Kill) // its exit cannot be observed without reaping it: end it now, while it is still ours
+				} else if !held || turnAlive(t.pid) {
+					// its exit cannot be observed without reaping it: end it now, while it is still ours. A HELD leader that is neither
+					// running nor a zombie was already reaped by the unit (its number is free): nothing is signalled by number then.
+					t.holdFailed(cmd.Process.Kill)
 				}
 			}
 			if held {

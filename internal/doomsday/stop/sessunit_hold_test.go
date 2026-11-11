@@ -129,8 +129,12 @@ func TestSessAdoptRefusesWhatItCannotHold(t *testing.T) {
 	}
 	delete(r.w.errs, "Hold")
 	r.led.addErr = errors.New("witness full")
-	if err := r.adopt(l); !errors.Is(err, ErrNotPlaced) || heldCount(r.rec.CgroupID) != 0 || r.w.held[500] {
-		t.Fatalf("a refused leader kept its hold: %v", err)
+	if err := r.adopt(l); !errors.Is(err, ErrNotPlaced) || !errors.Is(err, ErrReapOwned) || heldCount(r.rec.CgroupID) != 1 || !r.w.held[500] {
+		t.Fatalf("a refused leader must keep its hold (the launcher kills it by number meanwhile): %v", err)
+	}
+	ReleaseAllUnitHolds()
+	if heldCount(r.rec.CgroupID) != 0 || r.w.held[500] {
+		t.Fatal("the shutdown release left the hold of an unrecorded leader")
 	}
 }
 
