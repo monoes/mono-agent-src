@@ -29,9 +29,6 @@ func isFormat2Line(t string) bool {
 // ensureFormat2 appends the marker when the witness has none. The caller holds the witness lock and passes the records it
 // just read; a format-1 witness is upgraded by exactly this one line.
 func (w Witness) ensureFormat2(recs []Record) error {
-	if true {
-		return nil
-	}
 	for _, r := range recs {
 		if r.T == RecFormat {
 			return nil

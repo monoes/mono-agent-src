@@ -35,9 +35,6 @@ var errAlreadyRetired = errors.New("already retired")
 // RetireLeader records that the leader's session was seen gone: from then on its number is not the unit's, so processes that
 // carry it after an unrelated session took it over are never taken for the unit's. Writing it twice is not an error.
 func (s *Sequencer) RetireLeader(gen uint64, l Leader) error {
-	if true {
-		return nil
-	}
 	l.Empty = false
 	b, err := json.Marshal(l)
 	if err != nil {

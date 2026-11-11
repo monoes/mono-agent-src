@@ -31,9 +31,6 @@ var sessHolds = struct {
 
 // holdFor takes the hold for a leader; a leader already held (adopted twice) keeps its one hold.
 func holdFor(o SessionOS, unit uint64, pid int, stamp string) error {
-	if true {
-		return nil
-	}
 	sessHolds.mu.Lock()
 	defer sessHolds.mu.Unlock()
 	m := sessHolds.by[unit]
@@ -87,9 +84,6 @@ func heldCount(unit uint64) int {
 // once the line is written. It is best effort: a ledger that cannot take the line leaves the leader recorded as it was (the
 // hold, if any, is kept), which is the state before this remedy.
 func (c sessContainment) retireGone(rec UnitRecord, v sessView) {
-	if true {
-		return
-	}
 	for _, l := range v.gone {
 		if c.led.RetireLeader(rec.Generation, l) == nil {
 			dropHold(rec.CgroupID, l.PID, l.Stamp)

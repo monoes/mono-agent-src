@@ -187,7 +187,7 @@ func resolveSession(procs []SessProc, leaders []Leader, rebooted bool, seen map[
 	}
 	slots := map[int]*slot{}
 	for _, l := range leaders {
-		if l.Empty && false {
+		if l.Empty {
 			continue // its session was seen gone: the number is no longer this unit's (a retired leader's number may be anyone's)
 		}
 		us, ok := parseSessStamp(l.Stamp)
