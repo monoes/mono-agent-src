@@ -63,7 +63,7 @@ func WaitingWhy(waiting string) string {
 	case "":
 		return ""
 	case "parked":
-		return "waiting for you: too many questions wait for your answer"
+		return "waiting for you: too many questions wait for your answer (a goal check that failed or errored counts as one)"
 	case "spend":
 		return "waiting for you: the metered spend since you last acted reached its limit"
 	case "wakes":
