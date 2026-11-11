@@ -2,13 +2,14 @@ package stop
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"strings"
 )
 
 // The leader ledger of a session unit (sessunit.go) over the witness: one authenticated line per session leader the host
-// started for the run, written before the leader's turn is released. The Sequencer is a LeaderLedger; the Kernel the
-// wiring hands the session unit carries it (WithLeaderLedger).
+// started for the run, written before the leader's turn is released, and one line when a recorded session is seen gone. The
+// Sequencer is a LeaderLedger; the Kernel the wiring hands the session unit carries it (WithLeaderLedger). These are
+// format-2 lines (witness_format.go): the first one writes the format marker an older binary refuses on.
 var _ LeaderLedger = (*Sequencer)(nil)
 
 // AddLeader appends the leader line under the witness lock, fsynced. A witness that cannot take it refuses, and so does a
@@ -16,26 +17,41 @@ var _ LeaderLedger = (*Sequencer)(nil)
 // called by the witness ender), so a leader is either on the ledger before the proof reads it or refused here. Without the
 // seal a leader recorded between the proof's last scan and the end line would run in a unit reported as ended.
 func (s *Sequencer) AddLeader(gen uint64, l Leader) error {
+	l.Empty = false
 	b, err := json.Marshal(l)
 	if err != nil {
 		return err
 	}
-	unlock, err := s.W.lockBounded()
-	if err != nil {
-		return err
-	}
-	defer unlock()
-	recs, err := s.W.Records()
-	if err != nil {
-		return err
-	}
-	want := fmt.Sprintf("id=%d", l.Unit) // UnitEnded: "id=<unit id> how=...", UnitSealed: "id=<unit id>"
-	for _, r := range recs {
-		if (r.T == RecUnitEnded || r.T == RecUnitSealed) && uint64(r.Gen) == gen && (r.Extra == want || strings.HasPrefix(r.Extra, want+" ")) {
+	return s.lineV2(RecUnitLeader, gen, string(b), func(recs []Record) error {
+		if endsUnit(recs, gen, fmt.Sprintf("id=%d", l.Unit)) {
 			return ErrUnitEnded
 		}
+		return nil
+	})
+}
+
+var errAlreadyRetired = errors.New("already retired")
+
+// RetireLeader records that the leader's session was seen gone: from then on its number is not the unit's, so processes that
+// carry it after an unrelated session took it over are never taken for the unit's. Writing it twice is not an error.
+func (s *Sequencer) RetireLeader(gen uint64, l Leader) error {
+	l.Empty = false
+	b, err := json.Marshal(l)
+	if err != nil {
+		return err
 	}
-	return s.W.Append(Record{T: RecUnitLeader, Gen: int64(gen), Extra: string(b)})
+	err = s.lineV2(RecUnitSessionEmpty, gen, string(b), func(recs []Record) error {
+		for _, r := range recs {
+			if r.T == RecUnitSessionEmpty && uint64(r.Gen) == gen && r.Extra == string(b) {
+				return errAlreadyRetired
+			}
+		}
+		return nil
+	})
+	if errors.Is(err, errAlreadyRetired) {
+		return nil
+	}
+	return err
 }
 
 // sealIfEnding seals the session units of the generation when the end is not sparing a begun operation (exclude empty): a
@@ -66,7 +82,7 @@ func (s *Sequencer) sealSessionUnits(gen uint64) error {
 		if rec.Kind != KindSession || sealed[extra] {
 			continue
 		}
-		if err := s.UnitLine(RecUnitSealed, gen, extra); err != nil {
+		if err := s.lineV2(RecUnitSealed, gen, extra, nil); err != nil {
 			return err
 		}
 	}
@@ -88,24 +104,32 @@ func sealFailed(out UnitOutcome, err error) UnitOutcome {
 	return out
 }
 
-// Leaders returns the leaders of a generation in the order they were written. A witness that cannot be read, or a line
-// that does not decode, is an error and never a shorter list: a leader that is not listed is not signalled, so an
-// incomplete list must not pass for a complete one.
+// Leaders returns the leaders of a generation in the order they were written, each marked Empty when its session was seen
+// gone. A witness that cannot be read, or a line that does not decode, is an error and never a shorter list: a leader that
+// is not listed is not signalled, so an incomplete list must not pass for a complete one.
 func (s *Sequencer) Leaders(gen uint64) ([]Leader, error) {
 	recs, err := s.W.Records()
 	if err != nil {
 		return nil, err
 	}
 	var out []Leader
+	empty := map[string]bool{}
 	for _, r := range recs {
-		if r.T != RecUnitLeader || uint64(r.Gen) != gen {
+		if (r.T != RecUnitLeader && r.T != RecUnitSessionEmpty) || uint64(r.Gen) != gen {
 			continue
 		}
 		var l Leader
 		if err := json.Unmarshal([]byte(r.Extra), &l); err != nil {
 			return nil, fmt.Errorf("a leader line of generation %d does not decode: %w", gen, err)
 		}
+		if r.T == RecUnitSessionEmpty {
+			empty[fmt.Sprintf("%d/%d/%s", l.Unit, l.PID, l.Stamp)] = true
+			continue
+		}
 		out = append(out, l)
+	}
+	for i := range out {
+		out[i].Empty = empty[fmt.Sprintf("%d/%d/%s", out[i].Unit, out[i].PID, out[i].Stamp)]
 	}
 	return out, nil
 }

@@ -28,6 +28,7 @@ type fakeSess struct {
 	uid   uint32
 	next  int
 	clock int
+	held  map[int]bool // numbers kept reserved by an unreaped leader (Hold): a dead one stays a zombie, never listed
 
 	boot string
 	errs map[string]error // BootID Self Scan Info SelfTest CheckCmd
@@ -43,7 +44,7 @@ type fakeSess struct {
 }
 
 func newFakeSess() *fakeSess {
-	w := &fakeSess{procs: map[int]*fakeSessProc{}, self: 10, uid: 501, next: 1000, boot: "boot-m", errs: map[string]error{}}
+	w := &fakeSess{procs: map[int]*fakeSessProc{}, held: map[int]bool{}, self: 10, uid: 501, next: 1000, boot: "boot-m", errs: map[string]error{}}
 	w.put(1, 0, 1, 1, "launchd")
 	w.put(10, 1, 10, 10, "monoagentcli") // the signaller: the host or `doomsday stop`, in a session of its own
 	return w
@@ -60,6 +61,29 @@ func (w *fakeSess) put(pid, ppid, pgid, sid int, comm string) *fakeSessProc {
 
 // leader adds a session leader that is a child of the signaller (what a started turn is).
 func (w *fakeSess) leader(pid int) *fakeSessProc { return w.put(pid, w.self, pid, pid, "claude") }
+
+// tryPut is put for a number the kernel may refuse: a number held by an unreaped leader is not handed out.
+func (w *fakeSess) tryPut(pid, ppid, pgid, sid int, comm string) (*fakeSessProc, error) {
+	if w.held[pid] {
+		return nil, fmt.Errorf("pid %d is reserved by an unreaped process", pid)
+	}
+	return w.put(pid, ppid, pgid, sid, comm), nil
+}
+
+// Hold keeps the number reserved (the real binding leaves the child unreaped until release).
+func (w *fakeSess) Hold(pid int, stamp string) (func(), error) {
+	if err := w.errs["Hold"]; err != nil {
+		return nil, err
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	p := w.procs[pid]
+	if p == nil || p.Stamp != stamp || p.PPID != w.self {
+		return nil, errors.New("not an unreaped child of the caller")
+	}
+	w.held[pid] = true
+	return func() { w.mu.Lock(); delete(w.held, pid); w.mu.Unlock() }, nil
+}
 
 func (w *fakeSess) BootID() (string, error) { return w.boot, w.errs["BootID"] }
 func (w *fakeSess) Self() (int, string, error) {
@@ -202,10 +226,15 @@ type fakeLedger struct {
 	addErr  error
 	adds    int
 	ended   map[uint64]bool // unit ids whose end is recorded
+	retired map[string]bool // "<unit>/<pid>/<stamp>" of sessions seen gone
+	retErr  error
+	retires int
 }
 
+func leaderKey(l Leader) string { return fmt.Sprintf("%d/%d/%s", l.Unit, l.PID, l.Stamp) }
+
 func newFakeLedger() *fakeLedger {
-	return &fakeLedger{by: map[uint64][]Leader{}, ended: map[uint64]bool{}}
+	return &fakeLedger{by: map[uint64][]Leader{}, ended: map[uint64]bool{}, retired: map[string]bool{}}
 }
 
 func (l *fakeLedger) Leaders(gen uint64) ([]Leader, error) {
@@ -214,7 +243,24 @@ func (l *fakeLedger) Leaders(gen uint64) ([]Leader, error) {
 	if l.readErr != nil {
 		return nil, l.readErr
 	}
-	return append([]Leader(nil), l.by[gen]...), nil
+	out := append([]Leader(nil), l.by[gen]...)
+	for i := range out {
+		out[i].Empty = l.retired[leaderKey(out[i])]
+	}
+	return out, nil
+}
+
+func (l *fakeLedger) RetireLeader(gen uint64, x Leader) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.retErr != nil {
+		return l.retErr
+	}
+	if !l.retired[leaderKey(x)] {
+		l.retires++
+	}
+	l.retired[leaderKey(x)] = true
+	return nil
 }
 
 func (l *fakeLedger) AddLeader(gen uint64, x Leader) error {

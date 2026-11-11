@@ -90,6 +90,7 @@ func (c sessContainment) proveView(rec UnitRecord) (sessView, error) {
 			return notProven("the signaller is in a session of the unit")
 		}
 	}
+	c.retireGone(rec, v) // a session seen gone is recorded as gone, whatever asked (best effort)
 	return v, nil
 }
 
@@ -280,7 +281,11 @@ func (p *sessPlacer) Adopt(pid int, stamp string) error {
 	if slices.ContainsFunc(have, func(l Leader) bool { return l.PID == pid && l.Stamp == stamp && l.Unit == p.rec.CgroupID }) {
 		return nil
 	}
+	if err := holdFor(p.c.os, p.rec.CgroupID, pid, stamp); err != nil { // the number stays reserved from here on
+		return fmt.Errorf("%w: the leader's number cannot be kept: %v", ErrNotPlaced, err)
+	}
 	if err := p.c.led.AddLeader(p.rec.Generation, Leader{PID: pid, Stamp: stamp, Unit: p.rec.CgroupID, At: time.Now().Unix()}); err != nil {
+		dropHold(p.rec.CgroupID, pid, stamp)
 		return fmt.Errorf("%w: the witness refused the leader: %v", ErrNotPlaced, err)
 	}
 	return nil
