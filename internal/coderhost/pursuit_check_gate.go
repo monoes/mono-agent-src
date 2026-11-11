@@ -2,6 +2,8 @@ package coderhost
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
@@ -41,7 +43,7 @@ func (h *Host) pursuitCheckWaiting(ctx context.Context, m pursuitMission, st pur
 		return pursuitWaitingCheck
 	case f.AwaitingPerson:
 		return pursuitWaitingAnswer
-	case f.BadReviewer >= missionpursuit.MaxBadReviewerRuns:
+	case checkReviewerFailing(f, st.PersonAt):
 		return pursuitWaitingVerifier
 	}
 	if !checkSettled(snap.Tasks) {
@@ -57,6 +59,13 @@ func (h *Host) pursuitCheckWaiting(ctx context.Context, m pursuitMission, st pur
 		return pursuitWaitingCannotCheck
 	}
 	return ""
+}
+
+// checkReviewerFailing: the last MaxBadReviewerRuns checks in a row could not use the reviewer, and the person has not acted since
+// the latest of them. It counts across away windows (a window holds only two checks, so a count inside one could never reach
+// three); the person's action lifts it.
+func checkReviewerFailing(f missionpursuit.CheckFacts, personAt time.Time) bool {
+	return f.BadReviewer >= missionpursuit.MaxBadReviewerRuns && !personAt.After(f.LatestStarted)
 }
 
 // checkPinWhy says why the checker may not check this mission, or "": the judge, the checker and the lead must be known and
@@ -182,6 +191,7 @@ type checkState struct {
 	checkQuiet   map[int64]*checkQuiet
 	checkNext    map[int64]time.Time // the earliest the next preparation of a mission may start
 	checkTried   map[int64]bool      // a check was started for the mission since this host started
+	checkSeen    map[int64]string    // the stat manifest hash at the last full digest of the mission (a cheap change signal)
 	checkBig     map[int64]bool      // the project is over maxManifestEntries (logged once)
 	checkerOnce  sync.Once
 	hostStart    time.Time
@@ -235,7 +245,7 @@ func (h *Host) checkPrepDue(session int64, now time.Time) bool {
 
 // treeQuiet says whether nothing in the folder has been written for QuietFor, by comparing its stat manifest with the one
 // remembered from the last look. The first look, a changed manifest or a changed folder starts the wait again.
-func (h *Host) treeQuiet(ctx context.Context, session int64, root string, now time.Time) bool {
+func (h *Host) treeQuiet(ctx context.Context, session int64, root string, now time.Time) (quiet bool, sum string) {
 	mctx, cancel := context.WithTimeout(ctx, manifestTimeout)
 	manifest, err := finish.StatManifestCtx(mctx, root, maxManifestEntries)
 	cancel()
@@ -243,17 +253,19 @@ func (h *Host) treeQuiet(ctx context.Context, session int64, root string, now ti
 		if errors.Is(err, finish.ErrTooManyFiles) {
 			h.noteBigProject(session)
 		}
-		return false
+		return false, ""
 	}
 	h.checkMu.Lock()
 	defer h.checkMu.Unlock()
+	hash := sha256.Sum256([]byte(manifest))
+	sum = hex.EncodeToString(hash[:])
 	q := h.checkQuiet[session]
 	if q == nil || q.root != root || q.manifest != manifest {
 		if h.checkQuiet == nil {
 			h.checkQuiet = map[int64]*checkQuiet{}
 		}
 		h.checkQuiet[session] = &checkQuiet{root: root, manifest: manifest, since: now}
-		return false
+		return false, sum
 	}
-	return now.Sub(q.since) >= h.Pursuit.Verifier.quietFor()
+	return now.Sub(q.since) >= h.Pursuit.Verifier.quietFor(), sum
 }

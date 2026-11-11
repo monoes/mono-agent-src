@@ -116,8 +116,8 @@ func TestReadCheckFactsAwaitingPersonSinceVerdictAndBadReviewerRuns(t *testing.T
 		t.Errorf("bad reviewer runs = %d, want 3 in a row", f.BadReviewer)
 	}
 	head, _ := CheckHead(bg, w.db, w.session)
-	if f, _ = ReadCheckFacts(bg, w.db, w.session, head); f.BadReviewer != 0 {
-		t.Errorf("the person acted: the count starts again, got %d", f.BadReviewer)
+	if f, _ = ReadCheckFacts(bg, w.db, w.session, head); f.BadReviewer != 3 {
+		t.Errorf("the count runs across away windows (the host lifts the stop when the person acts), got %d", f.BadReviewer)
 	}
 	w.finish(t, w.begin(t), verifier.OutcomePassedMachine, "", 1500, true, "ok")
 	f, _ = ReadCheckFacts(bg, w.db, w.session, 0)

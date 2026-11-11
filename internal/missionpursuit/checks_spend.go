@@ -95,11 +95,11 @@ type CheckFacts struct {
 	LatestStarted  time.Time // zero when it does not read
 	AwaitingPerson bool      // the latest check passed its machine criteria and its reviewer and waits for the person's answers
 	SinceVerdict   int       // checks after the latest accepted or rejected one
-	BadReviewer    int       // checks in a row, after baseID, that ended blocked because the reviewer could not be used
+	BadReviewer    int       // checks in a row (across away windows) that ended blocked because the reviewer could not be used
 }
 
-// ReadCheckFacts reads the latest checks of a mission (at most 200 rows). baseID is the check ledger head when the person last
-// acted: checks up to it do not count toward the reviewer-failing stop.
+// ReadCheckFacts reads the latest checks of a mission (at most 200 rows). The reviewer-failing count runs across away windows; the
+// host lifts the stop when the person acted since the latest check. baseID is not used by it (callers pass the window base).
 func ReadCheckFacts(ctx context.Context, db *sql.DB, session, baseID int64) (CheckFacts, error) {
 	var f CheckFacts
 	rows, err := db.QueryContext(ctx, `SELECT id, state, outcome, reason, subject_digest, started_at, reviewer_verdict, containment FROM mission_goal_checks WHERE session_id = ? ORDER BY id DESC LIMIT 200`, session)
@@ -128,7 +128,7 @@ func ReadCheckFacts(ctx context.Context, db *sql.DB, session, baseID int64) (Che
 		if !verdictSeen {
 			f.SinceVerdict++
 		}
-		if badOpen && id > baseID && state == CheckDone && outcome == "blocked" && reviewerUnusable(reason) {
+		if badOpen && state == CheckDone && outcome == "blocked" && reviewerUnusable(reason) {
 			f.BadReviewer++
 		} else {
 			badOpen = false

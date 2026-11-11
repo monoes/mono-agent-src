@@ -67,12 +67,6 @@ const (
 	pursuitWaitingMeter  = "meter-unreadable"
 	pursuitWaitingPin    = "judge-pin"
 	pursuitWaitingNoChat = "no-chat"
-	// the goal checks (pursuit_check.go)
-	pursuitWaitingCheck       = "goal-check"
-	pursuitWaitingAnswer      = "goal-answer"
-	pursuitWaitingVerifierPin = "verifier-pin"
-	pursuitWaitingVerifier    = "verifier-failing"
-	pursuitWaitingCannotCheck = "cannot-check"
 )
 
 // PursuitDeps turns the loop on. Model is the judge (resolved by the caller for the judging purpose) and Refuse its
@@ -107,9 +101,6 @@ func (d *PursuitDeps) clock() epoch.Clock {
 	}
 	return d.Clock
 }
-
-// verifierReady: the loop is ready and the goal checks are set up. ready() does not look at the verifier.
-func (d *PursuitDeps) verifierReady() bool { return d.ready() && d.Verifier.ready() }
 
 func (d *PursuitDeps) ready() bool {
 	return d != nil && d.Model != nil && d.Refuse != nil && d.LeadPin != nil && validWakeCap(d.WakeCapUSD)
@@ -312,8 +303,6 @@ type pursuitGateResult struct {
 	hourJudges int  // judge calls of ALL missions in the last hour
 	// closeWakeDue: the mission is settled and owed its one close wake (pursuit_settled.go); it makes the settled quiet lift
 	closeWakeDue bool
-	// checks is what the goal checks since the person last acted cost and how many there were
-	checks missionpursuit.CheckSpend
 }
 
 // pursuitGate reads the run state, the confirmed goal, the facts and the away counters in one go and says whether the
@@ -366,10 +355,8 @@ func (h *Host) pursuitGate(ctx context.Context, rd *inputs.Reader, m pursuitMiss
 		h.stallUnreadable(m)
 		return g, false
 	}
-	checkHead, err := missionpursuit.CheckHead(ctx, h.Store.db, m.ID)
-	if err != nil {
-		h.logf("coder host: pursuit of session %d: %v", m.ID, err)
-		h.stallUnreadable(m)
+	checkHead, ok := h.pursuitCheckHead(ctx, m)
+	if !ok {
 		return g, false
 	}
 	leadNow, err := h.Store.leadTurnSpendMicro(m, tree)
@@ -396,10 +383,8 @@ func (h *Host) pursuitGate(ctx context.Context, rd *inputs.Reader, m pursuitMiss
 		return g, false
 	}
 	// The goal checks since the person last acted are spend like the judge's: a running check at the cap, an unknown cost at the cap.
-	checks, err := missionpursuit.CheckSpendAfter(ctx, h.Store.db, m.ID, st.BaseCheckID)
-	if err != nil {
-		h.logf("coder host: pursuit of session %d: %v", m.ID, err)
-		h.stallUnreadable(m)
+	checks, ok := h.pursuitCheckSpend(ctx, m, st.BaseCheckID)
+	if !ok {
 		return g, false
 	}
 	leadMicro := max(leadNow-st.BaseLeadMicro, 0)
@@ -436,7 +421,6 @@ func (h *Host) pursuitGate(ctx context.Context, rd *inputs.Reader, m pursuitMiss
 		return g, false
 	}
 	g.hourWakes, g.hourJudges = hourN, hourJ
-	g.checks = checks
 	shown := pursuitState{Parked: parked, SpentAway: away.SpentMicro, BudgetMicro: away.BudgetMicro, HourWakes: hourN, HourFreesAt: freesAt,
 		JudgeMicro: judgeMicro, LeadMicro: leadMicro, JudgeCalls: judgeCalls, HourJudges: hourJ}
 	if shown.Parked != st.Parked || shown.SpentAway != st.SpentAway || shown.BudgetMicro != st.BudgetMicro || shown.HourWakes != st.HourWakes || shown.HourFreesAt != st.HourFreesAt ||
@@ -474,31 +458,6 @@ func (h *Host) pursuitGate(ctx context.Context, rd *inputs.Reader, m pursuitMiss
 		g.closeWakeDue = h.Store.pursuitCloseWakeDue(m, selfWakes)
 	}
 	return g, true
-}
-
-// stallUnreadable makes a spend that cannot be measured visible: the pursuit waits ("meter-unreadable") instead of stalling with
-// no reason. The next pass that can read again clears it.
-func (h *Host) stallUnreadable(m pursuitMission) {
-	_ = h.Store.setPursuitWaiting(m.ID, pursuitWaitingMeter, false, h.Pursuit.clock().Now())
-}
-
-// awayReason is why the pursuit may not open new work, or "". An unknown budget is unknown, never unlimited.
-func awayReason(a AwayState, budgetKnown bool, wakes, wakesMax int) string {
-	switch {
-	case wakesMax < 1 || wakesMax > missionpursuit.MaxWakesMax:
-		return pursuitWaitingLimits
-	case wakes >= wakesMax:
-		return pursuitWaitingWakes
-	case a.ParkedMax < 1 || a.ParkedMax > 20 || a.Pct < 1 || a.Pct > 100:
-		return pursuitWaitingLimits
-	case !budgetKnown:
-		return pursuitWaitingBudget
-	case a.Parked >= a.ParkedMax:
-		return pursuitWaitingParked
-	case a.WaitingForYou():
-		return pursuitWaitingSpend
-	}
-	return ""
 }
 
 // pursuitRunOf is the epoch engine of a mission, built once and kept; a panic or a restart builds it again over the

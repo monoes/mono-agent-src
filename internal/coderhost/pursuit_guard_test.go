@@ -61,7 +61,7 @@ func TestThePursuitFilesImportNothingThatCarriesAuthority(t *testing.T) {
 	const fin, ver, sdc = "github.com/monoes/mono-agent/internal/doomsday/finish", "github.com/monoes/mono-agent/internal/missionpursuit/verifier", "github.com/monoes/mono-agent/internal/missionpursuit/verifier/sdconfine"
 	checkExtras := map[string][]string{
 		"pursuit_check.go":       {fin, ver},
-		"pursuit_check_gate.go":  {"os", "path/filepath", fin, ver},
+		"pursuit_check_gate.go":  {"os", "path/filepath", "crypto/sha256", fin, ver},
 		"pursuit_check_meter.go": {ver},
 		"pursuit_check_sweep.go": {"os", "path/filepath", fin},
 		"pursuit_check_wire.go":  {"os", "os/exec", ver, sdc},

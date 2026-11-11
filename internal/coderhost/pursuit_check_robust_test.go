@@ -2,10 +2,12 @@ package coderhost
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/doomsday/finish"
 	"github.com/monoes/mono-agent/internal/missionpursuit/verifier"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // A project with more entries than the manifest cap is never looked at again as a tree that may be quiet: no check starts.
@@ -63,4 +65,57 @@ func TestTheStartEndsUnitsBeforeItRemovesScratch(t *testing.T) {
 type housekeepingConfiner struct {
 	orderConfiner
 	verifier.FakeConfiner
+}
+
+// An unchanged project is not digested again: the stat manifest is the cheap signal, and the full digest runs once. Revert proof:
+// drop the signal and the digest runs at every preparation.
+func TestAnUnchangedProjectIsDigestedOnceAndNotAgain(t *testing.T) {
+	var n int
+	old := digestTree
+	digestTree = func(ctx context.Context, root, to string) (finish.Tree, error) { n++; return old(ctx, root, to) }
+	t.Cleanup(func() { digestTree = old })
+	w := newCW(t)
+	w.untilChecked(1)
+	after := n
+	for i := 0; i < 12; i++ {
+		w.step()
+	}
+	if n != after || w.checkRows() != 1 {
+		t.Fatalf("full digests %d -> %d, checks %v: an unchanged project was digested again", after, n, w.checks())
+	}
+	w.touch("changed")
+	w.untilChecked(2)
+	if n != after+1 {
+		t.Errorf("a changed project is digested once: %d -> %d", after, n)
+	}
+}
+
+// Reviewer failures count across away windows (two checks to a window, so a count inside one could never reach three): two bad
+// runs, the person acts, a third bad run stops the checks, and the person's next action lifts it.
+func TestTheReviewerFailingStopFiresAcrossAwayWindows(t *testing.T) {
+	w := newCW(t)
+	w.pass()
+	w.rawCheck(1, "blocked", "reviewer-unavailable", 500000, 0)
+	w.rawCheck(2, "blocked", "reviewer-invalid", 500000, 0)
+	w.advance(61 * time.Minute)
+	w.personActs() // a new away window: the count of this window is 0, the two earlier failures are still in a row
+	w.advance(5 * time.Second)
+	w.rawCheck(3, "blocked", "reviewer-pin-changed", 500000, 0)
+	w.step()
+	if got := w.waiting(); got != pursuitWaitingVerifier {
+		t.Fatalf("waiting = %q after three bad runs in a row over two windows, want %q", got, pursuitWaitingVerifier)
+	}
+	w.advance(61 * time.Minute)
+	w.touch("four")
+	for i := 0; i < 8; i++ {
+		w.step()
+	}
+	if w.checkRows() != 3 || len(w.requests()) != 0 {
+		t.Fatalf("a check ran while the checker is failing: %v", w.checks())
+	}
+	w.personActs()
+	w.step()
+	if got := w.waiting(); got == pursuitWaitingVerifier {
+		t.Error("the person acted and the stop is still there")
+	}
 }

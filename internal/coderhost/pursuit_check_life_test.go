@@ -101,7 +101,13 @@ func TestAPausedPursuitCancelsItsCheckAndItCountsAtTheCap(t *testing.T) {
 	started, _ := w.blocking()
 	w.untilStarted(started)
 	w.pause()
-	w.wait() // the watcher ends the check within a few milliseconds (WatchEvery)
+	ended := make(chan struct{})
+	go func() { w.wait(); close(ended) }() // the watcher ends the check within a few milliseconds (WatchEvery)
+	select {
+	case <-ended:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a paused pursuit's check was not cancelled within 5 seconds")
+	}
 	got := w.checks()
 	if len(got) != 1 || got[0] != "1:abandoned::cancelled" && got[0] != "1:abandoned::" {
 		t.Fatalf("checks = %v, want one abandoned check", got)

@@ -60,6 +60,38 @@ func (v *VerifierDeps) quietFor() time.Duration   { return orDefault(v.QuietFor,
 func (v *VerifierDeps) prepEvery() time.Duration  { return orDefault(v.PrepEvery, defaultPrepEvery) }
 func (v *VerifierDeps) watchEvery() time.Duration { return orDefault(v.WatchEvery, defaultWatchEvery) }
 
+// The waiting reasons the goal checks add.
+const (
+	pursuitWaitingCheck       = "goal-check"
+	pursuitWaitingAnswer      = "goal-answer"
+	pursuitWaitingVerifierPin = "verifier-pin"
+	pursuitWaitingVerifier    = "verifier-failing"
+	pursuitWaitingCannotCheck = "cannot-check"
+)
+
+// verifierReady: the loop is ready and the goal checks are set up. ready() does not look at the verifier.
+func (d *PursuitDeps) verifierReady() bool { return d.ready() && d.Verifier.ready() }
+
+// pursuitCheckHead and pursuitCheckSpend read the check ledger for the gate; an unreadable ledger stalls the pursuit visibly
+// ("meter-unreadable"), like the judge ledger.
+func (h *Host) pursuitCheckHead(ctx context.Context, m pursuitMission) (int64, bool) {
+	head, err := missionpursuit.CheckHead(ctx, h.Store.db, m.ID)
+	if err != nil {
+		h.logf("coder host: pursuit of session %d: %v", m.ID, err)
+		h.stallUnreadable(m)
+	}
+	return head, err == nil
+}
+
+func (h *Host) pursuitCheckSpend(ctx context.Context, m pursuitMission, base int64) (missionpursuit.CheckSpend, bool) {
+	sp, err := missionpursuit.CheckSpendAfter(ctx, h.Store.db, m.ID, base)
+	if err != nil {
+		h.logf("coder host: pursuit of session %d: %v", m.ID, err)
+		h.stallUnreadable(m)
+	}
+	return sp, err == nil
+}
+
 func (h *Host) verifierReady() bool { return h.Pursuit.verifierReady() }
 
 // checker is the host's one verifier, built on first use (the meter needs the host). A failure is remembered and shown.
@@ -110,12 +142,16 @@ func (h *Host) pursuitCheckStep(ctx context.Context, rd *inputs.Reader, m pursui
 	if err != nil {
 		return
 	}
+	win, ok := h.pursuitCheckSpend(ctx, m, g2.st.BaseCheckID)
+	if !ok {
+		return
+	}
 	acted := f.HaveLatest && g2.st.PersonAt.After(f.LatestStarted)
 	switch {
-	case g2.checks.Count >= missionpursuit.MaxChecksPerAwayWindow,
+	case checkWindowFull(win.Count),
 		f.SinceVerdict >= missionpursuit.MaxChecksPerMissionLifetime,
 		hour >= missionpursuit.MaxHostChecksPerHour,
-		f.BadReviewer >= missionpursuit.MaxBadReviewerRuns,
+		checkReviewerFailing(f, g2.st.PersonAt),
 		f.Running || h.checkRunning(m.ID):
 		return
 	case f.HaveLatest && f.LatestOutcome == string(verifier.OutcomeCannotCheck) && !acted && h.checkTriedOnce(m.ID):
@@ -132,6 +168,24 @@ func (h *Host) pursuitCheckStep(ctx context.Context, rd *inputs.Reader, m pursui
 		defer h.checkSlot.Store(false)
 		h.prepareCheck(ctx, rd, m, f, acted)
 	}()
+}
+
+// digestTree is finish.DigestTreeCtx; a variable only so a test can count the full digests.
+var digestTree = finish.DigestTreeCtx
+
+func (h *Host) checkSeenSum(session int64) string {
+	h.checkMu.Lock()
+	defer h.checkMu.Unlock()
+	return h.checkSeen[session]
+}
+
+func (h *Host) setSeenSum(session int64, sum string) {
+	h.checkMu.Lock()
+	defer h.checkMu.Unlock()
+	if h.checkSeen == nil {
+		h.checkSeen = map[int64]string{}
+	}
+	h.checkSeen[session] = sum
 }
 
 func (h *Host) checkRunning(session int64) bool {
@@ -173,11 +227,17 @@ func (h *Host) prepareCheck(ctx context.Context, rd *inputs.Reader, m pursuitMis
 		return
 	}
 	now := h.Pursuit.clock().Now()
-	if !h.treeQuiet(ctx, m.ID, root, now) {
+	quiet, sum := h.treeQuiet(ctx, m.ID, root, now)
+	if !quiet {
+		return
+	}
+	// The cheap signal first: a tree whose stat manifest is the one at the last full digest has not changed, so it is not read
+	// again (a check that did not pass would otherwise re-digest an unchanged project every 30 seconds while holding the slot).
+	if f.HaveLatest && !acted && h.checkSeenSum(m.ID) == sum {
 		return
 	}
 	dctx, cancel := context.WithTimeout(ctx, preDigestTimeout)
-	tree, err := finish.DigestTreeCtx(dctx, root, "")
+	tree, err := digestTree(dctx, root, "")
 	cancel()
 	if err != nil {
 		if ctx.Err() == nil {
@@ -187,6 +247,7 @@ func (h *Host) prepareCheck(ctx context.Context, rd *inputs.Reader, m pursuitMis
 	}
 	// the same subject twice is not checked again unless the person acted since
 	if f.HaveLatest && f.LatestDigest != "" && f.LatestDigest == tree.Digest && !acted {
+		h.setSeenSum(m.ID, sum)
 		return
 	}
 	// Everything the start rests on is read again now: the digest can take minutes.
@@ -194,7 +255,7 @@ func (h *Host) prepareCheck(ctx context.Context, rd *inputs.Reader, m pursuitMis
 	if !ok || g.st.Waiting != "" || !checkSettled(g.snap.Tasks) || !h.Store.checkMergesDone(m.ID) || h.checkLeadBusy(m) != "" {
 		return
 	}
-	if g.checks.Count >= missionpursuit.MaxChecksPerAwayWindow {
+	if win, ok := h.pursuitCheckSpend(ctx, m, g.st.BaseCheckID); !ok || checkWindowFull(win.Count) {
 		return
 	}
 	goal := g.goal
@@ -220,6 +281,7 @@ func (h *Host) prepareCheck(ctx context.Context, rd *inputs.Reader, m pursuitMis
 		h.backoffMission(m.ID)
 		return
 	}
+	h.setSeenSum(m.ID, sum)
 	cctx, ccancel := context.WithCancel(ctx)
 	defer ccancel()
 	h.checkMu.Lock()
@@ -330,3 +392,6 @@ func (h *Host) endAbandoned(m pursuitMission, id int64, goalHash string) {
 	h.finishRow(ctx, missionpursuit.NewHostChecks(missionpursuit.NewStore(h.Store.db)), m, id,
 		verifier.Result{Outcome: verifier.OutcomeAbandoned, Reason: verifier.ReasonCancelled, GoalHash: goalHash})
 }
+
+// checkWindowFull is the one place that says an away window has had its checks (the step and the goroutine both ask it).
+func checkWindowFull(n int) bool { return n >= missionpursuit.MaxChecksPerAwayWindow }
