@@ -258,3 +258,6 @@ func (DarwinKernel) ListUnitNames(string) ([]string, error)    { return nil, nil
 func ServeAnchors(ctx context.Context, dir RunDir) error {
 	return (&AnchorServer{Dir: dir, UID: uint32(os.Getuid()), OS: darwinPG{}}).Start(ctx)
 }
+
+// UnitNeedsHost says the run's unit is made by the coder host (so the host must run before the run starts).
+func UnitNeedsHost() bool { return true }

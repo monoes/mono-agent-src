@@ -29,7 +29,7 @@ import (
 func (r RunDir) AnchorSockPath() string { return r.Dir + "/anchor.sock" }
 
 // ErrNoAnchorService means no host serves anchors for the run directory: the unit cannot be made, so the run is not.
-var ErrNoAnchorService = errors.New("the coder host is not running (nothing serves the run's process group): start the host and try again")
+var ErrNoAnchorService = errors.New("the coder host is not running (nothing serves the run's process group): start it (an older host does not serve this: `monoagentcli coder host stop` and start again)")
 
 // AnchorServer is the host's end: it starts anchors in the host's session through OS.
 type AnchorServer struct {
@@ -113,6 +113,11 @@ func (s *AnchorServer) handle(c net.Conn) {
 	fmt.Fprintf(c, "OK %d %s %d\n", pid, stamp, sid)
 }
 
+var (
+	anchorDialTries = 100
+	anchorDialEvery = 100 * time.Millisecond
+)
+
 // hostAnchorOS is the PGroupOS of the process that creates the unit (`doomsday start`): every operation is the local one,
 // except that the anchor is started by the host, and the session its group lives in is the one the host reported.
 type hostAnchorOS struct {
@@ -126,7 +131,15 @@ func newHostAnchorOS(o PGroupOS, dir RunDir) *hostAnchorOS {
 }
 
 func (h *hostAnchorOS) StartAnchor(argv0 string) (int, string, error) {
-	c, err := net.DialTimeout("unix", h.dir.AnchorSockPath(), 2*time.Second)
+	// A host that was just started takes its lock before it serves anchors: give it a few seconds.
+	var c net.Conn
+	var err error
+	for i := 0; i < anchorDialTries; i++ {
+		if c, err = net.DialTimeout("unix", h.dir.AnchorSockPath(), 2*time.Second); err == nil {
+			break
+		}
+		time.Sleep(anchorDialEvery)
+	}
 	if err != nil {
 		return 0, "", fmt.Errorf("%w (%v)", ErrNoAnchorService, err)
 	}

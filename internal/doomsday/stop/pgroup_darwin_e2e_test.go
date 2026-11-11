@@ -162,6 +162,9 @@ func TestDarwinRealUnitIsMadeByTheHostAndTurnsJoinIt(t *testing.T) {
 }
 
 func TestDarwinNoHostMeansNoUnit(t *testing.T) {
+	oldT, oldE := anchorDialTries, anchorDialEvery
+	anchorDialTries, anchorDialEvery = 2, time.Millisecond
+	t.Cleanup(func() { anchorDialTries, anchorDialEvery = oldT, oldE })
 	dir, _ := os.MkdirTemp("/tmp", "pgn")
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	_, err := (pgContainment{os: darwinPG{}, viaHost: true}).Create(context.Background(), CreateArgs{Dir: RunDir{Dir: dir}}, 1)
@@ -200,4 +203,19 @@ func TestDarwinDiscardEndsTheHostMadeGroupAndRemovesItsRecord(t *testing.T) {
 	if _, ok, _ := rd.ReadUnitFile(7); ok {
 		t.Fatal("the unit record is still there")
 	}
+}
+
+// A host that is started just as the run is, and serves its anchors a moment after the creator first looks, is waited for.
+func TestDarwinCreatorWaitsForAHostThatIsStillStarting(t *testing.T) {
+	if os.Getenv(helperEnv) != "" {
+		t.Skip("helper process")
+	}
+	dir, _ := os.MkdirTemp("/tmp", "pgw")
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	go func() { time.Sleep(600 * time.Millisecond); startHost(t, dir) }()
+	rec, err := (pgContainment{os: darwinPG{}, viaHost: true}).Create(context.Background(), CreateArgs{Dir: RunDir{Dir: dir}}, 3)
+	if err != nil {
+		t.Fatalf("the creator did not wait for the host: %v", err)
+	}
+	_ = unix.Kill(-rec.AnchorPID, unix.SIGKILL)
 }

@@ -24,8 +24,11 @@ type Wiring struct {
 	Kernel stop.Kernel
 	// Host is the service manager that starts and stops the run unit (stop.SystemHost in production). Without
 	// it, or without a Kernel, no run can start and Stop cannot end a unit's service.
-	Host   stop.UnitHost
-	Tokens interface {
+	Host stop.UnitHost
+	// EnsureHost starts the coder host when none runs, before the run's unit is made: on macOS the host makes the unit's process
+	// group (stop.UnitNeedsHost). Nil elsewhere.
+	EnsureHost func(ctx context.Context) error
+	Tokens     interface {
 		RevokeTokens(ctx context.Context, gen uint64) error
 		CancelQueue(ctx context.Context, gen uint64) error
 	}
@@ -151,6 +154,11 @@ func (w Wiring) ender() stop.Ender {
 
 // createUnit is StoreEngine.CreateUnit: the unit is created, proven and recorded before the run exists.
 func (w Wiring) createUnit(ctx context.Context, gen int64) (func(context.Context) error, error) {
+	if w.EnsureHost != nil {
+		if err := w.EnsureHost(ctx); err != nil {
+			return nil, fmt.Errorf("%w: the coder host that makes the run's process group could not be started: %v", stop.ErrUnitNotCreated, err)
+		}
+	}
 	seq, err := w.Sequencer(ctx)
 	if err != nil {
 		return nil, err
