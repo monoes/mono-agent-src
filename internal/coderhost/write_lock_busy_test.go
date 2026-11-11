@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/dbconn/dbconntest"
+	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 // competeOnce moves the fixture's store onto a pool over the same file whose driver lets one competing writer commit
@@ -73,6 +74,26 @@ func TestReleaseReservationSurvivesAWriterCommittingBetweenItsReadAndItsWrite(t 
 	err = f.st.releaseReservation("p", f.se.ID, f.ids[0], row.Generation, f.lead.ConversationID, false, "refused")
 	notLocked(t, "releaseReservation", err)
 	if !fired() {
+		t.Fatal("the hook never ran")
+	}
+}
+
+// EnqueueWithCheckin counts the waiting commands before it inserts one (#1460, batch 2).
+func TestEnqueueWithCheckinSurvivesAWriterCommittingBetweenItsReadAndItsWrite(t *testing.T) {
+	path := testdb.Path(t)
+	db, trip := dbconntest.OpenPath(t, path)
+	st := NewStore(db)
+	competing := dbconntest.CompetingWriter(t, path)
+	fired := false
+	trip.BeforeExec = func(string) {
+		if !fired {
+			fired = true
+			competing()
+		}
+	}
+	_, err := st.EnqueueWithCheckin(Command{ProfileID: "p", ConversationID: "c1", Kind: KindSend, TurnID: "checkin-1", Message: "look"}, Checkin{At: "2026-01-01T00:00:00Z", Snapshot: "{}"})
+	notLocked(t, "EnqueueWithCheckin", err)
+	if !fired {
 		t.Fatal("the hook never ran")
 	}
 }
