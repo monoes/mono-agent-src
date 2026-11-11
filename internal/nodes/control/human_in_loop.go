@@ -16,6 +16,7 @@ import (
 	"github.com/monoes/mono-agent/internal/jev/jevconf"
 	"github.com/monoes/mono-agent/internal/nodes/nodeprofile"
 	"github.com/monoes/mono-agent/internal/vault"
+	"github.com/monoes/mono-agent/internal/secrets"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -195,6 +196,12 @@ func (n *HumanInLoopNode) createRows(ctx context.Context, db *sql.DB, input work
 		if len(readonlyFields) == 0 && len(editableFields) == 0 {
 			ed[i] = copyMap(item.JSON)
 		}
+	}
+	// A value the run read under agent access is not written into a card
+	// (#1594): the card is stored, shown and kept for a person who never
+	// granted it, and an approval would hand it on as the item's own data.
+	if raw, _ := json.Marshal([]interface{}{ro, ed}); secrets.HoldsTracked(ctx, string(raw)) {
+		return false, fmt.Errorf("human_in_loop: an item carries a secret the run read under agent access, and a card does not keep one: take it out of the item")
 	}
 	plan, err := autoDecideRows(ctx, db, input, config, profileID, ro, ed)
 	if err != nil {
