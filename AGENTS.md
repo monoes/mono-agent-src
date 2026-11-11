@@ -337,6 +337,23 @@ Every agent read under a grant is audited by name, never value (`secret agent-ac
 audit`). Policy changes take effect on subsequent reads, including active runs;
 previously retrieved values cannot be recalled. Encryption on disk is unchanged.
 
+**A granted secret is authentication, never content.** Host binding says where a
+granted secret may go, not what it is used as. Under agent access a node that
+publishes to a third party (messages, vendor APIs, databases, AI providers,
+responses; a node declares `PublishesToThirdParty() false` to say it does not,
+and an undeclared one publishes) is refused once the run has read any secret,
+`--any-host` included; a child run's reads taint its parent when the parent
+consumes it, and a plaintext read (`vault.secret_get` at Reveal) taints like a
+reference. A secret may reach `http.request`, `http.graphql` or `mcp.call` only
+as authentication, never in a body, a query parameter's name or tool
+arguments; requests to this machine (and through a proxy only if the proxy is
+on it too) are exempt, and a redirect hop is checked again. To graduate such a
+workflow, approve it. Known gaps: `browser.jev`, `{{secret:}}` in automations,
+MCP headers and env, and per-item database overlays resolve inside the node, so
+the node that reads is not refused by its own read (later nodes are); a body an
+expression builds from an echoed value in a form nobody lists (reversed,
+chunked) to a granted host passes the value scan.
+
 ## Publication history
 
 Publication is a profile's local history of successful posts, comments,
