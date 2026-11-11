@@ -1017,7 +1017,14 @@ another profile's token, an unknown profile and a missing token all get the
 same 401, so a caller cannot learn which profiles exist (`/nodes*` takes any
 profile's token). `POST .../run` waits as MCP `workflow_run` does; add
 `?wait_through_subworkflows=true` to wait through a pause for the run's own
-sub-workflows. Output items go
+sub-workflows. Every run started through `POST .../run`, like MCP `workflow_run`, is
+marked as an agent's run (`_ai_caller`: the caller's agent kind, else `other`;
+a planted mark is overwritten), as `workflow run` marks an agent's: a key
+holder is not the operator's terminal, so `ai.task` refuses, `people.save` does
+not approve outreach, browser steps run at the agent level and hilsend sends
+wait for approval, also for the user's own script. Webhook, form, chat and
+trigger-source runs of active workflows and the daemon's scheduler are not
+marked (third-party-triggered by design; decision pending, #1475). Output items go
 through the same redaction as `workflow run --json` — pass
 `X-Full-Outputs: 1` to opt out per request, mirroring
 `workflow run --full-outputs` (the CLI flag is the operator's only; the
