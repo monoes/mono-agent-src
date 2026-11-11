@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/monoes/mono-agent/internal/secrets"
+	"github.com/monoes/mono-agent/internal/vault"
 )
 
 // Issue #1418: a granted @secret: must not be published as content. A node
@@ -169,5 +170,37 @@ func TestNoDispatchPointCallsRunExecGuardDirectly(t *testing.T) {
 	}
 	if len(bad) > 0 {
 		t.Errorf("call workflow.RunExecGuardFor, not RunExecGuard, in: %v", bad)
+	}
+}
+
+// Review of #1418 slice 1 (P2): the taint flows back up. A child run that
+// read a secret taints its parent when the parent consumes the child.
+func TestAgentAccessChildRunTaintsItsParent(t *testing.T) {
+	e := newAccessEnv(t)
+	e.grant(t, secrets.AccessGrant{AnyHost: true})
+	eng := newTestEngine(t, e.store, e.reg)
+	child := chain("wf-childup", step("c1", "test.echoprobe", "Read", map[string]interface{}{"v": "@secret:vs"}))
+	child.Nodes[0].Type = TriggerTypeExecuteWorkflow
+	createSQLWorkflow(t, e.store, child)
+
+	parent := secrets.AllowResolving(e.ctx, e.db.DB, "default", secrets.AccessOrigin{WorkflowID: "wf-parent", ExecutionID: "pu1"})
+	parent = WithTrigger(vault.ContextWithExecIDs(parent, "wf-parent", "pu1"), "trigger.schedule", map[string]interface{}{})
+	id, err := eng.StartSubWorkflow(parent, SubWorkflowStart{ParentExecutionID: "pu1", ParentNodeID: "call", Workflow: "wf-childup", ItemIndex: -1, Wait: true,
+		Items: []Item{NewItem(map[string]interface{}{})}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng.handleExecution(e.ctx, ExecutionRequest{WorkflowID: "wf-childup", ExecutionID: id, TriggerType: TriggerTypeExecuteWorkflow, TriggerNodeID: "wf-childup-t",
+		TriggerData: map[string]interface{}{SubWorkflowItemsKey: []interface{}{map[string]interface{}{}}, UnapprovedCallerKey: "wf-parent"}})
+
+	if err := secrets.CheckPublish(parent, "comm.slack", true); err != nil {
+		t.Fatalf("before the parent consumes the child: %v", err)
+	}
+	kids, err := eng.SubWorkflowChildren(parent, "pu1", "call")
+	if err != nil || len(kids) != 1 || !kids[0].Done() {
+		t.Fatalf("children: %+v %v", kids, err)
+	}
+	if err := secrets.CheckPublish(parent, "comm.slack", true); !errors.Is(err, secrets.ErrPublishesSecret) {
+		t.Errorf("a parent that consumed a child which read a secret still publishes (issue #1418): %v", err)
 	}
 }

@@ -29,7 +29,6 @@ var localOnlyTypes = map[string]string{
 	"ai.memory":               "a sub-node's configuration; it does no I/O of its own",
 	"ai.model":                "a sub-node's configuration; it does no I/O of its own",
 	"ai.output_parser":        "a sub-node's configuration; it does no I/O of its own",
-	"ai.task":                 "queues a coder task locally, never starts or waits",
 	"applications.create":     "local records",
 	"applications.evaluate":   "local scoring",
 	"applications.list":       "local records",
@@ -40,7 +39,6 @@ var localOnlyTypes = map[string]string{
 	"core.code":               "runs its own script; no outbound call of its own (an unapproved run may not run code, code_unapproved_test)",
 	"core.compare_datasets":   "compares items",
 	"core.data_table":         "the local data tables",
-	"core.evaluation":         "scores items locally",
 	"core.execute_workflow":   "runs a sub-workflow; the taint is seeded into it (SeedResolved)",
 	"core.filter":             "filters items",
 	"core.form":               "serves a form on this machine; items are not sent anywhere",
@@ -85,7 +83,6 @@ var localOnlyTypes = map[string]string{
 	"image.thumbnail":         "local data/file/image processing; no outbound call",
 	"image.vault_get":         "local data/file/image processing; no outbound call",
 	"image.vault_save":        "local data/file/image processing; no outbound call",
-	"people.save":             "local records",
 	"publication.register":    "records an address; nothing is sent there",
 	"vault.secret_get":        "reads the local vault into the run (the taint)",
 	"vault.secret_save":       "writes the local vault",
@@ -100,6 +97,9 @@ var localOnlyTypes = map[string]string{
 // record, a response, a prompt), and what carries it. Every type of the
 // "app." family (the API packages) is publishing by rule.
 var publishingTypes = map[string]string{
+	"ai.task":                     "the goal goes to a model provider when the task runs",
+	"people.save":                 "fetches the item's image_url, an address the run chooses",
+	"core.evaluation":             "its judge sends the item's text to a model provider",
 	"agent.ask":                   "model provider (monomind runner)",
 	"ai.agent":                    "model provider / the page it fetches",
 	"ai.chat":                     "model provider / the page it fetches",

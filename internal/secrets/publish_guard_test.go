@@ -61,3 +61,26 @@ func TestCheckPublishRefusesOnlyAPublishingNodeOfATaintedRun(t *testing.T) {
 		t.Errorf("a run under no agent access: %v", err)
 	}
 }
+
+// Review of #1418 slice 1 (P3): a plaintext read at Reveal level taints the
+// run as a read through a reference does.
+func TestARevealReadTaintsTheRun(t *testing.T) {
+	db := newSecretsTestDB(t)
+	ctx := context.Background()
+	if _, err := Add(ctx, db.DB, "default", "secret", "vs", map[string]string{"secret": "vsecret-777"}, "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetAgentAccessGrant(ctx, db.DB, "default", AccessGrant{AnyHost: true, Level: "reveal"}); err != nil {
+		t.Fatal(err)
+	}
+	run := WithAccessNode(AllowResolving(ctx, db.DB, "default", AccessOrigin{WorkflowID: "wf", ExecutionID: "x"}), "n1", "Get")
+	if err := CheckPublish(run, "comm.slack", true); err != nil {
+		t.Fatalf("before the read: %v", err)
+	}
+	if err := AuthorizeAgentReveal(run, db.DB, "default", "vs"); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckPublish(run, "comm.slack", true); !errors.Is(err, ErrPublishesSecret) {
+		t.Errorf("a publishing node after a plaintext read: %v", err)
+	}
+}
