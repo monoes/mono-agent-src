@@ -337,6 +337,13 @@ Every agent read under a grant is audited by name, never value (`secret agent-ac
 audit`). Policy changes take effect on subsequent reads, including active runs;
 previously retrieved values cannot be recalled. Encryption on disk is unchanged.
 
+Held sends (`hil`): a send held for approval stores `[[held-secret:NAME:tag]]`
+where the run read a granted secret, never the value; `hil show` prints
+`<NAME secret, held>`, JSON keeps the token. Approval re-checks the grant and
+audits the read; if it refuses (grant off or narrower, a literal `@secret:` in
+the text) the card stays pending: reject it and have the agent prepare it
+again, or edit the reference out. Never type `@secret:` into a held send.
+
 ## Publication history
 
 Publication is a profile's local history of successful posts, comments,

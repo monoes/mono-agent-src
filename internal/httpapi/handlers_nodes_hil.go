@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/hilscrub"
 	"net/http"
 	"sort"
 	"strings"
@@ -130,6 +131,7 @@ type hilItem struct {
 
 // GET /profiles/{profile}/hil
 func (s *Server) handleHilList(w http.ResponseWriter, r *http.Request) {
+	hilscrub.Ensure(r.Context(), s.rt.db.DB, profileOf(r))
 	rows, err := s.rt.db.DB.QueryContext(r.Context(),
 		`SELECT h.id, h.execution_id, h.workflow_id, h.node_id, h.node_name, h.status,
 		        h.readonly_data, h.editable_data, h.created_at, COALESCE(w.name,'')
@@ -154,6 +156,7 @@ func (s *Server) handleHilList(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "scan HIL item: "+err.Error())
 			return
 		}
+		roRaw, edRaw = hilscrub.Mask(s.rt.db.DB, profileOf(r), roRaw), hilscrub.Mask(s.rt.db.DB, profileOf(r), edRaw)
 		_ = json.Unmarshal([]byte(roRaw), &it.ReadonlyData)
 		_ = json.Unmarshal([]byte(edRaw), &it.EditableData)
 		items = append(items, it)
