@@ -39,6 +39,9 @@ const (
 	RecUnitIntent = "unit-intent"
 	RecUnitBound  = "unit-bound"
 	RecUnitEnded  = "unit-ended"
+	// RecUnitLeader is one session leader of a session unit (sessunit.go), written before its turn is released; Extra is
+	// its JSON. Transparent to Classify like the other unit lines.
+	RecUnitLeader = "unit-leader"
 )
 
 // Record is the payload of one witness record.
