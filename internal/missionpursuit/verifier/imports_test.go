@@ -65,8 +65,8 @@ func TestThePackageImportsNothingThatCarriesAuthority(t *testing.T) {
 	}
 }
 
-// Only the store's host-checks file imports the library (it maps a Result to rows, S7b); the host step (a later slice) will be
-// the other importer, decided in review.
+// Only the store's host-checks file (it maps a Result to rows, S7b) and the host's check step (S7c1b: the files that run a check,
+// meter it and wire the confiner) import the library. A new importer is decided in review.
 func TestNothingImportsThePackageYet(t *testing.T) {
 	root := filepath.Join("..", "..", "..")
 	var got []string
@@ -104,7 +104,7 @@ func TestNothingImportsThePackageYet(t *testing.T) {
 		t.Fatalf("the walk visited %d Go files: the guard would pass on nothing", visited)
 	}
 	sort.Strings(got)
-	if want := []string{"internal/missionpursuit/checks_host.go"}; !reflect.DeepEqual(got, want) {
+	if want := []string{"internal/coderhost/pursuit_check.go", "internal/coderhost/pursuit_check_gate.go", "internal/coderhost/pursuit_check_meter.go", "internal/coderhost/pursuit_check_wire.go", "internal/missionpursuit/checks_host.go"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("importers of the goal verifier library: %v, want %v\ndecide the importer here, in review", got, want)
 	}
 }
