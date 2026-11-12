@@ -222,7 +222,7 @@ func TestALockedDatabaseDelaysNoReadAndTheValueIsMasked(t *testing.T) {
 	if d := time.Since(start); d > 300*time.Millisecond {
 		t.Errorf("the next read waited %v (no back-off)", d)
 	}
-	if got := Mask(f.db, "default", "row: "+val); strings.Contains(got, val) {
+	if got := Mask(f.db, "default", "c", "row: "+val); strings.Contains(got, val) {
 		t.Errorf("Mask shows the value: %q", got)
 	}
 }
@@ -259,6 +259,19 @@ func TestEveryRawReaderOfMessagesIsAccountedFor(t *testing.T) {
 	for f := range found {
 		if _, ok := known[f]; !ok {
 			t.Errorf("%s reads person_messages and is not accounted for: call storage.EnsureMessagesScrubbed before it reads text, then list it", f)
+		}
+	}
+	// A listed reader must still make the call it is listed for: deleting it
+	// is what this pins.
+	for f, call := range map[string]string{
+		"internal/storage/repository_messages.go":    "ReadHook(",
+		"internal/ai/chat/monoagent_tools_people.go": "storage.EnsureMessagesScrubbed(",
+		"internal/cli/application/assets.go":         "storage.EnsureMessagesScrubbed(",
+		"internal/cli/people/messages_classify.go":   "storage.EnsureMessagesScrubbed(",
+	} {
+		b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(f)))
+		if err != nil || !strings.Contains(string(b), call) {
+			t.Errorf("%s no longer calls %s before it reads messages", f, call)
 		}
 	}
 }
