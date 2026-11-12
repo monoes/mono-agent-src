@@ -262,6 +262,7 @@ func (h *Host) pursue(ctx context.Context, m pursuitMission) {
 		h.pursuitPropose(ctx, rd, m, g.goal, res)
 	}
 	h.pursuitWake(ctx, rd, m, g)
+	h.pursuitAcceptWake(ctx, rd, m, g)
 	h.pursuitCheckStep(ctx, rd, m, g)
 }
 
@@ -303,7 +304,8 @@ type pursuitGateResult struct {
 	hourWakes  int  // pursuit wake-ups of ALL missions in the last hour
 	hourJudges int  // judge calls of ALL missions in the last hour
 	// closeWakeDue: the mission is settled and owed its one close wake (pursuit_settled.go); it makes the settled quiet lift
-	closeWakeDue bool
+	closeWakeDue   bool
+	checkWakeFacts // the goal checks' part (pursuit_check_wake.go)
 }
 
 // pursuitGate reads the run state, the confirmed goal, the facts and the away counters in one go and says whether the
@@ -401,6 +403,7 @@ func (h *Host) pursuitGate(ctx context.Context, rd *inputs.Reader, m pursuitMiss
 		h.stallUnreadable(m)
 		return g, false
 	}
+	parked += checks.Parks // a goal check that did not pass is parked for the person like a question
 	away := AwayState{ParkedMax: pur.ParkedMax, Pct: pur.Pct, Parked: parked}
 	if snap.Budget.Known {
 		away.BudgetMicro = usdMicro(snap.Budget.BudgetUSD)
@@ -458,7 +461,8 @@ func (h *Host) pursuitGate(ctx context.Context, rd *inputs.Reader, m pursuitMiss
 	if t := snap.Tasks; t.Workable == 0 && t.Blocked == 0 && t.Total-t.Archived >= 1 {
 		g.closeWakeDue = h.Store.pursuitCloseWakeDue(m, selfWakes)
 	}
-	return g, true
+	ok = h.pursuitCheckWakeFacts(ctx, m, selfWakes, &g)
+	return g, ok
 }
 
 // pursuitRunOf is the epoch engine of a mission, built once and kept; a panic or a restart builds it again over the
@@ -479,6 +483,7 @@ func (h *Host) pursuitRunOf(m pursuitMission, goal missionpursuit.Goal) (*pursui
 		gap = defaultEvidenceGap
 	}
 	in := newPursuitInputs(h.Store.db, m.Profile, m.ID, len(goal.Criteria), goalCriteria(goal), d.clock(), gap)
+	in.finishParks = h.finishParksOf(m)
 	rd := inputs.New(h.Store.db)
 	eng, err := epoch.New(epoch.Config{Profile: strconv.FormatInt(m.ID, 10), Generation: 1, Interval: d.Interval, StallWindow: d.StallWindow, MaxEpochsPerHour: d.MaxEpochsPerHour},
 		epoch.Deps{Store: strategy.NewStore(h.Store.db), Judge: jd, Inputs: in, Run: rd.RunOf(m.ID), Clock: d.clock()})

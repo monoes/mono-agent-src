@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -82,13 +83,32 @@ func TestAScriptedPursuitFromWorkToAChecksAnswer(t *testing.T) {
 	if rev.count() != 0 || w.spend().Micro != 0 {
 		t.Errorf("a check that failed on its machine criteria asked the checker (%d) or cost %d", rev.count(), w.spend().Micro)
 	}
-	// nothing more spends, and the same project is not checked again
+	// the failed check is a finish park: it earns ONE epoch (trigger finish-parked) and ONE wake-up of the lead, in fixed words that name
+	// the criterion that does not pass and nothing the lead or the checker wrote; then nothing more spends, and the same project is
+	// not checked again
 	for i := 0; i < 8; i++ {
 		w.step()
 	}
 	if w.checkRows() != 1 {
 		t.Fatalf("the same project was checked again: %v", w.checks())
 	}
+	if tr := w.epochTriggers(); tr[len(tr)-1] != "finish-parked" {
+		t.Fatalf("the failed check did not earn a finish-parked epoch: %v", tr)
+	}
+	parkWakes := 0
+	for _, text := range w.allWakeTexts() {
+		if strings.Contains(text, "Goal check 1 (round 1) failed") {
+			parkWakes++
+			if !strings.Contains(text, "not passing: c2") {
+				t.Errorf("the wake-up for the failed check does not name c2: %s", text)
+			}
+			noBanned(t, "scripted failed check", text)
+		}
+	}
+	if parkWakes != 1 {
+		t.Fatalf("wake-ups about the failed check: %d, want 1 (%v)", parkWakes, w.allWakeTexts())
+	}
+	w.endCommandsDone()
 	// 4. the lead writes the missing file: check 2 passes and waits for the person
 	if err := os.WriteFile(filepath.Join(w.root, "b.txt"), []byte("beta"), 0o644); err != nil {
 		t.Fatal(err)
@@ -134,5 +154,57 @@ func TestAScriptedPursuitFromWorkToAChecksAnswer(t *testing.T) {
 	}
 	if cs, err := missionpursuit.ReadCheckStatus(context.Background(), w.st.db, 77, w.clk.Now()); err != nil || !cs.Facts.AwaitingPerson || cs.Window.Count != 2 {
 		t.Errorf("status %+v %v", cs, err)
+	}
+	// 6. the person answers c3 (the rubric criterion) with a yes, over the digest of the project as it is now: the check is accepted,
+	// by them. The host then wakes the lead ONCE to call mission_finish; no check starts, no epoch opens, the money stays still.
+	ps := missionpursuit.NewStore(w.st.db)
+	c, err := ps.LatestCheck(context.Background(), "p", 77, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now, err := digestTree(context.Background(), w.root, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ps.AnswerRubric(context.Background(), "p", 77, missionpursuit.RubricAnswer{Check: c.ID, Criterion: "c3", Yes: true, Note: "ok", Dossier: c.Dossier, SubjectNow: now.Digest}, person); err != nil {
+		t.Fatal(err)
+	}
+	epochs, wakesBefore := len(w.epochTriggers()), w.wakeRows()
+	w.advance(2 * time.Second)
+	w.pass()
+	w.wait()
+	accept := 0
+	for _, text := range w.allWakeTexts() {
+		if strings.Contains(text, "The person accepted the goal: goal check 2 (round 2)") && strings.Contains(text, "Call mission_finish") {
+			accept++
+			noBanned(t, "scripted accept wake", text)
+		}
+	}
+	if accept != 1 || w.wakeRows() != wakesBefore+1 {
+		t.Fatalf("accept wake-ups: %d, wake-ups %d->%d (%v)", accept, wakesBefore, w.wakeRows(), w.allWakeTexts())
+	}
+	// the lead takes the wake and calls mission_finish: the close proposal is FAKED here (w.propose writes the event). That wake ->
+	// mission_finish -> GoalClose chain is covered only by the dynorg unit tests, not by this script.
+	w.endCommandsDone()
+	w.propose()
+	judges = w.model.count()
+	for i := 0; i < 8; i++ {
+		w.pass()
+		w.wait()
+		w.endCommandsDone()
+		w.advance(31 * time.Minute)
+	}
+	if w.wakeRows() != wakesBefore+1 || w.model.count() != judges || len(w.epochTriggers()) != epochs || w.checkRows() != 2 || rev.count() != 1 {
+		t.Errorf("after the accept wake the loop spent: wake-ups %d, judge calls %d->%d, epochs %v, checks %d, reviewer %d", w.wakeRows(), judges, w.model.count(), w.epochTriggers(), w.checkRows(), rev.count())
+	}
+	if got := w.checks(); len(got) != 2 {
+		t.Errorf("checks = %v", got)
+	}
+	var outcome, answeredBy string
+	if err := w.st.db.QueryRow(`SELECT outcome FROM mission_goal_checks WHERE id = ?`, c.ID).Scan(&outcome); err != nil || outcome != "accepted" {
+		t.Errorf("outcome %q %v", outcome, err)
+	}
+	if err := w.st.db.QueryRow(`SELECT answered_by FROM mission_goal_answers WHERE check_id = ?`, c.ID).Scan(&answeredBy); err != nil || answeredBy != "you" {
+		t.Errorf("the accepting answer was by %q %v", answeredBy, err)
 	}
 }
