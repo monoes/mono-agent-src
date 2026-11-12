@@ -458,7 +458,7 @@ func TestEachLayerRefusesAPursuitTurnOnAHostWithoutTheLoop(t *testing.T) {
 	w := newPursuitWorld(t)
 	w.queueWake()
 	w.h.Pursuit = nil
-	if why := w.h.pursuitWakeStillAllowed(Session{ProfileID: "p", ConversationID: "m"}); why == "" {
+	if why := w.h.pursuitWakeStillAllowed(Session{ProfileID: "p", ConversationID: "m"}, ""); why == "" {
 		t.Fatal("the run-time recheck lets a pursuit wake-up run with no loop")
 	}
 	if _, _, err := w.h.pursuitWakeCap(5, true, nil); err == nil {

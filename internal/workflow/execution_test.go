@@ -390,6 +390,9 @@ func TestRunExecution_CredentialMissLogsProfile(t *testing.T) {
 type gateNode struct{ open *bool }
 
 func (g gateNode) Type() string { return "test.gate" }
+
+// PublishesToThirdParty: a test probe sends nothing off this machine (issue #1418).
+func (g gateNode) PublishesToThirdParty() bool { return false }
 func (g gateNode) Execute(_ context.Context, in NodeInput, _ map[string]interface{}) ([]NodeOutput, error) {
 	if !*g.open {
 		return nil, ErrNodePaused

@@ -13,6 +13,7 @@ import (
 	"github.com/zalando/go-keyring"
 
 	"github.com/monoes/mono-agent/internal/commsync"
+	"github.com/monoes/mono-agent/internal/jev/jevconf"
 	"github.com/monoes/mono-agent/internal/secrets"
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/vault"
@@ -135,3 +136,43 @@ func TestHILRefusesEachEncodedFormOfASecretByTheTrackedValueCheck(t *testing.T) 
 }
 
 func mustJSON(s string) string { b, _ := json.Marshal(s); return string(b) }
+
+// Issue #1418 (merge review): with auto_decide on, the card's data goes to
+// the remote Jev API before it is stored. A run that read a granted secret
+// sends nothing: the card scan comes first.
+func TestHILAutoDecideSendsNothingToJevForAGrantedSecret(t *testing.T) {
+	keyring.MockInit()
+	d, err := storage.NewDatabase(filepath.Join(t.TempDir(), "v.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if err := d.ApplyMigrations(); err != nil {
+		t.Fatal(err)
+	}
+	srv := jevByCaption(t, nil)
+	if err := jevconf.SetEnabled(d.DB, "default", jevconf.HIL, true); err != nil {
+		t.Fatal(err)
+	}
+	base := vault.ContextWithProfileID(vault.ContextWithDB(context.Background(), d.DB), "default")
+	if _, err := secrets.Add(base, d.DB, "default", "secret", "vs", map[string]string{"secret": "vsecret-777"}, "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := secrets.SetAgentAccessGrant(base, d.DB, "default", secrets.AccessGrant{AnyHost: true}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := secrets.WithAccessNode(secrets.AllowResolving(base, d.DB, "default", secrets.AccessOrigin{WorkflowID: "wf"}), "n0", "Read")
+	v, err := secrets.Resolve(ctx, d.DB, "default", "@secret:vs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := workflow.NodeInput{ExecutionID: "e1", WorkflowID: "w1", NodeID: "n1", NodeName: "Review",
+		Items: []workflow.Item{workflow.NewItem(map[string]interface{}{"caption": "key is " + v, "to": "a@example.com"})}}
+	_, err = (&HumanInLoopNode{}).Execute(ctx, in, autoConfig(map[string]interface{}{"threshold": 0.5}))
+	if err == nil || !strings.Contains(err.Error(), "does not keep one") {
+		t.Fatalf("err = %v, want the card refusal", err)
+	}
+	if srv.Calls() != 0 || strings.Contains(srv.RequestJSON(), "vsecret-777") {
+		t.Errorf("the item reached Jev before the refusal (issue #1418): %d call(s)", srv.Calls())
+	}
+}

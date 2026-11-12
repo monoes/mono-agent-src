@@ -95,7 +95,7 @@ func toolNodeRun(ctx context.Context, s *Server, args json.RawMessage) (interfac
 	// computer, no hidden files in the user's home outside the project
 	// folder, approvals for what needs the user's).
 	ctx = workflow.WithUnapprovedStep(ctx, profiledir.Root(rt.db.DB, profileOf(ctx)), "node_run")
-	if queued, handled, gerr := workflow.RunExecGuard(ctx, a.Type, workflow.NodeInput{Items: items}, config); handled {
+	if queued, handled, gerr := workflow.RunExecGuardFor(ctx, factory(), workflow.NodeInput{Items: items}, config); handled {
 		if gerr != nil {
 			return nil, fmt.Errorf("node %s failed: %w", a.Type, gerr)
 		}

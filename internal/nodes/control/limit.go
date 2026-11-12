@@ -15,6 +15,9 @@ type LimitNode struct{}
 
 func (n *LimitNode) Type() string { return "core.limit" }
 
+// PublishesToThirdParty: core.limit sends nothing off this machine (issue #1418).
+func (LimitNode) PublishesToThirdParty() bool { return false }
+
 func (n *LimitNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	maxRaw, ok := config["max_items"]
 	if !ok {

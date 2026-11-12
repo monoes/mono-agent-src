@@ -25,6 +25,9 @@ type SplitInBatchesNode struct{}
 
 func (n *SplitInBatchesNode) Type() string { return "core.split_in_batches" }
 
+// PublishesToThirdParty: core.split_in_batches sends nothing off this machine (issue #1418).
+func (SplitInBatchesNode) PublishesToThirdParty() bool { return false }
+
 // batchState is the node's progress through one set, kept in the
 // execution's node state between runs.
 type batchState struct {

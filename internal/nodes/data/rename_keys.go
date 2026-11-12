@@ -24,6 +24,9 @@ type RenameKeysNode struct{}
 
 func (n *RenameKeysNode) Type() string { return "data.rename_keys" }
 
+// PublishesToThirdParty: data.rename_keys sends nothing off this machine (issue #1418).
+func (RenameKeysNode) PublishesToThirdParty() bool { return false }
+
 type keyPair struct{ from, to string }
 
 type keyRegex struct {

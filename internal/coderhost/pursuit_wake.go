@@ -35,8 +35,13 @@ func pursuitWakeTurn(epoch int64, rnd string) string {
 
 // wakeCounts says how many wake-ups of the epoch are waiting or ran (live) and how many ended without running (lost).
 func (s *Store) wakeCounts(q querier, m pursuitMission, epoch int64) (live, lost int, err error) {
+	return s.wakeCountsLike(q, m, PursuitTurnPrefix+strconv.FormatInt(epoch, 10)+"-%")
+}
+
+// wakeCountsLike is wakeCounts for the wake-ups whose turn id matches the pattern.
+func (s *Store) wakeCountsLike(q querier, m pursuitMission, pattern string) (live, lost int, err error) {
 	rows, err := q.Query(`SELECT status, COUNT(*) FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind = 'send' AND turn_id LIKE ? GROUP BY status`,
-		m.Profile, m.Conv, PursuitTurnPrefix+strconv.FormatInt(epoch, 10)+"-%")
+		m.Profile, m.Conv, pattern)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -191,6 +196,9 @@ func pursuitDigest(ep types.Epoch, g pursuitGateResult, focus types.Direction, p
 		fmt.Fprintf(&b, "Focus: %s (the best measured).\n", focus.ID)
 	} else {
 		b.WriteString("No direction has measured results yet, so no direction is chosen for you.\n")
+	}
+	if p := checkParagraph(g.goalChecks); p != "" {
+		b.WriteString(p + "\n")
 	}
 	if g.closeWakeDue {
 		// the one close wake of a settled state: fixed words, nothing for it to move forward

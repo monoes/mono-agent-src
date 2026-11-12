@@ -625,5 +625,15 @@ func AuthorizeAgentReveal(ctx context.Context, db *sql.DB, profileID, name strin
 	if err != nil {
 		return fmt.Errorf("auditing vault reveal access: %w", err)
 	}
+	// A plaintext read taints the run as a read through a reference does
+	// (issue #1418). The value is not tracked: Reveal returns it unmasked on
+	// purpose, so masking must not apply to it here. A run that resumes or
+	// calls a child re-reads the name and masks it from then on.
+	if a := accessOf(ctx); a != nil {
+		a.mu.Lock()
+		a.names[name] = struct{}{}
+		a.read = true
+		a.mu.Unlock()
+	}
 	return nil
 }

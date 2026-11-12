@@ -19,6 +19,9 @@ type ExtractFromFileNode struct{}
 
 func (n *ExtractFromFileNode) Type() string { return "data.extract_from_file" }
 
+// PublishesToThirdParty: data.extract_from_file sends nothing off this machine (issue #1418).
+func (ExtractFromFileNode) PublishesToThirdParty() bool { return false }
+
 const extractNode = "data.extract_from_file"
 
 func (n *ExtractFromFileNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {

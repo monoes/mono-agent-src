@@ -144,10 +144,17 @@ func (s *Server) Serve(l unixAcceptor) error {
 			continue
 		}
 		backoff = 0
+		accepted := time.Now()
 		// the peer is pinned once, here, right after accept, and the pinned process is the one served
 		pi, err := s.peer(c)
 		if err != nil {
 			s.logf("procbind: peer: %v", err)
+			_ = c.Close()
+			continue
+		}
+		if createdAfterAccept(pi.proc.Created(), accepted) { // the connector existed when it connected: this is a recycled number
+			s.logf("procbind: refused a peer created after its connection was accepted")
+			_ = pi.proc.Close()
 			_ = c.Close()
 			continue
 		}

@@ -2521,7 +2521,8 @@
       "refreshing": "Detenido, actualizando...",
       "retry": "Reintentar limpieza",
       "dismiss": "Cerrar",
-      "partial": "Detenido, pero la limpieza no terminó"
+      "partial": "Detenido, pero la limpieza no terminó",
+      "alreadyStopped": "La ejecución ya está detenida: ya no hay ninguna ejecución abierta."
     }
   },
   "steering": {
