@@ -38,7 +38,11 @@ const (
 //
 // The anchor is NOT a new session (Setsid): a process can join a process group only inside its own session
 // (setpgid, EPERM across sessions), so a group in a session of its own could not be joined by the commands the host
-// starts. The anchor shares the session of the process that created it; Place refuses a caller of another session.
+// starts. The anchor shares the session of the process that started it, and Place refuses a caller of another session. The
+// process that places is the coder host, not the `doomsday start` that creates the unit, so on macOS the host starts the
+// anchor (anchor_service.go) and the creator only asks for it; the turn is placed WITHOUT a session of its own (a session
+// leader cannot join a group). A host that is restarted during a run is in another session and cannot place any more: the
+// run has to be stopped and started again (#1582).
 
 // KindPGroup is the UnitRecord.Kind of the macOS unit. Best effort (see UnitBestEffort).
 const KindPGroup = "pgroup"
@@ -81,9 +85,14 @@ type pgHandle struct {
 	CreatorStamp string `json:"creator_stamp"`
 }
 
-type pgContainment struct{ os PGroupOS }
+// pgContainment is the macOS mechanism. viaHost says the anchor is made by the coder host (anchor_service.go), so that the
+// group lives in the session of the process that places turns in it; tests that drive a fake OS leave it off.
+type pgContainment struct {
+	os      PGroupOS
+	viaHost bool
+}
 
-func newPGContainment(Kernel) Containment { return pgContainment{os: realPGroupOS()} }
+func newPGContainment(Kernel) Containment { return pgContainment{os: realPGroupOS(), viaHost: true} }
 
 func (pgContainment) Kind() string { return KindPGroup }
 
@@ -325,7 +334,11 @@ func (c pgContainment) Create(ctx context.Context, a CreateArgs, gen uint64) (Un
 	if c.os == nil {
 		return UnitRecord{}, fmt.Errorf("%w: %v", ErrUnitNotCreated, errNoPGroupOS)
 	}
-	return createPGroup(ctx, c.os, a, gen)
+	o := c.os
+	if c.viaHost {
+		o = newHostAnchorOS(o, a.Dir)
+	}
+	return createPGroup(ctx, o, a, gen)
 }
 
 // createPGroup makes the run's group unit: intent in the journal, the anchor, the record proven by the same checks
@@ -374,7 +387,13 @@ func createPGroup(_ context.Context, o PGroupOS, a CreateArgs, gen uint64) (Unit
 	if g, err := o.PgidOf(apid); err != nil || g != apid {
 		return UnitRecord{}, abandon(fmt.Errorf("the anchor is not the leader of a group of its own (%d, %v)", g, err))
 	}
-	_, sid, err := o.SelfGroup()
+	// The session the group lives in: the anchor's own when the host made it, else this process's (the anchor is its child).
+	var sid int
+	if so, ok := o.(interface{ SessionOf(int) (int, error) }); ok {
+		sid, err = so.SessionOf(apid)
+	} else {
+		_, sid, err = o.SelfGroup()
+	}
 	if err != nil {
 		return UnitRecord{}, abandon(fmt.Errorf("the session is unknown: %w", err))
 	}
@@ -440,7 +459,7 @@ func (p *pgPlacer) place(cmd *exec.Cmd) (func(), error) {
 		return nil, fmt.Errorf("%w: %v", ErrNotPlaced, err)
 	}
 	if _, sid, err := p.os.SelfGroup(); err != nil || sid != h.Sid {
-		return nil, fmt.Errorf("%w: the caller is not in the session of the group (a process cannot join a group across sessions)", ErrNotPlaced)
+		return nil, fmt.Errorf("%w: the caller is not in the session of the group (a process cannot join a group across sessions: the host that made this run's group is not the one placing the turn, e.g. it was restarted since the run began; stop the run and start it again)", ErrNotPlaced)
 	}
 	if err := p.os.Prepare(cmd, h.Pgid); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrNotPlaced, err)

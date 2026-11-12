@@ -92,22 +92,12 @@ var errNoProbe = errors.New("no containment probe is wired, so containment canno
 // ErrBindingOff is why a run does not start while peer-credential binding is off ("no run without binding").
 var ErrBindingOff = errors.New("no run without binding: peer-credential binding is off, and an open-ended run needs every turn's tokens bound to its process; switch it on first (coder set --peercred-binding on)")
 
-// UnsupportedHere is returned by a Binding func for an OS where the mode cannot run at all; RequireBinding passes its text
-// through unchanged.
-type UnsupportedHere string
-
-func (u UnsupportedHere) Error() string { return string(u) }
-
 // RequireBinding is nil only when binding is on. The start asks it before the charter is shown and again in Enter.
 func (e *StoreEngine) RequireBinding(ctx context.Context) error {
 	if e.Binding == nil {
 		return fmt.Errorf("no run without binding: whether peer-credential binding is on is not known on this install")
 	}
 	on, err := e.Binding(ctx)
-	var un UnsupportedHere
-	if errors.As(err, &un) {
-		return err
-	}
 	if err != nil {
 		return fmt.Errorf("no run without binding: whether peer-credential binding is on cannot be read: %w", err)
 	}

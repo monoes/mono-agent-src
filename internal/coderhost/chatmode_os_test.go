@@ -17,8 +17,8 @@ func TestOpenModeFollowsTheBindingPerOS(t *testing.T) {
 		wantWhy string
 	}{
 		{"linux", nil, true, ""},
-		{"darwin", nil, false, OpenModeMacOSReason},
-		{"darwin", errors.New("the kernel cannot tell which process connected"), false, OpenModeMacOSReason},
+		{"darwin", nil, true, ""},
+		{"darwin", errors.New("the kernel cannot tell which process connected"), false, "not available on this machine: the run needs the peer-credential binding, and the kernel cannot tell which process connected"},
 		{"windows", nil, true, ""},
 		{"windows", errors.New("this Windows cannot tell which process connected to a local socket"), false, "not available on this machine: the run needs the peer-credential binding, and this Windows cannot tell which process connected to a local socket"},
 	}
@@ -38,7 +38,7 @@ func TestOpenModeFollowsTheBindingPerOS(t *testing.T) {
 // Where the binding service cannot run (Linux: an old kernel, another pid namespace; macOS: no LOCAL_PEERPID; Windows: no peer-pid query) the machine
 // is refused with the service's own words.
 func TestOpenModeWithoutBindingKeepsTheServiceReason(t *testing.T) {
-	for _, goos := range []string{"linux", "windows"} { // macOS is refused before the service is asked (its own test)
+	for _, goos := range []string{"linux", "darwin", "windows"} {
 		t.Run(goos, func(t *testing.T) {
 			defer SetOpenModeReady(true)()
 			defer SetOpenModeCheck(func() (bool, string) { return true, "" })()
@@ -48,24 +48,5 @@ func TestOpenModeWithoutBindingKeepsTheServiceReason(t *testing.T) {
 				t.Fatalf("ok=%v reason=%q", ok, why)
 			}
 		})
-	}
-}
-
-// On macOS the run's process group cannot take the boss's turn (#1582: a child cannot join a group across sessions, and a
-// new session leader cannot join one), so the mode is refused there whatever the binding service says, with the honest reason.
-func TestOpenModeIsRefusedOnMacOSEvenWhenTheBindingIsReady(t *testing.T) {
-	defer SetOpenModeReady(true)()
-	defer SetOpenModeCheck(func() (bool, string) { return true, "" })()
-	defer SetOpenModeBindingProbe("darwin", func() error { return nil })()
-	ok, why := OpenModeAvailability()
-	if ok || why != OpenModeMacOSReason || !strings.Contains(why, "macOS") {
-		t.Fatalf("ok=%v reason=%q", ok, why)
-	}
-	if OpenModeUnsupportedHere() != OpenModeMacOSReason {
-		t.Fatalf("the start gate does not see it: %q", OpenModeUnsupportedHere())
-	}
-	defer SetOpenModeBindingProbe("linux", func() error { return nil })()
-	if OpenModeUnsupportedHere() != "" {
-		t.Fatalf("linux refused: %q", OpenModeUnsupportedHere())
 	}
 }

@@ -58,11 +58,18 @@ func (d *boundDelivery) start(cmd *exec.Cmd, pre func(*exec.Cmd) error) error {
 			d.r.Close()
 			return err
 		}
-		// What the launcher built must have survived: a placement that replaced the struct would start a child that is no
-		// session leader, so it is refused before anything exists.
-		if a := cmd.SysProcAttr; a == nil || !a.Setsid {
+		// What the launcher built must have survived: a placement that replaced the struct would start a child that is
+		// neither a session leader nor in a group of the placement's choosing, so it is refused before anything exists.
+		a := cmd.SysProcAttr
+		if a == nil || !(a.Setsid || (a.Setpgid && a.Pgid > 1)) {
 			d.r.Close()
 			return errors.New("the placement replaced the launcher's process attributes, so the turn was not started")
+		}
+		// A turn placed in a run's process group joins it (setpgid) and so cannot also start a session: the kernel refuses
+		// both together (EPERM), and a session leader cannot change its group at all. The group lives in the host's session
+		// (the run's anchor was made there), so the turn stays in it; Stop ends it with the group.
+		if a.Setpgid && a.Pgid > 1 {
+			a.Setsid = false
 		}
 	}
 	err := cmd.Start()

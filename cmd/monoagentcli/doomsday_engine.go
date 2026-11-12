@@ -198,6 +198,7 @@ func processHostGate(cfg *globalConfig, db *sql.DB) *doomsdaycli.HostGate {
 	g := &doomsdaycli.HostGate{Store: w.Chained(), Fresh: w.Fresh(), Profile: w.Profile, RunDir: w.RunDir, Kernel: w.Kernel, Journal: doomsdaycli.MergeJournal(db, w.Store),
 		Activity:  processRunActivity(w.Profile),
 		BindingOn: func() (bool, error) { return chatcli.PeercredBindingOn(db) },
+		Anchors:   stop.ServeAnchors,
 		InstallHooks: func(st *coderhost.Store, h *coderhost.Host, hk doomsdaycli.Hooks) error {
 			return chatcli.InstallRunHooks(st, h, chatcli.RunHooks{RunStamp: hk.RunStamp, BeforeRelease: hk.BeforeRelease, Place: hk.Place})
 		}}
@@ -227,20 +228,21 @@ func doomsdayWiringReal(cfg *globalConfig, db *sql.DB) doomsdaycli.Wiring {
 	runDir := doomsdayRunDirPath(cfg)
 	return doomsdaycli.Wiring{
 		// The entry refuses a charter whose 13.4 constraints would only ever deny (ops.EntryCheck, under the host's own spend bounds).
-		Store:   store.New(db, keys).WithEntryCheck(ops.EntryCheck(coderhost.SpendBounds())),
-		Profile: cfg.ProfileID,
-		Binding: func(context.Context) (bool, error) {
-			if why := coderhost.OpenModeUnsupportedHere(); why != "" { // #1582: no run is created where its boss could not run
-				return false, doomsdaycli.UnsupportedHere(why)
-			}
-			return chatcli.PeercredBindingOn(db)
-		},
+		Store:    store.New(db, keys).WithEntryCheck(ops.EntryCheck(coderhost.SpendBounds())),
+		Profile:  cfg.ProfileID,
+		Binding:  func(context.Context) (bool, error) { return chatcli.PeercredBindingOn(db) },
 		VaultKey: doomsdaycli.VaultKeyCheck(db, cfg.ProfileID),
 		RunDir:   stop.RunDir{Dir: runDir},
 		// The self-tests run next to the real database and in the real run directory, so what they show holds on that volume.
 		Probe:  func() error { return probeAt(filepath.Dir(expandPath(cfg.DBPath)), runDir) },
 		Kernel: doomsdayKernel(),
 		Host:   stop.SystemHost(),
+		EnsureHost: func() func(context.Context) error {
+			if !stop.UnitNeedsHost() {
+				return nil
+			}
+			return func(context.Context) error { d := chatDeps(cfg); return chatcli.EnsureHost(&d) }
+		}(),
 		// Stop's token revocation and queue cancel; the governor's queue is cancelled with the host's pending sends.
 		Tokens: doomsdaycli.GovernedTokens{Inner: doomsdaycli.CoderTokens{DB: db, Profile: cfg.ProfileID, Host: coderhost.NewStore(db)}, DB: db, Profile: cfg.ProfileID, Keys: keys,
 			Logf: func(f string, a ...any) { fmt.Fprintf(os.Stderr, f+"\n", a...) }},

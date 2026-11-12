@@ -112,3 +112,47 @@ func TestDarwinBoundStartRefusesAPlacementThatReplacedTheAttributes(t *testing.T
 		}
 	}
 }
+
+// A turn placed in a run's process group (setpgid) is started WITHOUT a session of its own: the kernel refuses both at once
+// (EPERM), and a session leader cannot change its group. It stays in the host's session, in the group, and is not the leader
+// of anything.
+func TestDarwinBoundStartPlacedInAGroupJoinsItWithoutASession(t *testing.T) {
+	anchor := exec.Command("sleep", "60")
+	anchor.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := anchor.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = anchor.Process.Kill(); _ = anchor.Wait() })
+	join := func(c *exec.Cmd) error {
+		c.SysProcAttr.Setpgid, c.SysProcAttr.Pgid = true, anchor.Process.Pid
+		return nil
+	}
+	_, cmd, err := startBound(t, join)
+	if err != nil {
+		t.Fatalf("a turn placed in a group of this session was not started: %v", err)
+	}
+	if pg, _ := syscall.Getpgid(cmd.Process.Pid); pg != anchor.Process.Pid {
+		t.Errorf("the turn is in group %d, want the anchor's %d", pg, anchor.Process.Pid)
+	}
+	mine, _ := syscall.Getsid(0)
+	if sid, _ := syscall.Getsid(cmd.Process.Pid); sid != mine {
+		t.Errorf("the turn is in session %d, want the host's %d", sid, mine)
+	}
+}
+
+// With both a session and a group the kernel refuses: the old placement could never start a turn (#1582).
+func TestDarwinBoundStartSessionAndGroupTogetherIsRefusedByTheKernel(t *testing.T) {
+	anchor := exec.Command("sleep", "60")
+	anchor.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := anchor.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = anchor.Process.Kill(); _ = anchor.Wait() })
+	cmd := exec.Command("sleep", "60")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setpgid: true, Pgid: anchor.Process.Pid}
+	if err := cmd.Start(); err == nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		t.Fatal("the kernel accepted a session and a group together: the host's placement no longer needs the exception")
+	}
+}
