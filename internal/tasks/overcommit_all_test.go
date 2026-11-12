@@ -312,6 +312,34 @@ func TestOverCommitAllExportedAnswersLikeTheList(t *testing.T) {
 	}
 }
 
+// The schema cannot give a child two link rows (coder_sessions is keyed by conversation), so the view is replaced here by
+// one that does. Which row the single walk reads is then not fixed, and the single pass must not pick one of its own: it
+// hands such a session to the single walk, so both answer alike.
+func TestOverCommitAllDefersToTheSingleWalkOnTwoLinkRowsForOneChild(t *testing.T) {
+	s, db, _ := newTestStore(t)
+	root := rsession(t, s, db, 10)
+	a := rkid(t, s, db, root, 2, "running")
+	rkid(t, s, db, root, 3, "running")
+	for _, q := range []string{
+		`UPDATE task_sessions SET conversation_id = 'lead' WHERE id = ` + fmt.Sprint(root),
+		`UPDATE task_sessions SET conversation_id = 'kid' WHERE id = ` + fmt.Sprint(a),
+		`DROP VIEW v_mission_child_linked`,
+		`CREATE VIEW v_mission_child_linked AS
+			SELECT profile_id, parent_session_id AS session_id, id AS child_session_id, conversation_id, 1.0 AS cap_usd FROM task_sessions WHERE conversation_id = 'kid'
+			UNION ALL
+			SELECT profile_id, parent_session_id, id, conversation_id, 9.0 FROM task_sessions WHERE conversation_id = 'kid'`,
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	// the first row (cap 1) leaves the root at 2 + 3 = 5 of 10; the second (cap 9) would make it 12
+	if oc, err := s.OverCommitOf(bg, "default", root); err != nil || oc.Over {
+		t.Fatalf("the single walk reads the first row: %+v, %v", oc, err)
+	}
+	sameAsPerSession(t, s, db, "two link rows")
+}
+
 // The same contract on the size that made the list slow.
 func TestOverCommitAllMatchesPerSessionOn200Sessions(t *testing.T) {
 	s, db, _ := newTestStore(t)
