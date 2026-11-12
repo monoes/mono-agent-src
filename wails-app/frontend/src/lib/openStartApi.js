@@ -13,6 +13,14 @@ export const openStartApi = {
   entry: () => call(() => GoApp.DoomsdayOpenEntry()),
   // The validated model roster ({runtimes: [{runtime, version, models: [{model, state}]}]}) the pin lists are made from.
   roster: () => call(() => GoApp.AgentRoster()),
+  // The models each installed runtime offers for its --model flag (the scan, then each runtime's own list), for a machine
+  // whose roster holds no validated model yet: [{provider, version, models:[id]}]. A runtime whose list fails is left out.
+  catalog: async () => {
+    const scan = parse(await GoApp.ScanAgentRuntimes())
+    const agents = (Array.isArray(scan?.agents) ? scan.agents : []).filter(a => a?.id && a.installed && a.execution_supported !== false)
+    const lists = await Promise.all(agents.map(a => Promise.resolve().then(() => GoApp.GetAgentRuntimeModels(a.id, a.binary || '')).then(parse).catch(() => [])))
+    return agents.map((a, i) => ({ provider: String(a.id), version: String(a.version || 'unknown'), models: (Array.isArray(lists[i]) ? lists[i] : []).map(m => String(m?.id || '')).filter(Boolean) }))
+  },
   // The preview of a charter object: {hash, lines, lift_count, text, phrase_template}. Writes nothing.
   render: (charter, chat) => call(() => GoApp.DoomsdayRender(JSON.stringify(charter), chat?.id || '', chat?.spec ? JSON.stringify(chat.spec) : '')),
   // Starts the run with the phrase the person typed and the token of the preview (start_token). The app also asks the
