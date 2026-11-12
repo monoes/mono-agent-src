@@ -35,6 +35,8 @@ type pursuitState struct {
 	JudgeCalls    int    // judge calls since then (shown)
 	HourJudges    int    // judge calls of all missions in the last hour (shown)
 	LastRound     string // how the latest judge round ended
+	// the goal checks (migration 169): the check ledger's highest id when the person last acted
+	BaseCheckID int64
 }
 
 // usdMicro is an amount in micro-USD, clamped so it can neither overflow nor go negative.
@@ -53,9 +55,9 @@ func (s *Store) pursuitStateOf(session int64) (pursuitState, bool, error) {
 	st := pursuitState{SessionID: session}
 	var at string
 	err := s.db.QueryRow(`SELECT person_at, base_spent_micro, waiting, woken_epoch, wakes_since, parked, spent_away_micro, budget_micro, hour_wakes, hour_frees_at,
-		bad_rounds, base_judge_id, base_lead_micro, judge_micro, lead_micro, judge_calls, hour_judges, last_round FROM mission_pursuit_state WHERE session_id = ?`, session).
+		bad_rounds, base_judge_id, base_lead_micro, judge_micro, lead_micro, judge_calls, hour_judges, last_round, base_check_id FROM mission_pursuit_state WHERE session_id = ?`, session).
 		Scan(&at, &st.BaseSpentMicro, &st.Waiting, &st.WokenEpoch, &st.WakesSince, &st.Parked, &st.SpentAway, &st.BudgetMicro, &st.HourWakes, &st.HourFreesAt,
-			&st.BadRounds, &st.BaseJudgeID, &st.BaseLeadMicro, &st.JudgeMicro, &st.LeadMicro, &st.JudgeCalls, &st.HourJudges, &st.LastRound)
+			&st.BadRounds, &st.BaseJudgeID, &st.BaseLeadMicro, &st.JudgeMicro, &st.LeadMicro, &st.JudgeCalls, &st.HourJudges, &st.LastRound, &st.BaseCheckID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return pursuitState{SessionID: session}, false, nil
 	}
@@ -80,10 +82,10 @@ func fmtTime(t time.Time) string {
 // insertPursuitState writes the first record of a mission's pursuit; an existing row is left as it is.
 func (s *Store) insertPursuitState(st pursuitState, now time.Time) error {
 	_, err := s.db.Exec(`INSERT INTO mission_pursuit_state (session_id, person_at, base_spent_micro, waiting, wakes_since, parked, spent_away_micro, budget_micro, hour_wakes, hour_frees_at,
-		bad_rounds, base_judge_id, base_lead_micro, judge_micro, lead_micro, judge_calls, hour_judges, last_round, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		bad_rounds, base_judge_id, base_lead_micro, judge_micro, lead_micro, judge_calls, hour_judges, last_round, base_check_id, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(session_id) DO NOTHING`,
 		st.SessionID, fmtTime(st.PersonAt), st.BaseSpentMicro, st.Waiting, st.WakesSince, st.Parked, st.SpentAway, st.BudgetMicro, st.HourWakes, st.HourFreesAt,
-		st.BadRounds, st.BaseJudgeID, st.BaseLeadMicro, st.JudgeMicro, st.LeadMicro, st.JudgeCalls, st.HourJudges, st.LastRound, fmtTime(now))
+		st.BadRounds, st.BaseJudgeID, st.BaseLeadMicro, st.JudgeMicro, st.LeadMicro, st.JudgeCalls, st.HourJudges, st.LastRound, st.BaseCheckID, fmtTime(now))
 	if err != nil {
 		return fmt.Errorf("saving the pursuit state: %w", err)
 	}
@@ -96,8 +98,8 @@ func (s *Store) insertPursuitState(st pursuitState, now time.Time) error {
 func (s *Store) updateGateState(st pursuitState, reset bool, now time.Time) error {
 	var err error
 	if reset {
-		_, err = s.db.Exec(`UPDATE mission_pursuit_state SET person_at = ?, base_spent_micro = ?, base_judge_id = ?, base_lead_micro = ?, wakes_since = 0, bad_rounds = 0, last_round = '' WHERE session_id = ?`,
-			fmtTime(st.PersonAt), st.BaseSpentMicro, st.BaseJudgeID, st.BaseLeadMicro, st.SessionID)
+		_, err = s.db.Exec(`UPDATE mission_pursuit_state SET person_at = ?, base_spent_micro = ?, base_judge_id = ?, base_lead_micro = ?, base_check_id = ?, wakes_since = 0, bad_rounds = 0, last_round = '' WHERE session_id = ?`,
+			fmtTime(st.PersonAt), st.BaseSpentMicro, st.BaseJudgeID, st.BaseLeadMicro, st.BaseCheckID, st.SessionID)
 	}
 	if err == nil {
 		_, err = s.db.Exec(`UPDATE mission_pursuit_state SET waiting = ?, parked = ?, spent_away_micro = ?, budget_micro = ?, hour_wakes = ?, hour_frees_at = ?,

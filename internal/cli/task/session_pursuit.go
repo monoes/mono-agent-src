@@ -230,7 +230,8 @@ func (d Deps) newPursuitStatusCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return d.writeStatus(cmd, p, pu, pr, st, at)
+			host, found, alive := d.hostPursuit()
+			return d.writeStatus(cmd, p, pu, pr, st, at, readGoalCheck(cmd.Context(), db.DB, session, host, found, alive))
 		},
 	}
 }

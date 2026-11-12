@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/missionpursuit/verifier"
 	"github.com/monoes/mono-agent/internal/tasks"
@@ -152,6 +153,12 @@ func (h HostChecks) Finish(ctx context.Context, checkID int64, res verifier.Resu
 	if state == CheckAbandoned && known == 0 {
 		cost = CheckCapMicro // an abandoned check's reviewer call may have been paid: it counts at the cap, not as free
 	}
+	// A refused confinement says which of its self tests failed: the status names the missing piece, so the detail is kept with
+	// the containment (bounded and cleaned like every other text the host stores).
+	containment := res.Containment
+	if res.ConfinementDetail != "" {
+		containment += ": " + res.ConfinementDetail
+	}
 	return h.s.tx(ctx, func(x tasks.Queryer) error {
 		var goal, st string
 		if err := x.QueryRowContext(ctx, `SELECT goal_hash, state FROM mission_goal_checks WHERE id = ?`, checkID).Scan(&goal, &st); err != nil {
@@ -169,7 +176,7 @@ func (h HostChecks) Finish(ctx context.Context, checkID int64, res verifier.Resu
 		_, err := x.ExecContext(ctx, `UPDATE mission_goal_checks SET state = ?, outcome = ?, reason = ?, subject_digest = ?, subject_files = ?, containment = ?, net = ?,
 		  reviewer_pin = ?, reviewer_observed = ?, reviewer_verdict = ?, reviewer_reason = ?, results_digest = ?, cost_micro = ?, cost_known = ?, ended_at = ?
 		  WHERE id = ? AND state = 'running'`,
-			state, outcome, Clean(string(res.Reason), 200), Clean(res.SubjectDigest, 200), max(res.SubjectFiles, 0), Clean(res.Containment, 200), Clean(res.Net, 200),
+			state, outcome, Clean(string(res.Reason), 200), Clean(res.SubjectDigest, 200), max(res.SubjectFiles, 0), Clean(containment, 200), Clean(res.Net, 200),
 			Clean(res.ReviewerPin, 200), Clean(res.ReviewerObserved, 200), res.ReviewerVerdict, Clean(res.ReviewerReason, 200), Clean(res.ResultsDigest, 200), cost, known, h.s.stamp(), checkID)
 		if err != nil {
 			return fmt.Errorf("missionpursuit: ending a goal check: %w", err)
@@ -178,13 +185,21 @@ func (h HostChecks) Finish(ctx context.Context, checkID int64, res verifier.Resu
 	})
 }
 
-// AbandonRunning ends every running check as abandoned (a restart of the host: the check that was running is gone), and
-// says how many. An abandoned check still counts against the caps.
-func (h HostChecks) AbandonRunning(ctx context.Context) (int, error) {
+// AbandonRunning ends the running checks that started at or before startedBefore as abandoned (a restart of the host: the
+// check that was running is gone), and says how many. The host passes its own start time, so a check this host starts afterwards
+// is never swept from under its goroutine; the time has one-second resolution, like the rows, so a row stamped in the same second as the
+// start is swept. It does not protect a check of ANOTHER live host process on the same database that started before this one:
+// host.lock allows one host per database, and that is what keeps this safe. A zero time is refused. An abandoned check still
+// counts against the caps, at the cap.
+func (h HostChecks) AbandonRunning(ctx context.Context, startedBefore time.Time) (int, error) {
 	if h.s == nil {
 		return 0, errNoHostChecks
 	}
-	res, err := h.s.db.ExecContext(ctx, `UPDATE mission_goal_checks SET state = 'abandoned', outcome = '', reason = 'host-restarted', cost_micro = ?, cost_known = 0, ended_at = ? WHERE state = 'running'`, CheckCapMicro, h.s.stamp())
+	if startedBefore.IsZero() {
+		return 0, invalid("a sweep of running checks says which started before it")
+	}
+	res, err := h.s.db.ExecContext(ctx, `UPDATE mission_goal_checks SET state = 'abandoned', outcome = '', reason = 'host-restarted', cost_micro = ?, cost_known = 0, ended_at = ? WHERE state = 'running' AND started_at <= ?`,
+		CheckCapMicro, h.s.stamp(), startedBefore.UTC().Format(time.RFC3339))
 	if err != nil {
 		return 0, fmt.Errorf("missionpursuit: abandoning running checks: %w", err)
 	}

@@ -528,8 +528,10 @@ func (h *Host) Run(ctx context.Context) error {
 	if err := h.Recover(); err != nil {
 		return err
 	}
-	defer h.pursuitWG.Wait() // a pursuit pass ends before the database is closed
-	defer h.retries.Wait()   // no retry of a hold outlives Run: the registry and the database are closed after it returns
+	h.pursuitCheckStart(ctx)
+	defer h.pursuitCheckStop() // after the pass below has ended: the goal checks end before the database is closed
+	defer h.pursuitWG.Wait()   // a pursuit pass ends before the database is closed
+	defer h.retries.Wait()     // no retry of a hold outlives Run: the registry and the database are closed after it returns
 	poll := h.Poll
 	if poll <= 0 {
 		poll = 500 * time.Millisecond

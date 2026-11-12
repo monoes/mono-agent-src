@@ -2,7 +2,6 @@ package hilsend
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -14,7 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/monoes/mono-agent/internal/commsync"
+	"github.com/monoes/mono-agent/internal/hilscrub"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -52,35 +51,6 @@ var (
 	ErrUnreviewable = errors.New("this send can't be reviewed on its card, so it can't be approved: reject it, or change the step and run it again")
 )
 
-// replay is what approving needs to run the node again.
-type replay struct {
-	Kind       string                   `json:"kind"`
-	NodeType   string                   `json:"nodeType"`
-	Config     map[string]interface{}   `json:"config"`
-	Input      []map[string]interface{} `json:"input"`
-	TextField  string                   `json:"textField"`
-	SubjectKey string                   `json:"subjectField,omitempty"`
-	ProofHash  string                   `json:"proofHash,omitempty"`
-	Error      string                   `json:"error,omitempty"`
-	Result     json.RawMessage          `json:"result,omitempty"`
-	ResolvedAt string                   `json:"resolvedAt,omitempty"`
-	// Publication is set once a registration claimed this send's approval
-	// (ClaimPublicationApproval): one approval registers one publication.
-	Publication string `json:"publication,omitempty"`
-	// Address is the recipient as the send addresses it, what an
-	// always-allow rule made from this item is keyed on.
-	Address string `json:"address,omitempty"`
-	// Connection is the id of the saved connection a send with host keys
-	// goes through (savedConnection), which an always-allow rule made from
-	// this item is bound to (ruleAccount).
-	Connection string `json:"connection,omitempty"`
-}
-
-type editable struct {
-	Text    string `json:"text"`
-	Subject string `json:"subject,omitempty"`
-}
-
 func now() string { return time.Now().UTC().Format(time.RFC3339) }
 
 // IsSend reports whether a hil_pending node_config is a send item's.
@@ -93,11 +63,15 @@ func IsSend(nodeConfig string) bool {
 
 // create stores a pending item.
 func (s Store) create(ctx context.Context, p Payload, rp replay) (Payload, error) {
-	p.Kind, p.ID, p.State, p.CreatedAt = "send", uuid.NewString(), StatePending, now()
+	if p.ID == "" {
+		p.ID = uuid.NewString()
+	}
+	p.Kind, p.State, p.CreatedAt = "send", StatePending, now()
 	if p.Attachments == nil {
 		p.Attachments = []Attachment{}
 	}
 	rp.Kind = "send"
+	hilscrub.MarkCutoff(ctx, s.DB)
 	ro := p
 	ro.Text, ro.Subject = "", ""
 	roRaw, err := json.Marshal(ro)
@@ -126,6 +100,7 @@ type row struct {
 
 // find resolves an exact id or a unique id prefix.
 func (s Store) find(ctx context.Context, id string) (row, error) {
+	hilscrub.Ensure(ctx, s.DB, s.Profile)
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return row{}, ErrNotFound
@@ -209,12 +184,14 @@ func (s Store) Get(ctx context.Context, id string) (Payload, error) {
 	if err != nil {
 		return Payload{}, err
 	}
+	r.ro, r.ed = hilscrub.Mask(s.DB, s.Profile, r.ro), hilscrub.Mask(s.DB, s.Profile, r.ed)
 	p, _, err := r.payload()
 	return p, err
 }
 
 // List returns this profile's send items in states (all when none), oldest first.
 func (s Store) List(ctx context.Context, states ...State) ([]Payload, error) {
+	hilscrub.Ensure(ctx, s.DB, s.Profile)
 	rows, err := s.DB.QueryContext(ctx,
 		`SELECT id, status, readonly_data, editable_data, node_config FROM hil_pending
 		 WHERE profile_id = ? AND execution_id LIKE 'send:%' ORDER BY created_at ASC, rowid ASC`, s.Profile)
@@ -228,6 +205,7 @@ func (s Store) List(ctx context.Context, states ...State) ([]Payload, error) {
 		if err := rows.Scan(&r.id, &r.status, &r.ro, &r.ed, &r.nc); err != nil {
 			return nil, err
 		}
+		r.ro, r.ed = hilscrub.Mask(s.DB, s.Profile, r.ro), hilscrub.Mask(s.DB, s.Profile, r.ed)
 		p, _, err := r.payload()
 		if err != nil {
 			continue
@@ -244,158 +222,6 @@ func (s Store) List(ctx context.Context, states ...State) ([]Payload, error) {
 		out = append(out, p)
 	}
 	return out, rows.Err()
-}
-
-// Edit changes a pending item's text and/or subject (nil leaves one alone).
-// The item stays pending, so the card re-previews the edit.
-func (s Store) Edit(ctx context.Context, id string, text, subject *string) (Payload, error) {
-	r, err := s.find(ctx, id)
-	if err != nil {
-		return Payload{}, err
-	}
-	p, _, err := r.payload()
-	if err != nil {
-		return Payload{}, err
-	}
-	if p.State != StatePending {
-		return p, fmt.Errorf("send item %s is %s, only a pending one can be edited", p.ID, p.State)
-	}
-	if text != nil && p.TextReadOnly {
-		return p, fmt.Errorf("send item %s: %w", p.ID, ErrNoText)
-	}
-	if subject != nil && p.SubjectReadOnly {
-		return p, fmt.Errorf("send item %s: %w", p.ID, ErrNoSubject)
-	}
-	if text != nil {
-		p.Text = *text
-	}
-	if subject != nil {
-		p.Subject = *subject
-	}
-	raw, _ := json.Marshal(editable{Text: p.Text, Subject: p.Subject})
-	res, err := s.DB.ExecContext(ctx,
-		`UPDATE hil_pending SET editable_data = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending' AND profile_id = ?`,
-		string(raw), p.ID, s.Profile)
-	if err != nil {
-		return p, err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return s.Get(ctx, p.ID)
-	}
-	warn(commsync.SetText(ctx, s.DB, p.ID, &p.Text, &p.Subject), "edit")
-	return p, nil
-}
-
-// claim moves a pending item to sending, once. It returns the payload and
-// replay as claimed and the proof that lets the performing process through
-// Guard. claimed is false when the item was not pending (already resolved,
-// or someone else claimed it first). always (an always-allow approve) is
-// refused for a label recipient (ErrAlwaysLabel), leaving it pending.
-func (s Store) claim(ctx context.Context, id string, always bool) (p Payload, rp replay, proof string, claimed bool, err error) {
-	r, err := s.find(ctx, id)
-	if err != nil {
-		return p, rp, "", false, err
-	}
-	p, rp, err = r.payload()
-	if err != nil {
-		return p, rp, "", false, err
-	}
-	if p.State != StatePending {
-		return p, rp, "", false, nil
-	}
-	if p.Unreviewable != "" {
-		// A card that can't show what the step sends isn't approved from:
-		// it stays pending, to be rejected.
-		return p, rp, "", false, fmt.Errorf("send item %s: %w (%s)", p.ID, ErrUnreviewable, p.Unreviewable)
-	}
-	if always && p.Recipient.Label {
-		// What is claimed decides, not an earlier read: it stays pending.
-		return p, rp, "", false, ErrAlwaysLabel
-	}
-	buf := make([]byte, 24)
-	if _, err := rand.Read(buf); err != nil {
-		return p, rp, "", false, err
-	}
-	proof = hex.EncodeToString(buf)
-	sum := sha256.Sum256([]byte(proof))
-	rp.ProofHash = hex.EncodeToString(sum[:])
-	rp.ResolvedAt = now()
-	raw, _ := json.Marshal(rp)
-	res, err := s.DB.ExecContext(ctx,
-		`UPDATE hil_pending SET status = 'sending', node_config = ?, updated_at = CURRENT_TIMESTAMP
-		 WHERE id = ? AND status = 'pending' AND profile_id = ?`, string(raw), p.ID, s.Profile)
-	if err != nil {
-		return p, rp, "", false, err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		cur, gerr := s.Get(ctx, p.ID)
-		return cur, rp, "", false, gerr
-	}
-	p.State, p.ResolvedAt = StateApproved, rp.ResolvedAt
-	s.commsStatus(ctx, p.ID, commsync.Approved, commsync.Detail{Text: &p.Text, Subject: &p.Subject})
-	s.commsStatus(ctx, p.ID, commsync.Sending, commsync.Detail{})
-	return p, rp, proof, true, nil
-}
-
-// reject marks a pending item rejected; false when it was not pending.
-func (s Store) reject(ctx context.Context, id string) (Payload, bool, error) {
-	r, err := s.find(ctx, id)
-	if err != nil {
-		return Payload{}, false, err
-	}
-	p, rp, err := r.payload()
-	if err != nil {
-		return p, false, err
-	}
-	if p.State != StatePending {
-		return p, false, nil
-	}
-	rp.ResolvedAt = now()
-	raw, _ := json.Marshal(rp)
-	res, err := s.DB.ExecContext(ctx,
-		`UPDATE hil_pending SET status = 'rejected', node_config = ?, updated_at = CURRENT_TIMESTAMP
-		 WHERE id = ? AND status = 'pending' AND profile_id = ?`, string(raw), p.ID, s.Profile)
-	if err != nil {
-		return p, false, err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		cur, gerr := s.Get(ctx, p.ID)
-		return cur, false, gerr
-	}
-	p.State, p.ResolvedAt = StateRejected, rp.ResolvedAt
-	s.commsStatus(ctx, p.ID, commsync.Rejected, commsync.Detail{})
-	return p, true, nil
-}
-
-// finish records how a claimed send ended.
-func (s Store) finish(ctx context.Context, id string, result json.RawMessage, runErr error) (Payload, error) {
-	r, err := s.find(ctx, id)
-	if err != nil {
-		return Payload{}, err
-	}
-	_, rp, err := r.payload()
-	if err != nil {
-		return Payload{}, err
-	}
-	status := "sent"
-	rp.ProofHash = ""
-	if runErr != nil {
-		status, rp.Error = "failed", runErr.Error()
-	} else {
-		rp.Result = result
-	}
-	raw, _ := json.Marshal(rp)
-	if _, err := s.DB.ExecContext(ctx,
-		`UPDATE hil_pending SET status = ?, node_config = ?, updated_at = CURRENT_TIMESTAMP
-		 WHERE id = ? AND status = 'sending' AND profile_id = ?`, status, string(raw), r.id, s.Profile); err != nil {
-		return Payload{}, err
-	}
-	if runErr != nil {
-		s.commsStatus(ctx, r.id, commsync.Failed, commsync.Detail{Error: runErr.Error()})
-	} else {
-		s.commsStatus(ctx, r.id, commsync.Sent, commsync.Detail{})
-	}
-	return s.Get(ctx, r.id)
 }
 
 // Allow is one always-allow rule.

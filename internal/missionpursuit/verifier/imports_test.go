@@ -65,8 +65,8 @@ func TestThePackageImportsNothingThatCarriesAuthority(t *testing.T) {
 	}
 }
 
-// Only the store's host-checks file imports the library (it maps a Result to rows, S7b); the host step (a later slice) will be
-// the other importer, decided in review.
+// Only the store's host-checks file (it maps a Result to rows, S7b) and the host's check step (S7c1b: the files that run a check,
+// meter it and wire the confiner) import the library. A new importer is decided in review.
 func TestNothingImportsThePackageYet(t *testing.T) {
 	root := filepath.Join("..", "..", "..")
 	var got []string
@@ -104,8 +104,52 @@ func TestNothingImportsThePackageYet(t *testing.T) {
 		t.Fatalf("the walk visited %d Go files: the guard would pass on nothing", visited)
 	}
 	sort.Strings(got)
-	if want := []string{"internal/missionpursuit/checks_host.go"}; !reflect.DeepEqual(got, want) {
+	if want := []string{"internal/coderhost/pursuit_check.go", "internal/coderhost/pursuit_check_gate.go", "internal/coderhost/pursuit_check_meter.go", "internal/coderhost/pursuit_check_wire.go", "internal/missionpursuit/checks_host.go"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("importers of the goal verifier library: %v, want %v\ndecide the importer here, in review", got, want)
+	}
+}
+
+// The systemd confiner has exactly one importer outside its own package: the host's wiring file (S7c1b), which builds it only
+// when the goal checks are switched on.
+func TestOnlyTheHostsWiringFileImportsTheConfiner(t *testing.T) {
+	root := filepath.Join("..", "..", "..")
+	var got []string
+	visited := 0
+	for _, top := range []string{"internal", "cmd", "wails-app"} {
+		werr := filepath.WalkDir(filepath.Join(root, top), func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
+				return nil
+			}
+			visited++
+			rel, _ := filepath.Rel(root, p)
+			rel = filepath.ToSlash(rel)
+			if strings.HasPrefix(rel, "internal/missionpursuit/verifier/sdconfine/") {
+				return nil
+			}
+			f, perr := parser.ParseFile(token.NewFileSet(), p, nil, parser.ImportsOnly)
+			if perr != nil {
+				return perr
+			}
+			for _, im := range f.Imports {
+				if path, _ := strconv.Unquote(im.Path.Value); strings.HasSuffix(path, "/internal/missionpursuit/verifier/sdconfine") {
+					got = append(got, rel)
+				}
+			}
+			return nil
+		})
+		if werr != nil {
+			t.Fatalf("walking %s: %v", top, werr)
+		}
+	}
+	if visited < 500 {
+		t.Fatalf("the walk visited %d Go files: the guard would pass on nothing", visited)
+	}
+	sort.Strings(got)
+	if want := []string{"internal/coderhost/pursuit_check_wire.go"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("importers of the systemd confiner: %v, want %v\ndecide the importer here, in review", got, want)
 	}
 }
 

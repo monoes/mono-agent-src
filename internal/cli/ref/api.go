@@ -62,7 +62,10 @@ ENDPOINTS
     POST /profiles/{profile}/workflows/{id}/run
          trigger a workflow, wait for completion; any WAITING returns,
          ?wait_through_subworkflows=true waits through a pause for the
-         run's own sub-workflows (a person's still returns)
+         run's own sub-workflows (a person's still returns). Every run
+         started here is an agent's run (key holder: your own script too):
+         ai.task refuses, people.save will not approve outreach, browser
+         steps get the agent level, hilsend sends wait for approval
     POST /profiles/{profile}/workflows/{id}/activate
          activate a workflow's triggers
     POST /profiles/{profile}/workflows/{id}/deactivate

@@ -97,26 +97,36 @@ func Overcommitted(ctx context.Context, x Queryer, profileID string, sessionID i
 
 // Overcommitted is the package function with the store's depth policy, so a charter tree is walked to its depth.
 func (s *Store) Overcommitted(ctx context.Context, x Queryer, profileID string, sessionID int64) (string, error) {
+	oc, err := s.overCommitWalk(ctx, x, profileID, sessionID)
+	if err != nil || !oc.Over {
+		return "", err
+	}
+	return fmt.Sprintf("session #%d would be committed $%.4f of its budget of $%.2f (spent $%.4f, held $%.4f, children $%.4f)", oc.Ancestor, oc.CommittedUSD, oc.BudgetUSD, oc.SpentUSD, oc.HeldUSD, oc.ChildrenUSD), nil
+}
+
+// overCommitWalk is the walk behind Overcommitted and OverCommitOf: the session first, then each parent, until one is
+// committed past its budget (Ancestor is that session; it is the asked session itself when that one is over).
+func (s *Store) overCommitWalk(ctx context.Context, x Queryer, profileID string, sessionID int64) (OverCommit, error) {
 	seen := map[int64]bool{}
 	maxDepth := s.walkLimit(ctx, sessionID)
 	for cur, step := sessionID, 0; ; step++ {
 		if seen[cur] || step > maxDepth {
-			return "", invalid("session #%d is in a cycle of parents or deeper than %d levels", sessionID, maxDepth)
+			return OverCommit{}, invalid("session #%d is in a cycle of parents or deeper than %d levels", sessionID, maxDepth)
 		}
 		seen[cur] = true
 		c, err := s.commitmentTx(ctx, x, profileID, cur)
 		if err != nil {
-			return "", err
+			return OverCommit{}, err
 		}
-		if c.Budget > 0 && toMicros(c.Total()) > floorMicros(min(c.Budget, MaxBudgetUSD)) {
-			return fmt.Sprintf("session #%d would be committed $%.4f of its budget of $%.2f (spent $%.4f, held $%.4f, children $%.4f)", cur, c.Total(), c.Budget, c.Spent, c.Held, c.Children), nil
+		if oc := overCommitOf(sessionID, cur, c); oc.Over {
+			return oc, nil
 		}
 		var parent sql.NullInt64
 		if err := x.QueryRowContext(ctx, `SELECT parent_session_id FROM task_sessions WHERE profile_id = ? AND id = ?`, profileID, cur).Scan(&parent); err != nil {
-			return "", sessionLookup(err, cur)
+			return OverCommit{}, sessionLookup(err, cur)
 		}
 		if !parent.Valid {
-			return "", nil
+			return OverCommit{Session: sessionID}, nil
 		}
 		cur = parent.Int64
 	}

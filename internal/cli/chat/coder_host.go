@@ -62,6 +62,14 @@ func hostDir(cfg *Deps) string {
 	return coderhost.HostDir(clicore.ExpandPath(cfg.DBPath()))
 }
 
+// verifierForbidden are the folders no goal check may use as the project (coderhost.DefaultForbidden): the person's home folder
+// itself, credential folders under it, system trees, other users' homes and the host's state, which always includes the real
+// ~/.monoagent even when the database path points elsewhere.
+func verifierForbidden(cfg *Deps) coderhost.ForbiddenFolders {
+	home, _ := os.UserHomeDir()
+	return coderhost.DefaultForbidden(home, filepath.Dir(clicore.ExpandPath(cfg.DBPath())))
+}
+
 func hostLockPath(cfg *Deps) string { return filepath.Join(hostDir(cfg), "host.lock") }
 
 // hostRunning says whether a host holds the lock right now.
@@ -307,6 +315,8 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 			}
 			// The pursuit loop is off unless the host was started with a judge pin (see coder_host_pursuit.go); read once, here.
 			pursuit, pursuitInfo := pursuitFromEnv(os.Getenv, db.DB)
+			// the goal checks are off too unless MONOAGENT_PURSUIT_VERIFIER is set (and the loop is on); nothing is built otherwise
+			attachVerifier(cmd.Context(), os.Getenv, pursuit, &pursuitInfo, filepath.Join(filepath.Dir(clicore.ExpandPath(cfg.DBPath())), "scratch", "checks"), verifierForbidden(cfg))
 			h.Pursuit = pursuit
 			info.Pursuit = &pursuitInfo
 			if pursuitInfo.Reason != "" {

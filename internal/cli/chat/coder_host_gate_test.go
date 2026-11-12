@@ -1086,7 +1086,7 @@ func (l *hostStopLog) String() string {
 func runProductionHost(t *testing.T, env map[string]string) (*coderhost.Host, *Deps) {
 	t.Helper()
 	asOperator(t)
-	for _, k := range []string{envPursuitJudge, envPursuitWakeCap} {
+	for _, k := range []string{envPursuitJudge, envPursuitWakeCap, envPursuitVerifier} {
 		t.Setenv(k, env[k]) // set or emptied: nothing leaks in from the shell
 	}
 	dbPath := newChatCLITestDB(t)

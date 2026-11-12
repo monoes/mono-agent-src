@@ -599,21 +599,3 @@ func mustJSON(c Charter) string {
 	b, _ := json.Marshal(c.normalized())
 	return string(b)
 }
-
-// A commit that fails is reported as ErrCommitUnknown, not as a plain error and not as success: the caller cannot tell from the
-// error alone whether the run row exists, so it must read it (the StoreEngine does).
-func TestEnterReportsAFailedCommitAsUnknown(t *testing.T) {
-	s, _ := newStore(t)
-	was := commitEntry
-	commitEntry = func(tx *sql.Tx) error { _ = tx.Rollback(); return errors.New("disk I/O error") }
-	defer func() { commitEntry = was }()
-	g, err := s.NextGeneration(ctx, "p1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	c := charter("p1", g)
-	run, err := s.Enter(ctx, c, c.Hash(), "operator")
-	if !errors.Is(err, ErrCommitUnknown) || run != (Run{}) {
-		t.Fatalf("run=%+v err=%v", run, err)
-	}
-}

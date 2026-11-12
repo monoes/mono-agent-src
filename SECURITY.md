@@ -189,6 +189,31 @@ reads; values an agent already retrieved cannot be recalled.
   So `agent-access on` effectively trusts the agent-written workflows with
   the secrets and hosts you name: grant only secrets you accept an agent
   using, and prefer a short `--expires`.
+- **Held sends keep a reference, never the value.** A send an agent's run
+  holds for approval does not store a secret the run read: the card, its
+  replay and its Communications row hold `[[held-secret:NAME:tag]]` (shown
+  as `<NAME secret, held>`), and the card keeps only a hash of the tag. At
+  approval the grant is read again (off, expired, narrowed or host-bound
+  against it: refused, the card stays pending, nothing is sent), the read is
+  audited by name (`workflow_id` `hil-approval`), and what the send returns
+  is masked before it is stored. A literal `@secret:` in any held send is
+  refused at approval, whatever its spelling, so an agent cannot write a
+  reference of its own. A send whose secret appears encoded, or under a name
+  with characters a reference cannot carry, is not queued; the workflow
+  Human-in-Loop node queues no item (or message) that carries one. Cards (and
+  their Communications rows) written before this change are scrubbed before
+  they are read, as long as a grant names their secrets: only cards older than
+  a cutoff stored once in `settings` (`hilscrub.cutoff`), never mail you
+  received and never a newer card, so the scrub cannot be used to test guesses
+  of a secret. Whole-token matches only; a secret that is one plain word under
+  16 letters cannot be told from ordinary text and is left; only a secret's
+  current value is looked for (not one it had before a rotation); a card an
+  older bundled `monoagentcli` writes after the cutoff keeps its value; and
+  an old binary that approves a scrubbed pending card sends the literal
+  `[[held-secret:...]]` text (update every binary). A scrub that cannot write
+  (a lock held elsewhere, a read-only handle) never fails or delays a read
+  for long: the readers mask the values in memory and the next read after a
+  short back-off tries again.
 - **Nodes under `--host`.** With `--host` (not `--any-host`) only the nodes
   that check their destination (`http.request`, `http.graphql`, `mcp.call`,
   `trigger.sse`) read a secret; any other node (mail, chat, database,
@@ -651,6 +676,23 @@ publication claims, and its sends wait for your approval. What changes:
 - When the turn check cannot place the process (the database is unreadable or
   locked), the run is marked as an agent's and the command prints one line
   saying so; retry once the database reads.
+
+A run started over MCP `workflow_run` or the HTTP API (`POST .../run`) is also
+an agent's run: those callers are not your terminal, so the run is marked
+(`other`, or the caller's agent kind) and a planted mark in the input is
+overwritten. That includes your own scripts with a run-scope key.
+
+**Known gap: unmarked runs of an approved workflow.** Runs of an *active*
+workflow started by a webhook, a form, a chat, a trigger source or the daemon's
+scheduler carry no agent mark, and the GUI's `workflow run` subprocess is
+marker-only. So an agent with localhost access that POSTs an active workflow's
+webhook URL gets an unmarked run of a workflow you approved, which nodes that
+tell an agent's run from yours (`ai.task`, `people.save` approving outreach,
+sends, browser policy) treat as yours. It is left as it is because those starts
+are third-party-triggered by design (a webhook exists so something else can start
+the run), and it predates the marking of MCP and HTTP runs. What the run can do is
+what you approved in the workflow; a definition an agent changed is still
+unapproved and its sends still wait. Tracked in #1475 and its follow-up.
 
 ### Sends that skipped approval up to v0.152.0
 

@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/monoes/mono-agent/internal/secrets"
 )
 
 // Run is what Resolve asks a Runner to perform: the original node, with the
@@ -59,6 +61,22 @@ func Resolve(ctx context.Context, st Store, id string, approve bool, edit Edit, 
 	} else if always && p.Recipient.Label {
 		return p, ErrAlwaysLabel
 	}
+	// The references are checked with the edit applied in memory, before it is
+	// saved: a refused approval does not keep a bad edit. Nothing is read or
+	// audited by the check; a refusal leaves the card pending.
+	if r, ferr := st.find(ctx, id); ferr == nil {
+		if p0, rp0, perr := r.payload(); perr == nil && p0.State == StatePending {
+			if edit.Text != nil {
+				p0.Text = *edit.Text
+			}
+			if edit.Subject != nil {
+				p0.Subject = *edit.Subject
+			}
+			if _, _, _, err := st.resolveHeldReplay(ctx, p0, rp0, replayConfig(p0, rp0), true); err != nil {
+				return p0, err
+			}
+		}
+	}
 	if edit.Text != nil || edit.Subject != nil {
 		// A non-pending item can't be edited; claim below reports its state.
 		// A card with no text (or no subject) to edit is not approved with
@@ -84,6 +102,31 @@ func Resolve(ctx context.Context, st Store, id string, approve bool, edit Edit, 
 			return st.finishErr(ctx, p.ID, err)
 		}
 	}
+	cfg, input, read, herr := st.resolveHeldReplay(ctx, p, rp, replayConfig(p, rp), false)
+	if herr != nil {
+		// The grant went between the check and the claim: nothing is sent.
+		return st.finishErr(ctx, p.ID, herr)
+	}
+	result, runErr := run(ctx, Run{NodeType: rp.NodeType, Config: cfg, Input: input, ApprovalID: p.ID, Proof: proof, PreparedBy: p.PreparedBy})
+	if len(read) > 0 {
+		// What the send echoes back (its result, its error) is stored on the
+		// card: the values it just carried stay out of it.
+		result = maskJSON(read, result)
+		if runErr != nil {
+			runErr = errors.New(secrets.MaskValues(read, runErr.Error()))
+		}
+	}
+	out, err := st.finish(ctx, p.ID, result, runErr)
+	if err != nil {
+		return out, err
+	}
+	out.AlwaysAllowed = always
+	return out, nil
+}
+
+// replayConfig is the config the approved run gets: the stored one with the
+// card's text and subject (edits included) put in.
+func replayConfig(p Payload, rp replay) map[string]interface{} {
 	cfg := cloneMap(rp.Config)
 	if rp.TextField != "" {
 		setAt(cfg, rp.TextField, p.Text)
@@ -91,13 +134,7 @@ func Resolve(ctx context.Context, st Store, id string, approve bool, edit Edit, 
 	if rp.SubjectKey != "" && p.Subject != "" {
 		setAt(cfg, rp.SubjectKey, p.Subject)
 	}
-	result, runErr := run(ctx, Run{NodeType: rp.NodeType, Config: cfg, Input: rp.Input, ApprovalID: p.ID, Proof: proof, PreparedBy: p.PreparedBy})
-	out, err := st.finish(ctx, p.ID, result, runErr)
-	if err != nil {
-		return out, err
-	}
-	out.AlwaysAllowed = always
-	return out, nil
+	return cfg
 }
 
 func (s Store) finishErr(ctx context.Context, id string, cause error) (Payload, error) {
