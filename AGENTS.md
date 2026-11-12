@@ -342,7 +342,10 @@ where the run read a granted secret, never the value; `hil show` prints
 `<NAME secret, held>`, JSON keeps the token. Approval re-checks the grant and
 audits the read; if it refuses (grant off or narrower, a literal `@secret:` in
 the text) the card stays pending: reject it and have the agent prepare it
-again, or edit the reference out. Never type `@secret:` into a held send.
+again, or edit the reference out. Never type `@secret:` into a held send. Old rows are scrubbed only when older
+than the cutoff (`hilscrub.cutoff` + `hilscrub.cutoff.rowid`); a card an older
+bundled CLI writes after it keeps its value, and a raw-SQL actor can delete the
+cutoff rows (a stated limit, see SECURITY.md).
 
 ## Publication history
 
