@@ -24,6 +24,18 @@ export const ASK_ACCESS = ['scoped', 'coding', 'workspace'] // never full
 
 const emptyPin = () => ({ provider: '', model: '', version: '' })
 
+// The judging policy is a name the charter pins; "default" is the one the app offers. PER_ASK_DEFAULTS is the careful
+// start of the per-ask limits and PER_ASK_CHOICES the values the form offers in its lists.
+export const JUDGING_POLICIES = ['default']
+export const PER_ASK_DEFAULTS = { spendUsd: '1', tasks: '5', depth: '2', runSpendUsd: '10', runTasks: '50' }
+export const PER_ASK_CHOICES = {
+  spendUsd: ['0.5', '1', '2', '5', '10'],
+  tasks: ['1', '3', '5', '10', '20'],
+  depth: ['1', '2', '3', '4'],
+  runSpendUsd: ['5', '10', '25', '50', '100'],
+  runTasks: ['10', '25', '50', '100', '200'],
+}
+
 // The budget has no default: choice is '' until the person picks unlimited or a fixed amount.
 export const emptyForm = () => ({
   goal: '',
@@ -32,9 +44,35 @@ export const emptyForm = () => ({
   limits: { ...LIMIT_PRESETS.standard },
   budget: { choice: '', usd: '' },
   lines: [],
-  pins: { boss: emptyPin(), verifier: emptyPin(), judging: '' },
-  perAsk: { enabled: false, spendUsd: '', tasks: '', access: 'coding', depth: '', runSpendUsd: '', runTasks: '' },
+  pins: { boss: emptyPin(), verifier: emptyPin(), judging: JUDGING_POLICIES[0] },
+  perAsk: { enabled: false, ...PER_ASK_DEFAULTS, access: 'coding' },
 })
+
+// modelChoices turns the validated roster (`agent roster`: {runtimes: [{runtime, version, models: [{model, state}]}]}) into
+// the models a pin can name, a runtime being the pin's provider and its version the pin's version. A model that failed its
+// test is left out; ready ones come first. An empty list means the form falls back to typing the pin.
+export function modelChoices(roster) {
+  const out = []
+  for (const rr of Array.isArray(roster?.runtimes) ? roster.runtimes : []) {
+    if (!rr?.runtime || rr.installed === false) continue
+    for (const m of Array.isArray(rr.models) ? rr.models : []) {
+      if (!m?.model || m.state === 'failed') continue
+      out.push({ provider: String(rr.runtime), model: String(m.model), version: String(rr.version || 'unknown'), ready: m.state === 'ready' })
+    }
+  }
+  return out.sort((a, b) => Number(b.ready) - Number(a.ready))
+}
+
+const samePin = (a, b) => a.provider === b.provider && a.model === b.model && a.version === b.version
+
+// defaultPins picks a boss (the first choice) and a verifier that is a different model; with only one model in the
+// roster the verifier stays empty and the person picks it (the charter refuses a verifier equal to the boss).
+export function defaultPins(choices) {
+  const pick = c => (c ? { provider: c.provider, model: c.model, version: c.version } : emptyPin())
+  const boss = choices[0]
+  const verifier = choices.find(c => boss && !samePin(c, boss))
+  return { boss: pick(boss), verifier: pick(verifier) }
+}
 
 const DECIMAL = /^\d+(\.\d{1,6})?$/
 
