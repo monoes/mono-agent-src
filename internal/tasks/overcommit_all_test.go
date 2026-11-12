@@ -104,6 +104,13 @@ func TestOverCommitAllMatchesPerSessionOnNamedShapes(t *testing.T) {
 			setSpent(t, db, root, 5)
 			rkid(t, s, db, a, 1, "draft")
 		},
+		"reservations held": func(t *testing.T, s *Store, db *sql.DB) {
+			root := rsession(t, s, db, 10)
+			kid := rkid(t, s, db, root, 3, "running")
+			rreserve(t, s, root, "a", 4)
+			rreserve(t, s, kid, "b", 1)
+			setSpent(t, db, root, 5)
+		},
 		"cycle of two": func(t *testing.T, s *Store, db *sql.DB) {
 			a := rsession(t, s, db, 5)
 			b := rkid(t, s, db, a, 5, "running")
@@ -232,13 +239,20 @@ func TestOverCommitAllMatchesPerSessionOnRandomTrees(t *testing.T) {
 	}
 }
 
-// buildWide makes root -> 9 -> 9 children each (3 levels: 1 + 9 + 81 + the rest hang below), n sessions in all.
-func buildWide(t *testing.T, s *Store, db *sql.DB, n int) {
+// buildWide makes a tree of n running sessions, six to a parent (the walk allows four levels) (the store caps the sessions a profile may create at
+// 50, so the rows are written directly: the shape is what the check walks, not how it was made).
+func buildWide(t *testing.T, db *sql.DB, n int) {
 	t.Helper()
-	ids := []int64{rsession(t, s, db, 100)}
-	for len(ids) < n {
-		p := ids[(len(ids)-1)/4]
-		ids = append(ids, rkid(t, s, db, p, 3, "running"))
+	for i := 1; i <= n; i++ {
+		parent := sql.NullInt64{Int64: int64((i + 4) / 6), Valid: i > 1}
+		budget := 3.0
+		if i == 1 {
+			budget = 100
+		}
+		if _, err := db.Exec(`INSERT INTO task_sessions (id, profile_id, title, goal, access_level, max_tasks, max_depth, max_retries, created_by, created_at, updated_at, kind, state, budget_usd, parent_session_id)
+			VALUES (?, 'default', 't', '', 'full', 10, 3, 2, 'x', 'x', 'x', 'task', 'running', ?, ?)`, i, budget, parent); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -247,7 +261,7 @@ func TestOverCommitAllReadsInAFixedNumberOfStatements(t *testing.T) {
 	counts := map[int]int{}
 	for _, n := range []int{50, 200} {
 		s, db, _ := newTestStore(t)
-		buildWide(t, s, db, n)
+		buildWide(t, db, n)
 		ids := allSessionIDs(t, db)
 		var each, single int
 		var tAll, tEach time.Duration
@@ -296,4 +310,20 @@ func TestOverCommitAllExportedAnswersLikeTheList(t *testing.T) {
 	if _, err := s.OverCommitAll(bg, "nope", []int64{root}); err == nil {
 		t.Fatal("an unknown profile is an error, as in OverCommitOf")
 	}
+}
+
+// The same contract on the size that made the list slow.
+func TestOverCommitAllMatchesPerSessionOn200Sessions(t *testing.T) {
+	s, db, _ := newTestStore(t)
+	buildWide(t, db, 200)
+	for i := 2; i <= 200; i += 7 {
+		setSpent(t, db, int64(i), float64(i%5))
+	}
+	if _, err := db.Exec(`UPDATE task_sessions SET budget_usd = 0 WHERE id IN (3, 40)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE task_sessions SET budget_usd = 100000 WHERE id = 1; UPDATE task_sessions SET budget_usd = 20 WHERE id IN (2, 5, 9)`); err != nil {
+		t.Fatal(err)
+	}
+	sameAsPerSession(t, s, db, "200 sessions")
 }
