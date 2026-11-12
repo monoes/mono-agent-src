@@ -117,7 +117,7 @@ func newDoomsdayCmd(cfg *globalConfig) *cobra.Command {
 					}
 				}
 				d := chatDeps(cfg)
-				_, err := chatcli.QueueBossFirstTurn(&d, conv, chatcli.BossFirstTurn{RunID: in.RunID, CharterHash: in.CharterHash, Goal: in.Goal})
+				_, err := chatcli.QueueBossFirstTurn(&d, conv, chatcli.BossFirstTurn{RunID: in.RunID, CharterHash: in.CharterHash, Goal: in.Goal, Terms: in.Terms})
 				return err
 			},
 		}
