@@ -11,3 +11,6 @@ package image
 type RemoveBackgroundNode struct{}
 
 func (n *RemoveBackgroundNode) Type() string { return "image.remove_background" }
+
+// PublishesToThirdParty: image.remove_background sends nothing off this machine (issue #1418).
+func (RemoveBackgroundNode) PublishesToThirdParty() bool { return false }

@@ -25,6 +25,9 @@ type SplitTextNode struct{}
 
 func (n *SplitTextNode) Type() string { return "vector.split_text" }
 
+// PublishesToThirdParty: vector.split_text sends nothing off this machine (issue #1418).
+func (SplitTextNode) PublishesToThirdParty() bool { return false }
+
 type splitConfig struct {
 	splitter   string
 	size       int

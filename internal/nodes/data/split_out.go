@@ -24,6 +24,9 @@ type SplitOutNode struct{}
 
 func (n *SplitOutNode) Type() string { return "data.split_out" }
 
+// PublishesToThirdParty: data.split_out sends nothing off this machine (issue #1418).
+func (SplitOutNode) PublishesToThirdParty() bool { return false }
+
 const binarySplitField = "$binary"
 
 func (n *SplitOutNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {

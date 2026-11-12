@@ -149,7 +149,7 @@ func runAttempt(ctx context.Context, executor NodeExecutor, input NodeInput, con
 			execErr = fmt.Errorf("node executor panicked: %v\n%s", r, debug.Stack())
 		}
 	}()
-	if gout, handled, gerr := RunExecGuard(actx, executor.Type(), input, config); handled {
+	if gout, handled, gerr := RunExecGuardFor(actx, executor, input, config); handled {
 		out, execErr = gout, gerr
 	} else {
 		out, execErr = executor.Execute(actx, input, config)

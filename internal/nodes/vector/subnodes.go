@@ -30,6 +30,9 @@ type subNode struct{ typ, kind, root string }
 
 func (n *subNode) Type() string { return n.typ }
 
+// PublishesToThirdParty: the vector sub-nodes sends nothing off this machine (issue #1418).
+func (*subNode) PublishesToThirdParty() bool { return false }
+
 func (n *subNode) Execute(context.Context, workflow.NodeInput, map[string]interface{}) ([]workflow.NodeOutput, error) {
 	return nil, fmt.Errorf("%w: %s is a sub-node: connect its %s output to %s", workflow.ErrInvalidConfig, n.typ, n.kind, n.root)
 }

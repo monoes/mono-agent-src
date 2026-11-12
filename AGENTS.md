@@ -337,6 +337,68 @@ Every agent read under a grant is audited by name, never value (`secret agent-ac
 audit`). Policy changes take effect on subsequent reads, including active runs;
 previously retrieved values cannot be recalled. Encryption on disk is unchanged.
 
+**A granted secret is authentication, never content.** Host binding says where a
+granted secret may go, not what it is used as. Under agent access:
+
+- A node that publishes to a third party (messages, vendor APIs, databases, AI
+  providers, model-backed nodes, responses; a node declares
+  `PublishesToThirdParty() false` to say it does not, and an undeclared one
+  publishes) is refused once the run has read any secret, `--any-host`
+  included. A child run's reads taint its parent when the parent has consumed
+  every child, at any depth up to the sub-workflow limit of 32, a failed child
+  included. A plaintext read (`vault.secret_get` at Reveal) taints like a
+  reference, but the revealed value itself is not tracked, so a body holding it
+  is stopped by the publishing rule only.
+- A secret may reach `http.request`, `http.graphql` or `mcp.call` only as
+  authentication, never in a body, a query string (except an api key's value) or
+  tool arguments. Requests to this machine are exempt, and a proxy on this
+  machine counts as this machine; a proxy that is not makes the exemption void.
+  A 307/308 redirect is checked again with its body, and every redirect hop's
+  address is checked; a 301/302/303 that turns a POST into a GET sends no body
+  and is not refused for it.
+- The taint is per run, so a local store would carry a value to another run: the
+  nodes that write one (a data table, files, binary data, chat memory, application,
+  document and publication records, the vault: `WritesLocalStore()`) refuse a value the run
+  has read.
+- To graduate such a workflow, approve it.
+
+Known limits:
+
+- `browser.jev`, `{{secret:}}` in automations, MCP headers and env, and per-item
+  database overlays resolve inside the node, so the node that reads is not
+  refused by its own read (later nodes are).
+- The value scan (a request body, a store write) finds the forms masking tracks:
+  the value, base64 (four variants, aligned at the start), URL and JSON escapes,
+  `-`/`_` swaps, hex, upper and lower case. An unaligned base64, a `data.jwt`
+  token whose claims embed it, or a value split across columns or chunks passes.
+  A store write also scans the outputs of earlier nodes when a field holds an
+  expression, so a read followed by any such write is refused (a short secret
+  inside a longer number, a timestamp say, is a false positive: the message names
+  the node, the field and the secret).
+- A secret in a URL's path, fragment or user info is bound to the grant's hosts
+  but not refused as content; only the body and the query string are.
+- The child taint reads the audit: if you clear the audit between a child's
+  read and its parent's consume, the taint is lost. That lookup (`execution_id IN
+  (...)`) has no index and runs once per consume.
+- The write scan is linear and not streaming: a 50 MB row costs about 70 ms and
+  150 MB of memory under agent access. Outside it nothing is copied.
+- Secret text rendered into an image's pixels is invisible to the scan
+  (`image.edit`'s text operation is scanned by its configuration only); once a
+  person approves it, `core.code` runs freely; `core.wait` with a resume form or
+  webhook shows its page text to whoever holds the resume URL; `core.form` and
+  the response nodes are publishing, so a tainted run does not reach them.
+- `core.remove_duplicates` keeps the value it de-duplicates on as a number in
+  its static data (a numeric secret stored as a number); copies of a run's data
+  in the executions table are masked for tracked forms only.
+- A refusal arrives in the middle of a run, after earlier side effects. A short
+  secret (6 characters is the minimum tracked) inside a longer number, or an
+  upstream service that echoes the credential in an error body or a next-page
+  link, causes real false positives; the way out is the person approving the
+  workflow. The trigger's data is scanned with the node's input.
+- A store another process fills, and image pixels, is not scanned; the
+  store-writing nodes are found by reading the packages' source
+  (`internal/noderegistry`), which is a heuristic.
+
 Held sends (`hil`): a send held for approval stores `[[held-secret:NAME:tag]]`
 where the run read a granted secret, never the value; `hil show` prints
 `<NAME secret, held>`, JSON keeps the token. Approval re-checks the grant and

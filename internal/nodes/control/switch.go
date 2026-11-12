@@ -20,6 +20,9 @@ type SwitchNode struct{}
 
 func (n *SwitchNode) Type() string { return "core.switch" }
 
+// PublishesToThirdParty: core.switch sends nothing off this machine (issue #1418).
+func (SwitchNode) PublishesToThirdParty() bool { return false }
+
 // PerItemConfigFields declares that "field" and "expression" must not be
 // pre-resolved using only the first input item — they're evaluated fresh
 // for every item below, so each item routes on its own $json rather than
