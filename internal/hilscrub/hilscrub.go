@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -28,7 +29,21 @@ import (
 
 func init() { storage.ReadHook = Ensure }
 
-const cutoffKey = "hilscrub.cutoff"
+const (
+	cutoffKey = "hilscrub.cutoff"
+	// rowidKey is the highest hil_pending row id that existed when the cutoff
+	// was set. A row is older than the cutoff only if its timestamp AND its
+	// row id say so: a clock stepped backwards gives a new card an old
+	// timestamp, never a low row id.
+	rowidKey = "hilscrub.cutoff.rowid"
+)
+
+// noBound is the row id bound of a database that has none (no card table yet).
+const noBound = int64(1<<63 - 1)
+
+// eligible is what makes a card one the scrub rewrites (and Mask masks); the
+// arguments are the profile, the cutoff and the row id bound.
+const eligible = `profile_id = ? AND created_at < ? AND rowid <= ? AND execution_id NOT LIKE 'browser:%' AND execution_id NOT LIKE 'extpair:%'`
 
 const (
 	budget      = 4 * time.Second
@@ -43,6 +58,8 @@ type state struct {
 	mu       sync.Mutex
 	failedAt time.Time
 	vals     map[string]string
+	cutoff   string // what vals are masked against
+	bound    int64
 }
 
 var passes atomic.Int64 // passes that read the vault (tests)
@@ -54,19 +71,47 @@ func stateOf(db *sql.DB, profile string) *state {
 	return v.(*state)
 }
 
-// MarkCutoff stores, once, the moment from which cards no longer hold a value.
-// Every writer of a card calls it before its INSERT. Best effort.
+// MarkCutoff stores, once, the moment from which cards no longer hold a value
+// and the highest card row id that existed then. Every writer of a card calls
+// it before its INSERT. Best effort. A database that has only the moment (set
+// by an earlier version) gets the bound from the cards older than it.
 func MarkCutoff(ctx context.Context, db *sql.DB) {
 	if db == nil {
 		return
 	}
-	var have string
-	if db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, cutoffKey).Scan(&have) == nil {
+	var have int
+	if db.QueryRowContext(ctx, `SELECT COUNT(*) FROM settings WHERE key IN (?, ?)`, cutoffKey, rowidKey).Scan(&have) == nil && have == 2 {
 		return // no write, so no wait for the lock
 	}
 	wctx, cancel := context.WithTimeout(ctx, writeBudget)
 	defer cancel()
-	_, _ = db.ExecContext(wctx, `INSERT OR IGNORE INTO settings (key, value) VALUES (?, datetime('now'))`, cutoffKey)
+	tx, err := db.BeginTx(wctx, nil)
+	if err != nil {
+		return
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(wctx, `INSERT OR IGNORE INTO settings (key, value) VALUES (?, datetime('now'))`, cutoffKey); err != nil {
+		return
+	}
+	// Without the card table the bound stays unset (noBound).
+	_, _ = tx.ExecContext(wctx, `INSERT OR IGNORE INTO settings (key, value)
+		SELECT ?, CAST(COALESCE(MAX(rowid), 0) AS TEXT) FROM hil_pending WHERE created_at < (SELECT value FROM settings WHERE key = ?)`, rowidKey, cutoffKey)
+	_ = tx.Commit()
+}
+
+// cutoffs reads the moment and the row id bound.
+func cutoffs(ctx context.Context, db *sql.DB) (string, int64, bool) {
+	var cutoff, raw string
+	if db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, cutoffKey).Scan(&cutoff) != nil || cutoff == "" {
+		return "", 0, false
+	}
+	bound := noBound
+	if db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, rowidKey).Scan(&raw) == nil {
+		if n, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64); err == nil && n >= 0 {
+			bound = n
+		}
+	}
+	return cutoff, bound, true
 }
 
 // fingerprint is a hash of what decides which values are covered: the grant
@@ -80,17 +125,31 @@ func fingerprint(ctx context.Context, db *sql.DB, profile string) string {
 	return hex.EncodeToString(h[:])
 }
 
-// Mask is s with the values of a pass that did not finish replaced by "***":
-// a reader calls it on what it is about to show, so a read never shows a
-// value just because the rows could not be written. s itself when the rows are clean.
-func Mask(db *sql.DB, profile, s string) string {
+// Mask is s, the text of card id, with the values of a pass that did not
+// finish replaced by "***": a reader calls it on what it is about to show, so a
+// read never shows a value just because the rows could not be written. Only a
+// card the scrub would rewrite (older than the cutoff) is masked: a newer one
+// is returned as it is, so Mask cannot be used to test a guess against a card.
+// s itself when the rows are clean.
+func Mask(db *sql.DB, profile, id, s string) string {
 	if db == nil {
 		return s
 	}
 	st := stateOf(db, profile)
 	st.mu.Lock()
-	vals := st.vals
+	vals, cutoff, bound := st.vals, st.cutoff, st.bound
 	st.mu.Unlock()
+	if len(vals) == 0 {
+		return s
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), writeBudget)
+	defer cancel()
+	var n int
+	err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM hil_pending WHERE id = ? AND `+eligible, id, profile, cutoff, bound).Scan(&n)
+	if err == nil && n == 0 {
+		return s
+	}
+	// An old card, or a row that cannot be checked: masked.
 	for _, name := range byLength(vals) {
 		v := vals[name]
 		s = replaceBounded(replaceBounded(s, escaped(v), "***"), v, "***")
@@ -119,8 +178,8 @@ func Ensure(ctx context.Context, db *sql.DB, profile string) {
 	if !st.failedAt.IsZero() && time.Since(st.failedAt) < backoff {
 		return
 	}
-	var cutoff string
-	if db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key = ?`, cutoffKey).Scan(&cutoff) != nil || cutoff == "" {
+	cutoff, bound, ok := cutoffs(ctx, db)
+	if !ok {
 		return
 	}
 	passes.Add(1)
@@ -143,13 +202,13 @@ func Ensure(ctx context.Context, db *sql.DB, profile string) {
 			_, _ = db.ExecContext(wctx, `INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, markerKey(profile), fp)
 			return
 		}
-		st.vals, st.failedAt = vals, time.Now()
+		st.vals, st.cutoff, st.bound, st.failedAt = vals, cutoff, bound, time.Now()
 	}
 	if len(vals) == 0 {
 		finish(true)
 		return
 	}
-	hit, err := findCards(ctx, db, profile, cutoff, vals)
+	hit, err := findCards(ctx, db, profile, cutoff, bound, vals)
 	if err != nil {
 		note(err)
 		finish(false)
@@ -188,9 +247,9 @@ func occurrences(vals map[string]string) []string {
 	return out
 }
 
-func findCards(ctx context.Context, db *sql.DB, profile, cutoff string, vals map[string]string) ([]string, error) {
-	q := `SELECT id FROM hil_pending WHERE profile_id = ? AND created_at < ? AND execution_id NOT LIKE 'browser:%' AND execution_id NOT LIKE 'extpair:%' AND (0`
-	args := []interface{}{profile, cutoff}
+func findCards(ctx context.Context, db *sql.DB, profile, cutoff string, bound int64, vals map[string]string) ([]string, error) {
+	q := `SELECT id FROM hil_pending WHERE ` + eligible + ` AND (0`
+	args := []interface{}{profile, cutoff, bound}
 	for _, o := range occurrences(vals) {
 		q += ` OR instr(readonly_data, ?) > 0 OR instr(editable_data, ?) > 0 OR instr(edited_data, ?) > 0 OR instr(node_config, ?) > 0`
 		args = append(args, o, o, o, o)

@@ -125,6 +125,10 @@ func TestASecretGrantedLaterIsScrubbedByTheNextPass(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.card(t, "c", "k later-value-9", nil)
+	// the card is an older one: the bound lies past it
+	if _, err := f.db.Exec(`UPDATE settings SET value = '1000000' WHERE key = ?`, rowidKey); err != nil {
+		t.Fatal(err)
+	}
 	Ensure(f.ctx, f.db, "default")
 	if got := f.editable(t, "c"); strings.Contains(got, "later-value-9") {
 		t.Errorf("%q", got)

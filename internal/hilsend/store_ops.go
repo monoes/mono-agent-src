@@ -176,8 +176,13 @@ func (s Store) rejectOnce(ctx context.Context, id string) (Payload, bool, bool, 
 func (s Store) finish(ctx context.Context, id string, result json.RawMessage, runErr error) (Payload, error) {
 	for attempt := 0; ; attempt++ {
 		p, retry, err := s.finishOnce(ctx, id, result, runErr)
-		if !retry || attempt >= 1 {
+		if !retry {
 			return p, err
+		}
+		if attempt >= 1 {
+			// The row changed under both tries: say so rather than answer
+			// success for a card that is still "sending".
+			return p, ErrNotFinished
 		}
 	}
 }

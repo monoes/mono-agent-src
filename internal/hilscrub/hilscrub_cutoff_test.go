@@ -7,8 +7,6 @@ import (
 	"testing"
 )
 
-const rowidKey = "hilscrub.cutoff.rowid"
-
 // newCard inserts a card the way the current code writes one: after the cutoff
 // was marked, so its row id lies past the bound whatever its timestamp says.
 func (f *fix) newCard(t *testing.T, id, text, created string) {
@@ -66,6 +64,7 @@ func TestMaskAppliesOnlyToCardsOlderThanTheCutoff(t *testing.T) {
 	f.card(t, "old", "k "+val, nil)
 	MarkCutoff(f.ctx, f.db)
 	f.newCard(t, "new", "k "+val, `datetime('now','+1 minute')`)
+	f.newCard(t, "back", "k "+val, `datetime('now','-1 day')`)
 	conn, err := f.db.Conn(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +84,6 @@ func TestMaskAppliesOnlyToCardsOlderThanTheCutoff(t *testing.T) {
 		t.Errorf("a card newer than the cutoff was masked (an oracle for guessing the value): %q", got)
 	}
 	// A clock stepped back does not make the new card maskable either.
-	f.newCard(t, "back", "k "+val, `datetime('now','-1 day')`)
 	if got := Mask(f.db, "default", "back", "row: "+val); !strings.Contains(got, val) {
 		t.Errorf("a new card with an old timestamp was masked: %q", got)
 	}
