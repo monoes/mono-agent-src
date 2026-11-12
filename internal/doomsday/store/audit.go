@@ -6,6 +6,8 @@ import (
 	"crypto/hmac"
 	"database/sql"
 	"errors"
+
+	"github.com/monoes/mono-agent/internal/dbconn"
 )
 
 func (s *SQLStore) auditMAC(profile string, generation, seq int64, prev []byte, kind, payload string) ([]byte, error) {
@@ -19,16 +21,18 @@ func (s *SQLStore) AppendAudit(ctx context.Context, profile string, generation i
 	if reservedKind(kind) {
 		return AuditRow{}, ErrReservedKind
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	// BEGIN IMMEDIATE: the chain head is read before the row is written, and a writer that commits in between would
+	// make the write fail at once with SQLITE_BUSY_SNAPSHOT, which busy_timeout does not wait for (#1460).
+	var row AuditRow
+	err := dbconn.WithWriteTx(ctx, s.db, func(tx *sql.Conn) error {
+		var err error
+		row, err = s.appendAuditTx(ctx, tx, profile, generation, kind, payload)
+		return err
+	})
 	if err != nil {
 		return AuditRow{}, err
 	}
-	defer tx.Rollback()
-	row, err := s.appendAuditTx(ctx, tx, profile, generation, kind, payload)
-	if err != nil {
-		return AuditRow{}, err
-	}
-	return row, tx.Commit()
+	return row, nil
 }
 
 func (s *SQLStore) appendAuditTx(ctx context.Context, q DBTX, profile string, generation int64, kind, payload string) (AuditRow, error) {

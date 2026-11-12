@@ -139,7 +139,7 @@ func TestTheZeroHostChecksRefusesEverything(t *testing.T) {
 	if err := h.Finish(bg, 1, verifier.Result{}); err == nil {
 		t.Error("finish")
 	}
-	if _, err := h.AbandonRunning(bg); err == nil {
+	if _, err := h.AbandonRunning(bg, time.Now()); err == nil {
 		t.Error("abandon")
 	}
 }
@@ -226,7 +226,7 @@ func TestAbandonRunningEndsOnlyRunningChecks(t *testing.T) {
 	w := newCheckWorld(t)
 	done := w.passed(t)
 	run := w.begin(t)
-	n, err := w.hc.AbandonRunning(bg)
+	n, err := w.hc.AbandonRunning(bg, time.Now().Add(time.Minute))
 	if err != nil || n != 1 {
 		t.Fatalf("abandoned %d, %v", n, err)
 	}

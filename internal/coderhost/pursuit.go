@@ -87,6 +87,9 @@ type PursuitDeps struct {
 	// pinned, makes the pursuit wait.
 	LeadPin func(profileID, conversationID string) string
 
+	// Verifier turns the goal checks on (S7c1b); nil (the default) leaves the loop exactly as it is without them.
+	Verifier *VerifierDeps
+
 	Interval         time.Duration // the epoch timer; the engine clamps it to its code bounds
 	StallWindow      time.Duration
 	MaxEpochsPerHour int
@@ -259,6 +262,7 @@ func (h *Host) pursue(ctx context.Context, m pursuitMission) {
 		h.pursuitPropose(ctx, rd, m, g.goal, res)
 	}
 	h.pursuitWake(ctx, rd, m, g)
+	h.pursuitCheckStep(ctx, rd, m, g)
 }
 
 // noteEngineResult keeps what a tick said that the person should be able to see: a parked engine is recorded (the next
@@ -352,6 +356,10 @@ func (h *Host) pursuitGate(ctx context.Context, rd *inputs.Reader, m pursuitMiss
 		h.stallUnreadable(m)
 		return g, false
 	}
+	checkHead, ok := h.pursuitCheckHead(ctx, m)
+	if !ok {
+		return g, false
+	}
 	leadNow, err := h.Store.leadTurnSpendMicro(m, tree)
 	if err != nil {
 		h.logf("coder host: pursuit of session %d: %v", m.ID, err)
@@ -361,17 +369,23 @@ func (h *Host) pursuitGate(ctx context.Context, rd *inputs.Reader, m pursuitMiss
 	changed, reset := !found, false
 	switch {
 	case !found:
-		st = pursuitState{SessionID: m.ID, PersonAt: pa, BaseSpentMicro: spent, BaseJudgeID: judgeID, BaseLeadMicro: leadNow}
+		st = pursuitState{SessionID: m.ID, PersonAt: pa, BaseSpentMicro: spent, BaseJudgeID: judgeID, BaseLeadMicro: leadNow, BaseCheckID: checkHead}
 	case pa.After(st.PersonAt):
 		// the person acted: the counters start again, the judge-failing stop is lifted
 		st.PersonAt, st.BaseSpentMicro, st.WakesSince = pa, spent, 0
 		st.BaseJudgeID, st.BaseLeadMicro, st.BadRounds, st.LastRound = judgeID, leadNow, 0, ""
+		st.BaseCheckID = checkHead
 		changed, reset = true, true
 	}
 	judgeMicro, judgeCalls, err := h.Store.judgeSpendAfter(m.ID, st.BaseJudgeID)
 	if err != nil {
 		h.logf("coder host: pursuit of session %d: %v", m.ID, err)
 		h.stallUnreadable(m)
+		return g, false
+	}
+	// The goal checks since the person last acted are spend like the judge's: a running check at the cap, an unknown cost at the cap.
+	checks, ok := h.pursuitCheckSpend(ctx, m, st.BaseCheckID)
+	if !ok {
 		return g, false
 	}
 	leadMicro := max(leadNow-st.BaseLeadMicro, 0)
@@ -392,6 +406,7 @@ func (h *Host) pursuitGate(ctx context.Context, rd *inputs.Reader, m pursuitMiss
 		away.BudgetMicro = usdMicro(snap.Budget.BudgetUSD)
 		away.Spend(spent - st.BaseSpentMicro)
 		away.Spend(judgeMicro)
+		away.Spend(checks.Micro)
 		away.Spend(leadMicro)
 		away.Spend(carveMicro)
 	}
@@ -419,6 +434,9 @@ func (h *Host) pursuitGate(ctx context.Context, rd *inputs.Reader, m pursuitMiss
 	if waiting == "" {
 		waiting = h.pursuitStopReason(m, st)
 	}
+	if waiting == "" {
+		waiting = h.pursuitCheckWaiting(ctx, m, st, snap)
+	}
 	if h.pursuitEngineParked(m.ID) {
 		waiting = pursuitWaitingEngine
 	}
@@ -441,31 +459,6 @@ func (h *Host) pursuitGate(ctx context.Context, rd *inputs.Reader, m pursuitMiss
 		g.closeWakeDue = h.Store.pursuitCloseWakeDue(m, selfWakes)
 	}
 	return g, true
-}
-
-// stallUnreadable makes a spend that cannot be measured visible: the pursuit waits ("meter-unreadable") instead of stalling with
-// no reason. The next pass that can read again clears it.
-func (h *Host) stallUnreadable(m pursuitMission) {
-	_ = h.Store.setPursuitWaiting(m.ID, pursuitWaitingMeter, false, h.Pursuit.clock().Now())
-}
-
-// awayReason is why the pursuit may not open new work, or "". An unknown budget is unknown, never unlimited.
-func awayReason(a AwayState, budgetKnown bool, wakes, wakesMax int) string {
-	switch {
-	case wakesMax < 1 || wakesMax > missionpursuit.MaxWakesMax:
-		return pursuitWaitingLimits
-	case wakes >= wakesMax:
-		return pursuitWaitingWakes
-	case a.ParkedMax < 1 || a.ParkedMax > 20 || a.Pct < 1 || a.Pct > 100:
-		return pursuitWaitingLimits
-	case !budgetKnown:
-		return pursuitWaitingBudget
-	case a.Parked >= a.ParkedMax:
-		return pursuitWaitingParked
-	case a.WaitingForYou():
-		return pursuitWaitingSpend
-	}
-	return ""
 }
 
 // pursuitRunOf is the epoch engine of a mission, built once and kept; a panic or a restart builds it again over the
@@ -522,4 +515,5 @@ type pursuitHostState struct {
 	pursuitCursor  int64
 	pursuitBackoff map[int64]time.Time
 	pursuitRuns    map[int64]*pursuitRun
+	checkState
 }

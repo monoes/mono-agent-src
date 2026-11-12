@@ -4,8 +4,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/monoes/mono-agent/internal/dbconn/dbconntest"
 	"github.com/monoes/mono-agent/internal/storage"
 )
 
@@ -221,5 +223,37 @@ func TestActionStorageWithoutProfileErrors(t *testing.T) {
 	var n int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM workflow_daily_counters`).Scan(&n); err != nil || n != 0 {
 		t.Errorf("counters rows = %d (%v), want 0", n, err)
+	}
+}
+
+// The execution is looked up before the first write: a writer that commits in between (the nodes of one run save
+// concurrently) must not fail the save with SQLITE_BUSY_SNAPSHOT (#1460). The driver lets one competing writer
+// commit right before the person upsert is prepared, after the lookup.
+func TestSaveExtractedDataSurvivesAWriterCommittingBetweenItsReadAndItsWrite(t *testing.T) {
+	base := newTargetsDB(t)
+	var path string
+	if err := base.QueryRow(`SELECT file FROM pragma_database_list WHERE name = 'main'`).Scan(&path); err != nil || path == "" {
+		t.Fatalf("database file: %q, %v", path, err)
+	}
+	db, trip := dbconntest.OpenPath(t, path)
+	competing := dbconntest.CompetingWriter(t, path)
+	fired := false
+	trip.BeforePrepare = func(q string) {
+		if !fired && strings.Contains(q, "INSERT INTO people") {
+			fired = true
+			competing()
+		}
+	}
+	s := &workflowActionStorage{db: db, profileID: "p1", executionID: "cli", nodeID: "cli-node", platform: "hackernews"}
+	items := []map[string]interface{}{{"url": "https://news.ycombinator.com/item?id=1", "username": "someone", "platform": "hackernews"}}
+	if err := s.SaveExtractedData("a", items); err != nil {
+		t.Fatalf("SaveExtractedData failed when a writer committed between its read and its write: %v", err)
+	}
+	if !fired {
+		t.Fatal("the hook never ran")
+	}
+	var n int
+	if err := base.QueryRow(`SELECT COUNT(*) FROM workflow_node_targets WHERE node_id = 'cli-node'`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("targets = %d, %v", n, err)
 	}
 }

@@ -7,6 +7,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/epoch"
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/judge"
+	"github.com/monoes/mono-agent/internal/missionpursuit"
 	"github.com/monoes/mono-agent/internal/missionpursuit/judgecost"
 )
 
@@ -174,4 +175,29 @@ func (h *Host) recordRound(m pursuitMission, round string) {
 			_ = h.Store.setPursuitWaiting(m.ID, why, true, now)
 		}
 	}
+}
+
+// stallUnreadable makes a spend that cannot be measured visible: the pursuit waits ("meter-unreadable") instead of stalling with
+// no reason. The next pass that can read again clears it.
+func (h *Host) stallUnreadable(m pursuitMission) {
+	_ = h.Store.setPursuitWaiting(m.ID, pursuitWaitingMeter, false, h.Pursuit.clock().Now())
+}
+
+// awayReason is why the pursuit may not open new work, or "". An unknown budget is unknown, never unlimited.
+func awayReason(a AwayState, budgetKnown bool, wakes, wakesMax int) string {
+	switch {
+	case wakesMax < 1 || wakesMax > missionpursuit.MaxWakesMax:
+		return pursuitWaitingLimits
+	case wakes >= wakesMax:
+		return pursuitWaitingWakes
+	case a.ParkedMax < 1 || a.ParkedMax > 20 || a.Pct < 1 || a.Pct > 100:
+		return pursuitWaitingLimits
+	case !budgetKnown:
+		return pursuitWaitingBudget
+	case a.Parked >= a.ParkedMax:
+		return pursuitWaitingParked
+	case a.WaitingForYou():
+		return pursuitWaitingSpend
+	}
+	return ""
 }

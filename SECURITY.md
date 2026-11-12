@@ -739,6 +739,23 @@ publication claims, and its sends wait for your approval. What changes:
   locked), the run is marked as an agent's and the command prints one line
   saying so; retry once the database reads.
 
+A run started over MCP `workflow_run` or the HTTP API (`POST .../run`) is also
+an agent's run: those callers are not your terminal, so the run is marked
+(`other`, or the caller's agent kind) and a planted mark in the input is
+overwritten. That includes your own scripts with a run-scope key.
+
+**Known gap: unmarked runs of an approved workflow.** Runs of an *active*
+workflow started by a webhook, a form, a chat, a trigger source or the daemon's
+scheduler carry no agent mark, and the GUI's `workflow run` subprocess is
+marker-only. So an agent with localhost access that POSTs an active workflow's
+webhook URL gets an unmarked run of a workflow you approved, which nodes that
+tell an agent's run from yours (`ai.task`, `people.save` approving outreach,
+sends, browser policy) treat as yours. It is left as it is because those starts
+are third-party-triggered by design (a webhook exists so something else can start
+the run), and it predates the marking of MCP and HTTP runs. What the run can do is
+what you approved in the workflow; a definition an agent changed is still
+unapproved and its sends still wait. Tracked in #1475 and its follow-up.
+
 ### Sends that skipped approval up to v0.152.0
 
 In releases up to and including v0.152.0, an agent, the in-app chat or a
