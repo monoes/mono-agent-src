@@ -1516,7 +1516,9 @@
       "openReport": "Abrir en Tareas",
       "closeProposed": "El líder de la misión propuso cerrarla.",
       "closed": "Cerrada",
-      "readyToClose": "Lista para cerrar"
+      "readyToClose": "Lista para cerrar",
+      "overCommitted": "Sobrecomprometida por {{usd}}: sesión {{by}}",
+      "pursuitOverCommitted": "El seguimiento activo espera por ti: esta misión está sobrecomprometida. Sube el presupuesto de la misión para reanudar; hasta entonces no arranca ningún trabajador y no se juzga ni se despierta nada."
     }
   },
   "agentRow": {

@@ -886,6 +886,8 @@ export function TaskSessionPlan(arg1:number):Promise<string>;
 
 export function TaskSessionPulse(arg1:number):Promise<Record<string, any>>;
 
+export function TaskSessionPursuitStatus(arg1:number):Promise<string>;
+
 export function TaskSessionRename(arg1:number,arg2:string):Promise<string>;
 
 export function TaskSessionResume(arg1:number):Promise<string>;

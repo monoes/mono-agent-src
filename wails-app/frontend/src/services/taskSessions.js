@@ -17,6 +17,8 @@ export const sessionsApi = {
   list:    (all = false) => run(() => GoApp.TaskSessions(all)),
   // {profile, session, events}
   show:    (id, events = 30) => run(() => GoApp.TaskSessionShow(id, events)),
+  // {profile, pursuit, progress: {waiting, ...}, state, needs, ...}, or {error, code} for a mission with no pursuit.
+  pursuitStatus: (id) => run(() => GoApp.TaskSessionPursuitStatus(id)),
   // {profile, session, tasks: [...]} with depends_on and acceptance.
   plan:    (id) => run(() => GoApp.TaskSessionPlan(id)),
   // {profile, session, rev, counts, tasks: {inbox: [...], ...}}

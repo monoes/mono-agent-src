@@ -9,6 +9,7 @@ import { nearBudget, progress, spendParts } from '../../../lib/taskSessionModel.
 import { stripActions, stripFor, workingOn } from '../../../lib/missionModel.js'
 import { useConversationSession } from './useMissionSession.js'
 import PursuitStartForm from './PursuitStartForm.jsx'
+import { OverCommitChip, PursuitOverCommitted } from './OverCommit.jsx'
 import './mission.css'
 
 const ICONS = { pause: Pause, resume: Play, stop: Square }
@@ -22,7 +23,7 @@ const ICONS = { pause: Pause, resume: Play, stop: Square }
 // conversation's session never shows here.
 export default function MissionStrip({ conversationId, enabled = true, bump = 0, reported = false, closeProposed = [] }) {
   const { t } = useTranslation()
-  const { session, board, reload } = useConversationSession(conversationId, { enabled, bump })
+  const { session, board, overCommitted, reload } = useConversationSession(conversationId, { enabled, bump })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [pursuit, setPursuit] = useState(false)
@@ -52,6 +53,7 @@ export default function MissionStrip({ conversationId, enabled = true, bump = 0,
           {budget ? t('tasks.session.spendOf', { spent, budget }) : t('tasks.session.spendNoBudget', { spent })}
         </span>
         <BudgetFlag session={session} />
+        <OverCommitChip overCommitted={overCommitted} />
         <span style={{ flex: 1 }} />
         {stripActions(session).map(a => {
           const Icon = ICONS[a]
@@ -69,6 +71,7 @@ export default function MissionStrip({ conversationId, enabled = true, bump = 0,
           {working.map(w => <li key={w.id}>{w.title}{w.worker ? <span className="ms-worker"> {w.worker}</span> : null}</li>)}
         </ul>
       )}
+      <PursuitOverCommitted sessionId={session.id} overCommitted={overCommitted} rev={session.rev} />
       {error && <p className="ms-error" role="alert">{error}</p>}
     </section>
   )

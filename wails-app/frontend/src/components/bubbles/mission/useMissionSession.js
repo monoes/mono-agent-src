@@ -8,11 +8,12 @@ const FIND_MS = 6000
 // useSessionLive reads one session (TaskSessionShow) and again whenever its
 // revision moves (TaskSessionPulse, as the Tasks page does), so a card shows
 // the session's real state, never the event's. {session, board, missing,
-// reload}; board is read only with withBoard. A session that is over stops
+// overCommitted, reload}; overCommitted is `over_committed` of the show document (the CLI's); board is read only with withBoard. A session that is over stops
 // the polling.
 export function useSessionLive(sessionId, { withBoard = false, enabled = true } = {}) {
   const [session, setSession] = useState(null)
   const [board, setBoard] = useState(null)
+  const [overCommitted, setOverCommitted] = useState(null)
   const [missing, setMissing] = useState(false)
   const rev = useRef(null)
   const alive = useRef(true)
@@ -23,7 +24,7 @@ export function useSessionLive(sessionId, { withBoard = false, enabled = true } 
   useEffect(() => {
     current.current++
     rev.current = null
-    setSession(null); setBoard(null); setMissing(false)
+    setSession(null); setBoard(null); setOverCommitted(null); setMissing(false)
   }, [sessionId])
 
   const reload = useCallback(async () => {
@@ -35,6 +36,7 @@ export function useSessionLive(sessionId, { withBoard = false, enabled = true } 
     if (doc?.error || !doc?.session) { setMissing(true); return null }
     setMissing(false)
     setSession(doc.session)
+    setOverCommitted(doc.over_committed ?? null) // the CLI's own field, kept as it is: what it says is rendered by OverCommitChip
     rev.current = doc.session.rev
     if (withBoard && !isTerminal(doc.session)) {
       const b = await sessionsApi.board(sessionId)
@@ -60,7 +62,7 @@ export function useSessionLive(sessionId, { withBoard = false, enabled = true } 
   sessionRef.current = session
   // Belt and braces for the render between an id change and its reset.
   const mine = session && session.id === sessionId
-  return { session: mine ? session : null, board: mine ? board : null, missing, reload }
+  return { session: mine ? session : null, board: mine ? board : null, overCommitted: mine ? overCommitted : null, missing, reload }
 }
 
 // useConversationSession finds the session a conversation opened

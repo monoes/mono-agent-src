@@ -1770,6 +1770,10 @@ export function TaskSessionPulse(arg1) {
   return window['go']['main']['App']['TaskSessionPulse'](arg1);
 }
 
+export function TaskSessionPursuitStatus(arg1) {
+  return window['go']['main']['App']['TaskSessionPursuitStatus'](arg1);
+}
+
 export function TaskSessionRename(arg1, arg2) {
   return window['go']['main']['App']['TaskSessionRename'](arg1, arg2);
 }
