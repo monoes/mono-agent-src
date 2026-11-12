@@ -119,9 +119,9 @@ func TestStopOrgEventsBeforeStreamRegisters(t *testing.T) {
 	withGrace(t, 5*time.Second)
 	dir := t.TempDir()
 	pidFile := filepath.Join(dir, "cli.pid")
-	cli := filepath.Join(dir, "monoagentcli")
+	cli := filepath.Join(dir, fakeCLIName)
 	script := fmt.Sprintf("#!/bin/sh\necho $$ > %q.tmp && mv %q.tmp %q\nexec sleep 30\n", pidFile, pidFile, pidFile)
-	if err := os.WriteFile(cli, []byte(script), 0o755); err != nil {
+	if err := writeFakeCLI(cli, script); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("MONOAGENTCLI_BIN", cli)
