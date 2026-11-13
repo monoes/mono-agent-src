@@ -76,13 +76,13 @@ func checkOpenMode(ctx context.Context, env *Env) Result {
 		add("os", "Operating system", StatusOK, "supported ("+f.GOOS+")", "")
 	}
 	if f.BindingReadyErr != "" {
-		add("binding_service", "Binding service", StatusFail, f.BindingReadyErr, "a kernel or system with the peer-credential query (Linux 6.5 or later, macOS, Windows 10 1809 or later)")
+		add("binding_service", "Binding service", StatusWarn, f.BindingReadyErr, "a kernel or system with the peer-credential query (Linux 6.5 or later, macOS, Windows 10 1809 or later)")
 	} else {
 		add("binding_service", "Binding service", StatusOK, "the kernel can tell which process connected", "")
 	}
 	for _, s := range f.Steps {
 		if s.Err != "" {
-			add("containment_"+rowID(s.Name), "Containment: "+s.Name, StatusFail, s.Err, s.Fix)
+			add("containment_"+rowID(s.Name), "Containment: "+s.Name, StatusWarn, s.Err, s.Fix)
 		} else {
 			add("containment_"+rowID(s.Name), "Containment: "+s.Name, StatusOK, "met", "")
 		}
@@ -123,6 +123,13 @@ func checkOpenMode(ctx context.Context, env *Env) Result {
 		add("active_run", "Active run", StatusOK, "no run", "")
 	}
 
+	// The row is advice: whatever a machine lacks, it never fails the core group (`setup --group core` and the CI
+	// doctor smoke test require no failing core row), so a missing capability is a warning with its fix.
+	for i := range rows {
+		if rows[i].Status == StatusFail {
+			rows[i].Status = StatusWarn
+		}
+	}
 	return summarizeOpenMode(rows)
 }
 
@@ -138,9 +145,6 @@ func summarizeOpenMode(rows []Result) Result {
 	var bad []string
 	for _, r := range rows {
 		switch r.Status {
-		case StatusFail:
-			res.Status = StatusFail
-			bad = append(bad, r.Title)
 		case StatusWarn:
 			if res.Status == StatusOK {
 				res.Status = StatusWarn

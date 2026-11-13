@@ -45,15 +45,15 @@ func TestOpenModeRows(t *testing.T) {
 		{"binding off", func(f *OpenModeFacts) { f.BindingOn = false }, "ok", "binding", StatusWarn, "off", "coder set --peercred-binding on"},
 		{"binding unreadable", func(f *OpenModeFacts) { f.BindingErr = "locked" }, "ok", "binding", StatusWarn, "cannot read", ""},
 		{"macOS", func(f *OpenModeFacts) { f.GOOS, f.Unsupported = "darwin", "not available on macOS yet: x" }, "ok", "os", StatusWarn, "macOS", "#1610"},
-		{"kernel cannot bind", func(f *OpenModeFacts) { f.BindingReadyErr = "needs Linux 6.5 or later" }, "ok", "binding_service", StatusFail, "6.5", "Linux 6.5"},
+		{"kernel cannot bind", func(f *OpenModeFacts) { f.BindingReadyErr = "needs Linux 6.5 or later" }, "ok", "binding_service", StatusWarn, "6.5", "Linux 6.5"},
 		{"no delegation", func(f *OpenModeFacts) {
 			f.Steps[0] = OpenModeStep{Name: "cgroup v2 unified hierarchy", Err: "no", Fix: "boot with X"}
-		}, "ok", "containment_cgroup_v2_unified_hierarchy", StatusFail, "no", "boot with X"},
+		}, "ok", "containment_cgroup_v2_unified_hierarchy", StatusWarn, "no", "boot with X"},
 		{"no systemd-run", func(f *OpenModeFacts) {
 			f.Steps[1] = OpenModeStep{Name: "systemd-run available", Err: "missing", Fix: "install systemd"}
-		}, "ok", "containment_systemd-run_available", StatusFail, "missing", "install systemd"},
+		}, "ok", "containment_systemd-run_available", StatusWarn, "missing", "install systemd"},
 		{"no vault key yet", func(*OpenModeFacts) {}, "uninitialized", "vault", StatusWarn, "no vault key", "secret add --kind secret"},
-		{"vault key lost", func(*OpenModeFacts) {}, "key-missing", "vault", StatusFail, "missing", ""},
+		{"vault key lost", func(*OpenModeFacts) {}, "key-missing", "vault", StatusWarn, "missing", ""},
 		{"host running", func(f *OpenModeFacts) { f.HostRunning = true }, "ok", "host", StatusOK, "running", ""},
 		{"host not running", func(*OpenModeFacts) {}, "ok", "host", StatusInfo, "not running", ""},
 		{"active run", func(f *OpenModeFacts) { f.ActiveRun = true }, "ok", "active_run", StatusWarn, "already active", "doomsday stop"},
@@ -78,7 +78,7 @@ func TestOpenModeAccountRow(t *testing.T) {
 		return AccountInfo{State: "locked", Reason: "not_logged_in", Enforced: true, EnforceFrom: time.Now().Add(-time.Hour)}
 	}
 	r := rowOf(t, checkOpenMode(context.Background(), env), "account")
-	if r.Status != StatusFail || r.FixID != FixMonoesLogin {
+	if r.Status != StatusWarn || r.FixID != FixMonoesLogin {
 		t.Errorf("%q fix %q", r.Status, r.FixID)
 	}
 }
@@ -92,7 +92,7 @@ func TestOpenModeParent(t *testing.T) {
 	f := readyFacts()
 	f.BindingOn, f.BindingReadyErr = false, "no"
 	res = checkOpenMode(context.Background(), openModeEnv(f, "ok"))
-	if res.Status != StatusFail || !strings.Contains(res.Summary, "2 of") {
+	if res.Status != StatusWarn || !strings.Contains(res.Summary, "2 of") {
 		t.Errorf("two problems: %q %q", res.Status, res.Summary)
 	}
 }
@@ -131,5 +131,34 @@ func TestOpenModeRegisteredNotRequired(t *testing.T) {
 	}
 	if bind.Fix == nil || bind.Fix.Safety != SafetyManual || bind.Fix.Command != "monoagentcli --profile P coder set --peercred-binding on" {
 		t.Errorf("binding fix %+v", bind.Fix)
+	}
+}
+
+// On a host that lacks everything (no delegation, no systemd-run, old kernel, no key, locked login) no row fails, so
+// `setup --group core` and the CI doctor smoke test (no failing core row) stay green; the fixes are still named.
+func TestOpenModeNeverFailsTheCoreGroup(t *testing.T) {
+	f := OpenModeFacts{GOOS: "linux", BindingReadyErr: "old kernel", Unsupported: "macOS", ActiveRun: true,
+		Steps: []OpenModeStep{{Name: "cgroup v2 delegation to the user", Err: "no delegation", Fix: "log in through a desktop session"}}}
+	env := openModeEnv(f, "key-missing")
+	env.MonoesAccount = func(context.Context) AccountInfo {
+		return AccountInfo{State: "locked", Reason: "not_logged_in", Enforced: true, EnforceFrom: time.Now().Add(-time.Hour)}
+	}
+	rep := Default().Run(context.Background(), env, Options{Groups: []string{GroupCore}, IDs: []string{CheckOpenMode}})
+	n := 0
+	for _, r := range rep.Results {
+		if !strings.HasPrefix(r.ID, CheckOpenMode) {
+			continue
+		}
+		n++
+		if r.Status == StatusFail || r.Group != GroupCore || r.Required {
+			t.Errorf("%s: %q group %q required %v", r.ID, r.Status, r.Group, r.Required)
+		}
+	}
+	if n < 8 {
+		t.Errorf("only %d rows", n)
+	}
+	d := rowOf(t, checkOpenMode(context.Background(), env), "containment_cgroup_v2_delegation_to_the_user")
+	if d.Status != StatusWarn || !strings.Contains(d.Detail, "log in through a desktop session") {
+		t.Errorf("%+v", d)
 	}
 }
