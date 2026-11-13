@@ -74,12 +74,19 @@ func coderHostPursuitStatus(cfg *Deps, cmd *cobra.Command) error {
 	if readErr != "" {
 		out["readError"] = readErr
 	}
-	pending := found && alive && readErr == "" && coderhost.PendingPursuitRestart(off, pin, host)
+	// host.json is display-only and any process of the user can write it: its values are used only for a live host whose facts pass
+	// the validity check; otherwise the default caps show and the loop is not reported as running.
+	trusted := found && alive && coderhost.ValidHostPursuitInfo(host)
+	out["hostTrusted"] = trusted
+	if !trusted {
+		out["host"] = map[string]any{"found": found, "alive": alive, "pursuit": coderhost.PursuitHostInfo{}}
+	}
+	pending := trusted && readErr == "" && coderhost.PendingPursuitRestart(off, pin, host)
 	out["pendingRestart"] = pending
 	wake := 0.0
 	var pinSource any
 	switch {
-	case found:
+	case trusted:
 		out["enabled"], out["missing"], out["operatorOff"], out["reason"] = host.Enabled, host.Missing, host.OperatorOff, host.Reason
 		if host.PinSource != "" {
 			pinSource = host.PinSource
@@ -87,7 +94,7 @@ func coderHostPursuitStatus(cfg *Deps, cmd *cobra.Command) error {
 		wake = host.WakeCapUSD
 	default:
 		out["enabled"], out["operatorOff"] = false, nil
-		out["reason"] = "no coder host has published its pursuit state (none is running, or it is older than this field)"
+		out["reason"] = "no running coder host has published valid pursuit state (none is running, it is older than this field, or its status file is not trustworthy); the default caps are shown"
 		out["missing"] = ""
 		if pin == "" {
 			out["missing"] = coderhost.PursuitMissingJudgePin
@@ -110,7 +117,7 @@ func coderHostPursuitStatus(cfg *Deps, cmd *cobra.Command) error {
 		state = "OFF (the operator turned it off)"
 	}
 	fmt.Fprintf(w, "saved switch: %s\nsaved judge: %q\n", state, pin)
-	if found {
+	if trusted {
 		fmt.Fprintln(w, "host: "+pursuitLoopLine(host))
 	}
 	if pending {
