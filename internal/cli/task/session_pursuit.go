@@ -46,6 +46,7 @@ pursuit waits. pause stops one mission; a judge call or lead turn already runnin
   pursuit resume ID                             let it go on
   pursuit allow-unconfined-checks ID (--on|--off)   let goal checks run project commands without confinement (default off; you only)
   pursuit status ID                             show it: limits, why it waits, epochs, directions, who has to act ("needs": you, host or none) and what you can do next (read only)
+  pursuit readiness ID [--json]                 what is missing for the pursuit to run, each item with its exact fix (read only)
   pursuit list                                  the missions in pursuit for this profile, one line each (read only)
 
 Words an agent or the judge wrote (a direction title, a mission title) are shown cut and marked as agent text; in the JSON they
@@ -55,7 +56,7 @@ The desktop app can begin a pursuit for you (a dialog, a phrase you type and a o
 that confirmation dialog at a moment of its choosing; it cannot click Yes for you, but you might click it by habit: read the dialog.
 There is no pursuit stop: close the mission (task session close) to end the pursuit.`),
 	}
-	cmd.AddCommand(d.newPursuitPreviewCmd(), d.newPursuitBeginCmd(), d.newPursuitStartCmd(), d.newPursuitPauseCmd(), d.newPursuitResumeCmd(), d.newPursuitStatusCmd(), d.newPursuitListCmd(), d.newPursuitUnconfinedCmd())
+	cmd.AddCommand(d.newPursuitPreviewCmd(), d.newPursuitBeginCmd(), d.newPursuitStartCmd(), d.newPursuitPauseCmd(), d.newPursuitResumeCmd(), d.newPursuitStatusCmd(), d.newPursuitReadinessCmd(), d.newPursuitListCmd(), d.newPursuitUnconfinedCmd())
 	for _, sub := range cmd.Commands() {
 		d.WithJSONErrors(sub)
 	}
@@ -220,7 +221,7 @@ func (d Deps) newPursuitStatusCmd() *cobra.Command {
 			ps := missionpursuit.NewStore(db.DB)
 			pu, err := ps.GetPursuit(cmd.Context(), p.ID, session)
 			if err != nil {
-				return d.taskErr(err)
+				return d.noPursuitErr(err)
 			}
 			pr, err := ps.GetProgress(cmd.Context(), p.ID, session)
 			if err != nil {
