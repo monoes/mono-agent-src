@@ -17,6 +17,8 @@ type Hooks struct {
 	BeforeRelease func(ctx context.Context, profileID, conversationID, turnID string, bound bool) error
 	// Place puts the turn's process in the run's ticket cgroup before it exists; release closes the descriptor after Start.
 	Place func(cmd *exec.Cmd, profileID, conversationID string) (release func(), err error)
+	// PlaceRequired says whether a turn must be placed (a run is open); the legacy launch is refused only then.
+	PlaceRequired func(profileID, conversationID string) (bool, error)
 }
 
 const maxReleased = 4096

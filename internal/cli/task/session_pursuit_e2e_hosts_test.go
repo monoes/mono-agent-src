@@ -113,7 +113,7 @@ func TestTwoCLIBegunMissionsShareTheHostsTwelveWakeUpsAnHour(t *testing.T) {
 func TestAStaleConsentBeginsNothingAndTheLoopStaysSilentUntilAFreshOneBegins(t *testing.T) {
 	w := wireE2E(t, newBeginWorld(t))
 	p := w.preview(t)
-	w.host(`{"pid":1,"pursuit":{"enabled":true,"pin":"claude/haiku@4","wakeCapUsd":5}}`) // the wake-up cap moved after the person read it
+	w.host(`{"pid":1,"pursuit":{"enabled":true,"pin":"claude/sonnet@4","wakeCapUsd":2}}`) // the judge moved after the person read it
 	w.refused(t, 3, "consent_stale", w.beginArgs(p)...)
 	w.rounds(3)
 	if w.model.count() != 0 || len(w.epochs()) != 0 || w.wakeCount() != 0 {

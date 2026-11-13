@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/doomsday/store"
@@ -350,8 +351,45 @@ type VaultKeyer struct {
 	Profile string
 }
 
+// keyTTL bounds how long a derived key is reused in this process. Deriving it reads the OS keyring (a `security` process
+// on macOS, about 25 ms), and the witness checks every record of a generation on each admission, so without it a turn
+// start made hundreds of reads and outlasted the bound child's wait for its credentials. Only a success is kept: a
+// profile without a key still fails closed on every call.
+const keyTTL = 5 * time.Minute
+
+// deriveKey is the vault derivation (a seam for the test of the cache).
+var deriveKey = secrets.DeriveKeyIfExists
+
+type cachedKey struct {
+	key []byte
+	at  time.Time
+}
+
+var (
+	keyCacheMu sync.Mutex
+	keyCache   = map[string]cachedKey{}
+)
+
+func (k VaultKeyer) derive() ([]byte, error) {
+	id := fmt.Sprintf("%p/%s", k.DB, k.Profile)
+	keyCacheMu.Lock()
+	c, ok := keyCache[id]
+	keyCacheMu.Unlock()
+	if ok && time.Since(c.at) < keyTTL {
+		return c.key, nil
+	}
+	key, err := deriveKey(context.Background(), k.DB, k.Profile, "doomsday/mac")
+	if err != nil {
+		return nil, err
+	}
+	keyCacheMu.Lock()
+	keyCache[id] = cachedKey{key: key, at: time.Now()}
+	keyCacheMu.Unlock()
+	return key, nil
+}
+
 func (k VaultKeyer) MAC(domain string, parts ...[]byte) ([]byte, error) {
-	key, err := secrets.DeriveKeyIfExists(context.Background(), k.DB, k.Profile, "doomsday/mac")
+	key, err := k.derive()
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", store.ErrUnverifiable, err)
 	}
