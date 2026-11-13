@@ -2534,6 +2534,8 @@
     "failed": "No enviado: {{error}}"
   },
   "openStart": {
+    "unbound": "funcionando sin vinculación de credenciales del proceso: {{reason}}",
+    "unboundUnknown": "estado de la vinculación desconocido",
     "loading": "Cargando...",
     "entryTitle": "Ejecucion abierta",
     "noApproval": "No hay aprobacion humana durante la ejecucion. Nada te preguntara: el agente jefe responde sus propias preguntas y actua con la autoridad que levantes abajo.",

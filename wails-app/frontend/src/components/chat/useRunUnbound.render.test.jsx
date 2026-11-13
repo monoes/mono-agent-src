@@ -10,8 +10,8 @@ afterEach(() => cleanup())
 const W = 'running without peer-credential binding: this machine cannot run it (old kernel)'
 
 function Probe({ api, runExists }) {
-  const w = useRunUnbound(runExists, api)
-  return <CoderHeader cwd="/w" chatMode={{ state: { mode: 'open' } }} openEnded={{ runExists, unboundWarning: w }} />
+  const u = useRunUnbound(runExists, api)
+  return <CoderHeader cwd="/w" chatMode={{ state: { mode: 'open' } }} openEnded={{ runExists, unboundWarning: u.warning, unboundUnknown: u.unknown }} />
 }
 
 describe('the unbound run chip', () => {
@@ -30,5 +30,10 @@ describe('the unbound run chip', () => {
     render(<Probe api={api2} runExists={false} />)
     expect(api2.status).not.toHaveBeenCalled()
     expect(screen.queryByTestId('open-unbound-chip')).toBeNull()
+  })
+  it('says the binding status is unknown when the status call fails (never nothing)', async () => {
+    const api = { status: vi.fn().mockResolvedValue({ error: 'timeout' }) }
+    render(<Probe api={api} runExists />)
+    expect(await screen.findByTestId('open-unbound-chip')).toHaveTextContent('binding status unknown')
   })
 })

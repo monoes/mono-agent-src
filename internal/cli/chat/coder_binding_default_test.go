@@ -117,3 +117,61 @@ type failingService struct{}
 
 func (failingService) Ensure(_ context.Context, _ string) error { return errors.New("no socket") }
 func (failingService) Running(string) bool                      { return false }
+
+// A default that could not initialise degrades only when it is known that no open-ended run needs bound turns: when the run
+// table cannot be read the turn is refused (fail closed) and the message says why. With an open run the legacy launcher is NOT
+// handed out silently by the refuse path either. Revert proof: returning g.inner on an OpenRunCount error turns the first red.
+func TestBindingDefaultFailsClosedAndSaysWhyWhenTheRunTableCannotBeRead(t *testing.T) {
+	machineBinding(t, "")
+	g, inner := gateRig(t, `{"enabled":true}`)
+	g.svc = failingService{}
+	g.reason = func(running bool) string {
+		if running {
+			return ""
+		}
+		return "its service is not running"
+	}
+	if _, err := g.db.Exec(`ALTER TABLE doomsday_runs RENAME TO doomsday_runs_x`); err != nil {
+		t.Fatal(err)
+	}
+	_, err := g.Start("p", "c", "t", "m", nil, "")
+	if err == nil || len(inner.calls) != 0 || !strings.Contains(err.Error(), "whether an open-ended run is open could not be read") {
+		t.Fatalf("err=%v calls=%d", err, len(inner.calls))
+	}
+}
+
+func addRun(t *testing.T, g *gatedLauncher, unbound bool) {
+	t.Helper()
+	if _, err := g.db.Exec(`INSERT OR IGNORE INTO profiles (id, name) VALUES ('p', 'P')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.db.Exec(`INSERT INTO doomsday_runs (profile, generation, charter_id, state, mac) VALUES ('p', 1, 'c1', 'running', x'01')`); err != nil {
+		t.Fatal(err)
+	}
+	if unbound {
+		if _, err := g.db.Exec(`INSERT INTO doomsday_audit (profile, generation, seq, kind, payload, prev, mac) VALUES ('p', 1, 1, 'run.unbound', 'unbound: x', x'00', x'00')`); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// A run that started BOUND is never handed the legacy launcher because the machine check fails during the run (route refuses),
+// while a run recorded as unbound at its start, and no run at all, keep the legacy launcher. Revert proof: dropping boundRunsOpen
+// in route() turns the first case red.
+func TestRouteRefusesUnderABoundRunAndGoesOnUnderAnUnboundOne(t *testing.T) {
+	machineBinding(t, "")
+	for name, c := range map[string]struct {
+		run, unbound bool
+		refused      bool
+	}{"no run": {false, false, false}, "bound run": {true, false, true}, "run that started unbound": {true, true, false}} {
+		g, inner := gateRig(t, `{"enabled":true}`)
+		g.reason = func(bool) string { return "the machine check failed once" } // flapping: capable at the start, not now
+		if c.run {
+			addRun(t, g, c.unbound)
+		}
+		_, err := g.Start("p", "c", "t", "m", nil, "")
+		if c.refused != (err != nil) || (c.refused && len(inner.calls) != 0) || (!c.refused && len(inner.calls) != 1) {
+			t.Fatalf("%s: err=%v calls=%d", name, err, len(inner.calls))
+		}
+	}
+}

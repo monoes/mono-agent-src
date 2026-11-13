@@ -101,23 +101,35 @@ type UnsupportedHere string
 
 func (u UnsupportedHere) Error() string { return string(u) }
 
-// RequireBinding is nil only when binding is on. The start asks it before the charter is shown and again in Enter.
+// RequireBinding is nil only when binding is on, or off because this machine cannot run the service (the run then goes unbound).
+// The start asks it before the charter is shown and again in Enter.
 func (e *StoreEngine) RequireBinding(ctx context.Context) error {
+	_, err := e.bindingDecision(ctx)
+	return err
+}
+
+// bindingDecision reads the binding state ONCE and says whether a run entered now goes unbound ("" bound; else the reason).
+func (e *StoreEngine) bindingDecision(ctx context.Context) (unbound string, err error) {
 	if e.Binding == nil {
-		return fmt.Errorf("no run without binding: whether peer-credential binding is on is not known on this install")
+		return "", fmt.Errorf("no run without binding: whether peer-credential binding is on is not known on this install")
 	}
 	on, err := e.Binding(ctx)
 	var un UnsupportedHere
 	if errors.As(err, &un) {
-		return err
+		return "", err
 	}
 	if err != nil {
-		return fmt.Errorf("no run without binding: whether peer-credential binding is on cannot be read: %w", err)
+		return "", fmt.Errorf("no run without binding: whether peer-credential binding is on cannot be read: %w", err)
 	}
-	if !on && e.UnboundWarning(ctx) == "" {
-		return ErrBindingOff
+	if on {
+		return "", nil
 	}
-	return nil
+	if e.UnboundReason != nil {
+		if r := e.UnboundReason(ctx); r != "" {
+			return r, nil
+		}
+	}
+	return "", ErrBindingOff
 }
 
 // UnboundWarning is "running without peer-credential binding: <reason>" when binding is off because this machine cannot run the
@@ -132,16 +144,8 @@ func (e *StoreEngine) UnboundWarning(ctx context.Context) string {
 	return ""
 }
 
-// truncateReason bounds the reason stored in the audit row.
-func truncateReason(s string) string {
-	if len(s) > 200 {
-		return s[:200]
-	}
-	return s
-}
-
 // KindRunUnbound is the audit row (one line in the run's feed) that a run started without peer-credential binding.
-const KindRunUnbound = "run.unbound"
+const KindRunUnbound = store.KindRunUnbound
 
 func (e *StoreEngine) Containment() error {
 	if e.ContainmentProbe == nil {
@@ -178,7 +182,8 @@ func (e *StoreEngine) Enter(ctx context.Context, canon Canon, expectedHash strin
 	}
 	var confirmed [32]byte
 	copy(confirmed[:], raw)
-	if err := e.RequireBinding(ctx); err != nil {
+	unboundReason, err := e.bindingDecision(ctx) // read once: the entry's audit row and warning follow this answer, not a later read
+	if err != nil {
 		return Entry{}, err
 	}
 	// The probe is part of the entry itself, not of the CLI verb: no starter can skip it. It also builds the witness
@@ -203,7 +208,11 @@ func (e *StoreEngine) Enter(ctx context.Context, canon Canon, expectedHash strin
 	if err != nil {
 		return Entry{}, fmt.Errorf("the containment unit could not be created, so nothing was started: %w", err)
 	}
-	run, err := e.Store.Enter(ctx, sc, confirmed, "ack:"+ack.Kind)
+	enterCtx := ctx
+	if unboundReason != "" {
+		enterCtx = store.WithUnboundStart(ctx, unboundReason) // the run.unbound row is written in the entry's own transaction
+	}
+	run, err := e.Store.Enter(enterCtx, sc, confirmed, "ack:"+ack.Kind)
 	if errors.Is(err, store.ErrCommitUnknown) {
 		// The commit reported an error, so the run may exist. Read it: found, it is this entry's run and the entry goes on; not
 		// there, the entry was refused; unreadable, the outcome is unknown and nothing is torn down (the unit stays).
@@ -230,12 +239,8 @@ func (e *StoreEngine) Enter(ctx context.Context, canon Canon, expectedHash strin
 		return Entry{}, recorded(fmt.Errorf("the run started but its audit record failed: %w", err))
 	}
 	warning := ""
-	if on, berr := e.Binding(ctx); berr == nil && !on {
-		if warning = e.UnboundWarning(ctx); warning != "" {
-			if _, err := e.Store.AppendAudit(ctx, run.Profile, run.Generation, KindRunUnbound, "unbound: "+truncateReason(e.UnboundReason(ctx))); err != nil {
-				return Entry{}, recorded(fmt.Errorf("the run started but its audit record of running without binding failed: %w", err))
-			}
-		}
+	if unboundReason != "" {
+		warning = "running without peer-credential binding: " + unboundReason
 	}
 	if e.AfterEnter != nil {
 		if err := e.AfterEnter(ctx, run.Generation); err != nil {

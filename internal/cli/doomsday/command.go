@@ -151,8 +151,17 @@ func (d Deps) newRender() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			warn := ""
+			if w, ok := e.(UnboundWarner); ok {
+				warn = w.UnboundWarning(cmd.Context())
+			}
 			if d.json() {
-				return json.NewEncoder(cmd.OutOrStdout()).Encode(NewRenderDoc(ch, canon.Hash))
+				doc := NewRenderDoc(ch, canon.Hash)
+				doc.UnboundWarning = warn
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(doc)
+			}
+			if warn != "" {
+				fmt.Fprintln(cmd.OutOrStdout(), "warning: "+warn)
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), Render(ch, canon.Hash))
 			return nil

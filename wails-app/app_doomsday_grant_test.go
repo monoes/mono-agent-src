@@ -803,3 +803,28 @@ func TestWindowsStartIsRefusedWhenTheRenderLacksTheProcessCheckSentence(t *testi
 		t.Errorf("windows with the sentence: %v", err)
 	}
 }
+
+// The native confirmation carries the CLI's "running without peer-credential binding" warning, first, and nothing about it when
+// the render says none. Revert proof: drop f.unbound from dialogBody (or the unbound_warning field in factsOf): red.
+func TestTheDialogBodyShowsTheUnboundWarningFirst(t *testing.T) {
+	const w = "running without peer-credential binding: this machine cannot run it (old kernel)"
+	var m map[string]any
+	if err := json.Unmarshal([]byte(previewDoc(gHash, []string{"spending"}, "5.000000 USD for the whole run.")), &m); err != nil {
+		t.Fatal(err)
+	}
+	m["unbound_warning"] = w
+	raw, _ := json.Marshal(m)
+	f, err := factsOf(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body := f.dialogBody("chat-1"); !strings.HasPrefix(body, "Running without peer-credential binding: this machine cannot run it (old kernel).") {
+		t.Fatalf("the dialog does not lead with the warning:\n%s", body)
+	}
+	delete(m, "unbound_warning")
+	raw, _ = json.Marshal(m)
+	f, _ = factsOf(raw)
+	if body := f.dialogBody("chat-1"); strings.Contains(body, "peer-credential") {
+		t.Fatalf("a bound start's dialog mentions binding:\n%s", body)
+	}
+}

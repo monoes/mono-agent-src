@@ -153,6 +153,13 @@ func (s *SQLStore) enterIn(ctx context.Context, tx DBTX, c Charter, confirmed [3
 	if _, err := s.appendAuditTx(ctx, tx, c.Profile, c.Generation, "run.enter", by+" "+r.CharterID); err != nil {
 		return Run{}, err
 	}
+	// A run that starts without peer-credential binding records that in its own entry transaction: the row exists exactly when the
+	// run does, so no later read or race can drop it (the host gate allows unbound turns only for a run that carries it).
+	if reason, ok := ctx.Value(unboundKey{}).(string); ok {
+		if _, err := s.appendAuditTx(ctx, tx, c.Profile, c.Generation, KindRunUnbound, "unbound: "+reason); err != nil {
+			return Run{}, err
+		}
+	}
 	return r, nil
 }
 
@@ -396,4 +403,18 @@ AND `+extra, args...)
 		return ErrOverLimit
 	}
 	return nil
+}
+
+// KindRunUnbound is the audit row of a run that started without peer-credential binding.
+const KindRunUnbound = "run.unbound"
+
+type unboundKey struct{}
+
+// WithUnboundStart marks an Enter call: the run it creates starts without peer-credential binding for this reason, and the
+// entry transaction writes the run.unbound row with the run.
+func WithUnboundStart(ctx context.Context, reason string) context.Context {
+	if len(reason) > 200 {
+		reason = reason[:200]
+	}
+	return context.WithValue(ctx, unboundKey{}, reason)
 }

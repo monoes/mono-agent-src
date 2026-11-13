@@ -28,6 +28,9 @@ type BindingState struct {
 	On            bool
 	UnboundReason string
 	Note          string
+	// ExplicitOnBroken is why a stored (hand-edited or operator) `on` cannot be honoured here ("" when it can, or when it is not stored on):
+	// a run must not start where its turns would then be refused.
+	ExplicitOnBroken string
 }
 
 // PeercredBindingState reads the stored setting and resolves it for this machine.
@@ -40,6 +43,8 @@ func PeercredBindingState(db *sql.DB) (BindingState, error) {
 	st := BindingState{On: r.On, Note: r.Note}
 	if !r.On {
 		st.UnboundReason = bindingReadiness()
+	} else if r.Explicit {
+		st.ExplicitOnBroken = bindingReadiness()
 	}
 	return st, nil
 }

@@ -130,8 +130,13 @@ func TestOpenModeIsOfferedWhereBindingCannotRunAndRefusedForAnExplicitOffWhereIt
 	if ok, reason := coderhost.OpenModeAvailability(); !ok {
 		t.Fatalf("unsupported machine, nothing stored: not offered: %q", reason)
 	}
-	if got := unboundWarningFor(cfg)(context.Background()); !strings.Contains(got, "running without peer-credential binding") || !strings.Contains(got, "old kernel") {
-		t.Fatalf("warning = %q", got)
+	pre, err := initDB(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pre.Close()
+	if got := unboundReason(pre.DB); !strings.Contains(got, "old kernel") { // what a start now would warn about
+		t.Fatalf("unbound reason = %q", got)
 	}
 	procbind.ForTestSetReady(t, nil)
 	db, err := initDB(cfg)
@@ -143,8 +148,8 @@ func TestOpenModeIsOfferedWhereBindingCannotRunAndRefusedForAnExplicitOffWhereIt
 	if ok, _ := coderhost.OpenModeAvailability(); ok {
 		t.Fatal("explicit off on a machine that can bind: the mode is offered")
 	}
-	if got := unboundWarningFor(cfg)(context.Background()); got != "" {
-		t.Fatalf("a machine that can bind has no unbound warning: %q", got)
+	if got := unboundReason(db.DB); got != "" {
+		t.Fatalf("a machine that can bind has no unbound reason: %q", got)
 	}
 }
 
@@ -165,5 +170,48 @@ func TestRealWiringRefusesTheStartWhereTheModeCannotRun(t *testing.T) {
 	t.Cleanup(coderhost.SetOpenModeBindingProbe("linux", func() error { return nil }))
 	if _, err := doomsdayWiringReal(cfg, db.DB).Binding(context.Background()); errors.As(err, &un) {
 		t.Fatalf("linux refused: %v", err)
+	}
+}
+
+// A stored `on` that this machine cannot honour stops `doomsday start` BEFORE a run exists (its turns would all be refused); an
+// unset default on the same machine does not. The status warning comes from the run's recorded start mode, not the live setting.
+// Revert proof: dropping ExplicitOnBroken in the wiring's Binding turns the first check red.
+func TestStartRefusesAnExplicitOnThatCannotBeHonouredAndStatusReadsTheRecordedMode(t *testing.T) {
+	procbind.ForTestSetIssuance(t, true)
+	procbind.ForTestSetReady(t, errors.New("old kernel"))
+	cfg, _ := chatPathSetup(t, true)
+	db, err := initDB(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	b := doomsdayWiringReal(cfg, db.DB).Binding
+	if on, err := b(context.Background()); on || err != nil {
+		t.Fatalf("unset on an unsupported machine: on=%v err=%v", on, err)
+	}
+	setBindingStored(t, db, true)
+	var un doomsdaycli.UnsupportedHere
+	if _, err := b(context.Background()); !errors.As(err, &un) || !strings.Contains(err.Error(), "switched on") || !strings.Contains(err.Error(), "old kernel") {
+		t.Fatalf("an explicit on that cannot be honoured: %v", err)
+	}
+	if ok, reason := coderhost.OpenModeAvailability(); ok || !strings.Contains(reason, "switched on") {
+		t.Fatalf("availability: ok=%v %q", ok, reason)
+	}
+	// status: from the recorded run row
+	if _, err := db.DB.Exec(`INSERT OR IGNORE INTO profiles (id, name) VALUES (?, 'P')`, cfg.ProfileID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.DB.Exec(`INSERT INTO doomsday_runs (profile, generation, charter_id, state, mac) VALUES (?, 1, 'c1', 'running', x'01')`, cfg.ProfileID); err != nil {
+		t.Fatal(err)
+	}
+	warn := unboundWarningFor(cfg)
+	if got := warn(context.Background()); got != "" {
+		t.Fatalf("a bound run shows a warning from the live setting: %q", got)
+	}
+	if _, err := db.DB.Exec(`INSERT INTO doomsday_audit (profile, generation, seq, kind, payload, prev, mac) VALUES (?, 1, 1, 'run.unbound', 'unbound: old kernel', x'00', x'00')`, cfg.ProfileID); err != nil {
+		t.Fatal(err)
+	}
+	if got := warn(context.Background()); got != "running without peer-credential binding: old kernel" {
+		t.Fatalf("recorded mode: %q", got)
 	}
 }

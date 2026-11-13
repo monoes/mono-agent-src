@@ -599,3 +599,31 @@ func mustJSON(c Charter) string {
 	b, _ := json.Marshal(c.normalized())
 	return string(b)
 }
+
+// The run.unbound row is written in the entry's own transaction: it exists with the run, and a refused entry leaves none.
+func TestEnterWritesTheUnboundRowWithTheRun(t *testing.T) {
+	s, db := newStore(t)
+	c := charter("p", 1)
+	ctx := WithUnboundStart(context.Background(), "old kernel")
+	if _, err := s.Enter(ctx, c, c.Hash(), "ack:test"); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM doomsday_audit WHERE kind = 'run.unbound' AND generation = 1 AND payload = 'unbound: old kernel'`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("n=%d err=%v", n, err)
+	}
+	c2 := charter("p", 2)
+	if _, err := s.Enter(ctx, c2, c2.Hash(), "ack:test"); err == nil { // a run is active: refused, nothing written
+		t.Fatal("second entry accepted")
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM doomsday_audit WHERE kind = 'run.unbound'`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("a refused entry left a row: n=%d", n)
+	}
+	c3 := charter("q", 1)
+	if _, err := s.Enter(context.Background(), c3, c3.Hash(), "ack:test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM doomsday_audit WHERE kind = 'run.unbound' AND profile = 'q'`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("a bound entry wrote an unbound row: %d", n)
+	}
+}

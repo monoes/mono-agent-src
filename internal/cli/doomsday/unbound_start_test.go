@@ -3,6 +3,7 @@ package doomsday
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -23,7 +24,7 @@ func TestStartGoesUnboundWithAWarningAndAnAuditRowWhereBindingCannotRun(t *testi
 	if rerr != nil {
 		t.Fatal(rerr, ro)
 	}
-	h := strings.Fields(strings.SplitN(ro, "\n", 2)[0])[1]
+	h := renderedHash(ro)
 	out, err := run(t, w.deps, "", "start", "--charter", w.charter, "--yes-i-lift", "--hash", h)
 	if err != nil {
 		t.Fatalf("an unbound start on a machine that cannot bind was refused: %v", err)
@@ -91,24 +92,88 @@ func TestProbeAndStatusCarryTheUnboundWarning(t *testing.T) {
 	}
 }
 
-// The host gate lets an unbound turn of the run through only while UnboundReason says the machine cannot bind; nothing else
-// about the turn's gate changes (it still takes its ticket). Mutants: drop unboundAllowed in BeforeRelease or requireBound: red.
-func TestHostGateAllowsAnUnboundTurnOnlyWhereTheMachineCannotBind(t *testing.T) {
-	off := &atomic.Bool{}
-	var why atomic.Value
-	why.Store("")
-	r := newHookRig(t, off)
-	r.gate.UnboundReason = func() string { return why.Load().(string) }
-	r.start(t)
-	r.hl.bound = false
-	if err := r.startTurn(); !refused(err) {
-		t.Fatalf("an unbound turn on a machine that could bind was not refused: %v", err)
+// The host gate lets an unbound turn through ONLY for a run that started unbound (its own run.unbound row), whatever a flapping
+// machine check says during the run; a run that started bound keeps refusing unbound turns. It still takes the ticket.
+// Mutants: ignore the run's row in unboundAllowed (red, both directions).
+func TestHostGateTiesTheUnboundAllowanceToTheRunsOwnStart(t *testing.T) {
+	for _, startedUnbound := range []bool{false, true} {
+		off := &atomic.Bool{} // binding reads as off: the machine check fails now
+		r := newHookRig(t, off)
+		r.gate.UnboundRun = func(context.Context, string, int64) bool { return startedUnbound }
+		r.start(t)
+		r.hl.bound = false
+		err := r.startTurn()
+		if startedUnbound {
+			if err != nil || r.hl.released != 1 || r.tickets(t) != 1 {
+				t.Fatalf("a run that started unbound lost its unbound turn: %v released=%d tickets=%d", err, r.hl.released, r.tickets(t))
+			}
+			continue
+		}
+		if !refused(err) || r.hl.released != 0 {
+			t.Fatalf("a run that started bound let an unbound turn through: %v", err)
+		}
 	}
-	why.Store(unboundWhy)
-	if err := r.startTurn(); err != nil || r.hl.released != 1 {
-		t.Fatalf("the unbound turn was refused where the machine cannot bind: %v released=%d", err, r.hl.released)
+}
+
+// Entering reads the binding state once: a flapping Binding or UnboundReason after the check cannot skip the row or the warning.
+func TestEnterReadsTheBindingStateOnce(t *testing.T) {
+	w, db := newWire(t, func() error { return nil }, fakeKernel{}, nil)
+	reads := 0
+	w.w.Binding = func(context.Context) (bool, error) {
+		reads++
+		if reads > 2 { // the start verb asks once, Enter once; any later read fails
+			return false, errors.New("settings locked")
+		}
+		return false, nil
 	}
-	if n := r.tickets(t); n != 1 {
-		t.Fatalf("the unbound turn must still take its ticket: %d", n)
+	w.w.UnboundReason = func(context.Context) string { return unboundWhy }
+	e := w.w.Engine()
+	w.deps.Engine = func() Engine { return e }
+	ro, _ := run(t, w.deps, "", "render", "--charter", w.charter)
+	h := renderedHash(ro)
+	if _, err := run(t, w.deps, "", "start", "--charter", w.charter, "--yes-i-lift", "--hash", h); err != nil {
+		t.Fatal(err)
 	}
+	if n := count(t, db, `SELECT COUNT(*) FROM doomsday_runs`); n != 1 {
+		t.Fatalf("%d runs", n)
+	}
+	if n := count(t, db, `SELECT COUNT(*) FROM doomsday_audit WHERE kind = 'run.unbound'`); n != 1 {
+		t.Fatalf("a recorded run has %d run.unbound rows (a later binding read must not skip it)", n)
+	}
+}
+
+// `render` (what the app's native confirmation is built from) carries the unbound warning in its text and its JSON.
+// Revert proof: drop the warning in newRender: red.
+func TestRenderCarriesTheUnboundWarning(t *testing.T) {
+	const msg = "running without peer-credential binding: " + unboundWhy
+	rg := newRig()
+	file := writeCharter(t, goodCharter)
+	d := rg.deps
+	e := &unboundEngine{warn: msg}
+	d.Engine = func() Engine { return e }
+	out, err := run(t, d, "", "render", "--charter", file)
+	if err != nil || !strings.Contains(out, "warning: "+msg) {
+		t.Fatalf("text: %q %v", out, err)
+	}
+	d.JSONOutput = func() bool { return true }
+	out, err = run(t, d, "", "render", "--charter", file)
+	var doc RenderDoc
+	if err != nil || json.Unmarshal([]byte(out), &doc) != nil || doc.UnboundWarning != msg {
+		t.Fatalf("json: %q %v", out, err)
+	}
+	e.warn = ""
+	out, _ = run(t, d, "", "render", "--charter", file)
+	if strings.Contains(out, "unbound_warning") {
+		t.Fatalf("a bound render carries a warning: %q", out)
+	}
+}
+
+// renderedHash is the hash on the render's first charter line (a warning line may come before it).
+func renderedHash(out string) string {
+	for _, l := range strings.Split(out, "\n") {
+		if f := strings.Fields(l); len(f) > 1 && !strings.HasPrefix(l, "warning:") {
+			return f[1]
+		}
+	}
+	return ""
 }

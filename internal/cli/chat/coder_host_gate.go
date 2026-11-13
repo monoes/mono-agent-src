@@ -84,14 +84,27 @@ func (g *gatedLauncher) route(profile string) (l coderhost.Launcher, bound bool,
 	explicit := s.PeercredBinding != bindingUnset
 	if !explicit {
 		if why := g.why(true); why != "" {
-			return g.inner, false, nil // the machine cannot run it: off, as before; `coder status` and `doctor` say why
+			// The machine cannot run it: off, as before; `coder status` says why. But never under a run that started BOUND (a flapping
+			// machine check must not take its turns out of binding): only a run recorded as unbound at its start, or no run, goes on.
+			n, err := coderhost.BoundRunsOpen(context.Background(), g.db)
+			if err != nil {
+				return nil, false, &bindingRefusal{"the turn was not started: whether an open-ended run that needs bound turns is open could not be read: " + err.Error()}
+			}
+			if n > 0 {
+				return nil, false, &bindingRefusal{"the turn was not started: an open-ended run that started with peer-credential binding is open, and the binding cannot be used now (" + why + "); no run without binding"}
+			}
+			return g.inner, false, nil
 		}
 	} else if s.PeercredBinding != bindingOn {
 		return g.inner, false, nil // explicitly off
 	}
 	refuse := func(msg string) (coderhost.Launcher, bool, error) {
 		if !explicit {
-			if runs, err := coderhost.OpenRunCount(context.Background(), g.db); err == nil && runs == 0 {
+			runs, err := coderhost.OpenRunCount(context.Background(), g.db)
+			if err != nil { // fail closed, and say why: whether an open-ended run needs bound turns could not be read
+				return nil, false, &bindingRefusal{msg + " (and whether an open-ended run is open could not be read, so the turn is not run without binding: " + err.Error() + ")"}
+			}
+			if runs == 0 {
 				if g.logf != nil {
 					g.logf("coder host: peer-credential binding is on by default but could not be used (%s): this turn runs without it", msg)
 				}
