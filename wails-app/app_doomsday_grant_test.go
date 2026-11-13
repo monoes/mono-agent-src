@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // A render's answer, as the CLI prints it: what the native dialog is built from (never from the page's text).
@@ -801,5 +802,48 @@ func TestWindowsStartIsRefusedWhenTheRenderLacksTheProcessCheckSentence(t *testi
 	raw, _ := json.Marshal(m)
 	if _, err := factsOf(raw); err != nil {
 		t.Errorf("windows with the sentence: %v", err)
+	}
+}
+
+// The native confirmation carries the CLI's "running without peer-credential binding" warning, first, and nothing about it when
+// the render says none. Revert proof: drop f.unbound from dialogBody (or the unbound_warning field in factsOf): red.
+func TestTheDialogBodyShowsTheUnboundWarningFirst(t *testing.T) {
+	const w = "running without peer-credential binding: this machine cannot run it (old kernel)"
+	var m map[string]any
+	if err := json.Unmarshal([]byte(previewDoc(gHash, []string{"spending"}, "5.000000 USD for the whole run.")), &m); err != nil {
+		t.Fatal(err)
+	}
+	m["unbound_warning"] = w
+	raw, _ := json.Marshal(m)
+	f, err := factsOf(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body := f.dialogBody("chat-1"); !strings.HasPrefix(body, "Running without peer-credential binding: this machine cannot run it (old kernel).") {
+		t.Fatalf("the dialog does not lead with the warning:\n%s", body)
+	}
+	delete(m, "unbound_warning")
+	raw, _ = json.Marshal(m)
+	f, _ = factsOf(raw)
+	if body := f.dialogBody("chat-1"); strings.Contains(body, "peer-credential") {
+		t.Fatalf("a bound start's dialog mentions binding:\n%s", body)
+	}
+}
+
+// The dialog's leading warning is capitalised by rune, not by byte: a reason that starts with a multi-byte letter stays valid UTF-8.
+func TestTheDialogUnboundWarningIsRuneSafe(t *testing.T) {
+	var m map[string]any
+	if err := json.Unmarshal([]byte(previewDoc(gHash, []string{"spending"}, "5.000000 USD for the whole run.")), &m); err != nil {
+		t.Fatal(err)
+	}
+	m["unbound_warning"] = "élan: running without peer-credential binding"
+	raw, _ := json.Marshal(m)
+	f, err := factsOf(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := f.dialogBody("chat-1")
+	if !utf8.ValidString(body) || !strings.HasPrefix(body, "Élan: running without peer-credential binding.") {
+		t.Fatalf("%q", body)
 	}
 }

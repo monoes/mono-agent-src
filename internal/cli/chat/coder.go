@@ -24,6 +24,7 @@ import (
 	"github.com/monoes/mono-agent/internal/dynorg"
 	"github.com/monoes/mono-agent/internal/health"
 	"github.com/monoes/mono-agent/internal/monomind"
+	"github.com/monoes/mono-agent/internal/procbind"
 )
 
 // coderConfigName is the configs-table row holding coder mode's settings.
@@ -85,9 +86,11 @@ type coderSettings struct {
 	// on; only the operator changes it.
 	Box string `json:"box,omitempty"`
 	// PeercredBinding (security.peercred_binding) asks that a turn's tokens be bound to the turn's process by the
-	// kernel-checked binding service (internal/procbind). Off by default. Only the operator changes it, and it can be
-	// switched on only where procbind.Refusal says nothing: while the build cannot issue bound tokens, switching it on
-	// is refused and, if the setting is on anyway (a hand edit), every turn start is refused (coder_host_gate.go).
+	// kernel-checked binding service (internal/procbind). Unset (nil) is the default: ON where this machine can run the
+	// binding service, and the previous behaviour (off, said so by `coder status` and `doctor`) where it cannot. An explicit
+	// false is stored as false and stays off; an explicit true is the operator's and is refused, not weakened, where the
+	// machine cannot run it (coder_host_gate.go). Only the operator changes it, and it can be switched on only where
+	// procbind.Refusal says nothing.
 	PeercredBinding bindingFlag `json:"peercredBinding,omitempty"`
 }
 
@@ -158,19 +161,94 @@ func (s coderSettings) defaultAccess() string {
 // appAccess reports coder.appAccess; unset is on.
 func (s coderSettings) appAccess() bool { return s.AppAccess == nil || *s.AppAccess }
 
-// bindingFlag is the peer-credential setting as stored. It is read conservatively, in ONE way everywhere (status, the
+// bindingFlag is the peer-credential setting as stored (unset, explicit off, on). It is read conservatively, in ONE way everywhere (status, the
 // setter and the launcher gate all decode this type): anything but a plain false or null counts as on, and a key
 // that occurs more than once (or in other letter case, which encoding/json folds) is on if ANY occurrence is on or
 // unreadable, because the decoder calls this for every occurrence and a later "false" never clears an earlier "on".
 // Reading a junk value never fails, so `coder set --peercred-binding off` can always overwrite it: the stored JSON is
 // written again from the struct, which has the key once.
-type bindingFlag bool
+type bindingFlag int8
+
+const (
+	bindingUnset bindingFlag = iota // nothing stored (or null): the default applies
+	bindingOff                      // an explicit false
+	bindingOn                       // true, or anything that is not a plain false or null
+)
 
 func (f *bindingFlag) UnmarshalJSON(b []byte) error {
-	if s := string(bytes.TrimSpace(b)); s != "false" && s != "null" {
-		*f = true
+	switch string(bytes.TrimSpace(b)) {
+	case "null":
+	case "false":
+		if *f == bindingUnset {
+			*f = bindingOff
+		}
+	default:
+		*f = bindingOn
 	}
 	return nil
+}
+
+// MarshalJSON writes an explicit false (the omitempty of the old bool dropped it, which made an operator's off the same as never
+// having chosen); the unset value is omitted by omitempty.
+func (f bindingFlag) MarshalJSON() ([]byte, error) {
+	if f == bindingOn {
+		return []byte("true"), nil
+	}
+	return []byte("false"), nil
+}
+
+// bindingSet is an explicitly set peer-credential setting.
+func bindingSet(on bool) bindingFlag {
+	if on {
+		return bindingOn
+	}
+	return bindingOff
+}
+
+// Where the effective peer-credential setting comes from.
+const (
+	bindingSourceDefault = "default" // nothing stored: on where the machine can run the service
+	bindingSourceSet     = "set"     // the operator's (or a hand edit's) stored choice
+)
+
+// bindingResolution is what the setting means on this machine. Explicit says it was stored; Off with a Note on a default
+// means the machine cannot run the service and the previous behaviour (no binding) applies, with this as the reason.
+type bindingResolution struct {
+	On       bool
+	Explicit bool
+	Source   string
+	Note     string
+}
+
+// bindingReadiness says why this machine cannot run the binding service ("" when it can). A var so tests can stand in for a
+// machine that can (or cannot); production is procbind.Refusal with the service assumed up (the host starts it).
+var bindingReadiness = func() string { return procbind.Refusal(true) }
+
+// resolveBinding is the ONE place that turns the stored setting into on or off. Unset follows the machine: on when it can run
+// the service, otherwise off with the reason. A stored value is taken as stored (junk counts as on, as bindingFlag reads it).
+func (s coderSettings) resolveBinding() bindingResolution { return s.resolveWith(bindingReadiness) }
+
+// resolveWith is resolveBinding with the machine's reason supplied (the start decision asks an uncached, doubled probe).
+func (s coderSettings) resolveWith(readiness func() string) bindingResolution {
+	if s.PeercredBinding != bindingUnset {
+		return bindingResolution{On: s.PeercredBinding == bindingOn, Explicit: true, Source: bindingSourceSet}
+	}
+	if why := readiness(); why != "" {
+		return bindingResolution{Source: bindingSourceDefault, Note: "on by default, but this machine cannot run it (" + why + "), so it stays off here"}
+	}
+	return bindingResolution{On: true, Source: bindingSourceDefault}
+}
+
+// bindingStatusText is the status line for the setting: on or off, whether it is the default or a stored choice, and why a
+// default is off on this machine.
+func bindingStatusText(st coderStatus) string {
+	if st.PeercredBindingSource == bindingSourceSet {
+		return onOff(st.PeercredBindingEffective) + " (set by the operator)"
+	}
+	if st.PeercredBindingEffective {
+		return "on (the default where the machine can run the binding service; `coder set --peercred-binding off` turns it off)"
+	}
+	return "off (" + st.PeercredBindingNote + "); an open-ended run here starts anyway, " + UnboundWarning(st.PeercredBindingUnbound)
 }
 
 func onOff(on bool) string {
@@ -318,6 +396,13 @@ type coderStatus struct {
 	// DefaultAccessSource says whether defaultAccess is the built-in default
 	// or one the operator set.
 	DefaultAccessSource string `json:"defaultAccessSource"`
+	// PeercredBindingEffective is whether turn tokens are bound now; PeercredBindingSource says whether that is the default
+	// ("default") or a stored choice ("set"); PeercredBindingNote says why a default that is on elsewhere is off here.
+	PeercredBindingEffective bool   `json:"peercredBindingEffective"`
+	PeercredBindingSource    string `json:"peercredBindingSource"`
+	PeercredBindingNote      string `json:"peercredBindingNote,omitempty"`
+	// PeercredBindingUnbound is why an open-ended run here would run without binding ("" when binding is on, or off by the operator).
+	PeercredBindingUnbound string `json:"peercredBindingUnbound,omitempty"`
 
 	caps *monomind.CapabilitySet
 	scan *monomind.ScanResult // nil when the scan failed
@@ -340,6 +425,11 @@ func currentCoderStatus(cmd *cobra.Command, s coderSettings) coderStatus {
 	}
 	st.DefaultAccess = s.defaultAccess()
 	st.Box = s.boxMode()
+	rb := s.resolveBinding()
+	st.PeercredBindingEffective, st.PeercredBindingSource, st.PeercredBindingNote = rb.On, rb.Source, rb.Note
+	if !rb.On {
+		st.PeercredBindingUnbound = bindingReadiness()
+	}
 	set, err := capabilityProbe(cmd)
 	if err == nil && set != nil {
 		st.MonomindVersion = set.Version
@@ -540,7 +630,7 @@ func coderSettingsCmd(cfg *Deps, use, short string, change func(cmd *cobra.Comma
 				st.Enabled, st.WorkspaceRoot, st.MaxTurns, st.Timeout, st.BudgetUSD, st.Ready)
 			fmt.Fprintf(cmd.OutOrStdout(), "app access (profile summary in prompts, org workers' MonoAgent surfaces): %s\n", onOff(st.appAccess()))
 			fmt.Fprintf(cmd.OutOrStdout(), "default access for new chats: %s\n", st.DefaultAccess)
-			fmt.Fprintf(cmd.OutOrStdout(), "peer-credential binding of turn tokens: %s (off by default; switching it on is the operator's, on a machine that can run the binding service)\n", onOff(bool(st.PeercredBinding)))
+			fmt.Fprintf(cmd.OutOrStdout(), "peer-credential binding of turn tokens: %s\n", bindingStatusText(st))
 			if len(st.UnknownSettings) > 0 {
 				shown := st.UnknownSettings
 				more := ""

@@ -41,7 +41,7 @@ func TestDoomsdayRenderAndStartRunExactArgvWithTheCharterOnStdin(t *testing.T) {
 	}
 	want := []string{
 		"--profile|work|--json|doomsday|render|--charter|-|",
-		"--profile|work|--json|doomsday|start|--charter|-|--gui-phrase=" + gPhrase + "|--chat=chat-5|",
+		"--profile|work|--json|doomsday|start|--charter|-|--gui-phrase=" + gPhrase + "|--chat=chat-5|--expect-mode=bound|", // the dialog showed a bound start: the CLI refuses if the machine now gives an unbound one
 	}
 	if got := loggedArgs(t, g.log); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("argv:\n%q\nwant:\n%q", got, want)

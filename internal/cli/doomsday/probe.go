@@ -23,6 +23,8 @@ type ProbeResult struct {
 	// NotDefended is the plain statement of what the mode does not defend against on this machine; the entry screen
 	// shows it before a charter exists.
 	NotDefended string `json:"not_defended"`
+	// Warning is "running without peer-credential binding: <reason>" when a run started here would go unbound.
+	Warning string `json:"warning,omitempty"`
 }
 
 // Availability asks the engine, in this order: the profile's run (one run at a time), the containment probe (the real
@@ -46,6 +48,9 @@ func Availability(ctx context.Context, e Engine) ProbeResult {
 		}
 	}
 	r.ModeAvailable = r.Reason == ""
+	if w, ok := e.(UnboundWarner); ok && r.ModeAvailable {
+		r.Warning = w.UnboundWarning(ctx)
+	}
 	return r
 }
 

@@ -34,6 +34,9 @@ type FirstTurn struct {
 	RunID       string
 	CharterHash string
 	Goal        string
+	// Terms is the entered charter's lifted lines, budget, limits and success criteria (CharterTerms), so the boss knows what it
+	// may do without reading the control room, which is the person's.
+	Terms string
 }
 
 // ChatStarter is what the start from a chat needs beside the engine; the CLI wires the real one (DBChatStart).
@@ -136,7 +139,7 @@ func (d Deps) startFromChat(cmd *cobra.Command, e Engine, ch Charter, canon Cano
 		return fmt.Errorf("run %s started but session %d could not be recorded as its boss, so no boss tool works (run `doomsday stop`): %w", entry.RunID, ref.SessionID, err)
 	}
 	res := ChatEntry{Entry: entry, BossSession: ref.SessionID, BossConversation: ref.ConversationID, FirstTurn: "queued"}
-	if err := cs.QueueFirstTurn(ctx, ref.ConversationID, FirstTurn{RunID: entry.RunID, CharterHash: canon.Hash, Goal: ch.Goal}); err != nil {
+	if err := cs.QueueFirstTurn(ctx, ref.ConversationID, FirstTurn{RunID: entry.RunID, CharterHash: canon.Hash, Goal: ch.Goal, Terms: CharterTerms(ch)}); err != nil {
 		res.FirstTurn, res.FirstTurnError = "failed", cleanLine(err.Error())
 	}
 	return d.printChatEntry(cmd.OutOrStdout(), res)

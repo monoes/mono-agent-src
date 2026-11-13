@@ -113,6 +113,6 @@ func PursuitNotice(wakeCap float64) string {
 	if wakeCap <= 0 {
 		wakeCap = DefaultWakeCapUSD
 	}
-	return fmt.Sprintf("This mission will pursue its goal while you are away, but only after you accept its goal and confirm. Caps: $%.2f a wake-up turn, %d%% of the mission budget, %d wake-ups and %d parked questions until you next act; this host at most %d wake-ups and %d judge calls an hour. Pause any time with `%s`; closing the mission ends it.",
+	return fmt.Sprintf("This mission will pursue its goal while you are away, but only after you accept its goal and confirm. Caps: $%.2f a wake-up turn (default $2; up to $10 if the host was started with a larger cap), %d%% of the mission budget, %d wake-ups and %d parked questions until you next act; this host at most %d wake-ups and %d judge calls an hour. Pause any time with `%s`; closing the mission ends it.",
 		wakeCap, missionpursuit.DefaultPct, missionpursuit.DefaultWakesMax, missionpursuit.DefaultParkedMax, MaxPursuitWakesPerHour, MaxPursuitJudgeCallsPerHour, PursuitPauseUsage)
 }

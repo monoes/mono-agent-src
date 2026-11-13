@@ -5,6 +5,9 @@ package main
 import (
 	"go/ast"
 	"go/token"
+	"os"
+	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -14,7 +17,7 @@ import (
 )
 
 func TestSettingsPatchAcceptsOnlyWhatThePaneSendsAndSendsTheCheckedText(t *testing.T) {
-	a, log, _ := authorityFixture(t, true, nil)
+	a, log, _ := settingsFixture(t, true, storedDefault)
 	a.SetCoderSessionSettings("c1", `{"checkin_minutes":30,"skip_if_unchanged":true,"autonomy_classes":{"ambiguity":{"who":"user","fallback":"park"}}}`, "true")
 	got := ran(t, log)
 	if len(got) != 1 || !strings.Contains(got[0], `--patch={"autonomy_classes":{"ambiguity":{"who":"user","fallback":"park"}},"checkin_minutes":30,"skip_if_unchanged":true}`) || !strings.Contains(got[0], "--unattended=true") {
@@ -60,6 +63,115 @@ func TestThePaneSendsOnlyTheseOperatorOnlySettings(t *testing.T) {
 	if strings.Join(got, ",") != "autonomy_classes,autonomy_preset,checkin_limit,max_children,max_concurrent,mesh_accept" {
 		t.Fatalf("operator-only settings the app lets through: %v", got)
 	}
+	// ...and which of them also need the native dialog (wideningsOf): a new operator-only key is decided here, in the review
+	a, _, _ := settingsFixture(t, true, `{"settings":{"autonomy_preset":"ask-always","autonomy_classes":{}}}`)
+	sample := map[string]string{"autonomy_preset": `"decide-and-log"`, "autonomy_classes": `{"ambiguity":{"who":"model","fallback":"take_default"}}`, "mesh_accept": `"project"`}
+	var dialog []string
+	for _, k := range got {
+		v := sample[k]
+		if v == "" {
+			v = `"x"`
+		}
+		if len(a.wideningsOf("c1", `{"`+k+`":`+v+`}`)) > 0 {
+			dialog = append(dialog, k)
+		}
+	}
+	if strings.Join(dialog, ",") != "autonomy_classes,autonomy_preset,mesh_accept" {
+		t.Fatalf("operator-only pane settings that ask the person: %v", dialog)
+	}
+}
+
+// settingsFixture is authorityFixture whose `settings get` answers stored (the CLI's view), so the app can judge a patch by its result.
+func settingsFixture(t *testing.T, yes bool, stored string) (a *App, log string, dialogs *[]string) {
+	t.Helper()
+	dir := t.TempDir()
+	log = filepath.Join(dir, "args.log")
+	got := filepath.Join(dir, "stored.json")
+	if err := os.WriteFile(got, []byte(stored), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bin := fakeCLI(t, `case "$*" in *"settings get"*) cat '`+got+`'; exit 0;; esac`+"\n"+`echo "$*" >> '`+log+"'\n"+`echo '{}'`+"\n")
+	a, _ = newCLIChatApp(t, bin)
+	if err := os.WriteFile(log, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var said []string
+	old := confirmNative
+	confirmNative = func(_ *App, title, body string) (bool, error) {
+		said = append(said, title+": "+body)
+		return yes, nil
+	}
+	t.Cleanup(func() { confirmNative = old })
+	return a, log, &said
+}
+
+const (
+	storedDefault   = `{"settings":{"autonomy_preset":"ask-on-risk","autonomy_classes":{},"mesh_accept":"subtree"}}`
+	storedAskAlways = `{"settings":{"autonomy_preset":"ask-always","autonomy_classes":{},"mesh_accept":"subtree"}}`
+	// the person asked for a user/park answer on two kinds of question while the preset decides the rest by itself
+	storedOverrides = `{"settings":{"autonomy_preset":"decide-and-log","autonomy_classes":{"ambiguity":{"who":"user","fallback":"park"},"scope_growth":{"who":"user","fallback":"park"}},"mesh_accept":"none"}}`
+)
+
+func TestWideningSettingsAskTheNativeDialogAndSaferValuesDoNot(t *testing.T) {
+	type tc struct{ stored, patch string }
+	widen := []tc{
+		{storedDefault, `{"autonomy_preset":"decide-and-log"}`}, {storedDefault, `{"autonomy_preset":5}`},
+		{storedDefault, `{"autonomy_classes":{"ambiguity":{"who":"model","fallback":"take_default"}}}`},
+		{storedAskAlways, `{"autonomy_classes":{"ambiguity":{"who":"user","fallback":"take_default"}}}`},
+		{storedAskAlways, `{"autonomy_preset":"ask-on-risk"}`},
+		// a patched map REPLACES the stored one: this keeps ambiguity at user/park and drops scope_growth's override, which the
+		// preset (decide-and-log) then gives to the model with a default
+		{storedOverrides, `{"autonomy_classes":{"ambiguity":{"who":"user","fallback":"park"}}}`},
+		{storedOverrides, `{"autonomy_classes":{}}`}, {storedOverrides, `{"autonomy_classes":null}`},
+		{storedDefault, `{"mesh_accept":"project"}`}, {storedDefault, `{"mesh_accept":"subtree"}`}, {storedDefault, `{"checkin_minutes":5,"mesh_accept":"project"}`},
+		{`{}`, `{"autonomy_preset":"ask-always"}`}, // the stored settings cannot be read: widening
+	}
+	for _, c := range widen {
+		a, log, said := settingsFixture(t, true, c.stored)
+		if out := a.SetCoderSessionSettings("c1", c.patch, ""); strings.Contains(out, "error") {
+			t.Errorf("%s: %s", c.patch, out)
+		}
+		if len(*said) != 1 || len(ran(t, log)) != 1 {
+			t.Errorf("%s over %s: dialogs %q calls %q", c.patch, c.stored, *said, ran(t, log))
+		}
+	}
+	safe := []tc{
+		{storedDefault, `{"autonomy_preset":"ask-always"}`}, {storedDefault, `{"autonomy_preset":"ask-on-risk"}`}, {storedDefault, `{"mesh_accept":"none"}`},
+		{storedDefault, `{"autonomy_classes":{"ambiguity":{"who":"user","fallback":"park"}}}`},
+		{storedOverrides, `{"autonomy_preset":"ask-always","autonomy_classes":{"ambiguity":{"who":"user","fallback":"park"}}}`},
+		{storedOverrides, `{"autonomy_classes":{"ambiguity":{"who":"user","fallback":"park"},"scope_growth":{"who":"user","fallback":"park"}}}`},
+		{storedDefault, `{"checkin_limit":3,"max_children":2,"max_concurrent":1,"checkin_minutes":30,"mesh_visible":true,"mesh_alias":"x"}`},
+	}
+	for _, c := range safe {
+		a, log, said := settingsFixture(t, false, c.stored)
+		if out := a.SetCoderSessionSettings("c1", c.patch, ""); strings.Contains(out, "error") {
+			t.Errorf("%s: %s", c.patch, out)
+		}
+		if len(*said) != 0 || len(ran(t, log)) != 1 {
+			t.Errorf("%s over %s: dialogs %q calls %q", c.patch, c.stored, *said, ran(t, log))
+		}
+	}
+}
+
+func TestWideningSettingsAreRefusedWithoutAYesWhereNoDialogCanBeShownAndForANonOperator(t *testing.T) {
+	p := `{"autonomy_preset":"decide-and-log"}`
+	a, _, _ := authorityFixture(t, false, nil)
+	if out := a.SetCoderSessionSettings("c1", p, ""); !strings.Contains(out, "declined") {
+		t.Fatalf("%s", out)
+	}
+	a, _, _ = authorityFixture(t, true, errNoNativeDialog)
+	if out := a.SetCoderSessionSettings("c1", p, ""); !strings.Contains(out, "no_native_dialog") {
+		t.Fatalf("%s", out)
+	}
+	// (the browser end-to-end host refuses this dialog by its title: TestTheE2EHostNeverConfirmsAnAuthorityTurnOn)
+	a, log, said := authorityFixture(t, true, nil)
+	opgate.SetForTest(t, func(bool) string { return "this process runs inside a coder session" })
+	if out := a.SetCoderSessionSettings("c1", p, ""); !strings.Contains(out, "operator_only") {
+		t.Fatalf("%s", out)
+	}
+	if len(*said) != 0 || len(ran(t, log)) != 0 {
+		t.Fatalf("a dialog or the CLI ran: %q %q", *said, ran(t, log))
+	}
 }
 
 func TestOperatorOnlyPaneSettingsNeedTheOperatorGate(t *testing.T) {
@@ -82,7 +194,7 @@ func TestEverySettingsWriterIsInTheInventoryWithItsShape(t *testing.T) {
 	inventory := map[string]string{
 		"SetChatMissionToggle":    "fixed",    // --mission=on|off from a typed bool; the person's own header toggle (CLI-validated)
 		"SetChatMode":             "fixed",    // --chat-mode=MODE; chosen before the first message, locked after (CLI-validated)
-		"SetCoderSessionSettings": "filtered", // checkSettingsPatch: the pane's keys only
+		"SetCoderSessionSettings": "filtered", // checkSettingsPatch: the pane's keys only; widening ones also need the native dialog
 		"SetAgentApproval":        "gated",    // operator gate + native dialog
 	}
 	scan := func(f srcFile) (writers []string, bad []string) {
@@ -95,12 +207,13 @@ func TestEverySettingsWriterIsInTheInventoryWithItsShape(t *testing.T) {
 			literalGroups(srcFile{path: f.path, file: &ast.File{Name: f.file.Name, Decls: []ast.Decl{fd}}, fset: f.fset}, func(g []string, _ token.Pos, _ string) {
 				isWriter = isWriter || (has(g, "settings") && has(g, "set"))
 			})
-			ast.Inspect(fd, func(n ast.Node) bool { // a --patch flag, wherever its text is put together
-				if s, ok := strLit(n); ok && strings.HasPrefix(s, "--patch") {
-					isWriter = true
-				}
-				return true
-			})
+			// whatever way the argv is put together (concatenated pieces, a Fields/Split of one string), the words of every literal
+			// in the function are read: a settings verb or a --patch flag anywhere in it makes it a writer
+			words := literalWords(fd)
+			isWriter = isWriter || (words["settings"] && words["set"]) || words["--patch"]
+			if splitsLiteralIntoArgv(fd) {
+				bad = append(bad, fd.Name.Name+" builds an argv by splitting a string at run time")
+			}
 			if !isWriter {
 				continue
 			}
@@ -142,6 +255,9 @@ func TestEverySettingsWriterIsInTheInventoryWithItsShape(t *testing.T) {
 				if c := first("checkSettingsPatch"); c == token.NoPos || run == token.NoPos || c > run {
 					t.Errorf("%s must check the patch before it runs the CLI", fd.Name.Name)
 				}
+				if g, c := first("Refusal"), first("authorityConfirm"); g == token.NoPos || c == token.NoPos || !(g < c && c < run) {
+					t.Errorf("%s must pass the operator gate and the native dialog (for the widening keys) before the CLI", fd.Name.Name)
+				}
 			case "gated":
 				if g, c := first("Refusal"), first("authorityConfirm"); g == token.NoPos || c == token.NoPos || !(g < c && c < run) {
 					t.Errorf("%s must pass the operator gate and the native dialog before the CLI", fd.Name.Name)
@@ -162,9 +278,88 @@ func (a *App) SetSneaky(p string) string { args := []string{"coder", "sessions",
 	if len(bad) != 1 {
 		t.Error("the scan does not see a settings writer that is not in the inventory")
 	}
+	for name, src := range map[string]string{
+		"Fields": `package main
+func (a *App) SetSneaky3(p string) string { return a.jsonResult(strings.Fields("coder sessions settings set --patch="+p)...) }`,
+		"folded": `package main
+func (a *App) SetSneaky4(p string) string { args := []string{"coder", "sessions " + "settings"}; return a.jsonResult(append(args, "se"+"t", p)...) }`,
+		"splitOnly": `package main
+func (a *App) SetSneaky5(p string) string { return a.jsonResult(strings.Split("coder x "+p, " ")...) }`,
+	} {
+		if _, bad := scan(parseSource(t, "mutant.go", []byte(src))); len(bad) == 0 {
+			t.Errorf("the scan does not see the %s mutant", name)
+		}
+	}
 	_, bad = scan(parseSource(t, "mutant.go", []byte(`package main
 func (a *App) SetSneaky2(p string) string { return a.jsonResult("coder", "x", "--patch="+p) }`)))
 	if len(bad) != 1 {
 		t.Error("the scan does not see a --patch writer")
 	}
+}
+
+var wordRe = regexp.MustCompile(`--?[A-Za-z0-9_]+|[A-Za-z0-9_]+`)
+
+// literalWords are the words of every string literal in fd (so "coder sessions settings set --patch=" yields coder, sessions,
+// settings, set and --patch), whichever expression the literal is in.
+func literalWords(fd *ast.FuncDecl) map[string]bool {
+	out := map[string]bool{}
+	add := func(s string) {
+		for _, w := range wordRe.FindAllString(s, -1) {
+			out[w] = true
+		}
+	}
+	ast.Inspect(fd, func(n ast.Node) bool {
+		if s, ok := strLit(n); ok {
+			add(s)
+		}
+		if s, ok := foldedLiterals(n); ok { // "se" + "t" is the word set
+			add(s)
+		}
+		return true
+	})
+	return out
+}
+
+// foldedLiterals is the text of a "+" expression made only of string literals.
+func foldedLiterals(n ast.Node) (string, bool) {
+	if s, ok := strLit(n); ok {
+		return s, true
+	}
+	b, ok := n.(*ast.BinaryExpr)
+	if !ok || b.Op != token.ADD {
+		return "", false
+	}
+	l, lok := foldedLiterals(b.X)
+	r, rok := foldedLiterals(b.Y)
+	return l + r, lok && rok
+}
+
+// splitsLiteralIntoArgv says whether fd cuts a string that has a literal in it into words (strings.Fields, Split, SplitN, ...) and
+// also runs the CLI: that is how an argv can be built at run time with no literal of its own.
+func splitsLiteralIntoArgv(fd *ast.FuncDecl) bool {
+	splits, runs := false, false
+	ast.Inspect(fd, func(n ast.Node) bool {
+		c, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		switch fun := c.Fun.(type) {
+		case *ast.SelectorExpr:
+			if id, ok := fun.X.(*ast.Ident); ok && id.Name == "strings" && (strings.HasPrefix(fun.Sel.Name, "Fields") || strings.HasPrefix(fun.Sel.Name, "Split")) {
+				if len(c.Args) > 0 { // the string that is cut (the separator of Split is not it)
+					ast.Inspect(c.Args[0], func(m ast.Node) bool {
+						if _, ok := strLit(m); ok {
+							splits = true
+						}
+						return true
+					})
+				}
+			}
+			runs = runs || fun.Sel.Name == "jsonResult" || fun.Sel.Name == "jsonCLI" || fun.Sel.Name == "Command" || fun.Sel.Name == "CommandContext" || strings.HasPrefix(fun.Sel.Name, "runCLI")
+		case *ast.Ident:
+			runs = runs || strings.HasPrefix(fun.Name, "runCLI")
+		}
+		return true
+	})
+	return splits && runs
 }

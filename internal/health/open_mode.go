@@ -14,6 +14,7 @@ const (
 	CheckOpenMode         = "coder.open_mode"
 	FixOpenModeBinding    = "coder.open_mode.binding"
 	openModeBindingCmd    = "monoagentcli --profile %s coder set --peercred-binding on"
+	openModeBindingOffCmd = "monoagentcli --profile %s coder set --peercred-binding off"
 	openModeVaultCmd      = "monoagentcli --profile %s secret add --kind secret --name scratch-key"
 	openModeHostStopCmd   = "monoagentcli --profile %s coder host stop"
 	openModeActiveStopCmd = "monoagentcli --profile %s doomsday stop"
@@ -33,10 +34,14 @@ type OpenModeFacts struct {
 	BindingReadyErr string // procbind.Ready: "" when the binding service can run here
 	BindingOn       bool   // security.peercred_binding in this profile
 	BindingErr      string // the setting could not be read
-	Steps           []OpenModeStep
-	HostRunning     bool   // a coder host holds its lock
-	ActiveRun       bool   // this profile has a run that is not quiescent
-	ActiveErr       string // the run table could not be read
+	// BindingUnbound is why binding is off because this machine cannot run the service ("" otherwise): a run here starts unbound.
+	BindingUnbound string
+	// BindingExplicitOnBroken is why a stored `on` cannot be honoured on this machine ("" otherwise).
+	BindingExplicitOnBroken string
+	Steps                   []OpenModeStep
+	HostRunning             bool   // a coder host holds its lock
+	ActiveRun               bool   // this profile has a run that is not quiescent
+	ActiveErr               string // the run table could not be read
 }
 
 func openModeChecks() []Check {
@@ -84,8 +89,14 @@ func checkOpenMode(ctx context.Context, env *Env) Result {
 	switch {
 	case f.BindingErr != "":
 		add("binding", "Peer-credential binding", StatusWarn, "cannot read the setting: "+f.BindingErr, "")
+	case f.BindingExplicitOnBroken != "":
+		add("binding", "Peer-credential binding", StatusWarn, "peer-credential binding is switched on but cannot run: "+f.BindingExplicitOnBroken,
+			fmt.Sprintf(openModeBindingOffCmd, p)+" (a run then starts unbound, with a warning)")
+	case !f.BindingOn && f.BindingUnbound != "":
+		add("binding", "Peer-credential binding", StatusWarn, "open-ended runs here would start without peer-credential binding: "+f.BindingUnbound,
+			"a kernel or system that can run the binding service; nothing to change in the settings")
 	case !f.BindingOn:
-		add("binding", "Peer-credential binding", StatusWarn, "off (off by default): the mode is not offered while it is off",
+		add("binding", "Peer-credential binding", StatusWarn, "off (switched off): the mode is not offered while it is off",
 			fmt.Sprintf(openModeBindingCmd, p)+" (or Settings, Coder, peer-credential binding)")
 	default:
 		add("binding", "Peer-credential binding", StatusOK, "on", "")

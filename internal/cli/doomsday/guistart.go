@@ -41,6 +41,9 @@ type RenderDoc struct {
 	PhraseTemplate string   `json:"phrase_template"`
 	// Summary is what the app's native dialog is built from, so that a swapped charter does not look the same there.
 	Summary RenderSummary `json:"summary"`
+	// UnboundWarning is "running without peer-credential binding: <reason>" when a run started now would go unbound; the app's native
+	// confirmation shows it. Empty: nothing to say.
+	UnboundWarning string `json:"unbound_warning,omitempty"`
 }
 
 // RenderSummary is the CLI's own short account of a charter: the start of the goal, how many criteria, the concurrency
