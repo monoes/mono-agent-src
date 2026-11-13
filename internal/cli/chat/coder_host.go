@@ -471,7 +471,7 @@ func newCoderHostStatusCmd(cfg *Deps) *cobra.Command {
 					}
 				}
 			} else {
-				fmt.Fprintln(cmd.OutOrStdout(), "not running")
+				fmt.Fprintln(cmd.OutOrStdout(), notRunningText)
 			}
 			return nil
 		},
@@ -479,6 +479,11 @@ func newCoderHostStatusCmd(cfg *Deps) *cobra.Command {
 	clicore.WithJSONErrors(cfg.JSONOutput, cmd)
 	return cmd
 }
+
+// notRunningText is what `coder host status` prints for a host that is not running: the next step, not just the fact.
+const notRunningText = "not running\n" +
+	"  next: it starts by itself on the first `coder sessions send`; to start it now run `coder host run`.\n" +
+	"  To let a mission's pursuit run, start it with " + envPursuitJudge + "=<runtime/model> set (`task session pursuit readiness ID` lists what else is missing)"
 
 func newCoderHostStopCmd(cfg *Deps) *cobra.Command {
 	cmd := &cobra.Command{
