@@ -20,13 +20,34 @@ func PeercredBindingDefault() (bool, string) {
 	return r.On, r.Note
 }
 
-// PeercredBindingNote is PeercredBindingOn plus the reason a default that is off on this machine is off ("" when on or when the
-// operator stored the off).
-func PeercredBindingNote(db *sql.DB) (bool, string, error) {
+// BindingState is what an open-ended run asks of the binding setting: whether turns are bound, and, when they are not, whether
+// the run may start anyway. UnboundReason is non-empty only when binding is off AND this machine cannot run the binding service
+// (then the run starts unbound with a warning; an explicit off on a machine that could run it still refuses a run). Note is why a
+// default that is on elsewhere is off here.
+type BindingState struct {
+	On            bool
+	UnboundReason string
+	Note          string
+}
+
+// PeercredBindingState reads the stored setting and resolves it for this machine.
+func PeercredBindingState(db *sql.DB) (BindingState, error) {
 	s, err := loadCoderSettings(db)
 	if err != nil {
-		return false, "", err
+		return BindingState{}, err
 	}
 	r := s.resolveBinding()
-	return r.On, r.Note, nil
+	st := BindingState{On: r.On, Note: r.Note}
+	if !r.On {
+		st.UnboundReason = bindingReadiness()
+	}
+	return st, nil
+}
+
+// UnboundWarning is the one line shown wherever a run goes without binding.
+func UnboundWarning(reason string) string {
+	if reason == "" {
+		return ""
+	}
+	return "running without peer-credential binding: " + reason
 }

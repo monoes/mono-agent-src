@@ -65,7 +65,10 @@ func TestBindingDefaultDegradesWhereUnsupported(t *testing.T) {
 	if code != 0 || !strings.Contains(out, `"peercredBindingEffective":false`) || !strings.Contains(out, "the kernel cannot tell which process connected") {
 		t.Fatalf("status (%d): %s", code, out)
 	}
-	if text := bindingStatusText(coderStatus{PeercredBindingSource: bindingSourceDefault, PeercredBindingNote: (coderSettings{}).resolveBinding().Note}); !strings.HasPrefix(text, "off (") || !strings.Contains(text, "cannot run it") {
+	if !strings.Contains(out, `"peercredBindingUnbound":"the kernel cannot tell which process connected"`) {
+		t.Fatalf("status json lacks the unbound reason: %s", out)
+	}
+	if text := bindingStatusText(coderStatus{PeercredBindingSource: bindingSourceDefault, PeercredBindingNote: (coderSettings{}).resolveBinding().Note, PeercredBindingUnbound: "the kernel cannot tell which process connected"}); !strings.HasPrefix(text, "off (") || !strings.Contains(text, "cannot run it") || !strings.Contains(text, "running without peer-credential binding: the kernel cannot tell which process connected") {
 		t.Fatalf("status text: %q", text)
 	}
 	g, inner := gateRig(t, `{"enabled":true}`)

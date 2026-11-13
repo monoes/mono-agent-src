@@ -42,10 +42,15 @@ func (g *HostGate) requireBound() error {
 	if err != nil {
 		return refuse("no run without binding: whether turn binding is on cannot be read: %v", err)
 	}
-	if !on {
+	if !on && !g.unboundAllowed() {
 		return refuse("no run without binding: peer-credential binding is off; switch it on (coder set --peercred-binding on)")
 	}
 	return nil
+}
+
+// unboundAllowed is true only while binding is off because this machine cannot run the service (the run's start said so).
+func (g *HostGate) unboundAllowed() bool {
+	return g.UnboundReason != nil && g.UnboundReason() != ""
 }
 
 // RunStamp is the supplier of the run stamp: the profile's open run, or nothing (a zero answer stamps nothing, so a host with
@@ -72,7 +77,7 @@ func (g *HostGate) BeforeRelease(ctx context.Context, _, _, turnID string, bound
 	if gate == nil {
 		return nil
 	}
-	if !bound {
+	if !bound && !g.unboundAllowed() {
 		return refuse("no run without binding: this turn is not peer-credential bound")
 	}
 	// The gate's own lock covers the cancellation check and the in-memory ticket steps only (Admit, BeginStart): the registry

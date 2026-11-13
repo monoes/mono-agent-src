@@ -16,7 +16,7 @@ Both:
 
 - Signed in to monoes.me (`monoagentcli account status`); only `doomsday stop` works signed out.
 - The profile has a vault key: add any secret first (`monoagentcli --profile "$P" secret add --kind secret --name scratch-key`).
-- Peer-credential binding is on by default where the machine can run the binding service; `coder status` must show `peer-credential binding of turn tokens: on`. Where it shows `off (... cannot run it ...)` the machine cannot run it and the mode is not available; if you set it off earlier, switch it back with `monoagentcli --profile "$P" coder set --peercred-binding on` (once, when no coder turn runs).
+- Peer-credential binding is on by default where the machine can run the binding service; `coder status` must show `peer-credential binding of turn tokens: on`. Where it shows `off (... cannot run it ...)` the machine cannot run it: a run still starts, unbound, with a loud `running without peer-credential binding: <reason>` warning and a `run.unbound` audit row; if you set it off earlier, switch it back with `monoagentcli --profile "$P" coder set --peercred-binding on` (once, when no coder turn runs).
 - No coder host running: `monoagentcli --profile "$P" coder host status`.
 - `monoagentcli --profile "$P" doomsday status` answers `no run`.
 

@@ -16,6 +16,7 @@ import { chatAccessApi } from '../../lib/chatAccessApi.js'
 import { isAccess, isCoderAccess, isConfinedTask } from '../../lib/chatAccess.js'
 import { useCoderConversation } from './useCoderConversation.js'
 import { useRunExists } from '../chat/useRunExists.js'
+import { useRunUnbound } from '../chat/useRunUnbound.js'
 import { ChatResetBar } from '../chat/ChatResetBar.jsx'
 import { COMPACT_PROMPT, compactSummary, compactSeed } from '../../lib/chatCompact.js'
 import { TaskHeaderCard } from './TaskHeaderCard.jsx'
@@ -156,6 +157,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
   }, [store, bubble.key, setup])
   // Stop of an open-ended run: shown for an open-ended chat or while the profile has a run; a Stop leaves its message in the transcript.
   const runExists = useRunExists(!!bubble.conversationId && isCoderAccess(access))
+  const unboundWarning = useRunUnbound(runExists)
   const addSystemNotice = conv.addSystemNotice
   const onRunStopped = useCallback(message => { if (message) addSystemNotice(message); setOpenRun(null); Promise.resolve().then(chatMode.refresh).catch(() => {}) }, [addSystemNotice, chatMode.refresh, setOpenRun])
   // The first message locks the mode: ask the CLI again as soon as the chat has one, not at the next poll.
@@ -394,7 +396,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
           )}
         </div>
         )}
-        {!lite && (bubble.cwd || chatMode.state || chatMode.error) && <CoderHeader cwd={bubble.cwd} chatMode={chatMode} openEnded={{ runExists, conversationId: bubble.conversationId, onStopped: onRunStopped, onShowBoss: { navigate: onNavigate, before: collapse, show: !!activeBoss(orbitSessions) || !!openRun } }} />}
+        {!lite && (bubble.cwd || chatMode.state || chatMode.error) && <CoderHeader cwd={bubble.cwd} chatMode={chatMode} openEnded={{ runExists, unboundWarning, conversationId: bubble.conversationId, onStopped: onRunStopped, onShowBoss: { navigate: onNavigate, before: collapse, show: !!activeBoss(orbitSessions) || !!openRun } }} />}
         {openRun?.firstTurnFailed && <OpenRunNotice reason={openRun.reason} onDismiss={() => setOpenRun(null)} navigate={onNavigate} beforeShowBoss={collapse} />}
         {!lite && view.task && <TaskHeaderCard key={view.task.taskId} task={view.task} onNavigate={onNavigate} />}
         {!lite && <ChatResetBar onClear={startFresh} onCompact={compact}

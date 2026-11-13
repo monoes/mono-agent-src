@@ -116,21 +116,18 @@ func cheapOpenModeCheck(cfg *globalConfig) (bool, string) {
 	db, err := openReadDB(cfg)
 	if errors.Is(err, errNoReadableSchema) {
 		// no database with the mode's tables: nothing stored, so the default applies
-		if on, note := chatcli.PeercredBindingDefault(); !on {
-			return false, openModeBindingReason(note)
-		}
-		return true, ""
+		return true, "" // nothing stored: the default is on where the machine can run it, and a run goes unbound where it cannot
 	}
 	if err != nil {
 		return false, "the open-ended mode's state cannot be read right now"
 	}
 	defer db.Close()
-	on, note, err := chatcli.PeercredBindingNote(db)
+	st, err := chatcli.PeercredBindingState(db)
 	if err != nil {
 		return false, "the open-ended mode's state cannot be read right now"
 	}
-	if !on {
-		return false, openModeBindingReason(note)
+	if !st.On && st.UnboundReason == "" { // off where the machine could run it: refused; off where it cannot: the run goes unbound
+		return false, openModeBindingReason(st.Note)
 	}
 	var n int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM doomsday_runs WHERE profile = ? AND state <> 'quiescent'`, cfg.ProfileID).Scan(&n); err != nil {
@@ -140,6 +137,16 @@ func cheapOpenModeCheck(cfg *globalConfig) (bool, string) {
 		return false, "an open-ended run is already active in this profile: only one runs at a time"
 	}
 	return true, ""
+}
+
+// unboundReason is why this profile's binding is off because the machine cannot run it ("" when on, or off by the operator's choice
+// on a machine that could run it, or unreadable).
+func unboundReason(db *sql.DB) string {
+	st, err := chatcli.PeercredBindingState(db)
+	if err != nil {
+		return ""
+	}
+	return st.UnboundReason
 }
 
 // openModeBindingReason is why the mode is not offered while binding is off: "not available: <reason>" where the machine cannot run
@@ -209,8 +216,9 @@ func processHostGate(cfg *globalConfig, db *sql.DB) *doomsdaycli.HostGate {
 	}
 	w := doomsdayWiring(cfg, db)
 	g := &doomsdaycli.HostGate{Store: w.Chained(), Fresh: w.Fresh(), Profile: w.Profile, RunDir: w.RunDir, Kernel: w.Kernel, Journal: doomsdaycli.MergeJournal(db, w.Store),
-		Activity:  processRunActivity(w.Profile),
-		BindingOn: func() (bool, error) { return chatcli.PeercredBindingOn(db) },
+		Activity:      processRunActivity(w.Profile),
+		BindingOn:     func() (bool, error) { return chatcli.PeercredBindingOn(db) },
+		UnboundReason: func() string { return unboundReason(db) },
 		InstallHooks: func(st *coderhost.Store, h *coderhost.Host, hk doomsdaycli.Hooks) error {
 			return chatcli.InstallRunHooks(st, h, chatcli.RunHooks{RunStamp: hk.RunStamp, BeforeRelease: hk.BeforeRelease, Place: hk.Place})
 		}}
@@ -248,8 +256,9 @@ func doomsdayWiringReal(cfg *globalConfig, db *sql.DB) doomsdaycli.Wiring {
 			}
 			return chatcli.PeercredBindingOn(db)
 		},
-		VaultKey: doomsdaycli.VaultKeyCheck(db, cfg.ProfileID),
-		RunDir:   stop.RunDir{Dir: runDir},
+		UnboundReason: func(context.Context) string { return unboundReason(db) },
+		VaultKey:      doomsdaycli.VaultKeyCheck(db, cfg.ProfileID),
+		RunDir:        stop.RunDir{Dir: runDir},
 		// The self-tests run next to the real database and in the real run directory, so what they show holds on that volume.
 		Probe:  func() error { return probeAt(filepath.Dir(expandPath(cfg.DBPath)), runDir) },
 		Kernel: doomsdayKernel(),
@@ -304,4 +313,16 @@ func bossRouteInstaller(_ context.Context, st *coderhost.Store, db *sql.DB, dbPa
 	}
 	doomsdayWiring(&globalConfig{DBPath: dbPath, ProfileID: profile}, db).InstallOps(st)
 	return nil
+}
+
+// unboundWarningFor is the status line's source: the warning while this profile's binding is off because the machine cannot run it.
+func unboundWarningFor(cfg *globalConfig) func(context.Context) string {
+	return func(context.Context) string {
+		db, err := openReadDB(cfg)
+		if err != nil {
+			return ""
+		}
+		defer db.Close()
+		return chatcli.UnboundWarning(unboundReason(db))
+	}
 }

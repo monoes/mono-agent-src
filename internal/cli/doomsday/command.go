@@ -40,6 +40,9 @@ type Deps struct {
 	ChatStart func() ChatStarter
 	// FirstTurn reads where the open run's boss's first turn stands, for `status`. Nil: status says nothing about it.
 	FirstTurn func(ctx context.Context) (FirstTurnState, error)
+	// UnboundWarning is "running without peer-credential binding: <reason>" while binding is off because the machine cannot run it, for
+	// `status` of an open run. Nil: status says nothing about it.
+	UnboundWarning func(ctx context.Context) string
 }
 
 func (d Deps) engine() Engine {
@@ -187,6 +190,11 @@ func (d Deps) newStart() *cobra.Command {
 					return refusal(err)
 				}
 			}
+			if w, ok := e.(UnboundWarner); ok {
+				if msg := w.UnboundWarning(cmd.Context()); msg != "" {
+					fmt.Fprintln(d.humanOut(cmd), "warning: "+msg)
+				}
+			}
 			ch, canon, err := f.build(cmd, e)
 			if err != nil {
 				return err
@@ -238,6 +246,9 @@ func (d Deps) newStart() *cobra.Command {
 				return json.NewEncoder(out).Encode(entry)
 			}
 			fmt.Fprintf(out, "run %s started (charter %s, generation %d)\n", entry.RunID, short(entry.Hash), entry.Generation)
+			if entry.Warning != "" {
+				fmt.Fprintln(out, "warning: "+entry.Warning)
+			}
 			if entry.AnchorBound {
 				fmt.Fprintln(out, "anchor-bound: yes")
 			} else {
@@ -413,6 +424,9 @@ func (d Deps) newStatus() *cobra.Command {
 				}
 				s.FirstTurn, s.FirstTurnError = ft.State, ft.Error
 			}
+			if s.Active && d.UnboundWarning != nil {
+				s.Warning = d.UnboundWarning(cmd.Context())
+			}
 			if d.json() {
 				return json.NewEncoder(out).Encode(s)
 			}
@@ -430,6 +444,9 @@ func (d Deps) newStatus() *cobra.Command {
 			}
 			fmt.Fprintf(out, "run %s: %s (charter %s, generation %d, %d members); lines: %s\n",
 				s.RunID, s.State, short(s.Hash), s.Generation, s.Members, strings.Join(s.Lines, ", "))
+			if s.Warning != "" {
+				fmt.Fprintf(out, "warning: %s\n", s.Warning)
+			}
 			if s.AuditHead != "" {
 				fmt.Fprintf(out, "audit: %d rows, head %s\n", s.AuditSeq, s.AuditHead)
 			}

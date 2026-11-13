@@ -42,6 +42,9 @@ type HostGate struct {
 	// BindingOn says whether security.peercred_binding is on. A run needs bound turns ("no run without binding"): nil, an
 	// error and false all refuse a turn start while a run is open.
 	BindingOn func() (bool, error)
+	// UnboundReason says why binding is off because this machine cannot run it ("" otherwise). While it is set a run's unbound turn is
+	// allowed (the run started with a warning); nothing else about the turn's gate changes. Nil: an unbound turn is always refused.
+	UnboundReason func() string
 	// HostLock takes the run directory's host lock (Q8: one host per database); nil is stop.AcquireHost. It is taken when
 	// the first gate of a run is made and held until the process ends, so a Stop or a merge recovery that can take it knows
 	// no host is alive.

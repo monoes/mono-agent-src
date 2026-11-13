@@ -33,6 +33,8 @@ type Entry struct {
 	// AnchorBound: the OS secret store holds the run's anchor. When false, AnchorNote says why rollback detection is weaker.
 	AnchorBound bool   `json:"anchor_bound"`
 	AnchorNote  string `json:"anchor_note,omitempty"`
+	// Warning is set when the run started without peer-credential binding (the machine cannot run the service).
+	Warning string `json:"warning,omitempty"`
 }
 
 // StopOutcome is what Stop did, in the order it did it.
@@ -77,6 +79,8 @@ type Status struct {
 	FinishReason string `json:"finish_reason,omitempty"`
 	FinishRound  int64  `json:"finish_round,omitempty"`
 	// FirstTurn and FirstTurnError say where the boss's first turn stands (see FirstTurnState); only `status` fills them.
+	// Warning is "running without peer-credential binding: <reason>" while the open run goes unbound; only `status` fills it.
+	Warning        string `json:"warning,omitempty"`
 	FirstTurn      string `json:"first_turn,omitempty"`
 	FirstTurnError string `json:"first_turn_error,omitempty"`
 }
@@ -131,6 +135,11 @@ type BossChecker interface {
 
 // BindingRequirer is an Engine that also knows whether peer-credential binding is on: a run needs bound turns, so
 // `start` asks it before showing the charter (the StoreEngine asks again in Enter).
+// UnboundWarner is an Engine that can say a run goes without peer-credential binding on this machine ("" when it does not).
+type UnboundWarner interface {
+	UnboundWarning(ctx context.Context) string
+}
+
 type BindingRequirer interface {
 	RequireBinding(ctx context.Context) error
 }

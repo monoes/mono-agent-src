@@ -105,6 +105,11 @@ export function CoderHeader({ cwd, chatMode, openEnded }) {
       {cwd && <CoderBadge />}
       {chatMode && <ChatModeSelector chatMode={chatMode} />}
       {chatMode && openEnded && <OpenEndedStop chatMode={chatMode} {...openEnded} />}
+      {openEnded?.unboundWarning && (
+        <span role="status" data-testid="open-unbound-chip" title={openEnded.unboundWarning} style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, color: '#fff', background: 'var(--red)', borderRadius: 4, padding: '2px 6px' }}>
+          {openEnded.unboundWarning}
+        </span>
+      )}
       {chatMode && openEnded?.runExists === true && <ShowBossLink {...(openEnded.onShowBoss || {})} />}
       {cwd && <><span title={cwd} data-testid="coder-cwd" style={{
         flex: '1 1 160px', minWidth: 0, fontFamily: mono, fontSize: 10, color: '#e2e8f0',

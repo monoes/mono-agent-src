@@ -245,7 +245,7 @@ func bindingStatusText(st coderStatus) string {
 	if st.PeercredBindingEffective {
 		return "on (the default where the machine can run the binding service; `coder set --peercred-binding off` turns it off)"
 	}
-	return "off (" + st.PeercredBindingNote + ")"
+	return "off (" + st.PeercredBindingNote + "); an open-ended run here starts anyway, " + UnboundWarning(st.PeercredBindingUnbound)
 }
 
 func onOff(on bool) string {
@@ -398,6 +398,8 @@ type coderStatus struct {
 	PeercredBindingEffective bool   `json:"peercredBindingEffective"`
 	PeercredBindingSource    string `json:"peercredBindingSource"`
 	PeercredBindingNote      string `json:"peercredBindingNote,omitempty"`
+	// PeercredBindingUnbound is why an open-ended run here would run without binding ("" when binding is on, or off by the operator).
+	PeercredBindingUnbound string `json:"peercredBindingUnbound,omitempty"`
 
 	caps *monomind.CapabilitySet
 	scan *monomind.ScanResult // nil when the scan failed
@@ -422,6 +424,9 @@ func currentCoderStatus(cmd *cobra.Command, s coderSettings) coderStatus {
 	st.Box = s.boxMode()
 	rb := s.resolveBinding()
 	st.PeercredBindingEffective, st.PeercredBindingSource, st.PeercredBindingNote = rb.On, rb.Source, rb.Note
+	if !rb.On {
+		st.PeercredBindingUnbound = bindingReadiness()
+	}
 	set, err := capabilityProbe(cmd)
 	if err == nil && set != nil {
 		st.MonomindVersion = set.Version

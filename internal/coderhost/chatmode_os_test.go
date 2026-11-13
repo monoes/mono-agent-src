@@ -20,7 +20,7 @@ func TestOpenModeFollowsTheBindingPerOS(t *testing.T) {
 		{"darwin", nil, false, OpenModeMacOSReason},
 		{"darwin", errors.New("the kernel cannot tell which process connected"), false, OpenModeMacOSReason},
 		{"windows", nil, true, ""},
-		{"windows", errors.New("this Windows cannot tell which process connected to a local socket"), false, "not available on this machine: the run needs the peer-credential binding, and this Windows cannot tell which process connected to a local socket"},
+		{"windows", errors.New("this Windows cannot tell which process connected to a local socket"), true, ""}, // offered: the run starts unbound, with a warning
 	}
 	for _, c := range cases {
 		t.Run(c.goos+"/"+fmt.Sprint(c.ready == nil), func(t *testing.T) {
@@ -35,17 +35,19 @@ func TestOpenModeFollowsTheBindingPerOS(t *testing.T) {
 	}
 }
 
-// Where the binding service cannot run (Linux: an old kernel, another pid namespace; macOS: no LOCAL_PEERPID; Windows: no peer-pid query) the machine
-// is refused with the service's own words.
-func TestOpenModeWithoutBindingKeepsTheServiceReason(t *testing.T) {
+// Where the binding service cannot run (Linux: an old kernel, another pid namespace; Windows: no peer-pid query) the mode is
+// STILL offered, and OpenModeBindingWarning gives the service's own words for the "running without peer-credential binding" line.
+func TestOpenModeWithoutBindingIsOfferedWithTheServiceReasonAsAWarning(t *testing.T) {
 	for _, goos := range []string{"linux", "windows"} { // macOS is refused before the service is asked (its own test)
 		t.Run(goos, func(t *testing.T) {
 			defer SetOpenModeReady(true)()
 			defer SetOpenModeCheck(func() (bool, string) { return true, "" })()
 			defer SetOpenModeBindingProbe(goos, func() error { return errors.New("needs a newer kernel") })()
-			ok, why := OpenModeAvailability()
-			if ok || why == "" || !strings.Contains(why, "needs a newer kernel") {
-				t.Fatalf("ok=%v reason=%q", ok, why)
+			if ok, why := OpenModeAvailability(); !ok {
+				t.Fatalf("not offered: %q", why)
+			}
+			if w := OpenModeBindingWarning(); !strings.Contains(w, "needs a newer kernel") {
+				t.Fatalf("warning = %q", w)
 			}
 		})
 	}

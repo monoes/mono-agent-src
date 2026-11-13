@@ -112,23 +112,39 @@ func TestOpenModeFollowsTheStoredBindingSetting(t *testing.T) {
 	if ok, _ := coderhost.OpenModeAvailability(); ok {
 		t.Fatal("switched off again: the mode is still offered")
 	}
+	// Where the machine cannot run the binding service the mode is still offered: the run starts unbound, with a warning.
 	restore := coderhost.SetOpenModeBindingProbe("windows", func() error { return errors.New("no service here") })
 	defer restore()
 	setBindingStored(t, db, true)
-	if ok, reason := coderhost.OpenModeAvailability(); ok || !strings.Contains(reason, "no service here") {
-		t.Fatalf("cannot run binding: ok=%v reason=%q", ok, reason)
+	if ok, reason := coderhost.OpenModeAvailability(); !ok {
+		t.Fatalf("cannot run binding: the mode must still be offered: %q", reason)
 	}
 }
 
-// Where the machine cannot run the binding service the unset default is off and the mode says "not available: <reason>"; the
-// read paths still work (nothing refuses or fails).
-func TestOpenModeUnsetDefaultDegradesWhereBindingCannotRun(t *testing.T) {
+// Where the machine cannot run the binding service the unset default is off and the mode is STILL offered (the start goes unbound
+// with a warning); an explicit off where the machine could run it is not offered, as before.
+func TestOpenModeIsOfferedWhereBindingCannotRunAndRefusedForAnExplicitOffWhereItCan(t *testing.T) {
 	procbind.ForTestSetIssuance(t, true)
 	procbind.ForTestSetReady(t, errors.New("old kernel"))
-	chatPathSetup(t, true)
-	ok, reason := coderhost.OpenModeAvailability()
-	if ok || !strings.Contains(reason, "not available") || !strings.Contains(reason, "old kernel") {
-		t.Fatalf("ok=%v reason=%q", ok, reason)
+	cfg, _ := chatPathSetup(t, true)
+	if ok, reason := coderhost.OpenModeAvailability(); !ok {
+		t.Fatalf("unsupported machine, nothing stored: not offered: %q", reason)
+	}
+	if got := unboundWarningFor(cfg)(context.Background()); !strings.Contains(got, "running without peer-credential binding") || !strings.Contains(got, "old kernel") {
+		t.Fatalf("warning = %q", got)
+	}
+	procbind.ForTestSetReady(t, nil)
+	db, err := initDB(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	setBindingStored(t, db, false)
+	if ok, _ := coderhost.OpenModeAvailability(); ok {
+		t.Fatal("explicit off on a machine that can bind: the mode is offered")
+	}
+	if got := unboundWarningFor(cfg)(context.Background()); got != "" {
+		t.Fatalf("a machine that can bind has no unbound warning: %q", got)
 	}
 }
 

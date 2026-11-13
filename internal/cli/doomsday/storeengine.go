@@ -31,6 +31,9 @@ type StoreEngine struct {
 	// Binding says whether security.peercred_binding is on. A run needs bound turns: nil, an error and false all
 	// refuse the start.
 	Binding func(ctx context.Context) (bool, error)
+	// UnboundReason is non-empty when binding is off because this machine cannot run the binding service: the run then starts
+	// without binding (with a warning and an audit row) instead of being refused. Nil: binding off always refuses.
+	UnboundReason func(ctx context.Context) string
 	// CreateUnit makes the run's containment unit and records it durably, after the charter is validated and
 	// before the store records the run: no unit, no run (note 13.2 section 4). The discard it returns stops the
 	// unit again if the store then refuses the entry. Nil refuses the start: there is no mode without containment.
@@ -111,11 +114,34 @@ func (e *StoreEngine) RequireBinding(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("no run without binding: whether peer-credential binding is on cannot be read: %w", err)
 	}
-	if !on {
+	if !on && e.UnboundWarning(ctx) == "" {
 		return ErrBindingOff
 	}
 	return nil
 }
+
+// UnboundWarning is "running without peer-credential binding: <reason>" when binding is off because this machine cannot run the
+// service (the run then starts anyway), "" otherwise.
+func (e *StoreEngine) UnboundWarning(ctx context.Context) string {
+	if e.UnboundReason == nil {
+		return ""
+	}
+	if r := e.UnboundReason(ctx); r != "" {
+		return "running without peer-credential binding: " + r
+	}
+	return ""
+}
+
+// truncateReason bounds the reason stored in the audit row.
+func truncateReason(s string) string {
+	if len(s) > 200 {
+		return s[:200]
+	}
+	return s
+}
+
+// KindRunUnbound is the audit row (one line in the run's feed) that a run started without peer-credential binding.
+const KindRunUnbound = "run.unbound"
 
 func (e *StoreEngine) Containment() error {
 	if e.ContainmentProbe == nil {
@@ -203,12 +229,20 @@ func (e *StoreEngine) Enter(ctx context.Context, canon Canon, expectedHash strin
 	if _, err := e.Store.AppendAudit(ctx, run.Profile, run.Generation, "start", fmt.Sprintf("ack=%s lines=%d", ack.Kind, ack.Lines)); err != nil {
 		return Entry{}, recorded(fmt.Errorf("the run started but its audit record failed: %w", err))
 	}
+	warning := ""
+	if on, berr := e.Binding(ctx); berr == nil && !on {
+		if warning = e.UnboundWarning(ctx); warning != "" {
+			if _, err := e.Store.AppendAudit(ctx, run.Profile, run.Generation, KindRunUnbound, "unbound: "+truncateReason(e.UnboundReason(ctx))); err != nil {
+				return Entry{}, recorded(fmt.Errorf("the run started but its audit record of running without binding failed: %w", err))
+			}
+		}
+	}
 	if e.AfterEnter != nil {
 		if err := e.AfterEnter(ctx, run.Generation); err != nil {
 			return Entry{}, recorded(fmt.Errorf("run %s/%d started but its stop secret could not be created (run `doomsday stop`): %w", run.Profile, run.Generation, err))
 		}
 	}
-	ent := Entry{RunID: fmt.Sprintf("%s/%d", run.Profile, run.Generation), CharterID: run.CharterID, Hash: canon.Hash, Generation: run.Generation}
+	ent := Entry{RunID: fmt.Sprintf("%s/%d", run.Profile, run.Generation), CharterID: run.CharterID, Hash: canon.Hash, Generation: run.Generation, Warning: warning}
 	if e.Anchored != nil {
 		bound, why, err := e.Anchored(ctx, run.Generation)
 		if err != nil {
