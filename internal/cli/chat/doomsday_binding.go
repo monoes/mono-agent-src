@@ -1,6 +1,10 @@
 package chat
 
-import "database/sql"
+import (
+	"database/sql"
+
+	"github.com/monoes/mono-agent/internal/procbind"
+)
 
 // PeercredBindingOn reports whether peer-credential binding is on (stored on, or unset on a machine that can run it), read with the loader every other reader of the
 // coder settings uses. A settings object that cannot be read as a whole is an error: whether the setting is on is not known then.
@@ -39,12 +43,13 @@ func PeercredBindingState(db *sql.DB) (BindingState, error) {
 	if err != nil {
 		return BindingState{}, err
 	}
-	r := s.resolveBinding()
+	why := startReadiness() // ONE evaluation for this decision, uncached and doubled
+	r := s.resolveWith(func() string { return why })
 	st := BindingState{On: r.On, Note: r.Note}
 	if !r.On {
-		st.UnboundReason = bindingReadiness()
+		st.UnboundReason = why
 	} else if r.Explicit {
-		st.ExplicitOnBroken = bindingReadiness()
+		st.ExplicitOnBroken = why
 	}
 	return st, nil
 }
@@ -55,4 +60,18 @@ func UnboundWarning(reason string) string {
 		return ""
 	}
 	return "running without peer-credential binding: " + reason
+}
+
+// startReadiness is the machine's reason for the START decision of an open-ended run: the capability probe is run uncached, twice, and
+// the machine counts as unable only if BOTH fail with the same reason. A single failed probe (a temp-dir socket on Windows) must not
+// start a run unbound on a machine that could bind. Per-turn paths use the 5 s cached bindingReadiness.
+var startReadiness = func() string {
+	a := procbind.RefusalUncached(true)
+	if a == "" {
+		return ""
+	}
+	if b := procbind.RefusalUncached(true); b == a {
+		return a
+	}
+	return ""
 }

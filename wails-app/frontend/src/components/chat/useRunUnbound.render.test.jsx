@@ -36,4 +36,14 @@ describe('the unbound run chip', () => {
     render(<Probe api={api} runExists />)
     expect(await screen.findByTestId('open-unbound-chip')).toHaveTextContent('binding status unknown')
   })
+  it('uses a readable colour pair for the unknown chip (dark text on the warning yellow) and the CLI read failure is translated', async () => {
+    const api = { status: vi.fn().mockResolvedValue({ error: 'timeout' }) }
+    render(<Probe api={api} runExists />)
+    const chip = await screen.findByTestId('open-unbound-chip')
+    expect(chip.style.color).toBe('rgb(26, 26, 26)') // #1a1a1a on #eab308 is about 9:1; white on it was 1.9:1
+    cleanup()
+    const api2 = { status: vi.fn().mockResolvedValue({ active: true, warning: 'peer-credential binding status of the open run is unknown: database is locked' }) }
+    render(<Probe api={api2} runExists />)
+    expect(await screen.findByTestId('open-unbound-chip')).toHaveTextContent('peer-credential binding status of the open run is unknown: database is locked')
+  })
 })

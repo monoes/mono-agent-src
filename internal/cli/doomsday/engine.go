@@ -22,7 +22,13 @@ type Canon struct {
 type Ack struct {
 	Kind  string // "terminal": the typed phrase; "script": --yes-i-lift with the full hash; "gui": the phrase typed in the app form, re-derived by the CLI
 	Lines int    // lifted lines the acknowledgement named
+	// Expect is the start mode the person's confirmation showed ("bound" or "unbound"; empty: none was shown, as in a terminal): Enter
+	// refuses with ErrModeChanged when its own decision at entry differs.
+	Expect string
 }
+
+// ErrModeChanged is a start refused because the machine's binding state changed between the confirmation and the entry.
+var ErrModeChanged = errors.New("machine state changed: confirm again")
 
 // Entry is a started run.
 type Entry struct {

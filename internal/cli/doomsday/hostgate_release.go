@@ -43,7 +43,7 @@ func (g *HostGate) requireBound(generation int64) error {
 		return refuse("no run without binding: whether turn binding is on cannot be read: %v", err)
 	}
 	if !on && !g.unboundAllowed(generation) {
-		return refuse("no run without binding: peer-credential binding is off; switch it on (coder set --peercred-binding on)")
+		return refuse("no run without binding: this run started with peer-credential binding and it is not available now; `doomsday stop` ends the run if this keeps failing")
 	}
 	return nil
 }
@@ -79,7 +79,7 @@ func (g *HostGate) BeforeRelease(ctx context.Context, _, _, turnID string, bound
 		return nil
 	}
 	if !bound && !g.unboundAllowed(run.Generation) {
-		return refuse("no run without binding: this turn is not peer-credential bound")
+		return refuse("no run without binding: this turn is not peer-credential bound, and this run did not start unbound; `doomsday stop` ends the run if this keeps failing")
 	}
 	// The gate's own lock covers the cancellation check and the in-memory ticket steps only (Admit, BeginStart): the registry
 	// write of Started (an audit append with retries and an fsync) happens after it is released, so one slow write never queues

@@ -226,11 +226,14 @@ var bindingReadiness = func() string { return procbind.Refusal(true) }
 
 // resolveBinding is the ONE place that turns the stored setting into on or off. Unset follows the machine: on when it can run
 // the service, otherwise off with the reason. A stored value is taken as stored (junk counts as on, as bindingFlag reads it).
-func (s coderSettings) resolveBinding() bindingResolution {
+func (s coderSettings) resolveBinding() bindingResolution { return s.resolveWith(bindingReadiness) }
+
+// resolveWith is resolveBinding with the machine's reason supplied (the start decision asks an uncached, doubled probe).
+func (s coderSettings) resolveWith(readiness func() string) bindingResolution {
 	if s.PeercredBinding != bindingUnset {
 		return bindingResolution{On: s.PeercredBinding == bindingOn, Explicit: true, Source: bindingSourceSet}
 	}
-	if why := bindingReadiness(); why != "" {
+	if why := readiness(); why != "" {
 		return bindingResolution{Source: bindingSourceDefault, Note: "on by default, but this machine cannot run it (" + why + "), so it stays off here"}
 	}
 	return bindingResolution{On: true, Source: bindingSourceDefault}

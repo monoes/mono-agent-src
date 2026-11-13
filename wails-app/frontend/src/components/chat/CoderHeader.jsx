@@ -109,7 +109,7 @@ export function CoderHeader({ cwd, chatMode, openEnded }) {
       {chatMode && <ChatModeSelector chatMode={chatMode} />}
       {chatMode && openEnded && <OpenEndedStop chatMode={chatMode} {...openEnded} />}
       {(openEnded?.unboundWarning || openEnded?.unboundUnknown) && (
-        <span role="status" data-testid="open-unbound-chip" title={openEnded.unboundWarning || ''} style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, color: '#fff', background: openEnded.unboundWarning ? 'var(--red)' : 'var(--yellow)', borderRadius: 4, padding: '2px 6px' }}>
+        <span role="status" data-testid="open-unbound-chip" title={openEnded.unboundWarning || ''} style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, color: openEnded.unboundWarning ? '#fff' : '#1a1a1a', background: openEnded.unboundWarning ? '#b91c1c' : 'var(--yellow)', borderRadius: 4, padding: '2px 6px' }}>
           {openEnded.unboundWarning ? unboundText(t, openEnded.unboundWarning) : t('openStart.unboundUnknown')}
         </span>
       )}

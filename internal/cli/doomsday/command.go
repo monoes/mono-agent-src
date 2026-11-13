@@ -176,7 +176,7 @@ func (d Deps) newStart() *cobra.Command {
 	var yes bool
 	var hash, guiPhrase string
 	var boss int64
-	var chat string
+	var chat, expect string
 	c := &cobra.Command{
 		Use:   "start",
 		Short: "Lift the lines of a charter and start a run (the user's own)",
@@ -235,6 +235,10 @@ func (d Deps) newStart() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if expect != "" && expect != "bound" && expect != "unbound" {
+				return clicore.InvalidInput("--expect-mode must be bound or unbound")
+			}
+			ack.Expect = expect
 			if chat != "" {
 				return d.startFromChat(cmd, e, ch, canon, ack, chat)
 			}
@@ -271,6 +275,8 @@ func (d Deps) newStart() *cobra.Command {
 	c.Flags().StringVar(&hash, "hash", "", "The full charter hash, for --yes-i-lift")
 	c.Flags().StringVar(&guiPhrase, "gui-phrase", "", "The phrase typed in the app's start form; the CLI re-derives it and compares (recorded as a gui acknowledgement)")
 	_ = c.Flags().MarkHidden("gui-phrase")
+	c.Flags().StringVar(&expect, "expect-mode", "", "The start mode the app's confirmation showed (bound or unbound); the entry refuses if the machine now gives the other")
+	_ = c.Flags().MarkHidden("expect-mode")
 	c.Flags().Int64Var(&boss, "boss-session", 0, "The top-level lead mission (session id) that is the run's boss; without it no boss tool works")
 	c.Flags().StringVar(&chat, "chat", "", "The coder chat (open mode) to start from: makes its boss session, funds it from the charter, starts the run and queues the boss's first turn (the app's start)")
 	_ = c.Flags().MarkHidden("chat")

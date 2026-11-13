@@ -186,6 +186,15 @@ func (e *StoreEngine) Enter(ctx context.Context, canon Canon, expectedHash strin
 	if err != nil {
 		return Entry{}, err
 	}
+	if ack.Expect != "" {
+		actual := "bound"
+		if unboundReason != "" {
+			actual = "unbound"
+		}
+		if ack.Expect != actual {
+			return Entry{}, fmt.Errorf("%w (the confirmation showed a %s start and this machine now gives a %s one); nothing was started", ErrModeChanged, ack.Expect, actual)
+		}
+	}
 	// The probe is part of the entry itself, not of the CLI verb: no starter can skip it. It also builds the witness
 	// (the pinned connection), and runs before anything is created.
 	if err := e.Containment(); err != nil {

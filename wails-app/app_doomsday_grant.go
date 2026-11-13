@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -251,7 +252,8 @@ func (f startFacts) dialogBody(chat string) string {
 		warn = f.processCheck + " " // as an argument below, never part of the format
 	}
 	if f.unbound != "" {
-		warn = strings.ToUpper(f.unbound[:1]) + f.unbound[1:] + ". " + warn // first: the person must see it before anything else
+		r, n := utf8.DecodeRuneInString(f.unbound)
+		warn = string(unicode.ToUpper(r)) + f.unbound[n:] + ". " + warn // first: the person must see it before anything else
 	}
 	return fmt.Sprintf("%sStart an open-ended run in %s: %d lifted lines (%s), charter %s, budget %s. %d success criteria. Limits: tree depth %d, live per tree %d, max concurrent %d, max total %d. "+
 		"Models: boss %s, verifier %s. The boss may approve by itself: %s. %s It acts as you without asking for approval. Continue? "+

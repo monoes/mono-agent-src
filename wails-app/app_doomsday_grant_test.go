@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // A render's answer, as the CLI prints it: what the native dialog is built from (never from the page's text).
@@ -826,5 +827,23 @@ func TestTheDialogBodyShowsTheUnboundWarningFirst(t *testing.T) {
 	f, _ = factsOf(raw)
 	if body := f.dialogBody("chat-1"); strings.Contains(body, "peer-credential") {
 		t.Fatalf("a bound start's dialog mentions binding:\n%s", body)
+	}
+}
+
+// The dialog's leading warning is capitalised by rune, not by byte: a reason that starts with a multi-byte letter stays valid UTF-8.
+func TestTheDialogUnboundWarningIsRuneSafe(t *testing.T) {
+	var m map[string]any
+	if err := json.Unmarshal([]byte(previewDoc(gHash, []string{"spending"}, "5.000000 USD for the whole run.")), &m); err != nil {
+		t.Fatal(err)
+	}
+	m["unbound_warning"] = "élan: running without peer-credential binding"
+	raw, _ := json.Marshal(m)
+	f, err := factsOf(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := f.dialogBody("chat-1")
+	if !utf8.ValidString(body) || !strings.HasPrefix(body, "Élan: running without peer-credential binding.") {
+		t.Fatalf("%q", body)
 	}
 }

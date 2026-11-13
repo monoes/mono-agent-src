@@ -3,10 +3,13 @@ import { controlRoomApi } from '../../services/controlRoom.js'
 
 const POLL_MS = 30000
 const PREFIX = 'running without peer-credential binding: '
+const UNKNOWN = 'peer-credential binding status of the open run is unknown: '
 
 // unboundText shows the CLI's warning in the app's language: the reason is the CLI's, the sentence around it is translated.
 export function unboundText(t, warning) {
-  return warning && warning.startsWith(PREFIX) ? t('openStart.unbound', { reason: warning.slice(PREFIX.length) }) : warning
+  if (warning && warning.startsWith(PREFIX)) return t('openStart.unbound', { reason: warning.slice(PREFIX.length) })
+  if (warning && warning.startsWith(UNKNOWN)) return t('openStart.unboundStatusUnknown', { reason: warning.slice(UNKNOWN.length) })
+  return warning
 }
 
 // useRunUnbound reads `doomsday status` while the profile has an open-ended run and returns {warning, unknown}: the CLI's warning

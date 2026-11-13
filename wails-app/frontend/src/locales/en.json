@@ -2678,6 +2678,7 @@
   "openStart": {
     "unbound": "running without peer-credential binding: {{reason}}",
     "unboundUnknown": "binding status unknown",
+    "unboundStatusUnknown": "peer-credential binding status of the open run is unknown: {{reason}}",
     "loading": "Loading...",
     "entryTitle": "Open-ended run",
     "noApproval": "There is no human approval during the run. Nothing will ask you: the boss agent answers its own questions and acts within the authority you lift below.",

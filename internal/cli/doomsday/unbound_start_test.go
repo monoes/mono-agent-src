@@ -112,6 +112,9 @@ func TestHostGateTiesTheUnboundAllowanceToTheRunsOwnStart(t *testing.T) {
 		if !refused(err) || r.hl.released != 0 {
 			t.Fatalf("a run that started bound let an unbound turn through: %v", err)
 		}
+		if !strings.Contains(err.Error(), "doomsday stop") {
+			t.Fatalf("the refusal does not name the way out: %v", err)
+		}
 	}
 }
 
@@ -176,4 +179,32 @@ func renderedHash(out string) string {
 		}
 	}
 	return ""
+}
+
+// Enter refuses when the start mode the confirmation showed differs from the mode it decides at entry, and goes on when they match.
+// Revert proof: dropping the Expect check in Enter turns the mismatch case red.
+func TestEnterRefusesWhenTheMachineStateChangedSinceTheConfirmation(t *testing.T) {
+	for name, c := range map[string]struct {
+		expect, why string
+		refused     bool
+	}{
+		"showed unbound, now bound":    {"unbound", "", true},
+		"showed bound, now unbound":    {"bound", unboundWhy, true},
+		"showed unbound, still":        {"unbound", unboundWhy, false},
+		"showed bound, still":          {"bound", "", false},
+		"terminal (nothing was shown)": {"", unboundWhy, false},
+	} {
+		w, db := newWire(t, func() error { return nil }, fakeKernel{}, nil)
+		w.w.Binding = func(context.Context) (bool, error) { return c.why == "", nil }
+		w.w.UnboundReason = func(context.Context) string { return c.why }
+		e := w.w.Engine()
+		canon, err := e.Canonical(context.Background(), mustCharter(t, w.charter))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = e.Enter(context.Background(), canon, canon.Hash, Ack{Kind: "gui", Expect: c.expect})
+		if c.refused != errors.Is(err, ErrModeChanged) || (c.refused && count(t, db, `SELECT COUNT(*) FROM doomsday_runs`) != 0) {
+			t.Fatalf("%s: err=%v", name, err)
+		}
+	}
 }

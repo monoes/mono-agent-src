@@ -95,7 +95,7 @@ export function OpenStartForm({ getChat = null, onChat, onStarted }) {
         )}
       </section>
       {entry.mode_available && entry.warning && (
-        <p role="alert" data-testid="open-unbound-warning" style={{ ...small, color: '#fff', background: 'var(--red)', borderRadius: 4, padding: '6px 8px', fontWeight: 700 }}>
+        <p role="alert" data-testid="open-unbound-warning" style={{ ...small, color: '#fff', background: '#b91c1c', borderRadius: 4, padding: '6px 8px', fontWeight: 700 }}>
           {unboundText(t, entry.warning)}
         </p>
       )}

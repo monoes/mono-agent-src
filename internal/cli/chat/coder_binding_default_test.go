@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"errors"
+	"github.com/monoes/mono-agent/internal/procbind"
 	"strings"
 	"testing"
 )
@@ -170,8 +171,37 @@ func TestRouteRefusesUnderABoundRunAndGoesOnUnderAnUnboundOne(t *testing.T) {
 			addRun(t, g, c.unbound)
 		}
 		_, err := g.Start("p", "c", "t", "m", nil, "")
+		if c.refused && (err == nil || !strings.Contains(err.Error(), "doomsday stop")) { // the way out of a stuck bound run is named
+			t.Fatalf("%s: the refusal does not name `doomsday stop`: %v", name, err)
+		}
 		if c.refused != (err != nil) || (c.refused && len(inner.calls) != 0) || (!c.refused && len(inner.calls) != 1) {
 			t.Fatalf("%s: err=%v calls=%d", name, err, len(inner.calls))
+		}
+	}
+}
+
+// The START decision probes uncached, twice: one failed probe (a flapping temp-dir socket on Windows) gives a bound run on a machine
+// that could bind; only two failures with the same reason give an unbound run with the warning. Revert proof: a single uncached probe
+// (or the cached one) in startReadiness turns the first case red.
+func TestTheStartDecisionNeedsTwoMatchingFailedProbes(t *testing.T) {
+	procbind.ForTestSetIssuance(t, true)
+	g, _ := gateRig(t, "")
+	for name, c := range map[string]struct {
+		probes   []error
+		unbound  bool
+		wantOn   bool
+		wantCall int
+	}{
+		"one failure then success":   {[]error{errors.New("temp dir"), nil}, false, true, 2},
+		"two matching failures":      {[]error{errors.New("temp dir"), errors.New("temp dir")}, true, false, 2},
+		"two different failures":     {[]error{errors.New("temp dir"), errors.New("listen")}, false, true, 2},
+		"success is asked only once": {[]error{nil}, false, true, 1},
+	} {
+		calls := 0
+		procbind.ForTestSetReadyFunc(t, func() error { e := c.probes[calls%len(c.probes)]; calls++; return e })
+		st, err := PeercredBindingState(g.db)
+		if err != nil || st.On == c.unbound || (st.UnboundReason != "") != c.unbound || st.On != c.wantOn || calls != c.wantCall {
+			t.Fatalf("%s: %+v calls=%d err=%v", name, st, calls, err)
 		}
 	}
 }

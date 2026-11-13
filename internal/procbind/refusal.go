@@ -29,6 +29,21 @@ func cachedReady() error {
 	return readyErr
 }
 
+// RefusalUncached is Refusal with the machine probe run now, never from the cache: the decision to START an open-ended run asks it
+// (twice) so one failed probe cannot make a run unbound on a machine that could bind. Per-turn paths use Refusal.
+func RefusalUncached(serviceRunning bool) string {
+	err := ready()
+	switch {
+	case !issuanceReady():
+		return "this build does not issue bound tokens yet"
+	case err != nil:
+		return "this machine cannot run it: " + err.Error()
+	case !serviceRunning:
+		return "its service is not running"
+	}
+	return ""
+}
+
 func resetReadyCache() {
 	readyMu.Lock()
 	readyValid = false

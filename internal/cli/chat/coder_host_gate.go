@@ -91,7 +91,7 @@ func (g *gatedLauncher) route(profile string) (l coderhost.Launcher, bound bool,
 				return nil, false, &bindingRefusal{"the turn was not started: whether an open-ended run that needs bound turns is open could not be read: " + err.Error()}
 			}
 			if n > 0 {
-				return nil, false, &bindingRefusal{"the turn was not started: an open-ended run that started with peer-credential binding is open, and the binding cannot be used now (" + why + "); no run without binding"}
+				return nil, false, &bindingRefusal{"the turn was not started: an open-ended run that started with peer-credential binding is open, and the binding cannot be used now (" + why + "); no run without binding; `doomsday stop` ends the run if the machine check keeps failing"}
 			}
 			return g.inner, false, nil
 		}
@@ -111,7 +111,7 @@ func (g *gatedLauncher) route(profile string) (l coderhost.Launcher, bound bool,
 				return g.inner, false, nil
 			}
 		}
-		return nil, false, &bindingRefusal{msg}
+		return nil, false, &bindingRefusal{msg + " (an open-ended run is open and needs bound turns, so this turn is not run without binding; `doomsday stop` ends the run if this keeps failing)"}
 	}
 	if g.insideTurn != nil {
 		inside, err := g.insideTurn()
