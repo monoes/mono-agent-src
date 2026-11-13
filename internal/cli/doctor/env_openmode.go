@@ -37,13 +37,15 @@ func openModeFacts(db *sql.DB, profile, dbPath string, extra OpenModeExtra) heal
 	if db == nil {
 		return f
 	}
-	if on, err := chat.PeercredBindingOn(db); err != nil {
-		if !noTable(err) { // a database from before the tables: nothing stored, so the binding is off
+	st, err := chat.PeercredBindingState(db)
+	if err != nil {
+		if !noTable(err) {
 			f.BindingErr = err.Error()
+			return f
 		}
-	} else {
-		f.BindingOn = on
+		st = chat.PeercredBindingDefaultState() // a database from before the tables: nothing stored, so the default applies
 	}
+	f.BindingOn, f.BindingUnbound, f.BindingExplicitOnBroken = st.On, st.UnboundReason, st.ExplicitOnBroken
 	return f
 }
 

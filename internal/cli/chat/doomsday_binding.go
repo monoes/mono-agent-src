@@ -44,6 +44,13 @@ func PeercredBindingState(db *sql.DB) (BindingState, error) {
 	if err != nil {
 		return BindingState{}, err
 	}
+	return bindingStateOf(s), nil
+}
+
+// PeercredBindingDefaultState is the state of a profile with nothing stored (a database from before the settings table).
+func PeercredBindingDefaultState() BindingState { return bindingStateOf(coderSettings{}) }
+
+func bindingStateOf(s coderSettings) BindingState {
 	why := startReadiness() // ONE evaluation for this decision, uncached and doubled
 	r := s.resolveWith(func() string { return why })
 	st := BindingState{On: r.On, Note: r.Note}
@@ -52,7 +59,7 @@ func PeercredBindingState(db *sql.DB) (BindingState, error) {
 	} else if r.Explicit {
 		st.ExplicitOnBroken = why
 	}
-	return st, nil
+	return st
 }
 
 // UnboundWarning is the one line shown wherever a run goes without binding.
