@@ -111,7 +111,8 @@ func TestThePursuitLoopWritesOnlyItsOwnStateAndTheQueue(t *testing.T) {
 	target := regexp.MustCompile(`(?is)\b(?:INTO|UPDATE|FROM|TABLE)\s+([a-z_]+)`)
 	// S5a: the judge ledger is written by two functions only, before a judge call (at the cap) and after it (settled once)
 	mayExec := map[string]bool{"insertPursuitState": true, "updateGateState": true, "recordJudgeRound": true, "setPursuitWaiting": true, "EnqueueWithPursuit": true, "reserveJudgeCall": true, "settleJudgeCall": true,
-		"EnqueueWithAccept": true}
+		"EnqueueWithAccept": true,
+		"refundWake":        true} // refundWake: gives back one wake-up of the mission's own state row when its turn never started (pursuit_wake_failed.go); writes mission_pursuit_state only
 	denied := map[string]bool{"SaveSettings": true, "UpdateSettings": true, "SetBudget": true, "SaveCheckin": true, "Enqueue": true,
 		"EnqueueWithCheckin": true, "IssueSessionToken": true, "ChargeChild": true, "RevokeSessionTokens": true,
 		"Confirm": true, "Pause": true, "Resume": true, "Start": true, "Propose": true, "Set": true}

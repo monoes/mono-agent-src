@@ -515,6 +515,10 @@ func (h *Host) end(c Command, status, errText string) {
 		h.logf("coder host: recording command %d: %v", c.ID, err)
 	} else if !applied {
 		h.logf("coder host: command %d was ended elsewhere; its status is left as it is", c.ID)
+	} else if status == CmdFailed {
+		if rerr := h.Store.refundWake(c, errText); rerr != nil { // a wake-up whose turn did not start is not a spent wake-up
+			h.logf("coder host: command %d: giving back its wake-up: %v", c.ID, rerr)
+		}
 	}
 	endBetweenSteps()
 	if status == CmdFailed && c.Kind == KindSend {

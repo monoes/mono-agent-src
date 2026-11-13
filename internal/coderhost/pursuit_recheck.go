@@ -91,7 +91,7 @@ func (h *Host) pursuitStillDeliverable(x Session, g pursuitGateResult) string {
 // still paid for in the lead's attention) and says when the oldest leaves the hour. An unreadable time counts.
 func (s *Store) pursuitWakesLastHour() (int, string, error) {
 	since := s.now().Add(-time.Hour)
-	rows, err := s.db.Query(`SELECT created_at FROM coder_session_commands WHERE kind = 'send' AND substr(turn_id, 1, 8) = 'pursuit-' AND ` + tsInWindow("created_at", since) + ` LIMIT 1000`)
+	rows, err := s.db.Query(`SELECT created_at FROM coder_session_commands WHERE kind = 'send' AND substr(turn_id, 1, 8) = 'pursuit-' AND NOT ` + unstartedFailedSQL + ` AND ` + tsInWindow("created_at", since) + ` LIMIT 1000`)
 	if err != nil {
 		return 0, "", fmt.Errorf("counting the pursuit wake-ups of the hour: %w", err)
 	}
