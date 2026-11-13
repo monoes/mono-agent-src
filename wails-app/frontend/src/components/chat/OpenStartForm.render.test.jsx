@@ -8,7 +8,7 @@ import '../../i18n.js'
 // The entry screen and the start form of the open-ended chat mode. The CLI decides (availability, the charter, the
 // phrase); the form shows what the person must read and asks for the phrase they write from it.
 const getChat = vi.fn(), onChat = vi.fn()
-const { openStartApi } = vi.hoisted(() => ({ openStartApi: { entry: vi.fn(), render: vi.fn(), start: vi.fn() } }))
+const { openStartApi } = vi.hoisted(() => ({ openStartApi: { entry: vi.fn(), render: vi.fn(), start: vi.fn(), roster: vi.fn() } }))
 vi.mock('../../lib/openStartApi.js', () => ({ openStartApi }))
 
 import { OpenStartForm } from './OpenStartForm.jsx'
@@ -22,6 +22,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   getChat.mockReset(); getChat.mockReturnValue({ id: 'chat-7' }); onChat.mockReset()
   openStartApi.entry.mockResolvedValue(ENTRY)
+  openStartApi.roster.mockResolvedValue({ error: 'no roster' })
   openStartApi.render.mockResolvedValue(PREVIEW)
   openStartApi.start.mockResolvedValue({ ok: true, started: true, output: '{"run_id":"p/1"}', detail: '', code: '' })
 })
@@ -322,5 +323,73 @@ describe('the chat of the start and the boss\'s first turn', () => {
     await toStart()
     await screen.findByTestId('open-started')
     expect(screen.queryByTestId('open-no-first-turn')).toBeNull()
+  })
+})
+
+const ROSTER = { runtimes: [
+  { runtime: 'claude', installed: true, version: '2.1', models: [{ model: 'sonnet', state: 'ready' }, { model: 'opus', state: 'ready' }] },
+  { runtime: 'codex', installed: true, version: '0.9', models: [{ model: 'gpt', state: 'ready' }] },
+] }
+
+describe('the lists of the form', () => {
+  it('fill the boss and a different verifier from the roster, as lists', async () => {
+    openStartApi.roster.mockResolvedValue(ROSTER)
+    render(<OpenStartForm getChat={getChat} onChat={onChat} />)
+    await screen.findByLabelText('Goal')
+    await waitFor(() => expect(screen.getByLabelText('Boss provider')).toHaveValue('claude'))
+    expect(screen.getByLabelText('Boss provider').tagName).toBe('SELECT')
+    expect(screen.getByLabelText('Boss model')).toHaveValue('sonnet')
+    expect(screen.getByLabelText('Boss version')).toHaveValue('2.1')
+    const verifier = ['Verifier provider', 'Verifier model'].map(l => screen.getByLabelText(l).value).join('/')
+    expect(verifier).not.toBe('claude/sonnet')
+    expect(screen.getByLabelText('Judging policy')).toHaveValue('default')
+    expect(screen.getByLabelText('Judging policy').tagName).toBe('SELECT')
+  })
+  it('follow the provider: its models only, and a chosen model keeps the pin whole', async () => {
+    openStartApi.roster.mockResolvedValue(ROSTER)
+    render(<OpenStartForm getChat={getChat} onChat={onChat} />)
+    await waitFor(() => expect(screen.getByLabelText('Boss provider')).toHaveValue('claude'))
+    expect([...screen.getByLabelText('Boss model').options].map(o => o.value)).toEqual(['sonnet', 'opus'])
+    fireEvent.change(screen.getByLabelText('Boss provider'), { target: { value: 'codex' } })
+    expect(screen.getByLabelText('Boss model')).toHaveValue('gpt')
+    expect(screen.getByLabelText('Boss version')).toHaveValue('0.9')
+  })
+  it('never overwrite a pin the person chose before the roster came', async () => {
+    let resolve
+    openStartApi.roster.mockReturnValue(new Promise(r => { resolve = r }))
+    render(<OpenStartForm getChat={getChat} onChat={onChat} />)
+    await screen.findByLabelText('Goal')
+    type('Boss provider', 'mine'); type('Boss model', 'm'); type('Boss version', '1')
+    resolve(ROSTER)
+    await new Promise(r => setTimeout(r, 20))
+    expect(screen.getByLabelText('Boss provider')).toHaveValue('mine')
+  })
+  it('start a charter with the defaults alone: only the goal, a criterion and the budget are written', async () => {
+    openStartApi.roster.mockResolvedValue(ROSTER)
+    render(<OpenStartForm getChat={getChat} onChat={onChat} />)
+    await waitFor(() => expect(screen.getByLabelText('Boss provider')).toHaveValue('claude'))
+    type('Goal', 'ship it')
+    fireEvent.click(screen.getByRole('button', { name: 'Add a rubric criterion' }))
+    type('Criterion 1 rubric', 'it works')
+    fireEvent.click(screen.getByLabelText('Unlimited (no ceiling of its own)'))
+    fireEvent.click(screen.getByLabelText('Let the boss approve small asks by itself'))
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }))
+    await waitFor(() => expect(openStartApi.render).toHaveBeenCalled())
+    const charter = openStartApi.render.mock.calls[0][0]
+    expect(charter.pins.judging_policy).toBe('default')
+    expect(charter.pins.boss.provider).toBe('claude')
+    expect(charter.per_ask.ask_tasks).toBe(5)
+  })
+  it('make the per-ask limits lists', async () => {
+    render(<OpenStartForm getChat={getChat} onChat={onChat} />)
+    await screen.findByLabelText('Goal')
+    fireEvent.click(screen.getByLabelText('Let the boss approve small asks by itself'))
+    for (const l of ['Per-ask spend (USD)', 'Per-ask tasks', 'Per-ask depth', 'Run cap spend (USD)', 'Run cap tasks']) expect(screen.getByLabelText(l).tagName).toBe('SELECT')
+  })
+  it('keep the typed pin fields when the roster is empty or unreadable, and say how to start', async () => {
+    render(<OpenStartForm getChat={getChat} onChat={onChat} />)
+    await screen.findByLabelText('Goal')
+    expect(screen.getByLabelText('Boss provider').tagName).toBe('INPUT')
+    expect(screen.getByTestId('open-howto')).toHaveTextContent(/press Review/)
   })
 })
