@@ -823,3 +823,4 @@ TestBrowserVerbsFailClosedWhileTheLiveHostDatabaseIsReallyLocked 1
 TestDoomsdayVerbsCloseTheDatabaseTheyOpened 1
 TestRealWiringRefusesTheStartWhereTheModeCannotRun 1
 TestTheBinaryLinksTheMessageScrub 1
+TestOpenModeDoctorExtra 1

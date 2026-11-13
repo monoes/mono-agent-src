@@ -8,30 +8,31 @@ import (
 
 	"github.com/monoes/mono-agent/internal/cli/chat"
 	"github.com/monoes/mono-agent/internal/coderhost"
-	"github.com/monoes/mono-agent/internal/doomsday/stop"
 	"github.com/monoes/mono-agent/internal/health"
 	"github.com/monoes/mono-agent/internal/procbind"
 )
 
 // addOpenModeHook feeds the coder.open_mode row from the mode's own predicates. Every read is local and changes nothing:
 // no probe unit, no host step, no network, no process.
-func addOpenModeHook(env *health.Env, dbPath string) {
+//
+// extra supplies what only the operator-side wiring may touch (the containment steps and the run table); nil when absent.
+func addOpenModeHook(env *health.Env, dbPath string, extra OpenModeExtra) {
 	env.OpenMode = func(context.Context) health.OpenModeFacts {
-		return openModeFacts(env.DB, env.ProfileID, dbPath)
+		return openModeFacts(env.DB, env.ProfileID, dbPath, extra)
 	}
 }
 
-func openModeFacts(db *sql.DB, profile, dbPath string) health.OpenModeFacts {
+// OpenModeExtra reads the containment steps and whether the profile has an active run. The CLI provides it from its
+// operator-side package: agent-reachable code (this one) names neither the mode's packages nor its tables.
+type OpenModeExtra func(db *sql.DB, profile string) (steps []health.OpenModeStep, activeRun bool, activeErr string)
+
+func openModeFacts(db *sql.DB, profile, dbPath string, extra OpenModeExtra) health.OpenModeFacts {
 	f := health.OpenModeFacts{GOOS: runtime.GOOS, Unsupported: coderhost.OpenModeUnsupportedHere(), HostRunning: chat.HostRunningAt(dbPath)}
 	if err := procbind.Ready(); err != nil {
 		f.BindingReadyErr = err.Error()
 	}
-	for _, s := range stop.ReadinessSteps() {
-		st := health.OpenModeStep{Name: s.Name, Fix: s.Fix}
-		if err := s.Check(); err != nil {
-			st.Err = err.Error()
-		}
-		f.Steps = append(f.Steps, st)
+	if extra != nil {
+		f.Steps, f.ActiveRun, f.ActiveErr = extra(db, profile)
 	}
 	if db == nil {
 		return f
@@ -43,13 +44,6 @@ func openModeFacts(db *sql.DB, profile, dbPath string) health.OpenModeFacts {
 	} else {
 		f.BindingOn = on
 	}
-	var n int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM doomsday_runs WHERE profile = ? AND state <> 'quiescent'`, profile).Scan(&n); err != nil {
-		if !noTable(err) {
-			f.ActiveErr = err.Error()
-		}
-	}
-	f.ActiveRun = n > 0
 	return f
 }
 

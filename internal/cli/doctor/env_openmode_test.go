@@ -3,7 +3,6 @@ package doctor
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/coderhost"
@@ -15,12 +14,12 @@ func TestOpenModeFactsFollowTheModesOwnOSGate(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "x.db")
 	restore := coderhost.SetOpenModeBindingProbe("darwin", func() error { return nil })
 	defer restore()
-	if f := openModeFacts(nil, "P", dbPath); f.Unsupported != coderhost.OpenModeMacOSReason {
+	if f := openModeFacts(nil, "P", dbPath, nil); f.Unsupported != coderhost.OpenModeMacOSReason {
 		t.Errorf("darwin: %q", f.Unsupported)
 	}
 	restore()
 	coderhost.SetOpenModeBindingProbe("linux", func() error { return nil })
-	if f := openModeFacts(nil, "P", dbPath); f.Unsupported != "" {
+	if f := openModeFacts(nil, "P", dbPath, nil); f.Unsupported != "" {
 		t.Errorf("linux: %q", f.Unsupported)
 	}
 }
@@ -34,7 +33,7 @@ func TestOpenModeFactsOnAFreshProfile(t *testing.T) {
 	}
 	defer db.Close()
 	check := func(stage string) {
-		f := openModeFacts(db.DB, "P", dbPath)
+		f := openModeFacts(db.DB, "P", dbPath, nil)
 		if f.BindingOn || f.BindingErr != "" || f.ActiveRun || f.ActiveErr != "" || f.HostRunning {
 			t.Errorf("%s: %+v", stage, f)
 		}
@@ -44,21 +43,9 @@ func TestOpenModeFactsOnAFreshProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 	check("migrated")
-	if _, err := db.DB.Exec(`INSERT INTO doomsday_runs (profile, generation, charter_id, state, mac) VALUES ('P', 1, 'c', 'running', x'00')`); err != nil {
-		t.Fatal(err)
-	}
-	if f := openModeFacts(db.DB, "P", dbPath); !f.ActiveRun {
-		t.Error("a running run of the profile is not seen")
-	}
-	if f := openModeFacts(db.DB, "Q", dbPath); f.ActiveRun {
-		t.Error("another profile's run is seen")
-	}
-	f := openModeFacts(db.DB, "P", dbPath)
+	openModeFacts(db.DB, "P", dbPath, nil)
 	if lock := filepath.Join(coderhost.HostDir(dbPath), "host.lock"); fileExists(lock) {
 		t.Errorf("reading created %s", lock)
-	}
-	if runtime.GOOS == "linux" && len(f.Steps) == 0 {
-		t.Error("no containment steps on linux")
 	}
 }
 

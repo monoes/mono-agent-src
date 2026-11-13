@@ -44,12 +44,6 @@ func openModeChecks() []Check {
 		Features: []string{"open-ended chat mode"}, Run: checkOpenMode}}
 }
 
-func openModeFixes() []Fix {
-	manual := func(context.Context, *Env, func(string)) error { return fmt.Errorf("this needs to be done by hand") }
-	return []Fix{{FixInfo: FixInfo{ID: FixOpenModeBinding, Label: "Switch on peer-credential binding of turn tokens",
-		Safety: SafetyManual, Command: "monoagentcli --profile <profile> coder set --peercred-binding on"}, Apply: manual}}
-}
-
 func checkOpenMode(ctx context.Context, env *Env) Result {
 	if env.OpenMode == nil {
 		return Result{Status: StatusSkip, Summary: "not available"}
@@ -91,9 +85,8 @@ func checkOpenMode(ctx context.Context, env *Env) Result {
 	case f.BindingErr != "":
 		add("binding", "Peer-credential binding", StatusWarn, "cannot read the setting: "+f.BindingErr, "")
 	case !f.BindingOn:
-		r := add("binding", "Peer-credential binding", StatusWarn, "off (off by default): the mode is not offered while it is off",
+		add("binding", "Peer-credential binding", StatusWarn, "off (off by default): the mode is not offered while it is off",
 			fmt.Sprintf(openModeBindingCmd, p)+" (or Settings, Coder, peer-credential binding)")
-		r.FixID, r.FixCommand = FixOpenModeBinding, fmt.Sprintf(openModeBindingCmd, p)
 	default:
 		add("binding", "Peer-credential binding", StatusOK, "on", "")
 	}

@@ -21,7 +21,6 @@ func Default() *Registry {
 	checks = append(checks, automationChecks()...)
 	var fixes []Fix
 	fixes = append(fixes, coreFixes()...)
-	fixes = append(fixes, openModeFixes()...)
 	fixes = append(fixes, workflowPublicationFixes()...)
 	fixes = append(fixes, monoesAccountFixes()...)
 	fixes = append(fixes, monomindFixes()...)

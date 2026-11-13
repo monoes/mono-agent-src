@@ -108,8 +108,8 @@ func TestOpenModeSkips(t *testing.T) {
 	}
 }
 
-// The registered row is not required (exit code 0 whatever it finds), is in the core group, and its binding fix is
-// manual and names the command with the profile.
+// The registered row is not required (exit code 0 whatever it finds), is in the core group, and offers no Fix object
+// (`doctor --fix` and setup list fixes): the binding advice is the command in the detail.
 func TestOpenModeRegisteredNotRequired(t *testing.T) {
 	f := readyFacts()
 	f.BindingOn = false
@@ -129,8 +129,8 @@ func TestOpenModeRegisteredNotRequired(t *testing.T) {
 	if parent.Required || parent.Group != GroupCore || parent.Title != "Open-ended mode" {
 		t.Errorf("parent %+v", parent)
 	}
-	if bind.Fix == nil || bind.Fix.Safety != SafetyManual || bind.Fix.Command != "monoagentcli --profile P coder set --peercred-binding on" {
-		t.Errorf("binding fix %+v", bind.Fix)
+	if bind.Fix != nil || !strings.Contains(bind.Detail, "monoagentcli --profile P coder set --peercred-binding on") {
+		t.Errorf("binding fix %+v detail %q", bind.Fix, bind.Detail)
 	}
 }
 
