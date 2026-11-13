@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -48,6 +49,7 @@ type startFacts struct {
 	criteria, depth, live, concurrent, total int
 	boss, verifier, goal                     string
 	autoApprove                              string
+	unbound                                  string // the CLI's "running without peer-credential binding: <reason>" ("" where binding applies)
 	processCheck                             string // the CLI's own sentence about a weaker process check on this OS ("" where it says none)
 	answerClasses                            []string
 }
@@ -187,6 +189,7 @@ func factsOf(doc []byte) (startFacts, error) {
 			AutoApprove   string   `json:"auto_approve"`
 			AnswerClasses []string `json:"answer_classes"`
 		} `json:"summary"`
+		UnboundWarning string `json:"unbound_warning"`
 	}
 	if json.Unmarshal(doc, &d) != nil || !hexRe.MatchString(d.Hash) {
 		return startFacts{}, errors.New("the preview could not be read")
@@ -214,6 +217,7 @@ func factsOf(doc []byte) (startFacts, error) {
 	for _, c := range sm.AnswerClasses {
 		f.answerClasses = append(f.answerClasses, cleanText(c, 40))
 	}
+	f.unbound = cleanText(d.UnboundWarning, 400)
 	if m := processCheckRe.FindStringSubmatch(d.Text); m != nil {
 		f.processCheck = cleanText(m[1], 300)
 	}
@@ -246,6 +250,10 @@ func (f startFacts) dialogBody(chat string) string {
 	warn := ""
 	if f.processCheck != "" {
 		warn = f.processCheck + " " // as an argument below, never part of the format
+	}
+	if f.unbound != "" {
+		r, n := utf8.DecodeRuneInString(f.unbound)
+		warn = string(unicode.ToUpper(r)) + f.unbound[n:] + ". " + warn // first: the person must see it before anything else
 	}
 	return fmt.Sprintf("%sStart an open-ended run in %s: %d lifted lines (%s), charter %s, budget %s. %d success criteria. Limits: tree depth %d, live per tree %d, max concurrent %d, max total %d. "+
 		"Models: boss %s, verifier %s. The boss may approve by itself: %s. %s It acts as you without asking for approval. Continue? "+

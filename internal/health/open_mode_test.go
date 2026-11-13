@@ -42,9 +42,10 @@ func TestOpenModeRows(t *testing.T) {
 		fix    string // in the detail
 	}{
 		{"all met", func(*OpenModeFacts) {}, "ok", "binding", StatusOK, "on", ""},
-		{"binding off", func(f *OpenModeFacts) { f.BindingOn = false }, "ok", "binding", StatusWarn, "off", "coder set --peercred-binding on"},
+		{"binding off", func(f *OpenModeFacts) { f.BindingOn = false }, "ok", "binding", StatusWarn, "off (switched off)", "coder set --peercred-binding on"},
+		{"binding cannot run, default off", func(f *OpenModeFacts) { f.BindingOn, f.BindingUnbound = false, "old kernel" }, "ok", "binding", StatusWarn, "open-ended runs here would start without peer-credential binding: old kernel", ""},
+		{"explicit on that cannot run", func(f *OpenModeFacts) { f.BindingExplicitOnBroken = "old kernel" }, "ok", "binding", StatusWarn, "peer-credential binding is switched on but cannot run: old kernel", "coder set --peercred-binding off"},
 		{"binding unreadable", func(f *OpenModeFacts) { f.BindingErr = "locked" }, "ok", "binding", StatusWarn, "cannot read", ""},
-		{"macOS", func(f *OpenModeFacts) { f.GOOS, f.Unsupported = "darwin", "not available on macOS yet: x" }, "ok", "os", StatusWarn, "macOS", "#1610"},
 		{"kernel cannot bind", func(f *OpenModeFacts) { f.BindingReadyErr = "needs Linux 6.5 or later" }, "ok", "binding_service", StatusWarn, "6.5", "Linux 6.5"},
 		{"no delegation", func(f *OpenModeFacts) {
 			f.Steps[0] = OpenModeStep{Name: "cgroup v2 unified hierarchy", Err: "no", Fix: "boot with X"}
@@ -137,7 +138,7 @@ func TestOpenModeRegisteredNotRequired(t *testing.T) {
 // On a host that lacks everything (no delegation, no systemd-run, old kernel, no key, locked login) no row fails, so
 // `setup --group core` and the CI doctor smoke test (no failing core row) stay green; the fixes are still named.
 func TestOpenModeNeverFailsTheCoreGroup(t *testing.T) {
-	f := OpenModeFacts{GOOS: "linux", BindingReadyErr: "old kernel", Unsupported: "macOS", ActiveRun: true,
+	f := OpenModeFacts{GOOS: "linux", BindingReadyErr: "old kernel", ActiveRun: true,
 		Steps: []OpenModeStep{{Name: "cgroup v2 delegation to the user", Err: "no delegation", Fix: "log in through a desktop session"}}}
 	env := openModeEnv(f, "key-missing")
 	env.MonoesAccount = func(context.Context) AccountInfo {

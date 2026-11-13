@@ -2256,7 +2256,8 @@
   },
   "coderBinding": {
     "label": "Peer-credential binding",
-    "hint": "Ties each coder turn's tokens to the process that runs the turn. The open-ended chat mode is offered only while this is on. Off by default.",
+    "hint": "Ties each coder turn's tokens to the process that runs the turn. The open-ended chat mode is offered only while this is on. On by default where this machine can run the binding service; an explicit off is kept.",
+    "unavailable": "Not available on this machine: {{reason}}",
     "switchedOn": "Peer-credential binding is on.",
     "switchedOff": "Peer-credential binding is off.",
     "warnTitle": "Before you change this",
@@ -2675,11 +2676,16 @@
     "failed": "Not sent: {{error}}"
   },
   "openStart": {
+    "unbound": "running without peer-credential binding: {{reason}}",
+    "unboundUnknown": "binding status unknown",
+    "unboundStatusUnknown": "peer-credential binding status of the open run is unknown: {{reason}}",
     "loading": "Loading...",
     "entryTitle": "Open-ended run",
     "noApproval": "There is no human approval during the run. Nothing will ask you: the boss agent answers its own questions and acts within the authority you lift below.",
     "steer": "You can steer by typing in this chat; typing is steering for the boss, never an answer to a boss question.",
     "stopHeader": "Stop is in the chat header.",
+    "howTo": "To start: write the goal and a way to check it is done, choose the budget and the authority to lift, check the pinned models, then press Review. Review shows the charter; you confirm by typing the phrase it gives, and Start the run appears. The models, the judging policy and the per-ask limits are filled with a careful default.",
+    "choose": "Choose…",
     "platform": "On this machine ({{platform}}):",
     "unavailable": "The open-ended run cannot start here: {{reason}}",
     "unknownReason": "the reason could not be read",

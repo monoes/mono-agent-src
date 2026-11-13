@@ -299,9 +299,7 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			logf := func(f string, a ...any) {
-				fmt.Fprintf(cmd.ErrOrStderr(), time.Now().Format(time.RFC3339)+" "+f+"\n", a...)
-			}
+			logf := hostLogf(cmd.ErrOrStderr())
 			store := coderhost.NewStore(db.DB)
 			children := newChildTokenMinter(db.DB)
 			RegisterChildTokenMinter(children) // this launcher mints a child's task token: the gate may open (still off until a mode is set)

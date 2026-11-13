@@ -40,6 +40,9 @@ type Deps struct {
 	ChatStart func() ChatStarter
 	// FirstTurn reads where the open run's boss's first turn stands, for `status`. Nil: status says nothing about it.
 	FirstTurn func(ctx context.Context) (FirstTurnState, error)
+	// UnboundWarning is "running without peer-credential binding: <reason>" while binding is off because the machine cannot run it, for
+	// `status` of an open run. Nil: status says nothing about it.
+	UnboundWarning func(ctx context.Context) string
 }
 
 func (d Deps) engine() Engine {
@@ -148,8 +151,17 @@ func (d Deps) newRender() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			warn := ""
+			if w, ok := e.(UnboundWarner); ok {
+				warn = w.UnboundWarning(cmd.Context())
+			}
 			if d.json() {
-				return json.NewEncoder(cmd.OutOrStdout()).Encode(NewRenderDoc(ch, canon.Hash))
+				doc := NewRenderDoc(ch, canon.Hash)
+				doc.UnboundWarning = warn
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(doc)
+			}
+			if warn != "" {
+				fmt.Fprintln(cmd.OutOrStdout(), "warning: "+warn)
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), Render(ch, canon.Hash))
 			return nil
@@ -164,7 +176,7 @@ func (d Deps) newStart() *cobra.Command {
 	var yes bool
 	var hash, guiPhrase string
 	var boss int64
-	var chat string
+	var chat, expect string
 	c := &cobra.Command{
 		Use:   "start",
 		Short: "Lift the lines of a charter and start a run (the user's own)",
@@ -178,6 +190,9 @@ func (d Deps) newStart() *cobra.Command {
 			if chat != "" && (boss != 0 || guiPhrase == "") {
 				return clicore.InvalidInput("--chat is the app's start: it goes with --gui-phrase and not with --boss-session")
 			}
+			if expect != "" && expect != "bound" && expect != "unbound" { // the cheap refusal first: before the charter is rendered or anything typed
+				return clicore.InvalidInput("--expect-mode must be bound or unbound")
+			}
 			e := d.engine()
 			if err := e.Containment(); err != nil {
 				return refusal(err)
@@ -185,6 +200,11 @@ func (d Deps) newStart() *cobra.Command {
 			if b, ok := e.(BindingRequirer); ok { // before the charter is shown: there is nothing to type for a start that cannot happen
 				if err := b.RequireBinding(cmd.Context()); err != nil {
 					return refusal(err)
+				}
+			}
+			if w, ok := e.(UnboundWarner); ok {
+				if msg := w.UnboundWarning(cmd.Context()); msg != "" {
+					fmt.Fprintln(d.humanOut(cmd), "warning: "+msg)
 				}
 			}
 			ch, canon, err := f.build(cmd, e)
@@ -218,6 +238,7 @@ func (d Deps) newStart() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			ack.Expect = expect
 			if chat != "" {
 				return d.startFromChat(cmd, e, ch, canon, ack, chat)
 			}
@@ -238,6 +259,9 @@ func (d Deps) newStart() *cobra.Command {
 				return json.NewEncoder(out).Encode(entry)
 			}
 			fmt.Fprintf(out, "run %s started (charter %s, generation %d)\n", entry.RunID, short(entry.Hash), entry.Generation)
+			if entry.Warning != "" {
+				fmt.Fprintln(out, "warning: "+entry.Warning)
+			}
 			if entry.AnchorBound {
 				fmt.Fprintln(out, "anchor-bound: yes")
 			} else {
@@ -251,6 +275,8 @@ func (d Deps) newStart() *cobra.Command {
 	c.Flags().StringVar(&hash, "hash", "", "The full charter hash, for --yes-i-lift")
 	c.Flags().StringVar(&guiPhrase, "gui-phrase", "", "The phrase typed in the app's start form; the CLI re-derives it and compares (recorded as a gui acknowledgement)")
 	_ = c.Flags().MarkHidden("gui-phrase")
+	c.Flags().StringVar(&expect, "expect-mode", "", "The start mode the app's confirmation showed (bound or unbound); the entry refuses if the machine now gives the other")
+	_ = c.Flags().MarkHidden("expect-mode")
 	c.Flags().Int64Var(&boss, "boss-session", 0, "The top-level lead mission (session id) that is the run's boss; without it no boss tool works")
 	c.Flags().StringVar(&chat, "chat", "", "The coder chat (open mode) to start from: makes its boss session, funds it from the charter, starts the run and queues the boss's first turn (the app's start)")
 	_ = c.Flags().MarkHidden("chat")
@@ -413,6 +439,9 @@ func (d Deps) newStatus() *cobra.Command {
 				}
 				s.FirstTurn, s.FirstTurnError = ft.State, ft.Error
 			}
+			if s.Active && d.UnboundWarning != nil {
+				s.Warning = d.UnboundWarning(cmd.Context())
+			}
 			if d.json() {
 				return json.NewEncoder(out).Encode(s)
 			}
@@ -430,6 +459,9 @@ func (d Deps) newStatus() *cobra.Command {
 			}
 			fmt.Fprintf(out, "run %s: %s (charter %s, generation %d, %d members); lines: %s\n",
 				s.RunID, s.State, short(s.Hash), s.Generation, s.Members, strings.Join(s.Lines, ", "))
+			if s.Warning != "" {
+				fmt.Fprintf(out, "warning: %s\n", s.Warning)
+			}
 			if s.AuditHead != "" {
 				fmt.Fprintf(out, "audit: %d rows, head %s\n", s.AuditSeq, s.AuditHead)
 			}

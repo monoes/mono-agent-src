@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { openStartApi } from '../../lib/openStartApi.js'
-import { MAX_TEXT, ASK_ACCESS, LIMIT_KEYS, LIMIT_PRESETS, EVERYTHING_LINES, LINES, buildCharter, emptyForm } from '../../lib/openCharter.js'
+import { MAX_TEXT, ASK_ACCESS, LIMIT_KEYS, LIMIT_PRESETS, EVERYTHING_LINES, LINES, JUDGING_POLICIES, PER_ASK_CHOICES, buildCharter, emptyForm, modelChoices, catalogChoices, defaultPins } from '../../lib/openCharter.js'
 import { OpenStartReview } from './OpenStartReview.jsx'
+import { unboundText } from './useRunUnbound.js'
 
 // The entry screen and the start form of the open-ended chat mode. The CLI decides what can start (the probe), what the
 // charter means (render) and whether the typed phrase is right (start); this shows the plain statements the person
@@ -29,13 +30,49 @@ function Text({ id, label, value, onChange, area, errorId, ...rest }) {
 
 const Err = ({ id, children }) => (children ? <span id={id} role="alert" style={{ ...small, color: 'var(--red)' }}>{children}</span> : null)
 
-const PinFields = ({ t, who, pin, onChange, errorId }) => (
-  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-    {['provider', 'model', 'version'].map(k => (
-      <Text key={k} label={t(`openStart.${who}${k[0].toUpperCase()}${k.slice(1)}`)} value={pin[k]} errorId={errorId} onChange={v => onChange({ ...pin, [k]: v })} />
-    ))}
-  </div>
-)
+// A list of values. A value that is not in the list (a form from before, a model no longer in the roster) is still shown, so it is never hidden.
+function Pick({ label, value, options, onChange, errorId, t }) {
+  const shown = value && !options.includes(value) ? [value, ...options] : options
+  return (
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 2, ...small }}>
+      {label}
+      <select aria-label={label} value={value} onChange={e => onChange(e.target.value)} style={field}
+        aria-describedby={errorId} aria-invalid={errorId ? 'true' : undefined}>
+        {!value && <option value="">{t('openStart.choose')}</option>}
+        {shown.map(o => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </label>
+  )
+}
+
+const uniq = list => [...new Set(list)]
+
+// With a roster the pin is three linked lists: the provider, then the models of that provider, then its versions. Without
+// one (no model validated yet, or it could not be read) the three are typed as before.
+function PinFields({ t, who, pin, onChange, errorId, choices }) {
+  const names = { provider: 'Provider', model: 'Model', version: 'Version' }
+  const label = k => t(`openStart.${who}${names[k]}`)
+  if (!choices.length) {
+    return (
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {Object.keys(names).map(k => <Text key={k} label={label(k)} value={pin[k]} errorId={errorId} onChange={v => onChange({ ...pin, [k]: v })} />)}
+      </div>
+    )
+  }
+  const ofProvider = choices.filter(c => c.provider === pin.provider)
+  const ofModel = ofProvider.filter(c => c.model === pin.model)
+  const choose = c => onChange({ provider: c.provider, model: c.model, version: c.version })
+  return (
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      <Pick t={t} label={label('provider')} value={pin.provider} errorId={errorId} options={uniq(choices.map(c => c.provider))}
+        onChange={v => choose(choices.find(c => c.provider === v))} />
+      <Pick t={t} label={label('model')} value={pin.model} errorId={errorId} options={uniq(ofProvider.map(c => c.model))}
+        onChange={v => choose(ofProvider.find(c => c.model === v))} />
+      <Pick t={t} label={label('version')} value={pin.version} errorId={errorId} options={uniq(ofModel.map(c => c.version))}
+        onChange={v => onChange({ ...pin, version: v })} />
+    </div>
+  )
+}
 
 export function OpenStartForm({ getChat = null, onChat, onStarted }) {
   const { t } = useTranslation()
@@ -47,10 +84,23 @@ export function OpenStartForm({ getChat = null, onChat, onStarted }) {
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(false) // started: nothing can be submitted again
   const [mayExist, setMayExist] = useState(false) // a start ended unknown: a run may exist
+  const [choices, setChoices] = useState([]) // the models the pins can name, from the validated roster; empty: type the pins
 
   useEffect(() => {
     let live = true
     openStartApi.entry().then(r => { if (live) setEntry(r) }).catch(e => { if (live) setEntry({ error: String(e?.message || e) }) })
+    // The models only fill the lists and the first pins: any failure leaves the typed fields.
+    const apply = found => {
+      if (!live || !found.length) return false
+      setChoices(found)
+      // Pins the person has not touched start as a boss and a different verifier; the form never overwrites what they chose.
+      setForm(f => (f.pins.boss.provider || f.pins.verifier.provider ? f : { ...f, pins: { ...f.pins, ...defaultPins(found) } }))
+      return true
+    }
+    // The validated roster first; a machine with none falls back to the installed runtimes' own model lists.
+    Promise.resolve().then(() => openStartApi.roster?.()).then(r => modelChoices(r)).catch(() => [])
+      .then(found => apply(found) || Promise.resolve().then(() => openStartApi.catalog?.()).then(c => apply(catalogChoices(c))))
+      .catch(() => {})
     return () => { live = false }
   }, [])
 
@@ -86,6 +136,7 @@ export function OpenStartForm({ getChat = null, onChat, onStarted }) {
         <p style={small}>{t('openStart.noApproval')}</p>
         <p style={small}>{t('openStart.steer')}</p>
         <p style={small}>{t('openStart.stopHeader')}</p>
+        <p data-testid="open-howto" style={small}>{t('openStart.howTo')}</p>
         {entry.not_defended && (
           <>
             <span data-testid="open-platform" style={small}>{t('openStart.platform', { platform: entry.platform || '' })}</span>
@@ -93,6 +144,11 @@ export function OpenStartForm({ getChat = null, onChat, onStarted }) {
           </>
         )}
       </section>
+      {entry.mode_available && entry.warning && (
+        <p role="alert" data-testid="open-unbound-warning" style={{ ...small, color: '#fff', background: '#b91c1c', borderRadius: 4, padding: '6px 8px', fontWeight: 700 }}>
+          {unboundText(t, entry.warning)}
+        </p>
+      )}
       {!entry.mode_available ? (
         <p role="alert" data-testid="open-unavailable" style={{ ...small, color: 'var(--red)' }}>
           {t('openStart.unavailable', { reason: entry.reason || entry.error || entry.detail || t('openStart.unknownReason') })}
@@ -163,11 +219,11 @@ export function OpenStartForm({ getChat = null, onChat, onStarted }) {
 
           <section style={box}>
             <span style={small}>{t('openStart.pins')}</span>
-            <PinFields t={t} who="boss" pin={form.pins.boss} errorId={err.boss ? 'open-err-boss' : undefined} onChange={p => set({ pins: { ...form.pins, boss: p } })} />
+            <PinFields t={t} who="boss" choices={choices} pin={form.pins.boss} errorId={err.boss ? 'open-err-boss' : undefined} onChange={p => set({ pins: { ...form.pins, boss: p } })} />
             <Err id="open-err-boss">{err.boss}</Err>
-            <PinFields t={t} who="verifier" pin={form.pins.verifier} errorId={err.verifier ? 'open-err-verifier' : undefined} onChange={p => set({ pins: { ...form.pins, verifier: p } })} />
+            <PinFields t={t} who="verifier" choices={choices} pin={form.pins.verifier} errorId={err.verifier ? 'open-err-verifier' : undefined} onChange={p => set({ pins: { ...form.pins, verifier: p } })} />
             <Err id="open-err-verifier">{err.verifier}</Err>
-            <Text label={t('openStart.judging')} value={form.pins.judging} errorId={err.judging ? 'open-err-judging' : undefined} onChange={v => set({ pins: { ...form.pins, judging: v } })} />
+            <Pick t={t} label={t('openStart.judging')} value={form.pins.judging} options={JUDGING_POLICIES} errorId={err.judging ? 'open-err-judging' : undefined} onChange={v => set({ pins: { ...form.pins, judging: v } })} />
             <Err id="open-err-judging">{err.judging}</Err>
           </section>
 
@@ -176,11 +232,11 @@ export function OpenStartForm({ getChat = null, onChat, onStarted }) {
             {!form.perAsk.enabled && <span style={small}>{t('openStart.perAskDeny')}</span>}
             {form.perAsk.enabled && (
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }} aria-describedby={err.perAsk ? 'open-err-perask' : undefined}>
-                <Text label={t('openStart.askSpend')} value={form.perAsk.spendUsd} onChange={v => perAsk({ spendUsd: v })} />
-                <Text label={t('openStart.askTasks')} value={form.perAsk.tasks} onChange={v => perAsk({ tasks: v })} />
-                <Text label={t('openStart.askDepth')} value={form.perAsk.depth} onChange={v => perAsk({ depth: v })} />
-                <Text label={t('openStart.askRunSpend')} value={form.perAsk.runSpendUsd} onChange={v => perAsk({ runSpendUsd: v })} />
-                <Text label={t('openStart.askRunTasks')} value={form.perAsk.runTasks} onChange={v => perAsk({ runTasks: v })} />
+                <Pick t={t} label={t('openStart.askSpend')} value={form.perAsk.spendUsd} options={PER_ASK_CHOICES.spendUsd} onChange={v => perAsk({ spendUsd: v })} />
+                <Pick t={t} label={t('openStart.askTasks')} value={form.perAsk.tasks} options={PER_ASK_CHOICES.tasks} onChange={v => perAsk({ tasks: v })} />
+                <Pick t={t} label={t('openStart.askDepth')} value={form.perAsk.depth} options={PER_ASK_CHOICES.depth} onChange={v => perAsk({ depth: v })} />
+                <Pick t={t} label={t('openStart.askRunSpend')} value={form.perAsk.runSpendUsd} options={PER_ASK_CHOICES.runSpendUsd} onChange={v => perAsk({ runSpendUsd: v })} />
+                <Pick t={t} label={t('openStart.askRunTasks')} value={form.perAsk.runTasks} options={PER_ASK_CHOICES.runTasks} onChange={v => perAsk({ runTasks: v })} />
                 <label style={{ display: 'flex', flexDirection: 'column', ...small }}>{t('openStart.askAccess')}
                   <select aria-label={t('openStart.askAccess')} value={form.perAsk.access} onChange={e => perAsk({ access: e.target.value })} style={field}>
                     {ASK_ACCESS.map(a => <option key={a} value={a}>{a}</option>)}

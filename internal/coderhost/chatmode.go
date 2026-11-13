@@ -79,11 +79,16 @@ func SetOpenModeBindingProbe(goos string, ready func() error) (restore func()) {
 	return func() { openModeGOOS, openModeBindingReady = oldOS, oldReady }
 }
 
-// openModeBindingReason is "" when the binding service can run here, else why the mode cannot be offered. Linux,
-// macOS and Windows follow the service's own readiness.
+// openModeBindingReason is "" when the mode can be offered here. Where the binding service cannot run the mode is still offered:
+// the run starts without binding and says so (doomsday start, status, the start form). No OS refuses it.
 func openModeBindingReason() string {
+	return ""
+}
+
+// OpenModeBindingWarning is why a run here would start without peer-credential binding ("" when the service can run).
+func OpenModeBindingWarning() string {
 	if err := openModeBindingReady(); err != nil {
-		return "not available on this machine: the run needs the peer-credential binding, and " + err.Error()
+		return err.Error()
 	}
 	return ""
 }

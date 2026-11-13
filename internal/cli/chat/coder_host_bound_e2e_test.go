@@ -149,7 +149,7 @@ func TestABoundTurnIsAllowedItsOwnTokenAndASiblingIsNot(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	setCoderSettings(t, dbPath, coderSettings{Enabled: true, PeercredBinding: true})
+	setCoderSettings(t, dbPath, coderSettings{Enabled: true, PeercredBinding: bindingSet(true)})
 
 	// the turn: this test binary, run as the helper
 	bin := filepath.Join(files, "turn.sh")
