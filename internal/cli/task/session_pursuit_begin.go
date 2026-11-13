@@ -35,14 +35,16 @@ func (d Deps) liveFacts(profileID string, session int64, shown *coderhost.CostTa
 				leadCapped = missionpursuit.BudgetKnown(leadBudget, 0)
 			}
 		}
-		// The money text never shows a cap lower than the default: host.json is display-only and a process holding the host lock can
-		// write a plausible small number into it. A host really run with a lower X is then over-stated, never under-stated.
-		wakeCap := coderhost.DefaultWakeCapUSD
-		if reported && host.WakeCapUSD > wakeCap {
-			wakeCap = host.WakeCapUSD
+		// The money text shows what the host can ENFORCE at most, never what host.json says: the cap the host enforces is its own
+		// (MONOAGENT_PURSUIT_WAKE_CAP_USD, checked to MinWakeCapUSD..MaxWakeCapUSD in the host process) and no other process can
+		// read it; host.json is display-only and a same-user process can write any plausible number into it. So the worst case is
+		// the top of the range the host accepts: a host really run with a lower X is over-stated, never under-stated.
+		wakeCap := coderhost.DefaultWakeCapUSD // no valid host report: the code default, and the preview blocks anyway
+		if reported {
+			wakeCap = coderhost.MaxWakeCapUSD
 		}
 		verifierOn := reported && host.VerifierOn
-		in := coderhost.CostInput{WakeCapUSD: wakeCap, MissionBudgetUSD: budget, Pct: lim.Pct, Wakes: lim.Wakes, HostReported: reported, VerifierSet: verifierOn}
+		in := coderhost.CostInput{WakeCapUSD: wakeCap, MissionBudgetUSD: budget, Pct: lim.Pct, Wakes: lim.Wakes, HostReported: reported, CapIsBound: reported, VerifierSet: verifierOn}
 		if verifierOn {
 			in.VerifierPin, in.Confinement = host.VerifierPin, host.Confinement
 		}

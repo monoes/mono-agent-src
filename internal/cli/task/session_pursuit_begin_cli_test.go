@@ -157,10 +157,10 @@ func TestPursuitPreviewIsTheConsentBlockAndWritesNothing(t *testing.T) {
 	if p.Limits["parked_max"] != 3 || p.Limits["pct"] != 20 || p.Limits["wakes_max"] != 6 || len(p.Blockers) != 0 || len(p.Digest) != 64 || p.Checker["set_up"] {
 		t.Errorf("preview limits/blockers/checker = %+v", p)
 	}
-	if p.Host["loop_on"] != true || p.Host["judge_pin"] != "claude/haiku@4" || p.Host["wake_cap_usd"] != 2.0 {
+	if p.Host["loop_on"] != true || p.Host["judge_pin"] != "claude/haiku@4" || p.Host["wake_cap_usd"] != 10.0 {
 		t.Errorf("host = %v", p.Host)
 	}
-	want := coderhost.PursuitCostRows(coderhost.CostInput{WakeCapUSD: 2, MissionBudgetUSD: 20, Pct: 20, Wakes: 6, HostReported: true})
+	want := coderhost.PursuitCostRows(coderhost.CostInput{WakeCapUSD: coderhost.MaxWakeCapUSD, MissionBudgetUSD: 20, Pct: 20, Wakes: 6, HostReported: true, CapIsBound: true})
 	if p.Cost.Text != want.Text || len(p.Cost.Rows) != 3 {
 		t.Errorf("cost = %q, want %q", p.Cost.Text, want.Text)
 	}
@@ -324,9 +324,6 @@ func TestPursuitBeginRefusesWhenWhatYouReadChanged(t *testing.T) {
 	for name, change := range map[string]func(w beginWorld, t *testing.T){
 		"the judge's model": func(w beginWorld, t *testing.T) {
 			w.host(`{"pid":1,"pursuit":{"enabled":true,"pin":"claude/sonnet@4","wakeCapUsd":2}}`)
-		},
-		"the wake-up cap": func(w beginWorld, t *testing.T) {
-			w.host(`{"pid":1,"pursuit":{"enabled":true,"pin":"claude/haiku@4","wakeCapUsd":5}}`)
 		},
 		"the mission budget": func(w beginWorld, t *testing.T) {
 			w.exec(t, `UPDATE task_sessions SET budget_usd = 100 WHERE id = ?`, w.s)
@@ -513,7 +510,7 @@ func TestPursuitPlainPreviewLabelsHostFiguresAsReported(t *testing.T) {
 	t.Parallel()
 	w := newBeginWorld(t)
 	out, _, err := runTask(t, w.db, "default", false, "", "session", "pursuit", "preview", id(w.s))
-	if err != nil || !strings.Contains(out, `as reported by the host, which is not proof): the pursuit loop is ON; judge "claude/haiku@4"`) || !strings.Contains(out, "(as reported by the host)") {
+	if err != nil || !strings.Contains(out, `as reported by the host, which is not proof): the pursuit loop is ON; judge "claude/haiku@4"`) || !strings.Contains(out, "(the most any host can be set to;") {
 		t.Errorf("%v\n%s", err, out)
 	}
 }

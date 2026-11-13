@@ -9,15 +9,18 @@ import (
 	"github.com/monoes/mono-agent/internal/coderhost"
 )
 
-// A process holding the host lock can write a plausible small wake-up cap into host.json: the money text never shows a cap below
-// the default, so the consent cannot be made to understate what a wake-up may cost.
-func TestPursuitConsentNeverShowsAWakeCapBelowTheDefault(t *testing.T) {
-	w := newBeginWorld(t)
-	w.host(`{"pid":1,"pursuit":{"enabled":true,"pin":"claude/haiku@4","wakeCapUsd":0.02}}`)
-	p := w.preview(t)
-	want := coderhost.PursuitCostRows(coderhost.CostInput{WakeCapUSD: coderhost.DefaultWakeCapUSD, MissionBudgetUSD: 20, Pct: 20, Wakes: 6, HostReported: true})
-	if p.Cost.Text != want.Text || strings.Contains(p.Cost.Text, "$0.02") {
-		t.Fatalf("the table understates the cap:\n%s", p.Cost.Text)
+// A process holding the host lock can write any plausible wake-up cap into host.json, and the cap the host enforces (its own
+// environment) is not readable from here: the money text shows the top of the range a host accepts, whatever the file says, so
+// the consent cannot be made to understate what a wake-up may cost.
+func TestPursuitConsentShowsTheMostAHostCanEnforceWhateverTheFileSays(t *testing.T) {
+	want := coderhost.PursuitCostRows(coderhost.CostInput{WakeCapUSD: coderhost.MaxWakeCapUSD, MissionBudgetUSD: 20, Pct: 20, Wakes: 6, HostReported: true, CapIsBound: true})
+	for _, cap := range []string{"0.02", "2", "10"} {
+		w := newBeginWorld(t)
+		w.host(`{"pid":1,"pursuit":{"enabled":true,"pin":"claude/haiku@4","wakeCapUsd":` + cap + `}}`)
+		p := w.preview(t)
+		if p.Cost.Text != want.Text || !strings.Contains(p.Cost.Text, "The wake-up cap is $10 ") || strings.Contains(p.Cost.Text, "$0.02") {
+			t.Fatalf("cap %s: the table understates the cap:\n%s", cap, p.Cost.Text)
+		}
 	}
 }
 
@@ -49,5 +52,15 @@ func TestPursuitStatusReadersIgnoreAForgedHostFile(t *testing.T) {
 				t.Fatalf("readiness: %v\n%s", err, out)
 			}
 		})
+	}
+}
+
+// The cap a file reports is not an input of the consent: changing it does not move the digest (it is not what the host enforces).
+func TestPursuitConsentDigestDoesNotFollowTheReportedWakeCap(t *testing.T) {
+	w := newBeginWorld(t)
+	p := w.preview(t)
+	w.host(`{"pid":1,"pursuit":{"enabled":true,"pin":"claude/haiku@4","wakeCapUsd":5}}`)
+	if again := w.preview(t); again.Digest != p.Digest {
+		t.Fatal("the digest follows a number host.json can be made to say")
 	}
 }
