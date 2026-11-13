@@ -3,57 +3,142 @@ package stop
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"net"
+	"os"
 	"strings"
 	"testing"
 	"time"
 )
 
-type countingAnchorOS struct {
-	PGroupOS
-	starts int
-}
-
-func (c *countingAnchorOS) StartAnchor(string) (int, string, error) {
-	c.starts++
-	return 0, "", errNoPGroupOS
-}
-
-func askAnchor(t *testing.T, dir RunDir, req string) string {
+// anchorAsk sends one raw request line to the anchor socket and returns the answer line.
+func anchorAsk(t *testing.T, dir RunDir, req string) string {
 	t.Helper()
 	c, err := net.DialTimeout("unix", dir.AnchorSockPath(), 2*time.Second)
-	mustNoErr(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer c.Close()
 	_ = c.SetDeadline(time.Now().Add(5 * time.Second))
-	_, err = c.Write([]byte(req))
-	mustNoErr(t, err)
+	fmt.Fprint(c, req)
 	line, _ := bufio.NewReader(c).ReadString('\n')
 	return strings.TrimSpace(line)
 }
 
-// The anchor socket serves peers of the host's uid only and starts nothing for anyone else or for a malformed request:
-// it holds no account state and runs no work of its own, so a locked account gains nothing through it.
-func TestAnchorServiceRefusesForeignPeerAndStartsNothingUnasked(t *testing.T) {
-	dir := newRunDir(t, nil)
-	anchorOS := &countingAnchorOS{}
-	peer := uint32(1000)
-	srv := &AnchorServer{Dir: dir, UID: 1000, OS: anchorOS, Peer: func(net.Conn) (uint32, error) { return peer, nil }}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	mustNoErr(t, srv.Start(ctx))
+type sessionFakePG struct{ *fakePG }
 
-	peer = 1001
-	if got := askAnchor(t, dir, "ANCHOR monoagent-run-1-"+strings.Repeat("a", 32)+".service\n"); got != "ERR peer" {
-		t.Fatalf("a foreign uid must be refused, got %q", got)
+func (s sessionFakePG) SessionOf(pid int) (int, error) { return s.procs[pid].sid, nil }
+
+func startAnchorServer(t *testing.T, peer uint32) (RunDir, *fakePG) {
+	t.Helper()
+	d, err := os.MkdirTemp("", "as")
+	if err != nil {
+		t.Fatal(err)
 	}
-	peer = 1000
-	if got := askAnchor(t, dir, "ANCHOR not-a-run-unit\n"); got != "ERR name" {
-		t.Fatalf("a name that is not a run unit must be refused, got %q", got)
+	t.Cleanup(func() { os.RemoveAll(d) })
+	dir := RunDir{Dir: d}
+	pg := newFakePG()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	srv := &AnchorServer{Dir: dir, UID: 501, OS: sessionFakePG{pg}, Peer: func(net.Conn) (uint32, error) { return peer, nil }}
+	if err := srv.Start(ctx); err != nil {
+		t.Fatal(err)
 	}
-	if got := askAnchor(t, dir, "HELLO\n"); got != "ERR request" {
-		t.Fatalf("a malformed request must be refused, got %q", got)
+	return dir, pg
+}
+
+const goodUnit = "monoagent-run-7-0123456789abcdef0123456789abcdef.service"
+
+func TestAnchorServiceServesTheOperatorAndStartsOneAnchor(t *testing.T) {
+	dir, pg := startAnchorServer(t, 501)
+	got := anchorAsk(t, dir, "ANCHOR "+goodUnit+"\n")
+	if !strings.HasPrefix(got, "OK ") {
+		t.Fatalf("the operator's request was not served: %q", got)
 	}
-	if anchorOS.starts != 0 {
-		t.Fatalf("nothing may be started for a refused request, started %d", anchorOS.starts)
+	if len(pg.procs) != 2 {
+		t.Fatalf("one anchor expected, processes: %d", len(pg.procs))
+	}
+}
+
+func TestAnchorServiceRefusesAPeerThatIsNotTheOperatorAndStartsNothing(t *testing.T) {
+	dir, pg := startAnchorServer(t, 502)
+	got := anchorAsk(t, dir, "ANCHOR "+goodUnit+"\n")
+	if got != "ERR peer" {
+		t.Fatalf("a foreign peer was answered %q", got)
+	}
+	if len(pg.procs) != 1 {
+		t.Fatalf("a refused peer started a process: %d", len(pg.procs))
+	}
+}
+
+func TestAnchorServiceRefusesAnythingButAUnitNameAndStartsNothing(t *testing.T) {
+	dir, pg := startAnchorServer(t, 501)
+	for _, req := range []string{"ANCHOR /bin/sh\n", "ANCHOR ../x\n", "ANCHOR\n", "RUN monoagent-run-7-0123456789abcdef0123456789abcdef.service\n", "ANCHOR " + goodUnit + " extra\n"} {
+		if got := anchorAsk(t, dir, req); !strings.HasPrefix(got, "ERR") {
+			t.Errorf("%q was answered %q", req, got)
+		}
+	}
+	if len(pg.procs) != 1 {
+		t.Fatalf("a refused request started a process: %d", len(pg.procs))
+	}
+}
+
+func TestAnchorServiceSocketIsPrivate(t *testing.T) {
+	dir, _ := startAnchorServer(t, 501)
+	fi, err := os.Stat(dir.AnchorSockPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Fatalf("anchor socket mode %v", fi.Mode().Perm())
+	}
+}
+
+func TestAnchorServiceCapsLiveAnchors(t *testing.T) {
+	dir, pg := startAnchorServer(t, 501)
+	for i := 0; i < maxAnchors; i++ {
+		if got := anchorAsk(t, dir, "ANCHOR "+goodUnit+"\n"); !strings.HasPrefix(got, "OK ") {
+			t.Fatalf("anchor %d: %q", i, got)
+		}
+	}
+	if got := anchorAsk(t, dir, "ANCHOR "+goodUnit+"\n"); got != "ERR busy" {
+		t.Fatalf("one over the cap was answered %q", got)
+	}
+	if len(pg.procs) != 1+maxAnchors {
+		t.Fatalf("processes: %d", len(pg.procs))
+	}
+	for pid := range pg.procs { // one anchor ends: its place is free again
+		if pid != 1 {
+			delete(pg.procs, pid)
+			break
+		}
+	}
+	if got := anchorAsk(t, dir, "ANCHOR "+goodUnit+"\n"); !strings.HasPrefix(got, "OK ") {
+		t.Fatalf("after one ended: %q", got)
+	}
+}
+
+func TestAnchorServiceBoundsTheRequestLine(t *testing.T) {
+	dir, pg := startAnchorServer(t, 501)
+	anchorAsk(t, dir, "ANCHOR "+strings.Repeat("a", 4000)+"\n")
+	if len(pg.procs) != 1 {
+		t.Fatalf("an oversized request started a process: %d", len(pg.procs))
+	}
+}
+
+func TestAnchorServiceTightensAnExistingRunDirectory(t *testing.T) {
+	d, _ := os.MkdirTemp("", "as")
+	t.Cleanup(func() { os.RemoveAll(d) })
+	if err := os.Chmod(d, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	srv := &AnchorServer{Dir: RunDir{Dir: d}, UID: 501, OS: sessionFakePG{newFakePG()}}
+	if err := srv.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Stat(d); fi.Mode().Perm() != 0o700 {
+		t.Fatalf("run directory mode %v", fi.Mode().Perm())
 	}
 }

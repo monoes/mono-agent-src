@@ -69,6 +69,7 @@ func TestEveryCoderChildStartGoesThroughPlace(t *testing.T) {
 		"coder_host.go:clicore.DetachStart":         "starts the host itself, not a turn child",
 		"coder_host_stamp_other.go:exec.Command":    "ps lookup, not a turn child",
 		"coder_host_signal_windows.go:exec.Command": "taskkill, not a turn child",
+		"coder_host_signal_unix.go:exec.Command":    "ps listing of a placed turn's descendants, not a turn child",
 		"coder_background.go:exec.Command":          "ps lookup, not a turn child",
 		"coder_queue_add.go:exec.CommandContext":    "queues a command for the host, short-lived, not a turn child",
 	}
