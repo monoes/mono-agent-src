@@ -72,7 +72,12 @@ func init() {
 		// A conductor's merges go through the open run's gate and journal; the resolver reads the run on every
 		// merge, so a run that starts or stops after the turn began is seen.
 		d.DoomsdayMerge = func(db *sql.DB) func(ctx context.Context) (*dynorg.DoomsdayMerge, error) {
-			return processHostGate(cfg, db).MergeFor
+			// the gate is keyed by the profile's id, whichever way --profile named it
+			hostCfg, err := hostConfigWithProfileID(cfg, db)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "coder host: %v\n", err)
+			}
+			return processHostGate(hostCfg, db).MergeFor
 		}
 		// The coder host gets the open run's dispatch gate: tickets for spawns, token mints and turn releases, the run
 		// stamp, and the bound-mode requirement. With no open run the gate does nothing, so the host is what it was. A
@@ -80,7 +85,10 @@ func init() {
 		chatcli.HostBuilt = func(st *coderhost.Store, h *coderhost.Host, db *sql.DB) {
 			// A host started by hand with `--profile NAME` still carries the name here; every turn names its profile by id, and the
 			// gate refuses a turn of a profile it is not wired for. Wire it for the id.
-			hostCfg := hostConfigWithProfileID(cfg, db)
+			hostCfg, err := hostConfigWithProfileID(cfg, db)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "coder host: %v (the open-ended mode's gate refuses every turn of a profile it is not wired for)\n", err)
+			}
 			w := doomsdayWiring(hostCfg, db)
 			// A run the host starts beside is known before the first dispatch (one read-only count, no key, nothing written).
 			doomsdaycli.OpenRunPrecheck(db, hostCfg.ProfileID, processRunActivity(hostCfg.ProfileID), func(f string, a ...any) { fmt.Fprintf(os.Stderr, f+"\n", a...) })(context.Background())
@@ -101,12 +109,13 @@ func init() {
 		// Reconcile of worktrees resolves begun merges first and keeps the worktrees of unresolved ones (note
 		// 13.3 section 5.1). A database that cannot be opened keeps every turn's worktree.
 		dynorg.SetReconcileGuard(func(ctx context.Context, cwd string, active func(string) bool) func(string) bool {
-			db, err := initDB(cfg)
+			own := *cfg // initDB writes the resolved id into the config it is given: never the shared one, which other goroutines read
+			db, err := initDB(&own)
 			if err != nil {
 				return func(string) bool { return true }
 			}
 			defer db.Close()
-			r := doomsdayWiring(cfg, db.DB).MergeRecovery()
+			r := doomsdayWiring(&own, db.DB).MergeRecovery()
 			return r.GuardTurns(ctx, cwd, active)
 		})
 	}
@@ -115,7 +124,9 @@ func init() {
 // cheapOpenModeCheck is the availability the chat paths see: whether peer-credential binding is switched on in this profile (a
 // run needs every turn's tokens bound to its process, so the mode is not offered while it is off), then whether this profile has a
 // run that is not quiescent, from plain read-only queries. The answer carries no run, generation or charter id.
-func cheapOpenModeCheck(cfg *globalConfig) (bool, string) {
+func cheapOpenModeCheck(shared *globalConfig) (bool, string) {
+	own := *shared // openReadDB writes the resolved id into the config it is given: never the shared one, which other goroutines read
+	cfg := &own
 	db, err := openReadDB(cfg)
 	if errors.Is(err, errNoReadableSchema) {
 		return false, openModeBindingOffReason // no database with the mode's tables: nothing stored, so binding is off
@@ -297,15 +308,17 @@ func bossRouteInstaller(_ context.Context, st *coderhost.Store, db *sql.DB, dbPa
 }
 
 // hostConfigWithProfileID is cfg with the profile named by id: a host started by hand with `--profile NAME` carries the name, but every
-// turn names its profile by id and the gate refuses a turn of a profile it is not wired for. A name that does not resolve is left as
-// it is (the turns then fail closed, as before).
-func hostConfigWithProfileID(cfg *globalConfig, db *sql.DB) *globalConfig {
+// turn names its profile by id and the gate refuses a turn of a profile it is not wired for. A name that matches no profile, or several,
+// is an error and the returned config is cfg itself (the turns then fail closed, as before). cfg is never changed.
+func hostConfigWithProfileID(cfg *globalConfig, db *sql.DB) (*globalConfig, error) {
 	if cfg.ProfileID == "" {
-		return cfg
+		return cfg, nil
+	}
+	id, err := resolveProfileID(db, cfg.ProfileID)
+	if err != nil {
+		return cfg, fmt.Errorf("--profile %q does not name one profile: %w", cfg.ProfileID, err)
 	}
 	c := *cfg
-	if id, err := resolveProfileID(db, cfg.ProfileID); err == nil {
-		c.ProfileID = id
-	}
-	return &c
+	c.ProfileID = id
+	return &c, nil
 }
