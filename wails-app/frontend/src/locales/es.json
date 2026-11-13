@@ -2708,6 +2708,15 @@
     "confirmChildrenOn": "¿Permitir sesiones hijas de la misión? Cada una recibe su propio presupuesto del líder.",
     "confirmChildrenOff": "¿Detener nuevas sesiones hijas? Las que ya corren terminan.",
     "confirmApprovalOn": "¿Dejar que el líder apruebe sesiones hijas de hasta ${{usd}} cada una? Esto levanta una salvaguarda que normalmente necesita tu aprobación.",
-    "confirmApprovalOff": "¿Dejar de permitir que el líder apruebe sesiones hijas?"
+    "confirmApprovalOff": "¿Dejar de permitir que el líder apruebe sesiones hijas?",
+    "statusLabel": "Estado de la persecución",
+    "readError": "No se pudo leer el ajuste guardado de la persecución; el estado de reinicio es desconocido.",
+    "offSaved": "La persecución está desactivada (ajuste guardado). Para reactivarla ejecuta `coder host pursuit on` y reinicia el host de coder.",
+    "offEnv": "La persecución está desactivada por la variable de entorno MONOAGENT_PURSUIT_LOOP del host de coder. La CLI no puede anularla: quítala (o ponla en on) y reinicia el host.",
+    "offHost": "El host de coder en marcha tiene la persecución desactivada. Ejecuta `coder host pursuit on` si la quieres activa y reinicia el host.",
+    "idle": "La persecución está activa pero en espera hasta que elijas un modelo juez.",
+    "paused": "En pausa.",
+    "failed": "La pausa no se aplicó.",
+    "broken": "No se pudo mostrar el panel de persecución (datos inesperados)."
   }
 }
