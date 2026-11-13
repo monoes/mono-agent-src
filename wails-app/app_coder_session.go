@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"strconv"
+	"strings"
 
 	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/coderhost"
@@ -34,6 +35,67 @@ var paneSettingKeys = map[string]bool{
 }
 
 const maxSettingsPatchBytes = 16 << 10
+
+// wideningsOf says, for a checked patch, what it changes toward fewer asks or a wider audience: the pane keys that need the person's
+// native confirmation. The autonomy keys are judged by their RESULT, not by the patch text: a patched autonomy_classes map
+// REPLACES the stored one, and a preset change leaves stored overrides in place, so the effective decision of every kind of
+// question after the change is computed from the stored settings (read through the CLI) and compared with the one before. If the
+// stored settings cannot be read, the change counts as widening. Turning mesh_accept to "none" needs none. The other
+// operator-only pane keys (checkin_limit, max_children, max_concurrent) are bounded by the session's budget and need only the
+// operator gate.
+func (a *App) wideningsOf(conversationID, clean string) []string {
+	var m map[string]json.RawMessage
+	_ = json.Unmarshal([]byte(clean), &m)
+	var out []string
+	_, preset := m["autonomy_preset"]
+	_, classes := m["autonomy_classes"]
+	if (preset || classes) && a.autonomyWidens(conversationID, m) {
+		out = append(out, "fewer asks: the session decides more questions itself, or takes defaults, than it does now")
+	}
+	if raw, ok := m["mesh_accept"]; ok {
+		var accept string
+		if json.Unmarshal(raw, &accept) != nil || accept != "none" {
+			out = append(out, "accept messages from other sessions (any session of the project may message this one)")
+		}
+	}
+	return out
+}
+
+// autonomyWidens says whether applying the autonomy keys of m to the stored settings of the session makes any kind of question
+// decided by someone less strict than before (user < master < model, park < take_default), in any combination of reversibility and
+// master. Unreadable stored settings, or a value that does not parse, widen.
+func (a *App) autonomyWidens(conversationID string, m map[string]json.RawMessage) bool {
+	var cur struct {
+		Settings coderhost.Settings `json:"settings"`
+	}
+	if json.Unmarshal([]byte(a.jsonResult("coder", "sessions", "settings", "get", "--", conversationID)), &cur) != nil || cur.Settings.AutonomyPreset == "" {
+		return true
+	}
+	next := cur.Settings
+	if raw, ok := m["autonomy_preset"]; ok && json.Unmarshal(raw, &next.AutonomyPreset) != nil {
+		return true
+	}
+	if raw, ok := m["autonomy_classes"]; ok {
+		next.AutonomyClasses = map[string]coderhost.AutonomyChoice{}
+		if string(raw) != "null" && json.Unmarshal(raw, &next.AutonomyClasses) != nil {
+			return true
+		}
+	}
+	rank := func(d coderhost.Decision) int {
+		r := map[string]int{coderhost.WhoUser: 0, coderhost.WhoMaster: 1, coderhost.WhoModel: 2}[d.Answerer]*2 + map[string]int{coderhost.FallbackPark: 0, coderhost.FallbackTakeDefault: 1}[d.Fallback]
+		return r
+	}
+	for _, class := range coderhost.GapClasses {
+		for _, reversible := range []bool{false, true} {
+			for _, hasMaster := range []bool{false, true} {
+				if rank(coderhost.Decide(next, class, reversible, hasMaster)) > rank(coderhost.Decide(cur.Settings, class, reversible, hasMaster)) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
 
 // checkSettingsPatch validates a patch from the page: a JSON object of at most maxSettingsPatchBytes whose every key is in
 // paneSettingKeys. It returns the patch re-encoded from what was checked (so the CLI never sees a different reading of the same
@@ -79,6 +141,11 @@ func (a *App) SetCoderSessionSettings(conversationID, patch, unattended string) 
 		if operatorOnly {
 			if why := opgate.Refusal(); why != "" {
 				return taskRefusal("only the user can change these settings: " + why + " (operator_only)")
+			}
+		}
+		if wide := a.wideningsOf(conversationID, clean); len(wide) > 0 {
+			if bad := authorityConfirm(a, "Change this session's settings? "+strings.Join(wide, "; ")+"."); bad != "" {
+				return bad
 			}
 		}
 		args = append(args, "--patch="+clean)

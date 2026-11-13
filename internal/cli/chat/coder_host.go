@@ -93,10 +93,14 @@ func HostRunningAt(dbPath string) bool {
 }
 
 func readHostInfo(cfg *Deps) (hostInfo, bool) {
-	raw, err := os.ReadFile(filepath.Join(hostDir(cfg), hostInfoFile))
+	raw, state := coderhost.ReadHostInfoFile(clicore.ExpandPath(cfg.DBPath())) // bounded, plain file only: a pipe cannot hang status or stop
 	var h hostInfo
-	if err != nil || json.Unmarshal(raw, &h) != nil {
+	if state != coderhost.HostInfoOK || json.Unmarshal(raw, &h) != nil {
 		return hostInfo{}, false
+	}
+	if h.Pursuit != nil {
+		clean := coderhost.SanitizeHostPursuit(*h.Pursuit)
+		h.Pursuit = &clean
 	}
 	return h, true
 }

@@ -68,6 +68,9 @@ type execLauncher struct {
 	// process attributes (Setsid, pidfd) and before the process exists, and returns a release that the launcher calls right after the start
 	// (success or failure). An error refuses the turn before anything runs. Bound launches only: a legacy start with place set fails.
 	place func(cmd *exec.Cmd, profileID, conversationID string) (release func(), err error)
+	// placeRequired, when set with place, says whether a turn of this session must be placed (an open-ended run is open): a legacy start
+	// is refused only then, so a host with no run starts its legacy turns as it always did. Unset, or an error, refuses (fail closed).
+	placeRequired func(profileID, conversationID string) (bool, error)
 	// afterExitRevoke is a test seam: the exit goroutine calls it once its revokes have run, before the turn is done.
 	afterExitRevoke func()
 }
@@ -299,7 +302,15 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = prompt, logFile, logFile
 	startProcess := func() error {
 		if l.place != nil {
-			return errors.New("placing a turn needs a bound launch; a legacy start would run outside the placement")
+			need := true // without the check a placement is assumed to be needed
+			if l.placeRequired != nil {
+				if perr := hookRecover("the placement check", func() (e error) { need, e = l.placeRequired(profileID, conversationID); return e }); perr != nil {
+					return perr
+				}
+			}
+			if need {
+				return errors.New("placing a turn needs a bound launch; a legacy start would run outside the placement")
+			}
 		}
 		return clicore.DetachStart(cmd)
 	}
