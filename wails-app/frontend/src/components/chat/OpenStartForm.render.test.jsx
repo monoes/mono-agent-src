@@ -8,7 +8,7 @@ import '../../i18n.js'
 // The entry screen and the start form of the open-ended chat mode. The CLI decides (availability, the charter, the
 // phrase); the form shows what the person must read and asks for the phrase they write from it.
 const getChat = vi.fn(), onChat = vi.fn()
-const { openStartApi } = vi.hoisted(() => ({ openStartApi: { entry: vi.fn(), render: vi.fn(), start: vi.fn(), roster: vi.fn() } }))
+const { openStartApi } = vi.hoisted(() => ({ openStartApi: { entry: vi.fn(), render: vi.fn(), start: vi.fn(), roster: vi.fn(), catalog: vi.fn() } }))
 vi.mock('../../lib/openStartApi.js', () => ({ openStartApi }))
 
 import { OpenStartForm } from './OpenStartForm.jsx'
@@ -23,6 +23,7 @@ beforeEach(() => {
   getChat.mockReset(); getChat.mockReturnValue({ id: 'chat-7' }); onChat.mockReset()
   openStartApi.entry.mockResolvedValue(ENTRY)
   openStartApi.roster.mockResolvedValue({ error: 'no roster' })
+  openStartApi.catalog.mockResolvedValue([])
   openStartApi.render.mockResolvedValue(PREVIEW)
   openStartApi.start.mockResolvedValue({ ok: true, started: true, output: '{"run_id":"p/1"}', detail: '', code: '' })
 })
@@ -386,6 +387,17 @@ describe('the lists of the form', () => {
     fireEvent.click(screen.getByLabelText('Let the boss approve small asks by itself'))
     for (const l of ['Per-ask spend (USD)', 'Per-ask tasks', 'Per-ask depth', 'Run cap spend (USD)', 'Run cap tasks']) expect(screen.getByLabelText(l).tagName).toBe('SELECT')
   })
+  it('fill the lists from the installed runtimes\' own model lists when the roster holds no validated model', async () => {
+    openStartApi.roster.mockResolvedValue({ runtimes: [{ runtime: 'claude', installed: true, version: '2', models: [] }] })
+    openStartApi.catalog.mockResolvedValue([{ provider: 'claude', version: '2.1', models: ['opus', 'sonnet'] }, { provider: 'codex', version: 'unknown', models: ['gpt-x'] }])
+    render(<OpenStartForm getChat={getChat} onChat={onChat} />)
+    await waitFor(() => expect(screen.getByLabelText('Boss provider').tagName).toBe('SELECT'))
+    expect(screen.getByLabelText('Boss provider')).toHaveValue('claude')
+    expect(screen.getByLabelText('Boss model')).toHaveValue('opus')
+    expect(screen.getByLabelText('Boss version')).toHaveValue('2.1')
+    expect(screen.getByLabelText('Verifier model')).toHaveValue('sonnet')
+  })
+
   it('keep the typed pin fields when the roster is empty or unreadable, and say how to start', async () => {
     render(<OpenStartForm getChat={getChat} onChat={onChat} />)
     await screen.findByLabelText('Goal')
