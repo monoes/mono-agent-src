@@ -28,6 +28,7 @@ type PursuitHostInfo struct {
 	// (PursuitMissingJudgePin); OperatorOff says the operator turned the loop off on purpose; PinSource is "env" or "saved".
 	Missing     string `json:"missing,omitempty"`
 	OperatorOff bool   `json:"operatorOff,omitempty"`
+	OffSource   string `json:"offSource,omitempty"` // "env" or "saved", when OperatorOff
 	PinSource   string `json:"pinSource,omitempty"`
 
 	// The goal checks (MONOAGENT_PURSUIT_VERIFIER), display only like the rest of the file. VerifierPin is what was asked for

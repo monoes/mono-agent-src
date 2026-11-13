@@ -45,7 +45,11 @@ func attachVerifier(ctx context.Context, getenv func(string) string, d *coderhos
 	}
 	info.VerifierPin = pin
 	if d == nil {
-		info.VerifierReason = envPursuitVerifier + " is set but the pursuit loop is off (set " + envPursuitJudge + " too, and restart the host): no goal check runs"
+		if info.OperatorOff {
+			info.VerifierReason = envPursuitVerifier + " is set but the operator turned the pursuit loop off (run `coder host pursuit on` and restart the host): no goal check runs"
+		} else {
+			info.VerifierReason = envPursuitVerifier + " is set but the pursuit loop is not running (choose a judge with `coder host pursuit judge set RUNTIME/MODEL`, and restart the host): no goal check runs"
+		}
 		return
 	}
 	vd, vi := verifierBuilder(ctx, pin, scratch, forbidden)
@@ -62,21 +66,21 @@ func attachVerifier(ctx context.Context, getenv func(string) string, d *coderhos
 // spent) and never picks a model for the person. Order: an explicit operator OFF (env or saved row) beats everything; then the
 // pin of MONOAGENT_PURSUIT_JUDGE; then the saved pin. db answers the lead's pin at each gate and each judge call.
 func pursuitFromEnv(getenv func(string) string, db *sql.DB) (*coderhost.PursuitDeps, coderhost.PursuitHostInfo) {
-	if v := strings.ToLower(strings.TrimSpace(getenv(envPursuitLoop))); v == "off" || v == "0" || v == "false" {
-		return nil, coderhost.PursuitHostInfo{OperatorOff: true, Reason: "turned off by the operator (" + envPursuitLoop + "=" + v + "); unset it and restart the host to go back to the default"}
+	if v := getenv(envPursuitLoop); coderhost.PursuitLoopValueOff(v) {
+		return nil, coderhost.PursuitHostInfo{OperatorOff: true, OffSource: "env", Reason: "turned off by the operator (" + envPursuitLoop + " is set and is not on/1/true); unset it (or set it to on) and restart the host to go back to the default"}
 	}
 	store := coderhost.NewStore(db)
 	// a setting that cannot be read fails closed: the loop stays off rather than guess
 	if off, err := store.PursuitOperatorOff(); err != nil {
-		return nil, coderhost.PursuitHostInfo{OperatorOff: true, Reason: fmt.Sprintf("the operator's pursuit switch could not be read (%v); the pursuit loop stays off", err)}
+		return nil, coderhost.PursuitHostInfo{OperatorOff: true, OffSource: "saved", Reason: fmt.Sprintf("the operator's pursuit switch could not be read (%v); the pursuit loop stays off", err)}
 	} else if off {
-		return nil, coderhost.PursuitHostInfo{OperatorOff: true, Reason: "turned off by the operator (`coder host pursuit off`); `coder host pursuit on` and a host restart go back to the default"}
+		return nil, coderhost.PursuitHostInfo{OperatorOff: true, OffSource: "saved", Reason: "turned off by the operator (`coder host pursuit off`); `coder host pursuit on` and a host restart go back to the default"}
 	}
 	pin, source := strings.TrimSpace(getenv(envPursuitJudge)), "env"
 	if pin == "" {
 		saved, err := store.SavedPursuitJudge()
 		if err != nil {
-			return nil, coderhost.PursuitHostInfo{OperatorOff: true, Reason: fmt.Sprintf("the saved judge could not be read (%v); the pursuit loop stays off", err)}
+			return nil, coderhost.PursuitHostInfo{OperatorOff: true, OffSource: "saved", Reason: fmt.Sprintf("the saved judge could not be read (%v); the pursuit loop stays off", err)}
 		}
 		pin, source = saved, "saved"
 	}

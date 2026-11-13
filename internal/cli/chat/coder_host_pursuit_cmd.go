@@ -2,6 +2,8 @@ package chat
 
 import (
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -37,6 +39,16 @@ func pursuitStatusCmd(cfg *Deps) *cobra.Command {
 	return c
 }
 
+// coderHostPursuitStatus prints the one place the app reads. JSON keys (schema_version 1; keys are added, never renamed):
+//
+//	savedOperatorOff  the SAVED row (`coder host pursuit off`); null with readError when the row could not be read (never a guess)
+//	savedJudge        the saved pin ("" none)
+//	readError         why the saved settings could not be read, else absent
+//	pendingRestart    the saved settings differ from the running host: a restart would change its loop
+//	enabled, missing, pinSource, operatorOff, reason   the RUNNING host's loop (from host.json); when no host published one:
+//	                  enabled false, missing/pinSource derived from the saved settings, reason says so
+//	host              {found, alive, pursuit}: the raw host facts
+//	notice, pauseCommand   the first-run notice (the published wake-up cap when a host runs) and the verb that pauses one mission
 func coderHostPursuitStatus(cfg *Deps, cmd *cobra.Command) error {
 	db, err := cfg.OpenDB()
 	if err != nil {
@@ -44,30 +56,67 @@ func coderHostPursuitStatus(cfg *Deps, cmd *cobra.Command) error {
 	}
 	defer db.Close()
 	st := coderhost.NewStore(db.DB)
-	off, err := st.PursuitOperatorOff()
-	if err != nil {
-		return err
+	var savedOff *bool
+	var readErr string
+	off, offErr := st.PursuitOperatorOff()
+	pin, pinErr := st.SavedPursuitJudge()
+	if offErr != nil {
+		readErr = offErr.Error()
+	} else {
+		savedOff = &off
 	}
-	pin, err := st.SavedPursuitJudge()
-	if err != nil {
-		return err
+	if pinErr != nil {
+		readErr = pinErr.Error()
 	}
 	host, found, alive := coderhost.ReadHostPursuitState(clicore.ExpandPath(cfg.DBPath()))
-	out := map[string]any{"operatorOff": off, "savedJudge": pin, "notice": coderhost.PursuitNotice(), "pauseCommand": coderhost.PursuitPauseCommand,
+	out := map[string]any{"schema_version": 1, "savedOperatorOff": savedOff, "savedJudge": pin, "pauseCommand": coderhost.PursuitPauseCommand,
 		"host": map[string]any{"found": found, "alive": alive, "pursuit": host}}
+	if readErr != "" {
+		out["readError"] = readErr
+	}
+	pending := found && alive && readErr == "" && coderhost.PendingPursuitRestart(off, pin, host)
+	out["pendingRestart"] = pending
+	wake := 0.0
+	var pinSource any
+	switch {
+	case found:
+		out["enabled"], out["missing"], out["operatorOff"], out["reason"] = host.Enabled, host.Missing, host.OperatorOff, host.Reason
+		if host.PinSource != "" {
+			pinSource = host.PinSource
+		}
+		wake = host.WakeCapUSD
+	default:
+		out["enabled"], out["operatorOff"] = false, nil
+		out["reason"] = "no coder host has published its pursuit state (none is running, or it is older than this field)"
+		out["missing"] = ""
+		if pin == "" {
+			out["missing"] = coderhost.PursuitMissingJudgePin
+		} else {
+			pinSource = "saved"
+		}
+	}
+	out["pinSource"] = pinSource
+	notice := coderhost.PursuitNotice(wake)
+	out["notice"] = notice
 	if cfg.JSONOutput() {
 		return printQueueJSON(cmd, out)
 	}
 	w := cmd.OutOrStdout()
 	state := "on by default"
-	if off {
+	switch {
+	case savedOff == nil:
+		state = "unknown (" + readErr + ")"
+	case off:
 		state = "OFF (the operator turned it off)"
 	}
 	fmt.Fprintf(w, "saved switch: %s\nsaved judge: %q\n", state, pin)
 	if found {
 		fmt.Fprintln(w, "host: "+pursuitLoopLine(host))
 	}
-	fmt.Fprintln(w, coderhost.PursuitNotice())
+	if pending {
+		fmt.Fprintln(w, "restart pending: the saved settings differ from what the running coder host started with; restart the coder host to apply them")
+	}
+	fmt.Fprintln(w, notice)
 	return nil
 }
 
@@ -119,5 +168,10 @@ func saveJudge(cfg *Deps, cmd *cobra.Command, pin string) error {
 	if err := coderhost.NewStore(db.DB).SetSavedPursuitJudge(pin); err != nil {
 		return err
 	}
-	return printQueueJSON(cmd, map[string]any{"savedJudge": pin, "note": restartNote})
+	out := map[string]any{"savedJudge": pin, "note": restartNote}
+	if env := strings.TrimSpace(os.Getenv(envPursuitJudge)); env != "" {
+		out["envOverride"] = env
+		out["warning"] = envPursuitJudge + " is set in this shell; a host started with it uses that pin and ignores the saved one"
+	}
+	return printQueueJSON(cmd, out)
 }

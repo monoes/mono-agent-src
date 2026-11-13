@@ -217,7 +217,7 @@ func NextLine(paused bool, waiting string, seen, hostRuns bool) string {
 	case waiting != "":
 		return "Look at the mission and act on it."
 	case !hostRuns:
-		return "Choose the judge model (`coder host pursuit judge set RUNTIME/MODEL`) and restart the coder host; nothing is judged or woken until a judge runs."
+		return "Nothing is judged or woken: run `coder host pursuit status`. If it says the judge is missing, choose one (`coder host pursuit judge set RUNTIME/MODEL`); if the operator turned the loop off, run `coder host pursuit on`; then restart the coder host."
 	case !seen:
 		return "Nothing yet: the pursuit loop looks at a new pursuit within a few minutes."
 	}

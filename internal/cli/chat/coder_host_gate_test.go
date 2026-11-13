@@ -1112,6 +1112,11 @@ func runProductionHost(t *testing.T, env map[string]string) (*coderhost.Host, *D
 			t.Fatal(err)
 		}
 	}
+	if v := env["_raw_loop"]; v != "" { // a hand-written spelling, as `config set` could once write it
+		if _, err := db.DB.Exec(`INSERT INTO configs (name, config_data, created_at, updated_at) VALUES (?, ?, 'x', 'x')`, coderhost.PursuitLoopConfig, v); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if env["_saved_off"] != "" {
 		if err := coderhost.NewStore(db.DB).SetPursuitOperatorOff(true); err != nil {
 			t.Fatal(err)
@@ -1165,6 +1170,20 @@ func TestTheProductionHostIsOnByDefaultButIdleWithoutAJudgePinAndKeepsTheCheckIn
 	}
 }
 
+func TestAnOnSpellingKeepsTheDefaultAndTheVerifierMessageNamesTheOperatorOff(t *testing.T) {
+	built, _ := runProductionHost(t, map[string]string{envPursuitLoop: "on", envPursuitJudge: "claude/haiku"})
+	if built.Pursuit == nil {
+		t.Fatal("an explicit `on` turned the loop off")
+	}
+	var info coderhost.PursuitHostInfo
+	attachVerifier(context.Background(), envOf(map[string]string{envPursuitVerifier: "gemini/checker"}), nil, &info, "/s", coderhost.ForbiddenFolders{})
+	info2 := coderhost.PursuitHostInfo{OperatorOff: true}
+	attachVerifier(context.Background(), envOf(map[string]string{envPursuitVerifier: "gemini/checker"}), nil, &info2, "/s", coderhost.ForbiddenFolders{})
+	if !strings.Contains(info2.VerifierReason, "coder host pursuit on") || strings.Contains(info.VerifierReason, "pursuit on") {
+		t.Fatalf("verifier reasons: %q / %q", info2.VerifierReason, info.VerifierReason)
+	}
+}
+
 func TestTheSavedJudgeTurnsTheDefaultLoopOnAndTheEnvPinWins(t *testing.T) {
 	built, cfg := runProductionHost(t, map[string]string{"_saved_judge": "openrouter/m:free"})
 	if built.Pursuit == nil || built.Pursuit.Verifier != nil || built.Pursuit.WakeCapUSD != coderhost.DefaultWakeCapUSD {
@@ -1186,6 +1205,15 @@ func TestAnExplicitOperatorOffIsNeverOverriddenByAPin(t *testing.T) {
 		"saved off + env pin":   {"_saved_off": "1", envPursuitJudge: "claude/haiku"},
 		"env off + env pin":     {envPursuitLoop: "off", envPursuitJudge: "claude/haiku"},
 		"env off 0":             {envPursuitLoop: "0", "_saved_judge": "claude/haiku"},
+		"env OFF":               {envPursuitLoop: "OFF", envPursuitJudge: "claude/haiku"},
+		"env no":                {envPursuitLoop: "no", envPursuitJudge: "claude/haiku"},
+		"env n":                 {envPursuitLoop: "n", envPursuitJudge: "claude/haiku"},
+		"env disabled":          {envPursuitLoop: "disabled", envPursuitJudge: "claude/haiku"},
+		"env false":             {envPursuitLoop: "false", envPursuitJudge: "claude/haiku"},
+		"row false":             {"_raw_loop": "false", envPursuitJudge: "claude/haiku"},
+		"row OFF":               {"_raw_loop": "OFF", envPursuitJudge: "claude/haiku"},
+		"row no":                {"_raw_loop": "no", "_saved_judge": "claude/haiku"},
+		"row disabled":          {"_raw_loop": "disabled", envPursuitJudge: "claude/haiku"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			built, cfg := runProductionHost(t, env)

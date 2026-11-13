@@ -13,7 +13,7 @@ func TestThePauseCommandTheNoticeNamesExists(t *testing.T) {
 	if want != coderhost.PursuitPauseCommand {
 		t.Fatalf("the notice names %q but the verb is %q: the strip's Pause button would point nowhere", coderhost.PursuitPauseCommand, want)
 	}
-	if !strings.Contains(coderhost.PursuitNotice(), want) {
+	if !strings.Contains(coderhost.PursuitNotice(0), want+" <session-id>") {
 		t.Fatal("the notice does not name the pause command")
 	}
 }

@@ -13,7 +13,8 @@ import (
 // default spends nothing); these two reserved rows (like MissionChildrenConfig: `config set` and agents cannot write them,
 // only the operator-only `coder host pursuit` verbs) are the only ways to change that:
 //
-//	coder.pursuit_loop   "off" = the operator turned the loop off; absent, empty or anything else = the default (on)
+//	coder.pursuit_loop   absent or empty = the default (on); "on", "1", "true" (any case) = on; ANY other value is an explicit OFF
+//	                     (so a hand-written "false", "OFF", "no" or "disabled" fails closed, never open)
 //	coder.pursuit_judge  the saved judge pin, runtime/model[@version]; absent or empty = none (the loop idles: "judge-pin" missing)
 //
 // Both are read once, when the host starts. A read error fails closed in the host wiring (the loop stays off).
@@ -21,8 +22,10 @@ const (
 	PursuitLoopConfig  = "coder.pursuit_loop"
 	PursuitJudgeConfig = "coder.pursuit_judge"
 
-	// PursuitPauseCommand pauses one mission's pursuit (an existing operator verb); the first-run notice names it.
+	// PursuitPauseCommand pauses one mission's pursuit (an existing operator verb that takes the mission's session id);
+	// PursuitPauseUsage is how the first-run notice shows it.
 	PursuitPauseCommand = "task session pursuit pause"
+	PursuitPauseUsage   = PursuitPauseCommand + " <session-id>"
 	// PursuitMissingJudgePin is the closed code host.json carries while no judge pin is configured.
 	PursuitMissingJudgePin = "judge-pin"
 )
@@ -47,7 +50,32 @@ func (s *Store) setConfigValue(name, v string) error {
 // PursuitOperatorOff says whether the operator turned the loop off (false when never set: the default is on).
 func (s *Store) PursuitOperatorOff() (bool, error) {
 	v, err := s.configValue(PursuitLoopConfig)
-	return v == "off", err
+	return err == nil && PursuitLoopValueOff(v), err
+}
+
+// PursuitLoopValueOff reads a spelling of the switch (the env var or the saved row): empty or on/1/true (any case, trimmed) is
+// the default, ON; any other non-empty value is an explicit OFF. An unrecognised spelling must never leave the loop on.
+func PursuitLoopValueOff(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "", "on", "1", "true":
+		return false
+	}
+	return true
+}
+
+// PendingPursuitRestart says whether the saved settings differ from what the running host started with, so that a restart
+// would change its loop. The env var is the host's own and not visible here: a host whose pin or OFF came from it is not compared.
+func PendingPursuitRestart(savedOff bool, savedPin string, h PursuitHostInfo) bool {
+	if h.OperatorOff && h.OffSource == "env" {
+		return false // the host's own env OFF wins over anything saved
+	}
+	if savedOff != (h.OperatorOff && h.OffSource == "saved") {
+		return true
+	}
+	if savedOff || h.PinSource == "env" {
+		return false
+	}
+	return savedPin != h.Pin
 }
 
 // SetPursuitOperatorOff writes the operator's explicit OFF, or clears it (back to the default).
@@ -79,7 +107,12 @@ func ValidPursuitPin(pin string) bool {
 
 // PursuitNotice is the first-run notice of a mission chat: what a pursuit does, what it costs at most and how to pause. Every
 // figure comes from the constants of the caps; the app shows this text and never writes its own.
-func PursuitNotice() string {
+//
+// wakeCap is the cap the running host published (MONOAGENT_PURSUIT_WAKE_CAP_USD can raise it); 0 (no host state) shows the default.
+func PursuitNotice(wakeCap float64) string {
+	if wakeCap <= 0 {
+		wakeCap = DefaultWakeCapUSD
+	}
 	return fmt.Sprintf("This mission will pursue its goal while you are away, but only after you accept its goal and confirm. Caps: $%.2f a wake-up turn, %d%% of the mission budget, %d wake-ups and %d parked questions until you next act; this host at most %d wake-ups and %d judge calls an hour. Pause any time with `%s`; closing the mission ends it.",
-		DefaultWakeCapUSD, missionpursuit.DefaultPct, missionpursuit.DefaultWakesMax, missionpursuit.DefaultParkedMax, MaxPursuitWakesPerHour, MaxPursuitJudgeCallsPerHour, PursuitPauseCommand)
+		wakeCap, missionpursuit.DefaultPct, missionpursuit.DefaultWakesMax, missionpursuit.DefaultParkedMax, MaxPursuitWakesPerHour, MaxPursuitJudgeCallsPerHour, PursuitPauseUsage)
 }
