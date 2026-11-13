@@ -100,6 +100,7 @@ func (s *Store) EnqueueWithPursuit(c Command, m pursuitMission, epoch int64) (Co
 	if at, err := s.wakeRetryAt(tx, m, PursuitTurnPrefix+strconv.FormatInt(epoch, 10)+"-%"); err != nil || s.now().Before(at) {
 		return c, errEpochWoken // a lost wake-up of this epoch is retried after its wait (or not at all when that cannot be read)
 	}
+	c.pursuit = true
 	got, err := s.enqueueOn(tx, c)
 	if err != nil {
 		return c, err
