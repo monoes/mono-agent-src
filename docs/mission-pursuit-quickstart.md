@@ -4,6 +4,10 @@ What this is: a mission can keep working while you are away. Every few minutes t
 
 Commands below take `--profile "$P"` and a mission session id `ID` (written `3` or `#3`). Use a throwaway profile and a small mission.
 
+## 0. Default (read this first)
+
+The host loop is on by default but idle: with no judge model chosen nothing is judged or spent, and every status says `judge-pin missing`. Choose one with `monoagentcli coder host pursuit judge set RUNTIME/MODEL` (or the env var below) and restart the coder host; `coder host pursuit off` is an explicit OFF that no pin overrides (so is any value other than on/1/true in `MONOAGENT_PURSUIT_LOOP`; an env OFF must be unset, the CLI cannot override it). The app's mission strip reads `coder host pursuit status --json` (`schema_version` 1): `savedOperatorOff` (the saved row; null with `readError` when it could not be read), `savedJudge`, `pendingRestart`, the running host's `enabled`/`missing`/`pinSource`/`operatorOff`/`reason` (with `host.pursuit.offSource` env or saved), the first-run `notice` and `pauseCommand`.
+
 ## 1. Turn it on (two switches)
 
 1. Host switch: start the coder host with `MONOAGENT_PURSUIT_JUDGE=runtime/model` set, naming the judge's model. It must be a different runtime/model name from the lead's (case and a trailing `@version` are ignored; two names for one model are not recognised). It is read once when the host starts, so set it, then restart the host.
@@ -92,7 +96,7 @@ Only the 20 percent rule is a hard bound. Read this too:
 ## 4. Switching it off
 
 - One mission: `pursuit pause ID`. Nothing new starts, and the lead's check-ins do not come back; only your `resume` starts it again.
-- Everything: unset `MONOAGENT_PURSUIT_JUDGE` and restart the coder host. There is no live host-wide off and no `pursuit stop`.
+- Everything: `coder host pursuit off` (or `MONOAGENT_PURSUIT_LOOP=off`) and restart the coder host; `coder host pursuit on` goes back to the default. There is no live host-wide off and no `pursuit stop`.
 - A judge call or a lead turn already running is not cancelled: it finishes and is paid for (a paused pursuit drops the judge's answer).
 
 ## 5. What it cannot do

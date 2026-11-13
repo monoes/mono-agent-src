@@ -7,7 +7,7 @@ var coderCommandDocs = []cmdDoc{
 	{
 		Name:     "coder host",
 		Short:    "The detached process that keeps coder sessions running after the app closes (run, status, stop)",
-		Usage:    "monoagentcli [--profile P] coder host run|status|stop",
+		Usage:    "monoagentcli [--profile P] coder host run|status|pursuit|stop",
 		Examples: []string{"monoagentcli --profile work coder host status --json"},
 	},
 	{
@@ -22,6 +22,12 @@ var coderCommandDocs = []cmdDoc{
 		Short:    "Whether the coder host is running, its pid and since when",
 		Usage:    "monoagentcli [--profile P] coder host status",
 		Examples: []string{"monoagentcli --profile work coder host status --json"},
+	},
+	{
+		Name:     "coder host pursuit",
+		Short:    "The host-wide switch of the mission pursuit loop: on by default, idle until a judge model is chosen (status, on, off, judge set|clear; operator-only writes, applied at the next host restart)",
+		Usage:    "monoagentcli [--profile P] coder host pursuit [status|on|off|judge set RUNTIME/MODEL|judge clear]",
+		Examples: []string{"monoagentcli --profile work coder host pursuit status --json"},
 	},
 	{
 		Name:     "coder host stop",

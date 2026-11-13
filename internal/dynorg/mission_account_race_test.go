@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/monomind"
 )
@@ -73,6 +74,7 @@ func accountingRace(t *testing.T, seed int64) {
 				return
 			default:
 				reserve.Store(fr.Intn(2) == 0)
+				time.Sleep(50 * time.Microsecond) // a flip, not a spin: a busy loop starves the writers of CPU
 			}
 		}
 	}()

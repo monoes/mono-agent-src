@@ -48,7 +48,7 @@ func TestTheLeadsGoalCloseGateFollowsTheHostsPublishedChecks(t *testing.T) {
 		}
 	}
 	// the real reader: a file with no live host (nothing holds host.lock) is a leftover and adds no refusal
-	publish(`{"pursuit":{"enabled":true,"verifierPin":"gemini/checker-1","verifierOn":true}}`)
+	publish(`{"pursuit":{"enabled":true,"pin":"claude/haiku","wakeCapUsd":2,"verifierPin":"gemini/checker-1","verifierOn":true}}`)
 	if why := gate(ctx, se.ID); why != "" {
 		t.Errorf("a leftover file of a host that is not running: %q", why)
 	}
@@ -67,12 +67,28 @@ func TestTheLeadsGoalCloseGateFollowsTheHostsPublishedChecks(t *testing.T) {
 		t.Errorf("the host that published the checks is gone: %q", why)
 	}
 	alive = true
-	publish(`{"pursuit":{"enabled":true,"verifierPin":"gemini/checker-1"}}`) // asked for, not set up: no check will come
+	publish(`{"pursuit":{"enabled":true,"pin":"claude/haiku","wakeCapUsd":2,"verifierPin":"gemini/checker-1"}}`) // asked for, not set up: no check will come
 	if why := gate(ctx, se.ID); why != "" {
 		t.Errorf("a pin asked for and not set up: %q", why)
 	}
 	publish(`{"pursuit":{"enabled":true}}`)
 	if why := gate(ctx, se.ID); why != "" {
 		t.Errorf("the host does not run goal checks: %q", why)
+	}
+}
+
+// A forged "checks are set up" with no real loop behind it (a host that cannot be real) adds no refusal.
+func TestTheGoalCloseGateIgnoresAForgedHostFile(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "mono.db")
+	dir := coderhost.HostDir(dbPath)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, coderhost.HostInfoFile), []byte(`{"pursuit":{"enabled":true,"verifierOn":true,"verifierPin":"a/b"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, found := coderhost.ReadHostPursuit(dbPath)
+	if !found || info.VerifierOn || !info.Invalid {
+		t.Fatalf("a forged file reads as %+v", info)
 	}
 }
