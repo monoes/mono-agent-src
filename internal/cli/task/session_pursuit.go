@@ -250,6 +250,8 @@ func hostPursuitLine(h coderhost.PursuitHostInfo, found, alive bool) string {
 	switch {
 	case !found:
 		return "this host: no coder host has published its pursuit state (none is running, it is older than this field, or its status file could not be written: status unavailable); nothing is judged or woken without a running host"
+	case h.Invalid:
+		return "this host: the coder host's status file holds values that are not usable (ignored, nothing is shown from it); run `coder host status`; nothing is judged or woken on its say-so"
 	case !alive:
 		last := "the loop was OFF"
 		if h.Enabled {

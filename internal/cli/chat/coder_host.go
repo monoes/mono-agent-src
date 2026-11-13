@@ -408,7 +408,7 @@ func hostStatus(cfg *Deps) map[string]any {
 			st["held"] = info.Held
 		}
 		if info.Pursuit != nil {
-			st["pursuit"] = *info.Pursuit
+			st["pursuit"] = coderhost.SanitizeHostPursuit(*info.Pursuit)
 		}
 	}
 	return st

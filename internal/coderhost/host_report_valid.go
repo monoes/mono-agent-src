@@ -10,6 +10,9 @@ import (
 // would have accepted (validWakeCap) and a judge pin that is a printable runtime/model name. host.json is display-only and any
 // process running as the user can write it, so a value that fails here is never shown to the person as a fact.
 func ValidHostPursuitInfo(h PursuitHostInfo) bool {
+	if h.Invalid {
+		return false
+	}
 	// closed vocabularies
 	if (h.Missing != "" && h.Missing != PursuitMissingJudgePin) || !oneOfStr(h.PinSource, "", "env", "saved") || !oneOfStr(h.OffSource, "", "env", "saved") {
 		return false

@@ -336,6 +336,23 @@ func TestTheE2EHostNeverConfirmsAPursuitStart(t *testing.T) {
 	}
 }
 
+// The same holds for the dialog that turns on mission authority: the e2e host refuses it before it reads any scripted answer.
+func TestTheE2EHostNeverConfirmsAnAuthorityTurnOn(t *testing.T) {
+	f := parseSource(t, "e2e_host.go", nil)
+	_, fd := funcBody([]srcFile{f}, "e2eConfirm")
+	if fd == nil || len(fd.Body.List) < 2 {
+		t.Fatal("no e2eConfirm")
+	}
+	second, ok := fd.Body.List[1].(*ast.IfStmt)
+	if !ok {
+		t.Fatal("e2eConfirm must refuse the authority dialog right after the pursuit one")
+	}
+	cond, isBin := second.Cond.(*ast.BinaryExpr)
+	if !isBin || cond.Op != token.EQL || !mentions(cond, "title") || !mentions(cond, "authorityDialogTitle") || !mentions(second.Body, "errNoNativeDialog") {
+		t.Fatal("e2eConfirm's second statement must be: if title == authorityDialogTitle { return false, errNoNativeDialog }")
+	}
+}
+
 func mentions(n ast.Node, name string) bool {
 	found := false
 	ast.Inspect(n, func(x ast.Node) bool {

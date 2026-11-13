@@ -3,6 +3,7 @@ package coderhost
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -30,6 +31,8 @@ type PursuitHostInfo struct {
 	OperatorOff bool   `json:"operatorOff,omitempty"`
 	OffSource   string `json:"offSource,omitempty"` // "env" or "saved", when OperatorOff
 	PinSource   string `json:"pinSource,omitempty"`
+	// Invalid is set by the reader (never written by the host) on facts that failed validation: they carry nothing else.
+	Invalid bool `json:"-"`
 
 	// The goal checks (MONOAGENT_PURSUIT_VERIFIER), display only like the rest of the file. VerifierPin is what was asked for
 	// ("" = the checks are off, the default); VerifierOn says they are set up; VerifierReason says why a checker that was asked
@@ -44,12 +47,47 @@ type PursuitHostInfo struct {
 // HostDir is the folder of the coder host that serves the database at dbPath (already path-expanded).
 func HostDir(dbPath string) string { return filepath.Join(filepath.Dir(dbPath), "coder-host") }
 
+// maxHostInfoBytes bounds the read of host.json: the real file is a few hundred bytes to a few KB.
+const maxHostInfoBytes = 64 << 10
+
+// SanitizeHostPursuit is the one gate every reader of the published pursuit facts passes: facts that cannot be real (see
+// ValidHostPursuitInfo) are replaced by a marker with no text and no number in it (Invalid), so nothing forged is ever shown,
+// counted or used as a cap. Only whether the loop claimed to be on is kept, so that a forged "on" still reads as "not usable".
+func SanitizeHostPursuit(p PursuitHostInfo) PursuitHostInfo {
+	if ValidHostPursuitInfo(p) {
+		return p
+	}
+	return PursuitHostInfo{Enabled: p.Enabled, Invalid: true}
+}
+
 // ReadHostPursuit reads the pursuit state the running host published for the database at dbPath. found is false when no host
-// has published one (no host, or a host built before this field).
+// has published one (no host, or a host built before this field). The file is display-only and any process of the user can write
+// it, so it is read only if it is a regular file (never a symlink to a device or a pipe), at most maxHostInfoBytes, and what it
+// says passes SanitizeHostPursuit; an unusable file is found with Invalid set.
 func ReadHostPursuit(dbPath string) (info PursuitHostInfo, found bool) {
-	raw, err := os.ReadFile(filepath.Join(HostDir(dbPath), HostInfoFile))
+	path := filepath.Join(HostDir(dbPath), HostInfoFile)
+	fi, err := os.Lstat(path)
 	if err != nil {
 		return PursuitHostInfo{}, false
+	}
+	bad := PursuitHostInfo{Invalid: true}
+	if !fi.Mode().IsRegular() {
+		return bad, true
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return PursuitHostInfo{}, false
+	}
+	defer f.Close()
+	if fi2, err := f.Stat(); err != nil || !os.SameFile(fi, fi2) { // swapped between the check and the open
+		return bad, true
+	}
+	raw, err := io.ReadAll(io.LimitReader(f, maxHostInfoBytes+1))
+	if err != nil {
+		return PursuitHostInfo{}, false
+	}
+	if len(raw) > maxHostInfoBytes {
+		return bad, true
 	}
 	var doc struct {
 		Pursuit *PursuitHostInfo `json:"pursuit"`
@@ -57,7 +95,7 @@ func ReadHostPursuit(dbPath string) (info PursuitHostInfo, found bool) {
 	if json.Unmarshal(raw, &doc) != nil || doc.Pursuit == nil {
 		return PursuitHostInfo{}, false
 	}
-	return *doc.Pursuit, true
+	return SanitizeHostPursuit(*doc.Pursuit), true
 }
 
 // ReadHostPursuitState is ReadHostPursuit plus whether the host that wrote the file is alive now: a live host holds host.lock,

@@ -133,6 +133,8 @@ func pursuitStatusLine(p coderhost.PursuitHostInfo) string {
 
 func pursuitLoopLine(p coderhost.PursuitHostInfo) string {
 	switch {
+	case p.Invalid:
+		return "pursuit loop state not usable  (the host's status file holds values that cannot be real; ignored)"
 	case p.Enabled:
 		return fmt.Sprintf("pursuit loop ON  judge %s  a wake-up turn is capped at $%.2f (and at what the lead has left)", p.Pin, p.WakeCapUSD)
 	case p.Missing != "":

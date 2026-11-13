@@ -165,6 +165,8 @@ func hostLoopWhy(in readinessInput, invalid bool) string {
 	switch {
 	case invalid:
 		return "the host published a judge model or wake-up cap that is not a usable value"
+	case in.Host.Invalid:
+		return "the coder host's status file holds values that are not usable (ignored)"
 	case !in.HostFound:
 		return "no coder host has published its pursuit state (none is running, or it is older than this field)"
 	case !in.HostAlive:
