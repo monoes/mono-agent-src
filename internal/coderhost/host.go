@@ -418,7 +418,11 @@ func (h *Host) Tick() error {
 				} else {
 					h.settle(x)
 				}
-				h.end(c, CmdFailed, err.Error())
+				errText := err.Error()
+				if TurnStarted(err) || len(TurnsPending(err)) > 0 { // the process was created (or an older one may still run): it may have spent, so the wake-up it carried stays counted
+					errText = startedMarker + ": " + errText
+				}
+				h.end(c, CmdFailed, errText)
 				continue
 			}
 			if capped {
@@ -515,6 +519,10 @@ func (h *Host) end(c Command, status, errText string) {
 		h.logf("coder host: recording command %d: %v", c.ID, err)
 	} else if !applied {
 		h.logf("coder host: command %d was ended elsewhere; its status is left as it is", c.ID)
+	} else if status == CmdFailed {
+		if rerr := h.Store.refundWake(c, errText); rerr != nil { // a wake-up whose turn did not start is not a spent wake-up
+			h.logf("coder host: command %d: giving back its wake-up: %v", c.ID, rerr)
+		}
 	}
 	endBetweenSteps()
 	if status == CmdFailed && c.Kind == KindSend {

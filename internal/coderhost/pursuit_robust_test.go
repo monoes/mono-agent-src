@@ -110,6 +110,7 @@ func TestAWakeUpThatEndedWithoutRunningIsQueuedAgainABoundedNumberOfTimes(t *tes
 	w, id := lostWakeFixture(t)
 	for round := 1; round <= maxWakeTries+2; round++ {
 		w.endCommand(id, CmdFailed)
+		w.advance(wakeRetryMax) // the retry of a lost wake-up waits (pursuit_wake_failed.go)
 		w.pass()
 		got := w.wakes()
 		if round < maxWakeTries {

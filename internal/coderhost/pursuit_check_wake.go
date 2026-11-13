@@ -158,6 +158,9 @@ func (s *Store) EnqueueWithAccept(c Command, m pursuitMission, check int64) (Com
 	if live > 0 || lost >= maxWakeTries {
 		return c, errEpochWoken
 	}
+	if at, err := s.wakeRetryAt(tx, m, acceptTurnHead+strconv.FormatInt(check, 10)+"-%"); err != nil || s.now().Before(at) {
+		return c, errEpochWoken
+	}
 	got, err := s.enqueueOn(tx, c)
 	if err != nil {
 		return c, err
