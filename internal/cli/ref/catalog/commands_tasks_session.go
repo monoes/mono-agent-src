@@ -233,6 +233,12 @@ var taskSessionCommandDocs = []cmdDoc{
 		Examples: []string{"monoagentcli --profile work task session pursuit status 3"},
 	},
 	{
+		Name:     "task session pursuit readiness",
+		Short:    "List what is missing for a mission's pursuit to run: the host switch (MONOAGENT_PURSUIT_JUDGE) and the judge's model, a goal with a rubric criterion, the goal checker (only for command checks), the mission's budget, the lead's spend cap, the chat and your own consent; each item is ok or missing with the exact fix; --json carries schema_version, ready, blockers and items (read only, no model call)",
+		Usage:    "monoagentcli [--profile P] task session pursuit readiness ID",
+		Examples: []string{"monoagentcli --profile work task session pursuit readiness 3 --json"},
+	},
+	{
 		Name:     "task session pursuit list",
 		Short:    "List the missions in pursuit for this profile, one row each: session, state (running, paused, waiting or off-host), the waiting code, who has to act (you, host or none) and the title, shown as agent text; --json adds schema_version (read only)",
 		Usage:    "monoagentcli [--profile P] task session pursuit list",

@@ -17,6 +17,9 @@ type XMLNode struct{}
 
 func (n *XMLNode) Type() string { return "data.xml" }
 
+// PublishesToThirdParty: data.xml sends nothing off this machine (issue #1418).
+func (XMLNode) PublishesToThirdParty() bool { return false }
+
 func (n *XMLNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	operation, _ := config["operation"].(string)
 	if operation == "xml_to_json" || operation == "json_to_xml" {

@@ -51,6 +51,7 @@ func init() {
 		if err != nil {
 			return engineForOpenFailure(err)
 		}
+		doomsdayOwns(func() { db.Close() })
 		w := doomsdayWiring(cfg, db.DB)
 		// The CLI's own Stop: the line that says the marker is written, before the database step that may wait on a busy database.
 		w.Progress = doomsdayProgress
@@ -61,6 +62,7 @@ func init() {
 		if err != nil {
 			return engineForOpenFailure(err)
 		}
+		doomsdayOwns(func() { db.Close() })
 		return doomsdayWiring(cfg, db).ReadEngine()
 	}
 	doomsdayChat = func(cfg *globalConfig, d *chatcli.Deps) {
@@ -198,7 +200,7 @@ func processHostGate(cfg *globalConfig, db *sql.DB) *doomsdaycli.HostGate {
 		BindingOn: func() (bool, error) { return chatcli.PeercredBindingOn(db) },
 		Anchors:   stop.ServeAnchors,
 		InstallHooks: func(st *coderhost.Store, h *coderhost.Host, hk doomsdaycli.Hooks) error {
-			return chatcli.InstallRunHooks(st, h, chatcli.RunHooks{RunStamp: hk.RunStamp, BeforeRelease: hk.BeforeRelease, Place: hk.Place})
+			return chatcli.InstallRunHooks(st, h, chatcli.RunHooks{RunStamp: hk.RunStamp, BeforeRelease: hk.BeforeRelease, Place: hk.Place, PlaceRequired: hk.PlaceRequired})
 		}}
 	hostGates[cfg.ProfileID] = g
 	return g

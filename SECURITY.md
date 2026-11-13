@@ -246,6 +246,68 @@ reads; values an agent already retrieved cannot be recalled.
   can still turn the switch on, as they can approve a workflow: the bypasses
   are the same as for `workflow_approvals`.
 
+**A granted secret is authentication, never content.** Host binding says where a
+granted secret may go, not what it is used as. Under agent access:
+
+- A node that publishes to a third party (messages, vendor APIs, databases, AI
+  providers, model-backed nodes, responses; a node declares
+  `PublishesToThirdParty() false` to say it does not, and an undeclared one
+  publishes) is refused once the run has read any secret, `--any-host`
+  included. A child run's reads taint its parent when the parent has consumed
+  every child, at any depth up to the sub-workflow limit of 32, a failed child
+  included. A plaintext read (`vault.secret_get` at Reveal) taints like a
+  reference, but the revealed value itself is not tracked, so a body holding it
+  is stopped by the publishing rule only.
+- A secret may reach `http.request`, `http.graphql` or `mcp.call` only as
+  authentication, never in a body, a query string (except an api key's value) or
+  tool arguments. Requests to this machine are exempt, and a proxy on this
+  machine counts as this machine; a proxy that is not makes the exemption void.
+  A 307/308 redirect is checked again with its body, and every redirect hop's
+  address is checked; a 301/302/303 that turns a POST into a GET sends no body
+  and is not refused for it.
+- The taint is per run, so a local store would carry a value to another run: the
+  nodes that write one (a data table, files, binary data, chat memory, application,
+  document and publication records, the vault: `WritesLocalStore()`) refuse a value the run
+  has read.
+- To graduate such a workflow, approve it.
+
+Known limits:
+
+- `browser.jev`, `{{secret:}}` in automations, MCP headers and env, and per-item
+  database overlays resolve inside the node, so the node that reads is not
+  refused by its own read (later nodes are).
+- The value scan (a request body, a store write) finds the forms masking tracks:
+  the value, base64 (four variants, aligned at the start), URL and JSON escapes,
+  `-`/`_` swaps, hex, upper and lower case. An unaligned base64, a `data.jwt`
+  token whose claims embed it, or a value split across columns or chunks passes.
+  A store write also scans the outputs of earlier nodes when a field holds an
+  expression, so a read followed by any such write is refused (a short secret
+  inside a longer number, a timestamp say, is a false positive: the message names
+  the node, the field and the secret).
+- A secret in a URL's path, fragment or user info is bound to the grant's hosts
+  but not refused as content; only the body and the query string are.
+- The child taint reads the audit: if you clear the audit between a child's
+  read and its parent's consume, the taint is lost. That lookup (`execution_id IN
+  (...)`) has no index and runs once per consume.
+- The write scan is linear and not streaming: a 50 MB row costs about 70 ms and
+  150 MB of memory under agent access. Outside it nothing is copied.
+- Secret text rendered into an image's pixels is invisible to the scan
+  (`image.edit`'s text operation is scanned by its configuration only); once a
+  person approves it, `core.code` runs freely; `core.wait` with a resume form or
+  webhook shows its page text to whoever holds the resume URL; `core.form` and
+  the response nodes are publishing, so a tainted run does not reach them.
+- `core.remove_duplicates` keeps the value it de-duplicates on as a number in
+  its static data (a numeric secret stored as a number); copies of a run's data
+  in the executions table are masked for tracked forms only.
+- A refusal arrives in the middle of a run, after earlier side effects. A short
+  secret (6 characters is the minimum tracked) inside a longer number, or an
+  upstream service that echoes the credential in an error body or a next-page
+  link, causes real false positives; the way out is the person approving the
+  workflow. The trigger's data is scanned with the node's input.
+- A store another process fills, and image pixels, is not scanned; the
+  store-writing nodes are found by reading the packages' source
+  (`internal/noderegistry`), which is a heuristic.
+
 ### A copy of `~/.monoagent` and the key store
 
 The key that opens the vault is in the OS key store, not in the database, and
@@ -629,7 +691,7 @@ same trade-off as the environment-variable file.
 
 ## The mission pursuit loop spends money while you are away
 
-A mission's pursuit (`task session pursuit start`) lets the coder host ask a judge model whether the mission is on track and wake the lead for another turn, with nobody at the keyboard. It is off by default: the host must be started with `MONOAGENT_PURSUIT_JUDGE` set to a judge model (restart to turn it off), and you must start each pursuit yourself; an agent cannot start, pause, resume or switch it. What it can spend: a wake-up turn is capped at X (default $2, `MONOAGENT_PURSUIT_WAKE_CAP_USD`, at most $10) or at what the lead has left, and never started without a cap; the judge is asked to stay under $0.50 a call; host-wide at most 12 wake-ups and 12 judge calls an hour, and per mission 20 percent of its budget (counting money carved out to helpers and not yet spent), 6 wake-ups and 3 parked questions since you last acted. Worst case with the defaults: about $15 an hour for one mission ($16.50 with failed judge rounds) and $30 an hour for the host; until the away limits stop a mission, about $6.50 on a $20 budget and at most about $22.50 on $100. These caps are requests to the external AI runtime, checked from the cost it reports afterwards, so a call can overshoot by one model call, and helpers the lead starts are bounded by their carve, not by X: one wake can let the lead carve its whole remaining budget (up to the 80 percent share maximum) to helpers outside X. The judge sees counts, ids and the confirmed goal criteria, never an agent's text, and cannot approve anything. Its model must have a different runtime/model name from the lead's (a name check; aliases are not recognised; no verifier pin exists for missions yet). The `host.json` the status commands read is display-only: editing it can make a status wrong and nothing else. `task session pursuit status` and `coder host status` show the switch, the judge model and X.
+A mission's pursuit (`task session pursuit start`) lets the coder host ask a judge model whether the mission is on track and wake the lead for another turn, with nobody at the keyboard. The host loop is on by default but does nothing and spends nothing until you choose a judge model (`MONOAGENT_PURSUIT_JUDGE` or `coder host pursuit judge set`; no model is picked for you; `coder host pursuit off` is an explicit OFF that no pin overrides; changes apply at the next host restart), and you must accept each mission's goal and start each pursuit yourself (the typed consent is unchanged; the goal checker stays off until you enable it separately); the app's two switches that widen a mission's authority (mission child sessions on, the lead's approval of child sessions on) each ask you in a native dialog of the operating system after the operator gate, with the ceiling named (at most $1000 from the app; the CLI allows more), and turning them on is refused where no dialog can be shown; `coder host pursuit status` uses `host.json` only for a live host whose facts pass `ValidHostPursuitInfo` (a live process of yours can still write plausible values there: it is display only); the settings pane's save accepts only the settings the pane sends (never `agent_approval`, its ceiling, `mission`, `chat_mode`, `max_depth` and the like), and re-encodes the patch it checked; every reader of `host.json` (status, readiness, the goal-close gate, `coder host status`) goes through one validated reader that refuses non-regular files and anything over 64 KiB and shows nothing from facts that cannot be real, and the consent's money text never shows a wake-up cap below the default (a process holding the host lock could otherwise write a small plausible number); known gap: `coder.pursuit_judge` and `coder.pursuit_loop` are reserved from this version on, but a value an agent could have written under those names on an older version is not scrubbed: check `coder host pursuit status` (`pinSource: saved`) before relying on it, and `coder host pursuit judge clear` removes it; an agent cannot start, pause, resume or switch it. What it can spend: a wake-up turn is capped at X (default $2, `MONOAGENT_PURSUIT_WAKE_CAP_USD`, at most $10) or at what the lead has left, and never started without a cap; the judge is asked to stay under $0.50 a call; host-wide at most 12 wake-ups and 12 judge calls an hour, and per mission 20 percent of its budget (counting money carved out to helpers and not yet spent), 6 wake-ups and 3 parked questions since you last acted. Worst case with the defaults: about $15 an hour for one mission ($16.50 with failed judge rounds) and $30 an hour for the host; until the away limits stop a mission, about $6.50 on a $20 budget and at most about $22.50 on $100. These caps are requests to the external AI runtime, checked from the cost it reports afterwards, so a call can overshoot by one model call, and helpers the lead starts are bounded by their carve, not by X: one wake can let the lead carve its whole remaining budget (up to the 80 percent share maximum) to helpers outside X. The judge sees counts, ids and the confirmed goal criteria, never an agent's text, and cannot approve anything. Its model must have a different runtime/model name from the lead's (a name check; aliases are not recognised; no verifier pin exists for missions yet). The `host.json` the status commands read is display-only: editing it can make a status wrong and nothing else. `task session pursuit status` and `coder host status` show the switch, the judge model and X.
 
 ### Beginning a pursuit (`pursuit begin`, and the app)
 
@@ -676,6 +738,23 @@ publication claims, and its sends wait for your approval. What changes:
 - When the turn check cannot place the process (the database is unreadable or
   locked), the run is marked as an agent's and the command prints one line
   saying so; retry once the database reads.
+
+A run started over MCP `workflow_run` or the HTTP API (`POST .../run`) is also
+an agent's run: those callers are not your terminal, so the run is marked
+(`other`, or the caller's agent kind) and a planted mark in the input is
+overwritten. That includes your own scripts with a run-scope key.
+
+**Known gap: unmarked runs of an approved workflow.** Runs of an *active*
+workflow started by a webhook, a form, a chat, a trigger source or the daemon's
+scheduler carry no agent mark, and the GUI's `workflow run` subprocess is
+marker-only. So an agent with localhost access that POSTs an active workflow's
+webhook URL gets an unmarked run of a workflow you approved, which nodes that
+tell an agent's run from yours (`ai.task`, `people.save` approving outreach,
+sends, browser policy) treat as yours. It is left as it is because those starts
+are third-party-triggered by design (a webhook exists so something else can start
+the run), and it predates the marking of MCP and HTTP runs. What the run can do is
+what you approved in the workflow; a definition an agent changed is still
+unapproved and its sends still wait. Tracked in #1475 and its follow-up.
 
 ### Sends that skipped approval up to v0.152.0
 
@@ -3617,7 +3696,7 @@ same-user process can name a live tool of the worker (the shell or the CLI it st
 (`TestKnownGapATokenDefaultAccessListLeavesAToolOfTheWorkerClaimable`) - this is the realistic attack, and it is open;
 (b) **later threads** in the worker and in the host keep the default list (only the worker's main thread is locked), so thread
 hijack (set-context, suspend, APC) by the same user remains possible (`TestKnownGapOtherThreadsOfALockedWorkerKeepTheDefaultAccessList`);
-(c) the host is unlocked until it has started running `coder host run`, and handles opened to it before that survive;
+(c) a host started by hand (not by the CLI) is unlocked until it has started running `coder host run`, and handles opened to it before that survive; a host the CLI starts is created with the list (`TestHostStartedByTheCLIHasTheLockedListFromItsFirstInstruction`);
 (d) an **elevated administrator, SeDebugPrivilege or SeTakeOwnershipPrivilege, and a session started by a service or ssh as an
 administrator**, skip every access list (`TestKnownGapAnElevatedProcessWithDebugPrivilegeOpensALockedWorker`), a class the Linux and
 macOS binding does not stop either (root);
@@ -3643,8 +3722,7 @@ handles stay open so the directory cannot be renamed while the service runs, a l
 socket path longer than the 107 bytes of a Windows socket address is refused with its cause. The frame pipe's write end is not
 inheritable. Residual, as on macOS and not present on Linux: the kernel names the process that **connected** and does not say who holds
 the connection, so a connector that hands the connection to another process and ends, and whose number is recycled to a process inside
-the tree before the service pins it, is served as that process; the window is the accept latency, which a process of the same user that
-can suspend the host can widen. An ended connector is refused. The turn's leader is held by a handle; a bound turn whose leader exits
+the tree before the service pins it, is served as that process; the window is the accept latency, which a stalled host widens (the service can only stamp the time it got to the connection, not when the client connected, so a process created while the host was stalled looks older than the accept and is served). A process created after the service accepted is refused; the check has a 250 ms slack for clocks stepped back. An ended connector is refused. The turn's leader is held by a handle; a bound turn whose leader exits
 has its group signalled by `taskkill /T` by the leader's number while the child is still unreaped, which cannot find a tree whose
 parent is gone: stragglers of a Windows turn may outlive their leader (job-object containment is separate work).
 

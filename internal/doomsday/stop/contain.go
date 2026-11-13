@@ -27,6 +27,12 @@ type ProbeStep struct {
 	Check func() error
 }
 
+// ReadinessStep is a probe step that only reads the machine, with the fix to show when it fails.
+type ReadinessStep struct {
+	ProbeStep
+	Fix string
+}
+
 // RunProbe runs the steps in order and refuses, naming the first failing one.
 func RunProbe(steps []ProbeStep) error {
 	for _, s := range steps {

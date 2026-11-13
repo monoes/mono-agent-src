@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/noderegistry"
+	"github.com/monoes/mono-agent/internal/nodes/browserjev"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -230,6 +231,12 @@ func toolWorkflowRun(ctx context.Context, s *Server, args json.RawMessage) (inte
 	}
 
 	workflow.StripEngineKeys(a.Input)
+	// The caller of this tool is an agent, not the user's terminal: its run carries an agent's mark, as
+	// `workflow run` gives an agent's run, so a node that refuses an AI run refuses this one.
+	if a.Input == nil {
+		a.Input = map[string]interface{}{}
+	}
+	browserjev.MarkAICallerFor(ctx, nil, a.Input, "an MCP caller is not the user's terminal", false)
 	execID, err := engine.TriggerWorkflow(ctx, a.ID, a.Input)
 	if err != nil {
 		return nil, fmt.Errorf("trigger workflow: %w", err)

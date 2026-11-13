@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -107,7 +108,8 @@ func TestRecordVerifyArgsAndInputsFile(t *testing.T) {
 	}
 	defer os.Remove(path)
 	st, err := os.Stat(path)
-	if err != nil || st.Mode().Perm() != 0o600 {
+	// Windows has no permission bits (a file is always reported 0666); the file lives in the user's own temp dir there.
+	if err != nil || (runtime.GOOS != "windows" && st.Mode().Perm() != 0o600) {
 		t.Fatalf("mode = %v %v", st.Mode(), err)
 	}
 	b, _ := os.ReadFile(path)

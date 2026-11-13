@@ -29,13 +29,17 @@ const (
 type CheckSpend struct {
 	Micro int64
 	Count int
+	// Parks is how many of them ended without the goal being met (failed or error: the criteria, not the checker or the machine in
+	// the way): they count as parked questions in the away limits, like a question the lead parked.
+	Parks int
 }
 
 // CheckSpendAfter is the spend (micro-USD) and the number of the mission's checks with an id above baseID.
 func CheckSpendAfter(ctx context.Context, db *sql.DB, session, baseID int64) (CheckSpend, error) {
 	var out CheckSpend
-	err := db.QueryRowContext(ctx, `SELECT COALESCE(SUM(CASE WHEN state = 'running' THEN ?1 WHEN cost_known = 1 THEN cost_micro ELSE ?1 END), 0), COUNT(*)
-		FROM mission_goal_checks WHERE session_id = ?2 AND id > ?3`, CheckCapMicro, session, baseID).Scan(&out.Micro, &out.Count)
+	err := db.QueryRowContext(ctx, `SELECT COALESCE(SUM(CASE WHEN state = 'running' THEN ?1 WHEN cost_known = 1 THEN cost_micro ELSE ?1 END), 0), COUNT(*),
+		COALESCE(SUM(CASE WHEN state = 'done' AND outcome IN ('failed', 'error') THEN 1 ELSE 0 END), 0)
+		FROM mission_goal_checks WHERE session_id = ?2 AND id > ?3`, CheckCapMicro, session, baseID).Scan(&out.Micro, &out.Count, &out.Parks)
 	if err != nil {
 		return CheckSpend{}, fmt.Errorf("missionpursuit: reading the check spend: %w", err)
 	}

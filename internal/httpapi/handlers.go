@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/nodes/browserjev"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -225,6 +226,12 @@ func (s *Server) handleWorkflowRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	workflow.StripEngineKeys(body.Input)
+	// A key holder can be an agent, as over MCP: the run carries an agent's mark, as `workflow run`
+	// gives an agent's run, so a node that refuses an AI run refuses this one.
+	if body.Input == nil {
+		body.Input = map[string]interface{}{}
+	}
+	browserjev.MarkAICallerFor(ctx, nil, body.Input, "an API caller is not the user's terminal", false)
 	execID, err := engine.TriggerWorkflow(ctx, id, body.Input)
 	if err != nil {
 		writeErrorFor(w, err)

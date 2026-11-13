@@ -29,6 +29,12 @@ type ImageEditNode struct{}
 
 func (n *ImageEditNode) Type() string { return "image.edit" }
 
+// PublishesToThirdParty: image.edit sends nothing off this machine (issue #1418).
+func (ImageEditNode) PublishesToThirdParty() bool { return false }
+
+// WritesLocalStore: image.edit puts what it is given where another run can read it back (issue #1418).
+func (ImageEditNode) WritesLocalStore() bool { return true }
+
 // editSettings is image.edit's parsed config.
 type editSettings struct {
 	Operation   string

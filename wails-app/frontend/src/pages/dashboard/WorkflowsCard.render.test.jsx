@@ -17,7 +17,8 @@ describe('WorkflowsCard', () => {
     const { rerender } = render(<WorkflowsCard workflows={wfs} executions={execs} {...noop}
       schedules={{ daemon_running: true, upcoming: [{ workflow_id: 'w1', next_run: next }], invalid: [] }} />)
     expect(screen.getByText('dashboard.time.inMinutes:20')).toBeInTheDocument()
-    expect(screen.getByText('SUCCESS')).toHaveStyle({ color: 'var(--green-neon)' })
+    // jsdom 31 resolves var() in computed style, so assert the authored inline value
+    expect(screen.getByText('SUCCESS').getAttribute('style')).toContain('color: var(--green-neon)')
     rerender(<WorkflowsCard workflows={wfs} executions={execs} {...noop}
       schedules={{ daemon_running: false, upcoming: [{ workflow_id: 'w1', next_run: next }], invalid: [] }} />)
     expect(screen.getByText('dashboard.workflows.schedulePaused')).toBeInTheDocument()

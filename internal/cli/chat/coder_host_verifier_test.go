@@ -46,10 +46,10 @@ func TestTheGoalChecksNeedTheJudgeFlag(t *testing.T) {
 	calls := stubVerifierBuilder(t, &coderhost.VerifierDeps{Pin: "x/y"}, coderhost.VerifierInfo{})
 	info := coderhost.PursuitHostInfo{}
 	attachVerifier(context.Background(), envOf(map[string]string{envPursuitVerifier: "gemini/checker"}), nil, &info, "/s", coderhost.ForbiddenFolders{})
-	if *calls != 0 || info.VerifierOn || info.VerifierPin != "gemini/checker" || !strings.Contains(info.VerifierReason, envPursuitJudge) {
+	if *calls != 0 || info.VerifierOn || info.VerifierPin != "gemini/checker" || !strings.Contains(info.VerifierReason, "judge set") {
 		t.Fatalf("calls %d, info %+v", *calls, info)
 	}
-	if line := pursuitStatusLine(info); !strings.Contains(line, "goal checks OFF") || !strings.Contains(line, envPursuitJudge) {
+	if line := pursuitStatusLine(info); !strings.Contains(line, "goal checks OFF") || !strings.Contains(line, "judge set") {
 		t.Errorf("status line %q", line)
 	}
 }

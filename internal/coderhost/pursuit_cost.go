@@ -18,6 +18,9 @@ type CostInput struct {
 	// HostReported says the wake-up cap is the one the host published (host.json, display-only); false means the code default,
 	// shown because no valid host report exists. The text says which.
 	HostReported bool
+	// CapIsBound says WakeCapUSD is the top of the range a host accepts, shown because the host's own file cannot be trusted to
+	// say what the host enforces (any process of the user can write it); a host set lower is over-stated, never under-stated.
+	CapIsBound bool
 	// VerifierSet says the host runs goal checks (S7c1b): the table then adds what they cost, and says that they run programs.
 	// VerifierPin and Confinement are the host's report of the checker and of what confines the programs; they are part of the
 	// text the consent digest covers, so a changed checker or fence makes a preview stale.
@@ -99,13 +102,23 @@ func PursuitCostRows(in CostInput) CostTable {
 	if in.HostReported {
 		source = "as reported by the host"
 	}
+	if in.CapIsBound {
+		source = "the most any host can be set to; the host's own file is not trusted to say what it enforces, so a host set lower costs less"
+	}
 	fmt.Fprintf(&b, "What this can cost you, at worst. The wake-up cap is %s (%s) and the judge is asked to stay under %s a call.\n", UsdText(x), source, UsdText(j))
 	for _, r := range rows {
 		b.WriteString("- " + r.Text + "\n")
 	}
 	if in.VerifierSet {
-		fmt.Fprintf(&b, "- Goal checks are ON (checker %s; programs of command criteria: %s). A command or output criterion RUNS A PROGRAM on this computer, on a copy of your project, while you are away. A check is asked to stay under %s (a request to the AI service, like the others), is held to %d an away window while you do not act and %d an hour on this computer, and counts toward the percent limit. On Linux with no user session manager (or a host started before the user bus exists) there is no fence at all, and then only your per-mission switch (task session pursuit allow-unconfined-checks) lets programs run, unfenced.\n",
-			in.VerifierPin, in.Confinement, UsdText(v), missionpursuit.MaxChecksPerAwayWindow, missionpursuit.MaxHostChecksPerHour)
+		on, pin, fence := "ON", in.VerifierPin, in.Confinement
+		if in.CapIsBound { // the host's file does not say reliably whether the checks are on, so the worst case is shown
+			on = "possibly ON"
+			if pin == "" {
+				pin, fence = "not reported", "not reported"
+			}
+		}
+		fmt.Fprintf(&b, "- Goal checks are %s (checker %s; programs of command criteria: %s). A command or output criterion RUNS A PROGRAM on this computer, on a copy of your project, while you are away. A check is asked to stay under %s (a request to the AI service, like the others), is held to %d an away window while you do not act and %d an hour on this computer, and counts toward the percent limit. On Linux with no user session manager (or a host started before the user bus exists) there is no fence at all, and then only your per-mission switch (task session pursuit allow-unconfined-checks) lets programs run, unfenced.\n",
+			on, pin, fence, UsdText(v), missionpursuit.MaxChecksPerAwayWindow, missionpursuit.MaxHostChecksPerHour)
 	}
 	b.WriteString("- Helpers the lead starts are NOT covered by the wake-up cap. Money the lead hands to helpers counts toward the percent limit, so a big hand-out makes the pursuit wait for you.\n")
 	b.WriteString("- The caps are requests to the AI service, checked from the cost it reports afterwards. One call can overshoot.\n")

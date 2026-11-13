@@ -19,6 +19,9 @@ type MergeNode struct{}
 
 func (n *MergeNode) Type() string { return "core.merge" }
 
+// PublishesToThirdParty: core.merge sends nothing off this machine (issue #1418).
+func (MergeNode) PublishesToThirdParty() bool { return false }
+
 func (n *MergeNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	return []workflow.NodeOutput{
 		{Handle: "main", Items: input.Items},

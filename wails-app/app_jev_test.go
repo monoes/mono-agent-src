@@ -31,8 +31,8 @@ case "$*" in
   *) echo 'unexpected' >&2; exit 2;;
 esac
 `
-	bin := filepath.Join(dir, "monoagentcli")
-	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
+	bin := filepath.Join(dir, fakeCLIName)
+	if err := writeFakeCLI(bin, script); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("MONOAGENTCLI_BIN", bin)
@@ -126,8 +126,8 @@ func TestJevRefusesBadInputBeforeCLI(t *testing.T) {
 // CLI errors (stderr) surface as the returned error.
 func TestJevCLIErrorSurfaces(t *testing.T) {
 	dir := t.TempDir()
-	bin := filepath.Join(dir, "monoagentcli")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho 'no TypeSafe key in the vault' >&2\nexit 1\n"), 0o700); err != nil {
+	bin := filepath.Join(dir, fakeCLIName)
+	if err := writeFakeCLI(bin, "#!/bin/sh\necho 'no TypeSafe key in the vault' >&2\nexit 1\n"); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("MONOAGENTCLI_BIN", bin)

@@ -65,7 +65,20 @@ func (c *Conductor) readyToClose(ctx context.Context, mc *MissionRun, sid int64)
 	if why := c.integrationStale(ctx, mc, sid, plan, *integration); why != "" {
 		return tasks.Task{}, &closeRefusal{why}
 	}
+	if why := c.goalCloseRefusal(ctx, sid); why != "" {
+		return tasks.Task{}, &closeRefusal{why}
+	}
 	return *integration, nil
+}
+
+// goalCloseRefusal is why the mission's ultimate goal holds the close back, or "": a locked goal whose checks and answers are not
+// satisfied is not ready to close, and the lead cannot make it so. The person's own close (task session close, the Close button)
+// does not go through here.
+func (c *Conductor) goalCloseRefusal(ctx context.Context, sid int64) string {
+	if m := c.cfg.Mission; m != nil && m.GoalClose != nil {
+		return m.GoalClose(ctx, sid)
+	}
+	return ""
 }
 
 // proposeClose records that the mission is ready for the operator to close and leaves the

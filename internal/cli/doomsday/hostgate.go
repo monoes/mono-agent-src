@@ -96,7 +96,7 @@ func (g *HostGate) Install(st *coderhost.Store, h *coderhost.Host) error {
 	}
 	err := errors.New("no hook installer is wired")
 	if g.InstallHooks != nil {
-		err = g.InstallHooks(st, h, Hooks{RunStamp: g.RunStamp, BeforeRelease: g.BeforeRelease, Place: g.PlaceRelease})
+		err = g.InstallHooks(st, h, Hooks{RunStamp: g.RunStamp, BeforeRelease: g.BeforeRelease, Place: g.PlaceRelease, PlaceRequired: g.PlaceRequired})
 	}
 	g.mu.Lock()
 	g.hooked = err == nil

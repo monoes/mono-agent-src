@@ -231,7 +231,9 @@ func other() { _ = []string{"task", "session", "goal", "confirm", "5"} }`)))) ==
 
 // The pursuit verbs the app may run are an allow-list: preview (the start file) and the reads and the person's pause and resume.
 func TestPursuitReadBindingsUseAnAllowList(t *testing.T) {
-	allowed := map[string]bool{"task": true, "session": true, "pursuit": true, "preview": true, "status": true, "list": true, "pause": true, "resume": true, "show": true, "begin": true}
+	allowed := map[string]bool{"task": true, "session": true, "pursuit": true, "preview": true, "status": true, "list": true, "pause": true, "resume": true, "show": true, "begin": true,
+		// the read of what is missing, and the host switch's read-only status (`coder host pursuit status`; its writes are not bound here)
+		"readiness": true, "coder": true, "host": true}
 	check := func(f srcFile) (bad []string) {
 		literalGroups(f, func(g []string, pos token.Pos, in string) {
 			if !has(g, "pursuit") {
@@ -311,7 +313,7 @@ func TestPursuitBindingsAreFrontendOnly(t *testing.T) {
 		}
 	}
 	sort.Strings(got)
-	if strings.Join(got, ",") != "PursuitStart,PursuitStartPreview" {
+	if strings.Join(got, ",") != "PursuitHostStatus,PursuitPause,PursuitReadiness,PursuitStart,PursuitStartPreview" {
 		t.Fatalf("Pursuit bindings: %v", got)
 	}
 }
@@ -331,6 +333,23 @@ func TestTheE2EHostNeverConfirmsAPursuitStart(t *testing.T) {
 	cond, ok := first.Cond.(*ast.BinaryExpr)
 	if !ok || cond.Op != token.EQL || !mentions(cond, "title") || !mentions(cond, "pursuitDialogTitle") || !mentions(first.Body, "errNoNativeDialog") {
 		t.Fatal("e2eConfirm's first statement must be: if title == pursuitDialogTitle { return false, errNoNativeDialog }")
+	}
+}
+
+// The same holds for the dialog that turns on mission authority: the e2e host refuses it before it reads any scripted answer.
+func TestTheE2EHostNeverConfirmsAnAuthorityTurnOn(t *testing.T) {
+	f := parseSource(t, "e2e_host.go", nil)
+	_, fd := funcBody([]srcFile{f}, "e2eConfirm")
+	if fd == nil || len(fd.Body.List) < 2 {
+		t.Fatal("no e2eConfirm")
+	}
+	second, ok := fd.Body.List[1].(*ast.IfStmt)
+	if !ok {
+		t.Fatal("e2eConfirm must refuse the authority dialog right after the pursuit one")
+	}
+	cond, isBin := second.Cond.(*ast.BinaryExpr)
+	if !isBin || cond.Op != token.EQL || !mentions(cond, "title") || !mentions(cond, "authorityDialogTitle") || !mentions(second.Body, "errNoNativeDialog") {
+		t.Fatal("e2eConfirm's second statement must be: if title == authorityDialogTitle { return false, errNoNativeDialog }")
 	}
 }
 

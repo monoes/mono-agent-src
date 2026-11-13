@@ -18,7 +18,8 @@ export default function StopPanel({ api, disabled, unknown = false, onDone }) {
     setPhase('done')
     if (onDone) onDone()
   }
-  const kind = phase === 'done' ? outcome(result) : ''
+  const kind0 = phase === 'done' ? outcome(result) : ''
+  const kind = kind0 === 'gone' ? 'ok' : kind0 // already stopped reads as stopped
   const failed = kind === 'fail'
   return (
     <section className="cr-card cr-stop" aria-label={t('controlRoom.stop.title')} data-testid="cr-stop">
