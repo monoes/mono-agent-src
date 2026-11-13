@@ -31,7 +31,7 @@ const (
 	itemMissing = "missing"
 )
 
-const hostFix = "start the coder host with MONOAGENT_PURSUIT_JUDGE=<runtime/model> set in its environment (a model other than the lead's), e.g. `MONOAGENT_PURSUIT_JUDGE=<runtime/model> monoagentcli coder host run`; if a host is running, `monoagentcli coder host stop` first, because the flag is read once at start"
+const hostFix = "ask the operator to start the coder host with MONOAGENT_PURSUIT_JUDGE=<runtime/model> set in its environment (a model other than the lead's), e.g. `MONOAGENT_PURSUIT_JUDGE=<runtime/model> monoagentcli coder host run`; if a host is running, `monoagentcli coder host stop` first, because the flag is read once at start"
 
 // readinessItem is one line of the checklist. The JSON keys are stable within PursuitSchemaVersion.
 type readinessItem struct {
@@ -89,12 +89,12 @@ func buildReadiness(in readinessInput) readinessDoc {
 	invalid := blocked(missionpursuit.BlockHostInfoInvalid)
 	fix := hostFix
 	if invalid {
-		fix = "restart the coder host (`monoagentcli coder host stop`, then start it) with MONOAGENT_PURSUIT_JUDGE=<runtime/model> and MONOAGENT_PURSUIT_WAKE_CAP_USD, if set, in range: what it published is not a value it would have accepted"
+		fix = "ask the operator to restart the coder host (`monoagentcli coder host stop`, then start it) with MONOAGENT_PURSUIT_JUDGE=<runtime/model> and MONOAGENT_PURSUIT_WAKE_CAP_USD, if set, in range: what it published is not a value it would have accepted"
 	}
 	add(ItemHostLoop, hostOff || invalid, "a running coder host has the pursuit loop on", hostLoopWhy(in, invalid), fix)
 	pinMissing := hostOff || blocked(missionpursuit.BlockJudgePin)
 	pinText := "the judge model " + c.Facts.JudgePin + " differs from the lead's"
-	pinMiss, pinFix := missionpursuit.BlockReasons[missionpursuit.BlockJudgePin], "set MONOAGENT_PURSUIT_JUDGE on the host to a model other than the lead's, then restart the host"
+	pinMiss, pinFix := missionpursuit.BlockReasons[missionpursuit.BlockJudgePin], "ask the operator to set MONOAGENT_PURSUIT_JUDGE on the host to a model other than the lead's, then restart the host"
 	if hostOff {
 		pinMiss, pinFix = "not known until the host loop is on", "fix host_loop first"
 	} else if c.Facts.PinWhy != "" {
@@ -121,11 +121,11 @@ func buildReadiness(in readinessInput) readinessDoc {
 		checkerOK = "the host has a goal checker (" + in.Host.VerifierPin + ")"
 	}
 	add(ItemChecker, needsChecker && !c.Facts.CheckerSetUp, checkerOK, checkerMiss,
-		"set MONOAGENT_PURSUIT_VERIFIER=<runtime/model> (a model other than the judge's and the lead's) on the host and restart it; or re-propose the goal with rubric criteria only")
+		"ask the operator to set MONOAGENT_PURSUIT_VERIFIER=<runtime/model> (a model other than the judge's and the lead's) on the host and restart it (or, instead, re-propose the goal with rubric criteria only)")
 	add(ItemMissionBudget, blocked(missionpursuit.BlockBudgetUnknown), "the mission has a known budget", missionpursuit.BlockReasons[missionpursuit.BlockBudgetUnknown],
-		fmt.Sprintf("`monoagentcli task session budget %d --usd N`", in.Session))
+		fmt.Sprintf("ask the operator to run `monoagentcli task session budget %d --usd N`", in.Session))
 	add(ItemLeadCap, blocked(missionpursuit.BlockLeadUncapped), "the lead's chat has a spend cap", missionpursuit.BlockReasons[missionpursuit.BlockLeadUncapped],
-		fmt.Sprintf("`monoagentcli coder sessions settings set %s --budget-usd N`", in.View.Chat))
+		fmt.Sprintf("ask the operator to run `monoagentcli coder sessions settings set %s --budget-usd N`", in.View.Chat))
 	add(ItemChat, blocked(missionpursuit.BlockNoChat), "the mission has a chat to wake", missionpursuit.BlockReasons[missionpursuit.BlockNoChat],
 		"run the work from a mission chat (a mission session with no chat cannot be pursued)")
 	started := in.View.Pursuit != nil

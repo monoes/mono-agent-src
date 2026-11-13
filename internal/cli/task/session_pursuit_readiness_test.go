@@ -128,3 +128,33 @@ func TestReadinessOfABegunPursuitCarriesItsWaitingReason(t *testing.T) {
 		t.Error("a pursuit that did not begin is reported as started")
 	}
 }
+
+// An agent may run this verb, so a fix that names a command only the operator may run is phrased as an ask (the caller is not
+// distinguished: the same words serve both). The command text stays whole inside the sentence.
+func TestReadinessFixesNamingOperatorCommandsAreAsks(t *testing.T) {
+	t.Parallel()
+	d := buildReadiness(readyInput(func(in *readinessInput, f *missionpursuit.LiveFacts) {
+		in.HostAlive, f.HostOn, f.BudgetKnown, f.LeadCapped = false, false, false, false
+		in.View.Goal.Criteria = append(in.View.Goal.Criteria, missionpursuit.StoredCriterion{Criterion: missionpursuit.Criterion{Kind: "command", Spec: "x"}})
+	}))
+	d2 := buildReadiness(readyInput(func(in *readinessInput, f *missionpursuit.LiveFacts) { f.PinWhy = "the judge's model is the lead's" }))
+	d3 := buildReadiness(readyInput(func(in *readinessInput, f *missionpursuit.LiveFacts) { f.HostInvalid = true }))
+	operatorOnly := []string{"coder host run", "coder host stop", "task session budget", "coder sessions settings set", "MONOAGENT_PURSUIT_JUDGE", "MONOAGENT_PURSUIT_VERIFIER"}
+	n := 0
+	for _, doc := range []readinessDoc{d, d2, d3} {
+		for _, it := range doc.Items {
+			for _, c := range operatorOnly {
+				if strings.Contains(it.Fix, c) {
+					n++
+					if !strings.HasPrefix(it.Fix, "ask the operator to ") {
+						t.Errorf("%s fix names %q but is not an ask: %q", it.ID, c, it.Fix)
+					}
+					break
+				}
+			}
+		}
+	}
+	if n < 6 {
+		t.Errorf("only %d operator-command fixes checked", n)
+	}
+}
