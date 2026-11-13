@@ -5,6 +5,7 @@ package main
 import (
 	"go/ast"
 	"go/token"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -95,12 +96,13 @@ func TestEverySettingsWriterIsInTheInventoryWithItsShape(t *testing.T) {
 			literalGroups(srcFile{path: f.path, file: &ast.File{Name: f.file.Name, Decls: []ast.Decl{fd}}, fset: f.fset}, func(g []string, _ token.Pos, _ string) {
 				isWriter = isWriter || (has(g, "settings") && has(g, "set"))
 			})
-			ast.Inspect(fd, func(n ast.Node) bool { // a --patch flag, wherever its text is put together
-				if s, ok := strLit(n); ok && strings.HasPrefix(s, "--patch") {
-					isWriter = true
-				}
-				return true
-			})
+			// whatever way the argv is put together (concatenated pieces, a Fields/Split of one string), the words of every literal
+			// in the function are read: a settings verb or a --patch flag anywhere in it makes it a writer
+			words := literalWords(fd)
+			isWriter = isWriter || (words["settings"] && words["set"]) || words["--patch"]
+			if splitsLiteralIntoArgv(fd) {
+				bad = append(bad, fd.Name.Name+" builds an argv by splitting a string at run time")
+			}
 			if !isWriter {
 				continue
 			}
@@ -162,9 +164,88 @@ func (a *App) SetSneaky(p string) string { args := []string{"coder", "sessions",
 	if len(bad) != 1 {
 		t.Error("the scan does not see a settings writer that is not in the inventory")
 	}
+	for name, src := range map[string]string{
+		"Fields": `package main
+func (a *App) SetSneaky3(p string) string { return a.jsonResult(strings.Fields("coder sessions settings set --patch="+p)...) }`,
+		"folded": `package main
+func (a *App) SetSneaky4(p string) string { args := []string{"coder", "sessions " + "settings"}; return a.jsonResult(append(args, "se"+"t", p)...) }`,
+		"splitOnly": `package main
+func (a *App) SetSneaky5(p string) string { return a.jsonResult(strings.Split("coder x "+p, " ")...) }`,
+	} {
+		if _, bad := scan(parseSource(t, "mutant.go", []byte(src))); len(bad) == 0 {
+			t.Errorf("the scan does not see the %s mutant", name)
+		}
+	}
 	_, bad = scan(parseSource(t, "mutant.go", []byte(`package main
 func (a *App) SetSneaky2(p string) string { return a.jsonResult("coder", "x", "--patch="+p) }`)))
 	if len(bad) != 1 {
 		t.Error("the scan does not see a --patch writer")
 	}
+}
+
+var wordRe = regexp.MustCompile(`--?[A-Za-z0-9_]+|[A-Za-z0-9_]+`)
+
+// literalWords are the words of every string literal in fd (so "coder sessions settings set --patch=" yields coder, sessions,
+// settings, set and --patch), whichever expression the literal is in.
+func literalWords(fd *ast.FuncDecl) map[string]bool {
+	out := map[string]bool{}
+	add := func(s string) {
+		for _, w := range wordRe.FindAllString(s, -1) {
+			out[w] = true
+		}
+	}
+	ast.Inspect(fd, func(n ast.Node) bool {
+		if s, ok := strLit(n); ok {
+			add(s)
+		}
+		if s, ok := foldedLiterals(n); ok { // "se" + "t" is the word set
+			add(s)
+		}
+		return true
+	})
+	return out
+}
+
+// foldedLiterals is the text of a "+" expression made only of string literals.
+func foldedLiterals(n ast.Node) (string, bool) {
+	if s, ok := strLit(n); ok {
+		return s, true
+	}
+	b, ok := n.(*ast.BinaryExpr)
+	if !ok || b.Op != token.ADD {
+		return "", false
+	}
+	l, lok := foldedLiterals(b.X)
+	r, rok := foldedLiterals(b.Y)
+	return l + r, lok && rok
+}
+
+// splitsLiteralIntoArgv says whether fd cuts a string that has a literal in it into words (strings.Fields, Split, SplitN, ...) and
+// also runs the CLI: that is how an argv can be built at run time with no literal of its own.
+func splitsLiteralIntoArgv(fd *ast.FuncDecl) bool {
+	splits, runs := false, false
+	ast.Inspect(fd, func(n ast.Node) bool {
+		c, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		switch fun := c.Fun.(type) {
+		case *ast.SelectorExpr:
+			if id, ok := fun.X.(*ast.Ident); ok && id.Name == "strings" && (strings.HasPrefix(fun.Sel.Name, "Fields") || strings.HasPrefix(fun.Sel.Name, "Split")) {
+				if len(c.Args) > 0 { // the string that is cut (the separator of Split is not it)
+					ast.Inspect(c.Args[0], func(m ast.Node) bool {
+						if _, ok := strLit(m); ok {
+							splits = true
+						}
+						return true
+					})
+				}
+			}
+			runs = runs || fun.Sel.Name == "jsonResult" || fun.Sel.Name == "jsonCLI" || fun.Sel.Name == "Command" || fun.Sel.Name == "CommandContext" || strings.HasPrefix(fun.Sel.Name, "runCLI")
+		case *ast.Ident:
+			runs = runs || strings.HasPrefix(fun.Name, "runCLI")
+		}
+		return true
+	})
+	return splits && runs
 }
