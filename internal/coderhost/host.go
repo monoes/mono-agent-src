@@ -418,7 +418,11 @@ func (h *Host) Tick() error {
 				} else {
 					h.settle(x)
 				}
-				h.end(c, CmdFailed, err.Error())
+				errText := err.Error()
+				if TurnStarted(err) || len(TurnsPending(err)) > 0 { // the process was created (or an older one may still run): it may have spent, so the wake-up it carried stays counted
+					errText = startedMarker + ": " + errText
+				}
+				h.end(c, CmdFailed, errText)
 				continue
 			}
 			if capped {

@@ -57,14 +57,23 @@ func (s *Store) refundWake(c Command, errText string) error {
 		return nil
 	}
 	var id int64
-	err := s.db.QueryRow(`SELECT s.id FROM task_sessions s JOIN mission_pursuit p ON p.session_id = s.id
-		WHERE s.profile_id = ? AND s.conversation_id = ? AND s.archived_at = '' AND p.enabled = 1 ORDER BY s.id DESC LIMIT 1`, c.ProfileID, c.ConversationID).Scan(&id)
+	var personAt string
+	err := s.db.QueryRow(`SELECT s.id, COALESCE(st.person_at, '') FROM task_sessions s JOIN mission_pursuit p ON p.session_id = s.id
+		JOIN mission_pursuit_state st ON st.session_id = s.id
+		WHERE s.profile_id = ? AND s.conversation_id = ? AND s.archived_at = '' AND p.enabled = 1 ORDER BY s.id DESC LIMIT 1`, c.ProfileID, c.ConversationID).Scan(&id, &personAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil // not the lead of a started pursuit: nothing was counted
 	}
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`UPDATE mission_pursuit_state SET wakes_since = MAX(wakes_since - 1, 0) WHERE session_id = ?`, id)
+	// The count belongs to the generation it was queued in: a person's action zeroes wakes_since and moves person_at, so a wake-up queued
+	// before that is not given back from the newer count. The update is tied to the person_at that was read.
+	if at, perr := time.Parse(time.RFC3339Nano, personAt); perr == nil {
+		if made, merr := time.Parse(timeLayout, c.CreatedAt); merr != nil || made.Before(at) {
+			return nil
+		}
+	}
+	_, err = s.db.Exec(`UPDATE mission_pursuit_state SET wakes_since = MAX(wakes_since - 1, 0) WHERE session_id = ? AND person_at = ?`, id, personAt)
 	return err
 }

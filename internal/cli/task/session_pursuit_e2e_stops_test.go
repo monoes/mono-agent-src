@@ -110,6 +110,9 @@ func TestAHostWithTheLoopOffStartsNoPursuitWakeQueuedOrForged(t *testing.T) {
 	}
 	// the control: the host that has the loop, given the next epoch's wake-up for the same lead, does run it (so the refusal above
 	// was the missing loop, not a lead that could not be woken)
+	// the wake-up the loop-less host failed waits before it is retried (the store reads the real clock, the world's fake one only moves
+	// the pursuit): let that wait be over
+	w.sql(`UPDATE coder_session_commands SET updated_at = ? WHERE status = 'failed' AND substr(turn_id, 1, 8) = 'pursuit-'`, time.Now().Add(-time.Hour).UTC().Format(time.RFC3339Nano))
 	w.advance(31 * time.Minute)
 	w.pass()
 	w.tick()

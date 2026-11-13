@@ -91,3 +91,39 @@ func TestAFailedWakeStartIsRetriedAfterAGrowingWaitAndStaysBounded(t *testing.T)
 		t.Fatalf("failed starts left a count: since=%d hour=%d", since, hour)
 	}
 }
+
+// A launch that created the process (a StartedError) may have spent up to the wake cap: its wake-up stays counted, through the host's own
+// failure path, and the tries of the epoch stay bounded. Revert proof: dropping the started marker from the launch-error path (host.go),
+// or the marker test in refundWake, gives the wake-ups back and the counts stay at zero.
+func TestALaunchThatCreatedTheProcessKeepsItsWakeUpCountedWhateverTheNumberOfTries(t *testing.T) {
+	w := newPursuitWorld(t)
+	w.queueWake()
+	boom := &StartedError{Err: errors.New("process created, then refused")}
+	for try := 1; try <= maxWakeTries; try++ {
+		w.failWake(boom)
+		if since, hour := w.wakeCounters(); since != try || hour != try {
+			t.Fatalf("try %d: a launch that created the process was given back: since=%d hour=%d", try, since, hour)
+		}
+		if try < maxWakeTries {
+			w.exec(`UPDATE coder_session_turn_caps SET cap_usd = 0`) // a started turn's cap is spent against the lead's small test budget: release it so each try can launch
+			w.advance(wakeRetryMax + time.Second)
+			w.pass()
+			if len(w.wakes()) != 1 {
+				t.Fatalf("try %d: no retry queued: %+v", try, w.wakes())
+			}
+		}
+	}
+}
+
+// A refund belongs to the generation the wake-up was counted in: when the person acted since (the count was zeroed and counts newer
+// wake-ups), an older wake-up that fails to start does not take one back. Revert proof: without the person_at guard the count drops.
+func TestAFailedStartDoesNotRefundAWakeUpOfAnOlderGeneration(t *testing.T) {
+	w := newPursuitWorld(t)
+	w.queueWake()
+	after := w.clk.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano)
+	w.exec(`UPDATE mission_pursuit_state SET wakes_since = 2, person_at = ? WHERE session_id = ?`, after, pursuitSession)
+	w.failWake(errors.New("launch refused before any process"))
+	if st, ok, err := w.st.pursuitStateOf(pursuitSession); err != nil || !ok || st.WakesSince != 2 {
+		t.Fatalf("an older wake-up took back a newer one's count: %+v %v %v", st, ok, err)
+	}
+}
