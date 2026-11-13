@@ -276,7 +276,7 @@ func (h *Host) Tick() error {
 			}
 			// A wake-up of the pursuit loop runs only while the person's pursuit still runs.
 			if strings.HasPrefix(c.TurnID, PursuitTurnPrefix) {
-				if reason := h.pursuitWakeStillAllowed(x); reason != "" {
+				if reason := h.pursuitWakeStillAllowed(x, c.TurnID); reason != "" {
 					h.end(c, CmdFailed, reason)
 					continue
 				}

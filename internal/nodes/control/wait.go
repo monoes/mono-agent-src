@@ -30,6 +30,9 @@ type WaitNode struct{}
 
 func (n *WaitNode) Type() string { return "core.wait" }
 
+// PublishesToThirdParty: core.wait sends nothing off this machine (issue #1418).
+func (WaitNode) PublishesToThirdParty() bool { return false }
+
 // waitState records the wait's target so a resumed (re-run) node continues
 // the same wait instead of starting a new one.
 type waitState struct {

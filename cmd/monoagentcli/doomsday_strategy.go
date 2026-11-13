@@ -27,6 +27,7 @@ func strategyReaderFor(cfg *globalConfig) doomsdaycli.StrategyReader {
 	if err != nil {
 		return nil
 	}
+	doomsdayOwns(func() { db.Close() })
 	w := doomsdayWiring(cfg, db.DB)
 	return w.StrategyReader(db.DB, w.Witness.Keys)
 }

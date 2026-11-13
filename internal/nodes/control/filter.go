@@ -21,6 +21,9 @@ type FilterNode struct{}
 
 func (n *FilterNode) Type() string { return "core.filter" }
 
+// PublishesToThirdParty: core.filter sends nothing off this machine (issue #1418).
+func (FilterNode) PublishesToThirdParty() bool { return false }
+
 // PerItemConfigFields declares that "condition" must not be pre-resolved
 // using only the first input item — it's evaluated fresh for every item below.
 func (n *FilterNode) PerItemConfigFields() []string { return []string{"condition"} }

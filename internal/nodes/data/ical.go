@@ -18,6 +18,9 @@ type ICalNode struct{}
 
 func (n *ICalNode) Type() string { return "data.ical" }
 
+// PublishesToThirdParty: data.ical sends nothing off this machine (issue #1418).
+func (ICalNode) PublishesToThirdParty() bool { return false }
+
 // icalItemFields are the event fields that usually come from the item
 // ({{ $json.title }}), so they are resolved per item, not once per batch.
 var icalItemFields = []string{

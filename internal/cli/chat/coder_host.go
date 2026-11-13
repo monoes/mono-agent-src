@@ -115,6 +115,9 @@ var startHostProcess = func(cfg *Deps) error {
 	defer logFile.Close()
 	cmd := hostCommand(exe, cfg)
 	cmd.Stdout, cmd.Stderr = logFile, logFile
+	if err := prepareHostStart(cmd); err != nil {
+		return err
+	}
 	return clicore.DetachStart(cmd)
 }
 

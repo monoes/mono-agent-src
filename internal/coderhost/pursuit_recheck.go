@@ -36,9 +36,14 @@ func (h *Host) conversationPursuing(profileID, conversationID string) bool {
 }
 
 // pursuitWakeStillAllowed re-checks, when a wake-up is about to run, that the pursuit still runs. It returns why not, or "".
-func (h *Host) pursuitWakeStillAllowed(x Session) string {
+func (h *Host) pursuitWakeStillAllowed(x Session, turnID string) string {
 	if !h.Pursuit.ready() {
 		return errNoPursuitLoop.Error() // a wake-up queued before this host restarted with the loop off
+	}
+	if check := acceptWakeCheck(turnID); check != 0 {
+		if why := h.pursuitAcceptStillDue(x, check); why != "" {
+			return why
+		}
 	}
 	m := pursuitMission{Profile: x.ProfileID, Conv: x.ConversationID}
 	err := h.Store.db.QueryRow(`SELECT s.id FROM task_sessions s JOIN mission_pursuit p ON p.session_id = s.id
@@ -76,7 +81,7 @@ func (h *Host) pursuitStillDeliverable(x Session, g pursuitGateResult) string {
 	case !withinActiveHours(settings.ActiveHours, h.Store.now()):
 		return "outside the lead's active hours"
 	}
-	if t := g.snap.Tasks; t.Workable <= 0 && !g.closeWakeDue {
+	if t := g.snap.Tasks; t.Workable <= 0 && !g.closeWakeDue && !g.parkWakeDue && !g.acceptWakeDue {
 		return "the mission has no open work"
 	}
 	return h.pursuitStreakStop(x.ProfileID, x.ConversationID, settings)

@@ -15,8 +15,8 @@ import (
 // fakeCLI writes an executable shell script standing in for monoagentcli.
 func fakeCLI(t *testing.T, body string) string {
 	t.Helper()
-	p := filepath.Join(t.TempDir(), "monoagentcli")
-	if err := os.WriteFile(p, []byte("#!/bin/sh\n"+body), 0o755); err != nil {
+	p := filepath.Join(t.TempDir(), fakeCLIName)
+	if err := writeFakeCLI(p, "#!/bin/sh\n"+body); err != nil {
 		t.Fatal(err)
 	}
 	return p

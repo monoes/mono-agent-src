@@ -179,6 +179,9 @@ func startDynamicOrg(ctx context.Context, cfg *Deps, journal *turnJournal, setti
 		return nil, nil
 	}
 	mission := missionConfig(ctx, db.DB, cfg.ProfileID(), journal.conversationID, t)
+	if mission != nil {
+		mission.GoalClose = goalCloseGate(db.DB, cfg.ProfileID(), cfg.DBPath())
+	}
 	registerChildHostProbe(cfg) // whether the running coder host mints a child's task token
 	limits.MaxAgents = missionMaxAgents(settings, mission)
 	writers := missionWriters(ctx, settings, mission, t.cwd)

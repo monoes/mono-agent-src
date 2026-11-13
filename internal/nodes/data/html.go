@@ -17,6 +17,9 @@ type HTMLNode struct{}
 
 func (n *HTMLNode) Type() string { return "data.html" }
 
+// PublishesToThirdParty: data.html sends nothing off this machine (issue #1418).
+func (HTMLNode) PublishesToThirdParty() bool { return false }
+
 // PerItemConfigFields holds back the generate_html_template template and
 // the convert_to_html_table row/cell attributes so they are evaluated
 // against each item rather than only the first.

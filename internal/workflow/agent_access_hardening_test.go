@@ -32,6 +32,9 @@ const (
 type renameProbe struct{}
 
 func (renameProbe) Type() string { return "test.renameprobe" }
+
+// PublishesToThirdParty: a test probe sends nothing off this machine (issue #1418).
+func (renameProbe) PublishesToThirdParty() bool { return false }
 func (renameProbe) Execute(_ context.Context, in NodeInput, _ map[string]interface{}) ([]NodeOutput, error) {
 	v := ""
 	if len(in.Items) > 0 {
@@ -44,6 +47,9 @@ func (renameProbe) Execute(_ context.Context, in NodeInput, _ map[string]interfa
 type failProbe struct{}
 
 func (failProbe) Type() string { return "test.failprobe" }
+
+// PublishesToThirdParty: a test probe sends nothing off this machine (issue #1418).
+func (failProbe) PublishesToThirdParty() bool { return false }
 func (failProbe) Execute(_ context.Context, _ NodeInput, config map[string]interface{}) ([]NodeOutput, error) {
 	return nil, fmt.Errorf("provider rejected key %v", config["v"])
 }
@@ -84,6 +90,9 @@ type nodeFunc struct {
 }
 
 func (n nodeFunc) Type() string { return n.typ }
+
+// PublishesToThirdParty: a test probe sends nothing off this machine (issue #1418).
+func (nodeFunc) PublishesToThirdParty() bool { return false }
 func (n nodeFunc) Execute(ctx context.Context, in NodeInput, _ map[string]interface{}) ([]NodeOutput, error) {
 	if err := n.fn(ctx, in); err != nil {
 		return nil, err

@@ -12,7 +12,13 @@ import (
 // check task too, and settle runs it to done.
 func closeRig(t *testing.T, integration, settle bool) (*missionRig, tasks.Task, tasks.Task) {
 	t.Helper()
-	r := newRig(t, rigOpts{})
+	return closeRigConv(t, integration, settle, "")
+}
+
+// closeRigConv is closeRig for a mission of the conversation conv.
+func closeRigConv(t *testing.T, integration, settle bool, conv string) (*missionRig, tasks.Task, tasks.Task) {
+	t.Helper()
+	r := newRig(t, rigOpts{conv: conv})
 	a := r.add(spec{title: "a", files: "a.go"})
 	var it tasks.Task
 	if integration {

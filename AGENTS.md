@@ -337,6 +337,68 @@ Every agent read under a grant is audited by name, never value (`secret agent-ac
 audit`). Policy changes take effect on subsequent reads, including active runs;
 previously retrieved values cannot be recalled. Encryption on disk is unchanged.
 
+**A granted secret is authentication, never content.** Host binding says where a
+granted secret may go, not what it is used as. Under agent access:
+
+- A node that publishes to a third party (messages, vendor APIs, databases, AI
+  providers, model-backed nodes, responses; a node declares
+  `PublishesToThirdParty() false` to say it does not, and an undeclared one
+  publishes) is refused once the run has read any secret, `--any-host`
+  included. A child run's reads taint its parent when the parent has consumed
+  every child, at any depth up to the sub-workflow limit of 32, a failed child
+  included. A plaintext read (`vault.secret_get` at Reveal) taints like a
+  reference, but the revealed value itself is not tracked, so a body holding it
+  is stopped by the publishing rule only.
+- A secret may reach `http.request`, `http.graphql` or `mcp.call` only as
+  authentication, never in a body, a query string (except an api key's value) or
+  tool arguments. Requests to this machine are exempt, and a proxy on this
+  machine counts as this machine; a proxy that is not makes the exemption void.
+  A 307/308 redirect is checked again with its body, and every redirect hop's
+  address is checked; a 301/302/303 that turns a POST into a GET sends no body
+  and is not refused for it.
+- The taint is per run, so a local store would carry a value to another run: the
+  nodes that write one (a data table, files, binary data, chat memory, application,
+  document and publication records, the vault: `WritesLocalStore()`) refuse a value the run
+  has read.
+- To graduate such a workflow, approve it.
+
+Known limits:
+
+- `browser.jev`, `{{secret:}}` in automations, MCP headers and env, and per-item
+  database overlays resolve inside the node, so the node that reads is not
+  refused by its own read (later nodes are).
+- The value scan (a request body, a store write) finds the forms masking tracks:
+  the value, base64 (four variants, aligned at the start), URL and JSON escapes,
+  `-`/`_` swaps, hex, upper and lower case. An unaligned base64, a `data.jwt`
+  token whose claims embed it, or a value split across columns or chunks passes.
+  A store write also scans the outputs of earlier nodes when a field holds an
+  expression, so a read followed by any such write is refused (a short secret
+  inside a longer number, a timestamp say, is a false positive: the message names
+  the node, the field and the secret).
+- A secret in a URL's path, fragment or user info is bound to the grant's hosts
+  but not refused as content; only the body and the query string are.
+- The child taint reads the audit: if you clear the audit between a child's
+  read and its parent's consume, the taint is lost. That lookup (`execution_id IN
+  (...)`) has no index and runs once per consume.
+- The write scan is linear and not streaming: a 50 MB row costs about 70 ms and
+  150 MB of memory under agent access. Outside it nothing is copied.
+- Secret text rendered into an image's pixels is invisible to the scan
+  (`image.edit`'s text operation is scanned by its configuration only); once a
+  person approves it, `core.code` runs freely; `core.wait` with a resume form or
+  webhook shows its page text to whoever holds the resume URL; `core.form` and
+  the response nodes are publishing, so a tainted run does not reach them.
+- `core.remove_duplicates` keeps the value it de-duplicates on as a number in
+  its static data (a numeric secret stored as a number); copies of a run's data
+  in the executions table are masked for tracked forms only.
+- A refusal arrives in the middle of a run, after earlier side effects. A short
+  secret (6 characters is the minimum tracked) inside a longer number, or an
+  upstream service that echoes the credential in an error body or a next-page
+  link, causes real false positives; the way out is the person approving the
+  workflow. The trigger's data is scanned with the node's input.
+- A store another process fills, and image pixels, is not scanned; the
+  store-writing nodes are found by reading the packages' source
+  (`internal/noderegistry`), which is a heuristic.
+
 Held sends (`hil`): a send held for approval stores `[[held-secret:NAME:tag]]`
 where the run read a granted secret, never the value; `hil show` prints
 `<NAME secret, held>`, JSON keeps the token. Approval re-checks the grant and
@@ -1024,7 +1086,14 @@ another profile's token, an unknown profile and a missing token all get the
 same 401, so a caller cannot learn which profiles exist (`/nodes*` takes any
 profile's token). `POST .../run` waits as MCP `workflow_run` does; add
 `?wait_through_subworkflows=true` to wait through a pause for the run's own
-sub-workflows. Output items go
+sub-workflows. Every run started through `POST .../run`, like MCP `workflow_run`, is
+marked as an agent's run (`_ai_caller`: the caller's agent kind, else `other`;
+a planted mark is overwritten), as `workflow run` marks an agent's: a key
+holder is not the operator's terminal, so `ai.task` refuses, `people.save` does
+not approve outreach, browser steps run at the agent level and hilsend sends
+wait for approval, also for the user's own script. Webhook, form, chat and
+trigger-source runs of active workflows and the daemon's scheduler are not
+marked (third-party-triggered by design; a documented known gap in SECURITY.md, #1475). Output items go
 through the same redaction as `workflow run --json` — pass
 `X-Full-Outputs: 1` to opt out per request, mirroring
 `workflow run --full-outputs` (the CLI flag is the operator's only; the
@@ -3058,6 +3127,8 @@ Project commands run by a check are not confined on this version beyond a proces
 The confiner (`internal/missionpursuit/verifier/sdconfine`, used by the host step below only when `MONOAGENT_PURSUIT_VERIFIER` is set): a Linux confiner that runs each criterion as one transient `systemd-run --user` service (no network, read-only root, empty /run, /dev/shm and /dev/pts, private /tmp, no /home, private pid, ipc and user namespaces, no capabilities, a system-call filter, memory, task and CPU caps, `env -i` so the user manager's environment never reaches the program, a cgroup kill). It needs systemd 256 or later (for PrivatePIDs; Ubuntu 24.04 has 255 and Debian 12 has 252, where it refuses and says so), a user manager with the cpu, memory and pids controllers, and refuses with a typed error naming the missing piece everywhere else (macOS, Windows, no user session), which keeps `no-confinement`. A program that needs a pseudo-terminal does not run in it. Its canaries (C0 to C14, `verifier.RunCanaries`) must all hold before a command runs; units carry their host's pid and start time, so a sweep ends only a dead host's; a unit that fails to start or is killed from outside ends the criterion in error, never in a verdict.
 
 The host step (S7c1b, `internal/coderhost/pursuit_check*.go`) is OFF unless the coder host starts with `MONOAGENT_PURSUIT_VERIFIER=runtime/model` (the checker; read once at start; works only with `MONOAGENT_PURSUIT_JUDGE`; no live off; with it unset nothing of it is built). It runs in a goroutine of its own, never inside a pass, started after the wake-up step once: the verifier is ready and the judge, checker and lead are pairwise different (`verifier-pin`), the goal is locked and its hash recomputed, no task is workable or blocked, one at least is not an epic and no writer branch is unmerged, no check runs and none waits for your answer (`goal-check`, `goal-answer`), the lead and every chat of the mission are idle with nothing queued, nothing in the project folder has changed for two minutes, the same project is not checked twice unless you acted, the caps hold (2 an away window, 6 since an accept or reject, 4 an hour on the host, one at a time, 10 minutes a check, 3 reviewer failures in a row: `verifier-failing`), and the project folder (the lead's chat folder as the host's row has it, resolved through links) is not `/`, your home or the host's state folder. A check costs at most $0.50 (the reviewer call), counted from the moment its row starts: a running, abandoned or cost-unknown check counts at $0.50, a check that never reached the reviewer counts $0, and the checks count toward the 20 percent rule. Command output text goes to the reviewer only for confined runs (never for unconfined runs). A restart ends the checks an earlier host left running (abandoned, at the cap; only those started before this host started). A confiner that fails to build or to prove itself on a Linux user manager is a refusal that names the missing piece, never a fall back to unconfined.
+
+The wakes about checks (S7c2, `internal/coderhost/pursuit_check_wake.go`; the host never accepts or rejects a goal, only `AnswerRubric` by the operator does): the wake texts are fixed sentences of counts, host-written criterion ids and closed enums (`missionpursuit.GoalChecks`/`SummarizeCheck`, which show an unknown value as `unknown`), never a program's output, the checker's reason, a title, the person's note or a path. A check whose latest outcome is failed, error or rejected is a finish park: it feeds the epoch engine's `FinishParks` (via `pursuitInputs.finishParks`, clamped to `types.MaxParkedFinishRounds`, zero when a later check overtook it), earns one epoch and so one ordinary wake-up (`g.parkWakeDue` lifts the "no open work" refusal for it, as `closeWakeDue` does for the close wake), and counts as a parked question in the away limits (`CheckSpend.Parks`, added to the gate's parked count). Blocked, stale, cannot-check and abandoned checks wake nobody. When the person's last yes accepts the latest check of the locked goal and the work is settled, one accept wake (`pursuit-accept-<check>-<random>`, `EnqueueWithAccept`, the only caller is `pursuitAcceptWake`) tells the lead to call `mission_finish`: same gate, away limits, hourly and per-mission wake caps, cap X and run-time recheck as any `pursuit-` wake, plus `verifierReady()` and "still the latest, still accepted" at run time. After an accept or reject the same project is not checked again, a changed one is. `dynorg.readyToClose` and `mission_finish` refuse to propose the close while the goal is locked by a started pursuit and no accepted check exists, when the host runs goal checks (the host's published `verifierPin`, display-only, can only add this refusal) or a check exists (`MissionConfig.GoalClose` = `missionpursuit.Store.CloseRefusal`); the person's own close is unchanged. `mission_goal_status` and `task session goal show` carry the same `checks` block (counts and ids only).
 
 Preconditions for the host step that runs the checks (S7c1; the host step honours (2) to (4), counts a check as above and takes each check's round from the rows as MAX(round)+1; (1) is narrowed to a quiet-tree wait, an identical digest before and after the copy and a digest under a deadline, with the parent-swap residual below), recorded here because the store and CLI do not enforce them: (1) the snapshot and the digest that `goal answer` recomputes read a project the mission's lead controls. `finish.DigestTree` now opens each file without following a link or waiting on a pipe and requires the open handle to be the regular file the walk saw; a directory above a file that is swapped for a link between the walk and the open is NOT caught, and the digest has no deadline, so the host must snapshot only a quiet tree and run its own digest under a deadline. (2) A check that ends abandoned, or is swept at a restart, records the per-call cap with `cost_known = 0`; the host's caps must count any check that is not `cost_known` at the cap and never sum `cost_micro` alone. (3) `mission_pursuit_state.base_check_id` exists but nothing writes it yet: the host step sets it where it sets `base_judge_id`. (4) The person's writers (`AnswerRubric`, `SetUnconfinedChecks`) and the operator view of a check are called only from `internal/cli/task` (a source guard lists every call site in the repository); they take a `tasks.Actor` that is only a struct, so no other package may build a Human actor for them.
 

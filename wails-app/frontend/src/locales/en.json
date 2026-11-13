@@ -2565,7 +2565,8 @@
       "refreshing": "Stopped, refreshing...",
       "retry": "Retry cleanup",
       "dismiss": "Dismiss",
-      "partial": "Stopped, but the cleanup did not finish"
+      "partial": "Stopped, but the cleanup did not finish",
+      "alreadyStopped": "The run is already stopped: there is no open run any more."
     }
   },
   "controlRoom": {

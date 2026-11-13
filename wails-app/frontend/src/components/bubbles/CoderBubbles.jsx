@@ -79,14 +79,15 @@ export default function CoderBubbles({ store, onNavigate, onCloseOrg, onOpenArti
     store.close(key)
   }, [store, t, onCloseOrg])
 
-  // Collapsing a new chat that never got a message or any typed text
-  // discards it, so trying Coder and changing your mind leaves no bubble.
+  // Collapsing never discards a chat: a new one whose first turn is still
+  // starting (open-ended and mission chats take a while to set up) or with
+  // nothing typed yet stays reachable through its bubble. Closing it is the
+  // close button's job, which still asks before losing an unsent draft.
   const collapse = useCallback(() => {
     const b = store.bubbles.find(x => x.key === store.expandedKey)
     // An agent's lite pane has no bubble to shrink into: it closes, back to its parent's pane.
     if (b?.lite) { store.closeLite(b.key); return }
-    if (b && !isOrgBubble(b) && !b.conversationId && !String(store.getView(b.key).draft || '').trim()) store.close(b.key)
-    else store.collapse()
+    store.collapse()
   }, [store])
 
   // Queued coder chats (C5): Start creates the conversation in the CLI,
