@@ -93,3 +93,52 @@ func TestAnchorServiceSocketIsPrivate(t *testing.T) {
 		t.Fatalf("anchor socket mode %v", fi.Mode().Perm())
 	}
 }
+
+func TestAnchorServiceCapsLiveAnchors(t *testing.T) {
+	dir, pg := startAnchorServer(t, 501)
+	for i := 0; i < maxAnchors; i++ {
+		if got := anchorAsk(t, dir, "ANCHOR "+goodUnit+"\n"); !strings.HasPrefix(got, "OK ") {
+			t.Fatalf("anchor %d: %q", i, got)
+		}
+	}
+	if got := anchorAsk(t, dir, "ANCHOR "+goodUnit+"\n"); got != "ERR busy" {
+		t.Fatalf("one over the cap was answered %q", got)
+	}
+	if len(pg.procs) != 1+maxAnchors {
+		t.Fatalf("processes: %d", len(pg.procs))
+	}
+	for pid := range pg.procs { // one anchor ends: its place is free again
+		if pid != 1 {
+			delete(pg.procs, pid)
+			break
+		}
+	}
+	if got := anchorAsk(t, dir, "ANCHOR "+goodUnit+"\n"); !strings.HasPrefix(got, "OK ") {
+		t.Fatalf("after one ended: %q", got)
+	}
+}
+
+func TestAnchorServiceBoundsTheRequestLine(t *testing.T) {
+	dir, pg := startAnchorServer(t, 501)
+	anchorAsk(t, dir, "ANCHOR "+strings.Repeat("a", 4000)+"\n")
+	if len(pg.procs) != 1 {
+		t.Fatalf("an oversized request started a process: %d", len(pg.procs))
+	}
+}
+
+func TestAnchorServiceTightensAnExistingRunDirectory(t *testing.T) {
+	d, _ := os.MkdirTemp("", "as")
+	t.Cleanup(func() { os.RemoveAll(d) })
+	if err := os.Chmod(d, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	srv := &AnchorServer{Dir: RunDir{Dir: d}, UID: 501, OS: sessionFakePG{newFakePG()}}
+	if err := srv.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Stat(d); fi.Mode().Perm() != 0o700 {
+		t.Fatalf("run directory mode %v", fi.Mode().Perm())
+	}
+}

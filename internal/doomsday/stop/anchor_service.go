@@ -5,11 +5,21 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+)
+
+const (
+	// maxAnchors is how many anchors this host keeps alive at once: one run has one, and a peer of the operator's uid
+	// must not be able to fill the process table through the socket.
+	maxAnchors = 16
+	// maxAnchorRequest bounds the one request line (a unit name is under 80 bytes).
+	maxAnchorRequest = 256
 )
 
 // The anchor service is how a macOS run's process group is made in the host's own session.
@@ -37,6 +47,34 @@ type AnchorServer struct {
 	UID  uint32
 	OS   PGroupOS
 	Peer func(net.Conn) (uint32, error) // defaults to the platform implementation
+
+	mu      sync.Mutex
+	started []startedAnchor
+}
+
+type startedAnchor struct {
+	pid   int
+	stamp string
+}
+
+// reserve counts the anchors this server started that are still the same live process, and says whether one more may start.
+func (s *AnchorServer) reserve() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	live := s.started[:0]
+	for _, a := range s.started {
+		if st, _, err := s.OS.ProcInfo(a.pid); err == nil && st == a.stamp {
+			live = append(live, a)
+		}
+	}
+	s.started = live
+	return len(s.started) < maxAnchors
+}
+
+func (s *AnchorServer) record(pid int, stamp string) {
+	s.mu.Lock()
+	s.started = append(s.started, startedAnchor{pid, stamp})
+	s.mu.Unlock()
 }
 
 // Start binds the socket and serves in the background until ctx ends.
@@ -45,6 +83,11 @@ func (s *AnchorServer) Start(ctx context.Context) error {
 		return errNoPGroupOS
 	}
 	if err := s.Dir.fsys().MkdirAll(s.Dir.Dir, 0o700); err != nil {
+		return err
+	}
+	// The directory may exist already with looser rights; the socket is only reachable through a directory of the operator's,
+	// so there is no moment at which it is open to anyone else between its creation and its chmod.
+	if err := os.Chmod(s.Dir.Dir, 0o700); err != nil {
 		return err
 	}
 	path := s.Dir.AnchorSockPath()
@@ -78,7 +121,7 @@ func (s *AnchorServer) handle(c net.Conn) {
 		fmt.Fprintln(c, "ERR peer")
 		return
 	}
-	line, err := bufio.NewReader(c).ReadString('\n')
+	line, err := bufio.NewReader(io.LimitReader(c, maxAnchorRequest)).ReadString('\n')
 	if err != nil {
 		return
 	}
@@ -89,6 +132,10 @@ func (s *AnchorServer) handle(c net.Conn) {
 	}
 	if _, _, ok := UnitGeneration(f[1]); !ok {
 		fmt.Fprintln(c, "ERR name")
+		return
+	}
+	if !s.reserve() {
+		fmt.Fprintln(c, "ERR busy")
 		return
 	}
 	pid, stamp, err := s.OS.StartAnchor(f[1])
@@ -110,6 +157,7 @@ func (s *AnchorServer) handle(c net.Conn) {
 		fmt.Fprintln(c, "ERR session")
 		return
 	}
+	s.record(pid, stamp)
 	fmt.Fprintf(c, "OK %d %s %d\n", pid, stamp, sid)
 }
 
