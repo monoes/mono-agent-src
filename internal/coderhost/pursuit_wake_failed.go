@@ -53,7 +53,7 @@ func (s *Store) wakeRetryAt(q querier, m pursuitMission, pattern string) (time.T
 // refundWake gives back the mission's wake-up count for a wake-up command that ended without its turn starting. The wake-up was counted
 // when it was queued; a command that failed with the turn started, or that is not a pursuit wake-up, is left alone.
 func (s *Store) refundWake(c Command, errText string) error {
-	if c.Kind != KindSend || !strings.HasPrefix(c.TurnID, PursuitTurnPrefix) || strings.HasPrefix(errText, startedMarker) {
+	if !strings.HasPrefix(c.TurnID, PursuitTurnPrefix) || strings.HasPrefix(errText, startedMarker) {
 		return nil
 	}
 	var id int64
