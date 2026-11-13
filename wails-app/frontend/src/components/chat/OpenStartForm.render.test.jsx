@@ -54,6 +54,18 @@ describe('the entry screen', () => {
     expect(screen.getByTestId('open-not-defended')).toHaveTextContent('does NOT defend against')
     expect(screen.getByTestId('open-platform')).toHaveTextContent('linux')
   })
+  it('shows the unmissable "running without peer-credential binding" warning in the start form, and none for a bound machine', async () => {
+    const W = 'running without peer-credential binding: this machine cannot run it (old kernel)'
+    openStartApi.entry.mockResolvedValue({ ...ENTRY, warning: W })
+    render(<OpenStartForm getChat={getChat} onChat={onChat} />)
+    expect(await screen.findByTestId('open-unbound-warning')).toHaveTextContent(W)
+    expect(screen.getByRole('button', { name: 'Review' })).toBeInTheDocument()
+    cleanup()
+    openStartApi.entry.mockResolvedValue(ENTRY)
+    render(<OpenStartForm getChat={getChat} onChat={onChat} />)
+    await screen.findByTestId('open-not-defended')
+    expect(screen.queryByTestId('open-unbound-warning')).toBeNull()
+  })
   it('names the reason and offers nothing to review when the mode cannot start here', async () => {
     openStartApi.entry.mockResolvedValue({ ...ENTRY, mode_available: false, reason: 'containment unavailable: cgroup v2 delegation to the user: not writable' })
     render(<OpenStartForm getChat={getChat} onChat={onChat} />)

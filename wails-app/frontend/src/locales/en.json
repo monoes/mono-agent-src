@@ -2256,7 +2256,8 @@
   },
   "coderBinding": {
     "label": "Peer-credential binding",
-    "hint": "Ties each coder turn's tokens to the process that runs the turn. The open-ended chat mode is offered only while this is on. Off by default.",
+    "hint": "Ties each coder turn's tokens to the process that runs the turn. The open-ended chat mode is offered only while this is on. On by default where this machine can run the binding service; an explicit off is kept.",
+    "unavailable": "Not available on this machine: {{reason}}",
     "switchedOn": "Peer-credential binding is on.",
     "switchedOff": "Peer-credential binding is off.",
     "warnTitle": "Before you change this",
@@ -2675,6 +2676,9 @@
     "failed": "Not sent: {{error}}"
   },
   "openStart": {
+    "unbound": "running without peer-credential binding: {{reason}}",
+    "unboundUnknown": "binding status unknown",
+    "unboundStatusUnknown": "peer-credential binding status of the open run is unknown: {{reason}}",
     "loading": "Loading...",
     "entryTitle": "Open-ended run",
     "noApproval": "There is no human approval during the run. Nothing will ask you: the boss agent answers its own questions and acts within the authority you lift below.",

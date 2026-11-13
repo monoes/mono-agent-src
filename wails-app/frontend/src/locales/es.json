@@ -2212,7 +2212,8 @@
   },
   "coderBinding": {
     "label": "Vinculación de credenciales del proceso",
-    "hint": "Ata los tokens de cada turno de Coder al proceso que ejecuta el turno. El modo de chat abierto solo se ofrece mientras esto está activado. Desactivado por defecto.",
+    "hint": "Ata los tokens de cada turno de Coder al proceso que ejecuta el turno. El modo de chat abierto solo se ofrece mientras esto está activado. Activado por defecto donde este equipo puede ejecutar el servicio; un desactivado explícito se conserva.",
+    "unavailable": "No disponible en este equipo: {{reason}}",
     "switchedOn": "La vinculación de credenciales del proceso está activada.",
     "switchedOff": "La vinculación de credenciales del proceso está desactivada.",
     "warnTitle": "Antes de cambiarlo",
@@ -2533,6 +2534,9 @@
     "failed": "No enviado: {{error}}"
   },
   "openStart": {
+    "unbound": "funcionando sin vinculación de credenciales del proceso: {{reason}}",
+    "unboundUnknown": "estado de la vinculación desconocido",
+    "unboundStatusUnknown": "el estado de la vinculación de credenciales de la ejecución abierta es desconocido: {{reason}}",
     "loading": "Cargando...",
     "entryTitle": "Ejecucion abierta",
     "noApproval": "No hay aprobacion humana durante la ejecucion. Nada te preguntara: el agente jefe responde sus propias preguntas y actua con la autoridad que levantes abajo.",

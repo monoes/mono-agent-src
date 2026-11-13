@@ -77,16 +77,49 @@ func (g *gatedLauncher) route(profile string) (l coderhost.Launcher, bound bool,
 	if err != nil {
 		return nil, false, &bindingRefusal{"the turn was not started: the coder settings could not be read, so whether peer-credential binding is on is not known"}
 	}
-	if !bool(s.PeercredBinding) {
-		return g.inner, false, nil // off
+	// Unset is the default: on where this machine can run the service. There, and only there, a failure to bring binding up
+	// (service did not start, host inside a turn, no bound launcher) degrades to the legacy launcher with a logged reason
+	// instead of refusing, so a default can never lock a machine out of its own coder host. An explicit "on" still refuses,
+	// and so does a default while an open-ended run is open (a run needs bound turns).
+	explicit := s.PeercredBinding != bindingUnset
+	if !explicit {
+		if why := g.why(true); why != "" {
+			// The machine cannot run it: off, as before; `coder status` says why. But never under a run that started BOUND (a flapping
+			// machine check must not take its turns out of binding): only a run recorded as unbound at its start, or no run, goes on.
+			n, err := coderhost.BoundRunsOpen(context.Background(), g.db)
+			if err != nil {
+				return nil, false, &bindingRefusal{"the turn was not started: whether an open-ended run that needs bound turns is open could not be read: " + err.Error()}
+			}
+			if n > 0 {
+				return nil, false, &bindingRefusal{"the turn was not started: an open-ended run that started with peer-credential binding is open, and the binding cannot be used now (" + why + "); no run without binding; `doomsday stop` ends the run if the machine check keeps failing"}
+			}
+			return g.inner, false, nil
+		}
+	} else if s.PeercredBinding != bindingOn {
+		return g.inner, false, nil // explicitly off
+	}
+	refuse := func(msg string) (coderhost.Launcher, bool, error) {
+		if !explicit {
+			runs, err := coderhost.OpenRunCount(context.Background(), g.db)
+			if err != nil { // fail closed, and say why: whether an open-ended run needs bound turns could not be read
+				return nil, false, &bindingRefusal{msg + " (and whether an open-ended run is open could not be read, so the turn is not run without binding: " + err.Error() + ")"}
+			}
+			if runs == 0 {
+				if g.logf != nil {
+					g.logf("coder host: peer-credential binding is on by default but could not be used (%s): this turn runs without it", msg)
+				}
+				return g.inner, false, nil
+			}
+		}
+		return nil, false, &bindingRefusal{msg + " (an open-ended run is open and needs bound turns, so this turn is not run without binding; `doomsday stop` ends the run if this keeps failing)"}
 	}
 	if g.insideTurn != nil {
 		inside, err := g.insideTurn()
 		if err != nil {
-			return nil, false, &bindingRefusal{"the turn was not started: whether the coder host runs inside a coder session's turn could not be determined"}
+			return refuse("the turn was not started: whether the coder host runs inside a coder session's turn could not be determined")
 		}
 		if inside {
-			return nil, false, &bindingRefusal{"the turn was not started: the coder host runs inside a coder session's turn, so every turn it starts would descend from that one; start the host from a terminal"}
+			return refuse("the turn was not started: the coder host runs inside a coder session's turn, so every turn it starts would descend from that one; start the host from a terminal")
 		}
 	}
 	// The service is asked to start only when everything else allows it: while this build cannot issue bound
@@ -100,10 +133,10 @@ func (g *gatedLauncher) route(profile string) (l coderhost.Launcher, bound bool,
 		}
 	}
 	if why := g.why(running); why != "" {
-		return nil, false, &bindingRefusal{"the turn was not started: peer-credential binding is switched on, but " + why + ": switch it off (coder set --peercred-binding off)"}
+		return refuse("the turn was not started: peer-credential binding is switched on, but " + why + ": switch it off (coder set --peercred-binding off)")
 	}
 	if g.bound == nil {
-		return nil, false, &bindingRefusal{"the turn was not started: peer-credential binding is switched on, but this host has no bound launcher: switch it off (coder set --peercred-binding off)"}
+		return refuse("the turn was not started: peer-credential binding is switched on, but this host has no bound launcher: switch it off (coder set --peercred-binding off)")
 	}
 	return g.bound, true, nil
 }
@@ -122,7 +155,7 @@ func (g *gatedLauncher) settingIsOnNow() bool {
 	for attempt := 0; attempt < 3; attempt++ {
 		var s coderSettings
 		if s, err = load(g.db); err == nil {
-			return bool(s.PeercredBinding)
+			return s.PeercredBinding == bindingOn // only an explicit "on" flips under a legacy turn; the default is read once per start
 		}
 		if attempt < 2 {
 			time.Sleep(time.Duration(attempt+1) * 25 * time.Millisecond)

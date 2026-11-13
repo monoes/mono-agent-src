@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -115,18 +116,22 @@ func init() {
 func cheapOpenModeCheck(cfg *globalConfig) (bool, string) {
 	db, err := openReadDB(cfg)
 	if errors.Is(err, errNoReadableSchema) {
-		return false, openModeBindingOffReason // no database with the mode's tables: nothing stored, so binding is off
+		// no database with the mode's tables: nothing stored, so the default applies
+		return true, "" // nothing stored: the default is on where the machine can run it, and a run goes unbound where it cannot
 	}
 	if err != nil {
 		return false, "the open-ended mode's state cannot be read right now"
 	}
 	defer db.Close()
-	on, err := chatcli.PeercredBindingOn(db)
+	st, err := chatcli.PeercredBindingState(db)
 	if err != nil {
 		return false, "the open-ended mode's state cannot be read right now"
 	}
-	if !on {
-		return false, openModeBindingOffReason
+	if st.ExplicitOnBroken != "" {
+		return false, "not available: peer-credential binding is switched on, but this machine cannot run it (" + st.ExplicitOnBroken + "); switch it off (coder set --peercred-binding off) to run unbound"
+	}
+	if !st.On && st.UnboundReason == "" { // off where the machine could run it: refused; off where it cannot: the run goes unbound
+		return false, openModeBindingReason(st.Note)
 	}
 	var n int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM doomsday_runs WHERE profile = ? AND state <> 'quiescent'`, cfg.ProfileID).Scan(&n); err != nil {
@@ -136,6 +141,25 @@ func cheapOpenModeCheck(cfg *globalConfig) (bool, string) {
 		return false, "an open-ended run is already active in this profile: only one runs at a time"
 	}
 	return true, ""
+}
+
+// unboundReason is why this profile's binding is off because the machine cannot run it ("" when on, or off by the operator's choice
+// on a machine that could run it, or unreadable).
+func unboundReason(db *sql.DB) string {
+	st, err := chatcli.PeercredBindingState(db)
+	if err != nil {
+		return ""
+	}
+	return st.UnboundReason
+}
+
+// openModeBindingReason is why the mode is not offered while binding is off: "not available: <reason>" where the machine cannot run
+// the service (the default is off there), the Settings pointer where the operator switched it off.
+func openModeBindingReason(note string) string {
+	if note != "" {
+		return "not available: " + note
+	}
+	return openModeBindingOffReason
 }
 
 // openModeBindingOffReason is why the mode is not offered while the setting is off, and where to switch it on.
@@ -198,6 +222,9 @@ func processHostGate(cfg *globalConfig, db *sql.DB) *doomsdaycli.HostGate {
 	g := &doomsdaycli.HostGate{Store: w.Chained(), Fresh: w.Fresh(), Profile: w.Profile, RunDir: w.RunDir, Kernel: w.Kernel, Journal: doomsdaycli.MergeJournal(db, w.Store),
 		Activity:  processRunActivity(w.Profile),
 		BindingOn: func() (bool, error) { return chatcli.PeercredBindingOn(db) },
+		UnboundRun: func(ctx context.Context, profile string, gen int64) bool {
+			return runStartedUnbound(ctx, db, profile, gen)
+		},
 		InstallHooks: func(st *coderhost.Store, h *coderhost.Host, hk doomsdaycli.Hooks) error {
 			return chatcli.InstallRunHooks(st, h, chatcli.RunHooks{RunStamp: hk.RunStamp, BeforeRelease: hk.BeforeRelease, Place: hk.Place, PlaceRequired: hk.PlaceRequired})
 		}}
@@ -233,10 +260,18 @@ func doomsdayWiringReal(cfg *globalConfig, db *sql.DB) doomsdaycli.Wiring {
 			if why := coderhost.OpenModeUnsupportedHere(); why != "" { // #1582: no run is created where its boss could not run
 				return false, doomsdaycli.UnsupportedHere(why)
 			}
-			return chatcli.PeercredBindingOn(db)
+			st, err := chatcli.PeercredBindingState(db)
+			if err != nil {
+				return false, err
+			}
+			if st.ExplicitOnBroken != "" { // the operator asked for binding and it cannot be had: no run, rather than a run whose turns are all refused
+				return false, doomsdaycli.UnsupportedHere("no run without binding: peer-credential binding is switched on, but this machine cannot run it (" + st.ExplicitOnBroken + "): switch it off (coder set --peercred-binding off) to run unbound")
+			}
+			return st.On, nil
 		},
-		VaultKey: doomsdaycli.VaultKeyCheck(db, cfg.ProfileID),
-		RunDir:   stop.RunDir{Dir: runDir},
+		UnboundReason: func(context.Context) string { return unboundReason(db) },
+		VaultKey:      doomsdaycli.VaultKeyCheck(db, cfg.ProfileID),
+		RunDir:        stop.RunDir{Dir: runDir},
 		// The self-tests run next to the real database and in the real run directory, so what they show holds on that volume.
 		Probe:  func() error { return probeAt(filepath.Dir(expandPath(cfg.DBPath)), runDir) },
 		Kernel: doomsdayKernel(),
@@ -291,4 +326,34 @@ func bossRouteInstaller(_ context.Context, st *coderhost.Store, db *sql.DB, dbPa
 	}
 	doomsdayWiring(&globalConfig{DBPath: dbPath, ProfileID: profile}, db).InstallOps(st)
 	return nil
+}
+
+// unboundWarningFor is the status line's source: the warning of the OPEN RUN, from the mode recorded at its start (its run.unbound
+// row), not from the live setting. A run that cannot be read says its binding status is unknown rather than nothing.
+func unboundWarningFor(cfg *globalConfig) func(context.Context) string {
+	return func(ctx context.Context) string {
+		db, err := openReadDB(cfg)
+		if err != nil {
+			return "peer-credential binding status of the open run is unknown: " + err.Error()
+		}
+		defer db.Close()
+		var payload string
+		err = db.QueryRowContext(ctx, `SELECT a.payload FROM doomsday_audit a JOIN doomsday_runs r ON r.profile = a.profile AND r.generation = a.generation
+			WHERE r.profile = ? AND r.state <> 'quiescent' AND a.kind = ? LIMIT 1`, cfg.ProfileID, doomsdaycli.KindRunUnbound).Scan(&payload)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			return ""
+		case err != nil:
+			return "peer-credential binding status of the open run is unknown: " + err.Error()
+		}
+		return chatcli.UnboundWarning(strings.TrimPrefix(payload, "unbound: "))
+	}
+}
+
+// runStartedUnbound is whether the run of this generation has its run.unbound audit row (written in its entry transaction). An
+// unreadable answer is false: an unbound turn is then refused.
+func runStartedUnbound(ctx context.Context, db *sql.DB, profile string, generation int64) bool {
+	var n int
+	err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM doomsday_audit WHERE profile = ? AND generation = ? AND kind = ?`, profile, generation, doomsdaycli.KindRunUnbound).Scan(&n)
+	return err == nil && n > 0
 }

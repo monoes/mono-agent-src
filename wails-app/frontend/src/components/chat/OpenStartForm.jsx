@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { openStartApi } from '../../lib/openStartApi.js'
 import { MAX_TEXT, ASK_ACCESS, LIMIT_KEYS, LIMIT_PRESETS, EVERYTHING_LINES, LINES, JUDGING_POLICIES, PER_ASK_CHOICES, buildCharter, emptyForm, modelChoices, catalogChoices, defaultPins } from '../../lib/openCharter.js'
 import { OpenStartReview } from './OpenStartReview.jsx'
+import { unboundText } from './useRunUnbound.js'
 
 // The entry screen and the start form of the open-ended chat mode. The CLI decides what can start (the probe), what the
 // charter means (render) and whether the typed phrase is right (start); this shows the plain statements the person
@@ -143,6 +144,11 @@ export function OpenStartForm({ getChat = null, onChat, onStarted }) {
           </>
         )}
       </section>
+      {entry.mode_available && entry.warning && (
+        <p role="alert" data-testid="open-unbound-warning" style={{ ...small, color: '#fff', background: '#b91c1c', borderRadius: 4, padding: '6px 8px', fontWeight: 700 }}>
+          {unboundText(t, entry.warning)}
+        </p>
+      )}
       {!entry.mode_available ? (
         <p role="alert" data-testid="open-unavailable" style={{ ...small, color: 'var(--red)' }}>
           {t('openStart.unavailable', { reason: entry.reason || entry.error || entry.detail || t('openStart.unknownReason') })}

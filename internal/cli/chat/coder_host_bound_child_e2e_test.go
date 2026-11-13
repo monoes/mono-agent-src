@@ -81,7 +81,7 @@ func TestABoundChildPassesItsOwnTaskGateAndIsRefusedOnceRetired(t *testing.T) {
 	}
 	t.Cleanup(func() { os.RemoveAll(runtimeDir) })
 	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
-	setCoderSettings(t, f.m.dbPath, coderSettings{Enabled: true, PeercredBinding: true})
+	setCoderSettings(t, f.m.dbPath, coderSettings{Enabled: true, PeercredBinding: bindingSet(true)})
 
 	bin := filepath.Join(files, "turn.sh")
 	script := "#!/bin/sh\nexec " + os.Args[0] + " -test.run='^TestHelperBoundChildE2E$' -test.count=1\n"

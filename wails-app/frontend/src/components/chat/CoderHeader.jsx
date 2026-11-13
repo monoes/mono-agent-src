@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { unboundText } from './useRunUnbound.js'
 import { FolderOpen, Copy, Check, FolderRoot } from 'lucide-react'
 import { api, notify } from '../../services/api.js'
 import { copyToClipboard } from './toolCardUtils.js'
@@ -87,6 +89,7 @@ export function CoderUsageBar({ states, model }) {
 }
 
 export function CoderHeader({ cwd, chatMode, openEnded }) {
+  const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
   if (!cwd && !(chatMode && (chatMode.state || chatMode.error))) return null
   const openFolder = () => {
@@ -105,6 +108,11 @@ export function CoderHeader({ cwd, chatMode, openEnded }) {
       {cwd && <CoderBadge />}
       {chatMode && <ChatModeSelector chatMode={chatMode} />}
       {chatMode && openEnded && <OpenEndedStop chatMode={chatMode} {...openEnded} />}
+      {(openEnded?.unboundWarning || openEnded?.unboundUnknown) && (
+        <span role="status" data-testid="open-unbound-chip" title={openEnded.unboundWarning || ''} style={{ fontFamily: mono, fontSize: 10, fontWeight: 700, color: openEnded.unboundWarning ? '#fff' : '#1a1a1a', background: openEnded.unboundWarning ? '#b91c1c' : 'var(--yellow)', borderRadius: 4, padding: '2px 6px' }}>
+          {openEnded.unboundWarning ? unboundText(t, openEnded.unboundWarning) : t('openStart.unboundUnknown')}
+        </span>
+      )}
       {chatMode && openEnded?.runExists === true && <ShowBossLink {...(openEnded.onShowBoss || {})} />}
       {cwd && <><span title={cwd} data-testid="coder-cwd" style={{
         flex: '1 1 160px', minWidth: 0, fontFamily: mono, fontSize: 10, color: '#e2e8f0',

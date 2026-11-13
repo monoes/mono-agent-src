@@ -42,7 +42,9 @@ func TestOpenModeRows(t *testing.T) {
 		fix    string // in the detail
 	}{
 		{"all met", func(*OpenModeFacts) {}, "ok", "binding", StatusOK, "on", ""},
-		{"binding off", func(f *OpenModeFacts) { f.BindingOn = false }, "ok", "binding", StatusWarn, "off", "coder set --peercred-binding on"},
+		{"binding off", func(f *OpenModeFacts) { f.BindingOn = false }, "ok", "binding", StatusWarn, "off (switched off)", "coder set --peercred-binding on"},
+		{"binding cannot run, default off", func(f *OpenModeFacts) { f.BindingOn, f.BindingUnbound = false, "old kernel" }, "ok", "binding", StatusWarn, "open-ended runs here would start without peer-credential binding: old kernel", ""},
+		{"explicit on that cannot run", func(f *OpenModeFacts) { f.BindingExplicitOnBroken = "old kernel" }, "ok", "binding", StatusWarn, "peer-credential binding is switched on but cannot run: old kernel", "coder set --peercred-binding off"},
 		{"binding unreadable", func(f *OpenModeFacts) { f.BindingErr = "locked" }, "ok", "binding", StatusWarn, "cannot read", ""},
 		{"macOS", func(f *OpenModeFacts) { f.GOOS, f.Unsupported = "darwin", "not available on macOS yet: x" }, "ok", "os", StatusWarn, "macOS", "#1610"},
 		{"kernel cannot bind", func(f *OpenModeFacts) { f.BindingReadyErr = "needs Linux 6.5 or later" }, "ok", "binding_service", StatusWarn, "6.5", "Linux 6.5"},
