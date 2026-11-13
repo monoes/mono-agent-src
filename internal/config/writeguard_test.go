@@ -74,7 +74,7 @@ var writeAllowlist = map[string]struct {
 	"internal/cli/chat/coder_projects.go":           {"coder projects map/unmap: operator-only", 2},
 	"internal/coderhost/missionconfirm.go":          {"the coder host's signed per-send confirmations, written for the operator's own confirm", 5},
 	"internal/coderhost/mission_children_switch.go": {"the mission child sessions switch (coder.mission_children_enabled): read in Reserve, written only by the operator-only enable|disable command; config set refuses the name", 2},
-	"internal/coderhost/host_pursuit_switch.go": {"the pursuit switch rows (coder.pursuit_loop, coder.pursuit_judge): written only by the operator-only `coder host pursuit` verbs; config set refuses the names", 2},
+	"internal/coderhost/host_pursuit_switch.go":     {"the pursuit switch rows (coder.pursuit_loop, coder.pursuit_judge): written only by the operator-only `coder host pursuit` verbs; config set refuses the names", 2},
 	"internal/ai/chat_events_conversations.go":      {"revokes (deletes) confirmations when a conversation is deleted; never writes a value", 1},
 	"internal/agentpurposes/store.go":               {"agent purposes set|reset: operator-only commands; the rows are reserved (operator.ReservedConfigPrefixes), so the guard refuses any agent", 1},
 	"internal/cli/chat/chat_delete_files.go":        {"the cleanup rows under the reserved file-cleanup/ prefix: written in the delete's own transaction, read and removed by the delete and by reconcile; every other writer is refused that prefix", 4},
