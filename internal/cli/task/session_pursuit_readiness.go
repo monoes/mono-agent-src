@@ -31,7 +31,10 @@ const (
 	itemMissing = "missing"
 )
 
-const hostFix = "ask the operator to start the coder host with MONOAGENT_PURSUIT_JUDGE=<runtime/model> set in its environment (a model other than the lead's), e.g. `MONOAGENT_PURSUIT_JUDGE=<runtime/model> monoagentcli coder host run`; if a host is running, `monoagentcli coder host stop` first, because the flag is read once at start"
+const hostFix = "ask the operator to choose the judge once with `monoagentcli coder host pursuit judge set RUNTIME/MODEL` (a model other than the lead's; or set MONOAGENT_PURSUIT_JUDGE=<runtime/model> in the coder host's environment) and to start the host, e.g. `monoagentcli coder host run`; if a host is running, `monoagentcli coder host stop` first, because the settings are read once at start; if the operator turned the loop off, `monoagentcli coder host pursuit on`"
+
+// judgeSetFix is the fix of a missing judge model: the pursuit loop is on by default and idles until one is chosen.
+const judgeSetFix = "ask the operator to choose a judge model other than the lead's with `monoagentcli coder host pursuit judge set RUNTIME/MODEL` (or MONOAGENT_PURSUIT_JUDGE on the host), then restart the coder host"
 
 // readinessItem is one line of the checklist. The JSON keys are stable within PursuitSchemaVersion.
 type readinessItem struct {
@@ -87,15 +90,17 @@ func buildReadiness(in readinessInput) readinessDoc {
 	}
 	hostOff := blocked(missionpursuit.BlockHostOff)
 	invalid := blocked(missionpursuit.BlockHostInfoInvalid)
-	fix := hostFix
+	fix := hostLoopFix(in)
 	if invalid {
 		fix = "ask the operator to restart the coder host (`monoagentcli coder host stop`, then start it) with MONOAGENT_PURSUIT_JUDGE=<runtime/model> and MONOAGENT_PURSUIT_WAKE_CAP_USD, if set, in range: what it published is not a value it would have accepted"
 	}
 	add(ItemHostLoop, hostOff || invalid, "a running coder host has the pursuit loop on", hostLoopWhy(in, invalid), fix)
 	pinMissing := hostOff || blocked(missionpursuit.BlockJudgePin)
 	pinText := "the judge model " + c.Facts.JudgePin + " differs from the lead's"
-	pinMiss, pinFix := missionpursuit.BlockReasons[missionpursuit.BlockJudgePin], "ask the operator to set MONOAGENT_PURSUIT_JUDGE on the host to a model other than the lead's, then restart the host"
-	if hostOff {
+	pinMiss, pinFix := missionpursuit.BlockReasons[missionpursuit.BlockJudgePin], judgeSetFix
+	if hostOff && in.HostAlive && in.Host.Missing == coderhost.PursuitMissingJudgePin {
+		pinMiss = "no judge model is chosen yet (judge-pin missing)"
+	} else if hostOff {
 		pinMiss, pinFix = "not known until the host loop is on", "fix host_loop first"
 	} else if c.Facts.PinWhy != "" {
 		pinMiss = c.Facts.PinWhy
@@ -164,10 +169,31 @@ func hostLoopWhy(in readinessInput, invalid bool) string {
 		return "no coder host has published its pursuit state (none is running, or it is older than this field)"
 	case !in.HostAlive:
 		return "the coder host is not running"
+	case in.Host.Missing == coderhost.PursuitMissingJudgePin:
+		return "the pursuit loop is on by default on the coder host but idle: no judge model is chosen (judge-pin missing)"
+	case in.Host.OperatorOff:
+		return "the operator turned the pursuit loop off on the coder host: " + in.Host.Reason
 	case in.Host.Reason != "":
 		return "the coder host runs with the pursuit loop OFF: " + in.Host.Reason
 	}
-	return "the coder host runs with the pursuit loop OFF (MONOAGENT_PURSUIT_JUDGE was not set when it started)"
+	return "the coder host runs with the pursuit loop OFF (it started before the loop was on by default, or without a judge model)"
+}
+
+// hostLoopFix is the fix of a host that does not run the loop, by the same published facts: the default is ON, so a loop that is
+// not running is idle for want of a judge model (judge-pin), turned off by the operator (saved row or environment), or not running.
+func hostLoopFix(in readinessInput) string {
+	if !in.HostFound || !in.HostAlive {
+		return hostFix
+	}
+	switch {
+	case in.Host.OperatorOff && in.Host.OffSource == "env":
+		return "ask the operator to unset MONOAGENT_PURSUIT_LOOP (or set it to on) in the coder host's environment and restart the host: the CLI cannot override the environment"
+	case in.Host.OperatorOff:
+		return "ask the operator to run `monoagentcli coder host pursuit on`, then restart the coder host"
+	case in.Host.Missing == coderhost.PursuitMissingJudgePin:
+		return judgeSetFix
+	}
+	return hostFix
 }
 
 func writeReadinessText(w io.Writer, p tasks.Profile, doc readinessDoc) {
@@ -193,8 +219,7 @@ func (d Deps) newPursuitReadinessCmd() *cobra.Command {
 		Use:   "readiness ID",
 		Short: "List what is missing for a mission's pursuit to run, each item with its exact fix (read only)",
 		Long: `Answers "what is missing for this mission's pursuit to run?". It reads and writes nothing, calls no model and starts nothing; an agent may
-run it. Each item is ok or missing, and a missing one carries the exact command or setting that fixes it: the host switch
-(MONOAGENT_PURSUIT_JUDGE on a running host, read once at its start), the judge's model differing from the lead's, a goal with a rubric
+run it. Each item is ok or missing, and a missing one carries the exact command or setting that fixes it: the host loop (on by default; idle until a judge is chosen with "coder host pursuit judge set", or off if the operator turned it off, read once at the host's start), the judge's model differing from the lead's, a goal with a rubric
 criterion, the goal checker (only when the goal has command checks), the mission's budget, the lead's spend cap, the chat, and your own
 consent. The blockers are the ones "pursuit preview" and "pursuit begin" refuse for, from the same function. Once the pursuit has begun
 the document also carries its state, why it waits and who has to act, as "pursuit status" does.
