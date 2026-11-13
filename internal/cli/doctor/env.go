@@ -176,6 +176,7 @@ func NewHealthEnv(d EnvDeps, projects []string) (*health.Env, func()) {
 	} else if !os.IsNotExist(err) {
 		env.DBErr = err
 	}
+	addOpenModeHook(env, dbPath)
 	if env.DB != nil {
 		addAccountHooks(env, env.DB)
 	}

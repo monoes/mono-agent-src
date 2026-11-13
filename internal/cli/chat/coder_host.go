@@ -82,6 +82,16 @@ func hostRunning(cfg *Deps) bool {
 	return errors.Is(err, daemonhb.ErrHeld)
 }
 
+// HostRunningAt is hostRunning for the database at dbPath that changes nothing: with no lock file there is no host, and
+// the file is not created to find out (hostRunning's lock attempt creates it). The doctor row of the open mode reads it.
+func HostRunningAt(dbPath string) bool {
+	cfg := &Deps{DBPath: func() string { return dbPath }}
+	if _, err := os.Stat(hostLockPath(cfg)); err != nil {
+		return false
+	}
+	return hostRunning(cfg)
+}
+
 func readHostInfo(cfg *Deps) (hostInfo, bool) {
 	raw, err := os.ReadFile(filepath.Join(hostDir(cfg), hostInfoFile))
 	var h hostInfo

@@ -90,7 +90,7 @@ bridge version; if the service still uses an older binary, update that
 binary too. Daemon-owned bridges retain `browser.bridge.restart`.
 
 Groups: `core` (data folder, database, profile, vault, PATH, disk, the monoes.me
-sign-in as `core.monoes_account` — ok; warn in the grace window; fail when locked; fix `account login`, or `update` for `key_unknown`), `monomind`
+sign-in as `core.monoes_account` — ok; warn in the grace window; fail when locked; fix `account login`, or `update` for `key_unknown`; and the `coder.open_mode` row "Open-ended mode" with one child per prerequisite of the open-ended chat mode: OS (macOS is refused until #1610), the kernel's peer-credential query, the containment unit's cgroup v2 / delegation / `systemd-run` steps, the peer-credential binding setting (off by default; fix `coder set --peercred-binding on`), the vault key, the coder host, the sign-in, and an already active run (until `doomsday stop`); each failing child names its exact fix; read-only, needs `--profile`, never required so it does not change the exit code), `monomind`
 (Node.js, monomind install/version/features, profile `monomind init`) and
 `runtimes` (one row per AI agent runtime), `browser` (browser, extension,
 bridge, pairing), `automations` (installed packages that are unavailable,
