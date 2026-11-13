@@ -52,6 +52,22 @@ func TestReadinessItemsEachNameTheirExactFix(t *testing.T) {
 		}, ItemHostLoop, itemMissing, "no coder host", "coder host run", "host-off"},
 		{"host running, loop off", func(in *readinessInput, f *missionpursuit.LiveFacts) { in.Host.Enabled, f.HostOn = false, false }, ItemHostLoop, itemMissing, "loop OFF", "coder host stop", "host-off"},
 		{"host info invalid", func(in *readinessInput, f *missionpursuit.LiveFacts) { f.HostInvalid = true }, ItemHostLoop, itemMissing, "not a usable value", "restart", "host-info-invalid"},
+		{"loop on by default but idle: judge-pin missing", func(in *readinessInput, f *missionpursuit.LiveFacts) {
+			in.Host = coderhost.PursuitHostInfo{Missing: coderhost.PursuitMissingJudgePin, Reason: "judge-pin missing: x"}
+			f.HostOn = false
+		}, ItemHostLoop, itemMissing, "judge-pin missing", "coder host pursuit judge set RUNTIME/MODEL", "host-off"},
+		{"judge item says the same when idle", func(in *readinessInput, f *missionpursuit.LiveFacts) {
+			in.Host = coderhost.PursuitHostInfo{Missing: coderhost.PursuitMissingJudgePin}
+			f.HostOn = false
+		}, ItemJudgePin, itemMissing, "no judge model is chosen", "coder host pursuit judge set", "host-off"},
+		{"operator turned it off (saved)", func(in *readinessInput, f *missionpursuit.LiveFacts) {
+			in.Host = coderhost.PursuitHostInfo{OperatorOff: true, OffSource: "saved", Reason: "turned off"}
+			f.HostOn = false
+		}, ItemHostLoop, itemMissing, "operator turned the pursuit loop off", "coder host pursuit on", "host-off"},
+		{"operator turned it off (env)", func(in *readinessInput, f *missionpursuit.LiveFacts) {
+			in.Host = coderhost.PursuitHostInfo{OperatorOff: true, OffSource: "env", Reason: "turned off"}
+			f.HostOn = false
+		}, ItemHostLoop, itemMissing, "operator turned the pursuit loop off", "unset MONOAGENT_PURSUIT_LOOP", "host-off"},
 		{"judge is the lead's", func(in *readinessInput, f *missionpursuit.LiveFacts) { f.PinWhy = "the judge's model is the lead's" }, ItemJudgePin, itemMissing, "is the lead's", "other than the lead's", "judge-pin"},
 		{"judge unknown while the host is off", func(in *readinessInput, f *missionpursuit.LiveFacts) { f.HostOn = false }, ItemJudgePin, itemMissing, "until the host loop is on", "host_loop", "host-off"},
 		{"no goal", func(in *readinessInput, f *missionpursuit.LiveFacts) {

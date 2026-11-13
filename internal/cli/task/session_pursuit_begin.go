@@ -35,8 +35,10 @@ func (d Deps) liveFacts(profileID string, session int64, shown *coderhost.CostTa
 				leadCapped = missionpursuit.BudgetKnown(leadBudget, 0)
 			}
 		}
+		// The money text never shows a cap lower than the default: host.json is display-only and a process holding the host lock can
+		// write a plausible small number into it. A host really run with a lower X is then over-stated, never under-stated.
 		wakeCap := coderhost.DefaultWakeCapUSD
-		if reported {
+		if reported && host.WakeCapUSD > wakeCap {
 			wakeCap = host.WakeCapUSD
 		}
 		verifierOn := reported && host.VerifierOn
@@ -51,7 +53,7 @@ func (d Deps) liveFacts(profileID string, session int64, shown *coderhost.CostTa
 		f := missionpursuit.LiveFacts{Cost: table.Text, HostOn: on, HostInvalid: invalid, CheckerSetUp: verifierOn,
 			BudgetKnown: missionpursuit.BudgetKnown(budget, spent), LeadCapped: leadCapped}
 		if reported {
-			f.JudgePin, f.WakeCapUSD = host.Pin, host.WakeCapUSD
+			f.JudgePin, f.WakeCapUSD = host.Pin, wakeCap
 			if chat != "" {
 				f.PinWhy = coderhost.LeadPinWhy(host.Pin, coderhost.LeadPinIn(ctx, x, profileID, chat))
 			} else {
