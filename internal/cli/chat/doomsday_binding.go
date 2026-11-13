@@ -2,6 +2,7 @@ package chat
 
 import (
 	"database/sql"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/procbind"
 )
@@ -70,8 +71,14 @@ var startReadiness = func() string {
 	if a == "" {
 		return ""
 	}
+	startProbePause(startProbeGap) // a brief resource burst must not fail both probes
 	if b := procbind.RefusalUncached(true); b == a {
 		return a
 	}
 	return ""
 }
+
+// startProbeGap is the pause between the two start probes; startProbePause is the seam a test replaces so that no test sleeps.
+const startProbeGap = 250 * time.Millisecond
+
+var startProbePause = time.Sleep

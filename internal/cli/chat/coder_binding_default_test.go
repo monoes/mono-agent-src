@@ -6,6 +6,7 @@ import (
 	"github.com/monoes/mono-agent/internal/procbind"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The default of the peer-credential setting is ON where the machine can run the binding service. These tests fail if the
@@ -186,6 +187,10 @@ func TestRouteRefusesUnderABoundRunAndGoesOnUnderAnUnboundOne(t *testing.T) {
 func TestTheStartDecisionNeedsTwoMatchingFailedProbes(t *testing.T) {
 	procbind.ForTestSetIssuance(t, true)
 	g, _ := gateRig(t, "")
+	var pauses []time.Duration
+	old := startProbePause
+	startProbePause = func(d time.Duration) { pauses = append(pauses, d) } // no real sleeping
+	t.Cleanup(func() { startProbePause = old })
 	for name, c := range map[string]struct {
 		probes   []error
 		unbound  bool
@@ -198,10 +203,14 @@ func TestTheStartDecisionNeedsTwoMatchingFailedProbes(t *testing.T) {
 		"success is asked only once": {[]error{nil}, false, true, 1},
 	} {
 		calls := 0
+		pauses = nil
 		procbind.ForTestSetReadyFunc(t, func() error { e := c.probes[calls%len(c.probes)]; calls++; return e })
 		st, err := PeercredBindingState(g.db)
 		if err != nil || st.On == c.unbound || (st.UnboundReason != "") != c.unbound || st.On != c.wantOn || calls != c.wantCall {
 			t.Fatalf("%s: %+v calls=%d err=%v", name, st, calls, err)
+		}
+		if wantPause := c.wantCall - 1; len(pauses) != wantPause || (wantPause == 1 && pauses[0] != 250*time.Millisecond) { // a pause only between the two probes
+			t.Fatalf("%s: pauses %v", name, pauses)
 		}
 	}
 }

@@ -190,6 +190,9 @@ func (d Deps) newStart() *cobra.Command {
 			if chat != "" && (boss != 0 || guiPhrase == "") {
 				return clicore.InvalidInput("--chat is the app's start: it goes with --gui-phrase and not with --boss-session")
 			}
+			if expect != "" && expect != "bound" && expect != "unbound" { // the cheap refusal first: before the charter is rendered or anything typed
+				return clicore.InvalidInput("--expect-mode must be bound or unbound")
+			}
 			e := d.engine()
 			if err := e.Containment(); err != nil {
 				return refusal(err)
@@ -234,9 +237,6 @@ func (d Deps) newStart() *cobra.Command {
 			ack, err := d.acknowledge(cmd, len(ch.Lines), canon.Hash, yes, hash, guiPhrase)
 			if err != nil {
 				return err
-			}
-			if expect != "" && expect != "bound" && expect != "unbound" {
-				return clicore.InvalidInput("--expect-mode must be bound or unbound")
 			}
 			ack.Expect = expect
 			if chat != "" {

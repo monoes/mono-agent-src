@@ -208,3 +208,18 @@ func TestEnterRefusesWhenTheMachineStateChangedSinceTheConfirmation(t *testing.T
 		}
 	}
 }
+
+// --expect-mode is validated before the charter is rendered or anything is typed or asked of the engine. Revert proof: moving the
+// check back after the acknowledgement makes the charter appear in the output (red).
+func TestExpectModeIsValidatedBeforeTheCharterIsShown(t *testing.T) {
+	w, db := newWire(t, func() error { return nil }, fakeKernel{}, nil)
+	e := w.w.Engine()
+	w.deps.Engine = func() Engine { return e }
+	out, err := run(t, w.deps, "", "start", "--charter", w.charter, "--yes-i-lift", "--hash", "deadbeef", "--expect-mode", "maybe")
+	if err == nil || !strings.Contains(err.Error(), "--expect-mode must be bound or unbound") {
+		t.Fatalf("err = %v", err)
+	}
+	if strings.Contains(out, "ship it") || count(t, db, `SELECT COUNT(*) FROM doomsday_runs`) != 0 {
+		t.Fatalf("the charter was shown or a run made: %q", out)
+	}
+}
