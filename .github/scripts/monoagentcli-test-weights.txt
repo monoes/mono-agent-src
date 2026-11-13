@@ -824,3 +824,4 @@ TestDoomsdayVerbsCloseTheDatabaseTheyOpened 1
 TestRealWiringRefusesTheStartWhereTheModeCannotRun 1
 TestTheBinaryLinksTheMessageScrub 1
 TestOpenModeDoctorExtra 1
+TestTheHostGateIsWiredForTheProfileIDWhenTheHostWasStartedByName 1

@@ -78,10 +78,13 @@ func init() {
 		// stamp, and the bound-mode requirement. With no open run the gate does nothing, so the host is what it was. A
 		// gate whose launcher hooks cannot be installed still stands (the ticket is then taken around Start).
 		chatcli.HostBuilt = func(st *coderhost.Store, h *coderhost.Host, db *sql.DB) {
-			w := doomsdayWiring(cfg, db)
+			// A host started by hand with `--profile NAME` still carries the name here; every turn names its profile by id, and the
+			// gate refuses a turn of a profile it is not wired for. Wire it for the id.
+			hostCfg := hostConfigWithProfileID(cfg, db)
+			w := doomsdayWiring(hostCfg, db)
 			// A run the host starts beside is known before the first dispatch (one read-only count, no key, nothing written).
-			doomsdaycli.OpenRunPrecheck(db, cfg.ProfileID, processRunActivity(cfg.ProfileID), func(f string, a ...any) { fmt.Fprintf(os.Stderr, f+"\n", a...) })(context.Background())
-			g := processHostGate(cfg, db)
+			doomsdaycli.OpenRunPrecheck(db, hostCfg.ProfileID, processRunActivity(hostCfg.ProfileID), func(f string, a ...any) { fmt.Fprintf(os.Stderr, f+"\n", a...) })(context.Background())
+			g := processHostGate(hostCfg, db)
 			// The boss's typed operations (plan.approve, ask.answer, spend.grant) are enforced against the open run's
 			// charter, witnessed; the route is the mode off whenever no run is running.
 			w.InstallOps(st)
@@ -89,9 +92,9 @@ func init() {
 				fmt.Fprintf(os.Stderr, "coder host: the open-ended mode's launcher hooks could not be installed (turns are ticketed around their start instead): %v\n", err)
 			}
 			// The resource governor admits a turn before the gate takes its ticket; with no running run it is a plain call.
-			governLauncher(cfg, st, h, db)
+			governLauncher(hostCfg, st, h, db)
 			// The strategy layer's host is ticked from this process; with no run open a tick reads and writes nothing.
-			startStrategyLoop(cfg, db)
+			startStrategyLoop(hostCfg, db)
 		}
 		// The coder host joins the strategy loop after its Run returned, before the database closes.
 		chatcli.HostStopped = stopStrategyLoop
@@ -291,4 +294,18 @@ func bossRouteInstaller(_ context.Context, st *coderhost.Store, db *sql.DB, dbPa
 	}
 	doomsdayWiring(&globalConfig{DBPath: dbPath, ProfileID: profile}, db).InstallOps(st)
 	return nil
+}
+
+// hostConfigWithProfileID is cfg with the profile named by id: a host started by hand with `--profile NAME` carries the name, but every
+// turn names its profile by id and the gate refuses a turn of a profile it is not wired for. A name that does not resolve is left as
+// it is (the turns then fail closed, as before).
+func hostConfigWithProfileID(cfg *globalConfig, db *sql.DB) *globalConfig {
+	if cfg.ProfileID == "" {
+		return cfg
+	}
+	c := *cfg
+	if id, err := resolveProfileID(db, cfg.ProfileID); err == nil {
+		c.ProfileID = id
+	}
+	return &c
 }
