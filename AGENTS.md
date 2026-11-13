@@ -3150,6 +3150,7 @@ monoagentcli --profile work coder sessions mission-children list                
 monoagentcli --profile work coder sessions budget list --open|grant <id> [--usd N]|decline <id>   # operator: a mission lead's requests for more budget (see Missions)
 monoagentcli --profile work coder host status --json               # running? pid, since when
 monoagentcli --profile work coder host stop                        # the host only; running turns keep going
+monoagentcli --profile work coder host pursuit status --json     # the pursuit loop switch: on by default, idle until a judge is chosen (see "Mission pursuit")
 ```
 
 - **Operator only (exit 3, `operator_only`):** `sessions send|stop|pause|resume`, `sessions settings set`,
