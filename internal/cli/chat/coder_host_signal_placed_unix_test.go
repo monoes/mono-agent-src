@@ -6,10 +6,14 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
 )
+
+// placedDones holds, per started command, the channel its single reaper closes: exec's Wait must run once per Cmd.
+var placedDones sync.Map
 
 func startPlacedIn(t *testing.T, pgid int, script string) *exec.Cmd {
 	t.Helper()
@@ -18,14 +22,24 @@ func startPlacedIn(t *testing.T, pgid int, script string) *exec.Cmd {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = syscall.Kill(cmd.Process.Pid, syscall.SIGKILL); _ = cmd.Wait() })
+	done := make(chan struct{})
+	placedDones.Store(cmd, done)
+	go func() { _ = cmd.Wait(); close(done) }() // the only Wait of this command
+	t.Cleanup(func() {
+		_ = syscall.Kill(cmd.Process.Pid, syscall.SIGKILL)
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+		}
+		placedDones.Delete(cmd)
+	})
 	return cmd
 }
 
-func placedExited(cmd *exec.Cmd) (done chan struct{}) {
-	done = make(chan struct{})
-	go func() { _ = cmd.Wait(); close(done) }()
-	return
+// placedExited is closed when the command has been reaped by startPlacedIn's reaper.
+func placedExited(cmd *exec.Cmd) chan struct{} {
+	d, _ := placedDones.Load(cmd)
+	return d.(chan struct{})
 }
 
 func placedDead(d chan struct{}) bool {
