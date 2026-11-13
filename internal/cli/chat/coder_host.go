@@ -161,7 +161,7 @@ func newCoderHostCmd(cfg *Deps) *cobra.Command {
 			"`coder sessions send`. Stopping it does not stop a running turn; the next host picks the turn up. " +
 			"The host and the turns it starts keep the environment of the terminal that started the host.",
 	}
-	cmd.AddCommand(newCoderHostRunCmd(cfg), newCoderHostStatusCmd(cfg), newCoderHostStopCmd(cfg))
+	cmd.AddCommand(newCoderHostRunCmd(cfg), newCoderHostStatusCmd(cfg), newCoderHostStopCmd(cfg), newCoderHostPursuitCmd(cfg))
 	return cmd
 }
 
@@ -313,7 +313,7 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 				RequireConversations: true,
 				TitleOf:              func(profileID, id string) (string, error) { return chatDisplayTitle(db.DB, profileID, id) },
 			}
-			// The pursuit loop is off unless the host was started with a judge pin (see coder_host_pursuit.go); read once, here.
+			// The pursuit loop is on by default and idles until a judge pin exists, unless the operator turned it off (see coder_host_pursuit.go); read once, here.
 			pursuit, pursuitInfo := pursuitFromEnv(os.Getenv, db.DB)
 			// the goal checks are off too unless MONOAGENT_PURSUIT_VERIFIER is set (and the loop is on); nothing is built otherwise
 			attachVerifier(cmd.Context(), os.Getenv, pursuit, &pursuitInfo, filepath.Join(filepath.Dir(clicore.ExpandPath(cfg.DBPath())), "scratch", "checks"), verifierForbidden(cfg))

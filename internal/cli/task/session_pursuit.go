@@ -258,10 +258,12 @@ func hostPursuitLine(h coderhost.PursuitHostInfo, found, alive bool) string {
 	case h.Enabled:
 		return fmt.Sprintf("this host: the pursuit loop is ON; judge %s (asked to stay under $%.2f a call); a wake-up turn is capped at $%.2f or at what the lead has left, whichever is less (a request to the AI runtime, checked after the turn)",
 			h.Pin, coderhost.PursuitJudgeCallCapUSD, h.WakeCapUSD)
+	case h.Missing != "":
+		return "this host: the pursuit loop is ON by default but idle: " + h.Reason + ": nothing is judged or woken, and this mission's check-ins go on"
 	case h.Reason != "":
 		return "this host: the pursuit loop is OFF: " + h.Reason
 	}
-	return "this host: the pursuit loop is OFF (the host was started without MONOAGENT_PURSUIT_JUDGE): nothing is judged or woken, and this mission's check-ins go on"
+	return "this host: the pursuit loop is OFF (no judge is running on this host; `coder host pursuit judge set RUNTIME/MODEL`, then restart it): nothing is judged or woken, and this mission's check-ins go on"
 }
 
 // pursuitLong fills the dollar figures of the help from the same function the dollars table, the docs and the app's dialog use.
