@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"strconv"
+	"strings"
 
 	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/coderhost"
@@ -34,6 +35,39 @@ var paneSettingKeys = map[string]bool{
 }
 
 const maxSettingsPatchBytes = 16 << 10
+
+// wideningsOf says, for a checked patch, what it changes toward fewer asks or a wider audience: the pane keys that need the person's
+// native confirmation. Turning the same settings to their safer value (ask-always, every class asks the user and parks, nobody
+// outside the session's own tree may message it) needs none. Resetting autonomy_classes to nothing counts as widening: the
+// overrides fall back to the preset, which may decide for the person. The other operator-only pane keys (checkin_limit,
+// max_children, max_concurrent) are bounded by the session's budget and need only the operator gate.
+func wideningsOf(clean string) []string {
+	var m map[string]json.RawMessage
+	_ = json.Unmarshal([]byte(clean), &m)
+	var out []string
+	var preset, accept string
+	if raw, ok := m["autonomy_preset"]; ok {
+		if json.Unmarshal(raw, &preset) != nil || preset != "ask-always" {
+			out = append(out, "fewer asks: the session decides and logs more questions itself")
+		}
+	}
+	if raw, ok := m["autonomy_classes"]; ok {
+		var classes map[string]struct{ Who, Fallback string }
+		strict := json.Unmarshal(raw, &classes) == nil && len(classes) > 0
+		for _, c := range classes {
+			strict = strict && c.Who == "user" && c.Fallback == "park"
+		}
+		if !strict {
+			out = append(out, "fewer asks: some kinds of question are decided by the session or its lead, or by a default")
+		}
+	}
+	if raw, ok := m["mesh_accept"]; ok {
+		if json.Unmarshal(raw, &accept) != nil || accept != "none" {
+			out = append(out, "accept messages from other sessions (any session of the project may message this one)")
+		}
+	}
+	return out
+}
 
 // checkSettingsPatch validates a patch from the page: a JSON object of at most maxSettingsPatchBytes whose every key is in
 // paneSettingKeys. It returns the patch re-encoded from what was checked (so the CLI never sees a different reading of the same
@@ -79,6 +113,11 @@ func (a *App) SetCoderSessionSettings(conversationID, patch, unattended string) 
 		if operatorOnly {
 			if why := opgate.Refusal(); why != "" {
 				return taskRefusal("only the user can change these settings: " + why + " (operator_only)")
+			}
+		}
+		if wide := wideningsOf(clean); len(wide) > 0 {
+			if bad := authorityConfirm(a, "Change this session's settings? "+strings.Join(wide, "; ")+"."); bad != "" {
+				return bad
 			}
 		}
 		args = append(args, "--patch="+clean)

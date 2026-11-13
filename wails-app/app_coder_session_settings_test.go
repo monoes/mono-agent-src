@@ -61,6 +61,64 @@ func TestThePaneSendsOnlyTheseOperatorOnlySettings(t *testing.T) {
 	if strings.Join(got, ",") != "autonomy_classes,autonomy_preset,checkin_limit,max_children,max_concurrent,mesh_accept" {
 		t.Fatalf("operator-only settings the app lets through: %v", got)
 	}
+	// ...and which of them also need the native dialog (wideningsOf): a new operator-only key is decided here, in the review
+	var dialog []string
+	for _, k := range got {
+		if len(wideningsOf(`{"`+k+`":"x"}`)) > 0 {
+			dialog = append(dialog, k)
+		}
+	}
+	if strings.Join(dialog, ",") != "autonomy_classes,autonomy_preset,mesh_accept" {
+		t.Fatalf("operator-only pane settings that ask the person: %v", dialog)
+	}
+}
+
+func TestWideningSettingsAskTheNativeDialogAndSaferValuesDoNot(t *testing.T) {
+	widen := []string{`{"autonomy_preset":"decide-and-log"}`, `{"autonomy_preset":"ask-on-risk"}`, `{"autonomy_preset":5}`,
+		`{"autonomy_classes":{"ambiguity":{"who":"model","fallback":"take_default"}}}`, `{"autonomy_classes":{"ambiguity":{"who":"master","fallback":"park"}}}`,
+		`{"autonomy_classes":{"ambiguity":{"who":"user","fallback":"take_default"}}}`, `{"autonomy_classes":{}}`, `{"autonomy_classes":null}`,
+		`{"mesh_accept":"project"}`, `{"mesh_accept":"subtree"}`, `{"checkin_minutes":5,"mesh_accept":"project"}`}
+	for _, p := range widen {
+		a, log, said := authorityFixture(t, true, nil)
+		if out := a.SetCoderSessionSettings("c1", p, ""); strings.Contains(out, "error") {
+			t.Errorf("%s: %s", p, out)
+		}
+		if len(*said) != 1 || len(ran(t, log)) != 1 {
+			t.Errorf("%s: dialogs %q calls %q", p, *said, ran(t, log))
+		}
+	}
+	safe := []string{`{"autonomy_preset":"ask-always"}`, `{"mesh_accept":"none"}`, `{"autonomy_classes":{"ambiguity":{"who":"user","fallback":"park"}}}`,
+		`{"checkin_limit":3,"max_children":2,"max_concurrent":1,"checkin_minutes":30,"mesh_visible":true,"mesh_alias":"x"}`}
+	for _, p := range safe {
+		a, log, said := authorityFixture(t, false, nil)
+		if out := a.SetCoderSessionSettings("c1", p, ""); strings.Contains(out, "error") {
+			t.Errorf("%s: %s", p, out)
+		}
+		if len(*said) != 0 || len(ran(t, log)) != 1 {
+			t.Errorf("%s: dialogs %q calls %q", p, *said, ran(t, log))
+		}
+	}
+}
+
+func TestWideningSettingsAreRefusedWithoutAYesWhereNoDialogCanBeShownAndForANonOperator(t *testing.T) {
+	p := `{"autonomy_preset":"decide-and-log"}`
+	a, _, _ := authorityFixture(t, false, nil)
+	if out := a.SetCoderSessionSettings("c1", p, ""); !strings.Contains(out, "declined") {
+		t.Fatalf("%s", out)
+	}
+	a, _, _ = authorityFixture(t, true, errNoNativeDialog)
+	if out := a.SetCoderSessionSettings("c1", p, ""); !strings.Contains(out, "no_native_dialog") {
+		t.Fatalf("%s", out)
+	}
+	// (the browser end-to-end host refuses this dialog by its title: TestTheE2EHostNeverConfirmsAnAuthorityTurnOn)
+	a, log, said := authorityFixture(t, true, nil)
+	opgate.SetForTest(t, func(bool) string { return "this process runs inside a coder session" })
+	if out := a.SetCoderSessionSettings("c1", p, ""); !strings.Contains(out, "operator_only") {
+		t.Fatalf("%s", out)
+	}
+	if len(*said) != 0 || len(ran(t, log)) != 0 {
+		t.Fatalf("a dialog or the CLI ran: %q %q", *said, ran(t, log))
+	}
 }
 
 func TestOperatorOnlyPaneSettingsNeedTheOperatorGate(t *testing.T) {
@@ -83,7 +141,7 @@ func TestEverySettingsWriterIsInTheInventoryWithItsShape(t *testing.T) {
 	inventory := map[string]string{
 		"SetChatMissionToggle":    "fixed",    // --mission=on|off from a typed bool; the person's own header toggle (CLI-validated)
 		"SetChatMode":             "fixed",    // --chat-mode=MODE; chosen before the first message, locked after (CLI-validated)
-		"SetCoderSessionSettings": "filtered", // checkSettingsPatch: the pane's keys only
+		"SetCoderSessionSettings": "filtered", // checkSettingsPatch: the pane's keys only; widening ones also need the native dialog
 		"SetAgentApproval":        "gated",    // operator gate + native dialog
 	}
 	scan := func(f srcFile) (writers []string, bad []string) {
@@ -143,6 +201,9 @@ func TestEverySettingsWriterIsInTheInventoryWithItsShape(t *testing.T) {
 			case "filtered":
 				if c := first("checkSettingsPatch"); c == token.NoPos || run == token.NoPos || c > run {
 					t.Errorf("%s must check the patch before it runs the CLI", fd.Name.Name)
+				}
+				if g, c := first("Refusal"), first("authorityConfirm"); g == token.NoPos || c == token.NoPos || !(g < c && c < run) {
+					t.Errorf("%s must pass the operator gate and the native dialog (for the widening keys) before the CLI", fd.Name.Name)
 				}
 			case "gated":
 				if g, c := first("Refusal"), first("authorityConfirm"); g == token.NoPos || c == token.NoPos || !(g < c && c < run) {
