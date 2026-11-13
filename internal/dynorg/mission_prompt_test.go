@@ -148,3 +148,36 @@ func TestMissionPromptKeepsTheNoSpawnWhenOneSessionCanRule(t *testing.T) {
 		}
 	}
 }
+
+// The lead is told to propose the goal's criteria while it understands the mission (a pursuit start is refused without them),
+// and is never told to accept them: that stays the person's.
+func TestMissionPromptTellsTheLeadToProposeGoalCriteriaAndNeverToAcceptThem(t *testing.T) {
+	st := missionStore(t)
+	p := MissionPrompt(&MissionConfig{Store: st, Access: "coding", Confirmed: true})
+	for _, must := range []string{
+		ToolMissionGoalPropose,
+		"what \"done\" means",
+		"how each is checked",
+		"the person accepts them; you cannot",
+	} {
+		if !strings.Contains(p, must) {
+			t.Errorf("prompt lacks %q", must)
+		}
+	}
+	// it comes in the UNDERSTAND step, before the PLAN step
+	at, plan := strings.Index(p, ToolMissionGoalPropose), strings.Index(p, "2. PLAN")
+	if at < 0 || plan < 0 || at > plan {
+		t.Errorf("the instruction is not in UNDERSTAND (propose %d, plan %d)", at, plan)
+	}
+	// nothing tells the lead to accept, confirm or set its own goal
+	low := strings.ToLower(p)
+	for _, bad := range []string{"confirm the goal", "accept the goal", "accept it yourself", "mission_goal_confirm", "mission_goal_accept", "mission_goal_set"} {
+		if strings.Contains(low, bad) {
+			t.Errorf("prompt tells the lead to %q", bad)
+		}
+	}
+	// the optional phases stay optional
+	if !strings.Contains(p, "skips RESEARCH, EVALUATE and DIRECT") {
+		t.Error("the usual mission no longer skips research and directions")
+	}
+}
