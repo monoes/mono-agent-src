@@ -13,7 +13,7 @@ import (
 // environment) is not readable from here: the money text shows the top of the range a host accepts, whatever the file says, so
 // the consent cannot be made to understate what a wake-up may cost.
 func TestPursuitConsentShowsTheMostAHostCanEnforceWhateverTheFileSays(t *testing.T) {
-	want := coderhost.PursuitCostRows(coderhost.CostInput{WakeCapUSD: coderhost.MaxWakeCapUSD, MissionBudgetUSD: 20, Pct: 20, Wakes: 6, HostReported: true, CapIsBound: true})
+	want := coderhost.PursuitCostRows(coderhost.CostInput{WakeCapUSD: coderhost.MaxWakeCapUSD, MissionBudgetUSD: 20, Pct: 20, Wakes: 6, HostReported: true, CapIsBound: true, VerifierSet: true})
 	for _, cap := range []string{"0.02", "2", "10"} {
 		w := newBeginWorld(t)
 		w.host(`{"pid":1,"pursuit":{"enabled":true,"pin":"claude/haiku@4","wakeCapUsd":` + cap + `}}`)
@@ -62,5 +62,26 @@ func TestPursuitConsentDigestDoesNotFollowTheReportedWakeCap(t *testing.T) {
 	w.host(`{"pid":1,"pursuit":{"enabled":true,"pin":"claude/haiku@4","wakeCapUsd":5}}`)
 	if again := w.preview(t); again.Digest != p.Digest {
 		t.Fatal("the digest follows a number host.json can be made to say")
+	}
+}
+
+// A host file that says the goal checks are off cannot lower the goal-check rows or the warning that a command criterion runs a
+// program: for a reported host they are always in the consent text.
+func TestPursuitConsentKeepsTheGoalCheckRowsWhateverTheFileSays(t *testing.T) {
+	w := newBeginWorld(t)
+	w.host(`{"pid":1,"pursuit":{"enabled":true,"pin":"claude/haiku@4","wakeCapUsd":2,"verifierOn":false}}`)
+	p := w.preview(t)
+	if !strings.Contains(p.Cost.Text, "Goal checks are possibly ON") || !strings.Contains(p.Cost.Text, "RUNS A PROGRAM") || !strings.Contains(p.Cost.Text, "goal checks x") {
+		t.Fatalf("a forged 'verifier off' lowered the text:\n%s", p.Cost.Text)
+	}
+}
+
+// The plain preview names the host's reported cap beside the bound, as a claim; the digest does not move with it.
+func TestPursuitPlainPreviewNamesTheReportedCapBesideTheBound(t *testing.T) {
+	w := newBeginWorld(t)
+	w.host(`{"pid":1,"pursuit":{"enabled":true,"pin":"claude/haiku@4","wakeCapUsd":3}}`)
+	out, _, err := runTask(t, w.db, "default", false, "", "session", "pursuit", "preview", id(w.s))
+	if err != nil || !strings.Contains(out, "capped at $10 (the most a host can be set to)") || !strings.Contains(out, "the host reports $3 a wake-up (not proof") {
+		t.Errorf("%v\n%s", err, out)
 	}
 }

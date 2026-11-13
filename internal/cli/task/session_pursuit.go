@@ -259,7 +259,7 @@ func hostPursuitLine(h coderhost.PursuitHostInfo, found, alive bool) string {
 		}
 		return "this host: the coder host is not running (last known: " + last + "); nothing is judged or woken until a host starts"
 	case h.Enabled:
-		return fmt.Sprintf("this host: the pursuit loop is ON; judge %s (asked to stay under $%.2f a call); a wake-up turn is capped at $%.2f or at what the lead has left, whichever is less (a request to the AI runtime, checked after the turn)",
+		return fmt.Sprintf("this host: the pursuit loop is ON; judge %s (asked to stay under $%.2f a call); a wake-up turn is capped at $%.2f as the host reports it (default $2; up to $10 if the host was started with a larger cap) or at what the lead has left, whichever is less (a request to the AI runtime, checked after the turn)",
 			h.Pin, coderhost.PursuitJudgeCallCapUSD, h.WakeCapUSD)
 	case h.Missing != "":
 		return "this host: the pursuit loop is ON by default but idle: " + h.Reason + ": nothing is judged or woken, and this mission's check-ins go on"

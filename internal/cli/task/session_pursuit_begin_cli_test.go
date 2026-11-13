@@ -160,7 +160,7 @@ func TestPursuitPreviewIsTheConsentBlockAndWritesNothing(t *testing.T) {
 	if p.Host["loop_on"] != true || p.Host["judge_pin"] != "claude/haiku@4" || p.Host["wake_cap_usd"] != 10.0 {
 		t.Errorf("host = %v", p.Host)
 	}
-	want := coderhost.PursuitCostRows(coderhost.CostInput{WakeCapUSD: coderhost.MaxWakeCapUSD, MissionBudgetUSD: 20, Pct: 20, Wakes: 6, HostReported: true, CapIsBound: true})
+	want := coderhost.PursuitCostRows(coderhost.CostInput{WakeCapUSD: coderhost.MaxWakeCapUSD, MissionBudgetUSD: 20, Pct: 20, Wakes: 6, HostReported: true, CapIsBound: true, VerifierSet: true})
 	if p.Cost.Text != want.Text || len(p.Cost.Rows) != 3 {
 		t.Errorf("cost = %q, want %q", p.Cost.Text, want.Text)
 	}
@@ -553,7 +553,7 @@ func TestPursuitPreviewJSONKeySet(t *testing.T) {
 	for path, want := range map[string]string{
 		"":     "blockers,chat_id,checker,consent_digest,cost,goal,host,limits,phrase_template,profile,rubric_present,schema_version,session_id",
 		"goal": "criteria,hash,state", "limits": "parked_max,pct,wakes_max", "cost": "rows,text", "checker": "set_up",
-		"host": "judge_call_cap_usd,judge_pin,loop_on,wake_cap_usd",
+		"host": "judge_call_cap_usd,judge_pin,loop_on,reported_wake_cap_usd,wake_cap_usd",
 	} {
 		raw := json.RawMessage(out)
 		if path != "" {

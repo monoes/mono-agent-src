@@ -110,8 +110,15 @@ func PursuitCostRows(in CostInput) CostTable {
 		b.WriteString("- " + r.Text + "\n")
 	}
 	if in.VerifierSet {
-		fmt.Fprintf(&b, "- Goal checks are ON (checker %s; programs of command criteria: %s). A command or output criterion RUNS A PROGRAM on this computer, on a copy of your project, while you are away. A check is asked to stay under %s (a request to the AI service, like the others), is held to %d an away window while you do not act and %d an hour on this computer, and counts toward the percent limit. On Linux with no user session manager (or a host started before the user bus exists) there is no fence at all, and then only your per-mission switch (task session pursuit allow-unconfined-checks) lets programs run, unfenced.\n",
-			in.VerifierPin, in.Confinement, UsdText(v), missionpursuit.MaxChecksPerAwayWindow, missionpursuit.MaxHostChecksPerHour)
+		on, pin, fence := "ON", in.VerifierPin, in.Confinement
+		if in.CapIsBound { // the host's file does not say reliably whether the checks are on, so the worst case is shown
+			on = "possibly ON"
+			if pin == "" {
+				pin, fence = "not reported", "not reported"
+			}
+		}
+		fmt.Fprintf(&b, "- Goal checks are %s (checker %s; programs of command criteria: %s). A command or output criterion RUNS A PROGRAM on this computer, on a copy of your project, while you are away. A check is asked to stay under %s (a request to the AI service, like the others), is held to %d an away window while you do not act and %d an hour on this computer, and counts toward the percent limit. On Linux with no user session manager (or a host started before the user bus exists) there is no fence at all, and then only your per-mission switch (task session pursuit allow-unconfined-checks) lets programs run, unfenced.\n",
+			on, pin, fence, UsdText(v), missionpursuit.MaxChecksPerAwayWindow, missionpursuit.MaxHostChecksPerHour)
 	}
 	b.WriteString("- Helpers the lead starts are NOT covered by the wake-up cap. Money the lead hands to helpers counts toward the percent limit, so a big hand-out makes the pursuit wait for you.\n")
 	b.WriteString("- The caps are requests to the AI service, checked from the cost it reports afterwards. One call can overshoot.\n")
