@@ -96,7 +96,9 @@ func TestAHostWithTheLoopOffStartsNoPursuitWakeQueuedOrForged(t *testing.T) {
 	}
 	// the host restarts without MONOAGENT_PURSUIT_JUDGE: the wake-up the loop queued does not run, and a forged one does not either
 	off := &coderhost.Host{Store: w.st, L: w.l, Logf: t.Logf}
-	_, _ = w.st.Enqueue(coderhost.Command{ProfileID: "default", ConversationID: "chat1", Kind: coderhost.KindSend, TurnID: coderhost.PursuitTurnPrefix + "forged", Message: "x"})
+	// a forged wake-up is refused at the queue now; a row from before that (written here by hand) must still not run
+	w.sql(`INSERT INTO coder_session_commands (profile_id, conversation_id, kind, turn_id, message, attachments, status, wants_mission, created_at, updated_at, issuer)
+		VALUES ('default', 'chat1', 'send', ?, 'x', '[]', 'pending', 0, ?, ?, '')`, coderhost.PursuitTurnPrefix+"forged", time.Now().UTC().Format(time.RFC3339Nano), time.Now().UTC().Format(time.RFC3339Nano))
 	if err := off.Tick(); err != nil {
 		t.Fatal(err)
 	}
