@@ -100,6 +100,9 @@ type Command struct {
 	// person says the command was built on a person-gated path of this package (see person_proof.go). Unexported, so no
 	// other package can set it; enqueueOn refuses the person turn-id prefixes without it.
 	person bool
+	// pursuit says the command was built by the pursuit loop's own queue functions (EnqueueWithPursuit, EnqueueWithAccept). Unexported, so no
+	// other package can set it; enqueueOn refuses a pursuit- turn id without it: a wake-up is the host's, never a caller's.
+	pursuit bool
 }
 
 // Session is a coder conversation as the host tracks it.
@@ -229,6 +232,9 @@ func (s *Store) enqueueOn(x querier, c Command) (Command, error) {
 	// be a mission, and a master- turn id is the master tools' alone (a caller with no issuer cannot use it).
 	if c.Issuer == "" && strings.HasPrefix(c.TurnID, MasterTurnPrefix) {
 		return c, errors.New("coder host: turn ids starting with " + MasterTurnPrefix + " belong to the master tools")
+	}
+	if c.Kind == KindSend && strings.HasPrefix(c.TurnID, PursuitTurnPrefix) && !c.pursuit {
+		return c, errors.New("coder host: turn ids starting with " + PursuitTurnPrefix + " belong to the pursuit loop's wake-ups")
 	}
 	if reservedPersonTurn(c.TurnID) && !c.person {
 		return c, errors.New("coder host: turn ids starting with answer-p- or ask-p- belong to the person's own answers")
