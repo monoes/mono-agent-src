@@ -2691,5 +2691,23 @@
       "already_started": "Ya hay un seguimiento activo en curso para esta misión.",
       "unknown": "No se sabe si ha comenzado. Comprueba el estado de la misión antes de reintentar; no vuelvas a pulsar Iniciar."
     }
+  },
+  "pursuitPanel": {
+    "noticeLabel": "Aviso de la persecución",
+    "gotIt": "Entendido",
+    "restartPending": "Los ajustes guardados difieren del host de coder en marcha: reinícialo para aplicarlos.",
+    "pause": "Pausar persecución",
+    "noPursuit": "Esta misión aún no tiene una persecución en marcha",
+    "readinessUnavailable": "No se pudo leer qué falta para la persecución.",
+    "missingHeading": "Qué falta para la persecución",
+    "authorityHeading": "Qué puede hacer esta misión",
+    "children": "Dejar que esta misión ejecute tareas en sesiones hijas",
+    "approval": "Dejar que el líder apruebe sus sesiones hijas",
+    "ceiling": "Tope de gasto (USD)",
+    "needCeiling": "Indica antes un tope de gasto mayor que 0: las aprobaciones del líder se miden con él.",
+    "confirmChildrenOn": "¿Permitir sesiones hijas de la misión? Cada una recibe su propio presupuesto del líder.",
+    "confirmChildrenOff": "¿Detener nuevas sesiones hijas? Las que ya corren terminan.",
+    "confirmApprovalOn": "¿Dejar que el líder apruebe sesiones hijas de hasta ${{usd}} cada una? Esto levanta una salvaguarda que normalmente necesita tu aprobación.",
+    "confirmApprovalOff": "¿Dejar de permitir que el líder apruebe sesiones hijas?"
   }
 }

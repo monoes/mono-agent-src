@@ -2833,5 +2833,23 @@
       "already_started": "A pursuit is already running for this mission.",
       "unknown": "Whether it started is not known. Check the mission's status before trying again; do not press Start again."
     }
+  },
+  "pursuitPanel": {
+    "noticeLabel": "Pursuit notice",
+    "gotIt": "Got it",
+    "restartPending": "Saved pursuit settings differ from the running coder host: restart the coder host to apply them.",
+    "pause": "Pause pursuit",
+    "noPursuit": "This mission has no pursuit running yet",
+    "readinessUnavailable": "What is missing for the pursuit could not be read.",
+    "missingHeading": "What is missing for the pursuit",
+    "authorityHeading": "What this mission may do",
+    "children": "Let this mission run tasks in child sessions",
+    "approval": "Let the lead approve its child sessions",
+    "ceiling": "Spend ceiling (USD)",
+    "needCeiling": "Give a spend ceiling above 0 first: the lead's approvals are measured against it.",
+    "confirmChildrenOn": "Allow mission child sessions? Each one gets its own budget carved from the lead's.",
+    "confirmChildrenOff": "Stop new mission child sessions? Running ones finish.",
+    "confirmApprovalOn": "Let the lead approve child sessions up to ${{usd}} each? This lifts a safeguard that normally needs you.",
+    "confirmApprovalOff": "Stop the lead approving child sessions?"
   }
 }
