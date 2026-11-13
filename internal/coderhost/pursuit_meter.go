@@ -7,6 +7,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/epoch"
 	"github.com/monoes/mono-agent/internal/doomsday/strategy/judge"
+	"github.com/monoes/mono-agent/internal/missionpursuit"
 	"github.com/monoes/mono-agent/internal/missionpursuit/judgecost"
 )
 
@@ -19,6 +20,9 @@ import (
 //   - the lead's own turns and its helpers' turns are read from the host's turn journals (Store.Spent) and measured from the
 //     person's last action. A helper that already ended is on the mission meter as well, so it can be counted twice: the stop
 //     then comes earlier, never later.
+
+// PursuitJudgeCallCapUSD is what one judge call is asked to stay under (and is charged when the runtime reports nothing).
+const PursuitJudgeCallCapUSD = judgecost.PerCallCapUSD
 
 // meteredModel charges every call of the inner judge model. It is the only model the pursuit's judge ever sees.
 type meteredModel struct {
@@ -121,10 +125,19 @@ func (h *Host) pursuitStopReason(m pursuitMission, st pursuitState) string {
 	if st.BadRounds >= MaxBadJudgeRounds {
 		return pursuitWaitingJudge
 	}
-	if m.Conv != "" {
-		if budget, err := h.Store.Budget(m.Profile, m.Conv); err != nil || !(budget > 0) {
-			return pursuitWaitingLead
-		}
+	if m.Conv == "" {
+		return pursuitWaitingNoChat // no chat, no lead to wake or to cap: a wake-up is never launched uncapped
+	}
+	if budget, err := h.Store.Budget(m.Profile, m.Conv); err != nil || !(budget > 0) {
+		return pursuitWaitingLead
+	}
+	if h.pursuitPinWhy(m) != "" {
+		return pursuitWaitingPin
+	}
+	// A mission committed past its budget can run no worker (every cap and reservation run under it is refused), so a judge
+	// call or a wake-up would be paid for nothing. A read that fails does not stop the pursuit: the run itself is refused anyway.
+	if h.Store.missionOverCommitted(m) {
+		return pursuitWaitingOver
 	}
 	return ""
 }
@@ -162,4 +175,29 @@ func (h *Host) recordRound(m pursuitMission, round string) {
 			_ = h.Store.setPursuitWaiting(m.ID, why, true, now)
 		}
 	}
+}
+
+// stallUnreadable makes a spend that cannot be measured visible: the pursuit waits ("meter-unreadable") instead of stalling with
+// no reason. The next pass that can read again clears it.
+func (h *Host) stallUnreadable(m pursuitMission) {
+	_ = h.Store.setPursuitWaiting(m.ID, pursuitWaitingMeter, false, h.Pursuit.clock().Now())
+}
+
+// awayReason is why the pursuit may not open new work, or "". An unknown budget is unknown, never unlimited.
+func awayReason(a AwayState, budgetKnown bool, wakes, wakesMax int) string {
+	switch {
+	case wakesMax < 1 || wakesMax > missionpursuit.MaxWakesMax:
+		return pursuitWaitingLimits
+	case wakes >= wakesMax:
+		return pursuitWaitingWakes
+	case a.ParkedMax < 1 || a.ParkedMax > 20 || a.Pct < 1 || a.Pct > 100:
+		return pursuitWaitingLimits
+	case !budgetKnown:
+		return pursuitWaitingBudget
+	case a.Parked >= a.ParkedMax:
+		return pursuitWaitingParked
+	case a.WaitingForYou():
+		return pursuitWaitingSpend
+	}
+	return ""
 }

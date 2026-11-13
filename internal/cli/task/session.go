@@ -287,8 +287,9 @@ func (d Deps) newSessionListCmd() *cobra.Command {
 				if err != nil {
 					return d.taskErr(err)
 				}
+				over, overList := overCommitOfLive(ctx, store, p.ID, ss)
 				if d.JSONOutput() {
-					return d.WriteJSON(cmd.OutOrStdout(), map[string]any{"profile": p, "sessions": ss})
+					return d.WriteJSON(cmd.OutOrStdout(), map[string]any{"profile": p, "sessions": ss, "over_committed": overList})
 				}
 				w := cmd.OutOrStdout()
 				printProfileLine(w, p)
@@ -297,8 +298,12 @@ func (d Deps) newSessionListCmd() *cobra.Command {
 					return nil
 				}
 				for _, se := range ss {
-					fmt.Fprintf(w, "#%d  %-8s %d/%d done  %s of %s  %s\n", se.ID, se.State, se.Counts.Done, se.Counts.Total,
+					fmt.Fprintf(w, "#%d  %-8s %d/%d done  %s of %s  %s", se.ID, se.State, se.Counts.Done, se.Counts.Total,
 						money(se.SpentUSD), budgetWord(se), taskCut(se.Title, 60))
+					if oc, ok := over[se.ID]; ok {
+						fmt.Fprintf(w, "  [over-committed by $%.2f: session #%d]", oc.OverByUSD, oc.Ancestor)
+					}
+					fmt.Fprintln(w)
 				}
 				return nil
 			})
@@ -350,10 +355,12 @@ func (d Deps) newSessionShowCmd() *cobra.Command {
 			if err != nil {
 				return d.taskErr(err)
 			}
+			oc := overCommitOf(cmd.Context(), store, p.ID, id)
 			if d.JSONOutput() {
-				return d.WriteJSON(cmd.OutOrStdout(), map[string]any{"profile": p, "session": se, "events": evs})
+				return d.WriteJSON(cmd.OutOrStdout(), map[string]any{"profile": p, "session": se, "events": evs, "over_committed": oc})
 			}
 			printSession(cmd.OutOrStdout(), p, se)
+			printOverCommit(cmd.OutOrStdout(), oc)
 			printSessionEvents(cmd.OutOrStdout(), evs)
 			return nil
 		})

@@ -162,6 +162,9 @@ type pursuitInputs struct {
 	clock    epoch.Clock
 	gap      time.Duration
 
+	// finishParks is how many goal checks ended without the goal being met (nil: none: the goal checks are off on this host).
+	finishParks func(context.Context) int
+
 	mu       sync.Mutex
 	shown    int64
 	shownAt  time.Time
@@ -188,7 +191,9 @@ func (p *pursuitInputs) Snapshot(ctx context.Context) (epoch.Snapshot, error) {
 		Summaries:   map[string]string{},
 		Budget:      epoch.BudgetShare{Known: s.Budget.Known, Share: s.Budget.Share},
 		EvidenceSeq: p.evidence(s.EvidenceSeq),
-		FinishParks: s.Epochs.ParkedFinishRounds,
+	}
+	if p.finishParks != nil {
+		out.FinishParks = p.finishParks(ctx)
 	}
 	facts := newPursuitFacts(p.db, p.profile, p.mission, p.nCrit, s.Directions)
 	for _, d := range s.Directions {

@@ -276,7 +276,7 @@ func (h *Host) Tick() error {
 			}
 			// A wake-up of the pursuit loop runs only while the person's pursuit still runs.
 			if strings.HasPrefix(c.TurnID, PursuitTurnPrefix) {
-				if reason := h.pursuitWakeStillAllowed(x); reason != "" {
+				if reason := h.pursuitWakeStillAllowed(x, c.TurnID); reason != "" {
 					h.end(c, CmdFailed, reason)
 					continue
 				}
@@ -361,6 +361,9 @@ func (h *Host) Tick() error {
 				}
 			}
 			capUSD, capped, berr := h.Store.TurnCap(c.ProfileID, c.ConversationID)
+			if strings.HasPrefix(c.TurnID, PursuitTurnPrefix) {
+				capUSD, capped, berr = h.pursuitWakeCap(capUSD, capped, berr) // X, and never uncapped
+			}
 			if berr == nil && capped {
 				if _, ok := h.L.(BudgetLauncher); !ok {
 					berr = errors.New("this launcher cannot start a turn under a spend cap")
@@ -525,8 +528,10 @@ func (h *Host) Run(ctx context.Context) error {
 	if err := h.Recover(); err != nil {
 		return err
 	}
-	defer h.pursuitWG.Wait() // a pursuit pass ends before the database is closed
-	defer h.retries.Wait()   // no retry of a hold outlives Run: the registry and the database are closed after it returns
+	h.pursuitCheckStart(ctx)
+	defer h.pursuitCheckStop() // after the pass below has ended: the goal checks end before the database is closed
+	defer h.pursuitWG.Wait()   // a pursuit pass ends before the database is closed
+	defer h.retries.Wait()     // no retry of a hold outlives Run: the registry and the database are closed after it returns
 	poll := h.Poll
 	if poll <= 0 {
 		poll = 500 * time.Millisecond

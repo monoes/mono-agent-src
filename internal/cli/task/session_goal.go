@@ -35,9 +35,12 @@ A confirmed goal is final: a changed goal means a new mission.
   goal show ID                       the goal as it stands, with its hash
   goal propose ID --criteria FILE    record a proposal (the mission's lead or you); '-' reads standard input
   goal set ID --criteria FILE        record the criteria and confirm them (you only)
-  goal confirm ID --hash HASH        confirm the proposal whose hash you read (you only)`,
+  goal confirm ID --hash HASH        confirm the proposal whose hash you read (you only)
+  goal check ID                      the latest check of the locked goal: what the host measured, the checker's verdict, your rubric questions (read only)
+  goal answer ID --check N --criterion cK (--yes|--no) [--note T] --dossier HASH
+                                     answer one rubric criterion of a check (you only); the last yes accepts the goal`,
 	}
-	cmd.AddCommand(d.newGoalShowCmd(), d.newGoalProposeCmd(), d.newGoalSetCmd(), d.newGoalConfirmCmd())
+	cmd.AddCommand(d.newGoalShowCmd(), d.newGoalProposeCmd(), d.newGoalSetCmd(), d.newGoalConfirmCmd(), d.newGoalCheckCmd(), d.newGoalAnswerCmd())
 	for _, sub := range cmd.Commands() {
 		d.WithJSONErrors(sub)
 	}
@@ -86,6 +89,27 @@ func (d Deps) writeGoal(cmd *cobra.Command, p tasks.Profile, g missionpursuit.Go
 	return nil
 }
 
+// writeGoalChecks prints how the goal's checks stand: ids, enums and counts (what an agent may read too).
+func writeGoalChecks(w io.Writer, gc missionpursuit.GoalChecks) {
+	if gc.Latest == nil {
+		fmt.Fprintln(w, "  checks: none yet")
+		return
+	}
+	l := gc.Latest
+	fmt.Fprintf(w, "  checks: %d run; latest #%d (round %d) %s%s: machine criteria %d of %d pass", gc.Checks, l.ID, l.Round, l.State, outcomeWord(l.Outcome), l.MachinePass, l.MachineTotal)
+	for _, c := range l.Machine {
+		fmt.Fprintf(w, " %s=%s", c.ID, c.Result)
+	}
+	fmt.Fprintf(w, "; your criteria: %d yes, %d no, %d of %d open; goal satisfied: %t\n", l.RubricYes, l.RubricNo, l.RubricTotal-l.RubricYes-l.RubricNo, l.RubricTotal, gc.Satisfied)
+}
+
+func outcomeWord(o string) string {
+	if o == "" {
+		return ""
+	}
+	return " [" + o + "]"
+}
+
 func (d Deps) newGoalShowCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "show ID",
@@ -96,7 +120,18 @@ func (d Deps) newGoalShowCmd() *cobra.Command {
 				if err != nil {
 					return d.taskErr(err)
 				}
-				return d.writeGoal(cmd, p, g, "Showing")
+				gc, err := gs.GoalChecks(ctx, p.ID, session)
+				if err != nil {
+					return d.taskErr(err)
+				}
+				if d.JSONOutput() {
+					return d.WriteJSON(cmd.OutOrStdout(), map[string]any{"profile": p, "goal": g, "checks": gc})
+				}
+				if err := d.writeGoal(cmd, p, g, "Showing"); err != nil {
+					return err
+				}
+				writeGoalChecks(cmd.OutOrStdout(), gc)
+				return nil
 			})
 		},
 	}

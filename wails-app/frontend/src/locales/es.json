@@ -1262,7 +1262,12 @@
       "stopTitle": "¿Detener este agente?",
       "stopBody": "Su sesión termina y se libera el trabajo en curso. Los agentes de debajo también se detienen.",
       "close": "Cerrar este agente y volver",
-      "call": { "running": "En curso", "done": "Hecho", "failed": "Fallido", "interrupted": "Interrumpido" }
+      "call": {
+        "running": "En curso",
+        "done": "Hecho",
+        "failed": "Fallido",
+        "interrupted": "Interrumpido"
+      }
     },
     "dockLabel": "Chats",
     "newChat": "Nuevo chat",
@@ -2205,6 +2210,19 @@
     "allowsFull": "Ejecuta comandos y cambia archivos en la carpeta que elijas, sin preguntar.",
     "allowsWorkspace": "Ejecuta comandos y cambia archivos en la carpeta que elijas, sin preguntar, y conoce tu perfil."
   },
+  "coderBinding": {
+    "label": "Vinculación de credenciales del proceso",
+    "hint": "Ata los tokens de cada turno de Coder al proceso que ejecuta el turno. El modo de chat abierto solo se ofrece mientras esto está activado. Desactivado por defecto.",
+    "switchedOn": "La vinculación de credenciales del proceso está activada.",
+    "switchedOff": "La vinculación de credenciales del proceso está desactivada.",
+    "warnTitle": "Antes de cambiarlo",
+    "warnMachine": "Si lo activas en un equipo que no puede ejecutar el servicio de vinculación, se rechazan todos los turnos de Coder en lugar de ejecutarlos con menos protección. Solo se puede activar donde el servicio pueda ejecutarse.",
+    "warnTurns": "Solo se puede activar mientras no haya ningún turno de Coder en curso.",
+    "warnLegacy": "Los tokens emitidos antes de activarlo siguen siendo válidos hasta que caducan, así que la protección empieza solo cuando los tokens antiguos van caducando.",
+    "warnRun": "No se puede desactivar mientras haya una ejecución abierta. Detén primero la ejecución.",
+    "warnAgent": "El modo abierto es una sesión de programación larga y sin supervisión. Activar esto permite iniciar un agente autónomo en este equipo.",
+    "warnOperator": "Solo tú puedes cambiarlo aquí. No está disponible para nada que se ejecute dentro de un turno de Coder."
+  },
   "taskResult": {
     "diagnosis": "Diagnóstico",
     "proposed": "Cambio propuesto",
@@ -2503,7 +2521,8 @@
       "refreshing": "Detenido, actualizando...",
       "retry": "Reintentar limpieza",
       "dismiss": "Cerrar",
-      "partial": "Detenido, pero la limpieza no terminó"
+      "partial": "Detenido, pero la limpieza no terminó",
+      "alreadyStopped": "La ejecución ya está detenida: ya no hay ninguna ejecución abierta."
     }
   },
   "steering": {
@@ -2611,5 +2630,95 @@
     "mayExist": "Un inicio anterior termino sin una respuesta clara, asi que puede haber una ejecucion. Revisa la sala de control antes de empezar otra; la CLI solo permite una a la vez y es la unica proteccion.",
     "unknown": "La ejecucion pudo empezar: revisa la sala de control y pulsa Detener si esta en marcha.",
     "reviewTitle": "Revisar antes de empezar"
+  },
+  "pursuitStart": {
+    "open": "Preparar seguimiento activo",
+    "intro": "El responsable seguirá trabajando en el objetivo de esta misión mientras estás fuera, dentro de los límites de abajo. Lee lo que muestra la CLI y escribe la frase. La app pregunta una vez más en una ventana propia.",
+    "limit": {
+      "parkedMax": "Preguntas en espera",
+      "pct": "Porcentaje del presupuesto",
+      "wakesMax": "Despertares del responsable"
+    },
+    "default": "por defecto",
+    "limitBounds": "Un límite es un número entero de 1 o más (porcentaje: como máximo {{pct}}). Déjalo vacío para el valor por defecto.",
+    "read": "Leer los hechos",
+    "previewFailed": "No se pudieron leer los hechos; no se puede iniciar nada.",
+    "previewCode": {
+      "goal_too_long": "El objetivo es demasiado largo para mostrarlo entero.",
+      "unreadable": "La respuesta de la CLI no se pudo leer con claridad.",
+      "busy": "Ya hay una vista previa en curso.",
+      "rate_limited": "Demasiadas vistas previas en un minuto.",
+      "operator_only": "Solo puedes hacerlo tú, no la sesión de un agente."
+    },
+    "reviewLabel": "Revisar antes de iniciar",
+    "goalHeading": "Objetivo",
+    "hashLabel": "Hash del objetivo:",
+    "expects": "espera",
+    "costHeading": "Lo que puede costar",
+    "awayHeading": "Mientras estás fuera",
+    "awayPct_one": "Se detiene al gastar el {{count}} por ciento del presupuesto de la misión",
+    "awayPct_other": "Se detiene al gastar el {{count}} por ciento del presupuesto de la misión",
+    "awayParked_one": "Te espera tras {{count}} pregunta abierta",
+    "awayParked_other": "Te espera tras {{count}} preguntas abiertas",
+    "awayWakes_one": "Como máximo {{count}} despertar del responsable",
+    "awayWakes_other": "Como máximo {{count}} despertares del responsable",
+    "judge": "El juez: {{pin}}",
+    "checkerHeading": "Verificador del objetivo",
+    "checkerSetUp": "Hay un verificador del objetivo configurado.",
+    "checkerCommands_one": "{{count}} comprobación ejecuta un comando.",
+    "checkerCommands_other": "{{count}} comprobaciones ejecutan comandos.",
+    "checkerUnconfined": "Comandos sin confinamiento: {{state}}",
+    "blockerHeading": "Todavía no se puede iniciar",
+    "phraseIntro": "Para iniciar, escribe esta frase exactamente. Solo se compone de lo mostrado arriba.",
+    "phraseLabel": "Escribe la frase",
+    "start": "Iniciar seguimiento activo",
+    "reload": "Leer de nuevo",
+    "started": "El seguimiento activo ha comenzado. El objetivo ya es definitivo.",
+    "unknown": "No se sabe si ha comenzado. Comprueba el estado de la misión antes de reintentar; no vuelvas a pulsar Iniciar.",
+    "notStarted": "No se inició.",
+    "code": {
+      "operator_only": "Solo puedes iniciar un seguimiento activo tú, no la sesión de un agente. No se inició nada.",
+      "invalid_input": "El inicio se rechazó por mal formado. Lee los hechos de nuevo.",
+      "busy": "Hay otra confirmación abierta. Respóndela primero. No se inició nada.",
+      "token": "Esta lectura ha caducado o fue sustituida. Lee los hechos de nuevo.",
+      "phrase": "La frase no coincide. No se inició nada.",
+      "blocked": "Algo bloquea este seguimiento activo. No se inició nada.",
+      "declined": "La confirmación se rechazó o se cerró. No se inició nada. Puedes volver a pulsar Iniciar.",
+      "no_native_dialog": "Esta app no tiene una ventana donde preguntarte, así que no se inició nada.",
+      "consent_stale": "Lo que se te mostró ha cambiado (el modelo, el interruptor del verificador o los costes). Léelo de nuevo.",
+      "stale": "El objetivo cambió desde que lo leíste. Léelo de nuevo.",
+      "chat_mismatch": "Esta misión pertenece a otro chat. No se inició nada.",
+      "hidden_characters": "Un criterio tiene caracteres que no se pueden mostrar con seguridad. No se inició nada.",
+      "criterion_too_long": "Un criterio es demasiado largo para mostrarlo entero. No se inició nada.",
+      "already_started": "Ya hay un seguimiento activo en curso para esta misión.",
+      "unknown": "No se sabe si ha comenzado. Comprueba el estado de la misión antes de reintentar; no vuelvas a pulsar Iniciar."
+    }
+  },
+  "pursuitPanel": {
+    "noticeLabel": "Aviso de la persecución",
+    "gotIt": "Entendido",
+    "restartPending": "Los ajustes guardados difieren del host de coder en marcha: reinícialo para aplicarlos.",
+    "pause": "Pausar persecución",
+    "noPursuit": "Esta misión aún no tiene una persecución en marcha",
+    "readinessUnavailable": "No se pudo leer qué falta para la persecución.",
+    "missingHeading": "Qué falta para la persecución",
+    "authorityHeading": "Qué puede hacer esta misión",
+    "children": "Dejar que esta misión ejecute tareas en sesiones hijas",
+    "approval": "Dejar que el líder apruebe sus sesiones hijas",
+    "ceiling": "Tope de gasto (USD)",
+    "needCeiling": "Indica antes un tope de gasto mayor que 0: las aprobaciones del líder se miden con él.",
+    "confirmChildrenOn": "¿Permitir sesiones hijas de la misión? Cada una recibe su propio presupuesto del líder.",
+    "confirmChildrenOff": "¿Detener nuevas sesiones hijas? Las que ya corren terminan.",
+    "confirmApprovalOn": "¿Dejar que el líder apruebe sesiones hijas de hasta ${{usd}} cada una? Esto levanta una salvaguarda que normalmente necesita tu aprobación.",
+    "confirmApprovalOff": "¿Dejar de permitir que el líder apruebe sesiones hijas?",
+    "statusLabel": "Estado de la persecución",
+    "readError": "No se pudo leer el ajuste guardado de la persecución; el estado de reinicio es desconocido.",
+    "offSaved": "La persecución está desactivada (ajuste guardado). Para reactivarla ejecuta `coder host pursuit on` y reinicia el host de coder.",
+    "offEnv": "La persecución está desactivada por la variable de entorno MONOAGENT_PURSUIT_LOOP del host de coder. La CLI no puede anularla: quítala (o ponla en on) y reinicia el host.",
+    "offHost": "El host de coder en marcha tiene la persecución desactivada. Ejecuta `coder host pursuit on` si la quieres activa y reinicia el host.",
+    "idle": "La persecución está activa pero en espera hasta que elijas un modelo juez.",
+    "paused": "En pausa.",
+    "failed": "La pausa no se aplicó.",
+    "broken": "No se pudo mostrar el panel de persecución (datos inesperados)."
   }
 }

@@ -1,6 +1,7 @@
 package finish
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -71,6 +72,13 @@ func refuse(f string, a ...any) error {
 // DigestTree reads root (it is never modified) and returns its tree. When copyTo is not empty, every regular file is
 // also copied to the same relative path under copyTo (which must exist), so the digest is of the bytes that were copied.
 func DigestTree(root, copyTo string) (Tree, error) {
+	return DigestTreeCtx(context.Background(), root, copyTo)
+}
+
+// DigestTreeCtx is DigestTree that stops when ctx ends: the walk looks at the context before every entry and a copy looks at it
+// between chunks, so a cancelled check does not leave a goroutine copying a project (and its scratch folder) behind. A stopped
+// digest returns ctx.Err() and a copy that was begun is left to the caller to remove (Snapshot does).
+func DigestTreeCtx(ctx context.Context, root, copyTo string) (Tree, error) {
 	var t Tree
 	var files int
 	var bytes int64
@@ -79,6 +87,9 @@ func DigestTree(root, copyTo string) (Tree, error) {
 		return t, refuse("%s is not a directory", root)
 	}
 	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if cerr := ctx.Err(); cerr != nil {
+			return cerr
+		}
 		if err != nil {
 			return refuse("%v", err)
 		}
@@ -131,7 +142,7 @@ func DigestTree(root, copyTo string) (Tree, error) {
 				return refuse("more than %d bytes", int64(MaxSnapshotBytes))
 			}
 			e.Kind, e.Exec, e.Size = 'f', m&0o111 != 0, info.Size()
-			sum, err := sumFile(p, copyTo, rel, e.Exec)
+			sum, err := sumFile(ctx, p, copyTo, rel, e.Exec, info)
 			if err != nil {
 				return refuse("%s: %v", rel, err)
 			}
@@ -143,6 +154,9 @@ func DigestTree(root, copyTo string) (Tree, error) {
 		return nil
 	})
 	if err != nil {
+		if cerr := ctx.Err(); cerr != nil {
+			return Tree{}, cerr
+		}
 		if errors.Is(err, ErrSnapshotRefused) {
 			return Tree{}, err
 		}
@@ -152,8 +166,11 @@ func DigestTree(root, copyTo string) (Tree, error) {
 	return t, nil
 }
 
-func sumFile(src, copyTo, rel string, exec bool) (string, error) {
-	f, err := os.Open(src)
+// sumFile hashes (and, with copyTo, copies) the regular file src that the walk saw as info. It opens the file itself without
+// following a link or waiting on a pipe, and checks that what it opened is that same regular file: a file swapped for a link,
+// a pipe or another file after the walk looked at it is refused, not read.
+func sumFile(ctx context.Context, src, copyTo, rel string, exec bool, info fs.FileInfo) (string, error) {
+	f, err := openRegular(src, info)
 	if err != nil {
 		return "", err
 	}
@@ -172,19 +189,38 @@ func sumFile(src, copyTo, rel string, exec bool) (string, error) {
 		defer func() { out.Close(); os.Chmod(out.Name(), mode) }()
 		w = io.MultiWriter(h, out)
 	}
-	if _, err := io.Copy(w, f); err != nil {
+	if _, err := io.Copy(w, ctxReader{ctx, f}); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// ctxReader fails a read once its context has ended, so a large copy stops between chunks.
+type ctxReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (c ctxReader) Read(p []byte) (int, error) {
+	if err := c.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return c.r.Read(p)
+}
+
 // Snapshot copies root into a new directory dst (created 0700, parent must exist) and returns the tree digest of what was
 // copied. Files are read-only, directories are made read-only last. A refused root leaves nothing behind.
 func Snapshot(root, dst string) (Tree, error) {
+	return SnapshotCtx(context.Background(), root, dst)
+}
+
+// SnapshotCtx is Snapshot that stops when ctx ends and then removes what it had copied (a cancelled snapshot leaves nothing
+// behind, and returns ctx.Err()).
+func SnapshotCtx(ctx context.Context, root, dst string) (Tree, error) {
 	if err := os.Mkdir(dst, 0o700); err != nil {
 		return Tree{}, refuse("%v", err)
 	}
-	t, err := DigestTree(root, dst)
+	t, err := DigestTreeCtx(ctx, root, dst)
 	if err != nil {
 		RemoveTree(dst)
 		return Tree{}, err

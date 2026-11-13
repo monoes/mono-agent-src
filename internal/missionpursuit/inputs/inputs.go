@@ -37,6 +37,11 @@ type TaskCounts struct {
 	Archived   int
 	Unknown    int // a status this code does not know
 	Blocked    int // open tasks (not done, not archived) flagged blocked
+	// Workable counts the tasks the lead can still move: not an epic, not done or archived, not blocked, and not verified
+	// and waiting in review (the settled test of the mission close). Zero means the mission has no unsettled work.
+	Workable int
+	// NonEpic counts the tasks that are not epics and not archived: a mission with none has nothing to check.
+	NonEpic int
 }
 
 // Open is the number of tasks not yet done or archived.

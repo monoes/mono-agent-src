@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -176,6 +177,9 @@ func TestACommandWithItsOwnPreRunStillGetsTheGate(t *testing.T) {
 }
 
 func TestProfileListSurvivesAnAwkwardDatabasePath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a Windows file name cannot hold a question mark")
+	}
 	dir := filepath.Join(t.TempDir(), "odd?name#with%20chars")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)

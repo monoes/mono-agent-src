@@ -147,7 +147,7 @@ func (r *runner) callTool(ctx context.Context, n WorkflowNode, base ExpressionCo
 	}
 	// A tool call passes the exec guard as a step does: a send it would
 	// make waits for approval, and the model gets the guard's answer.
-	outs, handled, err := RunExecGuard(ctx, executor.Type(), input, resolved)
+	outs, handled, err := RunExecGuardFor(ctx, executor, input, resolved)
 	if !handled {
 		outs, err = executor.Execute(ctx, input, resolved)
 	}

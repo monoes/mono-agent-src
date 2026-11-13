@@ -12,9 +12,11 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/monoes/mono-agent/internal/commsync"
+	"github.com/monoes/mono-agent/internal/hilscrub"
 	"github.com/monoes/mono-agent/internal/hilsuggest"
 	"github.com/monoes/mono-agent/internal/jev/jevconf"
 	"github.com/monoes/mono-agent/internal/nodes/nodeprofile"
+	"github.com/monoes/mono-agent/internal/secrets"
 	"github.com/monoes/mono-agent/internal/vault"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
@@ -36,6 +38,9 @@ import (
 type HumanInLoopNode struct{}
 
 func (n *HumanInLoopNode) Type() string { return "core.human_in_loop" }
+
+// PublishesToThirdParty: core.human_in_loop sends nothing off this machine (issue #1418).
+func (HumanInLoopNode) PublishesToThirdParty() bool { return false }
 
 func (n *HumanInLoopNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	db := vault.DBFromContext(ctx)
@@ -196,11 +201,30 @@ func (n *HumanInLoopNode) createRows(ctx context.Context, db *sql.DB, input work
 			ed[i] = copyMap(item.JSON)
 		}
 	}
+	// A value the run read under agent access is not written into a card
+	// (#1594): the card is stored, shown and kept for a person who never
+	// granted it, and an approval would hand it on as the item's own data.
+	// Everything the node writes is looked at: the card's two documents, the
+	// whole item (a downstream template may print any field of it) and the
+	// Communications rows built from it. The first three are looked at before
+	// auto_decide, which sends them to the remote Jev API (#1418).
+	var itemsJSON []map[string]interface{}
+	for _, it := range input.Items {
+		itemsJSON = append(itemsJSON, it.JSON)
+	}
+	errSecret := fmt.Errorf("human_in_loop: an item carries a secret the run read under agent access, and a card does not keep one: take it out of the item")
+	if holdsTracked(ctx, []interface{}{ro, ed, itemsJSON}) {
+		return false, errSecret
+	}
 	plan, err := autoDecideRows(ctx, db, input, config, profileID, ro, ed)
 	if err != nil {
 		return false, err
 	}
+	hilscrub.MarkCutoff(ctx, db)
 	comms := commsItems(ctx, input, profileID)
+	if holdsTracked(ctx, []interface{}{comms}) {
+		return false, errSecret
+	}
 	// Something that runs after this node sends a message to a person: only
 	// the operator decides its items (operator.ItemRefusal). Every item is
 	// marked, even one that got no Communications entry: the sends follow
@@ -466,4 +490,42 @@ func autoDecideRows(ctx context.Context, db *sql.DB, input workflow.NodeInput, c
 		plan[i].extra["p"] = s.P
 	}
 	return plan, nil
+}
+
+// holdsTracked reports whether any string of v (decoded, keys included), or v
+// written as JSON, holds a secret value the run read under agent access: a
+// value inside a string is seen as the string holds it, not as JSON escapes it.
+func holdsTracked(ctx context.Context, v interface{}) bool {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return true
+	}
+	if secrets.HoldsTracked(ctx, string(raw)) {
+		return true
+	}
+	var generic interface{}
+	if json.Unmarshal(raw, &generic) != nil {
+		return true
+	}
+	var walk func(interface{}) bool
+	walk = func(x interface{}) bool {
+		switch t := x.(type) {
+		case string:
+			return secrets.HoldsTracked(ctx, t)
+		case []interface{}:
+			for _, e := range t {
+				if walk(e) {
+					return true
+				}
+			}
+		case map[string]interface{}:
+			for k, e := range t {
+				if secrets.HoldsTracked(ctx, k) || walk(e) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return walk(generic)
 }

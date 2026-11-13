@@ -30,6 +30,9 @@ type ExecuteWorkflowNode struct{}
 
 func (n *ExecuteWorkflowNode) Type() string { return "core.execute_workflow" }
 
+// PublishesToThirdParty: core.execute_workflow sends nothing off this machine (issue #1418).
+func (ExecuteWorkflowNode) PublishesToThirdParty() bool { return false }
+
 func (n *ExecuteWorkflowNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	runner, ok := workflow.SubWorkflowRunnerFrom(ctx)
 	if !ok {

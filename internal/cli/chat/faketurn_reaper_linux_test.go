@@ -32,7 +32,9 @@ func startFakeIn(t *testing.T, dir, body string, pgid int) *exec.Cmd {
 
 func waitRecords(t *testing.T, dir string, n int) {
 	t.Helper()
-	for i := 0; i < 250; i++ {
+	// the only thing waited for is a shell starting and writing a line: on a loaded runner that took more than 10 s (#1588),
+	// so the bound is far past any real start and only a fake that never starts reaches it
+	for deadline := time.Now().Add(2 * time.Minute); time.Now().Before(deadline); {
 		b, _ := os.ReadFile(filepath.Join(dir, "fakepids"))
 		if len(strings.Fields(string(b))) >= 2*n {
 			return

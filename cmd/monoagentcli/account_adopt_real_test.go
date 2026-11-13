@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -99,6 +100,9 @@ func (r *olderRig) claimed(t *testing.T) bool {
 
 func (r *olderRig) sessionFilesAre0600(t *testing.T) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		return // Windows has no permission bits: the files' owner-only access is an ACL (internal/account's own tests)
+	}
 	dir := filepath.Join(r.home, ".monoagent", "account")
 	files := filesUnder(t, dir)
 	if len(files) == 0 {

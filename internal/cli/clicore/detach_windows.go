@@ -19,6 +19,7 @@ func DetachStart(cmd *exec.Cmd) error {
 	attr := &syscall.SysProcAttr{HideWindow: true, CreationFlags: detachedProcess | createNewProcessGroup | createNoWindow}
 	if cmd.SysProcAttr != nil {
 		attr.AdditionalInheritedHandles = cmd.SysProcAttr.AdditionalInheritedHandles // handles the caller passes on
+		attr.ProcessAttributes = cmd.SysProcAttr.ProcessAttributes                   // the access list the caller wants the process created with
 	}
 	cmd.SysProcAttr = attr
 	return cmd.Start()

@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/monoes/mono-agent/internal/dbconn"
 )
 
 type deleteNodesArgs struct {
@@ -90,12 +92,45 @@ func (ct *CanvasTools) deleteNodes(args string) (string, error) {
 		return "", err
 	}
 
-	tx, err := ct.db.Begin()
+	// The write lock is taken first (dbconn.WithWriteTx): the nodes are read before they are deleted, and a writer
+	// committing in between would fail the delete with SQLITE_BUSY_SNAPSHOT (#1460). The sidecar write stays
+	// inside the transaction, as it was: a backup failure rolls the delete back.
+	var snap deleteSnapshot
+	var backupPath string
+	began, bodyDone := false, false
+	err := dbconn.WithWriteTx(context.Background(), ct.db, func(conn *sql.Conn) error {
+		began = true
+		var err error
+		if snap, err = snapshotAndDeleteNodes(dbconn.ConnTx{Ctx: context.Background(), Conn: conn}, a); err != nil {
+			return err
+		}
+		if backupPath, err = saveDeleteBackup(a.WorkflowID, snap); err != nil {
+			return fmt.Errorf("snapshot before delete: %w", err)
+		}
+		bodyDone = true
+		return nil
+	})
 	if err != nil {
-		return "", fmt.Errorf("begin tx: %w", err)
+		switch {
+		case !began:
+			return "", fmt.Errorf("begin tx: %w", err)
+		case bodyDone:
+			return "", fmt.Errorf("commit: %w", err)
+		}
+		return "", err
 	}
-	defer tx.Rollback()
 
+	result := map[string]interface{}{
+		"deleted_node_ids":    a.NodeIDs,
+		"deleted_nodes":       snap.Nodes,
+		"deleted_connections": snap.Connections,
+		"backup_path":         backupPath,
+	}
+	return marshalJSON(result)
+}
+
+// snapshotAndDeleteNodes snapshots the nodes named in a, with their connections, and deletes them, inside tx.
+func snapshotAndDeleteNodes(tx dbconn.ConnTx, a deleteNodesArgs) (deleteSnapshot, error) {
 	// Snapshot the affected nodes + connections BEFORE deleting so the
 	// operation is reversible; a backup failure aborts the delete (fail
 	// closed — an irreversible op must not proceed unsnapshotted).
@@ -111,7 +146,7 @@ func (ct *CanvasTools) deleteNodes(args string) (string, error) {
 			continue // nothing to delete under this id
 		}
 		if err != nil {
-			return "", fmt.Errorf("query node %s: %w", nodeID, err)
+			return deleteSnapshot{}, fmt.Errorf("query node %s: %w", nodeID, err)
 		}
 		if configStr != "" {
 			var cfg interface{}
@@ -130,51 +165,36 @@ func (ct *CanvasTools) deleteNodes(args string) (string, error) {
 			 FROM workflow_connections WHERE workflow_id = ? AND (source_node_id = ? OR target_node_id = ?)`,
 			a.WorkflowID, nodeID, nodeID)
 		if err != nil {
-			return "", fmt.Errorf("query connections for node %s: %w", nodeID, err)
+			return deleteSnapshot{}, fmt.Errorf("query connections for node %s: %w", nodeID, err)
 		}
 		for connRows.Next() {
 			var c connectionRow
 			if err := connRows.Scan(&c.ID, &c.SourceNodeID, &c.SourceHandle, &c.TargetNodeID, &c.TargetHandle, &c.Position); err != nil {
 				connRows.Close()
-				return "", fmt.Errorf("scan connection: %w", err)
+				return deleteSnapshot{}, fmt.Errorf("scan connection: %w", err)
 			}
 			snap.Connections = append(snap.Connections, c)
 		}
 		connRows.Close()
 		if err := connRows.Err(); err != nil {
-			return "", fmt.Errorf("iterate connections: %w", err)
+			return deleteSnapshot{}, fmt.Errorf("iterate connections: %w", err)
 		}
 
 		// Delete connections involving this node
 		if _, err := tx.Exec(
 			`DELETE FROM workflow_connections WHERE workflow_id = ? AND (source_node_id = ? OR target_node_id = ?)`,
 			a.WorkflowID, nodeID, nodeID); err != nil {
-			return "", fmt.Errorf("delete connections for node %s: %w", nodeID, err)
+			return deleteSnapshot{}, fmt.Errorf("delete connections for node %s: %w", nodeID, err)
 		}
 		// Delete the node
 		if _, err := tx.Exec(
 			`DELETE FROM workflow_nodes WHERE id = ? AND workflow_id = ?`,
 			nodeID, a.WorkflowID); err != nil {
-			return "", fmt.Errorf("delete node %s: %w", nodeID, err)
+			return deleteSnapshot{}, fmt.Errorf("delete node %s: %w", nodeID, err)
 		}
 	}
 
-	backupPath, err := saveDeleteBackup(a.WorkflowID, snap)
-	if err != nil {
-		return "", fmt.Errorf("snapshot before delete: %w", err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return "", fmt.Errorf("commit: %w", err)
-	}
-
-	result := map[string]interface{}{
-		"deleted_node_ids":    a.NodeIDs,
-		"deleted_nodes":       snap.Nodes,
-		"deleted_connections": snap.Connections,
-		"backup_path":         backupPath,
-	}
-	return marshalJSON(result)
+	return snap, nil
 }
 
 type connectNodesArgs struct {

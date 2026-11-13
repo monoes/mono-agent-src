@@ -95,7 +95,7 @@ func HostOf(raw string) string {
 // each is audited. origin names the run for the audit.
 func AllowResolving(ctx context.Context, db *sql.DB, profileID string, origin AccessOrigin) context.Context {
 	ctx = context.WithValue(ctx, refuseResolvingKey{}, "")
-	return context.WithValue(ctx, accessKey{}, &accessState{db: db, profileID: profileID, origin: origin, seen: map[string]struct{}{}, names: map[string]struct{}{}, nodes: map[string]struct{}{}})
+	return context.WithValue(ctx, accessKey{}, &accessState{db: db, profileID: profileID, origin: origin, seen: map[string]struct{}{}, forms: map[string]trackedForm{}, names: map[string]struct{}{}, nodes: map[string]struct{}{}})
 }
 
 // AccessOrigin names the run an audit row belongs to.
@@ -113,10 +113,11 @@ type accessState struct {
 	origin    AccessOrigin
 
 	mu    sync.Mutex
-	seen  map[string]struct{} // values resolved in this run, and their derived forms
-	names map[string]struct{} // secrets read in this run, by name
-	nodes map[string]struct{} // steps (by id) that resolved a secret in this run
-	read  bool                // some step of this run (or of the run that seeded it) read a secret
+	seen  map[string]struct{}    // values resolved in this run, and their derived forms
+	forms map[string]trackedForm // the same forms, by the secret each came from (UnresolveTracked)
+	names map[string]struct{}    // secrets read in this run, by name
+	nodes map[string]struct{}    // steps (by id) that resolved a secret in this run
+	read  bool                   // some step of this run (or of the run that seeded it) read a secret
 }
 
 type accessNode struct{ id, name, typ string }
@@ -256,8 +257,14 @@ func (a *accessState) track(name, value string) {
 	defer a.mu.Unlock()
 	a.names[name] = struct{}{}
 	a.read = true
+	if a.forms == nil {
+		a.forms = map[string]trackedForm{}
+	}
 	for _, f := range derivedForms(value) {
 		a.seen[f] = struct{}{}
+		if old, ok := a.forms[f]; !ok || (!old.raw && f == value) {
+			a.forms[f] = trackedForm{name: name, raw: f == value}
+		}
 	}
 }
 
@@ -617,6 +624,16 @@ func AuthorizeAgentReveal(ctx context.Context, db *sql.DB, profileID, name strin
 	_, err = db.ExecContext(ctx, `INSERT INTO profile_agent_secret_audit (profile_id, workflow_id, execution_id, node_id, node_name, secret_name) VALUES (?, ?, ?, ?, ?, ?)`, profileID, origin.WorkflowID, origin.ExecutionID, n.id, n.name, name)
 	if err != nil {
 		return fmt.Errorf("auditing vault reveal access: %w", err)
+	}
+	// A plaintext read taints the run as a read through a reference does
+	// (issue #1418). The value is not tracked: Reveal returns it unmasked on
+	// purpose, so masking must not apply to it here. A run that resumes or
+	// calls a child re-reads the name and masks it from then on.
+	if a := accessOf(ctx); a != nil {
+		a.mu.Lock()
+		a.names[name] = struct{}{}
+		a.read = true
+		a.mu.Unlock()
 	}
 	return nil
 }

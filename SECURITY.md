@@ -189,6 +189,31 @@ reads; values an agent already retrieved cannot be recalled.
   So `agent-access on` effectively trusts the agent-written workflows with
   the secrets and hosts you name: grant only secrets you accept an agent
   using, and prefer a short `--expires`.
+- **Held sends keep a reference, never the value.** A send an agent's run
+  holds for approval does not store a secret the run read: the card, its
+  replay and its Communications row hold `[[held-secret:NAME:tag]]` (shown
+  as `<NAME secret, held>`), and the card keeps only a hash of the tag. At
+  approval the grant is read again (off, expired, narrowed or host-bound
+  against it: refused, the card stays pending, nothing is sent), the read is
+  audited by name (`workflow_id` `hil-approval`), and what the send returns
+  is masked before it is stored. A literal `@secret:` in any held send is
+  refused at approval, whatever its spelling, so an agent cannot write a
+  reference of its own. A send whose secret appears encoded, or under a name
+  with characters a reference cannot carry, is not queued; the workflow
+  Human-in-Loop node queues no item (or message) that carries one. Cards (and
+  their Communications rows) written before this change are scrubbed before
+  they are read, as long as a grant names their secrets: only cards older than
+  a cutoff stored once in `settings` (`hilscrub.cutoff`), never mail you
+  received and never a newer card, so the scrub cannot be used to test guesses
+  of a secret. Whole-token matches only; a secret that is one plain word under
+  16 letters cannot be told from ordinary text and is left; only a secret's
+  current value is looked for (not one it had before a rotation); a card an
+  older bundled `monoagentcli` writes after the cutoff keeps its value; and
+  an old binary that approves a scrubbed pending card sends the literal
+  `[[held-secret:...]]` text (update every binary). A scrub that cannot write
+  (a lock held elsewhere, a read-only handle) never fails or delays a read
+  for long: the readers mask the values in memory and the next read after a
+  short back-off tries again.
 - **Nodes under `--host`.** With `--host` (not `--any-host`) only the nodes
   that check their destination (`http.request`, `http.graphql`, `mcp.call`,
   `trigger.sse`) read a secret; any other node (mail, chat, database,
@@ -220,6 +245,68 @@ reads; values an agent already retrieved cannot be recalled.
   A person or process that can run `monoagentcli` outside an agent's markers
   can still turn the switch on, as they can approve a workflow: the bypasses
   are the same as for `workflow_approvals`.
+
+**A granted secret is authentication, never content.** Host binding says where a
+granted secret may go, not what it is used as. Under agent access:
+
+- A node that publishes to a third party (messages, vendor APIs, databases, AI
+  providers, model-backed nodes, responses; a node declares
+  `PublishesToThirdParty() false` to say it does not, and an undeclared one
+  publishes) is refused once the run has read any secret, `--any-host`
+  included. A child run's reads taint its parent when the parent has consumed
+  every child, at any depth up to the sub-workflow limit of 32, a failed child
+  included. A plaintext read (`vault.secret_get` at Reveal) taints like a
+  reference, but the revealed value itself is not tracked, so a body holding it
+  is stopped by the publishing rule only.
+- A secret may reach `http.request`, `http.graphql` or `mcp.call` only as
+  authentication, never in a body, a query string (except an api key's value) or
+  tool arguments. Requests to this machine are exempt, and a proxy on this
+  machine counts as this machine; a proxy that is not makes the exemption void.
+  A 307/308 redirect is checked again with its body, and every redirect hop's
+  address is checked; a 301/302/303 that turns a POST into a GET sends no body
+  and is not refused for it.
+- The taint is per run, so a local store would carry a value to another run: the
+  nodes that write one (a data table, files, binary data, chat memory, application,
+  document and publication records, the vault: `WritesLocalStore()`) refuse a value the run
+  has read.
+- To graduate such a workflow, approve it.
+
+Known limits:
+
+- `browser.jev`, `{{secret:}}` in automations, MCP headers and env, and per-item
+  database overlays resolve inside the node, so the node that reads is not
+  refused by its own read (later nodes are).
+- The value scan (a request body, a store write) finds the forms masking tracks:
+  the value, base64 (four variants, aligned at the start), URL and JSON escapes,
+  `-`/`_` swaps, hex, upper and lower case. An unaligned base64, a `data.jwt`
+  token whose claims embed it, or a value split across columns or chunks passes.
+  A store write also scans the outputs of earlier nodes when a field holds an
+  expression, so a read followed by any such write is refused (a short secret
+  inside a longer number, a timestamp say, is a false positive: the message names
+  the node, the field and the secret).
+- A secret in a URL's path, fragment or user info is bound to the grant's hosts
+  but not refused as content; only the body and the query string are.
+- The child taint reads the audit: if you clear the audit between a child's
+  read and its parent's consume, the taint is lost. That lookup (`execution_id IN
+  (...)`) has no index and runs once per consume.
+- The write scan is linear and not streaming: a 50 MB row costs about 70 ms and
+  150 MB of memory under agent access. Outside it nothing is copied.
+- Secret text rendered into an image's pixels is invisible to the scan
+  (`image.edit`'s text operation is scanned by its configuration only); once a
+  person approves it, `core.code` runs freely; `core.wait` with a resume form or
+  webhook shows its page text to whoever holds the resume URL; `core.form` and
+  the response nodes are publishing, so a tainted run does not reach them.
+- `core.remove_duplicates` keeps the value it de-duplicates on as a number in
+  its static data (a numeric secret stored as a number); copies of a run's data
+  in the executions table are masked for tracked forms only.
+- A refusal arrives in the middle of a run, after earlier side effects. A short
+  secret (6 characters is the minimum tracked) inside a longer number, or an
+  upstream service that echoes the credential in an error body or a next-page
+  link, causes real false positives; the way out is the person approving the
+  workflow. The trigger's data is scanned with the node's input.
+- A store another process fills, and image pixels, is not scanned; the
+  store-writing nodes are found by reading the packages' source
+  (`internal/noderegistry`), which is a heuristic.
 
 ### A copy of `~/.monoagent` and the key store
 
@@ -602,6 +689,14 @@ stdin, the terminal. Keeping the passphrase next to the keyring means
 anyone who can read your home directory as you can open the vault — the
 same trade-off as the environment-variable file.
 
+## The mission pursuit loop spends money while you are away
+
+A mission's pursuit (`task session pursuit start`) lets the coder host ask a judge model whether the mission is on track and wake the lead for another turn, with nobody at the keyboard. The host loop is on by default but does nothing and spends nothing until you choose a judge model (`MONOAGENT_PURSUIT_JUDGE` or `coder host pursuit judge set`; no model is picked for you; `coder host pursuit off` is an explicit OFF that no pin overrides; changes apply at the next host restart), and you must accept each mission's goal and start each pursuit yourself (the typed consent is unchanged; the goal checker stays off until you enable it separately); the app's two switches that widen a mission's authority (mission child sessions on, the lead's approval of child sessions on) each ask you in a native dialog of the operating system after the operator gate, with the ceiling named (at most $1000 from the app; the CLI allows more), and turning them on is refused where no dialog can be shown; `coder host pursuit status` uses `host.json` only for a live host whose facts pass `ValidHostPursuitInfo` (a live process of yours can still write plausible values there: it is display only); the settings pane's save accepts only the settings the pane sends (never `agent_approval`, its ceiling, `mission`, `chat_mode`, `max_depth` and the like), and re-encodes the patch it checked; every reader of `host.json` (status, readiness, the goal-close gate, `coder host status`) goes through one validated reader that refuses non-regular files and anything over 64 KiB and shows nothing from facts that cannot be real, and the consent's money text never shows a wake-up cap below the default (a process holding the host lock could otherwise write a small plausible number); known gap: `coder.pursuit_judge` and `coder.pursuit_loop` are reserved from this version on, but a value an agent could have written under those names on an older version is not scrubbed: check `coder host pursuit status` (`pinSource: saved`) before relying on it, and `coder host pursuit judge clear` removes it; an agent cannot start, pause, resume or switch it. What it can spend: a wake-up turn is capped at X (default $2, `MONOAGENT_PURSUIT_WAKE_CAP_USD`, at most $10) or at what the lead has left, and never started without a cap; the judge is asked to stay under $0.50 a call; host-wide at most 12 wake-ups and 12 judge calls an hour, and per mission 20 percent of its budget (counting money carved out to helpers and not yet spent), 6 wake-ups and 3 parked questions since you last acted. Worst case with the defaults: about $15 an hour for one mission ($16.50 with failed judge rounds) and $30 an hour for the host; until the away limits stop a mission, about $6.50 on a $20 budget and at most about $22.50 on $100. These caps are requests to the external AI runtime, checked from the cost it reports afterwards, so a call can overshoot by one model call, and helpers the lead starts are bounded by their carve, not by X: one wake can let the lead carve its whole remaining budget (up to the 80 percent share maximum) to helpers outside X. The judge sees counts, ids and the confirmed goal criteria, never an agent's text, and cannot approve anything. Its model must have a different runtime/model name from the lead's (a name check; aliases are not recognised; no verifier pin exists for missions yet). The `host.json` the status commands read is display-only: editing it can make a status wrong and nothing else. `task session pursuit status` and `coder host status` show the switch, the judge model and X.
+
+### Beginning a pursuit (`pursuit begin`, and the app)
+
+`task session pursuit begin` confirms a mission's goal and starts its pursuit in one transaction, for exactly what the read-only `pursuit preview` showed: the goal's full hash, a consent digest over host-side facts (the judge model, the host switch, the cost figures, the limits, the chat) and the chat. A change in any of them between the preview and the begin is refused and nothing is written. It is behind the same person gate as `pursuit start` (no agent token, not inside a coder turn). The hidden `--gui-phrase` is an audit label (`via=gui`) and an extra requirement; it is not a credential, and the CLI cannot tell the desktop app from a script that passes it. The app adds a native confirmation dialog built from the CLI's own text and a typed phrase. Limit, stated plainly: a script in the app's web page can raise the confirmation dialog at a moment of its choosing; it cannot click Yes for you, but you might click it by habit; read the dialog. The person gate behind `begin` stays a courtesy layer, as for every person verb: an agent that clears its environment AND leaves its turn's process tree is not seen, and can now confirm the goal and start the pursuit in one call; the typed phrase, the dialog and the consent digest do not stop a process that calls the CLI directly with the right numbers. The consent block's host facts (the loop being on, the judge model, the wake-up cap) come from the `host.json` the host writes, which is display-only and which any process running as you can write: `preview` validates them (a cap the host would not accept, a malformed model name) and refuses to begin on invalid ones (`host-info-invalid`), labels every host figure "as reported by the host", and computes the dollars from the code defaults when no valid report exists, but it cannot prove the host really runs with those values. No agent-unwritable channel for them exists yet. The dialog is English only and a Yes counts only after a minimum think time (2 seconds). A start from the app also needs the token of a preview of that mission (kept in the app, single use, ten minutes, it holds the preview the app read, so the limits must equal that preview's, and a newer preview replaces it; two declined answers drop it); the token is handed to the page, so it stops replays, stale previews and a swap of limits, but it is not a secret from a script in the page. A Yes given sooner than the minimum is counted as declined (the clock starts when the dialog is on screen, not while it waits for another dialog), a goal too long to be shown whole in the dialog is refused rather than cut, and where the app has no native dialog (a browser against a development server) nothing starts.
+
 ## An agent's sends wait for you
 
 When a coding agent on your computer, the in-app chat or a workflow you
@@ -643,6 +738,23 @@ publication claims, and its sends wait for your approval. What changes:
 - When the turn check cannot place the process (the database is unreadable or
   locked), the run is marked as an agent's and the command prints one line
   saying so; retry once the database reads.
+
+A run started over MCP `workflow_run` or the HTTP API (`POST .../run`) is also
+an agent's run: those callers are not your terminal, so the run is marked
+(`other`, or the caller's agent kind) and a planted mark in the input is
+overwritten. That includes your own scripts with a run-scope key.
+
+**Known gap: unmarked runs of an approved workflow.** Runs of an *active*
+workflow started by a webhook, a form, a chat, a trigger source or the daemon's
+scheduler carry no agent mark, and the GUI's `workflow run` subprocess is
+marker-only. So an agent with localhost access that POSTs an active workflow's
+webhook URL gets an unmarked run of a workflow you approved, which nodes that
+tell an agent's run from yours (`ai.task`, `people.save` approving outreach,
+sends, browser policy) treat as yours. It is left as it is because those starts
+are third-party-triggered by design (a webhook exists so something else can start
+the run), and it predates the marking of MCP and HTTP runs. What the run can do is
+what you approved in the workflow; a definition an agent changed is still
+unapproved and its sends still wait. Tracked in #1475 and its follow-up.
 
 ### Sends that skipped approval up to v0.152.0
 
@@ -1932,8 +2044,7 @@ that works a task acts on them. The defences:
   `max_tasks`, `max_depth` or budget than its parent (an agent cannot name or change a budget: a budget in a tree is the operator's to set, so an agent's
   child has none; the operator's budget for a child is above 0 and at most the parent's, 0 is refused under a parent
   that has a budget, and approving a child with no budget under such a parent is refused until the operator sets
-  one. Each child is checked on its own: the sum of the children's budgets and a roll-up of their spend are not
-  accounted in this change (the operator cannot set a budget below what the session and the sessions below it have spent or reserved, nor while a worker holds an uncapped reservation, and an operator spend is whole micro-dollars up to $1e9; until the next change a parent's budget can still be set below the sum of its children's budgets). A session's workers are accounted in one mode at a time, enforced by the store across processes (reservations and registered cap runs refuse each other inside the write transaction); the operator-only setting `mission_worker_reservations` (off by default, never changeable by an agent's session token or a master) only picks the mode of an idle session. A failed run is charged by how far it got: a start failure costs $0, a run that started and reported no cost the whole grant, one that reported a cost that cost, an ambiguous start the whole grant. A failure returned as a result with no start event counts as an ambiguous start (the whole grant per retry, bounded: after 3 in a row on a session it is paused and the operator told, so a wrong login loses at most 3 grants per Conductor plus the runs already in flight when the block is set; a run with no start and no done event counts too; the count is in memory, so a restart loop can burn up to 2 grants per cycle, capped by the session's budget), and an unusable cost report settles at no less than the grant. The same latch holds the budget: lowering a session's budget (or setting one where there was none) is refused while a live cap run is on the session or below it, inside the write transaction of the update, so a run cannot register between the check and the write (a raise is not refused; pausing does not stop a cap run, so the operator stops the session or waits for the runs, a dead process's row being dead 180 seconds after its last heartbeat). The latch is a lease (a cap run whose row lapsed while it was alive can let a reservation in until its next renewal; overspend is bounded by one run's cap). The accounting owner id of a Conductor is random and never derived from the process id. An agent starts at most 12 open children below
+  one. Each child is checked on its own when it is set: setting a parent's budget below the sum of its children's budgets is still allowed, but a cap-mode run is now bounded at run time by every ancestor's remaining budget (`ExecCap`), and reservation mode is the hard bound (the roll-up of spend is not stored; the commitment is derived on every read) (the operator cannot set a budget below what the session and the sessions below it have spent or reserved, nor while a worker holds an uncapped reservation, and an operator spend is whole micro-dollars up to $1e9). A session's workers are accounted in one mode at a time, enforced by the store across processes (reservations and registered cap runs refuse each other inside the write transaction); the operator-only setting `mission_worker_reservations` (off by default, never changeable by an agent's session token or a master) only picks the mode of an idle session. A failed run is charged by how far it got: a start failure costs $0, a run that started and reported no cost the whole grant, one that reported a cost that cost, an ambiguous start the whole grant. A failure returned as a result with no start event counts as an ambiguous start (the whole grant per retry, bounded: after 3 in a row on a session it is paused and the operator told, so a wrong login loses at most 3 grants per Conductor plus the runs already in flight when the block is set; a run with no start and no done event counts too; the count is in memory, so a restart loop can burn up to 2 grants per cycle, capped by the session's budget), and an unusable cost report settles at no less than the grant. The same latch holds the budget: lowering a session's budget (or setting one where there was none) is refused while a live cap run is on the session or below it, inside the write transaction of the update, so a run cannot register between the check and the write (a raise is not refused; pausing does not stop a cap run, so the operator stops the session or waits for the runs, a dead process's row being dead 180 seconds after its last heartbeat). The latch is a lease (a cap run whose row lapsed while it was alive can let a reservation in until its next renewal; overspend is bounded by one run's cap). A cap run (the default mode) is capped by the smaller of its session's remainder and every budgeted ancestor's allowance, the same number a reservation would be granted (`ExecCap`), and is refused when an ancestor is already over-spoken-for (children's budgets summing past it); it fails closed on an unreadable or cyclic parent chain. Stated limit: a cap run holds nothing, so concurrent cap runs each read the same remainder and can overshoot it by up to N (the conductor's concurrency, default 3) times that remainder; only reservation mode gives a hard bound. The accounting owner id of a Conductor is random and never derived from the process id. An agent starts at most 12 open children below
   one parent; lowering a parent clamps every session below it, open or closed, at any depth). No session is started below an archived or closed one. A session can never exceed the minimum of its whole ancestor chain, closed and archived ancestors included (access, `max_tasks`, `max_depth` and the smallest nonzero budget): the store computes that ceiling when the session is created, updated or approved, and does not trust a stored limit of a closed session in between. An agent creates a session only below one it works in, and a
   `--client-id` answers an agent only with a session below the same parent, of the same kind, in its own subtree.
   An agent renames only a draft it started from its own chat. Only the in-process mission planner (set by trusted
@@ -3585,7 +3696,7 @@ same-user process can name a live tool of the worker (the shell or the CLI it st
 (`TestKnownGapATokenDefaultAccessListLeavesAToolOfTheWorkerClaimable`) - this is the realistic attack, and it is open;
 (b) **later threads** in the worker and in the host keep the default list (only the worker's main thread is locked), so thread
 hijack (set-context, suspend, APC) by the same user remains possible (`TestKnownGapOtherThreadsOfALockedWorkerKeepTheDefaultAccessList`);
-(c) the host is unlocked until it has started running `coder host run`, and handles opened to it before that survive;
+(c) a host started by hand (not by the CLI) is unlocked until it has started running `coder host run`, and handles opened to it before that survive; a host the CLI starts is created with the list (`TestHostStartedByTheCLIHasTheLockedListFromItsFirstInstruction`);
 (d) an **elevated administrator, SeDebugPrivilege or SeTakeOwnershipPrivilege, and a session started by a service or ssh as an
 administrator**, skip every access list (`TestKnownGapAnElevatedProcessWithDebugPrivilegeOpensALockedWorker`), a class the Linux and
 macOS binding does not stop either (root);
@@ -3611,8 +3722,7 @@ handles stay open so the directory cannot be renamed while the service runs, a l
 socket path longer than the 107 bytes of a Windows socket address is refused with its cause. The frame pipe's write end is not
 inheritable. Residual, as on macOS and not present on Linux: the kernel names the process that **connected** and does not say who holds
 the connection, so a connector that hands the connection to another process and ends, and whose number is recycled to a process inside
-the tree before the service pins it, is served as that process; the window is the accept latency, which a process of the same user that
-can suspend the host can widen. An ended connector is refused. The turn's leader is held by a handle; a bound turn whose leader exits
+the tree before the service pins it, is served as that process; the window is the accept latency, which a stalled host widens (the service can only stamp the time it got to the connection, not when the client connected, so a process created while the host was stalled looks older than the accept and is served). A process created after the service accepted is refused; the check has a 250 ms slack for clocks stepped back. An ended connector is refused. The turn's leader is held by a handle; a bound turn whose leader exits
 has its group signalled by `taskkill /T` by the leader's number while the child is still unreaped, which cannot find a tree whose
 parent is gone: stragglers of a Windows turn may outlive their leader (job-object containment is separate work).
 

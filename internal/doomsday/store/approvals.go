@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/monoes/mono-agent/internal/dbconn"
 )
 
 // Typed approvals as rows of the chained audit stream (note 13.4 section 3): an approval is an `approval.issue` row, a
@@ -102,42 +104,43 @@ func (s *SQLStore) IssueApproval(ctx context.Context, in IssueInput) (Approval, 
 	if in.Op == "" || in.ArgsHash == "" || in.Caller <= 0 || ttl < 1 || ttl > MaxApprovalTTLSeq {
 		return Approval{}, fmt.Errorf("%w: operation, args hash, caller and a ttl of 1..%d are needed", ErrApprovalMismatch, MaxApprovalTTLSeq)
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	// BEGIN IMMEDIATE: the run, the charter and the chain head are read before the row is written, and a writer that
+	// commits in between would make the write fail at once with SQLITE_BUSY_SNAPSHOT (#1460).
+	var p approvalPayload
+	err := dbconn.WithWriteTx(ctx, s.db, func(tx *sql.Conn) error {
+		if err := s.Admit(ctx, tx, in.Profile, in.Generation); err != nil {
+			return err
+		}
+		c, err := loadCharterRow(ctx, tx, s, in.Profile, in.Generation)
+		if err != nil {
+			return err
+		}
+		h := c.Hash()
+		if hex.EncodeToString(h[:]) != in.CharterHash {
+			return ErrHashMismatch
+		}
+		var head int64
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM doomsday_audit WHERE profile = ? AND generation = ?`, in.Profile, in.Generation).Scan(&head); err != nil {
+			return err
+		}
+		nonce := make([]byte, 16)
+		if _, err := rand.Read(nonce); err != nil {
+			return err
+		}
+		p = approvalPayload{ID: "ap-" + hex.EncodeToString(nonce[:8]), Profile: in.Profile, Generation: in.Generation, CharterID: c.ID(), CharterHash: in.CharterHash,
+			Op: in.Op, ArgsHash: in.ArgsHash, Caller: in.Caller, IssuedSeq: head + 1, ExpiresSeq: head + 1 + ttl, Boss: in.Boss, Nonce: hex.EncodeToString(nonce[8:])}
+		body, _ := json.Marshal(p)
+		_, ok, err := s.appendAuditIf(ctx, tx, in.Profile, in.Generation, kindApprovalIssue, string(body), head,
+			`EXISTS (SELECT 1 FROM doomsday_runs WHERE profile = ? AND generation = ? AND state = 'running')`, in.Profile, in.Generation)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return &Refusal{Reason: "the run is not running or the chain moved"}
+		}
+		return nil
+	})
 	if err != nil {
-		return Approval{}, err
-	}
-	defer tx.Rollback()
-	if err := s.Admit(ctx, tx, in.Profile, in.Generation); err != nil {
-		return Approval{}, err
-	}
-	c, err := loadCharterRow(ctx, tx, s, in.Profile, in.Generation)
-	if err != nil {
-		return Approval{}, err
-	}
-	h := c.Hash()
-	if hex.EncodeToString(h[:]) != in.CharterHash {
-		return Approval{}, ErrHashMismatch
-	}
-	var head int64
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM doomsday_audit WHERE profile = ? AND generation = ?`, in.Profile, in.Generation).Scan(&head); err != nil {
-		return Approval{}, err
-	}
-	nonce := make([]byte, 16)
-	if _, err := rand.Read(nonce); err != nil {
-		return Approval{}, err
-	}
-	p := approvalPayload{ID: "ap-" + hex.EncodeToString(nonce[:8]), Profile: in.Profile, Generation: in.Generation, CharterID: c.ID(), CharterHash: in.CharterHash,
-		Op: in.Op, ArgsHash: in.ArgsHash, Caller: in.Caller, IssuedSeq: head + 1, ExpiresSeq: head + 1 + ttl, Boss: in.Boss, Nonce: hex.EncodeToString(nonce[8:])}
-	body, _ := json.Marshal(p)
-	_, ok, err := s.appendAuditIf(ctx, tx, in.Profile, in.Generation, kindApprovalIssue, string(body), head,
-		`EXISTS (SELECT 1 FROM doomsday_runs WHERE profile = ? AND generation = ? AND state = 'running')`, in.Profile, in.Generation)
-	if err != nil {
-		return Approval{}, err
-	}
-	if !ok {
-		return Approval{}, &Refusal{Reason: "the run is not running or the chain moved"}
-	}
-	if err := tx.Commit(); err != nil {
 		return Approval{}, err
 	}
 	return approvalFrom(p, false), nil
@@ -187,27 +190,25 @@ func (s *SQLStore) ApprovalSeq(ctx context.Context, profile string) (int64, erro
 // RescindApproval writes the rescind row if the approval exists in this run, is not yet rescinded and is not consumed.
 // The consumed test is in the same statement as the insert, so a rescind and a consume race in one place.
 func (s *SQLStore) RescindApproval(ctx context.Context, profile string, generation int64, id, by string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
 	body, _ := json.Marshal(map[string]string{"id": id, "by": by})
 	cond := `EXISTS (SELECT 1 FROM doomsday_audit WHERE profile = ? AND generation = ? AND ` + issueRow + `)
 AND NOT EXISTS (SELECT 1 FROM doomsday_audit WHERE profile = ? AND generation = ? AND kind = 'approval.rescind' AND json_extract(payload, '$.id') = ?)
 AND NOT EXISTS (SELECT 1 FROM doomsday_counter_deltas WHERE approval_id = ?)`
-	_, ok, err := s.appendAuditIf(ctx, tx, profile, generation, kindApprovalRescind, string(body), 0, cond,
-		profile, generation, id, profile, generation, id, id+"/"+approvalsKey)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return s.classifyRescind(ctx, tx, profile, generation, id)
-	}
-	return tx.Commit()
+	// BEGIN IMMEDIATE: the chain head is read before the row is written (#1460).
+	return dbconn.WithWriteTx(ctx, s.db, func(tx *sql.Conn) error {
+		_, ok, err := s.appendAuditIf(ctx, tx, profile, generation, kindApprovalRescind, string(body), 0, cond,
+			profile, generation, id, profile, generation, id, id+"/"+approvalsKey)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return s.classifyRescind(ctx, tx, profile, generation, id)
+		}
+		return nil
+	})
 }
 
-func (s *SQLStore) classifyRescind(ctx context.Context, tx *sql.Tx, profile string, generation int64, id string) error {
+func (s *SQLStore) classifyRescind(ctx context.Context, tx DBTX, profile string, generation int64, id string) error {
 	var issued, rescinded, consumed int
 	q := func(dst *int, sqlText string, a ...any) { _ = tx.QueryRowContext(ctx, sqlText, a...).Scan(dst) }
 	q(&issued, `SELECT COUNT(*) FROM doomsday_audit WHERE profile = ? AND generation = ? AND `+issueRow, profile, generation, id)
@@ -274,7 +275,7 @@ AND NOT EXISTS (SELECT 1 FROM doomsday_audit WHERE profile = ? AND generation = 
 	return tx.Commit()
 }
 
-func (s *SQLStore) classifyConsume(ctx context.Context, tx *sql.Tx, profile string, generation int64, id, op, argsHash string) error {
+func (s *SQLStore) classifyConsume(ctx context.Context, tx DBTX, profile string, generation int64, id, op, argsHash string) error {
 	var body string
 	err := tx.QueryRowContext(ctx, `SELECT payload FROM doomsday_audit WHERE profile = ? AND generation = ? AND `+issueRow, profile, generation, id).Scan(&body)
 	if err != nil {

@@ -3,9 +3,9 @@ package inputs
 import (
 	"context"
 	"fmt"
-	"math"
 	"strconv"
 
+	"github.com/monoes/mono-agent/internal/missionpursuit"
 	"github.com/monoes/mono-agent/internal/missionpursuit/strategy"
 )
 
@@ -48,15 +48,15 @@ func (r *Reader) Snapshot(ctx context.Context, session int64) (Snapshot, error) 
 
 func (r *Reader) taskCounts(ctx context.Context, session int64) (TaskCounts, error) {
 	var c TaskCounts
-	rows, err := r.db.QueryContext(ctx, `SELECT status, blocked, COUNT(*) FROM tasks WHERE session_id = ? GROUP BY status, blocked`, session)
+	rows, err := r.db.QueryContext(ctx, `SELECT status, blocked, verified, kind = 'epic', COUNT(*) FROM tasks WHERE session_id = ? GROUP BY status, blocked, verified, kind = 'epic'`, session)
 	if err != nil {
 		return c, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var status string
-		var blocked, n int
-		if err := rows.Scan(&status, &blocked, &n); err != nil {
+		var blocked, verified, epic, n int
+		if err := rows.Scan(&status, &blocked, &verified, &epic, &n); err != nil {
 			return c, err
 		}
 		c.Total += n
@@ -79,6 +79,13 @@ func (r *Reader) taskCounts(ctx context.Context, session int64) (TaskCounts, err
 		if blocked != 0 && status != "done" && status != "archived" {
 			c.Blocked += n
 		}
+		if status != "archived" && epic == 0 {
+			c.NonEpic += n
+		}
+		open := status != "done" && status != "archived"
+		if open && blocked == 0 && epic == 0 && !(status == "review" && verified != 0) {
+			c.Workable += n
+		}
 	}
 	return c, rows.Err()
 }
@@ -88,8 +95,7 @@ func (r *Reader) budget(ctx context.Context, session int64) (BudgetShare, error)
 	if err := r.db.QueryRowContext(ctx, `SELECT budget_usd, spent_usd FROM task_sessions WHERE id = ?`, session).Scan(&b, &s); err != nil {
 		return BudgetShare{}, err
 	}
-	fin := func(x float64) bool { return !math.IsNaN(x) && !math.IsInf(x, 0) }
-	if !fin(b) || !fin(s) || b <= 0 || s < 0 {
+	if !missionpursuit.BudgetKnown(b, s) {
 		return BudgetShare{BudgetUSD: b, SpentUSD: s}, nil
 	}
 	return BudgetShare{Known: true, Share: s / b, BudgetUSD: b, SpentUSD: s}, nil

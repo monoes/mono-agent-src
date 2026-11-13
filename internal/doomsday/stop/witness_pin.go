@@ -6,6 +6,7 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -93,9 +94,6 @@ func (p *Pinned) Identity() FileID { return p.ids[0] }
 // Pin runs the pinning protocol of 3A: watch first, stat, open, WAL, force the sibling files open, stat again,
 // identify the connection's descriptors by identity. Anything else fails closed.
 func Pin(ctx context.Context, opt PinOptions) (*Pinned, error) {
-	if strings.ContainsAny(opt.DBPath, "?#%") {
-		return nil, fmt.Errorf("stop: refusing a database path with a URI metacharacter: %q", opt.DBPath)
-	}
 	abs, err := filepath.Abs(opt.DBPath)
 	if err != nil {
 		return nil, err
@@ -296,14 +294,21 @@ func (p *Pinned) CloseClean() error {
 // pinDSN is the SQLite URI of the database file on this OS.
 func pinDSN(path string) string { return sqliteURI(runtime.GOOS, path) }
 
-// sqliteURI: on Windows a drive path is written as a file:///C:/... URI with forward slashes.
+// sqliteURI builds the file: URI of path for the given OS. The path is escaped: a ?, # or % in a folder name is part of
+// the name, never URI syntax (an unescaped one would open a different file). On Windows a drive path is written as
+// file:///C:/... and a UNC path as file:////host/share/... (an empty authority and the path //host/share/...).
 func sqliteURI(goos, path string) string {
+	u := url.URL{Scheme: "file", Path: path, OmitHost: true}
 	if goos == "windows" {
 		p := strings.ReplaceAll(path, `\`, "/")
-		if len(p) > 1 && p[1] == ':' {
-			return "file:///" + p
+		switch {
+		case len(p) > 1 && p[1] == ':':
+			u.Path, u.OmitHost = "/"+p, false
+		case strings.HasPrefix(p, "//"):
+			u.Path, u.OmitHost = p, false
+		default:
+			u.Path = p
 		}
-		return "file:" + p
 	}
-	return "file:" + path
+	return u.String()
 }

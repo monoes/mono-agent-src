@@ -50,15 +50,15 @@ func importersOf(t *testing.T, suffix, skipDir string) ([]string, int) {
 	return got, visited
 }
 
-// S5a builds the judge model but wires it nowhere: Host.Pursuit stays nil in production. The slice that wires it lists its
-// file here, in review.
-func TestNothingInTheProductTreeImportsTheJudgeModelYet(t *testing.T) {
+// The judge model is wired into the production host in exactly one place, behind the host flag
+// (MONOAGENT_PURSUIT_JUDGE, off by default). A second importer needs its own decision, in review.
+func TestOnlyTheHostFlagWiringImportsTheJudgeModel(t *testing.T) {
 	got, visited := importersOf(t, "/internal/missionpursuit/judgemodel", "internal/missionpursuit/judgemodel/")
 	if visited < 500 {
 		t.Fatalf("visited %d files: the scan is not looking at the tree", visited)
 	}
-	if len(got) != 0 {
-		t.Fatalf("importers of the judge model: %v: decide the wiring in review (the pursuit loop is off in production)", got)
+	if strings.Join(got, ",") != "internal/cli/chat/coder_host_pursuit.go" {
+		t.Fatalf("importers of the judge model: %v: decide the wiring in review (the pursuit loop is off in production unless the host flag is set)", got)
 	}
 }
 

@@ -152,6 +152,8 @@ export function CoderSetAppAccess(arg1:boolean):Promise<string>;
 
 export function CoderSetDefaultAccess(arg1:string):Promise<string>;
 
+export function CoderSetPeercredBinding(arg1:boolean):Promise<string>;
+
 export function ConfirmApplicationSubmitted(arg1:string):Promise<void>;
 
 export function CoderStatus():Promise<string>;
@@ -651,6 +653,10 @@ export function PlatformNames():Promise<Record<string, string>>;
 
 export function PromoteRoleToRoot(arg1:string,arg2:string):Promise<string>;
 
+export function PursuitStart(arg1:number,arg2:main.PursuitLimits,arg3:string,arg4:string):Promise<string>;
+
+export function PursuitStartPreview(arg1:number,arg2:main.PursuitLimits):Promise<string>;
+
 export function QueueDismiss(arg1:string):Promise<string>;
 
 export function QueueImage(arg1:string):Promise<string>;
@@ -935,3 +941,15 @@ export function SaveGeneratedWorkflow(arg1:string):Promise<string>;
 export function GetVaultAgentAccess():Promise<Record<string, any>>;
 
 export function SetVaultAgentAccess(arg1:string):Promise<Record<string, any>>;
+
+export function MissionChildrenState():Promise<string>;
+
+export function PursuitHostStatus():Promise<string>;
+
+export function PursuitPause(arg1:number):Promise<string>;
+
+export function PursuitReadiness(arg1:number):Promise<string>;
+
+export function SetAgentApproval(arg1:string,arg2:boolean,arg3:number):Promise<string>;
+
+export function SetMissionChildren(arg1:boolean):Promise<string>;

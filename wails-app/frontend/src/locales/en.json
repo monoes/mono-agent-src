@@ -1306,7 +1306,12 @@
       "stopTitle": "Stop this agent?",
       "stopBody": "Its session ends and its running work is released. Agents below it stop too.",
       "close": "Close this agent and go back",
-      "call": { "running": "Running", "done": "Done", "failed": "Failed", "interrupted": "Interrupted" }
+      "call": {
+        "running": "Running",
+        "done": "Done",
+        "failed": "Failed",
+        "interrupted": "Interrupted"
+      }
     },
     "dockLabel": "Chats",
     "newChat": "New chat",
@@ -2249,6 +2254,19 @@
     "allowsFull": "Runs commands and changes files in the folder you pick, without asking.",
     "allowsWorkspace": "Runs commands and changes files in the folder you pick, without asking, and knows about your profile."
   },
+  "coderBinding": {
+    "label": "Peer-credential binding",
+    "hint": "Ties each coder turn's tokens to the process that runs the turn. The open-ended chat mode is offered only while this is on. Off by default.",
+    "switchedOn": "Peer-credential binding is on.",
+    "switchedOff": "Peer-credential binding is off.",
+    "warnTitle": "Before you change this",
+    "warnMachine": "Switching it on where this machine cannot run the binding service refuses every coder turn instead of running them weaker. It can only be switched on where the service can run.",
+    "warnTurns": "It can only be switched on while no coder turn is running.",
+    "warnLegacy": "Tokens issued before it was switched on stay valid until they expire, so the protection starts only as the old tokens age out.",
+    "warnRun": "It cannot be switched off while an open-ended run is open. Stop the run first.",
+    "warnAgent": "The open-ended mode is an unattended, long-running coding session. Turning this on makes it possible to start an autonomous agent on this machine.",
+    "warnOperator": "Only you can change this here. It is not available to anything running inside a coder turn."
+  },
   "taskResult": {
     "diagnosis": "Diagnosis",
     "proposed": "Proposed change",
@@ -2547,7 +2565,8 @@
       "refreshing": "Stopped, refreshing...",
       "retry": "Retry cleanup",
       "dismiss": "Dismiss",
-      "partial": "Stopped, but the cleanup did not finish"
+      "partial": "Stopped, but the cleanup did not finish",
+      "alreadyStopped": "The run is already stopped: there is no open run any more."
     }
   },
   "controlRoom": {
@@ -2753,5 +2772,95 @@
     "mayExist": "An earlier start ended without a clear answer, so a run may already exist. Check the Control room before starting again; the CLI allows one run at a time and is the only guard.",
     "unknown": "The run may have started: check the Control room and press Stop if it is running.",
     "reviewTitle": "Review before starting"
+  },
+  "pursuitStart": {
+    "open": "Set up a pursuit",
+    "intro": "The lead will keep working on this mission's goal while you are away, within the limits below. Read what the CLI shows, then type the phrase. The app asks once more in a window of its own.",
+    "limit": {
+      "parkedMax": "Waiting questions",
+      "pct": "Percent of budget",
+      "wakesMax": "Lead wake-ups"
+    },
+    "default": "default",
+    "limitBounds": "A limit is a whole number of 1 or more (percent: at most {{pct}}). Leave it empty for the default.",
+    "read": "Read the facts",
+    "previewFailed": "The facts could not be read; nothing can be started.",
+    "previewCode": {
+      "goal_too_long": "The goal is too long to show whole.",
+      "unreadable": "The CLI's answer could not be read plainly.",
+      "busy": "A preview is already running.",
+      "rate_limited": "Too many previews in a minute.",
+      "operator_only": "Only you can do this, not an agent's session."
+    },
+    "reviewLabel": "Review before starting",
+    "goalHeading": "Goal",
+    "hashLabel": "Goal hash:",
+    "expects": "expects",
+    "costHeading": "What this can cost",
+    "awayHeading": "While you are away",
+    "awayPct_one": "Stops at {{count}} percent of the mission budget spent",
+    "awayPct_other": "Stops at {{count}} percent of the mission budget spent",
+    "awayParked_one": "Waits for you after {{count}} open question",
+    "awayParked_other": "Waits for you after {{count}} open questions",
+    "awayWakes_one": "At most {{count}} wake-up of the lead",
+    "awayWakes_other": "At most {{count}} wake-ups of the lead",
+    "judge": "The judge: {{pin}}",
+    "checkerHeading": "Goal checker",
+    "checkerSetUp": "A goal checker is set up.",
+    "checkerCommands_one": "{{count}} check runs a command.",
+    "checkerCommands_other": "{{count}} checks run commands.",
+    "checkerUnconfined": "Commands without confinement: {{state}}",
+    "blockerHeading": "This cannot start yet",
+    "phraseIntro": "To start, type this phrase exactly. It is made only of what is shown above.",
+    "phraseLabel": "Type the phrase",
+    "start": "Start pursuit",
+    "reload": "Read again",
+    "started": "The pursuit started. The goal is now final.",
+    "unknown": "Whether it started is not known. Check the mission's status before trying again; do not press Start again.",
+    "notStarted": "It did not start.",
+    "code": {
+      "operator_only": "Only you can start a pursuit, not an agent's session. Nothing started.",
+      "invalid_input": "The start was refused as malformed. Read the facts again.",
+      "busy": "Another confirmation is open. Answer it first. Nothing started.",
+      "token": "This reading has expired or was replaced. Read the facts again.",
+      "phrase": "The phrase does not match. Nothing started.",
+      "blocked": "Something blocks this pursuit. Nothing started.",
+      "declined": "The confirmation was declined or closed. Nothing started. You can press Start again.",
+      "no_native_dialog": "This app has no window to ask you in, so nothing started.",
+      "consent_stale": "What you were shown has changed (the model, the checker switch or the costs). Read it again.",
+      "stale": "The goal changed since you read it. Read it again.",
+      "chat_mismatch": "This mission belongs to another chat. Nothing started.",
+      "hidden_characters": "A criterion has characters that cannot be shown safely. Nothing started.",
+      "criterion_too_long": "A criterion is too long to show whole. Nothing started.",
+      "already_started": "A pursuit is already running for this mission.",
+      "unknown": "Whether it started is not known. Check the mission's status before trying again; do not press Start again."
+    }
+  },
+  "pursuitPanel": {
+    "noticeLabel": "Pursuit notice",
+    "gotIt": "Got it",
+    "restartPending": "Saved pursuit settings differ from the running coder host: restart the coder host to apply them.",
+    "pause": "Pause pursuit",
+    "noPursuit": "This mission has no pursuit running yet",
+    "readinessUnavailable": "What is missing for the pursuit could not be read.",
+    "missingHeading": "What is missing for the pursuit",
+    "authorityHeading": "What this mission may do",
+    "children": "Let this mission run tasks in child sessions",
+    "approval": "Let the lead approve its child sessions",
+    "ceiling": "Spend ceiling (USD)",
+    "needCeiling": "Give a spend ceiling above 0 first: the lead's approvals are measured against it.",
+    "confirmChildrenOn": "Allow mission child sessions? Each one gets its own budget carved from the lead's.",
+    "confirmChildrenOff": "Stop new mission child sessions? Running ones finish.",
+    "confirmApprovalOn": "Let the lead approve child sessions up to ${{usd}} each? This lifts a safeguard that normally needs you.",
+    "confirmApprovalOff": "Stop the lead approving child sessions?",
+    "statusLabel": "Pursuit status",
+    "readError": "Could not read the saved pursuit setting; restart state is unknown.",
+    "offSaved": "Pursuit is turned off (saved setting). To turn it back on run `coder host pursuit on`, then restart the coder host.",
+    "offEnv": "Pursuit is turned off by the MONOAGENT_PURSUIT_LOOP environment variable of the coder host. The CLI cannot override it: unset it (or set it to on) and restart the coder host.",
+    "offHost": "The running coder host has pursuit turned off. Run `coder host pursuit on` if you want it on, then restart the coder host.",
+    "idle": "Pursuit is on but idle until a judge model is chosen.",
+    "paused": "Paused.",
+    "failed": "The pause did not go through.",
+    "broken": "The pursuit panel could not be shown (unexpected data)."
   }
 }

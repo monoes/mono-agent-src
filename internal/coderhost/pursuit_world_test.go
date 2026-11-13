@@ -104,6 +104,8 @@ type pworld struct {
 	st    *Store
 	clk   *epoch.FakeClock
 	model *fakeJudge
+	// leadPin is the runtime/model the lead of the world runs, as the host reads it at each gate and each judge call.
+	leadPin string
 }
 
 const pursuitSession = 77
@@ -149,7 +151,9 @@ func newPursuitWorldWith(t *testing.T, started bool) *pworld {
 	}
 	w.exec(`INSERT INTO tasks (profile_id, title, status, position, session_id, kind, created_at, updated_at) VALUES ('p', 'open work', 'ready', 0, 77, 'task', 'x', 'x')`)
 	h.Logf = t.Logf
+	w.leadPin = "claude/lead-model"
 	h.Pursuit = &PursuitDeps{Model: w.model, Refuse: func(string) bool { return false }, Clock: clk,
+		WakeCapUSD: DefaultWakeCapUSD, LeadPin: func(string, string) string { return w.leadPin },
 		Interval: 30 * time.Minute, EvidenceGap: 30 * time.Minute}
 	return w
 }

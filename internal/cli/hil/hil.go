@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/monoes/mono-agent/internal/hilscrub"
 	"os"
 	"strings"
 	"time"
@@ -83,6 +84,7 @@ func (d Deps) newHILListCmd() *cobra.Command {
 			}
 			defer db.Close()
 
+			hilscrub.Ensure(cmd.Context(), db.DB, d.ProfileID())
 			rows, err := db.DB.Query(
 				`SELECT h.id, h.execution_id, h.workflow_id, h.node_id, h.node_name, h.status,
 				        h.readonly_data, h.editable_data, h.node_config, h.created_at, COALESCE(w.name,'')
@@ -105,6 +107,9 @@ func (d Deps) newHILListCmd() *cobra.Command {
 					&it.Status, &roRaw, &edRaw, &cfgRaw, &it.CreatedAt, &it.WorkflowName); err != nil {
 					return fmt.Errorf("scanning HIL item: %w", err)
 				}
+				// Rows the scrub could not rewrite are shown masked.
+				prof := d.ProfileID()
+				roRaw, edRaw, cfgRaw = hilscrub.Mask(db.DB, prof, roRaw), hilscrub.Mask(db.DB, prof, edRaw), hilscrub.Mask(db.DB, prof, cfgRaw)
 				_ = json.Unmarshal([]byte(roRaw), &it.ReadonlyData)
 				_ = json.Unmarshal([]byte(edRaw), &it.EditableData)
 				_ = json.Unmarshal([]byte(cfgRaw), &it.NodeConfig)

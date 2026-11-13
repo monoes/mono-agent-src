@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"github.com/monoes/mono-agent/internal/testhome"
 	"net/http"
 	"testing"
@@ -21,10 +22,22 @@ func TestRunRouteInputCantPlantTheEnginesMarks(t *testing.T) {
 	if err := s.rt.store.CreateWorkflow(workflow.WithApproval(context.Background()), wf); err != nil {
 		t.Fatal(err)
 	}
-	r := doReq(t, s, "POST", "/profiles/default/workflows/wf-in/run", tok, []byte(
-		`{"input":{"keep":"yes","_ai_caller":"unapproved-workflow","_unapproved_caller":"wf-x","_subworkflow":{},"_items":[{"n":1},{"n":2}]}}`))
-	if r.Code != http.StatusOK {
-		t.Fatalf("run: %d %s", r.Code, r.Body.String())
+	// Whatever mark the input plants (blank, a chat's, an unapproved caller's, a suffixed one), the run
+	// carries the server's own: an agent's ("other").
+	for _, planted := range []string{"unapproved-workflow", "", "chat", "unapproved-workflow/x"} {
+		body := fmt.Sprintf(`{"input":{"keep":"yes","_ai_caller":%q,"_unapproved_caller":"wf-x","_subworkflow":{},"_items":[{"n":1},{"n":2}]}}`, planted)
+		r := doReq(t, s, "POST", "/profiles/default/workflows/wf-in/run", tok, []byte(body))
+		if r.Code != http.StatusOK {
+			t.Fatalf("run: %d %s", r.Code, r.Body.String())
+		}
+		var mark string
+		if err := s.rt.db.DB.QueryRow(`SELECT COALESCE(json_extract(trigger_data, '$._ai_caller'), '') FROM workflow_executions
+			WHERE workflow_id = 'wf-in' ORDER BY rowid DESC LIMIT 1`).Scan(&mark); err != nil {
+			t.Fatal(err)
+		}
+		if mark != "other" {
+			t.Errorf("planted %q: the run's mark is %q, want the server's own %q", planted, mark, "other")
+		}
 	}
 	var raw, out string
 	if err := s.rt.db.DB.QueryRow(`SELECT e.trigger_data, n.output_items FROM workflow_executions e
@@ -39,7 +52,10 @@ func TestRunRouteInputCantPlantTheEnginesMarks(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &items); err != nil {
 		t.Fatal(err)
 	}
-	for _, k := range []string{workflow.AICallerKey, workflow.UnapprovedCallerKey, workflow.SubWorkflowParentKey} {
+	if got, _ := td[workflow.AICallerKey].(string); got != "other" {
+		t.Errorf("the run's mark is %q, want the server's own %q", got, "other")
+	}
+	for _, k := range []string{workflow.UnapprovedCallerKey, workflow.SubWorkflowParentKey} {
 		if _, ok := td[k]; ok {
 			t.Errorf("the input planted %s: %v", k, td)
 		}

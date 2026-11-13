@@ -319,8 +319,14 @@ func TestAttachmentCommandConfinesPaths(t *testing.T) {
 	if err := os.WriteFile(outside, []byte("secret"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	config := `{"smtp_host":"127.0.0.1","from":"me@example.test","to":"ada@example.test","subject":"Hi","body":"x","attachments":["` +
-		inside + `","` + outside + `","` + root + `/../../../etc/passwd"]}`
+	configJSON, err := json.Marshal(map[string]any{
+		"smtp_host": "127.0.0.1", "from": "me@example.test", "to": "ada@example.test", "subject": "Hi", "body": "x",
+		"attachments": []string{inside, outside, root + "/../../../etc/passwd"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := string(configJSON)
 	id := queueViaNodeRun(t, cfg, config)
 	asOperatorProcess(t)
 

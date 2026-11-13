@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Pause, Play, Square } from 'lucide-react'
+import { Flag, Pause, Play, Square } from 'lucide-react'
 import { confirm } from '../../ConfirmDialog.jsx'
 import { sessionsApi } from '../../../services/taskSessions.js'
 import BudgetFlag from '../../tasksessions/BudgetFlag.jsx'
@@ -8,6 +8,8 @@ import StateChip from '../../tasksessions/StateChip.jsx'
 import { nearBudget, progress, spendParts } from '../../../lib/taskSessionModel.js'
 import { stripActions, stripFor, workingOn } from '../../../lib/missionModel.js'
 import { useConversationSession } from './useMissionSession.js'
+import PursuitStartForm from './PursuitStartForm.jsx'
+import PursuitPanel from './PursuitPanel.jsx'
 import './mission.css'
 
 const ICONS = { pause: Pause, resume: Play, stop: Square }
@@ -24,6 +26,7 @@ export default function MissionStrip({ conversationId, enabled = true, bump = 0,
   const { session, board, reload } = useConversationSession(conversationId, { enabled, bump })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [pursuit, setPursuit] = useState(false)
   if (!stripFor(session, reported) || session.conversation_id !== conversationId) return null
   const { spent, budget } = spendParts(session)
   // The lead proposed closing and the operator has not: the session is still open.
@@ -55,7 +58,14 @@ export default function MissionStrip({ conversationId, enabled = true, bump = 0,
           const Icon = ICONS[a]
           return <button key={a} type="button" className="btn btn-ghost btn-sm" data-testid={`mission-${a}`} disabled={busy} onClick={() => run(a)}><Icon size={11} aria-hidden="true" /> {t(`tasks.session.action.${a}`)}</button>
         })}
+        {(session.state === 'running' || session.state === 'paused') && (
+          <button type="button" className="btn btn-ghost btn-sm" data-testid="mission-pursuit" aria-expanded={pursuit} onClick={() => setPursuit(v => !v)}>
+            <Flag size={11} aria-hidden="true" /> {t('pursuitStart.open')}
+          </button>
+        )}
       </div>
+      {(session.state === 'running' || session.state === 'paused') && <PursuitPanel key={`panel-${session.id}`} sessionId={session.id} conversationId={conversationId} />}
+      {pursuit && <PursuitStartForm key={session.id} sessionId={session.id} />}
       {working.length > 0 && (
         <ul className="ms-working" data-testid="mission-working">
           {working.map(w => <li key={w.id}>{w.title}{w.worker ? <span className="ms-worker"> {w.worker}</span> : null}</li>)}

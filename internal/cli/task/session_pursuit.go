@@ -3,9 +3,12 @@ package task
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/missionpursuit"
 	"github.com/monoes/mono-agent/internal/tasks"
 )
@@ -16,7 +19,7 @@ func (d Deps) newSessionPursuitCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pursuit",
 		Short: "Start, pause or resume the pursuit of a mission's confirmed goal (you only); status reads it",
-		Long: `A mission whose goal you confirmed can be pursued without end. Starting the pursuit locks the goal with it
+		Long: pursuitLong(`A mission whose goal you confirmed can be pursued without end. Starting the pursuit locks the goal with it
 (a locked goal is final), and sets how far the pursuit may run while you are away: stop after PARKED-MAX questions
 wait for you, or after PCT percent of the budget is spent (metered spend, the judge's calls and the lead's turns together),
 or after WAKES wake-ups of the lead, since you last acted. Who answers a question and what happens to one nobody answers stay
@@ -25,12 +28,35 @@ failed judge rounds in a row carry the brake. The goal must carry a rubric crite
 closing the mission stays yours.
 Only you start, pause or resume; an agent is refused.
 
+What turns on, and what it costs: the loop runs only on a coder host started with MONOAGENT_PURSUIT_JUDGE set to the judge's
+model (off by default; unset it and restart the host to turn it off for every mission), and only for a mission you started.
+Each epoch costs a judge call (asked to stay under {JUDGE}) and may wake the lead for one turn capped at X (default {X}, set by
+MONOAGENT_PURSUIT_WAKE_CAP_USD on the host) or at what the lead has left, whichever is less. Worst case with the defaults: about
+{MISSION_HOUR} an hour for one mission, about {HOST_HOUR} an hour for the whole host; until the away limits stop one mission about {UNTIL20} on a $20
+mission budget and at most about {UNTIL100} on $100 (the 20 percent rule is the only hard bound; judged epochs that wake nobody are not counted by the wake limit). The caps are requests to the AI runtime, checked from the cost it reports afterwards;
+helpers the lead starts are NOT covered by X: one wake can let the lead carve its whole remaining budget to helpers, bounded only by
+the carve limits (and the money carved out and not yet spent counts in the PCT rule, so a big carve makes the pursuit wait).
+The judge's model is checked by name against the lead's (aliases are not recognised). The lead must have a budget and the mission a known budget, and the judge's model must differ from the lead's, or the
+pursuit waits. pause stops one mission; a judge call or lead turn already running finishes and is paid for.
+
+  pursuit preview ID [--json]                   show everything you consent to: the goal whole, the limits, the dollars, the host, what blocks it (read only)
+  pursuit begin ID --goal-hash H --consent D --chat C   confirm the goal and start the pursuit in one step, for exactly what preview showed
   pursuit start ID [--parked-max N] [--pct N]   start it (the goal must be confirmed); defaults 3 and 20
   pursuit pause ID                              stop new work until you resume (it does not hand the lead back to check-ins, and a judge call already running is not cancelled: it is paid for and its answer dropped)
   pursuit resume ID                             let it go on
-  pursuit status ID                             show it (read only)`,
+  pursuit allow-unconfined-checks ID (--on|--off)   let goal checks run project commands without confinement (default off; you only)
+  pursuit status ID                             show it: limits, why it waits, epochs, directions, who has to act ("needs": you, host or none) and what you can do next (read only)
+  pursuit readiness ID [--json]                 what is missing for the pursuit to run, each item with its exact fix (read only)
+  pursuit list                                  the missions in pursuit for this profile, one line each (read only)
+
+Words an agent or the judge wrote (a direction title, a mission title) are shown cut and marked as agent text; in the JSON they
+sit apart from the host-written fields (agent_text in status, title_agent_text in list). The status JSON carries schema_version.
+A goal checker comes later: until it exists the goal is never checked automatically and "goal_check" in the status says so.
+The desktop app can begin a pursuit for you (a dialog, a phrase you type and a one-use token). A script in the app's web page can raise
+that confirmation dialog at a moment of its choosing; it cannot click Yes for you, but you might click it by habit: read the dialog.
+There is no pursuit stop: close the mission (task session close) to end the pursuit.`),
 	}
-	cmd.AddCommand(d.newPursuitStartCmd(), d.newPursuitPauseCmd(), d.newPursuitResumeCmd(), d.newPursuitStatusCmd())
+	cmd.AddCommand(d.newPursuitPreviewCmd(), d.newPursuitBeginCmd(), d.newPursuitStartCmd(), d.newPursuitPauseCmd(), d.newPursuitResumeCmd(), d.newPursuitStatusCmd(), d.newPursuitReadinessCmd(), d.newPursuitListCmd(), d.newPursuitUnconfinedCmd())
 	for _, sub := range cmd.Commands() {
 		d.WithJSONErrors(sub)
 	}
@@ -57,16 +83,15 @@ func (d Deps) writePursuit(cmd *cobra.Command, p tasks.Profile, pu missionpursui
 	return nil
 }
 
-// writeProgress prints what the pursuit loop last recorded: how far each away limit has come, the host-wide hourly cap, and
+// writeProgress prints (as plain words; writeStatus makes the JSON) what the pursuit loop last recorded: how far each away limit has come, the host-wide hourly cap, and
 // in plain words why the pursuit waits for you.
 func (d Deps) writeProgress(cmd *cobra.Command, p tasks.Profile, pu missionpursuit.Pursuit, pr missionpursuit.Progress) error {
-	if d.JSONOutput() {
-		return d.WriteJSON(cmd.OutOrStdout(), map[string]any{"profile": p, "pursuit": pu, "progress": pr})
-	}
+	host, hostFound, hostAlive := d.hostPursuit()
 	if err := d.writePursuit(cmd, p, pu, "Showing"); err != nil {
 		return err
 	}
 	w := cmd.OutOrStdout()
+	fmt.Fprintln(w, "  "+hostPursuitLine(host, hostFound, hostAlive))
 	if !pr.Seen {
 		fmt.Fprintln(w, "  the pursuit loop has not looked at it yet (it runs only on a host with the loop wired)")
 		return nil
@@ -175,19 +200,89 @@ func (d Deps) newPursuitResumeCmd() *cobra.Command {
 func (d Deps) newPursuitStatusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status ID",
-		Short: "Show a mission's pursuit, how far its away limits have come and why it waits (read only)",
+		Short: "Show a mission's pursuit: how far its away limits have come, why it waits, its epochs and directions, who has to act and what you can do next (read only)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return d.withPursuit(cmd, args, func(ctx context.Context, ps *missionpursuit.Store, p tasks.Profile, session int64) error {
-				pu, err := ps.GetPursuit(ctx, p.ID, session)
-				if err != nil {
-					return d.taskErr(err)
-				}
-				pr, err := ps.GetProgress(ctx, p.ID, session)
-				if err != nil {
-					return d.taskErr(err)
-				}
-				return d.writeProgress(cmd, p, pu, pr)
-			})
+			if len(args) != 1 {
+				return d.InvalidInput("task session pursuit status takes one session id, written 3 or #3 (got %d arguments)", len(args))
+			}
+			session, err := d.parseSessionID(args[0])
+			if err != nil {
+				return err
+			}
+			db, err := d.OpenDB()
+			if err != nil {
+				return fmt.Errorf("initializing database: %w", err)
+			}
+			defer db.Close()
+			p, err := tasks.NewStore(db.DB).Profile(cmd.Context(), d.ProfileID())
+			if err != nil {
+				return d.taskErr(err)
+			}
+			ps := missionpursuit.NewStore(db.DB)
+			pu, err := ps.GetPursuit(cmd.Context(), p.ID, session)
+			if err != nil {
+				return d.noPursuitErr(err)
+			}
+			pr, err := ps.GetProgress(cmd.Context(), p.ID, session)
+			if err != nil {
+				return d.taskErr(err)
+			}
+			st, at, err := readStrategy(cmd.Context(), ps, p, session, pr)
+			if err != nil {
+				return err
+			}
+			host, found, alive := d.hostPursuit()
+			return d.writeStatus(cmd, p, pu, pr, st, at, readGoalCheck(cmd.Context(), db.DB, session, host, found, alive))
 		},
 	}
+}
+
+// hostPursuit reads what the running coder host published about the loop (host flag, judge pin, per-wake cap).
+func (d Deps) hostPursuit() (coderhost.PursuitHostInfo, bool, bool) {
+	if d.DBPath == nil {
+		return coderhost.PursuitHostInfo{}, false, false
+	}
+	return coderhost.ReadHostPursuitState(clicore.ExpandPath(d.DBPath()))
+}
+
+// hostPursuitLine says in plain words whether this host runs the loop and what a wake-up and a judge call may cost.
+func hostPursuitLine(h coderhost.PursuitHostInfo, found, alive bool) string {
+	switch {
+	case !found:
+		return "this host: no coder host has published its pursuit state (none is running, it is older than this field, or its status file could not be written: status unavailable); nothing is judged or woken without a running host"
+	case h.Invalid:
+		return "this host: the coder host's status file holds values that are not usable (ignored, nothing is shown from it); run `coder host status`; nothing is judged or woken on its say-so"
+	case !alive:
+		last := "the loop was OFF"
+		if h.Enabled {
+			last = fmt.Sprintf("the loop was ON with judge %s", h.Pin)
+		}
+		return "this host: the coder host is not running (last known: " + last + "); nothing is judged or woken until a host starts"
+	case h.Enabled:
+		return fmt.Sprintf("this host: the pursuit loop is ON; judge %s (asked to stay under $%.2f a call); a wake-up turn is capped at $%.2f as the host reports it (default $2; up to $10 if the host was started with a larger cap) or at what the lead has left, whichever is less (a request to the AI runtime, checked after the turn)",
+			h.Pin, coderhost.PursuitJudgeCallCapUSD, h.WakeCapUSD)
+	case h.Missing != "":
+		return "this host: the pursuit loop is ON by default but idle: " + h.Reason + ": nothing is judged or woken, and this mission's check-ins go on"
+	case h.Reason != "":
+		return "this host: the pursuit loop is OFF: " + h.Reason
+	}
+	return "this host: the pursuit loop is OFF (no judge is running on this host; `coder host pursuit judge set RUNTIME/MODEL`, then restart it): nothing is judged or woken, and this mission's check-ins go on"
+}
+
+// pursuitLong fills the dollar figures of the help from the same function the dollars table, the docs and the app's dialog use.
+func pursuitLong(raw string) string {
+	rows := func(budget float64) coderhost.CostTable {
+		return coderhost.PursuitCostRows(coderhost.CostInput{WakeCapUSD: coderhost.DefaultWakeCapUSD, MissionBudgetUSD: budget, Pct: missionpursuit.DefaultPct, Wakes: missionpursuit.DefaultWakesMax})
+	}
+	by := func(t coderhost.CostTable, key string) string {
+		for _, r := range t.Rows {
+			if r.Key == key {
+				return coderhost.UsdText(r.USD)
+			}
+		}
+		return "?"
+	}
+	t20, t100 := rows(20), rows(100)
+	return strings.NewReplacer("{JUDGE}", coderhost.UsdText(coderhost.PursuitJudgeCallCapUSD), "{X}", coderhost.UsdText(coderhost.DefaultWakeCapUSD),
+		"{MISSION_HOUR}", by(t20, "mission_hour"), "{HOST_HOUR}", by(t20, "host_hour"), "{UNTIL20}", by(t20, "until_stop"), "{UNTIL100}", by(t100, "until_stop")).Replace(raw)
 }

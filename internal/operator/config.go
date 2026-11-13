@@ -37,6 +37,9 @@ import "strings"
 //   - coder.mission_children_enabled: whether a mission's tasks may run in
 //     child sessions at all; absent = off (coderhost.MissionChildrenConfig;
 //     `coder sessions mission-children enable|disable`).
+//   - coder.pursuit_loop and coder.pursuit_judge: the operator's host-wide
+//     pursuit switch (explicit OFF) and saved judge pin (coderhost.PursuitLoopConfig,
+//     PursuitJudgeConfig; `coder host pursuit on|off|judge`).
 //   - every row under ReservedConfigPrefixes: families of rows named by a
 //     prefix. coder-mission-confirm/ holds the operator's per-send mission
 //     confirmations, which the coder host and its chat turns accept as proof
@@ -68,6 +71,8 @@ var reservedConfigs = []string{
 	"memory.runs",
 	"workflow.error_workflow",
 	"coder.mission_children_enabled",
+	"coder.pursuit_loop",
+	"coder.pursuit_judge",
 }
 
 // ReservedConfigPrefixes are the reserved families of config rows: a name that

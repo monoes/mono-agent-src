@@ -15,6 +15,9 @@ type StopErrorNode struct{}
 
 func (n *StopErrorNode) Type() string { return "core.stop_error" }
 
+// PublishesToThirdParty: core.stop_error sends nothing off this machine (issue #1418).
+func (StopErrorNode) PublishesToThirdParty() bool { return false }
+
 func (n *StopErrorNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	message, _ := config["message"].(string)
 	if message == "" {

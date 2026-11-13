@@ -36,6 +36,12 @@ func (h *Host) pursuitUndelivered(g pursuitGateResult) bool {
 // pursuitDeliverable says why the lead cannot be woken now, or "": no chat, outside its active hours, not unattended,
 // in a turn or with a message waiting, or no open work for it (the check-in this replaces had each of these conditions).
 func (h *Host) pursuitDeliverable(m pursuitMission, g pursuitGateResult) string {
+	return h.pursuitDeliverableFor(m, g, g.closeWakeDue || g.parkWakeDue)
+}
+
+// pursuitDeliverableFor is pursuitDeliverable with the "no open work" refusal lifted when noWorkOK: the one wake a settled mission
+// is owed (the close wake, the wake for a finish park, the accept wake) is for a mission that has no open work by definition.
+func (h *Host) pursuitDeliverableFor(m pursuitMission, g pursuitGateResult, noWorkOK bool) string {
 	if m.Conv == "" {
 		return "the mission is bound to no chat"
 	}
@@ -52,7 +58,7 @@ func (h *Host) pursuitDeliverable(m pursuitMission, g pursuitGateResult) string 
 	if err != nil || !withinActiveHours(settings.ActiveHours, h.Store.now()) {
 		return "outside the lead's active hours"
 	}
-	if t := g.snap.Tasks; t.Open()-t.Blocked <= 0 {
+	if t := g.snap.Tasks; t.Workable <= 0 && !noWorkOK {
 		return "the mission has no open work"
 	}
 	if g.hourWakes >= MaxPursuitWakesPerHour {

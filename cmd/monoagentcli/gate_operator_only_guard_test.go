@@ -18,7 +18,7 @@ import (
 //	T1 no source outside internal/cli/opgate (and internal/operator) asks the marker-only check
 //	   (operator.Refusal, Marker, MarkerEnv, Caller, NotUser, AIRun, ApprovedWorkflowChild, UnapprovedRunProcess,
 //	   hilsend.Detect, browserctl.AgentCaller and AgentKind, notOperator, IsAgentContext)
-//	   except where a reason says why; an entry that begins "FINDING" is a marker-only decision still to convert;
+//	   except where a reason says why;
 //	T2 every command whose help carries the operator-only text has a row of operatorOnlyRows or a
 //	   pending entry with a reason, and the cmOperatorOnly families of the client-mode table are each
 //	   accounted for;
@@ -31,7 +31,6 @@ const (
 	pr6c      = "converted in PR 6c (mode switch): open to agents for a built-in package, so no row; login_turn_gate_test.go holds its contexts"
 	heldB     = "held: class B, the verb has an agent path next to the operator's; waits for the owner's answers (issue 1333)"
 	gateImp   = "the gate's own implementation"
-	finding   = "FINDING, a marker-only decision (issue 1333 audit "
 )
 
 // Limits of T1: it reads one file at a time, so it cannot see a wrapper in another package (callers of
@@ -59,16 +58,16 @@ var legacyMarkerChecks = map[string]allowed{
 	"internal/browserctl/browserctl.go":             {1, "Open takes the permission policy from AgentCaller, which is turn-aware since the browser policy PR (#1472): a cleared-marker turn gets the agent level, and Open asks the caller once for the policy and the session key"},
 	"internal/browserctl/context.go":                {5, "definitions and labels, no decision: IsAgentContext and its hilsend.Detect, RequestedBy (names the asker on a HIL card), ContextKey (names the session state file)"},
 	"internal/browserctl/kindtoken.go":              {1, "ApplyTaskID reads AgentKind, which stays marker-only on purpose (it names a marked apply kind that a token vouches for; the policy verdict is AgentCaller, turn-aware since #1472): a label of the kind, not a permission decision"},
-	"internal/browserctl/permissions.go":            {3, "definitions of AgentCaller and AgentKind and the IsAgentContext they read: the browser permission engine, not a CLI verb gate; the decisions that use them are listed at their call sites"},
+	"internal/browserctl/caller.go":                 {3, "definitions of AgentCaller and AgentKind and the IsAgentContext they read: the browser permission engine, not a CLI verb gate; the decisions that use them are listed at their call sites"},
 	"cmd/monoagentcli/browser_applyscope.go":        {1, "browserTaskSession confines the apply kind by AgentKind: a marked apply kind is vouched by a token (kindtoken); AgentKind stays marker-only on purpose, the browser policy itself is AgentCaller, turn-aware since #1472"},
 	"cmd/monoagentcli/browser_permissions.go":       {1, "display only: the \"you\" row of `browser permissions` names the caller's kind; it grants and withholds nothing"},
 	"cmd/monoagentcli/browser_tabs.go":              {1, "`browser browsers` refuses level off by AgentCaller, which is turn-aware since #1472"},
 	"internal/cli/node/run.go":                      {1, "exempts only an approved workflow's own child: ApprovedWorkflowChild requires an approved, live per-run token (#1427), so a self-set MONOAGENT_WORKFLOW_RUN or a cleared marker is not exempted; the verdict is not marker-only"},
 	"internal/cli/people/messages_compose.go":       {1, "exempts only an approved workflow's own child: ApprovedWorkflowChild requires an approved, live per-run token (#1427), so a self-set MONOAGENT_WORKFLOW_RUN or a cleared marker is not exempted; the verdict is not marker-only"},
-	"internal/hilsend/gate.go":                      {2, finding + "G1d): Guard queues a send by Detect's env markers (the definition is the other occurrence); an unapproved run is still caught by unapprovedRun"},
-	"internal/nodes/aitask/node.go":                 {1, finding + "G1c): the aitask node refuses an AI run by operator.AIRun, which asks Marker; a workflow run is not marked as an AI caller"},
+	"internal/hilsend/gate.go":                      {2, "engine node gate, not a CLI verb gate: Guard queues a send by Detect's env markers and, next to it, by the run's own marks (unapprovedRun: an unapproved definition, an agent's run mark, an unapproved caller), which every agent-reachable start through MCP workflow_run, the HTTP run route or the CLI (`workflow run`, `templates run`, `node run`) sets; runs of active workflows started by a webhook, form, chat or trigger source, the daemon's scheduler, and the GUI's `workflow run` subprocess stay unmarked (third-party-triggered by design, documented known gap in SECURITY.md, #1475)"},
+	"internal/nodes/aitask/node.go":                 {1, "engine node: operator.AIRun is the marker plus the run's own marks (an unapproved definition, an agent's run mark, an org trigger); every agent-reachable start through MCP workflow_run, the HTTP run route or the CLI (`workflow run`, `templates run`, `node run` via WithUnapprovedStep) marks the run; webhook, form, chat, trigger-source and scheduler runs of active workflows stay unmarked (third-party-triggered by design, documented known gap in SECURITY.md, #1475), and the marker half is a fail-closed layer (#1475)"},
 	"internal/nodes/control/human_in_loop_tags.go":  {1, "label, not a decision: Detect names the org and chat an item is filed under; it grants and withholds nothing"},
-	"internal/nodes/people/save.go":                 {1, finding + "G1c): people.save approves outreach for a run that is not an AI run by operator.AIRun (marker plus the run's marks)"},
+	"internal/nodes/people/save.go":                 {1, "engine node: operator.AIRun is the marker plus the run's own marks, as for ai.task; every agent-reachable start through MCP workflow_run, the HTTP run route or the CLI marks the run, so those never approve outreach; webhook, form, chat, trigger-source and scheduler runs of active workflows stay unmarked (third-party-triggered by design, documented known gap in SECURITY.md, #1475)"},
 	"internal/cli/workflowaitask/workflowaitask.go": {1, "label only, not a decision: the audit line names a marked caller (operator.Caller), \"operator\" otherwise; it grants and withholds nothing (issue 1425)"},
 	"internal/config/writeguard.go":                 {1, "reserved config writes, engine level"},
 }

@@ -35,8 +35,13 @@ func pursuitWakeTurn(epoch int64, rnd string) string {
 
 // wakeCounts says how many wake-ups of the epoch are waiting or ran (live) and how many ended without running (lost).
 func (s *Store) wakeCounts(q querier, m pursuitMission, epoch int64) (live, lost int, err error) {
+	return s.wakeCountsLike(q, m, PursuitTurnPrefix+strconv.FormatInt(epoch, 10)+"-%")
+}
+
+// wakeCountsLike is wakeCounts for the wake-ups whose turn id matches the pattern.
+func (s *Store) wakeCountsLike(q querier, m pursuitMission, pattern string) (live, lost int, err error) {
 	rows, err := q.Query(`SELECT status, COUNT(*) FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind = 'send' AND turn_id LIKE ? GROUP BY status`,
-		m.Profile, m.Conv, PursuitTurnPrefix+strconv.FormatInt(epoch, 10)+"-%")
+		m.Profile, m.Conv, pattern)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -120,7 +125,7 @@ func (h *Host) pursuitWake(ctx context.Context, rd *inputs.Reader, m pursuitMiss
 	}
 	// The wake-up is a spend of the lead's attention: the whole gate is read again now (a judge call can take minutes: the
 	// work may have ended, a limit may have been reached, the person may have paused), not taken from the start of the pass.
-	g2, ok := h.pursuitGate(ctx, rd, m)
+	g2, ok := h.pursuitGate(ctx, rd, m, 0)
 	if !ok || g2.st.Waiting != "" {
 		return
 	}
@@ -191,6 +196,14 @@ func pursuitDigest(ep types.Epoch, g pursuitGateResult, focus types.Direction, p
 		fmt.Fprintf(&b, "Focus: %s (the best measured).\n", focus.ID)
 	} else {
 		b.WriteString("No direction has measured results yet, so no direction is chosen for you.\n")
+	}
+	if p := checkParagraph(g.goalChecks); p != "" {
+		b.WriteString(p + "\n")
+	}
+	if g.closeWakeDue {
+		// the one close wake of a settled state: fixed words, nothing for it to move forward
+		b.WriteString("Every task is settled (done, or verified and waiting in review). Call mission_finish to integrate the mission and propose its close; the operator closes it. Do not redo finished work. This message was written by the host, not by the person.")
+		return b.String()
 	}
 	b.WriteString("Read mission_status and move the open tasks forward. Do not redo finished work. This message was written by the host, not by the person.")
 	return b.String()

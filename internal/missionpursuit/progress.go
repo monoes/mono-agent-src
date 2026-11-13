@@ -63,7 +63,7 @@ func WaitingWhy(waiting string) string {
 	case "":
 		return ""
 	case "parked":
-		return "waiting for you: too many questions wait for your answer"
+		return "waiting for you: too many questions wait for your answer (a goal check that failed or errored counts as one)"
 	case "spend":
 		return "waiting for you: the metered spend since you last acted reached its limit"
 	case "wakes":
@@ -78,6 +78,22 @@ func WaitingWhy(waiting string) string {
 		return "waiting for you: the lead has no spend cap of its own, so a wake-up could cost without limit (set a budget for the lead's chat)"
 	case "meter-unreadable":
 		return "waiting for you: the judge ledger or the turn journals could not be read, so the spend cannot be measured; it clears when they read again"
+	case "judge-pin":
+		return "waiting for you: the judge's model must have a different runtime/model name from the lead's (a name check: two names for one model are not recognised), and the lead's model must be known (pin the lead's model, or change the host's judge pin and restart it)"
+	case "goal-check":
+		return "a goal check is running: nothing else is judged or woken until it ends (it ends by itself, in at most about thirteen minutes)"
+	case "goal-answer":
+		return "waiting for you: the goal check passed its machine criteria and its checker, and the criteria only you can judge are waiting for your answers (task session goal check shows it, goal answer answers)"
+	case "verifier-pin":
+		return "waiting for you: the goal checker's model must have a different runtime/model name from the judge's and the lead's, and the lead's model must be known (change MONOAGENT_PURSUIT_VERIFIER, or pin the lead's model, and restart the coder host)"
+	case "verifier-failing":
+		return "waiting for you: the goal checker could not be used by several checks in a row (unavailable, an invalid answer, or another model than its pin); it is not tried again until you act"
+	case "cannot-check":
+		return "waiting for you: the goal cannot be checked here (the project folder cannot be used, or the checker could not be built); task session goal check names why"
+	case "no-chat":
+		return "waiting for you: this mission has no chat to wake"
+	case "over-committed":
+		return "waiting for you: over-committed: the mission's budget is exceeded by its own spend plus what was carved to helpers; raise the budget to resume"
 	case "engine-parked":
 		return "waiting for you: a stored strategy row failed verification and the strategy engine stopped"
 	}
@@ -116,4 +132,94 @@ func (s *Store) GetProgress(ctx context.Context, profileID string, session int64
 		return nil
 	})
 	return out, err
+}
+
+// Who has to act for the pursuit to go on (the `needs` field of the status and list documents).
+const (
+	NeedsYou  = "you"  // the person: a limit is reached, the pursuit is paused, or a setting must change
+	NeedsHost = "host" // the machine: no coder host runs the loop, or it has not looked yet, or a read clears by itself
+	NeedsNone = "none" // nothing: the pursuit is working
+)
+
+// The states of the list document: where one pursuit stands, in one word.
+const (
+	StateRunning = "running"
+	StatePaused  = "paused"
+	StateWaiting = "waiting"
+	StateOffHost = "off-host"
+)
+
+// StateOf is the one word for where a pursuit stands. Paused is the person's own choice and comes first; then a host that
+// does not run the loop (nothing moves); then a waiting reason; otherwise running. Pure: host-written facts only.
+func StateOf(paused bool, waiting string, hostRuns bool) string {
+	switch {
+	case paused:
+		return StatePaused
+	case !hostRuns:
+		return StateOffHost
+	case waiting != "":
+		return StateWaiting
+	}
+	return StateRunning
+}
+
+// NeedsOf says who has to act. A waiting reason is the person's to clear (the WaitingWhy text says "waiting for you")
+// except meter-unreadable, which clears when the ledger reads again; a host that does not run the loop, or has not looked at
+// the pursuit yet, is the host's.
+func NeedsOf(paused bool, waiting string, seen, hostRuns bool) string {
+	switch {
+	case paused:
+		return NeedsYou
+	case waiting != "" && waiting != "meter-unreadable" && waiting != "goal-check":
+		return NeedsYou
+	case !hostRuns, !seen, waiting == "meter-unreadable", waiting == "goal-check":
+		return NeedsHost
+	}
+	return NeedsNone
+}
+
+// NextLine is, in plain words, what the person can do now. It is built from the same host-written facts as NeedsOf and
+// never from agent text.
+func NextLine(paused bool, waiting string, seen, hostRuns bool) string {
+	switch {
+	case paused:
+		return "Resume it (task session pursuit resume) when you want work to go on; nothing is woken or judged while it is paused."
+	case waiting == "parked", waiting == "spend", waiting == "wakes":
+		return "Look at the mission and act on it (answer a question, approve a plan, or tell the lead what you want); your action resets the away counters and the pursuit goes on. If the goal is met, close the mission."
+	case waiting == "budget-unknown":
+		return "Give the mission a budget (task session budget); the pursuit cannot measure its spend without one."
+	case waiting == "lead-uncapped":
+		return "Set a budget for the lead's chat; without one a wake-up could cost without limit."
+	case waiting == "judge-failing":
+		return "Act on the mission to try the judge again; if it keeps failing, check the judge's model (coder host status)."
+	case waiting == "judge-pin":
+		return "Change the host's judge model (MONOAGENT_PURSUIT_JUDGE) so that it differs from the lead's, and restart the coder host."
+	case waiting == "goal-check":
+		return "Nothing to do now: a goal check is running and the pursuit goes on when it ends."
+	case waiting == "goal-answer":
+		return "Read the goal check (task session goal check) and answer the criteria that are yours to judge (task session goal answer); accepting is your decision alone."
+	case waiting == "verifier-pin":
+		return "Change the host's goal checker model (MONOAGENT_PURSUIT_VERIFIER) so that it differs from the judge's and the lead's, and restart the coder host; or turn the checker off by unsetting it."
+	case waiting == "verifier-failing":
+		return "Act on the mission to try the goal checker again; if it keeps failing, check its model (coder host status)."
+	case waiting == "cannot-check":
+		return "Read why (task session goal check, coder host status): the project folder, the checker or the confinement of project commands is missing. You decide when to close the mission."
+	case waiting == "over-committed":
+		return "Raise the mission's budget (task session budget); its spend plus what was carved to helpers is past it, so no worker can start and nothing is judged or woken."
+	case waiting == "no-chat":
+		return "This mission has no chat to wake; close it, or run the work from a chat."
+	case waiting == "engine-parked":
+		return "A stored strategy row failed verification and the strategy engine stopped; look at it before you go on (coder host status)."
+	case waiting == "limits":
+		return "The away limits are out of range; this pursuit cannot go on as it is."
+	case waiting == "meter-unreadable":
+		return "Nothing to do now: the spend cannot be read at the moment and the pursuit goes on when it can."
+	case waiting != "":
+		return "Look at the mission and act on it."
+	case !hostRuns:
+		return "Nothing is judged or woken: run `coder host pursuit status`. If it says the judge is missing, choose one (`coder host pursuit judge set RUNTIME/MODEL`); if the operator turned the loop off, run `coder host pursuit on`; then restart the coder host."
+	case !seen:
+		return "Nothing yet: the pursuit loop looks at a new pursuit within a few minutes."
+	}
+	return "Nothing needed: the pursuit is working. Close the mission yourself when the goal is met."
 }

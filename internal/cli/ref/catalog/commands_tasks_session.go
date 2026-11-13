@@ -175,6 +175,39 @@ var taskSessionCommandDocs = []cmdDoc{
 		Examples: []string{"monoagentcli --profile work task session goal confirm 3 --hash 9f2c..."},
 	},
 	{
+		Name:     "task session goal check",
+		Short:    "Show the latest check of a mission's locked goal: what the host measured for each machine criterion, the checker model's verdict, how the commands were contained (UNCONFINED is shown loudly), your rubric criteria in your own words and the dossier hash (read only; an agent sees host facts only, the operator also the cleaned output excerpts)",
+		Usage:    "monoagentcli [--profile P] task session goal check ID",
+		Examples: []string{"monoagentcli --profile work --json task session goal check 3"},
+	},
+	{
+		Name:     "task session goal answer",
+		Short:    "Answer one rubric criterion of a goal check yes or no (the operator only): one call per criterion, refused if the check or the project changed since you read it; the last yes accepts the goal, a no rejects this check and sends your note to the lead",
+		Usage:    "monoagentcli [--profile P] task session goal answer ID --check N --criterion cK (--yes | --no) [--note TEXT] --dossier HASH",
+		Flags:    "  --check int         The check you read\n  --criterion string  The rubric criterion: c1, c2, ...\n  --yes / --no        Your answer\n  --note string       Your words to the lead (up to 500 bytes)\n  --dossier string    The dossier hash goal check printed",
+		Examples: []string{"monoagentcli --profile work task session goal answer 3 --check 2 --criterion c4 --yes --dossier 9f2c..."},
+	},
+	{
+		Name:     "task session pursuit allow-unconfined-checks",
+		Short:    "Let goal checks of a mission run its project commands without confinement, or stop that (the operator only; default off): they can then read and write your files, reach local sockets, read /proc, use the keyring and leave processes behind",
+		Usage:    "monoagentcli [--profile P] task session pursuit allow-unconfined-checks ID (--on | --off)",
+		Examples: []string{"monoagentcli --profile work task session pursuit allow-unconfined-checks 3 --on"},
+	},
+	{
+		Name:     "task session pursuit preview",
+		Short:    "Show everything you consent to when a pursuit begins, and write nothing: the goal whole with its hash, the away limits, the dollars table, the host (loop on or off, the judge model, the wake-up cap), the blockers, the chat, the consent digest; --json is what the app's start form is built from (read only; an agent may run it)",
+		Usage:    "monoagentcli [--profile P] task session pursuit preview ID [--parked-max N] [--pct N] [--wakes-max N] [--json]",
+		Flags:    "  --parked-max int   Stop after this many questions wait for you since you last acted (1 to 20; default 3)\n  --pct int          Stop after this percent of the budget is spent since you last acted (1 to 100; default 20)\n  --wakes-max int    Stop after the pursuit woke the lead this many times since you last acted (1 to 50; default 6)",
+		Examples: []string{"monoagentcli --profile work task session pursuit preview 3 --json"},
+	},
+	{
+		Name:     "task session pursuit begin",
+		Short:    "Confirm the goal and start the pursuit in one step, for exactly what pursuit preview showed; the goal becomes final (the operator only). Refused, writing nothing, when the goal, the host facts or the chat differ from the preview (stale, consent_stale, chat_mismatch), the pursuit already started, or something blocks it",
+		Usage:    "monoagentcli [--profile P] task session pursuit begin ID --goal-hash HEX64 --consent HEX64 --chat CONV [--parked-max N] [--pct N] [--wakes-max N] [--json]",
+		Flags:    "  --goal-hash string   The goal's full hash, as pursuit preview showed it\n  --consent string     The consent digest pursuit preview showed\n  --chat string        The mission's chat, as pursuit preview showed it\n  --parked-max int     Stop after this many questions wait for you since you last acted (1 to 20; default 3)\n  --pct int            Stop after this percent of the budget is spent since you last acted (1 to 100; default 20)\n  --wakes-max int      Stop after the pursuit woke the lead this many times since you last acted (1 to 50; default 6)",
+		Examples: []string{"monoagentcli --profile work task session pursuit begin 3 --goal-hash 9f2c... --consent 41ab... --chat chat1"},
+	},
+	{
 		Name:     "task session pursuit start",
 		Short:    "Start the pursuit of a mission whose goal is confirmed, and lock the goal with it (the operator only)",
 		Usage:    "monoagentcli [--profile P] task session pursuit start ID [--parked-max N] [--pct N] [--wakes-max N]",
@@ -195,9 +228,21 @@ var taskSessionCommandDocs = []cmdDoc{
 	},
 	{
 		Name:     "task session pursuit status",
-		Short:    "Show a mission's pursuit: started by, paused or running, its away limits, how far each has come (wake-ups, parked questions, metered spend, the judge's and the lead's spend, failed judge rounds, the host-wide hourly caps) and why it waits for you (read only)",
+		Short:    "Show a mission's pursuit: started by, paused or running, its away limits, how far each has come (wake-ups, parked questions, metered spend, the judge's and the lead's spend, failed judge rounds, the host-wide hourly caps) why it waits for you, and what this host does with it: the host switch (MONOAGENT_PURSUIT_JUDGE, off by default), the judge model and the cap X on one wake-up turn; also the epochs (count, the latest one's trigger and state), the directions by state with their ids, the last judge round, the state and who has to act (needs: you, host or none), a line on what you can do next, and schema_version in --json; direction titles are agent text and sit apart in agent_text; the goal-check line is a stub until a goal checker exists (read only)",
 		Usage:    "monoagentcli [--profile P] task session pursuit status ID",
 		Examples: []string{"monoagentcli --profile work task session pursuit status 3"},
+	},
+	{
+		Name:     "task session pursuit readiness",
+		Short:    "List what is missing for a mission's pursuit to run: the host switch (MONOAGENT_PURSUIT_JUDGE) and the judge's model, a goal with a rubric criterion, the goal checker (only for command checks), the mission's budget, the lead's spend cap, the chat and your own consent; each item is ok or missing with the exact fix; --json carries schema_version, ready, blockers and items (read only, no model call)",
+		Usage:    "monoagentcli [--profile P] task session pursuit readiness ID",
+		Examples: []string{"monoagentcli --profile work task session pursuit readiness 3 --json"},
+	},
+	{
+		Name:     "task session pursuit list",
+		Short:    "List the missions in pursuit for this profile, one row each: session, state (running, paused, waiting or off-host), the waiting code, who has to act (you, host or none) and the title, shown as agent text; --json adds schema_version (read only)",
+		Usage:    "monoagentcli [--profile P] task session pursuit list",
+		Examples: []string{"monoagentcli --profile work task session pursuit list --json"},
 	},
 	{
 		Name:     "task session retire-worker",

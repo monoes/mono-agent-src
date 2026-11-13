@@ -26,6 +26,9 @@ type SummarizeNode struct{}
 
 func (n *SummarizeNode) Type() string { return "data.summarize" }
 
+// PublishesToThirdParty: data.summarize sends nothing off this machine (issue #1418).
+func (SummarizeNode) PublishesToThirdParty() bool { return false }
+
 type summaryAgg struct {
 	Aggregation     string
 	Field           string

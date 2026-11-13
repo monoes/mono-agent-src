@@ -298,6 +298,10 @@ export function CoderSetDefaultAccess(arg1) {
   return window['go']['main']['App']['CoderSetDefaultAccess'](arg1);
 }
 
+export function CoderSetPeercredBinding(arg1) {
+  return window['go']['main']['App']['CoderSetPeercredBinding'](arg1);
+}
+
 export function ConfirmApplicationSubmitted(arg1) {
   return window['go']['main']['App']['ConfirmApplicationSubmitted'](arg1);
 }
@@ -1298,6 +1302,14 @@ export function PromoteRoleToRoot(arg1, arg2) {
   return window['go']['main']['App']['PromoteRoleToRoot'](arg1, arg2);
 }
 
+export function PursuitStart(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['PursuitStart'](arg1, arg2, arg3, arg4);
+}
+
+export function PursuitStartPreview(arg1, arg2) {
+  return window['go']['main']['App']['PursuitStartPreview'](arg1, arg2);
+}
+
 export function QueueDismiss(arg1) {
   return window['go']['main']['App']['QueueDismiss'](arg1);
 }
@@ -1868,4 +1880,28 @@ export function GetVaultAgentAccess() {
 
 export function SetVaultAgentAccess(arg1) {
   return window['go']['main']['App']['SetVaultAgentAccess'](arg1);
+}
+
+export function MissionChildrenState() {
+  return window['go']['main']['App']['MissionChildrenState']();
+}
+
+export function PursuitHostStatus() {
+  return window['go']['main']['App']['PursuitHostStatus']();
+}
+
+export function PursuitPause(arg1) {
+  return window['go']['main']['App']['PursuitPause'](arg1);
+}
+
+export function PursuitReadiness(arg1) {
+  return window['go']['main']['App']['PursuitReadiness'](arg1);
+}
+
+export function SetAgentApproval(arg1,arg2,arg3) {
+  return window['go']['main']['App']['SetAgentApproval'](arg1,arg2,arg3);
+}
+
+export function SetMissionChildren(arg1) {
+  return window['go']['main']['App']['SetMissionChildren'](arg1);
 }

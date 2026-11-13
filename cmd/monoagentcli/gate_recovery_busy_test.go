@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -102,6 +103,17 @@ func entryFileOf(t *testing.T, dir, path string) string {
 	return filepath.Join(dir, hex.EncodeToString(sum[:]))
 }
 
+// hostQuote spells a path as the busy message does: bare when it holds only plain path characters, else
+// in single quotes (a Windows path, with its backslashes, is quoted).
+func hostQuote(s string) string {
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("_-+=:,./@%", r)) {
+			return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+		}
+	}
+	return s
+}
+
 func wantRetryText(t *testing.T, err error, db, entryFile string) {
 	t.Helper()
 	if err == nil {
@@ -111,7 +123,7 @@ func wantRetryText(t *testing.T, err error, db, entryFile string) {
 		t.Fatalf("not the busy error: %v", err)
 	}
 	want := "the coder host that owns " + db + " is busy (database locked); wait and retry the command; the registry entry for it is " +
-		entryFile + ": if that host is not running, delete this file and run the command again"
+		hostQuote(entryFile) + ": if that host is not running, delete this file and run the command again"
 	if err.Error() != want {
 		t.Fatalf("message %q, want %q", err.Error(), want)
 	}
@@ -240,6 +252,9 @@ func TestTheBusyMessageNamesOnlyTheDatabaseAndItsEntryFile(t *testing.T) {
 // The registry is writable by the same OS user, so the path an entry records is untrusted text: control
 // characters and newlines in it never reach the operator's terminal.
 func TestTheBusyMessageStripsControlCharactersFromARecordedPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a Windows file name cannot hold control characters")
+	}
 	dir := busySetup(t)
 	host := filepath.Join(t.TempDir(), "hil\n\x1b[31mred\r\u2028x.db")
 	writeMigratedDB(t, host)

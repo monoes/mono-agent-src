@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/dbconn"
 	"github.com/monoes/mono-agent/internal/procbind"
 )
 
@@ -143,7 +144,7 @@ type Store struct {
 	afterReserveReads func()
 	// afterCarve runs inside Reserve's and GrantBudget's transaction after the statement that took the carve or the
 	// raise and before the check of the whole tree (tests only).
-	afterCarve func(tx *sql.Tx)
+	afterCarve func(tx querier)
 	// afterSpawnSessionCreated runs in SpawnSession between the task session's creation and the ledger write (tests only: a crash there).
 	afterSpawnSessionCreated func()
 	// afterSweepRead runs in SweepSpawnIntents between its read of the due intents and its claims (tests only).
@@ -271,9 +272,9 @@ func (s *Store) enqueueOn(x querier, c Command) (Command, error) {
 	if n, _ := res.RowsAffected(); n == 0 {
 		if masterStop { // one pending stop from the same issuer makes a new one a no-op
 			var id int64
-			if s.db.QueryRow(`SELECT id FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind = 'stop' AND status = 'pending' AND issuer = ? ORDER BY id LIMIT 1`,
+			if x.QueryRow(`SELECT id FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind = 'stop' AND status = 'pending' AND issuer = ? ORDER BY id LIMIT 1`,
 				c.ProfileID, c.ConversationID, c.Issuer).Scan(&id) == nil {
-				if got, ok, err := s.GetCommand(id); err == nil && ok {
+				if got, ok, err := getCommandOn(x, id); err == nil && ok {
 					return got, nil
 				}
 			}
@@ -358,8 +359,11 @@ func (s *Store) ExpireSends() error {
 }
 
 // GetCommand returns one command.
-func (s *Store) GetCommand(id int64) (Command, bool, error) {
-	rows, err := s.db.Query(`SELECT id, profile_id, conversation_id, kind, turn_id, message, attachments, status, error, wants_mission, created_at, updated_at, issuer
+func (s *Store) GetCommand(id int64) (Command, bool, error) { return getCommandOn(s.db, id) }
+
+// getCommandOn is GetCommand on a handle: the caller's transaction, or the store's own.
+func getCommandOn(x querier, id int64) (Command, bool, error) {
+	rows, err := x.Query(`SELECT id, profile_id, conversation_id, kind, turn_id, message, attachments, status, error, wants_mission, created_at, updated_at, issuer
 		FROM coder_session_commands WHERE id = ?`, id)
 	if err != nil {
 		return Command{}, false, err
@@ -699,19 +703,19 @@ func (s *Store) SaveCheckin(profileID, conversationID string, c Checkin) error {
 // EnqueueWithCheckin queues a command and records the scheduler's look in ONE transaction, so a failure of either leaves
 // neither: the command is never queued against a baseline that was not saved.
 func (s *Store) EnqueueWithCheckin(c Command, k Checkin) (Command, error) {
-	tx, err := s.db.Begin()
+	// BEGIN IMMEDIATE: the waiting commands are counted before the command is inserted, and a writer that commits in
+	// between would make the write fail at once with SQLITE_BUSY_SNAPSHOT, which busy_timeout does not wait for (#1460).
+	var got Command
+	err := dbconn.WithWriteTx(context.Background(), s.db, func(conn *sql.Conn) error {
+		tx := connQuerier{conn}
+		var err error
+		if got, err = s.enqueueOn(tx, c); err != nil {
+			return err
+		}
+		_, err = tx.Exec(`UPDATE coder_sessions SET checkin_at = ?, checkin_snapshot = ? WHERE profile_id = ? AND conversation_id = ?`, k.At, k.Snapshot, c.ProfileID, c.ConversationID)
+		return err
+	})
 	if err != nil {
-		return c, err
-	}
-	defer tx.Rollback() //nolint:errcheck // after commit it is a no-op
-	got, err := s.enqueueOn(tx, c)
-	if err != nil {
-		return c, err
-	}
-	if _, err := tx.Exec(`UPDATE coder_sessions SET checkin_at = ?, checkin_snapshot = ? WHERE profile_id = ? AND conversation_id = ?`, k.At, k.Snapshot, c.ProfileID, c.ConversationID); err != nil {
-		return c, err
-	}
-	if err := tx.Commit(); err != nil {
 		return c, err
 	}
 	return got, nil

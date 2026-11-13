@@ -38,6 +38,9 @@ type SecretGetNode struct{}
 
 func (n *SecretGetNode) Type() string { return "vault.secret_get" }
 
+// PublishesToThirdParty: vault.secret_get sends nothing off this machine (issue #1418).
+func (SecretGetNode) PublishesToThirdParty() bool { return false }
+
 // LiteralConfigFields: name is the vault entry it reads
 // (workflow.LiteralConfigResolver).
 func (n *SecretGetNode) LiteralConfigFields() []string { return []string{"name"} }

@@ -18,6 +18,9 @@ type MarkdownNode struct{}
 
 func (n *MarkdownNode) Type() string { return "data.markdown" }
 
+// PublishesToThirdParty: data.markdown sends nothing off this machine (issue #1418).
+func (MarkdownNode) PublishesToThirdParty() bool { return false }
+
 // PerItemConfigFields holds back the markdown/html source values and the
 // destination key so they are evaluated against each item.
 func (n *MarkdownNode) PerItemConfigFields() []string { return markdownPerItemFields }

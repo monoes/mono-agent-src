@@ -1,12 +1,14 @@
 package ai
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
+	"github.com/monoes/mono-agent/internal/dbconn"
 )
 
 // CreateTurn registers a turn, idempotent by ID: "Duplicate Start with the
@@ -223,33 +225,40 @@ func (s *AIStore) AppendEvent(profileID, conversationID, turnID string, typ chat
 	if profileID == "" {
 		return chatevents.Event{}, ErrProfileRequired
 	}
-	tx, err := s.db.Begin()
-	if err != nil {
-		return chatevents.Event{}, fmt.Errorf("begin append event: %w", err)
-	}
-	defer tx.Rollback()
-
-	ev, err := appendEventTx(tx, profileID, conversationID, turnID, typ, payload, time.Now())
+	// BEGIN IMMEDIATE: the sequence is read before the insert, and a writer that commits in between would make the
+	// write fail at once with SQLITE_BUSY_SNAPSHOT, which busy_timeout does not wait for (#1460).
+	var ev chatevents.Event
+	err := dbconn.WithWriteTx(context.Background(), s.db, func(conn *sql.Conn) error {
+		tx := dbconn.ConnTx{Ctx: context.Background(), Conn: conn}
+		var err error
+		if ev, err = appendEventTx(tx, profileID, conversationID, turnID, typ, payload, time.Now()); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(
+			`UPDATE ai_chat_turns SET last_committed_seq = ?, updated_at = ? WHERE id = ? AND profile_id = ?`,
+			ev.Seq, nowRFC3339(), turnID, profileID,
+		); err != nil {
+			return fmt.Errorf("advance last_committed_seq: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
 		return chatevents.Event{}, err
 	}
-	if _, err := tx.Exec(
-		`UPDATE ai_chat_turns SET last_committed_seq = ?, updated_at = ? WHERE id = ? AND profile_id = ?`,
-		ev.Seq, nowRFC3339(), turnID, profileID,
-	); err != nil {
-		return chatevents.Event{}, fmt.Errorf("advance last_committed_seq: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return chatevents.Event{}, fmt.Errorf("commit append event: %w", err)
-	}
 	return ev, nil
+}
+
+// eventTx is what appendEventTx needs of an open transaction: a *sql.Tx, or the connection of a dbconn.WithWriteTx.
+type eventTx interface {
+	QueryRow(query string, args ...any) *sql.Row
+	Exec(query string, args ...any) (sql.Result, error)
 }
 
 // appendEventTx does the sequence-allocation-and-insert step within an
 // already-open transaction, shared by AppendEvent and FinalizeTurn (which
 // needs its terminal-event insert in the SAME transaction as its
 // compare-and-set status update).
-func appendEventTx(tx *sql.Tx, profileID, conversationID, turnID string, typ chatevents.EventType, payload any, at time.Time) (chatevents.Event, error) {
+func appendEventTx(tx eventTx, profileID, conversationID, turnID string, typ chatevents.EventType, payload any, at time.Time) (chatevents.Event, error) {
 	var maxSeq sql.NullInt64
 	if err := tx.QueryRow(
 		`SELECT MAX(seq) FROM ai_chat_events WHERE profile_id = ? AND conversation_id = ? AND turn_id = ?`,
