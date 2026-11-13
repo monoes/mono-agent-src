@@ -18,6 +18,8 @@ type RunHooks struct {
 	// BeforeRelease is asked before anything is delivered to the turn's process; bound says whether the turn is peer-credential bound.
 	// ctx is cancelled when the launcher gives up on the check (a deadline) or has returned: check it before any effect that cannot be undone.
 	BeforeRelease func(ctx context.Context, profileID, conversationID, turnID string, bound bool) error
+	// PlaceRequired says whether a turn must be placed (a run is open); a legacy launch is refused only then. Nil refuses every legacy launch while Place is set.
+	PlaceRequired func(profileID, conversationID string) (bool, error)
 }
 
 // InstallRunHooks sets the hooks on the launchers of a host built by `coder host run` (the legacy and the bound one) and wires the
@@ -33,7 +35,7 @@ func InstallRunHooks(st *coderhost.Store, h *coderhost.Host, hooks RunHooks) err
 	n := 0
 	for _, l := range []coderhost.Launcher{g.inner, g.bound} {
 		if e, ok := l.(*execLauncher); ok {
-			e.runStamp, e.beforeRelease, e.place = hooks.RunStamp, hooks.BeforeRelease, hooks.Place
+			e.runStamp, e.beforeRelease, e.place, e.placeRequired = hooks.RunStamp, hooks.BeforeRelease, hooks.Place, hooks.PlaceRequired
 			if hooks.RunStamp != nil {
 				e.recordRun = st.StampDoomsdayRun
 			}
