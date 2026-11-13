@@ -7,3 +7,6 @@ package stop
 func linuxProbeSteps() []ProbeStep {
 	return []ProbeStep{{Name: "platform", Check: func() error { return ErrContainmentUnavailable }}}
 }
+
+// ReadinessSteps is empty off Linux: the read-only containment requirements are the Linux unit's.
+func ReadinessSteps() []ReadinessStep { return nil }

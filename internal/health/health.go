@@ -254,6 +254,10 @@ type Env struct {
 	MCPRuntimes func() []MCPRuntime
 	RegisterMCP func(ctx context.Context, progress func(string)) error
 
+	// OpenMode reads what the open-ended mode needs from this machine and profile (no network, nothing
+	// written, no process started).
+	OpenMode func(ctx context.Context) OpenModeFacts
+
 	// MonoesAccount reads the monoes.me session from this machine (no
 	// network, nothing written).
 	MonoesAccount func(ctx context.Context) AccountInfo
