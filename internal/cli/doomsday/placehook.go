@@ -42,6 +42,14 @@ func (g *HostGate) PlaceRelease(cmd *exec.Cmd, profile, conv string) (release fu
 	return pl.Place(cmd)
 }
 
+// PlaceRequired says whether a turn must be placed: true while the profile has an open run, false with none. A launch that cannot be
+// placed (legacy) is refused only when it is true, so a host with no run starts its turns as it always did. An error (the run state
+// cannot be read, a foreign profile) must refuse the launch.
+func (g *HostGate) PlaceRequired(profile, conv string) (bool, error) {
+	pl, err := g.placer(profile, conv)
+	return pl != nil, err
+}
+
 // placer returns the placer of the profile's open run, nil with no run open.
 func (g *HostGate) placer(profile, conv string) (stop.Placement, error) {
 	if profile != g.Profile {

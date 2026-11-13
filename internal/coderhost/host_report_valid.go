@@ -10,7 +10,14 @@ import (
 // would have accepted (validWakeCap) and a judge pin that is a printable runtime/model name. host.json is display-only and any
 // process running as the user can write it, so a value that fails here is never shown to the person as a fact.
 func ValidHostPursuitInfo(h PursuitHostInfo) bool {
-	for _, t := range []string{h.VerifierPin, h.VerifierReason, h.Confinement} { // shown to the person: bounded and plain
+	if h.Invalid {
+		return false
+	}
+	// closed vocabularies
+	if (h.Missing != "" && h.Missing != PursuitMissingJudgePin) || !oneOfStr(h.PinSource, "", "env", "saved") || !oneOfStr(h.OffSource, "", "env", "saved") {
+		return false
+	}
+	for _, t := range []string{h.Reason, h.VerifierPin, h.VerifierReason, h.Confinement} { // shown to the person: bounded and plain
 		if len(t) > 600 {
 			return false
 		}
@@ -21,7 +28,7 @@ func ValidHostPursuitInfo(h PursuitHostInfo) bool {
 		}
 	}
 	if !h.Enabled {
-		return true
+		return h.WakeCapUSD == 0 || validWakeCap(h.WakeCapUSD)
 	}
 	if !validWakeCap(h.WakeCapUSD) {
 		return false
@@ -36,4 +43,13 @@ func ValidHostPursuitInfo(h PursuitHostInfo) bool {
 		}
 	}
 	return true
+}
+
+func oneOfStr(v string, set ...string) bool {
+	for _, s := range set {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }

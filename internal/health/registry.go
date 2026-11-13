@@ -6,6 +6,7 @@ func Default() *Registry {
 	checks = append(checks, coreChecks()...)
 	checks = append(checks, dbSchemaChecks()...)
 	checks = append(checks, coderSpawnIntentChecks()...)
+	checks = append(checks, openModeChecks()...)
 	checks = append(checks, workflowPublicationChecks()...)
 	checks = append(checks, monoesAccountChecks()...)
 	checks = append(checks, monomindChecks()...)

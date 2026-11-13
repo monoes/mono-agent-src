@@ -35,23 +35,33 @@ func (d Deps) liveFacts(profileID string, session int64, shown *coderhost.CostTa
 				leadCapped = missionpursuit.BudgetKnown(leadBudget, 0)
 			}
 		}
-		wakeCap := coderhost.DefaultWakeCapUSD
+		// The money text shows what the host can ENFORCE at most, never what host.json says: the cap the host enforces is its own
+		// (MONOAGENT_PURSUIT_WAKE_CAP_USD, checked to MinWakeCapUSD..MaxWakeCapUSD in the host process) and no other process can
+		// read it; host.json is display-only and a same-user process can write any plausible number into it. So the worst case is
+		// the top of the range the host accepts: a host really run with a lower X is over-stated, never under-stated.
+		wakeCap := coderhost.DefaultWakeCapUSD // no valid host report: the code default, and the preview blocks anyway
 		if reported {
-			wakeCap = host.WakeCapUSD
+			wakeCap = coderhost.MaxWakeCapUSD
 		}
+		// host.json cannot lower the goal-check rows or the warning that a command criterion runs a program: for a reported host
+		// they are always shown, with the checker and the fence it names only when it says the checks are on.
 		verifierOn := reported && host.VerifierOn
-		in := coderhost.CostInput{WakeCapUSD: wakeCap, MissionBudgetUSD: budget, Pct: lim.Pct, Wakes: lim.Wakes, HostReported: reported, VerifierSet: verifierOn}
+		in := coderhost.CostInput{WakeCapUSD: wakeCap, MissionBudgetUSD: budget, Pct: lim.Pct, Wakes: lim.Wakes, HostReported: reported, CapIsBound: reported, VerifierSet: reported}
 		if verifierOn {
 			in.VerifierPin, in.Confinement = host.VerifierPin, host.Confinement
+		}
+		reportedCap := 0.0
+		if reported {
+			reportedCap = host.WakeCapUSD
 		}
 		table := coderhost.PursuitCostRows(in)
 		if shown != nil {
 			*shown = table
 		}
-		f := missionpursuit.LiveFacts{Cost: table.Text, HostOn: on, HostInvalid: invalid, CheckerSetUp: verifierOn,
+		f := missionpursuit.LiveFacts{ReportedWakeCapUSD: reportedCap, Cost: table.Text, HostOn: on, HostInvalid: invalid, CheckerSetUp: verifierOn,
 			BudgetKnown: missionpursuit.BudgetKnown(budget, spent), LeadCapped: leadCapped}
 		if reported {
-			f.JudgePin, f.WakeCapUSD = host.Pin, host.WakeCapUSD
+			f.JudgePin, f.WakeCapUSD = host.Pin, wakeCap
 			if chat != "" {
 				f.PinWhy = coderhost.LeadPinWhy(host.Pin, coderhost.LeadPinIn(ctx, x, profileID, chat))
 			} else {
@@ -144,7 +154,7 @@ func (d Deps) writePreview(cmd *cobra.Command, p tasks.Profile, session int64, v
 			"limits": map[string]any{"parked_max": v.Limits.ParkedMax, "pct": v.Limits.Pct, "wakes_max": v.Limits.Wakes}, "rubric_present": !hasBlocker(v.Consent.Blockers, missionpursuit.BlockNoRubric),
 			"cost":     table,
 			"checker":  map[string]any{"set_up": f.CheckerSetUp},
-			"host":     map[string]any{"loop_on": f.HostOn, "judge_pin": f.JudgePin, "wake_cap_usd": f.WakeCapUSD, "judge_call_cap_usd": coderhost.PursuitJudgeCallCapUSD},
+			"host":     map[string]any{"loop_on": f.HostOn, "judge_pin": f.JudgePin, "wake_cap_usd": f.WakeCapUSD, "reported_wake_cap_usd": f.ReportedWakeCapUSD, "judge_call_cap_usd": coderhost.PursuitJudgeCallCapUSD},
 			"blockers": blockers, "phrase_template": missionpursuit.PhraseTemplate, "consent_digest": v.Consent.Digest,
 		})
 	}
@@ -163,7 +173,10 @@ func (d Deps) writePreview(cmd *cobra.Command, p tasks.Profile, session int64, v
 	case f.HostInvalid:
 		fmt.Fprintln(w, "  host: the pursuit loop is reported ON, but its judge model or wake-up cap is not a usable value; the figures below use the code defaults")
 	case f.HostOn:
-		fmt.Fprintf(w, "  host (as reported by the host, which is not proof): the pursuit loop is ON; judge %q; a wake-up turn is capped at %s\n", f.JudgePin, coderhost.UsdText(f.WakeCapUSD))
+		fmt.Fprintf(w, "  host (as reported by the host, which is not proof): the pursuit loop is ON; judge %q; a wake-up turn is capped at %s (the most a host can be set to)\n", f.JudgePin, coderhost.UsdText(f.WakeCapUSD))
+		if f.ReportedWakeCapUSD > 0 {
+			fmt.Fprintf(w, "  the host reports %s a wake-up (not proof; its file cannot be trusted to say what it enforces)\n", coderhost.UsdText(f.ReportedWakeCapUSD))
+		}
 	default:
 		fmt.Fprintln(w, "  host: the pursuit loop is OFF (or no coder host is running)")
 	}

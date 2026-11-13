@@ -3,6 +3,7 @@ package coderhost
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -24,6 +25,15 @@ type PursuitHostInfo struct {
 	WakeCapUSD float64 `json:"wakeCapUsd,omitempty"` // X: the most one wake-up turn of a lead may spend
 	Reason     string  `json:"reason,omitempty"`
 
+	// The loop is ON by default and idles until a judge pin exists. Missing is the closed code of what is missing
+	// (PursuitMissingJudgePin); OperatorOff says the operator turned the loop off on purpose; PinSource is "env" or "saved".
+	Missing     string `json:"missing,omitempty"`
+	OperatorOff bool   `json:"operatorOff,omitempty"`
+	OffSource   string `json:"offSource,omitempty"` // "env" or "saved", when OperatorOff
+	PinSource   string `json:"pinSource,omitempty"`
+	// Invalid is set by the reader (never written by the host) on facts that failed validation: they carry nothing else.
+	Invalid bool `json:"-"`
+
 	// The goal checks (MONOAGENT_PURSUIT_VERIFIER), display only like the rest of the file. VerifierPin is what was asked for
 	// ("" = the checks are off, the default); VerifierOn says they are set up; VerifierReason says why a checker that was asked
 	// for is not (no judge, a pin that does not parse, a scratch folder that cannot be made); Confinement says what confines the
@@ -37,12 +47,30 @@ type PursuitHostInfo struct {
 // HostDir is the folder of the coder host that serves the database at dbPath (already path-expanded).
 func HostDir(dbPath string) string { return filepath.Join(filepath.Dir(dbPath), "coder-host") }
 
+// maxHostInfoBytes bounds the read of host.json: the real file is a few hundred bytes to a few KB.
+const maxHostInfoBytes = 64 << 10
+
+// SanitizeHostPursuit is the one gate every reader of the published pursuit facts passes: facts that cannot be real (see
+// ValidHostPursuitInfo) are replaced by a marker with no text and no number in it (Invalid), so nothing forged is ever shown,
+// counted or used as a cap. Only whether the loop claimed to be on is kept, so that a forged "on" still reads as "not usable".
+func SanitizeHostPursuit(p PursuitHostInfo) PursuitHostInfo {
+	if ValidHostPursuitInfo(p) {
+		return p
+	}
+	return PursuitHostInfo{Enabled: p.Enabled, Invalid: true}
+}
+
 // ReadHostPursuit reads the pursuit state the running host published for the database at dbPath. found is false when no host
-// has published one (no host, or a host built before this field).
+// has published one (no host, or a host built before this field). The file is display-only and any process of the user can write
+// it, so it is read only if it is a regular file (never a symlink to a device or a pipe), at most maxHostInfoBytes, and what it
+// says passes SanitizeHostPursuit; an unusable file is found with Invalid set.
 func ReadHostPursuit(dbPath string) (info PursuitHostInfo, found bool) {
-	raw, err := os.ReadFile(filepath.Join(HostDir(dbPath), HostInfoFile))
-	if err != nil {
+	raw, state := ReadHostInfoFile(dbPath)
+	switch state {
+	case HostInfoMissing:
 		return PursuitHostInfo{}, false
+	case HostInfoUnusable:
+		return PursuitHostInfo{Invalid: true}, true
 	}
 	var doc struct {
 		Pursuit *PursuitHostInfo `json:"pursuit"`
@@ -50,7 +78,45 @@ func ReadHostPursuit(dbPath string) (info PursuitHostInfo, found bool) {
 	if json.Unmarshal(raw, &doc) != nil || doc.Pursuit == nil {
 		return PursuitHostInfo{}, false
 	}
-	return *doc.Pursuit, true
+	return SanitizeHostPursuit(*doc.Pursuit), true
+}
+
+// What ReadHostInfoFile found.
+const (
+	HostInfoOK       = iota // raw is the file
+	HostInfoMissing         // no file, or it could not be opened or read
+	HostInfoUnusable        // there, but not a plain file of a sane size (a link, a pipe, a device, too large, swapped while read)
+)
+
+// ReadHostInfoFile is the one reader of host.json: any process of the user can write that file, so it is read only if it is a
+// regular file (never a symlink, pipe or device), is opened without blocking (a pipe swapped in between the check and the open
+// cannot hang the reader), is the very file that was checked, and has at most maxHostInfoBytes. What it holds is still to be
+// validated by the caller.
+func ReadHostInfoFile(dbPath string) (raw []byte, state int) {
+	path := filepath.Join(HostDir(dbPath), HostInfoFile)
+	fi, err := os.Lstat(path)
+	if err != nil {
+		return nil, HostInfoMissing
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, HostInfoUnusable
+	}
+	f, err := os.OpenFile(path, os.O_RDONLY|openNoBlock, 0)
+	if err != nil {
+		return nil, HostInfoMissing
+	}
+	defer f.Close()
+	if fi2, err := f.Stat(); err != nil || !fi2.Mode().IsRegular() || !os.SameFile(fi, fi2) { // swapped between the check and the open
+		return nil, HostInfoUnusable
+	}
+	raw, err = io.ReadAll(io.LimitReader(f, maxHostInfoBytes+1))
+	if err != nil {
+		return nil, HostInfoMissing
+	}
+	if len(raw) > maxHostInfoBytes {
+		return nil, HostInfoUnusable
+	}
+	return raw, HostInfoOK
 }
 
 // ReadHostPursuitState is ReadHostPursuit plus whether the host that wrote the file is alive now: a live host holds host.lock,

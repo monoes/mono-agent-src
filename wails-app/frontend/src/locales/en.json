@@ -2833,5 +2833,32 @@
       "already_started": "A pursuit is already running for this mission.",
       "unknown": "Whether it started is not known. Check the mission's status before trying again; do not press Start again."
     }
+  },
+  "pursuitPanel": {
+    "noticeLabel": "Pursuit notice",
+    "gotIt": "Got it",
+    "restartPending": "Saved pursuit settings differ from the running coder host: restart the coder host to apply them.",
+    "pause": "Pause pursuit",
+    "noPursuit": "This mission has no pursuit running yet",
+    "readinessUnavailable": "What is missing for the pursuit could not be read.",
+    "missingHeading": "What is missing for the pursuit",
+    "authorityHeading": "What this mission may do",
+    "children": "Let this mission run tasks in child sessions",
+    "approval": "Let the lead approve its child sessions",
+    "ceiling": "Spend ceiling (USD)",
+    "needCeiling": "Give a spend ceiling above 0 first: the lead's approvals are measured against it.",
+    "confirmChildrenOn": "Allow mission child sessions? Each one gets its own budget carved from the lead's.",
+    "confirmChildrenOff": "Stop new mission child sessions? Running ones finish.",
+    "confirmApprovalOn": "Let the lead approve child sessions up to ${{usd}} each? This lifts a safeguard that normally needs you.",
+    "confirmApprovalOff": "Stop the lead approving child sessions?",
+    "statusLabel": "Pursuit status",
+    "readError": "Could not read the saved pursuit setting; restart state is unknown.",
+    "offSaved": "Pursuit is turned off (saved setting). To turn it back on run `coder host pursuit on`, then restart the coder host.",
+    "offEnv": "Pursuit is turned off by the MONOAGENT_PURSUIT_LOOP environment variable of the coder host. The CLI cannot override it: unset it (or set it to on) and restart the coder host.",
+    "offHost": "The running coder host has pursuit turned off. Run `coder host pursuit on` if you want it on, then restart the coder host.",
+    "idle": "Pursuit is on but idle until a judge model is chosen.",
+    "paused": "Paused.",
+    "failed": "The pause did not go through.",
+    "broken": "The pursuit panel could not be shown (unexpected data)."
   }
 }
