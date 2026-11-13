@@ -168,7 +168,12 @@ func TestAQueuedWakeDoesNotRunOnAHostWhereTheLoopIsOff(t *testing.T) { // gap G1
 
 func TestAPursuitSendFromAnywhereFailsOnAHostWhereTheLoopIsOff(t *testing.T) {
 	h, l, st := newHost(t) // no Pursuit at all
-	send(t, st, "c1", PursuitTurnPrefix+"9-aa", "[PURSUIT] x")
+	// the queue refuses a caller's pursuit- id now; a row from before that (written by hand) must still not run on a host without the loop
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err := st.db.Exec(`INSERT INTO coder_session_commands (profile_id, conversation_id, kind, turn_id, message, attachments, status, wants_mission, created_at, updated_at, issuer)
+		VALUES ('p', 'c1', 'send', ?, '[PURSUIT] x', '[]', 'pending', 0, ?, ?, '')`, PursuitTurnPrefix+"9-aa", now, now); err != nil {
+		t.Fatal(err)
+	}
 	if err := h.Tick(); err != nil {
 		t.Fatal(err)
 	}
