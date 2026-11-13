@@ -63,7 +63,7 @@ func WaitingWhy(waiting string) string {
 	case "":
 		return ""
 	case "parked":
-		return "waiting for you: too many questions wait for your answer"
+		return "waiting for you: too many questions wait for your answer (a goal check that failed or errored counts as one)"
 	case "spend":
 		return "waiting for you: the metered spend since you last acted reached its limit"
 	case "wakes":
@@ -217,7 +217,7 @@ func NextLine(paused bool, waiting string, seen, hostRuns bool) string {
 	case waiting != "":
 		return "Look at the mission and act on it."
 	case !hostRuns:
-		return "Start the coder host with MONOAGENT_PURSUIT_JUDGE set to the judge's model; nothing is judged or woken without it."
+		return "Nothing is judged or woken: run `coder host pursuit status`. If it says the judge is missing, choose one (`coder host pursuit judge set RUNTIME/MODEL`); if the operator turned the loop off, run `coder host pursuit on`; then restart the coder host."
 	case !seen:
 		return "Nothing yet: the pursuit loop looks at a new pursuit within a few minutes."
 	}

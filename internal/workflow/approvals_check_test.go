@@ -88,6 +88,9 @@ func TestAFailedApprovalCheckIsRetriedAndNamed(t *testing.T) {
 type echoProbe struct{}
 
 func (echoProbe) Type() string { return "test.echoprobe" }
+
+// PublishesToThirdParty: a test probe sends nothing off this machine (issue #1418).
+func (echoProbe) PublishesToThirdParty() bool { return false }
 func (echoProbe) Execute(_ context.Context, _ NodeInput, config map[string]interface{}) ([]NodeOutput, error) {
 	return []NodeOutput{{Handle: "main", Items: []Item{NewItem(config)}}}, nil
 }

@@ -31,6 +31,9 @@ type DebugHelperNode struct{}
 
 func (n *DebugHelperNode) Type() string { return "data.debug_helper" }
 
+// PublishesToThirdParty: data.debug_helper sends nothing off this machine (issue #1418).
+func (DebugHelperNode) PublishesToThirdParty() bool { return false }
+
 // ErrDebugHelper is the error thrown by category throw_error.
 var ErrDebugHelper = errors.New("debug helper")
 

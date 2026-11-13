@@ -235,3 +235,31 @@ func TestAQueuedLeadCheckInDoesNotRunOnceTheMissionIsPaused(t *testing.T) {
 		t.Fatalf("started=%v command=%+v", l.started, got)
 	}
 }
+
+func TestTheMissionLineSaysWhyNothingIsOpenForTheLead(t *testing.T) {
+	cases := []struct {
+		name string
+		m    missionFact
+		want string
+	}{
+		{"draft", missionFact{State: "draft", Total: 3}, "plan is not approved"},
+		{"paused", missionFact{State: "paused", Total: 3, Open: 2}, "paused"},
+		{"blocked", missionFact{State: "running", Total: 3, Blocked: 2, Done: 1}, "2 blocked task(s) wait for the operator"},
+		{"settled", missionFact{State: "running", Total: 3, Done: 3, Verified: 3}, "waits for the operator's close"},
+	}
+	for _, c := range cases {
+		got := missionLine(&c.m)
+		if !strings.Contains(got, "Waiting: ") || !strings.Contains(got, c.want) {
+			t.Errorf("%s: line lacks the reason %q: %s", c.name, c.want, got)
+		}
+	}
+	for name, m := range map[string]missionFact{
+		"open work":  {State: "running", Total: 3, Open: 1},
+		"pursuing":   {State: "running", Total: 3, Done: 3, Pursuing: true},
+		"empty plan": {State: "running"},
+	} {
+		if got := missionLine(&m); strings.Contains(got, "Waiting: ") {
+			t.Errorf("%s: a reason was given where nothing waits: %s", name, got)
+		}
+	}
+}

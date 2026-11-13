@@ -16,6 +16,9 @@ type ListNode struct{}
 
 func (n *ListNode) Type() string { return "applications.list" }
 
+// PublishesToThirdParty: applications.list sends nothing off this machine (issue #1418).
+func (ListNode) PublishesToThirdParty() bool { return false }
+
 func (n *ListNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	if globalStore == nil {
 		return nil, fmt.Errorf("applications.list: store not available (call SetGlobalStore at startup)")

@@ -432,20 +432,14 @@ describe('useCoderConversation', () => {
 })
 
 describe('empty new chats', () => {
-  it('discards a new chat collapsed with nothing typed, and keeps one with a draft', async () => {
+  it('keeps a new chat collapsed with nothing typed as a bubble, so it stays reachable', async () => {
     render(<Harness />)
     fireEvent.click(await screen.findByLabelText('New chat'))
     await waitFor(() => expect(overlay()).toBeInTheDocument())
     fireEvent.keyDown(window, { key: 'Escape' })
     await waitFor(() => expect(overlay()).toBeNull())
-    expect(store.bubbles).toHaveLength(0)
-
-    fireEvent.click(screen.getByLabelText('New chat'))
-    await waitFor(() => expect(screen.getByLabelText('Model')).toHaveValue('opus'))
-    fireEvent.change(within(overlay()).getByPlaceholderText('Type a message...'), { target: { value: 'later' } })
-    fireEvent.keyDown(window, { key: 'Escape' })
-    await waitFor(() => expect(overlay()).toBeNull())
     expect(store.bubbles).toHaveLength(1)
+    expect(store.expandedKey).toBeFalsy()
   })
 })
 

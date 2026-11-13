@@ -95,8 +95,10 @@ func TestAnUnchangedProjectIsDigestedOnceAndNotAgain(t *testing.T) {
 func TestTheReviewerFailingStopFiresAcrossAwayWindows(t *testing.T) {
 	w := newCW(t)
 	w.pass()
+	w.wait() // the preparation this pass started reads the clock in its own goroutine: it must have read it before the clock moves
 	w.rawCheck(1, "blocked", "reviewer-unavailable", 500000, 0)
 	w.rawCheck(2, "blocked", "reviewer-invalid", 500000, 0)
+	w.touch("two") // the project changes, so the host's own preparations never find a quiet tree and add a round of their own: the rows are the test's
 	w.advance(61 * time.Minute)
 	w.personActs() // a new away window: the count of this window is 0, the two earlier failures are still in a row
 	w.advance(5 * time.Second)

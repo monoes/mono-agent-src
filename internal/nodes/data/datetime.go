@@ -14,6 +14,9 @@ type DateTimeNode struct{}
 
 func (n *DateTimeNode) Type() string { return "data.datetime" }
 
+// PublishesToThirdParty: data.datetime sends nothing off this machine (issue #1418).
+func (DateTimeNode) PublishesToThirdParty() bool { return false }
+
 func (n *DateTimeNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	operation, _ := config["operation"].(string)
 	if alias, ok := N8nDateTimeOperations[operation]; ok {

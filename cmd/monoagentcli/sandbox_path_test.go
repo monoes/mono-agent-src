@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -13,6 +14,9 @@ import (
 // The fallback reader opens the file at the given path even when a folder name holds ?, # or %.
 func TestReadSandboxFallbackFileOddPath(t *testing.T) {
 	for _, dir := range []string{"a#b", "a?mode=memory", "a%41b", "a b"} {
+		if runtime.GOOS == "windows" && dir == "a?mode=memory" {
+			continue // ? is not a legal character in a Windows file name, so such a folder cannot exist
+		}
 		path := filepath.Join(t.TempDir(), dir, "monoagent.db")
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)

@@ -415,7 +415,7 @@ func (d Deps) runOutlookNode(cmd *cobra.Command, db *sql.DB, connectionID string
 		// wait too. What an approved workflow's node started sends as the workflow was written.
 		ctx = workflow.WithAIAuthored(ctx)
 	}
-	if queued, handled, gerr := workflow.RunExecGuard(ctx, executor.Type(), workflow.NodeInput{}, config); handled {
+	if queued, handled, gerr := workflow.RunExecGuardFor(ctx, executor, workflow.NodeInput{}, config); handled {
 		if gerr != nil {
 			return nil, gerr
 		}

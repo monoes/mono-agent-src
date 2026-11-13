@@ -1086,7 +1086,7 @@ func (l *hostStopLog) String() string {
 func runProductionHost(t *testing.T, env map[string]string) (*coderhost.Host, *Deps) {
 	t.Helper()
 	asOperator(t)
-	for _, k := range []string{envPursuitJudge, envPursuitWakeCap, envPursuitVerifier} {
+	for _, k := range []string{envPursuitJudge, envPursuitWakeCap, envPursuitVerifier, envPursuitLoop} {
 		t.Setenv(k, env[k]) // set or emptied: nothing leaks in from the shell
 	}
 	dbPath := newChatCLITestDB(t)
@@ -1104,6 +1104,22 @@ func runProductionHost(t *testing.T, env map[string]string) (*coderhost.Host, *D
 	} {
 		if _, err := db.DB.Exec(q); err != nil {
 			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	// the operator's saved rows (reserved configs), seeded through the store like the verbs do
+	if v := env["_saved_judge"]; v != "" {
+		if err := coderhost.NewStore(db.DB).SetSavedPursuitJudge(v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if v := env["_raw_loop"]; v != "" { // a hand-written spelling, as `config set` could once write it
+		if _, err := db.DB.Exec(`INSERT INTO configs (name, config_data, created_at, updated_at) VALUES (?, ?, 'x', 'x')`, coderhost.PursuitLoopConfig, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if env["_saved_off"] != "" {
+		if err := coderhost.NewStore(db.DB).SetPursuitOperatorOff(true); err != nil {
+			t.Fatal(err)
 		}
 	}
 	db.Close()
@@ -1132,19 +1148,82 @@ func runProductionHost(t *testing.T, env map[string]string) (*coderhost.Host, *D
 	return built, cfg
 }
 
-func TestTheProductionHostKeepsThePursuitOffByDefaultAndKeepsTheCheckIns(t *testing.T) {
+// The default is ON but idle: no judge pin, so nothing is built, nothing is spent and the check-ins go on; the reason names the fix.
+func TestTheProductionHostIsOnByDefaultButIdleWithoutAJudgePinAndKeepsTheCheckIns(t *testing.T) {
 	built, cfg := runProductionHost(t, nil)
 	if built.Pursuit != nil {
-		t.Fatal("the production host wires the pursuit loop without the host flag")
+		t.Fatal("the production host wired a loop with no judge pin: a model was picked for the person")
 	}
 	if built.PursuitHoldsCheckins("default", "lead-chat") {
-		t.Fatal("a started pursuit holds the check-ins of a lead on a host that does not run the loop")
+		t.Fatal("a started pursuit holds the check-ins of a lead on a host that runs no loop")
 	}
-	if info, found := coderhost.ReadHostPursuit(clicore.ExpandPath(cfg.DBPath())); !found || info.Enabled {
-		t.Fatalf("the host publishes %+v (found %v), want the loop off", info, found)
+	info, found := coderhost.ReadHostPursuit(clicore.ExpandPath(cfg.DBPath()))
+	if !found || info.Enabled || info.OperatorOff || info.Missing != coderhost.PursuitMissingJudgePin ||
+		!strings.Contains(info.Reason, "judge-pin missing") || !strings.Contains(info.Reason, "coder host pursuit judge set") {
+		t.Fatalf("the host publishes %+v (found %v), want idle with judge-pin missing and the exact fix", info, found)
 	}
-	if line := pursuitStatusLine(coderhost.PursuitHostInfo{}); !strings.Contains(line, "OFF") || !strings.Contains(line, envPursuitJudge) {
-		t.Fatalf("the status line for an off loop: %q", line)
+	if line := pursuitStatusLine(info); !strings.Contains(line, "ON (default) but idle") || !strings.Contains(line, "judge-pin missing") {
+		t.Fatalf("the status line for an idle loop: %q", line)
+	}
+	if built.Pursuit != nil && built.Pursuit.Verifier != nil {
+		t.Fatal("the goal checker is on by default")
+	}
+}
+
+func TestAnOnSpellingKeepsTheDefaultAndTheVerifierMessageNamesTheOperatorOff(t *testing.T) {
+	built, _ := runProductionHost(t, map[string]string{envPursuitLoop: "on", envPursuitJudge: "claude/haiku"})
+	if built.Pursuit == nil {
+		t.Fatal("an explicit `on` turned the loop off")
+	}
+	var info coderhost.PursuitHostInfo
+	attachVerifier(context.Background(), envOf(map[string]string{envPursuitVerifier: "gemini/checker"}), nil, &info, "/s", coderhost.ForbiddenFolders{})
+	info2 := coderhost.PursuitHostInfo{OperatorOff: true}
+	attachVerifier(context.Background(), envOf(map[string]string{envPursuitVerifier: "gemini/checker"}), nil, &info2, "/s", coderhost.ForbiddenFolders{})
+	if !strings.Contains(info2.VerifierReason, "coder host pursuit on") || strings.Contains(info.VerifierReason, "pursuit on") {
+		t.Fatalf("verifier reasons: %q / %q", info2.VerifierReason, info.VerifierReason)
+	}
+}
+
+func TestTheSavedJudgeTurnsTheDefaultLoopOnAndTheEnvPinWins(t *testing.T) {
+	built, cfg := runProductionHost(t, map[string]string{"_saved_judge": "openrouter/m:free"})
+	if built.Pursuit == nil || built.Pursuit.Verifier != nil || built.Pursuit.WakeCapUSD != coderhost.DefaultWakeCapUSD {
+		t.Fatalf("Pursuit = %+v: want the loop on with the saved judge, the checker off and the default cap", built.Pursuit)
+	}
+	if info, _ := coderhost.ReadHostPursuit(clicore.ExpandPath(cfg.DBPath())); !info.Enabled || info.Pin != "openrouter/m:free" || info.PinSource != "saved" || info.VerifierOn || info.VerifierPin != "" {
+		t.Fatalf("published %+v", info)
+	}
+	_, cfg2 := runProductionHost(t, map[string]string{"_saved_judge": "openrouter/m:free", envPursuitJudge: "claude/haiku"})
+	if info, _ := coderhost.ReadHostPursuit(clicore.ExpandPath(cfg2.DBPath())); info.Pin != "claude/haiku" || info.PinSource != "env" {
+		t.Fatalf("the env pin did not win: %+v", info)
+	}
+}
+
+// An explicit operator OFF beats a configured pin, from either channel.
+func TestAnExplicitOperatorOffIsNeverOverriddenByAPin(t *testing.T) {
+	for name, env := range map[string]map[string]string{
+		"saved off + saved pin": {"_saved_off": "1", "_saved_judge": "claude/haiku"},
+		"saved off + env pin":   {"_saved_off": "1", envPursuitJudge: "claude/haiku"},
+		"env off + env pin":     {envPursuitLoop: "off", envPursuitJudge: "claude/haiku"},
+		"env off 0":             {envPursuitLoop: "0", "_saved_judge": "claude/haiku"},
+		"env OFF":               {envPursuitLoop: "OFF", envPursuitJudge: "claude/haiku"},
+		"env no":                {envPursuitLoop: "no", envPursuitJudge: "claude/haiku"},
+		"env n":                 {envPursuitLoop: "n", envPursuitJudge: "claude/haiku"},
+		"env disabled":          {envPursuitLoop: "disabled", envPursuitJudge: "claude/haiku"},
+		"env false":             {envPursuitLoop: "false", envPursuitJudge: "claude/haiku"},
+		"row false":             {"_raw_loop": "false", envPursuitJudge: "claude/haiku"},
+		"row OFF":               {"_raw_loop": "OFF", envPursuitJudge: "claude/haiku"},
+		"row no":                {"_raw_loop": "no", "_saved_judge": "claude/haiku"},
+		"row disabled":          {"_raw_loop": "disabled", envPursuitJudge: "claude/haiku"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			built, cfg := runProductionHost(t, env)
+			if built.Pursuit != nil {
+				t.Fatal("an explicit OFF was overridden")
+			}
+			if info, _ := coderhost.ReadHostPursuit(clicore.ExpandPath(cfg.DBPath())); !info.OperatorOff || info.Enabled || info.Missing != "" {
+				t.Fatalf("published %+v", info)
+			}
+		})
 	}
 }
 

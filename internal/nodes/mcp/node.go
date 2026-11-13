@@ -163,6 +163,9 @@ func (n *CallNode) Execute(ctx context.Context, input workflow.NodeInput, config
 		if err != nil {
 			return nil, err
 		}
+		if err := checkArgsContent(ctx, srv, args); err != nil {
+			return nil, fmt.Errorf("%s: %w", NodeType, err)
+		}
 		res, err := c.callTool(ctx, name, args)
 		if err != nil {
 			return nil, fmt.Errorf("%s: item %d: %w", NodeType, i, err)

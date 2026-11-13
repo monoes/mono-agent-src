@@ -294,7 +294,7 @@ platform name to override. Token refresh is handled automatically for OAuth conn
 				// approved workflow's node started, and the user's terminal, are asked as before.
 				guardCtx = workflow.WithAIAuthored(guardCtx)
 			}
-			if queued, handled, gerr := workflow.RunExecGuard(guardCtx, nodeType, workflow.NodeInput{Items: inputItems}, config); handled {
+			if queued, handled, gerr := workflow.RunExecGuardFor(guardCtx, factory(), workflow.NodeInput{Items: inputItems}, config); handled {
 				if gerr != nil {
 					return fmt.Errorf("node %s failed: %w", nodeType, gerr)
 				}

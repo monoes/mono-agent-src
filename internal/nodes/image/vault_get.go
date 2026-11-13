@@ -17,6 +17,9 @@ type ImageVaultGetNode struct{}
 
 func (n *ImageVaultGetNode) Type() string { return "image.vault_get" }
 
+// PublishesToThirdParty: image.vault_get sends nothing off this machine (issue #1418).
+func (ImageVaultGetNode) PublishesToThirdParty() bool { return false }
+
 func (n *ImageVaultGetNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	field, _ := config["field"].(string)
 	if field == "" {

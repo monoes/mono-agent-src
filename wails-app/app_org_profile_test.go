@@ -49,11 +49,11 @@ func TestMoveProfileFolderRefusesWhenOrgsCannotStop(t *testing.T) {
 	home := t.TempDir()
 	testhome.SetHome(t, home)
 	argvLog := filepath.Join(home, "argv.log")
-	fake := filepath.Join(home, "monoagentcli")
+	fake := filepath.Join(home, fakeCLIName)
 	script := "#!/bin/sh\necho \"$*\" >> " + argvLog + "\n" +
 		"case \"$*\" in *--check*) echo '{}'; exit 0 ;; esac\n" +
 		"echo 'org daemon (pid 7) did not exit' >&2\nexit 1\n"
-	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+	if err := writeFakeCLI(fake, script); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("MONOAGENTCLI_BIN", fake)

@@ -17,3 +17,15 @@
 .ms-pursuit label { display: flex; flex-direction: column; gap: 2px; color: var(--text-muted); }
 .ms-pursuit-limits { display: flex; gap: 8px; flex-wrap: wrap; }
 .ms-pursuit li, .ms-pursuit span { overflow-wrap: anywhere; }
+.ms-panel { gap: 8px; }
+.ms-panel-status { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.ms-panel-status li { border-left: 3px solid var(--yellow, var(--border-bright)); padding: 2px 8px; color: var(--text); background: var(--surface, transparent); overflow-wrap: anywhere; }
+.ms-panel-notice { border: 1px solid var(--border-bright, var(--border)); border-radius: 6px; padding: 6px 8px; color: var(--text); display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.ms-panel-notice p { margin: 0; overflow-wrap: anywhere; }
+.ms-panel-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--text-muted); }
+.ms-panel-authority { border: 1px solid var(--border); border-radius: 6px; margin: 0; padding: 6px 8px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ms-panel-authority legend { padding: 0 4px; color: var(--text); font-weight: 600; }
+.ms-pursuit label.ms-panel-check { flex-direction: row; align-items: flex-start; gap: 6px; color: var(--text); }
+.ms-panel-check input { margin-top: 2px; flex: none; }
+.ms-panel-check span { min-width: 0; overflow-wrap: anywhere; }
+.ms-panel-ceiling { max-width: 100%; width: 14em; color: var(--text); background: var(--surface, transparent); border: 1px solid var(--border-bright, var(--border)); border-radius: 4px; padding: 2px 6px; }

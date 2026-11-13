@@ -45,6 +45,10 @@ type MissionConfig struct {
 	BeforeCreate func(ctx context.Context, x tasks.Queryer) error
 	// Goals, when set, offers the lead mission_goal_propose and mission_goal_status in a chat whose mode is mission.
 	Goals *missionpursuit.Store
+	// GoalClose, when set, says why the mission is not to be proposed for close because of its ultimate goal ("" = nothing in the
+	// way): the goal is locked by a started pursuit and is not satisfied (the person's answers accept it, never the host or the
+	// lead). It reads fresh each time; a read that fails says why, so it refuses. Nil: the goal never holds a close back.
+	GoalClose func(ctx context.Context, session int64) string
 }
 
 // MissionAccess says whether an access level may run missions: coding and up.

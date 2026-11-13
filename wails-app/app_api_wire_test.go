@@ -8,7 +8,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -22,8 +21,8 @@ func fakeAPIDocs(t *testing.T, status, models string) {
 		"  *\" api status\"*) echo '" + status + "';;\n" +
 		"  *\" api models\"*) echo '" + models + "';;\n" +
 		"  *) echo 'unexpected' >&2; exit 2;;\nesac\n"
-	bin := filepath.Join(t.TempDir(), "monoagentcli")
-	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
+	bin := filepath.Join(t.TempDir(), fakeCLIName)
+	if err := writeFakeCLI(bin, script); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("MONOAGENTCLI_BIN", bin)

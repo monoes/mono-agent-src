@@ -47,15 +47,17 @@ var BlockReasons = map[string]string{
 // LiveFacts are the host-side facts a consent block is made of, read by the caller inside the same transaction as the begin.
 // Cost is the canonical text of the cost rows (every figure in it comes from the loop's constants).
 type LiveFacts struct {
-	Cost         string
-	HostOn       bool
-	HostInvalid  bool // the host's published pin or cap failed validation (BlockHostInfoInvalid); they are then not part of the facts
-	JudgePin     string
-	WakeCapUSD   float64
-	CheckerSetUp bool // the goal checker (S7): until it exists this is false; the digest covers it so a later change is stale
-	BudgetKnown  bool
-	LeadCapped   bool
-	PinWhy       string // "" when the judge may judge this lead
+	Cost        string
+	HostOn      bool
+	HostInvalid bool // the host's published pin or cap failed validation (BlockHostInfoInvalid); they are then not part of the facts
+	JudgePin    string
+	WakeCapUSD  float64
+	// ReportedWakeCapUSD is what the host's file says (0 = none): shown beside the bound, never an input of the digest or the sums.
+	ReportedWakeCapUSD float64
+	CheckerSetUp       bool // the goal checker (S7): until it exists this is false; the digest covers it so a later change is stale
+	BudgetKnown        bool
+	LeadCapped         bool
+	PinWhy             string // "" when the judge may judge this lead
 }
 
 // LiveFunc reads the LiveFacts for a mission through x (the begin's own connection).

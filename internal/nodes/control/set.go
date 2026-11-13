@@ -22,6 +22,9 @@ type SetNode struct{}
 
 func (n *SetNode) Type() string { return "core.set" }
 
+// PublishesToThirdParty: core.set sends nothing off this machine (issue #1418).
+func (SetNode) PublishesToThirdParty() bool { return false }
+
 // PerItemConfigFields declares that each assignment's "value" must not be
 // pre-resolved using only the first input item: Execute below evaluates it
 // fresh for every item via engine.EvaluateValue.

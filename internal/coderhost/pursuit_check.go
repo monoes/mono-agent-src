@@ -146,7 +146,9 @@ func (h *Host) pursuitCheckStep(ctx context.Context, rd *inputs.Reader, m pursui
 	if !ok {
 		return
 	}
-	acted := f.HaveLatest && g2.st.PersonAt.After(f.LatestStarted)
+	// The person's own verdict on the latest check (their answers moved PersonAt) is not a reason to check the same project again: after
+	// an accept or a reject the next check needs a changed project.
+	acted := f.HaveLatest && g2.st.PersonAt.After(f.LatestStarted) && !personVerdict(f.LatestOutcome)
 	switch {
 	case checkWindowFull(win.Count),
 		f.SinceVerdict >= missionpursuit.MaxChecksPerMissionLifetime,
@@ -406,6 +408,11 @@ func (h *Host) endAbandoned(m pursuitMission, id int64, goalHash string) {
 	}
 	h.finishRow(ctx, missionpursuit.NewHostChecks(missionpursuit.NewStore(h.Store.db)), m, id,
 		verifier.Result{Outcome: verifier.OutcomeAbandoned, Reason: verifier.ReasonCancelled, GoalHash: goalHash})
+}
+
+// personVerdict says whether a check's outcome is the person's (their answers ended it).
+func personVerdict(outcome string) bool {
+	return outcome == missionpursuit.OutcomeAccepted || outcome == missionpursuit.OutcomeRejected
 }
 
 // checkWindowFull is the one place that says an away window has had its checks (the step and the goroutine both ask it).

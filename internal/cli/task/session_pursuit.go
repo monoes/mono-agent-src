@@ -46,6 +46,7 @@ pursuit waits. pause stops one mission; a judge call or lead turn already runnin
   pursuit resume ID                             let it go on
   pursuit allow-unconfined-checks ID (--on|--off)   let goal checks run project commands without confinement (default off; you only)
   pursuit status ID                             show it: limits, why it waits, epochs, directions, who has to act ("needs": you, host or none) and what you can do next (read only)
+  pursuit readiness ID [--json]                 what is missing for the pursuit to run, each item with its exact fix (read only)
   pursuit list                                  the missions in pursuit for this profile, one line each (read only)
 
 Words an agent or the judge wrote (a direction title, a mission title) are shown cut and marked as agent text; in the JSON they
@@ -55,7 +56,7 @@ The desktop app can begin a pursuit for you (a dialog, a phrase you type and a o
 that confirmation dialog at a moment of its choosing; it cannot click Yes for you, but you might click it by habit: read the dialog.
 There is no pursuit stop: close the mission (task session close) to end the pursuit.`),
 	}
-	cmd.AddCommand(d.newPursuitPreviewCmd(), d.newPursuitBeginCmd(), d.newPursuitStartCmd(), d.newPursuitPauseCmd(), d.newPursuitResumeCmd(), d.newPursuitStatusCmd(), d.newPursuitListCmd(), d.newPursuitUnconfinedCmd())
+	cmd.AddCommand(d.newPursuitPreviewCmd(), d.newPursuitBeginCmd(), d.newPursuitStartCmd(), d.newPursuitPauseCmd(), d.newPursuitResumeCmd(), d.newPursuitStatusCmd(), d.newPursuitReadinessCmd(), d.newPursuitListCmd(), d.newPursuitUnconfinedCmd())
 	for _, sub := range cmd.Commands() {
 		d.WithJSONErrors(sub)
 	}
@@ -220,7 +221,7 @@ func (d Deps) newPursuitStatusCmd() *cobra.Command {
 			ps := missionpursuit.NewStore(db.DB)
 			pu, err := ps.GetPursuit(cmd.Context(), p.ID, session)
 			if err != nil {
-				return d.taskErr(err)
+				return d.noPursuitErr(err)
 			}
 			pr, err := ps.GetProgress(cmd.Context(), p.ID, session)
 			if err != nil {
@@ -249,6 +250,8 @@ func hostPursuitLine(h coderhost.PursuitHostInfo, found, alive bool) string {
 	switch {
 	case !found:
 		return "this host: no coder host has published its pursuit state (none is running, it is older than this field, or its status file could not be written: status unavailable); nothing is judged or woken without a running host"
+	case h.Invalid:
+		return "this host: the coder host's status file holds values that are not usable (ignored, nothing is shown from it); run `coder host status`; nothing is judged or woken on its say-so"
 	case !alive:
 		last := "the loop was OFF"
 		if h.Enabled {
@@ -256,12 +259,14 @@ func hostPursuitLine(h coderhost.PursuitHostInfo, found, alive bool) string {
 		}
 		return "this host: the coder host is not running (last known: " + last + "); nothing is judged or woken until a host starts"
 	case h.Enabled:
-		return fmt.Sprintf("this host: the pursuit loop is ON; judge %s (asked to stay under $%.2f a call); a wake-up turn is capped at $%.2f or at what the lead has left, whichever is less (a request to the AI runtime, checked after the turn)",
+		return fmt.Sprintf("this host: the pursuit loop is ON; judge %s (asked to stay under $%.2f a call); a wake-up turn is capped at $%.2f as the host reports it (default $2; up to $10 if the host was started with a larger cap) or at what the lead has left, whichever is less (a request to the AI runtime, checked after the turn)",
 			h.Pin, coderhost.PursuitJudgeCallCapUSD, h.WakeCapUSD)
+	case h.Missing != "":
+		return "this host: the pursuit loop is ON by default but idle: " + h.Reason + ": nothing is judged or woken, and this mission's check-ins go on"
 	case h.Reason != "":
 		return "this host: the pursuit loop is OFF: " + h.Reason
 	}
-	return "this host: the pursuit loop is OFF (the host was started without MONOAGENT_PURSUIT_JUDGE): nothing is judged or woken, and this mission's check-ins go on"
+	return "this host: the pursuit loop is OFF (no judge is running on this host; `coder host pursuit judge set RUNTIME/MODEL`, then restart it): nothing is judged or woken, and this mission's check-ins go on"
 }
 
 // pursuitLong fills the dollar figures of the help from the same function the dollars table, the docs and the app's dialog use.
