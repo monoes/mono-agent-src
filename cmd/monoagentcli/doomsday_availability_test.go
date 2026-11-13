@@ -8,6 +8,7 @@ import (
 
 	doomsdaycli "github.com/monoes/mono-agent/internal/cli/doomsday"
 	"github.com/monoes/mono-agent/internal/coderhost"
+	"github.com/monoes/mono-agent/internal/procbind"
 	"github.com/monoes/mono-agent/internal/storage"
 )
 
@@ -84,13 +85,15 @@ func setBindingStored(t *testing.T, db *storage.Database, on bool) {
 	}
 }
 
-// The open-ended mode needs peer-credential binding to be on in this profile (#1568): with the stored setting off (or never
-// set) the mode is not available and the reason names Settings, with it on the mode is, and switching it off takes it away
-// again. Where the machine cannot run the binding service the older reason still wins.
+// The open-ended mode needs peer-credential binding to be on in this profile (#1568): unset follows the machine (on where it
+// can run the service, since the default flipped), an explicit off makes the mode unavailable with the reason naming Settings,
+// and switching it off takes it away again. Where the machine cannot run the binding service the older reason still wins.
 func TestOpenModeFollowsTheStoredBindingSetting(t *testing.T) {
+	procbind.ForTestSetIssuance(t, true)
+	procbind.ForTestSetReady(t, nil)
 	cfg, _ := chatPathSetup(t, true)
-	if ok, reason := coderhost.OpenModeAvailability(); ok || !strings.Contains(reason, "peer-credential binding is off") || !strings.Contains(reason, "Settings") {
-		t.Fatalf("never set: ok=%v reason=%q", ok, reason)
+	if ok, reason := coderhost.OpenModeAvailability(); !ok {
+		t.Fatalf("never set on a capable machine: the default must offer the mode, got %q", reason)
 	}
 	db, err := initDB(cfg)
 	if err != nil {
@@ -98,8 +101,8 @@ func TestOpenModeFollowsTheStoredBindingSetting(t *testing.T) {
 	}
 	defer db.Close()
 	setBindingStored(t, db, false)
-	if ok, _ := coderhost.OpenModeAvailability(); ok {
-		t.Fatal("stored off: the mode is offered")
+	if ok, reason := coderhost.OpenModeAvailability(); ok || !strings.Contains(reason, "peer-credential binding is off") || !strings.Contains(reason, "Settings") {
+		t.Fatalf("stored off: ok=%v reason=%q", ok, reason)
 	}
 	setBindingStored(t, db, true)
 	if ok, reason := coderhost.OpenModeAvailability(); !ok {
@@ -114,6 +117,18 @@ func TestOpenModeFollowsTheStoredBindingSetting(t *testing.T) {
 	setBindingStored(t, db, true)
 	if ok, reason := coderhost.OpenModeAvailability(); ok || !strings.Contains(reason, "no service here") {
 		t.Fatalf("cannot run binding: ok=%v reason=%q", ok, reason)
+	}
+}
+
+// Where the machine cannot run the binding service the unset default is off and the mode says "not available: <reason>"; the
+// read paths still work (nothing refuses or fails).
+func TestOpenModeUnsetDefaultDegradesWhereBindingCannotRun(t *testing.T) {
+	procbind.ForTestSetIssuance(t, true)
+	procbind.ForTestSetReady(t, errors.New("old kernel"))
+	chatPathSetup(t, true)
+	ok, reason := coderhost.OpenModeAvailability()
+	if ok || !strings.Contains(reason, "not available") || !strings.Contains(reason, "old kernel") {
+		t.Fatalf("ok=%v reason=%q", ok, reason)
 	}
 }
 

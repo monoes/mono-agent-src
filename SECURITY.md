@@ -3730,6 +3730,8 @@ parent is gone: stragglers of a Windows turn may outlive their leader (job-objec
 call and the caller runs it. The runtime's own native tools are a separate matter,
 covered by the classes above.
 
+**Peer-credential binding is on by default (2026-11).** `coder.peercredBinding` unset means ON where `procbind.Refusal` has no cause (kernel, own /proc, build); an explicit stored `false` stays off and an explicit `true` still refuses a turn where the machine cannot run it. A default that cannot be used (unsupported machine, service failed to start, host inside a turn) runs the turn unbound with a logged reason, EXCEPT while an open-ended run is open, which needs bound turns and refuses; `coder status` says why in `peercredBindingNote`. Operators who had set it off before the default existed left no stored trace (the old store dropped a false) and follow the default until they switch it off again.
+
 **Peer-credential binding records (storage only).** Migration 148 adds insert-only tables for a
 future process binding anchored in kernel peer credentials (design:
 `docs/mastermind/specs/2026-10-28-peer-credential-binding.md`). No v2 token or binding is issued into them yet (nothing outside the package inserts one), so the feature is not live; the token revoke paths already read them in their own transaction and would record a revocation for a v2 token. Their rows

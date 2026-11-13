@@ -83,7 +83,7 @@ func TestSavingTheCoderSettingsStillRemovesAKnownFieldTurnedOff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.PeercredBinding = false
+	s.PeercredBinding = bindingUnset // back to the default: the key is not stored
 	s.Box = ""
 	if err := saveCoderSettings(db.DB, s); err != nil {
 		t.Fatal(err)
@@ -172,7 +172,7 @@ func TestSavingTheCoderSettingsDropsACaseVariantOfAKnownKey(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		s.PeercredBinding, s.Enabled = false, false
+		s.PeercredBinding, s.Enabled = bindingUnset, false
 		on := true
 		s.SendApproval = &on
 		if err := saveCoderSettings(db.DB, s); err != nil {
@@ -182,7 +182,7 @@ func TestSavingTheCoderSettingsDropsACaseVariantOfAKnownKey(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if bool(back.PeercredBinding) || back.Enabled || back.SendApproval == nil || !*back.SendApproval {
+		if back.PeercredBinding != bindingUnset || back.Enabled || back.SendApproval == nil || !*back.SendApproval {
 			t.Fatalf("a case variant won on read-back: %+v", back)
 		}
 		got := storedCoderJSON(t, dbPath)

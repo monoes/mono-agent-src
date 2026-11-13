@@ -115,18 +115,22 @@ func init() {
 func cheapOpenModeCheck(cfg *globalConfig) (bool, string) {
 	db, err := openReadDB(cfg)
 	if errors.Is(err, errNoReadableSchema) {
-		return false, openModeBindingOffReason // no database with the mode's tables: nothing stored, so binding is off
+		// no database with the mode's tables: nothing stored, so the default applies
+		if on, note := chatcli.PeercredBindingDefault(); !on {
+			return false, openModeBindingReason(note)
+		}
+		return true, ""
 	}
 	if err != nil {
 		return false, "the open-ended mode's state cannot be read right now"
 	}
 	defer db.Close()
-	on, err := chatcli.PeercredBindingOn(db)
+	on, note, err := chatcli.PeercredBindingNote(db)
 	if err != nil {
 		return false, "the open-ended mode's state cannot be read right now"
 	}
 	if !on {
-		return false, openModeBindingOffReason
+		return false, openModeBindingReason(note)
 	}
 	var n int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM doomsday_runs WHERE profile = ? AND state <> 'quiescent'`, cfg.ProfileID).Scan(&n); err != nil {
@@ -136,6 +140,15 @@ func cheapOpenModeCheck(cfg *globalConfig) (bool, string) {
 		return false, "an open-ended run is already active in this profile: only one runs at a time"
 	}
 	return true, ""
+}
+
+// openModeBindingReason is why the mode is not offered while binding is off: "not available: <reason>" where the machine cannot run
+// the service (the default is off there), the Settings pointer where the operator switched it off.
+func openModeBindingReason(note string) string {
+	if note != "" {
+		return "not available: " + note
+	}
+	return openModeBindingOffReason
 }
 
 // openModeBindingOffReason is why the mode is not offered while the setting is off, and where to switch it on.

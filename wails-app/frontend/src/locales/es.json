@@ -2212,7 +2212,8 @@
   },
   "coderBinding": {
     "label": "Vinculación de credenciales del proceso",
-    "hint": "Ata los tokens de cada turno de Coder al proceso que ejecuta el turno. El modo de chat abierto solo se ofrece mientras esto está activado. Desactivado por defecto.",
+    "hint": "Ata los tokens de cada turno de Coder al proceso que ejecuta el turno. El modo de chat abierto solo se ofrece mientras esto está activado. Activado por defecto donde este equipo puede ejecutar el servicio; un desactivado explícito se conserva.",
+    "unavailable": "No disponible en este equipo: {{reason}}",
     "switchedOn": "La vinculación de credenciales del proceso está activada.",
     "switchedOff": "La vinculación de credenciales del proceso está desactivada.",
     "warnTitle": "Antes de cambiarlo",

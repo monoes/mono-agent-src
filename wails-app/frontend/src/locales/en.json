@@ -2256,7 +2256,8 @@
   },
   "coderBinding": {
     "label": "Peer-credential binding",
-    "hint": "Ties each coder turn's tokens to the process that runs the turn. The open-ended chat mode is offered only while this is on. Off by default.",
+    "hint": "Ties each coder turn's tokens to the process that runs the turn. The open-ended chat mode is offered only while this is on. On by default where this machine can run the binding service; an explicit off is kept.",
+    "unavailable": "Not available on this machine: {{reason}}",
     "switchedOn": "Peer-credential binding is on.",
     "switchedOff": "Peer-credential binding is off.",
     "warnTitle": "Before you change this",
