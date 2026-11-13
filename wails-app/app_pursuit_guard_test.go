@@ -231,7 +231,9 @@ func other() { _ = []string{"task", "session", "goal", "confirm", "5"} }`)))) ==
 
 // The pursuit verbs the app may run are an allow-list: preview (the start file) and the reads and the person's pause and resume.
 func TestPursuitReadBindingsUseAnAllowList(t *testing.T) {
-	allowed := map[string]bool{"task": true, "session": true, "pursuit": true, "preview": true, "status": true, "list": true, "pause": true, "resume": true, "show": true, "begin": true}
+	allowed := map[string]bool{"task": true, "session": true, "pursuit": true, "preview": true, "status": true, "list": true, "pause": true, "resume": true, "show": true, "begin": true,
+		// the read of what is missing, and the host switch's read-only status (`coder host pursuit status`; its writes are not bound here)
+		"readiness": true, "coder": true, "host": true}
 	check := func(f srcFile) (bad []string) {
 		literalGroups(f, func(g []string, pos token.Pos, in string) {
 			if !has(g, "pursuit") {
@@ -311,7 +313,7 @@ func TestPursuitBindingsAreFrontendOnly(t *testing.T) {
 		}
 	}
 	sort.Strings(got)
-	if strings.Join(got, ",") != "PursuitStart,PursuitStartPreview" {
+	if strings.Join(got, ",") != "PursuitHostStatus,PursuitPause,PursuitReadiness,PursuitStart,PursuitStartPreview" {
 		t.Fatalf("Pursuit bindings: %v", got)
 	}
 }
