@@ -20,12 +20,13 @@ func TestStopLeaderOfAMemberDoesNotSignalTheGroup(t *testing.T) {
 		if err := c.Start(); err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(func() { _ = c.Process.Kill(); _ = c.Wait() })
+		done := make(chan struct{})
+		go func() { _ = c.Wait(); close(done) }() // the only Wait of this command
+		t.Cleanup(func() { _ = c.Process.Kill(); <-done })
 		return c
 	}
 	anchor := start(0)
 	turn, sibling := start(anchor.Process.Pid), start(anchor.Process.Pid)
-	go func() { _ = turn.Wait() }()
 	res := Stopper{StampOf: func(int) string { return "s" }, Grace: 3 * time.Second}.StopLeader(turn.Process.Pid, "s")
 	if res.Outcome != StopStopped {
 		t.Fatalf("outcome %v (%s)", res.Outcome, res.Cause)
