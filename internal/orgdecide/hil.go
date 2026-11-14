@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/commsync"
+	"github.com/monoes/mono-agent/internal/hilscrub"
 	"github.com/monoes/mono-agent/internal/orgdesign"
 )
 
@@ -17,6 +18,9 @@ import (
 // that started them (U12, Q12, class hil:<alias>). HIL items of standalone
 // workflows are never touched.
 func PendingHIL(ctx context.Context, db *sql.DB, profileID, org string, doc *orgdesign.Doc) ([]Item, error) {
+	// Rows an older version wrote may hold a granted secret's value: they are
+	// scrubbed before the review text is read (#1594).
+	hilscrub.Ensure(ctx, db, profileID)
 	rows, err := db.QueryContext(ctx, `
 		SELECT h.id, COALESCE(h.node_name, ''), COALESCE(h.readonly_data, ''), COALESCE(e.trigger_data, '{}'), e.trigger_type, h.execution_id, COALESCE(h.created_at, '')
 		FROM hil_pending h JOIN workflow_executions e ON e.id = h.execution_id
@@ -31,6 +35,7 @@ func PendingHIL(ctx context.Context, db *sql.DB, profileID, org string, doc *org
 		if err := rows.Scan(&id, &node, &readonly, &triggerData, &triggerType, &execID, &created); err != nil {
 			return nil, err
 		}
+		readonly = hilscrub.Mask(db, profileID, id, readonly) // while a pass has failed
 		var td struct {
 			Org struct {
 				Name       string `json:"name"`

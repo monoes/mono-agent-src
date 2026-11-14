@@ -35,6 +35,9 @@ var (
 	ErrNotFound = errors.New("send item not found")
 	// ErrNotSend: the HIL item exists but is not a send item.
 	ErrNotSend = errors.New("not a send item")
+	// ErrNotFinished: the card could not be updated after its send ran (the row
+	// kept changing under the update); it stays "sending" and is not run again.
+	ErrNotFinished = errors.New("the send was handled but the card could not be updated, so it still shows as sending; it is not sent again. Check the destination before preparing it again")
 	// ErrAlwaysLabel: always allow asked for a send whose recipient is a
 	// label, which would let any later send with that label through.
 	ErrAlwaysLabel = errors.New("always allow needs an address or handle, and this send's recipient is a description that fits any send of its kind; approve it without always allow")
@@ -184,7 +187,7 @@ func (s Store) Get(ctx context.Context, id string) (Payload, error) {
 	if err != nil {
 		return Payload{}, err
 	}
-	r.ro, r.ed = hilscrub.Mask(s.DB, s.Profile, r.ro), hilscrub.Mask(s.DB, s.Profile, r.ed)
+	r.ro, r.ed = hilscrub.Mask(s.DB, s.Profile, r.id, r.ro), hilscrub.Mask(s.DB, s.Profile, r.id, r.ed)
 	p, _, err := r.payload()
 	return p, err
 }
@@ -205,7 +208,7 @@ func (s Store) List(ctx context.Context, states ...State) ([]Payload, error) {
 		if err := rows.Scan(&r.id, &r.status, &r.ro, &r.ed, &r.nc); err != nil {
 			return nil, err
 		}
-		r.ro, r.ed = hilscrub.Mask(s.DB, s.Profile, r.ro), hilscrub.Mask(s.DB, s.Profile, r.ed)
+		r.ro, r.ed = hilscrub.Mask(s.DB, s.Profile, r.id, r.ro), hilscrub.Mask(s.DB, s.Profile, r.id, r.ed)
 		p, _, err := r.payload()
 		if err != nil {
 			continue

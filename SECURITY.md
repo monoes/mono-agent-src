@@ -203,14 +203,23 @@ reads; values an agent already retrieved cannot be recalled.
   Human-in-Loop node queues no item (or message) that carries one. Cards (and
   their Communications rows) written before this change are scrubbed before
   they are read, as long as a grant names their secrets: only cards older than
-  a cutoff stored once in `settings` (`hilscrub.cutoff`), never mail you
-  received and never a newer card, so the scrub cannot be used to test guesses
-  of a secret. Whole-token matches only; a secret that is one plain word under
+  a cutoff stored once in `settings` (`hilscrub.cutoff`, with the highest card
+  row id then in `hilscrub.cutoff.rowid`: a card is old only if its timestamp
+  and its row id both say so, so a clock stepped backwards cannot make a new
+  card eligible), never mail you received and never a newer card, so the scrub
+  (and the in-memory masking while a pass has failed, which applies to the
+  same cards only) cannot be used to test guesses of a secret. Whole-token matches only; a secret that is one plain word under
   16 letters cannot be told from ordinary text and is left; only a secret's
   current value is looked for (not one it had before a rotation); a card an
   older bundled `monoagentcli` writes after the cutoff keeps its value; and
   an old binary that approves a scrubbed pending card sends the literal
-  `[[held-secret:...]]` text (update every binary). A scrub that cannot write
+  `[[held-secret:...]]` text (update every binary). Stated limit: whoever can
+  write the database with raw SQL can delete the cutoff rows (they are set
+  again to the moment of the next write, so cards before that count as old)
+  and can read the rows directly anyway; the scrub is not a defence against
+  that actor. If an approved send ran but its card cannot be updated (a
+  rewrite keeps racing the update), the approval returns an error and the
+  card stays "sending": it is not sent again. A scrub that cannot write
   (a lock held elsewhere, a read-only handle) never fails or delays a read
   for long: the readers mask the values in memory and the next read after a
   short back-off tries again.

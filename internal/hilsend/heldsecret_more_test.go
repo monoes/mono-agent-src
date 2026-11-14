@@ -38,6 +38,9 @@ func (f *heldFix) beforeCutoff(t *testing.T) {
 	if _, err := f.db.Exec(`UPDATE settings SET value = datetime('now','+1 day') WHERE key = 'hilscrub.cutoff'`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := f.db.Exec(`INSERT OR REPLACE INTO settings (key, value) VALUES ('hilscrub.cutoff.rowid', '1000000')`); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // The card keeps hashes of its tags: the tag itself, which is what a reader

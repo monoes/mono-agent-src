@@ -40,6 +40,9 @@ func TestHILListScrubsAnOlderCardHoldingAGrantedSecret(t *testing.T) {
 	if _, err := sdb.DB.Exec(`INSERT OR REPLACE INTO settings (key, value) VALUES ('hilscrub.cutoff', datetime('now','+1 day'))`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := sdb.DB.Exec(`INSERT OR REPLACE INTO settings (key, value) VALUES ('hilscrub.cutoff.rowid', '1000000')`); err != nil {
+		t.Fatal(err)
+	}
 	sdb.Close()
 	items, err := runHIL(t, cfg, "list")
 	if err != nil || len(items) != 1 {
