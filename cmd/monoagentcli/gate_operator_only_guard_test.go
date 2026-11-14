@@ -26,7 +26,7 @@ import (
 
 const (
 	turnAware = "already behind the turn-aware gate (requireOperator, personGate)"
-	classC    = "class C: no local operator check; whether it should refuse an agent locally is not decided (issue 1333)"
+	partlyC   = "partly gated (decided for #1475, operatorOnlyRowsPR6): the verbs the owner made operator-only are rows; the rest was decided to stay open (see the leave-open list in TestClassCOpenVerbsStayOpen)"
 	pr4       = "converted in PR 4 (profile and people)"
 	pr6c      = "converted in PR 6c (mode switch): open to agents for a built-in package, so no row; login_turn_gate_test.go holds its contexts"
 	heldB     = "held: class B, the verb has an agent path next to the operator's; waits for the owner's answers (issue 1333)"
@@ -238,27 +238,27 @@ func TestEveryOperatorOnlyRowReachesItsCommand(t *testing.T) {
 			t.Errorf("%s: %v", r.path, err)
 			continue
 		}
-		if !strings.HasSuffix(r.path, " "+c.Name()) {
+		if r.path != c.Name() && !strings.HasSuffix(r.path, " "+c.Name()) {
 			t.Errorf("%s: the row's args reach %q", r.path, c.Name())
 		}
 	}
 }
 
 // noLocalGate are the cmOperatorOnly families of the client-mode table with no local operator check at
-// all (class C of issue 1333: whether they should refuse an agent locally is not decided).
+// all (class C of issues 1333 and 1475: decided by the owner, each family is in part a row of operatorOnlyRowsPR6 and in part left open on purpose).
 var noLocalGate = map[string]string{
-	"account":     classC,
-	"daemon":      classC,
-	"db":          classC,
-	"httpapi":     classC,
-	"init":        classC,
-	"integration": classC,
-	"library":     classC,
-	"logout":      classC,
-	"mcp":         classC,
-	"release":     classC,
-	"setup":       classC,
-	"update":      classC,
+	"account":     partlyC,
+	"daemon":      partlyC,
+	"db":          "decided leave open (#1475): `db migrate` is idempotent, spends nothing and holds no secret; every command already migrates",
+	"httpapi":     "decided leave open (#1475): a loopback server, read-only unless --allow-mutations, whose mutating routes carry the item-level refusal",
+	"init":        "decided leave open (#1475): copies the embedded skills into the coding agents' folders; trusted content, no network, no secrets",
+	"integration": "decided leave open (#1475): `integration import-openapi` stays open (it needs the user's login and installs only declared hosts)",
+	"library":     partlyC,
+	"logout":      partlyC,
+	"mcp":         "decided leave open (#1475): the agents' own channel, the verb cannot be refused to the agent that launches it; its tools carry their own gates",
+	"release":     partlyC,
+	"setup":       partlyC,
+	"update":      partlyC,
 }
 
 // alreadyTurnAware are cmOperatorOnly families whose verbs were put behind the turn-aware gate before
