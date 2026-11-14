@@ -6,6 +6,7 @@ import { sessionsApi } from '../../../services/taskSessions.js'
 import { isTerminal } from '../../../lib/missionModel.js'
 import { ChatMarkdown } from '../../chat/ChatMarkdown.jsx'
 import { useSessionLive } from './useMissionSession.js'
+import { OverCommitChip } from './OverCommit.jsx'
 import './mission.css'
 
 // The mission cards in a coder chat's transcript (plan section 9). All of
@@ -49,7 +50,7 @@ export function ProposalCard({ item, conversationId, busy, started, onConfirm })
 export function PlanCard({ item, conversationId, onNavigate }) {
   const { t } = useTranslation()
   const p = item.payload
-  const { session, missing, reload } = useSessionLive(p.sessionId)
+  const { session, overCommitted, missing, reload } = useSessionLive(p.sessionId)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const foreign = !!session && session.conversation_id !== conversationId
@@ -79,6 +80,7 @@ export function PlanCard({ item, conversationId, onNavigate }) {
         {state && <span className={`ts-chip ts-chip--${state}`} data-testid="mission-plan-state">{t(`tasks.session.state.${state}`, { defaultValue: state })}</span>}
       </div>
       {session.goal && <p className="ms-text">{session.goal}</p>}
+      <OverCommitChip overCommitted={overCommitted} />
       <p className="ms-muted" data-testid="mission-plan-facts">
         {t('bubbles.mission.tasks', { count: session.counts?.total || 0 })} · {t('bubbles.mission.estimate', { usd: budget.toFixed(2) })} · {t('bubbles.mission.round', { round: p.round || 0 })}
       </p>

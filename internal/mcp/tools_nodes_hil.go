@@ -193,7 +193,7 @@ func toolHilList(ctx context.Context, s *Server, args json.RawMessage) (interfac
 			&it.Status, &roRaw, &edRaw, &it.CreatedAt, &it.WorkflowName); err != nil {
 			return nil, fmt.Errorf("scan HIL item: %w", err)
 		}
-		roRaw, edRaw = hilscrub.Mask(rt.db.DB, profileOf(ctx), roRaw), hilscrub.Mask(rt.db.DB, profileOf(ctx), edRaw)
+		roRaw, edRaw = hilscrub.Mask(rt.db.DB, profileOf(ctx), it.ID, roRaw), hilscrub.Mask(rt.db.DB, profileOf(ctx), it.ID, edRaw)
 		_ = json.Unmarshal([]byte(roRaw), &it.ReadonlyData)
 		_ = json.Unmarshal([]byte(edRaw), &it.EditableData)
 		items = append(items, it)

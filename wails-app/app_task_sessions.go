@@ -53,6 +53,20 @@ func (a *App) TaskSessionShow(id int64, events int) string {
 	return a.taskCLI("", "session", "show", sid, "--events", strconv.Itoa(events))
 }
 
+// TaskSessionPursuitStatus is `task session pursuit status ID`: the pursuit's state and why it waits (read only; the page
+// shows the waiting reason `over-committed` from it).
+func (a *App) TaskSessionPursuitStatus(id int64) string {
+	if err := a.signedOut(); err != nil {
+		return loginRequiredJSON(err)
+	}
+	sid, bad := sessionIDArg(id)
+	if bad != "" {
+		return bad
+	}
+	args := []string{"session", "pursuit", "status", sid}
+	return a.taskCLI("", args...)
+}
+
 // TaskSessionPlan is `task session plan ID`: the tasks with dependencies and acceptance.
 func (a *App) TaskSessionPlan(id int64) string {
 	if err := a.signedOut(); err != nil {

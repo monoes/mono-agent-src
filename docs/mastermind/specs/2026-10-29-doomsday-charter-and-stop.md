@@ -1,10 +1,7 @@
 # Doomsday mode: charter and Stop (B0 spec and threat model)
 
 Epic #1148, issue #1152 (B0). Plan: `docs/mastermind/plans/2026-10-29-doomsday-mode-and-agent-purposes.md`
-(PR #1147), section 2 and the decisions in section 4. Status: **Draft, revision 6 (the operator's answers to 12.5 recorded, 2026-11-01). B1 code may not start on an area until its prerequisite contract (section 13) is
-closed.** Nothing is
-built. The mission series (#1106) has merged; The independent review of this document is a gate; section 13 lists the contracts it still leaves
-open, each blocking the implementation that touches its area. Revision 2 answers the first independent review (two design reviews, request-changes):
+(PR #1147), section 2 and the decisions in section 4. Status (updated 2026-11-14): **B1 to B5 are built and released** (#1383 first in v0.227.1, #1385 in v0.228.0, #1386 in v0.228.1, #1387 in v0.229.0); the text below is the design as of revision 6 (2026-11-01) and is not rewritten. The feature shipped OFF by default and is available since; macOS runs hold the run's processes in a group the host makes (v0.280.3, #1610). The real-run acceptance (#1158) is still pending, and several behaviours are unverified on real machines (real cgroup delegation, macOS and Windows, a real multi-process host). **The independent-review gate of section 13 was never closed:** the design notes did not reach a P1-free revision and the owner waived that gate for this build (stated on #1153 to #1157), so the "may not start" and "gate" wording below describes the original rule, not the state of the code. Original status line: Draft, revision 6 (the operator's answers to 12.5 recorded, 2026-11-01). The mission series (#1106) has merged; section 13 lists the contracts the review left open. Revision 2 answers the first independent review (two design reviews, request-changes):
 Stop is now a protocol with a barrier, an emergency path and a membership registry (section 5); the
 adversary boundary is stated as a tiered guarantee (section 2); authority is an immutable per-operation
 allowlist (section 4); the person-less wording is reconciled (section 6); and the earlier addendum is

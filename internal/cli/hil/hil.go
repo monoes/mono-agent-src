@@ -109,7 +109,7 @@ func (d Deps) newHILListCmd() *cobra.Command {
 				}
 				// Rows the scrub could not rewrite are shown masked.
 				prof := d.ProfileID()
-				roRaw, edRaw, cfgRaw = hilscrub.Mask(db.DB, prof, roRaw), hilscrub.Mask(db.DB, prof, edRaw), hilscrub.Mask(db.DB, prof, cfgRaw)
+				roRaw, edRaw, cfgRaw = hilscrub.Mask(db.DB, prof, it.ID, roRaw), hilscrub.Mask(db.DB, prof, it.ID, edRaw), hilscrub.Mask(db.DB, prof, it.ID, cfgRaw)
 				_ = json.Unmarshal([]byte(roRaw), &it.ReadonlyData)
 				_ = json.Unmarshal([]byte(edRaw), &it.EditableData)
 				_ = json.Unmarshal([]byte(cfgRaw), &it.NodeConfig)

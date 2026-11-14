@@ -156,7 +156,7 @@ func (s *Server) handleHilList(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "scan HIL item: "+err.Error())
 			return
 		}
-		roRaw, edRaw = hilscrub.Mask(s.rt.db.DB, profileOf(r), roRaw), hilscrub.Mask(s.rt.db.DB, profileOf(r), edRaw)
+		roRaw, edRaw = hilscrub.Mask(s.rt.db.DB, profileOf(r), it.ID, roRaw), hilscrub.Mask(s.rt.db.DB, profileOf(r), it.ID, edRaw)
 		_ = json.Unmarshal([]byte(roRaw), &it.ReadonlyData)
 		_ = json.Unmarshal([]byte(edRaw), &it.EditableData)
 		items = append(items, it)
