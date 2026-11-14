@@ -10,6 +10,7 @@ import (
 	"io"
 	"os/exec"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -351,7 +352,7 @@ func (p *sessPlacer) Adopt(pid int, stamp string) error {
 	switch {
 	case err != nil:
 		return fmt.Errorf("%w: the leader %d is not running: %v", ErrNotPlaced, pid, err)
-	case !sameStart(cur.Stamp, stamp):
+	case !sameStart(p.c.os, pid, cur.Stamp, stamp):
 		return fmt.Errorf("%w: process %d is not the one that was started (start stamp differs)", ErrNotPlaced, pid)
 	case cur.SID != pid:
 		return fmt.Errorf("%w: process %d is not the leader of a session of its own", ErrNotPlaced, pid)
@@ -397,11 +398,29 @@ func (p *sessPlacer) UnitID() uint64 { return p.rec.CgroupID }
 const launcherStampPrefix = "started:"
 
 // sameStart compares the unit's own start stamp (seconds.microseconds from the process table) with the one the caller read. The host
-// launcher's ps form is not comparable with the table's, and is not a mismatch: the leader is the adopter's own unreaped child (the
-// parent check in Adopt), so its number cannot have been reused since the launcher started it. Any other form must be equal.
-func sameStart(own, given string) bool {
-	if strings.HasPrefix(given, launcherStampPrefix) {
-		return true
+// launcher's ps form ("started:<lstart>") is not comparable with the table's, so it is checked against the leader's lstart read again
+// with the launcher's own pinned ps call, to the second; the parent check in Adopt covers the rest (the leader is the adopter's own
+// child). A ps that fails, prints nothing or prints another start refuses. Any other form must be equal.
+func sameStart(os SessionOS, pid int, own, given string) bool {
+	body, ok := strings.CutPrefix(given, launcherStampPrefix)
+	if !ok {
+		return own == given
 	}
-	return own == given
+	if strings.TrimSpace(body) == "" {
+		return false
+	}
+	now, err := leaderLStart(os, pid)
+	return err == nil && now != "" && now == strings.TrimSpace(body)
+}
+
+// leaderLStart reads the start time of pid the way the host launcher does (coder_host_stamp_other.go pidStamp): `ps -o lstart=` with
+// the time zone and language pinned, so the text is the same whoever runs it. A SessionOS may answer it itself (LStart).
+func leaderLStart(os SessionOS, pid int) (string, error) {
+	if l, ok := os.(interface{ LStart(pid int) (string, error) }); ok {
+		return l.LStart(pid)
+	}
+	cmd := exec.Command("ps", "-o", "lstart=", "-p", strconv.Itoa(pid))
+	cmd.Env = append(cmd.Environ(), "TZ=UTC", "LC_ALL=C")
+	out, err := cmd.Output()
+	return strings.TrimSpace(string(out)), err
 }
