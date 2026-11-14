@@ -32,10 +32,11 @@ func (g *HostGate) PlaceCmd(cmd *exec.Cmd, profile, conv string) error {
 // does nothing; with a run open and a unit that cannot be placed in, the error means cmd must not be started.
 // It is the shape chat.RunHooks.Place takes.
 func (g *HostGate) PlaceRelease(cmd *exec.Cmd, profile, conv string) (release func(), err error) {
-	pl, err := g.placer(profile, conv)
+	pl, gen, err := g.placerRun(profile, conv)
 	if err != nil {
 		return nil, err
 	}
+	g.noteStart(conv, gen)
 	if pl == nil {
 		return func() {}, nil
 	}
@@ -50,24 +51,33 @@ func (g *HostGate) PlaceRequired(profile, conv string) (bool, error) {
 	return pl != nil, err
 }
 
+// newPlacer is stop.NewPlacer; a seam so a test can hand the gate the placement of a unit kind the test host does not use.
+var newPlacer = stop.NewPlacer
+
 // placer returns the placer of the profile's open run, nil with no run open.
 func (g *HostGate) placer(profile, conv string) (stop.Placement, error) {
+	pl, _, err := g.placerRun(profile, conv)
+	return pl, err
+}
+
+// placerRun is placer with the generation of the run it belongs to.
+func (g *HostGate) placerRun(profile, conv string) (stop.Placement, int64, error) {
 	if profile != g.Profile {
-		return nil, fmt.Errorf("the open-ended mode is wired for profile %q, not %q (conversation %s): nothing was started", g.Profile, profile, conv)
+		return nil, 0, fmt.Errorf("the open-ended mode is wired for profile %q, not %q (conversation %s): nothing was started", g.Profile, profile, conv)
 	}
 	runs, err := g.Store.OpenRuns(context.Background(), g.Profile)
 	if g.activity().failOpen(runs, err, g.RunDir, g.Store, g.Profile) {
-		return nil, nil // no run is known and the table cannot be listed: nothing to place
+		return nil, 0, nil // no run is known and the table cannot be listed: nothing to place
 	}
 	if err != nil {
-		return nil, fmt.Errorf("the run state cannot be read (conversation %s): %w", conv, err)
+		return nil, 0, fmt.Errorf("the run state cannot be read (conversation %s): %w", conv, err)
 	}
 	if len(runs) == 0 {
-		return nil, nil
+		return nil, 0, nil
 	}
-	pl, err := stop.NewPlacer(g.Kernel, g.RunDir, uint64(runs[0].Generation))
+	pl, err := newPlacer(g.Kernel, g.RunDir, uint64(runs[0].Generation))
 	if err != nil {
-		return nil, fmt.Errorf("conversation %s: %w", conv, err)
+		return nil, 0, fmt.Errorf("conversation %s: %w", conv, err)
 	}
-	return pl, nil
+	return pl, runs[0].Generation, nil
 }

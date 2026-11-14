@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand/v2"
+	"strings"
 	"time"
 )
 
@@ -143,6 +144,18 @@ func (r Report) settled() bool {
 // BestEffortNote is the limit a best-effort stop states wherever it says "stopped".
 const BestEffortNote = "best effort: processes that left the group are not covered"
 
+// StatedLimit is the limit a best-effort stop of this report states: the unit mechanism's own text when it declares one (the
+// session unit's, SessionBestEffortNote, carried in the outcome of its best-effort end), the process-group wording otherwise. The declared text may be
+// joined with other notes of the end (an empty unit, several candidate units), so it is looked for inside the note; only that exact
+// text is ever quoted, so no other note can pose as a limit. (Named without "BestEffort": stop.Report methods of that name are
+// guarded to be the one runEnded reads.)
+func (r Report) StatedLimit() string {
+	if r.Unit.Kind == UnitBestEffort && strings.Contains(r.Unit.Note, SessionBestEffortNote) {
+		return SessionBestEffortNote
+	}
+	return BestEffortNote
+}
+
 // ExitCode is non-zero unless Stopped or StoppedBestEffort.
 func (r Report) ExitCode() int {
 	if r.Stopped() || r.StoppedBestEffort() {
@@ -192,7 +205,7 @@ func (r Report) Lines() []string {
 	if r.Stopped() {
 		out = append(out, fmt.Sprintf("generation %d stopped (quiescent)", r.Generation))
 	} else if r.StoppedBestEffort() {
-		out = append(out, fmt.Sprintf("generation %d stopped (%s)", r.Generation, BestEffortNote))
+		out = append(out, fmt.Sprintf("generation %d stopped (%s)", r.Generation, r.StatedLimit()))
 	} else {
 		out = append(out, fmt.Sprintf("generation %d NOT stopped: state %s", r.Generation, r.Final))
 	}

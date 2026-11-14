@@ -233,3 +233,34 @@ func TestSealIsInactiveOffTheSessionHost(t *testing.T) {
 		t.Fatalf("an unreadable witness changed the end of a platform that has no session unit: %+v", out)
 	}
 }
+
+// The host releases a unit's holds when its end line is written (and not before): UnitEndedLine is that question, and a witness
+// that cannot be read is an error, never "not ended" and never "ended".
+func TestUnitEndedLineSaysWhetherTheEndIsRecorded(t *testing.T) {
+	r := newSeqRig(t)
+	rec := UnitRecord{Kind: KindSession, Generation: 3, CgroupID: 42, Name: "n"}
+	other := UnitRecord{Kind: KindSession, Generation: 3, CgroupID: 43, Name: "m"}
+	mustNoErr(t, r.seq.Bound(rec))
+	mustNoErr(t, r.seq.Bound(other))
+	if ended, err := r.seq.UnitEndedLine(3, 42); err != nil || ended {
+		t.Fatalf("before the end: %v %v", ended, err)
+	}
+	mustNoErr(t, r.seq.sealSessionUnits(3)) // sealing is not ending: a leader may not join, but the proof has not run
+	if ended, err := r.seq.UnitEndedLine(3, 42); err != nil || ended {
+		t.Fatalf("a sealed unit is not an ended one: %v %v", ended, err)
+	}
+	mustNoErr(t, r.seq.UnitEnded(rec, "best-effort"))
+	if ended, err := r.seq.UnitEndedLine(3, 42); err != nil || !ended {
+		t.Fatalf("after the end line: %v %v", ended, err)
+	}
+	if ended, _ := r.seq.UnitEndedLine(3, 43); ended {
+		t.Fatal("another unit of the generation was reported ended")
+	}
+	if ended, _ := r.seq.UnitEndedLine(4, 42); ended {
+		t.Fatal("the same unit id of another generation was reported ended")
+	}
+	r.fs.failRead["witness"] = true
+	if ended, err := r.seq.UnitEndedLine(3, 42); err == nil || ended {
+		t.Fatalf("an unreadable witness answered %v %v", ended, err)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // The leader ledger of a session unit (sessunit.go) over the witness: one authenticated line per session leader the host
@@ -132,4 +133,20 @@ func (s *Sequencer) Leaders(gen uint64) ([]Leader, error) {
 		out[i].Empty = empty[fmt.Sprintf("%d/%d/%s", out[i].Unit, out[i].PID, out[i].Stamp)]
 	}
 	return out, nil
+}
+
+// UnitEndedLine says whether the end line of the unit is written. The host calls it to know when it may let go of the leaders it
+// holds (ReleaseUnitHolds): a seal is not an end. A witness that cannot be read is an error, never an answer.
+func (s *Sequencer) UnitEndedLine(gen, unit uint64) (bool, error) {
+	recs, err := s.W.Records()
+	if err != nil {
+		return false, err
+	}
+	want := fmt.Sprintf("id=%d ", unit)
+	for _, r := range recs {
+		if r.T == RecUnitEnded && uint64(r.Gen) == gen && strings.HasPrefix(r.Extra, want) {
+			return true, nil
+		}
+	}
+	return false, nil
 }

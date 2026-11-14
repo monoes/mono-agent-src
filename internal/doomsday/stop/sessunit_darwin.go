@@ -92,18 +92,10 @@ const sessReadTries = 8
 // kinfoSettled is kinfo for a process that may be exiting: the kernel answers EIO for the table entry of a process that is
 // past its last instruction in user space but not yet a zombie (measured on macOS 27.2 while members were being killed, and it
 // can last a few milliseconds). Such a process is shortly gone and cannot run or fork any more, so after a brief wait it reads
-// as gone, not as a failure of the whole read.
+// as gone, not as a failure of the whole read; but only when kill(pid, 0) confirms it (settleEIO), otherwise the read fails.
 func kinfoSettled(pid int) (*unix.KinfoProc, error) {
-	for try := 0; ; try++ {
-		k, err := kinfo(pid)
-		if err == nil || !errors.Is(err, unix.EIO) {
-			return k, err
-		}
-		if try >= 20 {
-			return nil, errGone
-		}
-		time.Sleep(time.Millisecond)
-	}
+	return settleEIO(pid, func() (*unix.KinfoProc, error) { return kinfo(pid) },
+		func(p int) error { return unix.Kill(p, 0) }, func() { time.Sleep(sessEIOPause) })
 }
 
 // sidOf is getsid for one process: ok false when it exited, -1 for a process of another user whose session cannot be read

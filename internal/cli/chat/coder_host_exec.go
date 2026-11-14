@@ -71,6 +71,13 @@ type execLauncher struct {
 	// placeRequired, when set with place, says whether a turn of this session must be placed (an open-ended run is open): a legacy start
 	// is refused only then, so a host with no run starts its legacy turns as it always did. Unset, or an error, refuses (fail closed).
 	placeRequired func(profileID, conversationID string) (bool, error)
+	// adopt, when set, is asked for a BOUND turn right after its process was started and identified, before its identity is committed,
+	// before the release check and before anything is delivered: it puts the already running process into the run's unit (the macOS
+	// session unit records the leader; other platforms place a process at birth and have no adopt). An error ends the child, which has been
+	// given nothing, and fails the start. held says the unit has taken over reaping the leader (its hold keeps the number reserved until
+	// the unit lets go): the launcher then never waits for the process itself (no cmd.Wait), it only observes the exit without reaping,
+	// and that holds on an error too (the hold may have been taken before the refusal). A hook that panics is treated as held.
+	adopt func(profileID, conversationID string, pid int, stamp string) (held bool, err error)
 	// afterExitRevoke is a test seam: the exit goroutine calls it once its revokes have run, before the turn is done.
 	afterExitRevoke func()
 }
@@ -373,17 +380,39 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	}
 	// The waiter (which reaps the child and ends its tokens) starts only AFTER the process's identity is recorded: until then nothing
 	// can reap the child, so its pid and group are still its own and can be signalled safely if the record fails.
+	held := false // the unit's hold reaps the leader (see adopt): set before the waiter starts, never changed after
 	startWaiter := func() {
 		go func() {
+			observed, unconfirmed := false, false
 			if t.strict {
 				if holdLeader(t.pid) { // the leader is dead but unreaped: its group is still this turn's to signal
+					observed = true
 					t.settle()
+				} else if held && !turnAlive(t.pid) {
+					// A HELD leader that is neither running nor a zombie was already reaped by the unit (its number is free): it is not
+					// killed through the handle, and the turn is marked killed so that nothing signals the number by number afterwards.
+					t.markKilled()
 				} else {
-					t.holdFailed(cmd.Process.Kill) // its exit cannot be observed without reaping it: end it now, while it is still ours
+					// its exit cannot be observed without reaping it: end it now, while it is still ours
+					t.holdFailed(func() error { return killLeaderProc(cmd.Process) })
 				}
 			}
-			t.err = cmd.Wait()
-			t.markReaped()
+			if held {
+				// The unit's hold owns the reap: a leader's session number is its pid, and only an unreaped (zombie) leader keeps the number
+				// from being given to someone else while the unit is open. cmd.Wait would reap it (and, with the number reused, could reap a
+				// stranger), so the turn ends on the observed exit alone; the exit status is not read (no consumer of it needs it).
+				if !observed && !awaitGoneUnreaped(t.pid) {
+					// It may still be running: it is NOT marked reaped (the hold keeps its number, so a stop may still signal it) and the
+					// turn ends with an error that says so.
+					unconfirmed = true
+					t.err = errors.New("the turn's leader could not be confirmed ended after it was killed; it is held by the run's unit and is ended with the unit")
+				}
+			} else {
+				t.err = cmd.Wait()
+			}
+			if !unconfirmed {
+				t.markReaped()
+			}
 			// before done closes: a session that sees its turn end has no token left. The turn is held here while the
 			// revoke is retried; a revoke that still fails is reported as the turn's error.
 			// The exit ends this turn's own tokens, decided here at launch (the turn id is known): never the conversation's, which
@@ -419,6 +448,27 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 		t.markKilled() // under the lock, before the waiter can reap: Stop, the grace and afterDone never signal this pid or group again
 		startWaiter()  // reaps it and ends its tokens
 		return t.fail(err)
+	}
+	if bd != nil && l.adopt != nil {
+		// Joins the run's unit before anything else is recorded about the turn or given to it: the child waits for its credentials, so it
+		// has done nothing yet. A host that dies from here until the frame is delivered leaves the child with a closed pipe, which ends it
+		// (coderhost.StashCredFrame reads the frame first, fatally); the 10 s bound there ends a child whose host is alive but wedged.
+		var aerr error
+		perr := hookRecover("the adoption", func() (e error) { held, aerr = l.adopt(profileID, conversationID, t.pid, stamp); return aerr })
+		if perr != nil {
+			if aerr == nil { // a panic: nobody can say whether the hold was taken, so nobody else reaps either
+				held = true
+			}
+			ferr := killUnrecorded(fmt.Errorf("the turn's process could not be put in the run's unit, so it was stopped: %w", perr))
+			select { // an unheld leader is reaped by the waiter: its real exit status is the best reason when it had already exited
+			case <-t.done:
+				if t.err != nil && !held {
+					ferr = fmt.Errorf("%w (the turn's process ended with: %v)", ferr, t.err)
+				}
+			default:
+			}
+			return nil, ferr
+		}
 	}
 	if l.onProcess != nil {
 		if err := l.onProcess(profileID, conversationID, turnID, t.pid, stamp, bd != nil); err != nil {
@@ -717,6 +767,23 @@ func (t *execTurn) pinned() bool {
 	}
 	return !(t.strict && t.held) // a strict turn whose leader has exited is about to be reaped (settle ran): its group is no longer ours
 }
+
+// awaitGoneUnreaped returns once pid is no longer a running process (a zombie counts as not running), bounded; it reaps nothing. It is
+// what a held leader's turn waits on when its exit could not be observed through holdLeader (the leader was killed instead).
+func awaitGoneUnreaped(pid int) bool {
+	for end := time.Now().Add(heldGoneWait); time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
+		if !turnAlive(pid) {
+			return true
+		}
+	}
+	return !turnAlive(pid)
+}
+
+// killLeaderProc kills the leader through its Go process handle (a seam: tests count the calls).
+var killLeaderProc = func(p *os.Process) error { return p.Kill() }
+
+// heldGoneWait bounds awaitGoneUnreaped (a seam for tests).
+var heldGoneWait = 10 * time.Second
 
 // holdLeader waits for a bound leader's exit without reaping it (a seam: tests make it fail).
 var holdLeader = awaitExitNoReap

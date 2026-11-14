@@ -393,7 +393,11 @@ func (d Deps) newStop() *cobra.Command {
 				}
 				if o.BestEffort {
 					// PR #1503: on Windows/macOS the stop is best effort, and the verdict never reads as a bare "stopped".
-					verdict = "stopped (" + stop.BestEffortNote + ")"
+					limit := o.BestEffortLimit
+					if limit == "" {
+						limit = stop.BestEffortNote
+					}
+					verdict = "stopped (" + limit + ")"
 				}
 				fmt.Fprintln(out, verdict)
 			}

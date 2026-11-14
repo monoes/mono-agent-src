@@ -15,6 +15,10 @@ type RunHooks struct {
 	RunStamp func(profileID, conversationID string) (charterID string, generation int64)
 	// Place puts the turn's process where it must be born, before it exists (see execLauncher.place); nil launches as before.
 	Place func(cmd *exec.Cmd, profileID, conversationID string) (release func(), err error)
+	// Adopt puts a bound turn's already running process into the run's unit (see execLauncher.adopt); nil launches as before. Place and
+	// Adopt are a pair: a platform whose unit takes the process after it exists (macOS session unit) needs both, one that takes it at birth
+	// needs only Place.
+	Adopt func(profileID, conversationID string, pid int, stamp string) (held bool, err error)
 	// BeforeRelease is asked before anything is delivered to the turn's process; bound says whether the turn is peer-credential bound.
 	// ctx is cancelled when the launcher gives up on the check (a deadline) or has returned: check it before any effect that cannot be undone.
 	BeforeRelease func(ctx context.Context, profileID, conversationID, turnID string, bound bool) error
@@ -35,7 +39,7 @@ func InstallRunHooks(st *coderhost.Store, h *coderhost.Host, hooks RunHooks) err
 	n := 0
 	for _, l := range []coderhost.Launcher{g.inner, g.bound} {
 		if e, ok := l.(*execLauncher); ok {
-			e.runStamp, e.beforeRelease, e.place, e.placeRequired = hooks.RunStamp, hooks.BeforeRelease, hooks.Place, hooks.PlaceRequired
+			e.runStamp, e.beforeRelease, e.place, e.placeRequired, e.adopt = hooks.RunStamp, hooks.BeforeRelease, hooks.Place, hooks.PlaceRequired, hooks.Adopt
 			if hooks.RunStamp != nil {
 				e.recordRun = st.StampDoomsdayRun
 			}

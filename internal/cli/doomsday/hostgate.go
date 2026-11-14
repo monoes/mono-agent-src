@@ -63,6 +63,13 @@ type HostGate struct {
 	// InstallHooks puts Hooks on the host's launchers (chat.InstallRunHooks in production). Install reports its absence.
 	InstallHooks func(st *coderhost.Store, h *coderhost.Host, hk Hooks) error
 
+	// UnitEnded says whether the end line of a unit is in the witness (Wiring.UnitEnded); nil means the host never learns of an end and
+	// lets go of its held leaders only at shutdown (ReleaseAllHolds). ReleaseHolds lets go of the leaders the host holds for a unit (nil:
+	// stop.ReleaseUnitHolds). HoldPoll is how often the end is looked for (zero: a second).
+	UnitEnded    func(gen, unit uint64) (bool, error)
+	ReleaseHolds func(unit uint64)
+	HoldPoll     time.Duration
+
 	// Activity is the record of whether this process has seen a run (see RunActivity); share one with the governor and the
 	// strategy loop. Nil is a private one.
 	Activity *RunActivity
@@ -73,6 +80,11 @@ type HostGate struct {
 	merges   map[int64]*dynorg.DoomsdayMerge
 	hooked   bool                    // the launcher asks BeforeRelease: a turn's ticket is taken there, not around Start
 	released map[string]*releaseCall // turn ids that hold, or are taking, their ticket
+
+	holdMu    sync.Mutex
+	holdWatch map[uint64]context.CancelFunc // unit id -> stops the watch for its end (see adopt.go)
+	started   map[string]int64              // conversation -> generation of the run Place/Adopt saw at the start (see noteStart)
+	holdsDone bool                          // ReleaseAllHolds ran: no new watch starts
 }
 
 // hostStore is what the gate needs of the store: the run listing and the chained writes.
@@ -100,7 +112,7 @@ func (g *HostGate) Install(st *coderhost.Store, h *coderhost.Host) error {
 	}
 	err := errors.New("no hook installer is wired")
 	if g.InstallHooks != nil {
-		err = g.InstallHooks(st, h, Hooks{RunStamp: g.RunStamp, BeforeRelease: g.BeforeRelease, Place: g.PlaceRelease, PlaceRequired: g.PlaceRequired})
+		err = g.InstallHooks(st, h, Hooks{RunStamp: g.RunStamp, BeforeRelease: g.BeforeRelease, Place: g.PlaceRelease, PlaceRequired: g.PlaceRequired, Adopt: g.Adopt})
 	}
 	g.mu.Lock()
 	g.hooked = err == nil

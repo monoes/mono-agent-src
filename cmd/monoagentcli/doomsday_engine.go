@@ -106,7 +106,19 @@ func init() {
 			startStrategyLoop(hostCfg, db)
 		}
 		// The coder host joins the strategy loop after its Run returned, before the database closes.
-		chatcli.HostStopped = stopStrategyLoop
+		chatcli.HostStopped = func() {
+			stopStrategyLoop()
+			// the leaders the host holds for a session unit are let go with the host (it is the one that reaps them)
+			hostGateMu.Lock()
+			gates := make([]*doomsdaycli.HostGate, 0, len(hostGates))
+			for _, g := range hostGates {
+				gates = append(gates, g)
+			}
+			hostGateMu.Unlock()
+			for _, g := range gates {
+				g.ReleaseAllHolds()
+			}
+		}
 		// Reconcile of worktrees resolves begun merges first and keeps the worktrees of unresolved ones (note
 		// 13.3 section 5.1). A database that cannot be opened keeps every turn's worktree.
 		dynorg.SetReconcileGuard(func(ctx context.Context, cwd string, active func(string) bool) func(string) bool {
@@ -234,14 +246,14 @@ func processHostGate(cfg *globalConfig, db *sql.DB) *doomsdaycli.HostGate {
 	}
 	w := doomsdayWiring(cfg, db)
 	g := &doomsdaycli.HostGate{Store: w.Chained(), Fresh: w.Fresh(), Profile: w.Profile, RunDir: w.RunDir, Kernel: w.Kernel, Journal: doomsdaycli.MergeJournal(db, w.Store),
-		Activity:  processRunActivity(w.Profile),
+		UnitEnded: w.UnitEnded, Activity: processRunActivity(w.Profile),
 		BindingOn: func() (bool, error) { return chatcli.PeercredBindingOn(db) },
 		Anchors:   stop.ServeAnchors,
 		UnboundRun: func(ctx context.Context, profile string, gen int64) bool {
 			return runStartedUnbound(ctx, db, profile, gen)
 		},
 		InstallHooks: func(st *coderhost.Store, h *coderhost.Host, hk doomsdaycli.Hooks) error {
-			return chatcli.InstallRunHooks(st, h, chatcli.RunHooks{RunStamp: hk.RunStamp, BeforeRelease: hk.BeforeRelease, Place: hk.Place, PlaceRequired: hk.PlaceRequired})
+			return chatcli.InstallRunHooks(st, h, chatcli.RunHooks{RunStamp: hk.RunStamp, BeforeRelease: hk.BeforeRelease, Place: hk.Place, PlaceRequired: hk.PlaceRequired, Adopt: hk.Adopt})
 		}}
 	hostGates[cfg.ProfileID] = g
 	return g
@@ -257,7 +269,8 @@ func doomsdayWiring(cfg *globalConfig, db *sql.DB) doomsdaycli.Wiring {
 	if doomsdayWiringHook != nil {
 		doomsdayWiringHook(&w)
 	}
-	return w
+	// The kernel every consumer of the wiring uses carries the witness as the session unit's leader ledger.
+	return w.WithLedger()
 }
 
 // doomsdayWiringHook is nil in every shipped build. Only a file with the e2estub build tag (the stub-runtime end-to-end

@@ -43,8 +43,9 @@ func (e *FinishEngine) unitDir(gen, round int64) stop.RunDir {
 func (e *FinishEngine) sandbox(gen int64) func(ctx context.Context, round int64) (finish.Sandbox, func(), error) {
 	return func(ctx context.Context, round int64) (finish.Sandbox, func(), error) {
 		w := e.W
-		if w.Kernel == nil || w.Host == nil {
-			return finish.Sandbox{}, nil, errors.New("no containment kernel or service manager is wired, so no verification unit can be made")
+		// A unit kind that needs a service manager (cgroup) refuses without one when it is created; macOS and Windows units need none.
+		if w.Kernel == nil {
+			return finish.Sandbox{}, nil, errors.New("no containment kernel is wired, so no verification unit can be made")
 		}
 		if w.Probe == nil {
 			return finish.Sandbox{}, nil, errors.New("no containment probe is wired, so containment cannot be shown to be available")
@@ -57,7 +58,7 @@ func (e *FinishEngine) sandbox(gen int64) func(ctx context.Context, round int64)
 			return finish.Sandbox{}, nil, fmt.Errorf("no witness, so no verification unit can be recorded: %w", err)
 		}
 		dir := e.unitDir(gen, round)
-		rec, err := stop.CreateUnit(ctx, w.Kernel, stop.CreateArgs{Dir: dir, Host: w.Host, Journal: seq}, uint64(gen))
+		rec, err := stop.CreateVerifyUnit(ctx, w.Kernel, stop.CreateArgs{Dir: dir, Host: w.Host, Journal: seq}, uint64(gen))
 		if err != nil {
 			return finish.Sandbox{}, nil, err
 		}
@@ -70,7 +71,7 @@ func (e *FinishEngine) sandbox(gen int64) func(ctx context.Context, round int64)
 			end()
 			return finish.Sandbox{}, nil, fmt.Errorf("the verification unit could not be registered as a member: %w", err)
 		}
-		placer, err := stop.NewPlacer(w.Kernel, dir, uint64(gen))
+		placer, err := stop.NewVerifyPlacer(w.Kernel, dir, uint64(gen))
 		if err != nil {
 			end()
 			return finish.Sandbox{}, nil, err
