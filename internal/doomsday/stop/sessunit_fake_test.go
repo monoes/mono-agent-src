@@ -41,10 +41,12 @@ type fakeSess struct {
 	// afterScan runs once the snapshot a Scan returns was taken: what it changes is first seen by the next read.
 	afterScan func(w *fakeSess, n int)
 	scans     int
+
+	infoErrs map[int]error // Info fails for this pid with this error (not a gone process)
 }
 
 func newFakeSess() *fakeSess {
-	w := &fakeSess{procs: map[int]*fakeSessProc{}, held: map[int]bool{}, self: 10, uid: 501, next: 1000, boot: "boot-m", errs: map[string]error{}}
+	w := &fakeSess{procs: map[int]*fakeSessProc{}, held: map[int]bool{}, self: 10, uid: 501, next: 1000, boot: "boot-m", errs: map[string]error{}, infoErrs: map[int]error{}}
 	w.put(1, 0, 1, 1, "launchd")
 	w.put(10, 1, 10, 10, "monoagentcli") // the signaller: the host or `doomsday stop`, in a session of its own
 	return w
@@ -127,11 +129,25 @@ func (w *fakeSess) Info(pid int) (SessProc, error) {
 	if err := w.errs["Info"]; err != nil {
 		return SessProc{}, err
 	}
+	if err := w.infoErrs[pid]; err != nil {
+		return SessProc{}, err
+	}
 	p := w.procs[pid]
 	if p == nil || p.zombie {
-		return SessProc{}, errors.New("no such process")
+		return SessProc{}, errSessGone
 	}
 	return p.SessProc, nil
+}
+
+// StampOf is the plain start-stamp read (the fallback when Info cannot give a consistent read).
+func (w *fakeSess) StampOf(pid int) (string, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	p := w.procs[pid]
+	if p == nil || p.zombie {
+		return "", errSessGone
+	}
+	return p.Stamp, nil
 }
 
 func (w *fakeSess) logf(f string, a ...any) { w.log = append(w.log, fmt.Sprintf(f, a...)) }

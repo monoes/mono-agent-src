@@ -2,6 +2,6 @@
 
 package stop
 
-// realSessionOS is nil until slice S2 adds the macOS binding (contain_darwin.go: kern.proc.all and getsid): the session
-// unit is compiled on macOS and refuses there, and platformKinds still names the process-group unit.
-func realSessionOS() SessionOS { return nil }
+// realSessionOS is the macOS binding (sessunit_darwin.go). platformKinds still names the process-group unit for macOS: the
+// session unit is compiled and answers a probe here, and the host wiring (S3) and the gate (S4) switch it on.
+func realSessionOS() SessionOS { return darwinSess{} }

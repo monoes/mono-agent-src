@@ -19,7 +19,7 @@ import (
 
 const szomb = 5 // p_stat of a zombie: gone for our purposes (it holds no code, only a table slot)
 
-var errGone = errors.New("no such process")
+var errGone = errSessGone
 
 func realPGroupOS() PGroupOS { return darwinPG{} }
 

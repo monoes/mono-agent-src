@@ -320,6 +320,16 @@ func mustParse(stamp string) int64 {
 	return us
 }
 
+// errSessGone is what Info answers for a process that is absent or only a zombie: the one error that means "not there".
+// Any other Info error means the read failed, which is not evidence that the process is gone.
+var errSessGone = errors.New("no such process")
+
+// stampReader is the optional plain read of a process's start stamp (no consistency bracket): the identity of a member
+// when Info cannot give a consistent read.
+type stampReader interface {
+	StampOf(pid int) (string, error)
+}
+
 var errNoSessionOS = errors.New("the session mechanism is only available on macOS")
 var errNoLedger = errors.New("no leader ledger is wired, so the unit's sessions are unknown")
 
