@@ -112,8 +112,7 @@ var containments = map[string]func(k Kernel, steps func() []ProbeStep) Containme
 	KindCgroup2:   func(k Kernel, steps func() []ProbeStep) Containment { return cgroup2Containment{k: k, steps: steps} },
 	KindJobObject: func(k Kernel, _ func() []ProbeStep) Containment { return newJobContainment(k) },
 	KindPGroup:    func(k Kernel, _ func() []ProbeStep) Containment { return newPGContainment(k) },
-	// KindSession (sessunit.go) is registered but no GOOS names it yet: platformKinds["darwin"] stays KindPGroup until the
-	// macOS binding exists (slice S2 of #1582), so a record of this kind is not proven or placed on any host today.
+	// KindSession (sessunit.go) is the macOS run unit (platformKinds["darwin"]); KindPGroup stays on macOS only for finish-verification units.
 	KindSession: func(k Kernel, _ func() []ProbeStep) Containment { return newSessContainment(k) },
 }
 
@@ -126,7 +125,7 @@ func hostKind() string { return platformKinds[hostGOOS] }
 
 // platformKinds names the unit kind each GOOS may start; a GOOS absent here is refused. The steps of a probe are the
 // Linux steps; a mechanism with its own steps (the Job Object) ignores them.
-var platformKinds = map[string]string{"linux": KindCgroup2, "windows": KindJobObject, "darwin": KindPGroup}
+var platformKinds = map[string]string{"linux": KindCgroup2, "windows": KindJobObject, "darwin": KindSession}
 
 // cgroup2Containment is the Linux mechanism; its checks are the existing probe steps and ProveUnit's P1-P6.
 type cgroup2Containment struct {

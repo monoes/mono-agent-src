@@ -19,8 +19,8 @@ import (
 // session, a turn that is a session leader) do not arise.
 //
 // Everything OS specific is behind SessionOS; this file and sessunit_create.go are portable, so the logic is tested on
-// Linux against a fake (sessunit_*_test.go). The macOS binding (kern.proc.all, getsid) is slice S2; until it exists
-// realSessionOS is nil everywhere and the kind refuses, and platformKinds still names the process-group unit for macOS.
+// Linux against a fake (sessunit_*_test.go). The macOS binding (kern.proc.all, getsid) is sessunit_darwin.go; elsewhere
+// realSessionOS is nil and the kind refuses. platformKinds["darwin"] names this kind.
 //
 // The guarantee is the honest one of the Windows unit: a process that made a session of its own AND is no longer a
 // child of any member (daemonised, double-forked with setsid, or started through launchd, open or XPC) is NOT seen and
