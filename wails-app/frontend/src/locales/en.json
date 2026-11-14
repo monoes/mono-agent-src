@@ -1560,7 +1560,9 @@
       "openReport": "Open in Tasks",
       "closeProposed": "The mission lead proposed closing it.",
       "closed": "Closed",
-      "readyToClose": "Ready to close"
+      "readyToClose": "Ready to close",
+      "overCommitted": "Over-committed by {{usd}}: session {{by}}",
+      "pursuitOverCommitted": "The pursuit is waiting for you: this mission is over-committed. Raise the mission's budget to resume; until then no worker starts and nothing is judged or woken."
     }
   },
   "agentRow": {
