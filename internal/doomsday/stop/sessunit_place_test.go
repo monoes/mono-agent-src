@@ -124,11 +124,16 @@ func TestSessAdoptRecordsTheLeaderAndOnlyThenItsSessionIsTheUnits(t *testing.T) 
 }
 
 // The host launcher reads the leader's start with ps ("started:<lstart>"), not from the process table: the adoption must take that
-// leader (the unit records its own stamp form), while a stamp in neither form stays refused.
+// leader (the unit records its own stamp form), while a stamp in neither form stays refused. The ps form is compared with the
+// leader's own lstart, read again with the launcher's pinned ps call (the sample has the captured macOS shape).
 func TestSessAdoptTakesTheLaunchersPsStamp(t *testing.T) {
 	r := newSessRig(t)
 	l := r.w.leader(500)
-	if err := r.placer().Adopt(l.PID, "started:Sat Nov 14 22:29:29 2026"); err != nil {
+	ls, err := r.w.LStart(500)
+	if err != nil || ls != "Fri Jan 15 08:08:20 2027" {
+		t.Fatalf("fake lstart %q %v", ls, err)
+	}
+	if err := r.placer().Adopt(l.PID, "started:"+ls); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := r.led.Leaders(7)
@@ -137,8 +142,37 @@ func TestSessAdoptTakesTheLaunchersPsStamp(t *testing.T) {
 	}
 	r2 := newSessRig(t)
 	r2.w.leader(500)
-	if err := r2.placer().Adopt(500, "Sat Nov 14 22:29:29 2026"); err == nil || r2.led.adds != 0 {
+	if err := r2.placer().Adopt(500, "Fri Jan 15 08:08:20 2027"); err == nil || r2.led.adds != 0 {
 		t.Fatalf("a stamp in neither form was adopted: %v", err)
+	}
+}
+
+// The ps form is a real comparison: a different, empty or garbled lstart, and a ps that fails, are refused (no hold, no ledger line).
+func TestSessAdoptRefusesAPsStampThatIsNotTheLeaders(t *testing.T) {
+	cases := map[string]struct {
+		stamp string
+		fail  error
+	}{
+		"another start":       {"started:Sat Nov 14 22:29:29 2026", nil},
+		"empty body":          {"started:", nil},
+		"blank body":          {"started:   ", nil},
+		"garbage":             {"started:garbage", nil},
+		"ps cannot be read":   {"started:Fri Jan 15 08:08:20 2027", errors.New("ps failed")},
+		"ps finds no process": {"started:Fri Jan 15 08:08:20 2027", errSessGone},
+	}
+	for name, c := range cases {
+		r := newSessRig(t)
+		r.w.leader(500)
+		if c.fail != nil {
+			r.w.errs["LStart"] = c.fail
+		}
+		err := r.placer().Adopt(500, c.stamp)
+		if !errors.Is(err, ErrNotPlaced) {
+			t.Errorf("%s: adopted or wrong error: %v", name, err)
+		}
+		if r.led.adds != 0 || len(r.w.held) != 0 {
+			t.Errorf("%s: a refused adoption left a ledger line or a hold", name)
+		}
 	}
 }
 

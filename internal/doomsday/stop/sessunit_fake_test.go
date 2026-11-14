@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"os/exec"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
+	"time"
 )
 
 // ----- a fake macOS: processes with a start stamp, a parent, a process group and a session -----
@@ -137,6 +140,23 @@ func (w *fakeSess) Info(pid int) (SessProc, error) {
 		return SessProc{}, errSessGone
 	}
 	return p.SessProc, nil
+}
+
+// LStart is what `ps -o lstart=` prints for the process (the pinned TZ=UTC LC_ALL=C form, second granularity), derived from the
+// process's own start stamp so the fake leader honours the stamp the launcher would have read; errs["LStart"] fails the read.
+func (w *fakeSess) LStart(pid int) (string, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if err := w.errs["LStart"]; err != nil {
+		return "", err
+	}
+	p := w.procs[pid]
+	if p == nil || p.zombie {
+		return "", errSessGone
+	}
+	sec, _, _ := strings.Cut(p.Stamp, ".")
+	n, _ := strconv.ParseInt(sec, 10, 64)
+	return time.Unix(n, 0).UTC().Format("Mon Jan _2 15:04:05 2006"), nil
 }
 
 // StampOf is the plain start-stamp read (the fallback when Info cannot give a consistent read).
