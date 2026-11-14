@@ -129,6 +129,24 @@ func TestHostPublishedValuesAreValidatedBeforeTheyAreShown(t *testing.T) {
 	}
 }
 
+// The goal checker is "set up" only on a host that published a coherent report of it: the host sets VerifierOn only with the loop
+// running, a pin asked for and no reason against. A report that says otherwise cannot be real, so it is not valid (and its
+// VerifierOn never reaches the consent's blocker).
+func TestAHostThatSaysTheCheckerIsOnWithoutTheLoopOrAPinIsNotValid(t *testing.T) {
+	on := PursuitHostInfo{Enabled: true, Pin: "claude/haiku@4", WakeCapUSD: 2, VerifierPin: "claude/haiku@4", VerifierOn: true, Confinement: "bwrap"}
+	if !ValidHostPursuitInfo(on) {
+		t.Fatal("a real report with the checker on is refused")
+	}
+	for name, h := range map[string]PursuitHostInfo{
+		"on with the loop off": {VerifierOn: true, VerifierPin: "claude/haiku@4"}, "on with no pin asked for": {Enabled: true, Pin: on.Pin, WakeCapUSD: 2, VerifierOn: true},
+		"on with a reason against": {Enabled: true, Pin: on.Pin, WakeCapUSD: 2, VerifierOn: true, VerifierPin: "x/y", VerifierReason: "no judge"},
+	} {
+		if ValidHostPursuitInfo(h) {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+}
+
 func TestCostTextSaysWhereTheWakeCapCameFrom(t *testing.T) {
 	if got := PursuitCostRows(CostInput{WakeCapUSD: 2, MissionBudgetUSD: 20, Pct: 20, Wakes: 6, HostReported: true}).Text; !strings.Contains(got, "as reported by the host") {
 		t.Errorf("reported: %s", got)

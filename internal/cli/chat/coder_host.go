@@ -82,11 +82,25 @@ func hostRunning(cfg *Deps) bool {
 	return errors.Is(err, daemonhb.ErrHeld)
 }
 
+// HostRunningAt is hostRunning for the database at dbPath that changes nothing: with no lock file there is no host, and
+// the file is not created to find out (hostRunning's lock attempt creates it). The doctor row of the open mode reads it.
+func HostRunningAt(dbPath string) bool {
+	cfg := &Deps{DBPath: func() string { return dbPath }}
+	if _, err := os.Stat(hostLockPath(cfg)); err != nil {
+		return false
+	}
+	return hostRunning(cfg)
+}
+
 func readHostInfo(cfg *Deps) (hostInfo, bool) {
-	raw, err := os.ReadFile(filepath.Join(hostDir(cfg), hostInfoFile))
+	raw, state := coderhost.ReadHostInfoFile(clicore.ExpandPath(cfg.DBPath())) // bounded, plain file only: a pipe cannot hang status or stop
 	var h hostInfo
-	if err != nil || json.Unmarshal(raw, &h) != nil {
+	if state != coderhost.HostInfoOK || json.Unmarshal(raw, &h) != nil {
 		return hostInfo{}, false
+	}
+	if h.Pursuit != nil {
+		clean := coderhost.SanitizeHostPursuit(*h.Pursuit)
+		h.Pursuit = &clean
 	}
 	return h, true
 }
@@ -115,6 +129,9 @@ var startHostProcess = func(cfg *Deps) error {
 	defer logFile.Close()
 	cmd := hostCommand(exe, cfg)
 	cmd.Stdout, cmd.Stderr = logFile, logFile
+	if err := prepareHostStart(cmd); err != nil {
+		return err
+	}
 	return clicore.DetachStart(cmd)
 }
 
@@ -131,6 +148,10 @@ func hostCommand(exe string, cfg *Deps) *exec.Cmd {
 func hostProcessEnv(env []string) []string {
 	return withoutEnv(env, coderhost.SessionTokenEnv, agenttokens.EnvMissionToken)
 }
+
+// EnsureHost is ensureHost for the open-ended mode, which needs the host before its run exists (the host makes the run's process
+// group on macOS).
+func EnsureHost(cfg *Deps) error { return ensureHost(cfg) }
 
 // ensureHost starts the host when none is running and waits for it to take its lock.
 func ensureHost(cfg *Deps) error {
@@ -158,7 +179,7 @@ func newCoderHostCmd(cfg *Deps) *cobra.Command {
 			"`coder sessions send`. Stopping it does not stop a running turn; the next host picks the turn up. " +
 			"The host and the turns it starts keep the environment of the terminal that started the host.",
 	}
-	cmd.AddCommand(newCoderHostRunCmd(cfg), newCoderHostStatusCmd(cfg), newCoderHostStopCmd(cfg))
+	cmd.AddCommand(newCoderHostRunCmd(cfg), newCoderHostStatusCmd(cfg), newCoderHostStopCmd(cfg), newCoderHostPursuitCmd(cfg))
 	return cmd
 }
 
@@ -278,9 +299,7 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			logf := func(f string, a ...any) {
-				fmt.Fprintf(cmd.ErrOrStderr(), time.Now().Format(time.RFC3339)+" "+f+"\n", a...)
-			}
+			logf := hostLogf(cmd.ErrOrStderr())
 			store := coderhost.NewStore(db.DB)
 			children := newChildTokenMinter(db.DB)
 			RegisterChildTokenMinter(children) // this launcher mints a child's task token: the gate may open (still off until a mode is set)
@@ -310,7 +329,7 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 				RequireConversations: true,
 				TitleOf:              func(profileID, id string) (string, error) { return chatDisplayTitle(db.DB, profileID, id) },
 			}
-			// The pursuit loop is off unless the host was started with a judge pin (see coder_host_pursuit.go); read once, here.
+			// The pursuit loop is on by default and idles until a judge pin exists, unless the operator turned it off (see coder_host_pursuit.go); read once, here.
 			pursuit, pursuitInfo := pursuitFromEnv(os.Getenv, db.DB)
 			// the goal checks are off too unless MONOAGENT_PURSUIT_VERIFIER is set (and the loop is on); nothing is built otherwise
 			attachVerifier(cmd.Context(), os.Getenv, pursuit, &pursuitInfo, filepath.Join(filepath.Dir(clicore.ExpandPath(cfg.DBPath())), "scratch", "checks"), verifierForbidden(cfg))
@@ -405,7 +424,7 @@ func hostStatus(cfg *Deps) map[string]any {
 			st["held"] = info.Held
 		}
 		if info.Pursuit != nil {
-			st["pursuit"] = *info.Pursuit
+			st["pursuit"] = coderhost.SanitizeHostPursuit(*info.Pursuit)
 		}
 	}
 	return st
@@ -468,7 +487,7 @@ func newCoderHostStatusCmd(cfg *Deps) *cobra.Command {
 					}
 				}
 			} else {
-				fmt.Fprintln(cmd.OutOrStdout(), "not running")
+				fmt.Fprintln(cmd.OutOrStdout(), notRunningText)
 			}
 			return nil
 		},
@@ -476,6 +495,11 @@ func newCoderHostStatusCmd(cfg *Deps) *cobra.Command {
 	clicore.WithJSONErrors(cfg.JSONOutput, cmd)
 	return cmd
 }
+
+// notRunningText is what `coder host status` prints for a host that is not running: the next step, not just the fact.
+const notRunningText = "not running\n" +
+	"  next: it starts by itself on the first `coder sessions send`; to start it now run `coder host run`.\n" +
+	"  To let a mission's pursuit run, start it with " + envPursuitJudge + "=<runtime/model> set (`task session pursuit readiness ID` lists what else is missing)"
 
 func newCoderHostStopCmd(cfg *Deps) *cobra.Command {
 	cmd := &cobra.Command{

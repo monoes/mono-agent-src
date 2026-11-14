@@ -17,6 +17,8 @@ type Hooks struct {
 	BeforeRelease func(ctx context.Context, profileID, conversationID, turnID string, bound bool) error
 	// Place puts the turn's process in the run's ticket cgroup before it exists; release closes the descriptor after Start.
 	Place func(cmd *exec.Cmd, profileID, conversationID string) (release func(), err error)
+	// PlaceRequired says whether a turn must be placed (a run is open); the legacy launch is refused only then.
+	PlaceRequired func(profileID, conversationID string) (bool, error)
 }
 
 const maxReleased = 4096
@@ -34,7 +36,7 @@ func refuse(format string, a ...any) error {
 
 // requireBound is "no run without binding": while a run is open a turn that is not peer-credential bound is not started.
 // An unreadable setting is not "on".
-func (g *HostGate) requireBound() error {
+func (g *HostGate) requireBound(generation int64) error {
 	if g.BindingOn == nil {
 		return refuse("no run without binding: whether turn binding is on is not known")
 	}
@@ -42,10 +44,16 @@ func (g *HostGate) requireBound() error {
 	if err != nil {
 		return refuse("no run without binding: whether turn binding is on cannot be read: %v", err)
 	}
-	if !on {
-		return refuse("no run without binding: peer-credential binding is off; switch it on (coder set --peercred-binding on)")
+	if !on && !g.unboundAllowed(generation) {
+		return refuse("no run without binding: this run started with peer-credential binding and it is not available now; `doomsday stop` ends the run if this keeps failing")
 	}
 	return nil
+}
+
+// unboundAllowed is true only for a run that started unbound (its own run.unbound row): the allowance belongs to the run, not to
+// whatever the machine check says now.
+func (g *HostGate) unboundAllowed(generation int64) bool {
+	return g.UnboundRun != nil && g.UnboundRun(context.Background(), g.Profile, generation)
 }
 
 // RunStamp is the supplier of the run stamp: the profile's open run, or nothing (a zero answer stamps nothing, so a host with
@@ -65,15 +73,15 @@ func (g *HostGate) RunStamp(string, string) (string, int64) {
 // the launcher gave up (its deadline cancelled ctx) consumes nothing. A turn id holds at most one ticket, so a repeated call
 // for it (a retry, a late duplicate) consumes nothing more.
 func (g *HostGate) BeforeRelease(ctx context.Context, _, _, turnID string, bound bool) error {
-	gate, err := g.current(context.Background()) // not ctx: the only cancellation check is the one under the lock
+	gate, run, err := g.currentRun(context.Background()) // not ctx: the only cancellation check is the one under the lock
 	if err != nil {
 		return err
 	}
 	if gate == nil {
 		return nil
 	}
-	if !bound {
-		return refuse("no run without binding: this turn is not peer-credential bound")
+	if !bound && !g.unboundAllowed(run.Generation) {
+		return refuse("no run without binding: this turn is not peer-credential bound, and this run did not start unbound; `doomsday stop` ends the run if this keeps failing")
 	}
 	// The gate's own lock covers the cancellation check and the in-memory ticket steps only (Admit, BeginStart): the registry
 	// write of Started (an audit append with retries and an fsync) happens after it is released, so one slow write never queues

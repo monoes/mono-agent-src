@@ -24,14 +24,19 @@ type Wiring struct {
 	Kernel stop.Kernel
 	// Host is the service manager that starts and stops the run unit (stop.SystemHost in production). Without
 	// it, or without a Kernel, no run can start and Stop cannot end a unit's service.
-	Host   stop.UnitHost
-	Tokens interface {
+	Host stop.UnitHost
+	// EnsureHost starts the coder host when none runs, before the run's unit is made: on macOS the host makes the unit's process
+	// group (stop.UnitNeedsHost). Nil elsewhere.
+	EnsureHost func(ctx context.Context) error
+	Tokens     interface {
 		RevokeTokens(ctx context.Context, gen uint64) error
 		CancelQueue(ctx context.Context, gen uint64) error
 	}
 	Clock stop.Clock
 	// Binding says whether security.peercred_binding is on; nil refuses every start ("no run without binding").
 	Binding func(ctx context.Context) (bool, error)
+	// UnboundReason is why binding is off AND this machine cannot run it ("" otherwise): such a run starts unbound, with a warning.
+	UnboundReason func(ctx context.Context) string
 	// VaultKey (VaultKeyCheck in the CLI) says whether the profile has its vault data key; asked after the containment probe passes and before
 	// the witness is built. Nil skips the step.
 	VaultKey func(ctx context.Context) error
@@ -105,16 +110,17 @@ func (w Wiring) Engine() *StoreEngine {
 			_, err := witness(context.Background())
 			return err
 		},
-		Binding:      w.Binding,
-		StopFn:       w.stop,
-		BeforeStart:  w.recoverMerges,
-		CreateUnit:   w.createUnit,
-		Boss:         w.designateBoss,
-		BossCheck:    w.checkBoss,
-		AfterStopFn:  w.afterStop,
-		RepairStopFn: w.repairStop,
-		AfterEnter:   func(_ context.Context, gen int64) error { return w.RunDir.CreateSecret(uint64(gen)) },
-		HeadAnchor:   w.headAnchor(),
+		Binding:       w.Binding,
+		UnboundReason: w.UnboundReason,
+		StopFn:        w.stop,
+		BeforeStart:   w.recoverMerges,
+		CreateUnit:    w.createUnit,
+		Boss:          w.designateBoss,
+		BossCheck:     w.checkBoss,
+		AfterStopFn:   w.afterStop,
+		RepairStopFn:  w.repairStop,
+		AfterEnter:    func(_ context.Context, gen int64) error { return w.RunDir.CreateSecret(uint64(gen)) },
+		HeadAnchor:    w.headAnchor(),
 		BeginEntry: func(ctx context.Context, gen int64) error {
 			seq, err := witness(ctx)
 			if err != nil {
@@ -151,6 +157,11 @@ func (w Wiring) ender() stop.Ender {
 
 // createUnit is StoreEngine.CreateUnit: the unit is created, proven and recorded before the run exists.
 func (w Wiring) createUnit(ctx context.Context, gen int64) (func(context.Context) error, error) {
+	if w.EnsureHost != nil {
+		if err := w.EnsureHost(ctx); err != nil {
+			return nil, fmt.Errorf("%w: the coder host that makes the run's process group could not be started: %v", stop.ErrUnitNotCreated, err)
+		}
+	}
 	seq, err := w.Sequencer(ctx)
 	if err != nil {
 		return nil, err

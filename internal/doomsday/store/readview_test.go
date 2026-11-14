@@ -297,3 +297,14 @@ func TestRedactRowTable(t *testing.T) {
 		})
 	}
 }
+
+// The run.unbound row (a run that started without peer-credential binding) is a run-class feed item, so it shows after the fact.
+func TestFeedShowsTheUnboundRunRow(t *testing.T) {
+	it := redactRow(3, "run.unbound", "unbound: the kernel cannot tell which process connected")
+	if it.Kind != "run.unbound" || it.Class != ClassRun {
+		t.Fatalf("%+v", it)
+	}
+	if strings.Contains(it.Ref, "kernel") || strings.Contains(it.Result, "kernel") {
+		t.Fatalf("the payload leaked into the feed: %+v", it)
+	}
+}

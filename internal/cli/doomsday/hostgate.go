@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -42,6 +43,10 @@ type HostGate struct {
 	// BindingOn says whether security.peercred_binding is on. A run needs bound turns ("no run without binding"): nil, an
 	// error and false all refuse a turn start while a run is open.
 	BindingOn func() (bool, error)
+	// UnboundRun says whether the run of this generation STARTED unbound (its run.unbound audit row exists): only such a run's unbound
+	// turns are allowed, whatever the machine check says later, so a run that started bound can never go unbound mid-run and a run
+	// that started unbound keeps going. Nil or an unreadable answer: an unbound turn is refused.
+	UnboundRun func(ctx context.Context, profile string, generation int64) bool
 	// HostLock takes the run directory's host lock (Q8: one host per database); nil is stop.AcquireHost. It is taken when
 	// the first gate of a run is made and held until the process ends, so a Stop or a merge recovery that can take it knows
 	// no host is alive.
@@ -51,6 +56,10 @@ type HostGate struct {
 	Exit func(starters []uint64)
 	// Tick is the marker poll interval (stop.HostWatcher); zero is 250 ms.
 	Tick time.Duration
+	// Anchors starts the service that makes a run's process group in this host's session (stop.ServeAnchors on macOS, which
+	// leaves a socket in the run directory; nothing elsewhere). Production wires it; nil starts nothing, so a gate built
+	// without it leaves the run directory untouched.
+	Anchors func(context.Context, stop.RunDir) error
 	// InstallHooks puts Hooks on the host's launchers (chat.InstallRunHooks in production). Install reports its absence.
 	InstallHooks func(st *coderhost.Store, h *coderhost.Host, hk Hooks) error
 
@@ -82,9 +91,16 @@ var _ coderhost.DispatchGate = (*HostGate)(nil)
 // the gate still stands, with the ticket taken around Start instead: the host never runs ungated because of it.
 func (g *HostGate) Install(st *coderhost.Store, h *coderhost.Host) error {
 	st.SetDispatchGate(g)
+	// On macOS the run's process group is made here, in the host's session (a turn can only join a group of its own session).
+	// A service that cannot start only means no run can start: nothing is placed without it.
+	if g.Anchors != nil {
+		if err := g.Anchors(context.Background(), g.RunDir); err != nil {
+			fmt.Fprintf(os.Stderr, "doomsday: the process-group service did not start (an open-ended run cannot start until it does): %v\n", err)
+		}
+	}
 	err := errors.New("no hook installer is wired")
 	if g.InstallHooks != nil {
-		err = g.InstallHooks(st, h, Hooks{RunStamp: g.RunStamp, BeforeRelease: g.BeforeRelease, Place: g.PlaceRelease})
+		err = g.InstallHooks(st, h, Hooks{RunStamp: g.RunStamp, BeforeRelease: g.BeforeRelease, Place: g.PlaceRelease, PlaceRequired: g.PlaceRequired})
 	}
 	g.mu.Lock()
 	g.hooked = err == nil
@@ -181,7 +197,7 @@ func (g *HostGate) Hand(p coderhost.DispatchPoint, fn func(ctx context.Context) 
 
 // Start implements coderhost.DispatchGate.
 func (g *HostGate) Start(p coderhost.DispatchPoint, create func() (coderhost.StartedProc, error)) error {
-	gate, err := g.current(context.Background())
+	gate, run, err := g.currentRun(context.Background())
 	if err != nil {
 		return err
 	}
@@ -190,7 +206,7 @@ func (g *HostGate) Start(p coderhost.DispatchPoint, create func() (coderhost.Sta
 		return err
 	}
 	if p == coderhost.PointTurnStart {
-		if err := g.requireBound(); err != nil { // before Start: a turn that is not bound never gets a process
+		if err := g.requireBound(run.Generation); err != nil { // before Start: a turn that is not bound never gets a process
 			return err
 		}
 		g.mu.Lock()

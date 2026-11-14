@@ -25,6 +25,9 @@ type RemoveDuplicatesNode struct{}
 
 func (n *RemoveDuplicatesNode) Type() string { return "core.remove_duplicates" }
 
+// PublishesToThirdParty: core.remove_duplicates sends nothing off this machine (issue #1418).
+func (RemoveDuplicatesNode) PublishesToThirdParty() bool { return false }
+
 // PerItemConfigFields declares that "dedupeValue" is evaluated once per item.
 func (n *RemoveDuplicatesNode) PerItemConfigFields() []string { return []string{"dedupeValue"} }
 

@@ -9,6 +9,7 @@ import { nearBudget, progress, spendParts } from '../../../lib/taskSessionModel.
 import { stripActions, stripFor, workingOn } from '../../../lib/missionModel.js'
 import { useConversationSession } from './useMissionSession.js'
 import PursuitStartForm from './PursuitStartForm.jsx'
+import PursuitPanel from './PursuitPanel.jsx'
 import { OverCommitChip, PursuitOverCommitted } from './OverCommit.jsx'
 import './mission.css'
 
@@ -65,6 +66,7 @@ export default function MissionStrip({ conversationId, enabled = true, bump = 0,
           </button>
         )}
       </div>
+      {(session.state === 'running' || session.state === 'paused') && <PursuitPanel key={`panel-${session.id}`} sessionId={session.id} conversationId={conversationId} />}
       {pursuit && <PursuitStartForm key={session.id} sessionId={session.id} />}
       {working.length > 0 && (
         <ul className="ms-working" data-testid="mission-working">

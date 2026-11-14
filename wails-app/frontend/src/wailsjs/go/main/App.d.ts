@@ -943,3 +943,15 @@ export function SaveGeneratedWorkflow(arg1:string):Promise<string>;
 export function GetVaultAgentAccess():Promise<Record<string, any>>;
 
 export function SetVaultAgentAccess(arg1:string):Promise<Record<string, any>>;
+
+export function MissionChildrenState():Promise<string>;
+
+export function PursuitHostStatus():Promise<string>;
+
+export function PursuitPause(arg1:number):Promise<string>;
+
+export function PursuitReadiness(arg1:number):Promise<string>;
+
+export function SetAgentApproval(arg1:string,arg2:boolean,arg3:number):Promise<string>;
+
+export function SetMissionChildren(arg1:boolean):Promise<string>;

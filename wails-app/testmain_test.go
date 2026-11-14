@@ -7,4 +7,9 @@ import (
 )
 
 // Tests never touch the real ~/.monoagent.
-func TestMain(m *testing.M) { testhome.Main(m) }
+func TestMain(m *testing.M) {
+	if fakeCLIShimMain() { // Windows: this binary is standing in for monoagentcli
+		return
+	}
+	testhome.Main(m)
+}

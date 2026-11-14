@@ -13,7 +13,8 @@ func withSeams(t *testing.T, issuance bool, readyErr error) {
 	oi, or := issuanceReady, ready
 	issuanceReady = func() bool { return issuance }
 	ready = func() error { return readyErr }
-	t.Cleanup(func() { issuanceReady, ready = oi, or })
+	resetReadyCache() // Refusal reuses the machine probe for a few seconds: a test that swaps the probe starts clean
+	t.Cleanup(func() { issuanceReady, ready = oi, or; resetReadyCache() })
 }
 
 // While issuance is off, the answer is a refusal whatever else is true; the gate reads the constant, not a setting.

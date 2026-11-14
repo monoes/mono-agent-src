@@ -50,6 +50,11 @@ func kernelAtLeast(major, minor int) error {
 // process born in a sub-cgroup of it by clone3 with CLONE_INTO_CGROUP (note 13.2 section 10 items 3, 5 and 8); it
 // touches only a test unit it creates and removes itself.
 func linuxProbeSteps() []ProbeStep {
+	return append(linuxReadOnlySteps(), selfTestStep())
+}
+
+// linuxReadOnlySteps are the probe's steps that only read the machine: they create nothing and start nothing.
+func linuxReadOnlySteps() []ProbeStep {
 	return []ProbeStep{
 		{"cgroup v2 unified hierarchy", func() error {
 			var s unix.Statfs_t
@@ -90,22 +95,49 @@ func linuxProbeSteps() []ProbeStep {
 			}
 			return unix.Close(fd)
 		}},
-		{"delegated transient unit and clone3 CLONE_INTO_CGROUP self-test", func() error {
-			sleepBin, err := trustedBinary("/usr/bin/sleep", "/bin/sleep")
-			if err != nil {
-				return err
-			}
-			// SIGINT and SIGTERM cancel the self-test instead of ending the process, so its unit is stopped on the way out
-			// (SIGKILL cannot be caught: that unit stays until `systemctl --user stop monoagent-probe-*`).
-			ctx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-			defer stopSignals()
-			ctx, cancel := context.WithTimeout(ctx, time.Minute)
-			defer cancel()
-			err = selfTest(ctx, SystemHost(), LinuxKernel{}, sleepBin)
-			if err == nil && ctx.Err() != nil {
-				err = errors.New("the probe was interrupted")
-			}
+	}
+}
+
+// selfTestStep is the probe's last step: the one that really starts a transient unit.
+func selfTestStep() ProbeStep {
+	return ProbeStep{"delegated transient unit and clone3 CLONE_INTO_CGROUP self-test", func() error {
+		sleepBin, err := trustedBinary("/usr/bin/sleep", "/bin/sleep")
+		if err != nil {
+			return err
+		}
+		// SIGINT and SIGTERM cancel the self-test instead of ending the process, so its unit is stopped on the way out
+		// (SIGKILL cannot be caught: that unit stays until `systemctl --user stop monoagent-probe-*`).
+		ctx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stopSignals()
+		ctx, cancel := context.WithTimeout(ctx, time.Minute)
+		defer cancel()
+		err = selfTest(ctx, SystemHost(), LinuxKernel{}, sleepBin)
+		if err == nil && ctx.Err() != nil {
+			err = errors.New("the probe was interrupted")
+		}
+		return err
+	}}
+}
+
+// ReadinessSteps are the read-only requirements of the containment unit, each with the fix to show when it fails:
+// the probe's own read-only steps (so the answer is the probe's) plus the systemd-run the unit is started with.
+func ReadinessSteps() []ReadinessStep {
+	fixes := map[string]string{
+		"cgroup v2 unified hierarchy":      "boot with systemd.unified_cgroup_hierarchy=1 (cgroup v2), or use a distribution that mounts it by default",
+		"kernel 5.14 (cgroup.kill)":        "update the kernel to 5.14 or later",
+		"cgroup v2 delegation to the user": "log in through a desktop session (not an ssh or tty session scope) so the user's systemd manager owns the process: `loginctl show-user $USER` must show State=active",
+		"cgroup.kill present":              "update the kernel to 5.14 or later",
+		"pidfd_open":                       "update the kernel to 5.3 or later",
+	}
+	var out []ReadinessStep
+	for _, s := range linuxReadOnlySteps() {
+		out = append(out, ReadinessStep{ProbeStep: s, Fix: fixes[s.Name]})
+	}
+	return append(out, ReadinessStep{
+		ProbeStep: ProbeStep{"systemd-run available", func() error {
+			_, err := trustedBinary("/usr/bin/systemd-run", "/bin/systemd-run")
 			return err
 		}},
-	}
+		Fix: "install systemd (the package that provides /usr/bin/systemd-run, owned by root)",
+	})
 }

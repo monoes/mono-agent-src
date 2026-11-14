@@ -155,7 +155,7 @@ func TestABoundTurnIsAllowedItsOwnTokenAndASiblingIsNot(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	setCoderSettings(t, dbPath, coderSettings{Enabled: true, PeercredBinding: true})
+	setCoderSettings(t, dbPath, coderSettings{Enabled: true, PeercredBinding: bindingSet(true)})
 	if home, err := os.UserHomeDir(); err != nil || os.MkdirAll(filepath.Join(home, ".monoagent"), 0o700) != nil { // the runtime root is made below it
 		t.Fatalf("no home folder to place the socket under: %v", err)
 	}

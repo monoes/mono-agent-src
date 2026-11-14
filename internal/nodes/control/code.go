@@ -52,6 +52,9 @@ const (
 
 func (n *CodeNode) Type() string { return "core.code" }
 
+// PublishesToThirdParty: core.code sends nothing off this machine (issue #1418).
+func (CodeNode) PublishesToThirdParty() bool { return false }
+
 func (n *CodeNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	code, _ := config["code"].(string)
 	if code == "" {

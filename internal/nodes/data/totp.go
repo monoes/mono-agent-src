@@ -33,6 +33,9 @@ type TOTPNode struct {
 
 func (n *TOTPNode) Type() string { return "data.totp" }
 
+// PublishesToThirdParty: data.totp sends nothing off this machine (issue #1418).
+func (TOTPNode) PublishesToThirdParty() bool { return false }
+
 func (n *TOTPNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	op := cfgString(config, "operation", "generate_secret")
 	if op != "generate_secret" && op != "generateSecret" {

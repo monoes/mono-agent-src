@@ -14,15 +14,18 @@ import (
 
 // The host's switch for the pursuit loop. Two host settings, both read once, when the host starts:
 //
-//	MONOAGENT_PURSUIT_JUDGE         the judge's pin, runtime/model[@version]. Unset or empty: the loop is OFF (the default),
-//	                                and the check-ins of a mission whose pursuit was started go on as before.
+//	MONOAGENT_PURSUIT_JUDGE         the judge's pin, runtime/model[@version]. Unset or empty: the saved pin
+//	                                (`coder host pursuit judge set`), else the loop is ON but idle ("judge-pin" missing:
+//	                                nothing is judged or spent) and the check-ins go on as before.
 //	MONOAGENT_PURSUIT_WAKE_CAP_USD  X, the most one wake-up turn of a lead may spend; unset or empty = 2; otherwise 0.01 to 10.
 //
-// There is no live switch: turning the loop off host-wide is unsetting the first and restarting the host. A value that does
+// There is no live switch: turning the loop off host-wide is `coder host pursuit off` (or MONOAGENT_PURSUIT_LOOP=off) and a restart. A value that does
 // not parse leaves the loop OFF, with the reason shown in `coder host status` and the pursuit status.
 const (
 	envPursuitJudge   = "MONOAGENT_PURSUIT_JUDGE"
 	envPursuitWakeCap = "MONOAGENT_PURSUIT_WAKE_CAP_USD"
+	// MONOAGENT_PURSUIT_LOOP=off (or 0, false) is the operator's explicit OFF; the saved row `coder host pursuit off` is the other.
+	envPursuitLoop = "MONOAGENT_PURSUIT_LOOP"
 	// MONOAGENT_PURSUIT_VERIFIER is the goal checker's pin, runtime/model[@version], and turns the goal checks on. Unset or empty
 	// (the default): they are OFF and nothing of them is built. It works only with the judge flag above, is read once when
 	// the host starts, and has no live off (unset it and restart). See coderhost/pursuit_check.go.
@@ -42,7 +45,11 @@ func attachVerifier(ctx context.Context, getenv func(string) string, d *coderhos
 	}
 	info.VerifierPin = pin
 	if d == nil {
-		info.VerifierReason = envPursuitVerifier + " is set but the pursuit loop is off (set " + envPursuitJudge + " too, and restart the host): no goal check runs"
+		if info.OperatorOff {
+			info.VerifierReason = envPursuitVerifier + " is set but the operator turned the pursuit loop off (run `coder host pursuit on` and restart the host): no goal check runs"
+		} else {
+			info.VerifierReason = envPursuitVerifier + " is set but the pursuit loop is not running (choose a judge with `coder host pursuit judge set RUNTIME/MODEL`, and restart the host): no goal check runs"
+		}
 		return
 	}
 	vd, vi := verifierBuilder(ctx, pin, scratch, forbidden)
@@ -54,15 +61,34 @@ func attachVerifier(ctx context.Context, getenv func(string) string, d *coderhos
 	d.Verifier, info.VerifierOn = vd, true
 }
 
-// pursuitFromEnv builds the pursuit deps from the environment, or nil with the info that says why the loop is off. db answers
-// the lead's pin at each gate and each judge call.
+// pursuitFromEnv builds the pursuit deps from the environment and the operator's saved settings, or nil with the info that says
+// why the loop is not running. The loop is ON by default: with no judge pin it idles ("judge-pin" missing, nothing built, nothing
+// spent) and never picks a model for the person. Order: an explicit operator OFF (env or saved row) beats everything; then the
+// pin of MONOAGENT_PURSUIT_JUDGE; then the saved pin. db answers the lead's pin at each gate and each judge call.
 func pursuitFromEnv(getenv func(string) string, db *sql.DB) (*coderhost.PursuitDeps, coderhost.PursuitHostInfo) {
-	pin := strings.TrimSpace(getenv(envPursuitJudge))
+	if v := getenv(envPursuitLoop); coderhost.PursuitLoopValueOff(v) {
+		return nil, coderhost.PursuitHostInfo{OperatorOff: true, OffSource: "env", Reason: "turned off by the operator (" + envPursuitLoop + " is set and is not on/1/true); unset it (or set it to on) and restart the host to go back to the default"}
+	}
+	store := coderhost.NewStore(db)
+	// a setting that cannot be read fails closed: the loop stays off rather than guess
+	if off, err := store.PursuitOperatorOff(); err != nil {
+		return nil, coderhost.PursuitHostInfo{OperatorOff: true, OffSource: "saved", Reason: fmt.Sprintf("the operator's pursuit switch could not be read (%v); the pursuit loop stays off", err)}
+	} else if off {
+		return nil, coderhost.PursuitHostInfo{OperatorOff: true, OffSource: "saved", Reason: "turned off by the operator (`coder host pursuit off`); `coder host pursuit on` and a host restart go back to the default"}
+	}
+	pin, source := strings.TrimSpace(getenv(envPursuitJudge)), "env"
 	if pin == "" {
-		return nil, coderhost.PursuitHostInfo{}
+		saved, err := store.SavedPursuitJudge()
+		if err != nil {
+			return nil, coderhost.PursuitHostInfo{OperatorOff: true, OffSource: "saved", Reason: fmt.Sprintf("the saved judge could not be read (%v); the pursuit loop stays off", err)}
+		}
+		pin, source = saved, "saved"
+	}
+	if pin == "" {
+		return nil, coderhost.PursuitHostInfo{Missing: coderhost.PursuitMissingJudgePin, Reason: "judge-pin missing: the pursuit loop is on by default but idle (nothing is judged, nothing is spent) until you choose a judge model that differs from your leads' (for $0 use an OpenRouter ':free' model through the vault's Openrouter key): run `monoagentcli coder host pursuit judge set RUNTIME/MODEL`, then restart the coder host"}
 	}
 	off := func(format string, a ...any) (*coderhost.PursuitDeps, coderhost.PursuitHostInfo) {
-		return nil, coderhost.PursuitHostInfo{Pin: pin, Reason: fmt.Sprintf(format, a...)}
+		return nil, coderhost.PursuitHostInfo{Pin: pin, PinSource: source, Reason: fmt.Sprintf(format, a...)}
 	}
 	wake := coderhost.DefaultWakeCapUSD
 	// unset or empty is the default; anything else must be a number (a value of only spaces is not one)
@@ -75,7 +101,7 @@ func pursuitFromEnv(getenv func(string) string, db *sql.DB) (*coderhost.PursuitD
 	}
 	model, err := judgemodel.New(judgemodel.Config{Pin: pin})
 	if err != nil {
-		return off("%s: %v; the pursuit loop stays off", envPursuitJudge, err)
+		return off("the judge pin (%s): %v; the pursuit loop stays off", source, err)
 	}
 	d := &coderhost.PursuitDeps{
 		Model:      model,
@@ -83,7 +109,7 @@ func pursuitFromEnv(getenv func(string) string, db *sql.DB) (*coderhost.PursuitD
 		WakeCapUSD: wake,
 		LeadPin:    func(profileID, conversationID string) string { return leadPin(db, profileID, conversationID) },
 	}
-	return d, coderhost.PursuitHostInfo{Enabled: true, Pin: pin, WakeCapUSD: wake}
+	return d, coderhost.PursuitHostInfo{Enabled: true, Pin: pin, PinSource: source, WakeCapUSD: wake}
 }
 
 // leadPin is the runtime/model a conversation runs (coderhost.LeadPin: the host and `pursuit preview` read it alike).
@@ -107,10 +133,14 @@ func pursuitStatusLine(p coderhost.PursuitHostInfo) string {
 
 func pursuitLoopLine(p coderhost.PursuitHostInfo) string {
 	switch {
+	case p.Invalid:
+		return "pursuit loop state not usable  (the host's status file holds values that cannot be real; ignored)"
 	case p.Enabled:
 		return fmt.Sprintf("pursuit loop ON  judge %s  a wake-up turn is capped at $%.2f (and at what the lead has left)", p.Pin, p.WakeCapUSD)
+	case p.Missing != "":
+		return "pursuit loop ON (default) but idle  " + p.Reason
 	case p.Reason != "":
 		return "pursuit loop OFF  " + p.Reason
 	}
-	return "pursuit loop OFF  (set " + envPursuitJudge + " to a judge model and restart the host to turn it on)"
+	return "pursuit loop OFF  (no state published by this host)"
 }

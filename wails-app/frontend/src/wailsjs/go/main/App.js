@@ -1885,3 +1885,27 @@ export function GetVaultAgentAccess() {
 export function SetVaultAgentAccess(arg1) {
   return window['go']['main']['App']['SetVaultAgentAccess'](arg1);
 }
+
+export function MissionChildrenState() {
+  return window['go']['main']['App']['MissionChildrenState']();
+}
+
+export function PursuitHostStatus() {
+  return window['go']['main']['App']['PursuitHostStatus']();
+}
+
+export function PursuitPause(arg1) {
+  return window['go']['main']['App']['PursuitPause'](arg1);
+}
+
+export function PursuitReadiness(arg1) {
+  return window['go']['main']['App']['PursuitReadiness'](arg1);
+}
+
+export function SetAgentApproval(arg1,arg2,arg3) {
+  return window['go']['main']['App']['SetAgentApproval'](arg1,arg2,arg3);
+}
+
+export function SetMissionChildren(arg1) {
+  return window['go']['main']['App']['SetMissionChildren'](arg1);
+}

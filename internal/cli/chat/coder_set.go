@@ -167,7 +167,7 @@ func newCoderSetCmd(cfg *Deps) *cobra.Command {
 					return clicore.InvalidInput("peer-credential binding cannot be switched on while %d coder turn(s) are running without it: wait for them to finish or stop them, then switch it on", n)
 				}
 			}
-			if peercred == "off" && bool(s.PeercredBinding) {
+			if peercred == "off" && s.resolveBinding().On {
 				// A run needs bound turns ("no run without binding"): switching it off under an open run would make the host refuse
 				// the run's next turn after the run started. `doomsday stop` dispatches no turn, so it still works. The count is
 				// read inside the transaction that saves the setting, so a start cannot slip in between.
@@ -183,7 +183,7 @@ func newCoderSetCmd(cfg *Deps) *cobra.Command {
 					return clicore.InvalidInput("peer-credential binding cannot be switched off while an open-ended run is open: its turns need binding. Stop the run first (`doomsday stop`), then switch it off")
 				}
 			}
-			s.PeercredBinding = bindingFlag(peercred == "on")
+			s.PeercredBinding = bindingSet(peercred == "on")
 		}
 		if f.Changed("send-approval") {
 			if err := clicore.RequireOperator(cfg.RequireOperator, "change the send-approval setting"); err != nil {
@@ -214,7 +214,7 @@ func newCoderSetCmd(cfg *Deps) *cobra.Command {
 	c.Flags().StringVar(&appAcc, "app-access", "", "on (default) or off: what agents are told and offered, not what they can do. Off, coder prompts carry no profile summary and a dynamic org's workers are not offered the workspace profile (MonoAgent's tasks, documents, people, vault, workflows and apps) or told about those surfaces; the coder lead keeps full access, a worker with a shell can still run monoagentcli, operator-only commands and the send gate still apply, and with a Jev key set a worker's brief still goes to Jev, whatever the router (operator only)")
 	c.Flags().StringVar(&defAcc, "default-access", "", "scoped, coding, workspace or full (default full): the level an operator-run chat creation without --access makes when coder mode is ready; an agent-run creation stays scoped (operator only)")
 	c.Flags().StringVar(&box, "box", "", "off (default), compat or strict: run a coding-access coder turn inside the agent sandbox (Linux, bubblewrap). Best-effort hardening, not isolation: the turn shares the host network and the host root is mounted read-only, so only the named locations are hidden. Workspace and full access turns need the user's database, which the sandbox hides, so they are refused while this is on (operator only)")
-	c.Flags().StringVar(&peercred, "peercred-binding", "", "on or off (default off): bind a turn's tokens to the turn's process through the kernel-checked binding service. It can be switched on only where this machine can run the binding service and no coder turn is running; a setting that is on where it cannot run refuses every turn rather than run weaker. Switching it on leaves legacy tokens already issued valid until they expire. It cannot be switched off while an open-ended run is open: stop the run first (operator only)")
+	c.Flags().StringVar(&peercred, "peercred-binding", "", "on or off (default: on where this machine can run the binding service, off elsewhere; an explicit off is kept): bind a turn's tokens to the turn's process through the kernel-checked binding service. It can be switched on only where this machine can run the binding service and no coder turn is running; a setting that is on where it cannot run refuses every turn rather than run weaker. Switching it on leaves legacy tokens already issued valid until they expire. It cannot be switched off while an open-ended run is open: stop the run first (operator only)")
 	c.Flags().StringVar(&root, "workspace-root", "", "Folder new test workspaces are created in (operator only)")
 	c.Flags().IntVar(&maxTurns, "max-turns", 0, "Agent turn cap per message (operator only)")
 	c.Flags().StringVar(&timeout, "timeout", "", "Wall-clock cap per message (e.g. 60m; operator only)")

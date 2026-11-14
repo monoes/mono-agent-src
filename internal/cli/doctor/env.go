@@ -22,6 +22,8 @@ import (
 
 // EnvDeps is what the real-machine environment takes from the CLI around it.
 type EnvDeps struct {
+	// OpenModeExtra reads the open-ended mode's containment steps and active run for the Open-ended mode row (nil: not read).
+	OpenModeExtra OpenModeExtra
 	// RequireOperator refuses what only the operator's own terminal may do (adopting a workflow
 	// file, settling an unfinished workflow change). nil refuses.
 	RequireOperator func(what string) error
@@ -176,6 +178,7 @@ func NewHealthEnv(d EnvDeps, projects []string) (*health.Env, func()) {
 	} else if !os.IsNotExist(err) {
 		env.DBErr = err
 	}
+	addOpenModeHook(env, dbPath, d.OpenModeExtra)
 	if env.DB != nil {
 		addAccountHooks(env, env.DB)
 	}

@@ -68,6 +68,9 @@ type execLauncher struct {
 	// process attributes (Setsid, pidfd) and before the process exists, and returns a release that the launcher calls right after the start
 	// (success or failure). An error refuses the turn before anything runs. Bound launches only: a legacy start with place set fails.
 	place func(cmd *exec.Cmd, profileID, conversationID string) (release func(), err error)
+	// placeRequired, when set with place, says whether a turn of this session must be placed (an open-ended run is open): a legacy start
+	// is refused only then, so a host with no run starts its legacy turns as it always did. Unset, or an error, refuses (fail closed).
+	placeRequired func(profileID, conversationID string) (bool, error)
 	// afterExitRevoke is a test seam: the exit goroutine calls it once its revokes have run, before the turn is done.
 	afterExitRevoke func()
 }
@@ -299,7 +302,15 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = prompt, logFile, logFile
 	startProcess := func() error {
 		if l.place != nil {
-			return errors.New("placing a turn needs a bound launch; a legacy start would run outside the placement")
+			need := true // without the check a placement is assumed to be needed
+			if l.placeRequired != nil {
+				if perr := hookRecover("the placement check", func() (e error) { need, e = l.placeRequired(profileID, conversationID); return e }); perr != nil {
+					return perr
+				}
+			}
+			if need {
+				return errors.New("placing a turn needs a bound launch; a legacy start would run outside the placement")
+			}
 		}
 		return clicore.DetachStart(cmd)
 	}
@@ -404,7 +415,7 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	// leader and group. Nothing waits for the child yet, so the pid cannot have been reused and the group is still its own.
 	killUnrecorded := func(err error) error {
 		_ = cmd.Process.Kill()
-		_ = killGroup(t.pid)
+		logSignalErr("kill", t.pid, killGroup(t.pid))
 		t.markKilled() // under the lock, before the waiter can reap: Stop, the grace and afterDone never signal this pid or group again
 		startWaiter()  // reaps it and ends its tokens
 		return t.fail(err)
@@ -736,7 +747,7 @@ func (t *execTurn) afterDone() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if !(t.strict && t.held) && !t.killed {
-		_ = t.killGrp()
+		logSignalErr("kill", t.pid, t.killGrp())
 	}
 }
 
@@ -746,7 +757,7 @@ func (t *execTurn) killGroupIfHeld() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.pinned() {
-		_ = t.killGrp()
+		logSignalErr("kill", t.pid, t.killGrp())
 	}
 }
 
@@ -769,7 +780,7 @@ func (t *execTurn) Stop() {
 		t.mu.Lock()
 		t.stopping = true
 		if t.pinned() {
-			_ = t.terminateGrp() // t is this process's child: its pid is its own until cmd.Wait reaps it
+			logSignalErr("terminate", t.pid, t.terminateGrp()) // t is this process's child: its pid is its own until cmd.Wait reaps it
 		}
 		t.mu.Unlock()
 		grace := hostTurnGrace // read here: the goroutine below can outlive a test that swaps it
@@ -865,7 +876,7 @@ func signalTurn(pid int, stamp string, sig groupSignal) {
 	if pid <= 1 || stamp == "" || stampOf(pid) != stamp {
 		return
 	}
-	_ = sig(pid)
+	logSignalErr("signal", pid, sig(pid))
 }
 
 // stampOf is pidStamp; a variable so tests can make a start time unreadable.
@@ -957,4 +968,13 @@ func hasEnvName(kv, n string) bool {
 		return strings.EqualFold(kv[:len(n)], n)
 	}
 	return kv[:len(n)] == n
+}
+
+// logSignalErr says so when a turn could not be signalled: a stop that reaches nothing must not look like one that did.
+// A process that is already gone is no error.
+func logSignalErr(what string, pid int, err error) {
+	if err == nil || errors.Is(err, os.ErrProcessDone) || strings.Contains(err.Error(), "no such process") {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "coder host: could not %s turn process %d: %v\n", what, pid, err)
 }

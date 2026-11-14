@@ -24,6 +24,9 @@ type ImageInfoNode struct{}
 
 func (n *ImageInfoNode) Type() string { return "image.info" }
 
+// PublishesToThirdParty: image.info sends nothing off this machine (issue #1418).
+func (ImageInfoNode) PublishesToThirdParty() bool { return false }
+
 func (n *ImageInfoNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	field, _ := config["field"].(string)
 	outItems := make([]workflow.Item, 0, len(input.Items))
@@ -77,6 +80,9 @@ func (n *ImageInfoNode) Execute(ctx context.Context, input workflow.NodeInput, c
 type ImageResizeNode struct{}
 
 func (n *ImageResizeNode) Type() string { return "image.resize" }
+
+// PublishesToThirdParty: image.resize sends nothing off this machine (issue #1418).
+func (ImageResizeNode) PublishesToThirdParty() bool { return false }
 
 func (n *ImageResizeNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	field, _ := config["field"].(string)
@@ -155,6 +161,9 @@ func (n *ImageResizeNode) Execute(ctx context.Context, input workflow.NodeInput,
 type ImageCropNode struct{}
 
 func (n *ImageCropNode) Type() string { return "image.crop" }
+
+// PublishesToThirdParty: image.crop sends nothing off this machine (issue #1418).
+func (ImageCropNode) PublishesToThirdParty() bool { return false }
 
 func (n *ImageCropNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	field, _ := config["field"].(string)
@@ -259,6 +268,9 @@ type ImageThumbnailNode struct{}
 
 func (n *ImageThumbnailNode) Type() string { return "image.thumbnail" }
 
+// PublishesToThirdParty: image.thumbnail sends nothing off this machine (issue #1418).
+func (ImageThumbnailNode) PublishesToThirdParty() bool { return false }
+
 func (n *ImageThumbnailNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	field, _ := config["field"].(string)
 	width := intConfig(config, "width", 0)
@@ -327,6 +339,9 @@ func (n *ImageThumbnailNode) Execute(ctx context.Context, input workflow.NodeInp
 type ImageConvertNode struct{}
 
 func (n *ImageConvertNode) Type() string { return "image.convert" }
+
+// PublishesToThirdParty: image.convert sends nothing off this machine (issue #1418).
+func (ImageConvertNode) PublishesToThirdParty() bool { return false }
 
 func (n *ImageConvertNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	field, _ := config["field"].(string)
@@ -401,6 +416,9 @@ func (n *ImageConvertNode) Execute(ctx context.Context, input workflow.NodeInput
 type ImageAdjustNode struct{}
 
 func (n *ImageAdjustNode) Type() string { return "image.adjust" }
+
+// PublishesToThirdParty: image.adjust sends nothing off this machine (issue #1418).
+func (ImageAdjustNode) PublishesToThirdParty() bool { return false }
 
 func (n *ImageAdjustNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	field, _ := config["field"].(string)

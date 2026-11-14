@@ -170,7 +170,26 @@ func missionLine(m *missionFact) string {
 		kids = fmt.Sprintf(" Task child sessions: %d running, %d queued, %d failed.", m.ChildRun, m.ChildQueued, m.ChildFailed)
 	}
 	return fmt.Sprintf("Mission (your task session): %s; %d of %d task(s) done, %d in review, %d verified, %d blocked.%s Closing tasks and approving a plan stay the operator's.\n",
-		m.State, m.Done, m.Total, m.Review, m.Verified, m.Blocked, kids) + reevalLine(m.Reeval)
+		m.State, m.Done, m.Total, m.Review, m.Verified, m.Blocked, kids) + waitingLine(m) + reevalLine(m.Reeval)
+}
+
+// waitingLine says in plain words why nothing is open for the lead, from the host's own counts and state; "" when work is
+// open, the pursuit loop speaks for the mission, or there is no plan yet.
+func waitingLine(m *missionFact) string {
+	if m.Pursuing {
+		return ""
+	}
+	switch {
+	case m.State == string(tasks.SessionDraft):
+		return "Waiting: the plan is not approved yet; only the operator approves it.\n"
+	case m.State == string(tasks.SessionPaused):
+		return "Waiting: the mission is paused; only the operator resumes it.\n"
+	case m.State != string(tasks.SessionRunning) || m.Open > 0 || m.Total == 0:
+		return ""
+	case m.Blocked > 0:
+		return fmt.Sprintf("Waiting: nothing is open for you; %d blocked task(s) wait for the operator.\n", m.Blocked)
+	}
+	return "Waiting: nothing is open for you; the mission waits for the operator's close (mission_finish proposes it).\n"
 }
 
 // open says whether a running mission still has work the lead can move (see missionFact.Open). A blocked task

@@ -22,6 +22,9 @@ type SortNode struct{}
 
 func (n *SortNode) Type() string { return "core.sort" }
 
+// PublishesToThirdParty: core.sort sends nothing off this machine (issue #1418).
+func (SortNode) PublishesToThirdParty() bool { return false }
+
 func (n *SortNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	field, _ := config["field"].(string)
 	if field == "" {

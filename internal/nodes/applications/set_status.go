@@ -29,6 +29,12 @@ type SetStatusNode struct{}
 
 func (n *SetStatusNode) Type() string { return "applications.set_status" }
 
+// PublishesToThirdParty: applications.set_status sends nothing off this machine (issue #1418).
+func (SetStatusNode) PublishesToThirdParty() bool { return false }
+
+// WritesLocalStore: applications.set_status puts what it is given where another run can read it back (issue #1418).
+func (SetStatusNode) WritesLocalStore() bool { return true }
+
 func (n *SetStatusNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	if globalStore == nil {
 		return nil, fmt.Errorf("applications.set_status: store not available (call SetGlobalStore at startup)")

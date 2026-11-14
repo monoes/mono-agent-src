@@ -23,8 +23,12 @@ func TestInstallGivesTheLauncherAPlaceHookThatFollowsTheOpenRun(t *testing.T) {
 	if err := g.Install(w.host, h); err != nil {
 		t.Fatal(err)
 	}
-	if got.Place == nil {
-		t.Fatal("Install did not give the launcher a Place hook")
+	if got.Place == nil || got.PlaceRequired == nil {
+		t.Fatal("Install did not give the launcher a Place hook and its PlaceRequired check")
+	}
+	// PlaceRequired follows the open run: false with none (a legacy launch is allowed), true with one (it is refused), an error for a foreign profile.
+	if need, err := got.PlaceRequired("p1", "c1"); need || err != nil {
+		t.Fatalf("no run open: need=%v err=%v", need, err)
 	}
 	cmd := exec.Command("true")
 	rel, err := got.Place(cmd, "p1", "c1")
@@ -34,6 +38,12 @@ func TestInstallGivesTheLauncherAPlaceHookThatFollowsTheOpenRun(t *testing.T) {
 	rel()
 
 	w.start(t)
+	if need, err := got.PlaceRequired("p1", "c1"); !need || err != nil {
+		t.Fatalf("run open: need=%v err=%v", need, err)
+	}
+	if _, err := got.PlaceRequired("other", "c1"); err == nil {
+		t.Fatal("a foreign profile was not an error")
+	}
 	cmd = exec.Command("true")
 	if rel, err = got.Place(cmd, "p1", "c1"); err == nil || rel != nil || cmd.SysProcAttr != nil {
 		t.Fatalf("run open, unit cannot be placed in: err=%v release=%v attr=%+v", err, rel != nil, cmd.SysProcAttr)
@@ -59,6 +69,7 @@ func TestEveryCoderChildStartGoesThroughPlace(t *testing.T) {
 		"coder_host.go:clicore.DetachStart":         "starts the host itself, not a turn child",
 		"coder_host_stamp_other.go:exec.Command":    "ps lookup, not a turn child",
 		"coder_host_signal_windows.go:exec.Command": "taskkill, not a turn child",
+		"coder_host_signal_unix.go:exec.Command":    "ps listing of a placed turn's descendants, not a turn child",
 		"coder_background.go:exec.Command":          "ps lookup, not a turn child",
 		"coder_queue_add.go:exec.CommandContext":    "queues a command for the host, short-lived, not a turn child",
 	}

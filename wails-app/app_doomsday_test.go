@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -445,19 +446,19 @@ func TestDoomsdayProbeFailuresAreErrorsAndNotCached(t *testing.T) {
 // --flag=value, nothing else. No other verb gets a charter, and no flag of the script start or the lift is ever built.
 func TestDoomsdayCharterArgvIsFixed(t *testing.T) {
 	for _, verb := range []string{"stop", "overview", "probe", "finish", "rubric", "status", "start; stop", ""} {
-		if _, err := doomsdayCharterArgv("p", verb, "x", "c"); err == nil {
+		if _, err := doomsdayCharterArgv("p", verb, "x", "c", ""); err == nil {
 			t.Errorf("doomsday %q was allowed with a charter", verb)
 		}
 	}
-	if _, err := doomsdayCharterArgv("", "render", "", ""); err == nil {
+	if _, err := doomsdayCharterArgv("", "render", "", "", ""); err == nil {
 		t.Fatal("no profile: the call must be refused")
 	}
-	got, err := doomsdayCharterArgv("p", "start", "-x --yes-i-lift", "chat-7")
+	got, err := doomsdayCharterArgv("p", "start", "-x --yes-i-lift", "chat-7", "")
 	want := []string{"--profile", "p", "--json", "doomsday", "start", "--charter", "-", "--gui-phrase=-x --yes-i-lift", "--chat=chat-7"}
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("argv = %q, %v", got, err)
 	}
-	got, _ = doomsdayCharterArgv("p", "render", "ignored", "x")
+	got, _ = doomsdayCharterArgv("p", "render", "ignored", "x", "")
 	want = []string{"--profile", "p", "--json", "doomsday", "render", "--charter", "-"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("render argv = %q", got)
@@ -473,13 +474,29 @@ func TestDoomsdayCharterArgvIsFixed(t *testing.T) {
 
 // The chat of a start goes in the --chat=ID form (a value, never a flag) and an empty or spaced id builds no argv at all.
 func TestDoomsdayCharterArgvChatIsAValue(t *testing.T) {
-	got, err := doomsdayCharterArgv("p", "start", "x", "--yes-i-lift")
+	got, err := doomsdayCharterArgv("p", "start", "x", "--yes-i-lift", "")
 	if err != nil || got[len(got)-1] != "--chat=--yes-i-lift" {
 		t.Fatalf("argv = %q %v", got, err)
 	}
 	for _, bad := range []string{"", " ", "a b", "a\nb"} {
-		if _, err := doomsdayCharterArgv("p", "start", "x", bad); err == nil {
+		if _, err := doomsdayCharterArgv("p", "start", "x", bad, ""); err == nil {
 			t.Errorf("chat %q built an argv", bad)
+		}
+	}
+}
+
+// The start passes the mode its confirmation showed, so the CLI can refuse when the machine changed since.
+func TestTheStartArgvCarriesTheModeTheConfirmationShowed(t *testing.T) {
+	for mode, want := range map[string]string{"bound": "--expect-mode=bound", "unbound": "--expect-mode=unbound"} {
+		got, err := doomsdayCharterArgv("p", "start", "x", "chat-7", mode)
+		if err != nil || !slices.Contains(got, want) {
+			t.Fatalf("%s: %v %v", mode, got, err)
+		}
+	}
+	got, _ := doomsdayCharterArgv("p", "start", "x", "chat-7", "junk")
+	for _, a := range got {
+		if strings.HasPrefix(a, "--expect-mode") {
+			t.Fatalf("a junk mode was passed on: %v", got)
 		}
 	}
 }

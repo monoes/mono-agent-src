@@ -69,8 +69,8 @@ func TestHilSendAttachmentDataEncodesTheCLIsPath(t *testing.T) {
 	a.ctx = context.Background()
 	dir := t.TempDir()
 	script := "#!/bin/sh\necho '{\"path\":\"" + img + "\",\"mime\":\"image/png\",\"size\":3}'\n"
-	bin := filepath.Join(dir, "monoagentcli")
-	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
+	bin := filepath.Join(dir, fakeCLIName)
+	if err := writeFakeCLI(bin, script); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("MONOAGENTCLI_BIN", bin)

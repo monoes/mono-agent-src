@@ -110,11 +110,13 @@ func TestThePursuitLoopWritesOnlyItsOwnStateAndTheQueue(t *testing.T) {
 	write := regexp.MustCompile(`(?is)\b(INSERT|UPDATE|DELETE|REPLACE|ALTER|DROP|CREATE)\b`)
 	target := regexp.MustCompile(`(?is)\b(?:INTO|UPDATE|FROM|TABLE)\s+([a-z_]+)`)
 	// S5a: the judge ledger is written by two functions only, before a judge call (at the cap) and after it (settled once)
-	mayExec := map[string]bool{"insertPursuitState": true, "updateGateState": true, "recordJudgeRound": true, "setPursuitWaiting": true, "EnqueueWithPursuit": true, "reserveJudgeCall": true, "settleJudgeCall": true}
+	mayExec := map[string]bool{"insertPursuitState": true, "updateGateState": true, "recordJudgeRound": true, "setPursuitWaiting": true, "EnqueueWithPursuit": true, "reserveJudgeCall": true, "settleJudgeCall": true,
+		"EnqueueWithAccept": true,
+		"refundWake":        true} // refundWake: gives back one wake-up of the mission's own state row when its turn never started (pursuit_wake_failed.go); writes mission_pursuit_state only
 	denied := map[string]bool{"SaveSettings": true, "UpdateSettings": true, "SetBudget": true, "SaveCheckin": true, "Enqueue": true,
 		"EnqueueWithCheckin": true, "IssueSessionToken": true, "ChargeChild": true, "RevokeSessionTokens": true,
 		"Confirm": true, "Pause": true, "Resume": true, "Start": true, "Propose": true, "Set": true}
-	readsOnly := map[string]bool{"missionpursuit.Get": true, "missionpursuit.GetPursuit": true, "strategy.LatestEpoch": true}
+	readsOnly := map[string]bool{"missionpursuit.Get": true, "missionpursuit.GetPursuit": true, "missionpursuit.GoalChecks": true, "strategy.LatestEpoch": true}
 	var bad []string
 	for name, f := range pursuitSources(t) {
 		check := func(s string) {
@@ -198,6 +200,39 @@ func TestEnqueueWithPursuitHasOneCaller(t *testing.T) {
 			n := strings.Count(string(src), ".EnqueueWithPursuit(")
 			if n > 0 && filepath.Base(p) != "pursuit_wake.go" {
 				t.Errorf("%s calls EnqueueWithPursuit", p)
+			}
+			calls += n
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walking %s: %v", top, err)
+		}
+	}
+	if visited < 500 || calls != 1 {
+		t.Fatalf("visited %d files, %d calls: want the whole tree and exactly one caller", visited, calls)
+	}
+}
+
+// EnqueueWithAccept (the accept wake) has one caller, in the loop's accept step; no other file of the repository calls it.
+func TestEnqueueWithAcceptHasOneCaller(t *testing.T) {
+	root := filepath.Join("..", "..")
+	calls, visited := 0, 0
+	for _, top := range []string{"internal", "cmd", "wails-app"} {
+		err := filepath.WalkDir(filepath.Join(root, top), func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
+				return nil
+			}
+			visited++
+			src, rerr := os.ReadFile(p)
+			if rerr != nil {
+				return rerr
+			}
+			n := strings.Count(string(src), ".EnqueueWithAccept(")
+			if n > 0 && filepath.Base(p) != "pursuit_check_wake.go" {
+				t.Errorf("%s calls EnqueueWithAccept", p)
 			}
 			calls += n
 			return nil
@@ -295,7 +330,10 @@ func TestThePursuitFilesNameOnlyListedExportsOfThePackagesThatCarryWriters(t *te
 			// the goal checks' reads, counts and constants (S7c1b); the writer capability is listed below, per file
 			"CheckFacts": true, "ReadCheckFacts": true, "CheckSpend": true, "CheckSpendAfter": true, "CheckHead": true, "NextCheckRound": true, "HostChecksSince": true,
 			"CheckCapMicro": true, "CheckTotalTimeout": true, "MaxChecksPerAwayWindow": true, "MaxChecksPerMissionLifetime": true, "MaxHostChecksPerHour": true,
-			"MaxBadReviewerRuns": true, "Hash": true, "Criterion": true, "NewHostChecks": true, "HostChecks": true, "BeginCheck": true},
+			"MaxBadReviewerRuns": true, "Hash": true, "Criterion": true, "NewHostChecks": true, "HostChecks": true, "BeginCheck": true,
+			// the goal checks' wake-ups (S7c2): the agent-readable summary the wake text is written from, the finish-park count, and the
+			// outcomes that are the person's (constants)
+			"GoalChecks": true, "CheckSummary": true, "CriterionSummary": true, "FinishParks": true, "OutcomeAccepted": true, "OutcomeRejected": true},
 		"strategy":  {"NewStore": true, "Store": true},
 		"policy":    {"Proposer": true, "Rank": true, "AcceptsNewWork": true},
 		"novelty":   {"New": true, "Key": true, "Corpus": true, "Match": true, "Hit": true},

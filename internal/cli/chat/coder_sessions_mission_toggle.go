@@ -98,7 +98,7 @@ var missionToggleAfterCheck func()
 // are inside the transaction, and a change of the Mission toggle is checked there too, on the same connection,
 // so no other writer's value is brought back and no mission session can appear between the check and the write.
 // It returns the keys the change named.
-func setSettingsAsOperator(cfg *Deps, cs *coderhost.Store, profileID, conversationID, patch, mission, chatMode string) ([]string, error) {
+func setSettingsAsOperator(cfg *Deps, cs *coderhost.Store, profileID, conversationID, patch, mission, chatMode, expect string) ([]string, error) {
 	chat, _, closeDB, err := openChatHistory(cfg)
 	if err != nil {
 		return nil, err
@@ -110,6 +110,9 @@ func setSettingsAsOperator(cfg *Deps, cs *coderhost.Store, profileID, conversati
 	}
 	var keys []string
 	_, err = cs.UpdateSettings(profileID, conversationID, func(ctx context.Context, tx *sql.Conn, cur coderhost.Settings) (coderhost.Settings, error) {
+		if expect != "" && coderhost.SettingsDigest(cur) != expect {
+			return cur, clicore.InvalidInput("%v", coderhost.ErrBaselineChanged)
+		}
 		next, k := cur, []string(nil)
 		if patch != "" {
 			var err error

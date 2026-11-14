@@ -4,13 +4,39 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"sync"
 
 	"github.com/spf13/cobra"
 
 	chatcli "github.com/monoes/mono-agent/internal/cli/chat"
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 	doomsdaycli "github.com/monoes/mono-agent/internal/cli/doomsday"
 	"github.com/monoes/mono-agent/internal/cli/opgate"
 )
+
+// The engines and the strategy reader of the group's verbs own the database they opened. They register its close
+// here and the group closes them after the verb ran, success or failure (a PersistentPostRun alone is skipped when
+// RunE fails); on Windows an open handle keeps the file from being removed or replaced.
+var (
+	doomsdayOpenedMu sync.Mutex
+	doomsdayOpened   []func()
+)
+
+func doomsdayOwns(closeFn func()) {
+	doomsdayOpenedMu.Lock()
+	doomsdayOpened = append(doomsdayOpened, closeFn)
+	doomsdayOpenedMu.Unlock()
+}
+
+func doomsdayCloseOpened() {
+	doomsdayOpenedMu.Lock()
+	fns := doomsdayOpened
+	doomsdayOpened = nil
+	doomsdayOpenedMu.Unlock()
+	for _, f := range fns {
+		f()
+	}
+}
 
 // doomsdayEngine is the store/stop adapter of the open-ended mode. doomsday_engine.go sets it in init() in every
 // build; it is called each time a verb asks for the engine (Deps.Engine), so the database is opened and the engine built
@@ -69,6 +95,7 @@ func newDoomsdayCmd(cfg *globalConfig) *cobra.Command {
 	}
 	// `status` shows a first turn the host refused after the start succeeded (#1521): read-only, from the host's own queue.
 	deps.FirstTurn = firstTurnFor(cfg)
+	deps.UnboundWarning = unboundWarningFor(cfg)
 	deps.ChatStart = func() doomsdaycli.ChatStarter {
 		return doomsdaycli.DBChatStart{
 			Open: func() (*sql.DB, func(), error) {
@@ -91,7 +118,7 @@ func newDoomsdayCmd(cfg *globalConfig) *cobra.Command {
 					}
 				}
 				d := chatDeps(cfg)
-				_, err := chatcli.QueueBossFirstTurn(&d, conv, chatcli.BossFirstTurn{RunID: in.RunID, CharterHash: in.CharterHash, Goal: in.Goal})
+				_, err := chatcli.QueueBossFirstTurn(&d, conv, chatcli.BossFirstTurn{RunID: in.RunID, CharterHash: in.CharterHash, Goal: in.Goal, Terms: in.Terms})
 				return err
 			},
 		}
@@ -112,5 +139,6 @@ func newDoomsdayCmd(cfg *globalConfig) *cobra.Command {
 	if doomsdayExtra != nil {
 		doomsdayExtra(cfg, grp, deps)
 	}
+	clicore.CloseAfterRun(grp, doomsdayCloseOpened)
 	return grp
 }

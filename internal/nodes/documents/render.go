@@ -34,6 +34,12 @@ type RenderNode struct{}
 
 func (n *RenderNode) Type() string { return "documents.render" }
 
+// PublishesToThirdParty: documents.render sends nothing off this machine (issue #1418).
+func (RenderNode) PublishesToThirdParty() bool { return false }
+
+// WritesLocalStore: documents.render puts what it is given where another run can read it back (issue #1418).
+func (RenderNode) WritesLocalStore() bool { return true }
+
 func (n *RenderNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	if globalDB == nil {
 		return nil, fmt.Errorf("documents.render: database not available (call SetGlobalDB at startup)")

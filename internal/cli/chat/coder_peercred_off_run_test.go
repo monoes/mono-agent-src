@@ -14,7 +14,7 @@ func peercredWithRun(t *testing.T, state string) string {
 	procbind.ForTestSetIssuance(t, false)
 	asOperator(t)
 	dbPath := newChatCLITestDB(t)
-	setCoderSettings(t, dbPath, coderSettings{Enabled: true, PeercredBinding: true})
+	setCoderSettings(t, dbPath, coderSettings{Enabled: true, PeercredBinding: bindingSet(true)})
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatal(err)
