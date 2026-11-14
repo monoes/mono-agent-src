@@ -36,8 +36,17 @@ var hostChecksNow = func() hostChecks {
 	}
 	return hostChecks{
 		Lock: func() error { return lockSelfTest(d.Run, AcquireHost) },
-		Peer: func() error { return peerSelfTest(d.Run, peerUID) },
-		Pin:  func() error { return pinSelfTest(d.DB, realPinner, defaultPinScenarios, pinRefusalExpected) },
+		Peer: func() error {
+			dir := d.Run
+			if dir != "" { // the real sockets' place: a run directory too long for a socket address uses a short private one
+				var err error
+				if dir, err = probeSockDir(d.Run); err != nil {
+					return err
+				}
+			}
+			return peerSelfTest(dir, peerUID)
+		},
+		Pin: func() error { return pinSelfTest(d.DB, realPinner, defaultPinScenarios, pinRefusalExpected) },
 	}
 }
 

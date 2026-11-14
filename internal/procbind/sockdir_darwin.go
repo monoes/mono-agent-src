@@ -15,6 +15,9 @@ import (
 // maxSockPath is the longest path a unix socket address holds on macOS (sun_path is 104 bytes, one for the NUL).
 const maxSockPath = 103
 
+// fitRoot moves a root whose socket paths do not fit a macOS socket address to a short private one.
+func fitRoot(root string, uid int) string { return shortenRoot(root, uid, maxSockPath) }
+
 // socketPathLen is the length of the socket's path for a leaf under root, as bind and connect will be given it. The root is
 // looked at as the kernel will report it (a temp dir is behind a symlink, and F_GETPATH gives the real one).
 func socketPathLen(root, leaf string) int {

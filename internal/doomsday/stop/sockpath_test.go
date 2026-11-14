@@ -14,7 +14,11 @@ import (
 // ones are <home>/.monoagent/doomsday/<profile id>, and a long home name pushes them over).
 func longRunDir(t *testing.T) RunDir {
 	t.Helper()
-	d := filepath.Join(shortTempDir(t), strings.Repeat("h", 60), strings.Repeat("p", 60))
+	base := shortTempDir(t)
+	old := shortSockBase
+	shortSockBase = func() string { return base }
+	t.Cleanup(func() { shortSockBase = old })
+	d := filepath.Join(base, strings.Repeat("h", 60), strings.Repeat("p", 60))
 	if err := os.MkdirAll(d, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -25,8 +29,8 @@ func longRunDir(t *testing.T) RunDir {
 // private directory and the dialer finds it by the same rule.
 func TestAnchorServiceWorksWhenTheRunDirectoryIsTooLongForASocketAddress(t *testing.T) {
 	dir := longRunDir(t)
-	if len(dir.AnchorSockPath()) < 108 {
-		t.Fatalf("the test directory is not long enough (%d bytes)", len(dir.AnchorSockPath()))
+	if n := len(dir.Dir + "/anchor.sock"); n < 108 {
+		t.Fatalf("the test directory is not long enough (%d bytes)", n)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -52,4 +56,72 @@ func TestEmergencySocketWorksWhenTheRunDirectoryIsTooLongForASocketAddress(t *te
 		t.Fatalf("the emergency socket cannot be reached: %v", err)
 	}
 	c.Close()
+}
+
+func TestSocketPathStaysNaturalWhenItFitsAndShortWhenItDoesNot(t *testing.T) {
+	r := RunDir{Dir: "/tmp/x"}
+	if got := r.AnchorSockPath(); got != "/tmp/x/anchor.sock" {
+		t.Fatalf("a path that fits moved to %s", got)
+	}
+	long := longRunDir(t)
+	for _, p := range []string{long.AnchorSockPath(), long.SockPath(18446744073709551615)} {
+		if len(p) > sockMax {
+			t.Fatalf("%s is %d bytes, over %d", p, len(p), sockMax)
+		}
+	}
+	if long.AnchorSockPath() != long.AnchorSockPath() || filepath.Dir(long.AnchorSockPath()) != filepath.Dir(long.SockPath(1)) {
+		t.Fatal("the listener and the dialer would not agree")
+	}
+}
+
+func TestShortSocketDirectoryIsRefusedWhenNotPlainPrivateAndOurs(t *testing.T) {
+	long := longRunDir(t)
+	short := filepath.Dir(long.AnchorSockPath())
+	start := func() error {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		return (&AnchorServer{Dir: long, UID: 1, OS: sessionFakePG{newFakePG()}}).Start(ctx)
+	}
+	// open to others
+	mustNoErr(t, os.Mkdir(short, 0o755))
+	if err := os.Chmod(short, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := start(); err == nil {
+		t.Fatal("a short directory open to others was used")
+	}
+	mustNoErr(t, os.Remove(short))
+	// a symlink
+	target := t.TempDir()
+	mustNoErr(t, os.Symlink(target, short))
+	if err := start(); err == nil {
+		t.Fatal("a symlinked short directory was used")
+	}
+	mustNoErr(t, os.Remove(short))
+	// another user's
+	mustNoErr(t, os.Mkdir(short, 0o700))
+	old := fileOwnedByMe
+	fileOwnedByMe = func(os.FileInfo) bool { return false }
+	t.Cleanup(func() { fileOwnedByMe = old })
+	if err := start(); err == nil {
+		t.Fatal("another user's short directory was used")
+	}
+}
+
+// The start-time self-test binds where the real sockets will be, so a path that cannot be used shows there.
+func TestProbeUsesTheShortDirectoryAndRefusesAnUnusableOne(t *testing.T) {
+	long := longRunDir(t)
+	dir, err := probeSockDir(long.Dir)
+	mustNoErr(t, err)
+	if dir == long.Dir || len(dir)+len("/e18446744073709551615.sock") > sockMax {
+		t.Fatalf("the probe would bind in %s", dir)
+	}
+	mustNoErr(t, peerSelfTest(dir, peerUID))
+	mustNoErr(t, os.Chmod(dir, 0o755))
+	if _, err := probeSockDir(long.Dir); err == nil {
+		t.Fatal("the probe accepted an unusable short directory")
+	}
+	if d, err := probeSockDir("/tmp/x"); err != nil || d != "/tmp/x" {
+		t.Fatalf("a run directory that fits changed: %s %v", d, err)
+	}
 }
