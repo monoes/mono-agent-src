@@ -84,6 +84,7 @@ func testDeps(t *testing.T, latestURL string) Deps {
 	t.Helper()
 	none := &fakeHeartbeat{}
 	return Deps{
+		Refusal:          func() string { return "" },
 		JSONOutput:       func() bool { return true },
 		Version:          func() string { return "dev" },
 		ReleaseClient:    func() *release.Client { return &release.Client{} },

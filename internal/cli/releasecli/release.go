@@ -21,17 +21,24 @@ import (
 // (no account needed, like update): they only touch a local keychain entry
 // and files the maintainer names.
 
-// NewCommand returns the `release` group. It takes nothing from the CLI around it.
-func NewCommand() *cobra.Command {
+// Deps is what the commands take from the CLI around them.
+type Deps struct {
+	// Refusal says why this process is not the operator's own terminal ("" when it is):
+	// the CLI's opgate.Refusal. Nil refuses (clicore.OperatorRefusal). `keygen` asks it.
+	Refusal func() string
+}
+
+// NewCommand returns the `release` group.
+func NewCommand(d Deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "release",
 		Short: "Maintainer tools for signed releases (keygen, verify)",
 	}
-	cmd.AddCommand(newReleaseKeygenCmd(), newReleaseVerifyCmd())
+	cmd.AddCommand(newReleaseKeygenCmd(d), newReleaseVerifyCmd())
 	return cmd
 }
 
-func newReleaseKeygenCmd() *cobra.Command {
+func newReleaseKeygenCmd(d Deps) *cobra.Command {
 	var force, stdoutPrivate bool
 	cmd := &cobra.Command{
 		Use:   "keygen",
@@ -41,10 +48,13 @@ func newReleaseKeygenCmd() *cobra.Command {
 			"internal/release/keys.go and rebuild; clients trust only the keys pinned there. Run it in your own terminal.\n\n" +
 			"An existing key is never replaced unless --force (releases signed with the old key stop verifying in builds that pin only the new one).\n\n" +
 			"--stdout-private is for CI signing: nothing is stored in the keychain, the private key (standard base64 of the 64-byte key, one line) goes to STDOUT and the public line to STDERR, " +
-			"so it can be piped straight into a secret without showing on screen or in shell history. It refuses to print the private key to a terminal.",
+			"so it can be piped straight into a secret without showing on screen or in shell history. It refuses to print the private key to a terminal. " + clicore.OperatorOnlyHelp,
 		Example: "  monoagentcli release keygen --stdout-private | gh secret set RELEASE_SIGNING_KEY --env release --repo OWNER/REPO",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if why := clicore.OperatorRefusal(d.Refusal); why != "" {
+				return clicore.OperatorOnly("release keygen makes or replaces the release signing key, which only the user decides: %s; run it yourself in your terminal", why)
+			}
 			if stdoutPrivate {
 				return keygenStdoutPrivate(cmd, force)
 			}

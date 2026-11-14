@@ -9,6 +9,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/account"
 	"github.com/monoes/mono-agent/internal/cli/accountcli"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/library"
 )
 
@@ -24,6 +25,7 @@ func newAccountCmd(cfg *globalConfig) *cobra.Command {
 		AddSignIn: func(cmd *cobra.Command, name string) func(*cobra.Command) (account.Status, bool, error) {
 			return addSignIn(cfg, cmd, name)
 		},
+		Refusal: opgate.Refusal,
 	})
 }
 

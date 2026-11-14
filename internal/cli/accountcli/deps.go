@@ -25,6 +25,9 @@ type Deps struct {
 	// session's status, and sent when it only emailed a code. name is the command, for the
 	// hints.
 	AddSignIn func(cmd *cobra.Command, name string) func(cmd *cobra.Command) (st account.Status, sent bool, err error)
+	// Refusal says why this process is not the operator's own terminal ("" when it is):
+	// the CLI's opgate.Refusal. Nil refuses (clicore.OperatorRefusal).
+	Refusal func() string
 }
 
 // print writes v as indented JSON with --json, else calls human (the CLI's printLib).

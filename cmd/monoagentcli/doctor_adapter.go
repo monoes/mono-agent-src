@@ -9,6 +9,7 @@ import (
 	"github.com/monoes/mono-agent/internal/agentinstall"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	doctorcli "github.com/monoes/mono-agent/internal/cli/doctor"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/health"
 )
 
@@ -23,6 +24,8 @@ func doctorDeps(cfg *globalConfig) doctorcli.Deps {
 			return doctorcli.NewHealthEnv(healthEnvDeps(cfg), projects)
 		},
 		FinishStreamed: finishStreamed,
+		PreviewRefusal: opgate.Refusal,
+		Refusal:        opgate.RecoveryRefusal, // doctor --fix, doctor fix and setup repair an install
 	}
 }
 

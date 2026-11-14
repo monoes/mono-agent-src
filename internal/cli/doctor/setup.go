@@ -74,12 +74,17 @@ streams NDJSON events: {"kind":"stage"} headings, {"kind":"fix_start",
 "fix_id"} before each fix, {"kind":"line"} output, and {"kind":"fix_end",
 "fix_id","outcome"} after it.
 
-Safe to run again at any time; it only does what is still missing.`,
+Safe to run again at any time; it only does what is still missing.
+
+` + clicore.OperatorOnlyHelp,
 		Example: `  monoagentcli setup
   monoagentcli setup --yes --runtime claude --autostart
   monoagentcli setup --group core --yes --json`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if why := clicore.OperatorRefusal(cfg.Refusal); why != "" {
+				return clicore.OperatorOnly("setup installs software, registers the MCP server in the other coding agents and starts the daemon, which only the user decides: %s; run it yourself in your terminal or the app", why)
+			}
 			ctx := cmd.Context()
 			reg := health.Default()
 			opts := health.Options{Groups: groups}
@@ -144,7 +149,7 @@ Safe to run again at any time; it only does what is still missing.`,
 				}
 			} else {
 				ev.stage("Result")
-				printDoctorReport(out, rep, true)
+				printDoctorReport(out, rep, true, cfg.PreviewRefusal)
 				printManualSteps(out, rep)
 			}
 			if n := rep.RequiredFailures(); n > 0 {

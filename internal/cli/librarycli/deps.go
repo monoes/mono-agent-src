@@ -46,6 +46,9 @@ type Deps struct {
 	LoginRequired func() error
 	// IsLoginRequired reports whether err means "log in to monoes.me first".
 	IsLoginRequired func(err error) bool
+	// Refusal says why this process is not the operator's own terminal ("" when it is):
+	// the CLI's opgate.Refusal. Nil refuses (clicore.OperatorRefusal).
+	Refusal func() string
 }
 
 // splitCSV splits a comma-separated flag value, dropping empty items (a package
