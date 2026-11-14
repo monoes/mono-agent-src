@@ -586,9 +586,11 @@ jobs:
           TAGS: ${{ matrix.tags }}
           # A restored build cache also holds test RESULTS; -count=1 makes every test really run, as on a cold hosted runner. A persistent runner keeps its own cache and its old behaviour.
           COUNT: ${{ runner.environment == 'github-hosted' && '-count=1' || '' }}
-          # -race implies checkptr, which instruments every unsafe.Pointer conversion; in modernc.org/sqlite's transpiled C it made each
-          # schema parse ~3x slower (initDB 150-250 ms -> 65 ms per call on a migrated DB, issue #1495). Only that third-party package opts
-          # out; the race detector stays on everywhere and checkptr stays on for this repository's own code.
+          # Why: -race implies checkptr, which instruments every unsafe.Pointer conversion. In modernc.org/sqlite's transpiled C the SQLite
+          # schema re-parse under -race spends about 1/3 of the CPU in runtime.checkptr*, ~3x slower per initDB (150-250 ms -> 65 ms), and
+          # that cost is paid by every test that opens a DB (issue #1495). Scope: only modernc.org/sqlite/... opts out (modernc.org/libc and
+          # this repository's own packages keep checkptr; the race detector stays on everywhere).
+          # Revert: delete the GCF line below and the "$GCF " in the five go test commands (or set GCF to an empty string).
           GCF: -gcflags=modernc.org/sqlite/...=-d=checkptr=0
         run: |
           tags=""
