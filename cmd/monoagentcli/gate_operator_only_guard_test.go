@@ -157,6 +157,7 @@ var verbsWithoutTheHelpText = map[string]bool{
 	"coder queue add": true, "coder queue start": true, "coder projects map": true, "coder projects unmap": true,
 	"profile update": true, "profile delete": true, "profile backups purge": true, "profile move": true,
 	"profile create": true, "profile documents remove": true, "people review approve": true,
+	"doctor": true, "doctor fix": true, // gated for every fix that is not safety auto, and for --fix (doctor.go)
 }
 
 func treeKeys(t *testing.T) (all map[string]bool, withHelp []string) {
