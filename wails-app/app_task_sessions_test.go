@@ -27,7 +27,7 @@ func TestTaskSessionBindingsRunTheirVerbs(t *testing.T) {
 	a := newTaskTestApp(t)
 	for i, got := range []string{
 		a.TaskSessions(false), a.TaskSessions(true),
-		a.TaskSessionShow(4, 20), a.TaskSessionPlan(4), a.TaskSessionBoard(4, 0),
+		a.TaskSessionShow(4, 20), a.TaskSessionPursuitStatus(4), a.TaskSessionPlan(4), a.TaskSessionBoard(4, 0),
 		a.TaskSessionApprove(4), a.TaskSessionPause(4), a.TaskSessionResume(4),
 		a.TaskSessionStop(4), a.TaskSessionArchive(4),
 		a.TaskSessionClose(4, ""), a.TaskSessionClose(4, "-all done"),
@@ -39,7 +39,7 @@ func TestTaskSessionBindingsRunTheirVerbs(t *testing.T) {
 	}
 	want := []string{
 		"task|session|list|", "task|session|list|--all|",
-		"task|session|show|4|--events|20|", "task|session|plan|4|",
+		"task|session|show|4|--events|20|", "task|session|pursuit|status|4|", "task|session|plan|4|",
 		"task|board|--session|4|--done-limit|50|",
 		"task|session|approve|4|", "task|session|pause|4|", "task|session|resume|4|",
 		"task|session|stop|4|", "task|session|archive|4|",
@@ -68,6 +68,7 @@ func TestTaskSessionBindingsRefuseBadInput(t *testing.T) {
 		"close negative":  a.TaskSessionClose(-1, ""),
 		"show zero":       a.TaskSessionShow(0, 5),
 		"board zero":      a.TaskSessionBoard(0, 5),
+		"pursuit zero":    a.TaskSessionPursuitStatus(0),
 		"budget no usd":   a.TaskSessionBudget(2, `{}`),
 		"budget negative": a.TaskSessionBudget(2, `{"usd":-1}`),
 		"budget not json": a.TaskSessionBudget(2, `nope`),
