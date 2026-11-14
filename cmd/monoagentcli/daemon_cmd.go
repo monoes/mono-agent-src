@@ -7,6 +7,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/autostart"
 	"github.com/monoes/mono-agent/internal/cli/daemon"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
@@ -42,5 +43,6 @@ func daemonDeps(cfg *globalConfig) daemon.Deps {
 		// newInstaller is read when the command runs: tests replace it.
 		NewInstaller: func() autostart.Installer { return newInstaller() },
 		WriteJSON:    writeJSONTo,
+		Refusal:      opgate.Refusal,
 	}
 }

@@ -38,5 +38,8 @@ type Deps struct {
 	StartAutoRevalidation func(ctx context.Context, db *sql.DB, logf func(string, ...interface{})) (wait func())
 	// NewInstaller is the OS service manager `daemon restart` goes through.
 	NewInstaller func() autostart.Installer
-	WriteJSON    func(io.Writer, any) error
+	// Refusal says why this process is not the operator's own terminal ("" when it is):
+	// the CLI's opgate.Refusal. Nil refuses (clicore.OperatorRefusal).
+	Refusal   func() string
+	WriteJSON func(io.Writer, any) error
 }

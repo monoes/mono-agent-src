@@ -21,6 +21,9 @@ type Deps struct {
 	NewEnv func(projects []string) (*health.Env, func())
 	// FinishStreamed ends a command whose progress was streamed with ProgressWriter.
 	FinishStreamed func(out io.Writer, asJSON bool, err error, okMsg string) error
+	// Refusal says why this process is not the operator's own terminal ("" when it is):
+	// the CLI's opgate.Refusal. Nil refuses (clicore.OperatorRefusal). `setup` asks it.
+	Refusal func() string
 
 	// projects is doctor's --project.
 	projects []string

@@ -41,9 +41,12 @@ func newLibraryPublishCmd(e *libEnv) *cobra.Command {
 			"  api         an API package (apipkg.v1): an installed one by id, or a package.json file or its folder,\n" +
 			"              validated first\n\n" +
 			"Publishing something you published (or installed from your own library item) before uploads a new " +
-			"version of that item; --new always creates a new item. Items are private unless --public.",
+			"version of that item; --new always creates a new item. Items are private unless --public. " + clicore.OperatorOnlyHelp,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if why := clicore.OperatorRefusal(e.deps.Refusal); why != "" {
+				return clicore.OperatorOnly("library publish uploads the user's own workflows, automations, orgs or packages to monoes.me, which only the user decides: %s; run it yourself in your terminal or the app", why)
+			}
 			kind, local := library.NormalizeKind(args[0]), args[1]
 			if !library.ValidKind(kind) {
 				return clicore.InvalidInput("kind must be workflow, automation, org or api, not %q", kind)

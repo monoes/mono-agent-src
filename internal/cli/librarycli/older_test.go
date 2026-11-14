@@ -83,6 +83,7 @@ func (r *olderRig) seed(t *testing.T, db *storage.Database) string {
 
 func (r *olderRig) deps() Deps {
 	return Deps{
+		Refusal:   func() string { return "" },
 		ProfileID: func() string { return "default" },
 		OpenDB: func() (*storage.Database, error) {
 			db, err := storage.NewDatabase(clicore.ExpandPath(r.dbArg))

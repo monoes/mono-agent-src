@@ -45,6 +45,10 @@ type Deps struct {
 	WriteJSON func(w io.Writer, v any) error
 	// StartDetached starts a process that outlives this one (update --app's relaunch).
 	StartDetached func(name string, args ...string) error
+	// Refusal says why this process is not the operator's own terminal ("" when it is):
+	// the CLI's opgate.Refusal. Nil refuses (clicore.OperatorRefusal). Everything but
+	// --check asks it.
+	Refusal func() string
 
 	// The daemon restart after an update (daemonAfterUpdate).
 
@@ -90,7 +94,8 @@ func NewCommand(d Deps) *cobra.Command {
 			"A running daemon keeps the code it started with, so update restarts one that runs another version, through the " +
 			"service manager it is registered with, unless an execution is in flight or the saved `api config` settings cannot be used: " +
 			"it then says so and leaves the restart to `monoagentcli daemon restart`. When the restart leaves no daemon running (and a " +
-			"rollback did not bring one back), update exits 7; --check and --app exit 0 as before (--app --json carries the daemon outcome).",
+			"rollback did not bring one back), update exits 7; --check and --app exit 0 as before (--app --json carries the daemon outcome).\n\n" +
+			"Everything but --check is the user's own: " + clicore.OperatorOnlyHelp,
 		Example: `  monoagentcli update
   monoagentcli --json update --check
   monoagentcli --json update --check --current v0.72.0
@@ -101,6 +106,9 @@ func NewCommand(d Deps) *cobra.Command {
 			}
 			if check {
 				return d.runCheck(cmd, current)
+			}
+			if why := clicore.OperatorRefusal(d.Refusal); why != "" {
+				return clicore.OperatorOnly("update replaces the program and restarts the daemon, which only the user decides (--check is open): %s; run it yourself in your terminal or the app", why)
 			}
 			if app != "" {
 				return d.runApp(cmd, app, current)

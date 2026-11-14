@@ -13,6 +13,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/apiconfig"
 	"github.com/monoes/mono-agent/internal/autostart"
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 )
 
 // NewRestartCommand is `daemon restart`: it restarts the daemon through the OS service it is registered as, so that
@@ -31,10 +32,13 @@ func NewRestartCommand(d Deps) *cobra.Command {
 			"by hand. If a daemon was started by hand while the service is registered, stop it first: the service's daemon would " +
 			"find the home taken and exit. It reads the saved settings first, and does not restart the daemon when they cannot be used " +
 			"(a saved row that cannot be read, or a value that fails its rule: exit 3 and the message `api config show` gives, with " +
-			"the way to remove it), because a daemon that cannot use them starts without the OpenAI-compatible API.",
+			"the way to remove it), because a daemon that cannot use them starts without the OpenAI-compatible API. " + clicore.OperatorOnlyHelp,
 		Example: "  monoagentcli daemon restart\n  monoagentcli daemon restart --json",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if why := clicore.OperatorRefusal(d.Refusal); why != "" {
+				return clicore.OperatorOnly("daemon restart interrupts the workflows and org runs the daemon is running, which only the user decides: %s; run it yourself in your terminal or the app", why)
+			}
 			noteDeprecatedProfile(cmd)
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()

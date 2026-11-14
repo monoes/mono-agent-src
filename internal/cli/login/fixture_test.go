@@ -64,6 +64,7 @@ func exitCode(err error) int {
 // --json when jsonOut is set, and with no automation registry.
 func testDeps(dbPath, profile string, jsonOut bool) Deps {
 	return Deps{
+		Refusal:        func() string { return "" },
 		JSONOutput:     func() bool { return jsonOut },
 		ProfileID:      func() string { return profile },
 		BrowserProfile: func() string { return profile },

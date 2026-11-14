@@ -8,6 +8,7 @@ import (
 	"github.com/monoes/mono-agent/internal/autostart"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/cli/doctor"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/cli/update"
 	"github.com/monoes/mono-agent/internal/daemonhb"
 	"github.com/monoes/mono-agent/internal/release"
@@ -45,6 +46,7 @@ func updateDeps(cfg *globalConfig) update.Deps {
 		InvalidInput:     errInvalidInput,
 		WriteJSON:        writeJSONTo,
 		StartDetached:    startDetached,
+		Refusal:          opgate.Refusal,
 		RestartBlockers: func(ctx context.Context, pid int) (int, error, error) {
 			return restartBlockers(ctx, cfg, pid)
 		},

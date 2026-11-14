@@ -369,8 +369,12 @@ func newLibraryLogoutCmd(e *libEnv) *cobra.Command {
 	return &cobra.Command{
 		Use:   "logout",
 		Short: "Log out of monoes.me (an alias of `account logout`; also forgets this profile's older login)",
+		Long:  "Revokes and forgets this machine's monoes.me session and this profile's older library login. " + clicore.OperatorOnlyHelp,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if why := clicore.OperatorRefusal(e.deps.Refusal); why != "" {
+				return clicore.OperatorOnly("library logout ends the user's monoes.me session, which only the user decides: %s; run it yourself in your terminal or the app", why)
+			}
 			c, err := e.open()
 			if err != nil {
 				return err
