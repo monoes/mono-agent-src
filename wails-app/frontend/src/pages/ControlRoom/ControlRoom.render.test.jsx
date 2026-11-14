@@ -242,7 +242,9 @@ describe('Stop survives a failed poll', () => {
   })
   it('a bad chain keeps Stop, and an error after it too', async () => {
     await firstOk(unverified)
-    expect(screen.getByTestId('cr-bad-chain')).toBeInTheDocument()
+    // cr-stop is also on screen before the first poll lands (the pre-poll view offers Stop), so wait for the banner
+    // that only the poll's answer renders; a slow first poll made the synchronous getBy flaky.
+    expect(await screen.findByTestId('cr-bad-chain')).toBeInTheDocument()
     await laterPoll({ error: 'x' })
     expect(screen.getByTestId('cr-stop')).toBeInTheDocument()
   })
