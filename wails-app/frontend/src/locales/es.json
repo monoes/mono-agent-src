@@ -2212,7 +2212,8 @@
   },
   "coderBinding": {
     "label": "Vinculación de credenciales del proceso",
-    "hint": "Ata los tokens de cada turno de Coder al proceso que ejecuta el turno. El modo de chat abierto solo se ofrece mientras esto está activado. Desactivado por defecto.",
+    "hint": "Ata los tokens de cada turno de Coder al proceso que ejecuta el turno. El modo de chat abierto solo se ofrece mientras esto está activado. Activado por defecto donde este equipo puede ejecutar el servicio; un desactivado explícito se conserva.",
+    "unavailable": "No disponible en este equipo: {{reason}}",
     "switchedOn": "La vinculación de credenciales del proceso está activada.",
     "switchedOff": "La vinculación de credenciales del proceso está desactivada.",
     "warnTitle": "Antes de cambiarlo",
@@ -2521,7 +2522,8 @@
       "refreshing": "Detenido, actualizando...",
       "retry": "Reintentar limpieza",
       "dismiss": "Cerrar",
-      "partial": "Detenido, pero la limpieza no terminó"
+      "partial": "Detenido, pero la limpieza no terminó",
+      "alreadyStopped": "La ejecución ya está detenida: ya no hay ninguna ejecución abierta."
     }
   },
   "steering": {
@@ -2532,11 +2534,16 @@
     "failed": "No enviado: {{error}}"
   },
   "openStart": {
+    "unbound": "funcionando sin vinculación de credenciales del proceso: {{reason}}",
+    "unboundUnknown": "estado de la vinculación desconocido",
+    "unboundStatusUnknown": "el estado de la vinculación de credenciales de la ejecución abierta es desconocido: {{reason}}",
     "loading": "Cargando...",
     "entryTitle": "Ejecucion abierta",
     "noApproval": "No hay aprobacion humana durante la ejecucion. Nada te preguntara: el agente jefe responde sus propias preguntas y actua con la autoridad que levantes abajo.",
     "steer": "Puedes dirigirla escribiendo en este chat; lo que escribes es direccion para el jefe, nunca la respuesta a una pregunta del jefe.",
     "stopHeader": "Detener esta en el encabezado del chat.",
+    "howTo": "Para empezar: escribe el objetivo y como comprobar que esta hecho, elige el presupuesto y la autoridad que levantas, revisa los modelos fijados y pulsa Revisar. Revisar muestra la carta; la confirmas escribiendo la frase que da, y aparece Empezar la ejecucion. Los modelos, la politica de juicio y los limites por peticion vienen con un valor prudente.",
+    "choose": "Elegir…",
     "platform": "En esta maquina ({{platform}}):",
     "unavailable": "La ejecucion abierta no puede empezar aqui: {{reason}}",
     "unknownReason": "no se pudo leer el motivo",
@@ -2690,5 +2697,32 @@
       "already_started": "Ya hay un seguimiento activo en curso para esta misión.",
       "unknown": "No se sabe si ha comenzado. Comprueba el estado de la misión antes de reintentar; no vuelvas a pulsar Iniciar."
     }
+  },
+  "pursuitPanel": {
+    "noticeLabel": "Aviso de la persecución",
+    "gotIt": "Entendido",
+    "restartPending": "Los ajustes guardados difieren del host de coder en marcha: reinícialo para aplicarlos.",
+    "pause": "Pausar persecución",
+    "noPursuit": "Esta misión aún no tiene una persecución en marcha",
+    "readinessUnavailable": "No se pudo leer qué falta para la persecución.",
+    "missingHeading": "Qué falta para la persecución",
+    "authorityHeading": "Qué puede hacer esta misión",
+    "children": "Dejar que esta misión ejecute tareas en sesiones hijas",
+    "approval": "Dejar que el líder apruebe sus sesiones hijas",
+    "ceiling": "Tope de gasto (USD)",
+    "needCeiling": "Indica antes un tope de gasto mayor que 0: las aprobaciones del líder se miden con él.",
+    "confirmChildrenOn": "¿Permitir sesiones hijas de la misión? Cada una recibe su propio presupuesto del líder.",
+    "confirmChildrenOff": "¿Detener nuevas sesiones hijas? Las que ya corren terminan.",
+    "confirmApprovalOn": "¿Dejar que el líder apruebe sesiones hijas de hasta ${{usd}} cada una? Esto levanta una salvaguarda que normalmente necesita tu aprobación.",
+    "confirmApprovalOff": "¿Dejar de permitir que el líder apruebe sesiones hijas?",
+    "statusLabel": "Estado de la persecución",
+    "readError": "No se pudo leer el ajuste guardado de la persecución; el estado de reinicio es desconocido.",
+    "offSaved": "La persecución está desactivada (ajuste guardado). Para reactivarla ejecuta `coder host pursuit on` y reinicia el host de coder.",
+    "offEnv": "La persecución está desactivada por la variable de entorno MONOAGENT_PURSUIT_LOOP del host de coder. La CLI no puede anularla: quítala (o ponla en on) y reinicia el host.",
+    "offHost": "El host de coder en marcha tiene la persecución desactivada. Ejecuta `coder host pursuit on` si la quieres activa y reinicia el host.",
+    "idle": "La persecución está activa pero en espera hasta que elijas un modelo juez.",
+    "paused": "En pausa.",
+    "failed": "La pausa no se aplicó.",
+    "broken": "No se pudo mostrar el panel de persecución (datos inesperados)."
   }
 }

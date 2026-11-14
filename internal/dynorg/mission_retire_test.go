@@ -129,10 +129,19 @@ func TestAKeptMissionWorkerCarriesItsTask(t *testing.T) {
 // A conductor that cannot reach the mission store refuses the follow-up: it cannot tell the worker was not retired.
 func TestAMissionWorkerIsNotResumedWhenTheStoreCannotBeReached(t *testing.T) {
 	r := newRig(t, rigOpts{})
-	idleMissionWorker(t, r)
-	r.c.cfg.Missions = nil
-	if _, err := r.c.Message(tbg, "w1", "one more thing"); err == nil {
+	a := idleMissionWorker(t, r)
+	// The mission conductor's config is read by its watcher goroutine, so it is not changed in place: the
+	// worker is loaded into a conductor that was never given the mission store.
+	c2 := New(tbg, Config{Cwd: "/w", Limits: Limits{MaxAgents: 20, MaxConcurrent: 5}, Staffer: &Staffer{Roster: []Model{opus, haiku}, Lead: opus},
+		ReadAccess: true, Exec: r.ex.exec, Emit: r.em})
+	t.Cleanup(c2.Close)
+	c2.AddVeterans([]Veteran{{ID: "w1", Runtime: opus.Runtime, Model: opus.Model, Session: "sess-1", Report: "the report", Outcome: "done", MissionSession: r.sid, MissionTask: a.ID, MissionClaims: 1}})
+	_, err := c2.Message(tbg, "w1", "one more thing")
+	if err == nil {
 		t.Fatal("a follow-up was sent to a mission worker whose retirement could not be checked")
+	}
+	if !strings.Contains(err.Error(), "could not check whether w1 was retired") {
+		t.Fatalf("refused for another reason: %v", err)
 	}
 }
 

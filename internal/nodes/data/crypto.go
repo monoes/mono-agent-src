@@ -22,6 +22,9 @@ type CryptoNode struct{}
 
 func (n *CryptoNode) Type() string { return "data.crypto" }
 
+// PublishesToThirdParty: data.crypto sends nothing off this machine (issue #1418).
+func (CryptoNode) PublishesToThirdParty() bool { return false }
+
 func (n *CryptoNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	operation, _ := config["operation"].(string)
 	if cryptoActions[operation] {

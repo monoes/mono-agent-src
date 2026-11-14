@@ -138,29 +138,26 @@ func TestFlippingOpenModeReadyOpensAndClosesEveryEntry(t *testing.T) {
 	}
 }
 
-// Where the binding service cannot run (any OS, Windows included) the open mode is not offered: chat-modes lists it
-// unavailable with the service's own reason, a new chat in the open mode is refused with it before anything is created,
-// and the cheap check is not asked.
-func TestOpenModeIsRefusedWhereTheBindingCannotRun(t *testing.T) {
+// Where the binding service cannot run the open option is STILL offered and a chat can be made in it (the run goes unbound, with a
+// warning from `doomsday start`, status and the start form). Revert proof: restoring the readiness refusal in
+// coderhost.openModeBindingReason turns this red.
+func TestOpenModeIsOfferedWhereTheBindingCannotRun(t *testing.T) {
 	const svc = "this Windows cannot tell which process connected to a local socket"
-	for _, goos := range []string{"windows", "linux"} { // macOS is refused earlier, with its own reason (coderhost's test)
+	for _, goos := range []string{"windows", "linux", "darwin"} {
 		t.Run(goos, func(t *testing.T) {
-			asked := cheap(t, true, "")
+			cheap(t, true, "")
 			t.Cleanup(coderhost.SetOpenModeBindingProbe(goos, func() error { return errors.New(svc) }))
 			r := newAccessRig(t, true)
 			opt := openOption(chatModeView{Options: chatModeOptions("full")})
-			if opt == nil || opt.Available || opt.Pending || !strings.Contains(opt.Reason, svc) {
+			if opt == nil || !opt.Pending || opt.Reason != "not checked yet" || strings.Contains(opt.Reason, svc) { // offered, the cheap check is not asked in a listing
 				t.Fatalf("option %+v", opt)
 			}
 			out, code := createAs(t, r.dbPath, true, "--access", "full", "--new-workspace", "--chat-mode", "open")
-			if code == 0 || !strings.Contains(out, svc) {
+			if code != 0 {
 				t.Fatalf("chat create: exit %d %s", code, out)
 			}
-			if list, _, err := r.store.ListConversations("default", "", 100); err != nil || len(list) != 0 {
-				t.Fatalf("a chat was made: %d %v", len(list), err)
-			}
-			if *asked != 0 {
-				t.Fatalf("the cheap check was asked %d times", *asked)
+			if list, _, err := r.store.ListConversations("default", "", 100); err != nil || len(list) != 1 {
+				t.Fatalf("no chat was made: %d %v", len(list), err)
 			}
 		})
 	}

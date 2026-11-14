@@ -287,16 +287,7 @@ func (d Deps) newSessionListCmd() *cobra.Command {
 				if err != nil {
 					return d.taskErr(err)
 				}
-				over := map[int64]tasks.OverCommit{}
-				overList := []tasks.OverCommit{}
-				for _, se := range ss {
-					if overCommitLive(se) {
-						if oc := overCommitOf(ctx, store, p.ID, se.ID); oc.Over {
-							over[se.ID] = oc
-							overList = append(overList, oc)
-						}
-					}
-				}
+				over, overList := overCommitOfLive(ctx, store, p.ID, ss)
 				if d.JSONOutput() {
 					return d.WriteJSON(cmd.OutOrStdout(), map[string]any{"profile": p, "sessions": ss, "over_committed": overList})
 				}

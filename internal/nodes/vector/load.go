@@ -31,6 +31,9 @@ type LoadDocumentNode struct{}
 
 func (n *LoadDocumentNode) Type() string { return "vector.load_document" }
 
+// PublishesToThirdParty: vector.load_document sends nothing off this machine (issue #1418).
+func (LoadDocumentNode) PublishesToThirdParty() bool { return false }
+
 // PerItemConfigFields keeps "text" unresolved by the engine so a template
 // such as {{ $json.body }} is evaluated against each item, not just the
 // first one.

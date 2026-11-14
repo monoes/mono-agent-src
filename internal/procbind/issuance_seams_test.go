@@ -24,7 +24,8 @@ func TestOnlyTestsInstallAVerifierOrMoveTheIssuanceSwitch(t *testing.T) {
 // wails-app module is scanned too: it can import the internal packages through its replace.
 func scanIssuanceSeams(t *testing.T, root string) []string {
 	t.Helper()
-	guarded := map[string]bool{"SetV2Verifier": true, "ForTestSetIssuance": true, "ForTestSetReady": true}
+	// SetV2Verifier, and every seam named ForTest*: a future one is guarded without being listed here.
+	guarded := func(name string) bool { return name == "SetV2Verifier" || strings.HasPrefix(name, "ForTest") }
 	var bad []string
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -52,7 +53,7 @@ func scanIssuanceSeams(t *testing.T, root string) []string {
 			}
 		}
 		ast.Inspect(f, func(n ast.Node) bool {
-			if id, ok := n.(*ast.Ident); ok && guarded[id.Name] && !declared[id] {
+			if id, ok := n.(*ast.Ident); ok && guarded(id.Name) && !declared[id] {
 				bad = append(bad, path+": "+id.Name)
 			}
 			return true
@@ -77,6 +78,9 @@ func TestTheIssuanceSeamScanCatchesWhatItShould(t *testing.T) {
 		"method value":           {"x", "a.go", "package x\nimport \"p\"\nvar f = p.ForTestSetIssuance\n", true},
 		"bare value, dot import": {"x", "a.go", "package x\nimport . \"p\"\nvar f = ForTestSetIssuance\n", true},
 		"bare value, in package": {"x", "a.go", "package x\nfunc f() { g := SetV2Verifier; _ = g }\n", true},
+		"ready func seam":        {"x", "a.go", "package x\nimport \"p\"\nfunc f() { p.ForTestSetReadyFunc(nil, nil) }\n", true},
+		"ready clock seam":       {"x", "a.go", "package x\nimport \"p\"\nfunc f() { p.ForTestSetReadyClock(nil, nil) }\n", true},
+		"a future ForTest seam":  {"x", "a.go", "package x\nimport \"p\"\nfunc f() { p.ForTestSomethingNew() }\n", true},
 		"test file bare value":   {"x", "a_test.go", "package x\nimport . \"p\"\nvar f = ForTestSetIssuance\n", false},
 		"docs directory":         {"docs", "a.go", "package x\nimport \"p\"\nfunc f() { p.SetV2Verifier(nil) }\n", true},
 		"scripts directory":      {"scripts", "a.go", "package x\nimport \"p\"\nfunc f() { p.ForTestSetIssuance(true) }\n", true},

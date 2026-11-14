@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -51,6 +52,7 @@ func init() {
 		if err != nil {
 			return engineForOpenFailure(err)
 		}
+		doomsdayOwns(func() { db.Close() })
 		w := doomsdayWiring(cfg, db.DB)
 		// The CLI's own Stop: the line that says the marker is written, before the database step that may wait on a busy database.
 		w.Progress = doomsdayProgress
@@ -61,6 +63,7 @@ func init() {
 		if err != nil {
 			return engineForOpenFailure(err)
 		}
+		doomsdayOwns(func() { db.Close() })
 		return doomsdayWiring(cfg, db).ReadEngine()
 	}
 	doomsdayChat = func(cfg *globalConfig, d *chatcli.Deps) {
@@ -70,16 +73,27 @@ func init() {
 		// A conductor's merges go through the open run's gate and journal; the resolver reads the run on every
 		// merge, so a run that starts or stops after the turn began is seen.
 		d.DoomsdayMerge = func(db *sql.DB) func(ctx context.Context) (*dynorg.DoomsdayMerge, error) {
-			return processHostGate(cfg, db).MergeFor
+			// the gate is keyed by the profile's id, whichever way --profile named it
+			hostCfg, err := hostConfigWithProfileID(cfg, db)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "coder host: %v\n", err)
+			}
+			return processHostGate(hostCfg, db).MergeFor
 		}
 		// The coder host gets the open run's dispatch gate: tickets for spawns, token mints and turn releases, the run
 		// stamp, and the bound-mode requirement. With no open run the gate does nothing, so the host is what it was. A
 		// gate whose launcher hooks cannot be installed still stands (the ticket is then taken around Start).
 		chatcli.HostBuilt = func(st *coderhost.Store, h *coderhost.Host, db *sql.DB) {
-			w := doomsdayWiring(cfg, db)
+			// A host started by hand with `--profile NAME` still carries the name here; every turn names its profile by id, and the
+			// gate refuses a turn of a profile it is not wired for. Wire it for the id.
+			hostCfg, err := hostConfigWithProfileID(cfg, db)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "coder host: %v (the open-ended mode's gate refuses every turn of a profile it is not wired for)\n", err)
+			}
+			w := doomsdayWiring(hostCfg, db)
 			// A run the host starts beside is known before the first dispatch (one read-only count, no key, nothing written).
-			doomsdaycli.OpenRunPrecheck(db, cfg.ProfileID, processRunActivity(cfg.ProfileID), func(f string, a ...any) { fmt.Fprintf(os.Stderr, f+"\n", a...) })(context.Background())
-			g := processHostGate(cfg, db)
+			doomsdaycli.OpenRunPrecheck(db, hostCfg.ProfileID, processRunActivity(hostCfg.ProfileID), func(f string, a ...any) { fmt.Fprintf(os.Stderr, f+"\n", a...) })(context.Background())
+			g := processHostGate(hostCfg, db)
 			// The boss's typed operations (plan.approve, ask.answer, spend.grant) are enforced against the open run's
 			// charter, witnessed; the route is the mode off whenever no run is running.
 			w.InstallOps(st)
@@ -87,21 +101,22 @@ func init() {
 				fmt.Fprintf(os.Stderr, "coder host: the open-ended mode's launcher hooks could not be installed (turns are ticketed around their start instead): %v\n", err)
 			}
 			// The resource governor admits a turn before the gate takes its ticket; with no running run it is a plain call.
-			governLauncher(cfg, st, h, db)
+			governLauncher(hostCfg, st, h, db)
 			// The strategy layer's host is ticked from this process; with no run open a tick reads and writes nothing.
-			startStrategyLoop(cfg, db)
+			startStrategyLoop(hostCfg, db)
 		}
 		// The coder host joins the strategy loop after its Run returned, before the database closes.
 		chatcli.HostStopped = stopStrategyLoop
 		// Reconcile of worktrees resolves begun merges first and keeps the worktrees of unresolved ones (note
 		// 13.3 section 5.1). A database that cannot be opened keeps every turn's worktree.
 		dynorg.SetReconcileGuard(func(ctx context.Context, cwd string, active func(string) bool) func(string) bool {
-			db, err := initDB(cfg)
+			own := *cfg // initDB writes the resolved id into the config it is given: never the shared one, which other goroutines read
+			db, err := initDB(&own)
 			if err != nil {
 				return func(string) bool { return true }
 			}
 			defer db.Close()
-			r := doomsdayWiring(cfg, db.DB).MergeRecovery()
+			r := doomsdayWiring(&own, db.DB).MergeRecovery()
 			return r.GuardTurns(ctx, cwd, active)
 		})
 	}
@@ -110,21 +125,27 @@ func init() {
 // cheapOpenModeCheck is the availability the chat paths see: whether peer-credential binding is switched on in this profile (a
 // run needs every turn's tokens bound to its process, so the mode is not offered while it is off), then whether this profile has a
 // run that is not quiescent, from plain read-only queries. The answer carries no run, generation or charter id.
-func cheapOpenModeCheck(cfg *globalConfig) (bool, string) {
+func cheapOpenModeCheck(shared *globalConfig) (bool, string) {
+	own := *shared // openReadDB writes the resolved id into the config it is given: never the shared one, which other goroutines read
+	cfg := &own
 	db, err := openReadDB(cfg)
 	if errors.Is(err, errNoReadableSchema) {
-		return false, openModeBindingOffReason // no database with the mode's tables: nothing stored, so binding is off
+		// no database with the mode's tables: nothing stored, so the default applies
+		return true, "" // nothing stored: the default is on where the machine can run it, and a run goes unbound where it cannot
 	}
 	if err != nil {
 		return false, "the open-ended mode's state cannot be read right now"
 	}
 	defer db.Close()
-	on, err := chatcli.PeercredBindingOn(db)
+	st, err := chatcli.PeercredBindingState(db)
 	if err != nil {
 		return false, "the open-ended mode's state cannot be read right now"
 	}
-	if !on {
-		return false, openModeBindingOffReason
+	if st.ExplicitOnBroken != "" {
+		return false, "not available: peer-credential binding is switched on, but this machine cannot run it (" + st.ExplicitOnBroken + "); switch it off (coder set --peercred-binding off) to run unbound"
+	}
+	if !st.On && st.UnboundReason == "" { // off where the machine could run it: refused; off where it cannot: the run goes unbound
+		return false, openModeBindingReason(st.Note)
 	}
 	var n int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM doomsday_runs WHERE profile = ? AND state <> 'quiescent'`, cfg.ProfileID).Scan(&n); err != nil {
@@ -134,6 +155,25 @@ func cheapOpenModeCheck(cfg *globalConfig) (bool, string) {
 		return false, "an open-ended run is already active in this profile: only one runs at a time"
 	}
 	return true, ""
+}
+
+// unboundReason is why this profile's binding is off because the machine cannot run it ("" when on, or off by the operator's choice
+// on a machine that could run it, or unreadable).
+func unboundReason(db *sql.DB) string {
+	st, err := chatcli.PeercredBindingState(db)
+	if err != nil {
+		return ""
+	}
+	return st.UnboundReason
+}
+
+// openModeBindingReason is why the mode is not offered while binding is off: "not available: <reason>" where the machine cannot run
+// the service (the default is off there), the Settings pointer where the operator switched it off.
+func openModeBindingReason(note string) string {
+	if note != "" {
+		return "not available: " + note
+	}
+	return openModeBindingOffReason
 }
 
 // openModeBindingOffReason is why the mode is not offered while the setting is off, and where to switch it on.
@@ -196,8 +236,12 @@ func processHostGate(cfg *globalConfig, db *sql.DB) *doomsdaycli.HostGate {
 	g := &doomsdaycli.HostGate{Store: w.Chained(), Fresh: w.Fresh(), Profile: w.Profile, RunDir: w.RunDir, Kernel: w.Kernel, Journal: doomsdaycli.MergeJournal(db, w.Store),
 		Activity:  processRunActivity(w.Profile),
 		BindingOn: func() (bool, error) { return chatcli.PeercredBindingOn(db) },
+		Anchors:   stop.ServeAnchors,
+		UnboundRun: func(ctx context.Context, profile string, gen int64) bool {
+			return runStartedUnbound(ctx, db, profile, gen)
+		},
 		InstallHooks: func(st *coderhost.Store, h *coderhost.Host, hk doomsdaycli.Hooks) error {
-			return chatcli.InstallRunHooks(st, h, chatcli.RunHooks{RunStamp: hk.RunStamp, BeforeRelease: hk.BeforeRelease, Place: hk.Place})
+			return chatcli.InstallRunHooks(st, h, chatcli.RunHooks{RunStamp: hk.RunStamp, BeforeRelease: hk.BeforeRelease, Place: hk.Place, PlaceRequired: hk.PlaceRequired})
 		}}
 	hostGates[cfg.ProfileID] = g
 	return g
@@ -228,17 +272,28 @@ func doomsdayWiringReal(cfg *globalConfig, db *sql.DB) doomsdaycli.Wiring {
 		Store:   store.New(db, keys).WithEntryCheck(ops.EntryCheck(coderhost.SpendBounds())),
 		Profile: cfg.ProfileID,
 		Binding: func(context.Context) (bool, error) {
-			if why := coderhost.OpenModeUnsupportedHere(); why != "" { // #1582: no run is created where its boss could not run
-				return false, doomsdaycli.UnsupportedHere(why)
+			st, err := chatcli.PeercredBindingState(db)
+			if err != nil {
+				return false, err
 			}
-			return chatcli.PeercredBindingOn(db)
+			if st.ExplicitOnBroken != "" { // the operator asked for binding and it cannot be had: no run, rather than a run whose turns are all refused
+				return false, doomsdaycli.UnsupportedHere("no run without binding: peer-credential binding is switched on, but this machine cannot run it (" + st.ExplicitOnBroken + "): switch it off (coder set --peercred-binding off) to run unbound")
+			}
+			return st.On, nil
 		},
-		VaultKey: doomsdaycli.VaultKeyCheck(db, cfg.ProfileID),
-		RunDir:   stop.RunDir{Dir: runDir},
+		UnboundReason: func(context.Context) string { return unboundReason(db) },
+		VaultKey:      doomsdaycli.VaultKeyCheck(db, cfg.ProfileID),
+		RunDir:        stop.RunDir{Dir: runDir},
 		// The self-tests run next to the real database and in the real run directory, so what they show holds on that volume.
 		Probe:  func() error { return probeAt(filepath.Dir(expandPath(cfg.DBPath)), runDir) },
 		Kernel: doomsdayKernel(),
 		Host:   stop.SystemHost(),
+		EnsureHost: func() func(context.Context) error {
+			if !stop.UnitNeedsHost() {
+				return nil
+			}
+			return func(context.Context) error { d := chatDeps(cfg); return chatcli.EnsureHost(&d) }
+		}(),
 		// Stop's token revocation and queue cancel; the governor's queue is cancelled with the host's pending sends.
 		Tokens: doomsdaycli.GovernedTokens{Inner: doomsdaycli.CoderTokens{DB: db, Profile: cfg.ProfileID, Host: coderhost.NewStore(db)}, DB: db, Profile: cfg.ProfileID, Keys: keys,
 			Logf: func(f string, a ...any) { fmt.Fprintf(os.Stderr, f+"\n", a...) }},
@@ -289,4 +344,52 @@ func bossRouteInstaller(_ context.Context, st *coderhost.Store, db *sql.DB, dbPa
 	}
 	doomsdayWiring(&globalConfig{DBPath: dbPath, ProfileID: profile}, db).InstallOps(st)
 	return nil
+}
+
+// hostConfigWithProfileID is cfg with the profile named by id: a host started by hand with `--profile NAME` carries the name, but every
+// turn names its profile by id and the gate refuses a turn of a profile it is not wired for. A name that matches no profile, or several,
+// is an error and the returned config is cfg itself (the turns then fail closed, as before). cfg is never changed.
+func hostConfigWithProfileID(cfg *globalConfig, db *sql.DB) (*globalConfig, error) {
+	if cfg.ProfileID == "" {
+		return cfg, nil
+	}
+	id, err := resolveProfileID(db, cfg.ProfileID)
+	if err != nil {
+		return cfg, fmt.Errorf("--profile %q does not name one profile: %w", cfg.ProfileID, err)
+	}
+	c := *cfg
+	c.ProfileID = id
+	return &c, nil
+}
+
+// unboundWarningFor is the status line's source: the warning of the OPEN RUN, from the mode recorded at its start (its run.unbound
+// row), not from the live setting. A run that cannot be read says its binding status is unknown rather than nothing.
+func unboundWarningFor(cfg *globalConfig) func(context.Context) string {
+	return func(ctx context.Context) string {
+		own := *cfg // openReadDB writes the resolved id into the config it is given: never the shared one, which other goroutines read
+		cfg := &own
+		db, err := openReadDB(cfg)
+		if err != nil {
+			return "peer-credential binding status of the open run is unknown: " + err.Error()
+		}
+		defer db.Close()
+		var payload string
+		err = db.QueryRowContext(ctx, `SELECT a.payload FROM doomsday_audit a JOIN doomsday_runs r ON r.profile = a.profile AND r.generation = a.generation
+			WHERE r.profile = ? AND r.state <> 'quiescent' AND a.kind = ? LIMIT 1`, cfg.ProfileID, doomsdaycli.KindRunUnbound).Scan(&payload)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			return ""
+		case err != nil:
+			return "peer-credential binding status of the open run is unknown: " + err.Error()
+		}
+		return chatcli.UnboundWarning(strings.TrimPrefix(payload, "unbound: "))
+	}
+}
+
+// runStartedUnbound is whether the run of this generation has its run.unbound audit row (written in its entry transaction). An
+// unreadable answer is false: an unbound turn is then refused.
+func runStartedUnbound(ctx context.Context, db *sql.DB, profile string, generation int64) bool {
+	var n int
+	err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM doomsday_audit WHERE profile = ? AND generation = ? AND kind = ?`, profile, generation, doomsdaycli.KindRunUnbound).Scan(&n)
+	return err == nil && n > 0
 }

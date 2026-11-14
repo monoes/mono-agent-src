@@ -20,6 +20,9 @@ type AggregateNode struct{}
 
 func (n *AggregateNode) Type() string { return "core.aggregate" }
 
+// PublishesToThirdParty: core.aggregate sends nothing off this machine (issue #1418).
+func (AggregateNode) PublishesToThirdParty() bool { return false }
+
 type aggOp struct {
 	field       string
 	operation   string

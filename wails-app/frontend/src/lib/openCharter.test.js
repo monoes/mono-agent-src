@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { LINES, EVERYTHING_LINES, LIMIT_PRESETS, emptyForm, budgetChoice, buildCharter, effectiveCapUsd, usdToMicro } from './openCharter.js'
+import { LINES, EVERYTHING_LINES, LIMIT_PRESETS, emptyForm, modelChoices, catalogChoices, defaultPins, JUDGING_POLICIES, PER_ASK_CHOICES, budgetChoice, buildCharter, effectiveCapUsd, usdToMicro } from './openCharter.js'
 
 const pin = (provider, model, version) => ({ provider, model, version })
 const good = (over = {}) => ({
@@ -127,5 +127,54 @@ describe('free text is held to what the CLI will take for an app start', () => {
     expect(buildCharter(good({ goal: 'line one\n\tline two' })).errors.text).toBeFalsy()
     expect(buildCharter(good({ pins: { boss: pin('anthropic', 'op\u200bus', '4'), verifier: pin('a', 's', '4'), judging: 'j' } })).errors.text).toBeTruthy()
     expect(buildCharter(good({ pins: { boss: pin('anthropic', 'opus', '4'), verifier: pin('a', 's', '4'), judging: 'j\u202e' } })).errors.text).toBeTruthy()
+  })
+})
+
+const ROSTER = { runtimes: [
+  { runtime: 'claude', installed: true, version: '2.1', models: [{ model: 'opus', state: 'stale' }, { model: 'sonnet', state: 'ready' }, { model: 'haiku', state: 'failed' }] },
+  { runtime: 'codex', installed: true, version: '0.9', models: [{ model: 'gpt', state: 'ready' }] },
+  { runtime: 'gone', installed: false, version: '1', models: [{ model: 'x', state: 'ready' }] },
+] }
+
+describe('the defaults of the start form', () => {
+  it('start with the judging policy and a careful per-ask limit set, and need only the goal, a criterion and a budget', () => {
+    const f = emptyForm()
+    expect(JUDGING_POLICIES).toContain(f.pins.judging)
+    for (const k of Object.keys(PER_ASK_CHOICES)) expect(PER_ASK_CHOICES[k]).toContain(f.perAsk[k])
+    const pins = { boss: pin('claude', 'sonnet', '2.1'), verifier: pin('codex', 'gpt', '0.9'), judging: f.pins.judging }
+    const r = buildCharter({ ...f, goal: 'g', criteria: [{ kind: 'rubric', text: 'r' }], budget: { choice: 'unlimited', usd: '' }, pins, perAsk: { ...f.perAsk, enabled: true } })
+    expect(r.errors).toEqual({})
+    expect(r.charter.per_ask.run_tasks).toBeGreaterThanOrEqual(r.charter.per_ask.ask_tasks)
+  })
+  it('keep the per-ask run caps at least as large as the per-ask limits in every choice', () => {
+    expect(Math.min(...PER_ASK_CHOICES.runSpendUsd.map(Number))).toBeGreaterThanOrEqual(Math.min(...PER_ASK_CHOICES.spendUsd.map(Number)))
+  })
+})
+
+describe('the model choices of the roster', () => {
+  it('list the models that did not fail on installed runtimes, ready ones first, a runtime being the provider', () => {
+    expect(modelChoices(ROSTER)).toEqual([
+      { provider: 'claude', model: 'sonnet', version: '2.1', ready: true },
+      { provider: 'codex', model: 'gpt', version: '0.9', ready: true },
+      { provider: 'claude', model: 'opus', version: '2.1', ready: false },
+    ])
+  })
+  it('are empty for a roster that is missing, an error, or has nothing usable', () => {
+    for (const r of [undefined, null, { error: 'x' }, { runtimes: [] }, { runtimes: [{ runtime: 'a', models: [{ model: 'm', state: 'failed' }] }] }]) expect(modelChoices(r)).toEqual([])
+  })
+  it('give a boss and a different verifier, or an empty verifier when there is one model', () => {
+    const d = defaultPins(modelChoices(ROSTER))
+    expect(d.boss).toEqual(pin('claude', 'sonnet', '2.1'))
+    expect(d.verifier).toEqual(pin('codex', 'gpt', '0.9'))
+    expect(defaultPins([{ provider: 'a', model: 'm', version: '1', ready: true }]).verifier).toEqual(pin('', '', ''))
+    expect(defaultPins([])).toEqual({ boss: pin('', '', ''), verifier: pin('', '', '') })
+  })
+})
+
+describe('catalogChoices', () => {
+  it('lists every model of every runtime, none marked ready, and tolerates junk', () => {
+    expect(catalogChoices([{ provider: 'claude', version: '2', models: ['a', 'b'] }, { provider: 'x', models: [] }, null])).toEqual([
+      { provider: 'claude', model: 'a', version: '2', ready: false }, { provider: 'claude', model: 'b', version: '2', ready: false }])
+    expect(catalogChoices(undefined)).toEqual([])
   })
 })

@@ -116,6 +116,21 @@ func newHTTPClient(o clientOptions) (*http.Client, func()) {
 		if len(via) >= o.maxRedirects {
 			return fmt.Errorf("stopped after %d redirects", o.maxRedirects)
 		}
+		// Every hop is checked: its address (the server chose it) and, for a
+		// 307/308, the body that is sent again to the host it names. A
+		// 301/302/303 that turns a POST into a GET sends no body.
+		if secrets.UnderAgentAccess(req.Context()) {
+			var b []byte
+			if req.GetBody != nil {
+				if rc, err := req.GetBody(); err == nil {
+					b, _ = io.ReadAll(rc)
+					rc.Close()
+				}
+			}
+			if err := checkSecretContent(req.Context(), client, req, b, req.URL.RawQuery); err != nil {
+				return err
+			}
+		}
 		if len(via) == 0 || req.URL.Host == via[0].URL.Host {
 			return nil
 		}
@@ -217,6 +232,15 @@ func send(ctx context.Context, client *http.Client, ob *outbound, maxBody int64,
 	if err := checkSecretHost(ctx, req, ob.body); err != nil {
 		return nil, err
 	}
+	// The query as written is content; the api key's value, which the auth
+	// added to it, is not (its name is: see checkSecretContent).
+	raw := ob.u.RawQuery
+	if ob.auth.qName != "" {
+		raw = strings.Replace(raw, url.QueryEscape(ob.auth.qName)+"="+url.QueryEscape(ob.auth.qVal), "", 1)
+	}
+	if err := checkSecretContent(ctx, client, req, ob.body, raw); err != nil {
+		return nil, err
+	}
 	if pol.marked {
 		req = credhttp.Mark(req, pol.sensitive...)
 	}
@@ -302,6 +326,29 @@ func checkSecretHost(ctx context.Context, req *http.Request, body []byte) error 
 	}
 	texts := append(carryTexts(req), string(body))
 	return secrets.CheckSendHost(ctx, req.URL.String(), texts...)
+}
+
+// checkSecretContent holds a request whose content holds a secret read under
+// agent access: host binding says where a secret may go, not what it is used
+// as, and in the body or a query parameter's name it would be published
+// (issue #1418). The content is the body and the query's parameter names; the
+// auth surfaces are not. A destination on this machine is exempt, but only
+// when what carries the request there is too: a proxy that is not this
+// machine receives the whole request, body included. Checked on every hop,
+// since a redirect sends the body again.
+func checkSecretContent(ctx context.Context, client *http.Client, req *http.Request, body []byte, rawQuery string) error {
+	if !secrets.UnderAgentAccess(ctx) {
+		return nil
+	}
+	own := ownHost(req.URL.Hostname())
+	if v, ok := client.Transport.(viaCheck); ok && v.proxy != nil && !ownHost(v.proxy.Hostname()) {
+		own = false
+	}
+	content := []string{string(body), rawQuery}
+	for name := range req.URL.Query() {
+		content = append(content, name)
+	}
+	return secrets.CheckSendContent(ctx, own, "body or query string", content...)
 }
 
 // carryTexts are the parts of req a secret could ride in: its address

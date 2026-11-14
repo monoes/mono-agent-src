@@ -22,6 +22,9 @@ type CompareDatasetsNode struct{}
 
 func (n *CompareDatasetsNode) Type() string { return "core.compare_datasets" }
 
+// PublishesToThirdParty: core.compare_datasets sends nothing off this machine (issue #1418).
+func (CompareDatasetsNode) PublishesToThirdParty() bool { return false }
+
 func (n *CompareDatasetsNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	keyField, _ := config["key_field"].(string)
 	if keyField == "" {

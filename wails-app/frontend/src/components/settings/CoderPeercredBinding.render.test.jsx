@@ -15,6 +15,24 @@ afterEach(() => { cleanup(); delete window.go })
 const status = (over = {}) => JSON.stringify({ enabled: true, ready: true, workspaceRoot: '/w', runtime: 'claude', defaultAccess: 'full', ...over })
 
 describe('Peer-credential binding', () => {
+  it('shows the default as on, from the effective value (a revert to off-by-default fails this)', async () => {
+    App.CoderStatus.mockResolvedValue(status({ peercredBindingEffective: true, peercredBindingSource: 'default' }))
+    render(<CoderModeSection />)
+    expect(await screen.findByLabelText('Peer-credential binding')).toBeChecked()
+  })
+
+  it('says why it is off where the machine cannot run it, and keeps an explicit off off', async () => {
+    App.CoderStatus.mockResolvedValue(status({ peercredBindingEffective: false, peercredBindingSource: 'default', peercredBindingNote: 'on by default, but this machine cannot run it (old kernel), so it stays off here' }))
+    render(<CoderModeSection />)
+    expect(await screen.findByLabelText('Peer-credential binding')).not.toBeChecked()
+    expect(screen.getByTestId('coder-binding-unavailable')).toHaveTextContent('old kernel')
+    cleanup()
+    App.CoderStatus.mockResolvedValue(status({ peercredBinding: false, peercredBindingEffective: false, peercredBindingSource: 'set' }))
+    render(<CoderModeSection />)
+    expect(await screen.findByLabelText('Peer-credential binding')).not.toBeChecked()
+    expect(screen.queryByTestId('coder-binding-unavailable')).toBeNull()
+  })
+
   it('is off by default and shows the risk warning with every point', async () => {
     App.CoderStatus.mockResolvedValue(status())
     render(<CoderModeSection />)

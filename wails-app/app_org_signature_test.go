@@ -31,8 +31,8 @@ func fakeSignCLI(t *testing.T, reconciled, status string) string {
 		"  *validate*) printf '%s\\n' '{\"v\":1,\"org\":\"growth\",\"valid\":true}' ;;\n" +
 		"  *--status*) printf '%s\\n' '" + status + "' ;;\n" +
 		"  *) printf '{\"ok\":true}\\n' ;;\nesac\n"
-	bin := filepath.Join(dir, "monoagentcli")
-	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+	bin := filepath.Join(dir, fakeCLIName)
+	if err := writeFakeCLI(bin, script); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("MONOAGENTCLI_BIN", bin)

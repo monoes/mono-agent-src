@@ -70,8 +70,8 @@ case "$*" in
   *) echo 'unexpected' >&2; exit 2;;
 esac
 `
-	bin := filepath.Join(dir, "monoagentcli")
-	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
+	bin := filepath.Join(dir, fakeCLIName)
+	if err := writeFakeCLI(bin, script); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("MONOAGENTCLI_BIN", bin)
@@ -256,7 +256,7 @@ func TestAPIRefusesBadInputBeforeCLI(t *testing.T) {
 // An empty list is [] and not null, so the page can map over it.
 func TestAPIEmptyListsAreNotNull(t *testing.T) {
 	dir := t.TempDir()
-	bin := filepath.Join(dir, "monoagentcli")
+	bin := filepath.Join(dir, fakeCLIName)
 	script := `#!/bin/sh
 case "$*" in
   *" api status"*) echo '{"profile":"work","keys":{"active":0},"daemon":{"running":false},"auto":{"available":false},"listeners":null}';;
@@ -264,7 +264,7 @@ case "$*" in
   *" api key list"*) echo 'null';;
 esac
 `
-	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
+	if err := writeFakeCLI(bin, script); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("MONOAGENTCLI_BIN", bin)
@@ -288,8 +288,8 @@ esac
 // not-found messages the CLI words are the ones the page shows.
 func TestAPICLIErrorSurfaces(t *testing.T) {
 	dir := t.TempDir()
-	bin := filepath.Join(dir, "monoagentcli")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho 'an active key with that name already exists in this profile' >&2\nexit 3\n"), 0o700); err != nil {
+	bin := filepath.Join(dir, fakeCLIName)
+	if err := writeFakeCLI(bin, "#!/bin/sh\necho 'an active key with that name already exists in this profile' >&2\nexit 3\n"); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("MONOAGENTCLI_BIN", bin)
@@ -315,8 +315,8 @@ func TestAPICLIErrorsKeepTheirClass(t *testing.T) {
 		{"no message", "exit 4", "exit status 4"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			bin := filepath.Join(t.TempDir(), "monoagentcli")
-			if err := os.WriteFile(bin, []byte("#!/bin/sh\n"+c.script+"\n"), 0o700); err != nil {
+			bin := filepath.Join(t.TempDir(), fakeCLIName)
+			if err := writeFakeCLI(bin, "#!/bin/sh\n"+c.script+"\n"); err != nil {
 				t.Fatal(err)
 			}
 			t.Setenv("MONOAGENTCLI_BIN", bin)

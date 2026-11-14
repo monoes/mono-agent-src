@@ -328,12 +328,12 @@ func TestInstallRunHooks(t *testing.T) {
 	legacy, bound := &execLauncher{}, &execLauncher{}
 	h := &coderhost.Host{L: &gatedLauncher{inner: legacy, bound: bound}}
 	st := coderhost.NewStore(nil)
-	hooks := RunHooks{Place: func(*exec.Cmd, string, string) (func(), error) { return nil, nil }, RunStamp: func(string, string) (string, int64) { return "c", 1 }, BeforeRelease: func(_ context.Context, _, _, _ string, _ bool) error { return nil }}
+	hooks := RunHooks{Place: func(*exec.Cmd, string, string) (func(), error) { return nil, nil }, PlaceRequired: func(string, string) (bool, error) { return false, nil }, RunStamp: func(string, string) (string, int64) { return "c", 1 }, BeforeRelease: func(_ context.Context, _, _, _ string, _ bool) error { return nil }}
 	if err := InstallRunHooks(st, h, hooks); err != nil {
 		t.Fatal(err)
 	}
 	for name, l := range map[string]*execLauncher{"legacy": legacy, "bound": bound} {
-		if l.runStamp == nil || l.recordRun == nil || l.beforeRelease == nil || l.place == nil {
+		if l.runStamp == nil || l.recordRun == nil || l.beforeRelease == nil || l.place == nil || l.placeRequired == nil {
 			t.Errorf("%s launcher without its hooks: %+v", name, l)
 		}
 	}

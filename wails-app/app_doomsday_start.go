@@ -84,7 +84,7 @@ var doomsdayStartMu sync.Mutex
 // `start --charter - --gui-phrase=<phrase> --chat=ID`. The phrase goes in the --flag=value form, so text that
 // starts with a dash is a value and never a flag. No other flag is ever added (--yes-i-lift, --hash, --everything and
 // --lift are not the form's: the charter's own "lines" carry what is lifted).
-func doomsdayCharterArgv(profile, verb, phrase, chat string) ([]string, error) {
+func doomsdayCharterArgv(profile, verb, phrase, chat, mode string) ([]string, error) {
 	args := []string{"doomsday", verb, "--charter", "-"}
 	switch verb {
 	case "render":
@@ -93,6 +93,9 @@ func doomsdayCharterArgv(profile, verb, phrase, chat string) ([]string, error) {
 			return nil, err
 		}
 		args = append(args, "--gui-phrase="+phrase, "--chat="+chat)
+		if mode == "bound" || mode == "unbound" { // what the native confirmation showed: the CLI refuses if the machine now gives the other
+			args = append(args, "--expect-mode="+mode)
+		}
 	default:
 		return nil, errors.New("the app cannot run doomsday " + verb + " with a charter")
 	}
@@ -196,7 +199,7 @@ func (a *App) DoomsdayRender(charterJSON, chatID, chatSpec string) string {
 	if !doomsdayRenders.allow(pid) {
 		return `{"error":"too many previews in a minute: wait a little","code":"rate_limited"}`
 	}
-	argv, err := doomsdayCharterArgv(pid, "render", "", "")
+	argv, err := doomsdayCharterArgv(pid, "render", "", "", "")
 	if err != nil {
 		return aiError(err)
 	}
@@ -298,7 +301,11 @@ func (a *App) DoomsdayStart(charterJSON, phrase, token, chatID, chatSpec string)
 		}
 		created, chatID = &conv, conv.ID
 	}
-	doc := a.startRun(pid, charterJSON, phrase, chatID)
+	mode := "bound"
+	if facts.unbound != "" {
+		mode = "unbound"
+	}
+	doc := a.startRun(pid, charterJSON, phrase, chatID, mode)
 	if created != nil && docState(doc) == "not_started" {
 		// A start that did not happen leaves no empty full-access chat of its own making: it goes by the app's guarded delete (the
 		// CLI's, which refuses a chat with an active turn). If that fails the chat is handed to the page instead, so it is seen.
@@ -310,8 +317,8 @@ func (a *App) DoomsdayStart(charterJSON, phrase, token, chatID, chatSpec string)
 }
 
 // startRun runs the CLI's start for the chat and turns its end into the start document.
-func (a *App) startRun(pid, charterJSON, phrase, chatID string) string {
-	argv, err := doomsdayCharterArgv(pid, "start", phrase, chatID)
+func (a *App) startRun(pid, charterJSON, phrase, chatID, mode string) string {
+	argv, err := doomsdayCharterArgv(pid, "start", phrase, chatID, mode)
 	if err != nil {
 		return startDoc("not_started", "", err.Error(), "")
 	}

@@ -17,14 +17,16 @@ import (
 // unattended. Reading is open; changing is the operator's.
 
 type sessionSettingsView struct {
-	ConversationID string              `json:"conversationId"`
-	Role           string              `json:"role"`
-	Unattended     bool                `json:"unattended"`
-	Access         string              `json:"access"`
-	Settings       coderhost.Settings  `json:"settings"`
-	OperatorOnly   []string            `json:"operatorOnly"`
-	Allowed        map[string][]string `json:"allowed"`
-	Changed        []string            `json:"changed,omitempty"`
+	ConversationID string             `json:"conversationId"`
+	Role           string             `json:"role"`
+	Unattended     bool               `json:"unattended"`
+	Access         string             `json:"access"`
+	Settings       coderhost.Settings `json:"settings"`
+	// Digest is coderhost.SettingsDigest of Settings: what `settings set --expect` compares the stored settings with.
+	Digest       string              `json:"digest"`
+	OperatorOnly []string            `json:"operatorOnly"`
+	Allowed      map[string][]string `json:"allowed"`
+	Changed      []string            `json:"changed,omitempty"`
 	// DefaultAlias is the mesh name the session takes while mesh_alias is empty: the chat's name with
 	// dashes for spaces. Empty when it has no name yet (the host then makes one from the project and time).
 	DefaultAlias string            `json:"defaultAlias"`
@@ -91,7 +93,7 @@ func sessionSettingsFrom(cfg *Deps, profileID string, conv ai.Conversation, chan
 	}
 	v := sessionSettingsView{
 		ConversationID: conv.ID, Role: "solo", Unattended: true, Access: conv.EffectiveAccess(),
-		Settings: settings, OperatorOnly: coderhost.OperatorOnly, Changed: changed,
+		Settings: settings, Digest: coderhost.SettingsDigest(settings), OperatorOnly: coderhost.OperatorOnly, Changed: changed,
 		Allowed: map[string][]string{
 			"autonomy_preset": coderhost.AutonomyPresets, "gap_classes": coderhost.GapClasses,
 			"checkin_triggers": coderhost.CheckinEvents, "mesh_accept": coderhost.MeshAccepts,
@@ -150,7 +152,7 @@ func newCoderSessionsSettingsGetCmd(cfg *Deps) *cobra.Command {
 }
 
 func newCoderSessionsSettingsSetCmd(cfg *Deps) *cobra.Command {
-	var patch, unattended, role, parent, mission, chatMode string
+	var patch, unattended, role, parent, mission, chatMode, expect string
 	var budget float64
 	cmd := &cobra.Command{
 		Use:   "set CONVERSATION",
@@ -161,6 +163,9 @@ func newCoderSessionsSettingsSetCmd(cfg *Deps) *cobra.Command {
 			"host checks in on at the master's interval) or a child of one.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if expect != "" && sessionTokenFromEnv() != "" {
+				return clicore.InvalidInput("--expect is the operator's")
+			}
 			if sessionTokenFromEnv() != "" { // a master's turn: agent-adjustable settings of its descendants only
 				return masterSet(cfg, cmd, args[0], patch, unattended != "" || role != "" || parent != "" || mission != "" || chatMode != "" || cmd.Flags().Changed("budget-usd"))
 			}
@@ -169,6 +174,9 @@ func newCoderSessionsSettingsSetCmd(cfg *Deps) *cobra.Command {
 			}
 			if patch == "" && unattended == "" && role == "" && mission == "" && chatMode == "" && !cmd.Flags().Changed("budget-usd") {
 				return clicore.InvalidInput("nothing to change: give --patch, --unattended, --role, --chat-mode, --mission and/or --budget-usd")
+			}
+			if expect != "" && patch == "" && mission == "" && chatMode == "" {
+				return clicore.InvalidInput("--expect goes with --patch, --chat-mode or --mission: it is the settings digest the change was judged against")
 			}
 			if mission != "" && mission != "on" && mission != "off" {
 				return clicore.InvalidInput("--mission is on or off")
@@ -196,7 +204,7 @@ func newCoderSessionsSettingsSetCmd(cfg *Deps) *cobra.Command {
 			cs := coderhost.NewStore(db.DB)
 			var changed []string
 			if patch != "" || mission != "" || chatMode != "" {
-				keys, err := setSettingsAsOperator(cfg, cs, profileID, args[0], patch, mission, chatMode)
+				keys, err := setSettingsAsOperator(cfg, cs, profileID, args[0], patch, mission, chatMode, expect)
 				if err != nil {
 					db.Close()
 					return err
@@ -239,6 +247,7 @@ func newCoderSessionsSettingsSetCmd(cfg *Deps) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&patch, "patch", "", "JSON object with the settings to change")
+	cmd.Flags().StringVar(&expect, "expect", "", "the `digest` of the settings (settings get) the change was judged against: the write is refused if the stored settings changed since (compare-and-set; without it the write is made against whatever is stored)")
 	cmd.Flags().StringVar(&unattended, "unattended", "", "true or false: false turns off the host's own scheduled check-ins for the session")
 	cmd.Flags().StringVar(&chatMode, "chat-mode", "", "off, mission or open: the chat's mode, chosen before its first message and locked after it (the operator's; mission and open need coding access or more; open is not available yet)")
 	cmd.Flags().StringVar(&mission, "mission", "", "Deprecated, use --chat-mode: on is mission, off is off (the operator's; needs coding access or more; stays on while the chat has an open mission session; it governs the missions the toggle starts: a mission confirmed on a single send is separate and off is not a stop, use task session stop)")

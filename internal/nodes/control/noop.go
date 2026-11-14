@@ -12,6 +12,9 @@ type NoOpNode struct{}
 
 func (n *NoOpNode) Type() string { return "core.noop" }
 
+// PublishesToThirdParty: core.noop sends nothing off this machine (issue #1418).
+func (NoOpNode) PublishesToThirdParty() bool { return false }
+
 func (n *NoOpNode) Execute(_ context.Context, input workflow.NodeInput, _ map[string]interface{}) ([]workflow.NodeOutput, error) {
 	return []workflow.NodeOutput{{Handle: "main", Items: input.Items}}, nil
 }

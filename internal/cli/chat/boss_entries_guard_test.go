@@ -77,6 +77,7 @@ var turnEntryTable = map[string]map[string]string{
 		"internal/coderhost/missionconfirm.go":      "the mission confirmation: a send marker, not a producer",
 		"internal/coderhost/parked_deliver.go":      "an answer to a parked question: a host channel",
 		"internal/coderhost/person_plan.go":         "the person's words about a plan: a host channel (the user's CLI verbs)",
+		"internal/coderhost/pursuit_check_wake.go":  "the accept wake: a host channel like the pursuit's wake-up (pursuit-accept- turn id, no issuer), queued only for the lead of a mission whose pursuit the person started, after the person's own answers accepted a check, and runs only as the host launches it, after its run state, away limits and the accepted check are read again",
 		"internal/coderhost/pursuit_wake.go":        "the pursuit loop's wake-up: a host channel like a check-in (pursuit- turn id, no issuer), queued only for the lead of a mission whose pursuit the person started and runs only as the host launches it, after its run state and away limits are read again",
 		"internal/coderhost/sessionspawn.go":        "a lead's first message to a spawned session: a host channel",
 		"internal/coderhost/send_bounded.go":        "the bounded insert: it refuses anything but a person's send",

@@ -7,7 +7,7 @@ var coderCommandDocs = []cmdDoc{
 	{
 		Name:     "coder host",
 		Short:    "The detached process that keeps coder sessions running after the app closes (run, status, stop)",
-		Usage:    "monoagentcli [--profile P] coder host run|status|stop",
+		Usage:    "monoagentcli [--profile P] coder host run|status|pursuit|stop",
 		Examples: []string{"monoagentcli --profile work coder host status --json"},
 	},
 	{
@@ -22,6 +22,12 @@ var coderCommandDocs = []cmdDoc{
 		Short:    "Whether the coder host is running, its pid and since when",
 		Usage:    "monoagentcli [--profile P] coder host status",
 		Examples: []string{"monoagentcli --profile work coder host status --json"},
+	},
+	{
+		Name:     "coder host pursuit",
+		Short:    "The host-wide switch of the mission pursuit loop: on by default, idle until a judge model is chosen (status, on, off, judge set|clear; operator-only writes, applied at the next host restart)",
+		Usage:    "monoagentcli [--profile P] coder host pursuit [status|on|off|judge set RUNTIME/MODEL|judge clear]",
+		Examples: []string{"monoagentcli --profile work coder host pursuit status --json"},
 	},
 	{
 		Name:     "coder host stop",
@@ -293,13 +299,14 @@ var coderCommandDocs = []cmdDoc{
 	{
 		Name:  "coder sessions settings set",
 		Short: "Change settings with a JSON object naming only the settings to change (the operator only)",
-		Usage: "monoagentcli [--profile P] coder sessions settings set CONVERSATION [--patch JSON] [--unattended true|false] [--role solo|master|child] [--parent MASTER] [--budget-usd N] [--chat-mode off|mission|open] [--mission on|off]",
+		Usage: "monoagentcli [--profile P] coder sessions settings set CONVERSATION [--patch JSON] [--unattended true|false] [--role solo|master|child] [--parent MASTER] [--budget-usd N] [--chat-mode off|mission|open] [--mission on|off] [--expect DIGEST]",
 		Flags: `  --patch string       JSON object with the settings to change; a name that is not a setting is refused
   --unattended string  true or false: false turns off the host's own scheduled check-ins for the session (a message you send runs either way)
   --role string        solo, master or child (a child needs --parent: a master with room for it)
   --parent string      The master conversation, with --role child
   --budget-usd float   The session's spend cap in USD that its children are carved from (0 = none)
   --chat-mode string   off, mission or open: the chat's mode. It is chosen before the first message and refused once the chat has one; mission and open need coding access or more; open is not available yet
+  --expect string      The digest (settings get) of the settings the change was judged against: the write is refused if the stored settings changed since (compare-and-set; needs --patch, --chat-mode or --mission)
   --mission string     Deprecated, use --chat-mode: on is mission, off is off. On, every turn is a confirmed mission; it needs coding access or more, and it stays on (off is refused, naming the session) while the chat has an open mission session`,
 		Examples: []string{
 			"monoagentcli --profile work coder sessions settings set <conv> --chat-mode mission",

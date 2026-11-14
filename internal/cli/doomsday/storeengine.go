@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/doomsday/store"
@@ -31,6 +32,9 @@ type StoreEngine struct {
 	// Binding says whether security.peercred_binding is on. A run needs bound turns: nil, an error and false all
 	// refuse the start.
 	Binding func(ctx context.Context) (bool, error)
+	// UnboundReason is non-empty when binding is off because this machine cannot run the binding service: the run then starts
+	// without binding (with a warning and an audit row) instead of being refused. Nil: binding off always refuses.
+	UnboundReason func(ctx context.Context) string
 	// CreateUnit makes the run's containment unit and records it durably, after the charter is validated and
 	// before the store records the run: no unit, no run (note 13.2 section 4). The discard it returns stops the
 	// unit again if the store then refuses the entry. Nil refuses the start: there is no mode without containment.
@@ -98,24 +102,51 @@ type UnsupportedHere string
 
 func (u UnsupportedHere) Error() string { return string(u) }
 
-// RequireBinding is nil only when binding is on. The start asks it before the charter is shown and again in Enter.
+// RequireBinding is nil only when binding is on, or off because this machine cannot run the service (the run then goes unbound).
+// The start asks it before the charter is shown and again in Enter.
 func (e *StoreEngine) RequireBinding(ctx context.Context) error {
+	_, err := e.bindingDecision(ctx)
+	return err
+}
+
+// bindingDecision reads the binding state ONCE and says whether a run entered now goes unbound ("" bound; else the reason).
+func (e *StoreEngine) bindingDecision(ctx context.Context) (unbound string, err error) {
 	if e.Binding == nil {
-		return fmt.Errorf("no run without binding: whether peer-credential binding is on is not known on this install")
+		return "", fmt.Errorf("no run without binding: whether peer-credential binding is on is not known on this install")
 	}
 	on, err := e.Binding(ctx)
 	var un UnsupportedHere
 	if errors.As(err, &un) {
-		return err
+		return "", err
 	}
 	if err != nil {
-		return fmt.Errorf("no run without binding: whether peer-credential binding is on cannot be read: %w", err)
+		return "", fmt.Errorf("no run without binding: whether peer-credential binding is on cannot be read: %w", err)
 	}
-	if !on {
-		return ErrBindingOff
+	if on {
+		return "", nil
 	}
-	return nil
+	if e.UnboundReason != nil {
+		if r := e.UnboundReason(ctx); r != "" {
+			return r, nil
+		}
+	}
+	return "", ErrBindingOff
 }
+
+// UnboundWarning is "running without peer-credential binding: <reason>" when binding is off because this machine cannot run the
+// service (the run then starts anyway), "" otherwise.
+func (e *StoreEngine) UnboundWarning(ctx context.Context) string {
+	if e.UnboundReason == nil {
+		return ""
+	}
+	if r := e.UnboundReason(ctx); r != "" {
+		return "running without peer-credential binding: " + r
+	}
+	return ""
+}
+
+// KindRunUnbound is the audit row (one line in the run's feed) that a run started without peer-credential binding.
+const KindRunUnbound = store.KindRunUnbound
 
 func (e *StoreEngine) Containment() error {
 	if e.ContainmentProbe == nil {
@@ -152,8 +183,18 @@ func (e *StoreEngine) Enter(ctx context.Context, canon Canon, expectedHash strin
 	}
 	var confirmed [32]byte
 	copy(confirmed[:], raw)
-	if err := e.RequireBinding(ctx); err != nil {
+	unboundReason, err := e.bindingDecision(ctx) // read once: the entry's audit row and warning follow this answer, not a later read
+	if err != nil {
 		return Entry{}, err
+	}
+	if ack.Expect != "" {
+		actual := "bound"
+		if unboundReason != "" {
+			actual = "unbound"
+		}
+		if ack.Expect != actual {
+			return Entry{}, fmt.Errorf("%w (the confirmation showed a %s start and this machine now gives a %s one); nothing was started", ErrModeChanged, ack.Expect, actual)
+		}
 	}
 	// The probe is part of the entry itself, not of the CLI verb: no starter can skip it. It also builds the witness
 	// (the pinned connection), and runs before anything is created.
@@ -177,7 +218,11 @@ func (e *StoreEngine) Enter(ctx context.Context, canon Canon, expectedHash strin
 	if err != nil {
 		return Entry{}, fmt.Errorf("the containment unit could not be created, so nothing was started: %w", err)
 	}
-	run, err := e.Store.Enter(ctx, sc, confirmed, "ack:"+ack.Kind)
+	enterCtx := ctx
+	if unboundReason != "" {
+		enterCtx = store.WithUnboundStart(ctx, unboundReason) // the run.unbound row is written in the entry's own transaction
+	}
+	run, err := e.Store.Enter(enterCtx, sc, confirmed, "ack:"+ack.Kind)
 	if errors.Is(err, store.ErrCommitUnknown) {
 		// The commit reported an error, so the run may exist. Read it: found, it is this entry's run and the entry goes on; not
 		// there, the entry was refused; unreadable, the outcome is unknown and nothing is torn down (the unit stays).
@@ -203,12 +248,16 @@ func (e *StoreEngine) Enter(ctx context.Context, canon Canon, expectedHash strin
 	if _, err := e.Store.AppendAudit(ctx, run.Profile, run.Generation, "start", fmt.Sprintf("ack=%s lines=%d", ack.Kind, ack.Lines)); err != nil {
 		return Entry{}, recorded(fmt.Errorf("the run started but its audit record failed: %w", err))
 	}
+	warning := ""
+	if unboundReason != "" {
+		warning = "running without peer-credential binding: " + unboundReason
+	}
 	if e.AfterEnter != nil {
 		if err := e.AfterEnter(ctx, run.Generation); err != nil {
 			return Entry{}, recorded(fmt.Errorf("run %s/%d started but its stop secret could not be created (run `doomsday stop`): %w", run.Profile, run.Generation, err))
 		}
 	}
-	ent := Entry{RunID: fmt.Sprintf("%s/%d", run.Profile, run.Generation), CharterID: run.CharterID, Hash: canon.Hash, Generation: run.Generation}
+	ent := Entry{RunID: fmt.Sprintf("%s/%d", run.Profile, run.Generation), CharterID: run.CharterID, Hash: canon.Hash, Generation: run.Generation, Warning: warning}
 	if e.Anchored != nil {
 		bound, why, err := e.Anchored(ctx, run.Generation)
 		if err != nil {
@@ -302,8 +351,45 @@ type VaultKeyer struct {
 	Profile string
 }
 
+// keyTTL bounds how long a derived key is reused in this process. Deriving it reads the OS keyring (a `security` process
+// on macOS, about 25 ms), and the witness checks every record of a generation on each admission, so without it a turn
+// start made hundreds of reads and outlasted the bound child's wait for its credentials. Only a success is kept: a
+// profile without a key still fails closed on every call.
+const keyTTL = 5 * time.Minute
+
+// deriveKey is the vault derivation (a seam for the test of the cache).
+var deriveKey = secrets.DeriveKeyIfExists
+
+type cachedKey struct {
+	key []byte
+	at  time.Time
+}
+
+var (
+	keyCacheMu sync.Mutex
+	keyCache   = map[string]cachedKey{}
+)
+
+func (k VaultKeyer) derive() ([]byte, error) {
+	id := fmt.Sprintf("%p/%s", k.DB, k.Profile)
+	keyCacheMu.Lock()
+	c, ok := keyCache[id]
+	keyCacheMu.Unlock()
+	if ok && time.Since(c.at) < keyTTL {
+		return c.key, nil
+	}
+	key, err := deriveKey(context.Background(), k.DB, k.Profile, "doomsday/mac")
+	if err != nil {
+		return nil, err
+	}
+	keyCacheMu.Lock()
+	keyCache[id] = cachedKey{key: key, at: time.Now()}
+	keyCacheMu.Unlock()
+	return key, nil
+}
+
 func (k VaultKeyer) MAC(domain string, parts ...[]byte) ([]byte, error) {
-	key, err := secrets.DeriveKeyIfExists(context.Background(), k.DB, k.Profile, "doomsday/mac")
+	key, err := k.derive()
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", store.ErrUnverifiable, err)
 	}

@@ -26,7 +26,7 @@ var insertCommands = regexp.MustCompile(`(?i)INSERT\s+(?:OR\s+\w+\s+)?INTO\s+cod
 const coderhostImport = "github.com/monoes/mono-agent/internal/coderhost"
 
 // queueingNames queue a command on a Store (matched by method name in a file that imports coderhost).
-var queueingNames = map[string]bool{"Enqueue": true, "EnqueueSendBounded": true, "EnqueueWithCheckin": true, "EnqueueWithPursuit": true, "enqueueOn": true}
+var queueingNames = map[string]bool{"Enqueue": true, "EnqueueSendBounded": true, "EnqueueWithCheckin": true, "EnqueueWithPursuit": true, "EnqueueWithAccept": true, "enqueueOn": true}
 
 // personNames speak for the person; their callers must be the person-gated verbs.
 var personNames = map[string]bool{"TellLeadAboutPlan": true, "AnswerAncestorQuestion": true, "DenyPlan": true, "ProvePerson": true}
@@ -68,26 +68,28 @@ var knownPersonSites = map[string]int{
 	"internal/workflow/evaluation.go:StartEvaluationCase:Enqueue":      1,
 	// inside coderhost: every place that queues a command (the older TestEveryCommandQueueingSiteIsKnown holds the
 	// reasons per site; this list makes the same sites part of the whole-tree guard)
-	"internal/coderhost/ask_ancestor.go:publishAsk:enqueueOn":           1,
-	"internal/coderhost/ask_reply.go:closeAndDeliver:enqueueOn":         1,
-	"internal/coderhost/checkin.go:checkinOne:EnqueueWithCheckin":       1,
-	"internal/coderhost/children.go:spawnWith:Enqueue":                  1,
-	"internal/coderhost/children_control.go:ControlChild:Enqueue":       1,
-	"internal/coderhost/children_control.go:SendToChild:Enqueue":        1,
-	"internal/coderhost/missionchild.go:queueCascadeStop:Enqueue":       1,
-	"internal/coderhost/missionchild.go:reconcileChild:Enqueue":         1,
-	"internal/coderhost/parked_deliver.go:deliver:Enqueue":              1,
-	"internal/coderhost/person_deny.go:tellDenied:Enqueue":              1,
-	"internal/coderhost/person_plan.go:TellLeadAboutPlan:Enqueue":       1,
-	"internal/coderhost/pursuit_wake.go:EnqueueWithPursuit:enqueueOn":   1,
-	"internal/coderhost/pursuit_wake.go:pursuitWake:EnqueueWithPursuit": 1,
-	"internal/coderhost/send_bounded.go:EnqueueSendBounded:enqueueOn":   1,
-	"internal/coderhost/session_answer.go:AnswerAsMaster:Answer":        1, // the master's answer, under a token scope; the turn id is answer-m-, never reserved
-	"internal/coderhost/sessionspawn.go:SpawnSession:Enqueue":           1,
-	"internal/coderhost/store.go:Enqueue:enqueueOn":                     1,
-	"internal/coderhost/store.go:EnqueueWithCheckin:enqueueOn":          1,
-	"internal/coderhost/store.go:INSERT":                                2, // enqueueOn, and enqueueCascadeResume (a resume command, never a send)
-	"internal/coderhost/treecascade.go:queueCascade:Enqueue":            1,
+	"internal/coderhost/ask_ancestor.go:publishAsk:enqueueOn":                      1,
+	"internal/coderhost/ask_reply.go:closeAndDeliver:enqueueOn":                    1,
+	"internal/coderhost/checkin.go:checkinOne:EnqueueWithCheckin":                  1,
+	"internal/coderhost/children.go:spawnWith:Enqueue":                             1,
+	"internal/coderhost/children_control.go:ControlChild:Enqueue":                  1,
+	"internal/coderhost/children_control.go:SendToChild:Enqueue":                   1,
+	"internal/coderhost/missionchild.go:queueCascadeStop:Enqueue":                  1,
+	"internal/coderhost/missionchild.go:reconcileChild:Enqueue":                    1,
+	"internal/coderhost/parked_deliver.go:deliver:Enqueue":                         1,
+	"internal/coderhost/person_deny.go:tellDenied:Enqueue":                         1,
+	"internal/coderhost/person_plan.go:TellLeadAboutPlan:Enqueue":                  1,
+	"internal/coderhost/pursuit_check_wake.go:EnqueueWithAccept:enqueueOn":         1, // the accept wake: the loop's host-made pursuit- wake-up after the person's own accepting answer
+	"internal/coderhost/pursuit_check_wake.go:pursuitAcceptWake:EnqueueWithAccept": 1,
+	"internal/coderhost/pursuit_wake.go:EnqueueWithPursuit:enqueueOn":              1,
+	"internal/coderhost/pursuit_wake.go:pursuitWake:EnqueueWithPursuit":            1,
+	"internal/coderhost/send_bounded.go:EnqueueSendBounded:enqueueOn":              1,
+	"internal/coderhost/session_answer.go:AnswerAsMaster:Answer":                   1, // the master's answer, under a token scope; the turn id is answer-m-, never reserved
+	"internal/coderhost/sessionspawn.go:SpawnSession:Enqueue":                      1,
+	"internal/coderhost/store.go:Enqueue:enqueueOn":                                1,
+	"internal/coderhost/store.go:EnqueueWithCheckin:enqueueOn":                     1,
+	"internal/coderhost/store.go:INSERT":                                           2, // enqueueOn, and enqueueCascadeResume (a resume command, never a send)
+	"internal/coderhost/treecascade.go:queueCascade:Enqueue":                       1,
 	// inside coderhost: where the person's marker and reserved ids are built
 	"internal/coderhost/person_plan.go:planCommand:answerFromPerson":         1, // the plan words' turn id, marked person
 	"internal/coderhost/person_deny.go:DenyPlan:planCommand":                 1,

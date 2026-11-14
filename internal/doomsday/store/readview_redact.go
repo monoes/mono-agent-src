@@ -75,7 +75,7 @@ func redactRow(seq int64, kind, payload string) FeedItem {
 		return redacted(seq)
 	}
 	switch {
-	case kind == "run.enter" || kind == "start":
+	case kind == "run.enter" || kind == "start" || kind == "run.unbound":
 		return FeedItem{Seq: seq, Kind: kind, Class: ClassRun}
 	case kind == "run.advance":
 		it := FeedItem{Seq: seq, Kind: kind, Class: ClassRun}

@@ -15,7 +15,8 @@ export default function CoderPeercredBinding({ status, onSaved }) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [saved, setSaved] = useState(false)
-  const on = !!status?.peercredBinding
+  const on = status?.peercredBindingEffective ?? !!status?.peercredBinding
+  const unavailable = !on && status?.peercredBindingSource === 'default' ? status?.peercredBindingNote : ''
 
   const change = async (e) => {
     setBusy(true); setErr(''); setSaved(false)
@@ -29,6 +30,7 @@ export default function CoderPeercredBinding({ status, onSaved }) {
         {t('coderBinding.label')}
       </label>
       <span style={hint}>{t('coderBinding.hint')}</span>
+      {unavailable && <span role="note" data-testid="coder-binding-unavailable" style={hint}>{t('coderBinding.unavailable', { reason: unavailable })}</span>}
       <div data-testid="coder-binding-warning" style={{ ...hint, color: 'var(--yellow)' }}>
         <strong>{t('coderBinding.warnTitle')}</strong>
         <ul style={{ margin: '2px 0 0', paddingLeft: 18 }}>
