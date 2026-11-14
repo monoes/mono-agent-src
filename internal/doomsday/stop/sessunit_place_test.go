@@ -123,6 +123,25 @@ func TestSessAdoptRecordsTheLeaderAndOnlyThenItsSessionIsTheUnits(t *testing.T) 
 	}
 }
 
+// The host launcher reads the leader's start with ps ("started:<lstart>"), not from the process table: the adoption must take that
+// leader (the unit records its own stamp form), while a stamp in neither form stays refused.
+func TestSessAdoptTakesTheLaunchersPsStamp(t *testing.T) {
+	r := newSessRig(t)
+	l := r.w.leader(500)
+	if err := r.placer().Adopt(l.PID, "started:Sat Nov 14 22:29:29 2026"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := r.led.Leaders(7)
+	if len(got) != 1 || got[0].PID != 500 || got[0].Stamp != l.Stamp {
+		t.Fatalf("the ledger must hold the unit's own stamp: %+v", got)
+	}
+	r2 := newSessRig(t)
+	r2.w.leader(500)
+	if err := r2.placer().Adopt(500, "Sat Nov 14 22:29:29 2026"); err == nil || r2.led.adds != 0 {
+		t.Fatalf("a stamp in neither form was adopted: %v", err)
+	}
+}
+
 func TestSessAdoptRefusesWhatItCannotTie(t *testing.T) {
 	type tc struct {
 		set  func(r *sessRig) (pid int, stamp string)
