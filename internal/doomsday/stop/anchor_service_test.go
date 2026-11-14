@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -83,7 +84,17 @@ func TestAnchorServiceRefusesAnythingButAUnitNameAndStartsNothing(t *testing.T) 
 	}
 }
 
+// skipWithoutUnixModeBits: NTFS does not report 0600/0700 permission bits (the file mode reads 0666/0777), so a mode
+// assertion cannot hold there. Windows is protected by its own ACLs and the Job Object path, not by these bits.
+func skipWithoutUnixModeBits(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("NTFS does not report unix permission bits")
+	}
+}
+
 func TestAnchorServiceSocketIsPrivate(t *testing.T) {
+	skipWithoutUnixModeBits(t)
 	dir, _ := startAnchorServer(t, 501)
 	fi, err := os.Stat(dir.AnchorSockPath())
 	if err != nil {
@@ -127,6 +138,7 @@ func TestAnchorServiceBoundsTheRequestLine(t *testing.T) {
 }
 
 func TestAnchorServiceTightensAnExistingRunDirectory(t *testing.T) {
+	skipWithoutUnixModeBits(t)
 	d, _ := os.MkdirTemp("", "as")
 	t.Cleanup(func() { os.RemoveAll(d) })
 	if err := os.Chmod(d, 0o755); err != nil {

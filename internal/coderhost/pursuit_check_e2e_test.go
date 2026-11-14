@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -36,6 +37,11 @@ func (r *stubReviewer) count() int { r.mu.Lock(); defer r.mu.Unlock(); return r.
 // and nothing spends meanwhile. Run it in a private network namespace (`unshare -rn`) with a scratch HOME: nothing here needs a
 // network, a real model or a real runtime.
 func TestAScriptedPursuitFromWorkToAChecksAnswer(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// By design today: the verifier has no process containment on Windows (verifier/place_windows.go platformOK=false), so
+		// every check answers cannot-check (no-containment) and the failed-then-passed script below cannot happen.
+		t.Skip("goal checks answer cannot-check (no-containment) on Windows")
+	}
 	// File criteria only: a command criterion re-executes the test binary as the sandbox's limits helper, which this package's
 	// test main does not serve (the verifier package's own tests run real programs under a fake confiner).
 	crit := []missionpursuit.Criterion{{Kind: "file", Spec: "a.txt", Expected: "exists"}, {Kind: "file", Spec: "b.txt", Expected: "exists"}, {Kind: missionpursuit.KindRubric, Spec: "it is good"}}

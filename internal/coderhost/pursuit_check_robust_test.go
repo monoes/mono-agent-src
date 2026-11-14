@@ -134,8 +134,9 @@ func TestPathsCompareWithoutCaseWhereTheFileSystemDoes(t *testing.T) {
 	old := foldCase
 	foldCase = true
 	t.Cleanup(func() { foldCase = old })
-	f := ForbiddenFolders{Trees: []string{"/nonexistent-home/.monoagent"}}
-	if why := SubjectForbidden("/nonexistent-home/.MonoAgent/x", f); why == "" {
+	home := filepath.Join(t.TempDir(), "nonexistent-home") // absolute on every OS
+	f := ForbiddenFolders{Trees: []string{filepath.Join(home, ".monoagent")}}
+	if why := SubjectForbidden(filepath.Join(home, ".MonoAgent", "x"), f); why == "" {
 		t.Error("a differently cased state folder was accepted where case is ignored")
 	}
 }
