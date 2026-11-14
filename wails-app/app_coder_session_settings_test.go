@@ -25,6 +25,26 @@ func TestSettingsPatchAcceptsOnlyWhatThePaneSendsAndSendsTheCheckedText(t *testi
 	}
 }
 
+// The widening judgement and the write are one compare-and-set: the digest of the settings the dialog judged goes to the CLI, which
+// refuses the write when the stored settings are not those any more (a change a patch makes to no autonomy key is not judged and
+// carries none).
+func TestAutonomyPatchesCarryTheDigestOfTheSettingsTheyWereJudgedAgainst(t *testing.T) {
+	a, log, _ := settingsFixture(t, true, storedDefault)
+	a.SetCoderSessionSettings("c1", `{"autonomy_preset":"ask-always"}`, "")
+	a.SetCoderSessionSettings("c1", `{"checkin_minutes":30}`, "")
+	a.SetCoderSessionSettings("c1", `{"autonomy_preset":"decide-and-log"}`, "") // widening: confirmed (yes), and still compare-and-set
+	got := ran(t, log)
+	if len(got) != 3 || !strings.Contains(got[0], "--expect=d-default") || strings.Contains(got[1], "--expect") || !strings.Contains(got[2], "--expect=d-default") {
+		t.Fatalf("calls %q", got)
+	}
+	// stored settings with no digest cannot be compared: the person is asked (widening) and the write is not compare-and-set
+	a, log, said := settingsFixture(t, true, `{"settings":{"autonomy_preset":"ask-on-risk","autonomy_classes":{}}}`)
+	a.SetCoderSessionSettings("c1", `{"autonomy_preset":"decide-and-log"}`, "")
+	if got := ran(t, log); len(got) != 1 || strings.Contains(got[0], "--expect") || len(*said) != 1 {
+		t.Fatalf("calls %q dialogs %q", got, *said)
+	}
+}
+
 func TestSettingsPatchRefusesEverySettingTheConfirmedSwitchesOwn(t *testing.T) {
 	a, log, said := authorityFixture(t, true, nil)
 	bad := []string{`{"agent_approval":"lead","approval_ceiling_usd":1000000}`, `{"approval_ceiling_usd":5}`, `{"mission":true}`, `{"chat_mode":"mission"}`,
@@ -72,7 +92,7 @@ func TestThePaneSendsOnlyTheseOperatorOnlySettings(t *testing.T) {
 		if v == "" {
 			v = `"x"`
 		}
-		if len(a.wideningsOf("c1", `{"`+k+`":`+v+`}`)) > 0 {
+		if wide, _ := a.wideningsOf("c1", `{"`+k+`":`+v+`}`); len(wide) > 0 {
 			dialog = append(dialog, k)
 		}
 	}
@@ -106,10 +126,10 @@ func settingsFixture(t *testing.T, yes bool, stored string) (a *App, log string,
 }
 
 const (
-	storedDefault   = `{"settings":{"autonomy_preset":"ask-on-risk","autonomy_classes":{},"mesh_accept":"subtree"}}`
-	storedAskAlways = `{"settings":{"autonomy_preset":"ask-always","autonomy_classes":{},"mesh_accept":"subtree"}}`
+	storedDefault   = `{"digest":"d-default","settings":{"autonomy_preset":"ask-on-risk","autonomy_classes":{},"mesh_accept":"subtree"}}`
+	storedAskAlways = `{"digest":"d-ask-always","settings":{"autonomy_preset":"ask-always","autonomy_classes":{},"mesh_accept":"subtree"}}`
 	// the person asked for a user/park answer on two kinds of question while the preset decides the rest by itself
-	storedOverrides = `{"settings":{"autonomy_preset":"decide-and-log","autonomy_classes":{"ambiguity":{"who":"user","fallback":"park"},"scope_growth":{"who":"user","fallback":"park"}},"mesh_accept":"none"}}`
+	storedOverrides = `{"digest":"d-overrides","settings":{"autonomy_preset":"decide-and-log","autonomy_classes":{"ambiguity":{"who":"user","fallback":"park"},"scope_growth":{"who":"user","fallback":"park"}},"mesh_accept":"none"}}`
 )
 
 func TestWideningSettingsAskTheNativeDialogAndSaferValuesDoNot(t *testing.T) {

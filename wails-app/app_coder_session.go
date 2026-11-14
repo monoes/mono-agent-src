@@ -42,15 +42,19 @@ const maxSettingsPatchBytes = 16 << 10
 // question after the change is computed from the stored settings (read through the CLI) and compared with the one before. If the
 // stored settings cannot be read, the change counts as widening. Turning mesh_accept to "none" needs none. The other
 // operator-only pane keys (checkin_limit, max_children, max_concurrent) are bounded by the session's budget and need only the
-// operator gate.
-func (a *App) wideningsOf(conversationID, clean string) []string {
+// operator gate. baseline is the digest of the stored settings the autonomy judgement was made against ("" when none was made or
+// the stored settings could not be read): the write passes it as --expect, so it is refused if they changed since.
+func (a *App) wideningsOf(conversationID, clean string) (out []string, baseline string) {
 	var m map[string]json.RawMessage
 	_ = json.Unmarshal([]byte(clean), &m)
-	var out []string
 	_, preset := m["autonomy_preset"]
 	_, classes := m["autonomy_classes"]
-	if (preset || classes) && a.autonomyWidens(conversationID, m) {
-		out = append(out, "fewer asks: the session decides more questions itself, or takes defaults, than it does now")
+	if preset || classes {
+		widens, digest := a.autonomyWidens(conversationID, m)
+		baseline = digest
+		if widens {
+			out = append(out, "fewer asks: the session decides more questions itself, or takes defaults, than it does now")
+		}
 	}
 	if raw, ok := m["mesh_accept"]; ok {
 		var accept string
@@ -58,43 +62,26 @@ func (a *App) wideningsOf(conversationID, clean string) []string {
 			out = append(out, "accept messages from other sessions (any session of the project may message this one)")
 		}
 	}
-	return out
+	return out, baseline
 }
 
 // autonomyWidens says whether applying the autonomy keys of m to the stored settings of the session makes any kind of question
 // decided by someone less strict than before (user < master < model, park < take_default), in any combination of reversibility and
-// master. Unreadable stored settings, or a value that does not parse, widen.
-func (a *App) autonomyWidens(conversationID string, m map[string]json.RawMessage) bool {
+// master, and the digest of the stored settings it judged. Unreadable stored settings, or a value that does not parse, widen (and
+// have no digest). The replace/null semantics are coderhost.AutonomyAfterPatch's, the one copy.
+func (a *App) autonomyWidens(conversationID string, m map[string]json.RawMessage) (widens bool, digest string) {
 	var cur struct {
+		Digest   string             `json:"digest"`
 		Settings coderhost.Settings `json:"settings"`
 	}
 	if json.Unmarshal([]byte(a.jsonResult("coder", "sessions", "settings", "get", "--", conversationID)), &cur) != nil || cur.Settings.AutonomyPreset == "" {
-		return true
+		return true, ""
 	}
-	next := cur.Settings
-	if raw, ok := m["autonomy_preset"]; ok && json.Unmarshal(raw, &next.AutonomyPreset) != nil {
-		return true
+	next, err := coderhost.AutonomyAfterPatch(cur.Settings, m)
+	if err != nil {
+		return true, cur.Digest
 	}
-	if raw, ok := m["autonomy_classes"]; ok {
-		next.AutonomyClasses = map[string]coderhost.AutonomyChoice{}
-		if string(raw) != "null" && json.Unmarshal(raw, &next.AutonomyClasses) != nil {
-			return true
-		}
-	}
-	rank := func(d coderhost.Decision) int {
-		r := map[string]int{coderhost.WhoUser: 0, coderhost.WhoMaster: 1, coderhost.WhoModel: 2}[d.Answerer]*2 + map[string]int{coderhost.FallbackPark: 0, coderhost.FallbackTakeDefault: 1}[d.Fallback]
-		return r
-	}
-	for _, class := range coderhost.GapClasses {
-		for _, reversible := range []bool{false, true} {
-			for _, hasMaster := range []bool{false, true} {
-				if rank(coderhost.Decide(next, class, reversible, hasMaster)) > rank(coderhost.Decide(cur.Settings, class, reversible, hasMaster)) {
-					return true
-				}
-			}
-		}
-	}
-	return false
+	return coderhost.AutonomyWidens(cur.Settings, next), cur.Digest
 }
 
 // checkSettingsPatch validates a patch from the page: a JSON object of at most maxSettingsPatchBytes whose every key is in
@@ -143,12 +130,16 @@ func (a *App) SetCoderSessionSettings(conversationID, patch, unattended string) 
 				return taskRefusal("only the user can change these settings: " + why + " (operator_only)")
 			}
 		}
-		if wide := a.wideningsOf(conversationID, clean); len(wide) > 0 {
+		wide, baseline := a.wideningsOf(conversationID, clean)
+		if len(wide) > 0 {
 			if bad := authorityConfirm(a, "Change this session's settings? "+strings.Join(wide, "; ")+"."); bad != "" {
 				return bad
 			}
 		}
 		args = append(args, "--patch="+clean)
+		if baseline != "" {
+			args = append(args, "--expect="+baseline)
+		}
 	}
 	if unattended != "" {
 		if unattended != "true" && unattended != "false" {

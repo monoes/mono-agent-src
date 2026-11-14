@@ -27,6 +27,10 @@ func ValidHostPursuitInfo(h PursuitHostInfo) bool {
 			}
 		}
 	}
+	// the host sets VerifierOn only with the loop running, a checker asked for and no reason against (attachVerifier)
+	if h.VerifierOn && (!h.Enabled || h.VerifierPin == "" || h.VerifierReason != "") {
+		return false
+	}
 	if !h.Enabled {
 		return h.WakeCapUSD == 0 || validWakeCap(h.WakeCapUSD)
 	}
