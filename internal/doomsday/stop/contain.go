@@ -112,6 +112,9 @@ var containments = map[string]func(k Kernel, steps func() []ProbeStep) Containme
 	KindCgroup2:   func(k Kernel, steps func() []ProbeStep) Containment { return cgroup2Containment{k: k, steps: steps} },
 	KindJobObject: func(k Kernel, _ func() []ProbeStep) Containment { return newJobContainment(k) },
 	KindPGroup:    func(k Kernel, _ func() []ProbeStep) Containment { return newPGContainment(k) },
+	// KindSession (sessunit.go) is registered but no GOOS names it yet: platformKinds["darwin"] stays KindPGroup until the
+	// macOS binding exists (slice S2 of #1582), so a record of this kind is not proven or placed on any host today.
+	KindSession: func(k Kernel, _ func() []ProbeStep) Containment { return newSessContainment(k) },
 }
 
 // hostGOOS is the OS the code runs on; tests replace it. A recorded unit is only ever proven, ended or placed
