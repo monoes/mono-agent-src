@@ -424,10 +424,36 @@ func TestDarwinAMergeGitCommandUnderAnOpenRunIsPlacedAndRuns(t *testing.T) {
 		_ = cmd.Wait()
 		t.Fatal(err)
 	}
-	if ls, _ := r.led.Leaders(r.rec.Generation); len(ls) != 1 || ls[0].PID != cmd.Process.Pid {
-		t.Fatalf("the git command is not a recorded leader: %+v", ls)
-	}
+	// git ends in milliseconds, so it may be gone before it is looked at (not a refusal); what runs must run to its end
 	if err := cmd.Wait(); err != nil || !strings.HasPrefix(out.String(), "git version") {
 		t.Fatalf("git did not run to its end: %v %q", err, out.String())
+	}
+}
+
+// A placed command that is still running when it is adopted is a recorded leader and a member of the unit, and Stop ends it.
+func TestDarwinAPlacedStandaloneCommandIsAMemberOfTheUnit(t *testing.T) {
+	r := newRealRig(t)
+	pl, err := r.c.Place(r.rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("/bin/sleep", "30")
+	release, err := pl.(StandalonePlacement).PlaceStandalone(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	if err := AdoptPlaced(cmd); err != nil {
+		t.Fatal(err)
+	}
+	if ls, _ := r.led.Leaders(r.rec.Generation); len(ls) != 1 || ls[0].PID != cmd.Process.Pid {
+		t.Fatalf("the command is not a recorded leader: %+v", ls)
+	}
+	if !r.members(r.group())[cmd.Process.Pid] {
+		t.Fatal("the command is not a member of its unit")
 	}
 }

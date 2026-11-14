@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"slices"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -276,14 +277,30 @@ func AdoptPlaced(cmd *exec.Cmd) error {
 	if cmd.Process == nil {
 		return fmt.Errorf("%w: the command did not start", ErrNotPlaced)
 	}
-	info, err := pl.p.c.os.Info(cmd.Process.Pid)
+	pid := cmd.Process.Pid
+	info, err := pl.p.c.os.Info(pid)
 	if err != nil {
+		if startedAndGone(err) {
+			return nil
+		}
 		return fmt.Errorf("%w: the started command cannot be read: %v", ErrNotPlaced, err)
 	}
 	pendingAdopt.mu.Lock()
 	pl.stamp = info.Stamp
 	pendingAdopt.mu.Unlock()
-	return pl.p.Adopt(cmd.Process.Pid, info.Stamp)
+	if err := pl.p.Adopt(pid, info.Stamp); err != nil {
+		if _, ierr := pl.p.c.os.Info(pid); ierr != nil && startedAndGone(ierr) {
+			return nil // it ended between the two reads: nothing is left to record, and the refusal came before any hold
+		}
+		return err
+	}
+	return nil
+}
+
+// startedAndGone says the read failed because the command has already ended (a short git command can end before it is looked at; the
+// caller has not waited for it, so its number cannot belong to anyone else): there is nothing running to adopt.
+func startedAndGone(err error) bool {
+	return errors.Is(err, errSessGone) || errors.Is(err, syscall.ESRCH)
 }
 
 func (p *sessPlacer) PlaceLeased(*exec.Cmd) error {

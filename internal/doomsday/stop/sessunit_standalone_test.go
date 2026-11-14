@@ -64,3 +64,19 @@ func TestSessAStandaloneCommandIsRefusedWhenItCannotBeOneOrAdopted(t *testing.T)
 		t.Fatalf("a non-leader was adopted: %v", err)
 	}
 }
+
+// A short command can end before it is looked at: it is nothing to adopt, not a refusal (a real git command ends in milliseconds).
+func TestSessAStandaloneCommandThatAlreadyEndedIsNotARefusal(t *testing.T) {
+	r := newSessRig(t)
+	cmd := exec.Command("/bin/true")
+	if _, err := r.placer().PlaceStandalone(cmd); err != nil {
+		t.Fatal(err)
+	}
+	cmd.Process = &os.Process{Pid: 777} // no such process in the table
+	if err := AdoptPlaced(cmd); err != nil {
+		t.Fatalf("a command that had ended was refused: %v", err)
+	}
+	if got, _ := r.led.Leaders(7); len(got) != 0 {
+		t.Fatalf("an ended command was recorded: %+v", got)
+	}
+}
