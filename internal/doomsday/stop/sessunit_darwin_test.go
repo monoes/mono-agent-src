@@ -396,3 +396,38 @@ func TestDarwinPlaceAndAdoptOnTheRealOS(t *testing.T) {
 		t.Fatal("ReleaseUnitHolds did not reap the leader")
 	}
 }
+
+// What a merge does under an open run on macOS: a plain git command (no process attributes) is placed in the run's session unit,
+// started, adopted, and runs to its end; the unit saw it as a recorded leader and the command's own wait works.
+func TestDarwinAMergeGitCommandUnderAnOpenRunIsPlacedAndRuns(t *testing.T) {
+	r := newRealRig(t)
+	pl, err := r.c.Place(r.rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pl.Place(exec.Command("/usr/bin/git", "--version")); err == nil {
+		t.Fatal("the turn placement accepted a command with no Setsid (only the standalone entry makes a leader)")
+	}
+	cmd := exec.Command("/usr/bin/git", "--version")
+	release, err := pl.(StandalonePlacement).PlaceStandalone(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	var out strings.Builder
+	cmd.Stdout = &out
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := AdoptPlaced(cmd); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		t.Fatal(err)
+	}
+	if ls, _ := r.led.Leaders(r.rec.Generation); len(ls) != 1 || ls[0].PID != cmd.Process.Pid {
+		t.Fatalf("the git command is not a recorded leader: %+v", ls)
+	}
+	if err := cmd.Wait(); err != nil || !strings.HasPrefix(out.String(), "git version") {
+		t.Fatalf("git did not run to its end: %v %q", err, out.String())
+	}
+}

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/doomsday/stop"
 	"github.com/monoes/mono-agent/internal/gitsafe"
 )
 
@@ -184,7 +185,17 @@ func gitRun(ctx context.Context, dir string, args ...string) (string, error) {
 	var stdout, stderr bytes.Buffer
 	so := &limitWriter{w: &stdout, max: maxGitOutput}
 	cmd.Stdout, cmd.Stderr = so, &limitWriter{w: &stderr, max: 64 << 10}
-	if err := cmd.Run(); err != nil {
+	err = cmd.Start()
+	if err == nil {
+		// a command placed in a session unit is recorded as a member right after it started; one the unit does not know is ended
+		if aerr := stop.AdoptPlaced(cmd); aerr != nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+			return "", aerr
+		}
+		err = cmd.Wait()
+	}
+	if err != nil {
 		if so.over {
 			return "", errors.New("git printed more than the conductor reads")
 		}

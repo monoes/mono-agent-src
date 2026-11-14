@@ -3,6 +3,7 @@ package doomsday
 import (
 	"context"
 	"errors"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -119,3 +120,49 @@ func TestStartRefusesWhenTheMergeRevisitFails(t *testing.T) {
 type failingKeyer struct{}
 
 func (failingKeyer) MAC(string, ...[]byte) ([]byte, error) { return nil, errors.New("no key") }
+
+type standaloneOnly struct {
+	stop.Placement
+	placed, ticketed int
+}
+
+func (s *standaloneOnly) PlaceStandalone(cmd *exec.Cmd) (func(), error) {
+	s.placed++
+	return func() {}, nil
+}
+func (s *standaloneOnly) Place(*exec.Cmd) (func(), error) {
+	return nil, errors.New("turn placement used for git")
+}
+func (s *standaloneOnly) PlaceTicket(uint64, *exec.Cmd) (func(), error) {
+	return nil, errors.New("ticket placement used for git")
+}
+
+// A unit that takes a command only as a recorded session leader (macOS) is given a merge's git command through its standalone
+// entry, with or without a ticket; any other unit keeps Place and PlaceTicket.
+func TestGitPlacementUsesTheStandaloneEntryOfAUnitThatHasOne(t *testing.T) {
+	s := &standaloneOnly{}
+	if _, err := gitPlace(s)(exec.Command("git")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gitPlaceTicket(s)(3, exec.Command("git")); err != nil {
+		t.Fatal(err)
+	}
+	if s.placed != 2 {
+		t.Fatalf("standalone placements: %d", s.placed)
+	}
+	plain := &plainPlacement{}
+	_, _ = gitPlace(plain)(exec.Command("git"))
+	_, _ = gitPlaceTicket(plain)(3, exec.Command("git"))
+	if plain.place != 1 || plain.ticket != 1 {
+		t.Fatalf("a unit with no standalone entry: %+v", plain)
+	}
+}
+
+type plainPlacement struct{ place, ticket int }
+
+func (p *plainPlacement) Place(*exec.Cmd) (func(), error) { p.place++; return func() {}, nil }
+func (p *plainPlacement) PlaceTicket(uint64, *exec.Cmd) (func(), error) {
+	p.ticket++
+	return func() {}, nil
+}
+func (p *plainPlacement) PlaceLeased(*exec.Cmd) error { return nil }

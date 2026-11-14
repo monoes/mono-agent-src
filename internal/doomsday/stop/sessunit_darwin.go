@@ -113,13 +113,20 @@ func sidOf(pid int, uid uint32) (sid int, ok bool, err error) {
 	return 0, false, fmt.Errorf("the session of process %d cannot be read: %w", pid, err)
 }
 
+// sessScanBudget bounds one scan of the process table.
+const sessScanBudget = 10 * time.Second
+
 func (darwinSess) Scan() ([]SessProc, error) {
 	ks, err := unix.SysctlKinfoProcSlice("kern.proc.all")
 	if err != nil {
 		return nil, err
 	}
 	out := make([]SessProc, 0, len(ks))
+	deadline := time.Now().Add(sessScanBudget)
 	for i := range ks {
+		if time.Now().After(deadline) { // a huge or fork-bombed table: an error is "not proven", never a partial answer
+			return nil, fmt.Errorf("the process table was not read within %s", sessScanBudget)
+		}
 		pid := int(ks[i].Proc.P_pid)
 		if pid <= 0 || ks[i].Proc.P_stat == szomb {
 			continue

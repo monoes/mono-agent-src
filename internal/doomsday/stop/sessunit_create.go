@@ -10,6 +10,7 @@ import (
 	"io"
 	"os/exec"
 	"slices"
+	"sync"
 	"time"
 )
 
@@ -216,6 +217,73 @@ var errNoAdoptPath = errors.New("a session unit takes only a started turn leader
 
 func (p *sessPlacer) PlaceTicket(uint64, *exec.Cmd) (func(), error) {
 	return nil, fmt.Errorf("%w: %v", ErrNotPlaced, errNoAdoptPath)
+}
+
+// StandalonePlacement is the placement of a command that is not a turn (a merge's git command): the placement makes the command a
+// session leader itself and the caller must call AdoptPlaced right after the command started, before it waits for it. A ticket is
+// not used: like the process-group and Job Object units, the session unit cannot spare one command, so Stop ends it.
+type StandalonePlacement interface {
+	PlaceStandalone(cmd *exec.Cmd) (release func(), err error)
+}
+
+var _ StandalonePlacement = (*sessPlacer)(nil)
+
+type pendingLeader struct {
+	p     *sessPlacer
+	stamp string // set once the started command was adopted
+}
+
+var pendingAdopt = struct {
+	mu sync.Mutex
+	by map[*exec.Cmd]*pendingLeader
+}{by: map[*exec.Cmd]*pendingLeader{}}
+
+func (p *sessPlacer) PlaceStandalone(cmd *exec.Cmd) (func(), error) {
+	if cmd == nil || cmd.Process != nil {
+		return nil, fmt.Errorf("%w: the command is nil or already started", ErrNotPlaced)
+	}
+	if err := prepareSessCmd(cmd); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrNotPlaced, err)
+	}
+	if _, err := p.place(cmd); err != nil {
+		return nil, err
+	}
+	pl := &pendingLeader{p: p}
+	pendingAdopt.mu.Lock()
+	pendingAdopt.by[cmd] = pl
+	pendingAdopt.mu.Unlock()
+	return func() {
+		pendingAdopt.mu.Lock()
+		delete(pendingAdopt.by, cmd)
+		stamp := pl.stamp
+		pendingAdopt.mu.Unlock()
+		if stamp != "" && cmd.Process != nil { // the command's own wait reaped it: let the hold's entry go (a bounded table)
+			dropHold(p.rec.CgroupID, cmd.Process.Pid, stamp)
+		}
+	}, nil
+}
+
+// AdoptPlaced records the leader of a command placed by PlaceStandalone, right after it started: its pid with the start stamp read
+// now, while it is still the caller's unreaped child. A command that was not placed that way (no placement, another kind) is
+// nothing to adopt. An error means the caller must end the command: it is running in a session the unit does not know.
+func AdoptPlaced(cmd *exec.Cmd) error {
+	pendingAdopt.mu.Lock()
+	pl := pendingAdopt.by[cmd]
+	pendingAdopt.mu.Unlock()
+	if pl == nil {
+		return nil
+	}
+	if cmd.Process == nil {
+		return fmt.Errorf("%w: the command did not start", ErrNotPlaced)
+	}
+	info, err := pl.p.c.os.Info(cmd.Process.Pid)
+	if err != nil {
+		return fmt.Errorf("%w: the started command cannot be read: %v", ErrNotPlaced, err)
+	}
+	pendingAdopt.mu.Lock()
+	pl.stamp = info.Stamp
+	pendingAdopt.mu.Unlock()
+	return pl.p.Adopt(cmd.Process.Pid, info.Stamp)
 }
 
 func (p *sessPlacer) PlaceLeased(*exec.Cmd) error {
