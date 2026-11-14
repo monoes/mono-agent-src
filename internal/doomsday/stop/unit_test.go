@@ -294,3 +294,20 @@ func TestEndUnitWithoutARegistryStillFailsClosedOnARealSurvivor(t *testing.T) {
 		t.Fatalf("%+v", out)
 	}
 }
+
+// With no registry only an unreadable identity makes a member unknown; the unit is still ended (the cgroup is empty and
+// removed) but the outcome stays ENDED-WITH-UNKNOWN.
+type noIdentCg struct{ *fakeCg }
+
+func (noIdentCg) ProcInfo(string, int) (string, string, error) {
+	return "", "", errors.New("unreadable")
+}
+
+func TestEndUnitWithoutARegistryStillCallsAnUnreadableIdentityUnknown(t *testing.T) {
+	cg := newFakeCg()
+	cg.subs["t-1"] = []*fakeProc{{pid: 23, dieOnTerm: true}}
+	out := EndUnit(noIdentCg{cg}, EndConfig{Clock: newStepClock()})
+	if out.Kind != UnitEndedWithUnknown || len(out.Unknown) != 1 || out.Unknown[0].Why != "identity unreadable" || len(out.Survivors) != 0 || !cg.removed["t-1"] {
+		t.Fatalf("%+v", out)
+	}
+}
