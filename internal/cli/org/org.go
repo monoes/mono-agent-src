@@ -285,7 +285,8 @@ func newOrgBudgetCmd(root func() string) *cobra.Command {
 		Long: "monomind 2.24 reports no per-section spend, so this derives it in one place " +
 			"(internal/monomind.SectionBudgets) from the org definition and the run's usage and " +
 			"section-budget audit events. The org total equals the sum of the usage events' cost_usd, " +
-			"the figure `org report` prints.",
+			"the figure `org report` prints. With monomind 2.29+ the result carries `check`, the " +
+			"comparison with `org report`'s own `sections` rows.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rep, err := monomind.OrgBudget(cmd.Context(), root(), args[0], run)
