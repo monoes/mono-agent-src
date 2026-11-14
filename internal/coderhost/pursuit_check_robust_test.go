@@ -6,6 +6,7 @@ import (
 	"github.com/monoes/mono-agent/internal/missionpursuit/verifier"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -128,7 +129,8 @@ func TestPathsCompareWithoutCaseWhereTheFileSystemDoes(t *testing.T) {
 	if !pathWithinFold("/Users/me/.monoagent", "/Users/me/.MonoAgent/vault", true) {
 		t.Error("with folding, ~/.MonoAgent/vault is inside ~/.monoagent")
 	}
-	if pathWithinFold("/home/me/.monoagent", "/home/me/.MonoAgent/vault", false) {
+	// filepath.Rel compares without case on Windows itself, so the "different folders" half is only true elsewhere.
+	if runtime.GOOS != "windows" && pathWithinFold("/home/me/.monoagent", "/home/me/.MonoAgent/vault", false) {
 		t.Error("without folding, the two are different folders")
 	}
 	old := foldCase
