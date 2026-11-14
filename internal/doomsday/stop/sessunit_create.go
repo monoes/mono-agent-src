@@ -10,6 +10,7 @@ import (
 	"io"
 	"os/exec"
 	"slices"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -339,7 +340,7 @@ func (p *sessPlacer) Adopt(pid int, stamp string) error {
 	if v.rebooted {
 		return fmt.Errorf("%w: the unit was recorded before the machine's boot time changed", ErrNotPlaced)
 	}
-	if _, ok := parseSessStamp(stamp); !ok || pid <= 1 {
+	if _, ok := parseSessStamp(stamp); (!ok && !strings.HasPrefix(stamp, launcherStampPrefix)) || pid <= 1 {
 		return fmt.Errorf("%w: the leader (pid %d, start %q) cannot be checked", ErrNotPlaced, pid, stamp)
 	}
 	self, _, err := p.c.os.Self()
@@ -350,7 +351,7 @@ func (p *sessPlacer) Adopt(pid int, stamp string) error {
 	switch {
 	case err != nil:
 		return fmt.Errorf("%w: the leader %d is not running: %v", ErrNotPlaced, pid, err)
-	case cur.Stamp != stamp:
+	case !sameStart(cur.Stamp, stamp):
 		return fmt.Errorf("%w: process %d is not the one that was started (start stamp differs)", ErrNotPlaced, pid)
 	case cur.SID != pid:
 		return fmt.Errorf("%w: process %d is not the leader of a session of its own", ErrNotPlaced, pid)
@@ -359,6 +360,7 @@ func (p *sessPlacer) Adopt(pid int, stamp string) error {
 	case cur.UID != p.c.os.CurrentUID():
 		return fmt.Errorf("%w: process %d belongs to another user", ErrNotPlaced, pid)
 	}
+	stamp = cur.Stamp // the unit records and holds the leader by its own stamp form, whatever form the caller read
 	have, err := p.c.led.Leaders(p.rec.Generation)
 	if err != nil {
 		return fmt.Errorf("%w: the leader ledger cannot be read: %v", ErrNotPlaced, err)
@@ -390,3 +392,16 @@ var ErrReapOwned = errors.New("stop: the unit has taken over reaping the leader"
 
 // UnitID is the identity of the unit this placement belongs to (UnitRecord.CgroupID): what ReleaseUnitHolds is called with.
 func (p *sessPlacer) UnitID() uint64 { return p.rec.CgroupID }
+
+// launcherStampPrefix starts the start stamp the host launcher reads with ps (coder_background.go processIdentity): "started:<lstart>".
+const launcherStampPrefix = "started:"
+
+// sameStart compares the unit's own start stamp (seconds.microseconds from the process table) with the one the caller read. The host
+// launcher's ps form is not comparable with the table's, and is not a mismatch: the leader is the adopter's own unreaped child (the
+// parent check in Adopt), so its number cannot have been reused since the launcher started it. Any other form must be equal.
+func sameStart(own, given string) bool {
+	if strings.HasPrefix(given, launcherStampPrefix) {
+		return true
+	}
+	return own == given
+}
