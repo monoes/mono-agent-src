@@ -316,9 +316,9 @@ func TestSessRmdirRefusesWhileAMemberIsListed(t *testing.T) {
 
 // ----- the seam: dispatch, platform, probe -----
 
-func TestSessS1ChangesNoPlatformChoiceAndNoRealOS(t *testing.T) {
-	if platformKinds["darwin"] != KindPGroup || platformKinds["linux"] != KindCgroup2 || platformKinds["windows"] != KindJobObject {
-		t.Fatalf("a platform choice changed in S1: %v", platformKinds)
+func TestSessPlatformChoicesAndTheOSBinding(t *testing.T) {
+	if platformKinds["darwin"] != KindSession || platformKinds["linux"] != KindCgroup2 || platformKinds["windows"] != KindJobObject {
+		t.Fatalf("unexpected platform choice: %v", platformKinds)
 	}
 	if _, ok := containments[KindSession]; !ok {
 		t.Fatal("the session kind is not registered")
