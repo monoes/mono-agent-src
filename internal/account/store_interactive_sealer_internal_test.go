@@ -62,8 +62,12 @@ func (k *testKEK) release() {
 
 // A person answers the interactive sealer, so its call is waited for however long
 // the timeout is, and its result is returned.
+//
+// The short timeout is on only while the interactive call runs. The seeding before
+// it and the check after it use the quiet sealer, which the timeout does bound, so
+// on a loaded runner they would fail with "did not answer" for a reason that has
+// nothing to do with what is pinned (issue 1650). slowKEK makes that so here.
 func TestTheInteractiveSealersCallsAreWaitedForBeyondTheTimeout(t *testing.T) {
-	setKeyStoreTimeout(t, 50*time.Millisecond)
 	cases := []struct {
 		name string
 		call func(Store) (string, error)
@@ -81,6 +85,10 @@ func TestTheInteractiveSealersCallsAreWaitedForBeyondTheTimeout(t *testing.T) {
 			kek := newTestKEK(make(chan struct{}))
 			t.Cleanup(kek.release)
 			st := OpenStore(dir, keyringSealer{kek: kek.get, mayPrompt: true})
+			normal := keyStoreTimeout
+			keyStoreTimeout = 50 * time.Millisecond
+			restore := func() { keyStoreTimeout = normal }
+			t.Cleanup(restore)
 			type result struct {
 				token string
 				err   error
@@ -101,6 +109,7 @@ func TestTheInteractiveSealersCallsAreWaitedForBeyondTheTimeout(t *testing.T) {
 			kek.release() // the person answers
 			select {
 			case r := <-done:
+				restore()
 				if r.err != nil || r.token != c.want {
 					t.Fatalf("%s = %q, %v after the answer, want %q and no error", c.name, r.token, r.err, c.want)
 				}
