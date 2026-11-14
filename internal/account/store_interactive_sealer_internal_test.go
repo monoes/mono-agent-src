@@ -24,6 +24,7 @@ import (
 type testKEK struct {
 	key   []byte
 	gate  chan struct{} // nil: answers at once
+	delay time.Duration // how long a request takes before it answers, a loaded machine in small
 	asked atomic.Int32
 	once  sync.Once
 }
@@ -34,10 +35,20 @@ func newTestKEK(gate chan struct{}) *testKEK {
 
 func (k *testKEK) get(bool) ([]byte, bool, error) {
 	k.asked.Add(1)
+	time.Sleep(k.delay)
 	if k.gate != nil {
 		<-k.gate
 	}
 	return k.key, true, nil
+}
+
+// slowKEK is a key store that answers, but later than the short timeout the tests
+// below put on the store: what a hosted runner under load does to a call that is
+// meant to be bounded.
+func slowKEK() *testKEK {
+	k := newTestKEK(nil)
+	k.delay = 150 * time.Millisecond
+	return k
 }
 
 // release lets the waiting request go, once; it is safe to call twice.
@@ -64,7 +75,7 @@ func TestTheInteractiveSealersCallsAreWaitedForBeyondTheTimeout(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), "account")
-			if err := OpenStore(dir, keyringSealer{kek: newTestKEK(nil).get}).SaveRefresh("rt-1"); err != nil {
+			if err := OpenStore(dir, keyringSealer{kek: slowKEK().get}).SaveRefresh("rt-1"); err != nil {
 				t.Fatal(err)
 			}
 			kek := newTestKEK(make(chan struct{}))
@@ -96,7 +107,7 @@ func TestTheInteractiveSealersCallsAreWaitedForBeyondTheTimeout(t *testing.T) {
 			case <-time.After(30 * time.Second):
 				t.Fatalf("%s did not return once the key store had answered", c.name)
 			}
-			if got, err := OpenStore(dir, keyringSealer{kek: newTestKEK(nil).get}).LoadRefresh(); err != nil || (c.name == "SaveRefresh" && got != "rt-2") {
+			if got, err := OpenStore(dir, keyringSealer{kek: slowKEK().get}).LoadRefresh(); err != nil || (c.name == "SaveRefresh" && got != "rt-2") {
 				t.Fatalf("refresh.enc holds %q (%v) afterwards", got, err)
 			}
 		})
