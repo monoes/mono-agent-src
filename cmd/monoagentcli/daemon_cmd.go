@@ -43,6 +43,6 @@ func daemonDeps(cfg *globalConfig) daemon.Deps {
 		// newInstaller is read when the command runs: tests replace it.
 		NewInstaller: func() autostart.Installer { return newInstaller() },
 		WriteJSON:    writeJSONTo,
-		Refusal:      opgate.Refusal,
+		Refusal:      opgate.RecoveryRefusal, // install, uninstall and restart repair an install
 	}
 }

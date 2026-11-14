@@ -828,3 +828,4 @@ TestTheCheapOpenModeCheckDoesNotWriteTheSharedConfig 1
 TestClassCFlippedVerbsAreRefusedInEveryAgentContext 1
 TestClassCUpdateCheckStaysOpenToAgents 1
 TestClassCOpenVerbsStayOpen 1
+TestClassCAnUnwiredGateRefuses 1

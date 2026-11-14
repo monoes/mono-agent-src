@@ -24,7 +24,8 @@ func doctorDeps(cfg *globalConfig) doctorcli.Deps {
 			return doctorcli.NewHealthEnv(healthEnvDeps(cfg), projects)
 		},
 		FinishStreamed: finishStreamed,
-		Refusal:        opgate.Refusal,
+		PreviewRefusal: opgate.Refusal,
+		Refusal:        opgate.RecoveryRefusal, // doctor --fix, doctor fix and setup repair an install
 	}
 }
 

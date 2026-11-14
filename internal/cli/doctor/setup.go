@@ -149,7 +149,7 @@ Safe to run again at any time; it only does what is still missing.
 				}
 			} else {
 				ev.stage("Result")
-				printDoctorReport(out, rep, true)
+				printDoctorReport(out, rep, true, cfg.PreviewRefusal)
 				printManualSteps(out, rep)
 			}
 			if n := rep.RequiredFailures(); n > 0 {

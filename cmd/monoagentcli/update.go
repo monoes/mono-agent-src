@@ -46,7 +46,7 @@ func updateDeps(cfg *globalConfig) update.Deps {
 		InvalidInput:     errInvalidInput,
 		WriteJSON:        writeJSONTo,
 		StartDetached:    startDetached,
-		Refusal:          opgate.Refusal,
+		Refusal:          opgate.RecoveryRefusal, // update repairs an install
 		RestartBlockers: func(ctx context.Context, pid int) (int, error, error) {
 			return restartBlockers(ctx, cfg, pid)
 		},

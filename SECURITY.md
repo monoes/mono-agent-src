@@ -765,6 +765,16 @@ the run), and it predates the marking of MCP and HTTP runs. What the run can do 
 what you approved in the workflow; a definition an agent changed is still
 unapproved and its sends still wait. Tracked in #1475 and its follow-up.
 
+Operator-only since #1475 (class C): `account logout`, `library logout`, `logout`,
+`release keygen`, `daemon install|uninstall|restart`, `update` (not `--check`),
+`setup`, `library publish`, `doctor --fix` and `doctor fix <id>` for every fix that
+is not safety auto. They refuse an agent, the chat, a workflow, a token holder and
+a process inside a coder turn (exit 3, `operator_only`); the repair verbs among
+them (`update`, `setup`, `daemon`, `doctor`) use the recovery gate, so an
+unreadable database does not lock the operator out. `db`, `init`, `httpapi`,
+`mcp`, the foreground `daemon`, `release verify`, `account status|login`,
+`library install|update` and `integration import-openapi` stay open on purpose.
+
 ### Sends that skipped approval up to v0.152.0
 
 In releases up to and including v0.152.0, an agent, the in-app chat or a

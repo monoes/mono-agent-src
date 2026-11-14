@@ -93,7 +93,8 @@ GitHub API path (while `AllowLegacyGitHubUpdates` is true).
 
 1. Create the key straight into the secret. The private key never appears on screen or in
    shell history (keygen refuses to print it to a terminal); the public line is printed to
-   stderr:
+   stderr. `release keygen` is operator-only: run it in the maintainer's own terminal, not from an agent
+   shell or a script an agent runs (it is refused there, exit 3):
 
    ```bash
    monoagentcli release keygen --stdout-private | gh secret set RELEASE_SIGNING_KEY --env release --repo OWNER/REPO
