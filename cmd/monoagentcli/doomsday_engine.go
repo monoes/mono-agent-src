@@ -236,6 +236,7 @@ func processHostGate(cfg *globalConfig, db *sql.DB) *doomsdaycli.HostGate {
 	g := &doomsdaycli.HostGate{Store: w.Chained(), Fresh: w.Fresh(), Profile: w.Profile, RunDir: w.RunDir, Kernel: w.Kernel, Journal: doomsdaycli.MergeJournal(db, w.Store),
 		Activity:  processRunActivity(w.Profile),
 		BindingOn: func() (bool, error) { return chatcli.PeercredBindingOn(db) },
+		Anchors:   stop.ServeAnchors,
 		UnboundRun: func(ctx context.Context, profile string, gen int64) bool {
 			return runStartedUnbound(ctx, db, profile, gen)
 		},
@@ -271,9 +272,6 @@ func doomsdayWiringReal(cfg *globalConfig, db *sql.DB) doomsdaycli.Wiring {
 		Store:   store.New(db, keys).WithEntryCheck(ops.EntryCheck(coderhost.SpendBounds())),
 		Profile: cfg.ProfileID,
 		Binding: func(context.Context) (bool, error) {
-			if why := coderhost.OpenModeUnsupportedHere(); why != "" { // #1582: no run is created where its boss could not run
-				return false, doomsdaycli.UnsupportedHere(why)
-			}
 			st, err := chatcli.PeercredBindingState(db)
 			if err != nil {
 				return false, err
@@ -290,6 +288,12 @@ func doomsdayWiringReal(cfg *globalConfig, db *sql.DB) doomsdaycli.Wiring {
 		Probe:  func() error { return probeAt(filepath.Dir(expandPath(cfg.DBPath)), runDir) },
 		Kernel: doomsdayKernel(),
 		Host:   stop.SystemHost(),
+		EnsureHost: func() func(context.Context) error {
+			if !stop.UnitNeedsHost() {
+				return nil
+			}
+			return func(context.Context) error { d := chatDeps(cfg); return chatcli.EnsureHost(&d) }
+		}(),
 		// Stop's token revocation and queue cancel; the governor's queue is cancelled with the host's pending sends.
 		Tokens: doomsdaycli.GovernedTokens{Inner: doomsdaycli.CoderTokens{DB: db, Profile: cfg.ProfileID, Host: coderhost.NewStore(db)}, DB: db, Profile: cfg.ProfileID, Keys: keys,
 			Logf: func(f string, a ...any) { fmt.Fprintf(os.Stderr, f+"\n", a...) }},

@@ -79,23 +79,10 @@ func SetOpenModeBindingProbe(goos string, ready func() error) (restore func()) {
 	return func() { openModeGOOS, openModeBindingReady = oldOS, oldReady }
 }
 
-// OpenModeMacOSReason is why the mode is not offered on macOS: the unit there is a process group, a process can only join a
-// group of its own session, and the boss's turn is started in a session of its own, so it can never be placed (#1582).
-const OpenModeMacOSReason = "not available on macOS yet: the run's processes cannot be placed in its containment unit there, so the boss could never take its first turn"
-
-// OpenModeUnsupportedHere is why this OS cannot run an open-ended run at all, "" when it can. The start asks it too, so no
-// run is created where the mode is not offered.
-func OpenModeUnsupportedHere() string {
-	if openModeGOOS == "darwin" {
-		return OpenModeMacOSReason
-	}
-	return ""
-}
-
 // openModeBindingReason is "" when the mode can be offered here. Where the binding service cannot run the mode is still offered:
-// the run starts without binding and says so (doomsday start, status, the start form), so only the OS reason refuses.
+// the run starts without binding and says so (doomsday start, status, the start form). No OS refuses it.
 func openModeBindingReason() string {
-	return OpenModeUnsupportedHere()
+	return ""
 }
 
 // OpenModeBindingWarning is why a run here would start without peer-credential binding ("" when the service can run).

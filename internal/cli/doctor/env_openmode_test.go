@@ -12,21 +12,6 @@ import (
 	"github.com/monoes/mono-agent/internal/storage"
 )
 
-// The macOS gate is the mode's own predicate, not a copy: the facts carry its reason on macOS and nothing elsewhere.
-func TestOpenModeFactsFollowTheModesOwnOSGate(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "x.db")
-	restore := coderhost.SetOpenModeBindingProbe("darwin", func() error { return nil })
-	defer restore()
-	if f := openModeFacts(nil, "P", dbPath, nil); f.Unsupported != coderhost.OpenModeMacOSReason {
-		t.Errorf("darwin: %q", f.Unsupported)
-	}
-	restore()
-	coderhost.SetOpenModeBindingProbe("linux", func() error { return nil })
-	if f := openModeFacts(nil, "P", dbPath, nil); f.Unsupported != "" {
-		t.Errorf("linux: %q", f.Unsupported)
-	}
-}
-
 // A fresh database stores nothing, so the DEFAULT applies: binding is on where this machine can run the service, and off (with
 // the reason, and runs starting unbound) where it cannot; no run is active, no host lock file exists and none is created.
 // Revert proof: restoring the old off-by-default turns the capable case red.

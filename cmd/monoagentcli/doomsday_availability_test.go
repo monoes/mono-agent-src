@@ -153,26 +153,6 @@ func TestOpenModeIsOfferedWhereBindingCannotRunAndRefusedForAnExplicitOffWhereIt
 	}
 }
 
-// #1582: where the mode cannot run (macOS) the real wiring's binding answer is the OS refusal, so a start creates no run.
-func TestRealWiringRefusesTheStartWhereTheModeCannotRun(t *testing.T) {
-	cfg := sendEnv(t)
-	db, err := initDB(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	t.Cleanup(coderhost.SetOpenModeBindingProbe("darwin", func() error { return nil }))
-	_, err = doomsdayWiringReal(cfg, db.DB).Binding(context.Background())
-	var un doomsdaycli.UnsupportedHere
-	if !errors.As(err, &un) || !strings.Contains(err.Error(), "macOS") {
-		t.Fatalf("err = %v", err)
-	}
-	t.Cleanup(coderhost.SetOpenModeBindingProbe("linux", func() error { return nil }))
-	if _, err := doomsdayWiringReal(cfg, db.DB).Binding(context.Background()); errors.As(err, &un) {
-		t.Fatalf("linux refused: %v", err)
-	}
-}
-
 // A stored `on` that this machine cannot honour stops `doomsday start` BEFORE a run exists (its turns would all be refused); an
 // unset default on the same machine does not. The status warning comes from the run's recorded start mode, not the live setting.
 // Revert proof: dropping ExplicitOnBroken in the wiring's Binding turns the first check red.

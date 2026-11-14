@@ -149,6 +149,10 @@ func hostProcessEnv(env []string) []string {
 	return withoutEnv(env, coderhost.SessionTokenEnv, agenttokens.EnvMissionToken)
 }
 
+// EnsureHost is ensureHost for the open-ended mode, which needs the host before its run exists (the host makes the run's process
+// group on macOS).
+func EnsureHost(cfg *Deps) error { return ensureHost(cfg) }
+
 // ensureHost starts the host when none is running and waits for it to take its lock.
 func ensureHost(cfg *Deps) error {
 	if hostRunning(cfg) {

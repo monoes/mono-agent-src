@@ -143,7 +143,7 @@ func TestFlippingOpenModeReadyOpensAndClosesEveryEntry(t *testing.T) {
 // coderhost.openModeBindingReason turns this red.
 func TestOpenModeIsOfferedWhereTheBindingCannotRun(t *testing.T) {
 	const svc = "this Windows cannot tell which process connected to a local socket"
-	for _, goos := range []string{"windows", "linux"} { // macOS is refused earlier, with its own reason (coderhost's test)
+	for _, goos := range []string{"windows", "linux", "darwin"} {
 		t.Run(goos, func(t *testing.T) {
 			cheap(t, true, "")
 			t.Cleanup(coderhost.SetOpenModeBindingProbe(goos, func() error { return errors.New(svc) }))

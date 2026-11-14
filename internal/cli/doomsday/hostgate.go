@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -55,6 +56,10 @@ type HostGate struct {
 	Exit func(starters []uint64)
 	// Tick is the marker poll interval (stop.HostWatcher); zero is 250 ms.
 	Tick time.Duration
+	// Anchors starts the service that makes a run's process group in this host's session (stop.ServeAnchors on macOS, which
+	// leaves a socket in the run directory; nothing elsewhere). Production wires it; nil starts nothing, so a gate built
+	// without it leaves the run directory untouched.
+	Anchors func(context.Context, stop.RunDir) error
 	// InstallHooks puts Hooks on the host's launchers (chat.InstallRunHooks in production). Install reports its absence.
 	InstallHooks func(st *coderhost.Store, h *coderhost.Host, hk Hooks) error
 
@@ -86,6 +91,13 @@ var _ coderhost.DispatchGate = (*HostGate)(nil)
 // the gate still stands, with the ticket taken around Start instead: the host never runs ungated because of it.
 func (g *HostGate) Install(st *coderhost.Store, h *coderhost.Host) error {
 	st.SetDispatchGate(g)
+	// On macOS the run's process group is made here, in the host's session (a turn can only join a group of its own session).
+	// A service that cannot start only means no run can start: nothing is placed without it.
+	if g.Anchors != nil {
+		if err := g.Anchors(context.Background(), g.RunDir); err != nil {
+			fmt.Fprintf(os.Stderr, "doomsday: the process-group service did not start (an open-ended run cannot start until it does): %v\n", err)
+		}
+	}
 	err := errors.New("no hook installer is wired")
 	if g.InstallHooks != nil {
 		err = g.InstallHooks(st, h, Hooks{RunStamp: g.RunStamp, BeforeRelease: g.BeforeRelease, Place: g.PlaceRelease, PlaceRequired: g.PlaceRequired})

@@ -8,7 +8,7 @@ import (
 
 // CheckOpenMode is the row that says whether the open-ended mode can run on this machine. It reads, it never starts
 // anything: each child is one prerequisite, with the exact command or setting that fixes it. The predicates are the
-// mode's own (coderhost.OpenModeUnsupportedHere, procbind.Ready, stop.ReadinessSteps, the settings and run reads the chat
+// mode's own (procbind.Ready, stop.ReadinessSteps, the settings and run reads the chat
 // paths use), gathered by the OpenMode hook; this file only turns the answers into rows.
 const (
 	CheckOpenMode         = "coder.open_mode"
@@ -30,7 +30,6 @@ type OpenModeStep struct {
 // OpenModeFacts is what this machine answers for the mode. Empty strings and false mean "fine"/"no" except where named.
 type OpenModeFacts struct {
 	GOOS            string
-	Unsupported     string // coderhost.OpenModeUnsupportedHere: "" when this OS can run it
 	BindingReadyErr string // procbind.Ready: "" when the binding service can run here
 	BindingOn       bool   // security.peercred_binding in this profile
 	BindingErr      string // the setting could not be read
@@ -68,12 +67,6 @@ func checkOpenMode(ctx context.Context, env *Env) Result {
 		return &rows[len(rows)-1]
 	}
 
-	if f.Unsupported != "" {
-		add("os", "Operating system", StatusWarn, f.Unsupported,
-			"nothing to change on this machine: the mode stays hidden and refused here until the macOS fix (#1610) ships")
-	} else {
-		add("os", "Operating system", StatusOK, "supported ("+f.GOOS+")", "")
-	}
 	if f.BindingReadyErr != "" {
 		add("binding_service", "Binding service", StatusWarn, f.BindingReadyErr, "a kernel or system with the peer-credential query (Linux 6.5 or later, macOS, Windows 10 1809 or later)")
 	} else {

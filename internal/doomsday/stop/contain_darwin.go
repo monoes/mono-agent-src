@@ -3,6 +3,7 @@
 package stop
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -13,8 +14,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// NOT VERIFIED on a real macOS host: this file compiles (GOOS=darwin go vet) and its logic is tested through the
-// PGroupOS fake on Linux; it has not run against the macOS kernel.
+// The logic is tested through the PGroupOS fake on Linux, and the create, place, prove and end of a unit run against the real
+// macOS kernel in pgroup_darwin_e2e_test.go (the creator and the host in two sessions, as in the app).
 
 const szomb = 5 // p_stat of a zombie: gone for our purposes (it holds no code, only a table slot)
 
@@ -75,6 +76,10 @@ func (darwinPG) stamp(pid int) (string, string, error) {
 	}
 	return commOf(k), stampOf(k), nil
 }
+
+// SessionOf is the session of a process of the caller's own session (getsid is refused for any other, which is the same
+// wall the placement meets): the host reads its anchor's.
+func (darwinPG) SessionOf(pid int) (int, error) { return unix.Getsid(pid) }
 
 func (darwinPG) SelfGroup() (int, int, error) {
 	sid, err := unix.Getsid(0)
@@ -198,12 +203,41 @@ func (darwinPG) Prepare(cmd *exec.Cmd, pgid int) error {
 	return nil
 }
 
-// SystemHost is nil on macOS: there is no service manager; the Containment creates and ends the unit itself. ABSENT
-// (known, not done): with no UnitHost, UnitCreator.Discard (the store refused the entry after the unit was created)
-// refuses and leaves the anchor and the record, and the finish verification sandbox (finishunit.go) refuses outright.
-// Both need a host whose StopUnit proves and ends the group by name; the mode cannot start on macOS before the pinned
-// database binding exists, so neither is reachable yet.
-func SystemHost() UnitHost { return nil }
+// SystemHost is the macOS UnitHost: there is no service manager; the Containment creates the unit itself. Its only job is
+// the convenience stop (end the group of the unit of that name), never the proof that a unit is gone: UnitCreator.Discard
+// uses it when the store refused the entry after the unit was made. ABSENT (known, not done): the finish verification
+// sandbox (finishunit.go) needs StartUnit and refuses on macOS, so a run there cannot be finished.
+func SystemHost() UnitHost { return darwinHost{} }
+
+type darwinHost struct{}
+
+func (darwinHost) StartUnit(context.Context, string, string) error {
+	return errors.New("stop: a macOS unit is created by its Containment, not by a service manager")
+}
+
+// StopUnit ends the group led by the anchor of this operator's that was started under the unit's name. A unit with no
+// such anchor is gone already.
+func (d darwinHost) StopUnit(_ context.Context, name string) error {
+	if _, _, ok := UnitGeneration(name); !ok {
+		return fmt.Errorf("stop: %q is not a run unit's name", name)
+	}
+	ks, err := unix.SysctlKinfoProcSlice("kern.proc.uid", os.Getuid())
+	if err != nil {
+		return err
+	}
+	for i := range ks {
+		pid := int(ks[i].Proc.P_pid)
+		if ks[i].Proc.P_stat == szomb || int(ks[i].Eproc.Pgid) != pid {
+			continue
+		}
+		if a0, err := (darwinPG{}).Argv0(pid); err == nil && a0 == name {
+			if err := ignoreGone(unix.Kill(-pid, unix.SIGKILL)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
 
 // DarwinKernel is the Kernel of a macOS host. Only the boot id answers; every cgroup operation refuses, so a
 // cgroup record is never proven here.
@@ -219,3 +253,11 @@ func (DarwinKernel) OpenCgroup(string) (Cgroup, error) {
 func (DarwinKernel) IsAbsent(error) bool                       { return false }
 func (DarwinKernel) ManagerControlGroup(string) (string, bool) { return "", false }
 func (DarwinKernel) ListUnitNames(string) ([]string, error)    { return nil, nil }
+
+// ServeAnchors starts the anchor service in this process, the coder host: the run's process group is made in its session.
+func ServeAnchors(ctx context.Context, dir RunDir) error {
+	return (&AnchorServer{Dir: dir, UID: uint32(os.Getuid()), OS: darwinPG{}}).Start(ctx)
+}
+
+// UnitNeedsHost says the run's unit is made by the coder host (so the host must run before the run starts).
+func UnitNeedsHost() bool { return true }

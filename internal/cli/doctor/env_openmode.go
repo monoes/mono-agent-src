@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/monoes/mono-agent/internal/cli/chat"
-	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/health"
 	"github.com/monoes/mono-agent/internal/procbind"
 )
@@ -27,7 +26,7 @@ func addOpenModeHook(env *health.Env, dbPath string, extra OpenModeExtra) {
 type OpenModeExtra func(db *sql.DB, profile string) (steps []health.OpenModeStep, activeRun bool, activeErr string)
 
 func openModeFacts(db *sql.DB, profile, dbPath string, extra OpenModeExtra) health.OpenModeFacts {
-	f := health.OpenModeFacts{GOOS: runtime.GOOS, Unsupported: coderhost.OpenModeUnsupportedHere(), HostRunning: chat.HostRunningAt(dbPath)}
+	f := health.OpenModeFacts{GOOS: runtime.GOOS, HostRunning: chat.HostRunningAt(dbPath)}
 	if err := procbind.Ready(); err != nil {
 		f.BindingReadyErr = err.Error()
 	}
