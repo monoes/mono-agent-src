@@ -84,6 +84,8 @@ var (
 	ErrTooManyOpen  = errors.New("coder host: too many questions are already parked for this conversation")
 	ErrNoQuestion   = errors.New("coder host: no such question")
 	ErrNotOpen      = errors.New("coder host: this question was already answered")
+	// ErrAnswerQueued marks an answer that was accepted and queued but whose session state could not be updated.
+	ErrAnswerQueued = errors.New("coder host: the answer is queued")
 	ErrNotAnswerer  = errors.New("coder host: the policy names someone else to answer this question")
 	// ErrWaitsForPerson: the session has had its host-made turns in a row; a master's answer, like a
 	// check-in, would start another, so the session waits for a person (the operator can still answer).
@@ -403,14 +405,14 @@ func (s *Store) Answer(profileID string, id int64, answer string, scope CallerSc
 	if err != nil {
 		if cmd.ID == 0 { // nothing was queued: the question stays open (a queued note whose id was not recorded is redelivered, at least once)
 			if rerr := s.reopenQuestion(q.ID); rerr != nil { // still answered, no note: the redelivery pass queues it
-				err = errors.Join(err, fmt.Errorf("coder host: question %d could not be opened again: %w", q.ID, rerr))
+				err = errors.Join(err, fmt.Errorf("coder host: question %d could not be opened again; the answer is kept and will be redelivered automatically, do not answer again: %w", q.ID, rerr))
 			}
 		}
 		return q, Command{}, err
 	}
 	if err := s.releaseWaiting(q.ProfileID, q.ConversationID); err != nil {
 		q.CommandID = cmd.ID
-		return q, cmd, fmt.Errorf("coder host: the answer to question %d is queued as command %d (do not answer again), but the session could not be released from waiting_user: %w", q.ID, cmd.ID, err)
+		return q, cmd, fmt.Errorf("%w as command %d for question %d (do not answer again), but the session could not be released from waiting_user: %w", ErrAnswerQueued, cmd.ID, q.ID, err)
 	}
 	s.pruneClosedQuestions(q.ProfileID, q.ConversationID)
 	q.CommandID = cmd.ID
