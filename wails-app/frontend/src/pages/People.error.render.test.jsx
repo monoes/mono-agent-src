@@ -34,4 +34,13 @@ describe('People load failure', { timeout: 20000 }, () => {
     expect(await screen.findByLabelText('Select @ada', {}, { timeout: 5000 })).toBeInTheDocument()
     await waitFor(() => expect(screen.queryByText('database is locked')).toBeNull())
   })
+
+  it('leaves a signed-out refusal to the app-level gate: no error banner', async () => {
+    mockApi.getPeople.mockRejectedValue(new Error('Log in to monoes.me first: run `monoagentcli account login`'))
+    const { container } = render(<People />)
+    await waitFor(() => expect(mockApi.getPeople).toHaveBeenCalled())
+    await waitFor(() => expect(container.querySelector('.spinner')).toBeNull())
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByText(/Log in to monoes\.me first/)).toBeNull()
+  })
 })
