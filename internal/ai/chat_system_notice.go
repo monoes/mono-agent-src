@@ -30,14 +30,6 @@ func (s *AIStore) RecordSystemNotice(profileID, conversationID, code, message st
 	return s.recordSystemTurn(profileID, conversationID, code, message, chatevents.SeverityInfo, chatevents.StatusCompleted, "")
 }
 
-// RecordFailedTurnNotice records a turn that was refused or failed before it began, as a system turn that says why:
-// the turn is failed with reason, its notice is an error carrying the reason, and turn.finished carries the status,
-// the reason and the code, so a reopened conversation shows what failed (the live stream's turn.finished for such a
-// turn is not stored anywhere else).
-func (s *AIStore) RecordFailedTurnNotice(profileID, conversationID, code, reason string) error {
-	return s.recordSystemTurn(profileID, conversationID, code, reason, chatevents.SeverityError, chatevents.StatusFailed, reason)
-}
-
 func (s *AIStore) recordSystemTurn(profileID, conversationID, code, message string, severity chatevents.NoticeSeverity, status chatevents.TurnStatus, reason string) error {
 	if profileID == "" {
 		return ErrProfileRequired
@@ -51,6 +43,16 @@ func (s *AIStore) recordSystemTurn(profileID, conversationID, code, message stri
 	noticeCode := code
 	if noticeCode == "" {
 		noticeCode = NoticeTurnFailed
+	}
+	if status == chatevents.StatusFailed {
+		var n int
+		if err := s.db.QueryRow(`SELECT COUNT(*) FROM ai_chat_turns WHERE profile_id = ? AND conversation_id = ? AND id LIKE ? AND status = 'failed'`,
+			profileID, conversationID, systemTurnPrefix+"%").Scan(&n); err != nil {
+			return err
+		}
+		if n >= MaxRefusalNotices {
+			return ErrTooManyRefusals
+		}
 	}
 	var rnd [8]byte
 	if _, err := rand.Read(rnd[:]); err != nil {

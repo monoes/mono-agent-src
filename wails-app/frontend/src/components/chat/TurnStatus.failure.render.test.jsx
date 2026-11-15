@@ -40,3 +40,22 @@ describe('a failed turn says why', () => {
     expect(screen.queryByText(/end_turn/)).toBeNull()
   })
 })
+
+describe('a forged or oversized failure', () => {
+  it('shows no hint for a code that names an Object property, and does not crash', () => {
+    for (const code of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+      expect(failureHint(code)).toBe('')
+    }
+    render(<TurnStatus state={failed({ reason: 'x', code: 'constructor' })} stopRequested={false} />)
+    expect(screen.queryByTestId('turn-failure-hint')).toBeNull()
+  })
+
+  it('strips control and bidi characters and cuts a very long reason', () => {
+    const long = 'a'.repeat(2000)
+    render(<TurnStatus state={failed({ reason: `bad‮reason\u001b[31m ${long}` })} stopRequested={false} />)
+    const text = screen.getByRole('status').textContent
+    expect(text).not.toMatch(/[‮\u001b]/)
+    expect(text.length).toBeLessThan(700)
+    expect(text).toMatch(/…/)
+  })
+})

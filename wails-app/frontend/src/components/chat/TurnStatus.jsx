@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Loader, Square } from 'lucide-react'
-import { failureHint } from '../../lib/turnFailure.js'
+import { failureHint, cleanReason } from '../../lib/turnFailure.js'
 
 // Idle-activity threshold (plan §"Honest progress"): "After 15 seconds
 // without activity, show 'No new activity for 15s'; silence is not proof
@@ -125,8 +125,8 @@ export function TurnStatus({ state, stopRequested, ownedByThisInstance = true, s
   // A failed turn says why, in plain text; the reason is skipped when the turn already shows the same text as a notice
   // (a refused turn recorded in the conversation carries its reason both ways).
   const failed = state.terminal?.status === 'failed'
-  const reason = failed ? (state.terminal.reason || '') : ''
-  const failureReason = reason && !(state.notices || []).some(n => n.message === reason) ? reason : ''
+  const reason = failed ? cleanReason(state.terminal.reason) : ''
+  const failureReason = reason && !(state.notices || []).some(n => cleanReason(n.message) === reason) ? reason : ''
   const hint = failed ? failureHint(state.terminal.code) : ''
 
   return (

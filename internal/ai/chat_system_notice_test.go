@@ -2,6 +2,7 @@ package ai
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -96,5 +97,63 @@ func TestRecordFailedTurnNoticeKeepsTheReasonAndCode(t *testing.T) {
 	}
 	if err := s.RecordFailedTurnNotice("p1", conv.ID, "", " "); err == nil {
 		t.Error("accepted an empty reason")
+	}
+}
+
+// A refusal may carry only a known failure code: a notice code of another family (the stop notice the open-ended run
+// looks for, the coder banners) is refused and nothing is written.
+func TestRecordFailedTurnNoticeRefusesCodesOfOtherFamilies(t *testing.T) {
+	s, db := newChatEventStore(t)
+	conv, _ := s.CreateConversation("p1", "agent", "general", "claude", "", "")
+	for _, code := range []string{NoticeOpenEndedStopped, "coder.background", "coder.workspace", "constructor", "x"} {
+		if err := s.RecordFailedTurnNotice("p1", conv.ID, code, "reason"); !errors.Is(err, ErrUnknownRefusalCode) {
+			t.Errorf("code %q: %v", code, err)
+		}
+	}
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM ai_chat_turns`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("turns written by refused codes: %d %v", n, err)
+	}
+}
+
+// The reason is cleaned before it is stored: control characters, ESC sequences' ESC, line breaks and bidi overrides go,
+// and it is cut to the cap.
+func TestRecordFailedTurnNoticeCleansAndCapsTheReason(t *testing.T) {
+	s, _ := newChatEventStore(t)
+	conv, _ := s.CreateConversation("p1", "agent", "general", "claude", "", "")
+	dirty := "bad\x1b[31m‮reason\r\nnext\x07 " + strings.Repeat("a", 3000)
+	if err := s.RecordFailedTurnNotice("p1", conv.ID, "", dirty); err != nil {
+		t.Fatal(err)
+	}
+	turns, _, _ := s.ListTurns(conv.ID, "p1", "", 10)
+	r := turns[0].Reason
+	if strings.ContainsAny(r, "\x1b\r\n\x07‮") || len([]rune(r)) > MaxRefusalReasonRunes+1 || !strings.HasPrefix(r, "bad[31mreason next") {
+		t.Fatalf("reason stored: %q", r[:60])
+	}
+	if err := s.RecordFailedTurnNotice("p1", conv.ID, "", "\x1b\x07 "); err == nil {
+		t.Error("accepted a reason that is only control characters")
+	}
+}
+
+// A conversation keeps a bounded number of refusal notices, and a refusal is not a turn of the work.
+func TestRecordFailedTurnNoticeIsBoundedAndIsNotAWorkTurn(t *testing.T) {
+	s, _ := newChatEventStore(t)
+	conv, _ := s.CreateConversation("p1", "agent", "general", "claude", "", "")
+	for i := 0; i < MaxRefusalNotices; i++ {
+		if err := s.RecordFailedTurnNotice("p1", conv.ID, "", "no"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.RecordFailedTurnNotice("p1", conv.ID, "", "no"); !errors.Is(err, ErrTooManyRefusals) {
+		t.Fatalf("past the bound: %v", err)
+	}
+	if had, err := s.HasWorkTurn("p1", conv.ID); err != nil || had {
+		t.Fatalf("a refusal counted as a work turn: %v %v", had, err)
+	}
+	if _, _, err := s.CreateTurn(conv.ID, "p1", "t-1", "inst", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if had, err := s.HasWorkTurn("p1", conv.ID); err != nil || !had {
+		t.Fatalf("a real turn not counted: %v %v", had, err)
 	}
 }

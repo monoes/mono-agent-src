@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -174,7 +175,9 @@ func (sup *chatSupervisor) hostCommandFailed(profileID string, commandID int64) 
 // reason is also written into the conversation (`chat history refused`), so
 // reopening it later shows what failed, not an empty chat.
 func (sup *chatSupervisor) emitLiveFinish(h *chatTurnHandle, reason string) {
-	_ = sup.cli(h.profileID, nil, "chat", "history", "refused", h.conversationID, "--reason", reason)
+	if err := sup.cli(h.profileID, nil, "chat", "history", "refused", h.conversationID, "--reason", reason); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: recording the refusal of turn %s: %v\n", h.turnID, err)
+	}
 	ev, err := chatevents.New(h.profileID, h.conversationID, h.turnID, chatevents.MaxSafeSeq, time.Now(), chatevents.EventTurnFinished,
 		chatevents.TurnFinishedPayload{Status: chatevents.StatusFailed, Reason: reason, HistorySaved: false})
 	if err == nil && sup.emit != nil {

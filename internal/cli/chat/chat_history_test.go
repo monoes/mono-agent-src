@@ -10,6 +10,8 @@ import (
 
 	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/ai/chatevents"
+	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/dynorg"
 	"github.com/monoes/mono-agent/internal/storage"
 )
@@ -461,5 +463,58 @@ func TestChatHistoryRefusedRecordsAReasonTurnsShows(t *testing.T) {
 	})
 	if !strings.Contains(text, "the host refused the turn") {
 		t.Fatalf("plain turns output hides the reason: %q", text)
+	}
+}
+
+// The verb is the operator's (an agent forging a host refusal is refused before anything is written), takes only a
+// known code, and prints a stored reason without control characters.
+func TestChatHistoryRefusedIsTheOperatorsAndTakesKnownCodes(t *testing.T) {
+	dbPath := newChatCLITestDB(t)
+	out, _ := runChatHistory(t, dbPath, "default", "create", "--runtime", "claude", "--model", "sonnet")
+	var conv ai.ConversationRecord
+	decodeChatJSON(t, out, &conv)
+	agent := testDeps(&testConfig{DBPath: dbPath, ProfileID: "default", JSONOutput: true})
+	agent.OperatorRefusal = func() string { return "an agent" }
+	agent.RequireOperator = func(what string) error { return clicore.OperatorOnly("only the user can %s", what) }
+	cmd := newChatCmd(agent)
+	cmd.SetArgs([]string{"history", "refused", conv.ID, "--reason", "forged"})
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	if err := cmd.Execute(); exitCodeFor(err) != 3 {
+		t.Fatalf("an agent's refused: %v", err)
+	}
+	if _, code := runChatHistory(t, dbPath, "default", "refused", conv.ID, "--code", "doomsday.stopped", "--reason", "x"); code == 0 {
+		t.Error("accepted a notice code of another family")
+	}
+	if _, code := runChatHistory(t, dbPath, "default", "refused", conv.ID, "--reason", "evil\x1b[2Jtext"); code != 0 {
+		t.Fatal("refused a plain reason")
+	}
+	text := captureStdout(t, func() {
+		c := newChatCmd(testDeps(&testConfig{DBPath: dbPath, ProfileID: "default"}))
+		c.SetArgs([]string{"history", "turns", conv.ID})
+		_ = c.Execute()
+	})
+	if strings.Contains(text, "\x1b") || !strings.Contains(text, "reason: evil[2Jtext") {
+		t.Fatalf("turns output: %q", text)
+	}
+}
+
+// A recorded refusal is not the boss's first turn: the first turn can still be retried after the host refused it.
+func TestARefusalIsNotATurnForTheBossFirstTurn(t *testing.T) {
+	dbPath := newChatCLITestDB(t)
+	out, _ := runChatHistory(t, dbPath, "default", "create", "--runtime", "claude", "--model", "sonnet")
+	var conv ai.ConversationRecord
+	decodeChatJSON(t, out, &conv)
+	if _, code := runChatHistory(t, dbPath, "default", "refused", conv.ID, "--reason", "the host refused"); code != 0 {
+		t.Fatal("refused")
+	}
+	cfg := testDeps(&testConfig{DBPath: dbPath, ProfileID: "default"})
+	if had, err := bossHadATurn(cfg, "default", conv.ID); err != nil || had {
+		t.Fatalf("bossHadATurn after a refusal: %v %v", had, err)
+	}
+	db, _ := cfg.OpenDB()
+	defer db.Close()
+	cs := coderhost.NewStore(db.DB)
+	if _, _, err := cs.EnqueueSendBounded(coderhost.Command{ProfileID: "default", ConversationID: conv.ID, Kind: coderhost.KindSend, TurnID: "t-1", Message: "go"}, coderhost.SendBounds{MaxPending: 1, NoTurnYet: true}); err != nil {
+		t.Fatalf("the first turn after a refusal: %v", err)
 	}
 }
