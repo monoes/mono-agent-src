@@ -159,7 +159,10 @@ func (e *env) storeToken(token string, hw time.Time) {
 const quietFor = 150 * time.Millisecond
 
 // quiet gives a goroutine that should not act a real moment to do so.
-func quiet() { time.Sleep(quietFor) }
+func quiet(t testing.TB, gs ...*account.Guard) {
+	t.Helper()
+	settle(t, gs...)
+}
 
 // describeStatus prints a status with its user's ID in place of a pointer.
 func describeStatus(st account.Status) string {

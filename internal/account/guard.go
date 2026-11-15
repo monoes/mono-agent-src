@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -107,6 +108,8 @@ type Guard struct {
 	closed        bool
 	loopCancel    context.CancelFunc
 	loopDone      chan struct{}
+
+	passes atomic.Int64 // passes the refresher loop has finished; a test reads it to wait for the loop (LoopPassesForTest)
 }
 
 // NewGuard returns a guard over o.Store. It reads nothing and writes nothing.

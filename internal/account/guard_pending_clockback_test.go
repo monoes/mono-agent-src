@@ -149,14 +149,14 @@ func TestTheRefresherDropsTheTokenWhenTheClockGoesBackBeforeItsLastAttempt(t *te
 	t0 := e.f.Clock.Now()
 	g.StartRefresher(context.Background())
 	waitForGrants(t, net, 1, "the first attempt")
-	expectGrants(t, net, 1, "the first lost answer")
+	expectGrants(t, e, net, 1, "the first lost answer")
 	for _, step := range []struct {
 		advance time.Duration
 		grants  int
 	}{{31 * time.Second, 2}, {61 * time.Second, 3}, {121 * time.Second, 4}} { // +31 s, +92 s, +213 s
 		e.f.Clock.Advance(step.advance)
 		waitForGrants(t, net, step.grants, "the retry")
-		expectGrants(t, net, step.grants, "the retry, lost again")
+		expectGrants(t, e, net, step.grants, "the retry, lost again")
 	}
 	waitForAttempt(t, e.store, t0.Add(213*time.Second), "the record of the retry at +213 s")
 	if sess := e.session(); !sess.PendingSince.Equal(t0) || !sess.LastAttempt.Equal(t0.Add(213*time.Second)) {
@@ -167,7 +167,7 @@ func TestTheRefresherDropsTheTokenWhenTheClockGoesBackBeforeItsLastAttempt(t *te
 	eventually(t, "a pass of the refresher at the clock that went back", func() bool {
 		return e.session().LastResult == "unconfirmed" || net.grants() > 4
 	})
-	quiet()
+	quiet(t, e.loops...)
 	if n := net.grants(); n != 4 || srv.isRevoked() {
 		t.Fatalf("%d grants (revoked %t), want the four lost ones and no more: the marker cannot be aged on a clock that went back", n, srv.isRevoked())
 	}

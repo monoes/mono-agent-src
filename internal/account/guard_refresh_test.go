@@ -134,7 +134,7 @@ func TestInvalidGrantLocksDeletesTheRefreshTokenAndCancelsWork(t *testing.T) {
 	case <-time.After(testWait):
 		t.Fatal("OnRefused did not fire")
 	}
-	settle()
+	settle(t, e.loops...)
 	if len(got) != 0 {
 		t.Fatal("OnRefused fired more than once")
 	}
@@ -441,7 +441,7 @@ func TestRefreshFiresEveryOnRefusedCallbackEvenWhileDormant(t *testing.T) {
 			t.Fatalf("callback %d did not fire", i+1)
 		}
 	}
-	settle()
+	settle(t, e.loops...)
 	if len(first)+len(second) != 0 {
 		t.Fatal("a callback fired more than once for one refusal")
 	}

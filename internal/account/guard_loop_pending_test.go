@@ -28,9 +28,9 @@ func waitForGrants(t *testing.T, net *flakyNet, n int, what string) {
 }
 
 // expectGrants waits quietFor and then fails unless the net has carried exactly n grants.
-func expectGrants(t *testing.T, net *flakyNet, n int, what string) {
+func expectGrants(t *testing.T, e *env, net *flakyNet, n int, what string) {
 	t.Helper()
-	quiet()
+	quiet(t, e.loops...)
 	if got := net.grants(); got != n {
 		t.Fatalf("%s: %d grants, want %d", what, got, n)
 	}
@@ -73,24 +73,24 @@ func TestTheRefreshersOwnLostAnswersAreRetriedOnTheBackoffScheduleAndRecoverInsi
 	net.then(lost, lost, lost)
 	g.StartRefresher(context.Background())
 	waitForGrants(t, net, 1, "the first attempt") // its answer is lost: the marker is written, the next attempt is 30 s away
-	expectGrants(t, net, 1, "the first lost answer")
+	expectGrants(t, e, net, 1, "the first lost answer")
 	first := e.rawPending()
 	if first == "" {
 		t.Fatal("no marker after the first lost answer")
 	}
 
 	e.f.Clock.Advance(29 * time.Second)
-	expectGrants(t, net, 1, "29 seconds after the first attempt")
+	expectGrants(t, e, net, 1, "29 seconds after the first attempt")
 	e.f.Clock.Advance(2 * time.Second) // +31 s
 	waitForGrants(t, net, 2, "the first retry")
-	expectGrants(t, net, 2, "the first retry, lost again")
+	expectGrants(t, e, net, 2, "the first retry, lost again")
 	e.f.Clock.Advance(30 * time.Second) // +61 s: a loop that capped its own marker would retry here
-	expectGrants(t, net, 2, "61 seconds after the first attempt, 30 after the retry: the loop's own marker keeps the backoff of 60 seconds")
+	expectGrants(t, e, net, 2, "61 seconds after the first attempt, 30 after the retry: the loop's own marker keeps the backoff of 60 seconds")
 	e.f.Clock.Advance(31 * time.Second) // +92 s
 	waitForGrants(t, net, 3, "the second retry")
-	expectGrants(t, net, 3, "the second retry, lost again")
+	expectGrants(t, e, net, 3, "the second retry, lost again")
 	e.f.Clock.Advance(119 * time.Second) // +211 s
-	expectGrants(t, net, 3, "a second before the backoff of 120 seconds ends")
+	expectGrants(t, e, net, 3, "a second before the backoff of 120 seconds ends")
 	e.f.Clock.Advance(2 * time.Second) // +213 s: inside the 240 s window
 	waitForGrants(t, net, 4, "the third retry")
 	eventually(t, "the third retry to be answered and stored", func() bool { return e.rawPending() == "" && e.session().LastResult == "ok" })
@@ -108,7 +108,7 @@ func TestAMarkerAnotherProcessLeftDuringTheHoldIsRetriedWithinThirtySecondsAndRe
 	e, srv, net, g := loopMachine(t, 40*time.Minute) // past its half-life: the first pass refreshes
 	g.StartRefresher(context.Background())
 	waitForGrants(t, net, 1, "the first refresh")
-	expectGrants(t, net, 1, "the hold")
+	expectGrants(t, e, net, 1, "the hold")
 	waitForHW(t, e, e.f.Clock.Now(), "the first pass that holds to write the mark") // a write of the loop must not race the test's
 
 	anotherProcessLosesAnAnswer(t, e, srv)
@@ -131,16 +131,16 @@ func TestAMarkerAnotherProcessLeftDuringALongBackoffIsRetriedWithinThirtySeconds
 	t0 := e.f.Clock.Now()
 	g.StartRefresher(context.Background())
 	waitForGrants(t, net, 1, "the first attempt")
-	expectGrants(t, net, 1, "the first failure") // the next is 30 s away
+	expectGrants(t, e, net, 1, "the first failure") // the next is 30 s away
 	e.f.Clock.Advance(31 * time.Second)
 	waitForGrants(t, net, 2, "the second attempt")
-	expectGrants(t, net, 2, "the second failure") // 60 s
+	expectGrants(t, e, net, 2, "the second failure") // 60 s
 	e.f.Clock.Advance(61 * time.Second)
 	waitForGrants(t, net, 3, "the third attempt")
-	expectGrants(t, net, 3, "the third failure") // 120 s
+	expectGrants(t, e, net, 3, "the third failure") // 120 s
 	e.f.Clock.Advance(121 * time.Second)
 	waitForGrants(t, net, 4, "the fourth attempt")
-	expectGrants(t, net, 4, "the fourth failure") // 240 s: the next attempt is 4 minutes away
+	expectGrants(t, e, net, 4, "the fourth failure") // 240 s: the next attempt is 4 minutes away
 	waitForAttempt(t, e.store, t0.Add(213*time.Second), "the record of the fourth failure, which takes back the marker it wrote")
 	if e.rawPending() != "" {
 		t.Fatal("settled failures left a marker")
@@ -168,19 +168,19 @@ func TestTheRefresherDropsATokenItCouldNotConfirmAndTheGraceKeepsSayingWhy(t *te
 	g.StartRefresher(context.Background())
 	start := e.f.Clock.Now()
 	waitForGrants(t, net, 1, "the first attempt")
-	expectGrants(t, net, 1, "the first lost answer")
+	expectGrants(t, e, net, 1, "the first lost answer")
 	for _, step := range []struct {
 		advance time.Duration
 		grants  int
 	}{{31 * time.Second, 2}, {61 * time.Second, 3}, {121 * time.Second, 4}} { // +31 s, +92 s, +213 s
 		e.f.Clock.Advance(step.advance)
 		waitForGrants(t, net, step.grants, "the retry")
-		expectGrants(t, net, step.grants, "the retry, lost again")
+		expectGrants(t, e, net, step.grants, "the retry, lost again")
 	}
 	e.f.Clock.Advance(241 * time.Second) // +454 s: the fourth retry of the schedule
 	eventually(t, "the drop", func() bool { return e.session().LastResult == "unconfirmed" })
 	e.underLock(func() {}) // the pass that dropped it has ended, so its guard has taken the drop in
-	quiet()
+	quiet(t, e.loops...)
 	if got := net.grants(); got != 4 || srv.isRevoked() {
 		t.Fatalf("%d grants (revoked %t), want the four that were lost and no more: the pass that drops the token sends nothing", got, srv.isRevoked())
 	}
@@ -202,7 +202,7 @@ func TestTheRefresherDropsATokenItCouldNotConfirmAndTheGraceKeepsSayingWhy(t *te
 	dropped := withoutMark(droppedSess)
 	for i := 0; i < 3; i++ {
 		e.f.Clock.Advance(6 * time.Minute) // past its backoff
-		quiet()
+		quiet(t, e.loops...)
 	}
 	if got := e.session(); withoutMark(got) != dropped || got.HW.Before(droppedSess.HW) {
 		t.Fatalf("a pass of the loop changed the session after the drop: %s, was %s", describe(got), describe(droppedSess))
@@ -236,10 +236,10 @@ func TestAForeignMarkerWithTheStampOfAnEarlierOwnMarkerIsStillForeign(t *testing
 	stamp := e.f.Clock.Now()
 	g.StartRefresher(ctx)
 	waitForGrants(t, net, 1, "the first attempt") // its answer is lost: the marker, with the stamp of this instant, is the loop's own
-	expectGrants(t, net, 1, "the first lost answer")
+	expectGrants(t, e, net, 1, "the first lost answer")
 	e.f.Clock.Advance(31 * time.Second)
 	waitForGrants(t, net, 2, "the retry")
-	expectGrants(t, net, 2, "the retry, lost again") // the loop's next attempt is 60 s away, at +91 s
+	expectGrants(t, e, net, 2, "the retry, lost again") // the loop's next attempt is 60 s away, at +91 s
 
 	// Another process retries the marker inside the window and stores the answer: the marker is gone.
 	e.underLock(func() {
@@ -293,14 +293,14 @@ func TestAForeignMarkerWhoseFirstRetryIsLostAgainIsNotLeftToTheHold(t *testing.T
 	e, srv, net, g := loopMachine(t, 40*time.Minute) // past its half-life: the first pass refreshes
 	g.StartRefresher(context.Background())
 	waitForGrants(t, net, 1, "the first refresh")
-	expectGrants(t, net, 1, "the hold")
+	expectGrants(t, e, net, 1, "the hold")
 	waitForHW(t, e, e.f.Clock.Now(), "the first pass that holds to write the mark")
 
 	anotherProcessLosesAnAnswer(t, e, srv)
 	net.then(lost)
 	e.f.Clock.Advance(30 * time.Second) // the hold has 30 minutes to go
 	waitForGrants(t, net, 2, "the first retry of the marker the other process left")
-	expectGrants(t, net, 2, "the first retry, lost again")
+	expectGrants(t, e, net, 2, "the first retry, lost again")
 	e.f.Clock.Advance(31 * time.Second) // +61 s from the other process's send
 	waitForGrants(t, net, 3, "the second retry, 30 s after the first")
 	eventually(t, "the second retry to be answered and stored", func() bool { return e.rawPending() == "" && e.session().LastResult == "ok" })
@@ -319,14 +319,14 @@ func TestAForeignMarkerWhoseFirstRetryIsLostAgainIsNotLeftToALongBackoff(t *test
 	for i, step := range []time.Duration{0, 31 * time.Second, 61 * time.Second, 121 * time.Second} {
 		e.f.Clock.Advance(step)
 		waitForGrants(t, net, i+1, "a settled failure")
-		expectGrants(t, net, i+1, "the backoff after it")
+		expectGrants(t, e, net, i+1, "the backoff after it")
 	}
 
 	anotherProcessLosesAnAnswer(t, e, srv)
 	net.then(lost)
 	e.f.Clock.Advance(30 * time.Second) // 210 s of the backoff to go
 	waitForGrants(t, net, 5, "the first retry of the marker the other process left")
-	expectGrants(t, net, 5, "the first retry, lost again")
+	expectGrants(t, e, net, 5, "the first retry, lost again")
 	e.f.Clock.Advance(31 * time.Second) // +61 s from the other process's send
 	waitForGrants(t, net, 6, "the second retry, 30 s after the first")
 	eventually(t, "the second retry to be answered and stored", func() bool { return e.rawPending() == "" && e.session().LastResult == "ok" })
@@ -345,7 +345,7 @@ func TestTheRefreshersOwnLostAnswerAfterSettledFailuresIsRetriedFromThirtySecond
 	for i, step := range []time.Duration{0, 31 * time.Second, 61 * time.Second, 121 * time.Second} {
 		e.f.Clock.Advance(step)
 		waitForGrants(t, net, i+1, "an attempt")
-		expectGrants(t, net, i+1, "the backoff after it")
+		expectGrants(t, e, net, i+1, "the backoff after it")
 	}
 	if e.rawPending() == "" {
 		t.Fatal("the lost answer left no marker")

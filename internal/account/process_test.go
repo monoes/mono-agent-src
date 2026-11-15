@@ -136,7 +136,7 @@ func TestNothingIsCreatedOnAnEmptyHome(t *testing.T) {
 	_, _ = g.EnsureFresh(ctx)
 	_, _ = g.Refresh(ctx)
 	g.StartRefresher(ctx)
-	settle()
+	settle(t, g)
 	g.Close()
 
 	account.InstallForTest(t, g)

@@ -215,10 +215,10 @@ func TestAHighWaterWriteWhileTheRefresherBacksOffRaisesTheLastAttemptAndKeepsThe
 	t0 := e.f.Clock.Now()
 	g.StartRefresher(context.Background())
 	waitForGrants(t, net, 1, "the first attempt")
-	expectGrants(t, net, 1, "the first lost answer")
+	expectGrants(t, e, net, 1, "the first lost answer")
 	e.f.Clock.Advance(31 * time.Second)
 	waitForGrants(t, net, 2, "the retry")
-	expectGrants(t, net, 2, "the retry, lost again") // the next attempt is at +91 s
+	expectGrants(t, e, net, 2, "the retry, lost again") // the next attempt is at +91 s
 	waitForAttempt(t, e.store, t0.Add(31*time.Second), "the record of the retry")
 	before := e.session()
 	e.f.Clock.Advance(59 * time.Second) // +90 s: the mark (t0) is a minute and a half stale
