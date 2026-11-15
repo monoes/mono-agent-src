@@ -2608,6 +2608,8 @@
     "liftedLines": "Lineas de autoridad levantadas ({{count}})",
     "approveIntro": "Lee la carta de arriba. Aprobar te pregunta una vez mas en la ventana propia de tu sistema operativo, que muestra las lineas levantadas, el hash de la carta y el presupuesto; la ejecucion empieza solo si respondes Si ahi.",
     "approve": "Aprobar",
+    "waitingDialog": "Esperando la ventana de confirmacion: respondela para continuar.",
+    "previewStale": "Esta vista previa ya no se puede usar (se uso o caduco). Pulsa Revisar para verla de nuevo.",
     "startFailed": "La ejecucion no empezo",
     "startedRun": "Ejecucion {{run}}.",
     "started": "La ejecucion empezo. Detener esta en el encabezado del chat.",

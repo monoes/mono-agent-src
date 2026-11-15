@@ -30,9 +30,11 @@ export function OpenStartReview({ charter, preview, getChat, onChat, onStarted, 
   const [error, setError] = useState('')
   const [started, setStarted] = useState(null)
   const [unknown, setUnknown] = useState('') // the run may have started: no second start from here
+  const [stale, setStale] = useState(false) // the preview's token is used or expired: Approve would repeat the refusal
   const ref = useRef(null)
   useEffect(() => { ref.current?.focus() }, [])
-  const canStart = !!getChat && !!preview.start_token && !busy && !started && !unknown
+  useEffect(() => { setStale(false) }, [preview.start_token])
+  const canStart = !!getChat && !!preview.start_token && !busy && !started && !unknown && !stale
 
   const start = async () => {
     setBusy(true); setError('')
@@ -43,7 +45,10 @@ export function OpenStartReview({ charter, preview, getChat, onChat, onStarted, 
         setStarted(r); onStarted?.(r)
         window.dispatchEvent(new Event(CONTROL_ROOM_CHANGED)) // the nav asks again now, not at its next poll
       } else if (r?.state === 'unknown') { setUnknown(String(r.detail || t('openStart.unknown'))); onUnknown?.() }
-      else setError(String(r?.detail || r?.error || t('openStart.startFailed')))
+      else {
+        if (r?.code === 'token') setStale(true)
+        setError(String(r?.detail || r?.error || t('openStart.startFailed')))
+      }
     } catch (e) {
       // The call itself failed: whether the run started is not known, so this is not a plain error and not a retry.
       setUnknown(t('openStart.unknown') + ' ' + String(e?.message || e)); onUnknown?.()
@@ -59,9 +64,11 @@ export function OpenStartReview({ charter, preview, getChat, onChat, onStarted, 
       <span style={small}>{t('openStart.liftedLines', { count: preview.lift_count })}</span>
       <ul style={{ margin: 0, paddingLeft: 16, ...small }}>{(preview.lines || []).map(l => <li key={l}>{l}</li>)}</ul>
       <pre style={{ ...small, whiteSpace: 'pre-wrap', margin: 0, maxHeight: 240, overflow: 'auto' }}>{preview.text}</pre>
-      <p style={small}>{t('openStart.approveIntro')}</p>
+      <p id="open-approve-intro" style={small}>{t('openStart.approveIntro')}</p>
       {!getChat && <p data-testid="open-no-boss" style={small}>{t('openStart.noBoss')}</p>}
-      <button type="button" className="btn btn-sm" disabled={!canStart} onClick={start}>{t('openStart.approve')}</button>
+      <button type="button" className="btn btn-sm" disabled={!canStart} aria-busy={busy} aria-describedby="open-approve-intro" onClick={start}>{t('openStart.approve')}</button>
+      {busy && <p role="status" data-testid="open-waiting" style={small}>{t('openStart.waitingDialog')}</p>}
+      {stale && <p data-testid="open-stale" style={small}>{t('openStart.previewStale')}</p>}
       {error && <p role="alert" style={{ ...small, color: 'var(--red)' }}>{error}</p>}
       {unknown && <p role="alert" data-testid="open-unknown" style={{ ...small, color: 'var(--red)' }}>{unknown}</p>}
       {started && <p data-testid="open-started" style={small}>{t('openStart.started')} {runWords(started.output, t)}</p>}

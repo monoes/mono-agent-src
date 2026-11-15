@@ -1,7 +1,7 @@
-// wails-app: the proofs a start of the open-ended mode needs besides the typed phrase.
+// wails-app: the proofs a start of the open-ended mode needs besides the acknowledgement phrase the app derives itself.
 //
 // Every binding is callable by any script in the web view (a chat bubble rendering model output, a link, an injected
-// page), and the phrase is derivable from what the preview shows. So a start also needs two things such a script cannot
+// page), and the phrase is derivable from what the preview shows (the app derives it itself; the person types none). So a start also needs two things such a script cannot
 // produce: the token of a preview of the exact charter (kept only here, single use, ten minutes), and a click in a
 // native dialog of the operating system, whose text Go builds from the CLI's own render document and never from
 // anything the page sent. What a script in the page can still do: call the preview and the probe (which write
@@ -57,7 +57,7 @@ type startFacts struct {
 // dialogGoalRunes caps the goal in the dialog; the goal is data, shown after the facts and never as instructions.
 const (
 	dialogGoalRunes = 200
-	dialogMinThink  = time.Second // an answer sooner than this is not a decision
+	dialogMinThink  = 2 * time.Second // an answer sooner than this is not a decision
 )
 
 // cleanText is s as one line of plain text: hidden characters (control, format such as zero-width, bidi and tag

@@ -57,6 +57,7 @@ func newGrantRig(t *testing.T) *grantRig {
 	confirmNative = func(_ *App, title, body string) (bool, error) {
 		g.dialogs++
 		g.asked = append(g.asked, title+"\n"+body)
+		dialogShown.Store(g.now.UnixNano()) // on screen from here, as showDialog records it
 		g.now = g.now.Add(g.think)
 		if !g.avail {
 			return false, errNoNativeDialog

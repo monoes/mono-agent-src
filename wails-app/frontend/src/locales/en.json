@@ -2750,6 +2750,8 @@
     "liftedLines": "Lifted authority lines ({{count}})",
     "approveIntro": "Read the charter above. Approve asks you once more in your operating system's own window, which shows the lifted lines, the charter hash and the budget; the run starts only if you answer Yes there.",
     "approve": "Approve",
+    "waitingDialog": "Waiting for the confirmation window: answer it to continue.",
+    "previewStale": "This preview can no longer be used (it was used or has expired). Press Review to preview again.",
     "startFailed": "The run did not start",
     "startedRun": "Run {{run}}.",
     "started": "The run started. Stop is in the chat header.",

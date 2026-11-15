@@ -28,7 +28,7 @@ import (
 const (
 	// doomsdayCharterMax mirrors the CLI's charter cap.
 	doomsdayCharterMax = 1 << 20
-	// doomsdayPhraseMax bounds the typed phrase: the real one is about 45 characters.
+	// doomsdayPhraseMax bounds a typed phrase (the mission pursuit start still takes one; the open start types none): the real one is about 45 characters.
 	doomsdayPhraseMax = 200
 	// doomsdayRenderTimeout and doomsdayStartTimeout cover the real containment probe, which on Windows and macOS runs
 	// its host checks (up to about 30 seconds) before anything is shown or created.
@@ -270,6 +270,9 @@ func (a *App) DoomsdayStart(charterJSON, token, chatID, chatSpec string) string 
 	phrase := facts.expectedPhrase() // the app's own derivation from the preview it holds; the person types nothing
 	shown := doomsdayNow()
 	yes, returned, err := askNative(a, facts.dialogBody(chat.text))
+	if at := dialogShownAt(); at.After(shown) { // the think time runs from when the dialog was on screen, not from any wait for another one
+		shown = at
+	}
 	if !returned {
 		return startDoc("not_started", "", "the confirmation did not return in time; nothing started", "declined")
 	}

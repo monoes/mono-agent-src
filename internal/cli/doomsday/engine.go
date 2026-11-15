@@ -20,7 +20,7 @@ type Canon struct {
 
 // Ack is who acknowledged the lift, recorded with the run (Q9).
 type Ack struct {
-	Kind  string // "terminal": the typed phrase; "script": --yes-i-lift with the full hash; "gui": the phrase typed in the app form, re-derived by the CLI
+	Kind  string // "terminal": the typed phrase; "script": --yes-i-lift with the full hash; "gui": the phrase the app derived from the preview, re-derived by the CLI
 	Lines int    // lifted lines the acknowledgement named
 	// Expect is the start mode the person's confirmation showed ("bound" or "unbound"; empty: none was shown, as in a terminal): Enter
 	// refuses with ErrModeChanged when its own decision at entry differs.

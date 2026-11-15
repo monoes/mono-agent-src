@@ -273,7 +273,7 @@ func (d Deps) newStart() *cobra.Command {
 	f.add(c)
 	c.Flags().BoolVar(&yes, "yes-i-lift", false, "Script start: needs --hash with the full charter hash; recorded as a script's acknowledgement")
 	c.Flags().StringVar(&hash, "hash", "", "The full charter hash, for --yes-i-lift")
-	c.Flags().StringVar(&guiPhrase, "gui-phrase", "", "The phrase typed in the app's start form; the CLI re-derives it and compares (recorded as a gui acknowledgement)")
+	c.Flags().StringVar(&guiPhrase, "gui-phrase", "", "The phrase the app derives from the preview on the person's approval (nothing is typed); the CLI re-derives it and compares (recorded as a gui acknowledgement)")
 	_ = c.Flags().MarkHidden("gui-phrase")
 	c.Flags().StringVar(&expect, "expect-mode", "", "The start mode the app's confirmation showed (bound or unbound); the entry refuses if the machine now gives the other")
 	_ = c.Flags().MarkHidden("expect-mode")
