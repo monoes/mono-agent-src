@@ -119,6 +119,11 @@ func coderConversation(cfg *Deps, id string) (string, error) {
 
 // enqueue queues one command for the host, starting the host first when asked.
 func enqueue(cfg *Deps, c coderhost.Command, startHost bool) (coderhost.Command, error) {
+	if startHost {
+		if err := ensureCurrentHost(cfg); err != nil {
+			return c, err
+		}
+	}
 	db, err := cfg.OpenDB()
 	if err != nil {
 		return c, err

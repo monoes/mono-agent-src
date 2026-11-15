@@ -75,7 +75,17 @@ func StaleHostReason(dbPath string) string {
 		return ""
 	}
 	return "the running coder host is older than this program and would refuse every turn of an open-ended run (\"no run without binding\"): " +
-		"stop it with `monoagentcli coder host stop` (running coder turns keep running), then run `doomsday start` again, which starts a current host"
+		"stop it with `monoagentcli coder host stop` (running coder turns keep running), then send again or run `doomsday start` again: the next send, start or the app starts a current host"
+}
+
+// ensureCurrentHost is what every path that queues a command for the host asks before it queues: nil when no host runs (one is
+// started after the command is queued) or the running host is current; otherwise the actionable refusal of StaleHostReason, so a
+// stale host is never handed a command it would fail ("placing a turn needs a bound launch"). The command is not queued then.
+func ensureCurrentHost(cfg *Deps) error {
+	if why := StaleHostReason(cfg.DBPath()); why != "" {
+		return clicore.InvalidInput("%s", why)
+	}
+	return nil
 }
 
 // lockHostProcessAtStart is the host's own access list at the start of `coder host run`. A variable only so a test can

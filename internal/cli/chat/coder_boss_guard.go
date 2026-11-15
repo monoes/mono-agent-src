@@ -29,6 +29,9 @@ func refuseBossConversation(ctx context.Context, cfg *Deps, profileID, conversat
 
 // enqueueBounded queues a person's send under the bounds of coderhost.EnqueueSendBounded and starts the host.
 func enqueueBounded(cfg *Deps, c coderhost.Command, b coderhost.SendBounds) (coderhost.Command, bool, error) {
+	if err := ensureCurrentHost(cfg); err != nil {
+		return c, false, err
+	}
 	db, err := cfg.OpenDB()
 	if err != nil {
 		return c, false, err

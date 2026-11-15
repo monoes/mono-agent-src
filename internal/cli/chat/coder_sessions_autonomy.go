@@ -236,6 +236,11 @@ func newQuestionsAnswerCmd(cfg *Deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if !noHost {
+				if err := ensureCurrentHost(cfg); err != nil {
+					return err
+				}
+			}
 			var out coderhost.Question
 			var cmdID int64
 			err = withCoderStore(cfg, args[0], func(cs *coderhost.Store, profileID string) error {
