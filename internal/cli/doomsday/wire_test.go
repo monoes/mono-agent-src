@@ -24,11 +24,13 @@ type fakeWorld struct {
 	mu      sync.Mutex
 	present bool
 	extra   bool
-	started []string
-	onStart func(name string) // called before the unit exists, to observe what was recorded first
-	stopped []string
-	boot    string
-	ids     map[string]uint64
+	// member puts one process into a sub-unit of the unit; noIdent makes its identity unreadable.
+	member, noIdent bool
+	started         []string
+	onStart         func(name string) // called before the unit exists, to observe what was recorded first
+	stopped         []string
+	boot            string
+	ids             map[string]uint64
 }
 
 func (w *fakeWorld) StartUnit(_ context.Context, name, _ string) error {
@@ -99,7 +101,12 @@ func (c fakeCgroup) Identity() (stop.CgroupIdentity, error) {
 	}
 	return stop.CgroupIdentity{ID: id, UID: uint32(os.Getuid()), IsCgroup2: true}, nil
 }
-func (fakeCgroup) Subgroups() ([]string, error) { return nil, nil }
+func (c fakeCgroup) Subgroups() ([]string, error) {
+	if c.w.member {
+		return []string{"t-9"}, nil
+	}
+	return nil, nil
+}
 func (c fakeCgroup) Procs(string) ([]int, error) {
 	c.w.mu.Lock()
 	defer c.w.mu.Unlock()
@@ -108,7 +115,10 @@ func (c fakeCgroup) Procs(string) ([]int, error) {
 	}
 	return []int{100}, nil
 }
-func (fakeCgroup) ProcInfo(_ string, pid int) (string, string, error) {
+func (c fakeCgroup) ProcInfo(_ string, pid int) (string, string, error) {
+	if c.w.noIdent {
+		return "", "", errors.New("fake: identity unreadable")
+	}
 	return fmt.Sprintf("stamp-%d", pid), "proc", nil
 }
 func (fakeCgroup) Signal(string, int, syscall.Signal) error { return nil }

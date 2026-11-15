@@ -206,9 +206,7 @@ func (w Wiring) stop(ctx context.Context) (StopOutcome, error) {
 		}
 		out.MarkerRecorded = out.MarkerRecorded && stepDone(rep, stop.StepMarker)
 		out.IntentRecorded = out.IntentRecorded && stepDone(rep, stop.StepIntent)
-		for _, s := range append(append([]stop.Survivor{}, rep.Unit.Survivors...), rep.Unit.Unknown...) {
-			out.Survivors = append(out.Survivors, fmt.Sprintf("pid %d (%s)", s.PID, s.Comm))
-		}
+		out.Survivors = append(out.Survivors, unitSurvivors(rep)...)
 		out.Survivors = append(out.Survivors, rep.Members...)
 		if rep.StoppedBestEffort() {
 			out.BestEffort = true
@@ -217,6 +215,16 @@ func (w Wiring) stop(ctx context.Context) (StopOutcome, error) {
 		}
 	}
 	return out, nil
+}
+
+// unitSurvivors lists the processes the unit could not end. A member that was ended but is unknown (no readable identity)
+// is not one: it is in the report lines, which keep the run cleanup-pending, but it is not said to survive.
+func unitSurvivors(rep stop.Report) []string {
+	var out []string
+	for _, s := range rep.Unit.Survivors {
+		out = append(out, fmt.Sprintf("pid %d (%s)", s.PID, s.Comm))
+	}
+	return out
 }
 
 // Stopper is the production Stop order for this profile. It runs in the CLI, a different process from the host that holds
