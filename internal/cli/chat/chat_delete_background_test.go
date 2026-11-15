@@ -40,6 +40,7 @@ func TestDeleteStopsTheBackgroundProcessesOfItsTurns(t *testing.T) {
 // record of it stays: the delete is refused with exit 5 (survivors_remain),
 // and goes through once nothing is left running.
 func TestDeleteKeepsTheRecordWhileAProcessSurvives(t *testing.T) {
+	skipWithoutTool(t, "sleep")
 	r := newAccessRig(t, true)
 	c := r.conv(t, ai.AccessFull)
 	c2 := exec.Command("sleep", "60") // no exec-tree token: no identity

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -160,7 +161,7 @@ func TestHistoryAllStatusAndTitle(t *testing.T) {
 	}
 }
 
-func lastElem(p string) string { return p[strings.LastIndex(p, "/")+1:] }
+func lastElem(p string) string { return filepath.Base(p) }
 
 func TestHistoryAllTitlesAreRedacted(t *testing.T) {
 	noOrgs(t)

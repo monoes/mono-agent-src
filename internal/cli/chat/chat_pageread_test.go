@@ -16,6 +16,7 @@ import (
 // offered. The files are temporary: monomind.Exec removes them afterwards.
 func writeCapturingMonomind(t *testing.T) (bin, argsLog, toolsCopy, systemCopy string) {
 	t.Helper()
+	skipWithoutShell(t)
 	dir := t.TempDir()
 	bin = filepath.Join(dir, "monomind")
 	argsLog = filepath.Join(dir, "args.log")

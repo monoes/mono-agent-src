@@ -650,6 +650,7 @@ func TestQueueBossFirstTurnIsRefusedByTheInsertIfATurnAppearedMeanwhile(t *testi
 // DESCENDANT of the turn's process is the allowed case. (This test process is the caller; the turn's process is a separate
 // sleeping process for the first case and this process's parent for the second.)
 func TestBossTurnTokenWorksOnlyInsideTheTurnsProcessTree(t *testing.T) {
+	skipWithoutTool(t, "sleep")
 	r := newSteerRig(t, true)
 	cs := coderhost.NewStore(r.db)
 	const turn = "t-treeproof"

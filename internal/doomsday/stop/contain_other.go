@@ -2,8 +2,8 @@
 
 package stop
 
-// linuxProbeSteps is never consulted off Linux (probe refuses on the platform first); the mode does not start
-// on macOS or Windows.
+// linuxProbeSteps is never consulted off Linux: macOS and Windows have their own containment kinds (platformKinds), which
+// ignore the Linux steps.
 func linuxProbeSteps() []ProbeStep {
 	return []ProbeStep{{Name: "platform", Check: func() error { return ErrContainmentUnavailable }}}
 }
