@@ -3,11 +3,14 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	doomsdaycli "github.com/monoes/mono-agent/internal/cli/doomsday"
 	"github.com/monoes/mono-agent/internal/coderhost"
+	"github.com/monoes/mono-agent/internal/daemonhb"
 	"github.com/monoes/mono-agent/internal/procbind"
 	"github.com/monoes/mono-agent/internal/storage"
 )
@@ -193,5 +196,49 @@ func TestStartRefusesAnExplicitOnThatCannotBeHonouredAndStatusReadsTheRecordedMo
 	}
 	if got := warn(context.Background()); got != "running without peer-credential binding: old kernel" {
 		t.Fatalf("recorded mode: %q", got)
+	}
+}
+
+// A running coder host built before the default-on binding refuses every turn of a bound run ("no run without binding"), so the
+// start and the app's availability refuse up front with the restart commands, and a current host or none changes nothing.
+// Revert proof: dropping the stale-host check from the wiring's Binding (or from cheapOpenModeCheck) turns this red.
+func TestStartAndAvailabilityRefuseUpFrontWhileAStaleCoderHostRuns(t *testing.T) {
+	procbind.ForTestSetIssuance(t, true)
+	procbind.ForTestSetReady(t, nil)
+	cfg, _ := chatPathSetup(t, true)
+	db, err := initDB(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	b := doomsdayWiringReal(cfg, db.DB).Binding
+	if on, err := b(context.Background()); !on || err != nil {
+		t.Fatalf("no host: on=%v err=%v", on, err)
+	}
+	staleHostRunning(t, cfg)
+	var un doomsdaycli.UnsupportedHere
+	if _, err := b(context.Background()); !errors.As(err, &un) || !strings.Contains(err.Error(), "coder host stop") {
+		t.Fatalf("stale host, start: %v", err)
+	}
+	if ok, reason := cheapOpenModeCheck(cfg); ok || !strings.Contains(reason, "coder host stop") {
+		t.Fatalf("stale host, availability: ok=%v %q", ok, reason)
+	}
+}
+
+// staleHostRunning makes a coder host look running (its lock held) with a host info file written by a build that predates the
+// run-gate marker.
+func staleHostRunning(t *testing.T, cfg *globalConfig) {
+	t.Helper()
+	dir := coderhost.HostDir(expandPath(cfg.DBPath))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	release, err := daemonhb.LockFile(filepath.Join(dir, "host.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(release)
+	if err := os.WriteFile(filepath.Join(dir, coderhost.HostInfoFile), []byte(`{"pid":1,"instance":"host-old","childTokens":true}`), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
