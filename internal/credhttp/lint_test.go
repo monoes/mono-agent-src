@@ -39,7 +39,7 @@ var directClients = map[string]struct {
 	"internal/cli/doctor/env_services.go":               {1, "the local daemon's /health on this machine; no credential"},
 	"internal/cli/integrations/integration.go":          {1, "fetches a public OpenAPI document; no credential"},
 	"internal/cli/update/app.go":                        {1, "public release downloads; no credential"},
-	"internal/cli/update/update.go":                     {2, "public GitHub release metadata and downloads; no credential"},
+	"internal/cli/update/transport.go":                  {2, "public GitHub release metadata and downloads; no credential, only timeouts and size caps"},
 	"internal/crawlsite/crawl.go":                       {1, "crawls public pages; its checkRedirect keeps to the crawl's hosts and public addresses"},
 	"internal/credhttp/credhttp.go":                     {1, "credhttp.Client itself: the policy every credentialed client gets"},
 	"internal/discovery/robots.go":                      {1, "reads a public robots.txt; no credential"},
