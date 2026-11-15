@@ -446,8 +446,19 @@ func (s *Store) expiredReopenCount(id int64) (int, error) {
 }
 
 func (s *Store) reopenQuestion(id int64) error {
-	_, err := s.db.Exec(`UPDATE coder_session_questions SET status = 'open', answer = '', answered_by = '', answered_at = '' WHERE id = ? AND status != 'open' AND command_id = 0`, id)
-	return err
+	// The question and its session move together: an idle session with an open question accepts work it must not.
+	return s.writeTx(func(tx querier) error {
+		res, err := tx.Exec(`UPDATE coder_session_questions SET status = 'open', answer = '', answered_by = '', answered_at = '' WHERE id = ? AND status != 'open' AND command_id = 0`, id)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n != 1 {
+			return nil
+		}
+		_, err = tx.Exec(`UPDATE coder_sessions SET state = 'waiting_user', updated_at = ? WHERE state = 'idle' AND (profile_id, conversation_id) IN (
+			SELECT profile_id, conversation_id FROM coder_session_questions WHERE id = ?)`, s.stamp(), id)
+		return err
+	})
 }
 
 // releaseWaiting returns a waiting_user session to idle once no question is open.
@@ -467,6 +478,8 @@ func (s *Store) RepairWaiting() (int, error) {
 	res, err := s.db.Exec(`UPDATE coder_sessions SET state = 'idle', updated_at = ? WHERE state = 'waiting_user' AND (profile_id, conversation_id) IN (
 		SELECT x.profile_id, x.conversation_id FROM coder_sessions x WHERE x.state = 'waiting_user' AND NOT EXISTS (
 			SELECT 1 FROM coder_session_questions q WHERE q.profile_id = x.profile_id AND q.conversation_id = x.conversation_id AND q.status = 'open')
+		AND NOT EXISTS ( -- a claimed question (closed, its note not queued yet) may be re-opened a moment later
+			SELECT 1 FROM coder_session_questions c WHERE c.profile_id = x.profile_id AND c.conversation_id = x.conversation_id AND c.status != 'open' AND c.command_id = 0)
 		ORDER BY x.updated_at LIMIT ?)`, s.stamp(), pendingBatch)
 	if err != nil {
 		return 0, err
