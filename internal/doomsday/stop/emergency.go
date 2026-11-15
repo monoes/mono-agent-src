@@ -29,7 +29,7 @@ func (f *UnrecordedFlag) IsSet() bool { return f.v.Load() }
 var ErrSecretUnreadable = errors.New("stop: the per-run secret is unreadable")
 
 // SockPath is the emergency socket of one generation, in the private run directory.
-func (r RunDir) SockPath(gen uint64) string { return r.Dir + fmt.Sprintf("/e%d.sock", gen) }
+func (r RunDir) SockPath(gen uint64) string { return r.sockPath(fmt.Sprintf("e%d.sock", gen)) }
 
 func emergencyMAC(secret []byte, gen uint64) string {
 	h := hmac.New(sha256.New, secret)
@@ -88,6 +88,9 @@ func (s *EmergencyServer) listen(ctx context.Context) (net.Listener, error) {
 		return nil, err
 	}
 	path := s.Dir.SockPath(s.Gen)
+	if err := s.Dir.prepareSock(path); err != nil {
+		return nil, err
+	}
 	_ = os.Remove(path)
 	ln, err := net.Listen("unix", path)
 	if err != nil {
@@ -155,7 +158,7 @@ func SendEmergency(r RunDir, gen uint64) error {
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrSecretUnreadable, err)
 	}
-	c, err := net.DialTimeout("unix", r.SockPath(gen), 2*time.Second)
+	c, err := r.dialSock(r.SockPath(gen))
 	if err != nil {
 		return err
 	}

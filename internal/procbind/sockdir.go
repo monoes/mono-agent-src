@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -73,13 +74,31 @@ func (o SocketOptions) uid() int {
 
 // ResolveRoot picks the runtime root: XDG_RUNTIME_DIR when it is an absolute path to a real
 // directory of this user that no one else can enter, else <home>/.monoagent/run.
+//
+// Where a socket address cannot hold the path under that root (macOS: 104 bytes), the root is a short private directory of
+// the user's instead (shortenRoot); the host and the dialer both resolve it, so they name the same directory.
 func ResolveRoot(xdg, home string, uid int) string {
 	if filepath.IsAbs(xdg) {
 		if fi, err := os.Lstat(xdg); err == nil && fi.IsDir() && fi.Mode().Perm()&0o077 == 0 && ownedBy(fi, uid) {
-			return xdg
+			return shortenRoot(xdg, uid, rootSockLimit)
 		}
 	}
-	return filepath.Join(home, ".monoagent", "run")
+	return shortenRoot(filepath.Join(home, ".monoagent", "run"), uid, rootSockLimit)
+}
+
+// shortenRoot is root when the longest socket path under it (the hashed leaf, which is what leafFor falls back to) fits a
+// socket address of limit bytes (rootSockLimit: 0 means no limit), else /tmp/monoagent-<uid>. That directory is made 0700 by openRoot (CreateRoot) and
+// refused, never repaired, when it exists as a symlink, as another user's, or open to others, like any root.
+func shortenRoot(root string, uid, limit int) string {
+	if limit <= 0 {
+		return root
+	}
+	// Decided on the text of root alone, with room for the "/private" the system puts in front of /var and /tmp: a root that
+	// does not exist yet (first start) and one that does (later runs, and the dialer) must give the same answer.
+	if len(root)+len("/private")+1+len(runDirName)+1+len(hashedLeaf(""))+1+len(sockName) <= limit {
+		return root
+	}
+	return "/tmp/monoagent-" + strconv.Itoa(uid)
 }
 
 func ownedBy(fi os.FileInfo, uid int) bool {
