@@ -65,7 +65,7 @@ importScripts("cdp_proxy.js");
 importScripts("recorder_privacy.js", "recorder_outbox.js", "recorder_session.js", "recorder_wiring.js");
 // Asked before every dial; see doConnect. The same module the side panel uses,
 // so "is that really the bridge?" has exactly one implementation.
-importScripts("bridge_health.js", "autopair.js");
+importScripts("bridge_health.js", "autopair.js", "bridge_resilience.js");
 // The coder's browser commands (plan C1): agent_cdp.js first, every other
 // agent module registers with it; agent_commands.js, the dispatch, last.
 importScripts("agent_cdp.js", "agent_redact.js", "agent_tabs.js", "agent_screenshot.js", "agent_watch.js", "agent_a11y.js");
@@ -583,10 +583,10 @@ async function doConnect() {
     // socket per browser and routes each profile's commands by this.
     Object.assign(authFrame, MonoBrowserBinding.authFields(binding, chrome.runtime.getManifest().version));
     ws.send(JSON.stringify(authFrame));
-    setStatus("connected");
-    fastRetryCount = FAST_RETRY_MAX; // Stop fast retry — we're connected
-    markCandidateConnected(url);
-    console.log("[monoagent] Connected to backend at", url);
+    // Not "connected" yet: the bridge has only been dialled. It says so by
+    // answering (ws.onmessage), and a 4401 close to the auth frame must not
+    // have flashed "connected" first.
+    console.log("[monoagent] Socket open to backend at", url);
     startKeepAlive();
     // Where the account stands, first. Nothing else goes out on this socket
     // until this bridge has answered (accountHeard): a report stored from
@@ -611,6 +611,10 @@ async function doConnect() {
     if (gate.observe(cmd) && !accountHeard) {
       accountHeard = true;
       if (gate.signedIn()) whileSignedIn();
+      // The bridge accepted the auth frame and answered: now it is connected.
+      setStatus("connected");
+      fastRetryCount = FAST_RETRY_MAX; // Stop fast retry — we're connected
+      markCandidateConnected(url);
     }
     // A reply to something THIS side asked (ask.js). Claimed before the
     // command dispatch because a reply is not a command and has no handler.
@@ -637,6 +641,7 @@ async function doConnect() {
     stopKeepAlive();
     // What the bridge said about the account belonged to that socket.
     account.set(null);
+    const wasHeard = accountHeard;
     accountHeard = false;
     // Everything waiting on an answer is settled here. A question outlives
     // its socket by exactly nothing: see ask.js.
@@ -662,6 +667,9 @@ async function doConnect() {
     if (!opened) markCandidateFailed();
     // Don't schedule reconnect via setTimeout — the alarm handles it.
     // But do restart fast retry if we disconnected unexpectedly early.
+    // A connection that was working and went away (a bridge restart) starts
+    // the fast retry over, or only the 30 s alarm would bring it back.
+    fastRetryCount = MonoResilience.fastRetryAfterClose({ heard: wasHeard, count: fastRetryCount });
     if (fastRetryCount < FAST_RETRY_MAX) {
       fastRetryConnect();
     }
@@ -1415,6 +1423,15 @@ async function evalCDP({ tabId, expression }) {
 async function sendToContent(tabId, cmd) {
   if (!tabId) throw new Error("tabId is required for DOM operations");
 
+  // A tab opened before the extension was reloaded or updated has no content
+  // script listening: put it in once and ask again (see bridge_resilience.js).
+  return MonoResilience.withReinject(
+    () => sendToContentOnce(tabId, cmd),
+    () => chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] }),
+  );
+}
+
+function sendToContentOnce(tabId, cmd) {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       reject(new Error(`Content script timeout for command ${cmd.type} on tab ${tabId}`));

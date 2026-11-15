@@ -134,3 +134,56 @@ test("a prepare that throws stops the flush without sending again what already w
   assert.deepEqual(await MonoCapture.flushQueue(storage, (e) => sent.push(e.id), async (e) => e), { flushed: 2 });
   assert.deepEqual(sent, ["a", "b", "c"], "a went once");
 });
+
+// A storage area whose reads and writes take a turn, as chrome.storage's do:
+// two captures taken together then each read the queue before either wrote.
+function slowStorage(store) {
+  const turn = () => new Promise((r) => setTimeout(r, 1));
+  return {
+    get: async (key) => {
+      const out = { [key]: store[key] };
+      await turn();
+      return out;
+    },
+    set: async (update) => {
+      await turn();
+      Object.assign(store, update);
+    },
+  };
+}
+
+test("a full queue refuses the new capture with a reason and keeps the oldest", async () => {
+  const store = {};
+  const storage = slowStorage(store);
+  for (let i = 0; i < 20; i++) {
+    assert.equal((await MonoCapture.queueCapture(storage, { id: `c${i}` })).queued, true);
+  }
+  const refused = await MonoCapture.queueCapture(storage, { id: "c20" });
+  assert.equal(refused.queued, false);
+  assert.match(refused.reason, /20/);
+  assert.equal(store.captureQueue.length, 20);
+  assert.equal(store.captureQueue[0].envelope.id, "c0", "the oldest capture is still queued");
+  assert.ok(!store.captureQueue.some((e) => e.envelope.id === "c20"));
+});
+
+test("two captures taken at the same moment are both queued", async () => {
+  const store = {};
+  const storage = slowStorage(store);
+  const [a, b] = await Promise.all([
+    MonoCapture.queueCapture(storage, { id: "a" }),
+    MonoCapture.queueCapture(storage, { id: "b" }),
+  ]);
+  assert.equal(a.queued, true);
+  assert.equal(b.queued, true);
+  assert.deepEqual(store.captureQueue.map((e) => e.envelope.id).sort(), ["a", "b"]);
+});
+
+test("a capture queued while a flush writes back is not overwritten", async () => {
+  const store = {};
+  const storage = slowStorage(store);
+  await MonoCapture.queueCapture(storage, { id: "a" });
+  const flush = MonoCapture.flushQueue(storage, () => {});
+  const queued = MonoCapture.queueCapture(storage, { id: "b" });
+  await Promise.all([flush, queued]);
+  assert.deepEqual(store.captureQueue.map((e) => e.envelope.id), ["b"]);
+});
