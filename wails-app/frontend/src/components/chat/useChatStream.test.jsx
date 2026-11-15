@@ -251,6 +251,50 @@ describe('useChatStream', () => {
 // the chat bubble's transcript loader to rebuild each past turn's state
 // before feeding it to the same ChatTimeline/TurnStatus components a live
 // turn uses.
+describe('useChatStream when a backlog fetch fails', () => {
+  const opts = { conversationId: 'conv-1', turnId: 'turn-1' }
+
+  it('retries a failed backlog fetch once and then renders as if nothing happened', async () => {
+    getChatEvents
+      .mockRejectedValueOnce(new Error('backend busy'))
+      .mockResolvedValueOnce(page([ev('assistant.delta', { partId: 'p1', text: 'hello' }, 1)]))
+    const { result } = renderHook(() => useChatStream(opts))
+    await waitFor(() => expect(result.current.parts[0]?.text).toBe('hello'), { timeout: 3000 })
+    expect(result.current.notices).toEqual([])
+    expect(getChatEvents).toHaveBeenCalledTimes(2)
+  })
+
+  it('stops buffering after the retry also fails: shows an error notice and still renders live events', async () => {
+    getChatEvents.mockRejectedValue(new Error('backend down'))
+    const { result } = renderHook(() => useChatStream(opts))
+    // Live events during the failed hydration are kept, not dropped.
+    act(() => emit('chat:event', ev('assistant.delta', { partId: 'p1', text: 'live' }, 1)))
+    await waitFor(() => expect(result.current.notices.some((n) => n.code === 'stream_backlog_failed')).toBe(true), { timeout: 3000 })
+    const notice = result.current.notices.find((n) => n.code === 'stream_backlog_failed')
+    expect(notice.severity).toBe('warning')
+    expect(notice.message).toMatch(/earlier events/i)
+    await waitFor(() => expect(result.current.parts[0]?.text).toBe('live'))
+
+    // And later live events apply directly, not into a buffer that never drains.
+    await act(async () => { emit('chat:event', ev('assistant.delta', { partId: 'p1', text: '+more' }, 2)) })
+    await waitFor(() => expect(result.current.parts[0]?.text).toBe('live+more'))
+    expect(result.current.notices.filter((n) => n.code === 'stream_backlog_failed')).toHaveLength(1)
+  })
+
+  it('a rejecting gap fill does not lose the live event that triggered it', async () => {
+    getChatEvents
+      .mockResolvedValueOnce(page([ev('assistant.delta', { partId: 'p1', text: 'a' }, 1)]))
+      .mockRejectedValueOnce(new Error('gap fetch failed'))
+    const { result } = renderHook(() => useChatStream(opts))
+    await waitFor(() => expect(result.current.parts[0]?.text).toBe('a'))
+
+    await act(async () => { emit('chat:event', ev('assistant.delta', { partId: 'p1', text: 'd' }, 4)) })
+
+    await waitFor(() => expect(result.current.parts[0]?.text).toBe('ad'))
+    expect(result.current.notices.some((n) => n.code === 'stream_backlog_failed')).toBe(true)
+  })
+})
+
 describe('reduceTurnEvents', () => {
   it('reduces an ordered event list into final state via chatReducer, same as applying them one at a time', () => {
     const state = reduceTurnEvents([
