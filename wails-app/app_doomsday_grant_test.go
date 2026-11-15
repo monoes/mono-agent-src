@@ -380,14 +380,14 @@ func TestTheDialogShowsTheGoalAfterTheFactsCleanedAndCapped(t *testing.T) {
 // is a decline. The dialog says which button confirms.
 func TestAnAnswerInUnderASecondIsDeclined(t *testing.T) {
 	g := newGrantRig(t)
-	g.think = 300 * time.Millisecond
+	g.think = dialogMinThink - 100*time.Millisecond
 	tok := g.render(dmCharter)
 	before := g.calls()
 	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", ""))
 	if d.OK || d.Code != "declined" || !strings.Contains(d.Detail, "too fast") || g.calls() != before {
 		t.Fatalf("%+v calls %d", d, g.calls()-before)
 	}
-	g.think = time.Second
+	g.think = dialogMinThink
 	tok = g.render(dmCharter)
 	g.startBehaves(`echo '{"run_id":"work/1"}'`)
 	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", "")); !d.OK {
@@ -871,5 +871,49 @@ func TestTheDialogUnboundWarningIsRuneSafe(t *testing.T) {
 	body := f.dialogBody("chat-1")
 	if !utf8.ValidString(body) || !strings.HasPrefix(body, "Élan: running without peer-credential binding.") {
 		t.Fatalf("%q", body)
+	}
+}
+
+// The minimum think time of the open start is two seconds, as the pursuit start's.
+func TestTheOpenStartsMinimumThinkTimeIsTwoSeconds(t *testing.T) {
+	if dialogMinThink != 2*time.Second {
+		t.Fatalf("dialogMinThink = %v", dialogMinThink)
+	}
+}
+
+// The think time runs from the moment the dialog is on screen, not from the wait for another dialog's lock: a Yes given at once
+// when our dialog finally appears (a reflex click meant for the dialog before it) is declined.
+func TestTheOpenStartsThinkTimeRunsFromTheDialogBeingOnScreen(t *testing.T) {
+	g := newGrantRig(t)
+	g.startBehaves(`echo '{"run_id":"work/1"}'`)
+	tok := g.render(dmCharter)
+	var clock atomic.Int64
+	clock.Store(g.now.UnixNano())
+	oldNow, oldWait, oldRun, oldConfirm := doomsdayNow, dialogWait, dialogRun, confirmNative
+	doomsdayNow = func() time.Time { return time.Unix(0, clock.Load()) }
+	dialogWait, confirmNative = 10*time.Second, realConfirmNative
+	t.Cleanup(func() { doomsdayNow, dialogWait, dialogRun, confirmNative = oldNow, oldWait, oldRun, oldConfirm })
+	release := make(chan struct{})
+	holding := make(chan struct{})
+	dialogRun = func(_ context.Context, o wailsruntime.MessageDialogOptions) (string, error) {
+		if o.Title == "other dialog" {
+			close(holding)
+			<-release
+			return "", nil
+		}
+		return "Yes", nil // the person's reflex: it answers the instant it is shown
+	}
+	go func() { _, _ = showDialog(g.a, wailsruntime.MessageDialogOptions{Title: "other dialog", Message: "x"}) }()
+	<-holding
+	done := make(chan string)
+	go func() { done <- g.a.DoomsdayStart(dmCharter, tok, "chat-5", "") }()
+	for !dialogOpen.Load() {
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(50 * time.Millisecond) // it is now waiting for the dialog lock
+	clock.Add(int64(dialogMinThink + 500*time.Millisecond))
+	close(release)
+	if d := parseStartDoc(t, <-done); d.OK || d.Code != "declined" || strings.Contains(readFile(t, g.log), "|start|") {
+		t.Fatalf("a Yes credited with the wait for another dialog: %+v", d)
 	}
 }
