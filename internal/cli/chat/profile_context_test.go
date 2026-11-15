@@ -26,14 +26,14 @@ func TestCoderLeadPromptNamesTheProfile(t *testing.T) {
 	}
 
 	cfg := testDeps(&testConfig{DBPath: dbPath, ProfileID: "work", JSONOutput: true})
-	prompt := coderLeadSystemPrompt(context.Background(), db.DB, cfg, custom, true)
+	prompt := coderLeadSystemPrompt(context.Background(), db.DB, cfg, custom, true, true)
 	if !strings.Contains(prompt, `"Work Stuff"`) || !strings.Contains(prompt, "bank-login") || !strings.Contains(prompt, "working in "+custom) {
 		t.Errorf("lead prompt does not name the profile:\n%s", prompt)
 	}
 	if !strings.Contains(prompt, coderBrowserPrompt("work")) {
 		t.Errorf("lead prompt leaves out the browser section:\n%s", prompt)
 	}
-	other := coderLeadSystemPrompt(context.Background(), db.DB, testDeps(&testConfig{ProfileID: "default"}), custom, true)
+	other := coderLeadSystemPrompt(context.Background(), db.DB, testDeps(&testConfig{ProfileID: "default"}), custom, true, true)
 	if strings.Contains(other, "Work Stuff") || strings.Contains(other, "bank-login") {
 		t.Errorf("default profile's prompt leaks the other:\n%s", other)
 	}
