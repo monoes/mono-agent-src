@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -48,6 +49,9 @@ func newChatHistoryTurnsCmd(cfg *Deps) *cobra.Command {
 			}
 			for _, t := range page.Items {
 				fmt.Printf("%s  %-11s %s  %s\n", t.ID, t.Status, t.CreatedAt, firstLineOf(t.Prompt))
+				if t.Status == string(chatevents.StatusFailed) && t.Reason != "" {
+					fmt.Printf("    reason: %s\n", firstLineOf(t.Reason))
+				}
 			}
 			if next != "" {
 				fmt.Printf("more: --cursor %q\n", next)
@@ -204,6 +208,39 @@ func newChatHistoryFinishCmd(cfg *Deps) *cobra.Command {
 	cmd.Flags().StringVar(&status, "status", "", "Terminal status: completed, failed, cancelled or interrupted")
 	cmd.Flags().StringVar(&reason, "reason", "", "Human-readable reason")
 	cmd.Flags().StringVar(&exitCode, "exit-code", "", "Process exit code to record")
+	return cmd
+}
+
+func newChatHistoryRefusedCmd(cfg *Deps) *cobra.Command {
+	var code, reason string
+	cmd := &cobra.Command{
+		Use:   "refused <conversation-id>",
+		Short: "Record why a turn never began, so the conversation shows it when reopened",
+		Long: "Writes a finished system turn into the conversation: failed, with --reason (and --code when the " +
+			"failure has a known one, such as agent_not_setup). The desktop app calls this when the coder host " +
+			"refuses a turn before it exists; `chat history turns` then lists the reason.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if strings.TrimSpace(reason) == "" {
+				return clicore.InvalidInput("--reason is required")
+			}
+			store, profileID, closeDB, err := openChatHistory(cfg)
+			if err != nil {
+				return err
+			}
+			defer closeDB()
+			if err := store.RecordFailedTurnNotice(profileID, args[0], code, reason); err != nil {
+				return chatStoreErr(err)
+			}
+			if cfg.JSONOutput() {
+				return clicore.PrintJSON(map[string]any{"recorded": true})
+			}
+			fmt.Println("recorded")
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&code, "code", "", "Failure code, when it has a known one")
+	cmd.Flags().StringVar(&reason, "reason", "", "Why the turn did not begin")
 	return cmd
 }
 

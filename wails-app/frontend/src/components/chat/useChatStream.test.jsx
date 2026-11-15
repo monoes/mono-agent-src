@@ -186,6 +186,16 @@ describe('useChatStream', () => {
     expect(result.current.notices[0].message).toMatch(/history|reopen|saved/i)
   })
 
+  it('does not show the history-not-saved notice for a turn that failed (its reason is the story)', async () => {
+    getChatEvents.mockResolvedValueOnce(page([
+      ev('turn.finished', { status: 'failed', reason: 'the coder host could not start the turn', exitCode: null, historySaved: false }, 1),
+    ]))
+    const { result } = renderHook(() => useChatStream({ conversationId: 'conv-1', turnId: 'turn-1' }))
+    await waitFor(() => expect(result.current.terminal).not.toBeNull())
+    expect(result.current.notices.some((n) => n.code === 'history_not_saved')).toBe(false)
+    expect(result.current.terminal.reason).toBe('the coder host could not start the turn')
+  })
+
   it('does not duplicate the historySaved:false notice when the terminal event reaches dispatchEvent twice (gap-fill, then its own triggering live delivery)', async () => {
     // fillGap has no upper bound on what it fetches/dispatches, so when a
     // live event jumps ahead, the gap-fill request can return (and dispatch)

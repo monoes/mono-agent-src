@@ -170,8 +170,11 @@ func (sup *chatSupervisor) hostCommandFailed(profileID string, commandID int64) 
 }
 
 // emitLiveFinish ends the turn in the UI when no journal will (seq MaxSafeSeq
-// so the frontend never drops it as stale, as finishOrphanedTurn does).
+// so the frontend never drops it as stale, as finishOrphanedTurn does). The
+// reason is also written into the conversation (`chat history refused`), so
+// reopening it later shows what failed, not an empty chat.
 func (sup *chatSupervisor) emitLiveFinish(h *chatTurnHandle, reason string) {
+	_ = sup.cli(h.profileID, nil, "chat", "history", "refused", h.conversationID, "--reason", reason)
 	ev, err := chatevents.New(h.profileID, h.conversationID, h.turnID, chatevents.MaxSafeSeq, time.Now(), chatevents.EventTurnFinished,
 		chatevents.TurnFinishedPayload{Status: chatevents.StatusFailed, Reason: reason, HistorySaved: false})
 	if err == nil && sup.emit != nil {

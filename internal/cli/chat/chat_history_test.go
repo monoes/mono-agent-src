@@ -428,3 +428,38 @@ func TestChatHistoryTranscriptReadsTheLegacyTable(t *testing.T) {
 		t.Errorf("empty transcript = %s", out)
 	}
 }
+
+// `chat history refused` records why a turn never began, and `chat history turns` then shows that reason, so the
+// failure is visible later in the terminal and when the conversation is reopened.
+func TestChatHistoryRefusedRecordsAReasonTurnsShows(t *testing.T) {
+	dbPath := newChatCLITestDB(t)
+	out, code := runChatHistory(t, dbPath, "default", "create", "--runtime", "claude", "--model", "sonnet")
+	if code != 0 {
+		t.Fatalf("create exit %d: %s", code, out)
+	}
+	var conv ai.ConversationRecord
+	decodeChatJSON(t, out, &conv)
+	if out, code := runChatHistory(t, dbPath, "default", "refused", conv.ID, "--code", "agent_not_setup", "--reason", "the host refused the turn"); code != 0 {
+		t.Fatalf("refused exit %d: %s", code, out)
+	}
+	out, code = runChatHistory(t, dbPath, "default", "turns", conv.ID)
+	if code != 0 {
+		t.Fatalf("turns exit %d: %s", code, out)
+	}
+	var page struct {
+		Items []ai.TurnRecord `json:"items"`
+	}
+	decodeChatJSON(t, out, &page)
+	if len(page.Items) != 1 || page.Items[0].Status != "failed" || page.Items[0].Reason != "the host refused the turn" {
+		t.Fatalf("turns: %s", out)
+	}
+	cfg := testDeps(&testConfig{DBPath: dbPath, ProfileID: "default"})
+	text := captureStdout(t, func() {
+		cmd := newChatCmd(cfg)
+		cmd.SetArgs([]string{"history", "turns", conv.ID})
+		_ = cmd.Execute()
+	})
+	if !strings.Contains(text, "the host refused the turn") {
+		t.Fatalf("plain turns output hides the reason: %q", text)
+	}
+}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Loader, Square } from 'lucide-react'
+import { failureHint } from '../../lib/turnFailure.js'
 
 // Idle-activity threshold (plan §"Honest progress"): "After 15 seconds
 // without activity, show 'No new activity for 15s'; silence is not proof
@@ -121,6 +122,12 @@ export function TurnStatus({ state, stopRequested, ownedByThisInstance = true, s
   const { label, isIdleWarning } = computeStatusLabel({ ...state, stopRequested, ownedByThisInstance, streamsIncrementally }, now)
   const isTerminal = !!state.terminal
   const isFailure = state.terminal && state.terminal.status !== 'completed'
+  // A failed turn says why, in plain text; the reason is skipped when the turn already shows the same text as a notice
+  // (a refused turn recorded in the conversation carries its reason both ways).
+  const failed = state.terminal?.status === 'failed'
+  const reason = failed ? (state.terminal.reason || '') : ''
+  const failureReason = reason && !(state.notices || []).some(n => n.message === reason) ? reason : ''
+  const hint = failed ? failureHint(state.terminal.code) : ''
 
   return (
     <div
@@ -139,6 +146,8 @@ export function TurnStatus({ state, stopRequested, ownedByThisInstance = true, s
       )}
       <span>{label}</span>
       {isIdleWarning && <span style={{ color: '#fbbf24' }}>· No new activity for 15s</span>}
+      {failureReason && <span>· {failureReason}</span>}
+      {hint && <span data-testid="turn-failure-hint">· {hint}</span>}
     </div>
   )
 }

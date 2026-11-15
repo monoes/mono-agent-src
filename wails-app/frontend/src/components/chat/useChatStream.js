@@ -52,7 +52,10 @@ export function useChatStream({ conversationId, turnId }) {
       // (a refetch now could only return LESS than what's already applied)
       // — the only correct response is telling the user, via the same
       // notice banner real backend 'notice' events already render.
-      if (!alreadyApplied && ev.type === 'turn.finished' && ev.payload?.historySaved === false) {
+      // A turn that FAILED (or was refused) before producing history is not
+      // that case: it has no history to lose, and the bubble shows its
+      // reason, so the banner would only mislead.
+      if (!alreadyApplied && ev.type === 'turn.finished' && ev.payload?.historySaved === false && ev.payload?.status !== 'failed') {
         dispatch({
           type: 'localNotice',
           notice: {
