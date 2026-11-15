@@ -128,9 +128,13 @@ func init() {
 func cheapOpenModeCheck(shared *globalConfig) (bool, string) {
 	own := *shared // openReadDB writes the resolved id into the config it is given: never the shared one, which other goroutines read
 	cfg := &own
+	stale := chatcli.StaleHostReason(cfg.DBPath, chatcli.StaleThenApp)
 	db, err := openReadDB(cfg)
 	if errors.Is(err, errNoReadableSchema) {
 		// no database with the mode's tables: nothing stored, so the default applies
+		if stale != "" {
+			return false, "not available: " + stale
+		}
 		return true, "" // nothing stored: the default is on where the machine can run it, and a run goes unbound where it cannot
 	}
 	if err != nil {
@@ -146,6 +150,9 @@ func cheapOpenModeCheck(shared *globalConfig) (bool, string) {
 	}
 	if !st.On && st.UnboundReason == "" { // off where the machine could run it: refused; off where it cannot: the run goes unbound
 		return false, openModeBindingReason(st.Note)
+	}
+	if stale != "" {
+		return false, "not available: " + stale
 	}
 	var n int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM doomsday_runs WHERE profile = ? AND state <> 'quiescent'`, cfg.ProfileID).Scan(&n); err != nil {
@@ -278,6 +285,14 @@ func doomsdayWiringReal(cfg *globalConfig, db *sql.DB) doomsdaycli.Wiring {
 			}
 			if st.ExplicitOnBroken != "" { // the operator asked for binding and it cannot be had: no run, rather than a run whose turns are all refused
 				return false, doomsdaycli.UnsupportedHere("no run without binding: peer-credential binding is switched on, but this machine cannot run it (" + st.ExplicitOnBroken + "): switch it off (coder set --peercred-binding off) to run unbound")
+			}
+			// An explicit off where the machine could bind is refused by the entry with its own text (switch it on first); that is the
+			// first thing to fix, so it comes before the host. Every start that would otherwise go on, bound or unbound, needs a current host:
+			// an old host knows neither the default-on binding nor the unbound run.
+			if st.On || st.UnboundReason != "" {
+				if why := chatcli.StaleHostReason(cfg.DBPath, chatcli.StaleThenStart); why != "" {
+					return false, doomsdaycli.UnsupportedHere("no run without a current coder host: " + why)
+				}
 			}
 			return st.On, nil
 		},
