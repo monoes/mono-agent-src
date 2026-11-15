@@ -236,3 +236,37 @@ func TestScheduleOverlap_QueueOneTickWhileDeferredPending(t *testing.T) {
 		t.Fatalf("fires = %d while a deferred tick is pending, want 0", h.fires())
 	}
 }
+
+// A failed read of the run table must not look like an idle workflow: skip
+// and queue_one drop the tick (the next tick retries) instead of starting a
+// second run beside one that may be active.
+func TestScheduleOverlap_QueryErrorDoesNotStartARun(t *testing.T) {
+	for _, overlap := range []string{OverlapSkip, OverlapQueueOne} {
+		t.Run(overlap, func(t *testing.T) {
+			h := newOverlapHarness(t)
+			h.addRun(t, "r", "RUNNING", time.Now())
+			h.activate(t, map[string]interface{}{"cron": "0 * * * * *", "overlap": overlap})
+			if _, err := h.store.RawDB().Exec(`ALTER TABLE workflow_executions RENAME TO workflow_executions_gone`); err != nil {
+				t.Fatal(err)
+			}
+			h.sched.fireAll()
+			if h.fires() != 0 {
+				t.Fatalf("fires = %d on a failed run count, want 0", h.fires())
+			}
+			if _, err := h.store.RawDB().Exec(`ALTER TABLE workflow_executions_gone RENAME TO workflow_executions`); err != nil {
+				t.Fatal(err)
+			}
+			h.sched.fireAll()
+			if h.fires() != 0 {
+				t.Fatalf("fires = %d with the run still active, want 0", h.fires())
+			}
+			if _, err := h.store.RawDB().Exec(`UPDATE workflow_executions SET status='SUCCESS'`); err != nil {
+				t.Fatal(err)
+			}
+			h.sched.fireAll()
+			if h.fires() != 1 {
+				t.Fatalf("fires = %d once the read works and the workflow is idle, want 1", h.fires())
+			}
+		})
+	}
+}
