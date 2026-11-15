@@ -119,7 +119,7 @@ func coderConversation(cfg *Deps, id string) (string, error) {
 
 // enqueue queues one command for the host, starting the host first when asked.
 func enqueue(cfg *Deps, c coderhost.Command, startHost bool) (coderhost.Command, error) {
-	if startHost {
+	if startHost && c.Kind == coderhost.KindSend { // stop, pause and resume are not turn dispatches: they must reach a stale host that runs the turn
 		if err := ensureCurrentHost(cfg); err != nil {
 			return c, err
 		}
@@ -205,7 +205,7 @@ func newCoderSessionsSendCmd(cfg *Deps) *cobra.Command {
 	cmd.Flags().StringArrayVar(&attach, "attach", nil, "A file to attach to the turn (repeatable)")
 	cmd.Flags().BoolVar(&mission, "mission", false, "The user confirmed a mission for this turn: records a single-use confirmation the host's turn verifies (operator only)")
 	_ = cmd.Flags().MarkHidden("mission")
-	cmd.Flags().BoolVar(&noHost, "no-host", false, "Queue only; do not start the host")
+	cmd.Flags().BoolVar(&noHost, "no-host", false, "Queue only; do not start the host (also skips the check that a running host is current: a stale host fails the command)")
 	clicore.WithJSONErrors(cfg.JSONOutput, cmd)
 	return cmd
 }
