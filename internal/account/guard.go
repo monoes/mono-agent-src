@@ -109,7 +109,8 @@ type Guard struct {
 	loopCancel    context.CancelFunc
 	loopDone      chan struct{}
 
-	passes atomic.Int64 // passes the refresher loop has finished; a test reads it to wait for the loop (LoopPassesForTest)
+	callbacks atomic.Int32 // OnRefused callbacks that have started and not returned
+	passes    atomic.Int64 // passes the refresher loop has finished; a test reads it to wait for the loop (LoopPassesForTest)
 }
 
 // NewGuard returns a guard over o.Store. It reads nothing and writes nothing.
@@ -186,11 +187,20 @@ func (g *Guard) OnRefused(fn func(Status)) {
 		// The refusal the guard noted may be over in the file: look, and call fn
 		// only if it is still in effect.
 		if st := g.Status(); st.State == StateLocked && st.Reason == ReasonRefused {
-			go fn(st)
+			g.startCallback(fn, st)
 		}
 		return
 	}
 	g.Status() // a refusal in the stored session fires every callback, this one included
+}
+
+// startCallback runs fn on its own goroutine and counts it while it runs (CallbacksRunningForTest).
+func (g *Guard) startCallback(fn func(Status), st Status) {
+	g.callbacks.Add(1)
+	go func() {
+		defer g.callbacks.Add(-1)
+		fn(st)
+	}()
 }
 
 // note fires the OnRefused callbacks on the transition into locked(refused).
@@ -204,7 +214,7 @@ func (g *Guard) note(st Status) {
 	g.refusedNoted = refused
 	g.mu.Unlock()
 	for _, fn := range fns {
-		go fn(st)
+		g.startCallback(fn, st)
 	}
 }
 

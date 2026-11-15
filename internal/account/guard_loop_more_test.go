@@ -132,6 +132,7 @@ func TestARefresherWithoutARefresherOnlyFollowsTheFile(t *testing.T) {
 	before := e.signIn(2*time.Hour, time.Hour) // expired: a refresher would try at once
 	g := account.NewGuard(account.GuardOptions{Store: account.OpenStore(e.dir, e.seal), Now: e.f.Clock.Now, Poll: loopPoll})
 	t.Cleanup(g.Close)
+	e.loops = append(e.loops, g)
 	got := make(chan account.Status, 4)
 	g.OnRefused(func(st account.Status) { got <- st })
 	g.StartRefresher(context.Background())

@@ -219,32 +219,27 @@ func waitForFirstPass(t testing.TB, g *account.Guard) {
 	})
 }
 
-// settle gives the refresher loops of gs, which should NOT act, time to do so: three passes
-// each, counted by the loop (LoopPassesForTest), not a while. Three, because the first
-// pass to finish may have begun before the call and the second may have read a state from
-// before it. With no loop started there is no pass to wait for, and it sleeps a real moment
-// (150 ms): what it covers is then a goroutine that is not a loop (an OnRefused callback).
+// settle gives what should NOT act, in the guards gs, time to do so, without a clock: each
+// refresher loop that was started finishes three more passes (the first to finish may have begun
+// before the call, the second may have read a state from before it; LoopPassesForTest counts
+// them), and every OnRefused callback that was started has returned (they are started before
+// Status returns, so none is on its way once none runs: CallbacksRunningForTest).
 func settle(t testing.TB, gs ...*account.Guard) {
 	t.Helper()
-	waited := false
 	for _, g := range gs {
 		start, ended := g.LoopPassesForTest(t)
-		if ended == nil {
-			continue
+		if ended != nil {
+			eventually(t, "the refresher loop to finish three more passes", func() bool {
+				select {
+				case <-ended:
+					return true
+				default:
+				}
+				n, _ := g.LoopPassesForTest(t)
+				return n >= start+3
+			})
 		}
-		waited = true
-		eventually(t, "the refresher loop to finish three more passes", func() bool {
-			select {
-			case <-ended:
-				return true
-			default:
-			}
-			n, _ := g.LoopPassesForTest(t)
-			return n >= start+3
-		})
-	}
-	if !waited {
-		time.Sleep(150 * time.Millisecond)
+		eventually(t, "the OnRefused callbacks to return", func() bool { return g.CallbacksRunningForTest(t) == 0 })
 	}
 }
 

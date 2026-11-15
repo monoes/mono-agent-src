@@ -97,3 +97,13 @@ func (g *Guard) LoopPassesForTest(t testing.TB) (passes int64, ended <-chan stru
 	}
 	return g.passes.Load(), ended
 }
+
+// CallbacksRunningForTest is how many OnRefused callbacks the guard has started and that
+// have not returned. They are started before Status or OnRefused returns, so a test that
+// has made its last call and sees none running knows no callback is on its way.
+func (g *Guard) CallbacksRunningForTest(t testing.TB) int {
+	t.Helper()
+	requireTestBinary("CallbacksRunningForTest")
+	t.Setenv(testStateEnv, "1")
+	return int(g.callbacks.Load())
+}
