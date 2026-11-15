@@ -61,6 +61,7 @@ case "$2" in
   list) cat "$d/` + list + `" ;;
   status) cat "$d/` + status + `" ;;
   events) cat "$d/` + events + `" ;;
+  report) if [ -f "$d/budget-report.json" ] && [ "$FAKE_REPORT" != "fail" ]; then cat "$d/budget-report.json"; else echo "no report" >&2; exit 1; fi ;;
   validate)
     if [ "$3" = "bad" ]; then cat "$d/validate-invalid.txt"; exit 1; fi
     cat "$d/validate-valid.txt" ;;
