@@ -302,3 +302,31 @@ func TestStartAndDispatchAgreeOnBindingInEveryCase(t *testing.T) {
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+// A stale coder host with the binding explicitly OFF where the machine could bind: the binding refusal is the first thing to fix (the
+// entry says "switch it on first"), so the start and the availability name it, not the host. With the machine unable to bind the start
+// would go unbound, which an old host cannot run either, so the host is named.
+func TestStaleHostAndExplicitOffNameTheBindingFirst(t *testing.T) {
+	procbind.ForTestSetIssuance(t, true)
+	procbind.ForTestSetReady(t, nil)
+	cfg, _ := chatPathSetup(t, true)
+	db, err := initDB(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	setBindingStored(t, db, false)
+	staleHostRunning(t, cfg)
+	b := doomsdayWiringReal(cfg, db.DB).Binding
+	if on, err := b(context.Background()); on || err != nil {
+		t.Fatalf("explicit off, stale host: on=%v err=%v (the entry refuses it with the binding text)", on, err)
+	}
+	if ok, reason := cheapOpenModeCheck(cfg); ok || !strings.Contains(reason, "peer-credential binding is off") {
+		t.Fatalf("availability: ok=%v %q", ok, reason)
+	}
+	procbind.ForTestSetReady(t, errors.New("old kernel"))
+	var un doomsdaycli.UnsupportedHere
+	if _, err := b(context.Background()); !errors.As(err, &un) || !strings.Contains(err.Error(), "coder host stop") {
+		t.Fatalf("explicit off, cannot bind, stale host: %v", err)
+	}
+}

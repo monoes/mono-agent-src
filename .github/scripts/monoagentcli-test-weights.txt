@@ -831,3 +831,4 @@ TestClassCOpenVerbsStayOpen 1
 TestClassCAnUnwiredGateRefuses 1
 TestStartAndAvailabilityRefuseUpFrontWhileAStaleCoderHostRuns 1
 TestStartAndDispatchAgreeOnBindingInEveryCase 1
+TestStaleHostAndExplicitOffNameTheBindingFirst 1

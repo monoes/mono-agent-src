@@ -114,7 +114,9 @@ func staleHostFixture(t *testing.T) (cfg *Deps, stopped *int) {
 	n := 0
 	oldStop := stopHost
 	stopHost = func(*Deps, hostInfo) (string, error) { n++; release(); return "", nil }
-	t.Cleanup(func() { stopHost = oldStop })
+	oldVerify := verifyHostProcess
+	verifyHostProcess = func(int) error { return nil }
+	t.Cleanup(func() { stopHost, verifyHostProcess = oldStop, oldVerify })
 	return cfg, &n
 }
 
