@@ -48,6 +48,14 @@ func (d *Database) UpsertPerson(person *Person) error {
 	}
 	now := time.Now().UTC()
 
+	// A row stored under another spelling of the platform is the same person:
+	// update it, keeping its spelling.
+	if spelling, ok, err := storedPlatform(d.DB, person.ProfileID, person.Platform, person.PlatformUsername); err != nil {
+		return fmt.Errorf("looking up person %s/%s: %w", person.Platform, person.PlatformUsername, err)
+	} else if ok {
+		person.Platform = spelling
+	}
+
 	_, err := d.DB.Exec(`
 		INSERT INTO people (
 			id, platform_username, platform, full_name, image_url,
@@ -316,6 +324,12 @@ func (d *Database) BatchUpsertPeople(people []*Person) error {
 	for _, p := range people {
 		if p.ID == "" {
 			p.ID = NewID()
+		}
+		if spelling, ok, err := storedPlatform(tx, p.ProfileID, p.Platform, p.PlatformUsername); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("looking up person %s/%s: %w", p.Platform, p.PlatformUsername, err)
+		} else if ok {
+			p.Platform = spelling
 		}
 		if _, err := stmt.Exec(
 			p.ID, p.PlatformUsername, p.Platform,

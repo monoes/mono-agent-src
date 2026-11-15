@@ -34,6 +34,9 @@ func (d *Database) UpsertPersonMessage(msg *PersonMessage, profileID string) err
 	if msg.ExternalID == "" {
 		msg.ExternalID = msg.ID
 	}
+	// A status the caller names is explicit; the default only fills a new row
+	// (see the conflict clause).
+	explicitStatus := msg.Status != ""
 	if msg.Status == "" {
 		msg.Status = "sent"
 	}
@@ -62,12 +65,13 @@ func (d *Database) UpsertPersonMessage(msg *PersonMessage, profileID string) err
 			sender    = excluded.sender,
 			subject   = excluded.subject,
 			body      = excluded.body,
-			metadata  = excluded.metadata,
-			status    = excluded.status,
+			metadata  = `+messageMetadataMergeSQL+`,
+			status    = `+messageStatusKeepSQL+`,
 			sent_at   = excluded.sent_at`,
 		msg.ID, msg.PersonID, msg.Source, msg.ExternalID, msg.Direction,
 		nullStr(msg.Sender), nullStr(msg.Subject), nullStr(msg.Body),
 		nullStr(msg.Metadata), msg.Status, nullTime(msg.SentAt.UTC()), profileID, time.Now().UTC(),
+		boolToInt(explicitStatus),
 	)
 	if err != nil {
 		return fmt.Errorf("upserting message for person %s: %w", msg.PersonID, err)
@@ -95,6 +99,29 @@ func (d *Database) UpsertPersonMessage(msg *PersonMessage, profileID string) err
 
 	return nil
 }
+
+// A re-sync or re-import refreshes what the platform provides and keeps what
+// the user or the operator's flows stored on the row. The metadata is merged
+// (JSON merge patch: the incoming keys replace the stored ones, every other
+// key, such as _classification, stays); a stored value that is not a JSON
+// object is replaced by the incoming one, and no incoming metadata keeps the
+// stored one.
+const messageMetadataMergeSQL = `CASE
+				WHEN excluded.metadata IS NULL THEN person_messages.metadata
+				WHEN person_messages.metadata IS NOT NULL
+				     AND json_valid(person_messages.metadata) AND json_type(person_messages.metadata) = 'object'
+				     AND json_valid(excluded.metadata) AND json_type(excluded.metadata) = 'object'
+				THEN json_patch(person_messages.metadata, excluded.metadata)
+				ELSE excluded.metadata END`
+
+// The status of an existing row changes only when the incoming row names one
+// (the last bind parameter) and the row is not in a state the operator or the
+// send flow owns: draft, the approval lifecycle, or sent by us.
+const messageStatusKeepSQL = `CASE
+				WHEN ? = 0 THEN person_messages.status
+				WHEN person_messages.status IN ('draft','pending_approval','approved','sending','rejected','failed','expired') THEN person_messages.status
+				WHEN person_messages.status = 'sent' AND person_messages.direction = 'outbound' THEN person_messages.status
+				ELSE excluded.status END`
 
 // ListPersonMessages returns messages for a person within the given profile,
 // optionally filtered by source, newest first. Pass an empty source to skip

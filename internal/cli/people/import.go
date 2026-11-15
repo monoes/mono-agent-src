@@ -130,8 +130,16 @@ func (d Deps) newPeopleImportCmd() *cobra.Command {
 					personID = id
 				}
 
+				// The row of this person under any spelling of the platform is
+				// the one to update; a new person gets the canonical spelling.
+				storedPlatform, err := storage.ResolvePlatform(tx, d.ProfileID(), platform, username)
+				if err != nil {
+					tx.Rollback()
+					return fmt.Errorf("looking up %s: %w", username, err)
+				}
+
 				if notTheUser != "" {
-					stored, err := peoplereview.StoredPerson(cmd.Context(), tx, d.ProfileID(), strings.ToLower(platform), username)
+					stored, err := peoplereview.StoredPerson(cmd.Context(), tx, d.ProfileID(), storedPlatform, username)
 					if err != nil {
 						tx.Rollback()
 						return err
@@ -143,8 +151,8 @@ func (d Deps) newPeopleImportCmd() *cobra.Command {
 					}
 				}
 
-				_, err := stmt.Exec(
-					personID, username, strings.ToLower(platform),
+				_, err = stmt.Exec(
+					personID, username, storedPlatform,
 					nullableStr(fullName), nullableStr(imageURL),
 					nullableStr(contactDetails), nullableStr(website),
 					contentCount, nullableStr(followerCount), followingCount,
