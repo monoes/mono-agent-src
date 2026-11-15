@@ -111,3 +111,34 @@ func TestStoredPersonIsCaseInsensitiveOnPlatform(t *testing.T) {
 		t.Error("the username is compared exactly, as the unique key does")
 	}
 }
+
+// With twin spellings stored, the guard reads the same row the write updates.
+func TestStoredPersonAgreesWithResolvePlatformOnTwins(t *testing.T) {
+	db := testDB(t)
+	for _, r := range [][]string{{"a", "linkedin", Approved, "2026-01-01 00:00:00"}, {"b", "LINKEDIN", Pending, "2026-02-01 00:00:00"}} {
+		if _, err := db.Exec(`INSERT INTO people (id, profile_id, platform, platform_username, category, introduction, updated_at)
+			VALUES (?, 'prof', ?, 'ada', ?, 'hi', ?)`, r[0], r[1], r[2], r[3]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, ask := range []string{"linkedin", "LINKEDIN", "LinkedIn"} {
+		spelling, err := storage.ResolvePlatform(db, "prof", ask, "ada")
+		if err != nil {
+			t.Fatal(err)
+		}
+		viaWrite, _ := StoredPerson(context.Background(), db, "prof", spelling, "ada")
+		viaGuard, _ := StoredPerson(context.Background(), db, "prof", ask, "ada")
+		if viaWrite.Category != viaGuard.Category {
+			t.Errorf("ask %q: the write updates the %q row (%s), the guard read %s", ask, spelling, viaWrite.Category, viaGuard.Category)
+		}
+	}
+}
+
+// The same username in another profile is not the person.
+func TestStoredPersonIsPerProfile(t *testing.T) {
+	db := testDB(t)
+	addPerson(t, db, "p1", "prof", Approved, "hi")
+	if s, _ := StoredPerson(context.Background(), db, "other", "linkedin", "p1-user"); s.Found {
+		t.Fatal("found another profile's person")
+	}
+}

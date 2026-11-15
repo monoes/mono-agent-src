@@ -39,3 +39,40 @@ func TestResolvePlatform(t *testing.T) {
 		}
 	}
 }
+
+// The same username in two profiles is two people: a write in one profile
+// never resolves to, or updates, the other's row.
+func TestResolvePlatformIsPerProfile(t *testing.T) {
+	db := newUpsertPersonTestDB(t)
+	if _, err := db.DB.Exec(`INSERT INTO people (id, platform_username, platform, profile_id, full_name) VALUES ('a', 'ada', 'linkedin', 'pr1', 'One')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpsertPerson(&Person{PlatformUsername: "ada", Platform: "LINKEDIN", ProfileID: "pr2", FullName: "Two"}); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	var one, two string
+	db.DB.QueryRow(`SELECT COUNT(*) FROM people`).Scan(&n)
+	db.DB.QueryRow(`SELECT full_name FROM people WHERE profile_id = 'pr1'`).Scan(&one)
+	db.DB.QueryRow(`SELECT full_name || '/' || platform FROM people WHERE profile_id = 'pr2'`).Scan(&two)
+	if n != 2 || one != "One" || two != "Two/LINKEDIN" {
+		t.Fatalf("rows=%d pr1=%q pr2=%q", n, one, two)
+	}
+}
+
+// Twins that already exist: the choice is deterministic (an exact spelling
+// first, then the most recently updated), so the write and the guard agree.
+func TestResolvePlatformPicksATwinDeterministically(t *testing.T) {
+	db := newUpsertPersonTestDB(t)
+	for _, r := range [][]string{{"a", "linkedin", "2026-01-01 00:00:00"}, {"b", "LINKEDIN", "2026-02-01 00:00:00"}} {
+		if _, err := db.DB.Exec(`INSERT INTO people (id, platform_username, platform, profile_id, updated_at) VALUES (?, 'ada', ?, 'pr1', ?)`, r[0], r[1], r[2]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for ask, want := range map[string]string{"linkedin": "linkedin", "LINKEDIN": "LINKEDIN", "LinkedIn": "LINKEDIN"} {
+		got, err := ResolvePlatform(db.DB, "pr1", ask, "ada")
+		if err != nil || got != want {
+			t.Errorf("ResolvePlatform(%q) = %q, %v; want %q", ask, got, err, want)
+		}
+	}
+}
