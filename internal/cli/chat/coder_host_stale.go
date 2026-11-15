@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -90,8 +91,8 @@ func ensureCurrentHostThen(cfg *Deps, exceptQuestion int64, then string) error {
 }
 
 // hostBusy says what depends on the running host, "" when nothing does: an open-ended run, a coder turn that has not ended, a
-// queued command, an open ask, an open parked question other than exceptQuestion, or anything waiting for the person (a plan, a
-// budget request, an ancestor question; a parked question's own item only when it is exceptQuestion's). Anything it cannot read counts as busy. It reads the database only; the
+// queued command, an open ask, an open parked question other than exceptQuestion, or an open item waiting for the person (a plan, a
+// budget request, an ancestor question; not a stopped session's, and a parked question's own item only when it is exceptQuestion's). Anything it cannot read counts as busy. It reads the database only; the
 // host's own lock is held by the host, so the check cannot be atomic with the stop: a turn that starts in between is left running by
 // the stop (a stopped host leaves its turns running and the next host re-attaches to them), so the race costs a restart, never a turn.
 func hostBusy(cfg *Deps, exceptQuestion int64) string {
@@ -113,7 +114,6 @@ func hostBusy(cfg *Deps, exceptQuestion int64) string {
 		{"a command is queued for the host", `SELECT COUNT(*) FROM coder_session_commands WHERE status = 'pending'`, nil},
 		{"a question is waiting for an answer", `SELECT COUNT(*) FROM coder_session_asks WHERE status = 'open'`, nil},
 		{"another parked question is waiting for an answer", `SELECT COUNT(*) FROM coder_session_questions WHERE status = 'open' AND id <> ?`, []any{exceptQuestion}},
-		{"something is waiting for the person", `SELECT COUNT(*) FROM coder_session_person_items WHERE NOT (kind = 'parked_question' AND ref_id = ?)`, []any{exceptQuestion}},
 	}
 	for _, c := range checks {
 		var n int
@@ -122,6 +122,45 @@ func hostBusy(cfg *Deps, exceptQuestion int64) string {
 		}
 		if n > 0 {
 			return c.what
+		}
+	}
+	return openPersonItemsBusy(db.DB, exceptQuestion)
+}
+
+// openPersonItemsBusy says whether something is waiting for the person. A person item has no status of its own: it is open when
+// the row it points at is open and its session is not stopped (Store.OpenPersonItems, per profile), so an item left behind by a
+// stopped session or an answered question does not hold a restart. An unreadable item list counts as open.
+func openPersonItemsBusy(db *sql.DB, exceptQuestion int64) string {
+	const unreadable = "the state of the host's work could not be read"
+	rows, err := db.Query(`SELECT DISTINCT profile_id FROM coder_session_person_items`)
+	if err != nil {
+		return unreadable
+	}
+	var profiles []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			rows.Close()
+			return unreadable
+		}
+		profiles = append(profiles, p)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return unreadable
+	}
+	store := coderhost.NewStore(db)
+	for _, p := range profiles {
+		items, err := store.OpenPersonItems(p)
+		if err != nil {
+			return unreadable
+		}
+		for _, it := range items {
+			if it.Kind == coderhost.ItemParkedQuestion && it.RefID == exceptQuestion {
+				continue
+			}
+			return "something is waiting for the person"
 		}
 	}
 	return ""
