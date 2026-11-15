@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -66,6 +67,46 @@ func TestSessionsDecisionsAndQuestionsCLI(t *testing.T) {
 		t.Fatalf("queued = %+v", cmds)
 	}
 	_ = q
+}
+
+// An answer that was queued but whose session could not be released is accepted: the
+// result carries the queued command and a warning, and the exit is 0 (repeating it would fail).
+func TestSessionsAnswerQueuedButSessionNotReleasedIsAcceptedWithAWarning(t *testing.T) {
+	dbPath := newChatCLITestDB(t)
+	store := openTestChatStore(t, dbPath)
+	conv, _ := store.CreateConversationMode("default", "agent", "general", "claude", "", "", ai.ModeCoder, t.TempDir())
+	cs := openCoder(t, dbPath)
+	q, err := cs.Park("default", conv.ID, "risky_action", "force push?", nil, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.DB.Exec(`CREATE TRIGGER no_release BEFORE UPDATE ON coder_sessions WHEN NEW.state = 'idle' BEGIN SELECT RAISE(ABORT, 'database is locked'); END`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	cfg := testDeps(&testConfig{DBPath: dbPath, ProfileID: "default", JSONOutput: true})
+	out, code := runSessionsCLI(t, cfg, "questions", "answer", conv.ID, strconv.FormatInt(q.ID, 10), "yes", "--no-host")
+	if code != 0 || !strings.Contains(out, "commandId") || !strings.Contains(out, "warning") || !strings.Contains(out, `"released": false`) && !strings.Contains(out, `"released":false`) || !strings.Contains(out, "do not answer again") {
+		t.Fatalf("exit %d, output %q", code, out)
+	}
+	if cmds := pendingCommands(t, dbPath); len(cmds) != 1 {
+		t.Fatalf("queued = %+v", cmds)
+	}
+	// repeating it is refused: the question is closed, and the session still waits
+	if _, code := runSessionsCLI(t, cfg, "questions", "answer", conv.ID, strconv.FormatInt(q.ID, 10), "yes", "--no-host"); code != 3 {
+		t.Fatalf("repeat answer exit %d, want 3", code)
+	}
+	cs = openCoder(t, dbPath)
+	if got, err := cs.GetQuestion("default", q.ID); err != nil || got.Status == "open" {
+		t.Fatalf("question = %+v, %v", got, err)
+	}
+	if x, _, _ := cs.GetSession("default", conv.ID); x.State != coderhost.StateWaitingUser {
+		t.Fatalf("session state = %s", x.State)
+	}
 }
 
 func openCoder(t *testing.T, dbPath string) *coderhost.Store {
