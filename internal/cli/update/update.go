@@ -366,11 +366,11 @@ func legacyDownload(rel *LatestRelease, assetName string) ([]byte, error) {
 	}
 
 	fmt.Printf("Downloading %s...\n", assetName)
-	data, err := HTTPGetAll(downloadURL)
+	data, err := getCapped(downloadURL, maxBinaryBytes)
 	if err != nil {
 		return nil, err
 	}
-	sumsData, err := HTTPGetAll(sumsURL)
+	sumsData, err := getCapped(sumsURL, maxSmallBytes)
 	if err != nil {
 		return nil, fmt.Errorf("fetch %s: %w", SumsAssetName, err)
 	}
@@ -408,37 +408,22 @@ func FetchLatestRelease(ctx context.Context, url string) (*LatestRelease, error)
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := apiClient().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("network error: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxSmallBytes))
 		return nil, fmt.Errorf("GitHub API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	var release LatestRelease
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxSmallBytes)).Decode(&release); err != nil {
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
 	return &release, nil
-}
-
-// HTTPGetAll fetches url and returns the full response body. Non-200
-// statuses are errors.
-func HTTPGetAll(url string) ([]byte, error) {
-	resp, err := http.Get(url) //nolint:gosec
-	if err != nil {
-		return nil, fmt.Errorf("download: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("download failed: GitHub returned %d for %s", resp.StatusCode, url)
-	}
-	return io.ReadAll(resp.Body)
 }
 
 // The checksum helpers live in internal/updatecheck, shared with the
