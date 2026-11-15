@@ -108,8 +108,12 @@ func hostBusy(cfg *Deps) string {
 		return "the database could not be read"
 	}
 	defer db.Close()
+	if n, err := coderhost.OpenRunCount(context.Background(), db.DB); err != nil {
+		return "the state of the host's work could not be read"
+	} else if n > 0 {
+		return "an open-ended run is open"
+	}
 	checks := []struct{ what, q string }{
-		{"an open-ended run is open", `SELECT COUNT(*) FROM doomsday_runs WHERE state <> 'quiescent'`},
 		{"a coder turn is running", `SELECT COUNT(*) FROM ai_chat_turns WHERE status NOT IN ('completed','failed','cancelled','interrupted')`},
 		{"a command is queued for the host", `SELECT COUNT(*) FROM coder_session_commands WHERE status = 'pending'`},
 		{"a question is waiting for an answer", `SELECT COUNT(*) FROM coder_session_asks WHERE status = 'open'`},
