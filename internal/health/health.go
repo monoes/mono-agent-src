@@ -258,6 +258,10 @@ type Env struct {
 	// written, no process started).
 	OpenMode func(ctx context.Context) OpenModeFacts
 
+	// SchedulesPaused reads whether triggers that fire on their own are being dropped for want of a monoes.me
+	// sign-in (local reads only: no network, the sign-in is not consumed).
+	SchedulesPaused func(ctx context.Context) (SchedulesPausedInfo, error)
+
 	// MonoesAccount reads the monoes.me session from this machine (no
 	// network, nothing written).
 	MonoesAccount func(ctx context.Context) AccountInfo

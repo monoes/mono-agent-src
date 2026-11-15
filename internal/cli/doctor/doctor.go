@@ -417,6 +417,9 @@ func printDoctorReportWith(w io.Writer, rep *health.Report, fixed, previews bool
 			folds[1].names = append(folds[1].names, r.Title)
 			continue
 		}
+		if r.ID == health.CheckSchedulesPaused && r.Status == health.StatusSkip {
+			continue // nothing is waiting on a sign-in
+		}
 		req := ""
 		if r.Required && r.Status == health.StatusFail {
 			req = " (required)"

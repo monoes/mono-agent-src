@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/monoes/mono-agent/internal/account"
 	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/daemonhb"
 	"github.com/monoes/mono-agent/internal/operator"
@@ -21,6 +22,20 @@ import (
 	"github.com/monoes/mono-agent/internal/workflow"
 	"github.com/spf13/cobra"
 )
+
+// pausedWorkflows is the set of listed workflows whose triggers the engine drops because the monoes.me sign-in does
+// not allow work (a local read of the loaded verdict and the stored workflows). A read failure marks none.
+func (d Deps) pausedWorkflows(ctx context.Context, store *workflow.HybridWorkflowStore, wfs []workflow.Workflow) map[string]bool {
+	ids, err := workflow.PausedTriggerWorkflows(ctx, store, wfs, account.CurrentStatus())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not tell which workflows are paused: %v\n", err)
+	}
+	set := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		set[id] = true
+	}
+	return set
+}
 
 // newWorkflowListCmd lists all workflows.
 func (d Deps) newListCmd() *cobra.Command {
@@ -58,14 +73,21 @@ func (d Deps) newListCmd() *cobra.Command {
 				type listed struct {
 					workflow.Workflow
 					NodeCount int `json:"node_count"`
+					// SchedulesPaused: the engine drops this workflow's triggers until the monoes.me sign-in is back.
+					SchedulesPaused bool `json:"schedules_paused"`
 				}
+				paused := d.pausedWorkflows(ctx, store, workflows)
 				rows := make([]listed, 0, len(workflows))
 				for _, wf := range workflows {
-					rows = append(rows, listed{Workflow: wf, NodeCount: counts[wf.ID]})
+					rows = append(rows, listed{Workflow: wf, NodeCount: counts[wf.ID], SchedulesPaused: paused[wf.ID]})
 				}
 				return json.NewEncoder(os.Stdout).Encode(rows)
 			}
 
+			if n := len(d.pausedWorkflows(ctx, store, workflows)); n > 0 {
+				fmt.Fprintf(cmd.ErrOrStderr(), "notice: scheduled workflows are paused (%d workflow(s)): the monoes.me sign-in is missing or expired. "+
+					"Run `monoagentcli account login`; runs missed meanwhile are not made up.\n", n)
+			}
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 			fmt.Fprintln(w, "ID\tNAME\tACTIVE\tVERSION\tUPDATED AT")
 			for _, wf := range workflows {
