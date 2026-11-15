@@ -264,6 +264,10 @@ func TestScheduleOverlap_QueryErrorDoesNotStartARun(t *testing.T) {
 				t.Fatal(err)
 			}
 			h.sched.fireAll()
+			// queue_one may have deferred the tick: its poll starts the run.
+			for end := time.Now().Add(3 * time.Second); h.fires() < 1 && time.Now().Before(end); {
+				time.Sleep(20 * time.Millisecond)
+			}
 			if h.fires() != 1 {
 				t.Fatalf("fires = %d once the read works and the workflow is idle, want 1", h.fires())
 			}
