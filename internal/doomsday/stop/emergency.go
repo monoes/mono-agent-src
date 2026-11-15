@@ -158,7 +158,7 @@ func SendEmergency(r RunDir, gen uint64) error {
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrSecretUnreadable, err)
 	}
-	c, err := net.DialTimeout("unix", r.SockPath(gen), 2*time.Second)
+	c, err := r.dialSock(r.SockPath(gen))
 	if err != nil {
 		return err
 	}

@@ -73,3 +73,23 @@ func shortRoot0(t *testing.T) string {
 	})
 	return d
 }
+
+// ResolveRoot goes through the length rule: with a socket-address limit in force (macOS has one, and this test sets it so
+// the rule can be seen on any platform) a long home gives the short root, and a short one is untouched.
+func TestResolveRootShortensALongHomeUnderALimit(t *testing.T) {
+	old := rootSockLimit
+	rootSockLimit = 103
+	t.Cleanup(func() { rootSockLimit = old })
+	long := "/Users/" + strings.Repeat("n", 40)
+	if got := ResolveRoot("", long, 501); got != "/tmp/monoagent-501" {
+		t.Fatalf("a long home gave %s", got)
+	}
+	if got := ResolveRoot("", "/Users/me", 501); got != "/Users/me/.monoagent/run" {
+		t.Fatalf("a short home gave %s", got)
+	}
+	// a root near the limit is decided on its text, with room for the "/private" prefix of macOS temp paths
+	edge := "/" + strings.Repeat("e", 103-len("/monoagent/")-len(hashedLeaf(""))-len("/bind.sock")-1-4)
+	if shortenRoot(edge, 501, 103) != "/tmp/monoagent-501" {
+		t.Fatal("a root within the /private margin of the limit was kept")
+	}
+}

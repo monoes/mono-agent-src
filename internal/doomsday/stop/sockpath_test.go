@@ -69,8 +69,8 @@ func TestSocketPathStaysNaturalWhenItFitsAndShortWhenItDoesNot(t *testing.T) {
 			t.Fatalf("%s is %d bytes, over %d", p, len(p), sockMax)
 		}
 	}
-	if long.AnchorSockPath() != long.AnchorSockPath() || filepath.Dir(long.AnchorSockPath()) != filepath.Dir(long.SockPath(1)) {
-		t.Fatal("the listener and the dialer would not agree")
+	if filepath.Dir(long.AnchorSockPath()) != filepath.Dir(long.SockPath(1)) {
+		t.Fatal("the anchor and the emergency socket do not share the short directory")
 	}
 }
 
@@ -108,20 +108,124 @@ func TestShortSocketDirectoryIsRefusedWhenNotPlainPrivateAndOurs(t *testing.T) {
 	}
 }
 
-// The start-time self-test binds where the real sockets will be, so a path that cannot be used shows there.
-func TestProbeUsesTheShortDirectoryAndRefusesAnUnusableOne(t *testing.T) {
+// The start-time self-test binds where the real sockets will be, so a path that cannot be used shows there. It never makes the
+// short directory itself (a show or dry run must not), and a squatted or loose one fails it.
+func TestProbeUsesTheShortPlaceWithoutMakingItAndRefusesAnUnusableOne(t *testing.T) {
 	long := longRunDir(t)
-	dir, err := probeSockDir(long.Dir)
+	short := filepath.Dir(long.AnchorSockPath())
+	dir, done, err := probeSockDir(long.Dir)
 	mustNoErr(t, err)
 	if dir == long.Dir || len(dir)+len("/e18446744073709551615.sock") > sockMax {
 		t.Fatalf("the probe would bind in %s", dir)
 	}
 	mustNoErr(t, peerSelfTest(dir, peerUID))
-	mustNoErr(t, os.Chmod(dir, 0o755))
-	if _, err := probeSockDir(long.Dir); err == nil {
+	done()
+	if _, err := os.Lstat(short); err == nil {
+		t.Fatal("the probe made the short directory")
+	}
+	if _, err := os.Lstat(dir); err == nil {
+		t.Fatal("the probe left its scratch directory")
+	}
+	mustNoErr(t, os.Mkdir(short, 0o700))
+	mustNoErr(t, os.Chmod(short, 0o755))
+	if _, _, err := probeSockDir(long.Dir); err == nil {
 		t.Fatal("the probe accepted an unusable short directory")
 	}
-	if d, err := probeSockDir("/tmp/x"); err != nil || d != "/tmp/x" {
+	if d, _, err := probeSockDir("/tmp/x"); err != nil || d != "/tmp/x" {
 		t.Fatalf("a run directory that fits changed: %s %v", d, err)
+	}
+}
+
+// plantListener plants a listener of this test at path (the short directory made 0700 here), standing for anything that is
+// listening there.
+func plantListener(t *testing.T, path string, handle func(net.Conn)) {
+	t.Helper()
+	mustNoErr(t, os.MkdirAll(filepath.Dir(path), 0o700))
+	ln, err := net.Listen("unix", path)
+	mustNoErr(t, err)
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() { defer c.Close(); handle(c) }()
+		}
+	}()
+}
+
+func forgedOK(c net.Conn) { _, _ = c.Write([]byte("OK 4242 started:x 4242\nOK\n")) }
+
+// The short directory's name can be guessed, so a dialer must not trust whatever listens there: a directory or socket that is
+// not ours, a link, or a peer of another user are all refused before anything is sent or believed.
+func TestDialersRefuseWhatIsNotOursInTheShortDirectory(t *testing.T) {
+	long := longRunDir(t)
+	path := long.SockPath(5)
+	plantListener(t, path, forgedOK)
+	if c, err := long.dialSock(path); err != nil {
+		t.Fatalf("our own socket in our own directory was refused: %v", err)
+	} else {
+		c.Close()
+	}
+	// a directory that is another user's
+	old := fileOwnedByMe
+	fileOwnedByMe = func(os.FileInfo) bool { return false }
+	if _, err := long.dialSock(path); err == nil || !strings.Contains(err.Error(), "belongs to") || !strings.Contains(err.Error(), "administrator") {
+		t.Fatalf("a foreign directory was not refused with its owner and a remedy: %v", err)
+	}
+	if err := SendEmergency(long, 5); err == nil {
+		t.Fatal("SendEmergency reached a socket in a foreign directory")
+	}
+	fileOwnedByMe = old
+	// a peer that is another user, behind a socket that looks ours
+	oldPeer := dialPeerUID
+	dialPeerUID = func(net.Conn) (uint32, error) { return uint32(os.Getuid()) + 1, nil }
+	t.Cleanup(func() { dialPeerUID = oldPeer })
+	if _, err := long.dialSock(path); err == nil {
+		t.Fatal("a socket served by another user was accepted")
+	}
+	dialPeerUID = oldPeer
+	// a planted plain file and a link where the socket should be
+	mustNoErr(t, os.Remove(path))
+	mustNoErr(t, os.WriteFile(path, nil, 0o600))
+	if _, err := long.dialSock(path); err == nil {
+		t.Fatal("a plain file was taken for the socket")
+	}
+	mustNoErr(t, os.Remove(path))
+	other := filepath.Join(t.TempDir(), "o.sock")
+	plantListener(t, other, forgedOK)
+	mustNoErr(t, os.Symlink(other, path))
+	if _, err := long.dialSock(path); err == nil {
+		t.Fatal("a link to another socket was followed")
+	}
+	// the whole short directory is a link
+	mustNoErr(t, os.Remove(path))
+	short := filepath.Dir(path)
+	mustNoErr(t, os.Remove(short))
+	mustNoErr(t, os.Symlink(filepath.Dir(other), short))
+	if _, err := long.dialSock(filepath.Join(short, "o.sock")); err == nil {
+		t.Fatal("a linked short directory was followed")
+	}
+}
+
+// A listener found a socket or a link planted inside an owned short directory (only we can write there, but a leftover
+// can be anything): it replaces it, it does not follow it.
+func TestListenerReplacesAPlantedLinkInsideOurShortDirectory(t *testing.T) {
+	long := longRunDir(t)
+	path := long.AnchorSockPath()
+	mustNoErr(t, ensurePrivateDir(filepath.Dir(path)))
+	target := filepath.Join(t.TempDir(), "victim")
+	mustNoErr(t, os.WriteFile(target, []byte("keep"), 0o600))
+	mustNoErr(t, os.Symlink(target, path))
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	srv := &AnchorServer{Dir: long, UID: 501, OS: sessionFakePG{newFakePG()}, Peer: func(net.Conn) (uint32, error) { return 501, nil }}
+	mustNoErr(t, srv.Start(ctx))
+	if b, _ := os.ReadFile(target); string(b) != "keep" {
+		t.Fatalf("the link's target was written through: %q", b)
+	}
+	if fi, err := os.Lstat(path); err != nil || fi.Mode()&os.ModeSocket == 0 {
+		t.Fatalf("the path is not a socket: %v %v", fi, err)
 	}
 }

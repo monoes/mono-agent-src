@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -192,7 +191,7 @@ func (l ProcessHostLink) CloseHost(ctx context.Context, gen uint64) HostOutcome 
 	}
 	err := SendEmergency(l.Dir, gen)
 	if errors.Is(err, ErrSecretUnreadable) { // cannot sign: the marker is the path, but an absent host is still provable
-		if c, derr := net.DialTimeout("unix", l.Dir.SockPath(gen), 2*time.Second); derr != nil {
+		if c, derr := l.Dir.dialSock(l.Dir.SockPath(gen)); derr != nil {
 			err = derr
 		} else {
 			c.Close()

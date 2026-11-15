@@ -39,10 +39,12 @@ var hostChecksNow = func() hostChecks {
 		Peer: func() error {
 			dir := d.Run
 			if dir != "" { // the real sockets' place: a run directory too long for a socket address uses a short private one
+				var done func()
 				var err error
-				if dir, err = probeSockDir(d.Run); err != nil {
+				if dir, done, err = probeSockDir(d.Run); err != nil {
 					return err
 				}
+				defer done()
 			}
 			return peerSelfTest(dir, peerUID)
 		},

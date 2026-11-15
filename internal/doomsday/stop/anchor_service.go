@@ -186,7 +186,7 @@ func (h *hostAnchorOS) StartAnchor(argv0 string) (int, string, error) {
 	var c net.Conn
 	var err error
 	for i := 0; i < anchorDialTries; i++ {
-		if c, err = net.DialTimeout("unix", h.dir.AnchorSockPath(), 2*time.Second); err == nil {
+		if c, err = h.dir.dialSock(h.dir.AnchorSockPath()); err == nil {
 			break
 		}
 		time.Sleep(anchorDialEvery)

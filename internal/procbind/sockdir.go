@@ -80,21 +80,22 @@ func (o SocketOptions) uid() int {
 func ResolveRoot(xdg, home string, uid int) string {
 	if filepath.IsAbs(xdg) {
 		if fi, err := os.Lstat(xdg); err == nil && fi.IsDir() && fi.Mode().Perm()&0o077 == 0 && ownedBy(fi, uid) {
-			return fitRoot(xdg, uid)
+			return shortenRoot(xdg, uid, rootSockLimit)
 		}
 	}
-	return fitRoot(filepath.Join(home, ".monoagent", "run"), uid)
+	return shortenRoot(filepath.Join(home, ".monoagent", "run"), uid, rootSockLimit)
 }
 
 // shortenRoot is root when the longest socket path under it (the hashed leaf, which is what leafFor falls back to) fits a
-// socket address of limit bytes, else /tmp/monoagent-<uid>. That directory is made 0700 by openRoot (CreateRoot) and
+// socket address of limit bytes (rootSockLimit: 0 means no limit), else /tmp/monoagent-<uid>. That directory is made 0700 by openRoot (CreateRoot) and
 // refused, never repaired, when it exists as a symlink, as another user's, or open to others, like any root.
 func shortenRoot(root string, uid, limit int) string {
-	probe := root
-	if real, err := filepath.EvalSymlinks(root); err == nil {
-		probe = real
+	if limit <= 0 {
+		return root
 	}
-	if len(probe)+1+len(runDirName)+1+len(hashedLeaf(""))+1+len(sockName) <= limit {
+	// Decided on the text of root alone, with room for the "/private" the system puts in front of /var and /tmp: a root that
+	// does not exist yet (first start) and one that does (later runs, and the dialer) must give the same answer.
+	if len(root)+len("/private")+1+len(runDirName)+1+len(hashedLeaf(""))+1+len(sockName) <= limit {
 		return root
 	}
 	return "/tmp/monoagent-" + strconv.Itoa(uid)
