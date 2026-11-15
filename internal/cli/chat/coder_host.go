@@ -79,11 +79,67 @@ func StaleHostReason(dbPath string) string {
 }
 
 // ensureCurrentHost is what every path that queues a command for the host asks before it queues: nil when no host runs (one is
-// started after the command is queued) or the running host is current; otherwise the actionable refusal of StaleHostReason, so a
-// stale host is never handed a command it would fail ("placing a turn needs a bound launch"). The command is not queued then.
+// started after the command is queued) or the running host is current. A stale host (StaleHostReason) is stopped, and the caller's
+// ensureHost then starts a current one, only when nothing depends on it (hostBusy); otherwise the command is not queued and the
+// person gets the actionable text, never a stale host handed a command it would fail ("placing a turn needs a bound launch").
 func ensureCurrentHost(cfg *Deps) error {
-	if why := StaleHostReason(cfg.DBPath()); why != "" {
-		return clicore.InvalidInput("%s", why)
+	why := StaleHostReason(cfg.DBPath())
+	if why == "" {
+		return nil
+	}
+	busy := hostBusy(cfg)
+	if busy == "" {
+		if err := stopStaleHost(cfg); err == nil {
+			return nil
+		} else {
+			busy = "it could not be stopped by itself (" + err.Error() + ")"
+		}
+	}
+	return clicore.InvalidInput("%s; it was not restarted automatically because %s", why, busy)
+}
+
+// hostBusy says what depends on the running host, "" when nothing does: an open-ended run, a coder turn that has not ended, a
+// queued command or an open ask. Anything it cannot read counts as busy. It reads the database only; the host's own lock is held
+// by the host, so the check cannot be atomic with the stop: a turn that starts in between is left running by the stop (a stopped
+// host leaves its turns running and the next host re-attaches to them), so the race costs a restart, never a turn.
+func hostBusy(cfg *Deps) string {
+	db, err := cfg.OpenDB()
+	if err != nil {
+		return "the database could not be read"
+	}
+	defer db.Close()
+	checks := []struct{ what, q string }{
+		{"an open-ended run is open", `SELECT COUNT(*) FROM doomsday_runs WHERE state <> 'quiescent'`},
+		{"a coder turn is running", `SELECT COUNT(*) FROM ai_chat_turns WHERE status NOT IN ('completed','failed','cancelled','interrupted')`},
+		{"a command is queued for the host", `SELECT COUNT(*) FROM coder_session_commands WHERE status = 'pending'`},
+		{"a question is waiting for an answer", `SELECT COUNT(*) FROM coder_session_asks WHERE status = 'open'`},
+	}
+	for _, c := range checks {
+		var n int
+		if err := db.DB.QueryRow(c.q).Scan(&n); err != nil {
+			return "the state of the host's work could not be read"
+		}
+		if n > 0 {
+			return c.what
+		}
+	}
+	return ""
+}
+
+// stopStaleHost stops the running host the way `coder host stop` does (the process must still be the one host.json names).
+func stopStaleHost(cfg *Deps) error {
+	info, ok := readHostInfo(cfg)
+	if !ok || info.PID <= 1 || info.Stamp == "" || stampOf(info.PID) != info.Stamp {
+		return errors.New("host.json does not name the running host")
+	}
+	if _, err := stopHost(cfg, info); err != nil {
+		return err
+	}
+	for deadline := time.Now().Add(hostStopSettle); hostRunning(cfg) && time.Now().Before(deadline); {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if hostRunning(cfg) {
+		return errors.New("it is still running")
 	}
 	return nil
 }

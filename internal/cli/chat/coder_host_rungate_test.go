@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -124,8 +125,15 @@ func execOn(t *testing.T, cfg *Deps, q string) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if _, err := db.DB.Exec(q); err != nil {
+	conn, err := db.DB.Conn(context.Background()) // one connection: the pragma and the statement must share it
+	if err != nil {
 		t.Fatal(err)
+	}
+	defer conn.Close()
+	for _, stmt := range []string{`PRAGMA foreign_keys = OFF`, q} {
+		if _, err := conn.ExecContext(context.Background(), stmt); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
