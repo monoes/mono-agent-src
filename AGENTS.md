@@ -3984,7 +3984,11 @@ monoagentcli --profile <id> --json browser network --tab 812 --failed
   chooser instead and fills the input behind it, so no native dialog shows
   (a page that opens its chooser from a detached input or
   `showOpenFilePicker()` is not reached: `set_files: clicking it did not
-  open a file chooser`). Files are read by the CLI (any path, `~` expanded,
+  open a file chooser`). Only the top document is searched, so a file input
+  inside an iframe is not reached (`set_files: no element matched … (file
+  inputs inside iframes are not supported)`; the manifest has no
+  `all_frames`, deliberately): use the page's own input in the top
+  document. Files are read by the CLI (any path, `~` expanded,
   at most 10 and 20 MB together). For an agent the gate is the one of form
   submits: on an allowed page that is not local, at every level but
   `full-no-approvals`, the upload becomes a Human-in-Loop item (`via`
