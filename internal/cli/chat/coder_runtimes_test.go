@@ -246,6 +246,7 @@ func lastAgentExecLine(t *testing.T, argsLog string) string {
 // when the scan names that target, mono-agent's own AGENTS.md when it names
 // none (an older monomind). Never Claude's setup.
 func TestCoderFolderForAgentsMDRuntimesHasNoClaudeSetup(t *testing.T) {
+	skipWithoutShell(t)
 	dbPath := newChatCLITestDB(t)
 	dir := t.TempDir()
 	bin, argsLog := filepath.Join(dir, "monomind"), filepath.Join(dir, "args.log")

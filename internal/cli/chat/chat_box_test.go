@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -191,7 +192,7 @@ func TestCoderBoxProtectsTheConfiguredDatabase(t *testing.T) {
 		}
 	}
 	// A path that cannot be resolved for another reason than being absent refuses the turn.
-	if _, err := coderBox(coderSettings{Box: "strict"}, ai.AccessCoding, "/w", "claude", "", filepath.Join(real, "below-a-file.db")); codeOf(err) != CodeBoxDBPath {
+	if _, err := coderBox(coderSettings{Box: "strict"}, ai.AccessCoding, "/w", "claude", "", filepath.Join(real, "below-a-file.db")); runtime.GOOS != "windows" && codeOf(err) != CodeBoxDBPath { // Windows reports a path below a file as simply absent
 		t.Errorf("unresolvable path: %v", err)
 	}
 	// Not created yet: still protected where it will be.

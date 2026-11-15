@@ -24,6 +24,7 @@ import (
 // uses the built-in roles.
 func writeOrgMonomind(t *testing.T) (bin, argsLog string) {
 	t.Helper()
+	skipWithoutShell(t)
 	dir := t.TempDir()
 	bin = filepath.Join(dir, "monomind")
 	argsLog = filepath.Join(dir, "args.log")
@@ -322,6 +323,7 @@ func TestCoderSetOrgSettings(t *testing.T) {
 // worker holds the write lease for about a second.
 func writeLeadEditMonomind(t *testing.T) (bin, reply string) {
 	t.Helper()
+	skipWithoutShell(t)
 	dir := t.TempDir()
 	bin = filepath.Join(dir, "monomind")
 	reply = filepath.Join(dir, "wait-reply.json")
@@ -410,6 +412,7 @@ func TestDynamicOrgLeadEditWhileAWriterRunsIsReported(t *testing.T) {
 // asks the user a question with ask_user and reports the answer it got.
 func writeAskingOrgMonomind(t *testing.T) (bin, dir string) {
 	t.Helper()
+	skipWithoutShell(t)
 	dir = t.TempDir()
 	bin = filepath.Join(dir, "monomind")
 	script := `#!/bin/sh
