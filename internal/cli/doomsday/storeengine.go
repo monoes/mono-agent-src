@@ -32,6 +32,10 @@ type StoreEngine struct {
 	// Binding says whether security.peercred_binding is on. A run needs bound turns: nil, an error and false all
 	// refuse the start.
 	Binding func(ctx context.Context) (bool, error)
+	// StaleHostRestart stops an idle stale coder host so a current one starts, or says why it cannot (busy, identity not verifiable,
+	// the stop failed). Only `start` calls it, after Binding answered StaleHost; Binding and the availability probe never restart.
+	// Nil: a stale host refuses the start.
+	StaleHostRestart func(ctx context.Context) error
 	// UnboundReason is non-empty when binding is off because this machine cannot run the binding service: the run then starts
 	// without binding (with a warning and an audit row) instead of being refused. Nil: binding off always refuses.
 	UnboundReason func(ctx context.Context) string
@@ -102,6 +106,26 @@ type UnsupportedHere string
 
 func (u UnsupportedHere) Error() string { return string(u) }
 
+// StaleHost is returned by a Binding func when the running coder host is older than this program. It is a refusal like
+// UnsupportedHere (the text is shown unchanged, the availability probe only reports it), but `start` may first try
+// RestartStaleHost and ask again.
+type StaleHost string
+
+func (s StaleHost) Error() string { return string(s) }
+
+// HostRestarter is an Engine that can restart an idle stale coder host (`start` asks it after a StaleHost refusal).
+type HostRestarter interface {
+	RestartStaleHost(ctx context.Context) error
+}
+
+// RestartStaleHost is StaleHostRestart; without one the stale host stays a refusal.
+func (e *StoreEngine) RestartStaleHost(ctx context.Context) error {
+	if e.StaleHostRestart == nil {
+		return errors.New("the stale coder host cannot be restarted from here")
+	}
+	return e.StaleHostRestart(ctx)
+}
+
 // RequireBinding is nil only when binding is on, or off because this machine cannot run the service (the run then goes unbound).
 // The start asks it before the charter is shown and again in Enter.
 func (e *StoreEngine) RequireBinding(ctx context.Context) error {
@@ -116,7 +140,8 @@ func (e *StoreEngine) bindingDecision(ctx context.Context) (unbound string, err 
 	}
 	on, err := e.Binding(ctx)
 	var un UnsupportedHere
-	if errors.As(err, &un) {
+	var stale StaleHost
+	if errors.As(err, &un) || errors.As(err, &stale) {
 		return "", err
 	}
 	if err != nil {

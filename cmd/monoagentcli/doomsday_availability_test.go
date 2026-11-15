@@ -217,7 +217,7 @@ func TestStartAndAvailabilityRefuseUpFrontWhileAStaleCoderHostRuns(t *testing.T)
 		t.Fatalf("no host: on=%v err=%v", on, err)
 	}
 	staleHostRunning(t, cfg)
-	var un doomsdaycli.UnsupportedHere
+	var un doomsdaycli.StaleHost
 	if _, err := b(context.Background()); !errors.As(err, &un) || !strings.Contains(err.Error(), "coder host stop") {
 		t.Fatalf("stale host, start: %v", err)
 	}
@@ -325,8 +325,53 @@ func TestStaleHostAndExplicitOffNameTheBindingFirst(t *testing.T) {
 		t.Fatalf("availability: ok=%v %q", ok, reason)
 	}
 	procbind.ForTestSetReady(t, errors.New("old kernel"))
-	var un doomsdaycli.UnsupportedHere
+	var un doomsdaycli.StaleHost
 	if _, err := b(context.Background()); !errors.As(err, &un) || !strings.Contains(err.Error(), "coder host stop") {
 		t.Fatalf("explicit off, cannot bind, stale host: %v", err)
+	}
+}
+
+// The start may restart an idle stale coder host (the wiring's StaleHostRestart, the machinery a send uses); the binding check
+// and the app's availability only report, so neither takes the restart lock nor signals anything, and a restart that cannot be
+// done safely says why (busy, identity not verifiable). Revert proof: calling the restart from Binding or cheapOpenModeCheck makes
+// host-restart.lock appear and turns the first check red; dropping the wiring field turns the second red.
+func TestStaleHostRestartIsTheStartsAloneAndRefusesWhatItCannotDoSafely(t *testing.T) {
+	procbind.ForTestSetIssuance(t, true)
+	procbind.ForTestSetReady(t, nil)
+	cfg, _ := chatPathSetup(t, true)
+	db, err := initDB(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	w := doomsdayWiringReal(cfg, db.DB)
+	staleHostRunning(t, cfg)
+	lock := filepath.Join(coderhost.HostDir(expandPath(cfg.DBPath)), "host-restart.lock")
+
+	var stale doomsdaycli.StaleHost
+	if _, err := w.Binding(context.Background()); !errors.As(err, &stale) {
+		t.Fatalf("Binding on a stale host: %v", err)
+	}
+	if ok, _ := cheapOpenModeCheck(cfg); ok {
+		t.Fatal("availability on a stale host")
+	}
+	if _, err := os.Stat(lock); !os.IsNotExist(err) {
+		t.Fatalf("the read-only checks took the restart lock (%v)", err)
+	}
+
+	if w.StaleHostRestart == nil {
+		t.Fatal("the wiring has no stale-host restart")
+	}
+	if err := w.StaleHostRestart(context.Background()); err == nil || !strings.Contains(err.Error(), "run `doomsday start` again") || !strings.Contains(err.Error(), "can identify") {
+		t.Fatalf("an idle host that cannot be identified: %v", err)
+	}
+	if _, err := db.DB.Exec(`INSERT OR IGNORE INTO profiles (id, name) VALUES (?, 'P')`, cfg.ProfileID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.DB.Exec(`INSERT INTO doomsday_runs (profile, generation, charter_id, state, mac) VALUES (?, 1, 'c1', 'running', x'01')`, cfg.ProfileID); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.StaleHostRestart(context.Background()); err == nil || !strings.Contains(err.Error(), "an open-ended run is open") {
+		t.Fatalf("a busy stale host: %v", err)
 	}
 }
