@@ -172,8 +172,8 @@ func TestAnswerIsNotRefusedBecauseOfTheQuestionItAnswers(t *testing.T) {
 	for name, stmts := range map[string][]string{
 		"another open question":          {question(7), question(8)},
 		"an ask that has the same id":    {`INSERT INTO coder_session_asks (id, profile_id, asker_session, asker_conv, ancestor_session, ancestor_conv, level, importance, question, bytes, status, created_at) VALUES (7,'default',1,'c1',2,'c2',1,'critical','q',1,'open','x')`},
-		"another question's person item": {item(8)},
-		"a plan waiting for the person":  {`INSERT INTO coder_session_person_items (profile_id, conversation_id, kind, ref_id, created_at) VALUES ('default','c1','plan_approval',7,'x')`},
+		"another question's person item": {question(8), item(8)},
+		"a plan waiting for the person":  {strings.Replace(draftPlan, "(5,", "(7,", 1), strings.Replace(planItem, ",5,", ",7,", 1)},
 	} {
 		cfg, stopped := staleHostFixture(t)
 		for _, st := range stmts {

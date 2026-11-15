@@ -237,6 +237,19 @@ func newQuestionsAnswerCmd(cfg *Deps) *cobra.Command {
 				return err
 			}
 			if !noHost {
+				// the question must be one of this conversation's, and open, before a host is stopped for it
+				if err := withCoderStore(cfg, args[0], func(cs *coderhost.Store, profileID string) error {
+					q, qerr := cs.GetQuestion(profileID, id)
+					if qerr != nil || q.ConversationID != args[0] {
+						return clicore.NotFound("no question %d for %s", id, args[0])
+					}
+					if q.Status != "open" { // answering a settled question must not restart an idle host
+						return clicore.InvalidInput("question %d is not open (%s)", id, q.Status)
+					}
+					return nil
+				}); err != nil {
+					return err
+				}
 				if err := ensureCurrentHostExcept(cfg, id); err != nil {
 					return err
 				}
