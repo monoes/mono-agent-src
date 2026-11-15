@@ -40,7 +40,7 @@ func TestMacArgvWithSpacesIsReadWholeAndTheCheckStaysStrict(t *testing.T) {
 	}
 	imp := []string{"/Applications/Mono Agent.app/Contents/MacOS/sh", "-c", "monoagentcli --db-path x coder host run"}
 	got, err = parseProcArgs2(procArgs2(imp[0], imp...))
-	if err != nil || verifyHostArgs(got, db) == nil {
+	if err == nil && verifyHostArgs(got, db) == nil {
 		t.Fatalf("an impostor passed: %q %v", got, err)
 	}
 	for name, raw := range map[string][]byte{"empty": nil, "short": {1, 0}, "argc beyond the data": append(binary.LittleEndian.AppendUint32(nil, 9), "/x\x00a\x00"...)} {
@@ -87,4 +87,28 @@ func TestHostDbPathIsComparedResolved(t *testing.T) {
 			t.Errorf("%s passed", name)
 		}
 	}
+}
+
+// The kernel's layout: argc, exec path, NUL padding, argv, then the environment. Whatever is wrong with the vector, the pipeline of
+// parse and check refuses it; a vector that is not the host's is never read as one.
+func TestProcArgs2OddLayoutsAreRefused(t *testing.T) {
+	const exe = "/Applications/Mono Agent.app/Contents/MacOS/monoagentcli"
+	const db = "/Users/a b/monoagent.db"
+	host := []string{exe, "--db-path", db, "coder", "host", "run"}
+	refused := func(name string, raw []byte) {
+		t.Helper()
+		args, err := parseProcArgs2(raw)
+		if err == nil && verifyHostArgs(args, db) == nil {
+			t.Errorf("%s was accepted: %q", name, args)
+		}
+	}
+	if args, err := parseProcArgs2(procArgs2(exe, host...)); err != nil || verifyHostArgs(args, db) != nil {
+		t.Fatalf("the real layout with its environment is refused: %q %v", args, err)
+	}
+	tooMany := procArgs2(exe, host...)
+	binary.LittleEndian.PutUint32(tooMany, uint32(len(host)+2)) // argc larger than the arguments: the environment would be read as arguments
+	refused("argc larger than the arguments", tooMany)
+	refused("an empty argv[0]", procArgs2(exe, append([]string{""}, host[1:]...)...))
+	refused("the executable is not monoagentcli", procArgs2("/bin/sh", host...))
+	refused("argv[0] says monoagentcli but the executable is not", procArgs2("/usr/bin/sleep", host...))
 }

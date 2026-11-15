@@ -146,10 +146,12 @@ func parseProcArgs2(raw []byte) ([]string, error) {
 	if argc <= 0 || argc > len(rest) {
 		return nil, bad
 	}
-	end := bytes.IndexByte(rest, 0) // the executable path
-	if end < 0 {
+	end := bytes.IndexByte(rest, 0) // the executable path: the kernel's own, unlike argv[0]
+	if end < 0 || !strings.HasPrefix(filepath.Base(string(rest[:end])), "monoagentcli") {
 		return nil, bad
 	}
+	// The padding after the path is NULs of an unspecified count, so an empty argv[0] cannot be told from it: it is refused below
+	// (a swallowed one would also leave the environment to be read as arguments, which verifyHostArgs refuses).
 	rest = bytes.TrimLeft(rest[end:], "\x00")
 	args := make([]string, 0, argc)
 	for len(args) < argc {
@@ -159,6 +161,9 @@ func parseProcArgs2(raw []byte) ([]string, error) {
 		}
 		args = append(args, string(rest[:end]))
 		rest = rest[end+1:]
+	}
+	if args[0] == "" {
+		return nil, bad
 	}
 	return args, nil
 }

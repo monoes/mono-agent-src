@@ -3,6 +3,7 @@
 package chat
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -64,5 +65,16 @@ func TestAnswerWithAnInvalidQuestionIdDoesNotRestartTheHost(t *testing.T) {
 		if *stopped != 0 {
 			t.Fatalf("question %s restarted the host", id)
 		}
+	}
+}
+
+// #1663 (review): a question that is already answered is refused before the host is touched.
+func TestAnswerOfASettledQuestionDoesNotRestartTheHost(t *testing.T) {
+	cfg, stopped := staleHostFixture(t)
+	store := openTestChatStore(t, cfg.DBPath())
+	conv, _ := store.CreateConversationMode("default", "agent", "general", "claude", "", "", ai.ModeCoder, t.TempDir())
+	execOn(t, cfg, fmt.Sprintf(`INSERT INTO coder_session_questions (id, profile_id, conversation_id, class, status, created_at) VALUES (4,'default','%s','ambiguity','answered','x')`, conv.ID))
+	if _, code := runSessionsCLI(t, cfg, "questions", "answer", conv.ID, "4", "yes"); code == 0 || *stopped != 0 {
+		t.Fatalf("code=%d stops=%d", code, *stopped)
 	}
 }
