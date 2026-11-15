@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -138,7 +139,7 @@ func TestProof_ProoflessListenerIsNeverSentTheTokenOnAnyPort(t *testing.T) {
 	_, _ = generateToken()
 	f := newFakeBridge(t, nil)
 	err := relayOnce(f.URL)
-	if !errors.Is(err, ErrBridgeNoProof) || !strings.Contains(err.Error(), "systemctl --user restart monoagent-bridge") || !strings.Contains(err.Error(), "bridge on "+strings.TrimPrefix(f.URL, "http://127.0.0.1:")) {
+	if !errors.Is(err, ErrBridgeNoProof) || !strings.Contains(err.Error(), BridgeRestartAdvice(runtime.GOOS)) || !strings.Contains(err.Error(), "bridge on "+strings.TrimPrefix(f.URL, "http://127.0.0.1:")) {
 		t.Fatalf("err = %v, want the actionable old-bridge error naming the port", err)
 	}
 	if f.tokenSeen() {

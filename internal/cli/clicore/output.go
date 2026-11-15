@@ -2,10 +2,12 @@ package clicore
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/olekukonko/tablewriter"
@@ -44,19 +46,35 @@ func TruncateStr(s string, n int) string {
 // userHomeDir is os.UserHomeDir; a test replaces it.
 var userHomeDir = os.UserHomeDir
 
-// ExpandPathE is ExpandPath that reports a home directory it cannot find.
-func ExpandPathE(path string) (string, error) { return path, nil }
+// ExpandPathE expands a leading ~ to the user's home directory. A path that
+// needs the home directory when there is none is an error, not a literal "~/..."
+// that the caller would then create under the working directory.
+func ExpandPathE(path string) (string, error) { return expandPathFor(runtime.GOOS, path) }
 
-func expandPathFor(goos, path string) (string, error) { return path, nil }
+func expandPathFor(goos, path string) (string, error) {
+	rest, ok := strings.CutPrefix(path, "~/")
+	if !ok && goos == "windows" {
+		rest, ok = strings.CutPrefix(path, `~\`)
+	}
+	if path == "~" {
+		rest, ok = "", true
+	}
+	if !ok {
+		return path, nil
+	}
+	home, err := userHomeDir()
+	if err != nil || home == "" {
+		return "", errors.New("cannot resolve your home directory: set HOME (USERPROFILE on Windows) or pass an absolute --db-path")
+	}
+	return filepath.Join(home, rest), nil
+}
 
-// ExpandPath expands ~ to the user's home directory.
+// ExpandPath expands ~ to the user's home directory. Without a home directory
+// it returns the path unchanged; a caller that creates files from the result
+// uses ExpandPathE instead.
 func ExpandPath(path string) string {
-	if strings.HasPrefix(path, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return path
-		}
-		return filepath.Join(home, path[2:])
+	if p, err := ExpandPathE(path); err == nil {
+		return p
 	}
 	return path
 }

@@ -400,8 +400,10 @@ func (d Deps) installer() autostart.Installer {
 }
 
 // shQuote quotes a path for the command the operator pastes: POSIX single quotes, or double quotes on Windows.
-func shQuote(s string) string {
-	if runtime.GOOS == "windows" {
+func shQuote(s string) string { return shQuoteFor(runtime.GOOS, s) }
+
+func shQuoteFor(goos, s string) string {
+	if goos == "windows" {
 		if !strings.ContainsAny(s, " \t&()^%!") {
 			return s
 		}

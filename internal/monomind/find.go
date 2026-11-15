@@ -26,8 +26,8 @@ type ErrNotFound struct {
 }
 
 func (e *ErrNotFound) Error() string {
-	return "monomind not found (AI engine) — install it with `npm install -g @monoes/monomindcli` " +
-		"or set " + EnvOverride + " to the binary; tried: " + strings.Join(e.Tried, ", ")
+	return "monomind not found (AI engine) — run `monoagentcli setup` (it installs it), or install it with " +
+		"`npm install -g @monoes/monomindcli`, or set " + EnvOverride + " to the binary; tried: " + strings.Join(e.Tried, ", ")
 }
 
 // CandidatePaths returns the discovery ladder (protocol plan §6): env

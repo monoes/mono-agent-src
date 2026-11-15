@@ -248,7 +248,10 @@ func initDB(cfg *globalConfig) (*storage.Database, error) {
 	if inClientMode() { // client mode never opens the local database (client_mode.go)
 		return nil, errClientModeDB
 	}
-	dbPath := expandPath(cfg.DBPath)
+	dbPath, err := clicore.ExpandPathE(cfg.DBPath)
+	if err != nil {
+		return nil, errInvalidInput("%v", err)
+	}
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0700); err != nil {
 		return nil, err
 	}
@@ -360,6 +363,8 @@ func resolveProfileID(db *sql.DB, idOrName string) (string, error) {
 		msg := fmt.Sprintf("profile %q not found (checked both id and name)", idOrName)
 		if list := profiledir.Describe(context.Background(), db); list != "" {
 			msg += "; available profiles: " + list
+		} else {
+			msg += "; there are no profiles yet: create one with `monoagentcli profile create <name>`"
 		}
 		return "", profileResolveError{errInvalidInput("%s", msg)}
 	case errors.As(err, &ambiguous):
