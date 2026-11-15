@@ -48,7 +48,7 @@ func (s *Store) EnqueueSendBounded(c Command, b SendBounds) (out Command, dedupe
 		q := connQuerier{conn}
 		if b.NoTurnYet {
 			var turns int
-			if err := q.QueryRow(`SELECT COUNT(*) FROM ai_chat_turns WHERE profile_id = ? AND conversation_id = ?`, c.ProfileID, c.ConversationID).Scan(&turns); err != nil {
+			if err := q.QueryRow(`SELECT COUNT(*) FROM ai_chat_turns WHERE profile_id = ? AND conversation_id = ? AND NOT (prompt = '' AND id LIKE 'system-%')`, c.ProfileID, c.ConversationID).Scan(&turns); err != nil {
 				return err
 			}
 			if turns > 0 {

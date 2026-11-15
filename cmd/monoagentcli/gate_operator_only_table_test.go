@@ -40,6 +40,8 @@ func operatorOnlyRows() []opRow {
 		{path: "doomsday finish", build: newDoomsdayCmd, args: []string{"finish"}},
 		// The boss session of a run started from a chat: it creates a conversation and a session, so only the user.
 		// Steering of an open-ended run's boss: a message to a full-access turn, so only the user (a session's turn never is).
+		// A refused turn written into a transcript: forged text there reads as the host's own message.
+		{path: "chat history refused", build: newChatCmd, args: []string{"history", "refused", "c1", "--reason", "x"}},
 		{path: "coder sessions steer", build: newCoderCmd, args: []string{"sessions", "steer", "c1", "x"}},
 		{path: "doomsday boss new", build: newDoomsdayCmd, args: []string{"boss", "new", "--conversation", "c1"}},
 		{path: "doomsday rubric", build: newDoomsdayCmd, args: []string{"rubric", "c1", "approve", "--dossier", "abcdef12"}},

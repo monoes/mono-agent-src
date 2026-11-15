@@ -131,6 +131,7 @@ func newChatHistoryCmd(cfg *Deps) *cobra.Command {
 		newChatHistoryEventsCmd(cfg),
 		newChatHistoryDeleteCmd(cfg),
 		newChatHistoryFinishCmd(cfg),
+		newChatHistoryRefusedCmd(cfg),
 		newChatHistoryReconcileCmd(cfg),
 		newChatHistoryTranscriptCmd(cfg),
 		newChatHistorySetOrgCmd(cfg),
