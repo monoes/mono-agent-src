@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/nodes/nodeprofile"
@@ -62,9 +63,11 @@ func (n *SyncOutlookMessageNode) Execute(
 		messageID, _ := data["id"].(string)
 		var sentAt time.Time
 		if receivedRaw, _ := data["receivedDateTime"].(string); receivedRaw != "" {
-			if t, err := time.Parse(time.RFC3339, receivedRaw); err == nil {
-				sentAt = t
+			t, err := time.Parse(time.RFC3339, receivedRaw)
+			if err != nil {
+				return nil, fmt.Errorf("people.sync_outlook_message: message %q: receivedDateTime %q is not an RFC 3339 time", messageID, receivedRaw)
 			}
+			sentAt = t
 		}
 
 		// Provenance travels with the item from the node that fetched it, so
@@ -137,6 +140,8 @@ func (n *SyncOutlookMessageNode) Execute(
 
 		for _, ea := range counterparts {
 			counterpartEmail, _ := ea["address"].(string)
+			// One mailbox is one person whatever the case the sender wrote it in.
+			counterpartEmail = strings.ToLower(strings.TrimSpace(counterpartEmail))
 			counterpartName, _ := ea["name"].(string)
 			if counterpartEmail == "" {
 				continue // Cannot upsert a person without an identifying email.

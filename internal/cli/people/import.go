@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -68,17 +69,17 @@ func (d Deps) newPeopleImportCmd() *cobra.Command {
 				 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 				 ON CONFLICT(platform_username, platform, profile_id)
 				 DO UPDATE SET
-				   full_name       = excluded.full_name,
-				   image_url       = excluded.image_url,
-				   contact_details = excluded.contact_details,
-				   website         = excluded.website,
-				   content_count   = excluded.content_count,
-				   follower_count  = excluded.follower_count,
-				   following_count = excluded.following_count,
-				   introduction    = excluded.introduction,
-				   is_verified     = excluded.is_verified,
-				   category        = excluded.category,
-				   job_title       = excluded.job_title,
+				   full_name       = COALESCE(excluded.full_name,              people.full_name),
+				   image_url       = COALESCE(excluded.image_url,              people.image_url),
+				   contact_details = COALESCE(excluded.contact_details,        people.contact_details),
+				   website         = COALESCE(excluded.website,                people.website),
+				   content_count   = COALESCE(NULLIF(excluded.content_count,   0), people.content_count),
+				   follower_count  = COALESCE(excluded.follower_count,         people.follower_count),
+				   following_count = COALESCE(NULLIF(excluded.following_count, 0), people.following_count),
+				   introduction    = COALESCE(excluded.introduction,           people.introduction),
+				   is_verified     = COALESCE(NULLIF(excluded.is_verified,     0), people.is_verified),
+				   category        = COALESCE(excluded.category,               people.category),
+				   job_title       = COALESCE(excluded.job_title,              people.job_title),
 				   updated_at      = excluded.updated_at`,
 			)
 			if err != nil {
@@ -94,7 +95,8 @@ func (d Deps) newPeopleImportCmd() *cobra.Command {
 			// for outreach (peoplereview.NotOperatorCategory).
 			notTheUser := opgate.Refusal()
 
-			for _, raw := range rawPeople {
+			for i, raw := range rawPeople {
+				row := i + 1
 				username, _ := raw["platform_username"].(string)
 				if username == "" {
 					username, _ = raw["username"].(string)
@@ -110,14 +112,16 @@ func (d Deps) newPeopleImportCmd() *cobra.Command {
 				introduction, _ := raw["introduction"].(string)
 				category, _ := raw["category"].(string)
 				jobTitle, _ := raw["job_title"].(string)
-				followerCount, _ := raw["follower_count"].(string)
-
-				var contentCount, followingCount int
-				if v, ok := raw["content_count"].(float64); ok {
-					contentCount = int(v)
+				followerCount := numberOrString(raw["follower_count"])
+				contentCount, err := countField(raw, "content_count", row)
+				if err != nil {
+					tx.Rollback()
+					return d.InvalidInput("%v; nothing was imported", err)
 				}
-				if v, ok := raw["following_count"].(float64); ok {
-					followingCount = int(v)
+				followingCount, err := countField(raw, "following_count", row)
+				if err != nil {
+					tx.Rollback()
+					return d.InvalidInput("%v; nothing was imported", err)
 				}
 
 				var isVerified int
@@ -136,14 +140,20 @@ func (d Deps) newPeopleImportCmd() *cobra.Command {
 						tx.Rollback()
 						return err
 					}
-					category, err = peoplereview.NotOperatorCategory(stored, category, category != "", introduction, "an import an agent, the chat or a workflow runs")
+					// A row that leaves the draft out keeps the stored one (the
+					// upsert coalesces), so it is not a change of the text.
+					intro := introduction
+					if intro == "" && stored.Found {
+						intro = stored.Introduction
+					}
+					category, err = peoplereview.NotOperatorCategory(stored, category, category != "", intro, "an import an agent, the chat or a workflow runs")
 					if err != nil {
 						tx.Rollback()
 						return d.InvalidInput("importing %s: %v (%s); nothing was imported", username, err, notTheUser)
 					}
 				}
 
-				_, err := stmt.Exec(
+				_, err = stmt.Exec(
 					personID, username, strings.ToLower(platform),
 					nullableStr(fullName), nullableStr(imageURL),
 					nullableStr(contactDetails), nullableStr(website),
@@ -224,4 +234,38 @@ func nullableStr(s string) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: s, Valid: true}
+}
+
+// numberOrString reads a JSON string or number as the text it was written as;
+// anything else is empty (not given).
+func numberOrString(v interface{}) string {
+	switch n := v.(type) {
+	case string:
+		return n
+	case float64:
+		return strconv.FormatFloat(n, 'f', -1, 64)
+	}
+	return ""
+}
+
+// countField reads a count that arrives as a JSON number or a numeric string.
+// A missing key is 0 (not given); a value that is neither is an error naming
+// the row, never a silent zero.
+func countField(raw map[string]interface{}, key string, row int) (int, error) {
+	switch n := raw[key].(type) {
+	case nil:
+		return 0, nil
+	case float64:
+		return int(n), nil
+	case string:
+		if strings.TrimSpace(n) == "" {
+			return 0, nil
+		}
+		f, err := strconv.ParseFloat(strings.TrimSpace(n), 64)
+		if err != nil {
+			return 0, fmt.Errorf("row %d: %s %q is not a number", row, key, n)
+		}
+		return int(f), nil
+	}
+	return 0, fmt.Errorf("row %d: %s is not a number", row, key)
 }
