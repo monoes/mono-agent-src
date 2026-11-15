@@ -5,6 +5,7 @@ import { api, subscribeEvent } from '../services/api.js'
 import { useReloadOnActivate } from '../lib/useReloadOnActivate'
 import { confirm } from '../components/ConfirmDialog.jsx'
 import { useTranslation } from 'react-i18next'
+import { loginRequiredInError } from '../lib/accountBindingWatch.js'
 import { commsByPerson, isCompany, isOwnAccount, onCommsChanged } from '../lib/commsStatus.js'
 
 // ── Tag colour palette ────────────────────────────────────────
@@ -872,7 +873,8 @@ export default function People({ onProfile, isActive = true, onNavigate }) {
         setTagsMap({})
       }
     } catch (e) {
-      setError(e?.message || 'Failed to load people')
+      // Signed out: the account gate (watching every binding) takes over.
+      if (!loginRequiredInError(e)) setError(e?.message || 'Failed to load people')
     } finally {
       setLoading(false)
     }

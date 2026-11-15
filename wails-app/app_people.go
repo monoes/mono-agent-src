@@ -156,8 +156,8 @@ func (a *App) runReadCLI(result interface{}, args ...string) error {
 // GetPeople returns one page of the active profile's people, newest first —
 // `people list`. limit <= 0 means every person (and ignores offset).
 func (a *App) GetPeople(platform, search string, limit, offset int) ([]PersonInfo, error) {
-	if a.signedOut() != nil {
-		return nil, nil
+	if err := a.signedOut(); err != nil {
+		return nil, err
 	}
 	args := append([]string{"people", "list"}, peopleFilterArgs(platform, search)...)
 	if limit > 0 {
@@ -184,8 +184,8 @@ func (a *App) GetPeople(platform, search string, limit, offset int) ([]PersonInf
 // GetPeopleCount is the People page's total for the same filter —
 // `people count`.
 func (a *App) GetPeopleCount(platform, search string) (int, error) {
-	if a.signedOut() != nil {
-		return 0, nil
+	if err := a.signedOut(); err != nil {
+		return 0, err
 	}
 	var res struct {
 		Count int `json:"count"`
@@ -211,8 +211,8 @@ func (a *App) DeletePeople(ids []string) error {
 // GetPersonDetail returns one person, or nil when not in the active
 // profile — `people get`.
 func (a *App) GetPersonDetail(id string) (*PersonDetailInfo, error) {
-	if a.signedOut() != nil {
-		return nil, nil
+	if err := a.signedOut(); err != nil {
+		return nil, err
 	}
 	var p struct {
 		PersonDetailInfo
@@ -228,8 +228,8 @@ func (a *App) GetPersonDetail(id string) (*PersonDetailInfo, error) {
 // GetPersonInteractions lists what the profile's workflows did to a person,
 // newest first — `people interactions`.
 func (a *App) GetPersonInteractions(id string) ([]PersonInteraction, error) {
-	if a.signedOut() != nil {
-		return nil, nil
+	if err := a.signedOut(); err != nil {
+		return nil, err
 	}
 	var out []PersonInteraction
 	if err := a.runReadCLI(&out, "people", "interactions", id); err != nil {
