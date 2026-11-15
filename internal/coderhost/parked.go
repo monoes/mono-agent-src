@@ -458,3 +458,19 @@ func (s *Store) releaseWaiting(profileID, conversationID string) error {
 	_, err := s.db.Exec(`UPDATE coder_sessions SET state = 'idle', updated_at = ? WHERE profile_id = ? AND conversation_id = ? AND state = 'waiting_user'`, s.stamp(), profileID, conversationID)
 	return err
 }
+
+// RepairWaiting moves sessions that are waiting_user with no open question back to idle: the release that
+// follows an answer can fail after the answer was queued, and the session is not settled again until a turn ends.
+// One statement (so one transaction), at most pendingBatch sessions a call, and nothing is written when every
+// waiting session still has a question to wait for. A running or paused session is never touched.
+func (s *Store) RepairWaiting() (int, error) {
+	res, err := s.db.Exec(`UPDATE coder_sessions SET state = 'idle', updated_at = ? WHERE state = 'waiting_user' AND (profile_id, conversation_id) IN (
+		SELECT x.profile_id, x.conversation_id FROM coder_sessions x WHERE x.state = 'waiting_user' AND NOT EXISTS (
+			SELECT 1 FROM coder_session_questions q WHERE q.profile_id = x.profile_id AND q.conversation_id = x.conversation_id AND q.status = 'open')
+		ORDER BY x.updated_at LIMIT ?)`, s.stamp(), pendingBatch)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}

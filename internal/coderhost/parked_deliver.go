@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -257,29 +258,56 @@ func (s *Store) pendingGatedAnswers(profileID, conversationID string) int {
 	return n
 }
 
+// lost is a closed question whose answer note failed.
+type lost struct {
+	id, cmd, decision int64
+	profile, conv     string
+	expired           bool // the note waited too long (the max_concurrent cap can hold one): not a failure of the answer
+}
+
+// failedAnswers reads one batch of lost answers, oldest first, starting after the question the last pass ended on. A row
+// that fails for good therefore costs a turn, not the place of the rows behind it; the cursor wraps to the start once a
+// pass reaches the end.
+func (s *Store) failedAnswers() ([]lost, error) {
+	from := atomic.LoadInt64(&s.reopenCursor)
+	for {
+		rows, err := s.db.Query(`SELECT q.id, q.profile_id, q.conversation_id, q.command_id, q.decision_id, c.error LIKE ? FROM coder_session_questions q
+			JOIN coder_session_commands c ON c.id = q.command_id WHERE q.status != 'open' AND q.command_id > 0 AND c.status = 'failed' AND c.error NOT LIKE ? AND q.id > ? ORDER BY q.id LIMIT ?`,
+			expiredMarker+"%", startedMarker+"%", from, pendingBatch)
+		if err != nil {
+			return nil, err
+		}
+		var all []lost
+		for rows.Next() {
+			var l lost
+			if rows.Scan(&l.id, &l.profile, &l.conv, &l.cmd, &l.decision, &l.expired) == nil {
+				all = append(all, l)
+			}
+		}
+		rows.Close()
+		switch {
+		case len(all) == pendingBatch:
+			atomic.StoreInt64(&s.reopenCursor, all[len(all)-1].id)
+		case from > 0 && len(all) == 0:
+			from = 0 // nothing left behind the cursor: look from the start
+			atomic.StoreInt64(&s.reopenCursor, 0)
+			continue
+		default:
+			atomic.StoreInt64(&s.reopenCursor, 0)
+		}
+		return all, nil
+	}
+}
+
 // ReopenFailedAnswers gives a question back when the note that carried its answer (or default)
 // failed, was cancelled or expired before it ran: the session never heard the answer, so the
 // question is open again, and the ledger row of a default is marked not_applied (kept, so
 // no other row is rotated out for it). The host calls it on every pass.
 func (s *Store) ReopenFailedAnswers() error {
-	rows, err := s.db.Query(`SELECT q.id, q.profile_id, q.conversation_id, q.command_id, q.decision_id, c.error LIKE ? FROM coder_session_questions q
-		JOIN coder_session_commands c ON c.id = q.command_id WHERE q.status != 'open' AND q.command_id > 0 AND c.status = 'failed' AND c.error NOT LIKE ? LIMIT ?`, expiredMarker+"%", startedMarker+"%", pendingBatch)
+	all, err := s.failedAnswers()
 	if err != nil {
 		return err
 	}
-	type lost struct {
-		id, cmd, decision int64
-		profile, conv     string
-		expired           bool // the note waited too long (the max_concurrent cap can hold one): not a failure of the answer
-	}
-	var all []lost
-	for rows.Next() {
-		var l lost
-		if rows.Scan(&l.id, &l.profile, &l.conv, &l.cmd, &l.decision, &l.expired) == nil {
-			all = append(all, l)
-		}
-	}
-	rows.Close()
 	var errs []error
 	for _, l := range all {
 		// The question, its ledger row and the session move together, or none does and the next pass tries again.
