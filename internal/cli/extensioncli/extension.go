@@ -147,6 +147,10 @@ type pairReport struct {
 const pasteTokenHint = "Run `monoagentcli extension pair` and paste the token it prints into the extension side panel (Connection settings → Pairing token)."
 
 // pairingPageReport is openPairingPage's outcomes as data.
+func pairingRestartHint(goos string) string {
+	return "The running bridge was started with a different pairing token than this one (the token was reset, or the bridge runs under another HOME). Restart the bridge (`systemctl --user restart monoagent-bridge` if it runs as a service, otherwise stop and start `monoagentcli extension serve`), then pair again."
+}
+
 func pairingPageReport() pairReport {
 	_, base, ok := findRunningBridge()
 	if !ok {

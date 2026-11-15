@@ -65,6 +65,11 @@ func validNonce(n string) bool {
 	return err == nil
 }
 
+// BridgeRestartAdvice says how to restart an older bridge on goos.
+func BridgeRestartAdvice(goos string) string {
+	return "restart it: `systemctl --user restart monoagent-bridge` (or `monoagentcli update` restarts it)"
+}
+
 // Why a bridge could not be proven.
 var (
 	// ErrBridgeNoProof: the status answered without a proof (an older bridge, or

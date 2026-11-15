@@ -33,6 +33,9 @@ type setupOutcome struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+// declinedNote is a note for the JSON report when a fix needing a yes got none.
+func declinedNote(outcomes []setupOutcome) string { return "" }
+
 type setupJSON struct {
 	*health.Report
 	Fixes []setupOutcome `json:"fixes,omitempty"`

@@ -221,3 +221,16 @@ func TestSetupSharesOneStdinReader(t *testing.T) {
 		t.Fatal("a second reader would wrap stdin")
 	}
 }
+
+// With --json (or no terminal) confirm-class fixes are declined without a word on
+// stdout; the report carries a note saying so and how to accept.
+func TestDeclinedNoteTellsHowToAccept(t *testing.T) {
+	declined := []setupOutcome{{fixOutcome: fixOutcome{ID: "a", Outcome: "applied"}}, {fixOutcome: fixOutcome{ID: "services.daemon.start", Outcome: "declined"}}}
+	note := declinedNote(declined)
+	if !strings.Contains(note, "declined") || !strings.Contains(note, "--yes") {
+		t.Errorf("note = %q", note)
+	}
+	if got := declinedNote(declined[:1]); got != "" {
+		t.Errorf("nothing declined, note = %q", got)
+	}
+}

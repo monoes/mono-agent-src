@@ -238,3 +238,16 @@ func TestPortOverride_IgnoredWithAWarningUnlessOperator(t *testing.T) {
 		t.Errorf("a non-operator's bind = %q, %v: the override must not apply", addr, err)
 	}
 }
+
+func TestBridgeRestartAdviceByOS(t *testing.T) {
+	const linux = "restart it: `systemctl --user restart monoagent-bridge` (or `monoagentcli update` restarts it)"
+	if got := BridgeRestartAdvice("linux"); got != linux {
+		t.Errorf("linux = %q", got)
+	}
+	for _, goos := range []string{"darwin", "windows"} {
+		got := BridgeRestartAdvice(goos)
+		if strings.Contains(got, "systemctl") || !strings.Contains(got, "monoagentcli extension serve") {
+			t.Errorf("%s = %q", goos, got)
+		}
+	}
+}

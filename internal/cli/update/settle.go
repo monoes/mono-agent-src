@@ -89,3 +89,7 @@ func (d Deps) rollBackOne(ctx context.Context, s StaleCLI, failedPID int) (strin
 	}
 	return fmt.Sprintf("Rolled back %q to %s: the daemon is running it again. The new release did not start on this machine; running `monoagentcli update` again installs the same release and repeats this, so report it (with the daemon's log) instead.", target, s.Version), true
 }
+
+func manualUndoCommand(goos, bak, target string) string {
+	return "mv -f " + shQuote(bak) + " " + shQuote(target)
+}
