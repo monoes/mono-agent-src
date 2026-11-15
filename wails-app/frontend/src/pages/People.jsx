@@ -944,7 +944,10 @@ export default function People({ onProfile, isActive = true, onNavigate }) {
       </div>
 
       <div className="page-body">
-        {error && <div style={{ padding: '12px 16px', background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.2)', borderRadius: 'var(--radius)', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--red)', marginBottom: 12 }}>{error}</div>}
+        {error && <div style={{ padding: '12px 16px', background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.2)', borderRadius: 'var(--radius)', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--red)', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }} role="alert">
+          <span>{error}</span>
+          <button className="btn btn-ghost btn-sm" onClick={() => load()}>Retry</button>
+        </div>}
         <div className="filters-bar">
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
             <Search size={13} style={{ position: 'absolute', left: 10, color: 'var(--text-muted)', pointerEvents: 'none' }} />
