@@ -336,6 +336,7 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 			return err
 		}
 	}
+	mark := launchStepTimer(l.logf, turnID, slowLaunchStep, time.Now)
 	if err := startProcess(); err != nil {
 		os.Remove(promptPath)
 		if rerr := l.revokeSession(profileID, conversationID); rerr != nil {
@@ -343,6 +344,7 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 		}
 		return nil, err
 	}
+	mark("process started")
 	if runtime.GOOS != "windows" {
 		os.Remove(promptPath) // the child holds the open file; nothing is left to read or leak
 	}
@@ -420,11 +422,13 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 		startWaiter()  // reaps it and ends its tokens
 		return t.fail(err)
 	}
+	mark("identity read")
 	if l.onProcess != nil {
 		if err := l.onProcess(profileID, conversationID, turnID, t.pid, stamp, bd != nil); err != nil {
 			return nil, killUnrecorded(fmt.Errorf("could not record the turn's process, so it was stopped: %w", err))
 		}
 	}
+	mark("process recorded")
 	if l.runStamp != nil && l.recordRun != nil {
 		// A zero answer stamps nothing and never clears an earlier stamp (the stamp belongs to the run and is read by generation).
 		if err := boundedHook("the run stamp", func(context.Context) error {
@@ -436,6 +440,7 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 			return nil, killUnrecorded(fmt.Errorf("could not record the run of the turn, so it was stopped: %w", err))
 		}
 	}
+	mark("run stamped")
 	startWaiter()
 	if afterWaiterStarted != nil {
 		afterWaiterStarted()
@@ -450,6 +455,7 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 			return nil, t.fail(fmt.Errorf("the turn was not released: %w", err))
 		}
 	}
+	mark("released")
 	if ct != nil && bd == nil { // a bound launch binds the child's token inside its own transaction
 		if err := l.child.bind(profileID, conversationID, ct, t.pid, bindStamp); err != nil {
 			return nil, t.fail(err)
@@ -457,7 +463,9 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	}
 	if bd != nil {
 		bd.setOnKill(t.markStopping)
-		if err := bd.deliver(profileID, conversationID, turnID, t.pid, coderhost.BoundStamp(t.pid), func() error { return l.revokeSession(profileID, conversationID) }); err != nil {
+		err := bd.deliver(profileID, conversationID, turnID, t.pid, coderhost.BoundStamp(t.pid), func() error { return l.revokeSession(profileID, conversationID) })
+		mark("credentials delivered")
+		if err != nil {
 			return nil, t.fail(err)
 		}
 		if t.isReaped() {
