@@ -3,6 +3,7 @@ import { List, X, Trash2, Library } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import * as WailsApp from '../wailsjs/go/main/App'
 import { notify } from '../services/api.js'
+import { ExecStatusDot } from './dashboard/RecentRunsCard.jsx'
 import { formFromJSON, jsonFromForm, parseTriggerInput } from './triggerInput.js'
 import { templateBlurb } from './templateText.js'
 import LibraryModal from '../components/library/LibraryModal.jsx'
@@ -78,7 +79,7 @@ export function SaveModal({ initialName, onConfirm, onClose }) {
 }
 
 // ── Workflows modal ───────────────────────────────────────────────────────────
-export function WorkflowsModal({ initialTab = 'saved', currentId, onLoad, onDelete, onClose, onLibraryInstalled }) {
+export function WorkflowsModal({ initialTab = 'saved', currentId, onLoad, onOpenExecution, onDelete, onClose, onLibraryInstalled }) {
   const [tab, setTab]         = useState(initialTab) // 'saved' | 'templates'
   const [list, setList]       = useState([])
   const [loading, setLoading] = useState(true)
@@ -175,11 +176,15 @@ export function WorkflowsModal({ initialTab = 'saved', currentId, onLoad, onDele
             execs.length === 0 ? (
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', padding: '24px', textAlign: 'center' }}>No executions found</div>
             ) : execs.map(ex => (
-              <div key={ex.id} style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid rgba(0,180,216,0.05)' }}>
-                <div style={{ width: 7, height: 7, borderRadius: '50%', background: ex.status === 'success' ? '#10b981' : ex.status === 'running' ? '#00b4d8' : '#ef4444', flexShrink: 0 }} />
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', flex: 1 }}>{ex.id}</span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)' }}>{ex.status}</span>
-                {ex.started_at && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)' }}>{new Date(ex.started_at).toLocaleString()}</span>}
+              <div key={ex.id} data-exec-row onClick={() => onOpenExecution?.(execsFor, ex.id)}
+                style={{ padding: '8px 16px', borderBottom: '1px solid rgba(0,180,216,0.05)', cursor: onOpenExecution ? 'pointer' : 'default' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <ExecStatusDot status={ex.status} />
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', flex: 1 }}>{ex.id}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)' }}>{ex.status}</span>
+                  {ex.started_at && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)' }}>{new Date(ex.started_at).toLocaleString()}</span>}
+                </div>
+                {ex.error && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: '#ef4444', marginTop: 4, wordBreak: 'break-word' }}>{ex.error}</div>}
               </div>
             ))
           ) : tab === 'templates' ? (<>
