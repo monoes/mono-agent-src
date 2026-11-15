@@ -262,6 +262,11 @@ func (d Deps) run(cmd *cobra.Command) error {
 		return fmt.Errorf("the link %s cannot be followed (%v); the installed binary was kept", selfPath, rerr)
 	}
 
+	// Before the download: a directory that cannot be written fails the install after the whole binary is fetched.
+	if err := checkInstallDirWritable(selfPath); err != nil {
+		return err
+	}
+
 	var data []byte
 	if info.Manifest != nil {
 		// Signed path: the manifest signature already passed; the download
