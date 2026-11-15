@@ -87,3 +87,33 @@ func TestReopenFailedAnswersDoesNotStarveLaterRows(t *testing.T) {
 		t.Fatal("a failing row was re-opened")
 	}
 }
+
+// A question that is claimed (closed, its note not queued yet) is not "nothing to wait for": a repair in that
+// window must leave the session waiting, and a delivery that fails and re-opens the question must leave it waiting.
+func TestRepairWaitingSpansTheClaimToReopenWindow(t *testing.T) {
+	st, _ := parkStore(t)
+	childOf(t, st)
+	q, err := st.Park("p", "k1", "risky_action", "force push?", nil, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.claimQuestion(q, questionStatusAnswer, "yes", WhoMaster); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := st.RepairWaiting(); err != nil || n != 0 {
+		t.Fatalf("repair during the claim window: %d, %v", n, err)
+	}
+	if got := sessionState(t, st, "k1"); got != StateWaitingUser {
+		t.Fatalf("a claimed question's session was moved to %s", got)
+	}
+	// the other process got there first (before the guard existed) and idled the session; the re-open puts it back
+	if _, err := st.db.Exec(`UPDATE coder_sessions SET state = 'idle' WHERE conversation_id = 'k1'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.reopenQuestion(q.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := questionOf(t, st, q.ID); got.Status != "open" || sessionState(t, st, "k1") != StateWaitingUser {
+		t.Fatalf("reopened: %s, session %s", got.Status, sessionState(t, st, "k1"))
+	}
+}
