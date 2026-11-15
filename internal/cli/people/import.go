@@ -4,7 +4,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -68,17 +70,17 @@ func (d Deps) newPeopleImportCmd() *cobra.Command {
 				 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 				 ON CONFLICT(platform_username, platform, profile_id)
 				 DO UPDATE SET
-				   full_name       = excluded.full_name,
-				   image_url       = excluded.image_url,
-				   contact_details = excluded.contact_details,
-				   website         = excluded.website,
-				   content_count   = excluded.content_count,
-				   follower_count  = excluded.follower_count,
-				   following_count = excluded.following_count,
-				   introduction    = excluded.introduction,
-				   is_verified     = excluded.is_verified,
-				   category        = excluded.category,
-				   job_title       = excluded.job_title,
+				   full_name       = COALESCE(excluded.full_name,              people.full_name),
+				   image_url       = COALESCE(excluded.image_url,              people.image_url),
+				   contact_details = COALESCE(excluded.contact_details,        people.contact_details),
+				   website         = COALESCE(excluded.website,                people.website),
+				   content_count   = COALESCE(NULLIF(excluded.content_count,   0), people.content_count),
+				   follower_count  = COALESCE(excluded.follower_count,         people.follower_count),
+				   following_count = COALESCE(NULLIF(excluded.following_count, 0), people.following_count),
+				   introduction    = COALESCE(excluded.introduction,           people.introduction),
+				   is_verified     = COALESCE(NULLIF(excluded.is_verified,     0), people.is_verified),
+				   category        = COALESCE(excluded.category,               people.category),
+				   job_title       = COALESCE(excluded.job_title,              people.job_title),
 				   updated_at      = excluded.updated_at`,
 			)
 			if err != nil {
@@ -94,7 +96,8 @@ func (d Deps) newPeopleImportCmd() *cobra.Command {
 			// for outreach (peoplereview.NotOperatorCategory).
 			notTheUser := opgate.Refusal()
 
-			for _, raw := range rawPeople {
+			for i, raw := range rawPeople {
+				row := i + 1
 				username, _ := raw["platform_username"].(string)
 				if username == "" {
 					username, _ = raw["username"].(string)
@@ -110,14 +113,20 @@ func (d Deps) newPeopleImportCmd() *cobra.Command {
 				introduction, _ := raw["introduction"].(string)
 				category, _ := raw["category"].(string)
 				jobTitle, _ := raw["job_title"].(string)
-				followerCount, _ := raw["follower_count"].(string)
-
-				var contentCount, followingCount int
-				if v, ok := raw["content_count"].(float64); ok {
-					contentCount = int(v)
+				followerCount, err := followerText(raw, row)
+				if err != nil {
+					tx.Rollback()
+					return d.InvalidInput("%v; nothing was imported", err)
 				}
-				if v, ok := raw["following_count"].(float64); ok {
-					followingCount = int(v)
+				contentCount, err := countField(raw, "content_count", row)
+				if err != nil {
+					tx.Rollback()
+					return d.InvalidInput("%v; nothing was imported", err)
+				}
+				followingCount, err := countField(raw, "following_count", row)
+				if err != nil {
+					tx.Rollback()
+					return d.InvalidInput("%v; nothing was imported", err)
 				}
 
 				var isVerified int
@@ -136,14 +145,20 @@ func (d Deps) newPeopleImportCmd() *cobra.Command {
 						tx.Rollback()
 						return err
 					}
-					category, err = peoplereview.NotOperatorCategory(stored, category, category != "", introduction, "an import an agent, the chat or a workflow runs")
+					// A row that leaves the draft out keeps the stored one (the
+					// upsert coalesces), so it is not a change of the text.
+					intro := introduction
+					if intro == "" && stored.Found {
+						intro = stored.Introduction
+					}
+					category, err = peoplereview.NotOperatorCategory(stored, category, category != "", intro, "an import an agent, the chat or a workflow runs")
 					if err != nil {
 						tx.Rollback()
 						return d.InvalidInput("importing %s: %v (%s); nothing was imported", username, err, notTheUser)
 					}
 				}
 
-				_, err := stmt.Exec(
+				_, err = stmt.Exec(
 					personID, username, strings.ToLower(platform),
 					nullableStr(fullName), nullableStr(imageURL),
 					nullableStr(contactDetails), nullableStr(website),
@@ -224,4 +239,60 @@ func nullableStr(s string) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: s, Valid: true}
+}
+
+// maxCount bounds a count a row may carry; anything above is not a count.
+const maxCount = 1e12
+
+// sane reports whether f is a usable count: finite, not negative, not absurd.
+func sane(f float64) bool {
+	return !math.IsNaN(f) && f >= 0 && f <= maxCount
+}
+
+// followerText reads follower_count as the text it was written as: a JSON
+// string (kept as is, "1.2K" included, unless it is a number out of range) or a
+// JSON number. Anything else is empty (not given); a nonsense number is an
+// error naming the row.
+func followerText(raw map[string]interface{}, row int) (string, error) {
+	switch n := raw["follower_count"].(type) {
+	case string:
+		if f, err := strconv.ParseFloat(strings.TrimSpace(n), 64); err == nil && !sane(f) {
+			return "", fmt.Errorf("row %d: follower_count %q is not a usable count", row, n)
+		}
+		return n, nil
+	case float64:
+		if !sane(n) {
+			return "", fmt.Errorf("row %d: follower_count %v is not a usable count", row, n)
+		}
+		return strconv.FormatFloat(n, 'f', -1, 64), nil
+	}
+	return "", nil
+}
+
+// countField reads a count that arrives as a JSON number or a numeric string.
+// A missing key is 0 (not given); a value that is neither, or that is NaN,
+// infinite, negative or above maxCount, is an error naming the row, never a
+// silent zero or a platform-dependent int conversion.
+func countField(raw map[string]interface{}, key string, row int) (int, error) {
+	var f float64
+	switch n := raw[key].(type) {
+	case nil:
+		return 0, nil
+	case float64:
+		f = n
+	case string:
+		if strings.TrimSpace(n) == "" {
+			return 0, nil
+		}
+		var err error
+		if f, err = strconv.ParseFloat(strings.TrimSpace(n), 64); err != nil {
+			return 0, fmt.Errorf("row %d: %s %q is not a number", row, key, n)
+		}
+	default:
+		return 0, fmt.Errorf("row %d: %s is not a number", row, key)
+	}
+	if !sane(f) {
+		return 0, fmt.Errorf("row %d: %s %v is not a usable count", row, key, f)
+	}
+	return int(f), nil
 }
