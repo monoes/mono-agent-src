@@ -44,16 +44,6 @@ func (s *AIStore) recordSystemTurn(profileID, conversationID, code, message stri
 	if noticeCode == "" {
 		noticeCode = NoticeTurnFailed
 	}
-	if status == chatevents.StatusFailed {
-		var n int
-		if err := s.db.QueryRow(`SELECT COUNT(*) FROM ai_chat_turns WHERE profile_id = ? AND conversation_id = ? AND id LIKE ? AND status = 'failed'`,
-			profileID, conversationID, systemTurnPrefix+"%").Scan(&n); err != nil {
-			return err
-		}
-		if n >= MaxRefusalNotices {
-			return ErrTooManyRefusals
-		}
-	}
 	var rnd [8]byte
 	if _, err := rand.Read(rnd[:]); err != nil {
 		return fmt.Errorf("chat: system turn id: %w", err)
@@ -64,6 +54,12 @@ func (s *AIStore) recordSystemTurn(profileID, conversationID, code, message stri
 		return fmt.Errorf("begin system notice: %w", err)
 	}
 	defer tx.Rollback()
+	if status == chatevents.StatusFailed {
+		// Keep the newest refusals: past the bound the oldest ones (and their events) go.
+		if err := pruneOldestRefusals(tx, profileID, conversationID); err != nil {
+			return err
+		}
+	}
 	now := time.Now()
 	stamp := now.UTC().Format(time.RFC3339)
 	if _, err := tx.Exec(`INSERT INTO ai_chat_turns (id, conversation_id, profile_id, owner_instance_id, prompt, status, reason, last_committed_seq, created_at, updated_at)

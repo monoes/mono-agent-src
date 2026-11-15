@@ -1,7 +1,9 @@
 package ai
 
 import (
+	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"unicode"
 
@@ -11,11 +13,23 @@ import (
 // MaxRefusalReasonRunes caps a refusal's reason, stored and shown.
 const MaxRefusalReasonRunes = 500
 
-// MaxRefusalNotices bounds the refusal notices one conversation keeps.
+// MaxRefusalNotices bounds the refusal notices one conversation keeps (the newest).
 const MaxRefusalNotices = 20
 
-// ErrTooManyRefusals is returned when the conversation already holds MaxRefusalNotices refusals.
-var ErrTooManyRefusals = errors.New("chat: this conversation already holds the most refusal notices it keeps")
+// pruneOldestRefusals makes room for one more refusal: when the conversation holds MaxRefusalNotices or more, the
+// oldest recorded refusals and their events are removed, so the newest reasons are the ones kept.
+func pruneOldestRefusals(tx *sql.Tx, profileID, conversationID string) error {
+	const old = `SELECT id FROM ai_chat_turns WHERE profile_id = ? AND conversation_id = ? AND id LIKE ? AND status = 'failed' AND prompt = ''
+		ORDER BY created_at DESC, rowid DESC LIMIT -1 OFFSET ?`
+	args := []any{profileID, conversationID, systemTurnPrefix + "%", MaxRefusalNotices - 1}
+	if _, err := tx.Exec("DELETE FROM ai_chat_events WHERE profile_id = ? AND turn_id IN ("+old+")", append([]any{profileID}, args...)...); err != nil {
+		return fmt.Errorf("prune refusal events: %w", err)
+	}
+	if _, err := tx.Exec("DELETE FROM ai_chat_turns WHERE id IN ("+old+")", args...); err != nil {
+		return fmt.Errorf("prune refusals: %w", err)
+	}
+	return nil
+}
 
 // ErrUnknownRefusalCode is returned for a code that is not a known failure code.
 var ErrUnknownRefusalCode = errors.New("chat: unknown refusal code")

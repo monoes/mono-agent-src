@@ -3,6 +3,7 @@ package ai
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -135,17 +136,30 @@ func TestRecordFailedTurnNoticeCleansAndCapsTheReason(t *testing.T) {
 	}
 }
 
-// A conversation keeps a bounded number of refusal notices, and a refusal is not a turn of the work.
-func TestRecordFailedTurnNoticeIsBoundedAndIsNotAWorkTurn(t *testing.T) {
-	s, _ := newChatEventStore(t)
+// A conversation keeps the newest MaxRefusalNotices refusals (the oldest go with their events), and a refusal is not a
+// turn of the work.
+func TestRecordFailedTurnNoticeKeepsTheNewestAndIsNotAWorkTurn(t *testing.T) {
+	s, db := newChatEventStore(t)
 	conv, _ := s.CreateConversation("p1", "agent", "general", "claude", "", "")
-	for i := 0; i < MaxRefusalNotices; i++ {
-		if err := s.RecordFailedTurnNotice("p1", conv.ID, "", "no"); err != nil {
+	for i := 0; i < MaxRefusalNotices+5; i++ {
+		if err := s.RecordFailedTurnNotice("p1", conv.ID, "", fmt.Sprintf("reason-%02d", i)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := s.RecordFailedTurnNotice("p1", conv.ID, "", "no"); !errors.Is(err, ErrTooManyRefusals) {
-		t.Fatalf("past the bound: %v", err)
+	turns, _, err := s.ListTurns(conv.ID, "p1", "", 100)
+	if err != nil || len(turns) != MaxRefusalNotices {
+		t.Fatalf("kept %d turns: %v", len(turns), err)
+	}
+	have := map[string]bool{}
+	for _, tr := range turns {
+		have[tr.Reason] = true
+	}
+	if !have["reason-24"] || !have["reason-05"] || have["reason-04"] || have["reason-00"] {
+		t.Fatalf("not the newest kept: %v", have)
+	}
+	var orphans int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM ai_chat_events WHERE turn_id NOT IN (SELECT id FROM ai_chat_turns)`).Scan(&orphans); err != nil || orphans != 0 {
+		t.Fatalf("events left behind: %d %v", orphans, err)
 	}
 	if had, err := s.HasWorkTurn("p1", conv.ID); err != nil || had {
 		t.Fatalf("a refusal counted as a work turn: %v %v", had, err)

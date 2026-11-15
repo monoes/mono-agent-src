@@ -2,7 +2,6 @@ package chat
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -83,7 +82,7 @@ func newChatHistoryTurnCmd(cfg *Deps) *cobra.Command {
 				return clicore.PrintJSON(t.Record())
 			}
 			fmt.Printf("id:       %s\nstatus:   %s\nreason:   %s\nlast seq: %d\ncreated:  %s\nprompt:   %s\n",
-				t.ID, t.Status, t.Reason, t.LastCommittedSeq, t.CreatedAt, t.Prompt)
+				t.ID, t.Status, ai.CleanFailureText(t.Reason, ai.MaxRefusalReasonRunes), t.LastCommittedSeq, t.CreatedAt, ai.CleanFailureText(t.Prompt, 20000))
 			return nil
 		},
 	}
@@ -219,7 +218,7 @@ func newChatHistoryRefusedCmd(cfg *Deps) *cobra.Command {
 		Long: "Writes a finished system turn into the conversation: failed, with --reason (cleaned of control characters and " +
 			"cut to 500 characters) and --code, which must be one of agent_not_setup, auth, quota, rate-limited, missing-binary, " +
 			"budget or timeout. The desktop app calls this when the coder host refuses a turn before it exists; " +
-			"`chat history turns` then lists the reason. A conversation keeps at most 20. " + clicore.OperatorOnlyHelp,
+			"`chat history turns` then lists the reason. A conversation keeps the newest 20. " + clicore.OperatorOnlyHelp,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := requireUser(cfg, "record a refused turn"); err != nil {
@@ -237,9 +236,6 @@ func newChatHistoryRefusedCmd(cfg *Deps) *cobra.Command {
 			}
 			defer closeDB()
 			if err := store.RecordFailedTurnNotice(profileID, args[0], code, reason); err != nil {
-				if errors.Is(err, ai.ErrTooManyRefusals) {
-					return clicore.InvalidInput("%v", err)
-				}
 				return chatStoreErr(err)
 			}
 			if cfg.JSONOutput() {
