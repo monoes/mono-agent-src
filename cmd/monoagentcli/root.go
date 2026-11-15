@@ -259,7 +259,7 @@ func initDB(cfg *globalConfig) (*storage.Database, error) {
 	}
 	if err := db.ApplyMigrations(); err != nil {
 		db.Close()
-		return nil, storage.ExplainOpenError(err, dbDir)
+		return nil, storage.ExplainMigrateError(err, dbDir)
 	}
 	// Automatic, idempotent check-and-migrate: encrypt any connections rows
 	// left over from before the secrets vault shipped. Cheap (a single COUNT
