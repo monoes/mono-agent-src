@@ -75,6 +75,7 @@ func (s *Server) readLoop(c *extConn) {
 	defer func() {
 		s.removeConn(c)
 		_ = c.ws.Close()
+		close(c.gone)
 		s.logger.Info().Str("instance", c.id).Msg("extension disconnected")
 	}()
 

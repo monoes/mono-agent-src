@@ -365,9 +365,13 @@ func (s *Server) dispatch(c *extConn, resp *Response) {
 		default:
 			s.logger.Error().Str("id", resp.ID).Msg("capture stream buffer full, dropped a message")
 		}
+	case waiting && pending.conn != c:
+		// Another browser (or a replaced socket of this one) cannot answer
+		// a command that was not sent to it.
+		s.logger.Debug().Str("id", resp.ID).Msg("response from a connection the command was not sent to: ignored")
 	case waiting:
 		select {
-		case pending <- resp:
+		case pending.ch <- resp:
 		default:
 			s.logger.Warn().Str("id", resp.ID).Msg("duplicate response for an already-answered command")
 		}
