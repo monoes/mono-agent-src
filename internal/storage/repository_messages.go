@@ -14,6 +14,10 @@ import (
 // Person Messages
 // ---------------------------------------------------------------------------
 
+// afterMessageRead is a test seam: it runs between the read and the write of
+// an upsert.
+var afterMessageRead func()
+
 // UpsertPersonMessage inserts a message/interaction for a person, or updates
 // it if the same (person_id, source, external_id) already exists — making
 // re-imports from the same source idempotent. When external_id is not
@@ -62,6 +66,10 @@ func (d *Database) UpsertPersonMessage(msg *PersonMessage, profileID string) err
 		msg.Metadata = mergeMessageMetadata(stored.String, msg.Metadata)
 	case err != sql.ErrNoRows:
 		return fmt.Errorf("reading message for person %s: %w", msg.PersonID, err)
+	}
+
+	if afterMessageRead != nil {
+		afterMessageRead()
 	}
 
 	_, err = d.DB.Exec(`

@@ -1,7 +1,9 @@
 package storage
 
 import (
+	"strings"
 	"testing"
+	"time"
 )
 
 func messageRow(t *testing.T, db *Database, id string) (status, metadata string) {
@@ -213,5 +215,61 @@ func TestPersonMessageResyncKeepsApprovedText(t *testing.T) {
 	db.DB.QueryRow(`SELECT body, subject FROM person_messages WHERE id = 'm1'`).Scan(&body, &subject)
 	if body != "new body" || subject != "edited upstream" {
 		t.Fatalf("an inbound message did not refresh: %q %q", body, subject)
+	}
+}
+
+// A write that lands between the upsert's read and its write (a classify, a
+// SetStatus) is not lost: the read and the write are one write transaction.
+func TestPersonMessageResyncDoesNotLoseAConcurrentWrite(t *testing.T) {
+	db := newUpsertPersonTestDB(t)
+	seedResyncMessage(t, db, "inbound")
+	done := make(chan error, 1)
+	afterMessageRead = func() {
+		go func() {
+			_, err := db.DB.Exec(`UPDATE person_messages SET metadata = json_set(metadata, '$._classification', json('{"intent":"interested"}')) WHERE id = 'm1'`)
+			done <- err
+		}()
+		// Without a transaction around the read and the write this write
+		// finishes at once; inside one it waits for the upsert to commit.
+		time.Sleep(300 * time.Millisecond)
+	}
+	t.Cleanup(func() { afterMessageRead = nil })
+	again := &PersonMessage{PersonID: "p1", Source: "outlook", ExternalID: "ext1", Direction: "inbound", Metadata: `{"_source":{"account":"new@x.com"}}`}
+	if err := db.UpsertPersonMessage(again, "pr1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	_, md := messageRow(t, db, "m1")
+	if jsonField(t, db, md, "$._classification.intent") != "interested" || jsonField(t, db, md, "$._source.account") != "new@x.com" {
+		t.Fatalf("a concurrent write or the refresh was lost: %s", md)
+	}
+}
+
+// An existing approval row (written by the send flow) keeps every stored
+// metadata key, whatever an import sends for the same message; so do sender
+// and sent_at.
+func TestPersonMessageResyncLeavesAnApprovalRowAlone(t *testing.T) {
+	db := newUpsertPersonTestDB(t)
+	seedResyncMessage(t, db, "outbound")
+	stored := `{"recipient":"ada@example.com","action":"send","channel":"email","target":"ada","attachments_pending":false,"_source":{"account":"old@x.com"}}`
+	if _, err := db.DB.Exec(`UPDATE person_messages SET status = 'pending_approval', metadata = ?, sender = 'me', sent_at = '2026-01-01 00:00:00+00:00' WHERE id = 'm1'`, stored); err != nil {
+		t.Fatal(err)
+	}
+	again := &PersonMessage{PersonID: "p1", Source: "outlook", ExternalID: "ext1", Direction: "outbound", Sender: "evil", SentAt: time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC),
+		Metadata: `{"recipient":"attacker@evil.com","action":"wire","channel":"sms","target":"x","attachments_pending":true,"_source":{"account":"new@x.com"}}`}
+	if err := db.UpsertPersonMessage(again, "pr1"); err != nil {
+		t.Fatal(err)
+	}
+	var md, sender, sentAt string
+	db.DB.QueryRow(`SELECT metadata, sender, COALESCE(sent_at,'') FROM person_messages WHERE id = 'm1'`).Scan(&md, &sender, &sentAt)
+	for path, want := range map[string]string{"$.recipient": "ada@example.com", "$.action": "send", "$.channel": "email", "$.target": "ada", "$._source.account": "old@x.com"} {
+		if got := jsonField(t, db, md, path); got != want {
+			t.Errorf("%s = %q, want %q (%s)", path, got, want, md)
+		}
+	}
+	if sender != "me" || !strings.HasPrefix(sentAt, "2026-01-01") {
+		t.Errorf("sender/sent_at rewritten: %q %q", sender, sentAt)
 	}
 }
