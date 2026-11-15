@@ -32,7 +32,10 @@ var hostGlobalFlags = map[string]bool{"--db-path": true, "--profile": true, "--c
 
 // verifyHostArgs says whether args are those of a coder host of the database at dbPath: a monoagentcli binary, only known global
 // flags, then exactly `coder host run`; --db-path names this database (or is absent and this is the default one).
-func verifyHostArgs(args []string, dbPath string) error {
+func verifyHostArgs(args []string, dbPath string) error { return verifyHostArgsIn(args, dbPath, "") }
+
+// verifyHostArgsIn is verifyHostArgs for a process whose working directory is cwd ("" when unknown).
+func verifyHostArgsIn(args []string, dbPath, cwd string) error {
 	notHost := fmt.Errorf("the process is not this database's coder host (it does not run `monoagentcli ... coder host run` for %s)", dbPath)
 	if len(args) < 4 || !strings.HasPrefix(strings.TrimSuffix(filepath.Base(args[0]), ".exe"), "monoagentcli") {
 		return notHost
@@ -89,3 +92,6 @@ func stopStaleUnpinned(cfg *Deps, info hostInfo) (string, error) {
 	}
 	return stopHost(cfg, info)
 }
+
+// parseProcArgs2 reads the argument vector out of the raw KERN_PROCARGS2 buffer of macOS.
+func parseProcArgs2(raw []byte) ([]string, error) { return nil, errors.New("not implemented") }
