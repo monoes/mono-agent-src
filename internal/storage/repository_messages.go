@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/dbconn"
 	"github.com/monoes/mono-agent/internal/monomind"
 )
 
@@ -58,21 +59,29 @@ func (d *Database) UpsertPersonMessage(msg *PersonMessage, profileID string) err
 		return fmt.Errorf("checking person %s: %w", msg.PersonID, err)
 	}
 
-	// A row that exists keeps the metadata the platform does not provide.
-	var stored sql.NullString
-	switch err := d.DB.QueryRow(`SELECT metadata FROM person_messages
-		WHERE person_id = ? AND source = ? AND external_id = ?`, msg.PersonID, msg.Source, msg.ExternalID).Scan(&stored); {
-	case err == nil:
-		msg.Metadata = mergeMessageMetadata(stored.String, msg.Metadata)
-	case err != sql.ErrNoRows:
-		return fmt.Errorf("reading message for person %s: %w", msg.PersonID, err)
-	}
-
-	if afterMessageRead != nil {
-		afterMessageRead()
-	}
-
-	_, err = d.DB.Exec(`
+	// The read of the stored row and the write are one write transaction
+	// (BEGIN IMMEDIATE), so a classify or a status change that lands between
+	// them is not overwritten by a stale snapshot.
+	err = dbconn.WithWriteTx(context.Background(), d.DB, func(conn *sql.Conn) error {
+		tx := dbconn.ConnTx{Ctx: context.Background(), Conn: conn}
+		var stored, storedStatus, storedDirection sql.NullString
+		switch err := tx.QueryRow(`SELECT metadata, status, direction FROM person_messages
+			WHERE person_id = ? AND source = ? AND external_id = ?`, msg.PersonID, msg.Source, msg.ExternalID).Scan(&stored, &storedStatus, &storedDirection); {
+		case err == nil:
+			// A row the operator or the send flow owns keeps its metadata
+			// exactly; any other keeps what the platform does not provide.
+			if isOperatorMessageState(storedStatus.String, storedDirection.String) {
+				msg.Metadata = stored.String
+			} else {
+				msg.Metadata = mergeMessageMetadata(stored.String, msg.Metadata)
+			}
+		case err != sql.ErrNoRows:
+			return fmt.Errorf("reading message for person %s: %w", msg.PersonID, err)
+		}
+		if afterMessageRead != nil {
+			afterMessageRead()
+		}
+		_, err := tx.Exec(`
 		INSERT INTO person_messages (
 			id, person_id, source, external_id, direction, sender, subject,
 			body, metadata, status, sent_at, profile_id, created_at
@@ -80,17 +89,19 @@ func (d *Database) UpsertPersonMessage(msg *PersonMessage, profileID string) err
 		ON CONFLICT(person_id, source, external_id)
 		DO UPDATE SET
 			direction = `+messageKeepIfOperatorSQL("direction")+`,
-			sender    = excluded.sender,
+			sender    = `+messageKeepIfOperatorSQL("sender")+`,
 			subject   = `+messageKeepIfOperatorSQL("subject")+`,
 			body      = `+messageKeepIfOperatorSQL("body")+`,
 			metadata  = excluded.metadata,
 			status    = `+messageStatusKeepSQL+`,
-			sent_at   = excluded.sent_at`,
-		msg.ID, msg.PersonID, msg.Source, msg.ExternalID, msg.Direction,
-		nullStr(msg.Sender), nullStr(msg.Subject), nullStr(msg.Body),
-		nullStr(msg.Metadata), msg.Status, nullTime(msg.SentAt.UTC()), profileID, time.Now().UTC(),
-		boolToInt(explicitStatus),
-	)
+			sent_at   = `+messageKeepIfOperatorSQL("sent_at"),
+			msg.ID, msg.PersonID, msg.Source, msg.ExternalID, msg.Direction,
+			nullStr(msg.Sender), nullStr(msg.Subject), nullStr(msg.Body),
+			nullStr(msg.Metadata), msg.Status, nullTime(msg.SentAt.UTC()), profileID, time.Now().UTC(),
+			boolToInt(explicitStatus),
+		)
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("upserting message for person %s: %w", msg.PersonID, err)
 	}

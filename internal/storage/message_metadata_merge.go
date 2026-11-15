@@ -65,3 +65,14 @@ const messageStatusKeepSQL = `CASE
 				WHEN ` + messageOperatorStateSQL + ` THEN person_messages.status
 				WHEN excluded.status IN ('sent') THEN excluded.status
 				ELSE person_messages.status END`
+
+// isOperatorMessageState is messageOperatorStateSQL for a row read into Go.
+func isOperatorMessageState(status, direction string) bool {
+	switch status {
+	case "draft", "pending_approval", "approved", "sending", "rejected", "failed", "expired":
+		return true
+	case "sent":
+		return direction == "outbound"
+	}
+	return false
+}
