@@ -92,3 +92,66 @@ func TestAStaleHostRefusesEveryQueuedDispatchBeforeItIsQueued(t *testing.T) {
 		t.Fatalf("%d command(s) were queued for a stale host", n)
 	}
 }
+
+// staleHostFixture is a stale host (lock held, info naming this test process) whose stop is a recording stand-in that releases the lock.
+func staleHostFixture(t *testing.T) (cfg *Deps, stopped *int) {
+	t.Helper()
+	dbPath := newChatCLITestDB(t)
+	cfg = testDeps(&testConfig{DBPath: dbPath, ProfileID: "default", JSONOutput: true})
+	if err := os.MkdirAll(hostDir(cfg), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	release, err := daemonhb.LockFile(hostLockPath(cfg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(release)
+	raw, _ := json.Marshal(hostInfo{PID: os.Getpid(), Stamp: stampOf(os.Getpid()), Instance: "host-old"})
+	if err := os.WriteFile(filepath.Join(hostDir(cfg), hostInfoFile), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	oldStop := stopHost
+	stopHost = func(*Deps, hostInfo) (string, error) { n++; release(); return "", nil }
+	t.Cleanup(func() { stopHost = oldStop })
+	return cfg, &n
+}
+
+func execOn(t *testing.T, cfg *Deps, q string) {
+	t.Helper()
+	db, err := cfg.OpenDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.DB.Exec(q); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A stale host with nothing running, queued, asked or open is restarted by the next dispatch; with ANY of those it is left alone
+// and the person gets the actionable text. Revert proof: dropping a check from hostBusy turns its row red.
+func TestAStaleHostIsRestartedOnlyWhenNothingDependsOnIt(t *testing.T) {
+	cfg, stopped := staleHostFixture(t)
+	if err := ensureCurrentHost(cfg); err != nil || *stopped != 1 {
+		t.Fatalf("an idle stale host: err=%v stops=%d", err, *stopped)
+	}
+	busy := []struct{ name, sql string }{
+		{"an open run", `INSERT INTO profiles (id, name) VALUES ('p1','P'); INSERT INTO doomsday_runs (profile, generation, charter_id, state, mac) VALUES ('p1', 1, 'c1', 'running', x'01')`},
+		{"a running turn", `INSERT INTO ai_chat_turns (id, conversation_id, profile_id, prompt, status, created_at, updated_at) VALUES ('t1','c1','default','p','active','x','x')`},
+		{"a queued command", `INSERT INTO coder_session_commands (profile_id, conversation_id, kind, message, status, created_at, updated_at) VALUES ('default','c1','send','m','pending','x','x')`},
+		{"a pending ask", `INSERT INTO coder_session_asks (profile_id, asker_session, asker_conv, ancestor_session, ancestor_conv, level, importance, question, bytes, status, created_at) VALUES ('default',1,'c1',2,'c2',1,'critical','q',1,'open','x')`},
+	}
+	for _, b := range busy {
+		t.Run(b.name, func(t *testing.T) {
+			cfg, stopped := staleHostFixture(t)
+			for _, stmt := range strings.Split(b.sql, "; ") {
+				execOn(t, cfg, stmt)
+			}
+			err := ensureCurrentHost(cfg)
+			if err == nil || !strings.Contains(err.Error(), "coder host stop") || *stopped != 0 {
+				t.Fatalf("err=%v stops=%d", err, *stopped)
+			}
+		})
+	}
+}
