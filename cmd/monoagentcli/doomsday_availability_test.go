@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	chatcli "github.com/monoes/mono-agent/internal/cli/chat"
 	doomsdaycli "github.com/monoes/mono-agent/internal/cli/doomsday"
 	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/daemonhb"
@@ -242,3 +243,62 @@ func staleHostRunning(t *testing.T, cfg *globalConfig) {
 		t.Fatal(err)
 	}
 }
+
+// The start's decision and the dispatch gate's agree in every case of the binding setting and the machine: a start that is bound
+// is dispatched bound (the gate's BindingOn is on), a start that is refused makes no run, and a start that goes unbound is the
+// only one the gate lets through unbound (it carries the unbound reason that Enter records as the run's own run.unbound row).
+func TestStartAndDispatchAgreeOnBindingInEveryCase(t *testing.T) {
+	cases := []struct {
+		name     string
+		stored   *bool // nil: unset
+		canBind  bool
+		wantOn   bool // the start is bound, and the gate's setting read is on
+		wantMode string
+	}{
+		{"unset, machine can bind", nil, true, true, "bound"},
+		{"unset, machine cannot bind", nil, false, false, "unbound"},
+		{"explicit off, machine can bind", boolPtr(false), true, false, "refused"},
+		{"explicit off, machine cannot bind", boolPtr(false), false, false, "unbound"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			procbind.ForTestSetIssuance(t, true)
+			var readyErr error
+			if !c.canBind {
+				readyErr = errors.New("old kernel")
+			}
+			procbind.ForTestSetReady(t, readyErr)
+			cfg, _ := chatPathSetup(t, true)
+			db, err := initDB(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			if c.stored != nil {
+				setBindingStored(t, db, *c.stored)
+			}
+			w := doomsdayWiringReal(cfg, db.DB)
+			on, err := w.Binding(context.Background())
+			if err != nil {
+				t.Fatalf("start decision: %v", err)
+			}
+			unbound := w.UnboundReason(context.Background())
+			gateOn, gerr := chatcli.PeercredBindingOn(db.DB)
+			if gerr != nil || gateOn != on {
+				t.Fatalf("the gate reads binding on=%v (%v), the start read on=%v", gateOn, gerr, on)
+			}
+			mode := "refused"
+			switch {
+			case on:
+				mode = "bound"
+			case unbound != "":
+				mode = "unbound"
+			}
+			if on != c.wantOn || mode != c.wantMode {
+				t.Fatalf("on=%v mode=%s (unbound reason %q), want on=%v mode=%s", on, mode, unbound, c.wantOn, c.wantMode)
+			}
+		})
+	}
+}
+
+func boolPtr(b bool) *bool { return &b }
