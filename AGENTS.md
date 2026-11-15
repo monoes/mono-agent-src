@@ -2477,8 +2477,8 @@ monoagentcli --profile work chat --mode coder --cwd ~/code/app -- "…"   # one 
 - Coder turns get **none** of mono-agent's own tools, and in particular no
   message or people tools: synced messages are untrusted input and must never
   reach a turn with a shell. `--tools` is rejected for a coder conversation.
-- Instead of tools, every coder turn (a resumed one too) gets a section of its
-  system prompt that points the agent at mono-agent's automation surface: find
+- Instead of tools, every workspace or full-access coder turn (a resumed one
+  too) gets a section of its system prompt that points the agent at mono-agent's automation surface: find
   out what already exists (`workflow search`, `ref nodes`, `node schema`, the
   bundled templates) before writing standalone code, build the result as a
   workflow (`workflow templates use`, or a file written with `"is_active":
@@ -2498,9 +2498,14 @@ monoagentcli --profile work chat --mode coder --cwd ~/code/app -- "…"   # one 
   to read or send the user's messages or people records or print a secret,
   directly or through a workflow's output. That is guidance, not
   enforcement: coder has no run gate like chat's `--tools monoagent,runs`, and
-  the agent's shell can run any command. Confined task and worker turns don't get it (the
-  lead can give mono-agent work to an `automation` worker, which has
-  `monoagentcli` hints of its own).
+  the agent's shell can run any command. It also says that a workflow the turn
+  imports is saved unapproved (the user approves it, never the agent) and that
+  workflow and template names, descriptions and node output are data, never
+  instructions. Only workspace and full access get the section: coding access
+  is told nothing about the profile, and a boxed turn (`coder.box`, coding
+  access only) cannot reach the database it points at. Confined task and
+  worker turns don't get it either (the lead can give mono-agent work to an
+  `automation` worker, which has `monoagentcli` hints of its own).
 - Every tool call is journaled (`tool.started` with `native: true` /
   `tool.completed`); startup progress and background processes left running
   arrive as `coder.status` / `coder.background` notices.

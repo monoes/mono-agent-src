@@ -180,8 +180,8 @@ func TestCoderLeadPromptHasTheProfileOnlyWithAppAccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := testDeps(&testConfig{DBPath: dbPath, ProfileID: "work", JSONOutput: true})
-	on := coderLeadSystemPrompt(context.Background(), db.DB, cfg, custom, true)
-	off := coderLeadSystemPrompt(context.Background(), db.DB, cfg, custom, false)
+	on := coderLeadSystemPrompt(context.Background(), db.DB, cfg, custom, true, true)
+	off := coderLeadSystemPrompt(context.Background(), db.DB, cfg, custom, false, true)
 	if !strings.Contains(on, profileSummaryText) || !strings.Contains(on, "bank-login") {
 		t.Errorf("app access on: the lead lacks the profile summary:\n%s", on)
 	}

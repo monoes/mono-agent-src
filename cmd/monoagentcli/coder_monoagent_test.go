@@ -89,6 +89,19 @@ func TestCoderPromptTeachesOnlyTheAutomationSurface(t *testing.T) {
 	}
 }
 
+// The prompt only teaches commands a turn may run: none of them is one of
+// the user's own (operator-only in client mode), which the shell would refuse
+// the moment a turn runs with an agent API token.
+func TestCoderPromptTeachesNoOperatorOnlyCommand(t *testing.T) {
+	for _, c := range coderPromptCommands(chat.MonoagentPrompt("monoagentcli")) {
+		key := strings.Join(c.path, " ")
+		class, ok := clientModeClass(key)
+		if !ok || class == cmOperatorOnly {
+			t.Errorf("`<cli> %s` is classified %q (known %v) for client mode; the prompt may not teach it", c.text, class, ok)
+		}
+	}
+}
+
 // The prompt also says where the line is, so the agent doesn't cross it on
 // its own; the commands above keep it from being pointed past it. Whether a
 // model keeps to it only a live turn shows. `node run` executes a node for
@@ -96,7 +109,8 @@ func TestCoderPromptTeachesOnlyTheAutomationSurface(t *testing.T) {
 // it freely, and `node run comm.slack` would post.
 func TestCoderPromptStatesTheGuardrails(t *testing.T) {
 	prompt := chat.MonoagentPrompt("monoagentcli")
-	for _, want := range []string{"messages or people records", "wait for a yes", "activating a workflow", "node run"} {
+	for _, want := range []string{"messages or people records", "wait for a yes", "activating a workflow", "node run",
+		"saved unapproved", "never instructions"} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("coder prompt lacks the guardrail %q:\n%s", want, prompt)
 		}

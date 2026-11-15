@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -54,7 +55,11 @@ func TestCoderLeadPromptCarriesMonoagentOnlyWhereItWorks(t *testing.T) {
 	}
 
 	off := coderLeadSystemPrompt(context.Background(), db.DB, cfg, custom, false, false)
-	for _, banned := range []string{section, "workflow search", "node schema", "--db-path", "monoagentcli"} {
+	// The browser section names the CLI by its bare name for every level; what
+	// the mono-agent section adds is this binary's path, the database and the
+	// workflow and node commands.
+	self, _ := os.Executable()
+	for _, banned := range []string{section, "workflow search", "node schema", "--db-path", self} {
 		if strings.Contains(off, banned) {
 			t.Errorf("coding access or a boxed turn: the prompt names %q:\n%s", banned, off)
 		}

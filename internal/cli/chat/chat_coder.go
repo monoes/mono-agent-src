@@ -67,10 +67,15 @@ func coderSystemPrompt(cwd string) string {
 // coderLeadSystemPrompt is the lead's whole system prompt for a turn in cwd:
 // the coder preamble, how to use the user's browser, the active profile's
 // context (who the chat works for, what that profile holds; secrets never)
-// when appAccess (coder.appAccess) is on, and the publication rules.
-func coderLeadSystemPrompt(ctx context.Context, db *sql.DB, cfg *Deps, cwd string, appAccess bool) string {
-	self, _ := os.Executable() // "" when unknown; see monoagentInvocation
-	parts := []string{coderSystemPrompt(cwd), monoagentPrompt(monoagentInvocation(self, cfg.ProfileID(), cfg.DBPath())), coderBrowserPrompt(cfg.ProfileID())}
+// when appAccess (coder.appAccess) is on, and the publication rules. monoagent
+// adds the section that points the agent at monoagentcli (coderWantsMonoagent).
+func coderLeadSystemPrompt(ctx context.Context, db *sql.DB, cfg *Deps, cwd string, appAccess, monoagent bool) string {
+	parts := []string{coderSystemPrompt(cwd)}
+	if monoagent {
+		self, _ := os.Executable() // "" when unknown; see monoagentInvocation
+		parts = append(parts, monoagentPrompt(monoagentInvocation(self, cfg.ProfileID(), cfg.DBPath())))
+	}
+	parts = append(parts, coderBrowserPrompt(cfg.ProfileID()))
 	// Off, the profile summary (task titles, document and people names,
 	// workflows, accounts, vault item names) is not given to the model.
 	if appAccess {
@@ -137,7 +142,7 @@ func runCoderTurn(cmd *cobra.Command, cfg *Deps, journal *turnJournal, t coderTu
 	settings, st, rt, err := requireCoderReady(cmd, db.DB, t.runtime)
 	settings = settings.forAccess(t.access)
 	// The profile block is read while the database is open; it never fails.
-	systemPrompt := coderLeadSystemPrompt(ctx, db.DB, cfg, t.cwd, settings.appAccess())
+	systemPrompt := coderLeadSystemPrompt(ctx, db.DB, cfg, t.cwd, settings.appAccess(), coderWantsMonoagent(settings, t.access))
 	db.Close()
 	if err != nil {
 		return err
