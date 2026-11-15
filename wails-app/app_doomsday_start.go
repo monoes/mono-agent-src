@@ -1,9 +1,10 @@
 // wails-app: the start form of the open-ended chat mode
 //
-// The start form of the open-ended chat mode: the preview of a charter, the start with the phrase the person typed,
-// and the entry screen's availability. They are the CLI's own verbs (`doomsday render`, `start`, `probe`): the app
-// holds no authority. The charter goes to the CLI on stdin, the phrase as --gui-phrase, which the CLI derives again
-// from the charter it rendered and compares, and the chat as --chat. The argv is fixed here
+// The start form of the open-ended chat mode: the preview of a charter, the start the person approves with one button
+// (and the native dialog), and the entry screen's availability. They are the CLI's own verbs (`doomsday render`, `start`,
+// `probe`): the app holds no authority. The charter goes to the CLI on stdin, the phrase as --gui-phrase (the app derives
+// it from the preview's facts; the person types nothing; the CLI derives it again from the charter it rendered and
+// compares), and the chat as --chat. The argv is fixed here
 // (doomsdayCharterArgv); nothing the page sends is a flag.
 package main
 
@@ -172,7 +173,7 @@ func (a *App) DoomsdayOpenEntry() string {
 	})
 }
 
-// DoomsdayRender is `doomsday render --charter -`: the preview the person reads before typing the phrase (the full
+// DoomsdayRender is `doomsday render --charter -`: the preview the person reads before approving (the full
 // hash, every lifted line, the plain limits of the mode). It writes nothing. The document does not carry the phrase.
 func (a *App) DoomsdayRender(charterJSON, chatID, chatSpec string) string {
 	if err := a.signedOut(); err != nil {
@@ -225,15 +226,16 @@ func (a *App) DoomsdayRender(charterJSON, chatID, chatSpec string) string {
 	return string(b)
 }
 
-// DoomsdayStart starts the open-ended run of a charter the person has read, with the phrase they typed, the token of
+// DoomsdayStart starts the open-ended run of a charter the person has read and approved with one button, with the token of
 // the preview of exactly this charter, and the chat it starts from (the CLI makes the boss session behind that chat, funds it
 // from the charter, starts the run and queues the boss's first turn; the app chooses none of that). Besides the operator gate it needs two
 // proofs a script in the page cannot give: the token (single use, ten minutes, this profile, these charter bytes) and a
-// click in a native dialog built here from the CLI's own preview. Where no native dialog can be shown it refuses. The CLI
+// click in a native dialog built here from the CLI's own preview. Where no native dialog can be shown it refuses. There is no
+// phrase parameter: the app derives it from the preview's facts (expectedPhrase), so a page cannot supply or forge one. The CLI
 // re-checks the operator gate, derives the phrase from the charter and its hash and compares, and records `gui`.
 // The answer is {"ok","started","state","output","detail","code"}: state is started, not_started or unknown (the CLI
 // was killed or timed out, or said the run started but could not finish: the run may have started). Never retried.
-func (a *App) DoomsdayStart(charterJSON, phrase, token, chatID, chatSpec string) string {
+func (a *App) DoomsdayStart(charterJSON, token, chatID, chatSpec string) string {
 	if err := a.signedOut(); err != nil {
 		return loginRequiredJSON(err)
 	}
@@ -241,9 +243,6 @@ func (a *App) DoomsdayStart(charterJSON, phrase, token, chatID, chatSpec string)
 		return startDoc("not_started", "", why, "operator_only")
 	}
 	if err := checkCharterJSON(charterJSON); err != nil {
-		return startDoc("not_started", "", err.Error(), "invalid_input")
-	}
-	if err := checkPhrase(phrase); err != nil {
 		return startDoc("not_started", "", err.Error(), "invalid_input")
 	}
 	chat, err := parseChat(chatID, chatSpec)
@@ -268,9 +267,7 @@ func (a *App) DoomsdayStart(charterJSON, phrase, token, chatID, chatSpec string)
 	if err != nil {
 		return startDoc("not_started", "", err.Error(), "token")
 	}
-	if strings.TrimSpace(phrase) != facts.expectedPhrase() { // before the dialog, and nothing is spent
-		return startDoc("not_started", "", "the phrase does not match the charter shown; nothing started", "phrase")
-	}
+	phrase := facts.expectedPhrase() // the app's own derivation from the preview it holds; the person types nothing
 	shown := doomsdayNow()
 	yes, returned, err := askNative(a, facts.dialogBody(chat.text))
 	if !returned {

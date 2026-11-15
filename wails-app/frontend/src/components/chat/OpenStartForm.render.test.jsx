@@ -6,7 +6,7 @@ import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/re
 import '../../i18n.js'
 
 // The entry screen and the start form of the open-ended chat mode. The CLI decides (availability, the charter, the
-// phrase); the form shows what the person must read and asks for the phrase they write from it.
+// phrase); the form shows what the person must read and has one Approve button (the native dialog is the barrier).
 const getChat = vi.fn(), onChat = vi.fn()
 const { openStartApi } = vi.hoisted(() => ({ openStartApi: { entry: vi.fn(), render: vi.fn(), start: vi.fn(), roster: vi.fn(), catalog: vi.fn() } }))
 vi.mock('../../lib/openStartApi.js', () => ({ openStartApi }))
@@ -16,7 +16,7 @@ import { OpenStartForm } from './OpenStartForm.jsx'
 const HASH = 'ab12cd34' + 'e'.repeat(56)
 const ENTRY = { mode_available: true, run_exists: false, platform: 'linux', not_defended: 'What this mode does NOT defend against:\n  - It adds no isolation.' }
 const PREVIEW = { start_token: 'tok-1', hash: HASH, lines: ['spending', 'host_settings'], lift_count: 2, text: `CHARTER ${HASH}\nGoal: ship it`, phrase_template: 'I understand: lift <N> lines, charter <first 8 characters of the hash>' }
-const TYPED = 'I understand: lift 2 lines, charter ab12cd34'
+const PHRASE = 'I understand: lift 2 lines, charter ab12cd34' // the app's to derive; the page never shows or sends it
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -113,7 +113,7 @@ describe('the form', () => {
   })
 })
 
-describe('the review and the typed phrase', () => {
+describe('the review and the one Approve button', () => {
   async function toReview(props = { getChat, onChat }, opts) {
     render(<OpenStartForm {...props} />)
     await screen.findByLabelText('Goal')
@@ -121,39 +121,41 @@ describe('the review and the typed phrase', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Review' }))
     return screen.findByTestId('open-review')
   }
-  it('shows the full hash, every lifted line and the phrase template, and never the phrase itself', async () => {
+  it('shows the full hash and every lifted line, has one Approve button and nothing to type, and never shows the phrase', async () => {
     const review = await toReview()
     expect(review).toHaveTextContent(HASH)
     expect(review).toHaveTextContent('spending')
     expect(review).toHaveTextContent('host_settings')
-    expect(review).toHaveTextContent('I understand: lift <N> lines, charter <first 8 characters of the hash>')
-    expect(document.body.textContent).not.toContain(TYPED)
-    expect(screen.getByLabelText('Type the phrase')).toHaveValue('')
+    expect(review).toHaveTextContent("operating system's own window")
+    expect(document.body.textContent).not.toContain(PHRASE)
+    expect(document.body.textContent).not.toContain('<first 8 characters of the hash>')
+    expect(screen.queryByLabelText('Type the phrase')).toBeNull()
+    expect(review.querySelector('input, textarea')).toBeNull()
+    expect(screen.getAllByRole('button', { name: 'Approve' })).toHaveLength(1)
   })
-  it('starts only with a typed phrase, sends the phrase as typed with the chat the CLI makes the boss behind, and shows the answer', async () => {
+  it('one press of Approve starts with the token and the chat the CLI makes the boss behind, sends no phrase, and shows the answer', async () => {
     await toReview()
-    const start = screen.getByRole('button', { name: 'Start the run' })
-    expect(start).toBeDisabled()
-    type('Type the phrase', TYPED)
+    const start = screen.getByRole('button', { name: 'Approve' })
     expect(start).toBeEnabled()
     fireEvent.click(start)
     await waitFor(() => expect(openStartApi.start).toHaveBeenCalledTimes(1))
-    const [charter, phrase, token, chat] = openStartApi.start.mock.calls[0]
-    expect([phrase, token, chat, charter.goal, charter.lines]).toEqual([TYPED, 'tok-1', { id: 'chat-7' }, 'ship it', ['spending', 'host_settings']])
+    const args = openStartApi.start.mock.calls[0]
+    expect(args).toHaveLength(3) // charter, token, chat: no phrase
+    const [charter, token, chat] = args
+    expect([token, chat, charter.goal, charter.lines]).toEqual(['tok-1', { id: 'chat-7' }, 'ship it', ['spending', 'host_settings']])
+    expect(JSON.stringify(args)).not.toContain(PHRASE)
     expect(await screen.findByTestId('open-started')).toBeInTheDocument()
   })
-  it('shows the CLI\'s refusal when the phrase is wrong and does not look started', async () => {
+  it('shows the CLI\'s refusal and does not look started', async () => {
     openStartApi.start.mockResolvedValue({ ok: false, started: false, output: '', detail: 'the phrase does not match; nothing started', code: 'invalid_input' })
     await toReview()
-    type('Type the phrase', 'yes')
-    fireEvent.click(screen.getByRole('button', { name: 'Start the run' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('the phrase does not match; nothing started')
     expect(screen.queryByTestId('open-started')).toBeNull()
   })
   it('cannot start without a way to get its chat, and says so', async () => {
     await toReview({ getChat: null })
-    type('Type the phrase', TYPED)
-    expect(screen.getByRole('button', { name: 'Start the run' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled()
     expect(screen.getByTestId('open-no-boss')).toBeInTheDocument()
     expect(openStartApi.start).not.toHaveBeenCalled()
   })
@@ -175,8 +177,7 @@ describe('after the start', () => {
     await fillForm()
     fireEvent.click(screen.getByRole('button', { name: 'Review' }))
     await screen.findByTestId('open-review')
-    type('Type the phrase', TYPED)
-    fireEvent.click(screen.getByRole('button', { name: 'Start the run' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
   }
   it('cannot be submitted again, tells the nav to look, and calls onStarted with the CLI\'s words', async () => {
     const onStarted = vi.fn(); const seen = vi.fn()
@@ -186,10 +187,9 @@ describe('after the start', () => {
     await fillForm()
     fireEvent.click(screen.getByRole('button', { name: 'Review' }))
     await screen.findByTestId('open-review')
-    type('Type the phrase', TYPED)
-    fireEvent.click(screen.getByRole('button', { name: 'Start the run' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
     expect(await screen.findByTestId('open-started')).toHaveTextContent('p/1')
-    expect(screen.getByRole('button', { name: 'Start the run' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Review' })).toBeDisabled()
     expect(openStartApi.start).toHaveBeenCalledTimes(1)
     expect(onStarted).toHaveBeenCalledTimes(1)
@@ -200,7 +200,7 @@ describe('after the start', () => {
     openStartApi.start.mockResolvedValue({ ok: false, started: false, state: 'unknown', detail: 'the run may have started: check the Control room and press Stop', code: 'unknown' })
     await toStart()
     expect(await screen.findByTestId('open-unknown')).toHaveTextContent('may have started')
-    expect(screen.getByRole('button', { name: 'Start the run' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled()
   })
   it('shows busy and the native dialog refusals in the CLI\'s words and allows a new preview', async () => {
     openStartApi.start.mockResolvedValue({ ok: false, started: false, state: 'not_started', detail: 'no native confirmation dialog is available here', code: 'no_native_dialog' })
@@ -250,10 +250,9 @@ describe('the goal counter and a failed call', () => {
     await fillForm()
     fireEvent.click(screen.getByRole('button', { name: 'Review' }))
     await screen.findByTestId('open-review')
-    type('Type the phrase', TYPED)
-    fireEvent.click(screen.getByRole('button', { name: 'Start the run' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
     expect(await screen.findByTestId('open-unknown')).toHaveTextContent('may have started')
-    expect(screen.getByRole('button', { name: 'Start the run' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeDisabled()
   })
 })
 
@@ -265,8 +264,7 @@ describe('the started view and a second review', () => {
     await fillForm()
     fireEvent.click(screen.getByRole('button', { name: 'Review' }))
     await screen.findByTestId('open-review')
-    type('Type the phrase', TYPED)
-    fireEvent.click(screen.getByRole('button', { name: 'Start the run' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
     const started = await screen.findByTestId('open-started')
     expect(started).toHaveTextContent('p/1')
     expect(started.textContent).not.toMatch(/[{}"]|deadbeef/)
@@ -279,15 +277,13 @@ describe('the started view and a second review', () => {
     await fillForm()
     fireEvent.click(screen.getByRole('button', { name: 'Review' }))
     await screen.findByTestId('open-review')
-    type('Type the phrase', TYPED)
-    fireEvent.click(screen.getByRole('button', { name: 'Start the run' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('declined')
     fireEvent.click(screen.getByRole('button', { name: 'Review' }))
     await waitFor(() => expect(openStartApi.render).toHaveBeenCalledTimes(2))
     const review = await screen.findByTestId('open-review')
     await waitFor(() => expect(review).toHaveFocus())
     expect(screen.queryByText(/declined/)).toBeNull()
-    expect(screen.getByLabelText('Type the phrase')).toHaveValue('')
   })
 })
 
@@ -299,8 +295,7 @@ describe('after an unknown outcome', () => {
     await fillForm()
     fireEvent.click(screen.getByRole('button', { name: 'Review' }))
     await screen.findByTestId('open-review')
-    type('Type the phrase', TYPED)
-    fireEvent.click(screen.getByRole('button', { name: 'Start the run' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
     await screen.findByTestId('open-unknown')
     expect(await screen.findByTestId('open-may-exist')).toHaveTextContent('may already exist')
   })
@@ -313,8 +308,7 @@ describe('the chat of the start and the boss\'s first turn', () => {
     await fillForm()
     fireEvent.click(screen.getByRole('button', { name: 'Review' }))
     await screen.findByTestId('open-review')
-    type('Type the phrase', TYPED)
-    fireEvent.click(screen.getByRole('button', { name: 'Start the run' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
   }
   it('hands the chat the person is in to the preview and to the start, and a chat the start made to onChat', async () => {
     getChat.mockReturnValue({ spec: { runtime: 'claude', access: 'full' } })
@@ -322,7 +316,7 @@ describe('the chat of the start and the boss\'s first turn', () => {
     await toStart()
     await screen.findByRole('alert')
     expect(openStartApi.render.mock.calls[0][1]).toEqual({ spec: { runtime: 'claude', access: 'full' } })
-    expect(openStartApi.start.mock.calls[0][3]).toEqual({ spec: { runtime: 'claude', access: 'full' } })
+    expect(openStartApi.start.mock.calls[0][2]).toEqual({ spec: { runtime: 'claude', access: 'full' } })
     expect(onChat).toHaveBeenCalledWith({ id: 'made-1' })
   })
   it('says the boss has no first turn, never silently, and keeps the run shown as started', async () => {

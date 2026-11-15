@@ -74,12 +74,12 @@ func TestDoomsdayStartRefusesBadInputBeforeTheCLI(t *testing.T) {
 	for name, c := range map[string]struct {
 		charter, chat string
 	}{
-		"empty charter":  {"", "chat-5"},
-		"not an object":  {`["x"]`, "chat-5"},
-		"not json":       {`goal: x`, "chat-5"},
-		"huge charter":   {`{"goal":"` + strings.Repeat("x", doomsdayCharterMax) + `"}`, "chat-5"},
-		"spaced chat":    {dmCharter, "a b"},
-		"no chat":        {dmCharter, ""},
+		"empty charter": {"", "chat-5"},
+		"not an object": {`["x"]`, "chat-5"},
+		"not json":      {`goal: x`, "chat-5"},
+		"huge charter":  {`{"goal":"` + strings.Repeat("x", doomsdayCharterMax) + `"}`, "chat-5"},
+		"spaced chat":   {dmCharter, "a b"},
+		"no chat":       {dmCharter, ""},
 	} {
 		d := parseStartDoc(t, g.a.DoomsdayStart(c.charter, tok, c.chat, ""))
 		if d.OK || d.Code != "invalid_input" {

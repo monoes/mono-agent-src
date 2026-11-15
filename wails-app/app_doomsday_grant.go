@@ -262,8 +262,8 @@ func (f startFacts) dialogBody(chat string) string {
 }
 
 // expectedPhrase is the phrase the CLI will accept, from its own template: the number of lifted lines and the first 8
-// characters of the hash. The app checks the typed phrase against it before the dialog, so the person is not asked to
-// confirm a start that must fail; the CLI still derives and compares it itself.
+// characters of the hash. The app passes it to the CLI as --gui-phrase on the person's one approval (there is no typed
+// phrase); the CLI still derives and compares it itself.
 func (f startFacts) expectedPhrase() string {
 	r := strings.NewReplacer("<N>", strconv.Itoa(len(f.lines)), "<first 8 characters of the hash>", f.hash[:8])
 	return r.Replace(f.template)

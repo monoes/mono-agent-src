@@ -9,11 +9,11 @@ import (
 	doomsdaycli "github.com/monoes/mono-agent/internal/cli/doomsday"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
-	"reflect"
 	"time"
 	"unicode/utf8"
 )
@@ -644,7 +644,7 @@ func TestNoRunStartsWithoutTheNativeDialogAffirmative(t *testing.T) {
 	startCalls := func() int { return strings.Count(readFile(t, g.log), "|start|") }
 	for name, set := range map[string]func(){
 		"declined":  func() { g.answer = false },
-		"too fast":  func() { g.answer, g.think = true, time.Second },
+		"too fast":  func() { g.answer, g.think = true, 300*time.Millisecond },
 		"no dialog": func() { g.answer, g.think, g.avail = true, 3*time.Second, false },
 	} {
 		set()

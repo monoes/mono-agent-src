@@ -23,9 +23,9 @@ export const openStartApi = {
   },
   // The preview of a charter object: {hash, lines, lift_count, text, phrase_template}. Writes nothing.
   render: (charter, chat) => call(() => GoApp.DoomsdayRender(JSON.stringify(charter), chat?.id || '', chat?.spec ? JSON.stringify(chat.spec) : '')),
-  // Starts the run with the phrase the person typed and the token of the preview (start_token). The app also asks the
-  // person in a native dialog. chat is {id} of a chat that exists or {spec} of one the start makes after the person said yes
+  // Starts the run after the person's one Approve, with the token of the preview (start_token): no phrase is sent, the app
+  // derives it. The app then asks the person in a native dialog, which is the barrier. chat is {id} of a chat that exists or {spec} of one the start makes after the person said yes
   // (the token covers it; the answer then carries `chat`). The CLI makes the chat's boss, funds it, starts the run and queues the boss's first turn.
   // {ok, started, state: started|not_started|unknown, output, detail, code}.
-  start: (charter, phrase, token, chat) => call(() => GoApp.DoomsdayStart(JSON.stringify(charter), phrase, token, chat?.id || '', chat?.spec ? JSON.stringify(chat.spec) : '')),
+  start: (charter, token, chat) => call(() => GoApp.DoomsdayStart(JSON.stringify(charter), token, chat?.id || '', chat?.spec ? JSON.stringify(chat.spec) : '')),
 }

@@ -3833,11 +3833,23 @@ function that does what the guarded one does), and it skips directories named `s
   `strategy.finish.ready` marker per judged epoch and the top lead reads it through the read-only `session_boss_finish_ready`; only the lead's own
   `session_boss_finish_begin`, with its boss check, begins one. The only model text in that reading is the judge's per-criterion statuses; criteria,
   run and epoch state, times, direction ids and the finish engine's rounds are host-derived, and no title or note enters it.
-- **Starting an open-ended run from the app.** The app's start form runs `doomsday start --gui-phrase`, which the audit row
-  records as ack kind `gui`. The `gui` ack is the caller's claim, in the same trust class as `script`: the CLI derives the
-  phrase again from the rendered charter and compares it, but it cannot tell the app from a script that passes the hidden
-  flag, so the operator gate (an agent, a workflow, a coder turn and the MCP server are refused) is the control. The app's
-  binding adds a one-time token bound to the exact charter it rendered and a native operating-system confirmation that
+- **Starting an open-ended run from the app.** The app's start form has one Approve button and nothing to type. The app derives
+  the acknowledgement phrase itself, from the CLI's own preview (the number of lifted lines and the first 8 characters of the
+  hash), and runs `doomsday start --gui-phrase`, which the audit row records as ack kind `gui`. The `gui` ack is the caller's
+  claim, in the same trust class as `script`: the CLI derives the phrase again from the rendered charter and compares it, but
+  it cannot tell the app from a script that passes the hidden flag, so the operator gate (an agent, a workflow, a coder turn and
+  the MCP server are refused) is the control. The terminal start is unchanged: it still needs the typed phrase, or
+  `--yes-i-lift` with the full `--hash`. What the typed phrase in the form used to add, stated honestly: it made the person
+  copy two numbers off the preview, which forces a look at the lifted-line count and the hash, and it was a step a page
+  script could not take for them. It was never a credential (the CLI derives the same string from the charter), and it was a
+  habit-click risk of its own: after a few starts people paste or retype it without reading. Removing it removes that
+  forced look; what remains is the preview the person reads, the native dialog (which shows the lifted lines, the hash
+  prefix and the budget, is built in Go from the CLI's own preview and cannot be answered by a script in the page) and the
+  one-second minimum before a Yes counts (the mission pursuit start uses two). A script in the page can still raise the dialog at a moment of its choosing and can
+  now call the start binding with a valid token without typing anything; it cannot click Yes for you, but you might click it
+  by habit: read the dialog, which is the one barrier of the app path. A script that is not in the page (any process running
+  as you) never needed the phrase: it calls the CLI directly, where only the operator gate
+  (a courtesy layer, as for every person verb) stands. The app's binding adds a one-time token bound to the exact charter it rendered and a native operating-system confirmation that
   script in the page cannot answer; it refuses to start where no native dialog exists (`wails dev` in a browser). The dialog is built in Go from the
   CLI's own preview: the machine facts first (lifted lines, charter prefix, budget, criteria count, limits, pinned models), then the goal as data,
   cleaned and cut to 200 characters; an answer under a second after it is shown counts as a decline. The CLI refuses, for an app start,
