@@ -377,9 +377,9 @@ func TestTheDialogShowsTheGoalAfterTheFactsCleanedAndCapped(t *testing.T) {
 	}
 }
 
-// An answer under a second after the dialog was shown is not a decision (a double-click or an Enter held down): it
+// An answer under two seconds (dialogMinThink) after the dialog was shown is not a decision (a double-click or an Enter held down): it
 // is a decline. The dialog says which button confirms.
-func TestAnAnswerInUnderASecondIsDeclined(t *testing.T) {
+func TestAnAnswerInUnderTwoSecondsIsDeclined(t *testing.T) {
 	g := newGrantRig(t)
 	g.think = dialogMinThink - 100*time.Millisecond
 	tok := g.render(dmCharter)
@@ -392,7 +392,7 @@ func TestAnAnswerInUnderASecondIsDeclined(t *testing.T) {
 	tok = g.render(dmCharter)
 	g.startBehaves(`echo '{"run_id":"work/1"}'`)
 	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", "")); !d.OK {
-		t.Fatalf("an answer after a second was refused: %+v", d)
+		t.Fatalf("an answer after the minimum was refused: %+v", d)
 	}
 	if !strings.Contains(g.asked[0], `"Yes" (Start run)`) {
 		t.Fatalf("the dialog does not say which button confirms:\n%s", g.asked[0])

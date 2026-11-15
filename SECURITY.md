@@ -3850,11 +3850,12 @@ function that does what the guarded one does), and it skips directories named `s
   preview: the machine facts first (lifted lines, charter prefix, budget, criteria count, limits, pinned models, the
   auto-approval limits and answer classes), then the goal as data, cleaned and cut to 200 characters. A Yes counts only
   after a minimum think time of two seconds measured from when the dialog was on screen, not from any wait for another
-  dialog; a quicker answer counts as a decline. Where no native dialog can be shown (before the window exists, or a plain
-  browser pointed at the `wails dev` server rather than its desktop window) the start is refused.
+  dialog; a quicker answer counts as a decline. Where no native dialog can be shown the start is refused; the code
+  refuses when the app has no window context yet or that context carries no frontend, and it does not otherwise tell a browser
+  tab on the `wails dev` server from the desktop window, so do not rely on a dev-server tab being refused.
 
   Limit, stated plainly: a script in the page can now call the start binding with a valid token without anything being
-  typed, and can raise the dialog at a moment of its choosing. It cannot click Yes for you, but you might click it by habit;
+  typed (the app, not the page, passes the hidden `--gui-phrase` flag to the CLI), and can raise the dialog at a moment of its choosing. It cannot click Yes for you, but you might click it by habit;
   read the dialog, which is the one barrier of the app path.
 
   The CLI refuses, for an app start, goal, criteria and pin text over 2000 characters or with hidden (zero-width, direction,
