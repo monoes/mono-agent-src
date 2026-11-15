@@ -95,3 +95,19 @@ func TestPickSendWorkflow(t *testing.T) {
 		t.Fatalf("unknown: %v", err)
 	}
 }
+
+// The guard's lookup finds a person whatever spelling of the platform is
+// stored or asked for.
+func TestStoredPersonIsCaseInsensitiveOnPlatform(t *testing.T) {
+	db := testDB(t)
+	addPerson(t, db, "p1", "prof", Approved, "hi") // stored LINKEDIN
+	for _, plat := range []string{"LINKEDIN", "linkedin", "LinkedIn"} {
+		s, err := StoredPerson(context.Background(), db, "prof", plat, "p1-user")
+		if err != nil || !s.Found || s.Category != Approved {
+			t.Errorf("StoredPerson(%q) = %+v, %v", plat, s, err)
+		}
+	}
+	if s, _ := StoredPerson(context.Background(), db, "prof", "linkedin", "P1-USER"); s.Found {
+		t.Error("the username is compared exactly, as the unique key does")
+	}
+}
