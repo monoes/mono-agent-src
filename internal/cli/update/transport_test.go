@@ -94,12 +94,12 @@ func TestLegacyDownloadRefusesOversizeBodies(t *testing.T) {
 	t.Cleanup(func() { maxBinaryBytes, maxSmallBytes = oldB, oldS })
 
 	maxBinaryBytes, maxSmallBytes = 100, 1000
-	if _, err := legacyDownload(releaseFor(srv, "bin-x"), "bin-x"); err == nil {
-		t.Fatal("an oversize binary must be refused")
+	if _, err := legacyDownload(releaseFor(srv, "bin-x"), "bin-x"); err == nil || !strings.Contains(err.Error(), "larger than") {
+		t.Fatalf("an oversize binary must be refused by the cap, got %v", err)
 	}
 	maxBinaryBytes, maxSmallBytes = 1000, 50
-	if _, err := legacyDownload(releaseFor(srv, "bin-x"), "bin-x"); err == nil {
-		t.Fatal("an oversize checksum list must be refused")
+	if _, err := legacyDownload(releaseFor(srv, "bin-x"), "bin-x"); err == nil || !strings.Contains(err.Error(), "larger than") {
+		t.Fatalf("an oversize checksum list must be refused by the cap, got %v", err)
 	}
 	maxBinaryBytes, maxSmallBytes = 1000, 1000
 	if _, err := legacyDownload(releaseFor(srv, "bin-x"), "bin-x"); err != nil {
