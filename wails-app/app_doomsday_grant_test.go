@@ -13,6 +13,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"reflect"
 	"time"
 	"unicode/utf8"
 )
@@ -109,7 +110,7 @@ func TestStartNeedsTheTokenOfTheExactCharterThatWasRendered(t *testing.T) {
 		"wrong token": {dmCharter, strings.Repeat("0", 32)},
 		"short token": {dmCharter, "abcd"},
 	} {
-		d := parseStartDoc(t, g.a.DoomsdayStart(c.charter, gPhrase, c.token, "chat-5", ""))
+		d := parseStartDoc(t, g.a.DoomsdayStart(c.charter, c.token, "chat-5", ""))
 		if d.OK || d.Code != "token" {
 			t.Errorf("%s: %+v", name, d)
 		}
@@ -119,10 +120,10 @@ func TestStartNeedsTheTokenOfTheExactCharterThatWasRendered(t *testing.T) {
 	}
 	// the real token still works after wrong tries (they do not burn it), once
 	g.startBehaves(`echo '{"run_id":"work/1"}'`)
-	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", "")); !d.OK {
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", "")); !d.OK {
 		t.Fatalf("the right token was refused: %+v", d)
 	}
-	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", "")); d.OK || d.Code != "token" {
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", "")); d.OK || d.Code != "token" {
 		t.Fatalf("a token was used twice: %+v", d)
 	}
 }
@@ -133,12 +134,12 @@ func TestStartRefusesAnotherCharterThanTheOnePreviewed(t *testing.T) {
 	for name, other := range map[string]string{"extra byte": dmCharter + " ", "other goal": strings.Replace(dmCharter, `"g"`, `"h"`, 1)} {
 		tok := g.render(dmCharter)
 		before, dialogs := g.calls(), g.dialogs
-		if d := parseStartDoc(t, g.a.DoomsdayStart(other, gPhrase, tok, "chat-5", "")); d.OK || d.Code != "token" || g.calls() != before || g.dialogs != dialogs {
+		if d := parseStartDoc(t, g.a.DoomsdayStart(other, tok, "chat-5", "")); d.OK || d.Code != "token" || g.calls() != before || g.dialogs != dialogs {
 			t.Fatalf("%s: %+v", name, d)
 		}
 		// a refusal does not spend the token: the exact charter still starts, once
 		g.startBehaves(`echo '{"run_id":"work/1"}'`)
-		if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", "")); !d.OK {
+		if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", "")); !d.OK {
 			t.Fatalf("%s: the exact charter was refused after a mismatch: %+v", name, d)
 		}
 	}
@@ -148,7 +149,7 @@ func TestTokenExpiresInTenMinutesAndANewRenderReplacesIt(t *testing.T) {
 	g := newGrantRig(t)
 	tok := g.render(dmCharter)
 	g.now = g.now.Add(10*time.Minute + time.Second)
-	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", "")); d.OK || d.Code != "token" {
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", "")); d.OK || d.Code != "token" {
 		t.Fatalf("an expired token started: %+v", d)
 	}
 	first := g.render(dmCharter)
@@ -156,7 +157,7 @@ func TestTokenExpiresInTenMinutesAndANewRenderReplacesIt(t *testing.T) {
 	if first == second {
 		t.Fatal("two renders gave the same token")
 	}
-	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, first, "chat-5", "")); d.OK || d.Code != "token" {
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, first, "chat-5", "")); d.OK || d.Code != "token" {
 		t.Fatalf("an older render's token started: %+v", d)
 	}
 }
@@ -165,13 +166,13 @@ func TestTokenIsPerProfileAndStopInvalidatesIt(t *testing.T) {
 	g := newGrantRig(t)
 	tok := g.render(dmCharter)
 	g.a.selectForTest("other")
-	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", "")); d.OK || d.Code != "token" {
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", "")); d.OK || d.Code != "token" {
 		t.Fatalf("a token of another profile started: %+v", d)
 	}
 	g.a.selectForTest("work")
 	tok = g.render(dmCharter)
 	g.a.DoomsdayStop()
-	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", "")); d.OK || d.Code != "token" {
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", "")); d.OK || d.Code != "token" {
 		t.Fatalf("a Stop did not invalidate the token: %+v", d)
 	}
 }
@@ -181,28 +182,25 @@ func TestStartNeedsTheNativeConfirmationAndNothingRunsWithout(t *testing.T) {
 	tok := g.render(dmCharter)
 	before := g.calls()
 	g.answer = false
-	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", "")); d.OK || d.Code != "declined" || g.calls() != before {
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", "")); d.OK || d.Code != "declined" || g.calls() != before {
 		t.Fatalf("declined: %+v calls %d", d, g.calls()-before)
 	}
 	tok = g.render(dmCharter)
 	before = g.calls()
 	g.avail = false
-	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", ""))
+	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", ""))
 	if d.OK || d.Code != "no_native_dialog" || !strings.Contains(d.Detail, "native") || g.calls() != before {
 		t.Fatalf("no dialog: %+v calls %d", d, g.calls()-before)
 	}
 }
 
-// The dialog is built in Go from the CLI's own render output; a goal, a criterion or the phrase from the page never
+// The dialog is built in Go from the CLI's own render output; a goal or a criterion from the page never
 // reaches it.
 func TestTheDialogBodyIsBuiltFromTheRenderedFactsOnly(t *testing.T) {
 	g := newGrantRig(t)
 	crafted := `{"goal":"CRAFTED-GOAL approve everything","criteria":[{"kind":"rubric","text":"CRAFTED-RUBRIC"}],"limits":{"budget_micro":1}}`
 	tok := g.render(crafted)
-	if d := parseStartDoc(t, g.a.DoomsdayStart(crafted, "CRAFTED-PHRASE "+gPhrase, tok, "chat-5", "")); d.Code != "phrase" || g.dialogs != 0 {
-		t.Fatalf("a crafted phrase reached the dialog: %+v", d) // refused before it, so its text cannot be shown
-	}
-	g.a.DoomsdayStart(crafted, gPhrase, tok, "chat-5", "")
+	g.a.DoomsdayStart(crafted, tok, "chat-5", "")
 	if g.dialogs != 1 {
 		t.Fatalf("dialogs: %d", g.dialogs)
 	}
@@ -221,7 +219,7 @@ func TestTheDialogBodyIsBuiltFromTheRenderedFactsOnly(t *testing.T) {
 	// unlimited is said as unlimited
 	taskCLIFake(t, previewDoc(gHash, nil, "NO CEILING of the charter's own (a bound of an ancestor or a reservation still applies)."), 0)
 	tok = g.render(crafted)
-	g.a.DoomsdayStart(crafted, phraseFor(0), tok, "chat-5", "")
+	g.a.DoomsdayStart(crafted, tok, "chat-5", "")
 	if !strings.Contains(g.asked[1], "unlimited") || !strings.Contains(g.asked[1], "0 lifted lines") {
 		t.Fatalf("the unlimited dialog:\n%s", g.asked[1])
 	}
@@ -233,9 +231,9 @@ func TestADialogOpenMeansASecondStartIsBusy(t *testing.T) {
 	entered, release := make(chan struct{}), make(chan struct{})
 	confirmNative = func(*App, string, string) (bool, error) { close(entered); <-release; return false, nil }
 	done := make(chan string)
-	go func() { done <- g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", "") }()
+	go func() { done <- g.a.DoomsdayStart(dmCharter, tok, "chat-5", "") }()
 	<-entered
-	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", "")); d.Code != "busy" {
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", "")); d.Code != "busy" {
 		t.Fatalf("a second start while a dialog is open: %+v", d)
 	}
 	close(release)
@@ -246,27 +244,27 @@ func TestStartRefusesNoChatAndReportsAnUnclearOutcomeAsUnknown(t *testing.T) {
 	g := newGrantRig(t)
 	for _, boss := range []string{"", "  ", "two words", "line\nbreak", strings.Repeat("c", 129)} {
 		tok := g.render(dmCharter)
-		if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, boss, "")); d.OK || d.Code != "invalid_input" || g.dialogs != 0 {
+		if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, boss, "")); d.OK || d.Code != "invalid_input" || g.dialogs != 0 {
 			t.Fatalf("chat %q: %+v", boss, d)
 		}
 	}
 	// the CLI is killed mid-start: the run may have started
 	g.startBehaves("kill -9 $$")
 	tok := g.render(dmCharter)
-	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", ""))
+	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", ""))
 	if d.OK || d.Started || d.State != "unknown" || !strings.Contains(d.Detail, "may have started") {
 		t.Fatalf("a killed start: %+v", d)
 	}
 	// the CLI says it started but could not finish (the boss record): also not "not started"
 	g.startBehaves(`echo '{"error":"run work/1 started but session 5 could not be recorded as its boss","code":"error"}'; exit 1`)
 	tok = g.render(dmCharter)
-	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", "")); d.State != "unknown" {
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", "")); d.State != "unknown" {
 		t.Fatalf("started-but: %+v", d)
 	}
 	// a plain refusal is a refusal
 	g.startBehaves(`echo '{"error":"the phrase does not match; nothing started","code":"invalid_input"}'; exit 2`)
 	tok = g.render(dmCharter)
-	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", "")); d.State != "not_started" || d.Code != "invalid_input" {
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", "")); d.State != "not_started" || d.Code != "invalid_input" {
 		t.Fatalf("a refusal: %+v", d)
 	}
 }
@@ -335,7 +333,7 @@ func TestStartReadsTheLastJSONLineOfAMixedOutput(t *testing.T) {
 	g := newGrantRig(t)
 	g.startBehaves(`printf 'CHARTER abc\nGoal: x\n{"error":"the phrase does not match; nothing started","code":"invalid_input"}\n'; exit 2`)
 	tok := g.render(dmCharter)
-	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", ""))
+	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", ""))
 	if d.State != "not_started" || d.Code != "invalid_input" || !strings.Contains(d.Detail, "does not match") {
 		t.Fatalf("%+v", d)
 	}
@@ -354,7 +352,7 @@ func TestTheDialogShowsTheGoalAfterTheFactsCleanedAndCapped(t *testing.T) {
 	}
 	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, "cat > /dev/null\ncat '"+prev+"'\n"))
 	tok := g.render(dmCharter)
-	g.a.DoomsdayStart(dmCharter, phraseFor(1), tok, "chat-5", "")
+	g.a.DoomsdayStart(dmCharter, tok, "chat-5", "")
 	if g.dialogs != 1 {
 		t.Fatalf("dialogs %d", g.dialogs)
 	}
@@ -385,14 +383,14 @@ func TestAnAnswerInUnderASecondIsDeclined(t *testing.T) {
 	g.think = 300 * time.Millisecond
 	tok := g.render(dmCharter)
 	before := g.calls()
-	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", ""))
+	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", ""))
 	if d.OK || d.Code != "declined" || !strings.Contains(d.Detail, "too fast") || g.calls() != before {
 		t.Fatalf("%+v calls %d", d, g.calls()-before)
 	}
 	g.think = time.Second
 	tok = g.render(dmCharter)
 	g.startBehaves(`echo '{"run_id":"work/1"}'`)
-	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", "")); !d.OK {
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", "")); !d.OK {
 		t.Fatalf("an answer after a second was refused: %+v", d)
 	}
 	if !strings.Contains(g.asked[0], `"Yes" (Start run)`) {
@@ -413,7 +411,7 @@ func TestAStartTimedOutOrPanickedIsUnknown(t *testing.T) {
 	} {
 		g.startBehaves(c.body)
 		tok := g.render(dmCharter)
-		if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", "")); d.State != c.state {
+		if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", "")); d.State != c.state {
 			t.Errorf("%s: %+v", name, d)
 		}
 	}
@@ -465,7 +463,7 @@ func TestADialogThatNeverReturnsIsDeclinedAfterItsTimeout(t *testing.T) {
 	confirmNative = func(*App, string, string) (bool, error) { <-stuck; return true, nil }
 	tok := g.render(dmCharter)
 	before := g.calls()
-	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", ""))
+	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", ""))
 	if d.OK || d.Code != "declined" || !strings.Contains(d.Detail, "did not return") || g.calls() != before {
 		t.Fatalf("%+v", d)
 	}
@@ -483,16 +481,16 @@ func TestADeclineKeepsThePreviewUsableAndAConfirmedStartSpendsIt(t *testing.T) {
 	g := newGrantRig(t)
 	tok := g.render(dmCharter)
 	g.answer = false
-	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", "")); d.Code != "declined" {
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", "")); d.Code != "declined" {
 		t.Fatalf("%+v", d)
 	}
 	g.answer = true
 	g.startBehaves(`echo '{"run_id":"work/1"}'`)
-	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", "")); !d.OK {
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", "")); !d.OK {
 		t.Fatalf("after a decline the same preview was refused: %+v", d)
 	}
 	before := g.calls()
-	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", "")); d.OK || d.Code != "token" || g.calls() != before {
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", "")); d.OK || d.Code != "token" || g.calls() != before {
 		t.Fatalf("a confirmed start's token was used again: %+v", d)
 	}
 }
@@ -515,7 +513,7 @@ func TestStartTakesTheLastJSONLineWhenAnEarlierLineLooksLikeJSON(t *testing.T) {
 	g := newGrantRig(t)
 	g.startBehaves(`printf '{"note":"human line"}\n{"error":"the real refusal","code":"invalid_input"}\n'; exit 2`)
 	tok := g.render(dmCharter)
-	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", "")); d.Code != "invalid_input" || !strings.Contains(d.Detail, "the real refusal") {
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", "")); d.Code != "invalid_input" || !strings.Contains(d.Detail, "the real refusal") {
 		t.Fatalf("%+v", d)
 	}
 }
@@ -548,7 +546,7 @@ func TestAFailureWithoutAnEnvelopeIsUnknown(t *testing.T) {
 	} {
 		g.startBehaves(c.body)
 		tok := g.render(dmCharter)
-		if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", "")); d.State != c.state {
+		if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", "")); d.State != c.state {
 			t.Errorf("%s: %+v", name, d)
 		}
 	}
@@ -560,7 +558,7 @@ func TestConfirmRechecksTheTokenLifetime(t *testing.T) {
 	g.think = 11 * time.Minute // the person answers after the token expired
 	tok := g.render(dmCharter)
 	before := g.calls()
-	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", ""))
+	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", ""))
 	if d.OK || d.Code != "token" || g.calls() != before {
 		t.Fatalf("%+v", d)
 	}
@@ -577,7 +575,7 @@ func TestTheDialogNamesAutoApprovalAndAnswerClasses(t *testing.T) {
 	}
 	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, "cat > /dev/null\ncat '"+prev+"'\n"))
 	tok := g.render(dmCharter)
-	g.a.DoomsdayStart(dmCharter, phraseFor(1), tok, "chat-5", "")
+	g.a.DoomsdayStart(dmCharter, tok, "chat-5", "")
 	body := g.asked[0]
 	for _, want := range []string{"spend 1 USD and 2 tasks per ask", "may answer critical asks of class: scope, spend"} {
 		if i, j := strings.Index(body, want), strings.Index(body, "Goal as written"); i < 0 || i > j {
@@ -620,21 +618,49 @@ func TestOnlyOnePreviewRunsAtATime(t *testing.T) {
 	<-done
 }
 
-// A wrong phrase is refused BEFORE the dialog (the person would otherwise confirm a start that must fail); the app derives
-// the expected phrase from the CLI's own template, count and hash. Nothing is spent.
-func TestAWrongPhraseIsRefusedBeforeTheDialogAndSpendsNothing(t *testing.T) {
+// One approval, no typing: the binding takes no phrase at all (a page cannot supply or forge one), the app derives the
+// phrase from the CLI's own preview template and hands it to the CLI as --gui-phrase, which re-derives and compares it.
+func TestTheAppComputesThePhraseAndTheBindingTakesNone(t *testing.T) {
+	if n := reflect.TypeOf((*App).DoomsdayStart).NumIn(); n != 5 { // receiver, charter, token, chat id, chat spec
+		t.Fatalf("DoomsdayStart takes %d arguments besides the receiver: a phrase parameter came back", n-1)
+	}
 	g := newGrantRig(t)
+	g.startBehaves(`echo '{"run_id":"work/1"}'`)
 	tok := g.render(dmCharter)
-	before := g.calls()
-	for _, bad := range []string{"I understand: lift 3 lines, charter ab12cd34", "I understand: lift 2 lines, charter 00000000", "yes"} {
-		d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, bad, tok, "chat-5", ""))
-		if d.OK || d.Code != "phrase" || g.dialogs != 0 || g.calls() != before {
-			t.Fatalf("%q: %+v dialogs %d", bad, d, g.dialogs)
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", "")); !d.OK || d.State != "started" {
+		t.Fatalf("%+v", d)
+	}
+	if !strings.Contains(readFile(t, g.log), "--gui-phrase="+gPhrase+"|") {
+		t.Fatalf("the CLI did not get the app-computed phrase %q:\n%s", gPhrase, readFile(t, g.log))
+	}
+}
+
+// The barrier of the app path is the native dialog: no affirmative from it, no CLI start, and the token is not spent by a
+// refusal. Here: declined, answered too fast, no dialog available, and the one that works.
+func TestNoRunStartsWithoutTheNativeDialogAffirmative(t *testing.T) {
+	g := newGrantRig(t)
+	g.startBehaves(`echo '{"run_id":"work/1"}'`)
+	tok := g.render(dmCharter)
+	startCalls := func() int { return strings.Count(readFile(t, g.log), "|start|") }
+	for name, set := range map[string]func(){
+		"declined":  func() { g.answer = false },
+		"too fast":  func() { g.answer, g.think = true, time.Second },
+		"no dialog": func() { g.answer, g.think, g.avail = true, 3*time.Second, false },
+	} {
+		set()
+		d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", ""))
+		if d.OK || d.State != "not_started" || startCalls() != 0 {
+			t.Fatalf("%s: a run started without the dialog's yes: %+v", name, d)
 		}
 	}
-	g.startBehaves(`echo '{"run_id":"work/1"}'`)
-	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", "")); !d.OK {
-		t.Fatalf("the token was spent by refused phrases: %+v", d)
+	g.answer, g.think, g.avail = true, 3*time.Second, true
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", "")); !d.OK || startCalls() != 1 {
+		t.Fatalf("a yes after refusals: %+v", d)
+	}
+	for _, want := range []string{"2 lifted lines", "spending, host_settings", "ab12cd34", "$5"} { // the lines, the hash prefix and the budget
+		if !strings.Contains(g.asked[len(g.asked)-1], want) {
+			t.Errorf("the dialog does not say %q:\n%s", want, g.asked[len(g.asked)-1])
+		}
 	}
 }
 
@@ -644,12 +670,12 @@ func TestEchoedCharterTextIsNotACrash(t *testing.T) {
 	g := newGrantRig(t)
 	g.startBehaves(`echo 'Goal: panic: boom goroutine 1 [running]: fatal error: x' >&2; echo '{"error":"the phrase does not match; nothing started","code":"invalid_input"}'; exit 2`)
 	tok := g.render(dmCharter)
-	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", "")); d.State != "not_started" {
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", "")); d.State != "not_started" {
 		t.Fatalf("%+v", d)
 	}
 	g.startBehaves(`printf 'panic: runtime error: boom\n\ngoroutine 1 [running]:\n' >&2; echo '{"error":"x","code":"e"}'; exit 2`)
 	tok = g.render(dmCharter)
-	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", "")); d.State != "unknown" {
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", "")); d.State != "unknown" {
 		t.Fatalf("a real panic: %+v", d)
 	}
 }
@@ -678,11 +704,11 @@ func TestAnAbandonedDialogBlocksANewStartUntilItIsDismissed(t *testing.T) {
 	release := make(chan struct{})
 	confirmNative = func(*App, string, string) (bool, error) { <-release; return false, nil }
 	tok := g.render(dmCharter)
-	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", "")); d.Code != "declined" {
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", "")); d.Code != "declined" {
 		t.Fatalf("%+v", d)
 	}
 	tok = g.render(dmCharter)
-	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", "")); d.Code != "busy" || !strings.Contains(d.Detail, "still open") {
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", "")); d.Code != "busy" || !strings.Contains(d.Detail, "still open") {
 		t.Fatalf("a second start while the first dialog is still on screen: %+v", d)
 	}
 	close(release)
@@ -691,7 +717,7 @@ func TestAnAbandonedDialogBlocksANewStartUntilItIsDismissed(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	confirmNative = func(*App, string, string) (bool, error) { return false, nil }
-	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", "")); d.Code == "busy" {
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", "")); d.Code == "busy" {
 		t.Fatalf("still busy after the dialog was dismissed: %+v", d)
 	}
 }
@@ -726,7 +752,7 @@ func TestAStartWhileAnotherDialogIsOpenIsBusy(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	tok := g.render(dmCharter)
 	before := g.calls()
-	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", ""))
+	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", ""))
 	if d.OK || d.Code != "busy" || g.calls() != before {
 		t.Fatalf("%+v", d)
 	}
@@ -748,7 +774,7 @@ func TestTheUnknownDetailIsOnlyTheTailOfStderr(t *testing.T) {
 	g := newGrantRig(t)
 	g.startBehaves(`printf 'CHARTER abc\nGoal: the whole echoed goal text\nLifted authority lines (1):\n' >&2; printf 'one\ntwo\nthree\nfour\nfive\nsix\n' >&2; exit 3`)
 	tok := g.render(dmCharter)
-	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-5", ""))
+	d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-5", ""))
 	if d.State != "unknown" || strings.Contains(d.Detail, "echoed goal text") || strings.Contains(d.Detail, "CHARTER") || !strings.Contains(d.Detail, "six") {
 		t.Fatalf("%+v", d)
 	}

@@ -31,12 +31,12 @@ func TestTheStartTokenIsBoundToTheChat(t *testing.T) {
 	tok := g.renderFor(dmCharter, "chat-A", "")
 	calls := g.calls()
 	for name, c := range map[string]struct{ id, spec string }{"other chat": {"chat-B", ""}, "a new chat": {"", newChatSpec}} {
-		d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, c.id, c.spec))
+		d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, c.id, c.spec))
 		if d.OK || d.Code != "token" || g.dialogs != 0 || g.calls() != calls {
 			t.Errorf("%s: %+v dialogs=%d", name, d, g.dialogs)
 		}
 	}
-	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "chat-A", "")); !d.OK { // the token was not spent by the refusals
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "chat-A", "")); !d.OK { // the token was not spent by the refusals
 		t.Fatalf("the right chat: %+v", d)
 	}
 }
@@ -44,30 +44,30 @@ func TestTheStartTokenIsBoundToTheChat(t *testing.T) {
 func TestTheDialogNamesTheChat(t *testing.T) {
 	g := newGrantRig(t)
 	g.startBehaves(`echo '{"run_id":"work/1"}'`)
-	g.a.DoomsdayStart(dmCharter, gPhrase, g.renderFor(dmCharter, "chat-A", ""), "chat-A", "")
+	g.a.DoomsdayStart(dmCharter, g.renderFor(dmCharter, "chat-A", ""), "chat-A", "")
 	if len(g.asked) != 1 || !strings.Contains(g.asked[0], "the chat chat-A") {
 		t.Fatalf("dialog: %q", g.asked)
 	}
 }
 
-// A chat to be made is made only after the person said yes; a decline or a wrong phrase makes none.
+// A chat to be made is made only after the person said yes; a decline or a wrong token makes none.
 func TestAChatToBeMadeIsMadeOnlyAfterYes(t *testing.T) {
 	g := newGrantRig(t)
 	g.startBehaves(`case "$*" in *"history create"*|*"create --workflow"*) echo '{"id":"new-chat-1","runtimeId":"claude","access":"full","cwd":"/tmp/work","mode":"coder"}';; *) echo '{"run_id":"work/1"}';; esac`)
 	created := func() bool { return strings.Contains(readFile(g.t, g.log), "create|") }
 	tok := g.renderFor(dmCharter, "", newChatSpec)
 	g.answer = false
-	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, gPhrase, tok, "", newChatSpec)); d.Code != "declined" || created() {
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, tok, "", newChatSpec)); d.Code != "declined" || created() {
 		t.Fatalf("declined: %+v created=%v", d, created())
 	}
-	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, "wrong phrase", tok, "", newChatSpec)); d.Code != "phrase" || created() {
-		t.Fatalf("mistyped: %+v created=%v", d, created())
+	if d := parseStartDoc(t, g.a.DoomsdayStart(dmCharter, "a-token-that-was-never-issued", "", newChatSpec)); d.Code != "token" || created() {
+		t.Fatalf("wrong token: %+v created=%v", d, created())
 	}
 	if !strings.Contains(g.asked[0], "a NEW chat on claude") {
 		t.Fatalf("dialog: %q", g.asked[0])
 	}
 	g.answer = true
-	raw := g.a.DoomsdayStart(dmCharter, gPhrase, tok, "", newChatSpec)
+	raw := g.a.DoomsdayStart(dmCharter, tok, "", newChatSpec)
 	var d struct {
 		OK   bool `json:"ok"`
 		Chat struct {
@@ -137,7 +137,7 @@ func TestAFailedStartRemovesTheChatItMade(t *testing.T) {
 			g := newGrantRig(t)
 			g.startBehaves(script(c.start, c.del))
 			tok := g.renderFor(dmCharter, "", newChatSpec)
-			raw := g.a.DoomsdayStart(dmCharter, gPhrase, tok, "", newChatSpec)
+			raw := g.a.DoomsdayStart(dmCharter, tok, "", newChatSpec)
 			var d struct {
 				State string          `json:"state"`
 				Chat  json.RawMessage `json:"chat"`
