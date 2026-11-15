@@ -4,6 +4,7 @@ package chat
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -52,7 +53,7 @@ func TestControlCommandsAreQueuedToAStaleHostThatIsBusy(t *testing.T) {
 func TestStaleHostReasonCreatesNothingWhenNoHostEverRan(t *testing.T) {
 	dbPath := newChatCLITestDB(t)
 	cfg := testDeps(&testConfig{DBPath: dbPath, ProfileID: "default"})
-	if why := StaleHostReason(dbPath); why != "" {
+	if why := StaleHostReason(dbPath, StaleThenStart); why != "" {
 		t.Fatalf("no host: %q", why)
 	}
 	if _, err := os.Stat(hostDir(cfg)); !os.IsNotExist(err) {
@@ -73,7 +74,7 @@ func TestAKilledHostsInfoBesideAStartingHostIsNotStale(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(hostDir(cfg), hostInfoFile), raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if why := StaleHostReason(dbPath); why != "" {
+	if why := StaleHostReason(dbPath, StaleThenStart); why != "" {
 		t.Fatalf("a starting host is stale: %q", why)
 	}
 }
@@ -154,5 +155,86 @@ func TestAnswerIsNotRefusedBecauseOfTheQuestionItAnswers(t *testing.T) {
 	execOn(t, cfg, `INSERT INTO coder_session_asks (id, profile_id, asker_session, asker_conv, ancestor_session, ancestor_conv, level, importance, question, bytes, status, created_at) VALUES (8,'default',1,'c1',2,'c2',1,'critical','q',1,'open','x')`)
 	if err := ensureCurrentHostExcept(cfg, 7); err == nil || *stopped != 0 {
 		t.Fatalf("another open question must still count: err=%v stops=%d", err, *stopped)
+	}
+}
+
+// A retry of a send that is already queued queues nothing: it is answered as the duplicate it is, even while the host is stale and
+// busy (the command it repeats is why it is busy).
+func TestAnIdempotentRetryOfAQueuedSendIsAnsweredBeforeTheStaleHostRefuses(t *testing.T) {
+	cfg, _ := staleHostFixture(t)
+	cmd := coderhost.Command{ProfileID: "default", ConversationID: "c1", Kind: coderhost.KindSend, TurnID: "t-1", Message: "go"}
+	db, err := cfg.OpenDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := coderhost.NewStore(db.DB).Enqueue(cmd); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	retry := cmd
+	retry.TurnID = "t-2"
+	out, deduped, err := enqueueBounded(cfg, retry, coderhost.SendBounds{MaxPending: 5, Within: time.Minute})
+	if err != nil || !deduped || out.ID == 0 {
+		t.Fatalf("the retry: out=%+v deduped=%v err=%v", out, deduped, err)
+	}
+	other := retry
+	other.Message = "something else"
+	if _, _, err := enqueueBounded(cfg, other, coderhost.SendBounds{MaxPending: 5, Within: time.Minute}); err == nil || !strings.Contains(err.Error(), "coder host stop") {
+		t.Fatalf("a different message must still be refused: %v", err)
+	}
+}
+
+// The refusal names the exact command, with --db-path when the database is not the default one, and what to do next in the place it
+// is shown (a send, a start, the app).
+func TestTheStaleHostTextNamesTheDatabaseAndTheNextStepOfItsPlace(t *testing.T) {
+	dbPath := hostWithInfo(t, `{"pid":1,"instance":"host-old"}`)
+	for _, then := range []string{StaleThenSend, StaleThenStart, StaleThenApp} {
+		why := StaleHostReason(dbPath, then)
+		if !strings.Contains(why, "--db-path") || !strings.Contains(why, dbPath) || !strings.Contains(why, "then "+then) {
+			t.Fatalf("%q: %q", then, why)
+		}
+	}
+	if got := hostStopCommand("~/.monoagent/monoagent.db"); got != "monoagentcli coder host stop" {
+		t.Fatalf("the default database: %q", got)
+	}
+}
+
+// The branches where the stop does not happen say what happened and what to do.
+func TestAStaleHostThatCannotBeStoppedSaysWhatToDo(t *testing.T) {
+	// a host too old to record its process: nothing to signal
+	cfg, stopped := staleHostFixture(t)
+	if err := os.WriteFile(filepath.Join(hostDir(cfg), hostInfoFile), []byte(`{"pid":1,"instance":"host-old"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := ensureCurrentHost(cfg)
+	if err == nil || !strings.Contains(err.Error(), "names no process I can identify") || !strings.Contains(err.Error(), "coder host stop") || *stopped != 0 {
+		t.Fatalf("no stamp: %v stops=%d", err, *stopped)
+	}
+	// the stop itself fails
+	cfg, _ = staleHostFixture(t)
+	stopHost = func(*Deps, hostInfo) (string, error) { return "", errors.New("operation not permitted") }
+	if err := ensureCurrentHost(cfg); err == nil || !strings.Contains(err.Error(), "operation not permitted") || !strings.Contains(err.Error(), "coder host stop") {
+		t.Fatalf("a failed stop: %v", err)
+	}
+	// the stop is accepted but the host stays
+	cfg, _ = staleHostFixture(t)
+	old := hostStopSettle
+	hostStopSettle = 100 * time.Millisecond
+	t.Cleanup(func() { hostStopSettle = old })
+	stopHost = func(*Deps, hostInfo) (string, error) { return "", nil } // does not release the lock
+	if err := ensureCurrentHost(cfg); err == nil || !strings.Contains(err.Error(), "still running") {
+		t.Fatalf("a host that stays: %v", err)
+	}
+}
+
+// A host.json that cannot be read is a starting host's (it writes the file after taking its lock): not stale, nothing refused.
+func TestACorruptHostJsonIsNotAStaleHost(t *testing.T) {
+	dbPath := hostWithInfo(t, `{"pid": not json`)
+	cfg := testDeps(&testConfig{DBPath: dbPath, ProfileID: "default"})
+	if why := StaleHostReason(dbPath, StaleThenSend); why != "" {
+		t.Fatalf("corrupt: %q", why)
+	}
+	if err := ensureCurrentHost(cfg); err != nil {
+		t.Fatalf("corrupt: %v", err)
 	}
 }

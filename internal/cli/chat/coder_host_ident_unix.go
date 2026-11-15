@@ -3,9 +3,9 @@
 package chat
 
 import (
+	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"runtime"
 	"strings"
 )
@@ -36,9 +36,9 @@ func processArgs(pid int) ([]string, error) {
 		}
 		return strings.Split(strings.TrimRight(string(raw), "\x00"), "\x00"), nil
 	}
-	out, err := exec.Command("ps", "-o", "command=", "-p", fmt.Sprint(pid)).Output()
-	if err != nil {
-		return nil, err
+	out := psOutput("-o", "command=", "-p", fmt.Sprint(pid))
+	if out == "" {
+		return nil, errors.New("ps shows no such process")
 	}
-	return strings.Fields(string(out)), nil
+	return strings.Fields(out), nil
 }

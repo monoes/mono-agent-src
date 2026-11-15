@@ -56,9 +56,7 @@ func (s *Store) EnqueueSendBounded(c Command, b SendBounds) (out Command, dedupe
 			}
 		}
 		if b.Within > 0 {
-			var id int64
-			if q.QueryRow(`SELECT id FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind = 'send' AND status = 'pending'
-				AND message = ? AND `+tsInWindow("created_at", s.now().Add(-b.Within))+` ORDER BY id DESC LIMIT 1`, c.ProfileID, c.ConversationID, c.Message).Scan(&id) == nil {
+			if id, ok := pendingDuplicate(q, c, b.Within, s.now()); ok {
 				out, deduped = Command{ID: id, ProfileID: c.ProfileID, ConversationID: c.ConversationID}, true
 				return nil
 			}
@@ -76,4 +74,23 @@ func (s *Store) EnqueueSendBounded(c Command, b SendBounds) (out Command, dedupe
 		return err
 	})
 	return out, deduped, err
+}
+
+// pendingDuplicate finds a pending send with the same message for the same conversation queued within the window.
+func pendingDuplicate(q interface {
+	QueryRow(query string, args ...any) *sql.Row
+}, c Command, within time.Duration, now time.Time) (int64, bool) {
+	var id int64
+	err := q.QueryRow(`SELECT id FROM coder_session_commands WHERE profile_id = ? AND conversation_id = ? AND kind = 'send' AND status = 'pending'
+		AND message = ? AND `+tsInWindow("created_at", now.Add(-within))+` ORDER BY id DESC LIMIT 1`, c.ProfileID, c.ConversationID, c.Message).Scan(&id)
+	return id, err == nil
+}
+
+// PendingSendDuplicate is the id of the pending send that EnqueueSendBounded would answer with as a duplicate of c within the
+// window (a retried send), if there is one. Read-only.
+func (s *Store) PendingSendDuplicate(c Command, within time.Duration) (int64, bool) {
+	if within <= 0 {
+		return 0, false
+	}
+	return pendingDuplicate(s.db, c, within, s.now())
 }

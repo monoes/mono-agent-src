@@ -29,11 +29,17 @@ func refuseBossConversation(ctx context.Context, cfg *Deps, profileID, conversat
 
 // enqueueBounded queues a person's send under the bounds of coderhost.EnqueueSendBounded and starts the host.
 func enqueueBounded(cfg *Deps, c coderhost.Command, b coderhost.SendBounds) (coderhost.Command, bool, error) {
-	if err := ensureCurrentHost(cfg); err != nil {
-		return c, false, err
-	}
 	db, err := cfg.OpenDB()
 	if err != nil {
+		return c, false, err
+	}
+	if err := ensureCurrentHost(cfg); err != nil {
+		// a retry of a send that is already queued queues nothing and needs no host: it is answered as the duplicate it is
+		if id, ok := coderhost.NewStore(db.DB).PendingSendDuplicate(c, b.Within); ok {
+			db.Close()
+			return coderhost.Command{ID: id, ProfileID: c.ProfileID, ConversationID: c.ConversationID}, true, nil
+		}
+		db.Close()
 		return c, false, err
 	}
 	out, deduped, err := coderhost.NewStore(db.DB).EnqueueSendBounded(c, b)

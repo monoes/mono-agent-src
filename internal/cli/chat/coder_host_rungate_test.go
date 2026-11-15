@@ -37,7 +37,7 @@ func hostWithInfo(t *testing.T, info string) string {
 // unset setting as OFF and refuses every turn of a run the new start made bound. The start must say so before it makes a run.
 func TestAHostWithoutTheRunGateMarkerIsStaleForAnOpenEndedStart(t *testing.T) {
 	dbPath := hostWithInfo(t, `{"pid":1,"instance":"host-old","childTokens":true}`)
-	why := StaleHostReason(dbPath)
+	why := StaleHostReason(dbPath, StaleThenStart)
 	for _, want := range []string{"older", "coder host stop", "doomsday start"} {
 		if !strings.Contains(why, want) {
 			t.Fatalf("reason %q lacks %q", why, want)
@@ -47,15 +47,15 @@ func TestAHostWithoutTheRunGateMarkerIsStaleForAnOpenEndedStart(t *testing.T) {
 
 func TestAHostThatPublishesTheRunGateMarkerAndNoHostAreNotStale(t *testing.T) {
 	raw, _ := json.Marshal(hostInfo{PID: 1, Instance: "host-new", RunGate: runGateVersion})
-	if why := StaleHostReason(hostWithInfo(t, string(raw))); why != "" {
+	if why := StaleHostReason(hostWithInfo(t, string(raw)), StaleThenSend); why != "" {
 		t.Fatalf("a current host is stale: %q", why)
 	}
 	cfg := testDeps(&testConfig{DBPath: newChatCLITestDB(t), ProfileID: "default", JSONOutput: true})
-	if why := StaleHostReason(cfg.DBPath()); why != "" {
+	if why := StaleHostReason(cfg.DBPath(), StaleThenSend); why != "" {
 		t.Fatalf("no host running is stale: %q", why)
 	}
 	// a host that holds the lock but has not written its info yet is not called stale (it is starting; the marker is written first)
-	if why := StaleHostReason(hostWithInfo(t, "")); why != "" {
+	if why := StaleHostReason(hostWithInfo(t, ""), StaleThenSend); why != "" {
 		t.Fatalf("a starting host is stale: %q", why)
 	}
 }
