@@ -41,6 +41,14 @@ func TruncateStr(s string, n int) string {
 	return s[:n-3] + "..."
 }
 
+// userHomeDir is os.UserHomeDir; a test replaces it.
+var userHomeDir = os.UserHomeDir
+
+// ExpandPathE is ExpandPath that reports a home directory it cannot find.
+func ExpandPathE(path string) (string, error) { return path, nil }
+
+func expandPathFor(goos, path string) (string, error) { return path, nil }
+
 // ExpandPath expands ~ to the user's home directory.
 func ExpandPath(path string) string {
 	if strings.HasPrefix(path, "~/") {
