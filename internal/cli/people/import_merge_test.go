@@ -93,3 +93,25 @@ func TestPeopleMessagesImportBadDateNamesTheRow(t *testing.T) {
 		t.Errorf("%d messages stored from a refused import, want 0", n)
 	}
 }
+
+// Run by an agent, a partial row that leaves the draft out does not put an
+// approved person back in the queue: the stored draft is unchanged.
+func TestPeopleImportPartialRowByAgentKeepsApproval(t *testing.T) {
+	cfg, db := newReviewCLITestDB(t)
+	if _, err := db.DB.Exec(`INSERT INTO people (id, profile_id, platform, platform_username, category, introduction)
+		VALUES ('ap', 'default', 'x', 'appr', 'approved', 'the draft')`); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CLAUDECODE", "1")
+	f := writeJSON(t, `[{"username":"appr","follower_count":5}]`)
+	if _, err := runPeople(t, cfg, "import", "--file", f, "--platform", "x"); err != nil {
+		t.Fatal(err)
+	}
+	var cat, intro string
+	if err := db.DB.QueryRow(`SELECT category, introduction FROM people WHERE id='ap'`).Scan(&cat, &intro); err != nil {
+		t.Fatal(err)
+	}
+	if cat != "approved" || intro != "the draft" {
+		t.Errorf("category=%q introduction=%q, want approved and the stored draft", cat, intro)
+	}
+}
