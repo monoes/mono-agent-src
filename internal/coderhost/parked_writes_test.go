@@ -43,7 +43,7 @@ func TestAnswerReportsAReopenThatCouldNotBeWritten(t *testing.T) {
 	failWrites(t, st, "no_reopen", "UPDATE", "coder_session_questions", "NEW.status = 'open'")
 	_, _, err = st.Answer("p", q.ID, "yes", masterScope{conv: "m"})
 	if err == nil || !strings.Contains(err.Error(), "could not be opened again") ||
-		!strings.Contains(err.Error(), "redelivered automatically") || !strings.Contains(err.Error(), "do not answer again") {
+		!strings.Contains(err.Error(), "within about a minute while a coder host runs") || !strings.Contains(err.Error(), "do not answer again") {
 		t.Fatalf("the failed re-open was not reported: %v", err)
 	}
 	if got := questionOf(t, st, q.ID); got.Status != "answered" || got.CommandID != 0 {

@@ -90,11 +90,22 @@ func TestSessionsAnswerQueuedButSessionNotReleasedIsAcceptedWithAWarning(t *test
 	db.Close()
 	cfg := testDeps(&testConfig{DBPath: dbPath, ProfileID: "default", JSONOutput: true})
 	out, code := runSessionsCLI(t, cfg, "questions", "answer", conv.ID, strconv.FormatInt(q.ID, 10), "yes", "--no-host")
-	if code != 0 || !strings.Contains(out, "commandId") || !strings.Contains(out, "warning") || !strings.Contains(out, "do not answer again") {
+	if code != 0 || !strings.Contains(out, "commandId") || !strings.Contains(out, "warning") || !strings.Contains(out, `"released": false`) && !strings.Contains(out, `"released":false`) || !strings.Contains(out, "do not answer again") {
 		t.Fatalf("exit %d, output %q", code, out)
 	}
 	if cmds := pendingCommands(t, dbPath); len(cmds) != 1 {
 		t.Fatalf("queued = %+v", cmds)
+	}
+	// repeating it is refused: the question is closed, and the session still waits
+	if _, code := runSessionsCLI(t, cfg, "questions", "answer", conv.ID, strconv.FormatInt(q.ID, 10), "yes", "--no-host"); code != 3 {
+		t.Fatalf("repeat answer exit %d, want 3", code)
+	}
+	cs = openCoder(t, dbPath)
+	if got, err := cs.GetQuestion("default", q.ID); err != nil || got.Status == "open" {
+		t.Fatalf("question = %+v, %v", got, err)
+	}
+	if x, _, _ := cs.GetSession("default", conv.ID); x.State != coderhost.StateWaitingUser {
+		t.Fatalf("session state = %s", x.State)
 	}
 }
 

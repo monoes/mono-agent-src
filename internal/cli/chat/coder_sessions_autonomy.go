@@ -285,6 +285,7 @@ func newQuestionsAnswerCmd(cfg *Deps) *cobra.Command {
 			}
 			res := map[string]any{"question": out, "commandId": cmdID, "hostStarted": !noHost}
 			if warning != "" {
+				res["released"] = false // machine-readable: the answer was accepted, the session state was not updated
 				res["warning"] = warning
 			}
 			return printQueueJSON(cmd, res)

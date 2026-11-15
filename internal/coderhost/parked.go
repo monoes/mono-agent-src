@@ -405,7 +405,7 @@ func (s *Store) Answer(profileID string, id int64, answer string, scope CallerSc
 	if err != nil {
 		if cmd.ID == 0 { // nothing was queued: the question stays open (a queued note whose id was not recorded is redelivered, at least once)
 			if rerr := s.reopenQuestion(q.ID); rerr != nil { // still answered, no note: the redelivery pass queues it
-				err = errors.Join(err, fmt.Errorf("coder host: question %d could not be opened again; the answer is kept and will be redelivered automatically, do not answer again: %w", q.ID, rerr))
+				err = errors.Join(err, fmt.Errorf("coder host: question %d could not be opened again; the answer is kept and is redelivered within about a minute while a coder host runs (or when one next runs), do not answer again: %w", q.ID, rerr))
 			}
 		}
 		return q, Command{}, err
