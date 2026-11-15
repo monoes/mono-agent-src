@@ -108,10 +108,11 @@ func NewDatabase(dbPath string) (*Database, error) {
 	}
 	if pingErr != nil {
 		db.Close()
+		dir := filepath.Dir(absPath)
 		if errors.Is(pingErr, errStayedLocked) {
-			return nil, pingErr
+			return nil, ExplainOpenError(pingErr, dir)
 		}
-		return nil, fmt.Errorf("pinging database: %w", pingErr)
+		return nil, ExplainOpenError(fmt.Errorf("pinging database: %w", pingErr), dir)
 	}
 	privatizeNewDB(created, absPath)
 
@@ -163,7 +164,7 @@ func (d *Database) ApplyMigrations() error {
 			return fmt.Errorf("opening migration lock: %w", err)
 		}
 		defer lf.Close()
-		if err := lockFile(lf); err != nil {
+		if err := lockFileTimeout(lf, migrateLockTimeout); err != nil {
 			return fmt.Errorf("taking migration lock: %w", err)
 		}
 		defer unlockFile(lf)
