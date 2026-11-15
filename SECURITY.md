@@ -3833,17 +3833,34 @@ function that does what the guarded one does), and it skips directories named `s
   `strategy.finish.ready` marker per judged epoch and the top lead reads it through the read-only `session_boss_finish_ready`; only the lead's own
   `session_boss_finish_begin`, with its boss check, begins one. The only model text in that reading is the judge's per-criterion statuses; criteria,
   run and epoch state, times, direction ids and the finish engine's rounds are host-derived, and no title or note enters it.
-- **Starting an open-ended run from the app.** The app's start form runs `doomsday start --gui-phrase`, which the audit row
-  records as ack kind `gui`. The `gui` ack is the caller's claim, in the same trust class as `script`: the CLI derives the
-  phrase again from the rendered charter and compares it, but it cannot tell the app from a script that passes the hidden
-  flag, so the operator gate (an agent, a workflow, a coder turn and the MCP server are refused) is the control. The app's
-  binding adds a one-time token bound to the exact charter it rendered and a native operating-system confirmation that
-  script in the page cannot answer; it refuses to start where no native dialog exists (`wails dev` in a browser). The dialog is built in Go from the
-  CLI's own preview: the machine facts first (lifted lines, charter prefix, budget, criteria count, limits, pinned models), then the goal as data,
-  cleaned and cut to 200 characters; an answer under a second after it is shown counts as a decline. The CLI refuses, for an app start,
-  goal, criteria and pin text over 2000 characters or with hidden (zero-width, direction, tag, control) characters.
-  Every charter string is held to that (the check walks the charter by type), and the dialog also names the auto-approval limits and answer
-  classes. On Linux wails v2.17.0 passes a dialog's message to GTK as a printf format, so every Wails dialog of the app doubles `%` through
-  one helper (`dialogText`, guarded by a test that fails a new dialog call without it); a wails bump must be checked against that. A start that
-  fails without the CLI's own error envelope is reported as unknown, not as not started. The probe's test unit is stopped on SIGINT and SIGTERM
+- **Starting an open-ended run from the app.** The app's start form has one Approve button and nothing to type. On Approve the
+  app derives the acknowledgement phrase itself from the CLI's own preview (the number of lifted lines and the first 8
+  characters of the hash) and runs `doomsday start --gui-phrase`; the CLI derives the phrase again from the rendered charter and
+  compares it, and the audit row records ack kind `gui`. The `gui` ack is the caller's claim, in the same trust class as
+  `script`: the CLI cannot tell the app from a script that passes the hidden flag, so the operator gate (an agent, a workflow,
+  a coder turn and the MCP server are refused) is the control for any process that calls the CLI directly. The terminal start
+  is unchanged: it still needs the typed phrase, or `--yes-i-lift` with the full `--hash`.
+
+  What the typed phrase in the form used to add, stated plainly: it made the person copy two numbers off the preview, which
+  forced a look at the lifted-line count and the hash, and a script in the page could not do that for them. It was never a
+  credential (the CLI derives the same string from the charter), and it had its own habit risk: after a few starts people
+  retype it without reading. That forced look and typing are gone. What the app's path still has: the preview the person
+  reads; a one-time token bound to the exact charter and chat it rendered (ten minutes, this profile); and a native
+  operating-system confirmation that a script in the page cannot answer. The dialog is built in Go from the CLI's own
+  preview: the machine facts first (lifted lines, charter prefix, budget, criteria count, limits, pinned models, the
+  auto-approval limits and answer classes), then the goal as data, cleaned and cut to 200 characters. A Yes counts only
+  after a minimum think time of two seconds measured from when the dialog was on screen, not from any wait for another
+  dialog; a quicker answer counts as a decline. Where no native dialog can be shown the start is refused; the code
+  refuses when the app has no window context yet or that context carries no frontend, and it does not otherwise tell a browser
+  tab on the `wails dev` server from the desktop window, so do not rely on a dev-server tab being refused.
+
+  Limit, stated plainly: a script in the page can now call the start binding with a valid token without anything being
+  typed (the app, not the page, passes the hidden `--gui-phrase` flag to the CLI), and can raise the dialog at a moment of its choosing. It cannot click Yes for you, but you might click it by habit;
+  read the dialog, which is the one barrier of the app path.
+
+  The CLI refuses, for an app start, goal, criteria and pin text over 2000 characters or with hidden (zero-width, direction,
+  tag, control) characters; the check walks every charter string by type. On Linux wails v2.17.0 passes a dialog's message
+  to GTK as a printf format, so every Wails dialog of the app doubles `%` through one helper (`dialogText`, guarded by a
+  test that fails a new dialog call without it); a wails bump must be checked against that. A start that fails without the
+  CLI's own error envelope is reported as unknown, not as not started. The probe's test unit is stopped on SIGINT and SIGTERM
   (the app sends SIGTERM first); on Windows the app can only kill it, so a leftover test unit there is not cleaned up.

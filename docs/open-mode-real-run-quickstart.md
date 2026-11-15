@@ -24,7 +24,7 @@ Both:
 
 1. Create a chat on a scratch folder and choose **Open-ended** in the chat mode switch before the first message (it cannot change later). If it says "Not available", the reason shown is the probe's; fix it or stop.
 2. Fill the charter small: a goal with one tiny checkable result (for example "create NOTES.txt containing hello, commit"), at least one criterion, **Careful** limits, a **fixed budget of 1 USD**, the verifier a different model than the boss, no authority lines ticked, per-ask approval off.
-3. Review: the screen shows the charter hash and lifted-line count. Type the phrase it asks for (`I understand: lift N lines, charter xxxxxxxx`, N and the first 8 hash characters from the screen), press **Start the run**, and answer the operating system's own confirmation dialog.
+3. Review: the screen shows the charter hash and lifted-line count. Press **Approve** (there is nothing to type), then read and answer the operating system's own confirmation dialog: it shows the lifted lines, the first 8 characters of the charter hash and the budget, and a Yes counts only after 2 seconds. The CLI's `doomsday start` still asks for the typed phrase on a terminal.
 4. Watch: the orbit, or **Show the boss in AI agents** on the run notice, opens the boss conversation. The Control room page (sidebar, appears while a run exists) shows state, spend and the decision feed.
 5. Steer by typing in the chat (it reaches the boss as untrusted guidance, never an approval, and lifts no limit). CLI equivalent: `coder sessions steer CHAT "text"`.
 6. Stop: **Stop run** in the chat header (confirm), or in the Control room. CLI: `monoagentcli --profile "$P" doomsday stop`.
@@ -47,7 +47,7 @@ Both:
 OS / version / install (binary or app):            monoagentcli version:
 [ ] prerequisites all met (list any that were not):
 [ ] Open-ended mode offered in the chat (or the reason shown):
-[ ] charter preview, phrase, native dialog: worked / what went wrong:
+[ ] charter preview, Approve, native dialog: worked / what went wrong:
 [ ] run started; boss visible via "Show the boss in AI agents":
 [ ] steer message arrived (boss reacted):
 [ ] spend stayed within 1 USD (Control room / overview):

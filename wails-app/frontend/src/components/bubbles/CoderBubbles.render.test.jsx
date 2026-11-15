@@ -266,10 +266,9 @@ describe('coder bubbles', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Review' }))
     await screen.findByTestId('open-review')
     expect(chatAccess.create).not.toHaveBeenCalled() // the start makes the chat, after the yes
-    type('Type the phrase', 'I understand: lift 0 lines, charter ab12cd34')
-    fireEvent.click(screen.getByRole('button', { name: 'Start the run' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
     await waitFor(() => expect(openStartApi.start).toHaveBeenCalledTimes(1))
-    expect(openStartApi.start.mock.calls[0][3].spec.access).toBe('full') // a chat to be made, not an id
+    expect(openStartApi.start.mock.calls[0][2].spec.access).toBe('full') // a chat to be made, not an id
     const notice = await screen.findByTestId('open-run-notice')
     expect(screen.queryByTestId('open-start')).toBeNull() // the form is gone ...
     expect(notice).toHaveTextContent('the boss has no first turn') // ... and the notice is not
@@ -299,8 +298,7 @@ describe('coder bubbles', () => {
     fireEvent.click(screen.getByLabelText('Unlimited (no ceiling of its own)'))
     fireEvent.click(screen.getByRole('button', { name: 'Review' }))
     await screen.findByTestId('open-review')
-    type('Type the phrase', 'I understand: lift 0 lines, charter ab12cd34')
-    fireEvent.click(screen.getByRole('button', { name: 'Start the run' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
     await waitFor(() => expect(openStartApi.start).toHaveBeenCalledTimes(1))
     expect(screen.queryByTestId('open-run-notice')).toBeNull() // the start said queued: nothing to tell yet
     const notice = await screen.findByTestId('open-run-notice', {}, { timeout: 5000 })
