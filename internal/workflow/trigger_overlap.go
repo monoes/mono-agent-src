@@ -112,7 +112,13 @@ func (p *scheduleFirePlan) fire(items []Item) bool {
 		p.tm.triggerFn(p.workflowID, p.nodeID, items)
 		return true
 	}
-	queued, active := p.tm.activeRuns(p.workflowID)
+	queued, active, err := p.tm.activeRuns(p.workflowID)
+	if err != nil {
+		// Never start a run on a failed read: one may be active. The next tick retries.
+		p.tm.logger.Warn().Err(err).Str("workflow_id", p.workflowID).Str("node_id", p.nodeID).
+			Str("overlap", p.policy.overlap).Msg("schedule tick skipped: could not count active runs")
+		return false
+	}
 	// A deferred queue_one tick is about to start its run: this tick is the
 	// second one waiting, not a run of its own (both used to start when the
 	// tick and the deferred tick's poll saw the workflow idle together).
@@ -146,7 +152,8 @@ func (p *scheduleFirePlan) fireWhenIdle(items []Item) {
 		case <-p.done:
 			return
 		case <-t.C:
-			if queued, active := p.tm.activeRuns(p.workflowID); queued+active == 0 {
+			// On a read error keep waiting: the next poll retries.
+			if queued, active, err := p.tm.activeRuns(p.workflowID); err == nil && queued+active == 0 {
 				p.tm.triggerFn(p.workflowID, p.nodeID, items)
 				return
 			}
@@ -155,26 +162,26 @@ func (p *scheduleFirePlan) fireWhenIdle(items []Item) {
 }
 
 // activeRuns counts the workflow's QUEUED runs and its RUNNING/WAITING ones.
-// A store without a database (test stubs) reports none.
-func (tm *TriggerManager) activeRuns(workflowID string) (queued, active int) {
+// A store without a database (test stubs) reports none; a failed query is
+// returned, never read as "idle".
+func (tm *TriggerManager) activeRuns(workflowID string) (queued, active int, err error) {
 	if tm.store == nil {
-		return 0, 0
+		return 0, 0, nil
 	}
 	db := tm.store.RawDB()
 	if db == nil {
-		return 0, 0
+		return 0, 0, nil
 	}
 	ctx, cancel := dbCtx()
 	defer cancel()
-	err := db.QueryRowContext(ctx, `
+	err = db.QueryRowContext(ctx, `
 		SELECT COALESCE(SUM(CASE WHEN status = 'QUEUED' THEN 1 ELSE 0 END), 0),
 		       COALESCE(SUM(CASE WHEN status IN ('RUNNING','WAITING') THEN 1 ELSE 0 END), 0)
 		FROM workflow_executions WHERE workflow_id = ?`, workflowID).Scan(&queued, &active)
 	if err != nil {
-		tm.logger.Warn().Err(err).Str("workflow_id", workflowID).Msg("schedule overlap: counting active runs")
-		return 0, 0
+		return 0, 0, fmt.Errorf("count active runs of %s: %w", workflowID, err)
 	}
-	return queued, active
+	return queued, active, nil
 }
 
 // CatchUp fires the schedule ticks of w that were missed since its last

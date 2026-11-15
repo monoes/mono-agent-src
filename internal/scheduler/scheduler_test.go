@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -62,4 +63,30 @@ func TestAddAndRemoveJob(t *testing.T) {
 		t.Fatalf("AddWorkflowJob valid spec: %v", err)
 	}
 	s.RemoveJob(id) // must not panic
+}
+
+// A panic in a job must not take the process down, and the schedule keeps
+// firing: the next tick of the same job and of other jobs still runs.
+func TestScheduler_PanickingJobDoesNotKillTheScheduler(t *testing.T) {
+	s := NewScheduler(zerolog.Nop())
+	var ticks atomic.Int32
+	var panics atomic.Int32
+	if _, err := s.AddWorkflowJob("* * * * * *", func() {
+		panics.Add(1)
+		panic("boom")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddWorkflowJob("* * * * * *", func() { ticks.Add(1) }); err != nil {
+		t.Fatal(err)
+	}
+	s.Start()
+	defer s.Stop()
+	deadline := time.Now().Add(6 * time.Second)
+	for time.Now().Before(deadline) && (ticks.Load() < 2 || panics.Load() < 2) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if ticks.Load() < 2 || panics.Load() < 2 {
+		t.Fatalf("ticks=%d panics=%d, want both >= 2 (scheduler survived the panic)", ticks.Load(), panics.Load())
+	}
 }
