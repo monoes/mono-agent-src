@@ -481,8 +481,10 @@ func (d Deps) newPeopleMessagesImportCmd() *cobra.Command {
 				return fmt.Errorf("parsing JSON array: %w", err)
 			}
 
-			var imported int
-			for _, r := range raw {
+			// Read every row before storing any, so a bad date refuses the
+			// whole file instead of leaving it half imported.
+			msgs := make([]*storage.PersonMessage, 0, len(raw))
+			for i, r := range raw {
 				msg := &storage.PersonMessage{
 					PersonID:   args[0],
 					Source:     source,
@@ -493,10 +495,16 @@ func (d Deps) newPeopleMessagesImportCmd() *cobra.Command {
 					Body:       getStr(r, "body"),
 				}
 				if v := getStr(r, "sent_at"); v != "" {
-					if t, err := time.Parse(time.RFC3339, v); err == nil {
-						msg.SentAt = t
+					t, err := time.Parse(time.RFC3339, v)
+					if err != nil {
+						return d.InvalidInput("row %d: sent_at %q is not an RFC 3339 time (e.g. 2026-07-20T10:00:00Z); nothing was imported", i+1, v)
 					}
+					msg.SentAt = t
 				}
+				msgs = append(msgs, msg)
+			}
+			var imported int
+			for _, msg := range msgs {
 				if err := db.UpsertPersonMessage(msg, d.ProfileID()); err != nil {
 					return fmt.Errorf("importing message: %w", err)
 				}
