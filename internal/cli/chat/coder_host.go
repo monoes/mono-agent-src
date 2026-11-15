@@ -43,6 +43,9 @@ type hostInfo struct {
 	// ChildTokens says this host mints a mission child's task token (coder_host_childtoken.go). A host without it
 	// (one built earlier) is not one a lead may hand a child session to.
 	ChildTokens bool `json:"childTokens,omitempty"`
+	// RunGate is the version of the dispatch gate's binding rules this host runs (runGateVersion): a host built before the
+	// default-on binding publishes none, and reads an unset setting as OFF at dispatch (see StaleHostReason).
+	RunGate int `json:"runGate,omitempty"`
 	// Binding is the peer-credential binding services the host runs, per profile: counts and states only (never a
 	// token, hash, generation or key). `coder host status` shows it to the operator and to no one else.
 	Binding []coderhost.BindingStatus `json:"binding,omitempty"`
@@ -52,6 +55,27 @@ type hostInfo struct {
 	// Pursuit is the switch-on state of the pursuit loop (the host flag, the judge pin, the per-wake cap): pins and
 	// dollars only. `task session pursuit status` reads it from here.
 	Pursuit *coderhost.PursuitHostInfo `json:"pursuit,omitempty"`
+}
+
+// runGateVersion is 1 for the host whose open-ended dispatch gate resolves binding as the start does (unset is on where the machine
+// can run it; a run that started unbound keeps going). Raise it when the start and the gate must agree on something new.
+const runGateVersion = 1
+
+// StaleHostReason is "" unless a coder host is running whose info file shows it predates runGateVersion. Such a host refuses
+// every turn of a run the current start made ("no run without binding"), so the start and the app's availability refuse up front
+// with this text instead of leaving a run that cannot dispatch. A host that holds the lock but has written no readable info yet is
+// starting (it writes the marker first) and is not called stale.
+func StaleHostReason(dbPath string) string {
+	cfg := &Deps{DBPath: func() string { return dbPath }}
+	if !hostRunning(cfg) {
+		return ""
+	}
+	info, ok := readHostInfo(cfg)
+	if !ok || info.RunGate >= runGateVersion {
+		return ""
+	}
+	return "the running coder host is older than this program and would refuse every turn of an open-ended run (\"no run without binding\"): " +
+		"stop it with `monoagentcli coder host stop` (running coder turns keep running), then run `doomsday start` again, which starts a current host"
 }
 
 // lockHostProcessAtStart is the host's own access list at the start of `coder host run`. A variable only so a test can
@@ -269,7 +293,7 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 			if ownStamp == "" {
 				return fmt.Errorf("cannot read this process's start time, so `host stop` and a later host could not tell it from another process; not starting")
 			}
-			info := hostInfo{PID: os.Getpid(), Stamp: ownStamp, Instance: "host-" + uuid.NewString()[:8], StartedAt: time.Now().UTC().Format(time.RFC3339), ChildTokens: true}
+			info := hostInfo{PID: os.Getpid(), Stamp: ownStamp, Instance: "host-" + uuid.NewString()[:8], StartedAt: time.Now().UTC().Format(time.RFC3339), ChildTokens: true, RunGate: runGateVersion}
 			raw, _ := json.Marshal(info)
 			infoPath := filepath.Join(hostDir(cfg), hostInfoFile)
 			if err := os.WriteFile(infoPath+".tmp", raw, 0o600); err != nil { // renamed into place: a reader never sees half of it

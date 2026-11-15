@@ -128,6 +128,9 @@ func init() {
 func cheapOpenModeCheck(shared *globalConfig) (bool, string) {
 	own := *shared // openReadDB writes the resolved id into the config it is given: never the shared one, which other goroutines read
 	cfg := &own
+	if why := chatcli.StaleHostReason(cfg.DBPath); why != "" {
+		return false, "not available: " + why
+	}
 	db, err := openReadDB(cfg)
 	if errors.Is(err, errNoReadableSchema) {
 		// no database with the mode's tables: nothing stored, so the default applies
@@ -272,6 +275,9 @@ func doomsdayWiringReal(cfg *globalConfig, db *sql.DB) doomsdaycli.Wiring {
 		Store:   store.New(db, keys).WithEntryCheck(ops.EntryCheck(coderhost.SpendBounds())),
 		Profile: cfg.ProfileID,
 		Binding: func(context.Context) (bool, error) {
+			if why := chatcli.StaleHostReason(cfg.DBPath); why != "" { // a stale host would refuse the run's turns: refuse here, before anything is made
+				return false, doomsdaycli.UnsupportedHere("no run without a current coder host: " + why)
+			}
 			st, err := chatcli.PeercredBindingState(db)
 			if err != nil {
 				return false, err
