@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -112,7 +113,11 @@ func (d Deps) newPeopleImportCmd() *cobra.Command {
 				introduction, _ := raw["introduction"].(string)
 				category, _ := raw["category"].(string)
 				jobTitle, _ := raw["job_title"].(string)
-				followerCount := numberOrString(raw["follower_count"])
+				followerCount, err := followerText(raw, row)
+				if err != nil {
+					tx.Rollback()
+					return d.InvalidInput("%v; nothing was imported", err)
+				}
 				contentCount, err := countField(raw, "content_count", row)
 				if err != nil {
 					tx.Rollback()
@@ -236,36 +241,58 @@ func nullableStr(s string) sql.NullString {
 	return sql.NullString{String: s, Valid: true}
 }
 
-// numberOrString reads a JSON string or number as the text it was written as;
-// anything else is empty (not given).
-func numberOrString(v interface{}) string {
-	switch n := v.(type) {
+// maxCount bounds a count a row may carry; anything above is not a count.
+const maxCount = 1e12
+
+// sane reports whether f is a usable count: finite, not negative, not absurd.
+func sane(f float64) bool {
+	return !math.IsNaN(f) && f >= 0 && f <= maxCount
+}
+
+// followerText reads follower_count as the text it was written as: a JSON
+// string (kept as is, "1.2K" included, unless it is a number out of range) or a
+// JSON number. Anything else is empty (not given); a nonsense number is an
+// error naming the row.
+func followerText(raw map[string]interface{}, row int) (string, error) {
+	switch n := raw["follower_count"].(type) {
 	case string:
-		return n
+		if f, err := strconv.ParseFloat(strings.TrimSpace(n), 64); err == nil && !sane(f) {
+			return "", fmt.Errorf("row %d: follower_count %q is not a usable count", row, n)
+		}
+		return n, nil
 	case float64:
-		return strconv.FormatFloat(n, 'f', -1, 64)
+		if !sane(n) {
+			return "", fmt.Errorf("row %d: follower_count %v is not a usable count", row, n)
+		}
+		return strconv.FormatFloat(n, 'f', -1, 64), nil
 	}
-	return ""
+	return "", nil
 }
 
 // countField reads a count that arrives as a JSON number or a numeric string.
-// A missing key is 0 (not given); a value that is neither is an error naming
-// the row, never a silent zero.
+// A missing key is 0 (not given); a value that is neither, or that is NaN,
+// infinite, negative or above maxCount, is an error naming the row, never a
+// silent zero or a platform-dependent int conversion.
 func countField(raw map[string]interface{}, key string, row int) (int, error) {
+	var f float64
 	switch n := raw[key].(type) {
 	case nil:
 		return 0, nil
 	case float64:
-		return int(n), nil
+		f = n
 	case string:
 		if strings.TrimSpace(n) == "" {
 			return 0, nil
 		}
-		f, err := strconv.ParseFloat(strings.TrimSpace(n), 64)
-		if err != nil {
+		var err error
+		if f, err = strconv.ParseFloat(strings.TrimSpace(n), 64); err != nil {
 			return 0, fmt.Errorf("row %d: %s %q is not a number", row, key, n)
 		}
-		return int(f), nil
+	default:
+		return 0, fmt.Errorf("row %d: %s is not a number", row, key)
 	}
-	return 0, fmt.Errorf("row %d: %s is not a number", row, key)
+	if !sane(f) {
+		return 0, fmt.Errorf("row %d: %s %v is not a usable count", row, key, f)
+	}
+	return int(f), nil
 }

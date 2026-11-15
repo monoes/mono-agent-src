@@ -48,7 +48,7 @@ func (n *SyncOutlookMessageNode) Execute(
 		direction = "inbound"
 	}
 
-	var savedItems []workflow.Item
+	var savedItems, skippedItems []workflow.Item
 
 	for _, item := range input.Items {
 		data := item.JSON
@@ -65,7 +65,13 @@ func (n *SyncOutlookMessageNode) Execute(
 		if receivedRaw, _ := data["receivedDateTime"].(string); receivedRaw != "" {
 			t, err := time.Parse(time.RFC3339, receivedRaw)
 			if err != nil {
-				return nil, fmt.Errorf("people.sync_outlook_message: message %q: receivedDateTime %q is not an RFC 3339 time", messageID, receivedRaw)
+				// Skip only this message: erroring would fail every retry of
+				// the batch on the one odd message, after earlier ones were written.
+				skippedItems = append(skippedItems, workflow.NewItem(map[string]interface{}{
+					"message_id": messageID,
+					"reason":     fmt.Sprintf("receivedDateTime %q is not an RFC 3339 time", receivedRaw),
+				}))
+				continue
 			}
 			sentAt = t
 		}
@@ -194,5 +200,9 @@ func (n *SyncOutlookMessageNode) Execute(
 		}
 	}
 
-	return []workflow.NodeOutput{{Handle: "main", Items: savedItems}}, nil
+	out := []workflow.NodeOutput{{Handle: "main", Items: savedItems}}
+	if len(skippedItems) > 0 {
+		out = append(out, workflow.NodeOutput{Handle: "skipped", Items: skippedItems})
+	}
+	return out, nil
 }
