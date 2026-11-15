@@ -112,11 +112,9 @@ func staleHostFixture(t *testing.T) (cfg *Deps, stopped *int) {
 		t.Fatal(err)
 	}
 	n := 0
-	oldStop := stopHost
-	stopHost = func(*Deps, hostInfo) (string, error) { n++; release(); return "", nil }
-	oldVerify := verifyHostProcess
-	verifyHostProcess = func(int) error { return nil }
-	t.Cleanup(func() { stopHost, verifyHostProcess = oldStop, oldVerify })
+	oldStop := stopStaleProcess
+	stopStaleProcess = func(*Deps, hostInfo) (string, error) { n++; release(); return "", nil }
+	t.Cleanup(func() { stopStaleProcess = oldStop })
 	return cfg, &n
 }
 
@@ -150,6 +148,8 @@ func TestAStaleHostIsRestartedOnlyWhenNothingDependsOnIt(t *testing.T) {
 		{"an open run", `INSERT INTO profiles (id, name) VALUES ('p1','P'); INSERT INTO doomsday_runs (profile, generation, charter_id, state, mac) VALUES ('p1', 1, 'c1', 'running', x'01')`},
 		{"a running turn", `INSERT INTO ai_chat_turns (id, conversation_id, profile_id, prompt, status, created_at, updated_at) VALUES ('t1','c1','default','p','active','x','x')`},
 		{"a queued command", `INSERT INTO coder_session_commands (profile_id, conversation_id, kind, message, status, created_at, updated_at) VALUES ('default','c1','send','m','pending','x','x')`},
+		{"a parked question", `INSERT INTO coder_session_questions (id, profile_id, conversation_id, class, status, created_at) VALUES (5,'default','c1','risky_action','open','x')`},
+		{"a plan waiting for the person", `INSERT INTO coder_session_person_items (profile_id, conversation_id, kind, ref_id, created_at) VALUES ('default','c1','plan_approval',9,'x')`},
 		{"a pending ask", `INSERT INTO coder_session_asks (profile_id, asker_session, asker_conv, ancestor_session, ancestor_conv, level, importance, question, bytes, status, created_at) VALUES ('default',1,'c1',2,'c2',1,'critical','q',1,'open','x')`},
 	}
 	for _, b := range busy {

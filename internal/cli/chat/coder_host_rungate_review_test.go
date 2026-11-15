@@ -5,6 +5,7 @@ package chat
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -114,8 +115,8 @@ func TestAForgedHostJsonNeverSignalsAnUnrelatedProcess(t *testing.T) {
 	}
 }
 
-// m6: the real SIGTERM path against a fake host: a process whose command line is `... coder host run`, that leaves on SIGTERM
-// and whose exit frees the host lock.
+// m6: the real SIGTERM path against a fake host: a process started as `monoagentcli --db-path DB coder host run` (this test binary under
+// that name) that leaves on SIGTERM and whose exit frees the host lock.
 func TestAStaleHostThatIsReallyAHostIsEndedBySigterm(t *testing.T) {
 	dbPath := newChatCLITestDB(t)
 	cfg := testDeps(&testConfig{DBPath: dbPath, ProfileID: "default"})
@@ -128,13 +129,22 @@ func TestAStaleHostThatIsReallyAHostIsEndedBySigterm(t *testing.T) {
 	}
 	var once sync.Once
 	t.Cleanup(func() { once.Do(release) })
-	fake := exec.Command("/bin/sh", "-c", `trap 'exit 0' TERM; while :; do sleep 0.1; done`, "sh", "coder", "host", "run")
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "monoagentcli")
+	if err := os.Symlink(exe, link); err != nil {
+		t.Fatal(err)
+	}
+	fake := exec.Command(link, "--db-path", dbPath, "--profile", "default", "coder", "host", "run")
+	fake.Env = append(os.Environ(), "CHAT_FAKE_HOST=1")
 	if err := fake.Start(); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { fake.Process.Kill() })
 	go func() { fake.Wait(); once.Do(release) }()
-	time.Sleep(300 * time.Millisecond) // the shell installs its trap
+	time.Sleep(500 * time.Millisecond) // the helper installs its handler
 	writeStaleInfo(t, cfg, fake.Process.Pid)
 	if err := ensureCurrentHost(cfg); err != nil {
 		t.Fatalf("a real stale host: %v", err)
@@ -144,17 +154,62 @@ func TestAStaleHostThatIsReallyAHostIsEndedBySigterm(t *testing.T) {
 	}
 }
 
-// m4b: answering a question is not blocked by that same question: the only open ask is the one being answered.
+// Answering a parked question is not blocked by that same question, in ITS table (coder_session_questions) and its person item
+// only; an unrelated ask with the same id, another open question and a plan waiting for the person still block the restart.
 func TestAnswerIsNotRefusedBecauseOfTheQuestionItAnswers(t *testing.T) {
-	cfg, stopped := staleHostFixture(t)
-	execOn(t, cfg, `INSERT INTO coder_session_asks (id, profile_id, asker_session, asker_conv, ancestor_session, ancestor_conv, level, importance, question, bytes, status, created_at) VALUES (7,'default',1,'c1',2,'c2',1,'critical','q',1,'open','x')`)
-	if err := ensureCurrentHostExcept(cfg, 7); err != nil || *stopped != 1 {
-		t.Fatalf("err=%v stops=%d", err, *stopped)
+	question := func(id int) string {
+		return fmt.Sprintf(`INSERT INTO coder_session_questions (id, profile_id, conversation_id, class, status, created_at) VALUES (%d,'default','c1','risky_action','open','x')`, id)
 	}
-	cfg, stopped = staleHostFixture(t)
-	execOn(t, cfg, `INSERT INTO coder_session_asks (id, profile_id, asker_session, asker_conv, ancestor_session, ancestor_conv, level, importance, question, bytes, status, created_at) VALUES (8,'default',1,'c1',2,'c2',1,'critical','q',1,'open','x')`)
-	if err := ensureCurrentHostExcept(cfg, 7); err == nil || *stopped != 0 {
-		t.Fatalf("another open question must still count: err=%v stops=%d", err, *stopped)
+	item := func(id int) string {
+		return fmt.Sprintf(`INSERT INTO coder_session_person_items (profile_id, conversation_id, kind, ref_id, created_at) VALUES ('default','c1','parked_question',%d,'x')`, id)
+	}
+	cfg, stopped := staleHostFixture(t)
+	execOn(t, cfg, question(7))
+	execOn(t, cfg, item(7))
+	if err := ensureCurrentHostExcept(cfg, 7); err != nil || *stopped != 1 {
+		t.Fatalf("only the answered question is open: err=%v stops=%d", err, *stopped)
+	}
+	for name, stmts := range map[string][]string{
+		"another open question":          {question(7), question(8)},
+		"an ask that has the same id":    {`INSERT INTO coder_session_asks (id, profile_id, asker_session, asker_conv, ancestor_session, ancestor_conv, level, importance, question, bytes, status, created_at) VALUES (7,'default',1,'c1',2,'c2',1,'critical','q',1,'open','x')`},
+		"another question's person item": {item(8)},
+		"a plan waiting for the person":  {`INSERT INTO coder_session_person_items (profile_id, conversation_id, kind, ref_id, created_at) VALUES ('default','c1','plan_approval',7,'x')`},
+	} {
+		cfg, stopped := staleHostFixture(t)
+		for _, st := range stmts {
+			execOn(t, cfg, st)
+		}
+		if err := ensureCurrentHostExcept(cfg, 7); err == nil || *stopped != 0 {
+			t.Fatalf("%s must still block: err=%v stops=%d", name, err, *stopped)
+		}
+	}
+}
+
+// The process check: a coder host is `<monoagentcli binary> [global flags] coder host run` for THIS database.
+func TestOnlyThisDatabasesCoderHostPassesTheProcessCheck(t *testing.T) {
+	db := "/home/u/scratch/x/monoagent.db"
+	ok := [][]string{
+		{"/usr/bin/monoagentcli", "--db-path", db, "--profile", "p", "coder", "host", "run"},
+		{"monoagentcli", "--db-path=" + db, "coder", "host", "run"},
+	}
+	for _, a := range ok {
+		if err := verifyHostArgs(a, db); err != nil {
+			t.Fatalf("%v: %v", a, err)
+		}
+	}
+	bad := map[string][]string{
+		"not our binary":        {"/bin/sh", "--db-path", db, "coder", "host", "run"},
+		"a shell with the text": {"/bin/sh", "-c", "sleep 9 # coder host run"},
+		"another database":      {"monoagentcli", "--db-path", "/other.db", "coder", "host", "run"},
+		"the default database":  {"monoagentcli", "coder", "host", "run"},
+		"extra words":           {"monoagentcli", "--db-path", db, "echo", "coder", "host", "run"},
+		"a trailing argument":   {"monoagentcli", "--db-path", db, "coder", "host", "run", "x"},
+		"an unknown flag":       {"monoagentcli", "--db-path", db, "--evil", "coder", "host", "run"},
+	}
+	for name, a := range bad {
+		if err := verifyHostArgs(a, db); err == nil {
+			t.Fatalf("%s passed: %v", name, a)
+		}
 	}
 }
 
@@ -212,7 +267,7 @@ func TestAStaleHostThatCannotBeStoppedSaysWhatToDo(t *testing.T) {
 	}
 	// the stop itself fails
 	cfg, _ = staleHostFixture(t)
-	stopHost = func(*Deps, hostInfo) (string, error) { return "", errors.New("operation not permitted") }
+	stopStaleProcess = func(*Deps, hostInfo) (string, error) { return "", errors.New("operation not permitted") }
 	if err := ensureCurrentHost(cfg); err == nil || !strings.Contains(err.Error(), "operation not permitted") || !strings.Contains(err.Error(), "coder host stop") {
 		t.Fatalf("a failed stop: %v", err)
 	}
@@ -221,7 +276,7 @@ func TestAStaleHostThatCannotBeStoppedSaysWhatToDo(t *testing.T) {
 	old := hostStopSettle
 	hostStopSettle = 100 * time.Millisecond
 	t.Cleanup(func() { hostStopSettle = old })
-	stopHost = func(*Deps, hostInfo) (string, error) { return "", nil } // does not release the lock
+	stopStaleProcess = func(*Deps, hostInfo) (string, error) { return "", nil } // does not release the lock
 	if err := ensureCurrentHost(cfg); err == nil || !strings.Contains(err.Error(), "still running") {
 		t.Fatalf("a host that stays: %v", err)
 	}
@@ -236,5 +291,30 @@ func TestACorruptHostJsonIsNotAStaleHost(t *testing.T) {
 	}
 	if err := ensureCurrentHost(cfg); err != nil {
 		t.Fatalf("corrupt: %v", err)
+	}
+}
+
+// Only the lock TIMEOUT is "another restart in progress"; any other failure of the lock says what it is.
+func TestOnlyALockTimeoutIsReportedAsAnotherRestart(t *testing.T) {
+	cfg, _ := staleHostFixture(t)
+	old := restartLockWait
+	restartLockWait = 100 * time.Millisecond
+	t.Cleanup(func() { restartLockWait = old })
+	hold, err := daemonhb.LockFile(filepath.Join(hostDir(cfg), "host-restart.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = stopStaleHost(cfg, 0)
+	hold()
+	if err == nil || !strings.Contains(err.Error(), "another restart of the host is in progress") {
+		t.Fatalf("a held lock: %v", err)
+	}
+	_ = os.Remove(filepath.Join(hostDir(cfg), "host-restart.lock"))
+	if err := os.Mkdir(filepath.Join(hostDir(cfg), "host-restart.lock"), 0o700); err != nil { // a directory cannot be locked
+		t.Fatal(err)
+	}
+	err = stopStaleHost(cfg, 0)
+	if err == nil || strings.Contains(err.Error(), "another restart") {
+		t.Fatalf("a lock that cannot be taken at all: %v", err)
 	}
 }
