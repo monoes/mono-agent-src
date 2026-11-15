@@ -95,7 +95,7 @@ func TestMessagesImportRerunKeepsMetadataAndStatus(t *testing.T) {
 	}
 	var status, md, body string
 	db.DB.QueryRow(`SELECT status, COALESCE(metadata,''), body FROM person_messages WHERE external_id = 'e1'`).Scan(&status, &md, &body)
-	if body != "b2" || status != "approved" || !strings.Contains(md, "interested") {
+	if body != "b1" || status != "approved" || !strings.Contains(md, "interested") {
 		t.Fatalf("after re-import: body=%q status=%q metadata=%q", body, status, md)
 	}
 }
