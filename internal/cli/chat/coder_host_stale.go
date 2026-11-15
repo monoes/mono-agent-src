@@ -65,7 +65,16 @@ func ensureCurrentHost(cfg *Deps) error { return ensureCurrentHostExcept(cfg, 0)
 // ensureCurrentHostExcept is ensureCurrentHost for an answer: the parked question with id exceptQuestion (coder_session_questions)
 // is the one being answered, and it and its person item do not make the host busy. 0 excludes nothing.
 func ensureCurrentHostExcept(cfg *Deps, exceptQuestion int64) error {
-	why := StaleHostReason(cfg.DBPath(), StaleThenSend)
+	return ensureCurrentHostThen(cfg, exceptQuestion, StaleThenSend)
+}
+
+// EnsureCurrentHostForStart is ensureCurrentHost for `doomsday start`: the same safety rule and the same stop (hostBusy, the
+// restart lock, the identity checks), with the refusal worded for the start. The start calls it only after its read-only
+// binding check found a stale host; the app's availability never does (it only reports).
+func EnsureCurrentHostForStart(cfg *Deps) error { return ensureCurrentHostThen(cfg, 0, StaleThenStart) }
+
+func ensureCurrentHostThen(cfg *Deps, exceptQuestion int64, then string) error {
+	why := StaleHostReason(cfg.DBPath(), then)
 	if why == "" {
 		return nil
 	}
@@ -145,7 +154,7 @@ func stopStaleHost(cfg *Deps, exceptQuestion int64) error {
 		time.Sleep(50 * time.Millisecond)
 	}
 	defer release()
-	if StaleHostReason(cfg.DBPath(), StaleThenSend) == "" {
+	if StaleHostReason(cfg.DBPath(), StaleThenSend) == "" { // only emptiness matters here, not the text
 		return nil // another CLI restarted it (or it ended) while this one waited
 	}
 	if busy := hostBusy(cfg, exceptQuestion); busy != "" {

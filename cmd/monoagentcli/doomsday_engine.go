@@ -291,14 +291,16 @@ func doomsdayWiringReal(cfg *globalConfig, db *sql.DB) doomsdaycli.Wiring {
 			// an old host knows neither the default-on binding nor the unbound run.
 			if st.On || st.UnboundReason != "" {
 				if why := chatcli.StaleHostReason(cfg.DBPath, chatcli.StaleThenStart); why != "" {
-					return false, doomsdaycli.UnsupportedHere("no run without a current coder host: " + why)
+					return false, doomsdaycli.StaleHost("no run without a current coder host: " + why) // read-only: the start restarts an idle one (StaleHostRestart), the availability only reports
 				}
 			}
 			return st.On, nil
 		},
-		UnboundReason: func(context.Context) string { return unboundReason(db) },
-		VaultKey:      doomsdaycli.VaultKeyCheck(db, cfg.ProfileID),
-		RunDir:        stop.RunDir{Dir: runDir},
+		// Only the start calls this: an idle stale host is stopped as a send stops it (hostBusy, the restart lock, the identity checks).
+		StaleHostRestart: func(context.Context) error { d := chatDeps(cfg); return chatcli.EnsureCurrentHostForStart(&d) },
+		UnboundReason:    func(context.Context) string { return unboundReason(db) },
+		VaultKey:         doomsdaycli.VaultKeyCheck(db, cfg.ProfileID),
+		RunDir:           stop.RunDir{Dir: runDir},
 		// The self-tests run next to the real database and in the real run directory, so what they show holds on that volume.
 		Probe:  func() error { return probeAt(filepath.Dir(expandPath(cfg.DBPath)), runDir) },
 		Kernel: doomsdayKernel(),

@@ -198,7 +198,14 @@ func (d Deps) newStart() *cobra.Command {
 				return refusal(err)
 			}
 			if b, ok := e.(BindingRequirer); ok { // before the charter is shown: there is nothing to type for a start that cannot happen
-				if err := b.RequireBinding(cmd.Context()); err != nil {
+				err := b.RequireBinding(cmd.Context())
+				var stale StaleHost
+				if hr, ok := e.(HostRestarter); ok && errors.As(err, &stale) { // an idle stale host is restarted as a send does; a busy one stays a refusal
+					if err = hr.RestartStaleHost(cmd.Context()); err == nil {
+						err = b.RequireBinding(cmd.Context())
+					}
+				}
+				if err != nil {
 					return refusal(err)
 				}
 			}
