@@ -241,7 +241,21 @@ export default function Documents({ isActive = true }) {
   const startMonomindInit = async () => {
     initRunningRef.current = true
     setInitStatus('running')
-    await api.initializeMonomindProfile()
+    // The binding returns before init finishes; progress arrives as events.
+    // A refusal (e.g. signed out) is returned without an event, so read it
+    // here or the spinner would never stop.
+    let message = ''
+    try {
+      const r = await api.initializeMonomindProfile()
+      if (r && r.error) message = r.login_required ? `${r.error} — sign in to monoes.me, then try again.` : r.error
+    } catch (e) {
+      message = e?.message || String(e)
+    }
+    if (message && initRunningRef.current) {
+      initRunningRef.current = false
+      setInitStatus('error')
+      notify('initialize monomind', message)
+    }
   }
 
   const [uploading, setUploading] = useState(false)
