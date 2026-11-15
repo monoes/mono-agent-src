@@ -3753,9 +3753,29 @@ covered by the classes above.
 
 **Peer-credential binding is on by default (2026-11).** `coder.peercredBinding` unset means ON where `procbind.Refusal` has no cause (kernel, own /proc, build); an explicit stored `false` stays off and an explicit `true` still refuses a turn where the machine cannot run it. A default that cannot be used (unsupported machine, service failed to start, host inside a turn) runs the turn unbound with a logged reason, EXCEPT while an open-ended run is open, which needs bound turns and refuses; `coder status` says why in `peercredBindingNote`. Operators who had set it off before the default existed left no stored trace (the old store dropped a false) and follow the default until they switch it off again. The default also falls back to legacy (unbound) turns when the binding service fails to start while no open-ended run is open (logged by the host; `coder status` still says on); the unbound warning and the `run.unbound` audit row exist only for open-ended runs. A run that started bound keeps refusing unbound turns for its whole life (the host gate and the launcher route both refuse), and a run's unbound mode is the row written in its own entry transaction, never the live setting. A run that started bound whose machine check keeps failing (and an unbound-started run whose service fails once the machine can bind) has its turns refused rather than continued unbound, and the refusal names `doomsday stop` as the way out. The app's start dialog is built from the preview, which decides from the live state; `Enter` decides again at entry from the same single read it records in the `run.unbound` row, so a change between preview and entry makes the recorded mode, not the dialog, authoritative. `doomsday start` refuses a stored `on` that this machine cannot honour before it creates a run; the native start confirmation and `render` carry the warning.
 
-**Peer-credential binding records (storage only).** Migration 148 adds insert-only tables for a
-future process binding anchored in kernel peer credentials (design:
-`docs/mastermind/specs/2026-10-28-peer-credential-binding.md`). No v2 token or binding is issued into them yet (nothing outside the package inserts one), so the feature is not live; the token revoke paths already read them in their own transaction and would record a revocation for a v2 token. Their rows
+**Peer-credential binding records.** Migration 148 adds five insert-only tables that hold the state of the
+process binding anchored in kernel peer credentials (design:
+`docs/mastermind/specs/2026-10-28-peer-credential-binding.md`): `agent_tokens_v2` (a v2 mission token) and
+`coder_session_tokens_v2` (a v2 coder session token), each with the hash of the secret (never the secret), its
+owner fields, its expiry and a MAC under the profile's row key; `process_bindings` (the worker's pid and start stamp,
+the scope the verifier is asked about, the host generation and the mode, always `peercred`); `token_revocations_v2`
+(that a token was revoked, and why); and `procbind_host` (one row per start of the host, whose newest row is the
+current generation). The feature is live: the host writes a turn's v2 tokens and their bindings in one write transaction
+after the turn's process exists (`procbind.MintTx`) on a turn that runs bound, and the binding service answers whether
+a caller is inside that worker's tree. Binding shipped in v0.190.0 to v0.215.0, `coder set --peercred-binding` and the
+Settings toggle in v0.269.0, and it is on by default where the machine can run it since v0.280.0 (see "Peer-credential
+binding is on by default" above). A turn that runs unbound (a machine that cannot bind, a default that cannot be used, an
+open-ended run that started unbound with the warning described above) is issued no v2 token and keeps the v1 tokens and their
+ancestry check, so the tables hold nothing for it. What is enforced for a v2 token: the row exists and carries a genuine
+MAC, the secret hashes to it, it has not expired or been revoked, its binding row is genuine and unexpired, a host has
+started, and the service, asked by the caller over a socket whose peer the kernel names, allows that caller; any failure,
+or a service that gives no authentic answer, is a deny that never falls through to the v1 tables. What is not enforced: a
+turn that runs unbound has no kernel-attested caller, so a same-user sibling that obtains its token from the environment, a
+log or a process listing can present it from outside the tree (the legacy ancestry check, expiry and revocation remain), and
+the binding is not a boundary against every same-user process even where it is on (see "Binding service availability" and
+"Hardening"). The macOS and Windows services have had their unit and kernel-level tests, not a proof on a real host of each,
+and the Windows service is much weaker against a same-user adversary than Linux and macOS (stated above). The registry is
+memory-only: a host restart leaves every v2 token denied until its worker is launched and bound again. The rows
 cannot be updated, and can be deleted only once their expiry is more than 7 days past; no operation
 is exempt. A profile delete therefore leaves the profile's rows in those tables in place (its output
 lists them): they hold hashes, MACs, a pid and a start stamp and no secret, and they are inert once
