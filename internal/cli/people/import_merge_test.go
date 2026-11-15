@@ -115,3 +115,35 @@ func TestPeopleImportPartialRowByAgentKeepsApproval(t *testing.T) {
 		t.Errorf("category=%q introduction=%q, want approved and the stored draft", cat, intro)
 	}
 }
+
+// A count that is NaN, infinite, negative or absurdly large is refused with
+// its row, whichever field carries it, as a string or as a number.
+func TestPeopleImportRefusesNonsenseCounts(t *testing.T) {
+	cases := []string{
+		`{"username":"z","content_count":"NaN"}`,
+		`{"username":"z","following_count":"inf"}`,
+		`{"username":"z","content_count":"-Inf"}`,
+		`{"username":"z","content_count":-5}`,
+		`{"username":"z","following_count":"-3"}`,
+		`{"username":"z","content_count":1e30}`,
+		`{"username":"z","follower_count":"NaN"}`,
+		`{"username":"z","follower_count":"+Inf"}`,
+		`{"username":"z","follower_count":-1}`,
+		`{"username":"z","follower_count":"-1"}`,
+		`{"username":"z","follower_count":1e30}`,
+		`{"username":"z","follower_count":"99999999999999999"}`,
+	}
+	for _, c := range cases {
+		cfg, db := newReviewCLITestDB(t)
+		f := writeJSON(t, `[{"username":"first"},`+c+`]`)
+		_, err := runPeople(t, cfg, "import", "--file", f, "--platform", "x")
+		if err == nil || !strings.Contains(err.Error(), "row 2") {
+			t.Errorf("%s: err = %v, want an error naming row 2", c, err)
+		}
+		var n int
+		_ = db.DB.QueryRow(`SELECT COUNT(*) FROM people WHERE platform='x'`).Scan(&n)
+		if n != 0 {
+			t.Errorf("%s: %d people stored from a refused import", c, n)
+		}
+	}
+}
