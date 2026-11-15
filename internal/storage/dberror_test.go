@@ -124,3 +124,81 @@ func TestApplyMigrationsWaitsForAShortLock(t *testing.T) {
 		t.Fatalf("a lock released within the wait must not fail: %v", err)
 	}
 }
+
+func TestExplainMigrateErrorKeysOnSQLiteCodes(t *testing.T) {
+	dir := "d"
+	misleading := []string{
+		"migration 41: malformed JSON in column x",
+		"migration 12: read-only view cannot be altered",
+		"migration 7: permission denied for role",
+		"migration 9: disk is full of stale rows",
+		"migration 3: database is locked by design doc",
+		"migration 5: unable to open database file template",
+		"migration 6: file is not a database template",
+	}
+	for _, m := range misleading {
+		err := errors.New(m)
+		if got := ExplainMigrateError(err, dir); got != err {
+			t.Errorf("%q was reclassified: %v", m, got)
+		}
+	}
+	if got := ExplainOpenError(errors.New("bad malformed JSON"), dir); got.Error() != "bad malformed JSON" {
+		t.Errorf("bare malformed must not mean damaged: %v", got)
+	}
+	for _, c := range []struct {
+		in   error
+		want string
+	}{
+		{errors.New("x (5) (SQLITE_BUSY)"), "close the app or the daemon"},
+		{errors.New("x (13) (SQLITE_FULL)"), "free disk space"},
+		{errors.New("x (8) (SQLITE_READONLY)"), "permissions"},
+		{errors.New("x (11) (SQLITE_CORRUPT)"), "restore it from a backup"},
+		{fmt.Errorf("w: %w", syscall.ENOSPC), "free disk space"},
+		{fmt.Errorf("w: %w", syscall.EROFS), "permissions"},
+	} {
+		got := ExplainMigrateError(c.in, dir)
+		if !strings.Contains(got.Error(), c.want) || !errors.Is(got, c.in) {
+			t.Errorf("%v: got %v", c.in, got)
+		}
+	}
+}
+
+func TestMigrationLockNoticeIsPrintedOnceOnStderrWhenWaiting(t *testing.T) {
+	oldN, oldW := migrateLockNoticeAfter, migrateLockNotice
+	defer func() { migrateLockNoticeAfter, migrateLockNotice = oldN, oldW }()
+	migrateLockNoticeAfter = 100 * time.Millisecond
+	var buf strings.Builder
+	migrateLockNotice = &buf
+
+	f := func(t *testing.T) *os.File {
+		fh, err := os.OpenFile(filepath.Join(t.TempDir(), "n.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { fh.Close() })
+		return fh
+	}
+	// immediate acquire: silent
+	if err := lockFileTimeout(f(t), time.Second); err != nil || buf.Len() != 0 {
+		t.Fatalf("err=%v notice=%q", err, buf.String())
+	}
+	// held: once
+	a := f(t)
+	b, _ := os.OpenFile(a.Name(), os.O_RDWR, 0)
+	defer b.Close()
+	if err := lockFile(b); err != nil {
+		t.Fatal(err)
+	}
+	if err := lockFileTimeout(a, 500*time.Millisecond); !errors.Is(err, errMigrationLockTimeout) {
+		t.Fatalf("got %v", err)
+	}
+	if n := strings.Count(buf.String(), "waiting for another monoagentcli or the app"); n != 1 {
+		t.Fatalf("notice printed %d times: %q", n, buf.String())
+	}
+}
+
+func TestMigrationLockBoundIsFiveMinutes(t *testing.T) {
+	if migrateLockTimeout != 5*time.Minute {
+		t.Fatalf("bound = %s", migrateLockTimeout)
+	}
+}
