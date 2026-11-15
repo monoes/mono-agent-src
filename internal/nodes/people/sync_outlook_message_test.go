@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/vault"
@@ -159,5 +160,44 @@ func TestSyncOutlookMessage_ProvenanceFallback(t *testing.T) {
 	}
 	if got, _ := src["external_id"].(string); got != "AAMkAGI2=" {
 		t.Errorf("_source[external_id] = %q, want the message id", got)
+	}
+}
+
+func TestSyncOutlookMessage_EmailCaseIsOnePerson(t *testing.T) {
+	db := setupMessagesDB(t)
+	a := graphMessage()
+	runSync(t, db, a, map[string]interface{}{})
+	b := graphMessage()
+	b["id"] = "second"
+	b["from"] = map[string]interface{}{
+		"emailAddress": map[string]interface{}{"address": " Billing@Vendor.com ", "name": "Vendor Billing"},
+	}
+	runSync(t, db, b, map[string]interface{}{})
+
+	var n int
+	var user string
+	if err := db.QueryRow(`SELECT COUNT(*), MIN(platform_username) FROM people WHERE platform = 'email'`).Scan(&n, &user); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 || user != "billing@vendor.com" {
+		t.Errorf("people = %d (%q), want one person billing@vendor.com", n, user)
+	}
+}
+
+func TestSyncOutlookMessage_BadReceivedDateIsAnError(t *testing.T) {
+	db := setupMessagesDB(t)
+	SetGlobalPeopleDB(db)
+	msg := graphMessage()
+	msg["receivedDateTime"] = "yesterday"
+	node := &SyncOutlookMessageNode{}
+	input := workflow.NodeInput{Items: []workflow.Item{workflow.NewItem(msg)}}
+	_, err := node.Execute(vault.ContextWithProfileID(context.Background(), "default"), input, map[string]interface{}{})
+	if err == nil || !strings.Contains(err.Error(), "receivedDateTime") {
+		t.Fatalf("err = %v, want an error naming receivedDateTime", err)
+	}
+	var n int
+	_ = db.QueryRow(`SELECT COUNT(*) FROM person_messages`).Scan(&n)
+	if n != 0 {
+		t.Errorf("%d messages stored with an unreadable date, want 0", n)
 	}
 }
