@@ -13,7 +13,7 @@ import (
 // open: its lifecycle (start, start again, close, cancel), what it does with no
 // Refresher, with several guards and with a callback that closes it, and how
 // often it wakes. Most came from a mutant of guard_loop.go that the brief's tests
-// let through. They wait on real time in three ways: quiet() (150 ms, that
+// let through. They wait on real time in three ways: quiet(t, e.loops...) (150 ms, that
 // something does NOT happen), the 3 second limits of eventually and of the
 // channel receives (that something MUST happen), and the one 500 ms sleep of
 // TestTheRefresherWakesOncePerPoll.
@@ -27,7 +27,7 @@ func TestCloseStopsTheRefresherAfterSeveralStartRefresherCalls(t *testing.T) {
 	}
 	g.Close()
 	e.f.Clock.Advance(10 * time.Minute)
-	quiet()
+	quiet(t, e.loops...)
 	if n := e.ref.calls.Load(); n != 0 {
 		t.Fatalf("%d refreshes after Close: a repeated StartRefresher left a loop that Close does not stop", n)
 	}
@@ -39,7 +39,7 @@ func TestAGuardClosedBeforeItStartedStartsNoRefresher(t *testing.T) {
 	g := e.newGuard(loopPoll)
 	g.Close()
 	g.StartRefresher(context.Background())
-	quiet()
+	quiet(t, e.loops...)
 	if n := e.ref.calls.Load(); n != 0 {
 		t.Fatalf("%d refreshes: a guard that was closed before it started a refresher started one", n)
 	}
@@ -51,7 +51,7 @@ func TestStartRefresherWhileDormantIsNotRemembered(t *testing.T) {
 	g := e.newGuard(loopPoll)
 	account.SetEnforceFromForTest(t, time.Time{}) // dormant
 	g.StartRefresher(context.Background())
-	quiet()
+	quiet(t, e.loops...)
 	if n := e.ref.calls.Load(); n != 0 {
 		t.Fatalf("%d refreshes while dormant", n)
 	}
@@ -65,7 +65,7 @@ func TestCloseDoesNotWaitForTheNextTick(t *testing.T) {
 	e.signIn(20*time.Minute, time.Hour)
 	g := e.guardOn(e.ref, time.Hour) // the next tick is an hour away
 	g.StartRefresher(context.Background())
-	quiet() // the first pass is over and the loop waits for its tick
+	waitForFirstPass(t, g) // the first pass is over and the loop waits for its tick
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -113,7 +113,7 @@ func TestCancellingTheContextWaitsForAGrantInFlightAndStoresItsAnswer(t *testing
 	if got := e.session().LastResult; got != "ok" {
 		t.Fatalf("LastResult = %q, want ok", got)
 	}
-	settle()
+	settle(t, e.loops...)
 	if n := e.ref.calls.Load(); n != 1 {
 		t.Fatalf("%d calls: the loop went on after its context ended", n)
 	}
@@ -132,11 +132,12 @@ func TestARefresherWithoutARefresherOnlyFollowsTheFile(t *testing.T) {
 	before := e.signIn(2*time.Hour, time.Hour) // expired: a refresher would try at once
 	g := account.NewGuard(account.GuardOptions{Store: account.OpenStore(e.dir, e.seal), Now: e.f.Clock.Now, Poll: loopPoll})
 	t.Cleanup(g.Close)
+	e.loops = append(e.loops, g)
 	got := make(chan account.Status, 4)
 	g.OnRefused(func(st account.Status) { got <- st })
 	g.StartRefresher(context.Background())
 	waitForHW(t, e, e.f.Clock.Now(), "the first pass to write the stale mark") // what the loop does, and all it does
-	quiet()
+	quiet(t, e.loops...)
 	if after := e.session(); after.LastResult != "ok" || !after.LastAttempt.Equal(before.LastAttempt) {
 		t.Fatalf("LastResult = %q, LastAttempt = %v: a guard with no Refresher attempted something", after.LastResult, after.LastAttempt)
 	}
@@ -174,7 +175,7 @@ func TestSeveralRefreshersOverOneSessionMakeOneNetworkCall(t *testing.T) {
 		g.StartRefresher(context.Background())
 	}
 	eventually(t, "the refresh", func() bool { return e.ref.calls.Load() >= 1 })
-	quiet()
+	quiet(t, e.loops...)
 	if n := e.ref.calls.Load(); n != 1 {
 		t.Fatalf("%d network calls from five refreshers, want 1: the server rotates the refresh token, so a second call is a lockout", n)
 	}

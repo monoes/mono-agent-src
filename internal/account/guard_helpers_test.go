@@ -90,6 +90,7 @@ type env struct {
 	ref   *fakeRefresher
 	g     *account.Guard
 	bumps int
+	loops []*account.Guard // every guard this env made: what settle and quiet count passes of
 }
 
 func newEnv(t *testing.T) *env {
@@ -110,6 +111,7 @@ func (e *env) newGuard(poll time.Duration) *account.Guard {
 		Store: account.OpenStore(e.dir, e.seal), Refresher: e.ref, Now: e.f.Clock.Now, Poll: poll,
 	})
 	e.t.Cleanup(g.Close)
+	e.loops = append(e.loops, g)
 	return g
 }
 
@@ -123,6 +125,7 @@ func (e *env) guardWith(ref account.Refresher, store ...account.Store) *account.
 	}
 	g := account.NewGuard(account.GuardOptions{Store: st, Refresher: ref, Now: e.f.Clock.Now})
 	e.t.Cleanup(g.Close)
+	e.loops = append(e.loops, g)
 	return g
 }
 
@@ -195,7 +198,7 @@ func (e *env) session() *account.Session {
 const testWait = 30 * time.Second
 
 // eventually waits for cond, polling in real time.
-func eventually(t *testing.T, what string, cond func() bool) {
+func eventually(t testing.TB, what string, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(testWait)
 	for !cond() {
@@ -206,8 +209,39 @@ func eventually(t *testing.T, what string, cond func() bool) {
 	}
 }
 
-// settle gives a goroutine that should NOT act a real moment to do so.
-func settle() { time.Sleep(150 * time.Millisecond) }
+// waitForFirstPass waits until g's refresher loop has finished its first pass, for a loop whose
+// next tick is too far off for settle to see another.
+func waitForFirstPass(t testing.TB, g *account.Guard) {
+	t.Helper()
+	eventually(t, "the first pass of the refresher loop", func() bool {
+		n, _ := g.LoopPassesForTest(t)
+		return n >= 1
+	})
+}
+
+// settle gives what should NOT act, in the guards gs, time to do so, without a clock: each
+// refresher loop that was started finishes three more passes (the first to finish may have begun
+// before the call, the second may have read a state from before it; LoopPassesForTest counts
+// them), and every OnRefused callback that was started has returned (they are started before
+// Status returns, so none is on its way once none runs: CallbacksRunningForTest).
+func settle(t testing.TB, gs ...*account.Guard) {
+	t.Helper()
+	for _, g := range gs {
+		start, ended := g.LoopPassesForTest(t)
+		if ended != nil {
+			eventually(t, "the refresher loop to finish three more passes", func() bool {
+				select {
+				case <-ended:
+					return true
+				default:
+				}
+				n, _ := g.LoopPassesForTest(t)
+				return n >= start+3
+			})
+		}
+		eventually(t, "the OnRefused callbacks to return", func() bool { return g.CallbacksRunningForTest(t) == 0 })
+	}
+}
 
 // transient is a failure whose outcome is known (A24): the request was never written,
 // or monoes.me answered a complete 4xx that is not invalid_grant (a rate limit), so the

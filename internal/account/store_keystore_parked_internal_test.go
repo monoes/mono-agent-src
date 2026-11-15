@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -34,6 +35,7 @@ func TestAtMostOneKeyStoreCallStaysParked(t *testing.T) {
 	inner := NewMemorySealer()
 	_, dir := storeWithToken(t, inner, "rt-1")
 	waiting := &gatedSealer{inner: inner, holdOpen: make(chan struct{}), holdSeal: make(chan struct{})}
+	fakeKeyStoreTimers(t, func() bool { return waiting.began.Load() >= 1 }) // attempt 1 times out; the attempts that are refused make no timer, and attempt 4 is answered
 	t.Cleanup(waiting.release)
 	st := ownLimit(OpenStore(dir, waiting))
 	limit := st.(*fileStore).limit
@@ -90,8 +92,12 @@ func TestEveryParkedKeyStoreCallEndsAndTheNextOneStartsOnceTheKeyStoreAnswers(t 
 	inner := NewMemorySealer()
 	_, dir := storeWithToken(t, inner, "rt-1")
 	limit := &keyStoreLimit{}
+	var current atomic.Pointer[gatedSealer] // the sealer of the round: every round makes one timer, which fires once its call is waiting
+	inRound := func() bool { return current.Load().began.Load() >= 1 }
+	fakeKeyStoreTimers(t, inRound, inRound, inRound, inRound, inRound, inRound)
 	for round := range 6 {
 		waiting := &gatedSealer{inner: inner, holdOpen: make(chan struct{}), holdSeal: make(chan struct{})}
+		current.Store(waiting)
 		t.Cleanup(waiting.release)
 		st := OpenStore(dir, waiting)
 		st.(*fileStore).limit = limit
@@ -122,6 +128,7 @@ func TestTwoStoresOfOneProcessShareTheLimit(t *testing.T) {
 	inner := NewMemorySealer()
 	_, dir := storeWithToken(t, inner, "rt-1")
 	waiting := &gatedSealer{inner: inner, holdOpen: make(chan struct{})}
+	fakeKeyStoreTimers(t, func() bool { return waiting.began.Load() >= 1 })
 	t.Cleanup(func() { waitUntil(func() bool { return processKeyStoreLimit.parked.Load() == 0 }) })
 	t.Cleanup(waiting.release)
 	first, second := OpenStore(dir, waiting), OpenStore(dir, inner)
@@ -157,6 +164,7 @@ func TestAnInteractiveCallIsNeitherCountedNorRefusedWhileAnotherIsParked(t *test
 	inner := NewMemorySealer()
 	_, dir := storeWithToken(t, inner, "rt-1")
 	waiting := &gatedSealer{inner: inner, holdOpen: make(chan struct{})}
+	fakeKeyStoreTimers(t, func() bool { return waiting.began.Load() >= 1 }) // the quiet call times out; the interactive call makes no timer
 	t.Cleanup(waiting.release)
 	quiet := ownLimit(OpenStore(dir, waiting))
 	limit := quiet.(*fileStore).limit
@@ -205,6 +213,7 @@ func TestAGuardRetryingAgainstAKeyStoreThatNeverAnswersStartsOneCallOnly(t *test
 	r.signIn(2 * time.Hour) // due
 	setKeyStoreTimeout(t, 100*time.Millisecond)
 	waiting := &gatedSealer{inner: r.seal, holdOpen: make(chan struct{})}
+	fakeKeyStoreTimers(t, func() bool { return waiting.began.Load() >= 1 }) // attempt 1 times out; attempts 2 and 3 are refused with no timer; the attempt after the answer is answered
 	t.Cleanup(waiting.release)
 	store := ownLimit(OpenStore(r.dir, waiting))
 	limit := store.(*fileStore).limit

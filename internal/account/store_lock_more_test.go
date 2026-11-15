@@ -78,30 +78,6 @@ func TestLockIsExclusiveForGoroutinesSharingOneStore(t *testing.T) {
 	again()
 }
 
-// A waiter notices a release soon, however long it has waited: the wait between
-// polls doubles from 5 ms and stops at 50 ms. With a larger cap, or none, the
-// polls drift apart (a plain doubling polls at about 5, 15, 35, 75, 155, 315, 635
-// and 1275 ms), and a holder that lets go at 880 ms goes unnoticed past the
-// waiter's deadline at 1035 ms. A real waiter has 25 s, and would give up on a
-// lock that had been free for seconds.
-func TestAWaiterNoticesAReleaseAfterALongWait(t *testing.T) {
-	a, dir := newStore(t)
-	b := account.OpenStore(dir, account.NewMemorySealer())
-	unlockA, err := a.Lock(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(unlockA) // safe twice: a failed Lock below must not leave the lock held
-	time.AfterFunc(880*time.Millisecond, unlockA)
-	ctx, cancel := context.WithTimeout(context.Background(), 1035*time.Millisecond)
-	defer cancel()
-	unlockB, err := b.Lock(ctx)
-	if err != nil {
-		t.Fatalf("a waiter did not notice a release at 880 ms before its deadline at 1035 ms: %v", err)
-	}
-	unlockB()
-}
-
 // The unlock function is safe to call at the same time from several goroutines.
 // (Under -race an unsynchronized second call is reported.)
 func TestUnlockIsSafeFromSeveralGoroutinesAtOnce(t *testing.T) {

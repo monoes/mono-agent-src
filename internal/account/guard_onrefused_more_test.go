@@ -48,7 +48,7 @@ func TestEveryOnRefusedCallbackFiresOncePerRefusal(t *testing.T) {
 				t.Fatalf("callback %d got %s/%q", i, st.State, st.Reason)
 			}
 		}
-		quiet()
+		quiet(t, e.loops...)
 		for i, ch := range chans {
 			if len(ch) != 0 {
 				t.Fatalf("callback %d fired again in refusal %d", i, refusal)
@@ -78,7 +78,7 @@ func TestALateOnRefusedCallbackIsCalledOnceWithTheRefusalAndNoOtherIsCalledAgain
 		t.Fatalf("the late callback got %s/%q, want locked/refused", st.State, st.Reason)
 	}
 	e.g.Status()
-	quiet()
+	quiet(t, e.loops...)
 	if len(late) != 0 || len(early) != 0 {
 		t.Fatalf("a callback was called again: %d for the late one, %d for the early one", len(late), len(early))
 	}
@@ -114,7 +114,7 @@ func TestALateOnRefusedCallbackIsNotCalledOnceTheRefusalHasEnded(t *testing.T) {
 			e.f.Clock.Advance(account.PollInterval)
 			late := make(chan account.Status, 4)
 			e.g.OnRefused(func(st account.Status) { late <- st })
-			quiet()
+			quiet(t, e.loops...)
 			if len(late) != 0 {
 				t.Fatalf("a callback registered after the refusal ended was called with %s", describeStatus(<-late))
 			}
@@ -128,7 +128,7 @@ func TestALateOnRefusedCallbackIsNotCalledOnceTheRefusalHasEnded(t *testing.T) {
 			e.g.Status()
 			receive(t, early, "the early callback in the next refusal")
 			receive(t, late, "the late callback in the next refusal")
-			quiet()
+			quiet(t, e.loops...)
 			if len(early) != 0 || len(late) != 0 {
 				t.Fatalf("a callback was called twice for the next refusal (%d, %d extra)", len(early), len(late))
 			}
@@ -146,7 +146,7 @@ func TestARefusalAlreadyInTheFileFiresWhenACallbackIsRegistered(t *testing.T) {
 	if st := receive(t, got, "the refusal that was already stored"); st.State != account.StateLocked || st.Reason != account.ReasonRefused {
 		t.Fatalf("the callback got %s/%q, want locked/refused", st.State, st.Reason)
 	}
-	quiet()
+	quiet(t, e.loops...)
 	if len(got) != 0 {
 		t.Fatal("the callback was called twice for one refusal")
 	}
@@ -182,7 +182,7 @@ func TestOnRefusedIsToldOfRefusalsAndOfNothingElse(t *testing.T) {
 	sess.HW = e.f.Clock.Now().Add(2 * time.Hour)
 	e.save(sess)
 	step("a clock set back", account.StateLocked, account.ReasonClockRollback)
-	quiet()
+	quiet(t, e.loops...)
 	if len(fired) != 0 {
 		t.Fatalf("OnRefused was called for a lockout that is not a refusal (%d times)", len(fired))
 	}

@@ -17,14 +17,14 @@ func TestTheRefresherRefreshesAtHalfTheTokenLifetime(t *testing.T) {
 	e.signIn(20*time.Minute, time.Hour) // half-life is ten minutes from now
 	g := e.newGuard(loopPoll)
 	g.StartRefresher(context.Background())
-	settle()
+	settle(t, e.loops...)
 	if n := e.ref.calls.Load(); n != 0 {
 		t.Fatalf("%d refreshes before the half-life", n)
 	}
 	e.f.Clock.Advance(10 * time.Minute)
 	eventually(t, "the refresh at half-life", func() bool { return e.ref.calls.Load() == 1 })
 	eventually(t, "the new token", func() bool { return g.Status().ValidUntil.Equal(e.f.Clock.Now().Add(time.Hour)) })
-	settle()
+	settle(t, e.loops...)
 	if n := e.ref.calls.Load(); n != 1 {
 		t.Fatalf("%d refreshes, want 1: a fresh token is not due again", n)
 	}
@@ -37,12 +37,12 @@ func TestTheRefresherBacksOffFrom30SecondsToFiveMinutes(t *testing.T) {
 	g := e.newGuard(loopPoll)
 	g.StartRefresher(context.Background())
 	eventually(t, "the first attempt", func() bool { return e.ref.calls.Load() == 1 })
-	settle() // let the loop record the failure and schedule the retry before the clock moves
+	settle(t, e.loops...) // let the loop record the failure and schedule the retry before the clock moves
 
 	calls := int32(1)
 	for _, gap := range []time.Duration{30 * time.Second, time.Minute, 2 * time.Minute, 4 * time.Minute, 5 * time.Minute, 5 * time.Minute} {
 		e.f.Clock.Advance(gap - time.Second)
-		settle()
+		settle(t, e.loops...)
 		if n := e.ref.calls.Load(); n != calls {
 			t.Fatalf("a retry came before the %v backoff ended: %d calls, want %d", gap, n, calls)
 		}
@@ -50,7 +50,7 @@ func TestTheRefresherBacksOffFrom30SecondsToFiveMinutes(t *testing.T) {
 		calls++
 		want := calls
 		eventually(t, "the retry after "+gap.String(), func() bool { return e.ref.calls.Load() == want })
-		settle()
+		settle(t, e.loops...)
 	}
 	if st := g.Status(); st.State != account.StateGrace || st.Reason != account.ReasonUnreachable {
 		t.Fatalf("Status = %s/%q, want grace/unreachable", st.State, st.Reason)
@@ -81,7 +81,7 @@ func TestStartRefresherIsIdempotent(t *testing.T) {
 		g.StartRefresher(context.Background())
 	}
 	eventually(t, "the first attempt", func() bool { return e.ref.calls.Load() >= 1 })
-	settle()
+	settle(t, e.loops...)
 	if n := e.ref.calls.Load(); n != 1 {
 		t.Fatalf("%d attempts, want 1: three StartRefresher calls must make one loop", n)
 	}
@@ -93,7 +93,7 @@ func TestTheRefresherDoesNothingWhileDormant(t *testing.T) {
 	account.SetEnforceFromForTest(t, time.Time{})
 	g := e.newGuard(loopPoll)
 	g.StartRefresher(context.Background())
-	settle()
+	settle(t, e.loops...)
 	if n := e.ref.calls.Load(); n != 0 {
 		t.Fatalf("%d refreshes while dormant: no background refresher may run", n)
 	}
@@ -106,9 +106,9 @@ func TestTheRefresherEndsWithItsContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	g.StartRefresher(ctx)
 	cancel()
-	settle()
+	settle(t, e.loops...)
 	e.f.Clock.Advance(time.Hour)
-	settle()
+	settle(t, e.loops...)
 	if n := e.ref.calls.Load(); n != 0 {
 		t.Fatalf("%d refreshes after the context ended", n)
 	}
@@ -150,7 +150,7 @@ func TestCloseWaitsForAGrantInFlightAndStoresItsAnswer(t *testing.T) {
 		t.Fatalf("LastResult = %q, want ok", got)
 	}
 	g.StartRefresher(context.Background()) // a closed guard starts nothing
-	settle()
+	settle(t, e.loops...)
 	if n := e.ref.calls.Load(); n != 1 {
 		t.Fatalf("%d calls: a closed guard started a loop", n)
 	}
@@ -176,7 +176,7 @@ func TestTheRefresherTellsOnRefusedWhenItsOwnRefreshIsRefused(t *testing.T) {
 		t.Fatal("OnRefused did not fire")
 	}
 	e.f.Clock.Advance(time.Hour)
-	settle()
+	settle(t, e.loops...)
 	if n := e.ref.calls.Load(); n != 1 || len(got) != 0 {
 		t.Fatalf("%d calls and %d extra callbacks after a refusal, want 1 and 0", n, len(got))
 	}
@@ -189,7 +189,7 @@ func TestTheRefresherNoticesARefusalFromAnotherProcess(t *testing.T) {
 	got := make(chan account.Status, 4)
 	g.OnRefused(func(st account.Status) { got <- st })
 	g.StartRefresher(context.Background())
-	settle()
+	settle(t, e.loops...)
 	e.storeRefusal() // under the lock, as another process must: the loop's first pass writes the stale mark under it
 	e.f.Clock.Advance(loopPoll)
 	select {

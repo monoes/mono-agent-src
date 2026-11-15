@@ -27,7 +27,7 @@ func TestANilOnRefusedCallbackIsIgnored(t *testing.T) {
 		e.f.Clock.Advance(account.PollInterval)
 		e.g.Status()
 		receive(t, got, "the callback registered after the nil one")
-		quiet()
+		quiet(t, e.loops...)
 		if len(got) != 0 {
 			t.Fatal("the callback was called twice for one refusal")
 		}
@@ -43,7 +43,7 @@ func TestANilOnRefusedCallbackIsIgnored(t *testing.T) {
 		late := make(chan account.Status, 4)
 		e.g.OnRefused(func(st account.Status) { late <- st })
 		receive(t, late, "the callback registered after the nil one, during the refusal")
-		quiet()
+		quiet(t, e.loops...)
 	})
 
 	t.Run("registered while a refusal is stored that the guard has not read", func(t *testing.T) {
@@ -53,7 +53,7 @@ func TestANilOnRefusedCallbackIsIgnored(t *testing.T) {
 		got := make(chan account.Status, 4)
 		e.g.OnRefused(func(st account.Status) { got <- st })
 		receive(t, got, "the callback registered after the nil one")
-		quiet()
+		quiet(t, e.loops...)
 		if len(got) != 0 {
 			t.Fatal("the callback was called twice for one refusal")
 		}

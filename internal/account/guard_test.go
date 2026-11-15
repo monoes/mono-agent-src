@@ -98,7 +98,7 @@ func TestOnRefusedFiresOncePerRefusal(t *testing.T) {
 	}
 	e.g.Status()
 	e.g.Status()
-	settle()
+	settle(t, e.loops...)
 	if len(got) != 0 {
 		t.Fatal("OnRefused fired again for the same refusal")
 	}

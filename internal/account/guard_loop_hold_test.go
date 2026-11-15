@@ -13,7 +13,7 @@ import (
 // half-life of the token it has just obtained, even when the local clock runs so
 // far ahead of monoes.me that the new token already looks past its half-life.
 // The tests move the fixture clock. Real time is only the refresher's tick
-// (loopPoll), the quiet() waits for what must not happen and the eventually waits
+// (loopPoll), the quiet(t, e.loops...) waits for what must not happen and the eventually waits
 // (3 seconds at most) for what must.
 
 func TestTheRefresherRefreshesOncePerHalfLifeWhenTheLocalClockRunsAhead(t *testing.T) {

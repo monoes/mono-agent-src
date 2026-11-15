@@ -80,3 +80,30 @@ func StrictForTest(t testing.TB) {
 		globalsMu.Unlock()
 	})
 }
+
+// LoopPassesForTest is how many passes the guard's refresher loop has finished and a
+// channel that is closed when the loop has ended (nil while none was started). A test
+// that has to know the loop has seen a change reads the count, makes the change, and
+// waits for the count to rise by two: the first rise may be a pass that began before the
+// change, the second is one that began after it. It reads no clock and changes nothing.
+func (g *Guard) LoopPassesForTest(t testing.TB) (passes int64, ended <-chan struct{}) {
+	t.Helper()
+	requireTestBinary("LoopPassesForTest")
+	t.Setenv(testStateEnv, "1")
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.loopDone != nil {
+		ended = g.loopDone
+	}
+	return g.passes.Load(), ended
+}
+
+// CallbacksRunningForTest is how many OnRefused callbacks the guard has started and that
+// have not returned. They are started before Status or OnRefused returns, so a test that
+// has made its last call and sees none running knows no callback is on its way.
+func (g *Guard) CallbacksRunningForTest(t testing.TB) int {
+	t.Helper()
+	requireTestBinary("CallbacksRunningForTest")
+	t.Setenv(testStateEnv, "1")
+	return int(g.callbacks.Load())
+}

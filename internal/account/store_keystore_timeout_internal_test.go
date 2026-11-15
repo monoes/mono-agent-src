@@ -74,6 +74,66 @@ func setKeyStoreTimeout(t *testing.T, d time.Duration) {
 	t.Cleanup(func() { keyStoreTimeout = prev })
 }
 
+// keyStoreTimers stands in for the timer of every bounded key store call for the rest of the
+// test (and, like setKeyStoreTimeout, forbids t.Parallel). The test, not the clock of the
+// machine, decides when a call has waited long enough: the n-th timer a test makes fires once
+// when[n-1] reports true (a predicate over the state of its gated sealer, usually that the call
+// has reached it), and never when there is no predicate for it. A call that the key store answers
+// is then never timed out by a runner that is slow, and one that it does not answer is timed out
+// as soon as it is waiting, not after a while.
+type keyStoreTimers struct {
+	mu    sync.Mutex
+	asked []time.Duration // the wait each timer was made for, in order
+	fired int
+}
+
+func fakeKeyStoreTimers(t *testing.T, when ...func() bool) *keyStoreTimers {
+	t.Helper()
+	k := &keyStoreTimers{}
+	prev := keyStoreTimer
+	t.Cleanup(func() { keyStoreTimer = prev })
+	keyStoreTimer = func(d time.Duration) (<-chan time.Time, func()) {
+		k.mu.Lock()
+		k.asked = append(k.asked, d)
+		n := len(k.asked)
+		k.mu.Unlock()
+		ch := make(chan time.Time, 1)
+		quit := make(chan struct{})
+		if n <= len(when) && when[n-1] != nil {
+			pred := when[n-1]
+			go func() {
+				for !pred() {
+					select {
+					case <-quit:
+						return
+					case <-time.After(time.Millisecond):
+					}
+				}
+				k.mu.Lock()
+				k.fired++
+				k.mu.Unlock()
+				ch <- time.Now()
+			}()
+		}
+		var once sync.Once
+		return ch, func() { once.Do(func() { close(quit) }) }
+	}
+	return k
+}
+
+// made is how many timers the store has asked for, and firedCount how many of them fired.
+func (k *keyStoreTimers) made() int {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return len(k.asked)
+}
+
+func (k *keyStoreTimers) firedCount() int {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return k.fired
+}
+
 // timed runs fn on its own goroutine and fails the test unless it returns within
 // 5 s: a key store that is waited for forever is the very failure these tests
 // look for, and it must show as a failed assertion, not as a test that hangs. It
@@ -155,20 +215,21 @@ func TestLoadRefreshGivesUpOnAKeyStoreThatDoesNotAnswer(t *testing.T) {
 	inner := NewMemorySealer()
 	_, dir := storeWithToken(t, inner, "rt-1")
 	waiting := &gatedSealer{inner: inner, holdOpen: make(chan struct{})}
+	timers := fakeKeyStoreTimers(t, func() bool { return waiting.began.Load() >= 1 })
 	t.Cleanup(waiting.release)
 	st := ownLimit(OpenStore(dir, waiting))
 
 	var token string
 	var err error
-	took := timed(t, "LoadRefresh", func() { token, err = st.LoadRefresh() })
+	timed(t, "LoadRefresh", func() { token, err = st.LoadRefresh() })
 	if token != "" || !errors.Is(err, ErrKeyringUnavailable) {
 		t.Fatalf("LoadRefresh = %q, %v, want no token and an error that is ErrKeyringUnavailable", token, err)
 	}
 	if want := "did not answer within 200ms"; !strings.Contains(err.Error(), want) {
 		t.Fatalf("error %q does not say %q", err, want)
 	}
-	if took < keyStoreTimeout {
-		t.Fatalf("LoadRefresh returned after %v, before the %v timeout", took, keyStoreTimeout)
+	if timers.firedCount() != 1 || timers.asked[0] != keyStoreTimeout {
+		t.Fatalf("LoadRefresh returned with %d timers fired, asked for %v, want it to return only when the timer for %v fired", timers.firedCount(), timers.asked, keyStoreTimeout)
 	}
 	// Once the key store answers, the call that was given up on ends cleanly.
 	waiting.release()
@@ -182,20 +243,21 @@ func TestSaveRefreshGivesUpOnAKeyStoreThatDoesNotAnswerAndWritesNothing(t *testi
 	inner := NewMemorySealer()
 	_, dir := storeWithToken(t, inner, "rt-1") // the token that is about to be rotated away
 	waiting := &gatedSealer{inner: inner, holdSeal: make(chan struct{})}
+	timers := fakeKeyStoreTimers(t, func() bool { return waiting.began.Load() >= 1 })
 	t.Cleanup(waiting.release)
 	st := ownLimit(OpenStore(dir, waiting))
 	before := snapshotDir(t, dir)
 
 	var err error
-	took := timed(t, "SaveRefresh", func() { err = st.SaveRefresh("rt-2") })
+	timed(t, "SaveRefresh", func() { err = st.SaveRefresh("rt-2") })
 	if !errors.Is(err, ErrKeyringUnavailable) {
 		t.Fatalf("SaveRefresh = %v, want an error that is ErrKeyringUnavailable", err)
 	}
 	if want := "did not answer within 200ms"; !strings.Contains(err.Error(), want) {
 		t.Fatalf("error %q does not say %q", err, want)
 	}
-	if took < keyStoreTimeout {
-		t.Fatalf("SaveRefresh returned after %v, before the %v timeout", took, keyStoreTimeout)
+	if timers.firedCount() != 1 || timers.asked[0] != keyStoreTimeout {
+		t.Fatalf("SaveRefresh returned with %d timers fired, asked for %v, want it to return only when the timer for %v fired", timers.firedCount(), timers.asked, keyStoreTimeout)
 	}
 	if after := snapshotDir(t, dir); after != before {
 		t.Fatalf("a SaveRefresh that timed out changed the directory: %s, was %s", after, before)
@@ -217,6 +279,7 @@ func TestSaveRefreshGivesUpOnAKeyStoreThatDoesNotAnswerAndWritesNothing(t *testi
 func TestSaveRefreshThatTimesOutLeavesNoFileWhereThereWasNone(t *testing.T) {
 	setKeyStoreTimeout(t, 100*time.Millisecond)
 	waiting := &gatedSealer{inner: NewMemorySealer(), holdSeal: make(chan struct{})}
+	fakeKeyStoreTimers(t, func() bool { return waiting.began.Load() >= 1 })
 	t.Cleanup(waiting.release)
 	dir := filepath.Join(t.TempDir(), "account")
 	st := ownLimit(OpenStore(dir, waiting))
@@ -257,16 +320,19 @@ func snapshotDir(t *testing.T, dir string) string {
 // what the sealer returned, as soon as it returned it, and the sealer's own
 // errors come through as they are.
 func TestAKeyStoreThatAnswersIsNotSlowedOrChanged(t *testing.T) {
-	inner := NewMemorySealer() // the default timeout: nobody waits ten seconds for this
+	inner := NewMemorySealer()
+	timers := fakeKeyStoreTimers(t) // no timer ever fires: a call that waited for one would never return
 	dir := filepath.Join(t.TempDir(), "account")
 	st := OpenStore(dir, inner)
 	var err error
-	if took := timed(t, "SaveRefresh", func() { err = st.SaveRefresh("rt-1") }); err != nil || took > 4*time.Second {
-		t.Fatalf("SaveRefresh = %v after %v, want no error at once", err, took)
+	timed(t, "SaveRefresh", func() { err = st.SaveRefresh("rt-1") })
+	if err != nil {
+		t.Fatalf("SaveRefresh = %v, want no error with no timer fired", err)
 	}
 	var rt string
-	if took := timed(t, "LoadRefresh", func() { rt, err = st.LoadRefresh() }); err != nil || rt != "rt-1" || took > 4*time.Second {
-		t.Fatalf("LoadRefresh = %q, %v after %v, want rt-1 at once", rt, err, took)
+	timed(t, "LoadRefresh", func() { rt, err = st.LoadRefresh() })
+	if err != nil || rt != "rt-1" || timers.firedCount() != 0 {
+		t.Fatalf("LoadRefresh = %q, %v with %d timers fired, want rt-1 with none", rt, err, timers.firedCount())
 	}
 
 	boom := fmt.Errorf("%w: the stored key does not open the sealed refresh token", ErrKeyringUnavailable)
@@ -299,6 +365,7 @@ func TestAKeyStoreThatWaitsForeverDoesNotHoldTheSessionLockPastItsTimeout(t *tes
 	r.signIn(2 * time.Hour) // in grace: due for every process
 	setKeyStoreTimeout(t, 300*time.Millisecond)
 	waiting := &gatedSealer{inner: r.seal, holdOpen: make(chan struct{})}
+	fakeKeyStoreTimers(t, func() bool { return waiting.began.Load() >= 1 }) // A's read of refresh.enc is the first call; B's key store answers, so none of its calls times out
 	t.Cleanup(waiting.release)
 	a := NewGuard(GuardOptions{Store: ownLimit(OpenStore(r.dir, waiting)), Refresher: r.srv, Now: r.clock.Now})
 	t.Cleanup(a.Close)
@@ -362,6 +429,7 @@ func TestASaveRefreshThatTimesOutAfterTheGrantKeepsTheOldTokenAndTheMarkerAndRec
 	r.signIn(2 * time.Hour) // due
 	setKeyStoreTimeout(t, 300*time.Millisecond)
 	waiting := &gatedSealer{inner: r.seal, holdSeal: make(chan struct{})}
+	fakeKeyStoreTimers(t, nil, func() bool { return waiting.began.Load() >= 2 }) // the read of refresh.enc answers; the write is the second call and waits
 	t.Cleanup(waiting.release)
 	a := NewGuard(GuardOptions{Store: ownLimit(OpenStore(r.dir, waiting)), Refresher: r.srv, Now: r.clock.Now})
 	t.Cleanup(a.Close)
@@ -404,6 +472,7 @@ func TestASaveRefreshThatTimedOutIsRetriedInsideTheWindowAndTheAnswerIsStored(t 
 	r.signIn(2 * time.Hour) // due
 	setKeyStoreTimeout(t, 300*time.Millisecond)
 	waiting := &gatedSealer{inner: r.seal, holdSeal: make(chan struct{})}
+	fakeKeyStoreTimers(t, nil, func() bool { return waiting.began.Load() >= 2 }) // the read of refresh.enc answers; the write is the second call and waits
 	t.Cleanup(waiting.release)
 	a := NewGuard(GuardOptions{Store: ownLimit(OpenStore(r.dir, waiting)), Refresher: r.srv, Now: r.clock.Now})
 	t.Cleanup(a.Close)
@@ -436,6 +505,7 @@ func TestASaveRefreshThatTimedOutIsNotRetriedAfterTheWindowAndTheTokenIsDropped(
 	r.signIn(2 * time.Hour) // due
 	setKeyStoreTimeout(t, 300*time.Millisecond)
 	waiting := &gatedSealer{inner: r.seal, holdSeal: make(chan struct{})}
+	fakeKeyStoreTimers(t, nil, func() bool { return waiting.began.Load() >= 2 }) // the read of refresh.enc answers; the write is the second call and waits
 	t.Cleanup(waiting.release)
 	a := NewGuard(GuardOptions{Store: ownLimit(OpenStore(r.dir, waiting)), Refresher: r.srv, Now: r.clock.Now})
 	t.Cleanup(a.Close)
@@ -458,5 +528,46 @@ func TestASaveRefreshThatTimedOutIsNotRetriedAfterTheWindowAndTheTokenIsDropped(
 	}
 	if rt, err := r.store.LoadRefresh(); err != nil || rt != "" {
 		t.Fatalf("after the Seal that was given up on ended, refresh.enc holds %q (%v), want none", rt, err)
+	}
+}
+
+// A waiter notices a release soon, however long it has waited: the wait between polls
+// doubles from 5 ms and stops at 50 ms. With a larger cap, or none, the polls drift apart
+// (a plain doubling polls at about 5, 15, 35, 75, 155, 315, 635 and 1275 ms), and a
+// holder that lets go late goes unnoticed for as long as the wait that is then running.
+// A real waiter has 25 s, and would give up on a lock that had been free for seconds.
+// The waits are read here instead of lived through: each one is made to pass at once,
+// the holder lets go after the twelfth, and the waiter takes the lock at its next try.
+func TestAWaiterPollsTheLockAtMostFiftyMillisecondsApart(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "account")
+	a, b := OpenStore(dir, NewMemorySealer()), OpenStore(dir, NewMemorySealer())
+	unlockA, err := a.Lock(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(unlockA) // safe twice: a failed Lock below must not leave the lock held
+	var waits []time.Duration
+	prev := lockPause
+	t.Cleanup(func() { lockPause = prev })
+	lockPause = func(d time.Duration) <-chan time.Time {
+		waits = append(waits, d)
+		if len(waits) == 12 {
+			unlockA()
+		}
+		ch := make(chan time.Time, 1)
+		ch <- time.Now()
+		return ch
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	unlockB, err := b.Lock(ctx)
+	if err != nil {
+		t.Fatalf("a waiter did not take the lock at its next try after the holder let go: %v", err)
+	}
+	unlockB()
+	ms := time.Millisecond
+	want := []time.Duration{5 * ms, 10 * ms, 20 * ms, 40 * ms, 50 * ms, 50 * ms, 50 * ms, 50 * ms, 50 * ms, 50 * ms, 50 * ms, 50 * ms}
+	if fmt.Sprint(waits) != fmt.Sprint(want) {
+		t.Fatalf("the waiter waited %v between its tries, want %v: doubling from 5 ms and stopping at 50 ms", waits, want)
 	}
 }

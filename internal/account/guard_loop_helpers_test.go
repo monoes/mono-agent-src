@@ -100,6 +100,7 @@ func (e *env) guardOnClock(ref account.Refresher, poll time.Duration, now func()
 	g := account.NewGuard(account.GuardOptions{
 		Store: account.OpenStore(e.dir, e.seal), Refresher: ref, Now: now, Poll: poll,
 	})
+	e.loops = append(e.loops, g)
 	t := e.t
 	t.Cleanup(func() {
 		done := make(chan struct{})
@@ -162,7 +163,7 @@ func waitForCalls(t *testing.T, srv *loopServer, n int32, what string) {
 // what it should and nothing more.
 func expectCalls(t *testing.T, srv *loopServer, n int32, what string) {
 	t.Helper()
-	quiet()
+	quiet(t, srv.e.loops...)
 	if got := srv.calls.Load(); got != n {
 		t.Fatalf("%s: %d calls, want %d", what, got, n)
 	}

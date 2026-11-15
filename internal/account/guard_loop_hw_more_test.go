@@ -43,7 +43,7 @@ func waitForHW(t *testing.T, e *env, want time.Time, what string) {
 // expectHW waits quietFor and then fails unless session.json holds the mark want.
 func expectHW(t *testing.T, e *env, want time.Time, what string) {
 	t.Helper()
-	quiet()
+	quiet(t, e.loops...)
 	if got := hwOnDisk(e); !got.Equal(want) {
 		t.Fatalf("%s: the mark is %v, want %v", what, got, want)
 	}
@@ -96,7 +96,7 @@ func TestTheRefresherKeepsTheHighWaterMarkCurrentWhileItWaitsToRetry(t *testing.
 }
 
 // holdingRefresher is an env whose refresher has just refreshed and now holds for half an hour.
-func holdingRefresher(t *testing.T) *env {
+func holdingRefresher(t *testing.T) (*env, *account.Guard) {
 	t.Helper()
 	e := newEnv(t)
 	srv := newLoopServer(e) // no lag
@@ -105,7 +105,7 @@ func holdingRefresher(t *testing.T) *env {
 	g.StartRefresher(context.Background())
 	waitForCalls(t, srv, 1, "the first refresh")
 	expectCalls(t, srv, 1, "the hold")
-	return e
+	return e, g
 }
 
 // fiveMinutesLater is when the mark is five minutes stale: a loop that wrote it whatever the
@@ -113,12 +113,12 @@ func holdingRefresher(t *testing.T) *env {
 func fiveMinutesLater(t *testing.T, e *env) {
 	t.Helper()
 	e.f.Clock.Advance(5 * time.Minute)
-	quiet()
+	quiet(t, e.loops...)
 }
 
 func TestAHoldingRefresherWritesNoMarkWhileDormantOrForARefusedSession(t *testing.T) {
 	t.Run("the package is dormant", func(t *testing.T) {
-		e := holdingRefresher(t)
+		e, _ := holdingRefresher(t)
 		account.SetEnforceFromForTest(t, time.Time{})
 		var old time.Time
 		e.underLock(func() { old = e.pinSession() })
@@ -128,7 +128,7 @@ func TestAHoldingRefresherWritesNoMarkWhileDormantOrForARefusedSession(t *testin
 		}
 	})
 	t.Run("another process was refused", func(t *testing.T) {
-		e := holdingRefresher(t)
+		e, _ := holdingRefresher(t)
 		var old time.Time
 		e.underLock(func() {
 			e.save(refusedSession())
@@ -145,12 +145,21 @@ func TestAHoldingRefresherWritesNoMarkWhileDormantOrForARefusedSession(t *testin
 // loss in, and from the enforcement date on its next pass keeps the clock-guard record, so that
 // the date is still judged by a mark when the clock is set back. It does not bring back a token.
 func TestAHoldingRefresherThatFindsTheSessionGoneKeepsTheRecord(t *testing.T) {
-	e := holdingRefresher(t)
+	e, g := holdingRefresher(t)
 	e.underLock(func() {
 		if err := os.Remove(filepath.Join(e.dir, "session.json")); err != nil {
 			t.Fatal(err)
 		}
 	})
+	// Let the loop take the loss in before the clock makes the record due. A pass that has read
+	// the session but not yet the time may find the file gone only after the clock has moved: it
+	// then keeps nothing, because the session it had was cached, and counts its attempt at the
+	// new time, so that the next pass at the same time writes nothing either. A real clock moves
+	// on; a fixture clock that stands still does not. The loop is not wrong, but the test must
+	// not depend on which pass came first: one poll of clock makes the loop re-read the file, and
+	// three passes later it has taken the loss in.
+	e.f.Clock.Advance(2 * loopPoll)
+	settle(t, g)
 	e.f.Clock.Advance(5 * time.Minute)
 	waitForHW(t, e, e.f.Clock.Now(), "the record the loop keeps")
 	theRecord(t, e, e.f.Clock.Now())

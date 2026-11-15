@@ -168,7 +168,7 @@ func TestARefresherWritesNothingOverAnUnusableSessionFile(t *testing.T) {
 	g.StartRefresher(context.Background())
 	for i := 0; i < 3; i++ {
 		e.f.Clock.Advance(2 * time.Minute)
-		quiet()
+		quiet(t, e.loops...)
 		if got := mustMtime(t, e.store); !got.Equal(damaged) {
 			t.Fatalf("the refresher wrote over the unusable session.json at its pass %d", i+1)
 		}

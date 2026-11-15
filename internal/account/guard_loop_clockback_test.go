@@ -122,7 +122,7 @@ func TestTheRefresherAloneDropsTheTokenWhenTheClockGoesBackBetweenItsRetries(t *
 	m.machine.Advance(-120 * time.Second)
 	m.droppedSoon(t, "it would present the token at its retry, real +332 s")
 	m.both(232 * time.Second) // the machine reads +212 s, the next retry; monoes.me +332 s
-	quiet()
+	quiet(t, m.g)
 	m.dropped(t, 3)
 }
 
@@ -156,7 +156,7 @@ func TestARefresherTakesAStepBackBeyondTheToleranceForAClockSetBack(t *testing.T
 	m.markAt(t, 60*time.Second)
 	m.machine.Advance(-30 * time.Second)
 	m.droppedSoon(t, "a step back of 30 s is more than the tolerance")
-	quiet()
+	quiet(t, m.g)
 	m.dropped(t, 2)
 }
 
@@ -169,7 +169,7 @@ func TestARefresherIgnoresAStepBackWithinTheTolerance(t *testing.T) {
 	m.markAt(t, 60*time.Second)
 	before := m.session(t)
 	m.machine.Advance(-5 * time.Second) // the machine reads +55 s
-	quiet()
+	quiet(t, m.g)
 	if sess := m.session(t); !sess.LastAttempt.Equal(before.LastAttempt) || !sess.PendingSince.Equal(m.m0) || sess.LastResult != before.LastResult || m.net.grants() != 2 {
 		t.Fatalf("after a step back of 5 s: stored session = %s with %d grants, want it as it was, %s, and no new grant", describe(sess), m.net.grants(), describe(before))
 	}
@@ -191,7 +191,7 @@ func TestARefresherDoesNothingAtAClockThatJumpsForward(t *testing.T) {
 	waitForAttempt(t, m.store, m.m0.Add(31*time.Second), "the record of the retry")
 	before := m.session(t)
 	m.machine.Advance(20 * time.Second) // +51 s on the machine: no retry is due, no mark is stale
-	quiet()
+	quiet(t, m.g)
 	if sess := m.session(t); !sess.LastAttempt.Equal(before.LastAttempt) || !sess.PendingSince.Equal(m.m0) || m.net.grants() != 2 {
 		t.Fatalf("after a jump forward: stored session = %s with %d grants, want it as it was, %s, and no new grant", describe(sess), m.net.grants(), describe(before))
 	}
@@ -206,7 +206,7 @@ func TestARefresherWithNoMarkerWaitsOutItsBackoffAfterAClockSetBack(t *testing.T
 	m.markAt(t, 60*time.Second)
 	before := m.session(t)
 	m.machine.Advance(-30 * time.Second)
-	quiet()
+	quiet(t, m.g)
 	if sess := m.session(t); describe(sess) != describe(before) || m.net.grants() != 2 {
 		t.Fatalf("after a clock set back with no marker: stored session = %s with %d grants, want it as it was, %s, and no new attempt", describe(sess), m.net.grants(), describe(before))
 	}
