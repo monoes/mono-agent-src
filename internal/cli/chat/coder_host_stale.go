@@ -62,16 +62,16 @@ func StaleHostReason(dbPath, then string) string {
 // person gets the actionable text, never a stale host handed a command it would fail ("placing a turn needs a bound launch").
 func ensureCurrentHost(cfg *Deps) error { return ensureCurrentHostExcept(cfg, 0) }
 
-// ensureCurrentHostExcept is ensureCurrentHost for an answer: the open question with id exceptAsk is the one being answered and
-// does not make the host busy.
-func ensureCurrentHostExcept(cfg *Deps, exceptAsk int64) error {
+// ensureCurrentHostExcept is ensureCurrentHost for an answer: the parked question with id exceptQuestion (coder_session_questions)
+// is the one being answered, and it and its person item do not make the host busy. 0 excludes nothing.
+func ensureCurrentHostExcept(cfg *Deps, exceptQuestion int64) error {
 	why := StaleHostReason(cfg.DBPath(), StaleThenSend)
 	if why == "" {
 		return nil
 	}
-	busy := hostBusy(cfg, exceptAsk)
+	busy := hostBusy(cfg, exceptQuestion)
 	if busy == "" {
-		err := stopStaleHost(cfg, exceptAsk)
+		err := stopStaleHost(cfg, exceptQuestion)
 		if err == nil {
 			return nil
 		}
@@ -81,10 +81,11 @@ func ensureCurrentHostExcept(cfg *Deps, exceptAsk int64) error {
 }
 
 // hostBusy says what depends on the running host, "" when nothing does: an open-ended run, a coder turn that has not ended, a
-// queued command or an open ask other than exceptAsk. Anything it cannot read counts as busy. It reads the database only; the
+// queued command, an open ask, an open parked question other than exceptQuestion, or anything waiting for the person (a plan, a
+// budget request, an ancestor question; a parked question's own item only when it is exceptQuestion's). Anything it cannot read counts as busy. It reads the database only; the
 // host's own lock is held by the host, so the check cannot be atomic with the stop: a turn that starts in between is left running by
 // the stop (a stopped host leaves its turns running and the next host re-attaches to them), so the race costs a restart, never a turn.
-func hostBusy(cfg *Deps, exceptAsk int64) string {
+func hostBusy(cfg *Deps, exceptQuestion int64) string {
 	db, err := cfg.OpenDB()
 	if err != nil {
 		return "the database could not be read"
@@ -101,7 +102,9 @@ func hostBusy(cfg *Deps, exceptAsk int64) string {
 	}{
 		{"a coder turn is running", `SELECT COUNT(*) FROM ai_chat_turns WHERE status NOT IN ('completed','failed','cancelled','interrupted')`, nil},
 		{"a command is queued for the host", `SELECT COUNT(*) FROM coder_session_commands WHERE status = 'pending'`, nil},
-		{"another question is waiting for an answer", `SELECT COUNT(*) FROM coder_session_asks WHERE status = 'open' AND id <> ?`, []any{exceptAsk}},
+		{"a question is waiting for an answer", `SELECT COUNT(*) FROM coder_session_asks WHERE status = 'open'`, nil},
+		{"another parked question is waiting for an answer", `SELECT COUNT(*) FROM coder_session_questions WHERE status = 'open' AND id <> ?`, []any{exceptQuestion}},
+		{"something is waiting for the person", `SELECT COUNT(*) FROM coder_session_person_items WHERE NOT (kind = 'parked_question' AND ref_id = ?)`, []any{exceptQuestion}},
 	}
 	for _, c := range checks {
 		var n int
@@ -122,7 +125,7 @@ var restartLockWait = 10 * time.Second
 // it everything is read again: a CLI that lost the race finds the host already current (or busy) and signals nothing, so it can
 // never end the current host another CLI just started. The pid must be a process running `coder host run`, not just whatever
 // host.json names. The check of busyness stays a read of the database (see hostBusy).
-func stopStaleHost(cfg *Deps, exceptAsk int64) error {
+func stopStaleHost(cfg *Deps, exceptQuestion int64) error {
 	if err := os.MkdirAll(hostDir(cfg), 0o700); err != nil {
 		return err
 	}
@@ -133,8 +136,11 @@ func stopStaleHost(cfg *Deps, exceptAsk int64) error {
 			release = r
 			break
 		}
-		if !errors.Is(err, daemonhb.ErrHeld) || time.Now().After(deadline) {
-			return fmt.Errorf("another restart of the host is in progress: %w", err)
+		if !errors.Is(err, daemonhb.ErrHeld) {
+			return fmt.Errorf("the restart lock %s could not be taken: %w", filepath.Join(hostDir(cfg), "host-restart.lock"), err)
+		}
+		if time.Now().After(deadline) {
+			return errors.New("another restart of the host is in progress (its lock was still held after the wait)")
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -142,7 +148,7 @@ func stopStaleHost(cfg *Deps, exceptAsk int64) error {
 	if StaleHostReason(cfg.DBPath(), StaleThenSend) == "" {
 		return nil // another CLI restarted it (or it ended) while this one waited
 	}
-	if busy := hostBusy(cfg, exceptAsk); busy != "" {
+	if busy := hostBusy(cfg, exceptQuestion); busy != "" {
 		return fmt.Errorf("it became busy: %s", busy)
 	}
 	info, ok := readHostInfo(cfg)
@@ -155,11 +161,8 @@ func stopStaleHost(cfg *Deps, exceptAsk int64) error {
 	case stampOf(info.PID) != info.Stamp:
 		return fmt.Errorf("%s is left over from a host that is gone, and the host that runs now has not rewritten it yet: try again in a moment, or stop the host by hand with `%s`", infoPath, hostStopCommand(cfg.DBPath()))
 	}
-	if err := verifyHostProcess(info.PID); err != nil {
+	if _, err := stopStaleProcess(cfg, info); err != nil {
 		return fmt.Errorf("%w: stop the host by hand with `%s` if it really is the stale host", err, hostStopCommand(cfg.DBPath()))
-	}
-	if _, err := stopHost(cfg, info); err != nil {
-		return err
 	}
 	for deadline := time.Now().Add(hostStopSettle); hostRunning(cfg) && time.Now().Before(deadline); {
 		time.Sleep(50 * time.Millisecond)

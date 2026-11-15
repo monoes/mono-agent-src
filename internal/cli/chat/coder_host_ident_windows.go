@@ -2,6 +2,6 @@
 
 package chat
 
-// verifyHostProcess: on Windows the stop goes through a pinned process handle that is compared with the recorded start time
+// stopStaleProcess: on Windows the stop goes through a pinned process handle that is compared with the recorded start time
 // (stopPinnedHost), which is the identity check there.
-var verifyHostProcess = func(int) error { return nil }
+var stopStaleProcess = func(cfg *Deps, info hostInfo) (string, error) { return stopHost(cfg, info) }
