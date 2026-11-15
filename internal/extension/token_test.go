@@ -129,7 +129,7 @@ func TestHandleRelayAcceptsMatchingValue(t *testing.T) {
 	}
 	s := &Server{}
 	s.token = expected
-	s.pending = make(map[string]chan *Response)
+	s.pending = make(map[string]*pendingCmd)
 
 	req := httptest.NewRequest(http.MethodPost, "/monoagent/relay", bytes.NewReader(relayRequestBody(t)))
 	req.Host = "127.0.0.1:9222" // a local client; httptest defaults to example.com
@@ -154,7 +154,7 @@ func TestHandleRelayOriginAndHostGuard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &Server{token: token, pending: make(map[string]chan *Response)}
+	s := &Server{token: token, pending: make(map[string]*pendingCmd)}
 	serve := func(mutate func(*http.Request)) int {
 		req := httptest.NewRequest(http.MethodPost, "/monoagent/relay", bytes.NewReader(relayRequestBody(t)))
 		req.Host = "127.0.0.1:9222"

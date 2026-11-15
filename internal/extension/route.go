@@ -9,6 +9,13 @@ import (
 	"github.com/google/uuid"
 )
 
+// pendingCmd is a command waiting for its answer, and the browser it went to:
+// only that browser's frames may answer it.
+type pendingCmd struct {
+	ch   chan *Response
+	conn *extConn
+}
+
 // SendCommandTo sends a command to the browser t resolves to and waits for
 // its response. If the response reports failure, an error is returned.
 func (s *Server) SendCommandTo(t Target, cmd *Command, timeout time.Duration) (*Response, error) {
@@ -42,7 +49,14 @@ func (s *Server) SendCommandTo(t Target, cmd *Command, timeout time.Duration) (*
 
 	ch := make(chan *Response, 1)
 	s.pendMu.Lock()
-	s.pending[cmd.ID] = ch
+	if _, dup := s.pending[cmd.ID]; dup {
+		s.pendMu.Unlock()
+		if restore != nil {
+			restore()
+		}
+		return nil, fmt.Errorf("command id %s is already in flight", cmd.ID)
+	}
+	s.pending[cmd.ID] = &pendingCmd{ch: ch, conn: c}
 	s.pendMu.Unlock()
 	defer func() {
 		s.pendMu.Lock()
