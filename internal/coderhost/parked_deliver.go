@@ -128,9 +128,15 @@ func (s *Store) pruneClosedQuestions(profileID, conversationID string) {
 		profileID, conversationID, profileID, conversationID, MaxClosedQuestions)
 }
 
-func (s *Store) dropQuestion(id int64) {
-	_, _ = s.db.Exec(`DELETE FROM coder_session_questions WHERE id = ?`, id)
-	_, _ = s.db.Exec(`DELETE FROM coder_session_person_items WHERE kind = ? AND ref_id = ?`, ItemParkedQuestion, id)
+// dropQuestion removes a question and its person item together, or neither.
+func (s *Store) dropQuestion(id int64) error {
+	return s.writeTx(func(tx querier) error {
+		if _, err := tx.Exec(`DELETE FROM coder_session_questions WHERE id = ?`, id); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`DELETE FROM coder_session_person_items WHERE kind = ? AND ref_id = ?`, ItemParkedQuestion, id)
+		return err
+	})
 }
 
 // sessionStopped says whether the conversation's session is stopped.
@@ -255,11 +261,11 @@ func (s *Store) pendingGatedAnswers(profileID, conversationID string) int {
 // failed, was cancelled or expired before it ran: the session never heard the answer, so the
 // question is open again, and the ledger row of a default is marked not_applied (kept, so
 // no other row is rotated out for it). The host calls it on every pass.
-func (s *Store) ReopenFailedAnswers() {
+func (s *Store) ReopenFailedAnswers() error {
 	rows, err := s.db.Query(`SELECT q.id, q.profile_id, q.conversation_id, q.command_id, q.decision_id, c.error LIKE ? FROM coder_session_questions q
 		JOIN coder_session_commands c ON c.id = q.command_id WHERE q.status != 'open' AND q.command_id > 0 AND c.status = 'failed' AND c.error NOT LIKE ? LIMIT ?`, expiredMarker+"%", startedMarker+"%", pendingBatch)
 	if err != nil {
-		return
+		return err
 	}
 	type lost struct {
 		id, cmd, decision int64
@@ -274,20 +280,31 @@ func (s *Store) ReopenFailedAnswers() {
 		}
 	}
 	rows.Close()
+	var errs []error
 	for _, l := range all {
-		res, err := s.db.Exec(`UPDATE coder_session_questions SET status = 'open', answer = '', answered_by = '', answered_at = '', command_id = 0, decision_id = 0, reopen_count = reopen_count + ?, expired_reopens = expired_reopens + ?, last_failed_at = ?
-			WHERE id = ? AND command_id = ? AND status != 'open'`, boolInt(!l.expired), boolInt(l.expired), s.stamp(), l.id, l.cmd)
+		// The question, its ledger row and the session move together, or none does and the next pass tries again.
+		err := s.writeTx(func(tx querier) error {
+			res, err := tx.Exec(`UPDATE coder_session_questions SET status = 'open', answer = '', answered_by = '', answered_at = '', command_id = 0, decision_id = 0, reopen_count = reopen_count + ?, expired_reopens = expired_reopens + ?, last_failed_at = ?
+				WHERE id = ? AND command_id = ? AND status != 'open'`, boolInt(!l.expired), boolInt(l.expired), s.stamp(), l.id, l.cmd)
+			if err != nil {
+				return err
+			}
+			if n, _ := res.RowsAffected(); n != 1 {
+				return nil
+			}
+			if l.decision > 0 {
+				if _, err := tx.Exec(`UPDATE coder_session_decisions SET status = 'not_applied' WHERE id = ? AND status = 'active'`, l.decision); err != nil {
+					return err
+				}
+			}
+			_, err = tx.Exec(`UPDATE coder_sessions SET state = 'waiting_user', updated_at = ? WHERE profile_id = ? AND conversation_id = ? AND state = 'idle'`, s.stamp(), l.profile, l.conv)
+			return err
+		})
 		if err != nil {
-			continue
+			errs = append(errs, fmt.Errorf("coder host: question %d could not be given back (the next pass tries again): %w", l.id, err))
 		}
-		if n, _ := res.RowsAffected(); n != 1 {
-			continue
-		}
-		if l.decision > 0 {
-			_, _ = s.db.Exec(`UPDATE coder_session_decisions SET status = 'not_applied' WHERE id = ? AND status = 'active'`, l.decision)
-		}
-		_, _ = s.db.Exec(`UPDATE coder_sessions SET state = 'waiting_user', updated_at = ? WHERE profile_id = ? AND conversation_id = ? AND state = 'idle'`, s.stamp(), l.profile, l.conv)
 	}
+	return errors.Join(errs...)
 }
 
 // ApplyDefaults runs the timeout pass. Questions that waited longer than
@@ -331,8 +348,7 @@ func (s *Store) applyDefault(cache map[string]*passCtx, q Question) (bool, error
 	case c.err != nil:
 		return false, c.err
 	case !c.exists:
-		s.dropQuestion(q.ID)
-		return false, nil
+		return false, s.dropQuestion(q.ID)
 	case c.stopped:
 		return false, nil
 	case s.hasPersonItem(q.ProfileID, q.ID): // a person item waits for the person for as long as it takes, whatever the settings say
@@ -355,10 +371,13 @@ func (s *Store) applyDefault(cache map[string]*passCtx, q Question) (bool, error
 	q.Status, q.Answer, q.AnsweredBy = questionStatusDefault, q.Default, WhoModel
 	cmd, err := s.deliver(q)
 	if err != nil && cmd.ID == 0 {
-		s.reopenQuestion(q.ID) // not delivered: open again, nothing else was written, the next pass tries again
+		// not delivered: open again, nothing else was written, the next pass tries again
+		if rerr := s.reopenQuestion(q.ID); rerr != nil {
+			err = errors.Join(err, fmt.Errorf("coder host: question %d could not be opened again: %w", q.ID, rerr))
+		}
 		return false, err
 	}
-	s.releaseWaiting(q.ProfileID, q.ConversationID)
+	relErr := s.releaseWaiting(q.ProfileID, q.ConversationID)
 	s.pruneClosedQuestions(q.ProfileID, q.ConversationID)
 	// The ledger row is written only once the note is queued, so a failed delivery never
 	// costs an older row its place (the ledger rotates its oldest rows out as it fills).
@@ -368,7 +387,7 @@ func (s *Store) applyDefault(cache map[string]*passCtx, q Question) (bool, error
 	if rerr == nil {
 		_, _ = s.db.Exec(`UPDATE coder_session_questions SET decision_id = ? WHERE id = ?`, e.ID, q.ID)
 	}
-	return true, errors.Join(err, rerr)
+	return true, errors.Join(err, relErr, rerr)
 }
 
 // parkedPass is the host's periodic look at parked questions.

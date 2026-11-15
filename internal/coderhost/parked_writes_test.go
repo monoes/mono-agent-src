@@ -91,12 +91,16 @@ func TestReopenFailedAnswersIsAllOrNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	lift := failWrites(t, st, "no_wait", "UPDATE", "coder_sessions", "NEW.state = 'waiting_user'")
-	st.ReopenFailedAnswers()
+	if err := st.ReopenFailedAnswers(); err == nil {
+		t.Fatal("the failed give-back was not reported")
+	}
 	if got := questionOf(t, st, q.ID); got.Status == "open" {
 		t.Fatalf("the question was re-opened while its session was left %s", sessionState(t, st, "k1"))
 	}
 	lift()
-	st.ReopenFailedAnswers()
+	if err := st.ReopenFailedAnswers(); err != nil {
+		t.Fatal(err)
+	}
 	if got := questionOf(t, st, q.ID); got.Status != "open" || sessionState(t, st, "k1") != StateWaitingUser {
 		t.Fatalf("the next pass did not finish it: %+v, %s", got, sessionState(t, st, "k1"))
 	}

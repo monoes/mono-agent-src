@@ -199,7 +199,9 @@ func (h *Host) watch(x Session, t Turn) {
 // Tick makes one pass over the waiting commands. A command that cannot run yet
 // (a send to a busy or paused session) stays pending, in order.
 func (h *Host) Tick() error {
-	h.Store.ReopenFailedAnswers() // an answer note that did not run (stop, expiry, a failed check) gives its question back
+	if err := h.Store.ReopenFailedAnswers(); err != nil { // an answer note that did not run (stop, expiry, a failed check) gives its question back
+		h.logf("coder host: parked questions: %s", strings.TrimSpace(err.Error()))
+	}
 	h.Store.DropUnstartedCaps()
 	if err := h.Store.ExpireSends(); err != nil {
 		return err
