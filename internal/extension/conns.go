@@ -67,8 +67,10 @@ type ConnInfo struct {
 }
 
 // ErrNoExtension means no browser is connected at all. The words are the
-// ones every caller already knows from before there were several.
-var ErrNoExtension = errors.New("no extension connected")
+// ones every caller already knows from before there were several, followed by
+// what to do about it.
+var ErrNoExtension = errors.New("no extension connected: open a browser that has the MonoAgent Bridge extension " +
+	"(check `monoagentcli extension status`); after a bridge restart it can take up to ~30 s to reconnect")
 
 // ErrBrowserGone means a specific browser was asked for and is not
 // connected, e.g. it was closed in the middle of a run.
@@ -104,13 +106,17 @@ type extConn struct {
 	// the set to confirming or restoring it.
 	bindMu sync.Mutex
 
+	// gone is closed when the socket's read loop ends, so a command waiting on
+	// this browser can stop waiting at once.
+	gone chan struct{}
+
 	mu       sync.Mutex // guards profiles and label, which change while connected
 	profiles []string
 	label    string
 }
 
 func newExtConn(ws *websocket.Conn, auth authFrame, now time.Time) *extConn {
-	c := &extConn{id: legacyInstanceID, legacy: true, ws: ws, connectedAt: now, tokenID: auth.tokenID}
+	c := &extConn{id: legacyInstanceID, legacy: true, ws: ws, connectedAt: now, gone: make(chan struct{}), tokenID: auth.tokenID}
 	if validInstanceID.MatchString(auth.Instance) {
 		c.id, c.legacy = auth.Instance, false
 	}
