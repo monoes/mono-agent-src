@@ -83,7 +83,7 @@ func (b *ProfileBridge) Route() (ConnInfo, error) {
 		if b.via.IsConnected() {
 			return ConnInfo{Instance: legacyInstanceID, Legacy: true}, nil
 		}
-		return ConnInfo{}, ErrNoExtension
+		return ConnInfo{}, noBrowserConnected()
 	}
 	return info, err
 }

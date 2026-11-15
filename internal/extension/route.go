@@ -111,7 +111,7 @@ func (s *Server) SendCommandTo(t Target, cmd *Command, timeout time.Duration) (*
 		}
 		// Like a timeout, no restore: the change may have been stored.
 		return nil, fmt.Errorf("%w: it disconnected while command %s was running (the browser or its extension "+
-			"was closed or restarted); run it again once the browser is back", ErrBrowserGone, cmd.Type)
+			"was closed or restarted); the command may or may not have run in the page, so check the page before running it again", ErrBrowserGone, cmd.Type)
 	case <-time.After(timeout):
 		// No restore: the change may have been stored, and a browser that
 		// is routed too narrowly fails closed (its next binding frame or

@@ -67,10 +67,15 @@ type ConnInfo struct {
 }
 
 // ErrNoExtension means no browser is connected at all. The words are the
-// ones every caller already knows from before there were several, followed by
-// what to do about it.
-var ErrNoExtension = errors.New("no extension connected: open a browser that has the MonoAgent Bridge extension " +
-	"(check `monoagentcli extension status`); after a bridge restart it can take up to ~30 s to reconnect")
+// ones every caller already knows from before there were several.
+var ErrNoExtension = errors.New("no extension connected")
+
+// noBrowserConnected is ErrNoExtension with what to do about it, for where
+// nothing at all is connected.
+func noBrowserConnected() error {
+	return fmt.Errorf("%w: open a browser that has the MonoAgent Bridge extension (check `monoagentcli extension status`); "+
+		"after a bridge restart it can take up to ~30 s to reconnect", ErrNoExtension)
+}
 
 // ErrBrowserGone means a specific browser was asked for and is not
 // connected, e.g. it was closed in the middle of a run.
@@ -252,7 +257,7 @@ func (s *Server) resolve(t Target) (*extConn, error) { return s.resolveWith(t, f
 func (s *Server) resolveWith(t Target, admin bool) (*extConn, error) {
 	conns := s.connList()
 	if len(conns) == 0 {
-		return nil, ErrNoExtension
+		return nil, noBrowserConnected()
 	}
 	if t.Instance != "" {
 		for _, c := range conns {
