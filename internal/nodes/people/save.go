@@ -17,6 +17,7 @@ import (
 	"github.com/monoes/mono-agent/internal/peoplereview"
 	"github.com/monoes/mono-agent/internal/personitem"
 	"github.com/monoes/mono-agent/internal/personphoto"
+	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/util"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
@@ -197,6 +198,13 @@ func (n *PeopleSaveNode) Execute(
 					category = catTmpl
 				}
 			}
+		}
+
+		// The row of this person under any spelling of the platform is the
+		// one to update; a new person gets the canonical (upper-case) one.
+		platformUpper, err = storage.ResolvePlatform(tx, profileID, platformUpper, username)
+		if err != nil {
+			return nil, fmt.Errorf("people.save: look up %s/%s: %w", platformUpper, username, err)
 		}
 
 		if aiRun {

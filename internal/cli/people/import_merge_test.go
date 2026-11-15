@@ -31,7 +31,7 @@ func TestPeopleImportPartialRowKeepsDraftAndReviewState(t *testing.T) {
 	}
 	var name, intro, cat, job, site, contact, img, followers sql.NullString
 	if err := db.DB.QueryRow(`SELECT full_name, introduction, category, job_title, website, contact_details, image_url, follower_count
-		FROM people WHERE platform='x' AND platform_username='keep'`).Scan(&name, &intro, &cat, &job, &site, &contact, &img, &followers); err != nil {
+		FROM people WHERE UPPER(platform)='X' AND platform_username='keep'`).Scan(&name, &intro, &cat, &job, &site, &contact, &img, &followers); err != nil {
 		t.Fatal(err)
 	}
 	got := []string{name.String, intro.String, cat.String, job.String, site.String, contact.String, img.String}
@@ -72,7 +72,7 @@ func TestPeopleImportBadCountNamesTheRow(t *testing.T) {
 		t.Fatalf("err = %v, want an error naming row 2", err)
 	}
 	var n int
-	_ = db.DB.QueryRow(`SELECT COUNT(*) FROM people WHERE platform='x'`).Scan(&n)
+	_ = db.DB.QueryRow(`SELECT COUNT(*) FROM people WHERE UPPER(platform)='X'`).Scan(&n)
 	if n != 0 {
 		t.Errorf("%d people stored from a refused import, want 0", n)
 	}
@@ -141,7 +141,7 @@ func TestPeopleImportRefusesNonsenseCounts(t *testing.T) {
 			t.Errorf("%s: err = %v, want an error naming row 2", c, err)
 		}
 		var n int
-		_ = db.DB.QueryRow(`SELECT COUNT(*) FROM people WHERE platform='x'`).Scan(&n)
+		_ = db.DB.QueryRow(`SELECT COUNT(*) FROM people WHERE UPPER(platform)='X'`).Scan(&n)
 		if n != 0 {
 			t.Errorf("%s: %d people stored from a refused import", c, n)
 		}

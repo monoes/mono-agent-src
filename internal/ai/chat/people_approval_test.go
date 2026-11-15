@@ -27,7 +27,7 @@ func TestUpsertPersonNeverApproves(t *testing.T) {
 	row := func() (id, category, intro string) {
 		t.Helper()
 		db.DB.QueryRow(`SELECT id, COALESCE(category,''), COALESCE(introduction,'') FROM people
-			WHERE platform = 'linkedin' AND platform_username = 'ada' AND profile_id = 'default'`).Scan(&id, &category, &intro)
+			WHERE platform = 'LINKEDIN' AND platform_username = 'ada' AND profile_id = 'default'`).Scan(&id, &category, &intro)
 		return
 	}
 

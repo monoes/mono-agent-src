@@ -169,6 +169,14 @@ func (mt *MonoagentTools) upsertPerson(args string) (string, error) {
 	if err := json.Unmarshal([]byte(args), &a); err != nil {
 		return "", fmt.Errorf("invalid args: %w", err)
 	}
+	// A person stored under another spelling of the platform is the same
+	// person: update that row, keep its spelling; a new one gets the
+	// canonical spelling.
+	spelling, err := storage.ResolvePlatform(mt.db, mt.ProfileID(), a.Platform, a.PlatformUsername)
+	if err != nil {
+		return "", err
+	}
+	a.Platform = spelling
 	stored, err := peoplereview.StoredPerson(context.Background(), mt.db, mt.ProfileID(), a.Platform, a.PlatformUsername)
 	if err != nil {
 		return "", err
