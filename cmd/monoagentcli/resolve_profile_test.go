@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/monoes/mono-agent/internal/testhome"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -72,8 +74,7 @@ func TestResolveProfileIDWithNoProfilesPointsToCreate(t *testing.T) {
 func TestInitDBWithoutAHomeDoesNotCreateALiteralTilde(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
-	t.Setenv("HOME", "")
-	t.Setenv("USERPROFILE", "")
+	testhome.SetHome(t, "") // empty: the home cannot be resolved
 	_, err := initDB(&globalConfig{DBPath: "~/.monoagent/monoagent.db"})
 	if err == nil || !strings.Contains(err.Error(), "set HOME") {
 		t.Fatalf("got %v", err)
