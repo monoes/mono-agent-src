@@ -244,6 +244,7 @@ func TestEveryRawReaderOfMessagesIsAccountedFor(t *testing.T) {
 		"internal/cli/profile/delete_cleanup.go":     "reads attachment metadata to delete files",
 		"internal/commsync/queue.go":                 "writer; reads ids",
 		"internal/commsync/status.go":                "card-joined status machinery; reads ids and metadata",
+		"internal/commsync/stale.go":                 "doctor's stale-sending list; reads ids, hil_ref, metadata timestamps and created_at, no message text",
 		"internal/summary/inbox.go":                  "counts only",
 		"internal/hilscrub/hilscrub.go":              "the scrub itself",
 	}

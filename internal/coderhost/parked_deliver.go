@@ -186,8 +186,16 @@ func (s *Store) redeliver() error {
 		if n, _ := res.RowsAffected(); n != 1 {
 			continue
 		}
-		if _, err := s.deliver(q); err != nil {
+		if cmd, err := s.deliver(q); err != nil {
 			errs = append(errs, err)
+			if cmd.ID == 0 {
+				// Nothing was queued and the question stays closed: RepairWaiting leaves a claimed question
+				// alone, and this retry keeps moving answered_at forward, so settle the label here the way
+				// Answer does. releaseWaiting is a no-op while any question is still open.
+				if rerr := s.releaseWaiting(q.ProfileID, q.ConversationID); rerr != nil {
+					errs = append(errs, rerr)
+				}
+			}
 		}
 	}
 	return errors.Join(errs...)

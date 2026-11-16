@@ -2,8 +2,10 @@ package doctor
 
 import (
 	"context"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/account"
+	"github.com/monoes/mono-agent/internal/commsync"
 	"github.com/monoes/mono-agent/internal/health"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
@@ -13,6 +15,18 @@ import (
 func addSchedulesPausedHook(env *health.Env, open func() (*workflow.HybridWorkflowStore, error)) {
 	env.SchedulesPaused = func(ctx context.Context) (health.SchedulesPausedInfo, error) {
 		return schedulesPausedInfo(ctx, env, open, account.CurrentStatus())
+	}
+}
+
+// addStaleSendingHook feeds the comms.stale_sending row: a read-only listing of messages 'sending' for over an hour.
+func addStaleSendingHook(env *health.Env) {
+	env.StaleSending = func(ctx context.Context) (health.StaleSendingInfo, error) {
+		rows, err := commsync.ListStaleSending(ctx, env.DB, time.Now())
+		info := health.StaleSendingInfo{Count: len(rows)}
+		if len(rows) > 0 {
+			info.Oldest = rows[0].Age
+		}
+		return info, err
 	}
 }
 

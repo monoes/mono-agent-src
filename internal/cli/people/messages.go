@@ -471,9 +471,9 @@ func (d Deps) newPeopleMessagesImportCmd() *cobra.Command {
 			}
 			defer db.Close()
 
-			data, err := os.ReadFile(filePath)
+			data, err := readImportFile(filePath)
 			if err != nil {
-				return fmt.Errorf("reading file %s: %w", filePath, err)
+				return err
 			}
 
 			var raw []map[string]interface{}
@@ -503,15 +503,11 @@ func (d Deps) newPeopleMessagesImportCmd() *cobra.Command {
 				}
 				msgs = append(msgs, msg)
 			}
-			var imported int
-			for _, msg := range msgs {
-				if err := db.UpsertPersonMessage(msg, d.ProfileID()); err != nil {
-					return fmt.Errorf("importing message: %w", err)
-				}
-				imported++
+			if err := db.UpsertPersonMessages(msgs, d.ProfileID()); err != nil {
+				return fmt.Errorf("importing messages: %w", err)
 			}
 
-			fmt.Fprintf(os.Stdout, "Imported %d message(s) for person %s from %s.\n", imported, args[0], source)
+			fmt.Fprintf(os.Stdout, "Imported %d message(s) for person %s from %s.\n", len(msgs), args[0], source)
 			return nil
 		},
 	}

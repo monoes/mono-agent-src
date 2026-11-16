@@ -42,9 +42,9 @@ func (d Deps) newPeopleImportCmd() *cobra.Command {
 			}
 			defer db.Close()
 
-			data, err := os.ReadFile(filePath)
+			data, err := readImportFile(filePath)
 			if err != nil {
-				return fmt.Errorf("reading file %s: %w", filePath, err)
+				return err
 			}
 
 			var rawPeople []map[string]interface{}
@@ -61,33 +61,6 @@ func (d Deps) newPeopleImportCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("beginning transaction: %w", err)
 			}
-
-			stmt, err := tx.Prepare(
-				`INSERT INTO people (id, platform_username, platform, full_name, image_url,
-				        contact_details, website, content_count, follower_count,
-				        following_count, introduction, is_verified, category, job_title,
-				        profile_id, created_at, updated_at)
-				 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-				 ON CONFLICT(platform_username, platform, profile_id)
-				 DO UPDATE SET
-				   full_name       = COALESCE(excluded.full_name,              people.full_name),
-				   image_url       = COALESCE(excluded.image_url,              people.image_url),
-				   contact_details = COALESCE(excluded.contact_details,        people.contact_details),
-				   website         = COALESCE(excluded.website,                people.website),
-				   content_count   = COALESCE(NULLIF(excluded.content_count,   0), people.content_count),
-				   follower_count  = COALESCE(excluded.follower_count,         people.follower_count),
-				   following_count = COALESCE(NULLIF(excluded.following_count, 0), people.following_count),
-				   introduction    = COALESCE(excluded.introduction,           people.introduction),
-				   is_verified     = COALESCE(NULLIF(excluded.is_verified,     0), people.is_verified),
-				   category        = COALESCE(excluded.category,               people.category),
-				   job_title       = COALESCE(excluded.job_title,              people.job_title),
-				   updated_at      = excluded.updated_at`,
-			)
-			if err != nil {
-				tx.Rollback()
-				return fmt.Errorf("preparing statement: %w", err)
-			}
-			defer stmt.Close()
 
 			now := time.Now().UTC()
 			var imported int
@@ -147,26 +120,44 @@ func (d Deps) newPeopleImportCmd() *cobra.Command {
 					return fmt.Errorf("looking up %s: %w", username, err)
 				}
 
+				stored, err := peoplereview.StoredPerson(cmd.Context(), tx, d.ProfileID(), storedPlatform, username)
+				if err != nil {
+					tx.Rollback()
+					return err
+				}
 				if notTheUser != "" {
-					stored, err := peoplereview.StoredPerson(cmd.Context(), tx, d.ProfileID(), storedPlatform, username)
-					if err != nil {
-						tx.Rollback()
-						return err
-					}
-					// A row that leaves the draft out keeps the stored one (the
-					// upsert coalesces), so it is not a change of the text.
+					// A key the row leaves out keeps the stored value (see
+					// upsertPerson), so it is not a change of the text; a key
+					// it names, empty included, is.
 					intro := introduction
-					if intro == "" && stored.Found {
+					if _, named := raw["introduction"]; !named && stored.Found {
 						intro = stored.Introduction
 					}
-					category, err = peoplereview.NotOperatorCategory(stored, category, category != "", intro, "an import an agent, the chat or a workflow runs")
+					// An empty category is a request to clear it; an agent may
+					// not demote an approved person that way by accident, so
+					// it counts as leaving the stored one alone.
+					named := category != ""
+					if !named {
+						delete(raw, "category")
+					}
+					category, err = peoplereview.NotOperatorCategory(stored, category, named, intro, "an import an agent, the chat or a workflow runs")
 					if err != nil {
 						tx.Rollback()
 						return d.InvalidInput("importing %s: %v (%s); nothing was imported", username, err, notTheUser)
 					}
+					if !named && stored.Found && category != "" {
+						// The edit queued the person (Pending): store it.
+						raw["category"] = category
+					}
+				}
+				// The same category in another spelling ("APPROVED ", "Approved")
+				// is not a change: keep the stored spelling, so a reader that
+				// matches it exactly still sees the person as it was.
+				if stored.Found && strings.EqualFold(strings.TrimSpace(category), strings.TrimSpace(stored.Category)) {
+					category = stored.Category
 				}
 
-				_, err = stmt.Exec(
+				err = upsertPerson(tx, raw, []interface{}{
 					personID, username, storedPlatform,
 					nullableStr(fullName), nullableStr(imageURL),
 					nullableStr(contactDetails), nullableStr(website),
@@ -174,7 +165,7 @@ func (d Deps) newPeopleImportCmd() *cobra.Command {
 					nullableStr(introduction), isVerified,
 					nullableStr(category), nullableStr(jobTitle),
 					d.ProfileID(), now, now,
-				)
+				})
 				if err != nil {
 					tx.Rollback()
 					return fmt.Errorf("importing person %s: %w", username, err)

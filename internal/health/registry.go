@@ -11,6 +11,7 @@ func Default() *Registry {
 	checks = append(checks, workflowPublicationChecks()...)
 	checks = append(checks, monoesAccountChecks()...)
 	checks = append(checks, schedulesPausedChecks()...)
+	checks = append(checks, staleSendingChecks()...)
 	checks = append(checks, monomindChecks()...)
 	checks = append(checks, monomindDoctorChecks()...)
 	checks = append(checks, monomindUpkeepChecks()...)

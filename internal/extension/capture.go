@@ -299,12 +299,18 @@ func (s *Server) CapturePage(req CaptureRequest) (*capture.Result, error) {
 	}
 	cmd := req.command()
 
+	c, err := s.resolve(req.Target)
+	if err != nil {
+		return nil, err
+	}
+	// The stream belongs to the browser the command goes to: only its frames
+	// feed it (dispatch), and its disconnect ends the wait (c.gone below).
 	ch := make(chan *Response, captureStreamBuffer)
 	s.pendMu.Lock()
 	if s.streams == nil {
-		s.streams = make(map[string]chan *Response)
+		s.streams = make(map[string]*pendingCmd)
 	}
-	s.streams[cmd.ID] = ch
+	s.streams[cmd.ID] = &pendingCmd{ch: ch, conn: c}
 	s.pendMu.Unlock()
 	defer func() {
 		s.pendMu.Lock()
@@ -313,7 +319,7 @@ func (s *Server) CapturePage(req CaptureRequest) (*capture.Result, error) {
 		assembler.Drop(cmd.ID)
 	}()
 
-	if err := s.writeCommand(req.Target, cmd); err != nil {
+	if err := s.deliver(c, req.Target.Profile, cmd); err != nil {
 		return nil, err
 	}
 	s.logger.Debug().Str("id", cmd.ID).Str("type", cmd.Type).Msg("command sent")
@@ -339,6 +345,16 @@ func (s *Server) CapturePage(req CaptureRequest) (*capture.Result, error) {
 				s.written(res)
 			}
 			return res, err
+		case <-c.gone:
+			// A frame dispatched just before the socket closed is still queued.
+			select {
+			case resp := <-ch:
+				ch <- resp
+				continue
+			default:
+			}
+			return nil, fmt.Errorf("%w: it disconnected while the page capture was running (the browser or its extension "+
+				"was closed or restarted); nothing was saved, so run the capture again", ErrBrowserGone)
 		case <-deadline.C:
 			return nil, fmt.Errorf("page_capture timed out after %s", req.timeout())
 		}
@@ -359,9 +375,11 @@ func (s *Server) dispatch(c *extConn, resp *Response) {
 	s.pendMu.Unlock()
 
 	switch {
+	case streaming && stream.conn != c:
+		s.logger.Debug().Str("id", resp.ID).Msg("capture frame from a connection the command was not sent to: ignored")
 	case streaming:
 		select {
-		case stream <- resp:
+		case stream.ch <- resp:
 		default:
 			s.logger.Error().Str("id", resp.ID).Msg("capture stream buffer full, dropped a message")
 		}

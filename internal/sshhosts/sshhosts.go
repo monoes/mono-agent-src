@@ -7,6 +7,7 @@ package sshhosts
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -21,11 +22,23 @@ import (
 // accepts any), a single-token line, or a control character other than tab.
 // The error names the file and the line number, never the line.
 func New(path string) (ssh.HostKeyCallback, error) {
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
+	// Read one byte past the cap so an oversized file is refused without being loaded whole.
+	data, err := io.ReadAll(io.LimitReader(f, maxBytes+1))
+	f.Close()
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxBytes {
+		return nil, fmt.Errorf("%s: too large (more than %d bytes)", path, maxBytes)
+	}
 	lines := bytes.Split(data, []byte("\n"))
+	if n := len(lines); n > 0 && len(lines[n-1]) == 0 {
+		lines = lines[:n-1] // the empty piece after the final newline is not a line
+	}
 	if len(lines) > maxLines {
 		return nil, fmt.Errorf("%s: too many lines (more than %d)", path, maxLines)
 	}
@@ -45,6 +58,9 @@ func New(path string) (ssh.HostKeyCallback, error) {
 
 // maxLines bounds the per-line library check (one small file write each).
 const maxLines = 20000
+
+// maxBytes bounds what is read at all (a real known_hosts file is far smaller).
+const maxBytes = 16 << 20
 
 // libraryAccepts asks the library itself whether this line is valid: for a
 // file whose only non-comment line is this one, knownhosts.New returns an

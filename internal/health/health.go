@@ -262,6 +262,10 @@ type Env struct {
 	// sign-in (local reads only: no network, the sign-in is not consumed).
 	SchedulesPaused func(ctx context.Context) (SchedulesPausedInfo, error)
 
+	// StaleSending lists how many messages have been 'sending' for over an hour (a read of the database;
+	// nothing is written).
+	StaleSending func(ctx context.Context) (StaleSendingInfo, error)
+
 	// MonoesAccount reads the monoes.me session from this machine (no
 	// network, nothing written).
 	MonoesAccount func(ctx context.Context) AccountInfo

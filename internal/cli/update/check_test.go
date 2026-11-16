@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -86,6 +87,52 @@ func TestUpdateCheckNetworkFailureIsAResult(t *testing.T) {
 	res, err := runUpdateCheckCmd(t, testDeps(t, srv.URL), "--check", "--current", "v0.72.0")
 	if err != nil || res.Error == "" || res.UpdateAvailable {
 		t.Fatalf("res = %+v, err = %v", res, err)
+	}
+}
+
+func closedServerURL() string {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	url := srv.URL
+	srv.Close() // nothing listens any more: the dial is refused
+	return url
+}
+
+func TestUpdateCheckUnreachableServerIsActionable(t *testing.T) {
+	t.Parallel()
+	res, err := runUpdateCheckCmd(t, testDeps(t, closedServerURL()), "--check", "--current", "v0.72.0")
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if res.Error != "could not reach the update server; check your connection" {
+		t.Fatalf("error = %q", res.Error)
+	}
+	if !strings.Contains(res.Detail, "connect") {
+		t.Fatalf("the raw error must stay in detail, got %q", res.Detail)
+	}
+}
+
+func TestUpdateUnreachableServerPlainMessage(t *testing.T) {
+	t.Parallel()
+	d := testDeps(t, closedServerURL())
+	d.JSONOutput = func() bool { return false }
+	cmd := NewCommand(d)
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--check", "--current", "v0.72.0"})
+	err := cmd.Execute()
+	if err == nil || err.Error() != "could not reach the update server; check your connection" {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestUpdateHTTPFailureKeepsItsMessage(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "rate limited", http.StatusForbidden)
+	}))
+	defer srv.Close()
+	res, _ := runUpdateCheckCmd(t, testDeps(t, srv.URL), "--check", "--current", "v0.72.0")
+	if !strings.Contains(res.Error, "403") || res.Detail != "" {
+		t.Fatalf("res = %+v", res)
 	}
 }
 

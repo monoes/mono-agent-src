@@ -7,6 +7,7 @@ package update
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -133,6 +134,7 @@ type Check struct {
 	UpdateAvailable bool   `json:"update_available"`
 	ReleaseURL      string `json:"release_url"`
 	Error           string `json:"error,omitempty"`
+	Detail          string `json:"detail,omitempty"` // raw cause of an unreachable server
 }
 
 // runUpdateCheck reports the latest release. A release that cannot be
@@ -147,9 +149,13 @@ func (d Deps) runCheck(cmd *cobra.Command, current string) error {
 	release, err := FetchLatest(cmd.Context(), d.ReleaseClient(), d.LatestReleaseURL, force)
 	if err != nil {
 		if !d.JSONOutput() {
-			return err
+			return withDetail(cmd, err)
 		}
 		res.Error = err.Error()
+		var ue *UnreachableError
+		if errors.As(err, &ue) {
+			res.Detail = ue.Err.Error()
+		}
 		return d.WriteJSON(cmd.OutOrStdout(), res)
 	}
 	res.LatestVersion = release.Tag
@@ -215,7 +221,7 @@ func (d Deps) run(cmd *cobra.Command) error {
 
 	info, err := FetchLatest(context.Background(), d.ReleaseClient(), d.LatestReleaseURL, force)
 	if err != nil {
-		return err
+		return withDetail(cmd, err)
 	}
 
 	v := d.Version()
