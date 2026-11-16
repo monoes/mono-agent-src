@@ -286,6 +286,14 @@ func (s *Server) grantRun(ctx context.Context, rt *runtime, b *orggrant.Bundle, 
 		return nil, fmt.Errorf("%s: %s is not granted to %s:%s — the grant changed; the tool list refreshes on your next turn", codeRefusedGrant, name, b.OrgName, b.RoleID)
 	}
 	tool := grant.Automation()
+	if tool.WorkflowHash != "" {
+		wf, _ := rt.store.GetWorkflow(ctx, tool.WorkflowID)
+		if err := tool.CheckWorkflow(wf); err != nil {
+			ledger := orgbridge.NewLedger(rt.db.DB)
+			_ = ledger.Refuse(ctx, orgbridge.Call{ProfileID: b.ProfileID, Direction: orgbridge.DirRoleTool, OrgName: b.OrgName, RoleID: b.RoleID, GrantID: grant.ID, WorkflowID: tool.WorkflowID}, orgbridge.StatusRefusedGrant)
+			return nil, fmt.Errorf("%s: %s is not run: %v — the operator must re-grant it (`org grant`) to approve the edited workflow", codeRefusedGrant, name, err)
+		}
+	}
 	if _, live := daemonhb.Read(); !live {
 		return nil, fmt.Errorf("%s: automations run in `monoagentcli daemon`, which is not running — ask the operator to start it", codeDaemonRequired)
 	}
