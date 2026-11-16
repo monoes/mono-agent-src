@@ -125,10 +125,18 @@ func WithSignature(ctx context.Context, root string, payload json.RawMessage) js
 		if !orgdesign.ValidOrgName(name) {
 			return
 		}
-		if st, ok := all[name]; haveAll && ok {
-			item["signature"] = st
+		var st orgsign.Status
+		if got, ok := all[name]; haveAll && ok {
+			st = got
 		} else if raw, _, err := orgsign.ReadFile(root, name); err == nil {
-			item["signature"] = orgsign.Verify(root, name, raw)
+			st = orgsign.Verify(root, name, raw)
+		} else {
+			return
+		}
+		item["signature"] = st
+		// The daemon leaves an org it reconciled unsigned and only logs why; this is where the operator sees it.
+		if !st.OK() {
+			item["signature_notice"] = orgsign.Message(name, st)
 		}
 	}
 	var obj map[string]interface{}
