@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { buildSrcdoc, createFocusGesture, createHostGate, htmlTooLarge, MIN_HEIGHT } from './htmlViewContract.js'
 
-const box = { margin: '0.35em 0', border: '1px solid #1e3a4f', borderRadius: 6, overflow: 'hidden', maxWidth: '100%' }
+const box = { margin: '0.35em 0', border: '1px solid #1e3a4f', borderRadius: 6, overflow: 'hidden', maxWidth: '100%', minWidth: 0 }
 const bar = { display: 'flex', alignItems: 'center', gap: 8, padding: '3px 8px', background: '#0a1018', fontSize: 10, color: '#94a3b8' }
 
 // Model-written HTML in a locked-down iframe. sandbox="allow-scripts" only:

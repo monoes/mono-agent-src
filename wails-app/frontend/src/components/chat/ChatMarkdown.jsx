@@ -182,7 +182,7 @@ export function ChatMarkdown({ content, noPaths = false, onNavigate = null }) {
       <LookupBudget.Provider value={budget.current}>
         <AppNavContext.Provider value={onNavigate}>
           <ChatHosts>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.55, wordBreak: 'break-word' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.55, wordBreak: 'break-word', minWidth: 0, maxWidth: '100%' }}>
               <ReactMarkdown remarkPlugins={noPaths ? pluginsNoPaths : plugins} components={noPaths ? withoutPaths : withPaths} urlTransform={appLinkUrlTransform}>{content}</ReactMarkdown>
             </div>
           </ChatHosts>
