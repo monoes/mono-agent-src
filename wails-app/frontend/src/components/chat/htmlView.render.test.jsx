@@ -9,7 +9,7 @@ import { SandboxedHtmlFrame } from './SandboxedHtmlFrame.jsx'
 import { ChatMarkdown } from './ChatMarkdown.jsx'
 import { HtmlViewContext } from './htmlView.jsx'
 import {
-  buildSrcdoc, validateFrameMessage, createHostGate, htmlTooLarge, MAX_HTML_BYTES, FLAG_KEY, GESTURE_TTL_MS,
+  buildSrcdoc, validateFrameMessage, createHostGate, createFocusGesture, htmlTooLarge, MAX_HTML_BYTES, FLAG_KEY, GESTURE_TTL_MS,
 } from './htmlViewContract.js'
 
 afterEach(() => { cleanup(); localStorage.clear() })
@@ -24,7 +24,11 @@ function openFrame(props = {}) {
 function post(iframe, data, source = iframe.contentWindow) {
   act(() => { window.dispatchEvent(new MessageEvent('message', { data, source })) })
 }
-const hover = (iframe) => fireEvent.pointerEnter(iframe.parentElement)
+// A user click in the frame: the iframe becomes active, the host window blurs.
+const hover = (iframe) => {
+  iframe.focus()
+  act(() => { window.dispatchEvent(new Event('blur')) })
+}
 
 describe('iframe lock-down', () => {
   it('collapsed by default: source only, badge visible, no iframe', () => {
@@ -126,7 +130,53 @@ describe('host gate', () => {
   })
 })
 
+describe('focus gesture', () => {
+  it('blur while the frame is active enables one gesture', () => {
+    let t = 1000
+    const frame = {}
+    const g = createFocusGesture({ getFrame: () => frame, getActive: () => frame, now: () => t })
+    g.onBlur()
+    expect(g.take()).toBe(true)
+    expect(g.take()).toBe(false)
+  })
+  it('blur with another active element does not', () => {
+    const g = createFocusGesture({ getFrame: () => ({}), getActive: () => ({}) })
+    g.onBlur()
+    expect(g.take()).toBe(false)
+  })
+  it('expires', () => {
+    let t = 1000
+    const frame = {}
+    const g = createFocusGesture({ getFrame: () => frame, getActive: () => frame, now: () => t })
+    g.onBlur(); t += GESTURE_TTL_MS + 1
+    expect(g.take()).toBe(false)
+  })
+})
+
 describe('component wiring', () => {
+  it('a spoofed in-frame gesture with no host-seen blur never sends', () => {
+    const { p, iframe } = openFrame()
+    post(iframe, { v: 1, t: 'gesture' })
+    post(iframe, { v: 1, t: 'send', text: 'spoof' })
+    expect(p.onSend).not.toHaveBeenCalled()
+  })
+  it('blur with another element active does not enable a send', () => {
+    const { p, iframe } = openFrame()
+    document.body.focus()
+    act(() => { window.dispatchEvent(new Event('blur')) })
+    post(iframe, { v: 1, t: 'gesture' })
+    post(iframe, { v: 1, t: 'send', text: 'x' })
+    expect(p.onSend).not.toHaveBeenCalled()
+  })
+  it('one blur backs one send only', () => {
+    const { p, iframe } = openFrame()
+    hover(iframe)
+    post(iframe, { v: 1, t: 'gesture' })
+    post(iframe, { v: 1, t: 'send', text: 'a' })
+    post(iframe, { v: 1, t: 'gesture' })
+    post(iframe, { v: 1, t: 'send', text: 'b' })
+    expect(p.onSend).toHaveBeenCalledTimes(1)
+  })
   it('resizes, and delivers send/open only after a gesture', () => {
     const { p, iframe } = openFrame()
     post(iframe, { v: 1, t: 'resize', h: 250 })
@@ -137,6 +187,7 @@ describe('component wiring', () => {
     post(iframe, { v: 1, t: 'gesture' })
     post(iframe, { v: 1, t: 'send', text: 'go' })
     expect(p.onSend).toHaveBeenCalledWith('go')
+    hover(iframe)
     post(iframe, { v: 1, t: 'gesture' })
     post(iframe, { v: 1, t: 'open', href: 'monoagent://task/9' })
     expect(p.onAppLink).toHaveBeenCalledWith('monoagent://task/9')

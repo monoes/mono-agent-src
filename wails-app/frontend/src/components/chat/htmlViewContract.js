@@ -85,7 +85,8 @@ export function validateFrameMessage(d) {
 
 // Host-side gate: source check, validation, rate limit, one-shot gestures.
 // A frame-sent 'gesture' is spoofable by hostile script, so it only counts
-// while the host itself saw the pointer over the frame (pointerOver()).
+// while the host itself saw a user gesture in the frame (pointerOver(), see
+// createFocusGesture; pointer events never reach the host over an iframe).
 export function createHostGate({ getFrameWindow, pointerOver = () => true, now = Date.now }) {
   let stamps = []
   let gestureAt = -Infinity
@@ -103,5 +104,16 @@ export function createHostGate({ getFrameWindow, pointerOver = () => true, now =
     const fresh = t - gestureAt <= GESTURE_TTL_MS
     gestureAt = -Infinity // consumed (or stale): a replay needs a new click
     return fresh ? m : null
+  }
+}
+
+// Host-side evidence of a user gesture in the frame: the host window loses
+// focus while the iframe is the active element (a click or Tab into it).
+// Fail closed: no blur, no gesture. Each blur backs one gesture message.
+export function createFocusGesture({ getFrame, getActive = () => document.activeElement, now = Date.now }) {
+  let at = -Infinity
+  return {
+    onBlur() { const f = getFrame(); if (f && getActive() === f) at = now() },
+    take() { const ok = now() - at <= GESTURE_TTL_MS; at = -Infinity; return ok },
   }
 }

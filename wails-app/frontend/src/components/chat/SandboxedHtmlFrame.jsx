@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { buildSrcdoc, createHostGate, htmlTooLarge, MIN_HEIGHT } from './htmlViewContract.js'
+import { buildSrcdoc, createFocusGesture, createHostGate, htmlTooLarge, MIN_HEIGHT } from './htmlViewContract.js'
 
 const box = { margin: '0.35em 0', border: '1px solid #1e3a4f', borderRadius: 6, overflow: 'hidden', maxWidth: '100%' }
 const bar = { display: 'flex', alignItems: 'center', gap: 8, padding: '3px 8px', background: '#0a1018', fontSize: 10, color: '#94a3b8' }
@@ -12,13 +12,13 @@ export function SandboxedHtmlFrame({ html, onSend, onAppLink }) {
   const [interactive, setInteractive] = useState(false)
   const [height, setHeight] = useState(MIN_HEIGHT * 3)
   const frameRef = useRef(null)
-  const hover = useRef(false)
   const live = interactive && !tooLarge
   const srcDoc = useMemo(() => (live ? buildSrcdoc(html) : ''), [live, html])
 
   useEffect(() => {
     if (!live) return undefined
-    const gate = createHostGate({ getFrameWindow: () => frameRef.current?.contentWindow, pointerOver: () => hover.current })
+    const focus = createFocusGesture({ getFrame: () => frameRef.current })
+    const gate = createHostGate({ getFrameWindow: () => frameRef.current?.contentWindow, pointerOver: focus.take })
     const onMessage = (e) => {
       const m = gate(e)
       if (!m) return
@@ -27,7 +27,8 @@ export function SandboxedHtmlFrame({ html, onSend, onAppLink }) {
       else if (m.t === 'open') onAppLink?.(m.href)
     }
     window.addEventListener('message', onMessage)
-    return () => window.removeEventListener('message', onMessage)
+    window.addEventListener('blur', focus.onBlur)
+    return () => { window.removeEventListener('message', onMessage); window.removeEventListener('blur', focus.onBlur) }
   }, [live, onSend, onAppLink])
 
   return (
@@ -44,7 +45,7 @@ export function SandboxedHtmlFrame({ html, onSend, onAppLink }) {
           )}
       </div>
       {live ? (
-        <div onPointerEnter={() => { hover.current = true }} onPointerLeave={() => { hover.current = false }}>
+        <div>
           <iframe ref={frameRef} title="Sandboxed HTML view" sandbox="allow-scripts" srcDoc={srcDoc}
             referrerPolicy="no-referrer" style={{ display: 'block', width: '100%', height, border: 0, background: '#fff' }} />
         </div>
