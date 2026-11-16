@@ -29,6 +29,7 @@ func (d Deps) newPeopleCmd() *cobra.Command {
 		d.newPeopleInteractionsCmd(),
 		d.newPeoplePostsCmd(),
 		d.newPeopleDeleteCmd(),
+		d.newPeopleDedupeCmd(),
 		d.newPeopleImportCmd(),
 		d.newPeopleMessagesCmd(),
 		d.newPeopleStatusCmd(),
