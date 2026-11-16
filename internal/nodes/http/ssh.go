@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/knownhosts"
 
+	"github.com/monoes/mono-agent/internal/sshhosts"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -122,7 +122,7 @@ func (n *SSHNode) Execute(ctx context.Context, input workflow.NodeInput, config 
 		if _, err := os.Stat(knownHostsPath); err != nil {
 			return nil, fmt.Errorf("http.ssh: known_hosts file not accessible: %w", err)
 		}
-		cb, err := knownhosts.New(knownHostsPath)
+		cb, err := sshhosts.New(knownHostsPath)
 		if err != nil {
 			return nil, fmt.Errorf("http.ssh: failed to parse known_hosts: %w", err)
 		}
