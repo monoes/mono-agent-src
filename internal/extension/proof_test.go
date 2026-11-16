@@ -252,3 +252,12 @@ func TestBridgeRestartAdviceByOS(t *testing.T) {
 		}
 	}
 }
+
+func TestBridgeRestartAdviceNonLinuxExactAndUnknown(t *testing.T) {
+	const want = "restart it: stop it and start `monoagentcli extension serve` again"
+	for _, goos := range []string{"darwin", "windows", "freebsd", ""} {
+		if got := BridgeRestartAdvice(goos); got != want {
+			t.Errorf("%q = %q", goos, got)
+		}
+	}
+}

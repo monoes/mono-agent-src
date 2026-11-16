@@ -16,3 +16,12 @@ func TestManualUndoCommandByOS(t *testing.T) {
 		t.Errorf("windows = %q", got)
 	}
 }
+
+// A GOOS that is not windows is a POSIX shell: mv, quoted when needed.
+func TestManualUndoCommandUnknownGOOSIsPosix(t *testing.T) {
+	for _, goos := range []string{"freebsd", ""} {
+		if got := manualUndoCommand(goos, "/b/x y.bak", "/b/x"); got != "mv -f '/b/x y.bak' /b/x" {
+			t.Errorf("%q = %q", goos, got)
+		}
+	}
+}
