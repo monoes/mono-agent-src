@@ -151,7 +151,7 @@ var verbsWithoutTheHelpText = map[string]bool{
 	"secret agent-access": true, "secret agent-access audit": true, "secret export": true,
 	"connect get-oauth-client": true, "profile info get": true, "workflow run": true,
 	"extension pair": true, "extension install": true, "org role set-access": true,
-	"automation trust": true, "automation rerecord": true, "automation doctor accept-repair": true,
+	"automation trust": true, "automation install": true, "automation new": true, "automation rerecord": true, "automation doctor accept-repair": true,
 	"record verify": true, "record replay": true, "browser allow add": true, "browser allow remove": true,
 	"browser permissions set": true, "browser permissions site": true,
 	"coder queue add": true, "coder queue start": true, "coder projects map": true, "coder projects unmap": true,
