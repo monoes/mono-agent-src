@@ -194,7 +194,7 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
                 : msg.role === 'turn' ? (
                   <div key={i} className="chat-assistant-turn">
                     {lite ? <LiteTurn state={msg.state} turnId={msg.turnId} /> : <>
-                      <ChatTimeline state={msg.state} turnId={msg.turnId} isLive={false} agentFilter={msg.turnId === agentFilterTurnId ? agentFilter : null} onNavigate={onNavigate} />
+                      <ChatTimeline state={msg.state} turnId={msg.turnId} isLive={false} agentFilter={msg.turnId === agentFilterTurnId ? agentFilter : null} onNavigate={onNavigate} entityLinks={false} />
                       {artifactCards(msg.turnId, msg.state)}
                       {orgProposalCards(msg.state)}
                       {missionCards(msg.turnId)}
@@ -212,7 +212,7 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
             {conv.streaming && (
               <div className="chat-assistant-turn">
                 {lite ? <LiteTurn state={conv.liveTurn} turnId={conv.activeTurnId} isLive /> : <>
-                  <ChatTimeline state={conv.liveTurn} turnId={conv.activeTurnId} isLive agentFilter={conv.activeTurnId === agentFilterTurnId ? agentFilter : null} onNavigate={onNavigate} />
+                  <ChatTimeline state={conv.liveTurn} turnId={conv.activeTurnId} isLive agentFilter={conv.activeTurnId === agentFilterTurnId ? agentFilter : null} onNavigate={onNavigate} entityLinks={false} />
                   {artifactCards(conv.activeTurnId, conv.liveTurn)}
                   {orgProposalCards(conv.liveTurn)}
                   {missionCards(conv.activeTurnId)}

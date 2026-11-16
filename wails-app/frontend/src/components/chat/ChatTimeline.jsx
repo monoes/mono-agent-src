@@ -49,7 +49,9 @@ function NoticeBanner({ notice }) {
 //
 // onNavigate (the app's navigate) lets a tool card that ran monoagentcli on
 // one of the app's tabs link to it (#473).
-export function ChatTimeline({ state, turnId = '', isLive = true, agentFilter = null, onNavigate }) {
+// entityLinks: false when the view already shows result cards (the coder
+// chat's artifact cards), so a card does not also link its entity.
+export function ChatTimeline({ state, turnId = '', isLive = true, agentFilter = null, onNavigate, entityLinks = true }) {
   const { parts, calls } = state
   const notices = state.notices || []
   if (parts.length === 0 && notices.length === 0 && !state.sandbox) return null
@@ -70,6 +72,7 @@ export function ChatTimeline({ state, turnId = '', isLive = true, agentFilter = 
       childCalls={childrenOf[call.callId] || []}
       renderChild={renderCall}
       onNavigate={onNavigate}
+      entityLinks={entityLinks}
     />
   )
 
