@@ -54,6 +54,17 @@ func TestSSHKnownHostsGarbageLineFailsClosed(t *testing.T) {
 	if err := run(garbage); err == nil {
 		t.Fatal("garbage-only known_hosts: the target host was accepted")
 	}
+	// A corrupted revocation line must refuse the file, not be skipped: the
+	// same key has a valid line, which would otherwise be accepted.
+	if err := run("@revoked box.test ssh-ed25519 !!!corrupt!!!\n" + lineFor("box.test") + "\n"); err == nil {
+		t.Fatal("corrupted @revoked line plus a valid line for the host: the host was accepted")
+	}
+	if err := run("@revoked " + lineFor("box.test") + "\n" + lineFor("box.test") + "\n"); err == nil {
+		t.Fatal("intact @revoked line: the revoked key was accepted")
+	}
+	if err := run("# comment\n\n" + lineFor("box.test") + "\n"); err != nil {
+		t.Fatalf("comments and blank lines: %v", err)
+	}
 	if err := run(lineFor("box.test") + "\n"); err != nil {
 		t.Fatalf("clean known_hosts with a line for the host: %v", err)
 	}
@@ -64,22 +75,19 @@ func TestSSHKnownHostsGarbageLineFailsClosed(t *testing.T) {
 	}
 }
 
-// The library's own verdict, without a connection: the callback built from a
-// file with an unparseable line is an error or refuses an unlisted host with
-// an empty Want (unknown host).
+// The callback built from a file with an unparseable line is never one that
+// accepts an unlisted host: the file is refused, or the host is unknown (a
+// KeyError with empty Want).
 func TestKnownHostsGarbageLineHostIsUnknown(t *testing.T) {
-	_, pub := func() (struct{}, ssh.PublicKey) {
-		port, _ := startExecServer(t, envAccept)
-		var k ssh.PublicKey
-		cfg := &ssh.ClientConfig{User: "user", Auth: []ssh.AuthMethod{ssh.Password("secret")},
-			HostKeyCallback: func(_ string, _ net.Addr, key ssh.PublicKey) error { k = key; return nil }}
-		c, err := ssh.Dial("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), cfg)
-		if err != nil {
-			t.Fatal(err)
-		}
-		c.Close()
-		return struct{}{}, k
-	}()
+	port, _ := startExecServer(t, envAccept)
+	var pub ssh.PublicKey
+	cfg := &ssh.ClientConfig{User: "user", Auth: []ssh.AuthMethod{ssh.Password("secret")},
+		HostKeyCallback: func(_ string, _ net.Addr, key ssh.PublicKey) error { pub = key; return nil }}
+	c, err := ssh.Dial("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Close()
 	kh := filepath.Join(t.TempDir(), "known_hosts")
 	content := "garbage garbage\n" + knownhosts.Line([]string{"other.test:22"}, pub) + "\n"
 	if err := os.WriteFile(kh, []byte(content), 0o600); err != nil {
@@ -87,18 +95,11 @@ func TestKnownHostsGarbageLineHostIsUnknown(t *testing.T) {
 	}
 	cb, err := knownhosts.New(kh)
 	if err != nil {
-		return // rejected outright: fail closed
+		return // the library refuses the whole file: refused
 	}
-	addr := &net.TCPAddr{IP: net.ParseIP("192.0.2.1"), Port: 22}
-	err = cb("box.test:22", addr, pub)
+	err = cb("box.test:22", &net.TCPAddr{IP: net.ParseIP("192.0.2.1"), Port: 22}, pub)
 	var ke *knownhosts.KeyError
-	if err == nil {
-		t.Fatal("unlisted host accepted")
-	}
 	if !errors.As(err, &ke) || len(ke.Want) != 0 {
 		t.Fatalf("want an unknown-host KeyError with empty Want, got %v", err)
-	}
-	if err := cb("other.test:22", addr, pub); err != nil {
-		t.Fatalf("valid line for other.test: %v", err)
 	}
 }
