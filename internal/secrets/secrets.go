@@ -56,6 +56,11 @@ func addEntry(ctx context.Context, db *sql.DB, profileID, kind, name string, fie
 		}
 	}
 
+	// A grant is bound to a name, not a value: a new value under a granted
+	// name must be granted again.
+	if err := revokeNamedGrant(ctx, db, profileID, name); err != nil {
+		return "", fmt.Errorf("secrets.addEntry: %w", err)
+	}
 	dek, err := getOrCreateDEK(ctx, db, profileID)
 	if err != nil {
 		return "", fmt.Errorf("secrets.addEntry: %w", err)
@@ -185,6 +190,20 @@ func Update(ctx context.Context, db *sql.DB, profileID, id string, name, usernam
 		}
 	}
 
+	// A grant is bound to a name, not a value: changing a granted secret's
+	// value (or its name) drops it from the explicit grant.
+	if fields != nil || name != nil {
+		drop := []string{entryName(ctx, db, profileID, id)}
+		if name != nil {
+			drop = append(drop, *name)
+		}
+		if fields != nil || *name != drop[0] {
+			if err := revokeNamedGrant(ctx, db, profileID, drop...); err != nil {
+				return fmt.Errorf("secrets.Update: %w", err)
+			}
+		}
+	}
+
 	var dek []byte
 	if notes != nil || fields != nil {
 		var err error
@@ -271,6 +290,9 @@ func List(ctx context.Context, db *sql.DB, profileID string) ([]Entry, error) {
 func Delete(ctx context.Context, db *sql.DB, profileID, id string) error {
 	if err := checkReservedWrite(ctx, db, profileID, id); err != nil {
 		return err
+	}
+	if err := revokeNamedGrant(ctx, db, profileID, entryName(ctx, db, profileID, id)); err != nil {
+		return fmt.Errorf("secrets.Delete: %w", err)
 	}
 	_, err := db.ExecContext(ctx, `DELETE FROM vault_secrets WHERE id = ? AND profile_id = ?`, id, profileID)
 	if err != nil {
