@@ -5,6 +5,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/automation"
 	"github.com/monoes/mono-agent/internal/cli/autoinstall"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/spf13/cobra"
 )
 
@@ -29,6 +30,7 @@ func autoinstallDeps(cfg *globalConfig) autoinstall.Deps {
 		},
 		Reported: func(err error) error { return reportedError{Err: err} },
 		NotFound: func(format string, a ...any) error { return errNotFound(format, a...) },
+		Refusal:  opgate.Refusal,
 	}
 }
 

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://raw.githubusercontent.com/monoes/mono-agent/master/data/schemas/fragment.v1.schema.json",
+  "name": "dismiss_banner",
+  "description": "Close the cookie/consent banner when one is shown; does nothing otherwise.",
+  "steps": [
+    {
+      "id": "accept",
+      "type": "click",
+      "configKey": "banner.accept",
+      "timeout": 3,
+      "intent": "the Accept button of the cookie or consent banner",
+      "onError": {
+        "action": "skip"
+      }
+    }
+  ]
+}

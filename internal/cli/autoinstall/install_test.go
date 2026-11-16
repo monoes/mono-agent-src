@@ -57,6 +57,23 @@ func testDeps(t *testing.T, jsonOut bool) Deps {
 		},
 		Reported: func(err error) error { return reportedErr{err} },
 		NotFound: func(format string, a ...any) error { return notFoundErr{fmt.Sprintf(format, a...)} },
+		Refusal:  func() string { return "" }, // the user
+	}
+}
+
+func TestInstallYesAndLocalAreRefusedInACoderTurnButDryRunIsNot(t *testing.T) {
+	t.Parallel()
+	d := testDeps(t, true)
+	d.Refusal = func() string { return "inside a coder turn" }
+	dir := writePackage(t, "plain")
+	for _, args := range [][]string{{dir, "--yes"}, {dir, "--local"}, {dir, "--local", "--yes"}} {
+		_, _, err := run(t, d.NewInstallCmd(), "", args...)
+		if err == nil || !strings.Contains(err.Error(), "inside a coder turn") {
+			t.Fatalf("install %v in a turn: %v (want the refusal)", args, err)
+		}
+	}
+	if _, _, err := run(t, d.NewInstallCmd(), "", dir, "--dry-run"); err != nil {
+		t.Fatalf("--dry-run in a turn: %v", err)
 	}
 }
 
