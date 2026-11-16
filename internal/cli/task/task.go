@@ -176,6 +176,7 @@ type Caller struct {
 	marker   string // the agent-context marker that is set, if any
 	asBlank  bool   // --as was given with no name, and MONOAGENT_ACTOR gave none
 	envBlank bool   // MONOAGENT_ACTOR is set to a blank value, and --as gave no name
+	turnWhy  string // why the turn-aware check (NotOperator) says this unmarked process is not the operator's
 }
 
 // callerFor says who runs a command, from the --as value flagAs gave. blankAs
@@ -208,6 +209,15 @@ func (d Deps) callerFor(as string) Caller {
 	if name != "" || marker != "" || blank || envBlank {
 		actor := d.missionBinding().Apply(tasks.Actor{Kind: tasks.Agent, Name: name})
 		return Caller{d: d, actor: actor, marker: marker, asBlank: blank && name == "", envBlank: envBlank}
+	}
+	// No marker, no name: the operator only if the turn-aware check agrees. An unmarked
+	// process inside a coder turn (a cleared marker) is an agent, not the Human the store's
+	// Human-only moves and approvals trust. An unwired check leaves the marker verdict.
+	if d.NotOperator != nil {
+		if why := d.NotOperator(); why != "" {
+			actor := d.missionBinding().Apply(tasks.Actor{Kind: tasks.Agent})
+			return Caller{d: d, actor: actor, turnWhy: why}
+		}
 	}
 	return Caller{d: d, actor: tasks.Actor{Kind: tasks.Human}}
 }
@@ -259,6 +269,8 @@ func (c Caller) operator(what string) (tasks.Actor, error) {
 	}
 	why := "--as or MONOAGENT_ACTOR names an agent"
 	switch {
+	case c.turnWhy != "":
+		why = c.turnWhy
 	case c.marker != "" && c.asBlank:
 		why = c.marker + " is set and --as is given with no name, so an agent is running this command"
 	case c.marker != "" && c.envBlank:
