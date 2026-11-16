@@ -15,7 +15,9 @@ import (
 // database or the profile cannot be opened or read the answer is no, and the command gives the
 // refusal an agent has always got. It is what lets task approve and task board serve an agent.
 func (d Deps) agentMay(cmd *cobra.Command, caller Caller, pick func(tasks.AgentAccess) bool) bool {
-	if !caller.isAgent() {
+	if !caller.isAgent() || caller.turnWhy != "" {
+		// An unmarked, unnamed process the turn check refused is no delegate: it is as it was
+		// before it counted as an agent, refused without the database being opened.
 		return false
 	}
 	db, err := d.OpenDB()
