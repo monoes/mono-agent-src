@@ -212,12 +212,10 @@ func (d Deps) callerFor(as string) Caller {
 	}
 	// No marker, no name: the operator only if the turn-aware check agrees. An unmarked
 	// process inside a coder turn (a cleared marker) is an agent, not the Human the store's
-	// Human-only moves and approvals trust. An unwired check leaves the marker verdict.
-	if d.NotOperator != nil {
-		if why := d.NotOperator(); why != "" {
-			// No binding lookup: it may open the database, and a refused caller must not.
-			return Caller{d: d, actor: tasks.Actor{Kind: tasks.Agent}, turnWhy: why}
-		}
+	// Human-only moves and approvals trust. An unwired check refuses (clicore.OperatorRefusal).
+	if why := d.notOperator(); why != "" {
+		// No binding lookup: it may open the database, and a refused caller must not.
+		return Caller{d: d, actor: tasks.Actor{Kind: tasks.Agent}, turnWhy: why}
 	}
 	return Caller{d: d, actor: tasks.Actor{Kind: tasks.Human}}
 }

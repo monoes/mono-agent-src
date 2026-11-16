@@ -10,7 +10,7 @@ import (
 // An unmarked process the turn-aware check places inside a coder turn is an
 // agent, not the operator: the store's Human-only checks must never see it as
 // tasks.Human. Without a refusal it stays the operator; an unwired check
-// leaves the marker verdict.
+// refuses (clicore.OperatorRefusal), so it is an agent too.
 func TestCallerForClassesAnUnmarkedTurnProcessAsAnAgent(t *testing.T) {
 	t.Parallel()
 	db := newTaskTestDB(t)
@@ -27,8 +27,8 @@ func TestCallerForClassesAnUnmarkedTurnProcessAsAnAgent(t *testing.T) {
 		t.Errorf("operator(): %v", err)
 	}
 	d.NotOperator = nil
-	if c := d.callerFor(""); c.actor.Kind != tasks.Human {
-		t.Errorf("unwired check: %+v", c.actor)
+	if c := d.callerFor(""); c.actor.Kind == tasks.Human || !c.isAgent() {
+		t.Errorf("unwired check must fail closed: %+v", c.actor)
 	}
 }
 
