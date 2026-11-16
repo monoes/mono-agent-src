@@ -99,7 +99,7 @@ func (s *Server) SendCommandTo(t Target, cmd *Command, timeout time.Duration) (*
 			if restore != nil {
 				restore()
 			}
-			return resp, fmt.Errorf("extension error: %s", resp.Error)
+			return resp, withUpdateNote(fmt.Errorf("extension error: %s", resp.Error), c.version)
 		}
 		if cmd.Type == CmdSetBinding {
 			// The extension stored it; mirror it here so the very next
