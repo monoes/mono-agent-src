@@ -215,8 +215,8 @@ func (d Deps) callerFor(as string) Caller {
 	// Human-only moves and approvals trust. An unwired check leaves the marker verdict.
 	if d.NotOperator != nil {
 		if why := d.NotOperator(); why != "" {
-			actor := d.missionBinding().Apply(tasks.Actor{Kind: tasks.Agent})
-			return Caller{d: d, actor: actor, turnWhy: why}
+			// No binding lookup: it may open the database, and a refused caller must not.
+			return Caller{d: d, actor: tasks.Actor{Kind: tasks.Agent}, turnWhy: why}
 		}
 	}
 	return Caller{d: d, actor: tasks.Actor{Kind: tasks.Human}}
