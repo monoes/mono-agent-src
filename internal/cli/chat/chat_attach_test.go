@@ -233,7 +233,11 @@ func TestPlainCoderTurnWithAttachment(t *testing.T) {
 	if len(matches) != 1 {
 		t.Fatalf("copies = %v", matches)
 	}
-	if prompt, _ := os.ReadFile(promptLog); !strings.Contains(string(prompt), "- "+matches[0]+" (") {
+	want := matches[0]
+	if r, err := filepath.EvalSymlinks(want); err == nil { // the prompt names the folder as the host resolved it (/private/var, not /var, on macOS)
+		want = r
+	}
+	if prompt, _ := os.ReadFile(promptLog); !strings.Contains(string(prompt), "- "+want+" (") {
 		t.Errorf("prompt = %q", prompt)
 	}
 }

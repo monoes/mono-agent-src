@@ -369,7 +369,14 @@ func TestAHostInsideASessionTurnStartsTurnsWithoutABoundTokenAndTinyCapsAreRefus
 	mu.Lock()
 	got := append([]string(nil), logs...)
 	mu.Unlock()
-	if revoked.Load() < 1 || len(got) != 1 || !strings.Contains(got[0], "WARNING") {
+	// "turn t1 launch: STEP after D" lines are the launch's progress marks; the one other line is the warning.
+	var other []string
+	for _, l := range got {
+		if !strings.Contains(l, " launch: ") {
+			other = append(other, l)
+		}
+	}
+	if revoked.Load() < 1 || len(other) != 1 || !strings.Contains(other[0], "WARNING") {
 		t.Fatalf("revoked %d, logs %v", revoked.Load(), got)
 	}
 	if _, err := l.StartCapped("p", "c1", "t2", "hi", nil, "", 5e-7); err == nil || !strings.Contains(err.Error(), "used up") {
