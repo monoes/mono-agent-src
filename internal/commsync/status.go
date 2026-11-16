@@ -212,29 +212,70 @@ func setMany(ctx context.Context, db *sql.DB, to Status, query string, args ...i
 
 // NodeStarted marks the approved messages whose publish node is about to run
 // as sending. It is a no-op for a node nobody queued anything for.
-func NodeStarted(ctx context.Context, db *sql.DB, executionID, nodeID string) {
-	for _, ref := range targeting(ctx, db, executionID, nodeID) {
-		_ = SetStatus(ctx, db, ref, Sending, Detail{})
+//
+// The returned error says which messages could not be marked (their row is left
+// as it was, never half-moved); the caller reports it. It does not gate the
+// send: whether a node may send is decided by the approval, not by this label.
+func NodeStarted(ctx context.Context, db *sql.DB, executionID, nodeID string) error {
+	refs, err := targeting(ctx, db, executionID, nodeID)
+	for _, ref := range refs {
+		if serr := setStatusRetry(ctx, db, ref, Sending, Detail{}); serr != nil {
+			err = errors.Join(err, serr)
+		}
 	}
+	return err
 }
 
 // NodeFinished records how the publish node ended: sent when err is nil,
-// otherwise failed with the error.
-func NodeFinished(ctx context.Context, db *sql.DB, executionID, nodeID string, err error) {
-	for _, ref := range targeting(ctx, db, executionID, nodeID) {
+// otherwise failed with the error. The returned error lists the messages it
+// could not move (they stay approved/sending until someone sees the error).
+func NodeFinished(ctx context.Context, db *sql.DB, executionID, nodeID string, err error) error {
+	refs, rerr := targeting(ctx, db, executionID, nodeID)
+	for _, ref := range refs {
+		var serr error
 		if err != nil {
-			_ = SetStatus(ctx, db, ref, Failed, Detail{Error: err.Error()})
+			serr = setStatusRetry(ctx, db, ref, Failed, Detail{Error: err.Error()})
 		} else {
-			_ = SetStatus(ctx, db, ref, Sent, Detail{})
+			serr = setStatusRetry(ctx, db, ref, Sent, Detail{})
+		}
+		if serr != nil {
+			rerr = errors.Join(rerr, serr)
 		}
 	}
+	return rerr
+}
+
+// retryDelay is the pause before SetStatus is tried again after a write error
+// (a busy database). A var so tests need not wait.
+var retryDelay = 100 * time.Millisecond
+
+// setStatusRetry is SetStatus with a bounded retry (three tries) for a write
+// that failed for a reason other than an illegal move. It only repeats an
+// idempotent label write: a move the lifecycle forbids is returned at once,
+// and no attempt can turn a sent message back into a sendable one.
+func setStatusRetry(ctx context.Context, db *sql.DB, hilRef string, to Status, d Detail) error {
+	var err error
+	for try := 0; try < 3; try++ {
+		if try > 0 {
+			select {
+			case <-ctx.Done():
+				return err
+			case <-time.After(retryDelay):
+			}
+		}
+		if err = SetStatus(ctx, db, hilRef, to, d); err == nil || errors.Is(err, ErrIllegalTransition) {
+			return err
+		}
+	}
+	return err
 }
 
 // targeting returns the hil refs of approved/sending messages of the
-// execution whose queued publish node is nodeID.
-func targeting(ctx context.Context, db *sql.DB, executionID, nodeID string) []string {
+// execution whose queued publish node is nodeID. A query error is returned,
+// not turned into "nothing to do".
+func targeting(ctx context.Context, db *sql.DB, executionID, nodeID string) ([]string, error) {
 	if db == nil || executionID == "" || nodeID == "" {
-		return nil
+		return nil, nil
 	}
 	rows, err := db.QueryContext(ctx, `
 		SELECT pm.hil_ref FROM person_messages pm JOIN hil_pending h ON h.id = pm.hil_ref
@@ -242,17 +283,21 @@ func targeting(ctx context.Context, db *sql.DB, executionID, nodeID string) []st
 		  AND EXISTS (SELECT 1 FROM json_each(pm.metadata, '$.workflow.target_nodes') WHERE value = ?)`,
 		executionID, nodeID)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("commsync: finding the messages of node %s: %w", nodeID, err)
 	}
 	defer rows.Close()
 	var refs []string
 	for rows.Next() {
 		var r string
-		if rows.Scan(&r) == nil {
-			refs = append(refs, r)
+		if err := rows.Scan(&r); err != nil {
+			return refs, fmt.Errorf("commsync: reading the messages of node %s: %w", nodeID, err)
 		}
+		refs = append(refs, r)
 	}
-	return refs
+	if err := rows.Err(); err != nil {
+		return refs, fmt.Errorf("commsync: reading the messages of node %s: %w", nodeID, err)
+	}
+	return refs, nil
 }
 
 // LinkFor is the person a HIL item's Communications row belongs to: hilRef is
