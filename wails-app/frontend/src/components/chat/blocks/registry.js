@@ -6,6 +6,7 @@ import { validateTable } from './tableSchema.js'
 import { TableBlock } from './TableBlock.jsx'
 import { validateCard, validateList } from './cardSchema.js'
 import { CardBlock, ListBlock } from './CardBlock.jsx'
+import { validateSteps, StepsBlock } from './StepsBlock.jsx'
 
 // One entry per block type: { validate(json) -> data (throws Bad), Component }.
 // Each block module adds itself here.
@@ -15,4 +16,5 @@ export const BLOCKS = {
   table: { validate: validateTable, Component: TableBlock },
   card: { validate: validateCard, Component: CardBlock },
   list: { validate: validateList, Component: ListBlock },
+  steps: { validate: validateSteps, Component: StepsBlock },
 }

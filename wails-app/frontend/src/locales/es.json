@@ -2750,6 +2750,15 @@
         "stat": "Cifras clave"
       }
     },
-    "open": "Abrir"
+    "open": "Abrir",
+    "steps": {
+      "progress": "{{done}} de {{total}} pasos hechos",
+      "state": {
+        "todo": "pendiente",
+        "active": "en curso",
+        "done": "hecho",
+        "failed": "fallido"
+      }
+    }
   }
 }

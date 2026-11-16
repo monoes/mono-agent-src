@@ -2892,6 +2892,15 @@
         "stat": "Key figures"
       }
     },
-    "open": "Open"
+    "open": "Open",
+    "steps": {
+      "progress": "{{done}} of {{total}} steps done",
+      "state": {
+        "todo": "to do",
+        "active": "in progress",
+        "done": "done",
+        "failed": "failed"
+      }
+    }
   }
 }
