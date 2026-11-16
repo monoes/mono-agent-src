@@ -83,7 +83,12 @@ func newOrgCreateJSONCmd(env *orgEnv) *cobra.Command {
 			}
 			var findings interface{}
 			if db, profileID, profileRoot, perr := env.Profile(); perr == nil {
-				if _, statErr := os.Stat(filepath.Join(orgdesign.OrgsDir(profileRoot), name+".json")); os.IsNotExist(statErr) {
+				_, statErr := os.Stat(filepath.Join(orgdesign.OrgsDir(profileRoot), name+".json"))
+				if statErr == nil {
+					// A replace of an existing org: its signature goes, whatever the loaded hash says.
+					orgenv.DropSignature(profileRoot, name)
+				}
+				if os.IsNotExist(statErr) {
 					if other, err := orgNameInUse(db.DB, name, profileID); err != nil {
 						return err
 					} else if other != "" {
@@ -105,9 +110,12 @@ func newOrgCreateJSONCmd(env *orgEnv) *cobra.Command {
 				findings = rep.Findings
 			} else if docCarriesEnforcedKeys(&d) {
 				return fmt.Errorf("this document carries grants, tool providers, or automation roles, which need the org folder of the profile named by --profile: %w", perr)
-			} else if _, out, err := orgenv.SaveSigned(cmd.Context(), root(), name, &d); err != nil {
-				return err
 			} else {
+				orgenv.DropSignature(root(), name) // replacing an org drops its signature
+				_, out, err := orgenv.SaveSigned(cmd.Context(), root(), name, &d)
+				if err != nil {
+					return err
+				}
 				orgenv.WarnSignature(out)
 			}
 			path, _ := orgdesign.ConfigPath(root(), name)

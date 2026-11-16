@@ -191,6 +191,11 @@ func Before(ctx context.Context, s Signer, root, org, loadedSHA string, signNew 
 	return p
 }
 
+// Declined is the Pre of a write that may never be re-signed, for a caller that cannot tell who
+// caused the change (the daemon's reconcile from rows): After then only reports the state and the
+// notice, with why in it.
+func Declined(root, org, why string) Pre { return Pre{root: root, org: org, pins: newPins(), why: why} }
+
 // Outcome is what happened to a write's signature.
 type Outcome struct {
 	Signed bool   `json:"signed"`

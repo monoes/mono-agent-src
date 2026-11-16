@@ -79,6 +79,23 @@ func SaveSigned(ctx context.Context, root, from string, doc *orgdesign.Doc) (str
 	return sha, &out, nil
 }
 
+// SaveUnsigned writes doc like SaveSigned but never re-signs: for a caller that cannot tell who
+// caused the change (the daemon, which has no agent marker or turn verdict, reconciling from rows a
+// coder turn may have written). A still-verified org is left for the operator to review.
+func SaveUnsigned(ctx context.Context, root string, doc *orgdesign.Doc, why string) (string, *orgsign.Outcome, error) {
+	sha, err := orgdesign.Save(root, doc)
+	if err != nil || !SigningOn(ctx, root) {
+		return sha, nil, err
+	}
+	out := orgsign.Declined(root, doc.Name, why).After(ctx, Signer, doc.Name, sha)
+	return sha, &out, nil
+}
+
+// DropSignature removes the signature of an org about to be replaced by a whole document, so the
+// replacement can never be re-signed without the operator's review. Best effort: where the
+// signature cannot be removed (a role's process), the changed file already fails verification.
+func DropSignature(root, org string) { _ = orgsign.Withdraw(root, org) }
+
 // SaveDoc is SaveSigned for an edit of an existing org, reporting on
 // stderr when the org is left for the operator to review.
 func SaveDoc(ctx context.Context, root string, doc *orgdesign.Doc) (string, error) {
