@@ -19,7 +19,7 @@ func operatorOnlyRowsPR3() []opRow {
 	return []opRow{
 		{path: "automation trust", build: newAutomationCmd, args: []string{"trust", "--scripts", "no-such-package"}},
 		{path: "automation install", build: newAutomationCmd, args: []string{"install", "{tmp}", "--local", "--yes"}},
-		{path: "automation new", build: newAutomationCmd, args: []string{"new", "no-such-pkg", "--install"}},
+		{path: "automation new", build: newAutomationCmd, args: []string{"new", "no-such-pkg", "--install", "--dir", "{tmp}"}},
 		{path: "automation rerecord", build: newAutomationCmd, args: []string{"rerecord", "no-such-package", "some.key"}},
 		{path: "automation doctor accept-repair", build: newAutomationCmd, args: []string{"doctor", "accept-repair", "no-such-package", "some.key"}},
 		{path: "record verify", build: newRecordCmd, args: []string{"verify", "no-such-draft"}},
