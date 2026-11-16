@@ -9,6 +9,7 @@ import { copyToClipboard } from './toolCardUtils.js'
 import { ChatPathChip } from './ChatPathChip.jsx'
 import ErrorBoundary from '../ErrorBoundary.jsx'
 import { markdownTooDeep } from './markdownGuard.js'
+import { htmlViewForPre } from './htmlView.jsx'
 
 // Only http(s) URLs without credentials ever open (see classifyUrl); anything
 // else (javascript:, data:, file:, mailto:, custom schemes, schemeless) is
@@ -74,6 +75,8 @@ function MdPre({ children, ...rest }) {
   const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
   const ref = useRef(null)
+  const htmlView = htmlViewForPre(children)
+  if (htmlView) return htmlView
   const copy = () => {
     copyToClipboard(ref.current?.textContent || '')
     setCopied(true)
