@@ -2759,6 +2759,15 @@
         "done": "hecho",
         "failed": "fallido"
       }
+    },
+    "form": {
+      "label": "Formulario",
+      "submit": "Enviar",
+      "error": {
+        "required": "Obligatorio",
+        "number": "Introduce un número",
+        "range": "Fuera de rango"
+      }
     }
   }
 }

@@ -2901,6 +2901,15 @@
         "done": "done",
         "failed": "failed"
       }
+    },
+    "form": {
+      "label": "Form",
+      "submit": "Submit",
+      "error": {
+        "required": "Required",
+        "number": "Enter a number",
+        "range": "Out of range"
+      }
     }
   }
 }
