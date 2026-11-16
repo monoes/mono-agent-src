@@ -24,7 +24,9 @@ import { LEAD_ID } from '../../lib/orgStage.js'
 import { LitePaneHeader } from './LitePaneHeader.jsx'
 import { OpenRunNotice, firstTurnFailedIn } from '../chat/OpenRunNotice.jsx'
 import { useFirstTurnWatch } from '../chat/useFirstTurnWatch.js'
-import { orbitOf, bossOf, frontDeskOf, activeBoss } from '../../lib/sessionOrbit.js'
+import { orbitOf, bossOf, frontDeskOf, activeBoss, runRoster } from '../../lib/sessionOrbit.js'
+import { RunRoster } from './RunRoster.jsx'
+import { RoleChat } from './RoleChat.jsx'
 import { OrgStage } from '../stage/OrgStage.jsx'
 import { StageDrawer } from '../stage/StageDrawer.jsx'
 import './bubbles.css'
@@ -81,6 +83,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
   const [draft, setDraft] = useState(view.draft || '')
   const [setup, setSetup] = useState(view.setup || { workspace: { kind: 'root' }, runtime: '', model: '', effort: '' })
   const [selectedAgent, setSelectedAgent] = useState(null)
+  const [roleId, setRoleId] = useState(null) // the role of an open-ended run opened in the chat area (its session id); null is the front desk
   const selectedRef = useRef(null)
   const bodyRef = useRef(null)
   const pressOnBackdrop = useRef(false)
@@ -327,7 +330,17 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
   // A lite pane is named by its session, which the person sees on the circle; a chat's own title is a redacted summary.
   const liteOrbit = lite ? orbitOf(orbitSessions, { sessionId: bubble.sessionId }) : null
   const title = (lite && liteOrbit.root?.title) || bubble.title || (bubble.cwd ? titleOf(bubble.cwd) : t('bubbles.newChat'))
-  const showStage = !lite && access !== 'scoped' && !confined
+  // An open-ended run has its own space: the roster of its roles takes the place of the org stage, and a role's card opens that
+  // role's conversation in the chat area below it (the front desk card goes back). A role with no conversation opens its board.
+  const roster = !lite && bubble.conversationId ? runRoster(orbitSessions, bubble.conversationId) : null
+  const showRoster = !!roster?.boss
+  const openRole = showRoster ? [roster.boss, ...roster.planners, ...roster.executors].find(c => c.id === roleId) : null
+  const pickRole = c => {
+    if (!c) { setRoleId(null); return }
+    if (c.conversationId) setRoleId(c.id)
+    else { collapse(); onNavigate?.('tasks', { sessionId: c.id }) }
+  }
+  const showStage = !lite && access !== 'scoped' && !confined && !showRoster
   const runtime = bubble.conversationId ? bubble.runtime : setup.runtime
   const model = bubble.model || setup.model
 
@@ -400,6 +413,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
         {!lite && <ChatResetBar onClear={startFresh} onCompact={compact}
           clearDisabled={conv.streaming || (!conv.conversationId && conv.messages.length === 0)}
           compactDisabled={conv.streaming || !conv.conversationId} />}
+        {showRoster && <RunRoster roster={roster} activeId={openRole ? openRole.id : null} onSelect={pickRole} deskTitle={title} />}
         <div ref={bodyRef} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative' }}>
           {showStage && !stageCollapsed && (
             <>
@@ -417,7 +431,10 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
           {/* The open-ended mode is started from its own form, not by a first message: the form is the entry screen. Start makes
               the chat after the yes when it does not exist yet; the CLI then makes the boss behind it. A chat that is open
               but has no message and no boss yet (an earlier start was refused) shows the form again. */}
-          {(chatMode.state?.mode === 'open' || openEntry) && !hasMessages && !openStarted && !steerChat ? (
+          {openRole ? (
+            <RoleChat key={openRole.conversationId} role={openRole} frontDesk={bubble.conversationId} access={access} runtime={runtime}
+              onBack={() => setRoleId(null)} onNavigate={onNavigate} onOpenArtifact={onOpenArtifact} />
+          ) : (chatMode.state?.mode === 'open' || openEntry) && !hasMessages && !openStarted && !steerChat ? (
             <OpenStartForm getChat={getOpenChat} onChat={onOpenChat} onStarted={r => { const failed = firstTurnFailedIn(r); setOpenStarted(true); setOpenRun({ firstTurnFailed: failed, watch: !failed }) }} />
           ) : (
           <CoderChatView

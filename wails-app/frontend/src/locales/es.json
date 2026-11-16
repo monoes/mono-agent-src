@@ -1228,6 +1228,18 @@
     "chooseHint": "Cualquier carpeta de confianza"
   },
   "bubbles": {
+    "roster": {
+      "label": "Roles de la ejecución",
+      "desk": "Recepción",
+      "boss": "Jefe",
+      "planners": "Planificadores",
+      "executors": "Ejecutores",
+      "back": "Volver a la recepción",
+      "noChat": "Aún sin conversación: abre su tablero de tareas",
+      "needsYou_one": "{{count}} elemento te necesita",
+      "needsYou_other": "{{count}} elementos te necesitan",
+      "empty": "Aún no hay planificadores ni ejecutores"
+    },
     "orbit": {
       "groupLabel": "Agentes",
       "groupNamed": "Agentes de {{name}}",

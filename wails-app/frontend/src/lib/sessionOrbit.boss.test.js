@@ -1,39 +1,48 @@
 import { describe, it, expect } from 'vitest'
-import { orbitOf, bossOf, activeBoss, frontDeskOf, MAX_SATELLITES } from './sessionOrbit.js'
+import { orbitOf, bossOf, activeBoss, frontDeskOf, runRoster } from './sessionOrbit.js'
 
 const S = (id, parent = 0, extra = {}) => ({ id, parent_session_id: parent, conversation_id: `c${id}`, title: `S${id}`, state: 'running', counts: {}, ...extra })
 const B = (id, front, extra = {}) => S(id, 0, { title: 'Boss', boss: true, client_id: `boss-for-${front}-1`, ...extra })
 
-describe('the boss in a chat orbit', () => {
-  it('is the first satellite of the chat it stands behind, a sibling of the chat session', () => {
+describe('the boss and the chat orbit', () => {
+  it('is never a satellite of the chat it stands behind: the dock ring shows the chat\'s own agents only', () => {
     const o = orbitOf([S(1), S(2, 1), B(9, 'c1')], { conversationId: 'c1' })
     expect(o.root.id).toBe(1)
-    expect(o.satellites.map(c => [c.id, c.boss])).toEqual([[9, true], [2, false]])
-    expect(o.satellites[0].conversationId).toBe('c9')
-    expect(o.satellites[0].canOpen).toBe(true)
+    expect(o.satellites.map(c => c.id)).toEqual([2])
+    expect(o.total).toBe(1)
   })
-  it('shows even before the chat has a session of its own', () => {
+  it('leaves a chat with only a boss with no orbit', () => {
     const o = orbitOf([B(9, 'chat-x')], { conversationId: 'chat-x' })
     expect(o.root).toBeNull()
-    expect(o.satellites.map(c => c.id)).toEqual([9])
+    expect(o.satellites).toEqual([])
   })
-  it('belongs to its own chat only, and only when the operator recorded it', () => {
-    expect(orbitOf([S(1), B(9, 'c1')], { conversationId: 'c2' }).satellites).toEqual([])
+  it('only the recorded, unarchived boss of its own chat counts', () => {
     const unstamped = B(9, 'c1', { boss: false })
-    expect(orbitOf([S(1), unstamped], { conversationId: 'c1' }).satellites).toEqual([])
     expect(bossOf([unstamped], 'c1')).toBeNull()
     expect(bossOf([B(9, 'c1', { archived: true })], 'c1')).toBeNull()
+    expect(bossOf([B(9, 'c1')], 'c2')).toBeNull()
   })
-  it('takes one of the slots: the ring never grows past the maximum', () => {
-    const kids = Array.from({ length: 12 }, (_, i) => S(100 + i, 1))
-    const o = orbitOf([S(1), ...kids, B(9, 'c1')], { conversationId: 'c1' })
-    expect(o.satellites).toHaveLength(MAX_SATELLITES)
-    expect(o.satellites[0].boss).toBe(true)
-    expect(o.overflow).toHaveLength(12 - (MAX_SATELLITES - 1))
-    expect(o.total).toBe(13)
+})
+
+describe('runRoster', () => {
+  it('groups the run by role: the boss, the planners and the executors, from the sessions kind', () => {
+    const list = [
+      S(1), B(9, 'c1'),
+      S(20, 9, { kind: 'direction', title: 'x' }), S(21, 9, { kind: 'research' }),
+      S(30, 20, { kind: 'task', title: 'Planner' }), S(31, 1, { kind: 'board' }),
+    ]
+    const r = runRoster(list, 'c1')
+    expect(r.boss.id).toBe(9)
+    expect(r.planners.map(c => c.id)).toEqual([20, 21])
+    expect(r.executors.map(c => c.id).sort()).toEqual([30, 31])
   })
-  it('is not a satellite of its own session view', () => {
-    expect(orbitOf([S(1), B(9, 'c1')], { sessionId: 1 }).satellites).toEqual([])
+  it('puts urgent states first inside a role and never lists archived sessions or the boss twice', () => {
+    const list = [B(9, 'c1'), S(20, 9, { kind: 'task', state: 'done' }), S(21, 9, { kind: 'task', state: 'failed' }), S(22, 9, { kind: 'task', archived: true })]
+    expect(runRoster(list, 'c1').executors.map(c => c.id)).toEqual([21, 20])
+  })
+  it('is empty when the chat has no recorded boss', () => {
+    expect(runRoster([S(1), S(2, 1)], 'c1')).toEqual({ boss: null, planners: [], executors: [] })
+    expect(runRoster(null, 'c1').boss).toBeNull()
   })
 })
 
