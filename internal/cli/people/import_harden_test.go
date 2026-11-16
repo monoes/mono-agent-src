@@ -75,6 +75,19 @@ func TestPeopleImportAgentClearsDoNotDemoteOrKeepApprovalOverNewText(t *testing.
 	}
 }
 
+// An agent's row that names an empty introduction clears the text of an
+// approved person, and the approval does not outlive it.
+func TestPeopleImportAgentClearingTextDropsApproval(t *testing.T) {
+	cfg, db := newReviewCLITestDB(t)
+	asOperator(t)
+	seedImported(t, cfg, `{"username":"u","introduction":"Hi","category":"approved"}`)
+	t.Setenv("CLAUDECODE", "1")
+	seedImported(t, cfg, `{"username":"u","introduction":""}`)
+	if cat, intro, _, _ := importRow(t, db); cat == "approved" || intro != "" {
+		t.Fatalf("approval survived cleared text: %q %q", cat, intro)
+	}
+}
+
 // A row that names a field clears it; one that leaves it out keeps it.
 func TestPeopleImportNamedFieldClears(t *testing.T) {
 	cfg, db := newReviewCLITestDB(t)
@@ -90,25 +103,47 @@ func TestPeopleImportNamedFieldClears(t *testing.T) {
 	}
 }
 
-// A bad row N leaves nothing of rows before it, and an oversize file is refused.
-func TestPeopleMessagesImportAtomicAndCapped(t *testing.T) {
+// A row that fails in the store partway through the file leaves nothing of the
+// rows before it, and the error names the row and says none were stored.
+func TestPeopleMessagesImportFailsPartwayStoresNothing(t *testing.T) {
+	cfg, db := newReviewCLITestDB(t)
+	if _, err := db.DB.Exec(`CREATE TRIGGER fail_row BEFORE INSERT ON person_messages WHEN NEW.external_id = 'boom' BEGIN SELECT RAISE(ABORT, 'injected failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	f := writeJSON(t, `[{"external_id":"a","body":"one"},{"external_id":"b","body":"two"},{"external_id":"boom","body":"three"},{"external_id":"d","body":"four"}]`)
+	_, err := runPeople(t, cfg, "messages", "import", "p1", "--file", f, "--source", "gmail")
+	if err == nil || !strings.Contains(err.Error(), "row 3") || !strings.Contains(err.Error(), "none were stored") {
+		t.Fatalf("error must name row 3 and say none were stored: %v", err)
+	}
+	var n int
+	_ = db.DB.QueryRow(`SELECT COUNT(*) FROM person_messages`).Scan(&n)
+	if n != 0 {
+		t.Fatalf("%d rows stored from a file whose row 3 failed", n)
+	}
+}
+
+// A bad date refuses the whole file before anything is stored; an unknown
+// person is refused with nothing stored.
+func TestPeopleMessagesImportRefusalsStoreNothing(t *testing.T) {
 	cfg, db := newReviewCLITestDB(t)
 	f := writeJSON(t, `[{"external_id":"a","body":"one"},{"external_id":"b","sent_at":"nope"}]`)
 	if _, err := runPeople(t, cfg, "messages", "import", "p1", "--file", f, "--source", "gmail"); err == nil {
 		t.Fatal("bad date accepted")
 	}
+	f = writeJSON(t, `[{"external_id":"a","body":"one"}]`)
+	if _, err := runPeople(t, cfg, "messages", "import", "nobody", "--file", f, "--source", "gmail"); err == nil {
+		t.Fatal("unknown person accepted")
+	}
 	var n int
 	_ = db.DB.QueryRow(`SELECT COUNT(*) FROM person_messages`).Scan(&n)
 	if n != 0 {
-		t.Fatalf("%d rows stored from a refused file", n)
+		t.Fatalf("%d rows stored from refused files", n)
 	}
-	// A failure in the store (unknown person) names that nothing was stored.
-	f = writeJSON(t, `[{"external_id":"a","body":"one"}]`)
-	_, err := runPeople(t, cfg, "messages", "import", "nobody", "--file", f, "--source", "gmail")
-	if err == nil {
-		t.Fatal("unknown person accepted")
-	}
+}
 
+// An oversize file is refused before it is parsed.
+func TestPeopleImportRefusesOversizeFile(t *testing.T) {
+	cfg, _ := newReviewCLITestDB(t)
 	big := filepath.Join(t.TempDir(), "big.json")
 	fh, _ := os.Create(big)
 	_ = fh.Truncate(maxImportFileBytes + 1)
