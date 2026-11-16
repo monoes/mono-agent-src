@@ -11,6 +11,7 @@ import ErrorBoundary from '../ErrorBoundary.jsx'
 import { markdownTooDeep } from './markdownGuard.js'
 import { AppLink, AppNavContext } from './ChatAppLink.jsx'
 import { parseAppLink, appLinkUrlTransform, remarkChatAppMentions } from './chatAppLinks.js'
+import { chatBlockFor } from './blocks/ChatBlock.jsx'
 
 // Only http(s) URLs without credentials ever open (see classifyUrl); anything
 // else (javascript:, data:, file:, mailto:, custom schemes, schemeless) is
@@ -76,7 +77,14 @@ function MdLink({ href, children, ...rest }) {
   )
 }
 
-function MdPre({ children, ...rest }) {
+// A fenced block whose info string is a chat block type renders as that block
+// (see ./blocks); anything else, or an invalid block, stays this code block.
+function MdPre({ children, node, ...rest }) {
+  const plain = <MdCodePre {...rest}>{children}</MdCodePre>
+  return chatBlockFor(children, node, plain) || plain
+}
+
+function MdCodePre({ children, ...rest }) {
   const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
   const ref = useRef(null)

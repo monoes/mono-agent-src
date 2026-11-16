@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowDown, Loader } from 'lucide-react'
 import { api, notify } from '../../services/api.js'
@@ -22,6 +22,7 @@ import { ChatSetup, BlockedReason } from './ChatSetup.jsx'
 import { useChatSetup } from './useChatSetup.js'
 import { isCoderAccess } from '../../lib/chatAccess.js'
 import { MessageBubble } from '../chat/messageBubble.jsx'
+import { ChatBlocksHost } from '../chat/blocks/context.js'
 import { AskCard } from './AskCard.jsx'
 import { useHilAsks } from './useHilAsks.js'
 import { isAgentNotSetup } from '../../lib/agentSetup.js'
@@ -145,6 +146,13 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
   const accessBlocked = !isDraft && accessState !== 'ready'
   const blocked = (isDraft && setupState.state !== 'ready') || accessBlocked
   blockedRef.current = blocked
+  // Chat blocks (choices, forms) answer by sending a user message. Not while
+  // blocked, steering or mid-turn: they then render disabled.
+  const canBlockSend = !blocked && !steering && !conv.streaming && !!conv.conversationId
+  const blockSend = useCallback(async (text) => (await conv.send(text, [])) !== false, [conv])
+  const blocksHost = useMemo(
+    () => ({ onSend: canBlockSend ? blockSend : undefined, conversationId: conv.conversationId || '' }),
+    [canBlockSend, blockSend, conv.conversationId])
   const reason = accessBlocked
     ? (accessState === 'failed'
       ? <>{t('bubbles.pane.accessFailed')} <button type="button" className="btn btn-ghost btn-sm" style={{ fontSize: 10 }} onClick={onRetryAccess}>{t('bubbles.pane.retryAccess')}</button></>
@@ -188,6 +196,7 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
           {empty && !conv.loading && !isDraft && (
             <div style={{ margin: 'auto', fontFamily: mono, fontSize: 11, color: 'var(--text-muted)' }}>{t('bubbles.emptyChat')}</div>
           )}
+          <ChatBlocksHost.Provider value={blocksHost}>
           <WorkspaceImageContext.Provider value={conv.conversationId || ''}>
             {conv.messages.map((msg, i) => (
               msg.role === 'coder-init' ? <CoderInitNote key={i} workspace={msg.workspace} />
@@ -221,6 +230,7 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
               </div>
             )}
           </WorkspaceImageContext.Provider>
+          </ChatBlocksHost.Provider>
           {hil.asks.length > 0 && (
             <div data-testid="coder-asks" role="region" aria-label={t('ask.regionLabel')} aria-live="polite">
               {hil.asks.map(ask => (

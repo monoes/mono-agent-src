@@ -2740,5 +2740,47 @@
     "paused": "En pausa.",
     "failed": "La pausa no se aplicó.",
     "broken": "No se pudo mostrar el panel de persecución (datos inesperados)."
+  },
+  "chatBlocks": {
+    "loading": "Cargando bloque {{type}}",
+    "cannotSend": "Las respuestas no están disponibles ahora.",
+    "answered": "Respondido",
+    "choices": "Opciones",
+    "confirm": "Confirmar",
+    "chart": {
+      "label": "Etiqueta",
+      "value": "Valor",
+      "table": "Tabla",
+      "chart": "Gráfico",
+      "showTable": "Mostrar los datos como tabla",
+      "showChart": "Mostrar el gráfico",
+      "type": {
+        "bar": "Gráfico de barras",
+        "line": "Gráfico de líneas",
+        "area": "Gráfico de áreas",
+        "donut": "Gráfico de anillo",
+        "sparkline": "Minigráfico",
+        "stat": "Cifras clave"
+      }
+    },
+    "open": "Abrir",
+    "steps": {
+      "progress": "{{done}} de {{total}} pasos hechos",
+      "state": {
+        "todo": "pendiente",
+        "active": "en curso",
+        "done": "hecho",
+        "failed": "fallido"
+      }
+    },
+    "form": {
+      "label": "Formulario",
+      "submit": "Enviar",
+      "error": {
+        "required": "Obligatorio",
+        "number": "Introduce un número",
+        "range": "Fuera de rango"
+      }
+    }
   }
 }
