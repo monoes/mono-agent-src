@@ -2727,5 +2727,10 @@
     "paused": "En pausa.",
     "failed": "La pausa no se aplicó.",
     "broken": "No se pudo mostrar el panel de persecución (datos inesperados)."
+  },
+  "chatBlocks": {
+    "loading": "Cargando bloque {{type}}",
+    "cannotSend": "Las respuestas no están disponibles ahora.",
+    "answered": "Respondido"
   }
 }
