@@ -102,4 +102,7 @@ func TestKnownHostsGarbageLineHostIsUnknown(t *testing.T) {
 	if !errors.As(err, &ke) || len(ke.Want) != 0 {
 		t.Fatalf("want an unknown-host KeyError with empty Want, got %v", err)
 	}
+	if err := cb("other.test:22", &net.TCPAddr{IP: net.ParseIP("192.0.2.1"), Port: 22}, pub); err != nil {
+		t.Fatalf("valid line for other.test: %v", err)
+	}
 }

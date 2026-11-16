@@ -89,3 +89,42 @@ func TestMissingFileIsAnError(t *testing.T) {
 		t.Fatal("missing file accepted")
 	}
 }
+
+// knownhosts.New knows exactly "@revoked" and "@cert-authority" (case
+// sensitive) and skips any other marker, so a mistyped marker next to a valid
+// line for the same key would accept a revoked key. Every such file is refused.
+func TestUnknownMarkerRefusesTheFile(t *testing.T) {
+	k := testKey(t)
+	line := knownhosts.Line([]string{"box.test"}, k)
+	for _, marker := range []string{"@revokd", "@revoke", "@REVOKED", "@Revoked", "@cert-authorty", "@", "@revoked2"} {
+		_, err := New(write(t, marker+" "+line+"\n"+line+"\n"))
+		if err == nil || !strings.Contains(err.Error(), "line 1") {
+			t.Errorf("marker %q: want a refusal at line 1, got %v", marker, err)
+		}
+	}
+}
+
+// The library splits fields on space and tab only; a line another separator
+// makes look like a marker line to ParseKnownHosts is skipped by the library.
+func TestOddSeparatorsAndSingleTokenLinesRefuseTheFile(t *testing.T) {
+	k := testKey(t)
+	line := knownhosts.Line([]string{"box.test"}, k)
+	for name, bad := range map[string]string{
+		"vertical tab": "@revoked\vbox.test" + strings.TrimPrefix(line, "box.test"),
+		"form feed":    "@revoked\fbox.test" + strings.TrimPrefix(line, "box.test"),
+		"single token": "justoneword",
+		"nul":          "\x00",
+	} {
+		if _, err := New(write(t, bad+"\n"+line+"\n")); err == nil || !strings.Contains(err.Error(), "line 1") {
+			t.Errorf("%s: want a refusal at line 1, got %v", name, err)
+		}
+	}
+}
+
+func TestValidMarkersAndCRLFAreAccepted(t *testing.T) {
+	k := testKey(t)
+	line := knownhosts.Line([]string{"box.test"}, k)
+	if _, err := New(write(t, "@cert-authority "+line+"\r\n"+line+"\r\n\t# c\r\n")); err != nil {
+		t.Fatal(err)
+	}
+}
