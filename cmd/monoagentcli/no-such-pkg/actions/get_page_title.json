@@ -1,0 +1,44 @@
+{
+  "$schema": "https://raw.githubusercontent.com/monoes/mono-agent/master/data/schemas/action.v1.schema.json",
+  "actionType": "get_page_title",
+  "automation": "no-such-pkg",
+  "version": "1.0.0",
+  "description": "Open the site's start page and read its main heading.",
+  "sideEffects": "read",
+  "outputs": {
+    "success": [
+      "heading"
+    ],
+    "failure": [
+      "error"
+    ]
+  },
+  "steps": [
+    {
+      "id": "open",
+      "type": "navigate",
+      "url": "https://example.com/",
+      "timeout": 20
+    },
+    {
+      "id": "banner",
+      "type": "call_fragment",
+      "fragment": "dismiss_banner"
+    },
+    {
+      "id": "loaded",
+      "type": "wait_for",
+      "until": {
+        "selector": "h1"
+      },
+      "timeout": 15
+    },
+    {
+      "id": "read_heading",
+      "type": "extract_text",
+      "configKey": "page.heading",
+      "variable_name": "heading",
+      "intent": "the main heading of the page"
+    }
+  ]
+}

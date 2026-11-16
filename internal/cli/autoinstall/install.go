@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/monoes/mono-agent/internal/automation"
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/spf13/cobra"
 )
 
@@ -80,6 +81,15 @@ func (d Deps) NewInstallCmd() *cobra.Command {
 		Short: "Install or update an automation package (shows a review first)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// --yes and --local approve an install without the user reading the review
+			// (and --local grants local trust), so only the user does either; a coder turn
+			// stages the package and --dry-run reviews it.
+			if !dryRun && (yes || local) {
+				if why := clicore.OperatorRefusal(d.Refusal); why != "" {
+					return clicore.OperatorOnly("automation install --yes/--local approves an install and --local grants it local trust, so only the user does it: %s; "+
+						"stage the package (validate, or install --dry-run) and ask the user to run `monoagentcli automation install %s` in their own terminal", why, args[0])
+				}
+			}
 			if err := checkInstallSource(args[0]); err != nil {
 				return err
 			}

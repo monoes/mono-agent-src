@@ -1,0 +1,35 @@
+{
+  "page.heading": {
+    "candidates": [
+      {
+        "css": "main h1",
+        "score": 0.9
+      },
+      {
+        "css": "h1",
+        "score": 0.6
+      }
+    ],
+    "intent": "the main heading of the page"
+  },
+  "banner.accept": {
+    "candidates": [
+      {
+        "aria": {
+          "role": "button",
+          "name": "Accept"
+        },
+        "score": 0.8
+      },
+      {
+        "css": "[id*='cookie'] button, [class*='consent'] button",
+        "score": 0.5
+      },
+      {
+        "text": "Accept all",
+        "score": 0.5
+      }
+    ],
+    "intent": "the Accept button of the cookie or consent banner"
+  }
+}
