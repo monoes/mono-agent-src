@@ -2875,6 +2875,22 @@
     "cannotSend": "Replies are not available right now.",
     "answered": "Answered",
     "choices": "Choices",
-    "confirm": "Confirm"
+    "confirm": "Confirm",
+    "chart": {
+      "label": "Label",
+      "value": "Value",
+      "table": "Table",
+      "chart": "Chart",
+      "showTable": "Show the data as a table",
+      "showChart": "Show the chart",
+      "type": {
+        "bar": "Bar chart",
+        "line": "Line chart",
+        "area": "Area chart",
+        "donut": "Donut chart",
+        "sparkline": "Sparkline",
+        "stat": "Key figures"
+      }
+    }
   }
 }

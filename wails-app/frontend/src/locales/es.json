@@ -2733,6 +2733,22 @@
     "cannotSend": "Las respuestas no están disponibles ahora.",
     "answered": "Respondido",
     "choices": "Opciones",
-    "confirm": "Confirmar"
+    "confirm": "Confirmar",
+    "chart": {
+      "label": "Etiqueta",
+      "value": "Valor",
+      "table": "Tabla",
+      "chart": "Gráfico",
+      "showTable": "Mostrar los datos como tabla",
+      "showChart": "Mostrar el gráfico",
+      "type": {
+        "bar": "Gráfico de barras",
+        "line": "Gráfico de líneas",
+        "area": "Gráfico de áreas",
+        "donut": "Gráfico de anillo",
+        "sparkline": "Minigráfico",
+        "stat": "Cifras clave"
+      }
+    }
   }
 }
