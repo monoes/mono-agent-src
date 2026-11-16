@@ -443,6 +443,9 @@ func TestCreatingAboveScopedIsTheOperators(t *testing.T) {
 // A process that cannot be shown to be the turn's own is not stopped: the
 // lowering still happens, lists it as a survivor and exits 5.
 func TestLoweringReportsTheProcessesItCouldNotStop(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("off Linux a process is identified by its start time, so a plain sleep IS the turn's own and is stopped; the no-identity case is Linux's (no exec-tree token)")
+	}
 	r := newAccessRig(t, true)
 	c := r.conv(t, ai.AccessFull)
 	c2 := exec.Command("sleep", "60") // no exec-tree token: no identity

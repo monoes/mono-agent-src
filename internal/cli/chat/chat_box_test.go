@@ -158,6 +158,9 @@ func TestCoderBoxRefusesATamperedSetting(t *testing.T) {
 
 func TestCoderBoxProtectsTheConfiguredDatabase(t *testing.T) {
 	dir := t.TempDir()
+	if r, err := filepath.EvalSymlinks(dir); err == nil { // the box names the real place (/private/var, not /var, on macOS)
+		dir = r
+	}
 	testhome.SetHome(t, dir)
 	real := filepath.Join(dir, "data", "private", "agent.db")
 	os.MkdirAll(filepath.Dir(real), 0o700)

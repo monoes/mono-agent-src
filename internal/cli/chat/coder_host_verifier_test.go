@@ -176,15 +176,12 @@ func TestTheRealForbiddenListRefusesCredentialAndSystemFolders(t *testing.T) {
 		}
 	}
 	for _, sys := range []string{"/etc", "/etc/ssh", "/proc", "/sys", "/dev", "/run", "/var/run", "/boot", "/root", "/usr", "/usr/share", "/bin", "/sbin", "/lib", "/lib64", "/var/lib", "/var/lib/x", "/tmp", "/dev/shm"} {
-		real := sys // the host resolves links first (/bin is /usr/bin on some systems)
-		if r, err := filepath.EvalSymlinks(sys); err == nil {
-			real = r
-		}
+		real := resolvedPrefix(sys) // the host resolves links first (/bin is /usr/bin on some systems, /var is /private/var on macOS)
 		if why := coderhost.SubjectForbidden(real, f); why == "" && !strings.HasPrefix(home, real+"/") && real != "/dev/shm" && real != "/tmp" {
 			t.Errorf("%s (%s) was accepted", sys, real)
 		}
 	}
-	if why := coderhost.SubjectForbidden("/tmp", f); why == "" {
+	if why := coderhost.SubjectForbidden(resolvedPrefix("/tmp"), f); why == "" {
 		t.Error("/tmp itself was accepted")
 	}
 	if why := coderhost.SubjectForbidden("/dev/shm", f); why == "" {
@@ -195,7 +192,7 @@ func TestTheRealForbiddenListRefusesCredentialAndSystemFolders(t *testing.T) {
 	}
 	// another user's home: a sibling of the person's home under /home
 	other := coderhost.DefaultForbidden("/home/me", "/home/me/.monoagent")
-	if why := coderhost.SubjectForbidden("/home/someone-else/proj", other); why == "" {
+	if why := coderhost.SubjectForbidden(resolvedPrefix("/home/someone-else/proj"), other); why == "" {
 		t.Error("another user's folder was accepted")
 	}
 	if why := coderhost.SubjectForbidden("/Users/other", coderhost.DefaultForbidden("/Users/me")); why == "" {
@@ -224,5 +221,21 @@ func TestAHomeUnderASystemTreeKeepsItsProjects(t *testing.T) {
 	}
 	if why := coderhost.SubjectForbidden("/root/.ssh", f); why == "" {
 		t.Error("/root/.ssh accepted")
+	}
+}
+
+// resolvedPrefix is p with its links resolved as far as it exists: the host resolves a project folder before judging it, so a
+// path whose last parts do not exist (/var/lib/x) is still seen under its real parent (/private/var/lib/x on macOS).
+func resolvedPrefix(p string) string {
+	rest := ""
+	for cur := filepath.Clean(p); ; {
+		if r, err := filepath.EvalSymlinks(cur); err == nil {
+			return filepath.Join(r, rest)
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return filepath.Clean(p)
+		}
+		rest, cur = filepath.Join(filepath.Base(cur), rest), parent
 	}
 }
