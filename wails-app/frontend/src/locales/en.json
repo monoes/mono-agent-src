@@ -2873,6 +2873,8 @@
   "chatBlocks": {
     "loading": "Loading {{type}} block",
     "cannotSend": "Replies are not available right now.",
-    "answered": "Answered"
+    "answered": "Answered",
+    "choices": "Choices",
+    "confirm": "Confirm"
   }
 }
