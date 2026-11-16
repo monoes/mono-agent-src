@@ -245,6 +245,7 @@ func TestEveryRawReaderOfMessagesIsAccountedFor(t *testing.T) {
 		"internal/commsync/queue.go":                 "writer; reads ids",
 		"internal/commsync/status.go":                "card-joined status machinery; reads ids and metadata",
 		"internal/summary/inbox.go":                  "counts only",
+		"internal/peopledupes/peopledupes.go":        "counts rows and re-points them; reads no text",
 		"internal/hilscrub/hilscrub.go":              "the scrub itself",
 	}
 	root, _ := filepath.Abs("../..")
