@@ -20,7 +20,9 @@ func findMonoAgentCLI() (string, error) {
 	// that predates a given dev build's new commands) can't silently shadow
 	// the binary a developer actually wants `wails dev` to shell out to.
 	if p := strings.TrimSpace(os.Getenv("MONOAGENTCLI_BIN")); p != "" {
-		if fileExists(p) {
+		// Honoured only for a file the current user owns that nobody else
+		// can write (see cliOverrideTrusted); anything else is ignored.
+		if cliOverrideTrusted(p) {
 			return p, nil
 		}
 	}
