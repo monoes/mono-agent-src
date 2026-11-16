@@ -15,9 +15,9 @@ import (
 
 	goftp "github.com/jlaffaye/ftp"
 	"golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/monoes/mono-agent/internal/credhttp"
+	"github.com/monoes/mono-agent/internal/sshhosts"
 )
 
 // ValidateConnection calls the platform-specific validator and returns the
@@ -149,7 +149,7 @@ func validateSSH(ctx context.Context, c *Connection) (string, error) {
 	// when given, otherwise skip host key verification for this liveness check.
 	hostKeyCallback := ssh.InsecureIgnoreHostKey() //nolint:gosec
 	if knownHosts := getStr(c.Data, "known_hosts"); knownHosts != "" {
-		cb, err := knownhosts.New(knownHosts)
+		cb, err := sshhosts.New(knownHosts)
 		if err != nil {
 			return "", fmt.Errorf("validateSSH: parse known_hosts: %w", err)
 		}
