@@ -30,54 +30,66 @@ func TestGrantDroppedWhenGrantedSecretValueChanges(t *testing.T) {
 		return g
 	}
 
-	// A notes-only edit keeps the grant.
-	n := "note"
-	grant("api", "other")
-	if err := Update(ctx, db.DB, "default", id, nil, nil, nil, &n, nil); err != nil {
-		t.Fatal(err)
-	}
-	if g := current(); g == nil || len(g.Secrets) != 2 {
-		t.Fatalf("notes edit changed grant: %+v", g)
-	}
-	// A value edit drops only that secret.
-	if err := Update(ctx, db.DB, "default", id, nil, nil, nil, nil, map[string]string{"v": "2"}); err != nil {
-		t.Fatal(err)
-	}
-	if g := current(); g == nil || len(g.Secrets) != 1 || g.Secrets[0] != "other" {
-		t.Fatalf("after value edit: %+v", g)
-	}
-	// Dropping the last named secret removes the grant, never widens it.
-	grant("api")
-	if err := Update(ctx, db.DB, "default", id, nil, nil, nil, nil, map[string]string{"v": "3"}); err != nil {
-		t.Fatal(err)
-	}
-	if g := current(); g != nil {
-		t.Fatalf("grant survived: %+v", g)
-	}
-	// Delete, then re-add under the same name, drops the grant.
-	grant("api")
-	if err := Delete(ctx, db.DB, "default", id); err != nil {
-		t.Fatal(err)
-	}
-	if g := current(); g != nil {
-		t.Fatalf("grant survived delete: %+v", g)
-	}
-	grant("api")
-	if _, err := Add(ctx, db.DB, "default", "secret", "api", map[string]string{"v": "9"}, "", "", ""); err != nil {
-		t.Fatal(err)
-	}
-	if g := current(); g != nil {
-		t.Fatalf("grant survived re-add: %+v", g)
-	}
-	// The blanket default grant is unchanged by a value edit.
-	if err := SetAgentAccess(ctx, db.DB, "default", true); err != nil {
-		t.Fatal(err)
-	}
-	id2, _ := Add(ctx, db.DB, "default", "secret", "third", map[string]string{"v": "1"}, "", "", "")
-	if err := Update(ctx, db.DB, "default", id2, nil, nil, nil, nil, map[string]string{"v": "2"}); err != nil {
-		t.Fatal(err)
-	}
-	if current() == nil {
-		t.Fatal("blanket grant was dropped")
-	}
+	t.Run("notes_edit_keeps_grant", func(t *testing.T) {
+		// A notes-only edit keeps the grant.
+		n := "note"
+		grant("api", "other")
+		if err := Update(ctx, db.DB, "default", id, nil, nil, nil, &n, nil); err != nil {
+			t.Fatal(err)
+		}
+		if g := current(); g == nil || len(g.Secrets) != 2 {
+			t.Fatalf("notes edit changed grant: %+v", g)
+		}
+	})
+	t.Run("value_edit_drops_only_that_secret", func(t *testing.T) {
+		// A value edit drops only that secret.
+		if err := Update(ctx, db.DB, "default", id, nil, nil, nil, nil, map[string]string{"v": "2"}); err != nil {
+			t.Fatal(err)
+		}
+		if g := current(); g == nil || len(g.Secrets) != 1 || g.Secrets[0] != "other" {
+			t.Fatalf("after value edit: %+v", g)
+		}
+	})
+	t.Run("last_named_secret_removes_grant", func(t *testing.T) {
+		// Dropping the last named secret removes the grant, never widens it.
+		grant("api")
+		if err := Update(ctx, db.DB, "default", id, nil, nil, nil, nil, map[string]string{"v": "3"}); err != nil {
+			t.Fatal(err)
+		}
+		if g := current(); g != nil {
+			t.Fatalf("grant survived: %+v", g)
+		}
+	})
+	t.Run("delete_drops_grant", func(t *testing.T) {
+		// Delete, then re-add under the same name, drops the grant.
+		grant("api")
+		if err := Delete(ctx, db.DB, "default", id); err != nil {
+			t.Fatal(err)
+		}
+		if g := current(); g != nil {
+			t.Fatalf("grant survived delete: %+v", g)
+		}
+	})
+	t.Run("readd_drops_grant", func(t *testing.T) {
+		grant("api")
+		if _, err := Add(ctx, db.DB, "default", "secret", "api", map[string]string{"v": "9"}, "", "", ""); err != nil {
+			t.Fatal(err)
+		}
+		if g := current(); g != nil {
+			t.Fatalf("grant survived re-add: %+v", g)
+		}
+	})
+	t.Run("blanket_grant_unchanged", func(t *testing.T) {
+		// The blanket default grant is unchanged by a value edit.
+		if err := SetAgentAccess(ctx, db.DB, "default", true); err != nil {
+			t.Fatal(err)
+		}
+		id2, _ := Add(ctx, db.DB, "default", "secret", "third", map[string]string{"v": "1"}, "", "", "")
+		if err := Update(ctx, db.DB, "default", id2, nil, nil, nil, nil, map[string]string{"v": "2"}); err != nil {
+			t.Fatal(err)
+		}
+		if current() == nil {
+			t.Fatal("blanket grant was dropped")
+		}
+	})
 }
