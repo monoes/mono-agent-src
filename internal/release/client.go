@@ -148,7 +148,7 @@ func (c *Client) Latest(ctx context.Context) (*Manifest, error) {
 		}
 		return m, nil
 	}
-	return nil, fmt.Errorf("%w: %v", ErrUnavailable, last)
+	return nil, fmt.Errorf("%w: %w", ErrUnavailable, last)
 }
 
 func sigURL(manifestURL string) (string, error) {

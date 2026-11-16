@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+
+	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/release"
 )
@@ -23,6 +26,39 @@ type LatestInfo struct {
 // (legacyURL); a manifest that fails a check is an error, never a reason to
 // try the weaker path.
 func FetchLatest(ctx context.Context, rc *release.Client, legacyURL string, force bool) (*LatestInfo, error) {
+	info, err := fetchLatest(ctx, rc, legacyURL, force)
+	if err != nil && isNetworkErr(err) {
+		return nil, &UnreachableError{Err: err}
+	}
+	return info, err
+}
+
+// UnreachableError is a latest-release lookup that failed at the network
+// level (offline, DNS, refused, timeout). Error() is the actionable text;
+// Err keeps the raw cause for --verbose and the --json detail field.
+type UnreachableError struct{ Err error }
+
+func (e *UnreachableError) Error() string {
+	return "could not reach the update server; check your connection"
+}
+func (e *UnreachableError) Unwrap() error { return e.Err }
+
+func isNetworkErr(err error) bool {
+	var ne net.Error
+	var dns *net.DNSError
+	return errors.As(err, &ne) || errors.As(err, &dns)
+}
+
+// withDetail appends the raw cause of an UnreachableError when -v is set.
+func withDetail(cmd *cobra.Command, err error) error {
+	var ue *UnreachableError
+	if v, _ := cmd.Flags().GetBool("verbose"); v && errors.As(err, &ue) {
+		return fmt.Errorf("%s (%v)", ue.Error(), ue.Err)
+	}
+	return err
+}
+
+func fetchLatest(ctx context.Context, rc *release.Client, legacyURL string, force bool) (*LatestInfo, error) {
 	rc.Force = rc.Force || force
 	m, err := rc.Latest(ctx)
 	if err == nil {
