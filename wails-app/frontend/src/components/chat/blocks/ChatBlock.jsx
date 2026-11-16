@@ -42,6 +42,8 @@ export function chatBlockFor(children, node, fallback) {
   if (!code) return null
   const info = infoFromClassName(code.props.className)
   if (!info || typeof code.props.children !== 'string') return null
+  // Not a block type: leave the fence to the next hook (html-view, code block).
+  if (!Object.prototype.hasOwnProperty.call(BLOCKS, info)) return null
   const offset = node?.position?.start?.offset ?? 0
   return <ChatBlock info={info} body={code.props.children} offset={offset} fallback={fallback} />
 }
