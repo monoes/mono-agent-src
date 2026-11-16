@@ -197,7 +197,8 @@ func CalledByUnapproved(triggerData map[string]interface{}) (workflowID string, 
 		return strings.TrimSpace(id), true
 	}
 	mark, _ := triggerData[AICallerKey].(string)
-	return "", mark == UnapprovedWorkflowCaller
+	kind, _, _ := strings.Cut(mark, "/") // a mark may carry "/declared" after its kind
+	return "", kind == UnapprovedWorkflowCaller
 }
 
 // SubWorkflowReader is what finding a called workflow reads: a workflow by

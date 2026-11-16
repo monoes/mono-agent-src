@@ -236,7 +236,7 @@ func toolWorkflowRun(ctx context.Context, s *Server, args json.RawMessage) (inte
 	if a.Input == nil {
 		a.Input = map[string]interface{}{}
 	}
-	browserjev.MarkAICallerFor(ctx, nil, a.Input, "an MCP caller is not the user's terminal", false)
+	browserjev.MarkAICallerForServer(ctx, rt.db.DB, expandHome(orDefaultDB(s.opts.DBPath)), a.Input, "an MCP caller is not the user's terminal")
 	execID, err := engine.TriggerWorkflow(ctx, a.ID, a.Input)
 	if err != nil {
 		return nil, fmt.Errorf("trigger workflow: %w", err)

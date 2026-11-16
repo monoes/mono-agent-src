@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/monoes/mono-agent/internal/hilsend"
 	"github.com/monoes/mono-agent/internal/operator"
@@ -145,7 +146,9 @@ func (*RegisterNode) Execute(ctx context.Context, in workflow.NodeInput, config 
 						"(or save it in the app)", i, err, profile, in.WorkflowID)
 				}
 				data := workflow.TriggerDataFrom(ctx)
-				if caller, ok := workflow.CalledByUnapproved(data); ok && data[workflow.AICallerKey] == workflow.UnapprovedWorkflowCaller {
+				mark, _ := data[workflow.AICallerKey].(string)
+				kind, _, _ := strings.Cut(mark, "/") // a mark may carry "/declared" after its kind
+				if caller, ok := workflow.CalledByUnapproved(data); ok && kind == workflow.UnapprovedWorkflowCaller {
 					// A workflow the user never approved called this one, and
 					// nothing else makes this run an AI's: say which, and how
 					// to approve it.
