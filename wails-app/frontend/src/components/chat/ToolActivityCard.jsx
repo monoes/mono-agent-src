@@ -5,6 +5,7 @@ import { useTicker, formatDuration, copyToClipboard } from './toolCardUtils.js'
 import { NativeToolCard } from './NativeToolCard.jsx'
 import { maskArgs, maskSecretShapes } from './credentials.js'
 import { vaultRelatedCall } from './toolLinks.js'
+import { ToolEntityLink } from './ToolEntityLink.jsx'
 
 function formatArgs(args) {
   if (args === null || args === undefined) return null
@@ -49,7 +50,7 @@ export function ToolActivityCard(props) {
   return props.call.native ? <NativeToolCard {...props} /> : <GenericToolCard {...props} />
 }
 
-function GenericToolCard({ call, turnId = '', isLive = true }) {
+function GenericToolCard({ call, turnId = '', isLive = true, onNavigate, entityLinks = true }) {
   const { t } = useTranslation()
   const failed = call.status === 'completed' && call.ok === false
   // A call that may run a vault or another secret command shows neither its
@@ -129,6 +130,7 @@ function GenericToolCard({ call, turnId = '', isLive = true }) {
           </span>
         )}
       </button>
+      {entityLinks && !withheld && <ToolEntityLink call={call} onNavigate={onNavigate} />}
       {/* Always mounted (visibility toggled via `hidden`, not conditional
           rendering) — aria-controls must resolve to a real element even
           while collapsed, which is the default state for every non-error

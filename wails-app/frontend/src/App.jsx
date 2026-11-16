@@ -177,9 +177,7 @@ export default function App({ banners = null }) {
   // listing, so this is exactly as safe as the watcher's own usage), and
   // document opens the same FileViewerModal Documents.jsx uses, in its own
   // App-level instance so it works regardless of which page is active.
-  // Workflow has no "open" case: there's no workflow editor route to send
-  // it to (plan: "Metadata/Copy ID" — the card itself just copies the id),
-  // so onOpenArtifact is never even called for that artifact type.
+  // Workflow opens in NodeRunner by id (navData.workflowId).
   const onOpenArtifact = useCallback((artifact) => {
     if (artifact.type === 'org') {
       knownOrgNamesRef.current?.add(artifact.name)
@@ -201,6 +199,8 @@ export default function App({ banners = null }) {
         : `No built-in viewer for ${artifact.filename.split('.').pop()?.toUpperCase() || 'this'} files`
       notify('open', `${reason} — opening "${artifact.filename}" with your system's default application.`)
       WailsApp.OpenPathWithOS(artifact.path).catch(e => notify('open', `Could not open "${artifact.filename}": ${e}`))
+    } else if (artifact.type === 'workflow') {
+      navigate('noderunner', { workflowId: artifact.id })
     } else if (artifact.type === 'image') {
       navigate('vault')
     }

@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowDown, Loader } from 'lucide-react'
 import { api, notify } from '../../services/api.js'
@@ -22,6 +22,7 @@ import { ChatSetup, BlockedReason } from './ChatSetup.jsx'
 import { useChatSetup } from './useChatSetup.js'
 import { isCoderAccess } from '../../lib/chatAccess.js'
 import { MessageBubble } from '../chat/messageBubble.jsx'
+import { ChatBlocksHost } from '../chat/blocks/context.js'
 import { AskCard } from './AskCard.jsx'
 import { useHilAsks } from './useHilAsks.js'
 import { isAgentNotSetup } from '../../lib/agentSetup.js'
@@ -145,6 +146,13 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
   const accessBlocked = !isDraft && accessState !== 'ready'
   const blocked = (isDraft && setupState.state !== 'ready') || accessBlocked
   blockedRef.current = blocked
+  // Chat blocks (choices, forms) answer by sending a user message. Not while
+  // blocked, steering or mid-turn: they then render disabled.
+  const canBlockSend = !blocked && !steering && !conv.streaming && !!conv.conversationId
+  const blockSend = useCallback(async (text) => (await conv.send(text, [])) !== false, [conv])
+  const blocksHost = useMemo(
+    () => ({ onSend: canBlockSend ? blockSend : undefined, conversationId: conv.conversationId || '' }),
+    [canBlockSend, blockSend, conv.conversationId])
   const reason = accessBlocked
     ? (accessState === 'failed'
       ? <>{t('bubbles.pane.accessFailed')} <button type="button" className="btn btn-ghost btn-sm" style={{ fontSize: 10 }} onClick={onRetryAccess}>{t('bubbles.pane.retryAccess')}</button></>
@@ -175,7 +183,12 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
       )}
       <div role="status" aria-live="polite" aria-label={t('bubbles.pane.announcements')} style={srOnly}>{announcement}</div>
       <PersonItemsRegion conversationId={conv.conversationId || ''} />
-      {isDraft && empty && <ChatSetup s={setupState} setup={setup} onChange={onSetupChange} onNavigate={onNavigate} />}
+      {/* The setup form can be taller than the pane (long recents list, many runtimes). It scrolls inside its own box so the composer below stays on screen. */}
+      {isDraft && empty && (
+        <div data-testid="chat-setup-scroll" style={{ flex: '0 1 auto', minHeight: 0, overflowY: 'auto' }}>
+          <ChatSetup s={setupState} setup={setup} onChange={onSetupChange} onNavigate={onNavigate} />
+        </div>
+      )}
       <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
         <div ref={scroll.containerRef} onScroll={e => onScroll?.(e.currentTarget.scrollTop)} data-testid="bubble-transcript"
           style={{ height: '100%', overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column' }}>
@@ -188,13 +201,14 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
           {empty && !conv.loading && !isDraft && (
             <div style={{ margin: 'auto', fontFamily: mono, fontSize: 11, color: 'var(--text-muted)' }}>{t('bubbles.emptyChat')}</div>
           )}
+          <ChatBlocksHost.Provider value={blocksHost}>
           <WorkspaceImageContext.Provider value={conv.conversationId || ''}>
             {conv.messages.map((msg, i) => (
               msg.role === 'coder-init' ? <CoderInitNote key={i} workspace={msg.workspace} />
                 : msg.role === 'turn' ? (
                   <div key={i} className="chat-assistant-turn">
                     {lite ? <LiteTurn state={msg.state} turnId={msg.turnId} /> : <>
-                      <ChatTimeline state={msg.state} turnId={msg.turnId} isLive={false} agentFilter={msg.turnId === agentFilterTurnId ? agentFilter : null} onNavigate={onNavigate} />
+                      <ChatTimeline state={msg.state} turnId={msg.turnId} isLive={false} agentFilter={msg.turnId === agentFilterTurnId ? agentFilter : null} onNavigate={onNavigate} entityLinks={false} />
                       {artifactCards(msg.turnId, msg.state)}
                       {orgProposalCards(msg.state)}
                       {missionCards(msg.turnId)}
@@ -212,7 +226,7 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
             {conv.streaming && (
               <div className="chat-assistant-turn">
                 {lite ? <LiteTurn state={conv.liveTurn} turnId={conv.activeTurnId} isLive /> : <>
-                  <ChatTimeline state={conv.liveTurn} turnId={conv.activeTurnId} isLive agentFilter={conv.activeTurnId === agentFilterTurnId ? agentFilter : null} onNavigate={onNavigate} />
+                  <ChatTimeline state={conv.liveTurn} turnId={conv.activeTurnId} isLive agentFilter={conv.activeTurnId === agentFilterTurnId ? agentFilter : null} onNavigate={onNavigate} entityLinks={false} />
                   {artifactCards(conv.activeTurnId, conv.liveTurn)}
                   {orgProposalCards(conv.liveTurn)}
                   {missionCards(conv.activeTurnId)}
@@ -221,6 +235,7 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
               </div>
             )}
           </WorkspaceImageContext.Provider>
+          </ChatBlocksHost.Provider>
           {hil.asks.length > 0 && (
             <div data-testid="coder-asks" role="region" aria-label={t('ask.regionLabel')} aria-live="polite">
               {hil.asks.map(ask => (

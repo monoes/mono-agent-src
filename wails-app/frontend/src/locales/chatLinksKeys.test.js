@@ -7,7 +7,7 @@ import es from './es.json'
 
 const flat = (o, p = '') => Object.entries(o).flatMap(([k, v]) => (v && typeof v === 'object' ? flat(v, `${p}${k}.`) : [`${p}${k}`]))
 const dir = join(__dirname, '..', 'components', 'chat')
-const src = ['ChatMarkdown.jsx', 'ChatPathChip.jsx', 'ChatFilePreview.jsx'].map(f => readFileSync(join(dir, f), 'utf8')).join('\n')
+const src = ['ChatMarkdown.jsx', 'ChatPathChip.jsx', 'ChatFilePreview.jsx', 'ChatAppLink.jsx'].map(f => readFileSync(join(dir, f), 'utf8')).join('\n')
 const used = [...new Set([...src.matchAll(/['"`](chatLinks\.[a-zA-Z0-9_.]+)['"`]/g)].map(m => m[1]))]
 
 describe('chatLinks i18n', () => {
@@ -18,5 +18,11 @@ describe('chatLinks i18n', () => {
     expect(used.filter(k => !esKeys.includes(k))).toEqual([])
     const a = keys => keys.filter(k => k.startsWith('chatLinks.')).sort()
     expect(a(esKeys)).toEqual(a(enKeys))
+  })
+  it('names every app link kind (t(`chatLinks.appKind.${kind}`))', () => {
+    const kinds = ['workflow', 'execution', 'org', 'person', 'task', 'document', 'settings', 'page']
+    const have = k => !!k.split('.').reduce((o, p) => o?.[p], en)
+    expect(kinds.filter(k => !have(`chatLinks.appKind.${k}`))).toEqual([])
+    expect(flat(es).filter(k => k.startsWith('chatLinks.appKind.')).sort()).toEqual(flat(en).filter(k => k.startsWith('chatLinks.appKind.')).sort())
   })
 })

@@ -412,6 +412,9 @@ func runChat(cfg *Deps, cmd *cobra.Command, args []string, f *chatFlags) (retErr
 	if len(toolSpecs) == 0 {
 		systemPromptParts = append(systemPromptParts, `Your tool list this turn is EMPTY. Not restricted — empty. No Bash, no Write, no Read, no Task/Agent/subagent-spawning, nothing. Any tool call you attempt will fail. If the user's request needs a tool, your entire reply is: say plainly that you have no tools available right now, then tell them to enable it in Settings → "Assistant tool access" and start a NEW chat. Do not describe a plan, a setup, or a capability "via" some tool — you have none to invoke, so any such claim is false regardless of how it's phrased.`)
 	}
+	if !pageRead {
+		systemPromptParts = append(systemPromptParts, chatBlocksPrompt())
+	}
 	opts.SystemPrompt = strings.Join(systemPromptParts, "\n\n---\n\n")
 	if len(toolSpecs) > 0 {
 		opts.Tools = toolSpecs

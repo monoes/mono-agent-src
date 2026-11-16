@@ -48,7 +48,7 @@ export function MessageBubble({ role, content, isError, code, onNavigate }) {
           // auto-loaded images — rather than a second, less-careful
           // markdown config (an error string ultimately traces back to a
           // subprocess failure message, not first-party copy).
-          <ChatMarkdown content={withoutAgentSetupMarker(content)} />
+          <ChatMarkdown content={withoutAgentSetupMarker(content)} onNavigate={onNavigate} />
         )}
         {isError && isAgentNotSetup({ code, message: content }) && <AgentSetupLink onNavigate={onNavigate} />}
       </div>
