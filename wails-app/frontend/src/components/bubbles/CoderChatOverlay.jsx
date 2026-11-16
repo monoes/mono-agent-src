@@ -432,7 +432,7 @@ export function CoderChatOverlay({ bubble, store, originRect, onCollapse, onClos
               the chat after the yes when it does not exist yet; the CLI then makes the boss behind it. A chat that is open
               but has no message and no boss yet (an earlier start was refused) shows the form again. */}
           {openRole ? (
-            <RoleChat key={openRole.conversationId} role={openRole} frontDesk={bubble.conversationId} access={access} runtime={runtime}
+            <RoleChat key={openRole.conversationId} role={openRole} frontDesk={bubble.conversationId} access={access} setup={setup} runtime={runtime}
               onBack={() => setRoleId(null)} onNavigate={onNavigate} onOpenArtifact={onOpenArtifact} />
           ) : (chatMode.state?.mode === 'open' || openEntry) && !hasMessages && !openStarted && !steerChat ? (
             <OpenStartForm getChat={getOpenChat} onChat={onOpenChat} onStarted={r => { const failed = firstTurnFailedIn(r); setOpenStarted(true); setOpenRun({ firstTurnFailed: failed, watch: !failed }) }} />
