@@ -9,6 +9,14 @@ import (
 // MinExtension is the oldest extension the bridge fully works with. An older
 // one still connects (nothing is refused) but fails verb by verb, so the CLI
 // warns and says how to update it.
+//
+// 1.12.0 is the floor because it is the first extension carrying every verb in
+// protocol.go. The newest of them is form_run (commit 295c7d6e3, `browser
+// fill`), added after the 1.11.0 bump (d0a7ba4d3) and first shipped by the
+// 1.12.0 bump (bdd13d1b9, which also brought profile sets, see
+// SupportsProfileSets). Every other verb is in 1.8.0 or older, so a 1.8-1.11
+// extension still serves everything except `browser fill`; the floor stays at
+// the version that serves all of it.
 const MinExtension = "1.12.0"
 
 // parseVersion reads "1.12.0", "v1.12", "1.12.0-beta.1" as numeric parts.
