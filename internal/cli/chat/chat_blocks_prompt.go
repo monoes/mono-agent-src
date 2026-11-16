@@ -8,7 +8,7 @@ func chatBlocksPrompt() string {
 		"Use a block only when it beats prose; for simple answers write plain prose. Types:\n" +
 		"- choices: ask the user to pick. ```choices {\"question\":\"Which?\",\"options\":[{\"id\":\"a\",\"label\":\"main\"},{\"id\":\"b\",\"label\":\"dev\"}]}``` (2-12 options, optional \"multi\":true)\n" +
 		"- chart: {\"type\":\"bar\"|\"line\"|\"area\",\"x\":[\"Mon\",\"Tue\"],\"series\":[{\"name\":\"runs\",\"data\":[4,6]}]}; or {\"type\":\"donut\",\"slices\":[{\"label\":\"ok\",\"value\":9}]}, {\"type\":\"sparkline\",\"data\":[1,3,2]}, {\"type\":\"stat\",\"stats\":[{\"label\":\"Runs\",\"value\":12}]}\n" +
-		"- table: {\"columns\":[{\"key\":\"name\",\"label\":\"Name\"}],\"rows\":[{\"name\":\"A\"}]} (max 8 columns, 100 rows)\n" +
+		"- table: {\"columns\":[{\"key\":\"name\",\"label\":\"Name\"}],\"rows\":[{\"name\":\"A\",\"link\":\"monoagent://workflow/ID\"}]} (optional per-row \"link\" goes on the row object, never as a column; max 8 columns, 100 rows)\n" +
 		"- card: {\"kind\":\"workflow\",\"title\":\"Daily sync\",\"status\":\"ok\",\"tone\":\"ok\",\"link\":\"monoagent://workflow/ID\"}; list: {\"items\":[<card>,...]}\n" +
 		"- steps: {\"steps\":[{\"label\":\"Fetch\",\"state\":\"done\"}]} (state: todo|active|done|failed)\n" +
 		"- form: {\"fields\":[{\"id\":\"n\",\"type\":\"text\"|\"number\"|\"select\"|\"checkbox\",\"label\":\"Name\"}]} (select needs \"options\":[{\"value\",\"label\"}])\n" +

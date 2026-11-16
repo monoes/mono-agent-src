@@ -29,3 +29,10 @@ func TestCoderLeadPromptCarriesChatBlocks(t *testing.T) {
 		t.Error("coderSystemPrompt lacks the chat blocks guidance")
 	}
 }
+
+func TestChatBlocksPromptPutsTableLinkOnTheRow(t *testing.T) {
+	p := chatBlocksPrompt()
+	if !strings.Contains(p, `"rows":[{"name":"A","link":"monoagent://`) || !strings.Contains(p, "never as a column") {
+		t.Error("table example must show link on the row object, not as a column")
+	}
+}
