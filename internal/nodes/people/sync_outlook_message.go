@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/nodes/nodeprofile"
@@ -47,7 +48,7 @@ func (n *SyncOutlookMessageNode) Execute(
 		direction = "inbound"
 	}
 
-	var savedItems []workflow.Item
+	var savedItems, skippedItems []workflow.Item
 
 	for _, item := range input.Items {
 		data := item.JSON
@@ -62,9 +63,17 @@ func (n *SyncOutlookMessageNode) Execute(
 		messageID, _ := data["id"].(string)
 		var sentAt time.Time
 		if receivedRaw, _ := data["receivedDateTime"].(string); receivedRaw != "" {
-			if t, err := time.Parse(time.RFC3339, receivedRaw); err == nil {
-				sentAt = t
+			t, err := time.Parse(time.RFC3339, receivedRaw)
+			if err != nil {
+				// Skip only this message: erroring would fail every retry of
+				// the batch on the one odd message, after earlier ones were written.
+				skippedItems = append(skippedItems, workflow.NewItem(map[string]interface{}{
+					"message_id": messageID,
+					"reason":     fmt.Sprintf("receivedDateTime %q is not an RFC 3339 time", receivedRaw),
+				}))
+				continue
 			}
+			sentAt = t
 		}
 
 		// Provenance travels with the item from the node that fetched it, so
@@ -137,6 +146,8 @@ func (n *SyncOutlookMessageNode) Execute(
 
 		for _, ea := range counterparts {
 			counterpartEmail, _ := ea["address"].(string)
+			// One mailbox is one person whatever the case the sender wrote it in.
+			counterpartEmail = strings.ToLower(strings.TrimSpace(counterpartEmail))
 			counterpartName, _ := ea["name"].(string)
 			if counterpartEmail == "" {
 				continue // Cannot upsert a person without an identifying email.
@@ -189,5 +200,9 @@ func (n *SyncOutlookMessageNode) Execute(
 		}
 	}
 
-	return []workflow.NodeOutput{{Handle: "main", Items: savedItems}}, nil
+	out := []workflow.NodeOutput{{Handle: "main", Items: savedItems}}
+	if len(skippedItems) > 0 {
+		out = append(out, workflow.NodeOutput{Handle: "skipped", Items: skippedItems})
+	}
+	return out, nil
 }

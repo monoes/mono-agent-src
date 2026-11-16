@@ -205,10 +205,15 @@ type rowQueryer interface {
 // profileID; Found is false when there is none.
 func StoredPerson(ctx context.Context, q rowQueryer, profileID, platform, username string) (Stored, error) {
 	var s Stored
+	// The platform is compared without case: people import, workflow nodes and
+	// the chat spell it differently, and the guard must find the approved row
+	// whichever spelling this write uses. The username is compared exactly,
+	// as the unique key does.
 	err := q.QueryRowContext(ctx,
 		`SELECT COALESCE(category,''), COALESCE(introduction,'') FROM people
-		 WHERE platform_username = ? AND platform = ? AND profile_id = ?`,
-		username, platform, profileID).Scan(&s.Category, &s.Introduction)
+		 WHERE platform_username = ? AND UPPER(platform) = UPPER(?) AND profile_id = ?
+		 ORDER BY (platform = ?) DESC, updated_at DESC LIMIT 1`,
+		username, platform, profileID, platform).Scan(&s.Category, &s.Introduction)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		return Stored{}, nil

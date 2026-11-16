@@ -70,6 +70,13 @@ type ConnInfo struct {
 // ones every caller already knows from before there were several.
 var ErrNoExtension = errors.New("no extension connected")
 
+// noBrowserConnected is ErrNoExtension with what to do about it, for where
+// nothing at all is connected.
+func noBrowserConnected() error {
+	return fmt.Errorf("%w: open a browser that has the MonoAgent Bridge extension (check `monoagentcli extension status`); "+
+		"after a bridge restart it can take up to ~30 s to reconnect", ErrNoExtension)
+}
+
 // ErrBrowserGone means a specific browser was asked for and is not
 // connected, e.g. it was closed in the middle of a run.
 var ErrBrowserGone = errors.New("that browser is not connected")
@@ -104,13 +111,17 @@ type extConn struct {
 	// the set to confirming or restoring it.
 	bindMu sync.Mutex
 
+	// gone is closed when the socket's read loop ends, so a command waiting on
+	// this browser can stop waiting at once.
+	gone chan struct{}
+
 	mu       sync.Mutex // guards profiles and label, which change while connected
 	profiles []string
 	label    string
 }
 
 func newExtConn(ws *websocket.Conn, auth authFrame, now time.Time) *extConn {
-	c := &extConn{id: legacyInstanceID, legacy: true, ws: ws, connectedAt: now, tokenID: auth.tokenID}
+	c := &extConn{id: legacyInstanceID, legacy: true, ws: ws, connectedAt: now, gone: make(chan struct{}), tokenID: auth.tokenID}
 	if validInstanceID.MatchString(auth.Instance) {
 		c.id, c.legacy = auth.Instance, false
 	}
@@ -246,7 +257,7 @@ func (s *Server) resolve(t Target) (*extConn, error) { return s.resolveWith(t, f
 func (s *Server) resolveWith(t Target, admin bool) (*extConn, error) {
 	conns := s.connList()
 	if len(conns) == 0 {
-		return nil, ErrNoExtension
+		return nil, noBrowserConnected()
 	}
 	if t.Instance != "" {
 		for _, c := range conns {

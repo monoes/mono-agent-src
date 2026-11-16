@@ -38,3 +38,17 @@ func unlockFile(f *os.File) error {
 	}
 	return nil
 }
+
+// tryLockFile takes the exclusive lock if nobody holds it (LOCKFILE_FAIL_IMMEDIATELY);
+// false means it is held.
+func tryLockFile(f *os.File) (bool, error) {
+	ol := new(windows.Overlapped)
+	err := windows.LockFileEx(windows.Handle(f.Fd()), windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, ol)
+	if err == nil {
+		return true, nil
+	}
+	if err == windows.ERROR_LOCK_VIOLATION {
+		return false, nil
+	}
+	return false, fmt.Errorf("LockFileEx %s: %w", f.Name(), err)
+}

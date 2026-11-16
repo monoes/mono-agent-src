@@ -667,10 +667,21 @@ function openedFileInput(trigger, timeoutMs) {
 }
 
 async function setFiles({ elementId, selector, xpath, fileData, viaClick, strict }) {
-  let el = resolveElement({ elementId, selector, xpath });
+  let el;
+  try {
+    el = resolveElement({ elementId, selector, xpath });
+  } catch (e) {
+    // Nothing matched. The content script runs in the top document only (the
+    // manifest has no all_frames), so an input inside an iframe lands here too.
+    if (!/not found|no longer exists/.test(e.message)) throw e;
+    throw new Error(
+      'set_files: no element matched ' + (selector || xpath || elementId) +
+      ' in this frame (file inputs inside iframes are not supported)',
+    );
+  }
   if (viaClick && el) el = await openedFileInput(el);
   if (!el || el.tagName !== 'INPUT' || el.type !== 'file') {
-    throw new Error('set_files: element is not a file input');
+    throw new Error('set_files: the element matched is not a file input');
   }
   // `monoagentcli browser upload` is strict: a page that takes one file is not given two.
   if (strict && !el.multiple && fileData && fileData.length > 1) {

@@ -19,15 +19,36 @@
   // chrome.storage.local is a ~10MB bucket; a big MHTML does not belong in it.
   const QUEUE_MAX_ENTRY_BYTES = 4 * MB;
 
+  // Every read-then-write of the queue runs behind the one before it, per
+  // storage area: two captures taken together each read the queue before
+  // either wrote, and the second write dropped the first.
+  const writes = new WeakMap();
+  function locked(storage, fn) {
+    const run = (writes.get(storage) || Promise.resolve()).then(fn);
+    const done = run.catch(() => {});
+    writes.set(storage, done);
+    done.then(() => {
+      if (writes.get(storage) === done) writes.delete(storage);
+    });
+    return run;
+  }
+
   async function queueCapture(storage, envelope) {
     const size = utf8Bytes(JSON.stringify(envelope));
     if (size > QUEUE_MAX_ENTRY_BYTES) {
       return { queued: false, reason: `capture too large to queue offline (${mb(size)})` };
     }
-    const current = (await storage.get(QUEUE_KEY))[QUEUE_KEY] || [];
-    const next = current.concat([{ queuedAt: new Date().toISOString(), envelope }]).slice(-QUEUE_MAX_ENTRIES);
-    await storage.set({ [QUEUE_KEY]: next });
-    return { queued: true, depth: next.length };
+    return locked(storage, async () => {
+      const current = (await storage.get(QUEUE_KEY))[QUEUE_KEY] || [];
+      // Never drop what is already waiting to make room: a capture the person
+      // was told is queued has to still be there when the bridge is back.
+      if (current.length >= QUEUE_MAX_ENTRIES) {
+        return { queued: false, reason: `${QUEUE_MAX_ENTRIES} captures are already waiting to sync` };
+      }
+      const next = current.concat([{ queuedAt: new Date().toISOString(), envelope }]);
+      await storage.set({ [QUEUE_KEY]: next });
+      return { queued: true, depth: next.length };
+    });
   }
 
   /**
@@ -93,10 +114,12 @@
     }
     // Written back from what is there now, less what went: prepare may have
     // waited on the bridge, and a capture queued meanwhile must stay.
-    const now = sent.size ? (await storage.get(QUEUE_KEY))[QUEUE_KEY] || [] : null;
-    if (now) {
+    if (sent.size) {
       const gone = new Set([...sent].map(entryKey));
-      await storage.set({ [QUEUE_KEY]: now.filter((e) => !gone.has(entryKey(e))) });
+      await locked(storage, async () => {
+        const now = (await storage.get(QUEUE_KEY))[QUEUE_KEY] || [];
+        await storage.set({ [QUEUE_KEY]: now.filter((e) => !gone.has(entryKey(e))) });
+      });
     }
     const out = { flushed };
     if (held) out.held = held;

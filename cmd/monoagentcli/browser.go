@@ -268,7 +268,7 @@ func browserErr(cmd *cobra.Command, cfg *globalConfig, err error) error {
 		return browserCLIError{error: errInvalidInput("the tab left the page this command was checked for, so the browser did not run it: %s",
 			strings.TrimPrefix(msg, "extension error: ")), code: browserctl.OriginChangedCode}
 	}
-	if strings.Contains(msg, "Element not found") || strings.Contains(msg, "Timed out waiting for element") {
+	if strings.Contains(msg, "Element not found") || strings.Contains(msg, "no element matched") || strings.Contains(msg, "Timed out waiting for element") {
 		return errNotFound("%s", strings.TrimPrefix(msg, "extension error: "))
 	}
 	if strings.Contains(msg, "Unknown command type") {

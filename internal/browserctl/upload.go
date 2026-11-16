@@ -140,9 +140,26 @@ func (s *Session) Upload(selector string, chooser bool, files []UploadFile) (int
 		Count int `json:"count"`
 	}
 	if err := s.Call(extension.CmdSetFiles, params, 2*DefaultTimeout, &out); err != nil {
-		return 0, err
+		return 0, uploadNoMatchHint(err)
 	}
 	return out.Count, nil
+}
+
+// uploadNoMatchHint adds what to do to the page's "nothing matched" answer.
+// The extension reaches the top document only, so a file input inside an
+// iframe is never found: it is not supported, and the way out is the page's
+// own input in the top document (--chooser, with the control that opens it,
+// works the same way). An extension older than the message says "Element not
+// found" without the iframe note; that gets it here.
+func uploadNoMatchHint(err error) error {
+	msg := err.Error()
+	if !strings.Contains(msg, "no element matched") && !strings.Contains(msg, "Element not found") {
+		return err
+	}
+	if !strings.Contains(msg, "iframes are not supported") {
+		msg += " (file inputs inside iframes are not supported)"
+	}
+	return fmt.Errorf("%s: upload needs a file input, or with --chooser the button that opens one, in the page's top document; select that one instead", msg)
 }
 
 // uploadSummary describes an upload for the approval card: one field per

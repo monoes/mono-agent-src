@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // isolation. Each binding is a vi.fn we can make resolve or reject per test.
 vi.mock('../wailsjs/go/main/App', () => ({
   GetPeople: vi.fn(),
+  GetPeopleCount: vi.fn(),
   GetDashboardStats: vi.fn(),
   GetSummary: vi.fn(),
   GetSummarySections: vi.fn(),
@@ -78,10 +79,11 @@ describe('api error handling', () => {
     off()
   })
 
-  it('degrades a failed read to its safe default', async () => {
+  it('lets a failed People read reject so the page can show the error', async () => {
     GoApp.GetPeople.mockRejectedValueOnce(new Error('db locked'))
-    const result = await api.getPeople()
-    expect(result).toBeNull() // getPeople falls back to null
+    await expect(api.getPeople()).rejects.toThrow('db locked')
+    GoApp.GetPeopleCount.mockRejectedValueOnce(new Error('db locked'))
+    await expect(api.getPeopleCount()).rejects.toThrow('db locked')
   })
 
   it('broadcasts a failure on the error bus instead of swallowing it silently', async () => {

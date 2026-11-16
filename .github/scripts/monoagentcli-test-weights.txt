@@ -232,6 +232,7 @@ TestBrowserSweepFlags 1
 TestBrowserSweepResetsAfterAFailure 1
 TestBrowserUnprovenKindFailsClosed 1
 TestBrowserUploadAtFullNoApprovalsAndForHumans 1
+TestBrowserUploadNoMatchNamesTheIframeLimit 1
 TestBrowserUploadBadInput 1
 TestBrowserUploadSetsTheFilesOnLocalPages 1
 TestBrowserUploadWaitsForApprovalOnRealSites 2

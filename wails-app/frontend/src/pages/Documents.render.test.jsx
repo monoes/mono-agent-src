@@ -25,6 +25,7 @@ vi.mock('../wailsjs/go/main/App', () => ({
   AddDocumentTag: vi.fn(),
   RemoveDocumentTag: vi.fn(),
   IsMonomindInitialized: vi.fn(() => Promise.resolve(true)),
+  InitializeMonomindProfile: vi.fn(),
 }))
 
 // indexed & fresh — "Index all"/"Index selected" must skip this one
@@ -192,5 +193,29 @@ describe('Documents folder upload', () => {
     expect(seen[0].op).toBe('upload')
     expect(seen[0].message).toMatch(/another dialog is still open/)
     expect(WailsApp.UploadProfileDocuments).not.toHaveBeenCalled()
+  })
+})
+
+describe('Documents initiate monomind', () => {
+  it('leaves the spinner with the refusal when signed out (no error event is emitted)', async () => {
+    WailsApp.IsMonomindInitialized.mockResolvedValue(false)
+    WailsApp.InitializeMonomindProfile.mockResolvedValue(JSON.stringify({ error: 'sign in to continue', login_required: true }))
+    const errs = []
+    const off = onApiError(e => errs.push(e))
+    await renderLoaded()
+    fireEvent.click(await screen.findByText('Initiate monomind'))
+    expect(await screen.findByText('Initiate monomind')).toBeInTheDocument()
+    expect(document.querySelector('.spinner')).toBeNull()
+    expect(errs.some(e => /sign in/i.test(e.message))).toBe(true)
+    off && off()
+  })
+
+  it('leaves the spinner when the binding throws', async () => {
+    WailsApp.IsMonomindInitialized.mockResolvedValue(false)
+    WailsApp.InitializeMonomindProfile.mockRejectedValue(new Error('boom'))
+    await renderLoaded()
+    fireEvent.click(await screen.findByText('Initiate monomind'))
+    expect(await screen.findByText('Initiate monomind')).toBeInTheDocument()
+    expect(document.querySelector('.spinner')).toBeNull()
   })
 })

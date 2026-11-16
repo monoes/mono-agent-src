@@ -3,6 +3,7 @@ import { List, X, Trash2, Library } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import * as WailsApp from '../wailsjs/go/main/App'
 import { notify } from '../services/api.js'
+import { ExecStatusDot } from './dashboard/RecentRunsCard.jsx'
 import { formFromJSON, jsonFromForm, parseTriggerInput } from './triggerInput.js'
 import { templateBlurb } from './templateText.js'
 import LibraryModal from '../components/library/LibraryModal.jsx'
@@ -78,10 +79,12 @@ export function SaveModal({ initialName, onConfirm, onClose }) {
 }
 
 // ── Workflows modal ───────────────────────────────────────────────────────────
-export function WorkflowsModal({ initialTab = 'saved', currentId, onLoad, onDelete, onClose, onLibraryInstalled }) {
+export function WorkflowsModal({ initialTab = 'saved', currentId, onLoad, onOpenExecution, onDelete, onClose, onLibraryInstalled }) {
   const [tab, setTab]         = useState(initialTab) // 'saved' | 'templates'
   const [list, setList]       = useState([])
   const [loading, setLoading] = useState(true)
+  const [listError, setListError] = useState('')
+  const [execsError, setExecsError] = useState('')
   const [templates, setTemplates] = useState([])
   const [templatesLoading, setTemplatesLoading] = useState(true)
   const [usingTemplate, setUsingTemplate] = useState(null) // template id being instantiated
@@ -91,8 +94,12 @@ export function WorkflowsModal({ initialTab = 'saved', currentId, onLoad, onDele
   const [libraryAdded, setLibraryAdded] = useState(null) // last workflow added from monoes.me
   const { t } = useTranslation()
 
+  const loadList = () => {
+    setLoading(true); setListError('')
+    ListWorkflows().then(d => { setList(d || []); setLoading(false) }).catch(e => { setListError(e?.message || String(e)); setLoading(false) })
+  }
   useEffect(() => {
-    ListWorkflows().then(d => { setList(d || []); setLoading(false) }).catch(() => setLoading(false))
+    loadList()
     ListWorkflowTemplates().then(d => { setTemplates(d || []); setTemplatesLoading(false) }).catch(() => setTemplatesLoading(false))
   }, [])
 
@@ -123,9 +130,16 @@ export function WorkflowsModal({ initialTab = 'saved', currentId, onLoad, onDele
   }
 
   const showExecs = async (id) => {
-    setExecsFor(id)
-    try { setExecs(await GetWorkflowExecutions(id)) } catch { setExecs([]) }
+    setExecsFor(id); setExecsError('')
+    try { setExecs(await GetWorkflowExecutions(id)) } catch (e) { setExecs([]); setExecsError(e?.message || String(e)) }
   }
+
+  const errorRow = (msg, onRetry) => (
+    <div role="alert" style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: '#ef4444', padding: '24px', textAlign: 'center' }}>
+      <div>{msg}</div>
+      <button onClick={onRetry} style={{ marginTop: 10, background: 'rgba(0,180,216,0.08)', border: '1px solid rgba(0,180,216,0.2)', borderRadius: 5, cursor: 'pointer', color: '#00b4d8', padding: '3px 10px', fontFamily: 'var(--font-mono)', fontSize: 10 }}>Retry</button>
+    </div>
+  )
 
   return (
     <div style={{
@@ -172,14 +186,19 @@ export function WorkflowsModal({ initialTab = 'saved', currentId, onLoad, onDele
         {/* Body */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
           {execsFor ? (
+            execsError ? errorRow(`Could not load executions: ${execsError}`, () => showExecs(execsFor)) :
             execs.length === 0 ? (
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', padding: '24px', textAlign: 'center' }}>No executions found</div>
             ) : execs.map(ex => (
-              <div key={ex.id} style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid rgba(0,180,216,0.05)' }}>
-                <div style={{ width: 7, height: 7, borderRadius: '50%', background: ex.status === 'success' ? '#10b981' : ex.status === 'running' ? '#00b4d8' : '#ef4444', flexShrink: 0 }} />
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', flex: 1 }}>{ex.id}</span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)' }}>{ex.status}</span>
-                {ex.started_at && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)' }}>{new Date(ex.started_at).toLocaleString()}</span>}
+              <div key={ex.id} data-exec-row onClick={() => onOpenExecution?.(execsFor, ex.id)}
+                style={{ padding: '8px 16px', borderBottom: '1px solid rgba(0,180,216,0.05)', cursor: onOpenExecution ? 'pointer' : 'default' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <ExecStatusDot status={ex.status} />
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)', flex: 1 }}>{ex.id}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)' }}>{ex.status}</span>
+                  {ex.started_at && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)' }}>{new Date(ex.started_at).toLocaleString()}</span>}
+                </div>
+                {ex.error && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: '#ef4444', marginTop: 4, wordBreak: 'break-word' }}>{ex.error}</div>}
               </div>
             ))
           ) : tab === 'templates' ? (<>
@@ -214,7 +233,8 @@ export function WorkflowsModal({ initialTab = 'saved', currentId, onLoad, onDele
             ))}
           </>) : loading ? (
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', padding: '24px', textAlign: 'center' }}>Loading…</div>
-          ) : list.length === 0 ? (
+          ) : listError ? errorRow(`Could not load workflows: ${listError}`, loadList)
+          : list.length === 0 ? (
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)', padding: '24px', textAlign: 'center' }}>No saved workflows yet</div>
           ) : list.map(wf => (
             <div key={wf.id} style={{
@@ -251,7 +271,9 @@ export function WorkflowsModal({ initialTab = 'saved', currentId, onLoad, onDele
                   e.stopPropagation()
                   // onDelete confirms and resolves false when cancelled — only
                   // drop the row from the list when it was actually deleted.
-                  onDelete(wf.id).then(deleted => { if (deleted) setList(l => l.filter(w => w.id !== wf.id)) })
+                  onDelete(wf.id)
+                    .then(deleted => { if (deleted) setList(l => l.filter(w => w.id !== wf.id)) })
+                    .catch(err => notify('delete workflow', `Could not delete the workflow: ${err?.message || err}`))
                 }}
                 title="Delete"
                 style={{ background:'transparent',border:'none',cursor:'pointer',color:'rgba(239,68,68,0.4)',padding:4,display:'flex',alignItems:'center' }}

@@ -23,6 +23,9 @@ func newBrowserUploadCmd(cfg *globalConfig) *cobra.Command {
 			"selector is the control that opens the chooser — a styled \"Upload\" button or label —\n" +
 			"and the input it would open is filled instead, so the dialog never appears. Files are\n" +
 			"read by this command (~ is expanded), at most 10 and 20 MB together.\n\n" +
+			"Only the page's top document is searched: a file input inside an iframe is not found and\n" +
+			"cannot be uploaded to; use the page's own input (or the button that opens it, with\n" +
+			"--chooser) in the top document instead.\n\n" +
 			"Run by an agent, an upload to an allowed page that is not local waits for approval\n" +
 			"(except at full-no-approvals): exit 3 with {\"status\":\"awaiting_approval\",\"hil_id\":…}. The\n" +
 			"card names every file with its size and digest. Once the user approved it, run\n" +

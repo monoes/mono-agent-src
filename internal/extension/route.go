@@ -9,6 +9,13 @@ import (
 	"github.com/google/uuid"
 )
 
+// pendingCmd is a command waiting for its answer, and the browser it went to:
+// only that browser's frames may answer it.
+type pendingCmd struct {
+	ch   chan *Response
+	conn *extConn
+}
+
 // SendCommandTo sends a command to the browser t resolves to and waits for
 // its response. If the response reports failure, an error is returned.
 func (s *Server) SendCommandTo(t Target, cmd *Command, timeout time.Duration) (*Response, error) {
@@ -42,7 +49,14 @@ func (s *Server) SendCommandTo(t Target, cmd *Command, timeout time.Duration) (*
 
 	ch := make(chan *Response, 1)
 	s.pendMu.Lock()
-	s.pending[cmd.ID] = ch
+	if _, dup := s.pending[cmd.ID]; dup {
+		s.pendMu.Unlock()
+		if restore != nil {
+			restore()
+		}
+		return nil, fmt.Errorf("command id %s is already in flight", cmd.ID)
+	}
+	s.pending[cmd.ID] = &pendingCmd{ch: ch, conn: c}
 	s.pendMu.Unlock()
 	defer func() {
 		s.pendMu.Lock()
@@ -99,6 +113,19 @@ func (s *Server) SendCommandTo(t Target, cmd *Command, timeout time.Duration) (*
 			}
 		}
 		return resp, nil
+	case <-c.gone:
+		// The answer may have been dispatched just before the socket closed.
+		select {
+		case resp := <-ch:
+			if resp.Success {
+				return resp, nil
+			}
+			return resp, fmt.Errorf("extension error: %s", resp.Error)
+		default:
+		}
+		// Like a timeout, no restore: the change may have been stored.
+		return nil, fmt.Errorf("%w: it disconnected while command %s was running (the browser or its extension "+
+			"was closed or restarted); the command may or may not have run in the page, so check the page before running it again", ErrBrowserGone, cmd.Type)
 	case <-time.After(timeout):
 		// No restore: the change may have been stored, and a browser that
 		// is routed too narrowly fails closed (its next binding frame or

@@ -202,6 +202,9 @@ func (h *Host) Tick() error {
 	if err := h.Store.ReopenFailedAnswers(); err != nil { // an answer note that did not run (stop, expiry, a failed check) gives its question back
 		h.logf("coder host: parked questions: %s", strings.TrimSpace(err.Error()))
 	}
+	if _, err := h.Store.RepairWaiting(); err != nil { // a release that failed after an answer left the session waiting with nothing to wait for
+		h.logf("coder host: sessions waiting for nothing: %s", strings.TrimSpace(err.Error()))
+	}
 	h.Store.DropUnstartedCaps()
 	if err := h.Store.ExpireSends(); err != nil {
 		return err
