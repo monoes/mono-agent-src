@@ -1,6 +1,8 @@
 package sshhosts
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -80,6 +82,31 @@ func TestOrdinaryShapesAreAccepted(t *testing.T) {
 		if err := cb("box.test:22", addr, k); err != nil {
 			t.Errorf("%s: matching host refused: %v", name, err)
 		}
+	}
+}
+
+func TestExactlyMaxLinesIsAccepted(t *testing.T) {
+	// 20000 lines ending in a newline is 20000 lines, not 20001.
+	if _, err := New(write(t, strings.Repeat("# c\n", maxLines))); err != nil {
+		t.Fatalf("exactly %d lines refused: %v", maxLines, err)
+	}
+	if _, err := New(write(t, strings.Repeat("# c\n", maxLines+1))); err == nil || !strings.Contains(err.Error(), "too many") {
+		t.Fatalf("one line over must be refused, got %v", err)
+	}
+}
+
+func TestOversizedFileIsRefusedBeforeItIsRead(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "known_hosts")
+	f, err := os.Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(maxBytes + 1); err != nil { // sparse: nothing is written
+		t.Fatal(err)
+	}
+	f.Close()
+	if _, err := New(p); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("want a too-large refusal, got %v", err)
 	}
 }
 
