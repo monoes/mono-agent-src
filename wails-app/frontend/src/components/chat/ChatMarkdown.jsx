@@ -12,6 +12,7 @@ import { markdownTooDeep } from './markdownGuard.js'
 import { AppLink, AppNavContext } from './ChatAppLink.jsx'
 import { parseAppLink, appLinkUrlTransform, remarkChatAppMentions } from './chatAppLinks.js'
 import { chatBlockFor } from './blocks/ChatBlock.jsx'
+import { htmlViewForPre } from './htmlView.jsx'
 
 // Only http(s) URLs without credentials ever open (see classifyUrl); anything
 // else (javascript:, data:, file:, mailto:, custom schemes, schemeless) is
@@ -77,11 +78,12 @@ function MdLink({ href, children, ...rest }) {
   )
 }
 
-// A fenced block whose info string is a chat block type renders as that block
-// (see ./blocks); anything else, or an invalid block, stays this code block.
+// Fence order: a chat block type (see ./blocks) renders as that block, then an
+// html-view (opt-in, off by default) as a sandboxed frame; anything else, or
+// an invalid block, stays the ordinary code block.
 function MdPre({ children, node, ...rest }) {
   const plain = <MdCodePre {...rest}>{children}</MdCodePre>
-  return chatBlockFor(children, node, plain) || plain
+  return chatBlockFor(children, node, plain) || htmlViewForPre(children) || plain
 }
 
 function MdCodePre({ children, ...rest }) {
