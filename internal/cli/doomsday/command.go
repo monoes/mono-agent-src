@@ -38,6 +38,10 @@ type Deps struct {
 	// ChatStart is what `start --chat` needs beside the engine (the boss session, its budget, its first turn). Nil: that
 	// flag is refused.
 	ChatStart func() ChatStarter
+	// OpenChat makes the open-mode coder chat `run` starts from (chat.CreateOpenChat). Nil: `run` is refused.
+	OpenChat func(cmd *cobra.Command, runtimeID, model, cwd string) (string, error)
+	// PinChoices lists the models a pin can name, best first (the validated roster). Nil: `run` needs --boss and --verifier.
+	PinChoices func(ctx context.Context) ([]Pin, error)
 	// FirstTurn reads where the open run's boss's first turn stands, for `status`. Nil: status says nothing about it.
 	FirstTurn func(ctx context.Context) (FirstTurnState, error)
 }
@@ -72,7 +76,7 @@ func NewCommand(d Deps) *cobra.Command {
 		Short:  "Open-ended mode: start, stop, status, render (the user's own)",
 		Hidden: true,
 	}
-	cmd.AddCommand(d.newStart(), d.newStop(), d.newStatus(), d.newRender(), d.newFinish(), d.newRubric(), d.newOverview(), d.newFeed(), d.newProbe(),
+	cmd.AddCommand(d.newStart(), d.newRun(), d.newStop(), d.newStatus(), d.newRender(), d.newFinish(), d.newRubric(), d.newOverview(), d.newFeed(), d.newProbe(),
 		StrategyCommands(StrategyDeps{Reader: d.StrategyReader, JSONOutput: d.JSONOutput}))
 	return cmd
 }

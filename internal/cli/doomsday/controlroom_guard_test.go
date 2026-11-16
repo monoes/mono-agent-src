@@ -47,7 +47,8 @@ func TestControlRoomVerbsAreRegisteredReadOnlyAndExactly(t *testing.T) {
 		}
 	}
 	// the group's verbs are the existing ones plus exactly the control room's
-	existing := map[string]bool{"start": true, "stop": true, "status": true, "render": true, "finish": true, "rubric": true, "strategy": true,
+	// run is the one-line start (run.go): an acting verb like start, operator-only, and through the same startFromChat.
+	existing := map[string]bool{"start": true, "run": true, "stop": true, "status": true, "render": true, "finish": true, "rubric": true, "strategy": true,
 		// probe answers "can a run start here, and why not" (nothing is written, nothing is read of a run): classified on
 		// purpose and held to the same bar as a read verb just below, TestProbeVerbIsReadOnlyAndOperatorOnly.
 		"probe": true}

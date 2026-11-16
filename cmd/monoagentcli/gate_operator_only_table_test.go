@@ -35,6 +35,7 @@ func operatorOnlyRows() []opRow {
 		{path: "profile info get", build: newProfileCmd, args: []string{"info", "get", "--reveal"}},
 		{path: "workflow run", build: newWorkflowRunWithFullOutputs, args: []string{"no-such-workflow", "--full-outputs"}},
 		{path: "doomsday start", build: newDoomsdayCmd, args: []string{"start", "--charter", "{tmp}", "--yes-i-lift", "--hash", "x"}},
+		{path: "doomsday run", build: newDoomsdayCmd, args: []string{"run", "a goal", "--budget", "1", "--boss", "a/b", "--verifier", "c/d"}},
 		{path: "doomsday stop", build: newDoomsdayCmd, args: []string{"stop"}},
 		{path: "doomsday probe", build: newDoomsdayCmd, args: []string{"probe"}},
 		{path: "doomsday finish", build: newDoomsdayCmd, args: []string{"finish"}},
