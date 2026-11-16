@@ -118,6 +118,9 @@ func BuildRunCharter(s RunSpec) (Charter, error) {
 	if err := c.Validate(); err != nil {
 		return Charter{}, clicore.InvalidInput("%v", err)
 	}
+	if err := ValidateCharterTexts(c); err != nil { // as the app's start: the boss and the hash see the whole text, so no hidden character
+		return Charter{}, err
+	}
 	return c, nil
 }
 

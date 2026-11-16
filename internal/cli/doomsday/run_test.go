@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -269,5 +270,25 @@ func TestDefaultRunDirRefusesHomeAndRoot(t *testing.T) {
 	t.Chdir(t.TempDir())
 	if dir, err := defaultRunDir(); err != nil || dir == "" {
 		t.Fatalf("a scratch folder was refused: %v", err)
+	}
+}
+
+func TestBuildRunCharterRefusesHiddenAndLongText(t *testing.T) {
+	base := RunSpec{Boss: pinA, Verifier: pinB, BudgetUSD: 1}
+	for name, goal := range map[string]string{
+		"a zero-width character": "ship\u200b it",
+		"a bidi override":        "ship \u202eit",
+		"too long":               strings.Repeat("a", MaxDisplayRunes+1),
+	} {
+		s := base
+		s.Goal = goal
+		if _, err := BuildRunCharter(s); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	s := base
+	s.Goal = "ship it\nand test it"
+	if _, err := BuildRunCharter(s); err != nil {
+		t.Fatalf("a newline in the goal was refused: %v", err)
 	}
 }
