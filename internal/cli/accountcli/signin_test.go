@@ -90,7 +90,7 @@ func TestSignInErr(t *testing.T) {
 		t.Error("a CLI error is kept")
 	}
 	keyring := fmt.Errorf("seal: %w", account.ErrKeyringUnavailable)
-	if signInErr(keyring) != keyring || clicore.ExitCodeFor(keyring) == 4 {
+	if !errors.Is(signInErr(keyring), account.ErrKeyringUnavailable) || clicore.ExitCodeFor(signInErr(keyring)) == 4 {
 		t.Error("a missing key store is a local failure")
 	}
 	err := signInErr(errors.New("dial tcp: refused"))

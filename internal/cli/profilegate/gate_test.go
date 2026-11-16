@@ -136,3 +136,20 @@ func TestProfileEditCommandsNeedNoProfileFlag(t *testing.T) {
 		}
 	}
 }
+
+func TestNoProfilesYetPointsToProfileCreate(t *testing.T) {
+	none := func() ([]ProfileRef, error) { return nil, nil }
+	_, err := Check(find(tree(), "people", "list"), false, ModeEnforce, none)
+	if err == nil || !strings.Contains(err.Error(), "monoagentcli profile create <name>") {
+		t.Fatalf("an empty profile list needs the create hint, got %v", err)
+	}
+	// with profiles, or when the list is unknown, the hint would be wrong
+	_, err = Check(find(tree(), "people", "list"), false, ModeEnforce, twoProfiles)
+	if err == nil || strings.Contains(err.Error(), "profile create") {
+		t.Fatalf("profiles exist: %v", err)
+	}
+	_, err = Check(find(tree(), "people", "list"), false, ModeEnforce, nil)
+	if err == nil || strings.Contains(err.Error(), "profile create") {
+		t.Fatalf("list unknown: %v", err)
+	}
+}

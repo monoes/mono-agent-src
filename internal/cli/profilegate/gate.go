@@ -50,7 +50,9 @@ func Check(c *cobra.Command, flagSet bool, mode Mode, list Lister) (warning stri
 		return "", nil
 	}
 	msg := "this command acts on a profile: pass --profile <id|name>"
-	if refs := listProfiles(list); len(refs) > 0 {
+	if refs, known := listProfiles(list); known && len(refs) == 0 {
+		msg += ". No profiles exist yet: create one with `monoagentcli profile create <name>`"
+	} else if len(refs) > 0 {
 		parts := make([]string, len(refs))
 		for i, r := range refs {
 			parts[i] = fmt.Sprintf("%s (%s)", r.Name, r.ID)
@@ -86,13 +88,13 @@ func exempt(c *cobra.Command) bool {
 	return false
 }
 
-func listProfiles(list Lister) []ProfileRef {
+func listProfiles(list Lister) (refs []ProfileRef, known bool) {
 	if list == nil {
-		return nil
+		return nil, false
 	}
 	refs, err := list()
 	if err != nil {
-		return nil
+		return nil, false
 	}
-	return refs
+	return refs, true
 }

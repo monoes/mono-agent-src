@@ -33,9 +33,20 @@ type setupOutcome struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+// declinedNote is a note for the JSON report when a fix needing a yes got none.
+func declinedNote(outcomes []setupOutcome) string {
+	for _, o := range outcomes {
+		if o.Outcome == "declined" {
+			return "some fixes were declined because nobody said yes (no terminal, or --json): rerun with --yes to accept them"
+		}
+	}
+	return ""
+}
+
 type setupJSON struct {
 	*health.Report
 	Fixes []setupOutcome `json:"fixes,omitempty"`
+	Note  string         `json:"note,omitempty"`
 }
 
 func newSetupCmd(cfg *Deps) *cobra.Command {
@@ -144,7 +155,7 @@ Safe to run again at any time; it only does what is still missing.
 			if cfg.JSONOutput() {
 				enc := json.NewEncoder(out)
 				enc.SetIndent("", "  ")
-				if err := enc.Encode(setupJSON{Report: rep, Fixes: outcomes}); err != nil {
+				if err := enc.Encode(setupJSON{Report: rep, Fixes: outcomes, Note: declinedNote(outcomes)}); err != nil {
 					return err
 				}
 			} else {

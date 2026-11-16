@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -65,11 +66,20 @@ func validNonce(n string) bool {
 	return err == nil
 }
 
+// BridgeRestartAdvice says how to restart an older bridge on goos.
+func BridgeRestartAdvice(goos string) string {
+	if goos == "linux" {
+		return "restart it: `systemctl --user restart monoagent-bridge` (or `monoagentcli update` restarts it)"
+	}
+	// only Linux runs the bridge as a service the CLI restarts
+	return "restart it: stop it and start `monoagentcli extension serve` again"
+}
+
 // Why a bridge could not be proven.
 var (
 	// ErrBridgeNoProof: the status answered without a proof (an older bridge, or
 	// a listener that is not the bridge). Never sent the token, on any port.
-	ErrBridgeNoProof = errors.New("the bridge is older than this CLI (it cannot prove it is the real one): restart it: `systemctl --user restart monoagent-bridge` (or `monoagentcli update` restarts it)")
+	ErrBridgeNoProof = errors.New("the bridge is older than this CLI (it cannot prove it is the real one): " + BridgeRestartAdvice(runtime.GOOS))
 	// ErrBridgeBadProof: the listener answered the status shape but its proof is wrong.
 	ErrBridgeBadProof = errors.New("the listener answering as the bridge did not prove it holds your pairing token: not sending the token to it. " +
 		"Either this is a different pairing token than the bridge's (the token was reset, or the bridge runs under another HOME): run `monoagentcli extension status` and re-pair; or it is not the bridge")
@@ -79,7 +89,7 @@ var (
 type noProofError struct{ port string }
 
 func (e *noProofError) Error() string {
-	return "the bridge on " + e.port + " is older than this CLI (it cannot prove it is the real one): restart it: `systemctl --user restart monoagent-bridge` (or `monoagentcli update` restarts it)"
+	return "the bridge on " + e.port + " is older than this CLI (it cannot prove it is the real one): " + BridgeRestartAdvice(runtime.GOOS)
 }
 func (e *noProofError) Is(t error) bool { return t == ErrBridgeNoProof }
 

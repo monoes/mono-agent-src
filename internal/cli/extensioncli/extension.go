@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -147,6 +148,13 @@ type pairReport struct {
 const pasteTokenHint = "Run `monoagentcli extension pair` and paste the token it prints into the extension side panel (Connection settings → Pairing token)."
 
 // pairingPageReport is openPairingPage's outcomes as data.
+func pairingRestartHint(goos string) string {
+	if goos != "linux" {
+		return "The running bridge was started with a different pairing token than this one (the token was reset, or the bridge runs under another HOME). Restart the bridge (stop and start `monoagentcli extension serve`), then pair again."
+	}
+	return "The running bridge was started with a different pairing token than this one (the token was reset, or the bridge runs under another HOME). Restart the bridge (`systemctl --user restart monoagent-bridge` if it runs as a service, otherwise stop and start `monoagentcli extension serve`), then pair again."
+}
+
 func pairingPageReport() pairReport {
 	_, base, ok := findRunningBridge()
 	if !ok {
@@ -158,7 +166,7 @@ func pairingPageReport() pairReport {
 	case err == nil:
 	case errors.Is(err, extension.ErrPairingTokenRefused):
 		return pairReport{Fallback: "restart_bridge", Error: extension.PairingMismatchHint,
-			Hint: "The running bridge was started with a different pairing token than this one (the token was reset, or the bridge runs under another HOME). Restart the bridge (`systemctl --user restart monoagent-bridge` if it runs as a service, otherwise stop and start `monoagentcli extension serve`), then pair again."}
+			Hint: pairingRestartHint(runtime.GOOS)}
 	case errors.Is(err, extension.ErrPairingPageUnsupported):
 		return pairReport{Fallback: "token", Error: "the running bridge is older and cannot open a pairing page", Hint: pasteTokenHint}
 	default:

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/monoes/mono-agent/internal/autostart"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -43,7 +44,7 @@ func (d Deps) settleDaemon(ctx context.Context, list []StaleCLI, du *DaemonUpdat
 			du.Message += " " + note
 			s.undo.done = true
 		case hold:
-			du.Message += fmt.Sprintf(" The previous binary of %q is kept at %q; put it back with: mv -f %s %s", s.Path, s.undo.bak, shQuote(s.undo.bak), shQuote(s.undo.target))
+			du.Message += fmt.Sprintf(" The previous binary of %q is kept at %q; put it back with: %s", s.Path, s.undo.bak, manualUndoCommand(runtime.GOOS, s.undo.bak, s.undo.target))
 			s.undo.done = true
 		}
 	}
@@ -59,7 +60,7 @@ func (d Deps) settleBridge(list []StaleCLI, bu *BridgeUpdate) {
 			continue
 		}
 		if bu != nil && (bu.Action == "failed" || bu.Action == "skipped") {
-			bu.Message += fmt.Sprintf(" The previous binary of %q is kept at %q; put it back with: mv -f %s %s", s.Path, s.undo.bak, shQuote(s.undo.bak), shQuote(s.undo.target))
+			bu.Message += fmt.Sprintf(" The previous binary of %q is kept at %q; put it back with: %s", s.Path, s.undo.bak, manualUndoCommand(runtime.GOOS, s.undo.bak, s.undo.target))
 			s.undo.done = true
 			continue
 		}
@@ -69,7 +70,7 @@ func (d Deps) settleBridge(list []StaleCLI, bu *BridgeUpdate) {
 
 func (d Deps) rollBackOne(ctx context.Context, s StaleCLI, failedPID int) (string, bool) {
 	target, bak := s.undo.target, s.undo.bak
-	manual := fmt.Sprintf("The previous binary is kept at %q; put it back with: mv -f %s %s", bak, shQuote(bak), shQuote(target))
+	manual := fmt.Sprintf("The previous binary is kept at %q; put it back with: %s", bak, manualUndoCommand(runtime.GOOS, bak, target))
 	if why := replaceable(target); why != "" {
 		return fmt.Sprintf("The new %q could not be rolled back (%s). %s", target, why, manual), false
 	}
@@ -88,4 +89,13 @@ func (d Deps) rollBackOne(ctx context.Context, s StaleCLI, failedPID int) (strin
 		return fmt.Sprintf("Rolled back %q to %s and restarted the daemon, but no live heartbeat followed within %s: %s.", target, s.Version, d.verifyWait(), daemonDown), false
 	}
 	return fmt.Sprintf("Rolled back %q to %s: the daemon is running it again. The new release did not start on this machine; running `monoagentcli update` again installs the same release and repeats this, so report it (with the daemon's log) instead.", target, s.Version), true
+}
+
+// manualUndoCommand is the command a person pastes to put a kept binary back:
+// `mv -f` in a POSIX shell, `move /Y` in cmd.exe.
+func manualUndoCommand(goos, bak, target string) string {
+	if goos == "windows" {
+		return "move /Y " + shQuoteFor(goos, bak) + " " + shQuoteFor(goos, target)
+	}
+	return "mv -f " + shQuoteFor(goos, bak) + " " + shQuoteFor(goos, target)
 }
