@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/browserctl"
+	"github.com/monoes/mono-agent/internal/extension"
 )
 
 // browser browsers · tabs · open · navigate · reload · close
@@ -21,6 +22,23 @@ type browserRow struct {
 	Legacy      bool   `json:"legacy,omitempty"`
 	Conflict    bool   `json:"conflict,omitempty"`
 	ConnectedAt string `json:"connectedAt,omitempty"`
+	// Outdated is set when the extension is older than extension.MinExtension; Warning says how to update it.
+	Outdated bool   `json:"outdated"`
+	Warning  string `json:"warning,omitempty"`
+}
+
+// browserRows turns the bridge's connections into `browser browsers` rows.
+func browserRows(infos []extension.ConnInfo) []browserRow {
+	rows := []browserRow{}
+	for _, b := range infos {
+		row := browserRow{Instance: b.Instance, Label: b.Label, Profile: b.Profile, Version: b.Version, Legacy: b.Legacy, Conflict: b.Conflict,
+			Outdated: extension.ExtensionOutdated(b.Version), Warning: extension.ExtensionUpdateNote(b.Version)}
+		if !b.ConnectedAt.IsZero() {
+			row.ConnectedAt = b.ConnectedAt.UTC().Format(time.RFC3339)
+		}
+		rows = append(rows, row)
+	}
+	return rows
 }
 
 func newBrowserBrowsersCmd(cfg *globalConfig) *cobra.Command {
@@ -51,23 +69,16 @@ func newBrowserBrowsersCmd(cfg *globalConfig) *cobra.Command {
 			if err != nil {
 				return browserErr(cmd, cfg, err)
 			}
-			rows := []browserRow{}
-			for _, b := range infos {
-				row := browserRow{Instance: b.Instance, Label: b.Label, Profile: b.Profile, Version: b.Version, Legacy: b.Legacy, Conflict: b.Conflict}
-				if !b.ConnectedAt.IsZero() {
-					row.ConnectedAt = b.ConnectedAt.UTC().Format(time.RFC3339)
-				}
-				rows = append(rows, row)
-			}
+			rows := browserRows(infos)
 			return browserOut(cmd, cfg, map[string]any{"browsers": rows}, func() {
 				if len(rows) == 0 {
 					fmt.Fprintln(cmd.OutOrStdout(), "No browser is attached. Open a browser that has the MonoAgent Bridge extension.")
 					return
 				}
 				tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 2, 2, ' ', 0)
-				fmt.Fprintln(tw, "ID\tLABEL\tPROFILE")
+				fmt.Fprintln(tw, "ID\tLABEL\tPROFILE\tNOTE")
 				for _, r := range rows {
-					fmt.Fprintf(tw, "%s\t%s\t%s\n", r.Instance, r.Label, r.Profile)
+					fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", r.Instance, r.Label, r.Profile, r.Warning)
 				}
 				_ = tw.Flush()
 			})
