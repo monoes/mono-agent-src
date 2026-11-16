@@ -13,6 +13,7 @@ import { AppLink, AppNavContext } from './ChatAppLink.jsx'
 import { parseAppLink, appLinkUrlTransform, remarkChatAppMentions } from './chatAppLinks.js'
 import { chatBlockFor } from './blocks/ChatBlock.jsx'
 import { htmlViewForPre } from './htmlView.jsx'
+import { ChatHosts } from './ChatHosts.jsx'
 
 // Only http(s) URLs without credentials ever open (see classifyUrl); anything
 // else (javascript:, data:, file:, mailto:, custom schemes, schemeless) is
@@ -180,9 +181,11 @@ export function ChatMarkdown({ content, noPaths = false, onNavigate = null }) {
     <ErrorBoundary key={content.length} fallback={() => <PlainText content={content} />}>
       <LookupBudget.Provider value={budget.current}>
         <AppNavContext.Provider value={onNavigate}>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.55, wordBreak: 'break-word' }}>
-            <ReactMarkdown remarkPlugins={noPaths ? pluginsNoPaths : plugins} components={noPaths ? withoutPaths : withPaths} urlTransform={appLinkUrlTransform}>{content}</ReactMarkdown>
-          </div>
+          <ChatHosts>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.55, wordBreak: 'break-word' }}>
+              <ReactMarkdown remarkPlugins={noPaths ? pluginsNoPaths : plugins} components={noPaths ? withoutPaths : withPaths} urlTransform={appLinkUrlTransform}>{content}</ReactMarkdown>
+            </div>
+          </ChatHosts>
         </AppNavContext.Provider>
       </LookupBudget.Provider>
     </ErrorBoundary>

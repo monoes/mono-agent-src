@@ -35,7 +35,7 @@ describe('card / list blocks', () => {
     expect(screen.getByText('Nightly sync')).toBeInTheDocument()
     expect(screen.getByText('failed')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /monoagent:\/\/workflow\/w1/ }))
-    expect(onAppLink).toHaveBeenCalledWith('monoagent://workflow/w1')
+    expect(onAppLink).toHaveBeenCalledWith('monoagent://workflow/w1', expect.anything())
   })
   it('renders a list of entities; an item without a link has no button', () => {
     render(<ChatMarkdown content={fence('list', { title: 'Failing', items: [card, { kind: 'person', title: 'Ada' }] })} />)

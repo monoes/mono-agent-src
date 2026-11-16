@@ -55,7 +55,7 @@ describe('TableBlock', () => {
     const onAppLink = vi.fn()
     const { unmount } = render(<ChatBlocksHost.Provider value={{ onAppLink }}><ChatMarkdown content={md(spec)} /></ChatBlocksHost.Provider>)
     fireEvent.click(screen.getByRole('button', { name: /monoagent:\/\/workflow\/w2/ }))
-    expect(onAppLink).toHaveBeenCalledWith('monoagent://workflow/w2')
+    expect(onAppLink).toHaveBeenCalledWith('monoagent://workflow/w2', expect.anything())
     unmount()
     render(<ChatMarkdown content={md(spec)} />)
     expect(() => fireEvent.click(screen.getByRole('button', { name: /monoagent:\/\/workflow\/w2/ }))).not.toThrow()

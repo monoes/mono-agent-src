@@ -2883,6 +2883,11 @@
     "failed": "The pause did not go through.",
     "broken": "The pursuit panel could not be shown (unexpected data)."
   },
+  "htmlView": {
+    "confirm": "The interactive view wants to send this message:",
+    "send": "Send",
+    "cancel": "Cancel"
+  },
   "chatBlocks": {
     "loading": "Loading {{type}} block",
     "cannotSend": "Replies are not available right now.",
