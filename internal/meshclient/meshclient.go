@@ -26,6 +26,14 @@ import (
 // The mesh is optional; callers carry on without it.
 var ErrOffline = errors.New("mesh hub unreachable")
 
+// ErrPathTooLong is returned, instead of ErrOffline, when the hub socket's
+// path is longer than a unix socket address holds: the hub is not known to be
+// down, this client can never dial it from here.
+var ErrPathTooLong = errors.New("mesh hub socket path too long")
+
+// sockMax is a variable so a test can shrink it.
+var sockMax = platformSockMax
+
 // DefaultTimeout is how long one request may take (the monomind client's 500 ms).
 const DefaultTimeout = 500 * time.Millisecond
 
@@ -56,6 +64,10 @@ func (c Client) Call(req map[string]any) (map[string]any, error) {
 	}
 	if dir == "" {
 		return nil, fmt.Errorf("%w: no home directory", ErrOffline)
+	}
+	// A path the OS cannot hold in a socket address can never reach a hub: say so, it is not "hub not running".
+	if sock := filepath.Join(dir, "hub.sock"); len(sock) > sockMax {
+		return nil, fmt.Errorf("%w: %d bytes, the limit is %d; set MONOMIND_MESH_DIR to a shorter directory (%s)", ErrPathTooLong, len(sock), sockMax, sock)
 	}
 	// Never hand a key to a socket in a directory somebody else could have made or entered.
 	if problem := privateDirProblem(dir); problem != "" {
