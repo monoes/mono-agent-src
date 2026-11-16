@@ -183,7 +183,12 @@ export function CoderChatView({ conv, isDraft, access, accessState = 'ready', on
       )}
       <div role="status" aria-live="polite" aria-label={t('bubbles.pane.announcements')} style={srOnly}>{announcement}</div>
       <PersonItemsRegion conversationId={conv.conversationId || ''} />
-      {isDraft && empty && <ChatSetup s={setupState} setup={setup} onChange={onSetupChange} onNavigate={onNavigate} />}
+      {/* The setup form can be taller than the pane (long recents list, many runtimes). It scrolls inside its own box so the composer below stays on screen. */}
+      {isDraft && empty && (
+        <div data-testid="chat-setup-scroll" style={{ flex: '0 1 auto', minHeight: 0, overflowY: 'auto' }}>
+          <ChatSetup s={setupState} setup={setup} onChange={onSetupChange} onNavigate={onNavigate} />
+        </div>
+      )}
       <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
         <div ref={scroll.containerRef} onScroll={e => onScroll?.(e.currentTarget.scrollTop)} data-testid="bubble-transcript"
           style={{ height: '100%', overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column' }}>
