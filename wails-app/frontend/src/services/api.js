@@ -472,6 +472,9 @@ export const api = {
   // profile-scoped) with generated Wails bindings, just no api.js wrapper
   // yet. Typed struct returns, not JSON strings — no .then(JSON.parse).
   getWorkflow:            (id) => GoApp.GetWorkflow(id).catch(guard('get workflow', null)),
+  // Existence probe for chat app links: a model-invented id is an expected
+  // miss, so it resolves null without the guard's error toast.
+  probeWorkflow:          (id) => GoApp.GetWorkflow(id).catch(() => null),
   listProfileDocuments:   () => GoApp.ListProfileDocuments().catch(guard('list profile documents', [])),
   getProfileDocument:     (id) => GoApp.GetProfileDocument(id).catch(guard('get profile document', null)),
   // Workflow import screen: `workflow import --json` verbatim (status,

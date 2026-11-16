@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest'
-import { parseAppLink, appLinkTarget, resolveAppLink, appLinkUrlTransform, findAppMentions, remarkChatAppMentions } from './chatAppLinks.js'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { parseAppLink, appLinkTarget, resolveAppLink, appLinkUrlTransform, resetAppLinkCache, findAppMentions, remarkChatAppMentions } from './chatAppLinks.js'
 
 const UUID = '3f2b8c1e-9a4d-4e7b-8c55-0a1b2c3d4e5f'
 
@@ -47,9 +47,10 @@ describe('appLinkTarget', () => {
 })
 
 describe('resolveAppLink', () => {
+  beforeEach(() => resetAppLinkCache())
   const deps = () => ({
     api: {
-      getWorkflow: vi.fn(async (id) => (id === 'w1' ? { id: 'w1' } : null)),
+      probeWorkflow: vi.fn(async (id) => (id === 'w1' ? { id: 'w1' } : null)),
       getExecutionDetail: vi.fn(async (id) => (id === 'e1' ? { id: 'e1' } : null)),
       listOrgDesigns: vi.fn(async () => [{ name: 'Acme' }]),
       getPersonDetail: vi.fn(async (id) => (id === 'p1' ? { id: 'p1' } : null)),
@@ -83,14 +84,28 @@ describe('resolveAppLink', () => {
 
   it('is null when the lookup throws or the binding is missing', async () => {
     const d = deps()
-    d.api.getWorkflow = vi.fn(async () => { throw new Error('boom') })
+    d.api.probeWorkflow = vi.fn(async () => { throw new Error('boom') })
     expect(await r('monoagent://workflow/w1', d)).toBeNull()
     expect(await r('monoagent://person/p1', { api: {}, tasksApi: {} })).toBeNull()
   })
 
   it('rejects a backend answer for a different id', async () => {
     const d = deps()
-    d.api.getWorkflow = vi.fn(async () => ({ id: 'other' }))
+    d.api.probeWorkflow = vi.fn(async () => ({ id: 'other' }))
+    expect(await r('monoagent://workflow/w1', d)).toBeNull()
+  })
+
+  it('probes a bogus workflow id once, however often it is resolved', async () => {
+    const d = deps()
+    await Promise.all([1, 2, 3].map(() => r('monoagent://workflow/ghost', d)))
+    expect(await r('monoagent://workflow/ghost', d)).toBeNull()
+    expect(d.api.probeWorkflow).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not cache a hit, so click-time revalidation sees a deletion', async () => {
+    const d = deps()
+    expect(await r('monoagent://workflow/w1', d)).not.toBeNull()
+    d.api.probeWorkflow = vi.fn(async () => null)
     expect(await r('monoagent://workflow/w1', d)).toBeNull()
   })
 

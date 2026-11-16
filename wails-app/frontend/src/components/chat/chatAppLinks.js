@@ -56,8 +56,27 @@ export function appLinkTarget({ kind, id }) {
 
 // Whether the target is real is a backend question; a lookup that throws, a
 // missing binding, or an answer about some other id all mean "not real".
+// Workflow probes are cached per id: the in-flight promise is shared, and a
+// miss is remembered for MISS_TTL_MS so a model-invented id costs one backend
+// call, not one per render. A hit is not kept: click-time revalidation must
+// see a deleted workflow.
+const MISS_TTL_MS = 30_000
+const workflowProbes = new Map()
+export function resetAppLinkCache() { workflowProbes.clear() }
+function probeWorkflow(api, id, now = Date.now) {
+  const hit = workflowProbes.get(id)
+  if (hit && (hit.at === null || now() - hit.at < MISS_TTL_MS)) return hit.p
+  const entry = { at: null, p: null }
+  entry.p = Promise.resolve(api.probeWorkflow(id)).then(
+    (w) => { const ok = !!w && w.id === id; if (ok) workflowProbes.delete(id); else entry.at = now(); return ok },
+    (e) => { workflowProbes.delete(id); throw e },
+  )
+  workflowProbes.set(id, entry)
+  return entry.p
+}
+
 async function exists({ kind, id }, { api, tasksApi }) {
-  if (kind === 'workflow') { const w = await api.getWorkflow(id); return !!w && w.id === id }
+  if (kind === 'workflow') return probeWorkflow(api, id)
   if (kind === 'execution') { const e = await api.getExecutionDetail(id); return !!e && e.id === id }
   if (kind === 'org') {
     const res = await api.listOrgDesigns()

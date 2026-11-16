@@ -2,13 +2,14 @@
 import React from 'react'
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
+import { resetAppLinkCache } from './chatAppLinks.js'
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
 import '../../i18n.js'
 
 vi.mock('../../services/api.js', () => ({
   api: {
     openURL: vi.fn(), classifyChatPath: vi.fn(async () => 'refused'),
-    getWorkflow: vi.fn(), getExecutionDetail: vi.fn(), listOrgDesigns: vi.fn(),
+    getWorkflow: vi.fn(), probeWorkflow: vi.fn(), getExecutionDetail: vi.fn(), listOrgDesigns: vi.fn(),
     getPersonDetail: vi.fn(), getProfileDocument: vi.fn(),
   },
   notify: vi.fn(),
@@ -46,6 +47,8 @@ function view(onNavigate, onSend) {
 beforeEach(() => {
   localStorage.clear()
   api.getWorkflow.mockImplementation(async (id) => ({ id }))
+  api.probeWorkflow.mockImplementation(async (id) => ({ id }))
+  resetAppLinkCache()
   tasksApi.show.mockResolvedValue({ task: { id: 7 } })
 })
 afterEach(() => { cleanup(); vi.clearAllMocks(); isUserGesture.mockImplementation(() => true); localStorage.clear() })
@@ -63,7 +66,7 @@ describe('one message, all the chat features', () => {
 
   it('a block app link navigates only after the target resolves', async () => {
     let release
-    api.getWorkflow.mockImplementation((id) => (id === 'w2' ? new Promise(r => { release = () => r({ id: 'w2' }) }) : Promise.resolve({ id })))
+    api.probeWorkflow.mockImplementation((id) => (id === 'w2' ? new Promise(r => { release = () => r({ id: 'w2' }) }) : Promise.resolve({ id })))
     const nav = vi.fn()
     render(view(nav, vi.fn()))
     fireEvent.click(await screen.findByRole('button', { name: W2 }))
@@ -74,7 +77,7 @@ describe('one message, all the chat features', () => {
   })
 
   it('a block app link to something gone never navigates', async () => {
-    api.getWorkflow.mockImplementation(async (id) => (id === 'w2' ? null : { id }))
+    api.probeWorkflow.mockImplementation(async (id) => (id === 'w2' ? null : { id }))
     const nav = vi.fn()
     render(view(nav, vi.fn()))
     fireEvent.click(await screen.findByRole('button', { name: W2 }))
@@ -90,7 +93,7 @@ describe('one message, all the chat features', () => {
     fireEvent.click(btn)
     await new Promise(r => setTimeout(r, 20))
     expect(nav).not.toHaveBeenCalled()
-    expect(api.getWorkflow).not.toHaveBeenCalledWith('w2')
+    expect(api.probeWorkflow).not.toHaveBeenCalledWith('w2')
   })
 
   it('the prose chip navigates through the same path', async () => {
@@ -104,7 +107,7 @@ describe('one message, all the chat features', () => {
     render(view(undefined, vi.fn()))
     fireEvent.click(await screen.findByRole('button', { name: W2 }))
     await new Promise(r => setTimeout(r, 20))
-    expect(api.getWorkflow).not.toHaveBeenCalledWith('w2')
+    expect(api.probeWorkflow).not.toHaveBeenCalledWith('w2')
   })
 })
 
@@ -121,7 +124,8 @@ describe('html-view onSend asks first', () => {
   function frameMsg(container, msg) {
     fireEvent.click(screen.getByText('Show interactive view'))
     const iframe = container.querySelector('iframe')
-    fireEvent.pointerEnter(iframe.parentElement)
+    iframe.focus()
+    window.dispatchEvent(new Event('blur'))
     const post = (data) => window.dispatchEvent(new MessageEvent('message', { data, source: iframe.contentWindow }))
     post({ v: 1, t: 'gesture' })
     post({ v: 1, ...msg })
@@ -157,6 +161,6 @@ describe('html-view onSend asks first', () => {
     const { container } = render(frameView(vi.fn(), nav))
     frameMsg(container, { t: 'open', href: 'monoagent://workflow/w1' })
     await waitFor(() => expect(nav).toHaveBeenCalledWith('noderunner', { workflowId: 'w1' }))
-    expect(api.getWorkflow).toHaveBeenCalledWith('w1')
+    expect(api.probeWorkflow).toHaveBeenCalledWith('w1')
   })
 })

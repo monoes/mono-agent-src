@@ -8,7 +8,7 @@ import '../../i18n.js'
 vi.mock('../../services/api.js', () => ({
   api: {
     openURL: vi.fn(), classifyChatPath: vi.fn(async () => 'refused'),
-    getWorkflow: vi.fn(), getExecutionDetail: vi.fn(), listOrgDesigns: vi.fn(),
+    probeWorkflow: vi.fn(), getExecutionDetail: vi.fn(), listOrgDesigns: vi.fn(),
     getPersonDetail: vi.fn(), getProfileDocument: vi.fn(),
   },
   notify: vi.fn(),
@@ -19,14 +19,15 @@ import { isUserGesture } from './chatLinks.js'
 import { api, notify } from '../../services/api.js'
 import { tasksApi } from '../../services/tasks.js'
 import { ChatMarkdown } from './ChatMarkdown.jsx'
+import { resetAppLinkCache } from './chatAppLinks.js'
 
 const UUID = '3f2b8c1e-9a4d-4e7b-8c55-0a1b2c3d4e5f'
 
-afterEach(() => { cleanup(); vi.clearAllMocks(); isUserGesture.mockImplementation(() => true) })
+afterEach(() => { resetAppLinkCache(); cleanup(); vi.clearAllMocks(); isUserGesture.mockImplementation(() => true) })
 
 describe('monoagent:// links in chat markdown', () => {
   it('renders a real workflow as a chip, with no host suffix, and navigates on click', async () => {
-    api.getWorkflow.mockResolvedValue({ id: 'w1' })
+    api.probeWorkflow.mockResolvedValue({ id: 'w1' })
     const nav = vi.fn()
     render(<ChatMarkdown content="[my flow](monoagent://workflow/w1)" onNavigate={nav} />)
     const chip = await screen.findByRole('button', { name: 'my flow' })
@@ -39,7 +40,7 @@ describe('monoagent:// links in chat markdown', () => {
   })
 
   it('shows a forged id inert and never navigates', async () => {
-    api.getWorkflow.mockResolvedValue(null)
+    api.probeWorkflow.mockResolvedValue(null)
     const nav = vi.fn()
     render(<ChatMarkdown content="[ghost](monoagent://workflow/nope)" onNavigate={nav} />)
     await waitFor(() => expect(screen.getByText('ghost')).toHaveAttribute('title', 'This link points to something that does not exist'))
@@ -49,7 +50,7 @@ describe('monoagent:// links in chat markdown', () => {
   })
 
   it('ignores a click the user did not make', async () => {
-    api.getWorkflow.mockResolvedValue({ id: 'w1' })
+    api.probeWorkflow.mockResolvedValue({ id: 'w1' })
     const nav = vi.fn()
     render(<ChatMarkdown content="[f](monoagent://workflow/w1)" onNavigate={nav} />)
     const chip = await screen.findByRole('button', { name: 'f' })
@@ -57,11 +58,11 @@ describe('monoagent:// links in chat markdown', () => {
     fireEvent.click(chip)
     await new Promise(r => setTimeout(r, 20))
     expect(nav).not.toHaveBeenCalled()
-    expect(api.getWorkflow).toHaveBeenCalledTimes(1)
+    expect(api.probeWorkflow).toHaveBeenCalledTimes(1)
   })
 
   it('revalidates at click time and refuses when the target is gone', async () => {
-    api.getWorkflow.mockResolvedValueOnce({ id: 'w1' }).mockResolvedValue(null)
+    api.probeWorkflow.mockResolvedValueOnce({ id: 'w1' }).mockResolvedValue(null)
     const nav = vi.fn()
     render(<ChatMarkdown content="[f](monoagent://workflow/w1)" onNavigate={nav} />)
     fireEvent.click(await screen.findByRole('button', { name: 'f' }))
@@ -88,7 +89,7 @@ describe('monoagent:// links in chat markdown', () => {
   it('stays inert without onNavigate, without any lookup', async () => {
     render(<ChatMarkdown content="[f](monoagent://workflow/w1)" />)
     expect(screen.queryByRole('button')).toBeNull()
-    expect(api.getWorkflow).not.toHaveBeenCalled()
+    expect(api.probeWorkflow).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -98,16 +99,16 @@ describe('monoagent:// links in chat markdown', () => {
     render(<ChatMarkdown content={md} onNavigate={vi.fn()} />)
     expect(screen.queryByRole('button')).toBeNull()
     expect(screen.queryByRole('link')).toBeNull()
-    expect(api.getWorkflow).not.toHaveBeenCalled()
+    expect(api.probeWorkflow).not.toHaveBeenCalled()
   })
 
   it('respects the per-message lookup budget', async () => {
-    api.getWorkflow.mockResolvedValue({ id: 'w1' })
-    const md = Array.from({ length: 35 }, (_, i) => `[l${i}](monoagent://workflow/w1)`).join(' ')
+    api.probeWorkflow.mockImplementation(async (id) => ({ id }))
+    const md = Array.from({ length: 35 }, (_, i) => `[l${i}](monoagent://workflow/w${i})`).join(' ')
     render(<ChatMarkdown content={md} onNavigate={vi.fn()} />)
-    await waitFor(() => expect(api.getWorkflow).toHaveBeenCalledTimes(30))
+    await waitFor(() => expect(api.probeWorkflow).toHaveBeenCalledTimes(30))
     await new Promise(r => setTimeout(r, 20))
-    expect(api.getWorkflow).toHaveBeenCalledTimes(30)
+    expect(api.probeWorkflow).toHaveBeenCalledTimes(30)
   })
 
   it('chips a bare task mention that exists and keeps its text', async () => {
@@ -121,10 +122,10 @@ describe('monoagent:// links in chat markdown', () => {
 
   it('leaves an unresolved mention as plain text, with no hint of a link', async () => {
     tasksApi.show.mockResolvedValue({ error: 'not found' })
-    api.getWorkflow.mockResolvedValue(null)
+    api.probeWorkflow.mockResolvedValue(null)
     const { container } = render(<ChatMarkdown content={`See task #99 and workflow ${UUID}.`} onNavigate={vi.fn()} />)
     await waitFor(() => expect(tasksApi.show).toHaveBeenCalled())
-    await waitFor(() => expect(api.getWorkflow).toHaveBeenCalled())
+    await waitFor(() => expect(api.probeWorkflow).toHaveBeenCalled())
     await new Promise(r => setTimeout(r, 20))
     expect(container.textContent).toBe(`See task #99 and workflow ${UUID}.`)
     expect(screen.queryByRole('button')).toBeNull()
