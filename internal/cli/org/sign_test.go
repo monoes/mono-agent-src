@@ -501,6 +501,7 @@ func TestOrgStatusChecksAllOrgsInOneRun(t *testing.T) {
 		Items []struct {
 			Name      string          `json:"name"`
 			Signature *orgsign.Status `json:"signature"`
+			Notice    string          `json:"signature_notice"`
 		} `json:"items"`
 	}
 	if err := json.Unmarshal(out, &got); err != nil {
@@ -508,6 +509,9 @@ func TestOrgStatusChecksAllOrgsInOneRun(t *testing.T) {
 	}
 	if got.Items[0].Signature == nil || got.Items[0].Signature.State != orgsign.StateChanged {
 		t.Fatalf("growth = %+v", got.Items[0])
+	}
+	if n := got.Items[0].Notice; !strings.Contains(n, "monoagentcli org sign growth") {
+		t.Fatalf("an unsigned org's status must name the next step, notice = %q", n)
 	}
 	calls, _ := os.ReadFile(logPath)
 	if strings.Count(string(calls), "check-all") != 1 || strings.Contains(string(calls), "--check") {

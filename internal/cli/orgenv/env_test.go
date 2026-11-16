@@ -220,3 +220,28 @@ func TestNoProfileIsAnErrorNotTheDefaultRoot(t *testing.T) {
 		t.Fatalf("Profile() err = %v, want ErrProfileRequired", err)
 	}
 }
+
+// Replacing an org by a whole document drops the signature the operator gave
+// the old one: the new bytes are not what was reviewed.
+func TestDropSignatureWithdrawsTheOrgSignature(t *testing.T) {
+	root := t.TempDir()
+	path, err := orgsign.SignaturePath(root, "growth")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	proj := strings.TrimSuffix(path, ".json") + ".projection.json"
+	for _, p := range []string{path, proj} {
+		if err := os.WriteFile(p, []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	DropSignature(root, "growth")
+	for _, p := range []string{path, proj} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("%s survived: %v", p, err)
+		}
+	}
+}

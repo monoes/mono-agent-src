@@ -32,6 +32,9 @@ type Deps struct {
 	Reported func(err error) error
 	// NotFound is a not-found error (exit 2).
 	NotFound func(format string, a ...any) error
+	// Refusal is opgate.Refusal: why this process may not do what only the user does, "" for the
+	// user. Installing with --yes or --local is the user's; nil refuses (clicore.OperatorRefusal).
+	Refusal func() string
 }
 
 // The helpers below are package copies of the CLI's own (automation_list.go,

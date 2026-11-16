@@ -22,8 +22,11 @@ var ErrNotFound = errors.New("orggrant: not found")
 
 // Tool is one granted automation inside a grant row's tools_json.
 type Tool struct {
-	Tool           string `json:"tool"` // automation_<alias>
-	WorkflowID     string `json:"workflow_id"`
+	Tool       string `json:"tool"` // automation_<alias>
+	WorkflowID string `json:"workflow_id"`
+	// WorkflowHash is the definition hash the grant approved; empty on a
+	// grant made before it existed (see CheckWorkflow).
+	WorkflowHash   string `json:"workflow_hash,omitempty"`
 	Alias          string `json:"alias"`
 	Mode           string `json:"mode"` // run | trigger | status
 	Wait           bool   `json:"wait"`

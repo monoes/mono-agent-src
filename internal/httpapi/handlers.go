@@ -231,7 +231,7 @@ func (s *Server) handleWorkflowRun(w http.ResponseWriter, r *http.Request) {
 	if body.Input == nil {
 		body.Input = map[string]interface{}{}
 	}
-	browserjev.MarkAICallerFor(ctx, nil, body.Input, "an API caller is not the user's terminal", false)
+	browserjev.MarkAICallerForServer(ctx, s.rt.db.DB, expandHome(orDefaultDBPath(s.opts.DBPath)), body.Input, "an API caller is not the user's terminal")
 	execID, err := engine.TriggerWorkflow(ctx, id, body.Input)
 	if err != nil {
 		writeErrorFor(w, err)

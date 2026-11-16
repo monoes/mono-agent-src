@@ -250,8 +250,13 @@ func newOrgGrantAddCmd(env *orgEnv) *cobra.Command {
 			store := orggrant.NewStore(db.DB)
 			existing, _ := store.ListGrants(ctx, profileID, doc.Name, role)
 
+			wfHash, err := orggrant.WorkflowHash(wf)
+			if err != nil {
+				return err
+			}
 			tool := orggrant.Tool{
-				Alias: alias, WorkflowID: ref.WorkflowID, Mode: mode, Wait: wait, Timeout: timeout,
+				WorkflowHash: wfHash,
+				Alias:        alias, WorkflowID: ref.WorkflowID, Mode: mode, Wait: wait, Timeout: timeout,
 				Approval: approval, Tier: orggrant.GrantTier(outbound),
 				MaxCallsPerRun: maxRun, MaxCallsPerDay: maxDay, MaxOutputBytes: maxOut,
 			}

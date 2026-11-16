@@ -161,7 +161,7 @@ func (s *Services) Start(ctx context.Context, engine *workflow.WorkflowEngine) {
 // reconciler reconciles org files for the daemon (orgenv.Reconciler): its
 // own saves are marked so the watcher does not reconcile them again.
 func (s *Services) reconciler() *orgenv.Reconciler {
-	return &orgenv.Reconciler{DB: s.db, OpenWorkflowStore: s.openWorkflowStore, Logf: s.logf, Saved: s.markSelfWrite}
+	return &orgenv.Reconciler{DB: s.db, OpenWorkflowStore: s.openWorkflowStore, Logf: s.logf, Saved: s.markSelfWrite, Unsigned: true}
 }
 
 // reconcileProfile reconciles every org of a profile (orgenv.Reconciler.Profile).

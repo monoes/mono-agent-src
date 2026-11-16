@@ -8,6 +8,7 @@ import (
 	"github.com/monoes/mono-agent/internal/orgdesign"
 	"github.com/monoes/mono-agent/internal/orggrant"
 	"github.com/monoes/mono-agent/internal/orggroup"
+	"github.com/monoes/mono-agent/internal/orgsign"
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
@@ -23,6 +24,11 @@ type Reconciler struct {
 	// Saved, when set, is told about each reconciled file saved: the
 	// daemon's watcher then skips its own write.
 	Saved func(profileID, name, sha string)
+	// Unsigned makes every save leave the org's signature for the operator to review. The daemon sets
+	// it: it has no marker or turn verdict, and the rows it reconciles from (a grant revoked, an
+	// enforcement row) can have been written by a coder turn. Changes the operator made through the
+	// CLI are saved signed by that command itself, under the rows lock, before the daemon looks.
+	Unsigned bool
 }
 
 // Profile reconciles every org of a profile at startup, so grants,
@@ -100,7 +106,15 @@ func (r *Reconciler) Doc(ctx context.Context, pr orgdecide.ProfileRoot, d *orgde
 	}
 	// An org edited outside mono-agent fails the signature check first, so
 	// this write never signs that edit (orgsign.Before).
-	sha, sig, err := SaveSigned(ctx, pr.Root, d.Name, d)
+	var (
+		sha string
+		sig *orgsign.Outcome
+	)
+	if r.Unsigned {
+		sha, sig, err = SaveUnsigned(ctx, pr.Root, d, "the daemon reconciled it from enforcement rows whose writer it cannot tell from a coder turn")
+	} else {
+		sha, sig, err = SaveSigned(ctx, pr.Root, d.Name, d)
+	}
 	if err != nil {
 		return fail("org services: saving reconciled %s: %v", err)
 	}

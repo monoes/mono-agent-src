@@ -148,7 +148,8 @@ These are the most useful steps. The full list is in `data/schemas/action.v1.sch
 Package written: <dir>/<id>
 
 Validate: monoagentcli automation validate <id>
-Install:  monoagentcli automation install <id> --local --yes
+Review:   monoagentcli automation install <id> --dry-run
+Install:  ask the operator to run `monoagentcli automation install <id> --local` in their own terminal (a coder turn cannot install with --yes or --local)
 Run:      monoagentcli --profile <profile> node run <id>.<action_type> --config '{"url":"<page url>"}'
 ```
 

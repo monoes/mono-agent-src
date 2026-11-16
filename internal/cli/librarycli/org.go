@@ -70,6 +70,8 @@ func (e *libEnv) installOrg(ctx context.Context, it *library.Item, data []byte, 
 	}
 	if exists {
 		res.Warnings = append(res.Warnings, fmt.Sprintf("replaced the existing org %q", name))
+		// A replace drops the signature: the library's document is never the operator's own.
+		orgenv.DropSignature(root, name)
 	} else if err := org.EnsureNewAutonomy(ctx, db, profileID, &d, "library"); err != nil {
 		return err
 	}
