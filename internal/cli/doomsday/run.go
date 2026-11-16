@@ -3,7 +3,9 @@ package doomsday
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -26,6 +28,37 @@ type RunSpec struct {
 	Boss      Pin
 	Verifier  Pin
 	Lift      []Line // lines to lift; empty lifts every line but the platform caps
+}
+
+// MinBudgetUSD and MaxBudgetUSD bound --budget: below a micro-dollar it would round to nothing, and a huge value is a typo, not a ceiling.
+const (
+	MinBudgetUSD = 0.000001
+	MaxBudgetUSD = 1000000
+)
+
+// ParseBudgetUSD reads --budget: a finite amount between the bounds.
+func ParseBudgetUSD(s string) (float64, error) {
+	v, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v <= 0 {
+		return 0, clicore.InvalidInput("--budget is an amount in USD above zero")
+	}
+	if v < MinBudgetUSD || v > MaxBudgetUSD {
+		return 0, clicore.InvalidInput("--budget is between %g and %d USD (use --no-ceiling for none)", MinBudgetUSD, MaxBudgetUSD)
+	}
+	return v, nil
+}
+
+// defaultRunDir is the folder of a run started with no --cwd: the current one, but never the home folder or the root, where a
+// full-access run would have the whole account in reach.
+func defaultRunDir() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	if home, herr := os.UserHomeDir(); (herr == nil && filepath.Clean(cwd) == filepath.Clean(home)) || filepath.Clean(cwd) == string(filepath.Separator) {
+		return "", clicore.InvalidInput("the current folder is %s: pass --cwd with the folder the run should work in", cwd)
+	}
+	return cwd, nil
 }
 
 // ParsePin reads "provider/model" or "provider/model@version"; no version is "unknown", as the app's form does.
@@ -94,15 +127,14 @@ func (d Deps) newRun() *cobra.Command {
 		noCeiling      bool
 		criteria, lift []string
 		boss, verifier string
-		runtimeID, cwd string
-		model          string
+		cwd            string
 	)
 	c := &cobra.Command{
 		Use:   "run GOAL",
 		Short: "Start an open-ended run from a goal in one command (the user's own)",
 		Long: "Writes the charter from the goal, makes the open chat the boss stands behind, and starts the run: the boss directs, planners plan, " +
 			"and doer sessions do the work. The charter's budget, limits and lines bind as always (every line but the platform caps is " +
-			"lifted unless --lift names them), Stop works, and the run is recorded as a script start. Pass --budget USD or --no-ceiling. " +
+			"lifted unless --lift names them), Stop works, and the run is recorded as a script start. Pass --budget USD or --no-ceiling (no ceiling at all). --lift with no line is refused. " +
 			"Models are pinned from the validated roster unless --boss and --verifier (provider/model[@version]) are given; the verifier must differ from the boss. " +
 			clicore.OperatorOnlyHelp,
 		Args: cobra.ExactArgs(1),
@@ -112,25 +144,26 @@ func (d Deps) newRun() *cobra.Command {
 			}
 			spec := RunSpec{Goal: args[0], NoCeiling: noCeiling, Criteria: criteria}
 			if budget != "" {
-				v, err := strconv.ParseFloat(budget, 64)
-				if err != nil || v <= 0 {
-					return clicore.InvalidInput("--budget is an amount in USD above zero")
+				v, err := ParseBudgetUSD(budget)
+				if err != nil {
+					return err
 				}
 				spec.BudgetUSD = v
 			}
-			for _, l := range lift {
-				spec.Lift = append(spec.Lift, Line(strings.TrimSpace(l)))
-			}
-			if err := d.resolvePins(cmd.Context(), &spec, boss, verifier); err != nil {
-				return err
-			}
-			ch, err := BuildRunCharter(spec)
-			if err != nil {
-				return err
+			if cmd.Flags().Changed("lift") {
+				for _, l := range lift {
+					if l = strings.TrimSpace(l); l != "" {
+						spec.Lift = append(spec.Lift, Line(l))
+					}
+				}
+				if len(spec.Lift) == 0 { // an empty --lift must never fall back to lifting everything
+					return clicore.InvalidInput("--lift names no line: name the lines to lift, or leave --lift out to lift every line but platform_caps")
+				}
 			}
 			if d.OpenChat == nil {
 				return clicore.InvalidInput("this install cannot make the run's chat, so nothing was started")
 			}
+			// The same refusals as `start`, before the roster is read (reading it may fetch the runtime binary) and before anything is made.
 			e := d.engine()
 			if err := e.Containment(); err != nil {
 				return refusal(err)
@@ -140,26 +173,34 @@ func (d Deps) newRun() *cobra.Command {
 					return refusal(err)
 				}
 			}
+			if err := d.resolvePins(cmd.Context(), &spec, boss, verifier); err != nil {
+				return err
+			}
+			ch, err := BuildRunCharter(spec)
+			if err != nil {
+				return err
+			}
+			if cwd == "" {
+				if cwd, err = defaultRunDir(); err != nil {
+					return err
+				}
+			}
 			canon, err := e.Canonical(cmd.Context(), ch)
 			if err != nil {
 				return err
 			}
 			fmt.Fprintln(d.humanOut(cmd), Render(ch, canon.Hash))
-			if cwd == "" {
-				if cwd, err = os.Getwd(); err != nil {
-					return err
-				}
+			// One run goes at a time: say so before the chat exists, so a refused start leaves no chat behind. (startFromChat checks
+			// again under the start lock; only a start racing this one can still leave a chat.)
+			st, err := e.Status(cmd.Context())
+			if err != nil {
+				return fmt.Errorf("the profile's open-ended run cannot be read, so nothing was started: %w", err)
 			}
-			rt := runtimeID
-			if rt == "" {
-				rt = ch.Pins.Boss.Provider
+			if st.Active {
+				return runExistsError(st.RunID)
 			}
-			mdl := model
-			if mdl == "" && rt == ch.Pins.Boss.Provider {
-				mdl = ch.Pins.Boss.Model
-			}
-			// The chat is made last before the start, so a refused charter or machine leaves no chat behind.
-			chat, err := d.OpenChat(cmd, rt, mdl, cwd)
+			// The chat is the boss's: it runs the pinned boss model, whatever else is asked.
+			chat, err := d.OpenChat(cmd, ch.Pins.Boss.Provider, ch.Pins.Boss.Model, cwd)
 			if err != nil {
 				return err
 			}
@@ -167,14 +208,12 @@ func (d Deps) newRun() *cobra.Command {
 		},
 	}
 	c.Flags().StringVar(&budget, "budget", "", "The run's budget ceiling in USD")
-	c.Flags().BoolVar(&noCeiling, "no-ceiling", false, "No ceiling of the charter's own (the boss session's own budget still applies)")
+	c.Flags().BoolVar(&noCeiling, "no-ceiling", false, "No budget ceiling at all: the run is bounded only by its limits and by Stop")
 	c.Flags().StringArrayVar(&criteria, "criterion", nil, "A success criterion (rubric text); repeat for more. A run with none never finishes on its own")
 	c.Flags().StringSliceVar(&lift, "lift", nil, "Lift only these lines (default: every line but platform_caps)")
 	c.Flags().StringVar(&boss, "boss", "", "The boss model, provider/model[@version] (default: the best validated model)")
 	c.Flags().StringVar(&verifier, "verifier", "", "The finishing verifier model, a different one (default: the next validated model)")
-	c.Flags().StringVar(&runtimeID, "runtime", "", "The chat's runtime (default: the boss's provider)")
-	c.Flags().StringVar(&model, "model", "", "The chat's model (default: the boss's model)")
-	c.Flags().StringVar(&cwd, "cwd", "", "The folder the run works in (default: the current folder)")
+	c.Flags().StringVar(&cwd, "cwd", "", "The folder the run works in (default: the current folder, but never your home folder or /)")
 	return c
 }
 
