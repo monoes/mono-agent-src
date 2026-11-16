@@ -92,3 +92,14 @@ func TestTheUnapprovedCallerGoesDownTheChain(t *testing.T) {
 		}
 	}
 }
+
+// The unapproved-workflow mark may carry "/declared" after its kind: it still says the caller is unapproved.
+func TestCalledByUnapprovedReadsAMarkWithASuffix(t *testing.T) {
+	for mark, want := range map[string]bool{
+		UnapprovedWorkflowCaller: true, UnapprovedWorkflowCaller + "/org": true, "chat": false, "other/unapproved-workflow": false,
+	} {
+		if _, ok := CalledByUnapproved(map[string]interface{}{AICallerKey: mark}); ok != want {
+			t.Errorf("mark %q: called by unapproved = %v, want %v", mark, ok, want)
+		}
+	}
+}

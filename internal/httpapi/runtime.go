@@ -111,6 +111,13 @@ type profileEngine struct {
 	sched  *scheduler.Scheduler
 }
 
+func orDefaultDBPath(p string) string {
+	if p == "" {
+		return "~/.monoagent/monoagent.db"
+	}
+	return p
+}
+
 func expandHome(path string) string {
 	if strings.HasPrefix(path, "~/") {
 		home, err := os.UserHomeDir()
@@ -176,11 +183,7 @@ func newRuntime(opts Options) (*runtime, error) {
 		}
 		return &runtime{db: opts.DB, store: store, engine: opts.Engine, hosted: true}, nil
 	}
-	dbPath := opts.DBPath
-	if dbPath == "" {
-		dbPath = "~/.monoagent/monoagent.db"
-	}
-	dbPath = expandHome(dbPath)
+	dbPath := expandHome(orDefaultDBPath(opts.DBPath))
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0700); err != nil {
 		return nil, fmt.Errorf("httpapi: create db dir: %w", err)
 	}
