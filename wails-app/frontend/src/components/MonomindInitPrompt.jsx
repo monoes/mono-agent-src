@@ -37,7 +37,21 @@ export default function MonomindInitPrompt({ onInitialized }) {
     runningRef.current = true
     setStatus('running')
     setLines([])
-    await api.initializeMonomindProfile()
+    // The binding returns before init finishes; progress arrives as events.
+    // A refusal (e.g. signed out) is returned without an event, so read it
+    // here or the spinner would never stop.
+    let message = ''
+    try {
+      const r = await api.initializeMonomindProfile()
+      if (r && r.error) message = r.login_required ? `${r.error} — sign in to monoes.me, then try again.` : r.error
+    } catch (e) {
+      message = e?.message || String(e)
+    }
+    if (message && runningRef.current) {
+      runningRef.current = false
+      setStatus('error')
+      notify('initialize monomind', message)
+    }
   }
 
   return (

@@ -93,15 +93,31 @@ func TestCallRoundTripsOneJSONLine(t *testing.T) {
 	}
 }
 
+func TestCallReportsATooLongSocketPathDistinctlyFromOffline(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), strings.Repeat("d", platformSockMax))
+	_, err := Client{Dir: dir}.Call(map[string]any{"op": "who"})
+	if !errors.Is(err, ErrPathTooLong) || errors.Is(err, ErrOffline) {
+		t.Fatalf("err = %v", err)
+	}
+	if !strings.Contains(err.Error(), "MONOMIND_MESH_DIR") {
+		t.Fatalf("no remedy named: %v", err)
+	}
+}
+
 func TestCallIsOfflineWhenThereIsNoHubOrTheDirIsNotPrivate(t *testing.T) {
-	if _, err := (Client{Dir: filepath.Join(t.TempDir(), "none")}).Call(map[string]any{"op": "who"}); !errors.Is(err, ErrOffline) {
+	short, err := os.MkdirTemp("", "mc") // t.TempDir is too long for a socket path on macOS
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(short) })
+	if _, err := (Client{Dir: filepath.Join(short, "none")}).Call(map[string]any{"op": "who"}); !errors.Is(err, ErrOffline) {
 		t.Fatalf("no directory: %v", err)
 	}
 	dir := fakeHub(t, func(map[string]any) map[string]any { return map[string]any{"ok": true} })
 	if err := os.Chmod(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	_, err := Client{Dir: dir}.Call(map[string]any{"op": "who"})
+	_, err = Client{Dir: dir}.Call(map[string]any{"op": "who"})
 	if !errors.Is(err, ErrOffline) || !strings.Contains(err.Error(), "not private") {
 		t.Fatalf("a group-readable directory must be refused before anything is sent: %v", err)
 	}
