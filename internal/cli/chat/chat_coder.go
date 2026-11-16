@@ -61,7 +61,7 @@ func coderSystemPrompt(cwd string) string {
 	return "You are running as mono-agent's coder chat: a full coding-agent session with unrestricted " +
 		"access to this computer, working in " + cwd + ". The user sees every tool call you make " +
 		"(commands, edits, file writes) live in the chat. Work inside that folder unless the user " +
-		"asks for something elsewhere, and say plainly what you changed."
+		"asks for something elsewhere, and say plainly what you changed.\n\n" + chatBlocksPrompt()
 }
 
 // coderLeadSystemPrompt is the lead's whole system prompt for a turn in cwd:
