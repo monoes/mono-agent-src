@@ -41,7 +41,7 @@ type Server struct {
 	// page_capture responses, which pending cannot: it is single-shot, and
 	// one capture may span many messages under one id. Both are guarded by
 	// pendMu, as is onCapture.
-	streams        map[string]chan *Response
+	streams        map[string]*pendingCmd
 	assembler      *capture.Assembler
 	captureWriter  *capture.Writer
 	captureInbox   string

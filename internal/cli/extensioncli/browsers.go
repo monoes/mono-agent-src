@@ -37,7 +37,10 @@ type browserRow struct {
 	Legacy       bool     `json:"legacy"`
 	Conflict     bool     `json:"conflict"`
 	Version      string   `json:"version"`
-	ConnectedAt  string   `json:"connected_at"`
+	// Outdated is set when the extension is older than extension.MinExtension; Warning says how to update it.
+	Outdated    bool   `json:"outdated"`
+	Warning     string `json:"warning,omitempty"`
+	ConnectedAt string `json:"connected_at"`
 }
 
 type browsersReport struct {
@@ -245,6 +248,7 @@ func browserRows(infos []extension.ConnInfo, names map[string]string) []browserR
 			Instance: b.Instance, Label: b.Label,
 			ProfileIDs: append([]string{}, ids...), ProfileNames: make([]string, 0, len(ids)),
 			Legacy: b.Legacy, Conflict: b.Conflict, Version: b.Version,
+			Outdated: extension.ExtensionOutdated(b.Version), Warning: extension.ExtensionUpdateNote(b.Version),
 		}
 		for _, id := range ids {
 			row.ProfileNames = append(row.ProfileNames, names[id])
@@ -323,6 +327,8 @@ func printBrowserTable(out io.Writer, rows []browserRow) {
 			note = "extension too old to bind — reload it"
 		case r.Conflict:
 			note = "another browser runs one of these profiles; the newer one is used"
+		case r.Outdated:
+			note = "extension " + versionOrUnknown(r.Version) + " is older than " + extension.MinExtension + " — update it (see `extension install`)"
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", label, id, profile, note)
 	}
@@ -371,4 +377,27 @@ func unbindProfile(b bindingBridge, profileID string) (int, error) {
 		n++
 	}
 	return n, errors.Join(errs...)
+}
+
+func versionOrUnknown(v string) string {
+	if strings.TrimSpace(v) == "" {
+		return "(unknown version)"
+	}
+	return v
+}
+
+// outdatedWarnings names every connected browser whose extension is older
+// than extension.MinExtension, with how to update it.
+func outdatedWarnings(infos []extension.ConnInfo) []string {
+	var out []string
+	for _, b := range infos {
+		if note := extension.ExtensionUpdateNote(b.Version); note != "" {
+			label := b.Label
+			if label == "" {
+				label = b.Instance
+			}
+			out = append(out, fmt.Sprintf("Browser %q: %s", label, note))
+		}
+	}
+	return out
 }

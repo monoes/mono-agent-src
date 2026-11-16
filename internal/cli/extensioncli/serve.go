@@ -300,6 +300,8 @@ type bridgeStatusReport struct {
 	// ask). A mismatch means every relayed command from here gets 401.
 	ClientPairing extension.PairingState `json:"clientPairing,omitempty"`
 	Hint          string                 `json:"hint,omitempty"`
+	// Warnings lists connected browsers whose extension is older than extension.MinExtension.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 func newExtensionStatusCmd(cfg *Deps) *cobra.Command {
@@ -344,8 +346,14 @@ func runExtensionStatus(out io.Writer, asJSON bool) error {
 	// /monoagent/health is unauthenticated, so "connected" says nothing
 	// about whether THIS client may use the bridge; ask with our token.
 	pairing, _ := extension.CheckPairing(base)
+	var warnings []string
+	if pairing != extension.PairingMismatch && st.Browsers > 0 {
+		if infos, err := extension.NewRemoteSender(base).Browsers(); err == nil {
+			warnings = outdatedWarnings(infos)
+		}
+	}
 	if asJSON {
-		report := bridgeStatusReport{Running: true, Bridge: &st, ClientPairing: pairing}
+		report := bridgeStatusReport{Running: true, Bridge: &st, ClientPairing: pairing, Warnings: warnings}
 		if pairing == extension.PairingMismatch {
 			report.Hint = extension.PairingMismatchHint
 		}
@@ -359,6 +367,9 @@ func runExtensionStatus(out io.Writer, asJSON bool) error {
 	fmt.Fprintf(out, "  Extension: %s\n", bridgeExtensionLine(st))
 	if pairing != extension.PairingMismatch && st.Browsers > 1 {
 		fmt.Fprintf(out, "  Browsers: %d attached — see `monoagentcli extension browsers`\n", st.Browsers)
+	}
+	for _, w := range warnings {
+		fmt.Fprintf(out, "  Warning: %s\n", w)
 	}
 	if st.Status == extension.StatusUnpaired {
 		fmt.Fprintln(out, "  Pair it with: monoagentcli extension pair --open (or paste the token from `extension pair`)")

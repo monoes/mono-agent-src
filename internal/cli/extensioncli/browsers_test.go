@@ -38,6 +38,27 @@ func TestMatchBrowser(t *testing.T) {
 	}
 }
 
+func TestBrowsersFlagAStaleExtension(t *testing.T) {
+	infos := []extension.ConnInfo{
+		{Instance: "aaaa0000-0000-4000-8000-000000000001", Label: "Old", Version: "1.5.0"},
+		{Instance: "bbbb0000-0000-4000-8000-000000000002", Label: "New", Version: extension.MinExtension},
+		{Instance: "cccc0000-0000-4000-8000-000000000003", Label: "Blank"},
+	}
+	rows := browserRows(infos, nil)
+	if !rows[0].Outdated || rows[1].Outdated || !rows[2].Outdated || rows[0].Warning == "" || rows[1].Warning != "" {
+		t.Fatalf("rows = %+v", rows)
+	}
+	var out bytes.Buffer
+	printBrowserTable(&out, rows)
+	if !strings.Contains(out.String(), "older than "+extension.MinExtension) {
+		t.Errorf("table does not warn:\n%s", out.String())
+	}
+	w := outdatedWarnings(infos)
+	if len(w) != 2 || !strings.Contains(w[0], "Old") || !strings.Contains(w[0], "update") {
+		t.Errorf("warnings = %q", w)
+	}
+}
+
 func TestBrowserRowsAndTable(t *testing.T) {
 	rows := browserRows(testInfos, map[string]string{"p-work": "Work"})
 	if rows[0].ProfileName != "Work" || rows[1].ProfileID != "" || !rows[2].Legacy {
