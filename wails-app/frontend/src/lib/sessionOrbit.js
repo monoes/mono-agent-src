@@ -111,24 +111,48 @@ export function orbitOf(sessions, focus = {}, max = MAX_SATELLITES) {
   let node = null
   if (focus.sessionId) node = findNode(roots, s => s.id === focus.sessionId)
   else if (focus.conversationId) node = findNode(roots, s => s.conversation_id === focus.conversationId)
-  // A chat's boss is a sibling of its own session, never a child: it joins the ring first, whether or not the chat has a
-  // mission session yet, and takes one of the slots.
-  const bossRow = focus.conversationId ? bossOf(sessions, focus.conversationId) : null
-  const bossNode = bossRow ? findNode(roots, s => s.id === bossRow.id) : null
-  const bossCircle = bossNode ? circleOf(bossNode) : null
-  if (!node && !bossCircle) return empty
-  const circles = !node || node.depth >= MAX_LEVEL ? [] : node.children.map(c => circleOf(c))
+  if (!node) return empty
+  const circles = node.depth >= MAX_LEVEL ? [] : node.children.map(c => circleOf(c))
   const sorted = circles
     .map((c, i) => [c, i])
     .sort((a, b) => URGENCY[a[0].state] - URGENCY[b[0].state] || a[1] - b[1])
     .map(x => x[0])
-  const room = bossCircle ? Math.max(0, max - 1) : max
   return {
-    root: node ? { ...circleOf(node) } : null,
-    satellites: bossCircle ? [bossCircle, ...sorted.slice(0, room)] : sorted.slice(0, room),
-    overflow: sorted.slice(room),
-    total: sorted.length + (bossCircle ? 1 : 0),
-    level: node ? node.depth : 0,
+    root: { ...circleOf(node) },
+    satellites: sorted.slice(0, max),
+    overflow: sorted.slice(max),
+    total: sorted.length,
+    level: node.depth,
+  }
+}
+
+// The roles of an open-ended run, as the run's own panel shows them (not the dock ring: the boss is never a satellite).
+// The boss is the chat's recorded boss; the rest are the sessions below it and below the chat's own session. A session
+// that directs or researches (kind mission, direction, research) plans; one that does a task (kind task, board) executes.
+// The role is read from the session's kind, never from its title.
+const PLANNER_KINDS = ['mission', 'direction', 'research']
+export function runRoster(sessions, conversationId) {
+  const empty = { boss: null, planners: [], executors: [] }
+  const bossRow = bossOf(sessions, conversationId)
+  if (!bossRow) return empty
+  const roots = sessionTree((sessions || []).filter(s => s && !s.archived))
+  const below = id => {
+    const n = findNode(roots, s => s.id === id)
+    const out = []
+    const walk = x => x.children.forEach(c => { out.push(c); walk(c) })
+    if (n) walk(n)
+    return out
+  }
+  const deskRow = (sessions || []).find(s => s && !s.archived && s.conversation_id === conversationId && s.id !== bossRow.id)
+  const seen = new Set([bossRow.id])
+  const members = [...below(bossRow.id), ...(deskRow ? below(deskRow.id) : [])]
+    .filter(n => !n.session.boss && !seen.has(n.session.id) && seen.add(n.session.id))
+    .map(n => circleOf(n))
+  const byUrgency = (a, b) => URGENCY[a.state] - URGENCY[b.state]
+  return {
+    boss: circleOf(findNode(roots, s => s.id === bossRow.id) || { session: bossRow, depth: 0, children: [] }),
+    planners: members.filter(c => PLANNER_KINDS.includes(c.kind)).sort(byUrgency),
+    executors: members.filter(c => !PLANNER_KINDS.includes(c.kind)).sort(byUrgency),
   }
 }
 

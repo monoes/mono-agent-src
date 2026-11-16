@@ -1272,6 +1272,18 @@
     "chooseHint": "Any folder you trust"
   },
   "bubbles": {
+    "roster": {
+      "label": "Roles of the run",
+      "desk": "Front desk",
+      "boss": "Boss",
+      "planners": "Planners",
+      "executors": "Executors",
+      "back": "Back to the front desk",
+      "noChat": "No conversation yet: opens its task board",
+      "needsYou_one": "{{count}} item needs you",
+      "needsYou_other": "{{count}} items need you",
+      "empty": "No planners or executors yet"
+    },
     "orbit": {
       "groupLabel": "Agents",
       "groupNamed": "Agents of {{name}}",
