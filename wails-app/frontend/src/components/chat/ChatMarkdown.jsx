@@ -10,7 +10,7 @@ import { ChatPathChip } from './ChatPathChip.jsx'
 import ErrorBoundary from '../ErrorBoundary.jsx'
 import { markdownTooDeep } from './markdownGuard.js'
 import { AppLink, AppNavContext } from './ChatAppLink.jsx'
-import { parseAppLink, appLinkUrlTransform } from './chatAppLinks.js'
+import { parseAppLink, appLinkUrlTransform, remarkChatAppMentions } from './chatAppLinks.js'
 
 // Only http(s) URLs without credentials ever open (see classifyUrl); anything
 // else (javascript:, data:, file:, mailto:, custom schemes, schemeless) is
@@ -152,7 +152,7 @@ function MdCode(noPaths) {
 // they are not looked up against the chat's folder.
 const withPaths = makeComponents(false)
 const withoutPaths = makeComponents(true)
-const plugins = [remarkGfm, remarkChatPaths]
+const plugins = [remarkGfm, remarkChatPaths, remarkChatAppMentions]
 const pluginsNoPaths = [remarkGfm]
 
 const plainStyle = { fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0 }

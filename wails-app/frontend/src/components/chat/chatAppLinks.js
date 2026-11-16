@@ -89,3 +89,45 @@ export async function resolveAppLink(link, deps) {
 export function appLinkUrlTransform(url) {
   return parseAppLink(url) ? url : defaultUrlTransform(url)
 }
+
+// Bare mentions in prose. Only forms whose id can be validated: `task #N`
+// (a board number) and `run|workflow <uuid>` (workflow and execution ids are
+// UUIDs). A mention is only ever a candidate; ChatAppLink looks it up and
+// leaves it as plain text when nothing real answers.
+const UUID_RE = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
+const MENTION_RE = new RegExp(`(?<![\\w#/.-])(?:[Tt]ask #([1-9]\\d{0,8})|(run|workflow) (${UUID_RE}))(?![\\w-])`, 'g')
+
+export function findAppMentions(text) {
+  const out = []
+  for (const m of text.matchAll(MENTION_RE)) {
+    const href = m[1] ? `monoagent://task/${m[1]}` : `monoagent://${m[2] === 'run' ? 'execution' : 'workflow'}/${m[3]}`
+    out.push({ start: m.index, end: m.index + m[0].length, href })
+  }
+  return out
+}
+
+// remarkChatAppMentions turns those mentions in plain text into link nodes
+// marked data-chat-mention; ChatMarkdown's link renderer draws the ones that
+// resolve as app chips and everything else as the text it was.
+export function remarkChatAppMentions() {
+  const skip = new Set(['code', 'inlineCode', 'link', 'linkReference', 'definition', 'html', 'image'])
+  const walk = (node) => {
+    if (!node.children) return
+    const next = []
+    for (const child of node.children) {
+      if (skip.has(child.type)) { next.push(child); continue }
+      if (child.type !== 'text') { walk(child); next.push(child); continue }
+      const hits = findAppMentions(child.value)
+      if (hits.length === 0) { next.push(child); continue }
+      let at = 0
+      for (const h of hits) {
+        if (h.start > at) next.push({ type: 'text', value: child.value.slice(at, h.start) })
+        next.push({ type: 'link', url: h.href, children: [{ type: 'text', value: child.value.slice(h.start, h.end) }], data: { hProperties: { 'data-chat-mention': 'true' } } })
+        at = h.end
+      }
+      if (at < child.value.length) next.push({ type: 'text', value: child.value.slice(at) })
+    }
+    node.children = next
+  }
+  return (tree) => walk(tree)
+}

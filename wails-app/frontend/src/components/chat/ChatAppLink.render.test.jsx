@@ -110,6 +110,41 @@ describe('monoagent:// links in chat markdown', () => {
     expect(api.getWorkflow).toHaveBeenCalledTimes(30)
   })
 
+  it('chips a bare task mention that exists and keeps its text', async () => {
+    tasksApi.show.mockResolvedValue({ task: { id: 42 } })
+    const nav = vi.fn()
+    render(<ChatMarkdown content="Please review task #42 today." onNavigate={nav} />)
+    const chip = await screen.findByRole('button', { name: 'task #42' })
+    fireEvent.click(chip)
+    await waitFor(() => expect(nav).toHaveBeenCalledWith('tasks', null))
+  })
+
+  it('leaves an unresolved mention as plain text, with no hint of a link', async () => {
+    tasksApi.show.mockResolvedValue({ error: 'not found' })
+    api.getWorkflow.mockResolvedValue(null)
+    const { container } = render(<ChatMarkdown content={`See task #99 and workflow ${UUID}.`} onNavigate={vi.fn()} />)
+    await waitFor(() => expect(tasksApi.show).toHaveBeenCalled())
+    await waitFor(() => expect(api.getWorkflow).toHaveBeenCalled())
+    await new Promise(r => setTimeout(r, 20))
+    expect(container.textContent).toBe(`See task #99 and workflow ${UUID}.`)
+    expect(screen.queryByRole('button')).toBeNull()
+    expect(container.querySelector('[title]')).toBeNull()
+  })
+
+  it('makes no lookups for mentions without onNavigate or inside code', async () => {
+    render(<ChatMarkdown content={'task #5 and `task #6`'} />)
+    expect(tasksApi.show).not.toHaveBeenCalled()
+  })
+
+  it('spends the same per-message budget on mentions', async () => {
+    tasksApi.show.mockResolvedValue({ error: 'x' })
+    const md = Array.from({ length: 35 }, (_, i) => `task #${i + 1}`).join(', ')
+    render(<ChatMarkdown content={md} onNavigate={vi.fn()} />)
+    await waitFor(() => expect(tasksApi.show).toHaveBeenCalledTimes(30))
+    await new Promise(r => setTimeout(r, 20))
+    expect(tasksApi.show).toHaveBeenCalledTimes(30)
+  })
+
   it('does not change how https links render', () => {
     render(<ChatMarkdown content="[the report](https://example.com/r)" onNavigate={vi.fn()} />)
     expect(screen.getByRole('link', { name: 'the report' })).toHaveAttribute('title', 'Open in browser: https://example.com/r')

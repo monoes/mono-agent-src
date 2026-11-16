@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { parseAppLink, appLinkTarget, resolveAppLink, appLinkUrlTransform } from './chatAppLinks.js'
+import { parseAppLink, appLinkTarget, resolveAppLink, appLinkUrlTransform, findAppMentions, remarkChatAppMentions } from './chatAppLinks.js'
 
 const UUID = '3f2b8c1e-9a4d-4e7b-8c55-0a1b2c3d4e5f'
 
@@ -105,5 +105,40 @@ describe('appLinkUrlTransform', () => {
     expect(appLinkUrlTransform('monoagent://task/x')).toBe('')
     expect(appLinkUrlTransform('javascript:alert(1)')).toBe('')
     expect(appLinkUrlTransform('https://example.com/a')).toBe('https://example.com/a')
+  })
+})
+
+describe('findAppMentions', () => {
+  it('finds task, run and workflow mentions', () => {
+    const text = `see task #42 and run ${UUID} then workflow ${UUID}.`
+    const hits = findAppMentions(text)
+    expect(hits.map(h => h.href)).toEqual([
+      'monoagent://task/42', `monoagent://execution/${UUID}`, `monoagent://workflow/${UUID}`,
+    ])
+    expect(text.slice(hits[0].start, hits[0].end)).toBe('task #42')
+  })
+  it('ignores shapes it cannot validate', () => {
+    expect(findAppMentions('task #0, task 42, tasks #4, run abc, workflow my-flow, subtask #3, task #1234567890')).toEqual([])
+  })
+})
+
+describe('remarkChatAppMentions', () => {
+  const tree = (children) => ({ type: 'root', children: [{ type: 'paragraph', children }] })
+  it('turns mentions in text into marked link nodes', () => {
+    const t = tree([{ type: 'text', value: 'do task #5 now' }])
+    remarkChatAppMentions()(t)
+    const kids = t.children[0].children
+    expect(kids.map(k => k.type)).toEqual(['text', 'link', 'text'])
+    expect(kids[1]).toMatchObject({ url: 'monoagent://task/5', data: { hProperties: { 'data-chat-mention': 'true' } } })
+    expect(kids[1].children[0].value).toBe('task #5')
+  })
+  it('leaves code and existing links alone', () => {
+    const t = tree([
+      { type: 'inlineCode', value: 'task #5' },
+      { type: 'link', url: 'https://x.test', children: [{ type: 'text', value: 'task #6' }] },
+    ])
+    remarkChatAppMentions()(t)
+    expect(t.children[0].children.map(k => k.type)).toEqual(['inlineCode', 'link'])
+    expect(t.children[0].children[1].children[0].type).toBe('text')
   })
 })
