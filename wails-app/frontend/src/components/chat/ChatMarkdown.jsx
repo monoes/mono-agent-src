@@ -9,6 +9,8 @@ import { copyToClipboard } from './toolCardUtils.js'
 import { ChatPathChip } from './ChatPathChip.jsx'
 import ErrorBoundary from '../ErrorBoundary.jsx'
 import { markdownTooDeep } from './markdownGuard.js'
+import { AppLink, AppNavContext } from './ChatAppLink.jsx'
+import { parseAppLink, appLinkUrlTransform } from './chatAppLinks.js'
 
 // Only http(s) URLs without credentials ever open (see classifyUrl); anything
 // else (javascript:, data:, file:, mailto:, custom schemes, schemeless) is
@@ -40,8 +42,12 @@ function nodeText(node) {
   return Children.toArray(node).map(nodeText).join('')
 }
 
-function MdLink({ href, children }) {
+function MdLink({ href, children, ...rest }) {
   const { t } = useTranslation()
+  const budget = useContext(LookupBudget)
+  // A monoagent:// link goes to the app, never the browser: its own branch,
+  // with no host suffix (classifyUrl still refuses the scheme).
+  if (parseAppLink(href)) return <AppLink href={href} budget={budget} mention={rest['data-chat-mention'] === 'true'}>{children}</AppLink>
   const c = classifyUrl(href)
   if (!c.ok) {
     return (
@@ -99,7 +105,7 @@ const codeStyle = { background: '#020509', padding: '1px 4px', borderRadius: 3 }
 function makeComponents(noPaths) {
   return {
     p: (p) => <p style={{ margin: '0.35em 0' }} {...p} />,
-    a: ({ href, children }) => <MdLink href={href}>{children}</MdLink>,
+    a: ({ node, href, children, ...rest }) => <MdLink href={href} {...rest}>{children}</MdLink>,
     // Never auto-fetch remote Markdown images (plan: "Do not auto-fetch
     // remote Markdown images") — no <img> is ever rendered, so the browser
     // never issues the request itself. A same-scheme-gated link lets the
@@ -156,16 +162,18 @@ function PlainText({ content }) {
   return <pre data-testid="chat-markdown-plain" style={plainStyle}>{content}</pre>
 }
 
-export function ChatMarkdown({ content, noPaths = false }) {
+export function ChatMarkdown({ content, noPaths = false, onNavigate = null }) {
   const budget = useRef({ left: MAX_LOOKUPS_PER_MESSAGE })
   if (!content) return null
   if (markdownTooDeep(content)) return <PlainText content={content} />
   return (
     <ErrorBoundary key={content.length} fallback={() => <PlainText content={content} />}>
       <LookupBudget.Provider value={budget.current}>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.55, wordBreak: 'break-word' }}>
-          <ReactMarkdown remarkPlugins={noPaths ? pluginsNoPaths : plugins} components={noPaths ? withoutPaths : withPaths}>{content}</ReactMarkdown>
-        </div>
+        <AppNavContext.Provider value={onNavigate}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.55, wordBreak: 'break-word' }}>
+            <ReactMarkdown remarkPlugins={noPaths ? pluginsNoPaths : plugins} components={noPaths ? withoutPaths : withPaths} urlTransform={appLinkUrlTransform}>{content}</ReactMarkdown>
+          </div>
+        </AppNavContext.Provider>
       </LookupBudget.Provider>
     </ErrorBoundary>
   )

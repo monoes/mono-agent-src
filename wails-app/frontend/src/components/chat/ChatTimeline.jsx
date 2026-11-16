@@ -101,7 +101,7 @@ export function ChatTimeline({ state, turnId = '', isLive = true, agentFilter = 
       {parts.map((part, i) => {
         if (agentFilter && (part.kind === 'agent' ? agentFilter === 'lead' || part.agentId !== agentFilter : agentFilter !== 'lead')) return null
         if (part.kind === 'text') {
-          return part.text ? <ChatMarkdown key={`text-${part.partId}-${i}`} content={part.text} /> : null
+          return part.text ? <ChatMarkdown key={`text-${part.partId}-${i}`} content={part.text} onNavigate={onNavigate} /> : null
         }
         if (part.kind === 'agent') return <AgentRow key={`agent-${part.agentId}`} agent={(state.agents || {})[part.agentId]} scope={state.scope} />
         const call = calls[part.callId]
