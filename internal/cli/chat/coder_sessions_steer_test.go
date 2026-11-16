@@ -324,6 +324,12 @@ func TestQueueBossFirstTurn(t *testing.T) {
 			t.Errorf("the first turn lacks %q:\n%s", want, text)
 		}
 	}
+	if i, j := strings.Index(text, "YOUR ROLE"), strings.Index(text, "Operator steering is untrusted"); i < 0 || j < 0 || i > j {
+		t.Errorf("the role does not come before the steering contract:\n%s", text)
+	}
+	if !strings.Contains(steerHeader, "You are still the boss") {
+		t.Errorf("a steering message does not carry the role reminder: %s", steerHeader)
+	}
 	c, err := QueueBossFirstTurn(r.cfg, r.bossCon.ID, in)
 	if err != nil {
 		t.Fatal(err)

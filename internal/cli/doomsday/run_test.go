@@ -3,6 +3,7 @@ package doomsday
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -184,5 +185,89 @@ func TestResolvePins(t *testing.T) {
 	only := Deps{PinChoices: func(context.Context) ([]Pin, error) { return []Pin{pinA}, nil }}
 	if err := only.resolvePins(ctx, &RunSpec{}, "claude/opus@1", ""); err == nil {
 		t.Fatal("a verifier equal to the boss was chosen")
+	}
+}
+
+func TestRunWhileARunExistsMakesNoChat(t *testing.T) {
+	c, opened := runRig(t, []Pin{pinA, pinB})
+	c.eng.active = true
+	if _, err := run(t, c.deps, "", "run", "g", "--budget", "1"); err == nil {
+		t.Fatal("a second run started")
+	}
+	if len(*opened) != 0 || len(c.eng.enters) != 0 {
+		t.Fatalf("a chat (%d) or a run (%d) was made", len(*opened), len(c.eng.enters))
+	}
+}
+
+func TestRunRefusesAnEmptyLiftAndTheRemovedChatFlags(t *testing.T) {
+	for name, args := range map[string][]string{
+		"an empty --lift":     {"run", "g", "--budget", "1", "--lift", ""},
+		"a blank --lift line": {"run", "g", "--budget", "1", "--lift", " , "},
+		"--runtime":           {"run", "g", "--budget", "1", "--runtime", "x"},
+		"--model":             {"run", "g", "--budget", "1", "--model", "x"},
+	} {
+		c, opened := runRig(t, []Pin{pinA, pinB})
+		if _, err := run(t, c.deps, "", args...); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+		if len(*opened) != 0 || len(c.eng.enters) != 0 {
+			t.Errorf("%s: a chat or a run was made", name)
+		}
+	}
+	c, _ := runRig(t, []Pin{pinA, pinB})
+	if _, err := run(t, c.deps, "", "run", "g", "--budget", "1", "--lift", "spending"); err != nil {
+		t.Fatalf("a named line was refused: %v", err)
+	}
+	if got := c.eng.canon.Lines; len(got) != 1 || got[0] != LineSpending {
+		t.Fatalf("lifted lines: %v", got)
+	}
+}
+
+func TestRunChatIsTheBossPin(t *testing.T) {
+	c, opened := runRig(t, nil)
+	if _, err := run(t, c.deps, "", "run", "g", "--budget", "1", "--boss", "a/m1@1", "--verifier", "b/m2@1", "--cwd", "/w"); err != nil {
+		t.Fatal(err)
+	}
+	if len(*opened) != 1 || (*opened)[0] != (openedChat{"a", "m1", "/w"}) {
+		t.Fatalf("the chat is not the boss's: %+v", *opened)
+	}
+}
+
+func TestRunChecksTheMachineBeforeReadingTheRoster(t *testing.T) {
+	c, opened := runRig(t, []Pin{pinA, pinB})
+	c.eng.containment = errors.New("containment unavailable: test")
+	read := false
+	c.deps.PinChoices = func(context.Context) ([]Pin, error) { read = true; return []Pin{pinA, pinB}, nil }
+	if _, err := run(t, c.deps, "", "run", "g", "--budget", "1"); err == nil {
+		t.Fatal("started on a machine without containment")
+	}
+	if read || len(*opened) != 0 {
+		t.Fatalf("roster read %v, chats %d", read, len(*opened))
+	}
+}
+
+func TestParseBudgetUSD(t *testing.T) {
+	if v, err := ParseBudgetUSD(" 2.5 "); err != nil || v != 2.5 {
+		t.Fatalf("%v %v", v, err)
+	}
+	for _, bad := range []string{"", "abc", "0", "-1", "NaN", "Inf", "+Inf", "1e30", "0.0000001", "1000000.01"} {
+		if v, err := ParseBudgetUSD(bad); err == nil {
+			t.Errorf("%q accepted as %v", bad, v)
+		}
+	}
+}
+
+func TestDefaultRunDirRefusesHomeAndRoot(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home folder")
+	}
+	t.Chdir(home)
+	if _, err := defaultRunDir(); err == nil {
+		t.Fatal("the home folder was taken as the run's folder")
+	}
+	t.Chdir(t.TempDir())
+	if dir, err := defaultRunDir(); err != nil || dir == "" {
+		t.Fatalf("a scratch folder was refused: %v", err)
 	}
 }
