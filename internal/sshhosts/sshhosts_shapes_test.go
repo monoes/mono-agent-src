@@ -86,7 +86,7 @@ func TestOrdinaryShapesAreAccepted(t *testing.T) {
 func TestTooManyLinesAreRefused(t *testing.T) {
 	k := testKey(t)
 	line := knownhosts.Line([]string{"box.test"}, k) + "\n"
-	if _, err := New(write(t, strings.Repeat(line, 20001))); err == nil || !strings.Contains(err.Error(), "too many") {
+	if _, err := New(write(t, strings.Repeat(line, maxLines+1))); err == nil || !strings.Contains(err.Error(), "too many") {
 		t.Fatalf("want a too-many-lines refusal, got %v", err)
 	}
 }

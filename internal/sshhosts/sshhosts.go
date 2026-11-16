@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
@@ -24,12 +25,40 @@ func New(path string) (ssh.HostKeyCallback, error) {
 	if err != nil {
 		return nil, err
 	}
-	for i, line := range bytes.Split(data, []byte("\n")) {
-		if !acceptable(line) {
+	lines := bytes.Split(data, []byte("\n"))
+	if len(lines) > maxLines {
+		return nil, fmt.Errorf("%s: too many lines (more than %d)", path, maxLines)
+	}
+	dir, err := os.MkdirTemp("", "knownhosts-scan-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(dir)
+	one := filepath.Join(dir, "line")
+	for i, line := range lines {
+		if !acceptable(line) || !libraryAccepts(one, line) {
 			return nil, fmt.Errorf("%s: line %d is not a valid known_hosts entry", path, i+1)
 		}
 	}
 	return knownhosts.New(path)
+}
+
+// maxLines bounds the per-line library check (one small file write each).
+const maxLines = 20000
+
+// libraryAccepts asks the library itself whether this line is valid: for a
+// file whose only non-comment line is this one, knownhosts.New returns an
+// error exactly when that line is invalid.
+func libraryAccepts(tmp string, line []byte) bool {
+	t := bytes.Trim(line, " \t\r")
+	if len(t) == 0 || t[0] == '#' {
+		return true
+	}
+	if err := os.WriteFile(tmp, append(bytes.Clone(line), '\n'), 0o600); err != nil {
+		return false
+	}
+	_, err := knownhosts.New(tmp)
+	return err == nil
 }
 
 func acceptable(line []byte) bool {
