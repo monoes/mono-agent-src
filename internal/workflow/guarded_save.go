@@ -31,6 +31,9 @@ func ReviewHash(w *Workflow) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
+// DefinitionHash is the hash of w's definition alone (no activation state).
+func DefinitionHash(w *Workflow) (string, error) { return definitionHash(w) }
+
 // committedReviewHasher is a store that can say the ReviewHash of its committed rows.
 type committedReviewHasher interface {
 	committedReviewHash(ctx context.Context, id string) (string, error)
