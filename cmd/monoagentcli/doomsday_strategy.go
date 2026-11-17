@@ -22,6 +22,18 @@ import (
 
 // strategyReaderFor is the reader of `doomsday strategy status|epochs|directions`. A database that cannot be opened is the
 // layer being off.
+// strategyReadOnlyReaderFor is the reader `doomsday status` shows counted-criteria progress through. Status is polled by
+// the app, so it opens the database the way the read engine does: nothing is created or migrated.
+func strategyReadOnlyReaderFor(cfg *globalConfig) doomsdaycli.StrategyReader {
+	db, err := openReadDB(cfg)
+	if err != nil {
+		return nil
+	}
+	doomsdayOwns(func() { db.Close() })
+	w := doomsdayWiring(cfg, db)
+	return w.StrategyReader(db, w.Witness.Keys)
+}
+
 func strategyReaderFor(cfg *globalConfig) doomsdaycli.StrategyReader {
 	db, err := initDB(cfg)
 	if err != nil {

@@ -123,6 +123,10 @@ func (j Judgment) Canonical() []byte {
 		e.str(c.ID)
 		e.str(string(c.Status))
 		e.str(c.Note)
+		if c.Count != nil { // only when reported, so a judgment without counts keeps its bytes
+			e.str("count")
+			e.num(int64(*c.Count))
+		}
 	}
 	ds := append([]DirectionAssessment(nil), j.Directions...)
 	sort.Slice(ds, func(a, b int) bool { return ds[a].ID < ds[b].ID })

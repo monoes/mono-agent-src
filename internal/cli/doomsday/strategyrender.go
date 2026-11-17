@@ -35,6 +35,8 @@ type StrategyStatusView struct {
 	Directions   map[string]int `json:"directions,omitempty"` // state -> count
 	ParkedFinish int            `json:"parked_finish_rounds"`
 	Criteria     map[string]int `json:"criteria,omitempty"` // judge reading -> count, from the latest judgment
+	// Progress is, for each criterion whose text names a target count, that target and the judge's last reported count.
+	Progress []CriterionCountView `json:"progress,omitempty"`
 	// FinishReady is the reading the boss sees. It is a marker only: strategy never begins a finish, the boss does.
 	FinishReady *FinishReadyView `json:"finish_ready,omitempty"`
 	Tampered    bool             `json:"tampered,omitempty"`
@@ -193,6 +195,7 @@ func renderStrategyStatus(w io.Writer, v StrategyStatusView) error {
 	if len(v.Criteria) > 0 {
 		fmt.Fprintf(w, "criteria (judge reading, not verified): %s\n", counts(v.Criteria))
 	}
+	WriteProgress(w, v.Progress)
 	if r := v.FinishReady; r != nil {
 		if r.Ready {
 			fmt.Fprintf(w, "finish ready: YES (epoch %d, judgment %ds old; a reading for the boss, strategy does not begin a finish)\n", r.Epoch, r.JudgmentAgeSeconds)
