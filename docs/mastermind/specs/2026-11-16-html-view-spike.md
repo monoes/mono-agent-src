@@ -1,7 +1,8 @@
 # HTML view spike: sandboxed model-written HTML in chat
 
-Status: spike, default OFF. Not wired to any send/app-link callbacks by any
-caller yet (the `HtmlViewContext` provider is not mounted anywhere).
+Status: spike, default OFF (`localStorage['chat.htmlViews']='true'`). `ChatHosts`
+mounts `HtmlViewContext`: `onSend` is confirmed with the user before sending and
+`onAppLink` goes through the same app-link opener as block links.
 
 ## What it is
 
@@ -137,10 +138,8 @@ Verify against the real app before enabling the flag for anyone (see below).
 
 ## Open questions
 
-1. Who mounts `HtmlViewContext` and what do `onSend`/`onAppLink` do? (Lane A
-   app links own the `monoagent://` resolver; send should show the text in the
-   composer for confirmation rather than sending.)
-2. Replace the hover-based gesture with host-observed click detection?
+1. (Resolved: `ChatHosts` mounts it; send is user-confirmed, app links use the shared opener.)
+2. (Resolved: the gesture gate now uses host window blur. Known limit: repeated clicks in an already-focused frame do not send again until focus leaves and returns.)
 3. Should the model be told the `html-view` convention (prompt change)? Not in
    this spike.
 4. Add a ResizeObserver to the bridge, or keep manual `host.resize`?
