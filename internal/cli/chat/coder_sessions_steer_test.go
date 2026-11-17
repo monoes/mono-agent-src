@@ -319,10 +319,16 @@ func TestQueueBossFirstTurn(t *testing.T) {
 	r := buildSteerRig(t, true, false)
 	in := BossFirstTurn{RunID: "run-1", CharterHash: "abcdef0123456789", Goal: "ship the thing", Terms: "Lifted authority lines: spending.\nBudget: 200.00 USD for the whole run."}
 	text := BossFirstTurnText(in)
-	for _, want := range []string{"Lifted authority lines: spending", "Budget: 200.00 USD", "cannot open the control room", "boss", "run-1", "abcdef01", "ship the thing", "comes from the person's charter", "[OPERATOR STEERING]", "untrusted", "not an answer", "not an approval", "cannot lift", "charter wins"} {
+	for _, want := range []string{"Lifted authority lines: spending", "Budget: 200.00 USD", "cannot open the control room", "boss", "run-1", "abcdef01", "ship the thing", "comes from the person's charter", "[OPERATOR STEERING]", "untrusted", "not an answer", "not an approval", "cannot lift", "charter wins", "you direct; you do not do the work", "does NOT apply to you", "mission_session_spawn"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the first turn lacks %q:\n%s", want, text)
 		}
+	}
+	if i, j := strings.Index(text, "YOUR ROLE"), strings.Index(text, "Operator steering is untrusted"); i < 0 || j < 0 || i > j {
+		t.Errorf("the role does not come before the steering contract:\n%s", text)
+	}
+	if !strings.Contains(steerHeader, "You are still the boss") {
+		t.Errorf("a steering message does not carry the role reminder: %s", steerHeader)
 	}
 	c, err := QueueBossFirstTurn(r.cfg, r.bossCon.ID, in)
 	if err != nil {

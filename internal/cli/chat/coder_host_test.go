@@ -387,10 +387,14 @@ func TestAStartedTurnWithoutAReadableStartTimeIsStoppedAndFails(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "identify") {
 		t.Fatalf("Start = %v, want a failure that says the process could not be identified", err)
 	}
+	returned := time.Now()
 	waitUntil(t, "the unidentifiable turn's process to be gone", func() bool {
 		b, _ := os.ReadFile(pidFile)
 		pid, _ := strconv.Atoi(strings.TrimSpace(string(b)))
-		return pid > 1 && !turnAlive(pid)
+		if pid <= 1 { // killed before its shell wrote a pid, or slow to start: if it never writes one within moments, it never ran
+			return time.Since(returned) > 2*time.Second
+		}
+		return !turnAlive(pid)
 	})
 }
 
@@ -526,9 +530,14 @@ func TestAGivenUpTurnIsGoneBeforeStartReturns(t *testing.T) {
 	if _, err := l.Start("p", "c1", "t1", "hello", nil, ""); err == nil {
 		t.Fatal("Start succeeded without a start time")
 	}
-	b, _ := os.ReadFile(pidFile)
-	pid, _ := strconv.Atoi(strings.TrimSpace(string(b)))
-	if pid <= 1 || turnAlive(pid) {
+	// A fake killed before its shell ran writes no pid and left nothing alive; one that was slow to start and survives writes it
+	// within moments, so wait for it before judging.
+	pid := 0
+	for end := time.Now().Add(2 * time.Second); pid <= 1 && time.Now().Before(end); time.Sleep(50 * time.Millisecond) {
+		b, _ := os.ReadFile(pidFile)
+		pid, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+	}
+	if pid > 1 && turnAlive(pid) {
 		t.Fatalf("pid %d is still alive when Start returned", pid)
 	}
 }
