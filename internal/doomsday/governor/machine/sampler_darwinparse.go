@@ -21,8 +21,11 @@ func ParseDarwinLoadAvg(b []byte) (float64, error) {
 	return v, nil
 }
 
-// ParseDarwinMemAvailFrac returns the reclaimable fraction of memory from `vm_stat` output and the total bytes
-// (hw.memsize): (free + inactive + speculative + purgeable) pages over the total. Missing counters are an error.
+// ParseDarwinMemAvailFrac returns the available fraction of memory from `vm_stat` output and the total bytes
+// (hw.memsize): (free + speculative + file-backed) pages over the total. The basis is deliberately conservative: inactive
+// anonymous pages (they may be waiting on the compressor) and purgeable pages (already inside the inactive and
+// anonymous counts) are not counted, so the governor admits less concurrency under memory pressure, never more.
+// Missing counters are an error.
 func ParseDarwinMemAvailFrac(vmStat []byte, totalBytes uint64) (float64, error) {
 	if totalBytes == 0 {
 		return 0, errors.New("doomsday governor: zero hw.memsize")
@@ -37,7 +40,7 @@ func ParseDarwinMemAvailFrac(vmStat []byte, totalBytes uint64) (float64, error) 
 	if page == 0 || page > 1<<20 {
 		return 0, errors.New("doomsday governor: vm_stat has no sane page size")
 	}
-	want := map[string]bool{"Pages free": false, "Pages inactive": false, "Pages speculative": false, "Pages purgeable": false}
+	want := map[string]bool{"Pages free": false, "Pages speculative": false, "File-backed pages": false}
 	var pages uint64
 	for _, line := range lines[1:] {
 		key, rest, ok := strings.Cut(line, ":")
