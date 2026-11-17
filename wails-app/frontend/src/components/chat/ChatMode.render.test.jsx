@@ -188,7 +188,7 @@ describe('the open mode is probed only on the person\'s action', () => {
 describe('why a mode is not available', () => {
   const unavailable = reason => mode({ options: [OPTIONS[0], OPTIONS[1], { mode: 'open', available: false, ...(reason ? { reason } : {}) }] })
   it('shows the reason on the disabled radio and under the selector', async () => {
-    const why = 'an open-ended run is already active in this profile: only one runs at a time, stop it first'
+    const why = 'an open-ended run is already active in this profile (running for 3h 20m): only one runs at a time. End it with `monoagentcli --profile default doomsday stop` (only you can run it, not an agent) or the Stop run button in Chat mode'
     api.getChatMissionToggle.mockResolvedValue(view(unavailable(why)))
     render(<Harness />)
     const open = await radio('Open-ended')
