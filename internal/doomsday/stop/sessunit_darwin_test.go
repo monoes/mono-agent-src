@@ -457,3 +457,41 @@ func TestDarwinAPlacedStandaloneCommandIsAMemberOfTheUnit(t *testing.T) {
 		t.Fatal("the command is not a member of its unit")
 	}
 }
+
+// The host launcher's stamp form ("started:<lstart>", read with ps under TZ=UTC LC_ALL=C) must be accepted on the real OS with the real
+// ps, and a different start must be refused. The fake-OS tests answer LStart themselves and never run ps.
+func TestDarwinAdoptTakesTheLaunchersPsStampFormWithTheRealPs(t *testing.T) {
+	r := newRealRig(t)
+	pl, err := r.c.Place(r.rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("/bin/sleep", "30")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if _, err := pl.Place(cmd); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	pid := cmd.Process.Pid
+	ps := exec.Command("ps", "-o", "lstart=", "-p", strconv.Itoa(pid))
+	ps.Env = append(ps.Environ(), "TZ=UTC", "LC_ALL=C")
+	raw, err := ps.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ls := strings.TrimSpace(string(raw))
+	ad := pl.(Adopter)
+	if err := ad.Adopt(pid, "started:Thu Jan  1 00:00:00 1970"); err == nil {
+		t.Fatal("a launcher stamp of another start was adopted")
+	}
+	if err := ad.Adopt(pid, "started:"+ls); err != nil {
+		t.Fatalf("the launcher's own stamp form was refused: %v", err)
+	}
+	own, _ := bgOS.Info(pid)
+	if got, _ := r.led.Leaders(r.rec.Generation); len(got) != 1 || got[0].Stamp != own.Stamp {
+		t.Fatalf("the ledger must hold the unit's own stamp form %q: %+v", own.Stamp, got)
+	}
+}
