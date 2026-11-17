@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+
+	"github.com/monoes/mono-agent/internal/doomsday/strategy/types"
 )
 
 // StrategyKindPrefix is the reserved audit kind prefix of the strategy layer. Only AppendStrategyAuditTx writes it: the
@@ -24,7 +26,7 @@ func (s *SQLStore) StrategyBadReasons(ctx context.Context, profile string, gener
 	}
 	out := map[string]string{}
 	for _, r := range rows {
-		if r.Kind != "strategy.bad-judgment" {
+		if r.Kind != types.KindBadJudgment {
 			continue
 		}
 		var p struct{ Epoch, Reason string }

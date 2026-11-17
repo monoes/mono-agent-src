@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // Judgment is the judge's typed output. The JSON shape is frozen (the control room reads it). It never carries a
@@ -79,16 +79,35 @@ var ErrBadJudgment = errors.New("strategy: bad judgment")
 // MaxBadReasonLen bounds, in runes, the reason a bad-judgment line carries.
 const MaxBadReasonLen = 120
 
-// BadReason is the short why of a refusal: the validator's own message without the sentinel prefix, control characters
-// dropped and cut to MaxBadReasonLen. An error that is not an ErrBadJudgment refusal gives "" (its text may be anything).
+// badErr is a refusal with a fixed reason. The reason is always one of a small vocabulary written here, never text
+// the model supplied (a key, an id, a status or a decoder message that quotes one).
+type badErr struct{ reason string }
+
+func (e *badErr) Error() string { return ErrBadJudgment.Error() + ": " + e.reason }
+func (e *badErr) Unwrap() error { return ErrBadJudgment }
+
+func bad(reason string) error { return &badErr{reason: reason} }
+
+// BadReason is the short why of a refusal. Only a refusal made here carries one of the fixed reasons; any other error
+// wrapping ErrBadJudgment (its text may quote model or transport text) gives a generic one, and an error that is not a
+// refusal gives "". The result is cleaned and bounded.
 func BadReason(err error) string {
 	if err == nil || !errors.Is(err, ErrBadJudgment) {
 		return ""
 	}
-	s := strings.TrimPrefix(err.Error(), ErrBadJudgment.Error()+": ")
+	var be *badErr
+	if errors.As(err, &be) {
+		return CleanReason(be.reason)
+	}
+	return "judgment refused"
+}
+
+// CleanReason drops control characters (C0, DEL and C1) and invisible format characters (bidi marks and the like) and
+// cuts the text to MaxBadReasonLen runes. Everything written as a bad-judgment reason passes through it.
+func CleanReason(s string) string {
 	out := make([]rune, 0, MaxBadReasonLen)
 	for _, r := range s {
-		if r < 0x20 || r == 0x7f {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
 			continue
 		}
 		if len(out) == MaxBadReasonLen {
@@ -99,20 +118,19 @@ func BadReason(err error) string {
 	return string(out)
 }
 
-func bad(format string, a ...any) error {
-	return fmt.Errorf("%w: %s", ErrBadJudgment, fmt.Sprintf(format, a...))
-}
-
 // DecodeJudgment decodes strictly: size cap, one JSON value, unknown fields refused, trailing bytes refused.
 func DecodeJudgment(body []byte) (Judgment, error) {
 	var j Judgment
 	if len(body) == 0 || len(body) > MaxJudgmentBytes {
-		return j, bad("body size %d", len(body))
+		return j, bad("bad body size")
 	}
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&j); err != nil {
-		return Judgment{}, bad("decode: %v", err)
+		if strings.Contains(err.Error(), "unknown field") {
+			return Judgment{}, bad("unknown field")
+		}
+		return Judgment{}, bad("malformed json")
 	}
 	if _, err := dec.Token(); err != io.EOF {
 		return Judgment{}, bad("trailing data")
@@ -132,15 +150,15 @@ func (j Judgment) Validate(exp Expect) error {
 		switch c.Status {
 		case CritNotStarted, CritProgressing, CritPlausiblyMet, CritRegressed:
 		default:
-			return bad("criterion status %q", c.Status)
+			return bad("bad status")
 		}
 		if !wantC[c.ID] || seen[c.ID] || !validText(c.Note, MaxNoteLen, false) {
-			return bad("criterion %q unknown, repeated or with a bad note", c.ID)
+			return bad("unknown criterion")
 		}
 		seen[c.ID] = true
 	}
 	if len(seen) != len(wantC) {
-		return bad("%d of %d criteria judged", len(seen), len(wantC))
+		return bad("wrong criterion count")
 	}
 	wantD := toSet(exp.DirectionIDs)
 	seen = map[string]bool{}
@@ -148,10 +166,10 @@ func (j Judgment) Validate(exp Expect) error {
 		switch d.Verdict {
 		case VerdictKeep, VerdictPrune, VerdictBoost:
 		default:
-			return bad("direction verdict %q", d.Verdict)
+			return bad("bad verdict")
 		}
 		if !wantD[d.ID] || seen[d.ID] || !validText(d.Note, MaxNoteLen, false) {
-			return bad("direction %q unknown, repeated or with a bad note", d.ID)
+			return bad("unknown direction")
 		}
 		seen[d.ID] = true
 	}

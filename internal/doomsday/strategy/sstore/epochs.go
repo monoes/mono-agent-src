@@ -143,9 +143,7 @@ func (s *Store) MoveEpochBad(ctx context.Context, profile string, gen, seq int64
 }
 
 func (s *Store) moveEpoch(ctx context.Context, profile string, gen, seq int64, to types.EpochState, reason string) error {
-	if r := []rune(reason); len(r) > types.MaxBadReasonLen {
-		reason = string(r[:types.MaxBadReasonLen])
-	}
+	reason = types.CleanReason(reason)
 	if to == types.EpochJudged || to == types.EpochOpen {
 		return fmt.Errorf("%w: use RecordJudgment to judge an epoch", ErrInvalid)
 	}

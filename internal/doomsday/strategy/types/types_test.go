@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"go/parser"
 	"go/token"
 	"os"
@@ -13,21 +14,44 @@ import (
 	"testing"
 )
 
-func TestBadReasonIsBoundedPlainAndNamesTheCause(t *testing.T) {
-	if got := BadReason(bad("%d of %d criteria judged", 1, 2)); got != "1 of 2 criteria judged" {
-		t.Errorf("got %q", got)
+func TestBadReasonIsAFixedVocabularyNeverModelText(t *testing.T) {
+	hostile := `‮evil\u001b[31m\u0085​KEY` // JSON escapes: the decoder hands the model's own characters on
+	bodies := map[string]string{
+		"unknown field":         `{"criteria":[{"id":"c1","status":"progressing"},{"id":"c2","status":"progressing"}],"directions":[],"next_actions":[],"` + hostile + `":true}`,
+		"unknown field nested":  `{"criteria":[{"id":"c1","status":"progressing","` + hostile + `":1},{"id":"c2","status":"progressing"}],"directions":[],"next_actions":[]}`,
+		"malformed json":        `{"criteria":`,
+		"unknown criterion":     `{"criteria":[{"id":"` + hostile + `","status":"progressing"},{"id":"c2","status":"progressing"}],"directions":[],"next_actions":[]}`,
+		"bad status":            `{"criteria":[{"id":"c1","status":"` + hostile + `"},{"id":"c2","status":"progressing"}],"directions":[],"next_actions":[]}`,
+		"bad verdict":           `{"criteria":[{"id":"c1","status":"progressing"},{"id":"c2","status":"progressing"}],"directions":[{"id":"d1","verdict":"` + hostile + `"}],"next_actions":[]}`,
+		"unknown direction":     `{"criteria":[{"id":"c1","status":"progressing"},{"id":"c2","status":"progressing"}],"directions":[{"id":"` + hostile + `","verdict":"keep"}],"next_actions":[]}`,
+		"wrong criterion count": `{"criteria":[{"id":"c1","status":"progressing"}],"directions":[],"next_actions":[]}`,
 	}
-	got := BadReason(bad("criterion %q unknown\n\x1b[31m", strings.Repeat("x", 500)))
-	if len([]rune(got)) > MaxBadReasonLen || got == "" {
-		t.Errorf("not bounded: %d", len(got))
-	}
-	for _, r := range got {
-		if r < 0x20 || r == 0x7f {
-			t.Errorf("control character in %q", got)
+	for want, body := range bodies {
+		_, err := decode(t, body)
+		got := BadReason(err)
+		if got == "" || strings.ContainsAny(got, "‮\x1b\u0085​") || strings.Contains(got, "KEY") || strings.Contains(got, "c1") {
+			t.Errorf("%s: reason %q carries model text", want, got)
 		}
+		if strings.HasPrefix(want, "unknown field") {
+			want = "unknown field"
+		}
+		if got != want {
+			t.Errorf("got %q want %q", got, want)
+		}
+	}
+	// Anything that is not one of this package's own refusals says nothing of its text.
+	if got := BadReason(fmt.Errorf("%w: model said KEY", ErrBadJudgment)); got != "judgment refused" {
+		t.Errorf("a foreign refusal leaked: %q", got)
 	}
 	if BadReason(errors.New("a secret model body")) != "" || BadReason(nil) != "" {
 		t.Error("an error that is not a refusal must carry no text")
+	}
+}
+
+func TestCleanReasonStripsControlsAndFormatCharsAndBounds(t *testing.T) {
+	got := CleanReason("a‮b\u0085c\x1b[d​e" + strings.Repeat("x", 500))
+	if len([]rune(got)) != MaxBadReasonLen || !strings.HasPrefix(got, "abc[dexx") {
+		t.Errorf("got %q", got)
 	}
 }
 
@@ -396,7 +420,7 @@ func TestDecisionConstants(t *testing.T) {
 func TestPackageStaysPure(t *testing.T) {
 	files, _ := filepath.Glob("*.go")
 	allowed := map[string]bool{"bytes": true, "crypto/sha256": true, "encoding/binary": true, "encoding/json": true, "errors": true,
-		"fmt": true, "io": true, "sort": true, "strconv": true, "strings": true, "time": true}
+		"fmt": true, "io": true, "sort": true, "strconv": true, "strings": true, "time": true, "unicode": true}
 	for _, f := range files {
 		if strings.HasSuffix(f, "_test.go") {
 			continue

@@ -208,7 +208,7 @@ func TestOnlyOneEpochAtATimeUnderConcurrentTicks(t *testing.T) {
 }
 
 func TestBadJudgmentChangesNothingElse(t *testing.T) {
-	wantReason := map[string]string{"invalid": "x", "model-failed": "model call failed", "input": "judge input refused"}
+	wantReason := map[string]string{"invalid": "judgment refused", "model-failed": "model call failed", "input": "judge input refused"}
 	for name, cause := range map[string]error{
 		"invalid": fmt.Errorf("%w: x", types.ErrBadJudgment), "model-failed": fmt.Errorf("%w: x", judge.ErrModelFailed), "input": judge.ErrBadInput,
 	} {

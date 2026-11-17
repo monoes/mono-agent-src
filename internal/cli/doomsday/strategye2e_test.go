@@ -228,7 +228,7 @@ func TestABadJudgmentShowsItsReasonInStatusAndEpochs(t *testing.T) {
 	r.tickAfter(t, 31*time.Minute)
 	rd := r.w.StrategyReader(r.w.DB, r.w.Witness.Keys)
 	st, err := rd.ReadStatus(bg, 0)
-	if err != nil || st.LatestEpoch == nil || !strings.Contains(st.LatestEpoch.BadReason, "c9") {
+	if err != nil || st.LatestEpoch == nil || st.LatestEpoch.BadReason != "unknown criterion" {
 		t.Fatalf("status %+v %v", st.LatestEpoch, err)
 	}
 	ep, err := rd.ReadEpochs(bg, 0, 10)
@@ -236,11 +236,33 @@ func TestABadJudgmentShowsItsReasonInStatusAndEpochs(t *testing.T) {
 		t.Fatalf("epochs %+v %v", ep, err)
 	}
 	var out strings.Builder
-	if err := renderStrategyEpochs(&out, ep); err != nil || !strings.Contains(out.String(), "c9") {
+	if err := renderStrategyEpochs(&out, ep); err != nil || !strings.Contains(out.String(), "why: unknown criterion") || strings.Contains(out.String(), "c9") {
 		t.Fatalf("render %q %v", out.String(), err)
 	}
 	out.Reset()
 	if err := renderStrategyStatus(&out, st); err != nil || !strings.Contains(out.String(), "why:") {
+		t.Fatalf("render %q %v", out.String(), err)
+	}
+}
+
+// A hostile model key never reaches the stored reason or the rendered why: line, which is a fixed phrase.
+func TestAHostileModelKeyNeverReachesTheReason(t *testing.T) {
+	r := newStratRig(t, finishCharterJSON, nil)
+	if res, err := r.propose(t, "first direction"); err != nil || !res.Accepted {
+		t.Fatalf("%+v %v", res, err)
+	}
+	r.judge.garbage = `{"criteria":[],"directions":[],"next_actions":[],"EVIL‮KEY\u001b[31m":1}`
+	r.tickAfter(t, 31*time.Minute)
+	rd := r.w.StrategyReader(r.w.DB, r.w.Witness.Keys)
+	st, err := rd.ReadStatus(bg, 0)
+	if err != nil || st.LatestEpoch == nil || st.LatestEpoch.BadReason != "unknown field" {
+		t.Fatalf("status %+v %v", st.LatestEpoch, err)
+	}
+	if n := r.count(t, `SELECT COUNT(*) FROM doomsday_audit WHERE payload LIKE '%EVIL%'`); n != 0 {
+		t.Fatalf("the model's key is in the audit chain: %d", n)
+	}
+	var out strings.Builder
+	if err := renderStrategyStatus(&out, st); err != nil || !strings.Contains(out.String(), "why: unknown field") || strings.Contains(out.String(), "EVIL") {
 		t.Fatalf("render %q %v", out.String(), err)
 	}
 }

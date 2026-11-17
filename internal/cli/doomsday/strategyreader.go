@@ -186,7 +186,7 @@ func (r strategyReader) badReasons(ctx context.Context, g int64, eps []types.Epo
 
 func (r strategyReader) withReason(v EpochView, reasons map[string]string, g int64) EpochView {
 	if v.State == string(types.EpochBadJudgment) {
-		v.BadReason = RedactText(reasons[types.EpochID(r.profile, g, v.Seq)], strategyNoteCap)
+		v.BadReason = RedactText(reasons[types.EpochID(r.profile, g, v.Seq)], types.MaxBadReasonLen)
 	}
 	return v
 }
