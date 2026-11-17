@@ -35,6 +35,9 @@ type Deps struct {
 	JSONOutput func() bool
 	// StrategyReader is the read-only reader of the strategy verbs; nil is the layer being off.
 	StrategyReader func() StrategyReader
+	// ReadStrategyReader is the strategy reader of `status`, opened without creating or migrating anything (the app polls
+	// status). Nil: status shows no counted-criteria progress.
+	ReadStrategyReader func() StrategyReader
 	// ChatStart is what `start --chat` needs beside the engine (the boss session, its budget, its first turn). Nil: that
 	// flag is refused.
 	ChatStart func() ChatStarter
@@ -450,6 +453,14 @@ func (d Deps) newStatus() *cobra.Command {
 				}
 				s.FirstTurn, s.FirstTurnError = ft.State, ft.Error
 			}
+			if s.Active && d.ReadStrategyReader != nil {
+				// Progress toward counted criteria is a reading: an unreadable one is left out and never fails status.
+				if r := d.ReadStrategyReader(); r != nil {
+					if sv, err := r.ReadStatus(cmd.Context(), s.Generation); err == nil {
+						s.Progress = sv.Progress
+					}
+				}
+			}
 			if s.Active && d.UnboundWarning != nil {
 				s.Warning = d.UnboundWarning(cmd.Context())
 			}
@@ -476,6 +487,7 @@ func (d Deps) newStatus() *cobra.Command {
 			if s.AuditHead != "" {
 				fmt.Fprintf(out, "audit: %d rows, head %s\n", s.AuditSeq, s.AuditHead)
 			}
+			WriteProgress(out, s.Progress)
 			switch s.FirstTurn {
 			case "failed":
 				fmt.Fprintf(out, "first turn failed: %s\n", s.FirstTurnError)

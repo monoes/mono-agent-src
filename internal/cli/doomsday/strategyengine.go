@@ -175,7 +175,7 @@ func (w Wiring) StrategyReader(db *sql.DB, keys sstore.Keyer) StrategyReader {
 	r := NewStrategyReader(sstore.New(sstore.WrapDB(db), keys, nil), w.Store, w.Profile).(strategyReader)
 	src := StoreRunSource{Profile: w.Profile, Runs: w.Store, Bosses: BossSource{Wiring: w}, DB: db}
 	c := readyCalc{st: r.st, db: db, profile: w.Profile, now: w.clock().Now, subject: w.subjectChangedAtOn(db), runs: src}
-	return r.withReady(c)
+	return r.withRuns(src).withReady(c)
 }
 
 // BossStrategy runs one session-callable strategy operation for the verified lead session of the profile (the boss tools'

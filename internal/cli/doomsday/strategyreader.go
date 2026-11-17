@@ -23,7 +23,14 @@ type strategyReader struct {
 	st      *sstore.Store
 	runs    StrategyRunReader
 	profile string
-	ready   *readyCalc // nil: the reading is not shown (a reader built without the run source)
+	ready   *readyCalc        // nil: the reading is not shown (a reader built without the run source)
+	src     StrategyRunSource // nil: counted criteria are not shown (the charter's criterion texts are unknown)
+}
+
+// withRuns lets the status show progress toward counted criteria; it reads the open run's criterion texts through src.
+func (r strategyReader) withRuns(src StrategyRunSource) strategyReader {
+	r.src = src
+	return r
 }
 
 // NewStrategyReader builds the reader the verbs use. The store it reads through verifies every row's MAC; a row that
@@ -98,6 +105,15 @@ func (r strategyReader) ReadStatus(ctx context.Context, gen int64) (StrategyStat
 	if v.Criteria, err = r.criteriaCounts(ctx, g, eps); err != nil {
 		return markTampered(v, err)
 	}
+	if r.src != nil {
+		if run, ok, serr := r.src.Current(ctx); serr == nil && ok && run.Generation == g {
+			j, jerr := r.latestJudgment(ctx, g, eps)
+			if jerr != nil {
+				return markTampered(v, jerr)
+			}
+			v.Progress = progressViews(run.Criteria, j)
+		}
+	}
 	if r.ready != nil {
 		ready, rerr := r.ready.view(ctx, g)
 		if rerr != nil {
@@ -117,6 +133,19 @@ func markTampered(v StrategyStatusView, err error) (StrategyStatusView, error) {
 
 // criteriaCounts counts the judge's readings in the newest judgment, by status. The notes are never read out.
 func (r strategyReader) criteriaCounts(ctx context.Context, g int64, eps []types.Epoch) (map[string]int, error) {
+	j, err := r.latestJudgment(ctx, g, eps)
+	if err != nil || j == nil {
+		return nil, err
+	}
+	out := map[string]int{}
+	for _, c := range j.Criteria {
+		out[string(c.Status)]++
+	}
+	return out, nil
+}
+
+// latestJudgment is the newest judged epoch's judgment, nil when there is none or its body does not decode.
+func (r strategyReader) latestJudgment(ctx context.Context, g int64, eps []types.Epoch) (*types.Judgment, error) {
 	for i := len(eps) - 1; i >= 0; i-- {
 		e := eps[i]
 		if !e.HasJudgment || (e.State != types.EpochJudged && e.State != types.EpochApplied) {
@@ -130,11 +159,7 @@ func (r strategyReader) criteriaCounts(ctx context.Context, g int64, eps []types
 		if derr != nil {
 			return nil, nil
 		}
-		out := map[string]int{}
-		for _, c := range j.Criteria {
-			out[string(c.Status)]++
-		}
-		return out, nil
+		return &j, nil
 	}
 	return nil, nil
 }

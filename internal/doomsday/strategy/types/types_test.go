@@ -226,6 +226,28 @@ func TestJudgmentAcceptsAWellFormedBody(t *testing.T) {
 	}
 }
 
+// The judge may report how many of a counted criterion are done; it is optional, and a zero is a real reading.
+func TestJudgmentCarriesAnOptionalCriterionCount(t *testing.T) {
+	j, err := decode(t, `{"criteria":[{"id":"c1","status":"progressing","count":12},{"id":"c2","status":"progressing","count":0}],"directions":[],"next_actions":[]}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if j.Criteria[0].Count == nil || *j.Criteria[0].Count != 12 || j.Criteria[1].Count == nil || *j.Criteria[1].Count != 0 {
+		t.Fatalf("%+v", j.Criteria)
+	}
+	a, _ := decode(t, goodBody)
+	if a.Criteria[0].Count != nil {
+		t.Fatal("a body without a count decoded one")
+	}
+	b := a
+	b.Criteria = append([]CriterionProgress(nil), a.Criteria...)
+	n := 3
+	b.Criteria[0].Count = &n
+	if bytes.Equal(a.Canonical(), b.Canonical()) {
+		t.Fatal("a reported count did not change the canonical form")
+	}
+}
+
 // Every malformed or hostile body is a bad judgment (ErrBadJudgment): the caller records it and changes nothing.
 func TestJudgmentRefusesBadBodies(t *testing.T) {
 	cases := map[string]string{
@@ -244,6 +266,9 @@ func TestJudgmentRefusesBadBodies(t *testing.T) {
 		"action empty text":  `{"criteria":[{"id":"c1","status":"progressing"},{"id":"c2","status":"progressing"}],"directions":[],"next_actions":[{"text":""}]}`,
 		"control char note":  `{"criteria":[{"id":"c1","status":"progressing","note":"a\u0000b"},{"id":"c2","status":"progressing"}],"directions":[],"next_actions":[]}`,
 		"long note":          `{"criteria":[{"id":"c1","status":"progressing","note":"` + strings.Repeat("a", MaxNoteLen+1) + `"},{"id":"c2","status":"progressing"}],"directions":[],"next_actions":[]}`,
+		"negative count":     `{"criteria":[{"id":"c1","status":"progressing","count":-1},{"id":"c2","status":"progressing"}],"directions":[],"next_actions":[]}`,
+		"huge count":         `{"criteria":[{"id":"c1","status":"progressing","count":1000000001},{"id":"c2","status":"progressing"}],"directions":[],"next_actions":[]}`,
+		"fractional count":   `{"criteria":[{"id":"c1","status":"progressing","count":1.5},{"id":"c2","status":"progressing"}],"directions":[],"next_actions":[]}`,
 		"oversize":           `{"criteria":[],"directions":[],"next_actions":[],"x":"` + strings.Repeat("a", MaxJudgmentBytes) + `"}`,
 	}
 	for name, body := range cases {
