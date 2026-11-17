@@ -2,6 +2,7 @@ package types
 
 import (
 	"bytes"
+	"encoding/hex"
 	"errors"
 	"go/parser"
 	"go/token"
@@ -248,6 +249,45 @@ func TestJudgmentCarriesAnOptionalCriterionCount(t *testing.T) {
 	}
 }
 
+// The count is advisory: one that is out of range or oddly typed is dropped (no reading), never a refusal of the
+// judgment, and the rest of the judgment is still strictly checked.
+func TestAnAdvisoryCountNeverVoidsAJudgment(t *testing.T) {
+	for _, c := range []string{`-1`, `1000000001`, `12.0`, `1e2`, `1.5`, `"12"`, `null`, `true`, `[1]`, `{"a":1}`, `99999999999999999999`} {
+		j, err := decode(t, `{"criteria":[{"id":"c1","status":"progressing","count":`+c+`},{"id":"c2","status":"progressing","count":4}],"directions":[],"next_actions":[]}`)
+		if err != nil {
+			t.Fatalf("count %s voided the judgment: %v", c, err)
+		}
+		if j.Criteria[0].Count != nil {
+			t.Errorf("count %s was kept: %d", c, *j.Criteria[0].Count)
+		}
+		if j.Criteria[1].Count == nil || *j.Criteria[1].Count != 4 {
+			t.Errorf("count %s disturbed its sibling: %+v", c, j.Criteria[1])
+		}
+	}
+	// Everything else stays strict, with or without a count.
+	if _, err := decode(t, `{"criteria":[{"id":"c1","status":"progressing","count":"x","bogus":1},{"id":"c2","status":"progressing"}],"directions":[],"next_actions":[]}`); !errors.Is(err, ErrBadJudgment) {
+		t.Errorf("an unknown field beside a bad count was accepted: %v", err)
+	}
+	// The bounds are inclusive.
+	j, err := decode(t, `{"criteria":[{"id":"c1","status":"progressing","count":1000000000},{"id":"c2","status":"progressing","count":0}],"directions":[],"next_actions":[]}`)
+	if err != nil || j.Criteria[0].Count == nil || *j.Criteria[0].Count != MaxCount || j.Criteria[1].Count == nil {
+		t.Errorf("in-range counts dropped: %+v %v", j, err)
+	}
+}
+
+// The canonical bytes of a judgment with no count are frozen: stored judgments and their MACs must keep verifying.
+func TestCanonicalOfAJudgmentWithoutACountIsFrozen(t *testing.T) {
+	j, err := decode(t, goodBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := hex.EncodeToString(j.Canonical()); got != goldenNoCountCanonical {
+		t.Fatalf("canonical form changed:\n got %s\nwant %s", got, goldenNoCountCanonical)
+	}
+}
+
+const goldenNoCountCanonical = "2f6d6f6e6f6167656e742f646f6f6d736461792f73747261746567792f6a7564676d656e742f76312f6465636f646564000000000000000100000000000000020263310d706c61757369626c792d6d6574000263320b70726f6772657373696e67016e0000000000000002026431046b65657000026432057072756e6500000000000000000102643104646f2078"
+
 // Every malformed or hostile body is a bad judgment (ErrBadJudgment): the caller records it and changes nothing.
 func TestJudgmentRefusesBadBodies(t *testing.T) {
 	cases := map[string]string{
@@ -266,9 +306,6 @@ func TestJudgmentRefusesBadBodies(t *testing.T) {
 		"action empty text":  `{"criteria":[{"id":"c1","status":"progressing"},{"id":"c2","status":"progressing"}],"directions":[],"next_actions":[{"text":""}]}`,
 		"control char note":  `{"criteria":[{"id":"c1","status":"progressing","note":"a\u0000b"},{"id":"c2","status":"progressing"}],"directions":[],"next_actions":[]}`,
 		"long note":          `{"criteria":[{"id":"c1","status":"progressing","note":"` + strings.Repeat("a", MaxNoteLen+1) + `"},{"id":"c2","status":"progressing"}],"directions":[],"next_actions":[]}`,
-		"negative count":     `{"criteria":[{"id":"c1","status":"progressing","count":-1},{"id":"c2","status":"progressing"}],"directions":[],"next_actions":[]}`,
-		"huge count":         `{"criteria":[{"id":"c1","status":"progressing","count":1000000001},{"id":"c2","status":"progressing"}],"directions":[],"next_actions":[]}`,
-		"fractional count":   `{"criteria":[{"id":"c1","status":"progressing","count":1.5},{"id":"c2","status":"progressing"}],"directions":[],"next_actions":[]}`,
 		"oversize":           `{"criteria":[],"directions":[],"next_actions":[],"x":"` + strings.Repeat("a", MaxJudgmentBytes) + `"}`,
 	}
 	for name, body := range cases {

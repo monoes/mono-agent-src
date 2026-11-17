@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 )
 
@@ -25,6 +26,28 @@ type CriterionProgress struct {
 	// Count is how many of a counted criterion ("50 applications sent") the judge saw done. Optional: absent is no
 	// reading, never zero. It is the judge's opinion, shown as such and never used to decide a finish.
 	Count *int `json:"count,omitempty"`
+}
+
+// UnmarshalJSON decodes as strictly as the rest of the body (unknown fields refused) except for the advisory count: a
+// count that is out of range or not a plain integer is dropped (no reading), never a reason to refuse the judgment.
+func (c *CriterionProgress) UnmarshalJSON(b []byte) error {
+	var raw struct {
+		ID     string          `json:"id"`
+		Status CriterionStatus `json:"status"`
+		Note   string          `json:"note"`
+		Count  json.RawMessage `json:"count"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&raw); err != nil {
+		return err
+	}
+	*c = CriterionProgress{ID: raw.ID, Status: raw.Status, Note: raw.Note}
+	if n, err := strconv.ParseInt(string(raw.Count), 10, 64); err == nil && n >= 0 && n <= MaxCount {
+		v := int(n)
+		c.Count = &v
+	}
+	return nil
 }
 
 // MaxCount bounds a reported count (and a parsed target).
@@ -111,9 +134,8 @@ func (j Judgment) Validate(exp Expect) error {
 		default:
 			return bad("criterion status %q", c.Status)
 		}
-		if !wantC[c.ID] || seen[c.ID] || !validText(c.Note, MaxNoteLen, false) ||
-			(c.Count != nil && (*c.Count < 0 || *c.Count > MaxCount)) {
-			return bad("criterion %q unknown, repeated or with a bad note or count", c.ID)
+		if !wantC[c.ID] || seen[c.ID] || !validText(c.Note, MaxNoteLen, false) {
+			return bad("criterion %q unknown, repeated or with a bad note", c.ID)
 		}
 		seen[c.ID] = true
 	}
