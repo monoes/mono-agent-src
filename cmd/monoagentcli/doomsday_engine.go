@@ -45,6 +45,7 @@ func init() {
 	// The boss's read-only reading of the strategy layer's finish-ready marker; the boss then calls finish.begin itself.
 	mcp.SetBossFinishReadyReader(bossFinishReady)
 	doomsdayStrategyReader = strategyReaderFor
+	doomsdayStrategyReadReader = strategyReadOnlyReaderFor
 	// `doomsday governor status`: the governor's read model (read-only).
 	doomsdayExtra = governorGroupFor
 	doomsdayEngine = func(cfg *globalConfig) doomsdaycli.Engine {

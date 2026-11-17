@@ -27,7 +27,9 @@ type CriterionCountView struct {
 // CriterionTarget reads a target count out of free text, or says there is none. It is deliberately strict: exactly one
 // number in the text, written as digits (thousands commas allowed), standing alone as a count of things (followed by a
 // space and a word), between 1 and types.MaxCount. A percentage, a decimal, a date or time, a range, a version, an
-// ordinal, a currency amount or a second number all mean no target. It never guesses.
+// ordinal, a currency amount or a second number all mean no target. It never guesses. The target is still a
+// heuristic over free text (a phrase like "within 2 weeks" can read as a count), shown beside the judge's own opinion
+// and never used to decide a finish.
 func CriterionTarget(spec string) (int, bool) {
 	rs := []rune(spec)
 	target, found := 0, false

@@ -20,8 +20,6 @@ import (
 // The strategy layer's wiring (like the rest of the mode): the read-only verbs' reader, the engine
 // loop that ticks the strategy host, and the boss tools' caller. With no run open every part is a no-op.
 
-// strategyReaderFor is the reader of `doomsday strategy status|epochs|directions`. A database that cannot be opened is the
-// layer being off.
 // strategyReadOnlyReaderFor is the reader `doomsday status` shows counted-criteria progress through. Status is polled by
 // the app, so it opens the database the way the read engine does: nothing is created or migrated.
 func strategyReadOnlyReaderFor(cfg *globalConfig) doomsdaycli.StrategyReader {
@@ -34,6 +32,8 @@ func strategyReadOnlyReaderFor(cfg *globalConfig) doomsdaycli.StrategyReader {
 	return w.StrategyReader(db, w.Witness.Keys)
 }
 
+// strategyReaderFor is the reader of `doomsday strategy status|epochs|directions`. A database that cannot be opened is the
+// layer being off.
 func strategyReaderFor(cfg *globalConfig) doomsdaycli.StrategyReader {
 	db, err := initDB(cfg)
 	if err != nil {
