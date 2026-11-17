@@ -86,10 +86,12 @@ Any waiting reason clears when you act (answer, start again, raise a limit). Rig
 | One mission until the away limits stop it, mission budget $20 | about $6.50 (20 percent = $4, plus one last wake-up $2 and one last judge call $0.50) |
 | Same, mission budget $100 | at most about $22.50 by the 20 percent rule ($20 + $2 + $0.50); about $17 if the 6-wake limit binds first, but judged rounds that wake nobody are not counted by the wake limit, so only the first figure is a hard bound |
 
+Note: X is a request, not a bound on a single turn (see the measured sample below). The figures above use X as if it were one.
+
 Only the 20 percent rule is a hard bound. Read this too:
 
 - Helpers the lead starts are NOT covered by X. In one wake the lead can carve its whole remaining budget (up to the 80 percent share maximum) out to helpers, and that is spent outside X, bounded only by the carve limits. Carved money not yet spent counts in the 20 percent rule, so a big carve makes the pursuit wait ("spend").
-- X and the judge's $0.50 are requests to the AI runtime, checked from the cost it reports afterwards. A call can overshoot by one model call; a turn that reports no cost is charged its whole cap. On a subscription plan the runtime's "cost" may not be a bill.
+- X and the judge's $0.50 are requests to the AI runtime, checked from the cost it reports afterwards. A turn can overshoot by more than one call (the measured sample below overshot 8.4 times); a turn that reports no cost is charged its whole cap. On a subscription plan the runtime's "cost" may not be a bill.
 - **Measured, ONE sample (2026-11-17):** Claude Code, model `haiku`, cap requested `--budget-usd 0.01`, `--max-turns 6`, a prompt that reads two small files and then writes a short summary (several model calls, 10 tool-activity events). The runner did NOT stop the turn at the cap: it let it finish, reported a cost of $0.0838 (8.4 times the cap, $0.0738 over), then failed the turn after the fact (exit 1, `budget: spend cap exceeded: $0.0838 > --budget-usd 0.01`). So the cap is checked after the spend, not enforced during the turn; the real bound is the cost the runner reports plus the 20% away rule. One run on one runtime, so the size of an overshoot elsewhere is unknown. Judge cost against real provider billing is still unmeasured.
 - Host-wide limits: at most 12 pursuit wake-ups and 12 judge calls an hour, across all missions. Per mission: 6 wake-ups since you last acted (the count does not depend on the meter).
 - One wake-up queued before you act can still run after your action resets the count.
