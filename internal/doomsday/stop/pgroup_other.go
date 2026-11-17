@@ -12,3 +12,6 @@ func ServeAnchors(context.Context, RunDir) error { return nil }
 
 // UnitNeedsHost is false off macOS: the unit is made by the creator.
 func UnitNeedsHost() bool { return false }
+
+// realPPidOf is nil off macOS: there is no process-group unit to be stranded.
+var realPPidOf func(pid int) (int, error)

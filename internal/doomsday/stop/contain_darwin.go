@@ -261,3 +261,12 @@ func ServeAnchors(ctx context.Context, dir RunDir) error {
 
 // UnitNeedsHost says the run's unit is made by the coder host (so the host must run before the run starts).
 func UnitNeedsHost() bool { return true }
+
+// realPPidOf is the parent of pid (the anchor's parent is the host that started it).
+func realPPidOf(pid int) (int, error) {
+	k, err := kinfo(pid)
+	if err != nil {
+		return 0, err
+	}
+	return int(k.Eproc.Ppid), nil
+}

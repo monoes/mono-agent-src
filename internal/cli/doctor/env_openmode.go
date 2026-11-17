@@ -23,7 +23,10 @@ func addOpenModeHook(env *health.Env, dbPath string, extra OpenModeExtra) {
 
 // OpenModeExtra reads the containment steps and whether the profile has an active run. The CLI provides it from its
 // operator-side package: agent-reachable code (this one) names neither the mode's packages nor its tables.
-type OpenModeExtra func(db *sql.DB, profile string) (steps []health.OpenModeStep, activeRun bool, activeErr string)
+//
+// hostPID is the running coder host's pid (0 when none runs, negative when it is not known); strandedUnit is why the run's unit
+// cannot take a turn from that host ("" when it can).
+type OpenModeExtra func(db *sql.DB, profile string, hostPID int) (steps []health.OpenModeStep, activeRun bool, activeErr, strandedUnit string)
 
 func openModeFacts(db *sql.DB, profile, dbPath string, extra OpenModeExtra) health.OpenModeFacts {
 	f := health.OpenModeFacts{GOOS: runtime.GOOS, HostRunning: chat.HostRunningAt(dbPath)}
@@ -31,7 +34,14 @@ func openModeFacts(db *sql.DB, profile, dbPath string, extra OpenModeExtra) heal
 		f.BindingReadyErr = err.Error()
 	}
 	if extra != nil {
-		f.Steps, f.ActiveRun, f.ActiveErr = extra(db, profile)
+		hostPID := 0
+		if f.HostRunning {
+			hostPID = -1
+			if pid, ok := chat.HostPIDAt(dbPath); ok {
+				hostPID = pid
+			}
+		}
+		f.Steps, f.ActiveRun, f.ActiveErr, f.StrandedUnit = extra(db, profile, hostPID)
 	}
 	if db == nil {
 		return f
