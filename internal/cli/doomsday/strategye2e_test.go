@@ -218,6 +218,33 @@ func TestAnUnwitnessedStrategyRowFailsTheGenerationClosed(t *testing.T) {
 	}
 }
 
+// A rejected judgment says why: the reason is in the audit line and shown by the status and epochs readings.
+func TestABadJudgmentShowsItsReasonInStatusAndEpochs(t *testing.T) {
+	r := newStratRig(t, finishCharterJSON, nil)
+	if res, err := r.propose(t, "first direction"); err != nil || !res.Accepted {
+		t.Fatalf("%+v %v", res, err)
+	}
+	r.judge.garbage = `{"criteria":[{"id":"c9","status":"plausibly-met"}],"directions":[],"next_actions":[]}`
+	r.tickAfter(t, 31*time.Minute)
+	rd := r.w.StrategyReader(r.w.DB, r.w.Witness.Keys)
+	st, err := rd.ReadStatus(bg, 0)
+	if err != nil || st.LatestEpoch == nil || !strings.Contains(st.LatestEpoch.BadReason, "c9") {
+		t.Fatalf("status %+v %v", st.LatestEpoch, err)
+	}
+	ep, err := rd.ReadEpochs(bg, 0, 10)
+	if err != nil || len(ep.Epochs) != 1 || ep.Epochs[0].BadReason == "" {
+		t.Fatalf("epochs %+v %v", ep, err)
+	}
+	var out strings.Builder
+	if err := renderStrategyEpochs(&out, ep); err != nil || !strings.Contains(out.String(), "c9") {
+		t.Fatalf("render %q %v", out.String(), err)
+	}
+	out.Reset()
+	if err := renderStrategyStatus(&out, st); err != nil || !strings.Contains(out.String(), "why:") {
+		t.Fatalf("render %q %v", out.String(), err)
+	}
+}
+
 // A2: the timer opens an epoch, the judge answers, the verdicts apply. A judgment that fails the schema is a recorded
 // bad-judgment and changes nothing: no direction moves, no finish is requested, and the judge is not called again inside the
 // floor.

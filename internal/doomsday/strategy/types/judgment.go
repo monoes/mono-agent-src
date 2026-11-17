@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 )
 
 // Judgment is the judge's typed output. The JSON shape is frozen (the control room reads it). It never carries a
@@ -45,6 +46,29 @@ type Expect struct {
 
 // ErrBadJudgment wraps every refusal. The caller records a bad-judgment epoch and changes nothing else.
 var ErrBadJudgment = errors.New("strategy: bad judgment")
+
+// MaxBadReasonLen bounds, in runes, the reason a bad-judgment line carries.
+const MaxBadReasonLen = 120
+
+// BadReason is the short why of a refusal: the validator's own message without the sentinel prefix, control characters
+// dropped and cut to MaxBadReasonLen. An error that is not an ErrBadJudgment refusal gives "" (its text may be anything).
+func BadReason(err error) string {
+	if err == nil || !errors.Is(err, ErrBadJudgment) {
+		return ""
+	}
+	s := strings.TrimPrefix(err.Error(), ErrBadJudgment.Error()+": ")
+	out := make([]rune, 0, MaxBadReasonLen)
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f {
+			continue
+		}
+		if len(out) == MaxBadReasonLen {
+			break
+		}
+		out = append(out, r)
+	}
+	return string(out)
+}
 
 func bad(format string, a ...any) error {
 	return fmt.Errorf("%w: %s", ErrBadJudgment, fmt.Sprintf(format, a...))

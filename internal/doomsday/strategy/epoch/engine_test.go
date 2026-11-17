@@ -208,6 +208,7 @@ func TestOnlyOneEpochAtATimeUnderConcurrentTicks(t *testing.T) {
 }
 
 func TestBadJudgmentChangesNothingElse(t *testing.T) {
+	wantReason := map[string]string{"invalid": "x", "model-failed": "model call failed", "input": "judge input refused"}
 	for name, cause := range map[string]error{
 		"invalid": fmt.Errorf("%w: x", types.ErrBadJudgment), "model-failed": fmt.Errorf("%w: x", judge.ErrModelFailed), "input": judge.ErrBadInput,
 	} {
@@ -226,6 +227,9 @@ func TestBadJudgmentChangesNothingElse(t *testing.T) {
 			}
 			if h.st.state("d1") != types.DirProposed || h.st.state("d2") != types.DirActive {
 				t.Fatalf("directions moved: %s %s", h.st.state("d1"), h.st.state("d2"))
+			}
+			if h.st.badReason[1] != wantReason[name] {
+				t.Fatalf("reason %q, want %q", h.st.badReason[1], wantReason[name])
 			}
 			if h.st.epochs[1].State != types.EpochBadJudgment || h.st.recorded != 0 {
 				t.Fatalf("epoch %+v recorded=%d", h.st.epochs[1], h.st.recorded)

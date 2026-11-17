@@ -143,7 +143,7 @@ type StrategySink interface {
 	MoveDirection(ctx context.Context, profile string, gen int64, id string, to types.DirectionState) error
 	EpochExpect(ctx context.Context, profile string, gen, seq int64) (types.Expect, error)
 	RecordJudgment(ctx context.Context, profile string, gen, seq int64, body []byte) (created bool, err error)
-	MarkBadJudgment(ctx context.Context, profile string, gen, seq int64) error
+	MarkBadJudgment(ctx context.Context, profile string, gen, seq int64, reason string) error
 }
 
 // StrategyOps runs the strategy operations over an Enforcer (charter, boss tree, ledger) and a sink.
@@ -338,7 +338,11 @@ func (s *StrategyOps) IntakeEpoch(ctx context.Context, j JudgeResult) (EpochInta
 		if !errors.Is(derr, types.ErrBadJudgment) {
 			return EpochIntake{}, derr
 		}
-		if err := s.Sink.MarkBadJudgment(ctx, act.Profile, act.Generation, j.Seq); err != nil {
+		why := types.BadReason(derr)
+		if why == "" {
+			why = "judgment refused"
+		}
+		if err := s.Sink.MarkBadJudgment(ctx, act.Profile, act.Generation, j.Seq, why); err != nil {
 			return EpochIntake{}, err
 		}
 		return EpochIntake{Bad: true, Reason: "judgment failed validation"}, nil

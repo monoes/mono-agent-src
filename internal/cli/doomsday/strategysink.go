@@ -252,11 +252,11 @@ func (s strategySink) RecordJudgment(ctx context.Context, profile string, gen, s
 	return s.h.store.RecordJudgment(ctx, profile, gen, seq, body)
 }
 
-func (s strategySink) MarkBadJudgment(ctx context.Context, profile string, gen, seq int64) error {
+func (s strategySink) MarkBadJudgment(ctx context.Context, profile string, gen, seq int64, reason string) error {
 	if profile != s.h.d.Profile {
 		return sstore.ErrNotFound
 	}
-	return s.h.store.MoveEpoch(ctx, profile, gen, seq, types.EpochBadJudgment)
+	return s.h.store.MoveEpochBad(ctx, profile, gen, seq, reason)
 }
 
 // epochContext is the epoch a proposal belongs to (the latest, 0 when none yet) and how many accepted-unchecked

@@ -45,7 +45,10 @@ func (f *fakeSink) RecordJudgment(_ context.Context, _ string, _ int64, _ int64,
 	f.judged = append(f.judged, body)
 	return true, nil
 }
-func (f *fakeSink) MarkBadJudgment(context.Context, string, int64, int64) error { f.bad++; return nil }
+func (f *fakeSink) MarkBadJudgment(context.Context, string, int64, int64, string) error {
+	f.bad++
+	return nil
+}
 
 // fakeAllowlist registers the names as the integrator's S2 edit would.
 func fakeAllowlist() map[string]bool {

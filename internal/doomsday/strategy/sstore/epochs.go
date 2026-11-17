@@ -133,6 +133,19 @@ func (s *Store) RecordJudgment(ctx context.Context, profile string, gen, seq int
 // MoveEpoch moves an epoch to bad-judgment, applied or abandoned (judged is reached only through RecordJudgment). The
 // run must be running, except for abandoned: an epoch left open by a Stop is closed after the run stopped.
 func (s *Store) MoveEpoch(ctx context.Context, profile string, gen, seq int64, to types.EpochState) error {
+	return s.moveEpoch(ctx, profile, gen, seq, to, "")
+}
+
+// MoveEpochBad moves an epoch to bad-judgment and records why in the audit line. The reason is cut to
+// types.MaxBadReasonLen runes; the epoch row itself (and its MAC) is unchanged.
+func (s *Store) MoveEpochBad(ctx context.Context, profile string, gen, seq int64, reason string) error {
+	return s.moveEpoch(ctx, profile, gen, seq, types.EpochBadJudgment, reason)
+}
+
+func (s *Store) moveEpoch(ctx context.Context, profile string, gen, seq int64, to types.EpochState, reason string) error {
+	if r := []rune(reason); len(r) > types.MaxBadReasonLen {
+		reason = string(r[:types.MaxBadReasonLen])
+	}
 	if to == types.EpochJudged || to == types.EpochOpen {
 		return fmt.Errorf("%w: use RecordJudgment to judge an epoch", ErrInvalid)
 	}
@@ -158,8 +171,11 @@ func (s *Store) MoveEpoch(ctx context.Context, profile string, gen, seq int64, t
 		if to == types.EpochBadJudgment {
 			kind = types.KindBadJudgment
 		}
-		return s.appendAudit(ctx, tx, profile, gen, kind,
-			payload(map[string]string{"epoch": types.EpochID(profile, gen, seq), "from": string(from), "to": string(to)}))
+		p := map[string]string{"epoch": types.EpochID(profile, gen, seq), "from": string(from), "to": string(to)}
+		if to == types.EpochBadJudgment && reason != "" {
+			p["reason"] = reason
+		}
+		return s.appendAudit(ctx, tx, profile, gen, kind, payload(p))
 	})
 }
 

@@ -155,18 +155,23 @@ func (e *Engine) badJudgment(ctx context.Context, ep types.Epoch, res TickResult
 	if !e.stillRunning(ctx) {
 		return e.abandonNow(ctx, ep, res)
 	}
-	if err := e.d.Store.MoveEpoch(ctx, e.cfg.Profile, e.cfg.Generation, ep.Seq, types.EpochBadJudgment); err != nil {
+	var code, why string
+	switch {
+	case errors.Is(cause, types.ErrBadJudgment):
+		code, why = "invalid", types.BadReason(cause)
+		if why == "" {
+			why = "judgment refused"
+		}
+	case errors.Is(cause, judge.ErrModelFailed):
+		code, why = "model-failed", "model call failed" // never the model's or transport's own text
+	default:
+		code, why = "input", "judge input refused"
+	}
+	if err := e.d.Store.MoveEpochBad(ctx, e.cfg.Profile, e.cfg.Generation, ep.Seq, why); err != nil {
 		return e.failOrStop(ctx, ep, res, err)
 	}
 	res.Outcome = OutcomeBadJudgment
-	switch {
-	case errors.Is(cause, types.ErrBadJudgment):
-		res.BadReason = "invalid"
-	case errors.Is(cause, judge.ErrModelFailed):
-		res.BadReason = "model-failed"
-	default:
-		res.BadReason = "input"
-	}
+	res.BadReason = code
 	return res, nil
 }
 
