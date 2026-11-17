@@ -63,7 +63,8 @@ func TestAnExtensionBelowTheFullSetIsOnlyMentionedWhenAVerbIsMissing(t *testing.
 	if n := ExtensionUpdateNote("1.11.0"); n != "" {
 		t.Errorf("1.11.0 is warned about up front: %q", n)
 	}
-	base := errors.New("extension error: unknown command: form_run")
+	// the exact text chrome-extension/background.js throws for a verb it lacks
+	base := errors.New("extension error: Unknown command type: form_run")
 	err := withUpdateNote(base, "1.11.0")
 	if !errors.Is(err, base) || !strings.Contains(err.Error(), FullExtension) || !strings.Contains(err.Error(), "update") {
 		t.Errorf("a missing verb on 1.11.0: %v", err)

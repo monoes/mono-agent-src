@@ -81,13 +81,14 @@ func ExtensionUpdateNote(version string) string {
 
 // withUpdateNote appends the update warning to err when the browser's
 // extension is older than MinExtension, and also, for an extension older than
-// FullExtension, when the failure is a command it does not know; the error
+// FullExtension, when the failure is a command it does not know (the extension
+// throws "Unknown command type: x", the older route "unknown command: x"); the error
 // stays unwrapped-compatible.
 func withUpdateNote(err error, version string) error {
 	if note := ExtensionUpdateNote(version); note != "" {
 		return fmt.Errorf("%w (%s)", err, note)
 	}
-	if err != nil && strings.Contains(err.Error(), "unknown command") && olderThan(version, FullExtension) {
+	if err != nil && strings.Contains(strings.ToLower(err.Error()), "unknown command") && olderThan(version, FullExtension) {
 		return fmt.Errorf("%w (its MonoAgent Bridge extension is %s and lacks this command; %s has it: update the extension "+
 			"(reload it at chrome://extensions, or reinstall it from `monoagentcli extension install`))", err, strings.TrimSpace(version), FullExtension)
 	}
