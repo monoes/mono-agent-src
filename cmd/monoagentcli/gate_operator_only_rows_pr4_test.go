@@ -28,6 +28,7 @@ func operatorOnlyRowsPR4() []opRow {
 		{path: "profile documents remove", build: newProfileCmd, args: []string{"documents", "remove", "no-such-doc", "--delete-file"}},
 		{path: "people review approve", build: newPeopleCmd, args: []string{"review", "approve", "no-such-person", "--send", "--send-plan"}},
 		{path: "people review reject", build: newPeopleCmd, args: []string{"review", "reject", "no-such-person"}},
+		{path: "people dedupe", build: newPeopleCmd, args: []string{"dedupe", "--apply", "--backup", "{tmp}"}},
 		{path: "people messages send-draft", build: newPeopleCmd, args: []string{"messages", "send-draft", "no-such-message"}},
 		{path: "people messages reject-draft", build: newPeopleCmd, args: []string{"messages", "reject-draft", "no-such-message"}},
 	}
@@ -47,7 +48,7 @@ var openInTheProfileAndPeopleChange = map[string]string{
 // forgetting its row) fails the guard.
 var convertedProfileAndPeopleVerbs = []string{
 	"profile update", "profile delete", "profile backups purge", "profile move", "profile create",
-	"profile documents remove", "people review approve", "people review reject", "people messages send-draft",
+	"profile documents remove", "people dedupe", "people review approve", "people review reject", "people messages send-draft",
 	"people messages reject-draft",
 }
 
