@@ -245,7 +245,7 @@ func TestEveryRawReaderOfMessagesIsAccountedFor(t *testing.T) {
 		"internal/commsync/queue.go":                 "writer; reads ids",
 		"internal/commsync/status.go":                "card-joined status machinery; reads ids and metadata",
 		"internal/summary/inbox.go":                  "counts only",
-		"internal/peopledupes/peopledupes.go":        "counts rows and re-points them; reads no text",
+		"internal/peopledupes/peopledupes.go":        "storage.EnsureMessagesScrubbed before the undo file reads a message; re-pointed messages are saved without text",
 		"internal/hilscrub/hilscrub.go":              "the scrub itself",
 	}
 	root, _ := filepath.Abs("../..")
@@ -273,6 +273,7 @@ func TestEveryRawReaderOfMessagesIsAccountedFor(t *testing.T) {
 		"internal/ai/chat/monoagent_tools_people.go": "storage.EnsureMessagesScrubbed(",
 		"internal/cli/application/assets.go":         "storage.EnsureMessagesScrubbed(",
 		"internal/cli/people/messages_classify.go":   "storage.EnsureMessagesScrubbed(",
+		"internal/peopledupes/peopledupes.go":        "storage.EnsureMessagesScrubbed(",
 	} {
 		b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(f)))
 		if err != nil || !strings.Contains(string(b), call) {

@@ -19,6 +19,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/storage"
 )
 
 // Why a group is a group.
@@ -51,9 +53,13 @@ type Group struct {
 	Key     string   `json:"key"`
 	Winner  string   `json:"winner"`
 	Members []Member `json:"members"`
-	// Repoint counts, per table, the rows that point at a loser and would
-	// move to the winner (a row the winner already has is dropped instead).
+	// Repoint counts, per table, the rows that would really move to the
+	// winner. Dropped counts the rows that point at a loser but would be
+	// dropped with it instead, because the winner already has a row with the
+	// same unique key (for a message: person, source and external id, so two
+	// notes with an empty external id collide).
 	Repoint map[string]int `json:"repoint"`
+	Dropped map[string]int `json:"dropped,omitempty"`
 	// Conflict is set when the group is not safe to merge unseen: one row
 	// is approved and another rejected. Apply skips it.
 	Conflict string `json:"conflict,omitempty"`
@@ -262,13 +268,28 @@ func Find(ctx context.Context, db *sql.DB, profileID string) ([]Group, error) {
 			g.Conflict = "one row is approved and another rejected: decide by hand"
 		}
 		losers := g.Losers()
+		sim, err := simulateRepoint(ctx, db, g, targets)
+		if err != nil {
+			return nil, err
+		}
 		for _, t := range targets {
+			k := t.table + "." + t.column
 			var n int
 			if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+t.table+" WHERE "+t.column+" IN ("+placeholders(len(losers))+")", strs(losers)...).Scan(&n); err != nil {
 				return nil, err
 			}
-			if n > 0 {
-				g.Repoint[t.table+"."+t.column] = n
+			if n == 0 {
+				continue
+			}
+			left := len(sim.left[k])
+			if g.Repoint[k] = n - left; g.Repoint[k] == 0 {
+				delete(g.Repoint, k)
+			}
+			if left > 0 {
+				if g.Dropped == nil {
+					g.Dropped = map[string]int{}
+				}
+				g.Dropped[k] = left
 			}
 		}
 		groups = append(groups, g)
@@ -291,12 +312,17 @@ type backupGroup struct {
 	WinnerBefore map[string]any              `json:"winner_before"`
 	Removed      []map[string]any            `json:"removed"`
 	Repointed    map[string][]map[string]any `json:"repointed"`
+	// DroppedMessages are the messages a merge drops with a loser (the winner
+	// has one with the same unique key): the database keeps no other copy.
+	// They were scrubbed (storage.EnsureMessagesScrubbed) before they were read.
+	DroppedMessages []map[string]any `json:"dropped_messages,omitempty"`
 }
 
 const backupNote = "Undo by hand: re-insert each row of 'removed' into people, then for every table in " +
 	"'repointed' set the named column back to the removed person's id on the rows (matched by _rowid) " +
-	"that were pointing at it; restore 'winner_before' over the winner. Rows a merge dropped as " +
-	"duplicates of the winner's own are listed here too."
+	"that were pointing at it; restore 'winner_before' over the winner. A message is listed in " +
+	"'repointed' by id and metadata columns only, never its text; one a merge drops as a duplicate " +
+	"of the winner's own is listed in 'dropped_messages' with its content (scrubbed)."
 
 func scanRows(rs *sql.Rows) ([]map[string]any, error) {
 	defer rs.Close()
@@ -345,8 +371,16 @@ func snapshot(ctx context.Context, db *sql.DB, profileID string, g Group, target
 		}
 	}
 	losers := g.Losers()
+	sim, err := simulateRepoint(ctx, db, g, targets)
+	if err != nil {
+		return bg, err
+	}
 	for _, t := range targets {
-		rs, err := db.QueryContext(ctx, "SELECT rowid AS _rowid, * FROM "+t.table+" WHERE "+t.column+" IN ("+placeholders(len(losers))+")", strs(losers)...)
+		cols := "*"
+		if t.table == "person_messages" {
+			cols = messageKeyColumns // never the text: see messageKeyColumns
+		}
+		rs, err := db.QueryContext(ctx, "SELECT rowid AS _rowid, "+cols+" FROM "+t.table+" WHERE "+t.column+" IN ("+placeholders(len(losers))+")", strs(losers)...)
 		if err != nil {
 			return bg, err
 		}
@@ -357,8 +391,97 @@ func snapshot(ctx context.Context, db *sql.DB, profileID string, g Group, target
 		if len(rows) > 0 {
 			bg.Repointed[t.table+"."+t.column] = rows
 		}
+		if ids := sim.left[t.table+"."+t.column]; t.table == "person_messages" && len(ids) > 0 {
+			rs, err := db.QueryContext(ctx, "SELECT rowid AS _rowid, * FROM person_messages WHERE rowid IN ("+placeholders(len(ids))+")", int64s(ids)...)
+			if err != nil {
+				return bg, err
+			}
+			if bg.DroppedMessages, err = scanRows(rs); err != nil {
+				return bg, err
+			}
+		}
 	}
 	return bg, nil
+}
+
+// messageKeyColumns are the columns of person_messages the undo file keeps for
+// a message that is only re-pointed: what identifies it and where it was, none
+// of its text (sender, subject, body, metadata). Message text is private and
+// older rows may still carry a secret the scrub of #1594 has not reached.
+const messageKeyColumns = "id, person_id, source, external_id, direction, status, sent_at, read_at, hil_ref, profile_id, created_at"
+
+func int64s(in []int64) []any {
+	out := make([]any, len(in))
+	for i, v := range in {
+		out[i] = v
+	}
+	return out
+}
+
+// simulated is what re-pointing a group would do: per "table.column", how many
+// rows would move and the rowids of the rows that would stay behind (to be
+// dropped with the loser).
+type simulated struct {
+	moved map[string]int
+	left  map[string][]int64
+}
+
+// simulateRepoint runs the re-pointing of mergeGroup inside a transaction it
+// always rolls back, so a dry run and the undo file know exactly which rows
+// the unique keys would drop. It changes nothing.
+func simulateRepoint(ctx context.Context, db *sql.DB, g Group, targets []fkTarget) (simulated, error) {
+	sim := simulated{moved: map[string]int{}, left: map[string][]int64{}}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return sim, err
+	}
+	defer tx.Rollback()
+	if sim.moved, err = repointTables(ctx, tx, g, targets); err != nil {
+		return sim, err
+	}
+	losers := g.Losers()
+	for _, t := range targets {
+		if t.table == "person_links" {
+			continue
+		}
+		rs, err := tx.QueryContext(ctx, "SELECT rowid FROM "+t.table+" WHERE "+t.column+" IN ("+placeholders(len(losers))+")", strs(losers)...)
+		if err != nil {
+			return sim, err
+		}
+		for rs.Next() {
+			var id int64
+			if err := rs.Scan(&id); err != nil {
+				rs.Close()
+				return sim, err
+			}
+			k := t.table + "." + t.column
+			sim.left[k] = append(sim.left[k], id)
+		}
+		rs.Close()
+	}
+	return sim, nil
+}
+
+// repointTables moves, in every referencing table but person_links (see
+// moveLinks), the rows of the losers to the winner. A row that would duplicate
+// one the winner already has is ignored and stays on its loser.
+func repointTables(ctx context.Context, tx *sql.Tx, g Group, targets []fkTarget) (map[string]int, error) {
+	losers := g.Losers()
+	moved := map[string]int{}
+	for _, t := range targets {
+		if t.table == "person_links" {
+			continue
+		}
+		res, err := tx.ExecContext(ctx, "UPDATE OR IGNORE "+t.table+" SET "+t.column+" = ? WHERE "+t.column+" IN ("+placeholders(len(losers))+")",
+			append([]any{g.Winner}, strs(losers)...)...)
+		if err != nil {
+			return nil, fmt.Errorf("re-pointing %s.%s: %w", t.table, t.column, err)
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			moved[t.table+"."+t.column] = int(n)
+		}
+	}
+	return moved, nil
 }
 
 // Apply merges every group that is safe to merge, each in its own
@@ -371,6 +494,9 @@ func Apply(ctx context.Context, db *sql.DB, profileID string, groups []Group, ba
 	if err != nil {
 		return nil, err
 	}
+	// A raw read of person_messages must follow the scrub of #1594, or the
+	// undo file would write back a value it removed (hilscrub guard test).
+	storage.EnsureMessagesScrubbed(db, profileID)
 	results := make([]GroupResult, len(groups))
 	doc := backup{CreatedAt: time.Now().UTC().Format(time.RFC3339), ProfileID: profileID, Note: backupNote}
 	todo := make([]int, 0, len(groups))
@@ -457,19 +583,9 @@ func mergeGroup(ctx context.Context, db *sql.DB, profileID string, g Group, targ
 		}
 	}
 
-	moved := map[string]int{}
-	for _, t := range targets {
-		if t.table == "person_links" {
-			continue
-		}
-		res, err := tx.ExecContext(ctx, "UPDATE OR IGNORE "+t.table+" SET "+t.column+" = ? WHERE "+t.column+" IN ("+placeholders(len(losers))+")",
-			append([]any{g.Winner}, strs(losers)...)...)
-		if err != nil {
-			return nil, fmt.Errorf("re-pointing %s.%s: %w", t.table, t.column, err)
-		}
-		if n, _ := res.RowsAffected(); n > 0 {
-			moved[t.table+"."+t.column] = int(n)
-		}
+	moved, err := repointTables(ctx, tx, g, targets)
+	if err != nil {
+		return nil, err
 	}
 	if n, err := moveLinks(ctx, tx, profileID, g.Winner, losers); err != nil {
 		return nil, err

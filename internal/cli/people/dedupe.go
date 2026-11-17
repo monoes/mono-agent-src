@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -133,7 +134,16 @@ func (d Deps) printDedupe(rep dedupeReport) {
 			for k, n := range g.Repoint {
 				parts = append(parts, fmt.Sprintf("%s x%d", k, n))
 			}
+			sort.Strings(parts)
 			fmt.Printf("  would re-point: %s\n", strings.Join(parts, ", "))
+		}
+		if len(g.Dropped) > 0 {
+			var parts []string
+			for k, n := range g.Dropped {
+				parts = append(parts, fmt.Sprintf("%s x%d", k, n))
+			}
+			sort.Strings(parts)
+			fmt.Printf("  would be dropped as duplicates of the winner's own rows: %s\n", strings.Join(parts, ", "))
 		}
 		if g.Conflict != "" {
 			fmt.Printf("  NOT merged: %s\n", g.Conflict)
