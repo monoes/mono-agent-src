@@ -154,14 +154,41 @@ func cheapOpenModeCheck(shared *globalConfig) (bool, string) {
 	if stale != "" {
 		return false, "not available: " + stale
 	}
+	// The age comes from the charter row's created_at (written when the run opens); a run without one shows no age. Only the
+	// count and one timestamp leave the query: no run, generation or charter id.
 	var n int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM doomsday_runs WHERE profile = ? AND state <> 'quiescent'`, cfg.ProfileID).Scan(&n); err != nil {
+	var started sql.NullInt64
+	if err := db.QueryRow(`SELECT COUNT(*), MIN(c.created_at) FROM doomsday_runs r
+		LEFT JOIN doomsday_charters c ON c.profile = r.profile AND c.generation = r.generation AND c.charter_id = r.charter_id
+		WHERE r.profile = ? AND r.state <> 'quiescent'`, cfg.ProfileID).Scan(&n, &started); err != nil {
 		return false, "the open-ended mode's state cannot be read right now"
 	}
 	if n > 0 {
-		return false, "an open-ended run is already active in this profile: only one runs at a time"
+		age := ""
+		if started.Valid && started.Int64 > 0 {
+			age = " (running for " + runAgeText(time.Since(time.Unix(started.Int64, 0))) + ")"
+		}
+		return false, "an open-ended run is already active in this profile" + age + ": only one runs at a time. End it with `monoagentcli --profile " +
+			cfg.ProfileID + " doomsday stop` (only you can run it, not an agent) or the Stop run button in Chat mode"
 	}
 	return true, ""
+}
+
+// runAgeText is a run's age as a short phrase: "under a minute", "5m", "3h 20m", "2d 1h".
+func runAgeText(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return "under a minute"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d/time.Minute))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh %dm", int(d/time.Hour), int(d%time.Hour/time.Minute))
+	}
+	days, h := int(d/(24*time.Hour)), int(d%(24*time.Hour)/time.Hour)
+	if h == 0 {
+		return fmt.Sprintf("%dd", days)
+	}
+	return fmt.Sprintf("%dd %dh", days, h)
 }
 
 // unboundReason is why this profile's binding is off because the machine cannot run it ("" when on, or off by the operator's choice
