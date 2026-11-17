@@ -80,6 +80,12 @@ func SubjectForbidden(real string, f ForbiddenFolders) string {
 	return ""
 }
 
+// windowsForbidden are the Windows system folders (deny) and the folder that holds every user's home (siblings), on the
+// usual system drive. Fixed lists (this file may not import os to read the environment); pure, so it can be checked anywhere.
+func windowsForbidden() (deny, siblings []string) {
+	return []string{`C:\Windows`, `C:\Program Files`, `C:\Program Files (x86)`, `C:\ProgramData`}, []string{`C:\Users`}
+}
+
 // DefaultForbidden is the forbidden list of a host whose person's home folder is home and whose state is in stateDirs. The real
 // state folder (~/.monoagent) is always in it, whatever the database path says. Deny entries that are, or contain, the home folder
 // are left out (a person whose home is /root would otherwise forbid all of their own projects).
@@ -98,6 +104,15 @@ func DefaultForbidden(home string, stateDirs ...string) ForbiddenFolders {
 		if home == "" || !pathWithin(d, home) {
 			f.Deny = append(f.Deny, d)
 		}
+	}
+	if runtime.GOOS == "windows" { // POSIX behaviour is unchanged: these are added only where such paths exist
+		deny, siblings := windowsForbidden()
+		for _, d := range deny {
+			if home == "" || !pathWithin(d, home) {
+				f.Deny = append(f.Deny, d)
+			}
+		}
+		f.Siblings = append(f.Siblings, siblings...)
 	}
 	return f
 }
