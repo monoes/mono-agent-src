@@ -53,6 +53,11 @@ var doomsdayReadEngine func(*globalConfig) doomsdaycli.Engine
 // them printing "off".
 var doomsdayStrategyReader func(*globalConfig) doomsdaycli.StrategyReader
 
+// doomsdayStrategyReadReader is set in the same init: the reader `doomsday status` shows counted-criteria progress
+// through (opens nothing for writing). Nil falls back to doomsdayStrategyReader, so a test that replaces the one seam
+// is honoured here too.
+var doomsdayStrategyReadReader func(*globalConfig) doomsdaycli.StrategyReader
+
 // doomsdayChat is set in the same init: it hands the chat commands the resolver of the open run's merge gate
 // (chatcli.Deps.DoomsdayMerge) and installs the worktree reconcile guard. Nil leaves merges and reconcile as they were.
 var doomsdayChat func(cfg *globalConfig, d *chatcli.Deps)
@@ -87,6 +92,15 @@ func newDoomsdayCmd(cfg *globalConfig) *cobra.Command {
 		StdinIsTerminal: stdinIsTerminal,
 		JSONOutput:      func() bool { return cfg.JSONOutput },
 		StrategyReader: func() doomsdaycli.StrategyReader {
+			if doomsdayStrategyReader == nil {
+				return nil
+			}
+			return doomsdayStrategyReader(cfg)
+		},
+		ReadStrategyReader: func() doomsdaycli.StrategyReader {
+			if doomsdayStrategyReadReader != nil {
+				return doomsdayStrategyReadReader(cfg)
+			}
 			if doomsdayStrategyReader == nil {
 				return nil
 			}

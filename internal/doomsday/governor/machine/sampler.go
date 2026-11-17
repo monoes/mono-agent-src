@@ -40,6 +40,10 @@ type Reader struct {
 	// Dirs are the data and scratch directories; the smaller free space of them is reported. At least one.
 	Dirs []string
 
+	// LoadFn and MemFn, when set, replace the /proc reads (platforms without /proc, such as darwin).
+	LoadFn func() (float64, error)
+	MemFn  func() (float64, error)
+
 	LoadPath string // default /proc/loadavg
 	MemPath  string // default /proc/meminfo
 
@@ -80,7 +84,7 @@ func (r *Reader) Sample(ctx context.Context) (governor.Sample, error) {
 }
 
 func (r *Reader) read() (governor.Sample, error) {
-	if r.ReadFile == nil || r.Statfs == nil || r.Cores == nil {
+	if (r.ReadFile == nil && (r.LoadFn == nil || r.MemFn == nil)) || r.Statfs == nil || r.Cores == nil {
 		return governor.Sample{}, governor.ErrUnsupported
 	}
 	if len(r.Dirs) == 0 {
@@ -93,19 +97,27 @@ func (r *Reader) read() (governor.Sample, error) {
 	if mp == "" {
 		mp = "/proc/meminfo"
 	}
-	lb, err := r.ReadFile(lp, MaxProcRead)
+	var load, mem float64
+	var err error
+	if r.LoadFn != nil {
+		load, err = r.LoadFn()
+	} else {
+		var lb []byte
+		if lb, err = r.ReadFile(lp, MaxProcRead); err == nil {
+			load, err = ParseLoadAvg(lb)
+		}
+	}
 	if err != nil {
 		return governor.Sample{}, err
 	}
-	load, err := ParseLoadAvg(lb)
-	if err != nil {
-		return governor.Sample{}, err
+	if r.MemFn != nil {
+		mem, err = r.MemFn()
+	} else {
+		var mb []byte
+		if mb, err = r.ReadFile(mp, MaxProcRead); err == nil {
+			mem, err = ParseMemAvailFrac(mb)
+		}
 	}
-	mb, err := r.ReadFile(mp, MaxProcRead)
-	if err != nil {
-		return governor.Sample{}, err
-	}
-	mem, err := ParseMemAvailFrac(mb)
 	if err != nil {
 		return governor.Sample{}, err
 	}

@@ -23,6 +23,7 @@ var bg = context.Background()
 type scriptedModel struct {
 	mu    sync.Mutex
 	crit  types.CriterionStatus
+	count *int // reported on every criterion when set
 	calls int
 }
 
@@ -37,11 +38,11 @@ func (m *scriptedModel) Complete(_ context.Context, req judge.Request) ([]byte, 
 	}
 	m.mu.Lock()
 	m.calls++
-	st := m.crit
+	st, cnt := m.crit, m.count
 	m.mu.Unlock()
 	j := types.Judgment{Criteria: []types.CriterionProgress{}, Directions: []types.DirectionAssessment{}, NextActions: []types.NextAction{}}
 	for _, c := range doc.Criteria {
-		j.Criteria = append(j.Criteria, types.CriterionProgress{ID: c.ID, Status: st})
+		j.Criteria = append(j.Criteria, types.CriterionProgress{ID: c.ID, Status: st, Count: cnt})
 	}
 	for _, d := range doc.Directions {
 		j.Directions = append(j.Directions, types.DirectionAssessment{ID: d.ID, Verdict: types.VerdictKeep})
@@ -49,6 +50,7 @@ func (m *scriptedModel) Complete(_ context.Context, req judge.Request) ([]byte, 
 	return json.Marshal(j)
 }
 
+func (m *scriptedModel) setCount(n *int)             { m.mu.Lock(); m.count = n; m.mu.Unlock() }
 func (m *scriptedModel) set(s types.CriterionStatus) { m.mu.Lock(); m.crit = s; m.mu.Unlock() }
 
 // fixedRuns is a StrategyRunSource the test controls.

@@ -18,6 +18,7 @@ type fakeSink struct {
 	moves     []string
 	judged    [][]byte
 	bad       int
+	reasons   []string
 	exp       types.Expect
 	moveErr   error
 }
@@ -45,7 +46,11 @@ func (f *fakeSink) RecordJudgment(_ context.Context, _ string, _ int64, _ int64,
 	f.judged = append(f.judged, body)
 	return true, nil
 }
-func (f *fakeSink) MarkBadJudgment(context.Context, string, int64, int64) error { f.bad++; return nil }
+func (f *fakeSink) MarkBadJudgment(_ context.Context, _ string, _, _ int64, reason string) error {
+	f.bad++
+	f.reasons = append(f.reasons, reason)
+	return nil
+}
 
 // fakeAllowlist registers the names as the integrator's S2 edit would.
 func fakeAllowlist() map[string]bool {
@@ -331,6 +336,11 @@ func TestEpochIntakeRecordsAValidJudgmentOnly(t *testing.T) {
 	}
 	if r.sink.bad != 5 {
 		t.Fatalf("bad judgments recorded: %d", r.sink.bad)
+	}
+	for _, why := range r.sink.reasons { // a fixed phrase, never the model's id, verdict or key
+		if why == "" || strings.Contains(why, "crit-9") || strings.Contains(why, "finish") {
+			t.Errorf("reason carries model text: %q", why)
+		}
 	}
 	if _, err := r.s.IntakeEpoch(bg, judge(0, goodJudgment())); !errors.Is(err, ErrBadArguments) {
 		t.Fatalf("epoch 0: %v", err)

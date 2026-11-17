@@ -27,6 +27,7 @@ type Store interface {
 	RecordJudgment(ctx context.Context, profile string, gen, seq int64, body []byte) (bool, error)
 	GetJudgment(ctx context.Context, profile string, gen, seq int64) (types.JudgmentRecord, error)
 	MoveEpoch(ctx context.Context, profile string, gen, seq int64, to types.EpochState) error
+	MoveEpochBad(ctx context.Context, profile string, gen, seq int64, reason string) error
 	OpenDirections(ctx context.Context, profile string, gen int64) ([]types.Direction, error)
 	MoveDirection(ctx context.Context, profile string, gen int64, id string, to types.DirectionState, sessionID string) error
 	ParkedFinishRounds(ctx context.Context, profile string, gen int64) (int, error)
