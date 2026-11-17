@@ -22,6 +22,18 @@
   margin-bottom: 8px;
 }
 
+/* align-items: flex-start sizes a child to its max-content, so one long unbreakable line (an html-view's source) would
+   widen the whole turn past the column; cap each child at the turn's width and let its own box scroll. */
+.chat-assistant-turn > * {
+  max-width: 100%;
+  min-width: 0;
+}
+
 .chat-tool-card-header:hover {
   background: rgba(0, 180, 216, 0.06);
 }
+
+/* chat blocks: skeleton shown while a block's JSON is still streaming */
+@keyframes cb-pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+.cb-skeleton { animation: cb-pulse 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .cb-skeleton { animation: none; } }

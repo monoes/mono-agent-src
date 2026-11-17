@@ -1272,6 +1272,18 @@
     "chooseHint": "Cualquier carpeta de confianza"
   },
   "bubbles": {
+    "roster": {
+      "label": "Roles de la ejecución",
+      "desk": "Recepción",
+      "boss": "Jefe",
+      "planners": "Planificadores",
+      "executors": "Ejecutores",
+      "back": "Volver a la recepción",
+      "noChat": "Aún sin conversación: abre su tablero de tareas",
+      "needsYou_one": "{{count}} elemento te necesita",
+      "needsYou_other": "{{count}} elementos te necesitan",
+      "empty": "Aún no hay planificadores ni ejecutores"
+    },
     "orbit": {
       "groupLabel": "Agentes",
       "groupNamed": "Agentes de {{name}}",
@@ -2470,6 +2482,19 @@
     "blocked": "Enlace bloqueado: solo se abren enlaces http y https",
     "disguised": "El texto dice {{shown}} pero este enlace abre {{host}}",
     "opensHost": "Abre {{host}}",
+    "appOpen": "Abrir este elemento ({{what}}) en la app",
+    "appUnknown": "Este enlace apunta a algo que no existe",
+    "appGone": "No se pudo confirmar que este elemento ({{what}}) siga existiendo, así que no se abrió",
+    "appKind": {
+      "workflow": "flujo de trabajo",
+      "execution": "ejecución de flujo",
+      "org": "organización",
+      "person": "persona",
+      "task": "tarea",
+      "document": "documento",
+      "settings": "sección de ajustes",
+      "page": "página"
+    },
     "previewHint": "Vista previa (Ctrl/Cmd-clic para mostrarlo en el gestor de archivos)",
     "revealHint": "Mostrar en el gestor de archivos",
     "checkHint": "Ruta: haz clic para comprobarla y abrirla",
@@ -2869,5 +2894,52 @@
     "paused": "En pausa.",
     "failed": "La pausa no se aplicó.",
     "broken": "No se pudo mostrar el panel de persecución (datos inesperados)."
+  },
+  "htmlView": {
+    "confirm": "La vista interactiva quiere enviar este mensaje:",
+    "send": "Enviar",
+    "cancel": "Cancelar"
+  },
+  "chatBlocks": {
+    "loading": "Cargando bloque {{type}}",
+    "cannotSend": "Las respuestas no están disponibles ahora.",
+    "answered": "Respondido",
+    "choices": "Opciones",
+    "confirm": "Confirmar",
+    "chart": {
+      "label": "Etiqueta",
+      "value": "Valor",
+      "table": "Tabla",
+      "chart": "Gráfico",
+      "showTable": "Mostrar los datos como tabla",
+      "showChart": "Mostrar el gráfico",
+      "type": {
+        "bar": "Gráfico de barras",
+        "line": "Gráfico de líneas",
+        "area": "Gráfico de áreas",
+        "donut": "Gráfico de anillo",
+        "sparkline": "Minigráfico",
+        "stat": "Cifras clave"
+      }
+    },
+    "open": "Abrir",
+    "steps": {
+      "progress": "{{done}} de {{total}} pasos hechos",
+      "state": {
+        "todo": "pendiente",
+        "active": "en curso",
+        "done": "hecho",
+        "failed": "fallido"
+      }
+    },
+    "form": {
+      "label": "Formulario",
+      "submit": "Enviar",
+      "error": {
+        "required": "Obligatorio",
+        "number": "Introduce un número",
+        "range": "Fuera de rango"
+      }
+    }
   }
 }

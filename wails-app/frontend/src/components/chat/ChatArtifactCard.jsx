@@ -37,10 +37,8 @@ const actionBtnStyle = {
 // already confirmed real by chatArtifacts.resolveArtifact — it never
 // replaces the generic ToolActivityCard for the same tool call (plan:
 // "Keep generic tool output as fallback"), it only adds a click-to-open
-// (org/document) or copy-id (workflow — there is no workflow editor route
-// to open; plan's resolution: "Metadata/Copy ID") action beneath it.
-// `onOpenArtifact` is only invoked for org/document — a workflow action is
-// a pure local clipboard copy, nothing for App.jsx to navigate.
+// action beneath it (a workflow also keeps a local Copy ID).
+// `onOpenArtifact` is not invoked for Copy ID — a pure clipboard copy.
 export function ChatArtifactCard({ artifact, onOpenArtifact }) {
   if (!artifact) return null
 
@@ -52,6 +50,15 @@ export function ChatArtifactCard({ artifact, onOpenArtifact }) {
           <div style={labelStyle}>{artifact.name}</div>
           <div style={subStyle}>{artifact.id}</div>
         </div>
+        <button
+          type="button"
+          onClick={() => onOpenArtifact?.(artifact)}
+          title="Open workflow"
+          aria-label="Open workflow"
+          style={actionBtnStyle}
+        >
+          <ExternalLink size={11} /> Open
+        </button>
         <button
           type="button"
           onClick={() => copyToClipboard(artifact.id)}
