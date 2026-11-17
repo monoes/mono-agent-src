@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -126,11 +129,35 @@ func peopleFilterArgs(platform, search string) []string {
 	return args
 }
 
+// peopleReadTimeout bounds a People page read, so a hung CLI ends in an error
+// instead of a spinner that never stops. A variable so a test can shorten it.
+var peopleReadTimeout = 60 * time.Second
+
+// runReadCLI is runMonoCLI for a read the page waits on: it gives up after
+// peopleReadTimeout with a plain message, and returns the CLI's own error text.
+func (a *App) runReadCLI(result interface{}, args ...string) error {
+	fullArgs, err := a.scopedArgs(args...)
+	if err != nil {
+		return err
+	}
+	parent := a.ctx
+	if parent == nil { // before startup, and in tests
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, peopleReadTimeout)
+	defer cancel()
+	err = a.runCLIArgsCtx(ctx, "", result, fullArgs)
+	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return fmt.Errorf("the command did not answer in %d s", int(peopleReadTimeout/time.Second))
+	}
+	return err
+}
+
 // GetPeople returns one page of the active profile's people, newest first —
 // `people list`. limit <= 0 means every person (and ignores offset).
-func (a *App) GetPeople(platform, search string, limit, offset int) []PersonInfo {
-	if a.signedOut() != nil {
-		return nil
+func (a *App) GetPeople(platform, search string, limit, offset int) ([]PersonInfo, error) {
+	if err := a.signedOut(); err != nil {
+		return nil, err
 	}
 	args := append([]string{"people", "list"}, peopleFilterArgs(platform, search)...)
 	if limit > 0 {
@@ -143,30 +170,30 @@ func (a *App) GetPeople(platform, search string, limit, offset int) []PersonInfo
 		PersonInfo
 		PlatformUsername string `json:"platform_username"`
 	}
-	if err := a.runMonoCLI("", &rows, args...); err != nil {
-		return nil
+	if err := a.runReadCLI(&rows, args...); err != nil {
+		return nil, err
 	}
 	people := make([]PersonInfo, len(rows))
 	for i, r := range rows {
 		people[i] = r.PersonInfo
 		people[i].Username = r.PlatformUsername
 	}
-	return people
+	return people, nil
 }
 
 // GetPeopleCount is the People page's total for the same filter —
 // `people count`.
-func (a *App) GetPeopleCount(platform, search string) int {
-	if a.signedOut() != nil {
-		return 0
+func (a *App) GetPeopleCount(platform, search string) (int, error) {
+	if err := a.signedOut(); err != nil {
+		return 0, err
 	}
 	var res struct {
 		Count int `json:"count"`
 	}
-	if err := a.runMonoCLI("", &res, append([]string{"people", "count"}, peopleFilterArgs(platform, search)...)...); err != nil {
-		return 0
+	if err := a.runReadCLI(&res, append([]string{"people", "count"}, peopleFilterArgs(platform, search)...)...); err != nil {
+		return 0, err
 	}
-	return res.Count
+	return res.Count, nil
 }
 
 // DeletePeople deletes people (and their saved photos) from the active
@@ -183,32 +210,32 @@ func (a *App) DeletePeople(ids []string) error {
 
 // GetPersonDetail returns one person, or nil when not in the active
 // profile — `people get`.
-func (a *App) GetPersonDetail(id string) *PersonDetailInfo {
-	if a.signedOut() != nil {
-		return nil
+func (a *App) GetPersonDetail(id string) (*PersonDetailInfo, error) {
+	if err := a.signedOut(); err != nil {
+		return nil, err
 	}
 	var p struct {
 		PersonDetailInfo
 		PlatformUsername string `json:"platform_username"`
 	}
-	if err := a.runMonoCLI("", &p, "people", "get", id); err != nil {
-		return nil
+	if err := a.runReadCLI(&p, "people", "get", id); err != nil {
+		return nil, err
 	}
 	p.Username = p.PlatformUsername
-	return &p.PersonDetailInfo
+	return &p.PersonDetailInfo, nil
 }
 
 // GetPersonInteractions lists what the profile's workflows did to a person,
 // newest first — `people interactions`.
-func (a *App) GetPersonInteractions(id string) []PersonInteraction {
-	if a.signedOut() != nil {
-		return nil
+func (a *App) GetPersonInteractions(id string) ([]PersonInteraction, error) {
+	if err := a.signedOut(); err != nil {
+		return nil, err
 	}
 	var out []PersonInteraction
-	if err := a.runMonoCLI("", &out, "people", "interactions", id); err != nil {
-		return nil
+	if err := a.runReadCLI(&out, "people", "interactions", id); err != nil {
+		return nil, err
 	}
-	return out
+	return out, nil
 }
 
 // PendingPersonApproval represents a lead or contact waiting for human review in Human-in-Loop.

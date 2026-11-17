@@ -7,12 +7,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/dbconn"
 	"github.com/monoes/mono-agent/internal/monomind"
 )
 
 // ---------------------------------------------------------------------------
 // Person Messages
 // ---------------------------------------------------------------------------
+
+// afterMessageRead is a test seam: it runs between the read and the write of
+// an upsert.
+var afterMessageRead func()
 
 // UpsertPersonMessage inserts a message/interaction for a person, or updates
 // it if the same (person_id, source, external_id) already exists — making
@@ -34,6 +39,9 @@ func (d *Database) UpsertPersonMessage(msg *PersonMessage, profileID string) err
 	if msg.ExternalID == "" {
 		msg.ExternalID = msg.ID
 	}
+	// A status the caller names is explicit; the default only fills a new row
+	// (see the conflict clause).
+	explicitStatus := msg.Status != ""
 	if msg.Status == "" {
 		msg.Status = "sent"
 	}
@@ -51,28 +59,114 @@ func (d *Database) UpsertPersonMessage(msg *PersonMessage, profileID string) err
 		return fmt.Errorf("checking person %s: %w", msg.PersonID, err)
 	}
 
-	_, err = d.DB.Exec(`
-		INSERT INTO person_messages (
-			id, person_id, source, external_id, direction, sender, subject,
-			body, metadata, status, sent_at, profile_id, created_at
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-		ON CONFLICT(person_id, source, external_id)
-		DO UPDATE SET
-			direction = excluded.direction,
-			sender    = excluded.sender,
-			subject   = excluded.subject,
-			body      = excluded.body,
-			metadata  = excluded.metadata,
-			status    = excluded.status,
-			sent_at   = excluded.sent_at`,
-		msg.ID, msg.PersonID, msg.Source, msg.ExternalID, msg.Direction,
-		nullStr(msg.Sender), nullStr(msg.Subject), nullStr(msg.Body),
-		nullStr(msg.Metadata), msg.Status, nullTime(msg.SentAt.UTC()), profileID, time.Now().UTC(),
-	)
+	err = dbconn.WithWriteTx(context.Background(), d.DB, func(conn *sql.Conn) error {
+		return upsertMessageTx(dbconn.ConnTx{Ctx: context.Background(), Conn: conn}, msg, profileID, explicitStatus)
+	})
 	if err != nil {
 		return fmt.Errorf("upserting message for person %s: %w", msg.PersonID, err)
 	}
 
+	d.syncMessageToKG(msg, profileID)
+	return nil
+}
+
+// UpsertPersonMessages stores every message or none: one write transaction,
+// so an error on row N leaves nothing of rows 1..N-1 behind. The error names
+// the row (1-based) that failed.
+func (d *Database) UpsertPersonMessages(msgs []*PersonMessage, profileID string) error {
+	if err := requireProfile(profileID); err != nil {
+		return err
+	}
+	explicit := make([]bool, len(msgs))
+	checked := map[string]bool{}
+	for i, msg := range msgs {
+		if msg.ID == "" {
+			msg.ID = NewID()
+		}
+		if msg.Direction == "" {
+			msg.Direction = "inbound"
+		}
+		if msg.ExternalID == "" {
+			msg.ExternalID = msg.ID
+		}
+		explicit[i] = msg.Status != ""
+		if msg.Status == "" {
+			msg.Status = "sent"
+		}
+		if checked[msg.PersonID] {
+			continue
+		}
+		var exists int
+		err := d.DB.QueryRow(`SELECT 1 FROM people WHERE id = ? AND profile_id = ?`, msg.PersonID, profileID).Scan(&exists)
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("person %s not found", msg.PersonID)
+		}
+		if err != nil {
+			return fmt.Errorf("checking person %s: %w", msg.PersonID, err)
+		}
+		checked[msg.PersonID] = true
+	}
+	err := dbconn.WithWriteTx(context.Background(), d.DB, func(conn *sql.Conn) error {
+		tx := dbconn.ConnTx{Ctx: context.Background(), Conn: conn}
+		for i, msg := range msgs {
+			if err := upsertMessageTx(tx, msg, profileID, explicit[i]); err != nil {
+				return fmt.Errorf("row %d: %w", i+1, err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("upserting messages (none were stored): %w", err)
+	}
+	for _, msg := range msgs {
+		d.syncMessageToKG(msg, profileID)
+	}
+	return nil
+}
+
+// upsertMessageTx reads the stored row and writes the message on the open
+// write transaction tx.
+func upsertMessageTx(tx dbconn.ConnTx, msg *PersonMessage, profileID string, explicitStatus bool) error {
+	var stored, storedStatus, storedDirection sql.NullString
+	switch err := tx.QueryRow(`SELECT metadata, status, direction FROM person_messages
+		WHERE person_id = ? AND source = ? AND external_id = ?`, msg.PersonID, msg.Source, msg.ExternalID).Scan(&stored, &storedStatus, &storedDirection); {
+	case err == nil:
+		// A row the operator or the send flow owns keeps its metadata
+		// exactly; any other keeps what the platform does not provide.
+		if isOperatorMessageState(storedStatus.String, storedDirection.String) {
+			msg.Metadata = stored.String
+		} else {
+			msg.Metadata = mergeMessageMetadata(stored.String, msg.Metadata)
+		}
+	case err != sql.ErrNoRows:
+		return fmt.Errorf("reading message for person %s: %w", msg.PersonID, err)
+	}
+	if afterMessageRead != nil {
+		afterMessageRead()
+	}
+	_, err := tx.Exec(`
+	INSERT INTO person_messages (
+		id, person_id, source, external_id, direction, sender, subject,
+		body, metadata, status, sent_at, profile_id, created_at
+	) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+	ON CONFLICT(person_id, source, external_id)
+	DO UPDATE SET
+		direction = `+messageKeepIfOperatorSQL("direction")+`,
+		sender    = `+messageKeepIfOperatorSQL("sender")+`,
+		subject   = `+messageKeepIfOperatorSQL("subject")+`,
+		body      = `+messageKeepIfOperatorSQL("body")+`,
+		metadata  = excluded.metadata,
+		status    = `+messageStatusKeepSQL+`,
+		sent_at   = `+messageKeepIfOperatorSQL("sent_at"),
+		msg.ID, msg.PersonID, msg.Source, msg.ExternalID, msg.Direction,
+		nullStr(msg.Sender), nullStr(msg.Subject), nullStr(msg.Body),
+		nullStr(msg.Metadata), msg.Status, nullTime(msg.SentAt.UTC()), profileID, time.Now().UTC(),
+		boolToInt(explicitStatus),
+	)
+	return err
+}
+
+func (d *Database) syncMessageToKG(msg *PersonMessage, profileID string) {
 	d.kg.start(func(started func()) {
 		label := msg.Subject
 		if label == "" {
@@ -93,7 +187,6 @@ func (d *Database) UpsertPersonMessage(msg *PersonMessage, profileID string) err
 		_ = monomind.SyncToKnowledgeGraphStarted(context.Background(), d.DB, profileID, []monomind.KGNode{node}, []monomind.KGEdge{edge}, "message:"+msg.ID, started)
 	})
 
-	return nil
 }
 
 // ListPersonMessages returns messages for a person within the given profile,

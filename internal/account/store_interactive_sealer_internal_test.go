@@ -51,8 +51,14 @@ func (k *testKEK) release() {
 
 // A person answers the interactive sealer, so its call is waited for however long
 // the timeout is, and its result is returned.
+//
+// While the interactive call runs, every timer of a bounded key store call fires the
+// moment it is made, and the call must still wait for the person and make no timer at
+// all. The seeding before it and the check after it use the quiet sealer, which the
+// timer does bound, so they run on timers that never fire: on a loaded runner a real
+// short timeout would fail them with "did not answer" for a reason that has nothing to
+// do with what is pinned (issue 1650).
 func TestTheInteractiveSealersCallsAreWaitedForBeyondTheTimeout(t *testing.T) {
-	setKeyStoreTimeout(t, 50*time.Millisecond)
 	cases := []struct {
 		name string
 		call func(Store) (string, error)
@@ -70,6 +76,8 @@ func TestTheInteractiveSealersCallsAreWaitedForBeyondTheTimeout(t *testing.T) {
 			kek := newTestKEK(make(chan struct{}))
 			t.Cleanup(kek.release)
 			st := OpenStore(dir, keyringSealer{kek: kek.get, mayPrompt: true})
+			always := func() bool { return true }
+			timers := fakeKeyStoreTimers(t, always, always, always)
 			type result struct {
 				token string
 				err   error
@@ -84,12 +92,16 @@ func TestTheInteractiveSealersCallsAreWaitedForBeyondTheTimeout(t *testing.T) {
 			}
 			select {
 			case r := <-done:
-				t.Fatalf("%s returned (%q, %v) while the key store was still waiting for a person: the interactive sealer was bounded by the %v timeout", c.name, r.token, r.err, keyStoreTimeout)
-			case <-time.After(300 * time.Millisecond): // six times the timeout
+				t.Fatalf("%s returned (%q, %v) while the key store was still waiting for a person: the interactive sealer was bounded by the timeout", c.name, r.token, r.err)
+			default:
 			}
 			kek.release() // the person answers
 			select {
 			case r := <-done:
+				if n := timers.made(); n != 0 {
+					t.Fatalf("%s made %d key store timers: the interactive sealer was bounded", c.name, n)
+				}
+				fakeKeyStoreTimers(t) // the check below is a quiet call: its timer never fires
 				if r.err != nil || r.token != c.want {
 					t.Fatalf("%s = %q, %v after the answer, want %q and no error", c.name, r.token, r.err, c.want)
 				}
@@ -112,6 +124,7 @@ func TestTheQuietKeyringSealersCallsStillTimeOut(t *testing.T) {
 		t.Fatal(err)
 	}
 	kek := newTestKEK(make(chan struct{}))
+	fakeKeyStoreTimers(t, func() bool { return kek.asked.Load() >= 1 }, func() bool { return kek.asked.Load() >= 2 })
 	t.Cleanup(kek.release)
 	loads, saves := ownLimit(OpenStore(dir, keyringSealer{kek: kek.get})), ownLimit(OpenStore(dir, keyringSealer{kek: kek.get}))
 	var loadErr, saveErr error

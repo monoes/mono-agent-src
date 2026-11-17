@@ -43,6 +43,9 @@ type hostInfo struct {
 	// ChildTokens says this host mints a mission child's task token (coder_host_childtoken.go). A host without it
 	// (one built earlier) is not one a lead may hand a child session to.
 	ChildTokens bool `json:"childTokens,omitempty"`
+	// RunGate is the version of the dispatch gate's binding rules this host runs (runGateVersion): a host built before the
+	// default-on binding publishes none, and reads an unset setting as OFF at dispatch (see StaleHostReason).
+	RunGate int `json:"runGate,omitempty"`
 	// Binding is the peer-credential binding services the host runs, per profile: counts and states only (never a
 	// token, hash, generation or key). `coder host status` shows it to the operator and to no one else.
 	Binding []coderhost.BindingStatus `json:"binding,omitempty"`
@@ -269,7 +272,7 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 			if ownStamp == "" {
 				return fmt.Errorf("cannot read this process's start time, so `host stop` and a later host could not tell it from another process; not starting")
 			}
-			info := hostInfo{PID: os.Getpid(), Stamp: ownStamp, Instance: "host-" + uuid.NewString()[:8], StartedAt: time.Now().UTC().Format(time.RFC3339), ChildTokens: true}
+			info := hostInfo{PID: os.Getpid(), Stamp: ownStamp, Instance: "host-" + uuid.NewString()[:8], StartedAt: time.Now().UTC().Format(time.RFC3339), ChildTokens: true, RunGate: runGateVersion}
 			raw, _ := json.Marshal(info)
 			infoPath := filepath.Join(hostDir(cfg), hostInfoFile)
 			if err := os.WriteFile(infoPath+".tmp", raw, 0o600); err != nil { // renamed into place: a reader never sees half of it

@@ -27,7 +27,9 @@ type EndConfig struct {
 	// Exclude names the ticket sub-cgroups (t-<ticket>, and t-<ticket>-<random> as Placer.PlaceTicket names them) of a CONTINUING begun operation that are not touched.
 	Exclude map[string]bool
 	// Known reports whether the registry has a row for the member; a member without one is "unknown" (it is
-	// still ended, inside a unit proven ours, but the outcome is ENDED-WITH-UNKNOWN).
+	// still ended, inside a unit proven ours, but the outcome is ENDED-WITH-UNKNOWN). Nil means there is no registry to
+	// compare with: a member is then not "unknown" for want of a row (it is still ended, and the unit's end is proven by
+	// the empty cgroup); only an unreadable identity is.
 	Known func(sub string, pid int, stamp string) bool
 	// StopService is the convenience stop of the systemd service; it is never the proof.
 	StopService func() error
@@ -114,7 +116,7 @@ func endSub(cg Cgroup, sub string, cfg EndConfig, out *UnitOutcome) (unknown []S
 				seen[pid] = true
 				fresh = true
 				stamp, comm, ierr := cg.ProcInfo(sub, pid)
-				if ierr != nil || cfg.Known == nil || !cfg.Known(sub, pid, stamp) {
+				if ierr != nil || (cfg.Known != nil && !cfg.Known(sub, pid, stamp)) {
 					why := "no registry row"
 					if ierr != nil {
 						why = "identity unreadable"

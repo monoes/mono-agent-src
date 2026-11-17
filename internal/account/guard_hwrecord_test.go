@@ -266,7 +266,7 @@ func TestTheRefresherKeepsTheClockGuardRecordOfAMachineWithNoSession(t *testing.
 	g.StartRefresher(context.Background())
 	waitForHW(t, e, now, "the record")
 	theRecord(t, e, now)
-	quiet()
+	quiet(t, e.loops...)
 	if got := dirNames(t, e.dir); !reflect.DeepEqual(got, []string{"session.json", "session.lock"}) {
 		t.Fatalf("the directory holds %v, want the record and the lock", got)
 	}

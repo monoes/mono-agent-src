@@ -236,8 +236,27 @@ func newQuestionsAnswerCmd(cfg *Deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if !noHost {
+				// the question must be one of this conversation's, and open, before a host is stopped for it
+				if err := withCoderStore(cfg, args[0], func(cs *coderhost.Store, profileID string) error {
+					q, qerr := cs.GetQuestion(profileID, id)
+					if qerr != nil || q.ConversationID != args[0] {
+						return clicore.NotFound("no question %d for %s", id, args[0])
+					}
+					if q.Status != "open" { // answering a settled question must not restart an idle host
+						return clicore.InvalidInput("question %d is not open (%s)", id, q.Status)
+					}
+					return nil
+				}); err != nil {
+					return err
+				}
+				if err := ensureCurrentHostExcept(cfg, id); err != nil {
+					return err
+				}
+			}
 			var out coderhost.Question
 			var cmdID int64
+			var warning string
 			err = withCoderStore(cfg, args[0], func(cs *coderhost.Store, profileID string) error {
 				if q, qerr := cs.GetQuestion(profileID, id); qerr == nil && q.ConversationID != args[0] {
 					return clicore.NotFound("no question %d for %s", id, args[0])
@@ -248,6 +267,8 @@ func newQuestionsAnswerCmd(cfg *Deps) *cobra.Command {
 					return clicore.NotFound("no question %d for %s", id, args[0])
 				case errors.Is(aerr, coderhost.ErrNotAnswerer), errors.Is(aerr, coderhost.ErrNotOpen), errors.Is(aerr, coderhost.ErrQueueFull):
 					return clicore.InvalidInput("%v", aerr)
+				case errors.Is(aerr, coderhost.ErrAnswerQueued): // accepted: the person must not repeat it
+					warning = aerr.Error()
 				case aerr != nil:
 					return clicore.InvalidInput("%v", aerr)
 				}
@@ -262,10 +283,15 @@ func newQuestionsAnswerCmd(cfg *Deps) *cobra.Command {
 					return fmt.Errorf("the answer is queued as command %d and is delivered when a coder host runs; the host could not be started: %w", cmdID, err)
 				}
 			}
-			return printQueueJSON(cmd, map[string]any{"question": out, "commandId": cmdID, "hostStarted": !noHost})
+			res := map[string]any{"question": out, "commandId": cmdID, "hostStarted": !noHost}
+			if warning != "" {
+				res["released"] = false // machine-readable: the answer was accepted, the session state was not updated
+				res["warning"] = warning
+			}
+			return printQueueJSON(cmd, res)
 		},
 	}
-	cmd.Flags().BoolVar(&noHost, "no-host", false, "Queue only; do not start the host")
+	cmd.Flags().BoolVar(&noHost, "no-host", false, "Queue only; do not start the host (also skips the check that a running host is current: a stale host fails the command)")
 	clicore.WithJSONErrors(cfg.JSONOutput, cmd)
 	return cmd
 }

@@ -3,6 +3,8 @@ import { api, onChatEvent } from '../../services/api.js'
 import { chatReducer, initialChatState } from './chatReducer.js'
 
 const PAGE_SIZE = 200
+// One automatic retry of a failed backlog fetch, after this pause.
+const HYDRATE_RETRY_MS = 1000
 
 // useChatStream observes one turn's chat:event stream: hydrate the durable
 // backlog, subscribe live, merge the two without gaps or duplicates, and
@@ -52,7 +54,10 @@ export function useChatStream({ conversationId, turnId }) {
       // (a refetch now could only return LESS than what's already applied)
       // — the only correct response is telling the user, via the same
       // notice banner real backend 'notice' events already render.
-      if (!alreadyApplied && ev.type === 'turn.finished' && ev.payload?.historySaved === false) {
+      // A turn that FAILED (or was refused) before producing history is not
+      // that case: it has no history to lose, and the bubble shows its
+      // reason, so the banner would only mislead.
+      if (!alreadyApplied && ev.type === 'turn.finished' && ev.payload?.historySaved === false && ev.payload?.status !== 'failed') {
         dispatch({
           type: 'localNotice',
           notice: {
@@ -80,9 +85,31 @@ export function useChatStream({ conversationId, turnId }) {
       }
     }
 
+    // A failed fetch must never swallow what the user is watching: the live
+    // event is still applied, and one notice says earlier events may be
+    // missing (shown once per stream, however many fetches fail).
+    let degradedNoticed = false
+    function noticeDegraded() {
+      if (degradedNoticed) return
+      degradedNoticed = true
+      dispatch({
+        type: 'localNotice',
+        notice: {
+          code: 'stream_backlog_failed',
+          message: "Couldn't load this turn's earlier events, so some updates may be missing. New updates still appear live; switch away and back to try loading them again.",
+          severity: 'warning',
+        },
+      })
+    }
+
     async function dispatchLive(ev) {
       if (typeof ev.seq === 'number' && ev.seq > localLastSeq + 1) {
-        await fillGap(ev.seq)
+        try {
+          await fillGap(ev.seq)
+        } catch {
+          if (cancelled) return
+          noticeDegraded()
+        }
         if (cancelled) return
       }
       dispatchEvent(ev)
@@ -94,19 +121,20 @@ export function useChatStream({ conversationId, turnId }) {
         pendingLive.push(raw)
         return
       }
-      dispatchLive(raw)
+      dispatchLive(raw).catch(() => {})
     })
 
-    async function hydrate() {
-      let afterSeq = 0
-      for (;;) {
-        const res = await api.getChatEvents(conversationId, turnId, afterSeq, PAGE_SIZE)
+    let retryTimer = null
+    async function hydrate(canRetry = true) {
+      try {
+        await loadBacklog()
+      } catch {
         if (cancelled) return
-        const items = Array.isArray(res?.items) ? res.items : []
-        for (const e of items) dispatchEvent(e)
-        if (items.length === 0) break
-        afterSeq = localLastSeq
-        if (!res?.hasMore) break
+        if (canRetry) {
+          retryTimer = setTimeout(() => { hydrate(false) }, HYDRATE_RETRY_MS)
+          return
+        }
+        noticeDegraded()
       }
       if (cancelled) return
       hydrating = false
@@ -119,10 +147,24 @@ export function useChatStream({ conversationId, turnId }) {
       }
     }
 
+    async function loadBacklog() {
+      let afterSeq = 0
+      for (;;) {
+        const res = await api.getChatEvents(conversationId, turnId, afterSeq, PAGE_SIZE)
+        if (cancelled) return
+        const items = Array.isArray(res?.items) ? res.items : []
+        for (const e of items) dispatchEvent(e)
+        if (items.length === 0) break
+        afterSeq = localLastSeq
+        if (!res?.hasMore) break
+      }
+    }
+
     hydrate()
 
     return () => {
       cancelled = true
+      clearTimeout(retryTimer)
       unsubscribe()
     }
   }, [conversationId, turnId])

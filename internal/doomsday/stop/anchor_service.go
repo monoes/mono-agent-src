@@ -36,7 +36,7 @@ const (
 // named monoagent-run-<generation>-<nonce>.service, and the proof of any group refuses a name that is not the record's).
 
 // AnchorSockPath is the anchor service's socket, in the private run directory.
-func (r RunDir) AnchorSockPath() string { return r.Dir + "/anchor.sock" }
+func (r RunDir) AnchorSockPath() string { return r.sockPath("anchor.sock") }
 
 // ErrNoAnchorService means no host serves anchors for the run directory: the unit cannot be made, so the run is not.
 var ErrNoAnchorService = errors.New("the coder host is not running (nothing serves the run's process group): start it (an older host does not serve this: `monoagentcli coder host stop` and start again)")
@@ -91,6 +91,9 @@ func (s *AnchorServer) Start(ctx context.Context) error {
 		return err
 	}
 	path := s.Dir.AnchorSockPath()
+	if err := s.Dir.prepareSock(path); err != nil {
+		return err
+	}
 	_ = os.Remove(path)
 	ln, err := net.Listen("unix", path)
 	if err != nil {
@@ -183,7 +186,7 @@ func (h *hostAnchorOS) StartAnchor(argv0 string) (int, string, error) {
 	var c net.Conn
 	var err error
 	for i := 0; i < anchorDialTries; i++ {
-		if c, err = net.DialTimeout("unix", h.dir.AnchorSockPath(), 2*time.Second); err == nil {
+		if c, err = h.dir.dialSock(h.dir.AnchorSockPath()); err == nil {
 			break
 		}
 		time.Sleep(anchorDialEvery)

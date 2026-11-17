@@ -22,6 +22,8 @@ var runIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 // monomind 2.24.1 exposes no per-section spend: `org status --format json`
 // has no section data, and `org costs` / `org report --format json` carry
 // no section breakdown (the section table is text-only in `org report`).
+// monomind 2.29 adds a `sections` field to `org report --format json`;
+// OrgBudget cross-checks against it (org_budget_check.go).
 // What it does put on the bus are the raw inputs and its own verdicts:
 //
 //	usage  events  data.cost_usd (null = unknown, never $0), data.tokens, from=<role>
@@ -104,6 +106,9 @@ type BudgetReport struct {
 	CostComplete bool `json:"cost_complete"`
 	// UnattributedUSD is spend of roles the definition does not have.
 	UnattributedUSD float64 `json:"unattributed_usd,omitempty"`
+	// Check compares these numbers with monomind's own `org report` rows
+	// (monomind 2.29+); set by OrgBudget only.
+	Check *ReportCheck `json:"check,omitempty"`
 }
 
 type budgetRole struct {
@@ -435,5 +440,10 @@ func OrgBudget(ctx context.Context, projectRoot, name, run string) (*BudgetRepor
 	if err != nil {
 		return nil, err
 	}
-	return SectionBudgets(def, lines)
+	rep, err := SectionBudgets(def, lines)
+	if err != nil {
+		return nil, err
+	}
+	attachCheck(ctx, rep, projectRoot, name, run)
+	return rep, nil
 }

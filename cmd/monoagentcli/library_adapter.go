@@ -9,6 +9,7 @@ import (
 	"github.com/monoes/mono-agent/internal/account"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/cli/librarycli"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/storage"
 )
 
@@ -38,6 +39,7 @@ func libraryDeps(cfg *globalConfig) librarycli.Deps {
 		Bundle:          workflowBundleDeps(),
 		LoginRequired:   libraryLoginRequired,
 		IsLoginRequired: isLoginRequired,
+		Refusal:         opgate.Refusal,
 	}
 }
 

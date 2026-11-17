@@ -140,9 +140,13 @@ func init() {
 func cheapOpenModeCheck(shared *globalConfig) (bool, string) {
 	own := *shared // openReadDB writes the resolved id into the config it is given: never the shared one, which other goroutines read
 	cfg := &own
+	stale := chatcli.StaleHostReason(cfg.DBPath, chatcli.StaleThenApp)
 	db, err := openReadDB(cfg)
 	if errors.Is(err, errNoReadableSchema) {
 		// no database with the mode's tables: nothing stored, so the default applies
+		if stale != "" {
+			return false, "not available: " + stale
+		}
 		return true, "" // nothing stored: the default is on where the machine can run it, and a run goes unbound where it cannot
 	}
 	if err != nil {
@@ -158,6 +162,9 @@ func cheapOpenModeCheck(shared *globalConfig) (bool, string) {
 	}
 	if !st.On && st.UnboundReason == "" { // off where the machine could run it: refused; off where it cannot: the run goes unbound
 		return false, openModeBindingReason(st.Note)
+	}
+	if stale != "" {
+		return false, "not available: " + stale
 	}
 	var n int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM doomsday_runs WHERE profile = ? AND state <> 'quiescent'`, cfg.ProfileID).Scan(&n); err != nil {
@@ -292,11 +299,21 @@ func doomsdayWiringReal(cfg *globalConfig, db *sql.DB) doomsdaycli.Wiring {
 			if st.ExplicitOnBroken != "" { // the operator asked for binding and it cannot be had: no run, rather than a run whose turns are all refused
 				return false, doomsdaycli.UnsupportedHere("no run without binding: peer-credential binding is switched on, but this machine cannot run it (" + st.ExplicitOnBroken + "): switch it off (coder set --peercred-binding off) to run unbound")
 			}
+			// An explicit off where the machine could bind is refused by the entry with its own text (switch it on first); that is the
+			// first thing to fix, so it comes before the host. Every start that would otherwise go on, bound or unbound, needs a current host:
+			// an old host knows neither the default-on binding nor the unbound run.
+			if st.On || st.UnboundReason != "" {
+				if why := chatcli.StaleHostReason(cfg.DBPath, chatcli.StaleThenStart); why != "" {
+					return false, doomsdaycli.StaleHost("no run without a current coder host: " + why) // read-only: the start restarts an idle one (StaleHostRestart), the availability only reports
+				}
+			}
 			return st.On, nil
 		},
-		UnboundReason: func(context.Context) string { return unboundReason(db) },
-		VaultKey:      doomsdaycli.VaultKeyCheck(db, cfg.ProfileID),
-		RunDir:        stop.RunDir{Dir: runDir},
+		// Only the start calls this: an idle stale host is stopped as a send stops it (hostBusy, the restart lock, the identity checks).
+		StaleHostRestart: func(context.Context) error { d := chatDeps(cfg); return chatcli.EnsureCurrentHostForStart(&d) },
+		UnboundReason:    func(context.Context) string { return unboundReason(db) },
+		VaultKey:         doomsdaycli.VaultKeyCheck(db, cfg.ProfileID),
+		RunDir:           stop.RunDir{Dir: runDir},
 		// The self-tests run next to the real database and in the real run directory, so what they show holds on that volume.
 		Probe:  func() error { return probeAt(filepath.Dir(expandPath(cfg.DBPath)), runDir) },
 		Kernel: doomsdayKernel(),

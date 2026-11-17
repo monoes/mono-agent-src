@@ -4,7 +4,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,9 +42,9 @@ func (d Deps) newPeopleImportCmd() *cobra.Command {
 			}
 			defer db.Close()
 
-			data, err := os.ReadFile(filePath)
+			data, err := readImportFile(filePath)
 			if err != nil {
-				return fmt.Errorf("reading file %s: %w", filePath, err)
+				return err
 			}
 
 			var rawPeople []map[string]interface{}
@@ -60,33 +62,6 @@ func (d Deps) newPeopleImportCmd() *cobra.Command {
 				return fmt.Errorf("beginning transaction: %w", err)
 			}
 
-			stmt, err := tx.Prepare(
-				`INSERT INTO people (id, platform_username, platform, full_name, image_url,
-				        contact_details, website, content_count, follower_count,
-				        following_count, introduction, is_verified, category, job_title,
-				        profile_id, created_at, updated_at)
-				 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-				 ON CONFLICT(platform_username, platform, profile_id)
-				 DO UPDATE SET
-				   full_name       = excluded.full_name,
-				   image_url       = excluded.image_url,
-				   contact_details = excluded.contact_details,
-				   website         = excluded.website,
-				   content_count   = excluded.content_count,
-				   follower_count  = excluded.follower_count,
-				   following_count = excluded.following_count,
-				   introduction    = excluded.introduction,
-				   is_verified     = excluded.is_verified,
-				   category        = excluded.category,
-				   job_title       = excluded.job_title,
-				   updated_at      = excluded.updated_at`,
-			)
-			if err != nil {
-				tx.Rollback()
-				return fmt.Errorf("preparing statement: %w", err)
-			}
-			defer stmt.Close()
-
 			now := time.Now().UTC()
 			var imported int
 			var nodes []monomind.KGNode
@@ -94,7 +69,8 @@ func (d Deps) newPeopleImportCmd() *cobra.Command {
 			// for outreach (peoplereview.NotOperatorCategory).
 			notTheUser := opgate.Refusal()
 
-			for _, raw := range rawPeople {
+			for i, raw := range rawPeople {
+				row := i + 1
 				username, _ := raw["platform_username"].(string)
 				if username == "" {
 					username, _ = raw["username"].(string)
@@ -110,14 +86,20 @@ func (d Deps) newPeopleImportCmd() *cobra.Command {
 				introduction, _ := raw["introduction"].(string)
 				category, _ := raw["category"].(string)
 				jobTitle, _ := raw["job_title"].(string)
-				followerCount, _ := raw["follower_count"].(string)
-
-				var contentCount, followingCount int
-				if v, ok := raw["content_count"].(float64); ok {
-					contentCount = int(v)
+				followerCount, err := followerText(raw, row)
+				if err != nil {
+					tx.Rollback()
+					return d.InvalidInput("%v; nothing was imported", err)
 				}
-				if v, ok := raw["following_count"].(float64); ok {
-					followingCount = int(v)
+				contentCount, err := countField(raw, "content_count", row)
+				if err != nil {
+					tx.Rollback()
+					return d.InvalidInput("%v; nothing was imported", err)
+				}
+				followingCount, err := countField(raw, "following_count", row)
+				if err != nil {
+					tx.Rollback()
+					return d.InvalidInput("%v; nothing was imported", err)
 				}
 
 				var isVerified int
@@ -130,28 +112,60 @@ func (d Deps) newPeopleImportCmd() *cobra.Command {
 					personID = id
 				}
 
+				// The row of this person under any spelling of the platform is
+				// the one to update; a new person gets the canonical spelling.
+				storedPlatform, err := storage.ResolvePlatform(tx, d.ProfileID(), platform, username)
+				if err != nil {
+					tx.Rollback()
+					return fmt.Errorf("looking up %s: %w", username, err)
+				}
+
+				stored, err := peoplereview.StoredPerson(cmd.Context(), tx, d.ProfileID(), storedPlatform, username)
+				if err != nil {
+					tx.Rollback()
+					return err
+				}
 				if notTheUser != "" {
-					stored, err := peoplereview.StoredPerson(cmd.Context(), tx, d.ProfileID(), strings.ToLower(platform), username)
-					if err != nil {
-						tx.Rollback()
-						return err
+					// A key the row leaves out keeps the stored value (see
+					// upsertPerson), so it is not a change of the text; a key
+					// it names, empty included, is.
+					intro := introduction
+					if _, named := raw["introduction"]; !named && stored.Found {
+						intro = stored.Introduction
 					}
-					category, err = peoplereview.NotOperatorCategory(stored, category, category != "", introduction, "an import an agent, the chat or a workflow runs")
+					// An empty category is a request to clear it; an agent may
+					// not demote an approved person that way by accident, so
+					// it counts as leaving the stored one alone.
+					named := category != ""
+					if !named {
+						delete(raw, "category")
+					}
+					category, err = peoplereview.NotOperatorCategory(stored, category, named, intro, "an import an agent, the chat or a workflow runs")
 					if err != nil {
 						tx.Rollback()
 						return d.InvalidInput("importing %s: %v (%s); nothing was imported", username, err, notTheUser)
 					}
+					if !named && stored.Found && category != "" {
+						// The edit queued the person (Pending): store it.
+						raw["category"] = category
+					}
+				}
+				// The same category in another spelling ("APPROVED ", "Approved")
+				// is not a change: keep the stored spelling, so a reader that
+				// matches it exactly still sees the person as it was.
+				if stored.Found && strings.EqualFold(strings.TrimSpace(category), strings.TrimSpace(stored.Category)) {
+					category = stored.Category
 				}
 
-				_, err := stmt.Exec(
-					personID, username, strings.ToLower(platform),
+				err = upsertPerson(tx, raw, []interface{}{
+					personID, username, storedPlatform,
 					nullableStr(fullName), nullableStr(imageURL),
 					nullableStr(contactDetails), nullableStr(website),
 					contentCount, nullableStr(followerCount), followingCount,
 					nullableStr(introduction), isVerified,
 					nullableStr(category), nullableStr(jobTitle),
 					d.ProfileID(), now, now,
-				)
+				})
 				if err != nil {
 					tx.Rollback()
 					return fmt.Errorf("importing person %s: %w", username, err)
@@ -224,4 +238,60 @@ func nullableStr(s string) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: s, Valid: true}
+}
+
+// maxCount bounds a count a row may carry; anything above is not a count.
+const maxCount = 1e12
+
+// sane reports whether f is a usable count: finite, not negative, not absurd.
+func sane(f float64) bool {
+	return !math.IsNaN(f) && f >= 0 && f <= maxCount
+}
+
+// followerText reads follower_count as the text it was written as: a JSON
+// string (kept as is, "1.2K" included, unless it is a number out of range) or a
+// JSON number. Anything else is empty (not given); a nonsense number is an
+// error naming the row.
+func followerText(raw map[string]interface{}, row int) (string, error) {
+	switch n := raw["follower_count"].(type) {
+	case string:
+		if f, err := strconv.ParseFloat(strings.TrimSpace(n), 64); err == nil && !sane(f) {
+			return "", fmt.Errorf("row %d: follower_count %q is not a usable count", row, n)
+		}
+		return n, nil
+	case float64:
+		if !sane(n) {
+			return "", fmt.Errorf("row %d: follower_count %v is not a usable count", row, n)
+		}
+		return strconv.FormatFloat(n, 'f', -1, 64), nil
+	}
+	return "", nil
+}
+
+// countField reads a count that arrives as a JSON number or a numeric string.
+// A missing key is 0 (not given); a value that is neither, or that is NaN,
+// infinite, negative or above maxCount, is an error naming the row, never a
+// silent zero or a platform-dependent int conversion.
+func countField(raw map[string]interface{}, key string, row int) (int, error) {
+	var f float64
+	switch n := raw[key].(type) {
+	case nil:
+		return 0, nil
+	case float64:
+		f = n
+	case string:
+		if strings.TrimSpace(n) == "" {
+			return 0, nil
+		}
+		var err error
+		if f, err = strconv.ParseFloat(strings.TrimSpace(n), 64); err != nil {
+			return 0, fmt.Errorf("row %d: %s %q is not a number", row, key, n)
+		}
+	default:
+		return 0, fmt.Errorf("row %d: %s is not a number", row, key)
+	}
+	if !sane(f) {
+		return 0, fmt.Errorf("row %d: %s %v is not a usable count", row, key, f)
+	}
+	return int(f), nil
 }

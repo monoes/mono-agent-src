@@ -43,6 +43,7 @@ func TestAbandonProcessesDeletesAndSignalsNothing(t *testing.T) {
 // The delete that normally keeps the conversation (a process that cannot be shown to be the turn's
 // own, exit 5) goes through with --abandon-processes.
 func TestAbandonProcessesDeletesWhereTheNormalDeleteIsRefused(t *testing.T) {
+	skipWithoutTool(t, "sleep")
 	r := newAccessRig(t, true)
 	c := r.conv(t, ai.AccessFull)
 	stranger := exec.Command("sleep", "60") // no exec-tree token: cannot be stopped

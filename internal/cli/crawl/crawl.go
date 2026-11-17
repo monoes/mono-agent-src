@@ -29,7 +29,8 @@ Steps (automated by Claude when you use /action-template-generator):
   1. monoagentcli crawl <url>                          ← you are here
   2. /action-template-generator                        ← Claude Code skill
   3. monoagentcli automation validate <id>
-  4. monoagentcli automation install <id> --local --yes
+  4. monoagentcli automation install <id> --dry-run, then ask the operator to run
+     "monoagentcli automation install <id> --local" themselves
   5. monoagentcli node run <id>.<action_type>
 
 For the full guide:  monoagentcli ref crawling`,
@@ -98,7 +99,9 @@ For the full guide:  monoagentcli ref crawling`,
 				fmt.Printf("  %s\n\n", htmlFile)
 				fmt.Printf("After the skill writes the package, validate and install it:\n")
 				fmt.Printf("  monoagentcli automation validate <id>\n")
-				fmt.Printf("  monoagentcli automation install <id> --local --yes\n")
+				fmt.Printf("  monoagentcli automation install <id> --dry-run\n")
+				fmt.Printf("Then ask the operator to run, in their own terminal:\n")
+				fmt.Printf("  monoagentcli automation install <id> --local\n")
 			} else {
 				fmt.Printf("Claude skill not installed. Run once:\n")
 				fmt.Printf("  monoagentcli init --claude\n\n")

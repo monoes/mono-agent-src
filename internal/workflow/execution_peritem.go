@@ -146,10 +146,16 @@ func (r *runner) runTask(t *nodeTask) {
 			t.ctx = commsync.WithDownstream(ctx, r.wf.Name, downstreamOf(r.dag, t.node.ID))
 			t.ctx = commsync.WithReachable(t.ctx, r.reachableFrom(t.node.ID))
 		} else {
-			commsync.NodeStarted(ctx, db, r.exec.ID, t.node.ID)
+			// A label that could not be written is shown, not dropped: the row would otherwise sit in
+			// approved/sending with no failure anywhere. The send itself is never decided here.
+			if err := commsync.NodeStarted(ctx, db, r.exec.ID, t.node.ID); err != nil {
+				r.logger.Warn().Err(err).Str("node", t.node.ID).Msg("communications: could not mark the approved messages as sending")
+			}
 			defer func() {
 				if !errors.Is(t.execErr, ErrNodePaused) {
-					commsync.NodeFinished(ctx, db, r.exec.ID, t.node.ID, t.execErr)
+					if err := commsync.NodeFinished(ctx, db, r.exec.ID, t.node.ID, t.execErr); err != nil {
+						r.logger.Error().Err(err).Str("node", t.node.ID).Msg("communications: could not record how the send ended; the message stays approved/sending")
+					}
 				}
 			}()
 		}

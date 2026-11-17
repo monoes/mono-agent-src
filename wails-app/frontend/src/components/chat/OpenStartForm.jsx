@@ -6,8 +6,8 @@ import { OpenStartReview } from './OpenStartReview.jsx'
 import { unboundText } from './useRunUnbound.js'
 
 // The entry screen and the start form of the open-ended chat mode. The CLI decides what can start (the probe), what the
-// charter means (render) and whether the typed phrase is right (start); this shows the plain statements the person
-// must read, builds the charter from the form, and hands the phrase they write to the CLI. getChat is a function that answers
+// charter means (render) and whether the derived phrase is right (start); this shows the plain statements the person
+// must read, builds the charter from the form, and hands the one approval to the CLI. getChat is a function that answers
 // with the chat the run is for: {id} of a chat that exists, or {spec} of one the start makes after the person said yes (onChat
 // then gets it). The CLI makes the boss behind that chat when the run starts. Without it the run cannot be started from here.
 

@@ -11,7 +11,7 @@ import (
 // These tests pin the refresher's backoff where guard_loop_test.go leaves it
 // open: the very second a retry comes, a call that takes time, the resets, the
 // clock that went back, and a pass that found nothing to do. The fixture clock
-// moves. Real time is only the refresher's tick (loopPoll), the quiet() waits for
+// moves. Real time is only the refresher's tick (loopPoll), the quiet(t, e.loops...) waits for
 // what must not happen and the eventually waits (3 seconds at most) for what must.
 
 // failingLoop is an env whose server cannot be reached, with a guard on it.

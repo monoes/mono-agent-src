@@ -176,6 +176,7 @@ func testLauncher(t *testing.T, pid int) *pinnedLauncher {
 // A launcher that has exited is no longer the process that was pinned, whatever a delayed or forged
 // start event names, and whoever has the pid since: nothing is learned.
 func TestLearnTurnMarkerRefusesAnExitedLauncher(t *testing.T) {
+	skipWithoutTool(t, "sh")
 	old := markerPoll
 	markerPoll = 300 * time.Millisecond
 	t.Cleanup(func() { markerPoll = old })

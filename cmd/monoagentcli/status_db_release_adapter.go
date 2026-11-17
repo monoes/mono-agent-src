@@ -5,6 +5,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/cli/crashreport"
 	"github.com/monoes/mono-agent/internal/cli/dbcli"
+	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/cli/releasecli"
 	"github.com/monoes/mono-agent/internal/cli/statuscli"
 	"github.com/monoes/mono-agent/internal/storage"
@@ -37,7 +38,9 @@ func newDBCmd(cfg *globalConfig) *cobra.Command {
 // dbMigrateResult is `db migrate --json`.
 type dbMigrateResult = dbcli.Result
 
-func newReleaseCmd() *cobra.Command { return releasecli.NewCommand() }
+func newReleaseCmd() *cobra.Command {
+	return releasecli.NewCommand(releasecli.Deps{Refusal: opgate.Refusal})
+}
 
 // reportCrash is called from a deferred recover() in main(): crashreport.Report for this build.
 func reportCrash(panicValue interface{}, stack []byte) {

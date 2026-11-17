@@ -47,6 +47,10 @@ func (e routeError) err() error {
 	case routeCodeNoBrowser:
 		return &NoBrowserError{Profile: e.Profile, BoundTo: e.BoundTo}
 	case routeCodeNoExtension:
+		// The server's words (they say what to do next); the sentinel still matches.
+		if rest := strings.TrimPrefix(e.Message, ErrNoExtension.Error()); rest != "" {
+			return fmt.Errorf("%w%s", ErrNoExtension, rest)
+		}
 		return ErrNoExtension
 	default:
 		return fmt.Errorf("%w (%s)", ErrBrowserGone, e.Message)

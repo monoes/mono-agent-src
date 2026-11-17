@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/automation"
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/olekukonko/tablewriter/tw"
 	"github.com/spf13/cobra"
 )
@@ -134,11 +135,14 @@ func (d Deps) newLogoutCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "logout [platform]",
 		Short: "Delete saved session for a platform",
-		Long:  "Removes saved cookies/session for the specified platform, including the vault entry holding the cookies. Use --all to remove all sessions, or `login delete <id>` for one.",
+		Long:  "Removes saved cookies/session for the specified platform, including the vault entry holding the cookies. Use --all to remove all sessions, or `login delete <id>` for one. " + clicore.OperatorOnlyHelp,
 		Example: `  monoagentcli logout instagram
   monoagentcli logout --all`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if why := clicore.OperatorRefusal(d.Refusal); why != "" {
+				return clicore.OperatorOnly("logout deletes the user's saved sessions and their vault entries, which only the user decides: %s; run it yourself in your terminal or the app", why)
+			}
 			db, err := d.OpenDB()
 			if err != nil {
 				return fmt.Errorf("initializing database: %w", err)

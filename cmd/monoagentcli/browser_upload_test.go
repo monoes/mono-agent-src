@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -171,5 +172,40 @@ func TestBrowserUploadAtFullNoApprovalsAndForHumans(t *testing.T) {
 	}
 	if res := bt.runJSON("upload", "#f", cv); res["uploaded"] != float64(1) {
 		t.Fatalf("a human's terminal: %v", res)
+	}
+}
+
+// A selector that matched nothing says what to do about it, including that
+// file inputs inside iframes are not reached; a match that is the wrong kind
+// of element does not get that hint.
+func TestBrowserUploadNoMatchNamesTheIframeLimit(t *testing.T) {
+	bt := newBrowserTest(t, true)
+	bt.fake.AddTab("http://localhost:3000/", "Coder · Agent", true)
+	cv := writeUploadFile(t, "cv.pdf", "%PDF-1.4 cv")
+	for name, msg := range map[string]string{
+		"new extension": "set_files: no element matched #up in this frame (file inputs inside iframes are not supported)",
+		"old extension": "Element not found for selector: #up",
+	} {
+		bt.fake.On(extension.CmdSetFiles, func(*extension.Command) (any, error) { return nil, errors.New(msg) })
+		_, err := bt.run("upload", "#up", cv)
+		if err == nil {
+			t.Fatalf("%s: no error", name)
+		}
+		got := err.Error()
+		for _, want := range []string{"iframes are not supported", "top document"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("%s: %q lacks %q", name, got, want)
+			}
+		}
+		if strings.Count(got, "iframes are not supported") != 1 {
+			t.Errorf("%s: the iframe note is repeated: %q", name, got)
+		}
+	}
+	bt.fake.On(extension.CmdSetFiles, func(*extension.Command) (any, error) {
+		return nil, errors.New("set_files: the element matched is not a file input")
+	})
+	_, err := bt.run("upload", "div", cv)
+	if err == nil || strings.Contains(err.Error(), "iframe") || !strings.Contains(err.Error(), "not a file input") {
+		t.Fatalf("wrong-type error = %v", err)
 	}
 }

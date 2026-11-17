@@ -21,7 +21,7 @@ type opRow struct {
 // later change that converts more verbs adds rows here and removes them from the pending lists of the
 // guards.
 func operatorOnlyRows() []opRow {
-	return append(append(append(append(append(operatorOnlyRowsPR2(), operatorOnlyRowsPR3()...), operatorOnlyRowsPR4()...), operatorOnlyRowsPR5()...), operatorOnlyRowsOrgProposal()...), []opRow{
+	return append(append(append(append(append(append(operatorOnlyRowsPR2(), operatorOnlyRowsPR3()...), operatorOnlyRowsPR4()...), operatorOnlyRowsPR5()...), operatorOnlyRowsPR6()...), operatorOnlyRowsOrgProposal()...), []opRow{
 		{path: "api key create", build: newAPICmd, args: []string{"key", "create", "--name", "x"}},
 		{path: "api key update", build: newAPICmd, args: []string{"key", "update", "k1", "--name", "y"}},
 		{path: "api key revoke", build: newAPICmd, args: []string{"key", "revoke", "k1", "--yes"}},
@@ -40,6 +40,8 @@ func operatorOnlyRows() []opRow {
 		{path: "doomsday finish", build: newDoomsdayCmd, args: []string{"finish"}},
 		// The boss session of a run started from a chat: it creates a conversation and a session, so only the user.
 		// Steering of an open-ended run's boss: a message to a full-access turn, so only the user (a session's turn never is).
+		// A refused turn written into a transcript: forged text there reads as the host's own message.
+		{path: "chat history refused", build: newChatCmd, args: []string{"history", "refused", "c1", "--reason", "x"}},
 		{path: "coder sessions steer", build: newCoderCmd, args: []string{"sessions", "steer", "c1", "x"}},
 		{path: "doomsday boss new", build: newDoomsdayCmd, args: []string{"boss", "new", "--conversation", "c1"}},
 		{path: "doomsday rubric", build: newDoomsdayCmd, args: []string{"rubric", "c1", "approve", "--dossier", "abcdef12"}},

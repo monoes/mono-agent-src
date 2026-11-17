@@ -18,6 +18,8 @@ import (
 func operatorOnlyRowsPR3() []opRow {
 	return []opRow{
 		{path: "automation trust", build: newAutomationCmd, args: []string{"trust", "--scripts", "no-such-package"}},
+		{path: "automation install", build: newAutomationCmd, args: []string{"install", "{tmp}", "--local", "--yes"}},
+		{path: "automation new", build: newAutomationCmd, args: []string{"new", "no-such-pkg", "--install", "--dir", "{tmp}"}},
 		{path: "automation rerecord", build: newAutomationCmd, args: []string{"rerecord", "no-such-package", "some.key"}},
 		{path: "automation doctor accept-repair", build: newAutomationCmd, args: []string{"doctor", "accept-repair", "no-such-package", "some.key"}},
 		{path: "record verify", build: newRecordCmd, args: []string{"verify", "no-such-draft"}},
@@ -93,14 +95,12 @@ var browserRunTrustFamilies = []string{"automation", "record", "browser allow", 
 const (
 	readOnlyVerb  = "read-only or shows what exists"
 	notDecided    = "not part of the browser-run trust change; whether it is the user's alone is not decided (issue 1333)"
-	heldInstall   = "open on purpose, chosen by the owner (2026-11-04): the shipped action-template-generator skill, `crawl` and `ref crawling` tell an agent to run `automation install <id> --local --yes`, which installs with local trust"
 	opensNoRecord = "touches only the item or recording it names and runs nothing in a browser"
 )
 
 var openInTheBrowserRunTrustFamilies = map[string]string{
 	"automation list": readOnlyVerb, "automation show": readOnlyVerb, "automation validate": readOnlyVerb,
 	"automation test": readOnlyVerb + " (--live is not supported)", "automation export": readOnlyVerb, "automation pack": readOnlyVerb,
-	"automation install": heldInstall, "automation new": heldInstall + " (--install installs as local)",
 	"automation enable": notDecided, "automation disable": notDecided, "automation uninstall": notDecided,
 	"automation restore": notDecided, "automation rollback": notDecided,
 	"browser allow list": readOnlyVerb, "coder projects list": readOnlyVerb,

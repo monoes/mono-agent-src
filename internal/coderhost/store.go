@@ -139,6 +139,9 @@ type Store struct {
 	dispatch DispatchGate
 	// v2 verifies session tokens of the v2 family (verify_v2.go); nil: v2 secrets are denied.
 	v2 *procbind.V2Check
+	// reopenCursor is the last question ReopenFailedAnswers looked at (updated with sync/atomic); the next pass starts after it,
+	// so rows that keep failing take turns with the rows behind them.
+	reopenCursor int64
 	// afterPolicyRead lets a test act between SetPolicy's read and its write.
 	afterPolicyRead func()
 	// beforeReserveTx lets a test act between Reserve's checks and the transaction that reserves.

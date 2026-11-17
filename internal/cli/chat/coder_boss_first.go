@@ -100,9 +100,9 @@ func bossHadATurn(cfg *Deps, profileID, conversation string) (bool, error) {
 		return false, err
 	}
 	defer closeDB()
-	turns, _, err := store.ListTurns(conversation, profileID, "", 1)
+	had, err := store.HasWorkTurn(profileID, conversation)
 	if err != nil {
 		return false, chatStoreErr(err)
 	}
-	return len(turns) > 0, nil
+	return had, nil
 }

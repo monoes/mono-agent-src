@@ -154,3 +154,11 @@ func TestFindAll_ListsShadowedCopies(t *testing.T) {
 		t.Fatalf("Find() = %s, want FindAll's first %s", got, all[0])
 	}
 }
+
+func TestNotFoundMessageLeadsWithSetup(t *testing.T) {
+	msg := (&ErrNotFound{Tried: []string{"/a", "/b"}}).Error()
+	setup, tried := strings.Index(msg, "monoagentcli setup"), strings.Index(msg, "tried:")
+	if setup < 0 || tried < 0 || setup > tried || !strings.Contains(msg, "monomind not found (AI engine)") || !strings.Contains(msg, EnvOverride) {
+		t.Errorf("the hint must come before the list of tried paths: %s", msg)
+	}
+}

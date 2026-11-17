@@ -53,7 +53,7 @@ func TestDoctorFooterSeparatesOptionalFixes(t *testing.T) {
 		{ID: "d", Group: "browser", Title: "D", Status: health.StatusWarn, Fix: &health.FixInfo{ID: "m", Safety: health.SafetyManual, Command: "do it"}},
 		{ID: "e", Group: "browser", Title: "E", Status: health.StatusWarn, Fix: &health.FixInfo{ID: "a.fix", Safety: health.SafetyAuto}},
 	}}
-	printDoctorReport(&out, rep, false)
+	printDoctorReport(&out, rep, false, nil)
 	s := out.String()
 	if !strings.Contains(s, "apply 1 fix(es)") || !strings.Contains(s, "1 optional fix(es) are not applied by --fix") {
 		t.Fatalf("footer:\n%s", s)
@@ -114,7 +114,7 @@ func TestDoctorReportShowsFilePreviewsOnlyOnATerminal(t *testing.T) {
 	printDoctorReportWith(&piped, rep, false, false)
 	printDoctorReportWith(&tty, rep, false, true)
 	var plain bytes.Buffer
-	printDoctorReport(&plain, rep, false) // a writer that is not a terminal file
+	printDoctorReport(&plain, rep, false, opgate.Refusal) // a writer that is not a terminal file
 	if strings.Contains(plain.String(), "core.set") {
 		t.Fatalf("a preview reached a writer that is not a terminal:\n%s", plain.String())
 	}
@@ -140,17 +140,17 @@ func TestPreviewsNeedAnOperatorOnATerminal(t *testing.T) {
 	for _, k := range operator.MarkerEnv() {
 		t.Setenv(k, "")
 	}
-	if !previewsAllowed(f) {
+	if !previewsAllowed(f, opgate.Refusal) {
 		t.Fatal("the operator's own terminal gets no previews")
 	}
-	if previewsAllowed(&bytes.Buffer{}) {
+	if previewsAllowed(&bytes.Buffer{}, opgate.Refusal) {
 		t.Fatal("a writer that is not a file gets previews")
 	}
 	t.Setenv(workflow.EnvWorkflowRun, "exec-1") // as a process a workflow started
 	if operator.Marker() == "" {
 		t.Fatal("test setup: the process is not marked")
 	}
-	if previewsAllowed(f) {
+	if previewsAllowed(f, opgate.Refusal) {
 		t.Fatal("a marked process on a terminal gets previews")
 	}
 }
@@ -170,11 +170,11 @@ func TestPreviewsAreWithheldFromAnUnmarkedProcessInACoderTurn(t *testing.T) {
 		t.Setenv(k, "")
 	}
 	opgate.SetForTest(t, func(bool) string { return "this process runs inside a coder turn" })
-	if previewsAllowed(f) {
+	if previewsAllowed(f, opgate.Refusal) {
 		t.Fatal("a cleared-marker turn on a terminal gets previews")
 	}
 	opgate.SetForTest(t, func(bool) string { return "" })
-	if !previewsAllowed(f) {
+	if !previewsAllowed(f, opgate.Refusal) {
 		t.Fatal("a real terminal outside a turn lost its previews")
 	}
 }

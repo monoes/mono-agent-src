@@ -625,6 +625,9 @@ func TestACleanupRowThatFailedIsKept(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root enters any folder")
 	}
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod 0 does not make a folder unreadable on NTFS")
+	}
 	cwd := t.TempDir()
 	if err := os.Chmod(cwd, 0); err != nil {
 		t.Skip("cannot remove permissions: " + err.Error())
@@ -780,6 +783,7 @@ func TestACleanupRowIsKeptWhenTheKeyCannotBeHad(t *testing.T) {
 
 // F2: asking for the key does not hang the delete: it gives up after the timeout, and the files stay.
 func TestAKeyThatNeverComesDoesNotHangTheCleanup(t *testing.T) {
+	skipWithoutShell(t) // before the cleanup below: a skip after it would wait for a fetch that never started
 	old, oldTimeout := deriveKey, keyTimeout
 	block, finished := make(chan struct{}), make(chan struct{})
 	deriveKey = func(ctx context.Context, _ *sql.DB, _ string, _ string) ([]byte, error) {

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -138,7 +139,7 @@ func TestProof_ProoflessListenerIsNeverSentTheTokenOnAnyPort(t *testing.T) {
 	_, _ = generateToken()
 	f := newFakeBridge(t, nil)
 	err := relayOnce(f.URL)
-	if !errors.Is(err, ErrBridgeNoProof) || !strings.Contains(err.Error(), "systemctl --user restart monoagent-bridge") || !strings.Contains(err.Error(), "bridge on "+strings.TrimPrefix(f.URL, "http://127.0.0.1:")) {
+	if !errors.Is(err, ErrBridgeNoProof) || !strings.Contains(err.Error(), BridgeRestartAdvice(runtime.GOOS)) || !strings.Contains(err.Error(), "bridge on "+strings.TrimPrefix(f.URL, "http://127.0.0.1:")) {
 		t.Fatalf("err = %v, want the actionable old-bridge error naming the port", err)
 	}
 	if f.tokenSeen() {
@@ -236,5 +237,27 @@ func TestPortOverride_IgnoredWithAWarningUnlessOperator(t *testing.T) {
 	}
 	if addr, err := resolveListenAddr("127.0.0.1:9222"); err != nil || addr != "127.0.0.1:9222" {
 		t.Errorf("a non-operator's bind = %q, %v: the override must not apply", addr, err)
+	}
+}
+
+func TestBridgeRestartAdviceByOS(t *testing.T) {
+	const linux = "restart it: `systemctl --user restart monoagent-bridge` (or `monoagentcli update` restarts it)"
+	if got := BridgeRestartAdvice("linux"); got != linux {
+		t.Errorf("linux = %q", got)
+	}
+	for _, goos := range []string{"darwin", "windows"} {
+		got := BridgeRestartAdvice(goos)
+		if strings.Contains(got, "systemctl") || !strings.Contains(got, "monoagentcli extension serve") {
+			t.Errorf("%s = %q", goos, got)
+		}
+	}
+}
+
+func TestBridgeRestartAdviceNonLinuxExactAndUnknown(t *testing.T) {
+	const want = "restart it: stop it and start `monoagentcli extension serve` again"
+	for _, goos := range []string{"darwin", "windows", "freebsd", ""} {
+		if got := BridgeRestartAdvice(goos); got != want {
+			t.Errorf("%q = %q", goos, got)
+		}
 	}
 }

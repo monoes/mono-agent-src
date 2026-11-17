@@ -5,6 +5,7 @@ import (
 	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -127,7 +128,7 @@ func TestTheRealForbiddenListLetsProjectsUnderHomeThrough(t *testing.T) {
 		"a project under home":           {filepath.Join(home, "projects", "x"), true},
 		"home itself":                    {home, false},
 		"the parent of home":             {filepath.Dir(home), false},
-		"the root of the computer":       {string(filepath.Separator), false},
+		"the root of the computer":       {filepath.VolumeName(home) + string(filepath.Separator), false},
 		"the state folder":               {state, false},
 		"inside the state folder":        {filepath.Join(state, "x"), false},
 		"a link to home":                 {link, false},
@@ -147,6 +148,9 @@ func TestTheRealForbiddenListLetsProjectsUnderHomeThrough(t *testing.T) {
 // Credential folders under home, the real state folder (even when the database lives elsewhere), system trees, other users'
 // homes and /tmp itself are refused, with links into them resolved; the rest of home and a project under /tmp stay allowed.
 func TestTheRealForbiddenListRefusesCredentialAndSystemFolders(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("DefaultForbidden lists POSIX system trees only (/etc, /root, ...); Windows system folders are not on it")
+	}
 	home := t.TempDir()
 	if r, err := filepath.EvalSymlinks(home); err == nil {
 		home = r
@@ -218,6 +222,9 @@ func TestTheRealForbiddenListRefusesCredentialAndSystemFolders(t *testing.T) {
 
 // A person whose home is under one of the system trees (/root) can still check their own projects.
 func TestAHomeUnderASystemTreeKeepsItsProjects(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("DefaultForbidden lists POSIX system trees only (/etc, /root, ...); Windows system folders are not on it")
+	}
 	f := coderhost.DefaultForbidden("/root", "/root/.monoagent")
 	if why := coderhost.SubjectForbidden("/root/proj", f); why != "" {
 		t.Errorf("a project under /root refused for a root user: %s", why)

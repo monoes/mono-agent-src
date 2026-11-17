@@ -14,7 +14,6 @@ import (
 	"golang.org/x/term"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
-	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/health"
 	"github.com/monoes/mono-agent/internal/nodemgr"
 )
@@ -117,7 +116,8 @@ reports what is missing or broken, with a fix for each problem it can repair.
 
 Fixes have a safety level: "auto" fixes are local and safe to repeat,
 "confirm" fixes install software or change configuration and are asked about
-first (--yes accepts them), "manual" fixes only print what to do.
+first (--yes accepts them), "manual" fixes only print what to do. --fix is the
+user's own: an agent, the chat or a workflow is refused (exit 3, operator_only).
 
 Exit code 1 means a required check failed.`,
 		Example: `  monoagentcli doctor
@@ -136,6 +136,11 @@ Exit code 1 means a required check failed.`,
 			opts := health.Options{Deep: deep, Groups: groups, SkipGroups: skipGroups, IDs: ids, OnDemand: wantProjects, Monomind: wantProjects}
 			out := cmd.OutOrStdout()
 
+			if fix {
+				if why := clicore.OperatorRefusal(cfg.Refusal); why != "" {
+					return clicore.OperatorOnly("doctor --fix installs, registers and starts things on this machine, which only the user decides: %s; run it yourself in your terminal or the app (doctor without --fix is open)", why)
+				}
+			}
 			rep := runHealth(ctx, cfg, reg, opts)
 			var outcomes []fixOutcome
 			if fix {
@@ -150,7 +155,7 @@ Exit code 1 means a required check failed.`,
 					return err
 				}
 			} else {
-				printDoctorReport(out, rep, fix)
+				printDoctorReport(out, rep, fix, cfg.PreviewRefusal)
 			}
 			if n := rep.RequiredFailures(); n > 0 {
 				if cfg.JSONOutput() {
@@ -182,13 +187,18 @@ func newDoctorFixCmd(cfg *Deps) *cobra.Command {
 		Short: "Apply one fix by id (as listed by doctor)",
 		Long: `Applies a single fix. With --json, progress is streamed as NDJSON events:
 {"kind":"line","message":…} for output, then {"kind":"done"} or
-{"kind":"error","message":…}.`,
+{"kind":"error","message":…}.
+
+A fix that is not safe to apply unasked (it installs software, registers the MCP server or starts or restarts the daemon) is the user's own: an agent, the chat or a workflow is refused (exit 3, operator_only). The automatic ones (data folder, migration, permissions) stay open.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			reg := health.Default()
 			f, ok := reg.Fix(args[0])
 			if !ok {
 				return clicore.NotFound("unknown fix %q", args[0])
+			}
+			if err := fixRefusal(cfg, f); err != nil {
+				return err
 			}
 			out := cmd.OutOrStdout()
 			err := applyFix(cmd.Context(), cfg, f, progressWriter(out, cfg.JSONOutput()))
@@ -309,6 +319,19 @@ func applyReportFixes(ctx context.Context, cfg *Deps, reg *health.Registry, rep 
 	return outcomes
 }
 
+// fixRefusal is the operator-only refusal for a fix that is not safety auto: those install software, register the
+// MCP server, start, restart or register the daemon, which `setup` and `daemon install|restart` refuse an agent
+// (issue 1475). An auto fix (data folder, migration, permissions) stays open. nil when the caller is the operator.
+func fixRefusal(cfg *Deps, f health.Fix) error {
+	if f.Safety == health.SafetyAuto {
+		return nil
+	}
+	if why := clicore.OperatorRefusal(cfg.Refusal); why != "" {
+		return clicore.OperatorOnly("applying fix %s changes what runs on this machine, which only the user decides: %s; run it yourself in your terminal or the app", f.ID, why)
+	}
+	return nil
+}
+
 // applyFix runs one fix against a fresh environment.
 func applyFix(ctx context.Context, cfg *Deps, f health.Fix, progress func(string)) error {
 	if f.Safety == health.SafetyManual {
@@ -317,6 +340,9 @@ func applyFix(ctx context.Context, cfg *Deps, f health.Fix, progress func(string
 			msg += ": " + f.Command
 		}
 		return fmt.Errorf("%s", msg)
+	}
+	if err := fixRefusal(cfg, f); err != nil {
+		return err
 	}
 	env, closeEnv := cfg.NewEnv(cfg.projects)
 	defer closeEnv()
@@ -328,8 +354,8 @@ var statusMark = map[health.Status]string{
 	health.StatusSkip: "–", health.StatusInfo: "ℹ",
 }
 
-func printDoctorReport(w io.Writer, rep *health.Report, fixed bool) {
-	printDoctorReportWith(w, rep, fixed, previewsAllowed(w))
+func printDoctorReport(w io.Writer, rep *health.Report, fixed bool, previewRefusal func() string) {
+	printDoctorReportWith(w, rep, fixed, previewsAllowed(w, previewRefusal))
 }
 
 // stdoutIsTerminal is a variable so a test can stand in for a terminal.
@@ -338,9 +364,10 @@ var stdoutIsTerminal = func(f *os.File) bool { return term.IsTerminal(int(f.Fd()
 // previewsAllowed says whether text taken from files may be shown on w: only on a terminal that is
 // the operator's own. A pty an agent drives is a terminal too, so the process must also be the user's
 // by the turn-aware verdict: not marked as an agent's and not inside a coder session's turn.
-func previewsAllowed(w io.Writer) bool {
+// refusal is the strict turn-aware check (Deps.PreviewRefusal); nil withholds them.
+func previewsAllowed(w io.Writer, refusal func() string) bool {
 	f, isFile := w.(*os.File)
-	return isFile && stdoutIsTerminal(f) && opgate.Refusal() == ""
+	return isFile && stdoutIsTerminal(f) && clicore.OperatorRefusal(refusal) == ""
 }
 
 // printDoctorReportWith prints the text report. previews says whether text taken from files
@@ -389,6 +416,9 @@ func printDoctorReportWith(w io.Writer, rep *health.Report, fixed, previews bool
 		if strings.HasPrefix(r.ID, health.CheckMonomindDoctor+".") && r.Status == health.StatusOK {
 			folds[1].names = append(folds[1].names, r.Title)
 			continue
+		}
+		if r.ID == health.CheckSchedulesPaused && r.Status == health.StatusSkip {
+			continue // nothing is waiting on a sign-in
 		}
 		req := ""
 		if r.Required && r.Status == health.StatusFail {

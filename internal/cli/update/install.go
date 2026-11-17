@@ -189,3 +189,20 @@ func copyFileMode(src, dst string) error {
 	}
 	return out.Close()
 }
+
+// checkInstallDirWritable fails, before anything is downloaded, when the directory the binary is installed in cannot
+// be written (the installer creates its temp file there). It only creates and removes a file of its own.
+func checkInstallDirWritable(target string) error {
+	dir := filepath.Dir(target)
+	tmp, err := os.CreateTemp(dir, ".monoagentcli-update-check-*")
+	if err != nil {
+		next := "re-run with sudo, or reinstall with install.sh"
+		if runtime.GOOS == "windows" {
+			next = "run from an elevated prompt or reinstall"
+		}
+		return fmt.Errorf("monoagentcli is installed in %s, which you cannot write to: %s (%w)", dir, next, err)
+	}
+	name := tmp.Name()
+	tmp.Close()
+	return os.Remove(name)
+}

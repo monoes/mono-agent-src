@@ -67,6 +67,14 @@ type Store interface {
 // test can shorten it.
 var keyStoreTimeout = 10 * time.Second
 
+// keyStoreTimer starts the wait for one key store call: its channel receives when d has
+// passed, and stop ends it. It is a variable so that a test fires the timeout itself (the
+// real one is the time of the machine under test, which a loaded runner stretches).
+var keyStoreTimer = func(d time.Duration) (expired <-chan time.Time, stop func()) {
+	timer := time.NewTimer(d)
+	return timer.C, func() { timer.Stop() }
+}
+
 // keyStoreResult is what one call into the key store answered.
 type keyStoreResult struct {
 	data []byte
@@ -144,12 +152,12 @@ func callKeyStore(l *keyStoreLimit, s Sealer, fn func() ([]byte, error)) ([]byte
 		}
 	}()
 	timeout := keyStoreTimeout
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
+	expired, stop := keyStoreTimer(timeout)
+	defer stop()
 	select {
 	case r := <-done:
 		return r.data, r.err
-	case <-timer.C:
+	case <-expired:
 		l.parked.Add(1)
 		if state.CompareAndSwap(callRunning, callParked) {
 			return nil, fmt.Errorf("%w: the key store did not answer within %v", ErrKeyringUnavailable, timeout)
@@ -159,6 +167,10 @@ func callKeyStore(l *keyStoreLimit, s Sealer, fn func() ([]byte, error)) ([]byte
 		return r.data, r.err
 	}
 }
+
+// lockPause is the wait between two attempts to take session.lock. It is a variable so that
+// a test reads the schedule of the waits and makes them pass at once.
+var lockPause = time.After
 
 // DefaultDir is ~/.monoagent/account, found through os.UserHomeDir. The path
 // is the same whatever --db-path says: there is one session per OS user.
@@ -342,7 +354,7 @@ func (s *fileStore) Lock(ctx context.Context) (func(), error) {
 		case <-ctx.Done():
 			f.Close()
 			return nil, ctx.Err()
-		case <-time.After(delay):
+		case <-lockPause(delay):
 		}
 		delay = min(delay*2, 50*time.Millisecond)
 	}

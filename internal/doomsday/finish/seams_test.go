@@ -71,17 +71,18 @@ func TestSnapshotCtxCancelledLeavesNothingBehind(t *testing.T) {
 // S7c1a seam: a confiner that rewrites the sandbox's command needs the program and the limits the sandbox put behind the helper.
 func TestUnwrapLimitsHelperReadsWhatHelperArgvWrote(t *testing.T) {
 	l := Limits{CPUSeconds: 7, AddressSpace: 5 << 30, OpenFiles: 33, FileSize: 4096, Procs: 3001}
-	argv := helperArgv("/exe", l, "/usr/bin/sh", []string{"-c", "echo hi"})
+	sh := filepath.Join(t.TempDir(), "sh") // absolute on every OS (a POSIX literal is not absolute on Windows)
+	argv := helperArgv("/exe", l, sh, []string{"-c", "echo hi"})
 	got, prog, args, ok := UnwrapLimitsHelper(argv)
-	if !ok || got != l || prog != "/usr/bin/sh" || !reflect.DeepEqual(args, []string{"-c", "echo hi"}) {
+	if !ok || got != l || prog != sh || !reflect.DeepEqual(args, []string{"-c", "echo hi"}) {
 		t.Fatalf("unwrap = %+v %q %q %v", got, prog, args, ok)
 	}
 	for name, bad := range map[string][]string{
 		"empty":         nil,
-		"no marker":     {"/exe", "/usr/bin/sh", "-c", "x"},
-		"no separator":  {"/exe", limitsMarker, "1,2,3,4,5", "/usr/bin/sh"},
-		"bad spec":      {"/exe", limitsMarker, "1,2,3", "--", "/usr/bin/sh"},
-		"zero limit":    {"/exe", limitsMarker, "0,2,3,4,5", "--", "/usr/bin/sh"},
+		"no marker":     {"/exe", sh, "-c", "x"},
+		"no separator":  {"/exe", limitsMarker, "1,2,3,4,5", sh},
+		"bad spec":      {"/exe", limitsMarker, "1,2,3", "--", sh},
+		"zero limit":    {"/exe", limitsMarker, "0,2,3,4,5", "--", sh},
 		"no program":    {"/exe", limitsMarker, "1,2,3,4,5", "--"},
 		"relative prog": {"/exe", limitsMarker, "1,2,3,4,5", "--", "sh"},
 	} {

@@ -84,6 +84,8 @@ var (
 	ErrTooManyOpen  = errors.New("coder host: too many questions are already parked for this conversation")
 	ErrNoQuestion   = errors.New("coder host: no such question")
 	ErrNotOpen      = errors.New("coder host: this question was already answered")
+	// ErrAnswerQueued marks an answer that was accepted and queued but whose session state could not be updated.
+	ErrAnswerQueued = errors.New("coder host: the answer is queued")
 	ErrNotAnswerer  = errors.New("coder host: the policy names someone else to answer this question")
 	// ErrWaitsForPerson: the session has had its host-made turns in a row; a master's answer, like a
 	// check-in, would start another, so the session waits for a person (the operator can still answer).
@@ -402,11 +404,16 @@ func (s *Store) Answer(profileID string, id int64, answer string, scope CallerSc
 	cmd, err := s.deliver(q)
 	if err != nil {
 		if cmd.ID == 0 { // nothing was queued: the question stays open (a queued note whose id was not recorded is redelivered, at least once)
-			s.reopenQuestion(q.ID)
+			if rerr := s.reopenQuestion(q.ID); rerr != nil { // still answered, no note: the redelivery pass queues it
+				err = errors.Join(err, fmt.Errorf("coder host: question %d could not be opened again; the answer is kept and is redelivered within about a minute while a coder host runs (or when one next runs), do not answer again: %w", q.ID, rerr))
+			}
 		}
 		return q, Command{}, err
 	}
-	s.releaseWaiting(q.ProfileID, q.ConversationID)
+	if err := s.releaseWaiting(q.ProfileID, q.ConversationID); err != nil {
+		q.CommandID = cmd.ID
+		return q, cmd, fmt.Errorf("%w as command %d for question %d (do not answer again), but the session could not be released from waiting_user: %w", ErrAnswerQueued, cmd.ID, q.ID, err)
+	}
 	s.pruneClosedQuestions(q.ProfileID, q.ConversationID)
 	q.CommandID = cmd.ID
 	return q, cmd, nil
@@ -438,14 +445,45 @@ func (s *Store) expiredReopenCount(id int64) (int, error) {
 	return n, err
 }
 
-func (s *Store) reopenQuestion(id int64) {
-	_, _ = s.db.Exec(`UPDATE coder_session_questions SET status = 'open', answer = '', answered_by = '', answered_at = '' WHERE id = ? AND status != 'open' AND command_id = 0`, id)
+func (s *Store) reopenQuestion(id int64) error {
+	// The question and its session move together: an idle session with an open question accepts work it must not.
+	return s.writeTx(func(tx querier) error {
+		res, err := tx.Exec(`UPDATE coder_session_questions SET status = 'open', answer = '', answered_by = '', answered_at = '' WHERE id = ? AND status != 'open' AND command_id = 0`, id)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n != 1 {
+			return nil
+		}
+		_, err = tx.Exec(`UPDATE coder_sessions SET state = 'waiting_user', updated_at = ? WHERE state = 'idle' AND (profile_id, conversation_id) IN (
+			SELECT profile_id, conversation_id FROM coder_session_questions WHERE id = ?)`, s.stamp(), id)
+		return err
+	})
 }
 
 // releaseWaiting returns a waiting_user session to idle once no question is open.
-func (s *Store) releaseWaiting(profileID, conversationID string) {
+func (s *Store) releaseWaiting(profileID, conversationID string) error {
 	if s.openCount(profileID, conversationID) > 0 {
-		return
+		return nil
 	}
-	_, _ = s.db.Exec(`UPDATE coder_sessions SET state = 'idle', updated_at = ? WHERE profile_id = ? AND conversation_id = ? AND state = 'waiting_user'`, s.stamp(), profileID, conversationID)
+	_, err := s.db.Exec(`UPDATE coder_sessions SET state = 'idle', updated_at = ? WHERE profile_id = ? AND conversation_id = ? AND state = 'waiting_user'`, s.stamp(), profileID, conversationID)
+	return err
+}
+
+// RepairWaiting moves sessions that are waiting_user with no open question back to idle: the release that
+// follows an answer can fail after the answer was queued, and the session is not settled again until a turn ends.
+// One statement (so one transaction), at most pendingBatch sessions a call, and nothing is written when every
+// waiting session still has a question to wait for. A running or paused session is never touched.
+func (s *Store) RepairWaiting() (int, error) {
+	res, err := s.db.Exec(`UPDATE coder_sessions SET state = 'idle', updated_at = ? WHERE state = 'waiting_user' AND (profile_id, conversation_id) IN (
+		SELECT x.profile_id, x.conversation_id FROM coder_sessions x WHERE x.state = 'waiting_user' AND NOT EXISTS (
+			SELECT 1 FROM coder_session_questions q WHERE q.profile_id = x.profile_id AND q.conversation_id = x.conversation_id AND q.status = 'open')
+		AND NOT EXISTS ( -- a claimed question (closed, its note not queued yet) may be re-opened a moment later
+			SELECT 1 FROM coder_session_questions c WHERE c.profile_id = x.profile_id AND c.conversation_id = x.conversation_id AND c.status != 'open' AND c.command_id = 0)
+		ORDER BY x.updated_at LIMIT ?)`, s.stamp(), pendingBatch)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
 }

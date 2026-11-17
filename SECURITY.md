@@ -765,6 +765,16 @@ the run), and it predates the marking of MCP and HTTP runs. What the run can do 
 what you approved in the workflow; a definition an agent changed is still
 unapproved and its sends still wait. Tracked in #1475 and its follow-up.
 
+Operator-only since #1475 (class C): `account logout`, `library logout`, `logout`,
+`release keygen`, `daemon install|uninstall|restart`, `update` (not `--check`),
+`setup`, `library publish`, `doctor --fix` and `doctor fix <id>` for every fix that
+is not safety auto. They refuse an agent, the chat, a workflow, a token holder and
+a process inside a coder turn (exit 3, `operator_only`); the repair verbs among
+them (`update`, `setup`, `daemon`, `doctor`) use the recovery gate, so an
+unreadable database does not lock the operator out. `db`, `init`, `httpapi`,
+`mcp`, the foreground `daemon`, `release verify`, `account status|login`,
+`library install|update` and `integration import-openapi` stay open on purpose.
+
 ### Sends that skipped approval up to v0.152.0
 
 In releases up to and including v0.152.0, an agent, the in-app chat or a
@@ -3743,9 +3753,29 @@ covered by the classes above.
 
 **Peer-credential binding is on by default (2026-11).** `coder.peercredBinding` unset means ON where `procbind.Refusal` has no cause (kernel, own /proc, build); an explicit stored `false` stays off and an explicit `true` still refuses a turn where the machine cannot run it. A default that cannot be used (unsupported machine, service failed to start, host inside a turn) runs the turn unbound with a logged reason, EXCEPT while an open-ended run is open, which needs bound turns and refuses; `coder status` says why in `peercredBindingNote`. Operators who had set it off before the default existed left no stored trace (the old store dropped a false) and follow the default until they switch it off again. The default also falls back to legacy (unbound) turns when the binding service fails to start while no open-ended run is open (logged by the host; `coder status` still says on); the unbound warning and the `run.unbound` audit row exist only for open-ended runs. A run that started bound keeps refusing unbound turns for its whole life (the host gate and the launcher route both refuse), and a run's unbound mode is the row written in its own entry transaction, never the live setting. A run that started bound whose machine check keeps failing (and an unbound-started run whose service fails once the machine can bind) has its turns refused rather than continued unbound, and the refusal names `doomsday stop` as the way out. The app's start dialog is built from the preview, which decides from the live state; `Enter` decides again at entry from the same single read it records in the `run.unbound` row, so a change between preview and entry makes the recorded mode, not the dialog, authoritative. `doomsday start` refuses a stored `on` that this machine cannot honour before it creates a run; the native start confirmation and `render` carry the warning.
 
-**Peer-credential binding records (storage only).** Migration 148 adds insert-only tables for a
-future process binding anchored in kernel peer credentials (design:
-`docs/mastermind/specs/2026-10-28-peer-credential-binding.md`). No v2 token or binding is issued into them yet (nothing outside the package inserts one), so the feature is not live; the token revoke paths already read them in their own transaction and would record a revocation for a v2 token. Their rows
+**Peer-credential binding records.** Migration 148 adds five insert-only tables that hold the state of the
+process binding anchored in kernel peer credentials (design:
+`docs/mastermind/specs/2026-10-28-peer-credential-binding.md`): `agent_tokens_v2` (a v2 mission token) and
+`coder_session_tokens_v2` (a v2 coder session token), each with the hash of the secret (never the secret), its
+owner fields, its expiry and a MAC under the profile's row key; `process_bindings` (the worker's pid and start stamp,
+the scope the verifier is asked about, the host generation and the mode, always `peercred`); `token_revocations_v2`
+(that a token was revoked, and why); and `procbind_host` (one row per start of the host, whose newest row is the
+current generation). The feature is live: the host writes a turn's v2 tokens and their bindings in one write transaction
+after the turn's process exists (`procbind.MintTx`) on a turn that runs bound, and the binding service answers whether
+a caller is inside that worker's tree. Binding shipped in v0.190.0 to v0.215.0, `coder set --peercred-binding` and the
+Settings toggle in v0.269.0, and it is on by default where the machine can run it since v0.280.0 (see "Peer-credential
+binding is on by default" above). A turn that runs unbound (a machine that cannot bind, a default that cannot be used, an
+open-ended run that started unbound with the warning described above) is issued no v2 token and keeps the v1 tokens and their
+ancestry check, so the tables hold nothing for it. What is enforced for a v2 token: the row exists and carries a genuine
+MAC, the secret hashes to it, it has not expired or been revoked, its binding row is genuine and unexpired, a host has
+started, and the service, asked by the caller over a socket whose peer the kernel names, allows that caller; any failure,
+or a service that gives no authentic answer, is a deny that never falls through to the v1 tables. What is not enforced: a
+turn that runs unbound has no kernel-attested caller, so a same-user sibling that obtains its token from the environment, a
+log or a process listing can present it from outside the tree (the legacy ancestry check, expiry and revocation remain), and
+the binding is not a boundary against every same-user process even where it is on (see "Binding service availability" and
+"Hardening"). The macOS and Windows services have had their unit and kernel-level tests, not a proof on a real host of each,
+and the Windows service is much weaker against a same-user adversary than Linux and macOS (stated above). The registry is
+memory-only: a host restart leaves every v2 token denied until its worker is launched and bound again. The rows
 cannot be updated, and can be deleted only once their expiry is more than 7 days past; no operation
 is exempt. A profile delete therefore leaves the profile's rows in those tables in place (its output
 lists them): they hold hashes, MACs, a pid and a start stamp and no secret, and they are inert once
@@ -3803,17 +3833,34 @@ function that does what the guarded one does), and it skips directories named `s
   `strategy.finish.ready` marker per judged epoch and the top lead reads it through the read-only `session_boss_finish_ready`; only the lead's own
   `session_boss_finish_begin`, with its boss check, begins one. The only model text in that reading is the judge's per-criterion statuses; criteria,
   run and epoch state, times, direction ids and the finish engine's rounds are host-derived, and no title or note enters it.
-- **Starting an open-ended run from the app.** The app's start form runs `doomsday start --gui-phrase`, which the audit row
-  records as ack kind `gui`. The `gui` ack is the caller's claim, in the same trust class as `script`: the CLI derives the
-  phrase again from the rendered charter and compares it, but it cannot tell the app from a script that passes the hidden
-  flag, so the operator gate (an agent, a workflow, a coder turn and the MCP server are refused) is the control. The app's
-  binding adds a one-time token bound to the exact charter it rendered and a native operating-system confirmation that
-  script in the page cannot answer; it refuses to start where no native dialog exists (`wails dev` in a browser). The dialog is built in Go from the
-  CLI's own preview: the machine facts first (lifted lines, charter prefix, budget, criteria count, limits, pinned models), then the goal as data,
-  cleaned and cut to 200 characters; an answer under a second after it is shown counts as a decline. The CLI refuses, for an app start,
-  goal, criteria and pin text over 2000 characters or with hidden (zero-width, direction, tag, control) characters.
-  Every charter string is held to that (the check walks the charter by type), and the dialog also names the auto-approval limits and answer
-  classes. On Linux wails v2.17.0 passes a dialog's message to GTK as a printf format, so every Wails dialog of the app doubles `%` through
-  one helper (`dialogText`, guarded by a test that fails a new dialog call without it); a wails bump must be checked against that. A start that
-  fails without the CLI's own error envelope is reported as unknown, not as not started. The probe's test unit is stopped on SIGINT and SIGTERM
+- **Starting an open-ended run from the app.** The app's start form has one Approve button and nothing to type. On Approve the
+  app derives the acknowledgement phrase itself from the CLI's own preview (the number of lifted lines and the first 8
+  characters of the hash) and runs `doomsday start --gui-phrase`; the CLI derives the phrase again from the rendered charter and
+  compares it, and the audit row records ack kind `gui`. The `gui` ack is the caller's claim, in the same trust class as
+  `script`: the CLI cannot tell the app from a script that passes the hidden flag, so the operator gate (an agent, a workflow,
+  a coder turn and the MCP server are refused) is the control for any process that calls the CLI directly. The terminal start
+  is unchanged: it still needs the typed phrase, or `--yes-i-lift` with the full `--hash`.
+
+  What the typed phrase in the form used to add, stated plainly: it made the person copy two numbers off the preview, which
+  forced a look at the lifted-line count and the hash, and a script in the page could not do that for them. It was never a
+  credential (the CLI derives the same string from the charter), and it had its own habit risk: after a few starts people
+  retype it without reading. That forced look and typing are gone. What the app's path still has: the preview the person
+  reads; a one-time token bound to the exact charter and chat it rendered (ten minutes, this profile); and a native
+  operating-system confirmation that a script in the page cannot answer. The dialog is built in Go from the CLI's own
+  preview: the machine facts first (lifted lines, charter prefix, budget, criteria count, limits, pinned models, the
+  auto-approval limits and answer classes), then the goal as data, cleaned and cut to 200 characters. A Yes counts only
+  after a minimum think time of two seconds measured from when the dialog was on screen, not from any wait for another
+  dialog; a quicker answer counts as a decline. Where no native dialog can be shown the start is refused; the code
+  refuses when the app has no window context yet or that context carries no frontend, and it does not otherwise tell a browser
+  tab on the `wails dev` server from the desktop window, so do not rely on a dev-server tab being refused.
+
+  Limit, stated plainly: a script in the page can now call the start binding with a valid token without anything being
+  typed (the app, not the page, passes the hidden `--gui-phrase` flag to the CLI), and can raise the dialog at a moment of its choosing. It cannot click Yes for you, but you might click it by habit;
+  read the dialog, which is the one barrier of the app path.
+
+  The CLI refuses, for an app start, goal, criteria and pin text over 2000 characters or with hidden (zero-width, direction,
+  tag, control) characters; the check walks every charter string by type. On Linux wails v2.17.0 passes a dialog's message
+  to GTK as a printf format, so every Wails dialog of the app doubles `%` through one helper (`dialogText`, guarded by a
+  test that fails a new dialog call without it); a wails bump must be checked against that. A start that fails without the
+  CLI's own error envelope is reported as unknown, not as not started. The probe's test unit is stopped on SIGINT and SIGTERM
   (the app sends SIGTERM first); on Windows the app can only kill it, so a leftover test unit there is not cleaned up.

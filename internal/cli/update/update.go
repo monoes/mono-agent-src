@@ -7,6 +7,7 @@ package update
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -45,6 +46,10 @@ type Deps struct {
 	WriteJSON func(w io.Writer, v any) error
 	// StartDetached starts a process that outlives this one (update --app's relaunch).
 	StartDetached func(name string, args ...string) error
+	// Refusal says why this process is not the operator's own terminal ("" when it is):
+	// the CLI's opgate.Refusal. Nil refuses (clicore.OperatorRefusal). Everything but
+	// --check asks it.
+	Refusal func() string
 
 	// The daemon restart after an update (daemonAfterUpdate).
 
@@ -90,7 +95,8 @@ func NewCommand(d Deps) *cobra.Command {
 			"A running daemon keeps the code it started with, so update restarts one that runs another version, through the " +
 			"service manager it is registered with, unless an execution is in flight or the saved `api config` settings cannot be used: " +
 			"it then says so and leaves the restart to `monoagentcli daemon restart`. When the restart leaves no daemon running (and a " +
-			"rollback did not bring one back), update exits 7; --check and --app exit 0 as before (--app --json carries the daemon outcome).",
+			"rollback did not bring one back), update exits 7; --check and --app exit 0 as before (--app --json carries the daemon outcome).\n\n" +
+			"Everything but --check is the user's own: " + clicore.OperatorOnlyHelp,
 		Example: `  monoagentcli update
   monoagentcli --json update --check
   monoagentcli --json update --check --current v0.72.0
@@ -101,6 +107,9 @@ func NewCommand(d Deps) *cobra.Command {
 			}
 			if check {
 				return d.runCheck(cmd, current)
+			}
+			if why := clicore.OperatorRefusal(d.Refusal); why != "" {
+				return clicore.OperatorOnly("update replaces the program and restarts the daemon, which only the user decides (--check is open): %s; run it yourself in your terminal or the app", why)
 			}
 			if app != "" {
 				return d.runApp(cmd, app, current)
@@ -125,6 +134,7 @@ type Check struct {
 	UpdateAvailable bool   `json:"update_available"`
 	ReleaseURL      string `json:"release_url"`
 	Error           string `json:"error,omitempty"`
+	Detail          string `json:"detail,omitempty"` // raw cause of an unreachable server
 }
 
 // runUpdateCheck reports the latest release. A release that cannot be
@@ -139,9 +149,13 @@ func (d Deps) runCheck(cmd *cobra.Command, current string) error {
 	release, err := FetchLatest(cmd.Context(), d.ReleaseClient(), d.LatestReleaseURL, force)
 	if err != nil {
 		if !d.JSONOutput() {
-			return err
+			return withDetail(cmd, err)
 		}
 		res.Error = err.Error()
+		var ue *UnreachableError
+		if errors.As(err, &ue) {
+			res.Detail = ue.Err.Error()
+		}
 		return d.WriteJSON(cmd.OutOrStdout(), res)
 	}
 	res.LatestVersion = release.Tag
@@ -207,7 +221,7 @@ func (d Deps) run(cmd *cobra.Command) error {
 
 	info, err := FetchLatest(context.Background(), d.ReleaseClient(), d.LatestReleaseURL, force)
 	if err != nil {
-		return err
+		return withDetail(cmd, err)
 	}
 
 	v := d.Version()
@@ -252,6 +266,11 @@ func (d Deps) run(cmd *cobra.Command) error {
 		selfPath = real
 	case isLink(selfPath):
 		return fmt.Errorf("the link %s cannot be followed (%v); the installed binary was kept", selfPath, rerr)
+	}
+
+	// Before the download: a directory that cannot be written fails the install after the whole binary is fetched.
+	if err := checkInstallDirWritable(selfPath); err != nil {
+		return err
 	}
 
 	var data []byte
@@ -358,11 +377,11 @@ func legacyDownload(rel *LatestRelease, assetName string) ([]byte, error) {
 	}
 
 	fmt.Printf("Downloading %s...\n", assetName)
-	data, err := HTTPGetAll(downloadURL)
+	data, err := getCapped(downloadURL, maxBinaryBytes)
 	if err != nil {
 		return nil, err
 	}
-	sumsData, err := HTTPGetAll(sumsURL)
+	sumsData, err := getCapped(sumsURL, maxSmallBytes)
 	if err != nil {
 		return nil, fmt.Errorf("fetch %s: %w", SumsAssetName, err)
 	}
@@ -400,37 +419,22 @@ func FetchLatestRelease(ctx context.Context, url string) (*LatestRelease, error)
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := apiClient().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("network error: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxSmallBytes))
 		return nil, fmt.Errorf("GitHub API returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	var release LatestRelease
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxSmallBytes)).Decode(&release); err != nil {
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
 	return &release, nil
-}
-
-// HTTPGetAll fetches url and returns the full response body. Non-200
-// statuses are errors.
-func HTTPGetAll(url string) ([]byte, error) {
-	resp, err := http.Get(url) //nolint:gosec
-	if err != nil {
-		return nil, fmt.Errorf("download: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("download failed: GitHub returned %d for %s", resp.StatusCode, url)
-	}
-	return io.ReadAll(resp.Body)
 }
 
 // The checksum helpers live in internal/updatecheck, shared with the

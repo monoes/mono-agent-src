@@ -33,9 +33,20 @@ type setupOutcome struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+// declinedNote is a note for the JSON report when a fix needing a yes got none.
+func declinedNote(outcomes []setupOutcome) string {
+	for _, o := range outcomes {
+		if o.Outcome == "declined" {
+			return "some fixes were declined because nobody said yes (no terminal, or --json): rerun with --yes to accept them"
+		}
+	}
+	return ""
+}
+
 type setupJSON struct {
 	*health.Report
 	Fixes []setupOutcome `json:"fixes,omitempty"`
+	Note  string         `json:"note,omitempty"`
 }
 
 func newSetupCmd(cfg *Deps) *cobra.Command {
@@ -74,12 +85,17 @@ streams NDJSON events: {"kind":"stage"} headings, {"kind":"fix_start",
 "fix_id"} before each fix, {"kind":"line"} output, and {"kind":"fix_end",
 "fix_id","outcome"} after it.
 
-Safe to run again at any time; it only does what is still missing.`,
+Safe to run again at any time; it only does what is still missing.
+
+` + clicore.OperatorOnlyHelp,
 		Example: `  monoagentcli setup
   monoagentcli setup --yes --runtime claude --autostart
   monoagentcli setup --group core --yes --json`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if why := clicore.OperatorRefusal(cfg.Refusal); why != "" {
+				return clicore.OperatorOnly("setup installs software, registers the MCP server in the other coding agents and starts the daemon, which only the user decides: %s; run it yourself in your terminal or the app", why)
+			}
 			ctx := cmd.Context()
 			reg := health.Default()
 			opts := health.Options{Groups: groups}
@@ -139,12 +155,12 @@ Safe to run again at any time; it only does what is still missing.`,
 			if cfg.JSONOutput() {
 				enc := json.NewEncoder(out)
 				enc.SetIndent("", "  ")
-				if err := enc.Encode(setupJSON{Report: rep, Fixes: outcomes}); err != nil {
+				if err := enc.Encode(setupJSON{Report: rep, Fixes: outcomes, Note: declinedNote(outcomes)}); err != nil {
 					return err
 				}
 			} else {
 				ev.stage("Result")
-				printDoctorReport(out, rep, true)
+				printDoctorReport(out, rep, true, cfg.PreviewRefusal)
 				printManualSteps(out, rep)
 			}
 			if n := rep.RequiredFailures(); n > 0 {

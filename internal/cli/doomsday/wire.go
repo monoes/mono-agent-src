@@ -35,6 +35,8 @@ type Wiring struct {
 	Clock stop.Clock
 	// Binding says whether security.peercred_binding is on; nil refuses every start ("no run without binding").
 	Binding func(ctx context.Context) (bool, error)
+	// StaleHostRestart restarts an idle stale coder host for `start` only (see StoreEngine.StaleHostRestart); Binding stays read-only.
+	StaleHostRestart func(ctx context.Context) error
 	// UnboundReason is why binding is off AND this machine cannot run it ("" otherwise): such a run starts unbound, with a warning.
 	UnboundReason func(ctx context.Context) string
 	// VaultKey (VaultKeyCheck in the CLI) says whether the profile has its vault data key; asked after the containment probe passes and before
@@ -110,17 +112,18 @@ func (w Wiring) Engine() *StoreEngine {
 			_, err := witness(context.Background())
 			return err
 		},
-		Binding:       w.Binding,
-		UnboundReason: w.UnboundReason,
-		StopFn:        w.stop,
-		BeforeStart:   w.recoverMerges,
-		CreateUnit:    w.createUnit,
-		Boss:          w.designateBoss,
-		BossCheck:     w.checkBoss,
-		AfterStopFn:   w.afterStop,
-		RepairStopFn:  w.repairStop,
-		AfterEnter:    func(_ context.Context, gen int64) error { return w.RunDir.CreateSecret(uint64(gen)) },
-		HeadAnchor:    w.headAnchor(),
+		Binding:          w.Binding,
+		StaleHostRestart: w.StaleHostRestart,
+		UnboundReason:    w.UnboundReason,
+		StopFn:           w.stop,
+		BeforeStart:      w.recoverMerges,
+		CreateUnit:       w.createUnit,
+		Boss:             w.designateBoss,
+		BossCheck:        w.checkBoss,
+		AfterStopFn:      w.afterStop,
+		RepairStopFn:     w.repairStop,
+		AfterEnter:       func(_ context.Context, gen int64) error { return w.RunDir.CreateSecret(uint64(gen)) },
+		HeadAnchor:       w.headAnchor(),
 		BeginEntry: func(ctx context.Context, gen int64) error {
 			seq, err := witness(ctx)
 			if err != nil {
@@ -206,9 +209,7 @@ func (w Wiring) stop(ctx context.Context) (StopOutcome, error) {
 		}
 		out.MarkerRecorded = out.MarkerRecorded && stepDone(rep, stop.StepMarker)
 		out.IntentRecorded = out.IntentRecorded && stepDone(rep, stop.StepIntent)
-		for _, s := range append(append([]stop.Survivor{}, rep.Unit.Survivors...), rep.Unit.Unknown...) {
-			out.Survivors = append(out.Survivors, fmt.Sprintf("pid %d (%s)", s.PID, s.Comm))
-		}
+		out.Survivors = append(out.Survivors, unitSurvivors(rep)...)
 		out.Survivors = append(out.Survivors, rep.Members...)
 		if rep.StoppedBestEffort() {
 			out.BestEffort = true
@@ -220,6 +221,16 @@ func (w Wiring) stop(ctx context.Context) (StopOutcome, error) {
 		}
 	}
 	return out, nil
+}
+
+// unitSurvivors lists the processes the unit could not end. A member that was ended but is unknown (no readable identity)
+// is not one: it is in the report lines, which keep the run cleanup-pending, but it is not said to survive.
+func unitSurvivors(rep stop.Report) []string {
+	var out []string
+	for _, s := range rep.Unit.Survivors {
+		out = append(out, fmt.Sprintf("pid %d (%s)", s.PID, s.Comm))
+	}
+	return out
 }
 
 // Stopper is the production Stop order for this profile. It runs in the CLI, a different process from the host that holds

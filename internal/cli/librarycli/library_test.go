@@ -70,6 +70,7 @@ func newFixture(t *testing.T) *fixture {
 
 func (f *fixture) deps(jsonOut bool) Deps {
 	return Deps{
+		Refusal:    func() string { return "" },
 		JSONOutput: func() bool { return jsonOut },
 		ProfileID:  func() string { return "" },
 		OpenDB: func() (*storage.Database, error) {

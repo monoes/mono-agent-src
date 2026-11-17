@@ -124,6 +124,7 @@ func (g *Guard) runLoop(ctx context.Context) {
 		} else {
 			g.touchHW(now) // as a pass that finds nothing due does, keeps the high-water mark current
 		}
+		g.passes.Add(1)
 		select {
 		case <-ctx.Done():
 		case <-ticker.C:

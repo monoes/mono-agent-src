@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/monoes/mono-agent/internal/automation"
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/spf13/cobra"
 )
 
@@ -30,6 +31,12 @@ letters, digits and dashes.`,
 			id := args[0]
 			if !automation.ValidID(id) {
 				return fmt.Errorf("invalid id %q: use lower-case letters, digits and dashes", id)
+			}
+			if install {
+				if why := clicore.OperatorRefusal(d.Refusal); why != "" {
+					return clicore.OperatorOnly("automation new --install installs the package with local trust, so only the user does it: %s; "+
+						"scaffold without --install and ask the user to run `monoagentcli automation install %s --local` in their own terminal", why, id)
+				}
 			}
 			if tmpl == "" {
 				tmpl = "basic"

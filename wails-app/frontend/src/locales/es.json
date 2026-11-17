@@ -10,16 +10,18 @@
       "history": "Historial",
       "people": "Personas",
       "publication": "Publicación",
-      "tasks": "Tareas",
       "communications": "Comunicaciones",
       "vault": "Medios",
       "secretsVault": "Bóveda",
       "applications": "Postulaciones",
       "documents": "Documentos",
       "info": "Info",
+      "tasks": "Tareas",
       "logs": "Registros en vivo",
+      "controlroom": "Sala de control",
       "settings": "Configuración"
     },
+    "runActive": "ejecución activa",
     "section": {
       "MAIN": "PRINCIPAL",
       "DATA": "DATOS",
@@ -185,14 +187,14 @@
       "broken": "rotos",
       "stale": "obsoletos",
       "recordings": "Grabaciones: {{total}} · {{unsaved}} sin guardar · {{incomplete}} incompletas",
+      "scriptsBlocked_one": "{{count}} con scripts bloqueados",
+      "scriptsBlocked_other": "{{count}} con scripts bloqueados",
       "installed_one": "{{count}} instalada",
       "installed_other": "{{count}} instaladas",
       "enabled_one": "{{count}} activada",
       "enabled_other": "{{count}} activadas",
       "unavailable_one": "{{count}} no disponible",
-      "unavailable_other": "{{count}} no disponibles",
-      "scriptsBlocked_one": "{{count}} con scripts bloqueados",
-      "scriptsBlocked_other": "{{count}} con scripts bloqueados"
+      "unavailable_other": "{{count}} no disponibles"
     },
     "accounts": {
       "title": "Cuentas conectadas",
@@ -1019,12 +1021,57 @@
     "noRuntimesTitle": "No se detectaron entornos de agentes",
     "noRuntimesDesc": "monomind está instalado pero no encontró ninguna CLI de agente conocida en este equipo.",
     "roster": {
-      "trackRecord": "Historial en trabajo real de organizaciones: {{entries}}",
-      "trackEntry": "{{category}}: puntuación {{pct}} % ({{succeeded}} de {{results}} con éxito)",
-      "trackLow": "baja",
       "costFromTable": "({{count}} con precio de una tabla de precios integrada; la primera prueba de un modelo aún no tiene coste propio.)",
       "signInNote": "{{runtime}} no tiene la sesión iniciada, así que su lista de modelos puede estar incompleta: puede mostrar más modelos cuando inicies sesión.",
       "signInNoteHint": "{{runtime}} no tiene la sesión iniciada, así que su lista de modelos puede estar incompleta: puede mostrar más modelos cuando inicies sesión con {{hint}}.",
+      "title": "Modelos validados",
+      "subtitle": "Cada modelo recibe un turno de prueba (“Reply with the single word: ok”). Las organizaciones dinámicas solo asignan trabajadores a modelos listos.",
+      "readyTotal": "{{count}} listos",
+      "readyOf": "{{ready}} / {{total}} listos",
+      "notValidated": "aún sin validar",
+      "validate": "Validar",
+      "validateAll": "Validar todo",
+      "recheckStale": "Revisar obsoletos",
+      "stop": "Detener",
+      "testing": "probando…",
+      "never": "nunca",
+      "manual": "añadido a mano",
+      "effort": "{{count}} niveles de esfuerzo",
+      "revalidateModel": "Validar este modelo de nuevo",
+      "trackRecord": "Historial en trabajo real de organizaciones: {{entries}}",
+      "trackEntry": "{{category}}: puntuación {{pct}} % ({{succeeded}} de {{results}} con éxito)",
+      "trackLow": "baja",
+      "remove": "Quitar de la lista",
+      "add": "Añadir",
+      "addPlaceholder": "Añade un id de modelo que este entorno no lista",
+      "confirmTitle": "Validar modelos",
+      "confirmBody": "Esto hace {{calls}} llamadas reales a modelos en {{runtimes}} entorno(s).",
+      "costEstimate": "Costo estimado ≈ {{cost}}.",
+      "costPartlyUnknown": "({{count}} con costo desconocido.)",
+      "costUnknown": "Aún no se conoce el costo.",
+      "summary": "{{ok}} correctos, {{failed}} fallidos, {{cancelled}} cancelados",
+      "nothingToDo": "Nada que validar: todos los modelos están listos.",
+      "empty": "No hay entornos que validar. Instala uno arriba.",
+      "ago": {
+        "s": "hace {{n}} s",
+        "m": "hace {{n}} min",
+        "h": "hace {{n}} h",
+        "d": "hace {{n}} d"
+      },
+      "status": {
+        "ok": "✓ listo",
+        "okUnexpected": "✓ respondió raro",
+        "stale": "⚠ obsoleto",
+        "staleVersion": "⚠ entorno actualizado",
+        "untested": "sin probar",
+        "auth": "✗ falta iniciar sesión",
+        "quota": "✗ cuota",
+        "model_unavailable": "✗ modelo no disponible",
+        "timeout": "✗ tiempo agotado",
+        "missing_binary": "✗ no instalado",
+        "error": "✗ error",
+        "rateLimited": "⚠ límite de uso (se volverá a comprobar)"
+      },
       "auto": {
         "label": "Volver a comprobar automáticamente los modelos caducados",
         "on": "activado",
@@ -1049,9 +1096,6 @@
         "nextUnchecked": "Próxima ejecución: hasta {{count}} modelo(s) caducado(s), {{cost}} (instalaciones sin comprobar)",
         "confirmNextUnchecked": "La próxima ejecución prueba hasta {{count}} modelo(s) caducado(s), {{cost}}.",
         "stateUnreadable": "No se puede leer el recuento de hoy, así que no se ejecuta nada; al volver a activarlo se restablece."
-      },
-      "status": {
-        "rateLimited": "⚠ límite de uso (se volverá a comprobar)"
       }
     },
     "boss": {
@@ -1854,8 +1898,8 @@
     "empty": "Nada aquí",
     "quickAddPlaceholder": "Título de la nueva tarea",
     "addToReady": "Añadir a Listo",
-    "newTask": "Nueva tarea",
     "add": "Añadir",
+    "newTask": "Nueva tarea",
     "approve": "Aprobar a Listo",
     "archive": "Archivar",
     "claimedBy": "Reclamada por {{by}}",
@@ -2528,6 +2572,104 @@
       "alreadyStopped": "La ejecución ya está detenida: ya no hay ninguna ejecución abierta."
     }
   },
+  "controlRoom": {
+    "title": "Sala de control",
+    "subtitle": "Vista en vivo de la ejecución en modo abierto. Puedes leerla y detenerla; se inicia desde un chat en modo abierto o desde la terminal.",
+    "loading": "Cargando...",
+    "off": "El modo abierto no está disponible en esta instalación.",
+    "noRun": "Aún no hay ninguna ejecución.",
+    "noRunHow": "El modo abierto se inicia desde tu terminal, no desde aquí. Después, esta página muestra la ejecución y te permite detenerla.",
+    "noRunCommands": "monoagentcli --profile <profile> doomsday render --charter <file>\nmonoagentcli --profile <profile> doomsday start --charter <file> --boss-session <N>\nmonoagentcli --profile <profile> doomsday status",
+    "error": "No se pudo leer la sala de control: {{message}}",
+    "integrity": {
+      "yes": "Cadena de auditoría verificada",
+      "no": "La cadena de auditoría NO se verifica",
+      "unanchored": "Cadena de auditoría SIN anclar",
+      "unknown": "Cadena de auditoría sin comprobar"
+    },
+    "run": {
+      "active": "Ejecución activa",
+      "stopping": "Ejecución deteniéndose",
+      "ended": "Ejecución terminada",
+      "generation": "generación {{n}}",
+      "charter": "Carta"
+    },
+    "errorCode": {
+      "db_unavailable": "No se pudo abrir la base de datos de la ejecución, así que la sala de control no puede mostrarla. Puede que la ejecución siga en marcha; Detener sigue disponible.",
+      "read_timeout": "Leer la ejecución tardó demasiado y se abandonó. Puede que la ejecución siga en marcha; Detener sigue disponible.",
+      "read_failed": "Falló la lectura de la ejecución. Puede que la ejecución siga en marcha; Detener sigue disponible.",
+      "unknown": "Falló la lectura de la ejecución por un motivo que esta versión no conoce. Puede que la ejecución siga en marcha; Detener sigue disponible."
+    },
+    "unanchored": {
+      "title": "Cadena de auditoría sin anclar",
+      "body": "La cadena de auditoría es coherente consigo misma, pero el testigo de parada no pudo confirmar dónde termina, así que no se pueden descartar filas recortadas del final. Se muestran las cifras de abajo, pero no consideres verificada esta ejecución."
+    },
+    "reason": {
+      "no_witness": "Esta ejecución no tiene testigo de parada, así que no hay nada con qué comparar la cadena.",
+      "no_witness_record": "El testigo de parada aún no tiene registro de esta ejecución, así que no se pudo confirmar el final de la cadena.",
+      "witness_unreadable": "No se pudo leer el testigo de parada (falta, está dañado o se está escribiendo), así que no se pudo confirmar el final de la cadena.",
+      "behind_witness": "La cadena termina antes del punto que registró el testigo de parada: se ha cortado el final de la cadena de auditoría.",
+      "witness_mismatch": "La cadena de auditoría y el testigo de parada no coinciden en dónde termina la cadena.",
+      "does_not_verify": "Una fila de la cadena de auditoría no coincide con su firma o con su lugar en la cadena, o la cadena está vacía o no tiene fila de ejecución.",
+      "key_unavailable": "La clave que comprueba la cadena de auditoría no estaba disponible, así que no se pudo comprobar la cadena.",
+      "other": "No se pudo confirmar la cadena de auditoría."
+    },
+    "badChain": {
+      "titleNo": "La cadena de auditoría no se verifica",
+      "titleUnknown": "No se pudo comprobar la cadena de auditoría",
+      "body": "El árbol, el gasto y el registro de decisiones están ocultos porque no son fiables. Detener sigue disponible."
+    },
+    "tree": {
+      "title": "Miembros por tipo",
+      "counts": "{{live}} activos de {{total}}",
+      "row": "{{live}} / {{total}}",
+      "empty": "No hay miembros registrados.",
+      "truncated": "Algunos tipos no se muestran."
+    },
+    "spend": {
+      "title": "Gasto",
+      "meter": "Gasto frente al tope",
+      "noCeiling": "Esta ejecución no tiene un tope de gasto.",
+      "noBudget": "No hay presupuesto de gasto definido.",
+      "over": "Por encima del tope.",
+      "rate": "Unos {{rate}} por hora (aprox., según esta ventana)",
+      "rateNone": "Ritmo: aún no hay suficientes lecturas (aprox., según esta ventana)",
+      "split": "peticiones {{ask}}, concesiones {{grant}}",
+      "unauthenticated": "Estos contadores no están autenticados: las firmas de la cadena de auditoría no cubren los totales."
+    },
+    "feed": {
+      "title": "Decisiones",
+      "empty": "Aún no hay decisiones.",
+      "older": "Decisiones anteriores",
+      "exceeded": "excedido: {{what}}",
+      "class": {
+        "run": "ejecución",
+        "approval": "aprobación",
+        "plan": "plan",
+        "ask_answer": "petición respondida",
+        "grant": "concesión",
+        "spend": "gasto",
+        "park": "en pausa",
+        "finish": "fin",
+        "refusal": "rechazada",
+        "other": "otra"
+      }
+    },
+    "stop": {
+      "title": "Detener",
+      "unknown": "Estado de la ejecución desconocido: la última lectura falló, así que puede que siga en marcha. Se ofrece Detener porque no necesita información de la lectura.",
+      "cannot": "Detener termina la ejecución y no se puede deshacer; reanudar implica iniciar una ejecución nueva desde la terminal. El resultado de abajo es exactamente lo que dijo el comando.",
+      "button": "Detener ejecución",
+      "stopping": "Deteniendo...",
+      "confirmTitle": "Confirmar parada",
+      "confirmBody": "¿Detener la ejecución ahora?",
+      "confirm": "Sí, detener la ejecución",
+      "cancel": "Cancelar",
+      "failed": "NO se confirmó la parada",
+      "partial": "Detenida, pero la limpieza no terminó",
+      "retry": "Reintentar la limpieza"
+    }
+  },
   "steering": {
     "direct": "Hablas directamente con el jefe: lo que escribes le llega como orientación, no como una orden",
     "banner": "Orientación: hablas con el jefe, no apruebas nada",
@@ -2544,7 +2686,7 @@
     "noApproval": "No hay aprobacion humana durante la ejecucion. Nada te preguntara: el agente jefe responde sus propias preguntas y actua con la autoridad que levantes abajo.",
     "steer": "Puedes dirigirla escribiendo en este chat; lo que escribes es direccion para el jefe, nunca la respuesta a una pregunta del jefe.",
     "stopHeader": "Detener esta en el encabezado del chat.",
-    "howTo": "Para empezar: escribe el objetivo y como comprobar que esta hecho, elige el presupuesto y la autoridad que levantas, revisa los modelos fijados y pulsa Revisar. Revisar muestra la carta; la confirmas escribiendo la frase que da, y aparece Empezar la ejecucion. Los modelos, la politica de juicio y los limites por peticion vienen con un valor prudente.",
+    "howTo": "Para empezar: escribe el objetivo y como comprobar que esta hecho, elige el presupuesto y la autoridad que levantas, revisa los modelos fijados y pulsa Revisar. Revisar muestra la carta; pulsas Aprobar y luego respondes a la ventana de confirmacion del sistema operativo. Los modelos, la politica de juicio y los limites por peticion vienen con un valor prudente.",
     "choose": "Elegir…",
     "platform": "En esta maquina ({{platform}}):",
     "unavailable": "La ejecucion abierta no puede empezar aqui: {{reason}}",
@@ -2606,9 +2748,10 @@
     "previewFailed": "No se pudo hacer la vista previa",
     "hash": "Hash de la carta (completo)",
     "liftedLines": "Lineas de autoridad levantadas ({{count}})",
-    "phraseIntro": "Para empezar, escribe la frase de abajo, hecha con lo que hay en esta pantalla: el numero de lineas levantadas de arriba y los 8 primeros caracteres del hash.",
-    "phraseLabel": "Escribe la frase",
-    "start": "Empezar la ejecucion",
+    "approveIntro": "Lee la carta de arriba. Aprobar te pregunta una vez mas en la ventana propia de tu sistema operativo, que muestra las lineas levantadas, el hash de la carta y el presupuesto; la ejecucion empieza solo si respondes Si ahi.",
+    "approve": "Aprobar",
+    "waitingDialog": "Esperando la ventana de confirmacion: respondela para continuar.",
+    "previewStale": "Esta vista previa ya no se puede usar (se uso o caduco). Pulsa Revisar para verla de nuevo.",
     "startFailed": "La ejecucion no empezo",
     "startedRun": "Ejecucion {{run}}.",
     "started": "La ejecucion empezo. Detener esta en el encabezado del chat.",

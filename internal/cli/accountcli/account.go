@@ -72,8 +72,12 @@ func (d Deps) newAccountLogoutCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "logout",
 		Short: "Log out of monoes.me on this machine (revokes and forgets the session)",
+		Long:  "Revokes and forgets this machine's monoes.me session; every gated command and the app stay locked until the user signs in again. " + clicore.OperatorOnlyHelp,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if why := clicore.OperatorRefusal(d.Refusal); why != "" {
+				return clicore.OperatorOnly("account logout ends the user's monoes.me session, which only the user decides: %s; run it yourself in your terminal or the app", why)
+			}
 			if err := account.Logout(cmd.Context()); err != nil {
 				return err
 			}

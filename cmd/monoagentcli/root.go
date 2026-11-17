@@ -248,9 +248,13 @@ func initDB(cfg *globalConfig) (*storage.Database, error) {
 	if inClientMode() { // client mode never opens the local database (client_mode.go)
 		return nil, errClientModeDB
 	}
-	dbPath := expandPath(cfg.DBPath)
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0700); err != nil {
-		return nil, err
+	dbPath, err := clicore.ExpandPathE(cfg.DBPath)
+	if err != nil {
+		return nil, errInvalidInput("%v", err)
+	}
+	dbDir := filepath.Dir(dbPath)
+	if err := os.MkdirAll(dbDir, 0700); err != nil {
+		return nil, storage.ExplainOpenError(err, dbDir)
 	}
 	db, err := storage.NewDatabase(dbPath)
 	if err != nil {
@@ -258,7 +262,7 @@ func initDB(cfg *globalConfig) (*storage.Database, error) {
 	}
 	if err := db.ApplyMigrations(); err != nil {
 		db.Close()
-		return nil, err
+		return nil, storage.ExplainMigrateError(err, dbDir)
 	}
 	// Automatic, idempotent check-and-migrate: encrypt any connections rows
 	// left over from before the secrets vault shipped. Cheap (a single COUNT
@@ -360,6 +364,8 @@ func resolveProfileID(db *sql.DB, idOrName string) (string, error) {
 		msg := fmt.Sprintf("profile %q not found (checked both id and name)", idOrName)
 		if list := profiledir.Describe(context.Background(), db); list != "" {
 			msg += "; available profiles: " + list
+		} else {
+			msg += "; there are no profiles yet: create one with `monoagentcli profile create <name>`"
 		}
 		return "", profileResolveError{errInvalidInput("%s", msg)}
 	case errors.As(err, &ambiguous):

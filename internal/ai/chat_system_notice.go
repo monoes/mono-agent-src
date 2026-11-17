@@ -16,6 +16,9 @@ import (
 // NoticeOpenEndedStopped is the code of the system notice a Stop of an open-ended run leaves in a chat.
 const NoticeOpenEndedStopped = "doomsday.stopped"
 
+// NoticeTurnFailed is the code of the notice a failed turn without a code of its own leaves in a chat.
+const NoticeTurnFailed = "turn.failed"
+
 // systemTurnPrefix starts the id of a turn that only carries a system notice.
 const systemTurnPrefix = "system-"
 
@@ -24,14 +27,22 @@ const systemTurnPrefix = "system-"
 // one transaction. It is never active, so it is written whatever other turn the conversation has, and it is checked
 // against the profile like every lookup here. The frontend shows a promptless turn as its notice alone.
 func (s *AIStore) RecordSystemNotice(profileID, conversationID, code, message string) error {
+	return s.recordSystemTurn(profileID, conversationID, code, message, chatevents.SeverityInfo, chatevents.StatusCompleted, "")
+}
+
+func (s *AIStore) recordSystemTurn(profileID, conversationID, code, message string, severity chatevents.NoticeSeverity, status chatevents.TurnStatus, reason string) error {
 	if profileID == "" {
 		return ErrProfileRequired
 	}
-	if code == "" || strings.TrimSpace(message) == "" {
+	if (code == "" && status == chatevents.StatusCompleted) || strings.TrimSpace(message) == "" {
 		return errors.New("chat: a system notice needs a code and a message")
 	}
 	if _, err := s.GetConversation(conversationID, profileID); err != nil {
 		return err
+	}
+	noticeCode := code
+	if noticeCode == "" {
+		noticeCode = NoticeTurnFailed
 	}
 	var rnd [8]byte
 	if _, err := rand.Read(rnd[:]); err != nil {
@@ -43,18 +54,24 @@ func (s *AIStore) RecordSystemNotice(profileID, conversationID, code, message st
 		return fmt.Errorf("begin system notice: %w", err)
 	}
 	defer tx.Rollback()
+	if status == chatevents.StatusFailed {
+		// Keep the newest refusals: past the bound the oldest ones (and their events) go.
+		if err := pruneOldestRefusals(tx, profileID, conversationID); err != nil {
+			return err
+		}
+	}
 	now := time.Now()
 	stamp := now.UTC().Format(time.RFC3339)
 	if _, err := tx.Exec(`INSERT INTO ai_chat_turns (id, conversation_id, profile_id, owner_instance_id, prompt, status, reason, last_committed_seq, created_at, updated_at)
-		VALUES (?, ?, ?, '', '', 'completed', '', 0, ?, ?)`, turnID, conversationID, profileID, stamp, stamp); err != nil {
+		VALUES (?, ?, ?, '', '', ?, ?, 0, ?, ?)`, turnID, conversationID, profileID, string(status), reason, stamp, stamp); err != nil {
 		return fmt.Errorf("create system turn: %w", err)
 	}
 	if _, err := appendEventTx(tx, profileID, conversationID, turnID, chatevents.EventNotice,
-		chatevents.NoticePayload{Code: code, Message: message, Severity: chatevents.SeverityInfo}, now); err != nil {
+		chatevents.NoticePayload{Code: noticeCode, Message: message, Severity: severity}, now); err != nil {
 		return err
 	}
 	ev, err := appendEventTx(tx, profileID, conversationID, turnID, chatevents.EventTurnFinished,
-		chatevents.TurnFinishedPayload{Status: chatevents.StatusCompleted, HistorySaved: false /* no provider history row exists for a notice */}, now)
+		chatevents.TurnFinishedPayload{Status: status, Reason: reason, Code: code, HistorySaved: false /* no provider history row exists for a notice */}, now)
 	if err != nil {
 		return err
 	}

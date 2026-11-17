@@ -36,22 +36,22 @@ esac
 	a.ctx = context.Background()
 	a.selectForTest("work")
 
-	people := a.GetPeople("ALL", "", 50, 100)
-	if len(people) != 1 || people[0].Username != "sam" || people[0].ProfileURL != "u" || !people[0].IsVerified || people[0].CreatedAt == "" {
+	people, err := a.GetPeople("ALL", "", 50, 100)
+	if err != nil || len(people) != 1 || people[0].Username != "sam" || people[0].ProfileURL != "u" || !people[0].IsVerified || people[0].CreatedAt == "" {
 		t.Fatalf("GetPeople = %+v", people)
 	}
-	a.GetPeople("instagram", "-sam", 0, 10)
-	if n := a.GetPeopleCount("LINKEDIN", "sam"); n != 42 {
+	_, _ = a.GetPeople("instagram", "-sam", 0, 10)
+	if n, err := a.GetPeopleCount("LINKEDIN", "sam"); err != nil || n != 42 {
 		t.Fatalf("GetPeopleCount = %d", n)
 	}
-	if n := a.GetPeopleCount("", ""); n != 42 {
+	if n, err := a.GetPeopleCount("", ""); err != nil || n != 42 {
 		t.Fatalf("GetPeopleCount (no filter) = %d", n)
 	}
-	if p := a.GetPersonDetail("p1"); p == nil || p.Username != "sam" || p.ContentCount != 3 || p.ProfileURL != "u" || p.UpdatedAt == "" ||
+	if p, err := a.GetPersonDetail("p1"); err != nil || p == nil || p.Username != "sam" || p.ContentCount != 3 || p.ProfileURL != "u" || p.UpdatedAt == "" ||
 		p.ProfileDetails["likes_count"] != float64(5600) || p.ProfileDetails["links"] == nil {
 		t.Fatalf("GetPersonDetail = %+v", p)
 	}
-	if i := a.GetPersonInteractions("p1"); len(i) != 1 || i[0].NodeName != "Like" {
+	if i, err := a.GetPersonInteractions("p1"); err != nil || len(i) != 1 || i[0].NodeName != "Like" {
 		t.Fatalf("GetPersonInteractions = %+v", i)
 	}
 	if p := a.GetPersonPosts("p1"); len(p) != 1 || !p[0].WeLiked || p[0].LikeCount != 5 {

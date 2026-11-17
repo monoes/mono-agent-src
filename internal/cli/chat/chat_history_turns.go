@@ -48,6 +48,9 @@ func newChatHistoryTurnsCmd(cfg *Deps) *cobra.Command {
 			}
 			for _, t := range page.Items {
 				fmt.Printf("%s  %-11s %s  %s\n", t.ID, t.Status, t.CreatedAt, firstLineOf(t.Prompt))
+				if t.Status == string(chatevents.StatusFailed) && t.Reason != "" {
+					fmt.Printf("    reason: %s\n", ai.CleanFailureText(t.Reason, ai.MaxRefusalReasonRunes))
+				}
 			}
 			if next != "" {
 				fmt.Printf("more: --cursor %q\n", next)
@@ -79,7 +82,7 @@ func newChatHistoryTurnCmd(cfg *Deps) *cobra.Command {
 				return clicore.PrintJSON(t.Record())
 			}
 			fmt.Printf("id:       %s\nstatus:   %s\nreason:   %s\nlast seq: %d\ncreated:  %s\nprompt:   %s\n",
-				t.ID, t.Status, t.Reason, t.LastCommittedSeq, t.CreatedAt, t.Prompt)
+				t.ID, t.Status, ai.CleanFailureText(t.Reason, ai.MaxRefusalReasonRunes), t.LastCommittedSeq, t.CreatedAt, ai.CleanFailureText(t.Prompt, 20000))
 			return nil
 		},
 	}
@@ -204,6 +207,46 @@ func newChatHistoryFinishCmd(cfg *Deps) *cobra.Command {
 	cmd.Flags().StringVar(&status, "status", "", "Terminal status: completed, failed, cancelled or interrupted")
 	cmd.Flags().StringVar(&reason, "reason", "", "Human-readable reason")
 	cmd.Flags().StringVar(&exitCode, "exit-code", "", "Process exit code to record")
+	return cmd
+}
+
+func newChatHistoryRefusedCmd(cfg *Deps) *cobra.Command {
+	var code, reason string
+	cmd := &cobra.Command{
+		Use:   "refused <conversation-id>",
+		Short: "Record why a turn never began, so the conversation shows it when reopened",
+		Long: "Writes a finished system turn into the conversation: failed, with --reason (cleaned of control characters and " +
+			"cut to 500 characters) and --code, which must be one of agent_not_setup, auth, quota, rate-limited, missing-binary, " +
+			"budget or timeout. The desktop app calls this when the coder host refuses a turn before it exists; " +
+			"`chat history turns` then lists the reason. A conversation keeps the newest 20. " + clicore.OperatorOnlyHelp,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := requireUser(cfg, "record a refused turn"); err != nil {
+				return err
+			}
+			if !ai.ValidRefusalCode(code) {
+				return clicore.InvalidInput("--code must be empty or one of agent_not_setup, auth, quota, rate-limited, missing-binary, budget, timeout")
+			}
+			if ai.CleanFailureText(reason, 1) == "" {
+				return clicore.InvalidInput("--reason is required")
+			}
+			store, profileID, closeDB, err := openChatHistory(cfg)
+			if err != nil {
+				return err
+			}
+			defer closeDB()
+			if err := store.RecordFailedTurnNotice(profileID, args[0], code, reason); err != nil {
+				return chatStoreErr(err)
+			}
+			if cfg.JSONOutput() {
+				return clicore.PrintJSON(map[string]any{"recorded": true})
+			}
+			fmt.Println("recorded")
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&code, "code", "", "Failure code, when it has a known one")
+	cmd.Flags().StringVar(&reason, "reason", "", "Why the turn did not begin")
 	return cmd
 }
 

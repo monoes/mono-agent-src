@@ -9,6 +9,15 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// cronLogger sends robfig/cron's panic reports (message plus the panic value
+// and stack) to the daemon log.
+type cronLogger struct{ l zerolog.Logger }
+
+func (c cronLogger) Info(msg string, kv ...interface{}) { c.l.Info().Fields(kv).Msg("cron: " + msg) }
+func (c cronLogger) Error(err error, msg string, kv ...interface{}) {
+	c.l.Error().Err(err).Fields(kv).Msg("cron: " + msg)
+}
+
 // Scheduler manages recurring cron-triggered workflow jobs.
 type Scheduler struct {
 	cron   *cron.Cron
@@ -17,7 +26,7 @@ type Scheduler struct {
 
 func NewScheduler(logger zerolog.Logger) *Scheduler {
 	return &Scheduler{
-		cron:   cron.New(cron.WithSeconds()),
+		cron:   cron.New(cron.WithSeconds(), cron.WithChain(cron.Recover(cronLogger{logger}))),
 		logger: logger,
 	}
 }
@@ -38,7 +47,16 @@ func (s *Scheduler) Stop() context.Context {
 // standard 5-field expressions are rejected. spec may optionally start with
 // "CRON_TZ=<zone> " to schedule in a specific timezone.
 func (s *Scheduler) AddWorkflowJob(spec string, fn func()) (cron.EntryID, error) {
-	id, err := s.cron.AddFunc(spec, fn)
+	id, err := s.cron.AddFunc(spec, func() {
+		// A panic is logged with the job's spec, then the chain's Recover keeps the process alive.
+		defer func() {
+			if r := recover(); r != nil {
+				s.logger.Error().Str("spec", spec).Interface("panic", r).Msg("scheduled job panicked")
+				panic(r)
+			}
+		}()
+		fn()
+	})
 	if err != nil {
 		return 0, fmt.Errorf("invalid cron spec %q: %w", spec, err)
 	}

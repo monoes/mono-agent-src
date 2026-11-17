@@ -191,6 +191,12 @@ func TestRegisterSaysHowToApproveAChangedWorkflow(t *testing.T) {
 		strings.Contains(err.Error(), "workflow activate") {
 		t.Errorf("called by an unapproved workflow it can't name: %v", err)
 	}
+	// A mark that carries "/declared" after its kind is the same mark.
+	suffixed := workflow.WithTrigger(ctx, workflow.TriggerTypeExecuteWorkflow, map[string]interface{}{
+		workflow.AICallerKey: workflow.UnapprovedWorkflowCaller + "/org", workflow.UnapprovedCallerKey: "wf-parent"})
+	if _, err = (&RegisterNode{}).Execute(suffixed, in, config); err == nil || !strings.Contains(err.Error(), "the workflow that called this one, wf-parent,") {
+		t.Errorf("a suffixed unapproved-workflow mark: %v", err)
+	}
 }
 
 // brokenApprovals is a workflow store whose check of the user's approval

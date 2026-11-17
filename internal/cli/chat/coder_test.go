@@ -52,6 +52,7 @@ func withCoderScan(t *testing.T, entries ...monomind.ScanEntry) {
 // `init --json` and `agent exec` (with transcript), logging every argv.
 func writeCoderMonomind(t *testing.T, transcript string) (bin, argsLog string) {
 	t.Helper()
+	skipWithoutShell(t)
 	dir := t.TempDir()
 	bin = filepath.Join(dir, "monomind")
 	argsLog = filepath.Join(dir, "args.log")
@@ -277,6 +278,7 @@ const coderTranscript = `  echo '{"v":1,"type":"start","runtime":"claude","cwd":
   echo '{"v":1,"type":"done","exit_code":0,"background_pids":[4242]}'`
 
 func TestCoderTurnRunsWithFullAccessAndJournalsToolActivity(t *testing.T) {
+	skipWithoutTool(t, "sleep")
 	dbPath := newChatCLITestDB(t)
 	big := strings.Repeat("y", chatevents.MaxToolPreviewBytes)
 	// A process the turn left running, still alive when the turn ends.

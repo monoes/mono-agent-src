@@ -130,8 +130,11 @@ func (s SignIn) emailSignIn(cmd *cobra.Command, f *signInFlags, name string) (st
 // is for a local failure such as a missing key store.
 func signInErr(err error) error {
 	var ce *clicore.Error
-	if err == nil || errors.As(err, &ce) || errors.Is(err, account.ErrKeyringUnavailable) {
+	if err == nil || errors.As(err, &ce) {
 		return err
+	}
+	if errors.Is(err, account.ErrKeyringUnavailable) {
+		return fmt.Errorf("%w\nhint: sign-in keeps its key in the OS keychain (preferred). On a host without one (a server, container or minimal desktop) you can opt in to the weaker file keyring with MONOAGENT_ALLOW_FILE_KEYRING=1; `monoagentcli secret keyring` shows the state of the key store", err)
 	}
 	return clicore.AuthConnection("%v", err)
 }

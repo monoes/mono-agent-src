@@ -19,6 +19,9 @@ func openBelow(dirfd int, name string, flags int, mode uint64) (int, error) {
 	})
 }
 
+// rootSockLimit is 0: the socket is reached through /proc/self/fd here, so its path length is no limit.
+var rootSockLimit = 0
+
 // leafFor is the directory name of the profile under the run directory: its plain id when that is safe.
 func leafFor(o SocketOptions) string { return socketLeaf(o.Profile) }
 

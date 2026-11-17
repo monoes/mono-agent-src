@@ -46,6 +46,8 @@ func addWorkflowPublicationHooks(env *health.Env, requireOperator func(what stri
 		}
 		return workflow.NewHybridWorkflowStore(files, workflow.NewSQLiteWorkflowStore(env.DB)), nil
 	}
+	addSchedulesPausedHook(env, open)
+	addStaleSendingHook(env)
 	env.WorkflowPublications = func(ctx context.Context) (*health.WorkflowPublicationsInfo, error) {
 		info := &health.WorkflowPublicationsInfo{}
 		store, err := open()

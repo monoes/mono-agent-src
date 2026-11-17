@@ -7,6 +7,7 @@ import (
 	"github.com/monoes/mono-agent/internal/testhome"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -181,6 +182,22 @@ func newChatCLITestDB(t *testing.T) string {
 	// A copy of the one migrated template (internal/testdb), not 130+
 	// migrations run again for every test.
 	return testdb.Path(t)
+}
+
+// skipWithoutShell skips a test whose scripted monomind stand-in is a /bin/sh script: Windows cannot run one as a program.
+func skipWithoutShell(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the scripted monomind stand-in is a shell script")
+	}
+}
+
+// skipWithoutTool skips a test that starts a POSIX program (sleep, sh) a Windows host does not have.
+func skipWithoutTool(t *testing.T, name string) {
+	t.Helper()
+	if _, err := exec.LookPath(name); err != nil {
+		t.Skip(name + " is not available on this host")
+	}
 }
 
 // writeFakeMonomindForChat writes a throwaway fake monomind binary that

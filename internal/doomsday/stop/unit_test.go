@@ -273,3 +273,41 @@ func TestRealProbeIsAllOrRefusal(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 }
+
+// Production wires no registry (EndConfig.Known is nil): a member ended inside the proven unit is then not "unknown",
+// otherwise every first stop of a run with a live turn reported its already-ended members as survivors.
+func TestEndUnitWithoutARegistryDoesNotCallEndedMembersUnknown(t *testing.T) {
+	cg := newFakeCg()
+	cg.subs["t-1"] = []*fakeProc{{pid: 20, dieOnTerm: true}, {pid: 21, dieOnKill: true}}
+	out := EndUnit(cg, EndConfig{Clock: newStepClock()})
+	if out.Kind != UnitEnded || len(out.Unknown) != 0 || len(out.Survivors) != 0 || !cg.removed["t-1"] {
+		t.Fatalf("%+v", out)
+	}
+}
+
+// The other side: with no registry a member that does not die is still a survivor and the unit is never "ended".
+func TestEndUnitWithoutARegistryStillFailsClosedOnARealSurvivor(t *testing.T) {
+	cg := newFakeCg()
+	cg.subs["t-1"] = []*fakeProc{{pid: 22, stamp: "99"}} // survives SIGTERM and cgroup.kill
+	out := EndUnit(cg, EndConfig{Clock: newStepClock()})
+	if out.Kind != UnitStragglers || len(out.Survivors) != 1 || out.Survivors[0].PID != 22 || cg.removed["t-1"] {
+		t.Fatalf("%+v", out)
+	}
+}
+
+// With no registry only an unreadable identity makes a member unknown; the unit is still ended (the cgroup is empty and
+// removed) but the outcome stays ENDED-WITH-UNKNOWN.
+type noIdentCg struct{ *fakeCg }
+
+func (noIdentCg) ProcInfo(string, int) (string, string, error) {
+	return "", "", errors.New("unreadable")
+}
+
+func TestEndUnitWithoutARegistryStillCallsAnUnreadableIdentityUnknown(t *testing.T) {
+	cg := newFakeCg()
+	cg.subs["t-1"] = []*fakeProc{{pid: 23, dieOnTerm: true}}
+	out := EndUnit(noIdentCg{cg}, EndConfig{Clock: newStepClock()})
+	if out.Kind != UnitEndedWithUnknown || len(out.Unknown) != 1 || out.Unknown[0].Why != "identity unreadable" || len(out.Survivors) != 0 || !cg.removed["t-1"] {
+		t.Fatalf("%+v", out)
+	}
+}

@@ -215,7 +215,7 @@ func TestWhatIsNotTheOperatorsTerminalDecidesNothing(t *testing.T) {
 	if task := agentRun(t, db, "claim", id(ready), "--as", "bot"); task.Claim == nil || task.Claim.By != "bot" {
 		t.Errorf("an agent's claim: %+v", task.Claim)
 	}
-	if s := opsShow(t, db, added); s.kinds() != "created" || s.Events[0].Actor != "you" {
+	if s := opsShow(t, db, added); s.kinds() != "created" || s.Events[0].Actor != "agent" { // no AddedBy wired here: a turn process is an unnamed agent, never "you"
 		t.Errorf("an add: events %s, %+v", s.kinds(), s.Events)
 	}
 	if s := opsShow(t, db, ready); s.Events[len(s.Events)-1].Actor != "bot" {

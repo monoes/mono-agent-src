@@ -17,7 +17,7 @@ import (
 
 func TestReleaseKeygenStdoutPrivate(t *testing.T) {
 	keyring.MockInit()
-	cmd := NewCommand()
+	cmd := NewCommand(Deps{Refusal: func() string { return "" }})
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
@@ -53,7 +53,7 @@ func TestReleaseKeygenStdoutPrivate(t *testing.T) {
 
 func TestReleaseKeygenStdoutPrivateRejectsForce(t *testing.T) {
 	keyring.MockInit()
-	cmd := NewCommand()
+	cmd := NewCommand(Deps{Refusal: func() string { return "" }})
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetArgs([]string{"keygen", "--stdout-private", "--force"})
@@ -64,7 +64,7 @@ func TestReleaseKeygenStdoutPrivateRejectsForce(t *testing.T) {
 
 func TestReleaseKeygenKeyringPathUnchanged(t *testing.T) {
 	keyring.MockInit()
-	cmd := NewCommand()
+	cmd := NewCommand(Deps{Refusal: func() string { return "" }})
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetArgs([]string{"keygen"})
@@ -93,7 +93,7 @@ func TestReleaseVerifyRefusals(t *testing.T) {
 		{[]string{"verify", manifest, sig, "--pubkey", "bogus"}, 3},
 		{[]string{"verify", manifest, sig}, 3},
 	} {
-		cmd := NewCommand()
+		cmd := NewCommand(Deps{Refusal: func() string { return "" }})
 		cmd.SetOut(&bytes.Buffer{})
 		cmd.SetErr(&bytes.Buffer{})
 		cmd.SetArgs(tc.args)

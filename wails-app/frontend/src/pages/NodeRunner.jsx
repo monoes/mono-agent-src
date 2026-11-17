@@ -8,7 +8,10 @@ import {
 } from 'lucide-react'
 import * as WailsApp from '../wailsjs/go/main/App'
 import { api, notify, reportRunFailure, subscribeEvent } from '../services/api.js'
+import { LIVE_STATUSES } from '../lib/execStatus.js'
+import { POLL_FAIL_LIMIT, nextPollFailures, cancelFailed } from '../lib/runPoll.js'
 import { confirm } from '../components/ConfirmDialog.jsx'
+import { toggleActive, loadWorkflowChecked, openRunWorkflow } from '../lib/editorFailures.js'
 import ResourcePickerField from '../components/ResourcePickerField.jsx'
 import ImagePickerModal from '../components/ImagePickerModal'
 import { isVaultImage } from '../lib/vaultItems.js'
@@ -1221,13 +1224,23 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
     if (pollRef.current) clearInterval(pollRef.current)
     // Immediate first fetch
     api.getExecutionDetail(execId).then(d => d && applyExecDetail(d)).catch(() => {})
+    let failures = 0
     const iv = setInterval(async () => {
       // Tick gated on page visibility — a hidden window stops polling; the
       // next tick after returning visible picks the execution back up.
       if (!pageVisibleRef.current) return
       try {
         const detail = await api.getExecutionDetail(execId)
-        if (!detail) return
+        failures = nextPollFailures(failures, detail)
+        if (!detail) {
+          if (failures >= POLL_FAIL_LIMIT) {
+            clearInterval(iv)
+            if (pollRef.current === iv) pollRef.current = null
+            setRunning(false)
+            notify('run status', `Lost contact with run ${execId}. It may still be running: open it from Workflows > Executions to check.`)
+          }
+          return
+        }
         applyExecDetail(detail)
         const st = (detail.status || '').toUpperCase()
         // WAITING (paused at a Human-in-Loop node) may resume after approval,
@@ -1306,9 +1319,15 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
         const detail = await api.getExecutionDetail(navData.executionId)
         if (cancelled || !detail) return
         // Load workflow if needed
-        if (detail.workflow_id && (detail.workflow_id !== wfId || nodes.length === 0)) {
-          const wf = await WailsApp.GetWorkflow(detail.workflow_id)
-          if (wf && !cancelled) {
+        const needLoad = !!detail.workflow_id && (detail.workflow_id !== wfId || nodes.length === 0)
+        const opened = await openRunWorkflow({
+          detail, wfId, needLoad, isDirty, getWorkflow: WailsApp.GetWorkflow, notify,
+          confirmDiscard: () => confirm('Discard unsaved changes?', { title: 'Open Run', confirmLabel: 'Discard & Open' }),
+        })
+        if (opened.cancelled || cancelled) return
+        if (needLoad) {
+          const wf = opened.wf
+          if (wf) {
             const prefixToCat = { core: 'control', db: 'database', comm: 'communication', service: 'services', data: 'data', http: 'http', system: 'system', trigger: 'triggers', ai: 'ai', instagram: 'instagram', linkedin: 'linkedin', x: 'x', tiktok: 'tiktok' }
             const loadedNodes = (wf.nodes || []).map(n => {
               const nt = normalizeNodeType(n.node_type || n.type || '')
@@ -1667,11 +1686,17 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
   // ── RUN ──────────────────────────────────────────────────────────────────
   const handleStop = useCallback(async () => {
     const execId = execOverlay?.id
+    if (execId) {
+      let failed = false
+      try { failed = cancelFailed(await api.cancelWorkflow(execId)) } catch { failed = true }
+      if (failed) {
+        // The run was not cancelled: keep polling and the running state.
+        notify('stop run', `Could not stop run ${execId}; it is still running.`)
+        return
+      }
+    }
     stopPolling()
     setGlobalStatus('error')
-    if (execId) {
-      try { await api.cancelWorkflow(execId) } catch {}
-    }
   }, [execOverlay])
 
   // Per-run token: a stale exec-started listener from an earlier run must
@@ -1855,9 +1880,10 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
     // Guard the dirty canvas: Load (modal), template creation and AI-created
     // workflows all funnel through here.
     if (isDirty && !(await confirm('Discard unsaved changes?', { title: 'Load Workflow', confirmLabel: 'Discard & Load' }))) return
-    stopPolling() // a poll from a previous run must not repaint the new canvas
     try {
-      const wf = await GetWorkflow(id)
+      // a poll from a previous run must not repaint the new canvas, but it
+      // keeps running when the load fails (stopped inside once wf is in hand)
+      const wf = await loadWorkflowChecked({ id, getWorkflow: GetWorkflow, stopPolling, notify })
       if (!wf) return
       setWfId(wf.id)
       setWfName(wf.name || 'Untitled Workflow')
@@ -1905,8 +1931,10 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
       setIsDirty(false)
       setCamera(fitView(loadedNodes, wrapperRef.current)); lastAddedRef.current = null
       if (!keepModal) setShowWfModal(false)
+      return true
     } catch (e) {
       console.error('Load failed', e)
+      notify('load workflow', `Could not open the workflow: ${e?.message || e}`)
     }
   }, [isDirty]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1925,9 +1953,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
 
   // ── Toggle active ─────────────────────────────────────────────────────────
   const handleToggleActive = useCallback(async () => {
-    const next = !wfActive
-    setWfActive(next)
-    if (wfId) { try { await SetWorkflowActive(wfId, next) } catch {} }
+    await toggleActive({ id: wfId, prev: wfActive, next: !wfActive, setActive: setWfActive, save: SetWorkflowActive, notify })
   }, [wfActive, wfId])
 
   // ── New canvas ────────────────────────────────────────────────────────────
@@ -2310,6 +2336,13 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
           initialTab={showWfModal === 'templates' ? 'templates' : 'saved'}
           currentId={wfId}
           onLoad={handleLoad}
+          onOpenExecution={async (workflowId, execId) => {
+            if (!(await handleLoad(workflowId))) return
+            const detail = await api.getExecutionDetail(execId)
+            if (!detail) return
+            applyExecDetail(detail)
+            if (LIVE_STATUSES.has((detail.status || '').toUpperCase())) { setRunning(true); startExecPoll(execId) }
+          }}
           onLibraryInstalled={() => { onWorkflowsChanged?.(); loadCatalog() }}
           onDelete={async (id) => {
             if (!(await confirm('Delete this workflow? This cannot be undone.', { title: 'Delete Workflow', confirmLabel: 'Delete' }))) return false

@@ -28,7 +28,7 @@ type Server struct {
 	// id its extension reports (see conns.go). Guarded by connMu.
 	conns   map[string]*extConn
 	connMu  sync.Mutex
-	pending map[string]chan *Response
+	pending map[string]*pendingCmd
 	pendMu  sync.Mutex
 
 	connected chan struct{} // closed when first connection arrives
@@ -41,7 +41,7 @@ type Server struct {
 	// page_capture responses, which pending cannot: it is single-shot, and
 	// one capture may span many messages under one id. Both are guarded by
 	// pendMu, as is onCapture.
-	streams        map[string]chan *Response
+	streams        map[string]*pendingCmd
 	assembler      *capture.Assembler
 	captureWriter  *capture.Writer
 	captureInbox   string
@@ -250,7 +250,7 @@ func tryListen(addrs []string) (net.Listener, string, error) {
 func NewServer(addr string, logger zerolog.Logger) *Server {
 	s := &Server{
 		addr:      addr,
-		pending:   make(map[string]chan *Response),
+		pending:   make(map[string]*pendingCmd),
 		connected: make(chan struct{}),
 		startedAt: time.Now(),
 		logger:    logger.With().Str("component", "extension-server").Logger(),

@@ -212,3 +212,23 @@ func TestGetChatTurnsFollowsAnActiveHostTurn(t *testing.T) {
 		t.Fatalf("followed from the start instead of the last committed event: %s", log)
 	}
 }
+
+// The same refusal is also written into the conversation, so reopening it later shows the reason.
+func TestAHostSendThatFailsRecordsTheReasonInTheConversation(t *testing.T) {
+	hostTestTiming(t)
+	bin, argsLog := chatFakeCLI(t,
+		coderShowReply(t, "c1", ai.AccessCoding),
+		fakeChatReply{match: "coder sessions send", stdout: `{"commandId":9}`},
+		fakeChatReply{match: "chat history events", stderr: "turn not found", code: 2},
+		fakeChatReply{match: "coder sessions command 9", stdout: `{"id":9,"status":"failed","error":"the host is stale"}`},
+		fakeChatReply{match: "chat history refused", stdout: `{"recorded":true}`},
+	)
+	a, em := newCLIChatApp(t, bin)
+	if r := decodeStart(t, a.StartChatTurn("c1", "t1", "hi", false, false, nil)); !r.OK {
+		t.Fatalf("start = %+v", r)
+	}
+	waitFinished(t, em)
+	if log := strings.Join(readArgsLog(t, argsLog), "\n"); !strings.Contains(log, "chat history refused c1 --reason the host is stale") {
+		t.Fatalf("the refusal was not recorded: %s", log)
+	}
+}
