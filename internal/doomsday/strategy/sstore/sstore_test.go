@@ -194,6 +194,18 @@ func TestBadJudgmentAndAbandonAfterStop(t *testing.T) {
 	}
 }
 
+func TestBadJudgmentAuditCarriesTheBoundedReason(t *testing.T) {
+	e := newEnv(t)
+	e.s.InsertEpoch(ctx, e.epoch(1, types.TriggerTimer))
+	if err := e.s.MoveEpochBad(ctx, e.prof, e.gen, 1, "2 of 3 criteria judged"); err != nil {
+		t.Fatal(err)
+	}
+	if n := e.count(t, `SELECT COUNT(*) FROM doomsday_audit WHERE kind = ? AND payload LIKE ?`, types.KindBadJudgment, `%"reason":"2 of 3 criteria judged"%`); n != 1 {
+		t.Fatalf("the audit line does not carry the reason: %d", n)
+	}
+	e.auditOK(t)
+}
+
 func TestUncheckedProposalCapPerEpoch(t *testing.T) {
 	e := newEnv(t)
 	e.s.InsertEpoch(ctx, e.epoch(1, types.TriggerTimer))

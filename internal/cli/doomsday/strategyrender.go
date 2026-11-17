@@ -63,6 +63,7 @@ type EpochView struct {
 	StartedAt    string `json:"started_at"`
 	ModelPin     string `json:"model_pin,omitempty"`
 	JudgmentHash string `json:"judgment_hash,omitempty"` // first 12 hex
+	BadReason    string `json:"bad_reason,omitempty"`    // why a bad-judgment epoch was refused (bounded; empty for rows from before it was recorded)
 }
 
 // StrategyEpochsView is the newest-last list of epochs, at most Limit.
@@ -188,6 +189,9 @@ func renderStrategyStatus(w io.Writer, v StrategyStatusView) error {
 	fmt.Fprintf(w, "generation %d (run %s): %d epochs, %d parked finish rounds\n", v.Generation, orDash(v.RunState), v.Epochs, v.ParkedFinish)
 	if e := v.LatestEpoch; e != nil {
 		fmt.Fprintf(w, "latest epoch %d: %s, %s, started %s\n", e.Seq, e.Trigger, e.State, e.StartedAt)
+		if e.BadReason != "" {
+			fmt.Fprintf(w, "  why: %s\n", e.BadReason)
+		}
 	}
 	fmt.Fprintf(w, "directions: %s\n", counts(v.Directions))
 	if len(v.Criteria) > 0 {
@@ -214,6 +218,9 @@ func renderStrategyEpochs(w io.Writer, v StrategyEpochsView) error {
 	fmt.Fprintf(w, "generation %d: %d epochs%s\n", v.Generation, v.Total, truncNote(v.Truncated))
 	for _, e := range v.Epochs {
 		fmt.Fprintf(w, "  %4d  %-20s %-13s %s  %s %s\n", e.Seq, e.Trigger, e.State, e.StartedAt, orDash(e.JudgmentHash), RedactText(e.ModelPin, strategyPinCap))
+		if e.BadReason != "" {
+			fmt.Fprintf(w, "        why: %s\n", e.BadReason)
+		}
 	}
 	return nil
 }

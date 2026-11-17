@@ -12,6 +12,24 @@ import (
 	"testing"
 )
 
+func TestBadReasonIsBoundedPlainAndNamesTheCause(t *testing.T) {
+	if got := BadReason(bad("%d of %d criteria judged", 1, 2)); got != "1 of 2 criteria judged" {
+		t.Errorf("got %q", got)
+	}
+	got := BadReason(bad("criterion %q unknown\n\x1b[31m", strings.Repeat("x", 500)))
+	if len([]rune(got)) > MaxBadReasonLen || got == "" {
+		t.Errorf("not bounded: %d", len(got))
+	}
+	for _, r := range got {
+		if r < 0x20 || r == 0x7f {
+			t.Errorf("control character in %q", got)
+		}
+	}
+	if BadReason(errors.New("a secret model body")) != "" || BadReason(nil) != "" {
+		t.Error("an error that is not a refusal must carry no text")
+	}
+}
+
 func dir() Direction {
 	return Direction{Profile: "p", Generation: 1, ID: "d1", KeyHash: KeyHash("k"), Title: "t", State: DirProposed, ProposerSession: "s", CreatedEpoch: 2}
 }

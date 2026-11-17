@@ -92,7 +92,7 @@ func (r strategyReader) ReadStatus(ctx context.Context, gen int64) (StrategyStat
 		}
 	}
 	if n := len(eps); n > 0 {
-		ev := epochView(eps[n-1])
+		ev := r.withReason(epochView(eps[n-1]), r.badReasons(ctx, g, eps[n-1:]), g)
 		v.LatestEpoch = &ev
 	}
 	if v.Criteria, err = r.criteriaCounts(ctx, g, eps); err != nil {
@@ -139,6 +139,33 @@ func (r strategyReader) criteriaCounts(ctx context.Context, g int64, eps []types
 	return nil, nil
 }
 
+// badReasons reads the why of each bad-judgment epoch from the verified audit chain. A run source that cannot say, or a
+// chain that does not verify, shows no reason: the epoch's own state is still shown, and never hidden.
+func (r strategyReader) badReasons(ctx context.Context, g int64, eps []types.Epoch) map[string]string {
+	hasBad := false
+	for _, e := range eps {
+		hasBad = hasBad || e.State == types.EpochBadJudgment
+	}
+	src, ok := r.runs.(interface {
+		StrategyBadReasons(ctx context.Context, profile string, generation int64) (map[string]string, error)
+	})
+	if !hasBad || !ok {
+		return nil
+	}
+	m, err := src.StrategyBadReasons(ctx, r.profile, g)
+	if err != nil {
+		return nil
+	}
+	return m
+}
+
+func (r strategyReader) withReason(v EpochView, reasons map[string]string, g int64) EpochView {
+	if v.State == string(types.EpochBadJudgment) {
+		v.BadReason = RedactText(reasons[types.EpochID(r.profile, g, v.Seq)], strategyNoteCap)
+	}
+	return v
+}
+
 func epochView(e types.Epoch) EpochView {
 	v := EpochView{Seq: e.Seq, Trigger: string(e.Trigger), State: string(e.State), StartedAt: StampTime(e.StartedAt), ModelPin: RedactText(e.ModelPin, strategyPinCap)}
 	if e.HasJudgment {
@@ -168,8 +195,9 @@ func (r strategyReader) ReadEpochs(ctx context.Context, gen int64, limit int) (S
 	if len(eps) > limit {
 		eps, v.Truncated = eps[len(eps)-limit:], true
 	}
+	reasons := r.badReasons(ctx, g, eps)
 	for _, e := range eps {
-		v.Epochs = append(v.Epochs, epochView(e))
+		v.Epochs = append(v.Epochs, r.withReason(epochView(e), reasons, g))
 	}
 	return v, nil
 }
