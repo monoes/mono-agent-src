@@ -147,12 +147,20 @@ func sweepPrevious(dir string) {
 		if made.After(time.Now().Add(time.Hour)) || secs < 1_700_000_000 || time.Since(made) < previousMaxAge {
 			continue
 		}
-		if fi, err := os.Lstat(m); err != nil || !fi.Mode().IsRegular() || !ownedByUser(fi) {
+		if fi, err := os.Lstat(m); err != nil || !fi.Mode().IsRegular() || !sweepOwnerOK(fi) {
 			continue
 		}
 		_ = os.Remove(m)
 	}
 }
+
+// sweepGOOS is the platform sweepOwnerOK decides for; a variable so a test can be Windows.
+var sweepGOOS = runtime.GOOS
+
+// sweepOwnerOK says whether a previous binary that matched previousName may be removed. Windows has no owner check that
+// means the same (ownedByUser is always false there), and a kept binary can only have been removed here because the strict
+// name matched, so on Windows the name decides.
+func sweepOwnerOK(fi os.FileInfo) bool { return sweepGOOS == "windows" || ownedByUser(fi) }
 
 // linkFile makes a hard link; a variable so a test can stand in for a file system that has none.
 var linkFile = os.Link
