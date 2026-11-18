@@ -9,11 +9,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/monoes/mono-agent/internal/inheritenv"
 )
 
 // NOT VERIFIED on a real Windows host: this file compiles (GOOS=windows go vet) and its logic is tested through the
@@ -211,8 +214,15 @@ func (winJobOS) ProcInfo(pid int) (string, string, error) {
 }
 
 // ParentFor makes the child be created with the anchor as its parent process: a child inherits the job of the parent
-// it is created under, so it is born in the job.
+// it is created under, so it is born in the job. The handles the command passes on are duplicated into the anchor
+// (inheritable, same access) and announced by their new numbers (passInherited); release closes them there, as Go
+// closes the standard handles it duplicated into the parent, then the anchor handle. It runs once whatever the
+// number of calls: a second close in the anchor could hit a handle reused since, the job's own among them.
 func (winJobOS) ParentFor(cmd *exec.Cmd, anchorPID int, anchorStamp string) (func(), error) {
+	if cmd.SysProcAttr != nil && cmd.SysProcAttr.ParentProcess != 0 {
+		// placed twice, the announced numbers would already be the anchor's and be read as this process's handles
+		return nil, errors.New("the command already has a parent process")
+	}
 	h, err := openChecked(anchorPID, anchorStamp, windows.PROCESS_CREATE_PROCESS|windows.PROCESS_DUP_HANDLE)
 	if err != nil {
 		return nil, err
@@ -220,27 +230,76 @@ func (winJobOS) ParentFor(cmd *exec.Cmd, anchorPID int, anchorStamp string) (fun
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
-	cmd.SysProcAttr.ParentProcess = syscall.Handle(h)
-	return func() { _ = windows.CloseHandle(h) }, nil
+	a := cmd.SysProcAttr
+	own := make([]uintptr, len(a.AdditionalInheritedHandles))
+	for i, x := range a.AdditionalInheritedHandles {
+		own[i] = uintptr(x)
+	}
+	closeDup := func(d uintptr) {
+		_ = windows.DuplicateHandle(h, windows.Handle(d), 0, nil, 0, false, windows.DUPLICATE_CLOSE_SOURCE)
+	}
+	dups, env, err := passInherited(own, cmd.Env, func(x uintptr) (uintptr, error) {
+		var d windows.Handle
+		err := windows.DuplicateHandle(windows.CurrentProcess(), windows.Handle(x), h, &d, 0, true, windows.DUPLICATE_SAME_ACCESS)
+		return uintptr(d), err
+	}, closeDup)
+	if err != nil {
+		_ = windows.CloseHandle(h)
+		return nil, err
+	}
+	if len(dups) > 0 {
+		list := make([]syscall.Handle, len(dups)) // a new list: the caller compares against its own
+		for i, d := range dups {
+			list[i] = syscall.Handle(d)
+		}
+		a.AdditionalInheritedHandles, cmd.Env = list, env
+	}
+	a.ParentProcess = syscall.Handle(h)
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			for _, d := range dups {
+				closeDup(d)
+			}
+			_ = windows.CloseHandle(h)
+		})
+	}, nil
 }
 
-// SelfTestChild starts a child under the anchor exactly as ParentFor does for a placed command.
+// SelfTestChild starts a child under the anchor exactly as ParentFor does for a placed command, passing on the read
+// end of a pipe announced the way a bound turn's credential pipe is: a placement that cannot pass a handle through the
+// anchor fails the probe here instead of every turn later (#1723). The placement is released right after the start.
 func (o winJobOS) SelfTestChild(anchorPID int, anchorStamp string) (int, func(), error) {
 	sys, err := windows.GetSystemDirectory()
 	if err != nil {
 		return 0, nil, err
 	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		return 0, nil, err
+	}
+	defer r.Close()
+	defer w.Close()
+	rh := syscall.Handle(r.Fd())
+	if err := syscall.SetHandleInformation(rh, syscall.HANDLE_FLAG_INHERIT, syscall.HANDLE_FLAG_INHERIT); err != nil {
+		return 0, nil, err
+	}
+	if err := syscall.SetHandleInformation(syscall.Handle(w.Fd()), syscall.HANDLE_FLAG_INHERIT, 0); err != nil {
+		return 0, nil, err
+	}
 	cmd := exec.Command(filepath.Join(sys, "ping.exe"), "-n", "60", "127.0.0.1")
-	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
+	cmd.Env = []string{inheritenv.Cred + "=" + strconv.FormatUint(uint64(rh), 10)}
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW, AdditionalInheritedHandles: []syscall.Handle{rh}}
 	release, err := o.ParentFor(cmd, anchorPID, anchorStamp)
 	if err != nil {
 		return 0, nil, err
 	}
-	if err := cmd.Start(); err != nil {
-		release()
+	err = cmd.Start()
+	release()
+	if err != nil {
 		return 0, nil, err
 	}
-	return cmd.Process.Pid, func() { _ = cmd.Process.Kill(); _, _ = cmd.Process.Wait(); release() }, nil
+	return cmd.Process.Pid, func() { _ = cmd.Process.Kill(); _, _ = cmd.Process.Wait() }, nil
 }
 
 type winJob struct{ h windows.Handle }

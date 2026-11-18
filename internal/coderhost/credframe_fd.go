@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/inheritenv"
 	"github.com/monoes/mono-agent/internal/procbind"
 )
 
@@ -20,8 +21,9 @@ import (
 // parsing, config, the account check or any database open) and treats a missing, short, late or malformed frame as
 // fatal: the process must not go on without the credentials its launch promised.
 
-// CredFDEnv names the descriptor the frame pipe is on. It holds a number, never a credential.
-const CredFDEnv = "MONOAGENT_CRED_FD"
+// CredFDEnv names the descriptor the frame pipe is on. It holds a number, never a credential. The name is inheritenv's,
+// so a placement that renumbers an inherited handle can rewrite it without importing this package.
+const CredFDEnv = inheritenv.Cred
 
 // credFrameTimeout is how long the turn waits for the whole frame and its end; the host writes it right after it
 // has committed, so only a wedged host makes it matter.

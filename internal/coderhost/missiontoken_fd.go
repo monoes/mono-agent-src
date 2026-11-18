@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/inheritenv"
 )
 
 // The host hands a chat child its mission-confirmation token over an inherited
@@ -21,8 +23,9 @@ import (
 // so nothing it later starts inherits either.
 
 // MissionFDEnv names the descriptor (Unix) or handle (Windows) the token pipe is
-// on. It holds a number, never the token.
-const MissionFDEnv = "MONOAGENT_MISSION_FD"
+// on. It holds a number, never the token. The name is inheritenv's, so a placement
+// that renumbers an inherited handle can rewrite it without importing this package.
+const MissionFDEnv = inheritenv.Mission
 
 // TaskTokenPrefix starts an agent token (agenttokens.Prefix). The same pipe carries a mission child's task token
 // as it carries a mission confirmation; a turn never has both (the launcher refuses the combination).

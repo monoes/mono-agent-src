@@ -56,11 +56,14 @@ type JobOS interface {
 	// Adopt puts the anchor in the job and duplicates the job handle into the anchor, so the job outlives the caller.
 	Adopt(j Job, anchorPID int, anchorStamp string) error
 	ProcInfo(pid int) (stamp, comm string, err error)
-	// ParentFor makes cmd's child be created with the anchor as parent (so it is born in the job). release closes the
-	// handle it holds; call it after the command ended.
+	// ParentFor makes cmd's child be created with the anchor as parent (so it is born in the job). The handles cmd
+	// passes on (SysProcAttr.AdditionalInheritedHandles) are duplicated into the anchor and announced to the child by
+	// the duplicate's number (passInherited). release closes the handle it holds and those duplicates in the anchor;
+	// call it once Start returned, whether the command started or not, and never before.
 	ParentFor(cmd *exec.Cmd, anchorPID int, anchorStamp string) (release func(), err error)
-	// SelfTestChild starts a harmless long-lived child created under the anchor (the way Place does) and returns its
-	// pid and a function that ends it; the probe checks that the child joined the anchor's job.
+	// SelfTestChild starts a harmless long-lived child created under the anchor (the way Place does, passing on one
+	// pipe handle as a bound turn does) and returns its pid and a function that ends it; the probe checks that the
+	// child joined the anchor's job.
 	SelfTestChild(anchorPID int, anchorStamp string) (pid int, stop func(), err error)
 }
 

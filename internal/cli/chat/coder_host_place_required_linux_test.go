@@ -7,8 +7,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/coderhost"
 )
 
 // legacyPlaceRig is a legacy launcher the way `coder host run` builds it in every build: the open-ended mode's hooks are installed on it
@@ -129,5 +132,23 @@ func TestABoundStartIsStillPlacedWhileARunIsOpen(t *testing.T) {
 	_ = turn.Wait()
 	if placed != 1 {
 		t.Errorf("the bound start was placed %d times", placed)
+	}
+}
+
+// A placement that succeeded is released once when the process then fails to start (on Windows the release closes the
+// handles the placement duplicated into the run's anchor, #1723).
+func TestAPlacementIsReleasedWhenTheProcessFailsToStart(t *testing.T) {
+	r := newBoundRig(t, "")
+	var released atomic.Int32
+	r.l.place = func(c *exec.Cmd, _, _ string) (func(), error) {
+		c.Path = filepath.Join(t.TempDir(), "missing")
+		return func() { released.Add(1) }, nil
+	}
+	_, err := r.l.Start("default", "c1", "t1", "hi", nil, "")
+	if err == nil || coderhost.TurnStarted(err) {
+		t.Fatalf("a process that cannot start: %v", err)
+	}
+	if released.Load() != 1 {
+		t.Errorf("release ran %d times", released.Load())
 	}
 }

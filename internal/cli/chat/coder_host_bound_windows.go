@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"syscall"
+
+	"golang.org/x/sys/windows"
 
 	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/procbind"
@@ -63,6 +66,24 @@ func attachPipe(cmd *exec.Cmd, r, w *os.File) error {
 	return nil
 }
 
+var procCompareObjectHandles = windows.NewLazySystemDLL("kernelbase.dll").NewProc("CompareObjectHandles")
+
+// sameObjectIn says whether handle h of the process parent and handle own of this process name one kernel object: h is
+// duplicated back into this process (parent is a handle with the duplicate right, as a placement opens it) and the two
+// are compared (CompareObjectHandles, Windows 10 1607 and later). Every failure is "not the same".
+func sameObjectIn(parent syscall.Handle, h uintptr, own syscall.Handle) bool {
+	if parent == 0 || procCompareObjectHandles.Find() != nil {
+		return false
+	}
+	var back windows.Handle
+	if err := windows.DuplicateHandle(windows.Handle(parent), windows.Handle(h), windows.CurrentProcess(), &back, 0, false, windows.DUPLICATE_SAME_ACCESS); err != nil {
+		return false
+	}
+	defer windows.CloseHandle(back)
+	r, _, _ := procCompareObjectHandles.Call(uintptr(back), uintptr(own))
+	return r != 0
+}
+
 const (
 	detachedProcess       = 0x00000008
 	createNewProcessGroup = 0x00000200
@@ -73,7 +94,7 @@ const (
 // read end is closed whether it started or not. pre, when set, runs on cmd after the launcher's attributes are built
 // and before the process exists (a placement hook adds to them); its error means nothing was started.
 func (d *boundDelivery) start(cmd *exec.Cmd, pre func(*exec.Cmd) error) error {
-	inherited := cmd.SysProcAttr.AdditionalInheritedHandles
+	inherited := slices.Clone(cmd.SysProcAttr.AdditionalInheritedHandles) // a copy: a placement that wrote into the list must not change it
 	const flags = detachedProcess | createNewProcessGroup | createNoWindow
 	// the worker and its main thread are created with the locked access list: a process of the same user cannot name the worker
 	// as its parent or write into it (SECURITY.md, "Binding service on Windows"); the host's own handle keeps full access
@@ -82,7 +103,7 @@ func (d *boundDelivery) start(cmd *exec.Cmd, pre func(*exec.Cmd) error) error {
 		d.r.Close()
 		return fmt.Errorf("the turn's process was not started, its access list could not be built: %w", err)
 	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: flags, AdditionalInheritedHandles: inherited, ProcessAttributes: pa, ThreadAttributes: ta}
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: flags, AdditionalInheritedHandles: slices.Clone(inherited), ProcessAttributes: pa, ThreadAttributes: ta}
 	if pre != nil {
 		if err := pre(cmd); err != nil {
 			d.r.Close()
@@ -91,9 +112,19 @@ func (d *boundDelivery) start(cmd *exec.Cmd, pre func(*exec.Cmd) error) error {
 		// what the launcher built must have survived: a placement that replaced the struct would start a child without
 		// the frame pipe or detached from the host's console handling, so it is refused before anything exists
 		a := cmd.SysProcAttr
-		if a == nil || len(a.AdditionalInheritedHandles) != 1 || a.AdditionalInheritedHandles[0] != inherited[0] || a.CreationFlags&flags != flags || a.ProcessAttributes != pa || a.ThreadAttributes != ta {
+		if a == nil || len(inherited) != 1 || a.CreationFlags&flags != flags || a.ProcessAttributes != pa || a.ThreadAttributes != ta {
 			d.r.Close()
 			return errors.New("the placement replaced the launcher's process attributes, so the turn was not started")
+		}
+		// the pipe itself: the same handle, or the duplicate a placement under the run's anchor made of it (placedPipeKept)
+		list := make([]uintptr, len(a.AdditionalInheritedHandles))
+		for i, h := range a.AdditionalInheritedHandles {
+			list[i] = uintptr(h)
+		}
+		same := func(h uintptr) bool { return sameObjectIn(a.ParentProcess, h, inherited[0]) }
+		if err := placedPipeKept(uintptr(inherited[0]), list, a.ParentProcess != 0, cmd.Env, same); err != nil {
+			d.r.Close()
+			return fmt.Errorf("%v, so the turn was not started", err)
 		}
 	}
 	err = cmd.Start()

@@ -5,11 +5,16 @@ package chat
 import (
 	"os"
 	"os/exec"
+	"strconv"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/monoes/mono-agent/internal/coderhost"
 )
 
 // startBoundSleeper starts a real child through the bound launch (the frame pipe attached, the leader pinned).
@@ -75,6 +80,10 @@ func TestBoundStartRefusesAPlacementThatReplacedTheAttributes(t *testing.T) {
 		"another struct":      func(c *exec.Cmd) { c.SysProcAttr = nil },
 		"no process list":     func(c *exec.Cmd) { c.SysProcAttr.ProcessAttributes = nil },
 		"no thread list":      func(c *exec.Cmd) { c.SysProcAttr.ThreadAttributes = nil },
+		"replaced in place":   func(c *exec.Cmd) { c.SysProcAttr.AdditionalInheritedHandles[0] = 4 },
+		"an extra handle": func(c *exec.Cmd) {
+			c.SysProcAttr.AdditionalInheritedHandles = append(c.SysProcAttr.AdditionalInheritedHandles, 4)
+		},
 	} {
 		cmd := exec.Command(os.Args[0])
 		cmd.Env = append(os.Environ(), winE2ERole+"=sleep")
@@ -97,6 +106,70 @@ func TestBoundStartRefusesAPlacementThatReplacedTheAttributes(t *testing.T) {
 		d.close()
 		if err == nil || cmd.Process != nil {
 			t.Errorf("%s: the turn was started (%v)", name, err)
+		}
+	}
+}
+
+// A placement under another parent (the run's anchor, #1723) that passes a duplicate of the frame pipe made in that parent,
+// announced by its number, is accepted and the turn starts there; a duplicate of another pipe, or the pipe left unchanged, is
+// refused. The parent here is a ping.exe the test starts, standing in for the anchor.
+func TestBoundStartAcceptsThePipesDuplicateInTheNewParent(t *testing.T) {
+	parentCmd := exec.Command(`C:\Windows\System32\ping.exe`, "-n", "30", "127.0.0.1")
+	if err := parentCmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = parentCmd.Process.Kill(); _ = parentCmd.Wait() })
+	parent, err := windows.OpenProcess(windows.PROCESS_CREATE_PROCESS|windows.PROCESS_DUP_HANDLE, false, uint32(parentCmd.Process.Pid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer windows.CloseHandle(parent)
+	other, otherW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	defer otherW.Close()
+	for name, tc := range map[string]struct {
+		src  func(own syscall.Handle) syscall.Handle
+		keep bool // the pipe is not duplicated: the launcher's own number is left under the new parent
+		ok   bool
+	}{
+		"the pipe's duplicate":     {src: func(own syscall.Handle) syscall.Handle { return own }, ok: true},
+		"another pipe's duplicate": {src: func(syscall.Handle) syscall.Handle { return syscall.Handle(other.Fd()) }},
+		"the pipe left unchanged":  {keep: true},
+	} {
+		cmd := exec.Command(os.Args[0])
+		cmd.Env = append(os.Environ(), winE2ERole+"=sleep")
+		d, err := (&boundLaunch{}).attach(cmd, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = d.start(cmd, func(c *exec.Cmd) error {
+			a := c.SysProcAttr
+			a.ParentProcess = syscall.Handle(parent)
+			if tc.keep {
+				return nil
+			}
+			var dup windows.Handle
+			if err := windows.DuplicateHandle(windows.CurrentProcess(), windows.Handle(tc.src(a.AdditionalInheritedHandles[0])), parent, &dup, 0, true, windows.DUPLICATE_SAME_ACCESS); err != nil {
+				return err
+			}
+			a.AdditionalInheritedHandles = []syscall.Handle{syscall.Handle(dup)}
+			for i, e := range c.Env {
+				if strings.HasPrefix(e, coderhost.CredFDEnv+"=") {
+					c.Env[i] = coderhost.CredFDEnv + "=" + strconv.FormatUint(uint64(dup), 10)
+				}
+			}
+			return nil
+		})
+		if err == nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		}
+		d.close()
+		if (err == nil) != tc.ok {
+			t.Errorf("%s: start: %v", name, err)
 		}
 	}
 }

@@ -106,7 +106,13 @@ func (p *jobPlacer) Place(cmd *exec.Cmd) (func(), error) { return p.place(cmd) }
 
 func (p *jobPlacer) PlaceTicket(_ uint64, cmd *exec.Cmd) (func(), error) { return p.place(cmd) }
 
+// PlaceLeased releases the placement when cmd is collected, long after its start: handles cmd passed on would stay
+// duplicated in the anchor until then, so a command that announces one is refused (ParentFor refuses a handle that is
+// not announced). A coder turn, which passes its credential pipe, is placed with Place and released at its start.
 func (p *jobPlacer) PlaceLeased(cmd *exec.Cmd) error {
+	if cmd != nil && announcesInherited(cmd.Env) {
+		return fmt.Errorf("%w: a leased placement cannot pass inherited handles through the anchor", ErrNotPlaced)
+	}
 	release, err := p.place(cmd)
 	if err != nil {
 		return err
