@@ -28,7 +28,13 @@ const witnessReadCap = 1 << 20
 
 // doomsdayRunDirPath is the profile's run directory (witness, markers), next to the database.
 func doomsdayRunDirPath(cfg *globalConfig) string {
-	return filepath.Join(filepath.Dir(expandPath(cfg.DBPath)), "doomsday", cfg.ProfileID)
+	return doomsdayRunDirOf(cfg, cfg.ProfileID)
+}
+
+// doomsdayRunDirOf is the run directory of the profile with this resolved id, for a caller whose cfg.ProfileID may still
+// be the --profile name (the doctor resolves it on its own).
+func doomsdayRunDirOf(cfg *globalConfig, profileID string) string {
+	return filepath.Join(filepath.Dir(expandPath(cfg.DBPath)), "doomsday", profileID)
 }
 
 // errWitnessUnreadable is why a read verb cannot call a missing database "off" when the profile's witness place is
