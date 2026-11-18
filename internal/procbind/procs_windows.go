@@ -21,7 +21,11 @@ const (
 	statusActive = uint32(windows.WAIT_TIMEOUT)
 )
 
-var errClosed = errors.New("procbind: the handle is closed")
+var (
+	errClosed = errors.New("procbind: the handle is closed")
+	// errExited: the number names a process object whose process has exited (a handle elsewhere keeps the object).
+	errExited = errors.New("the process has exited")
+)
 
 // ProcHandle is an open Windows process handle with the creation time read when it was pinned.
 type ProcHandle struct {
@@ -52,7 +56,7 @@ func openProcess(pid int, rights uint32) (*ProcHandle, error) {
 	p := &ProcHandle{h: h, pid: uint32(pid)}
 	created, err := creationOf(h)
 	if err == nil && !p.Alive() {
-		err = errors.New("the process has exited")
+		err = errExited
 	}
 	if err != nil {
 		_ = windows.CloseHandle(h)
