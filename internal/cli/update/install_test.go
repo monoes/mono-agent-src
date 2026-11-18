@@ -82,6 +82,9 @@ func TestInstallBinaryTempLivesNextToTarget(t *testing.T) {
 	if os.Getuid() == 0 {
 		t.Skip("root ignores directory permissions")
 	}
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not enforce directory permission bits")
+	}
 	dir := t.TempDir()
 	target := filepath.Join(dir, "monoagentcli")
 	if err := os.WriteFile(target, []byte("old"), 0o755); err != nil {

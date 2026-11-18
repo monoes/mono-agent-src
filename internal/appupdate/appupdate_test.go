@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -252,7 +253,16 @@ func TestAppUpdateWindowsSwapsExeAndCLI(t *testing.T) {
 	}
 }
 
+// needUnzip skips a test that reaches installMacOS when the system unzip is missing (Windows).
+func needUnzip(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("unzip"); err != nil {
+		t.Skip("needs the system unzip, which installMacOS runs")
+	}
+}
+
 func TestAppUpdateMacOSSwapsBundle(t *testing.T) {
+	needUnzip(t)
 	var zbuf bytes.Buffer
 	zw := zip.NewWriter(&zbuf)
 	for n, body := range map[string]string{
@@ -290,6 +300,7 @@ func TestAppUpdateMacOSSwapsBundle(t *testing.T) {
 }
 
 func TestAppUpdateMacOSWithoutACLIOnlyLeavesResultCLINil(t *testing.T) {
+	needUnzip(t)
 	var zbuf bytes.Buffer
 	zw := zip.NewWriter(&zbuf)
 	w, _ := zw.Create("MonoAgent.app/Contents/MacOS/monoagent-ui")
