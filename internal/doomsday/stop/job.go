@@ -62,6 +62,15 @@ type JobOS interface {
 	// SelfTestChild starts a harmless long-lived child created under the anchor (the way Place does) and returns its
 	// pid and a function that ends it; the probe checks that the child joined the anchor's job.
 	SelfTestChild(anchorPID int, anchorStamp string) (pid int, stop func(), err error)
+	// Suspend makes cmd's process be created suspended (CREATE_SUSPENDED): it runs no instruction until it is resumed.
+	Suspend(cmd *exec.Cmd) error
+	// AssignResume puts the started, still suspended process of cmd in j through the creator's own handle, checks it
+	// is a member, and only then resumes it. Any failure ends the process before it ran and is returned.
+	AssignResume(j Job, cmd *exec.Cmd) error
+	// SelfTestTurn starts a harmless long-lived child the way PlaceCommit starts a coder turn (the turn's locked
+	// access lists, detached, one inherited pipe handle, suspended, assigned to j, resumed) and returns its pid and a
+	// function that ends it; the probe checks that the child is in j.
+	SelfTestTurn(j Job) (pid int, stop func(), err error)
 }
 
 // jobPoll is the pause between looks at a job that was just terminated: its name and member list close when the
@@ -149,6 +158,16 @@ func jobSelfTest(o JobOS) error {
 	defer stopChild()
 	if in, err := j.Contains(child); err != nil || !in {
 		return fmt.Errorf("a child created under the anchor is not in the job, so commands would not be contained (%v)", err)
+	}
+	// the mechanism a coder turn rests on (PlaceCommit): a child of this process, with the turn's attributes and an
+	// inherited handle, created suspended and put in the job before it runs
+	turn, stopTurn, err := o.SelfTestTurn(j)
+	if err != nil {
+		return fmt.Errorf("a turn cannot be started suspended and put in the job: %w", err)
+	}
+	defer stopTurn()
+	if in, err := j.Contains(turn); err != nil || !in {
+		return fmt.Errorf("a turn put in the job is not a member of it, so turns would not be contained (%v)", err)
 	}
 	if err := j.Terminate(); err != nil {
 		return err

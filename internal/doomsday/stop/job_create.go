@@ -10,6 +10,7 @@ import (
 	"io"
 	"os/exec"
 	"runtime"
+	"sync"
 )
 
 // createJob makes the run's job unit: intent in the journal, the anchor, the named job, the anchor adopted into it,
@@ -113,6 +114,52 @@ func (p *jobPlacer) PlaceLeased(cmd *exec.Cmd) error {
 	}
 	runtime.AddCleanup(cmd, func(f func()) { f() }, release)
 	return nil
+}
+
+// PlaceCommit places a coder turn without the anchor as its parent (#1723): the bound launcher passes its credential
+// pipe as an inherited handle, which with the anchor as parent would have to sit in the anchor, a process any process
+// of the same user can take handles from. The command is created suspended as the caller's own child, so its access
+// lists, handles and environment stay exactly as the caller built them; commit puts it in the job through the job
+// handle the identity proof opened (it carries the assign right), checks it is a member, and only then resumes it.
+// That is "born in the job" as much as creating it under the anchor is: a suspended process has run no instruction,
+// so nothing it would start, or do, happens outside the job. A process that cannot be put in the job is ended before
+// it ran, and commit fails (the start must be reported as failed). The proof's job handle is held until commit.
+func (p *jobPlacer) PlaceCommit(cmd *exec.Cmd) (func() error, error) {
+	if cmd == nil || cmd.Process != nil {
+		return nil, fmt.Errorf("%w: the command is nil or already started", ErrNotPlaced)
+	}
+	proof, err := proveJob(p.os, p.rec)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrNotPlaced, err)
+	}
+	if proof.Gone {
+		return nil, fmt.Errorf("%w: the unit is gone", ErrNotPlaced)
+	}
+	g := proof.Cg.(*jobGroup)
+	if err := p.os.Suspend(cmd); err != nil {
+		g.Close()
+		return nil, fmt.Errorf("%w: %v", ErrNotPlaced, err)
+	}
+	var once sync.Once
+	var cerr error
+	return func() error {
+		once.Do(func() {
+			defer g.Close()
+			if cmd.Process == nil {
+				return // not started: there is no process to place
+			}
+			defer func() {
+				if r := recover(); r != nil { // never left suspended, or running, outside the job
+					_ = cmd.Process.Kill()
+					cerr = fmt.Errorf("%w: putting the process in the run's job panicked, so it was ended: %v", ErrNotPlaced, r)
+				}
+			}()
+			if err := p.os.AssignResume(g.job, cmd); err != nil {
+				cerr = fmt.Errorf("%w: the process could not be put in the run's job before it ran, so it was ended: %v", ErrNotPlaced, err)
+			}
+		})
+		return cerr
+	}, nil
 }
 
 func (p *jobPlacer) place(cmd *exec.Cmd) (func(), error) {

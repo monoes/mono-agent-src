@@ -14,6 +14,9 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/monoes/mono-agent/internal/procbind"
+	"github.com/monoes/mono-agent/internal/procresume"
 )
 
 // NOT VERIFIED on a real Windows host: this file compiles (GOOS=windows go vet) and its logic is tested through the
@@ -220,8 +223,94 @@ func (winJobOS) ParentFor(cmd *exec.Cmd, anchorPID int, anchorStamp string) (fun
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
+	if len(cmd.SysProcAttr.AdditionalInheritedHandles) != 0 {
+		// they would have to exist in the anchor (Go passes them as they are, #1723), and no handle of ours is ever put
+		// there: a command that passes handles is placed with PlaceCommit
+		_ = windows.CloseHandle(h)
+		return nil, errors.New("a command that passes inherited handles is not created under the anchor")
+	}
 	cmd.SysProcAttr.ParentProcess = syscall.Handle(h)
 	return func() { _ = windows.CloseHandle(h) }, nil
+}
+
+func (winJobOS) Suspend(cmd *exec.Cmd) error {
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	if cmd.SysProcAttr.ParentProcess != 0 {
+		return errors.New("the command already has another parent process")
+	}
+	cmd.SysProcAttr.CreationFlags |= windows.CREATE_SUSPENDED
+	return nil
+}
+
+// AssignResume works through the handle CreateProcess returned to this process (os.Process.WithHandle): it has every
+// right whatever access list the process was created with, and it names this process and no other (a number could be
+// reused). A process this process created inherited this process's job: the run's job must be nested under that job
+// for the assignment to be allowed (it is when the anchor was created in the same job; otherwise Windows refuses it with
+// access denied and the turn is not started).
+func (winJobOS) AssignResume(j Job, cmd *exec.Cmd) error {
+	wj, ok := j.(*winJob)
+	if !ok {
+		return errors.New("not a Windows job")
+	}
+	var err error
+	if herr := cmd.Process.WithHandle(func(ph uintptr) {
+		h := windows.Handle(ph)
+		var in int32
+		if err = windows.AssignProcessToJobObject(wj.h, h); errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+			err = fmt.Errorf("the job refused the process (%w): the run's job is not nested in the job this process runs in, as when the open run was started in another job than the coder host", err)
+		} else if err != nil {
+			err = fmt.Errorf("the job refused the process: %w", err)
+		} else if r, _, e := procIsProcInJob.Call(ph, uintptr(wj.h), uintptr(unsafe.Pointer(&in))); r == 0 || in == 0 {
+			err = fmt.Errorf("the process is not a member of the job after the assignment (%v)", e)
+		} else {
+			err = procresume.Resume(h)
+		}
+		if err != nil {
+			_ = windows.TerminateProcess(h, 1)
+		}
+	}); herr != nil {
+		return herr // waited for or released already: there is no handle to place it with
+	}
+	return err
+}
+
+// SelfTestTurn starts ping.exe the way the bound launcher starts a turn (coder_host_bound_windows.go: the worker's locked
+// access lists, detached, the read end of a pipe as its one inherited handle) and places it as PlaceCommit does.
+func (o winJobOS) SelfTestTurn(j Job) (int, func(), error) {
+	sys, err := windows.GetSystemDirectory()
+	if err != nil {
+		return 0, nil, err
+	}
+	pa, ta, err := procbind.WorkerAttributes()
+	if err != nil {
+		return 0, nil, err
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		return 0, nil, err
+	}
+	defer r.Close()
+	defer w.Close()
+	rh := syscall.Handle(r.Fd())
+	if err := syscall.SetHandleInformation(rh, syscall.HANDLE_FLAG_INHERIT, syscall.HANDLE_FLAG_INHERIT); err != nil {
+		return 0, nil, err
+	}
+	cmd := exec.Command(filepath.Join(sys, "ping.exe"), "-n", "60", "127.0.0.1")
+	const flags = windows.DETACHED_PROCESS | windows.CREATE_NEW_PROCESS_GROUP | windows.CREATE_NO_WINDOW
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: flags, AdditionalInheritedHandles: []syscall.Handle{rh}, ProcessAttributes: pa, ThreadAttributes: ta}
+	if err := o.Suspend(cmd); err != nil {
+		return 0, nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return 0, nil, err
+	}
+	if err := o.AssignResume(j, cmd); err != nil {
+		_, _ = cmd.Process.Wait()
+		return 0, nil, err
+	}
+	return cmd.Process.Pid, func() { _ = cmd.Process.Kill(); _, _ = cmd.Process.Wait() }, nil
 }
 
 // SelfTestChild starts a child under the anchor exactly as ParentFor does for a placed command.

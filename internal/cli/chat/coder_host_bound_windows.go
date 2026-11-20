@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"syscall"
 
@@ -73,7 +74,7 @@ const (
 // read end is closed whether it started or not. pre, when set, runs on cmd after the launcher's attributes are built
 // and before the process exists (a placement hook adds to them); its error means nothing was started.
 func (d *boundDelivery) start(cmd *exec.Cmd, pre func(*exec.Cmd) error) error {
-	inherited := cmd.SysProcAttr.AdditionalInheritedHandles
+	inherited := slices.Clone(cmd.SysProcAttr.AdditionalInheritedHandles) // a copy: a placement that writes into the list must not change it
 	const flags = detachedProcess | createNewProcessGroup | createNoWindow
 	// the worker and its main thread are created with the locked access list: a process of the same user cannot name the worker
 	// as its parent or write into it (SECURITY.md, "Binding service on Windows"); the host's own handle keeps full access
@@ -82,16 +83,19 @@ func (d *boundDelivery) start(cmd *exec.Cmd, pre func(*exec.Cmd) error) error {
 		d.r.Close()
 		return fmt.Errorf("the turn's process was not started, its access list could not be built: %w", err)
 	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: flags, AdditionalInheritedHandles: inherited, ProcessAttributes: pa, ThreadAttributes: ta}
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: flags, AdditionalInheritedHandles: slices.Clone(inherited), ProcessAttributes: pa, ThreadAttributes: ta}
 	if pre != nil {
 		if err := pre(cmd); err != nil {
 			d.r.Close()
 			return err
 		}
 		// what the launcher built must have survived: a placement that replaced the struct would start a child without
-		// the frame pipe or detached from the host's console handling, so it is refused before anything exists
+		// the frame pipe or detached from the host's console handling, so it is refused before anything exists. The
+		// placement may only add flags (the run's job placement adds CREATE_SUSPENDED and puts the process in the job
+		// after the start); the inherited handle must be this process's own, unchanged, and the child must stay this
+		// process's own child: another parent would need the frame pipe to exist in that process (#1723)
 		a := cmd.SysProcAttr
-		if a == nil || len(a.AdditionalInheritedHandles) != 1 || a.AdditionalInheritedHandles[0] != inherited[0] || a.CreationFlags&flags != flags || a.ProcessAttributes != pa || a.ThreadAttributes != ta {
+		if a == nil || len(inherited) != 1 || len(a.AdditionalInheritedHandles) != 1 || a.AdditionalInheritedHandles[0] != inherited[0] || a.ParentProcess != 0 || a.CreationFlags&flags != flags || a.ProcessAttributes != pa || a.ThreadAttributes != ta {
 			d.r.Close()
 			return errors.New("the placement replaced the launcher's process attributes, so the turn was not started")
 		}

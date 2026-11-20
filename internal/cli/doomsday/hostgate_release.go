@@ -15,8 +15,9 @@ type Hooks struct {
 	RunStamp func(profileID, conversationID string) (charterID string, generation int64)
 	// BeforeRelease is asked before anything is delivered to the turn's process; bound says whether the turn is bound.
 	BeforeRelease func(ctx context.Context, profileID, conversationID, turnID string, bound bool) error
-	// Place puts the turn's process in the run's ticket cgroup before it exists; release closes the descriptor after Start.
-	Place func(cmd *exec.Cmd, profileID, conversationID string) (release func(), err error)
+	// Place puts the turn's process in the run's unit (HostGate.PlaceRelease); release completes the placement after
+	// Start, and its error means the process never ran and the start failed.
+	Place func(cmd *exec.Cmd, profileID, conversationID string) (release func() error, err error)
 	// PlaceRequired says whether a turn must be placed (a run is open); the legacy launch is refused only then.
 	PlaceRequired func(profileID, conversationID string) (bool, error)
 }

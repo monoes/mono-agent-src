@@ -30,6 +30,13 @@ type fakeWin struct {
 
 	terminateErr, memberErr, killAnchorErr, parentErr error
 	childOutside                                      bool // a child born under the anchor does NOT join the job
+
+	// the suspended placement: commands created suspended, and what became of their processes
+	suspended             map[*exec.Cmd]bool
+	assigned              map[*exec.Cmd]string // the job the process was put in before it was resumed
+	ended                 []*exec.Cmd          // put nowhere and ended before it ran
+	suspendErr, assignErr error
+	assignPanic           bool
 }
 
 type fakeWinJob struct {
@@ -156,6 +163,51 @@ func (w *fakeWin) SelfTestChild(pid int, stamp string) (int, func(), error) {
 	c := &fakeWinProc{stamp: fmt.Sprintf("s%d", w.next), comm: "ping.exe"}
 	if !w.childOutside {
 		c.job = a.job
+	}
+	w.procs[w.next] = c
+	child := w.next
+	return child, func() { delete(w.procs, child) }, nil
+}
+
+func (w *fakeWin) Suspend(cmd *exec.Cmd) error {
+	if w.suspendErr != nil {
+		return w.suspendErr
+	}
+	if w.suspended == nil {
+		w.suspended = map[*exec.Cmd]bool{}
+	}
+	w.suspended[cmd] = true
+	return nil
+}
+
+// AssignResume puts a process that was created suspended in the job (a fake process born a member) and resumes it; a
+// refused assignment ends it.
+func (w *fakeWin) AssignResume(j Job, cmd *exec.Cmd) error {
+	if !w.suspended[cmd] {
+		return errors.New("the process was not created suspended: it has already run")
+	}
+	if w.assignPanic {
+		panic("assign blew up")
+	}
+	if w.assignErr != nil {
+		w.ended = append(w.ended, cmd)
+		return w.assignErr
+	}
+	if w.assigned == nil {
+		w.assigned = map[*exec.Cmd]string{}
+	}
+	w.assigned[cmd] = j.(*fakeWinJob).name
+	return nil
+}
+
+func (w *fakeWin) SelfTestTurn(j Job) (int, func(), error) {
+	if w.assignErr != nil {
+		return 0, nil, w.assignErr
+	}
+	w.next++
+	c := &fakeWinProc{stamp: fmt.Sprintf("s%d", w.next), comm: "ping.exe"}
+	if !w.childOutside {
+		c.job = j.(*fakeWinJob).name
 	}
 	w.procs[w.next] = c
 	child := w.next

@@ -64,10 +64,12 @@ type execLauncher struct {
 	// start gives up on the hook (a deadline, a panic) or returns: a hook that takes something it cannot give back (a ticket) must check it
 	// under its own lock first, so a late completion for a refused turn takes nothing.
 	beforeRelease func(ctx context.Context, profileID, conversationID, turnID string, bound bool) error
-	// place, when set, puts the turn's process where it must be born (a containment cgroup): it adjusts cmd after the launcher built its
-	// process attributes (Setsid, pidfd) and before the process exists, and returns a release that the launcher calls right after the start
-	// (success or failure). An error refuses the turn before anything runs. Bound launches only: a legacy start with place set fails.
-	place func(cmd *exec.Cmd, profileID, conversationID string) (release func(), err error)
+	// place, when set, puts the turn's process where it must be born (a containment cgroup, or the run's job): it adjusts cmd after the
+	// launcher built its process attributes (Setsid, pidfd) and before the process exists, and returns a release that the launcher calls
+	// right after the start (success or failure). An error refuses the turn before anything runs; a release error means the process never
+	// ran (on Windows it was created suspended and could not be put in the job) and fails the start. Bound launches only: a legacy start
+	// with place set fails.
+	place func(cmd *exec.Cmd, profileID, conversationID string) (release func() error, err error)
 	// placeRequired, when set with place, says whether a turn of this session must be placed (an open-ended run is open): a legacy start
 	// is refused only then, so a host with no run starts its legacy turns as it always did. Unset, or an error, refuses (fail closed).
 	placeRequired func(profileID, conversationID string) (bool, error)
@@ -317,7 +319,7 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 	if bd != nil {
 		startProcess = func() error {
 			var pre func(*exec.Cmd) error
-			var release func()
+			var release func() error
 			if l.place != nil {
 				pre = func(c *exec.Cmd) error {
 					return hookRecover("the placement", func() (perr error) {
@@ -328,9 +330,18 @@ func (l *execLauncher) start(profileID, conversationID, turnID, message string, 
 			}
 			err := bd.start(cmd, pre)
 			if release != nil {
-				// the placement's descriptor is needed until the process exists, no longer; a release that panics is not fatal to the host
-				if rerr := hookRecover("the placement release", func() error { release(); return nil }); rerr != nil && l.logf != nil {
-					l.logf("coder host: %v", rerr)
+				// the placement completes once the process exists: its descriptor is released (Linux), or the suspended process is put in the
+				// run's job and resumed (Windows). A release that returns an error fails the start: the process is ended, never left to run
+				// outside the placement, and the turn is reported as not started. A release that panics is not fatal to the host and is
+				// logged (the Windows placement turns its own panics into an error after ending the process).
+				var rerr error
+				if perr := hookRecover("the placement release", func() error { rerr = release(); return nil }); perr != nil && l.logf != nil {
+					l.logf("coder host: %v", perr)
+				}
+				if rerr != nil && err == nil {
+					_ = cmd.Process.Kill()
+					_ = cmd.Wait()
+					err = fmt.Errorf("the turn's process could not be placed, so it was ended before it ran: %w", rerr)
 				}
 			}
 			return err
