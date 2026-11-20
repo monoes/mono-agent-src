@@ -55,8 +55,14 @@ func openProcess(pid int, rights uint32) (*ProcHandle, error) {
 	}
 	p := &ProcHandle{h: h, pid: uint32(pid)}
 	created, err := creationOf(h)
-	if err == nil && !p.Alive() {
-		err = errExited
+	if err == nil {
+		// a state the kernel will not give is an error of its own, never errExited, which a caller may take for "gone";
+		// it is not wrapped, so no code it carries can be read as "no such process" either
+		if exited, xerr := p.exitState(); xerr != nil {
+			err = fmt.Errorf("the state of the process could not be read (%v)", xerr)
+		} else if exited {
+			err = errExited
+		}
 	}
 	if err != nil {
 		_ = windows.CloseHandle(h)
@@ -91,6 +97,26 @@ func (p *ProcHandle) Alive() bool {
 	}
 	ev, err := windows.WaitForSingleObject(p.h, 0)
 	return err == nil && ev == statusActive
+}
+
+// exitState says whether the process the handle names has exited. Unlike Alive, a state the kernel will not give is an
+// error, not an exit: openProcess and the stopper never take it for one.
+func (p *ProcHandle) exitState() (exited bool, err error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.h == 0 {
+		return false, errClosed
+	}
+	ev, err := windows.WaitForSingleObject(p.h, 0)
+	switch {
+	case err != nil:
+		return false, err
+	case ev == windows.WAIT_OBJECT_0:
+		return true, nil
+	case ev == statusActive:
+		return false, nil
+	}
+	return false, fmt.Errorf("unexpected wait result %#x", ev)
 }
 
 // Pid is the process's number, which stays its own as long as this handle is open.

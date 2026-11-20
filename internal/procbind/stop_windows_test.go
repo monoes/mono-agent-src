@@ -4,6 +4,7 @@ package procbind
 
 import (
 	"bufio"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -236,5 +237,74 @@ func TestWinStopLeaderEndsTheChildInTheLeadersJob(t *testing.T) {
 	}
 	if ev, err := windows.WaitForSingleObject(ch, 5000); err != nil || ev != windows.WAIT_OBJECT_0 {
 		t.Fatalf("the child in the leader's job is still running after the leader was stopped (wait %#x, %v)", ev, err)
+	}
+}
+
+// listed says whether the process table names pid now.
+func listed(t *testing.T, pid int) bool {
+	t.Helper()
+	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer windows.CloseHandle(snap)
+	e := windows.ProcessEntry32{Size: uint32(unsafe.Sizeof(windows.ProcessEntry32{}))}
+	for err = windows.Process32First(snap, &e); err == nil; err = windows.Process32Next(snap, &e) {
+		if int(e.ProcessID) == pid {
+			return true
+		}
+	}
+	return false
+}
+
+// refusedPid is a system process this test may not end (it is never given a handle that could): the case of a leader's
+// number given to a process of another user or a protected one.
+func refusedPid(t *testing.T) int {
+	t.Helper()
+	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer windows.CloseHandle(snap)
+	want := map[string]bool{"csrss.exe": true, "wininit.exe": true, "services.exe": true, "smss.exe": true, "lsass.exe": true}
+	e := windows.ProcessEntry32{Size: uint32(unsafe.Sizeof(windows.ProcessEntry32{}))}
+	for err = windows.Process32First(snap, &e); err == nil; err = windows.Process32Next(snap, &e) {
+		if !want[strings.ToLower(windows.UTF16ToString(e.ExeFile[:]))] {
+			continue
+		}
+		h, oerr := OpenWorkerHandle(int(e.ProcessID))
+		if oerr == nil { // this test may end it: never hand it to the stopper
+			_ = h.Close()
+			continue
+		}
+		if errors.Is(oerr, windows.ERROR_ACCESS_DENIED) {
+			return int(e.ProcessID)
+		}
+	}
+	t.Skip("no system process here refuses the right to end it to this test")
+	return 0
+}
+
+// A number now held by a process that refuses the right to end it: told apart by its stamp when it can be read, held when
+// it is the recorded stamp or cannot be read, and never touched.
+func TestWinStopLeaderOfARefusedProcess(t *testing.T) {
+	pid := refusedPid(t)
+	readable := procchain.BootStamp(pid)
+	t.Logf("pid %d, stamp readable: %v", pid, readable != "")
+	res := winStopper().StopLeader(pid, "start:1")
+	switch {
+	case readable != "" && res.Outcome != StopAbsent:
+		t.Errorf("another stamp: outcome %v (%s), want StopAbsent", res.Outcome, res.Cause)
+	case readable == "" && (res.Outcome != StopHeld || !strings.Contains(res.Cause, "to read it")):
+		t.Errorf("unreadable: outcome %v (%s), want StopHeld naming both opens", res.Outcome, res.Cause)
+	}
+	if readable != "" {
+		res = winStopper().StopLeader(pid, readable)
+		if res.Outcome != StopHeld || !strings.Contains(res.Cause, "could not be opened to end it") {
+			t.Errorf("the recorded stamp: outcome %v (%s), want StopHeld", res.Outcome, res.Cause)
+		}
+	}
+	if !listed(t, pid) {
+		t.Fatalf("the system process %d is gone", pid)
 	}
 }

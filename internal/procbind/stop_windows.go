@@ -39,7 +39,9 @@ type StopResult struct {
 // only handle the leader holds, so ending the leader ends that job's tree. Not when the job could not be made or the
 // runtime could not be put in it (the launch then goes on without one), and not for a descendant that left the job
 // (it allows breakaway) or was started outside it (through WMI or the Task Scheduler): those outlive the leader, and
-// on Windows the stray reconciliation stops nothing (SECURITY.md), so nothing else stops them.
+// nothing else stops them, because the marker-based stop of a turn's leftover processes cannot pin a process on
+// Windows and so stops none (internal/cli/chat/coder_pin_windows.go; SECURITY.md, "Stopping the processes a coder turn
+// left running").
 type Stopper struct {
 	// StampOf reads a process's start stamp ("" when it cannot be read); the same function that recorded the stamp.
 	StampOf func(pid int) string
@@ -59,26 +61,6 @@ func (s Stopper) same(recorded, current string) bool {
 		return s.Same(recorded, current)
 	}
 	return recorded == current
-}
-
-// exitState says whether the process the handle names has exited. Unlike Alive, a state the kernel will not give is an
-// error, not an exit: the stopper holds the session on it.
-func (p *ProcHandle) exitState() (exited bool, err error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.h == 0 {
-		return false, errClosed
-	}
-	ev, err := windows.WaitForSingleObject(p.h, 0)
-	switch {
-	case err != nil:
-		return false, err
-	case ev == windows.WAIT_OBJECT_0:
-		return true, nil
-	case ev == statusActive:
-		return false, nil
-	}
-	return false, fmt.Errorf("unexpected wait result %#x", ev)
 }
 
 // waitExit waits up to d for the process the handle names to exit.
