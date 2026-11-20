@@ -123,7 +123,7 @@ func (failingKeyer) MAC(string, ...[]byte) ([]byte, error) { return nil, errors.
 
 type standaloneOnly struct {
 	stop.Placement
-	placed, ticketed int
+	placed int
 }
 
 func (s *standaloneOnly) PlaceStandalone(cmd *exec.Cmd) (func(), error) {
