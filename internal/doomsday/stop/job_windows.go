@@ -233,7 +233,7 @@ func (winJobOS) ParentFor(cmd *exec.Cmd, anchorPID int, anchorStamp string) (fun
 	return func() { _ = windows.CloseHandle(h) }, nil
 }
 
-func (winJobOS) Suspend(cmd *exec.Cmd) error {
+func (winJobOS) Suspend(cmd *exec.Cmd, breakaway bool) error {
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
@@ -241,14 +241,34 @@ func (winJobOS) Suspend(cmd *exec.Cmd) error {
 		return errors.New("the command already has another parent process")
 	}
 	cmd.SysProcAttr.CreationFlags |= windows.CREATE_SUSPENDED
+	if breakaway {
+		cmd.SysProcAttr.CreationFlags |= windows.CREATE_BREAKAWAY_FROM_JOB
+	}
 	return nil
+}
+
+// BreakawayAllowed asks Windows itself: a job's own limit says nothing of the jobs it is nested in, and any of them can
+// refuse. The throwaway child (cmd.exe, no handles, no console) is created suspended and ended before it ran.
+func (winJobOS) BreakawayAllowed() (bool, error) {
+	sys, err := windows.GetSystemDirectory()
+	if err != nil {
+		return false, err
+	}
+	c := exec.Command(filepath.Join(sys, "cmd.exe"), "/c", "exit", "0")
+	c.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_SUSPENDED | windows.CREATE_BREAKAWAY_FROM_JOB | windows.CREATE_NO_WINDOW}
+	if err := c.Start(); procresume.BreakawayRefused(err) {
+		return false, nil
+	} else if err != nil {
+		return false, fmt.Errorf("whether a turn may leave this process's job cannot be told: %w", err)
+	}
+	_ = c.Process.Kill()
+	_, _ = c.Process.Wait()
+	return true, nil
 }
 
 // AssignResume works through the handle CreateProcess returned to this process (os.Process.WithHandle): it has every
 // right whatever access list the process was created with, and it names this process and no other (a number could be
-// reused). A process this process created inherited this process's job: the run's job must be nested under that job
-// for the assignment to be allowed (it is when the anchor was created in the same job; otherwise Windows refuses it with
-// access denied and the turn is not started).
+// reused). A process in a job can only join a job nested under it; one created out of every job can join any.
 func (winJobOS) AssignResume(j Job, cmd *exec.Cmd) error {
 	wj, ok := j.(*winJob)
 	if !ok {
@@ -258,9 +278,7 @@ func (winJobOS) AssignResume(j Job, cmd *exec.Cmd) error {
 	if herr := cmd.Process.WithHandle(func(ph uintptr) {
 		h := windows.Handle(ph)
 		var in int32
-		if err = windows.AssignProcessToJobObject(wj.h, h); errors.Is(err, windows.ERROR_ACCESS_DENIED) {
-			err = fmt.Errorf("the job refused the process (%w): the run's job is not nested in the job this process runs in, as when the open run was started in another job than the coder host", err)
-		} else if err != nil {
+		if err = windows.AssignProcessToJobObject(wj.h, h); err != nil {
 			err = fmt.Errorf("the job refused the process: %w", err)
 		} else if r, _, e := procIsProcInJob.Call(ph, uintptr(wj.h), uintptr(unsafe.Pointer(&in))); r == 0 || in == 0 {
 			err = fmt.Errorf("the process is not a member of the job after the assignment (%v)", e)
@@ -277,7 +295,8 @@ func (winJobOS) AssignResume(j Job, cmd *exec.Cmd) error {
 }
 
 // SelfTestTurn starts ping.exe the way the bound launcher starts a turn (coder_host_bound_windows.go: the worker's locked
-// access lists, detached, the read end of a pipe as its one inherited handle) and places it as PlaceCommit does.
+// access lists, detached, the read end of a pipe as its one inherited handle) and places it as PlaceCommit does, out of
+// this process's job when that is allowed.
 func (o winJobOS) SelfTestTurn(j Job) (int, func(), error) {
 	sys, err := windows.GetSystemDirectory()
 	if err != nil {
@@ -300,7 +319,11 @@ func (o winJobOS) SelfTestTurn(j Job) (int, func(), error) {
 	cmd := exec.Command(filepath.Join(sys, "ping.exe"), "-n", "60", "127.0.0.1")
 	const flags = windows.DETACHED_PROCESS | windows.CREATE_NEW_PROCESS_GROUP | windows.CREATE_NO_WINDOW
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: flags, AdditionalInheritedHandles: []syscall.Handle{rh}, ProcessAttributes: pa, ThreadAttributes: ta}
-	if err := o.Suspend(cmd); err != nil {
+	breakaway, err := o.BreakawayAllowed()
+	if err != nil {
+		return 0, nil, err
+	}
+	if err := o.Suspend(cmd, breakaway); err != nil {
 		return 0, nil, err
 	}
 	if err := cmd.Start(); err != nil {
@@ -308,7 +331,7 @@ func (o winJobOS) SelfTestTurn(j Job) (int, func(), error) {
 	}
 	if err := o.AssignResume(j, cmd); err != nil {
 		_, _ = cmd.Process.Wait()
-		return 0, nil, err
+		return 0, nil, fmt.Errorf("%w (created out of this process's job: %v)", err, breakaway)
 	}
 	return cmd.Process.Pid, func() { _ = cmd.Process.Kill(); _, _ = cmd.Process.Wait() }, nil
 }

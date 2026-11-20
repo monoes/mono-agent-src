@@ -62,14 +62,19 @@ type JobOS interface {
 	// SelfTestChild starts a harmless long-lived child created under the anchor (the way Place does) and returns its
 	// pid and a function that ends it; the probe checks that the child joined the anchor's job.
 	SelfTestChild(anchorPID int, anchorStamp string) (pid int, stop func(), err error)
+	// BreakawayAllowed says whether a child of this process may be created out of the jobs this process is in
+	// (CREATE_BREAKAWAY_FROM_JOB): it creates a throwaway child that way, suspended, and ends it before it ran. An
+	// error is neither answer.
+	BreakawayAllowed() (bool, error)
 	// Suspend makes cmd's process be created suspended (CREATE_SUSPENDED): it runs no instruction until it is resumed.
-	Suspend(cmd *exec.Cmd) error
+	// With breakaway it is also created out of the jobs this process is in (CREATE_BREAKAWAY_FROM_JOB).
+	Suspend(cmd *exec.Cmd, breakaway bool) error
 	// AssignResume puts the started, still suspended process of cmd in j through the creator's own handle, checks it
 	// is a member, and only then resumes it. Any failure ends the process before it ran and is returned.
 	AssignResume(j Job, cmd *exec.Cmd) error
 	// SelfTestTurn starts a harmless long-lived child the way PlaceCommit starts a coder turn (the turn's locked
-	// access lists, detached, one inherited pipe handle, suspended, assigned to j, resumed) and returns its pid and a
-	// function that ends it; the probe checks that the child is in j.
+	// access lists, detached, one inherited pipe handle, out of this process's job when BreakawayAllowed, suspended,
+	// assigned to j, resumed) and returns its pid and a function that ends it; the probe checks that the child is in j.
 	SelfTestTurn(j Job) (pid int, stop func(), err error)
 }
 

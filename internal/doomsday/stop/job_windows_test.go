@@ -85,7 +85,7 @@ func TestAssignResumePutsTheTurnInTheJobBeforeItRuns(t *testing.T) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW, AdditionalInheritedHandles: []syscall.Handle{rh}}
 	var out bytes.Buffer
 	cmd.Stdout = &out
-	if err := o.Suspend(cmd); err != nil {
+	if err := o.Suspend(cmd, false); err != nil {
 		t.Fatal(err)
 	}
 	if err := cmd.Start(); err != nil {
@@ -129,7 +129,7 @@ func TestAssignResumeEndsAProcessTheJobRefuses(t *testing.T) {
 	}
 	cmd := exec.Command(filepath.Join(sys, "cmd.exe"), "/c", "exit", "0")
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
-	if err := o.Suspend(cmd); err != nil {
+	if err := o.Suspend(cmd, false); err != nil {
 		t.Fatal(err)
 	}
 	if err := cmd.Start(); err != nil {

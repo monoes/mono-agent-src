@@ -3,7 +3,6 @@
 package monomind
 
 import (
-	"errors"
 	"fmt"
 	"os/exec"
 	"syscall"
@@ -71,7 +70,7 @@ func resumeProcess(pid int) error {
 func startDetached(cmd *exec.Cmd) (*exec.Cmd, error) {
 	setDetachedFlags(cmd, true)
 	err := cmd.Start()
-	if err == nil || !errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+	if err == nil || !procresume.BreakawayRefused(err) {
 		return cmd, err
 	}
 	retry := cloneForRetry(cmd)

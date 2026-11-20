@@ -3744,6 +3744,7 @@ the connection, so a connector that hands the connection to another process and 
 the tree before the service pins it, is served as that process; the window is the accept latency, which a stalled host widens (the service can only stamp the time it got to the connection, not when the client connected, so a process created while the host was stalled looks older than the accept and is served). A process created after the service accepted is refused; the check has a 250 ms slack for clocks stepped back. An ended connector is refused. The turn's leader is held by a handle; a bound turn whose leader exits
 has its group signalled by `taskkill /T` by the leader's number while the child is still unreaped, which cannot find a tree whose
 parent is gone: stragglers of a Windows turn may outlive their leader (job-object containment is separate work).
+Under an open-ended run a Windows turn is put in the run's Job Object before it runs (created suspended as the host's own child, never under the run's anchor), and when the coder host's own job allows it the turn leaves that outer job, so the run's job, not the host's, is what governs it.
 
 **Not part of this surface.** Running a caller's tool: the gateway returns the
 call and the caller runs it. The runtime's own native tools are a separate matter,

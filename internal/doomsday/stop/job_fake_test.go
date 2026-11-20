@@ -37,6 +37,9 @@ type fakeWin struct {
 	ended                 []*exec.Cmd          // put nowhere and ended before it ran
 	suspendErr, assignErr error
 	assignPanic           bool
+	brokeAway             map[*exec.Cmd]bool // created out of the caller's job
+	noBreakaway           bool               // the caller's job forbids breakaway
+	breakawayErr          error
 }
 
 type fakeWinJob struct {
@@ -169,14 +172,16 @@ func (w *fakeWin) SelfTestChild(pid int, stamp string) (int, func(), error) {
 	return child, func() { delete(w.procs, child) }, nil
 }
 
-func (w *fakeWin) Suspend(cmd *exec.Cmd) error {
+func (w *fakeWin) BreakawayAllowed() (bool, error) { return !w.noBreakaway, w.breakawayErr }
+
+func (w *fakeWin) Suspend(cmd *exec.Cmd, breakaway bool) error {
 	if w.suspendErr != nil {
 		return w.suspendErr
 	}
 	if w.suspended == nil {
-		w.suspended = map[*exec.Cmd]bool{}
+		w.suspended, w.brokeAway = map[*exec.Cmd]bool{}, map[*exec.Cmd]bool{}
 	}
-	w.suspended[cmd] = true
+	w.suspended[cmd], w.brokeAway[cmd] = true, breakaway
 	return nil
 }
 

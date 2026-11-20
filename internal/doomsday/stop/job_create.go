@@ -124,6 +124,15 @@ func (p *jobPlacer) PlaceLeased(cmd *exec.Cmd) error {
 // That is "born in the job" as much as creating it under the anchor is: a suspended process has run no instruction,
 // so nothing it would start, or do, happens outside the job. A process that cannot be put in the job is ended before
 // it ran, and commit fails (the start must be reported as failed). The proof's job handle is held until commit.
+//
+// The turn would inherit the caller's own job, and Windows only lets a process join a second job nested under the
+// one it is in: a run started from another job chain than the coder host (another terminal, the desktop app, an ssh
+// session) would refuse every turn. So the turn is created out of the caller's jobs (CREATE_BREAKAWAY_FROM_JOB) when
+// they allow it, decided HERE, before the start, by asking Windows with a throwaway child (BreakawayAllowed), and
+// never by starting the turn twice: a command starts once, and the one this commit holds is the one the caller starts,
+// so the caller's checks run on exactly what is started. The trade-off: such a turn leaves the coder host's outer job
+// (whatever that job would do to it on close no longer applies); the run's job is what contains and ends it. A
+// caller whose job forbids breakaway gets the turn in its job, and a run's job outside that chain refuses it.
 func (p *jobPlacer) PlaceCommit(cmd *exec.Cmd) (func() error, error) {
 	if cmd == nil || cmd.Process != nil {
 		return nil, fmt.Errorf("%w: the command is nil or already started", ErrNotPlaced)
@@ -136,7 +145,11 @@ func (p *jobPlacer) PlaceCommit(cmd *exec.Cmd) (func() error, error) {
 		return nil, fmt.Errorf("%w: the unit is gone", ErrNotPlaced)
 	}
 	g := proof.Cg.(*jobGroup)
-	if err := p.os.Suspend(cmd); err != nil {
+	breakaway, err := p.os.BreakawayAllowed()
+	if err == nil {
+		err = p.os.Suspend(cmd, breakaway)
+	}
+	if err != nil {
 		g.Close()
 		return nil, fmt.Errorf("%w: %v", ErrNotPlaced, err)
 	}
@@ -154,7 +167,9 @@ func (p *jobPlacer) PlaceCommit(cmd *exec.Cmd) (func() error, error) {
 					cerr = fmt.Errorf("%w: putting the process in the run's job panicked, so it was ended: %v", ErrNotPlaced, r)
 				}
 			}()
-			if err := p.os.AssignResume(g.job, cmd); err != nil {
+			if err := p.os.AssignResume(g.job, cmd); err != nil && !breakaway {
+				cerr = fmt.Errorf("%w: the process could not be put in the run's job before it ran, so it was ended (%v): the coder host runs in a job that does not let its children leave it, so the turn stayed in that job, and the run's job is not nested under it; start the open-ended run from the same environment as the coder host (the same terminal, session or app), or run the coder host outside that job", ErrNotPlaced, err)
+			} else if err != nil {
 				cerr = fmt.Errorf("%w: the process could not be put in the run's job before it ran, so it was ended: %v", ErrNotPlaced, err)
 			}
 		})

@@ -109,8 +109,9 @@ func TestBoundStartRefusesAPlacementThatReplacedTheAttributes(t *testing.T) {
 	}
 }
 
-// A placement that only adds CREATE_SUSPENDED (the run's job placement, #1723) is accepted: the turn is created suspended with the
-// launcher's locked lists and its own pipe, its leader is pinned, and the creator's own handle can resume it.
+// A placement that only adds CREATE_SUSPENDED and CREATE_BREAKAWAY_FROM_JOB (the run's job placement, #1723) is accepted: the turn
+// is created suspended, out of this process's job, with the launcher's locked lists and its own pipe, its leader is pinned, and the
+// creator's own handle can resume it. (The test needs a job that allows breakaway, or none.)
 func TestBoundStartAcceptsASuspendedPlacementAndTheCreatorCanResumeIt(t *testing.T) {
 	cmd := exec.Command(os.Args[0])
 	cmd.Env = append(os.Environ(), winE2ERole+"=sleep")
@@ -119,7 +120,10 @@ func TestBoundStartAcceptsASuspendedPlacementAndTheCreatorCanResumeIt(t *testing
 		t.Fatal(err)
 	}
 	defer d.close()
-	if err := d.start(cmd, func(c *exec.Cmd) error { c.SysProcAttr.CreationFlags |= windows.CREATE_SUSPENDED; return nil }); err != nil {
+	if err := d.start(cmd, func(c *exec.Cmd) error {
+		c.SysProcAttr.CreationFlags |= windows.CREATE_SUSPENDED | windows.CREATE_BREAKAWAY_FROM_JOB
+		return nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
