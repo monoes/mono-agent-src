@@ -3,11 +3,16 @@
 package procbind
 
 import (
+	"bufio"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 
@@ -154,5 +159,82 @@ func TestWinStopLeaderWithoutAStampIsHeld(t *testing.T) {
 	}
 	if !running(t, pid) {
 		t.Fatal("a held stop ended the process")
+	}
+}
+
+const jobLeaderEnv = "PROCBIND_WIN_JOB_LEADER"
+
+// The helper is a turn's leader as monomind.Exec makes it: it starts a child in a job with KILL_ON_JOB_CLOSE whose only
+// handle it holds (internal/monomind/proc_windows.go), names the child and waits.
+func TestWinHelperJobLeader(t *testing.T) {
+	if os.Getenv(jobLeaderEnv) == "" {
+		t.Skip("helper process only")
+	}
+	job, err := windows.CreateJobObject(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var info windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+	info.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | windows.JOB_OBJECT_LIMIT_BREAKAWAY_OK
+	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation, uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info))); err != nil {
+		t.Fatal(err)
+	}
+	c := exec.Command(filepath.Join(os.Getenv("SystemRoot"), "System32", "ping.exe"), "-n", "60", "127.0.0.1")
+	if err := c.Start(); err != nil {
+		t.Fatal(err)
+	}
+	h, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(c.Process.Pid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := windows.AssignProcessToJobObject(job, h); err != nil {
+		t.Fatal(err)
+	}
+	windows.CloseHandle(h)
+	os.Stdout.WriteString("CHILD " + strconv.Itoa(c.Process.Pid) + "\n")
+	time.Sleep(60 * time.Second)
+}
+
+// Ending the leader ends the runtime it started in its KILL_ON_JOB_CLOSE job.
+func TestWinStopLeaderEndsTheChildInTheLeadersJob(t *testing.T) {
+	leader := exec.Command(os.Args[0], "-test.run=^TestWinHelperJobLeader$")
+	leader.Env = append(os.Environ(), jobLeaderEnv+"=1")
+	out, err := leader.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := leader.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	t.Cleanup(func() { _ = leader.Process.Kill(); <-done })
+	sc := bufio.NewScanner(out)
+	child := 0
+	for child == 0 && sc.Scan() {
+		if f, ok := strings.CutPrefix(strings.TrimSpace(sc.Text()), "CHILD "); ok {
+			child, _ = strconv.Atoi(f)
+		}
+	}
+	go func() { _, _ = io.Copy(io.Discard, out); _ = leader.Wait(); close(done) }()
+	if child == 0 {
+		t.Fatal("the helper named no child")
+	}
+	// the child is pinned while the helper still holds its process object (its exec.Cmd has not waited)
+	ch, err := windows.OpenProcess(windows.PROCESS_TERMINATE|windows.SYNCHRONIZE, false, uint32(child))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer windows.CloseHandle(ch)
+	t.Cleanup(func() { _ = windows.TerminateProcess(ch, 1) })
+	if ev, _ := windows.WaitForSingleObject(ch, 0); ev != uint32(windows.WAIT_TIMEOUT) {
+		t.Fatal("the child is not running before the stop")
+	}
+	pid := leader.Process.Pid
+	res := winStopper().StopLeader(pid, stampNow(t, pid))
+	if res.Outcome != StopStopped {
+		t.Fatalf("outcome %v (%s), want StopStopped", res.Outcome, res.Cause)
+	}
+	if ev, err := windows.WaitForSingleObject(ch, 5000); err != nil || ev != windows.WAIT_OBJECT_0 {
+		t.Fatalf("the child in the leader's job is still running after the leader was stopped (wait %#x, %v)", ev, err)
 	}
 }

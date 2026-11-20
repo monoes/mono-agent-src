@@ -13,9 +13,9 @@ import (
 
 // A turn launched with peer-credential binding (a v2 turn: its token row is in coder_session_tokens_v2, which is
 // durable) is never adopted by a later host, whatever the setting is now: adopting one under the legacy path would
-// resurrect it without the binding. On every host start the previous host's v2 turn is STOPPED, by its leader's own
-// pidfd and nothing else (no process group is ever signalled), and its session settled only once the leader is
-// confirmed gone. A check that cannot be completed (no descriptor, no permission, an unreadable stamp, a leader that
+// resurrect it without the binding. On every host start the previous host's v2 turn is STOPPED through its leader
+// (procbind.Stopper: by its pidfd on Linux and a handle on Windows; on macOS its pid and start time are checked again
+// right before each signal), and its session settled only once the leader is confirmed gone. A check that cannot be completed (no descriptor, no permission, an unreadable stamp, a leader that
 // will not exit) is not evidence of absence: the session is HELD, no new turn starts for it, and the check is retried
 // at every pass, bounded only by the operator's attention (the hold is logged with its cause).
 
