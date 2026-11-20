@@ -146,6 +146,33 @@ func TestAssignResumeEndsAProcessTheJobRefuses(t *testing.T) {
 	t.Logf("refused as expected: %v", err)
 }
 
+// A process that was not created suspended may already have run: it is ended, never put in the job and let run.
+func TestAssignResumeEndsAProcessThatWasNotCreatedSuspended(t *testing.T) {
+	o := winJobOS{}
+	j, err := o.CreateJob(testJobName(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer j.Close()
+	sys, _ := windows.GetSystemDirectory()
+	cmd := exec.Command(filepath.Join(sys, "ping.exe"), "-n", "30", "127.0.0.1")
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	err = o.AssignResume(j, cmd)
+	werr := cmd.Wait()
+	if err == nil || !strings.Contains(err.Error(), "not created suspended") {
+		t.Fatalf("a process that was not suspended was placed: %v", err)
+	}
+	if ee, ok := werr.(*exec.ExitError); !ok || ee.ExitCode() != 1 {
+		t.Fatalf("the process was not ended by the placement: %v", werr)
+	}
+	if in, _ := j.Contains(cmd.Process.Pid); in {
+		t.Fatal("the process was put in the job")
+	}
+}
+
 // A command that passes inherited handles is never created under the anchor: they would have to sit there.
 func TestParentForRefusesACommandThatPassesHandles(t *testing.T) {
 	o := winJobOS{}

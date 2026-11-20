@@ -108,7 +108,9 @@ func (d *boundDelivery) start(cmd *exec.Cmd, pre func(*exec.Cmd) error) error {
 	// cmd.Process holds the child's handle until Wait, so the number below cannot name another process
 	p, err := procbind.OpenWorkerHandle(cmd.Process.Pid)
 	if err != nil {
+		// ended and reaped: the placement's commit then sees a finished process (ProcessState) and never resumes it
 		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
 		return fmt.Errorf("the turn's process could not be held, so it cannot be bound: %w", err)
 	}
 	d.proc = workerProc{p: p}

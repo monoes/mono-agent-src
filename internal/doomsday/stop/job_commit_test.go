@@ -76,6 +76,24 @@ func TestJobPlaceCommitThatPanicsEndsTheProcess(t *testing.T) {
 	}
 }
 
+// A start that failed after the process existed (the caller ended and reaped it) is never assigned or resumed, and commit
+// still completes (the job handle is released) without an error of its own.
+func TestJobPlaceCommitSkipsAProcessTheCallerAlreadyEnded(t *testing.T) {
+	w := newFakeWin()
+	rec, _, _ := createWin(t, w, 7)
+	pl, _ := jobContainment{os: w}.Place(rec)
+	cmd := exec.Command("monoagentcli")
+	commit, err := pl.PlaceCommit(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd.Process, cmd.ProcessState = &os.Process{}, &os.ProcessState{}
+	w.assignPanic = true // reaching AssignResume would panic
+	if err := commit(); err != nil || len(w.assigned)+len(w.ended) != 0 {
+		t.Fatalf("an ended process was placed: %v %v %v", err, w.assigned, w.ended)
+	}
+}
+
 // A command that never started has nothing to place: commit does nothing and does not fail.
 func TestJobPlaceCommitOfACommandThatDidNotStart(t *testing.T) {
 	w := newFakeWin()

@@ -158,8 +158,10 @@ func (p *jobPlacer) PlaceCommit(cmd *exec.Cmd) (func() error, error) {
 	return func() error {
 		once.Do(func() {
 			defer g.Close()
-			if cmd.Process == nil {
-				return // not started: there is no process to place
+			if cmd.Process == nil || cmd.ProcessState != nil {
+				// not started, or the start failed after the process existed and the caller already ended and reaped it
+				// (the bound launcher does when it cannot hold the leader): there is no process to place or resume
+				return
 			}
 			defer func() {
 				if r := recover(); r != nil { // never left suspended, or running, outside the job

@@ -19,8 +19,12 @@ import (
 	"github.com/monoes/mono-agent/internal/procresume"
 )
 
-// NOT VERIFIED on a real Windows host: this file compiles (GOOS=windows go vet) and its logic is tested through the
-// JobOS fake on Linux; it has not run against the Windows API.
+// Verified on a real Windows host (Windows, go1.26, 2026-11, #1723): the unit's create, adopt, proof and end; the probe
+// (both self-test children); a coder turn's placement (PlaceCommit: suspended, out of the host's job when allowed,
+// assigned, resumed, its inherited pipe read) in every job-nesting case of job_nesting_windows_test.go; and a live open
+// run whose boss and plain turns ran in the run's job and ended with `doomsday stop`. Not run on a real host: a command
+// placed with ParentFor other than the probe's child (dynorg's git, finish criteria), and Present/Prove from another
+// logon session. The logic is also tested through the JobOS fake on every OS.
 
 const (
 	jobAssignProcess = 0x0001
@@ -224,8 +228,12 @@ func (winJobOS) ParentFor(cmd *exec.Cmd, anchorPID int, anchorStamp string) (fun
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	if len(cmd.SysProcAttr.AdditionalInheritedHandles) != 0 {
-		// they would have to exist in the anchor (Go passes them as they are, #1723), and no handle of ours is ever put
-		// there: a command that passes handles is placed with PlaceCommit
+		// they would have to exist in the anchor (Go passes them as they are, #1723), and no credential handle is ever put
+		// there: a command that passes handles is placed with PlaceCommit. What does reach the anchor for a command placed
+		// here: Go duplicates its stdin, stdout and stderr into the parent process, inheritable, for the length of
+		// CreateProcess (syscall/exec_windows.go). For the commands placed this way (dynorg's git, finish criteria) stdin
+		// is NUL and stdout/stderr are the write ends of output pipes: no secret, but a process of the same user could
+		// copy a write end out of the anchor (its access list is the default one) in that window and inject output
 		_ = windows.CloseHandle(h)
 		return nil, errors.New("a command that passes inherited handles is not created under the anchor")
 	}
@@ -274,11 +282,16 @@ func (winJobOS) AssignResume(j Job, cmd *exec.Cmd) error {
 	if !ok {
 		return errors.New("not a Windows job")
 	}
+	// the guarantee rests on the process having run no instruction yet: one not created suspended (a caller that built
+	// its attributes after the placement, or dropped the flag) is ended, never put in the job and let run
+	suspended := cmd.SysProcAttr != nil && cmd.SysProcAttr.CreationFlags&windows.CREATE_SUSPENDED != 0
 	var err error
 	if herr := cmd.Process.WithHandle(func(ph uintptr) {
 		h := windows.Handle(ph)
 		var in int32
-		if err = windows.AssignProcessToJobObject(wj.h, h); err != nil {
+		if !suspended {
+			err = errors.New("the process was not created suspended, so it may already have run outside the job")
+		} else if err = windows.AssignProcessToJobObject(wj.h, h); err != nil {
 			err = fmt.Errorf("the job refused the process: %w", err)
 		} else if r, _, e := procIsProcInJob.Call(ph, uintptr(wj.h), uintptr(unsafe.Pointer(&in))); r == 0 || in == 0 {
 			err = fmt.Errorf("the process is not a member of the job after the assignment (%v)", e)
