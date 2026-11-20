@@ -393,3 +393,35 @@ func TestAReleaseFollowsTheRunTheAdoptionSaw(t *testing.T) {
 		t.Fatalf("a turn adopted into the open run was refused: %v", err)
 	}
 }
+
+// A run that opened between Place and Adopt, with a placement that takes the process at birth (no stop.Adopter: cgroup, job object,
+// process group): Adopt places nothing, so the generation Place saw stands and the turn, started outside the unit, is not released
+// into the run. A refused adoption records nothing either. Mutant tried: note the generation before the Adopter check: red.
+func TestANonAdoptingPlacementKeepsTheGenerationPlaceSaw(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		pl   stop.Placement
+	}{
+		{"born-placement", plainPlace{}},
+		{"refused-adoption", &adopterPlace{unit: 9, err: fmt.Errorf("%w: refused", stop.ErrNotPlaced)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newHookRig(t, on())
+			hk := r.hl.hk
+			if _, err := hk.Place(exec.Command("true"), "p1", "conv"); err != nil { // no run yet: the turn is started plainly
+				t.Fatal(err)
+			}
+			r.start(t)
+			withPlacement(t, tc.pl, nil)
+			if held, _ := hk.Adopt("p1", "conv", 123, "1.000001"); held {
+				t.Fatal("nothing was adopted, yet the unit holds the leader")
+			}
+			if err := hk.BeforeRelease(context.Background(), "p1", "conv", "t1", true); !refused(err) {
+				t.Fatalf("a turn started before the run opened, and never adopted into it, was released: %v", err)
+			}
+			if n := r.tickets(t); n != 0 {
+				t.Fatalf("a refused turn took %d ticket(s)", n)
+			}
+		})
+	}
+}

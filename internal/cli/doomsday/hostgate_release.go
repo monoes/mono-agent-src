@@ -25,7 +25,8 @@ type Hooks struct {
 
 const maxReleased = 4096
 
-// noteStart records the generation of the open run (0: none) that Place or Adopt saw when conv's turn was started; takeStart reads and
+// noteStart records the generation of the open run (0: none) that Place saw, or a successful Adopt put the process into, when conv's
+// turn was started; takeStart reads and
 // consumes it at BeforeRelease. A launcher that never asked Place leaves no record, and a record the release never consumed (a start that
 // failed) is replaced by the conversation's next start.
 func (g *HostGate) noteStart(conv string, gen int64) {
