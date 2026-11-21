@@ -29,6 +29,21 @@ describe('deriveOutputs', () => {
     expect(ids(deriveOutputs('core.filter', {}))).toEqual(['main', 'rejected'])
   })
 
+  it('ai.decide: handles from kind, levels and options (decide.go) + low_confidence', () => {
+    expect(ids(deriveOutputs('ai.decide', { kind: 'noul' }))).toEqual(['yes', 'no', 'low_confidence'])
+    expect(ids(deriveOutputs('ai.decide', { kind: 'score', levels: ['none', 'minor', 'major'] })))
+      .toEqual(['level_0', 'level_1', 'level_2', 'low_confidence'])
+    expect(ids(deriveOutputs('ai.decide', { kind: 'score', levels: 'none\nminor' }))).toEqual(['level_0', 'level_1', 'low_confidence'])
+    expect(ids(deriveOutputs('ai.decide', { kind: 'choice', options: '{"refund": "money", "bug": "defect"}' })))
+      .toEqual(['bug', 'refund', 'low_confidence'])
+    expect(ids(deriveOutputs('ai.decide', { kind: 'choice', options: ['refund', { id: 'bug' }, 'low_confidence'] })))
+      .toEqual(['refund', 'bug', 'low_confidence'])
+    expect(ids(deriveOutputs('ai.decide', {}))).toEqual(['low_confidence'])
+    expect(portsDependOnConfig('ai.decide', 'options')).toBe(true)
+    expect(portsDependOnConfig('ai.decide', 'question')).toBe(false)
+    expect(isCaseListSettled('{"refund": ')).toBe(false)
+  })
+
   it('ai.choose: case handles (object handle falls back to value) + low_confidence', () => {
     expect(ids(deriveOutputs('ai.choose', {
       cases: ['billing', { value: 'tech', handle: 'support' }, { value: 'other' }, '{"value":"spam","handle":"junk"}'],
