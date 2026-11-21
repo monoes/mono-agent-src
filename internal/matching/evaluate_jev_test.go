@@ -292,16 +292,17 @@ func TestEvaluateJevAPIFailureIsError(t *testing.T) {
 
 func TestJevRuntime(t *testing.T) {
 	cases := map[string]struct {
-		model string
-		ok    bool
+		provider, model string
+		ok              bool
 	}{
-		"jev": {"", true}, "jev:jev-1.13": {"jev-1.13", true}, "jev:": {"", true},
-		"claude": {"", false}, "jevons": {"", false}, "": {"", false},
+		"jev": {"", "", true}, "jev:jev-1.13": {"", "jev-1.13", true}, "jev:": {"", "", true},
+		"claude": {"", "", false}, "jevons": {"", "", false}, "": {"", "", false},
+		"jev@local": {"local", "", true}, "jev@local:llama3:8b": {"local", "llama3:8b", true}, " jev@ollama : m ": {"ollama", "m", true},
 	}
 	for in, want := range cases {
-		model, ok := jevRuntime(in)
-		if model != want.model || ok != want.ok {
-			t.Errorf("jevRuntime(%q) = %q %v, want %q %v", in, model, ok, want.model, want.ok)
+		provider, model, ok := jevRuntime(in)
+		if provider != want.provider || model != want.model || ok != want.ok {
+			t.Errorf("jevRuntime(%q) = %q %q %v, want %q %q %v", in, provider, model, ok, want.provider, want.model, want.ok)
 		}
 	}
 }
