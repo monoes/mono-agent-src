@@ -18,8 +18,15 @@
       "type": "textarea"
     },
     {
+      "help": "A decision provider added with `monoagentcli jev provider add`. Empty = the default.",
+      "key": "provider",
+      "label": "Decision Provider",
+      "required": false,
+      "type": "text"
+    },
+    {
       "default": "@secret:typesafe",
-      "help": "Falls back to the profile's vault secret `typesafe`, then TYPESAFE_API_KEY.",
+      "help": "Applies to the TypeSafe provider. Falls back to the profile's vault secret `typesafe`, then TYPESAFE_API_KEY.",
       "key": "api_key",
       "label": "TypeSafe API Key",
       "required": false,
@@ -27,6 +34,7 @@
     },
     {
       "default": "jev-latest",
+      "help": "Applies to the TypeSafe provider (another provider uses its own model unless you set one here).",
       "key": "model",
       "label": "Jev Model",
       "required": false,

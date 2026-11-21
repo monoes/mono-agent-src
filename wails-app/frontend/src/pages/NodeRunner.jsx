@@ -1600,7 +1600,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
 
   const updateConfig = (nodeId, key, val) => {
     const node = nodesRef.current.find(n => n.id === nodeId)
-    // Switch / ai.choose ports follow their cases: re-derive them and re-point
+    // Switch / ai.choose / ai.decide ports follow their config: re-derive them and re-point
     // (or drop) this node's outgoing edges by handle id.
     const portsChange = node && portsDependOnConfig(node.subtype, key) && isCaseListSettled(val)
     const outputs = portsChange ? deriveOutputs(node.subtype, { ...node.config, [key]: val }) : null
@@ -2594,7 +2594,8 @@ function getConfigFields(nodeType) {
 
 // ── Derive input/output ports from node type string ───────────────────────────
 // deriveInputs / deriveOutputs(type, config) live in nodeConfigFields.js so
-// they can be unit-tested; core.switch and ai.choose ports follow their cases.
+// they can be unit-tested; core.switch and ai.choose ports follow their cases,
+// ai.decide's its kind, levels and options.
 
 const tbBtn = {
   background: 'transparent',

@@ -104,6 +104,7 @@ var publishingTypes = map[string]string{
 	"ai.agent":                    "model provider / the page it fetches",
 	"ai.chat":                     "model provider / the page it fetches",
 	"ai.choose":                   "model provider / the page it fetches",
+	"ai.decide":                   "model provider / the page it fetches",
 	"ai.classify":                 "model provider / the page it fetches",
 	"ai.embed":                    "model provider / the page it fetches",
 	"ai.extract":                  "model provider / the page it fetches",

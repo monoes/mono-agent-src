@@ -90,7 +90,11 @@ func (f *formDriver) state() *jevpick.PageState {
 // formPolicy types into the first empty field, then submits, then DONE.
 // Value questions are answered by pick(field label).
 func formPolicy(t *testing.T, pick func(label string) string) *jevtest.Server {
-	return jevtest.NewServer(t, func(req jev.Request) map[string]string {
+	return jevtest.NewServer(t, formHandler(t, pick))
+}
+
+func formHandler(t *testing.T, pick func(label string) string) jevtest.Handler {
+	return func(req jev.Request) map[string]string {
 		raw, _ := json.Marshal(req.State)
 		if _, ok := req.Questions["value"]; ok {
 			var st struct{ Field struct{ Label string } }
@@ -113,7 +117,7 @@ func formPolicy(t *testing.T, pick func(label string) string) *jevtest.Server {
 			}
 		}
 		return map[string]string{"operation": "CLICK", "click_target": st.Elements[len(st.Elements)-1].Index}
-	})
+	}
 }
 
 func formNode(drv driver, writer textWriter) *Node {

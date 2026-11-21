@@ -286,8 +286,9 @@ output) and a re-run sends every item again.`,
                        "tone":   { "type": "choice", "criteria": ["calm", "angry"] } },
   "min_confidence": 0.6,                   // top probability gate
   "output_key":     "choice",
-  "api_key":        "@secret:typesafe",    // or TYPESAFE_API_KEY
-  "model":          "jev-latest",
+  "provider":       "",                    // empty = the default decision provider
+  "api_key":        "@secret:typesafe",    // TypeSafe only; or TYPESAFE_API_KEY
+  "model":          "jev-latest",          // TypeSafe only (another provider: its own model)
   "concurrency":    4                      // requests in flight, max 8
 }`,
 		Inputs: "any items (input capped at 6,000 characters)",
@@ -299,6 +300,40 @@ extra: {name: {noul} | {choice, probabilities, confidence} | {score, probabiliti
 No key => invalid-config error naming the missing vault secret. Get a key at
 console.typesafe.ai: "monoagentcli jev key set".
 Jev is weak at arithmetic, counting and date comparison — compute those first.`,
+	},
+	{
+		Type:     "ai.decide",
+		Category: "agent",
+		Short:    "Ask one typed question per item (yes/no, score or choice) and route by the answer",
+		Description: `One decision request per item answers a single typed question: noul (yes/no),
+score (a level on your ordered rubric) or choice (one of your options), with
+probabilities. Items go out on the answer's handle; when the answer's
+probability is below min_confidence (for yes/no: the probability of the answer
+given) they go to "low_confidence" instead. The provider is TypeSafe Jev unless
+"provider" names another one added with "monoagentcli jev provider add" (or one
+is the default); a provider that gives no probability always goes to
+low_confidence. The item content is sent as "untrusted_input" and treated as
+data, never instructions. If any item's request fails, the whole node fails.`,
+		Config: `{
+  "kind":           "choice",                // noul | score | choice (required)
+  "question":       "What does the customer want?",  // required
+  "input":          "{{$json.subject}}\n{{$json.body}}",  // or "fields": [...]; neither = whole item
+  "options":        { "refund": "asks for money back", "bug": "reports a defect" },  // choice
+  "levels":         ["none", "minor", "major"],            // score: 2–10, lowest first
+  "criteria_true":  "needs an answer today",               // noul, optional
+  "criteria_false": "can wait",                            // noul, optional
+  "min_confidence": 0.6,
+  "provider":       "",                      // empty = the default decision provider
+  "model":          ""                       // empty = the provider's model
+}`,
+		Inputs: "any items (input capped at 6,000 characters)",
+		Outputs: `noul: "yes", "no"; score: "level_0" … "level_<n-1>" (most probable level);
+choice: the option ids; then "low_confidence". Each item keeps its fields and
+gains decision: {kind, answer, handle, probability, probabilities, score
+(score), confidence (score, choice), low_confidence, provider, model,
+probability_kind (native | logprob | sampled | none)}`,
+		Notes: `Items keep input order within each handle. A failed request fails the node.
+TypeSafe with no key => invalid-config error: "monoagentcli jev key set".`,
 	},
 	{
 		Type:     "ai.guardrails",

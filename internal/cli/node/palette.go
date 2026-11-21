@@ -182,6 +182,7 @@ func Palette(db *sql.DB, includeDeprecated bool) map[string][]PaletteNode {
 			mkNode("ai.guardrails", "Guardrails", "ai", "Check text for PII, secrets, URLs, keywords, jailbreaks and off-topic content; pass/fail or sanitize"),
 			mkNode("browser.jev", "Browser Agent (Jev)", "ai", "Reach a goal on any website in your own browser — TypeSafe Jev picks each click/type/select"),
 			mkNode("ai.choose", "AI Choose (Jev)", "ai", "Route each item to one of your cases — TypeSafe Jev picks, with a low_confidence output"),
+			mkNode("ai.decide", "AI Decide (Jev)", "ai", "One yes/no, score or choice question per item, routed by the answer, with a low_confidence output"),
 			mkNode("ai.chat", "AI Chat (deprecated)", "ai", "Deprecated — replace with Agent Ask"),
 			mkNode("ai.extract", "AI Extract (deprecated)", "ai", "Deprecated — replace with Agent Ask"),
 			mkNode("ai.classify", "AI Classify (deprecated)", "ai", "Deprecated — replace with AI Choose (Jev) or Agent Ask"),

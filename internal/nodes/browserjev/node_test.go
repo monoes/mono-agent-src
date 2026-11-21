@@ -71,7 +71,11 @@ func (f *fakeDriver) Act(_ context.Context, p *jevpick.PageState, a *jevpick.Act
 // policyServer answers like a sensible Jev: type when empty, click Go when
 // filled, DONE on results. jevtest gives every head a valid distribution.
 func policyServer(t *testing.T, override func(q map[string]jev.Question) map[string]string) *jevtest.Server {
-	return jevtest.NewServer(t, func(req jev.Request) map[string]string {
+	return jevtest.NewServer(t, policyHandler(t, override))
+}
+
+func policyHandler(t *testing.T, override func(q map[string]jev.Question) map[string]string) jevtest.Handler {
+	return func(req jev.Request) map[string]string {
 		if override != nil {
 			return override(req.Questions)
 		}
@@ -90,7 +94,7 @@ func policyServer(t *testing.T, override func(q map[string]jev.Question) map[str
 			return map[string]string{"operation": "TYPE_TEXT", "type_text_target": "1"}
 		}
 		return map[string]string{"operation": "CLICK", "click_target": "2"}
-	})
+	}
 }
 
 // testNode wires a node to drv; the Jev server is whatever the test started

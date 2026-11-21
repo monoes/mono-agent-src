@@ -5,16 +5,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"strings"
-	"time"
 
 	"github.com/google/uuid"
-	"github.com/rs/zerolog"
 
 	"github.com/monoes/mono-agent/internal/commsync"
 	"github.com/monoes/mono-agent/internal/hilscrub"
-	"github.com/monoes/mono-agent/internal/hilsuggest"
-	"github.com/monoes/mono-agent/internal/jev/jevconf"
 	"github.com/monoes/mono-agent/internal/nodes/nodeprofile"
 	"github.com/monoes/mono-agent/internal/secrets"
 	"github.com/monoes/mono-agent/internal/vault"
@@ -29,8 +24,8 @@ import (
 //	"readonly_fields"  ([]string): item keys shown in the read-only info section
 //	"editable_fields"  ([]string): item keys shown in the editable section
 //	"timeout_minutes"  (float64, optional): max wait time, default 0 = unlimited
-//	"auto_decide"      (object, optional): {policy, approve_above, reject_above} —
-//	                   TypeSafe Jev settles confident items (surface "hil" only)
+//	"auto_decide"      (object, optional): {policy, approve_above, reject_above,
+//	                   provider} — Jev settles confident items (surface "hil" only)
 //
 // Outputs: "main" carries approved items. Rejected items go to the opt-in
 // "rejected" output when an edge is wired from it; otherwise a rejection
@@ -318,178 +313,6 @@ func copyMap(src map[string]interface{}) map[string]interface{} {
 		out[k] = v
 	}
 	return out
-}
-
-// rowPlan is auto_decide's outcome for one row: a status to insert with
-// ("" = pending) and keys merged into the row's node_config.
-type rowPlan struct {
-	status string
-	extra  map[string]interface{}
-}
-
-// autoDecideCfg is the parsed auto_decide config.
-type autoDecideCfg struct {
-	policy       string
-	approveAbove float64
-	rejectAbove  float64 // 0 = never auto-reject
-}
-
-// autoDecideHeld is why auto_decide left an item of a workflow the user
-// hasn't approved pending: it lets a message to a person go out.
-const autoDecideHeld = "a workflow you haven't approved can't settle a step that sends a message to a person: it waits for you"
-
-// autoDecideTimeout bounds all Jev calls of one node run.
-const autoDecideTimeout = 30 * time.Second
-
-func parseAutoDecide(ctxDB *sql.DB, profileID string, config map[string]interface{}) (*autoDecideCfg, error) {
-	raw, ok := config["auto_decide"]
-	if !ok || raw == nil {
-		return nil, nil
-	}
-	// The GUI's JSON editor may hand the object over as text.
-	if str, ok := raw.(string); ok {
-		if strings.TrimSpace(str) == "" {
-			return nil, nil
-		}
-		var parsed map[string]interface{}
-		if err := json.Unmarshal([]byte(str), &parsed); err != nil {
-			return nil, fmt.Errorf("%w: human_in_loop: auto_decide is not a JSON object: %v", workflow.ErrInvalidConfig, err)
-		}
-		raw = parsed
-	}
-	m, ok := raw.(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("%w: human_in_loop: auto_decide must be an object", workflow.ErrInvalidConfig)
-	}
-	c := &autoDecideCfg{}
-	if p, ok := m["policy"].(string); ok {
-		c.policy = strings.TrimSpace(p)
-	}
-	num := func(key string) (float64, bool, error) {
-		v, ok := m[key]
-		if !ok || v == nil {
-			return 0, false, nil
-		}
-		var f float64
-		switch t := v.(type) {
-		case float64:
-			f = t
-		case int:
-			f = float64(t)
-		default:
-			return 0, false, fmt.Errorf("%w: human_in_loop: auto_decide.%s must be a number", workflow.ErrInvalidConfig, key)
-		}
-		if f <= 0 || f > 1 {
-			return 0, false, fmt.Errorf("%w: human_in_loop: auto_decide.%s = %v must be in (0,1]", workflow.ErrInvalidConfig, key, f)
-		}
-		return f, true, nil
-	}
-	f, set, err := num("approve_above")
-	if err != nil {
-		return nil, err
-	}
-	if set {
-		c.approveAbove = f
-	} else {
-		c.approveAbove = jevconf.Threshold(ctxDB, profileID, jevconf.HIL, jevconf.DefaultThreshold[jevconf.HIL])
-	}
-	if c.rejectAbove, _, err = num("reject_above"); err != nil {
-		return nil, err
-	}
-	return c, nil
-}
-
-// orgStarted reports whether the execution was started by an org (a grant
-// or a message to an automation role). Its HIL rows are tier-routed org
-// decisions (internal/orgdecide), so auto_decide never settles them.
-func orgStarted(ctx context.Context, db *sql.DB, executionID string) bool {
-	tt := workflow.TriggerTypeFrom(ctx)
-	if tt == "" {
-		_ = db.QueryRowContext(ctx, `SELECT COALESCE(trigger_type,'') FROM workflow_executions WHERE id = ?`, executionID).Scan(&tt)
-	}
-	return tt == workflow.TriggerTypeOrgTool || tt == workflow.TriggerTypeOrgMessage
-}
-
-// autoDecideRows applies the optional auto_decide config (plan WS5). It
-// returns nil when auto_decide is absent — rows are then exactly today's.
-// Otherwise every row gets a plan: skipped (surface off, no key, Jev
-// error) ⇒ pending with the reason; confident approve (top p ≥
-// approve_above) ⇒ approved; confident reject with reject_above set ⇒
-// rejected; anything else ⇒ pending with the suggestion stored. Rows of
-// org-started executions only ever get the suggestion.
-func autoDecideRows(ctx context.Context, db *sql.DB, input workflow.NodeInput, config map[string]interface{}, profileID string, ro, ed []map[string]interface{}) ([]rowPlan, error) {
-	cfg, err := parseAutoDecide(db, profileID, config)
-	if err != nil || cfg == nil {
-		return nil, err
-	}
-	plan := make([]rowPlan, len(input.Items))
-	all := func(k string, v interface{}) {
-		for i := range plan {
-			if plan[i].extra == nil {
-				plan[i].extra = map[string]interface{}{}
-			}
-			plan[i].extra[k] = v
-		}
-	}
-	if cfg.policy != "" {
-		all("policy", cfg.policy)
-	}
-	skip := func(reason string) ([]rowPlan, error) {
-		zerolog.Ctx(ctx).Warn().Str("execution_id", input.ExecutionID).Str("node_id", input.NodeID).
-			Msg("human_in_loop: auto_decide ignored: " + reason)
-		all("auto_decide_skipped", reason)
-		return plan, nil
-	}
-	if !jevconf.Enabled(db, profileID, jevconf.HIL) {
-		return skip("TypeSafe Jev surface \"hil\" is not enabled for this profile (monoagentcli jev enable hil)")
-	}
-	client, err := jevconf.NewClient(ctx, db, profileID, "", "", jevconf.HIL)
-	if err != nil {
-		return skip(err.Error())
-	}
-	ins := make([]hilsuggest.Input, len(input.Items))
-	for i := range ins {
-		ins[i] = hilsuggest.Input{Readonly: ro[i], Editable: ed[i], Policy: cfg.policy}
-	}
-	jctx, cancel := context.WithTimeout(ctx, autoDecideTimeout)
-	defer cancel()
-	sugs, errs := hilsuggest.SuggestAll(jctx, client, ins)
-	var firstErr error
-	for i := range plan {
-		if errs[i] != nil {
-			if firstErr == nil {
-				firstErr = errs[i]
-			}
-			continue
-		}
-		if plan[i].extra == nil {
-			plan[i].extra = map[string]interface{}{}
-		}
-		plan[i].extra["suggestion"] = sugs[i]
-	}
-	if firstErr != nil {
-		// Any Jev failure leaves every row for a person, as without Jev.
-		return skip("jev: " + firstErr.Error())
-	}
-	if orgStarted(ctx, db, input.ExecutionID) {
-		all("auto_decide_skipped", "org-started execution: the org decides its HIL items")
-		return plan, nil
-	}
-	for i, s := range sugs {
-		switch {
-		// Never auto-approve an item Jev itself rates high-risk: it waits for
-		// a human with the suggestion shown.
-		case s.Choice == hilsuggest.Approve && s.P >= cfg.approveAbove && s.Risk != "high":
-			plan[i].status = "approved"
-		case s.Choice == hilsuggest.Reject && cfg.rejectAbove > 0 && s.P >= cfg.rejectAbove:
-			plan[i].status = "rejected"
-		default:
-			continue
-		}
-		plan[i].extra["decided_by"] = "jev:" + s.Model
-		plan[i].extra["p"] = s.P
-	}
-	return plan, nil
 }
 
 // holdsTracked reports whether any string of v (decoded, keys included), or v
