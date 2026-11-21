@@ -23,18 +23,20 @@ func (g *HostGate) Adopt(profile, conv string, pid int, stamp string) (held bool
 	if err != nil {
 		return false, err
 	}
-	g.noteStart(conv, gen) // the later look wins: a run that opened between Place and here is the one the process is adopted into
 	if pl == nil {
 		return false, nil
 	}
 	ad, ok := pl.(stop.Adopter)
 	if !ok {
-		return false, nil
+		return false, nil // placed at birth or not at all: the generation Place saw stands
 	}
 	err = ad.Adopt(pid, stamp)
 	if err != nil {
 		return errors.Is(err, stop.ErrReapOwned), err
 	}
+	// Only an adoption that took the process moves the record: a run that opened between Place and here is the one it is adopted into.
+	// Anything else leaves the generation Place saw, so BeforeRelease refuses a turn started outside the open run's unit.
+	g.noteStart(conv, gen)
 	if u, ok := pl.(interface{ UnitID() uint64 }); ok {
 		g.watchHolds(gen, u.UnitID())
 	}

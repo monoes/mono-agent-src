@@ -104,6 +104,20 @@ type Placement interface {
 	Place(cmd *exec.Cmd) (release func(), err error)
 	PlaceTicket(ticket uint64, cmd *exec.Cmd) (release func(), err error)
 	PlaceLeased(cmd *exec.Cmd) error
+	// PlaceCommit places a command whose placement completes after its start (a coder turn): commit must be called
+	// once Start returned, whether the command started or not, and its error means the process never ran and was
+	// ended, so the start failed. On Linux and macOS the command is born in the unit as with Place and commit only
+	// releases. On Windows the command is created suspended as the caller's own child, with the attributes, handles
+	// and environment the caller built, and commit puts it in the run's job and only then resumes it (jobPlacer).
+	PlaceCommit(cmd *exec.Cmd) (commit func() error, err error)
+}
+
+// commitOf is the PlaceCommit of a mechanism whose command is born in the unit: commit is the release and never fails.
+func commitOf(release func(), err error) (func() error, error) {
+	if err != nil {
+		return nil, err
+	}
+	return func() error { release(); return nil }, nil
 }
 
 // containments builds the mechanism of a unit kind; k is the kernel seam of the identity proof (nil for a probe)

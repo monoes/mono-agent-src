@@ -94,7 +94,10 @@ func TestAdoptRunsAfterTheStartAndBeforeTheReleaseCheckAndTheDelivery(t *testing
 	r := newBoundRig(t, "")
 	var h holdRig
 	var log []string
-	r.l.place = func(*exec.Cmd, string, string) (func(), error) { log = append(log, "place"); return func() {}, nil }
+	r.l.place = func(*exec.Cmd, string, string) (func() error, error) {
+		log = append(log, "place")
+		return func() error { return nil }, nil
+	}
 	r.l.adopt = h.adopt(false, nil, &log)
 	r.l.onProcess = func(_, _, _ string, _ int, _ string, _ bool) error { log = append(log, "identity"); return nil }
 	r.l.beforeRelease = func(_ context.Context, _, _, _ string, _ bool) error {

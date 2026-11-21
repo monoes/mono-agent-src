@@ -30,7 +30,6 @@ type fakeSess struct {
 	self  int
 	uid   uint32
 	next  int
-	clock int
 	held  map[int]bool // numbers kept reserved by an unreaped leader (Hold): a dead one stays a zombie, never listed
 
 	boot string

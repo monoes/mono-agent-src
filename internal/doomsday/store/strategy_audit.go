@@ -2,8 +2,11 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
+
+	"github.com/monoes/mono-agent/internal/doomsday/strategy/types"
 )
 
 // StrategyKindPrefix is the reserved audit kind prefix of the strategy layer. Only AppendStrategyAuditTx writes it: the
@@ -12,6 +15,27 @@ const StrategyKindPrefix = "strategy."
 
 // ErrNotStrategyKind: AppendStrategyAuditTx writes strategy kinds and nothing else.
 var ErrNotStrategyKind = errors.New("doomsday: the strategy writer appends strategy.* kinds only")
+
+// StrategyBadReasons returns the reason recorded on each strategy.bad-judgment line of the generation, by epoch id. It
+// reads through the verifying chain reader, so a line that fails its MAC fails the whole read. Lines written before the
+// reason existed carry none and are absent from the map.
+func (s *SQLStore) StrategyBadReasons(ctx context.Context, profile string, generation int64) (map[string]string, error) {
+	rows, err := s.readChain(ctx, s.db, profile, generation)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for _, r := range rows {
+		if r.Kind != types.KindBadJudgment {
+			continue
+		}
+		var p struct{ Epoch, Reason string }
+		if json.Unmarshal([]byte(r.Payload), &p) == nil && p.Reason != "" {
+			out[p.Epoch] = p.Reason
+		}
+	}
+	return out, nil
+}
 
 // AppendStrategyAuditTx appends one strategy.* row to the generation's MAC chain inside the CALLER's transaction, so a
 // strategy row and its audit line commit or roll back together. It is the same chain, MAC scheme and domain as AppendAudit

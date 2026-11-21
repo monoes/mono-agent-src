@@ -8,7 +8,7 @@ require (
 	github.com/Azure/go-amqp v1.7.0
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/ProtonMail/go-crypto v1.5.2
-	github.com/PuerkitoBio/goquery v1.13.0
+	github.com/PuerkitoBio/goquery v1.14.0
 	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/disintegration/imaging v1.6.2
 	github.com/dop251/goja v0.0.0-20260305124333-6a7976c22267
@@ -31,7 +31,7 @@ require (
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/rs/zerolog v1.35.1
 	github.com/sijms/go-ora/v2 v2.9.0
-	github.com/slack-go/slack v0.35.0
+	github.com/slack-go/slack v0.36.0
 	github.com/spf13/cobra v1.10.2
 	github.com/twmb/franz-go v1.22.3
 	github.com/twmb/franz-go/pkg/kfake v0.0.0-20261013022759-7b6cac30a57a
@@ -74,7 +74,7 @@ require (
 
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect
-	github.com/andybalholm/cascadia v1.3.4 // indirect
+	github.com/andybalholm/cascadia v1.3.5 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/clipperhouse/displaywidth v0.10.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.6.0 // indirect

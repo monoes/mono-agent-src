@@ -33,7 +33,7 @@ func doctorDeps(cfg *globalConfig) doctorcli.Deps {
 func healthEnvDeps(cfg *globalConfig) doctorcli.EnvDeps {
 	return doctorcli.EnvDeps{
 		RequireOperator: cfg.requireOperator,
-		OpenModeExtra:   openModeDoctorExtra,
+		OpenModeExtra:   openModeDoctorExtra(cfg),
 		DBPath:          func() string { return cfg.DBPath },
 		ProfileID:       func() string { return cfg.ProfileID },
 		Version:         getVersion,

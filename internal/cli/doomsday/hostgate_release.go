@@ -17,15 +17,17 @@ type Hooks struct {
 	BeforeRelease func(ctx context.Context, profileID, conversationID, turnID string, bound bool) error
 	// Adopt puts the already started turn's process into the run's unit (HostGate.Adopt); held says the unit reaps the leader.
 	Adopt func(profileID, conversationID string, pid int, stamp string) (held bool, err error)
-	// Place puts the turn's process in the run's ticket cgroup before it exists; release closes the descriptor after Start.
-	Place func(cmd *exec.Cmd, profileID, conversationID string) (release func(), err error)
+	// Place puts the turn's process in the run's unit (HostGate.PlaceRelease); release completes the placement after
+	// Start, and its error means the process never ran and the start failed.
+	Place func(cmd *exec.Cmd, profileID, conversationID string) (release func() error, err error)
 	// PlaceRequired says whether a turn must be placed (a run is open); the legacy launch is refused only then.
 	PlaceRequired func(profileID, conversationID string) (bool, error)
 }
 
 const maxReleased = 4096
 
-// noteStart records the generation of the open run (0: none) that Place or Adopt saw when conv's turn was started; takeStart reads and
+// noteStart records the generation of the open run (0: none) that Place saw, or a successful Adopt put the process into, when conv's
+// turn was started; takeStart reads and
 // consumes it at BeforeRelease. A launcher that never asked Place leaves no record, and a record the release never consumed (a start that
 // failed) is replaced by the conversation's next start.
 func (g *HostGate) noteStart(conv string, gen int64) {

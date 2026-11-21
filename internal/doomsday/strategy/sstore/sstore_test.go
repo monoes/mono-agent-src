@@ -194,6 +194,43 @@ func TestBadJudgmentAndAbandonAfterStop(t *testing.T) {
 	}
 }
 
+func TestBadJudgmentAuditCarriesTheBoundedReason(t *testing.T) {
+	e := newEnv(t)
+	e.s.InsertEpoch(ctx, e.epoch(1, types.TriggerTimer))
+	if err := e.s.MoveEpochBad(ctx, e.prof, e.gen, 1, "2 of 3 criteria judged"); err != nil {
+		t.Fatal(err)
+	}
+	if n := e.count(t, `SELECT COUNT(*) FROM doomsday_audit WHERE kind = ? AND payload LIKE ?`, types.KindBadJudgment, `%"reason":"2 of 3 criteria judged"%`); n != 1 {
+		t.Fatalf("the audit line does not carry the reason: %d", n)
+	}
+	e.auditOK(t)
+}
+
+// The write side strips controls and invisible format characters; a row written without a reason (as before the reason
+// existed) reads back as no reason, never as an error.
+func TestBadJudgmentReasonIsCleanedOnTheWriteSide(t *testing.T) {
+	e := newEnv(t)
+	e.s.InsertEpoch(ctx, e.epoch(1, types.TriggerTimer))
+	e.s.InsertEpoch(ctx, e.epoch(2, types.TriggerTimer))
+	if err := e.s.MoveEpochBad(ctx, e.prof, e.gen, 1, "bad‮\u0085\x1b status"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.s.MoveEpochBad(ctx, e.prof, e.gen, 2, ""); err != nil {
+		t.Fatal(err)
+	}
+	m, err := e.core.StrategyBadReasons(ctx, e.prof, e.gen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := m[types.EpochID(e.prof, e.gen, 1)]; got != "bad status" {
+		t.Fatalf("the reason was not cleaned: %q", got)
+	}
+	if got, ok := m[types.EpochID(e.prof, e.gen, 2)]; ok {
+		t.Fatalf("a row without a reason read back one: %q", got)
+	}
+	e.auditOK(t)
+}
+
 func TestUncheckedProposalCapPerEpoch(t *testing.T) {
 	e := newEnv(t)
 	e.s.InsertEpoch(ctx, e.epoch(1, types.TriggerTimer))

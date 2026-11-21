@@ -18,6 +18,8 @@ const (
 	openModeVaultCmd      = "monoagentcli --profile %s secret add --kind secret --name scratch-key"
 	openModeHostStopCmd   = "monoagentcli --profile %s coder host stop"
 	openModeActiveStopCmd = "monoagentcli --profile %s doomsday stop"
+	// strandedUnitNext is the way out of a stranded unit, shared by the open-mode and turns rows.
+	strandedUnitNext = " (stop the run, then start it again: a host restart ends open-ended runs on this platform)"
 )
 
 // OpenModeStep is one read-only containment requirement and what it found ("" Err = met).
@@ -41,6 +43,9 @@ type OpenModeFacts struct {
 	HostRunning             bool   // a coder host holds its lock
 	ActiveRun               bool   // this profile has a run that is not quiescent
 	ActiveErr               string // the run table could not be read
+	// StrandedUnit is why the open run's process group cannot take a turn from the running host ("" otherwise): macOS, a group
+	// made by an earlier host (a host restart ended the run's placement).
+	StrandedUnit string
 }
 
 func openModeChecks() []Check {
@@ -118,6 +123,12 @@ func checkOpenMode(ctx context.Context, env *Env) Result {
 			fmt.Sprintf(openModeActiveStopCmd, p))
 	default:
 		add("active_run", "Active run", StatusOK, "no run", "")
+	}
+
+	if f.ActiveRun && f.StrandedUnit != "" {
+		add("unit", "Run's process group", StatusWarn, f.StrandedUnit+": every turn of this run is refused", fmt.Sprintf(openModeActiveStopCmd, p)+strandedUnitNext)
+	} else {
+		add("unit", "Run's process group", StatusOK, "no stranded run", "")
 	}
 
 	// The row is advice: whatever a machine lacks, it never fails the core group (`setup --group core` and the CI

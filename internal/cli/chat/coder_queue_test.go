@@ -286,6 +286,9 @@ func TestCoderQueueStartCreatesTheConversation(t *testing.T) {
 	withCoderCaps(t, monomind.CoderCapabilities...)
 	withFakeBrowser(t)
 	project := t.TempDir()
+	if r, err := filepath.EvalSymlinks(project); err == nil { // the queue keeps the folder as resolved (/private/var, not /var, on macOS)
+		project = r
+	}
 	it := queueAdd(t, dbPath, "--kind", "copy-style", "--selector", ".cta", "--cwd", project)
 	if it.Cwd != project {
 		t.Fatalf("cwd = %q, want %q", it.Cwd, project)

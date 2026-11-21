@@ -95,6 +95,12 @@ func HostRunningAt(dbPath string) bool {
 	return hostRunning(cfg)
 }
 
+// HostPIDAt is the pid the running host published for the database at dbPath (ok false when it published none).
+func HostPIDAt(dbPath string) (int, bool) {
+	h, ok := readHostInfo(&Deps{DBPath: func() string { return dbPath }})
+	return h.PID, ok && h.PID > 0
+}
+
 func readHostInfo(cfg *Deps) (hostInfo, bool) {
 	raw, state := coderhost.ReadHostInfoFile(clicore.ExpandPath(cfg.DBPath())) // bounded, plain file only: a pipe cannot hang status or stop
 	var h hostInfo

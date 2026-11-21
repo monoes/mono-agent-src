@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -252,7 +253,16 @@ func TestAppUpdateWindowsSwapsExeAndCLI(t *testing.T) {
 	}
 }
 
+// needUnzip skips a test that reaches installMacOS when the system unzip is missing (Windows).
+func needUnzip(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("unzip"); err != nil {
+		t.Skip("needs the system unzip, which installMacOS runs")
+	}
+}
+
 func TestAppUpdateMacOSSwapsBundle(t *testing.T) {
+	needUnzip(t)
 	var zbuf bytes.Buffer
 	zw := zip.NewWriter(&zbuf)
 	for n, body := range map[string]string{
@@ -290,6 +300,7 @@ func TestAppUpdateMacOSSwapsBundle(t *testing.T) {
 }
 
 func TestAppUpdateMacOSWithoutACLIOnlyLeavesResultCLINil(t *testing.T) {
+	needUnzip(t)
 	var zbuf bytes.Buffer
 	zw := zip.NewWriter(&zbuf)
 	w, _ := zw.Create("MonoAgent.app/Contents/MacOS/monoagent-ui")
@@ -366,10 +377,34 @@ func TestSwapScriptsQuotePaths(t *testing.T) {
 		t.Fatalf("macOS reopen = %s", got)
 	}
 	w := windowsRestartScript(`C:\A B\app.exe`, []string{`C:\A B\app.exe`, `C:\A B\monoagentcli.exe`})
-	for _, want := range []string{`del /Q "C:\A B\app.exe.bak"`, `del /Q "C:\A B\monoagentcli.exe.bak"`, `start "" "C:\A B\app.exe"`, `del /Q "%~f0"`} {
-		if !strings.Contains(w, want+"\r\n") {
+	for _, want := range []string{`del /Q "C:\A B\app.exe.bak" 2>nul`, `del /Q "C:\A B\monoagentcli.exe.bak" 2>nul`, `start "" "C:\A B\app.exe"`, `del /Q "%~f0"`} {
+		if !strings.Contains(w, want) {
 			t.Fatalf("windows script lacks %q:\n%s", want, w)
 		}
+	}
+}
+
+// timeout /t exits at once when the script has no console (it is started detached), so the wait is a ping, and the removal of
+// each .bak is retried a bounded number of times while the old image is still held.
+func TestWindowsRestartScriptWaitsWithPingAndRetriesTheDelete(t *testing.T) {
+	w := windowsRestartScript(`C:\A B\app.exe`, []string{`C:\A B\app.exe`, `C:\A B\monoagentcli.exe`})
+	if strings.Contains(strings.ToLower(w), "timeout") {
+		t.Fatalf("script still uses timeout:\n%s", w)
+	}
+	if !strings.Contains(w, "ping -n 3 127.0.0.1 >nul\r\n") {
+		t.Fatalf("script lacks the ping wait:\n%s", w)
+	}
+	for _, bak := range []string{`C:\A B\app.exe.bak`, `C:\A B\monoagentcli.exe.bak`} {
+		want := `for /L %%i in (1,1,10) do if exist "` + bak + `" (`
+		if !strings.Contains(w, want) {
+			t.Fatalf("script lacks a bounded retry for %s:\n%s", bak, w)
+		}
+		if !strings.Contains(w, `del /Q "`+bak+`" 2>nul`) {
+			t.Fatalf("script lacks the del of %s:\n%s", bak, w)
+		}
+	}
+	if !strings.Contains(w, `start "" "C:\A B\app.exe"`+"\r\n") || !strings.Contains(w, `del /Q "%~f0"`) {
+		t.Fatalf("script lost the restart or the self delete:\n%s", w)
 	}
 }
 

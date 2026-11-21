@@ -92,6 +92,8 @@ type Status struct {
 	Warning        string `json:"warning,omitempty"`
 	FirstTurn      string `json:"first_turn,omitempty"`
 	FirstTurnError string `json:"first_turn_error,omitempty"`
+	// Progress is the judge's reported count against the target of each counted criterion; only `status` fills it.
+	Progress []CriterionCountView `json:"progress,omitempty"`
 }
 
 // Engine is what the store and stop packages give the CLI. Enter must

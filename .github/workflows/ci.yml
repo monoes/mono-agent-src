@@ -79,6 +79,7 @@ jobs:
       account: ${{ steps.c.outputs.account }}
       docs_only: ${{ steps.c.outputs.docs_only }}
       ci_workflow: ${{ steps.c.outputs.ci_workflow }}
+      tags: ${{ steps.c.outputs.tags }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Compute changed paths
@@ -96,7 +97,17 @@ jobs:
             fi
           fi
           echo "changed files:"; echo "$files"
-          printf '%s\n' "$files" | bash .github/scripts/ci-changes.sh | tee -a "$GITHUB_OUTPUT"
+          out="$(printf '%s\n' "$files" | bash .github/scripts/ci-changes.sh)"
+          printf '%s\n' "$out" | tee -a "$GITHUB_OUTPUT"
+          # The tag list of the Test shard matrix. The nosocial cells exist only when
+          # ci-changes.sh says the change can reach the nosocial build (push to master,
+          # CI_TRIM=off, an unknown path or a failed diff all say so), so a trimmed
+          # pull request never queues a runner for them.
+          if printf '%s\n' "$out" | grep -qx 'nosocial=true'; then
+            echo 'tags=["default","nosocial"]' | tee -a "$GITHUB_OUTPUT"
+          else
+            echo 'tags=["default"]' | tee -a "$GITHUB_OUTPUT"
+          fi
 
   # Guards MA-04: .mcp.json must pin an exact Monomind version. A floating
   # `@latest`/caret/tilde reference means a future, unreviewed package
@@ -499,15 +510,18 @@ jobs:
   test-shards:
     name: Test shard (${{ matrix.tags }} ${{ matrix.shard }})
     needs: changes
-    # A job-level `if` cannot see the matrix, so the nosocial cells are skipped
-    # step by step (a skipped cell still reports green after a few seconds).
+    # A job-level `if` cannot see the matrix, so the tag list comes from the
+    # `changes` job: the nosocial cells are not created at all when the change
+    # cannot reach the nosocial build (a cell that merely skipped its steps still
+    # waited in the hosted queue for a runner). The step-level `if`s below are a
+    # second guard.
     if: needs.changes.outputs.go == 'true'
     runs-on: ${{ fromJSON((((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'push') && vars.CI_RUNNER) || '"ubuntu-latest"') }}
     strategy:
       # Every shard always runs to the end, on PR runs too: one flaky shard must not cancel the healthy ones (a re-run then needs only the failed job), and a cancelled shard would also block the merge and the release proof. "Build & test (default)" and "(nosocial)" fail when any shard failed or was cancelled.
       fail-fast: false
       matrix:
-        tags: [default, nosocial]
+        tags: ${{ fromJSON(needs.changes.outputs.tags) }}
         # TEMPORARY: for tags=default the single `rest` cell is split into
         # r0..r3 (see the exclude/include below). Revert to restore it.
         shard: [rest, r0, r1, r2, r3, tp1, tp2, '0', '1', '2', '3']
@@ -748,6 +762,9 @@ jobs:
   test-nosocial:
     name: Build & test (nosocial)
     needs: [changes, test-shards]
+    # Always reports, like "Build & test (default)": when the changed paths cannot
+    # reach the nosocial build its steps are skipped and the job is green; a failed
+    # or cancelled need still fails it in the first step.
     if: ${{ !cancelled() }}
     runs-on: ${{ fromJSON((((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'push') && vars.CI_RUNNER) || '"ubuntu-latest"') }}
     steps:
@@ -758,20 +775,20 @@ jobs:
           exit 1
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: needs.changes.outputs.go == 'true'
+        if: needs.changes.outputs.go == 'true' && needs.changes.outputs.nosocial == 'true'
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        if: needs.changes.outputs.go == 'true'
+        if: needs.changes.outputs.go == 'true' && needs.changes.outputs.nosocial == 'true'
         with:
           go-version-file: go.mod
           cache: ${{ runner.environment == 'github-hosted' }}
 
       - name: Build
-        if: needs.changes.outputs.go == 'true'
+        if: needs.changes.outputs.go == 'true' && needs.changes.outputs.nosocial == 'true'
         run: go build -tags nosocial ./...
 
       - name: Vet
-        if: needs.changes.outputs.go == 'true'
+        if: needs.changes.outputs.go == 'true' && needs.changes.outputs.nosocial == 'true'
         run: go vet -tags nosocial ./...
 
       - name: Test

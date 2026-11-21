@@ -123,7 +123,7 @@ func (failingKeyer) MAC(string, ...[]byte) ([]byte, error) { return nil, errors.
 
 type standaloneOnly struct {
 	stop.Placement
-	placed, ticketed int
+	placed int
 }
 
 func (s *standaloneOnly) PlaceStandalone(cmd *exec.Cmd) (func(), error) {
@@ -166,3 +166,6 @@ func (p *plainPlacement) PlaceTicket(uint64, *exec.Cmd) (func(), error) {
 	return func() {}, nil
 }
 func (p *plainPlacement) PlaceLeased(*exec.Cmd) error { return nil }
+func (p *plainPlacement) PlaceCommit(*exec.Cmd) (func() error, error) {
+	return func() error { return nil }, nil
+}
