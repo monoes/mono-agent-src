@@ -183,7 +183,7 @@ describe('Your first run', () => {
     go.CreateWorkflowFromTemplate.mockRejectedValue('Log in to monoes.me first: your session ended.')
     renderStep([])
     fireEvent.click(screen.getByRole('button', { name: /Read a web page/ }))
-    await waitFor(() => expect(screen.getByText('Log in to monoes.me first: your session ended.')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(i18n.t('onboarding.shell.signIn'))).toBeInTheDocument())
     expect(go.RunWorkflow).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: /Read a web page/ })).toBeEnabled()
   })

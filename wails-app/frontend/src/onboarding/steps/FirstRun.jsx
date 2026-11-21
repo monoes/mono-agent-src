@@ -102,7 +102,7 @@ export default function FirstRun({ state, mark, goTo, setCanContinue }) {
   const { run, start, busy } = useStarterRun({
     onSuccess: async () => {
       const r = await mark('firstRun')
-      if (r && r.ok === false) setMarkError(r.message)
+      if (r && r.ok === false) setMarkError(r.loginRequired ? t('onboarding.shell.signIn') : r.message)
     },
   })
   const over = run && (run.phase === 'done' || run.phase === 'failed')
@@ -166,7 +166,9 @@ export default function FirstRun({ state, mark, goTo, setCanContinue }) {
           {run.phase === 'failed' && (
             <div className="onb-fr-failed" role="alert">
               <p className="onb-fr-failed-h">{t('onboarding.firstRun.failed')}</p>
-              {run.error && <p className="onb-error">{run.error}</p>}
+              {run.loginRequired
+                ? <p className="onb-error">{t('onboarding.shell.signIn')}</p>
+                : run.error && <p className="onb-error">{run.error}</p>}
               {reasonLine(t, run.reason) && <p className="onb-hint">{reasonLine(t, run.reason)}</p>}
               {current && (
                 <button type="button" className="onb-btn sm" onClick={() => pick(current)}>
