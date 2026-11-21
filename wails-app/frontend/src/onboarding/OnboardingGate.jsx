@@ -18,7 +18,7 @@ export { OnboardingContext }
 export default function OnboardingGate({ banners = null }) {
   const { t } = useTranslation()
   const ob = useOnboarding()
-  const { reload } = ob
+  const { reload, loadFull } = ob
   // undefined: not decided yet; null: the app; { stepId, mode }: the onboarding
   const [open, setOpen] = useState(undefined)
   const [nav, setNav] = useState(null)
@@ -29,17 +29,17 @@ export default function OnboardingGate({ banners = null }) {
   }
 
   const openOnboarding = useCallback(async (stepId, mode = 'full') => {
-    await reload()
+    await loadFull()
     setNav(null)
     setOpen({ stepId: typeof stepId === 'string' ? stepId : undefined, mode: mode === 'profile' ? 'profile' : 'full' })
-  }, [reload])
+  }, [loadFull])
 
   const onFinish = useCallback((next) => {
     setNav(next && next.page ? { page: next.page, opts: next.opts } : null)
     setOpen(null)
   }, [])
 
-  const ctx = useMemo(() => ({ openOnboarding, state: ob.state, reload }), [openOnboarding, ob.state, reload])
+  const ctx = useMemo(() => ({ openOnboarding, state: ob.state, reload, loadFull }), [openOnboarding, ob.state, reload, loadFull])
 
   if (open === undefined) {
     return (

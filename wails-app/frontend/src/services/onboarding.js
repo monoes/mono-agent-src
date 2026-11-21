@@ -10,6 +10,8 @@ export const onboarding = {
   ready: () => GoApp.IsReady(),
   // { completed, currentStep, profileId, steps: [{ id, status }] }
   state: () => GoApp.GetOnboardingState(),
+  // the same, with every step's facts read even on a completed install
+  stateFull: () => GoApp.GetOnboardingStateFull(),
   mark: (id) => GoApp.MarkOnboardingStep(id),
   skip: (id) => GoApp.SkipOnboardingStep(id),
   complete: () => GoApp.CompleteOnboarding(),

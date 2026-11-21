@@ -1,7 +1,14 @@
-// The onboarding's state, read from GetOnboardingState on mount and after every
-// mark, skip, complete or restart. loading is true only until the first answer;
-// later reloads keep the last good state on screen. error is the first load's
-// failure message, '' otherwise. Every action resolves to callStep's result.
+// The onboarding's state, read on mount and after every mark, skip, complete
+// or restart. loading is true only until the first answer; later reloads keep
+// the last good state on screen. error is the first load's failure message, ''
+// otherwise. Every action resolves to callStep's result.
+// Two reads: GetOnboardingState is fast on a completed install (it skips the
+// per-step facts), so the gate's first read uses it. loadFull() switches the
+// hook to GetOnboardingStateFull for good and reads with it; from then on
+// reload() and every action's re-read use the full one too. The gate calls it
+// when it opens the onboarding over a finished state; an answer saying
+// "not completed" switches to full reads by itself (the fast read already
+// gathered every fact for it).
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { onboarding } from '../services/onboarding.js'
 import { callStep } from './callStep.js'
@@ -17,6 +24,7 @@ export function useOnboarding() {
   const [error, setError] = useState('')
   const alive = useRef(true)
   const seq = useRef(0)
+  const full = useRef(false)
 
   useEffect(() => {
     alive.current = true
@@ -25,11 +33,13 @@ export function useOnboarding() {
 
   const reload = useCallback(async () => {
     const mine = ++seq.current
-    let r = await callStep(() => onboarding.state())
+    let r = await callStep(() => (full.current ? onboarding.stateFull() : onboarding.state()))
     if (r.ok && !readable(r.value)) r = { ok: false, loginRequired: false, message: 'the onboarding state could not be read' }
     // an older answer that lands after a newer one is dropped
     if (!alive.current || mine !== seq.current) return r
     if (r.ok) {
+      // an install that is not finished shows the onboarding: full reads from now on
+      if (r.value.completed === false) full.current = true
       setState(r.value)
       setError('')
     } else {
@@ -69,6 +79,11 @@ export function useOnboarding() {
     return () => { live = false; clearTimeout(deadline) }
   }, [reload])
 
+  const loadFull = useCallback(() => {
+    full.current = true
+    return reload()
+  }, [reload])
+
   // write: one binding call, then a fresh read when it worked; the call's result.
   const write = useCallback(async (call) => {
     const r = await callStep(call)
@@ -81,5 +96,5 @@ export function useOnboarding() {
   const complete = useCallback(() => write(() => onboarding.complete()), [write])
   const restart = useCallback(() => write(() => onboarding.restart()), [write])
 
-  return { state, loading, error, reload, mark, skip, complete, restart }
+  return { state, loading, error, reload, loadFull, mark, skip, complete, restart }
 }

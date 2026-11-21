@@ -342,6 +342,8 @@ export function GetOAuthCredentials(arg1:string):Promise<string>;
 
 export function GetOnboardingState():Promise<main.OnboardingState>;
 
+export function GetOnboardingStateFull():Promise<main.OnboardingState>;
+
 export function GetOrgApprovals(arg1:string):Promise<string>;
 
 export function GetOrgAutonomy(arg1:string):Promise<string>;

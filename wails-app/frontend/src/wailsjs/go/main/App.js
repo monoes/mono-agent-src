@@ -678,6 +678,10 @@ export function GetOnboardingState() {
   return window['go']['main']['App']['GetOnboardingState']();
 }
 
+export function GetOnboardingStateFull() {
+  return window['go']['main']['App']['GetOnboardingStateFull']();
+}
+
 export function GetOrgApprovals(arg1) {
   return window['go']['main']['App']['GetOrgApprovals'](arg1);
 }

@@ -10,6 +10,7 @@ import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 const go = vi.hoisted(() => ({
   IsReady: vi.fn(() => Promise.resolve(true)),
   GetOnboardingState: vi.fn(),
+  GetOnboardingStateFull: vi.fn(),
   MarkOnboardingStep: vi.fn(() => Promise.resolve()),
   SkipOnboardingStep: vi.fn(() => Promise.resolve()),
   CompleteOnboarding: vi.fn(() => Promise.resolve()),
@@ -49,6 +50,7 @@ const stateOf = (over = {}) => ({ completed: false, currentStep: 'welcome', prof
 beforeEach(async () => {
   await i18n.changeLanguage('en')
   go.GetOnboardingState.mockReset()
+  go.GetOnboardingStateFull.mockReset()
   go.IsReady.mockClear()
   go.MarkOnboardingStep.mockClear()
   go.CompleteOnboarding.mockClear()
@@ -137,16 +139,23 @@ describe('the onboarding gate', () => {
 
   it('openOnboarding(stepId) shows Onboarding at that step over a completed state', async () => {
     go.GetOnboardingState.mockResolvedValue(stateOf({ completed: true, currentStep: 'finish' }))
+    go.GetOnboardingStateFull.mockResolvedValue(stateOf({ completed: true, currentStep: 'finish' }))
     render(<OnboardingGate banners={null} />)
     fireEvent.click(await screen.findByText('reopen'))
     expect(await screen.findByTestId('step-monomind')).toBeInTheDocument()
     expect(heading()).toHaveTextContent('Turn on monomind')
-    // it asks again, so a restart from inside the app shows the new statuses
-    expect(go.GetOnboardingState).toHaveBeenCalledTimes(2)
+    // it asks again, with every fact, so a restart from inside the app shows the new statuses
+    expect(go.GetOnboardingState).toHaveBeenCalledTimes(1)
+    expect(go.GetOnboardingStateFull).toHaveBeenCalledTimes(1)
+    // and keeps reading the full state while it is open
+    await act(async () => { await seen.monomind.mark('monomind') })
+    expect(go.GetOnboardingStateFull).toHaveBeenCalledTimes(2)
+    expect(go.GetOnboardingState).toHaveBeenCalledTimes(1)
   })
 
   it('openOnboarding() opens at the current step; finishing brings the app back with its nav', async () => {
-    go.GetOnboardingState.mockResolvedValue(stateOf({ completed: true, currentStep: 'agents' }))
+    go.GetOnboardingState.mockResolvedValue(stateOf({ completed: true, currentStep: 'finish' }))
+    go.GetOnboardingStateFull.mockResolvedValue(stateOf({ completed: true, currentStep: 'agents' }))
     render(<OnboardingGate banners={null} />)
     fireEvent.click(await screen.findByText('reopen at current'))
     expect(await screen.findByTestId('step-agents')).toBeInTheDocument()
@@ -159,12 +168,16 @@ describe('the onboarding gate', () => {
     go.GetOnboardingState.mockResolvedValue(stateOf())
     render(<OnboardingGate banners={null} />)
     await screen.findByTestId('step-welcome')
-    go.GetOnboardingState.mockResolvedValue(stateOf({ currentStep: 'system', steps: IDS.map(id => ({ id, status: id === 'welcome' ? 'done' : 'todo' })) }))
+    // a first answer of "not completed" already carried every fact: no second read yet
+    expect(go.GetOnboardingStateFull).not.toHaveBeenCalled()
+    go.GetOnboardingStateFull.mockResolvedValue(stateOf({ currentStep: 'system', steps: IDS.map(id => ({ id, status: id === 'welcome' ? 'done' : 'todo' })) }))
     let r
     await act(async () => { r = await seen.welcome.mark('welcome') })
     expect(r).toEqual({ ok: true, value: undefined })
     expect(go.MarkOnboardingStep).toHaveBeenCalledWith('welcome')
-    expect(go.GetOnboardingState).toHaveBeenCalledTimes(2)
+    // the re-read after a mark is the full one
+    expect(go.GetOnboardingState).toHaveBeenCalledTimes(1)
+    expect(go.GetOnboardingStateFull).toHaveBeenCalledTimes(1)
     expect(document.querySelector('[data-step="welcome"]')).toHaveAttribute('data-status', 'done')
     // still on the step the person is on: a reload never moves them
     expect(heading()).toHaveTextContent('Welcome')
@@ -174,7 +187,7 @@ describe('the onboarding gate', () => {
     go.GetOnboardingState.mockResolvedValue(stateOf({ currentStep: 'finish' }))
     render(<OnboardingGate banners={null} />)
     await screen.findByTestId('step-finish')
-    go.GetOnboardingState.mockResolvedValue(stateOf({ completed: true, currentStep: 'finish' }))
+    go.GetOnboardingStateFull.mockResolvedValue(stateOf({ completed: true, currentStep: 'finish' }))
     await act(async () => { await seen.finish.complete() })
     expect(go.CompleteOnboarding).toHaveBeenCalled()
     act(() => seen.finish.onFinish())
