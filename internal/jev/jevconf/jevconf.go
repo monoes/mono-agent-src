@@ -102,8 +102,9 @@ func NewClient(ctx context.Context, db *sql.DB, profileID, explicitKey, model st
 }
 
 // Recorder returns an OnResult hook writing one jev_usage row per call of a
-// TypeSafe client. Recording failures are ignored: bookkeeping must never
-// fail a decision.
+// TypeSafe client, exactly as before providers existed (provider NULL means
+// TypeSafe). Recording failures are ignored: bookkeeping must never fail a
+// decision.
 func Recorder(db *sql.DB, profileID string, s Surface) func(*jev.Request, *jev.Response, time.Duration, error) {
 	return recorder(db, profileID, s, jev.ProviderTypeSafe, 0, 0)
 }
@@ -136,6 +137,13 @@ func recorder(db *sql.DB, profileID string, s Surface, provider string, usdIn, u
 		}
 		if err != nil {
 			ok = 0
+		}
+		if provider == jev.ProviderTypeSafe {
+			// Today's row: provider NULL is TypeSafe (native probabilities,
+			// free output, cost derived from input tokens at read time).
+			_, _ = db.Exec(`INSERT INTO jev_usage (profile_id, surface, model, questions, input_tokens, latency_ms, ok)
+				VALUES (?,?,?,?,?,?,?)`, profileID, string(s), model, len(req.Questions), tokens, latency.Milliseconds(), ok)
+			return
 		}
 		_, _ = db.Exec(`INSERT INTO jev_usage (profile_id, surface, model, questions, input_tokens, latency_ms, ok,
 			provider, output_tokens, probability_kind, cost_usd)

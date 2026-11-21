@@ -76,11 +76,19 @@ func TestWithNoProviderConfiguredEverythingIsTypeSafe(t *testing.T) {
 		t.Fatalf("NewClient = %+v %v", c, err)
 	}
 	askOnce(context.Background(), c)
-	var provider, kind string
-	var cost sql.NullFloat64
-	if err := db.QueryRow(`SELECT provider, COALESCE(probability_kind,''), cost_usd FROM jev_usage`).Scan(&provider, &kind, &cost); err != nil ||
-		provider != jev.ProviderTypeSafe || cost.Valid {
-		t.Fatalf("usage row: %q %q %v %v", provider, kind, cost, err)
+	// Today's row: the new columns stay NULL (NULL provider is TypeSafe), so
+	// a table without them still records.
+	var n int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM jev_usage WHERE surface = 'hil' AND provider IS NULL AND output_tokens IS NULL
+		AND probability_kind IS NULL AND cost_usd IS NULL`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("usage rows of today's shape: %d %v", n, err)
+	}
+	if _, err := db.Exec(`ALTER TABLE jev_usage DROP COLUMN cost_usd`); err != nil {
+		t.Fatal(err)
+	}
+	askOnce(context.Background(), c)
+	if err := db.QueryRow(`SELECT COUNT(*) FROM jev_usage`).Scan(&n); err != nil || n != 2 {
+		t.Fatalf("a table without the new columns: %d rows %v", n, err)
 	}
 }
 
