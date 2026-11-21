@@ -13,6 +13,7 @@ import (
 	"github.com/monoes/mono-agent/internal/jev"
 	"github.com/monoes/mono-agent/internal/jev/jevconf"
 	"github.com/monoes/mono-agent/internal/jev/jevtest"
+	"github.com/monoes/mono-agent/internal/jev/jevtest/callers"
 	"github.com/monoes/mono-agent/internal/secrets"
 	"github.com/monoes/mono-agent/internal/testdb"
 )
@@ -104,39 +105,55 @@ func TestRedirectsDoNotCarryTheKey(t *testing.T) {
 	}
 }
 
-// The provider's key goes to its own host only: never to the TypeSafe host
-// or one TYPESAFE_BASE_URL names, and the TypeSafe key never goes to it.
+// For every caller, the provider's key goes to its own host only: never to
+// the TypeSafe host or one TYPESAFE_BASE_URL names, and the TypeSafe key
+// never goes to it. A step refused its key sends nothing.
 func TestTheKeyReachesOnlyTheProvidersHost(t *testing.T) {
-	typesafe, envHost := jevtest.TwoHosts(t)
-	own := jevtest.NewProbe(t)
-	ctx := context.Background()
-	db := testdb.Open(t).DB
 	const typesafeKey = "typesafe-stored-key-for-tests"
-	for name, v := range map[string]string{jevconf.SecretName: typesafeKey, "anthropic-key": testKey} {
-		if _, err := secrets.Add(ctx, db, jevconf.VaultScope, "secret", name, map[string]string{"secret": v}, "", "", ""); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := jevconf.SaveProvider(ctx, db, jevconf.Provider{Name: "claude", Kind: Kind, BaseURL: own.URL, SecretName: "anthropic-key"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := jevconf.SetDefaultProvider(ctx, db, "claude"); err != nil {
-		t.Fatal(err)
-	}
-	c, err := jevconf.NewClient(ctx, db, "default", "", "", jevconf.NodeSurface("ai.choose"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, _ = c.Ask(ctx, map[string]any{}, oneNoul)
-	_, _ = c.Models(ctx)
-	if !own.Saw(testKey) || own.Calls() != 2 {
-		t.Errorf("the provider's host got %d calls, key seen %v", own.Calls(), own.Saw(testKey))
-	}
-	if own.Saw(typesafeKey) {
-		t.Error("the TypeSafe key reached the provider")
-	}
-	if typesafe.Calls()+envHost.Calls() != 0 {
-		t.Errorf("calls reached the TypeSafe host (%d) or the environment's host (%d)", typesafe.Calls(), envHost.Calls())
+	for _, cl := range callers.All() {
+		t.Run(cl.Name, func(t *testing.T) {
+			typesafe, envHost := jevtest.TwoHosts(t)
+			own := jevtest.NewProbe(t)
+			db := testdb.Open(t).DB
+			for name, v := range map[string]string{jevconf.SecretName: typesafeKey, "anthropic-key": testKey} {
+				if _, err := secrets.Add(context.Background(), db, jevconf.VaultScope, "secret", name, map[string]string{"secret": v}, "", "", ""); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := jevconf.SaveProvider(context.Background(), db, jevconf.Provider{Name: "claude", Kind: Kind, BaseURL: own.URL, SecretName: "anthropic-key"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := jevconf.SetDefaultProvider(context.Background(), db, "claude"); err != nil {
+				t.Fatal(err)
+			}
+			cl.Prepare(t)
+			ctx := cl.Ctx(t, db, context.Background(), "default", "ai.choose")
+			c, err := jevconf.NewClient(ctx, db, "default", "", "", jevconf.NodeSurface("ai.choose"))
+			if cl.Refused {
+				if !errors.Is(err, secrets.ErrResolveRefused) || c != nil {
+					t.Fatalf("a refused step got the provider's key: %v", err)
+				}
+			} else {
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, _ = c.Ask(ctx, map[string]any{}, oneNoul)
+				_, _ = c.Models(ctx)
+				if !own.Saw(testKey) || own.Calls() != 2 {
+					t.Errorf("the provider's host got %d calls, key seen %v", own.Calls(), own.Saw(testKey))
+				}
+			}
+			if cl.Refused && own.Calls() != 0 {
+				t.Errorf("a refused step sent %d request(s)", own.Calls())
+			}
+			if own.Saw(typesafeKey) {
+				t.Error("the TypeSafe key reached the provider")
+			}
+			if typesafe.Calls()+envHost.Calls() != 0 {
+				t.Errorf("calls reached the TypeSafe host (%d) or the environment's host (%d)", typesafe.Calls(), envHost.Calls())
+			}
+			cl.Audited(t, db, "default", "anthropic-key")
+		})
 	}
 }
 
