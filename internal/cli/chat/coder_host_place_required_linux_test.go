@@ -7,8 +7,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/coderhost"
 )
 
 // legacyPlaceRig is a legacy launcher the way `coder host run` builds it in every build: the open-ended mode's hooks are installed on it
@@ -18,7 +22,7 @@ func legacyPlaceRig(t *testing.T, required func(string, string) (bool, error)) (
 	bin, dir := scriptBin(t, "echo '{\"admitted\":true,\"existed\":false,\"turn\":{\"id\":\"t1\"}}'\necho $$ > \"$(dirname \"$0\")/pid\"\nsleep 300\n")
 	l = &execLauncher{bin: bin, dbPath: "/db/x.db", instance: "host-test", logDir: filepath.Join(dir, "turns"), revokeBackoff: time.Millisecond,
 		revoke: func(string, string) error { return nil },
-		place:  func(*exec.Cmd, string, string) (func(), error) { return func() {}, nil }, placeRequired: required}
+		place:  func(*exec.Cmd, string, string) (func() error, error) { return func() error { return nil }, nil }, placeRequired: required}
 	return l, filepath.Join(dir, "pid")
 }
 
@@ -119,7 +123,10 @@ func TestTheGateStartsAPlainTurnOnTheLegacyLauncherWhileBindingIsOffAndNoRunIsOp
 func TestABoundStartIsStillPlacedWhileARunIsOpen(t *testing.T) {
 	r := newBoundRig(t, "")
 	placed := 0
-	r.l.place = func(*exec.Cmd, string, string) (func(), error) { placed++; return func() {}, nil }
+	r.l.place = func(*exec.Cmd, string, string) (func() error, error) {
+		placed++
+		return func() error { return nil }, nil
+	}
 	r.l.placeRequired = func(string, string) (bool, error) { return true, nil }
 	turn, err := r.l.Start("default", "c1", "t1", "hi", nil, "")
 	if err != nil {
@@ -129,5 +136,45 @@ func TestABoundStartIsStillPlacedWhileARunIsOpen(t *testing.T) {
 	_ = turn.Wait()
 	if placed != 1 {
 		t.Errorf("the bound start was placed %d times", placed)
+	}
+}
+
+// A release that returns an error fails the start closed: the placement did not complete (on Windows the process could not be put
+// in the run's job), so the process is ended and reaped and the turn is not started.
+func TestAFailedPlacementReleaseFailsTheStartClosed(t *testing.T) {
+	r := newBoundRig(t, "")
+	pidp := capturePid(r.l)
+	var proc *exec.Cmd
+	r.l.place = func(c *exec.Cmd, _, _ string) (func() error, error) {
+		proc = c
+		return func() error { return errors.New("the job refused the process") }, nil
+	}
+	_, err := r.l.Start("default", "c1", "t1", "hi", nil, "")
+	if err == nil || coderhost.TurnStarted(err) || !strings.Contains(err.Error(), "the job refused the process") {
+		t.Fatalf("a failed release started the turn: %v", err)
+	}
+	if proc == nil || proc.ProcessState == nil {
+		t.Error("the process of a turn whose placement failed was not ended and reaped")
+	}
+	if pidp.Load() != 0 {
+		t.Error("a process was recorded for a turn that was never placed")
+	}
+}
+
+// A placement that succeeded is released once when the process then fails to start (on Windows the release finds no
+// process to put in the run's job), and the start's own error is what is reported.
+func TestAPlacementIsReleasedWhenTheProcessFailsToStart(t *testing.T) {
+	r := newBoundRig(t, "")
+	var released atomic.Int32
+	r.l.place = func(c *exec.Cmd, _, _ string) (func() error, error) {
+		c.Path = filepath.Join(t.TempDir(), "missing")
+		return func() error { released.Add(1); return nil }, nil
+	}
+	_, err := r.l.Start("default", "c1", "t1", "hi", nil, "")
+	if err == nil || coderhost.TurnStarted(err) || strings.Contains(err.Error(), "could not be placed") {
+		t.Fatalf("a process that cannot start: %v", err)
+	}
+	if released.Load() != 1 {
+		t.Errorf("release ran %d times", released.Load())
 	}
 }

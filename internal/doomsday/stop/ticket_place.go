@@ -140,6 +140,12 @@ func (p *Placer) place(cmd *exec.Cmd, ticket *uint64) (release func(), err error
 	}, nil
 }
 
+// PlaceCommit is Place for the Placement contract of a command whose placement completes after its start: the
+// command is born in the ticket cgroup as with Place, and commit releases it and never fails.
+func (p *Placer) PlaceCommit(cmd *exec.Cmd) (commit func() error, err error) {
+	return commitOf(p.Place(cmd))
+}
+
 // PlaceLeased is Place for a process that outlives the call that starts it (a coder turn): the command is placed
 // the same way, and the ticket cgroup is released when cmd is garbage collected, which is long after Start
 // returned. A cgroup that still holds the running process is not removed by the release (the kernel refuses);

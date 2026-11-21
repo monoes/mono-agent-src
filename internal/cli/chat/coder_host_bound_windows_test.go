@@ -5,11 +5,14 @@ package chat
 import (
 	"os"
 	"os/exec"
+	"syscall"
 	"testing"
 	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/monoes/mono-agent/internal/procresume"
 )
 
 // startBoundSleeper starts a real child through the bound launch (the frame pipe attached, the leader pinned).
@@ -75,6 +78,11 @@ func TestBoundStartRefusesAPlacementThatReplacedTheAttributes(t *testing.T) {
 		"another struct":      func(c *exec.Cmd) { c.SysProcAttr = nil },
 		"no process list":     func(c *exec.Cmd) { c.SysProcAttr.ProcessAttributes = nil },
 		"no thread list":      func(c *exec.Cmd) { c.SysProcAttr.ThreadAttributes = nil },
+		"replaced in place":   func(c *exec.Cmd) { c.SysProcAttr.AdditionalInheritedHandles[0] = 4 },
+		"another parent":      func(c *exec.Cmd) { c.SysProcAttr.ParentProcess = syscall.Handle(windows.CurrentProcess()) },
+		"an extra handle": func(c *exec.Cmd) {
+			c.SysProcAttr.AdditionalInheritedHandles = append(c.SysProcAttr.AdditionalInheritedHandles, 4)
+		},
 	} {
 		cmd := exec.Command(os.Args[0])
 		cmd.Env = append(os.Environ(), winE2ERole+"=sleep")
@@ -98,6 +106,34 @@ func TestBoundStartRefusesAPlacementThatReplacedTheAttributes(t *testing.T) {
 		if err == nil || cmd.Process != nil {
 			t.Errorf("%s: the turn was started (%v)", name, err)
 		}
+	}
+}
+
+// A placement that only adds CREATE_SUSPENDED and CREATE_BREAKAWAY_FROM_JOB (the run's job placement, #1723) is accepted: the turn
+// is created suspended, out of this process's job, with the launcher's locked lists and its own pipe, its leader is pinned, and the
+// creator's own handle can resume it. (The test needs a job that allows breakaway, or none.)
+func TestBoundStartAcceptsASuspendedPlacementAndTheCreatorCanResumeIt(t *testing.T) {
+	cmd := exec.Command(os.Args[0])
+	cmd.Env = append(os.Environ(), winE2ERole+"=sleep")
+	d, err := (&boundLaunch{}).attach(cmd, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.close()
+	if err := d.start(cmd, func(c *exec.Cmd) error {
+		c.SysProcAttr.CreationFlags |= windows.CREATE_SUSPENDED | windows.CREATE_BREAKAWAY_FROM_JOB
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	if d.proc.p == nil || !d.proc.p.Alive() {
+		t.Fatal("the suspended leader is not pinned")
+	}
+	var rerr error
+	_ = cmd.Process.WithHandle(func(h uintptr) { rerr = procresume.Resume(windows.Handle(h)) })
+	if rerr != nil {
+		t.Fatalf("the creator could not resume its locked, suspended turn: %v", rerr)
 	}
 }
 

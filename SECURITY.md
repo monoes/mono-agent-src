@@ -3748,6 +3748,7 @@ leader's KILL_ON_JOB_CLOSE job (it could not be made, the process left it, or th
 survive; (b) on a restart the host ends a turn the previous host left behind through a handle of its leader, opened and checked
 against the recorded creation stamp before the end, so a reused number is never hit, and the runtime dies with the leader's
 KILL_ON_JOB_CLOSE job, except when that job could not be made or a process left it.
+Under an open-ended run a Windows turn is put in the run's Job Object before it runs: it is created suspended as the host's own child (never under the run's anchor), assigned to the job, and only then resumed, so its processes end with `doomsday stop`. The run's job is nested in the job chain the anchor was started in. When the coder host's own job allows breakaway, the turn leaves that outer job and sheds its limits (memory, process count, being ended when the app or terminal that owns it closes): only the run's job governs it. Every placement failure ends the turn before it ran. To learn whether breakaway is allowed, each placement starts a throwaway suspended `cmd.exe` and ends it; a policy that blocks `cmd.exe` (AppLocker, an antivirus) therefore refuses every turn of a run.
 
 **Not part of this surface.** Running a caller's tool: the gateway returns the
 call and the caller runs it. The runtime's own native tools are a separate matter,

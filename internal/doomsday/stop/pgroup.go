@@ -442,6 +442,8 @@ func (p *pgPlacer) PlaceLeased(cmd *exec.Cmd) error {
 	return err
 }
 
+func (p *pgPlacer) PlaceCommit(cmd *exec.Cmd) (func() error, error) { return commitOf(p.place(cmd)) }
+
 func (p *pgPlacer) place(cmd *exec.Cmd) (func(), error) {
 	if cmd == nil || cmd.Process != nil {
 		return nil, fmt.Errorf("%w: the command is nil or already started", ErrNotPlaced)
