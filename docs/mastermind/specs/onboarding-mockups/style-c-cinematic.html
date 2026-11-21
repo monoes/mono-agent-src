@@ -1,0 +1,1552 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MonoAgent Onboarding: Cinematic</title>
+<style>
+:root{
+  --bg: oklch(0.14 0.045 285);
+  --ink: oklch(0.97 0.01 290);
+  --ink-2: oklch(0.84 0.02 290);
+  --ink-3: oklch(0.72 0.03 290);
+  --accent: oklch(0.83 0.15 72);
+  --accent-2: oklch(0.72 0.17 55);
+  --accent-ink: oklch(0.22 0.05 60);
+  --accent-soft: oklch(0.83 0.15 72 / 0.16);
+  --ok: oklch(0.82 0.14 158);
+  --ok-soft: oklch(0.82 0.14 158 / 0.14);
+  --skip: oklch(0.76 0.10 12);
+  --err: oklch(0.78 0.13 25);
+  --glass: oklch(0.16 0.04 288 / 0.84);
+  --glass-2: oklch(0.24 0.045 288 / 0.72);
+  --line: oklch(0.97 0.01 290 / 0.14);
+  --line-2: oklch(0.97 0.01 290 / 0.26);
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none !important}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:15px;line-height:1.5;overflow:hidden;-webkit-font-smoothing:antialiased}
+button,input{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:8px}
+
+/* ---------- World backdrop ---------- */
+:root{--pl:28px;--pw:clamp(400px,37vw,540px)}
+#world{position:fixed;inset:0;width:100%;height:100%;display:block}
+#stars{transition:opacity 3s var(--ease)}
+body.dawn #stars{opacity:.25}
+#dawn{opacity:0;transition:opacity 3s var(--ease)}
+body.dawn #dawn{opacity:1}
+#sunG{transform:translateY(260px);transition:transform 4s var(--ease)}
+body.dawn #sunG{transform:none}
+#warmSky,#warmV{transition:opacity 2.4s var(--ease)}
+.twinkle{animation:tw 5s ease-in-out infinite}
+@keyframes tw{0%,100%{opacity:.25}50%{opacity:1}}
+.drift{animation:drift 40s ease-in-out infinite alternate}
+@keyframes drift{from{transform:translateX(-40px)}to{transform:translateX(40px)}}
+#village{position:fixed;right:0;bottom:0;top:84px;left:calc(var(--pl) + var(--pw) - 90px);width:auto;height:auto;z-index:1;pointer-events:none}
+#village svg{width:100%;height:100%;display:block;overflow:visible}
+#vignette{position:fixed;inset:0;pointer-events:none;z-index:1;background:
+  linear-gradient(90deg, oklch(0.11 0.04 285 / 0.55) 0%, oklch(0.11 0.04 285 / 0.12) 40%, transparent 55%),
+  radial-gradient(140% 100% at 70% 80%, transparent 50%, oklch(0.09 0.04 285 / 0.5) 100%)}
+
+/* plots: hidden, planned (current step), ghost (skipped), built */
+.plot{display:none}
+.plot.built,.plot.ghost,.plot.plan{display:inline}
+.plot.ghost *,.plot.plan *{fill:none !important;stroke-width:1.3px !important;stroke-dasharray:3 4 !important;animation:none !important;filter:none !important}
+.plot.ghost *{stroke:oklch(0.82 0.03 290 / .5) !important}
+.plot.plan *{stroke:oklch(0.86 0.15 75 / .95) !important}
+.plot.plan{animation:planPulse 2.4s ease-in-out infinite}
+@keyframes planPulse{0%,100%{opacity:.55}50%{opacity:1}}
+.plot.ghost .fx,.plot.plan .fx{display:none}
+.plot.built .pc{transform-box:fill-box;transform-origin:50% 100%;animation:rise 1.1s var(--ease) both;animation-delay:calc(var(--i,0) * 170ms)}
+@keyframes rise{0%{opacity:0;transform:translateY(26px) scaleY(.2)}60%{opacity:1}100%{opacity:1;transform:none}}
+.plot.built .burst{transform-box:fill-box;transform-origin:center;animation:burst 1.4s ease-out both}
+@keyframes burst{0%{opacity:.9;transform:scale(.2)}100%{opacity:0;transform:scale(3.2)}}
+.burst{opacity:0}
+
+/* ambient life */
+.spin{transform-box:fill-box;transform-origin:center;animation:spin 9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.flick{transform-box:fill-box;transform-origin:50% 100%;animation:flick .9s ease-in-out infinite alternate}
+.flick.b{animation-duration:.7s;animation-delay:-.3s}
+@keyframes flick{0%{transform:scale(1,1)}50%{transform:scale(.88,1.12)}100%{transform:scale(1.06,.92)}}
+.glowp{animation:glowp 2.2s ease-in-out infinite}
+@keyframes glowp{0%,100%{opacity:.7}50%{opacity:1}}
+.spark{animation:spark 2.4s linear infinite;opacity:0}
+@keyframes spark{0%{opacity:0;transform:translate(0,0)}15%{opacity:1}100%{opacity:0;transform:translate(var(--sx,6px),-70px)}}
+.smoke{animation:smoke 5s linear infinite;opacity:0}
+@keyframes smoke{0%{opacity:0;transform:translate(0,0) scale(.6)}20%{opacity:.5}100%{opacity:0;transform:translate(18px,-60px) scale(1.8)}}
+.water{animation:water 3s linear infinite}
+@keyframes water{to{stroke-dashoffset:-40}}
+.bulb{animation:tw 3s ease-in-out infinite}
+.bird{animation:bird 26s linear infinite}
+@keyframes bird{from{transform:translate(-120px,20px)}to{transform:translate(1000px,-40px)}}
+
+/* walkers: mover slides along the lane, facer flips at each end, legs and arms swing */
+.mover{animation:walkx var(--t,24s) linear infinite;animation-delay:var(--dl,0s)}
+@keyframes walkx{0%{transform:translate(0,0)}50%{transform:translate(var(--d),var(--dy,0px))}100%{transform:translate(0,0)}}
+.facer{transform-box:fill-box;transform-origin:center;animation:face var(--t,24s) steps(1,end) infinite;animation-delay:var(--dl,0s)}
+@keyframes face{0%{transform:scaleX(1)}50%{transform:scaleX(-1)}100%{transform:scaleX(-1)}}
+.leg,.arm{transform-box:fill-box;transform-origin:50% 0;animation:swing .5s ease-in-out infinite alternate}
+.leg.b,.arm.a{animation-delay:-.5s}
+.robo .leg{animation-duration:.36s;--sw:18deg}
+.robo .leg.b{animation-delay:-.36s}
+@keyframes swing{from{transform:rotate(var(--sw,26deg))}to{transform:rotate(calc(var(--sw,26deg) * -1))}}
+.bob{animation:bob .25s ease-in-out infinite alternate}
+.robo .bob{animation-duration:.18s}
+@keyframes bob{from{transform:translateY(0)}to{transform:translateY(-1.2px)}}
+.blink{animation:blink 2s steps(1,end) infinite}
+@keyframes blink{0%,70%{opacity:1}71%,100%{opacity:.2}}
+
+/* the tag over the plot that the current step builds */
+#planTag{transition:transform .9s var(--ease),opacity .5s}
+#planTag text{font:600 13px var(--font);fill:oklch(0.96 0.02 85)}
+#planTag rect{fill:oklch(0.14 0.04 288 / .9);stroke:var(--accent)}
+
+/* ---------- Chrome ---------- */
+.app{position:relative;z-index:2;height:100%;display:grid;grid-template-rows:auto 1fr;padding:18px 28px 22px}
+.top{display:flex;align-items:center;gap:22px;min-height:64px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:650;letter-spacing:-.01em;white-space:nowrap}
+.brand svg{width:30px;height:30px}
+.brand small{display:block;font-weight:500;color:var(--ink-3);font-size:12px;letter-spacing:.02em}
+
+/* constellation progress */
+.journey{flex:1;min-width:0;position:relative}
+.journey ol{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(10,1fr);position:relative}
+.journey .wire{position:absolute;left:5%;right:5%;top:15px;height:2px;background:linear-gradient(90deg,var(--line-2),var(--line));border-radius:2px}
+.journey .wire i{position:absolute;inset:0 auto 0 0;background:linear-gradient(90deg,var(--accent-2),var(--accent));border-radius:2px;box-shadow:0 0 12px var(--accent);transition:width 1.2s var(--ease)}
+.journey li{display:flex;flex-direction:column;align-items:center;gap:6px;position:relative}
+.star{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:oklch(0.16 0.04 288 / .9);border:1px solid var(--line-2);color:var(--ink-3);font-size:12px;font-weight:650;cursor:default;padding:0;position:relative;transition:all .5s var(--ease)}
+.star svg{width:14px;height:14px}
+li.done .star{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);box-shadow:0 0 18px oklch(0.83 0.15 72 / .55)}
+li.skipped .star{background:oklch(0.16 0.04 288 / .9);border:1.5px dashed var(--skip);color:var(--skip)}
+li.current .star{background:var(--ink);color:var(--bg);border-color:var(--ink);box-shadow:0 0 0 6px oklch(0.97 0.01 290 / .12),0 0 26px oklch(0.97 0.01 290 / .45)}
+li.current .star::after{content:"";position:absolute;inset:-9px;border-radius:50%;border:1px solid oklch(0.97 0.01 290 / .35);animation:ring 2.8s var(--ease) infinite}
+@keyframes ring{from{transform:scale(.8);opacity:1}to{transform:scale(1.35);opacity:0}}
+.journey .lbl{font-size:11.5px;color:var(--ink-3);text-align:center;line-height:1.2;max-width:96px}
+li.current .lbl{color:var(--ink);font-weight:600}
+li.done .lbl{color:var(--ink-2)}
+li.skipped .lbl{color:var(--skip)}
+.journey .lbl em{display:block;font-style:normal;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;opacity:.9}
+
+/* ---------- Stage ---------- */
+.stage{display:flex;align-items:center;min-height:0;padding-top:14px}
+.panel{position:relative;background:var(--glass);border:1px solid var(--line);border-radius:26px;box-shadow:0 40px 120px oklch(0.05 0.03 285 / .65), inset 0 1px 0 oklch(0.97 0.01 290 / .08);backdrop-filter:blur(22px) saturate(1.3);-webkit-backdrop-filter:blur(22px) saturate(1.3);display:flex;flex-direction:column;max-height:calc(100vh - 140px);min-height:0}
+.panel{width:var(--pw)}
+.panel-body{padding:34px 38px 18px;overflow:auto;min-height:0}
+.panel-foot{display:flex;align-items:center;gap:10px;padding:16px 26px 20px 38px;border-top:1px solid var(--line)}
+.panel-foot .sp{flex:1}
+.eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:650;margin:0 0 10px}
+h1:focus{outline:none}
+h1{font-size:clamp(30px,3.3vw,44px);line-height:1.06;letter-spacing:-.025em;margin:0 0 14px;font-weight:680;text-wrap:balance}
+h2{font-size:16px;margin:0 0 6px;font-weight:650;letter-spacing:-.005em}
+.lead{font-size:17px;color:var(--ink-2);margin:0 0 22px;max-width:52ch;text-wrap:pretty}
+p{margin:0 0 12px}
+.muted{color:var(--ink-3)}
+.pointer{display:flex;gap:8px;align-items:center;margin-top:18px;font-size:13.5px;color:var(--ink-2);padding:10px 14px;border-radius:12px;background:oklch(0.97 0.01 290 / .05);border:1px solid var(--line)}
+.pointer svg{width:16px;height:16px;flex:none;color:var(--accent)}
+code{font-family:var(--mono);font-size:13px;background:oklch(0.97 0.01 290 / .08);padding:2px 6px;border-radius:6px}
+
+.scene-in{animation:sceneIn .9s var(--ease) both}
+@keyframes sceneIn{from{opacity:0;transform:translateY(18px) scale(.985);filter:blur(6px)}to{opacity:1;transform:none;filter:none}}
+
+/* ---------- Controls ---------- */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 20px;border-radius:999px;border:1px solid var(--line-2);background:oklch(0.97 0.01 290 / .06);color:var(--ink);font-weight:600;cursor:pointer;transition:background .25s var(--ease),transform .25s var(--ease),opacity .25s}
+.btn:hover:not(:disabled){background:oklch(0.97 0.01 290 / .12)}
+.btn:disabled{opacity:.42;cursor:not-allowed}
+.btn.primary{background:linear-gradient(180deg,var(--accent),var(--accent-2));border-color:transparent;color:var(--accent-ink);box-shadow:0 10px 30px oklch(0.72 0.17 55 / .35);padding:0 26px}
+.btn.primary:hover:not(:disabled){transform:translateY(-1px);background:linear-gradient(180deg,oklch(0.87 0.14 75),var(--accent))}
+.btn.primary:disabled{box-shadow:none;background:oklch(0.97 0.01 290 / .14);color:var(--ink-2)}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--ink-2)}
+.btn.ghost:hover:not(:disabled){background:oklch(0.97 0.01 290 / .07);color:var(--ink)}
+.btn.sm{min-height:34px;padding:0 14px;font-size:13.5px}
+.btn.ok{background:var(--ok-soft);border-color:oklch(0.82 0.14 158 / .4);color:var(--ok)}
+.btn svg{width:16px;height:16px}
+.hint-err{color:var(--err);font-size:13.5px;margin:8px 0 0;min-height:20px}
+
+.field{margin:0 0 18px}
+.field label,.field .fl{display:block;font-size:13px;font-weight:600;color:var(--ink-2);margin:0 0 7px;letter-spacing:.01em}
+.input{width:100%;min-height:46px;padding:0 14px;border-radius:12px;border:1px solid var(--line-2);background:oklch(0.11 0.035 288 / .7);color:var(--ink);font-size:15.5px;transition:border-color .2s,box-shadow .2s}
+.input::placeholder{color:oklch(0.62 0.03 290)}
+.input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 4px oklch(0.83 0.15 72 / .18)}
+.input[aria-invalid="true"]{border-color:var(--err)}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{min-height:36px;padding:0 14px;border-radius:999px;border:1px solid var(--line-2);background:oklch(0.97 0.01 290 / .05);cursor:pointer;font-size:14px;font-weight:550;color:var(--ink-2);transition:all .2s var(--ease)}
+.chip:hover{color:var(--ink);background:oklch(0.97 0.01 290 / .1)}
+.chip[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--ink)}
+.avatars{display:grid;grid-template-columns:repeat(8,1fr);gap:8px}
+.av{aspect-ratio:1;border-radius:14px;border:1px solid var(--line-2);background:oklch(0.97 0.01 290 / .05);display:grid;place-items:center;cursor:pointer;padding:0;transition:all .2s var(--ease)}
+.av svg{width:58%;height:58%}
+.av[aria-checked="true"]{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 3px oklch(0.83 0.15 72 / .2)}
+.folder{display:flex;gap:10px;align-items:center}
+.folder code{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:12px 12px;border-radius:12px;background:oklch(0.11 0.035 288 / .7);border:1px solid var(--line)}
+.preview{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;background:oklch(0.11 0.035 288 / .7);border:1px solid var(--line);max-width:300px}
+.preview .pav{width:38px;height:38px;border-radius:11px;background:var(--accent-soft);display:grid;place-items:center;flex:none}
+.preview .pav svg{width:22px;height:22px}
+.preview b{display:block;font-size:14.5px}
+.preview span{font-size:12px;color:var(--ink-3)}
+
+/* list rows (system check, run) */
+.rows{display:flex;flex-direction:column;gap:10px}
+.rowi{display:flex;align-items:center;gap:14px;padding:13px 16px;border-radius:14px;background:oklch(0.97 0.01 290 / .045);border:1px solid var(--line)}
+.rowi.appear{animation:sceneIn .6s var(--ease) both}
+.rowi .dot{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;flex:none;background:oklch(0.97 0.01 290 / .08);color:var(--ink-3)}
+.rowi .dot svg{width:15px;height:15px}
+.rowi.ok .dot{background:var(--ok-soft);color:var(--ok)}
+.rowi.bad .dot{background:oklch(0.78 0.13 25 / .16);color:var(--err)}
+.rowi.busy .dot{background:var(--accent-soft);color:var(--accent)}
+.rowi .t{flex:1;min-width:0}
+.rowi .t b{display:block;font-weight:600;font-size:15px}
+.rowi .t span{display:block;font-size:13px;color:var(--ink-3)}
+.rowi .st{font-size:13px;font-weight:600;white-space:nowrap}
+.rowi.ok .st{color:var(--ok)} .rowi.bad .st{color:var(--err)} .rowi.busy .st{color:var(--accent)}
+.spinner{width:15px;height:15px;border-radius:50%;border:2px solid oklch(0.83 0.15 72 / .3);border-top-color:var(--accent);animation:spin .9s linear infinite}
+
+.bar{height:6px;border-radius:6px;background:oklch(0.97 0.01 290 / .1);overflow:hidden;margin-top:8px}
+.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent-2),var(--accent));border-radius:6px;transition:width .4s linear}
+
+.list-plain{margin:0 0 6px;padding:0;list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.list-plain li{display:flex;gap:10px;align-items:center;padding:12px 14px;border-radius:14px;background:oklch(0.97 0.01 290 / .045);border:1px solid var(--line);font-weight:550}
+.list-plain li svg{width:18px;height:18px;color:var(--accent);flex:none}
+
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px}
+.card{padding:16px;border-radius:16px;background:oklch(0.97 0.01 290 / .045);border:1px solid var(--line)}
+.card svg.mini{width:100%;height:92px;display:block;margin-bottom:10px}
+.card p{font-size:13.5px;color:var(--ink-2);margin:0}
+
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tile{padding:14px;border-radius:16px;background:oklch(0.97 0.01 290 / .045);border:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+.tile.ready{border-color:oklch(0.82 0.14 158 / .45);background:oklch(0.82 0.14 158 / .07)}
+.tile header{display:flex;align-items:center;gap:10px}
+.tile header .lg{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;background:oklch(0.97 0.01 290 / .08);font-weight:700;font-size:13px}
+.tile header b{flex:1;font-size:14.5px}
+.tag{font-size:12px;font-weight:650;padding:3px 9px;border-radius:999px;white-space:nowrap}
+.tag.ok{background:var(--ok-soft);color:var(--ok)} .tag.warn{background:var(--accent-soft);color:var(--accent)} .tag.off{background:oklch(0.97 0.01 290 / .08);color:var(--ink-3)}
+.tile .hint{font-size:12.5px;color:var(--ink-2)}
+.tile .hint code{font-size:12px}
+.reviewer{display:flex;align-items:center;gap:10px;margin:0 0 14px;font-size:12.5px;color:var(--ink-3);padding:8px 12px;border-radius:10px;border:1px dashed var(--line-2);width:fit-content}
+.reviewer input{accent-color:oklch(0.83 0.15 72);width:16px;height:16px}
+.empty{padding:18px;border-radius:16px;border:1px dashed var(--line-2);margin-bottom:12px}
+.empty b{display:block;font-size:16px;margin-bottom:4px}
+
+/* sub stepper */
+.sub{display:flex;gap:6px;margin:0 0 18px;padding:0;list-style:none}
+.sub li{flex:1;font-size:12px;font-weight:600;color:var(--ink-3);padding-top:8px;border-top:3px solid var(--line-2);transition:all .4s var(--ease)}
+.sub li.on{color:var(--ink);border-color:var(--accent)}
+.sub li.done{color:var(--ok);border-color:var(--ok)}
+.choice{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.opt{display:flex;align-items:center;gap:12px;padding:14px;border-radius:14px;border:1px solid var(--line-2);background:oklch(0.97 0.01 290 / .045);cursor:pointer;text-align:left;width:100%}
+.opt:hover{background:oklch(0.97 0.01 290 / .09)}
+.opt[aria-checked="true"]{border-color:var(--accent);background:var(--accent-soft)}
+.opt .rd{width:18px;height:18px;border-radius:50%;border:2px solid var(--ink-3);flex:none;display:grid;place-items:center}
+.opt[aria-checked="true"] .rd{border-color:var(--accent)}
+.opt[aria-checked="true"] .rd::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--accent)}
+.opt b{display:block;font-size:14.5px} .opt span{font-size:12.5px;color:var(--ink-3)}
+.steps-ol{margin:0 0 14px;padding:0;list-style:none;counter-reset:s;display:flex;flex-direction:column;gap:10px}
+.steps-ol li{counter-increment:s;display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-radius:14px;background:oklch(0.97 0.01 290 / .045);border:1px solid var(--line)}
+.steps-ol li::before{content:counter(s);width:24px;height:24px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font-weight:700;font-size:12.5px;display:grid;place-items:center;flex:none}
+.steps-ol li.did::before{content:"✓";background:var(--ok-soft);color:var(--ok)}
+.steps-ol .c{flex:1;min-width:0}
+.steps-ol .c > div{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap}
+.diagram{width:100%;height:auto;display:block;margin:4px 0 14px}
+.connected{display:flex;gap:10px;align-items:center;color:var(--ok);font-weight:650}
+
+/* permissions */
+.perm{display:grid;grid-template-columns:1fr;gap:12px;align-items:center;padding:14px 16px;border-radius:14px;background:oklch(0.97 0.01 290 / .045);border:1px solid var(--line);margin-bottom:10px}
+.perm b{display:block;font-size:15px} .perm span{font-size:12.5px;color:var(--ink-3)}
+.seg{display:inline-flex;padding:3px;border-radius:999px;background:oklch(0.11 0.035 288 / .8);border:1px solid var(--line)}
+.seg button{min-height:34px;padding:0 12px;border-radius:999px;border:0;background:transparent;color:var(--ink-2);font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
+.seg button[aria-checked="true"]{background:var(--ink);color:var(--bg)}
+.seg button[aria-checked="true"][data-v="never"]{background:var(--err);color:oklch(0.2 0.04 25)}
+.seg button[aria-checked="true"][data-v="ask"]{background:var(--accent);color:var(--accent-ink)}
+
+/* first run */
+.runs{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}
+.runc{padding:14px;border-radius:16px;border:1px solid var(--line-2);background:oklch(0.97 0.01 290 / .045);cursor:pointer;text-align:left;display:flex;flex-direction:column;gap:8px;min-height:112px}
+.runc:hover:not(:disabled){background:oklch(0.97 0.01 290 / .09)}
+.runc[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft)}
+.runc:disabled{cursor:not-allowed;opacity:.55}
+.runc svg{width:24px;height:24px;color:var(--accent)}
+.runc b{font-size:14.5px;line-height:1.25}
+.pipe{display:flex;align-items:center;gap:0;margin:6px 0 14px}
+.node{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;font-size:12px;color:var(--ink-3);position:relative}
+.node i{width:38px;height:38px;border-radius:12px;border:1px solid var(--line-2);background:oklch(0.11 0.035 288 / .8);display:grid;place-items:center;transition:all .5s var(--ease)}
+.node i svg{width:18px;height:18px}
+.node.on i{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);box-shadow:0 0 22px oklch(0.83 0.15 72 / .6)}
+.node.on{color:var(--ink)}
+.node.done i{background:var(--ok-soft);color:var(--ok);border-color:oklch(0.82 0.14 158 / .5)}
+.node.done{color:var(--ink-2)}
+.link{height:2px;flex:.5;background:var(--line-2);margin-bottom:22px}
+.link.on{background:var(--accent)}
+.result{padding:16px;border-radius:16px;background:oklch(0.11 0.035 288 / .7);border:1px solid oklch(0.82 0.14 158 / .35);animation:sceneIn .7s var(--ease) both}
+.result h2{color:var(--ok);font-size:13px;letter-spacing:.08em;text-transform:uppercase}
+.result p{font-size:14px;color:var(--ink-2);margin:0 0 6px}
+
+/* finish */
+.sum{display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;margin:0 0 22px;padding:0;list-style:none}
+.sum li{display:flex;align-items:center;gap:10px;font-size:14px;padding:6px 0;border-bottom:1px solid var(--line)}
+.sum li .s{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;flex:none}
+.sum li .s svg{width:12px;height:12px}
+.sum li.done .s{background:var(--ok-soft);color:var(--ok)}
+.sum li.skipped .s{border:1.5px dashed var(--skip);color:var(--skip)}
+.sum li .n{flex:1}
+.sum li em{font-style:normal;font-size:12px;color:var(--skip);font-weight:600}
+.sum a{color:var(--accent);font-size:12.5px;font-weight:600;text-underline-offset:3px}
+.cat{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.cat > div{display:flex;gap:11px;align-items:flex-start;padding:12px;border-radius:14px;background:oklch(0.97 0.01 290 / .045);border:1px solid var(--line)}
+.cat svg{width:20px;height:20px;color:var(--accent);flex:none;margin-top:2px}
+.cat b{display:block;font-size:14px}
+.cat span{display:block;font-size:12.5px;color:var(--ink-2);line-height:1.35}
+.cat small{display:block;font-size:11.5px;color:var(--ink-3);margin-top:3px;letter-spacing:.02em}
+.h3{font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin:0 0 10px;font-weight:650}
+
+/* mockup control */
+.mock{position:fixed;right:16px;bottom:16px;z-index:10}
+.mock > button{min-height:34px;padding:0 14px;border-radius:999px;border:1px dashed var(--line-2);background:oklch(0.12 0.04 288 / .9);color:var(--ink-2);font-size:12.5px;font-weight:600;cursor:pointer}
+.mock .pop{position:absolute;right:0;bottom:44px;width:240px;padding:14px;border-radius:16px;background:oklch(0.14 0.04 288 / .97);border:1px solid var(--line-2);box-shadow:0 20px 60px oklch(0.05 0.03 285 / .7)}
+.mock .pop[hidden]{display:none}
+.mock .pop p{font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.mock .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:10px}
+.mock .grid button{min-height:34px;border-radius:9px;border:1px solid var(--line-2);background:oklch(0.97 0.01 290 / .05);cursor:pointer;font-weight:650}
+.mock .grid button[aria-current="step"]{background:var(--ink);color:var(--bg)}
+.final{position:fixed;inset:0;z-index:20;display:grid;place-items:center;background:oklch(0.10 0.04 285 / .8);backdrop-filter:blur(8px)}
+.final[hidden]{display:none}
+.final > div{max-width:420px;text-align:center;padding:30px;border-radius:22px;background:var(--glass);border:1px solid var(--line-2)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+@media (max-width:1120px){ .journey .lbl{display:none} }
+@media (max-width:1000px){
+  :root{--pl:16px}
+  .app{padding:14px 16px 16px}
+  .brand small{display:none}
+  .panel-body{padding:26px 22px 14px}
+  .panel-foot{padding:14px 16px 16px 22px}
+  .runs,.perm,.list-plain,.two,.tiles,.choice,.cat,.row2{grid-template-columns:1fr}
+  .seg{justify-self:start}
+}
+.bmark{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;flex:none;font-weight:800;font-size:13px;color:oklch(0.15 0.03 290)}
+.opt .tag{display:inline-block;margin-top:3px}
+.subback{background:none;border:0;padding:0;color:inherit;font:inherit;cursor:pointer;text-align:left}
+.subback:hover{text-decoration:underline;text-underline-offset:3px}
+/* ---------- life: inhabitants, build events, discoveries ---------- */
+.app{pointer-events:none}
+.app .top,.app .panel{pointer-events:auto}
+#world [data-hit],#vsvg [data-hit]{pointer-events:all;cursor:pointer}
+#vsvg .plot:not(.built) [data-hit]{pointer-events:none}
+#vcam{transition:transform .8s var(--ease)}
+.actor{display:none}
+.actor.on{display:inline}
+.actor.on .arr{animation:arrive 1.3s var(--ease) both}
+@keyframes arrive{from{opacity:0;transform:translateX(-26px)}to{opacity:1;transform:none}}
+#vcam.cheer .hop{animation:hop .26s ease-out 4 alternate}
+@keyframes hop{to{transform:translateY(-6px)}}
+/* limbs rotate around the shoulder (local origin) */
+.a-hammer{animation:hamm .42s ease-in infinite alternate}
+@keyframes hamm{from{transform:rotate(-165deg)}to{transform:rotate(-45deg)}}
+.a-wave{animation:waveA .42s ease-in-out infinite alternate}
+@keyframes waveA{from{transform:rotate(150deg)}to{transform:rotate(210deg)}}
+.a-gest{animation:gest 1.1s ease-in-out infinite alternate}
+.a-gest.d2{animation-delay:-.7s}
+@keyframes gest{from{transform:rotate(-15deg)}to{transform:rotate(-65deg)}}
+.a-letter{animation:letA 3s ease-in-out infinite}
+@keyframes letA{0%,100%{transform:rotate(-30deg)}25%,60%{transform:rotate(-82deg)}}
+.letter{animation:letter 3s ease-in-out infinite}
+@keyframes letter{0%,25%{transform:translateX(0);opacity:1}55%{transform:translateX(8px);opacity:1}70%,100%{transform:translateX(8px);opacity:0}}
+.drop{animation:drop .9s linear infinite}
+.drop.d2{animation-delay:-.3s}.drop.d3{animation-delay:-.6s}
+@keyframes drop{from{transform:translateY(0);opacity:1}to{transform:translateY(11px);opacity:0}}
+.bobber{animation:bobber 2.2s ease-in-out infinite}
+@keyframes bobber{0%,100%{transform:translateY(0)}50%{transform:translateY(1.6px)}}
+.bub{opacity:0;pointer-events:none !important;animation:bubA 4s steps(1,end) infinite}
+.bub.bB{animation-delay:-2s}
+@keyframes bubA{0%{opacity:1}50%{opacity:0}}
+.warm{animation:warmh 2.6s ease-in-out infinite alternate}
+@keyframes warmh{from{transform:rotate(-40deg)}to{transform:rotate(-58deg)}}
+/* build-event workers */
+.carry .arm{animation:none;transform:rotate(180deg)}
+.hammer .arm.a{animation:hamm .26s ease-in infinite alternate}
+.hammer .arm.b{animation:none;transform:rotate(-20deg)}
+.hammer .leg,.cheerw .leg{animation:none}
+.hammer .load,.cheerw .load{display:none}
+.cheerw .arm{animation:waveA .3s ease-in-out infinite alternate}
+/* discoveries */
+.sails{transform-box:fill-box;transform-origin:center}
+.wv{display:none}.lit2 .wv{display:inline}
+.w2{opacity:0;transition:opacity .4s}.lit2 .w2{opacity:1}
+.cat{display:none}.hascat .cat{display:inline}
+.tail{transform-box:fill-box;transform-origin:0 100%;animation:tail 1.6s ease-in-out infinite alternate}
+@keyframes tail{from{transform:rotate(-14deg)}to{transform:rotate(18deg)}}
+.fl{transform-box:fill-box;transform-origin:center;transition:transform .7s var(--ease)}
+.bloomed .fl{transform:scale(1.8)}
+.fire{transform-box:fill-box;transform-origin:50% 100%;transition:transform .3s var(--ease)}
+.flare .fire{transform:scale(1.45)}
+.flare .flick{animation-duration:.2s}
+.fireglow{opacity:0;transition:opacity .3s}.flare .fireglow{opacity:1}
+.ffly{animation:ffly var(--ft,4s) ease-in-out infinite alternate}
+@keyframes ffly{from{transform:translate(0,0)}to{transform:translate(var(--fx),var(--fy))}}
+.jlight{opacity:.35}.open .jlight{opacity:1}.open .lid{transform:translate(4px,-3px) rotate(30deg)}
+.prop{transform-box:fill-box;transform-origin:center;animation:prop .12s linear infinite alternate}
+@keyframes prop{from{transform:scaleX(1)}to{transform:scaleX(.2)}}
+.dancing .lm{animation:waveA .3s ease-in-out infinite alternate}
+.wb .a-gest{animation-name:waveA;animation-duration:.38s}
+.found{position:fixed;right:108px;bottom:18px;z-index:10;min-height:34px;display:flex;align-items:center;padding:0 14px;border-radius:999px;background:oklch(0.14 0.04 288 / .9);border:1px solid var(--line-2);font-size:12.5px;color:var(--ink-2);pointer-events:none}
+.found b{color:var(--accent);margin:0 .3em}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation:none !important;transition:none !important}
+  #vcam{transform:none !important}
+  .wb .a-gest,.dancing .lm{transform:rotate(180deg) !important}
+}
+</style>
+</head>
+<body>
+<svg id="world" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="oklch(0.11 0.04 280)"/>
+      <stop offset=".6" stop-color="oklch(0.17 0.07 295)"/>
+      <stop offset="1" stop-color="oklch(0.25 0.09 325)"/>
+    </linearGradient>
+    <linearGradient id="dawnG" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="oklch(0.22 0.07 285)" stop-opacity="0"/>
+      <stop offset=".55" stop-color="oklch(0.45 0.13 20)" stop-opacity=".5"/>
+      <stop offset="1" stop-color="oklch(0.78 0.14 65)" stop-opacity=".9"/>
+    </linearGradient>
+    <radialGradient id="warmSkyG" cx=".72" cy="1" r=".7">
+      <stop offset="0" stop-color="oklch(0.70 0.15 55)" stop-opacity=".55"/>
+      <stop offset="1" stop-color="oklch(0.60 0.15 40)" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="sunR" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="oklch(0.97 0.08 90)"/>
+      <stop offset=".25" stop-color="oklch(0.88 0.14 75)" stop-opacity=".9"/>
+      <stop offset="1" stop-color="oklch(0.75 0.16 50)" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="moonG" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="oklch(0.95 0.02 280)" stop-opacity=".3"/>
+      <stop offset="1" stop-color="oklch(0.95 0.02 280)" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="aur" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="oklch(0.70 0.16 330)" stop-opacity="0"/>
+      <stop offset=".5" stop-color="oklch(0.78 0.15 60)" stop-opacity=".2"/>
+      <stop offset="1" stop-color="oklch(0.70 0.16 330)" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="starG" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="oklch(0.98 0.03 90)"/><stop offset="1" stop-color="oklch(0.98 0.03 90)" stop-opacity="0"/></linearGradient>
+    <linearGradient id="mt1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="oklch(0.27 0.06 300)"/><stop offset="1" stop-color="oklch(0.20 0.05 290)"/></linearGradient>
+    <linearGradient id="mt2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="oklch(0.22 0.05 270)"/><stop offset="1" stop-color="oklch(0.17 0.04 265)"/></linearGradient>
+  </defs>
+  <rect data-hit="sky" width="1600" height="1000" fill="url(#sky)"/>
+  <rect id="dawn" data-hit="sky" width="1600" height="1000" fill="url(#dawnG)"/>
+  <rect id="warmSky" data-hit="sky" width="1600" height="1000" fill="url(#warmSkyG)" opacity="0"/>
+  <g id="stars" data-hit="sky"></g>
+  <circle data-hit="sky" cx="1420" cy="140" r="130" fill="url(#moonG)"/>
+  <circle data-hit="sky" cx="1420" cy="140" r="24" fill="oklch(0.94 0.03 290)" opacity=".85"/>
+  <circle data-hit="sky" cx="1430" cy="134" r="22" fill="oklch(0.14 0.05 288)" opacity=".9"/>
+  <path class="drift" d="M-100 320 C 300 220, 600 410, 900 290 S 1500 210, 1750 310 L1750 370 C 1400 290, 1200 420, 900 360 S 300 290, -100 390Z" fill="url(#aur)" data-hit="sky"/>
+  <g id="wfx"></g>
+  <g id="sunG" data-hit="sky"><circle cx="1120" cy="700" r="300" fill="url(#sunR)"/><circle cx="1120" cy="700" r="46" fill="oklch(0.96 0.09 88)"/></g>
+  <path d="M0 720 L120 640 L230 700 L360 600 L470 690 L600 620 L720 700 L860 590 L990 680 L1120 610 L1260 690 L1380 620 L1500 680 L1600 640 L1600 1000 L0 1000Z" fill="url(#mt1)"/>
+  <path d="M0 800 C 160 760, 300 790, 480 770 S 820 740, 1000 770 S 1380 750, 1600 770 L1600 1000 L0 1000Z" fill="url(#mt2)"/>
+  <path d="M0 900 C 300 880, 700 895, 1000 885 S 1400 880, 1600 890 L1600 1000 L0 1000Z" fill="oklch(0.21 0.045 215)"/>
+</svg>
+<div id="village" aria-hidden="true"><svg id="vsvg" viewBox="0 0 900 700" preserveAspectRatio="xMidYMax meet"></svg></div>
+<div id="vignette"></div>
+
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="15" fill="oklch(0.22 0.06 290)" stroke="oklch(0.83 0.15 72 / .6)"/><path d="M8 22v-7l8-6.5 8 6.5v7z" fill="oklch(0.83 0.15 72)"/><rect x="14" y="16" width="4" height="6" rx="1" fill="oklch(0.22 0.05 60)"/><circle cx="23.5" cy="8.5" r="1.6" fill="oklch(0.95 0.05 85)"/></svg>
+      <div>MonoAgent<small>First-run setup</small></div>
+    </div>
+    <nav class="journey" aria-label="Setup progress">
+      <div class="wire"><i id="wire" style="width:0"></i></div>
+      <ol id="journey"></ol>
+    </nav>
+  </header>
+  <main class="stage">
+    <section class="panel" aria-labelledby="stepTitle">
+      <div class="panel-body" id="body"></div>
+      <footer class="panel-foot">
+        <button class="btn ghost" id="back" type="button">Back</button>
+        <span class="sp"></span>
+        <button class="btn ghost" id="skip" type="button">Skip for now</button>
+        <button class="btn primary" id="next" type="button">Continue</button>
+      </footer>
+    </section>
+  </main>
+</div>
+
+<div class="found" id="found" hidden role="status"></div>
+<div class="mock">
+  <button type="button" id="mockBtn" aria-expanded="false" aria-controls="mockPop">Mockup</button>
+  <div class="pop" id="mockPop" hidden>
+    <p>Jump to step</p>
+    <div class="grid" id="mockGrid"></div>
+    <button class="btn sm" type="button" id="mockAll" style="width:100%;margin-bottom:8px">Mark steps 1 to 9 done</button>
+    <button class="btn sm" type="button" id="mockReset" style="width:100%">Reset flow</button>
+  </div>
+</div>
+<div class="final" id="final" hidden>
+  <div><p class="eyebrow">Mockup</p><h1 style="font-size:30px">MonoAgent opens here</h1><p class="muted">The main app would now replace this screen.</p><button class="btn" type="button" id="finalClose">Back to onboarding</button></div>
+</div>
+<div class="sr" aria-live="polite" id="live"></div>
+<script>
+"use strict";
+const NAMES = ["Welcome","System check","Profile","About you","monomind","Your agents","Browser","Permissions","First run","You're set"];
+const SKIPPABLE = [false,true,false,true,true,true,true,true,true,false];
+const $ = (s, r) => (r || document).querySelector(s);
+const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+const P = {
+  check:'<path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>',
+  x:'<path d="M7 7l10 10M17 7L7 17" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>',
+  skip:'<path d="M6 12h12M14 8l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+  dot:'<circle cx="12" cy="12" r="3" fill="currentColor"/>',
+  pin:'<path d="M12 21s-6-5.6-6-11a6 6 0 0 1 12 0c0 5.4-6 11-6 11z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="10" r="2.2" fill="currentColor"/>',
+  user:'<circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 21c1-4.5 4.2-6.5 8-6.5s7 2 8 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  engine:'<circle cx="12" cy="12" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l2.8 2.8M16.2 16.2L19 19M5 19l2.8-2.8M16.2 7.8L19 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  bot:'<rect x="4" y="7" width="16" height="12" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="13" r="1.5" fill="currentColor"/><circle cx="15" cy="13" r="1.5" fill="currentColor"/><path d="M12 3v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  globe:'<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 12h18M12 3c3 3.2 3 14.8 0 18M12 3c-3 3.2-3 14.8 0 18" fill="none" stroke="currentColor" stroke-width="1.8"/>',
+  play:'<path d="M8 5.5v13l10-6.5z" fill="currentColor"/>',
+  flow:'<rect x="3" y="4" width="7" height="6" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><rect x="14" y="14" width="7" height="6" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M10 7h4a3 3 0 0 1 3 3v4" fill="none" stroke="currentColor" stroke-width="2"/>',
+  org:'<circle cx="12" cy="5" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="5" cy="18" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="19" cy="18" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 7.5v4M5 15.5V13h14v2.5" fill="none" stroke="currentColor" stroke-width="2"/>',
+  chat:'<path d="M4 5h16v11H9l-5 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
+  doc:'<path d="M6 3h8l4 4v14H6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 12h6M9 16h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  people:'<circle cx="9" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 20c.8-3.6 3.2-5.2 6-5.2s5.2 1.6 6 5.2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 5.5a3 3 0 0 1 0 5.5M18 14.5c1.6.7 2.6 2.4 3 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  share:'<circle cx="6" cy="12" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="18" cy="6" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="18" cy="18" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8.2 10.8l7.6-3.6M8.2 13.2l7.6 3.6" stroke="currentColor" stroke-width="2"/>',
+  clock:'<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3.5 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  board:'<rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 4v16M15 4v16" stroke="currentColor" stroke-width="2"/>',
+  key:'<circle cx="8" cy="14" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M11 11l8-8M16 6l2.5 2.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  plug:'<path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  lib:'<path d="M4 4h4v16H4zM10 4h4v16h-4zM16 5l3.5-.8 2.5 15.6-3.5.8z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
+  copy:'<rect x="8" y="8" width="12" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3" fill="none" stroke="currentColor" stroke-width="2"/>',
+  read:'<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/>',
+  pen:'<path d="M4 20l1-4L16 5l3 3L8 19z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
+  search:'<circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 16l5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  save:'<path d="M5 4h11l3 3v13H5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M8 4v5h7V4M8 20v-6h8v6" fill="none" stroke="currentColor" stroke-width="2"/>'
+};
+const ic = (n, cls) => `<svg viewBox="0 0 24 24" aria-hidden="true"${cls ? ` class="${cls}"` : ""}>${P[n]}</svg>`;
+
+/* avatar choices (8) */
+const AVATARS = [
+  ["Sun",'<circle cx="12" cy="12" r="5" fill="currentColor"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'],
+  ["Star",'<path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6L3.3 9.3l6.1-.7z" fill="currentColor"/>'],
+  ["Moon",'<path d="M15 3a9 9 0 1 0 6 13A7.5 7.5 0 0 1 15 3z" fill="currentColor"/>'],
+  ["Leaf",'<path d="M5 19C5 9 11 4 20 4c0 9-5 15-15 15z" fill="currentColor"/><path d="M5 19L14 10" stroke="oklch(0.16 0.04 288)" stroke-width="1.6"/>'],
+  ["Briefcase",'<rect x="3" y="7" width="18" height="12" rx="2" fill="currentColor"/><path d="M9 7V5h6v2" fill="none" stroke="currentColor" stroke-width="2"/>'],
+  ["Mountain",'<path d="M2 20l7-12 4 6 3-4 6 10z" fill="currentColor"/>'],
+  ["Flame",'<path d="M12 3c1 4 6 6 6 11a6 6 0 0 1-12 0c0-3 2-4 2-7 2 1 3 2.5 3 4 1.5-2 1.6-5 1-8z" fill="currentColor"/>'],
+  ["Wave",'<path d="M2 14c3 0 3-4 6.5-4S12 14 15 14s3.5-4 7-4v8H2z" fill="currentColor"/>']
+];
+const avSvg = (i, color) => `<svg viewBox="0 0 24 24" aria-hidden="true" style="color:${color || "var(--accent)"}">${AVATARS[i][1]}</svg>`;
+
+/* ---------- state ---------- */
+let S, timers = [];
+function fresh(){
+  return {
+    step:0, status:Array(10).fill(null),
+    sys:{started:false, shown:0, checked:0, mono:"missing", svc:"off", monoMsg:"", svcMsg:""},
+    prof:{name:"", icon:0, touched:false},
+    about:{name:"", role:"", company:"", help:[]},
+    mm:{phase:"idle", line:0},
+    ag:{phase:"idle", none:false, sets:null},
+    br:{sub:0, browser:null, opened:false, dev:false, copied:false, copiedUrl:false, pair:"idle", bprof:null},
+    perm:{read:"allow", click:"allow", submit:"ask"},
+    run:{pick:null, phase:"idle", node:-1}
+  };
+}
+function agentSets(){
+  return {
+    normal:{
+      claude:{inst:true, signed:true, busy:""},
+      codex:{inst:true, signed:false, busy:""},
+      opencode:{inst:false, signed:false, busy:""},
+      copilot:{inst:false, signed:false, busy:""}
+    },
+    none:{
+      claude:{inst:false, signed:false, busy:""},
+      codex:{inst:false, signed:false, busy:""},
+      opencode:{inst:false, signed:false, busy:""},
+      copilot:{inst:false, signed:false, busy:""}
+    }
+  };
+}
+function later(ms, fn){ const t = setTimeout(() => { timers = timers.filter(x => x !== t); fn(); }, ms); timers.push(t); return t; }
+function profileName(){ return S.prof.name.trim() || "your profile"; }
+function nameError(){
+  const n = S.prof.name.trim();
+  if (!n) return "Give your profile a name.";
+  if (n.toLowerCase() === "default") return "Pick a name that says what this profile is for.";
+  return "";
+}
+function slug(n){ return (n.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")) || "<name>"; }
+function activeAgents(){ return S.ag.none ? S.ag.sets.none : S.ag.sets.normal; }
+
+function canNext(i){
+  switch(i){
+    case 1: return S.sys.checked >= 4 && S.sys.mono === "ok" && S.sys.svc === "ok";
+    case 2: return !nameError();
+    case 4: return S.mm.phase === "ok";
+    case 5: return S.ag.phase === "done" && Object.values(activeAgents()).some(a => a.inst && a.signed);
+    case 6: return !!S.br.bprof;
+    case 8: return S.run.phase === "done";
+    default: return true;
+  }
+}
+function say(msg){ const l = $("#live"); l.textContent = ""; setTimeout(() => { l.textContent = msg; }, 30); }
+
+/* ---------- journey / world ---------- */
+function renderJourney(){
+  const ol = $("#journey");
+  ol.innerHTML = NAMES.map((n, i) => {
+    const st = S.status[i], cur = i === S.step;
+    const cls = [st || "", cur ? "current" : ""].join(" ").trim();
+    const inner = cur ? String(i + 1) : st === "done" ? ic("check") : st === "skipped" ? ic("skip") : String(i + 1);
+    const word = cur ? "current" : st === "done" ? "done" : st === "skipped" ? "skipped" : "upcoming";
+    return `<li class="${cls}"${cur ? ' aria-current="step"' : ""}><span class="star" role="img" aria-label="Step ${i + 1}, ${esc(n)}: ${word}">${inner}</span><span class="lbl" aria-hidden="true">${esc(n)}${st === "skipped" && !cur ? "<em>Skipped</em>" : ""}</span></li>`;
+  }).join("");
+  $("#wire").style.width = (S.step / 9 * 100) + "%";
+}
+function makeStars(){
+  const g = $("#stars"); let h = "";
+  let seed = 7; const rnd = () => (seed = (seed * 9301 + 49297) % 233280) / 233280;
+  for (let i = 0; i < 140; i++){
+    const x = rnd() * 1600, y = rnd() * 640, r = rnd() < .9 ? rnd() * 1.3 + .4 : rnd() * 1.4 + 1.6;
+    const tw = rnd() < .18;
+    h += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(2)}" fill="oklch(0.95 0.02 290)" opacity="${(.35 + rnd() * .6).toFixed(2)}"${tw ? ` class="twinkle" style="animation-delay:${(-rnd() * 5).toFixed(2)}s"` : ""}/>`;
+  }
+  g.innerHTML = h;
+}
+
+/* ---------- render ---------- */
+function render(changed){
+  const i = S.step, body = $("#body");
+  const fid = document.activeElement && document.activeElement.id;
+  const scroll = body.scrollTop;
+  body.innerHTML = `<div class="${changed ? "scene-in" : ""}"><p class="eyebrow">Step ${i + 1} of 10 · ${esc(NAMES[i])}</p>${STEPS[i].view()}</div>`;
+  if (STEPS[i].bind) STEPS[i].bind(body);
+  if (changed) body.scrollTop = 0; else body.scrollTop = scroll;
+  updateFoot();
+  renderJourney(); renderWorld();
+  if (!changed && fid){ const el = document.getElementById(fid); if (el) el.focus({preventScroll:true}); }
+  if (changed){ const h = $("#stepTitle"); if (h) h.focus({preventScroll:true}); }
+}
+function refresh(){ render(false); }
+function updateFoot(){
+  const i = S.step;
+  const back = $("#back"), skip = $("#skip"), next = $("#next");
+  back.style.visibility = i === 0 ? "hidden" : "visible";
+  skip.hidden = !SKIPPABLE[i];
+  next.textContent = i === 0 ? "Get started" : i === 2 ? "Create profile" : i === 9 ? "Open MonoAgent" : "Continue";
+  next.disabled = !canNext(i);
+}
+function go(i){
+  S.step = Math.max(0, Math.min(9, i));
+  if (STEPS[S.step].enter) STEPS[S.step].enter();
+  render(true);
+  say(`Step ${S.step + 1} of 10: ${NAMES[S.step]}`);
+}
+function next(){
+  const i = S.step;
+  if (!canNext(i)){
+    if (i === 2){ S.prof.touched = true; refresh(); const n = $("#pname"); if (n) n.focus(); }
+    return;
+  }
+  const was = S.status[i];
+  S.status[i] = "done";
+  if (i === 9){ renderJourney(); $("#final").hidden = false; $("#finalClose").focus(); return; }
+  go(i + 1);
+  if (was !== "done") buildEvent(i + 1);
+}
+function skip(){ if (!SKIPPABLE[S.step]) return; S.status[S.step] = "skipped"; go(S.step + 1); }
+
+function initMock(){
+  $("#mockGrid").innerHTML = NAMES.map((n, i) => `<button type="button" data-j="${i}" title="${esc(n)}">${i + 1}</button>`).join("");
+  $("#mockBtn").addEventListener("click", () => {
+    const p = $("#mockPop"), open = p.hidden; p.hidden = !open; $("#mockBtn").setAttribute("aria-expanded", String(open)); markMock();
+  });
+  $("#mockGrid").addEventListener("click", e => { const b = e.target.closest("button[data-j]"); if (b) { go(+b.dataset.j); markMock(); } });
+  $("#mockReset").addEventListener("click", () => { reset(); markMock(); });
+  $("#mockAll").addEventListener("click", () => { for (let k = 0; k < 9; k++) S.status[k] = "done"; go(9); markMock(); });
+  $("#finalClose").addEventListener("click", () => { $("#final").hidden = true; $("#next").focus(); });
+}
+function markMock(){ $$("#mockGrid button").forEach(b => b.toggleAttribute("aria-current", +b.dataset.j === S.step) || b.removeAttribute("aria-current")); $$("#mockGrid button").forEach(b => { if (+b.dataset.j === S.step) b.setAttribute("aria-current","step"); }); }
+function reset(){ timers.forEach(clearTimeout); timers = []; lifeReset(); S = fresh(); S.ag.sets = agentSets(); $("#final").hidden = true; go(0); }
+
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && !$("#mockPop").hidden){ $("#mockPop").hidden = true; $("#mockBtn").setAttribute("aria-expanded","false"); $("#mockBtn").focus(); return; }
+  if (e.key !== "Enter" || e.isComposing || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (!$("#final").hidden) return;
+  const t = e.target, tag = t.tagName;
+  if (tag === "BUTTON" || tag === "A" || tag === "TEXTAREA" || tag === "SELECT") return;
+  if (tag === "INPUT" && t.type !== "text") return;
+  if (t.closest && t.closest(".mock")) return;
+  e.preventDefault();
+  next();
+});
+
+/* ---------- steps ---------- */
+const H = t => `<h1 id="stepTitle" tabindex="-1">${t}</h1>`;
+const pointer = t => `<p class="pointer">${ic("pin")}<span>${t}</span></p>`;
+const STEPS = [];
+
+/* 1 Welcome */
+STEPS[0] = {
+  view: () => `${H("Welcome to MonoAgent")}
+    <p class="lead">Automations and AI agents that run on your own machine. Setup takes about five minutes. You can skip any step and come back to it later.</p>
+    <p class="h3">What we will set up</p>
+    <ul class="list-plain">
+      <li>${ic("user")}Your profile</li>
+      <li>${ic("engine")}The engine (monomind)</li>
+      <li>${ic("bot")}An AI agent</li>
+      <li>${ic("globe")}Your browser</li>
+      <li style="grid-column:1/-1">${ic("play")}A first run</li>
+    </ul>`
+};
+
+/* 2 System check */
+const SYS_ROWS = [
+  {k:"cli", t:"MonoAgent command line"},
+  {k:"node", t:"Node.js"},
+  {k:"mono", t:"monomind", d:"The engine behind every AI step."},
+  {k:"svc", t:"Background service", d:"Runs schedules and triggers, and lets the browser extension connect."}
+];
+function sysTick(){
+  const s = S.sys;
+  if (s.shown >= 4) return;
+  s.shown++; if (S.step === 1) refresh();
+  later(650, () => { s.checked++; if (S.step === 1) refresh(); sysTick(); });
+}
+function simSteps(lines, total, onLine, onDone){
+  const per = total / lines.length;
+  lines.forEach((l, k) => later(per * k, () => onLine(l, k)));
+  later(total, onDone);
+}
+STEPS[1] = {
+  enter(){ if (!S.sys.started){ S.sys.started = true; later(400, sysTick); } },
+  view(){
+    const s = S.sys;
+    const rows = SYS_ROWS.slice(0, s.shown).map((r, k) => {
+      let cls = "busy", st = `<span class="spinner" aria-hidden="true"></span>`, label = "Checking", act = "", d = r.d ? `<span>${r.d}</span>` : "";
+      if (k < s.checked){
+        if (r.k === "cli" || r.k === "node"){ cls = "ok"; label = "Found"; st = ic("check"); }
+        if (r.k === "mono"){
+          if (s.mono === "missing"){ cls = "bad"; label = "Not installed"; st = ic("x"); act = `<button class="btn sm" id="monoInstall" type="button">Install</button>`; }
+          else if (s.mono === "busy"){ cls = "busy"; label = "Installing"; d = `<span>${esc(s.monoMsg)}</span>`; }
+          else { cls = "ok"; label = "Installed"; st = ic("check"); }
+        }
+        if (r.k === "svc"){
+          if (s.svc === "off"){ cls = "bad"; label = "Not running"; st = ic("x"); act = `<button class="btn sm" id="svcStart" type="button">Start</button>`; }
+          else if (s.svc === "busy"){ cls = "busy"; label = "Starting"; d = `<span>${esc(s.svcMsg)}</span>`; }
+          else { cls = "ok"; label = "Running"; st = ic("check"); }
+        }
+      }
+      return `<div class="rowi ${cls}${k === s.shown - 1 && k >= s.checked ? " appear" : ""}"><span class="dot">${st}</span><div class="t"><b>${r.t}</b>${d}</div>${act || `<span class="st">${label}</span>`}</div>`;
+    }).join("");
+    const all = canNext(1);
+    return `${H("System check")}
+      <p class="lead">MonoAgent needs a few things on this machine.</p>
+      <div class="rows" role="list" aria-label="System check results">${rows}</div>
+      <p class="muted" style="margin-top:14px;font-size:13.5px">${all ? "Everything is ready." : s.checked < 4 ? "Checking this machine..." : "Install or start the items marked in red to continue."}</p>`;
+  },
+  bind(r){
+    const mi = $("#monoInstall", r), ss = $("#svcStart", r);
+    if (mi) mi.onclick = () => {
+      S.sys.mono = "busy"; S.sys.monoMsg = "Downloading monomind"; refresh(); say("Installing monomind");
+      simSteps(["Downloading monomind","Installing monomind","Checking that it runs"], 3000,
+        l => { S.sys.monoMsg = l; if (S.step === 1) refresh(); },
+        () => { S.sys.mono = "ok"; if (S.step === 1){ refresh(); say("monomind installed"); } });
+    };
+    if (ss) ss.onclick = () => {
+      S.sys.svc = "busy"; S.sys.svcMsg = "Starting the background service"; refresh(); say("Starting the background service");
+      simSteps(["Starting the background service","Waiting for it to answer"], 2400,
+        l => { S.sys.svcMsg = l; if (S.step === 1) refresh(); },
+        () => { S.sys.svc = "ok"; if (S.step === 1){ refresh(); say("Background service running"); } });
+    };
+  }
+};
+
+/* 3 Profile */
+function profPreviewHtml(){
+  const n = S.prof.name.trim();
+  return `<span class="pav">${avSvg(S.prof.icon)}</span><div><b>${n ? esc(n) : "Profile name"}</b><span>~/.monoagent/profiles/${esc(slug(S.prof.name))}</span></div>`;
+}
+STEPS[2] = {
+  view(){
+    const err = S.prof.touched ? nameError() : "";
+    return `${H("Create your profile")}
+      <p class="lead">A profile is a separate workspace. It has its own folder, documents, secrets, agents' memory, orgs and browser. Make one for each context you keep apart, for example Personal, Work, or a client.</p>
+      <div class="field">
+        <label for="pname">Profile name</label>
+        <input class="input" id="pname" type="text" autocomplete="off" placeholder="For example: Work" value="${esc(S.prof.name)}" aria-describedby="perr" aria-invalid="${err ? "true" : "false"}" aria-required="true">
+        <p class="hint-err" id="perr" role="alert">${esc(err)}</p>
+        <div class="chips" role="group" aria-label="Name suggestions">
+          ${["Personal","Work","Client name"].map(c => `<button class="chip" type="button" data-sug="${c}" id="sug-${slug(c)}">${c}</button>`).join("")}
+        </div>
+      </div>
+      <div class="field">
+        <span class="fl" id="avl">Icon</span>
+        <div class="avatars" role="radiogroup" aria-labelledby="avl">
+          ${AVATARS.map((a, k) => `<button class="av" type="button" role="radio" id="av-${k}" aria-checked="${k === S.prof.icon}" aria-label="${a[0]}" tabindex="${k === S.prof.icon ? 0 : -1}" data-av="${k}">${avSvg(k, k === S.prof.icon ? "var(--accent)" : "var(--ink-2)")}</button>`).join("")}
+        </div>
+      </div>
+      <div class="field">
+        <span class="fl">Folder</span>
+        <div class="folder"><code id="pfolder">~/.monoagent/profiles/${esc(slug(S.prof.name))}</code><button class="btn sm" type="button" id="chg">Change</button></div>
+      </div>
+      <div class="field" style="margin:0">
+        <span class="fl">Preview in the sidebar</span>
+        <div class="preview" id="pprev">${profPreviewHtml()}</div>
+      </div>`;
+  },
+  bind(r){
+    const inp = $("#pname", r);
+    const sync = () => {
+      const err = S.prof.touched ? nameError() : "";
+      $("#perr", r).textContent = err;
+      inp.setAttribute("aria-invalid", err ? "true" : "false");
+      $("#pfolder", r).textContent = "~/.monoagent/profiles/" + slug(S.prof.name);
+      $("#pprev", r).innerHTML = profPreviewHtml();
+      updateFoot();
+    };
+    inp.addEventListener("input", () => { S.prof.name = inp.value; if (S.prof.name.trim()) S.prof.touched = true; sync(); });
+    inp.addEventListener("blur", () => { S.prof.touched = true; sync(); });
+    $$("[data-sug]", r).forEach(b => b.onclick = () => { S.prof.name = b.dataset.sug; S.prof.touched = true; inp.value = S.prof.name; sync(); inp.focus(); });
+    const avs = $$("[data-av]", r);
+    const pick = k => { S.prof.icon = k; avs.forEach((b, j) => { b.setAttribute("aria-checked", String(j === k)); b.tabIndex = j === k ? 0 : -1; b.innerHTML = avSvg(j, j === k ? "var(--accent)" : "var(--ink-2)"); }); $("#pprev", r).innerHTML = profPreviewHtml(); avs[k].focus(); };
+    avs.forEach(b => {
+      b.onclick = () => pick(+b.dataset.av);
+      b.onkeydown = e => {
+        const k = +b.dataset.av;
+        if (e.key === "ArrowRight" || e.key === "ArrowDown"){ e.preventDefault(); pick((k + 1) % 8); }
+        if (e.key === "ArrowLeft" || e.key === "ArrowUp"){ e.preventDefault(); pick((k + 7) % 8); }
+      };
+    });
+    $("#chg", r).onclick = () => say("Change folder is not part of this mockup.");
+  }
+};
+
+/* 4 About you */
+const HELP = ["Outreach","Content","Research","Coding","Inbox","Operations"];
+STEPS[3] = {
+  view: () => `${H("About you")}
+    <p class="lead">Agents read this before they work for you, so they write and act as you would.</p>
+    <div class="row2">
+      <div class="field"><label for="aname">Your name</label><input class="input" id="aname" type="text" autocomplete="name" value="${esc(S.about.name)}"></div>
+      <div class="field"><label for="arole">Role</label><input class="input" id="arole" type="text" placeholder="For example: Founder" value="${esc(S.about.role)}"></div>
+    </div>
+    <div class="field"><label for="acomp">Company or project</label><input class="input" id="acomp" type="text" autocomplete="organization" value="${esc(S.about.company)}"></div>
+    <div class="field" style="margin:0">
+      <span class="fl" id="helpl">What do you want help with?</span>
+      <div class="chips" role="group" aria-labelledby="helpl">
+        ${HELP.map(h => `<button class="chip" type="button" id="help-${h}" data-help="${h}" aria-pressed="${S.about.help.includes(h)}">${h}</button>`).join("")}
+      </div>
+    </div>
+    ${pointer("You can edit this later in the Info tab.")}`,
+  bind(r){
+    [["aname","name"],["arole","role"],["acomp","company"]].forEach(([id, k]) => { const el = $("#" + id, r); el.oninput = () => { S.about[k] = el.value; }; });
+    $$("[data-help]", r).forEach(b => b.onclick = () => {
+      const h = b.dataset.help, on = S.about.help.includes(h);
+      S.about.help = on ? S.about.help.filter(x => x !== h) : S.about.help.concat(h);
+      b.setAttribute("aria-pressed", String(!on));
+    });
+  }
+};
+
+/* 5 monomind */
+const MM_LINES = ["Preparing the profile folder","Setting up memory and knowledge graph","Registering with your agents"];
+const MINI_DOCS = `<svg class="mini" viewBox="0 0 220 92" aria-hidden="true"><g fill="oklch(0.30 0.05 290)" stroke="oklch(0.97 0.01 290 / .3)"><rect x="12" y="14" width="34" height="44" rx="4"/><rect x="22" y="22" width="34" height="44" rx="4"/><rect x="32" y="30" width="34" height="44" rx="4"/></g><g stroke="oklch(0.97 0.01 290 / .5)" stroke-width="2"><path d="M38 44h20M38 52h20M38 60h14"/></g><path d="M74 52h22" stroke="var(--accent)" stroke-width="2" stroke-dasharray="3 4"/><g stroke="oklch(0.83 0.15 72 / .7)" stroke-width="1.5"><path d="M120 30L160 22L196 46L170 72L130 66Z M160 22L170 72 M120 30L196 46"/></g><g fill="var(--accent)"><circle cx="120" cy="30" r="6"/><circle cx="160" cy="22" r="5"/><circle cx="196" cy="46" r="6"/><circle cx="170" cy="72" r="5"/><circle cx="130" cy="66" r="4"/></g></svg>`;
+const MINI_ORG = `<svg class="mini" viewBox="0 0 220 92" aria-hidden="true"><g stroke="oklch(0.97 0.01 290 / .35)" stroke-width="2" fill="none"><path d="M110 30v14M50 44h120M50 44v12M110 44v12M170 44v12"/></g><circle cx="110" cy="18" r="13" fill="var(--accent)"/><path d="M103 14l3 3 4-5 4 5 3-3-2 9h-10z" fill="var(--accent-ink)"/><g fill="oklch(0.30 0.05 290)" stroke="oklch(0.97 0.01 290 / .35)"><circle cx="50" cy="68" r="12"/><circle cx="110" cy="68" r="12"/><circle cx="170" cy="68" r="12"/></g><g fill="oklch(0.88 0.10 160)"><circle cx="50" cy="68" r="4"/><circle cx="110" cy="68" r="4"/><circle cx="170" cy="68" r="4"/></g></svg>`;
+STEPS[4] = {
+  view(){
+    const m = S.mm, nm = esc(profileName());
+    let act = "";
+    if (m.phase === "idle") act = `<button class="btn primary" type="button" id="mmOn" style="margin-top:4px">Turn on for ${nm}</button>`;
+    else {
+      act = `<div class="rows" aria-label="Progress">${MM_LINES.map((l, k) => {
+        const done = m.phase === "ok" || k < m.line, cur = m.phase === "busy" && k === m.line;
+        const cls = done ? "ok" : cur ? "busy" : "";
+        return `<div class="rowi ${cls}" style="padding:10px 14px"><span class="dot">${done ? ic("check") : cur ? '<span class="spinner"></span>' : ic("dot")}</span><div class="t"><b style="font-size:14px">${l}</b></div></div>`;
+      }).join("")}</div>`;
+      if (m.phase === "ok") act += `<p class="connected" style="margin-top:14px">${ic("check")}<span>monomind is on for ${nm}.</span></p>`;
+    }
+    return `${H("Turn on monomind")}
+      <p class="lead">monomind is the engine behind every AI step in MonoAgent.</p>
+      <div class="two">
+        <div class="card">${MINI_DOCS}<h2>For documents</h2><p>Files you add to this profile are indexed into its Second Brain. Agents search it, and a knowledge graph links what belongs together.</p></div>
+        <div class="card">${MINI_ORG}<h2>For orgs</h2><p>An org is a team of agents with roles, goals and a boss. Orgs run on monomind and keep their memory in this profile.</p></div>
+      </div>
+      ${act}
+      ${pointer("You'll find this later in the Documents tab.")}`;
+  },
+  bind(r){
+    const b = $("#mmOn", r);
+    if (b) b.onclick = () => {
+      S.mm.phase = "busy"; S.mm.line = 0; refresh(); say(MM_LINES[0]);
+      later(1100, () => { S.mm.line = 1; if (S.step === 4) refresh(); say(MM_LINES[1]); });
+      later(2200, () => { S.mm.line = 2; if (S.step === 4) refresh(); say(MM_LINES[2]); });
+      later(3300, () => { S.mm.phase = "ok"; if (S.step === 4){ refresh(); say("monomind is on"); $("#next").focus(); } });
+    };
+  }
+};
+
+/* 6 Agents */
+const AGENTS = [
+  {k:"claude", n:"Claude Code", lg:"CC", hint:"Run <code>claude</code> in a terminal and sign in, then check again."},
+  {k:"codex", n:"Codex", lg:"Cx", hint:"Run <code>codex login</code> in a terminal, then check again."},
+  {k:"opencode", n:"OpenCode", lg:"OC", hint:"Run <code>opencode auth login</code> in a terminal, then check again."},
+  {k:"copilot", n:"GitHub Copilot CLI", lg:"GH", hint:"Run <code>copilot</code> in a terminal and type <code>/login</code>, then check again."}
+];
+function agentTile(a){
+  const st = activeAgents()[a.k];
+  let tag, body = "";
+  if (st.busy){ tag = `<span class="tag warn">${st.busy === "install" ? "Installing" : "Checking"}</span>`; body = `<div class="bar"><i class="fill" data-ms="${st.busy === "install" ? 2600 : 2000}"></i></div><span class="hint">${st.busy === "install" ? `Installing ${a.n}...` : "Checking the sign-in..."}</span>`; }
+  else if (st.inst && st.signed){ tag = `<span class="tag ok">Installed, signed in</span>`; }
+  else if (st.inst){ tag = `<span class="tag warn">Sign in needed</span>`; body = `<span class="hint">${a.hint}</span><button class="btn sm" type="button" id="chk-${a.k}" data-chk="${a.k}">Check again</button>`; }
+  else { tag = `<span class="tag off">Not installed</span>`; body = `<button class="btn sm" type="button" id="ins-${a.k}" data-ins="${a.k}">Install</button>`; }
+  return `<div class="tile ${st.inst && st.signed ? "ready" : ""}"><header><span class="lg">${a.lg}</span><b>${a.n}</b></header>${tag}${body}</div>`;
+}
+STEPS[5] = {
+  enter(){
+    if (S.ag.phase === "idle"){
+      S.ag.phase = "scan";
+      later(2400, () => { S.ag.phase = "done"; if (S.step === 5){ refresh(); say("Scan finished"); } });
+    }
+  },
+  view(){
+    let inner;
+    if (S.ag.phase !== "done"){
+      inner = `<div class="rowi busy"><span class="dot"><span class="spinner"></span></span><div class="t"><b>Looking for AI coding tools on this machine</b><span>Checking Claude Code, Codex, OpenCode and GitHub Copilot CLI</span><div class="bar"><i class="fill" data-ms="2400"></i></div></div></div>`;
+    } else {
+      const set = activeAgents();
+      const any = Object.values(set).some(a => a.inst);
+      inner = (!any ? `<div class="empty" role="status"><b>No agents found. Install one to continue.</b><span class="muted" style="font-size:13.5px">Recommended: Claude Code.</span></div>` : "")
+        + `<div class="tiles">${AGENTS.map(agentTile).join("")}</div>`;
+    }
+    return `${H("Your agents")}
+      <p class="lead">Agents are the AI coding tools installed on this machine. MonoAgent drives them. You need at least one.</p>
+      <label class="reviewer"><input type="checkbox" id="noneToggle" ${S.ag.none ? "checked" : ""}> Simulate: none installed</label>
+      ${inner}
+      ${pointer("You'll find this later in Settings, under AI agents.")}`;
+  },
+  bind(r){
+    $$(".fill[data-ms]", r).forEach(el => { requestAnimationFrame(() => { el.style.transition = `width ${el.dataset.ms}ms linear`; el.style.width = "100%"; }); });
+    $("#noneToggle", r).onchange = e => { S.ag.none = e.target.checked; refresh(); };
+    $$("[data-ins]", r).forEach(b => b.onclick = () => {
+      const k = b.dataset.ins, set = activeAgents(), st = set[k];
+      st.busy = "install"; refresh(); say("Installing " + AGENTS.find(a => a.k === k).n);
+      later(2600, () => { st.busy = ""; st.inst = true; st.signed = false; if (S.step === 5){ refresh(); say("Installed. Sign in needed."); } });
+    });
+    $$("[data-chk]", r).forEach(b => b.onclick = () => {
+      const k = b.dataset.chk, st = activeAgents()[k];
+      st.busy = "check"; refresh();
+      later(2000, () => { st.busy = ""; st.signed = true; if (S.step === 5){ refresh(); say("Signed in"); } });
+    });
+  }
+};
+
+/* 7 Browser */
+const BROWSERS = [
+  {k:"chrome", n:"Chrome", inst:true, url:"chrome://extensions", c:"oklch(0.70 0.14 145)"},
+  {k:"edge", n:"Edge", inst:true, url:"edge://extensions", c:"oklch(0.66 0.13 250)", side:true},
+  {k:"brave", n:"Brave", inst:true, url:"brave://extensions", c:"oklch(0.68 0.17 40)"},
+  {k:"arc", n:"Arc", inst:false, url:"arc://extensions", c:"oklch(0.68 0.15 340)"},
+  {k:"vivaldi", n:"Vivaldi", inst:false, url:"vivaldi://extensions", c:"oklch(0.62 0.18 25)"},
+  {k:"opera", n:"Opera", inst:false, url:"opera://extensions", c:"oklch(0.60 0.20 28)"},
+  {k:"other", n:"Other Chromium browser", inst:false, url:null, c:"oklch(0.62 0.03 290)"}
+];
+const curBrowser = () => BROWSERS.find(x => x.k === S.br.browser) || BROWSERS[0];
+const BPROFS = [["Morteza (Work)","morteza@company.example"],["Personal","Signed in to 6 sites"],["Client X","Signed in to 3 sites"]];
+const SUBS = ["Pick browser","Install","Pair","Browser profile"];
+function copyText(t){ try { navigator.clipboard && navigator.clipboard.writeText(t).catch(() => {}); } catch (e) {} }
+function browserPic(){
+  const b = S.br, B = curBrowser(), cur = !b.opened ? 1 : !b.dev ? 2 : 3;
+  const T = 'font-family="-apple-system,Segoe UI,sans-serif"';
+  const mk = (n, x, y) => `<circle cx="${x}" cy="${y}" r="12" fill="${cur === n ? "var(--accent)" : "oklch(0.22 0.05 290)"}" stroke="var(--accent)" stroke-width="1.5"/>${cur === n ? `<circle cx="${x}" cy="${y}" r="19" fill="none" stroke="var(--accent)" opacity=".5"/>` : ""}<text x="${x}" y="${y + 4.5}" ${T} font-size="12" font-weight="800" text-anchor="middle" fill="${cur === n ? "var(--accent-ink)" : "var(--accent)"}">${n}</text>`;
+  const tog = (x, y) => `<rect x="${x}" y="${y}" width="26" height="14" rx="7" fill="${b.dev ? "var(--accent)" : "oklch(0.40 0.03 290)"}"/><circle cx="${b.dev ? x + 19 : x + 7}" cy="${y + 7}" r="5" fill="oklch(0.96 0.01 290)"/>`;
+  const btn = (x, y) => `<rect x="${x}" y="${y}" width="104" height="24" rx="6" fill="${b.dev ? "oklch(0.83 0.15 72 / .2)" : "oklch(0.97 0.01 290 / .06)"}" stroke="${b.dev ? "var(--accent)" : "oklch(0.97 0.01 290 / .2)"}"/><text x="${x + 52}" y="${y + 16}" ${T} font-size="11.5" font-weight="600" text-anchor="middle" fill="var(--ink)">Load unpacked</text>`;
+  let body;
+  if (B.side){
+    body = `<rect x="34" y="62" width="120" height="152" fill="oklch(0.19 0.04 288)"/>
+      <g fill="oklch(0.97 0.01 290 / .1)"><rect x="46" y="76" width="80" height="8" rx="4"/><rect x="46" y="94" width="64" height="8" rx="4"/><rect x="46" y="112" width="72" height="8" rx="4"/></g>
+      <text x="46" y="166" ${T} font-size="11" fill="var(--ink-2)">Developer mode</text>${tog(46, 174)}
+      <text x="168" y="86" ${T} font-size="14" font-weight="650" fill="var(--ink)">Extensions</text>${btn(168, 98)}
+      <g fill="oklch(0.97 0.01 290 / .06)"><rect x="168" y="134" width="120" height="66" rx="8"/><rect x="296" y="134" width="120" height="66" rx="8"/></g>
+      ${mk(2, 98, 181)}${mk(3, 290, 110)}`;
+  } else {
+    body = `<text x="48" y="88" ${T} font-size="14" font-weight="650" fill="var(--ink)">Extensions</text>
+      <text x="300" y="88" ${T} font-size="11" fill="var(--ink-2)">Developer mode</text>${tog(392, 77)}${btn(48, 100)}
+      <g fill="oklch(0.97 0.01 290 / .06)"><rect x="48" y="136" width="176" height="66" rx="8"/><rect x="236" y="136" width="176" height="66" rx="8"/></g>
+      ${mk(2, 440, 60)}${mk(3, 168, 112)}`;
+  }
+  const addr = B.url || "your browser's extensions page";
+  return `<svg class="diagram" viewBox="0 0 460 226" role="img" aria-label="Where the controls are in ${esc(B.n)}: 1 the address bar, 2 the Developer mode switch ${B.side ? "in the left sidebar" : "at the top right"}, 3 the Load unpacked button">
+    <rect x="34" y="12" width="412" height="202" rx="12" fill="oklch(0.15 0.04 288)" stroke="oklch(0.97 0.01 290 / .22)"/>
+    <path d="M34 50 V24 a12 12 0 0 1 12 -12 H434 a12 12 0 0 1 12 12 V50Z" fill="oklch(0.24 0.05 290)"/>
+    <circle cx="54" cy="31" r="8" fill="${B.c}"/><text x="54" y="35" ${T} font-size="10" font-weight="800" text-anchor="middle" fill="oklch(0.15 0.03 290)">${B.k === "other" ? "?" : B.n[0]}</text>
+    <rect x="72" y="21" width="300" height="20" rx="10" fill="oklch(0.12 0.03 288)" stroke="${cur === 1 ? "var(--accent)" : "transparent"}" stroke-width="1.5"/>
+    <text x="86" y="35" ${T} font-size="11.5" fill="var(--ink-2)">${b.opened ? esc(addr) : "New tab"}</text>
+    ${mk(1, 396, 31)}${body}</svg>`;
+}
+function brDiagram(){
+  const nm = esc(profileName()), bp = S.br.bprof ? esc(S.br.bprof) : "Browser profile";
+  return `<svg class="diagram" viewBox="0 0 520 104" role="img" aria-label="MonoAgent profile ${nm} connects to browser profile ${bp}, which holds your logged-in sites">
+    <g font-family="inherit" font-size="13" text-anchor="middle">
+      <rect x="4" y="22" width="140" height="58" rx="14" fill="oklch(0.83 0.15 72 / .14)" stroke="var(--accent)"/>
+      <text x="74" y="46" fill="var(--ink-3)" font-size="11">MonoAgent profile</text><text x="74" y="65" fill="var(--ink)" font-weight="650">${nm.length > 16 ? nm.slice(0, 15) + "…" : nm}</text>
+      <path d="M150 51h46M150 51l8 -6M150 51l8 6M196 51l-8 -6M196 51l-8 6" stroke="var(--ink-3)" stroke-width="2" fill="none"/>
+      <rect x="202" y="22" width="140" height="58" rx="14" fill="oklch(0.97 0.01 290 / .06)" stroke="${S.br.bprof ? "var(--ok)" : "var(--line-2)"}"/>
+      <text x="272" y="46" fill="var(--ink-3)" font-size="11">Browser profile</text><text x="272" y="65" fill="var(--ink)" font-weight="650">${bp.length > 16 ? bp.slice(0, 15) + "…" : bp}</text>
+      <path d="M348 51h46M348 51l8 -6M348 51l8 6M394 51l-8 -6M394 51l-8 6" stroke="var(--ink-3)" stroke-width="2" fill="none"/>
+      <rect x="400" y="12" width="116" height="80" rx="14" fill="oklch(0.97 0.01 290 / .06)" stroke="var(--line-2)"/>
+      <text x="458" y="32" fill="var(--ink-3)" font-size="11">Logged-in sites</text>
+      <g fill="oklch(0.97 0.01 290 / .14)"><rect x="414" y="42" width="40" height="18" rx="5"/><rect x="460" y="42" width="40" height="18" rx="5"/><rect x="414" y="66" width="40" height="18" rx="5"/><rect x="460" y="66" width="40" height="18" rx="5"/></g>
+    </g></svg>`;
+}
+STEPS[6] = {
+  view(){
+    const b = S.br, nm = esc(profileName()), sub = b.sub, B = curBrowser();
+    const stepper = `<ol class="sub" aria-label="Browser setup steps">${SUBS.map((s, k) => `<li class="${k < sub ? "done" : k === sub ? "on" : ""}"${k === sub ? ' aria-current="step"' : ""}>${k < sub ? `<button type="button" class="subback" data-sub="${k}">${k + 1}. ${s}</button>` : `${k + 1}. ${s}`}</li>`).join("")}</ol>`;
+    let c = "";
+    if (sub === 0){
+      c = `<p style="font-weight:600;color:var(--ink-2)" id="bpick">Works with any Chromium-based browser.</p>
+        <div class="choice" role="radiogroup" aria-labelledby="bpick">${BROWSERS.map(x => `<button class="opt" type="button" role="radio" id="br-${x.k}" data-br="${x.k}" aria-checked="${b.browser === x.k}"><span class="bmark" style="background:${x.c}">${x.k === "other" ? "?" : x.n[0]}</span><div><b>${x.n}</b>${x.inst ? `<span class="tag ok">Installed</span>` : `<span>Not found on this machine</span>`}</div></button>`).join("")}</div>`;
+    } else if (sub === 1){
+      const where = B.side ? "The switch is in the left sidebar." : B.k === "other" ? "Look for the Developer mode switch on the extensions page." : "The switch is at the top right of the page.";
+      c = `<ol class="steps-ol">
+        <li class="${b.opened ? "did" : ""}"><div class="c"><b>Open the extensions page</b>${B.url
+          ? `<span class="muted" style="display:block;font-size:13px">Type this address in ${esc(B.n)}'s address bar:</span><div><code>${B.url}</code><button class="btn sm" type="button" id="copyUrl">${ic("copy")}${b.copiedUrl ? "Copied" : "Copy"}</button><button class="btn sm" type="button" id="openExt" aria-pressed="${b.opened}">${b.opened ? "Done" : "I opened it"}</button></div>`
+          : `<span class="muted" style="display:block;font-size:13px">Open your browser's extensions page (usually Menu, then Extensions).</span><div><button class="btn sm" type="button" id="openExt" aria-pressed="${b.opened}">${b.opened ? "Done" : "I opened it"}</button></div>`}</div></li>
+        <li class="${b.dev ? "did" : ""}"><div class="c"><b>Turn on Developer mode</b><span class="muted" style="display:block;font-size:13px">${where}</span><div><button class="btn sm" type="button" id="devOn" aria-pressed="${b.dev}">${b.dev ? "Done" : "I turned it on"}</button></div></div></li>
+        <li class="${b.copied ? "did" : ""}"><div class="c"><b>Click Load unpacked and choose this folder:</b><div><code>~/.monoagent/extension</code><button class="btn sm" type="button" id="copyPath">${ic("copy")}${b.copied ? "Copied" : "Copy"}</button></div></div></li>
+      </ol>
+      ${browserPic()}
+      <button class="btn" type="button" id="loaded" ${b.opened && b.dev ? "" : "disabled"}>I loaded the extension</button>`;
+    } else if (sub === 2){
+      c = b.pair === "ok"
+        ? `<p class="connected" role="status">${ic("check")}<span>Connected to ${esc(B.n)}.</span></p><button class="btn" type="button" id="toProf">Choose the browser profile</button>`
+        : b.pair === "busy"
+        ? `<div class="rowi busy"><span class="dot"><span class="spinner"></span></span><div class="t"><b>Waiting for the extension to answer</b><span>Keep the extensions page open.</span><div class="bar"><i class="fill" data-ms="3000"></i></div></div></div>`
+        : `<p>Pair the extension with MonoAgent so they can talk to each other.</p><button class="btn" type="button" id="pairBtn">Pair extension</button>`;
+    } else {
+      c = `<p>Pick the browser profile whose logged-in accounts belong to <b>${nm}</b>. Agents working in <b>${nm}</b> will only use that browser profile.</p>
+        <div class="rows" role="radiogroup" aria-label="Browser profiles" style="margin-bottom:14px">${BPROFS.map(([p, d], k) => `<button class="opt" type="button" role="radio" id="bp-${k}" data-bp="${esc(p)}" aria-checked="${b.bprof === p}"><span class="rd"></span><div><b>${esc(p)}</b><span>${esc(d)}</span></div></button>`).join("")}</div>
+        ${brDiagram()}`;
+    }
+    return `${H("Connect your browser")}
+      <p class="lead">The extension lets agents work in your real browser. They use the accounts you are already signed in to there, so nothing needs your passwords.</p>
+      ${stepper}${c}
+      ${pointer("You'll find this later in Settings, under Browser Extension.")}`;
+  },
+  bind(r){
+    const b = S.br;
+    $$(".fill[data-ms]", r).forEach(el => { requestAnimationFrame(() => { el.style.transition = `width ${el.dataset.ms}ms linear`; el.style.width = "100%"; }); });
+    $$("[data-br]", r).forEach(x => x.onclick = () => { if (b.browser !== x.dataset.br){ b.opened = false; b.dev = false; b.copiedUrl = false; b.pair = "idle"; } b.browser = x.dataset.br; b.sub = 1; refresh(); const o = $("#copyUrl") || $("#openExt"); if (o) o.focus(); });
+    const cu = $("#copyUrl", r); if (cu) cu.onclick = () => { copyText(curBrowser().url); b.copiedUrl = true; refresh(); say("Address copied"); };
+    const o = $("#openExt", r); if (o) o.onclick = () => { b.opened = true; refresh(); };
+    const d = $("#devOn", r); if (d) d.onclick = () => { b.dev = true; refresh(); };
+    const cp = $("#copyPath", r); if (cp) cp.onclick = () => { copyText("~/.monoagent/extension"); b.copied = true; refresh(); say("Folder path copied"); };
+    const l = $("#loaded", r); if (l) l.onclick = () => { b.sub = 2; refresh(); const p = $("#pairBtn"); if (p) p.focus(); };
+    const p = $("#pairBtn", r); if (p) p.onclick = () => { b.pair = "busy"; refresh(); say("Waiting for the extension"); later(3000, () => { b.pair = "ok"; if (S.step === 6){ refresh(); say("Connected"); const t = $("#toProf"); if (t) t.focus(); } }); };
+    const t = $("#toProf", r); if (t) t.onclick = () => { b.sub = 3; refresh(); const f = $("#bp-0"); if (f) f.focus(); };
+    $$("[data-bp]", r).forEach(x => x.onclick = () => { b.bprof = x.dataset.bp; refresh(); });
+    $$("[data-sub]", r).forEach(x => x.onclick = () => { b.sub = +x.dataset.sub; refresh(); });
+  }
+};
+
+/* 8 Permissions */
+const PERMS = [["read","Read pages","See text and layout of the pages it opens."],["click","Click and type","Use buttons, links and fields."],["submit","Submit forms, post, upload","Anything that sends something out."]];
+const PV = [["allow","Allow"],["ask","Ask me first"],["never","Never"]];
+STEPS[7] = {
+  view: () => `${H("What agents may do in your browser")}
+    <p class="lead">You decide how far agents go on their own.</p>
+    ${PERMS.map(([k, t, d]) => `<div class="perm"><div><b id="pl-${k}">${t}</b><span>${d}</span></div><div class="seg" role="radiogroup" aria-labelledby="pl-${k}">${PV.map(([v, l]) => `<button type="button" role="radio" id="pv-${k}-${v}" data-pk="${k}" data-v="${v}" aria-checked="${S.perm[k] === v}">${l}</button>`).join("")}</div></div>`).join("")}
+    <p class="pointer">${ic("people")}<span>When an agent needs your OK, it waits in Human-in-Loop until you approve or reject.</span></p>`,
+  bind(r){ $$("[data-pk]", r).forEach(b => b.onclick = () => { S.perm[b.dataset.pk] = b.dataset.v; refresh(); }); }
+};
+
+/* 9 First run */
+const RUNS = [
+  {t:"Summarise a web page", i:"read", nodes:[["Open page","globe"],["Read text","read"],["Summarise","bot"],["Save note","save"]],
+   out:["Page: example.com/local-first-software","Software that keeps your data on your own machine is faster and easier to trust. The post lists three ideas: work offline, sync later, and keep files in formats you own."]},
+  {t:"Draft a post from a link", i:"pen", nodes:[["Open link","globe"],["Pick key points","read"],["Write draft","pen"]],
+   out:["Draft, 46 words","Tried running automations on my own laptop instead of in the cloud. Same results, my data never left the machine. Three lessons from the first week below."]},
+  {t:"Research a company", i:"search", nodes:[["Search the web","search"],["Read sources","read"],["Compare","bot"],["Write brief","doc"]],
+   out:["Brief: Example Co.","A 40-person company that makes scheduling software for clinics. Sources agree on the product and size; one source mentions a new office. Four sources read."]}
+];
+STEPS[8] = {
+  view(){
+    const R = S.run, run = R.pick != null ? RUNS[R.pick] : null;
+    let stage = `<p class="muted">Nothing has run yet.</p>`;
+    if (run){
+      stage = `<div class="pipe" role="list" aria-label="Run progress">${run.nodes.map(([n, ico], k) => {
+        const cls = R.phase === "done" || k < R.node ? "done" : k === R.node ? "on" : "";
+        return (k ? `<span class="link ${k <= R.node || R.phase === "done" ? "on" : ""}"></span>` : "") + `<div class="node ${cls}" role="listitem"><i>${ic(cls === "done" ? "check" : ico)}</i>${n}</div>`;
+      }).join("")}</div>`;
+      stage += R.phase === "done" ? `<div class="result" role="status"><h2>Result</h2><p><b style="color:var(--ink)">${run.out[0]}</b></p><p>${run.out[1]}</p></div>` : `<p class="muted" aria-live="polite">Running: ${run.nodes[Math.max(0, R.node)][0]}...</p>`;
+    }
+    return `${H("Your first run")}
+      <p class="lead">Pick one to see MonoAgent work.</p>
+      <div class="runs">${RUNS.map((x, k) => `<button class="runc" type="button" id="run-${k}" data-run="${k}" aria-pressed="${R.pick === k}" ${R.phase === "busy" ? "disabled" : ""}>${ic(x.i)}<b>${x.t}</b><span class="muted" style="font-size:12.5px">${x.nodes.length} steps</span></button>`).join("")}</div>
+      ${stage}`;
+  },
+  bind(r){
+    $$("[data-run]", r).forEach(b => b.onclick = () => {
+      const k = +b.dataset.run, n = RUNS[k].nodes.length, per = Math.round(3200 / n);
+      S.run = {pick:k, phase:"busy", node:0}; refresh(); say("Running " + RUNS[k].t);
+      for (let j = 1; j < n; j++) later(per * j, () => { S.run.node = j; if (S.step === 8) refresh(); });
+      later(per * n, () => { S.run.phase = "done"; S.run.node = n; if (S.step === 8){ refresh(); say("Run finished"); $("#next").focus(); } });
+    });
+  }
+};
+
+/* 10 Finish */
+const CAT = [
+  ["flow","Workflows","Build automations on a canvas from 100+ nodes and templates.","Sidebar: Workflows"],
+  ["org","Orgs","Run a team of agents with roles and goals.","Sidebar: Orgs"],
+  ["chat","Chat and coder","Talk to an agent or have it write code.","Sidebar: Chat"],
+  ["doc","Documents","Your Second Brain; add files and ask questions.","Documents tab"],
+  ["people","People and Communications","Contacts, synced email and messages.","Sidebar: People"],
+  ["share","Social automations","Instagram, LinkedIn, X, TikTok, Hacker News, Product Hunt.","Sidebar: Social"],
+  ["clock","Schedules and triggers","Run things on a timer or an event.","Sidebar: Schedules"],
+  ["board","Tasks","A board agents can pick work from.","Sidebar: Tasks"],
+  ["key","Secrets vault","Keys and logins, kept per profile.","Settings: Secrets"],
+  ["plug","API and MCP","An OpenAI-compatible API and an MCP server for other tools.","Settings: API and MCP"],
+  ["lib","Library","Install automations and templates from monoes.me.","Sidebar: Library"]
+];
+STEPS[9] = {
+  view(){
+    const sum = NAMES.slice(0, 9).map((n, k) => {
+      const st = S.status[k];
+      const cls = st === "done" ? "done" : "skipped";
+      const lab = st === "done" ? "" : `<em>${st === "skipped" ? "Skipped" : "Not done"}</em> <a href="#" data-finish="${k}">Finish this</a>`;
+      return `<li class="${cls}"><span class="s">${ic(st === "done" ? "check" : "skip")}</span><span class="n">${n}</span>${lab}</li>`;
+    }).join("");
+    const skipped = S.status.slice(0, 9).filter(s => s !== "done").length;
+    return `${H("You're set")}
+      <p class="lead">${skipped ? `${skipped} ${skipped === 1 ? "step is" : "steps are"} left for later. Everything else is ready.` : "Every step is done. Your world is ready."}</p>
+      <ul class="sum" aria-label="Setup summary">${sum}</ul>
+      <p class="h3">What you can do with MonoAgent</p>
+      <div class="cat">${CAT.map(([i, t, d, w]) => `<div>${ic(i)}<div><b>${t}</b><span>${d}</span><small>${w}</small></div></div>`).join("")}</div>`;
+  },
+  bind(r){ $$("[data-finish]", r).forEach(a => a.onclick = e => { e.preventDefault(); say("Finish this links do nothing in the mockup."); }); }
+};
+
+
+/* ---------- the village: one plot per step ---------- */
+const PLOTS = [
+  {x:150, y:612, t:"the path into your village"},
+  {x:178, y:470, t:"the workshop"},
+  {x:355, y:418, t:"your first house"},
+  {x:355, y:582, t:"the garden"},
+  {x:520, y:344, t:"the windmill, the engine"},
+  {x:300, y:650, t:"the robots"},
+  {x:770, y:468, t:"the bridge to a second plot"},
+  {x:600, y:548, t:"the gate and its lanterns"},
+  {x:515, y:630, t:"the campfire and the lights"},
+  {x:800, y:418, t:"the rest of the village"}
+];
+const LIT = "oklch(0.88 0.14 80)", WALL = "oklch(0.40 0.05 45)", WALL2 = "oklch(0.33 0.045 40)", ROOF = "oklch(0.40 0.10 28)", DARK = "oklch(0.20 0.03 40)", WOOD = "oklch(0.36 0.05 55)";
+const pc = (i, inner) => `<g class="pc" style="--i:${i}">${inner}</g>`;
+const glow = (x, y, r, op) => `<circle class="fx glowp" cx="${x}" cy="${y}" r="${r}" fill="url(#v-glow)" opacity="${op || .8}"/>`;
+const win = (x, y, w, h, c) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="1.5" fill="${c || LIT}" stroke="${DARK}" stroke-width="1.5"/><path d="M${x + w / 2} ${y}v${h}M${x} ${y + h / 2}h${w}" stroke="${DARK}" stroke-width="1"/>`;
+const pine = (x, b, h, c) => `<path d="M${x} ${b - h} L${x + h * .32} ${b - h * .15} H${x + 3} V${b} H${x - 3} V${b - h * .15} H${x - h * .32}Z" fill="${c || "oklch(0.24 0.05 190)"}"/>`;
+const tree = (x, b, r, c) => `<path d="M${x - 3} ${b} h6 l-1 ${-r * 1.2} h-4z" fill="${WOOD}"/><circle cx="${x}" cy="${b - r * 1.5}" r="${r}" fill="${c || "oklch(0.40 0.09 160)"}"/><circle cx="${x - r * .5}" cy="${b - r * 1.2}" r="${r * .7}" fill="${c || "oklch(0.40 0.09 160)"}"/><circle cx="${x + r * .35}" cy="${b - r * 1.85}" r="${r * .45}" fill="oklch(0.50 0.10 150 / .6)"/>`;
+const burst = (x, y) => `<circle class="burst fx" cx="${x}" cy="${y}" r="26" fill="none" stroke="var(--accent)" stroke-width="2"/>`;
+const lantern = (x, b, h) => `<path d="M${x} ${b}V${b - h}" stroke="oklch(0.30 0.03 290)" stroke-width="2.5"/><rect x="${x - 4}" y="${b - h - 9}" width="8" height="10" rx="2" fill="${LIT}" stroke="${DARK}"/>${glow(x, b - h - 4, 18, .9)}`;
+
+/* walkers: x,y = left end of the lane at the feet; d = lane length; dy = rise over the lane */
+function walker(kind, x, y, d, dy, t, dl, c){
+  return `<g class="fx${kind === "robot" ? " robo" : ""}" transform="translate(${x} ${y})">${walkerInner(kind, d, dy, t, dl, c)}</g>`;
+}
+const P_BLUE = ["oklch(0.55 0.12 255)","oklch(0.50 0.12 255)","oklch(0.80 0.06 60)","oklch(0.30 0.05 40)"];
+const P_RED = ["oklch(0.58 0.15 25)","oklch(0.52 0.14 25)","oklch(0.70 0.08 50)","oklch(0.22 0.03 40)"];
+const P_GREEN = ["oklch(0.58 0.12 150)","oklch(0.52 0.11 150)","oklch(0.62 0.07 45)","oklch(0.70 0.10 85)"];
+const P_GOLD = ["oklch(0.72 0.13 85)","oklch(0.64 0.12 80)","oklch(0.78 0.06 60)","oklch(0.25 0.03 30)"];
+const R_A = ["oklch(0.72 0.03 255)","oklch(0.83 0.15 72)"], R_B = ["oklch(0.62 0.06 300)","oklch(0.78 0.13 25)"];
+
+function bulbs(x1, y1, cx, cy, x2, y2, n){
+  let h = `<path d="M${x1} ${y1} Q${cx} ${cy} ${x2} ${y2}" fill="none" stroke="oklch(0.22 0.03 290)" stroke-width="1"/>`;
+  const cols = [LIT, "oklch(0.80 0.13 20)", "oklch(0.85 0.12 140)", "oklch(0.83 0.15 72)"];
+  for (let k = 1; k < n; k++){
+    const t = k / n, x = (1 - t) * (1 - t) * x1 + 2 * (1 - t) * t * cx + t * t * x2, y = (1 - t) * (1 - t) * y1 + 2 * (1 - t) * t * cy + t * t * y2 + 3;
+    h += `<circle class="bulb" style="animation-delay:${(-k * .37).toFixed(2)}s" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.2" fill="${cols[k % 4]}"/>`;
+  }
+  return h;
+}
+
+const PLOT_SVG = [];
+PLOT_SVG[1] = () => pc(0, [[60,682],[108,669],[158,655],[208,644],[268,639],[328,636],[388,630],[448,623],[508,616],[566,609]].map(([x, y]) => `<ellipse cx="${x}" cy="${y}" rx="9" ry="3.5" fill="oklch(0.56 0.03 70)"/>`).join(""))
+  + pc(1, `<path d="M120 664V626" stroke="${WOOD}" stroke-width="4"/><path d="M104 628h30l6 5-6 5h-30z M136 642h-28l-6 5 6 5h28z" fill="oklch(0.50 0.06 60)" stroke="${DARK}"/>`)
+  + pc(2, lantern(250, 642, 40)) + burst(150, 640);
+PLOT_SVG[2] = () => pc(0, `<rect x="142" y="508" width="76" height="46" fill="${WALL2}"/><rect x="142" y="508" width="76" height="46" fill="none" stroke="${DARK}"/><rect x="150" y="524" width="22" height="30" fill="${DARK}"/>`)
+  + pc(1, `<path d="M200 500v-26h10v26" fill="oklch(0.30 0.03 40)"/><path d="M134 512 L180 486 L226 512Z" fill="oklch(0.34 0.06 260)"/>`)
+  + pc(2, `${win(184, 522, 22, 16)}${glow(195, 530, 30, .7)}<g transform="translate(180 498)"><circle class="spin" r="7" fill="none" stroke="oklch(0.83 0.15 72)" stroke-width="3" stroke-dasharray="3 2.5"/></g>`)
+  + `<g class="fx"><circle class="smoke" cx="205" cy="470" r="6" fill="oklch(0.6 0.02 290)"/><circle class="smoke" style="animation-delay:-2.5s" cx="205" cy="470" r="6" fill="oklch(0.6 0.02 290)"/></g>` + burst(180, 520);
+PLOT_SVG[3] = () => pc(0, `<rect x="300" y="482" width="110" height="94" fill="${WALL}"/><rect x="300" y="482" width="110" height="94" fill="none" stroke="${DARK}"/><path d="M300 530h110" stroke="${WALL2}" stroke-width="3"/>`)
+  + pc(1, `<rect x="383" y="436" width="13" height="34" fill="oklch(0.32 0.04 40)"/><path d="M288 488 L355 430 L422 488Z" fill="${ROOF}" stroke="${DARK}"/><path d="M288 488 L355 430 L422 488" fill="none" stroke="oklch(0.55 0.10 35)" stroke-width="3"/>`)
+  + pc(2, `${win(314, 494, 20, 18)}${win(376, 494, 20, 18)}${win(314, 540, 20, 20)}<rect x="362" y="542" width="24" height="34" rx="2" fill="${DARK}"/><circle cx="380" cy="560" r="1.6" fill="${LIT}"/>${glow(355, 520, 70, .55)}`)
+  + pc(3, walker("human", 205, 638, 240, -10, 30, 0, P_BLUE)) + HOUSE_FX + burst(355, 520);
+PLOT_SVG[4] = () => pc(0, tree(262, 584, 20) + `<circle class="fx" data-hit="tree" cx="262" cy="556" r="26" fill="transparent"/>`)
+  + pc(1, Array.from({length: 15}, (_, k) => { const x = 286 + k * 10; return x > 350 && x < 392 ? "" : `<rect x="${x}" y="590" width="5" height="16" rx="1.5" fill="oklch(0.70 0.03 80)"/>`; }).join("") + `<path d="M286 596h64M392 596h40" stroke="oklch(0.60 0.03 80)" stroke-width="2.5"/>`)
+  + pc(2, `<g data-hit="flowers"><rect class="fx" x="290" y="604" width="150" height="20" fill="transparent"/>` + [[298,616,"oklch(0.78 0.14 10)"],[312,620,"oklch(0.86 0.14 88)"],[330,614,"oklch(0.76 0.12 320)"],[404,617,"oklch(0.86 0.14 88)"],[418,621,"oklch(0.78 0.14 10)"],[432,615,"oklch(0.76 0.12 320)"]].map(([x, y, c]) => `<path d="M${x} ${y + 9}v-9" stroke="oklch(0.55 0.10 150)" stroke-width="1.6"/><g class="fl"><circle cx="${x}" cy="${y}" r="4" fill="${c}"/><circle cx="${x}" cy="${y}" r="1.4" fill="oklch(0.9 0.1 90)"/></g>`).join("") + "</g>")
+  + pc(3, `<path d="M448 614v-18" stroke="${WOOD}" stroke-width="3"/><rect x="440" y="586" width="16" height="11" rx="5" fill="oklch(0.55 0.12 255)"/><path d="M454 586v-6h5" stroke="oklch(0.78 0.14 25)" stroke-width="2" fill="none"/>`) + burst(355, 600);
+PLOT_SVG[5] = () => pc(0, `<path d="M500 552 L508 432 H532 L540 552Z" fill="oklch(0.58 0.02 70)" stroke="${DARK}"/><rect x="513" y="526" width="14" height="26" rx="6" fill="${DARK}"/><path d="M503 500h34M506 466h28" stroke="oklch(0.50 0.02 70)" stroke-width="2"/>`)
+  + pc(1, `<path d="M503 434 L520 412 L537 434Z" fill="${ROOF}" stroke="${DARK}"/>${win(514, 474, 12, 14)}${glow(520, 482, 34, .6)}`)
+  + pc(2, `<g class="spin" style="animation-duration:8s"><g class="sails" data-hit="windmill"><circle class="fx" cx="520" cy="420" r="70" fill="none"/>${[0, 90, 180, 270].map(a => `<g transform="rotate(${a} 520 420)"><path d="M520 420 V354" stroke="oklch(0.45 0.04 50)" stroke-width="3"/><rect x="521" y="356" width="13" height="56" fill="oklch(0.85 0.03 80 / .85)" stroke="oklch(0.45 0.04 50)"/><path d="M521 370h13M521 384h13M521 398h13" stroke="oklch(0.45 0.04 50)" stroke-width="1"/></g>`).join("")}<circle cx="520" cy="420" r="5" fill="oklch(0.40 0.04 50)"/></g></g>`) + burst(520, 440);
+PLOT_SVG[6] = () => pc(0, `<path d="M193 694 a22 22 0 0 1 44 0z" fill="oklch(0.45 0.04 260)" stroke="${DARK}"/><rect x="208" y="680" width="14" height="14" rx="3" fill="${DARK}"/><circle cx="215" cy="677" r="3" class="blink" fill="oklch(0.86 0.12 165)"/>${glow(215, 684, 24, .5)}<circle class="fx" data-hit="dome" cx="215" cy="682" r="22" fill="transparent"/>`)
+  + pc(1, walker("robot", 250, 692, 220, -4, 24, -6, R_A))
+  + pc(2, walker("robot", 432, 614, 130, -6, 15, -2, R_B)) + burst(300, 670);
+PLOT_SVG[7] = () => pc(0, `<path d="M596 607 Q660 584 724 601" fill="none" stroke="${WOOD}" stroke-width="9"/><path d="M596 594 Q660 571 724 588" fill="none" stroke="oklch(0.48 0.05 55)" stroke-width="2.5"/>${[610, 630, 650, 670, 690, 710].map(x => `<path d="M${x} ${598 - Math.sin((x - 596) / 128 * Math.PI) * 11}v12" stroke="oklch(0.48 0.05 55)" stroke-width="2"/>`).join("")}`)
+  + pc(1, `<rect x="752" y="520" width="78" height="66" fill="${WALL2}" stroke="${DARK}"/><path d="M744 524 L791 484 L838 524Z" fill="oklch(0.36 0.07 280)" stroke="${DARK}"/>${win(764, 534, 22, 18, "oklch(0.80 0.10 285)")}${win(798, 534, 20, 18)}<rect x="800" y="558" width="18" height="28" rx="2" fill="${DARK}"/>${glow(788, 548, 52, .5)}`)
+  + pc(2, tree(860, 590, 16, "oklch(0.36 0.08 170)"))
+  + pc(3, walker("human", 728, 614, 120, -6, 18, -4, P_GREEN)) + burst(700, 560);
+PLOT_SVG[8] = () => pc(0, `<path d="M584 616V578M614 614V576" stroke="oklch(0.50 0.03 290)" stroke-width="5"/><path d="M582 580 Q599 556 616 578" fill="none" stroke="oklch(0.50 0.03 290)" stroke-width="4"/>`)
+  + pc(1, `<path d="M599 566v6" stroke="oklch(0.3 0.03 290)"/><rect x="595" y="571" width="8" height="10" rx="2" fill="${LIT}"/>${glow(599, 576, 22, .9)}`)
+  + pc(2, lantern(470, 628, 34) + lantern(738, 606, 32)) + burst(600, 590);
+PLOT_SVG[9] = () => pc(0, `<ellipse cx="515" cy="672" rx="22" ry="6" fill="oklch(0.38 0.02 60)"/><path d="M498 674 L532 664 M498 664 L532 674" stroke="oklch(0.36 0.06 45)" stroke-width="5" stroke-linecap="round"/><path d="M474 682h26M532 682h26" stroke="${WOOD}" stroke-width="7" stroke-linecap="round"/>`)
+  + pc(1, `${glow(515, 650, 80, 1)}<circle class="fx fireglow" cx="515" cy="645" r="70" fill="url(#v-glow)"/><g class="fire" data-hit="fire"><circle class="fx" cx="515" cy="646" r="28" fill="transparent"/><path class="flick" d="M515 670 c-16 -10 -10 -30 0 -44 c3 14 16 18 12 34 c-2 7 -7 10 -12 10z" fill="oklch(0.72 0.18 45)"/><path class="flick b" d="M515 670 c-9 -6 -6 -18 0 -27 c2 9 9 11 7 20 c-1 4 -4 7 -7 7z" fill="oklch(0.90 0.15 85)"/>
+      <g class="fx">${[[-4,6],[3,-8],[6,10],[-2,-4],[1,4]].map(([o, sx], k) => `<circle class="spark" style="--sx:${sx}px;animation-delay:${(-k * .5).toFixed(1)}s" cx="${515 + o}" cy="640" r="1.6" fill="oklch(0.92 0.14 80)"/>`).join("")}</g></g>`)
+  + pc(2, bulbs(215, 512, 255, 530, 296, 490, 6) + bulbs(420, 490, 465, 512, 506, 470, 7) + bulbs(536, 470, 640, 540, 748, 522, 12)) + burst(515, 650);
+PLOT_SVG[10] = () => pc(0, `<rect x="748" y="436" width="46" height="36" fill="${WALL2}" stroke="${DARK}"/><path d="M742 440 L771 414 L800 440Z" fill="${ROOF}" stroke="${DARK}"/>${win(758, 448, 12, 11)}<rect x="778" y="452" width="10" height="20" fill="${DARK}"/>`)
+  + pc(1, `<rect x="828" y="444" width="44" height="34" fill="${WALL}" stroke="${DARK}"/><path d="M822 448 L850 424 L878 448Z" fill="oklch(0.36 0.07 280)" stroke="${DARK}"/>${win(836, 455, 11, 10)}${win(854, 455, 11, 10)}${glow(810, 455, 60, .45)}`)
+  + pc(2, tree(665, 478, 13, "oklch(0.36 0.08 150)") + tree(460, 470, 12, "oklch(0.34 0.07 165)") + tree(95, 560, 15))
+  + pc(3, walker("human", 120, 678, 150, -8, 20, -7, P_RED) + walker("human", 732, 640, 140, -8, 21, -12, P_GOLD) + walker("robot", 330, 662, 110, -2, 14, -9, R_A))
+  + `<g class="fx">${[[0, 0], [24, -12], [-20, 14]].map(([dx, dy]) => `<path class="bird" d="M${140 + dx} ${210 + dy} q4 -4 8 0 q4 -4 8 0" fill="none" stroke="oklch(0.25 0.05 300)" stroke-width="1.8"/>`).join("")}</g>` + burst(800, 450);
+
+function buildVillage(){
+  const v = $("#vsvg");
+  const back = [[40,512,46],[78,506,60],[250,486,48],[440,470,52],[600,458,42],[700,452,38],[880,456,50]].map(([x, b, h]) => pine(x, b, h)).join("");
+  v.innerHTML = `<defs>
+      <radialGradient id="v-glow" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="oklch(0.86 0.15 75)" stop-opacity=".7"/><stop offset="1" stop-color="oklch(0.80 0.15 65)" stop-opacity="0"/></radialGradient>
+      <radialGradient id="v-warm" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="oklch(0.72 0.15 60)" stop-opacity=".5"/><stop offset="1" stop-color="oklch(0.70 0.15 50)" stop-opacity="0"/></radialGradient>
+      <radialGradient id="v-ffly" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="oklch(0.96 0.16 115)"/><stop offset=".35" stop-color="oklch(0.90 0.17 115)" stop-opacity=".6"/><stop offset="1" stop-color="oklch(0.90 0.17 115)" stop-opacity="0"/></radialGradient>
+      <linearGradient id="v-hb" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="oklch(0.26 0.05 205)"/><stop offset="1" stop-color="oklch(0.22 0.045 212)"/></linearGradient>
+      <linearGradient id="v-hf" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="oklch(0.31 0.06 180)"/><stop offset="1" stop-color="oklch(0.21 0.045 215)"/></linearGradient>
+      <linearGradient id="v-fade" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".12" stop-color="#fff" stop-opacity="1"/></linearGradient>
+      <mask id="v-mask" maskUnits="userSpaceOnUse" x="-50" y="0" width="1000" height="700"><rect x="-50" y="0" width="1000" height="700" fill="url(#v-fade)"/></mask>
+    </defs>
+    <g id="vcam"><g mask="url(#v-mask)">
+      <path d="M-50 505 C 150 470, 320 482, 470 462 S 760 442, 950 456 V700 H-50Z" fill="url(#v-hb)"/>
+      ${back}
+      <path d="M-50 562 C 160 546, 330 560, 520 548 S 780 540, 950 548 V700 H-50Z" fill="url(#v-hf)"/>
+      <path d="M-50 692 C 120 672, 180 642, 300 638 S 480 624, 600 608 M722 602 C 780 596, 840 588, 950 572" fill="none" stroke="oklch(0.40 0.04 65 / .5)" stroke-width="22" stroke-linecap="round"/>
+      <path data-hit="river" d="M702 440 C 692 505, 642 545, 662 600 S 642 660, 622 700 L692 700 C 702 660, 722 620, 702 590 S 740 505, 728 440Z" fill="oklch(0.33 0.08 245)"/>
+      <path class="water" d="M712 470 C 700 520, 660 550, 676 600 S 660 660, 652 700" fill="none" stroke="oklch(0.72 0.08 235 / .45)" stroke-width="1.5" stroke-dasharray="10 30"/>
+      <path class="water" style="animation-delay:-1.4s" d="M720 450 C 712 520, 676 560, 690 600 S 672 660, 664 700" fill="none" stroke="oklch(0.72 0.08 235 / .35)" stroke-width="1.2" stroke-dasharray="6 34"/>
+    </g>
+    <ellipse id="warmV" cx="500" cy="600" rx="460" ry="200" fill="url(#v-warm)" opacity="0"/>
+    ${[10, 2, 5, 3, 7, 8, 4, 1, 9, 6].map(n => `<g class="plot" data-s="${n}">${PLOT_SVG[n]()}</g>`).join("")}
+    ${ACTORS_SVG()}${JAR}<g id="fx"></g></g>
+    <g id="planTag" opacity="0"><rect x="0" y="0" height="28" rx="14" stroke-width="1.2"/><text x="14" y="18.5"></text></g>`;
+}
+
+function placeTag(){
+  const tag = $("#planTag"), i = S.step, p = PLOTS[i];
+  const txt = i === 9 ? "Your village is alive" : `Step ${i + 1} builds ${p.t}`;
+  const t = $("#planTag text"); t.textContent = txt;
+  let w = 220; try { w = t.getComputedTextLength() + 28; } catch (e) {}
+  $("#planTag rect").setAttribute("width", w.toFixed(0));
+  let minX = 4;
+  try {
+    const svg = $("#vsvg"), m = svg.getScreenCTM().inverse(), pt = svg.createSVGPoint();
+    pt.x = $(".panel").getBoundingClientRect().right + 10; pt.y = 0;
+    minX = Math.max(4, pt.matrixTransform(m).x);
+  } catch (e) {}
+  const x = Math.max(minX, Math.min(896 - w, p.x - w / 2)), y = p.y - 34;
+  tag.style.transform = `translate(${x}px, ${y}px)`;
+  tag.setAttribute("opacity", "1");
+}
+function renderWorld(){
+  const cur = S.step; let n = 0; const built = new Set();
+  $$("#vsvg .plot").forEach(g => {
+    const s = +g.dataset.s, st = S.status[s - 1];
+    const isB = (st === "done" || (s === 10 && cur === 9)) && !BUILDING.has(s);
+    const plan = !isB && (s - 1 === cur || BUILDING.has(s));
+    g.classList.toggle("built", isB);
+    g.classList.toggle("plan", plan);
+    g.classList.toggle("ghost", !isB && !plan && st === "skipped");
+    if (isB){ n++; built.add(s); }
+  });
+  $$("#actors .actor").forEach(a => a.classList.toggle("on", built.has(+a.dataset.need)));
+  $("#warmV").setAttribute("opacity", (n * 0.09).toFixed(2));
+  $("#warmSky").setAttribute("opacity", (n * 0.06).toFixed(2));
+  document.body.classList.toggle("dawn", cur === 9);
+  placeTag();
+}
+
+/* ---------- life: figures and the cast ---------- */
+const rand = (a, b) => a + Math.random() * (b - a);
+function walkFig(kind, c, carry){
+  if (kind === "human") return `<rect class="arm b" x="-1.2" y="-17" width="2.4" height="8" rx="1.2" fill="${c[1]}"/>
+      <rect class="leg" x="-1.6" y="-8.5" width="3.2" height="8.5" rx="1.5" fill="oklch(0.28 0.04 270)"/>
+      <rect class="leg b" x="-1.6" y="-8.5" width="3.2" height="8.5" rx="1.5" fill="oklch(0.24 0.04 270)"/>
+      <rect x="-3.6" y="-18.5" width="7.2" height="11" rx="2.6" fill="${c[0]}"/>
+      <circle cx="0" cy="-22.5" r="3.7" fill="${c[2]}"/><path d="M-3.7 -23 a3.7 3.7 0 0 1 7.4 0 l-1 -.2 a3 3 0 0 0 -5 -1z" fill="${c[3]}"/>
+      <circle cx="1.8" cy="-22.6" r=".7" fill="oklch(0.2 0.02 50)"/>
+      <rect class="arm a" x="-1.2" y="-17" width="2.4" height="8" rx="1.2" fill="${c[0]}"/>${carry ? `<rect class="load" x="-6" y="-33" width="12" height="7" rx="1" fill="oklch(0.62 0.09 55)" stroke="${DARK}" stroke-width=".8"/>` : ""}`;
+  return `<rect class="leg" x="-3.6" y="-6.5" width="3" height="6.5" rx="1" fill="oklch(0.50 0.02 260)"/>
+      <rect class="leg b" x=".6" y="-6.5" width="3" height="6.5" rx="1" fill="oklch(0.44 0.02 260)"/>
+      <rect class="arm a" x="-8" y="-15" width="2.4" height="7" rx="1.2" fill="oklch(0.58 0.02 260)"/>
+      <rect class="arm b" x="5.6" y="-15" width="2.4" height="7" rx="1.2" fill="oklch(0.58 0.02 260)"/>
+      <rect x="-6" y="-17" width="12" height="11" rx="2.5" fill="${c[0]}"/><circle cx="0" cy="-11.5" r="1.8" fill="var(--accent)" class="blink"/>
+      <path d="M0 -24 v-4.5" stroke="oklch(0.6 0.02 260)" stroke-width="1.2"/><circle cx="0" cy="-29" r="1.6" fill="${c[1]}" class="blink"/>
+      <rect x="-5" y="-24.5" width="10" height="7.5" rx="2.2" fill="oklch(0.66 0.02 260)"/><rect x="-3.5" y="-22.5" width="7" height="3" rx="1.5" fill="oklch(0.86 0.12 165)"/>${carry ? `<rect class="load" x="-12" y="-28" width="24" height="3.4" rx="1" fill="oklch(0.62 0.09 55)" stroke="${DARK}" stroke-width=".7"/>` : ""}`;
+}
+function walkerInner(kind, d, dy, t, dl, c, carry){
+  const anim = `--d:${d}px;--dy:${dy}px;--t:${t}s;--dl:${dl}s`;
+  return `<g class="mover" style="${anim}"><g class="facer" style="${anim}"><g class="hop"><g class="bob"><g transform="scale(1.25)">${walkFig(kind, c, carry)}</g></g></g></g></g>`;
+}
+/* posed figures: feet at 0,0, facing right; arms rotate around the shoulder */
+const limb = (x, y, a, col, w, len) => { a = a || {}; return `<g transform="translate(${x} ${y})"><g class="lm ${a.cls || ""}" style="transform:rotate(${a.st ?? 0}deg)"><rect x="${-w / 2}" y="0" width="${w}" height="${len}" rx="${w / 2}" fill="${col}"/>${a.prop || ""}</g></g>`; };
+function man(c, o = {}){
+  const P1 = "oklch(0.28 0.04 270)", P2 = "oklch(0.24 0.04 270)";
+  const legs = o.sit
+    ? `<path d="M-1.5 -8.3 H6.5 V-.5" fill="none" stroke="${P2}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M.5 -8 H8.5 V0" fill="none" stroke="${P1}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`
+    : `<rect x="-2.9" y="-8.5" width="2.8" height="8.5" rx="1.3" fill="${P2}"/><rect x=".1" y="-8.5" width="2.8" height="8.5" rx="1.3" fill="${P1}"/>`;
+  return limb(-.5, -16.5, Object.assign({st:8}, o.back), c[1], 2.4, 8) + legs
+    + `<rect x="-3.6" y="-18.5" width="7.2" height="11" rx="2.6" fill="${c[0]}"/><circle cx="0" cy="-22.5" r="3.7" fill="${c[2]}"/><path d="M-3.7 -23 a3.7 3.7 0 0 1 7.4 0 l-1 -.2 a3 3 0 0 0 -5 -1z" fill="${c[3]}"/><circle cx="1.8" cy="-22.6" r=".7" fill="oklch(0.2 0.02 50)"/>`
+    + limb(.5, -16.5, Object.assign({st:-8}, o.front), c[0], 2.4, 8);
+}
+function bot(c, o = {}){
+  const legs = o.sit
+    ? `<rect x="-4" y="-8" width="11" height="3" rx="1" fill="oklch(0.50 0.02 260)"/><rect x="5" y="-7" width="3" height="7" rx="1" fill="oklch(0.46 0.02 260)"/>`
+    : `<rect x="-3.6" y="-6.5" width="3" height="6.5" rx="1" fill="oklch(0.50 0.02 260)"/><rect x=".6" y="-6.5" width="3" height="6.5" rx="1" fill="oklch(0.44 0.02 260)"/>`;
+  const eyes = o.face ? `<circle cx="-2.2" cy="-21" r="1.3" fill="oklch(0.86 0.12 165)"/><circle cx="2.2" cy="-21" r="1.3" fill="oklch(0.86 0.12 165)"/>` : `<rect x="-1" y="-22.5" width="5.5" height="3" rx="1.5" fill="oklch(0.86 0.12 165)"/>`;
+  return limb(-7, -15, Object.assign({st:10}, o.back), "oklch(0.56 0.02 260)", 2.4, 7) + legs
+    + `<rect x="-6" y="-17" width="12" height="11" rx="2.5" fill="${c[0]}"/><circle cx="0" cy="-11.5" r="1.8" fill="var(--accent)" class="blink"/><path d="M0 -24 v-4.5" stroke="oklch(0.6 0.02 260)" stroke-width="1.2"/><circle cx="0" cy="-29" r="1.6" fill="${c[1]}" class="blink"/><rect x="-5" y="-24.5" width="10" height="7.5" rx="2.2" fill="oklch(0.66 0.02 260)"/>${eyes}`
+    + limb(7, -15, Object.assign({st:-10}, o.front), "oklch(0.64 0.02 260)", 2.4, 7);
+}
+function actor(need, x, y, inner, o = {}){
+  return `<g class="actor${o.cls ? " " + o.cls : ""}" data-need="${need}"${o.hit ? ` data-hit="${o.hit}"` : ""} transform="translate(${x} ${y})"><g class="arr"><g class="hop">${o.hit ? `<rect x="${o.hx ?? -16}" y="${o.hy ?? -44}" width="${o.hw ?? 32}" height="${o.hh ?? 48}" fill="transparent"/>` : ""}<g transform="scale(${o.flip ? -1.25 : 1.25} 1.25)">${inner}</g></g></g></g>`;
+}
+const walkActor = (need, kind, x, y, d, dy, t, dl, c, carry) => `<g class="actor${kind === "robot" ? " robo" : ""}${carry ? " carry" : ""}" data-need="${need}" transform="translate(${x} ${y})"><g class="arr">${walkerInner(kind, d, dy, t, dl, c, carry)}</g></g>`;
+const HAMMER = `<path d="M0 7 v7.5" stroke="oklch(0.45 0.05 50)" stroke-width="1.6"/><rect x="-3.4" y="13.5" width="6.8" height="3.6" rx=".8" fill="oklch(0.74 0.02 260)"/>`;
+const CAN = `<g transform="translate(0 8) rotate(60)"><rect x="-1" y="-1" width="7" height="5.5" rx="1.2" fill="oklch(0.62 0.10 200)"/><path d="M6 .5 l5 -2.8" stroke="oklch(0.62 0.10 200)" stroke-width="1.5" stroke-linecap="round"/></g>`;
+const bubble = cls => `<g class="bub ${cls}"><rect x="-6" y="-7" width="13" height="7.5" rx="3.7" fill="oklch(0.95 0.01 290)"/><path d="M-2 0 l-2 3 l4 -2.4z" fill="oklch(0.95 0.01 290)"/>${[-2.5, .5, 3.5].map(x => `<circle cx="${x}" cy="-3.2" r=".9" fill="oklch(0.3 0.03 290)"/>`).join("")}</g>`;
+function ACTORS_SVG(){
+  const a = [
+    actor(2, 238, 561, bot(R_B, {front:{cls:"a-hammer", st:-100, prop:HAMMER}}), {flip:true}),
+    walkActor(3, "robot", 188, 593, 92, -6, 11, -3, R_A, true),
+    actor(3, 360, 668, `${man(P_RED, {front:{cls:"a-gest"}})}<g transform="translate(21 0) scale(-1 1)">${man(P_GOLD, {front:{cls:"a-gest d2"}})}</g><g transform="translate(5 -33)">${bubble("bA")}</g><g transform="translate(17 -33)">${bubble("bB")}</g>`, {hit:"chat", hx:-10, hw:46, hy:-40, hh:42}),
+    actor(4, 350, 633, `${man(P_GREEN, {front:{st:-60, prop:CAN}})}${[0, 1, 2].map(k => `<ellipse class="drop${k ? " d" + (k + 1) : ""}" cx="${17.4 + k * .8}" cy="-13" rx=".7" ry="1.2" fill="oklch(0.80 0.08 230)"/>`).join("")}`, {flip:true}),
+    walkActor(5, "human", 430, 628, 130, -16, 20, -5, P_RED),
+    actor(6, 600, 690, bot(R_A, {face:true, front:{cls:"a-wave", st:180}, back:{st:12}}), {hit:"dance"}),
+    actor(6, 136, 692, `${bot(R_B, {front:{cls:"a-letter", st:-80}})}<g transform="translate(30 0) scale(-1 1)">${man(P_BLUE, {front:{cls:"a-letter", st:-80}})}</g><rect class="letter" x="12.5" y="-15.5" width="6" height="4.4" rx=".6" fill="oklch(0.96 0.03 85)" stroke="oklch(0.45 0.03 60)" stroke-width=".4"/>`),
+    actor(7, 664, 605, `${man(P_GOLD, {sit:true, front:{st:-70}})}<path d="M8 -13.8 L25 -31" stroke="oklch(0.45 0.05 50)" stroke-width="1.1" stroke-linecap="round"/><path d="M25 -31 Q27 -6 24 9" fill="none" stroke="oklch(0.85 0.02 290 / .7)" stroke-width=".5"/><circle class="bobber" cx="24" cy="9" r="1.4" fill="oklch(0.75 0.17 28)"/>`),
+    walkActor(8, "robot", 744, 652, 110, -14, 16, -8, R_B),
+    actor(9, 484, 690, man(P_BLUE, {sit:true, front:{cls:"warm", st:-45}})),
+    actor(9, 548, 690, bot(R_A, {sit:true, front:{cls:"warm", st:-45}}), {flip:true})
+  ];
+  return `<g id="actors">${a.join("")}</g>`;
+}
+const HOUSE_FX = `<g class="fx">
+  <path data-hit="roof" d="M288 488 L355 430 L422 488Z" fill="transparent"/>
+  <circle class="w2" cx="386" cy="503" r="22" fill="url(#v-glow)"/><rect class="w2" x="376" y="494" width="20" height="18" rx="1.5" fill="oklch(0.97 0.08 95)"/>
+  <g class="wv"><circle cx="384" cy="501" r="3" fill="oklch(0.80 0.06 60)"/><rect x="381" y="504" width="6" height="8" rx="2" fill="oklch(0.55 0.12 255)"/><g transform="translate(388 505)"><g class="lm a-wave" style="transform:rotate(180deg)"><rect x="-.9" y="0" width="1.8" height="6" rx=".9" fill="oklch(0.80 0.06 60)"/></g></g></g>
+  <rect data-hit="window" x="372" y="490" width="28" height="26" fill="transparent"/>
+  <g class="cat"><ellipse cx="392" cy="458" rx="7" ry="4.5" fill="oklch(0.22 0.02 290)"/><circle cx="399" cy="452" r="3.6" fill="oklch(0.22 0.02 290)"/><path d="M396.4 449.6 l.8 -3.8 l2.4 2.8z M400.4 449 l2 -3.2 l.6 3.6z" fill="oklch(0.22 0.02 290)"/><circle cx="400.8" cy="451.6" r=".8" fill="oklch(0.85 0.15 120)"/><path class="tail" d="M385.5 458 q-6 -2 -5 -10" stroke="oklch(0.22 0.02 290)" stroke-width="2" fill="none" stroke-linecap="round"/></g>
+</g>`;
+const JAR = `<g data-hit="jar" transform="translate(792 676)"><rect x="-9" y="-16" width="18" height="18" fill="transparent"/><circle class="jlight" cx="0" cy="-4" r="7" fill="url(#v-ffly)"/><rect x="-3" y="-8" width="6" height="8" rx="1.5" fill="oklch(0.80 0.05 200 / .3)" stroke="oklch(0.85 0.03 200 / .7)" stroke-width=".8"/><rect class="lid" x="-3.4" y="-9.6" width="6.8" height="1.8" rx=".6" fill="oklch(0.55 0.06 55)"/></g>`;
+
+/* ---------- life: build events ---------- */
+const RM = window.matchMedia("(prefers-reduced-motion: reduce)");
+const anim = (el, kf, o) => (RM.matches || !el || !el.animate) ? null : el.animate(kf, o);
+const BUILDING = new Set();
+let EVENTS = 0;
+function addFx(html, host){
+  host = host || $("#fx");
+  const g = document.createElementNS(host.namespaceURI, "g");
+  g.innerHTML = html; host.appendChild(g); return g;
+}
+function confetti(host, x, y){
+  const cols = ["oklch(0.85 0.15 75)","oklch(0.78 0.14 20)","oklch(0.82 0.13 160)","oklch(0.80 0.12 260)","oklch(0.95 0.03 90)"];
+  let h = "";
+  for (let k = 0; k < 14; k++) h += `<g transform="translate(${x.toFixed(0)} ${y.toFixed(0)})"><rect class="cf" x="-2" y="-1.2" width="4" height="2.4" fill="${cols[k % 5]}"/></g>`;
+  addFx(h, host).querySelectorAll(".cf").forEach((r, k) => {
+    const dx = rand(-75, 75), dy = rand(-95, -35), rot = rand(-360, 360);
+    anim(r, [{transform:"translate(0px,0px) rotate(0deg)", opacity:1},{transform:`translate(${dx}px,${dy}px) rotate(${rot / 2}deg)`, opacity:1, offset:.5},{transform:`translate(${dx * 1.3}px,${dy + 60}px) rotate(${rot}deg)`, opacity:0}], {duration:950 + k * 20, easing:"cubic-bezier(.2,.7,.4,1)", fill:"forwards"});
+  });
+}
+/* Continue on a step: workers carry pieces to its plot, scaffolding goes up, it is built, everyone cheers. About 2.4 s; the panel is not touched. */
+function buildEvent(n){
+  if (RM.matches || EVENTS >= 2) return;
+  const plot = $(`#vsvg .plot[data-s='${n}']`); if (!plot) return;
+  EVENTS++;
+  BUILDING.add(n); if (n === 9) BUILDING.add(10);
+  renderWorld();
+  const P = PLOTS[n - 1];
+  let cx = P.x, w = 110, bot = Math.min(694, P.y + 110), h = 90;
+  try {
+    const bb = plot.getBBox();
+    if (bb.width){ cx = bb.width > 220 ? P.x : bb.x + bb.width / 2; w = Math.min(Math.max(bb.width, 60), 140); bot = Math.min(694, bb.y + bb.height); h = Math.min(125, Math.max(50, bb.height)); }
+  } catch (e) {}
+  const top = bot - h, x0 = cx - w / 2, x1 = cx + w / 2, WD = "oklch(0.66 0.08 62)";
+  let sc = "";
+  if (n !== 1){
+    for (const x of [x0, cx, x1]) sc += `<path d="M${x.toFixed(0)} ${bot.toFixed(0)} V${(top - 6).toFixed(0)}" stroke="${WD}" stroke-width="2.4"/>`;
+    for (let y = bot - 26; y > top; y -= 28) sc += `<path d="M${(x0 - 4).toFixed(0)} ${y.toFixed(0)} H${(x1 + 4).toFixed(0)}" stroke="oklch(0.58 0.07 55)" stroke-width="3.2"/><path d="M${x0.toFixed(0)} ${(y + 26).toFixed(0)} L${cx.toFixed(0)} ${y.toFixed(0)}" stroke="${WD}" stroke-width="1.2" opacity=".8"/>`;
+  }
+  const kinds = [["robot", R_A], ["human", P_GOLD], ["robot", R_B]];
+  const ends = [[x0 - 14, bot + 2], [x1 + 14, bot + 2], [cx, bot + 12]];
+  let wk = "";
+  ends.forEach(([ex, ey], k) => {
+    ey = Math.min(698, ey);
+    const sx = Math.max(110, Math.min(880, ex + (k === 1 ? 170 : -170))), sy = Math.min(698, ey + 24);
+    wk += `<g transform="translate(${sx.toFixed(0)} ${sy.toFixed(0)})"><g class="wkm" data-dx="${(ex - sx).toFixed(0)}" data-dy="${(ey - sy).toFixed(0)}"><g${ex < sx ? ' transform="scale(-1 1)"' : ""}><g class="wk carry${kinds[k][0] === "robot" ? " robo" : ""}"><g class="bob"><g transform="scale(1.25)">${walkFig(kinds[k][0], kinds[k][1], true)}</g></g></g></g></g></g>`;
+  });
+  const cy = (top + bot) / 2;
+  const g = addFx(`<circle class="spot" cx="${cx.toFixed(0)}" cy="${cy.toFixed(0)}" r="${(Math.max(w, h) * 1.15).toFixed(0)}" fill="url(#v-glow)" opacity="0"/><g class="scaf">${sc}</g>${wk}`);
+  const scaf = g.querySelector(".scaf");
+  anim(g.querySelector(".spot"), [{opacity:0},{opacity:.95, offset:.3},{opacity:.95, offset:.7},{opacity:0}], {duration:2400, fill:"forwards"});
+  scaf.style.transformBox = "fill-box"; scaf.style.transformOrigin = "50% 100%";
+  anim(scaf, [{transform:"scaleY(0)", opacity:0},{transform:"scaleY(1)", opacity:1}], {duration:500, easing:"cubic-bezier(.2,.9,.3,1)", fill:"both"});
+  g.querySelectorAll(".wkm").forEach((m, k) => anim(m, [{transform:"translate(0px,0px)"},{transform:`translate(${m.dataset.dx}px,${m.dataset.dy}px)`}], {duration:820 + k * 90, easing:"cubic-bezier(.45,0,.3,1)", fill:"forwards"}));
+  const cam = $("#vcam");
+  cam.style.transformOrigin = `${cx.toFixed(0)}px ${cy.toFixed(0)}px`; cam.style.transform = "scale(1.07)";
+  later(980, () => g.querySelectorAll(".wk").forEach(x => { x.classList.remove("carry"); x.classList.add("hammer"); }));
+  later(1450, () => {
+    BUILDING.delete(n); if (n === 9) BUILDING.delete(10); renderWorld();
+    anim(scaf, [{opacity:1},{opacity:0}], {duration:350, fill:"forwards"});
+    g.querySelectorAll(".wk").forEach((x, k) => { x.classList.remove("hammer"); x.classList.add("cheerw"); anim(x, [{transform:"translateY(0px)"},{transform:"translateY(-9px)"},{transform:"translateY(0px)"}], {duration:320, iterations:2, delay:k * 60, easing:"ease-out"}); });
+    confetti(g, cx, top);
+    cam.classList.add("cheer"); later(900, () => cam.classList.remove("cheer"));
+  });
+  later(1650, () => { cam.style.transform = ""; });
+  later(2050, () => g.querySelectorAll(".wkm").forEach(m => anim(m.parentNode, [{opacity:1},{opacity:0}], {duration:350, fill:"forwards"})));
+  later(2450, () => { g.remove(); EVENTS = Math.max(0, EVENTS - 1); });
+}
+
+/* ---------- life: discoveries ---------- */
+const FOUND = new Set(), FOUND_OF = 12, COOL = {};
+let roofN = 0, stopFollow = null;
+const plotEl = n => $(`#vsvg .plot[data-s='${n}']`);
+function discover(k){
+  if (FOUND.has(k)) return;
+  FOUND.add(k);
+  const f = $("#found"); f.hidden = false; f.innerHTML = `Found <b>${FOUND.size}</b> of ${FOUND_OF}`;
+}
+function cool(k, ms){ const now = performance.now(); if (COOL[k] > now) return false; COOL[k] = now + ms; return true; }
+function vpt(e, el){ const svg = el.ownerSVGElement || el, pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY; return pt.matrixTransform(el.getScreenCTM().inverse()); }
+function startFollow(){
+  const cam = $("#vcam");
+  const g = addFx(`<g class="drone"><path class="prop" d="M-8 -15 h16" stroke="oklch(0.88 0.02 260)" stroke-width="1.6" stroke-linecap="round"/><path d="M0 -15 v3" stroke="oklch(0.6 0.02 260)" stroke-width="1.2"/><rect x="-6" y="-12" width="12" height="9" rx="3" fill="oklch(0.70 0.02 260)"/><rect x="-3.5" y="-9.5" width="7" height="3" rx="1.5" fill="oklch(0.86 0.12 165)"/><circle cx="0" cy="2" r="4" fill="url(#v-glow)"/></g>`);
+  let x = 215, y = 660, tx = 300, ty = 600, raf = 0;
+  const put = () => g.setAttribute("transform", `translate(${x.toFixed(1)} ${y.toFixed(1)}) scale(1.5)`);
+  if (RM.matches){ x = 244; y = 648; put(); stopFollow = () => { g.remove(); stopFollow = null; }; later(2500, () => stopFollow && stopFollow()); return; }
+  const mv = e => { try { const p = vpt(e, cam); tx = Math.max(120, Math.min(880, p.x)); ty = Math.max(330, Math.min(690, p.y - 20)); } catch (err) {} };
+  window.addEventListener("pointermove", mv, {passive:true});
+  const t0 = performance.now();
+  const step = now => { x += (tx - x) * .07; y += (ty - y) * .07; put(); if (now - t0 < 8000) raf = requestAnimationFrame(step); else stopFollow(true); };
+  stopFollow = soft => {
+    cancelAnimationFrame(raf); window.removeEventListener("pointermove", mv); stopFollow = null;
+    if (soft && anim(g.firstElementChild, [{transform:"translate(0px,0px)", opacity:1},{transform:"translate(40px,-200px)", opacity:0}], {duration:900, fill:"forwards"})) setTimeout(() => g.remove(), 950);
+    else g.remove();
+  };
+  raf = requestAnimationFrame(step);
+}
+const HIT = {
+  windmill(){ if (!cool("windmill", 2600)) return; anim($("#vsvg .sails"), [{transform:"rotate(0deg)"},{transform:"rotate(1440deg)"}], {duration:2500, easing:"cubic-bezier(.15,.8,.3,1)"}); discover("windmill"); },
+  window(){ if (!cool("window", 3600)) return; const p = plotEl(3); p.classList.add("lit2"); later(3500, () => p.classList.remove("lit2")); discover("window"); },
+  roof(){
+    const p = plotEl(3); if (p.classList.contains("hascat")) return;
+    anim(p, [{transform:"translateX(0px)"},{transform:"translateX(1.5px)"},{transform:"translateX(-1.5px)"},{transform:"translateX(0px)"}], {duration:240});
+    if (++roofN >= 3){ p.classList.add("hascat"); discover("cat"); }
+  },
+  fire(){
+    if (!cool("fire", 1600)) return;
+    const p = plotEl(9); p.classList.add("flare"); later(1500, () => p.classList.remove("flare"));
+    if (!RM.matches){
+      let h = ""; for (let k = 0; k < 12; k++) h += `<circle cx="${515 + rand(-6, 6)}" cy="640" r="1.8" fill="oklch(0.92 0.15 80)"/>`;
+      const g = addFx(h);
+      g.querySelectorAll("circle").forEach(c => anim(c, [{transform:"translate(0px,0px)", opacity:1},{transform:`translate(${rand(-30, 30)}px,${rand(-110, -60)}px)`, opacity:0}], {duration:rand(700, 1300), easing:"cubic-bezier(.2,.7,.4,1)", fill:"forwards"}));
+      later(1400, () => g.remove());
+    }
+    discover("fire");
+  },
+  tree(){
+    if (!cool("tree", 1800)) return;
+    let h = "";
+    for (let k = 0; k < 7; k++) h += `<ellipse class="lf" cx="${(262 + rand(-16, 16)).toFixed(1)}" cy="${(552 + rand(-14, 8)).toFixed(1)}" rx="2.6" ry="1.4" fill="oklch(${rand(.5, .72).toFixed(2)} 0.12 ${rand(60, 150).toFixed(0)})"/>`;
+    h += `<path class="bd" d="M256 546 q3 -3.5 6 0 q3 -3.5 6 0" fill="none" stroke="oklch(0.22 0.05 300)" stroke-width="1.8" stroke-linecap="round"/>`;
+    const g = addFx(h);
+    g.querySelectorAll(".lf").forEach(l => anim(l, [{transform:"translate(0px,0px) rotate(0deg)", opacity:1},{transform:`translate(${rand(-22, 22)}px,${rand(30, 46)}px) rotate(${rand(-180, 180)}deg)`, opacity:0}], {duration:rand(1100, 1700), easing:"ease-in", fill:"forwards"}));
+    anim(g.querySelector(".bd"), [{transform:"translate(0px,0px)"},{transform:"translate(190px,-180px) scale(.7)"}], {duration:1700, easing:"cubic-bezier(.4,0,.6,1)", fill:"forwards"});
+    later(1750, () => g.remove());
+    discover("tree");
+  },
+  flowers(h){ h.classList.add("bloomed"); discover("flowers"); },
+  dance(h){
+    if (!cool("dance", 2000)) return;
+    const hop = h.querySelector(".hop"); hop.style.transformBox = "fill-box"; hop.style.transformOrigin = "50% 100%";
+    anim(hop, [{transform:"rotate(0deg) translateY(0px)"},{transform:"rotate(-14deg) translateY(-4px)"},{transform:"rotate(14deg) translateY(0px)"},{transform:"rotate(-14deg) translateY(-4px)"},{transform:"rotate(0deg) translateY(0px)"}], {duration:900, iterations:2});
+    h.classList.add("dancing"); later(1800, () => h.classList.remove("dancing"));
+    discover("dance");
+  },
+  chat(h){ if (!cool("chat", 2700)) return; h.classList.add("wb"); later(2600, () => h.classList.remove("wb")); discover("wave"); },
+  sky(h, e){
+    if (!cool("sky", 700)) return;
+    const p = vpt(e, $("#world"));
+    const g = addFx(`<g transform="translate(${p.x.toFixed(0)} ${p.y.toFixed(0)})"><g class="ss"><line x1="0" y1="0" x2="80" y2="-34" stroke="url(#starG)" stroke-width="2.4" stroke-linecap="round"/><circle r="2.4" fill="oklch(0.98 0.03 90)"/></g></g>`, $("#wfx"));
+    anim(g.querySelector(".ss"), [{transform:"translate(0px,0px)", opacity:0},{opacity:1, offset:.15},{transform:"translate(-260px,110px)", opacity:0}], {duration:1100, easing:"cubic-bezier(.3,.6,.4,1)", fill:"forwards"});
+    later(1150, () => g.remove());
+    discover("star");
+  },
+  river(h, e){
+    if (!cool("river", 1300)) return;
+    const p = vpt(e, $("#vcam"));
+    const g = addFx(`<g transform="translate(${p.x.toFixed(1)} ${p.y.toFixed(1)})"><circle class="spl" r="3" fill="none" stroke="oklch(0.85 0.06 230)" stroke-width="1.2"/><path class="fish" d="M6 0 q-6 -5 -12 0 q6 5 12 0z M-5 0 l-5 -3.5 v7z" fill="oklch(0.74 0.13 45)"/></g>`);
+    const f = g.querySelector(".fish");
+    if (!anim(f, [{transform:"translate(0px,0px) rotate(-50deg)"},{transform:"translate(10px,-28px) rotate(0deg)", offset:.5},{transform:"translate(20px,2px) rotate(55deg)"}], {duration:900, easing:"ease-in-out", fill:"forwards"})) f.setAttribute("transform", "translate(10 -20)");
+    anim(g.querySelector(".spl"), [{transform:"scale(1)", opacity:1},{transform:"scale(4)", opacity:0}], {duration:700, fill:"forwards"});
+    later(1000, () => g.remove());
+    discover("fish");
+  },
+  dome(){ if (stopFollow || !cool("dome", 1000)) return; startFollow(); discover("follow"); },
+  jar(h){
+    if (h.classList.contains("open")) return;
+    h.classList.add("open");
+    let s = "";
+    for (let k = 0; k < 9; k++) s += `<circle class="ffly" style="--fx:${rand(-30, 30).toFixed(0)}px;--fy:${rand(-40, -5).toFixed(0)}px;--ft:${rand(2.5, 5).toFixed(1)}s;animation-delay:${(-rand(0, 4)).toFixed(1)}s" cx="${(792 + rand(-26, 26)).toFixed(0)}" cy="${(664 + rand(-40, 6)).toFixed(0)}" r="3.4" fill="url(#v-ffly)"/>`;
+    addFx(s);
+    discover("jar");
+  }
+};
+function lifeReset(){
+  if (stopFollow) stopFollow();
+  BUILDING.clear(); EVENTS = 0; FOUND.clear(); roofN = 0;
+  for (const k in COOL) delete COOL[k];
+  const f = $("#found"); f.hidden = true; f.textContent = "";
+  $("#fx").innerHTML = ""; $("#wfx").innerHTML = "";
+  const cls = ["lit2","hascat","flare","bloomed","open","wb","dancing"];
+  $$("#vsvg ." + cls.join(", #vsvg .")).forEach(e => e.classList.remove(...cls));
+  const cam = $("#vcam"); cam.style.transform = ""; cam.classList.remove("cheer");
+}
+function initLife(){
+  /* scene clicks never move focus away from the form */
+  document.addEventListener("mousedown", e => { if (e.target.closest && e.target.closest("#village, #world")) e.preventDefault(); });
+  document.addEventListener("click", e => {
+    const h = e.target.closest && e.target.closest("[data-hit]");
+    if (!h || !h.closest("#village, #world")) return;
+    const f = HIT[h.dataset.hit]; if (f) f(h, e);
+  });
+}
+
+/* ---------- init ---------- */
+$("#back").addEventListener("click", () => go(S.step - 1));
+$("#next").addEventListener("click", next);
+$("#skip").addEventListener("click", skip);
+buildVillage();
+initLife();
+window.addEventListener("resize", () => placeTag());
+makeStars();
+initMock();
+reset();
+</script>
+</body>
+</html>
