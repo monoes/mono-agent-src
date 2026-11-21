@@ -400,7 +400,7 @@ Some features are not agent turns. [Jev](AGENTS.md#decision-models-jev) makes fa
 
 > **Jev** (`browser.jev`, `ai.choose`, `ai.decide`, and opt-in features such as `org autonomy set --decider jev`, action-step element fallback, capture/inbox classification, people links, the `auto` model of the [OpenAI-compatible API](examples/openai-api-quickstart.md)) answers typed questions and never generates text. Its default provider is TypeSafe Jev (~0.3 s, many questions per request): store a key in Settings › TypeSafe Jev or with `monoagentcli jev key set` (key on stdin), check it with `monoagentcli jev status`, and switch features on per profile with `monoagentcli jev enable <surface>`.
 >
-> **Use your own decision model.** For example a model served by Ollama on this computer, with no key:
+> **Use your own decision model.** For example a model served by Ollama on this computer (nothing goes to TypeSafe; whether it leaves the computer is up to that server), with no key:
 >
 > ```bash
 > monoagentcli jev provider add local --kind openai --base-url http://localhost:11434/v1 --model <model>

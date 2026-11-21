@@ -717,13 +717,13 @@ dangerous calls.
   `profile info get --reveal`, `node run vault.secret_get` and `workflow run
   --full-outputs`. So are `api key create|update|revoke` and `org
   teardown-profile` (`--dry-run` stays open), which mint, widen or revoke a
-  key, and `api config set|unset` (not `--dry-run`), `jev enable` and `jev
-  key set|remove|adopt`, which widen what the API server reaches or where
+  key, and `api config set|unset` (not `--dry-run`), `jev enable`, `jev
+  key set|remove|adopt` and `jev provider add|remove|use`, which widen what the API server reaches or where
   the profile's data goes. The decrypted-secret commands except `secret reveal` and
   `node run vault.secret_get`, `secret agent-access`, `secret rebind`, `api key
   create|update|revoke`, `api config set|unset`, `agent purposes set|reset`,
   `agent-mode env|token create|token revoke`, `extension assign|bind|unbind|autopair|approve|deny|reset|
-  browsers allow|browsers revoke|pair --open|install --zip`, `jev enable|key set|adopt|remove`,
+  browsers allow|browsers revoke|pair --open|install --zip`, `jev enable|key set|adopt|remove|provider add|provider remove|provider use`,
   `automation trust` with a flag, `automation rerecord`, `automation doctor accept-repair`,
   `record verify|replay|save` (`replay --dry-run` stays open), `browser allow add|remove`,
   `browser permissions set|site`, `coder queue add|start`, `coder projects map|unmap`,
@@ -2686,7 +2686,7 @@ budget.
 |---|---|
 | `coding` | Full access; checks its work in the user's browser with `monoagentcli browser` (no browser lease: it passes `--tab`). |
 | `qa`, `automation` | Full access, plus `monoagentcli` for the browser (`browser`, the browser lease), workflows and automations. |
-| `workspace` | Coding plus every monoagent surface through `monoagentcli` (apps, tasks, documents, people, vault, workflows); outbound sends wait for approval. `coder set --app-access off` (`appAccess`, operator only, default on) changes what agents are told and offered, not what they can do: workers are not offered this profile (a lead's explicit ask is refused, a picked one runs as `coding`), the lead's and workers' prompts, `org_roster` and `org_spawn`'s description leave it and its surface rules out, and no coder prompt carries the profile summary. The coder lead keeps full access, a worker with a shell can still run `monoagentcli` itself, and operator-only commands, the send rule in every prompt and the send gate (`--send-approval`) apply either way. With a Jev key set, a worker's brief goes to Jev (TypeSafe) whatever app access and the router say: `auto` and `jev` route with it, and Jev picks the model and effort the lead leaves open, with `--org-router model` too. With another decision provider as the default, the brief goes to that provider instead, whenever its client can be built. Only removing the active provider's key (the Jev key, for TypeSafe), or making the default a provider that runs the model on this computer (a loopback `base_url`), keeps briefs on this machine. |
+| `workspace` | Coding plus every monoagent surface through `monoagentcli` (apps, tasks, documents, people, vault, workflows); outbound sends wait for approval. `coder set --app-access off` (`appAccess`, operator only, default on) changes what agents are told and offered, not what they can do: workers are not offered this profile (a lead's explicit ask is refused, a picked one runs as `coding`), the lead's and workers' prompts, `org_roster` and `org_spawn`'s description leave it and its surface rules out, and no coder prompt carries the profile summary. The coder lead keeps full access, a worker with a shell can still run `monoagentcli` itself, and operator-only commands, the send rule in every prompt and the send gate (`--send-approval`) apply either way. Whenever a client of the `dynorg` surface's decision provider can be built (for TypeSafe, the default: a Jev key is set; for a keyless provider: always), a worker's brief goes to that provider whatever app access and the router say: `auto` and `jev` route with it, and Jev picks the model and effort the lead leaves open, with `--org-router model` too. Briefs stay on this machine only when no client can be built (the active provider's key is missing); a provider whose `base_url` is loopback receives them on this computer, but that server may forward them further. |
 | `research` | Read-only, confined as described below. |
 
 How workers run:
@@ -3881,7 +3881,9 @@ root role through `decision_list`/`decision_resolve` tools), `parent`
 its top probability reaches `--decider-threshold`, default 0.8; questions,
 lower answers and Jev failures go to the model decider, so runtime/model
 still matter). `--decider-provider <name>` names its decision provider
-(default: the machine default, else TypeSafe); a decision answered by another provider shows the resolver
+(default: the profile's choice for the `decider` surface, else the machine
+default, else TypeSafe; `--decider-provider ""` clears it, and the flag is
+refused with any other decider); a decision answered by another provider shows the resolver
 `jev:<provider>/<model>`. Decision rows asked of Jev carry `confidence`,
 `probabilities` and a derived `jev: {decided, verdict, p, threshold}`. A decider never resolves its own request, and
 items it cannot take go to the `model` fallback. Orgs that predate
@@ -4541,18 +4543,24 @@ resolver prefix `jev:`.
   and estimated USD by surface and provider; `--usd-per-mtok-in` /
   `--usd-per-mtok-out` on `jev provider add` price a provider that reports no
   cost.
-- **Nodes and the decider.** `ai.choose`, `browser.jev` and the HIL node's
+- **Nodes and the decider.** `ai.choose`, `ai.decide`, `browser.jev` and the HIL node's
   `auto_decide` take an optional `provider` config field (default: the
   resolution above). `applications.evaluate` takes `runtime: "jev@<provider>"`
   or `"jev@<provider>:<model>"` (`"jev"` / `"jev:<model>"` keep working).
-  `ai.decide` asks one typed question per item: `kind: noul` routes to
+  `ai.decide` asks one typed question per item (`kind`; `levels` for a
+  score, 2 to 10, lowest first): `kind: noul` routes to
   `yes` / `no` / `low_confidence`, `kind: score` to `level_<i>` /
   `low_confidence`, `kind: choice` to the option ids / `low_confidence`;
   below `min_confidence` (default 0.6) an item goes to `low_confidence`. It
   is a read-only node, but it sends its input to the active provider. The org
   decider: `org autonomy set --decider jev --decider-provider <name>`; its
   rows' resolver reads `jev:<provider>/<model>` for a provider other than
-  TypeSafe.
+  TypeSafe (TypeSafe rows keep `jev:<model>`). The provider is stored in the
+  org's autonomy row only: an org file's `autonomy.decider.provider` is
+  validated but never applied.
+- **`jev key test` and `jev models`** always mean TypeSafe;
+  `jev models --provider <name>` lists another provider's models (exit 3
+  with "cannot list its models" for one that cannot).
 - **Opt-in per surface, per profile.** Every implicit surface
   (`action_fallback`, `hil`, `people_review`, `capture`, `inbox`,
   `people_links`, `asks`, `retry`, `api_auto`) is off until enabled. `enable` prints what
