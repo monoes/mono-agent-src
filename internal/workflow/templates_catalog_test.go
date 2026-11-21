@@ -54,8 +54,8 @@ func TestListTemplates_CarriesSummary(t *testing.T) {
 }
 
 func TestBundledTemplates_Count(t *testing.T) {
-	if n := len(templateFiles); n < 15 || n > 20 {
-		t.Errorf("bundled templates = %d, want 15-20", n)
+	if n := len(templateFiles); n < 15 || n > 24 {
+		t.Errorf("bundled templates = %d, want 15-24", n)
 	}
 }
 

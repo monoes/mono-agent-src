@@ -1,0 +1,62 @@
+{
+  "name": "Starter — Read a Web Page",
+  "summary": "Fetches the example.com sample page and shows its title and first paragraph, so you can see a workflow read the web from start to finish.",
+  "description": "First-run starter: no input, no credentials, no AI agent. Fetches https://example.com with the HTTP node and pulls its title and first paragraph out of the HTML. Run with: workflow templates run starter_page_read.",
+  "version": 1,
+  "is_active": false,
+  "nodes": [
+    {
+      "id": "trigger",
+      "type": "trigger.manual",
+      "name": "Start",
+      "position": { "x": 0, "y": 0 },
+      "disabled": false,
+      "config": {}
+    },
+    {
+      "id": "fetch",
+      "type": "http.request",
+      "name": "Fetch Page",
+      "position": { "x": 320, "y": 0 },
+      "disabled": false,
+      "config": {
+        "url": "https://example.com",
+        "method": "GET",
+        "timeout": 30
+      }
+    },
+    {
+      "id": "extract",
+      "type": "data.html",
+      "name": "Pick Title and First Paragraph",
+      "position": { "x": 640, "y": 0 },
+      "disabled": false,
+      "config": {
+        "operation": "extract_html_content",
+        "source_data": "json",
+        "data_property_name": "body",
+        "extraction_values": [
+          { "key": "title", "css_selector": "title", "return_value": "text" },
+          { "key": "first_paragraph", "css_selector": "p", "return_value": "text" }
+        ],
+        "clean_up_text": true
+      }
+    }
+  ],
+  "connections": [
+    {
+      "id": "trigger-to-fetch",
+      "source": "trigger",
+      "source_handle": "main",
+      "target": "fetch",
+      "target_handle": "main"
+    },
+    {
+      "id": "fetch-to-extract",
+      "source": "fetch",
+      "source_handle": "main",
+      "target": "extract",
+      "target_handle": "main"
+    }
+  ]
+}

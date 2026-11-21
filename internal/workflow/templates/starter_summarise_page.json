@@ -1,0 +1,81 @@
+{
+  "name": "Starter — Summarise a Web Page with Your AI Agent",
+  "summary": "Reads the example.com sample page and has your AI agent summarise it in three sentences, so you can see an agent work inside a workflow.",
+  "description": "First-run starter: no input and no API key. Reads https://example.com (ai.read_page, static) and asks a local AI agent (agent.ask, runtime auto: a validated runtime from `monoagentcli agent validate`, else the first installed one) for a three-sentence summary. Run with: workflow templates run starter_summarise_page.",
+  "version": 1,
+  "is_active": false,
+  "nodes": [
+    {
+      "id": "trigger",
+      "type": "trigger.manual",
+      "name": "Start",
+      "position": { "x": 0, "y": 0 },
+      "disabled": false,
+      "config": {}
+    },
+    {
+      "id": "read",
+      "type": "ai.read_page",
+      "name": "Read Page",
+      "position": { "x": 320, "y": 0 },
+      "disabled": false,
+      "config": {
+        "url": "https://example.com",
+        "render_mode": "static",
+        "include_links": false,
+        "include_images": false,
+        "max_tokens": 2000
+      }
+    },
+    {
+      "id": "summarise",
+      "type": "agent.ask",
+      "name": "Summarise",
+      "position": { "x": 640, "y": 0 },
+      "disabled": false,
+      "config": {
+        "runtime": "auto",
+        "prompt": "Summarise this web page in exactly three plain sentences. Reply with the summary only.\n\nTitle: {{ $json.title }}\n\n{{ $json.markdown }}",
+        "output_key": "summary",
+        "timeout": 180
+      }
+    },
+    {
+      "id": "shape",
+      "type": "core.set",
+      "name": "Show Summary",
+      "position": { "x": 960, "y": 0 },
+      "disabled": false,
+      "config": {
+        "assignments": [
+          { "field": "page", "value": "{{ $json.url }}", "type": "string" },
+          { "field": "summary", "value": "{{ $json.summary }}", "type": "string" }
+        ],
+        "include_input": false
+      }
+    }
+  ],
+  "connections": [
+    {
+      "id": "trigger-to-read",
+      "source": "trigger",
+      "source_handle": "main",
+      "target": "read",
+      "target_handle": "main"
+    },
+    {
+      "id": "read-to-summarise",
+      "source": "read",
+      "source_handle": "main",
+      "target": "summarise",
+      "target_handle": "main"
+    },
+    {
+      "id": "summarise-to-shape",
+      "source": "summarise",
+      "source_handle": "main",
+      "target": "shape",
+      "target_handle": "main"
+    }
+  ]
+}
