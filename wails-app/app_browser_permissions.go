@@ -27,6 +27,16 @@ func (a *App) SetBrowserPermission(kind, level string) string {
 	return a.jsonResult("browser", "permissions", "set", "--", kind, level)
 }
 
+// ApplyBrowserPermissionPreset sets every agent kind's level at once, in one
+// save, with site rules left as they are: `browser permissions preset
+// <ask|free|off>`. Same answer as SetBrowserPermission.
+func (a *App) ApplyBrowserPermissionPreset(preset string) string {
+	if err := a.signedOut(); err != nil {
+		return loginRequiredJSON(err)
+	}
+	return a.jsonResult("browser", "permissions", "preset", "--", preset)
+}
+
 // SetBrowserSiteRule allows or blocks a site for every agent kind, or clears
 // its rule: `browser permissions site <origin> <allow|block|clear>`.
 func (a *App) SetBrowserSiteRule(origin, rule string) string {

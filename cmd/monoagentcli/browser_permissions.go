@@ -21,6 +21,9 @@ type permissionsDoc struct {
 	Kinds   []permissionsKind      `json:"kinds"`
 	Catalog []browserctl.LevelInfo `json:"catalog"`
 	You     permissionsYou         `json:"you"`
+	// Presets is every preset's level per kind (browserctl.PresetLevels),
+	// so the GUI shows what `preset` would set without its own copy.
+	Presets map[string]map[string]string `json:"presets"`
 }
 
 type permissionsKind struct {
@@ -41,7 +44,11 @@ type permissionsYou struct {
 }
 
 func newPermissionsDoc(p browserctl.Permissions) permissionsDoc {
-	doc := permissionsDoc{Levels: map[string]string{}, Sites: p.Sites, Catalog: browserctl.Catalog()}
+	doc := permissionsDoc{Levels: map[string]string{}, Sites: p.Sites, Catalog: browserctl.Catalog(), Presets: map[string]map[string]string{}}
+	for _, preset := range []string{browserctl.PresetAsk, browserctl.PresetFree, browserctl.PresetOff} {
+		levels, _ := browserctl.PresetLevels(preset) // a known preset: no error
+		doc.Presets[preset] = levels
+	}
 	if doc.Sites == nil {
 		doc.Sites = []browserctl.SiteRule{}
 	}
@@ -106,6 +113,34 @@ func newBrowserPermissionsCmd(cfg *globalConfig) *cobra.Command {
 				}
 				return nil
 			}, func(p browserctl.Permissions) error { return printPermissions(cmd, cfg, p) })
+		},
+	})
+	cmd.AddCommand(&cobra.Command{
+		Use:   "preset <ask|free|off>",
+		Short: "Set every kind of agent at once: ask (full), free (full-no-approvals; apply full) or off",
+		Long: "One choice for every kind of agent, saved at once; site rules stay as they are:\n" +
+			"  ask   every kind full: any site, a form submit on a real site waits for your approval\n" +
+			"  free  every kind full-no-approvals, but apply, which is never: it is set to full\n" +
+			"  off   no agent uses the browser",
+		Example: "  monoagentcli browser permissions preset ask",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if why := opgate.Refusal(); why != "" {
+				return operatorOnlyError("%s: an agent may not change browser permissions: ask the user to run `monoagentcli browser permissions preset %s` or use Settings → Agent browser permissions", why, args[0])
+			}
+			if _, err := browserctl.PresetLevels(args[0]); err != nil {
+				return errInvalidInput("%v", err)
+			}
+			db, err := initDB(cfg)
+			if err != nil {
+				return fmt.Errorf("initializing database: %w", err)
+			}
+			defer db.Close()
+			p, err := browserctl.ApplyPreset(db.DB, args[0]) // one save, site rules kept
+			if err != nil {
+				return err
+			}
+			return printPermissions(cmd, cfg, p)
 		},
 	})
 	cmd.AddCommand(&cobra.Command{

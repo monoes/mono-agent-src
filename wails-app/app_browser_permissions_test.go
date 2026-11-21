@@ -45,6 +45,20 @@ func TestApp_BrowserPermissions_ShellOutAndReturnTheCLIJSON(t *testing.T) {
 	}
 }
 
+// A preset is one CLI call (one save of every kind), the preset after "--";
+// the CLI's JSON comes back verbatim, in SetBrowserPermission's shape.
+func TestApp_ApplyBrowserPermissionPreset_OneCLICall(t *testing.T) {
+	bin, argsLog := chatFakeCLI(t, fakeChatReply{match: "browser permissions preset", stdout: browserPermissionsJSON + "\n"})
+	a, _ := newCLIChatApp(t, bin)
+	if got := a.ApplyBrowserPermissionPreset("off"); got != browserPermissionsJSON {
+		t.Errorf("ApplyBrowserPermissionPreset = %s, want the CLI JSON verbatim", got)
+	}
+	lines := readArgsLog(t, argsLog)
+	if len(lines) != 1 || strings.TrimPrefix(lines[0], "--profile default --json ") != "browser permissions preset -- off" {
+		t.Errorf("CLI calls = %q, want exactly one: browser permissions preset -- off", lines)
+	}
+}
+
 // A refusal (e.g. the CLI saw an agent context) keeps its message and code.
 func TestApp_BrowserPermissions_RefusalKeepsTheCode(t *testing.T) {
 	bin, _ := chatFakeCLI(t, fakeChatReply{match: "browser permissions set", code: 3, stderr: "refused\n",

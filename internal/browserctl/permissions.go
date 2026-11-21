@@ -82,6 +82,47 @@ func KindLabel(kind string) string {
 // (levelAllowed).
 var DefaultLevels = map[string]string{KindCoder: LevelDev, KindApply: LevelAsk, KindOrg: LevelDev, KindChat: LevelFull, KindOther: LevelDev}
 
+// Presets set every kind's level at once (the onboarding's one-click
+// choice); site rules are left as they are.
+const (
+	PresetAsk  = "ask"  // every kind full: a submit on a real site waits for approval
+	PresetFree = "free" // every kind full-no-approvals, but apply, which can't be: full
+	PresetOff  = "off"  // no agent uses the browser
+)
+
+// PresetLevels is the level of every kind under preset.
+func PresetLevels(preset string) (map[string]string, error) {
+	level := map[string]string{PresetAsk: LevelFull, PresetFree: LevelFullNoApprovals, PresetOff: LevelOff}[preset]
+	if level == "" {
+		return nil, fmt.Errorf("%q is not a preset: %s, %s or %s", preset, PresetAsk, PresetFree, PresetOff)
+	}
+	levels := map[string]string{}
+	for _, k := range Kinds {
+		levels[k] = level
+		if !levelAllowed(k, level) {
+			levels[k] = LevelFull
+		}
+	}
+	return levels, nil
+}
+
+// ApplyPreset sets every kind to preset's level in one UpdatePermissions
+// write and returns what it stored.
+func ApplyPreset(db *sql.DB, preset string) (Permissions, error) {
+	levels, err := PresetLevels(preset)
+	if err != nil {
+		return Permissions{}, err
+	}
+	return UpdatePermissions(db, func(p *Permissions) error {
+		for k, l := range levels {
+			if err := p.SetLevel(k, l); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 // Site rules.
 const (
 	RuleAllow = "allow"
