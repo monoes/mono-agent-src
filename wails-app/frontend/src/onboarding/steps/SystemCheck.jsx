@@ -11,7 +11,7 @@ import { callStep } from '../callStep.js'
 import './SystemCheck.css'
 
 // The doctor mode the step asks for (app_health.go healthArgs).
-export const HEALTH_MODE = 'local'
+export const HEALTH_MODE = 'background'
 
 // The four rows, by doctor check id. The command line's check never says ok,
 // only info (it reports the version); the other three pass only on ok.
@@ -100,7 +100,7 @@ export default function SystemCheck({ mark, setCanContinue, setOnContinue }) {
       try { missing = JSON.parse(raw)?.cli_missing === true } catch { /* not JSON: an ordinary failure */ }
       setResults(null)
       setCliMissing(missing)
-      setNotice(r.loginRequired ? t('onboarding.system.signIn') : missing ? t('onboarding.system.cliMissing') : r.message)
+      setNotice(r.loginRequired ? t('onboarding.shell.signIn') : missing ? t('onboarding.system.cliMissing') : r.message)
     }
     setChecking(false)
   }, [t])
@@ -144,7 +144,7 @@ export default function SystemCheck({ mark, setCanContinue, setOnContinue }) {
     })
     offs.current.add(off)
     const r = await callStep(() => RunHealthFix(fix.id))
-    const ev = r.ok ? await final : { kind: 'error', message: r.loginRequired ? t('onboarding.system.signIn') : r.message }
+    const ev = r.ok ? await final : { kind: 'error', message: r.loginRequired ? t('onboarding.shell.signIn') : r.message }
     off()
     offs.current.delete(off)
     if (!alive.current) return
@@ -163,7 +163,7 @@ export default function SystemCheck({ mark, setCanContinue, setOnContinue }) {
     if (marked.current) return true
     const r = await mark('system')
     if (r && r.ok === false) {
-      if (alive.current) setNotice(r.loginRequired ? t('onboarding.system.signIn') : r.message)
+      if (alive.current) setNotice(r.loginRequired ? t('onboarding.shell.signIn') : r.message)
       return false
     }
     marked.current = true

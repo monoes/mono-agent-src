@@ -66,7 +66,7 @@ export default function CreateProfile({ state, reload, setCanContinue, setOnCont
       setGoError('')
       const r = await callStep(() => createProfile(name.trim(), rootDir, icon))
       if (!r.ok) {
-        setGoError(r.loginRequired ? t('onboarding.profile.signIn')
+        setGoError(r.loginRequired ? t('onboarding.shell.signIn')
           : GO_DEFAULT.test(r.message) ? t('onboarding.profile.errorDefault') : r.message)
         return false
       }
@@ -101,7 +101,7 @@ export default function CreateProfile({ state, reload, setCanContinue, setOnCont
   const chooseFolder = async () => {
     setFolderError('')
     const r = await callStep(() => ChooseProfileFolder())
-    if (!r.ok) { setFolderError(r.loginRequired ? t('onboarding.profile.signIn') : r.message); return }
+    if (!r.ok) { setFolderError(r.loginRequired ? t('onboarding.shell.signIn') : r.message); return }
     if (typeof r.value === 'string' && r.value) setRootDir(r.value) // '' is a cancelled picker
   }
 

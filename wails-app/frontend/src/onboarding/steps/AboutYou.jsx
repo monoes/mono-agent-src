@@ -69,7 +69,7 @@ export default function AboutYou({ mark, setCanContinue, setOnContinue }) {
   useEffect(() => {
     setOnContinue(async () => {
       setError('')
-      const fail = (r) => { setError(r.loginRequired ? t('onboarding.about.signIn') : r.message); return false }
+      const fail = (r) => { setError(r.loginRequired ? t('onboarding.shell.signIn') : r.message); return false }
       for (const [key, value] of infoEntries(t, { name, role, company, help })) {
         const r = await callStep(() => SetProfileInfo(key, value))
         if (!r.ok) return fail(r)

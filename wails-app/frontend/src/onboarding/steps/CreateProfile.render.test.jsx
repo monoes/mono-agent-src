@@ -81,7 +81,7 @@ describe('CreateProfile', () => {
     render(<CreateProfile {...props} />)
     fireEvent.change(nameField(), { target: { value: 'Work' } })
     expect(await runContinue()).toBe(false)
-    expect(screen.getByRole('alert')).toHaveTextContent('Sign in to monoes.me to continue.')
+    expect(screen.getByRole('alert')).toHaveTextContent('Your sign-in has ended. Sign in to monoes.me to continue.')
   })
 
   it('creates with the chosen name, folder and icon, then reloads state', async () => {

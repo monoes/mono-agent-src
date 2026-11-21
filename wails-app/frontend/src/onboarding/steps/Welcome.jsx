@@ -31,7 +31,7 @@ export default function Welcome({ mark, setCanContinue, setOnContinue, setContin
       setError('')
       const r = await mark('welcome')
       if (r && r.ok === false) {
-        setError(r.loginRequired ? t('onboarding.welcome.signIn') : r.message)
+        setError(r.loginRequired ? t('onboarding.shell.signIn') : r.message)
         return false
       }
       return true

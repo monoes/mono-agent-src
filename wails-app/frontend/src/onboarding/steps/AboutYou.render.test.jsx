@@ -106,6 +106,6 @@ describe('AboutYou', () => {
     render(<AboutYou {...props} />)
     type('Role', 'Founder')
     expect(await runContinue()).toBe(false)
-    expect(screen.getByRole('alert')).toHaveTextContent('Sign in to monoes.me to continue.')
+    expect(screen.getByRole('alert')).toHaveTextContent('Your sign-in has ended. Sign in to monoes.me to continue.')
   })
 })

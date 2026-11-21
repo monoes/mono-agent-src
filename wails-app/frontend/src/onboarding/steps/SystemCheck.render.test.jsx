@@ -134,7 +134,7 @@ describe('SystemCheck', () => {
     const { container } = render(<SystemCheck {...props} />)
     expect(container.querySelector('.onb-spinner')).not.toBeNull()
     await flush()
-    expect(screen.getByRole('alert')).toHaveTextContent('Sign in to monoes.me to continue.')
+    expect(screen.getByRole('alert')).toHaveTextContent('Your sign-in has ended. Sign in to monoes.me to continue.')
     expect(container.querySelector('.onb-spinner')).toBeNull()
     expect(screen.getAllByText('Not checked')).toHaveLength(4)
     fireEvent.click(screen.getByRole('button', { name: 'Check again' }))
