@@ -50,7 +50,8 @@ func TestOrgAutonomyDeciderProvider(t *testing.T) {
 	if got := f.mustRun(t, "autonomy", "show", "growth")["decider"].(map[string]interface{}); got["provider"] != "local" {
 		t.Fatalf("show = %v", got)
 	}
-	if got := f.load(t).Autonomy.Decider.Provider; got != "local" {
+	// The row holds it; the org file's decider block keeps monomind's shape.
+	if got := f.load(t).Autonomy.Decider.Provider; got != "" {
 		t.Fatalf("org file provider = %q", got)
 	}
 

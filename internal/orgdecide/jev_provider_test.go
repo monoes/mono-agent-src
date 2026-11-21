@@ -173,16 +173,12 @@ func TestCheckDeciderProvider(t *testing.T) {
 	}
 }
 
-// The display copy names a jev decider's provider; reconcile never takes a
-// provider from the org file (an agent may edit it, C-54).
-func TestDeciderProviderDisplayCopy(t *testing.T) {
-	a := jevAutonomy("local")
-	if got := DisplayCopy(a, nil).Decider.Provider; got != "local" {
+// The provider stays in the row, like the threshold: the display copy keeps
+// the decider shape monomind knows, and reconcile never takes a provider
+// from the org file (an agent may edit it, C-54).
+func TestDeciderProviderStaysInTheRow(t *testing.T) {
+	if got := DisplayCopy(jevAutonomy("local"), nil).Decider.Provider; got != "" {
 		t.Fatalf("display provider = %q", got)
-	}
-	a.Decider.Kind = orgdesign.DeciderModel
-	if got := DisplayCopy(a, nil).Decider.Provider; got != "" {
-		t.Fatalf("model decider displays provider %q", got)
 	}
 
 	s := NewStore(newDB(t))

@@ -141,8 +141,10 @@ type Decider struct {
 	Model          string `json:"model,omitempty"`
 	Fallback       string `json:"fallback,omitempty"`
 	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
-	// Provider is the jev decider's decision provider (display only, like
-	// the rest of this block: the org_autonomy row is what is enforced).
+	// Provider names a jev decider's decision provider. It is accepted and
+	// validated, never enforced: the org_autonomy row holds the decider's
+	// provider (set with `org autonomy set --decider-provider`), and the
+	// display copy mono-agent writes leaves it out.
 	Provider string `json:"provider,omitempty"`
 
 	Extra map[string]json.RawMessage `json:"-"`
