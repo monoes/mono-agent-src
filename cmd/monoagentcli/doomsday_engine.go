@@ -308,8 +308,9 @@ func doomsdayWiring(cfg *globalConfig, db *sql.DB) doomsdaycli.Wiring {
 	return w.WithLedger()
 }
 
-// doomsdayWiringHook is nil in every shipped build. Only a file with the e2estub build tag (the stub-runtime end-to-end
-// harness, doomsday_e2e_stub.go) sets it, to put fakes where the host's containment would be.
+// doomsdayWiringHook is nil in every shipped build. Only files behind development build tags set it: the e2estub tag (the
+// stub-runtime end-to-end harness, doomsday_e2e_stub.go) to put fakes where the host's containment would be, and the devaccount
+// tag (doomsday_anchor_devaccount.go) to keep the witness anchor in a file store instead of the login keychain.
 var doomsdayWiringHook func(*doomsdaycli.Wiring)
 
 func doomsdayWiringReal(cfg *globalConfig, db *sql.DB) doomsdaycli.Wiring {

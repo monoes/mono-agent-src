@@ -2,6 +2,7 @@ package stop
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -116,7 +117,8 @@ func endSub(cg Cgroup, sub string, cfg EndConfig, out *UnitOutcome) (unknown []S
 				seen[pid] = true
 				fresh = true
 				stamp, comm, ierr := cg.ProcInfo(sub, pid)
-				if ierr != nil || (cfg.Known != nil && !cfg.Known(sub, pid, stamp)) {
+				gone := errors.Is(ierr, errSessGone) // it exited between the listing and this read: gone, not unknown
+				if !gone && (ierr != nil || (cfg.Known != nil && !cfg.Known(sub, pid, stamp))) {
 					why := "no registry row"
 					if ierr != nil {
 						why = "identity unreadable"

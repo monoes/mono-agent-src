@@ -311,3 +311,21 @@ func TestEndUnitWithoutARegistryStillCallsAnUnreadableIdentityUnknown(t *testing
 		t.Fatalf("%+v", out)
 	}
 }
+
+// A member that exits between the listing and the read of its identity (the leaf of a tree whose parent was just ended)
+// is gone, not unreadable: it is no unknown process, and the unit is ended (found on a real Mac, where the first stop of a
+// run with a live turn said "identity unreadable" for the turn's last child and had to be run twice).
+type goneIdentCg struct{ *fakeCg }
+
+func (goneIdentCg) ProcInfo(string, int) (string, string, error) {
+	return "", "", errSessGone
+}
+
+func TestEndUnitMemberGoneBeforeItsIdentityIsReadIsNotUnknown(t *testing.T) {
+	cg := newFakeCg()
+	cg.subs["t-1"] = []*fakeProc{{pid: 24, dieOnTerm: true}}
+	out := EndUnit(goneIdentCg{cg}, EndConfig{Clock: newStepClock()})
+	if out.Kind != UnitEnded || len(out.Unknown) != 0 || len(out.Survivors) != 0 || !cg.removed["t-1"] {
+		t.Fatalf("%+v", out)
+	}
+}
