@@ -91,6 +91,8 @@ func (w *fakeSess) Hold(pid int, stamp string) (func(), error) {
 
 func (w *fakeSess) BootID() (string, error) { return w.boot, w.errs["BootID"] }
 func (w *fakeSess) Self() (int, string, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	return w.self, w.procs[w.self].Stamp, w.errs["Self"]
 }
 func (w *fakeSess) CurrentUID() uint32 { return w.uid }
