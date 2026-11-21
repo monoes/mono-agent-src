@@ -13,6 +13,7 @@ import { STEPS } from './steps.js'
 const IDS = ['welcome', 'system', 'profile', 'about', 'monomind', 'agents', 'browser', 'permissions', 'firstRun', 'finish']
 const original = { ...STEP_COMPONENTS }
 const seen = {}
+const stub = { dialog: false }
 beforeAll(() => {
   for (const id of IDS) {
     STEP_COMPONENTS[id] = function StubStep(props) {
@@ -22,7 +23,7 @@ beforeAll(() => {
           <button type="button" onClick={() => props.setCanContinue(true)}>allow</button>
           <textarea aria-label="notes" />
           <input aria-label="name" type="text" />
-          <div role="dialog"><input aria-label="dialog field" type="text" /></div>
+          {stub.dialog && <div role="dialog"><input aria-label="dialog field" type="text" /></div>}
           <form onSubmit={e => e.preventDefault()}><input aria-label="form field" type="text" /></form>
         </div>
       )
@@ -46,7 +47,7 @@ beforeEach(async () => {
     onFinish: vi.fn(),
   }
 })
-afterEach(() => { cleanup(); for (const k of Object.keys(seen)) delete seen[k] })
+afterEach(() => { cleanup(); stub.dialog = false; for (const k of Object.keys(seen)) delete seen[k] })
 
 const show = (props = {}) => render(<Onboarding state={stateOf()} {...actions} {...props} />)
 const heading = () => screen.getByRole('heading', { level: 1 })
@@ -144,6 +145,7 @@ describe('the onboarding shell', () => {
   })
 
   it('Enter continues only from inside the panel, outside dialogs and forms, and not while held', () => {
+    stub.dialog = true
     show({ startStep: 'system', banners: <input aria-label="banner field" type="text" /> })
     allow()
     for (const where of ['banner field', 'dialog field', 'form field']) {
@@ -155,6 +157,27 @@ describe('the onboarding shell', () => {
     expect(heading()).toHaveTextContent('System check')
     fireEvent.keyDown(heading(), { key: 'Enter' })
     expect(heading()).toHaveTextContent('Create your profile')
+  })
+
+  it('Enter with focus on the page itself continues, unless a dialog is open', () => {
+    const { unmount } = show({ startStep: 'system' })
+    fireEvent.keyDown(document.body, { key: 'Enter' })
+    expect(heading()).toHaveTextContent('System check')
+    allow()
+    fireEvent.keyDown(document.body, { key: 'Enter' })
+    expect(heading()).toHaveTextContent('Create your profile')
+    unmount()
+    show({ startStep: 'system', banners: <div role="dialog">sign in</div> })
+    allow()
+    fireEvent.keyDown(document.body, { key: 'Enter' })
+    expect(heading()).toHaveTextContent('System check')
+  })
+
+  it('Enter in a single-line text input inside the step continues when Continue is enabled', () => {
+    show({ startStep: 'about' })
+    allow()
+    fireEvent.keyDown(screen.getByLabelText('name'), { key: 'Enter' })
+    expect(heading()).toHaveTextContent('Turn on monomind')
   })
 
   it('finishes once: a last-step handler that finishes with a nav is not followed by a second finish', async () => {

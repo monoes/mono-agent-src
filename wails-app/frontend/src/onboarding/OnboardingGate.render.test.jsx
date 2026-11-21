@@ -35,7 +35,7 @@ vi.mock('../App.jsx', async () => {
 })
 
 import i18n from '../i18n.js'
-import OnboardingGate from './OnboardingGate.jsx'
+import OnboardingGate, { LATE_SWITCH_MS } from './OnboardingGate.jsx'
 import { STEP_COMPONENTS } from './Onboarding.jsx'
 
 const IDS = ['welcome', 'system', 'profile', 'about', 'monomind', 'agents', 'browser', 'permissions', 'firstRun', 'finish']
@@ -51,6 +51,8 @@ beforeEach(async () => {
   await i18n.changeLanguage('en')
   go.GetOnboardingState.mockReset()
   go.GetOnboardingStateFull.mockReset()
+  // by default the full read answers what the fast one does
+  go.GetOnboardingStateFull.mockImplementation(() => { const f = go.GetOnboardingState.getMockImplementation(); return f ? f() : undefined })
   go.IsReady.mockClear()
   go.MarkOnboardingStep.mockClear()
   go.CompleteOnboarding.mockClear()
@@ -100,12 +102,15 @@ describe('the onboarding gate', () => {
     expect(go.GetOnboardingState).toHaveBeenCalledTimes(1)
   })
 
-  it('shows the app after 3 s without an answer and ignores the late answer', async () => {
+  // The app showed at 3 s because the first read missed its deadline; the late
+  // answer lands at answerAt ms after mount.
+  const lateFirstRead = async (late, answerAt) => {
     vi.useFakeTimers()
     try {
       const log = vi.spyOn(console, 'error').mockImplementation(() => {})
       let answer
       go.GetOnboardingState.mockReturnValue(new Promise(r => { answer = r }))
+      go.GetOnboardingStateFull.mockResolvedValue(late)
       render(<OnboardingGate banners={null} />)
       await act(async () => { await vi.advanceTimersByTimeAsync(2900) })
       expect(go.GetOnboardingState).toHaveBeenCalledTimes(1)
@@ -113,12 +118,42 @@ describe('the onboarding gate', () => {
       await act(async () => { await vi.advanceTimersByTimeAsync(200) })
       expect(screen.getByTestId('app')).toBeInTheDocument()
       expect(log).toHaveBeenCalled()
-      await act(async () => { answer(stateOf({ currentStep: 'system' })) })
-      expect(screen.getByTestId('app')).toBeInTheDocument()
-      expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument()
+      await act(async () => { await vi.advanceTimersByTimeAsync(answerAt - 3100) })
+      await act(async () => { answer(late) })
+      await act(async () => { await vi.advanceTimersByTimeAsync(10) })
     } finally {
       vi.useRealTimers()
     }
+  }
+
+  it('shows the app after 3 s; a late "not completed" within 10 s of that still opens the onboarding', async () => {
+    await lateFirstRead(stateOf({ currentStep: 'system' }), 12000)
+    expect(screen.queryByTestId('app')).not.toBeInTheDocument()
+    expect(heading()).toHaveTextContent('System check')
+  })
+
+  it('leaves the app when the late "not completed" lands more than 10 s after the app showed', async () => {
+    await lateFirstRead(stateOf({ currentStep: 'system' }), 3100 + LATE_SWITCH_MS + 500)
+    expect(screen.getByTestId('app')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument()
+  })
+
+  it('leaves the app when the late answer says completed', async () => {
+    await lateFirstRead(stateOf({ completed: true, currentStep: 'finish' }), 4000)
+    expect(screen.getByTestId('app')).toBeInTheDocument()
+  })
+
+  it('paints the fast answer, then shows the statuses of the full read', async () => {
+    go.GetOnboardingState.mockResolvedValue(stateOf({ currentStep: 'about' }))
+    const fullSteps = IDS.map(id => ({ id, status: ['welcome', 'system', 'profile', 'monomind', 'browser'].includes(id) ? 'done' : 'todo' }))
+    go.GetOnboardingStateFull.mockResolvedValue(stateOf({ currentStep: 'about', steps: fullSteps }))
+    render(<OnboardingGate banners={null} />)
+    expect(await screen.findByTestId('step-about')).toBeInTheDocument()
+    await act(async () => { await Promise.resolve() })
+    expect(go.GetOnboardingStateFull).toHaveBeenCalledTimes(1)
+    expect(document.querySelector('[data-step="monomind"]')).toHaveAttribute('data-status', 'done')
+    expect(document.querySelector('[data-step="browser"]')).toHaveAttribute('data-status', 'done')
+    expect(document.querySelector('[data-step="agents"]')).toHaveAttribute('data-status', 'todo')
   })
 
   it('a readable state without completed: false shows the app', async () => {
@@ -168,8 +203,9 @@ describe('the onboarding gate', () => {
     go.GetOnboardingState.mockResolvedValue(stateOf())
     render(<OnboardingGate banners={null} />)
     await screen.findByTestId('step-welcome')
-    // a first answer of "not completed" already carried every fact: no second read yet
-    expect(go.GetOnboardingStateFull).not.toHaveBeenCalled()
+    // a first answer of "not completed" is followed by one full read at once
+    await act(async () => { await Promise.resolve() })
+    expect(go.GetOnboardingStateFull).toHaveBeenCalledTimes(1)
     go.GetOnboardingStateFull.mockResolvedValue(stateOf({ currentStep: 'system', steps: IDS.map(id => ({ id, status: id === 'welcome' ? 'done' : 'todo' })) }))
     let r
     await act(async () => { r = await seen.welcome.mark('welcome') })
@@ -177,7 +213,7 @@ describe('the onboarding gate', () => {
     expect(go.MarkOnboardingStep).toHaveBeenCalledWith('welcome')
     // the re-read after a mark is the full one
     expect(go.GetOnboardingState).toHaveBeenCalledTimes(1)
-    expect(go.GetOnboardingStateFull).toHaveBeenCalledTimes(1)
+    expect(go.GetOnboardingStateFull).toHaveBeenCalledTimes(2)
     expect(document.querySelector('[data-step="welcome"]')).toHaveAttribute('data-status', 'done')
     // still on the step the person is on: a reload never moves them
     expect(heading()).toHaveTextContent('Welcome')

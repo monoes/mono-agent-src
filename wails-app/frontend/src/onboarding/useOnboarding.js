@@ -2,13 +2,14 @@
 // or restart. loading is true only until the first answer; later reloads keep
 // the last good state on screen. error is the first load's failure message, ''
 // otherwise. Every action resolves to callStep's result.
-// Two reads: GetOnboardingState is fast on a completed install (it skips the
-// per-step facts), so the gate's first read uses it. loadFull() switches the
-// hook to GetOnboardingStateFull for good and reads with it; from then on
-// reload() and every action's re-read use the full one too. The gate calls it
-// when it opens the onboarding over a finished state; an answer saying
-// "not completed" switches to full reads by itself (the fast read already
-// gathered every fact for it).
+// Two reads: GetOnboardingState is fast (stored marks and the profile count
+// only; its other statuses are marks, not facts), so the gate decides from it.
+// GetOnboardingStateFull reads every fact. loadFull() switches the hook to the
+// full read for good and reads with it; from then on reload() and every
+// action's re-read use it too. The gate calls it when it opens the onboarding
+// over a finished state; a fast answer saying "not completed" is painted at
+// once and followed by a full read by itself.
+// timedOut is true when the first read missed FIRST_READ_DEADLINE_MS.
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { onboarding } from '../services/onboarding.js'
 import { callStep } from './callStep.js'
@@ -25,6 +26,8 @@ export function useOnboarding() {
   const alive = useRef(true)
   const seq = useRef(0)
   const full = useRef(false)
+  const [timedOut, setTimedOut] = useState(false)
+  const reloadRef = useRef(null)
 
   useEffect(() => {
     alive.current = true
@@ -39,8 +42,10 @@ export function useOnboarding() {
     if (!alive.current || mine !== seq.current) return r
     if (r.ok) {
       // an install that is not finished shows the onboarding: full reads from now on
-      if (r.value.completed === false) full.current = true
+      const switching = r.value.completed === false && !full.current
+      if (switching) full.current = true
       setState(r.value)
+      if (switching) reloadRef.current()
       setError('')
     } else {
       console.error('onboarding state:', r.message)
@@ -49,6 +54,7 @@ export function useOnboarding() {
     setLoading(false)
     return r
   }, [])
+  reloadRef.current = reload
 
   // The first read waits for the backend's startup (migrations, profile
   // selection), as StartupOverlay does: before it, the profile count cannot be
@@ -71,6 +77,7 @@ export function useOnboarding() {
         if (!alive.current) return
         console.error(`onboarding state: no answer within ${FIRST_READ_DEADLINE_MS} ms`)
         setError(e => e || 'the onboarding state took too long')
+        setTimedOut(true)
         setLoading(false)
       }, FIRST_READ_DEADLINE_MS)
       await reload()
@@ -96,5 +103,5 @@ export function useOnboarding() {
   const complete = useCallback(() => write(() => onboarding.complete()), [write])
   const restart = useCallback(() => write(() => onboarding.restart()), [write])
 
-  return { state, loading, error, reload, loadFull, mark, skip, complete, restart }
+  return { state, loading, error, timedOut, reload, loadFull, mark, skip, complete, restart }
 }

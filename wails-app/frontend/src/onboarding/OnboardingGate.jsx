@@ -3,9 +3,13 @@
 // GetOnboardingState decides: not completed shows the onboarding, completed the
 // app exactly as before. Later answers never switch on their own; only
 // finishing (onFinish) closes the onboarding and only openOnboarding opens it.
+// One exception: when the first read missed its deadline (the app showed), a
+// late answer saying "not completed" that lands within LATE_SWITCH_MS of the
+// app showing still opens the onboarding, so a new install with a slow first
+// start gets it; later than that the app stays, and the next launch shows it.
 // While the first answer is pending it shows AccountShell's quiet checking
 // view; if the state cannot be read it shows the app (never a broken gate).
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import App from '../App.jsx'
 import Onboarding from './Onboarding.jsx'
@@ -15,6 +19,8 @@ import { OnboardingContext } from './onboardingContext.js'
 // Pages inside the app import it from ./onboardingContext.js (no cycle).
 export { OnboardingContext }
 
+export const LATE_SWITCH_MS = 10000
+
 export default function OnboardingGate({ banners = null }) {
   const { t } = useTranslation()
   const ob = useOnboarding()
@@ -22,19 +28,36 @@ export default function OnboardingGate({ banners = null }) {
   // undefined: not decided yet; null: the app; { stepId, mode }: the onboarding
   const [open, setOpen] = useState(undefined)
   const [nav, setNav] = useState(null)
+  // set when the app showed because the first read missed its deadline
+  const lateRef = useRef(null)
 
   if (open === undefined && !ob.loading) {
     // only an answer that says "not completed" opens it; anything else is the app
-    setOpen(ob.state && ob.state.completed === false ? { stepId: undefined, mode: 'full' } : null)
+    const first = ob.state && ob.state.completed === false ? { stepId: undefined, mode: 'full' } : null
+    lateRef.current = first === null && ob.timedOut ? Date.now() : null
+    setOpen(first)
   }
 
+  useEffect(() => {
+    if (open !== null || lateRef.current === null || !ob.state) return
+    const inTime = Date.now() - lateRef.current < LATE_SWITCH_MS
+    if (ob.state.completed === false && inTime) {
+      lateRef.current = null
+      setOpen({ stepId: undefined, mode: 'full' })
+    } else if (!inTime || ob.state.completed) {
+      lateRef.current = null
+    }
+  }, [open, ob.state])
+
   const openOnboarding = useCallback(async (stepId, mode = 'full') => {
+    lateRef.current = null
     await loadFull()
     setNav(null)
     setOpen({ stepId: typeof stepId === 'string' ? stepId : undefined, mode: mode === 'profile' ? 'profile' : 'full' })
   }, [loadFull])
 
   const onFinish = useCallback((next) => {
+    lateRef.current = null
     setNav(next && next.page ? { page: next.page, opts: next.opts } : null)
     setOpen(null)
   }, [])
