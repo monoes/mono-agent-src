@@ -3094,7 +3094,55 @@
       "title": "Qué pueden hacer los agentes en tu navegador"
     },
     "firstRun": {
-      "title": "Tu primera ejecución"
+      "title": "Tu primera ejecución",
+      "lead": "Elige una para ver MonoAgent en acción.",
+      "starter": {
+        "page": {
+          "title": "Leer una página web",
+          "line": "Descarga example.com y muestra su título y su primer párrafo. No necesita un agente de IA."
+        },
+        "summary": {
+          "title": "Resumir una página web",
+          "line": "Lee example.com y pide a tu agente de IA que la resuma en tres frases."
+        },
+        "browser": {
+          "title": "Leer una página en tu navegador",
+          "line": "Abre example.com en tu propio navegador, la lee y tu agente de IA dice de qué trata."
+        }
+      },
+      "needs": "Termina primero «{{step}}».",
+      "goTo": "Ir a {{step}}",
+      "idle": "Todavía no se ha ejecutado nada.",
+      "progress": "Progreso de la ejecución",
+      "nodeState": "{{name}}: {{state}}",
+      "node": {
+        "todo": "en espera",
+        "running": "en curso",
+        "done": "hecho",
+        "waiting": "esperándote",
+        "failed": "falló",
+        "skipped": "omitido"
+      },
+      "preparing": "Preparando el flujo de trabajo…",
+      "starting": "Iniciando la ejecución…",
+      "started": "En curso…",
+      "running": "En curso: {{name}}…",
+      "result": "Resultado",
+      "resultEmpty": "La ejecución terminó.",
+      "field": {
+        "title": "Título",
+        "firstParagraph": "Primer párrafo",
+        "summary": "Resumen",
+        "description": "Qué es",
+        "page": "Página"
+      },
+      "failed": "La ejecución no terminó.",
+      "approval": "Tu navegador pregunta si los agentes pueden abrir este sitio. Apruébalo en Human-in-Loop y vuelve a ejecutarlo.",
+      "agentNotSetup": "Todavía no hay ningún agente de IA listo. Configura uno en «Tus agentes» y vuelve a ejecutarlo.",
+      "notStarted": "La ejecución se detuvo antes de empezar.",
+      "lost": "Se perdió el contacto con la ejecución. Puede que siga en curso; puedes revisarla más tarde en Flujos de trabajo.",
+      "noErrorText": "La ejecución falló sin un mensaje de error.",
+      "retry": "Reintentar"
     },
     "finish": {
       "title": "Todo listo"

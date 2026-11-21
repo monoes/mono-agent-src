@@ -10,6 +10,7 @@ import Rail from './Rail.jsx'
 import { stepsFor, statusesOf, stepTitle, railLabel } from './steps.js'
 import Placeholder from './steps/Placeholder.jsx'
 import Browser from './steps/Browser.jsx'
+import FirstRun from './steps/FirstRun.jsx'
 import './onboarding.css'
 
 // One entry per step id; each step task replaces its own line.
@@ -22,7 +23,7 @@ export const STEP_COMPONENTS = {
   agents: Placeholder,
   browser: Browser,
   permissions: Placeholder,
-  firstRun: Placeholder,
+  firstRun: FirstRun,
   finish: Placeholder,
 }
 

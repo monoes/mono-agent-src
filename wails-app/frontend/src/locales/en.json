@@ -3094,7 +3094,55 @@
       "title": "What agents may do in your browser"
     },
     "firstRun": {
-      "title": "Your first run"
+      "title": "Your first run",
+      "lead": "Pick one to see MonoAgent work.",
+      "starter": {
+        "page": {
+          "title": "Read a web page",
+          "line": "Fetches example.com and shows its title and first paragraph. No AI agent needed."
+        },
+        "summary": {
+          "title": "Summarise a web page",
+          "line": "Reads example.com and has your AI agent sum it up in three sentences."
+        },
+        "browser": {
+          "title": "Read a page in your browser",
+          "line": "Opens example.com in your own browser, reads it, and has your AI agent say what it is."
+        }
+      },
+      "needs": "Finish '{{step}}' first.",
+      "goTo": "Go to {{step}}",
+      "idle": "Nothing has run yet.",
+      "progress": "Run progress",
+      "nodeState": "{{name}}: {{state}}",
+      "node": {
+        "todo": "waiting",
+        "running": "running",
+        "done": "done",
+        "waiting": "waiting for you",
+        "failed": "failed",
+        "skipped": "skipped"
+      },
+      "preparing": "Getting the workflow ready…",
+      "starting": "Starting the run…",
+      "started": "Running…",
+      "running": "Running: {{name}}…",
+      "result": "Result",
+      "resultEmpty": "The run finished.",
+      "field": {
+        "title": "Title",
+        "firstParagraph": "First paragraph",
+        "summary": "Summary",
+        "description": "What it is",
+        "page": "Page"
+      },
+      "failed": "The run did not finish.",
+      "approval": "Your browser asks whether agents may open this site. Approve it in Human-in-Loop, then run it again.",
+      "agentNotSetup": "No AI agent is ready yet. Set one up in 'Your agents', then run it again.",
+      "notStarted": "The run stopped before it started.",
+      "lost": "Lost contact with the run. It may still be running; you can check it later under Workflows.",
+      "noErrorText": "The run failed without an error message.",
+      "retry": "Try again"
     },
     "finish": {
       "title": "You're set"
