@@ -116,17 +116,14 @@ func Suggest(ctx context.Context, c *jev.Client, in Input) (Suggestion, error) {
 	if err != nil {
 		return Suggestion{}, err
 	}
-	choice, p := jev.Top(resp.Answers[QDecision])
-	levelID, riskP := jev.Top(resp.Answers[QRisk])
+	// A provider with no probability gates as 0 (plan D7): nothing auto-decides.
+	choice, p := jev.GateValue(resp, resp.Answers[QDecision])
+	levelID, riskP := jev.GateValue(resp, resp.Answers[QRisk])
 	risk := ""
 	if i, err := strconv.Atoi(levelID); err == nil && i >= 0 && i < len(RiskLevels) {
 		risk = RiskLevels[i]
 	}
-	model := resp.Model
-	if model == "" {
-		model = c.Model
-	}
-	return Suggestion{Choice: choice, P: p, Risk: risk, RiskP: riskP, Model: model, At: time.Now().UTC()}, nil
+	return Suggestion{Choice: choice, P: p, Risk: risk, RiskP: riskP, Model: jev.ResponseLabel(resp, c.Model), At: time.Now().UTC()}, nil
 }
 
 // SuggestAll suggests every item, one request each with at most MaxInFlight

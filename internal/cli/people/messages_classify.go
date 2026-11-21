@@ -177,18 +177,14 @@ func classifyInboxMessage(ctx context.Context, c *jev.Client, m inboxCandidate, 
 	if err != nil {
 		return nil, err
 	}
-	intent, p := jev.Top(resp.Answers["intent"])
+	intent, p := jev.GateValue(resp, resp.Answers["intent"]) // no probability gates as 0: unsure (plan D7)
 	unsure := p < threshold
 	if unsure {
 		intent = ""
 	}
-	model := resp.Model
-	if model == "" {
-		model = c.Model
-	}
 	return &messageClassification{
 		Intent: intent, Unsure: unsure, IntentP: p, ShouldReplyP: resp.Answers["should_reply"].Noul,
-		Model: model, At: time.Now().UTC().Format(time.RFC3339),
+		Model: jev.ResponseLabel(resp, c.Model), At: time.Now().UTC().Format(time.RFC3339),
 	}, nil
 }
 

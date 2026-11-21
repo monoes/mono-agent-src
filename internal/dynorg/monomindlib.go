@@ -282,6 +282,6 @@ func (j JevChooser) Choose(ctx context.Context, state any, question string, opti
 	if !ok {
 		return "", 0, fmt.Errorf("jev: no answer")
 	}
-	choice, p := jev.Top(a)
+	choice, p := jev.GateValue(resp, a) // no probability gates as 0: the rule picks (plan D7)
 	return choice, p, nil
 }

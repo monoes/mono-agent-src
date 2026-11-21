@@ -103,12 +103,10 @@ func SuggestPerson(ctx context.Context, c *jev.Client, p Person) (Suggestion, er
 	if err != nil {
 		return Suggestion{}, err
 	}
-	s := Suggestion{Model: resp.Model, At: time.Now().UTC(), Basis: basis(p)}
-	if s.Model == "" {
-		s.Model = c.Model
-	}
-	s.Suggest, s.P = jev.Top(resp.Answers[QSuggest])
-	s.IntroFit, s.IntroFitP = jev.Top(resp.Answers[QIntroFit])
+	s := Suggestion{Model: jev.ResponseLabel(resp, c.Model), At: time.Now().UTC(), Basis: basis(p)}
+	// A provider with no probability gates as 0 (plan D7).
+	s.Suggest, s.P = jev.GateValue(resp, resp.Answers[QSuggest])
+	s.IntroFit, s.IntroFitP = jev.GateValue(resp, resp.Answers[QIntroFit])
 	return s, nil
 }
 
