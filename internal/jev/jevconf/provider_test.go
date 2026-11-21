@@ -226,6 +226,26 @@ func TestProviderChoiceIsLayered(t *testing.T) {
 	}
 }
 
+// A provider choice that cannot be read is an error, never TypeSafe by
+// default: the surface may have been moved off TypeSafe.
+func TestAnUnreadableProviderChoiceFailsClosed(t *testing.T) {
+	db := newDB(t)
+	ts := jevtest.TypeSafeHost(t)
+	t.Setenv("TYPESAFE_API_KEY", "env-key")
+	if _, err := db.Exec(`DROP TABLE settings`); err != nil {
+		t.Fatal(err)
+	}
+	if c, err := NewClient(context.Background(), db, "default", "", "", HIL); err == nil || c != nil {
+		t.Fatalf("NewClient = %+v %v", c, err)
+	}
+	if c, _, err := ResolveClient(context.Background(), db, "default", "", ""); err == nil || c != nil {
+		t.Fatalf("ResolveClient = %+v %v", c, err)
+	}
+	if ActiveProvider(db, "default", HIL) != jev.ProviderTypeSafe || ts.Calls() != 0 {
+		t.Fatal("display or a send went wrong")
+	}
+}
+
 func TestRemoveProviderRefusesAProviderInUse(t *testing.T) {
 	db := newDB(t)
 	ctx := context.Background()

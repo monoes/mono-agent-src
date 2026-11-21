@@ -232,24 +232,59 @@ func RemoveProvider(ctx context.Context, db *sql.DB, name string) error {
 }
 
 // DefaultProvider is the machine default: "jev.provider", else "typesafe".
+// For display: a settings read that fails shows as "typesafe" here, while
+// building a client fails on it.
 func DefaultProvider(db *sql.DB) string {
-	if v, ok := getSetting(db, defaultProviderKey); ok && strings.TrimSpace(v) != "" {
-		return strings.TrimSpace(v)
-	}
-	return jev.ProviderTypeSafe
+	name, _ := defaultProvider(db)
+	return name
 }
 
 // ActiveProvider is the provider surface s uses for profileID when the call
 // names none (D9 layers 2–4): the profile's choice for s, else the machine
-// default, else "typesafe". It does not check that the provider exists:
-// building its client does, and fails rather than fall back to another host.
+// default, else "typesafe". It is for display: building a client resolves
+// the same way but fails on a settings read that fails and on a provider
+// that does not exist, rather than fall back to another host.
 func ActiveProvider(db *sql.DB, profileID string, s Surface) string {
+	name, _ := activeProvider(db, profileID, s)
+	return name
+}
+
+func defaultProvider(db *sql.DB) (string, error) {
+	v, err := providerSetting(db, defaultProviderKey)
+	if err != nil || v == "" {
+		return jev.ProviderTypeSafe, err
+	}
+	return v, nil
+}
+
+func activeProvider(db *sql.DB, profileID string, s Surface) (string, error) {
 	if key, err := settingKey(profileID, s, "provider"); err == nil {
-		if v, ok := getSetting(db, key); ok && strings.TrimSpace(v) != "" {
-			return strings.TrimSpace(v)
+		v, err := providerSetting(db, key)
+		if err != nil {
+			return jev.ProviderTypeSafe, err
+		}
+		if v != "" {
+			return v, nil
 		}
 	}
-	return DefaultProvider(db)
+	return defaultProvider(db)
+}
+
+// providerSetting reads a provider choice: "" when none is stored, an error
+// when the settings cannot be read (never taken for "none").
+func providerSetting(db *sql.DB, key string) (string, error) {
+	if db == nil {
+		return "", nil
+	}
+	var v string
+	err := db.QueryRow(`SELECT value FROM settings WHERE key = ?`, key).Scan(&v)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("jev: cannot read which decision provider to use (%s): %w", key, err)
+	}
+	return strings.TrimSpace(v), nil
 }
 
 // SetDefaultProvider makes name the machine default ("" or "typesafe"
@@ -299,7 +334,10 @@ func NewClientFor(ctx context.Context, db *sql.DB, profileID, provider, explicit
 		return nil, fmt.Errorf("jev: %w", profiledir.ErrNoProfile)
 	}
 	if provider == "" {
-		provider = ActiveProvider(db, profileID, s)
+		var err error
+		if provider, err = activeProvider(db, profileID, s); err != nil {
+			return nil, err
+		}
 	}
 	c, _, err := ResolveProviderClient(ctx, db, profileID, provider, explicitKey, model)
 	if err != nil {
@@ -320,7 +358,10 @@ func NewClientFor(ctx context.Context, db *sql.DB, profileID, provider, explicit
 // key's (SourceVault, or SourceKeyless).
 func ResolveProviderClient(ctx context.Context, db *sql.DB, profileID, provider, explicit, model string) (*jev.Client, string, error) {
 	if provider == "" {
-		provider = DefaultProvider(db)
+		var err error
+		if provider, err = defaultProvider(db); err != nil {
+			return nil, "", err
+		}
 	}
 	if provider == jev.ProviderTypeSafe {
 		return resolveTypeSafeClient(ctx, db, profileID, explicit, model)
