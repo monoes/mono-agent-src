@@ -4015,7 +4015,10 @@ monoagentcli --profile <id> --json browser network --tab 812 --failed
   then `browser upload` puts it in.
 - **browser.read** opens a URL in a new tab of the run's profile's browser,
   reads its title and visible text from the accessibility tree (what
-  `browser a11y` reads) and closes the tab: no click, typing or script. It
+  `browser a11y` reads) and closes the tab (unguarded, so also after the page
+  moved; a failed close fails the node): no click, typing or script, so no
+  submit guard is armed. It reads once per node and stops between steps when
+  the run is cancelled. It
   goes through `browserctl.Open` like the browser commands, held as the kind
   of the AI caller that started the run (browser.jev's rules), or as `chat`
   when the user started it; `Options.Caller` only tightens, so an agent

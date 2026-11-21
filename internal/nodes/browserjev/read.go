@@ -2,6 +2,7 @@ package browserjev
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -15,16 +16,16 @@ import (
 // to the run's profile and returns the page's title and visible text. It
 // reads the text the way `monoagentcli browser a11y` does (the extension's
 // accessibility tree), then closes the tab. It never clicks, types or runs
-// a script in the page.
+// a script in the page, so it arms no submit guard.
 //
 // It goes through the same session as the CLI's browser commands
-// (browserctl.Open, then OpenTab), so the same checks apply: the level of
-// its kind of agent in the user's browser permissions (off: refused), the
-// site rules, the "allow this site?" approval at level ask, and the origin
-// check on where the tab landed. The kind is that of the AI caller that
-// started the run (aiCaller, policyFor: browser.jev's rules), or chat when
-// the user started it. browserctl.Open never loosens it: an agent marker
-// on the process binds when it is stricter.
+// (browserctl.Open, then OpenTab), so the same permission checks apply: the
+// level of its kind of agent in the user's browser permissions (off:
+// refused), the site rules, the "allow this site?" approval at level ask,
+// and the origin check on where the tab landed. The kind is that of the AI
+// caller that started the run (aiCaller, policyFor: browser.jev's rules), or
+// chat when the user started it. browserctl.Open never loosens it: an agent
+// marker on the process binds when it is stricter.
 type ReadNode struct {
 	sender browserctl.Sender // nil: the running bridge; tests set a fake
 }
@@ -37,14 +38,20 @@ const (
 
 func (n *ReadNode) Type() string { return "browser.read" }
 
+// Execute reads the page once (url is the node's, the same for every item)
+// and adds what it read to each input item.
 func (n *ReadNode) Execute(ctx context.Context, input workflow.NodeInput, config map[string]interface{}) ([]workflow.NodeOutput, error) {
 	url := str(config, "url")
 	if url == "" {
 		return nil, fmt.Errorf("%w: browser.read requires \"url\"", workflow.ErrInvalidConfig)
 	}
-	maxChars := num(config, "max_chars", defaultReadChars)
-	if maxChars <= 0 || maxChars > maxReadChars {
-		return nil, fmt.Errorf("%w: browser.read max_chars must be 1..%d", workflow.ErrInvalidConfig, maxReadChars)
+	maxChars, err := readMaxChars(config)
+	if err != nil {
+		return nil, err
+	}
+	page, err := n.read(ctx, url, maxChars)
+	if err != nil {
+		return nil, fmt.Errorf("browser.read: %w", err)
 	}
 	items := input.Items
 	if len(items) == 0 {
@@ -52,10 +59,6 @@ func (n *ReadNode) Execute(ctx context.Context, input workflow.NodeInput, config
 	}
 	out := make([]workflow.Item, 0, len(items))
 	for _, item := range items {
-		page, err := n.read(ctx, url, maxChars)
-		if err != nil {
-			return nil, fmt.Errorf("browser.read: %w", err)
-		}
 		merged := make(map[string]interface{}, len(item.JSON)+len(page))
 		for k, v := range item.JSON {
 			merged[k] = v
@@ -68,8 +71,29 @@ func (n *ReadNode) Execute(ctx context.Context, input workflow.NodeInput, config
 	return []workflow.NodeOutput{{Handle: "main", Items: out}}, nil
 }
 
-// read opens url, reads it and closes the tab.
-func (n *ReadNode) read(ctx context.Context, url string, maxChars int) (map[string]interface{}, error) {
+// readMaxChars is max_chars: a number 1..maxReadChars, default
+// defaultReadChars; anything else is a config error.
+func readMaxChars(config map[string]interface{}) (int, error) {
+	n := defaultReadChars
+	switch v := config["max_chars"].(type) {
+	case nil:
+	case float64:
+		n = int(v)
+	case int:
+		n = v
+	default:
+		n = 0
+	}
+	if n <= 0 || n > maxReadChars {
+		return 0, fmt.Errorf("%w: browser.read max_chars must be a number 1..%d", workflow.ErrInvalidConfig, maxReadChars)
+	}
+	return n, nil
+}
+
+// read opens url, reads it and closes the tab, stopping between steps once
+// ctx is done. A tab it opened is always closed, and a failed close is
+// returned with the result's error.
+func (n *ReadNode) read(ctx context.Context, url string, maxChars int) (_ map[string]interface{}, err error) {
 	profile, err := runProfile(ctx)
 	if err != nil {
 		return nil, err
@@ -85,19 +109,33 @@ func (n *ReadNode) read(ctx context.Context, url string, maxChars int) (map[stri
 			return nil, fmt.Errorf("read the browser permissions: %w", err)
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	s, err := browserctl.Open(browserctl.Options{
 		Profile: profile, NoTab: true, Permissions: &perms, DB: db, Sender: n.sender, Caller: &who,
 	})
 	if err != nil {
 		return nil, err
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	tabID, err := s.OpenTab(url, "")
 	if tabID != 0 {
-		defer func() { _ = s.CloseTab() }()
+		defer func() {
+			if cerr := s.CloseOpenedTab(tabID); cerr != nil {
+				err = errors.Join(err, fmt.Errorf("the tab it opened is still open: %w", cerr))
+			}
+		}()
 	}
 	if err != nil {
 		return nil, err
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	checked := s.URL()
 	var tree extension.A11yTreeResult
 	if err := s.Call(extension.CmdA11yTree, nil, browserctl.DefaultTimeout, &tree); err != nil {
 		return nil, fmt.Errorf("read the page: %w", err)
@@ -110,22 +148,37 @@ func (n *ReadNode) read(ctx context.Context, url string, maxChars int) (map[stri
 			}
 		}
 	}
-	text, first := pageText(tree.Nodes)
 	if title == "" {
 		title = rootName(tree.Nodes)
 	}
-	cut := tree.Truncated
-	if r := []rune(text); len(r) > maxChars {
-		text, cut = string(r[:maxChars]), true
+	// The address the browser has now, if still on the origin that was
+	// checked and read (a same-origin move); else the checked one.
+	pageURL := checked
+	if now, err := s.Refresh(); err == nil && browserctl.Origin(now) == browserctl.Origin(checked) {
+		pageURL = now
 	}
+	text, first := pageText(tree.Nodes)
+	text, cutText := cutRunes(text, maxChars)
+	title, cutTitle := cutRunes(title, maxChars)
+	first, cutFirst := cutRunes(first, maxChars)
 	return map[string]interface{}{
-		"url": s.URL(), "title": title, "text": text, "first_paragraph": first, "truncated": cut,
+		"url": pageURL, "title": title, "text": text, "first_paragraph": first,
+		"truncated": tree.Truncated || cutText || cutTitle || cutFirst,
 	}, nil
+}
+
+// cutRunes cuts s to max runes.
+func cutRunes(s string, max int) (string, bool) {
+	if r := []rune(s); len(r) > max {
+		return string(r[:max]), true
+	}
+	return s, false
 }
 
 // readCaller is the caller the read is held as: the kind of the AI caller
 // that started the run (an unapproved workflow's: the stricter of chat and
-// other), else chat.
+// other), else chat. A kind it cannot name is held as other, never as no
+// kind (which would be the user's own, unrestricted, terminal).
 func readCaller(ctx context.Context) (browserctl.Caller, error) {
 	who, ai := aiCaller(ctx)
 	if !ai {
@@ -134,6 +187,9 @@ func readCaller(ctx context.Context) (browserctl.Caller, error) {
 	pol, err := policyFor(ctx, who)
 	if err != nil {
 		return browserctl.Caller{}, err
+	}
+	if pol.Kind == "" {
+		return browserctl.Caller{Kind: browserctl.KindOther, Declared: pol.Declared}, nil
 	}
 	return browserctl.Caller{Kind: pol.Kind, Declared: pol.Declared}, nil
 }

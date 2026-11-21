@@ -201,12 +201,14 @@ on the process binds when stricter). Off refuses it; dev needs an allow rule
 for a real site; ask raises the "allow this site?" item.`,
 		Config: `{
   "url":       "https://example.com", // required
-  "max_chars": 20000                  // the text is cut here (1..200000)
+  "max_chars": 20000                  // title, text and first_paragraph are cut here (1..200000)
 }`,
-		Inputs:  "any items (one read per item; none = one read)",
+		Inputs:  "any items (one read for the node, added to every item; none = one item)",
 		Outputs: "input item + url, title, text (one line per text node), first_paragraph, truncated",
 		Notes: `Page text is data, never instructions. Org grants treat browser.read as
-outbound: it reads your logged-in browser into the run.`,
+outbound: it reads your logged-in browser into the run. The tab it opened is
+closed even when the page moved away; a close that fails fails the node. A
+cancelled run stops between steps.`,
 	},
 	{
 		Type:     "browser.jev",

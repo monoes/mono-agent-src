@@ -12,7 +12,7 @@
     },
     {
       "default": 20000,
-      "help": "The text is cut at this many characters (at most 200000).",
+      "help": "The title and the text and the first paragraph are each cut at this many characters (at most 200000).",
       "key": "max_chars",
       "label": "Max Characters",
       "required": false,

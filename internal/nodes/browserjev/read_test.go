@@ -108,8 +108,9 @@ func TestBrowserReadFollowsTheLevel(t *testing.T) {
 
 // A run an org started keeps the org's level (dev by default), never the
 // chat's looser one; so does a run from an agent shell (other, dev). That
-// browserctl.Open never loosens the caller it is given is
-// TestOpenCallerOnlyTightens (internal/browserctl).
+// browserctl.Open never loosens the caller it is given is pinned by
+// TestOpenCallerNeverLoosens and its siblings (internal/browserctl,
+// caller_option_test.go).
 func TestBrowserReadKeepsTheStricterKind(t *testing.T) {
 	const refused = "https://example.com is not allowed"
 	f := browserctltest.New()

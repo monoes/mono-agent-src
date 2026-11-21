@@ -37,6 +37,44 @@ var processes = map[string]func(t *testing.T){
 		browserctltest.AsAgentKind(t, browserctl.KindCoder)
 		t.Setenv("CLAUDECODE", "1")
 	},
+	// A shell that declares org with no token: other, Declared org.
+	"unvouched-org": func(t *testing.T) {
+		t.Setenv("CLAUDECODE", "1")
+		t.Setenv(browserctl.EnvAgentKind, browserctl.KindOrg)
+	},
+}
+
+// suppliedCallers are the callers a node may pass, Declared ones included
+// (readCaller forwards an AI caller's unproven kind, as "other/org").
+var suppliedCallers = []browserctl.Caller{
+	{Kind: browserctl.KindChat},
+	{Kind: browserctl.KindOrg},
+	{Kind: browserctl.KindOther},
+	{Kind: browserctl.KindOther, Declared: browserctl.KindOrg},
+	{Kind: browserctl.KindChat, Declared: browserctl.KindCoder},
+	{Kind: browserctl.KindOther, Declared: browserctl.KindCoder},
+}
+
+// The unvouched shell is other with org declared, so the stricter of the two
+// levels binds it: with other at full and org at dev, it is dev.
+func TestOpenUnvouchedShellIsDeclared(t *testing.T) {
+	clearMarkers(t)
+	processes["unvouched-org"](t)
+	perms := browserctl.DefaultPermissions()
+	for k, l := range map[string]string{browserctl.KindOther: browserctl.LevelFull, browserctl.KindOrg: browserctl.LevelDev, browserctl.KindChat: browserctl.LevelAsk} {
+		if err := perms.SetLevel(k, l); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pol, err := open(perms, nil, browserctltest.New())
+	if err != nil || pol.Kind != browserctl.KindOther || pol.Declared != browserctl.KindOrg || pol.Level != browserctl.LevelDev {
+		t.Fatalf("unvouched org shell: %+v %v", pol, err)
+	}
+	// Compared by kind alone (other: full), chat's ask would look stricter
+	// and win; by its binding level (dev) it must not.
+	if pol, err := open(perms, &browserctl.Caller{Kind: browserctl.KindChat}, browserctltest.New()); err != nil || pol.Level != browserctl.LevelDev {
+		t.Fatalf("chat at ask over the unvouched shell at dev: %+v %v", pol, err)
+	}
 }
 
 // open returns the session's policy, or the error Open gave.
@@ -92,35 +130,56 @@ func TestOpenStricterKindBinds(t *testing.T) {
 	}
 }
 
-// (c) A Caller never yields a looser policy than none: every process, every
-// supplied kind, every level that kind may have.
+// (c) A Caller never yields a looser policy than none: every process (an
+// unvouched one included), every supplied caller (Declared ones included),
+// every level that kind may have, and every combination of levels of the
+// kinds a Declared pairs (other, org, coder, chat).
 func TestOpenCallerNeverLoosens(t *testing.T) {
+	var permSets []browserctl.Permissions
+	for _, kind := range browserctl.Kinds {
+		for _, level := range levels {
+			if p, ok := permsWith(kind, level); ok {
+				permSets = append(permSets, p)
+			}
+		}
+	}
+	for _, lo := range levels {
+		for _, lg := range levels {
+			for _, lc := range levels {
+				for _, lch := range levels {
+					p := browserctl.DefaultPermissions()
+					if p.SetLevel(browserctl.KindOther, lo) != nil || p.SetLevel(browserctl.KindOrg, lg) != nil ||
+						p.SetLevel(browserctl.KindCoder, lc) != nil || p.SetLevel(browserctl.KindChat, lch) != nil {
+						continue
+					}
+					permSets = append(permSets, p)
+				}
+			}
+		}
+	}
+	var offErr *browserctl.BrowserOffError
 	for name, setup := range processes {
 		t.Run(name, func(t *testing.T) {
 			clearMarkers(t)
 			setup(t)
-			for _, kind := range browserctl.Kinds {
-				for _, level := range levels {
-					perms, ok := permsWith(kind, level)
-					if !ok {
-						continue
-					}
-					var offErr *browserctl.BrowserOffError
-					base, berr := open(perms, nil, browserctltest.New())
-					if errors.As(berr, &offErr) {
-						base = browserctl.Policy{Agent: true, Level: browserctl.LevelOff}
-					} else if berr != nil {
-						t.Fatalf("open without a caller: %v", berr)
-					}
-					got, gerr := open(perms, &browserctl.Caller{Kind: kind}, browserctltest.New())
+			for _, perms := range permSets {
+				base, berr := open(perms, nil, browserctltest.New())
+				if errors.As(berr, &offErr) {
+					base = browserctl.Policy{Agent: true, Level: browserctl.LevelOff}
+				} else if berr != nil {
+					t.Fatalf("open without a caller: %v", berr)
+				}
+				for _, c := range suppliedCallers {
+					c := c
+					got, gerr := open(perms, &c, browserctltest.New())
 					if errors.As(gerr, &offErr) {
 						continue // off: the tightest there is
 					}
 					if gerr != nil {
-						t.Fatalf("%s at %s: %v", kind, level, gerr)
+						t.Fatalf("%+v under %v: %v", c, perms.Levels, gerr)
 					}
 					if tightness(got) < tightness(base) {
-						t.Errorf("%s at %s loosened %+v to %+v", kind, level, base, got)
+						t.Fatalf("%+v under %v loosened %+v to %+v", c, perms.Levels, base, got)
 					}
 				}
 			}

@@ -204,6 +204,7 @@ func TestOutboundClassification(t *testing.T) {
 		{workflow.WorkflowNode{Type: "instagram.watch_stories"}, true},
 		{workflow.WorkflowNode{Type: "gemini.generate_text"}, true},
 		{workflow.WorkflowNode{Type: "browser.jev"}, true},
+		{workflow.WorkflowNode{Type: "browser.read"}, true},
 		{workflow.WorkflowNode{Type: "agent.ask"}, true},
 		{workflow.WorkflowNode{Type: "ai.agent"}, true},
 		{workflow.WorkflowNode{Type: "system.execute_command"}, true},
