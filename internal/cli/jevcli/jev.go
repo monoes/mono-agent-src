@@ -31,6 +31,9 @@ func NewCommand(d Deps) *cobra.Command {
 			"from a closed set of options, and every implicit surface is off until\n" +
 			"`jev enable <surface>` for the profile.\n" +
 			"\n" +
+			"TypeSafe is the default decision provider; `jev provider` adds others (an\n" +
+			"OpenAI-compatible server, a local model, …) and chooses which one answers.\n" +
+			"\n" +
 			"Key: the machine-wide vault, shared by all profiles (`jev key set`, key on stdin; a key in a profile's vault still works as a fallback; `jev key adopt` copies it), else TYPESAFE_API_KEY. TYPESAFE_DEFAULT_MODEL overrides the model.\n" +
 			"TYPESAFE_BASE_URL overrides the API host for a TYPESAFE_API_KEY only (https, or http to this machine), from your own terminal: a stored key always goes to the default host.",
 	}
