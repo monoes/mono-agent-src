@@ -64,6 +64,17 @@ describe('Scene', () => {
     expect(last().setState).toHaveBeenCalledWith({ welcome: 'done', system: 'done', profile: 'done', about: 'skipped' }, 'monomind')
   })
 
+  it('does not touch the scene when a re-render brings equal statuses and the same step', () => {
+    const { rerender } = render(<Scene statuses={{ welcome: 'done' }} currentStep="profile" />)
+    const s = last()
+    const calls = s.setState.mock.calls.length
+    rerender(<Scene statuses={{ welcome: 'done' }} currentStep="profile" />)
+    rerender(<Scene statuses={{ welcome: 'done' }} currentStep="profile" />)
+    expect(s.setState.mock.calls.length).toBe(calls)
+    rerender(<Scene statuses={{ welcome: 'done' }} currentStep="about" />)
+    expect(s.setState.mock.calls.length).toBe(calls + 1)
+  })
+
   it('passes translated counter text to the scene', () => {
     render(<Scene statuses={{}} currentStep="welcome" />)
     expect(last().opts.labels.found(3, 12)).toBe('onboarding.scene.found {"n":3,"total":12}')

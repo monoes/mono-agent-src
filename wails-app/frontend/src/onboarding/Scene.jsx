@@ -19,6 +19,8 @@ function planLabel(t, id) {
   }
 }
 
+const sameStatuses = (a, b) => STEP_IDS.every(id => a[id] === b[id])
+
 // The village behind the onboarding panel. It builds a step's plot when that
 // step's status turns `done` between two renders (also late, after the user
 // moved on), never just because a step is current, and never for steps that
@@ -31,6 +33,7 @@ export default function Scene({ statuses, currentStep }) {
   const mountRef = useRef(null)
   const sceneRef = useRef(null)
   const prevRef = useRef(null)
+  const stepRef = useRef(null)
   const [rebuildAt, setRebuildAt] = useState(null)
 
   useEffect(() => {
@@ -55,6 +58,9 @@ export default function Scene({ statuses, currentStep }) {
     if (!scene) return
     const now = statuses || {}
     const prev = prevRef.current
+    /* a parent that re-renders on every keystroke must not make the scene lay itself out again */
+    if (prev && currentStep === stepRef.current && sameStatuses(prev, now)) return
+    stepRef.current = currentStep
     scene.setState(now, currentStep)
     if (prev) STEP_IDS.forEach(id => { if (now[id] === 'done' && prev[id] !== 'done') scene.playBuild(id) })
     prevRef.current = Object.assign({}, now)
