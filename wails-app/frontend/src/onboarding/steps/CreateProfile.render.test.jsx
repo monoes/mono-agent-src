@@ -120,6 +120,9 @@ describe('CreateProfile', () => {
   it('lets Continue through without creating when a profile was already made', async () => {
     props.state = stateOf('done')
     render(<CreateProfile {...props} />)
+    // No second profile here: CreateProfile selects only the first one.
+    expect(screen.queryByLabelText('Profile name')).toBeNull()
+    expect(screen.getByText(/already made your profile/)).toBeInTheDocument()
     expect(props.setCanContinue).toHaveBeenLastCalledWith(true)
     expect(props.setContinueLabel).toHaveBeenLastCalledWith(null)
     expect(await runContinue()).not.toBe(false)

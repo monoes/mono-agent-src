@@ -1,6 +1,5 @@
 /* Create your profile: icon picker, folder line and sidebar preview (from the mockup). */
 .onb-root .onb-profile-chips{margin-top:10px}
-.onb-root .onb-profile-made{margin:-10px 0 18px}
 .onb-root .onb-profile-icons{display:grid;grid-template-columns:repeat(8,1fr);gap:8px}
 .onb-root .onb-profile-icon{aspect-ratio:1;border-radius:14px;border:1px solid var(--onb-line-2);background:oklch(0.97 0.01 290 / .05);display:grid;place-items:center;cursor:pointer;padding:5px;transition:all .2s var(--onb-ease)}
 .onb-root .onb-profile-icon img{width:100%;height:100%;border-radius:50%;display:block}

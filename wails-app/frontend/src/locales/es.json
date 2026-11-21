@@ -3080,7 +3080,7 @@
       "create": "Crear perfil",
       "errorEmpty": "Ponle un nombre a tu perfil.",
       "errorDefault": "Elige un nombre que diga para qué es este perfil.",
-      "haveOne": "Ya creaste un perfil. Continúa, o escribe un nombre para crear otro.",
+      "haveOne": "Ya creaste tu perfil. Puedes añadir más perfiles más tarde desde la barra lateral.",
       "signIn": "Inicia sesión en monoes.me para continuar."
     },
     "about": {

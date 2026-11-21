@@ -3080,7 +3080,7 @@
       "create": "Create profile",
       "errorEmpty": "Give your profile a name.",
       "errorDefault": "Pick a name that says what this profile is for.",
-      "haveOne": "You already made a profile. Continue, or type a name to make another one.",
+      "haveOne": "You already made your profile. You can add more profiles later from the sidebar.",
       "signIn": "Sign in to monoes.me to continue."
     },
     "about": {

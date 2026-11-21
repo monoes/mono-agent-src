@@ -48,8 +48,10 @@ export default function CreateProfile({ state, reload, setCanContinue, setOnCont
   const nameRef = useRef(null)
   const iconRefs = useRef([])
 
-  const alreadyMade = statusesOf(state).profile === 'done'
-  const passThrough = alreadyMade && !name.trim()
+  // Coming back (Back, or setup run again) after a profile exists: nothing to
+  // create. A second profile made here would not be selected (CreateProfile
+  // selects only the first), so the next steps would write to the old one.
+  const passThrough = statusesOf(state).profile === 'done'
   const problem = nameProblem(name)
 
   useEffect(() => {
@@ -105,10 +107,18 @@ export default function CreateProfile({ state, reload, setCanContinue, setOnCont
 
   const iconIndex = PROFILE_ICONS.indexOf(icon)
 
+  if (passThrough) {
+    return (
+      <div className="onb-profile">
+        <p className="onb-lead">{t('onboarding.profile.lead')}</p>
+        <p className="onb-pointer"><span>{t('onboarding.profile.haveOne')}</span></p>
+      </div>
+    )
+  }
+
   return (
     <div className="onb-profile">
       <p className="onb-lead">{t('onboarding.profile.lead')}</p>
-      {alreadyMade && <p className="onb-hint onb-profile-made">{t('onboarding.profile.haveOne')}</p>}
 
       <div className="onb-field">
         <label htmlFor="onb-profile-name">{t('onboarding.profile.nameLabel')}</label>
@@ -123,7 +133,7 @@ export default function CreateProfile({ state, reload, setCanContinue, setOnCont
           onChange={e => changeName(e.target.value)}
           onBlur={() => setTouched(true)}
           aria-invalid={nameError ? 'true' : 'false'}
-          aria-required={alreadyMade ? undefined : 'true'}
+          aria-required="true"
           aria-describedby={nameError ? 'onb-profile-name-err' : undefined}
         />
         {nameError && <p className="onb-error" id="onb-profile-name-err" role="alert">{nameError}</p>}
