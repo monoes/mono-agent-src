@@ -3009,7 +3009,86 @@
       "title": "Your agents"
     },
     "browser": {
-      "title": "Connect your browser"
+      "title": "Connect your browser",
+      "lead": "The extension lets agents work in your real browser. They use the accounts you are already signed in to there, so nothing needs your passwords.",
+      "subLabel": "Browser setup steps",
+      "subItem": "{{n}}. {{name}}",
+      "sub": {
+        "pick": "Pick browser",
+        "open": "Open profile",
+        "install": "Install",
+        "pair": "Pair",
+        "confirm": "Confirm"
+      },
+      "pickLead": "Works with any Chromium-based browser.",
+      "installed": "Installed",
+      "notFound": "Not found on this machine",
+      "other": "Other Chromium browser",
+      "thisProfile": "this profile",
+      "openLead": "Open the {{browser}} profile whose logged-in accounts belong to {{profile}}. Do the next steps in that window.",
+      "openOther": "Open the browser profile whose logged-in accounts belong to {{profile}}. Do the next steps in that window.",
+      "openButton": "Open {{browser}}",
+      "opening": "Opening…",
+      "next": "Next",
+      "install": {
+        "openTitle": "Open the extensions page",
+        "typeAddress": "Type this address in {{browser}}'s address bar:",
+        "otherAddress": "Open your browser's extensions page (usually Menu, then Extensions).",
+        "devTitle": "Turn on Developer mode",
+        "devRight": "The switch is at the top right of the page.",
+        "devLeft": "The switch is in the left sidebar.",
+        "devOther": "Look for the Developer mode switch on the extensions page.",
+        "loadTitle": "Click Load unpacked and choose this folder:",
+        "preparing": "Preparing the extension folder…",
+        "retry": "Try again",
+        "loaded": "I loaded the extension",
+        "copy": "Copy",
+        "copied": "Copied",
+        "copyAddress": "Copy the address",
+        "copyFolder": "Copy the folder"
+      },
+      "guide": {
+        "labelRight": "Where the controls are in {{browser}}: 1 the address bar, 2 the Developer mode switch at the top right, 3 the Load unpacked button",
+        "labelLeft": "Where the controls are in {{browser}}: 1 the address bar, 2 the Developer mode switch in the left sidebar, 3 the Load unpacked button",
+        "addressOther": "extensions page",
+        "extensions": "Extensions",
+        "devMode": "Developer mode",
+        "loadUnpacked": "Load unpacked"
+      },
+      "diagram": {
+        "label": "MonoAgent profile {{profile}} connects to a browser profile, which holds your logged-in sites",
+        "monoagent": "MonoAgent profile",
+        "browser": "Browser profile",
+        "sites": "Logged-in sites"
+      },
+      "pair": {
+        "checking": "Checking the background service…",
+        "again": "Check again",
+        "off": "The background service is not running.",
+        "offWhy": "It lets the extension connect to MonoAgent.",
+        "start": "Start",
+        "starting": "Starting…",
+        "waiting": "Waiting for the extension to connect. Keep the browser window open.",
+        "unpaired": "The extension is not paired with MonoAgent yet.",
+        "lead": "Pair the extension with MonoAgent so they can talk to each other.",
+        "button": "Pair extension",
+        "pairing": "Pairing…",
+        "opened": "The pairing page opened in your browser. Approve it there.",
+        "connected": "Connected."
+      },
+      "confirm": {
+        "loading": "Looking for attached browsers…",
+        "lead": "Agents working in {{profile}} will only use this browser profile.",
+        "none": "No browser is attached yet. Go back to Pair and connect the extension.",
+        "legacy": "A browser with an older extension cannot be chosen. Reload the extension on its extensions page.",
+        "listLabel": "Attached browsers",
+        "version": "Extension {{version}}",
+        "use": "Use this browser",
+        "saving": "Saving…",
+        "again": "Check again",
+        "done": "Agents working in {{profile}} now use {{browser}}."
+      },
+      "pointer": "You'll find this later in Settings, under Browser Extension."
     },
     "permissions": {
       "title": "What agents may do in your browser"

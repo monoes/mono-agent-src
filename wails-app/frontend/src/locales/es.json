@@ -3009,7 +3009,86 @@
       "title": "Tus agentes"
     },
     "browser": {
-      "title": "Conecta tu navegador"
+      "title": "Conecta tu navegador",
+      "lead": "La extensión permite que los agentes trabajen en tu navegador real. Usan las cuentas con las que ya has iniciado sesión allí, así que nada necesita tus contraseñas.",
+      "subLabel": "Pasos para configurar el navegador",
+      "subItem": "{{n}}. {{name}}",
+      "sub": {
+        "pick": "Elegir navegador",
+        "open": "Abrir perfil",
+        "install": "Instalar",
+        "pair": "Vincular",
+        "confirm": "Confirmar"
+      },
+      "pickLead": "Funciona con cualquier navegador basado en Chromium.",
+      "installed": "Instalado",
+      "notFound": "No encontrado en este equipo",
+      "other": "Otro navegador Chromium",
+      "thisProfile": "este perfil",
+      "openLead": "Abre el perfil de {{browser}} cuyas cuentas con sesión iniciada pertenecen a {{profile}}. Haz los siguientes pasos en esa ventana.",
+      "openOther": "Abre el perfil del navegador cuyas cuentas con sesión iniciada pertenecen a {{profile}}. Haz los siguientes pasos en esa ventana.",
+      "openButton": "Abrir {{browser}}",
+      "opening": "Abriendo…",
+      "next": "Siguiente",
+      "install": {
+        "openTitle": "Abre la página de extensiones",
+        "typeAddress": "Escribe esta dirección en la barra de direcciones de {{browser}}:",
+        "otherAddress": "Abre la página de extensiones de tu navegador (normalmente Menú y luego Extensiones).",
+        "devTitle": "Activa el modo de desarrollador",
+        "devRight": "El interruptor está arriba a la derecha de la página.",
+        "devLeft": "El interruptor está en la barra lateral izquierda.",
+        "devOther": "Busca el interruptor del modo de desarrollador en la página de extensiones.",
+        "loadTitle": "Haz clic en Cargar descomprimida y elige esta carpeta:",
+        "preparing": "Preparando la carpeta de la extensión…",
+        "retry": "Reintentar",
+        "loaded": "Ya cargué la extensión",
+        "copy": "Copiar",
+        "copied": "Copiado",
+        "copyAddress": "Copiar la dirección",
+        "copyFolder": "Copiar la carpeta"
+      },
+      "guide": {
+        "labelRight": "Dónde están los controles en {{browser}}: 1 la barra de direcciones, 2 el interruptor del modo de desarrollador arriba a la derecha, 3 el botón Cargar descomprimida",
+        "labelLeft": "Dónde están los controles en {{browser}}: 1 la barra de direcciones, 2 el interruptor del modo de desarrollador en la barra lateral izquierda, 3 el botón Cargar descomprimida",
+        "addressOther": "página de extensiones",
+        "extensions": "Extensiones",
+        "devMode": "Modo de desarrollador",
+        "loadUnpacked": "Cargar descomprimida"
+      },
+      "diagram": {
+        "label": "El perfil de MonoAgent {{profile}} se conecta con un perfil del navegador, que guarda tus sitios con sesión iniciada",
+        "monoagent": "Perfil de MonoAgent",
+        "browser": "Perfil del navegador",
+        "sites": "Sitios con sesión"
+      },
+      "pair": {
+        "checking": "Comprobando el servicio en segundo plano…",
+        "again": "Comprobar de nuevo",
+        "off": "El servicio en segundo plano no está en marcha.",
+        "offWhy": "Permite que la extensión se conecte con MonoAgent.",
+        "start": "Iniciar",
+        "starting": "Iniciando…",
+        "waiting": "Esperando a que la extensión se conecte. Mantén abierta la ventana del navegador.",
+        "unpaired": "La extensión aún no está vinculada con MonoAgent.",
+        "lead": "Vincula la extensión con MonoAgent para que puedan comunicarse.",
+        "button": "Vincular extensión",
+        "pairing": "Vinculando…",
+        "opened": "La página de vinculación se abrió en tu navegador. Apruébala allí.",
+        "connected": "Conectado."
+      },
+      "confirm": {
+        "loading": "Buscando navegadores conectados…",
+        "lead": "Los agentes que trabajen en {{profile}} solo usarán este perfil del navegador.",
+        "none": "Aún no hay ningún navegador conectado. Vuelve a Vincular y conecta la extensión.",
+        "legacy": "No se puede elegir un navegador con una extensión antigua. Recarga la extensión en su página de extensiones.",
+        "listLabel": "Navegadores conectados",
+        "version": "Extensión {{version}}",
+        "use": "Usar este navegador",
+        "saving": "Guardando…",
+        "again": "Comprobar de nuevo",
+        "done": "Los agentes que trabajan en {{profile}} ahora usan {{browser}}."
+      },
+      "pointer": "Encontrarás esto más adelante en Ajustes, en Extensión del navegador."
     },
     "permissions": {
       "title": "Qué pueden hacer los agentes en tu navegador"

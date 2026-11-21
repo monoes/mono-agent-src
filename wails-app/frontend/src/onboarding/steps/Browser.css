@@ -1,0 +1,23 @@
+/* Step "Connect your browser" (Browser.jsx, BrowserGuide.jsx). Ported from
+   the mockup's .sub, .choice, .bmark, .steps-ol, .diagram and .connected. */
+.onb-root .onb-browser-sub{display:flex;flex-wrap:wrap;gap:6px;list-style:none;margin:0 0 16px;padding:0;font-size:12.5px;color:var(--onb-ink-3)}
+.onb-root .onb-browser-sub li{padding:4px 10px;border-radius:999px;border:1px solid var(--onb-line)}
+.onb-root .onb-browser-sub li.on{color:var(--onb-ink);border-color:var(--onb-accent);background:var(--onb-accent-soft)}
+.onb-root .onb-browser-sub li.done{color:var(--onb-ink-2)}
+.onb-root .onb-browser-sub button{all:unset;cursor:pointer}
+.onb-root .onb-browser-sub button:hover{text-decoration:underline}
+.onb-root .onb-browser-pick{font-weight:600;color:var(--onb-ink-2)}
+.onb-root .onb-browser-choice{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.onb-root .onb-browser-mark{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;flex:none;font-weight:800;font-size:13px;color:var(--onb-accent-ink);background:var(--onb-accent)}
+.onb-root .onb-opt .onb-tag{display:inline-block;margin-top:3px}
+.onb-root .onb-browser-ol{margin:0 0 12px;padding-left:20px;display:flex;flex-direction:column;gap:12px}
+.onb-root .onb-browser-ol li > b{display:block;margin-bottom:4px}
+.onb-root .onb-browser-ol li > span{display:block;font-size:13px}
+.onb-root .onb-browser-copy{display:flex !important;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px}
+.onb-root .onb-browser-copy code{overflow-wrap:anywhere}
+.onb-root .onb-browser-pic{width:100%;height:auto;display:block;margin:4px 0 14px}
+.onb-root .onb-browser-actions{display:flex;flex-wrap:wrap;gap:10px;margin:10px 0}
+.onb-root .onb-browser-busy{display:flex;align-items:center;gap:10px;color:var(--onb-ink-2)}
+.onb-root .onb-browser-ok{color:var(--onb-ok);font-weight:650}
+.onb-root .onb-browser-confirm .onb-card{margin-bottom:10px}
+@media (max-width:1000px){.onb-root .onb-browser-choice{grid-template-columns:1fr}}
