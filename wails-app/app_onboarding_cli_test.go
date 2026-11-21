@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/account/accounttest"
@@ -54,7 +55,7 @@ func TestOnboardingFactsComeFromTheCLIAndTheProfileFolder(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".monomind", "config.yaml"), []byte("x: 1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	f, known := a.gatherOnboardingFacts()
+	f, known := a.gatherOnboardingFacts(true)
 	want := onboardingFacts{ProfileID: "work", ProfileCount: 1, MonomindOn: true, AgentUsable: true, BrowserAssigned: true}
 	if !known || f != want {
 		t.Fatalf("facts = %+v (known %v), want %+v", f, known, want)
@@ -69,7 +70,7 @@ func TestOnboardingFactsAreFalseWhenNotMet(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			onboardingFakeCLI(t, c.roster, c.status, c.browsers)
 			a := onboardingCLIApp(t)
-			f, known := a.gatherOnboardingFacts()
+			f, known := a.gatherOnboardingFacts(true)
 			want := onboardingFacts{ProfileID: "work", ProfileCount: 1}
 			if !known || f != want {
 				t.Fatalf("facts = %+v (known %v), want %+v", f, known, want)
@@ -111,6 +112,96 @@ func TestGetOnboardingStateMarksAnExistingInstall(t *testing.T) {
 	}
 	if m := onboardingMarksOf(t, a); m == nil || !m.Completed {
 		t.Fatalf("marks = %+v", m)
+	}
+}
+
+// onboardingLoggingCLI is onboardingFakeCLI (everything ready) that also logs
+// each call's arguments, one line per call.
+func onboardingLoggingCLI(t *testing.T) string {
+	t.Helper()
+	log := filepath.Join(t.TempDir(), "args.log")
+	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, `echo "$*" >> '`+log+`'
+case "$*" in
+  *"profile list"*) echo '[{"id":"work","name":"Work","created_at":"2026-01-01T00:00:00Z","root_dir":"","icon":""}]' ;;
+  *"agent roster"*) echo '`+rosterReady+`' ;;
+  *"extension status"*) echo '`+statusPaired+`' ;;
+  *"extension browsers"*) echo '`+browsersWork+`' ;;
+  *) echo '{"error":"unexpected"}'; exit 1 ;;
+esac
+`))
+	return log
+}
+
+func loggedCalls(t *testing.T, log string) string {
+	t.Helper()
+	b, err := os.ReadFile(log)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// Completed stored: GetOnboardingState reads only the profile list, and
+// agents and browser carry their marks only; GetOnboardingStateFull reads
+// every fact.
+func TestOnboardingStateFastPathWhenCompleted(t *testing.T) {
+	log := onboardingLoggingCLI(t)
+	a := onboardingCLIApp(t)
+	if err := a.CompleteOnboarding(); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.SkipOnboardingStep("browser"); err != nil {
+		t.Fatal(err)
+	}
+	s, err := a.GetOnboardingState()
+	if err != nil || !s.Completed || s.ProfileID != "work" {
+		t.Fatalf("GetOnboardingState = %+v, %v", s, err)
+	}
+	calls := loggedCalls(t, log)
+	if !strings.Contains(calls, "profile list") || strings.Contains(calls, "agent roster") || strings.Contains(calls, "extension") {
+		t.Fatalf("the fast answer ran %q, want only the profile list", calls)
+	}
+	if got := stepStatuses(*s); got["agents"] != "todo" || got["browser"] != "skipped" {
+		t.Fatalf("fast statuses = %v, want stored marks only", got)
+	}
+
+	if err := os.WriteFile(log, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err = a.GetOnboardingStateFull()
+	if err != nil || !s.Completed {
+		t.Fatalf("GetOnboardingStateFull = %+v, %v", s, err)
+	}
+	calls = loggedCalls(t, log)
+	for _, c := range []string{"profile list", "agent roster", "extension status", "extension browsers"} {
+		if !strings.Contains(calls, c) {
+			t.Fatalf("the full answer did not run %q: %q", c, calls)
+		}
+	}
+	if got := stepStatuses(*s); got["agents"] != "done" || got["browser"] != "done" {
+		t.Fatalf("full statuses = %v", got)
+	}
+}
+
+// Not completed: GetOnboardingState reads every fact.
+func TestOnboardingStateReadsEverythingUntilCompleted(t *testing.T) {
+	log := onboardingLoggingCLI(t)
+	a := onboardingCLIApp(t)
+	if err := a.MarkOnboardingStep("welcome"); err != nil {
+		t.Fatal(err)
+	}
+	s, err := a.GetOnboardingState()
+	if err != nil || s.Completed {
+		t.Fatalf("GetOnboardingState = %+v, %v", s, err)
+	}
+	calls := loggedCalls(t, log)
+	for _, c := range []string{"profile list", "agent roster", "extension status", "extension browsers"} {
+		if !strings.Contains(calls, c) {
+			t.Fatalf("did not run %q: %q", c, calls)
+		}
+	}
+	if got := stepStatuses(*s); got["agents"] != "done" || got["browser"] != "done" {
+		t.Fatalf("statuses = %v", got)
 	}
 }
 

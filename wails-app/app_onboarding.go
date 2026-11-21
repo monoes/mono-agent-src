@@ -26,8 +26,27 @@ var errOnboardingUnknown = errors.New("onboarding state unknown: the profile lis
 // is returned as is, or errOnboardingUnknown when nothing is stored. The
 // first call on an install that has profiles but no marks writes the
 // completed mark, so such an install never sees the onboarding.
+//
+// It is the fast answer the window asks for at every launch: when the stored
+// Completed is true it reads only the profile count (for the zero-profiles
+// reopen rule) and the monomind marker file, and skips the agent roster and
+// browser reads, so in that answer agents and browser carry their stored
+// marks only (skipped or todo, never done). GetOnboardingStateFull reads
+// everything.
 func (a *App) GetOnboardingState() (*OnboardingState, error) {
-	f, countKnown := a.gatherOnboardingFacts()
+	full := true
+	if m := loadGuiState(guiStatePath(a.dbPath)).Onboarding; m != nil && m.Completed {
+		full = false
+	}
+	f, countKnown := a.gatherOnboardingFacts(full)
+	return a.onboardingStateFor(f, countKnown)
+}
+
+// GetOnboardingStateFull is GetOnboardingState with every fact read even
+// after completion, for the dashboard's Finish setup card, which lists the
+// steps not really done.
+func (a *App) GetOnboardingStateFull() (*OnboardingState, error) {
+	f, countKnown := a.gatherOnboardingFacts(true)
 	return a.onboardingStateFor(f, countKnown)
 }
 
@@ -44,6 +63,14 @@ func (a *App) onboardingStateFor(f onboardingFacts, countKnown bool) (*Onboardin
 		}
 		s := deriveOnboarding(m, f)
 		s.Completed = m.Completed
+		for i := range s.Steps {
+			if s.Steps[i].ID == "finish" {
+				s.Steps[i].Status = onboardingTodo
+				if m.Completed {
+					s.Steps[i].Status = onboardingDone
+				}
+			}
+		}
 		return &s, nil
 	}
 	s := deriveOnboarding(m, f)
@@ -63,8 +90,10 @@ func (a *App) onboardingStateFor(f onboardingFacts, countKnown bool) (*Onboardin
 // gatherOnboardingFacts reads the real state through the same CLI calls and
 // checks the other bindings use, side by side. It reports whether the
 // profile count was read; when it was not, a profile selected in memory
-// still counts as one (one existed when the window chose it).
-func (a *App) gatherOnboardingFacts() (onboardingFacts, bool) {
+// still counts as one (one existed when the window chose it). full=false
+// skips the slow reads (agent roster, extension status and browsers), which
+// leaves AgentUsable and BrowserAssigned false.
+func (a *App) gatherOnboardingFacts(full bool) (onboardingFacts, bool) {
 	f := onboardingFacts{ProfileID: a.selectedProfileOrEmpty()}
 	guess := 0
 	if f.ProfileID != "" {
@@ -85,9 +114,11 @@ func (a *App) gatherOnboardingFacts() (onboardingFacts, bool) {
 	}
 	run(func() { listErr = a.listProfilesInto(&rows) })
 	if pid := f.ProfileID; pid != "" {
-		run(func() { f.MonomindOn = a.IsMonomindInitialized() })
-		run(func() { f.AgentUsable = a.agentRosterHasReady() })
-		run(func() { f.BrowserAssigned = a.browserRunsProfile(pid) })
+		run(func() { f.MonomindOn = a.IsMonomindInitialized() }) // a file check, cheap enough for the fast answer
+		if full {
+			run(func() { f.AgentUsable = a.agentRosterHasReady() })
+			run(func() { f.BrowserAssigned = a.browserRunsProfile(pid) })
+		}
 	}
 	wg.Wait()
 	if listErr != nil {

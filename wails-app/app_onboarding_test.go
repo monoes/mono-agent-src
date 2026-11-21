@@ -200,6 +200,9 @@ func TestOnboardingStateUnknownCountKeepsStoredCompleted(t *testing.T) {
 		if err != nil || s.Completed != completed {
 			t.Fatalf("stored completed %v: state = %+v, %v", completed, s, err)
 		}
+		if want := map[bool]string{true: "done", false: "todo"}[completed]; stepStatuses(*s)["finish"] != want {
+			t.Fatalf("stored completed %v: finish = %s, want %s", completed, stepStatuses(*s)["finish"], want)
+		}
 		if after, _ := os.ReadFile(path); string(after) != string(before) {
 			t.Fatalf("the state file changed: %q -> %q", before, after)
 		}
