@@ -155,3 +155,13 @@ export async function openArtifact(call, artifact, { api, notify, onOpen }) {
   }
   onOpen?.(fresh)
 }
+
+// artifactTarget: the navigate(page, data) a resolved artifact opens in its
+// tab, or null for one with no tab of its own here (an image opens through
+// the artifact card). Same destinations as App.jsx's onOpenArtifact.
+export function artifactTarget(artifact) {
+  if (artifact?.type === 'workflow') return { page: 'noderunner', data: { workflowId: artifact.id } }
+  if (artifact?.type === 'org') return { page: 'orgs', data: { org: artifact.name } }
+  if (artifact?.type === 'document') return { page: 'documents', data: null }
+  return null
+}

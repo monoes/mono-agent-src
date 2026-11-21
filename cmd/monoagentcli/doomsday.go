@@ -53,6 +53,11 @@ var doomsdayReadEngine func(*globalConfig) doomsdaycli.Engine
 // them printing "off".
 var doomsdayStrategyReader func(*globalConfig) doomsdaycli.StrategyReader
 
+// doomsdayStrategyReadReader is set in the same init: the reader `doomsday status` shows counted-criteria progress
+// through (opens nothing for writing). Nil falls back to doomsdayStrategyReader, so a test that replaces the one seam
+// is honoured here too.
+var doomsdayStrategyReadReader func(*globalConfig) doomsdaycli.StrategyReader
+
 // doomsdayChat is set in the same init: it hands the chat commands the resolver of the open run's merge gate
 // (chatcli.Deps.DoomsdayMerge) and installs the worktree reconcile guard. Nil leaves merges and reconcile as they were.
 var doomsdayChat func(cfg *globalConfig, d *chatcli.Deps)
@@ -92,9 +97,23 @@ func newDoomsdayCmd(cfg *globalConfig) *cobra.Command {
 			}
 			return doomsdayStrategyReader(cfg)
 		},
+		ReadStrategyReader: func() doomsdaycli.StrategyReader {
+			if doomsdayStrategyReadReader != nil {
+				return doomsdayStrategyReadReader(cfg)
+			}
+			if doomsdayStrategyReader == nil {
+				return nil
+			}
+			return doomsdayStrategyReader(cfg)
+		},
 	}
 	// `status` shows a first turn the host refused after the start succeeded (#1521): read-only, from the host's own queue.
 	deps.FirstTurn = firstTurnFor(cfg)
+	deps.OpenChat = func(cmd *cobra.Command, runtimeID, model, cwd string) (string, error) {
+		d := chatDeps(cfg)
+		return chatcli.CreateOpenChat(cmd, &d, runtimeID, model, cwd)
+	}
+	deps.PinChoices = func(ctx context.Context) ([]doomsdaycli.Pin, error) { return doomsdayPinChoices(ctx, cfg) }
 	deps.UnboundWarning = unboundWarningFor(cfg)
 	deps.ChatStart = func() doomsdaycli.ChatStarter {
 		return doomsdaycli.DBChatStart{

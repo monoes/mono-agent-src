@@ -1272,6 +1272,18 @@
     "chooseHint": "Any folder you trust"
   },
   "bubbles": {
+    "roster": {
+      "label": "Roles of the run",
+      "desk": "Front desk",
+      "boss": "Boss",
+      "planners": "Planners",
+      "executors": "Executors",
+      "back": "Back to the front desk",
+      "noChat": "No conversation yet: opens its task board",
+      "needsYou_one": "{{count}} item needs you",
+      "needsYou_other": "{{count}} items need you",
+      "empty": "No planners or executors yet"
+    },
     "orbit": {
       "groupLabel": "Agents",
       "groupNamed": "Agents of {{name}}",
@@ -2470,6 +2482,19 @@
     "blocked": "Link blocked: only http and https links open",
     "disguised": "The text says {{shown}} but this link opens {{host}}",
     "opensHost": "Opens {{host}}",
+    "appOpen": "Open this {{what}} in the app",
+    "appUnknown": "This link points to something that does not exist",
+    "appGone": "Couldn't confirm this {{what}} still exists, so it was not opened",
+    "appKind": {
+      "workflow": "workflow",
+      "execution": "workflow run",
+      "org": "organization",
+      "person": "person",
+      "task": "task",
+      "document": "document",
+      "settings": "settings section",
+      "page": "page"
+    },
     "previewHint": "Preview (Ctrl/Cmd-click to show in the file manager)",
     "revealHint": "Show in the file manager",
     "checkHint": "Path: click to check it and open it",
@@ -2869,5 +2894,52 @@
     "paused": "Paused.",
     "failed": "The pause did not go through.",
     "broken": "The pursuit panel could not be shown (unexpected data)."
+  },
+  "htmlView": {
+    "confirm": "The interactive view wants to send this message:",
+    "send": "Send",
+    "cancel": "Cancel"
+  },
+  "chatBlocks": {
+    "loading": "Loading {{type}} block",
+    "cannotSend": "Replies are not available right now.",
+    "answered": "Answered",
+    "choices": "Choices",
+    "confirm": "Confirm",
+    "chart": {
+      "label": "Label",
+      "value": "Value",
+      "table": "Table",
+      "chart": "Chart",
+      "showTable": "Show the data as a table",
+      "showChart": "Show the chart",
+      "type": {
+        "bar": "Bar chart",
+        "line": "Line chart",
+        "area": "Area chart",
+        "donut": "Donut chart",
+        "sparkline": "Sparkline",
+        "stat": "Key figures"
+      }
+    },
+    "open": "Open",
+    "steps": {
+      "progress": "{{done}} of {{total}} steps done",
+      "state": {
+        "todo": "to do",
+        "active": "in progress",
+        "done": "done",
+        "failed": "failed"
+      }
+    },
+    "form": {
+      "label": "Form",
+      "submit": "Submit",
+      "error": {
+        "required": "Required",
+        "number": "Enter a number",
+        "range": "Out of range"
+      }
+    }
   }
 }

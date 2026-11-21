@@ -25,6 +25,20 @@ type fakeStore struct {
 	moveDirFn func(id string, to types.DirectionState) error // injected failure
 	listErr   error
 	recorded  int
+	badReason map[int64]string
+}
+
+func (s *fakeStore) MoveEpochBad(ctx context.Context, p string, g int64, seq int64, reason string) error {
+	if err := s.MoveEpoch(ctx, p, g, seq, types.EpochBadJudgment); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.badReason == nil {
+		s.badReason = map[int64]string{}
+	}
+	s.badReason[seq] = reason
+	return nil
 }
 
 func newFakeStore() *fakeStore {

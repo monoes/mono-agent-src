@@ -192,6 +192,11 @@ func (e *WorkflowEngine) Start(ctx context.Context) error {
 			e.logger.Warn().Err(err).Msg("engine: failed to clean up orphaned HIL items")
 		}
 		_ = commsync.SetStatusForRejected(e.ctx, db)
+		if n, err := commsync.SweepStaleSending(e.ctx, db, time.Now()); err != nil {
+			e.logger.Warn().Err(err).Msg("engine: failed to end abandoned sending messages")
+		} else if n > 0 {
+			e.logger.Warn().Int("messages", n).Msg("engine: ended messages left in 'sending' by a crash as failed (outcome unknown)")
+		}
 	}
 
 	// 4. Re-register triggers for all active workflows in this engine's

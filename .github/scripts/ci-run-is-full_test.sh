@@ -74,7 +74,10 @@ import sys, yaml
 wf = yaml.safe_load(open(sys.argv[1]))
 job = wf["jobs"]["test-shards"]
 m = job["strategy"]["matrix"]
-cells = [{"tags": t, "shard": str(s)} for t in m["tags"] for s in m["shard"]]
+tags = m["tags"]
+if isinstance(tags, str):  # `${{ fromJSON(needs.changes.outputs.tags) }}`: default is always in it, nosocial only when it can matter
+    tags = ["default", "nosocial"]
+cells = [{"tags": t, "shard": str(s)} for t in tags for s in m["shard"]]
 for ex in m.get("exclude", []):
     cells = [c for c in cells if not all(str(c.get(k)) == str(v) for k, v in ex.items())]
 for inc in m.get("include", []):

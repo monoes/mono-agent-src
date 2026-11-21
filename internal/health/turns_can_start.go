@@ -43,6 +43,8 @@ func checkTurnsCanStart(ctx context.Context, env *Env) Result {
 	case f.BindingOn && f.BindingReadyErr != "":
 		return warn(turnsCanStartSetting+" is on but this machine cannot run the binding service ("+f.BindingReadyErr+"): every turn is refused",
 			fmt.Sprintf(turnsBindingOffCmd, p))
+	case f.ActiveRun && f.StrandedUnit != "":
+		return warn(f.StrandedUnit+": every turn of the open run is refused", fmt.Sprintf(openModeActiveStopCmd, p)+strandedUnitNext)
 	case f.BindingOn:
 		return Result{Status: StatusOK, Summary: "turns start through the bound launcher (" + turnsCanStartSetting + " on)"}
 	case f.ActiveErr != "":

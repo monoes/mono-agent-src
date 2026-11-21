@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	chatcli "github.com/monoes/mono-agent/internal/cli/chat"
 	doomsdaycli "github.com/monoes/mono-agent/internal/cli/doomsday"
@@ -373,5 +374,47 @@ func TestStaleHostRestartIsTheStartsAloneAndRefusesWhatItCannotDoSafely(t *testi
 	}
 	if err := w.StaleHostRestart(context.Background()); err == nil || !strings.Contains(err.Error(), "an open-ended run is open") {
 		t.Fatalf("a busy stale host: %v", err)
+	}
+}
+
+// The active-run answer says how long the run has been going (from its charter row) and how to end it, and still carries no
+// run, generation or charter id. Without a charter row it says no age and still names the stop.
+func TestActiveRunReasonSaysTheAgeAndHowToStopWithoutIDs(t *testing.T) {
+	cfg, _ := chatPathSetup(t, true)
+	db, err := initDB(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.DB.Exec(`INSERT INTO doomsday_runs (profile, generation, charter_id, state, mac) VALUES (?, 9, 'charter-abc', 'running', x'00')`, cfg.ProfileID); err != nil {
+		t.Fatal(err)
+	}
+	_, reason := cheapOpenModeCheck(cfg)
+	if strings.Contains(reason, "running for") {
+		t.Fatalf("no charter row, yet an age: %q", reason)
+	}
+	if !strings.Contains(reason, "doomsday stop") {
+		t.Fatalf("no stop verb: %q", reason)
+	}
+	started := time.Now().Add(-(3*time.Hour + 20*time.Minute)).Unix()
+	if _, err := db.DB.Exec(`INSERT INTO doomsday_charters (profile, generation, charter_id, canon_version, charter_hash, body, mac, created_at) VALUES (?, 9, 'charter-abc', 1, x'00', '{}', x'00', ?)`, cfg.ProfileID, started); err != nil {
+		t.Fatal(err)
+	}
+	ok, reason := cheapOpenModeCheck(cfg)
+	if ok || !strings.Contains(reason, "running for 3h 20m") || !strings.Contains(reason, "only you can run it") || !strings.Contains(reason, "Stop run") {
+		t.Fatalf("ok=%v %q", ok, reason)
+	}
+	for _, id := range []string{"charter-abc", "generation", "9"} {
+		if strings.Contains(reason, id) {
+			t.Fatalf("the reason leaks %q: %q", id, reason)
+		}
+	}
+}
+
+func TestRunAgeText(t *testing.T) {
+	for in, want := range map[time.Duration]string{-time.Minute: "under a minute", 30 * time.Second: "under a minute", 5 * time.Minute: "5m", 3*time.Hour + 20*time.Minute: "3h 20m", 49 * time.Hour: "2d 1h", 24 * time.Hour: "1d"} {
+		if got := runAgeText(in); got != want {
+			t.Errorf("%v: %q want %q", in, got, want)
+		}
 	}
 }

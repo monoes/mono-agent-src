@@ -154,6 +154,11 @@ func (s *Store) MoveEpoch(ctx context.Context, profile string, gen, seq int64, t
 	})
 }
 
+// MoveEpochBad is MoveEpoch to bad-judgment. This store keeps no audit chain, so the reason has nowhere to be recorded.
+func (s *Store) MoveEpochBad(ctx context.Context, profile string, gen, seq int64, _ string) error {
+	return s.MoveEpoch(ctx, profile, gen, seq, types.EpochBadJudgment)
+}
+
 func updateEpoch(ctx context.Context, x queryer, session int64, e types.Epoch, from types.EpochState) error {
 	res, err := x.ExecContext(ctx, `UPDATE mission_strategy_epochs SET state=?, judgment_hash=? WHERE session_id=? AND epoch_seq=? AND state=?`,
 		string(e.State), judgmentHashArg(e), session, e.Seq, string(from))

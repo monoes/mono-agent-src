@@ -40,6 +40,9 @@ func TestDeleteStopsTheBackgroundProcessesOfItsTurns(t *testing.T) {
 // record of it stays: the delete is refused with exit 5 (survivors_remain),
 // and goes through once nothing is left running.
 func TestDeleteKeepsTheRecordWhileAProcessSurvives(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("off Linux a process is identified by its start time, so a plain sleep IS the turn's own and is stopped; the no-identity case is Linux's (no exec-tree token)")
+	}
 	skipWithoutTool(t, "sleep")
 	r := newAccessRig(t, true)
 	c := r.conv(t, ai.AccessFull)

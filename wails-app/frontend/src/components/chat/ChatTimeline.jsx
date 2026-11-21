@@ -4,6 +4,7 @@ import { ToolActivityCard } from './ToolActivityCard.jsx'
 import { CoderBackgroundBanner } from './CoderBackgroundBanner.jsx'
 import { SandboxBadge } from './SandboxBadge.jsx'
 import { AgentRow } from './AgentRow.jsx'
+import { ChatBlocksScope } from './blocks/context.js'
 
 const NOTICE_ICON = {
   info: Info,
@@ -49,7 +50,9 @@ function NoticeBanner({ notice }) {
 //
 // onNavigate (the app's navigate) lets a tool card that ran monoagentcli on
 // one of the app's tabs link to it (#473).
-export function ChatTimeline({ state, turnId = '', isLive = true, agentFilter = null, onNavigate }) {
+// entityLinks: false when the view already shows result cards (the coder
+// chat's artifact cards), so a card does not also link its entity.
+export function ChatTimeline({ state, turnId = '', isLive = true, agentFilter = null, onNavigate, entityLinks = true }) {
   const { parts, calls } = state
   const notices = state.notices || []
   if (parts.length === 0 && notices.length === 0 && !state.sandbox) return null
@@ -70,6 +73,7 @@ export function ChatTimeline({ state, turnId = '', isLive = true, agentFilter = 
       childCalls={childrenOf[call.callId] || []}
       renderChild={renderCall}
       onNavigate={onNavigate}
+      entityLinks={entityLinks}
     />
   )
 
@@ -101,7 +105,11 @@ export function ChatTimeline({ state, turnId = '', isLive = true, agentFilter = 
       {parts.map((part, i) => {
         if (agentFilter && (part.kind === 'agent' ? agentFilter === 'lead' || part.agentId !== agentFilter : agentFilter !== 'lead')) return null
         if (part.kind === 'text') {
-          return part.text ? <ChatMarkdown key={`text-${part.partId}-${i}`} content={part.text} /> : null
+          return part.text ? (
+            <ChatBlocksScope.Provider key={`text-${part.partId}-${i}`} value={{ scope: `${turnId}:${part.partId}`, live: isLive && !state.terminal }}>
+              <ChatMarkdown content={part.text} onNavigate={onNavigate} />
+            </ChatBlocksScope.Provider>
+          ) : null
         }
         if (part.kind === 'agent') return <AgentRow key={`agent-${part.agentId}`} agent={(state.agents || {})[part.agentId]} scope={state.scope} />
         const call = calls[part.callId]

@@ -329,9 +329,11 @@ func (u Updater) installWindows(appExe []byte, cliPath string, cliExe []byte) er
 func windowsRestartScript(exe string, targets []string) string {
 	var dels []string
 	for _, t := range targets {
-		dels = append(dels, fmt.Sprintf("del /Q \"%s\"\r\n", t+".bak"))
+		// retried up to ten times, a second apart: the old image may still be held for a moment after the process exits
+		dels = append(dels, fmt.Sprintf("for /L %%%%i in (1,1,10) do if exist \"%[1]s\" (del /Q \"%[1]s\" 2>nul & if exist \"%[1]s\" ping -n 2 127.0.0.1 >nul)\r\n", t+".bak"))
 	}
-	return "@echo off\r\ntimeout /t 2 /nobreak > nul\r\n" + strings.Join(dels, "") +
+	// ping, not timeout: timeout exits at once when the script has no console, and it has none (it is started detached)
+	return "@echo off\r\nping -n 3 127.0.0.1 >nul\r\n" + strings.Join(dels, "") +
 		fmt.Sprintf("start \"\" \"%s\"\r\ndel /Q \"%%~f0\"\r\n", exe)
 }
 

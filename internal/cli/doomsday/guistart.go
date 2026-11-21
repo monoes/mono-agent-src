@@ -106,8 +106,13 @@ func ValidateGUIStart(c Charter) error {
 	case c.Limits.MaxConcurrent > c.Limits.LivePerTree:
 		return clicore.InvalidInput("a start from the app needs max_concurrent not above live_per_tree")
 	}
-	// Every text the person is shown is shown whole and as it is: the hash and the boss see all of it, so a text longer
-	// than the display cap, or one with a character a person cannot see, is refused rather than shown cut or escaped.
+	return ValidateCharterTexts(c)
+}
+
+// ValidateCharterTexts holds every text the person is shown to be shown whole and as it is: the hash and the boss see all of it, so a
+// text longer than the display cap, or one with a character a person cannot see, is refused rather than shown cut or escaped. The
+// app's start and `doomsday run` both apply it.
+func ValidateCharterTexts(c Charter) error {
 	texts := charterStrings(reflect.ValueOf(c)) // every string the charter carries, found by its type, so a new field is checked too
 	for _, t := range texts {
 		if utf8.RuneCountInString(t) > MaxDisplayRunes {
