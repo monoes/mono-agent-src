@@ -48,5 +48,5 @@ func strandedRunUnit(cfg *globalConfig, db *sql.DB, profile string, hostPID int)
 	if err := db.QueryRow(`SELECT MAX(generation) FROM doomsday_runs WHERE profile = ? AND state <> 'quiescent'`, profile).Scan(&gen); err != nil {
 		return ""
 	}
-	return stop.StrandedUnit(stop.RunDir{Dir: doomsdayRunDirPath(cfg)}, gen, hostPID)
+	return stop.StrandedUnit(stop.RunDir{Dir: doomsdayRunDirOf(cfg, profile)}, gen, hostPID)
 }
