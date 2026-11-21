@@ -22,9 +22,21 @@ type turn struct {
 // option is one thing a request offers: the id it stands for and its text.
 type option struct{ id, text string }
 
+// errReplan says a response carried fewer alternatives than the request was
+// planned for, too few to read it: the question is planned again, once.
+var errReplan = fmt.Errorf("%w: the provider returned fewer alternatives than this question needs", jev.ErrInvalidAnswer)
+
 // answer is the distribution over the question's answer keys: option ids
 // for a choice, levels for a score, "true"/"false" for a noul.
 func (t *turn) answer(ctx context.Context) (map[string]float64, error) {
+	probs, err := t.answerOnce(ctx)
+	if errors.Is(err, errReplan) {
+		return t.answerOnce(ctx)
+	}
+	return probs, err
+}
+
+func (t *turn) answerOnce(ctx context.Context) (map[string]float64, error) {
 	opts, err := optionsOf(t.q)
 	if err != nil {
 		return nil, err
@@ -45,7 +57,13 @@ func (t *turn) answer(ctx context.Context) (map[string]float64, error) {
 // then answers within that group. An option's probability is its group's
 // times its own within the group; the members of a group not visited share
 // the group's probability evenly, so every option has one and they sum to 1.
+// When the most probable option then falls in a group not visited (a torn
+// model), that group is answered too, so the answer is always an option the
+// model judged.
 func (t *turn) choose(ctx context.Context, opts []option) (map[string]float64, error) {
+	if len(opts) == 1 {
+		return map[string]float64{opts[0].id: 1}, nil // nothing to ask
+	}
 	limit := t.b.perRequest()
 	if len(opts) <= limit {
 		return t.flat(ctx, opts, letters(len(opts)), false)
@@ -66,22 +84,32 @@ func (t *turn) choose(ctx context.Context, opts []option) (map[string]float64, e
 			best = i
 		}
 	}
-	inner, err := t.choose(ctx, groups[best])
-	if err != nil {
-		return nil, err
-	}
-	out := make(map[string]float64, len(opts))
-	for i, g := range groups {
-		pg := gp[fmt.Sprint(i)]
-		for _, o := range g {
-			if i == best {
-				out[o.id] = pg * inner[o.id]
-			} else {
-				out[o.id] = pg / float64(len(g))
+	inner := map[int]map[string]float64{}
+	for {
+		if inner[best], err = t.choose(ctx, groups[best]); err != nil {
+			return nil, err
+		}
+		out := make(map[string]float64, len(opts))
+		top, topP := -1, -1.0
+		for i, g := range groups {
+			pg := gp[fmt.Sprint(i)]
+			for _, o := range g {
+				if in, ok := inner[i]; ok {
+					out[o.id] = pg * in[o.id]
+				} else {
+					out[o.id] = pg / float64(len(g))
+				}
+				// opts are in id order, so the first maximum is jev.ChoiceAnswer's pick.
+				if out[o.id] > topP {
+					top, topP = i, out[o.id]
+				}
 			}
 		}
+		if _, seen := inner[top]; seen || len(groups[top]) == 1 {
+			return out, nil
+		}
+		best = top
 	}
-	return out, nil
 }
 
 // split cuts opts, in order, into at most limit groups of near-equal size.
@@ -134,6 +162,10 @@ func (t *turn) dist(ctx context.Context, user string, labels []string) (map[stri
 	}
 	t.b.learnK(len(top), k)
 	probs, coverage := jev.FromLogprobs(top, labels)
+	if coverage < minCoverage && len(labels) > t.b.perRequest() {
+		// Fewer alternatives came back than this request offered labels.
+		return nil, errReplan
+	}
 	if coverage < minCoverage {
 		return nil, fmt.Errorf("%w: the model put %.0f%% of its answer on the %d allowed labels (it wanted to say something else)",
 			jev.ErrInvalidAnswer, coverage*100, len(labels))

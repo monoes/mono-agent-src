@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -174,8 +175,12 @@ func oracle(t *testing.T, target string, maxK int) func(int, seen) (int, any) {
 		if !r.Body.Logprobs {
 			return 200, textReply(pick)
 		}
+		// A real server fills the k alternatives, with tokens that are no label if need be.
+		for i := 0; len(alts) < k; i++ {
+			alts = append(alts, alt{fmt.Sprintf("~%d", i), 1e-9})
+		}
 		sort.SliceStable(alts, func(i, j int) bool { return alts[i].p > alts[j].p })
-		return 200, logprobReply(alts[:min(k, len(alts))]...)
+		return 200, logprobReply(alts[:k]...)
 	}
 }
 

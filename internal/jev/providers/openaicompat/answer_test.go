@@ -209,7 +209,7 @@ func TestStoredCapabilitiesSkipLogprobs(t *testing.T) {
 		if err != nil || resp.Probability != jev.ProbSampled || len(f.requests()) != 5 {
 			t.Fatalf("%s: %+v %v (%d requests)", p, resp, err, len(f.requests()))
 		}
-		if c := cl.Backend.Capabilities(); c.Probability != jev.ProbSampled || c.QuestionsPerRequest != 1 || c.MaxChoiceOptions != 0 || !c.Models {
+		if c := cl.Backend.Capabilities(); c.Probability != jev.ProbSampled || c.QuestionsPerRequest != 1 || c.MaxChoiceOptions != 15 || !c.Models {
 			t.Fatalf("%s: caps = %+v", p, c)
 		}
 	}

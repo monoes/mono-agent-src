@@ -87,19 +87,23 @@ func New(p jevconf.Provider, key string) (*Backend, error) {
 	case jev.ProbSampled, jev.ProbNone:
 		b.sampled = true
 	}
+	if m := p.Caps.MaxChoiceOptions; m > 0 && m+labelSlack < defaultTopK {
+		b.topK = m + labelSlack // a probe found fewer alternatives (perRequest)
+	}
 	return b, nil
 }
 
 // Capabilities implements jev.Backend: the stored capabilities, with what
-// this backend has learned since. It takes one question per request and
-// any number of options (it chunks them itself).
+// this backend has learned since. It takes one question per request;
+// MaxChoiceOptions is how many options one request carries (it chunks a
+// larger choice itself, so callers need not).
 func (b *Backend) Capabilities() jev.Capabilities {
 	c := b.stored
 	c.Kinds = append([]string(nil), c.Kinds...)
 	if len(c.Kinds) == 0 {
 		c.Kinds = []string{jev.TypeChoice, jev.TypeNoul, jev.TypeScore}
 	}
-	c.MaxChoiceOptions, c.QuestionsPerRequest, c.Models = 0, 1, true
+	c.MaxChoiceOptions, c.QuestionsPerRequest, c.Models = b.perRequest(), 1, true
 	c.Probability = jev.ProbLogprob
 	if b.isSampled() {
 		c.Probability = jev.ProbSampled
@@ -172,9 +176,12 @@ func (b *Backend) learnK(got, asked int) {
 	b.mu.Unlock()
 }
 
-// perRequest is the most options one request carries: k−5 (so a few
-// alternatives are left for tokens that are not labels), at least 2 and at
-// most the 26 letters.
+// labelSlack is how many of a response's alternatives are left for tokens
+// that are not labels.
+const labelSlack = 5
+
+// perRequest is the most options one request carries: k − labelSlack, at
+// least 2 and at most the 26 letters.
 func (b *Backend) perRequest() int {
-	return max(2, min(26, b.k()-5))
+	return max(2, min(26, b.k()-labelSlack))
 }
