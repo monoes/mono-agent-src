@@ -100,7 +100,7 @@ export default function Monomind({ profileId, reload, setCanContinue }) {
         </button>
         {failed && (
           <p className="onb-error" role="alert">
-            {run.loginRequired ? t('onboarding.monomind.signIn') : t('onboarding.monomind.failed', { message: run.message })}
+            {run.loginRequired ? t('onboarding.shell.signIn') : t('onboarding.monomind.failed', { message: run.message })}
           </p>
         )}
       </div>

@@ -75,7 +75,7 @@ function NotInstalled({ agent, name, install, onInstall }) {
       </div>
       {install?.error && (
         <p className="onb-error" role="alert">
-          {install.loginRequired ? t('onboarding.agents.signInAccount') : install.busy ? t('onboarding.agents.installBusy', { name }) : t('onboarding.agents.installFailed', { message: install.error })}
+          {install.loginRequired ? t('onboarding.shell.signIn') : install.busy ? t('onboarding.agents.installBusy', { name }) : t('onboarding.agents.installFailed', { message: install.error })}
         </p>
       )}
     </>
@@ -122,7 +122,7 @@ function TestArea({ agent, name, rr, models, picked, onPick, test, testBusy, onT
       {picker}
       {mine?.phase === 'failed' && (
         <p className="onb-error" role="alert">
-          {mine.loginRequired ? t('onboarding.agents.signInAccount') : t('onboarding.agents.testFailed', { message: mine.message || t('onboarding.agents.noResult') })}
+          {mine.loginRequired ? t('onboarding.shell.signIn') : t('onboarding.agents.testFailed', { message: mine.message || t('onboarding.agents.noResult') })}
         </p>
       )}
     </>

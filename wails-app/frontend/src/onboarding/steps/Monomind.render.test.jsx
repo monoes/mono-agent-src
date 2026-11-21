@@ -96,7 +96,7 @@ describe('Monomind step', () => {
     go.InitializeMonomindProfile.mockResolvedValue(JSON.stringify({ error: 'Log in to monoes.me first: monoagentcli account login', login_required: true }))
     render(<Monomind {...props} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Turn on for Work' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('Sign in to monoes.me first, then try again.')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Your sign-in has ended. Sign in to monoes.me to continue.')
     expect(screen.getByRole('button', { name: 'Turn on for Work' })).toBeEnabled()
     expect(screen.queryByText('Turning on monomind for Work')).not.toBeInTheDocument()
     expect(lastCanContinue()).toBe(false)

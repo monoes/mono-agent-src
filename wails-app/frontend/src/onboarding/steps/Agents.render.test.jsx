@@ -182,7 +182,7 @@ describe('Agents step', () => {
   it('a scan refused for sign-in shows the sign-in message', async () => {
     go.ScanAgentRuntimes.mockResolvedValue(JSON.stringify({ error: 'Log in to monoes.me first: monoagentcli account login', login_required: true }))
     render(<Agents {...props} />)
-    expect(await screen.findByRole('alert')).toHaveTextContent('Sign in to monoes.me first, then check again.')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Your sign-in has ended. Sign in to monoes.me to continue.')
     expect(screen.getByRole('button', { name: 'Check again' })).toBeEnabled()
   })
 

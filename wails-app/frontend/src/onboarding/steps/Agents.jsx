@@ -163,7 +163,7 @@ export default function Agents({ reload, goTo, setCanContinue }) {
   } else if (scan.failed) {
     body = (
       <p className="onb-error" role="alert">
-        {scan.failed.loginRequired ? t('onboarding.agents.signInScan') : t('onboarding.agents.scanFailed', { message: scan.failed.message })}
+        {scan.failed.loginRequired ? t('onboarding.shell.signIn') : t('onboarding.agents.scanFailed', { message: scan.failed.message })}
       </p>
     )
   } else if (!agents) {
