@@ -14,10 +14,17 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/monoes/mono-agent/internal/procbind"
+	"github.com/monoes/mono-agent/internal/procresume"
 )
 
-// NOT VERIFIED on a real Windows host: this file compiles (GOOS=windows go vet) and its logic is tested through the
-// JobOS fake on Linux; it has not run against the Windows API.
+// Verified on a real Windows host (Windows, go1.26, 2026-11, #1723): the unit's create, adopt, proof and end; the probe
+// (both self-test children); a coder turn's placement (PlaceCommit: suspended, out of the host's job when allowed,
+// assigned, resumed, its inherited pipe read) in every job-nesting case of job_nesting_windows_test.go; and a live open
+// run whose boss and plain turns ran in the run's job and ended with `doomsday stop`. Not run on a real host: a command
+// placed with ParentFor other than the probe's child (dynorg's git, finish criteria), and Present/Prove from another
+// logon session. The logic is also tested through the JobOS fake on every OS.
 
 const (
 	jobAssignProcess = 0x0001
@@ -220,8 +227,126 @@ func (winJobOS) ParentFor(cmd *exec.Cmd, anchorPID int, anchorStamp string) (fun
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
+	if len(cmd.SysProcAttr.AdditionalInheritedHandles) != 0 {
+		// they would have to exist in the anchor (Go passes them as they are, #1723), and no credential handle is ever put
+		// there: a command that passes handles is placed with PlaceCommit. What does reach the anchor for a command placed
+		// here: Go duplicates its stdin, stdout and stderr into the parent process, inheritable, for the length of
+		// CreateProcess (syscall/exec_windows.go). For the commands placed this way (dynorg's git, finish criteria) stdin
+		// is NUL and stdout/stderr are the write ends of output pipes: no secret, but a process of the same user could
+		// copy a write end out of the anchor (its access list is the default one) in that window and inject output
+		_ = windows.CloseHandle(h)
+		return nil, errors.New("a command that passes inherited handles is not created under the anchor")
+	}
 	cmd.SysProcAttr.ParentProcess = syscall.Handle(h)
 	return func() { _ = windows.CloseHandle(h) }, nil
+}
+
+func (winJobOS) Suspend(cmd *exec.Cmd, breakaway bool) error {
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	if cmd.SysProcAttr.ParentProcess != 0 {
+		return errors.New("the command already has another parent process")
+	}
+	cmd.SysProcAttr.CreationFlags |= windows.CREATE_SUSPENDED
+	if breakaway {
+		cmd.SysProcAttr.CreationFlags |= windows.CREATE_BREAKAWAY_FROM_JOB
+	}
+	return nil
+}
+
+// BreakawayAllowed asks Windows itself: a job's own limit says nothing of the jobs it is nested in, and any of them can
+// refuse. The throwaway child (cmd.exe, no handles, no console) is created suspended and ended before it ran.
+func (winJobOS) BreakawayAllowed() (bool, error) {
+	sys, err := windows.GetSystemDirectory()
+	if err != nil {
+		return false, err
+	}
+	c := exec.Command(filepath.Join(sys, "cmd.exe"), "/c", "exit", "0")
+	c.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_SUSPENDED | windows.CREATE_BREAKAWAY_FROM_JOB | windows.CREATE_NO_WINDOW}
+	if err := c.Start(); procresume.BreakawayRefused(err) {
+		return false, nil
+	} else if err != nil {
+		return false, fmt.Errorf("whether a turn may leave this process's job cannot be told: %w", err)
+	}
+	_ = c.Process.Kill()
+	_, _ = c.Process.Wait()
+	return true, nil
+}
+
+// AssignResume works through the handle CreateProcess returned to this process (os.Process.WithHandle): it has every
+// right whatever access list the process was created with, and it names this process and no other (a number could be
+// reused). A process in a job can only join a job nested under it; one created out of every job can join any.
+func (winJobOS) AssignResume(j Job, cmd *exec.Cmd) error {
+	wj, ok := j.(*winJob)
+	if !ok {
+		return errors.New("not a Windows job")
+	}
+	// the guarantee rests on the process having run no instruction yet: one not created suspended (a caller that built
+	// its attributes after the placement, or dropped the flag) is ended, never put in the job and let run
+	suspended := cmd.SysProcAttr != nil && cmd.SysProcAttr.CreationFlags&windows.CREATE_SUSPENDED != 0
+	var err error
+	if herr := cmd.Process.WithHandle(func(ph uintptr) {
+		h := windows.Handle(ph)
+		var in int32
+		if !suspended {
+			err = errors.New("the process was not created suspended, so it may already have run outside the job")
+		} else if err = windows.AssignProcessToJobObject(wj.h, h); err != nil {
+			err = fmt.Errorf("the job refused the process: %w", err)
+		} else if r, _, e := procIsProcInJob.Call(ph, uintptr(wj.h), uintptr(unsafe.Pointer(&in))); r == 0 || in == 0 {
+			err = fmt.Errorf("the process is not a member of the job after the assignment (%v)", e)
+		} else {
+			err = procresume.Resume(h)
+		}
+		if err != nil {
+			_ = windows.TerminateProcess(h, 1)
+		}
+	}); herr != nil {
+		return herr // waited for or released already: there is no handle to place it with
+	}
+	return err
+}
+
+// SelfTestTurn starts ping.exe the way the bound launcher starts a turn (coder_host_bound_windows.go: the worker's locked
+// access lists, detached, the read end of a pipe as its one inherited handle) and places it as PlaceCommit does, out of
+// this process's job when that is allowed.
+func (o winJobOS) SelfTestTurn(j Job) (int, func(), error) {
+	sys, err := windows.GetSystemDirectory()
+	if err != nil {
+		return 0, nil, err
+	}
+	pa, ta, err := procbind.WorkerAttributes()
+	if err != nil {
+		return 0, nil, err
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		return 0, nil, err
+	}
+	defer r.Close()
+	defer w.Close()
+	rh := syscall.Handle(r.Fd())
+	if err := syscall.SetHandleInformation(rh, syscall.HANDLE_FLAG_INHERIT, syscall.HANDLE_FLAG_INHERIT); err != nil {
+		return 0, nil, err
+	}
+	cmd := exec.Command(filepath.Join(sys, "ping.exe"), "-n", "60", "127.0.0.1")
+	const flags = windows.DETACHED_PROCESS | windows.CREATE_NEW_PROCESS_GROUP | windows.CREATE_NO_WINDOW
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: flags, AdditionalInheritedHandles: []syscall.Handle{rh}, ProcessAttributes: pa, ThreadAttributes: ta}
+	breakaway, err := o.BreakawayAllowed()
+	if err != nil {
+		return 0, nil, err
+	}
+	if err := o.Suspend(cmd, breakaway); err != nil {
+		return 0, nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return 0, nil, err
+	}
+	if err := o.AssignResume(j, cmd); err != nil {
+		_, _ = cmd.Process.Wait()
+		return 0, nil, fmt.Errorf("%w (created out of this process's job: %v)", err, breakaway)
+	}
+	return cmd.Process.Pid, func() { _ = cmd.Process.Kill(); _, _ = cmd.Process.Wait() }, nil
 }
 
 // SelfTestChild starts a child under the anchor exactly as ParentFor does for a placed command.

@@ -166,3 +166,6 @@ func (p *plainPlacement) PlaceTicket(uint64, *exec.Cmd) (func(), error) {
 	return func() {}, nil
 }
 func (p *plainPlacement) PlaceLeased(*exec.Cmd) error { return nil }
+func (p *plainPlacement) PlaceCommit(*exec.Cmd) (func() error, error) {
+	return func() error { return nil }, nil
+}

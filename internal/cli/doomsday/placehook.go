@@ -27,20 +27,22 @@ func (g *HostGate) PlaceCmd(cmd *exec.Cmd, profile, conv string) error {
 	return pl.PlaceLeased(cmd)
 }
 
-// PlaceRelease is PlaceCmd for a launcher that closes the ticket cgroup's descriptor itself: release is called once
-// the process exists (or failed to start) and is never nil on success. With no run open cmd is untouched and release
-// does nothing; with a run open and a unit that cannot be placed in, the error means cmd must not be started.
+// PlaceRelease is PlaceCmd for a launcher that completes the placement itself (stop.Placement.PlaceCommit): release is
+// called once Start returned (the process exists, or failed to start) and is never nil on success. It closes the ticket
+// cgroup's descriptor (Linux), or puts the suspended process in the run's job and resumes it (Windows); its error means
+// the process never ran and was ended, so the start failed. With no run open cmd is untouched and release does nothing;
+// with a run open and a unit that cannot be placed in, the error means cmd must not be started.
 // It is the shape chat.RunHooks.Place takes.
-func (g *HostGate) PlaceRelease(cmd *exec.Cmd, profile, conv string) (release func(), err error) {
+func (g *HostGate) PlaceRelease(cmd *exec.Cmd, profile, conv string) (release func() error, err error) {
 	pl, gen, err := g.placerRun(profile, conv)
 	if err != nil {
 		return nil, err
 	}
 	g.noteStart(conv, gen)
 	if pl == nil {
-		return func() {}, nil
+		return func() error { return nil }, nil
 	}
-	return pl.Place(cmd)
+	return pl.PlaceCommit(cmd)
 }
 
 // PlaceRequired says whether a turn must be placed: true while the profile has an open run, false with none. A launch that cannot be

@@ -27,7 +27,10 @@ type adopterPlace struct {
 func (p *adopterPlace) Place(*exec.Cmd) (func(), error)               { return func() {}, nil }
 func (p *adopterPlace) PlaceTicket(uint64, *exec.Cmd) (func(), error) { return func() {}, nil }
 func (p *adopterPlace) PlaceLeased(*exec.Cmd) error                   { return nil }
-func (p *adopterPlace) UnitID() uint64                                { return p.unit }
+func (p *adopterPlace) PlaceCommit(*exec.Cmd) (func() error, error) {
+	return func() error { return nil }, nil
+}
+func (p *adopterPlace) UnitID() uint64 { return p.unit }
 func (p *adopterPlace) Adopt(pid int, stamp string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -41,6 +44,9 @@ type plainPlace struct{}
 func (plainPlace) Place(*exec.Cmd) (func(), error)               { return func() {}, nil }
 func (plainPlace) PlaceTicket(uint64, *exec.Cmd) (func(), error) { return func() {}, nil }
 func (plainPlace) PlaceLeased(*exec.Cmd) error                   { return nil }
+func (plainPlace) PlaceCommit(*exec.Cmd) (func() error, error) {
+	return func() error { return nil }, nil
+}
 
 func withPlacement(t *testing.T, p stop.Placement, err error) {
 	t.Helper()

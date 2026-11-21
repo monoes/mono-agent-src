@@ -17,8 +17,9 @@ type Hooks struct {
 	BeforeRelease func(ctx context.Context, profileID, conversationID, turnID string, bound bool) error
 	// Adopt puts the already started turn's process into the run's unit (HostGate.Adopt); held says the unit reaps the leader.
 	Adopt func(profileID, conversationID string, pid int, stamp string) (held bool, err error)
-	// Place puts the turn's process in the run's ticket cgroup before it exists; release closes the descriptor after Start.
-	Place func(cmd *exec.Cmd, profileID, conversationID string) (release func(), err error)
+	// Place puts the turn's process in the run's unit (HostGate.PlaceRelease); release completes the placement after
+	// Start, and its error means the process never ran and the start failed.
+	Place func(cmd *exec.Cmd, profileID, conversationID string) (release func() error, err error)
 	// PlaceRequired says whether a turn must be placed (a run is open); the legacy launch is refused only then.
 	PlaceRequired func(profileID, conversationID string) (bool, error)
 }

@@ -213,6 +213,9 @@ func (c sessContainment) Place(rec UnitRecord) (Placement, error) {
 
 func (p *sessPlacer) Place(cmd *exec.Cmd) (func(), error) { return p.place(cmd) }
 
+// PlaceCommit is Place: the turn's leader is checked here and Adopted once it runs; commit only releases.
+func (p *sessPlacer) PlaceCommit(cmd *exec.Cmd) (func() error, error) { return commitOf(p.place(cmd)) }
+
 // errNoAdoptPath is why a placement other than Place is refused: only a turn leader that the host starts as a session of
 // its own and then Adopts is inside this unit. A command placed any other way would run outside it while the unit
 // reports itself empty, so it is not placed at all.

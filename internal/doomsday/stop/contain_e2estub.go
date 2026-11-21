@@ -17,6 +17,9 @@ type e2ePlacement struct{}
 func (e2ePlacement) Place(*exec.Cmd) (func(), error)               { return func() {}, nil }
 func (e2ePlacement) PlaceTicket(uint64, *exec.Cmd) (func(), error) { return func() {}, nil }
 func (e2ePlacement) PlaceLeased(*exec.Cmd) error                   { return nil }
+func (e2ePlacement) PlaceCommit(*exec.Cmd) (func() error, error) {
+	return func() error { return nil }, nil
+}
 
 type e2eContainment struct{ cgroup2Containment }
 

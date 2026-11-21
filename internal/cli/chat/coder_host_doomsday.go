@@ -14,7 +14,7 @@ type RunHooks struct {
 	// RunStamp says which run (charter id, generation) a session's turn belongs to; "" and 0 stamp nothing.
 	RunStamp func(profileID, conversationID string) (charterID string, generation int64)
 	// Place puts the turn's process where it must be born, before it exists (see execLauncher.place); nil launches as before.
-	Place func(cmd *exec.Cmd, profileID, conversationID string) (release func(), err error)
+	Place func(cmd *exec.Cmd, profileID, conversationID string) (release func() error, err error)
 	// Adopt puts a bound turn's already running process into the run's unit (see execLauncher.adopt); nil launches as before. Place and
 	// Adopt are a pair: a platform whose unit takes the process after it exists (macOS session unit) needs both, one that takes it at birth
 	// needs only Place.
