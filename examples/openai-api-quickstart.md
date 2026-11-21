@@ -169,14 +169,16 @@ What to expect:
 
 ### Let Jev pick: the `auto` model
 
-With `"model": "auto"`, [TypeSafe Jev](https://docs.typesafe.ai/api) chooses the
-model of each request among the ones this listener serves: a cheaper, faster
-one for a simple prompt, a stronger one for a hard or long one. It is off until
+With `"model": "auto"`, Jev chooses the model of each request among the ones
+this listener serves: a cheaper, faster one for a simple prompt, a stronger one
+for a hard or long one. Jev's decision provider is
+[TypeSafe Jev](https://docs.typesafe.ai/api) unless you chose another (see
+"Decision models (Jev)" in `AGENTS.md`). It is off until
 you switch it on for the key's profile, and it needs the machine-wide Jev key (one key for all profiles):
 
 ```bash
 printf '%s' "$TYPESAFE_KEY" | monoagentcli jev key set   # or TYPESAFE_API_KEY in the server's environment
-monoagentcli --profile work jev enable api_auto    # prints what is sent to TypeSafe, then asks (--yes in a script)
+monoagentcli --profile work jev enable api_auto    # prints what is sent and to which host, then asks (--yes in a script)
 monoagentcli --profile work api models             # its last line says whether auto works
 ```
 
@@ -186,7 +188,8 @@ server's agent turns do not inherit it. `api models` and `api status` run in
 your shell, so for a key from the environment they report this shell's, not the
 server's.
 
-`jev enable` lists what leaves the machine: to TypeSafe, besides the prompt
+`jev enable` lists what leaves the machine: to the decision provider
+(TypeSafe by default), besides the prompt
 going to the runtime that answers, the first 4,000 characters of the last user
 message and the names, descriptions and validated cost and latency of the
 models Jev picks among. Then:
@@ -310,7 +313,8 @@ What to expect:
   chat-only until you start the server with `--auto-confinement sandboxed` (or
   `any`): image runtimes are sandboxed or unconfined, so by default it is a 404
   `model_not_found` that says what to raise. Raised, `jev enable api_auto` sends
-  TypeSafe the first 4,000 characters of the image prompt, as it does for chat.
+  the decision provider (TypeSafe by default) the first 4,000 characters of the
+  image prompt, as it does for chat.
 - Read `SECURITY.md` ("Image generation"): the runtime may read and copy files
   from outside its folder, and the server returns any file it left in the
   turn's folder that begins like an image (the test is on the first bytes).
@@ -675,7 +679,7 @@ reach further than it did is refused there unless you started the MCP server
 with `--allow-api-exposure`: a model cannot confirm it, and its refusal says
 which setting and why, and that you can run `api config set ... --yes` yourself.
 `api_auto_set` is held by the same flag when it switches the `auto` model on,
-since prompts then go to TypeSafe: what leaves the machine is your decision too.
+since prompts then go to the decision provider (TypeSafe by default): what leaves the machine is your decision too.
 That flag guards those two tools, not the machine: a host that also lets the
 model run shell commands as you lets it run `--yes` too, and `--allow-mutations`
 itself is such a host: it also serves `workflow_node_add` (which accepts the node

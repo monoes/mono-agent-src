@@ -272,7 +272,7 @@ monoagentcli --profile work hil reject <id>        # drop the item
 
 ## How AI works in Mono Agent
 
-Mono Agent has no built-in AI provider and stores no API keys for text AI. Every AI step (the assistant, `agent.ask`, AI extraction, capture summaries, agent orgs) is one turn run by the [monomind](https://github.com/monoes/monomind) runner on an agent CLI you have already installed and logged in: Claude Code, Codex, OpenCode, GitHub Copilot, Qwen, Grok, Crush, Pi, and others. Each turn uses that CLI's own login and plan.
+Mono Agent has no built-in text AI provider and stores no API keys for text AI. Every AI step (the assistant, `agent.ask`, AI extraction, capture summaries, agent orgs) is one turn run by the [monomind](https://github.com/monoes/monomind) runner on an agent CLI you have already installed and logged in: Claude Code, Codex, OpenCode, GitHub Copilot, Qwen, Grok, Crush, Pi, and others. Each turn uses that CLI's own login and plan.
 
 ```bash
 monoagentcli agent scan              # runtimes monomind knows, and which are installed
@@ -285,7 +285,7 @@ Agent turns (except coder mode) run in the agent CLI's own sandbox where monomin
 
 monomind is a separate Node.js tool: `npm install -g @monoes/monomindcli`, or let `monoagentcli --profile <id> doctor --fix` install it. If you have no Node.js >= 22.12, `monoagentcli nodejs install` downloads a private copy. Set `MONOMIND_BIN` to use a specific binary. Without monomind, AI steps fail with an install hint and everything else keeps working.
 
-Some features are not agent turns. [TypeSafe Jev](AGENTS.md#typesafe-jev-decisions-only) makes fast typed decisions (classification, suggestions, the element picker) with its own key, and never writes text. For images there are two paths: `gemini.generate_image` drives Gemini in your own logged-in browser (no key), and `service.huggingface` calls the Hugging Face API with your Hugging Face key. The other `gemini.*` nodes also use the browser session.
+Some features are not agent turns. [Jev](AGENTS.md#decision-models-jev) makes fast typed decisions (classification, suggestions, the element picker) and never writes text: it picks one of the options the code lists, answers yes/no, or a level on a rubric, with a probability. Its default decision provider is TypeSafe Jev, with its own key. You can add your own instead: any OpenAI-compatible server (OpenAI, Ollama, llama.cpp, vLLM, OpenRouter, LM Studio, …), Anthropic, or a Hugging Face zero-shot classifier. Only your own terminal can add or choose a provider, and its key goes only to its own host. For images there are two paths: `gemini.generate_image` drives Gemini in your own logged-in browser (no key), and `service.huggingface` calls the Hugging Face API with your Hugging Face key. The other `gemini.*` nodes also use the browser session.
 
 ---
 
@@ -381,13 +381,14 @@ Some features are not agent turns. [TypeSafe Jev](AGENTS.md#typesafe-jev-decisio
 </details>
 
 <details>
-<summary><strong>🧠 AI Agents, Orgs, Gemini, System, People & Vault (18 nodes)</strong></summary>
+<summary><strong>🧠 AI Agents, Orgs, Gemini, System, People & Vault (19 nodes)</strong></summary>
 
 | Node | Description |
 |------|-------------|
 | `agent.ask` | Ask a locally-installed AI agent (claude, codex, kimi, qwen, …) — the node for AI steps |
-| `ai.choose` | Route each item to one of your cases with a TypeSafe Jev choice (probabilities, `low_confidence` output) |
-| `browser.jev` | Browser agent: give it a URL and a goal, it clicks/types/selects its way there in your own browser (TypeSafe Jev picks each action; port of browser-use/jev-ultrafast) |
+| `ai.choose` | Route each item to one of your cases with a Jev choice (probabilities, `low_confidence` output) |
+| `ai.decide` | Ask one typed question per item (`noul` yes/no, `score` on a rubric, `choice` among options) and route on the answer, with a `low_confidence` output |
+| `browser.jev` | Browser agent: give it a URL and a goal, it clicks/types/selects its way there in your own browser (Jev picks each action; port of browser-use/jev-ultrafast) |
 | `org.run` / `org.ask` / `org.send` | Start, question, or message an agent org (via the monomind engine) |
 | `ai.read_page` / `ai.extract_page` | Fetch a page as clean markdown (no AI) / extract fields from it with CSS selectors you give or a local agent writes |
 | `gemini.generate_text` · `gemini.generate_image` · `gemini.chat_session` · `gemini.chat_session_many` | Gemini via your own logged-in browser session — no API key |
@@ -397,7 +398,18 @@ Some features are not agent turns. [TypeSafe Jev](AGENTS.md#typesafe-jev-decisio
 | `people.sync_outlook_message` | Sync an Outlook message into People history |
 | `vault.secret_get` / `vault.secret_save` | Read or write an entry in the encrypted secrets vault |
 
-> **TypeSafe Jev** (`browser.jev`, `ai.choose`, and opt-in features such as `org autonomy set --decider jev`, action-step element fallback, capture/inbox classification, people links, the `auto` model of the [OpenAI-compatible API](examples/openai-api-quickstart.md)) answers typed questions in ~0.3 s and never generates text. Store a key in Settings › TypeSafe Jev or with `monoagentcli jev key set` (key on stdin), check it with `monoagentcli jev status`, and switch features on per profile with `monoagentcli jev enable <surface>`.
+> **Jev** (`browser.jev`, `ai.choose`, `ai.decide`, and opt-in features such as `org autonomy set --decider jev`, action-step element fallback, capture/inbox classification, people links, the `auto` model of the [OpenAI-compatible API](examples/openai-api-quickstart.md)) answers typed questions and never generates text. Its default provider is TypeSafe Jev (~0.3 s, many questions per request): store a key in Settings › TypeSafe Jev or with `monoagentcli jev key set` (key on stdin), check it with `monoagentcli jev status`, and switch features on per profile with `monoagentcli jev enable <surface>`.
+>
+> **Use your own decision model.** For example a model served by Ollama on this computer (nothing goes to TypeSafe; whether it leaves the computer is up to that server), with no key:
+>
+> ```bash
+> monoagentcli jev provider add local --kind openai --base-url http://localhost:11434/v1 --model <model>
+> monoagentcli jev provider use local                       # the machine default; prints what each enabled surface sends
+> monoagentcli --profile work jev provider probe local      # what it can answer and how it gets probabilities
+> monoagentcli --profile work jev usage --since 7d          # calls by surface and provider
+> ```
+>
+> A hosted provider takes its key on stdin (`--key-stdin`); `base_url` must be https, or http only to this computer. A chat model makes one request per question where TypeSafe answers many in one, and its probabilities come from token log-probabilities or repeated sampling: they are not calibrated like Jev's, so check each surface's threshold after switching. `jev provider use typesafe` switches back. Details: [AGENTS.md](AGENTS.md#decision-models-jev).
 
 > **Deprecated:** `ai.chat` · `ai.extract` · `ai.classify` · `ai.transform` · `ai.agent` · `ai.embed` (and `service.openrouter`, plus `service.huggingface`'s `generate_text` operation) still exist only so old workflows fail with a migration hint — running one errors out. Use `agent.ask` (put the extraction/classification/rewrite instruction in its prompt), or `ai.choose` to classify. `ai.embed` has no replacement.
 
@@ -802,7 +814,7 @@ mono-agent/
 | **Browser** | [go-rod/rod](https://github.com/go-rod/rod) — Chrome DevTools Protocol |
 | **Keyring** | [zalando/go-keyring](https://github.com/zalando/go-keyring) — OS secret storage |
 | **Desktop GUI** | [Wails v2](https://wails.io) + React |
-| **AI** | Local agent CLIs via [monomind](https://github.com/monoes/monomind) (claude, codex, …) · TypeSafe Jev for decisions · images via Gemini (browser session) or Hugging Face |
+| **AI** | Local agent CLIs via [monomind](https://github.com/monoes/monomind) (claude, codex, …) · Jev for decisions (TypeSafe by default, or your own decision model) · images via Gemini (browser session) or Hugging Face |
 
 ---
 
