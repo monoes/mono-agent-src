@@ -3104,7 +3104,20 @@
       "signIn": "Sign in to monoes.me to continue."
     },
     "monomind": {
-      "title": "Turn on monomind"
+      "title": "Turn on monomind",
+      "lead": "monomind is the engine behind every AI step in MonoAgent.",
+      "docsTitle": "For documents",
+      "docsBody": "Files you add to this profile are indexed into its Second Brain. Agents search it, and a knowledge graph links what belongs together.",
+      "orgsTitle": "For orgs",
+      "orgsBody": "An org is a team of agents with roles, goals and a boss. Orgs run on monomind and keep their memory in this profile.",
+      "turnOn": "Turn on for {{name}}",
+      "running": "Turning on monomind for {{name}}",
+      "runningHint": "This can take a minute or two. You can skip ahead; it keeps going.",
+      "progress": "Progress",
+      "on": "monomind is on for {{name}}.",
+      "signIn": "Sign in to monoes.me first, then try again.",
+      "failed": "monomind could not be turned on: {{message}}",
+      "pointer": "You'll find this later in the Documents tab."
     },
     "agents": {
       "title": "Your agents"

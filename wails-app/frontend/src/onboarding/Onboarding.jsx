@@ -13,6 +13,7 @@ import Welcome from './steps/Welcome.jsx'
 import SystemCheck from './steps/SystemCheck.jsx'
 import CreateProfile from './steps/CreateProfile.jsx'
 import AboutYou from './steps/AboutYou.jsx'
+import Monomind from './steps/Monomind.jsx'
 import Browser from './steps/Browser.jsx'
 import Permissions from './steps/Permissions.jsx'
 import FirstRun from './steps/FirstRun.jsx'
@@ -24,7 +25,7 @@ export const STEP_COMPONENTS = {
   system: SystemCheck,
   profile: CreateProfile,
   about: AboutYou,
-  monomind: Placeholder,
+  monomind: Monomind,
   agents: Placeholder,
   browser: Browser,
   permissions: Permissions,

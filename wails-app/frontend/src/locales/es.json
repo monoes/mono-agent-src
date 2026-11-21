@@ -3104,7 +3104,20 @@
       "signIn": "Inicia sesión en monoes.me para continuar."
     },
     "monomind": {
-      "title": "Activa monomind"
+      "title": "Activa monomind",
+      "lead": "monomind es el motor de cada paso con IA en MonoAgent.",
+      "docsTitle": "Para documentos",
+      "docsBody": "Los archivos que añades a este perfil se indexan en su Segundo Cerebro. Los agentes buscan en él, y un grafo de conocimiento enlaza lo que va junto.",
+      "orgsTitle": "Para organizaciones",
+      "orgsBody": "Una organización es un equipo de agentes con roles, objetivos y un jefe. Las organizaciones funcionan con monomind y guardan su memoria en este perfil.",
+      "turnOn": "Activar para {{name}}",
+      "running": "Activando monomind para {{name}}",
+      "runningHint": "Puede tardar un minuto o dos. Puedes seguir adelante; continúa por su cuenta.",
+      "progress": "Progreso",
+      "on": "monomind está activo para {{name}}.",
+      "signIn": "Inicia sesión en monoes.me primero y vuelve a intentarlo.",
+      "failed": "No se pudo activar monomind: {{message}}",
+      "pointer": "Lo encontrarás más adelante en la pestaña Documentos."
     },
     "agents": {
       "title": "Tus agentes"

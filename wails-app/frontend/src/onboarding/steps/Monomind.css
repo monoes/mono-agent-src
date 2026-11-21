@@ -1,0 +1,6 @@
+/* Turn on monomind. Shared classes come from onboarding.css; only what this step adds. */
+.onb-root .onb-mm-cards{margin-bottom:18px;gap:12px}
+.onb-root .onb-mm-cards .onb-card p{margin:0;font-size:14px;color:var(--onb-ink-2)}
+.onb-root svg.onb-mm-mini{width:100%;height:92px;display:block;margin-bottom:10px}
+.onb-root .onb-mm-on{display:flex;gap:10px;align-items:center;margin:14px 0 0;color:var(--onb-ok);font-weight:650}
+.onb-root .onb-mm-on svg{width:18px;height:18px;flex:none}
