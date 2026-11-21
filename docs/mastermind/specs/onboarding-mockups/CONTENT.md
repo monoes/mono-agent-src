@@ -210,3 +210,23 @@ after sign-in, before the main app is shown.
   - API and MCP: an OpenAI-compatible API and an MCP server for other tools.
   - Library: install automations and templates from monoes.me.
 - Button: "Open MonoAgent".
+
+### Third round (owner's direction, 2026-11-21)
+
+Both only on the last step (the finished village), both in the mockup.
+
+- Windmill power: a click on the windmill makes the house lights (lit
+  windows, lanterns, string lights) clearly brighter for about 3 seconds,
+  then they return to normal. Another click restarts the 3 seconds. Nothing
+  accumulates. The base lighting never changes.
+- A drone is parked on a small pad between the big house and the windmill.
+  A click makes it hover for about 6 seconds, then land.
+- Secret combination: windmill clicked 7 times (more is fine), then the
+  campfire, then the drone, then the windmill again while the drone is still
+  up. Any other scene click in between, or the drone landing first, resets
+  it. Result, about 18 seconds, cartoon style, no gore: red-alert lighting;
+  the drone fires lasers at humans, who fall; robots get red eyes and chase
+  humans; houses are destroyed and burn; it ends in a smouldering ruin. Then
+  a small "Rebuild the village" control restores the village. Not counted in
+  the discoveries, no hint in the UI. Under reduced motion it jumps straight
+  to the ruin.

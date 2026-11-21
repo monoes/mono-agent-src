@@ -433,6 +433,17 @@ Port from `style-c-cinematic.html`: same SVG art, same 20 inhabitants and action
 
 Decisions: the root element is `aria-hidden="true"`, has no `tabindex` anywhere, and its click handlers never call `focus()` or `preventDefault()` on keyboard events. `Scene.jsx` calls `playBuild(step)` when a step's status changes to `done` between two `setState` calls (so a late monomind success builds the windmill then), never on Continue. A `skipped` step's plot renders as an outline (`data-status="skipped"`). Under `prefers-reduced-motion: reduce` the `scene-motion.css` rules do not apply, `playBuild` resolves at once with the built state, and a discovery click still counts.
 
+Last step only (CONTENT.md "Third round", port from the mockup; put it in `scene/finale.js` and `scene/rampage.js` with `scene-rampage.css`): windmill click adds class `boost` for 3000 ms, restarted by another click; the drone hovers 6000 ms on click; the combination (windmill x7 or more, campfire, drone, windmill while the drone is up; any other scene click or a landed drone resets it) starts the rampage, after which a "Rebuild the village" button (i18n key `onboarding.scene.rebuild`) restores the village. The button is rendered by `Scene.jsx`, outside the aria-hidden scene root: `createScene({ onRampageEnd })` calls back when the ruin is reached, and the controller gains `rebuild()`. None of this is active unless `finish` is the current step. Not counted in the discoveries. Under reduced motion the rampage jumps to the ruin. Extra tests:
+
+```js
+it('a windmill click on the last step sets boost and clears it after 3000 ms; a second click restarts it')   // fake timers
+it('a windmill click before the last step does not set boost')
+it('the exact combination starts the rampage')
+it('a different scene click in between, six windmill clicks, or a landed drone do not start it')
+it('Rebuild restores the village and removes the button')
+it('destroy during a rampage leaves no timers running')
+```
+
 - [ ] **Step 1: Write the failing tests**
 
 ```js

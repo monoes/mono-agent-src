@@ -1,6 +1,6 @@
 # First-run onboarding: design
 
-Date: 2026-11-21. Status: draft for owner approval.
+Date: 2026-11-21. Status: approved by the owner 2026-11-21.
 Approved visual reference: `docs/mastermind/specs/onboarding-mockups/style-c-cinematic.html`
 (clickable; open it in a browser). Step script and copy:
 `docs/mastermind/specs/onboarding-mockups/CONTENT.md`.
@@ -192,6 +192,13 @@ does. Bindings named here exist today unless marked NEW.
   focusable.
 - All scene files stay under the 500-line limit by splitting art (SVG
   pieces), animation CSS and the controller.
+- On the last step only (owner, 2026-11-21; see CONTENT.md "Third round"):
+  a windmill click brightens the house lights for about 3 seconds; a drone
+  can be sent up; and a secret combination (windmill 7 times, campfire,
+  drone, windmill while the drone is up) starts a robot rampage that ends in
+  a ruin with a "Rebuild the village" control. The control sits outside the
+  aria-hidden scene and exists only then. The rampage never blocks the
+  panel, and "Open MonoAgent" works during and after it.
 - Builds fire when a step becomes `done` for real (including late, as in
   step 5), not when Continue is pressed.
 - Under reduced motion: built state, no animation; clicks may give a
