@@ -3192,7 +3192,27 @@
       "pointer": "Encontrarás esto más adelante en Ajustes, en Extensión del navegador."
     },
     "permissions": {
-      "title": "Qué pueden hacer los agentes en tu navegador"
+      "title": "Qué pueden hacer los agentes en tu navegador",
+      "lead": "Tú decides hasta dónde llegan los agentes por su cuenta.",
+      "choices": "Qué pueden hacer los agentes",
+      "recommended": "Recomendado",
+      "ask": {
+        "title": "Preguntar antes de enviar nada",
+        "desc": "Cualquier sitio; el envío de un formulario en un sitio real espera tu aprobación."
+      },
+      "free": {
+        "title": "Dejar que los agentes trabajen libremente",
+        "desc": "Cualquier sitio; los formularios se envían sin preguntarte, y los scripts se ejecutan en cualquier página, donde pueden leer las cookies y el almacenamiento de ese sitio."
+      },
+      "off": {
+        "title": "Mantener a los agentes fuera de mi navegador",
+        "desc": "Los agentes no pueden usar el navegador."
+      },
+      "custom": "Tienes una configuración personalizada. Continuar la mantiene.",
+      "machine": "Esto se aplica a todos los perfiles de este equipo.",
+      "approvals": "Cuando un agente necesita tu visto bueno, espera en Human-in-Loop hasta que lo apruebes o lo rechaces.",
+      "settings": "Más adelante puedes ajustarlo por tipo de agente en Ajustes, en Permisos del navegador.",
+      "retry": "Reintentar"
     },
     "firstRun": {
       "title": "Tu primera ejecución",

@@ -3192,7 +3192,27 @@
       "pointer": "You'll find this later in Settings, under Browser Extension."
     },
     "permissions": {
-      "title": "What agents may do in your browser"
+      "title": "What agents may do in your browser",
+      "lead": "You decide how far agents go on their own.",
+      "choices": "What agents may do",
+      "recommended": "Recommended",
+      "ask": {
+        "title": "Ask before anything is submitted",
+        "desc": "Any site; a form submit on a real site waits for your approval."
+      },
+      "free": {
+        "title": "Let agents work freely",
+        "desc": "Any site; form submits go through without asking you, and scripts run on any page, where they can read that site's cookies and storage."
+      },
+      "off": {
+        "title": "Keep agents out of my browser",
+        "desc": "Agents can't use the browser."
+      },
+      "custom": "You have custom settings. Continue keeps them.",
+      "machine": "This applies to every profile on this machine.",
+      "approvals": "When an agent needs your OK, it waits in Human-in-Loop until you approve or reject.",
+      "settings": "You can set this per kind of agent later in Settings, under Browser permissions.",
+      "retry": "Try again"
     },
     "firstRun": {
       "title": "Your first run",
