@@ -191,7 +191,7 @@ func newJevEnableCmd(d Deps) *cobra.Command {
 	}
 	cmd.Flags().Float64Var(&threshold, "threshold", 0, "Gate value in (0,1] the top option's probability must reach (default: the surface's default)")
 	cmd.Flags().BoolVar(&yes, "yes", false, "Enable without asking (required when stdin is not a terminal)")
-	cmd.Flags().StringVar(&provider, "provider", "", "Also make this provider the surface's provider for the profile (`jev provider list`)")
+	cmd.Flags().StringVar(&provider, "provider", "", "Also make this provider the surface's provider for the profile (see jev provider list)")
 	return cmd
 }
 

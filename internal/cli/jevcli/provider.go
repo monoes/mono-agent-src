@@ -249,7 +249,7 @@ func newJevProviderAddCmd(d Deps) *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&p.Kind, "kind", "", "Adapter kind (`jev provider list` shows the kinds of this build)")
+	f.StringVar(&p.Kind, "kind", "", "Adapter kind (jev provider list shows the kinds of this build)")
 	f.StringVar(&p.BaseURL, "base-url", "", "The provider's API base URL: https, or http to this machine")
 	f.StringVar(&p.Model, "model", "", "Model to ask (default: the adapter's)")
 	f.BoolVar(&keyStdin, "key-stdin", false, "Read the provider's key from stdin into the machine vault")
