@@ -98,6 +98,35 @@ describe('the onboarding gate', () => {
     expect(go.GetOnboardingState).toHaveBeenCalledTimes(1)
   })
 
+  it('shows the app after 3 s without an answer and ignores the late answer', async () => {
+    vi.useFakeTimers()
+    try {
+      const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+      let answer
+      go.GetOnboardingState.mockReturnValue(new Promise(r => { answer = r }))
+      render(<OnboardingGate banners={null} />)
+      await act(async () => { await vi.advanceTimersByTimeAsync(2900) })
+      expect(go.GetOnboardingState).toHaveBeenCalledTimes(1)
+      expect(screen.getByRole('status')).toHaveTextContent(i18n.t('account.checking'))
+      await act(async () => { await vi.advanceTimersByTimeAsync(200) })
+      expect(screen.getByTestId('app')).toBeInTheDocument()
+      expect(log).toHaveBeenCalled()
+      await act(async () => { answer(stateOf({ currentStep: 'system' })) })
+      expect(screen.getByTestId('app')).toBeInTheDocument()
+      expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a readable state without completed: false shows the app', async () => {
+    const { completed, ...noFlag } = stateOf()
+    go.GetOnboardingState.mockResolvedValue(noFlag)
+    render(<OnboardingGate banners={null} />)
+    expect(await screen.findByTestId('app')).toBeInTheDocument()
+    expect(completed).toBe(false)
+  })
+
   it('renders the app and logs when the state cannot be read', async () => {
     const log = vi.spyOn(console, 'error').mockImplementation(() => {})
     go.GetOnboardingState.mockRejectedValue('binding missing')

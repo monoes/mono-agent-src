@@ -24,7 +24,8 @@ export default function OnboardingGate({ banners = null }) {
   const [nav, setNav] = useState(null)
 
   if (open === undefined && !ob.loading) {
-    setOpen(ob.state && !ob.state.completed ? { stepId: undefined, mode: 'full' } : null)
+    // only an answer that says "not completed" opens it; anything else is the app
+    setOpen(ob.state && ob.state.completed === false ? { stepId: undefined, mode: 'full' } : null)
   }
 
   const openOnboarding = useCallback(async (stepId, mode = 'full') => {

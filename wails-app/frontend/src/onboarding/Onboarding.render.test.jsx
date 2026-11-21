@@ -22,6 +22,8 @@ beforeAll(() => {
           <button type="button" onClick={() => props.setCanContinue(true)}>allow</button>
           <textarea aria-label="notes" />
           <input aria-label="name" type="text" />
+          <div role="dialog"><input aria-label="dialog field" type="text" /></div>
+          <form onSubmit={e => e.preventDefault()}><input aria-label="form field" type="text" /></form>
         </div>
       )
     }
@@ -124,13 +126,13 @@ describe('the onboarding shell', () => {
     fireEvent.click(button('Back'))
     expect(heading()).toHaveTextContent('Welcome')
     expect(button('Back')).toBeNull()
-    fireEvent.keyDown(document.body, { key: 'Enter' })
+    fireEvent.keyDown(heading(), { key: 'Enter' })
     expect(heading()).toHaveTextContent('Welcome')
   })
 
   it('Enter continues only when Continue is enabled', () => {
     show({ startStep: 'system' })
-    fireEvent.keyDown(document.body, { key: 'Enter' })
+    fireEvent.keyDown(heading(), { key: 'Enter' })
     expect(heading()).toHaveTextContent('System check')
     allow()
     fireEvent.keyDown(screen.getByLabelText('notes'), { key: 'Enter' })
@@ -139,6 +141,41 @@ describe('the onboarding shell', () => {
     expect(heading()).toHaveTextContent('System check')
     fireEvent.keyDown(screen.getByLabelText('name'), { key: 'Enter' })
     expect(heading()).toHaveTextContent('Create your profile')
+  })
+
+  it('Enter continues only from inside the panel, outside dialogs and forms, and not while held', () => {
+    show({ startStep: 'system', banners: <input aria-label="banner field" type="text" /> })
+    allow()
+    for (const where of ['banner field', 'dialog field', 'form field']) {
+      fireEvent.keyDown(screen.getByLabelText(where), { key: 'Enter' })
+      expect(heading()).toHaveTextContent('System check')
+    }
+    fireEvent.keyDown(document.body, { key: 'Enter' })
+    fireEvent.keyDown(screen.getByLabelText('name'), { key: 'Enter', repeat: true })
+    expect(heading()).toHaveTextContent('System check')
+    fireEvent.keyDown(heading(), { key: 'Enter' })
+    expect(heading()).toHaveTextContent('Create your profile')
+  })
+
+  it('finishes once: a last-step handler that finishes with a nav is not followed by a second finish', async () => {
+    show({ startStep: 'finish' })
+    act(() => { seen.finish.setOnContinue(async () => { await Promise.resolve(); seen.finish.onDone({ page: 'orgs' }); return true }) })
+    allow()
+    fireEvent.click(button('Continue'))
+    await flush()
+    await flush()
+    expect(actions.onFinish).toHaveBeenCalledTimes(1)
+    expect(actions.onFinish).toHaveBeenCalledWith({ page: 'orgs' })
+  })
+
+  it('a handler that resolves to a failed callStep result stays and shows the message', async () => {
+    show({ startStep: 'about' })
+    act(() => { seen.about.setOnContinue(() => Promise.resolve({ ok: false, loginRequired: false, message: 'could not save' })) })
+    allow()
+    fireEvent.click(button('Continue'))
+    await flush()
+    expect(heading()).toHaveTextContent('About you')
+    expect(screen.getByRole('alert')).toHaveTextContent('could not save')
   })
 
   it('Enter on a focused button does not also continue', () => {

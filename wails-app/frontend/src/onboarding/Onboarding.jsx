@@ -27,15 +27,20 @@ export const STEP_COMPONENTS = {
 }
 
 const NO_ENTER = new Set(['BUTTON', 'A', 'TEXTAREA', 'SELECT'])
+const TEXT_INPUTS = ['text', 'email', 'search', 'url', 'tel', 'number', 'password', '']
+const OWN_ENTER_ROLES = ['button', 'link', 'checkbox', 'radio', 'switch', 'option', 'tab', 'menuitem', 'combobox', 'listbox', 'slider', 'textbox']
 
-// Enter continues from the page, a text field or the panel; never from a
-// button (it clicks itself), a link, a select, a textarea or a non-text input.
-function enterContinues(e) {
-  if (e.key !== 'Enter' || e.defaultPrevented || e.isComposing || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return false
+// Enter continues only from inside the panel, outside any dialog, from the
+// panel itself or a text field; never from a button (it clicks itself), a
+// link, a select, a textarea, a non-text input, a control with its own Enter
+// (an ARIA role), a field of a form (the form submits), or a held key.
+function enterContinues(e, panel) {
+  if (e.key !== 'Enter' || e.repeat || e.defaultPrevented || e.isComposing || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return false
   const el = e.target
-  if (!el || !el.tagName) return true
-  if (NO_ENTER.has(el.tagName) || el.isContentEditable) return false
-  if (el.tagName === 'INPUT' && !['text', 'email', 'search', 'url', 'tel', 'number', 'password', ''].includes(el.type)) return false
+  if (!panel || !el || !el.tagName || !panel.contains(el) || el.closest('[role="dialog"]')) return false
+  if (NO_ENTER.has(el.tagName) || el.isContentEditable || el.form) return false
+  if (el.tagName === 'INPUT' && !TEXT_INPUTS.includes(el.type)) return false
+  if (el.tagName !== 'INPUT' && OWN_ENTER_ROLES.includes(el.getAttribute('role'))) return false
   return true
 }
 
@@ -69,6 +74,8 @@ export default function Onboarding({ state, startStep, mode = 'full', onFinish, 
   const handlerRef = useRef(null)
   const titleRef = useRef(null)
   const bodyRef = useRef(null)
+  const panelRef = useRef(null)
+  const finishedRef = useRef(false)
   const finishRef = useRef(onFinish)
   finishRef.current = onFinish
 
@@ -80,6 +87,7 @@ export default function Onboarding({ state, startStep, mode = 'full', onFinish, 
     const next = Math.max(0, Math.min(steps.length - 1, i))
     if (next === indexRef.current) return
     indexRef.current = next
+    finishedRef.current = false
     handlerRef.current = null
     setCanContinueState(false)
     setLabel(null)
@@ -87,7 +95,13 @@ export default function Onboarding({ state, startStep, mode = 'full', onFinish, 
     setIndex(next)
   }, [steps.length])
 
-  const finish = useCallback((nav) => { if (finishRef.current) finishRef.current(nav) }, [])
+  // Finishing happens once: a handler that finished (onDone or onFinish on
+  // the last step) is not followed by Continue's own finish without its nav.
+  const finish = useCallback((nav) => {
+    if (finishedRef.current) return
+    finishedRef.current = true
+    if (finishRef.current) finishRef.current(nav)
+  }, [])
   const advance = useCallback((nav) => {
     if (indexRef.current >= steps.length - 1) finish(nav)
     else goIndex(indexRef.current + 1)
@@ -121,7 +135,9 @@ export default function Onboarding({ state, startStep, mode = 'full', onFinish, 
         setError(e?.message ?? String(e))
         return
       }
-      if (ok === false || indexRef.current !== at) return
+      // false, or a callStep failure (shown here), keeps the step
+      if (ok && ok.ok === false) { setError(ok.message); return }
+      if (ok === false || finishedRef.current || indexRef.current !== at) return
     }
     advance()
   }
@@ -139,7 +155,7 @@ export default function Onboarding({ state, startStep, mode = 'full', onFinish, 
   continueRef.current = doContinue
   useEffect(() => {
     const onKey = (e) => {
-      if (!enterContinues(e)) return
+      if (!enterContinues(e, panelRef.current)) return
       e.preventDefault()
       continueRef.current()
     }
@@ -174,7 +190,7 @@ export default function Onboarding({ state, startStep, mode = 'full', onFinish, 
           <Rail steps={steps} statuses={statuses} index={index} />
         </header>
         <main className="onb-stage">
-          <section className="onb-panel" aria-labelledby="onb-step-title">
+          <section className="onb-panel" aria-labelledby="onb-step-title" ref={panelRef}>
             <div className="onb-panel-body" ref={bodyRef}>
               <div className="onb-step-in" key={step.id}>
                 <p className="onb-eyebrow">{t('onboarding.shell.eyebrow', { n: index + 1, total, name })}</p>
