@@ -103,12 +103,15 @@ export default function Agents({ reload, goTo, setCanContinue }) {
       const r = line.result || {}
       if (r.runtime === cur.runtime && r.model === cur.model) resultRef.current = r
     })
+    // Every closed run reads the roster again: a test started before the
+    // person went Back and returned ends while this mount knows nothing of it.
     const offClosed = onAgentValidateClosed(async (res) => {
       const cur = testRef.current
-      if (!cur || cur.phase !== 'running') return
-      const r = resultRef.current
-      if (r && works(r.status)) setTest({ ...cur, phase: 'passed' })
-      else setTest({ ...cur, phase: 'failed', message: r ? (r.detail || r.status || '') : (res?.error || '') })
+      if (cur && cur.phase === 'running') {
+        const r = resultRef.current
+        if (r && works(r.status)) setTest({ ...cur, phase: 'passed' })
+        else setTest({ ...cur, phase: 'failed', message: r ? (r.detail || r.status || '') : (res?.error || '') })
+      }
       const runtimes = await loadRoster()
       if (live.current && runtimes && runtimes.some(rosterReady)) reloadRef.current?.()
     })

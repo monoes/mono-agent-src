@@ -138,6 +138,20 @@ describe('Agents step', () => {
     expect(props.reload).toHaveBeenCalled()
   })
 
+  it('a test that ends after the person left and came back still enables Continue', async () => {
+    const first = render(<Agents {...props} />)
+    fireEvent.click(await tested())
+    await waitFor(() => expect(go.StartAgentValidation).toHaveBeenCalled())
+    first.unmount()
+    render(<Agents {...props} />)
+    await findTile('claude')
+    expect(lastCanContinue()).toBe(false)
+    go.AgentRoster.mockResolvedValue(READY_ROSTER)
+    emit('agents:validateClosed', { ok: true })
+    await waitFor(() => expect(lastCanContinue()).toBe(true))
+    expect(props.reload).toHaveBeenCalled()
+  })
+
   it('starts with Continue enabled when the roster already holds a passed entry', async () => {
     go.AgentRoster.mockResolvedValue(READY_ROSTER)
     render(<Agents {...props} />)
