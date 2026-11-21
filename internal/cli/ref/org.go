@@ -169,7 +169,7 @@ AUTONOMY
   org autonomy show <org>
   org autonomy set <org> [--level manual|mid|full]
       [--decider model|boss|parent|jev] [--decider-model M] [--decider-runtime R]
-      [--decider-timeout 120] [--decider-threshold 0.8]
+      [--decider-timeout 120] [--decider-threshold 0.8] [--decider-provider P]
       [--policy TEXT | --policy-file F]
       [--tier <class>=routine|consequential|irreversible]... [--clear-tier C]...
       [--on-decider-failure deny|human] [--max-decisions N] [--max-decider-usd X]
@@ -203,7 +203,10 @@ AUTONOMY
   apply). jev needs a TypeSafe key for the profile (vault secret
   "typesafe" or TYPESAFE_API_KEY); choosing it is the opt-in — no
   "jev enable" needed. It sends the org name and goal, requester title,
-  item facts, and the agent-written text (marked untrusted) to TypeSafe. Tiers and
+  item facts, and the agent-written text (marked untrusted) to TypeSafe.
+  --decider-provider P (jev only) asks decision provider P instead
+  (typesafe or one from "jev provider list"; "" = the profile's decider
+  provider, else the machine default); its rows read jev:P/<model>. Tiers and
   routes above never change. decisions shows its confidence and
   probabilities.
 

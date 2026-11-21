@@ -45,8 +45,9 @@ func orgUnificationToolDefs(def func(name, desc string, props map[string]interfa
 		def("set_org_autonomy", "Change who decides an org's pending approvals, questions, and gates: level manual (a human decides everything), mid (rules approve routine items, the decider handles consequential ones, a human handles irreversible ones), or full (the decider handles everything, no human: only the user sets it, in their own terminal or the app). This only PROPOSES the change: it stores a pending proposal and applies nothing, and the result carries the proposal_id; tell the user to confirm (or decline) the proposal in the org screen, which is the only place it takes effect, and that it expires after 30 minutes.", map[string]interface{}{
 			"org_name":           strParam("The org's name"),
 			"level":              strParam("manual | mid (full is the user's to set and is refused here)"),
-			"decider":            strParam(strings.Join(orgdesign.DeciderKinds, " | ") + " (jev: TypeSafe Jev picks the verdict; the model decider handles questions and anything Jev is unsure of)"),
+			"decider":            strParam(strings.Join(orgdesign.DeciderKinds, " | ") + " (jev: Jev — TypeSafe or the decider's decision provider — picks the verdict; the model decider handles questions and anything Jev is unsure of)"),
 			"decider_threshold":  map[string]interface{}{"type": "number", "description": "jev decider only: lowest top-verdict probability Jev decides at, in (0,1] (default 0.8)"},
+			"decider_provider":   strParam("jev decider only: the decision provider that answers — typesafe or one the user configured (jev provider list); omit for the default"),
 			"decider_model":      strParam("Model id for the model decider"),
 			"decider_runtime":    strParam("Runtime for the model decider (e.g. claude)"),
 			"policy":             strParam("Instructions the decider follows: the user writes them, and a change from here is refused"),
@@ -180,6 +181,7 @@ type autonomyProposalJSON struct {
 	DeciderRuntime   string   `json:"decider_runtime,omitempty"`
 	DeciderModel     string   `json:"decider_model,omitempty"`
 	DeciderThreshold *float64 `json:"decider_threshold,omitempty"`
+	DeciderProvider  string   `json:"decider_provider,omitempty"`
 	OnDeciderFailure string   `json:"on_decider_failure,omitempty"`
 }
 
@@ -190,6 +192,7 @@ type setOrgAutonomyArgs struct {
 	DeciderModel     string   `json:"decider_model"`
 	DeciderRuntime   string   `json:"decider_runtime"`
 	DeciderThreshold *float64 `json:"decider_threshold"`
+	DeciderProvider  string   `json:"decider_provider"`
 	Policy           *string  `json:"policy"`
 	OnDeciderFailure string   `json:"on_decider_failure"`
 }
@@ -224,6 +227,14 @@ func (mt *MonoagentTools) setOrgAutonomy(ctx context.Context, args string) (stri
 			return "", fmt.Errorf("decider_threshold %v must be in (0,1]", *t)
 		}
 		in.DeciderThreshold = t
+	}
+	if p := strings.TrimSpace(a.DeciderProvider); p != "" {
+		// Whether it exists and answers choice questions is checked when the
+		// proposal is created; the shape is checked here.
+		if !orgdesign.ValidDeciderProvider(p) {
+			return "", fmt.Errorf("decider_provider %q must be 1 to 32 of a-z, 0-9 and -", p)
+		}
+		in.DeciderProvider = p
 	}
 	// Autonomy is the user's to change: the chat's marker would make the CLI refuse it, so the tool stores a proposal.
 	return mt.proposeOrg(ctx, "set_org_autonomy", a.OrgName, orgproposal.VerbAutonomySet, in)

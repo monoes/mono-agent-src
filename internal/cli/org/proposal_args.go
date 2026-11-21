@@ -88,6 +88,7 @@ type autonomyProposalArgs struct {
 	DeciderRuntime   string   `json:"decider_runtime,omitempty"`
 	DeciderModel     string   `json:"decider_model,omitempty"`
 	DeciderThreshold *float64 `json:"decider_threshold,omitempty"`
+	DeciderProvider  string   `json:"decider_provider,omitempty"`
 	OnDeciderFailure string   `json:"on_decider_failure,omitempty"`
 }
 
@@ -263,7 +264,7 @@ func (env *orgEnv) planAutonomy(ctx context.Context, db *storage.Database, profi
 	}{live, orgIdentity(doc)})}
 	after := snapshotAutonomy(live)
 	var parts []string
-	for _, v := range []string{a.Level, a.Decider, a.DeciderRuntime, a.DeciderModel, a.OnDeciderFailure} {
+	for _, v := range []string{a.Level, a.Decider, a.DeciderRuntime, a.DeciderModel, a.DeciderProvider, a.OnDeciderFailure} {
 		if len(v) > maxProposalText {
 			return p, env.d.InvalidInput("a value is longer than %d bytes", maxProposalText)
 		}
@@ -304,12 +305,22 @@ func (env *orgEnv) planAutonomy(ctx context.Context, db *storage.Database, profi
 		after.Decider.Threshold = *t
 		set("decider threshold", *t)
 	}
+	if a.DeciderProvider != "" {
+		if after.Decider.Kind != orgdesign.DeciderJev {
+			return p, env.d.InvalidInput("decider_provider names the jev decider's decision provider: the decider must be jev")
+		}
+		if err := orgdecide.CheckDeciderProvider(db.DB, a.DeciderProvider); err != nil {
+			return p, env.d.InvalidInput("decider_provider: %v", err)
+		}
+		after.Decider.Provider = a.DeciderProvider
+		set("decider provider", a.DeciderProvider)
+	}
 	if a.OnDeciderFailure != "" {
 		after.OnDeciderFailure = a.OnDeciderFailure
 		set("on decider failure", a.OnDeciderFailure)
 	}
 	if len(parts) == 0 {
-		return p, env.d.InvalidInput("nothing to change: name a level, a decider, its runtime or model, a threshold or the failure rule")
+		return p, env.d.InvalidInput("nothing to change: name a level, a decider, its runtime, model or provider, a threshold or the failure rule")
 	}
 	if err := after.Validate(); err != nil {
 		return p, env.d.InvalidInput("%v", err)
@@ -335,6 +346,9 @@ func (env *orgEnv) planAutonomy(ctx context.Context, db *storage.Database, profi
 	}
 	if a.DeciderThreshold != nil {
 		p.argv = append(p.argv, "--decider-threshold", strconv.FormatFloat(*a.DeciderThreshold, 'g', -1, 64))
+	}
+	if a.DeciderProvider != "" {
+		p.argv = append(p.argv, "--decider-provider", a.DeciderProvider)
 	}
 	if a.OnDeciderFailure != "" {
 		p.argv = append(p.argv, "--on-decider-failure", a.OnDeciderFailure)
