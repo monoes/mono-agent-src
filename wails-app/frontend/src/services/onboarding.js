@@ -6,6 +6,8 @@
 import * as GoApp from '../wailsjs/go/main/App'
 
 export const onboarding = {
+  // true once the backend finished startup (StartupOverlay polls the same)
+  ready: () => GoApp.IsReady(),
   // { completed, currentStep, profileId, steps: [{ id, status }] }
   state: () => GoApp.GetOnboardingState(),
   mark: (id) => GoApp.MarkOnboardingStep(id),

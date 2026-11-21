@@ -7,6 +7,8 @@ import { onboarding } from '../services/onboarding.js'
 import { callStep } from './callStep.js'
 
 const readable = (v) => v && typeof v === 'object' && Array.isArray(v.steps)
+const READY_POLL_MS = 200
+const READY_GIVE_UP_MS = 30000 // StartupOverlay's limit: never trap the user
 
 export function useOnboarding() {
   const [state, setState] = useState(null)
@@ -37,7 +39,23 @@ export function useOnboarding() {
     return r
   }, [])
 
-  useEffect(() => { reload() }, [reload])
+  // The first read waits for the backend's startup (migrations, profile
+  // selection), as StartupOverlay does: before it, the profile count cannot be
+  // read and an existing install would look unfinished. A missing IsReady
+  // binding counts as ready; after READY_GIVE_UP_MS it reads anyway.
+  useEffect(() => {
+    let live = true
+    ;(async () => {
+      const started = Date.now()
+      while (live && Date.now() - started < READY_GIVE_UP_MS) {
+        const r = await callStep(() => onboarding.ready())
+        if (!r.ok || r.value === true) break
+        await new Promise(res => setTimeout(res, READY_POLL_MS))
+      }
+      if (live) reload()
+    })()
+    return () => { live = false }
+  }, [reload])
 
   // write: one binding call, then a fresh read when it worked; the call's result.
   const write = useCallback(async (call) => {

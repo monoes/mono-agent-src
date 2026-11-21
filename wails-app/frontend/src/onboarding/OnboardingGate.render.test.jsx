@@ -8,6 +8,7 @@ import '@testing-library/jest-dom/vitest'
 import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 
 const go = vi.hoisted(() => ({
+  IsReady: vi.fn(() => Promise.resolve(true)),
   GetOnboardingState: vi.fn(),
   MarkOnboardingStep: vi.fn(() => Promise.resolve()),
   SkipOnboardingStep: vi.fn(() => Promise.resolve()),
@@ -48,6 +49,7 @@ const stateOf = (over = {}) => ({ completed: false, currentStep: 'welcome', prof
 beforeEach(async () => {
   await i18n.changeLanguage('en')
   go.GetOnboardingState.mockReset()
+  go.IsReady.mockClear()
   go.MarkOnboardingStep.mockClear()
   go.CompleteOnboarding.mockClear()
 })
@@ -82,6 +84,18 @@ describe('the onboarding gate', () => {
     expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument()
     await act(async () => { answer(stateOf({ completed: true })) })
     expect(screen.getByTestId('app')).toBeInTheDocument()
+  })
+
+  it('reads the state only once the backend finished startup', async () => {
+    go.IsReady.mockResolvedValueOnce(false)
+    go.GetOnboardingState.mockResolvedValue(stateOf({ currentStep: 'about' }))
+    render(<OnboardingGate banners={null} />)
+    await act(async () => { await Promise.resolve() })
+    expect(go.GetOnboardingState).not.toHaveBeenCalled()
+    expect(screen.getByRole('status')).toHaveTextContent(i18n.t('account.checking'))
+    expect(await screen.findByTestId('step-about')).toBeInTheDocument()
+    expect(go.IsReady).toHaveBeenCalledTimes(2)
+    expect(go.GetOnboardingState).toHaveBeenCalledTimes(1)
   })
 
   it('renders the app and logs when the state cannot be read', async () => {
