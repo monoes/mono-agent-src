@@ -41,13 +41,11 @@ const (
 	healthModeProjects   = "projects"
 )
 
-// healthArgs builds `--profile P --json doctor [--skip-group runtimes |
-// --deep | --projects]` for a mode.
+// healthArgs builds `[--profile P] --json doctor [--skip-group runtimes |
+// --deep | --projects]` for a mode. An empty profile id is the check before
+// the first profile exists (onboarding): doctor then runs machine-wide.
 func healthArgs(profileID, mode string) ([]string, error) {
-	args, err := scopedCLIArgs(profileID, "doctor")
-	if err != nil {
-		return nil, err
-	}
+	args := doctorArgs(profileID, "doctor")
 	switch mode {
 	case healthModeBackground:
 		return append(args, "--skip-group", "runtimes"), nil
@@ -61,10 +59,32 @@ func healthArgs(profileID, mode string) ([]string, error) {
 	return nil, fmt.Errorf("unknown health check mode %q", mode)
 }
 
-// healthFixArgs builds `--profile P --json doctor fix <id>`.
+// healthFixArgs builds `[--profile P] --json doctor fix -- <id>`; an empty
+// profile id runs the fix machine-wide, as healthArgs does.
 func healthFixArgs(profileID, fixID string) ([]string, error) {
 	// "--" so a fix id can never be read as a flag.
-	return scopedCLIArgs(profileID, "doctor", "fix", "--", fixID)
+	return doctorArgs(profileID, "doctor", "fix", "--", fixID), nil
+}
+
+// doctorArgs is the argv of a doctor command: scoped to profileID, or
+// unscoped while there is no profile yet.
+func doctorArgs(profileID string, args ...string) []string {
+	if profileID == "" {
+		return unscopedCLIArgs(args...)
+	}
+	scoped, _ := scopedCLIArgs(profileID, args...) // only an empty id fails
+	return scoped
+}
+
+// healthProfileID is the profile a health check or fix runs on: the
+// selected one, or "" (machine-wide) while no profile exists yet. Any other
+// failure to read the selection is returned.
+func (a *App) healthProfileID() (string, error) {
+	pid, err := a.profileID()
+	if errors.Is(err, errNoProfile) {
+		return "", nil
+	}
+	return pid, err
 }
 
 // healthReportJSON returns the doctor report verbatim. doctor exits 1 when a
@@ -93,7 +113,7 @@ func (a *App) RunHealthCheck(mode string) string {
 		b, _ := json.Marshal(map[string]any{"error": err.Error(), "cli_missing": true})
 		return string(b)
 	}
-	pid, err := a.profileID()
+	pid, err := a.healthProfileID()
 	if err != nil {
 		return aiError(err)
 	}
@@ -219,7 +239,7 @@ func (a *App) RunHealthFix(fixID string) string {
 	// One run per fix (per runtime for installs): two `doctor fix`
 	// processes for the same fix would start two daemons or two npm
 	// installs into one global folder.
-	pid, err := a.profileID()
+	pid, err := a.healthProfileID()
 	if err != nil {
 		return aiError(err)
 	}
