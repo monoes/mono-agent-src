@@ -95,6 +95,7 @@ export default function Monomind({ profileId, reload, setCanContinue }) {
   } else {
     action = (
       <div>
+        <p className="onb-muted onb-mm-note">{t('onboarding.monomind.agentNote')}</p>
         <button type="button" className="onb-btn primary" onClick={() => startMonomindInit(reload, profileId)}>
           {t('onboarding.monomind.turnOn', { name })}
         </button>

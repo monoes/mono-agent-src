@@ -60,6 +60,7 @@ describe('Monomind step', () => {
     expect(screen.getByText('For documents')).toBeInTheDocument()
     expect(screen.getByText('For orgs')).toBeInTheDocument()
     expect(await screen.findByRole('button', { name: 'Turn on for Work' })).toBeEnabled()
+    expect(screen.getByText('This may also send one short setup message through your Claude Code account.')).toBeInTheDocument()
     expect(screen.getByText("You'll find this later in the Documents tab.")).toBeInTheDocument()
     expect(lastCanContinue()).toBe(false)
   })
