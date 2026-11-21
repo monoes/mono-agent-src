@@ -34,6 +34,9 @@ const guiStateFile = "gui-state.json"
 
 type guiState struct {
 	SelectedProfile string `json:"selected_profile"`
+	// Onboarding holds the first-run onboarding's marks (onboarding_store.go);
+	// nil means they were never written.
+	Onboarding *onboardingMarks `json:"onboarding,omitempty"`
 }
 
 func guiStatePath(dbPath string) string {
@@ -43,18 +46,11 @@ func guiStatePath(dbPath string) string {
 // loadSelectedProfile returns the saved selection, or "" when nothing is
 // saved or the file cannot be read (a damaged file is the same as no choice).
 func loadSelectedProfile(path string) string {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	var st guiState
-	if json.Unmarshal(b, &st) != nil {
-		return ""
-	}
-	return st.SelectedProfile
+	return loadGuiState(path).SelectedProfile
 }
 
-// Bounds for the state file Stop reads cold: the file holds one short id, so anything bigger is not ours.
+// Bounds for the state file Stop reads cold: the file holds one short id and the onboarding's few marks, so anything
+// bigger is not ours.
 const (
 	guiStateMaxBytes = 64 << 10
 	profileIDMaxLen  = 128
@@ -115,29 +111,11 @@ func (a *App) stopProfileID() (string, error) {
 	return "", errNoProfileForStop
 }
 
-// saveSelectedProfile writes the selection through a temp file and a rename,
-// so a crash never leaves half a file.
+// saveSelectedProfile writes the selection and keeps everything else in the
+// state file (updateGuiState: a temp file and a rename, so a crash never
+// leaves half a file).
 func saveSelectedProfile(path, id string) error {
-	b, err := json.Marshal(guiState{SelectedProfile: id})
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), guiStateFile+".*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(b); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
+	return updateGuiState(path, func(st *guiState) { st.SelectedProfile = id })
 }
 
 // chooseProfile picks the selection from the profiles that exist: the saved
