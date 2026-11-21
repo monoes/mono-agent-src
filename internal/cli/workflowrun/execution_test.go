@@ -112,26 +112,36 @@ func TestWorkflowExecutionDetailErrorClass(t *testing.T) {
 	}
 }
 
-// startMonoagentLookalike runs a symlink to sleep whose command line contains
-// "monoagent", so signalWorkflowPID accepts it as one of ours.
+// startMonoagentLookalike runs this test binary, through a symlink whose
+// command line contains "monoagent" so signalWorkflowPID accepts it as one of
+// ours, as a process that waits to be signalled (lookalikeEnv in TestMain).
+// It is not a symlink to the system sleep: a multicall coreutils (uutils, the
+// default on Ubuntu 26.04) picks its tool from argv[0] and exits at once on a
+// name it does not know.
 func startMonoagentLookalike(t *testing.T) *exec.Cmd {
 	t.Helper()
-	sleepBin, err := exec.LookPath("sleep")
+	self, err := os.Executable()
 	if err != nil {
-		t.Skip("no sleep binary")
-	}
-	bin := filepath.Join(t.TempDir(), "monoagentcli-lookalike")
-	// Keep the system binary intact: copying a signed executable can be
-	// rejected by macOS while a symlink retains our identifying command line.
-	if err := os.Symlink(sleepBin, bin); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(bin, "30")
+	bin := filepath.Join(t.TempDir(), "monoagentcli-lookalike")
+	// Keep the binary intact: copying a signed executable can be rejected
+	// by macOS while a symlink retains our identifying command line.
+	if err := os.Symlink(self, bin); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(bin)
+	cmd.Env = append(os.Environ(), lookalikeEnv+"=1")
 	if err := cmd.Start(); err != nil {
 		t.Skipf("cannot start %s: %v", bin, err)
 	}
 	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
 	waitForExec(t, cmd.Process.Pid, filepath.Base(bin))
+	// A fixture that ends by itself would read as cancel not signalling it.
+	time.Sleep(50 * time.Millisecond)
+	if _, alive, _ := readProcessCommandLine(cmd.Process.Pid); !alive {
+		t.Fatal("the monoagent lookalike exited on its own")
+	}
 	return cmd
 }
 
