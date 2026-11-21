@@ -14,7 +14,12 @@ import (
 // valid unless Respond deliberately breaks it.
 //
 //	fb := jevtest.NewFakeBackend(jevtest.Fixed(map[string]string{"route": "billing"}))
-//	t.Cleanup(jevconf.RegisterKind("fake-"+t.Name(), func(jevconf.Provider, string) (jev.Backend, error) { return fb, nil }))
+//	t.Cleanup(jevconf.RegisterKind("fake", func(jevconf.Provider, string) (jev.Backend, error) { return fb, nil }))
+//	jevconf.SaveProvider(ctx, db, jevconf.Provider{Name: "local", Kind: "fake", BaseURL: "http://localhost"})
+//	jevconf.SetDefaultProvider(ctx, db, "local") // or SetSurfaceProvider, or jevconf.NewClientFor(…, "local", …)
+//
+// A kind name is [a-z0-9-]{1,32} and registered once at a time, so tests of
+// one package that register the same kind must not run in parallel.
 type FakeBackend struct {
 	// Caps is what Capabilities reports. NewFakeBackend sets every question
 	// type and jev.ProbLogprob.
