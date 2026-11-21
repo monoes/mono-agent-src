@@ -2941,5 +2941,23 @@
         "range": "Out of range"
       }
     }
+  },
+  "onboarding": {
+    "scene": {
+      "found": "Found {{n}} of {{total}}",
+      "rebuild": "Rebuild the village",
+      "plan": {
+        "welcome": "Step 1 builds the path into your village",
+        "system": "Step 2 builds the workshop",
+        "profile": "Step 3 builds your first house",
+        "about": "Step 4 builds the garden",
+        "monomind": "Step 5 builds the windmill, the engine",
+        "agents": "Step 6 builds the robots",
+        "browser": "Step 7 builds the bridge to a second plot",
+        "permissions": "Step 8 builds the gate and its lanterns",
+        "firstRun": "Step 9 builds the campfire and the lights",
+        "finish": "Your village is alive"
+      }
+    }
   }
 }

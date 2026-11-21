@@ -1,0 +1,118 @@
+/* Everything in the village that moves. It applies only while the scene has
+   .onb-motion (set when reduced motion is off) and the system does not ask for
+   reduced motion. Keyframes carry an onb- prefix so they never meet the app's.
+   Ported from docs/mastermind/specs/onboarding-mockups/style-c-cinematic.html. */
+@media (prefers-reduced-motion: no-preference){
+.onb-scene.onb-motion{--ease:cubic-bezier(0.16, 1, 0.3, 1)}
+
+/* sky: twinkling stars, drifting aurora, sunrise, lighting that warms */
+.onb-scene.onb-motion .onb-stars{transition:opacity 3s var(--ease)}
+.onb-scene.onb-motion .onb-dawn{transition:opacity 3s var(--ease)}
+.onb-scene.onb-motion .onb-sun{transition:transform 4s var(--ease)}
+.onb-scene.onb-motion .onb-warmsky,.onb-scene.onb-motion .onb-warmv{transition:opacity 2.4s var(--ease)}
+.onb-scene.onb-motion .twinkle{animation:onb-tw 5s ease-in-out infinite}
+@keyframes onb-tw{0%,100%{opacity:.25}50%{opacity:1}}
+.onb-scene.onb-motion .drift{animation:onb-drift 40s ease-in-out infinite alternate}
+@keyframes onb-drift{from{transform:translateX(-40px)}to{transform:translateX(40px)}}
+
+/* plots: the planned one pulses; a built one rises piece by piece with a burst */
+.onb-scene.onb-motion .plot.plan{animation:onb-planPulse 2.4s ease-in-out infinite}
+@keyframes onb-planPulse{0%,100%{opacity:.55}50%{opacity:1}}
+.onb-scene.onb-motion .plot.built .pc{transform-box:fill-box;transform-origin:50% 100%;animation:onb-rise 1.1s var(--ease) both;animation-delay:calc(var(--i,0) * 170ms)}
+@keyframes onb-rise{0%{opacity:0;transform:translateY(26px) scaleY(.2)}60%{opacity:1}100%{opacity:1;transform:none}}
+.onb-scene.onb-motion .plot.built .burst{transform-box:fill-box;transform-origin:center;animation:onb-burst 1.4s ease-out both}
+@keyframes onb-burst{0%{opacity:.9;transform:scale(.2)}100%{opacity:0;transform:scale(3.2)}}
+
+/* ambient life */
+.onb-scene.onb-motion .spin{transform-box:fill-box;transform-origin:center;animation:onb-spin 9s linear infinite}
+@keyframes onb-spin{to{transform:rotate(360deg)}}
+.onb-scene.onb-motion .flick{transform-box:fill-box;transform-origin:50% 100%;animation:onb-flick .9s ease-in-out infinite alternate}
+.onb-scene.onb-motion .flick.b{animation-duration:.7s;animation-delay:-.3s}
+@keyframes onb-flick{0%{transform:scale(1,1)}50%{transform:scale(.88,1.12)}100%{transform:scale(1.06,.92)}}
+.onb-scene.onb-motion .glowp{animation:onb-glowp 2.2s ease-in-out infinite}
+@keyframes onb-glowp{0%,100%{opacity:.7}50%{opacity:1}}
+.onb-scene.onb-motion .spark{animation:onb-spark 2.4s linear infinite;opacity:0}
+@keyframes onb-spark{0%{opacity:0;transform:translate(0,0)}15%{opacity:1}100%{opacity:0;transform:translate(var(--sx,6px),-70px)}}
+.onb-scene.onb-motion .smoke{animation:onb-smoke 5s linear infinite;opacity:0}
+@keyframes onb-smoke{0%{opacity:0;transform:translate(0,0) scale(.6)}20%{opacity:.5}100%{opacity:0;transform:translate(18px,-60px) scale(1.8)}}
+.onb-scene.onb-motion .water{animation:onb-water 3s linear infinite}
+@keyframes onb-water{to{stroke-dashoffset:-40}}
+.onb-scene.onb-motion .bulb{animation:onb-tw 3s ease-in-out infinite}
+.onb-scene.onb-motion .bird{animation:onb-bird 26s linear infinite}
+@keyframes onb-bird{from{transform:translate(-120px,20px)}to{transform:translate(1000px,-40px)}}
+
+/* walkers: mover slides along the lane, facer flips at each end, legs and arms swing */
+.onb-scene.onb-motion .mover{animation:onb-walkx var(--t,24s) linear infinite;animation-delay:var(--dl,0s)}
+@keyframes onb-walkx{0%{transform:translate(0,0)}50%{transform:translate(var(--d),var(--dy,0px))}100%{transform:translate(0,0)}}
+.onb-scene.onb-motion .facer{transform-box:fill-box;transform-origin:center;animation:onb-face var(--t,24s) steps(1,end) infinite;animation-delay:var(--dl,0s)}
+@keyframes onb-face{0%{transform:scaleX(1)}50%{transform:scaleX(-1)}100%{transform:scaleX(-1)}}
+.onb-scene.onb-motion .leg,.onb-scene.onb-motion .arm{animation:onb-swing .5s ease-in-out infinite alternate}
+.onb-scene.onb-motion .leg.b,.onb-scene.onb-motion .arm.a{animation-delay:-.5s}
+.onb-scene.onb-motion .robo .leg{animation-duration:.36s;--sw:18deg}
+.onb-scene.onb-motion .robo .leg.b{animation-delay:-.36s}
+@keyframes onb-swing{from{transform:rotate(var(--sw,26deg))}to{transform:rotate(calc(var(--sw,26deg) * -1))}}
+.onb-scene.onb-motion .bob{animation:onb-bob .25s ease-in-out infinite alternate}
+.onb-scene.onb-motion .robo .bob{animation-duration:.18s}
+@keyframes onb-bob{from{transform:translateY(0)}to{transform:translateY(-1.2px)}}
+.onb-scene.onb-motion .blink{animation:onb-blink 2s steps(1,end) infinite}
+@keyframes onb-blink{0%,70%{opacity:1}71%,100%{opacity:.2}}
+.onb-scene.onb-motion .onb-plantag{transition:transform .9s var(--ease),opacity .5s}
+
+/* inhabitants arrive, cheer, and do things; limbs rotate around the shoulder */
+.onb-scene.onb-motion .onb-vcam{transition:transform .8s var(--ease)}
+.onb-scene.onb-motion .actor.on .arr{animation:onb-arrive 1.3s var(--ease) both}
+@keyframes onb-arrive{from{opacity:0;transform:translateX(-26px)}to{opacity:1;transform:none}}
+.onb-scene.onb-motion .onb-vcam.cheer .hop{animation:onb-hop .26s ease-out 4 alternate}
+@keyframes onb-hop{to{transform:translateY(-6px)}}
+.onb-scene.onb-motion .a-hammer{animation:onb-hamm .42s ease-in infinite alternate}
+@keyframes onb-hamm{from{transform:rotate(-165deg)}to{transform:rotate(-45deg)}}
+.onb-scene.onb-motion .a-wave{animation:onb-waveA .42s ease-in-out infinite alternate}
+@keyframes onb-waveA{from{transform:rotate(150deg)}to{transform:rotate(210deg)}}
+.onb-scene.onb-motion .a-gest{animation:onb-gest 1.1s ease-in-out infinite alternate}
+.onb-scene.onb-motion .a-gest.d2{animation-delay:-.7s}
+@keyframes onb-gest{from{transform:rotate(-15deg)}to{transform:rotate(-65deg)}}
+.onb-scene.onb-motion .a-letter{animation:onb-letA 3s ease-in-out infinite}
+@keyframes onb-letA{0%,100%{transform:rotate(-30deg)}25%,60%{transform:rotate(-82deg)}}
+.onb-scene.onb-motion .letter{animation:onb-letter 3s ease-in-out infinite}
+@keyframes onb-letter{0%,25%{transform:translateX(0);opacity:1}55%{transform:translateX(8px);opacity:1}70%,100%{transform:translateX(8px);opacity:0}}
+.onb-scene.onb-motion .drop{animation:onb-drop .9s linear infinite}
+.onb-scene.onb-motion .drop.d2{animation-delay:-.3s}
+.onb-scene.onb-motion .drop.d3{animation-delay:-.6s}
+@keyframes onb-drop{from{transform:translateY(0);opacity:1}to{transform:translateY(11px);opacity:0}}
+.onb-scene.onb-motion .bobber{animation:onb-bobber 2.2s ease-in-out infinite}
+@keyframes onb-bobber{0%,100%{transform:translateY(0)}50%{transform:translateY(1.6px)}}
+.onb-scene.onb-motion .bub{animation:onb-bubA 4s steps(1,end) infinite}
+.onb-scene.onb-motion .bub.bB{animation-delay:-2s}
+@keyframes onb-bubA{0%{opacity:1}50%{opacity:0}}
+.onb-scene.onb-motion .warm{animation:onb-warmh 2.6s ease-in-out infinite alternate}
+@keyframes onb-warmh{from{transform:rotate(-40deg)}to{transform:rotate(-58deg)}}
+
+/* build-event workers */
+.onb-scene.onb-motion .carry .arm{animation:none}
+.onb-scene.onb-motion .hammer .arm.a{animation:onb-hamm .26s ease-in infinite alternate}
+.onb-scene.onb-motion .hammer .arm.b{animation:none;transform:rotate(-20deg)}
+.onb-scene.onb-motion .hammer .leg,.onb-scene.onb-motion .cheerw .leg{animation:none}
+.onb-scene.onb-motion .hammer .load,.onb-scene.onb-motion .cheerw .load{display:none}
+.onb-scene.onb-motion .cheerw .arm{animation:onb-waveA .3s ease-in-out infinite alternate}
+
+/* discoveries */
+.onb-scene.onb-motion .w2{transition:opacity .4s}
+.onb-scene.onb-motion .tail{animation:onb-tail 1.6s ease-in-out infinite alternate}
+@keyframes onb-tail{from{transform:rotate(-14deg)}to{transform:rotate(18deg)}}
+.onb-scene.onb-motion .fl{transition:transform .7s var(--ease)}
+.onb-scene.onb-motion .fire{transition:transform .3s var(--ease)}
+.onb-scene.onb-motion .flare .flick{animation-duration:.2s}
+.onb-scene.onb-motion .fireglow{transition:opacity .3s}
+.onb-scene.onb-motion .ffly{animation:onb-ffly var(--ft,4s) ease-in-out infinite alternate}
+@keyframes onb-ffly{from{transform:translate(0,0)}to{transform:translate(var(--fx),var(--fy))}}
+.onb-scene.onb-motion .prop{transform-box:fill-box;transform-origin:center;animation:onb-prop .12s linear infinite alternate}
+@keyframes onb-prop{from{transform:scaleX(1)}to{transform:scaleX(.2)}}
+.onb-scene.onb-motion .dancing .lm{animation:onb-waveA .3s ease-in-out infinite alternate}
+.onb-scene.onb-motion .wb .a-gest{animation-name:onb-waveA;animation-duration:.38s}
+
+/* windmill boost fades in and out; the drone's propellers spin and it hovers */
+.onb-scene.onb-motion .onb-vsvg .lw,.onb-scene.onb-motion .onb-vsvg .glowp,.onb-scene.onb-motion .onb-vsvg .bulb{transition:filter .25s ease-out}
+.onb-scene.onb-motion .onb-drone.dup .dprop{animation:onb-prop .1s linear infinite alternate}
+.onb-scene.onb-motion .onb-drone.dup .dhov{animation:onb-dhov 1.1s ease-in-out infinite alternate}
+@keyframes onb-dhov{to{transform:translateY(-3px)}}
+}

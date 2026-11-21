@@ -1,0 +1,86 @@
+/* The onboarding village: layout and still states. Everything that moves is in
+   scene-motion.css, the rampage in scene-rampage.css. Every rule is scoped to
+   .onb-scene. Ported from docs/mastermind/specs/onboarding-mockups/style-c-cinematic.html.
+   The shell may set --onb-pl (panel left), --onb-pw (panel width) and
+   --onb-top (height of the header band) on any ancestor; the defaults are the
+   mockup's. */
+/* Scene.jsx's wrapper: fills the onboarding window behind the panel */
+.onb-scene-host,.onb-scene-mount{position:absolute;inset:0;z-index:0;overflow:hidden}
+.onb-scene{
+  --accent: oklch(0.83 0.15 72);
+  --onb-font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  position:absolute;inset:0;overflow:hidden;background:oklch(0.14 0.045 285);
+  font-family:var(--onb-font);-webkit-user-select:none;user-select:none;
+}
+.onb-scene [hidden]{display:none !important}
+
+/* ---------- world backdrop ---------- */
+.onb-scene .onb-world{position:absolute;inset:0;width:100%;height:100%;display:block}
+.onb-scene.dawn .onb-stars{opacity:.25}
+.onb-scene .onb-dawn{opacity:0}
+.onb-scene.dawn .onb-dawn{opacity:1}
+.onb-scene .onb-sun{transform:translateY(260px)}
+.onb-scene.dawn .onb-sun{transform:none}
+.onb-scene .onb-village{position:absolute;right:0;bottom:0;top:var(--onb-top,84px);left:calc(var(--onb-pl,28px) + var(--onb-pw,clamp(400px,37vw,540px)) - 90px);width:auto;height:auto;z-index:1;pointer-events:none}
+.onb-scene .onb-village svg{width:100%;height:100%;display:block;overflow:visible}
+.onb-scene .onb-vignette{position:absolute;inset:0;pointer-events:none;z-index:1;background:
+  linear-gradient(90deg, oklch(0.11 0.04 285 / 0.55) 0%, oklch(0.11 0.04 285 / 0.12) 40%, transparent 55%),
+  radial-gradient(140% 100% at 70% 80%, transparent 50%, oklch(0.09 0.04 285 / 0.5) 100%)}
+@media (max-width:1000px){
+  .onb-scene .onb-village{left:calc(var(--onb-pl,16px) + var(--onb-pw,clamp(400px,37vw,540px)) - 90px)}
+  .onb-scene .onb-found{left:var(--onb-pl,16px)}
+}
+
+/* plots: hidden, planned (current step), ghost (skipped), built */
+.onb-scene .plot{display:none}
+.onb-scene .plot.built,.onb-scene .plot.ghost,.onb-scene .plot.plan{display:inline}
+.onb-scene .plot.ghost *,.onb-scene .plot.plan *{fill:none !important;stroke-width:1.3px !important;stroke-dasharray:3 4 !important;animation:none !important;filter:none !important}
+.onb-scene .plot.ghost *{stroke:oklch(0.82 0.03 290 / .5) !important}
+.onb-scene .plot.plan *{stroke:oklch(0.86 0.15 75 / .95) !important}
+.onb-scene .plot.ghost .fx,.onb-scene .plot.plan .fx{display:none}
+.onb-scene .burst{opacity:0}
+
+/* the figures' joints, so a still pose turns around the shoulder or hip */
+.onb-scene .leg,.onb-scene .arm{transform-box:fill-box;transform-origin:50% 0}
+.onb-scene .carry .arm{transform:rotate(180deg)}
+
+/* the tag over the plot that the current step builds */
+.onb-scene .onb-plantag text{font:600 13px var(--onb-font);fill:oklch(0.96 0.02 85)}
+.onb-scene .onb-plantag rect{fill:oklch(0.14 0.04 288 / .9);stroke:var(--accent)}
+
+/* ---------- life: inhabitants and discoveries ---------- */
+.onb-scene .onb-world [data-hit],.onb-scene .onb-vsvg [data-hit]{pointer-events:all;cursor:pointer}
+.onb-scene .onb-vsvg .plot:not(.built) [data-hit]{pointer-events:none}
+.onb-scene .actor{display:none}
+.onb-scene .actor.on{display:inline}
+.onb-scene .bub{opacity:0;pointer-events:none !important}
+.onb-scene .sails{transform-box:fill-box;transform-origin:center}
+.onb-scene .wv{display:none}
+.onb-scene .lit2 .wv{display:inline}
+.onb-scene .w2{opacity:0}
+.onb-scene .lit2 .w2{opacity:1}
+.onb-scene .cat{display:none}
+.onb-scene .hascat .cat{display:inline}
+.onb-scene .tail{transform-box:fill-box;transform-origin:0 100%}
+.onb-scene .fl{transform-box:fill-box;transform-origin:center}
+.onb-scene .bloomed .fl{transform:scale(1.8)}
+.onb-scene .fire{transform-box:fill-box;transform-origin:50% 100%}
+.onb-scene .flare .fire{transform:scale(1.45)}
+.onb-scene .fireglow{opacity:0}
+.onb-scene .flare .fireglow{opacity:1}
+.onb-scene .jlight{opacity:.35}
+.onb-scene .open .jlight{opacity:1}
+.onb-scene .open .lid{transform:translate(4px,-3px) rotate(30deg)}
+/* a still answer to a click when nothing may move */
+.onb-scene:not(.onb-motion) .wb .a-gest,.onb-scene:not(.onb-motion) .dancing .lm{transform:rotate(180deg) !important}
+
+/* the counter sits in the free band under the panel, so it never covers the village */
+.onb-scene .onb-found{position:absolute;left:var(--onb-pl,28px);bottom:5px;z-index:10;min-height:24px;display:flex;align-items:center;padding:0 14px;border-radius:999px;background:oklch(0.14 0.04 288 / .9);border:1px solid oklch(0.97 0.01 290 / 0.26);font-size:12.5px;line-height:1.5;color:oklch(0.84 0.02 290);pointer-events:none}
+.onb-scene .onb-found b{color:var(--accent);margin:0 .3em}
+
+/* windmill boost on the last step: the house lights brighter for 3 s (filter only, so the base look is untouched) */
+.onb-scene .onb-vsvg.boost .lw{filter:brightness(1.4) drop-shadow(0 0 2px oklch(0.98 0.08 95)) drop-shadow(0 0 9px oklch(0.86 0.17 78))}
+.onb-scene .onb-vsvg.boost .bulb{filter:brightness(1.5) drop-shadow(0 0 2px oklch(0.98 0.08 95)) drop-shadow(0 0 6px oklch(0.86 0.17 78))}
+.onb-scene .onb-vsvg.boost .glowp{filter:brightness(1.5) saturate(1.3) drop-shadow(0 0 10px oklch(0.86 0.17 78))}
+/* the parked drone of the finished village */
+.onb-scene .onb-drone .dprop{transform-box:fill-box;transform-origin:center}

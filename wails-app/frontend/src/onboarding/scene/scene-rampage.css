@@ -1,0 +1,42 @@
+/* The rampage of the last step: red alert, red-eyed robots, burning houses, the
+   ruin, and the Rebuild control (rendered by Scene.jsx outside the aria-hidden
+   scene). Ported from docs/mastermind/specs/onboarding-mockups/style-c-cinematic.html. */
+.onb-scene .onb-alarm{position:absolute;inset:0;z-index:1;pointer-events:none;opacity:0;mix-blend-mode:multiply;background:radial-gradient(130% 100% at 72% 78%, oklch(0.74 0.19 28), oklch(0.46 0.17 24))}
+.onb-scene.ramp .onb-alarm{opacity:1}
+.onb-scene.ruin .onb-alarm{opacity:.9}
+.onb-scene .onb-vsvg.ramp .onb-actors,.onb-scene .onb-vsvg.ramp .plot [data-fig],.onb-scene .onb-vsvg.ramp .onb-plantag,.onb-scene .onb-vsvg.ramp .glowp{display:none}
+.onb-scene .onb-vsvg.ramp .lw{fill:oklch(0.64 0.23 27);filter:drop-shadow(0 0 3px oklch(0.62 0.25 27))}
+.onb-scene .onb-vsvg.ramp .bulb{fill:oklch(0.58 0.23 27)}
+.onb-scene .onb-vsvg.ramp .dvis{fill:oklch(0.68 0.26 27)}
+.onb-scene .rf .eg{opacity:0}
+.onb-scene .rf.evil .eg{opacity:1}
+.onb-scene .rf.evil .eye,.onb-scene .rf.evil .blink{fill:oklch(0.68 0.26 27)}
+.onb-scene .rf .ex{display:none;font:800 14px var(--onb-font);fill:oklch(0.95 0.12 95)}
+.onb-scene .rf.alarmed .ex{display:inline}
+.onb-scene .rsmoke{opacity:.35}
+
+@media (prefers-reduced-motion: no-preference){
+.onb-scene.onb-motion.ramp .onb-alarm{animation:onb-alarm .9s ease-in-out infinite alternate}
+.onb-scene.onb-motion.ruin .onb-alarm{animation:none;opacity:.9}
+@keyframes onb-alarm{from{opacity:.72}to{opacity:1}}
+.onb-scene.onb-motion .rf .leg,.onb-scene.onb-motion .rf .arm{animation-duration:.19s}
+.onb-scene.onb-motion .rf .leg.b,.onb-scene.onb-motion .rf .arm.a{animation-delay:-.19s}
+.onb-scene.onb-motion .rf.robo .leg{animation-duration:.15s}
+.onb-scene.onb-motion .rf.robo .leg.b{animation-delay:-.15s}
+.onb-scene.onb-motion .rf .bob{animation-duration:.1s}
+.onb-scene.onb-motion .rf.still .leg,.onb-scene.onb-motion .rf.still .arm,.onb-scene.onb-motion .rf.still .bob{animation:none}
+.onb-scene.onb-motion .rf .eg{transition:opacity .25s}
+.onb-scene.onb-motion .rsmoke{opacity:0;transform-box:fill-box;transform-origin:center;animation:onb-rsmoke var(--st,4.5s) linear infinite;animation-delay:var(--sd,0s)}
+@keyframes onb-rsmoke{0%{opacity:0;transform:translate(0,0) scale(.5)}15%{opacity:.5}60%{opacity:.28}100%{opacity:0;transform:translate(var(--sx,20px),-120px) scale(2.4)}}
+.onb-scene.onb-motion .rgl{animation:onb-rgl .32s ease-in-out infinite alternate}
+@keyframes onb-rgl{from{opacity:.6}to{opacity:1}}
+}
+
+/* Rebuild the village: a small pill over the last plot, as in the mockup */
+.onb-rebuild{position:absolute;z-index:2;transform:translateX(-50%);height:28px;padding:0 14px;border-radius:14px;border:1.2px solid oklch(0.97 0.01 290 / .32);background:oklch(0.14 0.04 288 / .86);color:oklch(0.90 0.02 290);font:600 12.5px -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;white-space:nowrap;cursor:pointer}
+.onb-rebuild:hover{border-color:oklch(0.83 0.15 72)}
+.onb-rebuild:focus-visible{outline:2px solid oklch(0.83 0.15 72);outline-offset:3px}
+@media (prefers-reduced-motion: no-preference){
+.onb-rebuild{animation:onb-fadein .9s both}
+@keyframes onb-fadein{from{opacity:0}to{opacity:1}}
+}
