@@ -6,7 +6,9 @@ import (
 )
 
 // TypeSafe Jev (optional decision provider): is a key configured, and —
-// on demand, over the network — does the API accept it.
+// on demand, over the network — does the API accept it. When another decision
+// provider is the default, jev.api checks that one and a missing TypeSafe key
+// is not applicable (skipped).
 const (
 	CheckJevKey = "jev.key"
 	CheckJevAPI = "jev.api"
@@ -30,6 +32,16 @@ func jevFixes() []Fix {
 	}
 }
 
+// jevProvider is the default decision provider env names ("typesafe" when it names none).
+func jevProvider(env *Env) string {
+	if env.JevProvider != nil {
+		if p := env.JevProvider(); p != "" {
+			return p
+		}
+	}
+	return "typesafe"
+}
+
 func checkJevKey(ctx context.Context, env *Env) Result {
 	if env.JevKey == nil {
 		return Result{Status: StatusSkip, Summary: "not available"}
@@ -39,6 +51,10 @@ func checkJevKey(ctx context.Context, env *Env) Result {
 	}
 	source, err := env.JevKey(ctx)
 	if err != nil || source == "" {
+		if p := jevProvider(env); p != "typesafe" {
+			// The key is TypeSafe's; another provider answers by default.
+			return Result{Status: StatusSkip, Summary: fmt.Sprintf("not needed: the default decision provider is %q, not TypeSafe", p)}
+		}
 		return Result{Status: StatusWarn, Summary: "no key (Jev is optional; its surfaces stay off without one)", FixID: FixJevKey}
 	}
 	if source == "vault" {
@@ -54,6 +70,13 @@ func checkJevAPI(ctx context.Context, env *Env) Result {
 	}
 	if env.ProfileID == "" {
 		return noProfile()
+	}
+	if p := jevProvider(env); p != "typesafe" {
+		// JevModels checks the default provider: its models, else one tiny question.
+		if err := env.JevModels(ctx); err != nil {
+			return Result{Status: StatusWarn, Summary: fmt.Sprintf("decision provider %q: %v", p, err)}
+		}
+		return Result{Status: StatusOK, Summary: fmt.Sprintf("decision provider %q answers", p)}
 	}
 	if source, err := env.JevKey(ctx); err != nil || source == "" {
 		return Result{Status: StatusSkip, Summary: "no key"}

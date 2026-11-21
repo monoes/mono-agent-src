@@ -106,6 +106,19 @@ func TestJevUsageCountsLocalRows(t *testing.T) {
 	}
 }
 
+// The jev block names the default decision provider: TypeSafe unless chosen.
+func TestJevSectionNamesTheDefaultProvider(t *testing.T) {
+	db := testDB(t)
+	opts := Options{DB: db.DB, ProfileID: "default", Now: now, Sections: map[string]bool{"jev": true}}
+	if j := Build(context.Background(), opts).Jev; j.Provider != "typesafe" {
+		t.Fatalf("provider with none chosen = %q", j.Provider)
+	}
+	exec(t, db, `INSERT INTO settings (key, value) VALUES ('jev.provider', 'local')`)
+	if j := Build(context.Background(), opts).Jev; j.Provider != "local" {
+		t.Fatalf("provider = %q", j.Provider)
+	}
+}
+
 // The roll-up carries vault counts only, never anything identifying a secret.
 func TestVaultSectionLeaksNoSecretFields(t *testing.T) {
 	db := testDB(t)
