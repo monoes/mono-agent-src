@@ -20,6 +20,7 @@ type JevSurface struct {
 	Enabled          bool     `json:"enabled"`
 	Threshold        float64  `json:"threshold"`
 	DefaultThreshold float64  `json:"default_threshold"`
+	Provider         string   `json:"provider"` // this surface's active provider
 }
 
 // JevStatusInfo mirrors `jev status --json`: where the key comes from
@@ -31,6 +32,12 @@ type JevStatusInfo struct {
 	Model     string       `json:"model"`
 	BaseURL   string       `json:"base_url"`
 	Surfaces  []JevSurface `json:"surfaces"`
+	// The machine-default decision provider, its kind and host, and how it
+	// obtains probabilities (native | logprob | sampled | none).
+	Provider     string `json:"provider"`
+	ProviderKind string `json:"provider_kind"`
+	ProviderHost string `json:"provider_host"`
+	Probability  string `json:"probability"`
 }
 
 // JevKeySetResult mirrors `jev key set --json`.
@@ -65,9 +72,11 @@ type JevSurfaceResult struct {
 // JevUsageRow is one surface's aggregate in `jev usage --json`.
 type JevUsageRow struct {
 	Surface      string  `json:"surface"`
+	Provider     string  `json:"provider"`
 	Calls        int     `json:"calls"`
 	Failures     int     `json:"failures"`
 	InputTokens  int     `json:"input_tokens"`
+	OutputTokens int     `json:"output_tokens"`
 	EstimatedUSD float64 `json:"estimated_usd"`
 	AvgLatencyMS int     `json:"avg_latency_ms"`
 }

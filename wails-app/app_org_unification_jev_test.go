@@ -32,3 +32,20 @@ func TestAutonomySetArgsDeciderThreshold(t *testing.T) {
 		}
 	}
 }
+
+// The jev decider's provider (decision providers plan, WS5/WS6): a name is
+// sent as --decider-provider, "" clears it back to the machine default, and
+// a spec without it sends no flag at all (today's behaviour).
+func TestAutonomySetArgsDeciderProvider(t *testing.T) {
+	a, err := autonomySetArgs("growth", `{"decider":{"kind":"jev","provider":"local"}}`)
+	eqArgs(t, a, err, []string{"autonomy", "set", "growth", "--by", "gui", "--decider", "jev", "--decider-provider", "local"})
+	a, err = autonomySetArgs("growth", `{"decider":{"provider":""}}`)
+	eqArgs(t, a, err, []string{"autonomy", "set", "growth", "--by", "gui", "--decider-provider", ""})
+	a, err = autonomySetArgs("growth", `{"decider":{"kind":"jev"}}`)
+	eqArgs(t, a, err, []string{"autonomy", "set", "growth", "--by", "gui", "--decider", "jev"})
+	for _, bad := range []string{"-x", "--yes", "Local", "a b", "a/b"} {
+		if _, err := autonomySetArgs("growth", `{"decider":{"provider":"`+bad+`"}}`); err == nil || !strings.Contains(err.Error(), "provider") {
+			t.Errorf("provider %q: err=%v", bad, err)
+		}
+	}
+}
