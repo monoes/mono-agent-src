@@ -108,6 +108,17 @@ describe('createScene', () => {
     expect(found.textContent).toBe('Found 1 of 12')
     click(root.querySelector('[data-hit="tree"]'))
     expect(found.textContent).toBe('Found 2 of 12')
+    expect(found.querySelector('b').textContent).toBe('2')
+  })
+
+  it('bolds the number of finds even when the translation puts the total first', () => {
+    const root = mountScene({ labels: { found: (n, total) => `${total} hidden, ${n} found` } })
+    scene.setState(statusesUpTo(5), 'agents')
+    click(root.querySelector('[data-hit="windmill"]'))
+    const found = root.querySelector('.onb-found')
+    expect(found.textContent).toBe('12 hidden, 1 found')
+    expect(found.querySelector('b').textContent).toBe('1')
+    expect(found.firstChild.textContent).toBe('12 hidden, ')
   })
 
   it('labels the plot the current step builds, and shows no tag without a label', () => {
@@ -140,6 +151,8 @@ describe('createScene', () => {
     target.dispatchEvent(down)
     click(target)
     click(root.querySelector('[data-hit="sky"]'))
+    // jsdom never moves focus on a dispatched mouse event, so the real check is the
+    // prevented mousedown: that is what keeps focus in the form in a browser.
     expect(down.defaultPrevented).toBe(true)
     expect(document.activeElement).toBe(input)
     const key = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
@@ -154,8 +167,11 @@ describe('createScene', () => {
     const mill = root.querySelector('[data-hit="windmill"]')
     const found = root.querySelector('.onb-found')
     scene.playBuild('monomind')
+    const off = vi.spyOn(window, 'removeEventListener')
     scene.destroy()
     scene = null
+    expect(off.mock.calls.some(([type]) => type === 'resize')).toBe(true)
+    off.mockRestore()
     expect(host.querySelector('.onb-scene')).toBeNull()
     expect(vi.getTimerCount()).toBe(0)
     click(mill)

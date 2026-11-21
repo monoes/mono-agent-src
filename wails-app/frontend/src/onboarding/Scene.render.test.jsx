@@ -5,8 +5,9 @@ import '@testing-library/jest-dom/vitest'
 import { render, screen, fireEvent, act, cleanup } from '@testing-library/react'
 import Scene from './Scene.jsx'
 
+const { lang } = vi.hoisted(() => ({ lang: { value: 'en' } }))
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key, opts) => (opts ? `${key} ${JSON.stringify(opts)}` : key) }),
+  useTranslation: () => ({ t: (key, opts) => (opts ? `${key} ${JSON.stringify(opts)}` : key), i18n: { language: lang.value } }),
 }))
 
 const { created } = vi.hoisted(() => ({ created: [] }))
@@ -27,7 +28,7 @@ vi.mock('./scene/index.js', () => ({
 }))
 
 const last = () => created[created.length - 1]
-beforeEach(() => { created.length = 0 })
+beforeEach(() => { created.length = 0; lang.value = 'en' })
 afterEach(cleanup)
 
 describe('Scene', () => {
@@ -73,6 +74,16 @@ describe('Scene', () => {
     expect(s.setState.mock.calls.length).toBe(calls)
     rerender(<Scene statuses={{ welcome: 'done' }} currentStep="about" />)
     expect(s.setState.mock.calls.length).toBe(calls + 1)
+  })
+
+  it('refreshes the scene words when the language changes', () => {
+    const { rerender } = render(<Scene statuses={{ welcome: 'done' }} currentStep="profile" />)
+    const s = last()
+    const calls = s.setState.mock.calls.length
+    lang.value = 'es'
+    rerender(<Scene statuses={{ welcome: 'done' }} currentStep="profile" />)
+    expect(s.setState.mock.calls.length).toBe(calls + 1)
+    expect(s.playBuild).not.toHaveBeenCalled()
   })
 
   it('passes translated counter text to the scene', () => {

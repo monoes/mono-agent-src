@@ -27,13 +27,15 @@ const sameStatuses = (a, b) => STEP_IDS.every(id => a[id] === b[id])
 // were already done when it mounted. The Rebuild control after the last step's
 // rampage is a real button outside the aria-hidden scene.
 export default function Scene({ statuses, currentStep }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const lang = i18n && i18n.language
   const tRef = useRef(t)
   tRef.current = t
   const mountRef = useRef(null)
   const sceneRef = useRef(null)
   const prevRef = useRef(null)
   const stepRef = useRef(null)
+  const langRef = useRef(null)
   const [rebuildAt, setRebuildAt] = useState(null)
 
   useEffect(() => {
@@ -58,14 +60,16 @@ export default function Scene({ statuses, currentStep }) {
     if (!scene) return
     const now = statuses || {}
     const prev = prevRef.current
-    /* a parent that re-renders on every keystroke must not make the scene lay itself out again */
-    if (prev && currentStep === stepRef.current && sameStatuses(prev, now)) return
+    /* a parent that re-renders on every keystroke must not make the scene lay itself out again;
+       a language switch does refresh its words */
+    if (prev && currentStep === stepRef.current && lang === langRef.current && sameStatuses(prev, now)) return
     stepRef.current = currentStep
+    langRef.current = lang
     scene.setState(now, currentStep)
     if (prev) STEP_IDS.forEach(id => { if (now[id] === 'done' && prev[id] !== 'done') scene.playBuild(id) })
     prevRef.current = Object.assign({}, now)
     if (currentStep !== 'finish') setRebuildAt(null)
-  }, [statuses, currentStep])
+  }, [statuses, currentStep, lang])
 
   const rebuild = () => {
     if (sceneRef.current) sceneRef.current.rebuild()

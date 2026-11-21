@@ -27,16 +27,18 @@ export function createDiscoveries(ctx) {
   const found = new Set(), coolUntil = {}
   let roofN = 0, follow = null
 
-  /* the counter's number is bold, as in the mockup, whatever the translated sentence */
+  /* the counter's number is bold, as in the mockup, wherever the translated sentence puts it:
+     the label is asked once with a marker in the number's place, and split there */
+  const MARK = '\u0001'
   function showCount() {
-    const f = ctx.q('.onb-found'), n = found.size
-    const text = String(ctx.labels.found(n, FOUND_OF)), at = text.indexOf(String(n))
+    const f = ctx.q('.onb-found'), n = String(found.size)
+    const parts = String(ctx.labels.found(MARK, FOUND_OF)).split(MARK)
     f.textContent = ''
-    if (at < 0) f.textContent = text
+    if (parts.length < 2) f.textContent = String(ctx.labels.found(found.size, FOUND_OF))
     else {
       const b = document.createElement('b')
-      b.textContent = String(n)
-      f.append(text.slice(0, at), b, text.slice(at + String(n).length))
+      b.textContent = n
+      f.append(parts[0], b, parts.slice(1).join(n))
     }
     f.hidden = false
   }
@@ -144,5 +146,8 @@ export function createDiscoveries(ctx) {
     },
   }
 
-  return { HIT, stopFollow, get count() { return found.size } }
+  /* words again, after a language switch */
+  function refresh() { if (found.size) showCount() }
+
+  return { HIT, stopFollow, refresh, get count() { return found.size } }
 }

@@ -58,6 +58,27 @@ describe('the last step', () => {
     expect(boosted()).toBe(false)
   })
 
+  it('a drone click does nothing when finish is done but another step is current', () => {
+    scene.setState(Object.assign({}, ALL_DONE, { finish: 'done' }), 'browser')
+    const drone = hit('drone')
+    expect(drone.classList.contains('on')).toBe(true)
+    click(drone)
+    expect(drone.classList.contains('dup')).toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('a resize in the ruin moves the Rebuild control with the window', () => {
+    scene.setState(ALL_DONE, 'finish')
+    combination()
+    vi.advanceTimersByTime(17000)
+    expect(onRampageEnd).toHaveBeenCalledTimes(1)
+    window.dispatchEvent(new Event('resize'))
+    expect(onRampageEnd).toHaveBeenCalledTimes(2)
+    scene.rebuild()
+    window.dispatchEvent(new Event('resize'))
+    expect(onRampageEnd).toHaveBeenCalledTimes(2)
+  })
+
   it('a drone click lifts the drone and it lands after about 6000 ms', () => {
     scene.setState(ALL_DONE, 'finish')
     const drone = hit('drone')

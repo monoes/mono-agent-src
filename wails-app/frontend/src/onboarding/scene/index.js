@@ -155,6 +155,7 @@ export function createScene(options = {}) {
     ctx.q('.onb-warmsky').setAttribute('opacity', (built.size * 0.06).toFixed(2))
     root.classList.toggle('dawn', last || statuses.finish === 'done')
     placeTag()
+    ctx.finds.refresh()
   }
 
   function onMouseDown(e) {
@@ -169,11 +170,16 @@ export function createScene(options = {}) {
     const k = h ? h.dataset.hit : ''
     if (ctx.ramp.active() || ctx.finale.secret(k)) return
     if (k === 'windmill' && ctx.isLast()) ctx.finale.boost()
-    if (k === 'drone') { ctx.finale.droneFly(); return }
+    /* the drone, like the boost and the combination, belongs to the last step only */
+    if (k === 'drone') { if (ctx.isLast()) ctx.finale.droneFly(); return }
     const f = h && ctx.finds.HIT[k]
     if (f) f(h, e)
   }
-  const onResize = () => placeTag()
+  /* the plan tag and, in the ruin, the Rebuild control follow the window */
+  const onResize = () => {
+    placeTag()
+    if (root.classList.contains('ruin')) onRampageEnd(ctx.rebuildAnchor())
+  }
 
   function listen(target, type, fn) { target.addEventListener(type, fn); offs.push(() => target.removeEventListener(type, fn)) }
 
