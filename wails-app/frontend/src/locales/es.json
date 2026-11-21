@@ -2991,16 +2991,117 @@
       }
     },
     "welcome": {
-      "title": "Te damos la bienvenida"
+      "title": "Te damos la bienvenida",
+      "start": "Empezar",
+      "lead": "Automatizaciones y agentes de IA que se ejecutan en tu propio equipo. La configuración lleva unos cinco minutos. Puedes saltarte cualquier paso y volver a él más tarde.",
+      "listTitle": "Lo que vamos a configurar",
+      "items": {
+        "profile": "Tu perfil",
+        "engine": "El motor (monomind)",
+        "agent": "Un agente de IA",
+        "browser": "Tu navegador",
+        "firstRun": "Una primera ejecución"
+      },
+      "signIn": "Inicia sesión en monoes.me para continuar."
     },
     "system": {
-      "title": "Revisión del sistema"
+      "title": "Revisión del sistema",
+      "lead": "MonoAgent necesita algunas cosas en este equipo.",
+      "listLabel": "Resultados de la comprobación del sistema",
+      "rows": {
+        "cli": "Línea de comandos de MonoAgent",
+        "node": "Node.js",
+        "monomind": "monomind",
+        "monomindNote": "El motor detrás de cada paso de IA.",
+        "service": "Servicio en segundo plano",
+        "serviceNote": "Ejecuta las programaciones y los disparadores, y permite que se conecte la extensión del navegador."
+      },
+      "status": {
+        "checking": "Comprobando",
+        "found": "Encontrado",
+        "installed": "Instalado",
+        "running": "En marcha",
+        "notFound": "No encontrado",
+        "notInstalled": "No instalado",
+        "notRunning": "Detenido",
+        "attention": "Requiere atención",
+        "notChecked": "Sin comprobar"
+      },
+      "fix": {
+        "install": "Instalar",
+        "installing": "Instalando",
+        "start": "Iniciar",
+        "starting": "Iniciando",
+        "restart": "Reiniciar",
+        "restarting": "Reiniciando",
+        "fix": "Arreglar",
+        "fixing": "Arreglando",
+        "manual": "Hazlo tú y vuelve a comprobar:",
+        "cancelled": "Se canceló el arreglo.",
+        "failed": "El arreglo no terminó."
+      },
+      "checking": "Comprobando este equipo...",
+      "ready": "Todo está listo.",
+      "todo": "Instala o inicia lo que aparece en rojo para continuar.",
+      "again": "Comprobar de nuevo",
+      "cliMissing": "MonoAgent no encontró su línea de comandos, así que no puede comprobar lo demás. Vuelve a instalar MonoAgent y comprueba de nuevo.",
+      "signIn": "Inicia sesión en monoes.me para continuar."
     },
     "profile": {
-      "title": "Crea tu perfil"
+      "title": "Crea tu perfil",
+      "lead": "Un perfil es un espacio de trabajo aparte. Tiene su propia carpeta, documentos, secretos, memoria de los agentes, organizaciones y navegador. Crea uno para cada ámbito que quieras mantener separado, por ejemplo Personal, Trabajo o un cliente.",
+      "nameLabel": "Nombre del perfil",
+      "namePlaceholder": "Por ejemplo: Trabajo",
+      "suggestions": "Sugerencias de nombre",
+      "suggest": {
+        "personal": "Personal",
+        "work": "Trabajo",
+        "client": "Nombre del cliente"
+      },
+      "iconLabel": "Icono",
+      "icons": {
+        "coder": "Programador",
+        "researcher": "Investigador",
+        "productManager": "Responsable de producto",
+        "contentCreator": "Creador de contenido",
+        "studioProducer": "Productor",
+        "salesEngineer": "Ingeniero de ventas",
+        "gameDesigner": "Diseñador de juegos",
+        "dataEngineer": "Ingeniero de datos"
+      },
+      "folderLabel": "Carpeta",
+      "folderDefault": "~/.monoagent/profiles/",
+      "folderHint": "El perfil recibe una carpeta nueva aquí, salvo que elijas otra.",
+      "change": "Cambiar",
+      "useDefault": "Usar la predeterminada",
+      "previewLabel": "Vista previa en la barra lateral",
+      "previewName": "Nombre del perfil",
+      "previewSub": "Perfil",
+      "create": "Crear perfil",
+      "errorEmpty": "Ponle un nombre a tu perfil.",
+      "errorDefault": "Elige un nombre que diga para qué es este perfil.",
+      "haveOne": "Ya creaste un perfil. Continúa, o escribe un nombre para crear otro.",
+      "signIn": "Inicia sesión en monoes.me para continuar."
     },
     "about": {
-      "title": "Sobre ti"
+      "title": "Sobre ti",
+      "lead": "Se usa cuando los agentes rellenan formularios y solicitudes por ti.",
+      "name": "Tu nombre",
+      "role": "Cargo",
+      "rolePlaceholder": "Por ejemplo: Dirección",
+      "company": "Empresa o proyecto",
+      "helpLabel": "¿Con qué quieres ayuda?",
+      "help": {
+        "outreach": "Captación",
+        "content": "Contenido",
+        "research": "Investigación",
+        "coding": "Programación",
+        "inbox": "Bandeja de entrada",
+        "operations": "Operaciones"
+      },
+      "helpLine": "Quiere ayuda con: {{list}}.",
+      "pointer": "Puedes editarlo más tarde en la pestaña Info.",
+      "signIn": "Inicia sesión en monoes.me para continuar."
     },
     "monomind": {
       "title": "Activa monomind"

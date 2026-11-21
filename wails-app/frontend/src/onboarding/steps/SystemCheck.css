@@ -1,0 +1,7 @@
+/* System check: what the doctor said under a failing row, and the line below the rows. */
+.onb-root .onb-row-t span.onb-system-extra{color:var(--onb-ink-2);overflow-wrap:anywhere}
+.onb-root .onb-row-t span.onb-system-err{color:var(--onb-err);overflow-wrap:anywhere}
+.onb-root .onb-row-t span.onb-system-manual{display:block;margin-top:4px;color:var(--onb-ink-2)}
+.onb-root .onb-system .onb-row .onb-btn.sm{flex:none}
+.onb-root .onb-system-foot{display:flex;align-items:center;gap:10px;margin-top:14px}
+.onb-root .onb-system-foot p{margin:0;font-size:13.5px;flex:1}

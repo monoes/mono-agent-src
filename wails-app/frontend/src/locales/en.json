@@ -2991,16 +2991,117 @@
       }
     },
     "welcome": {
-      "title": "Welcome"
+      "title": "Welcome",
+      "start": "Get started",
+      "lead": "Automations and AI agents that run on your own machine. Setup takes about five minutes. You can skip any step and come back to it later.",
+      "listTitle": "What we will set up",
+      "items": {
+        "profile": "Your profile",
+        "engine": "The engine (monomind)",
+        "agent": "An AI agent",
+        "browser": "Your browser",
+        "firstRun": "A first run"
+      },
+      "signIn": "Sign in to monoes.me to continue."
     },
     "system": {
-      "title": "System check"
+      "title": "System check",
+      "lead": "MonoAgent needs a few things on this machine.",
+      "listLabel": "System check results",
+      "rows": {
+        "cli": "MonoAgent command line",
+        "node": "Node.js",
+        "monomind": "monomind",
+        "monomindNote": "The engine behind every AI step.",
+        "service": "Background service",
+        "serviceNote": "Runs schedules and triggers, and lets the browser extension connect."
+      },
+      "status": {
+        "checking": "Checking",
+        "found": "Found",
+        "installed": "Installed",
+        "running": "Running",
+        "notFound": "Not found",
+        "notInstalled": "Not installed",
+        "notRunning": "Not running",
+        "attention": "Needs attention",
+        "notChecked": "Not checked"
+      },
+      "fix": {
+        "install": "Install",
+        "installing": "Installing",
+        "start": "Start",
+        "starting": "Starting",
+        "restart": "Restart",
+        "restarting": "Restarting",
+        "fix": "Fix",
+        "fixing": "Fixing",
+        "manual": "Do this yourself, then check again:",
+        "cancelled": "The fix was cancelled.",
+        "failed": "The fix did not finish."
+      },
+      "checking": "Checking this machine...",
+      "ready": "Everything is ready.",
+      "todo": "Install or start the items marked in red to continue.",
+      "again": "Check again",
+      "cliMissing": "MonoAgent could not find its command line, so it cannot check the rest. Reinstall MonoAgent, then check again.",
+      "signIn": "Sign in to monoes.me to continue."
     },
     "profile": {
-      "title": "Create your profile"
+      "title": "Create your profile",
+      "lead": "A profile is a separate workspace. It has its own folder, documents, secrets, agents' memory, orgs and browser. Make one for each context you keep apart, for example Personal, Work, or a client.",
+      "nameLabel": "Profile name",
+      "namePlaceholder": "For example: Work",
+      "suggestions": "Name suggestions",
+      "suggest": {
+        "personal": "Personal",
+        "work": "Work",
+        "client": "Client name"
+      },
+      "iconLabel": "Icon",
+      "icons": {
+        "coder": "Coder",
+        "researcher": "Researcher",
+        "productManager": "Product manager",
+        "contentCreator": "Content creator",
+        "studioProducer": "Producer",
+        "salesEngineer": "Sales engineer",
+        "gameDesigner": "Game designer",
+        "dataEngineer": "Data engineer"
+      },
+      "folderLabel": "Folder",
+      "folderDefault": "~/.monoagent/profiles/",
+      "folderHint": "The profile gets a new folder here, unless you choose another one.",
+      "change": "Change",
+      "useDefault": "Use the default",
+      "previewLabel": "Preview in the sidebar",
+      "previewName": "Profile name",
+      "previewSub": "Profile",
+      "create": "Create profile",
+      "errorEmpty": "Give your profile a name.",
+      "errorDefault": "Pick a name that says what this profile is for.",
+      "haveOne": "You already made a profile. Continue, or type a name to make another one.",
+      "signIn": "Sign in to monoes.me to continue."
     },
     "about": {
-      "title": "About you"
+      "title": "About you",
+      "lead": "Used when agents fill forms and applications for you.",
+      "name": "Your name",
+      "role": "Role",
+      "rolePlaceholder": "For example: Founder",
+      "company": "Company or project",
+      "helpLabel": "What do you want help with?",
+      "help": {
+        "outreach": "Outreach",
+        "content": "Content",
+        "research": "Research",
+        "coding": "Coding",
+        "inbox": "Inbox",
+        "operations": "Operations"
+      },
+      "helpLine": "Wants help with: {{list}}.",
+      "pointer": "You can edit this later in the Info tab.",
+      "signIn": "Sign in to monoes.me to continue."
     },
     "monomind": {
       "title": "Turn on monomind"

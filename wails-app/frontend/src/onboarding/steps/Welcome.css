@@ -1,0 +1,6 @@
+/* Welcome: the list of what will be set up (from the mockup's .list-plain). */
+.onb-root .onb-welcome-list{margin:0 0 6px;padding:0;list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.onb-root .onb-welcome-list li{display:flex;gap:10px;align-items:center;padding:12px 14px;border-radius:14px;background:oklch(0.97 0.01 290 / .045);border:1px solid var(--onb-line);font-weight:550}
+.onb-root .onb-welcome-list li.wide{grid-column:1/-1}
+.onb-root .onb-welcome-list svg{width:18px;height:18px;color:var(--onb-accent);flex:none}
+@media (max-width:1000px){ .onb-root .onb-welcome-list{grid-template-columns:1fr} }

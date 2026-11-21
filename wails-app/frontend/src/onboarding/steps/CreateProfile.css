@@ -1,0 +1,17 @@
+/* Create your profile: icon picker, folder line and sidebar preview (from the mockup). */
+.onb-root .onb-profile-chips{margin-top:10px}
+.onb-root .onb-profile-made{margin:-10px 0 18px}
+.onb-root .onb-profile-icons{display:grid;grid-template-columns:repeat(8,1fr);gap:8px}
+.onb-root .onb-profile-icon{aspect-ratio:1;border-radius:14px;border:1px solid var(--onb-line-2);background:oklch(0.97 0.01 290 / .05);display:grid;place-items:center;cursor:pointer;padding:5px;transition:all .2s var(--onb-ease)}
+.onb-root .onb-profile-icon img{width:100%;height:100%;border-radius:50%;display:block}
+.onb-root .onb-profile-icon[aria-checked="true"]{border-color:var(--onb-accent);background:var(--onb-accent-soft);box-shadow:0 0 0 3px oklch(0.83 0.15 72 / .2)}
+.onb-root .onb-profile-folder{display:flex;gap:10px;align-items:center}
+.onb-root .onb-profile-folder code{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:12px;border-radius:12px;background:oklch(0.11 0.035 288 / .7);border:1px solid var(--onb-line)}
+.onb-root .onb-profile-folder .onb-btn{flex:none}
+.onb-root .onb-profile-last{margin:0}
+.onb-root .onb-profile-preview{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;background:oklch(0.11 0.035 288 / .7);border:1px solid var(--onb-line);max-width:300px}
+.onb-root .onb-profile-preview img{width:38px;height:38px;border-radius:11px;flex:none}
+.onb-root .onb-profile-preview div{min-width:0}
+.onb-root .onb-profile-preview b{display:block;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.onb-root .onb-profile-preview span{font-size:12px;color:var(--onb-ink-3)}
+@media (max-width:1000px){ .onb-root .onb-profile-icons{grid-template-columns:repeat(4,1fr)} }

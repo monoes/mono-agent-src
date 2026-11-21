@@ -9,16 +9,20 @@ import Scene from './Scene.jsx'
 import Rail from './Rail.jsx'
 import { stepsFor, statusesOf, stepTitle, railLabel } from './steps.js'
 import Placeholder from './steps/Placeholder.jsx'
+import Welcome from './steps/Welcome.jsx'
+import SystemCheck from './steps/SystemCheck.jsx'
+import CreateProfile from './steps/CreateProfile.jsx'
+import AboutYou from './steps/AboutYou.jsx'
 import Browser from './steps/Browser.jsx'
 import FirstRun from './steps/FirstRun.jsx'
 import './onboarding.css'
 
 // One entry per step id; each step task replaces its own line.
 export const STEP_COMPONENTS = {
-  welcome: Placeholder,
-  system: Placeholder,
-  profile: Placeholder,
-  about: Placeholder,
+  welcome: Welcome,
+  system: SystemCheck,
+  profile: CreateProfile,
+  about: AboutYou,
   monomind: Placeholder,
   agents: Placeholder,
   browser: Browser,
