@@ -2941,5 +2941,23 @@
         "range": "Fuera de rango"
       }
     }
+  },
+  "onboarding": {
+    "scene": {
+      "found": "Encontrados {{n}} de {{total}}",
+      "rebuild": "Reconstruir el pueblo",
+      "plan": {
+        "welcome": "El paso 1 construye el camino a tu pueblo",
+        "system": "El paso 2 construye el taller",
+        "profile": "El paso 3 construye tu primera casa",
+        "about": "El paso 4 construye el jardín",
+        "monomind": "El paso 5 construye el molino, el motor",
+        "agents": "El paso 6 trae los robots",
+        "browser": "El paso 7 construye el puente a una segunda parcela",
+        "permissions": "El paso 8 construye la puerta y sus farolillos",
+        "firstRun": "El paso 9 enciende la hoguera y las luces",
+        "finish": "Tu pueblo está vivo"
+      }
+    }
   }
 }
