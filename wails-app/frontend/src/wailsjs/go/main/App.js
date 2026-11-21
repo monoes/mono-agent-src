@@ -190,6 +190,10 @@ export function AppSelfUpdate() {
   return window['go']['main']['App']['AppSelfUpdate']();
 }
 
+export function ApplyBrowserPermissionPreset(arg1) {
+  return window['go']['main']['App']['ApplyBrowserPermissionPreset'](arg1);
+}
+
 export function ApplyToApplication(arg1, arg2, arg3) {
   return window['go']['main']['App']['ApplyToApplication'](arg1, arg2, arg3);
 }
@@ -300,6 +304,10 @@ export function CoderSetDefaultAccess(arg1) {
 
 export function CoderSetPeercredBinding(arg1) {
   return window['go']['main']['App']['CoderSetPeercredBinding'](arg1);
+}
+
+export function CompleteOnboarding() {
+  return window['go']['main']['App']['CompleteOnboarding']();
 }
 
 export function ConfirmApplicationSubmitted(arg1) {
@@ -444,6 +452,10 @@ export function DeleteWorkflow(arg1) {
 
 export function DenyOrgAction(arg1, arg2, arg3) {
   return window['go']['main']['App']['DenyOrgAction'](arg1, arg2, arg3);
+}
+
+export function DetectChromiumBrowsers() {
+  return window['go']['main']['App']['DetectChromiumBrowsers']();
 }
 
 export function DisableAutomation(arg1) {
@@ -660,6 +672,10 @@ export function GetLogs() {
 
 export function GetOAuthCredentials(arg1) {
   return window['go']['main']['App']['GetOAuthCredentials'](arg1);
+}
+
+export function GetOnboardingState() {
+  return window['go']['main']['App']['GetOnboardingState']();
 }
 
 export function GetOrgApprovals(arg1) {
@@ -1182,6 +1198,10 @@ export function LoginSocial(arg1) {
   return window['go']['main']['App']['LoginSocial'](arg1);
 }
 
+export function MarkOnboardingStep(arg1) {
+  return window['go']['main']['App']['MarkOnboardingStep'](arg1);
+}
+
 export function MarkPersonMessageUnread(arg1) {
   return window['go']['main']['App']['MarkPersonMessageUnread'](arg1);
 }
@@ -1204,6 +1224,10 @@ export function OpenAnyFilePicker(arg1) {
 
 export function OpenAnyFilesPicker(arg1) {
   return window['go']['main']['App']['OpenAnyFilesPicker'](arg1);
+}
+
+export function OpenChromiumBrowser(arg1) {
+  return window['go']['main']['App']['OpenChromiumBrowser'](arg1);
 }
 
 export function OpenFolderFilesPicker(arg1) {
@@ -1414,6 +1438,10 @@ export function ResolveOrgChat(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['ResolveOrgChat'](arg1, arg2, arg3, arg4);
 }
 
+export function RestartOnboarding() {
+  return window['go']['main']['App']['RestartOnboarding']();
+}
+
 export function RestoreAutomation(arg1) {
   return window['go']['main']['App']['RestoreAutomation'](arg1);
 }
@@ -1620,6 +1648,10 @@ export function ShowPlatform(arg1) {
 
 export function ShowRecording(arg1) {
   return window['go']['main']['App']['ShowRecording'](arg1);
+}
+
+export function SkipOnboardingStep(arg1) {
+  return window['go']['main']['App']['SkipOnboardingStep'](arg1);
 }
 
 export function SubmitAITask(arg1, arg2, arg3, arg4) {

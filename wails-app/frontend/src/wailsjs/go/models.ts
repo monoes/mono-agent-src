@@ -1,3 +1,28 @@
+export namespace chromium {
+	
+	export class Browser {
+	    id: string;
+	    name: string;
+	    installed: boolean;
+	    extensionsUrl: string;
+	    devModeSide: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Browser(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.installed = source["installed"];
+	        this.extensionsUrl = source["extensionsUrl"];
+	        this.devModeSide = source["devModeSide"];
+	    }
+	}
+
+}
+
 export namespace connections {
 	
 	export class SafeConnection {
@@ -3305,6 +3330,56 @@ export namespace main {
 	        this.profile_id = source["profile_id"];
 	        this.profile_name = source["profile_name"];
 	    }
+	}
+	export class OnboardingStep {
+	    id: string;
+	    status: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new OnboardingStep(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.status = source["status"];
+	    }
+	}
+	export class OnboardingState {
+	    completed: boolean;
+	    currentStep: string;
+	    profileId: string;
+	    steps: OnboardingStep[];
+	
+	    static createFrom(source: any = {}) {
+	        return new OnboardingState(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.completed = source["completed"];
+	        this.currentStep = source["currentStep"];
+	        this.profileId = source["profileId"];
+	        this.steps = this.convertValues(source["steps"], OnboardingStep);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }

@@ -2958,6 +2958,67 @@
         "firstRun": "El paso 9 enciende la hoguera y las luces",
         "finish": "Tu pueblo está vivo"
       }
+    },
+    "shell": {
+      "brand": "MonoAgent",
+      "subtitle": "Configuración inicial",
+      "subtitleProfile": "Configura este perfil",
+      "progress": "Progreso de la configuración",
+      "eyebrow": "Paso {{n}} de {{total}} · {{name}}",
+      "announce": "Paso {{n}} de {{total}}: {{name}}",
+      "railItem": "Paso {{n}}, {{name}}: {{state}}",
+      "state": {
+        "current": "actual",
+        "done": "hecho",
+        "skipped": "omitido",
+        "upcoming": "pendiente"
+      },
+      "skipped": "Omitido",
+      "back": "Atrás",
+      "skip": "Omitir por ahora",
+      "continue": "Continuar",
+      "rail": {
+        "welcome": "Bienvenida",
+        "system": "Sistema",
+        "profile": "Perfil",
+        "about": "Sobre ti",
+        "monomind": "monomind",
+        "agents": "Tus agentes",
+        "browser": "Navegador",
+        "permissions": "Permisos",
+        "firstRun": "Primera ejecución",
+        "finish": "Todo listo"
+      }
+    },
+    "welcome": {
+      "title": "Te damos la bienvenida"
+    },
+    "system": {
+      "title": "Revisión del sistema"
+    },
+    "profile": {
+      "title": "Crea tu perfil"
+    },
+    "about": {
+      "title": "Sobre ti"
+    },
+    "monomind": {
+      "title": "Activa monomind"
+    },
+    "agents": {
+      "title": "Tus agentes"
+    },
+    "browser": {
+      "title": "Conecta tu navegador"
+    },
+    "permissions": {
+      "title": "Qué pueden hacer los agentes en tu navegador"
+    },
+    "firstRun": {
+      "title": "Tu primera ejecución"
+    },
+    "finish": {
+      "title": "Todo listo"
     }
   }
 }

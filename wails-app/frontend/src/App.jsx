@@ -45,7 +45,9 @@ import { isAgentNotSetup } from './lib/agentSetup.js'
 const maxInlinePreviewBytes = 25 * 1024 * 1024
 
 // banners: the account notices AccountApp hands the app to wear (components/account).
-export default function App({ banners = null }) {
+// initialNav: { page, opts } the onboarding's last step asked for, or null;
+// applied once on mount (onboarding/OnboardingGate.jsx).
+export default function App({ banners = null, initialNav = null }) {
   const [activePage, setActivePage] = useState('dashboard')
   const [navData, setNavData] = useState(null) // extra data passed to a page (e.g., executionId)
   const [profileId, setProfileId] = useState(null)
@@ -113,6 +115,12 @@ export default function App({ banners = null }) {
     if (page === 'orgs' && data?.org) setPendingOrgSelect({ name: data.org, tab: data.tab || 'overview', run: data.run })
     setActivePage(page)
   }, [])
+
+  const initialNavRef = useRef(initialNav)
+  useEffect(() => {
+    const n = initialNavRef.current
+    if (n && n.page) navigate(n.page, n.opts)
+  }, [navigate])
 
   // Marks whatever page is active as visited — deliberately keyed off
   // activePage itself (not routed through navigate()) so it also catches

@@ -2958,6 +2958,67 @@
         "firstRun": "Step 9 builds the campfire and the lights",
         "finish": "Your village is alive"
       }
+    },
+    "shell": {
+      "brand": "MonoAgent",
+      "subtitle": "First-run setup",
+      "subtitleProfile": "Set up this profile",
+      "progress": "Setup progress",
+      "eyebrow": "Step {{n}} of {{total}} · {{name}}",
+      "announce": "Step {{n}} of {{total}}: {{name}}",
+      "railItem": "Step {{n}}, {{name}}: {{state}}",
+      "state": {
+        "current": "current",
+        "done": "done",
+        "skipped": "skipped",
+        "upcoming": "upcoming"
+      },
+      "skipped": "Skipped",
+      "back": "Back",
+      "skip": "Skip for now",
+      "continue": "Continue",
+      "rail": {
+        "welcome": "Welcome",
+        "system": "System check",
+        "profile": "Profile",
+        "about": "About you",
+        "monomind": "monomind",
+        "agents": "Your agents",
+        "browser": "Browser",
+        "permissions": "Permissions",
+        "firstRun": "First run",
+        "finish": "You're set"
+      }
+    },
+    "welcome": {
+      "title": "Welcome"
+    },
+    "system": {
+      "title": "System check"
+    },
+    "profile": {
+      "title": "Create your profile"
+    },
+    "about": {
+      "title": "About you"
+    },
+    "monomind": {
+      "title": "Turn on monomind"
+    },
+    "agents": {
+      "title": "Your agents"
+    },
+    "browser": {
+      "title": "Connect your browser"
+    },
+    "permissions": {
+      "title": "What agents may do in your browser"
+    },
+    "firstRun": {
+      "title": "Your first run"
+    },
+    "finish": {
+      "title": "You're set"
     }
   }
 }
