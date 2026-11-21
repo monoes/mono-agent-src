@@ -41,9 +41,9 @@ export default function JevKeyRow({ status, busy, k }) {
   const { keyInput, setKeyInput, keyNote, test, confirmRemove, setConfirmRemove, saveKey, testKey, removeKey } = k
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: '1px solid var(--border-dim)', paddingTop: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <span style={label}>API key</span>
+        <span style={label}>{t('settings.jev.providers.typesafeKey')}</span>
         <span data-testid="jev-key-chip" style={{
           display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: mono, fontSize: 10.5,
           color: chip.color, background: chip.bg, border: `1px solid ${chip.bd}`, borderRadius: 99, padding: '2px 9px',

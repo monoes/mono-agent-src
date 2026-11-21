@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
 import { ChevronDown, ChevronUp, KeyRound, Zap, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { JevSetSurface } from '../../wailsjs/go/main/App'
+import { JevSetSurface, JevUseProvider } from '../../wailsjs/go/main/App'
 import { mono, card, hint, errText, errMsg, keyChip, formatUSD } from './jevShared.jsx'
 import { useJevData } from './useJevData.js'
 import JevKeyRow, { useJevKey } from './JevKeyRow.jsx'
 import JevFeaturesBlock from './JevFeaturesBlock.jsx'
+import JevProvidersBlock from './JevProvidersBlock.jsx'
 
 // TypeSafe Jev settings. Everything goes through `monoagentcli jev …` (Go
 // side: app_jev.go); the key is sent once on Save and never read back.
@@ -40,20 +41,26 @@ function JevSectionView({ collapsible = false, defaultExpanded = false, expandTo
     if (expandToken) setIsExpanded(true)
   }, [expandToken])
 
-  const { status, loadErr, usage, usageErr, load } = jev
+  const { status, loadErr, usage, usageErr, providers, providersErr, load } = jev
   const [busy, setBusy] = useState('')
   const [err, setErr] = useState('')
   const [pending, setPending] = useState('')
 
-  // run wraps one CLI call: one in flight at a time, errors shown inline.
-  const run = async (what, fn) => {
+  // run wraps one CLI call: one in flight at a time, errors shown inline
+  // (below the key row, or where onErr shows them).
+  const run = async (what, fn, onErr) => {
     setBusy(what); setErr('')
-    try { return await fn() } catch (e) { setErr(errMsg(e)); return undefined } finally { setBusy('') }
+    try { return await fn() } catch (e) { (onErr || setErr)(errMsg(e)); return undefined } finally { setBusy('') }
   }
   const keyState = useJevKey(run, load)
   const setSurface = (surface, enabled, threshold) => run(`surface:${surface}`, async () => {
     await JevSetSurface(surface, enabled, threshold)
     setPending('')
+    await load()
+  })
+  // name '' puts the surface back on the default provider.
+  const setSurfaceProvider = (surface, name) => run(`surface:${surface}`, async () => {
+    await JevUseProvider(name, surface)
     await load()
   })
 
@@ -156,6 +163,7 @@ function JevSectionView({ collapsible = false, defaultExpanded = false, expandTo
     <JevFeaturesBlock
       part={part} status={status} usage={usage} usageErr={usageErr} busy={busy} pending={pending}
       onPending={setPending} onClearErr={() => setErr('')} onSetSurface={setSurface}
+      providers={providers} onSetSurfaceProvider={setSurfaceProvider}
     />
   )
 
@@ -254,6 +262,8 @@ function JevSectionView({ collapsible = false, defaultExpanded = false, expandTo
           Fast pick-one and yes/no decisions for a few monoagent features. Jev never writes text,
           and nothing is sent to TypeSafe until you turn a feature on{machine ? " in a profile's settings" : ' below'}. Get an API key at console.typesafe.ai.
         </div>
+
+        <JevProvidersBlock status={status} providers={providers} providersErr={providersErr} busy={busy} run={run} reload={load} />
 
         <JevKeyRow status={status} busy={busy} k={keyState} />
 

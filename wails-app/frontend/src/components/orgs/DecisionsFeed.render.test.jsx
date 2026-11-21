@@ -44,6 +44,10 @@ describe('jevSummary', () => {
     expect(jevSummary({ jev: { decided: false, p: 0.4, threshold: null } })).toBe('model decided (Jev p=0.40)')
     expect(jevSummary(DECISIONS[2])).toBeNull()
   })
+  it('names a non-TypeSafe decision provider', () => {
+    expect(jevSummary({ jev: { decided: true, p: 0.91, provider: 'local' } })).toBe('Jev · local p=0.91')
+    expect(jevSummary({ jev: { decided: false, p: 0.5, threshold: 0.8, provider: 'local' } })).toBe('model decided (Jev · local p=0.50 below 0.8)')
+  })
   it('orders the distribution highest first', () => {
     expect(jevDistribution(DECISIONS[0].probabilities).map(x => x.verdict)).toEqual(['approve', 'deny', 'escalate'])
   })
