@@ -44,6 +44,11 @@ type Decider struct {
 	// Threshold is the jev decider's gate on the top verdict's probability,
 	// in (0,1]; 0 means DefaultJevThreshold. Other kinds ignore it.
 	Threshold float64 `json:"threshold,omitempty"`
+	// Provider is the jev decider's decision provider ("typesafe" or a
+	// configured one, CheckDeciderProvider); "" follows the profile's
+	// decider surface, else the machine default (plan D9). Other kinds
+	// ignore it.
+	Provider string `json:"provider,omitempty"`
 }
 
 // Limits is org_autonomy.limits_json.
@@ -133,6 +138,9 @@ func (a *Autonomy) Validate() error {
 	}
 	if t := a.Decider.Threshold; t < 0 || t > 1 || math.IsNaN(t) {
 		errs = append(errs, fmt.Sprintf("decider threshold %v must be in (0,1]", t))
+	}
+	if p := a.Decider.Provider; p != "" && !orgdesign.ValidDeciderProvider(p) {
+		errs = append(errs, fmt.Sprintf("decider provider %q must be 1 to 32 of a-z, 0-9 and -", p))
 	}
 	if a.Decider.Fallback != orgdesign.DeciderModel {
 		errs = append(errs, "decider fallback must be model")

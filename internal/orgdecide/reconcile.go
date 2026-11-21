@@ -69,6 +69,9 @@ func DisplayCopy(a *Autonomy, prev *orgdesign.Autonomy) *orgdesign.Autonomy {
 			MaxDecisionsPerRun: a.Limits.MaxDecisionsPerRun, MaxDeciderUSDPerRun: a.Limits.MaxDeciderUSDPerRun,
 		},
 	}
+	if a.Decider.Kind == orgdesign.DeciderJev {
+		out.Decider.Provider = a.Decider.Provider
+	}
 	if a.PausedUntil != nil && a.PausedUntil.After(time.Now()) {
 		out.PausedUntil = a.PausedUntil.UTC().Format(time.RFC3339)
 	}
