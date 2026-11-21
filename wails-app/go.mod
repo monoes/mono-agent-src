@@ -16,8 +16,8 @@ replace github.com/monoes/mono-agent => ..
 require (
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3 // indirect
 	github.com/ProtonMail/go-crypto v1.5.2 // indirect
-	github.com/PuerkitoBio/goquery v1.13.0 // indirect
-	github.com/andybalholm/cascadia v1.3.4 // indirect
+	github.com/PuerkitoBio/goquery v1.14.0 // indirect
+	github.com/andybalholm/cascadia v1.3.5 // indirect
 	github.com/bep/debounce v1.2.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/clipperhouse/displaywidth v0.10.0 // indirect
