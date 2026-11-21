@@ -1,0 +1,54 @@
+{
+  "_generated": true,
+  "credential_platform": null,
+  "fields": [
+    {
+      "help": "Opened in a new tab of the browser bound to this profile and closed once read. Nothing on the page is clicked or typed.",
+      "key": "url",
+      "label": "URL",
+      "placeholder": "https://example.com",
+      "required": true,
+      "type": "text"
+    },
+    {
+      "default": 20000,
+      "help": "The text is cut at this many characters (at most 200000).",
+      "key": "max_chars",
+      "label": "Max Characters",
+      "required": false,
+      "type": "number"
+    }
+  ],
+  "outputs": [
+    {
+      "description": "the input item's fields, passed through",
+      "key": "*",
+      "type": "object"
+    },
+    {
+      "description": "the page's URL once loaded",
+      "key": "url",
+      "type": "string"
+    },
+    {
+      "description": "the page title",
+      "key": "title",
+      "type": "string"
+    },
+    {
+      "description": "the visible text, one line per text node",
+      "key": "text",
+      "type": "string"
+    },
+    {
+      "description": "the text of the first paragraph",
+      "key": "first_paragraph",
+      "type": "string"
+    },
+    {
+      "description": "the text was cut (max_chars or the extension's node cap)",
+      "key": "truncated",
+      "type": "boolean"
+    }
+  ]
+}

@@ -92,6 +92,11 @@ type Options struct {
 	// looks at it, so a page that navigated away raises no "allow this site"
 	// approval for an origin it chose.
 	PinOrigin string
+	// Caller, when set, is who the session acts for when that is not this
+	// process (a workflow node held as the kind that started its run). It
+	// only tightens: of it and the process's own caller (AgentCaller), the
+	// one the permissions hold stricter binds.
+	Caller *Caller
 	// Sender overrides finding the bridge (tests).
 	Sender Sender
 }
@@ -129,6 +134,9 @@ func Open(o Options) (*Session, error) {
 		perms = *o.Permissions
 	}
 	caller := AgentCaller() // once: the policy and the key share one verdict
+	if o.Caller != nil {
+		caller = perms.stricterCaller(caller, *o.Caller)
+	}
 	policy := perms.PolicyForCaller(caller)
 	policy.Allowlist = append(policy.Allowlist, o.Allowlist...)
 	policy.HoldLocalSubmits = o.HoldLocalSubmits
@@ -154,6 +162,18 @@ func Open(o Options) (*Session, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+// stricterCaller is whichever of a and b p holds tighter (a on a tie). No
+// kind (the user's own terminal) is the loosest of all.
+func (p Permissions) stricterCaller(a, b Caller) Caller {
+	if a.Kind == "" {
+		return b
+	}
+	if b.Kind != "" && strictness[p.LevelOf(b)] > strictness[p.LevelOf(a)] {
+		return b
+	}
+	return a
 }
 
 // route resolves the browser and pins its instance.

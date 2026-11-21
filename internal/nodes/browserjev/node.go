@@ -72,6 +72,7 @@ func (n *Node) Type() string { return "browser.jev" }
 // RegisterAll registers browser.jev.
 func RegisterAll(r *workflow.NodeTypeRegistry) {
 	r.Register("browser.jev", func() workflow.NodeExecutor { return &Node{} })
+	r.Register("browser.read", func() workflow.NodeExecutor { return &ReadNode{} })
 }
 
 type runConfig struct {

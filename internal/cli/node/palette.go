@@ -181,6 +181,7 @@ func Palette(db *sql.DB, includeDeprecated bool) map[string][]PaletteNode {
 			mkNode("agent.memory", "Agent Memory", "ai", "Read, add or clear the messages of a conversation that agent.ask remembers (memory option)"),
 			mkNode("ai.guardrails", "Guardrails", "ai", "Check text for PII, secrets, URLs, keywords, jailbreaks and off-topic content; pass/fail or sanitize"),
 			mkNode("browser.jev", "Browser Agent (Jev)", "ai", "Reach a goal on any website in your own browser — TypeSafe Jev picks each click/type/select"),
+			mkNode("browser.read", "Browser Read", "ai", "Open a page in your own browser and return its title and visible text; reads only"),
 			mkNode("ai.choose", "AI Choose (Jev)", "ai", "Route each item to one of your cases — TypeSafe Jev picks, with a low_confidence output"),
 			mkNode("ai.chat", "AI Chat (deprecated)", "ai", "Deprecated — replace with Agent Ask"),
 			mkNode("ai.extract", "AI Extract (deprecated)", "ai", "Deprecated — replace with Agent Ask"),

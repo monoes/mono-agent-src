@@ -302,8 +302,9 @@ var outboundNodes = setOf(
 	// Queues a coder task for a person to start: it acts on nothing itself,
 	// but what it queues can, so a grant needs a decision.
 	"ai.task",
-	"browser.jev", // goal-driven agent in the user's browser
-	"mcp.call",    // calls any tool of an arbitrary MCP server
+	"browser.jev",  // goal-driven agent in the user's browser
+	"browser.read", // reads any page of the user's logged-in browser into the run
+	"mcp.call",     // calls any tool of an arbitrary MCP server
 	// Runs another workflow, which may contain any outbound node.
 	"core.execute_workflow",
 	"http.ftp", "http.ssh", "system.execute_command",

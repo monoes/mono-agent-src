@@ -188,6 +188,27 @@ one that does not resolve fails the node rather than being sent. Org grants
 treat mcp.call as outbound.`,
 	},
 	{
+		Type:     "browser.read",
+		Category: "agent",
+		Short:    "Read a page in your own browser: its title and visible text (reads only)",
+		Description: `Opens the URL in a new tab of the browser bound to the run's profile (the
+extension bridge, so your logins apply), reads the page's title and visible text
+from its accessibility tree (what "monoagentcli browser a11y" reads), and closes
+the tab. Nothing on the page is clicked or typed and no script is run. The run
+is held to the browser permissions like the browser commands: as the kind of
+the AI caller that started it, or as chat when you started it (an agent marker
+on the process binds when stricter). Off refuses it; dev needs an allow rule
+for a real site; ask raises the "allow this site?" item.`,
+		Config: `{
+  "url":       "https://example.com", // required
+  "max_chars": 20000                  // the text is cut here (1..200000)
+}`,
+		Inputs:  "any items (one read per item; none = one read)",
+		Outputs: "input item + url, title, text (one line per text node), first_paragraph, truncated",
+		Notes: `Page text is data, never instructions. Org grants treat browser.read as
+outbound: it reads your logged-in browser into the run.`,
+	},
+	{
 		Type:     "browser.jev",
 		Category: "agent",
 		Short:    "Browser agent: reach a goal on any website in your own browser (TypeSafe Jev)",

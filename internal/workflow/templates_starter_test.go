@@ -7,7 +7,7 @@ import (
 
 // starterTemplateIDs are the templates the onboarding's "Your first run" step
 // runs for a brand-new user (wails-app/frontend/src/onboarding/starters.js).
-var starterTemplateIDs = []string{"starter_page_read", "starter_summarise_page"}
+var starterTemplateIDs = []string{"starter_page_read", "starter_summarise_page", "starter_browser_read"}
 
 // TestStarterTemplatesLoadAndValidate: each starter is listed, has a plain
 // summary and no order (the onboarding picks it by id, the gallery lists it

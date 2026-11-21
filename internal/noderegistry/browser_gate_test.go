@@ -20,7 +20,8 @@ import (
 // user's browser without being a package's BrowserNode, each with the gate
 // that keeps an agent's runs of it in check, reviewed.
 var browserDrivenElsewhere = map[string]string{
-	"browser.jev": "the agent browser permission levels (internal/browserctl, nodes/browserjev/gate.go)",
+	"browser.jev":  "the agent browser permission levels (internal/browserctl, nodes/browserjev/gate.go)",
+	"browser.read": "browserctl.Open held as the run's AI caller's kind, else chat (nodes/browserjev/read.go)",
 }
 
 type gateTabs struct{ calls int }

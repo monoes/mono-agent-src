@@ -112,6 +112,7 @@ var publishingTypes = map[string]string{
 	"ai.read_page":                "model provider / the page it fetches",
 	"ai.transform":                "model provider / the page it fetches",
 	"browser.jev":                 "types into a page in the user's browser",
+	"browser.read":                "opens an address the run chooses in the user's browser",
 	"comm.email_read":             "a message or mailbox request to a third party",
 	"comm.email_send":             "a message or mailbox request to a third party",
 	"comm.slack":                  "a message or mailbox request to a third party",

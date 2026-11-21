@@ -3756,7 +3756,7 @@ monoagentcli --profile work org automation-role add growth --alias publish_post 
   `data.spreadsheet` only for writes. So `comm.*`/`service.*` sends,
   `db.*`, `org.*`, every social write (DMs, posts, comments, likes,
   follows, `instagram.watch_stories`), `gemini.*`, `browser.jev`,
-  `agent.ask`/`ai.agent`, `ai.extract_page`, `applications.evaluate`,
+  `browser.read`, `agent.ask`/`ai.agent`, `ai.extract_page`, `applications.evaluate`,
   `system.execute_command`, `http.ftp`/`ssh`, `data.write_binary_file`,
   `vault.secret_save`, installed packages' actions and any unknown type
   need a person at `mid`.
@@ -4013,6 +4013,14 @@ monoagentcli --profile <id> --json browser network --tab 812 --failed
   held item is used only by its own command (`submit`, `upload`, `fill`).
   An image for a file box can be made with a `gemini.generate_image` node,
   then `browser upload` puts it in.
+- **browser.read** opens a URL in a new tab of the run's profile's browser,
+  reads its title and visible text from the accessibility tree (what
+  `browser a11y` reads) and closes the tab: no click, typing or script. It
+  goes through `browserctl.Open` like the browser commands, held as the kind
+  of the AI caller that started the run (browser.jev's rules), or as `chat`
+  when the user started it; `Options.Caller` only tightens, so an agent
+  marker on the process binds when stricter. The refusals are the commands'
+  (`browser_off`, `origin_not_allowed`, `site_needs_approval`).
 - **browser.jev files and profile_info.** `files` (paths) answers the file
   chooser an Upload click opens: the page's input is kept instead of the
   native dialog and given the next file (all left, for a multiple input). An

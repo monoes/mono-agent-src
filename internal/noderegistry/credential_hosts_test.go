@@ -29,6 +29,7 @@ var notDestinations = map[string]string{
 	"ai.read_page url":                  "a public page it reads; it takes no connection",
 	"applications.create url":           "the posting's address, recorded; nothing is sent there",
 	"browser.jev url":                   "the page the user's browser opens; no connection's secret goes with it",
+	"browser.read url":                  "the page the user's browser opens; no connection's secret goes with it",
 	"comm.telegram photo_url":           "media Telegram fetches; the bot token goes only to api.telegram.org",
 	"comm.twilio url":                   "TwiML Twilio fetches; the auth token goes only to api.twilio.com; public http(s) only (checkTwiMLURL), and the card shows it",
 	"comm.whatsapp media_url":           "media WhatsApp fetches; the token goes only to graph.facebook.com",

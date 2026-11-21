@@ -388,6 +388,7 @@ Some features are not agent turns. [TypeSafe Jev](AGENTS.md#typesafe-jev-decisio
 | `agent.ask` | Ask a locally-installed AI agent (claude, codex, kimi, qwen, …) — the node for AI steps |
 | `ai.choose` | Route each item to one of your cases with a TypeSafe Jev choice (probabilities, `low_confidence` output) |
 | `browser.jev` | Browser agent: give it a URL and a goal, it clicks/types/selects its way there in your own browser (TypeSafe Jev picks each action; port of browser-use/jev-ultrafast) |
+| `browser.read` | Open a page in your own browser and return its title and visible text; it never clicks, types or runs a script (held to your Agent browser permissions) |
 | `org.run` / `org.ask` / `org.send` | Start, question, or message an agent org (via the monomind engine) |
 | `ai.read_page` / `ai.extract_page` | Fetch a page as clean markdown (no AI) / extract fields from it with CSS selectors you give or a local agent writes |
 | `gemini.generate_text` · `gemini.generate_image` · `gemini.chat_session` · `gemini.chat_session_many` | Gemini via your own logged-in browser session — no API key |

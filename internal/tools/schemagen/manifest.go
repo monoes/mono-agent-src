@@ -94,6 +94,7 @@ var Manifest = []ManifestEntry{
 	{NodeType: "agent.ask", GoFile: "internal/nodes/agent/ask_schema.go", StructName: "AskNodeSchema"},
 	{NodeType: "agent.memory", GoFile: "internal/nodes/agent/memory_schema.go", StructName: "MemoryNodeSchema"},
 	{NodeType: "browser.jev", GoFile: "internal/nodes/browserjev/schema.go", StructName: "NodeSchema"},
+	{NodeType: "browser.read", GoFile: "internal/nodes/browserjev/read_schema.go", StructName: "ReadNodeSchema"},
 	{NodeType: "ai.choose", GoFile: "internal/nodes/ai/choose/choose_schema.go", StructName: "ChooseNodeSchema"},
 	{NodeType: "ai.model", GoFile: "internal/nodes/aisub/schema.go", StructName: "ModelNodeSchema"},
 	{NodeType: "ai.memory", GoFile: "internal/nodes/aisub/schema.go", StructName: "MemoryNodeSchema"},
