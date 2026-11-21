@@ -35,6 +35,9 @@ func operatorOnlyRowsPR2() []opRow {
 		{path: "jev key set", build: newJevCmd, args: []string{"key", "set"}},
 		{path: "jev key adopt", build: newJevCmd, args: []string{"key", "adopt"}},
 		{path: "jev key remove", build: newJevCmd, args: []string{"key", "remove"}},
+		{path: "jev provider add", build: newJevCmd, args: []string{"provider", "add", "local", "--kind", "openai", "--base-url", "http://localhost:9", "--no-probe"}},
+		{path: "jev provider remove", build: newJevCmd, args: []string{"provider", "remove", "local"}},
+		{path: "jev provider use", build: newJevCmd, args: []string{"provider", "use", "typesafe", "--yes"}},
 	}
 }
 

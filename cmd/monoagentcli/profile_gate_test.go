@@ -27,6 +27,7 @@ var mustBeGlobal = []string{
 	"account status", "ref commands", "init", "nodejs status", "db migrate", "integration list", "chat history reconcile",
 	"secret encrypt-connections", "mcp", "workflow migrate", "doctor", "setup",
 	"jev key set", "jev key remove", "jev key adopt",
+	"jev provider add", "jev provider remove", "jev provider use",
 }
 
 var mustBeScoped = []string{
@@ -35,6 +36,7 @@ var mustBeScoped = []string{
 	"automation list", "automation rerecord", "api key list", "api status",
 	"agent purposes list", "agent purposes set", "agent purposes reset",
 	"status", "login status", "chat history list", "jev status", "node run", "jev key test",
+	"jev provider list", "jev provider probe",
 }
 
 func findCommand(t *testing.T, root *cobra.Command, key string) *cobra.Command {
