@@ -242,3 +242,17 @@ func TestRegisterVerifyOnlyForAFinishAtQuiescent(t *testing.T) {
 		t.Fatalf("%+v", ms)
 	}
 }
+
+// A kernel with no service manager is refused where the unit kind needs one (every kind but the macOS ones): the refusal comes from
+// the unit's own creation, so a platform whose units need none (macOS, Windows) is no longer turned away by the sandbox first.
+func TestNoVerificationUnitWhereTheKindNeedsAServiceManagerAndNoneIsWired(t *testing.T) {
+	r, e := finishedBegun(t)
+	e.W.Host = nil
+	_, _, err := e.sandbox(1)(context.Background(), 1)
+	if err == nil || !strings.Contains(err.Error(), "service manager") {
+		t.Fatalf("a cgroup verification unit was made (or refused for another reason) with no service manager: %v", err)
+	}
+	if len(r.world.started) != 1 {
+		t.Fatalf("a service was started for it: %v", r.world.started)
+	}
+}

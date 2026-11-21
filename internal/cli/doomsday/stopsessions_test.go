@@ -580,6 +580,22 @@ func TestABestEffortOutcomePrintsItsLimit(t *testing.T) {
 	}
 }
 
+// The verdict quotes the limit the unit's mechanism states (the session unit's), and the process-group wording when it states none.
+func TestABestEffortOutcomePrintsTheUnitsOwnLimit(t *testing.T) {
+	r := newStopRig(t)
+	runs, _ := r.w.Store.OpenRuns(context.Background(), "p1")
+	o := StopOutcome{MarkerRecorded: true, IntentRecorded: true, BestEffort: true, BestEffortLimit: stop.SessionBestEffortNote,
+		Runs: []RunRef{{CharterID: runs[0].CharterID, Generation: runs[0].Generation}}}
+	r.deps.Engine = func() Engine {
+		return &partialEngine{fakeEngine: &fakeEngine{stop: o}, realAfter: &realAfter{w: r.wireRig}}
+	}
+	out, err := run(t, r.deps, "", "stop")
+	want := "stopped (" + stop.SessionBestEffortNote + ")\n"
+	if err != nil || !strings.HasPrefix(out, want) {
+		t.Fatalf("out=%q err=%v, want it to start with %q", out, err, want)
+	}
+}
+
 // The CLI side of a best-effort stop: an outcome that carries the engine's line and names its run ends the sessions, prints
 // the line first and writes it verbatim into the chat message.
 func TestABestEffortLineEndsSessionsAndReachesTheMessageVerbatim(t *testing.T) {

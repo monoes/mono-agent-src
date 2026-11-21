@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os/exec"
 
 	"github.com/monoes/mono-agent/internal/doomsday/stop"
 	"github.com/monoes/mono-agent/internal/doomsday/store"
@@ -40,7 +41,7 @@ func (g *HostGate) MergeFor(ctx context.Context) (*dynorg.DoomsdayMerge, error) 
 		if err != nil {
 			return nil, err
 		}
-		dd = &dynorg.DoomsdayMerge{Gate: gate, Members: g.Store, Journal: g.Journal, Profile: g.Profile, Generation: run.Generation, Place: pl.Place, PlaceTicket: pl.PlaceTicket}
+		dd = &dynorg.DoomsdayMerge{Gate: gate, Members: g.Store, Journal: g.Journal, Profile: g.Profile, Generation: run.Generation, Place: gitPlace(pl), PlaceTicket: gitPlaceTicket(pl)}
 		g.merges[run.Generation] = dd
 	}
 	return dd, nil
@@ -72,7 +73,7 @@ func (w Wiring) placementOfOpenRun(ctx context.Context) (dynorg.GitPlacer, error
 	if err != nil {
 		return nil, err
 	}
-	return pl.Place, nil
+	return gitPlace(pl), nil
 }
 
 // recoverMerges is the call from the start and stop paths: it revisits every merge member of the profile's open
@@ -93,4 +94,22 @@ func (w Wiring) recoverMerges(ctx context.Context) error {
 	}
 	_, err = r.Recover(ctx, "", gens...)
 	return err
+}
+
+// gitPlace is the placement of a merge's git command. A unit that takes a command only as a started, recorded session leader (the
+// macOS session unit) has its own entry for it; every other unit places the command at its birth.
+func gitPlace(pl stop.Placement) dynorg.GitPlacer {
+	if sp, ok := pl.(stop.StandalonePlacement); ok {
+		return sp.PlaceStandalone
+	}
+	return pl.Place
+}
+
+// gitPlaceTicket is the placement of a merge step's git command: the session unit ignores the ticket (it cannot spare one command,
+// as the process-group and Job Object units cannot), the others use it.
+func gitPlaceTicket(pl stop.Placement) func(uint64, *exec.Cmd) (func(), error) {
+	if sp, ok := pl.(stop.StandalonePlacement); ok {
+		return func(_ uint64, cmd *exec.Cmd) (func(), error) { return sp.PlaceStandalone(cmd) }
+	}
+	return pl.PlaceTicket
 }

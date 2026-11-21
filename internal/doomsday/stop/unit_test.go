@@ -239,12 +239,12 @@ func TestProbeRefusesOffLinux(t *testing.T) {
 	}
 }
 
-// macOS has a containment now (a process group, KindPGroup), so it no longer belongs in the "no mechanism at all" list
+// macOS has a containment now (the session unit, KindSession), so it no longer belongs in the "no mechanism at all" list
 // above. Here, off macOS, its mechanism has no API: the probe still refuses, now with the macOS wording instead of
 // "darwin is not supported".
 func TestProbeOfDarwinRefusesWithTheMacOSMechanismWording(t *testing.T) {
 	// the mechanism with no API, whatever the host: on a real Mac the real one would answer instead
-	swapContainment(t, KindPGroup, pgContainment{})
+	swapContainment(t, KindSession, sessContainment{})
 	err := probe("darwin", func() []ProbeStep { t.Fatal("linux steps consulted"); return nil })
 	if !errors.Is(err, ErrContainmentUnavailable) || !strings.Contains(err.Error(), "macOS") {
 		t.Fatalf("darwin: %v", err)

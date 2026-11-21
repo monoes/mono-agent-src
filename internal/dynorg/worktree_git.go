@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/doomsday/stop"
 	"github.com/monoes/mono-agent/internal/gitsafe"
 )
 
@@ -162,6 +163,9 @@ func gitEnv() []string {
 // values for every call (gitsafe.Args); a user's hooks and signing therefore do not apply to
 // the scheduler's own checkpoint and merge commits. Content filters and merge drivers are
 // not covered: git has no switch for them.
+// adoptPlaced is stop.AdoptPlaced; a test replaces it.
+var adoptPlaced = stop.AdoptPlaced
+
 func gitRun(ctx context.Context, dir string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
@@ -184,7 +188,22 @@ func gitRun(ctx context.Context, dir string, args ...string) (string, error) {
 	var stdout, stderr bytes.Buffer
 	so := &limitWriter{w: &stdout, max: maxGitOutput}
 	cmd.Stdout, cmd.Stderr = so, &limitWriter{w: &stderr, max: 64 << 10}
-	if err := cmd.Run(); err != nil {
+	err = cmd.Start()
+	if err == nil {
+		// a command placed in a session unit is recorded as a member right after it started; one the unit does not know is ended
+		// A leader that exits before it is looked at but leaves a session member behind is not recorded (a process-group unit would
+		// have covered it); not plausible for git.
+		if aerr := adoptPlaced(cmd); aerr != nil {
+			// the whole group, not only the leader: git children forked since the start (a merge driver) are in its session
+			if kerr := killPlaced(cmd); kerr != nil {
+				aerr = fmt.Errorf("%w (and the command could not be killed: %v)", aerr, kerr)
+			}
+			_ = cmd.Wait() // bounded by the command's own context (gitTimeout) and WaitDelay even when the kill failed
+			return "", aerr
+		}
+		err = cmd.Wait()
+	}
+	if err != nil {
 		if so.over {
 			return "", errors.New("git printed more than the conductor reads")
 		}

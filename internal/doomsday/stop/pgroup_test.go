@@ -488,9 +488,10 @@ func TestPGroupPlaceStartsChildrenInTheAnchorsGroupAndRefusesWhatItCannotProve(t
 func TestPGroupCreateDispatchesByPlatformAndProbeRunsTheSelfTest(t *testing.T) {
 	w := newFakePG()
 	usePG(t, w)
-	if platformKinds["darwin"] != KindPGroup {
+	if platformKinds["darwin"] != KindSession {
 		t.Fatalf("darwin maps to %q", platformKinds["darwin"])
 	}
+	platformKindsAs(t, "darwin", KindPGroup) // the process-group unit is still dispatched by a platform that names it (verification units)
 	rec, err := createUnit(bg, "darwin", nil, CreateArgs{Dir: newRunDir(t, nil)}, 9)
 	if err != nil || rec.Kind != KindPGroup {
 		t.Fatalf("%+v %v", rec, err)
