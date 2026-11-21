@@ -24,6 +24,7 @@ import (
 	"github.com/monoes/mono-agent/internal/jevpick"
 	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/nodes"
+	"github.com/monoes/mono-agent/internal/nodes/decisionclient"
 	"github.com/monoes/mono-agent/internal/vault"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
@@ -153,14 +154,17 @@ func (n *Node) Execute(ctx context.Context, input workflow.NodeInput, config map
 
 // jevClient resolves the key per plan D3 (explicit api_key → the machine-wide
 // key (`jev key set`; an @secret: ref also tries the profile vault) → TYPESAFE_API_KEY; an unresolved @secret: ref is never sent)
-// and records usage under node:browser.jev.
+// and records usage under node:browser.jev. A `provider` other than TypeSafe
+// (or such a default) uses that provider's own key (decisionclient).
 func jevClient(ctx context.Context, config map[string]interface{}) (*jev.Client, error) {
 	profile, perr := vault.ProfileIDFromContext(ctx)
 	if perr != nil {
 		return nil, fmt.Errorf("browser.jev: ran without a profile: %w", perr)
 	}
-	return jevconf.NewClient(ctx, vault.DBFromContext(ctx), profile,
-		str(config, "api_key"), str(config, "model"), jevconf.NodeSurface("browser.jev"))
+	c, _, err := decisionclient.New(ctx, vault.DBFromContext(ctx), profile, decisionclient.Config{
+		Provider: str(config, "provider"), APIKey: str(config, "api_key"), Model: str(config, "model"),
+	}, jevconf.NodeSurface("browser.jev"))
+	return c, err
 }
 
 // run drives one goal to DONE, BLOCKED, or a budget. Decisions are
