@@ -18,7 +18,7 @@ vi.mock('../../services/api.js', () => ({
   }),
 }))
 
-import SystemCheck, { HEALTH_MODE } from './SystemCheck.jsx'
+import SystemCheck, { HEALTH_MODE, RETRY_MS } from './SystemCheck.jsx'
 
 const fix = (id, safety = 'confirm') => ({ id, label: `label of ${id}`, safety })
 const row = (id, status, extra = {}) => ({ id, group: id.split('.')[0], title: id, status, summary: `${id} ${status}`, ...extra })
@@ -64,7 +64,8 @@ describe('SystemCheck', () => {
     expect(screen.getAllByText('Checking')).toHaveLength(4)
     await flush()
 
-    expect(go.RunHealthCheck).toHaveBeenCalledWith(HEALTH_MODE)
+    expect(HEALTH_MODE).toBe('background')
+    expect(go.RunHealthCheck).toHaveBeenCalledWith('background')
     expect(within(rowOf('MonoAgent command line')).queryByRole('button')).toBeNull()
     expect(within(rowOf('MonoAgent command line')).getByText('Found')).toBeInTheDocument()
     expect(within(rowOf('Node.js')).queryByRole('button')).toBeNull()
@@ -118,14 +119,54 @@ describe('SystemCheck', () => {
 
   it('a fix refused at once shows its error and stops the spinner', async () => {
     go.RunHealthCheck.mockResolvedValue(FAILING)
-    go.RunHealthFix.mockResolvedValue('{"error":"monomind.install is already running"}')
+    go.RunHealthFix.mockResolvedValue('{"error":"monoagentcli not found in PATH"}')
     const { container } = render(<SystemCheck {...props} />)
     await flush()
     fireEvent.click(within(rowOf('monomind')).getByRole('button', { name: 'Install' }))
     await flush()
-    expect(within(rowOf('monomind')).getByText('monomind.install is already running')).toBeInTheDocument()
+    expect(within(rowOf('monomind')).getByText('monoagentcli not found in PATH')).toBeInTheDocument()
     expect(container.querySelector('.onb-spinner')).toBeNull()
     expect(events.listeners).toHaveLength(0)
+  })
+
+  it('a fix already running (started before) is followed to its end, not shown as a failure', async () => {
+    go.RunHealthCheck.mockResolvedValueOnce(FAILING).mockResolvedValueOnce(PASSING)
+    go.RunHealthFix.mockResolvedValue('{"error":"monomind.install is already running"}')
+    render(<SystemCheck {...props} />)
+    await flush()
+    fireEvent.click(within(rowOf('monomind')).getByRole('button', { name: 'Install' }))
+    await flush()
+    expect(screen.queryByText(/already running/)).toBeNull()
+    expect(within(rowOf('monomind')).getByText('Installing')).toBeInTheDocument()
+    await emit({ fix_id: 'monomind.install', kind: 'line', message: 'added 212 packages' })
+    expect(within(rowOf('monomind')).getByText('added 212 packages')).toBeInTheDocument()
+    await emit({ fix_id: 'monomind.install', kind: 'done' })
+    await flush()
+    expect(go.RunHealthCheck).toHaveBeenCalledTimes(2)
+    expect(within(rowOf('monomind')).getByText('Installed')).toBeInTheDocument()
+  })
+
+  it('a check already running (left and came back) is asked again, not shown as a failure', async () => {
+    vi.useFakeTimers()
+    try {
+      go.RunHealthCheck.mockResolvedValueOnce('{"error":"a background check is already running"}')
+        .mockResolvedValueOnce('{"error":"a background check is already running"}')
+        .mockResolvedValueOnce(PASSING)
+      render(<SystemCheck {...props} />)
+      await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+      expect(go.RunHealthCheck).toHaveBeenCalledTimes(1)
+      expect(screen.queryByRole('alert')).toBeNull()
+      expect(screen.getAllByText('Checking')).toHaveLength(4)
+      await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_MS) })
+      expect(go.RunHealthCheck).toHaveBeenCalledTimes(2)
+      expect(screen.queryByRole('alert')).toBeNull()
+      await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_MS) })
+      expect(go.RunHealthCheck).toHaveBeenCalledTimes(3)
+      expect(within(rowOf('Background service')).getByText('Running')).toBeInTheDocument()
+      expect(props.setCanContinue).toHaveBeenLastCalledWith(true)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('a login-required answer shows the sign-in message and stops the spinner', async () => {

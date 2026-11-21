@@ -13,6 +13,14 @@ import './SystemCheck.css'
 // The doctor mode the step asks for (app_health.go healthArgs).
 export const HEALTH_MODE = 'background'
 
+// Go refuses a second check of a mode while one runs ("a background check is
+// already running"), and a second run of a fix ("… is already running"). That
+// is the person coming back mid-check, never a failure: a check is asked
+// again after RETRY_MS, and a fix is followed through the events it already
+// sends under its id.
+export const RETRY_MS = 1000
+const ALREADY = /already (running|being installed)/
+
 // The four rows, by doctor check id. The command line's check never says ok,
 // only info (it reports the version); the other three pass only on ok.
 const ROWS = [
@@ -88,8 +96,15 @@ export default function SystemCheck({ mark, setCanContinue, setOnContinue }) {
     setChecking(true)
     setNotice('')
     let raw
-    const r = await callStep(async () => (raw = await RunHealthCheck(HEALTH_MODE)))
-    if (!alive.current) return
+    let r
+    for (;;) {
+      raw = undefined
+      r = await callStep(async () => (raw = await RunHealthCheck(HEALTH_MODE)))
+      if (!alive.current) return
+      if (r.ok || r.loginRequired || !ALREADY.test(r.message)) break
+      await new Promise(res => setTimeout(res, RETRY_MS))
+      if (!alive.current) return
+    }
     if (r.ok) {
       const byId = {}
       for (const row of r.value?.results || []) byId[row.id] = row
@@ -144,7 +159,8 @@ export default function SystemCheck({ mark, setCanContinue, setOnContinue }) {
     })
     offs.current.add(off)
     const r = await callStep(() => RunHealthFix(fix.id))
-    const ev = r.ok ? await final : { kind: 'error', message: r.loginRequired ? t('onboarding.shell.signIn') : r.message }
+    const attach = !r.ok && !r.loginRequired && ALREADY.test(r.message)
+    const ev = r.ok || attach ? await final : { kind: 'error', message: r.loginRequired ? t('onboarding.shell.signIn') : r.message }
     off()
     offs.current.delete(off)
     if (!alive.current) return
