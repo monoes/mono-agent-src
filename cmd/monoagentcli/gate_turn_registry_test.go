@@ -33,21 +33,33 @@ func registeredTurnDB(t *testing.T) string {
 }
 
 // overrides are the ways a process names a database that holds no turn.
+//
+// TEST FIXTURE: each database named is given the profile 'default' (sendEnv's --profile) before the
+// command runs, so the command reaches the turn gate. A new real database has no profile and the command
+// would stop earlier, at --profile, which is not what these tests are about (see
+// internal/storage/no_seed_profile_migration_test.go).
 func overrides(t *testing.T) map[string]func(*globalConfig) {
 	empty := filepath.Join(t.TempDir(), "empty.db")
 	if err := os.WriteFile(empty, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	seeded := func(path string) string {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		writeMigratedDB(t, path)
+		return path
+	}
 	return map[string]func(*globalConfig){
-		"an empty file":      func(c *globalConfig) { c.DBPath = empty },
-		"a nonexistent path": func(c *globalConfig) { c.DBPath = filepath.Join(t.TempDir(), "nowhere", "x.db") },
+		"an empty file":      func(c *globalConfig) { c.DBPath = seeded(empty) },
+		"a nonexistent path": func(c *globalConfig) { c.DBPath = seeded(filepath.Join(t.TempDir(), "nowhere", "x.db")) },
 		"a second database":  func(c *globalConfig) { c.DBPath = newHILTestDB(t) },
-		"another HOME":       func(c *globalConfig) { c.DBPath = filepath.Join(t.TempDir(), ".monoagent", "monoagent.db") },
+		"another HOME":       func(c *globalConfig) { c.DBPath = seeded(filepath.Join(t.TempDir(), ".monoagent", "monoagent.db")) },
 		"a clean environment": func(c *globalConfig) {
 			for _, k := range []string{"HOME", "USERPROFILE", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"} {
 				t.Setenv(k, "")
 			}
-			c.DBPath = filepath.Join(t.TempDir(), "x.db")
+			c.DBPath = seeded(filepath.Join(t.TempDir(), "x.db"))
 		},
 	}
 }
