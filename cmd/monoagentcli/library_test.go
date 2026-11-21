@@ -49,7 +49,9 @@ func newLibFixture(t *testing.T) *libFixture {
 		return nil
 	}
 	t.Cleanup(func() { openLoginURL = prev })
-	return &libFixture{t: t, fake: fake, home: t.TempDir()}
+	home := t.TempDir()
+	seedHomeDB(t, home)
+	return &libFixture{t: t, fake: fake, home: home}
 }
 
 // noSeed makes the test home a fresh install: no built-in packages.

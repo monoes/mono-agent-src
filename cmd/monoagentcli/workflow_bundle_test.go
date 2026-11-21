@@ -31,7 +31,7 @@ const bundleTestWorkflow = `{
 func TestWorkflowBundleRoundTrip(t *testing.T) {
 	testhome.SetHome(t, t.TempDir())
 	installTestAutomation(t)
-	cfg := &globalConfig{DBPath: filepath.Join(t.TempDir(), "src.db"), JSONOutput: true, ProfileID: "default"}
+	cfg := &globalConfig{DBPath: seededDBPath(t, "src.db"), JSONOutput: true, ProfileID: "default"}
 
 	src := filepath.Join(t.TempDir(), "wf.json")
 	if err := os.WriteFile(src, []byte(bundleTestWorkflow), 0o644); err != nil {
@@ -71,7 +71,7 @@ func TestWorkflowBundleRoundTrip(t *testing.T) {
 
 	// A fresh machine.
 	testhome.SetHome(t, t.TempDir())
-	cfg2 := &globalConfig{DBPath: filepath.Join(t.TempDir(), "dst.db"), JSONOutput: true, ProfileID: "default"}
+	cfg2 := &globalConfig{DBPath: seededDBPath(t, "dst.db"), JSONOutput: true, ProfileID: "default"}
 	report := func(out string) map[string]string {
 		t.Helper()
 		var res struct {

@@ -12,6 +12,7 @@ import (
 	"github.com/monoes/mono-agent/internal/hilsend"
 	"github.com/monoes/mono-agent/internal/orgsign"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -88,6 +89,7 @@ func TestNodeRunOfASendPinsItsConnection(t *testing.T) {
 	if err := db.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
+	testdb.AddDefaultProfile(t, db.DB)
 	store := connections.NewStore(db.DB)
 	for _, c := range []*connections.Connection{
 		{ID: "conn-old", Platform: "outlook", Method: "oauth", Status: "expired", ProfileID: "default", Data: map[string]interface{}{"email": "me@x.com"}},

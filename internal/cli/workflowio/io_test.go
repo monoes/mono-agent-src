@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -176,6 +177,7 @@ func TestMigrate(t *testing.T) {
 	if err := db.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
+	testdb.AddDefaultProfile(t, db.DB)
 	if err := workflow.NewSQLiteWorkflowStore(db.DB).CreateWorkflow(context.Background(), &workflow.Workflow{ProfileID: "default", ID: "m1", Name: "M", Version: 1}); err != nil {
 		t.Fatal(err)
 	}

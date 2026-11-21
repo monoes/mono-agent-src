@@ -44,7 +44,9 @@ func fileOwner(t *testing.T, path string) string {
 func TestNewRuntimeStampsOwnerlessWorkflowFiles(t *testing.T) {
 	testhome.SetHome(t, t.TempDir())
 	dir, path := ownerlessFileDir(t)
-	rt, err := newRuntime(Options{DBPath: filepath.Join(t.TempDir(), "m.db"), WorkflowsDir: dir})
+	dbPath := filepath.Join(t.TempDir(), "m.db")
+	testdb.MustSeed(dbPath) // has the profile 'default' the file is stamped with
+	rt, err := newRuntime(Options{DBPath: dbPath, WorkflowsDir: dir})
 	if err != nil {
 		t.Fatal(err)
 	}

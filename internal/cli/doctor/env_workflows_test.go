@@ -14,6 +14,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/health"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -28,6 +29,7 @@ func workflowDoctorEnv(t *testing.T) (*health.Env, *storage.Database, *workflow.
 	if err := db.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
+	testdb.AddDefaultProfile(t, db.DB)
 	files, err := workflow.NewWorkflowFileStore(filepath.Join(root, "workflows"))
 	if err != nil {
 		t.Fatal(err)

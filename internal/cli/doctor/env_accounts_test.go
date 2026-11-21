@@ -18,6 +18,7 @@ import (
 	"github.com/monoes/mono-agent/internal/connections"
 	"github.com/monoes/mono-agent/internal/health"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 // The accounts checks only read. On a real, migrated database: testing a
@@ -232,6 +233,10 @@ func migratedDB(path string) (*storage.Database, error) {
 		return nil, err
 	}
 	if err := db.ApplyMigrations(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := testdb.EnsureDefaultProfile(db.DB); err != nil {
 		db.Close()
 		return nil, err
 	}

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -54,6 +55,7 @@ func TestAutoSaveCommentsBothKeys(t *testing.T) {
 	if err := db.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
+	testdb.AddDefaultProfile(t, db.DB)
 	defer db.Close()
 	ctx := context.Background()
 	if _, err := db.DB.Exec(`INSERT INTO posts (id, platform, shortcode, url, scraped_at, profile_id) VALUES ('p1', 'INSTAGRAM', 'ABC123', 'https://www.instagram.com/p/ABC123/', '2026-01-01T00:00:00Z', 'prof-1')`); err != nil {

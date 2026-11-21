@@ -23,7 +23,7 @@ func TestTemplatesRunWithoutInputFailsFast(t *testing.T) {
 
 func TestWorkflowRunUnknownIDSaysNotFound(t *testing.T) {
 	root := newRootCmd()
-	root.SetArgs([]string{"--profile", "default", "workflow", "run", "nope", "--db-path", filepath.Join(t.TempDir(), "m.db")})
+	root.SetArgs([]string{"--profile", "default", "workflow", "run", "nope", "--db-path", seededDBPath(t, "m.db")})
 	err := root.Execute()
 	want := `workflow "nope" not found — list them with: monoagentcli workflow list`
 	if err == nil || err.Error() != want || exitCodeFor(err) != 2 {

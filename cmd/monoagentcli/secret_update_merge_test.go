@@ -27,6 +27,7 @@ func TestSecretUpdateMergesOrSaysWhatItDrops(t *testing.T) {
 	keyring.MockInit()
 	asOperatorProcess(t)
 	home := t.TempDir()
+	seedHomeDB(t, home)
 	run := func(args ...string) (string, error) {
 		t.Helper()
 		_, stderr, err := runCLIIn(t, home, "", append([]string{"--profile", "default", "--json"}, args...)...)
@@ -126,6 +127,7 @@ func TestSecretImportEndsThePromptLine(t *testing.T) {
 	keyring.MockInit()
 	asOperatorProcess(t)
 	home := t.TempDir()
+	seedHomeDB(t, home)
 	if _, _, err := runCLIIn(t, home, "", "--json", "db", "migrate"); err != nil {
 		t.Fatal(err)
 	}

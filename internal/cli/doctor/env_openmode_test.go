@@ -10,6 +10,7 @@ import (
 	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/procbind"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 // A fresh database stores nothing, so the DEFAULT applies: binding is on where this machine can run the service, and off (with
@@ -39,6 +40,7 @@ func TestOpenModeFactsOnAFreshProfile(t *testing.T) {
 		if err := db.ApplyMigrations(); err != nil {
 			t.Fatal(err)
 		}
+		testdb.AddDefaultProfile(t, db.DB)
 		check("migrated")
 		openModeFacts(db.DB, "P", dbPath, nil)
 		if lock := filepath.Join(coderhost.HostDir(dbPath), "host.lock"); fileExists(lock) {

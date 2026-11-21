@@ -11,6 +11,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/storage"
 	"github.com/monoes/mono-agent/internal/tasks"
+	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 // The app's handle reads what the CLI wrote, including the task board the
@@ -24,6 +25,7 @@ func TestReadOnlyDBReadsButNeverWrites(t *testing.T) {
 	if err := sdb.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
+	testdb.AddDefaultProfile(t, sdb.DB)
 	ctx := context.Background()
 	if _, _, err := tasks.NewStore(sdb.DB).Add(ctx, "default", tasks.AddInput{Title: "card"}, tasks.Actor{Kind: tasks.Human}); err != nil {
 		t.Fatal(err)

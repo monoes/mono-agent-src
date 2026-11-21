@@ -11,6 +11,7 @@ import (
 	"github.com/monoes/mono-agent/internal/ai/chat"
 	"github.com/monoes/mono-agent/internal/browserctl"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 // A workflow the chat builds is not the operator's: no command records it
@@ -29,6 +30,7 @@ func TestAChatBuiltWorkflowIsTheOperatorsOnlyOnceTheyActivateIt(t *testing.T) {
 	if err := db.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
+	testdb.AddDefaultProfile(t, db.DB)
 	tools := chat.NewMonoagentTools(db.DB, "", "default")
 	out, err := tools.Execute("create_workflow", `{"name":"From the chat"}`)
 	if err != nil {

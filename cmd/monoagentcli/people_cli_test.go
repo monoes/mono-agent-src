@@ -12,6 +12,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/peoplereview"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 // The people commands' tests live in internal/cli/people. These helpers stay here for the
@@ -31,6 +32,7 @@ func newReviewCLITestDB(t *testing.T) (*globalConfig, *storage.Database) {
 	if err := db.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
+	testdb.AddDefaultProfile(t, db.DB)
 	for _, id := range []string{"p1", "p2"} {
 		if _, err := db.DB.Exec(`INSERT INTO people (id, profile_id, platform, platform_username, full_name, category, introduction)
 			VALUES (?, 'default', 'LINKEDIN', ?, 'Sam', ?, 'drafted')`, id, id+"-user", peoplereview.Pending); err != nil {

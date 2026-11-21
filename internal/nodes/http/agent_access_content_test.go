@@ -14,6 +14,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/secrets"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/vault"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
@@ -36,6 +37,7 @@ func newContentEnv(t *testing.T, grant secrets.AccessGrant) *contentEnv {
 	if err := db.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
+	testdb.AddDefaultProfile(t, db.DB)
 	base := vault.ContextWithProfileID(vault.ContextWithDB(context.Background(), db.DB), "default")
 	if _, err := secrets.Add(base, db.DB, "default", "secret", "vs", map[string]string{"secret": "vsecret-777"}, "", "", ""); err != nil {
 		t.Fatal(err)

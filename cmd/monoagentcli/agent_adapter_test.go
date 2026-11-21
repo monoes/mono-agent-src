@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -13,7 +12,7 @@ import (
 // TestAgentAdapterWiring pins what agentDeps hands internal/cli/agent: the database, --json
 // read live, the CLI's exit code 3 and its table.
 func TestAgentAdapterWiring(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "agent-adapter.db")
+	dbPath := seededDBPath(t, "agent-adapter.db")
 	db, err := storage.NewDatabase(dbPath)
 	if err != nil {
 		t.Fatal(err)

@@ -25,6 +25,7 @@ func TestCommandsThatPrintSecretsAreTheOperatorsOnly(t *testing.T) {
 	keyring.MockInit()
 	asOperatorProcess(t)
 	home := t.TempDir()
+	seedHomeDB(t, home)
 	// What a command prints, to its own writers or straight to stdout.
 	run := func(stdin string, args ...string) (string, error) {
 		t.Helper()
@@ -121,6 +122,7 @@ func TestAPIKeyCreateUpdateAndRevokeAreTheOperatorsOnly(t *testing.T) {
 	account.SetEnforceFromForTest(t, time.Time{})
 	asOperatorProcess(t)
 	home := t.TempDir()
+	seedHomeDB(t, home)
 	if _, _, err := runCLIIn(t, home, "", "--json", "db", "migrate"); err != nil {
 		t.Fatal(err)
 	}
@@ -159,6 +161,7 @@ func TestTheOperatorsFullOutputsShowUnredactedOutput(t *testing.T) {
 	// newWorkflowCmd would otherwise inherit.
 	t.Cleanup(func() { workflowrun.FullOutputs = false })
 	home := t.TempDir()
+	seedHomeDB(t, home)
 	run := func(args ...string) string {
 		t.Helper()
 		var out, errOut string

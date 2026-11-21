@@ -25,7 +25,7 @@ func TestWorkflowBundleLocalOnlyPackage(t *testing.T) {
 		t.Fatal(err)
 	}
 	dev := packageResolver(reg)("devsite", "get_heading")
-	cfg := &globalConfig{DBPath: filepath.Join(t.TempDir(), "src.db"), JSONOutput: true, ProfileID: "default"}
+	cfg := &globalConfig{DBPath: seededDBPath(t, "src.db"), JSONOutput: true, ProfileID: "default"}
 	id := importWorkflowJSON(t, cfg, `{"name":"dev","nodes":[{"id":"a","type":"devsite.get_heading","name":"A","position":{"x":0,"y":0},"config":{}}],"connections":[]}`)
 
 	var file string
@@ -45,7 +45,7 @@ func TestWorkflowBundleLocalOnlyPackage(t *testing.T) {
 	// Importing: JSON lists it without an install command; human output
 	// says to recreate it and never suggests --yes.
 	testhome.SetHome(t, t.TempDir())
-	cfg2 := &globalConfig{DBPath: filepath.Join(t.TempDir(), "dst.db"), JSONOutput: true, ProfileID: "default"}
+	cfg2 := &globalConfig{DBPath: seededDBPath(t, "dst.db"), JSONOutput: true, ProfileID: "default"}
 	var res map[string]any
 	if err := json.Unmarshal([]byte(runWorkflowSubcmd(t, cfg2, "import", "--file", file)), &res); err != nil {
 		t.Fatal(err)
@@ -62,7 +62,7 @@ func TestWorkflowBundleLocalOnlyPackage(t *testing.T) {
 		!strings.Contains(fmt.Sprint(first["error"]), "opens a local address") {
 		t.Fatalf("local-only item = %v", first)
 	}
-	cfg3 := &globalConfig{DBPath: filepath.Join(t.TempDir(), "dst3.db"), ProfileID: "default"}
+	cfg3 := &globalConfig{DBPath: seededDBPath(t, "dst3.db"), ProfileID: "default"}
 	out := runWorkflowSubcmd(t, cfg3, "import", "--file", file)
 	if strings.Contains(out, "--yes") || !strings.Contains(out, "recreate "+dev) || !strings.Contains(out, "ask the sender") {
 		t.Fatalf("human import output:\n%s", out)
@@ -92,7 +92,7 @@ func TestWorkflowBundleDiffersSameVersion(t *testing.T) {
 	if _, err := reg.Install(dir, automation.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	cfg := &globalConfig{DBPath: filepath.Join(t.TempDir(), "src.db"), JSONOutput: true, ProfileID: "default"}
+	cfg := &globalConfig{DBPath: seededDBPath(t, "src.db"), JSONOutput: true, ProfileID: "default"}
 	id := importWorkflowJSON(t, cfg, bundleTestWorkflow)
 	file, doc := exportBundle(t, cfg, id)
 	if _, ok := doc.Automations["acme-test"]; !ok {
@@ -102,7 +102,7 @@ func TestWorkflowBundleDiffersSameVersion(t *testing.T) {
 	// Recipient: the plain acme-test 1.0.0 is installed already.
 	testhome.SetHome(t, t.TempDir())
 	installTestAutomation(t)
-	cfg2 := &globalConfig{DBPath: filepath.Join(t.TempDir(), "dst.db"), JSONOutput: true, ProfileID: "default"}
+	cfg2 := &globalConfig{DBPath: seededDBPath(t, "dst.db"), JSONOutput: true, ProfileID: "default"}
 	item := func(args ...string) bundleImportItem {
 		t.Helper()
 		var res struct {
@@ -165,7 +165,7 @@ func TestWorkflowBundleDiffersSameVersion(t *testing.T) {
 func TestWorkflowBundleUnknownDomainsID(t *testing.T) {
 	testhome.SetHome(t, t.TempDir())
 	installTestAutomation(t)
-	cfg := &globalConfig{DBPath: filepath.Join(t.TempDir(), "src.db"), JSONOutput: true, ProfileID: "default"}
+	cfg := &globalConfig{DBPath: seededDBPath(t, "src.db"), JSONOutput: true, ProfileID: "default"}
 	id := importWorkflowJSON(t, cfg, bundleTestWorkflow)
 	out := filepath.Join(t.TempDir(), "bundled.json")
 	var runErr error

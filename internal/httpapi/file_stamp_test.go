@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
 	"path/filepath"
@@ -20,7 +21,9 @@ func TestNewRuntimeStampsOwnerlessWorkflowFiles(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"id":"w-legacy","name":"legacy","nodes":[],"connections":[]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	rt, err := newRuntime(Options{DBPath: filepath.Join(t.TempDir(), "h.db"), WorkflowsDir: dir})
+	dbPath := filepath.Join(t.TempDir(), "h.db")
+	testdb.MustSeed(dbPath) // has the profile 'default' the file is stamped with
+	rt, err := newRuntime(Options{DBPath: dbPath, WorkflowsDir: dir})
 	if err != nil {
 		t.Fatal(err)
 	}

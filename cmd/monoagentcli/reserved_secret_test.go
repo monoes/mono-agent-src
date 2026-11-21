@@ -27,6 +27,7 @@ func TestOnlyTheUserWritesTheHTTPAPIToken(t *testing.T) {
 	keyring.MockInit()
 	asOperatorProcess(t)
 	home := t.TempDir()
+	seedHomeDB(t, home)
 	run := func(args ...string) (string, error) {
 		t.Helper()
 		out, _, err := runCLIIn(t, home, "", append([]string{"--profile", "default", "--json"}, args...)...)

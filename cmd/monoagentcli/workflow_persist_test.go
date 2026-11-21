@@ -25,7 +25,7 @@ func persistTestEnv(t *testing.T) (home string, cfg *globalConfig) {
 	}
 	home = t.TempDir()
 	testhome.SetHome(t, home)
-	return home, &globalConfig{DBPath: filepath.Join(t.TempDir(), "wf.db"), JSONOutput: true, ProfileID: "default"}
+	return home, &globalConfig{DBPath: seededDBPath(t, "wf.db"), JSONOutput: true, ProfileID: "default"}
 }
 
 func sqlNodeTypes(t *testing.T, dbPath, wfID string) map[string]string {

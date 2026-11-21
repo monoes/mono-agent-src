@@ -10,6 +10,7 @@ import (
 	"github.com/zalando/go-keyring"
 
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	vaultstore "github.com/monoes/mono-agent/internal/vault"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
@@ -29,6 +30,7 @@ func newSecretsTestCtx(t *testing.T) context.Context {
 	if err := db.ApplyMigrations(); err != nil {
 		t.Fatalf("ApplyMigrations: %v", err)
 	}
+	testdb.AddDefaultProfile(t, db.DB)
 	t.Cleanup(func() { db.DB.Close() })
 
 	ctx := vaultstore.ContextWithDB(context.Background(), db.DB)

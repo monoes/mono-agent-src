@@ -13,6 +13,7 @@ import (
 	"github.com/monoes/mono-agent/internal/extension"
 	"github.com/monoes/mono-agent/internal/jev/jevtest"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 func newSummaryCLITestDB(t *testing.T) *testConfig {
@@ -29,6 +30,7 @@ func newSummaryCLITestDB(t *testing.T) *testConfig {
 	if err := db.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
+	testdb.AddDefaultProfile(t, db.DB)
 	if _, err := db.DB.Exec(`INSERT INTO workflows (id, name, is_active, profile_id) VALUES ('w1','A',1,'default');
 		INSERT INTO hil_pending (id, execution_id, workflow_id, node_id, node_name, status, profile_id) VALUES ('h1','e','w1','n','N','pending','default')`); err != nil {
 		t.Fatal(err)

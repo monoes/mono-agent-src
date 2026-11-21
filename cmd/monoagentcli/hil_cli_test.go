@@ -11,6 +11,7 @@ import (
 
 	hilcli "github.com/monoes/mono-agent/internal/cli/hil"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 // The hil commands' own tests live in internal/cli/hil. hil_send_test.go stays here: it drives
@@ -46,6 +47,9 @@ func migratedTemplate() ([]byte, error) {
 			return
 		}
 		if err = db.ApplyMigrations(); err == nil {
+			err = testdb.EnsureDefaultProfile(db.DB) // the tests name the profile 'default'
+		}
+		if err == nil {
 			// Fold the WAL into the file so the bytes alone are the database.
 			_, err = db.DB.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
 		}
@@ -78,6 +82,15 @@ func writeMigratedDB(t *testing.T, path string) {
 	if err := os.WriteFile(path, b, 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// seededDBPath is a TEST FIXTURE: a migrated database named name in t.TempDir(), with the profile 'default' the tests name (a
+// new real database has no profile, see internal/storage/no_seed_profile_migration_test.go).
+func seededDBPath(t *testing.T, name string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), name)
+	writeMigratedDB(t, p)
+	return p
 }
 
 // newHILTestDB is a migrated database in a private directory. An in-process command may still hold the file open when the test

@@ -135,6 +135,7 @@ func TestDoctorFreshHomeFailsThenFixes(t *testing.T) {
 func TestDoctorFixStreamsNDJSON(t *testing.T) {
 	keyring.MockInit()
 	home := t.TempDir()
+	seedHomeDB(t, home) // runDoctor names the profile 'default'
 
 	out, err := runDoctor(t, home, "doctor", "fix", health.FixDBMigrate, "--json")
 	if err != nil {

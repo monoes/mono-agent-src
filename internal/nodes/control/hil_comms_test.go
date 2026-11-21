@@ -13,6 +13,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/commsync"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/vault"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
@@ -75,6 +76,7 @@ func newCommsRig(t *testing.T, sendType string, sendConfig map[string]interface{
 	if err := d.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
+	testdb.AddDefaultProfile(t, d.DB)
 	t.Cleanup(func() { d.DB.Close() })
 	r := &commsRig{t: t, db: d.DB, ctx: vault.ContextWithProfileID(vault.ContextWithDB(context.Background(), d.DB), "default"), store: &commsStore{db: d.DB}}
 	r.reg = workflow.NewNodeTypeRegistry()

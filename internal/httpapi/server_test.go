@@ -18,6 +18,7 @@ import (
 	"github.com/monoes/mono-agent/internal/noderegistry"
 	"github.com/monoes/mono-agent/internal/scheduler"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/testhome"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
@@ -44,6 +45,7 @@ func newTestServer(t *testing.T, allowMutations bool) *Server {
 	if err := db.ApplyMigrations(); err != nil {
 		t.Fatalf("ApplyMigrations: %v", err)
 	}
+	testdb.AddDefaultProfile(t, db.DB)
 	if err := db.Close(); err != nil {
 		t.Fatalf("closing seed db: %v", err)
 	}

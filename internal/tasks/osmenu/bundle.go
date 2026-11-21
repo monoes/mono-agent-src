@@ -17,7 +17,7 @@ const Version = "1"
 
 // The marker keys of a bundle's Info.plist. A bundle with a profile id there
 // is one this package wrote and manages; its identity is the database and the
-// profile id (every database has a profile "default").
+// profile id (older databases have a profile "default"; new ones start with none).
 const (
 	KeyCLI       = "MonoAgentTasksCLI"
 	KeyDB        = "MonoAgentTasksDB"

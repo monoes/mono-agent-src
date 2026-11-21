@@ -902,6 +902,7 @@ func TestInitDBRetiresAIProviderEntries(t *testing.T) {
 	keyring.MockInit()
 	dir := t.TempDir()
 	cfg := &globalConfig{DBPath: filepath.Join(dir, "monoagent.db"), ProfileID: "default"}
+	writeMigratedDB(t, cfg.DBPath) // has the profile 'default' the config names
 	db, err := initDB(cfg)
 	if err != nil {
 		t.Fatal(err)

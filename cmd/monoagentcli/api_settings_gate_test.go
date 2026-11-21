@@ -19,6 +19,7 @@ func TestAPISettingsAndJevAreTheOperatorsOnly(t *testing.T) {
 	account.SetEnforceFromForTest(t, time.Time{})
 	asOperatorProcess(t)
 	home := t.TempDir()
+	seedHomeDB(t, home)
 	if _, _, err := runCLIIn(t, home, "", "--json", "db", "migrate"); err != nil {
 		t.Fatal(err)
 	}

@@ -21,6 +21,7 @@ import (
 	"github.com/monoes/mono-agent/internal/noderegistry"
 	"github.com/monoes/mono-agent/internal/secrets"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -575,6 +576,7 @@ func migratedTestDB(t *testing.T) string {
 		if err := db.ApplyMigrations(); err != nil {
 			t.Fatal(err)
 		}
+		testdb.AddDefaultProfile(t, db.DB)
 		db.Close()
 		if templateDB, err = os.ReadFile(tmpl); err != nil {
 			t.Fatal(err)

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"slices"
 	"testing"
 	"time"
 
@@ -13,14 +12,16 @@ import (
 )
 
 // `db migrate` takes an empty HOME to a migrated database with every
-// profile's folder laid out, says what it did, and is a no-op the second time.
+// profile's folder laid out (a new database has none), says what it did, and
+// is a no-op the second time.
 func TestDBMigrateJSON(t *testing.T) {
 	account.SetEnforceFromForTest(t, time.Time{})
 	home := t.TempDir()
 
 	run := func() dbMigrateResult {
 		t.Helper()
-		out, errOut, err := runCLI(t, home, "--json", "db", "migrate")
+		// Named with no profile, as the desktop app runs it: a new database has none to name.
+		out, errOut, err := runCLI(t, home, "--profile=", "--json", "db", "migrate")
 		if err != nil {
 			t.Fatalf("db migrate: %v\nstderr:\n%s", err, errOut)
 		}
@@ -35,8 +36,8 @@ func TestDBMigrateJSON(t *testing.T) {
 	if first.Applied == 0 || first.SchemaVersion == 0 {
 		t.Fatalf("first run applied nothing: %+v", first)
 	}
-	if !slices.Contains(first.Profiles, "default") {
-		t.Fatalf("profiles = %+v", first.Profiles)
+	if len(first.Profiles) != 0 {
+		t.Fatalf("profiles on a new database = %+v, want none", first.Profiles)
 	}
 	if len(first.Errors) != 0 {
 		t.Fatalf("errors: %v", first.Errors)

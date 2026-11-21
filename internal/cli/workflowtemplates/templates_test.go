@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -40,6 +41,10 @@ func testDeps(cfg *testConfig) Deps {
 				return nil, err
 			}
 			if err := db.ApplyMigrations(); err != nil {
+				db.Close()
+				return nil, err
+			}
+			if err := testdb.EnsureDefaultProfile(db.DB); err != nil {
 				db.Close()
 				return nil, err
 			}

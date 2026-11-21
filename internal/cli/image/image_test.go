@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/vault"
 )
 
@@ -30,6 +31,7 @@ func newImageCLITestDB(t *testing.T) (*testConfig, string) {
 	if err := db.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
+	testdb.AddDefaultProfile(t, db.DB)
 	onDisk := filepath.Join(dir, "img-002.png")
 	if err := os.WriteFile(onDisk, []byte("png-bytes"), 0o600); err != nil {
 		t.Fatal(err)

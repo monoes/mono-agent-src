@@ -155,6 +155,7 @@ func TestRunWritesNothingToTheAccountFolderBeforeTheDateOrWhileDormant(t *testin
 			}
 			f.Clock.Set(tc.clock)
 			home := freshHome(t)
+			seedHomeDB(t, home)
 			if code, _, stderr := runMain(t, "--profile", "default", "workflow", "list"); code != 0 || stderr != tc.stderr {
 				t.Errorf("exit %d, stderr %q, want exit 0 and %q", code, stderr, tc.stderr)
 			}
@@ -255,6 +256,7 @@ func TestRunLetsGatedCommandsRunWhenAllowed(t *testing.T) {
 	for name, mode := range map[string]accounttest.Mode{"signed in": accounttest.SignedIn, "dormant, not signed in": accounttest.Dormant} {
 		accounttest.Install(t, mode)
 		home := freshHome(t)
+		seedHomeDB(t, home)
 		code, _, stderr := runMain(t, "--profile", "default", "workflow", "list")
 		if code != 0 || stderr != "" {
 			t.Errorf("%s: exit %d, stderr %q", name, code, stderr)
@@ -265,7 +267,7 @@ func TestRunLetsGatedCommandsRunWhenAllowed(t *testing.T) {
 	}
 
 	installExpiredSession(t, &account.TransientError{Reason: account.ReasonUnreachable, Settled: true, Err: errors.New("offline")})
-	freshHome(t)
+	seedHomeDB(t, freshHome(t))
 	code, stdout, stderr := runMain(t, "--profile", "default", "workflow", "list", "--json")
 	if code != 0 || !strings.HasPrefix(stderr, "monoes.me is unreachable; this login works offline until ") || strings.Contains(stdout, "unreachable") {
 		t.Errorf("grace: exit %d, stdout %q, stderr %q", code, stdout, stderr)
@@ -386,7 +388,7 @@ func TestRunFailsClosedWhenNoGuardCanBeBuilt(t *testing.T) {
 	newDefaultGuard = func() (*account.Guard, error) { return nil, errors.New("no home directory") }
 	t.Cleanup(func() { newDefaultGuard = prev })
 	accounttest.New(t) // the date is in the past: enforced
-	freshHome(t)
+	seedHomeDB(t, freshHome(t))
 	if code, _, stderr := runMain(t, "workflow", "list"); code != 4 || !strings.HasPrefix(stderr, loginRequiredLine) {
 		t.Errorf("enforced: exit %d, stderr %q", code, stderr)
 	}

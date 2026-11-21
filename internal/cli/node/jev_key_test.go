@@ -13,6 +13,7 @@ import (
 	"github.com/monoes/mono-agent/internal/jev/jevtest/callers"
 	"github.com/monoes/mono-agent/internal/secrets"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 // `node run ai.choose` with the TypeSafe key stored in the vault: an agent's
@@ -45,6 +46,7 @@ func TestNodeRunDoesNotGiveTheStoredTypeSafeKeyToAnAgentOrItsHost(t *testing.T) 
 				if err := db.ApplyMigrations(); err != nil {
 					t.Fatal(err)
 				}
+				testdb.AddDefaultProfile(t, db.DB)
 				if _, err := secrets.Add(context.Background(), db.DB, jevconf.VaultScope, "secret", jevconf.SecretName, map[string]string{"secret": key}, "", "", ""); err != nil {
 					t.Fatal(err)
 				}
@@ -114,6 +116,7 @@ func TestNodeRunWithATypeSafeGrantSendsTheKeyOnlyToTheDefaultHostAndAudits(t *te
 				if err := db.ApplyMigrations(); err != nil {
 					t.Fatal(err)
 				}
+				testdb.AddDefaultProfile(t, db.DB)
 				ctx := context.Background()
 				if _, err := secrets.Add(ctx, db.DB, jevconf.VaultScope, "secret", jevconf.SecretName, map[string]string{"secret": key}, "", "", ""); err != nil {
 					t.Fatal(err)

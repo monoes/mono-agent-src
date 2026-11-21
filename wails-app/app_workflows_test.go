@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -27,6 +28,7 @@ func newTestApp(t *testing.T) *App {
 	if err := sdb.ApplyMigrations(); err != nil {
 		t.Fatalf("ApplyMigrations: %v", err)
 	}
+	testdb.AddDefaultProfile(t, sdb.DB)
 	t.Cleanup(func() { sdb.DB.Close() })
 
 	a := &App{
@@ -36,6 +38,18 @@ func newTestApp(t *testing.T) *App {
 	}
 	a.selectForTest("default") // a profile that happens to be called default; tests that need none clear it
 	return a
+}
+
+// seedCLIHomeDB is a TEST FIXTURE: it puts a migrated database with the
+// profile "default" (the one newTestApp selects) where a monoagentcli
+// subprocess with HOME=home opens it. A new real database has no profile.
+func seedCLIHomeDB(t *testing.T, home string) {
+	t.Helper()
+	dir := filepath.Join(home, ".monoagent")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testdb.MustSeed(filepath.Join(dir, "monoagent.db"))
 }
 
 // cliHomeDB opens the database a monoagentcli subprocess with HOME=home

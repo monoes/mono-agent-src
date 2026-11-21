@@ -74,6 +74,7 @@ func TestExportImportRoundtripViaCLI(t *testing.T) {
 	// isolated homes (~/.monoagent of each test sandbox).
 	home := t.TempDir()
 	testhome.SetHome(t, home)
+	seedCLIHomeDB(t, home)
 	t.Setenv("MONOAGENTCLI_BIN", cliBin)
 
 	a := newTestApp(t)
@@ -122,6 +123,7 @@ func TestExportImportRoundtripViaCLI(t *testing.T) {
 	// A fresh machine (new HOME and database): created, data intact.
 	homeB := t.TempDir()
 	testhome.SetHome(t, homeB)
+	seedCLIHomeDB(t, homeB) // the app below names the profile "default"
 	b := newTestApp(t)
 	impB, err := b.ImportWorkflow(exported)
 	if err != nil {

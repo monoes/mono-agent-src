@@ -16,6 +16,7 @@ import (
 	"github.com/monoes/mono-agent/internal/jev/jevconf"
 	"github.com/monoes/mono-agent/internal/secrets"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/vault"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
@@ -32,6 +33,7 @@ func TestHILQueuesNoCardHoldingAGrantedSecret(t *testing.T) {
 	if err := d.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
+	testdb.AddDefaultProfile(t, d.DB)
 	base := vault.ContextWithProfileID(vault.ContextWithDB(context.Background(), d.DB), "default")
 	if _, err := secrets.Add(base, d.DB, "default", "secret", "vs", map[string]string{"secret": "vsecret-777"}, "", "", ""); err != nil {
 		t.Fatal(err)
@@ -69,6 +71,7 @@ func TestHILQueuesNothingWhenAFieldOutsideTheCardCarriesASecret(t *testing.T) {
 	if err := d.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
+	testdb.AddDefaultProfile(t, d.DB)
 	base := vault.ContextWithProfileID(vault.ContextWithDB(context.Background(), d.DB), "default")
 	if _, err := secrets.Add(base, d.DB, "default", "secret", "vs", map[string]string{"secret": "vsecret-777"}, "", "", ""); err != nil {
 		t.Fatal(err)
@@ -104,6 +107,7 @@ func TestHILRefusesEachEncodedFormOfASecretByTheTrackedValueCheck(t *testing.T) 
 	if err := d.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
+	testdb.AddDefaultProfile(t, d.DB)
 	base := vault.ContextWithProfileID(vault.ContextWithDB(context.Background(), d.DB), "default")
 	const v = `vsecret-777"x`
 	if _, err := secrets.Add(base, d.DB, "default", "secret", "vs", map[string]string{"secret": v}, "", "", ""); err != nil {
@@ -150,6 +154,7 @@ func TestHILAutoDecideSendsNothingToJevForAGrantedSecret(t *testing.T) {
 	if err := d.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
+	testdb.AddDefaultProfile(t, d.DB)
 	srv := jevByCaption(t, nil)
 	if err := jevconf.SetEnabled(d.DB, "default", jevconf.HIL, true); err != nil {
 		t.Fatal(err)

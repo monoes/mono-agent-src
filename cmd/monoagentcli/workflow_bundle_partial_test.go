@@ -82,7 +82,7 @@ func TestWorkflowBundlePartialExport(t *testing.T) {
 		t.Fatalf("legacy packages not resolved: %q %q", noSite, exSite)
 	}
 
-	cfg := &globalConfig{DBPath: filepath.Join(t.TempDir(), "src.db"), JSONOutput: true, ProfileID: "default"}
+	cfg := &globalConfig{DBPath: seededDBPath(t, "src.db"), JSONOutput: true, ProfileID: "default"}
 	id := importWorkflowJSON(t, cfg, `{"name":"partial","nodes":[
   {"id":"a","type":"nosite.get_heading","name":"A","position":{"x":0,"y":0},"config":{}},
   {"id":"b","type":"examplesite.get_heading","name":"B","position":{"x":200,"y":0},"config":{}}
@@ -117,7 +117,7 @@ func TestWorkflowBundlePartialExport(t *testing.T) {
 	// Fresh machine: the workflow imports, the bundled package installs, the
 	// unbundled one is reported missing with the reason and hint.
 	testhome.SetHome(t, t.TempDir())
-	cfg2 := &globalConfig{DBPath: filepath.Join(t.TempDir(), "dst.db"), JSONOutput: true, ProfileID: "default"}
+	cfg2 := &globalConfig{DBPath: seededDBPath(t, "dst.db"), JSONOutput: true, ProfileID: "default"}
 	var res struct {
 		ID          string             `json:"id"`
 		Automations []bundleImportItem `json:"automations"`
@@ -167,7 +167,7 @@ func TestWorkflowBundleLegacyActionOnBuiltinPlatform(t *testing.T) {
 		t.Fatalf("action match should ignore case, got %q", got)
 	}
 
-	cfg := &globalConfig{DBPath: filepath.Join(t.TempDir(), "src.db"), JSONOutput: true, ProfileID: "default"}
+	cfg := &globalConfig{DBPath: seededDBPath(t, "src.db"), JSONOutput: true, ProfileID: "default"}
 	id := importWorkflowJSON(t, cfg, `{"name":"hn","nodes":[
   {"id":"a","type":"hackernews.custom_scrape","name":"A","position":{"x":0,"y":0},"config":{}},
   {"id":"b","type":"hackernews.list_comments","name":"B","position":{"x":200,"y":0},"config":{}}

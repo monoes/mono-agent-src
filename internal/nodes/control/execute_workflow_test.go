@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -54,6 +55,7 @@ func newSubflowFixture(t *testing.T) *subflowFixture {
 	if err := db.ApplyMigrations(); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
+	testdb.AddDefaultProfile(t, db.DB)
 	store := workflow.NewSQLiteWorkflowStore(db.DB)
 	reg := workflow.NewNodeTypeRegistry()
 	RegisterAll(reg)

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"github.com/monoes/mono-agent/internal/testhome"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -41,7 +40,7 @@ func TestAllProfilesFlagMakesTheCommandGlobal(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			dbPath := filepath.Join(t.TempDir(), "gate.db")
+			dbPath := seededDBPath(t, "gate.db")
 			// Create the database: capture list reads it read-only.
 			if _, err := runGateCLIOn(dbPath, "--profile", "default", "people", "list"); err != nil {
 				t.Fatalf("seeding the database: %v", err)

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 func dropFile(t *testing.T, h *HybridWorkflowStore, id string, active bool) {
@@ -200,6 +201,7 @@ func TestLegacyClaimIsRecordedOnceByWhoeverGetsThereFirst(t *testing.T) {
 	if err := first.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
+	testdb.AddDefaultProfile(t, first.DB)
 	files, err := NewWorkflowFileStore(filepath.Join(root, "workflows"))
 	if err != nil {
 		t.Fatal(err)

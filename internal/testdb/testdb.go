@@ -9,6 +9,8 @@
 package testdb
 
 import (
+	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -23,6 +25,31 @@ var (
 	buildErr error
 )
 
+// defaultProfileSQL is a TEST FIXTURE: tests name the profile 'default', so
+// the template has it. New real databases have no profile (the migrations
+// seed none, see internal/storage/no_seed_profile_migration_test.go, which
+// runs the raw migrations and not this template).
+const defaultProfileSQL = `INSERT OR IGNORE INTO profiles (id, name) VALUES ('default', 'Default')`
+
+// AddDefaultProfile is the same TEST FIXTURE for a test that migrates a
+// database of its own instead of using the template: it adds the profile
+// 'default' the test names. New real databases have no profile.
+func AddDefaultProfile(t testing.TB, db *sql.DB) {
+	t.Helper()
+	if err := EnsureDefaultProfile(db); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// EnsureDefaultProfile is AddDefaultProfile for a test fixture that returns
+// an error instead of holding a testing.TB (an InitDB hook, say).
+func EnsureDefaultProfile(db *sql.DB) error {
+	if _, err := db.Exec(defaultProfileSQL); err != nil {
+		return fmt.Errorf("testdb: adding the test profile 'default': %w", err)
+	}
+	return nil
+}
+
 // build migrates a database once and returns the bytes of its file.
 func build() ([]byte, error) {
 	dir, err := os.MkdirTemp("", "monoagent-testdb-")
@@ -36,6 +63,10 @@ func build() ([]byte, error) {
 		return nil, err
 	}
 	if err := db.ApplyMigrations(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if _, err := db.DB.Exec(defaultProfileSQL); err != nil {
 		db.Close()
 		return nil, err
 	}

@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -65,6 +66,7 @@ func newTestDB(t *testing.T, sqlText string) *testConfig {
 	if err := db.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
+	testdb.AddDefaultProfile(t, db.DB)
 	if sqlText != "" {
 		if _, err := db.DB.Exec(sqlText); err != nil {
 			t.Fatal(err)

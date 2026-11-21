@@ -350,7 +350,7 @@ func TestClientModeNeedsBothVariables(t *testing.T) {
 
 // End to end against the real API handlers: the same command, a database only the daemon has.
 func TestClientModeCompleteAgainstTheRealAPI(t *testing.T) {
-	daemonDB := filepath.Join(t.TempDir(), "daemon.db")
+	daemonDB := seededDBPath(t, "daemon.db")
 	db, err := storage.NewDatabase(daemonDB)
 	if err != nil {
 		t.Fatal(err)

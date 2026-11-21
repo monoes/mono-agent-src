@@ -108,6 +108,7 @@ func TestRestartImageWatcher_DiscoversProjectImages(t *testing.T) {
 	cliBin := buildTestCLI(t) // before HOME moves, so the build cache stays put
 	home := t.TempDir()
 	testhome.SetHome(t, home)
+	seedCLIHomeDB(t, home)
 	t.Setenv("MONOAGENTCLI_BIN", cliBin)
 	a := newTestApp(t)
 

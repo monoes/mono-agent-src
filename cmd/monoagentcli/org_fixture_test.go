@@ -19,6 +19,7 @@ import (
 	"github.com/monoes/mono-agent/internal/orggrant"
 	"github.com/monoes/mono-agent/internal/profiledir"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -52,6 +53,7 @@ func newOrgCLIFixture(t *testing.T) *orgCLIFixture {
 	if err := db.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
+	testdb.AddDefaultProfile(t, db.DB)
 	store := workflow.NewSQLiteWorkflowStore(db.DB)
 	ctx := context.Background()
 	mk := func(name string, nodeType string) string {

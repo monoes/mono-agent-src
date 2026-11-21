@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -20,6 +21,7 @@ func commsDB(t *testing.T) *sql.DB {
 	if err := d.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
+	testdb.AddDefaultProfile(t, d.DB)
 	t.Cleanup(func() { d.DB.Close() })
 	return d.DB
 }

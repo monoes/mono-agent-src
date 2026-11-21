@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"github.com/monoes/mono-agent/internal/testhome"
-	"path/filepath"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/workflow"
@@ -31,7 +30,7 @@ func edgesOf(t *testing.T, cfg *globalConfig, wfID string) map[string]string {
 // every existing edge without the CLI re-saving connections.
 func TestWorkflowNodeAddSetPreserveEdgesCLI(t *testing.T) {
 	testhome.SetHome(t, t.TempDir())
-	cfg := &globalConfig{DBPath: filepath.Join(t.TempDir(), "nodes.db"), JSONOutput: true, ProfileID: "default"}
+	cfg := &globalConfig{DBPath: seededDBPath(t, "nodes.db"), JSONOutput: true, ProfileID: "default"}
 
 	var created workflow.Workflow
 	if err := json.Unmarshal([]byte(runWorkflowSubcmd(t, cfg, "create", "edges-wf")), &created); err != nil {

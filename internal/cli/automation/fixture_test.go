@@ -18,6 +18,7 @@ import (
 	"github.com/monoes/mono-agent/internal/automation"
 	browserpkg "github.com/monoes/mono-agent/internal/browser"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 // The automation commands are tested here with the CLI around them faked through Deps. The
@@ -74,6 +75,10 @@ func testDeps(cfg *testConfig) Deps {
 				return nil, err
 			}
 			if err := db.ApplyMigrations(); err != nil {
+				db.Close()
+				return nil, err
+			}
+			if err := testdb.EnsureDefaultProfile(db.DB); err != nil {
 				db.Close()
 				return nil, err
 			}

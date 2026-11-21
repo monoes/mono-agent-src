@@ -29,7 +29,9 @@ func n8nTestHome(t *testing.T) string {
 	t.Helper()
 	account.SetEnforceFromForTest(t, time.Time{})
 	keyring.MockInit()
-	return t.TempDir()
+	home := t.TempDir()
+	seedHomeDB(t, home)
+	return home
 }
 
 func TestWorkflowConvertN8nPrintsWorkflowAndReport(t *testing.T) {

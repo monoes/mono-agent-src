@@ -19,6 +19,7 @@ import (
 	"github.com/monoes/mono-agent/internal/nodes/control"
 	httpnodes "github.com/monoes/mono-agent/internal/nodes/http"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -48,6 +49,10 @@ func openTestDB(cfg *testConfig) (*storage.Database, error) {
 		return nil, err
 	}
 	if err := db.ApplyMigrations(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := testdb.EnsureDefaultProfile(db.DB); err != nil {
 		db.Close()
 		return nil, err
 	}

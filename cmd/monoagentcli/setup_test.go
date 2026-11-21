@@ -45,6 +45,18 @@ func withTestProfile(args []string) []string {
 	return append([]string{"--profile", "default"}, args...)
 }
 
+// seedHomeDB is a TEST FIXTURE: it puts a migrated database with the profile 'default' (the one withTestProfile names) at
+// home's database path, for a test that runs scoped commands in a fresh HOME. A new real database has no profile (see
+// internal/storage/no_seed_profile_migration_test.go).
+func seedHomeDB(t *testing.T, home string) {
+	t.Helper()
+	dir := filepath.Join(home, ".monoagent")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeMigratedDB(t, filepath.Join(dir, "monoagent.db"))
+}
+
 // runCLI runs `monoagentcli <args>` against a throwaway HOME, stdout and
 // stderr apart.
 func runCLI(t *testing.T, home string, args ...string) (stdout, stderr string, err error) {

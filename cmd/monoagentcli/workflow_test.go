@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -300,7 +301,7 @@ func TestWorkflowExportImportRoundtrip(t *testing.T) {
 	home := t.TempDir()
 	testhome.SetHome(t, home)
 
-	dbPath := filepath.Join(t.TempDir(), "roundtrip.db")
+	dbPath := seededDBPath(t, "roundtrip.db")
 	cfg := &globalConfig{DBPath: dbPath, JSONOutput: true, ProfileID: "default"}
 
 	var created workflow.Workflow
@@ -470,7 +471,7 @@ func TestWorkflowExportImportRoundtrip(t *testing.T) {
 func TestWorkflowImportLegacyFormat(t *testing.T) {
 	home := t.TempDir()
 	testhome.SetHome(t, home)
-	dbPath := filepath.Join(t.TempDir(), "legacy.db")
+	dbPath := seededDBPath(t, "legacy.db")
 	cfg := &globalConfig{DBPath: dbPath, JSONOutput: true, ProfileID: "default"}
 
 	path := filepath.Join(t.TempDir(), "legacy.json")
@@ -552,6 +553,7 @@ func TestWorkflowImportRejectsEmptyNodeType(t *testing.T) {
 	if err := seedDB.ApplyMigrations(); err != nil {
 		t.Fatalf("migrate db: %v", err)
 	}
+	testdb.AddDefaultProfile(t, seedDB.DB)
 	if err := seedDB.Close(); err != nil {
 		t.Fatalf("close seed db: %v", err)
 	}
@@ -614,7 +616,7 @@ func TestWorkflowImportFileErrorClassification(t *testing.T) {
 // workflow must exit 2 (and must not spin up the engine to find that out).
 func TestWorkflowDeleteNonexistentIsNotFound(t *testing.T) {
 	testhome.SetHome(t, t.TempDir())
-	cfg := &globalConfig{DBPath: filepath.Join(t.TempDir(), "delete.db"), ProfileID: "default"}
+	cfg := &globalConfig{DBPath: seededDBPath(t, "delete.db"), ProfileID: "default"}
 
 	cmd := newWorkflowDeleteCmd(cfg)
 	cmd.SetArgs([]string{"no-such-workflow", "--force"})
@@ -634,7 +636,7 @@ func TestWorkflowDeleteNonexistentIsNotFound(t *testing.T) {
 func TestWorkflowRunNoWaitPersistsUnownedQueued(t *testing.T) {
 	home := t.TempDir()
 	testhome.SetHome(t, home)
-	dbPath := filepath.Join(t.TempDir(), "nowait.db")
+	dbPath := seededDBPath(t, "nowait.db")
 	cfg := &globalConfig{DBPath: dbPath, JSONOutput: true, ProfileID: "default"}
 
 	path := writeTempWorkflow(t, validWorkflowFile)
@@ -698,7 +700,7 @@ func TestWorkflowImportNodeIDCollision(t *testing.T) {
 	// Isolate the hybrid store's file half (~/.monoagent/workflows).
 	testhome.SetHome(t, t.TempDir())
 
-	dbPath := filepath.Join(t.TempDir(), "import.db")
+	dbPath := seededDBPath(t, "import.db")
 	cfg := &globalConfig{DBPath: dbPath, ProfileID: "default"}
 
 	importOne := func(name string) string {
@@ -852,7 +854,7 @@ func TestWorkflowImportAtomicity_FreshCreateCleansUpOnPersistFailure(t *testing.
 func TestWorkflowImportAtomicity_OverwriteRestoresPreviousOnPersistFailure(t *testing.T) {
 	home := t.TempDir()
 	testhome.SetHome(t, home)
-	dbPath := filepath.Join(t.TempDir(), "atomic-overwrite.db")
+	dbPath := seededDBPath(t, "atomic-overwrite.db")
 	cfg := &globalConfig{DBPath: dbPath, JSONOutput: true, ProfileID: "default"}
 
 	const v1 = `{
@@ -888,6 +890,7 @@ func TestWorkflowImportAtomicity_OverwriteRestoresPreviousOnPersistFailure(t *te
 	if err := db.ApplyMigrations(); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
+	testdb.AddDefaultProfile(t, db.DB)
 	if _, err := db.DB.Exec(
 		`INSERT INTO workflow_executions (id, workflow_id, profile_id, status, trigger_type, error_message, created_at)
 		 VALUES ('exec-1', 'stable-wf-id', 'default', 'SUCCESS', 'manual', '', CURRENT_TIMESTAMP)`,
@@ -968,7 +971,7 @@ func TestWorkflowImportAtomicity_OverwriteRestoresPreviousOnPersistFailure(t *te
 func TestWorkflowImportAtomicity_SuccessfulOverwriteReplacesContent(t *testing.T) {
 	home := t.TempDir()
 	testhome.SetHome(t, home)
-	dbPath := filepath.Join(t.TempDir(), "atomic-overwrite-ok.db")
+	dbPath := seededDBPath(t, "atomic-overwrite-ok.db")
 	cfg := &globalConfig{DBPath: dbPath, JSONOutput: true, ProfileID: "default"}
 
 	const v1 = `{
@@ -1042,7 +1045,7 @@ func TestWorkflowImportAtomicity_SuccessfulOverwriteReplacesContent(t *testing.T
 func TestWorkflowTemplatesUse_PersistsSuccessfully(t *testing.T) {
 	home := t.TempDir()
 	testhome.SetHome(t, home)
-	dbPath := filepath.Join(t.TempDir(), "templates-use.db")
+	dbPath := seededDBPath(t, "templates-use.db")
 	cfg := &globalConfig{DBPath: dbPath, JSONOutput: true, ProfileID: "default"}
 
 	tmpls := workflow.ListTemplates()

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -30,6 +31,7 @@ func TestAFileOnlyWorkflowFromBeforeApprovalsRunsItsCommands(t *testing.T) {
 	if err := db.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
+	testdb.AddDefaultProfile(t, db.DB)
 	if _, err := db.DB.Exec(`DELETE FROM settings WHERE key = 'workflow_approvals.backfilled'`); err != nil {
 		t.Fatal(err)
 	}

@@ -11,6 +11,7 @@ import (
 	"github.com/monoes/mono-agent/internal/cli/opgate"
 	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	_ "modernc.org/sqlite"
 )
 
@@ -57,6 +58,7 @@ func seedMigratedDB(t *testing.T, path string) {
 	if err := d.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
+	testdb.AddDefaultProfile(t, d.DB)
 }
 
 // An unreadable registry entry must not hide a turn recorded in a readable one: the recovery flavour skips

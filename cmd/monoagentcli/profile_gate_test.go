@@ -114,7 +114,7 @@ func runGateCLI(t *testing.T, args ...string) (string, error) {
 	var out, errb bytes.Buffer
 	root.SetOut(&out)
 	root.SetErr(&errb)
-	root.SetArgs(append([]string{"--db-path", filepath.Join(t.TempDir(), "gate.db")}, args...))
+	root.SetArgs(append([]string{"--db-path", seededDBPath(t, "gate.db")}, args...))
 	err := root.ExecuteContext(context.Background())
 	return errb.String() + out.String(), err
 }

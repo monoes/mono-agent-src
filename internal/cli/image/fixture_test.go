@@ -16,6 +16,7 @@ import (
 	"github.com/zalando/go-keyring"
 
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/testhome"
 	"github.com/monoes/mono-agent/internal/vault"
 )
@@ -197,6 +198,7 @@ func newProfileDocsCLITestDB(t *testing.T) string {
 	if err := db.ApplyMigrations(); err != nil {
 		t.Fatalf("ApplyMigrations: %v", err)
 	}
+	testdb.AddDefaultProfile(t, db.DB)
 	if err := db.DB.Close(); err != nil {
 		t.Fatalf("closing seed db: %v", err)
 	}

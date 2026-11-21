@@ -26,6 +26,10 @@ func open158(t *testing.T) *seed158 {
 	t.Helper()
 	db := open156(t)
 	applyMigrationsBelow(t, db, 158)
+	// The sessions below belong to the profile 'default', which a new database no longer has.
+	if _, err := db.DB.Exec(`INSERT INTO profiles (id, name) VALUES ('default', 'Default')`); err != nil {
+		t.Fatal(err)
+	}
 	res, err := db.DB.Exec(`INSERT INTO task_sessions (profile_id, title, budget_usd, created_by, created_at, updated_at) VALUES ('default', 's', 10, 'you', ?, ?)`, rowStamp, rowStamp)
 	if err != nil {
 		t.Fatal(err)

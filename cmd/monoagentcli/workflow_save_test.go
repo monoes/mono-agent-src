@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -39,6 +40,7 @@ func otherProfileCfg(t *testing.T, cfg *globalConfig) *globalConfig {
 	if err := db.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
+	testdb.AddDefaultProfile(t, db.DB)
 	if _, err := db.DB.Exec(`INSERT OR IGNORE INTO profiles (id, name, created_at) VALUES ('other', 'Other', '2026-01-01')`); err != nil {
 		t.Fatal(err)
 	}

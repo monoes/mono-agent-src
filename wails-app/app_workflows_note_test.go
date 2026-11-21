@@ -17,6 +17,7 @@ func TestSetWorkflowActiveOffLogsTheRowsOnlyNote(t *testing.T) {
 	cliBin := buildTestCLI(t)
 	home := t.TempDir()
 	testhome.SetHome(t, home)
+	seedCLIHomeDB(t, home)
 	t.Setenv("MONOAGENTCLI_BIN", cliBin)
 	t.Setenv("MONOAGENT_DAEMON_HEARTBEAT", home+"/hb.json")
 	a := newTestApp(t)

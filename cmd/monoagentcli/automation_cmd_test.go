@@ -14,6 +14,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/automation"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/zalando/go-keyring"
 )
 
@@ -93,6 +94,7 @@ func TestAutomationListSessionFromCrawlerSessions(t *testing.T) {
 	if err := db.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
+	testdb.AddDefaultProfile(t, db.DB)
 	if err := upsertSessionRow(context.Background(), db.DB, "default", "hackernews", "pg", []byte(`[]`)); err != nil {
 		t.Fatal(err)
 	}

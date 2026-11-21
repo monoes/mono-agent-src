@@ -12,6 +12,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/secrets"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/vault"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
@@ -31,6 +32,7 @@ func TestCallReadsOnlyTheServerTheWorkflowNames(t *testing.T) {
 	if err := db.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
+	testdb.AddDefaultProfile(t, db.DB)
 	ctx := vault.ContextWithProfileID(vault.ContextWithDB(context.Background(), db.DB), "default")
 	if _, err := secrets.Add(ctx, db.DB, "default", "secret", "crm", map[string]string{"secret": "not a server definition"}, "", "", ""); err != nil {
 		t.Fatal(err)

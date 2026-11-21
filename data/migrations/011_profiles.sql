@@ -9,11 +9,11 @@ CREATE TABLE IF NOT EXISTS profiles (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- Bootstrap the default profile so FK references are satisfied.
-INSERT OR IGNORE INTO profiles (id, name) VALUES ('default', 'Default');
-
--- Persist the active-profile selection across restarts.
-INSERT OR IGNORE INTO settings (key, value) VALUES ('active_profile_id', 'default');
+-- No profile is seeded: a new database starts with zero profiles and the
+-- first-run onboarding has the user create and name the first one. This file
+-- used to insert a 'default' profile and an active_profile_id setting;
+-- databases that already have that row keep it, and 'default' stays a valid
+-- profile id. The column DEFAULT 'default' clauses below are unchanged.
 
 -- Add profile_id to every user-scoped table. modernc.org/sqlite does not
 -- support "ADD COLUMN IF NOT EXISTS"; schema_migrations already guarantees

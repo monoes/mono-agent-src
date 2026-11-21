@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/testhome"
 	"path/filepath"
 	"testing"
@@ -14,7 +15,9 @@ import (
 // call's context is cancelled, a later run on the same profile still executes.
 func TestEngineOutlivesTheCallThatStartedIt(t *testing.T) {
 	testhome.SetHome(t, t.TempDir())
-	rt, err := newRuntime(Options{DBPath: filepath.Join(t.TempDir(), "m.db"), WorkflowsDir: filepath.Join(t.TempDir(), "wf")})
+	dbPath := filepath.Join(t.TempDir(), "m.db")
+	testdb.MustSeed(dbPath) // has the profile 'default' the workflow belongs to
+	rt, err := newRuntime(Options{DBPath: dbPath, WorkflowsDir: filepath.Join(t.TempDir(), "wf")})
 	if err != nil {
 		t.Fatal(err)
 	}

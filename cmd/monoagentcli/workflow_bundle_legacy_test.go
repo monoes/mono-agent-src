@@ -119,7 +119,7 @@ func TestWorkflowBundleLegacyAlias(t *testing.T) {
 				t.Fatalf("resolved %q to %q, which is not installed: %v", platform, pkgID, err)
 			}
 
-			cfg := &globalConfig{DBPath: filepath.Join(t.TempDir(), "src.db"), JSONOutput: true, ProfileID: "default"}
+			cfg := &globalConfig{DBPath: seededDBPath(t, "src.db"), JSONOutput: true, ProfileID: "default"}
 			wf := `{"name":"legacy-wf","nodes":[
   {"id":"t","type":"trigger.manual","name":"Trigger","position":{"x":0,"y":0},"config":{}},
   {"id":"h","type":"` + platform + `.get_heading","name":"Heading","position":{"x":200,"y":0},"config":{}}
@@ -164,7 +164,7 @@ func TestWorkflowBundleLegacyAlias(t *testing.T) {
 
 			// A fresh machine without the legacy directory.
 			testhome.SetHome(t, t.TempDir())
-			cfg2 := &globalConfig{DBPath: filepath.Join(t.TempDir(), "dst.db"), JSONOutput: true, ProfileID: "default"}
+			cfg2 := &globalConfig{DBPath: seededDBPath(t, "dst.db"), JSONOutput: true, ProfileID: "default"}
 			var res struct {
 				Automations []bundleImportItem `json:"automations"`
 			}

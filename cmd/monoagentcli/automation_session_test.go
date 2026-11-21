@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/zalando/go-keyring"
 )
 
@@ -30,6 +31,7 @@ func TestAutomationListLegacyGoogleMapsSession(t *testing.T) {
 	if err := db.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
+	testdb.AddDefaultProfile(t, db.DB)
 	if err := upsertSessionRow(context.Background(), db.DB, "default", "google_maps", "maps-user", []byte(`[]`)); err != nil {
 		t.Fatal(err)
 	}

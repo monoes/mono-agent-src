@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/vault"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
@@ -23,6 +24,7 @@ func newDedupeDB(t *testing.T) *sql.DB {
 	if err := db.ApplyMigrations(); err != nil {
 		t.Fatalf("apply migrations: %v", err)
 	}
+	testdb.AddDefaultProfile(t, db.DB)
 	return db.DB
 }
 

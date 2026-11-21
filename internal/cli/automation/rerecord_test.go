@@ -15,6 +15,7 @@ import (
 	"github.com/monoes/mono-agent/internal/extension"
 	"github.com/monoes/mono-agent/internal/recording"
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 )
 
 type fakePicker struct {
@@ -165,6 +166,7 @@ func TestAutomationRerecordResetsHealth(t *testing.T) {
 	if err := db.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
+	testdb.AddDefaultProfile(t, db.DB)
 	db.DB.Exec(`INSERT INTO automation_selector_health (automation_id, selector_key, ok_count, fail_count, healed_count, last_candidate_index, recent, updated_at)
 		VALUES ('acme','save.button',1,9,0,0,'','2026-01-01T00:00:00Z')`)
 	db.Close()

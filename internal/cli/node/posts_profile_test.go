@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/storage"
+	"github.com/monoes/mono-agent/internal/testdb"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
@@ -21,6 +22,7 @@ func TestPostsAreProfileScoped(t *testing.T) {
 	if err := db.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
+	testdb.AddDefaultProfile(t, db.DB)
 	defer db.Close()
 	ctx := context.Background()
 
@@ -69,6 +71,7 @@ func TestEmptyProfileSavesNothing(t *testing.T) {
 	if err := db.ApplyMigrations(); err != nil {
 		t.Fatal(err)
 	}
+	testdb.AddDefaultProfile(t, db.DB)
 	defer db.Close()
 	ctx := context.Background()
 
