@@ -1,0 +1,19 @@
+/* Your agents. Shared classes come from onboarding.css; only what this step adds. */
+.onb-root .onb-ag-bar{display:flex;justify-content:flex-end;margin:-8px 0 10px}
+.onb-root .onb-ag-tiles{margin-bottom:4px}
+.onb-root .onb-ag-tile{display:flex;flex-direction:column;gap:8px;padding:14px;min-width:0}
+.onb-root .onb-ag-tile header{display:flex;align-items:center;gap:10px}
+.onb-root .onb-ag-tile header b{flex:1;min-width:0;font-size:14.5px;overflow-wrap:anywhere}
+.onb-root .onb-ag-lg{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;flex:none;background:oklch(0.97 0.01 290 / .08);font-weight:700;font-size:13px}
+.onb-root .onb-ag-ver{font-size:12px;color:var(--onb-ink-3);font-family:var(--onb-mono)}
+.onb-root .onb-ag-tile .onb-hint{margin:0;font-size:12.5px;color:var(--onb-ink-2)}
+.onb-root .onb-ag-tile .onb-hint code{font-size:12px;overflow-wrap:anywhere}
+.onb-root .onb-ag-tile .onb-error{margin:0;font-size:12.5px;overflow-wrap:anywhere}
+.onb-root .onb-ag-tile .onb-log{margin:0;max-height:110px}
+.onb-root .onb-ag-tile select.onb-input{width:100%}
+.onb-root .onb-ag-busy{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--onb-accent)}
+.onb-root .onb-ag-ok{margin:0;font-size:13px;color:var(--onb-ok);font-weight:600}
+.onb-root .onb-ag-empty{padding:18px;border-radius:16px;border:1px dashed var(--onb-line-2);margin-bottom:12px}
+.onb-root .onb-ag-empty b{display:block;font-size:16px;margin-bottom:4px}
+.onb-root .onb-ag-empty span{font-size:13.5px;color:var(--onb-ink-2)}
+.onb-root .onb-ag-missing p{margin:0 0 12px}
