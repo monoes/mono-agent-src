@@ -1,0 +1,150 @@
+//go:build !windows
+
+package main
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/monoes/mono-agent/internal/account/accounttest"
+	"github.com/monoes/mono-agent/internal/profiledir"
+)
+
+// onboardingFakeCLI answers the four reads GetOnboardingState makes.
+func onboardingFakeCLI(t *testing.T, roster, status, browsers string) {
+	t.Helper()
+	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, `case "$*" in
+  *"profile list"*) echo '[{"id":"work","name":"Work","created_at":"2026-01-01T00:00:00Z","root_dir":"","icon":""}]' ;;
+  *"agent roster"*) echo '`+roster+`' ;;
+  *"extension status"*) echo '`+status+`' ;;
+  *"extension browsers"*) echo '`+browsers+`' ;;
+  *) echo '{"error":"unexpected"}'; exit 1 ;;
+esac
+`))
+}
+
+func onboardingCLIApp(t *testing.T) *App {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	a := newTestApp(t)
+	a.ctx = context.Background()
+	a.selectForTest("work")
+	return a
+}
+
+const (
+	rosterReady    = `{"v":1,"runtimes":[{"runtime":"claude","installed":true,"models":[{"model":"m1","state":"failed"},{"model":"m2","state":"ready"}],"ready":1}]}`
+	rosterNotReady = `{"v":1,"runtimes":[{"runtime":"claude","installed":true,"models":[{"model":"m1","state":"stale"},{"model":"m2","state":"untested"}],"ready":0}]}`
+	statusPaired   = `{"running":true,"clientPairing":"ok"}`
+	statusMismatch = `{"running":true,"clientPairing":"mismatch"}`
+	browsersWork   = `{"running":true,"browsers":[{"instance":"i1","profile_ids":["other","work"]}]}`
+	browsersOther  = `{"running":true,"browsers":[{"instance":"i1","profile_ids":[]},{"instance":"i2","profile_ids":["other"]}]}`
+)
+
+func TestOnboardingFactsComeFromTheCLIAndTheProfileFolder(t *testing.T) {
+	onboardingFakeCLI(t, rosterReady, statusPaired, browsersWork)
+	a := onboardingCLIApp(t)
+	root := profiledir.Root(a.db, "work")
+	if err := os.MkdirAll(filepath.Join(root, ".monomind"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".monomind", "config.yaml"), []byte("x: 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, known := a.gatherOnboardingFacts()
+	want := onboardingFacts{ProfileID: "work", ProfileCount: 1, MonomindOn: true, AgentUsable: true, BrowserAssigned: true}
+	if !known || f != want {
+		t.Fatalf("facts = %+v (known %v), want %+v", f, known, want)
+	}
+}
+
+func TestOnboardingFactsAreFalseWhenNotMet(t *testing.T) {
+	for _, c := range []struct{ name, roster, status, browsers string }{
+		{"nothing ready, not paired", rosterNotReady, statusMismatch, browsersWork},
+		{"paired, profile in no browser (an unbound browser does not count)", rosterNotReady, statusPaired, browsersOther},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			onboardingFakeCLI(t, c.roster, c.status, c.browsers)
+			a := onboardingCLIApp(t)
+			f, known := a.gatherOnboardingFacts()
+			want := onboardingFacts{ProfileID: "work", ProfileCount: 1}
+			if !known || f != want {
+				t.Fatalf("facts = %+v (known %v), want %+v", f, known, want)
+			}
+		})
+	}
+}
+
+// A CLI that fails on every call never means zero profiles: with nothing
+// stored GetOnboardingState is errOnboardingUnknown and writes nothing; with
+// marks stored it returns their Completed.
+func TestOnboardingStateWithAFailingCLI(t *testing.T) {
+	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, "echo boom >&2\nexit 1\n"))
+	a := onboardingCLIApp(t)
+	for _, selected := range []bool{true, false} {
+		if !selected {
+			a.selectedProfilePtr.Store(nil)
+		}
+		if s, err := a.GetOnboardingState(); !errors.Is(err, errOnboardingUnknown) {
+			t.Fatalf("selected %v: GetOnboardingState = %+v, %v; want errOnboardingUnknown", selected, s, err)
+		}
+		assertNoStateFile(t, a)
+	}
+	if err := a.CompleteOnboarding(); err != nil {
+		t.Fatal(err)
+	}
+	if s, err := a.GetOnboardingState(); err != nil || !s.Completed {
+		t.Fatalf("with completed stored: %+v, %v", s, err)
+	}
+}
+
+// GetOnboardingState over a working CLI writes the existing install's mark.
+func TestGetOnboardingStateMarksAnExistingInstall(t *testing.T) {
+	onboardingFakeCLI(t, rosterNotReady, statusMismatch, browsersOther)
+	a := onboardingCLIApp(t)
+	s, err := a.GetOnboardingState()
+	if err != nil || !s.Completed || s.ProfileID != "work" || len(s.Steps) != 10 {
+		t.Fatalf("GetOnboardingState = %+v, %v", s, err)
+	}
+	if m := onboardingMarksOf(t, a); m == nil || !m.Completed {
+		t.Fatalf("marks = %+v", m)
+	}
+}
+
+// Signed out, nothing is read from the CLI (its empty profile list would
+// read as zero profiles) and nothing is written: the count is unknown.
+func TestOnboardingStateSignedOut(t *testing.T) {
+	log := filepath.Join(t.TempDir(), "args.log")
+	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, `echo "$*" >> '`+log+`'
+echo '[]'
+`))
+	a := onboardingCLIApp(t)
+	accounttest.Install(t, accounttest.LockedNoLogin)
+	if s, err := a.GetOnboardingState(); !errors.Is(err, errOnboardingUnknown) {
+		t.Fatalf("GetOnboardingState = %+v, %v; want errOnboardingUnknown", s, err)
+	}
+	if _, err := os.Stat(log); !os.IsNotExist(err) {
+		t.Fatal("the CLI ran while signed out")
+	}
+	assertNoStateFile(t, a)
+}
+
+// Only a successful read of zero profiles opens the onboarding for an
+// install with nothing stored.
+func TestOnboardingStateZeroProfilesReadOpensWelcome(t *testing.T) {
+	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, `case "$*" in
+  *"profile list"*) echo '[]' ;;
+  *) echo '{"error":"unexpected"}'; exit 1 ;;
+esac
+`))
+	a := onboardingCLIApp(t)
+	a.selectedProfilePtr.Store(nil)
+	s, err := a.GetOnboardingState()
+	if err != nil || s.Completed || s.CurrentStep != "welcome" {
+		t.Fatalf("GetOnboardingState = %+v, %v", s, err)
+	}
+	assertNoStateFile(t, a)
+}
