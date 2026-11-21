@@ -3,12 +3,13 @@
 package monomind
 
 import (
-	"errors"
 	"fmt"
 	"os/exec"
 	"syscall"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/monoes/mono-agent/internal/procresume"
 )
 
 // startProcessGroup starts a child this process will kill with
@@ -42,24 +43,15 @@ func startProcessGroup(cmd *exec.Cmd) (release func(), err error) {
 	return release, nil
 }
 
-var procNtResumeProcess = windows.NewLazySystemDLL("ntdll.dll").NewProc("NtResumeProcess")
-
 // resumeProcess resumes every thread of a process created with
 // CREATE_SUSPENDED (it has exactly one, its main thread).
 func resumeProcess(pid int) error {
-	if err := procNtResumeProcess.Find(); err != nil {
-		return err
-	}
 	h, err := windows.OpenProcess(windows.PROCESS_SUSPEND_RESUME, false, uint32(pid))
 	if err != nil {
 		return err
 	}
 	defer windows.CloseHandle(h)
-	r, _, _ := procNtResumeProcess.Call(uintptr(h))
-	if st := windows.NTStatus(r); st != windows.STATUS_SUCCESS {
-		return st
-	}
-	return nil
+	return procresume.Resume(h)
 }
 
 // startDetached starts a child that must outlive this process and that
@@ -78,7 +70,7 @@ func resumeProcess(pid int) error {
 func startDetached(cmd *exec.Cmd) (*exec.Cmd, error) {
 	setDetachedFlags(cmd, true)
 	err := cmd.Start()
-	if err == nil || !errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+	if err == nil || !procresume.BreakawayRefused(err) {
 		return cmd, err
 	}
 	retry := cloneForRetry(cmd)
