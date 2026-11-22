@@ -281,7 +281,9 @@ func parseT(v sql.NullString) *time.Time {
 	}
 	t, err := time.Parse(timeFmt, v.String)
 	if err != nil {
-		return nil
+		// Fail closed: a revoked_at/expires_at we cannot read must not
+		// read as "not revoked / never expires".
+		t = time.Unix(1, 0).UTC()
 	}
 	return &t
 }
