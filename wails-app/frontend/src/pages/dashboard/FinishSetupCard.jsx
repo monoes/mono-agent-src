@@ -2,9 +2,10 @@
 // top of the dashboard. Each row reopens the onboarding at its step
 // (OnboardingContext). The rows come from the full state read, made once per
 // app session and kept in setupSession.js: read when the card first shows,
-// again only after the onboarding was opened from the app, or on the card's
-// refresh; never once the card is hidden, and not again while the last read
-// left nothing to do. The result stays local, so a read never re-renders the
+// again when the answer goes stale (the onboarding closed, monomind turned
+// on: at once if the card is on screen, else the next time it shows), or on
+// the card's refresh; never once the card is hidden, and not again while the
+// last read left nothing to do. The result stays local, so a read never re-renders the
 // app. Welcome and You're set are never rows: they are not setup left to do.
 // Hiding it is remembered (getStarted.js, the key the old Get started
 // checklist used).
@@ -14,7 +15,7 @@ import { Circle, RefreshCw, Rocket, X } from 'lucide-react'
 import { OnboardingContext } from '../../onboarding/onboardingContext.js'
 import { STEPS, statusesOf, railLabel } from '../../onboarding/steps.js'
 import { loadDismissed, saveDismissed } from './getStarted.js'
-import { setupSnapshot, readSetupState, markSetupStale } from './setupSession.js'
+import { setupSnapshot, readSetupState, onSetupStale } from './setupSession.js'
 
 const SETUP_STEPS = STEPS.filter(s => s.id !== 'welcome' && s.id !== 'finish').map(s => s.id)
 
@@ -38,6 +39,10 @@ export default function FinishSetupCard({ isActive = true }) {
     wasActive.current = isActive
     if (back && !hidden && !setupSnapshot().fresh) read()
   }, [isActive, hidden, read])
+  // the answer went stale while the card is on screen (the onboarding closed over the dashboard)
+  const onScreen = useRef(false)
+  onScreen.current = isActive && !hidden
+  useEffect(() => onSetupStale(() => { if (onScreen.current) read() }), [read])
 
   const state = snap.state
   if (hidden || !state) return null
@@ -48,7 +53,7 @@ export default function FinishSetupCard({ isActive = true }) {
   const open = async (id) => {
     if (opening) return
     setOpening(id)
-    markSetupStale()
+    // no stale mark here: the gate marks it when the onboarding closes
     try { await openOnboarding(id) } finally { setOpening('') }
   }
   const dismiss = () => { saveDismissed(); setHidden(true) }

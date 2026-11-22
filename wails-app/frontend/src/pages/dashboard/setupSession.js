@@ -3,10 +3,11 @@
 // first time it shows and keeps the answer here, outside the card: showing the
 // dashboard again, or switching its scope, remounts the card without a read.
 // The answer stops standing (markSetupStale) when something that changes it
-// happened: the onboarding was opened or closed (whoever opens or closes it
-// calls markSetupStale), or monomind finished turning on, from any page
-// (monomind:initProgress "done"). The card then reads again the next time it
-// shows, or on its own refresh. Nothing is put in the gate's state, so a read
+// happened: the onboarding closed (the gate calls markSetupStale), setup was
+// restarted, or monomind finished turning on, from any page
+// (monomind:initProgress "done"). A card on screen reads again at once
+// (onSetupStale); otherwise the card reads the next time it shows, or on its
+// own refresh. Nothing is put in the gate's state, so a read
 // never re-renders the app.
 import { onboarding } from '../../services/onboarding.js'
 import { subscribeEvent } from '../../services/api.js'
@@ -17,6 +18,7 @@ let generation = 0 // bumped by markSetupStale: an answer read before it never c
 let pending = null // { gen, promise }
 let watching = false
 let storedGen = -1 // the generation of the stored answer: an older read never replaces a newer one
+const listeners = new Set()
 
 // The last answer, and whether it still stands.
 export const setupSnapshot = () => session
@@ -26,6 +28,15 @@ export const setupSnapshot = () => session
 export function markSetupStale() {
   generation++
   session = { ...session, fresh: false }
+  for (const fn of [...listeners]) {
+    try { fn() } catch (e) { console.error('setup session listener', e) }
+  }
+}
+
+// fn runs on every markSetupStale (a card on screen reads again); returns the unsubscribe.
+export function onSetupStale(fn) {
+  listeners.add(fn)
+  return () => { listeners.delete(fn) }
 }
 
 // Watch for changes made outside the onboarding, once for the session.
@@ -54,4 +65,4 @@ export function readSetupState() {
   return promise
 }
 
-export function resetSetupSession() { session = { state: null, fresh: false }; generation = 0; pending = null; watching = false; storedGen = -1 } // tests
+export function resetSetupSession() { session = { state: null, fresh: false }; generation = 0; pending = null; watching = false; storedGen = -1; listeners.clear() } // tests

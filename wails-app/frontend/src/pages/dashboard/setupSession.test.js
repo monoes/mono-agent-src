@@ -10,7 +10,7 @@ vi.mock('../../services/api.js', () => ({
   subscribeEvent: vi.fn((name, fn) => { events.handlers[name] = fn; return () => {} }),
 }))
 
-import { setupSnapshot, readSetupState, markSetupStale, resetSetupSession } from './setupSession.js'
+import { setupSnapshot, readSetupState, markSetupStale, onSetupStale, resetSetupSession } from './setupSession.js'
 
 const stateOf = (tag) => ({ completed: true, steps: [], tag })
 
@@ -70,5 +70,16 @@ describe('setup session', () => {
     expect(setupSnapshot().fresh).toBe(true)
     onInit({ kind: 'done', message: '' })
     expect(setupSnapshot().fresh).toBe(false)
+  })
+
+  it('tells each listener of a stale mark until it unsubscribes', () => {
+    const a = vi.fn(); const b = vi.fn()
+    const offA = onSetupStale(a)
+    onSetupStale(b)
+    markSetupStale()
+    offA()
+    markSetupStale()
+    expect(a).toHaveBeenCalledTimes(1)
+    expect(b).toHaveBeenCalledTimes(2)
   })
 })

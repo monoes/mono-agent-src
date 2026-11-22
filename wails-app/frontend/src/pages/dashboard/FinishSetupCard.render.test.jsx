@@ -14,7 +14,7 @@ import i18n from '../../i18n.js'
 import { OnboardingContext } from '../../onboarding/onboardingContext.js'
 import FinishSetupCard from './FinishSetupCard.jsx'
 import { DISMISS_KEY } from './getStarted.js'
-import { resetSetupSession } from './setupSession.js'
+import { resetSetupSession, markSetupStale } from './setupSession.js'
 
 const IDS = ['welcome', 'system', 'profile', 'about', 'monomind', 'agents', 'browser', 'permissions', 'firstRun', 'finish']
 const stateOf = (statuses = {}) => ({ completed: true, currentStep: 'finish', profileId: 'p1', steps: IDS.map(id => ({ id, status: statuses[id] || 'done' })) })
@@ -105,16 +105,42 @@ describe('FinishSetupCard', () => {
     expect(go.GetOnboardingStateFull).not.toHaveBeenCalled()
   })
 
-  it('reads again after the onboarding was opened from it and closed', async () => {
-    const first = show(stateOf({ browser: 'skipped' }))
+  it('opening the onboarding from a row reads nothing; its close over the dashboard reads once', async () => {
+    show(stateOf({ browser: 'skipped' }), { isActive: true })
     fireEvent.click(await screen.findByRole('button', { name: 'Finish this: Browser' }))
     await settle()
-    first.unmount() // the app goes away while the onboarding shows
+    expect(ctx.openOnboarding).toHaveBeenCalledWith('browser')
+    expect(go.GetOnboardingStateFull).toHaveBeenCalledTimes(1)
     go.GetOnboardingStateFull.mockResolvedValue(stateOf())
-    show(undefined) // the onboarding closed; the app is back
+    await act(async () => { markSetupStale() }) // the gate, as the onboarding closes
+    await waitFor(() => expect(screen.queryByTestId('finish-setup')).not.toBeInTheDocument())
+    expect(go.GetOnboardingStateFull).toHaveBeenCalledTimes(2)
+  })
+
+  it('a stale mark while the dashboard is hidden waits for the next show', async () => {
+    const { rerender } = show(stateOf({ browser: 'skipped' }), { isActive: true })
+    await screen.findByTestId('finish-setup')
+    rerender(card({ isActive: false }))
+    await act(async () => { markSetupStale() })
+    expect(go.GetOnboardingStateFull).toHaveBeenCalledTimes(1)
+    rerender(card({ isActive: true }))
     await settle()
     expect(go.GetOnboardingStateFull).toHaveBeenCalledTimes(2)
-    expect(screen.queryByTestId('finish-setup')).not.toBeInTheDocument()
+  })
+
+  it('a stale mark reads nothing when dismissed', async () => {
+    show(stateOf({ browser: 'skipped' }), { isActive: true })
+    fireEvent.click(await screen.findByRole('button', { name: 'Hide this card' }))
+    await act(async () => { markSetupStale() })
+    expect(go.GetOnboardingStateFull).toHaveBeenCalledTimes(1)
+  })
+
+  it('stops listening when unmounted', async () => {
+    const { unmount } = show(stateOf({ browser: 'skipped' }), { isActive: true })
+    await screen.findByTestId('finish-setup')
+    unmount()
+    await act(async () => { markSetupStale() })
+    expect(go.GetOnboardingStateFull).toHaveBeenCalledTimes(1)
   })
 
   it('reads again on its own refresh', async () => {
