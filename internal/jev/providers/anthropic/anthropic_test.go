@@ -58,12 +58,12 @@ func TestEveryKindEndToEnd(t *testing.T) {
 	if resp.Provider != "claude" || resp.Probability != jev.ProbSampled || resp.Model != DefaultModel {
 		t.Errorf("provider %q probability %q model %q", resp.Provider, resp.Probability, resp.Model)
 	}
-	// noul stops early after 3 unanimous samples; the others take 5 each.
+	// Every question takes all 5 samples, the two-option noul too (plan O2).
 	got := f.requests()
-	if len(got) != 13 {
-		t.Fatalf("%d requests, want 13", len(got))
+	if len(got) != 15 {
+		t.Fatalf("%d requests, want 15", len(got))
 	}
-	if resp.Usage.InputTokens != 130 || resp.Usage.OutputTokens != 26 {
+	if resp.Usage.InputTokens != 150 || resp.Usage.OutputTokens != 30 {
 		t.Errorf("usage %+v", resp.Usage)
 	}
 	for _, s := range got {
@@ -83,7 +83,7 @@ func TestEveryKindEndToEnd(t *testing.T) {
 }
 
 func TestTheRecordsModelAndTheCallsModel(t *testing.T) {
-	f := newFake(t, sequence("yes", "yes", "yes"))
+	f := newFake(t, sequence("yes", "yes", "yes", "yes", "yes"))
 	c := providerClient(t, f.URL, testKey, "claude-own-model")
 	resp, err := c.Ask(context.Background(), map[string]any{}, map[string]jev.Question{"q": noul("ok?")})
 	if err != nil {
@@ -110,7 +110,8 @@ func TestSampleFrequenciesAreTheProbabilities(t *testing.T) {
 	}
 }
 
-func TestEarlyStop(t *testing.T) {
+// No question stops early: only a unanimous five gives p = 1.0 (plan O2).
+func TestEveryQuestionTakesAllSamples(t *testing.T) {
 	cases := []struct {
 		name    string
 		q       jev.Question
@@ -118,11 +119,12 @@ func TestEarlyStop(t *testing.T) {
 		calls   int
 		check   func(jev.Answer) bool
 	}{
-		{"unanimous noul", noul("ok?"), []string{"no", "no", "no"}, 3, func(a jev.Answer) bool { return near(a.Noul, 0) }},
+		{"unanimous noul", noul("ok?"), []string{"no", "no", "no", "no", "no"}, 5, func(a jev.Answer) bool { return near(a.Noul, 0) }},
 		{"split noul", noul("ok?"), []string{"yes", "no", "yes", "yes", "no"}, 5, func(a jev.Answer) bool { return near(a.Noul, 0.6) }},
 		{"a miss among the first three", noul("ok?"), []string{"", "yes", "yes", "yes", "yes"}, 5, func(a jev.Answer) bool { return near(a.Noul, 1) }},
-		{"two-option choice", choice("x", "y"), []string{"y", "y", "y"}, 3, func(a jev.Answer) bool { return a.Choice == "y" && near(a.Probabilities["y"], 1) }},
-		{"three options never stop early", choice("x", "y", "z"), []string{"y", "y", "y", "y", "y"}, 5, func(a jev.Answer) bool { return a.Choice == "y" }},
+		{"two-option choice", choice("x", "y"), []string{"y", "y", "y", "y", "y"}, 5, func(a jev.Answer) bool { return a.Choice == "y" && near(a.Probabilities["y"], 1) }},
+		{"three agreeing, then a dissent", choice("x", "y"), []string{"y", "y", "y", "x", "y"}, 5, func(a jev.Answer) bool { return a.Choice == "y" && near(a.Probabilities["y"], 0.8) }},
+		{"three options", choice("x", "y", "z"), []string{"y", "y", "y", "y", "y"}, 5, func(a jev.Answer) bool { return a.Choice == "y" }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
