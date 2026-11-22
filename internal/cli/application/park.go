@@ -515,6 +515,10 @@ func (r queueRunner) Sweep(ctx context.Context) error {
 	return err
 }
 
+func (r queueRunner) NeedsYou(ctx context.Context, id, reason string) error {
+	return r.needsYou(ctx, id, reason)
+}
+
 // needsYou parks an application whose task ended without a result.
 func (r queueRunner) needsYou(ctx context.Context, id, reason string) error {
 	profile := r.d.ProfileID()

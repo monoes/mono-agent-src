@@ -75,6 +75,9 @@ func (s *Scheduler) RemoveJob(id cron.EntryID) {
 
 // NextPeriod calculates the next execution time for a recurring action within a time window.
 func NextPeriod(start, end time.Time, pollIntervalMinutes int) *time.Time {
+	if pollIntervalMinutes <= 0 {
+		return nil
+	}
 	now := time.Now().Truncate(time.Minute)
 
 	if now.Before(start) {
