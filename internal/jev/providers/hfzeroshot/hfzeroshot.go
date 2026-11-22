@@ -6,6 +6,10 @@
 // noul's two answers) and nothing else, so it can only name an option the
 // code enumerated (plan D3). It answers choice and noul questions; a score
 // is jev.ErrUnsupported.
+//
+// The scores are a forced softmax over the candidate labels, not calibrated
+// probabilities: answers report jev.ProbSoftmax. A reply that scores only
+// some of the labels keeps the missing mass off the answer (jev.Conservative).
 package hfzeroshot
 
 import (
@@ -14,6 +18,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"path"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -39,8 +45,11 @@ func init() {
 // Backend answers through one zero-shot classification endpoint. Build it with New.
 type Backend struct {
 	url, key string
-	http     *http.Client
-	retries  int
+	// model names the model in answers: the record's model, else the
+	// endpoint URL's last path segment, else its host.
+	model   string
+	http    *http.Client
+	retries int
 	// sleep waits d or until ctx ends (tests replace it).
 	sleep func(ctx context.Context, d time.Duration) error
 }
@@ -51,14 +60,31 @@ func New(p jevconf.Provider, key string) (*Backend, error) {
 	if strings.TrimSpace(p.BaseURL) == "" {
 		return nil, errors.New("hf-zeroshot: base_url must be the model's full endpoint URL")
 	}
-	return &Backend{url: p.BaseURL, key: key, http: jev.KeyedHTTPClient(timeout), retries: 2, sleep: sleepCtx}, nil
+	return &Backend{url: p.BaseURL, key: key, model: modelOf(p), http: jev.KeyedHTTPClient(timeout), retries: 2, sleep: sleepCtx}, nil
+}
+
+// modelOf is the model p's answers are labelled with: its Model, else the
+// last segment of its endpoint's path ("…/models/facebook/bart-large-mnli"
+// → "bart-large-mnli"), else the endpoint's host.
+func modelOf(p jevconf.Provider) string {
+	if m := strings.TrimSpace(p.Model); m != "" {
+		return m
+	}
+	u, err := url.Parse(strings.TrimSpace(p.BaseURL))
+	if err != nil {
+		return ""
+	}
+	if seg := path.Base(strings.TrimRight(u.Path, "/")); seg != "." && seg != "/" && seg != "" {
+		return seg
+	}
+	return u.Hostname()
 }
 
 // Capabilities implements jev.Backend.
 func (b *Backend) Capabilities() jev.Capabilities {
 	return jev.Capabilities{
 		Kinds:       []string{jev.TypeChoice, jev.TypeNoul},
-		Probability: jev.ProbNative, MaxChoiceOptions: MaxLabels, QuestionsPerRequest: 1,
+		Probability: jev.ProbSoftmax, MaxChoiceOptions: MaxLabels, QuestionsPerRequest: 1,
 	}
 }
 
@@ -72,7 +98,7 @@ func (b *Backend) Answer(ctx context.Context, req *jev.Request) (*jev.Response, 
 		a, err := b.answerOne(ctx, state, q)
 		return a, jev.Usage{}, err
 	})
-	resp.Probability = jev.ProbNative
+	resp.Model, resp.Probability = b.model, jev.ProbSoftmax
 	return resp, err
 }
 
@@ -85,16 +111,18 @@ func (b *Backend) answerOne(ctx context.Context, state []byte, q jev.Question) (
 	if err != nil {
 		return jev.Answer{}, err
 	}
-	probs := make(map[string]float64, len(scores))
-	for label, s := range scores {
-		probs[keys[label]] = s
+	// Every candidate, 0 for one the reply left out: a reply scoring only
+	// some labels keeps the rest of its mass off the answer (Conservative).
+	mass := make(map[string]float64, len(keys))
+	for label, key := range keys {
+		mass[key] = scores[label]
 	}
+	probs := jev.Conservative(mass)
 	if q.Type == jev.TypeNoul {
-		p := jev.Renormalise(map[string]float64{"true": probs["true"], "false": probs["false"]})
-		if p == nil {
+		if probs == nil {
 			return jev.Answer{}, fmt.Errorf("%w: hf-zeroshot: no usable score for yes or no", jev.ErrInvalidAnswer)
 		}
-		return jev.NoulAnswer(p["true"])
+		return jev.NoulAnswer(probs["true"])
 	}
 	return jev.ChoiceAnswer(q, probs)
 }

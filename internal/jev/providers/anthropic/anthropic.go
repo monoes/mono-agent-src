@@ -1,21 +1,32 @@
 // Package anthropic is the decision adapter for Anthropic's Messages API
 // (provider kind "anthropic"). Anthropic returns no log-probabilities, so
-// every question is asked Samples times at temperature 1 and its answer's
-// probabilities are the shares of the samples (jev.ProbSampled). Each
-// sample is one forced call of a tool whose only input is an enum of the
-// question's labels, so the model can only name an option the code
-// enumerated; no text from the model ever reaches a caller (plan D3).
+// every question is asked Samples times at temperature 1 (one call, then
+// the other four at once), and
+// its answer's probabilities are add-one smoothed shares of the samples
+// asked (jev.ProbSampled, jev.SampledProbs):
 //
-// Every question takes all Samples calls, whatever its number of options:
-// only a unanimous five gives an answer p = 1.0 (plan O2).
+//	p(o) = (count(o) + 1) / (Samples + options),
+//
+// a sample that names no allowed option counting toward the samples asked
+// but toward no option, its share then going to the other options. So five
+// samples never clear a 0.9 threshold: a unanimous five on two options is
+// 6/7 ≈ 0.857, on three 0.75. Each sample is one forced call of a tool whose
+// only input is an enum of the question's labels, so the model can only
+// name an option the code enumerated; no text from the model ever reaches a
+// caller (plan D3).
+//
+// Every question takes all Samples calls, whatever its number of options
+// (plan O2).
 package anthropic
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/jev"
@@ -99,29 +110,67 @@ func (b *Backend) answerOne(ctx context.Context, model string, state []byte, q j
 	if err != nil {
 		return jev.Answer{}, usage, fmt.Errorf("anthropic: encode request: %w", err)
 	}
-	counts := map[string]int{}
-	valid, asked := 0, 0
-	for ; asked < Samples; asked++ {
-		label, u, err := b.sample(ctx, body, p)
+	// The first sample goes alone, so a refused key or a bad request costs
+	// one call; the other samples then go at once.
+	labels := make([]string, Samples)
+	usages := make([]jev.Usage, Samples)
+	errs := make([]error, Samples)
+	labels[0], usages[0], errs[0] = b.sample(ctx, body, p)
+	sctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var wg sync.WaitGroup
+	for i := 1; i < Samples && errs[0] == nil; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if labels[i], usages[i], errs[i] = b.sample(sctx, body, p); errs[i] != nil {
+				cancel()
+			}
+		}(i)
+	}
+	wg.Wait()
+	for _, u := range usages {
 		usage.InputTokens += u.InputTokens
 		usage.OutputTokens += u.OutputTokens
-		if err != nil {
-			return jev.Answer{}, usage, err
-		}
+	}
+	if err := firstErr(errs); err != nil {
+		return jev.Answer{}, usage, err
+	}
+	counts := map[string]int{}
+	valid := 0
+	for _, label := range labels {
 		if label != "" {
-			counts[label]++
+			counts[p.keys[label]]++
 			valid++
 		}
 	}
 	if valid < minValid {
-		return jev.Answer{}, usage, fmt.Errorf("%w: %d of %d samples were not an allowed answer", jev.ErrInvalidAnswer, asked-valid, asked)
+		return jev.Answer{}, usage, fmt.Errorf("%w: %d of %d samples were not an allowed answer", jev.ErrInvalidAnswer, Samples-valid, Samples)
 	}
-	probs := make(map[string]float64, len(counts))
-	for label, n := range counts {
-		probs[p.keys[label]] = float64(n) / float64(valid)
+	keys := make([]string, 0, len(p.labels))
+	for _, l := range p.labels {
+		keys = append(keys, p.keys[l])
 	}
-	a, err := jev.AnswerFrom(q, probs)
+	a, err := jev.AnswerFrom(q, jev.SampledProbs(counts, Samples, keys))
 	return a, usage, err
+}
+
+// firstErr is the first error of errs that is not the cancellation the
+// others caused.
+func firstErr(errs []error) error {
+	var fallback error
+	for _, err := range errs {
+		if err == nil {
+			continue
+		}
+		if !errors.Is(err, context.Canceled) {
+			return err
+		}
+		if fallback == nil {
+			fallback = err
+		}
+	}
+	return fallback
 }
 
 // sample asks once. label is the model's answer, or "" when it named no

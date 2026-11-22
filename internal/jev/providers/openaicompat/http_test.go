@@ -52,16 +52,18 @@ func TestTheKeyIsSentOnlyWhenThereIsOne(t *testing.T) {
 }
 
 // A server that echoes the Authorization header into its error body never
-// puts the key into an error.
+// puts the key into an error: no body text reaches one, not even as the
+// error code.
 func TestTheKeyNeverAppearsInAnError(t *testing.T) {
 	for _, status := range []int{401, 500} {
 		f := newFake(t, func(_ int, r seen) (int, any) {
-			return status, fmt.Sprintf(`{"error":"bad header %s"}`, r.Header.Get("Authorization"))
+			key := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+			return status, fmt.Sprintf(`{"error":{"message":"bad header %s","code":%q}}`, r.Header.Get("Authorization"), key)
 		}, retryAfterZero)
 		cl, _ := newClient(t, f.URL, testKey, jev.Capabilities{})
 		_, err := ask(t, cl, choiceOf("x", "y"))
 		if err == nil || strings.Contains(err.Error(), testKey) || !strings.Contains(err.Error(), fmt.Sprintf("HTTP %d", status)) ||
-			!strings.Contains(err.Error(), "[redacted]") {
+			strings.Contains(err.Error(), "bad header") {
 			t.Fatalf("%d: err = %v", status, err)
 		}
 		_, err = cl.Models(context.Background())
@@ -145,7 +147,7 @@ func TestProbeFindsWhatTheProviderGives(t *testing.T) {
 				return 400, `{"error":"logprobs unsupported"}`
 			}
 			return 200, textReply("Yes")
-		}, jev.ProbSampled, 2, defaultTopK},
+		}, jev.ProbSampled, 3, defaultTopK}, // k = 20, k = 5, then none
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			f := newFake(t, c.reply)

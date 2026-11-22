@@ -24,7 +24,7 @@ func TestTheKindIsRegistered(t *testing.T) {
 }
 
 func TestChoiceEndToEnd(t *testing.T) {
-	f := newFake(t, pairs(0.3, 0.1, 0.1))
+	f := newFake(t, pairs(0.6, 0.2, 0.2))
 	c := providerClient(t, f.URL+"/models/bart-mnli", testKey)
 	q := jev.Question{Type: jev.TypeChoice, Instructions: "Where does this ticket go?", Criteria: map[string]any{
 		"billing": "a billing question", "sales": "", "support": " a billing question ",
@@ -37,7 +37,7 @@ func TestChoiceEndToEnd(t *testing.T) {
 	if a.Choice != "billing" || !near(a.Probabilities["billing"], 0.6) || !near(a.Probabilities["sales"], 0.2) || !near(a.Probabilities["support"], 0.2) {
 		t.Errorf("answer %+v", a)
 	}
-	if resp.Provider != "hf" || resp.Probability != jev.ProbNative || resp.Model != "bart-mnli" {
+	if resp.Provider != "hf" || resp.Probability != jev.ProbSoftmax || resp.Model != "bart-mnli" {
 		t.Errorf("provider %q probability %q model %q", resp.Provider, resp.Probability, resp.Model)
 	}
 	got := f.requests()
@@ -62,7 +62,7 @@ func TestNoulEndToEnd(t *testing.T) {
 	// The {"labels","scores"} shape, in the server's own (score) order.
 	f := newFake(t, func(r classifyRequest) (int, string) {
 		l := r.Parameters.CandidateLabels
-		return http.StatusOK, fmt.Sprintf(`{"sequence":"x","labels":[%q,%q],"scores":[0.6,0.2]}`, l[1], l[0])
+		return http.StatusOK, fmt.Sprintf(`{"sequence":"x","labels":[%q,%q],"scores":[0.75,0.25]}`, l[1], l[0])
 	})
 	c := providerClient(t, f.URL, testKey)
 	resp, err := c.Ask(context.Background(), map[string]any{}, map[string]jev.Question{
@@ -73,7 +73,7 @@ func TestNoulEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	for id, a := range resp.Answers {
-		if !near(a.Noul, 0.25) { // P(yes) = 0.2 / (0.2 + 0.6)
+		if !near(a.Noul, 0.25) { // P(yes) = 0.25
 			t.Errorf("%s: %+v", id, a)
 		}
 	}

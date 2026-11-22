@@ -232,7 +232,7 @@ func TestProbe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if caps.Probability != jev.ProbNative || caps.MaxChoiceOptions != MaxLabels || caps.QuestionsPerRequest != 1 || caps.Models ||
+	if caps.Probability != jev.ProbSoftmax || caps.MaxChoiceOptions != MaxLabels || caps.QuestionsPerRequest != 1 || caps.Models ||
 		!caps.Supports(jev.TypeChoice) || !caps.Supports(jev.TypeNoul) || caps.Supports(jev.TypeScore) {
 		t.Errorf("caps %+v", caps)
 	}

@@ -168,6 +168,22 @@ func TestPickBelowThresholdIsNoMatch(t *testing.T) {
 	}
 }
 
+// A provider that gives no probability (ProbNone) never clears the
+// threshold, whatever its answer says (jev.GateValue).
+func TestPickWithoutAProbabilityIsNoMatch(t *testing.T) {
+	fb := jevtest.NewFakeBackend(jevtest.Fixed(map[string]string{"target": "2"}))
+	fb.Caps.Probability = jev.ProbNone
+	page := newPickPage()
+	_, err := Pick(context.Background(), jev.NewBackendClient("local", "m", fb), page, Target{Intent: "add to cart", Kind: "click"}, 0.5)
+	if !errors.Is(err, ErrNoMatch) || len(page.marked) != 0 || fb.Calls() != 1 {
+		t.Fatalf("err = %v marked = %v calls = %d, want ErrNoMatch", err, page.marked, fb.Calls())
+	}
+	fb.Caps.Probability = jev.ProbLogprob
+	if _, err := Pick(context.Background(), jev.NewBackendClient("local", "m", fb), newPickPage(), Target{Intent: "add to cart", Kind: "click"}, 0.5); err != nil {
+		t.Fatalf("with a probability: %v", err)
+	}
+}
+
 func TestPickKindFiltersCriteria(t *testing.T) {
 	srv := jevtest.NewServer(t, jevtest.Fixed(map[string]string{"target": "1"}))
 	page := newPickPage()

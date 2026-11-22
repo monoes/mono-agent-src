@@ -17,6 +17,8 @@ func TestGateValue(t *testing.T) {
 		{"nil response", nil, choice, "b", 0.9},
 		{"logprob noul", &Response{Probability: ProbLogprob}, noul, "true", 0.7},
 		{"sampled", &Response{Probability: ProbSampled}, choice, "b", 0.9},
+		{"softmax is a real number, like logprob", &Response{Probability: ProbSoftmax}, choice, "b", 0.9},
+		{"softmax noul", &Response{Probability: ProbSoftmax}, noul, "true", 0.7},
 		{"none choice", &Response{Probability: ProbNone}, choice, "b", 0},
 		{"none noul", &Response{Probability: ProbNone}, noul, "true", 0},
 	} {
@@ -38,6 +40,10 @@ func TestModelLabel(t *testing.T) {
 		{ProviderTypeSafe, "jev-1.13", "jev-1.13"},
 		{"local", "llama3.2:3b", "local/llama3.2:3b"},
 		{"openrouter", "openai/gpt-4.1-mini", "openrouter/openai/gpt-4.1-mini"},
+		{"hf", "", "hf"},
+		{"hf", "  ", "hf"},
+		{"local", "my  model\tv2 ", "local/my-model-v2"},
+		{ProviderTypeSafe, "", ""},
 	} {
 		if got := ModelLabel(c.provider, c.model); got != c.want {
 			t.Errorf("ModelLabel(%q, %q) = %q, want %q", c.provider, c.model, got, c.want)
@@ -48,6 +54,9 @@ func TestModelLabel(t *testing.T) {
 	}
 	if got := ResponseLabel(&Response{Provider: ProviderTypeSafe}, "jev-1.13"); got != "jev-1.13" {
 		t.Errorf("ResponseLabel with the client's model = %q", got)
+	}
+	if got := ResponseLabel(&Response{Provider: "hf"}, ""); got != "hf" {
+		t.Errorf("ResponseLabel with no model at all = %q, want no trailing slash", got)
 	}
 	if got := ResponseLabel(nil, "jev-1.13"); got != "jev-1.13" {
 		t.Errorf("ResponseLabel(nil) = %q", got)

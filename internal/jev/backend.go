@@ -22,8 +22,13 @@ const (
 	ProbNative ProbabilityKind = "native"
 	// ProbLogprob: read from the provider's token log-probabilities.
 	ProbLogprob ProbabilityKind = "logprob"
-	// ProbSampled: the share of k repeated answers.
+	// ProbSampled: the share of k repeated answers (add-one smoothed, see
+	// SampledProbs).
 	ProbSampled ProbabilityKind = "sampled"
+	// ProbSoftmax: a forced softmax over the candidate labels (a zero-shot
+	// classifier's scores); not calibrated. It gates as a real number, as
+	// ProbLogprob does.
+	ProbSoftmax ProbabilityKind = "softmax"
 	// ProbNone: the provider gives no probability; gate as 0.
 	ProbNone ProbabilityKind = "none"
 )
@@ -88,7 +93,24 @@ var ErrUnsupported = errors.New("jev: not supported by this provider")
 // was built with. Only jevconf may call it (source_pin_test.go), so a
 // backend's key goes only where its provider record says.
 func NewBackendClient(provider, model string, b Backend) *Client {
-	return &Client{Provider: provider, Model: model, Backend: b}
+	return &Client{Provider: provider, Model: model, Backend: b, Retries: 2}
+}
+
+type retriesKey struct{}
+
+// WithRetries returns ctx carrying a retry budget: how many times a backend
+// may retry one call that failed with a 408, 429 or 5xx (n ≤ 0 = never,
+// one attempt). Client.Ask and Client.Models pass Client.Retries this way,
+// so a backend honours what its caller set.
+func WithRetries(ctx context.Context, n int) context.Context {
+	return context.WithValue(ctx, retriesKey{}, max(0, n))
+}
+
+// RetriesFrom is the retry budget ctx carries (WithRetries); ok is false
+// when it carries none, and a backend then uses its own default.
+func RetriesFrom(ctx context.Context) (n int, ok bool) {
+	n, ok = ctx.Value(retriesKey{}).(int)
+	return n, ok
 }
 
 // KeyedHTTPClient is the HTTP client a backend sending a key uses: like
@@ -107,7 +129,7 @@ func (c *Client) askBackend(ctx context.Context, req *Request, started time.Time
 			return nil, nil, fmt.Errorf("%s: %w: provider %q does not answer %q questions", id, ErrUnsupported, c.Provider, q.Type)
 		}
 	}
-	got, err := c.Backend.Answer(ctx, req)
+	got, err := c.Backend.Answer(WithRetries(ctx, c.Retries), req)
 	if got != nil {
 		// A copy, so repairing answers never writes into the backend's map.
 		cp := *got
@@ -139,7 +161,7 @@ func (c *Client) askBackend(ctx context.Context, req *Request, started time.Time
 // backendModels is Models for a client with a Backend.
 func (c *Client) backendModels(ctx context.Context) ([]Model, error) {
 	if l, ok := c.Backend.(ModelLister); ok {
-		return l.Models(ctx)
+		return l.Models(WithRetries(ctx, c.Retries))
 	}
 	return nil, fmt.Errorf("%w: provider %q cannot list models", ErrUnsupported, c.Provider)
 }

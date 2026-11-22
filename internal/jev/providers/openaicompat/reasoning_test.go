@@ -41,16 +41,16 @@ func TestAReasoningModelIsAnsweredBySampling(t *testing.T) {
 	if err != nil || resp.Probability != jev.ProbSampled || resp.Answers["q"].Choice != "second" {
 		t.Fatalf("%+v %v", resp, err)
 	}
-	// Three refusals, then five samples.
-	if n := len(f.requests()); n != 8 {
+	// Four refusals (max_tokens, temperature, logprobs at k=20 and at k=5), then five samples.
+	if n := len(f.requests()); n != 9 {
 		t.Fatalf("%d requests, want 8", n)
 	}
-	for _, r := range f.requests()[3:] {
+	for _, r := range f.requests()[4:] {
 		if _, ok := r.Raw["temperature"]; ok {
 			t.Errorf("a sample sent temperature: %v", r.Raw)
 		}
 	}
-	if _, err := ask(t, cl, choiceOf("first", "second")); err != nil || len(f.requests()) != 13 {
+	if _, err := ask(t, cl, choiceOf("first", "second")); err != nil || len(f.requests()) != 14 {
 		t.Fatalf("not remembered: %v (%d requests)", err, len(f.requests()))
 	}
 
@@ -86,13 +86,14 @@ func TestAModelThatRefusesMaxTokensKeepsLogprobs(t *testing.T) {
 // is exactly an allowed label: anything longer is a miss.
 func TestALongerAnswerMustBeExactlyALabel(t *testing.T) {
 	texts := []string{"B", " B\n", "B. The second one.", "b", "A"}
-	f := newFake(t, reasoningModel(t, func(n int) string { return texts[(n-3)%len(texts)] }))
+	f := newFake(t, reasoningModel(t, func(n int) string { return texts[(n-4)%len(texts)] }))
 	cl, _ := newClient(t, f.URL, "", jev.Capabilities{})
 	resp, err := ask(t, cl, choiceOf("first", "second"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a := resp.Answers["q"]; a.Choice != "second" || !near(a.Probabilities["second"], 2.0/3) || !near(a.Probabilities["first"], 1.0/3) {
+	// 2 × B, 1 × A and 2 misses: B = max((2+1)/(5+2), 1/2), just above A.
+	if a := resp.Answers["q"]; a.Choice != "second" || !near(a.Probabilities["second"], 0.5) || a.Probabilities["first"] >= a.Probabilities["second"] {
 		t.Errorf("answer %+v", a)
 	}
 
@@ -110,7 +111,7 @@ func TestARepeatedRefusalIsNotRetriedForever(t *testing.T) {
 	if _, err := ask(t, cl, choiceOf("first", "second")); err == nil || !strings.Contains(err.Error(), "HTTP 400") {
 		t.Fatalf("err = %v", err)
 	}
-	if n := len(f.requests()); n != 3 {
-		t.Fatalf("%d requests, want 3 (the refusal, its adjusted retry, one sample)", n)
+	if n := len(f.requests()); n != 4 {
+		t.Fatalf("%d requests, want 4 (the refusal, its adjusted retry, the retry at k=5, one sample)", n)
 	}
 }

@@ -27,6 +27,26 @@ func TestFakeBackendAnswersThroughAClient(t *testing.T) {
 	}
 }
 
+// The fake does not echo the request's model: it names Model, or none, and
+// then the client's model is the label.
+func TestFakeBackendNamesItsOwnModel(t *testing.T) {
+	fb := NewFakeBackend(nil)
+	q := map[string]jev.Question{"q": {Type: jev.TypeNoul}}
+	resp, err := fb.Answer(context.Background(), &jev.Request{Model: "asked", Questions: q})
+	if err != nil || resp.Model != "" {
+		t.Fatalf("model %q %v", resp.Model, err)
+	}
+	fb.Model = "served"
+	if resp, err = jev.NewBackendClient("fake", "asked", fb).Ask(context.Background(), nil, q); err != nil || resp.Model != "served" ||
+		jev.ResponseLabel(resp, "asked") != "fake/served" {
+		t.Fatalf("model %q %v", resp.Model, err)
+	}
+	fb.Model = ""
+	if resp, err = jev.NewBackendClient("fake", "", fb).Ask(context.Background(), nil, q); err != nil || jev.ResponseLabel(resp, "") != "fake" {
+		t.Fatalf("label %q %v", jev.ResponseLabel(resp, ""), err)
+	}
+}
+
 func TestFakeBackendCanFailAndBreakAnswers(t *testing.T) {
 	fb := NewFakeBackend(nil)
 	c := jev.NewBackendClient("fake", "", fb)

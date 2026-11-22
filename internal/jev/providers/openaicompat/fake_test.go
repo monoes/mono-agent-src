@@ -66,8 +66,9 @@ func newFake(t *testing.T, reply func(n int, r seen) (int, any), wrap ...func(*f
 		f.mu.Lock()
 		n := len(f.reqs)
 		f.reqs = append(f.reqs, s)
+		reply := f.reply
 		f.mu.Unlock()
-		status, body := f.reply(n, s)
+		status, body := reply(n, s)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
 		if str, ok := body.(string); ok {
@@ -82,6 +83,13 @@ func newFake(t *testing.T, reply func(n int, r seen) (int, any), wrap ...func(*f
 	f.Server = httptest.NewServer(h)
 	t.Cleanup(f.Close)
 	return f
+}
+
+// setReply swaps the script for following requests.
+func (f *fake) setReply(reply func(n int, r seen) (int, any)) {
+	f.mu.Lock()
+	f.reply = reply
+	f.mu.Unlock()
 }
 
 func (f *fake) requests() []seen {

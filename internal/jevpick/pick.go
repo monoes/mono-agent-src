@@ -172,7 +172,7 @@ func pickOnce(ctx context.Context, c *jev.Client, page *PageState, t Target, min
 		return nil, err
 	}
 	ans := resp.Answers["target"]
-	id, prob := jev.Top(ans)
+	id, prob := jev.GateValue(resp, ans) // no probability gates as 0: no match
 	cd, ok := byIndex[id]
 	if id == noneOption || !ok || prob < minP {
 		return nil, ErrNoMatch

@@ -46,13 +46,13 @@ func TestEveryKindEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a := resp.Answers["route"]; a.Choice != "billing" || !near(a.Probabilities["billing"], 1) || !near(a.Confidence, 1) {
+	if a := resp.Answers["route"]; a.Choice != "billing" || !near(a.Probabilities["billing"], 0.75) || !near(a.Confidence, 0.625) {
 		t.Errorf("route: %+v", a)
 	}
-	if a := resp.Answers["urgent"]; !near(a.Noul, 1) {
+	if a := resp.Answers["urgent"]; !near(a.Noul, 6.0/7) {
 		t.Errorf("urgent: %+v", a)
 	}
-	if a := resp.Answers["quality"]; !near(a.Score, 2) || a.Legend["2"] != "clear" {
+	if a := resp.Answers["quality"]; !near(a.Score, 1.625) || a.Legend["2"] != "clear" {
 		t.Errorf("quality: %+v", a)
 	}
 	if resp.Provider != "claude" || resp.Probability != jev.ProbSampled || resp.Model != DefaultModel {
@@ -102,15 +102,15 @@ func TestSampleFrequenciesAreTheProbabilities(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := resp.Answers["q"]
-	if a.Choice != "a" || !near(a.Probabilities["a"], 0.6) || !near(a.Probabilities["b"], 0.2) || !near(a.Probabilities["c"], 0.2) {
+	if a.Choice != "a" || !near(a.Probabilities["a"], 0.5) || !near(a.Probabilities["b"], 0.25) || !near(a.Probabilities["c"], 0.25) {
 		t.Errorf("answer %+v", a)
 	}
-	if want := (0.6 - 1.0/3) / (1 - 1.0/3); !near(a.Confidence, want) {
+	if want := (0.5 - 1.0/3) / (1 - 1.0/3); !near(a.Confidence, want) {
 		t.Errorf("confidence %v, want %v", a.Confidence, want)
 	}
 }
 
-// No question stops early: only a unanimous five gives p = 1.0 (plan O2).
+// No question stops early, and samples are smoothed: p(o) = (count(o)+1) / (5+n), so even a unanimous five is not certain.
 func TestEveryQuestionTakesAllSamples(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -119,11 +119,11 @@ func TestEveryQuestionTakesAllSamples(t *testing.T) {
 		calls   int
 		check   func(jev.Answer) bool
 	}{
-		{"unanimous noul", noul("ok?"), []string{"no", "no", "no", "no", "no"}, 5, func(a jev.Answer) bool { return near(a.Noul, 0) }},
-		{"split noul", noul("ok?"), []string{"yes", "no", "yes", "yes", "no"}, 5, func(a jev.Answer) bool { return near(a.Noul, 0.6) }},
-		{"a miss among the first three", noul("ok?"), []string{"", "yes", "yes", "yes", "yes"}, 5, func(a jev.Answer) bool { return near(a.Noul, 1) }},
-		{"two-option choice", choice("x", "y"), []string{"y", "y", "y", "y", "y"}, 5, func(a jev.Answer) bool { return a.Choice == "y" && near(a.Probabilities["y"], 1) }},
-		{"three agreeing, then a dissent", choice("x", "y"), []string{"y", "y", "y", "x", "y"}, 5, func(a jev.Answer) bool { return a.Choice == "y" && near(a.Probabilities["y"], 0.8) }},
+		{"unanimous noul", noul("ok?"), []string{"no", "no", "no", "no", "no"}, 5, func(a jev.Answer) bool { return near(a.Noul, 1.0/7) }},
+		{"split noul", noul("ok?"), []string{"yes", "no", "yes", "yes", "no"}, 5, func(a jev.Answer) bool { return near(a.Noul, 4.0/7) }},
+		{"a miss among the first three", noul("ok?"), []string{"", "yes", "yes", "yes", "yes"}, 5, func(a jev.Answer) bool { return near(a.Noul, 5.0/7) }},
+		{"two-option choice", choice("x", "y"), []string{"y", "y", "y", "y", "y"}, 5, func(a jev.Answer) bool { return a.Choice == "y" && near(a.Probabilities["y"], 6.0/7) }},
+		{"three agreeing, then a dissent", choice("x", "y"), []string{"y", "y", "y", "x", "y"}, 5, func(a jev.Answer) bool { return a.Choice == "y" && near(a.Probabilities["y"], 5.0/7) }},
 		{"three options", choice("x", "y", "z"), []string{"y", "y", "y", "y", "y"}, 5, func(a jev.Answer) bool { return a.Choice == "y" }},
 	}
 	for _, tc := range cases {
@@ -153,7 +153,7 @@ func TestAnswersOutsideTheEnumAreMisses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a := resp.Answers["q"]; a.Choice != "a" || !near(a.Probabilities["a"], 2.0/3) || !near(a.Probabilities["b"], 1.0/3) {
+	if a := resp.Answers["q"]; a.Choice != "a" || math.Abs(a.Probabilities["a"]-0.375) > 1e-9 || a.Probabilities["b"] >= a.Probabilities["a"] || !near(a.Probabilities["c"], 0.25) {
 		t.Errorf("answer %+v", a)
 	}
 

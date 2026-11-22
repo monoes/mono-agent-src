@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/jev"
 )
 
 // The Messages API wire format, and the one HTTP path every call takes.
@@ -82,10 +84,15 @@ func (r messagesResponse) toolAnswer() string {
 }
 
 // do sends one request to path (method GET when body is nil, else POST) and
-// returns the response body. A 408, 429 or 5xx is retried b.retries times,
-// waiting what Retry-After says (at most 5s). Every error is passed through
+// returns the response body. A 408, 429 or 5xx is retried as often as the
+// caller's budget says (jev.RetriesFrom; b.retries without one), waiting
+// what Retry-After says (at most 5s). Every error is passed through
 // b.redact, so the key never appears in one.
 func (b *Backend) do(ctx context.Context, path string, body []byte, limit int64) ([]byte, error) {
+	retries := b.retries
+	if n, ok := jev.RetriesFrom(ctx); ok {
+		retries = n
+	}
 	backoff := 500 * time.Millisecond
 	for attempt := 0; ; attempt++ {
 		raw, status, retryAfter, err := b.once(ctx, path, body, limit)
@@ -96,8 +103,8 @@ func (b *Backend) do(ctx context.Context, path string, body []byte, limit int64)
 			return raw, nil
 		}
 		retryable := status == http.StatusRequestTimeout || status == http.StatusTooManyRequests || status >= 500
-		if !retryable || attempt >= b.retries {
-			return nil, fmt.Errorf("anthropic: HTTP %d: %s", status, snippet(b.scrub(string(raw))))
+		if !retryable || attempt >= retries {
+			return nil, errors.New(jev.HTTPError("anthropic", status, raw, b.key))
 		}
 		wait := backoff
 		if s, err := strconv.ParseFloat(retryAfter, 64); err == nil && s >= 0 {
@@ -144,8 +151,8 @@ func (b *Backend) once(ctx context.Context, path string, body []byte, limit int6
 }
 
 // redact takes the key out of err's text. Only a transport error reaches it
-// (those carry no header values, so this is belt and braces); a key a
-// server echoes in its body is scrubbed before the body is quoted.
+// (those carry no header values, so this is belt and braces); a body is
+// never quoted, only an allow-listed error code (jev.HTTPError).
 func (b *Backend) redact(err error) error {
 	if err == nil || b.key == "" || !strings.Contains(err.Error(), b.key) {
 		return err
@@ -153,19 +160,10 @@ func (b *Backend) redact(err error) error {
 	return errors.New(b.scrub(err.Error()))
 }
 
-// scrub takes the key out of s, before s is cut short (a cut key would
-// survive as a prefix).
+// scrub takes the key out of s.
 func (b *Backend) scrub(s string) string {
 	if b.key == "" {
 		return s
 	}
 	return strings.ReplaceAll(s, b.key, "***")
-}
-
-func snippet(s string) string {
-	s = strings.TrimSpace(s)
-	if len(s) > 300 {
-		s = s[:300] + "…"
-	}
-	return s
 }
