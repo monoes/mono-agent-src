@@ -14,7 +14,7 @@ const fakeProviderList = `{"default":"typesafe","providers":[` +
 	`{"name":"typesafe","kind":"typesafe","base_url":"https://api.typesafe.ai","model":"jev-latest","key_set":true,"builtin":true,` +
 	`"caps":{"kinds":["choice","noul","score"],"probability":"native","max_choice_options":255,"questions_per_request":32,"models":true}},` +
 	`{"name":"local","kind":"openai","base_url":"http://localhost:11434/v1","model":"llama3.1","key_set":false,"builtin":false,` +
-	`"caps":{"kinds":["choice","noul"],"probability":"logprob","max_choice_options":20,"questions_per_request":1,"models":true}}],` +
+	`"caps":{"kinds":["choice","noul"],"probability":"logprob","max_choice_options":0,"options_per_request":5,"questions_per_request":1,"models":true}}],` +
 	`"kinds":["openai","anthropic","hf-zeroshot"]}`
 
 // fakeProviderCLI answers the `jev provider …` verbs with canned JSON, logs
@@ -34,7 +34,7 @@ case "$*" in
   *" jev provider use "*) echo '{"scope":"default","surface":"","provider":"local","cleared":false}';;
   *" jev provider probe "*) echo '{"ok":true,"caps":{"kinds":["choice"],"probability":"logprob","max_choice_options":20,"questions_per_request":1,"models":true},"latency_ms":42,"error":""}';;
   *" jev provider remove "*) echo '{"removed":true,"name":"local","key_removed":false}';;
-  *" jev status"*) echo '{"profile_id":"work","key_source":"vault","key_entry":"typesafe","model":"jev-latest","base_url":"https://api.typesafe.ai","provider":"local","provider_kind":"openai","provider_host":"localhost:11434","probability":"logprob","surfaces":[{"surface":"hil","title":"t","description":"d","egress":["a"],"enabled":true,"threshold":0.9,"default_threshold":0.9,"provider":"local"}]}';;
+  *" jev status"*) echo '{"profile_id":"work","key_source":"vault","key_entry":"typesafe","model":"jev-latest","base_url":"https://api.typesafe.ai","provider":"local","provider_kind":"openai","provider_host":"localhost:11434","probability":"logprob","provider_key_source":"keyless","provider_error":"jev: provider local cannot be used","surfaces":[{"surface":"hil","title":"t","description":"d","egress":["a"],"enabled":true,"threshold":0.9,"default_threshold":0.9,"provider":"local","provider_pinned":true},{"surface":"inbox","title":"t","description":"d","egress":["a"],"enabled":false,"threshold":0.7,"default_threshold":0.7}]}';;
   *" jev usage"*) echo '{"profile_id":"work","since":"x","surfaces":[{"surface":"hil","provider":"local","calls":2,"failures":0,"input_tokens":100,"output_tokens":2,"estimated_usd":0,"avg_latency_ms":30}],"total":{"surface":"total","calls":2,"input_tokens":100,"output_tokens":2}}';;
   *) echo 'unexpected' >&2; exit 2;;
 esac
@@ -64,7 +64,7 @@ func TestJevProviderFuncsShellOutToCLI(t *testing.T) {
 		t.Fatalf("JevProviders = %+v, %v", list, err)
 	}
 	if p := list.Providers[1]; p.Name != "local" || p.KeySet || p.Builtin || p.Caps.Probability != "logprob" ||
-		p.Caps.QuestionsPerRequest != 1 || !p.Caps.Models || p.Caps.MaxChoiceOptions != 20 {
+		p.Caps.QuestionsPerRequest != 1 || !p.Caps.Models || p.Caps.MaxChoiceOptions != 0 || p.Caps.OptionsPerRequest != 5 {
 		t.Fatalf("local provider = %+v", p)
 	}
 
@@ -130,12 +130,44 @@ func TestJevStatusAndUsageCarryProvider(t *testing.T) {
 	a := providerTestApp(t)
 	st, err := a.JevStatus()
 	if err != nil || st.Provider != "local" || st.ProviderKind != "openai" || st.ProviderHost != "localhost:11434" ||
-		st.Probability != "logprob" || st.Surfaces[0].Provider != "local" {
+		st.Probability != "logprob" || st.Surfaces[0].Provider != "local" || !st.Surfaces[0].ProviderPinned ||
+		st.ProviderKeySource != "keyless" || st.ProviderError != "jev: provider local cannot be used" {
 		t.Fatalf("JevStatus = %+v, %v", st, err)
+	}
+	// A surface with no choice of its own follows the default: no provider, not pinned.
+	if s := st.Surfaces[1]; s.Provider != "" || s.ProviderPinned {
+		t.Fatalf("inbox = %+v", s)
 	}
 	u, err := a.JevUsage("7d")
 	if err != nil || u.Surfaces[0].Provider != "local" || u.Surfaces[0].OutputTokens != 2 || u.Total.OutputTokens != 2 {
 		t.Fatalf("JevUsage = %+v, %v", u, err)
+	}
+}
+
+// Replace adds --yes, last: the GUI asked first whether to replace the
+// provider of that name (`jev provider add` asks for that consent when the
+// host, or an in-use provider's kind, URL or key entry, changes). Without it
+// the CLI is not told to skip its question.
+func TestJevAddProviderReplacePassesYes(t *testing.T) {
+	argsLog, _ := fakeProviderCLI(t)
+	a := providerTestApp(t)
+	req := JevAddProviderRequest{Name: "local", Kind: "openai", BaseURL: "https://llm.example.com/v1", APIKey: fakeProviderKey, NoProbe: true}
+	if _, err := a.JevAddProvider(req); err != nil {
+		t.Fatal(err)
+	}
+	req.Replace = true
+	if _, err := a.JevAddProvider(req); err != nil {
+		t.Fatal(err)
+	}
+	got := loggedArgs(t, argsLog)
+	want := []string{
+		"--profile work --json jev provider list",
+		"--profile work --json jev provider add local --kind openai --base-url=https://llm.example.com/v1 --key-stdin --no-probe",
+		"--profile work --json jev provider list",
+		"--profile work --json jev provider add local --kind openai --base-url=https://llm.example.com/v1 --key-stdin --no-probe --yes",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("CLI calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
 

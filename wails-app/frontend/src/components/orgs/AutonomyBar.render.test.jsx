@@ -267,4 +267,42 @@ describe('AutonomyBar', () => {
     expect(within(sel).queryByText('Default (local)')).not.toBeInTheDocument()
     expect(sel.closest('label')).toHaveAttribute('title', expect.stringContaining('else the machine default'))
   })
+
+  // A sampled provider's verdict reaches at most 0.75 on mid's three
+  // verdicts and 6/7 on full's two (5 answers, add-one smoothed).
+  describe('a sampled decider provider', () => {
+    const sampled = (level, threshold) => {
+      api.jevProviders.mockResolvedValue({ default: 'typesafe', kinds: ['anthropic'], providers: [
+        { name: 'typesafe', kind: 'typesafe', builtin: true, caps: { probability: 'native' } },
+        { name: 'claude', kind: 'anthropic', builtin: false, caps: { kinds: ['choice'], probability: 'sampled' } },
+      ] })
+      api.getOrgAutonomy.mockResolvedValue({ ...AUTONOMY, level, effective_level: level, decider: { ...AUTONOMY.decider, kind: 'jev', provider: 'claude', threshold } })
+    }
+
+    it('says it cannot reach the default 0.8 at level mid', async () => {
+      sampled('mid', 0.8)
+      await renderBar()
+      expect(await screen.findByTestId('jev-decider-sampled')).toHaveTextContent(
+        "This provider estimates from 5 answers: on the decider's 3 verdicts it reaches at most 0.75, so it cannot reach this threshold and the model decider decides.")
+    })
+
+    it('says 0.75 at level mid takes all five answers', async () => {
+      sampled('mid', 0.75)
+      await renderBar()
+      expect(await screen.findByTestId('jev-decider-sampled')).toHaveTextContent(
+        "on the decider's 3 verdicts it reaches 0.75 only when all 5 agree.")
+    })
+
+    it('says nothing at 0.8 on full (two verdicts, up to 0.86), and warns at 0.9', async () => {
+      sampled('full', 0.8)
+      await renderBar()
+      await waitFor(() => expect(api.jevProviders).toHaveBeenCalled())
+      await screen.findByLabelText('Provider')
+      expect(screen.queryByTestId('jev-decider-sampled')).not.toBeInTheDocument()
+      cleanup()
+      sampled('full', 0.9)
+      await renderBar()
+      expect(await screen.findByTestId('jev-decider-sampled')).toHaveTextContent("on the decider's 2 verdicts it reaches at most 0.86")
+    })
+  })
 })

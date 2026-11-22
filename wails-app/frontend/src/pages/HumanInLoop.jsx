@@ -11,6 +11,7 @@ import { CommsLinks } from '../components/CommsLinks.jsx'
 import { emitCommsChanged } from '../lib/commsStatus.js'
 import { BrowserSubmitDetails, isBrowserSubmit } from '../components/hil/BrowserSubmitDetails.jsx'
 import { BrowserSiteDetails, isBrowserSite } from '../components/hil/BrowserSiteDetails.jsx'
+import { AutoDecideSkipped } from '../components/hil/AutoDecideSkipped.jsx'
 import { PersonItemsInbox } from '../components/bubbles/PersonItemViews.jsx'
 import { usePersonItemsContext } from '../components/bubbles/PersonItemsContext.jsx'
 
@@ -253,6 +254,8 @@ function HILCard({ item, onApprove, onReject, onProfile, onNavigate }) {
         )}
         {expanded ? <ChevronDown size={14} color="var(--text-muted)" /> : <ChevronRight size={14} color="var(--text-muted)" />}
       </div>
+
+      <AutoDecideSkipped item={item} />
 
       {(item.person_id || item.hil_ref) && (
         <div style={{ padding: '6px 16px' }}>

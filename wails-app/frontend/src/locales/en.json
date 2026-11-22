@@ -711,8 +711,9 @@
         "prob": {
           "native": "Calibrated by the provider",
           "logprob": "From token probabilities",
-          "sampled": "Estimated from repeated answers",
-          "none": "No probabilities"
+          "sampled": "Estimated from 5 answers",
+          "none": "No probabilities",
+          "softmax": "Forced split across the options"
         },
         "probTitle": "How this provider gets its probabilities",
         "useDefault": "Use as default",
@@ -744,7 +745,7 @@
         "switchOtherProfiles": "Features turned on in other profiles that follow the default will also send to {{host}}.",
         "switchConfirm": "Send to {{host}} and switch",
         "switched": "{{name}} is now the default.",
-        "calibrationNote": "Numbers from providers that use token probabilities or repeated answers are not calibrated the way Jev's are, so a threshold tuned on one model is a different bar on another.",
+        "calibrationNote": "Numbers from providers that use token probabilities, a forced split across the options or repeated answers are not calibrated the way Jev's are, so a threshold tuned on one model is a different bar on another.",
         "loadErr": "Couldn't read decision providers: {{error}}",
         "typesafeKey": "TypeSafe provider's API key",
         "add": "Add provider",
@@ -791,7 +792,32 @@
         "usageProvider": "Provider",
         "sectionIntro": "Fast pick-one and yes/no decisions for a few monoagent features. Jev never writes text, and nothing is sent to {{host}} until you turn a feature on below.",
         "sectionIntroMachine": "Fast pick-one and yes/no decisions for a few monoagent features. Jev never writes text, and nothing is sent to {{host}} until you turn a feature on in a profile's settings.",
-        "consentHost": "Turning a feature on is a choice for this profile only: it lets this profile send data to {{host}}. Other profiles stay off until they turn it on themselves."
+        "consentHost": "Turning a feature on is a choice for this profile only: it lets this profile send data to {{host}}. Other profiles stay off until they turn it on themselves.",
+        "probNote": {
+          "sampled": "Smoothed estimates from 5 answers: at most about 0.86 on a two-option question (0.75 on three), so on its own this provider cannot settle anything at a 0.9 threshold.",
+          "softmax": "A forced split across the candidate labels; not calibrated."
+        },
+        "capsKinds": "Answers {{kinds}}",
+        "capsMaxOptions": "up to {{count}} options per question",
+        "capsOptionsPerRequest": "{{count}} options per request",
+        "switchDeciders": "Org deciders set to Jev without their own provider, in every profile:",
+        "deciderEgress1": "the pending item's kind, class, tier and summary, the requester's role, title and responsibilities",
+        "deciderEgress2": "the org's name and goal, the operator policy and earlier decisions",
+        "deciderEgress3": "text agents wrote: the request, its inputs and recent events (each cut to 6,000 characters)",
+        "switchNodes": "Every workflow node that uses a decision model without naming a provider (ai.choose, ai.decide, browser.jev, Human-in-Loop auto_decide, applications.evaluate with runtime jev): the items and page text it judges.",
+        "switchDynorg": "Dynamic-org coder chats that ask Jev to staff their workers (surface dynorg), in every profile that does not choose a provider for it: the task and the candidate roles.",
+        "defaultUnusable": "The default provider {{name}} cannot be used: {{error}}",
+        "keyNeeded": "A provider on another host needs a key. Only a server on this computer (localhost, 127.0.0.1 or [::1]) may be keyless.",
+        "replaceTitle": "Replace provider {{name}}",
+        "replaceMoved": "Replace provider {{name}}: its host changes from {{from}} to {{to}}. From now on its key and the data of everything that uses it go to {{to}}.",
+        "replaceSameHost": "Replace provider {{name}}? This form's kind, base URL, model and key replace its own for everything that uses it; it still sends to {{host}}.",
+        "replaceConfirm": "Replace {{name}}",
+        "capRefused": "{{name}} does not answer {{kinds}} questions, which {{surface}} asks (it answers {{answers}}). Choose another provider, or test {{name}} again if it changed.",
+        "optionMissingKinds": "{{name}} (does not answer {{kinds}})",
+        "pinnedTo": "Pinned to {{name}}",
+        "followDefault": "Follow default",
+        "followDefaultAria": "{{feature}}: follow the default provider ({{name}})",
+        "sampledUnreachable": "This provider estimates from 5 answers and cannot reach this threshold (at most {{max}} here); it will only suggest."
       }
     },
     "profile": {
@@ -1048,7 +1074,9 @@
       "jevFallbackModel": "questions and p < {{threshold}} go to the model decider ({{model}})",
       "jevProvider": "Provider",
       "jevProviderHint": "The decision provider the Jev decider asks. Default: this profile's own choice for the decider if it has one, else the machine default (Settings › TypeSafe Jev), else TypeSafe.",
-      "jevProviderDefault": "Default"
+      "jevProviderDefault": "Default",
+      "jevSampledUnreachable": "This provider estimates from 5 answers: on the decider's {{count}} verdicts it reaches at most {{max}}, so it cannot reach this threshold and the model decider decides.",
+      "jevSampledUnanimous": "This provider estimates from 5 answers: on the decider's {{count}} verdicts it reaches {{max}} only when all 5 agree."
     },
     "fullAuto": {
       "dialog": "Turn on full auto",
@@ -2436,7 +2464,7 @@
     "machineHint": "How a coder chat's lead staffs its workers, and whether what agents send waits for you. For this whole computer.",
     "routerLabel": "Who picks a worker's role",
     "routerHint": "When a coder chat's lead starts a worker without naming its role and skills.",
-    "routerJevNote": "With a Jev key set, a worker's brief goes to Jev (TypeSafe) whatever you pick here: Automatic and TypeSafe Jev route with it, and Jev picks the model and effort the lead leaves open. Only removing the Jev key keeps briefs on this machine.",
+    "routerJevNote": "When a decision provider resolves (the dynorg surface's, else the machine default: TypeSafe with a Jev key set, or a provider you added), a worker's brief goes to it whatever you pick here: Automatic and TypeSafe Jev route with it, and it picks the model and effort the lead leaves open. Briefs stay on this machine only when no Jev key or provider resolves, or when that provider's host is this computer (and even then the local server may forward them).",
     "router": {
       "auto": "Automatic",
       "jev": "TypeSafe Jev",
@@ -3035,6 +3063,13 @@
         "number": "Enter a number",
         "range": "Out of range"
       }
+    }
+  },
+  "hil": {
+    "autoDecide": {
+      "label": "Jev did not decide this item:",
+      "noAnswer": "decision provider {{name}} did not answer ({{cause}}).",
+      "remoteFromAIRun": "provider {{name}} is at {{url}}, another host, and a decision provider on another host is not used from a run an AI started or wrote ({{why}}). Name a provider on this computer or typesafe, or run the workflow yourself."
     }
   }
 }

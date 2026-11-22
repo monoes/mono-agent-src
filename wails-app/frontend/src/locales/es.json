@@ -711,8 +711,9 @@
         "prob": {
           "native": "Calibradas por el proveedor",
           "logprob": "De las probabilidades de los tokens",
-          "sampled": "Estimadas a partir de respuestas repetidas",
-          "none": "Sin probabilidades"
+          "sampled": "Estimadas a partir de 5 respuestas",
+          "none": "Sin probabilidades",
+          "softmax": "Reparto forzado entre las opciones"
         },
         "probTitle": "Cómo obtiene este proveedor sus probabilidades",
         "useDefault": "Usar como predeterminado",
@@ -744,7 +745,7 @@
         "switchOtherProfiles": "Las funciones activadas en otros perfiles que siguen al predeterminado también enviarán a {{host}}.",
         "switchConfirm": "Enviar a {{host}} y cambiar",
         "switched": "{{name}} es ahora el predeterminado.",
-        "calibrationNote": "Los números de los proveedores que usan probabilidades de tokens o respuestas repetidas no están calibrados como los de Jev, así que un umbral ajustado en un modelo es otra exigencia en otro.",
+        "calibrationNote": "Los números de los proveedores que usan probabilidades de tokens, un reparto forzado entre las opciones o respuestas repetidas no están calibrados como los de Jev, así que un umbral ajustado en un modelo es otra exigencia en otro.",
         "loadErr": "No se pudieron leer los proveedores de decisión: {{error}}",
         "typesafeKey": "Clave API del proveedor TypeSafe",
         "add": "Añadir proveedor",
@@ -791,7 +792,32 @@
         "usageProvider": "Proveedor",
         "sectionIntro": "Decisiones rápidas de elegir una opción y sí/no para algunas funciones de monoagent. Jev nunca escribe texto, y no se envía nada a {{host}} hasta que actives una función abajo.",
         "sectionIntroMachine": "Decisiones rápidas de elegir una opción y sí/no para algunas funciones de monoagent. Jev nunca escribe texto, y no se envía nada a {{host}} hasta que actives una función en los ajustes de un perfil.",
-        "consentHost": "Activar una función es una decisión solo de este perfil: permite que este perfil envíe datos a {{host}}. Los demás perfiles siguen desactivados hasta que la activen ellos."
+        "consentHost": "Activar una función es una decisión solo de este perfil: permite que este perfil envíe datos a {{host}}. Los demás perfiles siguen desactivados hasta que la activen ellos.",
+        "probNote": {
+          "sampled": "Estimaciones suavizadas a partir de 5 respuestas: como mucho unos 0.86 en una pregunta de dos opciones (0.75 con tres), así que este proveedor no puede decidir nada por sí solo con un umbral de 0.9.",
+          "softmax": "Un reparto forzado entre las etiquetas candidatas; no está calibrado."
+        },
+        "capsKinds": "Responde {{kinds}}",
+        "capsMaxOptions": "hasta {{count}} opciones por pregunta",
+        "capsOptionsPerRequest": "{{count}} opciones por petición",
+        "switchDeciders": "Los decisores de organización configurados con Jev sin proveedor propio, en todos los perfiles:",
+        "deciderEgress1": "el tipo, la clase, el nivel y el resumen del elemento pendiente, y el rol, el cargo y las responsabilidades de quien lo pide",
+        "deciderEgress2": "el nombre y el objetivo de la organización, la política del operador y las decisiones anteriores",
+        "deciderEgress3": "texto escrito por agentes: la petición, sus entradas y los eventos recientes (cada uno recortado a 6.000 caracteres)",
+        "switchNodes": "Todos los nodos de flujo que usan un modelo de decisión sin nombrar un proveedor (ai.choose, ai.decide, browser.jev, auto_decide de Human-in-Loop, applications.evaluate con runtime jev): los elementos y el texto de página que juzgan.",
+        "switchDynorg": "Los chats de coder de organización dinámica que piden a Jev que asigne a sus trabajadores (superficie dynorg), en todos los perfiles que no eligen un proveedor para ella: la tarea y los roles candidatos.",
+        "defaultUnusable": "El proveedor predeterminado {{name}} no se puede usar: {{error}}",
+        "keyNeeded": "Un proveedor en otro servidor necesita una clave. Solo un servidor en este ordenador (localhost, 127.0.0.1 o [::1]) puede ir sin clave.",
+        "replaceTitle": "Reemplazar el proveedor {{name}}",
+        "replaceMoved": "Reemplazar el proveedor {{name}}: su servidor cambia de {{from}} a {{to}}. A partir de ahora su clave y los datos de todo lo que lo usa van a {{to}}.",
+        "replaceSameHost": "¿Reemplazar el proveedor {{name}}? El tipo, la URL base, el modelo y la clave de este formulario sustituyen a los suyos para todo lo que lo usa; sigue enviando a {{host}}.",
+        "replaceConfirm": "Reemplazar {{name}}",
+        "capRefused": "{{name}} no responde preguntas {{kinds}}, que {{surface}} hace (responde {{answers}}). Elige otro proveedor, o vuelve a probar {{name}} si ha cambiado.",
+        "optionMissingKinds": "{{name}} (no responde {{kinds}})",
+        "pinnedTo": "Fijado en {{name}}",
+        "followDefault": "Seguir al predeterminado",
+        "followDefaultAria": "{{feature}}: seguir al proveedor predeterminado ({{name}})",
+        "sampledUnreachable": "Este proveedor estima a partir de 5 respuestas y no puede alcanzar este umbral (como mucho {{max}} aquí); solo sugerirá."
       }
     },
     "profile": {
@@ -1048,7 +1074,9 @@
       "jevFallbackModel": "las preguntas y p < {{threshold}} van al decisor de modelo ({{model}})",
       "jevProvider": "Proveedor",
       "jevProviderHint": "El proveedor de decisión al que pregunta el decisor Jev. Predeterminado: la elección propia de este perfil para el decisor si la tiene, si no el predeterminado del equipo (Ajustes › TypeSafe Jev), si no TypeSafe.",
-      "jevProviderDefault": "Predeterminado"
+      "jevProviderDefault": "Predeterminado",
+      "jevSampledUnreachable": "Este proveedor estima a partir de 5 respuestas: con los {{count}} veredictos del decisor llega como mucho a {{max}}, así que no puede alcanzar este umbral y decide el decisor de modelo.",
+      "jevSampledUnanimous": "Este proveedor estima a partir de 5 respuestas: con los {{count}} veredictos del decisor llega a {{max}} solo cuando las 5 coinciden."
     },
     "fullAuto": {
       "dialog": "Activar automático total",
@@ -2436,7 +2464,7 @@
     "machineHint": "Cómo el agente principal de un chat de código asigna a sus trabajadores y si lo que envían los agentes espera tu aprobación. Para todo este equipo.",
     "routerLabel": "Quién elige el rol de un trabajador",
     "routerHint": "Cuando el agente principal de un chat de código inicia un trabajador sin indicar su rol ni sus habilidades.",
-    "routerJevNote": "Con una clave de Jev, el encargo de un trabajador va a Jev (TypeSafe) elijas lo que elijas aquí: Automático y TypeSafe Jev enrutan con él, y Jev elige el modelo y el esfuerzo que el agente principal deja abiertos. Solo quitar la clave de Jev mantiene los encargos en este equipo.",
+    "routerJevNote": "Cuando se resuelve un proveedor de decisión (el de la superficie dynorg, si no el predeterminado de la máquina: TypeSafe con una clave de Jev, o un proveedor que añadiste), el encargo de un trabajador va a él elijas lo que elijas aquí: Automático y TypeSafe Jev enrutan con él, y él elige el modelo y el esfuerzo que el agente principal deja abiertos. Los encargos solo se quedan en este equipo cuando no se resuelve ninguna clave de Jev ni proveedor, o cuando el servidor de ese proveedor es este ordenador (e incluso entonces el servidor local puede reenviarlos).",
     "router": {
       "auto": "Automático",
       "jev": "TypeSafe Jev",
@@ -3035,6 +3063,13 @@
         "number": "Introduce un número",
         "range": "Fuera de rango"
       }
+    }
+  },
+  "hil": {
+    "autoDecide": {
+      "label": "Jev no decidió este elemento:",
+      "noAnswer": "el proveedor de decisión {{name}} no respondió ({{cause}}).",
+      "remoteFromAIRun": "el proveedor {{name}} está en {{url}}, otro servidor, y un proveedor de decisión en otro servidor no se usa en una ejecución que una IA inició o escribió ({{why}}). Indica un proveedor en este ordenador o typesafe, o ejecuta el flujo tú mismo."
     }
   }
 }

@@ -58,11 +58,13 @@ function JevSectionView({ collapsible = false, defaultExpanded = false, expandTo
     setPending('')
     await load()
   })
-  // name '' puts the surface back on the default provider.
-  const setSurfaceProvider = (surface, name) => run(`surface:${surface}`, async () => {
+  // name '' puts the surface back on the default provider. onErr shows the
+  // CLI's refusal (e.g. a provider that does not answer a kind the surface
+  // asks) by the feature's select.
+  const setSurfaceProvider = (surface, name, onErr) => run(`surface:${surface}`, async () => {
     await JevUseProvider(name, surface)
     await load()
-  })
+  }, onErr)
 
   const header = (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>

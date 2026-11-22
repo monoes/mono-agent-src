@@ -9,7 +9,7 @@ import { isThisComputer, hostOf } from './jevShared.jsx'
 // The Decision model block and the per-feature provider select, against
 // fake bindings (window.go.main.App, as the generated App.js calls them).
 const App = {}
-const caps = (probability) => ({ kinds: ['choice', 'noul'], probability, max_choice_options: 20, questions_per_request: 1, models: true })
+const caps = (probability) => ({ kinds: ['choice', 'noul', 'score'], probability, max_choice_options: 20, questions_per_request: 1, models: true })
 const TYPESAFE = { name: 'typesafe', kind: 'typesafe', base_url: 'https://api.typesafe.ai', model: 'jev-latest', key_set: true, builtin: true, caps: caps('native') }
 const LOCAL = { name: 'local', kind: 'openai', base_url: 'http://localhost:11434/v1', model: 'llama3.1', key_set: false, builtin: false, caps: caps('logprob') }
 const ROUTER = { name: 'router', kind: 'openai', base_url: 'https://openrouter.ai/api/v1', model: 'openai/gpt-4o-mini', key_set: true, builtin: false, caps: caps('sampled') }
@@ -47,8 +47,11 @@ describe('isThisComputer', () => {
   it('follows the CLI loopback rule', () => {
     for (const u of ['http://localhost:11434/v1', 'http://127.0.0.1:8080/v1', 'https://localhost', 'http://[::1]:1234/v1', 'http://127.255.0.1/'])
       expect(isThisComputer(u)).toBe(true)
+    // Never looser than jevconf.Loopback: "localhost" is exact (Go compares
+    // case), and net.ParseIP reads no octet with a leading zero.
     for (const u of ['https://api.openai.com/v1', 'http://localhost.evil.com/v1', 'http://user@localhost/v1', 'http://127.0.0.256/',
-      'http://127.1/', 'http://10.0.0.2:8000/v1', 'localhost:11434', '', undefined])
+      'http://127.1/', 'http://10.0.0.2:8000/v1', 'localhost:11434', '', undefined, 'https://LOCALHOST:8080/v1', 'http://Localhost/v1',
+      'http://127.0.0.01/', 'http://0127.0.0.1/'])
       expect(isThisComputer(u)).toBe(false)
     expect(hostOf('http://localhost:11434/v1')).toBe('localhost:11434')
   })
@@ -60,7 +63,7 @@ describe('Decision model block', () => {
     expect(within(prow('typesafe')).getByTestId('jev-provider-default')).toHaveTextContent('Default')
     expect(within(prow('typesafe')).getByText('Calibrated by the provider')).toBeInTheDocument()
     expect(within(prow('local')).getByText('From token probabilities')).toBeInTheDocument()
-    expect(within(prow('router')).getByText('Estimated from repeated answers')).toBeInTheDocument()
+    expect(within(prow('router')).getByText('Estimated from 5 answers')).toBeInTheDocument()
     expect(within(prow('local')).getByText('localhost:11434 · llama3.1')).toBeInTheDocument()
     expect(within(prow('local')).getByText('No key')).toBeInTheDocument()
     expect(within(prow('router')).getByText('Key set')).toBeInTheDocument()
@@ -196,7 +199,7 @@ describe('Add provider', () => {
     fireEvent.click(within(form).getByRole('button', { name: 'Add provider' }))
     await waitFor(() => expect(App.JevAddProvider).toHaveBeenCalledWith({
       name: 'lmstudio', kind: 'openai', base_url: 'http://localhost:1234/v1', model: 'qwen2.5-7b', api_key: '',
-      usd_per_mtok_in: 0, usd_per_mtok_out: 0, no_probe: false,
+      usd_per_mtok_in: 0, usd_per_mtok_out: 0, no_probe: false, replace: false,
     }))
     expect(await within(form).findByText('Added lmstudio. It answered the test.')).toBeInTheDocument()
     expect(within(form).getByTestId('jev-add-result')).toHaveAttribute('aria-live', 'polite')
@@ -273,6 +276,9 @@ describe('Add provider', () => {
     expect(within(form).getByRole('button', { name: 'Add provider' })).toBeDisabled()
     fireEvent.change(within(form).getByLabelText('Name'), { target: { value: 'gpu-box' } })
     fireEvent.change(within(form).getByLabelText('Base URL'), { target: { value: 'http://10.0.0.2:8000/v1' } })
+    // Another host: the key is required before the CLI is asked.
+    expect(within(form).getByRole('button', { name: 'Add provider' })).toBeDisabled()
+    fireEvent.change(within(form).getByLabelText('API key'), { target: { value: 'k' } })
     App.JevAddProvider.mockRejectedValue(new Error('jev: base URL must be https, or http to this computer'))
     fireEvent.click(within(form).getByRole('button', { name: 'Add provider' }))
     expect(await within(form).findByRole('alert')).toHaveTextContent('base URL must be https')

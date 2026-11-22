@@ -1,11 +1,16 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { JevAddProvider } from '../../wailsjs/go/main/App'
-import { mono, label, hint, errText, okText, input, testError } from './jevShared.jsx'
+import { ShieldAlert } from 'lucide-react'
+import { mono, label, hint, errText, okText, input, testError, hostOf, isThisComputer } from './jevShared.jsx'
 
 // A preset fills the kind, the base URL, a hosted service's model (and a name
 // when the name field is empty or still the last preset's). The key is sent
-// once, on Add, and the field is cleared when the provider is saved.
+// once, on Add, and the field is cleared when the provider is saved. A key is
+// required unless the base URL is on this computer (the CLI refuses a keyless
+// provider on another host). A name that is already saved asks first: the
+// binding then passes --yes, the consent `jev provider add` asks for when the
+// host, or an in-use provider's kind, URL or key, changes.
 export const PRESETS = [
   { id: 'openai', kind: 'openai', base: 'https://api.openai.com/v1', model: 'gpt-4o-mini', name: 'openai', needsKey: true },
   { id: 'ollama', kind: 'openai', base: 'http://localhost:11434/v1', name: 'ollama', local: true },
@@ -19,6 +24,11 @@ export const PRESETS = [
 ]
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,31}$/
+
+// originOf is a URL's scheme and host, lower case, as the CLI compares them.
+function originOf(raw) {
+  try { const u = new URL(raw); return `${u.protocol}//${u.host}`.toLowerCase() } catch { return String(raw || '') }
+}
 
 // parsePrice reads an optional price field: '' is 0 (no price), anything
 // else must be a finite number of 0 or more (null = invalid).
@@ -38,7 +48,7 @@ function Field({ id, text, children }) {
   )
 }
 
-export default function JevAddProviderForm({ kinds, busy, run, reload, onClose }) {
+export default function JevAddProviderForm({ kinds, existing = [], busy, run, reload, onClose }) {
   const { t } = useTranslation()
   const [presetId, setPresetId] = useState('ollama')
   const preset = PRESETS.find(p => p.id === presetId) || PRESETS[PRESETS.length - 1]
@@ -54,6 +64,9 @@ export default function JevAddProviderForm({ kinds, busy, run, reload, onClose }
   const priceChange = (set) => (e) => set({ v: e.target.value, bad: !!e.target.validity?.badInput })
   const [err, setErr] = useState('')
   const [result, setResult] = useState(null)
+  const [replacing, setReplacing] = useState(null)
+  // The confirm names a host: it goes when the form it describes changes.
+  useEffect(() => { setReplacing(null) }, [name, kind, base, key])
 
   const kindOptions = kind && !kinds.includes(kind) ? [kind, ...kinds] : kinds
   const pick = (id) => {
@@ -70,23 +83,36 @@ export default function JevAddProviderForm({ kinds, busy, run, reload, onClose }
   const modelPlaceholder = preset.local ? t('settings.jev.providers.modelLocalPlaceholder') : ''
   const usdIn = priceIn.bad ? null : parsePrice(priceIn.v)
   const usdOut = priceOut.bad ? null : parsePrice(priceOut.v)
-  const valid = NAME_RE.test(name) && !!kind && !!base.trim() && (!preset.needsKey || !!key.trim()) &&
+  const keyRequired = !isThisComputer(base.trim())
+  const keyMissing = keyRequired && !!base.trim() && !key.trim()
+  const valid = NAME_RE.test(name) && !!kind && !!base.trim() && !keyMissing &&
     usdIn != null && usdOut != null
 
-  const submit = (e) => {
-    e.preventDefault()
-    if (!valid) return
-    setErr(''); setResult(null)
+  const send = (replace) => {
+    setErr(''); setResult(null); setReplacing(null)
     run('provider:add', async () => {
       const p = await JevAddProvider({
         name, kind, base_url: base.trim(), model: model.trim(), api_key: key,
-        usd_per_mtok_in: usdIn, usd_per_mtok_out: usdOut, no_probe: false,
+        usd_per_mtok_in: usdIn, usd_per_mtok_out: usdOut, no_probe: false, replace,
       })
       setKey('')
       setResult(p || { name })
       setName(''); setModel(''); setPriceIn({ v: '', bad: false }); setPriceOut({ v: '', bad: false })
       await reload()
     }, setErr)
+  }
+  const submit = (e) => {
+    e.preventDefault()
+    if (!valid) return
+    const old = existing.find(p => p.name === name && !p.builtin)
+    if (old) {
+      const from = hostOf(old.base_url) || old.base_url
+      const to = hostOf(base.trim()) || base.trim()
+      setErr(''); setResult(null)
+      setReplacing({ name, from, to, moved: originOf(old.base_url) !== originOf(base.trim()) })
+      return
+    }
+    send(false)
   }
 
   const id = (f) => `jev-add-${f}`
@@ -131,10 +157,12 @@ export default function JevAddProviderForm({ kinds, busy, run, reload, onClose }
           placeholder={presetId === 'hf' ? t('settings.jev.providers.baseURLHfPlaceholder') : 'https://…'}
           onChange={e => setBase(e.target.value)} style={input} />
       </Field>
-      <Field id={id('key')} text={preset.needsKey ? t('settings.jev.providers.apiKey') : t('settings.jev.providers.apiKeyOptional')}>
+      <Field id={id('key')} text={keyRequired ? t('settings.jev.providers.apiKey') : t('settings.jev.providers.apiKeyOptional')}>
         <input id={id('key')} type="password" autoComplete="off" spellCheck={false} value={key} disabled={busy}
-          placeholder={preset.local ? t('settings.jev.providers.keyLocalPlaceholder') : t('settings.jev.providers.keyPlaceholder')}
+          aria-required={keyRequired} aria-invalid={keyMissing} aria-describedby={keyMissing ? id('key-hint') : undefined}
+          placeholder={keyRequired ? t('settings.jev.providers.keyPlaceholder') : t('settings.jev.providers.keyLocalPlaceholder')}
           onChange={e => setKey(e.target.value)} style={input} />
+        {keyMissing && <span id={id('key-hint')} style={hint}>{t('settings.jev.providers.keyNeeded')}</span>}
       </Field>
       <details data-testid="jev-add-pricing">
         <summary style={{ ...label, cursor: 'pointer' }}>{t('settings.jev.providers.pricing')}</summary>
@@ -152,12 +180,32 @@ export default function JevAddProviderForm({ kinds, busy, run, reload, onClose }
           </div>
         </div>
       </details>
-      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-        <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={onClose}>{t('settings.jev.providers.cancel')}</button>
-        <button type="submit" className="btn btn-primary btn-sm" disabled={busy || !valid}>
-          {busy ? t('settings.jev.providers.adding') : t('settings.jev.providers.add')}
-        </button>
-      </div>
+      {replacing ? (
+        <div data-testid="jev-add-replace-confirm" role="group" aria-label={t('settings.jev.providers.replaceTitle', { name: replacing.name })} style={{
+          background: 'rgba(234,179,8,.05)', border: '1px solid rgba(234,179,8,.22)', borderRadius: 'var(--radius)',
+          padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontFamily: mono, fontSize: 11, color: 'var(--yellow)', lineHeight: 1.5 }}>
+            <ShieldAlert size={13} style={{ flexShrink: 0, marginTop: 2 }} />
+            <span>{replacing.moved
+              ? t('settings.jev.providers.replaceMoved', replacing)
+              : t('settings.jev.providers.replaceSameHost', { name: replacing.name, host: replacing.to })}</span>
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+            <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => setReplacing(null)}>{t('settings.jev.providers.cancel')}</button>
+            <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={() => send(true)}>
+              {busy ? t('settings.jev.providers.adding') : t('settings.jev.providers.replaceConfirm', { name: replacing.name })}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+          <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={onClose}>{t('settings.jev.providers.cancel')}</button>
+          <button type="submit" className="btn btn-primary btn-sm" disabled={busy || !valid}>
+            {busy ? t('settings.jev.providers.adding') : t('settings.jev.providers.add')}
+          </button>
+        </div>
+      )}
       {err && <div role="alert" style={errText}>{err}</div>}
       <div aria-live="polite" data-testid="jev-add-result">{resultText}</div>
     </form>

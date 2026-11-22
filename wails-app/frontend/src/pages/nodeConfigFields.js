@@ -471,7 +471,8 @@ export const NODE_CONFIG_FIELDS = {
       help: 'Items below this probability go to the low_confidence output.' },
     { key: 'provider', label: 'Decision Provider', type: 'text', default: '',
       help: 'A decision provider added with `monoagentcli jev provider add`. Empty = the default.' },
-    { key: 'model', label: 'Model', type: 'text', default: '', help: "Empty = the provider's model." },
+    { key: 'model', label: 'Model', type: 'text', default: '',
+      help: "Empty = the provider's model. For a provider other than TypeSafe it is used only when Decision Provider names that provider here, and a jev-… model never is." },
   ],
   'ai.chat': [
     { key: 'model', label: 'Model', type: 'text', default: '' },
