@@ -3865,9 +3865,11 @@ monoagentcli --profile work jev models
 **Decision providers.** Jev is one of several decision-model vendors. `jev provider
 list` shows the catalog (`internal/jev/providers.go`); one provider is selected
 machine-wide (`jev provider use <id>`, default `typesafe`) and every surface, the
-org decider and `doctor` follow it. Providers speaking `/v1/systemone` (TypeSafe, a
-local or custom endpoint, Liquid AI, Upstage) are selectable; the rest are listed
-as "no adapter yet". `jev provider set <id> --base-url … --model …` sets the host
+org decider and `doctor` follow it. Selectable today: TypeSafe, a local or custom
+`/v1/systemone` endpoint, Liquid AI, Upstage (set its base URL), OpenAI
+(`/v1/decisions`, adapter in `internal/jev/openai.go`) and Google
+(`/v1beta/decisions`, `internal/jev/gemini.go`); the rest are listed as "no
+adapter yet". `jev provider set <id> --base-url … --model …` sets the host
 (https, or http for localhost); `printf '%s' "$KEY" | jev provider key-set <id>`
 stores the key as machine-vault entry `decision-<id>`. A provider's key is never
 sent to another provider's host and never falls back to the TypeSafe key.

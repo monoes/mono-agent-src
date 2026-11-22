@@ -26,7 +26,7 @@ func TestJevRequestsKeepTheKeyOnRedirect(t *testing.T) {
 	}
 	post := credhttptest.NewPair(t, http.StatusTemporaryRedirect, `{}`)
 	c.BaseURL, c.Retries = post.From, 0
-	_, _ = c.post(context.Background(), []byte(`{"questions":{}}`))
+	_, _ = c.post(context.Background(), "/v1/systemone", []byte(`{"questions":{}}`))
 	if got := post.Got(); len(got) != 0 {
 		t.Errorf("a POST's 307 reached the other host: %+v", got)
 	}

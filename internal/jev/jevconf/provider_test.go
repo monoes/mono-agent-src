@@ -16,7 +16,7 @@ func TestProviderSelection(t *testing.T) {
 	if got := SelectedProvider(db).ID; got != jev.ProviderTypeSafe {
 		t.Fatalf("default = %q", got)
 	}
-	if err := UseProvider(db, "openai"); err == nil {
+	if err := UseProvider(db, "cloudflare"); err == nil {
 		t.Fatal("a provider without an adapter must be refused")
 	}
 	if err := UseProvider(db, "nope"); err == nil {
@@ -47,7 +47,7 @@ func TestProviderEndpointAndClient(t *testing.T) {
 		t.Fatalf("client = %s %s", c.BaseURL, c.Model)
 	}
 	// A provider that needs a base URL and has none is not configured.
-	_ = UseProvider(db, "liquid")
+	_ = UseProvider(db, "upstage")
 	if _, err := BuildClient(db, "k", ""); !errors.Is(err, ErrProviderNotConfigured) {
 		t.Fatalf("err = %v", err)
 	}
@@ -56,7 +56,7 @@ func TestProviderEndpointAndClient(t *testing.T) {
 func TestProviderKeyNeverFallsBackToTypeSafe(t *testing.T) {
 	db := providerDB(t)
 	t.Setenv("TYPESAFE_API_KEY", "typesafe-secret")
-	_ = UseProvider(db, "liquid")
+	_ = UseProvider(db, "upstage")
 	if _, _, err := ResolveKey(context.Background(), db, "p", ""); !errors.Is(err, jev.ErrNoAPIKey) {
 		t.Fatalf("err = %v (the TypeSafe env key must not reach another provider)", err)
 	}

@@ -23,12 +23,12 @@ func TestJevProviderListUseKey(t *testing.T) {
 		t.Fatalf("list = %s %d", res.Selected, len(res.Providers))
 	}
 	for _, p := range res.Providers {
-		if p.ID == "openai" && p.Supported {
-			t.Fatal("openai has no adapter yet")
+		if p.ID == "cloudflare" && p.Supported {
+			t.Fatal("cloudflare has no adapter yet")
 		}
 	}
 
-	if _, _, err := runJev(t, cfg, "", "provider", "use", "openai"); err == nil {
+	if _, _, err := runJev(t, cfg, "", "provider", "use", "cloudflare"); err == nil {
 		t.Fatal("selecting a provider without an adapter must fail")
 	}
 	if _, _, err := runJev(t, cfg, "", "provider", "key-set", "liquid"); err == nil {

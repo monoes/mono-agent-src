@@ -107,8 +107,9 @@ type jevSurfaceStatus struct {
 
 type jevStatus struct {
 	ProfileID string             `json:"profile_id"`
-	KeySource string             `json:"key_source"` // config | vault | profile-vault | env | none
-	KeyEntry  string             `json:"key_entry"`  // vault entry name when key_source is vault
+	Provider  string             `json:"provider,omitempty"` // the selected decision provider when it is not TypeSafe
+	KeySource string             `json:"key_source"`         // config | vault | profile-vault | env | none
+	KeyEntry  string             `json:"key_entry"`          // vault entry name when key_source is vault
 	Model     string             `json:"model"`
 	BaseURL   string             `json:"base_url"`
 	Surfaces  []jevSurfaceStatus `json:"surfaces"`
@@ -132,6 +133,14 @@ func newJevStatusCmd(d Deps) *cobra.Command {
 			}
 			if name, ok := jevconf.VaultKeyName(cmd.Context(), db.DB); ok {
 				st.KeyEntry = name
+			}
+			if p := jevconf.SelectedProvider(db.DB); p.ID != jev.ProviderTypeSafe {
+				st.Provider = p.ID
+				st.BaseURL, st.Model = jevconf.ProviderEndpoint(db.DB, p)
+				st.KeyEntry = ""
+				if st.KeySource == jevconf.SourceVault {
+					st.KeyEntry = jevconf.ProviderSecret(p.ID)
+				}
 			}
 			for _, s := range jevconf.Surfaces {
 				def := jevconf.DefaultThreshold[s]

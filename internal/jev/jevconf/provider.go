@@ -102,6 +102,7 @@ func BuildClient(db *sql.DB, key, model string) (*jev.Client, error) {
 		return nil, err
 	}
 	c.BaseURL = strings.TrimRight(base, "/")
+	c.Protocol = p.Protocol
 	return c, nil
 }
 

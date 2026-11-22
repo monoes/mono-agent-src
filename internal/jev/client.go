@@ -129,8 +129,10 @@ type Response struct {
 type Client struct {
 	APIKey  string
 	BaseURL string
-	Model   string
-	HTTP    *http.Client
+	// Protocol is the provider's wire format: "" or ProtocolSystemOne, or ProtocolOpenAI.
+	Protocol string
+	Model    string
+	HTTP     *http.Client
 	// Retries is how many times a 408/429/5xx is retried (default 2, as the
 	// official SDKs do). Transport errors are not retried: the caller decides.
 	Retries int
@@ -186,17 +188,33 @@ func (c *Client) Ask(ctx context.Context, state any, questions map[string]Questi
 	if c.OnResult != nil {
 		defer func() { c.OnResult(&req, recorded, time.Since(started), err) }()
 	}
-	body, err := json.Marshal(req)
+	path, order := "/v1/systemone", []string(nil)
+	var body []byte
+	if c.Protocol == ProtocolOpenAI {
+		path = "/v1/decisions"
+		body, order, err = encodeOpenAI(req)
+	} else if c.Protocol == ProtocolGemini {
+		path = "/v1beta/decisions"
+		body, err = encodeGemini(req)
+	} else {
+		body, err = json.Marshal(req)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("jev: encode request: %w", err)
 	}
-	raw, err := c.post(ctx, body)
+	raw, err := c.post(ctx, path, body)
 	if err != nil {
 		return nil, err
 	}
 	var decoded Response
-	if err := json.Unmarshal(raw, &decoded); err != nil {
+	if c.Protocol == ProtocolOpenAI {
+		if decoded, err = decodeOpenAI(raw, order, questions); err != nil {
+			return nil, err
+		}
+	} else if err := json.Unmarshal(raw, &decoded); err != nil {
 		return nil, fmt.Errorf("%w: undecodable response: %v", ErrInvalidAnswer, err)
+	} else if c.Protocol == ProtocolGemini {
+		decoded.Usage = geminiUsage(raw)
 	}
 	decoded.LatencyMS = time.Since(started).Milliseconds()
 	recorded = &decoded
@@ -274,14 +292,18 @@ func Margin(a Answer) float64 {
 	return first - second
 }
 
-func (c *Client) post(ctx context.Context, body []byte) ([]byte, error) {
+func (c *Client) post(ctx context.Context, path string, body []byte) ([]byte, error) {
 	backoff := 500 * time.Millisecond
 	for attempt := 0; ; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/v1/systemone", bytes.NewReader(body))
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+path, bytes.NewReader(body))
 		if err != nil {
 			return nil, err
 		}
-		req.Header.Set("Authorization", "Bearer "+c.APIKey)
+		if c.Protocol == ProtocolGemini {
+			req.Header.Set("x-goog-api-key", c.APIKey)
+		} else {
+			req.Header.Set("Authorization", "Bearer "+c.APIKey)
+		}
 		req.Header.Set("Content-Type", "application/json")
 		res, err := c.HTTP.Do(req)
 		if err != nil {
@@ -324,11 +346,19 @@ type Model struct {
 // OpenAI-style {"data":[{"id":…}]} list as well as a bare array or a
 // {"models":[…]} wrapper, with entries as objects (id or name) or strings.
 func (c *Client) Models(ctx context.Context) ([]Model, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/v1/models", nil)
+	path := "/v1/models"
+	if c.Protocol == ProtocolGemini {
+		path = "/v1beta/models"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+path, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	if c.Protocol == ProtocolGemini {
+		req.Header.Set("x-goog-api-key", c.APIKey)
+	} else {
+		req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	}
 	res, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("jev: request failed: %w", err)

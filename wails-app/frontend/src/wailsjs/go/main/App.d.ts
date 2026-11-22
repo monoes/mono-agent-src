@@ -4,13 +4,13 @@ import {main} from '../models';
 import {connections} from '../models';
 import {workflow} from '../models';
 
+export function AIFillProfileInfo(arg1:string,arg2:string):Promise<main.ProfileInfoAIFillResult>;
+
 export function AITaskBudgetFor(arg1:string):Promise<string>;
 
 export function AITaskBudgets():Promise<string>;
 
 export function AITaskStatus():Promise<main.AITaskState>;
-
-export function AIFillProfileInfo(arg1:string,arg2:string):Promise<main.ProfileInfoAIFillResult>;
 
 export function APIConfigReset(arg1:boolean,arg2:boolean):Promise<main.APIConfigChange>;
 
@@ -50,6 +50,8 @@ export function AddApplication(arg1:string,arg2:string,arg3:string,arg4:string,a
 
 export function AddAutomationRole(arg1:string,arg2:string):Promise<string>;
 
+export function AddDocumentTag(arg1:string,arg2:string):Promise<main.TagInfo>;
+
 export function AddOrgAutomation(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function AddOrgDocumentEdge(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
@@ -59,8 +61,6 @@ export function AddOrgRole(arg1:string,arg2:string):Promise<string>;
 export function AddOrgRoleToSection(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function AddOrgSection(arg1:string,arg2:string,arg3:string):Promise<string>;
-
-export function AddDocumentTag(arg1:string,arg2:string):Promise<main.TagInfo>;
 
 export function AddPersonMessage(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string):Promise<void>;
 
@@ -92,6 +92,8 @@ export function AnswerOrgQuestion(arg1:string,arg2:string,arg3:string):Promise<s
 
 export function AppSelfUpdate():Promise<main.UpdateResult>;
 
+export function ApplyFailedRunFix(arg1:string,arg2:boolean,arg3:string):Promise<string>;
+
 export function ApplyToApplication(arg1:string,arg2:Record<string, any>,arg3:Record<string, any>):Promise<main.ApplyResult>;
 
 export function ApproveHIL(arg1:string,arg2:string):Promise<void>;
@@ -108,11 +110,11 @@ export function BindBrowser(arg1:string,arg2:string):Promise<main.BrowserRow>;
 
 export function BrowserPermissions():Promise<string>;
 
+export function CancelAITask(arg1:string):Promise<main.AITask>;
+
 export function CancelHealthRun(arg1:string):Promise<string>;
 
 export function CancelPlatformOAuth(arg1:string):Promise<string>;
-
-export function CancelAITask(arg1:string):Promise<main.AITask>;
 
 export function CancelWorkflow(arg1:string):Promise<void>;
 
@@ -134,6 +136,8 @@ export function ClearLogs():Promise<void>;
 
 export function ClearProfileInfo(arg1:string):Promise<void>;
 
+export function CoderConfirmMission(arg1:string,arg2:string,arg3:string):Promise<string>;
+
 export function CoderDisable():Promise<string>;
 
 export function CoderEnable():Promise<string>;
@@ -144,13 +148,9 @@ export function CoderSetAppAccess(arg1:boolean):Promise<string>;
 
 export function CoderSetDefaultAccess(arg1:string):Promise<string>;
 
-export function ConfirmApplicationSubmitted(arg1:string):Promise<void>;
-
 export function CoderStatus():Promise<string>;
 
 export function CoderStopBackground(arg1:string,arg2:string):Promise<string>;
-
-export function CoderConfirmMission(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function CoderWorkspaceDefault(arg1:string):Promise<string>;
 
@@ -159,6 +159,8 @@ export function CoderWorkspaceList():Promise<string>;
 export function CoderWorkspaceRoot(arg1:string):Promise<string>;
 
 export function ComposePersonMessage(arg1:string,arg2:string,arg3:string,arg4:string,arg5:boolean):Promise<main.PersonMessage>;
+
+export function ConfirmApplicationSubmitted(arg1:string):Promise<void>;
 
 export function ConfirmSocialLogin(arg1:string):Promise<string>;
 
@@ -238,8 +240,6 @@ export function GateRejectOrgAction(arg1:string,arg2:string,arg3:string):Promise
 
 export function GetAITask(arg1:string):Promise<main.AITask>;
 
-export function GetApplicationTab(arg1:string):Promise<main.ApplicationTab>;
-
 export function GetActiveProfile():Promise<main.ProfileInfo>;
 
 export function GetAgentRuntimeModels(arg1:string,arg2:string):Promise<string>;
@@ -254,6 +254,8 @@ export function GetApplication(arg1:string):Promise<main.ApplicationDetail>;
 
 export function GetApplicationAssets(arg1:string):Promise<main.ApplicationAssets>;
 
+export function GetApplicationTab(arg1:string):Promise<main.ApplicationTab>;
+
 export function GetApplications(arg1:string,arg2:string,arg3:string):Promise<Array<main.ApplicationSummary>>;
 
 export function GetBrowsers():Promise<main.BrowsersReport>;
@@ -267,6 +269,7 @@ export function GetChatEvents(arg1:string,arg2:string,arg3:number,arg4:number):P
 export function GetChatTurns(arg1:string,arg2:string,arg3:number):Promise<string>;
 
 export function GetCoderSessionSettings(arg1:string):Promise<string>;
+
 export function GetConnectionsForPlatform(arg1:string):Promise<Array<connections.SafeConnection>>;
 
 export function GetDBPath():Promise<string>;
@@ -281,9 +284,9 @@ export function GetEffectiveTools(arg1:string,arg2:string):Promise<string>;
 
 export function GetExecutionDetail(arg1:string):Promise<Record<string, any>>;
 
-export function GetExtensionStatus():Promise<string>;
-
 export function GetExtensionInfo():Promise<main.ExtensionInfo>;
+
+export function GetExtensionStatus():Promise<string>;
 
 export function GetGlobalOrgSummary(arg1:boolean):Promise<string>;
 
@@ -391,6 +394,8 @@ export function GetSummarySections(arg1:string):Promise<string>;
 
 export function GetTemplates():Promise<Array<main.TemplateInfo>>;
 
+export function GetVaultAgentAccess():Promise<Record<string, any>>;
+
 export function GetVaultImage(arg1:string):Promise<Record<string, any>>;
 
 export function GetVaultImageData(arg1:string):Promise<string>;
@@ -455,15 +460,25 @@ export function InstallAutomation(arg1:string,arg2:string):Promise<string>;
 
 export function InstallAutomationDryRun(arg1:string):Promise<string>;
 
+export function InstallExtension():Promise<main.ExtensionInfo>;
+
 export function IsDBConnected():Promise<boolean>;
 
 export function IsMonomindInitialized():Promise<boolean>;
 
 export function IsReady():Promise<boolean>;
 
+export function JevListProviders():Promise<main.JevProviders>;
+
 export function JevRemoveKey():Promise<main.JevKeyRemoveResult>;
 
+export function JevRemoveProviderKey(arg1:string):Promise<void>;
+
 export function JevSetKey(arg1:string):Promise<main.JevKeySetResult>;
+
+export function JevSetProviderEndpoint(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function JevSetProviderKey(arg1:string,arg2:string):Promise<void>;
 
 export function JevSetSurface(arg1:string,arg2:boolean,arg3:number):Promise<main.JevSurfaceResult>;
 
@@ -472,6 +487,8 @@ export function JevStatus():Promise<main.JevStatusInfo>;
 export function JevTestKey():Promise<main.JevKeyTestResult>;
 
 export function JevUsage(arg1:string):Promise<main.JevUsageReport>;
+
+export function JevUseProvider(arg1:string):Promise<void>;
 
 export function KeyringClearPassphrase():Promise<main.KeyringPassphraseResult>;
 
@@ -551,9 +568,9 @@ export function ListWorkflowTemplates():Promise<Array<workflow.Template>>;
 
 export function ListWorkflows():Promise<Array<main.WorkflowSummary>>;
 
-export function LowerAITaskBudget(arg1:string,arg2:string,arg3:number):Promise<string>;
-
 export function LoginSocial(arg1:string):Promise<string>;
+
+export function LowerAITaskBudget(arg1:string,arg2:string,arg3:number):Promise<string>;
 
 export function MarkPersonMessageUnread(arg1:string):Promise<void>;
 
@@ -593,13 +610,13 @@ export function OrgSignatureStatus(arg1:string):Promise<string>;
 
 export function PairExtension():Promise<string>;
 
-export function InstallExtension():Promise<main.ExtensionInfo>;
-
 export function PauseOrgAutonomy(arg1:string,arg2:string):Promise<string>;
 
 export function PickCoderFolder():Promise<string>;
 
 export function PlatformNames():Promise<Record<string, string>>;
+
+export function PreviewFailedRunFix(arg1:string):Promise<string>;
 
 export function PromoteRoleToRoot(arg1:string,arg2:string):Promise<string>;
 
@@ -629,6 +646,8 @@ export function RemoveAutomationRole(arg1:string,arg2:string):Promise<string>;
 
 export function RemoveConnection(arg1:string):Promise<string>;
 
+export function RemoveDocumentTag(arg1:string,arg2:string):Promise<void>;
+
 export function RemoveOrgAutomation(arg1:string,arg2:string):Promise<string>;
 
 export function RemoveOrgDocumentEdge(arg1:string,arg2:string,arg3:string,arg4:string):Promise<string>;
@@ -636,8 +655,6 @@ export function RemoveOrgDocumentEdge(arg1:string,arg2:string,arg3:string,arg4:s
 export function RemoveOrgGrant(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function RemoveOrgRole(arg1:string,arg2:string,arg3:string):Promise<string>;
-
-export function RemoveDocumentTag(arg1:string,arg2:string):Promise<void>;
 
 export function RemovePersonTag(arg1:string,arg2:string):Promise<void>;
 
@@ -651,9 +668,9 @@ export function RestoreAutomation(arg1:string):Promise<string>;
 
 export function RestoreExcludedDocument(arg1:string):Promise<void>;
 
-export function ResumeOrgAutonomy(arg1:string):Promise<string>;
-
 export function ResumeApplicationFill(arg1:string):Promise<main.AITask>;
+
+export function ResumeOrgAutonomy(arg1:string):Promise<string>;
 
 export function RevealProfileFolder(arg1:string):Promise<void>;
 
@@ -682,6 +699,8 @@ export function SaveChatAttachment(arg1:string,arg2:string,arg3:string):Promise<
 export function SaveConnectionDirect(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function SaveDraft(arg1:string,arg2:string):Promise<string>;
+
+export function SaveGeneratedWorkflow(arg1:string):Promise<string>;
 
 export function SaveOrgDesign(arg1:string,arg2:string):Promise<string>;
 
@@ -722,6 +741,7 @@ export function SetChatAccess(arg1:string,arg2:string,arg3:string,arg4:boolean):
 export function SetChatOrgMode(arg1:string,arg2:string):Promise<string>;
 
 export function SetCoderSessionSettings(arg1:string,arg2:string,arg3:string):Promise<string>;
+
 export function SetOAuthCredentials(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function SetOrgAutonomy(arg1:string,arg2:string):Promise<string>;
@@ -736,6 +756,8 @@ export function SetProfileInfo(arg1:string,arg2:string):Promise<void>;
 
 export function SetProfileInfoPhoto(arg1:string,arg2:string):Promise<void>;
 
+export function SetVaultAgentAccess(arg1:string):Promise<Record<string, any>>;
+
 export function SetWorkflowActive(arg1:string,arg2:boolean):Promise<void>;
 
 export function ShowAutomation(arg1:string):Promise<string>;
@@ -744,15 +766,11 @@ export function ShowPlatform(arg1:string):Promise<string>;
 
 export function ShowRecording(arg1:string):Promise<string>;
 
-export function SubmitAITask(arg1:string,arg2:string,arg3:Array<string>,arg4:string):Promise<main.AITask>;
+export function StartAgentValidation(arg1:Array<string>,arg2:Array<string>,arg3:boolean):Promise<string>;
 
 export function StartApplicationFill(arg1:string):Promise<main.AITask>;
 
 export function StartApplicationQueue(arg1:Array<string>,arg2:number):Promise<void>;
-
-export function SweepApplicationTabs():Promise<main.SweepResult>;
-
-export function StartAgentValidation(arg1:Array<string>,arg2:Array<string>,arg3:boolean):Promise<string>;
 
 export function StartChatTurn(arg1:string,arg2:string,arg3:string,arg4:boolean,arg5:boolean,arg6:Array<string>):Promise<string>;
 
@@ -771,6 +789,10 @@ export function StopOrgEvents(arg1:string,arg2:string):Promise<string>;
 export function StopOrgGroup(arg1:string):Promise<string>;
 
 export function StreamOrgEvents(arg1:string,arg2:string):Promise<string>;
+
+export function SubmitAITask(arg1:string,arg2:string,arg3:Array<string>,arg4:string):Promise<main.AITask>;
+
+export function SweepApplicationTabs():Promise<main.SweepResult>;
 
 export function SwitchProfile(arg1:string):Promise<void>;
 
@@ -853,23 +875,3 @@ export function ValidateOrgDesign(arg1:string):Promise<string>;
 export function ValidateOrgReport(arg1:string):Promise<string>;
 
 export function VerifyDraft(arg1:string,arg2:boolean,arg3:string):Promise<string>;
-
-export function ApplyFailedRunFix(arg1:string,arg2:boolean,arg3:string):Promise<string>;
-
-export function PreviewFailedRunFix(arg1:string):Promise<string>;
-
-export function SaveGeneratedWorkflow(arg1:string):Promise<string>;
-
-export function GetVaultAgentAccess():Promise<Record<string, any>>;
-
-export function SetVaultAgentAccess(arg1:string):Promise<Record<string, any>>;
-
-export function JevListProviders():Promise<main.JevProviders>;
-
-export function JevUseProvider(arg1:string):Promise<void>;
-
-export function JevSetProviderEndpoint(arg1:string,arg2:string,arg3:string):Promise<void>;
-
-export function JevSetProviderKey(arg1:string,arg2:string):Promise<void>;
-
-export function JevRemoveProviderKey(arg1:string):Promise<void>;
