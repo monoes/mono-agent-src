@@ -194,6 +194,26 @@ func TestPickAutoOnlyFailedQuestionsOpenTheBreaker(t *testing.T) {
 	}
 }
 
+// A provider with no probability has not decided, even at threshold 0: the
+// rule picks, and it is an answer for the breaker (the provider is up),
+// so it never opens.
+func TestPickAutoNoProbabilityIsTheRulesPickNotAFailure(t *testing.T) {
+	cands := []ModelInfo{cand("claude/default", ChatOnly, true, 0.001, true, 900), cand("claude/haiku", ChatOnly, true, 0.002, true, 800)}
+	f := &fakeAuto{err: errNoProbability}
+	h := autoGateway(t, f)
+	for i := 0; i < 6; i++ {
+		if pick := h.g.pickAuto(context.Background(), "alice", "hi", cands); pick.By != "rule" || pick.Model.ID != ruleChoice(cands).ID {
+			t.Fatalf("pick = %+v", pick)
+		}
+	}
+	if f.asked != 6 {
+		t.Errorf("no probability opened the breaker: asked %d of 6", f.asked)
+	}
+	if !strings.Contains(strings.Join(h.logged(), "\n"), "no probability") {
+		t.Errorf("log = %q", h.logged())
+	}
+}
+
 // waitUntil polls cond for up to two seconds.
 func waitUntil(t *testing.T, cond func() bool, what string) {
 	t.Helper()
