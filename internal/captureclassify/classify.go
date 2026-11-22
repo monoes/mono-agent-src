@@ -101,11 +101,8 @@ func Classify(ctx context.Context, c *jev.Client, in Input) (Result, error) {
 		return Result{}, err
 	}
 	a := resp.Answers[QuestionID]
-	kind, p := jev.Top(a)
-	r := Result{Kind: kind, P: p, Probabilities: a.Probabilities, Model: resp.Model, At: now().UTC().Format(time.RFC3339)}
-	if r.Model == "" {
-		r.Model = c.Model
-	}
+	kind, p := jev.GateValue(resp, a) // no probability gates as 0 (plan D7): no route is suggested
+	r := Result{Kind: kind, P: p, Probabilities: a.Probabilities, Model: jev.ResponseLabel(resp, c.Model), At: now().UTC().Format(time.RFC3339)}
 	th := in.Threshold
 	if th <= 0 {
 		th = DefaultThreshold

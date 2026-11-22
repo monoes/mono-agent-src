@@ -60,9 +60,10 @@ func personState(p Person) map[string]any {
 
 // Suggest asks Jev, one request per pair, whether each pair is the same
 // human, and records the answer: p ≥ threshold ⇒ a "suggested" link
-// (relation "same", confidence p, source "jev:<model>"); p ≤ DismissAt ⇒ a
-// "dismissed" link (relation "not_same", source "jev") so the pair is never
-// asked again; anything in between records nothing. Pairs already linked are
+// (relation "same", confidence p, source "jev:<model>", "jev:<provider>/<model>"
+// for a provider other than TypeSafe); p ≤ DismissAt ⇒ a "dismissed" link
+// (relation "not_same", source "jev") so the pair is never asked again;
+// anything in between, and any answer with no probability, records nothing. Pairs already linked are
 // skipped without a request. It returns ErrDisabled, making no request,
 // unless the profile enabled the people_links surface. When every request
 // fails, the first error is returned with the counts.
@@ -139,11 +140,13 @@ func suggestOne(ctx context.Context, c *jev.Client, db *storage.Database, profil
 	if err != nil {
 		return "", err
 	}
-	_, p := jev.Top(resp.Answers[QuestionID])
-	model := resp.Model
-	if model == "" {
-		model = c.Model
+	if resp.Probability == jev.ProbNone {
+		// No probability (plan D7): neither "same" nor a confident "not
+		// same" — record nothing, as for an undecided pair.
+		return "", nil
 	}
+	_, p := jev.GateValue(resp, resp.Answers[QuestionID])
+	model := jev.ResponseLabel(resp, c.Model)
 	link := &storage.PersonLink{ProfileID: profileID, PersonA: a.ID, PersonB: b.ID, Confidence: p, Model: model}
 	switch {
 	case p >= threshold:

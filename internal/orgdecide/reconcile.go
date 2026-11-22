@@ -69,6 +69,9 @@ func DisplayCopy(a *Autonomy, prev *orgdesign.Autonomy) *orgdesign.Autonomy {
 			MaxDecisionsPerRun: a.Limits.MaxDecisionsPerRun, MaxDeciderUSDPerRun: a.Limits.MaxDeciderUSDPerRun,
 		},
 	}
+	// The jev decider's threshold and provider stay in the row: the org
+	// file's decider block is the shape monomind knows
+	// (docs/plans/2026-09-16-org-unification-contracts.md).
 	if a.PausedUntil != nil && a.PausedUntil.After(time.Now()) {
 		out.PausedUntil = a.PausedUntil.UTC().Format(time.RFC3339)
 	}

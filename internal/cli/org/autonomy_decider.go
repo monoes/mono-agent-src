@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"strings"
 
+	"github.com/monoes/mono-agent/internal/jev"
 	"github.com/monoes/mono-agent/internal/jev/jevconf"
 	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/orgdecide"
@@ -13,7 +14,8 @@ import (
 
 // checkDeciderAvailable enforces the plan §6.1 decider rules that need the
 // outside world: parent needs a holding org listing this org, boss needs
-// monomind tool providers, jev needs a TypeSafe key for the profile, and
+// monomind tool providers, jev needs a client of its decision provider (for
+// TypeSafe, a key for the profile), and
 // model (also jev's fallback) needs a model its runtime offers.
 func (env *orgEnv) checkDeciderAvailable(ctx context.Context, db *sql.DB, profileID, root, org string, a *orgdecide.Autonomy) error {
 	switch a.Decider.Kind {
@@ -36,8 +38,17 @@ func (env *orgEnv) checkDeciderAvailable(ctx context.Context, db *sql.DB, profil
 	case orgdesign.DeciderModel:
 		return env.checkDeciderModel(ctx, a)
 	case orgdesign.DeciderJev:
-		if _, _, err := jevconf.ResolveKey(ctx, db, profileID, ""); err != nil {
-			return env.d.InvalidInput("decider jev needs a TypeSafe API key: store the machine-wide key with `monoagentcli jev key set` (key on stdin) or set TYPESAFE_API_KEY (%v)", err)
+		// The provider the daemon will use: the decider's own, else the
+		// profile's decider surface, else the machine default (D9).
+		if _, err := jevconf.NewClientFor(ctx, db, profileID, a.Decider.Provider, "", "", jevconf.Decider); err != nil {
+			provider := a.Decider.Provider
+			if provider == "" {
+				provider = jevconf.ActiveProvider(db, profileID, jevconf.Decider)
+			}
+			if provider == jev.ProviderTypeSafe {
+				return env.d.InvalidInput("decider jev needs a TypeSafe API key: store the machine-wide key with `monoagentcli jev key set` (key on stdin) or set TYPESAFE_API_KEY (%v)", err)
+			}
+			return env.d.InvalidInput("decider jev cannot use its decision provider: %v", err)
 		}
 		return env.checkDeciderModel(ctx, a)
 	}

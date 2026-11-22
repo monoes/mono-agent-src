@@ -60,7 +60,7 @@ func DefaultAuto(db *sql.DB) AutoFuncs {
 			if !ok {
 				return "", 0, errors.New("jev: no answer")
 			}
-			id, p := jev.Top(answer)
+			id, p := jev.GateValue(resp, answer) // no probability gates as 0: the rule decides (plan D7)
 			return id, p, nil
 		},
 		Threshold: func(profileID string) float64 {

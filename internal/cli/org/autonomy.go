@@ -59,7 +59,7 @@ func autonomyView(a *orgdecide.Autonomy) map[string]interface{} {
 		"decider": map[string]interface{}{
 			"kind": a.Decider.Kind, "runtime": a.Decider.Runtime, "model": a.Decider.Model,
 			"fallback": a.Decider.Fallback, "timeout_seconds": a.Decider.TimeoutSeconds,
-			"threshold": deciderThresholdView(a),
+			"threshold": deciderThresholdView(a), "provider": deciderProviderView(a),
 		},
 		"tiers": tiers, "default_tiers": orgdecide.DefaultTiers, "policy": a.Policy,
 		"on_decider_failure": a.OnDeciderFailure,
@@ -79,6 +79,15 @@ func deciderThresholdView(a *orgdecide.Autonomy) interface{} {
 		return orgdecide.DefaultJevThreshold
 	}
 	return a.Decider.Threshold
+}
+
+// deciderProviderView is the jev decider's decision provider, "" for the
+// default (D9) and for other kinds.
+func deciderProviderView(a *orgdecide.Autonomy) string {
+	if a.Decider.Kind != orgdesign.DeciderJev {
+		return ""
+	}
+	return a.Decider.Provider
 }
 
 func newOrgAutonomyShowCmd(env *orgEnv) *cobra.Command {
@@ -101,7 +110,7 @@ func newOrgAutonomyShowCmd(env *orgEnv) *cobra.Command {
 }
 
 func newOrgAutonomySetCmd(env *orgEnv) *cobra.Command {
-	var level, decider, runtime, model, fallback, policy, policyFile, onFailure, by string
+	var level, decider, provider, runtime, model, fallback, policy, policyFile, onFailure, by string
 	var timeout, maxDecisions int
 	var maxUSD, threshold float64
 	var tiers, clearTiers []string
@@ -153,6 +162,15 @@ func newOrgAutonomySetCmd(env *orgEnv) *cobra.Command {
 				}
 				a.Decider.Threshold = threshold
 			}
+			if f.Changed("decider-provider") {
+				if provider != "" && a.Decider.Kind != orgdesign.DeciderJev {
+					return env.d.InvalidInput("--decider-provider names the jev decider's decision provider: use it with --decider jev")
+				}
+				if err := orgdecide.CheckDeciderProvider(db.DB, provider); err != nil {
+					return env.d.InvalidInput("--decider-provider: %v", err)
+				}
+				a.Decider.Provider = provider
+			}
 			if f.Changed("policy") {
 				a.Policy = policy
 			}
@@ -194,7 +212,7 @@ func newOrgAutonomySetCmd(env *orgEnv) *cobra.Command {
 			// Manual uses no decider: turning an org down to it must not
 			// fail on a decider nobody asked to change (#477).
 			deciderChanged := false
-			for _, name := range []string{"decider", "decider-runtime", "decider-model", "fallback", "decider-threshold"} {
+			for _, name := range []string{"decider", "decider-runtime", "decider-model", "fallback", "decider-threshold", "decider-provider"} {
 				deciderChanged = deciderChanged || f.Changed(name)
 			}
 			if deciderChanged || a.Level != orgdesign.LevelManual {
@@ -218,6 +236,7 @@ func newOrgAutonomySetCmd(env *orgEnv) *cobra.Command {
 	f := c.Flags()
 	f.StringVar(&level, "level", "", "manual | mid | full")
 	f.StringVar(&decider, "decider", "", strings.Join(orgdesign.DeciderKinds, " | ")+" (jev: TypeSafe Jev picks the verdict, the model decides below --decider-threshold)")
+	f.StringVar(&provider, "decider-provider", "", "jev only: decision provider that answers (typesafe or one listed by jev provider list; \"\" =the profile's decider provider, else the machine default)")
 	f.StringVar(&runtime, "decider-runtime", "", "Runtime for the model decider (e.g. claude)")
 	f.StringVar(&model, "decider-model", "", "Model for the model decider")
 	f.StringVar(&fallback, "fallback", "", "Decider for items the chosen one cannot take (model)")

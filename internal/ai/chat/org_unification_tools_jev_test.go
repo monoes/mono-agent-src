@@ -34,3 +34,22 @@ func TestSetOrgAutonomy_DeciderThreshold(t *testing.T) {
 		}
 	}
 }
+
+// decider_provider reaches the proposal; a provider that is not configured,
+// a malformed name, and a provider for another decider kind are refused.
+func TestSetOrgAutonomy_DeciderProvider(t *testing.T) {
+	mt := newProposalToolFixture(t).mt
+	out, err := mt.Execute("set_org_autonomy", `{"org_name":"growth","decider":"jev","decider_provider":"typesafe"}`)
+	if err != nil || !strings.Contains(out, `decider provider \"typesafe\"`) {
+		t.Fatalf("preview %s err=%v", out, err)
+	}
+	for _, bad := range []string{
+		`{"org_name":"growth","decider":"jev","decider_provider":"nope"}`,
+		`{"org_name":"growth","decider":"jev","decider_provider":"Not/A Name"}`,
+		`{"org_name":"growth","decider":"model","decider_provider":"typesafe"}`,
+	} {
+		if out, err := mt.Execute("set_org_autonomy", bad); err == nil {
+			t.Errorf("%s accepted: %s", bad, out)
+		}
+	}
+}
