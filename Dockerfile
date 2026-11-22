@@ -18,7 +18,11 @@ RUN go mod download
 # the build context (see .dockerignore).
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -o /out/monoagentcli ./cmd/monoagentcli
+# Stamp the version and build date as release.yml does; without them the image reports "dev",
+# skips the downgrade guard, and has no build-date floor for the sign-in gate.
+ARG VERSION=dev
+ARG BUILD_DATE=
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-X main.version=${VERSION} -X main.buildDate=${BUILD_DATE}" -o /out/monoagentcli ./cmd/monoagentcli
 
 # Stage 2: runtime
 FROM alpine:3.22
