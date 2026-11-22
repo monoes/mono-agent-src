@@ -74,6 +74,7 @@ func downloadOutlookAttachments(ctx context.Context, accessToken, messageID stri
 	raw, _ := data["value"].([]interface{})
 
 	out := make([]map[string]interface{}, 0, len(raw))
+	seen := map[string]bool{} // paths written for this message in this pass
 	for _, a := range raw {
 		att, ok := a.(map[string]interface{})
 		if !ok {
@@ -99,7 +100,7 @@ func downloadOutlookAttachments(ctx context.Context, accessToken, messageID stri
 			out = append(out, entry)
 			continue
 		}
-		path, werr := attachments.Save(messageID, name, decoded)
+		path, werr := attachments.SaveDistinct(messageID, name, decoded, seen)
 		if werr != nil {
 			entry["error"] = werr.Error()
 			out = append(out, entry)

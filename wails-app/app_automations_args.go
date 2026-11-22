@@ -24,6 +24,12 @@ func withPositional(args []string, pos ...string) []string {
 	return append(append(args, "--"), pos...)
 }
 
+// recordDeleteArgs is `record delete`; the CLI refuses without --yes, and the
+// GUI has already asked in its own confirm dialog (RecordingsTab.jsx).
+func recordDeleteArgs(id string) []string {
+	return withPositional([]string{"record", "delete", "--yes"}, id)
+}
+
 // automationCLIArgs builds the full argv: global flags first, then the
 // subcommand words.
 func automationCLIArgs(profileID string, sub ...string) ([]string, error) {

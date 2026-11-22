@@ -36,6 +36,14 @@ func TestAutomationInstallArgs(t *testing.T) {
 	}
 }
 
+func TestRecordDeleteArgsConfirmed(t *testing.T) {
+	got := recordDeleteArgs("rec1")
+	want := []string{"record", "delete", "--yes", "--", "rec1"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
 func TestAutomationLifecycleAndTrustArgs(t *testing.T) {
 	got, err := automationLifecycleArgs("rollback", "hackernews")
 	if err != nil || !reflect.DeepEqual(got, []string{"automation", "rollback", "--", "hackernews"}) {

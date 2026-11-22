@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -166,5 +167,109 @@ func TestImageJobStoreEvictsOldFinishedJobs(t *testing.T) {
 	}
 	if _, ok := s.add("k"); ok {
 		t.Error("more running jobs than the cap")
+	}
+}
+
+// A panic inside the job's goroutine has no net/http recover above it and would end the
+// gateway. The job fails with a 500, and the slot it held is free for the next one.
+func TestImageJobThatPanicsFailsAndFreesItsSlot(t *testing.T) {
+	var calls int32
+	h := newHarness(t, func(ctx context.Context, opts monomind.ExecOptions, onEvent func(monomind.Event)) (*monomind.TurnResult, error) {
+		if atomic.AddInt32(&calls, 1) == 1 {
+			panic("boom")
+		}
+		return imageTurn("image-1.png", onePNG("image-1.png"))(ctx, opts, onEvent)
+	})
+	secret := h.key(t, "default", "app", false)
+
+	var acc struct{ ID string }
+	_ = json.Unmarshal(postImagesAsync(h, secret, `{"model":"codex","prompt":"a red circle"}`).Body.Bytes(), &acc)
+	done := waitJob(t, h, secret, acc.ID)
+	var out struct {
+		Status     string
+		HTTPStatus int `json:"http_status"`
+	}
+	if err := json.Unmarshal(done.Body.Bytes(), &out); err != nil || out.Status != "failed" || out.HTTPStatus != http.StatusInternalServerError {
+		t.Fatalf("a job that panicked answers %s (%v)", done.Body, err)
+	}
+	if strings.Contains(done.Body.String(), "boom") {
+		t.Errorf("the panic value reaches the client: %s", done.Body)
+	}
+
+	rec := postImagesAsync(h, secret, `{"model":"codex","prompt":"again"}`)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("the slot of the crashed job was not given back: %d %s", rec.Code, rec.Body)
+	}
+	var next struct{ ID string }
+	_ = json.Unmarshal(rec.Body.Bytes(), &next)
+	if again := waitJob(t, h, secret, next.ID); !strings.Contains(again.Body.String(), `"completed"`) {
+		t.Errorf("the job after the crash did not complete: %s", again.Body)
+	}
+}
+
+func TestImageJobStoreFailsAJobThatNeverEndsSoItFreesItsPlace(t *testing.T) {
+	now := time.Unix(1000, 0)
+	s := newImageJobs(func() time.Time { return now })
+	s.stuckAfter = time.Minute
+	stuck, _ := s.add("k")
+	for i := 1; i < maxImageJobs; i++ {
+		if _, ok := s.add("k"); !ok {
+			t.Fatalf("refused job %d", i)
+		}
+	}
+	if _, ok := s.add("k"); ok {
+		t.Fatal("more running jobs than the cap")
+	}
+	now = now.Add(2 * time.Minute)
+	if _, ok := s.add("k"); !ok {
+		t.Fatal("jobs that never end hold every place for ever")
+	}
+	got, ok := s.get("k", stuck.id)
+	if !ok || !got.done || got.err == nil {
+		t.Fatalf("the stuck job is %+v (found %v): it should be failed", got, ok)
+	}
+}
+
+func TestImageJobFinishingAfterBeingDroppedAsStuckChangesNothing(t *testing.T) {
+	now := time.Unix(1000, 0)
+	s := newImageJobs(func() time.Time { return now })
+	s.stuckAfter = time.Minute
+	j, _ := s.add("k")
+	now = now.Add(2 * time.Minute)
+	s.add("k")
+	s.finish(j, [][]byte{{1, 2, 3}}, nil, nil)
+	if j.err == nil || len(j.images) != 0 {
+		t.Errorf("a late answer replaced the one the client was told: err %v, images %d", j.err, len(j.images))
+	}
+}
+
+// The byte bound holds when images arrive, not only when the next job is added.
+func TestImageJobFinishDropsOlderFinishedJobsWhileTooManyBytesAreHeld(t *testing.T) {
+	now := time.Unix(1000, 0)
+	s := newImageJobs(func() time.Time { return now })
+	big := make([]byte, maxJobBytes/2+1)
+	// All three are running before any finishes, so only finish can enforce the bound.
+	var running []*imageJob
+	for i := 0; i < 3; i++ {
+		j, ok := s.add("k")
+		if !ok {
+			t.Fatal("refused")
+		}
+		running = append(running, j)
+	}
+	first := running[0]
+	for _, j := range running {
+		now = now.Add(time.Second)
+		s.finish(j, [][]byte{big}, nil, nil)
+	}
+	if _, ok := s.get("k", first.id); ok {
+		t.Error("the oldest finished job is kept while the images held are over the bound")
+	}
+	held := 0
+	for _, j := range s.jobs {
+		held += j.bytes()
+	}
+	if held > maxJobBytes+len(big) {
+		t.Errorf("%d bytes held after finish, bound %d", held, maxJobBytes)
 	}
 }

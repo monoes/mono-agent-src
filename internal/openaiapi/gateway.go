@@ -151,6 +151,7 @@ func New(d Deps, c Config) (*Gateway, error) {
 	g.shutdownCtx, g.shutdown = context.WithCancel(context.Background())
 	g.conts = newContStore(func() time.Time { return g.now() })
 	g.jobs = newImageJobs(func() time.Time { return g.now() })
+	g.jobs.stuckAfter = cfg.TurnTimeout + turnGrace + time.Minute
 	g.cleanSlots() // only now: nothing of another process can be running in them
 	_ = os.RemoveAll(filepath.Join(cfg.ScratchRoot, tmpDirName))
 	if cfg.ImagesOff() {

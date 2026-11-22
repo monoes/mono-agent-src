@@ -20,8 +20,10 @@ import (
 const (
 	// maxImageJobs bounds the jobs kept, finished ones and running ones together.
 	maxImageJobs = 64
-	// maxJobBytes bounds the images that finished jobs hold in memory.
-	maxJobBytes = 256 << 20
+	// maxJobBytes bounds the images that finished jobs hold in memory. The most held at
+	// rest is this plus the newest job (4 images of 20 MiB), and while turns run the
+	// images they are about to hand over come on top (MaxConcurrent of those).
+	maxJobBytes = 128 << 20
 )
 
 // imageJobTTL is how long a finished job is kept for its client to fetch. A variable
@@ -31,6 +33,7 @@ var imageJobTTL = 30 * time.Minute
 type imageJob struct {
 	id, keyID string
 	created   int64
+	started   time.Time
 	done      bool
 	finished  time.Time
 	images    [][]byte
@@ -49,6 +52,8 @@ type imageJobs struct {
 	now  func() time.Time
 	mu   sync.Mutex
 	jobs map[string]*imageJob
+	// stuckAfter is how long a job may run before it is failed; zero means never.
+	stuckAfter time.Duration
 }
 
 func newImageJobs(now func() time.Time) *imageJobs {
@@ -68,50 +73,74 @@ func wantsAsync(r *http.Request) bool {
 }
 
 // add makes a running job for key, after dropping the finished jobs that are too old
-// and, while the images held are too many bytes, the oldest finished ones. It reports
-// false when every job kept is still running.
+// and, while the jobs are too many or hold too many bytes, the oldest finished ones. A
+// running job past stuckAfter is failed first, so one that never ends does not keep
+// its place. It reports false when every job kept is still running.
 func (s *imageJobs) add(keyID string) (*imageJob, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.now()
-	held := 0
 	for id, j := range s.jobs {
 		if j.done && now.Sub(j.finished) > imageJobTTL {
 			delete(s.jobs, id)
-		} else {
-			held += j.bytes()
 		}
 	}
-	finished := func() []*imageJob {
-		var out []*imageJob
-		for _, j := range s.jobs {
-			if j.done {
-				out = append(out, j)
-			}
-		}
-		slices.SortFunc(out, func(a, b *imageJob) int { return a.finished.Compare(b.finished) })
-		return out
+	s.failStuck(now)
+	s.trim(nil, 1)
+	if len(s.jobs) >= maxImageJobs {
+		return nil, false
 	}
-	for _, j := range finished() {
-		if len(s.jobs) < maxImageJobs && held <= maxJobBytes {
+	j := &imageJob{id: newRequestID("imgjob_"), keyID: keyID, created: now.Unix(), started: now}
+	s.jobs[j.id] = j
+	return j, true
+}
+
+// failStuck ends the running jobs that have outlived stuckAfter. Their turn is past its
+// own timeout, so it is not coming back; if it ever does, finish leaves the answer as is.
+func (s *imageJobs) failStuck(now time.Time) {
+	if s.stuckAfter <= 0 {
+		return
+	}
+	for _, j := range s.jobs {
+		if !j.done && now.Sub(j.started) > s.stuckAfter {
+			j.err = &apiError{Status: http.StatusBadGateway, Type: "api_error", Code: "runtime_error",
+				Message: "The image job did not finish in time and was dropped."}
+			j.done, j.finished = true, now
+		}
+	}
+}
+
+// trim drops the oldest finished jobs (never keep) while there is no room for room more
+// jobs or the images held are too many bytes. The caller holds the lock.
+func (s *imageJobs) trim(keep *imageJob, room int) {
+	held := 0
+	var finished []*imageJob
+	for _, j := range s.jobs {
+		held += j.bytes()
+		if j.done && j != keep {
+			finished = append(finished, j)
+		}
+	}
+	slices.SortFunc(finished, func(a, b *imageJob) int { return a.finished.Compare(b.finished) })
+	for _, j := range finished {
+		if len(s.jobs)+room <= maxImageJobs && held <= maxJobBytes {
 			break
 		}
 		delete(s.jobs, j.id)
 		held -= j.bytes()
 	}
-	if len(s.jobs) >= maxImageJobs {
-		return nil, false
-	}
-	j := &imageJob{id: newRequestID("imgjob_"), keyID: keyID, created: now.Unix()}
-	s.jobs[j.id] = j
-	return j, true
 }
 
-// finish records the end of a job.
+// finish records the end of a job, then drops older finished jobs while too many bytes
+// are held: the bound holds when images arrive, not only when the next job is added.
 func (s *imageJobs) finish(j *imageJob, images [][]byte, e *apiError, u *usage) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if j.done { // dropped as stuck: the client has been told
+		return
+	}
 	j.images, j.err, j.usage, j.done, j.finished = images, e, u, true, s.now()
+	s.trim(j, 0)
 }
 
 // get returns the job of key with id, nil when there is none (or it is another key's).
@@ -140,6 +169,15 @@ func (g *Gateway) runImageJob(j *imageJob, pr Principal, begin time.Time, model,
 	defer cancel()
 	status, detail := http.StatusOK, ""
 	defer func() { g.logRequest(pr, begin, model, status, "", autoBy, "job "+j.id+detail) }()
+	// This goroutine has no net/http recover above it: a panic here would end the
+	// process. Fail the job instead, and give the slot back (release is once-guarded).
+	defer release()
+	defer func() {
+		if r := recover(); r != nil {
+			status, detail = http.StatusInternalServerError, " panic"
+			g.jobs.finish(j, nil, errInternal("The image job crashed."), nil)
+		}
+	}()
 	res, imgs, note, e, gone := g.makeImages(ctx, m, eff, pr, slot, release, n, size, prompt)
 	switch {
 	case gone: // the server stopped
@@ -162,6 +200,7 @@ func (g *Gateway) handleImageJob() func(http.ResponseWriter, *http.Request, Prin
 				Message: "No such image job for this key. A finished job is kept for " + imageJobTTL.String() + "."})
 			return
 		}
+		w.Header().Set("Cache-Control", "no-store")
 		head := fmt.Sprintf(`"id":%q,"object":"image.job",`, j.id)
 		switch {
 		case !j.done:
