@@ -30,6 +30,7 @@ var routeCalls = []struct{ method, path string }{
 	{"GET", "/v1/models/some-model"},
 	{"POST", "/v1/chat/completions"},
 	{"POST", "/v1/images/generations"},
+	{"GET", "/v1/images/jobs/some-job"},
 	{"POST", "/org-endpoint/{endpoint}"},
 }
 
