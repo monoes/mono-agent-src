@@ -4,7 +4,7 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
-import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, cleanup, within } from '@testing-library/react'
 import '../i18n.js'
 
 const { go, api, events, notify, scanRef } = vi.hoisted(() => ({
@@ -49,6 +49,15 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('Agents page and monomind', () => {
+  it('monomind missing offers Fix monomind', async () => {
+    scanRef.current = { error: 'monomind not found (AI engine) — install it with npm install -g @monoes/monomindcli' }
+    render(<Agents />)
+    expect(await screen.findByText(/monomind not found \(AI engine\)/)).toBeInTheDocument()
+    const fix = screen.getByTestId('fix-monomind')
+    expect(fix).toBeInTheDocument()
+    expect(within(fix).getByRole('button', { name: /Fix monomind/i })).toBeEnabled()
+  })
+
   it('a sign-in refusal of the set-up stops the spinner and says to sign in', async () => {
     go.InitializeMonomindProfile.mockResolvedValue(JSON.stringify({ error: 'Log in to monoes.me first: monoagentcli account login', login_required: true }))
     render(<Agents />)

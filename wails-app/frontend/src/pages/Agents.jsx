@@ -7,6 +7,7 @@ import { installRuntime, runHealth } from '../lib/health.js'
 import { api } from '../services/api.js'
 import { confirm } from '../components/ConfirmDialog.jsx'
 import MonomindInitPrompt from '../components/MonomindInitPrompt.jsx'
+import FixMonomindButton from '../components/FixMonomindButton.jsx'
 import AgentRoster from '../components/agents/AgentRoster.jsx'
 import OpenRunBoss from '../components/agents/OpenRunBoss.jsx'
 import { useSendToCoder } from '../components/bubbles/CoderBubbleContext.jsx'
@@ -266,6 +267,10 @@ export default function Agents() {
                     : <>{t('agents.updateWith')} <code>npm install -g @monoes/monomindcli@latest</code></>}
                 </span>
                 <code style={{ fontSize: 10, color: 'var(--text-muted)', wordBreak: 'break-word', textAlign: 'left' }}>{scanError}</code>
+                {/* Installs or updates monomind through the CLI (doctor fix monomind.install), then rescans. */}
+                <span style={{ alignSelf: 'center' }}>
+                  <FixMonomindButton onDone={() => { invalidateAgentScan(); return loadAgents() }} />
+                </span>
               </div>
             </div>
           ) : notInitialized ? (
