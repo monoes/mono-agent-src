@@ -43,8 +43,14 @@ func TestDerive_ExistingInstallIsCompleted(t *testing.T) {
 	if !s.Completed {
 		t.Fatalf("an install with profiles and no marks is not completed: %+v", s)
 	}
-	if got := stepStatuses(s); got["finish"] != "done" || got["profile"] != "done" {
-		t.Fatalf("statuses = %v", got)
+	got := stepStatuses(s)
+	for _, id := range []string{"welcome", "system", "profile", "permissions", "firstRun", "finish"} {
+		if got[id] != "done" {
+			t.Fatalf("statuses = %v, want %s done", got, id)
+		}
+	}
+	if s.CurrentStep != "about" {
+		t.Fatalf("CurrentStep = %q, want the first real gap (about)", s.CurrentStep)
 	}
 }
 

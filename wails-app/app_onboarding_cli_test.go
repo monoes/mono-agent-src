@@ -10,8 +10,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/monoes/mono-agent/internal/account"
 	"github.com/monoes/mono-agent/internal/account/accounttest"
 	"github.com/monoes/mono-agent/internal/profiledir"
+	"github.com/monoes/mono-agent/internal/testhome"
 )
 
 // onboardingFakeCLI answers the four reads GetOnboardingState makes.
@@ -29,7 +31,7 @@ esac
 
 func onboardingCLIApp(t *testing.T) *App {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.SetHome(t, t.TempDir())
 	a := newTestApp(t)
 	a.ctx = context.Background()
 	a.selectForTest("work")
@@ -183,30 +185,60 @@ func TestOnboardingStateFastPathWhenCompleted(t *testing.T) {
 	}
 }
 
-// Not completed: GetOnboardingState reads every fact.
-func TestOnboardingStateReadsEverythingUntilCompleted(t *testing.T) {
+// Not completed, the fast answer is still the profile list alone: Completed
+// and ProfileID are exact, monomind, agents and browser come from the marks
+// (monomind is todo though its folder is set up), and CurrentStep follows.
+// The full answer reads every fact.
+func TestOnboardingStateIsFastBeforeCompletionToo(t *testing.T) {
 	log := onboardingLoggingCLI(t)
 	a := onboardingCLIApp(t)
-	if err := a.MarkOnboardingStep("welcome"); err != nil {
+	root := profiledir.Root(a.db, "work")
+	if err := os.MkdirAll(filepath.Join(root, ".monomind"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".monomind", "config.yaml"), []byte("x: 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"welcome", "system", "about"} {
+		if err := a.MarkOnboardingStep(id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := a.SkipOnboardingStep("agents"); err != nil {
 		t.Fatal(err)
 	}
 	s, err := a.GetOnboardingState()
-	if err != nil || s.Completed {
+	if err != nil || s.Completed || s.ProfileID != "work" || s.CurrentStep != "monomind" {
 		t.Fatalf("GetOnboardingState = %+v, %v", s, err)
+	}
+	if calls := loggedCalls(t, log); !strings.Contains(calls, "profile list") || strings.Count(calls, "\n") != 1 {
+		t.Fatalf("the fast answer ran %q, want only the profile list", calls)
+	}
+	if got := stepStatuses(*s); got["monomind"] != "todo" || got["agents"] != "skipped" || got["browser"] != "todo" || got["profile"] != "done" {
+		t.Fatalf("fast statuses = %v", got)
+	}
+
+	if err := os.WriteFile(log, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err = a.GetOnboardingStateFull()
+	if err != nil || s.Completed || s.CurrentStep != "permissions" {
+		t.Fatalf("GetOnboardingStateFull = %+v, %v", s, err)
 	}
 	calls := loggedCalls(t, log)
 	for _, c := range []string{"profile list", "agent roster", "extension status", "extension browsers"} {
 		if !strings.Contains(calls, c) {
-			t.Fatalf("did not run %q: %q", c, calls)
+			t.Fatalf("the full answer did not run %q: %q", c, calls)
 		}
 	}
-	if got := stepStatuses(*s); got["agents"] != "done" || got["browser"] != "done" {
-		t.Fatalf("statuses = %v", got)
+	if got := stepStatuses(*s); got["monomind"] != "done" || got["agents"] != "done" || got["browser"] != "done" {
+		t.Fatalf("full statuses = %v", got)
 	}
 }
 
-// Signed out, nothing is read from the CLI (its empty profile list would
-// read as zero profiles) and nothing is written: the count is unknown.
+// Signed out, both reads are the login-required error, nothing is read from
+// the CLI (its empty profile list would read as zero profiles) and nothing is
+// written.
 func TestOnboardingStateSignedOut(t *testing.T) {
 	log := filepath.Join(t.TempDir(), "args.log")
 	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, `echo "$*" >> '`+log+`'
@@ -214,8 +246,21 @@ echo '[]'
 `))
 	a := onboardingCLIApp(t)
 	accounttest.Install(t, accounttest.LockedNoLogin)
-	if s, err := a.GetOnboardingState(); !errors.Is(err, errOnboardingUnknown) {
-		t.Fatalf("GetOnboardingState = %+v, %v; want errOnboardingUnknown", s, err)
+	if s, err := a.GetOnboardingState(); !account.IsLoginRequired(err) || s != nil {
+		t.Fatalf("GetOnboardingState = %+v, %v; want the login-required error", s, err)
+	}
+	if s, err := a.GetOnboardingStateFull(); !account.IsLoginRequired(err) || s != nil {
+		t.Fatalf("GetOnboardingStateFull = %+v, %v; want the login-required error", s, err)
+	}
+	for name, write := range map[string]func() error{
+		"Mark":     func() error { return a.MarkOnboardingStep("welcome") },
+		"Skip":     func() error { return a.SkipOnboardingStep("system") },
+		"Complete": a.CompleteOnboarding,
+		"Restart":  a.RestartOnboarding,
+	} {
+		if err := write(); !account.IsLoginRequired(err) {
+			t.Fatalf("%s signed out = %v, want the login-required error", name, err)
+		}
 	}
 	if _, err := os.Stat(log); !os.IsNotExist(err) {
 		t.Fatal("the CLI ran while signed out")

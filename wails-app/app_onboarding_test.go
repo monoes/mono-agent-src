@@ -151,8 +151,25 @@ func TestOnboardingStateMarksAnExistingInstallOnce(t *testing.T) {
 	if err != nil || !s.Completed {
 		t.Fatalf("state = %+v, %v", s, err)
 	}
-	if m := onboardingMarksOf(t, a); m == nil || !m.Completed {
+	m := onboardingMarksOf(t, a)
+	if m == nil || !m.Completed {
 		t.Fatalf("completed mark not written: %+v", m)
+	}
+	// The steps with no real state are marked seen in the same write, so the
+	// Finish setup card lists only real gaps.
+	for _, id := range []string{"welcome", "system", "permissions", "firstRun"} {
+		if !m.Seen[id] {
+			t.Fatalf("%s not marked seen: %+v", id, m)
+		}
+	}
+	got := stepStatuses(*s)
+	for id, want := range map[string]string{
+		"welcome": "done", "system": "done", "permissions": "done", "firstRun": "done", "profile": "done", "finish": "done",
+		"about": "todo", "monomind": "todo", "agents": "todo", "browser": "todo",
+	} {
+		if got[id] != want {
+			t.Errorf("%s = %s, want %s", id, got[id], want)
+		}
 	}
 	if err := a.RestartOnboarding(); err != nil {
 		t.Fatal(err)

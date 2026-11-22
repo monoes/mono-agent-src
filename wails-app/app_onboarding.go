@@ -2,8 +2,9 @@
 //
 // The first-run onboarding's bindings: its state (onboarding_derive.go over
 // the real facts gathered here) and the marks the steps write
-// (onboarding_store.go). The marks are the app's own UI state; they need no
-// sign-in and never run the CLI.
+// (onboarding_store.go). The marks are the app's own UI state and never run
+// the CLI; like every binding, each one refuses signed out
+// (TestEveryBindingRefusesSignedOut), when the sign-in screen shows instead.
 package main
 
 import (
@@ -19,33 +20,39 @@ import (
 // not known, and the window shows the normal app rather than guess.
 var errOnboardingUnknown = errors.New("onboarding state unknown: the profile list could not be read")
 
-// GetOnboardingState returns every step's status. A fact that cannot be read
-// (signed out, CLI missing) counts as false, except the profile count: an
-// unread count never counts as zero, so a failed read never shows an
-// existing user the onboarding. With the count unread the stored Completed
-// is returned as is, or errOnboardingUnknown when nothing is stored. The
-// first call on an install that has profiles but no marks writes the
-// completed mark, so such an install never sees the onboarding.
+// GetOnboardingState is the fast answer the launch gate asks for (it allows
+// it a few seconds): whether to show the onboarding at all. It reads the
+// stored marks and the profile count, nothing else: no monomind, agent
+// roster or browser check. Completed and ProfileID are exact; the monomind,
+// agents and browser steps carry their stored marks only (skipped or todo,
+// never done), and CurrentStep is worked out from those. The onboarding
+// screen and the Finish setup card use GetOnboardingStateFull.
 //
-// It is the fast answer the window asks for at every launch: when the stored
-// Completed is true it reads only the profile count (for the zero-profiles
-// reopen rule) and the monomind marker file, and skips the agent roster and
-// browser reads, so in that answer agents and browser carry their stored
-// marks only (skipped or todo, never done). GetOnboardingStateFull reads
-// everything.
+// Signed out it is the login-required error. The profile count is never
+// guessed as zero: when it cannot be read (CLI missing, an error, a timeout)
+// the stored Completed is returned as is, or
+// errOnboardingUnknown when nothing is stored, so a failed read never shows
+// an existing user the onboarding. The first call on an install that has
+// profiles but no marks writes the completed mark, so such an install never
+// sees the onboarding.
 func (a *App) GetOnboardingState() (*OnboardingState, error) {
-	full := true
-	if m := loadGuiState(guiStatePath(a.dbPath)).Onboarding; m != nil && m.Completed {
-		full = false
+	if err := a.signedOut(); err != nil {
+		return nil, err
 	}
-	f, countKnown := a.gatherOnboardingFacts(full)
+	f, countKnown := a.gatherOnboardingFacts(false)
 	return a.onboardingStateFor(f, countKnown)
 }
 
-// GetOnboardingStateFull is GetOnboardingState with every fact read even
-// after completion, for the dashboard's Finish setup card, which lists the
-// steps not really done.
+// GetOnboardingStateFull is GetOnboardingState with every fact read: the
+// monomind marker, the agent roster and the browser binding, so every step
+// that has real state is done when that state holds. A fact that cannot be
+// read counts as false. It can take as long as the slowest of those reads
+// (the agent roster runs a scan); the onboarding screen and the dashboard's
+// Finish setup card use it.
 func (a *App) GetOnboardingStateFull() (*OnboardingState, error) {
+	if err := a.signedOut(); err != nil {
+		return nil, err
+	}
 	f, countKnown := a.gatherOnboardingFacts(true)
 	return a.onboardingStateFor(f, countKnown)
 }
@@ -77,7 +84,7 @@ func (a *App) onboardingStateFor(f onboardingFacts, countKnown bool) (*Onboardin
 	if m == nil && f.ProfileCount > 0 {
 		err := updateGuiState(path, func(st *guiState) {
 			if st.Onboarding == nil {
-				st.Onboarding = &onboardingMarks{Completed: true}
+				st.Onboarding = legacyOnboardingMarks()
 			}
 		})
 		if err != nil {
@@ -91,17 +98,13 @@ func (a *App) onboardingStateFor(f onboardingFacts, countKnown bool) (*Onboardin
 // checks the other bindings use, side by side. It reports whether the
 // profile count was read; when it was not, a profile selected in memory
 // still counts as one (one existed when the window chose it). full=false
-// skips the slow reads (agent roster, extension status and browsers), which
-// leaves AgentUsable and BrowserAssigned false.
+// reads the profile count only, which leaves MonomindOn, AgentUsable and
+// BrowserAssigned false.
 func (a *App) gatherOnboardingFacts(full bool) (onboardingFacts, bool) {
 	f := onboardingFacts{ProfileID: a.selectedProfileOrEmpty()}
 	guess := 0
 	if f.ProfileID != "" {
 		guess = 1
-	}
-	if a.signedOut() != nil {
-		f.ProfileCount = guess
-		return f, false
 	}
 	var (
 		wg      sync.WaitGroup
@@ -113,12 +116,10 @@ func (a *App) gatherOnboardingFacts(full bool) (onboardingFacts, bool) {
 		go func() { defer wg.Done(); fn() }()
 	}
 	run(func() { listErr = a.listProfilesInto(&rows) })
-	if pid := f.ProfileID; pid != "" {
-		run(func() { f.MonomindOn = a.IsMonomindInitialized() }) // a file check, cheap enough for the fast answer
-		if full {
-			run(func() { f.AgentUsable = a.agentRosterHasReady() })
-			run(func() { f.BrowserAssigned = a.browserRunsProfile(pid) })
-		}
+	if pid := f.ProfileID; pid != "" && full {
+		run(func() { f.MonomindOn = a.IsMonomindInitialized() })
+		run(func() { f.AgentUsable = a.agentRosterHasReady() })
+		run(func() { f.BrowserAssigned = a.browserRunsProfile(pid) })
 	}
 	wg.Wait()
 	if listErr != nil {
@@ -180,6 +181,9 @@ func (a *App) browserRunsProfile(pid string) bool {
 // welcome, system, permissions and firstRun machine-wide, about for the
 // selected profile. Any other id is an error.
 func (a *App) MarkOnboardingStep(id string) error {
+	if err := a.signedOut(); err != nil {
+		return err
+	}
 	path := guiStatePath(a.dbPath)
 	switch {
 	case slices.Contains(onboardingMachineMarks, id):
@@ -200,6 +204,9 @@ func (a *App) MarkOnboardingStep(id string) error {
 // firstRun machine-wide; about, monomind and browser for the selected
 // profile. welcome, profile and finish cannot be skipped.
 func (a *App) SkipOnboardingStep(id string) error {
+	if err := a.signedOut(); err != nil {
+		return err
+	}
 	path := guiStatePath(a.dbPath)
 	switch {
 	case slices.Contains(onboardingMachineSkips, id):
@@ -221,6 +228,9 @@ func (a *App) SkipOnboardingStep(id string) error {
 
 // CompleteOnboarding records that the onboarding was finished.
 func (a *App) CompleteOnboarding() error {
+	if err := a.signedOut(); err != nil {
+		return err
+	}
 	return updateGuiState(guiStatePath(a.dbPath), func(st *guiState) { st.ensureOnboarding().Completed = true })
 }
 
@@ -228,6 +238,9 @@ func (a *App) CompleteOnboarding() error {
 // completed mark, Welcome's seen mark and every skip. What was really done
 // (and the other seen marks) stays, so those steps show as done.
 func (a *App) RestartOnboarding() error {
+	if err := a.signedOut(); err != nil {
+		return err
+	}
 	return updateGuiState(guiStatePath(a.dbPath), func(st *guiState) {
 		m := st.ensureOnboarding() // never nil again: nil would re-complete an install that has profiles
 		m.Completed = false

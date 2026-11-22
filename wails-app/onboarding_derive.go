@@ -53,6 +53,18 @@ type onboardingFacts struct {
 	BrowserAssigned bool // extension paired and a browser assigned to ProfileID
 }
 
+// legacyOnboardingMarks are the marks of an install that predates the
+// onboarding: completed, with the steps that have no real state to read
+// (welcome, system, permissions, firstRun) seen, so its Finish setup card
+// lists only real gaps (about, monomind, agents, browser).
+func legacyOnboardingMarks() *onboardingMarks {
+	seen := map[string]bool{}
+	for _, id := range onboardingMachineMarks {
+		seen[id] = true
+	}
+	return &onboardingMarks{Completed: true, Seen: seen}
+}
+
 // deriveOnboarding works out every step's status.
 //
 // No marks at all with profiles present is an install that predates the
@@ -62,7 +74,10 @@ type onboardingFacts struct {
 // profile step.
 func deriveOnboarding(m *onboardingMarks, f onboardingFacts) OnboardingState {
 	if m == nil {
-		m = &onboardingMarks{Completed: f.ProfileCount > 0}
+		m = &onboardingMarks{}
+		if f.ProfileCount > 0 {
+			m = legacyOnboardingMarks()
+		}
 	}
 	var pm onboardingProfileMarks
 	if f.ProfileID != "" {
