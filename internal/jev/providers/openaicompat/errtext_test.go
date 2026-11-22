@@ -1,9 +1,13 @@
 package openaicompat
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/jev"
 	"github.com/monoes/mono-agent/internal/jev/jevconf"
@@ -47,6 +51,42 @@ func TestAnAdapterErrorClassifiesByItsStatus(t *testing.T) {
 		}
 		if n := len(f.requests()); n != 1 {
 			t.Errorf("%d: %d requests with Retries 0, want 1", status, n)
+		}
+	}
+}
+
+// A request the caller's context cuts off still says why (errors.Is), with
+// the redacted text: ErrorClass names it "timeout" or "canceled", and a
+// sample cancelled because another failed is not taken for the failure.
+func TestACutOffRequestKeepsItsCause(t *testing.T) {
+	release := make(chan struct{})
+	f := newFake(t, func(int, seen) (int, any) { <-release; return 200, textReply("A") })
+	defer close(release)
+	cl, _ := newClient(t, f.URL, "", jev.Capabilities{})
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	_, err := cl.Ask(ctx, map[string]any{"x": 1}, map[string]jev.Question{"q": choiceOf("x", "y")})
+	if !errors.Is(err, context.DeadlineExceeded) || jevconf.ErrorClass(err) != "timeout" {
+		t.Fatalf("err = %v, class %q", err, jevconf.ErrorClass(err))
+	}
+}
+
+// A sampling provider that is busy fails with its status, never with the
+// cancellation of the samples still in flight.
+func TestABusySampledProviderFailsWithItsStatus(t *testing.T) {
+	for i := 0; i < 20; i++ {
+		var n atomic.Int32
+		f := newFake(t, func(_ int, r seen) (int, any) {
+			if n.Add(1) > 1 {
+				time.Sleep(time.Duration(n.Load()) * time.Millisecond) // the others are still in flight
+			}
+			return 503, `{"error":{"type":"overloaded"}}`
+		}, retryAfterZero)
+		cl, _ := newClient(t, f.URL, "", jev.Capabilities{Kinds: []string{jev.TypeChoice}, Probability: jev.ProbSampled})
+		cl.Retries = 0
+		_, err := ask(t, cl, choiceOf("x", "y"))
+		if got := jevconf.ErrorClass(err); got != "HTTP 503" {
+			t.Fatalf("run %d: err = %v, class %q", i, err, got)
 		}
 	}
 }

@@ -166,6 +166,19 @@ type httpError struct {
 
 func (e *httpError) Error() string { return e.text }
 
+// transportError is a request that got no reply. Its text is redacted; it
+// unwraps to the cause, so a caller still tells a deadline or a
+// cancellation (errors.Is) from a failure: jevconf.ErrorClass names a
+// timeout, and a sample cancelled because another failed is not taken for
+// the failure (firstErr).
+type transportError struct {
+	text string
+	err  error
+}
+
+func (e *transportError) Error() string { return e.text }
+func (e *transportError) Unwrap() error { return e.err }
+
 // complete sends one chat completion and decodes the reply. A 400 that
 // refuses max_tokens or temperature (OpenAI's reasoning models) is sent
 // again without that parameter, and the backend remembers it (adapt). Any
@@ -280,7 +293,7 @@ func (b *Backend) do(ctx context.Context, method, path string, body []byte) ([]b
 		}
 		res, err := b.http.Do(req)
 		if err != nil {
-			return nil, fmt.Errorf("openaicompat: request failed: %s", b.redact(err.Error()))
+			return nil, &transportError{text: "openaicompat: request failed: " + b.redact(err.Error()), err: err}
 		}
 		raw, readErr := io.ReadAll(io.LimitReader(res.Body, maxBody))
 		res.Body.Close()
