@@ -1,0 +1,100 @@
+/* Help page. Tokens only (see index.css :root). Animations are decorative:
+   every state is also stated in text, and the global reduced-motion rule in
+   index.css clamps them, so each keyframe must look right at its end frame. */
+.help-page { display: flex; flex-direction: column; gap: 16px; position: relative; }
+.help-page .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.help-hero { display: flex; align-items: center; gap: 18px; }
+.help-title { font-family: var(--font-display); font-size: 26px; margin: 0; color: var(--text); }
+.help-sub { margin: 2px 0 8px; color: var(--text-secondary); font-size: 13px; }
+.help-bubble {
+  display: inline-block; margin: 0; padding: 6px 12px; font-size: 12px; color: var(--text);
+  background: var(--elevated); border: 1px solid var(--border-bright); border-radius: var(--radius-lg);
+  animation: help-pop 220ms ease;
+}
+.help-party-badge { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--teal); display: inline-flex; gap: 4px; align-items: center; }
+.help-party .help-mascot-svg { animation: help-party-hue 2s linear infinite, help-bob 900ms ease-in-out infinite; }
+
+/* mascot */
+.help-mascot { display: inline-flex; flex: none; }
+.help-mascot-btn { background: none; border: 0; padding: 0; cursor: pointer; border-radius: var(--radius-xl); }
+.help-mascot-btn:hover .help-mascot-body, .help-mascot-btn:focus-visible .help-mascot-body { transform: translateY(-3px); }
+.help-mascot-body { transition: transform var(--transition); transform-box: fill-box; transform-origin: center; }
+.help-mascot-bulb { animation: pulse 2.2s ease infinite; }
+.help-mascot-svg.d0 .help-mascot-body { animation: help-bob 3s ease-in-out infinite; }
+.help-mascot-svg.d1 .help-mascot-body { animation: help-shiver 1.2s ease-in-out infinite; }
+.help-mascot-svg.d2 .help-mascot-body { animation: help-shiver 600ms ease-in-out infinite; }
+.help-mascot-svg.d3 .help-mascot-body { animation: help-shiver 260ms linear infinite; }
+.help-mascot-svg.d4 .help-mascot-body { animation: help-shiver 120ms linear infinite; }
+.help-sweat { animation: help-drip 1.4s ease-in infinite; }
+.help-sweat.s2 { animation-delay: 300ms; }
+.help-sweat.s3 { animation-delay: 700ms; }
+
+/* search */
+.help-search { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); color: var(--text-muted); }
+.help-search input { flex: 1; background: none; border: 0; outline: 0; color: var(--text); font: inherit; font-size: 13px; }
+.help-search:focus-within { border-color: var(--border-active); }
+.help-egg-reply { margin: 0; font-size: 12px; color: var(--teal); font-family: var(--font-mono); animation: help-pop 220ms ease; }
+
+/* topics */
+.help-section { margin: 4px 0 0; }
+.help-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; align-items: start; }
+.help-topic { padding: 0; overflow: hidden; transition: border-color var(--transition), transform var(--transition); }
+.help-topic:hover { transform: translateY(-2px); border-color: var(--border-bright); }
+.help-topic-head { display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px; background: none; border: 0; color: inherit; text-align: left; cursor: pointer; font: inherit; }
+.help-topic-emoji { font-size: 26px; line-height: 1; transition: transform var(--transition); }
+.help-topic:hover .help-topic-emoji { transform: rotate(-8deg) scale(1.15); }
+.help-topic-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.help-topic-title { font-family: var(--font-display); font-size: 15px; color: var(--text); }
+.help-topic-blurb { font-size: 12px; color: var(--text-secondary); }
+.help-chevron { color: var(--text-muted); transition: transform var(--transition); }
+.help-topic.open .help-chevron { transform: rotate(180deg); }
+.help-topic-body { padding: 0 14px 14px; animation: slide-up 200ms ease; }
+.help-quip { margin: 0 0 8px; font-style: italic; font-size: 12px; color: var(--teal); }
+.help-danger-quip { margin: 0 0 8px; font-size: 12px; color: var(--orange); }
+.help-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.help-step { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--text); animation: slide-up 240ms ease both; animation-delay: calc(var(--i) * 60ms); }
+.help-step-n { flex: none; width: 20px; height: 20px; border-radius: 50%; display: inline-grid; place-items: center; font-family: var(--font-mono); font-size: 10px; color: var(--cyan-bright); border: 1px solid var(--border-bright); }
+.help-step-text { flex: 1; }
+.help-danger { display: inline-flex; align-items: center; gap: 4px; color: var(--orange); }
+.help-danger-pips { display: inline-flex; gap: 2px; }
+.help-danger-pips i { width: 5px; height: 10px; border-radius: 2px; background: var(--border); }
+.help-danger-pips i.on { background: var(--orange); }
+.help-topic.danger-4 .help-danger-pips i.on, .help-topic.danger-5 .help-danger-pips i.on { background: var(--red); }
+
+/* permission pit */
+.help-pit { display: flex; flex-direction: column; gap: 12px; padding: 16px; transition: border-color 300ms ease, box-shadow 300ms ease; }
+.help-pit-top { display: flex; align-items: center; gap: 16px; }
+.help-pit-title { font-family: var(--font-display); font-size: 18px; margin: 0; }
+.help-pit-desc { margin: 2px 0 0; font-size: 13px; color: var(--text-secondary); }
+.help-pit-dial { display: flex; flex-direction: column; gap: 6px; }
+.help-pit-label { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
+.help-pit-dial input[type=range] { width: 100%; accent-color: var(--cyan); }
+.help-pit-ticks { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); }
+.help-pit-ticks .on { color: var(--orange); }
+.help-pit-grants { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; min-height: 24px; }
+.help-grant { display: inline-flex; gap: 6px; padding: 3px 8px; font-size: 11px; border-radius: var(--radius); background: var(--elevated); border: 1px solid var(--border); animation: help-drop 320ms ease both; }
+.help-grant-perm { font-family: var(--font-mono); color: var(--yellow); }
+.help-grant-label { color: var(--text-secondary); }
+.help-pit-consequence { margin: 0; min-height: 40px; padding: 10px 12px; font-size: 13px; border-left: 3px solid var(--cyan); background: var(--surface); border-radius: var(--radius); }
+.help-pit-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.help-pit-safe { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; color: var(--green-neon); }
+.pit-1 { border-color: var(--border-bright); }
+.pit-2 { border-color: var(--yellow); }
+.pit-3 { border-color: var(--orange); box-shadow: 0 0 14px color-mix(in srgb, var(--orange) 25%, transparent); }
+.pit-4, .pit-5, .pit-6, .pit-7, .pit-8 { border-color: var(--red); box-shadow: 0 0 22px color-mix(in srgb, var(--red) 35%, transparent); animation: help-shake 400ms linear infinite; }
+.pit-3 .help-pit-consequence { border-left-color: var(--orange); }
+.pit-4 .help-pit-consequence, .pit-5 .help-pit-consequence, .pit-6 .help-pit-consequence, .pit-7 .help-pit-consequence, .pit-8 .help-pit-consequence { border-left-color: var(--red); }
+
+/* confetti */
+.help-confetti { position: absolute; top: 60px; left: 60px; pointer-events: none; z-index: 5; }
+.help-confetti span { position: absolute; font-size: 22px; animation: help-burst 1.1s ease-out both; animation-delay: var(--d); }
+
+@keyframes help-pop { from { opacity: 0; transform: scale(.92); } to { opacity: 1; transform: scale(1); } }
+@keyframes help-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+@keyframes help-shiver { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-1.5px) rotate(-1deg); } 75% { transform: translateX(1.5px) rotate(1deg); } }
+@keyframes help-drip { 0% { opacity: 0; transform: translateY(-4px); } 30% { opacity: 1; } 100% { opacity: 0; transform: translateY(12px); } }
+@keyframes help-drop { from { opacity: 0; transform: translateY(-14px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes help-shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-1px); } 75% { transform: translateX(1px); } }
+@keyframes help-burst { 0% { opacity: 1; transform: translate(0, 0) scale(.5); } 100% { opacity: 0; transform: translate(var(--x), -90px) scale(1.2) rotate(40deg); } }
+@keyframes help-party-hue { to { filter: hue-rotate(360deg); } }
