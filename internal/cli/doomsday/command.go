@@ -269,7 +269,11 @@ func (d Deps) newStart() *cobra.Command {
 					return fmt.Errorf("run %s started but session %d could not be recorded as its boss, so no boss tool works (run `doomsday stop`): %w", entry.RunID, boss, err)
 				}
 			}
+			first := d.queueBossFirstTurn(cmd.Context(), boss, entry, ch, canon.Hash)
 			if d.json() {
+				if first != nil {
+					return json.NewEncoder(out).Encode(first)
+				}
 				return json.NewEncoder(out).Encode(entry)
 			}
 			fmt.Fprintf(out, "run %s started (charter %s, generation %d)\n", entry.RunID, short(entry.Hash), entry.Generation)
@@ -280,6 +284,13 @@ func (d Deps) newStart() *cobra.Command {
 				fmt.Fprintln(out, "anchor-bound: yes")
 			} else {
 				fmt.Fprintf(out, "anchor-bound: no. %s\n", entry.AnchorNote)
+			}
+			if first != nil {
+				if first.FirstTurn == "failed" {
+					fmt.Fprintf(out, "the boss has no first turn: %s (press Stop and start again)\n", first.FirstTurnError)
+				} else {
+					fmt.Fprintln(out, "first turn: queued")
+				}
 			}
 			return nil
 		},
@@ -496,7 +507,7 @@ func (d Deps) newStatus() *cobra.Command {
 			case "failed":
 				fmt.Fprintf(out, "first turn failed: %s\n", s.FirstTurnError)
 			case "none":
-				fmt.Fprintln(out, "first turn: not queued (the boss has nothing to do until you type in its chat)")
+				fmt.Fprintln(out, "first turn: not queued (the boss has had no turn and cannot act; a message typed in the chat does not reach it: press Stop and start again)")
 			case "unknown":
 				fmt.Fprintf(out, "first turn: unknown (%s)\n", s.FirstTurnError)
 			}

@@ -53,6 +53,36 @@ type ChatStarter interface {
 	QueueFirstTurn(ctx context.Context, bossConversation string, in FirstTurn) error
 }
 
+// bossConversationer is a ChatStarter that can name the conversation of a boss session: `start --boss-session` needs it to queue
+// the first turn (the start from a chat gets the conversation from MakeBoss).
+type bossConversationer interface {
+	BossConversation(ctx context.Context, session int64) (string, error)
+}
+
+// queueBossFirstTurn queues the first turn of the boss `start --boss-session` recorded (#1745). nil: this install cannot queue
+// one (no starter, or a starter that cannot name the boss's conversation), so the start answers as it always did. A failure is
+// not an error: the run started, and the answer says the boss has no first turn.
+func (d Deps) queueBossFirstTurn(ctx context.Context, session int64, entry Entry, ch Charter, hash string) *ChatEntry {
+	if session == 0 || d.ChatStart == nil {
+		return nil
+	}
+	cs := d.ChatStart()
+	bc, ok := cs.(bossConversationer)
+	if !ok {
+		return nil
+	}
+	res := &ChatEntry{Entry: entry, BossSession: session, FirstTurn: "queued"}
+	conv, err := bc.BossConversation(ctx, session)
+	if err == nil {
+		res.BossConversation = conv
+		err = cs.QueueFirstTurn(ctx, conv, FirstTurn{RunID: entry.RunID, CharterHash: hash, Goal: ch.Goal, Terms: CharterTerms(ch)})
+	}
+	if err != nil {
+		res.FirstTurn, res.FirstTurnError = "failed", cleanLine(err.Error())
+	}
+	return res
+}
+
 // ChatEntry is the answer of a start from a chat: the entry, the boss, and the state of the boss's first turn.
 type ChatEntry struct {
 	Entry
