@@ -139,14 +139,16 @@ type Client struct {
 	// for the TypeSafe wire).
 	Provider string
 	// Backend, when set, answers in place of TypeSafe's /v1/systemone;
-	// APIKey, BaseURL, HTTP and Retries are then unused.
+	// APIKey, BaseURL and HTTP are then unused, and Retries reaches the
+	// backend through the context (WithRetries).
 	Backend Backend
 	APIKey  string
 	BaseURL string
 	Model   string
 	HTTP    *http.Client
 	// Retries is how many times a 408/429/5xx is retried (default 2, as the
-	// official SDKs do). Transport errors are not retried: the caller decides.
+	// official SDKs do; 0 = one attempt), by the TypeSafe wire and by every
+	// backend. Transport errors are not retried: the caller decides.
 	Retries int
 	// OnResult, when set, is called once per Ask with the outcome — including
 	// transport and validation failures (err set). resp is nil only when no

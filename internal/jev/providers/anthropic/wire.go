@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/jev"
 )
 
 // The Messages API wire format, and the one HTTP path every call takes.
@@ -82,10 +84,15 @@ func (r messagesResponse) toolAnswer() string {
 }
 
 // do sends one request to path (method GET when body is nil, else POST) and
-// returns the response body. A 408, 429 or 5xx is retried b.retries times,
-// waiting what Retry-After says (at most 5s). Every error is passed through
+// returns the response body. A 408, 429 or 5xx is retried as often as the
+// caller's budget says (jev.RetriesFrom; b.retries without one), waiting
+// what Retry-After says (at most 5s). Every error is passed through
 // b.redact, so the key never appears in one.
 func (b *Backend) do(ctx context.Context, path string, body []byte, limit int64) ([]byte, error) {
+	retries := b.retries
+	if n, ok := jev.RetriesFrom(ctx); ok {
+		retries = n
+	}
 	backoff := 500 * time.Millisecond
 	for attempt := 0; ; attempt++ {
 		raw, status, retryAfter, err := b.once(ctx, path, body, limit)
@@ -96,7 +103,7 @@ func (b *Backend) do(ctx context.Context, path string, body []byte, limit int64)
 			return raw, nil
 		}
 		retryable := status == http.StatusRequestTimeout || status == http.StatusTooManyRequests || status >= 500
-		if !retryable || attempt >= b.retries {
+		if !retryable || attempt >= retries {
 			return nil, fmt.Errorf("anthropic: HTTP %d: %s", status, snippet(b.scrub(string(raw))))
 		}
 		wait := backoff

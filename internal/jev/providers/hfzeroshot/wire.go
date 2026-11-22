@@ -120,12 +120,15 @@ func wrapped(first json.RawMessage) bool {
 }
 
 // post sends body to the endpoint and returns the response body. A 408,
-// 429 or other 5xx is retried b.retries times, waiting what Retry-After
-// says (at most 5s). A 503 (a model still loading) is retried
-// loadingRetries times, waiting the longer of Retry-After and the body's
-// estimated_time (at most 20s). Every wait ends with ctx. The key never
-// appears in an error.
+// 429 or other 5xx is retried as often as the caller's budget says
+// (jev.RetriesFrom; b.retries without one), waiting what Retry-After says
+// (at most 5s). A 503 (a model still loading) waits the longer of
+// Retry-After and the body's estimated_time (at most 20s), and is retried
+// at least loadingRetries times unless the caller cut the budget below the
+// default (0 = one attempt, 1 = one retry, whatever the status). Every wait
+// ends with ctx. The key never appears in an error.
 func (b *Backend) post(ctx context.Context, body []byte) ([]byte, error) {
+	budget, budgeted := jev.RetriesFrom(ctx)
 	backoff := 500 * time.Millisecond
 	for attempt := 0; ; attempt++ {
 		raw, status, retryAfter, err := b.once(ctx, body)
@@ -137,8 +140,14 @@ func (b *Backend) post(ctx context.Context, body []byte) ([]byte, error) {
 		}
 		retryable := status == http.StatusRequestTimeout || status == http.StatusTooManyRequests || status >= 500
 		retries, maxWait := b.retries, maxRetryWait
+		if budgeted {
+			retries = budget
+		}
 		if status == http.StatusServiceUnavailable {
-			retries, maxWait = max(retries, loadingRetries), maxLoadingWait
+			maxWait = maxLoadingWait
+			if retries >= b.retries {
+				retries = max(retries, loadingRetries)
+			}
 		}
 		if !retryable || attempt >= retries {
 			return nil, fmt.Errorf("hf-zeroshot: HTTP %d: %s", status, snippet(b.scrub(string(raw))))

@@ -233,8 +233,13 @@ func (b *Backend) learnRefusal(body string) bool {
 }
 
 // do sends a request to the provider's own base URL, retrying a 408, 429 or
-// 5xx twice (honouring Retry-After, up to 5s), as jev's TypeSafe client does.
+// 5xx as often as the caller's budget says (jev.RetriesFrom; twice without
+// one), honouring Retry-After up to 5s, as jev's TypeSafe client does.
 func (b *Backend) do(ctx context.Context, method, path string, body []byte) ([]byte, error) {
+	retries := b.retries
+	if n, ok := jev.RetriesFrom(ctx); ok {
+		retries = n
+	}
 	backoff := 500 * time.Millisecond
 	for attempt := 0; ; attempt++ {
 		var rd io.Reader
@@ -264,7 +269,7 @@ func (b *Backend) do(ctx context.Context, method, path string, body []byte) ([]b
 			return raw, nil
 		}
 		retryable := res.StatusCode == 408 || res.StatusCode == 429 || res.StatusCode >= 500
-		if !retryable || attempt >= b.retries {
+		if !retryable || attempt >= retries {
 			return nil, &httpError{status: res.StatusCode, body: b.snippet(raw)}
 		}
 		wait := backoff
