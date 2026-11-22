@@ -20,6 +20,17 @@ func TestExtract_IgnoresRcNoise(t *testing.T) {
 	}
 }
 
+func TestMerge_DropsRelativeEntries(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no absolute POSIX paths here")
+	}
+	sep := string(os.PathListSeparator)
+	got := Merge(strings.Join([]string{".", "bin", "/usr/bin"}, sep), strings.Join([]string{"../x", "/bin"}, sep))
+	if want := strings.Join([]string{"/usr/bin", "/bin"}, sep); got != want {
+		t.Fatalf("Merge = %q, want %q", got, want)
+	}
+}
+
 func TestMerge_FrontFirstDeduped(t *testing.T) {
 	sep := string(os.PathListSeparator)
 	got := Merge(strings.Join([]string{"/nvm/bin", "/usr/bin"}, sep), strings.Join([]string{"/usr/bin", "", "/bin"}, sep))
