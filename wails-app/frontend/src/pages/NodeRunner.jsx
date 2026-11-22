@@ -1150,6 +1150,8 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
   // { asked, fields, value } — asked flips once the modal has been answered
   // for this run, so a re-run doesn't re-prompt mid-flight.
   const [triggerInput, setTriggerInput] = useState({ asked: false, fields: [], value: '' })
+  const modalOpenRef = useRef(false)
+  modalOpenRef.current = !!(showSaveModal || showWfModal || triggerInput.asked)
   const [isDirty, setIsDirty] = useState(false)
 
   // Persist last loaded workflow ID so it restores on next visit
@@ -1531,6 +1533,7 @@ export default function NodeRunner({ onNavigate, navData, onWorkflowsChanged }) 
   useEffect(() => {
     const onKey = (e) => {
       if ((e.key === 'Delete' || e.key === 'Backspace') && !['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)) {
+        if (e.target.isContentEditable || e.target.closest?.('[role=dialog]') || modalOpenRef.current) return
         if (selectedId) deleteNode(selectedId)
       }
     }
