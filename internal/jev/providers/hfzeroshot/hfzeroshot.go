@@ -41,6 +41,8 @@ type Backend struct {
 	url, key string
 	http     *http.Client
 	retries  int
+	// sleep waits d or until ctx ends (tests replace it).
+	sleep func(ctx context.Context, d time.Duration) error
 }
 
 // New builds the backend of provider record p with its key ("" = none is
@@ -49,7 +51,7 @@ func New(p jevconf.Provider, key string) (*Backend, error) {
 	if strings.TrimSpace(p.BaseURL) == "" {
 		return nil, errors.New("hf-zeroshot: base_url must be the model's full endpoint URL")
 	}
-	return &Backend{url: p.BaseURL, key: key, http: jev.KeyedHTTPClient(timeout), retries: 2}, nil
+	return &Backend{url: p.BaseURL, key: key, http: jev.KeyedHTTPClient(timeout), retries: 2, sleep: sleepCtx}, nil
 }
 
 // Capabilities implements jev.Backend.

@@ -80,6 +80,8 @@ type RecordingsSection struct {
 }
 
 type JevSection struct {
+	// KeyConfigured and KeySource are about Provider's key ("keyless" for a
+	// provider that needs none).
 	KeyConfigured   bool    `json:"key_configured"`
 	KeySource       string  `json:"key_source"`
 	SurfacesEnabled int     `json:"surfaces_enabled"`
@@ -263,7 +265,8 @@ func jevSection(ctx context.Context, o Options) *JevSection {
 		s.Error = noDB
 		return s
 	}
-	if src, err := jevconf.KeySource(ctx, o.DB, o.ProfileID); err == nil {
+	// The key of the provider shown (the machine default), listed, never read.
+	if src, err := jevconf.ProviderKeySourceOf(ctx, o.DB, o.ProfileID, s.Provider); err == nil {
 		s.KeyConfigured, s.KeySource = true, src
 	}
 	for _, surf := range jevconf.Surfaces {

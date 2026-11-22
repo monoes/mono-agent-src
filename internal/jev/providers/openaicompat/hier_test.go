@@ -63,7 +63,8 @@ func TestATornHierarchyAnswersAnOptionItJudged(t *testing.T) {
 
 // A server that returns fewer alternatives than the request was planned for
 // (Fireworks: 5) has the question planned again, once, with the k it showed.
-// A probe's finding, stored as MaxChoiceOptions, plans for it from the start.
+// A probe's finding, stored as OptionsPerRequest (or, in a record saved
+// before it, MaxChoiceOptions), plans for it from the start.
 func TestAQuestionIsReplannedForFewerAlternatives(t *testing.T) {
 	ids := optionIDs(10)
 	reply := func(t *testing.T) func(int, seen) (int, any) {
@@ -82,21 +83,29 @@ func TestAQuestionIsReplannedForFewerAlternatives(t *testing.T) {
 	if err != nil || resp.Answers["q"].Choice != "opt-007" {
 		t.Fatalf("%+v %v", resp, err)
 	}
-	if c := cl.Backend.Capabilities(); c.MaxChoiceOptions != 2 {
+	if c := cl.Backend.Capabilities(); c.OptionsPerRequest != 2 || c.MaxChoiceOptions != 0 {
 		t.Fatalf("caps = %+v", c)
 	}
 	if labels, _ := labelsOf(f.requests()[0].user()); len(labels) != 10 {
 		t.Fatalf("first request offers %d labels", len(labels))
 	}
 
-	stored := newFake(t, reply(t))
-	cl, _ = newClient(t, stored.URL, "", jev.Capabilities{Probability: jev.ProbLogprob, MaxChoiceOptions: 2})
-	if resp, err := ask(t, cl, choiceOf(ids...)); err != nil || resp.Answers["q"].Choice != "opt-007" {
-		t.Fatalf("%+v %v", resp, err)
-	}
-	for i, r := range stored.requests() {
-		if labels, _ := labelsOf(r.user()); len(labels) != 2 || (i == 0 && r.Body.TopLogprobs != 7) {
-			t.Fatalf("request %d offers %d labels, asks %d alternatives", i, len(labels), r.Body.TopLogprobs)
+	for _, caps := range []jev.Capabilities{
+		{Probability: jev.ProbLogprob, OptionsPerRequest: 2},
+		{Probability: jev.ProbLogprob, MaxChoiceOptions: 2}, // saved before OptionsPerRequest
+	} {
+		stored := newFake(t, reply(t))
+		cl, _ = newClient(t, stored.URL, "", caps)
+		if resp, err := ask(t, cl, choiceOf(ids...)); err != nil || resp.Answers["q"].Choice != "opt-007" {
+			t.Fatalf("%+v: %+v %v", caps, resp, err)
+		}
+		for i, r := range stored.requests() {
+			if labels, _ := labelsOf(r.user()); len(labels) != 2 || (i == 0 && r.Body.TopLogprobs != 7) {
+				t.Fatalf("%+v: request %d offers %d labels, asks %d alternatives", caps, i, len(labels), r.Body.TopLogprobs)
+			}
+		}
+		if c := cl.Backend.Capabilities(); c.MaxChoiceOptions != 0 || c.OptionsPerRequest != 2 {
+			t.Fatalf("%+v: caps = %+v", caps, c)
 		}
 	}
 }

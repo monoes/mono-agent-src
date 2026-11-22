@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -27,12 +28,16 @@ type message struct {
 }
 
 type chatRequest struct {
-	Model       string    `json:"model,omitempty"`
-	Messages    []message `json:"messages"`
-	MaxTokens   int       `json:"max_tokens"`
-	Temperature float64   `json:"temperature"`
-	Logprobs    bool      `json:"logprobs,omitempty"`
-	TopLogprobs int       `json:"top_logprobs,omitempty"`
+	Model     string    `json:"model,omitempty"`
+	Messages  []message `json:"messages"`
+	MaxTokens int       `json:"max_tokens,omitempty"`
+	// MaxCompletionTokens replaces MaxTokens for a model that refuses it
+	// (OpenAI's reasoning models): see Backend.adapt.
+	MaxCompletionTokens int `json:"max_completion_tokens,omitempty"`
+	// Temperature is nil only for a model that refuses the parameter.
+	Temperature *float64 `json:"temperature,omitempty"`
+	Logprobs    bool     `json:"logprobs,omitempty"`
+	TopLogprobs int      `json:"top_logprobs,omitempty"`
 }
 
 type chatResponse struct {
@@ -53,6 +58,9 @@ type chatResponse struct {
 		CompletionTokens int      `json:"completion_tokens"`
 		Cost             *float64 `json:"cost"` // OpenRouter
 	} `json:"usage"`
+	// long is set when the request allowed more than one token
+	// (max_completion_tokens): its text must then be exactly a label.
+	long bool
 }
 
 // text is the generated text ("" when there is none).
@@ -155,21 +163,71 @@ func (e *httpError) Error() string {
 	return fmt.Sprintf("openaicompat: HTTP %d: %s", e.status, e.body)
 }
 
-// complete sends one chat completion and decodes the reply.
+// complete sends one chat completion and decodes the reply. A 400 that
+// refuses max_tokens or temperature (OpenAI's reasoning models) is sent
+// again without that parameter, and the backend remembers it (adapt). Any
+// other 400 is the caller's, a logprobs refusal included.
 func (b *Backend) complete(ctx context.Context, body chatRequest) (*chatResponse, error) {
-	enc, err := json.Marshal(body)
-	if err != nil {
-		return nil, fmt.Errorf("openaicompat: encode the request: %w", err)
+	for {
+		sent := b.adapt(body)
+		enc, err := json.Marshal(sent)
+		if err != nil {
+			return nil, fmt.Errorf("openaicompat: encode the request: %w", err)
+		}
+		raw, err := b.do(ctx, http.MethodPost, "/chat/completions", enc)
+		var he *httpError
+		if errors.As(err, &he) && he.status == http.StatusBadRequest && b.learnRefusal(he.body) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		var res chatResponse
+		if err := json.Unmarshal(raw, &res); err != nil {
+			return nil, fmt.Errorf("%w: undecodable chat completion: %v", jev.ErrInvalidAnswer, err)
+		}
+		res.long = sent.MaxCompletionTokens > 0
+		return &res, nil
 	}
-	raw, err := b.do(ctx, http.MethodPost, "/chat/completions", enc)
-	if err != nil {
-		return nil, err
+}
+
+// completionBudget is max_completion_tokens for a model that refuses
+// max_tokens: a reasoning model spends tokens before it answers.
+const completionBudget = 16
+
+// adapt shapes body for what the provider refused so far.
+func (b *Backend) adapt(body chatRequest) chatRequest {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.completionTokens && body.MaxTokens > 0 {
+		body.MaxTokens, body.MaxCompletionTokens = 0, completionBudget
 	}
-	var res chatResponse
-	if err := json.Unmarshal(raw, &res); err != nil {
-		return nil, fmt.Errorf("%w: undecodable chat completion: %v", jev.ErrInvalidAnswer, err)
+	if b.noTemperature {
+		body.Temperature = nil
 	}
-	return &res, nil
+	return body
+}
+
+// learnRefusal reads a 400's body: one that names max_tokens (or
+// max_completion_tokens) or temperature, and not logprobs, switches that
+// parameter off for good and reports true, once per parameter. A body that
+// names logprobs or top_logprobs, or neither, is left to the caller.
+func (b *Backend) learnRefusal(body string) bool {
+	s := strings.ToLower(body)
+	if strings.Contains(s, "logprobs") {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	switch {
+	case !b.completionTokens && (strings.Contains(s, "max_tokens") || strings.Contains(s, "max_completion_tokens")):
+		b.completionTokens = true
+	case !b.noTemperature && strings.Contains(s, "temperature"):
+		b.noTemperature = true
+	default:
+		return false
+	}
+	return true
 }
 
 // do sends a request to the provider's own base URL, retrying a 408, 429 or

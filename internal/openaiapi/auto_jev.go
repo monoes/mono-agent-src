@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 
 	"github.com/monoes/mono-agent/internal/jev"
 	"github.com/monoes/mono-agent/internal/jev/jevconf"
@@ -17,6 +18,18 @@ const (
 	missingSurface = "the api_auto surface switched on for the profile (monoagentcli jev enable api_auto)"
 	missingJevKey  = "a machine-wide Jev key (monoagentcli jev key set, or TYPESAFE_API_KEY)"
 )
+
+// missingProvider is what Missing names when the api_auto surface's decision
+// provider cannot be used: the TypeSafe key as before, else that provider.
+func missingProvider(provider string, err error) string {
+	if provider == "" || provider == jev.ProviderTypeSafe {
+		return missingJevKey
+	}
+	if errors.Is(err, jev.ErrNoAPIKey) {
+		return fmt.Sprintf("the key of %q, the Jev decision provider of the api_auto surface (%v)", provider, err)
+	}
+	return fmt.Sprintf("a usable Jev decision provider for the api_auto surface: %q cannot be used (%v)", provider, err)
+}
 
 // autoInstructions tell Jev what it is choosing, and that the prompt is data.
 const autoInstructions = "Choose the model that should answer the request in state.untrusted_prompt, " +
@@ -33,10 +46,12 @@ func DefaultAuto(db *sql.DB) AutoFuncs {
 			if !jevconf.Enabled(db, profileID, jevconf.APIAuto) {
 				return AutoStatus{Missing: missingSurface}
 			}
-			// KeySource never decrypts: listing the models must not trigger a keyring prompt.
-			source, err := jevconf.KeySource(ctx, db, profileID)
+			// ProviderKeySource never decrypts: listing the models must not
+			// trigger a keyring prompt. It follows the surface's decision
+			// provider, as Choose's client does.
+			provider, source, err := jevconf.ProviderKeySource(ctx, db, profileID, jevconf.APIAuto)
 			if err != nil {
-				return AutoStatus{Missing: missingJevKey}
+				return AutoStatus{Missing: missingProvider(provider, err)}
 			}
 			return AutoStatus{Available: true, KeySource: source}
 		},

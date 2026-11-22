@@ -40,6 +40,52 @@ func TestDefaultAutoNeedsTheSurfaceAndAKey(t *testing.T) {
 	}
 }
 
+// Status follows the api_auto surface's decision provider, as Choose does: a
+// keyless local provider is available with no key at all, and a TypeSafe key
+// does not make another provider available.
+func TestDefaultAutoStatusFollowsTheSurfacesProvider(t *testing.T) {
+	db := testdb.Open(t)
+	ctx := context.Background()
+	t.Setenv("TYPESAFE_API_KEY", "")
+	t.Cleanup(jevconf.RegisterKind("fake-openaiapi", func(jevconf.Provider, string) (jev.Backend, error) {
+		return jevtest.NewFakeBackend(nil), nil
+	}))
+	for _, p := range []jevconf.Provider{
+		{Name: "local", Kind: "fake-openaiapi", BaseURL: "http://localhost:11434/v1"},
+		{Name: "keyed", Kind: "fake-openaiapi", BaseURL: "http://localhost:11434/v1", SecretName: "decision-keyed"},
+	} {
+		if err := jevconf.SaveProvider(ctx, db.DB, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := jevconf.SetEnabled(db.DB, "alice", jevconf.APIAuto, true); err != nil {
+		t.Fatal(err)
+	}
+	auto := DefaultAuto(db.DB)
+	if err := jevconf.SetSurfaceProvider(ctx, db.DB, "alice", jevconf.APIAuto, "local"); err != nil {
+		t.Fatal(err)
+	}
+	if st := auto.Status(ctx, "alice"); !st.Available || st.KeySource != jevconf.SourceKeyless {
+		t.Errorf("a keyless provider without any key: %+v", st)
+	}
+	if err := jevconf.SetSurfaceProvider(ctx, db.DB, "alice", jevconf.APIAuto, "keyed"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TYPESAFE_API_KEY", "test-key")
+	st := auto.Status(ctx, "alice")
+	if st.Available || !strings.Contains(st.Missing, `"keyed"`) || !strings.Contains(st.Missing, "decision-keyed") || !strings.Contains(st.Missing, "Jev") {
+		t.Errorf("a keyed provider without its key, a TypeSafe key set: %+v", st)
+	}
+	// Back on TypeSafe the string is today's.
+	if err := jevconf.SetSurfaceProvider(ctx, db.DB, "alice", jevconf.APIAuto, ""); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TYPESAFE_API_KEY", "")
+	if st := auto.Status(ctx, "alice"); st.Missing != missingJevKey {
+		t.Errorf("typesafe, no key: %+v", st)
+	}
+}
+
 // One choice question, whose options are the candidates and whose state is the
 // prompt (as untrusted data), recorded in jev_usage under api_auto, and asked once:
 // a failure means the rule decides, not a second try inside the request.

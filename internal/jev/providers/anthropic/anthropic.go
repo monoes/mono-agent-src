@@ -6,10 +6,8 @@
 // question's labels, so the model can only name an option the code
 // enumerated; no text from the model ever reaches a caller (plan D3).
 //
-// Early stop: when a question has exactly two options (every noul, a
-// two-option choice, a two-level score) and the first three samples agree,
-// the remaining two are not asked: that answer gets p = 1.0, as a unanimous
-// five would (plan O2).
+// Every question takes all Samples calls, whatever its number of options:
+// only a unanimous five gives an answer p = 1.0 (plan O2).
 package anthropic
 
 import (
@@ -35,8 +33,6 @@ const (
 	Samples = 5
 	// minValid is the fewest allowed answers among the samples.
 	minValid = 3
-	// earlyStop is how many unanimous samples settle a two-option question.
-	earlyStop = 3
 	// maxTokens bounds one tool call; a 64-character label fits.
 	maxTokens = 100
 	timeout   = 30 * time.Second
@@ -106,9 +102,6 @@ func (b *Backend) answerOne(ctx context.Context, model string, state []byte, q j
 	counts := map[string]int{}
 	valid, asked := 0, 0
 	for ; asked < Samples; asked++ {
-		if asked == earlyStop && valid == earlyStop && len(p.labels) == 2 && len(counts) == 1 {
-			break
-		}
 		label, u, err := b.sample(ctx, body, p)
 		usage.InputTokens += u.InputTokens
 		usage.OutputTokens += u.OutputTokens

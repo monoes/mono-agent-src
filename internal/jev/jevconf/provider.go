@@ -138,8 +138,9 @@ func SaveProvider(ctx context.Context, db *sql.DB, p Provider) error {
 }
 
 // RemoveProvider removes a configured provider. It refuses "typesafe" and a
-// provider still chosen as the default or for any surface: removing it would
-// silently send that data to another host.
+// provider still chosen as the default, for any surface or by an org's jev
+// decider: removing it would silently send that data to another host (or
+// leave the decider unavailable).
 func RemoveProvider(ctx context.Context, db *sql.DB, name string) error {
 	if !MayNameHost(ctx) {
 		return ErrOperatorOnly
@@ -174,7 +175,11 @@ func RemoveProvider(ctx context.Context, db *sql.DB, name string) error {
 		if err := rows.Err(); err != nil {
 			return nil, err
 		}
-		if len(uses) > 0 {
+		orgs, err := orgDeciderUses(ctx, tx, name)
+		if err != nil {
+			return nil, err
+		}
+		if uses = append(uses, orgs...); len(uses) > 0 {
 			return nil, fmt.Errorf("jev: provider %q is still in use (%s): choose another provider there first", name, strings.Join(uses, ", "))
 		}
 		return out, nil

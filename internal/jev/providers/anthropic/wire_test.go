@@ -45,7 +45,7 @@ func TestRetriesHonourRetryAfter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := len(f.requests()); n != 9 || !near(resp.Answers["q"].Noul, 1) {
+	if n := len(f.requests()); n != 15 || !near(resp.Answers["q"].Noul, 1) {
 		t.Errorf("%d calls, answer %+v", n, resp.Answers["q"])
 	}
 

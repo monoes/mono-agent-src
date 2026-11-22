@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/jev"
 	"github.com/monoes/mono-agent/internal/jev/jevconf"
 	"github.com/monoes/mono-agent/internal/jev/jevtest"
 	"github.com/monoes/mono-agent/internal/storage"
@@ -120,6 +121,30 @@ func TestRetryJevBelowThresholdOrFailureRetries(t *testing.T) {
 	srv = jevtest.NewServer(t, nil)
 	if retry, _ := jevRetryClassifier(ctx, "x", errors.New("e"), 1); !retry || srv.Calls() != 0 {
 		t.Fatalf("no key: retry=%v calls=%d", retry, srv.Calls())
+	}
+}
+
+// An answer without a probability never stops or slows a retry: it gates
+// as 0, so the node retries as today.
+func TestRetryJevAnswerWithoutProbabilityRetriesAsToday(t *testing.T) {
+	db := retryTestDB(t)
+	fb := jevtest.NewFakeBackend(jevtest.Fixed(map[string]string{retryQuestionID: "permanent"}))
+	fb.Caps.Probability = jev.ProbNone
+	registerFake(t, fb)
+	if err := jevconf.SaveProvider(context.Background(), db, jevconf.Provider{Name: "local", Kind: fakeKind, BaseURL: "http://localhost"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := jevconf.SetSurfaceProvider(context.Background(), db, "p1", jevconf.Retry, "local"); err != nil {
+		t.Fatal(err)
+	}
+	_ = jevconf.SetEnabled(db, "p1", jevconf.Retry, true)
+	if retry, delay := jevRetryClassifier(retryCtx(db, "p1"), "x", errors.New("e"), 1); !retry || delay != 0 || fb.Calls() != 1 {
+		t.Fatalf("no probability: retry=%v delay=%v calls=%d", retry, delay, fb.Calls())
+	}
+	// The same answer with a probability is acted on.
+	fb.Caps.Probability = jev.ProbLogprob
+	if retry, _ := jevRetryClassifier(retryCtx(db, "p1"), "x", errors.New("e"), 1); retry {
+		t.Fatal("with a probability, permanent must stop retrying")
 	}
 }
 

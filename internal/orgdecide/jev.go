@@ -111,7 +111,8 @@ func (s *Service) defaultDecider(a *Autonomy) DeciderImpl {
 
 // CheckDeciderProvider checks a jev decider's provider before it is stored:
 // "typesafe" or a configured provider whose capabilities admit choice
-// questions (unknown capabilities admit them). "" (the default) passes.
+// questions (unknown capabilities admit them) and that gives probabilities
+// (an unprobed one passes). "" (the default) passes.
 func CheckDeciderProvider(db *sql.DB, name string) error {
 	if name == "" {
 		return nil
@@ -128,6 +129,10 @@ func CheckDeciderProvider(db *sql.DB, name string) error {
 	}
 	if !p.Caps.Supports(jev.TypeChoice) {
 		return fmt.Errorf("decision provider %q does not answer choice questions, which the jev decider asks", name)
+	}
+	if p.Caps.Probability == jev.ProbNone {
+		return fmt.Errorf("decision provider %q gives no probability, so every decision of the jev decider would fall to the model decider: "+
+			"choose a provider with probabilities (jev provider probe %s shows its kind)", name, name)
 	}
 	return nil
 }

@@ -65,6 +65,9 @@ type Backend struct {
 	mu      sync.Mutex
 	sampled bool // the provider gives no log-probabilities
 	topK    int  // how many alternatives a response carries
+	// completionTokens and noTemperature record a model that refused
+	// max_tokens or temperature (complete).
+	completionTokens, noTemperature bool
 }
 
 var (
@@ -87,23 +90,27 @@ func New(p jevconf.Provider, key string) (*Backend, error) {
 	case jev.ProbSampled, jev.ProbNone:
 		b.sampled = true
 	}
-	if m := p.Caps.MaxChoiceOptions; m > 0 && m+labelSlack < defaultTopK {
+	m := p.Caps.OptionsPerRequest
+	if m == 0 {
+		m = p.Caps.MaxChoiceOptions // a record saved before OptionsPerRequest
+	}
+	if m > 0 && m+labelSlack < defaultTopK {
 		b.topK = m + labelSlack // a probe found fewer alternatives (perRequest)
 	}
 	return b, nil
 }
 
 // Capabilities implements jev.Backend: the stored capabilities, with what
-// this backend has learned since. It takes one question per request;
-// MaxChoiceOptions is how many options one request carries (it chunks a
-// larger choice itself, so callers need not).
+// this backend has learned since. It takes one question per request and
+// any number of options (MaxChoiceOptions 0); OptionsPerRequest is how many
+// one request carries (it splits a larger choice itself).
 func (b *Backend) Capabilities() jev.Capabilities {
 	c := b.stored
 	c.Kinds = append([]string(nil), c.Kinds...)
 	if len(c.Kinds) == 0 {
 		c.Kinds = []string{jev.TypeChoice, jev.TypeNoul, jev.TypeScore}
 	}
-	c.MaxChoiceOptions, c.QuestionsPerRequest, c.Models = b.perRequest(), 1, true
+	c.MaxChoiceOptions, c.OptionsPerRequest, c.QuestionsPerRequest, c.Models = 0, b.perRequest(), 1, true
 	c.Probability = jev.ProbLogprob
 	if b.isSampled() {
 		c.Probability = jev.ProbSampled

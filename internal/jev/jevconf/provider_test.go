@@ -281,6 +281,44 @@ func TestRemoveProviderRefusesAProviderInUse(t *testing.T) {
 	}
 }
 
+// An org's jev decider that names the provider keeps it, by org; a decider
+// naming another provider, or unparsable JSON, does not; a database without
+// org_autonomy has no org using it.
+func TestRemoveProviderRefusesAProviderAnOrgDeciderNames(t *testing.T) {
+	db := newDB(t)
+	ctx := context.Background()
+	kind := fakeKind(t, jevtest.NewFakeBackend(nil), nil)
+	saveLocal(t, db, "a", kind, "")
+	saveLocal(t, db, "b", kind, "")
+	if _, err := db.Exec(`INSERT INTO org_autonomy (profile_id, org_name, level, decider_json, updated_at, updated_by) VALUES
+		('default', 'acme', 'full', '{"kind":"jev","provider":"a"}', 'x', 'cli'),
+		('default', 'beta', 'full', '{"kind":"jev","provider":"b"}', 'x', 'cli'),
+		('p2', 'gamma', 'full', '{"kind":"jev","provider" "a"', 'x', 'cli'),
+		('p2', 'delta', 'mid', '{"kind":"model","model":"a"}', 'x', 'cli')`); err != nil {
+		t.Fatal(err)
+	}
+	err := RemoveProvider(ctx, db, "a")
+	if err == nil || !strings.Contains(err.Error(), "org decider of default/acme") || strings.Contains(err.Error(), "beta") ||
+		strings.Contains(err.Error(), "gamma") || strings.Contains(err.Error(), "delta") {
+		t.Fatalf("removing a provider an org decider names: %v", err)
+	}
+	if _, ok, _ := FindProvider(db, "a"); !ok {
+		t.Fatal("a refused removal removed it")
+	}
+	if _, err := db.Exec(`UPDATE org_autonomy SET decider_json = '{"kind":"jev"}' WHERE org_name = 'acme'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveProvider(ctx, db, "a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DROP TABLE org_autonomy`); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveProvider(ctx, db, "b"); err != nil {
+		t.Fatalf("no org_autonomy table: %v", err)
+	}
+}
+
 func TestAProvidersClientIsBuiltFromItsRecordAndKey(t *testing.T) {
 	keyring.MockInit()
 	db := newDB(t)

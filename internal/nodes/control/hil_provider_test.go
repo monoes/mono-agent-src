@@ -42,9 +42,13 @@ func TestHILAuto_DefaultProviderDecides(t *testing.T) {
 	if fb.Calls() != 3 || srv.Calls() != 0 {
 		t.Fatalf("fake %d, TypeSafe %d calls", fb.Calls(), srv.Calls())
 	}
+	// The model is labelled with its provider once (jev.ModelLabel), never
+	// "local/local/…"; TypeSafe's stays "jev:<model>" (TestHILAuto_* in hil_auto_test.go).
 	for _, r := range rowsOf(t, db) {
 		c := cfgOf(t, r)
-		if r.Status != "approved" || c["decided_by"] != "jev:fake-model" || c["provider"] != "local" || c["probability_kind"] != "logprob" {
+		sug, _ := c["suggestion"].(map[string]interface{})
+		if r.Status != "approved" || c["decided_by"] != "jev:local/fake-model" || sug["model"] != "local/fake-model" ||
+			c["provider"] != "local" || c["probability_kind"] != "logprob" {
 			t.Fatalf("row = %+v", r)
 		}
 	}
