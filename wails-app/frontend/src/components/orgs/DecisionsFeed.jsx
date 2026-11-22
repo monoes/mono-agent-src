@@ -46,13 +46,18 @@ export function jevDistribution(probabilities) {
     .sort((a, b) => b.p - a.p || a.verdict.localeCompare(b.verdict))
 }
 
-/** One-line summary of a decision's Jev answer, or null when Jev was not asked. */
+/**
+ * One-line summary of a decision's Jev answer, or null when Jev was not asked.
+ * A row answered by a decision provider other than TypeSafe carries
+ * `jev.provider` and reads "Jev · <provider> p=…"; TypeSafe rows are unchanged.
+ */
 export function jevSummary(d) {
   const j = d?.jev
   if (!j) return null
-  if (j.decided) return `Jev p=${fmtP(j.p)}`
+  const who = j.provider ? `Jev · ${j.provider}` : 'Jev'
+  if (j.decided) return `${who} p=${fmtP(j.p)}`
   const below = j.threshold != null ? ` below ${fmtThreshold(j.threshold)}` : ''
-  return `model decided (Jev p=${fmtP(j.p)}${below})`
+  return `model decided (${who} p=${fmtP(j.p)}${below})`
 }
 
 const jevColor = (d) => (d.jev?.decided ? 'var(--cyan, #00b4d8)' : '#eab308')
