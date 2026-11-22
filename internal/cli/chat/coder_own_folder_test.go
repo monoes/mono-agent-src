@@ -89,3 +89,45 @@ func TestInitOwnFolderNotARepo(t *testing.T) {
 		t.Errorf("notice does not name CLAUDE.md:\n%s", notice.String())
 	}
 }
+
+// A folder below the work tree's top is excluded by its own path, and an
+// existing exclude file with no trailing newline keeps its last pattern intact.
+func TestInitOwnFolderBelowTheTopAndExistingExclude(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	top := t.TempDir()
+	ownRun(t, top, "init", "-q")
+	sub := filepath.Join(top, "sub")
+	os.MkdirAll(sub, 0o755)
+	os.WriteFile(filepath.Join(sub, "main.go"), []byte("package x\n"), 0o644)
+	ownRun(t, top, "add", "-A")
+	ownRun(t, top, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "one")
+	os.MkdirAll(filepath.Join(top, ".git", "info"), 0o755)
+	os.WriteFile(filepath.Join(top, ".git", "info", "exclude"), []byte("node_modules"), 0o644) // no trailing newline
+	os.WriteFile(filepath.Join(top, ".claude"), []byte("a user's own file at the top"), 0o644)
+
+	prev := initWorkspace
+	t.Cleanup(func() { initWorkspace = prev })
+	initWorkspace = func(_ context.Context, _, d, _ string) (*monomind.WorkspaceInit, error) {
+		os.MkdirAll(filepath.Join(d, ".claude"), 0o755)
+		os.WriteFile(filepath.Join(d, ".claude", "x"), []byte("x"), 0o644)
+		return &monomind.WorkspaceInit{Root: d}, nil
+	}
+	if _, err := initOwnFolder(context.Background(), &bytes.Buffer{}, sub, "claude"); err != nil {
+		t.Fatal(err)
+	}
+	ex, _ := os.ReadFile(filepath.Join(top, ".git", "info", "exclude"))
+	if !strings.Contains(string(ex), "node_modules\n") || strings.Contains(string(ex), "node_modules#") {
+		t.Errorf("the user's last pattern was glued to our comment:\n%q", ex)
+	}
+	if !strings.Contains(string(ex), "/sub/.claude") || strings.Contains(string(ex), "\n/.claude") {
+		t.Errorf("the pattern is not anchored at sub/:\n%s", ex)
+	}
+	if st := ownRun(t, top, "status", "--porcelain", "--untracked-files=all"); strings.Contains(st, "sub/.claude") {
+		t.Errorf("sub/.claude shows in git status:\n%s", st)
+	}
+	if st := ownRun(t, top, "status", "--porcelain"); !strings.Contains(st, ".claude") {
+		t.Errorf("the user's own top-level .claude is hidden:\n%s", st)
+	}
+}

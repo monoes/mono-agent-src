@@ -258,7 +258,11 @@ func newCoderSessionsControlCmd(cfg *Deps, kind coderhost.Kind, short string) *c
 			if err != nil {
 				return err
 			}
-			return printQueueJSON(cmd, map[string]any{"commandId": c.ID, "conversationId": c.ConversationID, "kind": kind})
+			running := hostRunning(cfg)
+			if !running {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: no coder host is running, so this %s waits in the queue until one starts; a turn that is still running is not affected until then\n", kind)
+			}
+			return printQueueJSON(cmd, map[string]any{"commandId": c.ID, "conversationId": c.ConversationID, "kind": kind, "hostRunning": running})
 		},
 	}
 	clicore.WithJSONErrors(cfg.JSONOutput, cmd)

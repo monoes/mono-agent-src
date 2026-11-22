@@ -1,6 +1,8 @@
 package chat
 
 import (
+	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/ai"
@@ -50,5 +52,27 @@ func TestEnsureHostRefusesWhileCoderIsDisabled(t *testing.T) {
 	startHostProcess = func(*Deps) error { t.Error("a host was started with coder mode disabled"); return nil }
 	if err := ensureHost(cfg); err == nil {
 		t.Fatal("ensureHost with coder mode disabled: want an error")
+	}
+}
+
+// A stop that no host will apply says so instead of reporting plain success.
+func TestSessionsStopWithNoHostSaysItIsWaiting(t *testing.T) {
+	dbPath := newChatCLITestDB(t)
+	conv, _ := openTestChatStore(t, dbPath).CreateConversationMode("default", "agent", "general", "claude", "", "", ai.ModeCoder, t.TempDir())
+	cfg := testDeps(&testConfig{DBPath: dbPath, ProfileID: "default", JSONOutput: true})
+	cmd := newCoderSessionsCmd(cfg)
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{"stop", conv.ID})
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `"hostRunning": false`) && !strings.Contains(out.String(), `"hostRunning":false`) {
+		t.Errorf("the answer does not say no host is running:\n%s", out.String())
+	}
+	if !strings.Contains(errOut.String(), "no coder host is running") {
+		t.Errorf("no warning on stderr: %q", errOut.String())
 	}
 }
