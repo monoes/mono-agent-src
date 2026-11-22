@@ -3,6 +3,7 @@ package personphoto
 import (
 	"context"
 	"encoding/base64"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -155,5 +156,17 @@ func TestLocalizeRefusesNonPublicAddresses(t *testing.T) {
 	n, errs := Localize(context.Background(), db.DB, "default", nil)
 	if n != 0 || len(errs) != 1 || hit {
 		t.Fatalf("saved %d, errs %v, server hit %v; want the loopback fetch refused", n, errs, hit)
+	}
+}
+
+func TestPublicIPRefusesReservedRanges(t *testing.T) {
+	for ip, want := range map[string]bool{
+		"8.8.8.8": true, "2606:4700:4700::1111": true,
+		"100.64.0.1": false, "100.100.100.100": false, "198.18.0.1": false, "192.0.0.8": false,
+		"169.254.169.254": false, "::ffff:100.64.0.1": false, "10.0.0.1": false, "127.0.0.1": false,
+	} {
+		if got := publicIP(net.ParseIP(ip)); got != want {
+			t.Errorf("publicIP(%s) = %v, want %v", ip, got, want)
+		}
 	}
 }
