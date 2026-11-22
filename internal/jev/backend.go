@@ -34,9 +34,14 @@ type Capabilities struct {
 	// TypeScore). Empty means unknown: Ask does not pre-check.
 	Kinds       []string        `json:"kinds"`
 	Probability ProbabilityKind `json:"probability"`
-	// MaxChoiceOptions is the most options one request can carry (the
-	// adapter chunks above it); 0 = unbounded.
+	// MaxChoiceOptions is the most options a choice question may have: more
+	// is ErrUnsupported. 0 = unbounded. It is a hard cap, never how an
+	// adapter splits a question (OptionsPerRequest).
 	MaxChoiceOptions int `json:"max_choice_options"`
+	// OptionsPerRequest, when set, is how many options one request to the
+	// provider carries; the adapter splits a larger choice itself, so callers
+	// need not. It is what a probe found, kept with the provider's record.
+	OptionsPerRequest int `json:"options_per_request,omitempty"`
 	// QuestionsPerRequest is how many questions one request can carry; 0 = unbounded.
 	QuestionsPerRequest int `json:"questions_per_request"`
 	// Models reports whether the backend lists models (ModelLister).
