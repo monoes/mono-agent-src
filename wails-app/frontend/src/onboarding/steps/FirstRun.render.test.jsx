@@ -81,6 +81,15 @@ describe('Your first run', () => {
     expect(lastCanContinue()).toBe(false)
   })
 
+  it('says each run adds a workflow, and creates or switches on nothing before a click', async () => {
+    renderStep(['agents', 'browser', 'permissions'])
+    expect(screen.getAllByText('Running it adds this workflow to your list.')).toHaveLength(3)
+    await act(async () => {})
+    expect(go.CreateWorkflowFromTemplate).not.toHaveBeenCalled()
+    expect(go.SetWorkflowActive).not.toHaveBeenCalled()
+    expect(go.RunWorkflow).not.toHaveBeenCalled()
+  })
+
   it('counts a skipped step as not done', () => {
     renderStep(['browser', 'permissions'], ['agents'])
     expect(screen.queryByRole('button', { name: /Summarise a web page/ })).not.toBeInTheDocument()
@@ -183,7 +192,8 @@ describe('Your first run', () => {
     go.CreateWorkflowFromTemplate.mockRejectedValue('Log in to monoes.me first: your session ended.')
     renderStep([])
     fireEvent.click(screen.getByRole('button', { name: /Read a web page/ }))
-    await waitFor(() => expect(screen.getByText(i18n.t('onboarding.shell.signIn'))).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(i18n.t('onboarding.shell.signIn')))
+    expect(screen.getByRole('alert')).toHaveClass('onb-error')
     expect(go.RunWorkflow).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: /Read a web page/ })).toBeEnabled()
   })

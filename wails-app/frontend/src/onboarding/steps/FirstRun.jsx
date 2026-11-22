@@ -1,7 +1,9 @@
 // Step 9, Your first run: the person picks a starter and it runs for real
 // (useStarterRun). A card whose steps are not done says which one and offers
 // to go there. Continue opens once a run has finished, failed or not; only a
-// successful run marks the step.
+// successful run marks the step. Each card says beforehand that running it adds
+// the workflow to the person's list: the click is their approval to create and
+// switch it on (never on mount, never on its own).
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Globe, Sparkles, AppWindow, Check, X, Clock, RotateCcw } from 'lucide-react'
@@ -128,6 +130,7 @@ export default function FirstRun({ state, mark, goTo, setCanContinue }) {
               <Icon aria-hidden="true" />
               <b>{starterTitle(t, s.templateId)}</b>
               <span className="onb-fr-line">{starterLine(t, s.templateId)}</span>
+              <span className="onb-fr-adds">{t('onboarding.firstRun.addsWorkflow')}</span>
             </>
           )
           if (missing) {
@@ -164,11 +167,11 @@ export default function FirstRun({ state, mark, goTo, setCanContinue }) {
             </div>
           )}
           {run.phase === 'failed' && (
-            <div className="onb-fr-failed" role="alert">
+            <div className="onb-fr-failed">
               <p className="onb-fr-failed-h">{t('onboarding.firstRun.failed')}</p>
               {run.loginRequired
-                ? <p className="onb-error">{t('onboarding.shell.signIn')}</p>
-                : run.error && <p className="onb-error">{run.error}</p>}
+                ? <p className="onb-error" role="alert">{t('onboarding.shell.signIn')}</p>
+                : run.error && <p className="onb-error" role="alert">{run.error}</p>}
               {reasonLine(t, run.reason) && <p className="onb-hint">{reasonLine(t, run.reason)}</p>}
               {current && (
                 <button type="button" className="onb-btn sm" onClick={() => pick(current)}>

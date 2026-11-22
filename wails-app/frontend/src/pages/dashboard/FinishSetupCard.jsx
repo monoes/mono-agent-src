@@ -1,28 +1,42 @@
 // "Finish setting up": the onboarding steps still skipped or not done, at the
-// top of the dashboard. Each row reopens the onboarding at its step. The
-// state is the onboarding gate's (OnboardingContext), read again whenever the
+// top of the dashboard. Each row reopens the onboarding at its step
+// (OnboardingContext). The steps come from the full state read
+// (GetOnboardingStateFull: the gate's fast read leaves out a completed
+// install's per-step facts), read once the card shows and again whenever the
 // dashboard is shown again. Hiding it is remembered (getStarted.js, the key
 // the old Get started checklist used).
-import { useContext, useEffect, useRef, useState } from 'react'
+import { useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Circle, Rocket, X } from 'lucide-react'
 import { OnboardingContext } from '../../onboarding/onboardingContext.js'
 import { STEPS, statusesOf, railLabel } from '../../onboarding/steps.js'
+import { callStep } from '../../onboarding/callStep.js'
+import { onboarding } from '../../services/onboarding.js'
 import { loadDismissed, saveDismissed } from './getStarted.js'
 
 const SETUP_STEPS = STEPS.filter(s => s.id !== 'finish').map(s => s.id)
 
 export default function FinishSetupCard({ isActive = true }) {
   const { t } = useTranslation()
-  const { state, openOnboarding, reload } = useContext(OnboardingContext)
+  const { openOnboarding } = useContext(OnboardingContext)
   const [hidden, setHidden] = useState(loadDismissed)
+  const [state, setState] = useState(null)
   const [opening, setOpening] = useState('')
+  const readSeq = useRef(0)
+  const read = useCallback(async () => {
+    const my = ++readSeq.current
+    const r = await callStep(() => onboarding.stateFull())
+    if (my !== readSeq.current) return // a newer read answers
+    if (r.ok) setState(r.value || null)
+    else console.error('finish-setup card: onboarding state', r.message) // the card stays as it was
+  }, [])
+  useEffect(() => { if (!hidden) read() }, [hidden, read])
   const wasActive = useRef(isActive)
   useEffect(() => {
     const back = isActive && !wasActive.current
     wasActive.current = isActive
-    if (back && !hidden) reload?.()
-  }, [isActive, hidden, reload])
+    if (back && !hidden) read()
+  }, [isActive, hidden, read])
 
   if (hidden || !state) return null
   const statuses = statusesOf(state)
