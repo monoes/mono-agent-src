@@ -125,7 +125,7 @@ func ReadinessSteps() []ReadinessStep {
 	fixes := map[string]string{
 		"cgroup v2 unified hierarchy":      "boot with systemd.unified_cgroup_hierarchy=1 (cgroup v2), or use a distribution that mounts it by default",
 		"kernel 5.14 (cgroup.kill)":        "update the kernel to 5.14 or later",
-		"cgroup v2 delegation to the user": "log in through a desktop session (not an ssh or tty session scope) so the user's systemd manager owns the process: `loginctl show-user $USER` must show State=active",
+		"cgroup v2 delegation to the user": "this shell is not inside your systemd user manager (an ssh or tty session scope is outside it): run the command from a desktop terminal, or prefix it with `systemd-run --user --scope` (for example `systemd-run --user --scope monoagentcli ...`); `loginctl show-user $USER` showing State=active is necessary but not enough",
 		"cgroup.kill present":              "update the kernel to 5.14 or later",
 		"pidfd_open":                       "update the kernel to 5.3 or later",
 	}
