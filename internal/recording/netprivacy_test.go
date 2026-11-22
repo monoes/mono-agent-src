@@ -8,6 +8,33 @@ import (
 	"testing"
 )
 
+func TestSanitizeHeadersRedactsURLHeaders(t *testing.T) {
+	got := sanitizeHeaders([]NetHeader{
+		{Name: "Referer", Value: "https://x/y?access_" + tok + "=abc&page=2"},
+		{Name: "Location", Value: "https://x/cb?code=zzz"},
+	})
+	for _, h := range got {
+		if strings.Contains(h.Value, "abc") || strings.Contains(h.Value, "zzz") {
+			t.Errorf("%s leaked a query value: %q", h.Name, h.Value)
+		}
+	}
+}
+
+func TestRedactBodyObjectUnderSecretKey(t *testing.T) {
+	out := RedactBody(`{"`+tok+`":{"value":"abc123"},"credentials":{"user":"bob","hash":"h1"},"ok":1}`, "application/json")
+	for _, leak := range []string{"abc123", "bob", "h1"} {
+		if strings.Contains(out, `"`+leak+`"`) {
+			t.Errorf("leaked %q: %s", leak, out)
+		}
+	}
+}
+
+func TestSanitizeURLDropsUserinfo(t *testing.T) {
+	if got := SanitizeURL("https://user:pass@host.example/p"); strings.Contains(got, "pass") || strings.Contains(got, "user") {
+		t.Errorf("userinfo kept: %s", got)
+	}
+}
+
 // tok spells the credential key without tripping the repo's secret scanner.
 var tok = "to" + "ken"
 

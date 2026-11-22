@@ -103,3 +103,30 @@ func TestSaveDistinguishesSimilarMessageIDs(t *testing.T) {
 		t.Errorf("distinct message ids shared a directory: %s", filepath.Dir(a))
 	}
 }
+
+// Two different attachments sharing a filename must both survive.
+func TestSaveKeepsSameNamedAttachments(t *testing.T) {
+	testhome.SetHome(t, t.TempDir())
+	seen := map[string]bool{}
+	p1, err := SaveDistinct("msg", "image.png", []byte("first"), seen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p2, err := SaveDistinct("msg", "image.png", []byte("second"), seen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p1 == p2 {
+		t.Fatalf("same path %s for different content", p1)
+	}
+	if b, _ := os.ReadFile(p1); string(b) != "first" {
+		t.Errorf("first attachment lost: %q", b)
+	}
+	if b, _ := os.ReadFile(p2); string(b) != "second" {
+		t.Errorf("second attachment wrong: %q", b)
+	}
+	p3, _ := SaveDistinct("msg", "image.png", []byte("second"), map[string]bool{})
+	if p3 != filepath.Join(filepath.Dir(p1), "image.png") {
+		t.Errorf("fresh pass should reuse the plain name: %s", p3)
+	}
+}
