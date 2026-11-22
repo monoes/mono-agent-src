@@ -143,7 +143,7 @@ func removeTree(ctx context.Context, repo, base, path, branch string) TreeCleanu
 		r.BranchKept = true
 		return r
 	}
-	if _, err := gitRun(ctx, repo, "branch", "-D", branch); err != nil {
+	if _, err := gitRun(ctx, repo, "branch", "-D", "--", branch); err != nil {
 		r.BranchKept = true
 	}
 	return r
