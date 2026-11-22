@@ -14,6 +14,23 @@ import (
 	"github.com/monoes/mono-agent/internal/health"
 )
 
+func TestValidateSelectionRejectsUnknownNames(t *testing.T) {
+	reg := health.Default()
+	if err := validateSelection(reg, health.Options{Groups: []string{"nope"}}); err == nil {
+		t.Error("unknown --group accepted")
+	}
+	if err := validateSelection(reg, health.Options{SkipGroups: []string{"nope"}}); err == nil {
+		t.Error("unknown --skip-group accepted")
+	}
+	if err := validateSelection(reg, health.Options{IDs: []string{"nope.nothing"}}); err == nil {
+		t.Error("unknown --check accepted")
+	}
+	c := reg.Checks()[0]
+	if err := validateSelection(reg, health.Options{Groups: []string{c.Group}, IDs: []string{c.ID}}); err != nil {
+		t.Errorf("known names refused: %v", err)
+	}
+}
+
 func TestApplyReportFixesSkipsOptional(t *testing.T) {
 	applied := map[string]bool{}
 	reg := health.NewRegistry(nil, []health.Fix{
