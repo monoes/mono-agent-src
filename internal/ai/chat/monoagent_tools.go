@@ -201,6 +201,16 @@ func pageReadAllows(name string) bool {
 	return false
 }
 
+// injectionGatedTools are the tools that write durable or executable state
+// without their own gate call (workflows, secrets, orgs, people). They are
+// refused once untrusted content has entered the session.
+var injectionGatedTools = map[string]bool{
+	"create_workflow": true, "add_workflow_node": true, "set_workflow_active": true, "delete_workflow": true,
+	"add_secret": true, "update_secret": true, "delete_secret": true,
+	"create_org": true, "add_org_role": true, "update_org_role": true, "set_role_reports_to": true, "remove_org_role": true,
+	"upsert_person": true, "delete_person": true,
+}
+
 // checkRunGate enforces the mechanical preconditions every run tool must
 // pass before doing anything else — session-level runs opt-in, then the
 // injection guard. Both refusals are tool errors the model can relay to
@@ -367,6 +377,11 @@ func (mt *MonoagentTools) ExecuteContext(ctx context.Context, name string, args 
 	}
 	if mt.pageRead() && !pageReadAllows(name) {
 		return "", fmt.Errorf("%s is not available in this session", name)
+	}
+	if injectionGatedTools[name] {
+		if err := mt.checkInjectionGate(name); err != nil {
+			return "", err
+		}
 	}
 	switch name {
 	case "list_workflows":
