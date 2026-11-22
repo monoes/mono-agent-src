@@ -219,6 +219,16 @@ export function PairStep({ onNext }) {
   const seq = useRef(0)
   const timer = useRef(null)
   const startedRef = useRef(false)
+  // Focus follows the confirm card: to Cancel when it replaces Restart,
+  // back to Restart on Cancel (the clicked button is gone either way).
+  const cancelRef = useRef(null)
+  const restartRef = useRef(null)
+  const refocus = useRef(null)
+  useEffect(() => {
+    const target = refocus.current === 'cancel' ? cancelRef.current : refocus.current === 'restart' ? restartRef.current : null
+    refocus.current = null
+    target?.focus()
+  }, [confirming])
 
   const read = useCallback(async () => {
     clearTimeout(timer.current)
@@ -268,7 +278,9 @@ export function PairStep({ onNext }) {
     read()
   }
 
-  const bridge = st ? bridgeOf(st) : null
+  // A failed read hides what the last good one showed (the grace spinner
+  // included): only the failure and Check again remain, nothing spins.
+  const bridge = st && !stErr ? bridgeOf(st) : null
   const stuck = started && offAfter >= STUCK_AFTER_OFF_READS
   return (
     <div className="onb-browser-pair">
@@ -303,12 +315,12 @@ export function PairStep({ onNext }) {
                 <button type="button" className="onb-btn primary" onClick={() => { setConfirming(false); run(DAEMON_RESTART) }}>
                   {t('onboarding.browser.pair.restartConfirm')}
                 </button>
-                <button type="button" className="onb-btn ghost" onClick={() => setConfirming(false)}>{t('onboarding.browser.pair.restartCancel')}</button>
+                <button type="button" className="onb-btn ghost" ref={cancelRef} onClick={() => { refocus.current = 'restart'; setConfirming(false) }}>{t('onboarding.browser.pair.restartCancel')}</button>
               </div>
             </div>
           ) : (
             <div className="onb-browser-actions">
-              <button type="button" className="onb-btn" disabled={starting} aria-busy={starting || undefined} onClick={() => setConfirming(true)}>
+              <button type="button" className="onb-btn" ref={restartRef} disabled={starting} aria-busy={starting || undefined} onClick={() => { refocus.current = 'cancel'; setConfirming(true) }}>
                 {starting ? t('onboarding.browser.pair.restarting') : t('onboarding.browser.pair.restart')}
               </button>
               <button type="button" className="onb-btn ghost" disabled={starting} onClick={read}>{t('onboarding.browser.pair.again')}</button>

@@ -228,7 +228,7 @@ describe('Connect your browser', () => {
     Go.GetExtensionInfo.mockResolvedValue({ path: FOLDER, installed: true, current: false, version: '1.0.0' })
     show()
     await toInstall(/Google Chrome/)
-    expect(await screen.findByText(/copy of the extension other than the one this app ships/)).toBeInTheDocument()
+    expect(await screen.findByText(/copy of the extension other than the one this app ships: an older version, or one you installed yourself.*click Reload/)).toBeInTheDocument()
     expect(screen.getByText(FOLDER)).toBeInTheDocument()
     expect(Go.InstallExtension).not.toHaveBeenCalled()
     click('Reinstall')
@@ -257,8 +257,11 @@ describe('Connect your browser', () => {
     click('Restart the service')
     expect(screen.getByText('Restarting stops the background service and starts it again. It interrupts whatever it is running: workflows and org runs.')).toBeInTheDocument()
     expect(Go.RunHealthFix).not.toHaveBeenCalledWith('services.daemon.restart')
+    // focus moves to Cancel in the card that replaced the button, and back on Cancel
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus()
     click('Cancel')
     expect(screen.queryByText(/It interrupts whatever it is running/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Restart the service' })).toHaveFocus()
     expect(Go.RunHealthFix).not.toHaveBeenCalledWith('services.daemon.restart')
     click('Restart the service')
     click('Restart anyway')
@@ -279,6 +282,25 @@ describe('Connect your browser', () => {
     expect(await screen.findByText("The service started. Waiting for the extension's bridge to come up…")).toBeInTheDocument()
     expect(await screen.findByText(/Waiting for the extension to connect/)).toBeInTheDocument()
     expect(screen.queryByText(/bridge is not answering/)).not.toBeInTheDocument()
+  })
+
+  it('a sign-in refusal during the bridge wait stops the spinner and shows the sign-in message', async () => {
+    Go.GetExtensionStatus
+      .mockResolvedValueOnce(status({ running: false }))
+      .mockResolvedValueOnce(status({ running: false }))
+      .mockResolvedValue(JSON.stringify({ error: 'Log in to monoes.me first', login_required: true }))
+    show()
+    await toPair()
+    await screen.findByRole('button', { name: 'Start' })
+    click('Start')
+    await waitFor(() => expect(listeners['health:fixProgress']).toBeTypeOf('function'))
+    act(() => { listeners['health:fixProgress']({ fix_id: 'services.daemon.start', kind: 'done' }) })
+    const WAIT = "The service started. Waiting for the extension's bridge to come up…"
+    expect(await screen.findByText(WAIT)).toBeInTheDocument()
+    expect(await screen.findByText(i18n.t('onboarding.shell.signIn'))).toBeInTheDocument()
+    expect(screen.queryByText(WAIT)).not.toBeInTheDocument()
+    expect(document.querySelector('.onb-spinner')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Check again' })).toBeEnabled()
   })
 
   it('a clipboard that refuses says to copy by hand', async () => {
