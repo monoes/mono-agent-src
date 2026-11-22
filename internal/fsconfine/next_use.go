@@ -66,6 +66,13 @@ var nextUseFiles = map[string]string{
 	"concourse.yml":           "a Concourse pipeline, which runs at the next push",
 	"netlify.toml":            "Netlify's build, which runs at the next push",
 	"vercel.json":             "Vercel's build, which runs at the next push",
+	".npmrc":                  "npm's configuration",
+	".yarnrc":                 "Yarn's configuration",
+	".yarnrc.yml":             "Yarn's configuration, which can load plugins",
+	".pnpmfile.cjs":           "a pnpm hook script",
+	"Makefile":                "a Makefile, which runs when someone runs make",
+	"justfile":                "a justfile, which runs when someone runs just",
+	"Taskfile.yml":            "a Taskfile, which runs when someone runs task",
 }
 
 // nextUseDirs are folders whose every file a tool runs, loads or takes its

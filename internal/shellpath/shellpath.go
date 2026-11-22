@@ -78,7 +78,7 @@ func Merge(front, back string) string {
 	var parts []string
 	for _, list := range []string{front, back} {
 		for _, p := range filepath.SplitList(list) {
-			if p == "" || seen[p] {
+			if p == "" || !filepath.IsAbs(p) || seen[p] { // a relative entry makes the working folder a command folder
 				continue
 			}
 			seen[p] = true

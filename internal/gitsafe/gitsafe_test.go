@@ -120,3 +120,71 @@ func TestCommandRunsNoProgramTheRepositoryNames(t *testing.T) {
 		t.Fatal("the repository's fsmonitor ran under gitsafe.Command")
 	}
 }
+
+// A repository's own diff.external and diff.<driver>.textconv name programs git runs on every
+// diff; the pinned arguments must stop both, with no flag from the caller.
+func TestCommandRunsNoDiffProgramTheRepositoryNames(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	repo := t.TempDir()
+	scratch := t.TempDir()
+	marker := filepath.Join(scratch, "ran")
+	prog := filepath.Join(scratch, "prog")
+	if err := os.WriteFile(prog, []byte("#!/bin/sh\n: > '"+marker+"'\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	base := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "GIT_CONFIG_NOSYSTEM=1"}
+	run := func(a ...string) {
+		cmd := exec.Command("git", append([]string{"-C", repo}, a...)...)
+		cmd.Env = base
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", a, err, out)
+		}
+	}
+	run("init", "-q")
+	run("config", "user.email", "a@b")
+	run("config", "user.name", "a")
+	if err := os.WriteFile(filepath.Join(repo, "f"), []byte("a\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "f")
+	run("commit", "-qm", "one")
+	if err := os.WriteFile(filepath.Join(repo, "f"), []byte("b\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run("config", "diff.external", prog)
+	run("config", "diff.t.textconv", prog)
+	if err := os.WriteFile(filepath.Join(repo, ".gitattributes"), []byte("f diff=t\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plain := exec.Command("git", "-C", repo, "diff")
+	plain.Env = base
+	_ = plain.Run()
+	if _, err := os.Stat(marker); err != nil {
+		t.Skip("this git does not run the diff program here; nothing to prove")
+	}
+	if err := os.Remove(marker); err != nil {
+		t.Fatal(err)
+	}
+	testhome.SetHome(t, t.TempDir())
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	for _, sub := range [][]string{{"diff"}, {"log", "-p"}, {"show", "HEAD"}} {
+		_ = Command(context.Background(), append([]string{"-C", repo}, sub...)...).Run()
+		if _, err := os.Stat(marker); err == nil {
+			t.Fatalf("git %v ran the repository's diff program under gitsafe.Command", sub)
+		}
+	}
+}
+
+func TestEnvDropsTraceAndAttrSource(t *testing.T) {
+	got := strings.Join(Env([]string{"GIT_TRACE_CURL=1", "GIT_TRACE_SETUP=1", "GIT_ATTR_SOURCE=x", "GIT_AUTHOR_NAME=a"}), " ")
+	for _, bad := range []string{"GIT_TRACE_CURL", "GIT_TRACE_SETUP", "GIT_ATTR_SOURCE"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("%s survived: %s", bad, got)
+		}
+	}
+	if !strings.Contains(got, "GIT_AUTHOR_NAME=a") {
+		t.Error("GIT_AUTHOR_NAME dropped")
+	}
+}

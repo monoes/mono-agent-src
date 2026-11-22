@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -95,17 +96,44 @@ func homeRule(ctx context.Context, p, r string, write bool) error {
 	if err != nil {
 		return refuse("%s: no home folder to check against (%v)", p, err)
 	}
-	if h, err := filepath.EvalSymlinks(home); err == nil {
-		home = h
-	}
 	if procSecret(resolved) {
 		return refuse("%s is a process's environment, command line or memory, where keys can be", p)
 	}
+	// $HOME can be overridden (a scratch HOME, a launcher, injected env); the account's own home
+	// is guarded all the same.
+	homes := []string{home}
+	if u, err := user.Current(); err == nil && u.HomeDir != "" && u.HomeDir != home {
+		homes = append(homes, u.HomeDir)
+	}
+	seen := map[string]bool{}
+	var primary string
+	for i, h := range homes {
+		if r, err := filepath.EvalSymlinks(h); err == nil {
+			h = r
+		}
+		if seen[h] {
+			continue
+		}
+		seen[h] = true
+		if i == 0 {
+			primary = h
+		} else if in(primary, resolved) {
+			continue // the overridden home already judged this path
+		}
+		if err := homeRuleAt(g, p, resolved, write, h, refuse); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// homeRuleAt is homeRule's checks against one home folder.
+func homeRuleAt(g Guard, p, resolved string, write bool, home string, refuse func(string, ...interface{}) error) error {
 	if write {
 		if gitRunsIt(resolved) || inGitDir(resolved) {
 			return refuse("%s is a git hook or git config, which git runs at the next commit", p)
 		}
-		if fold(filepath.Base(resolved)) == ".git" {
+		if strings.EqualFold(filepath.Base(resolved), ".git") {
 			return refuse("%s is a .git file, which can point git at another folder's hooks", p)
 		}
 		if what := runsOnNextUse(resolved); what != "" {
@@ -300,8 +328,16 @@ func runsOnNextUse(p string) string {
 				return "a GitLab CI pipeline's part (.gitlab/ci), which runs at the next push"
 			}
 		case ".vscode":
-			if i+2 == len(parts) && (last == "tasks.json" || last == "launch.json") {
-				return "VS Code's tasks or launch configurations (.vscode), which can run when the folder opens"
+			if i+2 == len(parts) && (last == "tasks.json" || last == "launch.json" || last == "settings.json") {
+				return "VS Code's tasks, launch configurations or settings (.vscode), which can run when the folder opens"
+			}
+		case ".bundle":
+			if i+2 == len(parts) && last == "config" {
+				return "Bundler's configuration (.bundle/config)"
+			}
+		case ".cargo":
+			if i+2 == len(parts) && (last == "config" || last == "config.toml") {
+				return "Cargo's configuration (.cargo), which can name the programs it runs"
 			}
 		case ".zed":
 			if i+2 == len(parts) && (last == "settings.json" || last == "tasks.json" || last == "keymap.json") {

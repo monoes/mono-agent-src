@@ -286,10 +286,16 @@ func Remove(ctx context.Context, db *sql.DB, profile, key string) error {
 	if _, err := db.ExecContext(ctx, `DELETE FROM profile_info WHERE profile_id = ? AND key = ?`, profile, key); err != nil {
 		return err
 	}
-	if rel != "" {
+	if photoRel(rel) {
 		_ = os.Remove(filepath.Join(profiledir.Root(db, profile), filepath.FromSlash(rel)))
 	}
 	return nil
+}
+
+// photoRel reports a stored photo path that stays inside the profile's info folder; a value from
+// a hand-edited or imported database that climbs out of it is never read or removed.
+func photoRel(rel string) bool {
+	return strings.HasPrefix(rel, photoFolder+"/") && filepath.IsLocal(filepath.FromSlash(rel))
 }
 
 var photoExts = map[string]bool{".png": true, ".jpg": true, ".jpeg": true, ".webp": true, ".gif": true, ".pdf": true}
@@ -307,7 +313,23 @@ func SetPhoto(ctx context.Context, db *sql.DB, profile, key, src string) error {
 	if !photoExts[ext] {
 		return errors.New("a photo must be a png, jpg, webp, gif or pdf file")
 	}
-	st, err := os.Stat(src)
+	// Lstat first: a link to another file, or a FIFO or device that would block the open, is refused.
+	l, err := os.Lstat(src)
+	if err != nil {
+		return err
+	}
+	if l.Mode()&os.ModeSymlink != 0 {
+		return errors.New("the photo must be the file itself, not a link to one")
+	}
+	if !l.Mode().IsRegular() {
+		return errors.New("the photo must be a regular file")
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	st, err := in.Stat() // the opened file, not whatever the name points at now
 	if err != nil {
 		return err
 	}
@@ -317,11 +339,6 @@ func SetPhoto(ctx context.Context, db *sql.DB, profile, key, src string) error {
 	if st.Size() > maxPhotoMB<<20 {
 		return fmt.Errorf("the photo is larger than %d MB", maxPhotoMB)
 	}
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
 	root := profiledir.Root(db, profile)
 	if root == "" {
 		return errors.New("this profile has no folder")
@@ -355,7 +372,7 @@ func SetPhoto(ctx context.Context, db *sql.DB, profile, key, src string) error {
 	if err := put(ctx, db, profile, key, rel, SourceUser, ""); err != nil {
 		return err
 	}
-	if old != "" && old != rel {
+	if photoRel(old) && old != rel {
 		_ = os.Remove(filepath.Join(root, filepath.FromSlash(old)))
 	}
 	return nil
@@ -367,7 +384,7 @@ func PhotoPath(ctx context.Context, db *sql.DB, profile, key string) string {
 		return ""
 	}
 	var rel string
-	if err := db.QueryRowContext(ctx, `SELECT value FROM profile_info WHERE profile_id = ? AND key = ?`, profile, key).Scan(&rel); err != nil || rel == "" {
+	if err := db.QueryRowContext(ctx, `SELECT value FROM profile_info WHERE profile_id = ? AND key = ?`, profile, key).Scan(&rel); err != nil || !photoRel(rel) {
 		return ""
 	}
 	return filepath.Join(profiledir.Root(db, profile), filepath.FromSlash(rel))

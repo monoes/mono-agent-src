@@ -5,15 +5,32 @@ import (
 	"errors"
 	"github.com/monoes/mono-agent/internal/testhome"
 	"os"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 )
 
+// guardBase is a temporary folder outside the account's own home folder: the guard also protects
+// that home, so a test layout inside it would be judged by the account's home as well.
+func guardBase(t *testing.T) string {
+	t.Helper()
+	d := t.TempDir()
+	if u, err := user.Current(); err == nil && u.HomeDir != "" {
+		if h, err := filepath.EvalSymlinks(u.HomeDir); err == nil && in(h, d) {
+			if shm, err := os.MkdirTemp("/dev/shm", "fsconfine-"); err == nil {
+				t.Cleanup(func() { _ = os.RemoveAll(shm) })
+				return shm
+			}
+		}
+	}
+	return d
+}
+
 func guardHome(t *testing.T) (base, home string) {
 	t.Helper()
-	base = t.TempDir()
+	base = guardBase(t)
 	home = filepath.Join(base, "home")
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		t.Fatal(err)
@@ -193,6 +210,8 @@ func TestNoFileThatRunsOnNextUse(t *testing.T) {
 		".gitlab/ci/build.yml", ".claude.json", "azure-pipelines.yaml", ".gitlab-ci.yaml", ".travis.yaml",
 		"buildspec.yml", "buildspec.yaml", "buildkite.yml", ".buildkite.yml", ".cirrus.yml", "wercker.yml",
 		"codefresh.yml", ".gocd.yml", "concourse.yml", "netlify.toml", "vercel.json",
+		".npmrc", ".yarnrc.yml", ".pnpmfile.cjs", ".bundle/config", ".cargo/config.toml", ".vscode/settings.json",
+		"Makefile", "justfile", "Taskfile.yml", "sub/.GIT",
 		"CLOUDBUILD.YML", "Claude.md", ".CLAUDE/settings.json", ".GitHub/Workflows/ci.yml", "sub/.Envrc",
 	} {
 		p := filepath.Join(project, filepath.FromSlash(rel))
@@ -203,7 +222,7 @@ func TestNoFileThatRunsOnNextUse(t *testing.T) {
 			t.Errorf("read %s: %v", rel, err)
 		}
 	}
-	for _, rel := range []string{".env", "husky.md", "notes/.claude-notes", "envrc.txt", "CLAUDE.md.bak", "README.md", ".github/ISSUE_TEMPLATE/bug.md", ".vscode/settings.json", ".zed/notes.md", "opencode.json.bak", "docs/lefthook.md",
+	for _, rel := range []string{".env", "husky.md", "notes/.claude-notes", "envrc.txt", "CLAUDE.md.bak", "README.md", ".github/ISSUE_TEMPLATE/bug.md", ".zed/notes.md", "opencode.json.bak", "docs/lefthook.md",
 		".gitlab/issue_templates/bug.md", ".gitlab/CODEOWNERS"} {
 		if _, err := WritePath(ctx, filepath.Join(project, filepath.FromSlash(rel))); err != nil {
 			t.Errorf("write %s: %v", rel, err)
@@ -305,5 +324,29 @@ func TestGitHead(t *testing.T) {
 		if gitHead(head) != want {
 			t.Errorf("gitHead(%q) = %v", head, !want)
 		}
+	}
+}
+
+// $HOME can be overridden; the account's own home folder stays guarded.
+func TestTheAccountsOwnHomeStaysGuardedWhenHomeIsOverridden(t *testing.T) {
+	u, err := user.Current()
+	if err != nil || u.HomeDir == "" {
+		t.Skip("no account home")
+	}
+	real, err := filepath.EvalSymlinks(u.HomeDir)
+	if err != nil {
+		t.Skip("account home not resolvable")
+	}
+	ssh := filepath.Join(real, ".ssh")
+	if _, err := os.Stat(ssh); err != nil {
+		t.Skip("no ~/.ssh to probe")
+	}
+	_, scratch := guardHome(t) // HOME now names a scratch folder outside the real one
+	if scratch == real {
+		t.Skip("HOME is the account home")
+	}
+	ctx := GuardHiddenHome(context.Background(), Guard{Project: filepath.Join(scratch, "code")})
+	if _, err := Path(ctx, ssh); !errors.Is(err, ErrUnapprovedPath) {
+		t.Fatalf("read of the real ~/.ssh with HOME overridden: %v", err)
 	}
 }

@@ -55,6 +55,9 @@ func ConvertAbbreviatedNumber(value string) (int64, error) {
 	}
 
 	result := num * multiplier
+	if math.IsNaN(result) || math.IsInf(result, 0) || math.Abs(result) >= math.MaxInt64 {
+		return 0, fmt.Errorf("%q is not a number in range", value)
+	}
 
 	// Round to nearest integer to avoid floating-point drift
 	// (e.g. 12.5 * 1000 should be exactly 12500).
