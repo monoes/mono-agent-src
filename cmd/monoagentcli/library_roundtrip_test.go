@@ -148,7 +148,7 @@ func TestLibraryPublishRoundTrips(t *testing.T) {
 	for _, zf := range zr.File {
 		hasManifest = hasManifest || zf.Name == "automation.json"
 	}
-	if !hasManifest || stored.Version != "1.1.0" {
+	if !hasManifest || stored.Version != "1.1.1" {
 		t.Fatalf("mpkg manifest %v, version %s", hasManifest, stored.Version)
 	}
 
@@ -204,7 +204,7 @@ func TestLibraryAdoptsSeededBuiltins(t *testing.T) {
 	row = automationRow(t, f, "hackernews")
 	// 1.2.0 is a release this binary has no hash for (#900): the package is
 	// installed but not built-in until an app release ships its hash.
-	if row.Version != "1.2.0" || row.Source != automation.SourceMonoes || row.Trust != automation.TrustImported || row.PreviousVersion != "1.1.0" {
+	if row.Version != "1.2.0" || row.Source != automation.SourceMonoes || row.Trust != automation.TrustImported || row.PreviousVersion != "1.1.1" {
 		t.Fatalf("updated row = %+v", row)
 	}
 }
