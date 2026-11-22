@@ -90,14 +90,17 @@ func parseOptions(v any) ([]option, error) {
 	var opts []option
 	switch t := v.(type) {
 	case map[string]any:
+		// Trimmed, then sorted: the handles the editor shows (decideHandles).
 		ids := make([]string, 0, len(t))
-		for id := range t {
-			ids = append(ids, id)
+		raw := make(map[string]string, len(t))
+		for id, d := range t {
+			trimmed := strings.TrimSpace(id)
+			desc, _ := d.(string)
+			ids, raw[trimmed] = append(ids, trimmed), desc
 		}
 		sort.Strings(ids)
 		for _, id := range ids {
-			d, _ := t[id].(string)
-			opts = append(opts, option{id: strings.TrimSpace(id), description: strings.TrimSpace(d)})
+			opts = append(opts, option{id: id, description: strings.TrimSpace(raw[id])})
 		}
 	case []any:
 		for _, x := range t {
@@ -105,6 +108,13 @@ func parseOptions(v any) ([]option, error) {
 			case string:
 				opts = append(opts, option{id: strings.TrimSpace(o)})
 			case map[string]any:
+				for _, k := range []string{"id", "value"} {
+					if v, ok := o[k]; ok && v != nil {
+						if _, isStr := v.(string); !isStr {
+							return nil, invalid("option %s %v must be a string", k, v)
+						}
+					}
+				}
 				id := strings.TrimSpace(str(o, "id"))
 				if id == "" {
 					id = strings.TrimSpace(str(o, "value"))
