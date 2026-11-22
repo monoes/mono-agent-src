@@ -2,7 +2,7 @@
 // The gate between the onboarding and the app: GetOnboardingState decides,
 // openOnboarding reopens it over a finished state, and a gate that cannot ask
 // shows the app.
-import React, { useContext } from 'react'
+import React, { useContext, useEffect, useState } from 'react'
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, afterAll } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
@@ -17,15 +17,26 @@ const go = vi.hoisted(() => ({
   RestartOnboarding: vi.fn(() => Promise.resolve()),
 }))
 vi.mock('../wailsjs/go/main/App', () => go)
+const appLife = vi.hoisted(() => ({ mounts: 0, keys: [] }))
 vi.mock('../App.jsx', async () => {
   const { OnboardingContext } = await import('./onboardingContext.js')
   return {
-    default: function FakeApp({ banners, initialNav }) {
+    default: function FakeApp({ banners, initialNav, navRequest }) {
       const { openOnboarding } = useContext(OnboardingContext)
+      const [count, setCount] = useState(0)
+      useEffect(() => {
+        appLife.mounts += 1
+        // an app-wide shortcut, like NodeRunner's Delete
+        const onKey = (e) => appLife.keys.push(e.key)
+        window.addEventListener('keydown', onKey)
+        return () => window.removeEventListener('keydown', onKey)
+      }, [])
       return (
         <div data-testid="app">
           {banners}
           <span data-testid="nav">{JSON.stringify(initialNav ?? null)}</span>
+          <span data-testid="navRequest">{JSON.stringify(navRequest ?? null)}</span>
+          <button type="button" onClick={() => setCount(c => c + 1)}>count {count}</button>
           <button type="button" onClick={() => openOnboarding('monomind')}>reopen</button>
           <button type="button" onClick={() => openOnboarding()}>reopen at current</button>
         </div>
@@ -196,8 +207,10 @@ describe('the onboarding gate', () => {
     fireEvent.click(await screen.findByText('reopen at current'))
     expect(await screen.findByTestId('step-agents')).toBeInTheDocument()
     act(() => seen.agents.onFinish({ page: 'orgs', opts: { tab: 'new' } }))
-    expect(await screen.findByTestId('app')).toBeInTheDocument()
-    expect(screen.getByTestId('nav')).toHaveTextContent('{"page":"orgs","opts":{"tab":"new"}}')
+    expect(screen.queryByTestId('step-agents')).not.toBeInTheDocument()
+    // the app was underneath all along: it is navigated, not remounted
+    expect(screen.getByTestId('navRequest')).toHaveTextContent('{"page":"orgs","opts":{"tab":"new"}}')
+    expect(screen.getByTestId('nav')).toHaveTextContent('null')
   })
 
   it('a step\'s mark() writes the mark and reads the state again', async () => {
@@ -246,7 +259,9 @@ describe('the short setup for a later profile, after the reload', () => {
     go.GetOnboardingStateFull.mockResolvedValue(later({ steps: IDS.map(id => ({ id, status: ['about', 'browser', 'agents'].includes(id) ? 'todo' : 'done' })) }))
     render(<OnboardingGate banners={null} />)
     expect(await screen.findByTestId('step-about')).toBeInTheDocument()
-    expect(screen.queryByTestId('app')).not.toBeInTheDocument()
+    // an existing install: the app is mounted underneath, inert
+    expect(document.querySelector('.onb-app-host')).toHaveAttribute('inert')
+    expect(screen.getByRole('button', { name: 'Back to MonoAgent' })).toBeInTheDocument()
     expect(seen.about.mode).toBe('profile')
     expect(document.querySelectorAll('nav[aria-label="Setup progress"] li')).toHaveLength(3)
     await act(async () => { await Promise.resolve() })
@@ -255,7 +270,8 @@ describe('the short setup for a later profile, after the reload', () => {
     expect(pendingProfileSetup()).toBeNull()
     // Done closes it into the app, without completing anything
     act(() => seen.about.onFinish())
-    expect(await screen.findByTestId('app')).toBeInTheDocument()
+    expect(screen.queryByTestId('step-about')).not.toBeInTheDocument()
+    expect(document.querySelector('.onb-app-host')).not.toHaveAttribute('inert')
     expect(go.CompleteOnboarding).not.toHaveBeenCalled()
   })
 
@@ -276,5 +292,131 @@ describe('the short setup for a later profile, after the reload', () => {
     expect(seen.about.mode).toBe('full')
     await act(async () => { await Promise.resolve() })
     expect(pendingProfileSetup()).toBeNull()
+  })
+})
+
+// Reopened from inside the app (the Finish setup card, "Run setup again", the
+// short setup): the app stays mounted underneath and keeps its state.
+describe('the onboarding over the running app', () => {
+  beforeEach(() => { appLife.mounts = 0; appLife.keys = [] })
+  const completed = () => go.GetOnboardingState.mockResolvedValue(stateOf({ completed: true, currentStep: 'agents' }))
+  const appHost = () => document.querySelector('.onb-app-host')
+  const reopen = async () => {
+    fireEvent.click(await screen.findByText('reopen at current'))
+    expect(await screen.findByTestId('step-agents')).toBeInTheDocument()
+  }
+
+  it('keeps the app mounted underneath with its state, inert and hidden from assistive tech', async () => {
+    completed()
+    render(<OnboardingGate banners={null} />)
+    fireEvent.click(await screen.findByText('count 0'))
+    fireEvent.click(screen.getByText('count 1'))
+    await reopen()
+    expect(appHost()).toHaveAttribute('inert')
+    expect(appHost()).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.queryByRole('button', { name: 'count 2' })).not.toBeInTheDocument() // hidden from assistive tech
+    expect(screen.getByText('count 2')).toBeInTheDocument() //                           but still there, with its state
+    fireEvent.click(screen.getByRole('button', { name: 'Back to MonoAgent' }))
+    expect(screen.queryByTestId('step-agents')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'count 2' })).toBeInTheDocument()
+    expect(appHost()).not.toHaveAttribute('inert')
+    expect(appLife.mounts).toBe(1)
+  })
+
+  it('Back to MonoAgent closes without complete() and without writing anything', async () => {
+    completed()
+    render(<OnboardingGate banners={null} />)
+    await reopen()
+    const reads = go.GetOnboardingStateFull.mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: 'Back to MonoAgent' }))
+    await act(async () => { await Promise.resolve() })
+    expect(go.CompleteOnboarding).not.toHaveBeenCalled()
+    expect(go.MarkOnboardingStep).not.toHaveBeenCalled()
+    expect(go.SkipOnboardingStep).not.toHaveBeenCalled()
+    expect(go.RestartOnboarding).not.toHaveBeenCalled()
+    expect(go.GetOnboardingStateFull.mock.calls.length).toBe(reads)
+  })
+
+  it('the control is absent on a first run, and the app is not mounted', async () => {
+    go.GetOnboardingState.mockResolvedValue(stateOf({ currentStep: 'system' }))
+    render(<OnboardingGate banners={null} />)
+    expect(await screen.findByTestId('step-system')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Back to MonoAgent' })).not.toBeInTheDocument()
+    expect(appHost()).toBeNull()
+    expect(appLife.mounts).toBe(0)
+  })
+
+  it('finishing over the running app calls its navigate, not a remount', async () => {
+    completed()
+    render(<OnboardingGate banners={null} />)
+    await reopen()
+    act(() => seen.agents.onFinish({ page: 'tasks' }))
+    expect(screen.getByTestId('navRequest')).toHaveTextContent('{"page":"tasks"}')
+    expect(appLife.mounts).toBe(1)
+  })
+
+  it('Escape closes only over the running app, and not while a step is busy', async () => {
+    completed()
+    render(<OnboardingGate banners={null} />)
+    await reopen()
+    act(() => { seen.agents.setCanContinue(true); seen.agents.setOnContinue(() => new Promise(() => {})) })
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.keyDown(screen.getByRole('heading', { level: 1 }), { key: 'Escape' })
+    expect(screen.getByTestId('step-agents')).toBeInTheDocument()
+    cleanup()
+
+    completed()
+    render(<OnboardingGate banners={null} />)
+    await reopen()
+    fireEvent.keyDown(screen.getByRole('heading', { level: 1 }), { key: 'Escape' })
+    expect(screen.queryByTestId('step-agents')).not.toBeInTheDocument()
+    cleanup()
+
+    go.GetOnboardingState.mockResolvedValue(stateOf({ currentStep: 'system' }))
+    render(<OnboardingGate banners={null} />)
+    expect(await screen.findByTestId('step-system')).toBeInTheDocument()
+    fireEvent.keyDown(screen.getByRole('heading', { level: 1 }), { key: 'Escape' })
+    expect(screen.getByTestId('step-system')).toBeInTheDocument()
+  })
+
+  it("keys pressed in the onboarding never reach the app's own listeners", async () => {
+    completed()
+    render(<OnboardingGate banners={null} />)
+    await reopen()
+    fireEvent.keyDown(screen.getByRole('heading', { level: 1 }), { key: 'Backspace' })
+    fireEvent.keyDown(screen.getByRole('heading', { level: 1 }), { key: 'n' })
+    // nor a key aimed at the page body while it is open
+    fireEvent.keyDown(document.body, { key: 'Delete' })
+    expect(appLife.keys).toEqual([])
+    fireEvent.click(screen.getByRole('button', { name: 'Back to MonoAgent' }))
+    fireEvent.keyDown(document.body, { key: 'n' })
+    expect(appLife.keys).toEqual(['n'])
+  })
+
+  it('open and close cycles leave no listener of the scene or the shell behind', async () => {
+    completed()
+    const added = new Map(), removed = new Map()
+    const count = (m, type) => m.set(type, (m.get(type) || 0) + 1)
+    const wa = window.addEventListener, wr = window.removeEventListener
+    const da = document.addEventListener, dr = document.removeEventListener
+    window.addEventListener = function (type, ...r) { count(added, 'w:' + type); return wa.call(this, type, ...r) }
+    window.removeEventListener = function (type, ...r) { count(removed, 'w:' + type); return wr.call(this, type, ...r) }
+    document.addEventListener = function (type, ...r) { count(added, 'd:' + type); return da.call(this, type, ...r) }
+    document.removeEventListener = function (type, ...r) { count(removed, 'd:' + type); return dr.call(this, type, ...r) }
+    try {
+      render(<OnboardingGate banners={null} />)
+      await screen.findByText('reopen at current')
+      added.clear(); removed.clear()
+      for (let i = 0; i < 3; i++) {
+        await reopen()
+        fireEvent.click(screen.getByRole('button', { name: 'Back to MonoAgent' }))
+      }
+      expect(added.get('w:resize')).toBe(3)
+      for (const [type, n] of added) expect([type, removed.get(type) || 0]).toEqual([type, n])
+      expect(document.querySelectorAll('.onb-portal')).toHaveLength(0)
+    } finally {
+      window.addEventListener = wa; window.removeEventListener = wr
+      document.addEventListener = da; document.removeEventListener = dr
+    }
   })
 })

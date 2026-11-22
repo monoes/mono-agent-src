@@ -87,6 +87,19 @@ describe('App initialNav', () => {
     expect(active()).toBe('settings')
   })
 
+  it('navRequest navigates the mounted app, once per request, without remounting it', () => {
+    const { rerender } = render(<App />)
+    const sidebar = screen.getByTestId('sidebar')
+    expect(active()).toBe('dashboard')
+    const req = { page: 'orgs' }
+    rerender(<App navRequest={req} />)
+    expect(active()).toBe('orgs')
+    expect(screen.getByTestId('sidebar')).toBe(sidebar)
+    rerender(<App navRequest={req} />)
+    rerender(<App navRequest={{ page: 'tasks' }} />)
+    expect(active()).toBe('tasks')
+  })
+
   it('PAGE_IDS are the pages the app can show', () => {
     for (const id of PAGE_IDS) {
       const { unmount } = render(<App initialNav={{ page: id }} />)

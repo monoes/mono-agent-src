@@ -173,3 +173,8 @@ textarea.onb-input{min-height:96px;padding:12px 14px;resize:vertical;line-height
 @media (prefers-reduced-motion: reduce){
   .onb-layer *,.onb-layer *::before,.onb-layer *::after{animation:none !important;transition:none !important}
 }
+
+/* over the running app (OnboardingGate keeps it mounted underneath) */
+.onb-root.onb-over{z-index:100000}
+.onb-root:focus{outline:none}
+.onb-back-app{flex:none}

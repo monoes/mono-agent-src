@@ -6,7 +6,13 @@
 // Mode 'profile' is the short setup of a later profile: about, monomind and
 // browser, all skippable, over the finished village; the last button is Done
 // and closes through onFinish without completing anything.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+// over: opened over the running app (OnboardingGate keeps it mounted, inert,
+// underneath). The shell then renders in a portal of its own above it, keeps
+// every key event from reaching the app's document and window listeners,
+// keeps focus off the page body, offers "Back to MonoAgent" (onBack, also on
+// Escape when nothing is busy) and gives focus back to the app when it closes.
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import Scene from './Scene.jsx'
 import Rail from './Rail.jsx'
@@ -47,12 +53,13 @@ const OWN_ENTER_ROLES = ['button', 'link', 'checkbox', 'radio', 'switch', 'optio
 // click on the village or on panel text) while no dialog is open; never from a
 // button (it clicks itself), a link, a select, a textarea, a non-text input, a
 // control with its own Enter (an ARIA role), a field of a form (the form
-// submits), or a held key.
-function enterContinues(e, panel) {
+// submits), or a held key. Over the app the shell's own root stands for the
+// page (it takes focus instead of the body).
+function enterContinues(e, panel, root) {
   if (e.key !== 'Enter' || e.repeat || e.defaultPrevented || e.isComposing || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return false
   const el = e.target
   if (!panel || !el || !el.tagName) return false
-  if (el === el.ownerDocument.body) return !el.ownerDocument.querySelector('[role="dialog"]')
+  if (el === el.ownerDocument.body || (root && el === root)) return !el.ownerDocument.querySelector('[role="dialog"]')
   if (!panel.contains(el) || el.closest('[role="dialog"]')) return false
   if (NO_ENTER.has(el.tagName) || el.isContentEditable || el.form) return false
   if (el.tagName === 'INPUT' && !TEXT_INPUTS.includes(el.type)) return false
@@ -76,7 +83,9 @@ function startIndex(steps, want, statuses) {
   return todo >= 0 ? todo : 0
 }
 
-export default function Onboarding({ state, startStep, mode = 'full', onFinish, reload, mark, skip, complete, banners = null }) {
+const KEY_EVENTS = ['keydown', 'keyup', 'keypress']
+
+export default function Onboarding({ state, startStep, mode = 'full', onFinish, reload, mark, skip, complete, banners = null, over = false, onBack }) {
   const { t } = useTranslation()
   const steps = useMemo(() => stepsFor(mode), [mode])
   const statuses = useMemo(() => statusesOf(state), [state])
@@ -91,7 +100,12 @@ export default function Onboarding({ state, startStep, mode = 'full', onFinish, 
   const titleRef = useRef(null)
   const bodyRef = useRef(null)
   const panelRef = useRef(null)
+  const rootRef = useRef(null)
   const finishedRef = useRef(false)
+  // over the app: a portal host of our own, outside the app's root
+  const [host] = useState(() => (over && typeof document !== 'undefined' ? document.createElement('div') : null))
+  const backRef = useRef(onBack)
+  backRef.current = onBack
   const finishRef = useRef(onFinish)
   finishRef.current = onFinish
 
@@ -169,15 +183,58 @@ export default function Onboarding({ state, startStep, mode = 'full', onFinish, 
 
   const continueRef = useRef(doContinue)
   continueRef.current = doContinue
+  useLayoutEffect(() => {
+    if (!host) return undefined
+    host.className = 'onb-portal'
+    document.body.appendChild(host)
+    return () => host.remove()
+  }, [host])
   useEffect(() => {
     const onKey = (e) => {
-      if (!enterContinues(e, panelRef.current)) return
+      if (over && e.key === 'Escape' && backRef.current && !busyRef.current && !e.defaultPrevented && !e.isComposing &&
+        !document.querySelector('.onb-portal [role="dialog"]')) {
+        e.preventDefault()
+        backRef.current()
+        return
+      }
+      if (!enterContinues(e, panelRef.current, rootRef.current)) return
       e.preventDefault()
       continueRef.current()
     }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [])
+    if (!host) {
+      document.addEventListener('keydown', onKey)
+      return () => document.removeEventListener('keydown', onKey)
+    }
+    // Over the app: keys handled here (after React's own listener on the
+    // portal host) and kept from the app's document and window listeners.
+    const stop = (e) => e.stopPropagation()
+    const onHostKey = (e) => { if (e.type === 'keydown') onKey(e); stop(e) }
+    // A key aimed at anything outside the onboarding (the page body, after
+    // focus left the window and came back) is the onboarding's too: handled
+    // here and stopped at the window, before the app's own listeners.
+    const onStrayKey = (e) => {
+      if (e.target && e.target.nodeType === 1 && host.contains(e.target)) return
+      if (e.type === 'keydown') onKey(e)
+      stop(e)
+    }
+    KEY_EVENTS.forEach(type => {
+      host.addEventListener(type, onHostKey)
+      window.addEventListener(type, onStrayKey, true)
+    })
+    // Focus never rests on the page body (where keys would reach the app): bring it back in.
+    let pending = 0
+    const keepFocus = () => { if (document.activeElement === document.body && rootRef.current) rootRef.current.focus({ preventScroll: true }) }
+    const onFocusOut = () => { clearTimeout(pending); pending = setTimeout(keepFocus, 0) }
+    document.addEventListener('focusout', onFocusOut)
+    return () => {
+      clearTimeout(pending)
+      document.removeEventListener('focusout', onFocusOut)
+      KEY_EVENTS.forEach(type => {
+        host.removeEventListener(type, onHostKey)
+        window.removeEventListener(type, onStrayKey, true)
+      })
+    }
+  }, [host, over])
 
   // A new step: back to the top of the panel, focus on its heading.
   useEffect(() => {
@@ -190,8 +247,8 @@ export default function Onboarding({ state, startStep, mode = 'full', onFinish, 
   const total = steps.length
   const onDone = advance
 
-  return (
-    <div className="onb-root" data-mode={mode}>
+  const tree = (
+    <div className={over ? 'onb-root onb-over' : 'onb-root'} data-mode={mode} ref={rootRef} tabIndex={over ? -1 : undefined}>
       <Scene statuses={statuses} currentStep={step.id} finished={mode === 'profile'} />
       <div className="onb-layer">
         {banners && <div className="onb-banners">{banners}</div>}
@@ -204,6 +261,11 @@ export default function Onboarding({ state, startStep, mode = 'full', onFinish, 
             </div>
           </div>
           <Rail steps={steps} statuses={statuses} index={index} />
+          {over && onBack && (
+            <button type="button" className="onb-btn ghost sm onb-back-app" onClick={() => { if (!busyRef.current) onBack() }} disabled={busy}>
+              {t('onboarding.shell.backToApp')}
+            </button>
+          )}
         </header>
         <main className="onb-stage">
           <section className="onb-panel" aria-labelledby="onb-step-title" ref={panelRef}>
@@ -248,4 +310,5 @@ export default function Onboarding({ state, startStep, mode = 'full', onFinish, 
       </div>
     </div>
   )
+  return host ? createPortal(tree, host) : tree
 }

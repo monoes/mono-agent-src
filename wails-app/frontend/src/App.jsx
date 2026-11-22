@@ -52,7 +52,9 @@ export const PAGE_IDS = ['dashboard', 'noderunner', 'people', 'communications', 
 // banners: the account notices AccountApp hands the app to wear (components/account).
 // initialNav: { page, opts } the onboarding's last step asked for, or null;
 // applied once on mount (onboarding/OnboardingGate.jsx).
-export default function App({ banners = null, initialNav = null }) {
+// navRequest: the same, for an onboarding that finished over the running app
+// (it stays mounted underneath); each new object navigates once.
+export default function App({ banners = null, initialNav = null, navRequest = null }) {
   const [activePage, setActivePage] = useState('dashboard')
   const [navData, setNavData] = useState(null) // extra data passed to a page (e.g., executionId)
   const [profileId, setProfileId] = useState(null)
@@ -126,6 +128,9 @@ export default function App({ banners = null, initialNav = null }) {
     const n = initialNavRef.current
     if (n && n.page) navigate(n.page, n.opts)
   }, [navigate])
+  useEffect(() => {
+    if (navRequest && navRequest.page) navigate(navRequest.page, navRequest.opts)
+  }, [navRequest, navigate])
 
   // Marks whatever page is active as visited — deliberately keyed off
   // activePage itself (not routed through navigate()) so it also catches

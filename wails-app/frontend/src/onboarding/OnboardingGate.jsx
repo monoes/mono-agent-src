@@ -13,6 +13,14 @@
 // created (profileSetup.js; its caller switched to it and reloaded) opens the
 // short setup, mode 'profile', with the full state; the request is dropped
 // after the first decision either way.
+// Over the running app: when the onboarding is opened for an existing install
+// (openOnboarding from inside the app, or the short setup above) the app stays
+// mounted underneath, inert and hidden from assistive tech, and keeps its
+// state; the onboarding offers "Back to MonoAgent" (and Escape), and finishing
+// navigates the mounted app (navRequest) instead of remounting it. On a first
+// run (and the late switch, which is one) the app is not mounted, as before.
+// After "Run setup again" (restart clears completed) a relaunch mid-way shows
+// the onboarding first-run style; within the session the app stays underneath.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import App from '../App.jsx'
@@ -30,9 +38,16 @@ export default function OnboardingGate({ banners = null }) {
   const { t } = useTranslation()
   const ob = useOnboarding()
   const { reload, loadFull } = ob
-  // undefined: not decided yet; null: the app; { stepId, mode }: the onboarding
+  // undefined: not decided yet; null: the app; { stepId, mode, over, n }: the
+  // onboarding, over the mounted app when over is true
   const [open, setOpen] = useState(undefined)
   const [nav, setNav] = useState(null)
+  const [navRequest, setNavRequest] = useState(null)
+  const openCount = useRef(0)
+  const openRef = useRef(open)
+  openRef.current = open
+  // what had focus in the app when the onboarding opened over it
+  const appFocusRef = useRef(null)
   // set when the app showed because the first read missed its deadline
   const lateRef = useRef(null)
   const settledRef = useRef(false)
@@ -44,8 +59,8 @@ export default function OnboardingGate({ banners = null }) {
     const st = ob.state
     const forProfile = pendingProfileSetup()
     let first = null
-    if (st && st.completed === false) first = { stepId: undefined, mode: 'full' }
-    else if (st && st.completed === true && forProfile && forProfile === st.profileId) first = { stepId: undefined, mode: 'profile' }
+    if (st && st.completed === false) first = { stepId: undefined, mode: 'full', over: false, n: 0 }
+    else if (st && st.completed === true && forProfile && forProfile === st.profileId) first = { stepId: undefined, mode: 'profile', over: true, n: 0 }
     lateRef.current = first === null && ob.timedOut ? Date.now() : null
     setOpen(first)
   }
@@ -64,7 +79,7 @@ export default function OnboardingGate({ banners = null }) {
     const inTime = Date.now() - lateRef.current < LATE_SWITCH_MS
     if (ob.state.completed === false && inTime) {
       lateRef.current = null
-      setOpen({ stepId: undefined, mode: 'full' })
+      setOpen({ stepId: undefined, mode: 'full', over: false, n: ++openCount.current })
     } else if (!inTime || ob.state.completed) {
       lateRef.current = null
     }
@@ -73,15 +88,34 @@ export default function OnboardingGate({ banners = null }) {
   const openOnboarding = useCallback(async (stepId, mode = 'full') => {
     lateRef.current = null
     await loadFull()
-    setNav(null)
-    setOpen({ stepId: typeof stepId === 'string' ? stepId : undefined, mode: mode === 'profile' ? 'profile' : 'full' })
+    // opened from inside the app: the app is mounted, and stays so
+    const prev = openRef.current
+    if (prev === null) appFocusRef.current = document.activeElement
+    setOpen({ stepId: typeof stepId === 'string' ? stepId : undefined, mode: mode === 'profile' ? 'profile' : 'full', over: prev === null || !!(prev && prev.over), n: ++openCount.current })
   }, [loadFull])
 
   const onFinish = useCallback((next) => {
     lateRef.current = null
-    setNav(next && next.page ? { page: next.page, opts: next.opts } : null)
+    const to = next && next.page ? { page: next.page, opts: next.opts } : null
+    // over the mounted app: navigate it; otherwise it mounts at the page
+    const prev = openRef.current
+    if (prev && prev.over) { if (to) setNavRequest({ ...to }) } else setNav(to)
     setOpen(null)
   }, [])
+
+  // "Back to MonoAgent": closes the onboarding over the app, changing nothing.
+  const backToApp = useCallback(() => { setOpen(null) }, [])
+
+  // Closed from over the app: focus goes back where it was in the app.
+  const wasOverRef = useRef(false)
+  useEffect(() => {
+    if (open === null && wasOverRef.current) {
+      const el = appFocusRef.current
+      appFocusRef.current = null
+      if (el && el.isConnected && el !== document.body && typeof el.focus === 'function') el.focus({ preventScroll: true })
+    }
+    wasOverRef.current = !!(open && open.over)
+  }, [open])
 
   const ctx = useMemo(() => ({ openOnboarding, state: ob.state, reload, loadFull }), [openOnboarding, ob.state, reload, loadFull])
 
@@ -92,24 +126,30 @@ export default function OnboardingGate({ banners = null }) {
       </div>
     )
   }
+  const over = !!(open && open.over)
   return (
     <OnboardingContext.Provider value={ctx}>
-      {open
-        ? (
-          <Onboarding
-            key={`${open.mode}:${open.stepId || ''}`}
-            state={ob.state}
-            startStep={open.stepId}
-            mode={open.mode}
-            onFinish={onFinish}
-            reload={ob.reload}
-            mark={ob.mark}
-            skip={ob.skip}
-            complete={ob.complete}
-            banners={banners}
-          />
-        )
-        : <App banners={banners} initialNav={nav} />}
+      {(open === null || over) && (
+        <div key="app" className="onb-app-host" style={{ display: 'contents' }} inert={over || undefined} aria-hidden={over || undefined} data-under-onboarding={over || undefined}>
+          <App banners={banners} initialNav={nav} navRequest={navRequest} />
+        </div>
+      )}
+      {open && (
+        <Onboarding
+          key={`${open.mode}:${open.stepId || ''}:${open.n}`}
+          state={ob.state}
+          startStep={open.stepId}
+          mode={open.mode}
+          onFinish={onFinish}
+          onBack={over ? backToApp : undefined}
+          over={over}
+          reload={ob.reload}
+          mark={ob.mark}
+          skip={ob.skip}
+          complete={ob.complete}
+          banners={over ? null : banners}
+        />
+      )}
     </OnboardingContext.Provider>
   )
 }
