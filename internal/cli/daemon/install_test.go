@@ -42,6 +42,7 @@ func runDaemonSub(t *testing.T, rec *recordingInstaller, args ...string) (string
 	root.PersistentFlags().String("profile", "", "")
 	root.AddCommand(NewCommand(Deps{
 		Refusal:      func() string { return "" },
+		JSONOutput:   func() bool { return false },
 		OpenDB:       func() (*storage.Database, error) { return storage.NewDatabase(t.TempDir() + "/t.db") },
 		NewInstaller: func() autostart.Installer { return rec },
 	}))
