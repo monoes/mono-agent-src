@@ -35,7 +35,7 @@ func TestAnHTTPErrorIsNotAMiss(t *testing.T) {
 
 func TestRetriesHonourRetryAfter(t *testing.T) {
 	f := newFake(t, func(n int, r messagesRequest) (int, string) {
-		if n%3 < 2 { // two failures before every success
+		if n < 2 { // the first sample fails twice, then every call succeeds
 			return http.StatusTooManyRequests, `{"error":"slow down"}`
 		}
 		return toolReply("yes")
@@ -45,7 +45,7 @@ func TestRetriesHonourRetryAfter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := len(f.requests()); n != 15 || !near(resp.Answers["q"].Noul, 1) {
+	if n := len(f.requests()); n != 7 || !near(resp.Answers["q"].Noul, 6.0/7) {
 		t.Errorf("%d calls, answer %+v", n, resp.Answers["q"])
 	}
 
