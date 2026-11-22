@@ -2,8 +2,44 @@ package aitask
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
+
+// A start that fails after Admit gives the reservation back (R09-05): a Detach
+// failure ends the task, so its hold must not stay against the caps for good.
+func TestStartThatFailsAfterAdmitReleasesTheReservation(t *testing.T) {
+	s, l := newService(t)
+	l.detachErr = errors.New("cannot start")
+	admitted, unadmitted := 0, []string{}
+	s.Admit = func(context.Context, Task) (float64, error) { admitted++; return 1, nil }
+	s.Unadmit = func(_ context.Context, id string) { unadmitted = append(unadmitted, id) }
+	task, err := s.Submit(context.Background(), SubmitInput{Kind: "generic", Goal: "g", QueueOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Start(context.Background(), task.ID); err == nil {
+		t.Fatal("expected the launch error")
+	}
+	if admitted != 1 || len(unadmitted) != 1 || unadmitted[0] != task.ID {
+		t.Fatalf("admitted %d, released %v: a failed start must release its reservation", admitted, unadmitted)
+	}
+}
+
+// The cap Admit lowers a task to is not part of what the task may be, so a retry
+// after a failed start is not caps_changed (R09-05).
+func TestCapsHashIgnoresTheAdmittedBudget(t *testing.T) {
+	k, err := Lookup("generic")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := Task{Kind: "generic", Access: AccessCoding, Runtime: "claude", BudgetUSD: 5}
+	b := a
+	b.BudgetUSD = 1
+	if CapsHash(a, k, "p") != CapsHash(b, k, "p") {
+		t.Fatal("lowering the budget at admit changes the caps hash, so every retry fails caps_changed")
+	}
+}
 
 // A refusal from the Admit hook keeps the task queued and detaches nothing; a
 // task it admits runs.

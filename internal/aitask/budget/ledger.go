@@ -271,6 +271,14 @@ func (l *Ledger) Release(ctx context.Context, taskID string) error {
 	return err
 }
 
+// ReleaseUnspent ends task id's hold when its start failed: the turn never ran,
+// so unlike Release it frees the reservation even though no spend was recorded.
+func (l *Ledger) ReleaseUnspent(ctx context.Context, taskID string) error {
+	_, err := l.DB.ExecContext(ctx, `UPDATE ai_budget_reservations SET released = 1
+		WHERE task_id = ? AND NOT EXISTS (SELECT 1 FROM ai_budget_spend s WHERE s.task_id = ?)`, taskID, taskID)
+	return err
+}
+
 // Settle is what a task's end calls: sync its spend, then release it.
 func (l *Ledger) Settle(ctx context.Context, taskID, conversationID string) error {
 	if err := l.Sync(ctx, taskID, conversationID); err != nil {
