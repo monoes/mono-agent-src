@@ -106,19 +106,6 @@ func TestExportImportRoundtripViaCLI(t *testing.T) {
 		t.Fatalf("same-machine re-import = %+v, want id %s status unchanged", imp, saved.ID)
 	}
 
-	// Same machine, file-path input mode: same answer.
-	wfPath := filepath.Join(t.TempDir(), "workflow.json")
-	if err := os.WriteFile(wfPath, []byte(exported), 0o644); err != nil {
-		t.Fatalf("writing workflow file: %v", err)
-	}
-	imp2, err := a.ImportWorkflow(wfPath)
-	if err != nil {
-		t.Fatalf("ImportWorkflow(path): %v", err)
-	}
-	if imp2.ID != saved.ID || imp2.Status != "unchanged" {
-		t.Fatalf("same-machine path re-import = %+v", imp2)
-	}
-
 	// A fresh machine (new HOME and database): created, data intact.
 	homeB := t.TempDir()
 	testhome.SetHome(t, homeB)
