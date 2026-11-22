@@ -33,12 +33,20 @@ func DepsInstallSupported(version string) bool {
 // monomind's deps folder under home (the version in the folder name is
 // monomind's pin, which this client does not know; a leftover of an older pin
 // counts, monomind installs the new one on first use). Agent turns run with
-// MONOMIND_* removed (FilteredEnviron), so monomind's folder is ~/.monomind.
+// MONOMIND_* removed (FilteredEnviron), so the folder they use is
+// ~/.monomind; an operator who points MONOMIND_HOME at another monomind home
+// has the SDK there instead, so that folder counts too.
 func ClaudeSDKInstalled(home string) bool {
-	matches, _ := filepath.Glob(filepath.Join(home, ".monomind", "deps", claudeSDKDir+"*"))
-	for _, m := range matches {
-		if st, err := os.Stat(m); err == nil && st.IsDir() {
-			return true
+	dirs := []string{filepath.Join(home, ".monomind", "deps")}
+	if mh := os.Getenv("MONOMIND_HOME"); mh != "" {
+		dirs = append(dirs, filepath.Join(mh, "deps"))
+	}
+	for _, d := range dirs {
+		matches, _ := filepath.Glob(filepath.Join(d, claudeSDKDir+"*"))
+		for _, m := range matches {
+			if st, err := os.Stat(m); err == nil && st.IsDir() {
+				return true
+			}
 		}
 	}
 	return false
