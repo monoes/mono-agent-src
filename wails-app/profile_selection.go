@@ -58,7 +58,8 @@ const (
 
 // persistedProfileForStop returns the last selected profile id from the state file, for a Stop that has nothing
 // selected in memory (a cold start while signed out). It reads one local file and calls nothing else: no account
-// gate, no CLI, no network. A symlink, a non-regular or oversized file, bad JSON, or an id that fails the profile-id
+// gate, no CLI, no network, and not guiStateMu: Stop holds its busy lock here and must never wait on a writer (a
+// rename swaps the whole file, so the read sees the old file or the new one). A symlink, a non-regular or oversized file, bad JSON, or an id that fails the profile-id
 // syntax check (profiledir.ValidProfileID plus: no leading dash, no space or control characters, at most
 // profileIDMaxLen bytes) gives "": the id goes into the CLI argv, so a tampered file must not pass anything through.
 func persistedProfileForStop(path string) string {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -97,6 +98,52 @@ func TestDamagedStateFileIsEmpty(t *testing.T) {
 	if st, _ := os.Stat(path); st.Mode().Perm() != 0o600 {
 		t.Fatalf("mode %v, want 0600", st.Mode().Perm())
 	}
+}
+
+// unreadableStateFile writes a state file holding a selection and marks, then
+// makes it unreadable (mode 0000). It skips where that does not stop a read.
+func unreadableStateFile(t *testing.T, path string) []byte {
+	t.Helper()
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("mode 0000 does not stop this reader")
+	}
+	body := []byte(`{"selected_profile":"work","onboarding":{"completed":false,"seen":{"welcome":true},"profiles":{"work":{"skipped":["browser"]}}}}`)
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(path, 0o600) })
+	return body
+}
+
+func assertStateFileBytes(t *testing.T, path string, want []byte) {
+	t.Helper()
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != string(want) {
+		t.Fatalf("state file now %q (%v), want it unchanged: %q", got, err, want)
+	}
+}
+
+// A state file that exists but cannot be read is never overwritten: the
+// write is refused with an error, and the selection and marks survive.
+func TestUnreadableStateFileIsNeverOverwritten(t *testing.T) {
+	path := stateFileForTest(t)
+	body := unreadableStateFile(t, path)
+	if err := saveSelectedProfile(path, "other"); err == nil {
+		t.Fatal("saveSelectedProfile over an unreadable file = nil, want an error")
+	}
+	if err := updateGuiState(path, func(st *guiState) { st.ensureOnboarding().Completed = true }); err == nil {
+		t.Fatal("updateGuiState over an unreadable file = nil, want an error")
+	}
+	if _, err := readGuiStateLocked(path); err == nil {
+		t.Fatal("readGuiStateLocked of an unreadable file = nil error")
+	}
+	assertStateFileBytes(t, path, body)
 }
 
 // Concurrent writers (Wails runs each binding on its own goroutine) never

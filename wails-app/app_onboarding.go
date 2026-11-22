@@ -8,11 +8,15 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
 	"sync"
+	"time"
+
+	"github.com/monoes/mono-agent/internal/profiledir"
 )
 
 // errOnboardingUnknown is GetOnboardingState's answer when the profile list
@@ -58,26 +62,27 @@ func (a *App) GetOnboardingStateFull() (*OnboardingState, error) {
 }
 
 // onboardingStateFor derives the state from the stored marks and f, and
-// writes the existing install's completed mark once. countKnown is false
-// when the profile list could not be read: f.ProfileCount is then a guess,
-// Completed comes from the marks alone, and nothing is written.
+// writes the existing install's completed mark once. A state file that exists
+// but cannot be read is an error. countKnown is false when the profile list
+// could not be read: f.ProfileCount is then a guess, Completed comes from the
+// marks alone, and nothing is written.
 func (a *App) onboardingStateFor(f onboardingFacts, countKnown bool) (*OnboardingState, error) {
 	path := guiStatePath(a.dbPath)
-	m := loadGuiState(path).Onboarding
+	st, err := readGuiStateLocked(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading the onboarding state: %w", err)
+	}
+	m := st.Onboarding
 	if !countKnown {
 		if m == nil {
 			return nil, errOnboardingUnknown
 		}
-		s := deriveOnboarding(m, f)
-		s.Completed = m.Completed
-		for i := range s.Steps {
-			if s.Steps[i].ID == "finish" {
-				s.Steps[i].Status = onboardingTodo
-				if m.Completed {
-					s.Steps[i].Status = onboardingDone
-				}
-			}
+		// A completed onboarding had a profile, so the answer stays
+		// self-consistent: profile and finish done, Completed true.
+		if m.Completed && f.ProfileCount == 0 {
+			f.ProfileCount = 1
 		}
+		s := deriveOnboarding(m, f)
 		return &s, nil
 	}
 	s := deriveOnboarding(m, f)
@@ -94,40 +99,106 @@ func (a *App) onboardingStateFor(f onboardingFacts, countKnown bool) (*Onboardin
 	return &s, nil
 }
 
+// onboardingFullReadTimeout bounds the whole full read: a fact not in by then
+// counts as false (todo), and a profile list not in by then is an unread count.
+var onboardingFullReadTimeout = 12 * time.Second
+
 // gatherOnboardingFacts reads the real state through the same CLI calls and
 // checks the other bindings use, side by side. It reports whether the
 // profile count was read; when it was not, a profile selected in memory
-// still counts as one (one existed when the window chose it). full=false
-// reads the profile count only, which leaves MonomindOn, AgentUsable and
-// BrowserAssigned false.
+// still counts as one (one existed when the window chose it). When profiles
+// exist but none is selected (the startup read failed), it selects one as
+// startup does, so the per-profile steps can be marked. full=false reads the
+// profile count only, which leaves MonomindOn, AgentUsable and
+// BrowserAssigned false; full=true reads every fact within
+// onboardingFullReadTimeout.
 func (a *App) gatherOnboardingFacts(full bool) (onboardingFacts, bool) {
 	f := onboardingFacts{ProfileID: a.selectedProfileOrEmpty()}
-	guess := 0
-	if f.ProfileID != "" {
-		guess = 1
+	ctx := context.Background()
+	if full {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, onboardingFullReadTimeout)
+		defer cancel()
 	}
-	var (
-		wg      sync.WaitGroup
-		rows    []cliProfile
-		listErr error
-	)
-	run := func(fn func()) {
-		wg.Add(1)
-		go func() { defer wg.Done(); fn() }()
+	type listed struct {
+		rows []cliProfile
+		err  error
 	}
-	run(func() { listErr = a.listProfilesInto(&rows) })
-	if pid := f.ProfileID; pid != "" && full {
-		run(func() { f.MonomindOn = a.IsMonomindInitialized() })
-		run(func() { f.AgentUsable = a.agentRosterHasReady() })
-		run(func() { f.BrowserAssigned = a.browserRunsProfile(pid) })
+	listCh := make(chan listed, 1)
+	go func() {
+		var rows []cliProfile
+		err := a.listProfilesInto(&rows)
+		listCh <- listed{rows, err}
+	}()
+	var facts *onboardingFactChans
+	if full && f.ProfileID != "" {
+		facts = a.startOnboardingFacts(f.ProfileID)
 	}
-	wg.Wait()
-	if listErr != nil {
-		f.ProfileCount = guess
-		return f, false
+	countKnown := false
+	select {
+	case l := <-listCh:
+		if l.err == nil {
+			countKnown = true
+			f.ProfileCount = len(l.rows)
+			if f.ProfileID == "" && len(l.rows) > 0 {
+				f.ProfileID = a.selectProfileForOnboarding(l.rows)
+				if full && f.ProfileID != "" {
+					facts = a.startOnboardingFacts(f.ProfileID)
+				}
+			}
+		}
+	case <-ctx.Done():
 	}
-	f.ProfileCount = len(rows)
-	return f, true
+	if !countKnown && f.ProfileID != "" {
+		f.ProfileCount = 1
+	}
+	if facts != nil {
+		recv := func(c chan bool) bool {
+			select {
+			case v := <-c:
+				return v
+			case <-ctx.Done():
+				return false
+			}
+		}
+		f.MonomindOn = recv(facts.monomind)
+		f.AgentUsable = recv(facts.agents)
+		f.BrowserAssigned = recv(facts.browser)
+	}
+	return f, countKnown
+}
+
+// onboardingFactChans carry the three slow facts, each sent once.
+type onboardingFactChans struct{ monomind, agents, browser chan bool }
+
+// startOnboardingFacts starts reading pid's facts side by side. A read that
+// outlives the caller's deadline finishes into its buffered channel and is
+// dropped.
+func (a *App) startOnboardingFacts(pid string) *onboardingFactChans {
+	c := &onboardingFactChans{make(chan bool, 1), make(chan bool, 1), make(chan bool, 1)}
+	go func() { c.monomind <- isMonomindInitializedAt(profiledir.Root(a.db, pid)) }()
+	go func() { c.agents <- a.agentRosterHasReady() }()
+	go func() { c.browser <- a.browserRunsProfile(pid) }()
+	return c
+}
+
+// selectProfileForOnboarding selects a profile the way startup does (the
+// saved one if it still exists, else the oldest) when none is selected, and
+// returns the selection. A selection made meanwhile by another call wins.
+func (a *App) selectProfileForOnboarding(rows []cliProfile) string {
+	id, err := resolveSelectedProfile(guiStatePath(a.dbPath), rows)
+	if id == "" {
+		return a.selectedProfileOrEmpty()
+	}
+	if err != nil {
+		a.emitLog("SYSTEM", "WARN", "selecting a profile: "+err.Error())
+	}
+	if a.selectedProfilePtr.CompareAndSwap(nil, &id) {
+		a.restartProfileWatchers()
+		a.emitLog("SYSTEM", "INFO", "Selected profile: "+id)
+		return id
+	}
+	return a.selectedProfileOrEmpty()
 }
 
 // agentRosterHasReady reports whether `agent roster` (AgentRoster) lists a
@@ -159,14 +230,20 @@ func (a *App) agentRosterHasReady() bool {
 // to pid (GetBrowsers). A browser bound to no profile, which runs any
 // profile by default, does not count: the step binds one on purpose.
 func (a *App) browserRunsProfile(pid string) bool {
-	var st struct {
-		ClientPairing string `json:"clientPairing"`
-	}
-	if json.Unmarshal([]byte(a.GetExtensionStatus()), &st) != nil || st.ClientPairing != "ok" {
-		return false
-	}
-	r, err := a.GetBrowsers()
-	if err != nil {
+	var (
+		wg sync.WaitGroup
+		st struct {
+			ClientPairing string `json:"clientPairing"`
+		}
+		stErr error
+		r     *BrowsersReport
+		err   error
+	)
+	wg.Add(2)
+	go func() { defer wg.Done(); stErr = json.Unmarshal([]byte(a.GetExtensionStatus()), &st) }()
+	go func() { defer wg.Done(); r, err = a.GetBrowsers() }()
+	wg.Wait()
+	if stErr != nil || st.ClientPairing != "ok" || err != nil {
 		return false
 	}
 	for _, b := range r.Browsers {

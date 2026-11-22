@@ -179,6 +179,30 @@ func TestOnboardingStateMarksAnExistingInstallOnce(t *testing.T) {
 	}
 }
 
+// The bindings surface an unreadable state file and never overwrite it: a
+// transient read error must not erase the selection or the marks, nor turn a
+// mid-onboarding user into a completed one.
+func TestOnboardingBindingsRefuseAnUnreadableStateFile(t *testing.T) {
+	a := onboardingTestApp(t, "work")
+	path := guiStatePath(a.dbPath)
+	body := unreadableStateFile(t, path)
+	if s, err := a.onboardingStateFor(onboardingFacts{ProfileID: "work", ProfileCount: 1}, true); err == nil {
+		t.Fatalf("onboardingStateFor = %+v, nil error", s)
+	}
+	for name, write := range map[string]func() error{
+		"Mark":     func() error { return a.MarkOnboardingStep("welcome") },
+		"Skip":     func() error { return a.SkipOnboardingStep("about") },
+		"Complete": a.CompleteOnboarding,
+		"Restart":  a.RestartOnboarding,
+		"Select":   func() error { return a.setSelectedProfile("other") },
+	} {
+		if err := write(); err == nil {
+			t.Errorf("%s over an unreadable state file = nil, want an error", name)
+		}
+	}
+	assertStateFileBytes(t, path, body)
+}
+
 // A fresh install (a successful read of zero profiles) writes nothing.
 func TestOnboardingStateFreshInstallWritesNothing(t *testing.T) {
 	a := onboardingTestApp(t, "")
@@ -219,6 +243,10 @@ func TestOnboardingStateUnknownCountKeepsStoredCompleted(t *testing.T) {
 		}
 		if want := map[bool]string{true: "done", false: "todo"}[completed]; stepStatuses(*s)["finish"] != want {
 			t.Fatalf("stored completed %v: finish = %s, want %s", completed, stepStatuses(*s)["finish"], want)
+		}
+		// Self-consistent: a completed onboarding had a profile.
+		if completed && (stepStatuses(*s)["profile"] != "done" || s.CurrentStep == "profile") {
+			t.Fatalf("completed with the profile step open: %+v", s)
 		}
 		if after, _ := os.ReadFile(path); string(after) != string(before) {
 			t.Fatalf("the state file changed: %q -> %q", before, after)

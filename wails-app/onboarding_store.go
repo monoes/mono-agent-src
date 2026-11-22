@@ -9,6 +9,9 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
@@ -28,20 +31,51 @@ type onboardingProfileMarks struct {
 	AboutDone bool     `json:"about_done,omitempty"`
 }
 
-// guiStateMu serialises every read-modify-write of the state file: Wails runs
-// each binding on its own goroutine, and a selection saved while a mark is
-// written must not lose either change.
+// guiStateMu serialises every in-process read and read-modify-write of the
+// state file: Wails runs each binding on its own goroutine, a selection saved
+// while a mark is written must not lose either change, and on Windows a
+// reader holding the file open makes the writer's rename fail. Only Stop's
+// cold reader (persistedProfileForStop) stays outside it: it runs with Stop's
+// busy lock held and must never wait on a writer.
+//
+// The lock is per process. The app runs as one window per process; two
+// instances writing at once could still lose one change.
 var guiStateMu sync.Mutex
 
-// loadGuiState reads the state file. A missing or damaged file is the zero
-// value, the same as nothing ever saved.
-func loadGuiState(path string) guiState {
-	var st guiState
+// readGuiState reads the state file without the lock. Only a missing file
+// or one that is not valid JSON is the zero value (nothing saved, or a damaged
+// file); any other read error is returned, so a caller about to write can
+// refuse instead of erasing the selection and the marks with an empty state.
+func readGuiState(path string) (guiState, error) {
 	b, err := os.ReadFile(path)
-	if err != nil {
-		return guiState{}
+	if errors.Is(err, fs.ErrNotExist) {
+		return guiState{}, nil
 	}
+	if err != nil {
+		return guiState{}, err
+	}
+	var st guiState
 	if json.Unmarshal(b, &st) != nil {
+		return guiState{}, nil
+	}
+	return st, nil
+}
+
+// readGuiStateLocked is readGuiState under guiStateMu, for a reader that must
+// surface a read error.
+func readGuiStateLocked(path string) (guiState, error) {
+	guiStateMu.Lock()
+	defer guiStateMu.Unlock()
+	return readGuiState(path)
+}
+
+// loadGuiState reads the state file under the lock. A missing or damaged
+// file is the zero value, the same as nothing ever saved; so is a file that
+// cannot be read, for a reader with no way to report it (nothing is ever
+// written from this answer: updateGuiState reads again and refuses).
+func loadGuiState(path string) guiState {
+	st, err := readGuiStateLocked(path)
+	if err != nil {
 		return guiState{}
 	}
 	return st
@@ -49,16 +83,21 @@ func loadGuiState(path string) guiState {
 
 // updateGuiState reads the state file, applies mutate and writes the result
 // through a temp file and a rename, so a crash never leaves half a file.
-// mutate cannot fail: callers check their input before calling.
+// mutate cannot fail: callers check their input before calling. A file that
+// exists but cannot be read is an error and nothing is written.
 func updateGuiState(path string, mutate func(*guiState)) error {
 	guiStateMu.Lock()
 	defer guiStateMu.Unlock()
-	st := loadGuiState(path)
+	st, err := readGuiState(path)
+	if err != nil {
+		return fmt.Errorf("reading the app state: %w", err)
+	}
 	mutate(&st)
 	return writeGuiState(path, st)
 }
 
-// writeGuiState writes st privately (0600 in a 0700 folder).
+// writeGuiState writes st privately (0600 in a 0700 folder), flushed to the
+// disk before the rename so a power cut leaves the old file or the new one.
 func writeGuiState(path string, st guiState) error {
 	b, err := json.Marshal(st)
 	if err != nil {
@@ -76,10 +115,14 @@ func writeGuiState(path string, st guiState) error {
 		tmp.Close()
 		return err
 	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), path)
+	return replaceGuiStateFile(tmp.Name(), path)
 }
 
 // ensureOnboarding returns the state's marks, creating them (and their

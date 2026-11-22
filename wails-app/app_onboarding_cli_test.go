@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/account"
 	"github.com/monoes/mono-agent/internal/account/accounttest"
@@ -233,6 +234,71 @@ func TestOnboardingStateIsFastBeforeCompletionToo(t *testing.T) {
 	}
 	if got := stepStatuses(*s); got["monomind"] != "done" || got["agents"] != "done" || got["browser"] != "done" {
 		t.Fatalf("full statuses = %v", got)
+	}
+}
+
+// Profiles exist but none is selected (the startup read failed) and the
+// onboarding is not completed: the state read selects one as startup does,
+// so the per-profile steps can be marked and skipped.
+func TestOnboardingStateSelectsAProfileWhenNoneIs(t *testing.T) {
+	onboardingFakeCLI(t, rosterNotReady, statusMismatch, browsersOther)
+	// The selection restarts the profile watchers, which emit events: there
+	// is no Wails runtime here to take them.
+	oldEmit := eventsEmit
+	eventsEmit = func(context.Context, string, ...interface{}) {}
+	t.Cleanup(func() { eventsEmit = oldEmit })
+	a := onboardingCLIApp(t)
+	t.Cleanup(a.stopWatchers)
+	a.selectedProfilePtr.Store(nil)
+	if err := a.MarkOnboardingStep("welcome"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.MarkOnboardingStep("about"); !errors.Is(err, errNoProfile) {
+		t.Fatalf("before the read: Mark(about) = %v, want errNoProfile", err)
+	}
+	s, err := a.GetOnboardingState()
+	if err != nil || s.Completed || s.ProfileID != "work" {
+		t.Fatalf("GetOnboardingState = %+v, %v", s, err)
+	}
+	if got := a.selectedProfileOrEmpty(); got != "work" {
+		t.Fatalf("selection = %q, want work", got)
+	}
+	if got := loadSelectedProfile(guiStatePath(a.dbPath)); got != "work" {
+		t.Fatalf("saved selection = %q, want work", got)
+	}
+	if err := a.MarkOnboardingStep("about"); err != nil {
+		t.Fatalf("Mark(about) after the read: %v", err)
+	}
+	if err := a.SkipOnboardingStep("browser"); err != nil {
+		t.Fatalf("Skip(browser) after the read: %v", err)
+	}
+}
+
+// The full read has one overall deadline: a fact that misses it counts as
+// not done, and the answer comes back on time.
+func TestOnboardingFullReadHasADeadline(t *testing.T) {
+	old := onboardingFullReadTimeout
+	onboardingFullReadTimeout = 6 * time.Second // room for the quick fakes on a loaded machine
+	t.Cleanup(func() { onboardingFullReadTimeout = old })
+	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, `case "$*" in
+  *"profile list"*) echo '[{"id":"work","name":"Work","created_at":"2026-01-01T00:00:00Z","root_dir":"","icon":""}]' ;;
+  *"agent roster"*) sleep 40; echo '`+rosterReady+`' ;;
+  *"extension status"*) echo '`+statusPaired+`' ;;
+  *"extension browsers"*) echo '`+browsersWork+`' ;;
+  *) echo '{"error":"unexpected"}'; exit 1 ;;
+esac
+`))
+	a := onboardingCLIApp(t)
+	start := time.Now()
+	s, err := a.GetOnboardingStateFull()
+	if took := time.Since(start); took > 20*time.Second {
+		t.Fatalf("the full read took %v, past its deadline", took)
+	}
+	if err != nil || !s.Completed {
+		t.Fatalf("GetOnboardingStateFull = %+v, %v", s, err)
+	}
+	if got := stepStatuses(*s); got["agents"] != "todo" || got["browser"] != "done" {
+		t.Fatalf("statuses = %v, want agents todo (missed the deadline) and browser done", got)
 	}
 }
 
