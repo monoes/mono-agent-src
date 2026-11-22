@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/cli/orgenv"
 	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/orgdesign"
@@ -468,8 +469,12 @@ func TestNoAutomaticSigningUnderAgentContext(t *testing.T) {
 		t.Setenv(m, "1")
 		_, err := f.run(t, "sign", "growth", "--yes")
 		blocked, ok := err.(*orgSignBlocked)
-		if !ok || blocked.marker != m || blocked.JSONErrorFields()["code"] != "org_sign_agent_context" || !strings.Contains(err.Error(), "AI-agent shell") {
+		if !ok || blocked.marker != m || blocked.JSONErrorFields()["code"] != "operator_only" || !strings.Contains(err.Error(), "AI-agent shell") {
 			t.Fatalf("%s: sign --yes without a terminal: %v", m, err)
+		}
+		// Like every other operator verb: exit 3, code operator_only (#1767 item 1); the old code stays as the reason.
+		if got := clicore.ExitCodeFor(err); got != 3 || blocked.JSONErrorFields()["reason"] != "org_sign_agent_context" {
+			t.Fatalf("%s: exit %d, fields %v", m, got, blocked.JSONErrorFields())
 		}
 		// The app shows the reason before anyone clicks Sign.
 		if st := f.mustRun(t, "sign", "growth", "--status"); st["blocked_by"] != m {
