@@ -224,9 +224,10 @@
         "label": "Max Comments",
         "type": "number",
         "required": false,
-        "default": 0,
+        "default": 50,
         "help": "Stop after this many comments (0 = all of them)",
-        "min": 0
+        "min": 0,
+        "max": 500
       }
     ]
   },
