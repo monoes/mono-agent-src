@@ -6,6 +6,7 @@ import { api, notify, onMonomindInitEvent, onDocumentsChanged } from '../service
 import FileViewerModal, { fileViewerKind } from '../components/FileViewerModal.jsx'
 import CaptureViewerModal, { summaryStatusText } from '../components/CaptureViewerModal.jsx'
 import { isMonomindNotFound } from '../lib/agentRuntimes.js'
+import { callStep } from '../onboarding/callStep.js'
 import SortableTh from '../components/SortableTh.jsx'
 import {
   sourceLabel, documentType, viewerFilename, isCapture, sortDocuments, nextSort,
@@ -243,18 +244,13 @@ export default function Documents({ isActive = true }) {
     setInitStatus('running')
     // The binding returns before init finishes; progress arrives as events.
     // A refusal (e.g. signed out) is returned without an event, so read it
-    // here or the spinner would never stop.
-    let message = ''
-    try {
-      const r = await api.initializeMonomindProfile()
-      if (r && r.error) message = r.login_required ? `${r.error} — sign in to monoes.me, then try again.` : r.error
-    } catch (e) {
-      message = e?.message || String(e)
-    }
-    if (message && initRunningRef.current) {
+    // here or the spinner would never stop. callStep reads every answer
+    // style: a thrown error, a JSON {error}, the sign-in refusal.
+    const r = await callStep(() => WailsApp.InitializeMonomindProfile())
+    if (!r.ok && initRunningRef.current) {
       initRunningRef.current = false
       setInitStatus('error')
-      notify('initialize monomind', message)
+      notify('initialize monomind', r.loginRequired ? `${r.message} — sign in to monoes.me, then try again.` : r.message)
     }
   }
 

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Sparkles } from 'lucide-react'
-import { api, onMonomindInitEvent, notify } from '../services/api.js'
+import * as WailsApp from '../wailsjs/go/main/App'
+import { onMonomindInitEvent, notify } from '../services/api.js'
+import { callStep } from '../onboarding/callStep.js'
 
 const MAX_LOG_LINES = 10
 
@@ -39,18 +41,13 @@ export default function MonomindInitPrompt({ onInitialized }) {
     setLines([])
     // The binding returns before init finishes; progress arrives as events.
     // A refusal (e.g. signed out) is returned without an event, so read it
-    // here or the spinner would never stop.
-    let message = ''
-    try {
-      const r = await api.initializeMonomindProfile()
-      if (r && r.error) message = r.login_required ? `${r.error} — sign in to monoes.me, then try again.` : r.error
-    } catch (e) {
-      message = e?.message || String(e)
-    }
-    if (message && runningRef.current) {
+    // here or the spinner would never stop. callStep reads every answer
+    // style: a thrown error, a JSON {error}, the sign-in refusal.
+    const r = await callStep(() => WailsApp.InitializeMonomindProfile())
+    if (!r.ok && runningRef.current) {
       runningRef.current = false
       setStatus('error')
-      notify('initialize monomind', message)
+      notify('initialize monomind', r.loginRequired ? `${r.message} — sign in to monoes.me, then try again.` : r.message)
     }
   }
 

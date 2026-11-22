@@ -210,6 +210,31 @@ describe('Documents initiate monomind', () => {
     off && off()
   })
 
+  it('a thrown sign-in refusal stops the spinner and says to sign in', async () => {
+    WailsApp.IsMonomindInitialized.mockResolvedValue(false)
+    WailsApp.InitializeMonomindProfile.mockRejectedValue('Log in to monoes.me first: monoagentcli account login')
+    const errs = []
+    const off = onApiError(e => errs.push(e))
+    await renderLoaded()
+    fireEvent.click(await screen.findByText('Initiate monomind'))
+    await waitFor(() => expect(errs.some(e => /sign in to monoes\.me, then try again/.test(e.message))).toBe(true))
+    expect(await screen.findByText('Initiate monomind')).toBeInTheDocument()
+    expect(document.querySelector('.spinner')).toBeNull()
+    off && off()
+  })
+
+  it('a JSON error answer stops the spinner and reports it', async () => {
+    WailsApp.IsMonomindInitialized.mockResolvedValue(false)
+    WailsApp.InitializeMonomindProfile.mockResolvedValue(JSON.stringify({ error: 'monoagentcli not found' }))
+    const errs = []
+    const off = onApiError(e => errs.push(e))
+    await renderLoaded()
+    fireEvent.click(await screen.findByText('Initiate monomind'))
+    await waitFor(() => expect(errs.some(e => /monoagentcli not found/.test(e.message))).toBe(true))
+    expect(await screen.findByText('Initiate monomind')).toBeInTheDocument()
+    off && off()
+  })
+
   it('leaves the spinner when the binding throws', async () => {
     WailsApp.IsMonomindInitialized.mockResolvedValue(false)
     WailsApp.InitializeMonomindProfile.mockRejectedValue(new Error('boom'))
