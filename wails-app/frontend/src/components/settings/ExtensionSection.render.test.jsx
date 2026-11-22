@@ -40,6 +40,16 @@ describe('ExtensionSection', () => {
     expect(card).toHaveTextContent(/in Edge, the left sidebar/)
   })
 
+  it('spells the brand MonoAgent', async () => {
+    App.GetExtensionInfo.mockResolvedValue(info)
+    await mount()
+    await screen.findByTestId('extension-path')
+    const text = screen.getByTestId('extension-section').textContent
+    expect(text).toMatch(/MonoAgent browses through this extension/)
+    // the brand, not a path (~/.monoagent) or the CLI (monoagentcli)
+    expect(text.replace(/\.monoagent|monoagentcli/g, '')).not.toMatch(/Mono Agent|Monoagent|monoAgent|monoagent/)
+  })
+
   it('reinstalls on request and shows the answer', async () => {
     App.GetExtensionInfo.mockResolvedValue(info)
     App.InstallExtension.mockResolvedValue({ ...info, version: '1.6.0' })

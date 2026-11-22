@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { GetExtensionInfo, InstallExtension } from '../../wailsjs/go/main/App'
 
-// The browser extension is how monoagent drives a browser; there is no other
+// The browser extension is how MonoAgent drives a browser; there is no other
 // way. It ships inside the app and is unpacked, on request, to a fixed folder
 // (`monoagentcli extension info|install`, app_extension_install.go), which
 // the browser loads once with "Load unpacked". This shows that folder and
@@ -51,7 +51,7 @@ export default function ExtensionSection() {
     <div style={card} data-testid="extension-section">
       <div style={label}>MonoAgent Bridge extension</div>
       <div style={hint}>
-        monoagent browses through this extension, in your own browser and signed in as you. It
+        MonoAgent browses through this extension, in your own browser and signed in as you. It
         never starts a browser of its own. The full extension comes with the app: load it once in
         any Chromium-based browser (Chrome, Edge, Brave, Arc, Vivaldi, Opera and others), as an
         unpacked extension.
