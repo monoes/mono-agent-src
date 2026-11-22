@@ -474,6 +474,9 @@ func (d Deps) newExportCmd() *cobra.Command {
 				if err := workflowbundle.WriteFileAtomic(outputFile, append(b, '\n')); err != nil {
 					return fmt.Errorf("write output file: %w", err)
 				}
+				if d.JSONOutput() {
+					return enc.Encode(map[string]string{"id": wf.ID, "name": wf.Name, "path": outputFile})
+				}
 				fmt.Fprintf(os.Stdout, "Exported workflow %q to %s\n", wf.Name, outputFile)
 				return nil
 			}
