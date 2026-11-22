@@ -37,6 +37,10 @@ type ExecOptions struct {
 	ToolTimeout time.Duration
 	// Timeout is the overall wall-clock cap (--timeout); zero = none.
 	Timeout time.Duration
+	// StartupTimeout bounds how long monomind waits for claude to initialize
+	// (--startup-timeout); zero = DefaultStartupTimeout or the
+	// StartupTimeoutEnv override. Only the claude runtime has this watchdog.
+	StartupTimeout time.Duration
 	// BudgetUSD is the optional spend cap (--budget-usd).
 	BudgetUSD float64
 	// Attach passes each file as `--attach`; only a monomind with
