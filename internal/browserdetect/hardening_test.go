@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"github.com/monoes/mono-agent/internal/testhome"
 )
 
 func writeManifest(t *testing.T, dir, name string) {
@@ -22,8 +24,7 @@ func writeManifest(t *testing.T, dir, name string) {
 // the person to Load unpacked from a folder that is not MonoAgent's.
 func TestExtensionDirPrefersInstalledOverForeignCwdCopy(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	installed := filepath.Join(home, ".monoagent", "extension")
 	writeManifest(t, installed, "MonoAgent Bridge")
 
@@ -38,8 +39,7 @@ func TestExtensionDirPrefersInstalledOverForeignCwdCopy(t *testing.T) {
 
 func TestExtensionDirUsesOwnCwdCopyWhenNotInstalled(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.SetHome(t, home)
 	cwd := t.TempDir()
 	own := filepath.Join(cwd, "chrome-extension")
 	writeManifest(t, own, "MonoAgent Bridge")

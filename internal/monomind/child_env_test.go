@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/monoes/mono-agent/internal/testhome"
 )
 
 // recorder writes an executable that records Claude Code's session marker and its cwd to out.
@@ -59,7 +61,7 @@ func TestDoctorDropsSessionMarkers(t *testing.T) {
 func TestModelProbesAreScrubbedAndNeutral(t *testing.T) {
 	t.Setenv("CLAUDECODE", "1")
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.SetHome(t, home)
 	realHome, _ := filepath.EvalSymlinks(home)
 	probes := map[string]func(context.Context, string) ([]RuntimeModel, error){"agy": listAntigravityModels, "codex": listCodexModels}
 	for name, probe := range probes {
