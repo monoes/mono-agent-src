@@ -41,10 +41,25 @@ func TestKnowledgeHandlersNeverExecAHostileURL(t *testing.T) {
 		for _, raw := range hostileURLs {
 			runner := newFakeRunner()
 			srv := serverWithRunner(t, runner)
-			req := &Request{Params: map[string]any{"url": raw}}
-			if _, err := get(srv)(context.Background(), req, func(string, string) {}); err != nil {
-				// An outright refusal is fine; an exec is not.
-				_ = err
+			// A profile is named so the profile check cannot be what stops the
+			// request: only the URL gate is left between it and the exec.
+			req := &Request{Params: map[string]any{"url": raw, "profile": "work"}}
+			got, err := get(srv)(context.Background(), req, func(string, string) {})
+			// A refusal is an error or an empty answer (no saved page, no related
+			// pages); anything else means the URL was treated as a real page.
+			switch v := got.(type) {
+			case *SavedDocument:
+				if err == nil && v.Saved {
+					t.Errorf("%s answered a saved page for %q", method, raw)
+				}
+			case []map[string]any:
+				if err == nil && len(v) != 0 {
+					t.Errorf("%s answered related pages for %q", method, raw)
+				}
+			default:
+				if err == nil {
+					t.Errorf("%s answered %T for %q, want a refusal", method, got, raw)
+				}
 			}
 			if runner.callCount() != 0 {
 				t.Errorf("%s exec'd monomind for %q: %v", method, raw, runner.calls)
