@@ -8,6 +8,18 @@ import "time"
 // everything else reads it through EnforceDate.
 var enforceFrom = time.Date(2026, time.October, 11, 0, 0, 0, 0, time.UTC)
 
+// buildFloor is the stamped build date of the binary; zero in an unstamped (dev) build.
+// Enforced never judges a clock earlier than it, so deleting the account folder (and the
+// high-water mark in it) and setting the clock back does not un-enforce a release.
+var buildFloor time.Time
+
+// SetBuildFloor records the binary's stamped build date. Call it once at start; a zero time clears it.
+func SetBuildFloor(t time.Time) {
+	globalsMu.Lock()
+	defer globalsMu.Unlock()
+	buildFloor = t.Round(0)
+}
+
 // EnforceDate returns the enforcement date, or the zero time while dormant.
 func EnforceDate() time.Time {
 	globalsMu.RLock()
@@ -28,6 +40,12 @@ func Enforced(now, hw time.Time) bool {
 	}
 	if hw.After(now) {
 		now = hw
+	}
+	globalsMu.RLock()
+	floor := buildFloor
+	globalsMu.RUnlock()
+	if floor.After(now) {
+		now = floor
 	}
 	return !now.Before(date)
 }
