@@ -16,7 +16,7 @@ import (
 // on PATH. Elsewhere it reads and writes as before, and an approved run is
 // unchanged.
 func TestUnapprovedRunsKeepOutOfHiddenHomeFiles(t *testing.T) {
-	base := t.TempDir()
+	base := guardBase(t)
 	home := filepath.Join(base, "home")
 	project := filepath.Join(home, ".monoagent", "profiles", "p1")
 	for _, d := range []string{filepath.Join(home, "notes"), filepath.Join(home, ".config"), filepath.Join(home, "tools"), project} {
