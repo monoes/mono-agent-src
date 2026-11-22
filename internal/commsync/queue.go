@@ -187,8 +187,9 @@ type personSpec struct {
 }
 
 // upsertPerson finds the People row of (platform, username) in the profile,
-// ignoring case, or creates it (with the platform upper-cased, as the node
-// writers do). Two concurrent creators of one row share it: the loser of the
+// ignoring case, or creates it (with the platform as given: the people table
+// has rows of both cases, which peopledupes reconciles, and a lookup here
+// ignores case). Two concurrent creators of one row share it: the loser of the
 // unique key reads the winner's. Known facts fill gaps; nothing already saved
 // is overwritten, and neither category (the review state) nor introduction
 // (the DM draft) is touched.
@@ -203,7 +204,7 @@ func upsertPerson(ctx context.Context, db *sql.DB, p personSpec) (string, error)
 		_, err = db.ExecContext(ctx, `INSERT INTO people (id, platform_username, platform, full_name, profile_url, kind, profile_id, created_at, updated_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(platform_username, platform, profile_id) DO NOTHING`,
-			id, p.username, strings.ToUpper(p.platform), nullStr(p.name), nullStr(p.profileURL), p.kind, p.profile, now, now)
+			id, p.username, p.platform, nullStr(p.name), nullStr(p.profileURL), p.kind, p.profile, now, now)
 		if err == nil {
 			err = db.QueryRowContext(ctx, `SELECT id FROM people
 				WHERE profile_id = ? AND LOWER(platform) = LOWER(?) AND LOWER(platform_username) = LOWER(?) LIMIT 1`,

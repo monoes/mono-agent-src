@@ -53,7 +53,7 @@ func TestQueueDMCreatesPersonAndPendingRow(t *testing.T) {
 	}
 	var user, platform, kind, category string
 	db.QueryRow(`SELECT platform_username, platform, kind, COALESCE(category,'') FROM people WHERE id = ?`, pid).Scan(&user, &platform, &kind, &category)
-	if user != "ada" || platform != "INSTAGRAM" || kind != "person" || category != "" {
+	if user != "ada" || platform != "instagram" || kind != "person" || category != "" {
 		t.Fatalf("person = %s %s %s cat=%q", user, platform, kind, category)
 	}
 	var ext string
@@ -271,15 +271,15 @@ func peopleOf(t *testing.T, db *sql.DB, pid string) (platform, user string) {
 	return
 }
 
-func TestQueueUsesTheAdapterUsernameAndUpperCasePlatform(t *testing.T) {
+func TestQueueUsesTheAdapterUsername(t *testing.T) {
 	db, ctx := testDB(t), context.Background()
 	res, err := Queue(ctx, db, Item{Profile: "default", HilRef: "u1", Source: "linkedin", Action: "dm", Account: Account{Platform: "linkedin", Handle: "acme"},
 		Recipient: Recipient{ProfileURL: "https://www.linkedin.com/in/alice/details/experience/"}, Text: "Hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if platform, user := peopleOf(t, db, res.PersonID); platform != "LINKEDIN" || user != "alice" {
-		t.Fatalf("person = %s/%s, want LINKEDIN/alice", platform, user)
+	if platform, user := peopleOf(t, db, res.PersonID); platform != "linkedin" || user != "alice" {
+		t.Fatalf("person = %s/%s, want linkedin/alice", platform, user)
 	}
 	// A row a node writer made earlier is found, not duplicated.
 	if _, err := db.Exec(`INSERT INTO people (id, platform_username, platform, profile_id) VALUES ('bob1','bob','LINKEDIN','default')`); err != nil {
