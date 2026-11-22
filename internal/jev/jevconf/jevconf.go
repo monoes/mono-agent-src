@@ -104,7 +104,7 @@ func NewClient(ctx context.Context, db *sql.DB, profileID, explicitKey, model st
 	if err != nil {
 		return nil, err
 	}
-	c, err := jev.NewClient(key, model)
+	c, err := BuildClient(db, key, model)
 	if err != nil {
 		return nil, err
 	}

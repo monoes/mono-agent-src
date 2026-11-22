@@ -42,6 +42,7 @@ func NewCommand(d Deps) *cobra.Command {
 		newJevUsageCmd(d),
 		newJevAskCmd(d),
 		newJevModelsCmd(d),
+		newJevProviderCmd(d),
 	)
 	return cmd
 }
@@ -421,7 +422,7 @@ func newJevModelsCmd(d Deps) *cobra.Command {
 			if err != nil {
 				return jevKeyErr(err)
 			}
-			c, err := jev.NewClient(key, "")
+			c, err := jevconf.BuildClient(db.DB, key, "")
 			if err != nil {
 				return jevKeyErr(err)
 			}

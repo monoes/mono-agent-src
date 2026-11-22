@@ -11,7 +11,6 @@ import (
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/health"
-	"github.com/monoes/mono-agent/internal/jev"
 	"github.com/monoes/mono-agent/internal/jev/jevconf"
 	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/nodemgr"
@@ -193,7 +192,7 @@ func NewHealthEnv(d EnvDeps, projects []string) (*health.Env, func()) {
 		if err != nil {
 			return err
 		}
-		c, err := jev.NewClient(key, "")
+		c, err := jevconf.BuildClient(env.DB, key, "")
 		if err != nil {
 			return err
 		}

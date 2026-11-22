@@ -6,6 +6,7 @@ import { mono, card, hint, errText, errMsg, keyChip, formatUSD } from './jevShar
 import { useJevData } from './useJevData.js'
 import JevKeyRow, { useJevKey } from './JevKeyRow.jsx'
 import JevFeaturesBlock from './JevFeaturesBlock.jsx'
+import DecisionProvidersBlock from './DecisionProvidersBlock.jsx'
 
 // TypeSafe Jev settings. Everything goes through `monoagentcli jev …` (Go
 // side: app_jev.go); the key is sent once on Save and never read back.
@@ -258,6 +259,8 @@ function JevSectionView({ collapsible = false, defaultExpanded = false, expandTo
         <JevKeyRow status={status} busy={busy} k={keyState} />
 
         {err && <div role="alert" style={errText}>{err}</div>}
+
+        {part !== 'profile' && <DecisionProvidersBlock onChanged={load} />}
 
         {!machine && featuresBlock}
       </div>

@@ -1725,3 +1725,23 @@ export function GetVaultAgentAccess() {
 export function SetVaultAgentAccess(arg1) {
   return window['go']['main']['App']['SetVaultAgentAccess'](arg1);
 }
+
+export function JevListProviders() {
+  return window['go']['main']['App']['JevListProviders']();
+}
+
+export function JevUseProvider(arg1) {
+  return window['go']['main']['App']['JevUseProvider'](arg1);
+}
+
+export function JevSetProviderEndpoint(arg1, arg2, arg3) {
+  return window['go']['main']['App']['JevSetProviderEndpoint'](arg1, arg2, arg3);
+}
+
+export function JevSetProviderKey(arg1, arg2) {
+  return window['go']['main']['App']['JevSetProviderKey'](arg1, arg2);
+}
+
+export function JevRemoveProviderKey(arg1) {
+  return window['go']['main']['App']['JevRemoveProviderKey'](arg1);
+}

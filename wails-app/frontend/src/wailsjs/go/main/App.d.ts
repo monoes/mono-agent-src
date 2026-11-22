@@ -863,3 +863,13 @@ export function SaveGeneratedWorkflow(arg1:string):Promise<string>;
 export function GetVaultAgentAccess():Promise<Record<string, any>>;
 
 export function SetVaultAgentAccess(arg1:string):Promise<Record<string, any>>;
+
+export function JevListProviders():Promise<main.JevProviders>;
+
+export function JevUseProvider(arg1:string):Promise<void>;
+
+export function JevSetProviderEndpoint(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function JevSetProviderKey(arg1:string,arg2:string):Promise<void>;
+
+export function JevRemoveProviderKey(arg1:string):Promise<void>;

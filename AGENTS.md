@@ -3862,6 +3862,17 @@ monoagentcli --profile work jev ask --request req.json      # raw {state, questi
 monoagentcli --profile work jev models
 ```
 
+**Decision providers.** Jev is one of several decision-model vendors. `jev provider
+list` shows the catalog (`internal/jev/providers.go`); one provider is selected
+machine-wide (`jev provider use <id>`, default `typesafe`) and every surface, the
+org decider and `doctor` follow it. Providers speaking `/v1/systemone` (TypeSafe, a
+local or custom endpoint, Liquid AI, Upstage) are selectable; the rest are listed
+as "no adapter yet". `jev provider set <id> --base-url … --model …` sets the host
+(https, or http for localhost); `printf '%s' "$KEY" | jev provider key-set <id>`
+stores the key as machine-vault entry `decision-<id>`. A provider's key is never
+sent to another provider's host and never falls back to the TypeSafe key.
+Settings › TypeSafe Jev shows the same list.
+
 Every call is recorded in `jev_usage` (counts only, no content). **Tests
 never reach the network**: use `internal/jev/jevtest` (scripted fake
 server); real-API tests are opt-in via env like `browserjev/e2e_test.go`.

@@ -203,3 +203,97 @@ func (a *App) JevUsage(since string) (JevUsageReport, error) {
 	}
 	return rep, nil
 }
+
+// JevProvider is one row of `jev provider list --json`.
+type JevProvider struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Protocol    string   `json:"protocol"`
+	Models      []string `json:"models"`
+	BaseURL     string   `json:"base_url"`
+	Model       string   `json:"model"`
+	KeyOptional bool     `json:"key_optional"`
+	Note        string   `json:"note"`
+	Selected    bool     `json:"selected"`
+	Supported   bool     `json:"supported"`
+	HasKey      bool     `json:"has_key"`
+}
+
+// JevProviders mirrors `jev provider list --json`.
+type JevProviders struct {
+	Selected  string        `json:"selected"`
+	Providers []JevProvider `json:"providers"`
+}
+
+// JevListProviders returns every decision provider and the selected one.
+func (a *App) JevListProviders() (JevProviders, error) {
+	if err := a.signedOut(); err != nil {
+		return JevProviders{}, err
+	}
+	var res JevProviders
+	if err := a.runMonoCLI("", &res, "jev", "provider", "list"); err != nil {
+		return JevProviders{}, err
+	}
+	if res.Providers == nil {
+		res.Providers = []JevProvider{}
+	}
+	return res, nil
+}
+
+// JevUseProvider selects the decision provider.
+func (a *App) JevUseProvider(id string) error {
+	if err := a.signedOut(); err != nil {
+		return err
+	}
+	id, err := jevArg("provider", id)
+	if err != nil {
+		return err
+	}
+	return a.runMonoCLI("", nil, "jev", "provider", "use", id)
+}
+
+// JevSetProviderEndpoint saves a provider's base URL and model ("" keeps one).
+func (a *App) JevSetProviderEndpoint(id, baseURL, model string) error {
+	if err := a.signedOut(); err != nil {
+		return err
+	}
+	id, err := jevArg("provider", id)
+	if err != nil {
+		return err
+	}
+	args := []string{"jev", "provider", "set", id}
+	if b := strings.TrimSpace(baseURL); b != "" {
+		args = append(args, "--base-url="+b)
+	}
+	if m := strings.TrimSpace(model); m != "" {
+		args = append(args, "--model="+m)
+	}
+	return a.runMonoCLI("", nil, args...)
+}
+
+// JevSetProviderKey stores a provider's key; it only travels on stdin.
+func (a *App) JevSetProviderKey(id, key string) error {
+	if err := a.signedOut(); err != nil {
+		return err
+	}
+	id, err := jevArg("provider", id)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(key) == "" {
+		return errors.New("paste an API key first")
+	}
+	return a.runMonoCLI(strings.TrimSpace(key), nil, "jev", "provider", "key-set", id)
+}
+
+// JevRemoveProviderKey deletes a provider's key from the machine vault.
+func (a *App) JevRemoveProviderKey(id string) error {
+	if err := a.signedOut(); err != nil {
+		return err
+	}
+	id, err := jevArg("provider", id)
+	if err != nil {
+		return err
+	}
+	return a.runMonoCLI("", nil, "jev", "provider", "key-remove", id)
+}

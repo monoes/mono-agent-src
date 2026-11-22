@@ -59,6 +59,9 @@ var ErrKeyUnreadable = errors.New("jev: the TypeSafe key is stored but cannot be
 // read it wraps ErrKeyUnreadable instead. A literal "@secret:…" is never
 // returned.
 func ResolveKey(ctx context.Context, db *sql.DB, profileID, explicit string) (key, source string, err error) {
+	if p := SelectedProvider(db); p.ID != jev.ProviderTypeSafe {
+		return resolveProviderKey(ctx, db, p, explicit)
+	}
 	explicit = strings.TrimSpace(explicit)
 	if explicit != "" && !strings.HasPrefix(explicit, "@secret:") {
 		return explicit, SourceConfig, nil
@@ -114,6 +117,15 @@ func ResolveKey(ctx context.Context, db *sql.DB, profileID, explicit string) (ke
 // passphrase prompt): the machine vault, else the profile's vault
 // (SourceProfileVault), else env. It lists the vault of at most two scopes.
 func KeySource(ctx context.Context, db *sql.DB, profileID string) (string, error) {
+	if p := SelectedProvider(db); p.ID != jev.ProviderTypeSafe {
+		if p.KeyOptional {
+			return "none", nil
+		}
+		if name, ok := vaultEntryNamed(ctx, db, ProviderSecret(p.ID)); ok && name != "" {
+			return SourceVault, nil
+		}
+		return "", jev.ErrNoAPIKey
+	}
 	if db != nil {
 		if _, ok := vaultKeyName(ctx, db, VaultScope); ok {
 			return SourceVault, nil
@@ -290,4 +302,21 @@ func profileKeyCandidates(ctx context.Context, db *sql.DB) []secrets.Entry {
 		return out[i].ProfileID < out[j].ProfileID
 	})
 	return out
+}
+
+// vaultEntryNamed reports whether the machine vault has an entry called name.
+func vaultEntryNamed(ctx context.Context, db *sql.DB, name string) (string, bool) {
+	if db == nil {
+		return "", false
+	}
+	entries, err := secrets.List(ctx, db, VaultScope)
+	if err != nil {
+		return "", false
+	}
+	for _, e := range entries {
+		if e.Name == name {
+			return e.Name, true
+		}
+	}
+	return "", false
 }
