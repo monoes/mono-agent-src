@@ -30,7 +30,8 @@ export default function WorkflowImportDialog({ onClose, onOpen, onImported, onAu
 
   const run = async (opts) => {
     setError('')
-    const out = await api.importWorkflowFull(input, opts)
+    let out
+    try { out = await api.importWorkflowFull(input, opts) } catch (e) { setError(String(e?.message || e)); return null }
     if (!out || out.error) { setError(out?.error || 'Import failed.'); return null }
     return out
   }
@@ -123,7 +124,7 @@ export default function WorkflowImportDialog({ onClose, onOpen, onImported, onAu
           <div style={body}>Choose a workflow <code>.json</code> file, or paste the workflow JSON. Importing the same file again updates it instead of making a copy.</div>
           <div style={{ display: 'flex', gap: 6 }}>
             <input className="form-input" aria-label="Workflow file path" placeholder="/path/to/workflow.json" value={path}
-              onChange={edit(e => setPath(e.target.value))} onKeyDown={e => { if (e.key === 'Enter' && input) doImport() }}
+              onChange={edit(e => setPath(e.target.value))} onKeyDown={e => { if (e.key === 'Enter' && input && !busy) doImport() }}
               style={{ ...mono, fontSize: 11, padding: '6px 10px' }} />
             <button className="btn btn-secondary btn-sm" onClick={browse} style={{ gap: 5 }}><FolderOpen size={11} /> Browse</button>
           </div>

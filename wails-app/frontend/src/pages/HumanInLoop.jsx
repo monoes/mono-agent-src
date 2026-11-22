@@ -872,7 +872,11 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
   const personCount = useRef(0)
   personCount.current = personItems.length
 
+  const loadInFlight = useRef(false)
   const load = useCallback(async (background = false) => {
+    // A slow poll must not stack: a background tick waits for the one running.
+    if (background && loadInFlight.current) return
+    loadInFlight.current = true
     if (!background) setLoading(true)
     setError(null)
     try {
@@ -940,6 +944,7 @@ export default function HumanInLoop({ embedded = false, isOpen = true, onClose, 
     } catch (e) {
       setError(e?.message ?? 'Failed to load')
     } finally {
+      loadInFlight.current = false
       if (!background) setLoading(false)
     }
   }, [onPendingCountChange])

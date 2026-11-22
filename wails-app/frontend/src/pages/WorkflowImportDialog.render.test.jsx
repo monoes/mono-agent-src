@@ -26,6 +26,16 @@ async function importFile(res, props = {}) {
 }
 
 describe('WorkflowImportDialog', () => {
+  it('shows a rejected import and ignores Enter while one is running', async () => {
+    api.importWorkflowFull.mockRejectedValueOnce(new Error('cli exploded'))
+    render(<WorkflowImportDialog onClose={() => {}} onOpen={() => {}} />)
+    const inp = screen.getByLabelText('Workflow file path')
+    fireEvent.change(inp, { target: { value: '/w/a.json' } })
+    fireEvent.keyDown(inp, { key: 'Enter' })
+    fireEvent.keyDown(inp, { key: 'Enter' })
+    expect(await screen.findByText(/cli exploded/)).toBeInTheDocument()
+    expect(api.importWorkflowFull).toHaveBeenCalledTimes(1)
+  })
   it('shows created, updated and unchanged the way the CLI reports them', async () => {
     await importFile({ id: 'w1', name: 'Daily digest', status: 'created' })
     expect(await screen.findByText('Imported “Daily digest”.')).toBeInTheDocument()
