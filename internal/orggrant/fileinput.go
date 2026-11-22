@@ -41,6 +41,8 @@ type fileField struct {
 var fileNodeTypes = map[string][]fileField{
 	"data.write_binary_file": {{"file_path", AccessWrite}},
 	"data.spreadsheet":       {{"file_path", ""}},
+	"data.read_write_file":   {{"file_selector", ""}, {"file_name", ""}},
+	"vector.load_document":   {{"file_path", AccessRead}},
 	"comm.email_send":        {{"attachments", AccessRead}},
 	"comm.outlook_send":      {{"attachments", AccessRead}},
 	"service.outlook_mail":   {{"attachments", AccessRead}},
@@ -56,6 +58,7 @@ var fileNodeTypes = map[string][]fileField{
 // "field", falling back to image_path) — the caller's data by construction.
 var imageNodeTypes = map[string]string{
 	"image.info": AccessRead, "image.vault_save": AccessRead,
+	"image.edit":   AccessReadWrite,
 	"image.resize": AccessReadWrite, "image.crop": AccessReadWrite, "image.thumbnail": AccessReadWrite,
 	"image.convert": AccessReadWrite, "image.adjust": AccessReadWrite, "image.remove_background": AccessReadWrite,
 }
