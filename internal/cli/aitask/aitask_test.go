@@ -40,6 +40,19 @@ func (f *fake) Detach(_ context.Context, id, _ string) error {
 	return nil
 }
 
+// disableCoder stores coder mode as turned off (with nothing stored it is on).
+func disableCoder(t *testing.T, d *Deps) {
+	t.Helper()
+	db, err := d.OpenDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.DB.Exec(`INSERT INTO configs (name, config_data, created_at, updated_at) VALUES ('coder_mode', '{"enabled":false}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func deps(t *testing.T, l func() aitask.Launcher) *Deps {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "t.db")
@@ -124,6 +137,7 @@ func TestUnknownKindIsExit3WithTheCode(t *testing.T) {
 // on, and a submit then says so with the fallback and creates nothing.
 func TestSubmitWithCoderDisabledSaysFallbackOneshotAndCreatesNothing(t *testing.T) {
 	d := deps(t, nil)
+	disableCoder(t, d)
 	out, err := run(t, d, "submit", "--goal", "x")
 	if clicore.ExitCodeFor(err) != 3 || !strings.Contains(out, `"code":"coder_disabled"`) || !strings.Contains(out, `"fallback":"oneshot"`) {
 		t.Fatalf("%v %s", err, out)

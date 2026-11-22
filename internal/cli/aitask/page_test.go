@@ -132,6 +132,7 @@ func TestSubmitPageAskNeedsAQuestionAndGetsNoFacts(t *testing.T) {
 func TestSubmitPageWithCoderDisabledFallsBackToOneshot(t *testing.T) {
 	calls := fakeBrowser(t, tabsJSON)
 	d := deps(t, nil)
+	disableCoder(t, d)
 	out, err := runPage(t, d, `{"note":"x"}`, "--kind", "extension-fill", "--tab", "7", "--stdin-json")
 	if clicore.ExitCodeFor(err) != 3 || !strings.Contains(out, `"code":"coder_disabled"`) || !strings.Contains(out, `"fallback":"oneshot"`) {
 		t.Fatalf("%v %s", err, out)
