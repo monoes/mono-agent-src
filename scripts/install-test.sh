@@ -71,7 +71,7 @@ run() { # <name> <expect: ok|fail> <grep-pattern> [env...]; extra args are env a
   for a in "$@"; do [ "$a" = --app-flag ] || envs+=("$a"); done
   set -- ${envs[@]+"${envs[@]}"}
   rc=0
-  out="$(env -u MONOAGENT_RELEASE_PUBKEY HOME="$work/home-$name" INSTALL_DIR="$dest" MONOAGENT_TEST_ASSET_URL_PREFIX="$base/" MONOAGENT_MANIFEST_URL="$base/manifest.json" "$@" bash "$installer" ${flags[@]+"${flags[@]}"} 2>&1)" || rc=$?
+  out="$(env -u MONOAGENT_RELEASE_PUBKEY MONOAGENT_INSTALL_UNSAFE_OVERRIDES=1 HOME="$work/home-$name" INSTALL_DIR="$dest" MONOAGENT_TEST_ASSET_URL_PREFIX="$base/" MONOAGENT_MANIFEST_URL="$base/manifest.json" "$@" bash "$installer" ${flags[@]+"${flags[@]}"} 2>&1)" || rc=$?
   ok=1
   if [ "$want" = ok ]; then [ "$rc" -eq 0 ] && [ -x "$dest/monoagentcli" ] || ok=0
   else [ "$rc" -ne 0 ] && [ ! -e "$dest/monoagentcli" ] || ok=0; fi
@@ -145,7 +145,7 @@ run expired fail "expired" MONOAGENT_RELEASE_PUBKEY="$pub"
 # sudo; and the PATH hint when the dir is not on PATH.
 write_manifest "$asset" "$(sha "$web/$asset")"; sign
 h="$work/home-default"
-out="$(env -u INSTALL_DIR -u MONOAGENT_RELEASE_PUBKEY HOME="$h" PATH="/usr/bin:/bin" MONOAGENT_RELEASE_PUBKEY="$pub" MONOAGENT_TEST_ASSET_URL_PREFIX="$base/" MONOAGENT_MANIFEST_URL="$base/manifest.json" bash "$installer" 2>&1)" || true
+out="$(env -u INSTALL_DIR -u MONOAGENT_RELEASE_PUBKEY MONOAGENT_INSTALL_UNSAFE_OVERRIDES=1 HOME="$h" PATH="/usr/bin:/bin" MONOAGENT_RELEASE_PUBKEY="$pub" MONOAGENT_TEST_ASSET_URL_PREFIX="$base/" MONOAGENT_MANIFEST_URL="$base/manifest.json" bash "$installer" 2>&1)" || true
 if [ -w /usr/local/bin ]; then want_dir=/usr/local/bin; else want_dir="$h/.local/bin"; fi
 if [ "$want_dir" = "$h/.local/bin" ] && [ -x "$h/.local/bin/monoagentcli" ] \
    && printf '%s' "$out" | grep -q "is not on your PATH" && printf '%s' "$out" | grep -q "fish_add_path $h/.local/bin"; then
@@ -162,7 +162,7 @@ if [ "$os/$arch" = linux/amd64 ]; then
   run app ok "Installed the desktop app" MONOAGENT_RELEASE_PUBKEY="$pub" --app-flag
   h="$work/home-app"
   if [ -x "$h/.local/share/monoagent/MonoAgent" ] && [ -x "$h/.local/share/monoagent/monoagentcli" ] \
-     && grep -q "Exec=$h/.local/share/monoagent/MonoAgent" "$h/.local/share/applications/monoagent.desktop" \
+     && grep -qF "Exec=\"$h/.local/share/monoagent/MonoAgent\"" "$h/.local/share/applications/monoagent.desktop" \
      && [ -L "$h/.local/bin/monoagent" ]; then echo "PASS app-layout"; else echo "FAIL app-layout"; fails=$((fails+1)); fi
 
   # 7h. --app with a wrong app checksum installs nothing.
@@ -287,6 +287,16 @@ fi
 # 8. no asset for this platform.
 printf '{"schema":1,"version":"v9.9.9","assets":[]}' > "$web/manifest.json"; sign
 run no-asset fail "no CLI asset" MONOAGENT_RELEASE_PUBKEY="$pub"
+
+# 14. overrides of the trust path: a replaced signing key needs an explicit opt-in; every override warns.
+run pubkey-override-needs-optin fail "MONOAGENT_INSTALL_UNSAFE_OVERRIDES" MONOAGENT_RELEASE_PUBKEY="$pub" MONOAGENT_INSTALL_UNSAFE_OVERRIDES=
+run override-warns fail "WARNING: MONOAGENT_MANIFEST_URL is set" MONOAGENT_RELEASE_PUBKEY="$pub"
+
+# 15. without a test prefix every curl call is https-only, redirects included (a stub curl records its arguments and fails).
+mkdir -p "$work/curlstub"
+printf '#!/bin/sh\necho "$@" >> "%s/curl.log"\nexit 1\n' "$work" > "$work/curlstub/curl" && chmod +x "$work/curlstub/curl"
+env -u MONOAGENT_TEST_ASSET_URL_PREFIX -u MONOAGENT_MANIFEST_URL -u MONOAGENT_RELEASE_PUBKEY HOME="$work/home-proto" PATH="$work/curlstub:$PATH" INSTALL_DIR="$work/p-proto" bash "$installer" >/dev/null 2>&1 || true
+if [ -s "$work/curl.log" ] && ! grep -v -e "--proto =https --proto-redir =https" "$work/curl.log" | grep -q .; then echo "PASS curl https-only"; else echo "FAIL curl calls not https-only"; sed 's/^/    /' "$work/curl.log" 2>/dev/null; fails=$((fails+1)); fi
 
 if [ "$fails" -ne 0 ]; then echo "install-test: $fails failure(s)"; exit 1; fi
 echo "install-test: all passed"
