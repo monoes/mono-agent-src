@@ -2,6 +2,7 @@ package workflowvalidate
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -176,6 +177,19 @@ func (d Deps) DryRun(cmd *cobra.Command, workflowID string) error {
 	}
 
 	steps, err := DryRunSteps(wf)
+	if err == nil {
+		// The same schema checks `workflow validate` runs: unknown node
+		// types, required fields, node references and expression syntax.
+		if rep := workflow.ValidateWorkflow(wf, workflow.ValidateOptions{KnownNodeType: d.NodeTypes().Has}); !rep.Valid {
+			lines := []string{}
+			for _, is := range rep.Issues {
+				if is.Severity == "error" {
+					lines = append(lines, issueLine(is))
+				}
+			}
+			err = errors.New(strings.Join(lines, "; "))
+		}
+	}
 	if err != nil {
 		if d.JSONOutput() {
 			_ = json.NewEncoder(cmd.OutOrStdout()).Encode(DryRunJSON{Valid: false, Errors: []string{err.Error()}})

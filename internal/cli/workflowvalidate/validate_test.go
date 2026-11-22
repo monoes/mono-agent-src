@@ -1,12 +1,42 @@
 package workflowvalidate
 
 import (
+	"bytes"
+	"context"
 	"errors"
+	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/workflow"
 )
+
+func TestDryRun_RejectsUnknownNodeType(t *testing.T) {
+	wf := &workflow.Workflow{
+		Name: "bad-type",
+		Nodes: []workflow.WorkflowNode{
+			{ID: "trigger", Type: "trigger.manual", Config: map[string]interface{}{}},
+			{ID: "x", Type: "no.such.node", Config: map[string]interface{}{}},
+		},
+		Connections: []workflow.WorkflowConnection{
+			{ID: "c1", SourceNodeID: "trigger", TargetNodeID: "x"},
+		},
+	}
+	reg := workflow.NewNodeTypeRegistry()
+	d := Deps{
+		JSONOutput:   func() bool { return false },
+		LoadWorkflow: func(context.Context, string) (*workflow.Workflow, error) { return wf, nil },
+		NodeTypes:    func() *workflow.NodeTypeRegistry { return reg },
+	}
+	cmd := &cobra.Command{}
+	cmd.SetOut(&bytes.Buffer{})
+	err := d.DryRun(cmd, "wf")
+	if err == nil || !strings.Contains(err.Error(), "no.such.node") {
+		t.Fatalf("dry run of an unknown node type = %v, want an error naming it", err)
+	}
+}
 
 func TestDryRunSteps_PlanShape(t *testing.T) {
 	t.Parallel()

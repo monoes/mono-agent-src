@@ -14,6 +14,24 @@ import (
 	"github.com/monoes/mono-agent/internal/workflow"
 )
 
+// claimDraft is a compare-and-swap: of two callers racing for one draft, only
+// the first wins, so a draft is never sent twice.
+func TestClaimDraftOnlyOneWins(t *testing.T) {
+	dbPath := newMessagesCLITestDB(t)
+	seedPersonMessage(t, dbPath, "m-draft", "EXT", "outbound", "", "draft", `{"connection_id":"outlook"}`)
+	db, err := storage.NewDatabase(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := claimDraft(db.DB, "m-draft"); err != nil {
+		t.Fatalf("first claim: %v", err)
+	}
+	if err := claimDraft(db.DB, "m-draft"); err == nil {
+		t.Fatal("second claim succeeded; the draft would be sent twice")
+	}
+}
+
 // stubGuard installs an exec guard that records each call and handles it
 // when handle is set, answering with a queued item; the default guard is
 // restored when the test ends.

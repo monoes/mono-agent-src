@@ -113,8 +113,8 @@ func (d Deps) newPeopleMessagesSendDraftCmd() *cobra.Command {
 			// concurrent send-draft/reject-draft on the same row sees a
 			// non-draft and bails, instead of double-sending. Restore the
 			// draft status if the send fails so it can be retried.
-			if err := db.UpdatePersonMessageStatus(args[0], "sending"); err != nil {
-				return fmt.Errorf("updating status: %w", err)
+			if err := claimDraft(db.DB, args[0]); err != nil {
+				return err
 			}
 			outputs, err := d.runOutlookNode(cmd, db.DB, connectionID, config)
 			if err != nil {
@@ -151,6 +151,19 @@ func (d Deps) newPeopleMessagesSendDraftCmd() *cobra.Command {
 
 // newPeopleMessagesRejectDraftCmd discards a draft: best-effort removes it
 // from the mailbox's Drafts folder too, then deletes the local history row.
+// claimDraft atomically flips a draft to "sending" (compare-and-swap on the
+// status), so two concurrent callers cannot both own the same draft.
+func claimDraft(db *sql.DB, id string) error {
+	res, err := db.Exec(`UPDATE person_messages SET status = 'sending' WHERE id = ? AND status = 'draft'`, id)
+	if err != nil {
+		return fmt.Errorf("updating status: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return fmt.Errorf("message %s is already being sent or is no longer a draft", id)
+	}
+	return nil
+}
+
 func (d Deps) newPeopleMessagesRejectDraftCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "reject-draft <message-id>",
@@ -184,6 +197,11 @@ func (d Deps) newPeopleMessagesRejectDraftCmd() *cobra.Command {
 			// itself) — a synced inbox message is not a draft to reject.
 			if msg.Status != "draft" {
 				return fmt.Errorf("message %s is not a draft (status: %s)", args[0], msg.Status)
+			}
+			// Claim the draft first so a concurrent send-draft cannot send
+			// what is being discarded.
+			if err := claimDraft(db.DB, args[0]); err != nil {
+				return err
 			}
 			if connectionID, cErr := draftMessageConnectionID(msg); cErr == nil && msg.ExternalID != "" {
 				config := map[string]interface{}{"operation": "delete_message", "message_id": msg.ExternalID}
