@@ -1,0 +1,1718 @@
+# Review package: 86cb238f..75e6fd9b
+
+## Commits
+75e6fd9b fix(tasks): a renewal never shortens in SQL, the 24-hour cap beats rounding up, next reads the clock once, the claim tests cover more races
+
+## Files changed
+ internal/tasks/claims.go              |  68 +++--
+ internal/tasks/claims_cas_test.go     |  99 ++++++--
+ internal/tasks/claims_events_test.go  |  48 ++--
+ internal/tasks/claims_helpers_test.go |  82 ++++++
+ internal/tasks/claims_lease_test.go   |  52 ++++
+ internal/tasks/claims_limit_test.go   |  49 ++++
+ internal/tasks/claims_pick_test.go    |  31 ++-
+ internal/tasks/claims_process_test.go | 461 +++++++++++++++++++++++++++-------
+ internal/tasks/claims_race_test.go    | 167 +++++++-----
+ internal/tasks/claims_unit_test.go    |  11 +-
+ 10 files changed, 849 insertions(+), 219 deletions(-)
+
+## Diff
+diff --git a/internal/tasks/claims.go b/internal/tasks/claims.go
+index 216c4cf0..a756b077 100644
+--- a/internal/tasks/claims.go
++++ b/internal/tasks/claims.go
+@@ -20,26 +20,31 @@ func clampLease(d time.Duration) time.Duration {
+ 	case d <= 0:
+ 		return DefaultLease
+ 	case d > MaxLease:
+ 		return MaxLease
+ 	}
+ 	return d
+ }
+ 
+ // leaseEnd is when a lease of d that begins at now ends, as a stored time. A time is kept to the second,
+ // so the end is rounded up to the next whole second: a lease is never shorter than the one asked for,
+-// and a short one is not over at the second it began in, where anybody could take the task at once.
++// and a short one is not over at the second it began in, where anybody could take the task at once. The
++// cap comes after the rounding and wins over it: a claim is stamped with the whole second it began in, so
++// the end is never more than MaxLease after that second, and the longest lease is not made a second longer.
+ func leaseEnd(now time.Time, d time.Duration) time.Time {
+ 	end := now.Add(d)
+ 	if end.Nanosecond() != 0 {
+ 		end = end.Truncate(time.Second).Add(time.Second)
+ 	}
++	if last := now.Truncate(time.Second).Add(MaxLease); end.After(last) {
++		end = last
++	}
+ 	return end
+ }
+ 
+ // later is the later of two times: a renewal keeps the lease it would otherwise shorten.
+ func later(a, b time.Time) time.Time {
+ 	if b.After(a) {
+ 		return b
+ 	}
+ 	return a
+ }
+@@ -50,68 +55,70 @@ func later(a, b time.Time) time.Time {
+ func needName(a Actor) error {
+ 	switch {
+ 	case a.Kind != Agent:
+ 		return invalid("only an agent claims, comments on, finishes or releases a task; the operator moves the cards")
+ 	case a.Name == "":
+ 		return invalid("an agent needs a name: pass --as NAME, the same one for the whole task")
+ 	}
+ 	return checkAgentName(a.Name)
+ }
+ 
+-// pickNext is the id of the task Next would take: the top of Ready, else the stale claim whose lease ended
+-// first. A task that holds MaxEventsToClaim events is passed over, because a claim of it is refused:
+-// offered, it would stay at the head of the queue and block every task behind it. 0 means there is none.
+-func (s *Store) pickNext(ctx context.Context, x dbx, profileID string) (int64, error) {
++// pickNext is the id of the task Next would take at now (UTC): the top of Ready, else the stale claim whose
++// lease ended first. A task that holds MaxEventsToClaim events is passed over, because a claim of it is
++// refused: offered, it would stay at the head of the queue and block every task behind it. 0 means there is none.
++func (s *Store) pickNext(ctx context.Context, x dbx, profileID string, now time.Time) (int64, error) {
+ 	var id int64
+ 	err := x.QueryRowContext(ctx,
+ 		`SELECT id FROM tasks WHERE profile_id = ? AND status = 'ready'
+ 		   AND (SELECT COUNT(*) FROM task_events WHERE task_id = tasks.id) < ?
+ 		 ORDER BY position, id LIMIT 1`, profileID, MaxEventsToClaim).Scan(&id)
+ 	if err == nil {
+ 		return id, nil
+ 	}
+ 	if !errors.Is(err, sql.ErrNoRows) {
+ 		return 0, fmt.Errorf("tasks: picking the next task: %w", err)
+ 	}
+ 	err = x.QueryRowContext(ctx,
+ 		`SELECT id FROM tasks WHERE profile_id = ? AND status = 'in_progress' AND claimed_by <> '' AND claim_until <= ?
+ 		   AND (SELECT COUNT(*) FROM task_events WHERE task_id = tasks.id) < ?
+-		 ORDER BY claim_until, id LIMIT 1`, profileID, s.stamp(), MaxEventsToClaim).Scan(&id)
++		 ORDER BY claim_until, id LIMIT 1`, profileID, now.Format(timeFmt), MaxEventsToClaim).Scan(&id)
+ 	if errors.Is(err, sql.ErrNoRows) {
+ 		return 0, nil
+ 	}
+ 	if err != nil {
+ 		return 0, fmt.Errorf("tasks: picking the next task: %w", err)
+ 	}
+ 	return id, nil
+ }
+ 
+ // Next returns the task an agent should work next. Without claim it only looks, in one snapshot (two
+ // agents that look may see the same task), for the operator and for any agent, named or not; a capture
+ // may not read the board. With claim it picks and claims in one write transaction, so two agents never
+-// get the same one, and it needs an agent with a name. A look offers what a claim would take. A nil
++// get the same one, and it needs an agent with a name. A look offers what a claim would take. The clock is
++// read once, inside the transaction, and that instant both picks the task and claims it: a clock that is
++// set back between two readings must not make a task that was found stale a task that is held. A nil
+ // task and a nil error mean there is nothing to do.
+ func (s *Store) Next(ctx context.Context, profileID string, actor Actor, claim bool, lease time.Duration) (*Task, error) {
+ 	if !claim {
+ 		switch actor.Kind {
+ 		case Human, Agent:
+ 		case Capture:
+ 			return nil, operatorOnly("read the board")
+ 		default:
+ 			return nil, invalid("unknown actor")
+ 		}
+ 		var out *Task
+ 		err := s.snapshot(ctx, func(x dbx) error {
+ 			if _, err := s.profileOf(ctx, x, profileID); err != nil {
+ 				return err
+ 			}
+-			id, err := s.pickNext(ctx, x, profileID)
++			id, err := s.pickNext(ctx, x, profileID, s.now().UTC())
+ 			if err != nil || id == 0 {
+ 				return err
+ 			}
+ 			t, err := s.getTx(ctx, x, profileID, id)
+ 			if err != nil {
+ 				return err
+ 			}
+ 			out = &t
+ 			return nil
+ 		})
+@@ -121,25 +128,26 @@ func (s *Store) Next(ctx context.Context, profileID string, actor Actor, claim b
+ 		return out, nil
+ 	}
+ 	if err := needName(actor); err != nil {
+ 		return nil, err
+ 	}
+ 	var out *Task
+ 	err := s.tx(ctx, func(x dbx) error {
+ 		if _, err := s.profileOf(ctx, x, profileID); err != nil {
+ 			return err
+ 		}
+-		id, err := s.pickNext(ctx, x, profileID)
++		now := s.now().UTC()
++		id, err := s.pickNext(ctx, x, profileID, now)
+ 		if err != nil || id == 0 {
+ 			return err
+ 		}
+-		t, err := s.claimTx(ctx, x, profileID, id, actor, lease)
++		t, err := s.claimTx(ctx, x, profileID, id, actor, now, lease)
+ 		if err != nil {
+ 			return err
+ 		}
+ 		if err := s.bump(ctx, x, profileID); err != nil {
+ 			return err
+ 		}
+ 		out = &t
+ 		return nil
+ 	})
+ 	if err != nil {
+@@ -152,21 +160,21 @@ func (s *Store) Next(ctx context.Context, profileID string, actor Actor, claim b
+ // task the agent holds already; never one that another agent holds, nor one the operator works on.
+ func (s *Store) Claim(ctx context.Context, profileID string, id int64, actor Actor, lease time.Duration) (Task, error) {
+ 	if err := needName(actor); err != nil {
+ 		return Task{}, err
+ 	}
+ 	var out Task
+ 	err := s.tx(ctx, func(x dbx) error {
+ 		if _, err := s.profileOf(ctx, x, profileID); err != nil {
+ 			return err
+ 		}
+-		t, err := s.claimTx(ctx, x, profileID, id, actor, lease)
++		t, err := s.claimTx(ctx, x, profileID, id, actor, s.now().UTC(), lease)
+ 		if err != nil {
+ 			return err
+ 		}
+ 		if err := s.bump(ctx, x, profileID); err != nil {
+ 			return err
+ 		}
+ 		out = t
+ 		return nil
+ 	})
+ 	if err != nil {
+@@ -188,52 +196,58 @@ func claimOf(cur Task, name string, now time.Time) (kind, note string, refused e
+ 	case cur.Claim == nil:
+ 		return "", "", notReady("task #%d is being worked on by the operator", cur.ID)
+ 	case cur.Claim.By == name:
+ 		return "claimed", noteRenewed, nil
+ 	case !cur.Claim.Until.After(now):
+ 		return "reclaimed", "the claim of " + echo(cur.Claim.By) + " had expired", nil
+ 	}
+ 	return "", "", &ClaimedError{By: cur.Claim.By, Until: cur.Claim.Until}
+ }
+ 
+-// claimTx claims task id in the caller's write transaction. One conditional UPDATE decides: it takes the
+-// task only when it is Ready, or In progress with a lease that has ended or under the same name, and has
+-// fewer than MaxEventsToClaim events; and only a task of the profile. The task is read first for what the
+-// UPDATE writes (the place in the column, the lease that a renewal never shortens) and for the event, and
+-// read again when the UPDATE takes nothing, to say why. If the two do not agree, the UPDATE took what the
+-// rules refuse or refused what they allow, and the error undoes the transaction.
+-func (s *Store) claimTx(ctx context.Context, x dbx, profileID string, id int64, actor Actor, lease time.Duration) (Task, error) {
++// claimTx claims task id at now (UTC) in the caller's write transaction. One conditional UPDATE decides
++// whether the task is taken: only when it is Ready, or In progress with a lease that has ended or under the
++// same name, with fewer than MaxEventsToClaim events, and of the profile. It decides the lease too: a
++// renewal by the same name keeps the later of the end it holds and the new one, and any other claim sets
++// the new end, so no read can make the UPDATE shorten a lease or lengthen a new one. What it does not
++// decide is read first: the place in the column (the bottom of In progress for a Ready card, else the
++// card's own) and the event, whose kind and from status are those of the row as read. That the row is the
++// one the UPDATE then sees is the write lock's doing: BEGIN IMMEDIATE takes it before the read, so no other
++// connection changes the task between the two. The task is read again when the UPDATE takes nothing, to say
++// why. The cross-check of the two catches only a disagreement over whether a take is allowed (the UPDATE
++// took what the rules refuse, took several rows, or refused what they allow), and the error undoes the
++// transaction; it would not notice one over which of the three ways of taking applies.
++func (s *Store) claimTx(ctx context.Context, x dbx, profileID string, id int64, actor Actor, now time.Time, lease time.Duration) (Task, error) {
+ 	cur, err := s.getTx(ctx, x, profileID, id)
+ 	if err != nil {
+ 		return Task{}, err
+ 	}
+-	now := s.now().UTC()
+ 	stamp := now.Format(timeFmt)
+ 	name := actor.Label()
+ 	kind, note, refused := claimOf(cur, name, now)
+-	until, pos := leaseEnd(now, clampLease(lease)), cur.Position
+-	switch {
+-	case cur.Status == StatusReady:
++	end, pos := leaseEnd(now, clampLease(lease)).Format(timeFmt), cur.Position
++	if cur.Status == StatusReady {
+ 		if pos, err = s.edgePosition(ctx, x, profileID, StatusInProgress, false, id); err != nil {
+ 			return Task{}, err
+ 		}
+-	case note == noteRenewed:
+-		until = later(cur.Claim.Until, until)
+ 	}
+-	// The UPDATE is made whatever the read says: it, and not the read, decides what is taken.
++	// The UPDATE is made whatever the read says: it, and not the read, decides whether the task is taken and
++	// for how long. The row's own end counts only for a renewal: a lease left on a Ready row or held by the
++	// claim that is taken over lengthens nothing.
+ 	res, err := x.ExecContext(ctx,
+-		`UPDATE tasks SET status = 'in_progress', claimed_by = ?, claim_until = ?, position = ?, updated_at = ?
++		`UPDATE tasks SET status = 'in_progress', claimed_by = ?,
++		        claim_until = CASE WHEN status = 'in_progress' AND claimed_by = ? THEN max(claim_until, ?) ELSE ? END,
++		        position = ?, updated_at = ?
+ 		 WHERE id = ? AND profile_id = ?
+ 		   AND (status = 'ready'
+ 		        OR (status = 'in_progress' AND claimed_by <> '' AND (claimed_by = ? OR claim_until <= ?)))
+ 		   AND (SELECT COUNT(*) FROM task_events WHERE task_id = tasks.id) < ?`,
+-		name, until.Format(timeFmt), pos, stamp, id, profileID, name, stamp, MaxEventsToClaim)
++		name, name, end, end, pos, stamp, id, profileID, name, stamp, MaxEventsToClaim)
+ 	if err != nil {
+ 		return Task{}, fmt.Errorf("tasks: claiming #%d: %w", id, err)
+ 	}
+ 	n, err := res.RowsAffected()
+ 	if err != nil {
+ 		return Task{}, fmt.Errorf("tasks: claiming #%d: %w", id, err)
+ 	}
+ 	switch {
+ 	case n == 0:
+ 		return Task{}, s.claimRefusal(ctx, x, profileID, id, name, now)
+diff --git a/internal/tasks/claims_cas_test.go b/internal/tasks/claims_cas_test.go
+index 4e5f8124..ef5855c0 100644
+--- a/internal/tasks/claims_cas_test.go
++++ b/internal/tasks/claims_cas_test.go
+@@ -28,89 +28,93 @@ func (m *meddler) ExecContext(ctx context.Context, q string, args ...any) (sql.R
+ 		m.before(m.dbx)
+ 	}
+ 	res, err := m.dbx.ExecContext(ctx, q, args...)
+ 	if m.after != nil {
+ 		m.after(m.dbx)
+ 	}
+ 	return res, err
+ }
+ 
+ // claimMeddled runs a claim of the task by an agent through a meddler, whose changes are statements
+-// with the id of the task as their one argument. It returns the row and the number of events of the task
+-// as they are inside the transaction when the claim is done, and what the claim says. The transaction is
+-// undone afterwards.
++// with the id of the task as their one argument. It returns the row (profile, status, holder and end of
++// the lease, separated by bars) and the number of events of the task as they are inside the transaction
++// when the claim is done, and what the claim says. The transaction is undone afterwards.
+ func claimMeddled(t *testing.T, s *Store, id int64, by, before, after string) (row string, events int, err error) {
+ 	t.Helper()
+ 	run := func(q string) func(x dbx) {
+ 		if q == "" {
+ 			return nil
+ 		}
+ 		return func(x dbx) {
+ 			if _, e := x.ExecContext(bg, q, id); e != nil {
+ 				t.Error(e)
+ 			}
+ 		}
+ 	}
+ 	txErr := s.tx(bg, func(x dbx) error {
+ 		m := &meddler{dbx: x, before: run(before), after: run(after)}
+-		_, err = s.claimTx(bg, m, "default", id, bot(by), 0)
+-		if e := x.QueryRowContext(bg, `SELECT profile_id || '|' || status || '|' || claimed_by FROM tasks WHERE id = ?`, id).Scan(&row); e != nil {
++		_, err = s.claimTx(bg, m, "default", id, bot(by), s.now().UTC(), 0)
++		if e := x.QueryRowContext(bg, `SELECT profile_id || '|' || status || '|' || claimed_by || '|' || claim_until FROM tasks WHERE id = ?`, id).Scan(&row); e != nil {
+ 			t.Error(e)
+ 		}
+ 		if e := x.QueryRowContext(bg, `SELECT COUNT(*) FROM task_events WHERE task_id = ?`, id).Scan(&events); e != nil {
+ 			t.Error(e)
+ 		}
+ 		return errors.New("undo")
+ 	})
+ 	if txErr == nil || txErr.Error() != "undo" {
+ 		t.Fatalf("the transaction: %v", txErr)
+ 	}
+ 	return row, events, err
+ }
+ 
+ // The UPDATE of a claim takes a task only if it is Ready, or In progress with a lease that has run out
+ // or already held under the name, in the profile the claim is for; the UPDATE decides that (spec 5.2).
+ // The claim reads the task before, for what to write, and again when the UPDATE takes nothing, to say
+ // why, so a task that changed in between is refused for what it has become. Where what the claim read
+-// and what the UPDATE did do not agree, it says so, and the transaction keeps nothing.
++// and what the UPDATE did do not agree on whether the task is taken, it says so, and the transaction
++// keeps nothing. Where they agree on that and the task is the holder's own, the UPDATE alone decides the
++// lease too: a renewal never shortens it, whatever the claim read.
+ func TestTheUpdateOfAClaimDecidesWhatItTakes(t *testing.T) {
+ 	notASentinel := func(err error) bool {
+ 		return err != nil && !errors.Is(err, ErrNotReady) && !errors.Is(err, ErrNotFound) && !errors.Is(err, ErrClaimed) && !errors.Is(err, ErrLimit)
+ 	}
+ 	for _, c := range []struct {
+ 		name          string
+-		heldByOther   bool   // when the claim reads it, "other" holds the task for another hour
++		held          string // when the claim reads it, this agent holds the task for another hour (none: it is Ready)
+ 		before, after string // changes made to the task, each with its id as the one argument
+ 		want          func(err error) bool
+ 		row           string // the row, in the transaction, afterwards
+ 		events        int
+ 	}{
+-		{"moved to another profile after it was read", false, `UPDATE tasks SET profile_id = 'p2' WHERE id = ?`, "",
+-			func(err error) bool { return errors.Is(err, ErrNotFound) }, "p2|ready|", 1},
+-		{"moved to Review after it was read", false, `UPDATE tasks SET status = 'review' WHERE id = ?`, "",
+-			func(err error) bool { return errors.Is(err, ErrNotReady) }, "default|review|", 1},
+-		{"taken by another agent after it was read", false, `UPDATE tasks SET status = 'in_progress', claimed_by = 'other', claim_until = '2026-10-05T13:00:00Z' WHERE id = ?`, "",
++		{"moved to another profile after it was read", "", `UPDATE tasks SET profile_id = 'p2' WHERE id = ?`, "",
++			func(err error) bool { return errors.Is(err, ErrNotFound) }, "p2|ready||", 1},
++		{"moved to Review after it was read", "", `UPDATE tasks SET status = 'review' WHERE id = ?`, "",
++			func(err error) bool { return errors.Is(err, ErrNotReady) }, "default|review||", 1},
++		{"taken by another agent after it was read", "", `UPDATE tasks SET status = 'in_progress', claimed_by = 'other', claim_until = '2026-10-05T13:00:00Z' WHERE id = ?`, "",
+ 			func(err error) bool {
+ 				var ce *ClaimedError
+ 				return errors.Is(err, ErrClaimed) && errors.As(err, &ce) && ce.By == "other"
+-			}, "default|in_progress|other", 1},
+-		{"changed and changed back, so that there is nothing to refuse", false, `UPDATE tasks SET status = 'review' WHERE id = ?`, `UPDATE tasks SET status = 'ready' WHERE id = ?`,
+-			func(err error) bool { return notASentinel(err) && strings.Contains(err.Error(), "not taken") }, "default|ready|", 1},
+-		{"a lease that runs out after it was read", true, `UPDATE tasks SET claim_until = '2026-10-05T11:00:00Z' WHERE id = ?`, "",
+-			func(err error) bool { return notASentinel(err) && strings.Contains(err.Error(), "refuse") }, "default|in_progress|one", 2},
++			}, "default|in_progress|other|2026-10-05T13:00:00Z", 1},
++		{"changed and changed back, so that there is nothing to refuse", "", `UPDATE tasks SET status = 'review' WHERE id = ?`, `UPDATE tasks SET status = 'ready' WHERE id = ?`,
++			func(err error) bool { return notASentinel(err) && strings.Contains(err.Error(), "not taken") }, "default|ready||", 1},
++		{"a lease that runs out after it was read", "other", `UPDATE tasks SET claim_until = '2026-10-05T11:00:00Z' WHERE id = ?`, "",
++			func(err error) bool { return notASentinel(err) && strings.Contains(err.Error(), "refuse") }, "default|in_progress|one|2026-10-05T12:30:00Z", 2},
++		{"a renewal whose lease was made longer after it was read keeps the longer end", "one", `UPDATE tasks SET claim_until = '2026-10-05T17:00:00Z' WHERE id = ?`, "",
++			func(err error) bool { return err == nil }, "default|in_progress|one|2026-10-05T17:00:00Z", 3},
+ 	} {
+ 		t.Run(c.name, func(t *testing.T) {
+ 			s, db, _ := newTestStore(t)
+ 			addProfile(t, db, "p2")
+ 			id := mustAdd(t, s, "default", "contested", true).ID
+-			if c.heldByOther {
+-				claimsClaim(t, s, id, "other", time.Hour)
++			if c.held != "" {
++				claimsClaim(t, s, id, c.held, time.Hour)
+ 			}
+ 			row, events, err := claimMeddled(t, s, id, "one", c.before, c.after)
+ 			if !c.want(err) {
+ 				t.Errorf("the claim says %v", err)
+ 			}
+ 			if row != c.row || events != c.events {
+ 				t.Errorf("the row is %q with %d events, want %q with %d", row, events, c.row, c.events)
+ 			}
+ 		})
+ 	}
+@@ -138,10 +142,67 @@ func TestAClaimTakesTheTaskNamedAndNoOther(t *testing.T) {
+ 	held("two", "", "one", "", "")
+ 	claimsClaim(t, s, ids[2], "one", time.Hour) // a renewal
+ 	held("two", "", "one", "", "")
+ 	clk.advance(2 * time.Hour)
+ 	claimsClaim(t, s, ids[0], "three", 0) // a takeover
+ 	held("three", "", "one", "", "")
+ 	if n := countWhere(t, db, "tasks", "status = 'ready'"); n != 3 {
+ 		t.Errorf("%d tasks are Ready, want 3", n)
+ 	}
+ }
++
++// Only a renewal by the holder keeps the later of two lease ends. Any other claim, a takeover of a stale
++// claim or a claim of a Ready task, ends exactly one lease after now, whatever lease the row still holds:
++// the one the claim it takes over had, or the stray one that a Ready row may carry, ending far off, under
++// another name or under the claimant's own.
++func TestAClaimThatIsNoRenewalEndsExactlyOneLeaseAfterNow(t *testing.T) {
++	const lease = 2 * time.Hour
++	for _, c := range []struct {
++		name string
++		prep func(t *testing.T, s *Store, db *sql.DB, clk *clock) int64 // makes the task and returns its id
++	}{
++		{"a takeover of a stale claim", func(t *testing.T, s *Store, db *sql.DB, clk *clock) int64 {
++			id := mustAdd(t, s, "default", "abandoned", true).ID
++			claimsClaim(t, s, id, "one", 10*time.Minute)
++			clk.advance(20 * time.Minute)
++			return id
++		}},
++		{"a Ready task with nothing left on it", func(t *testing.T, s *Store, db *sql.DB, clk *clock) int64 {
++			return mustAdd(t, s, "default", "plain", true).ID
++		}},
++		{"a Ready task with a claim of another name left on it, ending far off", func(t *testing.T, s *Store, db *sql.DB, clk *clock) int64 {
++			id := mustAdd(t, s, "default", "stray", true).ID
++			claimsStray(t, db, id, "ghost", clk.t.Add(10*time.Hour))
++			return id
++		}},
++		{"a Ready task with a claim of the claimant's own name left on it, ending far off", func(t *testing.T, s *Store, db *sql.DB, clk *clock) int64 {
++			id := mustAdd(t, s, "default", "stray", true).ID
++			claimsStray(t, db, id, "two", clk.t.Add(10*time.Hour))
++			return id
++		}},
++	} {
++		for _, via := range []string{"claim", "next --claim"} {
++			t.Run(c.name+", by "+via, func(t *testing.T) {
++				s, db, clk := newTestStore(t)
++				id := c.prep(t, s, db, clk)
++				var got *Task
++				var err error
++				if via == "claim" {
++					var task Task
++					task, err = s.Claim(bg, "default", id, bot("two"), lease)
++					got = &task
++				} else {
++					got, err = s.Next(bg, "default", bot("two"), true, lease)
++				}
++				if err != nil || got == nil || got.ID != id || got.Claim == nil || got.Claim.By != "two" {
++					t.Fatalf("%s: %+v, %v, want the task taken by two", via, got, err)
++				}
++				if want := clk.t.Add(lease).Format(timeFmt); got.Claim.Until.UTC().Format(timeFmt) != want {
++					t.Errorf("the task says the lease ends %v, want %s", got.Claim.Until, want)
++				}
++				if _, until := opsClaim(t, db, id); until != clk.t.Add(lease).Format(timeFmt) {
++					t.Errorf("the lease is stored as ending %q, want one lease after now, %q", until, clk.t.Add(lease).Format(timeFmt))
++				}
++			})
++		}
++	}
++}
+diff --git a/internal/tasks/claims_events_test.go b/internal/tasks/claims_events_test.go
+index ed2b3287..b1335498 100644
+--- a/internal/tasks/claims_events_test.go
++++ b/internal/tasks/claims_events_test.go
+@@ -135,81 +135,81 @@ func TestWhatIsWrittenIsCleanedAndCut(t *testing.T) {
+ 				t.Fatal(err)
+ 			}
+ 			if got := noteOf(id); len(got) > MaxCommentBytes || !strings.Contains(got, "[truncated:") || !strings.HasPrefix(got, "xxxx") {
+ 				t.Errorf("%d bytes were stored as %d bytes, %q at the end", len(huge), len(got), got[max(0, len(got)-60):])
+ 			}
+ 		})
+ 	}
+ }
+ 
+ // Spec 5.4: one revision for each write transaction (not one for each event), none for a call that was
+-// refused or had nothing to do.
++// refused or had nothing to do. A call that is refused ends in the refusal the rules name for it.
+ func TestEveryAgentVerbMovesTheRevisionOnceAndARefusalNotAtAll(t *testing.T) {
+ 	s, _, clk := newTestStore(t)
+ 	ready := []int64{mustAdd(t, s, "default", "a", true).ID, mustAdd(t, s, "default", "b", true).ID, mustAdd(t, s, "default", "c", true).ID, mustAdd(t, s, "default", "d", true).ID}
+ 	a, b, c, d := ready[0], ready[1], ready[2], ready[3]
+ 	for _, k := range []struct {
+-		name  string
+-		want  int64 // how far the revision moves
+-		fails bool
+-		prep  func() // what the case needs first, which is not measured
+-		call  func() error
++		name    string
++		want    int64  // how far the revision moves
++		refused error  // the refusal the call ends in, nil for a call that goes through
++		prep    func() // what the case needs first, which is not measured
++		call    func() error
+ 	}{
+-		{"a claim", 1, false, nil, func() error { _, err := s.Claim(bg, "default", a, bot("one"), 0); return err }},
+-		{"a renewal", 1, false, nil, func() error { _, err := s.Claim(bg, "default", a, bot("one"), time.Hour); return err }},
+-		{"a refused claim", 0, true, nil, func() error { _, err := s.Claim(bg, "default", a, bot("two"), 0); return err }},
+-		{"next --claim", 1, false, nil, func() error { _, err := s.Next(bg, "default", bot("one"), true, 0); return err }},
+-		{"a peek", 0, false, nil, func() error { _, err := s.Next(bg, "default", bot("one"), false, 0); return err }},
+-		{"a comment by the holder", 1, false, nil, func() error { _, err := s.Comment(bg, "default", a, "x", bot("one")); return err }},
+-		{"a comment by the operator", 1, false, nil, func() error { _, err := s.Comment(bg, "default", a, "x", human); return err }},
+-		{"a comment by another agent", 0, true, nil, func() error { _, err := s.Comment(bg, "default", a, "x", bot("two")); return err }},
+-		{"an empty comment", 0, true, nil, func() error { _, err := s.Comment(bg, "default", a, " ", bot("one")); return err }},
+-		{"a finish", 1, false, nil, func() error { _, err := s.Finish(bg, "default", a, Outcome{Result: "r"}, bot("one")); return err }},
+-		{"a finish of a task that is in review", 0, true, nil, func() error {
++		{"a claim", 1, nil, nil, func() error { _, err := s.Claim(bg, "default", a, bot("one"), 0); return err }},
++		{"a renewal", 1, nil, nil, func() error { _, err := s.Claim(bg, "default", a, bot("one"), time.Hour); return err }},
++		{"a refused claim", 0, ErrClaimed, nil, func() error { _, err := s.Claim(bg, "default", a, bot("two"), 0); return err }},
++		{"next --claim", 1, nil, nil, func() error { _, err := s.Next(bg, "default", bot("one"), true, 0); return err }},
++		{"a peek", 0, nil, nil, func() error { _, err := s.Next(bg, "default", bot("one"), false, 0); return err }},
++		{"a comment by the holder", 1, nil, nil, func() error { _, err := s.Comment(bg, "default", a, "x", bot("one")); return err }},
++		{"a comment by the operator", 1, nil, nil, func() error { _, err := s.Comment(bg, "default", a, "x", human); return err }},
++		{"a comment by another agent", 0, ErrNotClaimant, nil, func() error { _, err := s.Comment(bg, "default", a, "x", bot("two")); return err }},
++		{"an empty comment", 0, ErrInvalid, nil, func() error { _, err := s.Comment(bg, "default", a, " ", bot("one")); return err }},
++		{"a finish", 1, nil, nil, func() error { _, err := s.Finish(bg, "default", a, Outcome{Result: "r"}, bot("one")); return err }},
++		{"a finish of a task that is in review", 0, ErrNotClaimant, nil, func() error {
+ 			_, err := s.Finish(bg, "default", a, Outcome{Result: "r"}, bot("one"))
+ 			return err
+ 		}},
+-		{"a finish with both a result and a question", 0, true, nil, func() error {
++		{"a finish with both a result and a question", 0, ErrInvalid, nil, func() error {
+ 			_, err := s.Finish(bg, "default", b, Outcome{Result: "r", Question: "q"}, bot("one"))
+ 			return err
+ 		}},
+-		{"a release", 1, false, nil, func() error { _, err := s.Release(bg, "default", b, "no", bot("one")); return err }},
+-		{"a release by another agent", 0, true, nil, func() error { _, err := s.Release(bg, "default", b, "no", bot("two")); return err }},
+-		{"next --claim with nothing to take", 0, false, func() { // the Ready column is empty
++		{"a release", 1, nil, nil, func() error { _, err := s.Release(bg, "default", b, "no", bot("one")); return err }},
++		{"a release by another agent", 0, ErrNotClaimant, nil, func() error { _, err := s.Release(bg, "default", b, "no", bot("two")); return err }},
++		{"next --claim with nothing to take", 0, nil, func() { // the Ready column is empty
+ 			for _, id := range []int64{b, c, d} {
+ 				claimsClaim(t, s, id, "three", 0)
+ 			}
+ 		}, func() error {
+ 			got, err := s.Next(bg, "default", bot("four"), true, 0)
+ 			if err == nil && got != nil {
+ 				return errors.New("next took " + got.Title)
+ 			}
+ 			return err
+ 		}},
+-		{"a takeover by next --claim", 1, false, func() { clk.advance(2 * time.Hour) }, func() error {
++		{"a takeover by next --claim", 1, nil, func() { clk.advance(2 * time.Hour) }, func() error {
+ 			got, err := s.Next(bg, "default", bot("four"), true, 0)
+ 			if err == nil && (got == nil || got.LastEvent == nil || got.LastEvent.Kind != "reclaimed") {
+ 				return errors.New("next took nothing, or did not take a stale claim")
+ 			}
+ 			return err
+ 		}},
+ 	} {
+ 		if k.prep != nil {
+ 			k.prep()
+ 		}
+ 		before := claimsRev(t, s)
+ 		err := k.call()
+ 		if got := claimsRev(t, s) - before; got != k.want {
+ 			t.Errorf("%s: the revision moved by %d (err %v), want %d", k.name, got, err, k.want)
+ 		}
+-		if (err != nil) != k.fails {
+-			t.Errorf("%s: err %v, want a failure: %v", k.name, err, k.fails)
++		if k.refused == nil && err != nil || k.refused != nil && !errors.Is(err, k.refused) {
++			t.Errorf("%s: err %v, want %v", k.name, err, k.refused)
+ 		}
+ 	}
+ }
+ 
+ // A change, its event and the revision are one transaction: when either cannot be written, nothing is,
+ // and the same call works once the obstacle is gone.
+ func TestEveryAgentVerbWritesTheChangeTheEventAndTheRevisionOrNone(t *testing.T) {
+ 	scenarios := []struct {
+ 		name string
+ 		prep func(t *testing.T, s *Store, clk *clock) func() error
+diff --git a/internal/tasks/claims_helpers_test.go b/internal/tasks/claims_helpers_test.go
+index 2b62e51e..dedafcc0 100644
+--- a/internal/tasks/claims_helpers_test.go
++++ b/internal/tasks/claims_helpers_test.go
+@@ -1,14 +1,15 @@
+ package tasks
+ 
+ import (
+ 	"database/sql"
++	"strings"
+ 	"testing"
+ 	"time"
+ )
+ 
+ // claimsSeedEvents writes comment events straight into the table until the task holds total of them.
+ func claimsSeedEvents(t *testing.T, db *sql.DB, id int64, total int) {
+ 	t.Helper()
+ 	have := countWhere(t, db, "task_events", "task_id = ?", id)
+ 	if have > total {
+ 		t.Fatalf("setup: task #%d holds %d events already, more than the %d asked for", id, have, total)
+@@ -57,10 +58,91 @@ func claimsRev(t *testing.T, s *Store) int64 {
+ 
+ // claimsClaim claims a task as an agent and fails the test when it is refused.
+ func claimsClaim(t *testing.T, s *Store, id int64, name string, lease time.Duration) Task {
+ 	t.Helper()
+ 	got, err := s.Claim(bg, "default", id, bot(name), lease)
+ 	if err != nil {
+ 		t.Fatalf("%s claims #%d: %v", name, id, err)
+ 	}
+ 	return got
+ }
++
++// claimsExplainEveryTask replays the history of every task of the default profile, event by event, and
++// fails the test wherever the history does not explain the row it left behind: a task is held by one
++// agent at a time, only the holder comments, finishes or releases it, a takeover is of a claim somebody
++// holds, an event goes from the status the task was in, and the status and the holder at the end are the
++// row's. The operator may end any claim by moving the card away from In progress: that is a released
++// event in its name, before the move's own event (which is the one that changes the status), and it
++// names the holder whose claim ended. It returns how many claims the histories hold.
++func claimsExplainEveryTask(t *testing.T, s *Store, db *sql.DB) int {
++	t.Helper()
++	rows, err := db.Query(`SELECT id, status, claimed_by FROM tasks ORDER BY id`)
++	if err != nil {
++		t.Fatal(err)
++	}
++	type row struct {
++		id         int64
++		status, by string
++	}
++	var all []row
++	for rows.Next() {
++		var r row
++		if err := rows.Scan(&r.id, &r.status, &r.by); err != nil {
++			t.Fatal(err)
++		}
++		all = append(all, r)
++	}
++	rows.Close()
++	claims := 0
++	for _, r := range all {
++		state, holder := "", ""
++		_, events, err := s.Get(bg, "default", r.id)
++		if err != nil {
++			t.Fatal(err)
++		}
++		for i, e := range events {
++			operatorEnds := e.Kind == "released" && e.Actor == "you"
++			if e.ToStatus != "" {
++				if e.FromStatus != "" && e.FromStatus != state {
++					t.Errorf("task #%d, event %d (%s): from %s while the task was in %q", r.id, i, e.Kind, e.FromStatus, state)
++				}
++				if !operatorEnds {
++					state = e.ToStatus
++				}
++			}
++			switch e.Kind {
++			case "claimed":
++				claims++
++				switch {
++				case e.Note == "renewed" && holder != e.Actor:
++					t.Errorf("task #%d, event %d: %s renewed a claim held by %q", r.id, i, e.Actor, holder)
++				case e.Note != "renewed" && holder != "":
++					t.Errorf("task #%d, event %d: %s claimed a task held by %q", r.id, i, e.Actor, holder)
++				case e.Note != "renewed" && e.FromStatus != "ready":
++					t.Errorf("task #%d, event %d: a claim from %q", r.id, i, e.FromStatus)
++				}
++				holder = e.Actor
++			case "reclaimed":
++				if holder == "" || holder == e.Actor {
++					t.Errorf("task #%d, event %d: %s took over a claim held by %q", r.id, i, e.Actor, holder)
++				}
++				holder = e.Actor
++			case "comment":
++				if e.Actor != "you" && holder != e.Actor {
++					t.Errorf("task #%d, event %d: %s commented on a task held by %q", r.id, i, e.Actor, holder)
++				}
++			case "result", "question", "released":
++				switch {
++				case operatorEnds && (holder == "" || !strings.Contains(e.Note, "the claim of "+holder+" ended")):
++					t.Errorf("task #%d, event %d: the operator ended a claim held by %q, saying %q", r.id, i, holder, e.Note)
++				case !operatorEnds && holder != e.Actor:
++					t.Errorf("task #%d, event %d: %s handed back a task held by %q", r.id, i, e.Actor, holder)
++				}
++				holder = ""
++			}
++		}
++		if state != r.status || holder != r.by {
++			t.Errorf("task #%d: its history says %q held by %q, the row says %q held by %q", r.id, state, holder, r.status, r.by)
++		}
++	}
++	return claims
++}
+diff --git a/internal/tasks/claims_lease_test.go b/internal/tasks/claims_lease_test.go
+index a3cd95dd..cfe44411 100644
+--- a/internal/tasks/claims_lease_test.go
++++ b/internal/tasks/claims_lease_test.go
+@@ -76,20 +76,72 @@ func TestALeaseIsNeverShorterThanAskedForAndACommentRenewsToo(t *testing.T) {
+ 	if end := clk.t.Add(DefaultLease); got.Claim.Until.Before(end) || got.Claim.Until.Sub(end) >= time.Second {
+ 		t.Errorf("a lease of half an hour from %v ends at %v, want the whole second at or after %v", clk.t, got.Claim.Until, end)
+ 	}
+ 	clk.advance(time.Minute)
+ 	got, err := s.Comment(bg, "default", task.ID, "going on", bot("one"))
+ 	if end := clk.t.Add(DefaultLease); err != nil || got.Claim.Until.Before(end) || got.Claim.Until.Sub(end) >= time.Second {
+ 		t.Errorf("a comment renews to the whole second at or after %v: %+v, %v", end, got.Claim, err)
+ 	}
+ }
+ 
++// The 24 hours cap what is stored (R11): a lease is rounded up to a whole second so that a short one is
++// never over at birth, but it never ends later than MaxLease after the whole second the claim is stamped
++// with, which is the start that is stored. On a clock with a fraction of a second (every real one)
++// rounding the longest lease up would make it a second longer than the cap. The clock stands half way
++// through a second here, and each lease is taken by id and by next --claim.
++func TestARoundedUpLeaseNeverEndsLaterThanTheCapAllows(t *testing.T) {
++	for _, c := range []struct {
++		name  string
++		lease time.Duration
++		end   string // where the lease is stored as ending, for a claim at 12:00:00.5 on 2026-10-05
++	}{
++		{"the longest lease", MaxLease, "2026-10-06T12:00:00Z"},
++		{"two days", 48 * time.Hour, "2026-10-06T12:00:00Z"},
++		{"the longest duration", time.Duration(math.MaxInt64), "2026-10-06T12:00:00Z"},
++		{"a second short of the longest", MaxLease - time.Second, "2026-10-06T12:00:00Z"},
++		{"two seconds short of the longest", MaxLease - 2*time.Second, "2026-10-06T11:59:59Z"},
++		{"none", 0, "2026-10-05T12:30:01Z"},
++		{"a negative lease", -time.Hour, "2026-10-05T12:30:01Z"},
++		{"the most negative duration", time.Duration(math.MinInt64), "2026-10-05T12:30:01Z"},
++		{"a nanosecond", 1, "2026-10-05T12:00:01Z"},
++	} {
++		t.Run(c.name, func(t *testing.T) {
++			s, db, clk := newTestStore(t)
++			clk.t = clk.t.Add(500 * time.Millisecond)
++			byID, byNext := mustAdd(t, s, "default", "by id", true), mustAdd(t, s, "default", "by next", true)
++			got, err := s.Claim(bg, "default", byID.ID, bot("one"), c.lease)
++			if err != nil || got.Claim == nil {
++				t.Fatalf("claim: %+v, %v", got, err)
++			}
++			next, err := s.Next(bg, "default", bot("two"), true, c.lease)
++			if err != nil || next == nil || next.ID != byNext.ID || next.Claim == nil {
++				t.Fatalf("next --claim: %+v, %v", next, err)
++			}
++			for what, task := range map[string]Task{"claim": got, "next --claim": *next} {
++				if _, until := opsClaim(t, db, task.ID); until != c.end {
++					t.Errorf("%s: the lease is stored as ending %q, want %q", what, until, c.end)
++				}
++				if end := task.Claim.Until.UTC().Format(timeFmt); end != c.end || task.Claim.Stale {
++					t.Errorf("%s: the task says the lease ends %q and is stale %v, want %q and a lease that is not over", what, end, task.Claim.Stale, c.end)
++				}
++			}
++			// asked for, a lease is never over at birth, whatever it was asked for: nobody takes the task
++			if _, err := s.Claim(bg, "default", byID.ID, bot("three"), 0); !errors.Is(err, ErrClaimed) {
++				t.Errorf("a claim of the task right after: %v, want ErrClaimed", err)
++			}
++			if cn, err := s.Counts(bg, "default"); err != nil || cn.Stale != 0 {
++				t.Errorf("stale claims %d (err %v), want 0", cn.Stale, err)
++			}
++		})
++	}
++}
++
+ // A lease that ends exactly now has ended (spec 4.2): the other agent's claim and next --claim take the
+ // task at that second, and not a second before. Each of them states the comparison on its own.
+ func TestALeaseThatEndsExactlyNowHasEnded(t *testing.T) {
+ 	takers := []struct {
+ 		name string
+ 		take func(s *Store, id int64) (*Task, error)
+ 	}{
+ 		{"claim by id", func(s *Store, id int64) (*Task, error) {
+ 			got, err := s.Claim(bg, "default", id, bot("two"), 0)
+ 			if err != nil {
+diff --git a/internal/tasks/claims_limit_test.go b/internal/tasks/claims_limit_test.go
+index 4424c362..861d336c 100644
+--- a/internal/tasks/claims_limit_test.go
++++ b/internal/tasks/claims_limit_test.go
+@@ -130,20 +130,69 @@ func TestNextTakesATaskWithOneEventToSpare(t *testing.T) {
+ 		}
+ 	}
+ 	if n := countWhere(t, db, "task_events", "task_id = ?", head.ID); n != MaxEventsToClaim {
+ 		t.Errorf("%d events, want %d", n, MaxEventsToClaim)
+ 	}
+ 	if got, err := s.Next(bg, "default", bot("two"), true, 0); err != nil || got == nil || got.ID != behind.ID {
+ 		t.Errorf("then the next: %+v, %v", got, err)
+ 	}
+ }
+ 
++// The cap is as exact for a stale claim as it is for a Ready task, in the query that finds one: with one
++// event to spare it is taken, and its takeover is the 2,000th event; with 2,000 it is passed over, and
++// nothing is left to take. A peek offers what next --claim would take, on both sides.
++func TestNextTakesAStaleClaimWithOneEventToSpareAndPassesOverOneWithNone(t *testing.T) {
++	for _, c := range []struct {
++		events int
++		taken  bool
++	}{{MaxEventsToClaim - 1, true}, {MaxEventsToClaim, false}} {
++		for _, claim := range []bool{false, true} {
++			t.Run(strconv.Itoa(c.events)+" events, claim "+strconv.FormatBool(claim), func(t *testing.T) {
++				s, db, clk := newTestStore(t)
++				task := mustAdd(t, s, "default", "abandoned", true)
++				claimsClaim(t, s, task.ID, "one", 0)
++				clk.advance(DefaultLease) // the lease ends now
++				claimsSeedEvents(t, db, task.ID, c.events)
++				before := dumpBoard(t, db)
++				got, err := s.Next(bg, "default", bot("two"), claim, 0)
++				if err != nil {
++					t.Fatalf("next (claim %v): %v", claim, err)
++				}
++				if !c.taken {
++					if got != nil {
++						t.Errorf("next (claim %v): %+v, want the stale claim passed over", claim, got)
++					}
++					if after := dumpBoard(t, db); after != before {
++						t.Errorf("next changed the database:\nbefore:\n%s\nafter:\n%s", before, after)
++					}
++					return
++				}
++				if got == nil || got.ID != task.ID || got.Claim == nil {
++					t.Fatalf("next (claim %v): %+v, want the stale claim", claim, got)
++				}
++				if !claim {
++					if got.Claim.By != "one" || !got.Claim.Stale {
++						t.Errorf("a peek: %+v, want the stale claim of one as it is", got.Claim)
++					}
++					return
++				}
++				if got.Claim.By != "two" || got.LastEvent == nil || got.LastEvent.Kind != "reclaimed" {
++					t.Errorf("next --claim: %+v, %+v, want the takeover by two", got.Claim, got.LastEvent)
++				}
++				if n := countWhere(t, db, "task_events", "task_id = ?", task.ID); n != MaxEventsToClaim {
++					t.Errorf("%d events, want %d: the takeover is the last one that fits", n, MaxEventsToClaim)
++				}
++			})
++		}
++	}
++}
++
+ // Stale claims are passed over too, and the next one is taken.
+ func TestNextPassesOverAStaleClaimThatHoldsTwoThousandEvents(t *testing.T) {
+ 	s, db, clk := newTestStore(t)
+ 	old, newer := mustAdd(t, s, "default", "oldest lease", true), mustAdd(t, s, "default", "newer lease", true)
+ 	claimsClaim(t, s, old.ID, "one", 10*time.Minute)
+ 	claimsClaim(t, s, newer.ID, "two", 20*time.Minute)
+ 	clk.advance(time.Hour)
+ 	claimsSeedEvents(t, db, old.ID, MaxEventsToClaim)
+ 	if got, err := s.Next(bg, "default", bot("three"), false, 0); err != nil || got == nil || got.ID != newer.ID {
+ 		t.Errorf("a peek: %+v, %v, want the stale claim that can be taken", got, err)
+diff --git a/internal/tasks/claims_pick_test.go b/internal/tasks/claims_pick_test.go
+index f81fb6ec..d5aca5cd 100644
+--- a/internal/tasks/claims_pick_test.go
++++ b/internal/tasks/claims_pick_test.go
+@@ -146,21 +146,21 @@ func TestARenewalOrATakeoverKeepsTheCardsPlace(t *testing.T) {
+ // written while it runs. The operator here approves a task and moves the stale card away in the middle
+ // of the read; the peek must not say "nothing to do" for a board that always had something to do.
+ func TestAPeekIsReadInOneSnapshot(t *testing.T) {
+ 	s, db, clk := newTestStore(t)
+ 	task := mustAdd(t, s, "default", "abandoned", true)
+ 	claimsClaim(t, s, task.ID, "one", 0)
+ 	clk.advance(DefaultLease)
+ 	calls := 0
+ 	s.now = func() time.Time {
+ 		calls++
+-		if calls == 1 { // the peek has found no Ready task and asks for the time to look for a stale claim
++		if calls == 1 { // the peek has read the profile, which opens its snapshot, and asks for the time
+ 			if _, err := db.Exec(`UPDATE tasks SET status = 'review', claimed_by = '', claim_until = '' WHERE id = ?`, task.ID); err != nil {
+ 				t.Error(err)
+ 			}
+ 			if _, err := db.Exec(`INSERT INTO tasks (profile_id, title, status, position, created_at, updated_at) VALUES ('default', 'new', 'ready', 1, ?, ?)`, rowTime, rowTime); err != nil {
+ 				t.Error(err)
+ 			}
+ 		}
+ 		return clk.t
+ 	}
+ 	got, err := s.Next(bg, "default", bot("two"), false, 0)
+@@ -169,20 +169,49 @@ func TestAPeekIsReadInOneSnapshot(t *testing.T) {
+ 	}
+ 	if err != nil || got == nil || got.ID != task.ID || got.Status != StatusInProgress || got.Claim == nil || got.Claim.By != "one" || !got.Claim.Stale {
+ 		t.Errorf("peek %+v, err %v, want the stale claim the board held when the read began", got, err)
+ 	}
+ 	s.now = clk.now
+ 	if got, err := s.Next(bg, "default", bot("two"), false, 0); err != nil || got == nil || got.Title != "new" {
+ 		t.Errorf("the next peek: %+v, %v, want the task that was approved", got, err)
+ 	}
+ }
+ 
++// next --claim reads the clock once, so the instant at which a claim is found stale is the one at which it
++// is taken: the lease ends at 12:30:00, the first reading of the clock is that second, and every reading
++// after it is a second earlier than the one before, as a wall clock that is set back would show. A claim
++// that read the clock again would find the task stale and then refuse it as one that is held.
++func TestNextClaimTakesWhatItFoundStaleWhateverTheClockDoesNext(t *testing.T) {
++	s, db, clk := newTestStore(t)
++	task := mustAdd(t, s, "default", "abandoned", true)
++	claimsClaim(t, s, task.ID, "one", 0)
++	end := clk.t.Add(DefaultLease)
++	reads := 0
++	s.now = func() time.Time {
++		reads++
++		return end.Add(-time.Duration(reads-1) * time.Second)
++	}
++	got, err := s.Next(bg, "default", bot("two"), true, 0)
++	if reads < 2 {
++		t.Fatalf("the clock was read %d times: the test no longer tells one reading from several", reads)
++	}
++	if err != nil || got == nil || got.ID != task.ID || got.Claim == nil || got.Claim.By != "two" {
++		t.Fatalf("next --claim: %+v, %v, want the task that was found stale taken by two", got, err)
++	}
++	if got.LastEvent == nil || got.LastEvent.Kind != "reclaimed" || got.LastEvent.Actor != "two" {
++		t.Errorf("last event: %+v", got.LastEvent)
++	}
++	if _, until := opsClaim(t, db, task.ID); until != end.Add(DefaultLease).Format(timeFmt) {
++		t.Errorf("the new lease is stored as ending %q, want half an hour after the instant that was read first, %q", until, end.Add(DefaultLease).Format(timeFmt))
++	}
++}
++
+ // A peek needs no name, so any agent may look; the board is not a capture's to read (spec 5.1), and an
+ // actor that was never set is refused, as List does before anything else.
+ func TestAPeekNeedsNoNameButNotJustAnyActor(t *testing.T) {
+ 	s, _, _ := newTestStore(t)
+ 	task := mustAdd(t, s, "default", "ready", true)
+ 	for name, a := range map[string]Actor{
+ 		"the operator": human, "a named agent": bot("b"), "an agent with no name": bot(""),
+ 		"an agent named like a label": bot("Agent"), "the operator with a name": {Kind: Human, Name: "x"},
+ 	} {
+ 		if got, err := s.Next(bg, "default", a, false, 0); err != nil || got == nil || got.ID != task.ID {
+diff --git a/internal/tasks/claims_process_test.go b/internal/tasks/claims_process_test.go
+index ca2cfdfb..a34db67a 100644
+--- a/internal/tasks/claims_process_test.go
++++ b/internal/tasks/claims_process_test.go
+@@ -1,186 +1,469 @@
+ package tasks
+ 
+ import (
+ 	"bufio"
++	"database/sql"
++	"errors"
+ 	"fmt"
+ 	"io"
+ 	"os"
+ 	"os/exec"
+ 	"strconv"
+ 	"strings"
++	"sync"
+ 	"testing"
+ 	"time"
+ 
+ 	"github.com/monoes/mono-agent/internal/storage"
+ 	"github.com/monoes/mono-agent/internal/testdb"
+ )
+ 
+ const (
+ 	claimsHelperDB   = "TASKS_CLAIMS_HELPER_DB"
+ 	claimsHelperName = "TASKS_CLAIMS_HELPER_NAME"
++
++	// claimsKidsPatience bounds the whole of the test of the processes: every wait for a process, to start,
++	// to finish a stage and to exit, ends by then, with the process killed and its output in the failure.
++	// It is wide, because the test runs under the race detector on a machine that is busy with other work.
++	claimsKidsPatience = 2 * time.Minute
+ )
+ 
+-// claimsSlowStore is a store over the database whose clock takes its time. A claim asks the clock after
+-// it has read the task and before it writes, inside the write lock, so the claims of the processes
+-// really are in each other's way: a process that does not wait for the lock would read what another is
+-// about to take.
++// claimsSlowStore is a store over the database whose clock takes its time. A claim asks the clock inside
++// the write lock (once for its instant, and again when it shows the task it took), so the claims of the
++// processes really are in each other's way: a process that does not wait for the lock would read what
++// another is about to take.
+ func claimsSlowStore(db *storage.Database) *Store {
+ 	s := NewStore(db.DB)
+ 	s.now = func() time.Time {
+ 		time.Sleep(2 * time.Millisecond)
+ 		return time.Now()
+ 	}
+ 	return s
+ }
+ 
+-// TestClaimsHelperProcess is no test: it is what TestSessionsInOtherProcessesNeverTakeTheSameTask runs in
+-// the other processes. It opens the database it is given, says it is ready, waits for the word to start,
+-// and then takes the next task and prints its id until there is none.
++// TestClaimsHelperProcess is no test: it is what the other processes of
++// TestSessionsInOtherProcessesNeverTakeTheSameTask are. It opens the database it is given, says it is
++// ready, and then does what it is told on its input, a command to a line, and says done after each. Each
++// command gives the instant to begin at, in nanoseconds since the epoch, so that the processes start
++// together:
++//
++//	next AT         take the next task until there is none, saying "claimed ID" for each one it took
++//	claim AT ID...  claim each task in turn, saying "claimed ID" for one it took and "refused ID BY"
++//	                for one that the agent BY holds
++//
++// It ends when its input does.
+ func TestClaimsHelperProcess(t *testing.T) {
+ 	path := os.Getenv(claimsHelperDB)
+ 	if path == "" {
+ 		t.Skip("the helper of TestSessionsInOtherProcessesNeverTakeTheSameTask")
+ 	}
+ 	db, err := storage.NewDatabase(path)
+ 	if err != nil {
+ 		fmt.Println("error", err)
+ 		os.Exit(2)
+ 	}
+ 	defer db.Close()
+ 	s := claimsSlowStore(db)
++	me := bot(os.Getenv(claimsHelperName))
+ 	fmt.Println("ready")
+-	if _, err := bufio.NewReader(os.Stdin).ReadString('\n'); err != nil {
+-		os.Exit(2)
+-	}
++	in := bufio.NewReader(os.Stdin)
+ 	for {
+-		got, err := s.Next(bg, "default", bot(os.Getenv(claimsHelperName)), true, 0)
++		line, err := in.ReadString('\n')
++		if err != nil {
++			return // the input has ended: the test is over
++		}
++		words := strings.Fields(line)
++		if len(words) < 2 {
++			fmt.Println("error", "unknown command", strconv.Quote(line))
++			os.Exit(2)
++		}
++		at, err := strconv.ParseInt(words[1], 10, 64)
+ 		if err != nil {
+ 			fmt.Println("error", err)
+-			os.Exit(1)
++			os.Exit(2)
+ 		}
+-		if got == nil {
+-			return
++		time.Sleep(time.Until(time.Unix(0, at)))
++		switch {
++		case len(words) == 2 && words[0] == "next":
++			for {
++				got, err := s.Next(bg, "default", me, true, 0)
++				if err != nil {
++					fmt.Println("error", err)
++					os.Exit(1)
++				}
++				if got == nil {
++					break
++				}
++				fmt.Println("claimed", got.ID)
++				time.Sleep(5 * time.Millisecond) // the lock goes to whoever waits for it
++			}
++		case len(words) > 2 && words[0] == "claim":
++			for _, w := range words[2:] {
++				id, err := strconv.ParseInt(w, 10, 64)
++				if err != nil {
++					fmt.Println("error", err)
++					os.Exit(2)
++				}
++				var held *ClaimedError
++				switch _, err := s.Claim(bg, "default", id, me, 0); {
++				case err == nil:
++					fmt.Println("claimed", id)
++				case errors.As(err, &held):
++					fmt.Println("refused", id, held.By)
++				default:
++					fmt.Println("error", err)
++					os.Exit(1)
++				}
++				time.Sleep(5 * time.Millisecond) // the lock goes to whoever waits for it
++			}
++		default:
++			fmt.Println("error", "unknown command", strconv.Quote(line))
++			os.Exit(2)
+ 		}
+-		fmt.Println("claimed", got.ID)
+-		time.Sleep(5 * time.Millisecond) // the lock goes to whoever waits for it
++		fmt.Println("done")
+ 	}
+ }
+ 
+-// The sessions that share a board are processes, not goroutines: the write lock of the database is what
+-// keeps them from taking the same task. Three other processes and this one take the next task from one
+-// board, all starting together; every task is taken, and by one of them only.
+-func TestSessionsInOtherProcessesNeverTakeTheSameTask(t *testing.T) {
+-	path := testdb.Path(t)
+-	db, err := storage.NewDatabase(path)
+-	if err != nil {
+-		t.Fatal(err)
+-	}
+-	t.Cleanup(func() { db.Close() })
+-	const tasks, others = 60, 3
+-	for i := 0; i < tasks; i++ {
+-		mustAdd(t, NewStore(db.DB), "default", fmt.Sprintf("t%d", i), true)
+-	}
+-	s := claimsSlowStore(db)
++// claimsOutput is what a process has printed, for the message of a test that has to say what went wrong.
++type claimsOutput struct {
++	mu sync.Mutex
++	b  strings.Builder
++}
+ 
+-	type child struct {
+-		cmd   *exec.Cmd
+-		in    io.WriteCloser
+-		lines chan string
+-	}
+-	var kids []*child
++func (o *claimsOutput) Write(p []byte) (int, error) {
++	o.mu.Lock()
++	defer o.mu.Unlock()
++	return o.b.Write(p)
++}
++
++func (o *claimsOutput) String() string {
++	o.mu.Lock()
++	defer o.mu.Unlock()
++	return o.b.String()
++}
++
++// claimsKid is another process of the test binary, running TestClaimsHelperProcess.
++type claimsKid struct {
++	name  string
++	cmd   *exec.Cmd
++	in    io.WriteCloser
++	lines chan string // what it says, a line at a time, until its output ends
++	out   *claimsOutput
++}
++
++// startClaimsKids starts n processes over the database at path, and waits for each of them to say that
++// it is ready. They are killed when the test ends, whatever has become of them.
++func startClaimsKids(t *testing.T, path string, n int, deadline time.Time) []*claimsKid {
++	t.Helper()
++	var kids []*claimsKid
+ 	t.Cleanup(func() {
+ 		for _, k := range kids {
+ 			_ = k.cmd.Process.Kill()
+ 		}
+ 	})
+-	for i := 0; i < others; i++ {
+-		cmd := exec.Command(os.Args[0], "-test.run=^TestClaimsHelperProcess$")
+-		cmd.Env = append(os.Environ(), claimsHelperDB+"="+path, fmt.Sprintf("%s=process-%d", claimsHelperName, i))
+-		cmd.Stderr = os.Stderr
+-		in, err := cmd.StdinPipe()
++	// atexit_sleep_ms=0: the race runtime otherwise sleeps a second before a process exits, which every
++	// process would add to the test.
++	race := strings.TrimSpace(os.Getenv("GORACE") + " atexit_sleep_ms=0")
++	for i := 0; i < n; i++ {
++		k := &claimsKid{name: fmt.Sprintf("process-%d", i), lines: make(chan string, 1024), out: &claimsOutput{}}
++		k.cmd = exec.Command(os.Args[0], "-test.run=^TestClaimsHelperProcess$")
++		k.cmd.Env = append(os.Environ(), claimsHelperDB+"="+path, claimsHelperName+"="+k.name, "GORACE="+race)
++		k.cmd.Stderr = k.out
++		in, err := k.cmd.StdinPipe()
+ 		if err != nil {
+ 			t.Fatal(err)
+ 		}
+-		out, err := cmd.StdoutPipe()
++		k.in = in
++		out, err := k.cmd.StdoutPipe()
+ 		if err != nil {
+ 			t.Fatal(err)
+ 		}
+-		if err := cmd.Start(); err != nil {
++		if err := k.cmd.Start(); err != nil {
+ 			t.Fatal(err)
+ 		}
+-		k := &child{cmd: cmd, in: in, lines: make(chan string, tasks+8)}
+ 		kids = append(kids, k)
+ 		go func() {
+ 			sc := bufio.NewScanner(out)
+ 			for sc.Scan() {
++				fmt.Fprintln(k.out, "stdout:", sc.Text())
+ 				k.lines <- sc.Text()
+ 			}
+ 			close(k.lines)
+ 		}()
+ 	}
+-	for i, k := range kids {
++	for _, k := range kids {
++		if said := k.await(t, deadline, "ready"); len(said) != 0 {
++			t.Fatalf("%s said %q before it was ready", k.name, said)
++		}
++	}
++	return kids
++}
++
++// await returns what the process says until it says the line until. A process that ends first, or has not
++// said it by the deadline (it is killed then), fails the test with everything the process has printed.
++func (k *claimsKid) await(t *testing.T, deadline time.Time, until string) []string {
++	t.Helper()
++	timer := time.NewTimer(time.Until(deadline))
++	defer timer.Stop()
++	var said []string
++	for {
+ 		select {
+-		case line := <-k.lines:
+-			if line != "ready" {
+-				t.Fatalf("process %d said %q, want ready", i, line)
++		case line, ok := <-k.lines:
++			switch {
++			case !ok:
++				t.Fatalf("%s ended before it said %q; its output:\n%s", k.name, until, k.out)
++			case line == until:
++				return said
+ 			}
+-		case <-time.After(2 * time.Minute):
+-			t.Fatalf("process %d never said it was ready", i)
++			said = append(said, line)
++		case <-timer.C:
++			_ = k.cmd.Process.Kill()
++			t.Fatalf("%s did not say %q in the time allowed, and was killed; its output:\n%s", k.name, until, k.out)
+ 		}
+ 	}
++}
++
++// send gives the process a command.
++func (k *claimsKid) send(t *testing.T, command string) {
++	t.Helper()
++	if _, err := fmt.Fprintln(k.in, command); err != nil {
++		t.Fatalf("%s: %v; its output:\n%s", k.name, err, k.out)
++	}
++}
++
++// stop ends the process by closing its input, and fails the test if it does not exit cleanly by the
++// deadline (it is killed then).
++func (k *claimsKid) stop(t *testing.T, deadline time.Time) {
++	t.Helper()
++	_ = k.in.Close()
++	timer := time.NewTimer(time.Until(deadline))
++	defer timer.Stop()
++	for open := true; open; { // what it prints on its way out is read to the end before it is waited for
++		select {
++		case _, open = <-k.lines:
++		case <-timer.C:
++			_ = k.cmd.Process.Kill()
++			t.Fatalf("%s did not end in the time allowed, and was killed; its output:\n%s", k.name, k.out)
++		}
++	}
++	waited := make(chan error, 1)
++	go func() { waited <- k.cmd.Wait() }()
++	select {
++	case err := <-waited:
++		if err != nil {
++			t.Errorf("%s: %v; its output:\n%s", k.name, err, k.out)
++		}
++	case <-timer.C:
++		_ = k.cmd.Process.Kill()
++		t.Fatalf("%s did not exit in the time allowed, and was killed; its output:\n%s", k.name, k.out)
++	}
++}
++
++// claimsRefusal is a claim that an agent was told it could not make: BY, asking for the task, was told
++// that holder has it.
++type claimsRefusal struct {
++	id         int64
++	by, holder string
++}
++
++// claimsRound is what every process made of one stage: who took each task, and who was told what.
++type claimsRound struct {
++	won      map[int64]string
++	refusals []claimsRefusal
++}
++
++// took notes that by took the task, and fails the test if somebody has taken it already.
++func (r *claimsRound) took(t *testing.T, id int64, by string) {
++	t.Helper()
++	if prev, dup := r.won[id]; dup {
++		t.Errorf("task #%d was taken by %s and by %s", id, prev, by)
++	}
++	r.won[id] = by
++}
++
++// claimsStartAfter is how long the processes of a stage are given to take their command before they all
++// begin. A process that is slower than that begins late, and the stage is as right as before, with less to
++// contest.
++const claimsStartAfter = 150 * time.Millisecond
++
++// claimsStage has every process, this one too, do the same work at the same time: the command (a verb
++// and what it takes after the instant to begin at) goes to the others, and own does the work here at that
++// instant. It returns what all of them took and were refused.
++func claimsStage(t *testing.T, kids []*claimsKid, deadline time.Time, verb, args string, own func(r *claimsRound)) claimsRound {
++	t.Helper()
++	round := claimsRound{won: map[int64]string{}}
++	begin := time.Now().Add(claimsStartAfter)
++	for _, k := range kids {
++		k.send(t, strings.TrimSpace(fmt.Sprintf("%s %d %s", verb, begin.UnixNano(), args)))
++	}
++	time.Sleep(time.Until(begin))
++	own(&round)
+ 	for _, k := range kids {
+-		if _, err := fmt.Fprintln(k.in, "go"); err != nil {
+-			t.Fatal(err)
++		for _, line := range k.await(t, deadline, "done") {
++			f := strings.Fields(line)
++			id := int64(0)
++			if len(f) > 1 {
++				id, _ = strconv.ParseInt(f[1], 10, 64)
++			}
++			switch {
++			case len(f) == 2 && f[0] == "claimed" && id != 0:
++				round.took(t, id, k.name)
++			case len(f) == 3 && f[0] == "refused" && id != 0:
++				round.refusals = append(round.refusals, claimsRefusal{id: id, by: k.name, holder: f[2]})
++			default:
++				t.Errorf("%s said %q", k.name, line)
++			}
+ 		}
+ 	}
++	return round
++}
+ 
+-	taken := map[int64]string{}
+-	record := func(id int64, by string) {
+-		if prev, dup := taken[id]; dup {
+-			t.Errorf("task #%d was taken by %s and by %s", id, prev, by)
++// claimsCheck holds a stage to account. Each task that was contested was taken, once, by one of the
++// processes; every refusal names that one as the holder; and the task and its history say the same: the
++// row is held by it, and its last claim event is its own, a claimed for a task that was Ready (the only
++// claim it has) and a reclaimed for one that was stale (which follows the claim that went stale).
++func claimsCheck(t *testing.T, db *sql.DB, what string, ready, stale []int64, round claimsRound) {
++	t.Helper()
++	contested := map[int64]bool{}
++	for _, id := range append(append([]int64{}, ready...), stale...) {
++		contested[id] = true
++		if _, ok := round.won[id]; !ok {
++			t.Errorf("%s: task #%d was taken by nobody", what, id)
+ 		}
+-		taken[id] = by
+ 	}
+-	for { // this process takes tasks too, while the others do
+-		got, err := s.Next(bg, "default", bot("this-process"), true, 0)
+-		if err != nil {
+-			t.Fatalf("this process: %v", err)
++	for id, by := range round.won {
++		if !contested[id] {
++			t.Errorf("%s: %s took task #%d, which nobody asked for", what, by, id)
+ 		}
+-		if got == nil {
+-			break
++	}
++	for _, r := range round.refusals {
++		if r.holder != round.won[r.id] {
++			t.Errorf("%s: %s was told that task #%d is held by %s, and %s took it", what, r.by, r.id, r.holder, round.won[r.id])
+ 		}
+-		record(got.ID, "this-process")
+-		time.Sleep(5 * time.Millisecond) // the lock goes to whoever waits for it
+ 	}
+-	for i, k := range kids {
+-		for line := range k.lines {
+-			switch {
+-			case strings.HasPrefix(line, "claimed "):
+-				id, err := strconv.ParseInt(strings.TrimPrefix(line, "claimed "), 10, 64)
+-				if err != nil {
+-					t.Fatalf("process %d said %q", i, line)
+-				}
+-				record(id, fmt.Sprintf("process-%d", i))
+-			case strings.HasPrefix(line, "error "):
+-				t.Errorf("process %d: %s", i, line)
++	for _, c := range []struct {
++		ids    []int64
++		kind   string
++		claims int // the claim events the task holds when the stage is over
++	}{{ready, "claimed", 1}, {stale, "reclaimed", 2}} {
++		for _, id := range c.ids {
++			by := round.won[id]
++			if got := claimsText(t, db, `SELECT claimed_by FROM tasks WHERE id = ?`, id); got != by {
++				t.Errorf("%s: task #%d is held by %q, want %q, who took it", what, id, got, by)
++			}
++			if n := countWhere(t, db, "task_events", "task_id = ? AND kind IN ('claimed', 'reclaimed')", id); n != c.claims {
++				t.Errorf("%s: task #%d holds %d claim events, want %d", what, id, n, c.claims)
++			}
++			last := claimsText(t, db, `SELECT kind || '|' || actor FROM task_events WHERE task_id = ? AND kind IN ('claimed', 'reclaimed') ORDER BY id DESC LIMIT 1`, id)
++			if last != c.kind+"|"+by {
++				t.Errorf("%s: the last claim event of task #%d is %q, want %q", what, id, last, c.kind+"|"+by)
+ 			}
+ 		}
+-		if err := k.cmd.Wait(); err != nil {
+-			t.Errorf("process %d: %v", i, err)
++	}
++}
++
++// The sessions that share a board are processes, not goroutines: the write lock of the database is what
++// keeps them from taking the same task. Three other processes and this one contest the same board in
++// three stages, each starting together: next --claim over Ready tasks; a claim by id of each of a list
++// of Ready tasks and of tasks whose claim has gone stale, the same ids in the same order for everybody;
++// and next --claim over stale claims. Every task is taken, once, whoever took it.
++func TestSessionsInOtherProcessesNeverTakeTheSameTask(t *testing.T) {
++	path := testdb.Path(t)
++	db, err := storage.NewDatabase(path)
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { db.Close() })
++	s := claimsSlowStore(db)
++	operator := NewStore(db.DB)
++	// a claim that went stale long ago: made three hours ago, for half an hour, by an agent that is gone
++	past := NewStore(db.DB)
++	past.now = func() time.Time { return time.Now().Add(-3 * time.Hour) }
++	add := func(n int) []int64 {
++		var ids []int64
++		for i := 0; i < n; i++ {
++			ids = append(ids, mustAdd(t, operator, "default", fmt.Sprintf("ready %d", i), true).ID)
++		}
++		return ids
++	}
++	abandon := func(n int) []int64 {
++		var ids []int64
++		for i := 0; i < n; i++ {
++			id := mustAdd(t, past, "default", fmt.Sprintf("abandoned %d", i), true).ID
++			claimsClaim(t, past, id, "gone", 0)
++			ids = append(ids, id)
++		}
++		return ids
++	}
++	next := func(r *claimsRound) { // this process takes tasks too, while the others do
++		for {
++			got, err := s.Next(bg, "default", bot("this-process"), true, 0)
++			if err != nil {
++				t.Fatalf("this process: %v", err)
++			}
++			if got == nil {
++				return
++			}
++			r.took(t, got.ID, "this-process")
++			time.Sleep(5 * time.Millisecond) // the lock goes to whoever waits for it
++		}
++	}
++	shares := func(r claimsRound) map[string]int {
++		out := map[string]int{}
++		for _, by := range r.won {
++			out[by]++
+ 		}
++		return out
++	}
++
++	deadline := time.Now().Add(claimsKidsPatience)
++	kids := startClaimsKids(t, path, 3, deadline)
++
++	ready := add(24)
++	round := claimsStage(t, kids, deadline, "next", "", next)
++	claimsCheck(t, db.DB, "next --claim over Ready tasks", ready, nil, round)
++	t.Logf("who took how many of the %d Ready tasks: %v", len(ready), shares(round))
++
++	ready, stale := add(8), abandon(8)
++	var ids []int64 // a Ready task and a stale claim by turns
++	for i := range ready {
++		ids = append(ids, ready[i], stale[i])
+ 	}
+-	share := map[string]int{}
+-	for _, by := range taken {
+-		share[by]++
++	var words []string
++	for _, id := range ids {
++		words = append(words, strconv.FormatInt(id, 10))
+ 	}
+-	t.Logf("who took how many of the %d tasks: %v", tasks, share)
+-	if len(taken) != tasks {
+-		t.Errorf("%d tasks were taken, want %d", len(taken), tasks)
++	round = claimsStage(t, kids, deadline, "claim", strings.Join(words, " "), func(r *claimsRound) {
++		for _, id := range ids {
++			var held *ClaimedError
++			switch _, err := s.Claim(bg, "default", id, bot("this-process"), 0); {
++			case err == nil:
++				r.took(t, id, "this-process")
++			case errors.As(err, &held):
++				r.refusals = append(r.refusals, claimsRefusal{id: id, by: "this-process", holder: held.By})
++			default:
++				t.Fatalf("this process: claim of #%d: %v", id, err)
++			}
++			time.Sleep(5 * time.Millisecond) // the lock goes to whoever waits for it
++		}
++	})
++	claimsCheck(t, db.DB, "claim by id over Ready tasks and stale claims", ready, stale, round)
++	t.Logf("who took how many of the %d tasks claimed by id, and how many were refused: %v, %d", len(ids), shares(round), len(round.refusals))
++
++	stale = abandon(8)
++	round = claimsStage(t, kids, deadline, "next", "", next)
++	claimsCheck(t, db.DB, "next --claim over stale claims", nil, stale, round)
++	t.Logf("who took how many of the %d stale claims: %v", len(stale), shares(round))
++
++	for _, k := range kids {
++		k.stop(t, deadline)
+ 	}
+-	if n := countWhere(t, db.DB, "task_events", "kind = 'claimed'"); n != tasks {
+-		t.Errorf("%d claimed events, want %d", n, tasks)
++	// the whole board: every history explains its task, and the revision counts every write
++	if claimsExplainEveryTask(t, operator, db.DB) == 0 {
++		t.Error("no claim was made")
+ 	}
+-	if n := countWhere(t, db.DB, "tasks", "status = 'in_progress' AND claimed_by <> ''"); n != tasks {
+-		t.Errorf("%d tasks are held, want %d", n, tasks)
++	writes := countWhere(t, db.DB, "task_events", "kind IN ('created', 'claimed', 'reclaimed')")
++	if rev := claimsRev(t, operator); rev != int64(writes) {
++		t.Errorf("revision %d, want %d: one for every task added and every claim made", rev, writes)
+ 	}
+ }
+diff --git a/internal/tasks/claims_race_test.go b/internal/tasks/claims_race_test.go
+index 02a40395..9ef44fa1 100644
+--- a/internal/tasks/claims_race_test.go
++++ b/internal/tasks/claims_race_test.go
+@@ -1,16 +1,17 @@
+ package tasks
+ 
+ import (
+ 	"errors"
+ 	"fmt"
+ 	"math/rand"
++	"slices"
+ 	"sync"
+ 	"sync/atomic"
+ 	"testing"
+ 	"time"
+ )
+ 
+ // Several agents claim one task at the same moment: the claim is one write transaction that takes the
+ // lock first, so exactly one of them gets it, and the others are told who holds it.
+ func TestSeveralAgentsClaimingOneTaskAtOnceTakeItOnce(t *testing.T) {
+ 	s, db, _ := newTestStore(t)
+@@ -197,77 +198,127 @@ func TestAWorkloadAtOnceLeavesAHistoryThatExplainsEveryTask(t *testing.T) {
+ 	for err := range failures {
+ 		t.Errorf("a call failed with %v: only the refusals of the rules are expected", err)
+ 	}
+ 	if written.Load() == 0 {
+ 		t.Fatal("nothing was written: the workload did not run")
+ 	}
+ 	if want := first + written.Load(); claimsRev(t, s) != want {
+ 		t.Errorf("revision %d, want %d: one for every write that went through", claimsRev(t, s), want)
+ 	}
+ 
+-	rows, err := db.Query(`SELECT id, status, claimed_by FROM tasks ORDER BY id`)
+-	if err != nil {
+-		t.Fatal(err)
+-	}
+-	type row struct {
+-		id         int64
+-		status, by string
+-	}
+-	var all []row
+-	for rows.Next() {
+-		var r row
+-		if err := rows.Scan(&r.id, &r.status, &r.by); err != nil {
+-			t.Fatal(err)
+-		}
+-		all = append(all, r)
++	if claimsExplainEveryTask(t, s, db) == 0 {
++		t.Error("no claim was made")
+ 	}
+-	rows.Close()
+-	claims := 0
+-	for _, r := range all {
+-		state, holder := "", ""
+-		_, events, err := s.Get(bg, "default", r.id)
+-		if err != nil {
+-			t.Fatal(err)
+-		}
+-		for i, e := range events {
+-			if e.ToStatus != "" {
+-				if e.FromStatus != "" && e.FromStatus != state {
+-					t.Errorf("task #%d, event %d (%s): from %s while the task was in %q", r.id, i, e.Kind, e.FromStatus, state)
++}
++
++// Agents claim a card while the operator moves, archives or approves it. Each of these is a write
++// transaction that takes the lock first, so every call goes entirely before or entirely after every
++// other, and the card ends as one of the orders leaves it: archived whether or not an agent had it
++// first, say, or taken by the agent that was quick enough once approved. What the test holds the store
++// to, round after round with the calls started together, is all or nothing: every call either goes
++// through or is refused by a rule (never by an error of the store), a card the operator took out of the
++// queue is taken by at most one agent, the revision counts the calls that went through and no others,
++// and the history of every card, replayed, gives the row that it left.
++func TestClaimsAtOnceWithTheOperatorsMoveArchiveOrApprovalLeaveTheCardAsAnOrderWould(t *testing.T) {
++	const agents, callers, rounds = 3, 2, 12
++	for _, op := range []struct {
++		name  string
++		inbox bool     // the card starts in Inbox, otherwise in Ready
++		once  bool     // the card does not come back to Ready, so at most one claim can go through
++		wins  int      // how many of the operator's calls go through, of the callers that make them at once
++		ends  []Status // where the card may end
++		call  func(s *Store, id int64) error
++	}{
++		{"Move to the top of Review", false, true, callers, []Status{StatusReview}, func(s *Store, id int64) error {
++			_, err := s.Move(bg, "default", id, StatusReview, Placement{Top: true}, human)
++			return err
++		}},
++		{"Move to the top of Ready", false, false, callers, []Status{StatusReady, StatusInProgress}, func(s *Store, id int64) error {
++			_, err := s.Move(bg, "default", id, StatusReady, Placement{Top: true}, human)
++			return err
++		}},
++		{"Archive", false, true, 1, []Status{StatusArchived}, func(s *Store, id int64) error {
++			_, err := s.Archive(bg, "default", []int64{id}, human)
++			return err
++		}},
++		{"Approve", true, true, 1, []Status{StatusReady, StatusInProgress}, func(s *Store, id int64) error {
++			_, err := s.Approve(bg, "default", []int64{id}, false, human)
++			return err
++		}},
++	} {
++		t.Run(op.name, func(t *testing.T) {
++			s, db, _ := newTestStore(t)
++			claimed, done := 0, 0
++			ended := map[Status]int{}
++			for round := 0; round < rounds; round++ {
++				id := mustAdd(t, s, "default", fmt.Sprintf("card %d", round), !op.inbox).ID
++				claimErrs, callErrs := make([]error, agents), make([]error, callers)
++				start := make(chan struct{})
++				var parked, wg sync.WaitGroup
++				launch := func(delay time.Duration, call func()) {
++					parked.Add(1)
++					wg.Go(func() {
++						parked.Done()
++						<-start
++						time.Sleep(delay)
++						call()
++					})
+ 				}
+-				state = e.ToStatus
+-			}
+-			switch e.Kind {
+-			case "claimed":
+-				claims++
+-				switch {
+-				case e.Note == "renewed" && holder != e.Actor:
+-					t.Errorf("task #%d, event %d: %s renewed a claim held by %q", r.id, i, e.Actor, holder)
+-				case e.Note != "renewed" && holder != "":
+-					t.Errorf("task #%d, event %d: %s claimed a task held by %q", r.id, i, e.Actor, holder)
+-				case e.Note != "renewed" && e.FromStatus != "ready":
+-					t.Errorf("task #%d, event %d: a claim from %q", r.id, i, e.FromStatus)
++				for i := range claimErrs {
++					launch(0, func() { _, claimErrs[i] = s.Claim(bg, "default", id, bot(fmt.Sprintf("agent-%d", i)), 0) })
++				}
++				for i := range callErrs { // the operator's calls come a little later in some rounds, so that either order is seen
++					launch(time.Duration(round%5)*400*time.Microsecond, func() { callErrs[i] = op.call(s, id) })
++				}
++				parked.Wait()
++				close(start)
++				wg.Wait()
++
++				through := 0
++				for _, err := range callErrs {
++					switch {
++					case err == nil:
++						through++
++					case op.wins == callers || !errors.Is(err, ErrInvalid):
++						t.Errorf("round %d: a call of the operator failed with %v, want it to go through or to be refused as a second one", round, err)
++					}
++				}
++				if through != op.wins {
++					t.Errorf("round %d: %d of the operator's %d calls went through, want %d", round, through, callers, op.wins)
+ 				}
+-				holder = e.Actor
+-			case "reclaimed":
+-				if holder == "" || holder == e.Actor {
+-					t.Errorf("task #%d, event %d: %s took over a claim held by %q", r.id, i, e.Actor, holder)
++				took := 0
++				for _, err := range claimErrs {
++					switch {
++					case err == nil:
++						took++
++					case !errors.Is(err, ErrClaimed) && !errors.Is(err, ErrNotReady):
++						t.Errorf("round %d: a claim failed with %v, want it to go through or to be refused by a rule", round, err)
++					}
+ 				}
+-				holder = e.Actor
+-			case "comment":
+-				if e.Actor != "you" && holder != e.Actor {
+-					t.Errorf("task #%d, event %d: %s commented on a task held by %q", r.id, i, e.Actor, holder)
++				if op.once && took > 1 {
++					t.Errorf("round %d: %d agents took a card that does not come back to Ready", round, took)
+ 				}
+-			case "result", "question", "released":
+-				if holder != e.Actor {
+-					t.Errorf("task #%d, event %d: %s handed back a task held by %q", r.id, i, e.Actor, holder)
++				claimed, done = claimed+took, done+through
++
++				card, _, err := s.Get(bg, "default", id)
++				if err != nil {
++					t.Fatal(err)
+ 				}
+-				holder = ""
++				if !slices.Contains(op.ends, card.Status) {
++					t.Errorf("round %d: the card ended in %s, want one of %v", round, card.Status, op.ends)
++				}
++				if card.Status != StatusInProgress && card.Claim != nil {
++					t.Errorf("round %d: the card ended in %s with the claim %+v", round, card.Status, card.Claim)
++				}
++				ended[card.Status]++
+ 			}
+-		}
+-		if state != r.status || holder != r.by {
+-			t.Errorf("task #%d: its history says %q held by %q, the row says %q held by %q", r.id, state, holder, r.status, r.by)
+-		}
+-	}
+-	if claims == 0 {
+-		t.Error("no claim was made")
++			if n := countWhere(t, db, "task_events", "kind IN ('claimed', 'reclaimed')"); n != claimed {
++				t.Errorf("%d claim events, want %d: one for each claim that went through", n, claimed)
++			}
++			if want := int64(rounds + claimed + done); claimsRev(t, s) != want {
++				t.Errorf("revision %d, want %d: one for each card added, claim and call of the operator that went through", claimsRev(t, s), want)
++			}
++			claimsExplainEveryTask(t, s, db)
++			t.Logf("%d claims and %d calls of the operator went through; the cards ended %v", claimed, done, ended)
++		})
+ 	}
+ }
+diff --git a/internal/tasks/claims_unit_test.go b/internal/tasks/claims_unit_test.go
+index b83eb012..faa736e5 100644
+--- a/internal/tasks/claims_unit_test.go
++++ b/internal/tasks/claims_unit_test.go
+@@ -47,36 +47,45 @@ func TestLaterKeepsTheLaterOfTwoTimes(t *testing.T) {
+ 	if got := later(b, a); !got.Equal(b) {
+ 		t.Errorf("later(b, a) = %v, want b: a renewal never shortens a lease", got)
+ 	}
+ 	if got := later(a, a); !got.Equal(a) {
+ 		t.Errorf("later(a, a) = %v", got)
+ 	}
+ }
+ 
+ // A time is stored to the second, so a lease ends on a whole second: the one after the end it was
+ // asked for. A stored lease is never shorter than the one asked for, and one that is asked for is
+-// never over already (a lease of a millisecond would otherwise end at the second it began in).
++// never over already (a lease of a millisecond would otherwise end at the second it began in). The
++// rounding up stops at the cap (R11): the end is never more than MaxLease after the whole second the
++// lease began in, which is what the claim is stamped with.
+ func TestALeaseEndsOnTheWholeSecondAfterTheEndItWasAskedFor(t *testing.T) {
+ 	whole := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+ 	half := whole.Add(500 * time.Millisecond)
+ 	zone := time.FixedZone("plus0530", 5*3600+1800)
+ 	for _, c := range []struct {
+ 		name string
+ 		now  time.Time
+ 		d    time.Duration
+ 		want time.Time
+ 	}{
+ 		{"half an hour from a whole second", whole, 30 * time.Minute, whole.Add(30 * time.Minute)},
+ 		{"a nanosecond from a whole second", whole, 1, whole.Add(time.Second)},
+ 		{"a second from a whole second", whole, time.Second, whole.Add(time.Second)},
+ 		{"a second and a nanosecond from a whole second", whole, time.Second + 1, whole.Add(2 * time.Second)},
+ 		{"half an hour from half a second", half, 30 * time.Minute, whole.Add(30*time.Minute + time.Second)},
+ 		{"half a second from half a second", half, 500 * time.Millisecond, whole.Add(time.Second)},
+ 		{"a millisecond from half a second", half, time.Millisecond, whole.Add(time.Second)},
+ 		{"half an hour from half a second, in another zone", half.In(zone), 30 * time.Minute, whole.Add(30*time.Minute + time.Second)},
++		{"the longest lease from a whole second", whole, MaxLease, whole.Add(MaxLease)},
++		{"the longest lease from half a second: the cap wins over the rounding up", half, MaxLease, whole.Add(MaxLease)},
++		{"the longest lease from half a second, in another zone", half.In(zone), MaxLease, whole.Add(MaxLease)},
++		{"a lease a second short of the longest, from half a second: the rounding up lands on the cap", half, MaxLease - time.Second, whole.Add(MaxLease)},
++		{"a lease two seconds short of the longest, from half a second: under the cap", half, MaxLease - 2*time.Second, whole.Add(MaxLease - time.Second)},
++		{"a lease longer than the longest, from half a second", half, 2 * MaxLease, whole.Add(MaxLease)},
++		{"a nanosecond from half a second", half, 1, whole.Add(time.Second)},
+ 	} {
+ 		got := leaseEnd(c.now, c.d)
+ 		if !got.Equal(c.want) || got.Nanosecond() != 0 {
+ 			t.Errorf("%s: leaseEnd = %v, want %v", c.name, got, c.want)
+ 		}
+ 	}
+ }

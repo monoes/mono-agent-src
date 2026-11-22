@@ -1,0 +1,897 @@
+# Review package: Task 7 (base 78116f3b, head a94ecedd), files of Task 7 only
+
+## Commits (Task 7's: da2a99ee, 86cb238f, a94ecedd; the Task 6 fix 75e6fd9b sits between them and is NOT in this diff)
+a94ecedd test(tasks): a poll that finds the revision where it was reads no counts
+86cb238f docs(tasks): Watch's comment says what a lease that runs out does to a report
+da2a99ee feat(tasks): Watch, and proofs that claims and client ids hold across goroutines and processes
+
+## Stat
+ internal/tasks/race_test.go      | 263 ++++++++++++++++++++++++++++++++
+ internal/tasks/watch.go          |  80 ++++++++++
+ internal/tasks/watch_end_test.go | 198 ++++++++++++++++++++++++
+ internal/tasks/watch_test.go     | 317 +++++++++++++++++++++++++++++++++++++++
+ 4 files changed, 858 insertions(+)
+
+## Diff (-U10)
+diff --git a/internal/tasks/race_test.go b/internal/tasks/race_test.go
+new file mode 100644
+index 00000000..7262c5d5
+--- /dev/null
++++ b/internal/tasks/race_test.go
+@@ -0,0 +1,263 @@
++package tasks
++
++import (
++	"bufio"
++	"context"
++	"database/sql"
++	"fmt"
++	"io"
++	"os"
++	"os/exec"
++	"strings"
++	"sync"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"github.com/monoes/mono-agent/internal/storage"
++	"github.com/monoes/mono-agent/internal/testdb"
++)
++
++func TestConcurrentClaimsNeverShareATask(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	const nTasks, nAgents = 6, 12
++	for i := 0; i < nTasks; i++ {
++		mustAdd(t, s, "default", fmt.Sprintf("t%d", i), true)
++	}
++	var mu sync.Mutex
++	got := map[int64]string{}
++	var wg sync.WaitGroup
++	for a := 0; a < nAgents; a++ {
++		wg.Add(1)
++		go func(name string) {
++			defer wg.Done()
++			task, err := s.Next(bg, "default", bot(name), true, 0)
++			if err != nil {
++				t.Errorf("%s: %v", name, err)
++				return
++			}
++			if task == nil {
++				return
++			}
++			mu.Lock()
++			defer mu.Unlock()
++			if prev, dup := got[task.ID]; dup {
++				t.Errorf("task #%d was claimed by %s and by %s", task.ID, prev, name)
++			}
++			got[task.ID] = name
++		}(fmt.Sprintf("agent-%d", a))
++	}
++	wg.Wait()
++	if len(got) != nTasks {
++		t.Fatalf("%d of %d tasks were claimed", len(got), nTasks)
++	}
++}
++
++// checkAddedOnce is what one client id added by many callers at once leaves behind, besides the one
++// row: one created event and one bump of the revision, the ones of the add that made the task.
++func checkAddedOnce(t *testing.T, s *Store, db *sql.DB) {
++	t.Helper()
++	if n := countWhere(t, db, "task_events", "kind = 'created'"); n != 1 {
++		t.Errorf("%d created events, want 1", n)
++	}
++	if rev, err := s.Rev(bg, "default"); err != nil || rev != 1 {
++		t.Errorf("revision %d (%v), want 1: only the add that made the task writes", rev, err)
++	}
++}
++
++func TestConcurrentAddsWithOneClientIDMakeOneTask(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	var created int32
++	var wg sync.WaitGroup
++	for i := 0; i < 10; i++ {
++		wg.Add(1)
++		go func() {
++			defer wg.Done()
++			_, ok, err := s.Add(bg, "default",
++				AddInput{Title: "once", ClientID: "shared-1", SourceKind: SourceChrome}, Actor{Kind: Capture, Name: SourceChrome})
++			if err != nil {
++				t.Error(err)
++				return
++			}
++			if ok {
++				atomic.AddInt32(&created, 1)
++			}
++		}()
++	}
++	wg.Wait()
++	if n := countWhere(t, db, "tasks", "client_id = 'shared-1'"); n != 1 || created != 1 {
++		t.Fatalf("%d rows and %d creations, want one of each", n, created)
++	}
++	checkAddedOnce(t, s, db)
++}
++
++// TestHelperProcess is not a test: the tests below run it in other processes,
++// so that several processes share one database file with this one. A helper
++// opens the database, says READY and waits for the word to start, so that the
++// helpers begin together and are in each other's way; its clock takes a
++// moment, asked inside the write lock, which keeps them there long enough for
++// a lock that is not taken first to show.
++func TestHelperProcess(t *testing.T) {
++	if os.Getenv("TASKS_HELPER") != "1" {
++		t.Skip("the helper of the tests that run other processes")
++	}
++	db, err := storage.NewDatabase(os.Getenv("TASKS_HELPER_DB"))
++	if err != nil {
++		fmt.Println("ERROR", err)
++		os.Exit(1)
++	}
++	defer db.Close()
++	s := NewStore(db.DB)
++	s.now = func() time.Time {
++		time.Sleep(2 * time.Millisecond)
++		return time.Now()
++	}
++	fmt.Println("READY")
++	if _, err := bufio.NewReader(os.Stdin).ReadString('\n'); err != nil {
++		os.Exit(1)
++	}
++	switch os.Getenv("TASKS_HELPER_MODE") {
++	case "claim":
++		for {
++			task, err := s.Next(bg, "default", bot(os.Getenv("TASKS_HELPER_NAME")), true, 0)
++			if err != nil {
++				fmt.Println("ERROR", err)
++				os.Exit(1)
++			}
++			if task == nil {
++				return
++			}
++			fmt.Printf("RESULT %d\n", task.ID)
++			time.Sleep(3 * time.Millisecond) // the lock goes to whoever waits for it
++		}
++	case "add":
++		_, created, err := s.Add(bg, "default",
++			AddInput{Title: "once", ClientID: "shared-1", SourceKind: SourceOS}, Actor{Kind: Capture, Name: SourceOS})
++		if err != nil {
++			fmt.Println("ERROR", err)
++			os.Exit(1)
++		}
++		fmt.Printf("RESULT %v\n", created)
++	}
++}
++
++// runHelpers runs n helper processes at once against the database file and
++// returns the RESULT lines they printed. It waits until every helper has the
++// database open before it lets any of them start, and a helper that hangs ends
++// with the deadline and fails the test, not the run.
++func runHelpers(t *testing.T, path, mode string, n int) []string {
++	t.Helper()
++	ctx, cancel := context.WithTimeout(bg, 2*time.Minute)
++	defer cancel() // ends the helpers still running when this returns, a failure included
++	cmds := make([]*exec.Cmd, n)
++	ins := make([]io.WriteCloser, n)
++	outs := make([]*bufio.Reader, n)
++	for i := range cmds {
++		cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestHelperProcess$")
++		cmd.Env = append(os.Environ(),
++			"TASKS_HELPER=1", "TASKS_HELPER_DB="+path, "TASKS_HELPER_MODE="+mode,
++			fmt.Sprintf("TASKS_HELPER_NAME=proc-%d", i),
++			"GORACE=atexit_sleep_ms=0") // the race runtime would otherwise sleep a second at exit
++		cmd.Stderr = os.Stderr
++		in, err := cmd.StdinPipe()
++		if err != nil {
++			t.Fatal(err)
++		}
++		out, err := cmd.StdoutPipe()
++		if err != nil {
++			t.Fatal(err)
++		}
++		if err := cmd.Start(); err != nil {
++			t.Fatal(err)
++		}
++		cmds[i], ins[i], outs[i] = cmd, in, bufio.NewReader(out)
++	}
++	for i, out := range outs {
++		if line, err := out.ReadString('\n'); strings.TrimSpace(line) != "READY" {
++			t.Fatalf("helper %d said %q (%v), want READY", i, line, err)
++		}
++	}
++	for i, in := range ins {
++		if _, err := fmt.Fprintln(in, "go"); err != nil {
++			t.Fatalf("helper %d: %v", i, err)
++		}
++	}
++	var lines []string
++	for i, out := range outs {
++		rest, err := io.ReadAll(out)
++		if err != nil {
++			t.Fatalf("helper %d: %v", i, err)
++		}
++		if err := cmds[i].Wait(); err != nil {
++			t.Fatalf("helper %d: %v\n%s", i, err, rest)
++		}
++		var mine int
++		for _, l := range strings.Split(string(rest), "\n") {
++			if r, ok := strings.CutPrefix(l, "RESULT "); ok {
++				lines = append(lines, r)
++				mine++
++			}
++		}
++		t.Logf("helper %d printed %d results", i, mine)
++	}
++	return lines
++}
++
++func TestClaimsAcrossProcessesNeverShareATask(t *testing.T) {
++	path := testdb.Path(t)
++	db, err := storage.NewDatabase(path)
++	if err != nil {
++		t.Fatal(err)
++	}
++	s := NewStore(db.DB)
++	const nTasks = 20
++	for i := 0; i < nTasks; i++ {
++		mustAdd(t, s, "default", fmt.Sprintf("t%d", i), true)
++	}
++	db.Close()
++
++	lines := runHelpers(t, path, "claim", 4)
++	seen := map[string]bool{}
++	for _, l := range lines {
++		if seen[l] {
++			t.Fatalf("task #%s was claimed twice: %v", l, lines)
++		}
++		seen[l] = true
++	}
++	if len(seen) != nTasks {
++		t.Fatalf("%d of %d tasks were claimed: %v", len(seen), nTasks, lines)
++	}
++
++	// What the helpers said is what the board says: every task is held, each by one claim.
++	db, err = storage.NewDatabase(path)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer db.Close()
++	if n := countWhere(t, db.DB, "task_events", "kind = 'claimed'"); n != nTasks {
++		t.Errorf("%d claimed events, want %d", n, nTasks)
++	}
++	if n := countWhere(t, db.DB, "tasks", "status = 'in_progress' AND claimed_by <> ''"); n != nTasks {
++		t.Errorf("%d tasks are held, want %d", n, nTasks)
++	}
++}
++
++func TestAddsWithOneClientIDAcrossProcessesMakeOneTask(t *testing.T) {
++	path := testdb.Path(t)
++	lines := runHelpers(t, path, "add", 5)
++	created := 0
++	for _, l := range lines {
++		if l == "true" {
++			created++
++		}
++	}
++	db, err := storage.NewDatabase(path)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer db.Close()
++	if n := countWhere(t, db.DB, "tasks", "client_id = 'shared-1'"); n != 1 || created != 1 || len(lines) != 5 {
++		t.Fatalf("%d rows, %d creations among %d answers: %v", n, created, len(lines), lines)
++	}
++	checkAddedOnce(t, NewStore(db.DB), db.DB)
++}
+diff --git a/internal/tasks/watch.go b/internal/tasks/watch.go
+new file mode 100644
+index 00000000..e7f3789e
+--- /dev/null
++++ b/internal/tasks/watch.go
+@@ -0,0 +1,80 @@
++package tasks
++
++import (
++	"context"
++	"errors"
++	"fmt"
++	"time"
++)
++
++// defaultWatchInterval is how often Watch polls when it is not told.
++const defaultWatchInterval = 2 * time.Second
++
++// Change is what Watch reports: the board revision and the counts at it.
++type Change struct {
++	Rev    int64
++	Counts Counts
++}
++
++// Watch calls fn once at the start and then each time the profile's board revision moves, polling every
++// interval (two seconds when it is not above 0), until ctx ends; it then returns nil. It blocks, so the
++// caller runs it in a goroutine of its own. A poll, the call of fn and the wait for the next poll follow one
++// another: fn is called with no connection held, so it may read the board, and a slow fn delays the next
++// poll and never piles polls up.
++//
++// A poll reads the profile, the revision and, when the revision moved (spec 5.4), the counts, in one
++// snapshot, so the counts are those of the revision they come with. A poll that fails is skipped: the next
++// one tries again. Rev and Counts do not check the profile, so Watch does: a profile that does not exist is
++// an ErrInvalid, returned before any call, and one that is deleted while it is watched ends Watch with an
++// error that wraps ErrNotFound, and no call. (Stale, the claims past their lease, is the one count that the
++// clock moves without a write: a lease that runs out is not reported until a write moves the revision.)
++func (s *Store) Watch(ctx context.Context, profileID string, interval time.Duration, fn func(Change)) error {
++	if interval <= 0 {
++		interval = defaultWatchInterval
++	}
++	var (
++		last      int64 // the revision fn was last called with
++		delivered bool  // whether fn has been called yet
++	)
++	for {
++		c, moved, err := s.watchPoll(ctx, profileID, last, delivered)
++		switch {
++		case ctx.Err() != nil:
++			return nil
++		case errors.Is(err, ErrInvalid) && delivered:
++			return fmt.Errorf("%w: profile %q was deleted", ErrNotFound, echo(profileID))
++		case errors.Is(err, ErrInvalid):
++			return err
++		case err == nil && moved:
++			last, delivered = c.Rev, true
++			fn(c)
++		}
++		select {
++		case <-ctx.Done():
++			return nil
++		case <-time.After(interval):
++		}
++	}
++}
++
++// watchPoll is one poll of Watch: the change to report, when there is one (moved), or the error of the
++// poll. The first poll, and any poll that finds another revision than the last one reported, reads the
++// counts too.
++func (s *Store) watchPoll(ctx context.Context, profileID string, last int64, delivered bool) (c Change, moved bool, err error) {
++	err = s.snapshot(ctx, func(x dbx) error {
++		if _, err := s.profileOf(ctx, x, profileID); err != nil {
++			return err
++		}
++		rev, err := s.revOf(ctx, x, profileID)
++		if err != nil || (delivered && rev == last) {
++			return err
++		}
++		counts, err := s.countsOf(ctx, x, profileID)
++		if err != nil {
++			return err
++		}
++		c, moved = Change{Rev: rev, Counts: counts}, true
++		return nil
++	})
++	return c, moved, err
++}
+diff --git a/internal/tasks/watch_end_test.go b/internal/tasks/watch_end_test.go
+new file mode 100644
+index 00000000..a2e065b9
+--- /dev/null
++++ b/internal/tasks/watch_end_test.go
+@@ -0,0 +1,198 @@
++package tasks
++
++import (
++	"context"
++	"database/sql"
++	"errors"
++	"runtime"
++	"sync/atomic"
++	"testing"
++	"time"
++)
++
++// Rev and Counts do not check the profile, so a watcher that did not would read revision 0 and no cards of a
++// profile that does not exist for ever: it refuses at once, before it reports anything.
++func TestWatchRefusesAnUnknownProfileAtOnce(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	ctx, cancel := context.WithCancel(bg)
++	defer cancel() // a Watch that does not refuse would run until here
++	var called atomic.Bool
++	result := make(chan error, 1)
++	go func() { result <- s.Watch(ctx, "nobody", time.Hour, func(Change) { called.Store(true) }) }()
++	select {
++	case err := <-result:
++		if !errors.Is(err, ErrInvalid) {
++			t.Fatalf("Watch of an unknown profile returned %v, want ErrInvalid", err)
++		}
++	case <-time.After(2 * time.Second):
++		t.Fatal("Watch of an unknown profile did not return")
++	}
++	if called.Load() {
++		t.Error("a profile that does not exist was reported")
++	}
++}
++
++// Deleting a profile deletes its board, and with it the revision: a watcher that went on would report
++// revision 0 and an empty board as a change. It ends instead, with ErrNotFound, and reports nothing for it.
++func TestWatchEndsWhenItsProfileIsDeleted(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	p := addProfile(t, db, "p2")
++	mustAdd(t, s, p, "x", false)
++	w := startWatch(t, s, p, 5*time.Millisecond, nil)
++	if c := waitChange(t, w.changes); c.Rev != 1 {
++		t.Fatalf("the first report: %+v", c)
++	}
++	if _, err := db.Exec(`DELETE FROM profiles WHERE id = ?`, p); err != nil {
++		t.Fatal(err)
++	}
++	select {
++	case <-w.finished:
++	case <-time.After(5 * time.Second):
++		t.Fatal("Watch went on watching a profile that was deleted")
++	}
++	if !errors.Is(w.err, ErrNotFound) || errors.Is(w.err, ErrInvalid) {
++		t.Errorf("Watch returned %v, want an error that is ErrNotFound and not ErrInvalid", w.err)
++	}
++	select {
++	case c := <-w.changes:
++		t.Errorf("the deletion was reported as a change: %+v", c)
++	default:
++	}
++}
++
++// A read that fails does not end the watcher: that poll is skipped and the next one tries again. A revision
++// that is not a number is a read that fails while the profile is there, so it is no deletion.
++func TestWatchSurvivesAFailingRead(t *testing.T) {
++	setRev := func(t *testing.T, db *sql.DB, rev any) {
++		t.Helper()
++		if _, err := db.Exec(`UPDATE task_board_rev SET rev = ? WHERE profile_id = 'default'`, rev); err != nil {
++			t.Fatal(err)
++		}
++	}
++	// stillWatching lets many polls pass (the interval is 5 ms) and fails if the watcher ended or reported.
++	stillWatching := func(t *testing.T, w *watcher) {
++		t.Helper()
++		select {
++		case <-w.finished:
++			t.Fatalf("Watch ended on a read that failed: %v", w.err)
++		case c := <-w.changes:
++			t.Fatalf("a read that failed was reported: %+v", c)
++		case <-time.After(150 * time.Millisecond):
++		}
++	}
++	t.Run("after a report", func(t *testing.T) {
++		s, db, _ := newTestStore(t)
++		mustAdd(t, s, "default", "x", false)
++		w := startWatch(t, s, "default", 5*time.Millisecond, nil)
++		waitChange(t, w.changes)
++		setRev(t, db, "not a number")
++		stillWatching(t, w)
++		setRev(t, db, 1)
++		mustAdd(t, s, "default", "y", false)
++		if c := waitChange(t, w.changes); c.Rev != 2 || c.Counts.Inbox != 2 {
++			t.Fatalf("after the read worked again: %+v", c)
++		}
++	})
++	t.Run("before the first report", func(t *testing.T) {
++		s, db, _ := newTestStore(t)
++		mustAdd(t, s, "default", "x", false)
++		setRev(t, db, "not a number")
++		w := startWatch(t, s, "default", 5*time.Millisecond, nil)
++		stillWatching(t, w)
++		setRev(t, db, 1)
++		if c := waitChange(t, w.changes); c.Rev != 1 || c.Counts.Inbox != 1 {
++			t.Fatalf("the first report once the read worked: %+v", c)
++		}
++	})
++}
++
++// The context ends a watcher that is waiting for its next poll at once, however long the interval, and
++// Watch then returns nil: ending it is not a failure.
++func TestWatchStopsAtOnceWhenItsContextEnds(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	w := startWatch(t, s, "default", time.Hour, nil)
++	waitChange(t, w.changes)
++	if err := w.stop(t); err != nil {
++		t.Fatalf("Watch returned %v when its context ended, want nil", err)
++	}
++	if n := db.Stats().InUse; n != 0 {
++		t.Errorf("%d connections are in use after Watch returned", n)
++	}
++}
++
++// A context that has ended before Watch is called ends it before it reports anything.
++func TestWatchWithAnEndedContextReturnsNilAtOnce(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	ctx, cancel := context.WithCancel(bg)
++	cancel()
++	var called atomic.Bool
++	result := make(chan error, 1)
++	go func() { result <- s.Watch(ctx, "default", time.Hour, func(Change) { called.Store(true) }) }()
++	select {
++	case err := <-result:
++		if err != nil {
++			t.Errorf("Watch returned %v, want nil", err)
++		}
++	case <-time.After(2 * time.Second):
++		t.Fatal("Watch did not return")
++	}
++	if called.Load() {
++		t.Error("a watcher whose context had ended reported a change")
++	}
++}
++
++// The context ends in the middle of a poll (the poll reads the clock for the stale claims, so the clock is
++// where the test ends it): the poll fails, which is no reason for the watcher to go on or to report, and Watch
++// returns nil at once.
++func TestWatchEndedByItsContextDuringAPollReportsNothing(t *testing.T) {
++	s, db, c := newTestStore(t)
++	mustAdd(t, s, "default", "x", false)
++	ctx, cancel := context.WithCancel(bg)
++	defer cancel()
++	s.now = func() time.Time { cancel(); return c.t }
++	var called atomic.Bool
++	result := make(chan error, 1)
++	go func() { result <- s.Watch(ctx, "default", time.Hour, func(Change) { called.Store(true) }) }()
++	select {
++	case err := <-result:
++		if err != nil {
++			t.Errorf("Watch returned %v, want nil", err)
++		}
++	case <-time.After(2 * time.Second):
++		t.Fatal("Watch did not return when its context ended during a poll")
++	}
++	if called.Load() {
++		t.Error("a poll that the context ended was reported")
++	}
++	if n := db.Stats().InUse; n != 0 {
++		t.Errorf("%d connections are in use after Watch returned", n)
++	}
++}
++
++// Watchers that end leave nothing behind: no goroutine and no connection.
++func TestWatchersThatEndLeaveNothingRunning(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	run := func() {
++		w := startWatch(t, s, "default", time.Hour, nil)
++		waitChange(t, w.changes)
++		if err := w.stop(t); err != nil {
++			t.Fatal(err)
++		}
++	}
++	run() // the pool's own goroutines are running by the time the count is taken
++	before := runtime.NumGoroutine()
++	for i := 0; i < 20; i++ {
++		run()
++	}
++	after := runtime.NumGoroutine()
++	for deadline := time.Now().Add(2 * time.Second); after > before && time.Now().Before(deadline); {
++		time.Sleep(10 * time.Millisecond)
++		after = runtime.NumGoroutine()
++	}
++	if after > before {
++		t.Errorf("%d goroutines before 20 watchers ran and ended, %d after", before, after)
++	}
++	if n := db.Stats().InUse; n != 0 {
++		t.Errorf("%d connections are in use after the watchers ended", n)
++	}
++}
+diff --git a/internal/tasks/watch_test.go b/internal/tasks/watch_test.go
+new file mode 100644
+index 00000000..7d6785ab
+--- /dev/null
++++ b/internal/tasks/watch_test.go
+@@ -0,0 +1,317 @@
++package tasks
++
++import (
++	"context"
++	"fmt"
++	"sync"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"github.com/monoes/mono-agent/internal/storage"
++	"github.com/monoes/mono-agent/internal/testdb"
++)
++
++func waitChange(t *testing.T, ch <-chan Change) Change {
++	t.Helper()
++	select {
++	case c := <-ch:
++		return c
++	case <-time.After(5 * time.Second):
++		t.Fatal("no change was reported within 5 seconds")
++		return Change{}
++	}
++}
++
++// watcher is a Watch that runs in a goroutine of its own. What it reports arrives on changes; err is what
++// Watch returned, once finished is closed. The end of the test cancels it and waits for it, so that none
++// outlives the test.
++type watcher struct {
++	changes  chan Change
++	finished chan struct{}
++	err      error
++	cancel   context.CancelFunc
++}
++
++// startWatch runs Watch for the profile in a goroutine. Its callback is fn, or, when fn is nil, a send of
++// the change to the changes channel.
++func startWatch(t *testing.T, s *Store, profile string, interval time.Duration, fn func(Change)) *watcher {
++	t.Helper()
++	ctx, cancel := context.WithCancel(bg)
++	w := &watcher{changes: make(chan Change, 1024), finished: make(chan struct{}), cancel: cancel}
++	if fn == nil {
++		fn = func(c Change) {
++			select {
++			case w.changes <- c:
++			case <-ctx.Done():
++			}
++		}
++	}
++	go func() {
++		defer close(w.finished)
++		w.err = s.Watch(ctx, profile, interval, fn)
++	}()
++	t.Cleanup(func() {
++		cancel()
++		select {
++		case <-w.finished:
++		case <-time.After(10 * time.Second):
++			t.Error("Watch did not stop when the test ended")
++		}
++	})
++	return w
++}
++
++// stop ends the watcher the way its owner does, by its context, and returns what Watch returned.
++func (w *watcher) stop(t *testing.T) error {
++	t.Helper()
++	w.cancel()
++	select {
++	case <-w.finished:
++		return w.err
++	case <-time.After(time.Second):
++		t.Fatal("Watch did not return within a second of its context ending")
++		return nil
++	}
++}
++
++// noChange fails the test when the watcher reports anything within d.
++func noChange(t *testing.T, w *watcher, d time.Duration) {
++	t.Helper()
++	select {
++	case c := <-w.changes:
++		t.Fatalf("no write, no report: %+v", c)
++	case <-time.After(d):
++	}
++}
++
++func TestWatchReportsTheStartAndEachChange(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	ctx, cancel := context.WithCancel(bg)
++	defer cancel()
++	changes := make(chan Change, 10)
++	done := make(chan struct{})
++	var err error
++	go func() {
++		err = s.Watch(ctx, "default", 5*time.Millisecond, func(c Change) { changes <- c })
++		close(done)
++	}()
++	if first := waitChange(t, changes); first.Rev != 0 {
++		t.Fatalf("the first report is the starting point: %+v", first)
++	}
++	mustAdd(t, s, "default", "x", false)
++	if second := waitChange(t, changes); second.Rev != 1 || second.Counts.Inbox != 1 {
++		t.Fatalf("after an add: %+v", second)
++	}
++	select {
++	case c := <-changes:
++		t.Fatalf("no write, no report: %+v", c)
++	case <-time.After(100 * time.Millisecond):
++	}
++	cancel()
++	select {
++	case <-done:
++	case <-time.After(2 * time.Second):
++		t.Fatal("Watch did not stop when its context ended")
++	}
++	if err != nil {
++		t.Fatalf("Watch returned %v when its context ended, want nil", err)
++	}
++}
++
++// Every write moves the revision, whatever column it touches, and the report carries the counts of the
++// board as that write left it.
++func TestWatchReportsTheCountsOfEveryWrite(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	w := startWatch(t, s, "default", 5*time.Millisecond, nil)
++	if c := waitChange(t, w.changes); c != (Change{}) {
++		t.Fatalf("an empty board: %+v", c)
++	}
++	task := mustAdd(t, s, "default", "x", true)
++	if c := waitChange(t, w.changes); c.Rev != 1 || c.Counts != (Counts{Ready: 1}) {
++		t.Fatalf("after an add to Ready: %+v", c)
++	}
++	if _, err := s.Claim(bg, "default", task.ID, bot("worker"), time.Hour); err != nil {
++		t.Fatal(err)
++	}
++	if c := waitChange(t, w.changes); c.Rev != 2 || c.Counts != (Counts{InProgress: 1}) {
++		t.Fatalf("after a claim: %+v", c)
++	}
++	if _, err := s.Finish(bg, "default", task.ID, Outcome{Result: "done"}, bot("worker")); err != nil {
++		t.Fatal(err)
++	}
++	if c := waitChange(t, w.changes); c.Rev != 3 || c.Counts != (Counts{Review: 1}) {
++		t.Fatalf("after a finish: %+v", c)
++	}
++	noChange(t, w, 100*time.Millisecond)
++}
++
++// A watcher is for one profile: the revision it follows and the counts it reports are its profile's, and
++// a write to another profile is no change.
++func TestWatchFollowsItsOwnProfileOnly(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	other := addProfile(t, db, "p2")
++	for i := 0; i < 3; i++ {
++		mustAdd(t, s, "default", fmt.Sprintf("d%d", i), false)
++	}
++	mustAdd(t, s, other, "r", true)
++	w := startWatch(t, s, other, 5*time.Millisecond, nil)
++	if c := waitChange(t, w.changes); c.Rev != 1 || c.Counts != (Counts{Ready: 1}) {
++		t.Fatalf("the first report is p2's, not the default profile's (revision 3, three in Inbox): %+v", c)
++	}
++	mustAdd(t, s, "default", "more", false)
++	noChange(t, w, 100*time.Millisecond)
++	mustAdd(t, s, other, "r2", false)
++	if c := waitChange(t, w.changes); c.Rev != 2 || c.Counts != (Counts{Inbox: 1, Ready: 1}) {
++		t.Fatalf("after an add to p2: %+v", c)
++	}
++}
++
++// Without an interval, or with one that is not above 0, a watcher polls every two seconds: neither without
++// waiting (an interval of 0 left as it is would make a loop that never waits) nor rarely.
++func TestWatchPollsEveryTwoSecondsWithoutAnInterval(t *testing.T) {
++	for _, d := range []time.Duration{0, -time.Second} {
++		t.Run(d.String(), func(t *testing.T) {
++			t.Parallel()
++			s, _, _ := newTestStore(t)
++			w := startWatch(t, s, "default", d, nil)
++			waitChange(t, w.changes)
++			mustAdd(t, s, "default", "x", false)
++			select {
++			case c := <-w.changes:
++				t.Fatalf("the write was reported at once, by a poll that did not wait for an interval: %+v", c)
++			case <-time.After(1500 * time.Millisecond):
++			}
++			if c := waitChange(t, w.changes); c.Rev != 1 {
++				t.Fatalf("the report that came with the next poll: %+v", c)
++			}
++		})
++	}
++}
++
++// A poll that finds the revision where it was reads no counts (spec 5.4): the app polls for as long as it
++// runs, and a poll should be a primary-key read. The clock is asked for by the read of the counts, so the
++// calls to it count the polls that read them.
++func TestWatchReadsTheCountsOnlyWhenTheRevisionMoves(t *testing.T) {
++	s, _, c := newTestStore(t)
++	var asked atomic.Int32
++	s.now = func() time.Time { asked.Add(1); return c.t }
++	w := startWatch(t, s, "default", 5*time.Millisecond, nil)
++	waitChange(t, w.changes)
++	atStart := asked.Load()
++	if atStart == 0 {
++		t.Fatal("the report at the start did not ask the clock: this test no longer sees the counts being read")
++	}
++	noChange(t, w, 150*time.Millisecond) // some thirty polls find nothing new
++	if n := asked.Load() - atStart; n != 0 {
++		t.Errorf("the counts were read %d times while the revision stood still", n)
++	}
++}
++
++// The callback runs after the poll has ended, with no connection held: it may read the board, which is what
++// the app does with a report.
++func TestWatchCallsBackWithNoConnectionHeld(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	inUse := make(chan int, 8)
++	startWatch(t, s, "default", 5*time.Millisecond, func(Change) { inUse <- db.Stats().InUse })
++	connectionsInUse := func(when string) {
++		t.Helper()
++		select {
++		case n := <-inUse:
++			if n != 0 {
++				t.Errorf("%s: %d connections in use while the callback ran, want none", when, n)
++			}
++		case <-time.After(5 * time.Second):
++			t.Fatalf("no report %s", when)
++		}
++	}
++	connectionsInUse("at the start")
++	mustAdd(t, s, "default", "x", false)
++	connectionsInUse("after an add")
++}
++
++// A callback that takes its time holds up nothing but the next report: Watch calls it from its own loop, one
++// call at a time, and the next poll starts after it returns, so calls never overlap and never come out of
++// order, and the last revision is reported in the end.
++func TestWatchWithASlowCallbackCallsOneAtATimeAndEndsUpToDate(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	var running, overlaps atomic.Int32
++	var mu sync.Mutex
++	var revs []int64
++	startWatch(t, s, "default", time.Millisecond, func(c Change) {
++		if running.Add(1) > 1 {
++			overlaps.Add(1)
++		}
++		time.Sleep(20 * time.Millisecond)
++		mu.Lock()
++		revs = append(revs, c.Rev)
++		mu.Unlock()
++		running.Add(-1)
++	})
++	const adds = 8
++	for i := 0; i < adds; i++ {
++		mustAdd(t, s, "default", fmt.Sprintf("t%d", i), false)
++		time.Sleep(7 * time.Millisecond) // writes come faster than the callback returns
++	}
++	reported := func() []int64 {
++		mu.Lock()
++		defer mu.Unlock()
++		return append([]int64(nil), revs...)
++	}
++	got := reported()
++	for deadline := time.Now().Add(10 * time.Second); len(got) == 0 || got[len(got)-1] != adds; got = reported() {
++		if time.Now().After(deadline) {
++			t.Fatalf("the last revision, %d, was never reported: %v", adds, got)
++		}
++		time.Sleep(5 * time.Millisecond)
++	}
++	if n := overlaps.Load(); n != 0 {
++		t.Errorf("%d calls began while another one was running", n)
++	}
++	for i := 1; i < len(got); i++ {
++		if got[i] <= got[i-1] {
++			t.Errorf("reports came out of order or twice: %v", got)
++			break
++		}
++	}
++}
++
++// A report is read in one snapshot, so its counts are those of the revision it carries: when every write is
++// an add to Inbox, a report has as many cards in Inbox as its revision says. A revision read in one moment
++// and the counts in another would sometimes show counts that are newer than the revision.
++func TestWatchReportsTheCountsOfTheRevisionItCarries(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	w := startWatch(t, s, "default", time.Millisecond, nil)
++	const adds = 300
++	for i := 0; i < adds; i++ {
++		if _, _, err := s.Add(bg, "default", AddInput{Title: "x"}, human); err != nil {
++			t.Fatal(err)
++		}
++	}
++	for seen := int64(-1); seen < adds; {
++		c := waitChange(t, w.changes)
++		if int64(c.Counts.Inbox) != c.Rev {
++			t.Fatalf("revision %d with %d cards in Inbox: the two were not read together", c.Rev, c.Counts.Inbox)
++		}
++		seen = c.Rev
++	}
++}
++
++// The writes that matter come from other processes (the CLI), and a watcher in this one, with its pool of
++// connections open, sees them.
++func TestWatchSeesAWriteFromAnotherProcess(t *testing.T) {
++	path := testdb.Path(t)
++	db, err := storage.NewDatabase(path)
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { db.Close() }) // after the watcher, which is cancelled by a cleanup of its own
++	w := startWatch(t, NewStore(db.DB), "default", 5*time.Millisecond, nil)
++	if c := waitChange(t, w.changes); c != (Change{}) {
++		t.Fatalf("an empty board: %+v", c)
++	}
++	runHelpers(t, path, "add", 1)
++	if c := waitChange(t, w.changes); c.Rev != 1 || c.Counts.Inbox != 1 {
++		t.Fatalf("after the other process added a task: %+v", c)
++	}
++}

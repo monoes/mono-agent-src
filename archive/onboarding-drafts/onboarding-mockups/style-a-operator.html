@@ -1,0 +1,1037 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MonoAgent Setup</title>
+<style>
+/* Style A: Operator. Throwaway onboarding mockup. Tokens mirror the app's NEXUS OPERATOR theme. */
+:root{
+  --void:#04060a; --base:#080c14; --surface:#0d1520; --elevated:#131e30; --overlay:rgba(4,6,10,.92);
+  --border-dim:rgba(0,180,216,.06); --border:rgba(0,180,216,.14); --border-bright:rgba(0,180,216,.28); --border-active:rgba(0,180,216,.5);
+  --cyan:#00b4d8; --cyan-bright:#00d4ff; --cyan-dim:rgba(0,180,216,.55); --cyan-glow:rgba(0,180,216,.10); --cyan-glow-strong:rgba(0,180,216,.22);
+  --green:#10b981; --green-neon:#4ade80; --orange:#f97316; --red:#ef4444; --yellow:#eab308;
+  --text:#dde6f0; --text-secondary:#8899aa; --text-muted:#8492a6; --text-dim:#6c7b90;
+  --font-display:"Syne","Avenir Next","Futura","Century Gothic","Trebuchet MS",system-ui,sans-serif;
+  --font-mono:"JetBrains Mono","SF Mono",ui-monospace,Menlo,Consolas,"Liberation Mono",monospace;
+  --font-body:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI","Helvetica Neue",Arial,sans-serif;
+  --radius:6px; --radius-lg:10px;
+  --shadow-glow:0 0 24px rgba(0,180,216,.14);
+  --ease:cubic-bezier(.16,1,.3,1);
+  --transition:160ms var(--ease);
+  --rail-w:248px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--void);color:var(--text);font:14px/1.55 var(--font-body);overflow:hidden;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--cyan-bright);outline-offset:2px;border-radius:4px}
+h1[tabindex]:focus{outline:none}
+code{font-family:var(--font-mono);font-size:12px;color:var(--cyan-bright);background:var(--void);border:1px solid var(--border);border-radius:4px;padding:2px 6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+#app{display:grid;grid-template-columns:var(--rail-w) minmax(0,1fr);height:100vh}
+
+/* ── Rail ── */
+.rail{background:var(--base);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:18px 12px 14px;overflow-y:auto;min-height:0}
+.brand{display:flex;align-items:center;gap:10px;padding:0 8px 16px;border-bottom:1px solid var(--border-dim)}
+.brand svg{width:34px;height:34px;flex:none}
+.bn{font-family:var(--font-display);font-weight:700;font-size:16px;letter-spacing:.01em}
+.bs{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.16em;color:var(--text-muted)}
+.steps{list-style:none;margin-top:14px;flex:1}
+.ri-w{position:relative}
+.ri-w:not(:last-child)::after{content:"";position:absolute;left:21px;top:31px;height:14px;width:1px;background:var(--border)}
+.ri-w.done:not(:last-child)::after{background:rgba(74,222,128,.35)}
+.ri{display:grid;grid-template-columns:22px minmax(0,1fr) auto;align-items:center;gap:10px;width:100%;padding:7px 10px;margin:2px 0;border:1px solid transparent;border-radius:var(--radius);background:none;color:var(--text-dim);text-align:left;cursor:pointer;transition:background var(--transition),border-color var(--transition)}
+.ri[aria-disabled="true"]{cursor:default}
+.ri:not([aria-disabled="true"]):hover{background:var(--surface)}
+.mk{width:22px;height:22px;border-radius:50%;border:1px solid var(--border-bright);display:grid;place-items:center;font-family:var(--font-mono);font-size:9.5px;color:var(--text-dim);background:var(--base)}
+.rl{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rt{font-family:var(--font-mono);font-size:9px;letter-spacing:.12em}
+.ck{width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.done .ri{color:var(--text-secondary)} .done .mk{border-color:rgba(74,222,128,.55);color:var(--green-neon);background:rgba(74,222,128,.08)} .done .rt{color:var(--green-neon)}
+.skipped .ri{color:var(--text-muted)} .skipped .mk{border:1px dashed var(--orange);color:var(--orange)} .skipped .rt{color:var(--orange)}
+.current .ri{background:var(--surface);border-color:var(--border-bright);color:var(--text)} .current .mk{border-color:var(--cyan);background:var(--cyan);color:#021018;box-shadow:0 0 12px rgba(0,212,255,.45)} .current .rt{color:var(--cyan-bright)}
+.rail-f{border-top:1px solid var(--border-dim);padding:12px 8px 0}
+.segs{display:grid;grid-template-columns:repeat(10,1fr);gap:3px}
+.segs i{height:4px;border-radius:2px;background:var(--elevated)}
+.segs i.done{background:var(--green-neon)} .segs i.skipped{background:rgba(249,115,22,.7)} .segs i.current{background:var(--cyan)}
+.pf-t{font-family:var(--font-mono);font-size:9.5px;letter-spacing:.08em;white-space:nowrap;color:var(--text-muted);margin-top:8px}
+
+/* ── Main ── */
+.main{display:flex;flex-direction:column;min-width:0;min-height:0;background:radial-gradient(1200px 500px at 85% -10%,rgba(0,180,216,.06),transparent 60%),var(--base)}
+.topbar{height:52px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 136px 0 32px;border-bottom:1px solid var(--border-dim);font-family:var(--font-mono);font-size:10.5px;letter-spacing:.14em;color:var(--text-muted);text-transform:uppercase}
+.tb-l{display:flex;gap:10px;align-items:center;white-space:nowrap;overflow:hidden}
+.tb-k{color:var(--cyan)} .tb-t{color:var(--text-secondary)}
+.pchip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border-bright);border-radius:999px;padding:3px 10px 3px 6px;color:var(--text);text-transform:none;letter-spacing:.02em;font-family:var(--font-body);font-size:12px}
+.pchip .i{width:14px;height:14px;color:var(--cyan)}
+.body{flex:1;min-height:0;overflow-y:auto;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.94fr);gap:32px;padding:30px 32px 40px;align-items:start}
+.col{max-width:580px}
+.wide{grid-column:1/-1}
+.foot{height:68px;flex:none;display:flex;align-items:center;gap:12px;padding:0 32px;border-top:1px solid var(--border);background:var(--base)}
+.sp{flex:1}
+.gate{font-size:12.5px;color:var(--text-muted);text-align:right}
+
+.eyebrow{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.16em;color:var(--cyan);text-transform:uppercase}
+h1{font-family:var(--font-display);font-weight:700;font-size:30px;line-height:1.15;letter-spacing:-.01em;margin-top:8px}
+.lead{color:var(--text-secondary);font-size:15px;margin-top:12px;max-width:52ch}
+.note{color:var(--text-muted);font-size:13px;margin-top:8px}
+.sect-l,.lbl{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.14em;color:var(--text-muted);text-transform:uppercase}
+.sect-l{margin-top:26px;margin-bottom:10px}
+.lbl{display:block;margin-bottom:7px}
+.lbl em{color:var(--cyan);font-style:normal}
+
+/* entrance: restrained, expo-out */
+.enter .col>*,.enter .wide>*{animation:rise 420ms var(--ease) both}
+.enter .col>*:nth-child(2){animation-delay:30ms}.enter .col>*:nth-child(3){animation-delay:60ms}.enter .col>*:nth-child(4){animation-delay:90ms}.enter .col>*:nth-child(n+5){animation-delay:120ms}
+.enter .fig{animation:fade 520ms var(--ease) both}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes flow{to{stroke-dashoffset:-18}}
+@keyframes pulse{50%{opacity:.45}}
+
+/* ── Controls ── */
+.btn{display:inline-flex;align-items:center;gap:8px;font-weight:600;font-size:13px;line-height:1;border-radius:var(--radius);padding:10px 16px;border:1px solid var(--border-bright);background:var(--surface);color:var(--text);cursor:pointer;white-space:nowrap;transition:background var(--transition),border-color var(--transition),box-shadow var(--transition)}
+.btn:hover:not(:disabled){border-color:var(--cyan-dim);background:var(--elevated)}
+.btn.pri{background:var(--cyan);border-color:var(--cyan);color:#021018}
+.btn.pri:hover:not(:disabled){background:var(--cyan-bright);box-shadow:var(--shadow-glow)}
+.btn.ghost{background:transparent}
+.btn.link{background:none;border-color:transparent;color:var(--text-secondary)}
+.btn.link:hover:not(:disabled){background:var(--surface);border-color:var(--border)}
+.btn.sm{padding:7px 11px;font-size:12px}
+.btn:disabled{opacity:.38;cursor:not-allowed}
+kbd{font-family:var(--font-mono);font-size:10px;border:1px solid rgba(2,16,24,.35);border-radius:3px;padding:1px 4px}
+.inp{width:100%;background:var(--void);border:1px solid var(--border-bright);border-radius:var(--radius);padding:10px 12px;color:var(--text);font:14px var(--font-body);transition:border-color var(--transition),box-shadow var(--transition)}
+.inp::placeholder{color:var(--text-dim)}
+.inp:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 3px var(--cyan-glow-strong)}
+.inp.bad{border-color:var(--red)}
+.err{color:#f87171;font-size:12.5px;margin-top:6px;min-height:18px}
+.field{margin-top:18px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.chip{border:1px solid var(--border-bright);background:var(--surface);color:var(--text-secondary);border-radius:999px;padding:6px 12px;font-size:12.5px;cursor:pointer;transition:background var(--transition),border-color var(--transition),color var(--transition)}
+.chip:hover{border-color:var(--cyan-dim)}
+.chip[aria-pressed="true"]{background:var(--cyan-glow-strong);border-color:var(--cyan);color:var(--cyan-bright)}
+.i{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.tag{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:4px 8px;border-radius:4px;border:1px solid;white-space:nowrap}
+.tag.ok{color:var(--green-neon);border-color:rgba(74,222,128,.3);background:rgba(74,222,128,.06)}
+.tag.warn{color:var(--orange);border-color:rgba(249,115,22,.35);background:rgba(249,115,22,.06)}
+.tag.hot{color:var(--cyan-bright);border-color:var(--border-active);background:var(--cyan-glow)}
+.tag.dim{color:var(--text-dim);border-color:var(--border)}
+.spin{display:inline-block;width:10px;height:10px;border:1.5px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .8s linear infinite;flex:none}
+.pointer{margin-top:24px;display:flex;gap:12px;align-items:center;font-size:12.5px;color:var(--text-secondary);padding:10px 12px;border:1px dashed var(--border-bright);border-radius:var(--radius)}
+.pointer b{font-family:var(--font-mono);font-size:9.5px;font-weight:500;color:var(--cyan);letter-spacing:.14em;white-space:nowrap}
+.panel{border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface)}
+
+/* Step 1 */
+.plan{list-style:none;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface)}
+.plan li{display:flex;gap:14px;align-items:center;padding:11px 16px;border-top:1px solid var(--border-dim)}
+.plan li:first-child{border-top:0}
+.pn{font-family:var(--font-mono);font-size:11px;color:var(--cyan)}
+
+/* Step 2 */
+.checks{margin-top:24px}
+.row{display:grid;grid-template-columns:10px minmax(0,1fr) auto;gap:14px;align-items:center;padding:14px 16px;border-top:1px solid var(--border-dim)}
+.row:first-child{border-top:0}
+.led{width:8px;height:8px;border-radius:50%;background:var(--elevated);border:1px solid var(--border-bright)}
+.st-ok .led{background:var(--green-neon);border-color:var(--green-neon);box-shadow:0 0 8px rgba(74,222,128,.55)}
+.st-missing .led,.st-stopped .led{background:var(--orange);border-color:var(--orange)}
+.st-checking .led,.st-working .led{background:var(--cyan-bright);border-color:var(--cyan-bright);animation:pulse 1.2s ease-in-out infinite}
+.row-n{font-weight:600}
+.row-s{font-size:12.5px;color:var(--text-muted)}
+.row-p{font-family:var(--font-mono);font-size:11px;color:var(--cyan-bright);margin-top:3px}
+.row-r{display:flex;gap:8px;align-items:center}
+.st-pending .row-n{color:var(--text-dim)}
+
+/* Step 3 */
+.icons{display:grid;grid-template-columns:repeat(8,40px);gap:6px}
+.ic{width:40px;height:40px;border-radius:var(--radius);border:1px solid var(--border-bright);background:var(--surface);display:grid;place-items:center;color:var(--text-secondary);cursor:pointer;transition:border-color var(--transition),background var(--transition)}
+.ic[aria-checked="true"]{border-color:var(--cyan);background:var(--cyan-glow-strong);color:var(--cyan-bright)}
+.ic .i{width:20px;height:20px}
+.pathrow{display:flex;gap:10px;align-items:center}
+.pathrow code{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:9px 10px}
+.preview{margin-top:20px;display:grid;grid-template-columns:200px 1fr;gap:16px;align-items:center}
+.sbar{background:var(--base);border:1px solid var(--border);border-radius:var(--radius);padding:8px}
+.sbar-k{font-family:var(--font-mono);font-size:9px;letter-spacing:.14em;color:var(--text-dim);padding:2px 6px 6px}
+.sitem{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:5px;background:var(--elevated);border:1px solid var(--border-bright)}
+.sitem .av{width:24px;height:24px;border-radius:5px;background:var(--cyan-glow-strong);color:var(--cyan-bright);display:grid;place-items:center}
+.sitem .av .i{width:15px;height:15px}
+.sitem .nm{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.sitem .on{width:6px;height:6px;border-radius:50%;background:var(--green-neon)}
+.sghost{font-size:12px;color:var(--text-dim);padding:7px 8px}
+.preview p{font-size:12.5px;color:var(--text-muted)}
+
+/* Step 5 */
+.ex{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:22px}
+.exc{padding:12px 14px 14px}
+.exc svg{width:100%;height:96px;display:block;margin-bottom:8px}
+.exc h3,.tile-n,.card h3,.cat h3{font-family:var(--font-display);font-size:14px;font-weight:700;letter-spacing:.01em}
+.exc p{font-size:12.5px;color:var(--text-secondary);margin-top:4px}
+.act{margin-top:20px}
+.prog{list-style:none;margin-top:4px;padding:12px 14px}
+.prog li{display:flex;gap:10px;align-items:center;font-size:13px;padding:4px 0;color:var(--text-dim)}
+.prog li.ok{color:var(--text-secondary)} .prog li.ok .pm{color:var(--green-neon)}
+.prog li.cur{color:var(--text)} .prog li.cur .pm{color:var(--cyan-bright)}
+.pm{width:14px;display:grid;place-items:center;font-family:var(--font-mono);font-size:11px}
+.success{display:flex;gap:10px;align-items:center;margin-top:12px;color:var(--green-neon);font-weight:600}
+
+/* Step 6 */
+.rev{display:flex;align-items:center;gap:10px;margin-top:18px;padding:8px 10px;border:1px dashed rgba(234,179,8,.45);border-radius:var(--radius);font-size:12.5px;color:var(--text-secondary)}
+.rev-k{font-family:var(--font-mono);font-size:9px;letter-spacing:.16em;color:var(--yellow)}
+.tgl{display:inline-flex;align-items:center;gap:8px;background:none;border:0;cursor:pointer;color:var(--text-secondary);font-size:12.5px}
+.tgl-k{width:28px;height:16px;border-radius:8px;border:1px solid var(--border-bright);position:relative;background:var(--void);transition:background var(--transition)}
+.tgl-k::after{content:"";position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%;background:var(--text-dim);transition:transform var(--transition),background var(--transition)}
+.tgl[aria-checked="true"] .tgl-k{background:rgba(234,179,8,.18);border-color:var(--yellow)}
+.tgl[aria-checked="true"] .tgl-k::after{transform:translateX(12px);background:var(--yellow)}
+.scan{display:flex;gap:10px;align-items:center;margin-top:18px;padding:14px 16px;color:var(--cyan-bright);font-size:13px}
+.empty{margin-top:16px;padding:14px 16px;border:1px solid rgba(249,115,22,.35);background:rgba(249,115,22,.05);border-radius:var(--radius-lg)}
+.empty b{display:block}
+.empty span{font-size:12.5px;color:var(--text-secondary)}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+.tile{padding:12px 14px;display:flex;flex-direction:column;gap:8px;min-height:128px}
+.tile-h{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.tile-b{font-size:12.5px;color:var(--text-secondary);display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.tile.st-ready{border-color:rgba(74,222,128,.3)}
+.mono-l{font-family:var(--font-mono);font-size:11px;color:var(--cyan-bright)}
+
+/* Step 7 */
+.subs{list-style:none;display:grid;grid-template-columns:repeat(3,auto) minmax(0,1fr);gap:6px;margin-top:20px}
+.sub{width:100%;white-space:nowrap;display:flex;gap:8px;align-items:center;padding:8px 9px;border-radius:var(--radius);border:1px solid var(--border);background:var(--surface);color:var(--text-dim);font-size:12px;text-align:left;cursor:pointer}
+.sub[aria-disabled="true"]{cursor:default;opacity:.6}
+.sub .sn{font-family:var(--font-mono);font-size:10px;width:18px;height:18px;border-radius:50%;border:1px solid currentColor;display:grid;place-items:center;flex:none}
+.sub.cur{border-color:var(--cyan);color:var(--text);background:var(--elevated)}
+.sub.cur .sn{background:var(--cyan);border-color:var(--cyan);color:#021018}
+.sub.done{color:var(--text-secondary)} .sub.done .sn{color:var(--green-neon)}
+.subbody{margin-top:14px;padding:16px}
+.q{font-weight:600;margin-bottom:10px}
+.opts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}
+.opt{display:flex;gap:10px;align-items:center;padding:12px;border:1px solid var(--border-bright);border-radius:var(--radius);background:var(--base);cursor:pointer;text-align:left}
+.opt[aria-checked="true"]{border-color:var(--cyan);background:var(--cyan-glow-strong);color:var(--cyan-bright)}
+.inst{list-style:none;display:flex;flex-direction:column;gap:10px;margin-bottom:14px}
+.inst li{display:grid;grid-template-columns:22px minmax(0,1fr);gap:10px;align-items:start;padding:10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--base)}
+.inst li.ok{border-color:rgba(74,222,128,.3)}
+.in{font-family:var(--font-mono);font-size:10px;width:22px;height:22px;border-radius:50%;border:1px solid var(--border-bright);display:grid;place-items:center;color:var(--cyan)}
+.inst li.ok .in{color:var(--green-neon);border-color:rgba(74,222,128,.5)}
+.inst .ia{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}
+.inst .hint{font-size:12px;color:var(--text-muted)}
+.cb{display:inline-flex;align-items:center;gap:7px;background:none;border:1px solid var(--border-bright);border-radius:var(--radius);padding:6px 10px;font-size:12px;cursor:pointer;color:var(--text-secondary)}
+.cb .bx{width:13px;height:13px;border:1px solid var(--border-active);border-radius:3px;display:grid;place-items:center}
+.cb[aria-checked="true"]{border-color:rgba(74,222,128,.45);color:var(--green-neon)}
+.cb[aria-checked="true"] .bx{background:rgba(74,222,128,.15);border-color:var(--green-neon)}
+.bps{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.bp{display:grid;grid-template-columns:18px minmax(0,1fr);gap:10px;align-items:center;padding:10px 12px;border:1px solid var(--border-bright);border-radius:var(--radius);background:var(--base);cursor:pointer;text-align:left}
+.bp .rd{width:14px;height:14px;border-radius:50%;border:1px solid var(--border-active)}
+.bp[aria-checked="true"]{border-color:var(--cyan);background:var(--cyan-glow)}
+.bp[aria-checked="true"] .rd{border:4px solid var(--cyan-bright)}
+.bp small{display:block;color:var(--text-muted);font-size:12px}
+.sm-t{font-size:13px;color:var(--text-secondary)}
+
+/* Step 8 */
+.perms{margin-top:22px}
+.perm{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:13px 16px;border-top:1px solid var(--border-dim)}
+.perm:first-child{border-top:0}
+.seg{display:inline-flex;border:1px solid var(--border-bright);border-radius:var(--radius);overflow:hidden}
+.seg button{background:none;border:0;border-left:1px solid var(--border);padding:7px 11px;font-size:12px;color:var(--text-secondary);cursor:pointer}
+.seg button:first-child{border-left:0}
+.seg button[aria-checked="true"]{background:var(--elevated);font-weight:600}
+.seg button[aria-checked="true"].v-allow{color:var(--green-neon)}
+.seg button[aria-checked="true"].v-ask{color:var(--cyan-bright)}
+.seg button[aria-checked="true"].v-never{color:var(--orange)}
+.hil{display:flex;gap:12px;align-items:flex-start;margin-top:14px;padding:12px 14px;font-size:13px;color:var(--text-secondary)}
+.hil .i{color:var(--cyan);margin-top:2px}
+
+/* Step 9 */
+.cards{display:flex;flex-direction:column;gap:8px;margin-top:20px}
+.card{display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 14px;border:1px solid var(--border-bright);border-radius:var(--radius-lg);background:var(--surface);cursor:pointer;text-align:left;transition:border-color var(--transition),background var(--transition)}
+.card:hover:not(:disabled){border-color:var(--cyan-dim)}
+.card:disabled{cursor:not-allowed;opacity:.55}
+.card[aria-pressed="true"]{border-color:var(--cyan);background:var(--elevated);opacity:1}
+.card .cic{width:36px;height:36px;border-radius:var(--radius);border:1px solid var(--border-bright);display:grid;place-items:center;color:var(--cyan)}
+.card small{color:var(--text-muted);font-family:var(--font-mono);font-size:11px}
+.runst{margin-top:14px;padding:12px 14px;display:flex;gap:10px;align-items:center;font-size:13px}
+.result{margin-top:10px;padding:14px 16px;border-color:rgba(74,222,128,.3)}
+.result .lbl{color:var(--green-neon)}
+.result p{font-size:13.5px;color:var(--text)}
+
+/* Step 10 */
+.sum{list-style:none;margin-top:20px}
+.sum li{display:grid;grid-template-columns:28px minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:9px 14px;border-top:1px solid var(--border-dim);font-size:13.5px}
+.sum li:first-child{border-top:0}
+.sum .n{font-family:var(--font-mono);font-size:10.5px;color:var(--text-dim)}
+.fin{font-size:12.5px;color:var(--cyan-bright);text-decoration:none;border-bottom:1px solid var(--border-active)}
+.fin:hover{color:var(--text)}
+.cat-h{display:flex;align-items:baseline;justify-content:space-between;margin:6px 0 12px;gap:12px}
+.cat-h h2{font-family:var(--font-display);font-size:20px;font-weight:700}
+.cats{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+.cat{padding:14px;display:flex;flex-direction:column;gap:6px}
+.cat .ch{display:flex;gap:10px;align-items:center}
+.cat .ch .i{color:var(--cyan)}
+.cat p{font-size:12.5px;color:var(--text-secondary);flex:1}
+.cat .where{font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;color:var(--text-muted);text-transform:uppercase}
+
+/* ── Figure (instrument panel) ── */
+.fig{position:sticky;top:0;display:flex;flex-direction:column;height:min(570px,calc(100vh - 52px - 68px - 64px));min-height:340px;border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;
+  background-color:var(--surface);
+  background-image:linear-gradient(rgba(0,180,216,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(0,180,216,.045) 1px,transparent 1px),linear-gradient(rgba(0,180,216,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(0,180,216,.025) 1px,transparent 1px);
+  background-size:80px 80px,80px 80px,16px 16px,16px 16px;background-position:-1px -1px}
+.fig-h,.fig-f{display:flex;justify-content:space-between;gap:12px;font-family:var(--font-mono);font-size:9.5px;letter-spacing:.16em;color:var(--text-muted);text-transform:uppercase;padding:9px 14px;background:rgba(8,12,20,.7)}
+.fig-h{border-bottom:1px solid var(--border-dim)} .fig-f{border-top:1px solid var(--border-dim)}
+.fig-h b{color:var(--cyan);font-weight:500}
+.fig-st{color:var(--cyan-bright)}
+.fig-c{flex:1;min-height:0;padding:10px}
+.fig-c svg{width:100%;height:100%;display:block}
+.s{fill:none;stroke:rgba(0,180,216,.5);stroke-width:1}
+.s-dim{fill:none;stroke:rgba(0,180,216,.2);stroke-width:1}
+.s-dash{fill:none;stroke:rgba(0,180,216,.4);stroke-width:1;stroke-dasharray:3 4}
+.s-hot{fill:none;stroke:var(--cyan-bright);stroke-width:1.4;filter:url(#glow)}
+.s-c{fill:none;stroke:var(--cyan);stroke-width:1.2;stroke-linecap:round;stroke-linejoin:round}
+.s-ok{fill:none;stroke:var(--green-neon);stroke-width:1.3}
+.s-warn{fill:none;stroke:var(--orange);stroke-width:1.2;stroke-dasharray:3 3}
+.f-panel{fill:rgba(10,16,26,.96)}
+.f-hot{fill:rgba(0,180,216,.12)}
+.f-ok{fill:rgba(74,222,128,.10)}
+.flow{stroke-dasharray:4 5;animation:flow 1.6s linear infinite}
+.pulse{animation:pulse 1.4s ease-in-out infinite}
+.sweep{transform-origin:230px 190px;animation:spin 2.4s linear infinite}
+.dot{fill:var(--cyan)} .dot-ok{fill:var(--green-neon)} .dot-dim{fill:rgba(0,180,216,.35)}
+.t{font-family:var(--font-mono);font-size:9px;letter-spacing:.1em;fill:var(--text-muted)}
+.t-lg{font-size:11.5px;letter-spacing:.04em}
+.t-b{fill:var(--text)} .t-c{fill:var(--cyan)} .t-h{fill:var(--cyan-bright)} .t-ok{fill:var(--green-neon)} .t-w{fill:var(--orange)} .t-d{fill:var(--text-dim)}
+
+/* ── Mockup control (reviewer only) ── */
+.mock{position:fixed;top:10px;right:14px;z-index:60}
+.mock-b{font-family:var(--font-mono);font-size:10px;letter-spacing:.14em;padding:7px 10px;border:1px dashed rgba(234,179,8,.6);border-radius:var(--radius);background:var(--base);color:var(--yellow);cursor:pointer}
+.mock-p{position:absolute;right:0;top:36px;width:250px;padding:10px;background:var(--elevated);border:1px solid rgba(234,179,8,.4);border-radius:var(--radius-lg);box-shadow:0 12px 40px rgba(0,0,0,.5)}
+.mock-p .lbl{color:var(--yellow);padding:2px 4px 6px}
+.mock-p ol{list-style:none;display:grid;gap:2px}
+.mock-p ol button{width:100%;display:flex;gap:10px;text-align:left;background:none;border:0;border-radius:4px;padding:6px 6px;font-size:12.5px;cursor:pointer;color:var(--text-secondary)}
+.mock-p ol button:hover,.mock-p ol button[aria-current="step"]{background:var(--surface);color:var(--text)}
+.mock-p ol span{font-family:var(--font-mono);font-size:10.5px;color:var(--text-dim);width:18px}
+.mock-p .btn{width:100%;justify-content:center;margin-top:8px}
+
+.ov{position:fixed;inset:0;background:var(--overlay);display:grid;place-items:center;z-index:50;padding:16px}
+.ov-p{max-width:420px;text-align:center;padding:32px;border:1px solid var(--border-bright);border-radius:var(--radius-lg);background:var(--surface);display:flex;flex-direction:column;align-items:center;gap:12px}
+.ov-p svg{width:64px;height:64px}
+.ov-p h2{font-family:var(--font-display);font-size:22px}
+.ov-p p{color:var(--text-secondary);font-size:13.5px}
+
+/* ── Narrow windows (down to 900px) ── */
+@media (max-width:1140px){
+  :root{--rail-w:212px}
+  .body{grid-template-columns:minmax(0,1fr);gap:20px;padding:24px 24px 36px}
+  .fig{position:relative;height:380px;min-height:0}
+  .col{max-width:none}
+  .topbar{padding-left:24px}.foot{padding:0 24px}
+}
+@media (max-width:980px){
+  .grid2,.ex,.tiles{grid-template-columns:1fr}
+  .subs{grid-template-columns:1fr 1fr}
+  .preview{grid-template-columns:1fr}
+  .gate{display:none}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2.2" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+</svg>
+<div id="app"></div>
+<div id="mock" class="mock"></div>
+<div id="ov"></div>
+
+<script>
+"use strict";
+/* ═══ Data ═══ */
+const STEPS=[null,
+  {t:'Welcome',code:'WELCOME',skip:false,fig:'SYSTEM OVERVIEW'},
+  {t:'System check',code:'SYSTEM',skip:true,fig:'HOST CHECK'},
+  {t:'Create profile',code:'PROFILE',skip:false,fig:'PROFILE · COMPARTMENTS'},
+  {t:'About you',code:'CONTEXT',skip:true,fig:'AGENT CONTEXT'},
+  {t:'Turn on monomind',code:'ENGINE',skip:true,fig:'ENGINE ACTIVATION'},
+  {t:'Your agents',code:'AGENTS',skip:true,fig:'AGENT PORTS'},
+  {t:'Connect browser',code:'BROWSER',skip:true,fig:'PROFILE LINKAGE'},
+  {t:'Browser permissions',code:'PERMISSIONS',skip:true,fig:'PERMISSION GATES'},
+  {t:'First run',code:'RUN',skip:true,fig:'RUN TRACE'},
+  {t:"You're set",code:'SUMMARY',skip:false,fig:'SETUP RESULT'}
+];
+const ICON={
+  home:'M3 10 L10 4 L17 10 M5 9 V16 H15 V9 M8.5 16 V12 H11.5 V16',
+  case:'M3 7 H17 V16 H3 Z M7 7 V5 H13 V7 M3 11 H17',
+  spark:'M10 2 L11.8 8.2 L18 10 L11.8 11.8 L10 18 L8.2 11.8 L2 10 L8.2 8.2 Z',
+  bolt:'M11 2 L4 11 H9.5 L8.5 18 L16 8.5 H10.5 Z',
+  leaf:'M4 16 C4 8 9 4 16 4 C16 11 12 16 4 16 Z M4 16 L11 9',
+  flask:'M8 3 H12 M9 3 V8 L4 16 H16 L11 8 V3 M6.5 12.5 H13.5',
+  globe:'M3 10 A7 7 0 1 0 17 10 A7 7 0 1 0 3 10 M3 10 H17 M10 3 C7 6 7 14 10 17 C13 14 13 6 10 3',
+  term:'M3 4 H17 V16 H3 Z M6 8 L9 10.5 L6 13 M10.5 13 H14',
+  folder:'M2 5 H8 L10 7 H18 V16 H2 Z',
+  doc:'M5 2 H12 L16 6 V18 H5 Z M12 2 V6 H16 M8 10 H13 M8 13 H13',
+  lock:'M5 9 H15 V17 H5 Z M7 9 V6 A3 3 0 0 1 13 6 V9 M10 12 V14',
+  mem:'M5 5 L10 10 L15 5 M5 15 L10 10 L15 15 M3.5 5 A1.5 1.5 0 1 0 6.5 5 A1.5 1.5 0 1 0 3.5 5 M13.5 5 A1.5 1.5 0 1 0 16.5 5 A1.5 1.5 0 1 0 13.5 5 M8.5 10 A1.5 1.5 0 1 0 11.5 10 A1.5 1.5 0 1 0 8.5 10 M3.5 15 A1.5 1.5 0 1 0 6.5 15 A1.5 1.5 0 1 0 3.5 15 M13.5 15 A1.5 1.5 0 1 0 16.5 15 A1.5 1.5 0 1 0 13.5 15',
+  org:'M8 3 H12 V7 H8 Z M3 13 H7 V17 H3 Z M13 13 H17 V17 H13 Z M10 7 V10 M5 13 V10 H15 V13',
+  web:'M2 4 H18 V16 H2 Z M2 7 H18 M4 5.5 H5 M6 5.5 H7',
+  flow:'M3 5 H7 V9 H3 Z M13 11 H17 V15 H13 Z M7 7 H10 V13 H13',
+  chat:'M3 4 H17 V13 H9 L5 16 V13 H3 Z M6 8 H14 M6 10.5 H11',
+  people:'M4.5 7.5 A2.5 2.5 0 1 0 9.5 7.5 A2.5 2.5 0 1 0 4.5 7.5 M2.5 16 C3 12.5 11 12.5 11.5 16 M12.5 8 A2 2 0 1 0 16.5 8 A2 2 0 1 0 12.5 8 M13 12.5 C15.5 12.3 17.5 13.5 17.5 16',
+  social:'M3 10 A2 2 0 1 0 7 10 A2 2 0 1 0 3 10 M13 5 A2 2 0 1 0 17 5 A2 2 0 1 0 13 5 M13 15 A2 2 0 1 0 17 15 A2 2 0 1 0 13 15 M6.8 9 L13.2 6 M6.8 11 L13.2 14',
+  clock:'M3 10 A7 7 0 1 0 17 10 A7 7 0 1 0 3 10 M10 6 V10 L13 12',
+  tasks:'M3 3 H17 V17 H3 Z M8 3 V17 M13 3 V17 M4.5 6 H6.5 M9.5 6 H11.5 M9.5 9 H11.5 M14.5 6 H15.5',
+  api:'M7 6 L3 10 L7 14 M13 6 L17 10 L13 14 M11 4 L9 16',
+  lib:'M3 4 H6 V16 H3 Z M7.5 4 H10.5 V16 H7.5 Z M12 5 L15 4.2 L17.8 15 L14.8 15.8 Z',
+  shield:'M10 2 L17 5 V10 C17 14 14 17 10 18 C6 17 3 14 3 10 V5 Z M7 10 L9 12 L13 8',
+  link:'M8 12 L12 8 M7 9 L5 11 A2.8 2.8 0 0 0 9 15 L11 13 M13 11 L15 9 A2.8 2.8 0 0 0 11 5 L9 7',
+  pen:'M4 16 L5 12 L13 4 L16 7 L8 15 Z M11.5 5.5 L14.5 8.5',
+  search:'M3 9 A6 6 0 1 0 15 9 A6 6 0 1 0 3 9 M13.2 13.2 L17.5 17.5'
+};
+const PICONS=['home','case','spark','bolt','leaf','flask','globe','term'];
+const PICON_NAMES=['Home','Briefcase','Spark','Bolt','Leaf','Flask','Globe','Terminal'];
+const SYS_FINAL={cli:'ok',node:'ok',mono:'missing',svc:'stopped'};
+const BPROFILES=[
+  {id:'Morteza (Work)',sites:['LinkedIn','Work mail','GitHub']},
+  {id:'Personal',sites:['X','Instagram','Personal mail']},
+  {id:'Client X',sites:['Client Slack','Client CRM','Shared drive']}
+];
+const RUNS={
+  summ:{t:'Summarise a web page',icon:'doc',input:'example.com/article',nodes:['Open page','Read content','Summarise','Save note'],
+    out:'The article argues that small teams lose most meeting time to unclear agendas. It suggests three fixes: shorter default slots, a written agenda before each meeting, and one meeting-free afternoon a week.'},
+  post:{t:'Draft a post from a link',icon:'pen',input:'example.com/post',nodes:['Open link','Pull key points','Draft post','Save draft'],
+    out:'"Shorter meetings, written agendas, one quiet afternoon a week. Three small changes that gave our team back four hours." Saved as a draft. Nothing was posted.'},
+  res:{t:'Research a company',icon:'search',input:'Acme Robotics',nodes:['Search the web','Read sources','Compare notes','Write brief'],
+    out:'Acme Robotics makes warehouse picking arms. Four sources read: two recent news items, the company site and a hiring page. Brief saved with links to each source.'}
+};
+const CATALOGUE=[
+  ['flow','Workflows','Build automations on a canvas from 100+ nodes and templates.','Sidebar · Workflows'],
+  ['org','Orgs','Run a team of agents with roles and goals.','Sidebar · Orgs'],
+  ['chat','Chat and coder','Talk to an agent or have it write code.','Sidebar · Chat'],
+  ['doc','Documents','Your Second Brain; add files and ask questions.','Documents tab'],
+  ['people','People and Communications','Contacts, synced email and messages.','Sidebar · People'],
+  ['social','Social automations','Instagram, LinkedIn, X, TikTok, Hacker News, Product Hunt.','Sidebar · Social'],
+  ['clock','Schedules and triggers','Run things on a timer or an event.','Sidebar · Schedules'],
+  ['tasks','Tasks','A board agents can pick work from.','Sidebar · Tasks'],
+  ['lock','Secrets vault','Keys and logins, kept per profile.','Sidebar · Secrets'],
+  ['api','API and MCP','An OpenAI-compatible API and an MCP server for other tools.','Settings · API'],
+  ['lib','Library','Install automations and templates from monoes.me.','Sidebar · Library']
+];
+
+function defaultAgents(none){return [
+  {id:'claude',name:'Claude Code',st:none?'missing':'ready',msg:''},
+  {id:'codex',name:'Codex',st:none?'missing':'signin',msg:''},
+  {id:'opencode',name:'OpenCode',st:'missing',msg:''},
+  {id:'copilot',name:'GitHub Copilot CLI',st:'missing',msg:''}
+];}
+function initState(){return {
+  step:1,status:{},visited:{1:true},finished:false,
+  sys:{rows:[
+    {id:'cli',name:'MonoAgent command line',sub:'',st:'pending',msg:''},
+    {id:'node',name:'Node.js',sub:'',st:'pending',msg:''},
+    {id:'mono',name:'monomind',sub:'The engine behind every AI step.',st:'pending',msg:''},
+    {id:'svc',name:'Background service',sub:'Runs schedules and triggers, and lets the browser extension connect.',st:'pending',msg:''}
+  ]},
+  profile:{name:'',icon:0,touched:false,created:false},
+  about:{name:'',role:'',company:'',help:[]},
+  mono:{line:0},
+  agents:{scan:'idle',scanMsg:'',none:false,list:defaultAgents(false)},
+  br:{sub:1,max:1,which:null,opened:false,dev:false,loaded:false,copied:false,pair:'idle',pairMsg:'',bp:null},
+  perms:{read:'allow',act:'allow',submit:'ask'},
+  run:{choice:null,st:'idle',node:-1}
+};}
+let S=initState();
+let lastStep=0, headFocus=false, mockOpen=false;
+
+/* ═══ Timers: all simulated work goes through later() so it can be cancelled ═══ */
+const TIMERS=new Set();
+function later(fn,ms){const id=setTimeout(()=>{TIMERS.delete(id);fn();render();},ms);TIMERS.add(id);return id;}
+function clearTimers(){TIMERS.forEach(clearTimeout);TIMERS.clear();}
+function settleBusy(){
+  S.sys.rows.forEach(r=>{if(r.st==='checking')r.st='pending';if(r.st==='working'){r.st=SYS_FINAL[r.id];r.msg='';}});
+  if(S.mono.line>0&&S.mono.line<4)S.mono.line=0;
+  if(S.agents.scan==='scanning')S.agents.scan='idle';
+  S.agents.list.forEach(a=>{if(a.st==='installing'){a.st='missing';a.msg='';}if(a.st==='checking'){a.st='signin';a.msg='';}});
+  if(S.br.pair==='pairing'){S.br.pair='idle';S.br.pairMsg='';}
+  if(S.run.st==='running'){S.run={choice:null,st:'idle',node:-1};}
+}
+
+/* ═══ Helpers ═══ */
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const pad=n=>String(n).padStart(2,'0');
+const pname=()=>S.profile.name.trim()||'Personal';
+const slugOf=s=>s.trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+const ad=ms=>`style="animation-delay:-${Date.now()%ms}ms"`;
+const icon=k=>`<svg viewBox="0 0 20 20" class="i" aria-hidden="true"><path d="${ICON[k]}"/></svg>`;
+const CHECK='<svg viewBox="0 0 12 12" class="ck" aria-hidden="true"><path d="M2.5 6.2 L5 8.5 L9.5 3.5"/></svg>';
+const spin=()=>`<i class="spin" ${ad(800)} aria-hidden="true"></i>`;
+function countBy(v){let n=0;for(let i=1;i<=10;i++)if(S.status[i]===v)n++;return n;}
+function railState(n){if(n===S.step)return 'current';return S.status[n]==='done'?'done':S.status[n]==='skipped'?'skipped':'upcoming';}
+function profileValid(){const n=S.profile.name.trim();return n!==''&&n.toLowerCase()!=='default';}
+function profileError(){const n=S.profile.name.trim();if(n.toLowerCase()==='default')return 'Pick a name that says what this profile is for.';if(!n&&S.profile.touched)return 'Enter a name for this profile.';return '';}
+const agentReady=()=>S.agents.list.some(a=>a.st==='ready');
+
+/* SVG primitives */
+const R=(x,y,w,h,c='s',rx=3)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" class="${c}"/>`;
+const L=(x1,y1,x2,y2,c='s',ex='')=>`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="${c}" ${ex}/>`;
+const P=(d,c='s',ex='')=>`<path d="${d}" class="${c}" ${ex}/>`;
+const C=(x,y,r,c='s',ex='')=>`<circle cx="${x}" cy="${y}" r="${r}" class="${c}" ${ex}/>`;
+const T=(x,y,s,c='t',a='start')=>`<text x="${x}" y="${y}" class="${c}" text-anchor="${a}">${esc(s)}</text>`;
+const G=(k,x,y,sc,c='s-c')=>`<g transform="translate(${x} ${y}) scale(${sc})"><path d="${ICON[k]}" class="${c}" vector-effect="non-scaling-stroke"/></g>`;
+const ticks=()=>P('M6 18 V6 H18 M442 6 H454 V18 M6 362 V374 H18 M454 362 V374 H442','s-dim');
+const svg=(inner,label,vb='0 0 460 380')=>`<svg viewBox="${vb}" role="img" aria-label="${esc(label)}" preserveAspectRatio="xMidYMid meet">${inner}</svg>`;
+function monkey(cx,cy,r,c){
+  const f=v=>+v.toFixed(2);
+  const a=(dx,dy)=>`${f(cx+r*dx)} ${f(cy+r*dy)}`;
+  return C(f(cx-r*.92),f(cy-r*.12),f(r*.34),c)+C(f(cx+r*.92),f(cy-r*.12),f(r*.34),c)+C(cx,cy,r,c+' f-panel')+
+    P(`M${a(-.62,-.1)} C${a(-.62,-.62)} ${a(-.05,-.62)} ${a(0,-.3)} C${a(.05,-.62)} ${a(.62,-.62)} ${a(.62,-.1)} C${a(.72,.62)} ${a(-.72,.62)} ${a(-.62,-.1)} Z`,c)+
+    C(f(cx-r*.27),f(cy-r*.12),f(r*.075),'dot')+C(f(cx+r*.27),f(cy-r*.12),f(r*.075),'dot')+
+    P(`M${a(-.2,.3)} Q${a(0,.42)} ${a(.2,.3)}`,c);
+}
+const logo=()=>`<svg viewBox="0 0 40 40" aria-hidden="true">${C(20,20,18.5,'s-dim')}${monkey(20,21,11,'s-hot')}</svg>`;
+
+/* ═══ Gating ═══ */
+function canContinue(){
+  switch(S.step){
+    case 2:return S.sys.rows.every(r=>r.st==='ok');
+    case 3:return profileValid();
+    case 5:return S.mono.line===4;
+    case 6:return S.agents.scan==='done'&&agentReady();
+    case 7:return !!S.br.bp;
+    case 9:return S.run.st==='done';
+    default:return true;
+  }
+}
+function gateHint(){
+  switch(S.step){
+    case 2:{const r=S.sys.rows;if(r.some(x=>x.st==='pending'||x.st==='checking'))return 'Checking this machine…';
+      if(r.some(x=>x.st==='working'))return 'Working…';
+      const need=[];if(r[2].st!=='ok')need.push('install monomind');if(r[3].st!=='ok')need.push('start the background service');
+      return need.length?need.join(' and ').replace(/^./,c=>c.toUpperCase())+' to continue.':'';}
+    case 3:return 'Name your profile to continue.';
+    case 5:return S.mono.line>0?'Turning on…':'Turn on monomind to continue.';
+    case 6:return S.agents.scan!=='done'?'Scanning…':'Install and sign in to one agent to continue.';
+    case 7:return 'Choose a browser profile to continue.';
+    case 9:return S.run.st==='running'?'Running…':'Pick a run to continue.';
+  }
+  return '';
+}
+
+/* ═══ Navigation ═══ */
+function onEnter(n){
+  if(n===2)sysNext();
+  if(n===6&&S.agents.scan==='idle')startScan();
+}
+function goTo(n){
+  if(n<1||n>10)return;
+  clearTimers();settleBusy();
+  S.step=n;S.visited[n]=true;headFocus=true;
+  onEnter(n);render();
+}
+function next(){
+  if(!canContinue())return;
+  if(S.step===3)S.profile.created=true;
+  S.status[S.step]='done';
+  if(S.step===10){S.finished=true;clearTimers();render();return;}
+  goTo(S.step+1);
+}
+function skip(){if(!STEPS[S.step].skip)return;S.status[S.step]='skipped';goTo(S.step+1);}
+function back(){if(S.step>1)goTo(S.step-1);}
+function reset(){clearTimers();S=initState();mockOpen=false;lastStep=0;headFocus=true;render();}
+
+/* ═══ Simulations ═══ */
+function sysNext(){
+  const rows=S.sys.rows;const i=rows.findIndex(r=>r.st==='pending');if(i<0)return;
+  rows[i].st='checking';
+  later(()=>{rows[i].st=SYS_FINAL[rows[i].id];sysNext();},650);
+}
+function startScan(){
+  const A=S.agents;A.scan='scanning';A.scanMsg='Looking for Claude Code, Codex, OpenCode and GitHub Copilot CLI';
+  later(()=>{A.scanMsg='Checking which ones are signed in';},1200);
+  later(()=>{A.scan='done';},2400);
+}
+const ACT={
+  next:()=>next(), skip:()=>skip(), back:()=>back(),
+  railGo:a=>{const n=+a;if(S.visited[n]&&n!==S.step)goTo(n);},
+  noop:()=>{},
+  sysInstall:()=>{const r=S.sys.rows[2];if(r.st!=='missing')return;r.st='working';r.msg='Downloading monomind';
+    later(()=>{r.msg='Installing monomind';},1000);later(()=>{r.msg='Checking that it runs';},2000);later(()=>{r.st='ok';r.msg='';},3000);},
+  sysStart:()=>{const r=S.sys.rows[3];if(r.st!=='stopped')return;r.st='working';r.msg='Starting the background service';
+    later(()=>{r.msg='Waiting for it to answer';},1200);later(()=>{r.st='ok';r.msg='';},2400);},
+  psug:a=>{S.profile.name=a;S.profile.touched=true;if(a==='Client name')selectName=true;},
+  picon:a=>{S.profile.icon=+a;},
+  ahelp:a=>{const h=S.about.help;const i=h.indexOf(a);if(i<0)h.push(a);else h.splice(i,1);},
+  monoOn:()=>{if(S.mono.line!==0)return;S.mono.line=1;later(()=>{S.mono.line=2;},1100);later(()=>{S.mono.line=3;},2200);later(()=>{S.mono.line=4;},3300);},
+  agNone:()=>{const A=S.agents;A.none=!A.none;A.list=defaultAgents(A.none);},
+  agInstall:a=>{const ag=S.agents.list.find(x=>x.id===a);if(!ag||ag.st!=='missing')return;ag.st='installing';ag.msg='Downloading '+ag.name;
+    later(()=>{ag.msg='Installing '+ag.name;},1100);later(()=>{ag.msg='Checking that it runs';},2200);later(()=>{ag.st='signin';ag.msg='';},3000);},
+  agCheck:a=>{const ag=S.agents.list.find(x=>x.id===a);if(!ag||ag.st!=='signin')return;ag.st='checking';ag.msg='Checking sign-in';
+    later(()=>{ag.msg='Signed in. Confirming access';},1100);later(()=>{ag.st='ready';ag.msg='';},2200);},
+  brWhich:a=>{S.br.which=a;},
+  brSub:a=>{const n=+a;if(n<=S.br.max)S.br.sub=n;},
+  brNext:()=>{const B=S.br;if(!subDone(B.sub))return;B.sub=Math.min(4,B.sub+1);B.max=Math.max(B.max,B.sub);},
+  brOpen:()=>{S.br.opened=true;},
+  brDev:()=>{S.br.dev=!S.br.dev;},
+  brLoaded:()=>{S.br.loaded=!S.br.loaded;},
+  brCopy:()=>{try{if(navigator.clipboard)navigator.clipboard.writeText('~/.monoagent/extension').catch(()=>{});}catch(e){}S.br.copied=true;},
+  brPair:()=>{const B=S.br;if(B.pair!=='idle')return;B.pair='pairing';B.pairMsg='Waiting for the extension to answer';
+    later(()=>{B.pairMsg='Exchanging a pairing key';},1300);later(()=>{B.pair='done';B.pairMsg='';},2600);},
+  brBp:a=>{S.br.bp=a;},
+  perm:a=>{const [k,v]=a.split(':');S.perms[k]=v;},
+  runPick:a=>{if(S.run.st==='running')return;S.run={choice:a,st:'running',node:0};
+    later(()=>{S.run.node=1;},800);later(()=>{S.run.node=2;},1600);later(()=>{S.run.node=3;},2400);later(()=>{S.run.st='done';S.run.node=4;},3200);},
+  mockToggle:()=>{mockOpen=!mockOpen;},
+  mockGo:a=>{mockOpen=false;S.finished=false;goTo(+a);},
+  mockReset:()=>reset()
+};
+let selectName=false;
+function subDone(n){const B=S.br;return n===1?!!B.which:n===2?(B.opened&&B.dev&&B.loaded):n===3?B.pair==='done':!!B.bp;}
+const INP={
+  pname:v=>{S.profile.name=v;S.profile.touched=true;},
+  aname:v=>{S.about.name=v;}, arole:v=>{S.about.role=v;}, acomp:v=>{S.about.company=v;}
+};
+
+/* ═══ Views: content ═══ */
+const head=(n,title)=>`<div class="eyebrow">Step ${pad(n)} / 10 · ${STEPS[n].code}</div><h1 id="h" tabindex="-1" data-fk="h">${esc(title)}</h1>`;
+const pointer=s=>`<div class="pointer"><b>LATER →</b><span>${s}</span></div>`;
+
+function vWelcome(){
+  const items=['Your profile','The engine (monomind)','An AI agent','Your browser','A first run'];
+  return head(1,'Welcome to MonoAgent')+
+  `<p class="lead">Automations and AI agents that run on your own machine. Setup takes about five minutes. You can skip any step and come back to it later.</p>
+   <div class="sect-l">What we'll set up</div>
+   <ol class="plan">${items.map((t,i)=>`<li><span class="pn">${pad(i+1)}</span><span>${t}</span></li>`).join('')}</ol>`;
+}
+function vSystem(){
+  const okText={cli:'Found',node:'Found',mono:'Installed',svc:'Running'};
+  const rows=S.sys.rows.map(r=>{
+    let right='';
+    switch(r.st){
+      case 'pending':right='<span class="tag dim">Waiting</span>';break;
+      case 'checking':right=`<span class="tag hot">${spin()}Checking</span>`;break;
+      case 'ok':right=`<span class="tag ok">${CHECK}${okText[r.id]}</span>`;break;
+      case 'missing':right=`<span class="tag warn">Not installed</span><button class="btn sm" data-act="sysInstall" data-fk="sysInstall">Install</button>`;break;
+      case 'stopped':right=`<span class="tag warn">Not running</span><button class="btn sm" data-act="sysStart" data-fk="sysStart">Start</button>`;break;
+      case 'working':right=`<span class="tag hot">${spin()}${r.id==='mono'?'Installing':'Starting'}</span>`;break;
+    }
+    return `<div class="row st-${r.st}"><span class="led" aria-hidden="true"></span>
+      <div><div class="row-n">${esc(r.name)}</div>${r.sub?`<div class="row-s">${esc(r.sub)}</div>`:''}${r.st==='working'?`<div class="row-p">${esc(r.msg)}…</div>`:''}</div>
+      <div class="row-r">${right}</div></div>`;
+  }).join('');
+  return head(2,'System check')+`<p class="lead">MonoAgent needs a few things on this machine.</p>
+    <div class="checks panel" aria-live="polite">${rows}</div>`;
+}
+function vProfile(){
+  const P0=S.profile, err=profileError(), slug=slugOf(P0.name)||'<name>';
+  return head(3,'Create your profile')+
+  `<p class="lead">A profile is a separate workspace. It has its own folder, documents, secrets, agents' memory, orgs and browser. Make one for each context you keep apart, for example Personal, Work, or a client.</p>
+   <p class="note">There is no ready-made profile. You make the first one here.</p>
+   <div class="field"><label class="lbl" for="pname">Profile name <em>required</em></label>
+     <input id="pname" class="inp${err?' bad':''}" data-inp="pname" data-fk="pname" value="${esc(P0.name)}" placeholder="e.g. Work" autocomplete="off" aria-invalid="${!!err}" aria-describedby="perr">
+     <div class="chips">${['Personal','Work','Client name'].map(s=>`<button class="chip" data-act="psug" data-arg="${s}" data-fk="psug${s}" aria-pressed="${P0.name===s}">${s}</button>`).join('')}</div>
+     <div class="err" id="perr" role="alert">${esc(err)}</div></div>
+   <div class="field" style="margin-top:6px"><span class="lbl" id="iclbl">Icon</span>
+     <div class="icons" role="radiogroup" aria-labelledby="iclbl">${PICONS.map((k,i)=>`<button class="ic" role="radio" aria-checked="${P0.icon===i}" aria-label="${PICON_NAMES[i]}" data-act="picon" data-arg="${i}" data-fk="picon${i}">${icon(k)}</button>`).join('')}</div></div>
+   <div class="field"><span class="lbl">Folder</span>
+     <div class="pathrow"><code>~/.monoagent/profiles/${esc(slug)}</code><button class="btn sm" data-act="noop" data-fk="pchange">Change</button></div></div>
+   <div class="preview"><div class="sbar" aria-label="Sidebar preview"><div class="sbar-k">PROFILES</div>
+       <div class="sitem"><span class="av">${icon(PICONS[P0.icon])}</span><span class="nm">${esc(P0.name.trim()||'Unnamed')}</span><span class="on" aria-hidden="true"></span></div>
+       <div class="sghost">+ New profile</div></div>
+     <p>This is how the profile appears in the sidebar. You can add more profiles later.</p></div>`;
+}
+function vAbout(){
+  const A=S.about;
+  const f=(id,k,lbl,ph)=>`<div><label class="lbl" for="${id}">${lbl}</label><input id="${id}" class="inp" data-inp="${k}" data-fk="${k}" value="${esc(A[k==='aname'?'name':k==='arole'?'role':'company'])}" placeholder="${ph}" autocomplete="off"></div>`;
+  return head(4,'About you')+`<p class="lead">Agents read this before they work for you, so they write and act as you would.</p>
+   <div class="field grid2">${f('aname','aname','Your name','e.g. Sam Rivera')}${f('arole','arole','Role','e.g. Founder')}</div>
+   <div class="field">${f('acomp','acomp','Company or project','e.g. Acme Robotics')}</div>
+   <div class="field"><span class="lbl">What do you want help with?</span>
+     <div class="chips">${['Outreach','Content','Research','Coding','Inbox','Operations'].map(s=>`<button class="chip" data-act="ahelp" data-arg="${s}" data-fk="ah${s}" aria-pressed="${A.help.includes(s)}">${s}</button>`).join('')}</div></div>
+   ${pointer('You can edit this later in the Info tab.')}`;
+}
+function vMono(){
+  const l=S.mono.line, nm=esc(pname());
+  const lines=['Preparing the profile folder','Setting up memory and knowledge graph','Registering with your agents'];
+  let act='';
+  if(l===0)act=`<button class="btn pri" data-act="monoOn" data-fk="monoOn">Turn on for ${nm}</button>`;
+  else act=`<ul class="prog panel" aria-live="polite">${lines.map((s,i)=>{const n=i+1;const c=l>n?'ok':l===n?'cur':'';
+      return `<li class="${c}"><span class="pm">${l>n?CHECK:l===n?spin():'·'}</span>${s}</li>`;}).join('')}</ul>
+      ${l===4?`<div class="success">${CHECK} monomind is on for ${nm}.</div>`:''}`;
+  return head(5,'Turn on monomind')+`<p class="lead">monomind is the engine behind every AI step in MonoAgent.</p>
+   <div class="ex">
+     <div class="exc panel">${miniDocs()}<h3>For documents</h3><p>Files you add to this profile are indexed into its Second Brain. Agents search it, and a knowledge graph links what belongs together.</p></div>
+     <div class="exc panel">${miniOrgs()}<h3>For orgs</h3><p>An org is a team of agents with roles, goals and a boss. Orgs run on monomind and keep their memory in this profile.</p></div>
+   </div>
+   <div class="act">${act}</div>
+   ${pointer("You'll find this later in the Documents tab.")}`;
+}
+function vAgents(){
+  const A=S.agents;
+  let h=head(6,'Your agents')+`<p class="lead">Agents are the AI coding tools installed on this machine. MonoAgent drives them. You need at least one.</p>
+   <div class="rev"><span class="rev-k">REVIEWER</span><button class="tgl" role="switch" aria-checked="${A.none}" data-act="agNone" data-fk="agNone"><span class="tgl-k" aria-hidden="true"></span>Simulate: none installed</button></div>`;
+  if(A.scan!=='done'){
+    return h+`<div class="scan panel" aria-live="polite">${spin()}<span>${esc(A.scanMsg||'Starting the scan')}…</span></div>`+pointer("You'll find this later in Settings, under AI agents.");
+  }
+  const anyInstalled=A.list.some(a=>a.st!=='missing'&&a.st!=='installing');
+  if(!anyInstalled)h+=`<div class="empty" role="status"><b>No agents found. Install one to continue.</b><span>Recommended: Claude Code.</span></div>`;
+  h+=`<div class="tiles" aria-live="polite">${A.list.map(a=>{
+    const rec=!anyInstalled&&a.id==='claude';
+    let tag='',body='';
+    switch(a.st){
+      case 'ready':tag=`<span class="tag ok">${CHECK}Signed in</span>`;body='Installed and signed in. Ready to use.';break;
+      case 'signin':tag='<span class="tag warn">Sign in needed</span>';
+        body=`<span>Installed. Open ${esc(a.name)} once in a terminal and sign in, then check again.</span><button class="btn sm" data-act="agCheck" data-arg="${a.id}" data-fk="agc${a.id}">Check again</button>`;break;
+      case 'missing':tag='<span class="tag dim">Not installed</span>';body=`<button class="btn sm${rec?' pri':''}" data-act="agInstall" data-arg="${a.id}" data-fk="agi${a.id}">Install</button>`;break;
+      case 'installing':tag=`<span class="tag hot">${spin()}Installing</span>`;body=`<span class="mono-l">${esc(a.msg)}…</span>`;break;
+      case 'checking':tag=`<span class="tag hot">${spin()}Checking</span>`;body=`<span class="mono-l">${esc(a.msg)}…</span>`;break;
+    }
+    return `<div class="tile panel st-${a.st}"><div class="tile-h"><span class="tile-n">${esc(a.name)}</span>${rec?'<span class="tag hot">Recommended</span>':''}</div><div>${tag}</div><div class="tile-b">${body}</div></div>`;
+  }).join('')}</div>`;
+  return h+pointer("You'll find this later in Settings, under AI agents.");
+}
+function vBrowser(){
+  const B=S.br, nm=esc(pname()), bname=B.which==='edge'?'Edge':'Chrome', scheme=B.which==='edge'?'edge':'chrome';
+  const subs=['Browser','Install','Pair','Browser profile'];
+  let h=head(7,'Connect your browser')+`<p class="lead">The extension lets agents work in your real browser. They use the accounts you are already signed in to there, so nothing needs your passwords.</p>
+   <ol class="subs" aria-label="Browser setup steps">${subs.map((s,i)=>{const n=i+1;const st=n===B.sub?'cur':subDone(n)?'done':'';const can=n<=B.max&&n!==B.sub;
+     return `<li><button class="sub ${st}" data-act="brSub" data-arg="${n}" data-fk="brsub${n}" ${can?'':'aria-disabled="true"'} ${n===B.sub?'aria-current="step"':''}><span class="sn">${st==='done'?CHECK:n}</span>${s}</button></li>`;}).join('')}</ol>`;
+  let b='';
+  if(B.sub===1){
+    b=`<div class="q" id="brq">Which browser do you use?</div>
+     <div class="opts" role="radiogroup" aria-labelledby="brq">${[['chrome','Chrome'],['edge','Edge']].map(([k,l])=>`<button class="opt" role="radio" aria-checked="${B.which===k}" data-act="brWhich" data-arg="${k}" data-fk="brw${k}">${icon('web')}${l}</button>`).join('')}</div>
+     <button class="btn" data-act="brNext" data-fk="brNext1" ${B.which?'':'disabled'}>Next: install</button>`;
+  }else if(B.sub===2){
+    const cb=(k,on,l)=>`<button class="cb" role="checkbox" aria-checked="${on}" data-act="${k}" data-fk="${k}"><span class="bx">${on?CHECK:''}</span>${l}</button>`;
+    b=`<div class="q">Install the extension in ${bname}</div>
+     <ol class="inst">
+      <li class="${B.opened?'ok':''}"><span class="in">${B.opened?CHECK:1}</span><div><div>Open the extensions page.</div><div class="ia"><button class="btn sm" data-act="brOpen" data-fk="brOpen">${B.opened?'Opened':'Open the extensions page'}</button><code>${scheme}://extensions</code></div></div></li>
+      <li class="${B.dev?'ok':''}"><span class="in">${B.dev?CHECK:2}</span><div><div>Turn on Developer mode.</div><div class="hint">The switch is at the top right of the page.</div><div class="ia">${cb('brDev',B.dev,'Developer mode is on')}</div></div></li>
+      <li class="${B.loaded?'ok':''}"><span class="in">${B.loaded?CHECK:3}</span><div><div>Load unpacked and choose this folder:</div><div class="ia"><code>~/.monoagent/extension</code><button class="btn sm" data-act="brCopy" data-fk="brCopy">${B.copied?'Copied':'Copy'}</button></div><div class="ia">${cb('brLoaded',B.loaded,'Loaded')}</div></div></li>
+     </ol>
+     <button class="btn" data-act="brNext" data-fk="brNext2" ${subDone(2)?'':'disabled'}>Next: pair</button>`;
+  }else if(B.sub===3){
+    const pr=B.pair==='idle'?`<button class="btn pri" data-act="brPair" data-fk="brPair">Pair extension</button>`:
+      B.pair==='pairing'?`<span class="tag hot">${spin()}Pairing</span><span class="mono-l">${esc(B.pairMsg)}…</span>`:`<span class="tag ok">${CHECK}Connected</span>`;
+    b=`<div class="q">Pair the extension with MonoAgent</div>
+     <p class="sm-t">MonoAgent and the extension exchange a key so only this app can talk to it.</p>
+     <div class="ia" style="display:flex;gap:10px;align-items:center;margin:14px 0" aria-live="polite">${pr}</div>
+     <button class="btn" data-act="brNext" data-fk="brNext3" ${subDone(3)?'':'disabled'}>Next: choose a browser profile</button>`;
+  }else{
+    b=`<div class="q" id="bpq">Choose the browser profile for ${nm}</div>
+     <p class="sm-t">Pick the browser profile whose logged-in accounts belong to ${nm}. Agents working in ${nm} will only use that browser profile.</p>
+     <div class="bps" role="radiogroup" aria-labelledby="bpq">${BPROFILES.map(p=>`<button class="bp" role="radio" aria-checked="${B.bp===p.id}" data-act="brBp" data-arg="${esc(p.id)}" data-fk="bp${esc(p.id)}"><span class="rd" aria-hidden="true"></span><span>${esc(p.id)}<small>Signed in: ${p.sites.map(esc).join(', ')}</small></span></button>`).join('')}</div>`;
+  }
+  h+=`<div class="subbody panel">${b}</div>`;
+  return h+pointer("You'll find this later in Settings, under Browser Extension.");
+}
+function vPerms(){
+  const p=S.perms;
+  const rows=[['read','Read pages'],['act','Click and type'],['submit','Submit forms, post, upload']];
+  const opts=[['allow','Allow'],['ask','Ask me first'],['never','Never']];
+  return head(8,'What agents may do in your browser')+`<p class="lead">You decide how far agents go on their own.</p>
+   <div class="perms panel">${rows.map(([k,l])=>`<div class="perm"><span id="pl${k}">${l}</span><div class="seg" role="radiogroup" aria-labelledby="pl${k}">${opts.map(([v,ol])=>`<button class="v-${v}" role="radio" aria-checked="${p[k]===v}" data-act="perm" data-arg="${k}:${v}" data-fk="perm${k}${v}">${ol}</button>`).join('')}</div></div>`).join('')}</div>
+   <div class="hil panel">${icon('shield')}<span>When an agent needs your OK, it waits in Human-in-Loop until you approve or reject.</span></div>`;
+}
+function vRun(){
+  const r=S.run, run=r.choice?RUNS[r.choice]:null;
+  let h=head(9,'Your first run')+`<p class="lead">Pick one to see MonoAgent work.</p>
+   <div class="cards">${Object.entries(RUNS).map(([k,v])=>`<button class="card" data-act="runPick" data-arg="${k}" data-fk="run${k}" aria-pressed="${r.choice===k}" ${r.st==='running'&&r.choice!==k?'disabled':''}><span class="cic">${icon(v.icon)}</span><span><h3>${v.t}</h3><small>${esc(v.input)}</small></span><span class="tag ${r.choice===k&&r.st==='done'?'ok':'dim'}">${r.choice===k&&r.st==='done'?'Done':r.choice===k&&r.st==='running'?'Running':'Run'}</span></button>`).join('')}</div>`;
+  if(run&&r.st==='running')h+=`<div class="runst panel" aria-live="polite">${spin()}<span>Running step ${r.node+1} of 4: ${esc(run.nodes[r.node])}…</span></div>`;
+  if(run&&r.st==='done')h+=`<div class="result panel" role="status"><span class="lbl">Result · sample</span><p>${esc(run.out)}</p></div>`;
+  return h;
+}
+function vDone(){
+  const lbl={done:['ok','Done'],skipped:['warn','Skipped']};
+  const list=[1,2,3,4,5,6,7,8,9].map(n=>{const s=S.status[n];const [c,t]=lbl[s]||['dim','Not done'];
+    return `<li><span class="n">${pad(n)}</span><span>${STEPS[n].t}</span><span class="tag ${c}">${s==='done'?CHECK:''}${t}</span>${s==='skipped'?`<a href="#" class="fin" data-act="noop">Finish this</a>`:'<span></span>'}</li>`;}).join('');
+  return head(10,"You're set")+`<p class="lead">Here is where each step ended. Skipped steps wait for you; finish them any time.</p>
+   <ul class="sum panel">${list}</ul>`;
+}
+function vCatalogue(){
+  return `<div class="cat-h"><h2>What you can do with MonoAgent</h2><span class="eyebrow">11 areas</span></div>
+   <div class="cats">${CATALOGUE.map(([k,t,d,w])=>`<div class="cat panel"><div class="ch">${icon(k)}<h3>${t}</h3></div><p>${d}</p><span class="where">${w}</span></div>`).join('')}</div>`;
+}
+
+/* ═══ Views: illustrations ═══ */
+function figSystem(sum){
+  const cx=230,cy=188,rr=50;
+  const nodes=[
+    {k:'PROFILE',s:'WORKSPACE',x:95,y:92,st:[3]},
+    {k:'ENGINE',s:'MONOMIND',x:365,y:92,st:[5]},
+    {k:'AGENT',s:'AI CODING TOOL',x:365,y:236,st:[6]},
+    {k:'BROWSER',s:'EXTENSION',x:95,y:236,st:[7,8]},
+    {k:'FIRST RUN',s:'WORKFLOW',x:230,y:322,st:[9]}
+  ];
+  let o=ticks()+R(20,34,420,330,'s-dash',6)+T(30,26,'YOUR MACHINE','t t-c')+T(430,26,sum?'AFTER SETUP':'RUNS LOCALLY','t','end');
+  const state=n=>{if(!sum)return 'plan';const v=n.st.map(s=>S.status[s]);return v.every(x=>x==='done')?'done':v.some(x=>x==='skipped')?'skipped':'todo';};
+  nodes.forEach(n=>{const s=state(n);o+=L(n.x,n.y,cx,cy,s==='plan'?'s-dash flow':s==='done'?'s-ok':s==='skipped'?'s-warn':'s-dim',s==='plan'?ad(1600):'');});
+  o+=C(cx,cy,rr+14,'s-dim f-panel')+C(cx,cy,rr,'s')+monkey(cx,cy+2,28,'s-hot');
+  o+=T(cx,cy+rr+34,'MONOAGENT','t t-c','middle');
+  nodes.forEach((n,i)=>{const s=state(n);const w=118,h=42,x=n.x-w/2,y=n.y-h/2;
+    const c=s==='plan'?'s':s==='done'?'s-ok':s==='skipped'?'s-warn':'s-dim';
+    o+=R(x,y,w,h,c+' f-panel',4)+T(x+8,y+15,pad(i+1),'t t-c')+T(x+26,y+16,n.k,'t t-b')+
+      T(x+26,y+31,s==='plan'?n.s:s==='done'?'DONE':s==='skipped'?'SKIPPED':'NOT DONE',s==='done'?'t t-ok':s==='skipped'?'t t-w':'t');
+  });
+  return svg(o,sum?'Setup result: each part of MonoAgent marked done or skipped':'MonoAgent on your machine, connected to your profile, engine, agent, browser and a first run');
+}
+function figBoard(){
+  const rows=S.sys.rows, xs=[80,180,280,380], labels=['CLI','NODE.JS','MONOMIND','SERVICE'];
+  const okT={cli:'FOUND',node:'FOUND',mono:'INSTALLED',svc:'RUNNING'};
+  let o=ticks()+R(24,36,412,318,'s',6)+T(34,28,'HOST · THIS MACHINE','t t-c');
+  for(let y=60;y<340;y+=16)o+=L(24,y,30,y,'s-dim');
+  o+=R(160,66,140,52,'s-hot f-hot',4)+T(230,90,'MONOAGENT','t t-b t-lg','middle')+T(230,106,'COMMAND LINE + APP','t','middle');
+  for(let x=172;x<300;x+=14)o+=L(x,60,x,66,'s-dim')+L(x,118,x,124,'s-dim');
+  o+=L(230,124,230,170,'s')+L(80,170,380,170,'s');
+  rows.forEach((r,i)=>{const x=xs[i];
+    const c=r.st==='ok'?'s-ok':(r.st==='checking'||r.st==='working')?'s-hot':(r.st==='missing'||r.st==='stopped')?'s-warn':'s-dim';
+    const t=r.st==='ok'?okT[r.id]:r.st==='checking'?'CHECKING':r.st==='working'?(r.id==='mono'?'INSTALLING':'STARTING'):r.st==='missing'?'MISSING':r.st==='stopped'?'STOPPED':'WAITING';
+    const tc=r.st==='ok'?'t t-ok':(r.st==='missing'||r.st==='stopped')?'t t-w':(r.st==='checking'||r.st==='working')?'t t-h':'t t-d';
+    o+=L(x,170,x,206,c)+C(x,170,2.5,'dot-dim')+R(x-42,206,84,72,c+' f-panel',4)+T(x,232,labels[i],'t t-b','middle')+
+      C(x+30,216,3,r.st==='ok'?'dot-ok':(r.st==='checking'||r.st==='working')?'dot pulse':'dot-dim',(r.st==='checking'||r.st==='working')?ad(1400):'')+
+      L(x-30,244,x+30,244,'s-dim')+T(x,264,t,tc,'middle');
+  });
+  const sv=rows[3].st==='ok'?'s-ok':'s-dim';
+  o+=L(380,278,380,300,sv)+L(300,300,400,300,sv)+L(300,300,300,312,sv)+L(400,300,400,312,sv)+T(300,326,'SCHEDULES','t','middle')+T(400,326,'EXTENSION','t','middle');
+  const mv=rows[2].st==='ok'?'s-ok':'s-dim';
+  o+=L(280,278,280,300,mv)+T(240,326,'AI STEPS','t','middle')+L(240,300,280,300,mv)+L(240,300,240,312,mv);
+  return svg(o,'Circuit diagram of this machine: command line, Node.js, monomind and the background service');
+}
+function figProfile(){
+  const nm=(S.profile.name.trim()||'UNNAMED').toUpperCase().slice(0,16);
+  const sl=slugOf(S.profile.name)||'<name>';
+  let o=ticks()+R(96,22,330,290,'s-dash',6)+L(96,58,426,58,'s-dim')+T(416,44,'ANOTHER PROFILE','t','end');
+  o+=R(34,58,330,292,'s f-panel',6);
+  o+=R(46,70,30,30,'s-hot f-hot',4)+G(PICONS[S.profile.icon],51,75,1,'s-c');
+  o+=T(86,84,'PROFILE · '+nm,'t t-b t-lg')+T(86,97,'~/.monoagent/profiles/'+sl.slice(0,18),'t');
+  o+=L(34,110,364,110,'s-dim');
+  const cells=[['folder','FOLDER'],['doc','DOCUMENTS'],['lock','SECRETS'],['mem','AGENT MEMORY'],['org','ORGS'],['web','BROWSER']];
+  cells.forEach((c,i)=>{const x=46+(i%3)*104,y=120+Math.floor(i/3)*112;
+    o+=R(x,y,98,104,'s',3)+T(x+6,y+13,pad(i+1),'t t-d')+G(c[0],x+33,y+26,1.6)+T(x+49,y+92,c[1],'t t-c','middle');});
+  o+=L(394,140,394,300,'s-dim')+P('M390 146 L394 140 L398 146 M390 294 L394 300 L398 294','s-dim');
+  o+=`<text class="t" transform="translate(406 220) rotate(90)" text-anchor="middle">KEPT APART</text>`;
+  return svg(o,'A profile drawn as a cabinet with six separate compartments: folder, documents, secrets, agent memory, orgs and browser');
+}
+function figAbout(){
+  const a=S.about, v=s=>(s.trim()||'—').slice(0,20);
+  let o=ticks()+R(36,56,232,268,'s f-panel',5)+T(48,76,'ABOUT YOU','t t-c')+T(256,76,'READ FIRST','t','end')+L(36,86,268,86,'s-dim');
+  [['NAME',a.name],['ROLE',a.role],['COMPANY / PROJECT',a.company]].forEach((r,i)=>{const y=108+i*44;
+    o+=T(48,y,r[0],'t')+T(48,y+17,v(r[1]),r[1].trim()?'t t-b t-lg':'t t-d t-lg')+L(48,y+26,256,y+26,'s-dim');});
+  o+=T(48,244,'HELP WITH','t');
+  let cx=48,cy=254;(a.help.length?a.help:['—']).forEach(h=>{const w=h.length*6.4+14;if(cx+w>258){cx=48;cy+=22;}
+    o+=R(cx,cy,w,16,h==='—'?'s-dim':'s-hot f-hot',8)+T(cx+w/2,cy+11.5,h.toUpperCase(),'t t-c','middle');cx+=w+6;});
+  o+=P('M28 64 V48 H44 M276 64 V48 H260 M28 316 V332 H44 M276 316 V332 H260','s-c');
+  [110,190,270].forEach((y,i)=>{o+=P(`M268 190 C312 190 310 ${y} 352 ${y}`,'s-dash flow',ad(1600))+C(376,y,22,'s f-panel')+G('term',366,y-10,1)+T(404,y+4,'AGENT '+(i+1),'t','start');});
+  o+=T(152,350,'READ BEFORE EVERY TASK','t t-d','middle');
+  return svg(o,'Your details on a card that each agent reads before it works');
+}
+function miniDocs(){
+  let o='';[16,42,68].forEach(y=>{o+=G('doc',8,y,1.15);});
+  o+=P('M36 30 L62 50 M36 55 H62 M36 80 L62 60','s-dim')+R(62,40,50,30,'s-hot f-hot',3)+T(87,59,'INDEX','t t-c','middle')+L(112,55,136,55,'s');
+  const n=[[150,26],[188,38],[164,62],[204,76],[142,88],[182,96]];
+  [[0,1],[0,2],[1,2],[2,3],[2,4],[3,5],[4,5]].forEach(([a,b])=>{o+=L(n[a][0],n[a][1],n[b][0],n[b][1],'s');});
+  n.forEach((p,i)=>{o+=C(p[0],p[1],i===2?5:3.5,i===2?'s-hot f-panel':'s f-panel');});
+  return `<svg viewBox="0 0 220 110" role="img" aria-label="Files indexed into a knowledge graph">${o}${T(176,12,'GRAPH','t','middle')}</svg>`;
+}
+function miniOrgs(){
+  let o=R(82,6,56,22,'s-hot f-hot',3)+T(110,21,'BOSS','t t-c','middle')+P('M110 28 V40 M50 40 H170 M50 40 V52 M110 40 V52 M170 40 V52','s');
+  [50,110,170].forEach(x=>{o+=R(x-26,52,52,20,'s f-panel',3)+T(x,65.5,'ROLE','t','middle')+L(x,72,x,84,'s-dash');});
+  o+=P('M24 84 H196','s-dash')+R(56,86,108,18,'s f-panel',9)+T(110,98.5,'MEMORY · PROFILE','t t-c','middle');
+  o+=P('M184 6 V24 M184 6 H200 L196 11 L200 16 H184','s-c')+T(206,24,'GOAL','t','end');
+  return `<svg viewBox="0 0 220 110" role="img" aria-label="An org: a boss, roles and a goal, with memory kept in the profile">${o}</svg>`;
+}
+function figEngine(){
+  const l=S.mono.line, st=i=>l>i?'s-ok':l===i?'s-hot flow':'s-dim', ex=i=>l===i?ad(1600):'';
+  let o=ticks()+R(20,162,116,56,'s f-panel',4)+G('folder',30,170,1)+T(56,184,'PROFILE','t t-b')+T(30,206,(slugOf(pname())||'profile').slice(0,14)+'/','t');
+  const hex=r=>[0,60,120,180,240,300].map(a=>{const t=a*Math.PI/180;return (230+r*Math.cos(t)).toFixed(1)+','+(189+r*Math.sin(t)).toFixed(1);}).join(' ');
+  o+=L(136,189,172,189,st(1),ex(1))+T(154,180,'1','t t-c','middle');
+  o+=P('M259 139 L300 94 H326',st(2),ex(2))+L(288,189,326,189,st(2),ex(2))+T(296,126,'2','t t-c','middle');
+  o+=P('M259 239 L300 284 H326',st(3),ex(3))+T(296,260,'3','t t-c','middle');
+  o+=`<polygon points="${hex(58)}" class="${l===4?'s-ok f-ok':l>0?'s-hot f-hot':'s f-panel'}"/><polygon points="${hex(44)}" class="s-dim"/>`;
+  o+=T(230,186,'MONOMIND','t t-b t-lg','middle')+T(230,204,l===4?'ON':l>0?'STARTING':'OFF',l===4?'t t-ok':l>0?'t t-h':'t','middle');
+  [['MEMORY',94,'mem',2],['KNOWLEDGE GRAPH',189,'mem',2],['AGENTS',284,'term',3]].forEach(([t,y,k,s])=>{
+    o+=R(326,y-24,116,48,(l>s?'s-ok':'s')+' f-panel',4)+G(k,334,y-10,1)+T(360,y+4,t.length>9?t.slice(0,9):t,'t t-b')+(t.length>9?T(360,y+16,t.slice(10),'t t-b'):'');});
+  const cap=['READY','PREPARING THE PROFILE FOLDER','SETTING UP MEMORY AND KNOWLEDGE GRAPH','REGISTERING WITH YOUR AGENTS','ON FOR '+pname().toUpperCase().slice(0,18)][l];
+  o+=L(40,330,420,330,'s-dim')+T(230,350,cap,l===4?'t t-ok':l>0?'t t-h':'t','middle');
+  return svg(o,'monomind engine connecting the profile folder to memory, a knowledge graph and your agents');
+}
+function figAgents(){
+  const A=S.agents, done=A.scan==='done';
+  const pos=[[92,82],[368,82],[92,298],[368,298]];
+  let o=ticks()+C(230,190,128,'s-dim')+C(230,190,90,'s-dash');
+  if(A.scan==='scanning')o+=`<g class="sweep" ${ad(2400)}>${P('M230 190 L230 62 A128 128 0 0 1 320.5 99.5 Z','f-hot')}${L(230,190,230,62,'s-hot')}</g>`;
+  A.list.forEach((a,i)=>{const [x,y]=pos[i];
+    const c=!done?'s-dim':a.st==='ready'?'s-ok':a.st==='signin'?'s-warn':a.st==='missing'?'s-dim':'s-hot flow';
+    o+=L(230,190,x,y,c,c.includes('flow')?ad(1600):'');});
+  o+=C(230,190,40,'s-hot f-panel')+monkey(230,192,20,'s-hot')+T(230,248,'MONOAGENT','t t-c','middle');
+  A.list.forEach((a,i)=>{const [x,y]=pos[i];
+    const c=!done?'s-dim':a.st==='ready'?'s-ok':a.st==='signin'?'s-warn':a.st==='missing'?'s-dash':'s-hot';
+    const t=!done?'SCANNING':{ready:'SIGNED IN',signin:'SIGN IN NEEDED',missing:'NOT INSTALLED',installing:'INSTALLING',checking:'CHECKING'}[a.st];
+    const tc=!done?'t t-d':a.st==='ready'?'t t-ok':a.st==='signin'?'t t-w':a.st==='missing'?'t t-d':'t t-h';
+    o+=R(x-66,y-24,132,48,c+' f-panel',4)+T(x-56,y-6,a.name.toUpperCase().replace('GITHUB ',''),'t t-b')+T(x-56,y+12,t,tc)+
+      C(x+54,y-9,3,!done?'dot-dim':a.st==='ready'?'dot-ok':a.st==='installing'||a.st==='checking'?'dot pulse':'dot-dim');});
+  return svg(o,'MonoAgent hub with ports for Claude Code, Codex, OpenCode and GitHub Copilot CLI');
+}
+function figBrowserUI(){
+  const B=S.br, scheme=B.which==='edge'?'edge':'chrome';
+  const cc=d=>d?'s-ok':'s-hot', tc=d=>d?'t t-ok':'t t-h';
+  let o=ticks()+R(30,44,400,300,'s f-panel',6);
+  o+=P('M42 68 L48 52 H160 L166 68','s')+T(60,64,'Extensions','t t-b')+L(30,68,430,68,'s-dim');
+  o+=R(42,76,376,22,cc(B.opened),11)+T(56,91,scheme+'://extensions','t t-b');
+  o+=T(44,124,'Extensions','t t-b t-lg')+T(362,124,'Developer mode','t','end')+R(370,113,30,15,B.dev?'s-ok f-ok':'s-hot',7.5)+C(B.dev?392:378,120.5,4.5,B.dev?'dot-ok':'dot');
+  o+=L(30,138,430,138,'s-dim');
+  o+=R(42,148,100,24,cc(B.loaded),3)+T(92,164,'Load unpacked','t t-b','middle')+R(150,148,104,24,'s-dim',3)+T(202,164,'Pack extension','t t-d','middle')+R(262,148,62,24,'s-dim',3)+T(293,164,'Update','t t-d','middle');
+  [0,1,2].forEach(i=>{const x=42+i*130;o+=R(x,186,122,62,'s-dim',4)+R(x+10,198,16,16,'s-dim',3)+L(x+34,202,x+100,202,'s-dim')+L(x+34,212,x+80,212,'s-dim')+L(x+10,234,x+40,234,'s-dim');});
+  o+=C(446,87,8,cc(B.opened))+T(446,90.5,'1',tc(B.opened),'middle')+L(418,87,438,87,cc(B.opened));
+  o+=C(446,120,8,cc(B.dev))+T(446,123.5,'2',tc(B.dev),'middle')+L(400,120,438,120,cc(B.dev));
+  o+=C(16,160,8,cc(B.loaded))+T(16,163.5,'3',tc(B.loaded),'middle')+L(24,160,42,160,cc(B.loaded));
+  [['1','OPEN THE EXTENSIONS PAGE',B.opened],['2','TURN ON DEVELOPER MODE',B.dev],['3','LOAD UNPACKED · ~/.monoagent/extension',B.loaded]].forEach(([n,t,d],i)=>{const y=276+i*20;
+    o+=T(46,y,n,tc(d))+T(62,y,t,d?'t t-ok':'t t-b')+T(414,y,d?'DONE':'TO DO',d?'t t-ok':'t','end');});
+  return svg(o,'Map of the browser extensions page: the address, the Developer mode switch at top right and the Load unpacked button at top left');
+}
+function figLink(){
+  const B=S.br, bp=BPROFILES.find(p=>p.id===B.bp), paired=B.pair==='done';
+  let o=ticks();
+  o+=T(75,112,'MONOAGENT PROFILE','t t-c','middle')+R(20,122,110,92,'s-hot f-panel',5)+R(32,134,28,28,'s-hot f-hot',4)+G(PICONS[S.profile.icon],36,138,1)+
+    T(32,184,pname().slice(0,12),'t t-b t-lg')+T(32,202,'PROFILE','t');
+  o+=T(235,112,'BROWSER PROFILE','t t-c','middle')+R(180,122,110,92,(bp?'s-ok':'s-dash')+' f-panel',5)+T(192,140,(B.which==='edge'?'EDGE':B.which==='chrome'?'CHROME':'BROWSER'),'t')+G('web',192,148,1.1)+
+    T(192,184,bp?bp.id.slice(0,13):'NOT CHOSEN',bp?'t t-b t-lg':'t t-d t-lg')+T(192,202,bp?'SELECTED':'PICK IN STEP 4',bp?'t t-ok':'t');
+  o+=L(130,168,180,168,paired?'s-ok':'s-dash')+P('M136 164 L130 168 L136 172 M174 164 L180 168 L174 172',paired?'s-ok':'s-dash')+
+    T(155,236,'EXTENSION','t','middle')+T(155,250,paired?'PAIRED':'NOT PAIRED',paired?'t t-ok':'t t-w','middle');
+  o+=T(390,112,'SIGNED-IN SITES','t t-c','middle');
+  [0,1,2].forEach(i=>{const y=122+i*34;const s=bp?bp.sites[i]:'?';
+    o+=P(`M290 168 C315 168 315 ${y+13} 340 ${y+13}`,bp?'s-ok':'s-dim')+R(340,y,100,26,(bp?'s':'s-dash')+' f-panel',3)+T(350,y+17,s.slice(0,14),bp?'t t-b':'t t-d');});
+  o+=P('M20 280 V288 H440 V280','s-dim')+T(230,310,'AGENTS IN '+pname().toUpperCase().slice(0,14)+' USE ONLY THIS BROWSER PROFILE','t t-c','middle')+
+    T(230,326,'NO PASSWORDS ARE SHARED WITH MONOAGENT','t t-d','middle');
+  return svg(o,'Diagram: the MonoAgent profile links to one browser profile, which holds the logged-in sites agents may use');
+}
+function figGates(){
+  const p=S.perms, ch=[['read','READ PAGES',110],['act','CLICK AND TYPE',180],['submit','SUBMIT · POST · UPLOAD',250]];
+  let o=ticks()+R(20,90,80,180,'s f-panel',5)+G('term',50,150,1)+T(60,200,'AGENT','t t-b','middle');
+  o+=R(360,90,80,180,'s f-panel',5)+L(360,106,440,106,'s-dim')+C(370,98,2,'dot-dim')+C(378,98,2,'dot-dim')+T(400,200,'BROWSER','t t-b','middle');
+  const asks=Object.values(p).filter(v=>v==='ask').length;
+  ch.forEach(([k,l,y],i)=>{const v=p[k];
+    o+=T(108,y-8,l,'t');
+    if(v==='allow'){o+=L(100,y,360,y,'s-ok')+L(264,y-13,264,y-5,'s-ok')+L(264,y+5,264,y+13,'s-ok');}
+    else if(v==='ask'){const dx=282+i*12;o+=L(100,y,258,y,'s-hot')+R(258,y-10,12,20,'s-hot f-hot',2)+L(270,y,360,y,'s-dash')+P(`M270 ${y} H${dx} V300`,'s-hot flow',ad(1600));}
+    else{o+=L(100,y,258,y,'s-dim')+R(258,y-12,12,24,'s-warn f-panel',2)+P(`M259 ${y-11} L269 ${y+11} M269 ${y-11} L259 ${y+11}`,'s-warn');}
+    o+=T(354,y-8,v==='allow'?'ALLOW':v==='ask'?'ASK FIRST':'NEVER',v==='allow'?'t t-ok':v==='ask'?'t t-h':'t t-w','end');
+  });
+  o+=R(250,300,104,44,(asks?'s-hot':'s')+' f-panel',4)+T(302,318,'HUMAN-IN-LOOP','t t-c','middle')+T(302,334,asks?'WAITS FOR YOUR OK':'NOTHING WAITS','t','middle');
+  return svg(o,'Three channels from agent to browser, each through a gate set to allow, ask first or never');
+}
+function figRun(){
+  const r=S.run, run=r.choice?RUNS[r.choice]:null;
+  const pos=[[28,72],[272,72],[272,168],[28,168]], w=160, h=52;
+  const ns=i=>!run?'idle':(r.st==='done'||r.node>i)?'ok':r.node===i?'hot':'wait';
+  const cs=i=>!run?'s-dim':(r.st==='done'||r.node>i+1)?'s-ok':r.node===i+1?'s-hot flow':'s-dim';
+  let o=ticks()+T(28,56,run?'INPUT · '+run.input:'PICK A RUN TO START',run?'t t-c':'t t-d');
+  o+=L(188,98,272,98,cs(0),ad(1600))+L(352,124,352,168,cs(1),ad(1600))+L(272,194,188,194,cs(2),ad(1600))+L(108,220,108,256,cs(3),ad(1600));
+  pos.forEach(([x,y],i)=>{const s=ns(i);const c=s==='ok'?'s-ok':s==='hot'?'s-hot':s==='wait'?'s':'s-dash';
+    o+=R(x,y,w,h,c+' f-panel',4)+T(x+10,y+17,'N'+(i+1),'t t-c')+T(x+10,y+37,run?run.nodes[i]:'—',run?'t t-b t-lg':'t t-d t-lg')+
+      T(x+w-10,y+17,s==='ok'?'DONE':s==='hot'?'RUNNING':s==='wait'?'QUEUED':'',s==='ok'?'t t-ok':s==='hot'?'t t-h':'t','end');
+    if(s==='hot')o+=C(x+w-10,y+36,3,'dot pulse',ad(1400));});
+  const dn=r.st==='done';
+  o+=R(28,256,404,92,(dn?'s-ok':'s-dash')+' f-panel',4)+T(40,274,'OUTPUT','t t-c')+T(420,274,dn?'SAMPLE · READY':'WAITING','t'+(dn?' t-ok':''),'end');
+  if(dn)[292,306,320,334].forEach((y,i)=>{o+=L(40,y,[392,410,370,250][i],y,'s');});
+  return svg(o,'A run of four nodes that light up in order, ending in an output');
+}
+function figFor(n){
+  switch(n){
+    case 1:return figSystem(false); case 2:return figBoard(); case 3:return figProfile(); case 4:return figAbout();
+    case 5:return figEngine(); case 6:return figAgents(); case 7:return S.br.sub===2?figBrowserUI():figLink();
+    case 8:return figGates(); case 9:return figRun(); case 10:return figSystem(true);
+  }
+}
+function figState(n){
+  switch(n){
+    case 2:return S.sys.rows.every(r=>r.st==='ok')?'ALL CLEAR':'LIVE';
+    case 5:return S.mono.line===4?'ON':S.mono.line?'RUNNING':'IDLE';
+    case 6:return S.agents.scan!=='done'?'SCANNING':agentReady()?'READY':'WAITING';
+    case 7:return S.br.bp?'LINKED':'SETUP';
+    case 9:return S.run.st==='done'?'COMPLETE':S.run.st==='running'?'RUNNING':'IDLE';
+    default:return 'LIVE';
+  }
+}
+
+/* ═══ Render ═══ */
+function render(){
+  const ae=document.activeElement, fk=ae&&ae.dataset?ae.dataset.fk:null;
+  const sel=ae&&ae.tagName==='INPUT'?[ae.selectionStart,ae.selectionEnd]:null;
+  const entering=S.step!==lastStep;
+  const oldBody=document.querySelector('.body'), scroll=oldBody&&!entering?oldBody.scrollTop:0;
+  lastStep=S.step;
+  const n=S.step, st=STEPS[n], ok=canContinue();
+  const views={1:vWelcome,2:vSystem,3:vProfile,4:vAbout,5:vMono,6:vAgents,7:vBrowser,8:vPerms,9:vRun,10:vDone};
+  const figName=n===7&&S.br.sub===2?'EXTENSIONS PAGE · CONTROL MAP':st.fig;
+  const label=n===1?'Get started':n===3?'Create profile':n===10?'Open MonoAgent':'Continue';
+  const nd=countBy('done'), nsk=countBy('skipped');
+  document.getElementById('app').innerHTML=`
+  <aside class="rail">
+    <div class="brand">${logo()}<div><div class="bn">MonoAgent</div><div class="bs">FIRST-RUN SETUP</div></div></div>
+    <nav aria-label="Setup steps"><ol class="steps">${[1,2,3,4,5,6,7,8,9,10].map(i=>{const rs=railState(i);const can=S.visited[i]&&i!==n;
+      const mk=rs==='done'?CHECK:rs==='skipped'?'–':pad(i);
+      const tag={done:'DONE',skipped:'SKIPPED',current:'NOW',upcoming:''}[rs];
+      return `<li class="ri-w ${rs}"><button class="ri" data-act="railGo" data-arg="${i}" data-fk="rail${i}" ${can?'':'aria-disabled="true"'} ${i===n?'aria-current="step"':''}><span class="mk" aria-hidden="true">${mk}</span><span class="rl">${STEPS[i].t}</span><span class="rt">${tag}</span>${rs==='upcoming'?'<span class="sr">not started</span>':''}</button></li>`;}).join('')}</ol></nav>
+    <div class="rail-f"><div class="segs" aria-hidden="true">${[1,2,3,4,5,6,7,8,9,10].map(i=>`<i class="${railState(i)}"></i>`).join('')}</div>
+      <div class="pf-t">${nd} DONE · ${nsk} SKIPPED · ${10-nd-nsk} LEFT</div></div>
+  </aside>
+  <main class="main">
+    <div class="topbar"><div class="tb-l"><span class="tb-k">STEP ${pad(n)} / 10</span><span>//</span><span class="tb-t">${esc(st.t)}</span></div>
+      <div>${S.profile.created?`<span class="pchip">${icon(PICONS[S.profile.icon])}${esc(pname())}</span>`:''}</div></div>
+    <div class="body${entering?' enter':''}">
+      <section class="col">${views[n]()}</section>
+      <figure class="fig" aria-label="Illustration"><div class="fig-h"><span><b>FIG.${pad(n)}</b> &nbsp;${esc(figName)}</span><span class="fig-st">● ${figState(n)}</span></div>
+        <div class="fig-c">${figFor(n)}</div>
+        <div class="fig-f"><span>REF · ${st.code}</span><span>SCHEMATIC · NOT TO SCALE</span></div></figure>
+      ${n===10?`<section class="wide">${vCatalogue()}</section>`:''}
+    </div>
+    <div class="foot">
+      ${n>1?'<button class="btn ghost" data-act="back" data-fk="back">← Back</button>':''}
+      <div class="sp"></div>
+      <span class="gate" aria-live="polite">${ok?'':esc(gateHint())}</span>
+      ${st.skip?'<button class="btn link" data-act="skip" data-fk="skip">Skip for now</button>':''}
+      <button class="btn pri" data-act="next" data-fk="next" ${ok?'':'disabled'}>${label}${ok?' <kbd aria-hidden="true">↵</kbd>':''}</button>
+    </div>
+  </main>`;
+  document.getElementById('mock').innerHTML=`<button class="mock-b" data-act="mockToggle" data-fk="mockToggle" aria-expanded="${mockOpen}" aria-controls="mockp">MOCKUP ${mockOpen?'▴':'▾'}</button>
+   ${mockOpen?`<div class="mock-p" id="mockp"><div class="lbl">Reviewer · jump to step</div><ol>${[1,2,3,4,5,6,7,8,9,10].map(i=>`<li><button data-act="mockGo" data-arg="${i}" data-fk="mock${i}" ${i===n?'aria-current="step"':''}><span>${pad(i)}</span>${STEPS[i].t}</button></li>`).join('')}</ol>
+   <button class="btn sm" data-act="mockReset" data-fk="mockReset">Reset flow</button></div>`:''}`;
+  document.getElementById('ov').innerHTML=S.finished?`<div class="ov" role="dialog" aria-modal="true" aria-labelledby="ovh"><div class="ov-p">${logo()}<h2 id="ovh">MonoAgent opens here</h2><p>This is the end of the onboarding mockup. ${nd} steps done, ${nsk} skipped.</p><button class="btn pri" data-act="mockReset" data-fk="ovReset">Reset flow</button></div></div>`:'';
+  const body=document.querySelector('.body');if(body&&scroll)body.scrollTop=scroll;
+  if(S.finished){const b=document.querySelector('[data-fk="ovReset"]');if(b)b.focus();return;}
+  if(headFocus){headFocus=false;const h=document.getElementById('h');if(h)h.focus({preventScroll:true});return;}
+  if(selectName){selectName=false;const i=document.getElementById('pname');if(i){i.focus();i.select();}return;}
+  if(fk){const el=document.querySelector(`[data-fk="${CSS.escape(fk)}"]`);
+    if(el&&!el.disabled){el.focus({preventScroll:true});if(sel&&el.setSelectionRange){try{el.setSelectionRange(sel[0],sel[1]);}catch(e){}}}
+    else if(el&&el.disabled){const h=document.getElementById('h');if(h)h.focus({preventScroll:true});}}
+}
+
+/* ═══ Events ═══ */
+document.addEventListener('click',e=>{
+  const el=e.target.closest('[data-act]');
+  if(mockOpen&&!e.target.closest('.mock')){mockOpen=false;if(!el){render();return;}}
+  if(!el)return;
+  if(el.tagName==='A')e.preventDefault();
+  if(el.disabled||el.getAttribute('aria-disabled')==='true')return;
+  const f=ACT[el.dataset.act];if(!f)return;
+  f(el.dataset.arg,el);
+  render();
+});
+document.addEventListener('input',e=>{const k=e.target.dataset&&e.target.dataset.inp;if(!k||!INP[k])return;INP[k](e.target.value);render();});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&mockOpen){mockOpen=false;render();return;}
+  if(e.key!=='Enter'||e.isComposing||S.finished)return;
+  const t=e.target;
+  if(t.closest&&t.closest('button,a,textarea,select,.mock,[role="radio"],[role="checkbox"],[role="switch"]'))return;
+  if(canContinue()){e.preventDefault();next();}
+});
+
+/* hook for automated checks */
+window.__mock={get S(){return S;},goTo,next,skip,back,reset,canContinue,act:(k,a)=>{ACT[k](a);render();},input:(k,v)=>{INP[k](v);render();}};
+render();
+</script>
+</body>
+</html>

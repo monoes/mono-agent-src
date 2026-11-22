@@ -1,0 +1,205 @@
+# Review package: 2c74da9b..b04a291b
+
+## Commits
+b04a291b feat(tasks): JS bindings and the task service for the desktop board
+
+## Files changed
+ wails-app/frontend/src/services/tasks.js        | 42 +++++++++++++++++++++++
+ wails-app/frontend/src/services/tasks.test.js   | 22 +++++++++++++
+ wails-app/frontend/src/wailsjs/go/main/App.d.ts | 22 +++++++++++++
+ wails-app/frontend/src/wailsjs/go/main/App.js   | 44 +++++++++++++++++++++++++
+ 4 files changed, 130 insertions(+)
+
+## Diff
+diff --git a/wails-app/frontend/src/services/tasks.js b/wails-app/frontend/src/services/tasks.js
+new file mode 100644
+index 00000000..8fb5802b
+--- /dev/null
++++ b/wails-app/frontend/src/services/tasks.js
+@@ -0,0 +1,42 @@
++// The task board bindings (wails-app/app_tasks.go, app_tasks_watch.go).
++// Each call resolves to the CLI's JSON (`monoagentcli task … --json`; the
++// board, read in process, comes in the same shape) or to {error, code} and
++// never rejects: the board shows a refusal on the card it
++// concerns instead of a page-wide failure.
++import * as GoApp from '../wailsjs/go/main/App'
++import { subscribeEvent } from './api.js'
++
++// The Done column shows the most recent DONE_LIMIT cards (spec §10).
++export const DONE_LIMIT = 50
++
++// run takes a thunk so a binding missing from an older app build (or from a
++// test's mock) becomes {error} too, not a synchronous throw.
++const run = (call) => Promise.resolve()
++  .then(call)
++  .then(r => (typeof r === 'string' ? JSON.parse(r) : r))
++  .catch(e => ({ error: e?.message || String(e) }))
++
++export const tasksApi = {
++  board:     () => run(() => GoApp.TaskBoard(DONE_LIMIT)),
++  show:      (id) => run(() => GoApp.TaskShow(id)),
++  // spec: {title, notes} or {text}; ready: straight to Ready.
++  add:       (spec) => run(() => GoApp.TaskAdd(JSON.stringify(spec))),
++  // change: {title} and/or {notes}; empty notes clear them.
++  edit:      (id, change) => run(() => GoApp.TaskEdit(id, JSON.stringify(change))),
++  // place: {where: '' | 'top' | 'bottom' | 'before' | 'after', ref}
++  move:      (id, status, place = {}) => run(() => GoApp.TaskMove(id, status, place.where || '', place.ref || 0)),
++  approve:   (ids, top = false) => run(() => GoApp.TaskApprove(ids, top)),
++  archive:   (ids) => run(() => GoApp.TaskArchive(ids)),
++  unarchive: (ids) => run(() => GoApp.TaskUnarchive(ids)),
++  comment:   (id, text) => run(() => GoApp.TaskComment(id, text)),
++  // {profile_id, rev, inbox, review}, or {} before the database is open or for a profile that is not there.
++  pulse:     () => run(() => GoApp.TaskPulse()),
++  // The agent-context marker the app inherited, or '' (a plain string, not JSON).
++  agentShell: () => Promise.resolve().then(() => GoApp.TaskAgentShell()).then(m => m || '').catch(() => ''),
++}
++
++// onTasksChanged: the active profile's board revision moved. Payload
++// {profile_id, rev, inbox, review}. Returns the unsubscribe function.
++export function onTasksChanged(callback) {
++  return subscribeEvent('tasks:changed', callback)
++}
+diff --git a/wails-app/frontend/src/services/tasks.test.js b/wails-app/frontend/src/services/tasks.test.js
+new file mode 100644
+index 00000000..bc5b0a04
+--- /dev/null
++++ b/wails-app/frontend/src/services/tasks.test.js
+@@ -0,0 +1,22 @@
++// The bindings the task service calls exist in the generated module. They
++// are placed there by hand (phase 3 plan, Task 3): a misspelt name would
++// only fail when a person clicks.
++import { describe, it, expect } from 'vitest'
++import { readFileSync } from 'node:fs'
++import { join } from 'node:path'
++import * as App from '../wailsjs/go/main/App'
++
++const service = readFileSync(join(__dirname, 'tasks.js'), 'utf8')
++const used = [...new Set([...service.matchAll(/GoApp\.(\w+)/g)].map(m => m[1]))].sort()
++const dts = readFileSync(join(__dirname, '..', 'wailsjs', 'go', 'main', 'App.d.ts'), 'utf8')
++
++describe('task bindings', () => {
++  it('finds the eleven bindings the service uses', () => {
++    expect(used).toEqual(['TaskAdd', 'TaskAgentShell', 'TaskApprove', 'TaskArchive', 'TaskBoard', 'TaskComment',
++      'TaskEdit', 'TaskMove', 'TaskPulse', 'TaskShow', 'TaskUnarchive'])
++  })
++  it('has each in App.js and App.d.ts', () => {
++    expect(used.filter(n => typeof App[n] !== 'function')).toEqual([])
++    expect(used.filter(n => !dts.includes(`export function ${n}(`))).toEqual([])
++  })
++})
+diff --git a/wails-app/frontend/src/wailsjs/go/main/App.d.ts b/wails-app/frontend/src/wailsjs/go/main/App.d.ts
+index 1aa1a951..aeaf4b44 100755
+--- a/wails-app/frontend/src/wailsjs/go/main/App.d.ts
++++ b/wails-app/frontend/src/wailsjs/go/main/App.d.ts
+@@ -592,20 +592,42 @@ export function StopNodeRun(arg1:string):Promise<void>;
+ export function StopOrgEvents(arg1:string,arg2:string):Promise<string>;
+ 
+ export function StopOrgGroup(arg1:string):Promise<string>;
+ 
+ export function StreamOrgEvents(arg1:string,arg2:string):Promise<string>;
+ 
+ export function SwitchProfile(arg1:string):Promise<void>;
+ 
+ export function TagApplication(arg1:string,arg2:string,arg3:string):Promise<void>;
+ 
++export function TaskAdd(arg1:string):Promise<string>;
++
++export function TaskAgentShell():Promise<string>;
++
++export function TaskApprove(arg1:Array<number>,arg2:boolean):Promise<string>;
++
++export function TaskArchive(arg1:Array<number>):Promise<string>;
++
++export function TaskBoard(arg1:number):Promise<string>;
++
++export function TaskComment(arg1:number,arg2:string):Promise<string>;
++
++export function TaskEdit(arg1:number,arg2:string):Promise<string>;
++
++export function TaskMove(arg1:number,arg2:string,arg3:string,arg4:number):Promise<string>;
++
++export function TaskPulse():Promise<Record<string, any>>;
++
++export function TaskShow(arg1:number):Promise<string>;
++
++export function TaskUnarchive(arg1:Array<number>):Promise<string>;
++
+ export function TestAutomation(arg1:string,arg2:string,arg3:boolean):Promise<string>;
+ 
+ export function TestConnection(arg1:string):Promise<string>;
+ 
+ export function TestSession(arg1:number):Promise<string>;
+ 
+ export function UninstallAutomation(arg1:string):Promise<string>;
+ 
+ export function UpdateOrgRole(arg1:string,arg2:string,arg3:string):Promise<string>;
+ 
+diff --git a/wails-app/frontend/src/wailsjs/go/main/App.js b/wails-app/frontend/src/wailsjs/go/main/App.js
+index e614ff36..1c84ced3 100755
+--- a/wails-app/frontend/src/wailsjs/go/main/App.js
++++ b/wails-app/frontend/src/wailsjs/go/main/App.js
+@@ -1183,20 +1183,64 @@ export function StreamOrgEvents(arg1, arg2) {
+ }
+ 
+ export function SwitchProfile(arg1) {
+   return window['go']['main']['App']['SwitchProfile'](arg1);
+ }
+ 
+ export function TagApplication(arg1, arg2, arg3) {
+   return window['go']['main']['App']['TagApplication'](arg1, arg2, arg3);
+ }
+ 
++export function TaskAdd(arg1) {
++  return window['go']['main']['App']['TaskAdd'](arg1);
++}
++
++export function TaskAgentShell() {
++  return window['go']['main']['App']['TaskAgentShell']();
++}
++
++export function TaskApprove(arg1, arg2) {
++  return window['go']['main']['App']['TaskApprove'](arg1, arg2);
++}
++
++export function TaskArchive(arg1) {
++  return window['go']['main']['App']['TaskArchive'](arg1);
++}
++
++export function TaskBoard(arg1) {
++  return window['go']['main']['App']['TaskBoard'](arg1);
++}
++
++export function TaskComment(arg1, arg2) {
++  return window['go']['main']['App']['TaskComment'](arg1, arg2);
++}
++
++export function TaskEdit(arg1, arg2) {
++  return window['go']['main']['App']['TaskEdit'](arg1, arg2);
++}
++
++export function TaskMove(arg1, arg2, arg3, arg4) {
++  return window['go']['main']['App']['TaskMove'](arg1, arg2, arg3, arg4);
++}
++
++export function TaskPulse() {
++  return window['go']['main']['App']['TaskPulse']();
++}
++
++export function TaskShow(arg1) {
++  return window['go']['main']['App']['TaskShow'](arg1);
++}
++
++export function TaskUnarchive(arg1) {
++  return window['go']['main']['App']['TaskUnarchive'](arg1);
++}
++
+ export function TestAutomation(arg1, arg2, arg3) {
+   return window['go']['main']['App']['TestAutomation'](arg1, arg2, arg3);
+ }
+ 
+ export function TestConnection(arg1) {
+   return window['go']['main']['App']['TestConnection'](arg1);
+ }
+ 
+ export function TestSession(arg1) {
+   return window['go']['main']['App']['TestSession'](arg1);

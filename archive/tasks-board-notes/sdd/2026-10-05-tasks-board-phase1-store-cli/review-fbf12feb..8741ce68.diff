@@ -1,0 +1,393 @@
+# Review package: fbf12feb..8741ce68
+
+## Commits
+8741ce68 fix(tasks): List refuses actors that may not read, a stale claim means In progress, the read contract is written down
+
+## Files changed
+ internal/tasks/model.go           |  3 +-
+ internal/tasks/read.go            | 29 +++++++++++--
+ internal/tasks/read_rules_test.go | 88 ++++++++++++++++++++++++++++++++++++++-
+ internal/tasks/store.go           |  6 ++-
+ 4 files changed, 117 insertions(+), 9 deletions(-)
+
+## Diff
+diff --git a/internal/tasks/model.go b/internal/tasks/model.go
+index 84912b6e..7cb24ed9 100644
+--- a/internal/tasks/model.go
++++ b/internal/tasks/model.go
+@@ -184,21 +184,22 @@ type Counts struct {
+ }
+ 
+ // Board is a whole profile's board, read in one snapshot.
+ type Board struct {
+ 	Profile Profile           `json:"profile"`
+ 	Rev     int64             `json:"rev"`
+ 	Counts  Counts            `json:"counts"`
+ 	Tasks   map[Status][]Task `json:"tasks"`
+ }
+ 
+-// Filter narrows List. No statuses means the caller's default (see List).
++// Filter narrows List. No statuses means the default of the caller and a Limit
++// that is not above 0 means the default limit: List says what both are.
+ type Filter struct {
+ 	Statuses  []Status
+ 	Source    string
+ 	ClaimedBy string
+ 	Stale     bool
+ 	Limit     int
+ }
+ 
+ // AddInput is a new task. A Title may come with Notes or with Text (which then
+ // becomes the notes); Text alone gives the task its title from its first line.
+diff --git a/internal/tasks/read.go b/internal/tasks/read.go
+index 2455b5e6..a2d17f10 100644
+--- a/internal/tasks/read.go
++++ b/internal/tasks/read.go
+@@ -4,40 +4,42 @@ import (
+ 	"context"
+ 	"database/sql"
+ 	"errors"
+ 	"fmt"
+ 	"slices"
+ )
+ 
+ // statusOrder sorts a query by column, in board order.
+ const statusOrder = `CASE status WHEN 'inbox' THEN 0 WHEN 'ready' THEN 1 WHEN 'in_progress' THEN 2 WHEN 'review' THEN 3 WHEN 'done' THEN 4 ELSE 5 END`
+ 
+-// Rev is the profile's board revision: 0 until its first write. It is one
++// Rev is the profile's board revision: 0 until its first write. The profile is
++// not checked (an unknown one reads 0): resolve it with Profile first. It is one
+ // primary-key read, so it needs no snapshot.
+ func (s *Store) Rev(ctx context.Context, profileID string) (int64, error) {
+ 	return s.revOf(ctx, s.db, profileID)
+ }
+ 
+ func (s *Store) revOf(ctx context.Context, x dbx, profileID string) (int64, error) {
+ 	var rev int64
+ 	err := x.QueryRowContext(ctx, `SELECT rev FROM task_board_rev WHERE profile_id = ?`, profileID).Scan(&rev)
+ 	if errors.Is(err, sql.ErrNoRows) {
+ 		return 0, nil
+ 	}
+ 	if err != nil {
+ 		return 0, fmt.Errorf("tasks: reading the revision: %w", err)
+ 	}
+ 	return rev, nil
+ }
+ 
+ // Counts returns the profile's cards per column and its stale claims, read in
+-// one snapshot.
++// one snapshot. The profile is not checked (an unknown one has no cards):
++// resolve it with Profile first.
+ func (s *Store) Counts(ctx context.Context, profileID string) (Counts, error) {
+ 	var c Counts
+ 	err := s.snapshot(ctx, func(x dbx) error {
+ 		var err error
+ 		c, err = s.countsOf(ctx, x, profileID)
+ 		return err
+ 	})
+ 	if err != nil {
+ 		return Counts{}, err
+ 	}
+@@ -103,21 +105,24 @@ func (s *Store) queryTasks(ctx context.Context, x dbx, q string, args ...any) ([
+ 	if err := rows.Err(); err != nil {
+ 		return nil, fmt.Errorf("tasks: reading tasks: %w", err)
+ 	}
+ 	// As in countsOf, rows is closed by now.
+ 	if err := s.attachLast(ctx, x, out); err != nil {
+ 		return nil, err
+ 	}
+ 	return out, nil
+ }
+ 
+-// Get returns a task of the profile with its events, oldest first.
++// Get returns a task of the profile with its events, oldest first. It takes no
++// actor: a task is read by its id, in any column. The profile is not checked: a
++// task that is not in the profile and an unknown profile are both ErrNotFound, so
++// resolve the profile with Profile first.
+ func (s *Store) Get(ctx context.Context, profileID string, id int64) (Task, []Event, error) {
+ 	var t Task
+ 	events := []Event{}
+ 	err := s.snapshot(ctx, func(x dbx) error {
+ 		var err error
+ 		if t, err = s.getTx(ctx, x, profileID, id); err != nil {
+ 			return err
+ 		}
+ 		rows, err := x.QueryContext(ctx,
+ 			`SELECT id, at, actor, kind, from_status, to_status, note FROM task_events WHERE task_id = ? ORDER BY id`, id)
+@@ -149,22 +154,35 @@ func (s *Store) Get(ctx context.Context, profileID string, id int64) (Task, []Ev
+ 
+ // defaultStatuses is what List shows when no status is named: every column to
+ // the operator, and only the work that is open to an agent.
+ func defaultStatuses(actor Actor) []Status {
+ 	if actor.Kind == Agent {
+ 		return []Status{StatusReady, StatusInProgress, StatusReview}
+ 	}
+ 	return BoardStatuses
+ }
+ 
+-// List returns the profile's tasks, by column and then by position.
++// List returns the profile's tasks by column, then position, then id, at most
++// f.Limit of them (500 when it is not above 0, never more than 2,000), from the
++// statuses named or, when none is, the five columns for the operator and ready,
++// in_progress and review for an agent. A capture may not read and an actor that
++// was never set is refused, before the filter is looked at. The profile is not
++// checked (an unknown one lists nothing): resolve it with Profile first.
+ func (s *Store) List(ctx context.Context, profileID string, f Filter, actor Actor) ([]Task, error) {
++	// Who is asking comes before what is asked, as in Add.
++	switch actor.Kind {
++	case Human, Agent:
++	case Capture:
++		return nil, operatorOnly("list tasks")
++	default:
++		return nil, invalid("unknown actor")
++	}
+ 	// The names are parsed and the parsed statuses are queried: "progress" and
+ 	// "In-Progress" are accepted as in_progress, so they must find it. A status
+ 	// named twice is asked for once, which keeps the query to six slots however
+ 	// long the caller's list is.
+ 	statuses := make([]Status, 0, len(BoardStatuses)+1)
+ 	for _, name := range f.Statuses {
+ 		st, err := ParseStatus(string(name))
+ 		if err != nil {
+ 			return nil, err
+ 		}
+@@ -211,20 +229,23 @@ func (s *Store) List(ctx context.Context, profileID string, f Filter, actor Acto
+ 		return err
+ 	})
+ 	if err != nil {
+ 		return nil, err
+ 	}
+ 	return out, nil
+ }
+ 
+ // Board returns the whole board in one snapshot: the revision, the counts and
+ // the five columns. The Done column is cut to doneLimit cards when it is above 0.
++// It checks the profile (an unknown one is ErrInvalid) and takes no actor: it is
++// the operator's whole-board read, so a surface that serves agents must not offer
++// it to them (the CLI refuses it for an agent caller).
+ func (s *Store) Board(ctx context.Context, profileID string, doneLimit int) (Board, error) {
+ 	b := Board{Tasks: map[Status][]Task{}}
+ 	err := s.snapshot(ctx, func(x dbx) error {
+ 		var err error
+ 		if b.Profile, err = s.profileOf(ctx, x, profileID); err != nil {
+ 			return err
+ 		}
+ 		if b.Rev, err = s.revOf(ctx, x, profileID); err != nil {
+ 			return err
+ 		}
+diff --git a/internal/tasks/read_rules_test.go b/internal/tasks/read_rules_test.go
+index a5378c72..cc2b87ab 100644
+--- a/internal/tasks/read_rules_test.go
++++ b/internal/tasks/read_rules_test.go
+@@ -1,16 +1,18 @@
+ package tasks
+ 
+ import (
+ 	"database/sql"
+ 	"encoding/json"
++	"errors"
+ 	"slices"
++	"strings"
+ 	"testing"
+ 	"time"
+ )
+ 
+ // seedAt inserts a row of the given status and position straight into the table.
+ func seedAt(t *testing.T, db *sql.DB, profile, status string, position int64) int64 {
+ 	t.Helper()
+ 	res, err := db.Exec(`INSERT INTO tasks (profile_id, title, status, position, created_at, updated_at) VALUES (?, 'x', ?, ?, ?, ?)`,
+ 		profile, status, position, rowTime, rowTime)
+ 	if err != nil {
+@@ -93,20 +95,69 @@ func TestOnlyAHeldInProgressTaskOfTheProfileIsStale(t *testing.T) {
+ 		t.Errorf("counts %+v, err %v, want 2 in progress, 1 in review and 1 stale", cn, err)
+ 	}
+ 	if ts, err := s.List(bg, "default", Filter{Stale: true}, human); err != nil || !slices.Equal(idsOf(ts), []int64{held}) {
+ 		t.Errorf("the stale filter lists %v (err %v), want only #%d", idsOf(ts), err, held)
+ 	}
+ 	if cn, err := s.Counts(bg, other); err != nil || cn != (Counts{InProgress: 1, Stale: 1}) {
+ 		t.Errorf("counts of the other profile %+v, err %v", cn, err)
+ 	}
+ }
+ 
++// Spec 4.2 defines a stale claim as an in-progress one. A claim left on a task in another column
++// (nothing in the store leaves one there) stays visible but is not stale, so that the flag of the
++// card agrees with the count and the filter, which carry the status, in every read that shows a card.
++func TestAClaimPastItsLeaseIsStaleOnlyOnAnInProgressTask(t *testing.T) {
++	s, db, c := newTestStore(t)
++	past := c.t.Add(-time.Hour).Format(timeFmt)
++	ids := map[int64]string{}
++	for _, st := range []string{"inbox", "ready", "in_progress", "review", "done", "archived"} {
++		id := seedRow(t, db, "default", st)
++		if _, err := db.Exec(`UPDATE tasks SET claimed_by = 'bot', claim_until = ? WHERE id = ?`, past, id); err != nil {
++			t.Fatal(err)
++		}
++		ids[id] = st
++	}
++	check := func(read string, task Task) {
++		t.Helper()
++		st := ids[task.ID]
++		if task.Claim == nil || task.Claim.Stale != (st == "in_progress") {
++			t.Errorf("%s: the claim past its lease of a task in %s is %+v, want it shown, and stale only in progress", read, st, task.Claim)
++		}
++	}
++	for id := range ids {
++		got, _, err := s.Get(bg, "default", id)
++		if err != nil {
++			t.Fatal(err)
++		}
++		check("get", got)
++	}
++	all, err := s.List(bg, "default", Filter{Statuses: []Status{StatusInbox, StatusReady, StatusInProgress, StatusReview, StatusDone, StatusArchived}}, human)
++	if err != nil || len(all) != len(ids) {
++		t.Fatalf("list: %d tasks (err %v), want %d", len(all), err, len(ids))
++	}
++	for _, task := range all {
++		check("list", task)
++	}
++	b, err := s.Board(bg, "default", 0)
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, column := range b.Tasks {
++		for _, task := range column {
++			check("board", task)
++		}
++	}
++	if b.Counts.Stale != 1 {
++		t.Errorf("the board counts %d stale claims, want the one in progress", b.Counts.Stale)
++	}
++}
++
+ func TestCountsHaveAFieldPerColumnAndSkipTheArchive(t *testing.T) {
+ 	s, db, _ := newTestStore(t)
+ 	for i, st := range []string{"inbox", "ready", "in_progress", "review", "done", "archived"} {
+ 		for n := 0; n <= i; n++ { // 1, 2, 3, 4, 5 and 6 cards
+ 			seedRow(t, db, "default", st)
+ 		}
+ 	}
+ 	want := Counts{Inbox: 1, Ready: 2, InProgress: 3, Review: 4, Done: 5}
+ 	if got, err := s.Counts(bg, "default"); err != nil || got != want {
+ 		t.Errorf("counts %+v, err %v, want %+v", got, err, want)
+@@ -183,36 +234,69 @@ func TestListStopsAtTheLimitItIsGiven(t *testing.T) {
+ 	} {
+ 		if ts, err := s.List(bg, "default", Filter{Limit: k.limit}, human); err != nil || len(ts) != k.shown {
+ 			t.Errorf("limit %d: %d tasks (err %v), want %d", k.limit, len(ts), err, k.shown)
+ 		}
+ 	}
+ 	if ts, _ := s.List(bg, "default", Filter{Limit: 2}, human); len(ts) != 2 || ts[0].Title != "seed 0" || ts[1].Title != "seed 1" {
+ 		t.Errorf("a limit keeps the first cards of the order: %+v", ts)
+ 	}
+ }
+ 
++// Who is asking is checked before what is asked, as Add does it: a capture has no read access (spec
++// 5.1) and an actor that was never set is no actor. The filter is wrong in two ways in half of the
++// calls, so that a refusal that came from the filter would show in the error.
++func TestListRefusesAnActorThatMayNotReadBeforeLookingAtTheFilter(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	seedRow(t, db, "default", "ready")
++	wrong := Filter{Statuses: []Status{"bogus"}, Source: "pigeon"}
++	for _, k := range []struct {
++		name  string
++		actor Actor
++		want  error
++		says  string
++	}{
++		{"a chrome capture", Actor{Kind: Capture, Name: SourceChrome}, ErrOperatorOnly, "list tasks"},
++		{"an os capture", Actor{Kind: Capture, Name: SourceOS}, ErrOperatorOnly, "list tasks"},
++		{"a capture with no name", Actor{Kind: Capture}, ErrOperatorOnly, "list tasks"},
++		{"the zero actor", Actor{}, ErrInvalid, "unknown actor"},
++		{"an actor of a kind that does not exist", Actor{Kind: 99, Name: "x"}, ErrInvalid, "unknown actor"},
++	} {
++		for _, f := range []Filter{{}, wrong} {
++			ts, err := s.List(bg, "default", f, k.actor)
++			if !errors.Is(err, k.want) || !strings.Contains(err.Error(), k.says) || ts != nil {
++				t.Errorf("%s with filter %+v: %v, %v, want no tasks and an error that is %v and says %q", k.name, f, ts, err, k.want, k.says)
++			}
++		}
++	}
++	for _, a := range []Actor{human, bot("b")} {
++		if ts, err := s.List(bg, "default", Filter{}, a); err != nil || len(ts) != 1 {
++			t.Errorf("actor %+v: %d tasks (err %v), want the one ready task", a, len(ts), err)
++		}
++	}
++}
++
+ // ParseStatus accepts "progress" and "In-Progress" as in_progress: a name that is accepted must find it.
+ func TestListFindsTheStatusesItAcceptsByAnyName(t *testing.T) {
+ 	s, db, _ := newTestStore(t)
+ 	progress := seedRow(t, db, "default", "in_progress")
+ 	ready := seedRow(t, db, "default", "ready")
+ 	seedRow(t, db, "default", "done")
+ 	named := []Status{"Progress", " READY\n"}
+ 	ts, err := s.List(bg, "default", Filter{Statuses: named}, human)
+ 	if err != nil || !slices.Equal(idsOf(ts), []int64{ready, progress}) {
+ 		t.Errorf("listed %v (err %v), want #%d and #%d", idsOf(ts), err, ready, progress)
+ 	}
+ 	if named[0] != "Progress" || named[1] != " READY\n" {
+ 		t.Errorf("the caller's statuses became %q", named)
+ 	}
+-	if _, err := s.List(bg, "default", Filter{Statuses: []Status{"in-progress", "bogus"}}, human); err == nil {
+-		t.Error("a bogus status among good ones was accepted")
++	if _, err := s.List(bg, "default", Filter{Statuses: []Status{"in-progress", "bogus"}}, human); !errors.Is(err, ErrInvalid) {
++		t.Errorf("a bogus status among good ones: %v, want ErrInvalid", err)
+ 	}
+ }
+ 
+ // The query has a slot for each status named: a caller's list of a hundred thousand names (an agent's,
+ // through a tool) must not ask SQLite for a hundred thousand variables.
+ func TestListAsksForEachStatusOnceHoweverOftenItIsNamed(t *testing.T) {
+ 	s, db, _ := newTestStore(t)
+ 	ready := seedRow(t, db, "default", "ready")
+ 	seedRow(t, db, "default", "done")
+ 	ts, err := s.List(bg, "default", Filter{Statuses: slices.Repeat([]Status{StatusReady}, 100000)}, human)
+diff --git a/internal/tasks/store.go b/internal/tasks/store.go
+index b7bfc1bd..7df41358 100644
+--- a/internal/tasks/store.go
++++ b/internal/tasks/store.go
+@@ -132,42 +132,44 @@ func (s *Store) edgePosition(ctx context.Context, x dbx, profileID string, statu
+ 	}
+ 	return hi.Int64 + positionGap, nil
+ }
+ 
+ func placeholders(n int) string { return strings.TrimSuffix(strings.Repeat("?,", n), ",") }
+ 
+ const taskCols = `id, profile_id, title, notes, status, position, source_kind, source_url, source_title, source_app, claimed_by, claim_until, created_at, updated_at`
+ 
+ type rowScanner interface{ Scan(dest ...any) error }
+ 
+-// scanTask reads a row of taskCols. A claim is stale when its lease has run out.
++// scanTask reads a row of taskCols. A claim is stale when its task is in progress
++// and its lease has run out (spec 4.2); a claim left on a task in another column
++// is shown, and is not stale.
+ func (s *Store) scanTask(row rowScanner) (Task, error) {
+ 	var t Task
+ 	var status, claimedBy, until, created, updated string
+ 	if err := row.Scan(&t.ID, &t.ProfileID, &t.Title, &t.Notes, &status, &t.Position,
+ 		&t.Source.Kind, &t.Source.URL, &t.Source.Title, &t.Source.App, &claimedBy, &until, &created, &updated); err != nil {
+ 		return Task{}, err
+ 	}
+ 	t.Status = Status(status)
+ 	var err error
+ 	if t.CreatedAt, err = storedTime("created_at", created); err != nil {
+ 		return Task{}, err
+ 	}
+ 	if t.UpdatedAt, err = storedTime("updated_at", updated); err != nil {
+ 		return Task{}, err
+ 	}
+ 	if claimedBy != "" {
+ 		u, err := storedTime("claim_until", until)
+ 		if err != nil {
+ 			return Task{}, err
+ 		}
+-		t.Claim = &Claim{By: claimedBy, Until: u, Stale: !u.After(s.now())}
++		t.Claim = &Claim{By: claimedBy, Until: u, Stale: t.Status == StatusInProgress && !u.After(s.now())}
+ 	}
+ 	return t, nil
+ }
+ 
+ // getTx reads one task of the profile, with its last event.
+ func (s *Store) getTx(ctx context.Context, x dbx, profileID string, id int64) (Task, error) {
+ 	t, err := s.scanTask(x.QueryRowContext(ctx, `SELECT `+taskCols+` FROM tasks WHERE profile_id = ? AND id = ?`, profileID, id))
+ 	if errors.Is(err, sql.ErrNoRows) {
+ 		return Task{}, fmt.Errorf("%w: #%d", ErrNotFound, id)
+ 	}

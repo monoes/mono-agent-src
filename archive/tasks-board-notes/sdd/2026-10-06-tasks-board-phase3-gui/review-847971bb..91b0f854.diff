@@ -1,0 +1,64 @@
+# Review package: 847971bb..91b0f854
+
+## Commits
+91b0f854 test(tasks): the table also checks that each member that goes through run returns a good answer parsed
+f4f47e84 test(tasks): each service member that goes through run is checked for its own binding, its arguments in order, a refusal parsed and a failure as an error document
+
+## Files changed
+ .../frontend/src/services/tasks.behavior.test.js   | 28 ++++++++++++++++++++++
+ 1 file changed, 28 insertions(+)
+
+## Diff
+diff --git a/wails-app/frontend/src/services/tasks.behavior.test.js b/wails-app/frontend/src/services/tasks.behavior.test.js
+index 5f5f6371..fea5cbb3 100644
+--- a/wails-app/frontend/src/services/tasks.behavior.test.js
++++ b/wails-app/frontend/src/services/tasks.behavior.test.js
+@@ -78,20 +78,48 @@ describe('the task service', () => {
+     expect(await tasksApi.comment(1, 'x')).toEqual({ error: 'sync' })
+     const show = App.TaskShow
+     delete App.TaskShow
+     try {
+       expect(typeof (await tasksApi.show(1)).error).toBe('string')
+     } finally {
+       App.TaskShow = show
+     }
+   })
+ 
++  // The ten members that go through run, one row each: the binding it must call
++  // and the arguments, in order, it must give it. Each row is run with a good
++  // answer, a CLI refusal and a failing binding. agentShell does not go through run.
++  const MEMBERS = [
++    ['board', 'TaskBoard', () => tasksApi.board(), [50]],
++    ['show', 'TaskShow', () => tasksApi.show(3), [3]],
++    ['add', 'TaskAdd', () => tasksApi.add({ title: 'one', notes: 'two' }), ['{"title":"one","notes":"two"}']],
++    ['edit', 'TaskEdit', () => tasksApi.edit(3, { title: 'one', notes: 'two' }), [3, '{"title":"one","notes":"two"}']],
++    ['move', 'TaskMove', () => tasksApi.move(3, 'review', { where: 'after', ref: 7 }), [3, 'review', 'after', 7]],
++    ['approve', 'TaskApprove', () => tasksApi.approve([1, 2], true), [[1, 2], true]],
++    ['archive', 'TaskArchive', () => tasksApi.archive([4, 5]), [[4, 5]]],
++    ['unarchive', 'TaskUnarchive', () => tasksApi.unarchive([6, 7]), [[6, 7]]],
++    ['comment', 'TaskComment', () => tasksApi.comment(3, 'hello'), [3, 'hello']],
++    ['pulse', 'TaskPulse', () => tasksApi.pulse(), []],
++  ]
++
++  it.each(MEMBERS)('%s calls %s with its arguments in order and returns the answer parsed; a failure becomes {error}', async (_member, binding, call, args) => {
++    const own = App[binding]
++    own.mockResolvedValue('{"ok":true}')
++    expect(await call()).toEqual({ ok: true })
++    expect(own.mock.calls).toEqual([args])
++    expect(Object.keys(App).filter(name => name !== binding && App[name].mock.calls.length > 0)).toEqual([])
++    own.mockResolvedValue('{"error":"nope","code":"operator_only"}')
++    expect(await call()).toEqual({ error: 'nope', code: 'operator_only' })
++    own.mockRejectedValue(new Error('boom'))
++    expect(await call()).toEqual({ error: 'boom' })
++  })
++
+   it('returns the pulse as it is, {} included', async () => {
+     App.TaskPulse.mockResolvedValue({ profile_id: 'default', rev: 4, inbox: 1, review: 2 })
+     expect(await tasksApi.pulse()).toEqual({ profile_id: 'default', rev: 4, inbox: 1, review: 2 })
+     App.TaskPulse.mockResolvedValue({})
+     expect(await tasksApi.pulse()).toEqual({})
+   })
+ 
+   it('answers the agent shell with a plain string, "" when there is none or the call fails', async () => {
+     App.TaskAgentShell.mockResolvedValue('CLAUDECODE')
+     expect(await tasksApi.agentShell()).toBe('CLAUDECODE')

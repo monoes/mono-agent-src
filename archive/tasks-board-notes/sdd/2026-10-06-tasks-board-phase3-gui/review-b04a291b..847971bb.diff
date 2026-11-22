@@ -1,0 +1,165 @@
+# Review package: b04a291b..847971bb
+
+## Commits
+847971bb test(tasks): the task service never rejects and passes its arguments exactly, and each binding reaches the Go method of its own name
+
+## Files changed
+ .../frontend/src/services/tasks.behavior.test.js   | 113 +++++++++++++++++++++
+ wails-app/frontend/src/services/tasks.test.js      |   9 +-
+ 2 files changed, 121 insertions(+), 1 deletion(-)
+
+## Diff
+diff --git a/wails-app/frontend/src/services/tasks.behavior.test.js b/wails-app/frontend/src/services/tasks.behavior.test.js
+new file mode 100644
+index 00000000..5f5f6371
+--- /dev/null
++++ b/wails-app/frontend/src/services/tasks.behavior.test.js
+@@ -0,0 +1,113 @@
++// The task service (services/tasks.js) run against mocked bindings. Every call
++// resolves to the CLI's parsed JSON or to {error, code?} and never rejects:
++// the board hook awaits these calls to settle an optimistic move and has no
++// catch of its own (phase 3 plan, Task 5), so a rejection would strand the
++// move it laid over the board. Each member also hands its arguments to its
++// binding exactly. That the binding names exist in the generated module is
++// checked in tasks.test.js.
++import { describe, it, expect, vi, beforeEach } from 'vitest'
++
++const { App, subscribeEvent } = vi.hoisted(() => ({
++  App: {
++    TaskBoard: vi.fn(), TaskShow: vi.fn(), TaskAdd: vi.fn(), TaskEdit: vi.fn(), TaskMove: vi.fn(),
++    TaskApprove: vi.fn(), TaskArchive: vi.fn(), TaskUnarchive: vi.fn(), TaskComment: vi.fn(),
++    TaskPulse: vi.fn(), TaskAgentShell: vi.fn(),
++  },
++  subscribeEvent: vi.fn(),
++}))
++vi.mock('../wailsjs/go/main/App', () => App)
++vi.mock('./api.js', () => ({ subscribeEvent }))
++
++import { tasksApi, DONE_LIMIT, onTasksChanged } from './tasks.js'
++
++describe('the task service', () => {
++  beforeEach(() => {
++    Object.values(App).forEach(fn => fn.mockReset())
++    subscribeEvent.mockReset()
++  })
++
++  it('asks for the board with DONE_LIMIT and parses the JSON it gets', async () => {
++    expect(DONE_LIMIT).toBe(50)
++    App.TaskBoard.mockResolvedValue('{"profile_id":"default","columns":{}}')
++    expect(await tasksApi.board()).toEqual({ profile_id: 'default', columns: {} })
++    expect(App.TaskBoard).toHaveBeenCalledWith(50)
++  })
++
++  it('hands each argument to its binding exactly, text that starts with a dash included', async () => {
++    for (const binding of ['TaskShow', 'TaskAdd', 'TaskEdit', 'TaskApprove', 'TaskArchive', 'TaskUnarchive', 'TaskComment']) {
++      App[binding].mockResolvedValue('{"ok":true}')
++    }
++    await tasksApi.show(3)
++    await tasksApi.add({ title: '-x fix', notes: '--help me' })
++    await tasksApi.edit(3, { notes: '' })
++    await tasksApi.approve([1, 2])
++    await tasksApi.approve([1], true)
++    await tasksApi.archive([5])
++    await tasksApi.unarchive([6])
++    await tasksApi.comment(3, '-looks odd')
++    expect(App.TaskShow.mock.calls).toEqual([[3]])
++    expect(App.TaskAdd.mock.calls).toEqual([['{"title":"-x fix","notes":"--help me"}']])
++    expect(App.TaskEdit.mock.calls).toEqual([[3, '{"notes":""}']])
++    expect(App.TaskApprove.mock.calls).toEqual([[[1, 2], false], [[1], true]])
++    expect(App.TaskArchive.mock.calls).toEqual([[[5]]])
++    expect(App.TaskUnarchive.mock.calls).toEqual([[[6]]])
++    expect(App.TaskComment.mock.calls).toEqual([[3, '-looks odd']])
++  })
++
++  it('moves with the column default place unless one is named', async () => {
++    App.TaskMove.mockResolvedValue('{"id":5}')
++    await tasksApi.move(5, 'ready')
++    await tasksApi.move(5, 'review', { where: 'before', ref: 7 })
++    await tasksApi.move(5, 'done', { where: 'top' })
++    expect(App.TaskMove.mock.calls).toEqual([[5, 'ready', '', 0], [5, 'review', 'before', 7], [5, 'done', 'top', 0]])
++  })
++
++  it('never rejects: a CLI refusal comes back parsed, a failed or unreadable answer becomes {error}', async () => {
++    App.TaskMove.mockResolvedValue('{"error":"nope","code":"operator_only"}')
++    expect(await tasksApi.move(1, 'ready')).toEqual({ error: 'nope', code: 'operator_only' })
++    App.TaskShow.mockRejectedValue(new Error('boom'))
++    expect(await tasksApi.show(1)).toEqual({ error: 'boom' })
++    App.TaskShow.mockRejectedValue('plain string')
++    expect(await tasksApi.show(1)).toEqual({ error: 'plain string' })
++    App.TaskBoard.mockResolvedValue('not json')
++    expect(typeof (await tasksApi.board()).error).toBe('string')
++  })
++
++  it('turns a binding that throws at once, or is missing from the build, into {error}', async () => {
++    App.TaskComment.mockImplementation(() => { throw new Error('sync') })
++    expect(await tasksApi.comment(1, 'x')).toEqual({ error: 'sync' })
++    const show = App.TaskShow
++    delete App.TaskShow
++    try {
++      expect(typeof (await tasksApi.show(1)).error).toBe('string')
++    } finally {
++      App.TaskShow = show
++    }
++  })
++
++  it('returns the pulse as it is, {} included', async () => {
++    App.TaskPulse.mockResolvedValue({ profile_id: 'default', rev: 4, inbox: 1, review: 2 })
++    expect(await tasksApi.pulse()).toEqual({ profile_id: 'default', rev: 4, inbox: 1, review: 2 })
++    App.TaskPulse.mockResolvedValue({})
++    expect(await tasksApi.pulse()).toEqual({})
++  })
++
++  it('answers the agent shell with a plain string, "" when there is none or the call fails', async () => {
++    App.TaskAgentShell.mockResolvedValue('CLAUDECODE')
++    expect(await tasksApi.agentShell()).toBe('CLAUDECODE')
++    App.TaskAgentShell.mockResolvedValue('')
++    expect(await tasksApi.agentShell()).toBe('')
++    App.TaskAgentShell.mockResolvedValue(undefined)
++    expect(await tasksApi.agentShell()).toBe('')
++    App.TaskAgentShell.mockRejectedValue(new Error('x'))
++    expect(await tasksApi.agentShell()).toBe('')
++  })
++
++  it('subscribes onTasksChanged to tasks:changed and returns the unsubscribe function', () => {
++    const off = () => {}
++    const callback = () => {}
++    subscribeEvent.mockReturnValue(off)
++    expect(onTasksChanged(callback)).toBe(off)
++    expect(subscribeEvent.mock.calls).toEqual([['tasks:changed', callback]])
++  })
++})
+diff --git a/wails-app/frontend/src/services/tasks.test.js b/wails-app/frontend/src/services/tasks.test.js
+index bc5b0a04..4539347d 100644
+--- a/wails-app/frontend/src/services/tasks.test.js
++++ b/wails-app/frontend/src/services/tasks.test.js
+@@ -1,22 +1,29 @@
+ // The bindings the task service calls exist in the generated module. They
+ // are placed there by hand (phase 3 plan, Task 3): a misspelt name would
+ // only fail when a person clicks.
+-import { describe, it, expect } from 'vitest'
++import { describe, it, expect, vi, afterEach } from 'vitest'
+ import { readFileSync } from 'node:fs'
+ import { join } from 'node:path'
+ import * as App from '../wailsjs/go/main/App'
+ 
+ const service = readFileSync(join(__dirname, 'tasks.js'), 'utf8')
+ const used = [...new Set([...service.matchAll(/GoApp\.(\w+)/g)].map(m => m[1]))].sort()
+ const dts = readFileSync(join(__dirname, '..', 'wailsjs', 'go', 'main', 'App.d.ts'), 'utf8')
+ 
+ describe('task bindings', () => {
++  afterEach(() => { vi.unstubAllGlobals() })
+   it('finds the eleven bindings the service uses', () => {
+     expect(used).toEqual(['TaskAdd', 'TaskAgentShell', 'TaskApprove', 'TaskArchive', 'TaskBoard', 'TaskComment',
+       'TaskEdit', 'TaskMove', 'TaskPulse', 'TaskShow', 'TaskUnarchive'])
+   })
+   it('has each in App.js and App.d.ts', () => {
+     expect(used.filter(n => typeof App[n] !== 'function')).toEqual([])
+     expect(used.filter(n => !dts.includes(`export function ${n}(`))).toEqual([])
+   })
++  it('has each reach the Go method of its own name', () => {
++    // Each generated function calls window.go.main.App.<name>. This stand-in answers with the
++    // name it was asked for, so a misspelt inner name inside a correctly named export shows.
++    vi.stubGlobal('window', { go: { main: { App: new Proxy({}, { get: (_, k) => () => k }) } } })
++    expect(used.filter(n => App[n]?.() !== n)).toEqual([])
++  })
+ })

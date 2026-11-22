@@ -1,0 +1,2917 @@
+# Review package: 8d434c32..d6b0d890
+
+## Commits
+d6b0d890 feat(tasks): the agent's verbs: next, claim, comment, finish, release, with leases
+
+## Files changed
+ internal/tasks/claims.go              | 420 ++++++++++++++++++++++++++++++++++
+ internal/tasks/claims_cas_test.go     | 147 ++++++++++++
+ internal/tasks/claims_events_test.go  | 296 ++++++++++++++++++++++++
+ internal/tasks/claims_helpers_test.go |  66 ++++++
+ internal/tasks/claims_lease_test.go   | 165 +++++++++++++
+ internal/tasks/claims_limit_test.go   | 218 ++++++++++++++++++
+ internal/tasks/claims_pick_test.go    | 229 ++++++++++++++++++
+ internal/tasks/claims_process_test.go | 186 +++++++++++++++
+ internal/tasks/claims_race_test.go    | 273 ++++++++++++++++++++++
+ internal/tasks/claims_rules_test.go   | 396 ++++++++++++++++++++++++++++++++
+ internal/tasks/claims_test.go         | 319 ++++++++++++++++++++++++++
+ internal/tasks/claims_unit_test.go    |  82 +++++++
+ internal/tasks/model.go               |   1 +
+ 13 files changed, 2798 insertions(+)
+
+## Diff
+diff --git a/internal/tasks/claims.go b/internal/tasks/claims.go
+new file mode 100644
+index 00000000..216c4cf0
+--- /dev/null
++++ b/internal/tasks/claims.go
+@@ -0,0 +1,420 @@
++package tasks
++
++import (
++	"context"
++	"database/sql"
++	"errors"
++	"fmt"
++	"time"
++)
++
++// noteRenewed is the note of the claimed event of a claim that renews the lease of the agent that holds
++// the task.
++const noteRenewed = "renewed"
++
++// clampLease is the lease an agent gets for the one it asked for: 30 minutes when it asked for none
++// (zero or less) and 24 hours at most. Any Duration may be passed, the most negative and the largest
++// included: the result stays between the two bounds, so adding it to a time cannot overflow.
++func clampLease(d time.Duration) time.Duration {
++	switch {
++	case d <= 0:
++		return DefaultLease
++	case d > MaxLease:
++		return MaxLease
++	}
++	return d
++}
++
++// leaseEnd is when a lease of d that begins at now ends, as a stored time. A time is kept to the second,
++// so the end is rounded up to the next whole second: a lease is never shorter than the one asked for,
++// and a short one is not over at the second it began in, where anybody could take the task at once.
++func leaseEnd(now time.Time, d time.Duration) time.Time {
++	end := now.Add(d)
++	if end.Nanosecond() != 0 {
++		end = end.Truncate(time.Second).Add(time.Second)
++	}
++	return end
++}
++
++// later is the later of two times: a renewal keeps the lease it would otherwise shorten.
++func later(a, b time.Time) time.Time {
++	if b.After(a) {
++		return b
++	}
++	return a
++}
++
++// needName refuses what is not an agent with a usable name: a claim is held under a name, the same one
++// for the whole task, and an event shows it, so it may not be a label the store writes for someone else
++// (checkAgentName).
++func needName(a Actor) error {
++	switch {
++	case a.Kind != Agent:
++		return invalid("only an agent claims, comments on, finishes or releases a task; the operator moves the cards")
++	case a.Name == "":
++		return invalid("an agent needs a name: pass --as NAME, the same one for the whole task")
++	}
++	return checkAgentName(a.Name)
++}
++
++// pickNext is the id of the task Next would take: the top of Ready, else the stale claim whose lease ended
++// first. A task that holds MaxEventsToClaim events is passed over, because a claim of it is refused:
++// offered, it would stay at the head of the queue and block every task behind it. 0 means there is none.
++func (s *Store) pickNext(ctx context.Context, x dbx, profileID string) (int64, error) {
++	var id int64
++	err := x.QueryRowContext(ctx,
++		`SELECT id FROM tasks WHERE profile_id = ? AND status = 'ready'
++		   AND (SELECT COUNT(*) FROM task_events WHERE task_id = tasks.id) < ?
++		 ORDER BY position, id LIMIT 1`, profileID, MaxEventsToClaim).Scan(&id)
++	if err == nil {
++		return id, nil
++	}
++	if !errors.Is(err, sql.ErrNoRows) {
++		return 0, fmt.Errorf("tasks: picking the next task: %w", err)
++	}
++	err = x.QueryRowContext(ctx,
++		`SELECT id FROM tasks WHERE profile_id = ? AND status = 'in_progress' AND claimed_by <> '' AND claim_until <= ?
++		   AND (SELECT COUNT(*) FROM task_events WHERE task_id = tasks.id) < ?
++		 ORDER BY claim_until, id LIMIT 1`, profileID, s.stamp(), MaxEventsToClaim).Scan(&id)
++	if errors.Is(err, sql.ErrNoRows) {
++		return 0, nil
++	}
++	if err != nil {
++		return 0, fmt.Errorf("tasks: picking the next task: %w", err)
++	}
++	return id, nil
++}
++
++// Next returns the task an agent should work next. Without claim it only looks, in one snapshot (two
++// agents that look may see the same task), for the operator and for any agent, named or not; a capture
++// may not read the board. With claim it picks and claims in one write transaction, so two agents never
++// get the same one, and it needs an agent with a name. A look offers what a claim would take. A nil
++// task and a nil error mean there is nothing to do.
++func (s *Store) Next(ctx context.Context, profileID string, actor Actor, claim bool, lease time.Duration) (*Task, error) {
++	if !claim {
++		switch actor.Kind {
++		case Human, Agent:
++		case Capture:
++			return nil, operatorOnly("read the board")
++		default:
++			return nil, invalid("unknown actor")
++		}
++		var out *Task
++		err := s.snapshot(ctx, func(x dbx) error {
++			if _, err := s.profileOf(ctx, x, profileID); err != nil {
++				return err
++			}
++			id, err := s.pickNext(ctx, x, profileID)
++			if err != nil || id == 0 {
++				return err
++			}
++			t, err := s.getTx(ctx, x, profileID, id)
++			if err != nil {
++				return err
++			}
++			out = &t
++			return nil
++		})
++		if err != nil {
++			return nil, err
++		}
++		return out, nil
++	}
++	if err := needName(actor); err != nil {
++		return nil, err
++	}
++	var out *Task
++	err := s.tx(ctx, func(x dbx) error {
++		if _, err := s.profileOf(ctx, x, profileID); err != nil {
++			return err
++		}
++		id, err := s.pickNext(ctx, x, profileID)
++		if err != nil || id == 0 {
++			return err
++		}
++		t, err := s.claimTx(ctx, x, profileID, id, actor, lease)
++		if err != nil {
++			return err
++		}
++		if err := s.bump(ctx, x, profileID); err != nil {
++			return err
++		}
++		out = &t
++		return nil
++	})
++	if err != nil {
++		return nil, err
++	}
++	return out, nil
++}
++
++// Claim takes a Ready task for an agent, or a task whose claim has gone stale, or renews the lease of a
++// task the agent holds already; never one that another agent holds, nor one the operator works on.
++func (s *Store) Claim(ctx context.Context, profileID string, id int64, actor Actor, lease time.Duration) (Task, error) {
++	if err := needName(actor); err != nil {
++		return Task{}, err
++	}
++	var out Task
++	err := s.tx(ctx, func(x dbx) error {
++		if _, err := s.profileOf(ctx, x, profileID); err != nil {
++			return err
++		}
++		t, err := s.claimTx(ctx, x, profileID, id, actor, lease)
++		if err != nil {
++			return err
++		}
++		if err := s.bump(ctx, x, profileID); err != nil {
++			return err
++		}
++		out = t
++		return nil
++	})
++	if err != nil {
++		return Task{}, err
++	}
++	return out, nil
++}
++
++// claimOf says what a claim of the task by the agent called name would be at now: the kind and the note
++// of the event it writes, or why it is refused. A task is claimed when it is Ready (a claim left on a
++// Ready row is overwritten), when it is In progress under the same name (a renewal), and when it is In
++// progress under another name whose lease has ended; the lease that ends exactly now has ended.
++func claimOf(cur Task, name string, now time.Time) (kind, note string, refused error) {
++	switch {
++	case cur.Status == StatusReady:
++		return "claimed", "", nil
++	case cur.Status != StatusInProgress:
++		return "", "", notReady("task #%d is %s: only a ready task can be claimed", cur.ID, cur.Status)
++	case cur.Claim == nil:
++		return "", "", notReady("task #%d is being worked on by the operator", cur.ID)
++	case cur.Claim.By == name:
++		return "claimed", noteRenewed, nil
++	case !cur.Claim.Until.After(now):
++		return "reclaimed", "the claim of " + echo(cur.Claim.By) + " had expired", nil
++	}
++	return "", "", &ClaimedError{By: cur.Claim.By, Until: cur.Claim.Until}
++}
++
++// claimTx claims task id in the caller's write transaction. One conditional UPDATE decides: it takes the
++// task only when it is Ready, or In progress with a lease that has ended or under the same name, and has
++// fewer than MaxEventsToClaim events; and only a task of the profile. The task is read first for what the
++// UPDATE writes (the place in the column, the lease that a renewal never shortens) and for the event, and
++// read again when the UPDATE takes nothing, to say why. If the two do not agree, the UPDATE took what the
++// rules refuse or refused what they allow, and the error undoes the transaction.
++func (s *Store) claimTx(ctx context.Context, x dbx, profileID string, id int64, actor Actor, lease time.Duration) (Task, error) {
++	cur, err := s.getTx(ctx, x, profileID, id)
++	if err != nil {
++		return Task{}, err
++	}
++	now := s.now().UTC()
++	stamp := now.Format(timeFmt)
++	name := actor.Label()
++	kind, note, refused := claimOf(cur, name, now)
++	until, pos := leaseEnd(now, clampLease(lease)), cur.Position
++	switch {
++	case cur.Status == StatusReady:
++		if pos, err = s.edgePosition(ctx, x, profileID, StatusInProgress, false, id); err != nil {
++			return Task{}, err
++		}
++	case note == noteRenewed:
++		until = later(cur.Claim.Until, until)
++	}
++	// The UPDATE is made whatever the read says: it, and not the read, decides what is taken.
++	res, err := x.ExecContext(ctx,
++		`UPDATE tasks SET status = 'in_progress', claimed_by = ?, claim_until = ?, position = ?, updated_at = ?
++		 WHERE id = ? AND profile_id = ?
++		   AND (status = 'ready'
++		        OR (status = 'in_progress' AND claimed_by <> '' AND (claimed_by = ? OR claim_until <= ?)))
++		   AND (SELECT COUNT(*) FROM task_events WHERE task_id = tasks.id) < ?`,
++		name, until.Format(timeFmt), pos, stamp, id, profileID, name, stamp, MaxEventsToClaim)
++	if err != nil {
++		return Task{}, fmt.Errorf("tasks: claiming #%d: %w", id, err)
++	}
++	n, err := res.RowsAffected()
++	if err != nil {
++		return Task{}, fmt.Errorf("tasks: claiming #%d: %w", id, err)
++	}
++	switch {
++	case n == 0:
++		return Task{}, s.claimRefusal(ctx, x, profileID, id, name, now)
++	case n > 1:
++		return Task{}, fmt.Errorf("tasks: claiming #%d: the UPDATE took %d tasks", id, n)
++	case refused != nil:
++		return Task{}, fmt.Errorf("tasks: claiming #%d: the UPDATE took a task that the rules refuse: %v", id, refused)
++	}
++	if err := s.event(ctx, x, id, stamp, name, kind, string(cur.Status), string(StatusInProgress), note); err != nil {
++		return Task{}, err
++	}
++	return s.getTx(ctx, x, profileID, id)
++}
++
++// claimRefusal says why the UPDATE of a claim took nothing, from the task as it is now. A task that a claim
++// would take but that holds MaxEventsToClaim events is refused for that, after the other refusals: a task
++// that cannot be claimed anyway says why first.
++func (s *Store) claimRefusal(ctx context.Context, x dbx, profileID string, id int64, name string, now time.Time) error {
++	cur, err := s.getTx(ctx, x, profileID, id)
++	if err != nil {
++		return err
++	}
++	if _, _, refused := claimOf(cur, name, now); refused != nil {
++		return refused
++	}
++	n, err := s.eventCount(ctx, x, id)
++	if err != nil {
++		return err
++	}
++	if n >= MaxEventsToClaim {
++		return limit("task #%d already has %d events: leave it to the operator (the agent that holds it can still finish or release it)", id, n)
++	}
++	return fmt.Errorf("tasks: claiming #%d: a task the rules allow was not taken", id)
++}
++
++// eventCount is how many events a task holds.
++func (s *Store) eventCount(ctx context.Context, x dbx, id int64) (int, error) {
++	var n int
++	if err := x.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_events WHERE task_id = ?`, id).Scan(&n); err != nil {
++		return 0, fmt.Errorf("tasks: counting the events of #%d: %w", id, err)
++	}
++	return n, nil
++}
++
++// heldBy returns the task when the agent holds it (In progress, claimed under its name, whether or not
++// the lease has ended: nobody has taken it yet), else ErrNotClaimant.
++func (s *Store) heldBy(ctx context.Context, x dbx, profileID string, id int64, actor Actor) (Task, error) {
++	cur, err := s.getTx(ctx, x, profileID, id)
++	if err != nil {
++		return Task{}, err
++	}
++	if cur.Status != StatusInProgress || cur.Claim == nil || cur.Claim.By != actor.Label() {
++		return Task{}, notClaimant("task #%d is not held by %s: claim it first", id, actor.Label())
++	}
++	return cur, nil
++}
++
++// Comment adds a note to a task's history. The operator comments on any task; an agent only on one it
++// holds, and its comment renews the lease (never shortening it). A comment is refused once the task has
++// MaxEventsPerTask events: a change of state is always recorded, a comment is not.
++func (s *Store) Comment(ctx context.Context, profileID string, id int64, text string, actor Actor) (Task, error) {
++	switch actor.Kind {
++	case Agent:
++		if err := needName(actor); err != nil {
++			return Task{}, err
++		}
++	case Human:
++	default:
++		return Task{}, invalid("only the operator and agents comment")
++	}
++	text = cutBytes(cleanText(text), MaxCommentBytes)
++	if text == "" {
++		return Task{}, invalid("a comment needs text")
++	}
++	var out Task
++	err := s.tx(ctx, func(x dbx) error {
++		if _, err := s.profileOf(ctx, x, profileID); err != nil {
++			return err
++		}
++		var cur Task
++		var err error
++		if actor.Kind == Agent {
++			cur, err = s.heldBy(ctx, x, profileID, id, actor)
++		} else {
++			cur, err = s.getTx(ctx, x, profileID, id)
++		}
++		if err != nil {
++			return err
++		}
++		n, err := s.eventCount(ctx, x, id)
++		if err != nil {
++			return err
++		}
++		if n >= MaxEventsPerTask {
++			return limit("task #%d already has %d events: no more comments fit (an agent that holds it can finish or release it instead)", id, n)
++		}
++		now := s.now().UTC()
++		stamp := now.Format(timeFmt)
++		if actor.Kind == Agent {
++			until := later(cur.Claim.Until, leaseEnd(now, DefaultLease))
++			_, err = x.ExecContext(ctx, `UPDATE tasks SET claim_until = ?, updated_at = ? WHERE id = ? AND profile_id = ?`,
++				until.Format(timeFmt), stamp, id, profileID)
++		} else {
++			_, err = x.ExecContext(ctx, `UPDATE tasks SET updated_at = ? WHERE id = ? AND profile_id = ?`, stamp, id, profileID)
++		}
++		if err != nil {
++			return fmt.Errorf("tasks: commenting on #%d: %w", id, err)
++		}
++		if err := s.event(ctx, x, id, stamp, actor.Label(), "comment", "", "", text); err != nil {
++			return err
++		}
++		if err := s.bump(ctx, x, profileID); err != nil {
++			return err
++		}
++		out, err = s.getTx(ctx, x, profileID, id)
++		return err
++	})
++	if err != nil {
++		return Task{}, err
++	}
++	return out, nil
++}
++
++// Finish hands a held task back to the operator, in Review, with a result or a question (exactly one).
++func (s *Store) Finish(ctx context.Context, profileID string, id int64, o Outcome, actor Actor) (Task, error) {
++	if err := needName(actor); err != nil {
++		return Task{}, err
++	}
++	result := cutBytes(cleanText(o.Result), MaxCommentBytes)
++	question := cutBytes(cleanText(o.Question), MaxCommentBytes)
++	if (result == "") == (question == "") {
++		return Task{}, invalid("give exactly one of a result and a question")
++	}
++	kind, note := "result", result
++	if question != "" {
++		kind, note = "question", question
++	}
++	return s.handBack(ctx, profileID, id, actor, StatusReview, kind, note)
++}
++
++// Release gives a held task back to Ready, behind the others, so that the agent that gave it up is not
++// offered it again at once.
++func (s *Store) Release(ctx context.Context, profileID string, id int64, note string, actor Actor) (Task, error) {
++	if err := needName(actor); err != nil {
++		return Task{}, err
++	}
++	return s.handBack(ctx, profileID, id, actor, StatusReady, "released", cutBytes(cleanText(note), MaxCommentBytes))
++}
++
++// handBack ends the agent's claim: the task goes to `to` (Review at the top, Ready at the bottom), both
++// claim columns are emptied, and the event says why.
++func (s *Store) handBack(ctx context.Context, profileID string, id int64, actor Actor, to Status, kind, note string) (Task, error) {
++	var out Task
++	err := s.tx(ctx, func(x dbx) error {
++		if _, err := s.profileOf(ctx, x, profileID); err != nil {
++			return err
++		}
++		if _, err := s.heldBy(ctx, x, profileID, id, actor); err != nil {
++			return err
++		}
++		pos, err := s.edgePosition(ctx, x, profileID, to, atTop(to), id)
++		if err != nil {
++			return err
++		}
++		stamp := s.stamp()
++		if _, err := x.ExecContext(ctx,
++			`UPDATE tasks SET status = ?, claimed_by = '', claim_until = '', position = ?, updated_at = ? WHERE id = ? AND profile_id = ?`,
++			string(to), pos, stamp, id, profileID); err != nil {
++			return fmt.Errorf("tasks: handing back #%d: %w", id, err)
++		}
++		if err := s.event(ctx, x, id, stamp, actor.Label(), kind, string(StatusInProgress), string(to), note); err != nil {
++			return err
++		}
++		if err := s.bump(ctx, x, profileID); err != nil {
++			return err
++		}
++		out, err = s.getTx(ctx, x, profileID, id)
++		return err
++	})
++	if err != nil {
++		return Task{}, err
++	}
++	return out, nil
++}
+diff --git a/internal/tasks/claims_cas_test.go b/internal/tasks/claims_cas_test.go
+new file mode 100644
+index 00000000..4e5f8124
+--- /dev/null
++++ b/internal/tasks/claims_cas_test.go
+@@ -0,0 +1,147 @@
++package tasks
++
++import (
++	"context"
++	"database/sql"
++	"errors"
++	"fmt"
++	"strings"
++	"testing"
++	"time"
++)
++
++// meddler is the transaction's own connection with a change made on each side of the UPDATE of a claim:
++// before runs just before it reaches the database, after just after it returns. The write lock keeps
++// every other connection from changing a task between the read of a claim and its UPDATE, so the change
++// is made through the connection of the transaction. What is under test is that the UPDATE alone decides
++// what a claim takes, and that the claim says so when what it read does not agree with what it did.
++type meddler struct {
++	dbx
++	before, after func(x dbx)
++}
++
++func (m *meddler) ExecContext(ctx context.Context, q string, args ...any) (sql.Result, error) {
++	if !strings.HasPrefix(strings.TrimSpace(q), "UPDATE tasks SET status = 'in_progress'") {
++		return m.dbx.ExecContext(ctx, q, args...)
++	}
++	if m.before != nil {
++		m.before(m.dbx)
++	}
++	res, err := m.dbx.ExecContext(ctx, q, args...)
++	if m.after != nil {
++		m.after(m.dbx)
++	}
++	return res, err
++}
++
++// claimMeddled runs a claim of the task by an agent through a meddler, whose changes are statements
++// with the id of the task as their one argument. It returns the row and the number of events of the task
++// as they are inside the transaction when the claim is done, and what the claim says. The transaction is
++// undone afterwards.
++func claimMeddled(t *testing.T, s *Store, id int64, by, before, after string) (row string, events int, err error) {
++	t.Helper()
++	run := func(q string) func(x dbx) {
++		if q == "" {
++			return nil
++		}
++		return func(x dbx) {
++			if _, e := x.ExecContext(bg, q, id); e != nil {
++				t.Error(e)
++			}
++		}
++	}
++	txErr := s.tx(bg, func(x dbx) error {
++		m := &meddler{dbx: x, before: run(before), after: run(after)}
++		_, err = s.claimTx(bg, m, "default", id, bot(by), 0)
++		if e := x.QueryRowContext(bg, `SELECT profile_id || '|' || status || '|' || claimed_by FROM tasks WHERE id = ?`, id).Scan(&row); e != nil {
++			t.Error(e)
++		}
++		if e := x.QueryRowContext(bg, `SELECT COUNT(*) FROM task_events WHERE task_id = ?`, id).Scan(&events); e != nil {
++			t.Error(e)
++		}
++		return errors.New("undo")
++	})
++	if txErr == nil || txErr.Error() != "undo" {
++		t.Fatalf("the transaction: %v", txErr)
++	}
++	return row, events, err
++}
++
++// The UPDATE of a claim takes a task only if it is Ready, or In progress with a lease that has run out
++// or already held under the name, in the profile the claim is for; the UPDATE decides that (spec 5.2).
++// The claim reads the task before, for what to write, and again when the UPDATE takes nothing, to say
++// why, so a task that changed in between is refused for what it has become. Where what the claim read
++// and what the UPDATE did do not agree, it says so, and the transaction keeps nothing.
++func TestTheUpdateOfAClaimDecidesWhatItTakes(t *testing.T) {
++	notASentinel := func(err error) bool {
++		return err != nil && !errors.Is(err, ErrNotReady) && !errors.Is(err, ErrNotFound) && !errors.Is(err, ErrClaimed) && !errors.Is(err, ErrLimit)
++	}
++	for _, c := range []struct {
++		name          string
++		heldByOther   bool   // when the claim reads it, "other" holds the task for another hour
++		before, after string // changes made to the task, each with its id as the one argument
++		want          func(err error) bool
++		row           string // the row, in the transaction, afterwards
++		events        int
++	}{
++		{"moved to another profile after it was read", false, `UPDATE tasks SET profile_id = 'p2' WHERE id = ?`, "",
++			func(err error) bool { return errors.Is(err, ErrNotFound) }, "p2|ready|", 1},
++		{"moved to Review after it was read", false, `UPDATE tasks SET status = 'review' WHERE id = ?`, "",
++			func(err error) bool { return errors.Is(err, ErrNotReady) }, "default|review|", 1},
++		{"taken by another agent after it was read", false, `UPDATE tasks SET status = 'in_progress', claimed_by = 'other', claim_until = '2026-10-05T13:00:00Z' WHERE id = ?`, "",
++			func(err error) bool {
++				var ce *ClaimedError
++				return errors.Is(err, ErrClaimed) && errors.As(err, &ce) && ce.By == "other"
++			}, "default|in_progress|other", 1},
++		{"changed and changed back, so that there is nothing to refuse", false, `UPDATE tasks SET status = 'review' WHERE id = ?`, `UPDATE tasks SET status = 'ready' WHERE id = ?`,
++			func(err error) bool { return notASentinel(err) && strings.Contains(err.Error(), "not taken") }, "default|ready|", 1},
++		{"a lease that runs out after it was read", true, `UPDATE tasks SET claim_until = '2026-10-05T11:00:00Z' WHERE id = ?`, "",
++			func(err error) bool { return notASentinel(err) && strings.Contains(err.Error(), "refuse") }, "default|in_progress|one", 2},
++	} {
++		t.Run(c.name, func(t *testing.T) {
++			s, db, _ := newTestStore(t)
++			addProfile(t, db, "p2")
++			id := mustAdd(t, s, "default", "contested", true).ID
++			if c.heldByOther {
++				claimsClaim(t, s, id, "other", time.Hour)
++			}
++			row, events, err := claimMeddled(t, s, id, "one", c.before, c.after)
++			if !c.want(err) {
++				t.Errorf("the claim says %v", err)
++			}
++			if row != c.row || events != c.events {
++				t.Errorf("the row is %q with %d events, want %q with %d", row, events, c.row, c.events)
++			}
++		})
++	}
++}
++
++// A claim takes the task it names and no other, whatever else the board holds, for a claim, a renewal
++// and a takeover.
++func TestAClaimTakesTheTaskNamedAndNoOther(t *testing.T) {
++	s, db, clk := newTestStore(t)
++	var ids []int64
++	for i := 0; i < 5; i++ {
++		ids = append(ids, mustAdd(t, s, "default", fmt.Sprintf("t%d", i), true).ID)
++	}
++	held := func(want ...string) {
++		t.Helper()
++		for i, w := range want {
++			if by, _ := opsClaim(t, db, ids[i]); by != w {
++				t.Errorf("task #%d is held by %q, want %q (all: %q)", ids[i], by, w, want)
++			}
++		}
++	}
++	claimsClaim(t, s, ids[2], "one", 0)
++	held("", "", "one", "", "")
++	claimsClaim(t, s, ids[0], "two", 0)
++	held("two", "", "one", "", "")
++	claimsClaim(t, s, ids[2], "one", time.Hour) // a renewal
++	held("two", "", "one", "", "")
++	clk.advance(2 * time.Hour)
++	claimsClaim(t, s, ids[0], "three", 0) // a takeover
++	held("three", "", "one", "", "")
++	if n := countWhere(t, db, "tasks", "status = 'ready'"); n != 3 {
++		t.Errorf("%d tasks are Ready, want 3", n)
++	}
++}
+diff --git a/internal/tasks/claims_events_test.go b/internal/tasks/claims_events_test.go
+new file mode 100644
+index 00000000..ed2b3287
+--- /dev/null
++++ b/internal/tasks/claims_events_test.go
+@@ -0,0 +1,296 @@
++package tasks
++
++import (
++	"database/sql"
++	"errors"
++	"strings"
++	"testing"
++	"time"
++)
++
++// What each verb writes in the history of the task, as spec 4.4 names the kinds, dated by the store's
++// clock; and the row is dated by it too.
++func TestEachAgentVerbWritesTheEventTheSpecNames(t *testing.T) {
++	s, db, clk := newTestStore(t)
++	a, b, c, d := mustAdd(t, s, "default", "a", true), mustAdd(t, s, "default", "b", true), mustAdd(t, s, "default", "c", true), mustAdd(t, s, "default", "d", true)
++	do := func(id int64, err error) {
++		t.Helper()
++		if err != nil {
++			t.Fatal(err)
++		}
++		got, events, err := s.Get(bg, "default", id)
++		if err != nil || !got.UpdatedAt.Equal(clk.t) || !events[len(events)-1].At.Equal(clk.t) {
++			t.Errorf("after the verb at %v: row updated at %v, last event at %v, err %v", clk.t, got.UpdatedAt, events[len(events)-1].At, err)
++		}
++		clk.advance(time.Minute)
++	}
++	clk.advance(time.Minute)
++	_, err := s.Claim(bg, "default", a.ID, bot("one"), 0)
++	do(a.ID, err)
++	_, err = s.Claim(bg, "default", a.ID, bot("one"), time.Hour)
++	do(a.ID, err)
++	_, err = s.Comment(bg, "default", a.ID, "progress", bot("one"))
++	do(a.ID, err)
++	_, err = s.Comment(bg, "default", a.ID, "from the operator", human)
++	do(a.ID, err)
++	clk.advance(2 * time.Hour) // the lease has run out
++	_, err = s.Claim(bg, "default", a.ID, bot("two"), 0)
++	do(a.ID, err)
++	_, err = s.Finish(bg, "default", a.ID, Outcome{Result: "all done"}, bot("two"))
++	do(a.ID, err)
++
++	_, err = s.Next(bg, "default", bot("one"), true, 0) // b: the top of Ready now
++	do(b.ID, err)
++	_, err = s.Finish(bg, "default", b.ID, Outcome{Question: "which database?"}, bot("one"))
++	do(b.ID, err)
++
++	_, err = s.Claim(bg, "default", c.ID, bot("one"), 0)
++	do(c.ID, err)
++	_, err = s.Release(bg, "default", c.ID, "needs the VPN", bot("one"))
++	do(c.ID, err)
++
++	_, err = s.Claim(bg, "default", d.ID, bot("one"), 0)
++	do(d.ID, err)
++	_, err = s.Release(bg, "default", d.ID, "", bot("one"))
++	do(d.ID, err)
++
++	for id, want := range map[int64][]string{
++		a.ID: {
++			"created|you|>ready|",
++			"claimed|one|ready>in_progress|",
++			"claimed|one|in_progress>in_progress|renewed",
++			"comment|one|>|progress",
++			"comment|you|>|from the operator",
++			"reclaimed|two|in_progress>in_progress|the claim of one had expired",
++			"result|two|in_progress>review|all done",
++		},
++		b.ID: {"created|you|>ready|", "claimed|one|ready>in_progress|", "question|one|in_progress>review|which database?"},
++		c.ID: {"created|you|>ready|", "claimed|one|ready>in_progress|", "released|one|in_progress>ready|needs the VPN"},
++		d.ID: {"created|you|>ready|", "claimed|one|ready>in_progress|", "released|one|in_progress>ready|"},
++	} {
++		if got := opsEvents(t, s, id); strings.Join(got, "\n") != strings.Join(want, "\n") {
++			t.Errorf("task #%d events:\n%s\nwant:\n%s", id, strings.Join(got, "\n"), strings.Join(want, "\n"))
++		}
++		// a finished or released task is held by nobody: both claim columns of the row are empty
++		if by, until := opsClaim(t, db, id); by != "" || until != "" {
++			t.Errorf("task #%d: claim columns %q and %q after it was handed back, want both empty", id, by, until)
++		}
++	}
++}
++
++// What a comment, a result, a question and a note are made of: cleaned of what a terminal or a reader
++// should not get, and cut to a comment's size, a cut that says so. Each text an agent or the operator
++// writes goes through both.
++func TestWhatIsWrittenIsCleanedAndCut(t *testing.T) {
++	dirty := "red \x1b[31mtext\U0000202e\U000E0041\xff end"
++	clean := "red [31mtext\U0000fffd end"
++	huge := strings.Repeat("x", MaxCommentBytes+500)
++	for _, k := range []struct {
++		name string
++		call func(s *Store, id int64, text string) error
++	}{
++		{"a comment by an agent", func(s *Store, id int64, text string) error {
++			_, err := s.Comment(bg, "default", id, text, bot("one"))
++			return err
++		}},
++		{"a comment by the operator", func(s *Store, id int64, text string) error {
++			_, err := s.Comment(bg, "default", id, text, human)
++			return err
++		}},
++		{"a result", func(s *Store, id int64, text string) error {
++			_, err := s.Finish(bg, "default", id, Outcome{Result: text}, bot("one"))
++			return err
++		}},
++		{"a question", func(s *Store, id int64, text string) error {
++			_, err := s.Finish(bg, "default", id, Outcome{Question: text}, bot("one"))
++			return err
++		}},
++		{"a release note", func(s *Store, id int64, text string) error {
++			_, err := s.Release(bg, "default", id, text, bot("one"))
++			return err
++		}},
++	} {
++		t.Run(k.name, func(t *testing.T) {
++			s, _, _ := newTestStore(t)
++			noteOf := func(id int64) string {
++				t.Helper()
++				ev := opsEvents(t, s, id)
++				return strings.SplitN(ev[len(ev)-1], "|", 4)[3]
++			}
++			held := func(title string) int64 {
++				t.Helper()
++				id := mustAdd(t, s, "default", title, true).ID
++				claimsClaim(t, s, id, "one", 0)
++				return id
++			}
++			id := held("dirty")
++			if err := k.call(s, id, dirty); err != nil {
++				t.Fatal(err)
++			}
++			if got := noteOf(id); got != clean {
++				t.Errorf("stored %q, want %q", got, clean)
++			}
++			id = held("huge")
++			if err := k.call(s, id, huge); err != nil {
++				t.Fatal(err)
++			}
++			if got := noteOf(id); len(got) > MaxCommentBytes || !strings.Contains(got, "[truncated:") || !strings.HasPrefix(got, "xxxx") {
++				t.Errorf("%d bytes were stored as %d bytes, %q at the end", len(huge), len(got), got[max(0, len(got)-60):])
++			}
++		})
++	}
++}
++
++// Spec 5.4: one revision for each write transaction (not one for each event), none for a call that was
++// refused or had nothing to do.
++func TestEveryAgentVerbMovesTheRevisionOnceAndARefusalNotAtAll(t *testing.T) {
++	s, _, clk := newTestStore(t)
++	ready := []int64{mustAdd(t, s, "default", "a", true).ID, mustAdd(t, s, "default", "b", true).ID, mustAdd(t, s, "default", "c", true).ID, mustAdd(t, s, "default", "d", true).ID}
++	a, b, c, d := ready[0], ready[1], ready[2], ready[3]
++	for _, k := range []struct {
++		name  string
++		want  int64 // how far the revision moves
++		fails bool
++		prep  func() // what the case needs first, which is not measured
++		call  func() error
++	}{
++		{"a claim", 1, false, nil, func() error { _, err := s.Claim(bg, "default", a, bot("one"), 0); return err }},
++		{"a renewal", 1, false, nil, func() error { _, err := s.Claim(bg, "default", a, bot("one"), time.Hour); return err }},
++		{"a refused claim", 0, true, nil, func() error { _, err := s.Claim(bg, "default", a, bot("two"), 0); return err }},
++		{"next --claim", 1, false, nil, func() error { _, err := s.Next(bg, "default", bot("one"), true, 0); return err }},
++		{"a peek", 0, false, nil, func() error { _, err := s.Next(bg, "default", bot("one"), false, 0); return err }},
++		{"a comment by the holder", 1, false, nil, func() error { _, err := s.Comment(bg, "default", a, "x", bot("one")); return err }},
++		{"a comment by the operator", 1, false, nil, func() error { _, err := s.Comment(bg, "default", a, "x", human); return err }},
++		{"a comment by another agent", 0, true, nil, func() error { _, err := s.Comment(bg, "default", a, "x", bot("two")); return err }},
++		{"an empty comment", 0, true, nil, func() error { _, err := s.Comment(bg, "default", a, " ", bot("one")); return err }},
++		{"a finish", 1, false, nil, func() error { _, err := s.Finish(bg, "default", a, Outcome{Result: "r"}, bot("one")); return err }},
++		{"a finish of a task that is in review", 0, true, nil, func() error {
++			_, err := s.Finish(bg, "default", a, Outcome{Result: "r"}, bot("one"))
++			return err
++		}},
++		{"a finish with both a result and a question", 0, true, nil, func() error {
++			_, err := s.Finish(bg, "default", b, Outcome{Result: "r", Question: "q"}, bot("one"))
++			return err
++		}},
++		{"a release", 1, false, nil, func() error { _, err := s.Release(bg, "default", b, "no", bot("one")); return err }},
++		{"a release by another agent", 0, true, nil, func() error { _, err := s.Release(bg, "default", b, "no", bot("two")); return err }},
++		{"next --claim with nothing to take", 0, false, func() { // the Ready column is empty
++			for _, id := range []int64{b, c, d} {
++				claimsClaim(t, s, id, "three", 0)
++			}
++		}, func() error {
++			got, err := s.Next(bg, "default", bot("four"), true, 0)
++			if err == nil && got != nil {
++				return errors.New("next took " + got.Title)
++			}
++			return err
++		}},
++		{"a takeover by next --claim", 1, false, func() { clk.advance(2 * time.Hour) }, func() error {
++			got, err := s.Next(bg, "default", bot("four"), true, 0)
++			if err == nil && (got == nil || got.LastEvent == nil || got.LastEvent.Kind != "reclaimed") {
++				return errors.New("next took nothing, or did not take a stale claim")
++			}
++			return err
++		}},
++	} {
++		if k.prep != nil {
++			k.prep()
++		}
++		before := claimsRev(t, s)
++		err := k.call()
++		if got := claimsRev(t, s) - before; got != k.want {
++			t.Errorf("%s: the revision moved by %d (err %v), want %d", k.name, got, err, k.want)
++		}
++		if (err != nil) != k.fails {
++			t.Errorf("%s: err %v, want a failure: %v", k.name, err, k.fails)
++		}
++	}
++}
++
++// A change, its event and the revision are one transaction: when either cannot be written, nothing is,
++// and the same call works once the obstacle is gone.
++func TestEveryAgentVerbWritesTheChangeTheEventAndTheRevisionOrNone(t *testing.T) {
++	scenarios := []struct {
++		name string
++		prep func(t *testing.T, s *Store, clk *clock) func() error
++	}{
++		{"Claim of a Ready task", func(t *testing.T, s *Store, clk *clock) func() error {
++			id := mustAdd(t, s, "default", "a", true).ID
++			return func() error { _, err := s.Claim(bg, "default", id, bot("one"), 0); return err }
++		}},
++		{"Claim by the holder", func(t *testing.T, s *Store, clk *clock) func() error {
++			id := mustAdd(t, s, "default", "a", true).ID
++			claimsClaim(t, s, id, "one", 0)
++			return func() error { _, err := s.Claim(bg, "default", id, bot("one"), time.Hour); return err }
++		}},
++		{"Claim of a stale claim", func(t *testing.T, s *Store, clk *clock) func() error {
++			id := mustAdd(t, s, "default", "a", true).ID
++			claimsClaim(t, s, id, "one", 0)
++			clk.advance(DefaultLease)
++			return func() error { _, err := s.Claim(bg, "default", id, bot("two"), 0); return err }
++		}},
++		{"Next with claim", func(t *testing.T, s *Store, clk *clock) func() error {
++			mustAdd(t, s, "default", "a", true)
++			return func() error { _, err := s.Next(bg, "default", bot("one"), true, 0); return err }
++		}},
++		{"Comment by an agent", func(t *testing.T, s *Store, clk *clock) func() error {
++			id := mustAdd(t, s, "default", "a", true).ID
++			claimsClaim(t, s, id, "one", 0)
++			return func() error { _, err := s.Comment(bg, "default", id, "text", bot("one")); return err }
++		}},
++		{"Comment by the operator", func(t *testing.T, s *Store, clk *clock) func() error {
++			id := mustAdd(t, s, "default", "a", true).ID
++			return func() error { _, err := s.Comment(bg, "default", id, "text", human); return err }
++		}},
++		{"Finish", func(t *testing.T, s *Store, clk *clock) func() error {
++			id := mustAdd(t, s, "default", "a", true).ID
++			claimsClaim(t, s, id, "one", 0)
++			return func() error { _, err := s.Finish(bg, "default", id, Outcome{Result: "r"}, bot("one")); return err }
++		}},
++		{"Release", func(t *testing.T, s *Store, clk *clock) func() error {
++			id := mustAdd(t, s, "default", "a", true).ID
++			claimsClaim(t, s, id, "one", 0)
++			return func() error { _, err := s.Release(bg, "default", id, "no", bot("one")); return err }
++		}},
++	}
++	for _, sc := range scenarios {
++		for _, fail := range []string{"the event", "the revision"} {
++			t.Run(sc.name+", refusing "+fail, func(t *testing.T) {
++				s, db, clk := newTestStore(t)
++				call := sc.prep(t, s, clk)
++				before := dumpBoard(t, db)
++				stmts := []string{`CREATE TRIGGER refuse BEFORE INSERT ON task_events BEGIN SELECT RAISE(ABORT, 'refused for the test'); END`}
++				if fail == "the revision" {
++					stmts = []string{
++						`CREATE TRIGGER refuse BEFORE INSERT ON task_board_rev BEGIN SELECT RAISE(ABORT, 'refused for the test'); END`,
++						`CREATE TRIGGER refuse_update BEFORE UPDATE ON task_board_rev BEGIN SELECT RAISE(ABORT, 'refused for the test'); END`,
++					}
++				}
++				for _, q := range stmts {
++					if _, err := db.Exec(q); err != nil {
++						t.Fatal(err)
++					}
++				}
++				if err := call(); err == nil || !strings.Contains(err.Error(), "refused for the test") {
++					t.Fatalf("the call: %v, want the refusal of the trigger", err)
++				}
++				if after := dumpBoard(t, db); after != before {
++					t.Fatalf("a failed call left changes behind:\nbefore:\n%s\nafter:\n%s", before, after)
++				}
++				dropRefusals(t, db)
++				if err := call(); err != nil {
++					t.Errorf("the same call once the obstacle is gone: %v", err)
++				}
++			})
++		}
++	}
++}
++
++func dropRefusals(t *testing.T, db *sql.DB) {
++	t.Helper()
++	for _, name := range []string{"refuse", "refuse_update"} {
++		if _, err := db.Exec(`DROP TRIGGER IF EXISTS ` + name); err != nil {
++			t.Fatal(err)
++		}
++	}
++}
+diff --git a/internal/tasks/claims_helpers_test.go b/internal/tasks/claims_helpers_test.go
+new file mode 100644
+index 00000000..2b62e51e
+--- /dev/null
++++ b/internal/tasks/claims_helpers_test.go
+@@ -0,0 +1,66 @@
++package tasks
++
++import (
++	"database/sql"
++	"testing"
++	"time"
++)
++
++// claimsSeedEvents writes comment events straight into the table until the task holds total of them.
++func claimsSeedEvents(t *testing.T, db *sql.DB, id int64, total int) {
++	t.Helper()
++	have := countWhere(t, db, "task_events", "task_id = ?", id)
++	if have > total {
++		t.Fatalf("setup: task #%d holds %d events already, more than the %d asked for", id, have, total)
++	}
++	tx, err := db.Begin()
++	if err != nil {
++		t.Fatal(err)
++	}
++	for i := have; i < total; i++ {
++		if _, err := tx.Exec(`INSERT INTO task_events (task_id, at, actor, kind) VALUES (?, ?, 'seed', 'comment')`, id, rowTime); err != nil {
++			t.Fatal(err)
++		}
++	}
++	if err := tx.Commit(); err != nil {
++		t.Fatal(err)
++	}
++}
++
++// claimsStray gives a task a claim without making it In progress, with the lease ending at until: a row
++// no claim could have written, which a reader still shows as claimed.
++func claimsStray(t *testing.T, db *sql.DB, id int64, by string, until time.Time) {
++	t.Helper()
++	if _, err := db.Exec(`UPDATE tasks SET claimed_by = ?, claim_until = ? WHERE id = ?`, by, until.Format(timeFmt), id); err != nil {
++		t.Fatal(err)
++	}
++}
++
++// claimsText reads one text from the database.
++func claimsText(t *testing.T, db *sql.DB, query string, args ...any) string {
++	t.Helper()
++	var s string
++	if err := db.QueryRow(query, args...).Scan(&s); err != nil {
++		t.Fatal(err)
++	}
++	return s
++}
++
++func claimsRev(t *testing.T, s *Store) int64 {
++	t.Helper()
++	rev, err := s.Rev(bg, "default")
++	if err != nil {
++		t.Fatal(err)
++	}
++	return rev
++}
++
++// claimsClaim claims a task as an agent and fails the test when it is refused.
++func claimsClaim(t *testing.T, s *Store, id int64, name string, lease time.Duration) Task {
++	t.Helper()
++	got, err := s.Claim(bg, "default", id, bot(name), lease)
++	if err != nil {
++		t.Fatalf("%s claims #%d: %v", name, id, err)
++	}
++	return got
++}
+diff --git a/internal/tasks/claims_lease_test.go b/internal/tasks/claims_lease_test.go
+new file mode 100644
+index 00000000..a3cd95dd
+--- /dev/null
++++ b/internal/tasks/claims_lease_test.go
+@@ -0,0 +1,165 @@
++package tasks
++
++import (
++	"errors"
++	"math"
++	"testing"
++	"time"
++)
++
++// Whatever number of nanoseconds a caller passes, a claim holds the task for the default, for the
++// lease it asked for or for the longest lease, and nothing wraps round.
++func TestAClaimsLeaseIsClampedWhateverTheCallerAsked(t *testing.T) {
++	for _, c := range []struct {
++		name  string
++		lease time.Duration
++		want  time.Duration
++	}{
++		{"none", 0, DefaultLease},
++		{"a negative lease", -time.Hour, DefaultLease},
++		{"the most negative duration", time.Duration(math.MinInt64), DefaultLease},
++		{"an hour", time.Hour, time.Hour},
++		{"the longest lease", MaxLease, MaxLease},
++		{"two days", 48 * time.Hour, MaxLease},
++		{"the longest duration", time.Duration(math.MaxInt64), MaxLease},
++	} {
++		t.Run(c.name, func(t *testing.T) {
++			s, db, clk := newTestStore(t)
++			byID, byNext := mustAdd(t, s, "default", "by id", true), mustAdd(t, s, "default", "by next", true)
++			want := clk.t.Add(c.want)
++			got, err := s.Claim(bg, "default", byID.ID, bot("one"), c.lease)
++			if err != nil || got.Claim == nil || !got.Claim.Until.Equal(want) {
++				t.Fatalf("claim: %+v, %v, want the lease to end at %v", got.Claim, err, want)
++			}
++			if _, until := opsClaim(t, db, byID.ID); until != want.Format(timeFmt) {
++				t.Errorf("stored lease end %q, want %q", until, want.Format(timeFmt))
++			}
++			next, err := s.Next(bg, "default", bot("two"), true, c.lease)
++			if err != nil || next == nil || next.ID != byNext.ID || next.Claim == nil || !next.Claim.Until.Equal(want) {
++				t.Errorf("next --claim: %+v, %v, want the lease to end at %v", next, err, want)
++			}
++		})
++	}
++}
++
++// A time is stored to the second: a lease of a millisecond that began half way through a second must
++// not be over the moment it is written, which anybody could then take.
++func TestAShortLeaseIsNeverOverAtBirth(t *testing.T) {
++	s, _, clk := newTestStore(t)
++	clk.t = clk.t.Add(500 * time.Millisecond)
++	task := mustAdd(t, s, "default", "brief", true)
++	got, err := s.Claim(bg, "default", task.ID, bot("one"), time.Millisecond)
++	end := time.Date(2026, 10, 5, 12, 0, 1, 0, time.UTC)
++	if err != nil || got.Claim == nil || !got.Claim.Until.Equal(end) || got.Claim.Stale {
++		t.Fatalf("a lease of a millisecond: %+v, %v, want it to end at %v and not be stale", got.Claim, err, end)
++	}
++	if _, err := s.Claim(bg, "default", task.ID, bot("two"), 0); !errors.Is(err, ErrClaimed) {
++		t.Errorf("a task nobody has had a lease on yet cannot be taken: %v", err)
++	}
++	if next, err := s.Next(bg, "default", bot("two"), true, 0); err != nil || next != nil {
++		t.Errorf("next --claim: %+v, %v, want nothing to take", next, err)
++	}
++	clk.advance(500 * time.Millisecond) // the lease ends now
++	got, err = s.Claim(bg, "default", task.ID, bot("two"), 0)
++	if err != nil || got.Claim == nil || got.Claim.By != "two" || got.LastEvent == nil || got.LastEvent.Kind != "reclaimed" {
++		t.Errorf("when the lease has ended: %+v, %v", got, err)
++	}
++}
++
++// A lease is never shorter than the one asked for, to the second: half a second into a minute the
++// lease of half an hour ends a second after half an hour from the minute's start.
++func TestALeaseIsNeverShorterThanAskedForAndACommentRenewsToo(t *testing.T) {
++	s, _, clk := newTestStore(t)
++	clk.t = clk.t.Add(500 * time.Millisecond)
++	task := mustAdd(t, s, "default", "long", true)
++	got := claimsClaim(t, s, task.ID, "one", 0)
++	if end := clk.t.Add(DefaultLease); got.Claim.Until.Before(end) || got.Claim.Until.Sub(end) >= time.Second {
++		t.Errorf("a lease of half an hour from %v ends at %v, want the whole second at or after %v", clk.t, got.Claim.Until, end)
++	}
++	clk.advance(time.Minute)
++	got, err := s.Comment(bg, "default", task.ID, "going on", bot("one"))
++	if end := clk.t.Add(DefaultLease); err != nil || got.Claim.Until.Before(end) || got.Claim.Until.Sub(end) >= time.Second {
++		t.Errorf("a comment renews to the whole second at or after %v: %+v, %v", end, got.Claim, err)
++	}
++}
++
++// A lease that ends exactly now has ended (spec 4.2): the other agent's claim and next --claim take the
++// task at that second, and not a second before. Each of them states the comparison on its own.
++func TestALeaseThatEndsExactlyNowHasEnded(t *testing.T) {
++	takers := []struct {
++		name string
++		take func(s *Store, id int64) (*Task, error)
++	}{
++		{"claim by id", func(s *Store, id int64) (*Task, error) {
++			got, err := s.Claim(bg, "default", id, bot("two"), 0)
++			if err != nil {
++				return nil, err
++			}
++			return &got, nil
++		}},
++		{"next --claim", func(s *Store, id int64) (*Task, error) { return s.Next(bg, "default", bot("two"), true, 0) }},
++	}
++	for _, k := range takers {
++		for _, after := range []time.Duration{0, time.Second, time.Hour} {
++			t.Run(k.name+", "+after.String()+" after the end", func(t *testing.T) {
++				s, _, clk := newTestStore(t)
++				task := mustAdd(t, s, "default", "abandoned", true)
++				claimsClaim(t, s, task.ID, "one", 0)
++				clk.advance(DefaultLease - time.Second)
++				got, err := k.take(s, task.ID)
++				if k.name == "claim by id" && !errors.Is(err, ErrClaimed) {
++					t.Fatalf("a second before the end: %+v, %v, want ErrClaimed", got, err)
++				}
++				if k.name == "next --claim" && (err != nil || got != nil) {
++					t.Fatalf("a second before the end: %+v, %v, want nothing to take", got, err)
++				}
++				clk.advance(time.Second + after)
++				got, err = k.take(s, task.ID)
++				if err != nil || got == nil || got.ID != task.ID || got.Claim == nil || got.Claim.By != "two" || got.Claim.Stale {
++					t.Fatalf("%v after the end: %+v, %v, want the task taken by two", after, got, err)
++				}
++				if got.LastEvent == nil || got.LastEvent.Kind != "reclaimed" || got.LastEvent.Actor != "two" {
++					t.Errorf("last event: %+v", got.LastEvent)
++				}
++			})
++		}
++	}
++}
++
++// The stored text is UTC whatever zone the clock runs in, for the lease, the event and the row.
++func TestTheTimesOfAClaimAreStoredInUTCWhateverZoneTheClockRunsIn(t *testing.T) {
++	for _, zone := range []*time.Location{time.UTC, time.FixedZone("plus0530", 5*3600+1800), time.FixedZone("minus08", -8*3600)} {
++		t.Run(zone.String(), func(t *testing.T) {
++			s, db, clk := newTestStore(t)
++			s.now = func() time.Time { return clk.t.In(zone) }
++			task := mustAdd(t, s, "default", "zoned", true)
++			got := claimsClaim(t, s, task.ID, "one", 2*time.Hour)
++			if !got.Claim.Until.Equal(clk.t.Add(2 * time.Hour)) {
++				t.Errorf("the lease ends at %v, want %v", got.Claim.Until, clk.t.Add(2*time.Hour))
++			}
++			if _, until := opsClaim(t, db, task.ID); until != "2026-10-05T14:00:00Z" {
++				t.Errorf("stored lease end %q, want the UTC text 2026-10-05T14:00:00Z", until)
++			}
++			if at := claimsText(t, db, `SELECT at FROM task_events WHERE task_id = ? AND kind = 'claimed'`, task.ID); at != "2026-10-05T12:00:00Z" {
++				t.Errorf("claimed event at %q", at)
++			}
++			clk.advance(10 * time.Minute)
++			if _, err := s.Comment(bg, "default", task.ID, "going on", bot("one")); err != nil {
++				t.Fatal(err)
++			}
++			if at, upd := claimsText(t, db, `SELECT at FROM task_events WHERE task_id = ? AND kind = 'comment'`, task.ID),
++				claimsText(t, db, `SELECT updated_at FROM tasks WHERE id = ?`, task.ID); at != "2026-10-05T12:10:00Z" || upd != at {
++				t.Errorf("comment at %q, row updated at %q, want both 2026-10-05T12:10:00Z", at, upd)
++			}
++			if _, until := opsClaim(t, db, task.ID); until != "2026-10-05T14:00:00Z" {
++				t.Errorf("a comment shortened the lease to %q", until)
++			}
++			if _, err := s.Finish(bg, "default", task.ID, Outcome{Result: "done"}, bot("one")); err != nil {
++				t.Fatal(err)
++			}
++			if upd := claimsText(t, db, `SELECT updated_at FROM tasks WHERE id = ?`, task.ID); upd != "2026-10-05T12:10:00Z" {
++				t.Errorf("finished at %q", upd)
++			}
++		})
++	}
++}
+diff --git a/internal/tasks/claims_limit_test.go b/internal/tasks/claims_limit_test.go
+new file mode 100644
+index 00000000..4424c362
+--- /dev/null
++++ b/internal/tasks/claims_limit_test.go
+@@ -0,0 +1,218 @@
++package tasks
++
++import (
++	"errors"
++	"strconv"
++	"strings"
++	"testing"
++	"time"
++)
++
++// Spec 4.4: a claim is refused (limit) once a task holds 2,000 events, so a loop of claims and releases
++// cannot grow its history without bound. The three ways a claim is made each write an event, so each
++// is held to the cap: a claim of a Ready task, a renewal by the holder, a takeover of a stale claim.
++func TestAClaimIsRefusedOnceATaskHoldsTwoThousandEvents(t *testing.T) {
++	branches := []struct {
++		name string
++		kind string // the event a claim that goes through writes
++		prep func(t *testing.T, s *Store, clk *clock) (int64, Actor)
++	}{
++		{"a claim of a Ready task", "claimed", func(t *testing.T, s *Store, clk *clock) (int64, Actor) {
++			return mustAdd(t, s, "default", "ready", true).ID, bot("two")
++		}},
++		{"a renewal by the holder", "claimed", func(t *testing.T, s *Store, clk *clock) (int64, Actor) {
++			id := mustAdd(t, s, "default", "held", true).ID
++			claimsClaim(t, s, id, "one", 0)
++			return id, bot("one")
++		}},
++		{"a takeover of a stale claim", "reclaimed", func(t *testing.T, s *Store, clk *clock) (int64, Actor) {
++			id := mustAdd(t, s, "default", "abandoned", true).ID
++			claimsClaim(t, s, id, "one", 0)
++			clk.advance(DefaultLease)
++			return id, bot("two")
++		}},
++	}
++	for _, b := range branches {
++		for _, events := range []int{MaxEventsToClaim - 1, MaxEventsToClaim} {
++			t.Run(b.name+", with "+strconv.Itoa(events)+" events", func(t *testing.T) {
++				s, db, clk := newTestStore(t)
++				id, who := b.prep(t, s, clk)
++				claimsSeedEvents(t, db, id, events)
++				before := dumpBoard(t, db)
++				got, err := s.Claim(bg, "default", id, who, 0)
++				if events < MaxEventsToClaim {
++					if err != nil || got.LastEvent == nil || got.LastEvent.Kind != b.kind {
++						t.Fatalf("the claim that makes the %dth event: %+v, %v, want it to go through as %s", MaxEventsToClaim, got.LastEvent, err, b.kind)
++					}
++					if n := countWhere(t, db, "task_events", "task_id = ?", id); n != MaxEventsToClaim {
++						t.Errorf("%d events, want %d", n, MaxEventsToClaim)
++					}
++					return
++				}
++				if !errors.Is(err, ErrLimit) || !strings.Contains(err.Error(), "leave it to the operator") {
++					t.Fatalf("a claim of a task with %d events: %v, want ErrLimit telling the agent to leave it to the operator", events, err)
++				}
++				if after := dumpBoard(t, db); after != before {
++					t.Errorf("a refused claim changed the database:\nbefore:\n%s\nafter:\n%s", before, after)
++				}
++			})
++		}
++	}
++}
++
++// The cap is the last thing a claim looks at: a task that cannot be claimed anyway says why.
++func TestTheClaimCapComesAfterTheOtherRefusals(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	inbox := mustAdd(t, s, "default", "inbox", false)
++	held := mustAdd(t, s, "default", "held", true)
++	claimsClaim(t, s, held.ID, "one", 0)
++	byHand := mustAdd(t, s, "default", "by hand", true)
++	if _, err := s.Move(bg, "default", byHand.ID, StatusInProgress, Placement{}, human); err != nil {
++		t.Fatal(err)
++	}
++	for _, id := range []int64{inbox.ID, held.ID, byHand.ID} {
++		claimsSeedEvents(t, db, id, MaxEventsToClaim+10)
++	}
++	for _, c := range []struct {
++		name string
++		id   int64
++		want error
++	}{
++		{"an Inbox task", inbox.ID, ErrNotReady},
++		{"a task another agent holds", held.ID, ErrClaimed},
++		{"a task the operator works on", byHand.ID, ErrNotReady},
++	} {
++		if _, err := s.Claim(bg, "default", c.id, bot("two"), 0); !errors.Is(err, c.want) || errors.Is(err, ErrLimit) {
++			t.Errorf("%s with %d events: %v, want %v", c.name, MaxEventsToClaim+10, err, c.want)
++		}
++	}
++}
++
++// Next passes over a task that a claim would refuse, so one such task at the head of the queue does not
++// block it for ever; and a peek offers what next --claim would take, never what claim would refuse.
++func TestNextPassesOverTasksThatHoldTwoThousandEvents(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	head, behind := mustAdd(t, s, "default", "head", true), mustAdd(t, s, "default", "behind", true)
++	claimsSeedEvents(t, db, head.ID, MaxEventsToClaim)
++	if got, err := s.Next(bg, "default", bot("one"), false, 0); err != nil || got == nil || got.ID != behind.ID {
++		t.Errorf("a peek: %+v, %v, want the task behind the one that cannot be claimed", got, err)
++	}
++	got, err := s.Next(bg, "default", bot("one"), true, 0)
++	if err != nil || got == nil || got.ID != behind.ID {
++		t.Fatalf("next --claim: %+v, %v, want the task behind the one that cannot be claimed", got, err)
++	}
++	rev := claimsRev(t, s)
++	if got, err := s.Next(bg, "default", bot("two"), false, 0); err != nil || got != nil {
++		t.Errorf("a peek with only the capped task left: %+v, %v, want nothing", got, err)
++	}
++	if got, err := s.Next(bg, "default", bot("two"), true, 0); err != nil || got != nil {
++		t.Errorf("next --claim with only the capped task left: %+v, %v, want nothing, not an error", got, err)
++	}
++	if claimsRev(t, s) != rev {
++		t.Error("a next that found nothing moved the revision")
++	}
++	if _, err := s.Claim(bg, "default", head.ID, bot("two"), 0); !errors.Is(err, ErrLimit) || !strings.Contains(err.Error(), "operator") {
++		t.Errorf("claiming it by id: %v, want ErrLimit and the operator", err)
++	}
++	if task, _, err := s.Get(bg, "default", head.ID); err != nil || task.Status != StatusReady || task.Claim != nil {
++		t.Errorf("the capped task: %+v, %v, want it left in Ready", task, err)
++	}
++}
++
++// The cap is exact for next as for claim: with one event fewer the task is taken, and gets its 2,000th.
++func TestNextTakesATaskWithOneEventToSpare(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	head, behind := mustAdd(t, s, "default", "head", true), mustAdd(t, s, "default", "behind", true)
++	claimsSeedEvents(t, db, head.ID, MaxEventsToClaim-1)
++	for _, claim := range []bool{false, true} {
++		if got, err := s.Next(bg, "default", bot("one"), claim, 0); err != nil || got == nil || got.ID != head.ID {
++			t.Fatalf("next (claim %v): %+v, %v, want #%d, which has room for one more event", claim, got, err, head.ID)
++		}
++	}
++	if n := countWhere(t, db, "task_events", "task_id = ?", head.ID); n != MaxEventsToClaim {
++		t.Errorf("%d events, want %d", n, MaxEventsToClaim)
++	}
++	if got, err := s.Next(bg, "default", bot("two"), true, 0); err != nil || got == nil || got.ID != behind.ID {
++		t.Errorf("then the next: %+v, %v", got, err)
++	}
++}
++
++// Stale claims are passed over too, and the next one is taken.
++func TestNextPassesOverAStaleClaimThatHoldsTwoThousandEvents(t *testing.T) {
++	s, db, clk := newTestStore(t)
++	old, newer := mustAdd(t, s, "default", "oldest lease", true), mustAdd(t, s, "default", "newer lease", true)
++	claimsClaim(t, s, old.ID, "one", 10*time.Minute)
++	claimsClaim(t, s, newer.ID, "two", 20*time.Minute)
++	clk.advance(time.Hour)
++	claimsSeedEvents(t, db, old.ID, MaxEventsToClaim)
++	if got, err := s.Next(bg, "default", bot("three"), false, 0); err != nil || got == nil || got.ID != newer.ID {
++		t.Errorf("a peek: %+v, %v, want the stale claim that can be taken", got, err)
++	}
++	if got, err := s.Next(bg, "default", bot("three"), true, 0); err != nil || got == nil || got.ID != newer.ID || got.Claim.By != "three" {
++		t.Fatalf("next --claim: %+v, %v, want the stale claim that can be taken", got, err)
++	}
++	if got, err := s.Next(bg, "default", bot("four"), true, 0); err != nil || got != nil {
++		t.Errorf("only the capped stale claim is left: %+v, %v, want nothing", got, err)
++	}
++	if _, err := s.Claim(bg, "default", old.ID, bot("four"), 0); !errors.Is(err, ErrLimit) {
++		t.Errorf("claiming it by id: %v, want ErrLimit", err)
++	}
++	if task, _, _ := s.Get(bg, "default", old.ID); task.Claim == nil || task.Claim.By != "one" {
++		t.Errorf("the capped claim: %+v, want it left with its holder", task.Claim)
++	}
++}
++
++// Spec 4.4: finish, release and the operator's actions are still recorded and still work. The holder of
++// a task that has grown past the cap can still hand it back; only a new claim is refused.
++func TestFinishReleaseAndTheOperatorStillWorkOnATaskPastTheClaimCap(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	finishing, releasing, moving := mustAdd(t, s, "default", "finishing", true), mustAdd(t, s, "default", "releasing", true), mustAdd(t, s, "default", "moving", true)
++	for _, task := range []Task{finishing, releasing, moving} {
++		claimsClaim(t, s, task.ID, "one", 0)
++		claimsSeedEvents(t, db, task.ID, MaxEventsToClaim+100)
++	}
++	if got, err := s.Finish(bg, "default", finishing.ID, Outcome{Result: "done"}, bot("one")); err != nil || got.Status != StatusReview || got.Claim != nil {
++		t.Errorf("finish: %+v, %v", got, err)
++	}
++	if got, err := s.Release(bg, "default", releasing.ID, "no", bot("one")); err != nil || got.Status != StatusReady || got.Claim != nil {
++		t.Errorf("release: %+v, %v", got, err)
++	}
++	if got, err := s.Move(bg, "default", moving.ID, StatusDone, Placement{}, human); err != nil || got.Status != StatusDone {
++		t.Errorf("the operator's move: %+v, %v", got, err)
++	}
++	for _, id := range []int64{finishing.ID, releasing.ID, moving.ID} {
++		if n := countWhere(t, db, "task_events", "task_id = ?", id); n < MaxEventsToClaim+101 {
++			t.Errorf("task #%d holds %d events: the change was not recorded", id, n)
++		}
++	}
++	if _, err := s.Claim(bg, "default", releasing.ID, bot("one"), 0); !errors.Is(err, ErrLimit) {
++		t.Errorf("claiming the released task again: %v, want ErrLimit: it holds too many events", err)
++	}
++}
++
++// A comment is refused from MaxEventsPerTask events, the operator's as well as an agent's, and the
++// refusal tells the agent what to do instead; a change of state is not refused (TestEventCapRefusesCommentsOnly).
++func TestACommentIsRefusedFromFiveHundredEvents(t *testing.T) {
++	for _, who := range []struct {
++		name  string
++		actor Actor
++	}{{"an agent", bot("one")}, {"the operator", human}} {
++		t.Run(who.name, func(t *testing.T) {
++			s, db, _ := newTestStore(t)
++			task := mustAdd(t, s, "default", "chatty", true)
++			claimsClaim(t, s, task.ID, "one", 0)
++			claimsSeedEvents(t, db, task.ID, MaxEventsPerTask-1)
++			if _, err := s.Comment(bg, "default", task.ID, "the last one", who.actor); err != nil {
++				t.Fatalf("the comment that makes the %dth event: %v", MaxEventsPerTask, err)
++			}
++			before := dumpBoard(t, db)
++			_, err := s.Comment(bg, "default", task.ID, "one too many", who.actor)
++			if !errors.Is(err, ErrLimit) || !strings.Contains(err.Error(), "finish or release") {
++				t.Fatalf("the %dth event as a comment: %v, want ErrLimit telling an agent to finish or release", MaxEventsPerTask+1, err)
++			}
++			if after := dumpBoard(t, db); after != before {
++				t.Errorf("a refused comment changed the database:\nbefore:\n%s\nafter:\n%s", before, after)
++			}
++		})
++	}
++}
+diff --git a/internal/tasks/claims_pick_test.go b/internal/tasks/claims_pick_test.go
+new file mode 100644
+index 00000000..f81fb6ec
+--- /dev/null
++++ b/internal/tasks/claims_pick_test.go
+@@ -0,0 +1,229 @@
++package tasks
++
++import (
++	"errors"
++	"testing"
++	"time"
++)
++
++// Spec 4.1: next never returns Inbox, and an agent is offered only what it may claim: a Ready task, or
++// an In progress task whose lease has run out. Nothing else is, whatever claim it carries.
++func TestNextOffersOnlyWhatAnAgentMayClaim(t *testing.T) {
++	s, db, clk := newTestStore(t)
++	other := addProfile(t, db, "p2")
++	// another profile has a Ready task and a stale claim, which are not this profile's to offer
++	mustAdd(t, s, other, "theirs, ready", true)
++	stale := mustAdd(t, s, other, "theirs, abandoned", true)
++	if _, err := s.Claim(bg, other, stale.ID, bot("one"), 0); err != nil {
++		t.Fatal(err)
++	}
++	clk.advance(time.Hour)
++
++	inbox := mustAdd(t, s, "default", "inbox", false)
++	review := mustAdd(t, s, "default", "review", false)
++	done := mustAdd(t, s, "default", "done", false)
++	archived := mustAdd(t, s, "default", "archived", false)
++	for id, to := range map[int64]Status{review.ID: StatusReview, done.ID: StatusDone} {
++		if _, err := s.Move(bg, "default", id, to, Placement{}, human); err != nil {
++			t.Fatal(err)
++		}
++	}
++	if _, err := s.Archive(bg, "default", []int64{archived.ID}, human); err != nil {
++		t.Fatal(err)
++	}
++	byHand := mustAdd(t, s, "default", "by hand", true)
++	if _, err := s.Move(bg, "default", byHand.ID, StatusInProgress, Placement{}, human); err != nil {
++		t.Fatal(err)
++	}
++	live := mustAdd(t, s, "default", "held", true)
++	claimsClaim(t, s, live.ID, "one", 0)
++	// a lease that has run out on a row that is not In progress is not a claim anybody may take
++	for _, id := range []int64{inbox.ID, review.ID, done.ID, archived.ID} {
++		claimsStray(t, db, id, "bob", clk.t.Add(-time.Hour))
++	}
++
++	before := dumpBoard(t, db)
++	if got, err := s.Next(bg, "default", bot("z"), false, 0); err != nil || got != nil {
++		t.Errorf("a peek: %+v, %v, want nothing", got, err)
++	}
++	if got, err := s.Next(bg, "default", bot("z"), true, 0); err != nil || got != nil {
++		t.Errorf("next --claim: %+v, %v, want nothing", got, err)
++	}
++	if after := dumpBoard(t, db); after != before {
++		t.Errorf("asking for the next task changed the database:\nbefore:\n%s\nafter:\n%s", before, after)
++	}
++}
++
++// Spec 5.2: the Ready tasks, lowest position first. The order is the column's, not the order of the ids.
++func TestNextTakesTheReadyColumnFromTheTop(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	a, b, c := mustAdd(t, s, "default", "a", true), mustAdd(t, s, "default", "b", true), mustAdd(t, s, "default", "c", true)
++	if _, err := s.Move(bg, "default", c.ID, StatusReady, Placement{Top: true}, human); err != nil {
++		t.Fatal(err)
++	}
++	var order []int64
++	for _, name := range []string{"x1", "x2", "x3"} {
++		got, err := s.Next(bg, "default", bot(name), true, 0)
++		if err != nil || got == nil {
++			t.Fatalf("%s: %+v, %v", name, got, err)
++		}
++		order = append(order, got.ID)
++	}
++	if want := []int64{c.ID, a.ID, b.ID}; !sameIDs(order, want) {
++		t.Errorf("the Ready column is taken from the top: %v, want %v", order, want)
++	}
++	if ids := column(t, s, StatusInProgress); !sameIDs(ids, []int64{c.ID, a.ID, b.ID}) {
++		t.Errorf("a claimed card goes to the bottom of In progress, so it is a queue: %v", ids)
++	}
++	// two tasks at one place are taken in the order of their ids
++	s2, db, _ := newTestStore(t)
++	first, second := seedAt(t, db, "default", "ready", 7), seedAt(t, db, "default", "ready", 7)
++	for _, want := range []int64{first, second} {
++		if got, err := s2.Next(bg, "default", bot("x"), true, 0); err != nil || got == nil || got.ID != want {
++			t.Errorf("two cards at one place: %+v, %v, want #%d", got, err, want)
++		}
++	}
++}
++
++// Spec 5.2: then the stale claims, oldest lease first, and of two that ended together the lower id.
++// The lease that ended first belongs to the card with the highest id here, so the two orders differ.
++func TestNextTakesStaleClaimsOldestLeaseFirst(t *testing.T) {
++	s, _, clk := newTestStore(t)
++	x, y, z := mustAdd(t, s, "default", "x", true), mustAdd(t, s, "default", "y", true), mustAdd(t, s, "default", "z", true)
++	claimsClaim(t, s, z.ID, "w3", 10*time.Minute)
++	claimsClaim(t, s, x.ID, "w1", 20*time.Minute)
++	claimsClaim(t, s, y.ID, "w2", 20*time.Minute)
++	clk.advance(time.Hour)
++	fresh := mustAdd(t, s, "default", "fresh", true)
++	var taken []int64
++	for _, name := range []string{"t1", "t2", "t3", "t4"} {
++		got, err := s.Next(bg, "default", bot(name), true, 0)
++		if err != nil || got == nil {
++			t.Fatalf("%s: %+v, %v", name, got, err)
++		}
++		taken = append(taken, got.ID)
++	}
++	if want := []int64{fresh.ID, z.ID, x.ID, y.ID}; !sameIDs(taken, want) {
++		t.Errorf("a Ready task, then the stale claims oldest lease first and the lower id of a tie: %v, want %v", taken, want)
++	}
++	if got, err := s.Next(bg, "default", bot("t5"), true, 0); err != nil || got != nil {
++		t.Errorf("every claim is live again: %+v, %v", got, err)
++	}
++}
++
++// A claim takes a card to the bottom of In progress; a renewal and a takeover leave it where it is.
++func TestARenewalOrATakeoverKeepsTheCardsPlace(t *testing.T) {
++	s, _, clk := newTestStore(t)
++	a, b, c := mustAdd(t, s, "default", "a", true), mustAdd(t, s, "default", "b", true), mustAdd(t, s, "default", "c", true)
++	for _, task := range []Task{a, b, c} {
++		claimsClaim(t, s, task.ID, "one", 0)
++	}
++	place := func() map[int64]int64 {
++		t.Helper()
++		out := map[int64]int64{}
++		for _, id := range []int64{a.ID, b.ID, c.ID} {
++			got, _, err := s.Get(bg, "default", id)
++			if err != nil {
++				t.Fatal(err)
++			}
++			out[id] = got.Position
++		}
++		return out
++	}
++	before := place()
++	if !(before[a.ID] < before[b.ID] && before[b.ID] < before[c.ID]) {
++		t.Fatalf("positions %v: claims in the order a, b, c should queue", before)
++	}
++	claimsClaim(t, s, b.ID, "one", time.Hour) // a renewal
++	clk.advance(2 * time.Hour)                // every lease has run out
++	claimsClaim(t, s, c.ID, "two", 0)         // a takeover
++	if after := place(); after[a.ID] != before[a.ID] || after[b.ID] != before[b.ID] || after[c.ID] != before[c.ID] {
++		t.Errorf("positions %v after a renewal and a takeover, want %v", after, before)
++	}
++}
++
++// A peek is one read: what it says agrees with the board as it was when the read began, whatever is
++// written while it runs. The operator here approves a task and moves the stale card away in the middle
++// of the read; the peek must not say "nothing to do" for a board that always had something to do.
++func TestAPeekIsReadInOneSnapshot(t *testing.T) {
++	s, db, clk := newTestStore(t)
++	task := mustAdd(t, s, "default", "abandoned", true)
++	claimsClaim(t, s, task.ID, "one", 0)
++	clk.advance(DefaultLease)
++	calls := 0
++	s.now = func() time.Time {
++		calls++
++		if calls == 1 { // the peek has found no Ready task and asks for the time to look for a stale claim
++			if _, err := db.Exec(`UPDATE tasks SET status = 'review', claimed_by = '', claim_until = '' WHERE id = ?`, task.ID); err != nil {
++				t.Error(err)
++			}
++			if _, err := db.Exec(`INSERT INTO tasks (profile_id, title, status, position, created_at, updated_at) VALUES ('default', 'new', 'ready', 1, ?, ?)`, rowTime, rowTime); err != nil {
++				t.Error(err)
++			}
++		}
++		return clk.t
++	}
++	got, err := s.Next(bg, "default", bot("two"), false, 0)
++	if calls == 0 {
++		t.Fatal("the peek never asked for the time: the test no longer writes in the middle of it")
++	}
++	if err != nil || got == nil || got.ID != task.ID || got.Status != StatusInProgress || got.Claim == nil || got.Claim.By != "one" || !got.Claim.Stale {
++		t.Errorf("peek %+v, err %v, want the stale claim the board held when the read began", got, err)
++	}
++	s.now = clk.now
++	if got, err := s.Next(bg, "default", bot("two"), false, 0); err != nil || got == nil || got.Title != "new" {
++		t.Errorf("the next peek: %+v, %v, want the task that was approved", got, err)
++	}
++}
++
++// A peek needs no name, so any agent may look; the board is not a capture's to read (spec 5.1), and an
++// actor that was never set is refused, as List does before anything else.
++func TestAPeekNeedsNoNameButNotJustAnyActor(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	task := mustAdd(t, s, "default", "ready", true)
++	for name, a := range map[string]Actor{
++		"the operator": human, "a named agent": bot("b"), "an agent with no name": bot(""),
++		"an agent named like a label": bot("Agent"), "the operator with a name": {Kind: Human, Name: "x"},
++	} {
++		if got, err := s.Next(bg, "default", a, false, 0); err != nil || got == nil || got.ID != task.ID {
++			t.Errorf("%s: %+v, %v, want the Ready task", name, got, err)
++		}
++	}
++	for name, a := range map[string]Actor{
++		"the chrome capture": {Kind: Capture, Name: SourceChrome}, "an unnamed capture": {Kind: Capture},
++	} {
++		if got, err := s.Next(bg, "default", a, false, 0); !errors.Is(err, ErrOperatorOnly) || got != nil {
++			t.Errorf("%s: %+v, %v, want ErrOperatorOnly", name, got, err)
++		}
++	}
++	for name, a := range map[string]Actor{"the zero actor": {}, "an unknown kind": {Kind: ActorKind(99)}} {
++		if got, err := s.Next(bg, "default", a, false, 0); !errors.Is(err, ErrInvalid) || got != nil {
++			t.Errorf("%s: %+v, %v, want ErrInvalid", name, got, err)
++		}
++	}
++}
++
++// What a profile offers is its own: a claim in one profile touches nothing of another's.
++func TestNextOffersAndClaimsWithinOneProfile(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	other := addProfile(t, db, "p2")
++	mine, theirs := mustAdd(t, s, "default", "mine", true), mustAdd(t, s, other, "theirs", true)
++	for profile, want := range map[string]int64{"default": mine.ID, other: theirs.ID} {
++		if got, err := s.Next(bg, profile, bot("one"), false, 0); err != nil || got == nil || got.ID != want {
++			t.Errorf("a peek in %s: %+v, %v, want #%d", profile, got, err, want)
++		}
++	}
++	got, err := s.Next(bg, other, bot("one"), true, 0)
++	if err != nil || got == nil || got.ID != theirs.ID || got.ProfileID != other {
++		t.Fatalf("next --claim in the other profile: %+v, %v", got, err)
++	}
++	if again, err := s.Next(bg, other, bot("two"), true, 0); err != nil || again != nil {
++		t.Errorf("the other profile has nothing left, and must not take this one's task: %+v, %v", again, err)
++	}
++	if task, _, err := s.Get(bg, "default", mine.ID); err != nil || task.Status != StatusReady || task.Claim != nil {
++		t.Errorf("this profile's task: %+v, %v, want it untouched", task, err)
++	}
++	if rev, _ := s.Rev(bg, "default"); rev != 1 {
++		t.Errorf("revision %d, want 1: a claim moves its own profile's revision only", rev)
++	}
++}
+diff --git a/internal/tasks/claims_process_test.go b/internal/tasks/claims_process_test.go
+new file mode 100644
+index 00000000..ca2cfdfb
+--- /dev/null
++++ b/internal/tasks/claims_process_test.go
+@@ -0,0 +1,186 @@
++package tasks
++
++import (
++	"bufio"
++	"fmt"
++	"io"
++	"os"
++	"os/exec"
++	"strconv"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/monoes/mono-agent/internal/storage"
++	"github.com/monoes/mono-agent/internal/testdb"
++)
++
++const (
++	claimsHelperDB   = "TASKS_CLAIMS_HELPER_DB"
++	claimsHelperName = "TASKS_CLAIMS_HELPER_NAME"
++)
++
++// claimsSlowStore is a store over the database whose clock takes its time. A claim asks the clock after
++// it has read the task and before it writes, inside the write lock, so the claims of the processes
++// really are in each other's way: a process that does not wait for the lock would read what another is
++// about to take.
++func claimsSlowStore(db *storage.Database) *Store {
++	s := NewStore(db.DB)
++	s.now = func() time.Time {
++		time.Sleep(2 * time.Millisecond)
++		return time.Now()
++	}
++	return s
++}
++
++// TestClaimsHelperProcess is no test: it is what TestSessionsInOtherProcessesNeverTakeTheSameTask runs in
++// the other processes. It opens the database it is given, says it is ready, waits for the word to start,
++// and then takes the next task and prints its id until there is none.
++func TestClaimsHelperProcess(t *testing.T) {
++	path := os.Getenv(claimsHelperDB)
++	if path == "" {
++		t.Skip("the helper of TestSessionsInOtherProcessesNeverTakeTheSameTask")
++	}
++	db, err := storage.NewDatabase(path)
++	if err != nil {
++		fmt.Println("error", err)
++		os.Exit(2)
++	}
++	defer db.Close()
++	s := claimsSlowStore(db)
++	fmt.Println("ready")
++	if _, err := bufio.NewReader(os.Stdin).ReadString('\n'); err != nil {
++		os.Exit(2)
++	}
++	for {
++		got, err := s.Next(bg, "default", bot(os.Getenv(claimsHelperName)), true, 0)
++		if err != nil {
++			fmt.Println("error", err)
++			os.Exit(1)
++		}
++		if got == nil {
++			return
++		}
++		fmt.Println("claimed", got.ID)
++		time.Sleep(5 * time.Millisecond) // the lock goes to whoever waits for it
++	}
++}
++
++// The sessions that share a board are processes, not goroutines: the write lock of the database is what
++// keeps them from taking the same task. Three other processes and this one take the next task from one
++// board, all starting together; every task is taken, and by one of them only.
++func TestSessionsInOtherProcessesNeverTakeTheSameTask(t *testing.T) {
++	path := testdb.Path(t)
++	db, err := storage.NewDatabase(path)
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { db.Close() })
++	const tasks, others = 60, 3
++	for i := 0; i < tasks; i++ {
++		mustAdd(t, NewStore(db.DB), "default", fmt.Sprintf("t%d", i), true)
++	}
++	s := claimsSlowStore(db)
++
++	type child struct {
++		cmd   *exec.Cmd
++		in    io.WriteCloser
++		lines chan string
++	}
++	var kids []*child
++	t.Cleanup(func() {
++		for _, k := range kids {
++			_ = k.cmd.Process.Kill()
++		}
++	})
++	for i := 0; i < others; i++ {
++		cmd := exec.Command(os.Args[0], "-test.run=^TestClaimsHelperProcess$")
++		cmd.Env = append(os.Environ(), claimsHelperDB+"="+path, fmt.Sprintf("%s=process-%d", claimsHelperName, i))
++		cmd.Stderr = os.Stderr
++		in, err := cmd.StdinPipe()
++		if err != nil {
++			t.Fatal(err)
++		}
++		out, err := cmd.StdoutPipe()
++		if err != nil {
++			t.Fatal(err)
++		}
++		if err := cmd.Start(); err != nil {
++			t.Fatal(err)
++		}
++		k := &child{cmd: cmd, in: in, lines: make(chan string, tasks+8)}
++		kids = append(kids, k)
++		go func() {
++			sc := bufio.NewScanner(out)
++			for sc.Scan() {
++				k.lines <- sc.Text()
++			}
++			close(k.lines)
++		}()
++	}
++	for i, k := range kids {
++		select {
++		case line := <-k.lines:
++			if line != "ready" {
++				t.Fatalf("process %d said %q, want ready", i, line)
++			}
++		case <-time.After(2 * time.Minute):
++			t.Fatalf("process %d never said it was ready", i)
++		}
++	}
++	for _, k := range kids {
++		if _, err := fmt.Fprintln(k.in, "go"); err != nil {
++			t.Fatal(err)
++		}
++	}
++
++	taken := map[int64]string{}
++	record := func(id int64, by string) {
++		if prev, dup := taken[id]; dup {
++			t.Errorf("task #%d was taken by %s and by %s", id, prev, by)
++		}
++		taken[id] = by
++	}
++	for { // this process takes tasks too, while the others do
++		got, err := s.Next(bg, "default", bot("this-process"), true, 0)
++		if err != nil {
++			t.Fatalf("this process: %v", err)
++		}
++		if got == nil {
++			break
++		}
++		record(got.ID, "this-process")
++		time.Sleep(5 * time.Millisecond) // the lock goes to whoever waits for it
++	}
++	for i, k := range kids {
++		for line := range k.lines {
++			switch {
++			case strings.HasPrefix(line, "claimed "):
++				id, err := strconv.ParseInt(strings.TrimPrefix(line, "claimed "), 10, 64)
++				if err != nil {
++					t.Fatalf("process %d said %q", i, line)
++				}
++				record(id, fmt.Sprintf("process-%d", i))
++			case strings.HasPrefix(line, "error "):
++				t.Errorf("process %d: %s", i, line)
++			}
++		}
++		if err := k.cmd.Wait(); err != nil {
++			t.Errorf("process %d: %v", i, err)
++		}
++	}
++	share := map[string]int{}
++	for _, by := range taken {
++		share[by]++
++	}
++	t.Logf("who took how many of the %d tasks: %v", tasks, share)
++	if len(taken) != tasks {
++		t.Errorf("%d tasks were taken, want %d", len(taken), tasks)
++	}
++	if n := countWhere(t, db.DB, "task_events", "kind = 'claimed'"); n != tasks {
++		t.Errorf("%d claimed events, want %d", n, tasks)
++	}
++	if n := countWhere(t, db.DB, "tasks", "status = 'in_progress' AND claimed_by <> ''"); n != tasks {
++		t.Errorf("%d tasks are held, want %d", n, tasks)
++	}
++}
+diff --git a/internal/tasks/claims_race_test.go b/internal/tasks/claims_race_test.go
+new file mode 100644
+index 00000000..02a40395
+--- /dev/null
++++ b/internal/tasks/claims_race_test.go
+@@ -0,0 +1,273 @@
++package tasks
++
++import (
++	"errors"
++	"fmt"
++	"math/rand"
++	"sync"
++	"sync/atomic"
++	"testing"
++	"time"
++)
++
++// Several agents claim one task at the same moment: the claim is one write transaction that takes the
++// lock first, so exactly one of them gets it, and the others are told who holds it.
++func TestSeveralAgentsClaimingOneTaskAtOnceTakeItOnce(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	task := mustAdd(t, s, "default", "contested", true)
++	const agents = 12
++	errs := make([]error, agents)
++	var wg sync.WaitGroup
++	for i := range errs {
++		wg.Go(func() { _, errs[i] = s.Claim(bg, "default", task.ID, bot(fmt.Sprintf("agent-%d", i)), 0) })
++	}
++	wg.Wait()
++	winner := ""
++	for i, err := range errs {
++		if err == nil {
++			if winner != "" {
++				t.Errorf("two agents took the task: %s and agent-%d", winner, i)
++			}
++			winner = fmt.Sprintf("agent-%d", i)
++		}
++	}
++	if winner == "" {
++		t.Fatal("no agent took the task")
++	}
++	for i, err := range errs {
++		var ce *ClaimedError
++		if err != nil && (!errors.Is(err, ErrClaimed) || !errors.As(err, &ce) || ce.By != winner) {
++			t.Errorf("agent-%d: %v, want ErrClaimed naming %s", i, err, winner)
++		}
++	}
++	if by, _ := opsClaim(t, db, task.ID); by != winner {
++		t.Errorf("the task is held by %q, want %q", by, winner)
++	}
++	if n := countWhere(t, db, "task_events", "task_id = ? AND kind = 'claimed'", task.ID); n != 1 {
++		t.Errorf("%d claimed events, want 1", n)
++	}
++	if rev := claimsRev(t, s); rev != 2 {
++		t.Errorf("revision %d, want 2: the add and the one claim that was made", rev)
++	}
++}
++
++// More agents than tasks ask for the next one at the same moment: every task is taken once, and the
++// agents that came too late are told there is nothing (not an error).
++func TestSeveralAgentsTakingTheNextTaskAtOnceTakeOneEach(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	const tasks, agents = 8, 20
++	for i := 0; i < tasks; i++ {
++		mustAdd(t, s, "default", fmt.Sprintf("t%d", i), true)
++	}
++	got := make([]*Task, agents)
++	errs := make([]error, agents)
++	var wg sync.WaitGroup
++	for i := range got {
++		wg.Go(func() { got[i], errs[i] = s.Next(bg, "default", bot(fmt.Sprintf("agent-%d", i)), true, 0) })
++	}
++	wg.Wait()
++	taken := map[int64]string{}
++	for i, task := range got {
++		if errs[i] != nil {
++			t.Errorf("agent-%d: %v", i, errs[i])
++			continue
++		}
++		if task == nil {
++			continue
++		}
++		if by, dup := taken[task.ID]; dup {
++			t.Errorf("task #%d was taken by %s and by agent-%d", task.ID, by, i)
++		}
++		taken[task.ID] = fmt.Sprintf("agent-%d", i)
++		if task.Claim == nil || task.Claim.By != taken[task.ID] {
++			t.Errorf("agent-%d was given #%d with the claim %+v", i, task.ID, task.Claim)
++		}
++	}
++	if len(taken) != tasks {
++		t.Errorf("%d tasks were taken, want %d", len(taken), tasks)
++	}
++	if n := countWhere(t, db, "task_events", "kind = 'claimed'"); n != tasks {
++		t.Errorf("%d claimed events, want %d", n, tasks)
++	}
++	if rev := claimsRev(t, s); rev != 2*tasks {
++		t.Errorf("revision %d, want %d: each add and each claim", rev, 2*tasks)
++	}
++}
++
++// The holder renews its lease with different lengths at the same moment: whatever order the renewals
++// are made in, the lease ends up the longest of them. None of them shortens it.
++func TestRenewalsAtOnceNeverShortenALease(t *testing.T) {
++	s, db, clk := newTestStore(t)
++	task := mustAdd(t, s, "default", "long job", true)
++	claimsClaim(t, s, task.ID, "one", 10*time.Minute)
++	const callers = 12
++	errs := make([]error, callers)
++	var wg sync.WaitGroup
++	for i := range errs {
++		lease := time.Duration(i+1) * 15 * time.Minute // 15 minutes to 3 hours
++		wg.Go(func() { _, errs[i] = s.Claim(bg, "default", task.ID, bot("one"), lease) })
++	}
++	wg.Wait()
++	for i, err := range errs {
++		if err != nil {
++			t.Errorf("renewal %d: %v", i, err)
++		}
++	}
++	longest := clk.t.Add(callers * 15 * time.Minute).Format(timeFmt)
++	if _, until := opsClaim(t, db, task.ID); until != longest {
++		t.Errorf("the lease ends at %s, want the longest of the renewals, %s", until, longest)
++	}
++	if n := countWhere(t, db, "task_events", "task_id = ? AND note = 'renewed'", task.ID); n != callers {
++		t.Errorf("%d renewed events, want %d", n, callers)
++	}
++}
++
++// Agents and the operator work the same few tasks at once, and time passes while they do, so claims run
++// out and are taken over. Whatever the order was, the history of every task has to explain the task: it
++// is held by one agent at a time, only its holder comments, finishes or releases it, and a takeover is
++// of a claim somebody holds; and the revision counts the writes that went through.
++func TestAWorkloadAtOnceLeavesAHistoryThatExplainsEveryTask(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	var nanos atomic.Int64
++	nanos.Store(time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC).UnixNano())
++	s.now = func() time.Time { return time.Unix(0, nanos.Load()).UTC() }
++
++	const first = 5
++	var mu sync.Mutex
++	var ids []int64
++	for i := 0; i < first; i++ {
++		ids = append(ids, mustAdd(t, s, "default", fmt.Sprintf("t%d", i), true).ID)
++	}
++	pick := func(r *rand.Rand) int64 {
++		mu.Lock()
++		defer mu.Unlock()
++		return ids[r.Intn(len(ids))]
++	}
++	var written atomic.Int64 // the writes that went through, adds included
++	failures := make(chan error, 1000)
++	const workers, steps = 6, 60
++	var wg sync.WaitGroup
++	for w := 0; w < workers; w++ {
++		wg.Go(func() {
++			r := rand.New(rand.NewSource(int64(w) + 1))
++			me := bot(fmt.Sprintf("w%d", w%4)) // two workers share a name: they are one claimant
++			for i := 0; i < steps; i++ {
++				var err error
++				wrote := true
++				switch r.Intn(9) {
++				case 0, 1:
++					_, err = s.Claim(bg, "default", pick(r), me, time.Duration(r.Intn(45))*time.Minute)
++				case 2, 3:
++					var got *Task
++					got, err = s.Next(bg, "default", me, true, time.Duration(r.Intn(45))*time.Minute)
++					wrote = got != nil
++				case 4:
++					_, err = s.Comment(bg, "default", pick(r), "note", me)
++				case 5:
++					_, err = s.Comment(bg, "default", pick(r), "from the operator", human)
++				case 6:
++					_, err = s.Finish(bg, "default", pick(r), Outcome{Result: "done"}, me)
++				case 7:
++					_, err = s.Release(bg, "default", pick(r), "no", me)
++				case 8:
++					if r.Intn(2) == 0 {
++						nanos.Add(int64(time.Duration(r.Intn(30)) * time.Minute)) // time passes: leases run out
++						continue
++					}
++					var task Task
++					task, _, err = s.Add(bg, "default", AddInput{Title: "later", Ready: true}, human)
++					if err == nil {
++						mu.Lock()
++						ids = append(ids, task.ID)
++						mu.Unlock()
++					}
++				}
++				switch {
++				case err == nil && wrote:
++					written.Add(1)
++				case err == nil, errors.Is(err, ErrClaimed), errors.Is(err, ErrNotClaimant), errors.Is(err, ErrNotReady):
++				default:
++					failures <- err
++				}
++			}
++		})
++	}
++	wg.Wait()
++	close(failures)
++	for err := range failures {
++		t.Errorf("a call failed with %v: only the refusals of the rules are expected", err)
++	}
++	if written.Load() == 0 {
++		t.Fatal("nothing was written: the workload did not run")
++	}
++	if want := first + written.Load(); claimsRev(t, s) != want {
++		t.Errorf("revision %d, want %d: one for every write that went through", claimsRev(t, s), want)
++	}
++
++	rows, err := db.Query(`SELECT id, status, claimed_by FROM tasks ORDER BY id`)
++	if err != nil {
++		t.Fatal(err)
++	}
++	type row struct {
++		id         int64
++		status, by string
++	}
++	var all []row
++	for rows.Next() {
++		var r row
++		if err := rows.Scan(&r.id, &r.status, &r.by); err != nil {
++			t.Fatal(err)
++		}
++		all = append(all, r)
++	}
++	rows.Close()
++	claims := 0
++	for _, r := range all {
++		state, holder := "", ""
++		_, events, err := s.Get(bg, "default", r.id)
++		if err != nil {
++			t.Fatal(err)
++		}
++		for i, e := range events {
++			if e.ToStatus != "" {
++				if e.FromStatus != "" && e.FromStatus != state {
++					t.Errorf("task #%d, event %d (%s): from %s while the task was in %q", r.id, i, e.Kind, e.FromStatus, state)
++				}
++				state = e.ToStatus
++			}
++			switch e.Kind {
++			case "claimed":
++				claims++
++				switch {
++				case e.Note == "renewed" && holder != e.Actor:
++					t.Errorf("task #%d, event %d: %s renewed a claim held by %q", r.id, i, e.Actor, holder)
++				case e.Note != "renewed" && holder != "":
++					t.Errorf("task #%d, event %d: %s claimed a task held by %q", r.id, i, e.Actor, holder)
++				case e.Note != "renewed" && e.FromStatus != "ready":
++					t.Errorf("task #%d, event %d: a claim from %q", r.id, i, e.FromStatus)
++				}
++				holder = e.Actor
++			case "reclaimed":
++				if holder == "" || holder == e.Actor {
++					t.Errorf("task #%d, event %d: %s took over a claim held by %q", r.id, i, e.Actor, holder)
++				}
++				holder = e.Actor
++			case "comment":
++				if e.Actor != "you" && holder != e.Actor {
++					t.Errorf("task #%d, event %d: %s commented on a task held by %q", r.id, i, e.Actor, holder)
++				}
++			case "result", "question", "released":
++				if holder != e.Actor {
++					t.Errorf("task #%d, event %d: %s handed back a task held by %q", r.id, i, e.Actor, holder)
++				}
++				holder = ""
++			}
++		}
++		if state != r.status || holder != r.by {
++			t.Errorf("task #%d: its history says %q held by %q, the row says %q held by %q", r.id, state, holder, r.status, r.by)
++		}
++	}
++	if claims == 0 {
++		t.Error("no claim was made")
++	}
++}
+diff --git a/internal/tasks/claims_rules_test.go b/internal/tasks/claims_rules_test.go
+new file mode 100644
+index 00000000..a7b9b9d4
+--- /dev/null
++++ b/internal/tasks/claims_rules_test.go
+@@ -0,0 +1,396 @@
++package tasks
++
++import (
++	"errors"
++	"strings"
++	"testing"
++	"time"
++)
++
++// claimsVerb is one verb as a call: who makes it, and on which task of which profile.
++type claimsVerb struct {
++	name string
++	run  func(profile string, id int64, a Actor) error
++}
++
++// claimsAgentVerbs are the verbs that only an agent with a name may use, with arguments that are right
++// whoever makes the call.
++func claimsAgentVerbs(s *Store) []claimsVerb {
++	return []claimsVerb{
++		{"Claim", func(p string, id int64, a Actor) error { _, err := s.Claim(bg, p, id, a, 0); return err }},
++		{"Next with claim", func(p string, id int64, a Actor) error { _, err := s.Next(bg, p, a, true, 0); return err }},
++		{"Finish", func(p string, id int64, a Actor) error {
++			_, err := s.Finish(bg, p, id, Outcome{Result: "r"}, a)
++			return err
++		}},
++		{"Release", func(p string, id int64, a Actor) error { _, err := s.Release(bg, p, id, "why", a); return err }},
++	}
++}
++
++// Spec 5.1: the labels you, agent, capture, chrome and os are reserved, in any case, and a name is 1-64
++// characters of letters, digits and . _ # @ : -. Every verb refuses an agent that has no usable name,
++// whatever profile and task it names (who is asking is looked at first), and writes nothing.
++func TestEveryAgentVerbRefusesAnAgentWithoutAUsableName(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	held := mustAdd(t, s, "default", "held", true)
++	claimsClaim(t, s, held.ID, "one", 0)
++	ready := mustAdd(t, s, "default", "ready", true)
++	verbs := append(claimsAgentVerbs(s), claimsVerb{"Comment", func(p string, id int64, a Actor) error {
++		_, err := s.Comment(bg, p, id, "text", a)
++		return err
++	}})
++	before := dumpBoard(t, db)
++	for _, c := range []struct {
++		name  string
++		actor Actor
++		want  string
++	}{
++		{"no name", bot(""), "needs a name"},
++		{"a space", bot("bad name"), "letters, digits"},
++		{"a name too long", bot(strings.Repeat("n", MaxNameLen+1)), "letters, digits"},
++		{"an escape", bot("a\x1b[31m"), "letters, digits"},
++		{"you", bot("you"), "reserved"},
++		{"YOU", bot("YOU"), "reserved"},
++		{"agent", bot("agent"), "reserved"},
++		{"Agent", bot("Agent"), "reserved"},
++		{"capture", bot("capture"), "reserved"},
++		{"CAPTURE", bot("CAPTURE"), "reserved"},
++		{"chrome", bot("chrome"), "reserved"},
++		{"Chrome", bot("Chrome"), "reserved"},
++		{"os", bot("os"), "reserved"},
++		{"oS", bot("oS"), "reserved"},
++	} {
++		for _, v := range verbs {
++			for _, id := range []int64{held.ID, ready.ID, 424242} {
++				if err := v.run("default", id, c.actor); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), c.want) {
++					t.Errorf("%s by an agent with %s on #%d: %v, want ErrInvalid saying %q", v.name, c.name, id, err, c.want)
++				}
++			}
++			// before the profile: this profile does not exist and the name is what the refusal says
++			if err := v.run("no-such-profile", 424242, c.actor); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), c.want) {
++				t.Errorf("%s by an agent with %s, on a profile that does not exist: %v, want the refusal of the name", v.name, c.name, err)
++			}
++		}
++		if got, err := s.Next(bg, "default", c.actor, false, 0); err != nil || got == nil || got.ID != ready.ID {
++			t.Errorf("a peek by an agent with %s: %+v, %v, want the Ready task: a peek needs no name", c.name, got, err)
++		}
++	}
++	if after := dumpBoard(t, db); after != before {
++		t.Errorf("refused calls changed the database:\nbefore:\n%s\nafter:\n%s", before, after)
++	}
++}
++
++// A name that holds a reserved word, or is as long as a name may be, is a name.
++func TestNamesThatOnlyLookLikeReservedOnesAreNames(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	for _, name := range []string{"you2", "my-agent", "agent-7", "agent:Claude-Code#beef", "os.bot", "chrome#1", "capture:2", "yo", strings.Repeat("n", MaxNameLen)} {
++		task := mustAdd(t, s, "default", "for "+name, true)
++		got, err := s.Claim(bg, "default", task.ID, bot(name), 0)
++		if err != nil || got.Claim == nil || got.Claim.By != name || got.LastEvent == nil || got.LastEvent.Actor != name {
++			t.Errorf("an agent named %q: %+v, %v, want the claim and its event under that name", name, got, err)
++		}
++	}
++}
++
++// The name is not authenticated: two agents that choose the same name are one claimant (spec 5.2). The
++// name is what is written, to the letter: "One" is not "one".
++func TestAClaimantIsTheNameToTheLetter(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	task := mustAdd(t, s, "default", "held", true)
++	claimsClaim(t, s, task.ID, "one", 0)
++	if _, err := s.Claim(bg, "default", task.ID, bot("One"), 0); !errors.Is(err, ErrClaimed) {
++		t.Errorf("claim by One: %v, want ErrClaimed", err)
++	}
++	if _, err := s.Comment(bg, "default", task.ID, "x", bot("One")); !errors.Is(err, ErrNotClaimant) {
++		t.Errorf("comment by One: %v, want ErrNotClaimant", err)
++	}
++	if _, err := s.Finish(bg, "default", task.ID, Outcome{Result: "x"}, bot("One")); !errors.Is(err, ErrNotClaimant) {
++		t.Errorf("finish by One: %v, want ErrNotClaimant", err)
++	}
++	if _, err := s.Release(bg, "default", task.ID, "x", bot("One")); !errors.Is(err, ErrNotClaimant) {
++		t.Errorf("release by One: %v, want ErrNotClaimant", err)
++	}
++	got, err := s.Claim(bg, "default", task.ID, bot("one"), 0) // the same name from anywhere is the same claimant
++	if err != nil || got.Claim == nil || got.Claim.By != "one" {
++		t.Errorf("claim again by one: %+v, %v", got, err)
++	}
++}
++
++// Spec 5.1: the operator moves the cards, a capture only captures: neither claims, finishes or releases.
++// Both are refused as invalid input, as who is asking comes before everything else.
++func TestAgentVerbsRefuseWhoIsNotAnAgent(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	held := mustAdd(t, s, "default", "held", true)
++	claimsClaim(t, s, held.ID, "one", 0)
++	mustAdd(t, s, "default", "ready", true)
++	before := dumpBoard(t, db)
++	for name, a := range map[string]Actor{
++		"the operator": human, "the operator under an agent's name": {Kind: Human, Name: "one"},
++		"the chrome capture": {Kind: Capture, Name: SourceChrome}, "the os capture": {Kind: Capture, Name: SourceOS},
++		"an unnamed capture": {Kind: Capture}, "the zero actor": {}, "an unknown kind": {Kind: ActorKind(99)}, "a negative kind": {Kind: ActorKind(-1), Name: "one"},
++	} {
++		for _, v := range claimsAgentVerbs(s) {
++			if err := v.run("default", held.ID, a); !errors.Is(err, ErrInvalid) || errors.Is(err, ErrOperatorOnly) {
++				t.Errorf("%s by %s: %v, want ErrInvalid", v.name, name, err)
++			}
++		}
++		if a.Kind == Human {
++			continue
++		}
++		if _, err := s.Comment(bg, "default", held.ID, "text", a); !errors.Is(err, ErrInvalid) {
++			t.Errorf("Comment by %s: %v, want ErrInvalid", name, err)
++		}
++	}
++	if after := dumpBoard(t, db); after != before {
++		t.Errorf("refused calls changed the database:\nbefore:\n%s\nafter:\n%s", before, after)
++	}
++}
++
++// The operator comments on any task, as "you", whatever name it carries, and its comment is not an
++// agent's: it renews no lease.
++func TestTheOperatorsCommentIsNoAgentsAndRenewsNothing(t *testing.T) {
++	s, db, clk := newTestStore(t)
++	held := mustAdd(t, s, "default", "held", true)
++	claimsClaim(t, s, held.ID, "one", 0)
++	var all []Task
++	for _, st := range []Status{StatusInbox, StatusReady, StatusReview, StatusDone, StatusArchived} {
++		task := mustAdd(t, s, "default", "in "+string(st), false)
++		switch st {
++		case StatusInbox:
++		case StatusArchived:
++			if _, err := s.Archive(bg, "default", []int64{task.ID}, human); err != nil {
++				t.Fatal(err)
++			}
++		default:
++			if _, err := s.Move(bg, "default", task.ID, st, Placement{}, human); err != nil {
++				t.Fatal(err)
++			}
++		}
++		all = append(all, task)
++	}
++	clk.advance(20 * time.Minute) // the lease of "one" has ten minutes left, which a renewal would make thirty
++	_, until := opsClaim(t, db, held.ID)
++	for _, a := range []Actor{human, {Kind: Human, Name: "one"}} {
++		for _, task := range append(all, held) {
++			got, err := s.Comment(bg, "default", task.ID, "from the operator", a)
++			if err != nil || got.LastEvent == nil || got.LastEvent.Kind != "comment" || got.LastEvent.Actor != "you" {
++				t.Errorf("a comment on #%d (%s): %+v, %v, want a comment by you", task.ID, task.Title, got.LastEvent, err)
++			}
++		}
++	}
++	if _, u := opsClaim(t, db, held.ID); u != until {
++		t.Errorf("the operator's comment moved the lease from %s to %s", until, u)
++	}
++	if got, _, _ := s.Get(bg, "default", held.ID); got.Claim == nil || got.Claim.By != "one" || got.Status != StatusInProgress {
++		t.Errorf("the held task after the operator's comments: %+v", got.Claim)
++	}
++}
++
++// Spec 14: an unknown profile is refused by every method that writes, before the task is looked for (the
++// id is a real one of the default profile: ErrNotFound would be the wrong answer), and a peek says so
++// too, instead of saying there is nothing to do. The message says the profile is unknown and repeats
++// at most a bounded part of it.
++func TestEveryAgentVerbRefusesAnUnknownProfileAndWritesNothing(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	held := mustAdd(t, s, "default", "held", true)
++	claimsClaim(t, s, held.ID, "one", 0)
++	mustAdd(t, s, "default", "ready", true)
++	before := dumpBoard(t, db)
++	calls := []struct {
++		name string
++		run  func(profile string) error
++	}{
++		{"Claim", func(p string) error { _, err := s.Claim(bg, p, held.ID, bot("one"), 0); return err }},
++		{"Next with claim", func(p string) error { _, err := s.Next(bg, p, bot("one"), true, 0); return err }},
++		{"Next", func(p string) error { _, err := s.Next(bg, p, bot("one"), false, 0); return err }},
++		{"Comment by an agent", func(p string) error { _, err := s.Comment(bg, p, held.ID, "text", bot("one")); return err }},
++		{"Comment by the operator", func(p string) error { _, err := s.Comment(bg, p, held.ID, "text", human); return err }},
++		{"Finish", func(p string) error { _, err := s.Finish(bg, p, held.ID, Outcome{Result: "r"}, bot("one")); return err }},
++		{"Release", func(p string) error { _, err := s.Release(bg, p, held.ID, "why", bot("one")); return err }},
++	}
++	for _, c := range calls {
++		for _, profile := range []string{"no-such-profile", "", strings.Repeat("x", 1<<16)} {
++			err := c.run(profile)
++			switch {
++			case !errors.Is(err, ErrInvalid) || errors.Is(err, ErrNotFound) || !strings.Contains(err.Error(), "unknown profile"):
++				t.Errorf("%s on profile %.20q: %v, want ErrInvalid saying the profile is unknown", c.name, profile, err)
++			case len(err.Error()) > 400:
++				t.Errorf("%s: an error of %d bytes repeats what the caller sent", c.name, len(err.Error()))
++			}
++		}
++	}
++	if after := dumpBoard(t, db); after != before {
++		t.Errorf("refused calls changed the database:\nbefore:\n%s\nafter:\n%s", before, after)
++	}
++}
++
++// Spec 14: every method refuses another profile's ids, as not found, whoever holds the task there.
++func TestEveryAgentVerbRefusesAnotherProfilesTasksAsNotFound(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	other := addProfile(t, db, "p2")
++	ready := mustAdd(t, s, other, "theirs, ready", true)
++	held := mustAdd(t, s, other, "theirs, held", true)
++	if _, err := s.Claim(bg, other, held.ID, bot("one"), 0); err != nil {
++		t.Fatal(err)
++	}
++	before := dumpBoard(t, db)
++	for _, id := range []int64{ready.ID, held.ID} {
++		for _, v := range claimsAgentVerbs(s) {
++			if v.name == "Next with claim" {
++				continue // it names no task
++			}
++			if err := v.run("default", id, bot("one")); !errors.Is(err, ErrNotFound) {
++				t.Errorf("%s of #%d through the default profile: %v, want ErrNotFound", v.name, id, err)
++			}
++		}
++		for _, a := range []Actor{bot("one"), human} {
++			if _, err := s.Comment(bg, "default", id, "text", a); !errors.Is(err, ErrNotFound) {
++				t.Errorf("Comment of #%d by %+v through the default profile: %v, want ErrNotFound", id, a, err)
++			}
++		}
++	}
++	if after := dumpBoard(t, db); after != before {
++		t.Errorf("refused calls changed the database:\nbefore:\n%s\nafter:\n%s", before, after)
++	}
++	// the same calls through the task's own profile work
++	if _, err := s.Comment(bg, other, held.ID, "text", bot("one")); err != nil {
++		t.Errorf("comment through its own profile: %v", err)
++	}
++	if _, err := s.Finish(bg, other, held.ID, Outcome{Result: "r"}, bot("one")); err != nil {
++		t.Errorf("finish through its own profile: %v", err)
++	}
++}
++
++// scanTask shows a claim on any row that has one, so a stray claim must be neither an obstacle nor a
++// hold. A Ready task that carries one is claimed like any other, by id and by next; a claim under
++// the agent's own name on a card that is not In progress holds nothing: the agent may not comment on,
++// finish or release it, and nothing is written when it tries.
++func TestAStrayClaimIsNoObstacleToAClaimAndNoHold(t *testing.T) {
++	s, db, clk := newTestStore(t)
++	byID, byNext := mustAdd(t, s, "default", "stray, by id", true), mustAdd(t, s, "default", "stray, by next", true)
++	claimsStray(t, db, byID.ID, "ghost", clk.t.Add(time.Hour))
++	claimsStray(t, db, byNext.ID, "ghost", clk.t.Add(-time.Hour))
++	got, err := s.Claim(bg, "default", byID.ID, bot("one"), 0)
++	if err != nil || got.Status != StatusInProgress || got.Claim == nil || got.Claim.By != "one" || got.Claim.Stale {
++		t.Fatalf("claim of a Ready task with a stray claim: %+v, %v", got, err)
++	}
++	if ev := opsEvents(t, s, byID.ID); ev[len(ev)-1] != "claimed|one|ready>in_progress|" {
++		t.Errorf("events: %v", ev)
++	}
++	got2, err := s.Next(bg, "default", bot("two"), true, 0)
++	if err != nil || got2 == nil || got2.ID != byNext.ID || got2.Claim == nil || got2.Claim.By != "two" {
++		t.Fatalf("next --claim of a Ready task with a stray claim: %+v, %v", got2, err)
++	}
++	if by, until := opsClaim(t, db, byNext.ID); by != "two" || until != clk.t.Add(DefaultLease).Format(timeFmt) {
++		t.Errorf("claim columns %q and %q", by, until)
++	}
++
++	// a claim under the agent's own name on a card that is not In progress
++	for _, st := range []Status{StatusInbox, StatusReady, StatusReview, StatusDone, StatusArchived} {
++		task := mustAdd(t, s, "default", "stray in "+string(st), false)
++		switch st {
++		case StatusInbox:
++		case StatusArchived:
++			if _, err := s.Archive(bg, "default", []int64{task.ID}, human); err != nil {
++				t.Fatal(err)
++			}
++		default:
++			if _, err := s.Move(bg, "default", task.ID, st, Placement{}, human); err != nil {
++				t.Fatal(err)
++			}
++		}
++		claimsStray(t, db, task.ID, "three", clk.t.Add(time.Hour))
++		before := dumpBoard(t, db)
++		if _, err := s.Comment(bg, "default", task.ID, "x", bot("three")); !errors.Is(err, ErrNotClaimant) {
++			t.Errorf("a comment by the name of a stray claim in %s: %v, want ErrNotClaimant", st, err)
++		}
++		if _, err := s.Finish(bg, "default", task.ID, Outcome{Result: "x"}, bot("three")); !errors.Is(err, ErrNotClaimant) {
++			t.Errorf("a finish by the name of a stray claim in %s: %v, want ErrNotClaimant", st, err)
++		}
++		if _, err := s.Release(bg, "default", task.ID, "x", bot("three")); !errors.Is(err, ErrNotClaimant) {
++			t.Errorf("a release by the name of a stray claim in %s: %v, want ErrNotClaimant", st, err)
++		}
++		if st != StatusReady { // a Ready card is claimable, and is the one thing a claim may take
++			if _, err := s.Claim(bg, "default", task.ID, bot("three"), 0); !errors.Is(err, ErrNotReady) {
++				t.Errorf("a claim of a card in %s: %v, want ErrNotReady", st, err)
++			}
++		}
++		if after := dumpBoard(t, db); after != before {
++			t.Errorf("refused calls changed the database in %s:\nbefore:\n%s\nafter:\n%s", st, before, after)
++		}
++	}
++}
++
++// Spec 5.2: stale claims stay where they are until someone takes them: the holder can still comment
++// (which renews the lease), finish and release; once another agent has taken the task, it cannot.
++func TestAStaleClaimIsStillItsHoldersUntilSomeoneTakesIt(t *testing.T) {
++	s, _, clk := newTestStore(t)
++	a, b, c, d := mustAdd(t, s, "default", "a", true), mustAdd(t, s, "default", "b", true), mustAdd(t, s, "default", "c", true), mustAdd(t, s, "default", "d", true)
++	for _, task := range []Task{a, b, c, d} {
++		claimsClaim(t, s, task.ID, "one", 0)
++	}
++	clk.advance(DefaultLease + time.Minute) // every lease has run out
++	if got, err := s.Comment(bg, "default", a.ID, "still here", bot("one")); err != nil || got.Claim == nil || got.Claim.Stale || !got.Claim.Until.Equal(clk.t.Add(DefaultLease)) {
++		t.Errorf("a comment on a stale claim of its holder: %+v, %v, want the lease renewed", got.Claim, err)
++	}
++	if got, err := s.Finish(bg, "default", b.ID, Outcome{Result: "done"}, bot("one")); err != nil || got.Status != StatusReview {
++		t.Errorf("finish of a stale claim by its holder: %+v, %v", got, err)
++	}
++	if got, err := s.Release(bg, "default", c.ID, "no", bot("one")); err != nil || got.Status != StatusReady {
++		t.Errorf("release of a stale claim by its holder: %+v, %v", got, err)
++	}
++	if got, err := s.Claim(bg, "default", d.ID, bot("one"), 0); err != nil || got.LastEvent == nil || got.LastEvent.Kind != "claimed" || got.Claim.Stale {
++		t.Errorf("a claim of a stale claim by its holder is a renewal, not a takeover: %+v, %v", got.LastEvent, err)
++	}
++	if ev := opsEvents(t, s, d.ID); ev[len(ev)-1] != "claimed|one|in_progress>in_progress|renewed" {
++		t.Errorf("events: %v", ev)
++	}
++	// once another agent has taken a stale claim, the first is no longer its holder
++	e := mustAdd(t, s, "default", "e", true)
++	claimsClaim(t, s, e.ID, "one", 0)
++	clk.advance(2 * DefaultLease)
++	claimsClaim(t, s, e.ID, "two", 0)
++	if _, err := s.Comment(bg, "default", e.ID, "x", bot("one")); !errors.Is(err, ErrNotClaimant) {
++		t.Errorf("a comment after the takeover: %v, want ErrNotClaimant", err)
++	}
++	if _, err := s.Finish(bg, "default", e.ID, Outcome{Result: "x"}, bot("one")); !errors.Is(err, ErrNotClaimant) {
++		t.Errorf("a finish after the takeover: %v, want ErrNotClaimant", err)
++	}
++	if _, err := s.Release(bg, "default", e.ID, "x", bot("one")); !errors.Is(err, ErrNotClaimant) {
++		t.Errorf("a release after the takeover: %v, want ErrNotClaimant", err)
++	}
++	if got, _, _ := s.Get(bg, "default", e.ID); got.Claim == nil || got.Claim.By != "two" {
++		t.Errorf("after the takeover: %+v, want the task held by two", got.Claim)
++	}
++}
++
++// A task the operator works on, or one in another column, is not an agent's to claim, and the message
++// says which it is. (The In progress card has no claim, and "" is not after any time: the operator's
++// card is not a stale claim.)
++func TestAClaimOfWhatIsNotClaimableSaysWhy(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	byHand := mustAdd(t, s, "default", "by hand", true)
++	if _, err := s.Move(bg, "default", byHand.ID, StatusInProgress, Placement{}, human); err != nil {
++		t.Fatal(err)
++	}
++	review := mustAdd(t, s, "default", "review", false)
++	if _, err := s.Move(bg, "default", review.ID, StatusReview, Placement{}, human); err != nil {
++		t.Fatal(err)
++	}
++	for _, c := range []struct {
++		name string
++		id   int64
++		say  string
++	}{
++		{"the operator's card", byHand.ID, "operator"},
++		{"a card in review", review.ID, "review"},
++	} {
++		_, err := s.Claim(bg, "default", c.id, bot("one"), 0)
++		if !errors.Is(err, ErrNotReady) || !strings.Contains(err.Error(), c.say) {
++			t.Errorf("%s: %v, want ErrNotReady saying %q", c.name, err, c.say)
++		}
++	}
++	if got, err := s.Next(bg, "default", bot("one"), true, 0); err != nil || got != nil {
++		t.Errorf("next --claim: %+v, %v, want nothing: the operator's card is no stale claim", got, err)
++	}
++}
+diff --git a/internal/tasks/claims_test.go b/internal/tasks/claims_test.go
+new file mode 100644
+index 00000000..7dfdfa6a
+--- /dev/null
++++ b/internal/tasks/claims_test.go
+@@ -0,0 +1,319 @@
++package tasks
++
++import (
++	"errors"
++	"strings"
++	"testing"
++	"time"
++)
++
++func TestNextPeeksTheTopReadyTask(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	if got, err := s.Next(bg, "default", bot("b"), false, 0); err != nil || got != nil {
++		t.Fatalf("an empty board: %+v, %v", got, err)
++	}
++	mustAdd(t, s, "default", "in the inbox", false) // never offered
++	first := mustAdd(t, s, "default", "first", true)
++	second := mustAdd(t, s, "default", "second", true)
++	got, err := s.Next(bg, "default", bot("b"), false, 0)
++	if err != nil || got == nil || got.ID != first.ID {
++		t.Fatalf("next: %+v, %v, want #%d", got, err, first.ID)
++	}
++	if again, _ := s.Next(bg, "default", bot("b"), false, 0); again == nil || again.ID != first.ID || again.Status != StatusReady {
++		t.Errorf("a peek claims nothing: %+v", again)
++	}
++	if _, err := s.Move(bg, "default", second.ID, StatusReady, Placement{Top: true}, human); err != nil {
++		t.Fatal(err)
++	}
++	if got, _ := s.Next(bg, "default", bot("b"), false, 0); got == nil || got.ID != second.ID {
++		t.Errorf("the top of the column is next: %+v", got)
++	}
++}
++
++func TestNextClaimTakesItWithALease(t *testing.T) {
++	s, _, c := newTestStore(t)
++	task := mustAdd(t, s, "default", "work", true)
++	got, err := s.Next(bg, "default", bot("claude-1"), true, 0)
++	if err != nil || got == nil || got.ID != task.ID || got.Status != StatusInProgress {
++		t.Fatalf("next --claim: %+v, %v", got, err)
++	}
++	if got.Claim == nil || got.Claim.By != "claude-1" || !got.Claim.Until.Equal(c.t.Add(DefaultLease)) || got.Claim.Stale {
++		t.Errorf("claim: %+v", got.Claim)
++	}
++	if got.LastEvent == nil || got.LastEvent.Kind != "claimed" || got.LastEvent.Actor != "claude-1" {
++		t.Errorf("last event: %+v", got.LastEvent)
++	}
++	if again, err := s.Next(bg, "default", bot("claude-2"), true, 0); err != nil || again != nil {
++		t.Errorf("nothing is left to claim: %+v, %v", again, err)
++	}
++	if rev, _ := s.Rev(bg, "default"); rev != 2 {
++		t.Errorf("revision %d, want 2 (the add and the claim)", rev)
++	}
++}
++
++func TestClaimRefusals(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	inbox, ready := mustAdd(t, s, "default", "inbox", false), mustAdd(t, s, "default", "ready", true)
++	cases := []struct {
++		name  string
++		id    int64
++		actor Actor
++		want  error
++	}{
++		{"an inbox task", inbox.ID, bot("b"), ErrNotReady},
++		{"an unknown task", 99999, bot("b"), ErrNotFound},
++		{"the operator", ready.ID, human, ErrInvalid},
++		{"an agent with no name", ready.ID, bot(""), ErrInvalid},
++		{"an agent with a bad name", ready.ID, bot("bad name"), ErrInvalid},
++		{"a capture", ready.ID, Actor{Kind: Capture, Name: SourceOS}, ErrInvalid},
++	}
++	for _, c := range cases {
++		if _, err := s.Claim(bg, "default", c.id, c.actor, 0); !errors.Is(err, c.want) {
++			t.Errorf("%s: %v, want %v", c.name, err, c.want)
++		}
++	}
++	held, err := s.Claim(bg, "default", ready.ID, bot("one"), time.Hour)
++	if err != nil {
++		t.Fatal(err)
++	}
++	_, err = s.Claim(bg, "default", ready.ID, bot("two"), 0)
++	var ce *ClaimedError
++	if !errors.Is(err, ErrClaimed) || !errors.As(err, &ce) || ce.By != "one" || !ce.Until.Equal(held.Claim.Until) {
++		t.Errorf("a task another agent holds is never taken: %v", err)
++	}
++	manual := mustAdd(t, s, "default", "by hand", true)
++	if _, err := s.Move(bg, "default", manual.ID, StatusInProgress, Placement{}, human); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := s.Claim(bg, "default", manual.ID, bot("one"), 0); !errors.Is(err, ErrNotReady) {
++		t.Errorf("a task the operator works on: %v, want ErrNotReady", err)
++	}
++}
++
++func TestSameNameClaimRenewsButNeverShortens(t *testing.T) {
++	s, _, c := newTestStore(t)
++	start := c.t
++	task := mustAdd(t, s, "default", "long job", true)
++	if _, err := s.Claim(bg, "default", task.ID, bot("one"), 4*time.Hour); err != nil {
++		t.Fatal(err)
++	}
++	c.advance(10 * time.Minute)
++	again, err := s.Claim(bg, "default", task.ID, bot("one"), 0) // the default lease is shorter
++	if err != nil || !again.Claim.Until.Equal(start.Add(4*time.Hour)) {
++		t.Fatalf("claiming again must not shorten the lease: %+v, %v", again.Claim, err)
++	}
++	longer, err := s.Claim(bg, "default", task.ID, bot("one"), 6*time.Hour)
++	if err != nil || !longer.Claim.Until.Equal(c.t.Add(6*time.Hour)) {
++		t.Fatalf("a longer lease extends: %+v, %v", longer.Claim, err)
++	}
++	capped := mustAdd(t, s, "default", "capped", true)
++	got, err := s.Claim(bg, "default", capped.ID, bot("one"), 48*time.Hour)
++	if err != nil || !got.Claim.Until.Equal(c.t.Add(MaxLease)) {
++		t.Errorf("a lease is at most 24 hours: %+v, %v", got.Claim, err)
++	}
++}
++
++func TestStaleClaimsAreTakenOver(t *testing.T) {
++	s, _, c := newTestStore(t)
++	task := mustAdd(t, s, "default", "abandoned", true)
++	if _, err := s.Claim(bg, "default", task.ID, bot("one"), 0); err != nil {
++		t.Fatal(err)
++	}
++	c.advance(DefaultLease - time.Second)
++	if _, err := s.Claim(bg, "default", task.ID, bot("two"), 0); !errors.Is(err, ErrClaimed) {
++		t.Fatalf("a second before the lease ends the claim holds: %v", err)
++	}
++	if cn, _ := s.Counts(bg, "default"); cn.Stale != 0 {
++		t.Errorf("stale claims a second before the end: %d", cn.Stale)
++	}
++	c.advance(time.Second) // exactly at the lease's end
++	if cn, _ := s.Counts(bg, "default"); cn.Stale != 1 {
++		t.Errorf("a claim that expires exactly now is stale: %d", cn.Stale)
++	}
++	ready := mustAdd(t, s, "default", "fresh", true)
++	if got, _ := s.Next(bg, "default", bot("two"), false, 0); got == nil || got.ID != ready.ID {
++		t.Fatalf("a ready task comes before a stale claim: %+v", got)
++	}
++	if _, err := s.Claim(bg, "default", ready.ID, bot("two"), 0); err != nil {
++		t.Fatal(err)
++	}
++	took, err := s.Next(bg, "default", bot("three"), true, 0)
++	if err != nil || took == nil || took.ID != task.ID || took.Claim.By != "three" {
++		t.Fatalf("a stale claim is taken over by next: %+v, %v", took, err)
++	}
++	if took.LastEvent == nil || took.LastEvent.Kind != "reclaimed" {
++		t.Errorf("last event: %+v", took.LastEvent)
++	}
++}
++
++func TestCommentRenewsButNeverShortens(t *testing.T) {
++	s, _, c := newTestStore(t)
++	start := c.t
++	long := mustAdd(t, s, "default", "long", true)
++	if _, err := s.Claim(bg, "default", long.ID, bot("one"), 4*time.Hour); err != nil {
++		t.Fatal(err)
++	}
++	c.advance(10 * time.Minute)
++	got, err := s.Comment(bg, "default", long.ID, "still going", bot("one"))
++	if err != nil || !got.Claim.Until.Equal(start.Add(4*time.Hour)) {
++		t.Fatalf("a comment must not shorten a four hour lease: %+v, %v", got.Claim, err)
++	}
++	short := mustAdd(t, s, "default", "short", true)
++	if _, err := s.Claim(bg, "default", short.ID, bot("two"), 0); err != nil {
++		t.Fatal(err)
++	}
++	c.advance(25 * time.Minute)
++	got, err = s.Comment(bg, "default", short.ID, "progress", bot("two"))
++	if err != nil || !got.Claim.Until.Equal(c.t.Add(DefaultLease)) {
++		t.Fatalf("a comment renews the default lease: %+v, %v", got.Claim, err)
++	}
++}
++
++func TestCommentRules(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	held := mustAdd(t, s, "default", "held", true)
++	inbox := mustAdd(t, s, "default", "inbox", false)
++	ready := mustAdd(t, s, "default", "ready", true)
++	if _, err := s.Claim(bg, "default", held.ID, bot("one"), 0); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := s.Comment(bg, "default", held.ID, "not mine", bot("two")); !errors.Is(err, ErrNotClaimant) {
++		t.Errorf("another agent: %v, want ErrNotClaimant", err)
++	}
++	if _, err := s.Comment(bg, "default", ready.ID, "not claimed", bot("one")); !errors.Is(err, ErrNotClaimant) {
++		t.Errorf("a task nobody holds: %v, want ErrNotClaimant", err)
++	}
++	for _, id := range []int64{held.ID, inbox.ID} {
++		if _, err := s.Comment(bg, "default", id, "from the operator", human); err != nil {
++			t.Errorf("the operator comments on #%d: %v", id, err)
++		}
++	}
++	if _, err := s.Comment(bg, "default", held.ID, " \x1b ", bot("one")); !errors.Is(err, ErrInvalid) {
++		t.Errorf("an empty comment: %v", err)
++	}
++	if _, err := s.Comment(bg, "default", held.ID, "hi", Actor{Kind: Capture, Name: SourceOS}); !errors.Is(err, ErrInvalid) {
++		t.Errorf("a capture: %v", err)
++	}
++	if _, err := s.Comment(bg, "default", held.ID, "red \x1b[31mtext", bot("one")); err != nil {
++		t.Fatal(err)
++	}
++	_, events, _ := s.Get(bg, "default", held.ID)
++	last := events[len(events)-1]
++	if last.Kind != "comment" || strings.ContainsRune(last.Note, 0x1b) || last.Actor != "one" {
++		t.Errorf("last event: %+v", last)
++	}
++}
++
++func TestEventCapRefusesCommentsOnly(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	task := mustAdd(t, s, "default", "chatty", true)
++	if _, err := s.Claim(bg, "default", task.ID, bot("one"), 0); err != nil {
++		t.Fatal(err)
++	}
++	have := countWhere(t, db, "task_events", "task_id = ?", task.ID)
++	tx, err := db.Begin()
++	if err != nil {
++		t.Fatal(err)
++	}
++	for i := have; i < MaxEventsPerTask; i++ {
++		if _, err := tx.Exec(`INSERT INTO task_events (task_id, at, actor, kind) VALUES (?, ?, 'one', 'comment')`, task.ID, rowTime); err != nil {
++			t.Fatal(err)
++		}
++	}
++	if err := tx.Commit(); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := s.Comment(bg, "default", task.ID, "one more", bot("one")); !errors.Is(err, ErrLimit) {
++		t.Fatalf("the 501st event as a comment: %v, want ErrLimit", err)
++	}
++	got, err := s.Finish(bg, "default", task.ID, Outcome{Result: "done anyway"}, bot("one"))
++	if err != nil || got.Status != StatusReview {
++		t.Fatalf("a change of state is always recorded: %+v, %v", got, err)
++	}
++	if n := countWhere(t, db, "task_events", "task_id = ?", task.ID); n != MaxEventsPerTask+1 {
++		t.Errorf("%d events", n)
++	}
++}
++
++func TestFinishHandsTheTaskBack(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	older := mustAdd(t, s, "default", "older review", true)
++	task := mustAdd(t, s, "default", "job", true)
++	for _, id := range []int64{older.ID, task.ID} {
++		if _, err := s.Claim(bg, "default", id, bot("one"), 0); err != nil {
++			t.Fatal(err)
++		}
++	}
++	if _, err := s.Finish(bg, "default", older.ID, Outcome{Result: "ok"}, bot("one")); err != nil {
++		t.Fatal(err)
++	}
++	for name, o := range map[string]Outcome{"both": {Result: "r", Question: "q"}, "neither": {}, "blank": {Result: " \x1b "}} {
++		if _, err := s.Finish(bg, "default", task.ID, o, bot("one")); !errors.Is(err, ErrInvalid) {
++			t.Errorf("%s: %v, want ErrInvalid", name, err)
++		}
++	}
++	if _, err := s.Finish(bg, "default", task.ID, Outcome{Result: "r"}, bot("two")); !errors.Is(err, ErrNotClaimant) {
++		t.Errorf("another agent: %v, want ErrNotClaimant", err)
++	}
++	if _, err := s.Finish(bg, "default", task.ID, Outcome{Result: "r"}, human); !errors.Is(err, ErrInvalid) {
++		t.Errorf("the operator does not finish: %v", err)
++	}
++	got, err := s.Finish(bg, "default", task.ID, Outcome{Question: "which database?"}, bot("one"))
++	if err != nil || got.Status != StatusReview || got.Claim != nil {
++		t.Fatalf("finish with a question: %+v, %v", got, err)
++	}
++	if got.LastEvent == nil || got.LastEvent.Kind != "question" {
++		t.Errorf("last event: %+v", got.LastEvent)
++	}
++	if ids := column(t, s, StatusReview); !sameIDs(ids, []int64{task.ID, older.ID}) {
++		t.Errorf("review is newest first: %v", ids)
++	}
++	if _, err := s.Finish(bg, "default", task.ID, Outcome{Result: "again"}, bot("one")); !errors.Is(err, ErrNotClaimant) {
++		t.Errorf("a task that is no longer in progress: %v", err)
++	}
++}
++
++func TestReleaseGivesTheTaskBackBehindTheOthers(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	task := mustAdd(t, s, "default", "needs the vpn", true)
++	other := mustAdd(t, s, "default", "other", true)
++	if _, err := s.Claim(bg, "default", task.ID, bot("one"), 0); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := s.Release(bg, "default", task.ID, "x", bot("two")); !errors.Is(err, ErrNotClaimant) {
++		t.Errorf("another agent: %v", err)
++	}
++	got, err := s.Release(bg, "default", task.ID, "needs the VPN", bot("one"))
++	if err != nil || got.Status != StatusReady || got.Claim != nil {
++		t.Fatalf("release: %+v, %v", got, err)
++	}
++	if got.LastEvent == nil || got.LastEvent.Kind != "released" {
++		t.Errorf("last event: %+v", got.LastEvent)
++	}
++	if ids := column(t, s, StatusReady); !sameIDs(ids, []int64{other.ID, task.ID}) {
++		t.Errorf("a released task goes behind the others, so the agent that gave it up is not offered it again: %v", ids)
++	}
++	if next, _ := s.Next(bg, "default", bot("one"), false, 0); next == nil || next.ID != other.ID {
++		t.Errorf("next: %+v", next)
++	}
++}
++
++func TestTheOperatorMovingAHeldCardEndsTheClaim(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	task := mustAdd(t, s, "default", "held", true)
++	if _, err := s.Claim(bg, "default", task.ID, bot("one"), 0); err != nil {
++		t.Fatal(err)
++	}
++	if got, err := s.Move(bg, "default", task.ID, StatusInProgress, Placement{Top: true}, human); err != nil || got.Claim == nil || got.Claim.By != "one" {
++		t.Fatalf("reordering a held card keeps the claim: %+v, %v", got, err)
++	}
++	got, err := s.Move(bg, "default", task.ID, StatusReady, Placement{}, human)
++	if err != nil || got.Status != StatusReady || got.Claim != nil {
++		t.Fatalf("moving it out: %+v, %v", got, err)
++	}
++	_, events, _ := s.Get(bg, "default", task.ID)
++	n := len(events)
++	if events[n-2].Kind != "released" || events[n-1].Kind != "moved" {
++		t.Errorf("the claim's end is recorded before the move: %+v", events[n-2:])
++	}
++}
+diff --git a/internal/tasks/claims_unit_test.go b/internal/tasks/claims_unit_test.go
+new file mode 100644
+index 00000000..b83eb012
+--- /dev/null
++++ b/internal/tasks/claims_unit_test.go
+@@ -0,0 +1,82 @@
++package tasks
++
++import (
++	"math"
++	"testing"
++	"time"
++)
++
++// A lease the caller asked for is one of the two defaults or what it asked for, whatever number a
++// caller made of it (a CLI that multiplied minutes into a Duration may have wrapped it round).
++func TestClampLease(t *testing.T) {
++	for _, c := range []struct {
++		name string
++		in   time.Duration
++		want time.Duration
++	}{
++		{"none", 0, DefaultLease},
++		{"a nanosecond below none", -1, DefaultLease},
++		{"a negative lease", -time.Hour, DefaultLease},
++		{"the most negative duration", time.Duration(math.MinInt64), DefaultLease},
++		{"a nanosecond", 1, 1},
++		{"a minute", time.Minute, time.Minute},
++		{"the default", DefaultLease, DefaultLease},
++		{"the longest lease", MaxLease, MaxLease},
++		{"a nanosecond over the longest", MaxLease + 1, MaxLease},
++		{"two days", 48 * time.Hour, MaxLease},
++		{"the longest duration", time.Duration(math.MaxInt64), MaxLease},
++	} {
++		if got := clampLease(c.in); got != c.want {
++			t.Errorf("%s: clampLease(%d) = %d, want %d", c.name, int64(c.in), int64(got), int64(c.want))
++		}
++	}
++}
++
++func TestTheClaimCapIsTwoThousandEventsAndTheCommentCapStaysAtFiveHundred(t *testing.T) {
++	if MaxEventsToClaim != 2000 || MaxEventsPerTask != 500 {
++		t.Errorf("a claim is refused from %d events and a comment from %d, the spec says 2000 and 500", MaxEventsToClaim, MaxEventsPerTask)
++	}
++}
++
++func TestLaterKeepsTheLaterOfTwoTimes(t *testing.T) {
++	a := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
++	b := a.Add(time.Second)
++	if got := later(a, b); !got.Equal(b) {
++		t.Errorf("later(a, b) = %v, want b", got)
++	}
++	if got := later(b, a); !got.Equal(b) {
++		t.Errorf("later(b, a) = %v, want b: a renewal never shortens a lease", got)
++	}
++	if got := later(a, a); !got.Equal(a) {
++		t.Errorf("later(a, a) = %v", got)
++	}
++}
++
++// A time is stored to the second, so a lease ends on a whole second: the one after the end it was
++// asked for. A stored lease is never shorter than the one asked for, and one that is asked for is
++// never over already (a lease of a millisecond would otherwise end at the second it began in).
++func TestALeaseEndsOnTheWholeSecondAfterTheEndItWasAskedFor(t *testing.T) {
++	whole := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
++	half := whole.Add(500 * time.Millisecond)
++	zone := time.FixedZone("plus0530", 5*3600+1800)
++	for _, c := range []struct {
++		name string
++		now  time.Time
++		d    time.Duration
++		want time.Time
++	}{
++		{"half an hour from a whole second", whole, 30 * time.Minute, whole.Add(30 * time.Minute)},
++		{"a nanosecond from a whole second", whole, 1, whole.Add(time.Second)},
++		{"a second from a whole second", whole, time.Second, whole.Add(time.Second)},
++		{"a second and a nanosecond from a whole second", whole, time.Second + 1, whole.Add(2 * time.Second)},
++		{"half an hour from half a second", half, 30 * time.Minute, whole.Add(30*time.Minute + time.Second)},
++		{"half a second from half a second", half, 500 * time.Millisecond, whole.Add(time.Second)},
++		{"a millisecond from half a second", half, time.Millisecond, whole.Add(time.Second)},
++		{"half an hour from half a second, in another zone", half.In(zone), 30 * time.Minute, whole.Add(30*time.Minute + time.Second)},
++	} {
++		got := leaseEnd(c.now, c.d)
++		if !got.Equal(c.want) || got.Nanosecond() != 0 {
++			t.Errorf("%s: leaseEnd = %v, want %v", c.name, got, c.want)
++		}
++	}
++}
+diff --git a/internal/tasks/model.go b/internal/tasks/model.go
+index 4b390313..d464d145 100644
+--- a/internal/tasks/model.go
++++ b/internal/tasks/model.go
+@@ -103,20 +103,21 @@ const (
+ 	MaxTitleRunes       = 200
+ 	DerivedTitleRunes   = 120
+ 	MaxNotesBytes       = 64 << 10
+ 	MaxCommentBytes     = 8 << 10
+ 	MaxURLBytes         = 2048
+ 	MaxSourceTitleRunes = 200
+ 	MaxAppRunes         = 100
+ 	MaxNameLen          = 64
+ 	MaxClientIDLen      = 64
+ 	MaxEventsPerTask    = 500
++	MaxEventsToClaim    = 2000
+ 	MaxOpenTasks        = 2000
+ 	AgentTasksPerHour   = 20
+ 	DefaultListLimit    = 500
+ 	MaxListLimit        = 2000
+ 	DefaultLease        = 30 * time.Minute
+ 	MaxLease            = 24 * time.Hour
+ 	positionGap         = 1024
+ )
+ 
+ // Source says where a task came from.

@@ -1,0 +1,4393 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 213045862..65ffa7459 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -1,9 +1,21 @@
+ name: CI
+ 
++# push is limited to master: a branch with a PR already runs this workflow via
++# pull_request, and running both on every commit doubled the queue (each commit
++# ran all 10 jobs twice under the same check names).
+ on:
+   push:
++    branches: [master]
+   pull_request:
+ 
++# A newer commit on the same PR supersedes the older run. Only pull_request
++# runs are cancelled: push runs get a group of their own (run_id), so neither
++# a running nor a queued one is ever cancelled -- a cancelled Doctor smoke
++# check blocks the master merge.
++concurrency:
++  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
++  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
++
+ 
+ # Least privilege for every job: they only read the repository.
+ permissions:
+@@ -129,6 +141,8 @@ jobs:
+           go-version-file: go.mod
+       - name: Test the release guard
+         run: bash scripts/check-release-tags-test.sh
++      - name: Test the installer
++        run: bash scripts/install-test.sh
+ 
+ 
+   # Closes issue #20's OpenAPI acceptance criterion ("OpenAPI 3 spec shipped
+diff --git a/.github/workflows/release.yml b/.github/workflows/release.yml
+index 78ff7e007..5bc727370 100644
+--- a/.github/workflows/release.yml
++++ b/.github/workflows/release.yml
+@@ -426,6 +426,50 @@ jobs:
+       - name: No shipped Go binary carries the devaccount tag
+         run: bash scripts/check-release-tags.sh --min 11 artifacts/
+ 
++  # ─── 2h. Unsigned update manifest ──────────────────────────────────────────
++  # Writes SHA256SUMS and manifest.json (cmd/release-manifest, a maintainer tool that is not in
++  # any release). It is UNSIGNED: the signing key never lives in CI. The owner signs the
++  # downloaded manifest.json locally (`release-manifest sign`) and uploads manifest.json.sig;
++  # see docs/release-runbook.md.
++  release-manifest:
++    needs: [version, release-guard, build-chrome-extension]
++    runs-on: ubuntu-latest
++    permissions:
++      contents: read
++    env:
++      TAG: ${{ needs.version.outputs.tag }}
++      RELEASES_REPO: ${{ secrets.RELEASES_REPO }}
++    steps:
++      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
++      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
++        with:
++          go-version-file: go.mod
++      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
++        with:
++          path: artifacts/
++
++      - name: Generate unsigned manifest and SHA256SUMS
++        run: |
++          mkdir -p bundle out
++          find artifacts/ -type f | while read -r f; do cp "$f" "bundle/$(basename "$f")"; done
++          cp NOTICE bundle/NOTICE
++          go run ./cmd/release-manifest manifest -dir bundle -version "${TAG}" -repo "${RELEASES_REPO:-monoes/mono-agent-releases}"
++          cp bundle/manifest.json bundle/SHA256SUMS bundle/NOTICE out/
++          {
++            echo "### Unsigned update manifest for ${TAG}"
++            echo ""
++            echo "Download the \`unsigned-manifest\` artifact, sign it locally with \`release-manifest sign\`, then upload \`manifest.json.sig\` (docs/release-runbook.md)."
++            echo ""
++            echo '```'
++            cat out/SHA256SUMS
++            echo '```'
++          } >> "$GITHUB_STEP_SUMMARY"
++
++      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
++        with:
++          name: unsigned-manifest
++          path: out/
++
+   # ─── 3. Publish GitHub Release with all artifacts ─────────────────────────
+   release:
+     needs: [version, build-cli, build-cli-macos, build-macos-arm64, build-windows, build-linux, build-chrome-extension, release-guard]
+@@ -464,7 +508,8 @@ jobs:
+       - name: Flatten and checksum all release files
+         run: |
+           mkdir -p release-files
+-          find artifacts/ -type f | while read f; do cp "$f" "release-files/$(basename "$f")"; done
++          # unsigned-manifest/ belongs to the releases-repo flow below, not to this release.
++          find artifacts/ -type f -not -path 'artifacts/unsigned-manifest/*' | while read -r f; do cp "$f" "release-files/$(basename "$f")"; done
+           # Loose CLI/Windows assets share the release's notice; archives carry their own copy.
+           cp NOTICE release-files/NOTICE
+           cmp NOTICE <(tar -xOf release-files/MonoAgent-linux-amd64.tar.gz NOTICE)
+@@ -579,3 +624,47 @@ jobs:
+           tag_name: ${{ env.TAG }}
+           body: ${{ steps.notes.outputs.NOTES }}
+           files: release-files/*
++
++  # ─── 4. Optional: mirror assets + unsigned manifest to the releases-only repo ──
++  # Runs only after the `release` environment approval, and does nothing unless the secrets
++  # RELEASES_REPO and RELEASES_REPO_TOKEN both exist. The manifest.json.sig is attached later by
++  # the owner (the signing key is never in CI); until then the client treats the manifest as
++  # unavailable and falls back to the GitHub API path.
++  publish-releases-repo:
++    needs: [version, release-manifest, release]
++    runs-on: ubuntu-latest
++    environment: release
++    permissions:
++      contents: read
++    env:
++      TAG: ${{ needs.version.outputs.tag }}
++      RELEASES_REPO: ${{ secrets.RELEASES_REPO }}
++    steps:
++      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
++        with:
++          path: artifacts/
++
++      - name: Upload to the releases repo
++        env:
++          GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
++        run: |
++          if [ -z "${RELEASES_REPO}" ] || [ -z "${GH_TOKEN}" ]; then
++            echo "RELEASES_REPO / RELEASES_REPO_TOKEN not set: skipping the releases-repo publish."
++            exit 0
++          fi
++          mkdir -p upload
++          find artifacts/ -type f -not -path 'artifacts/unsigned-manifest/*' | while read -r f; do cp "$f" "upload/$(basename "$f")"; done
++          cp artifacts/unsigned-manifest/manifest.json artifacts/unsigned-manifest/SHA256SUMS artifacts/unsigned-manifest/NOTICE upload/
++          [ -f artifacts/unsigned-manifest/manifest.json.sig ] && cp artifacts/unsigned-manifest/manifest.json.sig upload/
++          if gh release view "${TAG}" --repo "${RELEASES_REPO}" >/dev/null 2>&1; then
++            # A different version always makes a new release, so an existing one is a re-run.
++            # Never replace a manifest the owner has already signed.
++            if gh release view "${TAG}" --repo "${RELEASES_REPO}" --json assets -q '.assets[].name' | grep -qx 'manifest.json.sig'; then
++              echo "::error::${RELEASES_REPO} release ${TAG} already has manifest.json.sig; refusing to overwrite manifest.json. Delete the signature deliberately first if this re-run is intended."
++              exit 1
++            fi
++            gh release upload "${TAG}" upload/* --repo "${RELEASES_REPO}" --clobber
++          else
++            gh release create "${TAG}" upload/* --repo "${RELEASES_REPO}" --title "${TAG}" \
++              --notes "Release ${TAG}. Update integrity: manifest.json is verified against manifest.json.sig."
++          fi
+diff --git a/AGENTS.md b/AGENTS.md
+index 49ef2cf3e..c2787205d 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -193,7 +193,7 @@ the full run list, use `monoagentcli --json workflow executions --all --limit N`
+ - `monoagentcli update` replaces this binary with the latest release.
+ - `update --check [--current <v>]` only reports whether a newer release exists.
+ - `update --app <exe> [--current <v>]` updates the desktop app at that path. On Linux it also updates the `monoagentcli` bundled next to the app.
+-- Every download must match the release's `SHA256SUMS.txt`, or nothing is installed.
++- Every download must match the release's signed `manifest.json` (Ed25519 signature by a key pinned in `internal/release/keys.go`, then the asset's size and SHA-256), or nothing is installed. While no key is pinned and `release.AllowLegacyGitHubUpdates` is true, the GitHub release's `SHA256SUMS.txt` is used instead; a manifest that fails a check never falls back. Older releases are refused unless `update --force`. Maintainers: `release keygen` stores the private key in the OS keychain and prints the line to pin; `release verify <manifest> <sig> [--pubkey]` checks a signature.
+ - With `--json`, progress is NDJSON on stderr and the result goes to stdout.
+ 
+ ### What the desktop app calls
+@@ -234,7 +234,7 @@ The desktop app does everything through these commands; they are equally usable
+   - `chat history delete` refuses a conversation with an active turn (exit 3). `chat history finish <conv> <turn> --status S` records the end of a turn whose process was killed; it does nothing if the turn already finished. `chat history reconcile --except-owner <app-id>` marks turns left active as interrupted, at app startup.
+   - `chat history transcript <history-id>` reads the legacy transcript that plain `chat --history-id` still writes.
+ - **monoes.me library:** `library status [--offline]|login|logout|list|show|install|publish|update|installed` (see [monoes.me library](#monoesme-library)). All reads need a login: without one they exit 4 with `"login_required": true`. `library login` streams `{"kind":"url","url"}` on stderr with `--json` and waits for the browser; the app kills it to cancel.
+-- **Updates:** `update --check [--current <version>]` reports a newer release without downloading; `update --app <exe>` updates the desktop app, verified against SHA256SUMS.
++- **Updates:** `update --check [--current <version>]` reports a newer release without downloading; `update --app <exe>` updates the desktop app, verified against the release manifest (or SHA256SUMS during the unsigned transition described above).
+ - **Editor and orgs:** `node palette` gives the editor's node catalog. `org reconcile-doc <name>` returns the reconciled org document from stdin without saving it.
+ - **Org bubbles (chat with a running org's boss):**
+   - `org chat send <org> -- <text>` messages the boss as `human:operator` (live, or queued for the org's next start).
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 0bc3a7832..3d64dc190 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -9,9 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
+ 
+ ### Changed
+ - **Account documentation** describes the currently dormant gate, machine sign-in, headless file-keyring setup and future conditional enforcement. New offline `ref account` documents recovery commands and serving behavior. No enforcement date is set and no production signing keys are pinned; local work still requires no account. The MIT license is unchanged.
++- **`install.sh` installs from a release manifest** (`manifest.json`, default `https://monoes.me/mono-agent/releases/latest/manifest.json`, override with `MONOAGENT_MANIFEST_URL`): it picks the CLI asset for your OS/arch, verifies its SHA256, and verifies the manifest's Ed25519 signature when `openssl` is available and a signing key is configured (until then it says the signature check is skipped). It falls back to the GitHub release path when the manifest is unreachable or `MONOAGENT_ALLOW_LEGACY_GITHUB=1`. `scripts/install-test.sh` tests it in CI.
+ - **Tasks page cards** show the source, age, `#id`, lease countdown and a Question/Result tag; cards no longer nest buttons in a button (the title is the control; the move keys work from it). A card stays where you moved it if the next board read fails, archiving from the drawer closes it only once the CLI agrees (a refusal shows in the drawer), and a hidden window stops reading, ticking and pulsing.
+ 
+ ### Added
++- **Signed release manifests.** `update`, `update --app` and the `doctor` update check now read a signed `manifest.json` (Ed25519, public key pinned in the binary; asset size and SHA-256 are checked before any file is replaced) and refuse a release older than the installed one unless `update --force`. No key is pinned yet, so for now they still use the GitHub release and `SHA256SUMS.txt`, as before. New maintainer commands `release keygen` (private key to the OS keychain, prints the public line to pin) and `release verify <manifest> <sig>`.
++- **Release tooling for a signed update manifest.** The release workflow now builds an unsigned `manifest.json` and `SHA256SUMS` (artifact `unsigned-manifest`) and can mirror assets to a releases-only repo when `RELEASES_REPO` and `RELEASES_REPO_TOKEN` are set; the maintainer tool `cmd/release-manifest` writes and signs the manifest locally (`docs/release-runbook.md`). Nothing changes for installed copies yet.
++- **Redact or delete publication history from MCP and chat** (#379). `monoagentcli publication redact <id> [--title]` replaces a record's body (and title) with `[redacted]` and keeps the entry, URL, kind, platform and timestamps. The MCP tools `publication_delete` and `publication_redact` (with `--allow-mutations`) and the chat tools `delete_publication` and `redact_publication` do the same for one profile. Like `publication delete`, they are operator only: refused inside an agent session (an org run, or an agent-context marker such as `CLAUDECODE` in the server's environment) and after synced communications were read into the session.
++- **`monoagentcli ref account`** and README, Docker and comparison notes: a monoes.me account is optional today and will be required from a date announced at monoes.me/mono-agent; headless machines and containers sign in with `account login --email`.
+ - **`monoagentcli account login|logout|status`** (#366). Signs in to monoes.me once per machine; `library login`, `logout` and `status` are now aliases of that session, and an older library login keeps working for reads. Dormant: nothing is enforced.
+ - **A daemon on old code is restarted or flagged.** `update` (and `update --app`) restarts a registered daemon that still runs the previous version, unless a run is in flight; `doctor` warns about a daemon whose version differs from the CLI's and offers a restart. Newly written service definitions give a stopping daemon 35 s (launchd `ExitTimeOut`) or 90 s (systemd `TimeoutStopSec`) to finish; run `daemon install` once to refresh an existing one.
+ - **Task board from Chrome.** The MonoAgent Bridge extension adds tasks to the board: *Add selection as task* and *Add page as task* in the MonoAgent right-click menu, an *Add a task* box in the side panel and an *add-task* shortcut (Ctrl+Shift+K, Cmd+Shift+K on a Mac), and a *task* button on the floating panel that appears beside selected text (the panel now answers real clicks only). Tasks land in the Inbox of the profile the side panel is "Saving into", wait in the extension while MonoAgent is not running, and are never added twice. New request method `task.add` on the extension bridge; no new permission, port or HTTP route. Extension 1.6.0: reload it from `chrome://extensions` after updating.
+diff --git a/README.md b/README.md
+index b3b32f9a3..7fda51bff 100644
+--- a/README.md
++++ b/README.md
+@@ -86,7 +86,7 @@ go build -o monoagentcli ./cmd/monoagentcli
+ ./monoagentcli daemon
+ ```
+ 
+-Prefer a prebuilt binary? `curl -fsSL https://raw.githubusercontent.com/monoes/mono-agent/master/install.sh | bash` installs the latest release (macOS arm64/amd64, Linux amd64/arm64; SHA256-verified), or grab a CLI / desktop build from [releases](https://github.com/monoes/mono-agent/releases/latest). There's also [Docker](Dockerfile).
++Prefer a prebuilt binary? `curl -fsSL https://raw.githubusercontent.com/monoes/mono-agent/master/install.sh | bash` installs the latest release from its release manifest (macOS arm64/amd64, Linux amd64/arm64; SHA256-verified, and signature-verified once a release signing key is published), or grab a CLI / desktop build from [releases](https://github.com/monoes/mono-agent/releases/latest). There's also [Docker](Dockerfile).
+ 
+ ### Flagship example — "Morning Briefing"
+ 
+@@ -630,7 +630,7 @@ go build -o monoagentcli ./cmd/monoagentcli
+ go build -tags nosocial -o monoagentcli ./cmd/monoagentcli
+ ```
+ 
+-Prebuilt: `install.sh` (macOS arm64/amd64, Linux amd64/arm64), or download from [releases](https://github.com/monoes/mono-agent/releases/latest) — CLI binaries for macOS, Linux (amd64/arm64), and Windows, plus desktop-app builds for macOS (arm64), Linux (amd64), and Windows.
++Prebuilt: [install.sh](install.sh) (macOS arm64/amd64, Linux amd64/arm64; reads the release manifest, verifies its SHA256, and verifies the manifest signature when a signing key is configured; `MONOAGENT_MANIFEST_URL` points it at a mirror, `scripts/install-test.sh` tests it), or download from [releases](https://github.com/monoes/mono-agent/releases/latest) — CLI binaries for macOS, Linux (amd64/arm64), and Windows, plus desktop-app builds for macOS (arm64), Linux (amd64), and Windows.
+ 
+ ### Desktop GUI
+ 
+@@ -676,8 +676,30 @@ docker compose up -d --build   # daemon + persistent /data volume
+ MONOAGENT_WEBHOOK_ADDR=0.0.0.0:9321 docker compose up -d --build
+ ```
+ 
++To install a prebuilt CLI inside your own image instead of building from source: `curl -fsSL https://raw.githubusercontent.com/monoes/mono-agent/master/install.sh | INSTALL_DIR=/usr/local/bin bash`.
++
+ Browser-based webhook callers additionally need `MONOAGENT_WEBHOOK_ALLOWED_ORIGINS` (a comma-separated CORS allowlist; unset by default — no CORS headers are sent). See [docker-compose.yml](docker-compose.yml) and the env-var table in [AGENTS.md](AGENTS.md).
+ 
++### monoes.me account
++
++A monoes.me account is **optional today**. The account gate is **dormant**:
++local work needs no account, no command warns,
++and no enforcement date is announced by this build. The online library requires
++a sign-in. Production machine-session verification awaits the server/key rollout
++described above. Releases are published on [monoes.me](https://monoes.me/mono-agent).
++You sign in once per machine, shared by every profile:
++
++```bash
++monoagentcli account login                     # opens the browser
++monoagentcli account login --email you@x.com   # a code by email, for a machine without a browser
++monoagentcli account status [--offline]        # who is logged in, and until when
++monoagentcli account logout                    # revoke and forget the session
++```
++
++`monoagentcli ref account` documents the machine session and future gate behavior
++offline. For a container, prepare the private passphrase file in the [Docker
++section](#docker) before sign-in.
++
+ ### Uninstall & data
+ 
+ All state lives under `~/.monoagent/` (workflows, the SQLite DB, per-profile
+diff --git a/cmd/monoagentcli/account.go b/cmd/monoagentcli/account.go
+index c9a7fcb7a..1597443dd 100644
+--- a/cmd/monoagentcli/account.go
++++ b/cmd/monoagentcli/account.go
+@@ -19,7 +19,9 @@ func newAccountCmd(cfg *globalConfig) *cobra.Command {
+ 		Use:   "account",
+ 		Short: "Sign in to monoes.me: the one account MonoAgent uses on this machine",
+ 		Long: "MonoAgent signs in to monoes.me once per machine. The session is signed by monoes.me, " +
+-			"checked here without a network call, renewed in the background, and shared by every profile.\n\n" +
++			"checked here without a network call, and shared by every profile.\n\n" +
++			"The account gate is dormant: local work needs no sign-in and no background renewal runs. " +
++			"If a future release enables the gate, long-running processes renew the session in the background.\n\n" +
+ 			"  monoagentcli account login                     # log in (opens the browser)\n" +
+ 			"  monoagentcli account login --email you@x.com   # a code by email, for a machine without a browser\n" +
+ 			"  monoagentcli account status [--offline]        # who is logged in, and until when\n" +
+diff --git a/cmd/monoagentcli/account_adopt_real_test.go b/cmd/monoagentcli/account_adopt_real_test.go
+new file mode 100644
+index 000000000..a661c53cf
+--- /dev/null
++++ b/cmd/monoagentcli/account_adopt_real_test.go
+@@ -0,0 +1,222 @@
++package main
++
++import (
++	"context"
++	"io"
++	"net/http"
++	"net/http/httptest"
++	"net/http/httputil"
++	"net/url"
++	"os"
++	"path/filepath"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"github.com/zalando/go-keyring"
++
++	"github.com/monoes/mono-agent/internal/account"
++	"github.com/monoes/mono-agent/internal/library"
++	"github.com/monoes/mono-agent/internal/library/libraryfake"
++	"github.com/monoes/mono-agent/internal/storage"
++	"github.com/monoes/mono-agent/internal/testdb"
++)
++
++// olderRig is a home with a migrated database whose default profile holds an older library login,
++// written by the library's own VaultStore (what the previous release stored), an enforced gate with no
++// session, and the account host pointed at host. The adoption under test is the real one.
++type olderRig struct {
++	home   string
++	dbPath string
++	vault  *library.VaultStore
++	fake   *libraryfake.Server
++}
++
++func newOlderRig(t *testing.T, host func(*libraryfake.Server) string) *olderRig {
++	t.Helper()
++	keyring.MockInit()
++	home := freshHome(t)
++	fake := libraryfake.New()
++	t.Cleanup(fake.Close)
++	libraryfake.TrustKey(t)
++	h := host(fake)
++	account.SetHostForTest(t, h)
++	account.SetSealerForTest(t, account.NewMemorySealer())
++	account.SetEnforceFromForTest(t, time.Now().Add(-time.Hour))
++
++	dbPath := testdb.Path(t)
++	db, err := storage.NewDatabase(dbPath)
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { db.Close() })
++	access, refresh := fake.NewGrant("ada")
++	vault := &library.VaultStore{DB: db.DB, ProfileID: "default", BaseURL: h}
++	tok := &library.Token{AccessToken: access, RefreshToken: refresh, TokenType: "Bearer", Method: "pkce", BaseURL: h,
++		User: &library.User{ID: "u-ada", Username: "ada", Email: "ada@example.com"}}
++	if err := vault.Save(context.Background(), tok); err != nil {
++		t.Fatal(err)
++	}
++	return &olderRig{home: home, dbPath: dbPath, vault: vault, fake: fake}
++}
++
++func fakeHost(f *libraryfake.Server) string { return f.URL }
++
++// gated runs a gated command through run(), as main does.
++func (r *olderRig) gated(t *testing.T) (code int, stderr string) {
++	t.Helper()
++	code, _, stderr = runMain(t, "--db-path", r.dbPath, "workflow", "list")
++	return code, stderr
++}
++
++func (r *olderRig) olderLoginKept(t *testing.T) bool {
++	t.Helper()
++	tok, _ := r.vault.Load(context.Background())
++	return tok != nil
++}
++
++// signedIn says whether the account store holds somebody's login.
++func signedIn(t *testing.T) bool {
++	t.Helper()
++	store, err := account.DefaultStore()
++	if err != nil {
++		t.Fatal(err)
++	}
++	sess, err := store.Load()
++	return err == nil && sess != nil && sess.AccessToken != ""
++}
++
++func (r *olderRig) claimed(t *testing.T) bool {
++	t.Helper()
++	db, err := storage.NewDatabase(r.dbPath)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer db.Close()
++	v, _ := db.GetSetting(adoptionSetting)
++	return v != ""
++}
++
++func (r *olderRig) sessionFilesAre0600(t *testing.T) {
++	t.Helper()
++	dir := filepath.Join(r.home, ".monoagent", "account")
++	files := filesUnder(t, dir)
++	if len(files) == 0 {
++		t.Fatal("the adoption stored no session")
++	}
++	for _, f := range files {
++		fi, err := os.Stat(filepath.Join(dir, filepath.FromSlash(f)))
++		if err != nil {
++			t.Fatal(err)
++		}
++		if fi.Mode().Perm() != 0o600 {
++			t.Errorf("%s has mode %o, want 600", f, fi.Mode().Perm())
++		}
++	}
++}
++
++// A valid older session is adopted by the first gated command, once: the account session is stored
++// with owner-only permissions, the older vault entry goes, and a second run presents nothing.
++func TestRunAdoptsARealOlderLogin(t *testing.T) {
++	r := newOlderRig(t, fakeHost)
++	if code, stderr := r.gated(t); code != 0 {
++		t.Fatalf("the gated command was refused (code %d): %s", code, stderr)
++	}
++	if r.fake.Refreshes != 1 {
++		t.Fatalf("%d refresh grants, want 1", r.fake.Refreshes)
++	}
++	if !signedIn(t) {
++		t.Fatal("no account session")
++	}
++	r.sessionFilesAre0600(t)
++	if r.olderLoginKept(t) {
++		t.Fatal("the adopted login is still in the vault")
++	}
++	if code, stderr := r.gated(t); code != 0 || r.fake.Refreshes != 1 || r.fake.Replays != 0 {
++		t.Fatalf("second run: code %d, refreshes %d, replays %d: %s", code, r.fake.Refreshes, r.fake.Replays, stderr)
++	}
++}
++
++// An older login monoes.me says is dead is removed (an older binary would present it again and end
++// every login of the account) and nothing is stored; the command is asked to log in, and the try is
++// not repeated.
++func TestRunDropsADeadOlderLogin(t *testing.T) {
++	r := newOlderRig(t, fakeHost)
++	r.fake.SetRefreshMode(libraryfake.RefreshInvalidGrant)
++	if code, _ := r.gated(t); code == 0 {
++		t.Fatal("the gated command ran without a login")
++	}
++	if signedIn(t) {
++		t.Fatal("a dead login became a session")
++	}
++	if r.olderLoginKept(t) {
++		t.Fatal("the dead login is still in the vault")
++	}
++	asked := len(r.fake.TokenRequests())
++	r.gated(t)
++	if len(r.fake.TokenRequests()) != asked || r.fake.Replays != 0 {
++		t.Fatal("a second run presented a token")
++	}
++}
++
++// With monoes.me unreachable nothing is sent, so the older login stays as it was. The try is claimed
++// all the same and is not repeated: the command asks for a login instead.
++func TestRunKeepsTheOlderLoginWhenMonoesMeIsUnreachable(t *testing.T) {
++	r := newOlderRig(t, fakeHost)
++	r.fake.Close()
++	if code, _ := r.gated(t); code == 0 {
++		t.Fatal("the gated command ran without a login")
++	}
++	if !r.olderLoginKept(t) {
++		t.Fatal("the older login was removed though nothing was sent")
++	}
++	if signedIn(t) {
++		t.Fatal("a session appeared")
++	}
++	if !r.claimed(t) {
++		t.Fatal("the try was not claimed")
++	}
++}
++
++// A token endpoint that answers the refresh grant with a 307 to another host must not be followed:
++// the refresh token would be re-sent there (the fix of PR 421).
++func TestRunDoesNotFollowARedirectWithTheRefreshToken(t *testing.T) {
++	var stolen, hits, redirected atomic.Int32
++	elsewhere := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
++		hits.Add(1)
++		if b, _ := io.ReadAll(req.Body); len(b) > 0 {
++			stolen.Add(1)
++		}
++	}))
++	defer elsewhere.Close()
++
++	r := newOlderRig(t, func(f *libraryfake.Server) string {
++		target, _ := url.Parse(f.URL)
++		proxy := httputil.NewSingleHostReverseProxy(target)
++		front := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
++			switch {
++			case req.URL.Path == "/.well-known/oauth-authorization-server":
++				http.NotFound(w, req) // the refresher falls back to the default endpoints, on this host
++			case req.Method == http.MethodPost && req.URL.Path == "/api/auth/oauth2/token":
++				redirected.Add(1)
++				http.Redirect(w, req, elsewhere.URL+"/collect", http.StatusTemporaryRedirect)
++			default:
++				proxy.ServeHTTP(w, req)
++			}
++		}))
++		t.Cleanup(front.Close)
++		return front.URL
++	})
++	if code, _ := r.gated(t); code == 0 {
++		t.Fatal("the gated command ran without a login")
++	}
++	if redirected.Load() == 0 {
++		t.Fatal("the refresh grant never reached the redirecting endpoint")
++	}
++	if hits.Load() != 0 || stolen.Load() != 0 {
++		t.Fatalf("the redirect was followed: %d requests, %d with a body", hits.Load(), stolen.Load())
++	}
++	if signedIn(t) {
++		t.Fatal("a redirect produced a session")
++	}
++}
+diff --git a/cmd/monoagentcli/account_gate.go b/cmd/monoagentcli/account_gate.go
+index 43669e00c..e510691aa 100644
+--- a/cmd/monoagentcli/account_gate.go
++++ b/cmd/monoagentcli/account_gate.go
+@@ -47,6 +47,7 @@ var accountClasses = map[string]string{
+ 	"doctor":         classOpen,
+ 	"doctor fix":     classOpen,
+ 	"setup":          classOpen,
++	"release":        classOpen,
+ 	"account":        classOpen,
+ 	"library login":  classOpen,
+ 	"library logout": classOpen,
+diff --git a/cmd/monoagentcli/account_gate_test.go b/cmd/monoagentcli/account_gate_test.go
+index 7a07867e9..78b1cf025 100644
+--- a/cmd/monoagentcli/account_gate_test.go
++++ b/cmd/monoagentcli/account_gate_test.go
+@@ -23,6 +23,7 @@ var (
+ 		"library login", "library logout", "library status",
+ 		"ref", "ref account", "ref api", "ref commands", "ref connections", "ref crawling", "ref examples", "ref expressions",
+ 		"ref node", "ref nodes", "ref org", "ref publication", "ref tasks", "ref templates", "ref workflow",
++		"release", "release keygen", "release verify",
+ 		"setup", "update", "version",
+ 	}
+ 	pinnedServe = []string{"daemon", "extension serve", "httpapi", "mcp"}
+diff --git a/cmd/monoagentcli/doctor_env.go b/cmd/monoagentcli/doctor_env.go
+index c66982a15..34ab89874 100644
+--- a/cmd/monoagentcli/doctor_env.go
++++ b/cmd/monoagentcli/doctor_env.go
+@@ -37,11 +37,11 @@ func newHealthEnv(cfg *globalConfig) (*health.Env, func()) {
+ 		LoginPath:  shellpath.LoginPath,
+ 		FreeBytes:  health.FreeBytes,
+ 		LatestVersion: func(ctx context.Context) (string, error) {
+-			rel, err := fetchLatestRelease(ctx)
++			info, err := fetchLatest(ctx, false)
+ 			if err != nil {
+ 				return "", err
+ 			}
+-			return rel.TagName, nil
++			return info.Tag, nil
+ 		},
+ 		Migrate: func(_ context.Context, progress func(string)) error {
+ 			// The migration runner reports through the standard logger;
+diff --git a/cmd/monoagentcli/publication.go b/cmd/monoagentcli/publication.go
+index 18112455f..f662dfe08 100644
+--- a/cmd/monoagentcli/publication.go
++++ b/cmd/monoagentcli/publication.go
+@@ -92,6 +92,20 @@ func newPublicationCmd(cfg *globalConfig) *cobra.Command {
+ 			return nil
+ 		})
+ 	}}
++	var redactTitle bool
++	redact := &cobra.Command{Use: "redact <id>", Short: "Replace a publication's body with [redacted], keeping the entry (operator only)", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
++		if _, err := callerFor("").operator("redact publication history"); err != nil {
++			return err
++		}
++		return withPublicationStore(cfg, func(store *publication.Store) error {
++			e, err := store.Redact(cmd.Context(), args[0], redactTitle)
++			if err != nil {
++				return err
++			}
++			return printPublication(cmd, cfg, e)
++		})
++	}}
++	redact.Flags().BoolVar(&redactTitle, "title", false, "Redact the title too")
+ 	get := &cobra.Command{Use: "get <id>", Short: "Show a publication", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+ 		return withPublicationStore(cfg, func(store *publication.Store) error {
+ 			e, err := store.Get(cmd.Context(), args[0])
+@@ -140,6 +154,6 @@ func newPublicationCmd(cfg *globalConfig) *cobra.Command {
+ 			return nil
+ 		})
+ 	}}
+-	cmd.AddCommand(list, get, register, stats, del)
++	cmd.AddCommand(list, get, register, stats, del, redact)
+ 	return cmd
+ }
+diff --git a/cmd/monoagentcli/publication_redact_test.go b/cmd/monoagentcli/publication_redact_test.go
+new file mode 100644
+index 000000000..ad0518b55
+--- /dev/null
++++ b/cmd/monoagentcli/publication_redact_test.go
+@@ -0,0 +1,44 @@
++package main
++
++import (
++	"bytes"
++	"strings"
++	"testing"
++
++	"github.com/monoes/mono-agent/internal/orgsign"
++)
++
++func TestPublicationRedactCLIOperatorOnly(t *testing.T) {
++	for _, m := range orgsign.AgentContextMarkers() {
++		t.Setenv(m, "")
++	}
++	t.Setenv("MONOAGENT_ACTOR", "")
++	dbPath := newApplicationCLITestDB(t)
++	run := func(input string, args ...string) (string, error) {
++		cmd := newPublicationCmd(&globalConfig{DBPath: dbPath, JSONOutput: true})
++		var out bytes.Buffer
++		cmd.SetOut(&out)
++		cmd.SetIn(strings.NewReader(input))
++		cmd.SetArgs(args)
++		err := cmd.Execute()
++		return out.String(), err
++	}
++	out, err := run(`{"platform":"x","kind":"post","title":"T","body":"private text","url":"https://example.com/1"}`, "register", "--stdin-json")
++	if err != nil {
++		t.Fatal(err)
++	}
++	id := out[strings.Index(out, `"id": "`)+7:]
++	id = id[:strings.Index(id, `"`)]
++	t.Setenv("MONOAGENT_ACTOR", "writer-bot")
++	if _, err = run("", "redact", id); err == nil {
++		t.Fatal("agent redacted history")
++	}
++	t.Setenv("MONOAGENT_ACTOR", "")
++	out, err = run("", "redact", id, "--title")
++	if err != nil || strings.Contains(out, "private text") || strings.Contains(out, `"T"`) || !strings.Contains(out, "[redacted]") || !strings.Contains(out, "https://example.com/1") {
++		t.Fatalf("redact: %s %v", out, err)
++	}
++	if _, err = run("", "redact", "missing"); err == nil {
++		t.Fatal("missing id accepted")
++	}
++}
+diff --git a/cmd/monoagentcli/ref_account.go b/cmd/monoagentcli/ref_account.go
+index b1aaad05c..08d99f9be 100644
+--- a/cmd/monoagentcli/ref_account.go
++++ b/cmd/monoagentcli/ref_account.go
+@@ -7,7 +7,9 @@ const refAccountText = `monoagentcli — monoes.me account
+ CURRENT BUILD
+   The account gate is dormant: no enforcement date is set, nothing locks or
+   warns, and no implicit adoption, refresh or background refresher runs. Local
+-  work needs no account. The online library still requires a sign-in for reads.
++  A monoes.me account is optional today for local work. The online library
++  still requires a sign-in for reads.
++  Releases are published on monoes.me.
+   Production signing keys are not pinned yet; a production machine session
+   cannot be verified until the server/key rollout. No enforcement date is
+   announced here. The behavior below applies if a future release enables it.
+diff --git a/cmd/monoagentcli/ref_publication.go b/cmd/monoagentcli/ref_publication.go
+index 469a6f802..499a23115 100644
+--- a/cmd/monoagentcli/ref_publication.go
++++ b/cmd/monoagentcli/ref_publication.go
+@@ -27,6 +27,17 @@ Remove a record from history (operator only; refused inside an agent session; it
+ does not touch the remote post):
+   monoagentcli publication delete <id>
+ 
++Blank out the content but keep the record (operator only; refused inside an agent
++session; the entry, URL, kind, platform and timestamps stay, the body becomes
++"[redacted]", nothing of the old text is kept; --title redacts the title too;
++it does not touch the remote post):
++  monoagentcli publication redact <id> [--title]
++
++The MCP tools publication_delete and publication_redact (with --allow-mutations)
++and the chat tools delete_publication and redact_publication do the same for the
++profile they serve. They are refused after synced communications were read into
++the session and inside an agent session (an org run or an agent-context marker).
++
+ Built-in publishing operations record automatically through workflows, agent-granted
+ automations and direct node runs. Reads, likes, follows, drafts and private messages
+ do not create records. History starts when this feature is installed.
+diff --git a/cmd/monoagentcli/release_cmd.go b/cmd/monoagentcli/release_cmd.go
+new file mode 100644
+index 000000000..7d44c18a3
+--- /dev/null
++++ b/cmd/monoagentcli/release_cmd.go
+@@ -0,0 +1,106 @@
++package main
++
++import (
++	"crypto/ed25519"
++	"crypto/rand"
++	"encoding/base64"
++	"errors"
++	"fmt"
++	"os"
++	"time"
++
++	"github.com/monoes/mono-agent/internal/release"
++	"github.com/monoes/mono-agent/internal/secrets"
++	"github.com/spf13/cobra"
++)
++
++// Maintainer tools for the signed release manifest. They are open commands
++// (no account needed, like update): they only touch a local keychain entry
++// and files the maintainer names.
++
++func newReleaseCmd() *cobra.Command {
++	cmd := &cobra.Command{
++		Use:   "release",
++		Short: "Maintainer tools for signed releases (keygen, verify)",
++	}
++	cmd.AddCommand(newReleaseKeygenCmd(), newReleaseVerifyCmd())
++	return cmd
++}
++
++func newReleaseKeygenCmd() *cobra.Command {
++	var force bool
++	cmd := &cobra.Command{
++		Use:   "keygen",
++		Short: "Generate the release signing key; the private key goes to the OS keychain",
++		Long: "Generates an Ed25519 release signing key. The private key is stored in the OS keychain (service monoagent-release-signing, " +
++			"account ed25519-v1) and never printed. The public key line is printed: paste it into pinnedReleaseKeys in " +
++			"internal/release/keys.go and rebuild; clients trust only the keys pinned there. Run it in your own terminal.\n\n" +
++			"An existing key is never replaced unless --force (releases signed with the old key stop verifying in builds that pin only the new one).",
++		Args: cobra.NoArgs,
++		RunE: func(cmd *cobra.Command, _ []string) error {
++			if _, err := secrets.ReleaseSigningKey(); err == nil && !force {
++				return errInvalidInput("a release signing key already exists in the keychain; --force replaces it")
++			} else if err != nil && !errors.Is(err, secrets.ErrNoReleaseKey) {
++				return fmt.Errorf("read the keychain: %w", err)
++			}
++			pub, priv, err := ed25519.GenerateKey(rand.Reader)
++			if err != nil {
++				return err
++			}
++			if err := secrets.StoreReleaseSigningKey(base64.StdEncoding.EncodeToString(priv)); err != nil {
++				return fmt.Errorf("store the private key in the OS keychain: %w", err)
++			}
++			out := cmd.OutOrStdout()
++			fmt.Fprintln(out, "Private key stored in the OS keychain (monoagent-release-signing / ed25519-v1).")
++			fmt.Fprintln(out, "Paste this line into pinnedReleaseKeys in internal/release/keys.go:")
++			fmt.Fprintf(out, "\t%q,\n", release.KeyLine(pub))
++			return nil
++		},
++	}
++	cmd.Flags().BoolVar(&force, "force", false, "Replace an existing key")
++	return cmd
++}
++
++func newReleaseVerifyCmd() *cobra.Command {
++	var pubkey string
++	cmd := &cobra.Command{
++		Use:   "verify <manifest> <sig>",
++		Short: "Verify a manifest.json against its manifest.json.sig",
++		Long: "Checks the signature file (\"<key-id> <base64 signature>\") over the exact bytes of the manifest against the keys pinned " +
++			"in this binary, or against --pubkey \"<key-id> <base64 public key>\" (for trying a key before it is pinned). A manifest past its expires_at is refused too. Exit 3 when it does not verify.",
++		Example: "  monoagentcli release verify manifest.json manifest.json.sig",
++		Args:    cobra.ExactArgs(2),
++		RunE: func(cmd *cobra.Command, args []string) error {
++			manifest, err := os.ReadFile(args[0])
++			if err != nil {
++				return errNotFound("%v", err)
++			}
++			sig, err := os.ReadFile(args[1])
++			if err != nil {
++				return errNotFound("%v", err)
++			}
++			keys := release.PinnedKeys()
++			if pubkey != "" {
++				k, err := release.ParseKey(pubkey)
++				if err != nil {
++					return errInvalidInput("%v", err)
++				}
++				keys = []release.Key{k}
++			}
++			if len(keys) == 0 {
++				return errInvalidInput("this build pins no release key; pass --pubkey")
++			}
++			m, err := release.VerifyWith(keys, manifest, sig)
++			if err != nil {
++				return errInvalidInput("%v", err)
++			}
++			if err := m.CheckExpiry(time.Now()); err != nil {
++				return errInvalidInput("%v", err)
++			}
++			fmt.Fprintf(cmd.OutOrStdout(), "OK: %s, %d assets, signature valid\n", m.Version, len(m.Assets))
++			return nil
++		},
++	}
++	cmd.Flags().StringVar(&pubkey, "pubkey", "", "Verify against this \"<key-id> <base64 public key>\" instead of the pinned keys")
++	return cmd
++}
+diff --git a/cmd/monoagentcli/release_e2e_hook.go b/cmd/monoagentcli/release_e2e_hook.go
+new file mode 100644
+index 000000000..90e87e9da
+--- /dev/null
++++ b/cmd/monoagentcli/release_e2e_hook.go
+@@ -0,0 +1,36 @@
++//go:build releasee2e
++
++package main
++
++import (
++	"net/http"
++	"os"
++
++	"github.com/monoes/mono-agent/internal/release"
++)
++
++// Test-only (built with -tags releasee2e, never in a release): when
++// MONOAGENT_E2E_LOOPBACK=host:port is set, every request the signed-update
++// client makes is sent to that loopback server over plain HTTP with the path
++// unchanged. The client's own https and host allow-list checks still run on
++// the real URLs, so scripts/release-e2e-test.sh needs no network.
++type loopbackTransport struct{ hostport string }
++
++func (t loopbackTransport) RoundTrip(r *http.Request) (*http.Response, error) {
++	r2 := r.Clone(r.Context())
++	r2.URL.Scheme, r2.URL.Host = "http", t.hostport
++	return http.DefaultTransport.RoundTrip(r2)
++}
++
++func init() {
++	hp := os.Getenv("MONOAGENT_E2E_LOOPBACK")
++	if hp == "" {
++		return
++	}
++	base := releaseClient
++	releaseClient = func() *release.Client {
++		c := base()
++		c.HTTP = &http.Client{Transport: loopbackTransport{hp}}
++		return c
++	}
++}
+diff --git a/cmd/monoagentcli/root.go b/cmd/monoagentcli/root.go
+index 8ae785d07..2612ec074 100644
+--- a/cmd/monoagentcli/root.go
++++ b/cmd/monoagentcli/root.go
+@@ -85,6 +85,7 @@ func newRootCmd() *cobra.Command {
+ 		newNodejsCmd(cfg),
+ 		newVersionCmd(),
+ 		newUpdateCmd(cfg),
++		newReleaseCmd(),
+ 		newWorkflowCmd(cfg),
+ 		newDaemonCmd(cfg),
+ 		newExtensionCmd(cfg),
+diff --git a/cmd/monoagentcli/update.go b/cmd/monoagentcli/update.go
+index 75db27bd1..ec8f526a5 100644
+--- a/cmd/monoagentcli/update.go
++++ b/cmd/monoagentcli/update.go
+@@ -12,6 +12,7 @@ import (
+ 	"runtime"
+ 	"strings"
+ 
++	"github.com/monoes/mono-agent/internal/release"
+ 	"github.com/monoes/mono-agent/internal/updatecheck"
+ 	"github.com/spf13/cobra"
+ )
+@@ -21,7 +22,7 @@ import (
+ const sha256SumsAssetName = updatecheck.SumsAssetName
+ 
+ func newUpdateCmd(cfg *globalConfig) *cobra.Command {
+-	var check bool
++	var check, force bool
+ 	var current, app string
+ 	cmd := &cobra.Command{
+ 		Use:   "update",
+@@ -57,6 +58,7 @@ func newUpdateCmd(cfg *globalConfig) *cobra.Command {
+ 	}
+ 	cmd.Flags().BoolVar(&check, "check", false, "Only report whether a newer release exists; download nothing")
+ 	cmd.Flags().StringVar(&current, "current", "", "Version to compare against (default: this binary's)")
++	cmd.Flags().BoolVar(&force, "force", false, "Install a release older than the installed one (downgrade)")
+ 	cmd.Flags().StringVar(&app, "app", "", "Update the desktop app at this executable path (and the CLI bundled with it) instead of this binary")
+ 	return cmd
+ }
+@@ -78,7 +80,8 @@ func runUpdateCheck(cmd *cobra.Command, cfg *globalConfig, current string) error
+ 		current = getVersion()
+ 	}
+ 	res := updateCheck{CurrentVersion: current}
+-	release, err := fetchLatestRelease(cmd.Context())
++	force, _ := cmd.Flags().GetBool("force")
++	release, err := fetchLatest(cmd.Context(), force)
+ 	if err != nil {
+ 		if !cfg.JSONOutput {
+ 			return err
+@@ -86,18 +89,18 @@ func runUpdateCheck(cmd *cobra.Command, cfg *globalConfig, current string) error
+ 		res.Error = err.Error()
+ 		return writeJSONTo(cmd.OutOrStdout(), res)
+ 	}
+-	res.LatestVersion = release.TagName
+-	res.ReleaseURL = release.HTMLURL
+-	res.UpdateAvailable = newerRelease(release.TagName, current)
++	res.LatestVersion = release.Tag
++	res.ReleaseURL = release.URL
++	res.UpdateAvailable = newerRelease(release.Tag, current)
+ 	if cfg.JSONOutput {
+ 		return writeJSONTo(cmd.OutOrStdout(), res)
+ 	}
+ 	out := cmd.OutOrStdout()
+ 	switch {
+ 	case res.UpdateAvailable:
+-		fmt.Fprintf(out, "Update available: %s → %s\n%s\n", current, release.TagName, release.HTMLURL)
++		fmt.Fprintf(out, "Update available: %s → %s\n%s\n", current, release.Tag, release.URL)
+ 	case isDevVersion(current):
+-		fmt.Fprintf(out, "Latest release is %s (this is a dev build)\n", release.TagName)
++		fmt.Fprintf(out, "Latest release is %s (this is a dev build)\n", release.Tag)
+ 	default:
+ 		fmt.Fprintf(out, "Already on the latest version (%s)\n", current)
+ 	}
+@@ -144,14 +147,15 @@ func versionPart(parts []string, i int) int {
+ 
+ func runUpdate(cmd *cobra.Command, cfg *globalConfig) error {
+ 	fmt.Println("Checking for updates...")
++	force, _ := cmd.Flags().GetBool("force")
+ 
+-	release, err := fetchLatestRelease(context.Background())
++	info, err := fetchLatest(context.Background(), force)
+ 	if err != nil {
+ 		return err
+ 	}
+ 
+ 	v := getVersion()
+-	latest := strings.TrimPrefix(release.TagName, "v")
++	latest := strings.TrimPrefix(info.Tag, "v")
+ 	current := strings.TrimPrefix(v, "v")
+ 
+ 	if v == "dev" {
+@@ -166,19 +170,60 @@ func runUpdate(cmd *cobra.Command, cfg *globalConfig) error {
+ 		}
+ 		return nil
+ 	}
+-	fmt.Printf("Update available: %s → %s\n", v, release.TagName)
++	if err := release.CheckDowngrade(info.Tag, v, force); err != nil {
++		return fmt.Errorf("%w; the installed binary was kept", err)
++	}
++	fmt.Printf("Update available: %s → %s\n", v, info.Tag)
+ 
+ 	assetName := updateAssetName()
++	selfPath, err := selfBinaryPath()
++	if err != nil {
++		return fmt.Errorf("locate binary: %w", err)
++	}
++
++	var data []byte
++	if info.Manifest != nil {
++		// Signed path: the manifest signature already passed; the download
++		// must match its size and sha256 before anything is replaced.
++		a, err := info.Manifest.Asset(assetName, runtime.GOOS, runtime.GOARCH, "cli")
++		if err != nil {
++			return err
++		}
++		fmt.Printf("Downloading %s...\n", assetName)
++		if data, err = releaseClient().Download(context.Background(), a); err != nil {
++			return fmt.Errorf("%w; the installed binary was kept", err)
++		}
++		fmt.Printf("Signature and checksum verified: %s SHA256 %s\n", assetName, a.SHA256)
++	} else {
++		if data, err = legacyDownload(info.Legacy, assetName); err != nil {
++			return err
++		}
++	}
++
++	if err := installBinary(data, selfPath); err != nil {
++		return err
++	}
++
++	fmt.Printf("Updated to %s\n", info.Tag)
++	if d := daemonAfterUpdate(cmd.Context(), cfg, info.Tag); d != nil {
++		fmt.Println(d.Message)
++	}
++	return nil
++}
++
++// legacyDownload is the pre-manifest path: the GitHub release's asset checked
++// against the release's SHA256SUMS.txt.
++func legacyDownload(rel *latestRelease, assetName string) ([]byte, error) {
+ 	var downloadURL string
+-	for _, a := range release.Assets {
++	for _, a := range rel.Assets {
+ 		if a.Name == assetName {
+ 			downloadURL = a.BrowserDownloadURL
+ 			break
+ 		}
+ 	}
+ 	if downloadURL == "" {
+-		names := make([]string, 0, len(release.Assets))
+-		for _, a := range release.Assets {
++		names := make([]string, 0, len(rel.Assets))
++		for _, a := range rel.Assets {
+ 			names = append(names, a.Name)
+ 		}
+ 		available := "(none)"
+@@ -187,54 +232,38 @@ func runUpdate(cmd *cobra.Command, cfg *globalConfig) error {
+ 		}
+ 		// Hard error, no architecture fallback: silently downloading an
+ 		// amd64 binary onto an arm64 host bricks the update.
+-		return fmt.Errorf("no binary for %s/%s in release %s (wanted %s); available assets: %s",
+-			runtime.GOOS, runtime.GOARCH, release.TagName, assetName, available)
+-	}
+-
+-	selfPath, err := selfBinaryPath()
+-	if err != nil {
+-		return fmt.Errorf("locate binary: %w", err)
++		return nil, fmt.Errorf("no binary for %s/%s in release %s (wanted %s); available assets: %s",
++			runtime.GOOS, runtime.GOARCH, rel.TagName, assetName, available)
+ 	}
+ 
+ 	// Pre-flight: the release must publish a checksum manifest, otherwise
+ 	// the downloaded binary cannot be verified. Hard-fail like install.sh —
+ 	// never silently skip integrity verification.
+ 	sumsURL := ""
+-	for _, a := range release.Assets {
++	for _, a := range rel.Assets {
+ 		if a.Name == sha256SumsAssetName {
+ 			sumsURL = a.BrowserDownloadURL
+ 			break
+ 		}
+ 	}
+ 	if sumsURL == "" {
+-		return fmt.Errorf("release %s has no %s asset — cannot verify download integrity, refusing to update", release.TagName, sha256SumsAssetName)
++		return nil, fmt.Errorf("release %s has no %s asset — cannot verify download integrity, refusing to update", rel.TagName, sha256SumsAssetName)
+ 	}
+ 
+ 	fmt.Printf("Downloading %s...\n", assetName)
+ 	data, err := httpGetAll(downloadURL)
+ 	if err != nil {
+-		return err
++		return nil, err
+ 	}
+-
+ 	sumsData, err := httpGetAll(sumsURL)
+ 	if err != nil {
+-		return fmt.Errorf("fetch %s: %w", sha256SumsAssetName, err)
++		return nil, fmt.Errorf("fetch %s: %w", sha256SumsAssetName, err)
+ 	}
+-
+ 	if err := verifyReleaseDigest(data, sumsData, assetName); err != nil {
+-		return err
++		return nil, err
+ 	}
+ 	fmt.Printf("Checksum verified: %s SHA256 %s\n", assetName, sha256Hex(data))
+-
+-	if err := installBinary(data, selfPath); err != nil {
+-		return err
+-	}
+-
+-	fmt.Printf("Updated to %s\n", release.TagName)
+-	if d := daemonAfterUpdate(cmd.Context(), cfg, release.TagName); d != nil {
+-		fmt.Println(d.Message)
+-	}
+-	return nil
++	return data, nil
+ }
+ 
+ // httpGetAll fetches url and returns the full response body. Non-200
+diff --git a/cmd/monoagentcli/update_app.go b/cmd/monoagentcli/update_app.go
+index a25410773..13b6fcfb7 100644
+--- a/cmd/monoagentcli/update_app.go
++++ b/cmd/monoagentcli/update_app.go
+@@ -41,7 +41,8 @@ func runUpdateApp(cmd *cobra.Command, cfg *globalConfig, appPath, current string
+ 			fmt.Fprintln(cmd.OutOrStdout(), msg)
+ 		}
+ 	}
+-	res, err := updateApp(cmd, appPath, current, progress)
++	force, _ := cmd.Flags().GetBool("force")
++	res, err := updateApp(cmd, appPath, current, force, progress)
+ 	if err != nil {
+ 		if !cfg.JSONOutput {
+ 			return err
+@@ -64,7 +65,7 @@ func runUpdateApp(cmd *cobra.Command, cfg *globalConfig, appPath, current string
+ 	return nil
+ }
+ 
+-func updateApp(cmd *cobra.Command, appPath, current string, progress func(string)) (appUpdateResult, error) {
++func updateApp(cmd *cobra.Command, appPath, current string, force bool, progress func(string)) (appUpdateResult, error) {
+ 	if appPath == "" {
+ 		return appUpdateResult{}, errInvalidInput("--app needs the path of the desktop app's executable")
+ 	}
+@@ -75,6 +76,9 @@ func updateApp(cmd *cobra.Command, appPath, current string, progress func(string
+ 		Context:       cmd.Context(),
+ 		Client:        http.DefaultClient,
+ 		APIURL:        latestReleaseURL,
++		Release:       releaseClient(),
++		Current:       current,
++		Force:         force,
+ 		GOOS:          runtime.GOOS,
+ 		GOARCH:        runtime.GOARCH,
+ 		Exe:           appPath,
+diff --git a/cmd/monoagentcli/update_release.go b/cmd/monoagentcli/update_release.go
+new file mode 100644
+index 000000000..df81a9eac
+--- /dev/null
++++ b/cmd/monoagentcli/update_release.go
+@@ -0,0 +1,46 @@
++package main
++
++import (
++	"context"
++	"errors"
++	"fmt"
++
++	"github.com/monoes/mono-agent/internal/release"
++)
++
++// releaseClient builds the signed-manifest client (a variable so tests can
++// point it at an httptest server with generated keys).
++var releaseClient = release.DefaultClient
++
++// latestInfo is the latest release as the updaters need it: from the verified
++// signed manifest, or, only while release.AllowLegacyGitHubUpdates, from the
++// GitHub API.
++type latestInfo struct {
++	Tag      string
++	URL      string
++	Manifest *release.Manifest // set on the signed path
++	Legacy   *latestRelease    // set on the legacy path
++}
++
++// fetchLatest prefers the signed manifest. Only "unavailable" (no pinned key,
++// manifest not reachable) falls back; a manifest that fails a check is an
++// error, never a reason to try the weaker path.
++func fetchLatest(ctx context.Context, force bool) (*latestInfo, error) {
++	rc := releaseClient()
++	rc.Force = rc.Force || force
++	m, err := rc.Latest(ctx)
++	if err == nil {
++		return &latestInfo{Tag: m.Version, URL: m.NotesURL, Manifest: m}, nil
++	}
++	if !errors.Is(err, release.ErrUnavailable) {
++		return nil, fmt.Errorf("the signed release manifest was rejected: %w; nothing was installed", err)
++	}
++	if !release.AllowLegacyGitHubUpdates {
++		return nil, fmt.Errorf("cannot verify an update: %w", err)
++	}
++	rel, lerr := fetchLatestRelease(ctx)
++	if lerr != nil {
++		return nil, lerr
++	}
++	return &latestInfo{Tag: rel.TagName, URL: rel.HTMLURL, Legacy: rel}, nil
++}
+diff --git a/cmd/monoagentcli/update_release_test.go b/cmd/monoagentcli/update_release_test.go
+new file mode 100644
+index 000000000..3bbb39d26
+--- /dev/null
++++ b/cmd/monoagentcli/update_release_test.go
+@@ -0,0 +1,149 @@
++package main
++
++import (
++	"bytes"
++	"context"
++	"crypto/ed25519"
++	"crypto/rand"
++	"encoding/base64"
++	"encoding/json"
++	"net/http"
++	"net/http/httptest"
++	"os"
++	"path/filepath"
++	"strconv"
++	"strings"
++	"testing"
++
++	"github.com/monoes/mono-agent/internal/release"
++	"github.com/zalando/go-keyring"
++)
++
++// signedLatest serves a signed manifest over TLS and points releaseClient at it;
++// a plain-HTTP legacy endpoint answers latestReleaseURL with v1.0.0.
++func signedLatest(t *testing.T, tamper bool) {
++	t.Helper()
++	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
++	m, _ := json.Marshal(release.Manifest{Schema: 1, Version: "v2.0.0", ReleasedAt: "2026-10-08T10:00:00Z", NotesURL: "https://monoes.me/n"})
++	sig := []byte(release.KeyID(pub) + " " + base64.StdEncoding.EncodeToString(ed25519.Sign(priv, m)))
++	if tamper {
++		m = bytes.Replace(m, []byte("v2.0.0"), []byte("v9.0.0"), 1)
++	}
++	mux := http.NewServeMux()
++	srv := httptest.NewTLSServer(mux)
++	t.Cleanup(srv.Close)
++	mux.HandleFunc("/manifest.json", func(w http.ResponseWriter, _ *http.Request) { w.Write(m) })
++	mux.HandleFunc("/manifest.json.sig", func(w http.ResponseWriter, _ *http.Request) { w.Write(sig) })
++	oldClient := releaseClient
++	releaseClient = func() *release.Client {
++		return &release.Client{HTTP: srv.Client(), Keys: []release.Key{{ID: release.KeyID(pub), Public: pub}},
++			ManifestURLs: []string{srv.URL + "/manifest.json"}, Hosts: []string{"127.0.0.1"}, RedirectHosts: []string{"127.0.0.1"}}
++	}
++	t.Cleanup(func() { releaseClient = oldClient })
++	legacy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
++		w.Write([]byte(`{"tag_name":"v1.0.0","html_url":"https://example.test/legacy"}`))
++	}))
++	t.Cleanup(legacy.Close)
++	oldURL := latestReleaseURL
++	latestReleaseURL = legacy.URL
++	t.Cleanup(func() { latestReleaseURL = oldURL })
++}
++
++func TestFetchLatestPrefersSignedManifest(t *testing.T) {
++	signedLatest(t, false)
++	info, err := fetchLatest(context.Background(), false)
++	if err != nil || info.Tag != "v2.0.0" || info.Manifest == nil {
++		t.Fatalf("got %+v, %v", info, err)
++	}
++}
++
++func TestFetchLatestTamperedManifestDoesNotFallBack(t *testing.T) {
++	signedLatest(t, true)
++	info, err := fetchLatest(context.Background(), false)
++	if err == nil || info != nil || !strings.Contains(err.Error(), "rejected") {
++		t.Fatalf("tampered manifest must fail, not fall back: %+v, %v", info, err)
++	}
++}
++
++func TestFetchLatestNoPinnedKeyFallsBackToLegacy(t *testing.T) {
++	signedLatest(t, false)
++	releaseClient = func() *release.Client { return &release.Client{} }
++	info, err := fetchLatest(context.Background(), false)
++	if err != nil || info.Tag != "v1.0.0" || info.Legacy == nil {
++		t.Fatalf("got %+v, %v", info, err)
++	}
++	release.AllowLegacyGitHubUpdates = false
++	t.Cleanup(func() { release.AllowLegacyGitHubUpdates = true })
++	if _, err := fetchLatest(context.Background(), false); err == nil {
++		t.Fatal("legacy disabled and no key must fail")
++	}
++}
++
++func TestReleaseKeygenAndVerify(t *testing.T) {
++	keyring.MockInit()
++	var out bytes.Buffer
++	cmd := newReleaseCmd()
++	cmd.SetOut(&out)
++	cmd.SetArgs([]string{"keygen"})
++	if err := cmd.Execute(); err != nil {
++		t.Fatal(err)
++	}
++	i := strings.Index(out.String(), "\t\"")
++	if i < 0 {
++		t.Fatalf("no key line in %q", out.String())
++	}
++	line, err := strconv.Unquote(strings.TrimSuffix(strings.TrimSpace(out.String()[i:]), ","))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if strings.Contains(out.String(), "PRIVATE") {
++		t.Fatal("private key printed")
++	}
++	// Shared contract: service monoagent-release-signing, account ed25519-v1,
++	// value = base64 of the 64-byte private key, whose public half is the printed key.
++	stored, err := keyring.Get("monoagent-release-signing", "ed25519-v1")
++	if err != nil {
++		t.Fatal(err)
++	}
++	raw, err := base64.StdEncoding.DecodeString(stored)
++	if err != nil || len(raw) != ed25519.PrivateKeySize {
++		t.Fatalf("stored key is %d bytes (%v), want %d", len(raw), err, ed25519.PrivateKeySize)
++	}
++	if got := release.KeyLine(ed25519.PrivateKey(raw).Public().(ed25519.PublicKey)); got != line {
++		t.Fatalf("printed %q, stored key is %q", line, got)
++	}
++	// A second keygen refuses to replace the key.
++	cmd = newReleaseCmd()
++	cmd.SetOut(&out)
++	cmd.SetArgs([]string{"keygen"})
++	if err := cmd.Execute(); err == nil {
++		t.Fatal("keygen replaced an existing key")
++	}
++
++	// verify with an explicit key: sign with a fresh pair (keygen's private key stays in the keychain).
++	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
++	dir := t.TempDir()
++	mf := filepath.Join(dir, "manifest.json")
++	sf := mf + ".sig"
++	m := []byte(`{"schema":1,"version":"v3.0.0","released_at":"2026-10-08T10:00:00Z","assets":[]}`)
++	os.WriteFile(mf, m, 0o600)
++	os.WriteFile(sf, []byte(release.KeyID(pub)+" "+base64.StdEncoding.EncodeToString(ed25519.Sign(priv, m))), 0o600)
++	run := func(key string) (string, error) {
++		var o bytes.Buffer
++		c := newReleaseCmd()
++		c.SetOut(&o)
++		c.SetArgs([]string{"verify", mf, sf, "--pubkey", key})
++		err := c.Execute()
++		return o.String(), err
++	}
++	if o, err := run(release.KeyLine(pub)); err != nil || !strings.Contains(o, "v3.0.0") {
++		t.Fatalf("verify: %q %v", o, err)
++	}
++	if _, err := run(line); err == nil {
++		t.Fatal("verified against the wrong key")
++	}
++	os.WriteFile(mf, append(m, ' '), 0o600)
++	if _, err := run(release.KeyLine(pub)); err == nil {
++		t.Fatal("verified a tampered manifest")
++	}
++}
+diff --git a/cmd/release-manifest/main.go b/cmd/release-manifest/main.go
+new file mode 100644
+index 000000000..a34ffcaac
+--- /dev/null
++++ b/cmd/release-manifest/main.go
+@@ -0,0 +1,252 @@
++// Command release-manifest is a maintainer tool, never shipped in a release.
++//
++//	release-manifest manifest -dir DIR -version vX.Y.Z [-repo OWNER/REPO] [-notes-url URL] [-expires-days N]
++//	    writes DIR/SHA256SUMS and DIR/manifest.json (unsigned; safe to run in CI).
++//	    -expires-days N adds the signed "expires_at" field (N days from now); 0 omits it.
++//	release-manifest sign -manifest DIR/manifest.json [-key-file FILE | -keyring]
++//	    writes manifest.json.sig next to it. Run by the owner, locally, never in CI.
++//
++// The signature file is one line, "<key id> <base64 Ed25519 signature>", made over
++// the exact bytes of manifest.json. The key id is the first 8 bytes of the SHA-256
++// of the public key, hex encoded. The private key is the base64 of the 64-byte
++// Ed25519 private key (a bare 32-byte seed is accepted too), either in a file or in the OS keyring entry written by
++// `monoagentcli release keygen` (service "monoagent-release-signing", account
++// "ed25519-v1").
++package main
++
++import (
++	"crypto/ed25519"
++	"crypto/sha256"
++	"encoding/base64"
++	"encoding/hex"
++	"encoding/json"
++	"errors"
++	"flag"
++	"fmt"
++	"os"
++	"path/filepath"
++	"regexp"
++	"sort"
++	"strings"
++	"time"
++
++	"github.com/zalando/go-keyring"
++)
++
++const (
++	keyringService = "monoagent-release-signing"
++	keyringAccount = "ed25519-v1"
++	defaultRepo    = "monoes/mono-agent-releases"
++)
++
++type Asset struct {
++	OS     string `json:"os"`
++	Arch   string `json:"arch"`
++	Name   string `json:"name"`
++	URL    string `json:"url"`
++	SHA256 string `json:"sha256"`
++	Size   int64  `json:"size"`
++	Kind   string `json:"kind"`
++}
++
++type Manifest struct {
++	Schema     int     `json:"schema"`
++	Version    string  `json:"version"`
++	ReleasedAt string  `json:"released_at"`
++	NotesURL   string  `json:"notes_url"`
++	ExpiresAt  string  `json:"expires_at,omitempty"`
++	Assets     []Asset `json:"assets"`
++}
++
++var (
++	cliRe        = regexp.MustCompile(`^monoagentcli-(linux|darwin|windows)-(amd64|arm64)(\.exe)?$`)
++	bundledRe    = regexp.MustCompile(`^monoagentcli-(windows)-(amd64)-bundled\.exe$`)
++	appArchiveRe = regexp.MustCompile(`^MonoAgent-(linux|darwin|windows)-(amd64|arm64)(\.tar\.gz|\.zip|\.exe)$`)
++	versionRe    = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
++)
++
++// classify maps a release artifact name (as named by release.yml) to its
++// platform. ok is false for files that are not per-platform downloads, such as
++// the Chrome extension zip or the checksum files.
++func classify(name string) (osName, arch, kind string, ok bool) {
++	if m := cliRe.FindStringSubmatch(name); m != nil {
++		return m[1], m[2], "cli", true
++	}
++	// The Windows app ships beside its bundled CLI; both belong to the app.
++	if m := bundledRe.FindStringSubmatch(name); m != nil {
++		return m[1], m[2], "app", true
++	}
++	if m := appArchiveRe.FindStringSubmatch(name); m != nil {
++		return m[1], m[2], "app", true
++	}
++	return "", "", "", false
++}
++
++func buildManifest(dir, version, repo, notesURL string, now time.Time, expiresDays int) (*Manifest, []byte, error) {
++	if !versionRe.MatchString(version) {
++		return nil, nil, fmt.Errorf("version %q must look like v1.2.3", version)
++	}
++	if expiresDays < 0 {
++		return nil, nil, errors.New("-expires-days must not be negative")
++	}
++	entries, err := os.ReadDir(dir)
++	if err != nil {
++		return nil, nil, err
++	}
++	base := fmt.Sprintf("https://github.com/%s/releases/download/%s", repo, version)
++	if notesURL == "" {
++		notesURL = fmt.Sprintf("https://github.com/%s/releases/tag/%s", repo, version)
++	}
++	m := &Manifest{Schema: 1, Version: version, ReleasedAt: now.UTC().Format(time.RFC3339), NotesURL: notesURL, Assets: []Asset{}}
++	if expiresDays > 0 {
++		m.ExpiresAt = now.UTC().AddDate(0, 0, expiresDays).Format(time.RFC3339)
++	}
++	var sums strings.Builder
++	var names []string
++	for _, e := range entries {
++		if e.Type().IsRegular() && e.Name() != "SHA256SUMS" && e.Name() != "SHA256SUMS.txt" &&
++			!strings.HasPrefix(e.Name(), "manifest.json") {
++			names = append(names, e.Name())
++		}
++	}
++	sort.Strings(names)
++	for _, name := range names {
++		data, err := os.ReadFile(filepath.Join(dir, name))
++		if err != nil {
++			return nil, nil, err
++		}
++		sum := sha256.Sum256(data)
++		hexSum := hex.EncodeToString(sum[:])
++		fmt.Fprintf(&sums, "%s  %s\n", hexSum, name)
++		if o, a, k, ok := classify(name); ok {
++			m.Assets = append(m.Assets, Asset{OS: o, Arch: a, Name: name, URL: base + "/" + name, SHA256: hexSum, Size: int64(len(data)), Kind: k})
++		}
++	}
++	if len(m.Assets) == 0 {
++		return nil, nil, errors.New("no recognised release artifacts in " + dir)
++	}
++	return m, []byte(sums.String()), nil
++}
++
++func keyID(pub ed25519.PublicKey) string {
++	h := sha256.Sum256(pub)
++	return hex.EncodeToString(h[:8])
++}
++
++func parsePrivateKey(s string) (ed25519.PrivateKey, error) {
++	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(s))
++	if err != nil {
++		return nil, fmt.Errorf("private key is not base64: %w", err)
++	}
++	switch len(raw) {
++	case ed25519.PrivateKeySize:
++		return ed25519.PrivateKey(raw), nil
++	case ed25519.SeedSize:
++		return ed25519.NewKeyFromSeed(raw), nil
++	}
++	return nil, fmt.Errorf("private key is %d bytes, want %d (or a %d-byte seed)", len(raw), ed25519.PrivateKeySize, ed25519.SeedSize)
++}
++
++// signManifest returns the contents of manifest.json.sig for the given bytes.
++func signManifest(manifest []byte, priv ed25519.PrivateKey) string {
++	pub := priv.Public().(ed25519.PublicKey)
++	return keyID(pub) + " " + base64.StdEncoding.EncodeToString(ed25519.Sign(priv, manifest)) + "\n"
++}
++
++// verifySignature checks a .sig file's contents against manifest bytes and the
++// given public keys. It backs the round-trip test; the client has its own verifier.
++func verifySignature(manifest []byte, sig string, keys []ed25519.PublicKey) error {
++	f := strings.Fields(sig)
++	if len(f) != 2 {
++		return errors.New("signature file must be '<key id> <base64 signature>'")
++	}
++	raw, err := base64.StdEncoding.DecodeString(f[1])
++	if err != nil {
++		return err
++	}
++	for _, k := range keys {
++		if keyID(k) == f[0] && ed25519.Verify(k, manifest, raw) {
++			return nil
++		}
++	}
++	return errors.New("no pinned key verifies this signature")
++}
++
++func main() {
++	if err := run(os.Args[1:]); err != nil {
++		fmt.Fprintln(os.Stderr, "release-manifest:", err)
++		os.Exit(1)
++	}
++}
++
++func run(args []string) error {
++	if len(args) == 0 {
++		return errors.New("usage: release-manifest manifest|sign [flags]")
++	}
++	switch args[0] {
++	case "manifest":
++		fs := flag.NewFlagSet("manifest", flag.ContinueOnError)
++		dir := fs.String("dir", "", "directory of release artifacts")
++		version := fs.String("version", "", "release tag, vX.Y.Z")
++		repo := fs.String("repo", defaultRepo, "releases repo (owner/name) the asset URLs point at")
++		notes := fs.String("notes-url", "", "release notes URL (default: the release page in -repo)")
++		expDays := fs.Int("expires-days", 0, "days until the manifest expires (writes expires_at); 0 omits the field")
++		if err := fs.Parse(args[1:]); err != nil {
++			return err
++		}
++		if *dir == "" || *version == "" {
++			return errors.New("manifest needs -dir and -version")
++		}
++		m, sums, err := buildManifest(*dir, *version, *repo, *notes, time.Now(), *expDays)
++		if err != nil {
++			return err
++		}
++		out, err := json.MarshalIndent(m, "", "  ")
++		if err != nil {
++			return err
++		}
++		if err := os.WriteFile(filepath.Join(*dir, "SHA256SUMS"), sums, 0o644); err != nil {
++			return err
++		}
++		return os.WriteFile(filepath.Join(*dir, "manifest.json"), append(out, '\n'), 0o644)
++	case "sign":
++		fs := flag.NewFlagSet("sign", flag.ContinueOnError)
++		path := fs.String("manifest", "", "path to manifest.json")
++		keyFile := fs.String("key-file", "", "file holding the base64 64-byte private key")
++		useKeyring := fs.Bool("keyring", false, "read the key from the OS keyring entry written by 'monoagentcli release keygen'")
++		if err := fs.Parse(args[1:]); err != nil {
++			return err
++		}
++		if *path == "" || (*keyFile == "") == !*useKeyring {
++			return errors.New("sign needs -manifest and exactly one of -key-file or -keyring")
++		}
++		var secret string
++		if *useKeyring {
++			s, err := keyring.Get(keyringService, keyringAccount)
++			if err != nil {
++				return fmt.Errorf("keyring entry %s/%s: %w", keyringService, keyringAccount, err)
++			}
++			secret = s
++		} else {
++			b, err := os.ReadFile(*keyFile)
++			if err != nil {
++				return err
++			}
++			secret = string(b)
++		}
++		priv, err := parsePrivateKey(secret)
++		if err != nil {
++			return err
++		}
++		data, err := os.ReadFile(*path)
++		if err != nil {
++			return err
++		}
++		if err := os.WriteFile(*path+".sig", []byte(signManifest(data, priv)), 0o644); err != nil {
++			return err
++		}
++		fmt.Printf("signed %s with key %s\n", *path, keyID(priv.Public().(ed25519.PublicKey)))
++		return nil
++	}
++	return fmt.Errorf("unknown mode %q", args[0])
++}
+diff --git a/cmd/release-manifest/main_test.go b/cmd/release-manifest/main_test.go
+new file mode 100644
+index 000000000..75b704c2b
+--- /dev/null
++++ b/cmd/release-manifest/main_test.go
+@@ -0,0 +1,200 @@
++package main
++
++import (
++	"crypto/ed25519"
++	"crypto/rand"
++	"encoding/base64"
++	"encoding/json"
++	"github.com/zalando/go-keyring"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++	"time"
++)
++
++var releaseNames = []string{
++	"monoagentcli-linux-amd64", "monoagentcli-linux-arm64", "monoagentcli-windows-amd64.exe",
++	"monoagentcli-darwin-amd64", "monoagentcli-darwin-arm64",
++	"MonoAgent-darwin-arm64.zip", "MonoAgent-windows-amd64.exe", "monoagentcli-windows-amd64-bundled.exe",
++	"MonoAgent-linux-amd64.tar.gz", "monoagent-chrome-extension.zip",
++}
++
++func fixture(t *testing.T) string {
++	dir := t.TempDir()
++	for _, n := range releaseNames {
++		if err := os.WriteFile(filepath.Join(dir, n), []byte("bytes of "+n), 0o644); err != nil {
++			t.Fatal(err)
++		}
++	}
++	return dir
++}
++
++func TestManifestGeneration(t *testing.T) {
++	dir := fixture(t)
++	if err := run([]string{"manifest", "-dir", dir, "-version", "v1.2.3"}); err != nil {
++		t.Fatal(err)
++	}
++	var m Manifest
++	raw, _ := os.ReadFile(filepath.Join(dir, "manifest.json"))
++	if err := json.Unmarshal(raw, &m); err != nil {
++		t.Fatal(err)
++	}
++	if m.Schema != 1 || m.Version != "v1.2.3" || len(m.Assets) != 9 {
++		t.Fatalf("unexpected manifest: %+v", m)
++	}
++	if _, err := time.Parse(time.RFC3339, m.ReleasedAt); err != nil {
++		t.Fatal(err)
++	}
++	got := map[string]Asset{}
++	for _, a := range m.Assets {
++		got[a.Name] = a
++	}
++	if _, ok := got["monoagent-chrome-extension.zip"]; ok {
++		t.Fatal("extension zip has no platform and must not be an asset")
++	}
++	cases := map[string][3]string{
++		"monoagentcli-windows-amd64.exe": {"windows", "amd64", "cli"},
++		"monoagentcli-darwin-arm64":      {"darwin", "arm64", "cli"},
++		"MonoAgent-darwin-arm64.zip":     {"darwin", "arm64", "app"},
++		"MonoAgent-linux-amd64.tar.gz":   {"linux", "amd64", "app"},
++		"MonoAgent-windows-amd64.exe":    {"windows", "amd64", "app"},
++	}
++	for n, w := range cases {
++		a := got[n]
++		if a.OS != w[0] || a.Arch != w[1] || a.Kind != w[2] {
++			t.Errorf("%s classified %+v, want %v", n, a, w)
++		}
++	}
++	a := got["monoagentcli-linux-amd64"]
++	if a.Size != int64(len("bytes of monoagentcli-linux-amd64")) || len(a.SHA256) != 64 ||
++		a.URL != "https://github.com/monoes/mono-agent-releases/releases/download/v1.2.3/monoagentcli-linux-amd64" {
++		t.Errorf("bad asset: %+v", a)
++	}
++	sums, _ := os.ReadFile(filepath.Join(dir, "SHA256SUMS"))
++	if !strings.Contains(string(sums), a.SHA256+"  monoagentcli-linux-amd64\n") || strings.Count(string(sums), "\n") != len(releaseNames) {
++		t.Errorf("SHA256SUMS wrong:\n%s", sums)
++	}
++	// Re-running must not fold its own outputs into the manifest.
++	if err := run([]string{"manifest", "-dir", dir, "-version", "v1.2.3"}); err != nil {
++		t.Fatal(err)
++	}
++	again, _ := os.ReadFile(filepath.Join(dir, "SHA256SUMS"))
++	if string(again) != string(sums) {
++		t.Error("second run changed SHA256SUMS")
++	}
++}
++
++func TestManifestRejectsBadInput(t *testing.T) {
++	if err := run([]string{"manifest", "-dir", fixture(t), "-version", "1.2"}); err == nil {
++		t.Error("bad version accepted")
++	}
++	if err := run([]string{"manifest", "-dir", t.TempDir(), "-version", "v1.0.0"}); err == nil {
++		t.Error("empty dir accepted")
++	}
++}
++
++func TestSignThenVerify(t *testing.T) {
++	dir := fixture(t)
++	if err := run([]string{"manifest", "-dir", dir, "-version", "v1.2.3"}); err != nil {
++		t.Fatal(err)
++	}
++	pub, priv, err := ed25519.GenerateKey(rand.Reader)
++	if err != nil {
++		t.Fatal(err)
++	}
++	keyFile := filepath.Join(t.TempDir(), "test.key")
++	if err := os.WriteFile(keyFile, []byte(base64.StdEncoding.EncodeToString(priv)+"\n"), 0o600); err != nil {
++		t.Fatal(err)
++	}
++	mpath := filepath.Join(dir, "manifest.json")
++	if err := run([]string{"sign", "-manifest", mpath, "-key-file", keyFile}); err != nil {
++		t.Fatal(err)
++	}
++	data, _ := os.ReadFile(mpath)
++	sig, _ := os.ReadFile(mpath + ".sig")
++	if err := verifySignature(data, string(sig), []ed25519.PublicKey{pub}); err != nil {
++		t.Fatal(err)
++	}
++	other, _, _ := ed25519.GenerateKey(rand.Reader)
++	if verifySignature(data, string(sig), []ed25519.PublicKey{other}) == nil {
++		t.Error("verified against the wrong key")
++	}
++	if verifySignature(append(data, ' '), string(sig), []ed25519.PublicKey{pub}) == nil {
++		t.Error("verified a tampered manifest")
++	}
++}
++
++func TestSignArgsAndKeys(t *testing.T) {
++	if err := run([]string{"sign", "-manifest", "x"}); err == nil {
++		t.Error("sign without a key source accepted")
++	}
++	if _, err := parsePrivateKey(base64.StdEncoding.EncodeToString([]byte("short"))); err == nil {
++		t.Error("short key accepted")
++	}
++}
++
++func TestExpiresDays(t *testing.T) {
++	dir := fixture(t)
++	read := func() Manifest {
++		var m Manifest
++		raw, _ := os.ReadFile(filepath.Join(dir, "manifest.json"))
++		if err := json.Unmarshal(raw, &m); err != nil {
++			t.Fatal(err)
++		}
++		if strings.Contains(string(raw), "expires_at") != (m.ExpiresAt != "") {
++			t.Fatal("expires_at presence mismatch")
++		}
++		return m
++	}
++	if err := run([]string{"manifest", "-dir", dir, "-version", "v1.2.3"}); err != nil {
++		t.Fatal(err)
++	}
++	if m := read(); m.ExpiresAt != "" {
++		t.Errorf("default must omit expires_at, got %q", m.ExpiresAt)
++	}
++	if err := run([]string{"manifest", "-dir", dir, "-version", "v1.2.3", "-expires-days", "30"}); err != nil {
++		t.Fatal(err)
++	}
++	exp, err := time.Parse(time.RFC3339, read().ExpiresAt)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if d := time.Until(exp); d < 29*24*time.Hour || d > 31*24*time.Hour {
++		t.Errorf("expires_at %v not ~30 days out", exp)
++	}
++	if err := run([]string{"manifest", "-dir", dir, "-version", "v1.2.3", "-expires-days", "-1"}); err == nil {
++		t.Error("negative -expires-days accepted")
++	}
++}
++
++func TestSignFromKeyringSeedAndFullKey(t *testing.T) {
++	for name, mk := range map[string]func(ed25519.PrivateKey) []byte{
++		"full key": func(p ed25519.PrivateKey) []byte { return p },
++		"seed":     func(p ed25519.PrivateKey) []byte { return p.Seed() },
++	} {
++		t.Run(name, func(t *testing.T) {
++			keyring.MockInit()
++			pub, priv, _ := ed25519.GenerateKey(rand.Reader)
++			if err := keyring.Set(keyringService, keyringAccount, base64.StdEncoding.EncodeToString(mk(priv))); err != nil {
++				t.Fatal(err)
++			}
++			dir := fixture(t)
++			if err := run([]string{"manifest", "-dir", dir, "-version", "v1.2.3"}); err != nil {
++				t.Fatal(err)
++			}
++			mpath := filepath.Join(dir, "manifest.json")
++			if err := run([]string{"sign", "-manifest", mpath, "-keyring"}); err != nil {
++				t.Fatal(err)
++			}
++			data, _ := os.ReadFile(mpath)
++			sig, _ := os.ReadFile(mpath + ".sig")
++			if strings.Count(string(sig), "\n") != 1 || len(strings.Fields(string(sig))) != 2 {
++				t.Errorf("sig must be one line, got %q", sig)
++			}
++			if err := verifySignature(data, string(sig), []ed25519.PublicKey{pub}); err != nil {
++				t.Fatal(err)
++			}
++		})
++	}
++}
+diff --git a/docs/release-runbook.md b/docs/release-runbook.md
+new file mode 100644
+index 000000000..5af5a4f0a
+--- /dev/null
++++ b/docs/release-runbook.md
+@@ -0,0 +1,71 @@
++# Release runbook: signed update manifest
++
++Every push to master still publishes a GitHub release (see `.github/workflows/release.yml`
++and SECURITY.md, "Release governance"). Alongside it, CI prepares what the updater will
++verify once releases move to the public releases-only repo
++(default `monoes/mono-agent-releases`).
++
++## What is published
++
++- the release assets and `SHA256SUMS`
++- `manifest.json` (schema 1: version, release time, notes URL, and per-platform assets with
++  `os`, `arch`, `name`, `url`, `sha256`, `size`, `kind` of `cli` or `app`)
++- `manifest.json.sig`: one line, `<key id> <base64 Ed25519 signature>`, made over the exact
++  bytes of `manifest.json`. The key id is the first 8 bytes of the SHA-256 of the public key,
++  hex encoded.
++
++Downloads are anonymous. The client pins only the public key(s) and trusts nothing else.
++
++## Two-step flow
++
++The signing key is the owner's. **CI never holds it.**
++
++1. CI (`release-manifest` job) builds `manifest.json` and `SHA256SUMS` with
++   `go run ./cmd/release-manifest manifest` and attaches them to the run as the
++   `unsigned-manifest` artifact (the checksums are also in the run summary). After the
++   `release` environment is approved, the `publish-releases-repo` job uploads the assets and
++   the unsigned manifest to the releases repo, but only when the secrets `RELEASES_REPO`
++   (`owner/name`) and `RELEASES_REPO_TOKEN` (a token that can write releases there) both
++   exist. Without them it does nothing.
++2. The owner downloads the unsigned manifest and signs it locally:
++
++   ```bash
++   # once: create the key (stored in the OS keyring), pin the printed public key
++   monoagentcli release keygen
++
++   # per release
++   gh release download vX.Y.Z --repo monoes/mono-agent-releases --pattern manifest.json
++   go run ./cmd/release-manifest sign -manifest manifest.json -keyring
++   gh release upload vX.Y.Z manifest.json.sig --repo monoes/mono-agent-releases
++   monoagentcli release verify manifest.json manifest.json.sig   # keys pinned in this binary; add --pubkey "<id> <b64>" to try another
++   ```
++
++   Check `manifest.json` against the run's checksums (or the `unsigned-manifest` artifact)
++   before signing. `-keyring` reads the entry written by keygen (service
++   `monoagent-release-signing`, account `ed25519-v1`, value the base64 of the 64-byte
++   private key; a bare 32-byte seed is accepted too). Use `-key-file path/to/key` for a key
++   in a file.
++
++   CI never overwrites `manifest.json` once `manifest.json.sig` exists on the release: the
++   upload step fails with a message instead. A new version always makes a new release, so
++   this only matters for a re-run of the same tag.
++
++3. Optional expiry policy: the manifest job can pass `-expires-days N` to
++   `release-manifest manifest`, which adds a signed `expires_at` (RFC3339). Clients reject a
++   manifest whose `expires_at` is in the past, so a stale or replayed manifest stops working
++   after N days. The default (0) omits the field.
++
++Until `manifest.json.sig` is uploaded, clients treat the manifest as unavailable and use the
++GitHub API path (while `AllowLegacyGitHubUpdates` is true).
++
++## One-time setup
++
++Run `monoagentcli release keygen`, paste the printed public key line into
++`internal/release/keys.go` (`pinnedReleaseKeys`), and ship it in a release. Until a key is
++pinned no manifest is trusted.
++
++## Making this repo private
++
++`AllowLegacyGitHubUpdates` must be set to false in the same release that makes this repo
++private. Otherwise clients keep calling the GitHub API path against a repo they can no
++longer read, and the signed manifest is bypassed as a fallback.
+diff --git a/install.sh b/install.sh
+index 2161aba36..a09a0d140 100644
+--- a/install.sh
++++ b/install.sh
+@@ -1,29 +1,45 @@
+ #!/usr/bin/env bash
+-# install.sh — install the mono-agent CLI (monoagentcli) from the latest
+-# GitHub release of monoes/mono-agent.
++# install.sh — install the mono-agent CLI (monoagentcli).
+ #
+-# Supported platforms (must match the asset names built by
+-# .github/workflows/release.yml):
+-#   darwin/arm64  → monoagentcli-darwin-arm64
+-#   darwin/amd64  → monoagentcli-darwin-amd64
+-#   linux/amd64   → monoagentcli-linux-amd64
+-#   linux/arm64   → monoagentcli-linux-arm64
+-# Anything else fails loudly (Windows: download the .exe from the releases page).
++# Default path (no GitHub API needed):
++#   1. fetch manifest.json from the manifest URL
++#   2. choose the "cli" asset for this host's os/arch
++#   3. download it from the asset's url
++#   4. verify its sha256 against the manifest
++#   5. verify the manifest's Ed25519 signature (manifest.json.sig) when
++#      `openssl` with Ed25519 support is present AND a public key is
++#      configured (RELEASE_PUBKEY below). While no key is configured the
++#      install is checksum-only and says so; it never claims a signature
++#      was verified when it was not.
+ #
+-# Every release ships a SHA256SUMS.txt (generated by release.yml); the
+-# downloaded binary is verified against it before install. If that file is
+-# missing (release predates checksum publication) the install hard-fails
+-# unless --no-verify is given.
++# Legacy path (kept simple, labelled in the output): the GitHub releases API
++# plus SHA256SUMS.txt. Used only when MONOAGENT_ALLOW_LEGACY_GITHUB=1, or
++# when the manifest URL cannot be reached. A manifest that is reachable but
++# fails verification is a hard error, never a fallback.
++#
++# Supported platforms: darwin/{arm64,amd64}, linux/{amd64,arm64}.
++# Windows: download the .exe from the releases page.
+ #
+ # Flags:
+-#   --no-verify   skip SHA256SUMS.txt verification (not recommended)
++#   --no-verify   skip signature and checksum verification (not recommended)
+ #
+-# Override the install location:  INSTALL_DIR="$HOME/bin" ./install.sh
++# Environment:
++#   INSTALL_DIR                      install location (default /usr/local/bin)
++#   MONOAGENT_MANIFEST_URL           manifest URL (tests, mirrors)
++#   MONOAGENT_RELEASE_PUBKEY         base64 raw Ed25519 public key; overrides RELEASE_PUBKEY
++#   MONOAGENT_ALLOW_LEGACY_GITHUB=1  use the GitHub API path directly
+ set -euo pipefail
+ 
++# Repository used by the legacy path.
+ REPO="monoes/mono-agent"
+ BIN="monoagentcli"
+ INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
++MANIFEST_URL="${MONOAGENT_MANIFEST_URL:-https://monoes.me/mono-agent/releases/latest/manifest.json}"
++# Pinned manifest-signing public key: base64 of the raw 32-byte Ed25519 key,
++# as printed by `monoagentcli release keygen`. Empty until the owner generates
++# the key; empty means checksum-only installs.
++RELEASE_PUBKEY=""
++RELEASE_PUBKEY="${MONOAGENT_RELEASE_PUBKEY:-$RELEASE_PUBKEY}"
+ 
+ err() { printf 'install.sh: error: %s\n' "$*" >&2; exit 1; }
+ 
+@@ -37,11 +53,20 @@ done
+ 
+ command -v curl >/dev/null 2>&1 || err "curl is required but not installed"
+ 
+-# verify_checksum <dir> <asset> — check <dir>/<asset> against the <asset>
+-# line in <dir>/SHA256SUMS.txt (format: "<sha256>  <filename>", as written
+-# by sha256sum / shasum). Prints the verified digest on success; returns
+-# non-zero (with a message on stderr) on mismatch, missing entry, or
+-# missing checksum tool.
++# sha256_of <file> — print the hex sha256 of a file.
++sha256_of() {
++  if command -v sha256sum >/dev/null 2>&1; then
++    sha256sum "$1" | awk '{print $1}'
++  elif command -v shasum >/dev/null 2>&1; then
++    shasum -a 256 "$1" | awk '{print $1}'
++  else
++    err "neither sha256sum nor shasum is available to verify the download"
++  fi
++}
++
++# verify_checksum <dir> <asset> — legacy path: check <dir>/<asset> against the
++# <asset> line in <dir>/SHA256SUMS.txt ("<sha256>  <filename>"). Prints the
++# verified digest; returns non-zero (message on stderr) on failure.
+ verify_checksum() {
+   v_dir="$1"
+   v_asset="$2"
+@@ -50,25 +75,77 @@ verify_checksum() {
+     printf 'install.sh: error: no checksum entry for %s in SHA256SUMS.txt\n' "$v_asset" >&2
+     return 1
+   fi
+-  printf '%s\n' "$v_line" > "${v_dir}/SHA256SUMS.check"
+-
+-  if command -v sha256sum >/dev/null 2>&1; then
+-    (cd "$v_dir" && sha256sum -c SHA256SUMS.check) >/dev/null 2>&1
+-  elif command -v shasum >/dev/null 2>&1; then
+-    (cd "$v_dir" && shasum -a 256 -c SHA256SUMS.check) >/dev/null 2>&1
+-  else
+-    printf 'install.sh: error: neither sha256sum nor shasum is available to verify the download\n' >&2
++  v_want="$(printf '%s' "$v_line" | awk '{print $1}')"
++  v_got="$(sha256_of "${v_dir}/${v_asset}")"
++  if [ "$v_got" != "$v_want" ]; then
++    printf 'install.sh: error: checksum mismatch for %s (expected %s)\n' "$v_asset" "$v_want" >&2
+     return 1
+   fi
+-  v_status=$?
++  printf '%s\n' "$v_want"
++}
+ 
+-  if [ "$v_status" -ne 0 ]; then
+-    printf 'install.sh: error: checksum mismatch for %s (expected %s)\n' \
+-      "$v_asset" "$(printf '%s' "$v_line" | awk '{print $1}')" >&2
+-    return 1
++# json_field <object> <key> — value of a flat string/number field.
++json_field() {
++  printf '%s' "$1" | sed -n 's/.*"'"$2"'" *: *"\{0,1\}\([^",}]*\)"\{0,1\}.*/\1/p' | head -n 1
++}
++
++# asset_url_allowed <url> — the asset must come over https from monoes.me,
++# github.com or GitHub's release-asset hosts (same allow-list as the Go
++# client). MONOAGENT_TEST_ASSET_URL_PREFIX (tests only) additionally allows
++# URLs that start with that exact prefix.
++asset_url_allowed() {
++  if [ -n "${MONOAGENT_TEST_ASSET_URL_PREFIX:-}" ]; then
++    case "$1" in "${MONOAGENT_TEST_ASSET_URL_PREFIX}"*) return 0 ;; esac
+   fi
++  case "$1" in https://*) ;; *) return 1 ;; esac
++  u_host="${1#https://}"
++  u_host="${u_host%%[/?#]*}"
++  case "$u_host" in
++    monoes.me|github.com|objects.githubusercontent.com|release-assets.githubusercontent.com) return 0 ;;
++    *) return 1 ;;
++  esac
++}
+ 
+-  printf '%s\n' "$(printf '%s' "$v_line" | awk '{print $1}')"
++# verify_manifest_signature <manifest> <sig-url> <tmp> — returns 0 verified,
++# 2 skipped (no key / no openssl Ed25519; message printed), 1 failed.
++verify_manifest_signature() {
++  m_file="$1"; m_sigurl="$2"; m_tmp="$3"
++  if [ -z "$RELEASE_PUBKEY" ]; then
++    echo "NOTE: no release signing key is configured in this installer; manifest signature verification is SKIPPED (checksum-only)." >&2
++    return 2
++  fi
++  if ! command -v openssl >/dev/null 2>&1; then
++    echo "NOTE: openssl not found; manifest signature verification is SKIPPED (checksum-only)." >&2
++    return 2
++  fi
++  {
++    printf -- '-----BEGIN PUBLIC KEY-----\n'
++    printf 'MCowBQYDK2VwAyEA%s\n' "$RELEASE_PUBKEY"
++    printf -- '-----END PUBLIC KEY-----\n'
++  } > "${m_tmp}/pub.pem"
++  if ! openssl pkey -pubin -in "${m_tmp}/pub.pem" -noout >/dev/null 2>&1; then
++    echo "NOTE: this openssl cannot read Ed25519 keys; manifest signature verification is SKIPPED (checksum-only)." >&2
++    return 2
++  fi
++  curl --retry 3 --fail --location -fsSL -o "${m_tmp}/manifest.json.sig" "$m_sigurl" || return 1
++  # Contract: ONE line "<keyid> <base64sig>". keyid is the hex of the first 8
++  # bytes of SHA-256 of the raw public key. Anything else is malformed.
++  m_nfields="$(awk 'NR==1{print NF}' "${m_tmp}/manifest.json.sig")"
++  if [ "$m_nfields" != "2" ] || [ "$(wc -l < "${m_tmp}/manifest.json.sig" | tr -d ' ')" -gt 1 ]; then
++    echo "install.sh: malformed manifest.json.sig (expected '<keyid> <base64sig>')" >&2
++    return 1
++  fi
++  m_keyid="$(printf '%s' "$RELEASE_PUBKEY" | openssl base64 -d -A 2>/dev/null \
++    | openssl dgst -sha256 -binary | od -An -tx1 | tr -d ' \n' | cut -c1-16)"
++  m_sigkeyid="$(awk 'NR==1{print $1}' "${m_tmp}/manifest.json.sig")"
++  if [ -z "$m_keyid" ] || [ "$m_sigkeyid" != "$m_keyid" ]; then
++    echo "install.sh: manifest signed with key id '${m_sigkeyid}', not the pinned key '${m_keyid}'" >&2
++    return 1
++  fi
++  awk 'NR==1{print $2}' "${m_tmp}/manifest.json.sig" | openssl base64 -d -A > "${m_tmp}/sig.bin" 2>/dev/null || return 1
++  openssl pkeyutl -verify -pubin -inkey "${m_tmp}/pub.pem" -rawin \
++    -in "$m_file" -sigfile "${m_tmp}/sig.bin" >/dev/null 2>&1 || return 1
++  return 0
+ }
+ 
+ # ── Detect platform ──────────────────────────────────────────────────────────
+@@ -88,40 +165,126 @@ case "$ARCH" in
+ esac
+ 
+ ASSET="monoagentcli-${os}-${arch}"
++TMP_DIR="$(mktemp -d)"
++trap 'rm -rf "$TMP_DIR"' EXIT
++SRC=""   # the downloaded file to install, set by either path
++TAG=""
+ 
+-# ── Resolve the latest release ──────────────────────────────────────────────
+-echo "Resolving latest release of ${REPO}..."
+-RELEASE_JSON="$(curl --retry 3 --fail --location -fsSL "https://api.github.com/repos/${REPO}/releases/latest")" \
+-  || err "could not reach the GitHub API (network down, or rate-limited)"
++# ── Manifest path ────────────────────────────────────────────────────────────
++# Returns 10 when the manifest cannot be fetched (caller may fall back);
++# any other failure exits.
++install_from_manifest() {
++  echo "Fetching release manifest: ${MANIFEST_URL}"
++  curl --retry 3 --fail --location -fsSL -o "${TMP_DIR}/manifest.json" "$MANIFEST_URL" || return 10
+ 
+-TAG="$(printf '%s' "$RELEASE_JSON" | grep -o '"tag_name": *"[^"]*"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
+-[ -n "$TAG" ] || err "could not parse the latest tag from the GitHub API response"
++  if [ "$NO_VERIFY" -eq 1 ]; then
++    echo "WARNING: --no-verify given; skipping signature and checksum verification." >&2
++  else
++    sig_status=0
++    verify_manifest_signature "${TMP_DIR}/manifest.json" "${MANIFEST_URL}.sig" "$TMP_DIR" || sig_status=$?
++    case "$sig_status" in
++      0) echo "Manifest signature verified (Ed25519)." ;;
++      2) ;;
++      *) err "manifest signature verification FAILED; the manifest is not signed by the pinned release key. Nothing was installed." ;;
++    esac
++  fi
+ 
+-URL="https://github.com/${REPO}/releases/download/${TAG}/${ASSET}"
++  flat="$(tr '\n\r\t' '   ' < "${TMP_DIR}/manifest.json")"
++  TAG="$(json_field "$flat" version)"
++  # expires_at (optional, covered by the signature): RFC 3339 UTC as written by
++  # cmd/release-manifest. Same UTC layout, so a string compare orders it. Any
++  # other layout is refused rather than guessed at.
++  if [ "$NO_VERIFY" -ne 1 ]; then
++    m_exp="$(json_field "$flat" expires_at)"
++    if [ -n "$m_exp" ]; then
++      printf '%s' "$m_exp" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' \
++        || err "the manifest expires_at '${m_exp}' is not a UTC RFC 3339 time. Nothing was installed."
++      m_now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
++      [ "$m_exp" \> "$m_now" ] \
++        || err "the manifest expired at ${m_exp}; ask the maintainers for a fresh release. Nothing was installed."
++    fi
++  fi
++  # Asset objects hold no nested braces, so each is a {...} with no inner { or }.
++  entry=""
++  while IFS= read -r obj; do
++    if [ "$(json_field "$obj" os)" = "$os" ] && [ "$(json_field "$obj" arch)" = "$arch" ] \
++       && [ "$(json_field "$obj" kind)" = "cli" ]; then
++      entry="$obj"; break
++    fi
++  done < <(printf '%s' "$flat" | grep -o '{[^{}]*}' || true)
++  [ -n "$entry" ] || err "the manifest has no CLI asset for ${os}/${arch}"
++  a_name="$(json_field "$entry" name)"
++  a_url="$(json_field "$entry" url)"
++  a_sha="$(json_field "$entry" sha256)"
++  [ -n "$a_name" ] && [ -n "$a_url" ] || err "the manifest entry for ${os}/${arch} is incomplete"
++  asset_url_allowed "$a_url" \
++    || err "the manifest asset url '${a_url}' is not https on an allowed host (monoes.me, github.com, GitHub release assets). Nothing was installed."
++  case "$a_name" in */*|..*) err "the manifest asset name '${a_name}' is not a plain file name" ;; esac
+ 
+-# ── Download and verify ──────────────────────────────────────────────────────
+-TMP_DIR="$(mktemp -d)"
+-trap 'rm -rf "$TMP_DIR"' EXIT
++  echo "Downloading ${a_name} (${TAG:-unknown version})..."
++  curl --retry 3 --fail --location --progress-bar -o "${TMP_DIR}/${a_name}" "$a_url" \
++    || err "download failed: $a_url"
+ 
+-echo "Downloading ${ASSET} (${TAG})..."
+-# Downloaded under the release asset name so it matches its SHA256SUMS.txt line.
+-curl --retry 3 --fail --location --progress-bar -o "${TMP_DIR}/${ASSET}" "$URL" \
+-  || err "download failed: $URL (does this release include the ${ASSET} asset?)"
++  if [ "$NO_VERIFY" -ne 1 ]; then
++    [ -n "$a_sha" ] || err "the manifest gives no sha256 for ${a_name}"
++    got="$(sha256_of "${TMP_DIR}/${a_name}")"
++    [ "$got" = "$a_sha" ] \
++      || err "checksum mismatch for ${a_name} (manifest ${a_sha}, downloaded ${got}). Nothing was installed."
++    echo "Checksum verified: ${a_name} SHA256 ${got}"
++  fi
++
++  case "$a_name" in
++    *.tar.gz|*.tgz)
++      command -v tar >/dev/null 2>&1 || err "tar is required to unpack ${a_name}"
++      mkdir -p "${TMP_DIR}/x"
++      tar -xzf "${TMP_DIR}/${a_name}" -C "${TMP_DIR}/x" || err "could not unpack ${a_name}"
++      SRC="$(find "${TMP_DIR}/x" -type f -name "$BIN" | head -n 1)"
++      [ -n "$SRC" ] || err "${a_name} does not contain ${BIN}"
++      ;;
++    *) SRC="${TMP_DIR}/${a_name}" ;;
++  esac
++}
++
++# ── Legacy path: GitHub API + SHA256SUMS.txt ─────────────────────────────────
++install_from_github_legacy() {
++  echo "Using the legacy GitHub release path for ${REPO} (no signed manifest)."
++  RELEASE_JSON="$(curl --retry 3 --fail --location -fsSL "https://api.github.com/repos/${REPO}/releases/latest")" \
++    || err "could not reach the GitHub API (network down, rate-limited, or the repository is not public)"
++  TAG="$(printf '%s' "$RELEASE_JSON" | grep -o '"tag_name": *"[^"]*"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
++  [ -n "$TAG" ] || err "could not parse the latest tag from the GitHub API response"
++  URL="https://github.com/${REPO}/releases/download/${TAG}/${ASSET}"
++
++  echo "Downloading ${ASSET} (${TAG})..."
++  curl --retry 3 --fail --location --progress-bar -o "${TMP_DIR}/${ASSET}" "$URL" \
++    || err "download failed: $URL (does this release include the ${ASSET} asset?)"
++
++  if [ "$NO_VERIFY" -eq 1 ]; then
++    echo "WARNING: --no-verify given; skipping checksum verification." >&2
++  else
++    SUMS_URL="https://github.com/${REPO}/releases/download/${TAG}/SHA256SUMS.txt"
++    curl --retry 3 --fail --location -fsSL -o "${TMP_DIR}/SHA256SUMS.txt" "$SUMS_URL" \
++      || err "SHA256SUMS.txt not found at ${SUMS_URL}. Refusing to install an unverified binary; re-run with --no-verify to override at your own risk."
++    VERIFIED="$(verify_checksum "${TMP_DIR}" "${ASSET}")" \
++      || err "checksum verification FAILED for ${ASSET}; the download does not match ${TAG}'s published digest. Nothing was installed."
++    echo "Checksum verified: ${ASSET} SHA256 ${VERIFIED}"
++  fi
++  SRC="${TMP_DIR}/${ASSET}"
++}
+ 
+-if [ "$NO_VERIFY" -eq 1 ]; then
+-  echo "WARNING: --no-verify given — skipping checksum verification." >&2
++if [ "${MONOAGENT_ALLOW_LEGACY_GITHUB:-0}" = "1" ]; then
++  install_from_github_legacy
+ else
+-  SUMS_URL="https://github.com/${REPO}/releases/download/${TAG}/SHA256SUMS.txt"
+-  if ! curl --retry 3 --fail --location -fsSL -o "${TMP_DIR}/SHA256SUMS.txt" "$SUMS_URL"; then
+-    err "SHA256SUMS.txt not found at ${SUMS_URL} — this release probably predates checksum publication. Refusing to install an unverified binary; re-run with --no-verify to override at your own risk."
++  rc=0
++  install_from_manifest || rc=$?
++  if [ "$rc" -eq 10 ]; then
++    echo "Manifest unreachable (${MANIFEST_URL}); falling back to the legacy GitHub path." >&2
++    install_from_github_legacy
+   fi
+-  VERIFIED="$(verify_checksum "${TMP_DIR}" "${ASSET}")" \
+-    || err "checksum verification FAILED for ${ASSET} — the download does not match ${TAG}'s published digest. Nothing was installed."
+-  echo "Checksum verified: ${ASSET} SHA256 ${VERIFIED}"
+ fi
+ 
+-chmod +x "${TMP_DIR}/${ASSET}"
++chmod +x "$SRC"
+ 
++# ── Install ──────────────────────────────────────────────────────────────────
+ # sudo only when the install dir (or, if it does not exist yet, its closest
+ # existing parent) is not writable by this user — e.g. INSTALL_DIR=~/.local/bin
+ # never needs it.
+@@ -137,13 +300,13 @@ writable_target() {
+ SUDO=""
+ if [ "$(id -u)" != "0" ] && ! writable_target "$INSTALL_DIR"; then
+   command -v sudo >/dev/null 2>&1 \
+-    || err "${INSTALL_DIR} is not writable by $(id -un) and sudo is not available — re-run as root, or choose a writable directory with INSTALL_DIR=\$HOME/.local/bin"
++    || err "${INSTALL_DIR} is not writable by $(id -un) and sudo is not available; re-run as root, or choose a writable directory with INSTALL_DIR=\$HOME/.local/bin"
+   SUDO="sudo"
+ fi
+ 
+ $SUDO mkdir -p "$INSTALL_DIR" || err "cannot create ${INSTALL_DIR}"
+-$SUDO mv "${TMP_DIR}/${ASSET}" "${INSTALL_DIR}/${BIN}" || err "cannot install into ${INSTALL_DIR}"
++$SUDO mv "$SRC" "${INSTALL_DIR}/${BIN}" || err "cannot install into ${INSTALL_DIR}"
+ 
+-echo "Installed: ${INSTALL_DIR}/${BIN} (${TAG}, ${os}/${arch})"
++echo "Installed: ${INSTALL_DIR}/${BIN} (${TAG:-unknown version}, ${os}/${arch})"
+ echo "Verify with:  ${INSTALL_DIR}/${BIN} version"
+ echo "Account and offline behavior:  ${INSTALL_DIR}/${BIN} ref account"
+diff --git a/internal/accountsmoke/adopt_test.go b/internal/accountsmoke/adopt_test.go
+new file mode 100644
+index 000000000..ed48c3d08
+--- /dev/null
++++ b/internal/accountsmoke/adopt_test.go
+@@ -0,0 +1,99 @@
++//go:build devaccount && !windows
++
++package accountsmoke
++
++import (
++	"context"
++	"os"
++	"os/exec"
++	"path/filepath"
++	"runtime"
++	"sync"
++	"testing"
++
++	"github.com/zalando/go-keyring"
++
++	"github.com/monoes/mono-agent/internal/library"
++	"github.com/monoes/mono-agent/internal/secrets"
++	"github.com/monoes/mono-agent/internal/storage"
++)
++
++const seedEnv = "ACCOUNTSMOKE_SEED_OLDER_LOGIN"
++
++// TestSeedOlderLogin is not a test: the smoke starts it as a process of its own to store an older
++// library login in the rig's vault with the library's own writer. The vault key is cached per
++// process, so a process per rig keeps one rig's key from leaking into another's.
++func TestSeedOlderLogin(t *testing.T) {
++	home := os.Getenv(seedEnv)
++	if home == "" {
++		t.Skip("started by the smoke only")
++	}
++	keyring.MockInitWithError(os.ErrNotExist) // the binary under test has no OS keyring either: the file keyring
++	if err := os.MkdirAll(filepath.Join(home, ".monoagent"), 0o700); err != nil {
++		t.Fatal(err)
++	}
++	db, err := storage.NewDatabase(filepath.Join(home, ".monoagent", "monoagent.db"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer db.Close()
++	if err := db.ApplyMigrations(); err != nil { // the previous release had migrated it
++		t.Fatal(err)
++	}
++	host := os.Getenv("MONOES_BASE_URL")
++	vs := &library.VaultStore{DB: db.DB, ProfileID: "default", BaseURL: host}
++	tok := &library.Token{AccessToken: os.Getenv("SEED_ACCESS"), RefreshToken: os.Getenv("SEED_REFRESH"), TokenType: "Bearer",
++		Method: "pkce", BaseURL: host, User: &library.User{ID: "u-ada", Username: "ada", Email: testEmail}}
++	if err := vs.Save(context.Background(), tok); err != nil {
++		t.Fatal(err)
++	}
++	// A machine on the file keyring has the account key only once somebody has signed in (an implicit
++	// call may not prompt for the passphrase that creates it), so make it as that sign-in would.
++	if _, _, err := secrets.AccountKEK(true, true); err != nil {
++		t.Fatal(err)
++	}
++}
++
++// seedOlderLogin gives the rig the login the previous release stored.
++func (r *rig) seedOlderLogin() {
++	r.t.Helper()
++	access, refresh := r.fake.NewGrant("ada")
++	cmd := exec.Command(os.Args[0], "-test.run=^TestSeedOlderLogin$")
++	cmd.Env = r.env(seedEnv+"="+r.home, "SEED_ACCESS="+access, "SEED_REFRESH="+refresh)
++	if out, err := cmd.CombinedOutput(); err != nil {
++		r.t.Fatalf("seeding the older login: %v\n%s", err, out)
++	}
++}
++
++// Two processes that start together on a machine with an older login make one try between them:
++// one refresh grant reaches monoes.me, the older refresh token is never presented again (monoes.me
++// would end every login of the account), and the older login is gone.
++func TestTwoFirstRunsMakeOneAdoption(t *testing.T) {
++	if runtime.GOOS == "darwin" {
++		t.Skip("the vault key lives in the OS keychain there, not in the rig's file keyring")
++	}
++	r := newRig(t, rigOptions{enforce: past})
++	r.seedOlderLogin()
++	var wg sync.WaitGroup
++	for i := 0; i < 2; i++ {
++		wg.Add(1)
++		go func() { defer wg.Done(); r.run("workflow", "list") }()
++	}
++	wg.Wait()
++	r.run("workflow", "list")
++	if n := r.edge.refreshes(); n != 1 {
++		t.Fatalf("%d refresh grants reached monoes.me, want 1", n)
++	}
++	if r.fake.Replays != 0 {
++		t.Fatal("a spent refresh token was presented again")
++	}
++	if sess := r.session(); sess == nil || sess.AccessToken == "" {
++		t.Fatal("nobody adopted the older login")
++	}
++	if res := r.run("workflow", "list"); res.code != 0 {
++		t.Fatalf("after the adoption the gated command is refused (exit %d): %s", res.code, res.stderr)
++	}
++	if n := r.edge.refreshes(); n != 1 {
++		t.Fatalf("a later run presented a token: %d grants", n)
++	}
++}
+diff --git a/internal/accountsmoke/rig_test.go b/internal/accountsmoke/rig_test.go
+index c5647f48a..ec4d07b9b 100644
+--- a/internal/accountsmoke/rig_test.go
++++ b/internal/accountsmoke/rig_test.go
+@@ -326,6 +326,7 @@ func (r *rig) env(extra ...string) []string {
+ 	}
+ 	return append([]string{
+ 		"PATH=" + os.Getenv("PATH"), "HOME=" + r.home,
++		"DBUS_SESSION_BUS_ADDRESS=unix:path=" + filepath.Join(r.dir, "no-bus"), // no Secret Service: the vault uses the file keyring, as on a headless host
+ 		"MONOES_BASE_URL=" + r.fake.URL,
+ 		"MONOAGENT_ALLOW_FILE_KEYRING=1", "MONOAGENT_FILE_KEYRING_PASSPHRASE_FILE=" + filepath.Join(r.dir, "passphrase"),
+ 		"MONOMIND_BIN=" + filepath.Join(r.dir, "monomind"), "FAKE_MONOMIND_LOG=" + filepath.Join(r.dir, "monomind.log"),
+diff --git a/internal/ai/chat/publication.go b/internal/ai/chat/publication.go
+index f760a9dc7..f6e867c53 100644
+--- a/internal/ai/chat/publication.go
++++ b/internal/ai/chat/publication.go
+@@ -5,6 +5,7 @@ import (
+ 	"encoding/json"
+ 	"fmt"
+ 
++	"github.com/monoes/mono-agent/internal/orgsign"
+ 	"github.com/monoes/mono-agent/internal/publication"
+ 	"github.com/monoes/mono-agent/internal/workflow"
+ )
+@@ -24,13 +25,15 @@ func publicationToolDefs() []ToolDef {
+ 		makeDef("list_publications", "List published content in this profile, newest first.", publication.FilterSchema()),
+ 		makeDef("get_publication", "Read a publication's content, destination and publishing source.", map[string]interface{}{"id": strParam("Publication ID")}, "id"),
+ 		makeDef("publication_stats", "Count this profile's publications by platform and kind.", nil),
++		makeDef("delete_publication", "Remove a publication from this profile's history; the remote post is untouched. Operator sessions only.", map[string]interface{}{"id": strParam("Publication ID")}, "id"),
++		makeDef("redact_publication", "Replace a publication's body (and title if title is true) with [redacted], keeping the entry. Operator sessions only.", map[string]interface{}{"id": strParam("Publication ID"), "title": map[string]interface{}{"type": "boolean", "description": "Also redact the title"}}, "id"),
+ 		makeDef("register_publication", "Record content already successfully published with an external tool. This does not publish. Built-in publishing nodes record automatically. Supply exact content, destination, remote URL/ID and your agent identity; use an idempotency key to avoid duplicate registration.", publication.EntrySchema(), "platform", "kind"),
+ 	}
+ }
+ 
+ func (mt *MonoagentTools) executePublication(ctx context.Context, name, args string) (string, bool, error) {
+ 	switch name {
+-	case "list_publications", "get_publication", "publication_stats", "register_publication":
++	case "list_publications", "get_publication", "publication_stats", "register_publication", "delete_publication", "redact_publication":
+ 	default:
+ 		return "", false, nil
+ 	}
+@@ -56,6 +59,26 @@ func (mt *MonoagentTools) executePublication(ctx context.Context, name, args str
+ 		}
+ 	case "publication_stats":
+ 		result, err = store.Stats(ctx)
++	case "delete_publication", "redact_publication":
++		var a struct {
++			ID    string `json:"id"`
++			Title bool   `json:"title"`
++		}
++		if err = mt.checkOperatorPublicationEdit(ctx, name); err != nil {
++			break
++		}
++		if err = json.Unmarshal([]byte(args), &a); err != nil {
++			break
++		}
++		if a.ID == "" {
++			err = fmt.Errorf("id is required")
++		} else if name == "delete_publication" {
++			if err = store.Delete(ctx, a.ID); err == nil {
++				result = map[string]any{"deleted": a.ID}
++			}
++		} else {
++			result, err = store.Redact(ctx, a.ID, a.Title)
++		}
+ 	case "register_publication":
+ 		if err = mt.checkInjectionGate(name); err != nil {
+ 			break
+@@ -80,3 +103,19 @@ func (mt *MonoagentTools) executePublication(ctx context.Context, name, args str
+ 	b, err := json.Marshal(result)
+ 	return string(b), true, err
+ }
++
++// checkOperatorPublicationEdit keeps deleting and redacting history with the
++// operator, as the CLI does: refused once untrusted communications entered the
++// session, and inside an agent session (an org run, or an agent-context marker).
++func (mt *MonoagentTools) checkOperatorPublicationEdit(ctx context.Context, tool string) error {
++	if err := mt.checkInjectionGate(tool); err != nil {
++		return err
++	}
++	if src := workflow.PublicationSource(ctx, workflow.NodeInput{}); src.OrgID != "" || src.RoleID != "" || src.AgentID != "" {
++		return fmt.Errorf("%s refused: only the operator can change publication history, not an agent running for an org; ask the operator to run `monoagentcli publication`", tool)
++	}
++	if m := orgsign.AgentContextMarker(); m != "" {
++		return fmt.Errorf("%s refused: %s is set, so an agent is running this; only the operator can change publication history", tool, m)
++	}
++	return nil
++}
+diff --git a/internal/ai/chat/publication_redact_test.go b/internal/ai/chat/publication_redact_test.go
+new file mode 100644
+index 000000000..438832348
+--- /dev/null
++++ b/internal/ai/chat/publication_redact_test.go
+@@ -0,0 +1,65 @@
++package chat
++
++import (
++	"context"
++	"encoding/json"
++	"strings"
++	"testing"
++
++	"github.com/monoes/mono-agent/internal/orgsign"
++	"github.com/monoes/mono-agent/internal/publication"
++	"github.com/monoes/mono-agent/internal/workflow"
++)
++
++func TestPublicationDeleteRedactOperatorOnly(t *testing.T) {
++	for _, m := range orgsign.AgentContextMarkers() {
++		t.Setenv(m, "")
++	}
++	db := newMonoagentTestDB(t)
++	mt := NewMonoagentTools(db.DB, "")
++	other := NewMonoagentTools(db.DB, "")
++	other.SetProfileID("other")
++	ctx := context.Background()
++	reg := func(tools *MonoagentTools, title string) publication.Entry {
++		raw, err := tools.ExecuteContext(ctx, "register_publication", `{"platform":"blog","kind":"article","title":"`+title+`","body":"text"}`)
++		if err != nil {
++			t.Fatal(err)
++		}
++		var e publication.Entry
++		_ = json.Unmarshal([]byte(raw), &e)
++		return e
++	}
++	a, b := reg(mt, "mine"), reg(other, "theirs")
++	for _, tool := range []string{"redact_publication", "delete_publication"} {
++		if _, err := mt.ExecuteContext(ctx, tool, `{"id":"`+b.ID+`"}`); err == nil {
++			t.Fatalf("%s touched another profile", tool)
++		}
++	}
++	orgCtx := workflow.WithTrigger(ctx, workflow.TriggerTypeOrgTool, map[string]interface{}{"org": map[string]interface{}{"name": "acme", "role": "writer", "agent_id": "a1"}})
++	for _, tool := range []string{"redact_publication", "delete_publication"} {
++		if _, err := mt.ExecuteContext(orgCtx, tool, `{"id":"`+a.ID+`"}`); err == nil || !strings.Contains(err.Error(), "operator") {
++			t.Fatalf("%s in org run: %v", tool, err)
++		}
++	}
++	marker := orgsign.AgentContextMarkers()[0]
++	t.Setenv(marker, "1")
++	if _, err := mt.ExecuteContext(ctx, "delete_publication", `{"id":"`+a.ID+`"}`); err == nil {
++		t.Fatal("delete allowed with agent marker")
++	}
++	t.Setenv(marker, "")
++	mt.markSyncedCommsSeen()
++	if _, err := mt.ExecuteContext(ctx, "redact_publication", `{"id":"`+a.ID+`"}`); err == nil {
++		t.Fatal("redact allowed after untrusted communications")
++	}
++	fresh := NewMonoagentTools(db.DB, "")
++	raw, err := fresh.ExecuteContext(ctx, "redact_publication", `{"id":"`+a.ID+`","title":true}`)
++	if err != nil || !strings.Contains(raw, "[redacted]") || strings.Contains(raw, "mine") {
++		t.Fatalf("redact: %s %v", raw, err)
++	}
++	if _, err = fresh.ExecuteContext(ctx, "delete_publication", `{"id":"`+a.ID+`"}`); err != nil {
++		t.Fatal(err)
++	}
++	if _, err = fresh.ExecuteContext(ctx, "get_publication", `{"id":"`+a.ID+`"}`); err == nil {
++		t.Fatal("deleted entry still readable")
++	}
++}
+diff --git a/internal/appupdate/appupdate.go b/internal/appupdate/appupdate.go
+index a14a45230..e3958dc23 100644
+--- a/internal/appupdate/appupdate.go
++++ b/internal/appupdate/appupdate.go
+@@ -1,5 +1,6 @@
+ // Package appupdate installs the desktop app — and the CLI bundled with it —
+-// from the latest release. `monoagentcli update --app` runs it; the desktop
++// from the latest release (the signed manifest first; the GitHub API and
++// SHA256SUMS.txt only while release.AllowLegacyGitHubUpdates). `monoagentcli update --app` runs it; the desktop
+ // app only shells out to that command and shows its progress.
+ //
+ // Every asset is verified against the release's SHA256SUMS.txt before
+@@ -19,6 +20,7 @@ package appupdate
+ import (
+ 	"context"
+ 	"encoding/json"
++	"errors"
+ 	"fmt"
+ 	"io"
+ 	"net/http"
+@@ -27,6 +29,7 @@ import (
+ 	"path/filepath"
+ 	"strings"
+ 
++	"github.com/monoes/mono-agent/internal/release"
+ 	"github.com/monoes/mono-agent/internal/updatecheck"
+ )
+ 
+@@ -34,9 +37,15 @@ import (
+ // Everything OS-specific is a field, so tests run every OS path against a
+ // fake release server.
+ type Updater struct {
+-	Context      context.Context // nil: context.Background()
+-	Client       *http.Client    // nil: http.DefaultClient
+-	APIURL       string          // GitHub's latest-release endpoint
++	Context context.Context // nil: context.Background()
++	Client  *http.Client    // nil: http.DefaultClient
++	APIURL  string          // GitHub's latest-release endpoint (legacy path)
++	// Release is the signed-manifest client; nil: release.DefaultClient().
++	Release *release.Client
++	// Current is the installed version for the downgrade check ("" skips it);
++	// Force allows installing an older release.
++	Current      string
++	Force        bool
+ 	GOOS, GOARCH string
+ 	Exe          string // the app binary, symlinks resolved
+ 	// UpToDate reports whether the release tag is not newer than the app;
+@@ -99,13 +108,36 @@ func (u Updater) Run() (Result, error) {
+ 		return Result{}, fmt.Errorf("app update not supported on %s/%s", u.GOOS, u.GOARCH)
+ 	}
+ 	u.Progress("Checking for updates...")
+-	rel, err := u.fetchRelease()
+-	if err != nil {
+-		return Result{}, err
++	rc := u.Release
++	if rc == nil {
++		rc = release.DefaultClient()
++	}
++	var manifest *release.Manifest
++	var rel *releaseInfo
++	tag := ""
++	rcc := *rc
++	rcc.Force = rcc.Force || u.Force
++	rc = &rcc
++	m, err := rc.Latest(u.Context)
++	switch {
++	case err == nil:
++		manifest, tag = m, m.Version
++	case !errors.Is(err, release.ErrUnavailable):
++		return Result{}, fmt.Errorf("the signed release manifest was rejected: %w; nothing was installed", err)
++	case !release.AllowLegacyGitHubUpdates:
++		return Result{}, fmt.Errorf("cannot verify an update: %w", err)
++	default:
++		if rel, err = u.fetchRelease(); err != nil {
++			return Result{}, err
++		}
++		tag = rel.TagName
+ 	}
+-	if u.UpToDate != nil && u.UpToDate(rel.TagName) {
++	if u.UpToDate != nil && u.UpToDate(tag) {
+ 		return Result{UpToDate: true}, nil
+ 	}
++	if err := release.CheckDowngrade(tag, u.Current, u.Force); err != nil {
++		return Result{}, fmt.Errorf("%w; the installed app was kept", err)
++	}
+ 	u.Progress("Downloading app update...")
+ 	want := []string{asset}
+ 	// The Windows CLI is a separate asset; update it only when the app has
+@@ -117,7 +149,12 @@ func (u Updater) Run() (Result, error) {
+ 			want = append(want, bundledCLIAssetWindows)
+ 		}
+ 	}
+-	files, err := u.downloadVerified(rel, want)
++	var files map[string][]byte
++	if manifest != nil {
++		files, err = u.downloadSigned(rc, manifest, want)
++	} else {
++		files, err = u.downloadVerified(rel, want)
++	}
+ 	if err != nil {
+ 		return Result{}, err
+ 	}
+@@ -137,7 +174,7 @@ func (u Updater) Run() (Result, error) {
+ 		return Result{}, err
+ 	}
+ 	u.Progress("Update installed — restarting")
+-	return Result{NewVersion: rel.TagName, Restart: restart}, nil
++	return Result{NewVersion: tag, Restart: restart}, nil
+ }
+ 
+ func (u Updater) fetchRelease() (*releaseInfo, error) {
+@@ -162,6 +199,30 @@ func (u Updater) fetchRelease() (*releaseInfo, error) {
+ 	return &rel, nil
+ }
+ 
++// downloadSigned downloads each named asset listed in the signed manifest; the
++// client returns bytes only after the size and sha256 pass.
++func (u Updater) downloadSigned(rc *release.Client, m *release.Manifest, names []string) (map[string][]byte, error) {
++	assets := map[string]release.Asset{}
++	for _, n := range names {
++		// Every desktop asset, including the Windows bundled CLI exe, is
++		// kind "app" in the manifest.
++		a, err := m.Asset(n, u.GOOS, u.GOARCH, "app")
++		if err != nil {
++			return nil, err
++		}
++		assets[n] = a
++	}
++	out := map[string][]byte{}
++	for _, n := range names {
++		data, err := rc.Download(u.Context, assets[n])
++		if err != nil {
++			return nil, fmt.Errorf("%w; nothing was installed", err)
++		}
++		out[n] = data
++	}
++	return out, nil
++}
++
+ // downloadVerified downloads each named asset and checks it against the
+ // release's SHA256SUMS.txt (exact entry per name). Any failure is an error
+ // and nothing is returned.
+diff --git a/internal/appupdate/appupdate_kind_test.go b/internal/appupdate/appupdate_kind_test.go
+new file mode 100644
+index 000000000..44763afb6
+--- /dev/null
++++ b/internal/appupdate/appupdate_kind_test.go
+@@ -0,0 +1,25 @@
++package appupdate
++
++import (
++	"testing"
++
++	"github.com/monoes/mono-agent/internal/release"
++)
++
++func TestSignedWindowsBundledExeIsKindApp(t *testing.T) {
++	m := &release.Manifest{Assets: []release.Asset{
++		{OS: "windows", Arch: "amd64", Name: "MonoAgent-windows-amd64.exe", Kind: "app"},
++		{OS: "windows", Arch: "amd64", Name: bundledCLIAssetWindows, Kind: "app"},
++	}}
++	for _, n := range []string{"MonoAgent-windows-amd64.exe", bundledCLIAssetWindows} {
++		if _, err := m.Asset(n, "windows", "amd64", "app"); err != nil {
++			t.Fatal(err)
++		}
++	}
++	// A manifest that labels the bundled exe "cli" is not accepted for it.
++	m.Assets[1].Kind = "cli"
++	u := Updater{GOOS: "windows", GOARCH: "amd64"}
++	if _, err := u.downloadSigned(&release.Client{}, m, []string{bundledCLIAssetWindows}); err == nil {
++		t.Fatal("bundled exe must be selected by kind \"app\"")
++	}
++}
+diff --git a/internal/appupdate/appupdate_signed_test.go b/internal/appupdate/appupdate_signed_test.go
+new file mode 100644
+index 000000000..d4382c35c
+--- /dev/null
++++ b/internal/appupdate/appupdate_signed_test.go
+@@ -0,0 +1,127 @@
++package appupdate
++
++import (
++	"crypto/ed25519"
++	"crypto/rand"
++	"encoding/base64"
++	"encoding/json"
++	"net/http"
++	"net/http/httptest"
++	"path/filepath"
++	"strings"
++	"testing"
++
++	"github.com/monoes/mono-agent/internal/release"
++)
++
++// signedRig serves a signed manifest for the linux app tarball over TLS.
++type signedRig struct {
++	srv        *httptest.Server
++	rc         *release.Client
++	tarball    []byte
++	servedBody []byte // what /app answers
++	manifest   []byte
++	sig        []byte
++}
++
++func newSignedRig(t *testing.T, version string) *signedRig {
++	t.Helper()
++	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
++	r := &signedRig{tarball: linuxTarball(t, map[string]string{"MonoAgent-linux-amd64": "new app", "monoagentcli": "new cli"})}
++	r.servedBody = r.tarball
++	mux := http.NewServeMux()
++	r.srv = httptest.NewTLSServer(mux)
++	t.Cleanup(r.srv.Close)
++	m := release.Manifest{Schema: 1, Version: version, ReleasedAt: "2026-10-08T10:00:00Z", Assets: []release.Asset{{
++		OS: "linux", Arch: "amd64", Name: "MonoAgent-linux-amd64.tar.gz", URL: r.srv.URL + "/app",
++		SHA256: sha256hex(r.tarball), Size: int64(len(r.tarball)), Kind: "app"}}}
++	r.manifest, _ = json.Marshal(m)
++	r.sig = []byte(release.KeyID(pub) + " " + base64.StdEncoding.EncodeToString(ed25519.Sign(priv, r.manifest)))
++	mux.HandleFunc("/manifest.json", func(w http.ResponseWriter, _ *http.Request) { w.Write(r.manifest) })
++	mux.HandleFunc("/manifest.json.sig", func(w http.ResponseWriter, _ *http.Request) { w.Write(r.sig) })
++	mux.HandleFunc("/app", func(w http.ResponseWriter, _ *http.Request) { w.Write(r.servedBody) })
++	r.rc = &release.Client{HTTP: r.srv.Client(), Keys: []release.Key{{ID: release.KeyID(pub), Public: pub}},
++		ManifestURLs: []string{r.srv.URL + "/manifest.json"}, Hosts: []string{"127.0.0.1"}, RedirectHosts: []string{"127.0.0.1"}}
++	return r
++}
++
++func (r *signedRig) updater(exe string) Updater {
++	return Updater{Release: r.rc, GOOS: "linux", GOARCH: "amd64", Exe: exe,
++		// A legacy endpoint that must never be reached when the signed path answers.
++		APIURL: "https://127.0.0.1:1/never", StartDetached: func(string, ...string) error { return nil }}
++}
++
++func TestSignedAppUpdateInstalls(t *testing.T) {
++	r := newSignedRig(t, "v2.0.0")
++	exe := linuxInstall(t, "monoagentcli")
++	res, err := r.updater(exe).Run()
++	if err != nil || res.NewVersion != "v2.0.0" {
++		t.Fatalf("result = %+v, %v", res, err)
++	}
++	if readFile(t, exe) != "new app" || readFile(t, filepath.Join(filepath.Dir(exe), "monoagentcli")) != "new cli" {
++		t.Fatal("not installed")
++	}
++}
++
++func TestSignedAppUpdateFailsClosed(t *testing.T) {
++	for _, tc := range []struct {
++		desc, want string
++		mutate     func(*signedRig)
++		current    string
++	}{
++		{"tampered asset", "sha256 mismatch", func(r *signedRig) {
++			b := append([]byte(nil), r.tarball...)
++			b[len(b)-1] ^= 0xff
++			r.servedBody = b
++		}, ""},
++		{"bad signature", "signature does not match", func(r *signedRig) { r.manifest = []byte(strings.Replace(string(r.manifest), "v2.0.0", "v3.0.0", 1)) }, ""},
++		{"downgrade", "refusing to downgrade", func(*signedRig) {}, "v3.0.0"},
++	} {
++		t.Run(tc.desc, func(t *testing.T) {
++			r := newSignedRig(t, "v2.0.0")
++			tc.mutate(r)
++			exe := linuxInstall(t, "monoagentcli")
++			u := r.updater(exe)
++			u.Current = tc.current
++			_, err := u.Run()
++			if err == nil || !strings.Contains(err.Error(), tc.want) {
++				t.Fatalf("err = %v, want one containing %q", err, tc.want)
++			}
++			if readFile(t, exe) != "old app" || readFile(t, filepath.Join(filepath.Dir(exe), "monoagentcli")) != "old cli" {
++				t.Fatal("installation changed")
++			}
++		})
++	}
++}
++
++func TestSignedAppUpdateForceAllowsDowngrade(t *testing.T) {
++	r := newSignedRig(t, "v2.0.0")
++	u := r.updater(linuxInstall(t, "monoagentcli"))
++	u.Current, u.Force = "v3.0.0", true
++	if _, err := u.Run(); err != nil {
++		t.Fatal(err)
++	}
++}
++
++func TestNoPinnedKeyFallsBackOnlyWhileLegacyAllowed(t *testing.T) {
++	tgz := linuxTarball(t, map[string]string{"MonoAgent-linux-amd64": "new app", "monoagentcli": "new cli"})
++	srv := fakeAppRelease{assets: map[string][]byte{"MonoAgent-linux-amd64.tar.gz": tgz}}.server(t)
++	var started []string
++	u := testUpdater(srv, "linux", "amd64", linuxInstall(t, "monoagentcli"), &started)
++	u.Release = &release.Client{} // no pinned key
++	if _, err := u.Run(); err != nil {
++		t.Fatalf("legacy fallback: %v", err)
++	}
++
++	release.AllowLegacyGitHubUpdates = false
++	t.Cleanup(func() { release.AllowLegacyGitHubUpdates = true })
++	exe := linuxInstall(t, "monoagentcli")
++	u = testUpdater(srv, "linux", "amd64", exe, &started)
++	u.Release = &release.Client{}
++	if _, err := u.Run(); err == nil || !strings.Contains(err.Error(), "cannot verify") {
++		t.Fatalf("legacy off: %v", err)
++	}
++	if readFile(t, exe) != "old app" {
++		t.Fatal("installed without verification")
++	}
++}
+diff --git a/internal/mcp/publication.go b/internal/mcp/publication.go
+index d7b048995..c139b5760 100644
+--- a/internal/mcp/publication.go
++++ b/internal/mcp/publication.go
+@@ -8,5 +8,7 @@ func publicationTools() []tool {
+ 		{name: "publication_get", description: "Read a publication with its content, live URL and agent/workflow source.", schema: objSchema(map[string]interface{}{"id": strParam("Publication ID")}, "id"), annotations: map[string]bool{"readOnlyHint": true}, handler: chatToolHandler("get_publication")},
+ 		{name: "publication_stats", description: "Count this profile's publications by platform and kind.", schema: objSchema(nil), annotations: map[string]bool{"readOnlyHint": true}, handler: chatToolHandler("publication_stats")},
+ 		{name: "publication_register", description: "Register content already successfully published outside mono-agent's built-in nodes. Does not publish. Use remote identity or idempotency_key to register a result once.", schema: objSchema(publication.EntrySchema(), "platform", "kind"), mutating: true, annotations: map[string]bool{"readOnlyHint": false}, handler: chatToolHandler("register_publication")},
++		{name: "publication_delete", description: "Remove a publication from this profile's history (the remote post is untouched). Operator sessions only: refused inside an agent session.", schema: objSchema(map[string]interface{}{"id": strParam("Publication ID")}, "id"), mutating: true, annotations: map[string]bool{"destructiveHint": true}, handler: chatToolHandler("delete_publication")},
++		{name: "publication_redact", description: "Replace a publication's body (and title if title is true) with [redacted], keeping the entry, URL, kind, platform and timestamps. Operator sessions only: refused inside an agent session.", schema: objSchema(map[string]interface{}{"id": strParam("Publication ID"), "title": boolParam("Also redact the title")}, "id"), mutating: true, annotations: map[string]bool{"destructiveHint": true}, handler: chatToolHandler("redact_publication")},
+ 	}
+ }
+diff --git a/internal/mcp/publication_redact_test.go b/internal/mcp/publication_redact_test.go
+new file mode 100644
+index 000000000..951340b44
+--- /dev/null
++++ b/internal/mcp/publication_redact_test.go
+@@ -0,0 +1,57 @@
++package mcp
++
++import (
++	"context"
++	"encoding/json"
++	"strings"
++	"testing"
++
++	"github.com/monoes/mono-agent/internal/orgsign"
++	"github.com/monoes/mono-agent/internal/publication"
++)
++
++func TestPublicationMCPDeleteRedactGatedAndScoped(t *testing.T) {
++	for _, allow := range []bool{false, true} {
++		names := map[string]bool{}
++		for _, def := range toolDefinitions(allow) {
++			names[def["name"].(string)] = true
++		}
++		if names["publication_delete"] != allow || names["publication_redact"] != allow {
++			t.Fatalf("delete/redact gate with allow=%v", allow)
++		}
++	}
++	for _, m := range orgsign.AgentContextMarkers() {
++		t.Setenv(m, "")
++	}
++	s := newTestServerAllowMutations(t, true)
++	rt, err := s.runtime()
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer s.closeRuntime()
++	ctx := context.Background()
++	other, err := publication.NewStore(rt.db.DB, "other").Register(ctx, publication.Entry{Platform: "custom", Kind: "post", Body: "theirs"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, tool := range []string{"publication_redact", "publication_delete"} {
++		if _, err = callTool(ctx, s, tool, json.RawMessage(`{"id":"`+other.ID+`"}`)); err == nil {
++			t.Fatalf("%s crossed profiles", tool)
++		}
++	}
++	raw, err := callTool(ctx, s, "publication_register", json.RawMessage(`{"platform":"custom","kind":"post","body":"ours"}`))
++	if err != nil {
++		t.Fatal(err)
++	}
++	var mine publication.Entry
++	if err = json.Unmarshal([]byte(raw), &mine); err != nil {
++		t.Fatalf("register output %v: %s", err, raw)
++	}
++	raw, err = callTool(ctx, s, "publication_redact", json.RawMessage(`{"id":"`+mine.ID+`"}`))
++	if err != nil || !strings.Contains(raw, "[redacted]") {
++		t.Fatalf("redact: %v %v", raw, err)
++	}
++	if _, err = callTool(ctx, s, "publication_delete", json.RawMessage(`{"id":"`+mine.ID+`"}`)); err != nil {
++		t.Fatal(err)
++	}
++}
+diff --git a/internal/publication/redact_test.go b/internal/publication/redact_test.go
+new file mode 100644
+index 000000000..7be3b93ea
+--- /dev/null
++++ b/internal/publication/redact_test.go
+@@ -0,0 +1,40 @@
++package publication
++
++import (
++	"context"
++	"errors"
++	"testing"
++)
++
++func TestRedactKeepsEntryAndIsProfileScoped(t *testing.T) {
++	mine := testStore(t)
++	other := NewStore(mine.db, "other")
++	ctx := context.Background()
++	e, err := mine.Register(ctx, Entry{Platform: "blog", Kind: "post", Title: "Secret title", Body: "secret body", URL: "https://example.com/p", Media: []string{"/tmp/secret-photo.png"}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, err = other.Redact(ctx, e.ID, true); !errors.Is(err, ErrNotFound) {
++		t.Fatalf("cross-profile redact: %v", err)
++	}
++	if got, _ := mine.Get(ctx, e.ID); got.Body != "secret body" {
++		t.Fatal("other profile changed the entry")
++	}
++	r, err := mine.Redact(ctx, e.ID, false)
++	if err == nil && len(r.Media) != 0 {
++		t.Fatalf("media survived a redact: %v", r.Media)
++	}
++	if err != nil || r.Body != RedactedMarker || r.Title != "Secret title" || r.URL != e.URL || r.PublishedAt != e.PublishedAt || r.RecordedAt != e.RecordedAt {
++		t.Fatalf("body redact: %+v %v", r, err)
++	}
++	r, err = mine.Redact(ctx, e.ID, true)
++	if err != nil || r.Title != RedactedMarker || r.Platform != "blog" || r.Kind != "post" {
++		t.Fatalf("title redact: %+v %v", r, err)
++	}
++	if found, _ := mine.List(ctx, Filter{Search: "secret"}); len(found) != 0 {
++		t.Fatal("old content still searchable")
++	}
++	if _, err = mine.Redact(ctx, "missing", false); !errors.Is(err, ErrNotFound) {
++		t.Fatalf("missing: %v", err)
++	}
++}
+diff --git a/internal/publication/store.go b/internal/publication/store.go
+index 1a8ab8f2a..71f8f9e3f 100644
+--- a/internal/publication/store.go
++++ b/internal/publication/store.go
+@@ -325,6 +325,34 @@ func (s *Store) Delete(ctx context.Context, id string) error {
+ 	}
+ 	return nil
+ }
++
++// RedactedMarker replaces the content Redact removes.
++const RedactedMarker = "[redacted]"
++
++// Redact replaces the body (and the title when title is true) of one publication
++// of this profile with RedactedMarker. The entry, URL, kind, platform and
++// timestamps stay; nothing about the old content is kept.
++func (s *Store) Redact(ctx context.Context, id string, title bool) (*Entry, error) {
++	if s.db == nil {
++		return nil, errors.New("publication database unavailable")
++	}
++	q := "UPDATE publications SET body=?, media='[]' WHERE profile_id=? AND id=?"
++	args := []any{RedactedMarker, s.profileID, id}
++	if title {
++		q = "UPDATE publications SET body=?, title=?, media='[]' WHERE profile_id=? AND id=?"
++		args = []any{RedactedMarker, RedactedMarker, s.profileID, id}
++	}
++	res, err := s.db.ExecContext(ctx, q, args...)
++	if err != nil {
++		return nil, err
++	}
++	if n, err := res.RowsAffected(); err != nil {
++		return nil, err
++	} else if n == 0 {
++		return nil, ErrNotFound
++	}
++	return s.Get(ctx, id)
++}
+ func (s *Store) Stats(ctx context.Context) (map[string]interface{}, error) {
+ 	if s.db == nil {
+ 		return nil, errors.New("publication database unavailable")
+diff --git a/internal/release/client.go b/internal/release/client.go
+new file mode 100644
+index 000000000..3ebda8f32
+--- /dev/null
++++ b/internal/release/client.go
+@@ -0,0 +1,229 @@
++package release
++
++import (
++	"context"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"io"
++	"net/http"
++	"net/url"
++	"os"
++	"path/filepath"
++	"time"
++)
++
++const (
++	maxManifestBytes = 1 << 20
++	maxSigBytes      = 4 << 10
++	maxAssetBytes    = 512 << 20
++)
++
++// Client fetches and verifies the signed manifest and its assets.
++type Client struct {
++	HTTP         *http.Client // nil: a client with a 15 minute timeout
++	Keys         []Key
++	ManifestURLs []string // tried in order
++	// Hosts may serve the manifest and assets; RedirectHosts (Hosts plus the
++	// release CDN) may be redirected to. Both are hostnames.
++	Hosts         []string
++	RedirectHosts []string
++	MaxAssetBytes int64 // 0: 512 MiB
++	// StatePath is a JSON file holding the highest manifest version and
++	// released_at ever accepted; a manifest below either is refused as a
++	// rollback unless Force. "" disables the check (tests).
++	StatePath string
++	Force     bool             // allow a version/released_at below the recorded highest
++	Now       func() time.Time // nil: time.Now
++}
++
++// DefaultClient is the production client: pinned keys, monoes.me first and
++// the releases repo second.
++func DefaultClient() *Client {
++	return &Client{
++		Keys:          PinnedKeys(),
++		StatePath:     DefaultStatePath(),
++		ManifestURLs:  []string{ManifestURL, RepoManifestURL},
++		Hosts:         []string{"monoes.me", "github.com"},
++		RedirectHosts: []string{"monoes.me", "github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"},
++	}
++}
++
++// Available reports whether any key is pinned; without one the signed path
++// is not tried at all (no network).
++func (c *Client) Available() bool { return len(c.Keys) > 0 }
++
++func (c *Client) httpClient() *http.Client {
++	base := c.HTTP
++	if base == nil {
++		base = &http.Client{Timeout: 15 * time.Minute}
++	}
++	cp := *base
++	cp.CheckRedirect = func(req *http.Request, via []*http.Request) error {
++		if len(via) >= 5 {
++			return untrusted("too many redirects")
++		}
++		if err := CheckURL(req.URL.String(), c.RedirectHosts); err != nil {
++			return fmt.Errorf("redirect refused: %w", err)
++		}
++		return nil
++	}
++	return &cp
++}
++
++// get reads at most max bytes of a 200 response; a longer body is an error.
++func (c *Client) get(ctx context.Context, raw string, max int64) ([]byte, error) {
++	if err := CheckURL(raw, c.Hosts); err != nil {
++		return nil, err
++	}
++	req, err := http.NewRequestWithContext(ctx, "GET", raw, nil)
++	if err != nil {
++		return nil, err
++	}
++	resp, err := c.httpClient().Do(req)
++	if err != nil {
++		return nil, err
++	}
++	defer resp.Body.Close()
++	if resp.StatusCode != 200 {
++		return nil, fmt.Errorf("HTTP %d for %s", resp.StatusCode, raw)
++	}
++	b, err := io.ReadAll(io.LimitReader(resp.Body, max+1))
++	if err != nil {
++		return nil, err
++	}
++	if int64(len(b)) > max {
++		return nil, untrusted("%s is larger than %d bytes", raw, max)
++	}
++	return b, nil
++}
++
++// Latest returns the verified latest manifest. ErrUnavailable means nothing
++// signed could be used (no pinned key, or no manifest URL answered); any
++// other error is a failed check and must not fall back.
++func (c *Client) Latest(ctx context.Context) (*Manifest, error) {
++	if !c.Available() {
++		return nil, fmt.Errorf("%w: this build pins no release key", ErrUnavailable)
++	}
++	var last error
++	for _, mu := range c.ManifestURLs {
++		body, err := c.get(ctx, mu, maxManifestBytes)
++		if err != nil {
++			if errors.Is(err, ErrUntrusted) {
++				return nil, err
++			}
++			last = err
++			continue
++		}
++		su, err := sigURL(mu)
++		if err != nil {
++			return nil, err
++		}
++		sig, err := c.get(ctx, su, maxSigBytes)
++		if err != nil {
++			if errors.Is(err, ErrUntrusted) {
++				return nil, err
++			}
++			last = err
++			continue
++		}
++		m, err := VerifyWith(c.Keys, body, sig)
++		if err != nil {
++			return nil, err
++		}
++		if err := c.checkFresh(m); err != nil {
++			return nil, err
++		}
++		return m, nil
++	}
++	return nil, fmt.Errorf("%w: %v", ErrUnavailable, last)
++}
++
++func sigURL(manifestURL string) (string, error) {
++	u, err := url.Parse(manifestURL)
++	if err != nil {
++		return "", err
++	}
++	u.Path += ".sig"
++	return u.String(), nil
++}
++
++// Download fetches a and returns its bytes only after size and sha256 pass.
++func (c *Client) Download(ctx context.Context, a Asset) ([]byte, error) {
++	limit := c.MaxAssetBytes
++	if limit <= 0 {
++		limit = maxAssetBytes
++	}
++	if a.Size <= 0 || a.Size > limit {
++		return nil, untrusted("%s declares %d bytes (allowed 1..%d)", a.Name, a.Size, limit)
++	}
++	data, err := c.get(ctx, a.URL, a.Size)
++	if err != nil {
++		return nil, fmt.Errorf("download %s: %w", a.Name, err)
++	}
++	if err := CheckAsset(a, data); err != nil {
++		return nil, err
++	}
++	return data, nil
++}
++
++// DefaultStatePath is ~/.monoagent/release-state.json, the CLI's global
++// (profile-independent) state directory; "" when the home is unknown.
++func DefaultStatePath() string {
++	home, err := os.UserHomeDir()
++	if err != nil || home == "" {
++		return ""
++	}
++	return filepath.Join(home, ".monoagent", "release-state.json")
++}
++
++type state struct {
++	Version    string `json:"version"`
++	ReleasedAt string `json:"released_at"`
++}
++
++// checkFresh enforces expires_at, refuses a rollback below the highest
++// accepted version / released_at, and records the new highest values.
++func (c *Client) checkFresh(m *Manifest) error {
++	now := time.Now
++	if c.Now != nil {
++		now = c.Now
++	}
++	if err := m.CheckExpiry(now()); err != nil {
++		return err
++	}
++	if c.StatePath == "" {
++		return nil
++	}
++	var st state
++	if b, err := os.ReadFile(c.StatePath); err == nil {
++		if json.Unmarshal(b, &st) != nil {
++			st = state{} // unreadable state must not brick updates
++		}
++	}
++	rel, _ := time.Parse(time.RFC3339, m.ReleasedAt)
++	seen, seenErr := time.Parse(time.RFC3339, st.ReleasedAt)
++	if !c.Force {
++		if st.Version != "" && Compare(m.Version, st.Version) < 0 {
++			return untrusted("manifest version %s is older than %s, which was already accepted; refusing a rollback (--force overrides)", m.Version, st.Version)
++		}
++		if seenErr == nil && rel.Before(seen) {
++			return untrusted("manifest released_at %s is older than %s, which was already accepted; refusing a rollback (--force overrides)", m.ReleasedAt, st.ReleasedAt)
++		}
++	}
++	next := st
++	if st.Version == "" || Compare(m.Version, st.Version) > 0 {
++		next.Version = m.Version
++	}
++	if seenErr != nil || rel.After(seen) {
++		next.ReleasedAt = m.ReleasedAt
++	}
++	if next != st {
++		if b, err := json.Marshal(next); err == nil {
++			if os.MkdirAll(filepath.Dir(c.StatePath), 0o755) == nil {
++				_ = os.WriteFile(c.StatePath, b, 0o644)
++			}
++		}
++	}
++	return nil
++}
+diff --git a/internal/release/keys.go b/internal/release/keys.go
+new file mode 100644
+index 000000000..f08c93fb1
+--- /dev/null
++++ b/internal/release/keys.go
+@@ -0,0 +1,63 @@
++package release
++
++import (
++	"crypto/ed25519"
++	"crypto/sha256"
++	"encoding/base64"
++	"encoding/hex"
++	"fmt"
++	"strings"
++)
++
++// pinnedReleaseKeys are the release signing public keys this build trusts,
++// one "<key-id> <base64 ed25519 public key>" line each (the line
++// `monoagentcli release keygen` prints). It is EMPTY until the owner generates
++// the key and pastes the line here; with no key the signed-manifest path is
++// unavailable, never trusted.
++var pinnedReleaseKeys = []string{}
++
++// Key is a pinned public key.
++type Key struct {
++	ID     string
++	Public ed25519.PublicKey
++}
++
++// KeyID is the id of a public key: the first 8 bytes of its SHA-256, hex.
++func KeyID(pub ed25519.PublicKey) string {
++	sum := sha256.Sum256(pub)
++	return hex.EncodeToString(sum[:8])
++}
++
++// KeyLine is the "<id> <base64 pub>" line for pinnedReleaseKeys.
++func KeyLine(pub ed25519.PublicKey) string {
++	return KeyID(pub) + " " + base64.StdEncoding.EncodeToString(pub)
++}
++
++// ParseKey parses one pinnedReleaseKeys line.
++func ParseKey(line string) (Key, error) {
++	f := strings.Fields(line)
++	if len(f) != 2 {
++		return Key{}, fmt.Errorf("release key: want \"<id> <base64 public key>\"")
++	}
++	raw, err := base64.StdEncoding.DecodeString(f[1])
++	if err != nil || len(raw) != ed25519.PublicKeySize {
++		return Key{}, fmt.Errorf("release key %s: not a base64 ed25519 public key", f[0])
++	}
++	pub := ed25519.PublicKey(raw)
++	if f[0] != KeyID(pub) {
++		return Key{}, fmt.Errorf("release key %s: the id does not match the key (want %s)", f[0], KeyID(pub))
++	}
++	return Key{ID: f[0], Public: pub}, nil
++}
++
++// PinnedKeys returns the keys compiled into this build. A malformed line is
++// skipped: it must not make the other keys, or the binary, unusable.
++func PinnedKeys() []Key {
++	var out []Key
++	for _, l := range pinnedReleaseKeys {
++		if k, err := ParseKey(l); err == nil {
++			out = append(out, k)
++		}
++	}
++	return out
++}
+diff --git a/internal/release/keys_e2e.go b/internal/release/keys_e2e.go
+new file mode 100644
+index 000000000..f9bb7f32a
+--- /dev/null
++++ b/internal/release/keys_e2e.go
+@@ -0,0 +1,14 @@
++//go:build releasee2e
++
++package release
++
++import "os"
++
++// Test-only (built with -tags releasee2e, never in a release): pin the key
++// in MONOAGENT_E2E_PINNED_KEY so scripts/release-e2e-test.sh can exercise the
++// pinned-key paths of a built binary without editing keys.go.
++func init() {
++	if line := os.Getenv("MONOAGENT_E2E_PINNED_KEY"); line != "" {
++		pinnedReleaseKeys = append(pinnedReleaseKeys, line)
++	}
++}
+diff --git a/internal/release/manifest.go b/internal/release/manifest.go
+new file mode 100644
+index 000000000..c00034fa6
+--- /dev/null
++++ b/internal/release/manifest.go
+@@ -0,0 +1,249 @@
++// Package release verifies and fetches signed release manifests.
++//
++// A release publishes manifest.json and manifest.json.sig (one line,
++// "<key-id> <base64 Ed25519 signature over the exact bytes of manifest.json>").
++// The client pins only public keys (keys.go). Update integrity is: signature
++// over the manifest, then the manifest's sha256 and size for each asset.
++package release
++
++import (
++	"crypto/ed25519"
++	"crypto/sha256"
++	"encoding/base64"
++	"encoding/hex"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"net/url"
++	"strings"
++	"time"
++)
++
++// ReleasesRepo is the public releases-only GitHub repository.
++const ReleasesRepo = "monoes/mono-agent-releases"
++
++// ManifestURL is where monoes.me serves the latest signed manifest.
++const ManifestURL = "https://monoes.me/mono-agent/releases/latest/manifest.json"
++
++// RepoManifestURL is the same manifest as a releases-repo asset.
++const RepoManifestURL = "https://github.com/" + ReleasesRepo + "/releases/latest/download/manifest.json"
++
++// AllowLegacyGitHubUpdates lets the updaters fall back to the GitHub API
++// (the releases' SHA256SUMS.txt over TLS) when the signed manifest is
++// unavailable. Treat it as a build constant: true now, false at the
++// repo-private release. The fallback is unsigned (TLS plus SHA256SUMS.txt
++// only) and has no expiry or downgrade protection, so it MUST be disabled
++// (AllowLegacyGitHubUpdates = false) at the repo-private release; otherwise
++// anyone who can block the signed manifest can force the weaker path. (A var only so tests can flip it.)
++var AllowLegacyGitHubUpdates = true
++
++// SchemaVersion is the only manifest schema this client understands.
++const SchemaVersion = 1
++
++var (
++	// ErrUnavailable means the signed path cannot be used (no pinned key, or
++	// the manifest could not be fetched): the caller may fall back to the
++	// legacy path while AllowLegacyGitHubUpdates is true.
++	ErrUnavailable = errors.New("signed release manifest unavailable")
++	// ErrUntrusted means a manifest or download was fetched but failed a
++	// check. It is never a reason to fall back.
++	ErrUntrusted = errors.New("release failed verification")
++)
++
++func untrusted(format string, a ...any) error {
++	return fmt.Errorf("%w: %s", ErrUntrusted, fmt.Sprintf(format, a...))
++}
++
++// Asset is one downloadable file of a release.
++type Asset struct {
++	OS     string `json:"os"`
++	Arch   string `json:"arch"`
++	Name   string `json:"name"`
++	URL    string `json:"url"`
++	SHA256 string `json:"sha256"`
++	Size   int64  `json:"size"`
++	Kind   string `json:"kind"` // "cli" or "app"
++}
++
++// Manifest is manifest.json.
++type Manifest struct {
++	Schema     int    `json:"schema"`
++	Version    string `json:"version"`
++	ReleasedAt string `json:"released_at"`
++	NotesURL   string `json:"notes_url"`
++	// ExpiresAt (RFC 3339, optional, signed with the rest) is the time after
++	// which clients reject this manifest.
++	ExpiresAt string  `json:"expires_at,omitempty"`
++	Assets    []Asset `json:"assets"`
++}
++
++// Verify checks sig (a "<key-id> <base64 signature>" line) over the exact
++// manifest bytes against the pinned keys and parses the manifest.
++func Verify(manifest, sig []byte) (*Manifest, error) {
++	return VerifyWith(PinnedKeys(), manifest, sig)
++}
++
++// VerifyWith is Verify against explicit keys.
++func VerifyWith(keys []Key, manifest, sig []byte) (*Manifest, error) {
++	if len(keys) == 0 {
++		return nil, fmt.Errorf("%w: this build pins no release key", ErrUnavailable)
++	}
++	f := strings.Fields(string(sig))
++	if len(f) != 2 || len(f[0]) != 16 {
++		return nil, untrusted("signature file must be \"<key-id> <base64 signature>\"")
++	}
++	raw, err := base64.StdEncoding.DecodeString(f[1])
++	if err != nil || len(raw) != ed25519.SignatureSize {
++		return nil, untrusted("signature is not a base64 ed25519 signature")
++	}
++	var key *Key
++	for i := range keys {
++		if keys[i].ID == f[0] {
++			key = &keys[i]
++		}
++	}
++	if key == nil {
++		return nil, untrusted("signed by key %s, which this build does not pin", f[0])
++	}
++	if !ed25519.Verify(key.Public, manifest, raw) {
++		return nil, untrusted("signature does not match the manifest (key %s)", f[0])
++	}
++	return parseManifest(manifest)
++}
++
++func parseManifest(b []byte) (*Manifest, error) {
++	var m Manifest
++	if err := json.Unmarshal(b, &m); err != nil {
++		return nil, untrusted("manifest is not valid JSON: %v", err)
++	}
++	if m.Schema != SchemaVersion {
++		return nil, untrusted("manifest schema %d is not supported (want %d); update by hand", m.Schema, SchemaVersion)
++	}
++	if strings.TrimSpace(m.Version) == "" {
++		return nil, untrusted("manifest has no version")
++	}
++	if _, err := time.Parse(time.RFC3339, m.ReleasedAt); err != nil {
++		return nil, untrusted("manifest released_at is not RFC 3339")
++	}
++	if m.ExpiresAt != "" {
++		if _, err := time.Parse(time.RFC3339, m.ExpiresAt); err != nil {
++			return nil, untrusted("manifest expires_at is not RFC 3339")
++		}
++	}
++	return &m, nil
++}
++
++// CheckExpiry rejects a manifest whose expires_at is in the past.
++func (m *Manifest) CheckExpiry(now time.Time) error {
++	if m.ExpiresAt == "" {
++		return nil
++	}
++	exp, err := time.Parse(time.RFC3339, m.ExpiresAt)
++	if err != nil {
++		return untrusted("manifest expires_at is not RFC 3339")
++	}
++	if now.After(exp) {
++		return untrusted("manifest expired at %s; ask the maintainers for a fresh release", m.ExpiresAt)
++	}
++	return nil
++}
++
++// Asset returns the asset with this name for os/arch/kind.
++func (m *Manifest) Asset(name, goos, goarch, kind string) (Asset, error) {
++	for _, a := range m.Assets {
++		if a.Name == name && a.OS == goos && a.Arch == goarch && a.Kind == kind {
++			return a, nil
++		}
++	}
++	return Asset{}, fmt.Errorf("release %s has no %s asset %q for %s/%s", m.Version, kind, name, goos, goarch)
++}
++
++// Select returns the one asset of kind for os/arch; none or several is an error.
++func (m *Manifest) Select(goos, goarch, kind string) (Asset, error) {
++	var found []Asset
++	for _, a := range m.Assets {
++		if a.OS == goos && a.Arch == goarch && a.Kind == kind {
++			found = append(found, a)
++		}
++	}
++	switch len(found) {
++	case 1:
++		return found[0], nil
++	case 0:
++		return Asset{}, fmt.Errorf("release %s has no %s asset for %s/%s", m.Version, kind, goos, goarch)
++	}
++	return Asset{}, fmt.Errorf("release %s has %d %s assets for %s/%s; ask by name", m.Version, len(found), kind, goos, goarch)
++}
++
++// CheckAsset verifies downloaded bytes against the asset's size and sha256.
++func CheckAsset(a Asset, data []byte) error {
++	if int64(len(data)) != a.Size {
++		return untrusted("%s is %d bytes, the manifest says %d", a.Name, len(data), a.Size)
++	}
++	sum := sha256.Sum256(data)
++	want, err := hex.DecodeString(a.SHA256)
++	if err != nil || len(want) != sha256.Size {
++		return untrusted("%s has a malformed sha256 in the manifest", a.Name)
++	}
++	if hex.EncodeToString(sum[:]) != hex.EncodeToString(want) {
++		return untrusted("%s: sha256 mismatch (manifest %s, download %s)", a.Name, a.SHA256, hex.EncodeToString(sum[:]))
++	}
++	return nil
++}
++
++// CheckURL requires an https URL on one of hosts.
++func CheckURL(raw string, hosts []string) error {
++	u, err := url.Parse(raw)
++	if err != nil || u.Scheme != "https" || u.Hostname() == "" {
++		return untrusted("%q is not an https URL", raw)
++	}
++	for _, h := range hosts {
++		if strings.EqualFold(u.Hostname(), h) {
++			return nil
++		}
++	}
++	return untrusted("%s is not on an allowed host", u.Hostname())
++}
++
++// Compare orders dotted release versions numerically ("v0.10.0" > "v0.9.9").
++func Compare(a, b string) int {
++	pa := strings.Split(strings.TrimPrefix(strings.TrimSpace(a), "v"), ".")
++	pb := strings.Split(strings.TrimPrefix(strings.TrimSpace(b), "v"), ".")
++	for i := 0; i < len(pa) || i < len(pb); i++ {
++		x, y := part(pa, i), part(pb, i)
++		if x != y {
++			if x > y {
++				return 1
++			}
++			return -1
++		}
++	}
++	return 0
++}
++
++func part(p []string, i int) int {
++	if i >= len(p) {
++		return 0
++	}
++	n := 0
++	for _, r := range p[i] {
++		if r < '0' || r > '9' {
++			break
++		}
++		n = n*10 + int(r-'0')
++	}
++	return n
++}
++
++// CheckDowngrade refuses to install a version lower than current unless
++// force is set. A dev build (no release version) has nothing to compare.
++func CheckDowngrade(version, current string, force bool) error {
++	c := strings.TrimSpace(current)
++	if force || c == "" || c == "dev" || strings.Contains(c, "-g") {
++		return nil
++	}
++	if Compare(version, c) < 0 {
++		return untrusted("release %s is older than the installed %s; refusing to downgrade (--force overrides)", version, current)
++	}
++	return nil
++}
+diff --git a/internal/release/release_fresh_test.go b/internal/release/release_fresh_test.go
+new file mode 100644
+index 000000000..2ccaab7d8
+--- /dev/null
++++ b/internal/release/release_fresh_test.go
+@@ -0,0 +1,120 @@
++package release
++
++import (
++	"context"
++	"crypto/ed25519"
++	"crypto/rand"
++	"encoding/base64"
++	"encoding/json"
++	"errors"
++	"path/filepath"
++	"strings"
++	"testing"
++	"time"
++)
++
++func (r *rig) serve(t *testing.T, m Manifest) {
++	t.Helper()
++	m.Schema = 1
++	var err error
++	if r.manifest, err = json.Marshal(m); err != nil {
++		t.Fatal(err)
++	}
++	r.sig = sign(r.priv, r.pub, r.manifest)
++}
++
++func TestExpiresAt(t *testing.T) {
++	r := newRig(t)
++	r.client.Now = func() time.Time { return time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC) }
++
++	r.serve(t, Manifest{Version: "v2.0.0", ReleasedAt: "2026-10-08T10:00:00Z", ExpiresAt: "2026-10-20T00:00:00Z"})
++	if _, err := r.client.Latest(context.Background()); !errors.Is(err, ErrUntrusted) {
++		t.Fatalf("expired manifest must be untrusted, got %v", err)
++	}
++	r.serve(t, Manifest{Version: "v2.0.0", ReleasedAt: "2026-10-08T10:00:00Z", ExpiresAt: "2026-12-01T00:00:00Z"})
++	if _, err := r.client.Latest(context.Background()); err != nil {
++		t.Fatalf("unexpired manifest: %v", err)
++	}
++	r.serve(t, Manifest{Version: "v2.0.0", ReleasedAt: "2026-10-08T10:00:00Z", ExpiresAt: "tomorrow"})
++	if _, err := r.client.Latest(context.Background()); !errors.Is(err, ErrUntrusted) {
++		t.Fatalf("malformed expires_at must be untrusted, got %v", err)
++	}
++}
++
++func TestRollbackRefusedAcrossRuns(t *testing.T) {
++	r := newRig(t)
++	r.client.StatePath = filepath.Join(t.TempDir(), "state", "release-state.json")
++	ctx := context.Background()
++
++	r.serve(t, Manifest{Version: "v2.1.0", ReleasedAt: "2026-10-10T10:00:00Z"})
++	if _, err := r.client.Latest(ctx); err != nil {
++		t.Fatal(err)
++	}
++	// A validly signed but older manifest is replayed.
++	r.serve(t, Manifest{Version: "v2.0.0", ReleasedAt: "2026-10-08T10:00:00Z"})
++	if _, err := r.client.Latest(ctx); !errors.Is(err, ErrUntrusted) || !strings.Contains(err.Error(), "rollback") {
++		t.Fatalf("older manifest must be refused, got %v", err)
++	}
++	// Same version, earlier released_at.
++	r.serve(t, Manifest{Version: "v2.1.0", ReleasedAt: "2026-10-09T10:00:00Z"})
++	if _, err := r.client.Latest(ctx); !errors.Is(err, ErrUntrusted) {
++		t.Fatalf("earlier released_at must be refused, got %v", err)
++	}
++	// --force accepts it but does not lower the recorded highest.
++	forced := *r.client
++	forced.Force = true
++	r.serve(t, Manifest{Version: "v2.0.0", ReleasedAt: "2026-10-08T10:00:00Z"})
++	if _, err := forced.Latest(ctx); err != nil {
++		t.Fatalf("force: %v", err)
++	}
++	if _, err := r.client.Latest(ctx); !errors.Is(err, ErrUntrusted) {
++		t.Fatalf("forcing must not lower the high-water mark, got %v", err)
++	}
++	// The same release and a newer one are fine.
++	r.serve(t, Manifest{Version: "v2.1.0", ReleasedAt: "2026-10-10T10:00:00Z"})
++	if _, err := r.client.Latest(ctx); err != nil {
++		t.Fatalf("same release: %v", err)
++	}
++	r.serve(t, Manifest{Version: "v2.2.0", ReleasedAt: "2026-10-11T10:00:00Z"})
++	if _, err := r.client.Latest(ctx); err != nil {
++		t.Fatalf("newer release: %v", err)
++	}
++}
++
++func TestParseKeyChecksID(t *testing.T) {
++	pub, _, _ := ed25519.GenerateKey(rand.Reader)
++	if _, err := ParseKey(KeyLine(pub)); err != nil {
++		t.Fatal(err)
++	}
++	bad := "0000000000000000 " + base64.StdEncoding.EncodeToString(pub)
++	if _, err := ParseKey(bad); err == nil {
++		t.Fatal("a key id that is not KeyID(pub) must be rejected")
++	}
++}
++
++func TestSigLineFormat(t *testing.T) {
++	r := newRig(t)
++	keys := []Key{{ID: KeyID(r.pub), Public: r.pub}}
++	good := base64.StdEncoding.EncodeToString(ed25519.Sign(r.priv, r.manifest))
++	for _, tc := range []struct{ desc, sig string }{
++		{"no key id", good},
++		{"short key id", "abcd " + good},
++		{"extra field", KeyID(r.pub) + " " + good + " x"},
++		{"bad base64", KeyID(r.pub) + " !!!"},
++		{"short signature", KeyID(r.pub) + " " + base64.StdEncoding.EncodeToString([]byte("short"))},
++		{"unpinned key id", "0123456789abcdef " + good},
++	} {
++		if _, err := VerifyWith(keys, r.manifest, []byte(tc.sig)); !errors.Is(err, ErrUntrusted) {
++			t.Errorf("%s: want ErrUntrusted, got %v", tc.desc, err)
++		}
++	}
++	// The #435 format: "<keyid> <b64sig>\n" over the exact manifest bytes,
++	// signed with the 64-byte private key stored in the keyring.
++	stored := base64.StdEncoding.EncodeToString(r.priv)
++	raw, _ := base64.StdEncoding.DecodeString(stored)
++	priv := ed25519.PrivateKey(raw)
++	line := KeyID(priv.Public().(ed25519.PublicKey)) + " " + base64.StdEncoding.EncodeToString(ed25519.Sign(priv, r.manifest)) + "\n"
++	if _, err := VerifyWith(keys, r.manifest, []byte(line)); err != nil {
++		t.Fatalf("round trip: %v", err)
++	}
++}
+diff --git a/internal/release/release_test.go b/internal/release/release_test.go
+new file mode 100644
+index 000000000..000cde31f
+--- /dev/null
++++ b/internal/release/release_test.go
+@@ -0,0 +1,230 @@
++package release
++
++import (
++	"context"
++	"crypto/ed25519"
++	"crypto/rand"
++	"crypto/sha256"
++	"encoding/base64"
++	"encoding/hex"
++	"encoding/json"
++	"errors"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++)
++
++type rig struct {
++	srv      *httptest.Server
++	pub      ed25519.PublicKey
++	priv     ed25519.PrivateKey
++	asset    []byte
++	manifest []byte
++	sig      []byte
++	client   *Client
++	mux      *http.ServeMux
++}
++
++func sign(priv ed25519.PrivateKey, pub ed25519.PublicKey, m []byte) []byte {
++	return []byte(KeyID(pub) + " " + base64.StdEncoding.EncodeToString(ed25519.Sign(priv, m)) + "\n")
++}
++
++func newRig(t *testing.T) *rig {
++	t.Helper()
++	pub, priv, err := ed25519.GenerateKey(rand.Reader)
++	if err != nil {
++		t.Fatal(err)
++	}
++	r := &rig{pub: pub, priv: priv, asset: []byte("binary-bytes-v2"), mux: http.NewServeMux()}
++	r.srv = httptest.NewTLSServer(r.mux)
++	t.Cleanup(r.srv.Close)
++	sum := sha256.Sum256(r.asset)
++	m := Manifest{Schema: 1, Version: "v2.0.0", ReleasedAt: "2026-10-08T10:00:00Z", NotesURL: "https://monoes.me/n",
++		Assets: []Asset{{OS: "linux", Arch: "amd64", Name: "monoagentcli-linux-amd64", URL: r.srv.URL + "/asset",
++			SHA256: hex.EncodeToString(sum[:]), Size: int64(len(r.asset)), Kind: "cli"}}}
++	r.manifest, _ = json.Marshal(m)
++	r.sig = sign(priv, pub, r.manifest)
++	r.mux.HandleFunc("/manifest.json", func(w http.ResponseWriter, _ *http.Request) { w.Write(r.manifest) })
++	r.mux.HandleFunc("/manifest.json.sig", func(w http.ResponseWriter, _ *http.Request) { w.Write(r.sig) })
++	r.mux.HandleFunc("/asset", func(w http.ResponseWriter, _ *http.Request) { w.Write(r.asset) })
++	r.client = &Client{
++		HTTP: r.srv.Client(), Keys: []Key{{ID: KeyID(pub), Public: pub}},
++		ManifestURLs: []string{r.srv.URL + "/manifest.json"},
++		Hosts:        []string{"127.0.0.1"}, RedirectHosts: []string{"127.0.0.1"},
++	}
++	return r
++}
++
++func TestValid(t *testing.T) {
++	r := newRig(t)
++	m, err := r.client.Latest(context.Background())
++	if err != nil {
++		t.Fatal(err)
++	}
++	a, err := m.Select("linux", "amd64", "cli")
++	if err != nil {
++		t.Fatal(err)
++	}
++	data, err := r.client.Download(context.Background(), a)
++	if err != nil || string(data) != string(r.asset) {
++		t.Fatalf("download: %v", err)
++	}
++}
++
++func TestBadSignatureAndTamperedManifest(t *testing.T) {
++	r := newRig(t)
++	other, otherPriv, _ := ed25519.GenerateKey(rand.Reader)
++	// Signed by a key the client does not pin, even claiming the pinned id.
++	forged := []byte(KeyID(r.pub) + " " + base64.StdEncoding.EncodeToString(ed25519.Sign(otherPriv, r.manifest)))
++	_ = other
++	if _, err := VerifyWith(r.client.Keys, r.manifest, forged); !errors.Is(err, ErrUntrusted) {
++		t.Errorf("wrong-key signature: %v", err)
++	}
++	// Unknown key id.
++	if _, err := VerifyWith(r.client.Keys, r.manifest, sign(otherPriv, other, r.manifest)); !errors.Is(err, ErrUntrusted) {
++		t.Errorf("unpinned key: %v", err)
++	}
++	// Manifest altered after signing (a different size).
++	r.manifest = []byte(strings.Replace(string(r.manifest), `"v2.0.0"`, `"v9.0.0"`, 1))
++	if _, err := r.client.Latest(context.Background()); !errors.Is(err, ErrUntrusted) {
++		t.Errorf("tampered manifest: %v", err)
++	}
++	// Garbage signature.
++	if _, err := VerifyWith(r.client.Keys, r.manifest, []byte("nonsense")); !errors.Is(err, ErrUntrusted) {
++		t.Errorf("garbage sig: %v", err)
++	}
++}
++
++func TestNoPinnedKeyIsUnavailableWithoutNetwork(t *testing.T) {
++	c := &Client{ManifestURLs: []string{"https://monoes.me/never-fetched"}}
++	_, err := c.Latest(context.Background())
++	if !errors.Is(err, ErrUnavailable) || errors.Is(err, ErrUntrusted) {
++		t.Fatalf("want unavailable, got %v", err)
++	}
++	if _, err := Verify([]byte("{}"), []byte("x y")); !errors.Is(err, ErrUnavailable) {
++		t.Errorf("Verify with empty pinned list: %v", err)
++	}
++}
++
++func TestUnreachableManifestIsUnavailable(t *testing.T) {
++	r := newRig(t)
++	r.mux = nil
++	r.client.ManifestURLs = []string{r.srv.URL + "/missing.json"}
++	if _, err := r.client.Latest(context.Background()); !errors.Is(err, ErrUnavailable) {
++		t.Fatalf("404 manifest: %v", err)
++	}
++}
++
++func TestTamperedAsset(t *testing.T) {
++	r := newRig(t)
++	m, _ := r.client.Latest(context.Background())
++	a, _ := m.Select("linux", "amd64", "cli")
++	r.asset = []byte("binary-bytes-v3") // same length, other content
++	if _, err := r.client.Download(context.Background(), a); !errors.Is(err, ErrUntrusted) || !strings.Contains(err.Error(), "sha256") {
++		t.Fatalf("tampered asset: %v", err)
++	}
++	r.asset = append([]byte("binary-bytes-v2"), 'x') // longer than declared
++	if _, err := r.client.Download(context.Background(), a); !errors.Is(err, ErrUntrusted) {
++		t.Fatalf("oversize asset: %v", err)
++	}
++}
++
++func TestOversizeManifestBody(t *testing.T) {
++	r := newRig(t)
++	r.manifest = []byte(strings.Repeat("a", maxManifestBytes+10))
++	if _, err := r.client.Latest(context.Background()); !errors.Is(err, ErrUntrusted) {
++		t.Fatalf("oversize manifest: %v", err)
++	}
++	m := Asset{Name: "x", Size: 1 << 40}
++	if _, err := r.client.Download(context.Background(), m); !errors.Is(err, ErrUntrusted) {
++		t.Fatalf("declared oversize: %v", err)
++	}
++}
++
++func TestRedirectToOtherHostRefused(t *testing.T) {
++	r := newRig(t)
++	r.mux.HandleFunc("/redir.json", func(w http.ResponseWriter, req *http.Request) {
++		http.Redirect(w, req, "https://example.com/manifest.json", http.StatusFound)
++	})
++	r.client.ManifestURLs = []string{r.srv.URL + "/redir.json"}
++	if _, err := r.client.Latest(context.Background()); !errors.Is(err, ErrUntrusted) {
++		t.Fatalf("redirect to other host: %v", err)
++	}
++	r.mux.HandleFunc("/redir-http", func(w http.ResponseWriter, req *http.Request) {
++		http.Redirect(w, req, "http://127.0.0.1/x", http.StatusFound)
++	})
++	r.client.ManifestURLs = []string{r.srv.URL + "/redir-http"}
++	if _, err := r.client.Latest(context.Background()); !errors.Is(err, ErrUntrusted) {
++		t.Fatalf("redirect to http: %v", err)
++	}
++}
++
++func TestURLsOutsideAllowList(t *testing.T) {
++	for _, u := range []string{"http://monoes.me/a", "https://evil.example/a", "ftp://monoes.me/a", "monoes.me/a"} {
++		if err := CheckURL(u, []string{"monoes.me"}); !errors.Is(err, ErrUntrusted) {
++			t.Errorf("%s accepted", u)
++		}
++	}
++	if err := CheckURL("https://monoes.me/a", []string{"monoes.me"}); err != nil {
++		t.Error(err)
++	}
++	r := newRig(t)
++	a := Asset{Name: "x", URL: "https://evil.example/x", Size: 1}
++	if _, err := r.client.Download(context.Background(), a); !errors.Is(err, ErrUntrusted) {
++		t.Errorf("asset on foreign host: %v", err)
++	}
++}
++
++func TestSchemaAndDowngrade(t *testing.T) {
++	r := newRig(t)
++	bad := []byte(`{"schema":2,"version":"v3.0.0","released_at":"2026-10-08T10:00:00Z","assets":[]}`)
++	if _, err := VerifyWith(r.client.Keys, bad, sign(r.priv, r.pub, bad)); !errors.Is(err, ErrUntrusted) {
++		t.Errorf("unknown schema: %v", err)
++	}
++	if err := CheckDowngrade("v1.0.0", "v2.0.0", false); !errors.Is(err, ErrUntrusted) {
++		t.Errorf("downgrade allowed: %v", err)
++	}
++	if err := CheckDowngrade("v1.0.0", "v2.0.0", true); err != nil {
++		t.Errorf("--force: %v", err)
++	}
++	for _, c := range [][2]string{{"v2.0.0", "v2.0.0"}, {"v0.10.0", "v0.9.9"}, {"v1.0.0", "dev"}} {
++		if err := CheckDowngrade(c[0], c[1], false); err != nil {
++			t.Errorf("%v: %v", c, err)
++		}
++	}
++}
++
++func TestSelect(t *testing.T) {
++	m := &Manifest{Version: "v1", Assets: []Asset{
++		{OS: "windows", Arch: "amd64", Name: "a.exe", Kind: "cli"},
++		{OS: "windows", Arch: "amd64", Name: "b.exe", Kind: "cli"},
++		{OS: "linux", Arch: "arm64", Name: "c", Kind: "app"},
++	}}
++	if _, err := m.Select("windows", "amd64", "cli"); err == nil {
++		t.Error("ambiguous select should fail")
++	}
++	if _, err := m.Asset("b.exe", "windows", "amd64", "cli"); err != nil {
++		t.Error(err)
++	}
++	if _, err := m.Select("linux", "amd64", "app"); err == nil {
++		t.Error("missing arch should fail")
++	}
++	if a, err := m.Select("linux", "arm64", "app"); err != nil || a.Name != "c" {
++		t.Errorf("%v %v", a, err)
++	}
++}
++
++func TestPinnedKeyLine(t *testing.T) {
++	pub, _, _ := ed25519.GenerateKey(rand.Reader)
++	k, err := ParseKey(KeyLine(pub))
++	if err != nil || !pub.Equal(k.Public) || k.ID != KeyID(pub) {
++		t.Fatalf("roundtrip: %v", err)
++	}
++	if _, err := ParseKey("only-one-field"); err == nil {
++		t.Error("malformed line accepted")
++	}
++	if len(PinnedKeys()) != 0 {
++		t.Error("this build must pin no key until the owner pastes one")
++	}
++}
+diff --git a/internal/secrets/release_key.go b/internal/secrets/release_key.go
+new file mode 100644
+index 000000000..d04648731
+--- /dev/null
++++ b/internal/secrets/release_key.go
+@@ -0,0 +1,38 @@
++package secrets
++
++import (
++	"errors"
++
++	"github.com/zalando/go-keyring"
++)
++
++const (
++	releaseKeyService = "monoagent-release-signing"
++	releaseKeyAccount = "ed25519-v1"
++)
++
++// ErrNoReleaseKey means no release signing key is stored in the OS keychain.
++var ErrNoReleaseKey = errors.New("no release signing key in the OS keychain")
++
++// StoreReleaseSigningKey saves the release signing private key (base64 text)
++// in the OS keychain (value: standard base64 of the 64-byte Ed25519
++// private key, seed||pub), through the same keyring package vars as the vault.
++func StoreReleaseSigningKey(b64 string) error {
++	keyringIOMu.Lock()
++	defer keyringIOMu.Unlock()
++	return keyringSet(releaseKeyService, releaseKeyAccount, b64)
++}
++
++// ReleaseSigningKey reads it back; ErrNoReleaseKey when none is stored.
++func ReleaseSigningKey() (string, error) {
++	keyringIOMu.Lock()
++	defer keyringIOMu.Unlock()
++	v, err := keyringGet(releaseKeyService, releaseKeyAccount)
++	if err != nil {
++		if errors.Is(err, keyring.ErrNotFound) {
++			return "", ErrNoReleaseKey
++		}
++		return "", err
++	}
++	return v, nil
++}
+diff --git a/internal/secrets/release_key_test.go b/internal/secrets/release_key_test.go
+new file mode 100644
+index 000000000..70275c340
+--- /dev/null
++++ b/internal/secrets/release_key_test.go
+@@ -0,0 +1,31 @@
++package secrets
++
++import (
++	"errors"
++	"testing"
++
++	"github.com/zalando/go-keyring"
++)
++
++func TestReleaseSigningKeyRoundTrip(t *testing.T) {
++	store := map[string]string{}
++	oldGet, oldSet := keyringGet, keyringSet
++	keyringGet = func(svc, acct string) (string, error) {
++		if v, ok := store[svc+"/"+acct]; ok {
++			return v, nil
++		}
++		return "", keyring.ErrNotFound
++	}
++	keyringSet = func(svc, acct, v string) error { store[svc+"/"+acct] = v; return nil }
++	t.Cleanup(func() { keyringGet, keyringSet = oldGet, oldSet })
++
++	if _, err := ReleaseSigningKey(); !errors.Is(err, ErrNoReleaseKey) {
++		t.Fatalf("empty keychain: %v", err)
++	}
++	if err := StoreReleaseSigningKey("abc"); err != nil {
++		t.Fatal(err)
++	}
++	if v, err := ReleaseSigningKey(); err != nil || v != "abc" {
++		t.Fatalf("got %q %v", v, err)
++	}
++}
+diff --git a/scripts/check-release-tags-test.sh b/scripts/check-release-tags-test.sh
+index 682a13a29..1634686a6 100755
+--- a/scripts/check-release-tags-test.sh
++++ b/scripts/check-release-tags-test.sh
+@@ -23,6 +23,7 @@ build -o "$work/bin/plain" .
+ build -tags devaccount -o "$work/bin/tagged" .
+ build -tags desktop,production,devaccount -o "$work/bin/tagged-among-others" .
+ build -tags desktop,production -o "$work/bin/other-tags" .
++build -tags releasee2e -o "$work/bin/e2e-tagged" .
+ GOOS=windows GOARCH=amd64 CGO_ENABLED=0 build -tags devaccount -o "$work/bin/tagged.exe" .
+ 
+ # expect_ok / expect_fail run the guard and check its exit status (and, for a failure, that it
+@@ -44,6 +45,7 @@ expect_ok "other tags are fine" "$work/bin/other-tags"
+ expect_fail "a tagged binary" tagged "$work/bin/tagged"
+ expect_fail "the tag among others" tagged-among-others "$work/bin/tagged-among-others"
+ expect_fail "a tagged Windows binary" tagged.exe "$work/bin/tagged.exe"
++expect_fail "the release e2e test tag" e2e-tagged "$work/bin/e2e-tagged"
+ 
+ # A folder: one tagged binary among clean ones, and a file that is not a binary.
+ mkdir "$work/flat"
+diff --git a/scripts/check-release-tags.sh b/scripts/check-release-tags.sh
+index ebc35517e..08e8ebaf4 100755
+--- a/scripts/check-release-tags.sh
++++ b/scripts/check-release-tags.sh
+@@ -1,6 +1,7 @@
+ #!/usr/bin/env bash
+-# Fails when a Go binary that is about to ship was built with the devaccount tag (spec D11, D24):
+-# the tag trusts a development signing key anyone can sign with. It reads the build settings every
++# Fails when a Go binary that is about to ship was built with the devaccount or releasee2e tag
++# (spec D11, D24): devaccount trusts a development signing key anyone can sign with, releasee2e pins
++# a test update key and redirects the update client to a loopback server. It reads the build settings every
+ # Go binary carries (`go version -m`), whatever OS it was built for.
+ #
+ #   scripts/check-release-tags.sh [--min N] <file-or-folder>...
+@@ -11,7 +12,7 @@
+ # pass by checking nothing.
+ set -euo pipefail
+ 
+-forbidden="devaccount"
++forbidden_tags="devaccount releasee2e"
+ min=1
+ if [ "${1:-}" = "--min" ]; then
+   min="${2:?--min needs a number}"
+@@ -41,13 +42,17 @@ check() {
+   [ -n "$info" ] || return 0
+   checked=$((checked + 1))
+   tags="$(printf '%s\n' "$info" | awk -F'\t' '$2 == "build" && $3 ~ /^-tags=/ { sub(/^-tags=/, "", $3); print $3 }')"
+-  case ",$tags," in
+-    *",$forbidden,"*)
+-      echo "::error::$label was built with the $forbidden tag (-tags=$tags): a release must never carry it" >&2
+-      bad=$((bad + 1))
+-      ;;
+-    *) echo "ok: $label (tags: ${tags:-none})" ;;
+-  esac
++  hit=""
++  for t in $forbidden_tags; do
++    case ",$tags," in *",$t,"*) hit="$t" ;; esac
++  done
++  if [ -n "$hit" ]; then
++    echo "::error::$label was built with the $hit tag (-tags=$tags): a release must never carry it" >&2
++    bad=$((bad + 1))
++  else
++    echo "ok: $label (tags: ${tags:-none})"
++  fi
++
+ }
+ 
+ for arg in "$@"; do
+@@ -69,4 +74,4 @@ if [ "$checked" -lt "$min" ]; then
+   echo "::error::check-release-tags: found $checked Go binaries, expected at least $min: the release layout changed, or an archive did not unpack" >&2
+   exit 1
+ fi
+-echo "check-release-tags: $checked Go binaries, none carries the $forbidden tag"
++echo "check-release-tags: $checked Go binaries, none carries a forbidden tag ($forbidden_tags)"
+diff --git a/scripts/install-test.sh b/scripts/install-test.sh
+new file mode 100644
+index 000000000..1829d306a
+--- /dev/null
++++ b/scripts/install-test.sh
+@@ -0,0 +1,133 @@
++#!/usr/bin/env bash
++# install-test.sh — exercises install.sh against a local python3 http.server
++# serving a fake manifest and fake binary. Installs only into a throwaway
++# INSTALL_DIR; never touches the real install dir, ~/.monoagent or PATH, and
++# makes no network calls (the legacy GitHub path is not exercised).
++#
++# Run:  bash scripts/install-test.sh
++set -euo pipefail
++
++root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
++installer="$root/install.sh"
++
++for t in python3 openssl curl tar; do
++  command -v "$t" >/dev/null 2>&1 || { echo "install-test: SKIP ($t not available)"; exit 0; }
++done
++
++case "$(uname -s)" in Darwin) os=darwin ;; Linux) os=linux ;; *) echo "install-test: SKIP (unsupported OS)"; exit 0 ;; esac
++case "$(uname -m)" in arm64|aarch64) arch=arm64 ;; *) arch=amd64 ;; esac
++
++work="$(mktemp -d "${TMPDIR:-$HOME/scratch}/install-test.XXXXXX" 2>/dev/null || mktemp -d)"
++srv_pid=""
++cleanup() { [ -n "$srv_pid" ] && kill "$srv_pid" 2>/dev/null || true; rm -rf "$work"; }
++trap cleanup EXIT
++
++web="$work/web"; mkdir -p "$web"
++sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'; else shasum -a 256 "$1" | awk '{print $1}'; fi; }
++
++port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')"
++(cd "$web" && exec python3 -m http.server "$port" --bind 127.0.0.1 >/dev/null 2>&1) &
++srv_pid=$!
++base="http://127.0.0.1:$port"
++for _ in $(seq 1 50); do curl -fs -o /dev/null "$base/" && break; sleep 0.1; done
++
++# Fake release: a raw binary and a tarball holding one.
++asset="monoagentcli-$os-$arch"
++printf '#!/bin/sh\necho fake-monoagentcli\n' > "$web/$asset"
++mkdir -p "$work/pkg" && cp "$web/$asset" "$work/pkg/monoagentcli"
++tar -czf "$web/$asset.tar.gz" -C "$work/pkg" monoagentcli
++
++write_manifest() { # <asset-name> <sha>
++  cat > "$web/manifest.json" <<EOF
++{"schema":1,"version":"v9.9.9","released_at":"2026-10-08T00:00:00Z","notes_url":"$base/notes",
++ "assets":[
++  {"os":"plan9","arch":"amd64","name":"other","url":"$base/other","sha256":"00","size":1,"kind":"cli"},
++  {"os":"$os","arch":"$arch","name":"app-$asset","url":"$base/nope","sha256":"00","size":1,"kind":"app"},
++  {"os":"$os","arch":"$arch","name":"$1","url":"$base/$1","sha256":"$2","size":10,"kind":"cli"}
++ ]}
++EOF
++}
++
++# Test key pair, generated here; never committed.
++openssl genpkey -algorithm ed25519 -out "$work/key.pem" 2>/dev/null
++pub="$(openssl pkey -in "$work/key.pem" -pubout -outform DER 2>/dev/null | tail -c 32 | openssl base64 -A)"
++keyid="$(openssl pkey -in "$work/key.pem" -pubout -outform DER 2>/dev/null | tail -c 32 | openssl dgst -sha256 -binary | od -An -tx1 | tr -d ' \n' | cut -c1-16)"
++sign() {
++  openssl pkeyutl -sign -inkey "$work/key.pem" -rawin -in "$web/manifest.json" -out "$work/sig.bin" 2>/dev/null
++  printf '%s %s\n' "$keyid" "$(openssl base64 -A < "$work/sig.bin")" > "$web/manifest.json.sig"
++}
++
++fails=0
++run() { # <name> <expect: ok|fail> <grep-pattern> [env...]; extra args are env assignments
++  name="$1"; want="$2"; pat="$3"; shift 3
++  dest="$work/prefix-$name"
++  rc=0
++  out="$(env -u MONOAGENT_RELEASE_PUBKEY INSTALL_DIR="$dest" MONOAGENT_TEST_ASSET_URL_PREFIX="$base/" MONOAGENT_MANIFEST_URL="$base/manifest.json" "$@" bash "$installer" 2>&1)" || rc=$?
++  ok=1
++  if [ "$want" = ok ]; then [ "$rc" -eq 0 ] && [ -x "$dest/monoagentcli" ] || ok=0
++  else [ "$rc" -ne 0 ] && [ ! -e "$dest/monoagentcli" ] || ok=0; fi
++  printf '%s\n' "$out" | grep -q -e "$pat" || ok=0
++  if [ "$ok" -eq 1 ]; then echo "PASS $name"; else echo "FAIL $name (rc=$rc)"; printf '%s\n' "$out" | sed 's/^/    /'; fails=$((fails+1)); fi
++}
++
++# 1. checksum-only: no key configured, says so and does not claim a signature.
++write_manifest "$asset" "$(sha "$web/$asset")"; sign
++run unsigned-no-key ok "signature verification is SKIPPED"
++out="$(INSTALL_DIR="$work/p-neg" MONOAGENT_TEST_ASSET_URL_PREFIX="$base/" MONOAGENT_MANIFEST_URL="$base/manifest.json" bash "$installer" 2>&1)"
++if printf '%s' "$out" | grep -q "signature verified"; then echo "FAIL claimed verification without a key"; fails=$((fails+1)); else echo "PASS no false claim"; fi
++
++# 2. tarball asset.
++write_manifest "$asset.tar.gz" "$(sha "$web/$asset.tar.gz")"; sign
++run tarball ok "Checksum verified"
++
++# 3. signed with the pinned key.
++write_manifest "$asset" "$(sha "$web/$asset")"; sign
++run signed ok "Manifest signature verified" MONOAGENT_RELEASE_PUBKEY="$pub"
++
++# 4. wrong sha256 in a validly signed manifest.
++write_manifest "$asset" "$(printf 'x%.0s' $(seq 1 64))"; sign
++run bad-sha fail "checksum mismatch" MONOAGENT_RELEASE_PUBKEY="$pub"
++
++# 5. manifest altered after signing.
++write_manifest "$asset" "$(sha "$web/$asset")"; sign
++sed 's/v9.9.9/v6.6.6/' "$web/manifest.json" > "$work/m2" && cp "$work/m2" "$web/manifest.json"
++run tampered fail "signature verification FAILED" MONOAGENT_RELEASE_PUBKEY="$pub"
++
++# 6. key configured but signature missing.
++write_manifest "$asset" "$(sha "$web/$asset")"; rm -f "$web/manifest.json.sig"
++run missing-sig fail "signature verification FAILED" MONOAGENT_RELEASE_PUBKEY="$pub"
++
++# 7. signed by a different key.
++sign_other() { openssl genpkey -algorithm ed25519 -out "$work/o.pem" 2>/dev/null
++  openssl pkeyutl -sign -inkey "$work/o.pem" -rawin -in "$web/manifest.json" -out "$work/o.bin" 2>/dev/null
++  printf '%s %s\n' "$keyid" "$(openssl base64 -A < "$work/o.bin")" > "$web/manifest.json.sig"; }
++sign_other
++run wrong-key fail "signature verification FAILED" MONOAGENT_RELEASE_PUBKEY="$pub"
++
++# 7b. signature carries a key id other than the pinned one.
++write_manifest "$asset" "$(sha "$web/$asset")"; sign
++sed 's/^[0-9a-f]*/0000000000000000/' "$web/manifest.json.sig" > "$work/s2" && cp "$work/s2" "$web/manifest.json.sig"
++run wrong-keyid fail "not the pinned key" MONOAGENT_RELEASE_PUBKEY="$pub"
++
++# 7c. malformed one-field signature file.
++sign; awk '{print $2}' "$web/manifest.json.sig" > "$work/s3" && cp "$work/s3" "$web/manifest.json.sig"
++run one-field-sig fail "malformed manifest.json.sig" MONOAGENT_RELEASE_PUBKEY="$pub"
++
++# 7d. asset url on a disallowed host; the test prefix override is emptied so
++# the real allow-list applies.
++cat > "$web/manifest.json" <<EOF
++{"schema":1,"version":"v9.9.9","assets":[{"os":"$os","arch":"$arch","name":"$asset","url":"https://evil.example.com/$asset","sha256":"00","size":1,"kind":"cli"}]}
++EOF
++run bad-host fail "not https on an allowed host" MONOAGENT_TEST_ASSET_URL_PREFIX=""
++
++# 7e. validly signed but expired manifest.
++write_manifest "$asset" "$(sha "$web/$asset")"
++sed 's/"schema":1,/"schema":1,"expires_at":"2020-01-01T00:00:00Z",/' "$web/manifest.json" > "$work/m3" && cp "$work/m3" "$web/manifest.json"; sign
++run expired fail "expired" MONOAGENT_RELEASE_PUBKEY="$pub"
++
++# 8. no asset for this platform.
++printf '{"schema":1,"version":"v9.9.9","assets":[]}' > "$web/manifest.json"
++run no-asset fail "no CLI asset"
++
++if [ "$fails" -ne 0 ]; then echo "install-test: $fails failure(s)"; exit 1; fi
++echo "install-test: all passed"
+diff --git a/scripts/release-e2e-test.sh b/scripts/release-e2e-test.sh
+new file mode 100644
+index 000000000..14552f5ca
+--- /dev/null
++++ b/scripts/release-e2e-test.sh
+@@ -0,0 +1,269 @@
++#!/usr/bin/env bash
++# release-e2e-test.sh — end-to-end check of the signed release manifest:
++#   cmd/release-manifest (manifest, sign)  ->  monoagentcli release verify
++#   ->  install.sh  ->  monoagentcli update
++# against ONE loopback python3 http.server. No real network, no keyring, no
++# real ~/.monoagent: everything (HOME, install dirs, keys, binaries) lives in a
++# fresh directory under $E2E_ROOT (default ~/scratch/e2e).
++#
++# The Go binaries are built with -tags releasee2e (never a release build):
++#   MONOAGENT_E2E_PINNED_KEY  pins a public key line in the binary
++#   MONOAGENT_E2E_LOOPBACK    sends the update client's requests to host:port
++# The client still checks the real https URLs and host allow-list.
++#
++# Run:  bash scripts/release-e2e-test.sh      (needs go, python3, openssl, curl, tar)
++set -uo pipefail
++
++root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
++for t in go python3 openssl curl tar; do
++  command -v "$t" >/dev/null 2>&1 || { echo "release-e2e: SKIP ($t not available)"; exit 0; }
++done
++goos="$(go env GOOS)"; goarch="$(go env GOARCH)"
++case "$goos/$goarch" in
++  linux/amd64|linux/arm64|darwin/amd64|darwin/arm64) ;;
++  *) echo "release-e2e: SKIP ($goos/$goarch is not an install.sh platform)"; exit 0 ;;
++esac
++
++scratch="${E2E_ROOT:-$HOME/scratch/e2e}"
++mkdir -p "$scratch"
++work="$(mktemp -d "$scratch/run.XXXXXX")"
++srv_pid=""
++cleanup() {
++  [ -n "$srv_pid" ] && kill "$srv_pid" 2>/dev/null || true
++  [ -n "${E2E_KEEP:-}" ] || find "$work" -delete 2>/dev/null || true
++}
++trap cleanup EXIT
++
++home="$work/home"; mkdir -p "$home"
++srv="$work/srv"; mkdir -p "$srv"
++bin="$work/bin"; mkdir -p "$bin"
++fails=0; passes=0
++pass() { passes=$((passes+1)); echo "PASS $1"; }
++fail() { fails=$((fails+1)); echo "FAIL $1"; [ -z "${2:-}" ] || printf '%s\n' "$2" | sed 's/^/    /'; }
++check() { # <name> <exit-status-of-condition> [output]
++  if [ "$2" -eq 0 ]; then pass "$1"; else fail "$1" "${3:-}"; fi
++}
++
++# ── Build (real HOME for the Go cache; test HOME only when running binaries) ─
++echo "== build"
++build_cli() { # <version> <out>
++  (cd "$root" && go build -tags releasee2e -ldflags "-X main.version=$1" -o "$2" ./cmd/monoagentcli)
++}
++build_cli v0.1.0 "$bin/old-cli"
++build_cli v9.9.9 "$bin/new-cli"
++(cd "$root" && go build -o "$bin/release-manifest" ./cmd/release-manifest)
++rm_tool="$bin/release-manifest"
++
++# ── Keys (Ed25519 via openssl; the file format is what `sign -key-file` reads) ─
++mkkey() { # <name> -> $work/<name>.key (base64 seed||pub), <name>.line ("<id> <b64 pub>")
++  openssl genpkey -algorithm ed25519 -out "$work/$1.pem" 2>/dev/null
++  openssl pkey -in "$work/$1.pem" -outform DER 2>/dev/null | tail -c 32 > "$work/$1.seed"
++  openssl pkey -in "$work/$1.pem" -pubout -outform DER 2>/dev/null | tail -c 32 > "$work/$1.pub"
++  cat "$work/$1.seed" "$work/$1.pub" | openssl base64 -A > "$work/$1.key"
++  local id; id="$(openssl dgst -sha256 -binary < "$work/$1.pub" | od -An -tx1 | tr -d ' \n' | cut -c1-16)"
++  printf '%s %s' "$id" "$(openssl base64 -A < "$work/$1.pub")" > "$work/$1.line"
++  openssl base64 -A < "$work/$1.pub" > "$work/$1.pub64"
++}
++mkkey good; mkkey other
++good_line="$(cat "$work/good.line")"; other_line="$(cat "$work/other.line")"
++good_pub64="$(cat "$work/good.pub64")"; other_pub64="$(cat "$work/other.pub64")"
++
++# ── Fake artifacts named exactly as release.yml names them ───────────────────
++make_artifacts() { # <dir> <version> : the host CLI asset is a real binary for v9.9.9
++  local d="$1" v="$2"
++  mkdir -p "$d"
++  for o in linux darwin; do for a in amd64 arm64; do printf 'cli %s %s %s\n' "$o" "$a" "$v" > "$d/monoagentcli-$o-$a"; done; done
++  printf 'cli windows amd64 %s\n' "$v" > "$d/monoagentcli-windows-amd64.exe"
++  printf 'app darwin arm64 %s\n' "$v" > "$d/MonoAgent-darwin-arm64.zip"
++  printf 'app windows amd64 %s\n' "$v" > "$d/MonoAgent-windows-amd64.exe"
++  printf 'bundled windows amd64 %s\n' "$v" > "$d/monoagentcli-windows-amd64-bundled.exe"
++  printf 'app linux amd64 %s\n' "$v" > "$d/MonoAgent-linux-amd64.tar.gz"
++  printf 'extension %s\n' "$v" > "$d/monoagent-chrome-extension.zip"   # in SHA256SUMS, not in the manifest
++  if [ "$v" = v9.9.9 ]; then cp "$bin/new-cli" "$d/monoagentcli-$goos-$goarch"
++  else printf '#!/bin/sh\necho "monoagentcli %s (fake)"\n' "$v" > "$d/monoagentcli-$goos-$goarch"; fi
++}
++
++echo "== 1-3: keys, artifacts, manifest, sign"
++for v in v9.9.9 v9.0.0; do make_artifacts "$work/art-$v" "$v"; done
++"$rm_tool" manifest -dir "$work/art-v9.9.9" -version v9.9.9 >/dev/null
++"$rm_tool" sign -manifest "$work/art-v9.9.9/manifest.json" -key-file "$work/good.key" > "$work/sign.out"
++grep -q "key ${good_line%% *}\$" "$work/sign.out"; check "sign reports the key id of the generated key" $? "$(cat "$work/sign.out")"
++
++py() { python3 - "$@"; }
++py "$work/art-v9.9.9/manifest.json" <<'EOF'
++import json, sys
++m = json.load(open(sys.argv[1]))
++names = sorted(a["name"] for a in m["assets"])
++want = sorted(["monoagentcli-linux-amd64","monoagentcli-linux-arm64","monoagentcli-darwin-amd64","monoagentcli-darwin-arm64",
++  "monoagentcli-windows-amd64.exe","MonoAgent-darwin-arm64.zip","MonoAgent-windows-amd64.exe",
++  "monoagentcli-windows-amd64-bundled.exe","MonoAgent-linux-amd64.tar.gz"])
++assert names == want, names
++assert "expires_at" not in m
++assert all(a["url"].startswith("https://github.com/monoes/mono-agent-releases/releases/download/v9.9.9/") for a in m["assets"])
++EOF
++check "manifest lists the CLI+app assets, omits the extension zip, no expires_at by default" $?
++grep -q "monoagent-chrome-extension.zip" "$work/art-v9.9.9/SHA256SUMS"; check "SHA256SUMS covers the extension zip" $?
++! grep -q "manifest.json" "$work/art-v9.9.9/SHA256SUMS"; check "SHA256SUMS excludes manifest files" $?
++(cd "$work/art-v9.9.9" && sha256sum -c SHA256SUMS >/dev/null 2>&1 || shasum -a 256 -c SHA256SUMS >/dev/null 2>&1); check "SHA256SUMS verifies against the artifacts" $?
++
++# with -expires-days (separate dir copy so the default manifest stays)
++mkdir -p "$work/exp"; cp "$work/art-v9.9.9/"* "$work/exp/"; find "$work/exp" -name 'manifest.json*' -delete
++"$rm_tool" manifest -dir "$work/exp" -version v9.9.9 -expires-days 30 >/dev/null
++"$rm_tool" sign -manifest "$work/exp/manifest.json" -key-file "$work/good.key" >/dev/null
++py "$work/exp/manifest.json" <<'EOF'
++import json, sys, datetime
++m = json.load(open(sys.argv[1]))
++e = datetime.datetime.strptime(m["expires_at"], "%Y-%m-%dT%H:%M:%SZ")
++d = (e - datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)).days
++assert 28 <= d <= 30, d
++EOF
++check "-expires-days 30 writes expires_at about 30 days out" $?
++
++# older, validly signed release (replay target)
++"$rm_tool" manifest -dir "$work/art-v9.0.0" -version v9.0.0 >/dev/null
++"$rm_tool" sign -manifest "$work/art-v9.0.0/manifest.json" -key-file "$work/good.key" >/dev/null
++
++# ── (4) release verify ───────────────────────────────────────────────────────
++echo "== 4: monoagentcli release verify"
++cli() { HOME="$home" env -u MONOAGENT_E2E_LOOPBACK "$@"; }
++m="$work/art-v9.9.9/manifest.json"; s="$m.sig"
++out="$(cli "$bin/old-cli" release verify "$m" "$s" --pubkey "$good_line" 2>&1)"; rc=$?
++grep -q "^OK: v9.9.9, 9 assets" <<<"$out"; check "verify --pubkey: good signature" $? "$out"
++out="$(MONOAGENT_E2E_PINNED_KEY="$good_line" cli "$bin/old-cli" release verify "$m" "$s" 2>&1)"
++grep -q "^OK: v9.9.9" <<<"$out"; check "verify with the key pinned in the binary" $? "$out"
++out="$(cli "$bin/old-cli" release verify "$m" "$s" 2>&1)" && rc=0 || rc=$?
++[ "$rc" -ne 0 ]; check "verify with no pinned key and no --pubkey is refused" $? "$out"
++cli "$bin/old-cli" release verify "$m" "$s" --pubkey "$other_line" >/dev/null 2>&1 && rc=0 || rc=$?
++[ "$rc" -ne 0 ]; check "verify refuses the wrong key" $?
++sed 's/v9.9.9/v9.9.8/' "$m" > "$work/t.json"
++cli "$bin/old-cli" release verify "$work/t.json" "$s" --pubkey "$good_line" >/dev/null 2>&1 && rc=0 || rc=$?
++[ "$rc" -ne 0 ]; check "verify refuses a tampered manifest" $?
++# expired: edit expires_at into the past and re-sign (what a stale manifest looks like)
++sed 's/"expires_at": "[^"]*"/"expires_at": "2020-01-01T00:00:00Z"/' "$work/exp/manifest.json" > "$work/expired.json"
++"$rm_tool" sign -manifest "$work/expired.json" -key-file "$work/good.key" >/dev/null
++out="$(cli "$bin/old-cli" release verify "$work/expired.json" "$work/expired.json.sig" --pubkey "$good_line" 2>&1)" && rc=0 || rc=$?
++[ "$rc" -ne 0 ]; check "verify refuses an expired manifest" $? "$out"
++(cd "$root" && go test -count=1 -run 'TestReleaseKeygenAndVerify' ./cmd/monoagentcli/ >/dev/null 2>&1); check "release keygen (mock keyring Go test) + verify round-trip" $?
++
++# ── serve ────────────────────────────────────────────────────────────────────
++port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')"
++python3 -m http.server "$port" --bind 127.0.0.1 --directory "$srv" >/dev/null 2>&1 &
++srv_pid=$!
++echo "$srv_pid" > "$work/srv.pid"
++base="http://127.0.0.1:$port"
++for _ in $(seq 1 50); do curl -fs -o /dev/null "$base/" && break; sleep 0.1; done
++
++dl="monoes/mono-agent-releases/releases/download"
++publish_assets() { # <version>: assets where the manifest URLs point
++  mkdir -p "$srv/$dl/$1"; cp "$work/art-$1/"* "$srv/$dl/$1/"
++}
++set_go_latest() { # <manifest> <sig> : monoes.me/mono-agent/releases/latest/manifest.json(.sig)
++  mkdir -p "$srv/mono-agent/releases/latest"
++  cp "$1" "$srv/mono-agent/releases/latest/manifest.json"; cp "$2" "$srv/mono-agent/releases/latest/manifest.json.sig"
++}
++set_sh_latest() { # <manifest> <keyname> : URLs rewritten to the loopback server, then signed
++  mkdir -p "$srv/sh" "$work/shtmp"
++  sed "s#https://github.com/$dl/#$base/$dl/#g" "$1" > "$work/shtmp/manifest.json"
++  "$rm_tool" sign -manifest "$work/shtmp/manifest.json" -key-file "$work/$2.key" >/dev/null
++  cp "$work/shtmp/manifest.json" "$work/shtmp/manifest.json.sig" "$srv/sh/"
++}
++publish_assets v9.9.9; publish_assets v9.0.0
++
++# ── (5) install.sh ───────────────────────────────────────────────────────────
++echo "== 5: install.sh"
++n=0
++inst() { # <name> <ok|fail> <pattern> [env...]
++  local name="$1" want="$2" pat="$3"; shift 3
++  n=$((n+1)); local dest="$work/inst-$n" rc=0 o
++  o="$(env -u MONOAGENT_RELEASE_PUBKEY HOME="$home" INSTALL_DIR="$dest" MONOAGENT_TEST_ASSET_URL_PREFIX="$base/" \
++       MONOAGENT_MANIFEST_URL="$base/sh/manifest.json" "$@" bash "$root/install.sh" 2>&1)" || rc=$?
++  local ok=0
++  if [ "$want" = ok ]; then
++    [ "$rc" -eq 0 ] && [ -x "$dest/monoagentcli" ] && [ "$("$dest/monoagentcli" version 2>&1 | head -n1 | grep -c 'v9.9.9')" -ge 1 ] && ok=1
++  else
++    [ "$rc" -ne 0 ] && [ ! -e "$dest/monoagentcli" ] && ok=1
++  fi
++  grep -q -e "$pat" <<<"$o" || ok=0
++  case "$name" in *no-false-claim*) ! grep -qi "signature verified" <<<"$o" || ok=0 ;; esac
++  if [ "$ok" -eq 1 ]; then pass "install: $name"; else fail "install: $name (rc=$rc)" "$o"; fi
++}
++reset_sh() { set_sh_latest "$work/art-v9.9.9/manifest.json" good; publish_assets v9.9.9; }
++
++reset_sh
++inst "signed with the pinned key: verified, right binary" ok "Manifest signature verified" MONOAGENT_RELEASE_PUBKEY="$good_pub64"
++inst "no key configured: says SKIPPED, never claims a signature (no-false-claim)" ok "signature verification is SKIPPED"
++inst "wrong pinned key" fail "signature verification FAILED" MONOAGENT_RELEASE_PUBKEY="$other_pub64"
++
++set_sh_latest "$work/exp/manifest.json" good
++inst "manifest with a future expires_at installs" ok "Manifest signature verified" MONOAGENT_RELEASE_PUBKEY="$good_pub64"
++set_sh_latest "$work/expired.json" good
++inst "expired manifest (validly signed)" fail "expired" MONOAGENT_RELEASE_PUBKEY="$good_pub64"
++inst "expired manifest, no key configured" fail "expired"
++
++reset_sh
++sed 's/v9.9.9/v9.9.8/' "$srv/sh/manifest.json" > "$work/t2" && cp "$work/t2" "$srv/sh/manifest.json"
++inst "tampered manifest" fail "signature verification FAILED" MONOAGENT_RELEASE_PUBKEY="$good_pub64"
++
++reset_sh
++printf 'x' >> "$srv/$dl/v9.9.9/monoagentcli-$goos-$goarch"
++inst "tampered asset" fail "checksum mismatch" MONOAGENT_RELEASE_PUBKEY="$good_pub64"
++publish_assets v9.9.9
++
++reset_sh
++awk '{ sub(/.$/, "A", $2); print }' "$srv/sh/manifest.json.sig" > "$work/t3" && cp "$work/t3" "$srv/sh/manifest.json.sig"
++inst "tampered signature" fail "signature verification FAILED" MONOAGENT_RELEASE_PUBKEY="$good_pub64"
++
++reset_sh
++find "$srv/sh" -name manifest.json.sig -delete
++inst "missing signature with a key configured" fail "signature verification FAILED" MONOAGENT_RELEASE_PUBKEY="$good_pub64"
++
++# ── (6) update (the Go client) ───────────────────────────────────────────────
++echo "== 6: monoagentcli update"
++upd() { # runs the installed binary with the loopback + pinned key; extra args = update flags
++  HOME="$home" MONOAGENT_E2E_LOOPBACK="127.0.0.1:$port" MONOAGENT_E2E_PINNED_KEY="${PIN:-$good_line}" "$work/up/monoagentcli" update "$@" 2>&1
++}
++ver() { "$work/up/monoagentcli" version 2>&1 | head -n1; }
++fresh_old() { mkdir -p "$work/up"; find "$work/up" -name monoagentcli -delete; cp "$bin/old-cli" "$work/up/monoagentcli"; }
++
++set_go_latest "$work/art-v9.9.9/manifest.json" "$work/art-v9.9.9/manifest.json.sig"
++fresh_old
++out="$(upd)" && rc=0 || rc=$?
++{ [ "$rc" -eq 0 ] && grep -q "Signature and checksum verified" <<<"$out" && grep -q "Updated to v9.9.9" <<<"$out" && ver | grep -q v9.9.9; }
++check "update: v0.1.0 -> v9.9.9 through the signed manifest" $? "$out"
++out="$(upd)" || true
++grep -q "Already on latest version (v9.9.9)" <<<"$out"; check "update: second run is a no-op" $? "$out"
++
++# replay: an older but validly signed manifest, after v9.9.9 was accepted
++set_go_latest "$work/art-v9.0.0/manifest.json" "$work/art-v9.0.0/manifest.json.sig"
++fresh_old
++out="$(upd)" && rc=0 || rc=$?
++{ [ "$rc" -ne 0 ] && grep -q "refusing a rollback" <<<"$out" && ver | grep -q v0.1.0; }
++check "update: replayed older manifest refused, binary kept" $? "$out"
++out="$(upd --force)" && rc=0 || rc=$?
++{ [ "$rc" -eq 0 ] && grep -q "Updated to v9.0.0" <<<"$out" && "$work/up/monoagentcli" | grep -q "fake"; }
++check "update --force overrides the replay refusal" $? "$out"
++
++# fresh HOME state for the failure cases, so each is judged on its own
++bad() { # <name> <pattern> : expects failure, binary untouched
++  fresh_old; rm_state; local o rc=0; o="$(upd)" || rc=$?
++  { [ "$rc" -ne 0 ] && grep -q -e "$2" <<<"$o" && ver | grep -q v0.1.0; }; check "update: $1" $? "$o"
++}
++rm_state() { find "$home/.monoagent" -name release-state.json -delete 2>/dev/null || true; }
++set_go_latest "$work/art-v9.9.9/manifest.json" "$work/art-v9.9.9/manifest.json.sig"
++PIN="$other_line" bad "wrong pinned key" "rejected"
++PIN="$good_line"
++sed 's/v9.9.9/v9.9.8/' "$work/art-v9.9.9/manifest.json" > "$work/t4"; set_go_latest "$work/t4" "$work/art-v9.9.9/manifest.json.sig"
++bad "tampered manifest" "rejected"
++set_go_latest "$work/art-v9.9.9/manifest.json" "$work/art-v9.9.9/manifest.json.sig"
++awk '{ sub(/.$/, "A", $2); print }' "$work/art-v9.9.9/manifest.json.sig" > "$work/t5"; set_go_latest "$work/art-v9.9.9/manifest.json" "$work/t5"
++bad "tampered signature" "rejected"
++set_go_latest "$work/expired.json" "$work/expired.json.sig"
++bad "expired manifest" "expired"
++set_go_latest "$work/art-v9.9.9/manifest.json" "$work/art-v9.9.9/manifest.json.sig"
++printf 'x' >> "$srv/$dl/v9.9.9/monoagentcli-$goos-$goarch"
++bad "tampered asset" "mismatch\|bytes"
++publish_assets v9.9.9
++
++echo
++echo "release-e2e: $passes passed, $fails failed"
++[ "$fails" -eq 0 ]

@@ -1,0 +1,1088 @@
+# Review package: 643fbc80..05cecec2
+
+## Commits
+05cecec2 feat(tasks): read a board: Get, List, Board, Rev, Counts, each read in one snapshot; ParseStatus repeats at most 64 runes of what it refuses
+ae66982c docs(tasks): P1 plan Task 13: mutation row 1 quotes the Ready gate as built
+
+## Files changed
+ .../2026-10-05-tasks-board-phase1-store-cli.md     |   2 +-
+ internal/tasks/model.go                            |   2 +-
+ internal/tasks/read.go                             | 251 +++++++++++++++++
+ internal/tasks/read_rules_test.go                  | 305 +++++++++++++++++++++
+ internal/tasks/read_snapshot_test.go               | 209 ++++++++++++++
+ internal/tasks/read_test.go                        | 229 ++++++++++++++++
+ 6 files changed, 996 insertions(+), 2 deletions(-)
+
+## Diff
+diff --git a/docs/mastermind/plans/2026-10-05-tasks-board-phase1-store-cli.md b/docs/mastermind/plans/2026-10-05-tasks-board-phase1-store-cli.md
+index 470cd9d5..ecf6ec23 100644
+--- a/docs/mastermind/plans/2026-10-05-tasks-board-phase1-store-cli.md
++++ b/docs/mastermind/plans/2026-10-05-tasks-board-phase1-store-cli.md
+@@ -6153,21 +6153,21 @@ go test ./... -count=1 -timeout 30m
+ ```
+ 
+ (No `-run` on the second: one doctor test of that package hangs when selected by a narrow pattern and passes in a full package run.) Expected: the first two PASS. The third may fail on tests that already fail on a pristine macOS tree, as of 2026-10-05: in `cmd/monoagentcli` `TestCaptureTaskFilesOnTheBoard`, `TestCoderRootIsOneSharedFolder`, `TestWorkflowCancelSignalsAndMarks` and `TestCoderConversationFolders`; in `internal/capturetask` `TestCreateAttachesEveryArtifact` and `TestCreateRecordsTheRealPathNotASymlink`; in `internal/config` `TestGenerateConfigFailsFastWhenMonomindMissing`; in `internal/monomind` `TestFindAll_ListsShadowedCopies`; plus load flakes that pass when rerun alone (`internal/connections` `TestMigrateConnectionsToVault_SkipsRowLockedByAnotherProcess`, `internal/mcp` `TestGrantWaitTimeoutNote` and `TestManyUpdateCallsAtOnceAllLand`, `internal/dynorg` `TestIsolatedWritersRunInParallelInTheirOwnWorktrees`, `cmd/monoagentcli` `TestAgentTestGoDeadline`, and now and then a `wails-app` test). Any other failure, above all one in `internal/tasks`, `internal/i18n`, `internal/storage`, `data` or a test of this phase, is yours: fix it in the task that owns the code. If in doubt, run the failing test on an export of `origin/master` (`git archive origin/master | tar -x -C <a fresh directory under the scratchpad>`) to see whether it fails there too. If a test of this phase fails because the environment is an agent's (a marker you did not clear), the test is wrong: `newTaskTestDB` must clear it.
+ 
+ - [ ] **Step 4: Mutation checks**
+ 
+ For each row: apply the change with the Edit tool, run the test named, see it FAIL, undo the change with the Edit tool, see it PASS again. A mutation that does not fail its test means a rule has no proof: add or sharpen the test (in the task that owns the code) before going on.
+ 
+ | # | File and change | Test that must fail |
+ |---|---|---|
+-| 1 | `store.go`, `Add`: in `if in.Ready { if actor.Kind != Human {` use `if false {` | `go test ./internal/tasks/ -run TestAddReadyIsForTheOperatorOnly` |
++| 1 | `store.go`, `Add`: in `if in.Ready && actor.Kind != Human {` (the first check of Add) use `if false {` | `go test ./internal/tasks/ -run TestAddReadyIsForTheOperatorOnly` |
+ | 2 | `claims.go`, `claimTx`: replace `until = later(cur.Claim.Until, until)` by `until = until` | `-run TestSameNameClaimRenewsButNeverShortens` |
+ | 3 | `claims.go`, `pickNext`: the Ready query's `ORDER BY position, id` becomes `ORDER BY id DESC` | `-run TestNextPeeksTheTopReadyTask` |
+ | 4 | `store.go`, `sourceKindFor`, the `Agent` case: the condition becomes `if true {` | `-run TestSourceKindRules` |
+ | 5 | `claims.go`, `Comment`: `if n >= MaxEventsPerTask {` becomes `if false {` | `-run TestEventCapRefusesCommentsOnly` |
+ | 6 | `ops.go`, `placeIn`: in the final `switch` the case `pos[idx]-pos[idx-1] >= 2:` becomes `case true:` | `-run 'TestMoveRenumbersAColumnWithNoRoom|TestAnyOrderOfMovesKeepsATotalOrder'` |
+ | 7 | `clean.go`, `hidden`: the first `case r >= 0xE0000 && r <= 0xE007F:` becomes `case false:` | `-run TestCleanText` |
+ | 8 | `cmd/monoagentcli/task.go`, `callerFor`: `marker := orgsign.AgentContextMarker()` becomes `marker := ""` | `go test ./cmd/monoagentcli/ -run TestOperatorCommandsRefuseAnAgentContext` |
+ | 9 | `data/migrations/062_tasks.sql`: remove ` REFERENCES profiles(id) ON DELETE CASCADE` from the `tasks` table | `go test ./internal/tasks/ -run 'TestATaskNeedsAnExistingProfile|TestDeletingAProfileDeletesItsBoard'` |
+ | 10 | `store.go`, `tx`: `"BEGIN IMMEDIATE"` becomes `"BEGIN"` | `go test ./internal/tasks/ -run 'TestClaimsAcrossProcesses|TestConcurrentClaims' -count=5` (may be flaky: report what you saw) |
+ 
+diff --git a/internal/tasks/model.go b/internal/tasks/model.go
+index 0e9e2cb4..84912b6e 100644
+--- a/internal/tasks/model.go
++++ b/internal/tasks/model.go
+@@ -39,21 +39,21 @@ func (s Status) IsBoard() bool {
+ // ParseStatus reads a status name; "progress" and "in-progress" mean in_progress.
+ func ParseStatus(name string) (Status, error) {
+ 	n := strings.ReplaceAll(strings.ToLower(strings.TrimSpace(name)), "-", "_")
+ 	if n == "progress" {
+ 		n = string(StatusInProgress)
+ 	}
+ 	switch st := Status(n); st {
+ 	case StatusInbox, StatusReady, StatusInProgress, StatusReview, StatusDone, StatusArchived:
+ 		return st, nil
+ 	}
+-	return "", invalid("unknown status %q (use inbox, ready, in_progress, review, done or archived)", name)
++	return "", invalid("unknown status %q (use inbox, ready, in_progress, review, done or archived)", echo(name))
+ }
+ 
+ // Where a task came from.
+ const (
+ 	SourceCLI    = "cli"
+ 	SourceApp    = "app"
+ 	SourceChrome = "chrome"
+ 	SourceOS     = "os"
+ 	SourceAgent  = "agent"
+ )
+diff --git a/internal/tasks/read.go b/internal/tasks/read.go
+new file mode 100644
+index 00000000..2455b5e6
+--- /dev/null
++++ b/internal/tasks/read.go
+@@ -0,0 +1,251 @@
++package tasks
++
++import (
++	"context"
++	"database/sql"
++	"errors"
++	"fmt"
++	"slices"
++)
++
++// statusOrder sorts a query by column, in board order.
++const statusOrder = `CASE status WHEN 'inbox' THEN 0 WHEN 'ready' THEN 1 WHEN 'in_progress' THEN 2 WHEN 'review' THEN 3 WHEN 'done' THEN 4 ELSE 5 END`
++
++// Rev is the profile's board revision: 0 until its first write. It is one
++// primary-key read, so it needs no snapshot.
++func (s *Store) Rev(ctx context.Context, profileID string) (int64, error) {
++	return s.revOf(ctx, s.db, profileID)
++}
++
++func (s *Store) revOf(ctx context.Context, x dbx, profileID string) (int64, error) {
++	var rev int64
++	err := x.QueryRowContext(ctx, `SELECT rev FROM task_board_rev WHERE profile_id = ?`, profileID).Scan(&rev)
++	if errors.Is(err, sql.ErrNoRows) {
++		return 0, nil
++	}
++	if err != nil {
++		return 0, fmt.Errorf("tasks: reading the revision: %w", err)
++	}
++	return rev, nil
++}
++
++// Counts returns the profile's cards per column and its stale claims, read in
++// one snapshot.
++func (s *Store) Counts(ctx context.Context, profileID string) (Counts, error) {
++	var c Counts
++	err := s.snapshot(ctx, func(x dbx) error {
++		var err error
++		c, err = s.countsOf(ctx, x, profileID)
++		return err
++	})
++	if err != nil {
++		return Counts{}, err
++	}
++	return c, nil
++}
++
++func (s *Store) countsOf(ctx context.Context, x dbx, profileID string) (Counts, error) {
++	var c Counts
++	rows, err := x.QueryContext(ctx, `SELECT status, COUNT(*) FROM tasks WHERE profile_id = ? GROUP BY status`, profileID)
++	if err != nil {
++		return Counts{}, fmt.Errorf("tasks: counting: %w", err)
++	}
++	defer rows.Close()
++	for rows.Next() {
++		var st string
++		var n int
++		if err := rows.Scan(&st, &n); err != nil {
++			return Counts{}, fmt.Errorf("tasks: counting: %w", err)
++		}
++		switch Status(st) {
++		case StatusInbox:
++			c.Inbox = n
++		case StatusReady:
++			c.Ready = n
++		case StatusInProgress:
++			c.InProgress = n
++		case StatusReview:
++			c.Review = n
++		case StatusDone:
++			c.Done = n
++		}
++	}
++	if err := rows.Err(); err != nil {
++		return Counts{}, fmt.Errorf("tasks: counting: %w", err)
++	}
++	// The loop ran to its end, which closes rows: the next statement is not run
++	// beside an open one.
++	err = x.QueryRowContext(ctx,
++		`SELECT COUNT(*) FROM tasks WHERE profile_id = ? AND status = 'in_progress' AND claimed_by <> '' AND claim_until <= ?`,
++		profileID, s.stamp()).Scan(&c.Stale)
++	if err != nil {
++		return Counts{}, fmt.Errorf("tasks: counting stale claims: %w", err)
++	}
++	return c, nil
++}
++
++// queryTasks runs a query that selects taskCols and returns its tasks with
++// their last events. The result is never nil.
++func (s *Store) queryTasks(ctx context.Context, x dbx, q string, args ...any) ([]Task, error) {
++	rows, err := x.QueryContext(ctx, q, args...)
++	if err != nil {
++		return nil, fmt.Errorf("tasks: reading tasks: %w", err)
++	}
++	defer rows.Close()
++	out := []Task{}
++	for rows.Next() {
++		t, err := s.scanTask(rows)
++		if err != nil {
++			return nil, fmt.Errorf("tasks: reading tasks: %w", err)
++		}
++		out = append(out, t)
++	}
++	if err := rows.Err(); err != nil {
++		return nil, fmt.Errorf("tasks: reading tasks: %w", err)
++	}
++	// As in countsOf, rows is closed by now.
++	if err := s.attachLast(ctx, x, out); err != nil {
++		return nil, err
++	}
++	return out, nil
++}
++
++// Get returns a task of the profile with its events, oldest first.
++func (s *Store) Get(ctx context.Context, profileID string, id int64) (Task, []Event, error) {
++	var t Task
++	events := []Event{}
++	err := s.snapshot(ctx, func(x dbx) error {
++		var err error
++		if t, err = s.getTx(ctx, x, profileID, id); err != nil {
++			return err
++		}
++		rows, err := x.QueryContext(ctx,
++			`SELECT id, at, actor, kind, from_status, to_status, note FROM task_events WHERE task_id = ? ORDER BY id`, id)
++		if err != nil {
++			return fmt.Errorf("tasks: reading events: %w", err)
++		}
++		defer rows.Close()
++		for rows.Next() {
++			var e Event
++			var at string
++			if err := rows.Scan(&e.ID, &at, &e.Actor, &e.Kind, &e.FromStatus, &e.ToStatus, &e.Note); err != nil {
++				return fmt.Errorf("tasks: reading events: %w", err)
++			}
++			if e.At, err = storedTime("time of an event", at); err != nil {
++				return fmt.Errorf("tasks: reading events: %w", err)
++			}
++			events = append(events, e)
++		}
++		if err := rows.Err(); err != nil {
++			return fmt.Errorf("tasks: reading events: %w", err)
++		}
++		return nil
++	})
++	if err != nil {
++		return Task{}, nil, err
++	}
++	return t, events, nil
++}
++
++// defaultStatuses is what List shows when no status is named: every column to
++// the operator, and only the work that is open to an agent.
++func defaultStatuses(actor Actor) []Status {
++	if actor.Kind == Agent {
++		return []Status{StatusReady, StatusInProgress, StatusReview}
++	}
++	return BoardStatuses
++}
++
++// List returns the profile's tasks, by column and then by position.
++func (s *Store) List(ctx context.Context, profileID string, f Filter, actor Actor) ([]Task, error) {
++	// The names are parsed and the parsed statuses are queried: "progress" and
++	// "In-Progress" are accepted as in_progress, so they must find it. A status
++	// named twice is asked for once, which keeps the query to six slots however
++	// long the caller's list is.
++	statuses := make([]Status, 0, len(BoardStatuses)+1)
++	for _, name := range f.Statuses {
++		st, err := ParseStatus(string(name))
++		if err != nil {
++			return nil, err
++		}
++		if !slices.Contains(statuses, st) {
++			statuses = append(statuses, st)
++		}
++	}
++	if len(statuses) == 0 {
++		statuses = defaultStatuses(actor)
++	}
++	if f.Source != "" && !validSource(f.Source) {
++		return nil, invalid("unknown source %q", echo(f.Source))
++	}
++	n := f.Limit
++	if n <= 0 {
++		n = DefaultListLimit
++	}
++	if n > MaxListLimit {
++		n = MaxListLimit
++	}
++	q := `SELECT ` + taskCols + ` FROM tasks WHERE profile_id = ? AND status IN (` + placeholders(len(statuses)) + `)`
++	args := []any{profileID}
++	for _, st := range statuses {
++		args = append(args, string(st))
++	}
++	if f.Source != "" {
++		q += ` AND source_kind = ?`
++		args = append(args, f.Source)
++	}
++	if f.ClaimedBy != "" {
++		q += ` AND claimed_by = ?`
++		args = append(args, f.ClaimedBy)
++	}
++	if f.Stale {
++		q += ` AND status = 'in_progress' AND claimed_by <> '' AND claim_until <= ?`
++		args = append(args, s.stamp())
++	}
++	q += ` ORDER BY ` + statusOrder + `, position, id LIMIT ?`
++	args = append(args, n)
++	var out []Task
++	err := s.snapshot(ctx, func(x dbx) error {
++		var err error
++		out, err = s.queryTasks(ctx, x, q, args...)
++		return err
++	})
++	if err != nil {
++		return nil, err
++	}
++	return out, nil
++}
++
++// Board returns the whole board in one snapshot: the revision, the counts and
++// the five columns. The Done column is cut to doneLimit cards when it is above 0.
++func (s *Store) Board(ctx context.Context, profileID string, doneLimit int) (Board, error) {
++	b := Board{Tasks: map[Status][]Task{}}
++	err := s.snapshot(ctx, func(x dbx) error {
++		var err error
++		if b.Profile, err = s.profileOf(ctx, x, profileID); err != nil {
++			return err
++		}
++		if b.Rev, err = s.revOf(ctx, x, profileID); err != nil {
++			return err
++		}
++		if b.Counts, err = s.countsOf(ctx, x, profileID); err != nil {
++			return err
++		}
++		for _, st := range BoardStatuses {
++			q := `SELECT ` + taskCols + ` FROM tasks WHERE profile_id = ? AND status = ? ORDER BY position, id`
++			args := []any{profileID, string(st)}
++			if st == StatusDone && doneLimit > 0 {
++				q += ` LIMIT ?`
++				args = append(args, doneLimit)
++			}
++			if b.Tasks[st], err = s.queryTasks(ctx, x, q, args...); err != nil {
++				return err
++			}
++		}
++		return nil
++	})
++	if err != nil {
++		return Board{}, err
++	}
++	return b, nil
++}
+diff --git a/internal/tasks/read_rules_test.go b/internal/tasks/read_rules_test.go
+new file mode 100644
+index 00000000..a5378c72
+--- /dev/null
++++ b/internal/tasks/read_rules_test.go
+@@ -0,0 +1,305 @@
++package tasks
++
++import (
++	"database/sql"
++	"encoding/json"
++	"slices"
++	"testing"
++	"time"
++)
++
++// seedAt inserts a row of the given status and position straight into the table.
++func seedAt(t *testing.T, db *sql.DB, profile, status string, position int64) int64 {
++	t.Helper()
++	res, err := db.Exec(`INSERT INTO tasks (profile_id, title, status, position, created_at, updated_at) VALUES (?, 'x', ?, ?, ?, ?)`,
++		profile, status, position, rowTime, rowTime)
++	if err != nil {
++		t.Fatal(err)
++	}
++	id, err := res.LastInsertId()
++	if err != nil {
++		t.Fatal(err)
++	}
++	return id
++}
++
++// holdUntil makes the task an in-progress one that "bot" holds until the given time.
++func holdUntil(t *testing.T, db *sql.DB, id int64, until time.Time) {
++	t.Helper()
++	if _, err := db.Exec(`UPDATE tasks SET status = 'in_progress', claimed_by = 'bot', claim_until = ? WHERE id = ?`, until.Format(timeFmt), id); err != nil {
++		t.Fatal(err)
++	}
++}
++
++func idsOf(ts []Task) []int64 {
++	ids := make([]int64, 0, len(ts))
++	for _, task := range ts {
++		ids = append(ids, task.ID)
++	}
++	return ids
++}
++
++// A lease that ends exactly now has ended (spec 4.2). The count and the filter each write the
++// comparison on their own, and the task's own flag a third time.
++func TestAClaimThatEndsExactlyNowIsStaleInTheCountAndTheFilter(t *testing.T) {
++	for _, k := range []struct {
++		name  string
++		until time.Duration // from now
++		stale int           // the stale claims there are
++	}{
++		{"a second ago", -time.Second, 1},
++		{"exactly now", 0, 1},
++		{"a second from now", time.Second, 0},
++	} {
++		t.Run(k.name, func(t *testing.T) {
++			s, db, c := newTestStore(t)
++			holdUntil(t, db, seedRow(t, db, "default", "in_progress"), c.t.Add(k.until))
++			if cn, err := s.Counts(bg, "default"); err != nil || cn != (Counts{InProgress: 1, Stale: k.stale}) {
++				t.Errorf("counts %+v, err %v, want 1 in progress and %d stale", cn, err, k.stale)
++			}
++			b, err := s.Board(bg, "default", 0)
++			if err != nil || b.Counts.Stale != k.stale {
++				t.Errorf("the board counts %d stale (err %v), want %d", b.Counts.Stale, err, k.stale)
++			}
++			ts, err := s.List(bg, "default", Filter{Stale: true}, human)
++			if err != nil || len(ts) != k.stale {
++				t.Errorf("the stale filter lists %d tasks (err %v), want %d", len(ts), err, k.stale)
++			}
++			all, err := s.List(bg, "default", Filter{}, human)
++			if err != nil || len(all) != 1 || all[0].Claim == nil || all[0].Claim.Stale != (k.stale == 1) {
++				t.Errorf("the claim in a list: %+v (err %v), want stale %v", all, err, k.stale == 1)
++			}
++		})
++	}
++}
++
++// Spec 4.2: a stale claim is an in-progress task that somebody holds and whose lease has run out,
++// in this profile. An empty claim_until sorts before every time, so a task nobody holds would pass
++// the lease test alone.
++func TestOnlyAHeldInProgressTaskOfTheProfileIsStale(t *testing.T) {
++	s, db, c := newTestStore(t)
++	other := addProfile(t, db, "p2")
++	past := c.t.Add(-time.Hour)
++	held := seedRow(t, db, "default", "in_progress")
++	holdUntil(t, db, held, past)
++	seedRow(t, db, "default", "in_progress") // the operator moved it by hand: nobody holds it
++	left := seedRow(t, db, "default", "review")
++	if _, err := db.Exec(`UPDATE tasks SET claimed_by = 'bot', claim_until = ? WHERE id = ?`, past.Format(timeFmt), left); err != nil {
++		t.Fatal(err)
++	}
++	holdUntil(t, db, seedRow(t, db, other, "in_progress"), past)
++
++	if cn, err := s.Counts(bg, "default"); err != nil || cn != (Counts{InProgress: 2, Review: 1, Stale: 1}) {
++		t.Errorf("counts %+v, err %v, want 2 in progress, 1 in review and 1 stale", cn, err)
++	}
++	if ts, err := s.List(bg, "default", Filter{Stale: true}, human); err != nil || !slices.Equal(idsOf(ts), []int64{held}) {
++		t.Errorf("the stale filter lists %v (err %v), want only #%d", idsOf(ts), err, held)
++	}
++	if cn, err := s.Counts(bg, other); err != nil || cn != (Counts{InProgress: 1, Stale: 1}) {
++		t.Errorf("counts of the other profile %+v, err %v", cn, err)
++	}
++}
++
++func TestCountsHaveAFieldPerColumnAndSkipTheArchive(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	for i, st := range []string{"inbox", "ready", "in_progress", "review", "done", "archived"} {
++		for n := 0; n <= i; n++ { // 1, 2, 3, 4, 5 and 6 cards
++			seedRow(t, db, "default", st)
++		}
++	}
++	want := Counts{Inbox: 1, Ready: 2, InProgress: 3, Review: 4, Done: 5}
++	if got, err := s.Counts(bg, "default"); err != nil || got != want {
++		t.Errorf("counts %+v, err %v, want %+v", got, err, want)
++	}
++	b, err := s.Board(bg, "default", 0)
++	if err != nil || b.Counts != want {
++		t.Fatalf("board counts %+v, err %v, want %+v", b.Counts, err, want)
++	}
++	for st, n := range map[Status]int{StatusInbox: 1, StatusReady: 2, StatusInProgress: 3, StatusReview: 4, StatusDone: 5} {
++		if len(b.Tasks[st]) != n {
++			t.Errorf("column %s holds %d cards, want %d", st, len(b.Tasks[st]), n)
++		}
++	}
++	if len(b.Tasks) != 5 {
++		t.Errorf("the board has %d columns, want the five (the archive is not one)", len(b.Tasks))
++	}
++}
++
++func TestBoardColumnsAreInOrderAndOnlyDoneIsCut(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	i1, i2, i3 := mustAdd(t, s, "default", "i1", false).ID, mustAdd(t, s, "default", "i2", false).ID, mustAdd(t, s, "default", "i3", false).ID
++	r1, r2, r3 := mustAdd(t, s, "default", "r1", true).ID, mustAdd(t, s, "default", "r2", true).ID, mustAdd(t, s, "default", "r3", true).ID
++	var done []int64 // positions 50, 40, 30, 20, 10: the card at the top of the column has the lowest
++	for _, pos := range []int64{50, 40, 30, 20, 10} {
++		done = append(done, seedAt(t, db, "default", "done", pos))
++	}
++	top := []int64{done[4], done[3], done[2], done[1], done[0]}
++	for _, k := range []struct{ limit, shown int }{{0, 5}, {-1, 5}, {1, 1}, {2, 2}, {4, 4}, {5, 5}, {6, 5}} {
++		b, err := s.Board(bg, "default", k.limit)
++		if err != nil {
++			t.Fatal(err)
++		}
++		if got := idsOf(b.Tasks[StatusDone]); !slices.Equal(got, top[:k.shown]) {
++			t.Errorf("done limit %d: %v, want the top %d: %v", k.limit, got, k.shown, top[:k.shown])
++		}
++		if b.Counts.Done != 5 {
++			t.Errorf("done limit %d: %d done in the counts, want 5 (the limit cuts the column, not the count)", k.limit, b.Counts.Done)
++		}
++		if got := idsOf(b.Tasks[StatusInbox]); !slices.Equal(got, []int64{i3, i2, i1}) {
++			t.Errorf("done limit %d: inbox %v, want every card, newest first: %v", k.limit, got, []int64{i3, i2, i1})
++		}
++		if got := idsOf(b.Tasks[StatusReady]); !slices.Equal(got, []int64{r1, r2, r3}) {
++			t.Errorf("done limit %d: ready %v, want every card, in queue order: %v", k.limit, got, []int64{r1, r2, r3})
++		}
++	}
++}
++
++func TestListOrdersEveryColumnThenPositionThenID(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	// Made in reverse board order, so that the order of the ids is not the order of the board.
++	arch := seedAt(t, db, "default", "archived", 5)
++	done := seedAt(t, db, "default", "done", 5)
++	review := seedAt(t, db, "default", "review", 5)
++	progress := seedAt(t, db, "default", "in_progress", 5)
++	a := seedAt(t, db, "default", "ready", 30)
++	b := seedAt(t, db, "default", "ready", 10)
++	c := seedAt(t, db, "default", "ready", 20)
++	d := seedAt(t, db, "default", "ready", 10) // the same position as b: the lower id first
++	inbox := seedAt(t, db, "default", "inbox", 5)
++	asked := []Status{StatusArchived, StatusDone, StatusReview, StatusInProgress, StatusReady, StatusInbox}
++	ts, err := s.List(bg, "default", Filter{Statuses: asked}, human)
++	want := []int64{inbox, b, d, c, a, progress, review, done, arch}
++	if err != nil || !slices.Equal(idsOf(ts), want) {
++		t.Errorf("order %v (err %v), want %v", idsOf(ts), err, want)
++	}
++}
++
++func TestListStopsAtTheLimitItIsGiven(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	seedTasks(t, db, "default", MaxListLimit+1)
++	for _, k := range []struct{ limit, shown int }{
++		{0, DefaultListLimit}, {-1, DefaultListLimit}, {1, 1}, {DefaultListLimit + 1, DefaultListLimit + 1},
++		{MaxListLimit, MaxListLimit}, {MaxListLimit + 1, MaxListLimit}, {1 << 30, MaxListLimit},
++	} {
++		if ts, err := s.List(bg, "default", Filter{Limit: k.limit}, human); err != nil || len(ts) != k.shown {
++			t.Errorf("limit %d: %d tasks (err %v), want %d", k.limit, len(ts), err, k.shown)
++		}
++	}
++	if ts, _ := s.List(bg, "default", Filter{Limit: 2}, human); len(ts) != 2 || ts[0].Title != "seed 0" || ts[1].Title != "seed 1" {
++		t.Errorf("a limit keeps the first cards of the order: %+v", ts)
++	}
++}
++
++// ParseStatus accepts "progress" and "In-Progress" as in_progress: a name that is accepted must find it.
++func TestListFindsTheStatusesItAcceptsByAnyName(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	progress := seedRow(t, db, "default", "in_progress")
++	ready := seedRow(t, db, "default", "ready")
++	seedRow(t, db, "default", "done")
++	named := []Status{"Progress", " READY\n"}
++	ts, err := s.List(bg, "default", Filter{Statuses: named}, human)
++	if err != nil || !slices.Equal(idsOf(ts), []int64{ready, progress}) {
++		t.Errorf("listed %v (err %v), want #%d and #%d", idsOf(ts), err, ready, progress)
++	}
++	if named[0] != "Progress" || named[1] != " READY\n" {
++		t.Errorf("the caller's statuses became %q", named)
++	}
++	if _, err := s.List(bg, "default", Filter{Statuses: []Status{"in-progress", "bogus"}}, human); err == nil {
++		t.Error("a bogus status among good ones was accepted")
++	}
++}
++
++// The query has a slot for each status named: a caller's list of a hundred thousand names (an agent's,
++// through a tool) must not ask SQLite for a hundred thousand variables.
++func TestListAsksForEachStatusOnceHoweverOftenItIsNamed(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	ready := seedRow(t, db, "default", "ready")
++	seedRow(t, db, "default", "done")
++	ts, err := s.List(bg, "default", Filter{Statuses: slices.Repeat([]Status{StatusReady}, 100000)}, human)
++	if err != nil || !slices.Equal(idsOf(ts), []int64{ready}) {
++		t.Errorf("listed %v (err %v), want only #%d", idsOf(ts), err, ready)
++	}
++}
++
++func TestEveryTaskCarriesItsOwnLastEvent(t *testing.T) {
++	s, db, c := newTestStore(t)
++	a := mustAdd(t, s, "default", "a", false)
++	b := mustAdd(t, s, "default", "b", true)
++	d := mustAdd(t, s, "default", "d", true)
++	note := func(id int64, actor, kind string, after time.Duration) {
++		t.Helper()
++		if _, err := db.Exec(`INSERT INTO task_events (task_id, at, actor, kind) VALUES (?, ?, ?, ?)`, id, c.t.Add(after).Format(timeFmt), actor, kind); err != nil {
++			t.Fatal(err)
++		}
++	}
++	note(b.ID, "bob", "comment", time.Minute)
++	note(d.ID, "amy", "comment", 2*time.Minute)
++	note(d.ID, "amy", "result", 3*time.Minute)
++	want := map[int64]LastEvent{
++		a.ID: {Actor: "you", Kind: "created", At: c.t},
++		b.ID: {Actor: "bob", Kind: "comment", At: c.t.Add(time.Minute)},
++		d.ID: {Actor: "amy", Kind: "result", At: c.t.Add(3 * time.Minute)},
++	}
++	check := func(what string, ts []Task) {
++		t.Helper()
++		if len(ts) != 3 {
++			t.Fatalf("%s: %d tasks, want 3", what, len(ts))
++		}
++		for _, task := range ts {
++			w, got := want[task.ID], task.LastEvent
++			if got == nil || got.Actor != w.Actor || got.Kind != w.Kind || !got.At.Equal(w.At) {
++				t.Errorf("%s: #%d has the last event %+v, want %+v", what, task.ID, got, w)
++			}
++		}
++	}
++	ts, err := s.List(bg, "default", Filter{}, human)
++	if err != nil {
++		t.Fatal(err)
++	}
++	check("list", ts)
++	board, err := s.Board(bg, "default", 0)
++	if err != nil {
++		t.Fatal(err)
++	}
++	check("board", slices.Concat(board.Tasks[StatusInbox], board.Tasks[StatusReady]))
++	var viaGet []Task
++	for id := range want {
++		task, _, err := s.Get(bg, "default", id)
++		if err != nil {
++			t.Fatal(err)
++		}
++		viaGet = append(viaGet, task)
++	}
++	check("get", viaGet)
++}
++
++func TestRevIsEachProfilesOwn(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	p2, p3 := addProfile(t, db, "p2"), addProfile(t, db, "p3")
++	mustAdd(t, s, "default", "a", false)
++	mustAdd(t, s, p2, "b", false)
++	mustAdd(t, s, p2, "c", false)
++	for profile, want := range map[string]int64{"default": 1, p2: 2, p3: 0} {
++		if got, err := s.Rev(bg, profile); err != nil || got != want {
++			t.Errorf("revision of %s: %d (err %v), want %d", profile, got, err, want)
++		}
++	}
++}
++
++func TestGetShowsATaskOfAnyStatusIncludingTheArchive(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	for _, st := range []string{"inbox", "ready", "in_progress", "review", "done", "archived"} {
++		if got, _, err := s.Get(bg, "default", seedRow(t, db, "default", st)); err != nil || string(got.Status) != st {
++			t.Errorf("a %s task: %+v (err %v)", st, got, err)
++		}
++	}
++}
++
++func TestAnEmptyListIsAnEmptyArray(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	ts, err := s.List(bg, "default", Filter{}, human)
++	raw, _ := json.Marshal(ts)
++	if err != nil || ts == nil || string(raw) != "[]" {
++		t.Errorf("an empty list is %s (nil %v, err %v), want []", raw, ts == nil, err)
++	}
++}
+diff --git a/internal/tasks/read_snapshot_test.go b/internal/tasks/read_snapshot_test.go
+new file mode 100644
+index 00000000..9e7c1156
+--- /dev/null
++++ b/internal/tasks/read_snapshot_test.go
+@@ -0,0 +1,209 @@
++package tasks
++
++import (
++	"context"
++	"database/sql"
++	"errors"
++	"strings"
++	"testing"
++	"time"
++)
++
++// writeMidRead makes the store's clock run fn the first time a read asks it for the time. A read asks
++// between its statements (the stale count of Counts, the claim of a task it has just read), so fn is
++// a write by another connection in the middle of the read. ran says whether it did: a test that
++// never reached the middle of its read would pass for nothing.
++func writeMidRead(s *Store, c *clock, fn func()) (ran func() bool) {
++	done := false
++	s.now = func() time.Time {
++		if !done {
++			done = true
++			fn()
++		}
++		return c.t
++	}
++	return func() bool { return done }
++}
++
++// addEvent writes an event straight into the table. It reports with Error and not Fatal, so that it
++// can run inside the store's clock too.
++func addEvent(t *testing.T, db *sql.DB, id int64, actor, kind string) {
++	t.Helper()
++	if _, err := db.Exec(`INSERT INTO task_events (task_id, at, actor, kind) VALUES (?, ?, ?, ?)`, id, rowTime, actor, kind); err != nil {
++		t.Error(err)
++	}
++}
++
++// What one read shows agrees with itself, whatever is written while it runs: it is one snapshot. Each
++// test below writes in the middle of a read and wants the board as it was when the read began.
++func TestCountsAreReadInOneSnapshot(t *testing.T) {
++	s, db, c := newTestStore(t)
++	mustAdd(t, s, "default", "a", true)
++	ran := writeMidRead(s, c, func() {
++		// a stale claim appears after the counts of the columns and before the count of the stale ones
++		holdUntil(t, db, seedRow(t, db, "default", "in_progress"), c.t.Add(-time.Hour))
++	})
++	got, err := s.Counts(bg, "default")
++	if !ran() {
++		t.Fatal("the read never asked for the time: the test no longer writes in the middle of it")
++	}
++	if err != nil || got != (Counts{Ready: 1}) {
++		t.Errorf("counts %+v, err %v, want the one ready card the board held when the read began", got, err)
++	}
++}
++
++func TestAListIsReadInOneSnapshot(t *testing.T) {
++	s, db, c := newTestStore(t)
++	task := mustAdd(t, s, "default", "a", true)
++	holdUntil(t, db, task.ID, c.t.Add(time.Hour)) // a held task: reading it asks the clock
++	ran := writeMidRead(s, c, func() {
++		addEvent(t, db, task.ID, "bob", "comment") // after the task was read and before its last event is
++	})
++	ts, err := s.List(bg, "default", Filter{}, human)
++	if !ran() {
++		t.Fatal("the read never asked for the time: the test no longer writes in the middle of it")
++	}
++	if err != nil || len(ts) != 1 || ts[0].LastEvent == nil || ts[0].LastEvent.Kind != "created" {
++		t.Errorf("list %+v, err %v, want the one task with the last event it had when the read began", ts, err)
++	}
++}
++
++func TestABoardIsReadInOneSnapshot(t *testing.T) {
++	s, db, c := newTestStore(t)
++	mustAdd(t, s, "default", "a", false)
++	ran := writeMidRead(s, c, func() {
++		// a card lands, and the revision with it, after the counts of the columns and before the columns
++		seedRow(t, db, "default", "inbox")
++		if _, err := db.Exec(`UPDATE task_board_rev SET rev = rev + 1`); err != nil {
++			t.Error(err)
++		}
++	})
++	b, err := s.Board(bg, "default", 0)
++	if !ran() {
++		t.Fatal("the read never asked for the time: the test no longer writes in the middle of it")
++	}
++	if err != nil || b.Rev != 1 || b.Counts.Inbox != 1 || len(b.Tasks[StatusInbox]) != 1 {
++		t.Errorf("revision %d, %d inbox cards counted, %d shown (err %v), want one board: 1, 1 and 1", b.Rev, b.Counts.Inbox, len(b.Tasks[StatusInbox]), err)
++	}
++}
++
++func TestATaskAndItsEventsAreReadInOneSnapshot(t *testing.T) {
++	s, db, c := newTestStore(t)
++	task := mustAdd(t, s, "default", "a", true)
++	holdUntil(t, db, task.ID, c.t.Add(time.Hour)) // a held task: reading it asks the clock
++	ran := writeMidRead(s, c, func() {
++		addEvent(t, db, task.ID, "bob", "comment") // after the task was read and before its events are
++	})
++	got, events, err := s.Get(bg, "default", task.ID)
++	if !ran() {
++		t.Fatal("the read never asked for the time: the test no longer writes in the middle of it")
++	}
++	if err != nil || len(events) != 1 || got.LastEvent == nil || got.LastEvent.Kind != "created" {
++		t.Errorf("last event %+v and %d events (err %v), want what the task had when the read began: created, 1", got.LastEvent, len(events), err)
++	}
++}
++
++func TestEveryReadReportsItsContextEnding(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	mustAdd(t, s, "default", "a", false)
++	ctx, cancel := context.WithCancel(bg)
++	cancel()
++	for name, read := range map[string]func() error{
++		"Rev":    func() error { _, err := s.Rev(ctx, "default"); return err },
++		"Counts": func() error { _, err := s.Counts(ctx, "default"); return err },
++		"Get":    func() error { _, _, err := s.Get(ctx, "default", 1); return err },
++		"List":   func() error { _, err := s.List(ctx, "default", Filter{}, human); return err },
++		"Board":  func() error { _, err := s.Board(ctx, "default", 0); return err },
++	} {
++		if err := read(); !errors.Is(err, context.Canceled) {
++			t.Errorf("%s in a cancelled context: %v, want context.Canceled", name, err)
++		}
++	}
++}
++
++// A read that fails half way gives no half answer, and the connection it used is free again.
++func TestACancelInTheMiddleOfAReadFailsItWithoutAnAnswer(t *testing.T) {
++	s, _, c := newTestStore(t)
++	mustAdd(t, s, "default", "a", true)
++	ctx, cancel := context.WithCancel(bg)
++	defer cancel()
++	ran := writeMidRead(s, c, cancel)
++	got, err := s.Counts(ctx, "default")
++	if !ran() {
++		t.Fatal("the read never asked for the time: the test no longer cancels in the middle of it")
++	}
++	if !errors.Is(err, context.Canceled) || got != (Counts{}) {
++		t.Errorf("counts %+v, err %v, want no counts and the error of the context", got, err)
++	}
++	s.now = c.now
++	for i := 0; i < 3; i++ { // the pool hands out every connection it has
++		if cn, err := s.Counts(bg, "default"); err != nil || cn.Ready != 1 {
++			t.Fatalf("counts %d after the cancelled one: %+v, %v", i+1, cn, err)
++		}
++	}
++}
++
++// A stored time that does not read is an error in every read that shows it, not a task skipped and not
++// the year 1 (Task 3 pins it for one task: this is for a list and a board, which scan many).
++func TestAStoredTimeThatIsNotATimeFailsAListAndABoard(t *testing.T) {
++	for _, k := range []struct{ name, spoil string }{
++		{"created_at", `UPDATE tasks SET created_at = 'yesterday' WHERE id = ?`},
++		{"updated_at", `UPDATE tasks SET updated_at = '' WHERE id = ?`},
++		{"claim_until of a claimed task", `UPDATE tasks SET status = 'in_progress', claimed_by = 'bob', claim_until = '2026-10-05 12:00:00' WHERE id = ?`},
++		{"the time of a last event", `UPDATE task_events SET at = '5 October' WHERE task_id = ?`},
++	} {
++		t.Run(k.name, func(t *testing.T) {
++			s, db, _ := newTestStore(t)
++			mustAdd(t, s, "default", "fine", false)
++			spoiled := mustAdd(t, s, "default", "spoiled", false)
++			if _, err := db.Exec(k.spoil, spoiled.ID); err != nil {
++				t.Fatal(err)
++			}
++			if ts, err := s.List(bg, "default", Filter{}, human); err == nil || !strings.Contains(err.Error(), "not a time") || ts != nil {
++				t.Errorf("list: %v, %v, want no tasks and an error saying the stored value is not a time", ts, err)
++			}
++			if b, err := s.Board(bg, "default", 0); err == nil || !strings.Contains(err.Error(), "not a time") || b.Tasks != nil {
++				t.Errorf("board: %+v, %v, want no board and an error saying the stored value is not a time", b, err)
++			}
++		})
++	}
++}
++
++// Get reads the events itself. The last event is fine here, so that the one that is not can only be
++// found by Get's own loop and not by the read of the task.
++func TestGetFailsOnAnEventWhoseTimeIsNotATime(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	task := mustAdd(t, s, "default", "a", false)
++	addEvent(t, db, task.ID, "bob", "comment")
++	if _, err := db.Exec(`UPDATE task_events SET at = '5 October' WHERE task_id = ? AND kind = 'created'`, task.ID); err != nil {
++		t.Fatal(err)
++	}
++	got, events, err := s.Get(bg, "default", task.ID)
++	if err == nil || errors.Is(err, ErrNotFound) || !strings.Contains(err.Error(), "not a time") || got.ID != 0 || events != nil {
++		t.Errorf("get: %+v, %v, %v, want no task, no events and an error saying the stored value is not a time", got, events, err)
++	}
++}
++
++// An error that repeats what a caller sent repeats a bounded part of it (the rule of Add's errors).
++func TestAListRepeatsAtMostSixtyFourRunesOfWhatItRefuses(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	huge := strings.Repeat("x", 1<<20)
++	for _, k := range []struct {
++		name string
++		f    Filter
++	}{
++		{"a source", Filter{Source: huge}},
++		{"a status", Filter{Statuses: []Status{Status(huge)}}},
++	} {
++		_, err := s.List(bg, "default", k.f, human)
++		if !errors.Is(err, ErrInvalid) {
++			t.Errorf("%s: %v, want ErrInvalid", k.name, err)
++			continue
++		}
++		// 64 runes of it: 63 and an ellipsis
++		msg := err.Error()
++		if len(msg) > 400 || strings.Contains(msg, strings.Repeat("x", 64)) || !strings.Contains(msg, strings.Repeat("x", 63)+"\U00002026") {
++			t.Errorf("%s: a message of %d bytes, want the caller's text cut to 63 runes and an ellipsis", k.name, len(msg))
++		}
++	}
++}
+diff --git a/internal/tasks/read_test.go b/internal/tasks/read_test.go
+new file mode 100644
+index 00000000..efbe9f21
+--- /dev/null
++++ b/internal/tasks/read_test.go
+@@ -0,0 +1,229 @@
++package tasks
++
++import (
++	"database/sql"
++	"encoding/json"
++	"errors"
++	"strings"
++	"testing"
++	"time"
++)
++
++// seedRow inserts a row of the given status straight into the table.
++func seedRow(t *testing.T, db *sql.DB, profile, status string) int64 {
++	t.Helper()
++	id, err := insertRow(db, profile, status, "")
++	if err != nil {
++		t.Fatal(err)
++	}
++	return id
++}
++
++func TestGetReturnsEventsOldestFirstAndNeverNil(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	task := mustAdd(t, s, "default", "a", false)
++	if _, err := db.Exec(`INSERT INTO task_events (task_id, at, actor, kind, note) VALUES (?, ?, 'bot', 'comment', 'later')`, task.ID, rowTime); err != nil {
++		t.Fatal(err)
++	}
++	got, events, err := s.Get(bg, "default", task.ID)
++	if err != nil || got.ID != task.ID {
++		t.Fatalf("get: %+v, %v", got, err)
++	}
++	if len(events) != 2 || events[0].Kind != "created" || events[1].Kind != "comment" || events[1].Note != "later" {
++		t.Errorf("events: %+v", events)
++	}
++	if got.LastEvent == nil || got.LastEvent.Kind != "comment" {
++		t.Errorf("last event: %+v", got.LastEvent)
++	}
++	_, none, err := s.Get(bg, "default", seedRow(t, db, "default", "inbox"))
++	if err != nil || none == nil || len(none) != 0 {
++		t.Errorf("events of a task with none: %v, %v", none, err)
++	}
++	if _, _, err := s.Get(bg, "default", 99999); !errors.Is(err, ErrNotFound) {
++		t.Errorf("unknown id: %v, want ErrNotFound", err)
++	}
++}
++
++func TestListDefaultsDependOnTheCaller(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	for _, st := range []string{"inbox", "ready", "in_progress", "review", "done", "archived"} {
++		seedRow(t, db, "default", st)
++	}
++	names := func(f Filter, a Actor) string {
++		ts, err := s.List(bg, "default", f, a)
++		if err != nil {
++			t.Fatal(err)
++		}
++		var out []string
++		for _, task := range ts {
++			out = append(out, string(task.Status))
++		}
++		return strings.Join(out, ",")
++	}
++	if got := names(Filter{}, human); got != "inbox,ready,in_progress,review,done" {
++		t.Errorf("the operator sees %q", got)
++	}
++	if got := names(Filter{}, bot("b")); got != "ready,in_progress,review" {
++		t.Errorf("an agent sees %q", got)
++	}
++	if got := names(Filter{Statuses: []Status{StatusInbox, StatusArchived}}, bot("b")); got != "inbox,archived" {
++		t.Errorf("naming statuses overrides the default, for an agent too: %q", got)
++	}
++}
++
++func TestListFilters(t *testing.T) {
++	s, db, c := newTestStore(t)
++	chrome := Actor{Kind: Capture, Name: SourceChrome}
++	if _, _, err := s.Add(bg, "default", AddInput{Title: "from chrome", SourceKind: SourceChrome}, chrome); err != nil {
++		t.Fatal(err)
++	}
++	mustAdd(t, s, "default", "manual", false)
++	past := c.t.Add(-time.Minute).Format(timeFmt)
++	future := c.t.Add(time.Hour).Format(timeFmt)
++	stale, live := seedRow(t, db, "default", "in_progress"), seedRow(t, db, "default", "in_progress")
++	if _, err := db.Exec(`UPDATE tasks SET claimed_by = 'old', claim_until = ? WHERE id = ?`, past, stale); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := db.Exec(`UPDATE tasks SET claimed_by = 'live', claim_until = ? WHERE id = ?`, future, live); err != nil {
++		t.Fatal(err)
++	}
++	only := func(f Filter) []Task {
++		ts, err := s.List(bg, "default", f, human)
++		if err != nil {
++			t.Fatal(err)
++		}
++		return ts
++	}
++	if ts := only(Filter{Source: SourceChrome}); len(ts) != 1 || ts[0].Title != "from chrome" {
++		t.Errorf("source filter: %+v", ts)
++	}
++	if ts := only(Filter{ClaimedBy: "live"}); len(ts) != 1 || ts[0].ID != live || ts[0].Claim == nil || ts[0].Claim.Stale {
++		t.Errorf("claimed-by filter: %+v", ts)
++	}
++	if ts := only(Filter{Stale: true}); len(ts) != 1 || ts[0].ID != stale || !ts[0].Claim.Stale {
++		t.Errorf("stale filter: %+v", ts)
++	}
++	if ts := only(Filter{Limit: 2}); len(ts) != 2 {
++		t.Errorf("limit: %d tasks", len(ts))
++	}
++	if _, err := s.List(bg, "default", Filter{Source: "pigeon"}, human); !errors.Is(err, ErrInvalid) {
++		t.Errorf("unknown source: %v", err)
++	}
++	if _, err := s.List(bg, "default", Filter{Statuses: []Status{"bogus"}}, human); !errors.Is(err, ErrInvalid) {
++		t.Errorf("unknown status: %v", err)
++	}
++}
++
++func TestListOrdersByColumnThenPosition(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	r1 := mustAdd(t, s, "default", "r1", true)
++	i1 := mustAdd(t, s, "default", "i1", false)
++	r2 := mustAdd(t, s, "default", "r2", true)
++	i2 := mustAdd(t, s, "default", "i2", false)
++	ts, err := s.List(bg, "default", Filter{}, human)
++	if err != nil {
++		t.Fatal(err)
++	}
++	var got []int64
++	for _, task := range ts {
++		got = append(got, task.ID)
++	}
++	want := []int64{i2.ID, i1.ID, r1.ID, r2.ID} // inbox newest first, then the ready queue
++	if len(got) != len(want) {
++		t.Fatalf("got %v, want %v", got, want)
++	}
++	for i := range want {
++		if got[i] != want[i] {
++			t.Fatalf("got %v, want %v", got, want)
++		}
++	}
++}
++
++func TestBoardCarriesFiveColumnsCountsAndTheRevision(t *testing.T) {
++	s, db, c := newTestStore(t)
++	empty, err := s.Board(bg, "default", 0)
++	if err != nil || empty.Profile.ID != "default" || empty.Rev != 0 {
++		t.Fatalf("empty board: %+v, %v", empty, err)
++	}
++	raw, _ := json.Marshal(empty)
++	for _, col := range []string{"inbox", "ready", "in_progress", "review", "done"} {
++		if !strings.Contains(string(raw), `"`+col+`":[]`) {
++			t.Errorf("column %s is not an empty array in %s", col, raw)
++		}
++	}
++
++	mustAdd(t, s, "default", "i1", false)
++	mustAdd(t, s, "default", "i2", false)
++	mustAdd(t, s, "default", "r1", true)
++	for i := 0; i < 3; i++ {
++		seedRow(t, db, "default", "done")
++	}
++	stale := seedRow(t, db, "default", "in_progress")
++	if _, err := db.Exec(`UPDATE tasks SET claimed_by = 'old', claim_until = ? WHERE id = ?`, c.t.Add(-time.Minute).Format(timeFmt), stale); err != nil {
++		t.Fatal(err)
++	}
++	b, err := s.Board(bg, "default", 2)
++	if err != nil {
++		t.Fatal(err)
++	}
++	want := Counts{Inbox: 2, Ready: 1, InProgress: 1, Done: 3, Stale: 1}
++	if b.Counts != want {
++		t.Errorf("counts %+v, want %+v", b.Counts, want)
++	}
++	if len(b.Tasks[StatusDone]) != 2 || len(b.Tasks[StatusInbox]) != 2 || len(b.Tasks[StatusReady]) != 1 {
++		t.Errorf("columns: done %d inbox %d ready %d", len(b.Tasks[StatusDone]), len(b.Tasks[StatusInbox]), len(b.Tasks[StatusReady]))
++	}
++	if b.Rev != 3 {
++		t.Errorf("revision %d, want 3 (one per add)", b.Rev)
++	}
++}
++
++func TestEveryReadIsScopedToItsProfile(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	other := addProfile(t, db, "p2")
++	mine := mustAdd(t, s, "default", "mine", true)
++	theirs := mustAdd(t, s, other, "theirs", true)
++	if _, _, err := s.Get(bg, "default", theirs.ID); !errors.Is(err, ErrNotFound) {
++		t.Errorf("another profile's task by id: %v, want ErrNotFound", err)
++	}
++	if _, _, err := s.Get(bg, other, mine.ID); !errors.Is(err, ErrNotFound) {
++		t.Errorf("another profile's task by id: %v, want ErrNotFound", err)
++	}
++	if ts, _ := s.List(bg, "default", Filter{}, human); len(ts) != 1 || ts[0].ID != mine.ID {
++		t.Errorf("list: %+v", ts)
++	}
++	if b, _ := s.Board(bg, other, 0); len(b.Tasks[StatusReady]) != 1 || b.Tasks[StatusReady][0].ID != theirs.ID {
++		t.Errorf("board of the other profile: %+v", b.Tasks)
++	}
++	if cn, _ := s.Counts(bg, "default"); cn.Ready != 1 {
++		t.Errorf("counts: %+v", cn)
++	}
++	if _, err := s.Board(bg, "no-such-profile", 0); !errors.Is(err, ErrInvalid) {
++		t.Errorf("board of an unknown profile: %v, want ErrInvalid", err)
++	}
++}
++
++func TestRevMovesOnWritesNotOnReads(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	rev := func() int64 {
++		r, err := s.Rev(bg, "default")
++		if err != nil {
++			t.Fatal(err)
++		}
++		return r
++	}
++	if rev() != 0 {
++		t.Fatal("a new board starts at revision 0")
++	}
++	task := mustAdd(t, s, "default", "a", false)
++	_, _, _ = s.Get(bg, "default", task.ID)
++	_, _ = s.List(bg, "default", Filter{}, human)
++	_, _ = s.Board(bg, "default", 0)
++	if rev() != 1 {
++		t.Errorf("revision %d after one add and some reads, want 1", rev())
++	}
++	mustAdd(t, s, "default", "b", false)
++	if rev() != 2 {
++		t.Errorf("revision %d after two adds, want 2", rev())
++	}
++}

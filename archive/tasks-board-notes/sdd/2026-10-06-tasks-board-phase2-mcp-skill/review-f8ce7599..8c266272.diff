@@ -1,0 +1,298 @@
+# Review package: f8ce7599..8c266272
+
+## Commits
+8c266272 test(tasks): the header of the read tools' test file names the status test too
+11ce052b fix(tasks): task_list's status is a plain string in the schema, the decoder still takes a list; the comment on the read tools names the servers they are in
+63931f5d test(tasks): the read tools' tests pin the cut of a list's notes, the profile and note of every result, the opening of every description, a stale claim in task_next and a deleted profile
+
+## Files changed
+ internal/mcp/task_read.go       |  14 ++--
+ internal/mcp/task_read_test.go  | 141 ++++++++++++++++++++++++++++++++++++++++
+ internal/mcp/task_tools_test.go |  42 ++++++++++++
+ 3 files changed, 187 insertions(+), 10 deletions(-)
+
+## Diff
+diff --git a/internal/mcp/task_read.go b/internal/mcp/task_read.go
+index 2504b9d4..7c126429 100644
+--- a/internal/mcp/task_read.go
++++ b/internal/mcp/task_read.go
+@@ -5,44 +5,38 @@ import (
+ 	"encoding/json"
+ 
+ 	"github.com/monoes/mono-agent/internal/tasks"
+ )
+ 
+ const (
+ 	taskListDefault = 50  // task_list's limit when none is given
+ 	taskListMax     = 200 // and the most it returns
+ )
+ 
+-// taskReadTools only read the board: they are in every server, the default
+-// read-only one included (spec 8).
++// taskReadTools only read the board: they are in the default server, the
++// read-only one included (spec 8); --api-only and --grant serve other sets.
+ func taskReadTools() []tool {
+ 	return []tool{
+ 		{
+ 			name: "task_list",
+ 			description: taskBoardIntro +
+ 				"Lists the tasks of this server's profile, by column and then by position: {profile, tasks, note}, each task " +
+ 				"{id, profile_id, title_untrusted, notes_untrusted, status, position, source_kind, source_url_untrusted, source_title_untrusted, " +
+ 				"source_app_untrusted, claim: {by, until, stale} or null, last_event: {actor, kind, at} or null, created_at, updated_at}. " +
+ 				"Notes longer than 1000 characters are cut here; task_get has all of them. " +
+ 				"status: a column or several (inbox, ready, in_progress, review, done, archived), as \"ready,review\" or a list; " +
+ 				"omitted, it is ready, in_progress and review, and inbox, done and archived are listed only when named. " +
+ 				"limit: at most this many (default 50, at most 200). " +
+ 				"Refusals: invalid_input (an unknown status, an argument this tool does not take).",
+ 			schema: objSchema(map[string]interface{}{
+-				"status": map[string]interface{}{
+-					"anyOf": []interface{}{
+-						map[string]interface{}{"type": "string"},
+-						map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
+-					},
+-					"description": "Columns to list: inbox, ready, in_progress, review, done, archived (default: ready, in_progress and review)",
+-				},
+-				"limit": intParam("At most this many tasks (default 50, at most 200)"),
++				"status": strParam("Columns to list, comma-separated: inbox, ready, in_progress, review, done, archived (default: ready, in_progress and review)"),
++				"limit":  intParam("At most this many tasks (default 50, at most 200)"),
+ 			}),
+ 			annotations: map[string]bool{"readOnlyHint": true, "idempotentHint": true},
+ 			handler:     toolTaskList,
+ 		},
+ 		{
+ 			name: "task_get",
+ 			description: taskBoardIntro +
+ 				"One task of this server's profile with its history: {profile, task, events, note}; the task as task_list describes it, " +
+ 				"with all of its notes, and events [{id, at, actor, kind, from_status, to_status, note_untrusted}], oldest first " +
+ 				"(kinds: created, edited, moved, claimed, reclaimed, comment, question, result, released, archived, unarchived). " +
+diff --git a/internal/mcp/task_read_test.go b/internal/mcp/task_read_test.go
+new file mode 100644
+index 00000000..3aa15dbf
+--- /dev/null
++++ b/internal/mcp/task_read_test.go
+@@ -0,0 +1,141 @@
++package mcp
++
++// The read tools of the task board (spec 8) through the tools themselves, where task_tools_test.go
++// has the fixture and the first tests: what a list cuts and one task does not, the claim task_next
++// offers, the shape of task_list's status, a server whose profile was deleted.
++
++import (
++	"context"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/monoes/mono-agent/internal/tasks"
++)
++
++// A list cuts each task's notes where the view says and names task_get for the rest, since two
++// hundred tasks with 64 KiB of notes each would fill a model's context; one task, by task_get or
++// task_next, comes whole (plan ruling 2).
++func TestTaskListCutsLongNotesWhereTaskGetAndTaskNextDoNot(t *testing.T) {
++	f := newTaskFixture(t, taskSetup{})
++	notes := strings.Repeat("0123456789", 150) // 1,500 characters
++	tk, _, err := f.Store.Add(context.Background(), "default", tasks.AddInput{Title: "with long notes", Notes: notes, Ready: true}, tasks.Actor{Kind: tasks.Human})
++	if err != nil {
++		t.Fatal(err)
++	}
++	notesOf := func(task map[string]any) string {
++		s, _ := task["notes_untrusted"].(string)
++		return s
++	}
++
++	inList := notesOf(f.doc("task_list", nil)["tasks"].([]any)[0].(map[string]any))
++	if !strings.HasPrefix(inList, notes[:listNotesRunes]) || strings.HasPrefix(inList, notes[:listNotesRunes+1]) || !strings.Contains(inList, "task_get") {
++		t.Errorf("task_list's notes are %d characters, want the first %d and a notice that task_get has the rest", len(inList), listNotesRunes)
++	}
++	for name, args := range map[string]map[string]any{"task_get": {"id": tk.ID}, "task_next": nil} {
++		if got := notesOf(f.doc(name, args)["task"].(map[string]any)); got != notes {
++			t.Errorf("%s: the notes are %d characters, want all %d", name, len(got), len(notes))
++		}
++	}
++}
++
++// task_next offers what a claim would take: the top of Ready, else a claim whose lease has run out,
++// shown as the claim is (a plain by, stale: true). A claim that is still held is offered to nobody.
++// The rows are written as another agent's claim leaves them.
++func TestTaskNextOffersAStaleClaimOfAnotherAgentAndNeverALiveOne(t *testing.T) {
++	f := newTaskFixture(t, taskSetup{})
++	tk := f.add("default", "held by another agent", true)
++	holdUntil := func(until time.Time) {
++		t.Helper()
++		if _, err := f.Side.DB.Exec(`UPDATE tasks SET status = 'in_progress', claimed_by = 'agent:other#1111', claim_until = ? WHERE id = ?`,
++			until.UTC().Format("2006-01-02T15:04:05Z"), tk.ID); err != nil {
++			t.Fatal(err)
++		}
++	}
++
++	holdUntil(time.Now().Add(time.Hour))
++	if d := f.doc("task_next", nil); d["task"] != nil {
++		t.Errorf("a claim that is held for another hour was offered: %v", d["task"])
++	}
++
++	holdUntil(time.Now().Add(-time.Hour))
++	d := f.doc("task_next", nil)
++	if taskOf(d) != tk.ID {
++		t.Fatalf("a claim whose lease ran out was not offered: %v", d)
++	}
++	if claim, _ := d["task"].(map[string]any)["claim"].(map[string]any); claim["by"] != "agent:other#1111" || claim["stale"] != true {
++		t.Errorf("claim = %v, want by agent:other#1111 and stale true", claim)
++	}
++	if cur, _, err := f.Store.Get(context.Background(), "default", tk.ID); err != nil || cur.Status != tasks.StatusInProgress || cur.Claim == nil || cur.Claim.By != "agent:other#1111" {
++		t.Errorf("looking took the claim: %+v, %v", cur, err)
++	}
++}
++
++// task_list's status is one string in the schema, a plain type every client takes: the tool is in the
++// tool list of every default server, the read-only one included, and no other property there is only
++// an anyOf. The decoder still takes a list of columns, as a model may send one, and a string of
++// several, as the schema says.
++func TestTaskListTakesStatusAsAStringOrAList(t *testing.T) {
++	found := false
++	for _, def := range toolDefinitions(false) {
++		name, _ := def["name"].(string)
++		if !strings.HasPrefix(name, "task_") {
++			continue
++		}
++		schema, _ := def["inputSchema"].(map[string]interface{})
++		props, _ := schema["properties"].(map[string]interface{})
++		for prop, p := range props {
++			if typ, _ := p.(map[string]interface{})["type"].(string); typ == "" {
++				t.Errorf("%s: the property %s has no plain type: %v", name, prop, p)
++			}
++		}
++		if name == "task_list" {
++			found = true
++			if status, _ := props["status"].(map[string]interface{}); status["type"] != "string" {
++				t.Errorf("task_list: status is %v, want type string", status)
++			}
++		}
++	}
++	if !found {
++		t.Error("task_list is not in the tool list")
++	}
++
++	f := newTaskFixture(t, taskSetup{})
++	ready := f.add("default", "ready", true)
++	reviewed := f.add("default", "in review", true)
++	byHand := f.add("default", "moved by hand", true)
++	for id, to := range map[int64]tasks.Status{reviewed.ID: tasks.StatusReview, byHand.ID: tasks.StatusInProgress} {
++		if _, err := f.Store.Move(context.Background(), "default", id, to, tasks.Placement{}, tasks.Actor{Kind: tasks.Human}); err != nil {
++			t.Fatal(err)
++		}
++	}
++	if got := listed(f.doc("task_list", nil)); !idsAre(got, ready.ID, byHand.ID, reviewed.ID) {
++		t.Fatalf("without status: %v, want Ready, In progress and Review: [%d %d %d]", got, ready.ID, byHand.ID, reviewed.ID)
++	}
++	for form, status := range map[string]any{"a string": "ready,review", "a list": []string{"ready", "review"}} {
++		if got := listed(f.doc("task_list", map[string]any{"status": status})); !idsAre(got, ready.ID, reviewed.ID) {
++			t.Errorf("status as %s: %v, want the cards of the two columns named: [%d %d]", form, got, ready.ID, reviewed.ID)
++		}
++	}
++}
++
++// A server's profile can be deleted while it runs. Every call then ends in the same refusal, the
++// store's "unknown profile" as invalid_input (spec 4.2 says not_found; the store answers invalid_input
++// for every verb, and the tools pass its code on), and that says nothing of the tasks the board held.
++func TestTaskToolsRefuseTheProfileOfAServerThatWasDeleted(t *testing.T) {
++	f := newTaskFixture(t, taskSetup{profile: workProfileName})
++	const title = "title of a board that is gone"
++	held := f.add(workProfileID, title, true)
++	if got := listed(f.doc("task_list", nil)); !idsAre(got, held.ID) {
++		t.Fatalf("before its profile is deleted the server serves its board: %v", got)
++	}
++	if _, err := f.Side.DB.Exec(`DELETE FROM profiles WHERE id = ?`, workProfileID); err != nil {
++		t.Fatal(err)
++	}
++	for name, args := range map[string]map[string]any{"task_list": nil, "task_get": {"id": held.ID}, "task_next": nil} {
++		_, err := f.call(name, args)
++		if err == nil || !strings.HasPrefix(err.Error(), "invalid_input: ") || !strings.Contains(err.Error(), "unknown profile") || strings.Contains(err.Error(), title) {
++			t.Errorf("%s after its profile was deleted: %v, want invalid_input: unknown profile, and no task text", name, err)
++		}
++	}
++}
+diff --git a/internal/mcp/task_tools_test.go b/internal/mcp/task_tools_test.go
+index f776d602..0533e5ca 100644
+--- a/internal/mcp/task_tools_test.go
++++ b/internal/mcp/task_tools_test.go
+@@ -73,26 +73,38 @@ func (f *taskFixture) call(name string, args map[string]any) (string, error) {
+ 	f.t.Helper()
+ 	return callAPITool(f.t, f.Server, name, args)
+ }
+ 
+ // doc runs a task tool that must succeed and returns its document.
+ func (f *taskFixture) doc(name string, args map[string]any) map[string]any {
+ 	f.t.Helper()
+ 	return parseDoc(f.t, mustCall(f.t, f.Server, name, args))
+ }
+ 
++// parseDoc reads the document a task tool returned. Every result of a task tool names the profile
++// it is of and carries the note (spec 8), so the tests of every tool check both here, once.
+ func parseDoc(t *testing.T, text string) map[string]any {
+ 	t.Helper()
+ 	var d map[string]any
+ 	if err := json.Unmarshal([]byte(text), &d); err != nil {
+ 		t.Fatalf("not a JSON document: %v\n%s", err, text)
+ 	}
++	p, _ := d["profile"].(map[string]any)
++	if id, _ := p["id"].(string); id == "" {
++		t.Errorf("a result without the id of its profile: profile = %v", d["profile"])
++	}
++	if name, _ := p["name"].(string); name == "" {
++		t.Errorf("a result without the name of its profile: profile = %v", d["profile"])
++	}
++	if d["note"] != untrustedNote {
++		t.Errorf("a result without the untrusted note: note = %v", d["note"])
++	}
+ 	return d
+ }
+ 
+ // add puts a task on a profile's board as the operator: in Ready when ready is true, else in Inbox.
+ func (f *taskFixture) add(profile, title string, ready bool) tasks.Task {
+ 	f.t.Helper()
+ 	tk, _, err := f.Store.Add(context.Background(), profile, tasks.AddInput{Title: title, Ready: ready}, tasks.Actor{Kind: tasks.Human})
+ 	if err != nil {
+ 		f.t.Fatal(err)
+ 	}
+@@ -275,10 +287,40 @@ func TestTheTaskReadToolsAreInTheDefaultServer(t *testing.T) {
+ 		if name := def["name"].(string); strings.HasPrefix(name, "task_") {
+ 			if a, _ := def["annotations"].(map[string]bool); !a["readOnlyHint"] {
+ 				t.Errorf("%s: annotations %v", name, def["annotations"])
+ 			}
+ 		}
+ 	}
+ 	if got := NewServer(Options{}).instructions(); !strings.HasSuffix(got, " The user's task board: task_next shows what is ready to work on.") {
+ 		t.Errorf("the default instructions: %q", got)
+ 	}
+ }
++
++// Every task tool's description opens with the introduction of the board (global constraint 12): which
++// board it is, that a task's words may come from web pages and other apps, that a task is worked only
++// after the operator moved it to Ready, and that an Inbox task is never worked. The sentences are
++// written out here, so that an edit of taskBoardIntro itself is noticed too, not only a description
++// that no longer starts with it. The tools are those called task_*, the verbs of later tasks included.
++func TestEveryTaskToolDescriptionOpensWithTheBoardIntroduction(t *testing.T) {
++	const board = "The user's monoagent task board (not a monomind org's issues)"
++	if !strings.HasPrefix(taskBoardIntro, board) {
++		t.Errorf("taskBoardIntro does not start with %q", board)
++	}
++	for _, phrase := range []string{"web pages and other apps", "worked only after the operator moved it to Ready", "Inbox", "never work"} {
++		if !strings.Contains(taskBoardIntro, phrase) {
++			t.Errorf("taskBoardIntro lacks %q", phrase)
++		}
++	}
++	seen := 0
++	for _, tl := range allTools() {
++		if !strings.HasPrefix(tl.name, "task_") {
++			continue
++		}
++		seen++
++		if !strings.HasPrefix(tl.description, taskBoardIntro) {
++			t.Errorf("%s: the description does not open with taskBoardIntro: %.100q", tl.name, tl.description)
++		}
++	}
++	if seen < 3 {
++		t.Errorf("only %d tools are called task_*: is the table of tools read?", seen)
++	}
++}

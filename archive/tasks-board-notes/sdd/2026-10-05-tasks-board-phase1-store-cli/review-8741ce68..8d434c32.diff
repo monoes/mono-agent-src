@@ -1,0 +1,2701 @@
+# Review package: 8741ce68..8d434c32
+
+## Commits
+8d434c32 fix(tasks): a move to the column the card is in, asking for no place, changes nothing; every exit from In progress is tested in the table
+eeb2b563 perf(tasks): archiving a column reads the last position of the archive, not all of it, for each card
+07ce1443 test(tasks): the card moved is no neighbour of itself, and a released event that cannot be written fails the move
+27baf31e test(tasks): a stale claim kept by a move within In progress, and an unarchive that cannot read the history
+3f2238f2 test(tasks): every verb dates the row it changes with the store's clock
+a9879fdd feat(tasks): the operator's verbs: edit, move, approve, archive, unarchive
+
+## Files changed
+ internal/tasks/model.go            |   5 +-
+ internal/tasks/ops.go              | 389 ++++++++++++++++++++++++++++++
+ internal/tasks/ops_bulk_test.go    | 369 +++++++++++++++++++++++++++++
+ internal/tasks/ops_claim_test.go   | 284 ++++++++++++++++++++++
+ internal/tasks/ops_edit_test.go    | 173 ++++++++++++++
+ internal/tasks/ops_helpers_test.go | 124 ++++++++++
+ internal/tasks/ops_place_test.go   | 469 +++++++++++++++++++++++++++++++++++++
+ internal/tasks/ops_race_test.go    | 103 ++++++++
+ internal/tasks/ops_rules_test.go   | 355 ++++++++++++++++++++++++++++
+ internal/tasks/ops_test.go         | 327 ++++++++++++++++++++++++++
+ 10 files changed, 2596 insertions(+), 2 deletions(-)
+
+## Diff
+diff --git a/internal/tasks/model.go b/internal/tasks/model.go
+index 7cb24ed9..4b390313 100644
+--- a/internal/tasks/model.go
++++ b/internal/tasks/model.go
+@@ -216,22 +216,23 @@ type AddInput struct {
+ 	ClientID    string // an idempotency key from a capture surface
+ }
+ 
+ // Edit changes a task's text. A nil field stays as it is.
+ type Edit struct {
+ 	Title *string
+ 	Notes *string
+ }
+ 
+ // Placement says where a moved card goes in its new column. At most one field
+-// may be set; none means the column's default (the top of Inbox, Review and
+-// Done, the bottom of Ready and In progress).
++// may be set. None means the column's default end (the top of Inbox, Review and
++// Done, the bottom of Ready and In progress) for a card that is new to the
++// column; a card that is in it already stays where it is.
+ type Placement struct {
+ 	Before, After int64 // the id of a card in the target column
+ 	Top, Bottom   bool
+ }
+ 
+ func (p Placement) set() int {
+ 	n := 0
+ 	for _, b := range []bool{p.Before != 0, p.After != 0, p.Top, p.Bottom} {
+ 		if b {
+ 			n++
+diff --git a/internal/tasks/ops.go b/internal/tasks/ops.go
+new file mode 100644
+index 00000000..01b2c5bd
+--- /dev/null
++++ b/internal/tasks/ops.go
+@@ -0,0 +1,389 @@
++package tasks
++
++import (
++	"context"
++	"database/sql"
++	"errors"
++	"fmt"
++	"slices"
++	"strings"
++)
++
++// Edit changes a task's title and notes. Only the operator edits: what the
++// operator approved is what an agent reads. A text that is what it was after
++// cleaning is no change, so what a read returned can be sent back without
++// leaving a trace.
++func (s *Store) Edit(ctx context.Context, profileID string, id int64, e Edit, actor Actor) (Task, error) {
++	if actor.Kind != Human {
++		return Task{}, operatorOnly("edit a task")
++	}
++	if e.Title == nil && e.Notes == nil {
++		return Task{}, invalid("nothing to change: give a title or notes")
++	}
++	var out Task
++	err := s.tx(ctx, func(x dbx) error {
++		if _, err := s.profileOf(ctx, x, profileID); err != nil {
++			return err
++		}
++		cur, err := s.getTx(ctx, x, profileID, id)
++		if err != nil {
++			return err
++		}
++		title, notes := cur.Title, cur.Notes
++		var changed []string
++		if e.Title != nil {
++			t := cleanTitle(*e.Title)
++			if t == "" {
++				return invalid("the title cannot be empty")
++			}
++			if t != title {
++				title = t
++				changed = append(changed, "title")
++			}
++		}
++		if e.Notes != nil {
++			n := cutBytes(cleanText(*e.Notes), MaxNotesBytes)
++			if n != notes {
++				notes = n
++				changed = append(changed, "notes")
++			}
++		}
++		if len(changed) == 0 {
++			out = cur
++			return nil
++		}
++		stamp := s.stamp()
++		if _, err := x.ExecContext(ctx, `UPDATE tasks SET title = ?, notes = ?, updated_at = ? WHERE id = ? AND profile_id = ?`,
++			title, notes, stamp, id, profileID); err != nil {
++			return fmt.Errorf("tasks: editing #%d: %w", id, err)
++		}
++		if err := s.event(ctx, x, id, stamp, actor.Label(), "edited", "", "", strings.Join(changed, ", ")); err != nil {
++			return err
++		}
++		if err := s.bump(ctx, x, profileID); err != nil {
++			return err
++		}
++		out, err = s.getTx(ctx, x, profileID, id)
++		return err
++	})
++	if err != nil {
++		return Task{}, err
++	}
++	return out, nil
++}
++
++// columnOf lists the cards of one column of the profile, top to bottom, as their
++// ids and their positions. The card except (0 for none) is left out.
++func (s *Store) columnOf(ctx context.Context, x dbx, profileID string, st Status, except int64) ([]int64, []int64, error) {
++	rows, err := x.QueryContext(ctx,
++		`SELECT id, position FROM tasks WHERE profile_id = ? AND status = ? AND id <> ? ORDER BY position, id`,
++		profileID, string(st), except)
++	if err != nil {
++		return nil, nil, fmt.Errorf("tasks: reading a column: %w", err)
++	}
++	defer rows.Close()
++	var ids, pos []int64
++	for rows.Next() {
++		var id, p int64
++		if err := rows.Scan(&id, &p); err != nil {
++			return nil, nil, fmt.Errorf("tasks: reading a column: %w", err)
++		}
++		ids, pos = append(ids, id), append(pos, p)
++	}
++	if err := rows.Err(); err != nil {
++		return nil, nil, fmt.Errorf("tasks: reading a column: %w", err)
++	}
++	return ids, pos, nil
++}
++
++// archiveEnd is the position one gap below the last card of the archive. The archive
++// is the one column that has no limit, and edgePosition, which asks for the first and
++// the last position together, reads all of it: this asks for the last only, which the
++// index answers at once, so that archiving a column does not read the whole archive
++// again for each card. The card being archived is not in the archive yet, so no card
++// is left out.
++func (s *Store) archiveEnd(ctx context.Context, x dbx, profileID string) (int64, error) {
++	var hi sql.NullInt64
++	err := x.QueryRowContext(ctx,
++		`SELECT MAX(position) FROM tasks WHERE profile_id = ? AND status = ?`, profileID, string(StatusArchived)).Scan(&hi)
++	if err != nil {
++		return 0, fmt.Errorf("tasks: reading the archive: %w", err)
++	}
++	if !hi.Valid {
++		return positionGap, nil
++	}
++	return hi.Int64 + positionGap, nil
++}
++
++// placeIn returns the position that puts card id where p says in column `to`
++// (the card itself does not count). The top, the bottom and no placement need
++// only the end of the column. A card put before or after another takes the
++// midpoint of its two neighbours; when they leave no integer between them the
++// whole column is renumbered, in the caller's transaction, and the order stays.
++func (s *Store) placeIn(ctx context.Context, x dbx, profileID string, id int64, to Status, p Placement) (int64, error) {
++	if p.set() > 1 {
++		return 0, invalid("use only one of before, after, top and bottom")
++	}
++	if p.Before == 0 && p.After == 0 {
++		if to == StatusArchived && !p.Top {
++			return s.archiveEnd(ctx, x, profileID)
++		}
++		return s.edgePosition(ctx, x, profileID, to, p.Top || (!p.Bottom && atTop(to)), id)
++	}
++	ref := p.Before
++	if p.After != 0 {
++		ref = p.After
++	}
++	ids, pos, err := s.columnOf(ctx, x, profileID, to, id)
++	if err != nil {
++		return 0, err
++	}
++	idx := slices.Index(ids, ref)
++	if idx < 0 {
++		return 0, invalid("task #%d is not in %s", ref, to)
++	}
++	if p.After != 0 {
++		idx++
++	}
++	switch {
++	case idx == 0:
++		return pos[0] - positionGap, nil
++	case idx == len(ids):
++		return pos[idx-1] + positionGap, nil
++	case pos[idx]-pos[idx-1] >= 2:
++		return pos[idx-1] + (pos[idx]-pos[idx-1])/2, nil
++	}
++	// No room between the neighbours: the k-th card of the column, the new one
++	// included, goes to position (k+1)*positionGap.
++	for i, oid := range ids {
++		rank := int64(i + 1)
++		if i >= idx {
++			rank++ // the slot at idx is the new card's
++		}
++		if _, err := x.ExecContext(ctx, `UPDATE tasks SET position = ? WHERE id = ? AND profile_id = ?`, rank*positionGap, oid, profileID); err != nil {
++			return 0, fmt.Errorf("tasks: renumbering a column: %w", err)
++		}
++	}
++	return int64(idx+1) * positionGap, nil
++}
++
++// moveTx moves a card in the caller's transaction and writes the event of kind. Only a
++// move within In progress keeps a claim: any other move ends it, whatever the card's status
++// was (a reader shows a claim on any row that has one), and says so in a released event that
++// comes before the move's own, so that the move is the last event of the card. A card that
++// comes back from the archive counts against the limit of open tasks, as an added one does.
++func (s *Store) moveTx(ctx context.Context, x dbx, profileID string, cur Task, to Status, p Placement, actor Actor, kind, note string) error {
++	if cur.Status == StatusArchived && to != StatusArchived {
++		if err := s.checkAddLimits(ctx, x, profileID, SourceCLI); err != nil { // the size check: the hourly limit is the agents'
++			return err
++		}
++	}
++	pos, err := s.placeIn(ctx, x, profileID, cur.ID, to, p)
++	if err != nil {
++		return err
++	}
++	stamp := s.stamp()
++	keep := cur.Claim != nil && cur.Status == StatusInProgress && to == StatusInProgress
++	claimedBy, until := "", ""
++	if keep {
++		claimedBy, until = cur.Claim.By, cur.Claim.Until.UTC().Format(timeFmt)
++	}
++	if cur.Claim != nil && !keep {
++		ended := "the claim of " + echo(cur.Claim.By) + " ended: the operator " + kind + " the card"
++		if err := s.event(ctx, x, cur.ID, stamp, actor.Label(), "released", string(cur.Status), string(to), ended); err != nil {
++			return err
++		}
++	}
++	if _, err := x.ExecContext(ctx,
++		`UPDATE tasks SET status = ?, position = ?, claimed_by = ?, claim_until = ?, updated_at = ? WHERE id = ? AND profile_id = ?`,
++		string(to), pos, claimedBy, until, stamp, cur.ID, profileID); err != nil {
++		return fmt.Errorf("tasks: moving #%d: %w", cur.ID, err)
++	}
++	return s.event(ctx, x, cur.ID, stamp, actor.Label(), kind, string(cur.Status), string(to), note)
++}
++
++// Move puts a task in one of the five columns, where p says. With no placement a
++// card new to the column goes to its default end; a card that is in the column
++// already stays where it is, and nothing is written (a placement, even one that
++// changes no order, is a reorder: it writes a moved event and moves the revision).
++func (s *Store) Move(ctx context.Context, profileID string, id int64, to Status, p Placement, actor Actor) (Task, error) {
++	if actor.Kind != Human {
++		return Task{}, operatorOnly("move a task")
++	}
++	if !to.IsBoard() {
++		return Task{}, invalid("move to one of inbox, ready, in_progress, review or done (archiving is its own command)")
++	}
++	var out Task
++	err := s.tx(ctx, func(x dbx) error {
++		if _, err := s.profileOf(ctx, x, profileID); err != nil {
++			return err
++		}
++		cur, err := s.getTx(ctx, x, profileID, id)
++		if err != nil {
++			return err
++		}
++		if cur.Status == to && p.set() == 0 {
++			out = cur
++			return nil
++		}
++		if err := s.moveTx(ctx, x, profileID, cur, to, p, actor, "moved", ""); err != nil {
++			return err
++		}
++		if err := s.bump(ctx, x, profileID); err != nil {
++			return err
++		}
++		out, err = s.getTx(ctx, x, profileID, id)
++		return err
++	})
++	if err != nil {
++		return Task{}, err
++	}
++	return out, nil
++}
++
++// each runs fn on every id in one transaction and returns the tasks as they are
++// afterwards, in the order of the ids. Any failure undoes all of it; the revision
++// moves once for the whole call.
++func (s *Store) each(ctx context.Context, profileID string, ids []int64, fn func(x dbx, cur Task) error) ([]Task, error) {
++	if len(ids) == 0 {
++		return nil, invalid("name at least one task")
++	}
++	var out []Task
++	err := s.tx(ctx, func(x dbx) error {
++		if _, err := s.profileOf(ctx, x, profileID); err != nil {
++			return err
++		}
++		for _, id := range ids {
++			cur, err := s.getTx(ctx, x, profileID, id)
++			if err != nil {
++				return err
++			}
++			if err := fn(x, cur); err != nil {
++				return err
++			}
++		}
++		if err := s.bump(ctx, x, profileID); err != nil {
++			return err
++		}
++		out = make([]Task, 0, len(ids))
++		for _, id := range ids {
++			t, err := s.getTx(ctx, x, profileID, id)
++			if err != nil {
++				return err
++			}
++			out = append(out, t)
++		}
++		return nil
++	})
++	if err != nil {
++		return nil, err
++	}
++	return out, nil
++}
++
++// Approve moves Inbox tasks to Ready, to the bottom of the queue or, with top, the
++// top of it, in the order the ids are given either way. A task that is not in
++// Inbox refuses the whole call.
++func (s *Store) Approve(ctx context.Context, profileID string, ids []int64, top bool, actor Actor) ([]Task, error) {
++	if actor.Kind != Human {
++		return nil, operatorOnly("approve a task")
++	}
++	var prev int64
++	return s.each(ctx, profileID, ids, func(x dbx, cur Task) error {
++		if cur.Status != StatusInbox {
++			return invalid("task #%d is %s, not inbox: only an inbox task is approved", cur.ID, cur.Status)
++		}
++		p := Placement{Bottom: true}
++		if top {
++			p = Placement{Top: true}
++			if prev != 0 {
++				p = Placement{After: prev} // each id on top in turn would reverse the group
++			}
++		}
++		prev = cur.ID
++		return s.moveTx(ctx, x, profileID, cur, StatusReady, p, actor, "moved", "approved")
++	})
++}
++
++// Archive hides tasks from the board, keeping them.
++func (s *Store) Archive(ctx context.Context, profileID string, ids []int64, actor Actor) ([]Task, error) {
++	if actor.Kind != Human {
++		return nil, operatorOnly("archive a task")
++	}
++	return s.each(ctx, profileID, ids, func(x dbx, cur Task) error {
++		if cur.Status == StatusArchived {
++			return invalid("task #%d is already archived", cur.ID)
++		}
++		return s.moveTx(ctx, x, profileID, cur, StatusArchived, Placement{Bottom: true}, actor, "archived", "")
++	})
++}
++
++// ArchiveStatus archives every task of one column, in the order it is in, and
++// returns how many. An empty column writes nothing.
++func (s *Store) ArchiveStatus(ctx context.Context, profileID string, status Status, actor Actor) (int, error) {
++	if actor.Kind != Human {
++		return 0, operatorOnly("archive tasks")
++	}
++	if !status.IsBoard() {
++		return 0, invalid("archive a whole column of inbox, ready, in_progress, review or done")
++	}
++	n := 0
++	err := s.tx(ctx, func(x dbx) error {
++		if _, err := s.profileOf(ctx, x, profileID); err != nil {
++			return err
++		}
++		ids, _, err := s.columnOf(ctx, x, profileID, status, 0)
++		if err != nil {
++			return err
++		}
++		for _, id := range ids {
++			cur, err := s.getTx(ctx, x, profileID, id)
++			if err != nil {
++				return err
++			}
++			if err := s.moveTx(ctx, x, profileID, cur, StatusArchived, Placement{Bottom: true}, actor, "archived", ""); err != nil {
++				return err
++			}
++		}
++		if len(ids) == 0 {
++			return nil
++		}
++		n = len(ids)
++		return s.bump(ctx, x, profileID)
++	})
++	if err != nil {
++		return 0, err
++	}
++	return n, nil
++}
++
++// Unarchive returns tasks to the column they were archived from; a task that
++// was in progress comes back as ready, since nobody holds it now, and one whose
++// history does not say where it came from goes to Inbox.
++func (s *Store) Unarchive(ctx context.Context, profileID string, ids []int64, actor Actor) ([]Task, error) {
++	if actor.Kind != Human {
++		return nil, operatorOnly("unarchive a task")
++	}
++	return s.each(ctx, profileID, ids, func(x dbx, cur Task) error {
++		if cur.Status != StatusArchived {
++			return invalid("task #%d is %s, not archived", cur.ID, cur.Status)
++		}
++		to := StatusInbox
++		var from string
++		err := x.QueryRowContext(ctx,
++			`SELECT from_status FROM task_events WHERE task_id = ? AND kind = 'archived' ORDER BY id DESC LIMIT 1`, cur.ID).Scan(&from)
++		switch {
++		case errors.Is(err, sql.ErrNoRows):
++		case err != nil:
++			return fmt.Errorf("tasks: reading where #%d was archived from: %w", cur.ID, err)
++		default:
++			if st, perr := ParseStatus(from); perr == nil && st.IsBoard() {
++				to = st
++			}
++		}
++		if to == StatusInProgress {
++			to = StatusReady
++		}
++		return s.moveTx(ctx, x, profileID, cur, to, Placement{}, actor, "unarchived", "")
++	})
++}
+diff --git a/internal/tasks/ops_bulk_test.go b/internal/tasks/ops_bulk_test.go
+new file mode 100644
+index 00000000..c66a624c
+--- /dev/null
++++ b/internal/tasks/ops_bulk_test.go
+@@ -0,0 +1,369 @@
++package tasks
++
++import (
++	"errors"
++	"fmt"
++	"strings"
++	"testing"
++	"time"
++)
++
++// approve ids ... --top puts the group on top in the order it was given (the first id on the very
++// top), as without --top it goes to the bottom in that order. Fifteen ids use up the room between
++// the neighbours and renumber the column on the way; the answer lists the tasks in the order of the
++// ids, as they are after the call.
++func TestApproveKeepsTheOrderTheIdsAreGivenIn(t *testing.T) {
++	for _, top := range []bool{false, true} {
++		t.Run(fmt.Sprintf("top %v", top), func(t *testing.T) {
++			s, _, c := newTestStore(t)
++			r1, r2 := mustAdd(t, s, "default", "r1", true), mustAdd(t, s, "default", "r2", true)
++			var ids []int64
++			for i := 0; i < 15; i++ {
++				ids = append(ids, mustAdd(t, s, "default", fmt.Sprintf("t%d", i), false).ID)
++			}
++			given := []int64{ids[3], ids[0]} // not the order they were made in
++			given = append(given, ids[4:]...)
++			given = append(given, ids[1], ids[2])
++			c.advance(time.Hour)
++			got, err := s.Approve(bg, "default", given, top, human)
++			if err != nil {
++				t.Fatal(err)
++			}
++			for i, task := range got {
++				if task.ID != given[i] || task.Status != StatusReady || task.LastEvent == nil || task.LastEvent.Kind != "moved" || !task.UpdatedAt.Equal(c.t) {
++					t.Fatalf("answer %d: %+v, want task #%d in Ready, moved and dated now", i, task, given[i])
++				}
++			}
++			want := append(append([]int64{}, given...), r1.ID, r2.ID)
++			if !top {
++				want = append([]int64{r1.ID, r2.ID}, given...)
++			}
++			if col := column(t, s, StatusReady); !sameIDs(col, want) {
++				t.Errorf("Ready: %v, want %v", col, want)
++			}
++		})
++	}
++}
++
++// Only an Inbox task is approved, and the refusal says which task and where it is.
++func TestApproveRefusesAnyTaskThatIsNotInInbox(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	for _, st := range []Status{StatusReady, StatusInProgress, StatusReview, StatusDone, StatusArchived} {
++		id := seedRow(t, db, "default", string(st))
++		before := dumpBoard(t, db)
++		_, err := s.Approve(bg, "default", []int64{id}, false, human)
++		want := fmt.Sprintf("#%d is %s, not inbox", id, st)
++		if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), want) {
++			t.Errorf("approving a %s task: %v, want ErrInvalid saying %q", st, err, want)
++		}
++		if after := dumpBoard(t, db); after != before {
++			t.Errorf("approving a %s task changed the database", st)
++		}
++	}
++}
++
++// A call that names several tasks is one transaction: the task that fails fails all of them, and
++// the error names it. A task named twice is the second time in the state the first left it in.
++func TestBulkCallsAreAllOrNothingAndNameTheTaskThatFailed(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	other := addProfile(t, db, "p2")
++	theirs := mustAdd(t, s, other, "theirs", false)
++	g1, g2 := mustAdd(t, s, "default", "g1", false), mustAdd(t, s, "default", "g2", false)
++	ready := mustAdd(t, s, "default", "ready", true)
++	arch := mustAdd(t, s, "default", "arch", false)
++	if _, err := s.Archive(bg, "default", []int64{arch.ID}, human); err != nil {
++		t.Fatal(err)
++	}
++	before := dumpBoard(t, db)
++	approve := func(ids ...int64) error { _, err := s.Approve(bg, "default", ids, false, human); return err }
++	archive := func(ids ...int64) error { _, err := s.Archive(bg, "default", ids, human); return err }
++	unarchive := func(ids ...int64) error { _, err := s.Unarchive(bg, "default", ids, human); return err }
++	for _, k := range []struct {
++		name string
++		err  error
++		want error
++		says string // what the message must name
++	}{
++		{"approve: a task in Ready", approve(g1.ID, ready.ID, g2.ID), ErrInvalid, fmt.Sprintf("#%d", ready.ID)},
++		{"approve: an unknown id", approve(g1.ID, 424242, g2.ID), ErrNotFound, "#424242"},
++		{"approve: another profile's task", approve(g1.ID, theirs.ID, g2.ID), ErrNotFound, fmt.Sprintf("#%d", theirs.ID)},
++		{"approve: the same task twice", approve(g1.ID, g1.ID), ErrInvalid, fmt.Sprintf("#%d", g1.ID)},
++		{"approve: no task", approve(), ErrInvalid, ""},
++		{"archive: an archived task", archive(g1.ID, arch.ID, g2.ID), ErrInvalid, fmt.Sprintf("#%d is already archived", arch.ID)},
++		{"archive: an unknown id", archive(g1.ID, 424242), ErrNotFound, "#424242"},
++		{"archive: the same task twice", archive(g1.ID, g1.ID), ErrInvalid, fmt.Sprintf("#%d is already archived", g1.ID)},
++		{"archive: no task", archive(), ErrInvalid, ""},
++		{"unarchive: a task that is not archived", unarchive(arch.ID, g1.ID), ErrInvalid, fmt.Sprintf("#%d is inbox, not archived", g1.ID)},
++		{"unarchive: an unknown id", unarchive(arch.ID, 424242), ErrNotFound, "#424242"},
++		{"unarchive: the same task twice", unarchive(arch.ID, arch.ID), ErrInvalid, fmt.Sprintf("#%d is ", arch.ID)},
++		{"unarchive: no task", unarchive(), ErrInvalid, ""},
++	} {
++		if !errors.Is(k.err, k.want) || (k.err != nil && !strings.Contains(k.err.Error(), k.says)) {
++			t.Errorf("%s: %v, want %v naming %q", k.name, k.err, k.want, k.says)
++		}
++	}
++	if after := dumpBoard(t, db); after != before {
++		t.Errorf("failed calls changed the database:\nbefore:\n%s\nafter:\n%s", before, after)
++	}
++}
++
++// Spec 5.1: any transition. From every status, the archive included, to every column, with the
++// move written in the history and no claim left.
++func TestMoveAllowsEveryTransition(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	from := append(append([]Status{}, BoardStatuses...), StatusArchived)
++	for _, f := range from {
++		for _, to := range BoardStatuses {
++			id := seedRow(t, db, "default", string(f))
++			got, err := s.Move(bg, "default", id, to, Placement{Top: true}, human)
++			if err != nil || got.Status != to || got.Claim != nil {
++				t.Errorf("%s to %s: %+v, %v", f, to, got, err)
++				continue
++			}
++			if ev := opsEvents(t, s, id); len(ev) != 1 || ev[0] != fmt.Sprintf("moved|you|%s>%s|", f, to) {
++				t.Errorf("%s to %s: events %v", f, to, ev)
++			}
++		}
++	}
++}
++
++// Unarchive puts a task back in the column it was archived from (the newest archived event says
++// which), at that column's default end; a task that was in progress comes back to Ready, and one
++// whose past cannot be read comes back to Inbox.
++func TestUnarchiveGoesBackToTheColumnItWasArchivedFrom(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	for _, st := range BoardStatuses {
++		other, card := mustAdd(t, s, "default", "other "+string(st), false), mustAdd(t, s, "default", "card "+string(st), false)
++		for _, task := range []Task{other, card} {
++			if _, err := s.Move(bg, "default", task.ID, st, Placement{Bottom: true}, human); err != nil {
++				t.Fatal(err)
++			}
++		}
++		if _, err := s.Archive(bg, "default", []int64{card.ID}, human); err != nil {
++			t.Fatal(err)
++		}
++		got, err := s.Unarchive(bg, "default", []int64{card.ID}, human)
++		want := st
++		if st == StatusInProgress {
++			want = StatusReady
++		}
++		if err != nil || got[0].Status != want {
++			t.Fatalf("a task archived from %s: %+v, %v, want %s", st, got, err, want)
++		}
++		col := column(t, s, want)
++		if atTop(want) && col[0] != card.ID || !atTop(want) && col[len(col)-1] != card.ID {
++			t.Errorf("a task archived from %s comes back to %s at %v: want the default end of that column", st, want, col)
++		}
++	}
++
++	// The newest archived event decides, not the first.
++	task := mustAdd(t, s, "default", "twice", false)
++	for _, to := range []Status{StatusDone, StatusReview} {
++		for _, step := range []func() error{
++			func() error { _, err := s.Move(bg, "default", task.ID, to, Placement{}, human); return err },
++			func() error { _, err := s.Archive(bg, "default", []int64{task.ID}, human); return err },
++			func() error { _, err := s.Unarchive(bg, "default", []int64{task.ID}, human); return err },
++		} {
++			if err := step(); err != nil {
++				t.Fatal(err)
++			}
++		}
++		if got, _, _ := s.Get(bg, "default", task.ID); got.Status != to {
++			t.Errorf("archived and restored with the history of an earlier round: %s, want %s", got.Status, to)
++		}
++	}
++
++	// A row nobody archived through the store, and events that say nothing usable.
++	for _, k := range []struct{ name, from string }{
++		{"no archived event", ""}, {"an archived event from nowhere", "nonsense"}, {"an archived event from the archive", "archived"},
++	} {
++		id := seedRow(t, db, "default", "archived")
++		if k.from != "" {
++			if _, err := db.Exec(`INSERT INTO task_events (task_id, at, actor, kind, from_status, to_status) VALUES (?, ?, 'you', 'archived', ?, 'archived')`, id, rowTime, k.from); err != nil {
++				t.Fatal(err)
++			}
++		}
++		if got, err := s.Unarchive(bg, "default", []int64{id}, human); err != nil || got[0].Status != StatusInbox {
++			t.Errorf("%s: %+v, %v, want Inbox", k.name, got, err)
++		}
++	}
++}
++
++// A history that cannot be read is a failure, not a reason to guess Inbox: the task stays where it
++// is. (The column the lookup asks for is renamed, so that this query fails and the reads that come
++// before it do not.)
++func TestUnarchiveFailsWhenItCannotReadWhereTheTaskCameFrom(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	task := mustAdd(t, s, "default", "a", true)
++	if _, err := s.Archive(bg, "default", []int64{task.ID}, human); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := db.Exec(`ALTER TABLE task_events RENAME COLUMN from_status TO from_status_renamed`); err != nil {
++		t.Fatal(err)
++	}
++	before := dumpBoard(t, db)
++	_, err := s.Unarchive(bg, "default", []int64{task.ID}, human)
++	if err == nil || errors.Is(err, ErrInvalid) || errors.Is(err, ErrNotFound) {
++		t.Errorf("unarchive: %v, want the failure of the read", err)
++	}
++	if after := dumpBoard(t, db); after != before {
++		t.Error("a failed unarchive changed the database")
++	}
++}
++
++// ArchiveStatus takes one column, all of it, in the order it is in, and says how many.
++func TestArchiveStatusArchivesOneColumnInTheOrderItIsIn(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	var done []int64
++	for i := 0; i < 3; i++ {
++		d := mustAdd(t, s, "default", fmt.Sprintf("d%d", i), false)
++		if _, err := s.Move(bg, "default", d.ID, StatusDone, Placement{}, human); err != nil {
++			t.Fatal(err)
++		}
++		done = append([]int64{d.ID}, done...) // newest first
++	}
++	review := mustAdd(t, s, "default", "review", false)
++	ready := mustAdd(t, s, "default", "ready", true)
++	if _, err := s.Move(bg, "default", review.ID, StatusReview, Placement{}, human); err != nil {
++		t.Fatal(err)
++	}
++	if got := column(t, s, StatusDone); !sameIDs(got, done) {
++		t.Fatalf("setup: Done is %v, want %v", got, done)
++	}
++	n, err := s.ArchiveStatus(bg, "default", StatusDone, human)
++	if err != nil || n != 3 {
++		t.Fatalf("archive Done: %d, %v", n, err)
++	}
++	if got := column(t, s, StatusDone); len(got) != 0 {
++		t.Errorf("Done still holds %v", got)
++	}
++	if !sameIDs(column(t, s, StatusReview), []int64{review.ID}) || !sameIDs(column(t, s, StatusReady), []int64{ready.ID}) {
++		t.Error("another column was touched")
++	}
++	ts, err := s.List(bg, "default", Filter{Statuses: []Status{StatusArchived}}, human)
++	if err != nil || !sameIDs(idsOf(ts), done) {
++		t.Errorf("the archive lists %v (%v), want the column's order %v", idsOf(ts), err, done)
++	}
++	for i, task := range ts {
++		if want := int64(i+1) * 1024; task.Position != want {
++			t.Errorf("archived card %d is at %d, want %d: one gap below the one before", i, task.Position, want)
++		}
++	}
++	for _, id := range done {
++		if ev := opsEvents(t, s, id); ev[len(ev)-1] != "archived|you|done>archived|" {
++			t.Errorf("events of #%d: %v", id, ev)
++		}
++	}
++	for _, st := range []Status{StatusArchived, "", "bogus"} {
++		before := dumpBoard(t, db)
++		if _, err := s.ArchiveStatus(bg, "default", st, human); !errors.Is(err, ErrInvalid) {
++			t.Errorf("ArchiveStatus(%q): %v, want ErrInvalid", st, err)
++		}
++		if dumpBoard(t, db) != before {
++			t.Errorf("ArchiveStatus(%q) changed the database", st)
++		}
++	}
++}
++
++// A card goes to the bottom of the archive without the archive being read: one gap below its last
++// card, the first gap when it is empty. The archive of another profile and the other columns of the
++// profile do not count.
++func TestArchiveGoesOneGapBelowTheLastArchivedCardOfTheProfile(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	other := addProfile(t, db, "p2")
++	seedAt(t, db, other, "archived", 9_000_000) // another profile's archive
++	seedAt(t, db, "default", "done", 8_000_000) // another column of this profile
++	a, b := mustAdd(t, s, "default", "a", false), mustAdd(t, s, "default", "b", false)
++	got, err := s.Archive(bg, "default", []int64{a.ID, b.ID}, human)
++	if err != nil || got[0].Position != 1024 || got[1].Position != 2048 {
++		t.Fatalf("an empty archive: %+v, %v, want 1024 and 2048", got, err)
++	}
++	seedAt(t, db, "default", "archived", 5000)
++	c := mustAdd(t, s, "default", "c", false)
++	if got, err := s.Archive(bg, "default", []int64{c.ID}, human); err != nil || got[0].Position != 6024 {
++		t.Errorf("below an archived card at 5000: %+v, %v, want 6024", got, err)
++	}
++	seedAt(t, db, "default", "archived", -3000) // the last card is the highest, not the newest
++	d := mustAdd(t, s, "default", "d", false)
++	if got, err := s.Archive(bg, "default", []int64{d.ID}, human); err != nil || got[0].Position != 7048 {
++		t.Errorf("below the highest archived card: %+v, %v, want 7048", got, err)
++	}
++}
++
++// A task new to the board counts against the 2,000 open tasks of a profile (spec 4.6, D13), and a
++// task that comes back from the archive is one: Unarchive and a move out of the archive stop at
++// the same limit as an add, as a whole call.
++func TestMovingOutOfTheArchiveStopsAtTheOpenTaskLimit(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	seedTasks(t, db, "default", MaxOpenTasks-3)
++	a, b, c := mustAdd(t, s, "default", "a", false), mustAdd(t, s, "default", "b", false), mustAdd(t, s, "default", "c", false) // 2000 open
++	if _, err := s.Archive(bg, "default", []int64{a.ID, b.ID}, human); err != nil {                                             // 1998
++		t.Fatal(err)
++	}
++	d := mustAdd(t, s, "default", "d", false)
++	mustAdd(t, s, "default", "e", false) // 2000 again
++	before := dumpBoard(t, db)
++	if _, err := s.Unarchive(bg, "default", []int64{a.ID}, human); !errors.Is(err, ErrLimit) {
++		t.Errorf("unarchive at the limit: %v, want ErrLimit", err)
++	}
++	if _, err := s.Move(bg, "default", a.ID, StatusReady, Placement{}, human); !errors.Is(err, ErrLimit) {
++		t.Errorf("move out of the archive at the limit: %v, want ErrLimit", err)
++	}
++	if after := dumpBoard(t, db); after != before {
++		t.Error("a refusal changed the database")
++	}
++	// a move that adds nothing to the board is no business of the limit, nor is archiving
++	if _, err := s.Move(bg, "default", d.ID, StatusReady, Placement{}, human); err != nil {
++		t.Errorf("a move within the board at the limit: %v", err)
++	}
++	if _, err := s.Archive(bg, "default", []int64{c.ID}, human); err != nil { // 1999 open: room for one
++		t.Fatal(err)
++	}
++	before = dumpBoard(t, db)
++	if _, err := s.Unarchive(bg, "default", []int64{a.ID, b.ID}, human); !errors.Is(err, ErrLimit) {
++		t.Errorf("unarchive of two with room for one: %v, want ErrLimit", err)
++	}
++	if after := dumpBoard(t, db); after != before {
++		t.Error("a call that went over the limit on its second task kept its first")
++	}
++	if got, err := s.Unarchive(bg, "default", []int64{a.ID}, human); err != nil || got[0].Status != StatusInbox {
++		t.Errorf("unarchive with room for one: %+v, %v", got, err)
++	}
++	if n := countWhere(t, db, "tasks", "profile_id = 'default' AND status <> 'archived'"); n != MaxOpenTasks {
++		t.Errorf("%d open tasks, want %d", n, MaxOpenTasks)
++	}
++}
++
++// Spec 4.4: the operator's actions are always recorded, whatever the history already holds.
++func TestTheOperatorsActionsAreRecordedOnATaskWithManyEvents(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	task := mustAdd(t, s, "default", "busy", false)
++	tx, err := db.Begin()
++	if err != nil {
++		t.Fatal(err)
++	}
++	for i := 0; i < 2100; i++ {
++		if _, err := tx.Exec(`INSERT INTO task_events (task_id, at, actor, kind) VALUES (?, ?, 'bob', 'comment')`, task.ID, rowTime); err != nil {
++			t.Fatal(err)
++		}
++	}
++	if err := tx.Commit(); err != nil {
++		t.Fatal(err)
++	}
++	title := "renamed"
++	for i, step := range []func() error{
++		func() error { _, err := s.Edit(bg, "default", task.ID, Edit{Title: &title}, human); return err },
++		func() error { _, err := s.Approve(bg, "default", []int64{task.ID}, false, human); return err },
++		func() error { _, err := s.Move(bg, "default", task.ID, StatusReview, Placement{}, human); return err },
++		func() error { _, err := s.Archive(bg, "default", []int64{task.ID}, human); return err },
++		func() error { _, err := s.Unarchive(bg, "default", []int64{task.ID}, human); return err },
++	} {
++		before := countWhere(t, db, "task_events", "task_id = ?", task.ID)
++		if err := step(); err != nil {
++			t.Fatalf("step %d: %v", i, err)
++		}
++		if after := countWhere(t, db, "task_events", "task_id = ?", task.ID); after <= before {
++			t.Errorf("step %d wrote no event (%d before, %d after)", i, before, after)
++		}
++	}
++}
+diff --git a/internal/tasks/ops_claim_test.go b/internal/tasks/ops_claim_test.go
+new file mode 100644
+index 00000000..5768d4f4
+--- /dev/null
++++ b/internal/tasks/ops_claim_test.go
+@@ -0,0 +1,284 @@
++package tasks
++
++import (
++	"strings"
++	"testing"
++	"time"
++)
++
++// Spec 5.1: for the operator's move, leaving In progress clears a claim and writes released. The
++// released event comes first, so the last event of the card is the operator's own.
++func TestMoveOutOfInProgressEndsTheClaimAndSaysSo(t *testing.T) {
++	for _, to := range []Status{StatusInbox, StatusReady, StatusReview, StatusDone} {
++		t.Run(string(to), func(t *testing.T) {
++			s, db, c := newTestStore(t)
++			held := opsHeld(t, s, db, c, "held", "bob", time.Hour)
++			got, err := s.Move(bg, "default", held.ID, to, Placement{}, human)
++			if err != nil {
++				t.Fatal(err)
++			}
++			if got.Status != to || got.Claim != nil {
++				t.Errorf("after the move: status %s, claim %+v", got.Status, got.Claim)
++			}
++			if by, until := opsClaim(t, db, held.ID); by != "" || until != "" {
++				t.Errorf("claim columns %q and %q, want both empty", by, until)
++			}
++			want := []string{
++				"created|you|>ready|",
++				"moved|you|ready>in_progress|",
++				"released|you|in_progress>" + string(to) + "|the claim of bob ended: the operator moved the card",
++				"moved|you|in_progress>" + string(to) + "|",
++			}
++			if ev := opsEvents(t, s, held.ID); strings.Join(ev, "\n") != strings.Join(want, "\n") {
++				t.Errorf("events:\n%s\nwant:\n%s", strings.Join(ev, "\n"), strings.Join(want, "\n"))
++			}
++			if got.LastEvent == nil || got.LastEvent.Kind != "moved" {
++				t.Errorf("last event %+v, want the move", got.LastEvent)
++			}
++		})
++	}
++}
++
++// The operator's reordering of a held card inside In progress is not the end of the claim, and does
++// not renew it either; a card nobody holds leaves In progress with no released event.
++func TestMoveWithinInProgressKeepsTheClaimAsItIs(t *testing.T) {
++	s, db, c := newTestStore(t)
++	bob := opsHeld(t, s, db, c, "bob's", "bob", time.Hour)
++	alice := opsHeld(t, s, db, c, "alice's", "alice", 2*time.Hour)
++	byHand := mustAdd(t, s, "default", "by hand", true)
++	if _, err := s.Move(bg, "default", byHand.ID, StatusInProgress, Placement{}, human); err != nil {
++		t.Fatal(err)
++	}
++	carol := opsHeld(t, s, db, c, "carol's", "carol", time.Minute)
++	_, until := opsClaim(t, db, bob.ID)
++	c.advance(10 * time.Minute) // carol's lease has run out
++	for _, p := range []Placement{{Top: true}, {Bottom: true}, {After: alice.ID}, {Before: alice.ID}, {}} {
++		got, err := s.Move(bg, "default", bob.ID, StatusInProgress, p, human)
++		if err != nil || got.Claim == nil || got.Claim.By != "bob" {
++			t.Fatalf("%+v: claim %+v, err %v, want it kept", p, got.Claim, err)
++		}
++		if by, u := opsClaim(t, db, bob.ID); by != "bob" || u != until {
++			t.Errorf("%+v: claim columns %q and %q, want bob and %q, the lease it had", p, by, u, until)
++		}
++	}
++	if ev := opsEvents(t, s, bob.ID); strings.Contains(strings.Join(ev, ","), "released") {
++		t.Errorf("a held card moved within In progress: events %v", ev)
++	}
++	// a stale claim is kept too, and stays stale: the operator's move renews nothing
++	if got, err := s.Move(bg, "default", carol.ID, StatusInProgress, Placement{Top: true}, human); err != nil || got.Claim == nil || got.Claim.By != "carol" || !got.Claim.Stale {
++		t.Errorf("a stale claim moved within In progress: %+v, %v", got.Claim, err)
++	}
++	if ev := opsEvents(t, s, carol.ID); strings.Contains(strings.Join(ev, ","), "released") {
++		t.Errorf("a stale claim moved within In progress: events %v", ev)
++	}
++	if got, _, _ := s.Get(bg, "default", alice.ID); got.Claim == nil || got.Claim.By != "alice" {
++		t.Errorf("the other held card: %+v", got.Claim)
++	}
++	if _, err := s.Move(bg, "default", byHand.ID, StatusReview, Placement{}, human); err != nil {
++		t.Fatal(err)
++	}
++	if ev := opsEvents(t, s, byHand.ID); strings.Contains(strings.Join(ev, ","), "released") {
++		t.Errorf("a card nobody held leaves In progress: events %v", ev)
++	}
++}
++
++// Spec 5.2: stale claims stay until someone takes them or the operator sends the card back to
++// Ready. A lease that has run out is still a claim: its end is written down too.
++func TestMovingAStaleClaimToReadyEndsIt(t *testing.T) {
++	s, db, c := newTestStore(t)
++	held := opsHeld(t, s, db, c, "held", "bob", time.Minute)
++	c.advance(2 * time.Minute)
++	if cn, _ := s.Counts(bg, "default"); cn.Stale != 1 {
++		t.Fatalf("setup: counts %+v, want one stale claim", cn)
++	}
++	got, err := s.Move(bg, "default", held.ID, StatusReady, Placement{}, human)
++	if err != nil || got.Claim != nil {
++		t.Fatalf("move: claim %+v, err %v", got.Claim, err)
++	}
++	if cn, _ := s.Counts(bg, "default"); cn.Stale != 0 || cn.Ready != 1 {
++		t.Errorf("counts %+v, want no stale claim and the card in Ready", cn)
++	}
++	ev := opsEvents(t, s, held.ID)
++	if len(ev) != 4 || !strings.HasPrefix(ev[2], "released|you|in_progress>ready|") {
++		t.Errorf("events %v", ev)
++	}
++}
++
++func TestArchiveEndsTheClaimToo(t *testing.T) {
++	s, db, c := newTestStore(t)
++	held := opsHeld(t, s, db, c, "held", "bob", time.Hour)
++	got, err := s.Archive(bg, "default", []int64{held.ID}, human)
++	if err != nil || got[0].Claim != nil || got[0].Status != StatusArchived {
++		t.Fatalf("archive: %+v, %v", got, err)
++	}
++	if by, until := opsClaim(t, db, held.ID); by != "" || until != "" {
++		t.Errorf("claim columns %q and %q, want both empty", by, until)
++	}
++	ev := opsEvents(t, s, held.ID)
++	tail := ev[len(ev)-2:]
++	if tail[0] != "released|you|in_progress>archived|the claim of bob ended: the operator archived the card" || tail[1] != "archived|you|in_progress>archived|" {
++		t.Errorf("the last events:\n%s", strings.Join(tail, "\n"))
++	}
++	// and it comes back free: In progress returns as Ready, held by nobody
++	back, err := s.Unarchive(bg, "default", []int64{held.ID}, human)
++	if err != nil || back[0].Status != StatusReady || back[0].Claim != nil {
++		t.Errorf("unarchive: %+v, %v", back, err)
++	}
++	if by, until := opsClaim(t, db, held.ID); by != "" || until != "" {
++		t.Errorf("claim columns after unarchiving: %q and %q", by, until)
++	}
++}
++
++func TestArchiveStatusEndsEveryClaimOfTheColumnAndOnlyOfThatProfile(t *testing.T) {
++	s, db, c := newTestStore(t)
++	other := addProfile(t, db, "p2")
++	opsHeld(t, s, db, c, "bob's", "bob", time.Hour)
++	opsHeld(t, s, db, c, "alice's", "alice", time.Minute)
++	byHand := mustAdd(t, s, "default", "by hand", true)
++	if _, err := s.Move(bg, "default", byHand.ID, StatusInProgress, Placement{}, human); err != nil {
++		t.Fatal(err)
++	}
++	theirs := mustAdd(t, s, other, "carol's", true)
++	if _, err := db.Exec(`UPDATE tasks SET status = 'in_progress', claimed_by = 'carol', claim_until = ? WHERE id = ?`, c.t.Add(time.Hour).Format(timeFmt), theirs.ID); err != nil {
++		t.Fatal(err)
++	}
++	c.advance(5 * time.Minute) // alice's lease has run out: the claim is stale, still a claim
++	n, err := s.ArchiveStatus(bg, "default", StatusInProgress, human)
++	if err != nil || n != 3 {
++		t.Fatalf("archive in progress: %d, %v", n, err)
++	}
++	if held := countWhere(t, db, "tasks", "profile_id = 'default' AND claimed_by <> ''"); held != 0 {
++		t.Errorf("%d claims left on the profile's board", held)
++	}
++	if released, archived := countWhere(t, db, "task_events", "kind = 'released'"), countWhere(t, db, "task_events", "kind = 'archived'"); released != 2 || archived != 3 {
++		t.Errorf("%d released and %d archived events, want 2 and 3", released, archived)
++	}
++	if by, _ := opsClaim(t, db, theirs.ID); by != "carol" {
++		t.Errorf("another profile's claim: %q, want it untouched", by)
++	}
++	if st := countWhere(t, db, "tasks", "id = ? AND status = 'in_progress'", theirs.ID); st != 1 {
++		t.Error("another profile's card was archived")
++	}
++}
++
++// scanTask shows a claim on any row whose claimed_by is set, whatever its status, so whatever moves
++// such a card ends the claim: no verb may keep one except a move within In progress.
++func TestAStrayClaimIsEndedByWhateverMovesTheCard(t *testing.T) {
++	type step struct {
++		name string
++		prep func(t *testing.T, s *Store, id int64) // brings the card to its status
++		run  func(s *Store, id int64) error
++		from string
++		to   string
++		kind string // the verb the released note names
++	}
++	archive := func(t *testing.T, s *Store, id int64) {
++		t.Helper()
++		if _, err := s.Archive(bg, "default", []int64{id}, human); err != nil {
++			t.Fatal(err)
++		}
++	}
++	for _, k := range []step{
++		{"Approve", nil, func(s *Store, id int64) error {
++			_, err := s.Approve(bg, "default", []int64{id}, false, human)
++			return err
++		}, "inbox", "ready", "moved"},
++		{"Move into In progress", nil, func(s *Store, id int64) error {
++			_, err := s.Move(bg, "default", id, StatusInProgress, Placement{}, human)
++			return err
++		}, "inbox", "in_progress", "moved"},
++		{"Move to Ready", nil, func(s *Store, id int64) error {
++			_, err := s.Move(bg, "default", id, StatusReady, Placement{Top: true}, human)
++			return err
++		}, "inbox", "ready", "moved"},
++		{"Archive", nil, func(s *Store, id int64) error { _, err := s.Archive(bg, "default", []int64{id}, human); return err }, "inbox", "archived", "archived"},
++		{"ArchiveStatus", nil, func(s *Store, id int64) error {
++			_, err := s.ArchiveStatus(bg, "default", StatusInbox, human)
++			return err
++		}, "inbox", "archived", "archived"},
++		{"Unarchive", archive, func(s *Store, id int64) error { _, err := s.Unarchive(bg, "default", []int64{id}, human); return err }, "archived", "inbox", "unarchived"},
++	} {
++		t.Run(k.name, func(t *testing.T) {
++			s, db, c := newTestStore(t)
++			task := mustAdd(t, s, "default", "stray", false)
++			if k.prep != nil {
++				k.prep(t, s, task.ID)
++			}
++			opsStray(t, db, c, task.ID, "bob")
++			if got, _, _ := s.Get(bg, "default", task.ID); got.Claim == nil {
++				t.Fatal("setup: the reader does not show the claim")
++			}
++			if err := k.run(s, task.ID); err != nil {
++				t.Fatal(err)
++			}
++			if by, until := opsClaim(t, db, task.ID); by != "" || until != "" {
++				t.Errorf("claim columns %q and %q, want both empty", by, until)
++			}
++			want := "released|you|" + k.from + ">" + k.to + "|the claim of bob ended: the operator " + k.kind + " the card"
++			ev := opsEvents(t, s, task.ID)
++			if len(ev) < 2 || ev[len(ev)-2] != want {
++				t.Errorf("events:\n%s\nwant the second last to be:\n%s", strings.Join(ev, "\n"), want)
++			}
++		})
++	}
++}
++
++// Every way out of In progress ends the claim in the table itself, not only in what a reader shows:
++// afterwards both claim columns are empty and the exit is a released event from In progress. The
++// held cards are rows written straight into the table, with a lease that is live and with one that
++// has run out. (Archive and ArchiveStatus go to the archive; Move to the four other columns.)
++func TestEveryExitFromInProgressEmptiesBothClaimColumnsOfTheTable(t *testing.T) {
++	move := func(to Status) func(s *Store, id int64) error {
++		return func(s *Store, id int64) error {
++			_, err := s.Move(bg, "default", id, to, Placement{}, human)
++			return err
++		}
++	}
++	exits := []struct {
++		name string
++		to   Status
++		run  func(s *Store, id int64) error
++	}{
++		{"Move to inbox", StatusInbox, move(StatusInbox)},
++		{"Move to ready", StatusReady, move(StatusReady)},
++		{"Move to review", StatusReview, move(StatusReview)},
++		{"Move to done", StatusDone, move(StatusDone)},
++		{"Archive", StatusArchived, func(s *Store, id int64) error {
++			_, err := s.Archive(bg, "default", []int64{id}, human)
++			return err
++		}},
++		{"ArchiveStatus", StatusArchived, func(s *Store, id int64) error {
++			_, err := s.ArchiveStatus(bg, "default", StatusInProgress, human)
++			return err
++		}},
++	}
++	for _, lease := range []struct {
++		name string
++		d    time.Duration
++	}{{"a live lease", time.Hour}, {"a lease that has run out", -time.Hour}} {
++		for _, k := range exits {
++			t.Run(k.name+", "+lease.name, func(t *testing.T) {
++				s, db, c := newTestStore(t)
++				id := seedRow(t, db, "default", "in_progress")
++				if _, err := db.Exec(`UPDATE tasks SET claimed_by = 'bob', claim_until = ? WHERE id = ?`, c.t.Add(lease.d).Format(timeFmt), id); err != nil {
++					t.Fatal(err)
++				}
++				if by, until := opsClaim(t, db, id); by != "bob" || until == "" {
++					t.Fatalf("setup: claim columns %q and %q", by, until)
++				}
++				if err := k.run(s, id); err != nil {
++					t.Fatal(err)
++				}
++				if by, until := opsClaim(t, db, id); by != "" || until != "" {
++					t.Errorf("claim columns after the exit: %q and %q, want both empty", by, until)
++				}
++				if n := countWhere(t, db, "task_events", "task_id = ? AND kind = 'released' AND from_status = 'in_progress' AND to_status = ?", id, string(k.to)); n != 1 {
++					t.Errorf("%d released events from in_progress to %s, want 1", n, k.to)
++				}
++				if n := countWhere(t, db, "tasks", "id = ? AND status = ?", id, string(k.to)); n != 1 {
++					t.Errorf("the card is not in %s", k.to)
++				}
++			})
++		}
++	}
++}
+diff --git a/internal/tasks/ops_edit_test.go b/internal/tasks/ops_edit_test.go
+new file mode 100644
+index 00000000..41a112d9
+--- /dev/null
++++ b/internal/tasks/ops_edit_test.go
+@@ -0,0 +1,173 @@
++package tasks
++
++import (
++	"strings"
++	"testing"
++	"time"
++)
++
++// What Edit stores is cleaned like what Add stores: one line for a title, notes with their line
++// breaks, and neither with a control, hidden or invalid character.
++func TestEditCleansWhatItStores(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	task := mustAdd(t, s, "default", "t", false)
++	hostile := "x\x1b[31m\x00\U0000202e\U000E0049\U0000FEFFy\n w"
++	for _, k := range []struct{ name, title, notes, wantTitle, wantNotes string }{
++		{"escape, NUL, bidi, tag and BOM characters", hostile, hostile, "x[31my w", "x[31my\n w"},
++		{"line ends and white space", "  a \t b\r\n c ", "  l1\r\nl2\rl3\t  ", "a b c", "l1\nl2\nl3"},
++		{"invalid UTF-8", "a\xffb", "c\xfed", "a\U0000FFFDb", "c\U0000FFFDd"},
++	} {
++		got, err := s.Edit(bg, "default", task.ID, Edit{Title: &k.title, Notes: &k.notes}, human)
++		if err != nil || got.Title != k.wantTitle || got.Notes != k.wantNotes {
++			t.Errorf("%s: title %q, notes %q, err %v, want %q and %q", k.name, got.Title, got.Notes, err, k.wantTitle, k.wantNotes)
++		}
++	}
++}
++
++func TestEditCutsATitleAtTwoHundredRunesAndNotesAtSixtyFourKiB(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	task := mustAdd(t, s, "default", "t", false)
++	for _, k := range []struct{ name, title, want string }{
++		{"200 runes are kept", strings.Repeat("x", 200), strings.Repeat("x", 200)},
++		{"201 runes are cut to 199 and an ellipsis", strings.Repeat("x", 201), strings.Repeat("x", 199) + "\U00002026"},
++		{"two-byte runes count as one", strings.Repeat("\U000000e9", 201), strings.Repeat("\U000000e9", 199) + "\U00002026"},
++	} {
++		if got, err := s.Edit(bg, "default", task.ID, Edit{Title: &k.title}, human); err != nil || got.Title != k.want {
++			t.Errorf("%s: %d bytes, err %v, want %d bytes", k.name, len(got.Title), err, len(k.want))
++		}
++	}
++
++	exact := strings.Repeat("n", MaxNotesBytes)
++	if got, err := s.Edit(bg, "default", task.ID, Edit{Notes: &exact}, human); err != nil || got.Notes != exact {
++		t.Errorf("notes of exactly the limit: %d bytes kept, err %v", len(got.Notes), err)
++	}
++	over := exact + "n"
++	got, err := s.Edit(bg, "default", task.ID, Edit{Notes: &over}, human)
++	if err != nil || !strings.HasSuffix(got.Notes, "\n[truncated: 65537 characters in the original]") {
++		t.Fatalf("notes one byte over the limit: err %v, ends %q", err, got.Notes[max(0, len(got.Notes)-60):])
++	}
++	checkCut(t, got.Notes, MaxNotesBytes)
++}
++
++// What a cut text is stored as is what comes back from a read, and an edit sends it back: it must
++// be no change, however it was cut. (cutBytes counts its notice in the limit, so a cut text is
++// not cut again.)
++func TestEditPassingTheStoredTextBackWritesNothing(t *testing.T) {
++	s, db, c := newTestStore(t)
++	long, longTitle := strings.Repeat("n", MaxNotesBytes+500), strings.Repeat("t", 250)
++	task, _, err := s.Add(bg, "default", AddInput{Title: longTitle, Notes: long}, human)
++	if err != nil || len(task.Notes) > MaxNotesBytes || !strings.Contains(task.Notes, "[truncated:") {
++		t.Fatalf("setup: notes of %d bytes, err %v", len(task.Notes), err)
++	}
++	before := dumpBoard(t, db)
++	c.advance(time.Hour)
++	for _, k := range []struct {
++		name         string
++		title, notes string
++	}{
++		{"the stored text", task.Title, task.Notes},
++		{"the original text again", longTitle, long},
++		{"the stored notes alone", "", task.Notes},
++		{"the original title alone", longTitle, ""},
++	} {
++		e := Edit{}
++		if k.title != "" {
++			e.Title = &k.title
++		}
++		if k.notes != "" {
++			e.Notes = &k.notes
++		}
++		got, err := s.Edit(bg, "default", task.ID, e, human)
++		if err != nil || got.Title != task.Title || got.Notes != task.Notes {
++			t.Errorf("%s: %d bytes of notes, err %v", k.name, len(got.Notes), err)
++		}
++		if after := dumpBoard(t, db); after != before {
++			t.Fatalf("%s: an edit that changed nothing wrote to the database:\nbefore:\n%s\nafter:\n%s", k.name, before, after)
++		}
++	}
++}
++
++// The event names what changed, and only that.
++func TestEditSaysWhatItChanged(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	task := mustAdd(t, s, "default", "title", false)
++	set := func(title, notes *string) {
++		t.Helper()
++		if _, err := s.Edit(bg, "default", task.ID, Edit{Title: title, Notes: notes}, human); err != nil {
++			t.Fatal(err)
++		}
++	}
++	p := func(s string) *string { return &s }
++	set(p("title two"), nil)
++	set(nil, p("notes one"))
++	set(p("title three"), p("notes two"))
++	set(p("title three"), p("notes three")) // the title is the same: only the notes changed
++	set(p("title four"), p("notes three"))  // and the other way round
++	want := []string{
++		"created|you|>inbox|",
++		"edited|you|>|title",
++		"edited|you|>|notes",
++		"edited|you|>|title, notes",
++		"edited|you|>|notes",
++		"edited|you|>|title",
++	}
++	if got := opsEvents(t, s, task.ID); strings.Join(got, "\n") != strings.Join(want, "\n") {
++		t.Errorf("events:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
++	}
++	got, _, _ := s.Get(bg, "default", task.ID)
++	if got.Title != "title four" || got.Notes != "notes three" {
++		t.Errorf("stored %q and %q", got.Title, got.Notes)
++	}
++}
++
++func TestEditCanClearTheNotes(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	task, _, err := s.Add(bg, "default", AddInput{Title: "t", Notes: "some notes"}, human)
++	if err != nil {
++		t.Fatal(err)
++	}
++	none := ""
++	got, err := s.Edit(bg, "default", task.ID, Edit{Notes: &none}, human)
++	if err != nil || got.Notes != "" || got.Title != "t" {
++		t.Errorf("clearing the notes: %+v, %v", got, err)
++	}
++	if ev := opsEvents(t, s, task.ID); ev[len(ev)-1] != "edited|you|>|notes" {
++		t.Errorf("events: %v", ev)
++	}
++}
++
++// An edit changes the words and the time of the change: not the column, the place in it, the claim
++// or the day the task was made. A task in the archive is edited like any other.
++func TestEditLeavesColumnPlaceClaimAndCreationAlone(t *testing.T) {
++	s, db, c := newTestStore(t)
++	held := opsHeld(t, s, db, c, "held", "bob", time.Hour)
++	arch := mustAdd(t, s, "default", "archived", false)
++	if _, err := s.Archive(bg, "default", []int64{arch.ID}, human); err != nil {
++		t.Fatal(err)
++	}
++	c.advance(10 * time.Minute)
++	for _, task := range []Task{held, arch} {
++		before, _, _ := s.Get(bg, "default", task.ID)
++		by, until := opsClaim(t, db, task.ID)
++		title := "edited " + task.Title
++		got, err := s.Edit(bg, "default", task.ID, Edit{Title: &title}, human)
++		if err != nil {
++			t.Fatal(err)
++		}
++		if got.Status != before.Status || got.Position != before.Position || !got.CreatedAt.Equal(before.CreatedAt) {
++			t.Errorf("%s: status %s position %d created %v, want %s %d %v", task.Title, got.Status, got.Position, got.CreatedAt, before.Status, before.Position, before.CreatedAt)
++		}
++		if by2, until2 := opsClaim(t, db, task.ID); by2 != by || until2 != until {
++			t.Errorf("%s: claim %q until %q became %q until %q", task.Title, by, until, by2, until2)
++		}
++		if !got.UpdatedAt.Equal(c.t) {
++			t.Errorf("%s: updated at %v, want %v", task.Title, got.UpdatedAt, c.t)
++		}
++		if ev := opsEvents(t, s, task.ID); ev[len(ev)-1] != "edited|you|>|title" || strings.Contains(strings.Join(ev, ","), "released") {
++			t.Errorf("%s: events %v", task.Title, ev)
++		}
++	}
++	if got, _, _ := s.Get(bg, "default", held.ID); got.Claim == nil || got.Claim.By != "bob" {
++		t.Errorf("the held task after an edit: %+v", got.Claim)
++	}
++}
+diff --git a/internal/tasks/ops_helpers_test.go b/internal/tasks/ops_helpers_test.go
+new file mode 100644
+index 00000000..46b43d20
+--- /dev/null
++++ b/internal/tasks/ops_helpers_test.go
+@@ -0,0 +1,124 @@
++package tasks
++
++import (
++	"database/sql"
++	"fmt"
++	"testing"
++	"time"
++)
++
++// opsEvents returns the events of a task of the default profile, oldest first, each as
++// "kind|actor|from>to|note".
++func opsEvents(t *testing.T, s *Store, id int64) []string {
++	t.Helper()
++	_, events, err := s.Get(bg, "default", id)
++	if err != nil {
++		t.Fatal(err)
++	}
++	out := make([]string, 0, len(events))
++	for _, e := range events {
++		out = append(out, fmt.Sprintf("%s|%s|%s>%s|%s", e.Kind, e.Actor, e.FromStatus, e.ToStatus, e.Note))
++	}
++	return out
++}
++
++// opsClaim reads the two claim columns of a task straight from the table.
++func opsClaim(t *testing.T, db *sql.DB, id int64) (by, until string) {
++	t.Helper()
++	if err := db.QueryRow(`SELECT claimed_by, claim_until FROM tasks WHERE id = ?`, id).Scan(&by, &until); err != nil {
++		t.Fatal(err)
++	}
++	return by, until
++}
++
++// opsHeld is an In progress card that `by` holds until `lease` from now: the operator's Move puts
++// it in the column, and the two claim columns are written the way a claim writes them (the
++// operator cannot claim, so a test has no verb that does).
++func opsHeld(t *testing.T, s *Store, db *sql.DB, c *clock, title, by string, lease time.Duration) Task {
++	t.Helper()
++	task := mustAdd(t, s, "default", title, true)
++	if _, err := s.Move(bg, "default", task.ID, StatusInProgress, Placement{}, human); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := db.Exec(`UPDATE tasks SET claimed_by = ?, claim_until = ? WHERE id = ?`, by, c.t.Add(lease).Format(timeFmt), task.ID); err != nil {
++		t.Fatal(err)
++	}
++	got, _, err := s.Get(bg, "default", task.ID)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if got.Claim == nil || got.Claim.By != by || got.Status != StatusInProgress {
++		t.Fatalf("setup: %+v is not held by %s", got, by)
++	}
++	return got
++}
++
++// opsStray gives a task a claim without making it In progress: a row no claim could have written,
++// which a reader still shows as claimed (scanTask looks at the claim columns only).
++func opsStray(t *testing.T, db *sql.DB, c *clock, id int64, by string) {
++	t.Helper()
++	if _, err := db.Exec(`UPDATE tasks SET claimed_by = ?, claim_until = ? WHERE id = ?`, by, c.t.Add(time.Hour).Format(timeFmt), id); err != nil {
++		t.Fatal(err)
++	}
++}
++
++// opsVerb is one of the operator's verbs as a call that takes a profile, a task and an actor. With
++// bad it is called with arguments that are refused whoever asks: that shows which check came first.
++type opsVerb struct {
++	name string
++	run  func(profile string, id int64, a Actor, bad bool) error
++}
++
++func opsVerbs(s *Store) []opsVerb {
++	title := "a new title"
++	return []opsVerb{
++		{"Edit", func(p string, id int64, a Actor, bad bool) error {
++			e := Edit{Title: &title}
++			if bad {
++				e = Edit{} // nothing to change
++			}
++			_, err := s.Edit(bg, p, id, e, a)
++			return err
++		}},
++		{"Move", func(p string, id int64, a Actor, bad bool) error {
++			to, pl := StatusReady, Placement{}
++			if bad {
++				to, pl = StatusArchived, Placement{Top: true, Bottom: true}
++			}
++			_, err := s.Move(bg, p, id, to, pl, a)
++			return err
++		}},
++		{"Approve", func(p string, id int64, a Actor, bad bool) error {
++			ids := []int64{id}
++			if bad {
++				ids = nil
++			}
++			_, err := s.Approve(bg, p, ids, false, a)
++			return err
++		}},
++		{"Archive", func(p string, id int64, a Actor, bad bool) error {
++			ids := []int64{id}
++			if bad {
++				ids = nil
++			}
++			_, err := s.Archive(bg, p, ids, a)
++			return err
++		}},
++		{"ArchiveStatus", func(p string, id int64, a Actor, bad bool) error {
++			st := StatusInbox
++			if bad {
++				st = StatusArchived
++			}
++			_, err := s.ArchiveStatus(bg, p, st, a)
++			return err
++		}},
++		{"Unarchive", func(p string, id int64, a Actor, bad bool) error {
++			ids := []int64{id}
++			if bad {
++				ids = nil
++			}
++			_, err := s.Unarchive(bg, p, ids, a)
++			return err
++		}},
++	}
++}
+diff --git a/internal/tasks/ops_place_test.go b/internal/tasks/ops_place_test.go
+new file mode 100644
+index 00000000..92a81701
+--- /dev/null
++++ b/internal/tasks/ops_place_test.go
+@@ -0,0 +1,469 @@
++package tasks
++
++import (
++	"database/sql"
++	"errors"
++	"fmt"
++	"math/rand"
++	"testing"
++	"time"
++)
++
++// slot is one card of a column in the model below: its id and its position.
++type slot struct{ id, pos int64 }
++
++// colModel is the five columns as spec 4.6 says they behave, written without the store's code:
++// each column top to bottom; a card goes before, after, to the top or the bottom of the column, or,
++// when it is new to the column and no place is asked for, to its default end (the top of Inbox,
++// Review and Done, the bottom of Ready and In progress); a card that is in the column already and
++// asks for no place stays where it is; an end takes a gap of 1024 beyond the end card, two
++// neighbours the midpoint of theirs, and when no integer is left between the neighbours the column
++// is renumbered 1024, 2048, ... top to bottom with the card in its place.
++type colModel map[Status][]slot
++
++func modelOf(t *testing.T, s *Store) colModel {
++	t.Helper()
++	b, err := s.Board(bg, "default", 0)
++	if err != nil {
++		t.Fatal(err)
++	}
++	m := colModel{}
++	for _, st := range BoardStatuses {
++		for _, task := range b.Tasks[st] {
++			m[st] = append(m[st], slot{task.ID, task.Position})
++		}
++	}
++	return m
++}
++
++func (m colModel) move(id int64, to Status, p Placement) {
++	for st, col := range m {
++		for i, c := range col {
++			if c.id == id {
++				if st == to && p == (Placement{}) {
++					return // in the column already and no place asked for: it stays
++				}
++				m[st] = append(append([]slot{}, col[:i]...), col[i+1:]...)
++				break
++			}
++		}
++	}
++	col := m[to]
++	idx := len(col)
++	switch {
++	case p.Before != 0 || p.After != 0:
++		for i, c := range col {
++			if c.id == p.Before || c.id == p.After {
++				idx = i
++			}
++		}
++		if p.After != 0 {
++			idx++
++		}
++	case p.Top:
++		idx = 0
++	case p.Bottom:
++		idx = len(col)
++	case to == StatusInbox || to == StatusReview || to == StatusDone:
++		idx = 0
++	}
++	var pos int64
++	switch {
++	case len(col) == 0:
++		pos = 1024
++	case idx == 0:
++		pos = col[0].pos - 1024
++	case idx == len(col):
++		pos = col[len(col)-1].pos + 1024
++	case col[idx].pos-col[idx-1].pos >= 2:
++		pos = col[idx-1].pos + (col[idx].pos-col[idx-1].pos)/2
++	default:
++		out := append(append(append([]slot{}, col[:idx]...), slot{id: id}), col[idx:]...)
++		for i := range out {
++			out[i].pos = int64(i+1) * 1024
++		}
++		m[to] = out
++		return
++	}
++	m[to] = append(append(append([]slot{}, col[:idx]...), slot{id, pos}), col[idx:]...)
++}
++
++// check compares every column of the board, ids and positions, with the model.
++func (m colModel) check(t *testing.T, s *Store, when string) {
++	t.Helper()
++	got := modelOf(t, s)
++	for _, st := range BoardStatuses {
++		if fmt.Sprint(got[st]) != fmt.Sprint(m[st]) {
++			t.Fatalf("%s: column %s is %v, want %v", when, st, got[st], m[st])
++		}
++	}
++}
++
++// squeeze renumbers every column 1, 2, 3, ... straight in the table: the order stays and no integer
++// is left between neighbours, so the next card placed between two of them renumbers its column.
++func (m colModel) squeeze(t *testing.T, db *sql.DB) {
++	t.Helper()
++	for _, col := range m {
++		for i := range col {
++			col[i].pos = int64(i + 1)
++			if _, err := db.Exec(`UPDATE tasks SET position = ? WHERE id = ?`, col[i].pos, col[i].id); err != nil {
++				t.Fatal(err)
++			}
++		}
++	}
++}
++
++// randomPlacement picks no placement, the top, the bottom, or a place next to a card of the target
++// column, mostly near its top so that squeezed neighbours are met often.
++func (m colModel) randomPlacement(r *rand.Rand, id int64, to Status) Placement {
++	var others []int64
++	for _, c := range m[to] {
++		if c.id != id {
++			others = append(others, c.id)
++		}
++	}
++	switch k := r.Intn(6); {
++	case k == 0 || (k > 2 && len(others) == 0):
++		return Placement{}
++	case k == 1:
++		return Placement{Top: true}
++	case k == 2:
++		return Placement{Bottom: true}
++	}
++	ref := others[r.Intn(min(len(others), 2))]
++	if r.Intn(3) == 0 {
++		ref = others[r.Intn(len(others))]
++	}
++	if r.Intn(2) == 0 {
++		return Placement{Before: ref}
++	}
++	return Placement{After: ref}
++}
++
++// Every position the spec names, as a number: the midpoint between two neighbours, one gap beyond
++// an end card, the first gap in an empty column, the default end of Ready.
++func TestPlaceTakesTheMidpointAndAnEndTakesOneGap(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	a := mustAdd(t, s, "default", "a", true) // 1024
++	mustAdd(t, s, "default", "b", true)      // 2048
++	c := mustAdd(t, s, "default", "c", true) // 3072
++	n := make([]Task, 9)
++	for i := range n {
++		n[i] = mustAdd(t, s, "default", fmt.Sprintf("n%d", i), false)
++	}
++	for _, k := range []struct {
++		name string
++		id   int64
++		to   Status
++		p    Placement
++		want int64
++	}{
++		{"after the first card: the midpoint of the first two", n[0].ID, StatusReady, Placement{After: a.ID}, 1536},
++		{"before that card: half of the room again", n[1].ID, StatusReady, Placement{Before: n[0].ID}, 1280},
++		{"before the last card: the midpoint of the last two", n[2].ID, StatusReady, Placement{Before: c.ID}, 2560},
++		{"top: one gap above the first card", n[3].ID, StatusReady, Placement{Top: true}, 0},
++		{"bottom: one gap below the last card", n[4].ID, StatusReady, Placement{Bottom: true}, 4096},
++		{"no placement in Ready: one gap below the last card", n[5].ID, StatusReady, Placement{}, 5120},
++		{"before the first card: one gap above it", n[6].ID, StatusReady, Placement{Before: n[3].ID}, -1024},
++		{"after the last card: one gap below it", n[7].ID, StatusReady, Placement{After: n[5].ID}, 6144},
++		{"into an empty column: the first gap", n[8].ID, StatusReview, Placement{}, 1024},
++	} {
++		got, err := s.Move(bg, "default", k.id, k.to, k.p, human)
++		if err != nil || got.Position != k.want || got.Status != k.to {
++			t.Errorf("%s: position %d in %s, err %v, want %d", k.name, got.Position, got.Status, err, k.want)
++		}
++	}
++}
++
++// The card that is moved is no neighbour of itself: the top card put on top and the bottom card put
++// at the bottom stay where they are.
++func TestPlaceDoesNotCountTheCardItself(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	a := mustAdd(t, s, "default", "a", true) // 1024
++	b := mustAdd(t, s, "default", "b", true) // 2048
++	c := mustAdd(t, s, "default", "c", true) // 3072
++	for _, k := range []struct {
++		name string
++		id   int64
++		p    Placement
++		want int64
++	}{
++		{"the top card to the top", a.ID, Placement{Top: true}, 1024},
++		{"the bottom card to the bottom", c.ID, Placement{Bottom: true}, 3072},
++		{"the middle card to the top", b.ID, Placement{Top: true}, 0},
++		{"that card, now the top one, to the bottom", b.ID, Placement{Bottom: true}, 4096},
++	} {
++		got, err := s.Move(bg, "default", k.id, StatusReady, k.p, human)
++		if err != nil || got.Position != k.want {
++			t.Errorf("%s: position %d, err %v, want %d", k.name, got.Position, err, k.want)
++		}
++	}
++}
++
++// No placement means the default end of the column for a card that is new to it, in every column.
++func TestPlaceWithNoPlacementGoesToTheDefaultEndOfEachColumn(t *testing.T) {
++	for _, k := range []struct {
++		to   Status
++		want int64 // after cards at 1024 and 2048
++	}{
++		{StatusInbox, 0}, {StatusReady, 3072}, {StatusInProgress, 3072}, {StatusReview, 0}, {StatusDone, 0},
++	} {
++		t.Run(string(k.to), func(t *testing.T) {
++			s, _, _ := newTestStore(t)
++			// a card that is not in the column yet: a new card starts in Inbox, so for Inbox it goes
++			// through Done first
++			fresh := func() int64 {
++				id := mustAdd(t, s, "default", "x", false).ID
++				if k.to == StatusInbox {
++					if _, err := s.Move(bg, "default", id, StatusDone, Placement{}, human); err != nil {
++						t.Fatal(err)
++					}
++				}
++				return id
++			}
++			for i := 0; i < 2; i++ {
++				if _, err := s.Move(bg, "default", fresh(), k.to, Placement{Bottom: true}, human); err != nil {
++					t.Fatal(err)
++				}
++			}
++			got, err := s.Move(bg, "default", fresh(), k.to, Placement{}, human)
++			if err != nil || got.Position != k.want {
++				t.Errorf("position %d, err %v, want %d", got.Position, err, k.want)
++			}
++		})
++	}
++}
++
++// A card that is in the column already and asks for no place stays where it is, in every column and
++// also when it is held: nothing is written, not an event, not the revision, not the time of the card,
++// and what comes back is the card as it was.
++func TestMoveToTheColumnItIsInWithNoPlacementChangesNothing(t *testing.T) {
++	s, db, c := newTestStore(t)
++	place := func(st Status, title string) Task {
++		task := mustAdd(t, s, "default", title, false)
++		got, err := s.Move(bg, "default", task.ID, st, Placement{Bottom: true}, human)
++		if err != nil {
++			t.Fatal(err)
++		}
++		return got
++	}
++	middle := map[Status]Task{}
++	for _, st := range BoardStatuses {
++		place(st, "first "+string(st))
++		middle[st] = place(st, "middle "+string(st))
++		place(st, "last "+string(st))
++	}
++	if _, err := db.Exec(`UPDATE tasks SET claimed_by = 'bob', claim_until = ? WHERE id = ?`, c.t.Add(time.Hour).Format(timeFmt), middle[StatusInProgress].ID); err != nil {
++		t.Fatal(err)
++	}
++	before := dumpBoard(t, db)
++	rev, _ := s.Rev(bg, "default")
++	c.advance(time.Hour)
++	for _, st := range BoardStatuses {
++		was, _, _ := s.Get(bg, "default", middle[st].ID)
++		got, err := s.Move(bg, "default", was.ID, st, Placement{}, human)
++		if err != nil || got.Status != st || got.Position != was.Position || !got.UpdatedAt.Equal(was.UpdatedAt) || (got.Claim != nil) != (st == StatusInProgress) {
++			t.Errorf("%s: %+v, %v, want the card as it was: %+v", st, got, err, was)
++		}
++		if got.LastEvent == nil || was.LastEvent == nil || got.LastEvent.Kind != was.LastEvent.Kind || !got.LastEvent.At.Equal(was.LastEvent.At) {
++			t.Errorf("%s: last event %+v, was %+v", st, got.LastEvent, was.LastEvent)
++		}
++	}
++	if after := dumpBoard(t, db); after != before {
++		t.Errorf("moves that asked for nothing changed the database:\nbefore:\n%s\nafter:\n%s", before, after)
++	}
++	if now, _ := s.Rev(bg, "default"); now != rev {
++		t.Errorf("the revision moved from %d to %d", rev, now)
++	}
++}
++
++// With a place asked for it is a reorder, written as one moved event (from and to the same column)
++// and one revision, also when the place is where the card is already.
++func TestMoveToTheColumnItIsInWithAPlacementReordersAndWritesOneEventAndOneBump(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	a, b, c := mustAdd(t, s, "default", "a", true), mustAdd(t, s, "default", "b", true), mustAdd(t, s, "default", "c", true)
++	for _, k := range []struct {
++		name string
++		id   int64
++		p    Placement
++		want []int64
++	}{
++		{"top", c.ID, Placement{Top: true}, []int64{c.ID, a.ID, b.ID}},
++		{"bottom", c.ID, Placement{Bottom: true}, []int64{a.ID, b.ID, c.ID}},
++		{"before", c.ID, Placement{Before: b.ID}, []int64{a.ID, c.ID, b.ID}},
++		{"after", a.ID, Placement{After: b.ID}, []int64{c.ID, b.ID, a.ID}},
++		{"top, for the card that is on top already", c.ID, Placement{Top: true}, []int64{c.ID, b.ID, a.ID}},
++	} {
++		rev, _ := s.Rev(bg, "default")
++		events := len(opsEvents(t, s, k.id))
++		if _, err := s.Move(bg, "default", k.id, StatusReady, k.p, human); err != nil {
++			t.Fatalf("%s: %v", k.name, err)
++		}
++		if got := column(t, s, StatusReady); !sameIDs(got, k.want) {
++			t.Errorf("%s: Ready is %v, want %v", k.name, got, k.want)
++		}
++		ev := opsEvents(t, s, k.id)
++		if now, _ := s.Rev(bg, "default"); now != rev+1 || len(ev) != events+1 || ev[len(ev)-1] != "moved|you|ready>ready|" {
++			t.Errorf("%s: revision %d (was %d), events %v (there were %d), want one more of each and the last a move within Ready", k.name, now, rev, ev, events)
++		}
++	}
++}
++
++// A card goes between two neighbours at the midpoint while an integer is left strictly between
++// them, so a gap of two or more; with a gap of one (or none) the column is renumbered. The mover is
++// the first task made, so a tie with its new neighbour would put it on the wrong side.
++func TestPlaceRenumbersOnlyWhenNoIntegerIsLeftBetween(t *testing.T) {
++	for _, k := range []struct {
++		name       string
++		aPos, bPos int64
++		mid        int64 // the mover's position when there is room
++		renumber   bool
++	}{
++		{"neighbours one apart", 10, 11, 0, true},
++		{"neighbours with the same position", 10, 10, 0, true},
++		{"neighbours two apart", 10, 12, 11, false},
++		{"neighbours three apart", 10, 13, 11, false},
++	} {
++		t.Run(k.name, func(t *testing.T) {
++			s, db, _ := newTestStore(t)
++			x := mustAdd(t, s, "default", "x", false)
++			a, b := mustAdd(t, s, "default", "a", true), mustAdd(t, s, "default", "b", true)
++			for id, pos := range map[int64]int64{a.ID: k.aPos, b.ID: k.bPos} {
++				if _, err := db.Exec(`UPDATE tasks SET position = ? WHERE id = ?`, pos, id); err != nil {
++					t.Fatal(err)
++				}
++			}
++			got, err := s.Move(bg, "default", x.ID, StatusReady, Placement{After: a.ID}, human)
++			if err != nil {
++				t.Fatal(err)
++			}
++			if ids := column(t, s, StatusReady); !sameIDs(ids, []int64{a.ID, x.ID, b.ID}) {
++				t.Fatalf("order %v, want a, x, b", ids)
++			}
++			ts, _ := s.List(bg, "default", Filter{Statuses: []Status{StatusReady}}, human)
++			var pos []int64
++			for _, task := range ts {
++				pos = append(pos, task.Position)
++			}
++			want := []int64{k.aPos, k.mid, k.bPos}
++			if k.renumber {
++				want = []int64{1024, 2048, 3072}
++			}
++			if fmt.Sprint(pos) != fmt.Sprint(want) || got.Position != want[1] {
++				t.Errorf("positions %v (the mover's: %d), want %v", pos, got.Position, want)
++			}
++		})
++	}
++}
++
++// Eleven cards put after the same card use up the 1024 between it and the next one: the eleventh
++// has no room and the column is renumbered with every relative order kept. Every step is compared
++// with the model, the numbers of the first twelve steps are written out.
++func TestPlaceElevenInsertionsAfterOneCardUseUpTheRoomAndRenumber(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	a, b := mustAdd(t, s, "default", "a", true), mustAdd(t, s, "default", "b", true) // 1024, 2048
++	added := make([]Task, 12)
++	for i := range added {
++		added[i] = mustAdd(t, s, "default", fmt.Sprintf("c%d", i+1), false)
++	}
++	m := modelOf(t, s)
++	want := []int64{1536, 1280, 1152, 1088, 1056, 1040, 1032, 1028, 1026, 1025, 2048, 1536}
++	for i, c := range added {
++		p := Placement{After: a.ID}
++		got, err := s.Move(bg, "default", c.ID, StatusReady, p, human)
++		if err != nil || got.Position != want[i] {
++			t.Fatalf("insertion %d: position %d, err %v, want %d", i+1, got.Position, err, want[i])
++		}
++		m.move(c.ID, StatusReady, p)
++		m.check(t, s, fmt.Sprintf("insertion %d", i+1))
++	}
++	// c12, c11 ... c1 follow a, then b: the order of the column is the order they were put in, reversed.
++	wantIDs := []int64{a.ID}
++	for i := len(added) - 1; i >= 0; i-- {
++		wantIDs = append(wantIDs, added[i].ID)
++	}
++	wantIDs = append(wantIDs, b.ID)
++	if got := column(t, s, StatusReady); !sameIDs(got, wantIDs) {
++		t.Errorf("order %v, want %v", got, wantIDs)
++	}
++}
++
++// After every one of many random moves the five columns equal the model, ids and positions: where
++// each card went, that no other card moved, what a renumber does. The columns are squeezed every few
++// steps so that most placements between two cards renumber. The seed is in every failure message.
++func TestPlaceMatchesTheModelAfterEveryRandomMove(t *testing.T) {
++	for _, seed := range []int64{7, 2026, 31337} {
++		t.Run(fmt.Sprintf("seed %d", seed), func(t *testing.T) {
++			s, db, _ := newTestStore(t)
++			r := rand.New(rand.NewSource(seed))
++			var ids []int64
++			for i := 0; i < 14; i++ {
++				ids = append(ids, mustAdd(t, s, "default", fmt.Sprintf("t%d", i), i%2 == 0).ID)
++			}
++			m := modelOf(t, s)
++			for step := 0; step < 200; step++ {
++				if step%15 == 0 {
++					m.squeeze(t, db)
++				}
++				id, to := ids[r.Intn(len(ids))], BoardStatuses[r.Intn(len(BoardStatuses))]
++				p := m.randomPlacement(r, id, to)
++				if _, err := s.Move(bg, "default", id, to, p, human); err != nil {
++					t.Fatalf("seed %d, step %d: move #%d to %s %+v: %v", seed, step, id, to, p, err)
++				}
++				m.move(id, to, p)
++				m.check(t, s, fmt.Sprintf("seed %d, step %d (move #%d to %s %+v)", seed, step, id, to, p))
++			}
++		})
++	}
++}
++
++// A placement looks at the target column of the profile and nothing else: not at the other columns
++// and not at another profile's cards, and a card of either is no reference.
++func TestPlaceLooksOnlyAtTheTargetColumnOfTheProfile(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	addProfile(t, db, "p2")
++	a := mustAdd(t, s, "default", "a", true) // Ready, 1024
++	review := mustAdd(t, s, "default", "review", false)
++	if _, err := s.Move(bg, "default", review.ID, StatusReview, Placement{}, human); err != nil {
++		t.Fatal(err)
++	}
++	far := mustAdd(t, s, "p2", "far", true)
++	farther := mustAdd(t, s, "p2", "farther", true)
++	for id, pos := range map[int64]int64{review.ID: 5_000_000, far.ID: -7_000_000, farther.ID: 9_000_000} {
++		if _, err := db.Exec(`UPDATE tasks SET position = ? WHERE id = ?`, pos, id); err != nil {
++			t.Fatal(err)
++		}
++	}
++	top, bottom := mustAdd(t, s, "default", "top", false), mustAdd(t, s, "default", "bottom", false)
++	if got, err := s.Move(bg, "default", top.ID, StatusReady, Placement{Top: true}, human); err != nil || got.Position != 0 {
++		t.Errorf("top of Ready: position %d, err %v, want 0, one gap above a", got.Position, err)
++	}
++	if got, err := s.Move(bg, "default", bottom.ID, StatusReady, Placement{Bottom: true}, human); err != nil || got.Position != 2048 {
++		t.Errorf("bottom of Ready: position %d, err %v, want 2048, one gap below a", got.Position, err)
++	}
++
++	n := mustAdd(t, s, "default", "n", false)
++	before := dumpBoard(t, db)
++	for _, k := range []struct {
++		name string
++		id   int64
++		p    Placement
++	}{
++		{"before a card of another profile", n.ID, Placement{Before: far.ID}},
++		{"after a card of another profile", n.ID, Placement{After: farther.ID}},
++		{"before a card of another column", n.ID, Placement{Before: review.ID}},
++		{"after a card that does not exist", n.ID, Placement{After: 424242}},
++		{"before a negative id", n.ID, Placement{Before: -1}},
++		{"after itself", bottom.ID, Placement{After: bottom.ID}},
++	} {
++		if _, err := s.Move(bg, "default", k.id, StatusReady, k.p, human); !errors.Is(err, ErrInvalid) {
++			t.Errorf("%s: %v, want ErrInvalid", k.name, err)
++		}
++	}
++	if after := dumpBoard(t, db); after != before {
++		t.Errorf("refused placements changed the database:\nbefore:\n%s\nafter:\n%s", before, after)
++	}
++	if got, err := s.Move(bg, "default", n.ID, StatusReady, Placement{After: a.ID}, human); err != nil || got.Position != 1536 {
++		t.Errorf("after a card of its own column: position %d, err %v, want 1536, between a and the card below it", got.Position, err)
++	}
++}
+diff --git a/internal/tasks/ops_race_test.go b/internal/tasks/ops_race_test.go
+new file mode 100644
+index 00000000..3e3ed0af
+--- /dev/null
++++ b/internal/tasks/ops_race_test.go
+@@ -0,0 +1,103 @@
++package tasks
++
++import (
++	"errors"
++	"fmt"
++	"math/rand"
++	"sync"
++	"testing"
++)
++
++// A verb reads the state it acts on inside its own write transaction, so of several callers that
++// act on the same task at once exactly one finds it in the state the verb needs.
++func TestApprovingOrArchivingOneTaskAtOnceSucceedsExactlyOnce(t *testing.T) {
++	for _, k := range []struct {
++		name string
++		kind string // the event the one that wins writes
++		call func(s *Store, id int64) error
++	}{
++		{"Approve", "moved", func(s *Store, id int64) error {
++			_, err := s.Approve(bg, "default", []int64{id}, false, human)
++			return err
++		}},
++		{"Archive", "archived", func(s *Store, id int64) error { _, err := s.Archive(bg, "default", []int64{id}, human); return err }},
++	} {
++		t.Run(k.name, func(t *testing.T) {
++			s, db, _ := newTestStore(t)
++			task := mustAdd(t, s, "default", "a", false)
++			errs := make([]error, 8)
++			var wg sync.WaitGroup
++			for i := range errs {
++				wg.Go(func() { errs[i] = k.call(s, task.ID) })
++			}
++			wg.Wait()
++			won := 0
++			for _, err := range errs {
++				switch {
++				case err == nil:
++					won++
++				case !errors.Is(err, ErrInvalid):
++					t.Errorf("a caller failed with %v, want ErrInvalid for the ones that lost", err)
++				}
++			}
++			if won != 1 {
++				t.Errorf("%d of %d callers succeeded, want 1", won, len(errs))
++			}
++			if n := countWhere(t, db, "task_events", "task_id = ? AND kind = ?", task.ID, k.kind); n != 1 {
++				t.Errorf("%d %s events, want 1", n, k.kind)
++			}
++			if rev, _ := s.Rev(bg, "default"); rev != 2 {
++				t.Errorf("revision %d, want 2: the add and the one call that won", rev)
++			}
++		})
++	}
++}
++
++// Moves from several callers at once are all served, each in a transaction of its own: no card is
++// lost or doubled and every column keeps a strict order, with one revision for each move.
++func TestMovesAtOnceKeepEveryColumnInOrder(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	var ids []int64
++	for i := 0; i < 12; i++ {
++		ids = append(ids, mustAdd(t, s, "default", fmt.Sprintf("t%d", i), i%2 == 0).ID)
++	}
++	const callers, perCaller = 6, 15
++	errs := make(chan error, callers*perCaller)
++	var wg sync.WaitGroup
++	for w := 0; w < callers; w++ {
++		wg.Go(func() {
++			r := rand.New(rand.NewSource(int64(w)))
++			for i := 0; i < perCaller; i++ {
++				// always a placement: a card that is in the column and asks for none is not written
++				p := []Placement{{Top: true}, {Bottom: true}}[r.Intn(2)]
++				if _, err := s.Move(bg, "default", ids[r.Intn(len(ids))], BoardStatuses[r.Intn(len(BoardStatuses))], p, human); err != nil {
++					errs <- err
++				}
++			}
++		})
++	}
++	wg.Wait()
++	close(errs)
++	for err := range errs {
++		t.Errorf("a move failed: %v", err)
++	}
++	b, err := s.Board(bg, "default", 0)
++	if err != nil {
++		t.Fatal(err)
++	}
++	seen := 0
++	for _, st := range BoardStatuses {
++		seen += len(b.Tasks[st])
++		for i := 1; i < len(b.Tasks[st]); i++ {
++			if b.Tasks[st][i].Position <= b.Tasks[st][i-1].Position {
++				t.Errorf("column %s has positions %d then %d", st, b.Tasks[st][i-1].Position, b.Tasks[st][i].Position)
++			}
++		}
++	}
++	if seen != len(ids) {
++		t.Errorf("%d cards on the board, want %d", seen, len(ids))
++	}
++	if want := int64(len(ids) + callers*perCaller); b.Rev != want {
++		t.Errorf("revision %d, want %d: one for each add and each move", b.Rev, want)
++	}
++}
+diff --git a/internal/tasks/ops_rules_test.go b/internal/tasks/ops_rules_test.go
+new file mode 100644
+index 00000000..331a1c7e
+--- /dev/null
++++ b/internal/tasks/ops_rules_test.go
+@@ -0,0 +1,355 @@
++package tasks
++
++import (
++	"database/sql"
++	"errors"
++	"fmt"
++	"strings"
++	"testing"
++	"time"
++)
++
++// notTheOperator is every way a caller can be somebody other than the operator.
++var notTheOperator = []struct {
++	name string
++	a    Actor
++}{
++	{"a named agent", bot("bob")},
++	{"an unnamed agent", Actor{Kind: Agent}},
++	{"the chrome capture", Actor{Kind: Capture, Name: SourceChrome}},
++	{"the os capture", Actor{Kind: Capture, Name: SourceOS}},
++	{"an unnamed capture", Actor{Kind: Capture}},
++	{"the zero actor", Actor{}},
++	{"an unknown kind", Actor{Kind: ActorKind(99)}},
++	{"a negative kind", Actor{Kind: ActorKind(-1)}},
++}
++
++// Spec 5.1: the six verbs are the operator's. The CLI and MCP rely on the store for it, so it is the
++// first thing each verb looks at: before the profile, the task, and what is asked.
++func TestEveryVerbRefusesEveryoneButTheOperatorBeforeAnythingElse(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	task := mustAdd(t, s, "default", "a", false)
++	before := dumpBoard(t, db)
++	for _, v := range opsVerbs(s) {
++		for _, k := range notTheOperator {
++			if err := v.run("default", task.ID, k.a, false); !errors.Is(err, ErrOperatorOnly) {
++				t.Errorf("%s by %s: %v, want ErrOperatorOnly", v.name, k.name, err)
++			}
++			// an unknown profile, an unknown task and a request that is refused whoever makes it
++			if err := v.run("no-such-profile", 424242, k.a, true); !errors.Is(err, ErrOperatorOnly) {
++				t.Errorf("%s by %s, with nothing else right: %v, want ErrOperatorOnly first", v.name, k.name, err)
++			}
++		}
++	}
++	if after := dumpBoard(t, db); after != before {
++		t.Errorf("refused calls changed the database:\nbefore:\n%s\nafter:\n%s", before, after)
++	}
++}
++
++// The operator is the one kind, whatever name it carries: its events are written as "you".
++func TestTheOperatorIsLabelledYouWhateverItsName(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	task := mustAdd(t, s, "default", "a", false)
++	named := Actor{Kind: Human, Name: "bob"}
++	if _, err := s.Move(bg, "default", task.ID, StatusReview, Placement{}, named); err != nil {
++		t.Fatal(err)
++	}
++	if ev := opsEvents(t, s, task.ID); ev[len(ev)-1] != "moved|you|inbox>review|" {
++		t.Errorf("events: %v", ev)
++	}
++}
++
++// Spec 14: an unknown profile is refused by every method that writes, before the task is looked
++// for (the id here is a real one of another profile: ErrNotFound would be the wrong answer), and
++// what the refusal repeats of the profile id is cut.
++func TestEveryVerbRefusesAnUnknownProfileAndWritesNothing(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	task := mustAdd(t, s, "default", "a", false)
++	before := dumpBoard(t, db)
++	for _, v := range opsVerbs(s) {
++		for _, profile := range []string{"no-such-profile", "", strings.Repeat("x", 1<<16)} {
++			err := v.run(profile, task.ID, human, false)
++			if !errors.Is(err, ErrInvalid) || errors.Is(err, ErrNotFound) {
++				t.Errorf("%s on profile %.20q: %v, want ErrInvalid (an unknown profile)", v.name, profile, err)
++			} else if len(err.Error()) > 400 {
++				t.Errorf("%s: an error of %d bytes repeats what the caller sent", v.name, len(err.Error()))
++			}
++		}
++	}
++	if after := dumpBoard(t, db); after != before {
++		t.Errorf("refused calls changed the database:\nbefore:\n%s\nafter:\n%s", before, after)
++	}
++}
++
++// Spec 14: every method refuses another profile's ids, as not found.
++func TestEveryVerbRefusesAnotherProfilesTasksAsNotFound(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	other := addProfile(t, db, "p2")
++	own := mustAdd(t, s, "default", "own", false)
++	archived := mustAdd(t, s, "default", "archived", false)
++	if _, err := s.Archive(bg, "default", []int64{archived.ID}, human); err != nil {
++		t.Fatal(err)
++	}
++	theirs := mustAdd(t, s, other, "theirs", false)
++	before := dumpBoard(t, db)
++	for _, v := range opsVerbs(s) {
++		if v.name == "ArchiveStatus" { // it names no task: it is checked below
++			continue
++		}
++		for _, id := range []int64{own.ID, archived.ID} {
++			if err := v.run(other, id, human, false); !errors.Is(err, ErrNotFound) {
++				t.Errorf("%s of #%d through the other profile: %v, want ErrNotFound", v.name, id, err)
++			}
++		}
++	}
++	if after := dumpBoard(t, db); after != before {
++		t.Errorf("refused calls changed the database:\nbefore:\n%s\nafter:\n%s", before, after)
++	}
++	// a bulk call with one id that is not the profile's changes none of the others
++	if _, err := s.Archive(bg, "default", []int64{own.ID, theirs.ID}, human); !errors.Is(err, ErrNotFound) {
++		t.Errorf("archiving a task of the profile and one of another: %v, want ErrNotFound", err)
++	}
++	if got, _, _ := s.Get(bg, "default", own.ID); got.Status != StatusInbox {
++		t.Errorf("the profile's own task was archived by a call that failed: %s", got.Status)
++	}
++	// ArchiveStatus acts on the profile it is given and no other
++	if n, err := s.ArchiveStatus(bg, other, StatusInbox, human); err != nil || n != 1 {
++		t.Errorf("archive the other profile's Inbox: %d, %v, want its one card", n, err)
++	}
++	if got, _, _ := s.Get(bg, "default", own.ID); got.Status != StatusInbox {
++		t.Errorf("ArchiveStatus of one profile archived a card of another: %s", got.Status)
++	}
++	if got, _, _ := s.Get(bg, other, theirs.ID); got.Status != StatusArchived {
++		t.Errorf("the other profile's card: %s", got.Status)
++	}
++}
++
++// A change, its events and the revision are one transaction: when any of them cannot be written,
++// none is, whichever card of a bulk call it was, and the same call works once the obstacle is gone.
++func TestEveryVerbWritesTheChangeTheEventsAndTheRevisionOrNone(t *testing.T) {
++	three := func(t *testing.T, s *Store, archive bool) []int64 {
++		t.Helper()
++		var ids []int64
++		for i := 0; i < 3; i++ {
++			ids = append(ids, mustAdd(t, s, "default", fmt.Sprintf("c%d", i), false).ID)
++		}
++		if archive {
++			if _, err := s.Archive(bg, "default", ids, human); err != nil {
++				t.Fatal(err)
++			}
++		}
++		return ids
++	}
++	scenarios := []struct {
++		name     string
++		events   int  // the events the call writes
++		released bool // one of them is a released event
++		prep     func(t *testing.T, s *Store, db *sql.DB, c *clock) func() error
++	}{
++		{"Edit", 1, false, func(t *testing.T, s *Store, db *sql.DB, c *clock) func() error {
++			id, title := mustAdd(t, s, "default", "a", false).ID, "b"
++			return func() error { _, err := s.Edit(bg, "default", id, Edit{Title: &title}, human); return err }
++		}},
++		{"Move of a held card", 2, true, func(t *testing.T, s *Store, db *sql.DB, c *clock) func() error {
++			id := opsHeld(t, s, db, c, "held", "bob", time.Hour).ID
++			return func() error { _, err := s.Move(bg, "default", id, StatusReview, Placement{}, human); return err }
++		}},
++		{"Approve of three", 3, false, func(t *testing.T, s *Store, db *sql.DB, c *clock) func() error {
++			ids := three(t, s, false)
++			return func() error { _, err := s.Approve(bg, "default", ids, false, human); return err }
++		}},
++		{"Archive of three", 3, false, func(t *testing.T, s *Store, db *sql.DB, c *clock) func() error {
++			ids := three(t, s, false)
++			return func() error { _, err := s.Archive(bg, "default", ids, human); return err }
++		}},
++		{"ArchiveStatus of three", 3, false, func(t *testing.T, s *Store, db *sql.DB, c *clock) func() error {
++			three(t, s, false)
++			return func() error { _, err := s.ArchiveStatus(bg, "default", StatusInbox, human); return err }
++		}},
++		{"Unarchive of three", 3, false, func(t *testing.T, s *Store, db *sql.DB, c *clock) func() error {
++			ids := three(t, s, true)
++			return func() error { _, err := s.Unarchive(bg, "default", ids, human); return err }
++		}},
++	}
++	for _, sc := range scenarios {
++		failures := []string{"the first event", "the last event", "the revision"}
++		if sc.released {
++			// refusing the released event alone: the move's own event after it would fail too, and hide a
++			// released event whose failure was not passed on
++			failures = append(failures, "the released event")
++		}
++		for _, fail := range failures {
++			t.Run(sc.name+", refusing "+fail, func(t *testing.T) {
++				s, db, c := newTestStore(t)
++				call := sc.prep(t, s, db, c)
++				before := dumpBoard(t, db)
++				var maxEvent int
++				if err := db.QueryRow(`SELECT MAX(id) FROM task_events`).Scan(&maxEvent); err != nil {
++					t.Fatal(err)
++				}
++				var stmts []string
++				switch fail {
++				case "the first event":
++					stmts = []string{`CREATE TRIGGER refuse BEFORE INSERT ON task_events BEGIN SELECT RAISE(ABORT, 'refused for the test'); END`}
++				case "the last event":
++					// AFTER: a BEFORE INSERT trigger does not know the id the row is going to get
++					stmts = []string{fmt.Sprintf(`CREATE TRIGGER refuse AFTER INSERT ON task_events WHEN NEW.id = %d BEGIN SELECT RAISE(ABORT, 'refused for the test'); END`, maxEvent+sc.events)}
++				case "the released event":
++					stmts = []string{`CREATE TRIGGER refuse BEFORE INSERT ON task_events WHEN NEW.kind = 'released' BEGIN SELECT RAISE(ABORT, 'refused for the test'); END`}
++				default:
++					stmts = []string{
++						`CREATE TRIGGER refuse BEFORE INSERT ON task_board_rev BEGIN SELECT RAISE(ABORT, 'refused for the test'); END`,
++						`CREATE TRIGGER refuse_update BEFORE UPDATE ON task_board_rev BEGIN SELECT RAISE(ABORT, 'refused for the test'); END`,
++					}
++				}
++				for _, q := range stmts {
++					if _, err := db.Exec(q); err != nil {
++						t.Fatal(err)
++					}
++				}
++				if err := call(); err == nil || !strings.Contains(err.Error(), "refused for the test") {
++					t.Fatalf("the call: %v, want the refusal of the trigger", err)
++				}
++				if after := dumpBoard(t, db); after != before {
++					t.Fatalf("a failed call left changes behind:\nbefore:\n%s\nafter:\n%s", before, after)
++				}
++				for _, name := range []string{"refuse", "refuse_update"} {
++					_, _ = db.Exec(`DROP TRIGGER IF EXISTS ` + name)
++				}
++				if err := call(); err != nil {
++					t.Errorf("the same call once the obstacle is gone: %v", err)
++				}
++			})
++		}
++	}
++}
++
++// Spec 5.4: one revision for each write transaction (not one for each card, not one for each
++// event), none for a call that changed nothing or failed.
++func TestEveryWriteBumpsTheRevisionOnceAndNothingElseDoes(t *testing.T) {
++	s, db, c := newTestStore(t)
++	rev := func() int64 {
++		t.Helper()
++		r, err := s.Rev(bg, "default")
++		if err != nil {
++			t.Fatal(err)
++		}
++		return r
++	}
++	add := func(n int, ready bool) []int64 {
++		var ids []int64
++		for i := 0; i < n; i++ {
++			ids = append(ids, mustAdd(t, s, "default", fmt.Sprintf("t%d", i), ready).ID)
++		}
++		return ids
++	}
++	a, b, r := add(3, false), add(3, false), add(3, true)
++	held := opsHeld(t, s, db, c, "held", "bob", time.Hour)
++	z := add(1, false)
++	if _, err := s.Archive(bg, "default", z, human); err != nil {
++		t.Fatal(err)
++	}
++	title, same := "a new title", "t1" // what a[1] is called already
++	for _, k := range []struct {
++		name  string
++		want  int64 // how far the revision moves
++		fails bool
++		call  func() error
++	}{
++		{"an edit", 1, false, func() error { _, err := s.Edit(bg, "default", a[0], Edit{Title: &title}, human); return err }},
++		{"an edit that changes nothing", 0, false, func() error { _, err := s.Edit(bg, "default", a[1], Edit{Title: &same}, human); return err }},
++		{"a refused edit", 0, true, func() error { _, err := s.Edit(bg, "default", a[1], Edit{}, human); return err }},
++		{"a move", 1, false, func() error { _, err := s.Move(bg, "default", r[0], StatusReview, Placement{}, human); return err }},
++		{"a move of a held card, which writes two events", 1, false, func() error {
++			_, err := s.Move(bg, "default", held.ID, StatusReady, Placement{}, human)
++			return err
++		}},
++		{"a refused move", 0, true, func() error {
++			_, err := s.Move(bg, "default", r[1], StatusReady, Placement{Top: true, Bottom: true}, human)
++			return err
++		}},
++		{"a move to the column the card is in, asking for no place", 0, false, func() error {
++			_, err := s.Move(bg, "default", r[2], StatusReady, Placement{}, human)
++			return err
++		}},
++		{"a move to the column the card is in, asking for a place", 1, false, func() error {
++			_, err := s.Move(bg, "default", r[2], StatusReady, Placement{Top: true}, human)
++			return err
++		}},
++		{"an approval of three", 1, false, func() error { _, err := s.Approve(bg, "default", a, false, human); return err }},
++		{"an approval that fails on its last card", 0, true, func() error {
++			_, err := s.Approve(bg, "default", []int64{b[0], b[1], r[1]}, false, human)
++			return err
++		}},
++		{"an archive of three", 1, false, func() error { _, err := s.Archive(bg, "default", b, human); return err }},
++		{"an archive of the Review column", 1, false, func() error { _, err := s.ArchiveStatus(bg, "default", StatusReview, human); return err }},
++		{"an archive of a column with nothing in it", 0, false, func() error { _, err := s.ArchiveStatus(bg, "default", StatusDone, human); return err }},
++		{"an unarchive of four", 1, false, func() error {
++			_, err := s.Unarchive(bg, "default", append([]int64{r[0]}, b...), human)
++			return err
++		}},
++		{"an unarchive that fails on its last card", 0, true, func() error {
++			_, err := s.Unarchive(bg, "default", []int64{z[0], r[1]}, human)
++			return err
++		}},
++	} {
++		before := rev()
++		err := k.call()
++		if got := rev() - before; got != k.want {
++			t.Errorf("%s: the revision moved by %d (err %v), want %d", k.name, got, err, k.want)
++		}
++		if (err != nil) != k.fails {
++			t.Errorf("%s: err %v, want a failure: %v", k.name, err, k.fails)
++		}
++	}
++}
++
++// What each verb writes in the history of the task, as the spec names the kinds, dated by the
++// store's clock.
++func TestEachVerbWritesTheEventTheSpecNames(t *testing.T) {
++	s, _, c := newTestStore(t)
++	a := mustAdd(t, s, "default", "a", false)
++	title := "b"
++	do := func(err error) {
++		t.Helper()
++		if err != nil {
++			t.Fatal(err)
++		}
++		// every verb dates the row with the clock too, not only the event
++		if got, _, err := s.Get(bg, "default", a.ID); err != nil || !got.UpdatedAt.Equal(c.t) {
++			t.Errorf("after the verb at %v: updated at %v, err %v", c.t, got.UpdatedAt, err)
++		}
++		c.advance(time.Minute)
++	}
++	c.advance(time.Minute)
++	_, err := s.Edit(bg, "default", a.ID, Edit{Title: &title}, human)
++	do(err)
++	_, err = s.Approve(bg, "default", []int64{a.ID}, false, human)
++	do(err)
++	_, err = s.Move(bg, "default", a.ID, StatusDone, Placement{}, human)
++	do(err)
++	_, err = s.ArchiveStatus(bg, "default", StatusDone, human)
++	do(err)
++	_, err = s.Unarchive(bg, "default", []int64{a.ID}, human)
++	do(err)
++	_, err = s.Archive(bg, "default", []int64{a.ID}, human)
++	do(err)
++	want := []string{
++		"created|you|>inbox|",
++		"edited|you|>|title",
++		"moved|you|inbox>ready|approved",
++		"moved|you|ready>done|",
++		"archived|you|done>archived|",
++		"unarchived|you|archived>done|",
++		"archived|you|done>archived|",
++	}
++	if got := opsEvents(t, s, a.ID); strings.Join(got, "\n") != strings.Join(want, "\n") {
++		t.Errorf("events:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
++	}
++	_, events, _ := s.Get(bg, "default", a.ID)
++	for i := 1; i < len(events); i++ {
++		if want := events[0].At.Add(time.Duration(i) * time.Minute); !events[i].At.Equal(want) {
++			t.Errorf("the %s event is dated %v, want %v: each verb ran a minute after the one before", events[i].Kind, events[i].At, want)
++		}
++	}
++}
+diff --git a/internal/tasks/ops_test.go b/internal/tasks/ops_test.go
+new file mode 100644
+index 00000000..5434de2c
+--- /dev/null
++++ b/internal/tasks/ops_test.go
+@@ -0,0 +1,327 @@
++package tasks
++
++import (
++	"errors"
++	"fmt"
++	"math/rand"
++	"testing"
++)
++
++func TestEditChangesTheTextForTheOperatorOnly(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	task := mustAdd(t, s, "default", "old title", false)
++	title, notes := "  new   title ", "some notes"
++	got, err := s.Edit(bg, "default", task.ID, Edit{Title: &title, Notes: &notes}, human)
++	if err != nil || got.Title != "new title" || got.Notes != "some notes" {
++		t.Fatalf("edit: %+v, %v", got, err)
++	}
++	if got.LastEvent == nil || got.LastEvent.Kind != "edited" {
++		t.Errorf("last event: %+v", got.LastEvent)
++	}
++	for _, a := range []Actor{bot("b"), {Kind: Capture, Name: SourceOS}} {
++		if _, err := s.Edit(bg, "default", task.ID, Edit{Title: &title}, a); !errors.Is(err, ErrOperatorOnly) {
++			t.Errorf("%+v editing: %v, want ErrOperatorOnly", a, err)
++		}
++	}
++	empty := " \x1b "
++	if _, err := s.Edit(bg, "default", task.ID, Edit{Title: &empty}, human); !errors.Is(err, ErrInvalid) {
++		t.Errorf("an empty title: %v, want ErrInvalid", err)
++	}
++	if _, err := s.Edit(bg, "default", task.ID, Edit{}, human); !errors.Is(err, ErrInvalid) {
++		t.Errorf("nothing to change: %v, want ErrInvalid", err)
++	}
++	if n := countWhere(t, db, "task_events", "task_id = ? AND kind = 'edited'", task.ID); n != 1 {
++		t.Errorf("%d edited events, want 1", n)
++	}
++}
++
++func TestEditWithNothingNewWritesNothing(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	task := mustAdd(t, s, "default", "same", false)
++	before, _ := s.Rev(bg, "default")
++	same := "same"
++	if _, err := s.Edit(bg, "default", task.ID, Edit{Title: &same}, human); err != nil {
++		t.Fatal(err)
++	}
++	if after, _ := s.Rev(bg, "default"); after != before {
++		t.Errorf("revision moved from %d to %d for an edit that changed nothing", before, after)
++	}
++}
++
++// column lists the ids of a column, top to bottom.
++func column(t *testing.T, s *Store, st Status) []int64 {
++	t.Helper()
++	ts, err := s.List(bg, "default", Filter{Statuses: []Status{st}}, human)
++	if err != nil {
++		t.Fatal(err)
++	}
++	var out []int64
++	for _, task := range ts {
++		out = append(out, task.ID)
++	}
++	return out
++}
++
++func sameIDs(a, b []int64) bool {
++	if len(a) != len(b) {
++		return false
++	}
++	for i := range a {
++		if a[i] != b[i] {
++			return false
++		}
++	}
++	return true
++}
++
++func TestMovePlacesCards(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	a, b, c := mustAdd(t, s, "default", "a", true), mustAdd(t, s, "default", "b", true), mustAdd(t, s, "default", "c", true)
++	move := func(id int64, p Placement) {
++		t.Helper()
++		if _, err := s.Move(bg, "default", id, StatusReady, p, human); err != nil {
++			t.Fatalf("move #%d %+v: %v", id, p, err)
++		}
++	}
++	steps := []struct {
++		id   int64
++		p    Placement
++		want []int64
++	}{
++		{c.ID, Placement{Top: true}, []int64{c.ID, a.ID, b.ID}},
++		{c.ID, Placement{Bottom: true}, []int64{a.ID, b.ID, c.ID}},
++		{c.ID, Placement{Before: b.ID}, []int64{a.ID, c.ID, b.ID}},
++		{a.ID, Placement{After: b.ID}, []int64{c.ID, b.ID, a.ID}},
++	}
++	for i, st := range steps {
++		move(st.id, st.p)
++		if got := column(t, s, StatusReady); !sameIDs(got, st.want) {
++			t.Fatalf("step %d: %v, want %v", i, got, st.want)
++		}
++	}
++}
++
++func TestMoveToAnotherColumnPlacesByDefault(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	a, b := mustAdd(t, s, "default", "a", false), mustAdd(t, s, "default", "b", false)
++	for _, task := range []Task{a, b} { // a first, then b: a queue in Ready
++		if _, err := s.Move(bg, "default", task.ID, StatusReady, Placement{}, human); err != nil {
++			t.Fatal(err)
++		}
++	}
++	if got := column(t, s, StatusReady); !sameIDs(got, []int64{a.ID, b.ID}) {
++		t.Errorf("ready is a queue: %v", got)
++	}
++	for _, task := range []Task{a, b} { // a first, then b: newest first in Done
++		if _, err := s.Move(bg, "default", task.ID, StatusDone, Placement{}, human); err != nil {
++			t.Fatal(err)
++		}
++	}
++	if got := column(t, s, StatusDone); !sameIDs(got, []int64{b.ID, a.ID}) {
++		t.Errorf("done is newest first: %v", got)
++	}
++}
++
++func TestMoveRenumbersAColumnWithNoRoom(t *testing.T) {
++	s, db, _ := newTestStore(t)
++	a, b, c := mustAdd(t, s, "default", "a", true), mustAdd(t, s, "default", "b", true), mustAdd(t, s, "default", "c", true)
++	// Squeeze a and b to neighbouring positions: there is no integer between them.
++	if _, err := db.Exec(`UPDATE tasks SET position = 10 WHERE id = ?`, a.ID); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := db.Exec(`UPDATE tasks SET position = 11 WHERE id = ?`, b.ID); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := s.Move(bg, "default", c.ID, StatusReady, Placement{After: a.ID}, human); err != nil {
++		t.Fatal(err)
++	}
++	if got := column(t, s, StatusReady); !sameIDs(got, []int64{a.ID, c.ID, b.ID}) {
++		t.Errorf("order after renumbering: %v", got)
++	}
++	ts, _ := s.List(bg, "default", Filter{Statuses: []Status{StatusReady}}, human)
++	for i := 1; i < len(ts); i++ {
++		if ts[i].Position <= ts[i-1].Position {
++			t.Errorf("positions are not strictly increasing: %d then %d", ts[i-1].Position, ts[i].Position)
++		}
++	}
++}
++
++func TestMoveRefusals(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	a, b := mustAdd(t, s, "default", "a", true), mustAdd(t, s, "default", "b", false)
++	cases := []struct {
++		name string
++		to   Status
++		p    Placement
++		id   int64
++		want error
++	}{
++		{"before itself", StatusReady, Placement{Before: a.ID}, a.ID, ErrInvalid},
++		{"before a card of another column", StatusReady, Placement{Before: b.ID}, a.ID, ErrInvalid},
++		{"two placements", StatusReady, Placement{Top: true, Bottom: true}, a.ID, ErrInvalid},
++		{"archived is not a board column", StatusArchived, Placement{}, a.ID, ErrInvalid},
++		{"unknown task", StatusReady, Placement{}, 99999, ErrNotFound},
++	}
++	for _, c := range cases {
++		if _, err := s.Move(bg, "default", c.id, c.to, c.p, human); !errors.Is(err, c.want) {
++			t.Errorf("%s: %v, want %v", c.name, err, c.want)
++		}
++	}
++}
++
++// Whatever the order of the moves, every column stays in strict order and no card is lost. The seed
++// is fixed and in every failure message. (ops_place_test.go compares the columns with a model of
++// them after every move, positions included.)
++func TestAnyOrderOfMovesKeepsATotalOrder(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	var all []Task
++	for i := 0; i < 12; i++ {
++		all = append(all, mustAdd(t, s, "default", fmt.Sprintf("t%d", i), i%2 == 0))
++	}
++	const seed = 7
++	r := rand.New(rand.NewSource(seed))
++	for step := 0; step < 300; step++ {
++		task := all[r.Intn(len(all))]
++		to := BoardStatuses[r.Intn(len(BoardStatuses))]
++		var p Placement
++		switch r.Intn(4) {
++		case 0:
++			p.Top = true
++		case 1:
++			p.Bottom = true
++		default:
++			var others []int64
++			for _, id := range column(t, s, to) {
++				if id != task.ID {
++					others = append(others, id)
++				}
++			}
++			switch {
++			case len(others) == 0:
++				p.Top = true
++			case r.Intn(2) == 0:
++				p.Before = others[r.Intn(len(others))]
++			default:
++				p.After = others[r.Intn(len(others))]
++			}
++		}
++		if _, err := s.Move(bg, "default", task.ID, to, p, human); err != nil {
++			t.Fatalf("seed %d, step %d: move #%d to %s %+v: %v", seed, step, task.ID, to, p, err)
++		}
++		seen := 0
++		for _, st := range BoardStatuses {
++			ts, err := s.List(bg, "default", Filter{Statuses: []Status{st}}, human)
++			if err != nil {
++				t.Fatal(err)
++			}
++			seen += len(ts)
++			for i := 1; i < len(ts); i++ {
++				if ts[i].Position <= ts[i-1].Position {
++					t.Fatalf("seed %d, step %d: column %s has positions %d then %d", seed, step, st, ts[i-1].Position, ts[i].Position)
++				}
++			}
++		}
++		if seen != len(all) {
++			t.Fatalf("seed %d, step %d: %d cards on the board, want %d", seed, step, seen, len(all))
++		}
++	}
++}
++
++func TestApproveMovesInboxTasksToReadyAllOrNothing(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	a, b := mustAdd(t, s, "default", "a", false), mustAdd(t, s, "default", "b", false)
++	ready := mustAdd(t, s, "default", "already", true)
++	got, err := s.Approve(bg, "default", []int64{a.ID, b.ID}, false, human)
++	if err != nil || len(got) != 2 || got[0].Status != StatusReady || got[1].Status != StatusReady {
++		t.Fatalf("approve: %+v, %v", got, err)
++	}
++	if ids := column(t, s, StatusReady); !sameIDs(ids, []int64{ready.ID, a.ID, b.ID}) {
++		t.Errorf("approved cards go to the bottom of Ready: %v", ids)
++	}
++	c, d := mustAdd(t, s, "default", "c", false), mustAdd(t, s, "default", "d", false)
++	if _, err := s.Approve(bg, "default", []int64{c.ID, ready.ID, d.ID}, false, human); !errors.Is(err, ErrInvalid) {
++		t.Fatalf("approving a task that is not in Inbox: %v, want ErrInvalid", err)
++	}
++	if ids := column(t, s, StatusInbox); len(ids) != 2 {
++		t.Errorf("an approval that failed must change nothing: inbox %v", ids)
++	}
++	top, err := s.Approve(bg, "default", []int64{c.ID}, true, human)
++	if err != nil || column(t, s, StatusReady)[0] != top[0].ID {
++		t.Errorf("--top: %+v, %v", top, err)
++	}
++	if _, err := s.Approve(bg, "default", nil, false, human); !errors.Is(err, ErrInvalid) {
++		t.Errorf("no ids: %v", err)
++	}
++}
++
++func TestArchiveAndUnarchiveRestoreTheColumn(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	done := mustAdd(t, s, "default", "done one", false)
++	if _, err := s.Move(bg, "default", done.ID, StatusDone, Placement{}, human); err != nil {
++		t.Fatal(err)
++	}
++	arch, err := s.Archive(bg, "default", []int64{done.ID}, human)
++	if err != nil || arch[0].Status != StatusArchived {
++		t.Fatalf("archive: %+v, %v", arch, err)
++	}
++	if _, err := s.Archive(bg, "default", []int64{done.ID}, human); !errors.Is(err, ErrInvalid) {
++		t.Errorf("archiving twice: %v, want ErrInvalid", err)
++	}
++	back, err := s.Unarchive(bg, "default", []int64{done.ID}, human)
++	if err != nil || back[0].Status != StatusDone {
++		t.Fatalf("unarchive restores the old column: %+v, %v", back, err)
++	}
++	if _, err := s.Unarchive(bg, "default", []int64{done.ID}, human); !errors.Is(err, ErrInvalid) {
++		t.Errorf("unarchiving a task that is not archived: %v", err)
++	}
++
++	working := mustAdd(t, s, "default", "working", true)
++	if _, err := s.Move(bg, "default", working.ID, StatusInProgress, Placement{}, human); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := s.Archive(bg, "default", []int64{working.ID}, human); err != nil {
++		t.Fatal(err)
++	}
++	if got, err := s.Unarchive(bg, "default", []int64{working.ID}, human); err != nil || got[0].Status != StatusReady {
++		t.Errorf("an in-progress task comes back as ready (nobody holds it): %+v, %v", got, err)
++	}
++
++	for i := 0; i < 3; i++ {
++		x := mustAdd(t, s, "default", fmt.Sprintf("d%d", i), false)
++		if _, err := s.Move(bg, "default", x.ID, StatusDone, Placement{}, human); err != nil {
++			t.Fatal(err)
++		}
++	}
++	n, err := s.ArchiveStatus(bg, "default", StatusDone, human)
++	if err != nil || n != 4 { // the three new ones and the first one, restored to Done
++		t.Errorf("archive all done: %d, %v", n, err)
++	}
++	if _, err := s.ArchiveStatus(bg, "default", StatusArchived, human); !errors.Is(err, ErrInvalid) {
++		t.Errorf("archive-status of archived: %v", err)
++	}
++}
++
++func TestOnlyTheOperatorMovesApprovesAndArchives(t *testing.T) {
++	s, _, _ := newTestStore(t)
++	task := mustAdd(t, s, "default", "a", false)
++	for _, a := range []Actor{bot("b"), {Kind: Capture, Name: SourceChrome}} {
++		if _, err := s.Move(bg, "default", task.ID, StatusReady, Placement{}, a); !errors.Is(err, ErrOperatorOnly) {
++			t.Errorf("%+v Move: %v", a, err)
++		}
++		if _, err := s.Approve(bg, "default", []int64{task.ID}, false, a); !errors.Is(err, ErrOperatorOnly) {
++			t.Errorf("%+v Approve: %v", a, err)
++		}
++		if _, err := s.Archive(bg, "default", []int64{task.ID}, a); !errors.Is(err, ErrOperatorOnly) {
++			t.Errorf("%+v Archive: %v", a, err)
++		}
++		if _, err := s.Unarchive(bg, "default", []int64{task.ID}, a); !errors.Is(err, ErrOperatorOnly) {
++			t.Errorf("%+v Unarchive: %v", a, err)
++		}
++		if _, err := s.ArchiveStatus(bg, "default", StatusDone, a); !errors.Is(err, ErrOperatorOnly) {
++			t.Errorf("%+v ArchiveStatus: %v", a, err)
++		}
++	}
++	if got, _, _ := s.Get(bg, "default", task.ID); got.Status != StatusInbox {
++		t.Errorf("a refused call moved the task to %s", got.Status)
++	}
++}
