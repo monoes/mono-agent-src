@@ -111,15 +111,15 @@ func readOnlySandbox(st coderStatus, e *monomind.ScanEntry) bool {
 // close func that ends every worker (call it before the turn finishes) and
 // the func the lead's own events go through (its file edits take the write
 // lease), or nils with the journal told why the turn runs solo.
-func startDynamicOrg(ctx context.Context, cfg *Deps, journal *turnJournal, settings coderSettings, st coderStatus, rt monomind.CoderRuntime, t coderTurn, opts *monomind.ExecOptions) (func(), func(monomind.Event)) {
+func startDynamicOrg(ctx context.Context, cfg *Deps, journal *turnJournal, settings coderSettings, st coderStatus, rt monomind.CoderRuntime, t coderTurn, opts *monomind.ExecOptions) (func(), func(monomind.Event), func(float64)) {
 	if reason := orgUnavailableReason(st, rt.ID); reason != "" {
 		journal.notice(noticeOrgUnavailable, reason, chatevents.SeverityWarning)
-		return nil, nil
+		return nil, nil, nil
 	}
 	db, err := cfg.OpenDB()
 	if err != nil {
 		journal.notice(noticeOrgUnavailable, "the agent works alone this turn: "+err.Error(), chatevents.SeverityWarning)
-		return nil, nil
+		return nil, nil, nil
 	}
 	// Workers see the active profile (name, folder, counts, names only); the
 	// lead has it in its own prompt already.
@@ -149,7 +149,7 @@ func startDynamicOrg(ctx context.Context, cfg *Deps, journal *turnJournal, setti
 	if _, err := purposeStore.Usable(); err != nil {
 		db.Close()
 		journal.notice(noticeOrgUnavailable, "the agent works alone this turn: the model sets per purpose can't be read: "+err.Error(), chatevents.SeverityWarning)
-		return nil, nil
+		return nil, nil, nil
 	}
 	staffer.PurposesFn = purposeStore.Usable
 	if client, err := jevconf.NewClient(ctx, db.DB, cfg.ProfileID(), "", "", jevconf.DynamicOrg); err == nil {
@@ -161,7 +161,7 @@ func startDynamicOrg(ctx context.Context, cfg *Deps, journal *turnJournal, setti
 	if isTask && taskExec == nil {
 		db.Close()
 		journal.notice(noticeOrgUnavailable, refuse, chatevents.SeverityWarning)
-		return nil, nil
+		return nil, nil, nil
 	}
 	if isTask {
 		limits.BudgetUSD = pool
@@ -176,7 +176,7 @@ func startDynamicOrg(ctx context.Context, cfg *Deps, journal *turnJournal, setti
 	if err != nil {
 		db.Close()
 		journal.notice(noticeOrgUnavailable, "the agent works alone this turn: its earlier workers could not be listed: "+err.Error(), chatevents.SeverityWarning)
-		return nil, nil
+		return nil, nil, nil
 	}
 	mission := missionConfig(ctx, db.DB, cfg.ProfileID(), journal.conversationID, t)
 	if mission != nil {
@@ -230,7 +230,7 @@ func startDynamicOrg(ctx context.Context, cfg *Deps, journal *turnJournal, setti
 		stopWatch()
 		cond.Close()
 		db.Close()
-	}, cond.LeadEvent
+	}, cond.LeadEvent, func(usd float64) { cond.ChargeLeadTurn(context.WithoutCancel(ctx), usd) }
 }
 
 // orgStoredIDs reads the ids of every worker stored for the conversation; tests replace it to inject a read error.
