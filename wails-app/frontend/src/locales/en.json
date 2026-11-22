@@ -246,26 +246,6 @@
       "switchTo": "Switch to {{name}}",
       "chipTitle": "From profile {{name}}",
       "line": "{{active}} active · {{running}} running · {{failed}} failed (24h) · {{waiting}} waiting for you"
-    },
-    "getStarted": {
-      "title": "Get started",
-      "progress": "{{done}} of {{total}} done",
-      "dismiss": "Hide this checklist",
-      "optional": "optional",
-      "done": "Done",
-      "signIn": "Sign in to monoes.me",
-      "signInWhy": "MonoAgent needs a monoes.me account before anything runs.",
-      "signInAction": "Sign in",
-      "firstRun": "Run your first workflow",
-      "firstRunWhy": "Start from a template and press Run.",
-      "firstRunAction": "Pick a template",
-      "extension": "Connect the browser extension",
-      "extensionWhy": "Web automations run in your own browser through the extension.",
-      "extensionWhyUnpaired": "The bridge is running but doesn't accept this app yet. Pair it with the button.",
-      "extensionAction": "Set up",
-      "daemon": "Keep workflows running in the background",
-      "daemonWhy": "Schedules and webhooks need the background service.",
-      "daemonAction": "Open setup"
     }
   },
   "agentSetup": {
@@ -3320,7 +3300,89 @@
       "retry": "Try again"
     },
     "finish": {
-      "title": "You're set"
+      "title": "You're set",
+      "left_one": "{{count}} step is left for later. Everything else is ready.",
+      "left_other": "{{count}} steps are left for later. Everything else is ready.",
+      "allDone": "Every step is done. Your village is ready.",
+      "summary": "Setup summary",
+      "done": "done",
+      "skipped": "Skipped",
+      "notDone": "Not done",
+      "finishThis": "Finish this",
+      "finishThisStep": "Finish this: {{name}}",
+      "catalogue": "What you can do with MonoAgent",
+      "open": "Open MonoAgent",
+      "cat": {
+        "workflows": {
+          "title": "Workflows",
+          "line": "Build automations on a canvas from 100+ nodes and templates.",
+          "where": "Sidebar: Workflows"
+        },
+        "orgs": {
+          "title": "Orgs",
+          "line": "Run a team of agents with roles and goals.",
+          "where": "Sidebar: Org"
+        },
+        "chat": {
+          "title": "Chat and coder",
+          "line": "Talk to an agent or have it write code.",
+          "where": "Sidebar: AI agents; a new chat from the status bar"
+        },
+        "documents": {
+          "title": "Documents",
+          "line": "Your Second Brain; add files and ask questions.",
+          "where": "Sidebar: Documents"
+        },
+        "people": {
+          "title": "People and Communications",
+          "line": "Contacts, synced email and messages.",
+          "where": "Sidebar: People, Communications"
+        },
+        "social": {
+          "title": "Social automations",
+          "line": "Instagram, LinkedIn, X, TikTok, Hacker News, Product Hunt.",
+          "where": "Workflows: Templates"
+        },
+        "schedules": {
+          "title": "Schedules and triggers",
+          "line": "Run things on a timer or an event.",
+          "where": "Workflows: trigger nodes"
+        },
+        "tasks": {
+          "title": "Tasks",
+          "line": "A board agents can pick work from.",
+          "where": "Sidebar: Tasks"
+        },
+        "secrets": {
+          "title": "Secrets vault",
+          "line": "Keys and logins, kept per profile.",
+          "where": "Sidebar: Vault"
+        },
+        "api": {
+          "title": "API and MCP",
+          "line": "An OpenAI-compatible API and an MCP server for other tools.",
+          "where": "Settings: API"
+        },
+        "library": {
+          "title": "Library",
+          "line": "Install automations and templates from monoes.me.",
+          "where": "Workflows: Templates, Library"
+        }
+      }
+    },
+    "finishCard": {
+      "title": "Finish setting up",
+      "progress": "{{done}} of {{total}} done",
+      "dismiss": "Hide this card",
+      "skipped": "skipped",
+      "notDone": "not done",
+      "open": "Finish this",
+      "openStep": "Finish this: {{name}}"
+    },
+    "runAgain": {
+      "label": "First-run setup",
+      "hint": "Walk through the setup steps again. What is already done stays done.",
+      "action": "Run setup again"
     }
   }
 }

@@ -18,6 +18,7 @@ import Agents from './steps/Agents.jsx'
 import Browser from './steps/Browser.jsx'
 import Permissions from './steps/Permissions.jsx'
 import FirstRun from './steps/FirstRun.jsx'
+import Finish from './steps/Finish.jsx'
 import './onboarding.css'
 
 // One entry per step id; each step task replaces its own line.
@@ -31,7 +32,7 @@ export const STEP_COMPONENTS = {
   browser: Browser,
   permissions: Permissions,
   firstRun: FirstRun,
-  finish: Placeholder,
+  finish: Finish,
 }
 
 const NO_ENTER = new Set(['BUTTON', 'A', 'TEXTAREA', 'SELECT'])

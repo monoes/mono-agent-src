@@ -21,6 +21,7 @@ import AiTaskBudgetsSection from '../components/settings/AiTaskBudgetsSection.js
 import AgentPurposesSection from '../components/settings/AgentPurposesSection.jsx'
 import SandboxFallbackSection from '../components/settings/SandboxFallbackSection.jsx'
 import ProfileSection from '../components/settings/ProfileSection.jsx'
+import RunSetupAgainRow from '../components/settings/RunSetupAgainRow.jsx'
 import ApiKeysSection from '../components/settings/api/ApiKeysSection.jsx'
 import { ScopeGroup } from '../components/settings/ScopeGroup.jsx'
 
@@ -535,6 +536,7 @@ export default function Settings({ onNavigate, navData, isActive = true }) {
 
             {/* App version + update */}
             <VersionRow />
+            <RunSetupAgainRow />
           </div>
         </ScopeGroup>
 

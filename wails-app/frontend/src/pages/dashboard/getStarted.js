@@ -1,8 +1,6 @@
-// The dashboard's first-run checklist and the bridge row's state — display
-// only, from data the dashboard already reads: the account gate, `workflow
-// list`, `workflow executions`, `summary` and `extension status --json`.
-
-import { execStatus } from '../../lib/execStatus.js'
+// The bridge row's state (from `summary` and `extension status --json`) and
+// whether the dashboard's setup card was hidden (FinishSetupCard; the key is
+// the one the earlier Get started checklist used, so hiding it still holds).
 
 // bridgeState is what the "Browser bridge" row says: connected, waiting (for
 // a browser), unpaired (this client's pairing token is turned away) or off
@@ -17,28 +15,7 @@ export function bridgeState(summaryBridge, ext) {
   return summaryBridge ? summaryBridge.status || 'off' : 'off'
 }
 
-// getStartedSteps: sign in, run a first workflow (from a template) that
-// succeeds (okRuns: successful runs), connect
-// the browser extension, and — optional — keep the daemon running for
-// schedules. Each step: { id, done, optional }.
-export function getStartedSteps({ signedIn, okRuns, bridge, daemonRunning }) {
-  return [
-    { id: 'signIn', done: !!signedIn },
-    { id: 'firstRun', done: okRuns > 0 },
-    { id: 'extension', done: bridge === 'connected' },
-    { id: 'daemon', done: !!daemonRunning, optional: true },
-  ]
-}
-
-// okRunCount: how many of the recent executions succeeded — a failed or
-// partly failed run does not tick "Run your first workflow".
-export function okRunCount(executions) {
-  return (executions || []).filter(e => execStatus(e.status).key === 'success').length
-}
-
-export const getStartedComplete = (steps) => steps.every(s => s.done || s.optional)
-
-// Dismissing the checklist is remembered per window, like the scope toggle;
+// Hiding the setup card is remembered per window, like the scope toggle;
 // a blocked storage just shows it again.
 export const DISMISS_KEY = 'monoagent.dashboard.getStartedDismissed'
 

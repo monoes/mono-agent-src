@@ -246,26 +246,6 @@
       "switchTo": "Cambiar a {{name}}",
       "chipTitle": "Del perfil {{name}}",
       "line": "{{active}} activos · {{running}} en curso · {{failed}} fallidos (24 h) · {{waiting}} esperándote"
-    },
-    "getStarted": {
-      "title": "Primeros pasos",
-      "progress": "{{done}} de {{total}} hechos",
-      "dismiss": "Ocultar esta lista",
-      "optional": "opcional",
-      "done": "Hecho",
-      "signIn": "Inicia sesión en monoes.me",
-      "signInWhy": "MonoAgent necesita una cuenta de monoes.me antes de ejecutar nada.",
-      "signInAction": "Iniciar sesión",
-      "firstRun": "Ejecuta tu primer flujo de trabajo",
-      "firstRunWhy": "Empieza con una plantilla y pulsa Ejecutar.",
-      "firstRunAction": "Elegir una plantilla",
-      "extension": "Conecta la extensión del navegador",
-      "extensionWhy": "Las automatizaciones web se ejecutan en tu propio navegador a través de la extensión.",
-      "extensionWhyUnpaired": "El puente está en marcha pero aún no acepta esta app. Emparéjalo con el botón.",
-      "extensionAction": "Configurar",
-      "daemon": "Mantén los flujos en marcha en segundo plano",
-      "daemonWhy": "Las programaciones y los webhooks necesitan el servicio en segundo plano.",
-      "daemonAction": "Abrir configuración"
     }
   },
   "agentSetup": {
@@ -3320,7 +3300,89 @@
       "retry": "Reintentar"
     },
     "finish": {
-      "title": "Todo listo"
+      "title": "Todo listo",
+      "left_one": "Queda {{count}} paso para más tarde. Todo lo demás está listo.",
+      "left_other": "Quedan {{count}} pasos para más tarde. Todo lo demás está listo.",
+      "allDone": "Todos los pasos están hechos. Tu aldea está lista.",
+      "summary": "Resumen de la configuración",
+      "done": "hecho",
+      "skipped": "Omitido",
+      "notDone": "Sin hacer",
+      "finishThis": "Terminar esto",
+      "finishThisStep": "Terminar esto: {{name}}",
+      "catalogue": "Qué puedes hacer con MonoAgent",
+      "open": "Abrir MonoAgent",
+      "cat": {
+        "workflows": {
+          "title": "Flujos de trabajo",
+          "line": "Crea automatizaciones en un lienzo con más de 100 nodos y plantillas.",
+          "where": "Barra lateral: Flujos de trabajo"
+        },
+        "orgs": {
+          "title": "Organizaciones",
+          "line": "Dirige un equipo de agentes con funciones y objetivos.",
+          "where": "Barra lateral: Organización"
+        },
+        "chat": {
+          "title": "Chat y programador",
+          "line": "Habla con un agente o pídele que escriba código.",
+          "where": "Barra lateral: Agentes de IA; un chat nuevo desde la barra de estado"
+        },
+        "documents": {
+          "title": "Documentos",
+          "line": "Tu segundo cerebro: añade archivos y haz preguntas.",
+          "where": "Barra lateral: Documentos"
+        },
+        "people": {
+          "title": "Personas y comunicaciones",
+          "line": "Contactos, correo sincronizado y mensajes.",
+          "where": "Barra lateral: Personas, Comunicaciones"
+        },
+        "social": {
+          "title": "Automatizaciones sociales",
+          "line": "Instagram, LinkedIn, X, TikTok, Hacker News, Product Hunt.",
+          "where": "Flujos de trabajo: Plantillas"
+        },
+        "schedules": {
+          "title": "Horarios y disparadores",
+          "line": "Ejecuta cosas con un temporizador o ante un evento.",
+          "where": "Flujos de trabajo: nodos disparadores"
+        },
+        "tasks": {
+          "title": "Tareas",
+          "line": "Un tablero del que los agentes pueden tomar trabajo.",
+          "where": "Barra lateral: Tareas"
+        },
+        "secrets": {
+          "title": "Bóveda de secretos",
+          "line": "Claves e inicios de sesión, guardados por perfil.",
+          "where": "Barra lateral: Bóveda"
+        },
+        "api": {
+          "title": "API y MCP",
+          "line": "Una API compatible con OpenAI y un servidor MCP para otras herramientas.",
+          "where": "Ajustes: API"
+        },
+        "library": {
+          "title": "Biblioteca",
+          "line": "Instala automatizaciones y plantillas desde monoes.me.",
+          "where": "Flujos de trabajo: Plantillas, Biblioteca"
+        }
+      }
+    },
+    "finishCard": {
+      "title": "Termina la configuración",
+      "progress": "{{done}} de {{total}} hechos",
+      "dismiss": "Ocultar esta tarjeta",
+      "skipped": "omitido",
+      "notDone": "sin hacer",
+      "open": "Terminar esto",
+      "openStep": "Terminar esto: {{name}}"
+    },
+    "runAgain": {
+      "label": "Configuración inicial",
+      "hint": "Recorre de nuevo los pasos de configuración. Lo que ya está hecho sigue hecho.",
+      "action": "Volver a configurar"
     }
   }
 }

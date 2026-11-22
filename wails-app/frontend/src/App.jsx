@@ -44,6 +44,11 @@ import { isAgentNotSetup } from './lib/agentSetup.js'
 // exporting a shared constant for one other call site.
 const maxInlinePreviewBytes = 25 * 1024 * 1024
 
+// The pages navigate() can open: the keys of persistentPages below, in order
+// (the onboarding's catalogue links to them; App.initialNav.render.test.jsx
+// checks each one shows).
+export const PAGE_IDS = ['dashboard', 'noderunner', 'people', 'communications', 'publication', 'connections', 'vault', 'secretsVault', 'applications', 'documents', 'info', 'tasks', 'controlroom', 'ai', 'orgs', 'logs', 'settings']
+
 // banners: the account notices AccountApp hands the app to wear (components/account).
 // initialNav: { page, opts } the onboarding's last step asked for, or null;
 // applied once on mount (onboarding/OnboardingGate.jsx).
@@ -136,7 +141,8 @@ export default function App({ banners = null, initialNav = null }) {
   // System health section can finish it.
   useEffect(() => {
     const stop = startBackgroundHealth()
-    let opened = false
+    // A page the onboarding opened (initialNav) is not taken over by it.
+    let opened = !!initialNavRef.current?.page
     const off = subscribeHealth(h => {
       if (opened || (!h.report && !h.cliMissing)) return
       opened = true

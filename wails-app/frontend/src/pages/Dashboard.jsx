@@ -1,7 +1,7 @@
 // The at-a-glance home. Every number comes from the CLI — `summary`,
 // `org summary`, `workflow list` and `workflow executions --all` (see
 // dashboard/useDashboardData.js); this page only lays the cards out.
-import { useContext, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { RefreshCw, GitBranch } from 'lucide-react'
 import { api, reportRunFailure } from '../services/api.js'
@@ -20,30 +20,17 @@ import AutomationsCard from './dashboard/AutomationsCard.jsx'
 import AccountsCard from './dashboard/AccountsCard.jsx'
 import { loadScope, saveScope, currentProfileId } from './dashboard/scope.js'
 import ProfilesCard from './dashboard/ProfilesCard.jsx'
-import GetStartedCard from './dashboard/GetStartedCard.jsx'
-import { bridgeState, getStartedSteps, getStartedComplete, loadDismissed, okRunCount, saveDismissed } from './dashboard/getStarted.js'
-import { AccountContext } from '../lib/accountContext.js'
+import FinishSetupCard from './dashboard/FinishSetupCard.jsx'
+import { bridgeState } from './dashboard/getStarted.js'
 import NewProfileModal from '../components/NewProfileModal.jsx'
 import { switchToProfile } from './dashboard/profileSwitch.js'
-
-const noGate = { subscribe: () => () => {}, getSnapshot: () => null }
 
 export default function Dashboard({ isActive = true, onRefresh, onNavigate, onOpenHil }) {
   const { t } = useTranslation()
   const [scope, setScopeState] = useState(loadScope)
   const setScope = (s) => { saveScope(s); setScopeState(s) }
   const { summary, summaryFailed, noProfile, extension, orgs, workflows, executions, loading, refresh, setExecutions, reloadLists } = useDashboardData({ active: isActive, scope })
-  const gate = useContext(AccountContext) || noGate
-  const accountSnap = useSyncExternalStore(gate.subscribe, gate.getSnapshot)
   const bridge = bridgeState(summary?.services?.bridge, extension)
-  const [getStartedHidden, setGetStartedHidden] = useState(loadDismissed)
-  const steps = getStartedSteps({
-    signedIn: !!accountSnap?.status?.user,
-    okRuns: okRunCount(executions),
-    bridge,
-    daemonRunning: summary?.services?.daemon?.running,
-  })
-  const showGetStarted = scope === 'profile' && !loading && !getStartedHidden && !getStartedComplete(steps)
   const currentId = currentProfileId(summary)
   const [ver, setVer] = useState(null)
   const [newProfileOpen, setNewProfileOpen] = useState(false)
@@ -124,11 +111,7 @@ export default function Dashboard({ isActive = true, onRefresh, onNavigate, onOp
               onCreated={(p) => p?.id && switchToProfile(p.id)} />
           </div>
         ) : (<>
-        {showGetStarted && (
-          <GetStartedCard steps={steps} bridge={bridge} onNavigate={onNavigate}
-            onSignedIn={() => gate.check?.('manual')}
-            onDismiss={() => { saveDismissed(); setGetStartedHidden(true) }} />
-        )}
+        {scope === 'profile' && !loading && <FinishSetupCard isActive={isActive} />}
         <AttentionStrip items={items} loading={loading} failed={summaryFailed} unread={unreadSections(summary)}
           onNavigate={onNavigate} onOpenHil={onOpenHil} />
         <StatRow summary={summary} orgs={orgs} loading={loading} onNavigate={onNavigate} />
