@@ -694,3 +694,25 @@ func TestBossTurnTokenWorksOnlyInsideTheTurnsProcessTree(t *testing.T) {
 		t.Fatalf("a descendant of the turn's process was refused: %v", err)
 	}
 }
+
+// #1746: the text list of `coder sessions list` marked no boss (AGENTS.md says it does).
+func TestSessionsListTextMarksTheBoss(t *testing.T) {
+	r := newSteerRig(t, true)
+	r.cfg = testDeps(&testConfig{DBPath: r.dbPath, ProfileID: "default", JSONOutput: false})
+	if _, err := r.db.Exec(`INSERT INTO coder_sessions (profile_id, conversation_id, state, created_at, updated_at) VALUES ('default', ?, 'idle', 'x', 'x'), ('default', ?, 'idle', 'x', 'x')`, r.bossCon.ID, r.front.ID); err != nil {
+		t.Fatal(err)
+	}
+	out, code := runSessionsCLI(t, r.cfg, "list")
+	if code != 0 {
+		t.Fatalf("list: exit %d %s", code, out)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		isBoss := strings.HasPrefix(line, r.bossCon.ID)
+		if strings.Contains(line, "boss=true") != isBoss {
+			t.Errorf("line %q: boss marker wrong (boss conversation %s)", line, r.bossCon.ID)
+		}
+	}
+	if !strings.Contains(out, "boss=true") {
+		t.Fatalf("no boss marked: %s", out)
+	}
+}

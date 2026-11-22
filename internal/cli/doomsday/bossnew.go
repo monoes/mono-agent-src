@@ -144,7 +144,16 @@ func makeBoss(ctx context.Context, db *sql.DB, profile, front, goal string) (Bos
 	beforeBossCreate()
 	se, err := tasks.NewStore(db).CreateSession(ctx, profile, tasks.SessionInput{
 		Title: "Boss", Goal: goal + "\n\n" + goalOrigin + "\n\n" + steeringStatement, ConversationID: bc.ID, Kind: tasks.SessionKindMission, ClientID: tasks.BossClientID(front, next),
-		BeforeInsert: func(ctx context.Context, x tasks.Queryer) error { return ai.InsertConversation(ctx, x, bc) },
+		BeforeInsert: func(ctx context.Context, x tasks.Queryer) error {
+			if err := ai.InsertConversation(ctx, x, bc); err != nil {
+				return err
+			}
+			// The mission and spawn tools are added only to a dynamic org's turns, and the chat the boss copies is solo (#1746).
+			if _, err := x.ExecContext(ctx, `UPDATE ai_chat_conversations SET org_mode = ? WHERE id = ? AND profile_id = ?`, ai.OrgModeDynamic, bc.ID, profile); err != nil {
+				return fmt.Errorf("set the boss conversation's org mode: %w", err)
+			}
+			return nil
+		},
 	}, bossActor)
 	if err != nil {
 		return BossRef{}, err
