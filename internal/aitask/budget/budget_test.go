@@ -427,3 +427,21 @@ func TestDeletingAConversationFreesWhatItsTaskHeld(t *testing.T) {
 		t.Fatalf("after the first conversation was deleted the second task got %v, %v", got, err)
 	}
 }
+
+// A start that failed after Admit gives its whole reservation back, though the
+// task never ran and recorded no spend (R09-05).
+func TestReleaseUnspentFreesATaskThatNeverRan(t *testing.T) {
+	ctx := context.Background()
+	r := newRig(t, 0)
+	_ = r.l.SetCap(ScopeGlobal, "", 3, "operator")
+	failed := r.task("c1", "generic", 3)
+	if _, err := r.l.Admit(ctx, failed); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.l.ReleaseUnspent(ctx, failed.TaskID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.l.Admit(ctx, r.task("c2", "generic", 3)); err != nil {
+		t.Fatalf("a failed start kept its reservation: %v", err)
+	}
+}

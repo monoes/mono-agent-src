@@ -17,6 +17,7 @@ import (
 	"github.com/monoes/mono-agent/internal/aitask"
 	"github.com/monoes/mono-agent/internal/browserctl"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
+	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/storage"
 )
@@ -526,5 +527,73 @@ func TestSetAccessExpectRefusesAChangedLevelWithNoEffects(t *testing.T) {
 	}
 	if _, err := r.setAccess(t, nil, c.ID, "full", "--expect", "bogus"); exitCodeFor(err) != 3 {
 		t.Errorf("an unknown --expect: %v", err)
+	}
+}
+
+// A caller who asked for a lower level than it saw cannot, through a row that
+// moved after it read, raise the conversation without the operator (R09-06).
+func TestSetAccessWriteIsConditionalOnWhatWasRead(t *testing.T) {
+	r := newAccessRig(t, true)
+	c := r.conv(t, ai.AccessFull)
+	afterAccessRead = func() {
+		if _, err := r.store.SetConversationAccess(c.ID, "default", ai.AccessScoped, ""); err != nil {
+			t.Error(err)
+		}
+	}
+	t.Cleanup(func() { afterAccessRead = func() {} })
+	// An agent (not the operator) asks for workspace while the row reads full: a lowering as far as it can see.
+	_, err := r.setAccess(t, errNotOperator, c.ID, "workspace")
+	if err == nil {
+		t.Fatal("the write went through")
+	}
+	if got, _ := r.store.GetConversation(c.ID, "default"); got.Access != ai.AccessScoped {
+		t.Fatalf("a non-operator raised scoped to %q", got.Access)
+	}
+}
+
+// Lowering a lead takes the session token of its running turn and lowers the
+// children it spawned above the new level (R09-07).
+func TestLoweringRevokesTheSessionTokenAndLowersChildren(t *testing.T) {
+	r := newAccessRig(t, true)
+	lead := r.conv(t, ai.AccessWorkspace)
+	child := r.conv(t, ai.AccessWorkspace)
+	db, err := storage.NewDatabase(r.dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	hs := coderhost.NewStore(db.DB)
+	for _, id := range []string{lead.ID, child.ID} {
+		if _, err := hs.EnsureSession("default", id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := hs.SetRole("default", lead.ID, "master", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := hs.SetRole("default", child.ID, "child", lead.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := hs.IssueSessionToken("default", lead.ID, "turn-1"); err != nil {
+		t.Fatal(err)
+	}
+	tokens := func() int {
+		var n int
+		if err := db.DB.QueryRow(`SELECT COUNT(*) FROM coder_session_tokens WHERE conversation_id = ?`, lead.ID).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if tokens() != 1 {
+		t.Fatalf("fixture: %d tokens", tokens())
+	}
+	if out, err := r.setAccess(t, errNotOperator, lead.ID, "coding"); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if n := tokens(); n != 0 {
+		t.Errorf("the lowered lead's running turn kept %d session token(s)", n)
+	}
+	if got, _ := r.store.GetConversation(child.ID, "default"); got.Access != ai.AccessCoding {
+		t.Errorf("a child kept %q under a lead lowered to coding", got.Access)
 	}
 }

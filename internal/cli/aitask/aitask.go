@@ -5,6 +5,7 @@
 package aitask
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -98,6 +99,7 @@ func (c *cli) open() (*aitask.Service, func(), error) {
 		Redact:   aitask.RedactValues([]string{os.Getenv(aitask.EnvToken)}),
 	}
 	svc.Admit = ledger(svc).Admitter()
+	svc.Unadmit = func(ctx context.Context, id string) { _ = ledger(svc).ReleaseUnspent(ctx, id) }
 	return svc, func() { db.Close() }, nil
 }
 

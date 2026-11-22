@@ -59,10 +59,11 @@ func HashDir(root string) (string, error) {
 
 // CapsHash is a hash of what a task is allowed to be: its access level,
 // runtime, unattended flag, the kind's definition (prompt, schema, defaults)
-// and the launcher's policy fingerprint (the coder settings in force).
+// and the launcher's policy fingerprint (the coder settings in force). The budget
+// is left out: Admit lowers it to the cap that applies, and a retry must still match.
 func CapsHash(t Task, k Kind, policy string) string {
 	schema, _ := json.Marshal(k.Schema)
-	doc, _ := json.Marshal([]any{t.Kind, t.Access, t.Runtime, t.Unattended, t.BudgetUSD, FullAccess(t.Access), k.UnattendedOK,
+	doc, _ := json.Marshal([]any{t.Kind, t.Access, t.Runtime, t.Unattended, FullAccess(t.Access), k.UnattendedOK,
 		k.DefaultAccess, k.Ceiling(), k.PromptTemplate, string(schema), policy})
 	sum := sha256.Sum256(doc)
 	return hex.EncodeToString(sum[:])
