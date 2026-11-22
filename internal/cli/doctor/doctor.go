@@ -166,14 +166,13 @@ Exit code 1 means a required check failed.`,
 			wantProjects := projects || len(cfg.projects) > 0
 			opts := health.Options{Deep: deep, Groups: groups, SkipGroups: skipGroups, IDs: ids, OnDemand: wantProjects, Monomind: wantProjects}
 			out := cmd.OutOrStdout()
-			if err := validateSelection(reg, opts); err != nil {
-				return err
-			}
-
 			if fix {
 				if why := clicore.OperatorRefusal(cfg.Refusal); why != "" {
 					return clicore.OperatorOnly("doctor --fix installs, registers and starts things on this machine, which only the user decides: %s; run it yourself in your terminal or the app (doctor without --fix is open)", why)
 				}
+			}
+			if err := validateSelection(reg, opts); err != nil {
+				return err
 			}
 			rep := runHealth(ctx, cfg, reg, opts)
 			var outcomes []fixOutcome

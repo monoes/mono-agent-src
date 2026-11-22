@@ -26,7 +26,7 @@
       "type": "text"
     },
     {
-      "default": 60,
+      "default": 30,
       "help": "Clamped to 3600s max. A value of 0 or blank uses the default.",
       "key": "timeout",
       "label": "Timeout (seconds)",
