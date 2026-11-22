@@ -3,7 +3,7 @@ import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
-import HumanInLoop, { sortBySuggestion } from './HumanInLoop.jsx'
+import HumanInLoop, { sortBySuggestion, SuggestionChip } from './HumanInLoop.jsx'
 import * as WailsApp from '../wailsjs/go/main/App'
 import { api } from '../services/api.js'
 
@@ -169,6 +169,21 @@ describe('HumanInLoop unified approvals', () => {
     const pos = names.map(n => screen.getByText(n).compareDocumentPosition.bind(screen.getByText(n)))
     expect(pos[0](screen.getByText('Unsure step')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(pos[1](screen.getByText('Plain step')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('SuggestionChip names who answered in its tooltip, never TypeSafe for another provider', () => {
+    const model = 'openrouter/meta-llama/llama-3.3-70b-instruct:free'
+    render(<>
+      <SuggestionChip choice="approve" p={0.9} detail="risk low" model={model} />
+      <SuggestionChip choice="reject" p={0.8} model="jev-1.13" />
+      <SuggestionChip choice="needs_human" />
+    </>)
+    const [other, ts, none] = screen.getAllByTestId('jev-suggestion')
+    expect(other).toHaveAttribute('title', `Jev (${model}) suggests: approve (90% confident) · risk low. A suggestion only; you decide.`)
+    // The visible chip stays short: the model is in the tooltip only.
+    expect(other).toHaveTextContent(/^Suggested: approve 90% · risk low$/)
+    expect(ts).toHaveAttribute('title', 'TypeSafe Jev (jev-1.13) suggests: reject (80% confident). A suggestion only; you decide.')
+    expect(none.getAttribute('title')).toMatch(/^Jev suggests: needs human\./)
   })
 
   it('sortBySuggestion keeps unsuggested items in their order', () => {

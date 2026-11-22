@@ -59,8 +59,10 @@ function JevThreshold({ value, disabled, onSave }) {
 }
 
 // JevProviderSelect picks the decision provider the jev decider asks:
-// "Default (<machine default>)" or a saved provider. Shown once a provider
-// besides the built-in one exists, or when the org already names one.
+// "Default" or a saved provider. Shown once a provider besides the built-in
+// one exists, or when the org already names one. "Default" names no provider:
+// it resolves through the profile's decider choice before the machine default,
+// and neither `org autonomy show` nor `jev provider list` reports the former.
 function JevProviderSelect({ providers, value, disabled, onChange }) {
   const { t } = useTranslation()
   const list = providers?.providers || []
@@ -78,7 +80,7 @@ function JevProviderSelect({ providers, value, disabled, onChange }) {
         onChange={e => onChange(e.target.value)}
         style={{ fontSize: 10, padding: '2px 22px 2px 6px' }}
       >
-        <option value="">{t('orgs.autonomy.jevProviderDefault', { name: providers?.default || 'typesafe' })}</option>
+        <option value="">{t('orgs.autonomy.jevProviderDefault')}</option>
         {names.map(n => <option key={n} value={n}>{n}</option>)}
       </select>
     </label>

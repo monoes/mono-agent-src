@@ -20,6 +20,15 @@ export const PRESETS = [
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,31}$/
 
+// parsePrice reads an optional price field: '' is 0 (no price), anything
+// else must be a finite number of 0 or more (null = invalid).
+export function parsePrice(raw) {
+  const s = String(raw ?? '').trim()
+  if (s === '') return 0
+  const v = Number(s)
+  return Number.isFinite(v) && v >= 0 ? v : null
+}
+
 function Field({ id, text, children }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '1 1 200px', minWidth: 0 }}>
@@ -38,6 +47,11 @@ export default function JevAddProviderForm({ kinds, busy, run, reload, onClose }
   const [base, setBase] = useState(preset.base)
   const [model, setModel] = useState('')
   const [key, setKey] = useState('')
+  // A price is {v, bad}: a number field holding text reports value '' with
+  // validity.badInput, which must be refused, not sent as 0.
+  const [priceIn, setPriceIn] = useState({ v: '', bad: false })
+  const [priceOut, setPriceOut] = useState({ v: '', bad: false })
+  const priceChange = (set) => (e) => set({ v: e.target.value, bad: !!e.target.validity?.badInput })
   const [err, setErr] = useState('')
   const [result, setResult] = useState(null)
 
@@ -54,7 +68,10 @@ export default function JevAddProviderForm({ kinds, busy, run, reload, onClose }
     setPresetId(id)
   }
   const modelPlaceholder = preset.local ? t('settings.jev.providers.modelLocalPlaceholder') : ''
-  const valid = NAME_RE.test(name) && !!kind && !!base.trim() && (!preset.needsKey || !!key.trim())
+  const usdIn = priceIn.bad ? null : parsePrice(priceIn.v)
+  const usdOut = priceOut.bad ? null : parsePrice(priceOut.v)
+  const valid = NAME_RE.test(name) && !!kind && !!base.trim() && (!preset.needsKey || !!key.trim()) &&
+    usdIn != null && usdOut != null
 
   const submit = (e) => {
     e.preventDefault()
@@ -63,11 +80,11 @@ export default function JevAddProviderForm({ kinds, busy, run, reload, onClose }
     run('provider:add', async () => {
       const p = await JevAddProvider({
         name, kind, base_url: base.trim(), model: model.trim(), api_key: key,
-        usd_per_mtok_in: 0, usd_per_mtok_out: 0, no_probe: false,
+        usd_per_mtok_in: usdIn, usd_per_mtok_out: usdOut, no_probe: false,
       })
       setKey('')
       setResult(p || { name })
-      setName(''); setModel('')
+      setName(''); setModel(''); setPriceIn({ v: '', bad: false }); setPriceOut({ v: '', bad: false })
       await reload()
     }, setErr)
   }
@@ -119,6 +136,22 @@ export default function JevAddProviderForm({ kinds, busy, run, reload, onClose }
           placeholder={preset.local ? t('settings.jev.providers.keyLocalPlaceholder') : t('settings.jev.providers.keyPlaceholder')}
           onChange={e => setKey(e.target.value)} style={input} />
       </Field>
+      <details data-testid="jev-add-pricing">
+        <summary style={{ ...label, cursor: 'pointer' }}>{t('settings.jev.providers.pricing')}</summary>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingTop: 8 }}>
+          <span id={id('price-hint')} style={hint}>{t('settings.jev.providers.pricingHint')}</span>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            {[['price-in', 'priceIn', priceIn, setPriceIn, usdIn], ['price-out', 'priceOut', priceOut, setPriceOut, usdOut]].map(([f, k, v, set, parsed]) => (
+              <Field key={f} id={id(f)} text={t(`settings.jev.providers.${k}`)}>
+                <input id={id(f)} type="number" min={0} step="any" inputMode="decimal" value={v.v} disabled={busy}
+                  aria-describedby={parsed == null ? `${id('price-hint')} ${id(f)}-err` : id('price-hint')}
+                  aria-invalid={parsed == null} onChange={priceChange(set)} style={input} />
+                {parsed == null && <span id={`${id(f)}-err`} style={errText}>{t('settings.jev.providers.priceInvalid')}</span>}
+              </Field>
+            ))}
+          </div>
+        </div>
+      </details>
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
         <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={onClose}>{t('settings.jev.providers.cancel')}</button>
         <button type="submit" className="btn btn-primary btn-sm" disabled={busy || !valid}>

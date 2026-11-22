@@ -117,7 +117,11 @@ function DecisionRow({ d }) {
           <span style={mutedText} title={d.created_at}>{at ? new Date(at).toLocaleTimeString() : ''}</span>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', ...mutedText }}>
-          <span>by <b style={{ color: 'var(--text-secondary)' }}>{resolverLabel(d.resolver)}</b></span>
+          {/* A provider's resolver (jev:<provider>/<model>) can be long and has
+              no break point: it truncates, the full label in the tooltip. */}
+          <span data-testid="decision-resolver" title={resolverLabel(d.resolver)} style={{ display: 'inline-flex', gap: 4, minWidth: 0, maxWidth: '100%' }}>
+            by <b style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 280 }}>{resolverLabel(d.resolver)}</b>
+          </span>
           {d.level && <span>at {d.level}</span>}
           {cost && <span>{cost}</span>}
           {d.latency_ms != null && <span>{formatDuration(d.latency_ms) || `${d.latency_ms} ms`}</span>}
@@ -125,7 +129,7 @@ function DecisionRow({ d }) {
           <JevChip d={d} open={jevOpen} onToggle={() => setJevOpen(v => !v)} />
         </div>
         {jevOpen && d.jev && <JevDistribution d={d} />}
-        {d.rationale && <div style={{ ...mono, fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>{d.rationale}</div>}
+        {d.rationale && <div style={{ ...mono, fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{d.rationale}</div>}
         {d.answer_text && <div style={{ ...mono, fontSize: 11, color: 'var(--text)', whiteSpace: 'pre-wrap' }}>Answer: {d.answer_text}</div>}
       </div>
     </Card>

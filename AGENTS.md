@@ -99,8 +99,10 @@ read-only, never installs packages; with none installed it points at
 `library install`), `services` (daemon, start at login; the daemon row warns when
 the running daemon's version differs from the binary's, manual fix
 `services.daemon.restart`: `daemon restart`) and `integrations`
-(Claude Code skills, MCP registration, TypeSafe Jev key; `jev.api` runs
-on demand with `--deep`), `accounts` (third-party platform login expiry, not the monoes.me sign-in;
+(Claude Code skills, MCP registration, TypeSafe Jev key as `jev.key`,
+skipped when another decision provider is the default and no TypeSafe key
+is set; `jev.api` checks the default decision provider, on demand with
+`--deep`), `accounts` (third-party platform login expiry, not the monoes.me sign-in;
 with `--deep` also live tests of saved connections — a failing OAuth
 connection with a refresh token gets a silent refresh fix when the service refused its credentials (401/403) or the token
 has expired, and a refresh that asks first for other failures). With a monomind that has `doctor-json`, the `monomind` group also lists
@@ -978,10 +980,12 @@ existing MCP client config that relies on them.
   off for the call's profile, as `jev enable|disable api_auto` does, and
   answers that command's `--json` document plus `auto`, what `api_status` says of
   the auto model after the change (`available`, or what it is `missing`: the
-  surface, a Jev key). Switching on needs two things, because the
+  surface, a Jev key, or a usable decision provider and its key when the
+  surface's provider is not TypeSafe). Switching on needs two things, because the
   first 4,000 characters of the last user message of a request for `auto` (of an
   image request, its prompt) and the names, descriptions and validated cost and
-  latency of the models the API serves then go to TypeSafe: the operator must have
+  latency of the models the API serves then go to the surface's decision
+  provider (TypeSafe by default): the operator must have
   started the MCP server with `--allow-api-exposure` (what leaves the machine is
   the operator's decision, made when the server starts, and no argument can make
   it: the owner's decision of 2026-10-05, after the security review of phase 6
@@ -992,7 +996,7 @@ existing MCP client config that relies on them.
   that list and nothing changes, and the result of switching on carries it
   as `egress`. Switching off needs neither. It never creates, stores, uses or shows the Jev key (it only asks
   where one is: `TYPESAFE_API_KEY`, or the vault entry the user stored with `jev
-  key set`, whose value it does not decrypt), so with no key the surface is on
+  key set`, or another provider's vault entry, whose value it does not decrypt), so with no key the surface is on
   and `auto` stays unavailable, which `auto` says.
 - **`--api-only`** (or `MONOAGENT_MCP_API_ONLY=1`) serves the OpenAI-compatible
   API's tools (the ten `api_*` tools, `apiToolNames`) and no other: no workflow,
@@ -1187,8 +1191,11 @@ a key. It lives in `internal/openaiapi/`; the spec is
   pick, per request, among the models the listener serves (a `--context` key:
   among those its own cap allows). It is the `api_auto` Jev surface: off until
   `monoagentcli --profile <id> jev enable api_auto` on the key's profile, which also needs
-  the machine-wide Jev key (`jev key set`, or `TYPESAFE_API_KEY` in the server's
-  environment, which the gateway blanks in its agent turns). Without them
+  a decision provider for that surface that can be used: for TypeSafe (the
+  default) the machine-wide Jev key (`jev key set`, or `TYPESAFE_API_KEY` in the server's
+  environment, which the gateway blanks in its agent turns); for another
+  provider its own vault key, or none for a keyless one (a server on this
+  computer). Without them
   `auto` is not listed and answers 404 `model_not_found` naming what is
   missing (`api models` and `api status` say it too, and that a key from the
   environment is that shell's). It is listed after the concrete models, so a
@@ -1363,8 +1370,9 @@ a key. It lives in `internal/openaiapi/`; the spec is
   at its default `chat-only` there are none and it answers 404 `model_not_found`
   saying what to raise (`--auto-confinement`, or the confinement flags when the
   key could not use an image model at all); raised to `sandboxed` at least, it
-  picks among them (`X-Monoagent-Auto` as for chat), and sends TypeSafe the first
-  4,000 characters of the image prompt. The `auto` model object lists `image` among its
+  picks among them (`X-Monoagent-Auto` as for chat), and sends the `api_auto`
+  surface's decision provider (TypeSafe by default) the first 4,000
+  characters of the image prompt. The `auto` model object lists `image` among its
   capabilities only when it has image candidates.
 - **Tool calling.** `tools`, `tool_choice`, `tool_calls` and `tool` messages
   work on `POST /v1/chat/completions`, streaming and not, so a client that runs
@@ -1756,7 +1764,7 @@ a key. It lives in `internal/openaiapi/`; the spec is
   (with one model the rule uses it and Jev is not asked) and how many served
   models `--auto-confinement` holds back, or what it is missing, with a link to
   the Jev settings when that is where it is switched on (the `api_auto` surface,
-  a Jev key). A key is renamed in the keys table (`api key update --name`: the
+  a Jev key or the surface's decision provider). A key is renamed in the keys table (`api key update --name`: the
   name and nothing else, never the context switch; Enter saves, Escape
   cancels).
   The folded "Server settings" block below the status (`wails-app/app_api_config.go`
@@ -3881,9 +3889,14 @@ root role through `decision_list`/`decision_resolve` tools), `parent`
 its top probability reaches `--decider-threshold`, default 0.8; questions,
 lower answers and Jev failures go to the model decider, so runtime/model
 still matter). `--decider-provider <name>` names its decision provider
-(default: the profile's choice for the `decider` surface, else the machine
-default, else TypeSafe; `--decider-provider ""` clears it, and the flag is
-refused with any other decider); a decision answered by another provider shows the resolver
+(default: the machine default, `jev provider use <name>`, else TypeSafe; a
+provider that does not answer `choice` questions is refused;
+`--decider-provider ""` clears it, and a name is refused with any other
+decider). It is stored in the org's autonomy row only: an org file's
+`autonomy.decider.provider` is validated but never applied. There is no
+per-org Jev model: Jev asks the provider record's model (for TypeSafe, the
+configured Jev model), and `--decider-model` is the fallback model
+decider's. A decision answered by another provider shows the resolver
 `jev:<provider>/<model>`. Decision rows asked of Jev carry `confidence`,
 `probabilities` and a derived `jev: {decided, verdict, p, threshold}`. A decider never resolves its own request, and
 items it cannot take go to the `model` fallback. Orgs that predate
@@ -4501,11 +4514,18 @@ request); the operator may add others. The names stay `jev` whatever the
 provider: the CLI group, `jev_usage`, the `jev.…` settings, `browser.jev`, the
 resolver prefix `jev:`.
 
-- **Provider kinds.** `typesafe` (built in, the default), `openai` (any
+- **Provider kinds.** `typesafe` (built in, the default); `openai` (any
   OpenAI-compatible chat-completions server: OpenAI, Ollama `/v1`,
-  llama.cpp, vLLM, OpenRouter, Together, Fireworks, LM Studio, Groq),
-  `anthropic`, and `hf-zeroshot` (a Hugging Face zero-shot classifier:
-  `choice` and `noul` only; a `score` question fails as unsupported). With no
+  llama.cpp, vLLM, OpenRouter, Together, Fireworks, LM Studio, Groq): one
+  request per question asking for one token, its probabilities read from
+  that token's log-probabilities, or from 5 answers at temperature 1 when the
+  server returns none; a choice with more options than one request carries
+  is answered in two steps (which group, then which option); `anthropic`
+  (the Messages API): each question asked 5 times at temperature 1 as a
+  forced call of a tool whose only input is an enum of the question's
+  labels; `hf-zeroshot` (a Hugging Face zero-shot classifier; its
+  `base_url` is the model's full endpoint URL): `choice` with up to 50
+  options and `noul` only, a `score` question fails as unsupported. With no
   provider configured every surface uses TypeSafe and behaves as before.
 - **Doctrine exception.** Text generation goes to local agent runtimes
   through monomind (see "How AI works in mono-agent"); the only other AI
@@ -4514,59 +4534,79 @@ resolver prefix `jev:`.
   admitted only as non-generative: it may pick among options the code
   enumerates, never write field values, rationales or answers. An adapter
   may only return an option the question lists (`Client.Ask` validates every
-  answer, for every provider); an adapter for a chat model requests one token
-  (`max_tokens: 1`) and discards anything that is not an allowed label; no
-  provider's text ever reaches a caller. Gates compare the top option's
+  answer, for every provider); the `openai` adapter requests one token
+  (`max_tokens: 1`) and the `anthropic` one an enum-only tool input, and
+  both discard anything that is not an allowed label; no provider's text
+  ever reaches a caller. Gates compare the top option's
   probability with a per-surface threshold; below it the surface does exactly
   what it did without Jev.
 - **Which provider answers.** The first that applies: the call's own
-  (`provider` in a node's config, the org decider's `--decider-provider`) →
+  (`provider` in a node's config, `jev@<provider>` in `applications.evaluate`'s
+  `runtime`, the org decider's `--decider-provider`, `jev ask --provider`) →
   the profile's choice for that surface (`jev provider use <name> --surface
-  S`, `jev enable S --provider <name>`) → the machine default (`jev provider
-  use <name>`) → `typesafe`. A choice that cannot be read, or that names a
+  S`, `jev enable S --provider <name>`; only the `jev enable` surfaces) →
+  the machine default (`jev provider use <name>`) → `typesafe`. A choice that cannot be read, or that names a
   provider that does not exist, fails the call; it never falls back to
   another host.
 - **Probabilities.** Every call records how its probabilities were obtained
   (`probability_kind` in `jev_usage`; `jev status` and `jev usage` show it):
-  `native` (TypeSafe), `logprob` (a chat model's token log-probabilities over
-  the allowed labels), `sampled` (the share of k repeated answers, for a
-  provider or model that returns no log-probabilities, such as Anthropic), or
+  `native` (TypeSafe, and a zero-shot classifier's own scores), `logprob` (a
+  chat model's token log-probabilities over the allowed labels), `sampled`
+  (the share of 5 repeated answers, for a provider or model that returns no
+  log-probabilities, such as Anthropic), or
   `none` (gated as 0, so it never passes a threshold above 0). Confidence and
   score values are computed in Go with Jev's formulas for every provider.
   **`logprob` and `sampled` numbers are not calibrated like Jev's**: chat
   models are overconfident and position-biased, and a threshold tuned on one
   model is a different bar on another. Set a surface's threshold again
   (`jev enable S --threshold`) after you change its provider.
-- **Cost shape.** TypeSafe answers many questions in one request; a
-  chat-model provider makes one request per question. `browser.jev` is the
+- **Cost shape.** TypeSafe answers many questions in one request; an
+  `openai` provider makes one request per question (two or more for a large
+  choice, five times as many when it samples) and
+  an `anthropic` one 5 per question. `browser.jev` is the
   heavy case (several questions per step). `jev usage` shows calls, tokens
   and estimated USD by surface and provider; `--usd-per-mtok-in` /
   `--usd-per-mtok-out` on `jev provider add` price a provider that reports no
   cost.
 - **Nodes and the decider.** `ai.choose`, `ai.decide`, `browser.jev` and the HIL node's
   `auto_decide` take an optional `provider` config field (default: the
-  resolution above). `applications.evaluate` takes `runtime: "jev@<provider>"`
+  resolution above). With a provider other than TypeSafe a node's `api_key`
+  is ignored (never sent: it goes only to TypeSafe), and its `model` is
+  passed on, except the Jev default, which leaves the provider record's
+  model. `applications.evaluate` takes `runtime: "jev@<provider>"`
   or `"jev@<provider>:<model>"` (`"jev"` / `"jev:<model>"` keep working).
-  `ai.decide` asks one typed question per item (`kind`; `levels` for a
-  score, 2 to 10, lowest first): `kind: noul` routes to
-  `yes` / `no` / `low_confidence`, `kind: score` to `level_<i>` /
-  `low_confidence`, `kind: choice` to the option ids / `low_confidence`;
-  below `min_confidence` (default 0.6) an item goes to `low_confidence`. It
-  is a read-only node, but it sends its input to the active provider. The org
-  decider: `org autonomy set --decider jev --decider-provider <name>`; its
-  rows' resolver reads `jev:<provider>/<model>` for a provider other than
-  TypeSafe (TypeSafe rows keep `jev:<model>`). The provider is stored in the
-  org's autonomy row only: an org file's `autonomy.decider.provider` is
-  validated but never applied.
-- **`jev key test` and `jev models`** always mean TypeSafe;
-  `jev models --provider <name>` lists another provider's models (exit 3
-  with "cannot list its models" for one that cannot).
+  `ai.decide` asks one typed question per item. Config: `kind` (`noul`,
+  `score` or `choice`), `question` (required), `input` and `fields` (what
+  of the item is sent), `criteria_true` / `criteria_false` (noul),
+  `levels` (score: 2 to 10, lowest first), `options` (choice: 2 to 255, `{id:
+  description}` or a list), `min_confidence` (default 0.6), `provider`,
+  `model`; no `api_key`. Handles: noul `yes` / `no`, score `level_<i>`,
+  choice the option ids, and `low_confidence` for an answer below
+  `min_confidence`. Each item gets `decision: {kind, provider, model,
+  probability_kind, answer, probabilities, confidence (choice, score), score
+  (score), handle, probability, low_confidence}`. It is a read-only node, but
+  it sends its input to the active provider. The org decider: `org autonomy
+  set --decider jev --decider-provider <name>` (see "Orgs, automations, and
+  autonomy").
+- **Stored labels.** What a provider other than TypeSafe answered is
+  labelled `jev:<provider>/<model>` (an org decision's resolver,
+  `person_links.source`, a HIL item's `decided_by`), `<provider>/<model>` (the
+  `model` of a stored suggestion) and `jev@<provider>:<model>`
+  (`application_evaluations.runtime`). TypeSafe's keep `jev:<model>`,
+  `<model>` and `jev:<model>`.
+- **`jev key test`, and `jev models` without `--provider`,** always mean
+  TypeSafe, whichever provider is the default; `jev models --provider
+  <name>` lists another provider's models (exit 3 with "cannot list its
+  models" for one that cannot).
 - **Opt-in per surface, per profile.** Every implicit surface
   (`action_fallback`, `hil`, `people_review`, `capture`, `inbox`,
   `people_links`, `asks`, `retry`, `api_auto`) is off until enabled. `enable` prints what
   that surface sends and to which host, and asks (or needs `--yes` when stdin
-  is not a terminal). Making a provider that is not on this machine the
-  default asks again for every enabled surface (`--yes` likewise). Workflow
+  is not a terminal; `enable --json` prints the same document as before, the
+  provider and host go to stderr). Making a provider that is not on this
+  machine the default asks again for every enabled surface that follows the
+  default, in every profile, and choosing one for an enabled surface asks
+  for that surface (`--yes` likewise). Workflow
   nodes that use Jev (`ai.choose`, `ai.decide`, `browser.jev`) opt in by
   being used; the org decider opts in through its own autonomy config.
 - **Deliberate exceptions to "off means unchanged"** (bug fixes that ship
@@ -4581,7 +4621,9 @@ resolver prefix `jev:`.
   key still held in a profile's vault works as a fallback; `jev key adopt`
   copies it to the machine vault), else `TYPESAFE_API_KEY`
   (`TYPESAFE_DEFAULT_MODEL` overrides the model). `doctor` reports it as
-  `jev.key`.
+  `jev.key`, skipped when another provider is the default and no TypeSafe
+  key is set; `jev.api` (`--deep`) checks the default provider, whichever it
+  is.
 - **Providers are the operator's.** Only the operator's own terminal may add,
   remove or choose a provider (`jev provider add|remove|use`, `jev enable
   --provider`); an agent, the chat, a
@@ -4593,16 +4635,18 @@ resolver prefix `jev:`.
   refused), with no credentials, query or fragment. The record is checked
   when it is saved and again whenever its client is built (the settings
   table is plaintext). `remove` is refused while the provider is the machine
-  default or any surface's choice: choose another there first. It deletes
-  the provider's `decision-<name>` vault entry too, unless another provider
-  uses it.
+  default, any profile's choice for a surface, or an org's jev decider
+  provider: choose another there first. It deletes the provider's
+  `decision-<name>` vault entry too, unless another provider uses it; an
+  entry named with `--secret-name` is kept.
 - **A provider's key goes only to its own host.** It is read only from the
   machine-vault entry its record names (`secret_name`: `decision-<name>`
   when `add --key-stdin` stores it, or an existing entry named with
   `--secret-name`; empty = keyless, a local server), never from a profile's
   vault, the environment or a step. A
-  step's own `api_key` with a provider other than TypeSafe is refused (`a
-  step's api_key goes only to TypeSafe`). `secret_name` may not name the
+  node's own `api_key` is ignored with a provider other than TypeSafe, and
+  `jevconf` refuses an explicit key for one (`a step's api_key goes only to
+  TypeSafe`). `secret_name` may not name the
   TypeSafe key, and one vault entry cannot be the key of providers on two
   different hosts. The read is gated like the TypeSafe key's (below). A
   missing key is `jev.ErrNoAPIKey` for every provider, so a surface that
@@ -4643,12 +4687,13 @@ printf '%s' "$KEY" | monoagentcli jev provider add router --kind openai --base-u
   --model <model> --key-stdin [--usd-per-mtok-in X --usd-per-mtok-out Y]   # key in vault entry decision-router (or --secret-name N)
 monoagentcli --profile work --json jev provider list        # default, each provider's kind, host, model, key_set, caps
 monoagentcli --profile work jev provider probe local        # kinds it answers, probability kind, latency
-monoagentcli jev provider use local [--yes]                 # machine default; prints each enabled surface's egress; `use typesafe` restores
-monoagentcli --profile work jev provider use router --surface hil   # one surface of this profile (`jev enable` surfaces only)
+monoagentcli jev provider use local [--yes]                 # machine default; for a host not on this machine, prints each enabled surface's egress first; `use typesafe` restores
+monoagentcli --profile work jev provider use router --surface hil [--yes]   # one surface of this profile (`jev enable` surfaces only; --profile is required)
+monoagentcli --profile work jev provider use --surface hil --clear [--yes]   # the surface follows the machine default again
 monoagentcli --profile work jev enable inbox --provider local       # same, then enables it (egress names the host)
-monoagentcli --profile work jev ask --provider local --request req.json
-monoagentcli --profile work jev models --provider local
-monoagentcli jev provider remove local                      # refused while a default or a surface's choice
+monoagentcli --profile work jev ask --provider local --request req.json   # without --provider: the machine default
+monoagentcli --profile work jev models --provider local     # without --provider: TypeSafe's, as `jev key test`
+monoagentcli jev provider remove local                      # refused while it is a default, a surface's or an org decider's choice
 ```
 
 Every call is recorded in `jev_usage` (counts only, no content; with the

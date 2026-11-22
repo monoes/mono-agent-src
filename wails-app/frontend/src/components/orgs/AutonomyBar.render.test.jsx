@@ -236,7 +236,7 @@ describe('AutonomyBar', () => {
     await renderBar()
     const sel = await screen.findByLabelText('Provider')
     expect(sel).toHaveValue('')
-    expect(within(sel).getAllByRole('option').map(o => o.textContent)).toEqual(['Default (typesafe)', 'typesafe', 'local'])
+    expect(within(sel).getAllByRole('option').map(o => o.textContent)).toEqual(['Default', 'typesafe', 'local'])
     fireEvent.change(sel, { target: { value: 'local' } })
     await waitFor(() => expect(api.setOrgAutonomy).toHaveBeenCalledWith('growth', { decider: { kind: 'jev', provider: 'local' } }))
     cleanup()
@@ -249,5 +249,22 @@ describe('AutonomyBar', () => {
     expect(screen.getByTestId('jev-decider-note')).not.toHaveTextContent('Needs a TypeSafe key')
     fireEvent.change(sel2, { target: { value: '' } })
     await waitFor(() => expect(api.setOrgAutonomy).toHaveBeenCalledWith('growth', { decider: { kind: 'jev', provider: '' } }))
+  })
+
+  // An unset decider provider resolves through the profile's decider choice
+  // before the machine default, and neither JSON reports that choice: the
+  // option must not name the machine default as if it were the answer.
+  it('labels the unset provider "Default" without naming the machine default', async () => {
+    api.jevProviders.mockResolvedValue({ default: 'local', kinds: ['openai'], providers: [
+      { name: 'typesafe', kind: 'typesafe', builtin: true }, { name: 'local', kind: 'openai', builtin: false },
+    ] })
+    api.getOrgAutonomy.mockResolvedValue({ ...AUTONOMY, decider: { ...AUTONOMY.decider, kind: 'jev', provider: '' } })
+    await renderBar()
+    const sel = await screen.findByLabelText('Provider')
+    const first = within(sel).getAllByRole('option')[0]
+    expect(first).toHaveValue('')
+    expect(first).toHaveTextContent(/^Default$/)
+    expect(within(sel).queryByText('Default (local)')).not.toBeInTheDocument()
+    expect(sel.closest('label')).toHaveAttribute('title', expect.stringContaining('else the machine default'))
   })
 })

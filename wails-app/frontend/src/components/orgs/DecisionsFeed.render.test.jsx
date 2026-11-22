@@ -67,6 +67,23 @@ describe('DecisionsFeed', () => {
     expect(within(modelRow).queryByTestId('jev-chip')).not.toBeInTheDocument()
   })
 
+  it('truncates a long <provider>/<model> resolver with the full label as its tooltip', async () => {
+    const long = 'jev:openrouter/meta-llama/llama-3.3-70b-instruct:free-with-a-very-long-suffix'
+    api.listOrgDecisionLog.mockResolvedValue({ v: 1, org: 'growth', decisions: [{
+      ...DECISIONS[0], resolver: long, rationale: `jev ${long.slice(4)}: approve p=0.93 (approve 0.93, deny 0.07)`,
+      jev: { decided: true, verdict: 'approve', p: 0.93, threshold: null, provider: 'openrouter' },
+    }] })
+    render(<DecisionsFeed orgName="growth" />)
+    const [row] = await screen.findAllByTestId('decision-row')
+    const who = within(row).getByTestId('decision-resolver')
+    expect(who).toHaveAttribute('title', long)
+    const b = who.querySelector('b')
+    expect(b).toHaveTextContent(long)
+    expect(b).toHaveStyle({ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })
+    expect(within(row).getByTestId('jev-chip')).toHaveTextContent('Jev · openrouter p=0.93')
+    expect(within(row).getByText(/^jev openrouter\//)).toHaveStyle({ overflowWrap: 'anywhere' })
+  })
+
   it('expands the per-verdict distribution', async () => {
     render(<DecisionsFeed orgName="growth" />)
     const [jevRow] = await screen.findAllByTestId('decision-row')

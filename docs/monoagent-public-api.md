@@ -83,8 +83,9 @@ tokens for the same call, so use Claude for plain chat.
 ### Not available
 
 `codex`, `copilot` and the other runtimes are not installed on the node.
-`model: "auto"` (Jev picks the model) is off: it needs a Jev key and
-`jev enable api_auto` on the `api` profile.
+`model: "auto"` (Jev picks the model) is off: it needs `jev enable api_auto`
+on the `api` profile and a decision provider for that surface that can be
+used (for TypeSafe, the default, a Jev key).
 
 ## Chat
 
