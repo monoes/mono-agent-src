@@ -3122,5 +3122,43 @@
       "noAnswer": "el proveedor de decisión {{name}} no respondió ({{cause}}).",
       "remoteFromAIRun": "el proveedor {{name}} está en {{url}}, otro servidor, y un proveedor de decisión en otro servidor no se usa en una ejecución que una IA inició o escribió ({{why}}). Indica un proveedor en este ordenador o typesafe, o ejecuta el flujo tú mismo."
     }
+  },
+  "vaultItem": {
+    "editLogin": "Editar inicio de sesión",
+    "editItem": "Editar elemento",
+    "name": "Nombre",
+    "username": "Usuario",
+    "url": "URL",
+    "notes": "Notas",
+    "loading": "Cargando campos…",
+    "cancel": "Cancelar",
+    "save": "Guardar",
+    "loadFailed": "No se pudo cargar el elemento: {{error}}",
+    "fieldRequired": "Se requiere al menos un campo.",
+    "saveFailed": "Error al guardar: {{error}}"
+  },
+  "vaultAccess": {
+    "confirmReveal": "¿Permitir que todos los agentes recuperen contraseñas en texto plano de la bóveda de este perfil?",
+    "confirmUse": "¿Permitir que todos los agentes usen las contraseñas de la bóveda de este perfil mediante herramientas y flujos compatibles?",
+    "confirmTitle": "Cambiar el acceso de los agentes a la bóveda",
+    "confirmAllow": "Permitir acceso"
+  },
+  "monomindInit": {
+    "title": "Este perfil aún no está configurado con monomind",
+    "titleRunning": "Configurando monomind…",
+    "desc": "Las organizaciones y los agentes necesitan que monomind esté inicializado primero en la carpeta de este perfil. La configuración también envía un breve mensaje a través de tu cuenta de Claude Code.",
+    "descRunning": "Esto puede tardar uno o dos minutos.",
+    "start": "Configurar agentes para este perfil",
+    "signInAgain": "{{error}} — inicia sesión en monoes.me e inténtalo de nuevo."
+  },
+  "taskHeader": {
+    "cancel": "Cancelar tarea",
+    "cancelBody": "¿Cancelar esta tarea en curso? El trabajo realizado hasta ahora podría perderse.",
+    "keep": "Seguir ejecutando"
+  },
+  "budgets": {
+    "removeBody": "¿Quitar el límite de {{name}}? El gasto ya no estará limitado por él.",
+    "removeLabel": "Quitar límite",
+    "keep": "Mantener límite"
   }
 }
