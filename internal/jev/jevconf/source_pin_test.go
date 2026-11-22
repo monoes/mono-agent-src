@@ -219,6 +219,21 @@ func TestEveryUserOfTheTypeSafeKeyGoesThroughJevconf(t *testing.T) {
 	if !strings.Contains(prov, "secrets.RefusedReference(ctx, secretRef(p.SecretName))") || !strings.Contains(prov, "readEntry(ctx, db, VaultScope, p.SecretName)") {
 		t.Error("providerKey no longer refuses and audits the read of a provider's key before using it")
 	}
+	// ProviderKeySourceOf only looks whether a provider's entry exists:
+	// availability checks never decrypt (no keyring or passphrase prompt).
+	if i := strings.Index(prov, "func ProviderKeySourceOf("); i < 0 {
+		t.Error("provider.go has no ProviderKeySourceOf")
+	} else {
+		body := prov[i:]
+		if j := strings.Index(body[1:], "\nfunc "); j >= 0 {
+			body = body[:j+1]
+		}
+		for _, read := range []string{"readEntry(", "DecryptFields(", "providerKey(", "secrets.Resolve"} {
+			if strings.Contains(body, read) {
+				t.Errorf("ProviderKeySourceOf calls %s: it must list the vault entry, never read it", read)
+			}
+		}
+	}
 	others, err := filepath.Glob(filepath.Join(filepath.Dir(here), "*.go"))
 	if err != nil {
 		t.Fatal(err)

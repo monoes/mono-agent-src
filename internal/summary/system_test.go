@@ -8,6 +8,9 @@ import (
 	"time"
 
 	"github.com/monoes/mono-agent/internal/automation"
+	"github.com/monoes/mono-agent/internal/jev"
+	"github.com/monoes/mono-agent/internal/jev/jevconf"
+	"github.com/monoes/mono-agent/internal/jev/jevtest"
 	"github.com/monoes/mono-agent/internal/recording"
 )
 
@@ -116,6 +119,32 @@ func TestJevSectionNamesTheDefaultProvider(t *testing.T) {
 	exec(t, db, `INSERT INTO settings (key, value) VALUES ('jev.provider', 'local')`)
 	if j := Build(context.Background(), opts).Jev; j.Provider != "local" {
 		t.Fatalf("provider = %q", j.Provider)
+	}
+}
+
+// key_configured is about the provider the block names: a keyless local
+// default needs no key; a TypeSafe key does not configure a keyed one.
+func TestJevKeyConfiguredFollowsTheDefaultProvider(t *testing.T) {
+	db := testDB(t)
+	t.Setenv("TYPESAFE_API_KEY", "")
+	t.Cleanup(jevconf.RegisterKind("fake-summary", func(jevconf.Provider, string) (jev.Backend, error) {
+		return jevtest.NewFakeBackend(nil), nil
+	}))
+	exec(t, db, `INSERT INTO settings (key, value) VALUES ('jev.providers',
+		'[{"name":"keyed","kind":"fake-summary","base_url":"http://localhost:1","secret_name":"decision-keyed"},
+		  {"name":"local","kind":"fake-summary","base_url":"http://localhost:1"}]'), ('jev.provider', 'local')`)
+	opts := Options{DB: db.DB, ProfileID: "default", Now: now, Sections: map[string]bool{"jev": true}}
+	if j := Build(context.Background(), opts).Jev; !j.KeyConfigured || j.KeySource != jevconf.SourceKeyless {
+		t.Fatalf("keyless default: %+v", j)
+	}
+	exec(t, db, `UPDATE settings SET value = 'keyed' WHERE key = 'jev.provider'`)
+	t.Setenv("TYPESAFE_API_KEY", "test-key")
+	if j := Build(context.Background(), opts).Jev; j.KeyConfigured || j.KeySource != "" {
+		t.Fatalf("keyed default without its key: %+v", j)
+	}
+	exec(t, db, `DELETE FROM settings WHERE key = 'jev.provider'`)
+	if j := Build(context.Background(), opts).Jev; !j.KeyConfigured || j.KeySource != jevconf.SourceEnv {
+		t.Fatalf("typesafe with a key: %+v", j)
 	}
 }
 

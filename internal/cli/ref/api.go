@@ -451,7 +451,8 @@ OPENAI-COMPATIBLE API (/v1)
   api_auto_set switches the api_auto surface of the call's profile on (it needs
   --allow-api-exposure on the server, since what leaves the machine is the
   operator's decision, and acknowledge_egress: true, because prompts then go to
-  TypeSafe) or off (it needs neither), as jev enable|disable api_auto does, and
+  the surface's decision provider, TypeSafe by default) or off (it needs
+  neither), as jev enable|disable api_auto does, and
   adds auto, what api_status says of the auto model; it never creates or reads
   the Jev key. api_models_list reads the saved settings under its server's
   environment, as api models does.

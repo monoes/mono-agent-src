@@ -62,9 +62,9 @@ var apiToolDetails = map[string]string{
 		"Afterwards api_config_get shows what the daemon started with.",
 	"api_auto_set": "Switch the auto model of the OpenAI-compatible API (the Jev surface api_auto) on or off for the call's profile, as `monoagentcli jev enable|disable api_auto` does: " +
 		"the document of that command's --json (profile_id, surface, enabled and, when switching on, threshold and egress) plus auto, what api_status says of the auto model after the change " +
-		"(available, or what it is missing: the surface, a Jev key). enabled is required. " +
+		"(available, or what it is missing: the surface, a Jev key, or the key of the surface's decision provider). enabled is required. " +
 		"Switching on needs two things, because while it is on the first 4,000 characters of the last user message of each request for the model auto (of an image request, its prompt) " +
-		"and the names, descriptions and validated cost and latency of the models the server serves go to TypeSafe: the operator must have started this MCP server with --allow-api-exposure " +
+		"and the names, descriptions and validated cost and latency of the models the server serves go to the api_auto surface's decision provider (TypeSafe by default): the operator must have started this MCP server with --allow-api-exposure " +
 		"(or MONOAGENT_MCP_ALLOW_API_EXPOSURE=1), which no argument of this tool can set, since the model sets the arguments, and acknowledge_egress: true. Without the first the call is refused and nothing changes " +
 		"(the user can run `monoagentcli jev enable api_auto` or use the desktop app, Settings › Jev); without the second it is refused, shows exactly what would be sent, and nothing changes. " +
 		"acknowledge_egress is set by the caller: like --yes of the command it makes the data visible before it moves, and it is not an access control. Switching off needs neither. " +
