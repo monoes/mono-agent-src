@@ -30,5 +30,5 @@ type DecideNodeSchema struct {
 
 	Provider string "json:\"provider\" schema:\"label=Decision Provider,type=text,help=A decision provider added with `monoagentcli jev provider add`. Empty = the default.\""
 
-	Model string `json:"model" schema:"label=Model,type=text,help=Empty = the provider's model."`
+	Model string `json:"model" schema:"label=Model,type=text,help=Empty = the provider's model. A provider other than TypeSafe takes it only when this node also names that provider."`
 }
