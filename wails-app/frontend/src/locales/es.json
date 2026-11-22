@@ -1037,8 +1037,8 @@
       "jevFallback": "las preguntas y p < {{threshold}} van al decisor de modelo",
       "jevFallbackModel": "las preguntas y p < {{threshold}} van al decisor de modelo ({{model}})",
       "jevProvider": "Proveedor",
-      "jevProviderHint": "El proveedor de decisión al que pregunta el decisor Jev. Predeterminado sigue el predeterminado del equipo en Ajustes › TypeSafe Jev.",
-      "jevProviderDefault": "Predeterminado ({{name}})"
+      "jevProviderHint": "El proveedor de decisión al que pregunta el decisor Jev. Predeterminado: la elección propia de este perfil para el decisor si la tiene, si no el predeterminado del equipo (Ajustes › TypeSafe Jev), si no TypeSafe.",
+      "jevProviderDefault": "Predeterminado"
     },
     "fullAuto": {
       "dialog": "Activar automático total",

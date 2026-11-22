@@ -1037,8 +1037,8 @@
       "jevFallback": "questions and p < {{threshold}} go to the model decider",
       "jevFallbackModel": "questions and p < {{threshold}} go to the model decider ({{model}})",
       "jevProvider": "Provider",
-      "jevProviderHint": "The decision provider the Jev decider asks. Default follows the machine default in Settings › TypeSafe Jev.",
-      "jevProviderDefault": "Default ({{name}})"
+      "jevProviderHint": "The decision provider the Jev decider asks. Default: this profile's own choice for the decider if it has one, else the machine default (Settings › TypeSafe Jev), else TypeSafe.",
+      "jevProviderDefault": "Default"
     },
     "fullAuto": {
       "dialog": "Turn on full auto",
