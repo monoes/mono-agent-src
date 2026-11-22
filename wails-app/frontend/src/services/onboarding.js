@@ -16,7 +16,8 @@ export const onboarding = {
   skip: (id) => GoApp.SkipOnboardingStep(id),
   complete: () => GoApp.CompleteOnboarding(),
   restart: () => GoApp.RestartOnboarding(),
-  // [{ id, name, installed, extensionsUrl, devModeSide }]
+  // [{ id, name, installed, extensionsUrl, devModeSide }]; rejects with the Go
+  // error (the sign-in refusal when signed out), which callStep reads
   detectBrowsers: () => GoApp.DetectChromiumBrowsers(),
   openBrowser: (id) => GoApp.OpenChromiumBrowser(id),
   // preset: 'ask' | 'free' | 'off'; the CLI's JSON or {"error", "code"}

@@ -17,6 +17,8 @@ const go = vi.hoisted(() => ({
   RestartOnboarding: vi.fn(() => Promise.resolve()),
 }))
 vi.mock('../wailsjs/go/main/App', () => go)
+const setup = vi.hoisted(() => ({ stale: 0 }))
+vi.mock('../pages/dashboard/setupSession.js', () => ({ markSetupStale: () => { setup.stale += 1 } }))
 const appLife = vi.hoisted(() => ({ mounts: 0, keys: [] }))
 vi.mock('../App.jsx', async () => {
   const { OnboardingContext } = await import('./onboardingContext.js')
@@ -298,7 +300,7 @@ describe('the short setup for a later profile, after the reload', () => {
 // Reopened from inside the app (the Finish setup card, "Run setup again", the
 // short setup): the app stays mounted underneath and keeps its state.
 describe('the onboarding over the running app', () => {
-  beforeEach(() => { appLife.mounts = 0; appLife.keys = [] })
+  beforeEach(() => { appLife.mounts = 0; appLife.keys = []; setup.stale = 0 })
   const completed = () => go.GetOnboardingState.mockResolvedValue(stateOf({ completed: true, currentStep: 'agents' }))
   const appHost = () => document.querySelector('.onb-app-host')
   const reopen = async () => {
@@ -321,6 +323,32 @@ describe('the onboarding over the running app', () => {
     expect(screen.getByRole('button', { name: 'count 2' })).toBeInTheDocument()
     expect(appHost()).not.toHaveAttribute('inert')
     expect(appLife.mounts).toBe(1)
+  })
+
+  it('every close marks the Finish setup card\'s answer stale: Back, Escape, finishing', async () => {
+    completed()
+    render(<OnboardingGate banners={null} />)
+    await screen.findByText('reopen at current')
+    expect(setup.stale).toBe(0)
+    await reopen()
+    expect(setup.stale).toBe(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Back to MonoAgent' }))
+    expect(setup.stale).toBe(1)
+    await reopen()
+    fireEvent.keyDown(screen.getByRole('heading', { level: 1 }), { key: 'Escape' })
+    expect(setup.stale).toBe(2)
+    await reopen()
+    act(() => seen.agents.onFinish({ page: 'orgs' }))
+    expect(setup.stale).toBe(3)
+  })
+
+  it('a first run that finishes marks it stale too', async () => {
+    go.GetOnboardingState.mockResolvedValue(stateOf({ currentStep: 'finish' }))
+    render(<OnboardingGate banners={null} />)
+    await screen.findByTestId('step-finish')
+    act(() => seen.finish.onFinish())
+    expect(await screen.findByTestId('app')).toBeInTheDocument()
+    expect(setup.stale).toBe(1)
   })
 
   it('Back to MonoAgent closes without complete() and without writing anything', async () => {

@@ -28,6 +28,7 @@ import Onboarding from './Onboarding.jsx'
 import { useOnboarding } from './useOnboarding.js'
 import { OnboardingContext } from './onboardingContext.js'
 import { pendingProfileSetup, clearProfileSetup } from './profileSetup.js'
+import { markSetupStale } from '../pages/dashboard/setupSession.js'
 
 // Pages inside the app import it from ./onboardingContext.js (no cycle).
 export { OnboardingContext }
@@ -106,14 +107,19 @@ export default function OnboardingGate({ banners = null }) {
   // "Back to MonoAgent": closes the onboarding over the app, changing nothing.
   const backToApp = useCallback(() => { setOpen(null) }, [])
 
-  // Closed from over the app: focus goes back where it was in the app.
+  // Closed: the dashboard's Finish setup card no longer has a standing answer
+  // (it used to rely on the app remounting); from over the app, focus goes
+  // back where it was in the app.
   const wasOverRef = useRef(false)
+  const wasOpenRef = useRef(false)
   useEffect(() => {
+    if (open === null && wasOpenRef.current) markSetupStale()
     if (open === null && wasOverRef.current) {
       const el = appFocusRef.current
       appFocusRef.current = null
       if (el && el.isConnected && el !== document.body && typeof el.focus === 'function') el.focus({ preventScroll: true })
     }
+    wasOpenRef.current = !!open
     wasOverRef.current = !!(open && open.over)
   }, [open])
 
