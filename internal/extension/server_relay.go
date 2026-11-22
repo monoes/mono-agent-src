@@ -42,12 +42,7 @@ func (s *Server) handleRelay(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("invalid command: %v", err), http.StatusBadRequest)
 		return
 	}
-	timeout := defaultTimeout
-	if ms := r.URL.Query().Get("timeout_ms"); ms != "" {
-		if n, err := time.ParseDuration(ms + "ms"); err == nil {
-			timeout = n
-		}
-	}
+	timeout := relayTimeout(r.URL.Query().Get("timeout_ms"))
 	// Which browser, for callers new enough to say. An older caller sends
 	// neither parameter and gets the default browser, as it always did.
 	target := targetFromQuery(r.URL.Query())
@@ -129,4 +124,16 @@ func (s *Server) readLoop(c *extConn) {
 
 		s.dispatch(c, &resp)
 	}
+}
+
+// relayTimeout reads the relay's timeout_ms parameter.
+func relayTimeout(ms string) time.Duration {
+	if ms == "" {
+		return defaultTimeout
+	}
+	n, err := time.ParseDuration(ms + "ms")
+	if err != nil || n <= 0 || n > 10*time.Minute {
+		return defaultTimeout
+	}
+	return n
 }

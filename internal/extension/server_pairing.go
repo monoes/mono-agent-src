@@ -73,7 +73,7 @@ func (s *Server) exchangePairingNonce(nonce string) (string, bool) {
 // this exact path (chrome-extension/pair_bridge.js) — this handler only
 // needs to render feedback; it never sees or handles the token itself.
 func (s *Server) handlePairPage(w http.ResponseWriter, r *http.Request) {
-	if !checkOrigin(r) {
+	if !checkOrigin(r) || !loopbackHost(r.Host) {
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -94,7 +94,7 @@ func (s *Server) handlePairPage(w http.ResponseWriter, r *http.Request) {
 // chrome-extension:// or loopback origin passes); the nonce's single-use,
 // short TTL is what actually bounds exposure beyond that shared baseline.
 func (s *Server) handlePairExchange(w http.ResponseWriter, r *http.Request) {
-	if !checkOrigin(r) {
+	if !checkOrigin(r) || !loopbackHost(r.Host) {
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
