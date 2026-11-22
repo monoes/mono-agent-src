@@ -118,6 +118,9 @@ scan:
 		sort.Strings(keys)
 		for _, k := range keys {
 			g := groups[k]
+			if len(g) > MaxGroupSize {
+				continue
+			}
 			for x := 0; x < len(g); x++ {
 				for y := x + 1; y < len(g); y++ {
 					i, j := g[x], g[y] // people is sorted by id, so i < j ⇒ A.ID < B.ID
@@ -149,6 +152,11 @@ scan:
 	}
 	return out, nil
 }
+
+// MaxGroupSize is the largest group of people sharing one signal key that
+// Candidates pairs up. A name or website shared by more people than this is
+// not evidence of anything, and pairing it is quadratic.
+const MaxGroupSize = 50
 
 func loadPeople(ctx context.Context, db *sql.DB, profileID string) ([]Person, error) {
 	rows, err := db.QueryContext(ctx, `SELECT id, COALESCE(platform,''), COALESCE(platform_username,''),
