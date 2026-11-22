@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 
+	"github.com/monoes/mono-agent/internal/ai"
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/coderhost"
 	"github.com/monoes/mono-agent/internal/tasks"
@@ -117,6 +118,24 @@ func coderConversation(cfg *Deps, id string) (string, error) {
 	return profileID, nil
 }
 
+// requireDynamicOrgForMission refuses a mission send to a chat whose org mode is solo: the mission tools are wired
+// only for a Dynamic org turn, so the send would be accepted and plan in prose.
+func requireDynamicOrgForMission(cfg *Deps, id string) error {
+	store, profileID, closeDB, err := openChatHistory(cfg)
+	if err != nil {
+		return err
+	}
+	defer closeDB()
+	conv, err := store.GetConversation(id, profileID)
+	if err != nil {
+		return chatStoreErr(err)
+	}
+	if conv.OrgMode != ai.OrgModeDynamic {
+		return clicore.InvalidInput("a mission needs Dynamic org: this chat is solo, so the lead would have no mission tools. Turn Dynamic org on for it (`chat history set-org %s dynamic`, or create the chat with `--org dynamic`) and send again", id)
+	}
+	return nil
+}
+
 // enqueue queues one command for the host, starting the host first when asked.
 func enqueue(cfg *Deps, c coderhost.Command, startHost bool) (coderhost.Command, error) {
 	if startHost && c.Kind == coderhost.KindSend { // stop, pause and resume are not turn dispatches: they must reach a stale host that runs the turn
@@ -168,6 +187,11 @@ func newCoderSessionsSendCmd(cfg *Deps) *cobra.Command {
 			}
 			if err := refuseBossConversation(cmd.Context(), cfg, profileID, args[0]); err != nil {
 				return err
+			}
+			if mission {
+				if err := requireDynamicOrgForMission(cfg, args[0]); err != nil {
+					return err
+				}
 			}
 			atts, err := attachmentSources(attach)
 			if err != nil {
