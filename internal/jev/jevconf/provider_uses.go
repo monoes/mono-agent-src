@@ -60,20 +60,17 @@ func providerUses(ctx context.Context, q queryer, provider string) ([]string, er
 	return uses, nil
 }
 
-// DeciderFollowers lists the orgs whose jev decider names no provider and
-// whose profile's decider surface resolves to provider (its own choice, else
-// the machine default), as "<profile>/<org>".
-func DeciderFollowers(ctx context.Context, db *sql.DB, provider string) ([]string, error) {
+// DeciderFollowers lists the orgs whose jev decider follows the machine
+// default: it names no provider and its profile chose none for the decider
+// surface. Each is "<profile>/<org>".
+func DeciderFollowers(ctx context.Context, db *sql.DB) ([]string, error) {
 	deciders, err := jevDeciders(ctx, db)
 	if err != nil {
 		return nil, err
 	}
 	var out []string
 	for _, d := range deciders {
-		if d.provider != "" {
-			continue
-		}
-		if p, err := activeProvider(db, d.profile, Decider); err == nil && p == provider {
+		if _, pinned := SurfaceProviderSetting(db, d.profile, Decider); d.provider == "" && !pinned {
 			out = append(out, d.profile+"/"+d.org)
 		}
 	}

@@ -286,10 +286,10 @@ func TestJevProviderUse(t *testing.T) {
 	registerFake(t, jevtest.NewFakeBackend(nil))
 	for _, args := range [][]string{
 		{"provider", "add", "local", "--kind", fakeKind, "--base-url", "http://localhost:9", "--no-probe"},
-		{"provider", "add", "remote", "--kind", fakeKind, "--base-url", "https://decide.example.com/v1", "--no-probe"},
+		{"provider", "add", "remote", "--kind", fakeKind, "--base-url", "https://decide.example.com/v1", "--no-probe", "--key-stdin"},
 		{"enable", "hil", "--yes"},
 	} {
-		if _, _, err := runJev(t, cfg, "", args...); err != nil {
+		if _, _, err := runJev(t, cfg, "remote-key-0123456789\n", args...); err != nil {
 			t.Fatalf("%v: %v", args, err)
 		}
 	}

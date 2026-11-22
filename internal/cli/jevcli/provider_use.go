@@ -131,21 +131,53 @@ type affectedSurface struct {
 	surface jevconf.Surface
 }
 
-// followersOfDefault lists, over every profile, the enabled surfaces that
-// follow the machine default current (no other choice of their own).
-func followersOfDefault(db *sql.DB, current string) ([]affectedSurface, error) {
+// followers is what a provider switch moves to the new provider.
+type followers struct {
+	surfaces []affectedSurface
+	// deciders are the org deciders of kind jev that follow the default, as
+	// "<profile>/<org>".
+	deciders []string
+	// everyDefaultUser: the switch is of the machine default, which every
+	// decision-model workflow node and dynamic-org chat without a provider
+	// of its own follows (they are not enumerated).
+	everyDefaultUser bool
+}
+
+func (f followers) empty() bool {
+	return len(f.surfaces) == 0 && len(f.deciders) == 0 && !f.everyDefaultUser
+}
+
+// followersOfDefault lists, over every profile, what follows the machine
+// default current: the enabled surfaces and the jev org deciders with no
+// other choice of their own, and (always) the nodes and chats that use the
+// default.
+func followersOfDefault(ctx context.Context, db *sql.DB, current string) (followers, error) {
 	enabled, err := enabledSurfaces(db)
 	if err != nil {
-		return nil, err
+		return followers{}, err
 	}
-	var out []affectedSurface
+	f := followers{everyDefaultUser: true}
 	for _, a := range enabled {
 		if jevconf.ActiveProvider(db, a.profile, a.surface) == current {
-			out = append(out, a)
+			f.surfaces = append(f.surfaces, a)
 		}
 	}
-	return out, nil
+	if f.deciders, err = jevconf.DeciderFollowers(ctx, db); err != nil {
+		return followers{}, err
+	}
+	return f, nil
 }
+
+// What the followers a surface list does not cover send (consent).
+var (
+	deciderEgress = []string{
+		"the pending item's kind, class, tier and summary, the requester's role, title and responsibilities",
+		"the org's name and goal, the operator policy and earlier decisions",
+		"text agents wrote: the request, its inputs and recent events (each cut to 6,000 characters)",
+	}
+	nodesLine  = "every workflow node that uses a decision model without naming a provider (ai.choose, ai.decide, browser.jev, Human-in-Loop auto_decide, applications.evaluate with runtime jev): the items and page text it judges"
+	dynorgLine = "dynamic-org coder chats that ask Jev to staff their workers (surface dynorg), in every profile that does not choose a provider for it: the task and the candidate roles"
+)
 
 // enabledSurfaces lists every profile's enabled surfaces, from the settings
 // keys jev.<profile>.<surface>.enabled (Enabled confirms each).
@@ -181,26 +213,42 @@ func enabledSurfaces(db *sql.DB) ([]affectedSurface, error) {
 
 // consent prints what a switch to p sends where and asks, mirroring `jev
 // enable`: --yes, or a terminal to answer at. ok false means declined.
-func consent(cmd *cobra.Command, d Deps, p jevconf.Provider, affected []affectedSurface, yes bool) (ok bool, err error) {
+func consent(cmd *cobra.Command, d Deps, p jevconf.Provider, affected followers, yes bool) (ok bool, err error) {
 	out := cmd.OutOrStdout()
 	notes := out
 	if d.JSONOutput() {
 		notes = cmd.ErrOrStderr()
 	}
 	fmt.Fprintf(notes, "This sends to %s:\n", destination(p))
-	for _, a := range affected {
+	for _, a := range affected.surfaces {
 		fmt.Fprintf(notes, "  profile %s, surface %s:\n", a.profile, a.surface)
 		for _, e := range jevconf.Egress[a.surface] {
 			fmt.Fprintf(notes, "    - %s\n", e)
 		}
 	}
+	for _, o := range affected.deciders {
+		fmt.Fprintf(notes, "  org decider of %s:\n", o)
+		for _, e := range deciderEgress {
+			fmt.Fprintf(notes, "    - %s\n", e)
+		}
+	}
+	if affected.everyDefaultUser {
+		fmt.Fprintf(notes, "  %s\n  %s\n", nodesLine, dynorgLine)
+	}
+	return confirm(cmd, d, "switching to provider "+p.Name, "Use "+p.Name+"?", yes)
+}
+
+// confirm asks a yes/no question after a consent text: --yes, or a
+// terminal to answer at. ok false means declined.
+func confirm(cmd *cobra.Command, d Deps, what, question string, yes bool) (ok bool, err error) {
+	out := cmd.OutOrStdout()
 	if yes {
 		return true, nil
 	}
 	if d.JSONOutput() || !d.StdinIsTerminal() {
-		return false, clicore.InvalidInput("switching to provider %s needs --yes when stdin is not a terminal", p.Name)
+		return false, clicore.InvalidInput("%s needs --yes when stdin is not a terminal", what)
 	}
-	fmt.Fprintf(out, "Use %s? [y/N] ", p.Name)
+	fmt.Fprintf(out, "%s [y/N] ", question)
 	ans, _ := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
 	if a := strings.ToLower(strings.TrimSpace(ans)); a != "y" && a != "yes" {
 		fmt.Fprintln(out, "Not changed.")
@@ -217,10 +265,12 @@ func newJevProviderUseCmd(d Deps) *cobra.Command {
 		Short: "Make a provider the machine default, or one surface's provider for this profile",
 		Long: "Without --surface, makes <name> the machine-wide default (`use typesafe` restores\n" +
 			"TypeSafe). With --surface S, makes it S's provider for the profile named by --profile;\n" +
-			"`--surface S --clear` drops that choice, so S follows the default again. When the\n" +
-			"switch moves an enabled surface's data to a host that is not this machine, what it\n" +
-			"sends is printed first; confirm at the prompt, or pass --yes (required when stdin is\n" +
-			"not a terminal). " + clicore.OperatorOnlyHelp + "\n\nSurfaces: " + jevSurfaceNames(),
+			"`--surface S --clear` drops that choice, so S follows the default again. A provider\n" +
+			"whose probed question kinds lack one S asks is refused for S. Making a provider that\n" +
+			"is not on this machine the default always prints what follows the default (enabled\n" +
+			"surfaces, org deciders of kind jev, workflow nodes and chats without a provider of\n" +
+			"their own) and asks; for --surface S it asks when S is enabled. Confirm at the\n" +
+			"prompt, or pass --yes (required when stdin is not a terminal). " + clicore.OperatorOnlyHelp + "\n\nSurfaces: " + jevSurfaceNames(),
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if why := clicore.OperatorRefusal(d.Refusal); why != "" {
@@ -256,15 +306,15 @@ func newJevProviderUseCmd(d Deps) *cobra.Command {
 			defer db.Close()
 			ctx := cmd.Context()
 			current := jevconf.DefaultProvider(db.DB)
-			var affected []affectedSurface
+			var affected followers
 			if s == "" {
-				if affected, err = followersOfDefault(db.DB, current); err != nil {
+				if affected, err = followersOfDefault(ctx, db.DB, current); err != nil {
 					return err
 				}
 			} else {
 				current = jevconf.ActiveProvider(db.DB, d.ProfileID(), s)
 				if jevconf.Enabled(db.DB, d.ProfileID(), s) {
-					affected = []affectedSurface{{d.ProfileID(), s}}
+					affected.surfaces = []affectedSurface{{d.ProfileID(), s}}
 				}
 				if clear {
 					name = jevconf.DefaultProvider(db.DB)
@@ -274,8 +324,14 @@ func newJevProviderUseCmd(d Deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// D10: moving enabled surfaces' data to another machine asks first.
-			if target.Name != current && !isLoopback(target.BaseURL) && len(affected) > 0 {
+			if s != "" && !clear {
+				if err := jevconf.CheckSurfaceKinds(target, s); err != nil {
+					return clicore.InvalidInput("%v", err)
+				}
+			}
+			// D10: moving data to another machine asks first. A switch of the
+			// machine default always does (workflow nodes and chats follow it).
+			if target.Name != current && !jevconf.Loopback(target.BaseURL) && !affected.empty() {
 				if ok, err := consent(cmd, d, target, affected, yes); !ok || err != nil {
 					return err
 				}

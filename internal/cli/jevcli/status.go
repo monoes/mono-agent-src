@@ -20,8 +20,11 @@ type jevSurfaceStatus struct {
 	Enabled          bool     `json:"enabled"`
 	Threshold        float64  `json:"threshold"`
 	DefaultThreshold float64  `json:"default_threshold"`
-	// Provider is the surface's own provider when it is not the default.
+	// Provider is the surface's own provider choice for the profile, even
+	// when it names the default; "" when the surface follows the default.
 	Provider string `json:"provider,omitempty"`
+	// ProviderPinned is true when the surface has a provider choice of its own.
+	ProviderPinned bool `json:"provider_pinned,omitempty"`
 }
 
 type jevStatus struct {
@@ -37,6 +40,11 @@ type jevStatus struct {
 	ProviderKind string `json:"provider_kind"`
 	ProviderHost string `json:"provider_host"`
 	Probability  string `json:"probability"`
+	// For a default provider other than TypeSafe (key_source is TypeSafe's
+	// key): where its key comes from (vault | keyless; nothing decrypted),
+	// and why it cannot be used ("" when it can).
+	ProviderKeySource string `json:"provider_key_source,omitempty"`
+	ProviderError     string `json:"provider_error,omitempty"`
 }
 
 func newJevStatusCmd(d Deps) *cobra.Command {
@@ -66,10 +74,19 @@ func newJevStatusCmd(d Deps) *cobra.Command {
 				st.KeyEntry = name
 			}
 			st.Provider = jevconf.DefaultProvider(db.DB)
-			if p, ok, err := jevconf.FindProvider(db.DB, st.Provider); err == nil && ok {
+			p, known, err := jevconf.FindProvider(db.DB, st.Provider)
+			if err == nil && known {
 				st.ProviderKind, st.ProviderHost, st.Probability = p.Kind, hostOf(p.BaseURL), string(p.Caps.Probability)
 				if p.Builtin() && !strings.HasPrefix(st.BaseURL, "refused: ") {
 					st.ProviderHost = hostOf(st.BaseURL)
+				}
+			}
+			if st.Provider != jev.ProviderTypeSafe {
+				// Can the default provider be used? Its vault entry is listed, never read.
+				if src, err := jevconf.ProviderKeySourceOf(cmd.Context(), db.DB, d.ProfileID(), st.Provider); err != nil {
+					st.ProviderError = err.Error()
+				} else {
+					st.ProviderKeySource = src
 				}
 			}
 			overrides := false
@@ -84,8 +101,8 @@ func newJevStatusCmd(d Deps) *cobra.Command {
 					Threshold:        jevconf.Threshold(db.DB, d.ProfileID(), s, def),
 					DefaultThreshold: def,
 				}
-				if ap := jevconf.ActiveProvider(db.DB, d.ProfileID(), s); ap != st.Provider {
-					ss.Provider, overrides = ap, true
+				if own, pinned := jevconf.SurfaceProviderSetting(db.DB, d.ProfileID(), s); pinned {
+					ss.Provider, ss.ProviderPinned, overrides = own, true, true
 				}
 				st.Surfaces = append(st.Surfaces, ss)
 			}
@@ -99,12 +116,20 @@ func newJevStatusCmd(d Deps) *cobra.Command {
 			}
 			fmt.Fprintf(out, "Profile: %s\nKey:     %s\nModel:   %s\nAPI:     %s\n", st.ProfileID, key, st.Model, st.BaseURL)
 			// With TypeSafe the default, the text is what it was before providers.
-			if st.Provider != jev.ProviderTypeSafe {
+			switch {
+			case st.Provider == jev.ProviderTypeSafe:
+			case !known:
+				fmt.Fprintf(out, "Provider: %s (unknown provider: it is not among the configured ones; `jev provider list` shows them, "+
+					"`jev provider use typesafe` restores TypeSafe)\n", st.Provider)
+			default:
 				prob := st.Probability
 				if prob == "" {
 					prob = "not probed"
 				}
 				fmt.Fprintf(out, "Provider: %s (%s at %s, probability %s)\n", st.Provider, st.ProviderKind, st.ProviderHost, prob)
+				if st.ProviderError != "" {
+					fmt.Fprintf(out, "          cannot be used: %s\n", st.ProviderError)
+				}
 			}
 			fmt.Fprintln(out)
 			header := []string{"Surface", "Enabled", "Threshold"}
@@ -119,8 +144,8 @@ func newJevStatusCmd(d Deps) *cobra.Command {
 				}
 				row := []string{s.Surface, on, strconv.FormatFloat(s.Threshold, 'f', -1, 64)}
 				if overrides {
-					prov := s.Provider
-					if prov == "" {
+					prov := s.Provider + " (pinned)"
+					if !s.ProviderPinned {
 						prov = st.Provider
 					}
 					row = append(row, prov)

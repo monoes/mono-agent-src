@@ -129,6 +129,11 @@ func newJevEnableCmd(d Deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if provider != "" {
+				if err := jevconf.CheckSurfaceKinds(p, s); err != nil {
+					return clicore.InvalidInput("%v", err)
+				}
+			}
 			host := hostOf(p.BaseURL)
 			if p.Builtin() {
 				// What a client sending the resolved key calls (as `jev status` shows).
@@ -180,6 +185,9 @@ func newJevEnableCmd(d Deps) *cobra.Command {
 				if _, _, err := jevconf.ResolveKey(ctx, db.DB, d.ProfileID(), ""); errors.Is(err, jev.ErrNoAPIKey) {
 					fmt.Fprintln(cmd.ErrOrStderr(), "note: no TypeSafe key yet, so the surface stays inactive — store one with `monoagentcli jev key set` or set TYPESAFE_API_KEY")
 				}
+			} else if _, err := jevconf.ProviderKeySourceOf(ctx, db.DB, d.ProfileID(), p.Name); err != nil {
+				// Can the surface's provider be used? Names are listed, nothing is decrypted.
+				fmt.Fprintf(cmd.ErrOrStderr(), "note: provider %q cannot be used yet, so the surface stays inactive: %v\n", p.Name, err)
 			}
 			if d.JSONOutput() {
 				return writeJevJSON(out, map[string]any{"profile_id": d.ProfileID(), "surface": string(s),
@@ -405,6 +413,9 @@ func newJevModelsCmd(d Deps) *cobra.Command {
 				return err
 			}
 			c, _, err := jevconf.ResolveProviderClient(cmd.Context(), db.DB, d.ProfileID(), name, "", "")
+			if err != nil && provider == "" {
+				return jevKeyErr(err) // the TypeSafe key's errors, with the exit codes they always had
+			}
 			if err != nil {
 				return jevconfErr(err)
 			}

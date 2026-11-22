@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"net"
 	"net/url"
 	"strings"
 
@@ -101,20 +100,6 @@ func hostOf(base string) string {
 	return base
 }
 
-// isLoopback reports whether base points at this machine.
-func isLoopback(base string) bool {
-	u, err := url.Parse(base)
-	if err != nil {
-		return false
-	}
-	h := u.Hostname()
-	if h == "localhost" {
-		return true
-	}
-	ip := net.ParseIP(h)
-	return ip != nil && ip.IsLoopback()
-}
-
 func newJevProviderListCmd(d Deps) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
@@ -172,16 +157,19 @@ type providerAddJSON struct {
 
 func newJevProviderAddCmd(d Deps) *cobra.Command {
 	var p jevconf.Provider
-	var keyStdin, noProbe bool
+	var keyStdin, noProbe, yes bool
 	cmd := &cobra.Command{
 		Use:   "add <name>",
 		Short: "Add (or replace) a decision provider and probe what it can do",
 		Long: "Adds a decision provider: an adapter kind, the only host its key goes to (https, or\n" +
 			"http to this machine) and a model. --key-stdin reads its key from stdin (never pass it\n" +
 			"as an argument) into the machine vault entry --secret-name (default decision-<name>);\n" +
-			"--secret-name alone points at an entry that already holds it; neither = keyless (a\n" +
-			"local server). The provider is probed unless --no-probe, and saved even when the probe\n" +
-			"fails. Adding a provider does not use it: see `jev provider use`. " + clicore.OperatorOnlyHelp,
+			"--secret-name alone points at an entry that already holds it; neither = keyless, which\n" +
+			"only a server on this machine may be (a provider on another host needs a key). A key\n" +
+			"stored with --key-stdin is bound to the provider's host. Replacing a provider's host,\n" +
+			"or the kind, host or key of a provider in use, prints what moves and asks (--yes\n" +
+			"skips the question). The provider is probed unless --no-probe, and saved even when\n" +
+			"the probe fails. Adding a provider does not use it: see `jev provider use`. " + clicore.OperatorOnlyHelp,
 		Example: "  monoagentcli jev provider add local --kind openai --base-url http://localhost:11434/v1 --model qwen3\n" +
 			"  printf '%s' \"$KEY\" | monoagentcli jev provider add oai --kind openai --base-url https://api.openai.com/v1 --model gpt-4.1-mini --key-stdin",
 		Args: cobra.ExactArgs(1),
@@ -212,14 +200,24 @@ func newJevProviderAddCmd(d Deps) *cobra.Command {
 			}
 			defer db.Close()
 			ctx := cmd.Context()
+			moved, goOn, err := replaceConsent(cmd, d, db.DB, p, keyStdin, yes)
+			if err != nil || !goOn {
+				return err
+			}
 			// The record first: it refuses a vault entry that is another host's key
 			// before any key is written there.
 			if err := jevconf.SaveProvider(ctx, db.DB, p); err != nil {
 				return jevconfErr(err)
 			}
-			if keyStdin {
-				if _, err := putMachineKey(cmd, db.DB, p.SecretName, key, "Decision provider "+p.Name+" API key"); err != nil {
-					return err
+			switch {
+			case keyStdin:
+				if _, err := jevconf.PutProviderKey(ctx, db.DB, p, key, "Decision provider "+p.Name+" API key"); err != nil {
+					return jevconfErr(err)
+				}
+			case moved && p.SecretName != "":
+				// The user confirmed the new host: the stored key's binding follows it.
+				if _, err := jevconf.PutProviderKey(ctx, db.DB, p, "", ""); err != nil {
+					return jevconfErr(err)
 				}
 			}
 			res := providerAddJSON{}
@@ -257,7 +255,61 @@ func newJevProviderAddCmd(d Deps) *cobra.Command {
 	f.Float64Var(&p.USDPerMTokIn, "usd-per-mtok-in", 0, "Price per million input tokens, for usage estimates")
 	f.Float64Var(&p.USDPerMTokOut, "usd-per-mtok-out", 0, "Price per million output tokens, for usage estimates")
 	f.BoolVar(&noProbe, "no-probe", false, "Save without probing the provider")
+	f.BoolVar(&yes, "yes", false, "Replace a provider's host, or the kind, host or key of one in use, without asking (required when stdin is not a terminal)")
 	return cmd
+}
+
+// replaceConsent asks before `provider add` replaces an existing provider
+// in a way that moves data or a key: its origin changes, or it is in use
+// (the default, a surface, an org decider) and its kind, base URL or vault
+// entry changes. moved reports an origin change; go false (with a nil
+// error) means the user declined.
+func replaceConsent(cmd *cobra.Command, d Deps, db *sql.DB, p jevconf.Provider, keyStdin, yes bool) (moved, goOn bool, err error) {
+	old, found, err := jevconf.FindProvider(db, strings.TrimSpace(p.Name))
+	if err != nil || !found || old.Builtin() {
+		return false, err == nil, err
+	}
+	base := strings.TrimRight(strings.TrimSpace(p.BaseURL), "/")
+	moved = originOf(old.BaseURL) != originOf(base)
+	changed := old.Kind != strings.TrimSpace(p.Kind) || old.BaseURL != base || old.SecretName != strings.TrimSpace(p.SecretName)
+	uses, err := jevconf.ProviderUses(cmd.Context(), db, old.Name)
+	if err != nil {
+		return false, false, err
+	}
+	if !moved && (len(uses) == 0 || !changed) {
+		return false, true, nil
+	}
+	notes := cmd.OutOrStdout()
+	if d.JSONOutput() {
+		notes = cmd.ErrOrStderr()
+	}
+	if moved {
+		fmt.Fprintf(notes, "This replaces provider %q: its host changes from %s to %s.\n", old.Name, hostOf(old.BaseURL), hostOf(base))
+	} else {
+		fmt.Fprintf(notes, "This replaces provider %q, which is in use: kind %s → %s, base URL %s → %s, key entry %q → %q.\n",
+			old.Name, old.Kind, p.Kind, old.BaseURL, base, old.SecretName, p.SecretName)
+	}
+	fmt.Fprintf(notes, "From now on, this goes to %s:\n", hostOf(base))
+	if s := strings.TrimSpace(p.SecretName); s != "" && !keyStdin {
+		fmt.Fprintf(notes, "  - its key (machine vault entry %q)\n", s)
+	}
+	if len(uses) == 0 {
+		fmt.Fprintf(notes, "  - the data of every call that names provider %q\n", old.Name)
+	}
+	for _, u := range uses {
+		fmt.Fprintf(notes, "  - the data of what uses it: %s\n", u)
+	}
+	goOn, err = confirm(cmd, d, "replacing provider "+old.Name, "Replace "+old.Name+"?", yes)
+	return moved, goOn, err
+}
+
+// originOf is a base URL's scheme and host, lower case.
+func originOf(base string) string {
+	u, err := url.Parse(strings.TrimSpace(base))
+	if err != nil {
+		return base
+	}
+	return strings.ToLower(u.Scheme + "://" + u.Host)
 }
 
 func newJevProviderRemoveCmd(d Deps) *cobra.Command {
