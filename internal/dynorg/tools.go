@@ -245,6 +245,8 @@ func (c *Conductor) handle(ctx context.Context, parent *worker, name string, arg
 	// --- mission execution tools (mission_exec_tools.go) ---
 	case ToolMissionNext, ToolMissionAssign, ToolMissionReport:
 		return c.handleMissionExec(ctx, name, args)
+	case ToolMissionTaskFinish:
+		return c.handleMissionTaskFinish(ctx, args)
 	// --- end of mission execution tools ---
 	// --- mission verification and closing tools (mission_verify.go, mission_final.go) ---
 	case ToolMissionVerify:

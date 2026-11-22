@@ -69,7 +69,7 @@ func MissionRunToolSpecs(ctx context.Context, m *MissionConfig) []monomind.ToolS
 	if se, err := m.latest(ctx); err != nil || se == nil {
 		return nil
 	}
-	return append(append(missionExecToolSpecs(), missionRunToolSpecs()...), missionSessionSpawnSpec())
+	return append(append(append(missionExecToolSpecs(), missionTaskFinishSpec()), missionRunToolSpecs()...), missionSessionSpawnSpec())
 }
 
 // Unfinished is a task that stops the mission from closing.

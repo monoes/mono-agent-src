@@ -93,8 +93,8 @@ func MissionPlanToolSpecs(m *MissionConfig) []monomind.ToolSpec {
 			Description: "Read the mission as it stands: the session, its state, every task with its state and dependencies, recent events, and the review rounds left. It is rebuilt from the board, so use it after a restart or a long gap. Takes no arguments.",
 			Schema:      obj(map[string]any{})},
 		monomind.ToolSpec{Name: ToolMissionReplan,
-			Description: "Revise the draft after the plan review: add tasks and split tasks in one call, with a note on why. At most 2 review rounds; after that the plan stands for the operator.",
-			Schema:      obj(map[string]any{"note": str("Why the plan changes (the reviewer's points you accepted)."), "add": planTaskSchema(), "split": splitsSchema()}, "note")},
+			Description: "Revise the draft after the plan review: add tasks, split tasks and edit the title, notes or acceptance of tasks that have not begun, in one call, with a note on why. At most 2 review rounds; after that the plan stands for the operator.",
+			Schema:      obj(map[string]any{"note": str("Why the plan changes (the reviewer's points you accepted)."), "add": planTaskSchema(), "split": splitsSchema(), "edit": editsSchema()}, "note")},
 	)
 }
 
@@ -218,6 +218,7 @@ func (c *Conductor) missionReplan(ctx context.Context, m *MissionConfig, args js
 		Note  string      `json:"note"`
 		Add   []PlanTask  `json:"add"`
 		Split []SplitSpec `json:"split"`
+		Edit  []TaskEdit  `json:"edit"`
 	}
 	if err := json.Unmarshal(orEmpty(args), &a); err != nil {
 		return "", fmt.Errorf("bad arguments: %v", err)
@@ -225,8 +226,8 @@ func (c *Conductor) missionReplan(ctx context.Context, m *MissionConfig, args js
 	if strings.TrimSpace(a.Note) == "" {
 		return "", errors.New("say why the plan changes (note)")
 	}
-	if len(a.Add) == 0 && len(a.Split) == 0 {
-		return "", errors.New("nothing to change: pass add or split")
+	if len(a.Add) == 0 && len(a.Split) == 0 && len(a.Edit) == 0 {
+		return "", errors.New("nothing to change: pass add, split or edit")
 	}
 	se, err := m.mustActive(ctx)
 	if err != nil {
@@ -242,6 +243,11 @@ func (c *Conductor) missionReplan(ctx context.Context, m *MissionConfig, args js
 		}
 	}
 	out := map[string]any{}
+	if len(a.Edit) > 0 {
+		if err := m.editTasks(ctx, se, a.Edit); err != nil {
+			return "", err
+		}
+	}
 	if len(a.Add) > 0 {
 		ids, err := m.writeTasks(ctx, se, a.Add)
 		if err != nil {
