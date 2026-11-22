@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/monoes/mono-agent/internal/jev/jevconf"
 	"github.com/monoes/mono-agent/internal/jev/providers/openaicompat"
@@ -31,6 +32,11 @@ type openAIDecider struct {
 	mu   sync.Mutex
 	mode string
 	n    int
+	// hold, when set, makes a busy provider keep every request until that many
+	// have arrived (or the wait ends), so that none fails before all are sent.
+	hold    int
+	arrived int
+	release chan struct{}
 }
 
 func newOpenAIDecider(t *testing.T) *openAIDecider {
@@ -40,7 +46,22 @@ func newOpenAIDecider(t *testing.T) *openAIDecider {
 		s.mu.Lock()
 		s.n++
 		mode := s.mode
+		var release chan struct{}
+		if mode == "busy" && s.hold > 0 {
+			s.arrived++
+			if s.arrived == s.hold {
+				close(s.release)
+			}
+			release = s.release
+		}
 		s.mu.Unlock()
+		if release != nil {
+			select {
+			case <-release:
+			case <-r.Context().Done():
+			case <-time.After(2 * time.Second):
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
 		if mode == "busy" {
 			w.Header().Set("Retry-After", "0")
@@ -92,11 +113,18 @@ func newOpenAIDecider(t *testing.T) *openAIDecider {
 	return s
 }
 
+// holdBusy answers 503 to everything, but only once n requests are in.
+func (s *openAIDecider) holdBusy(n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.mode, s.n, s.hold, s.arrived, s.release = "busy", 0, n, 0, make(chan struct{})
+}
+
 func (s *openAIDecider) set(mode string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	n := s.n
-	s.mode, s.n = mode, 0
+	s.mode, s.n, s.hold, s.arrived, s.release = mode, 0, 0, 0, nil
 	return n
 }
 
@@ -145,8 +173,10 @@ func TestJevDeciderOnTheOpenAIAdapter(t *testing.T) {
 
 	// The budget is per request: a sampling adapter's 5 samples, sent at
 	// once, may each be retried once against a busy provider (the first to
-	// fail cancels the rest), all within the call's timeout.
-	srv.set("busy")
+	// fail cancels the rest), all within the call's timeout. The server holds
+	// each request until all 5 are in, so a slow runner cannot let the first
+	// failure cancel the others before they are sent.
+	srv.holdBusy(5)
 	out, err = jd.Decide(context.Background(), gatePrompt("mid"))
 	if n := srv.set("logprob"); n <= 2 || n > 10 {
 		t.Fatalf("a busy provider got %d requests while sampling, want 3 to 10 (5 samples, one retry each)", n)
