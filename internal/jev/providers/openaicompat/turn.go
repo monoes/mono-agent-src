@@ -190,7 +190,7 @@ func (t *turn) sample(ctx context.Context, user string, labels []string, learn b
 			t.b.setSampled(true)
 			learn = false
 		}
-		if l, ok := matchOne(res.text(), labels); ok {
+		if l, ok := matchSample(res, labels); ok {
 			counts[l]++
 			valid++
 		}
@@ -199,6 +199,22 @@ func (t *turn) sample(ctx context.Context, user string, labels []string, learn b
 		return nil, fmt.Errorf("%w: only %d of %d samples named an allowed label", jev.ErrInvalidAnswer, valid, samples)
 	}
 	return jev.Renormalise(counts), nil
+}
+
+// matchSample is the label a sampled response names. A one-token answer is
+// read with jev's label matching (matchOne); a longer budget's answer counts
+// only when, trimmed, it is exactly an allowed label, else it is a miss.
+func matchSample(res *chatResponse, labels []string) (string, bool) {
+	if !res.long {
+		return matchOne(res.text(), labels)
+	}
+	word := strings.TrimSpace(res.text())
+	for _, l := range labels {
+		if word == l {
+			return l, true
+		}
+	}
+	return "", false
 }
 
 // matchOne is the label text names, with jev's label matching.
@@ -214,13 +230,14 @@ func matchOne(text string, labels []string) (string, bool) {
 }
 
 // request is one chat completion of user: one token, with k alternatives
-// (k = 0: no log-probabilities asked for).
+// (k = 0: no log-probabilities asked for). complete adapts it to a model
+// that refuses max_tokens or temperature.
 func (t *turn) request(user string, temperature float64, k int) chatRequest {
 	return chatRequest{
 		Model:       t.model,
 		Messages:    []message{{Role: "system", Content: systemPrompt}, {Role: "user", Content: user}},
 		MaxTokens:   1,
-		Temperature: temperature,
+		Temperature: &temperature,
 		Logprobs:    k > 0,
 		TopLogprobs: k,
 	}

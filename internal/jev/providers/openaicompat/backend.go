@@ -65,6 +65,9 @@ type Backend struct {
 	mu      sync.Mutex
 	sampled bool // the provider gives no log-probabilities
 	topK    int  // how many alternatives a response carries
+	// completionTokens and noTemperature record a model that refused
+	// max_tokens or temperature (complete).
+	completionTokens, noTemperature bool
 }
 
 var (
