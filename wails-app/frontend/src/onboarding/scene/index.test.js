@@ -51,6 +51,23 @@ describe('createScene', () => {
     expect(root.querySelector('[data-plot="windmill"]').classList.contains('built')).toBe(false)
   })
 
+  it('finished shows the whole village built, with no plan, no tag and no sunrise', () => {
+    const root = mountScene()
+    scene.setState(statusesUpTo(3, { about: 'skipped' }), 'about', { finished: true })
+    const plots = [...root.querySelectorAll('.onb-vsvg .plot')]
+    expect(plots.length).toBeGreaterThan(5)
+    for (const g of plots) {
+      expect(g.classList.contains('built')).toBe(true)
+      expect(g.classList.contains('plan')).toBe(false)
+      expect(g.classList.contains('ghost')).toBe(false)
+    }
+    expect(root.querySelector('.onb-plantag').getAttribute('opacity')).toBe('0')
+    expect(root.classList.contains('dawn')).toBe(false)
+    // and back to the normal flow without the flag
+    scene.setState(statusesUpTo(3), 'about')
+    expect(root.querySelector('[data-plot="windmill"]').classList.contains('built')).toBe(false)
+  })
+
   it('a skipped step leaves an outline', () => {
     const root = mountScene()
     scene.setState(statusesUpTo(3, { about: 'skipped' }), 'monomind')

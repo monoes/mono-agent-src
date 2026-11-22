@@ -37,6 +37,7 @@ vi.mock('../App.jsx', async () => {
 import i18n from '../i18n.js'
 import OnboardingGate, { LATE_SWITCH_MS } from './OnboardingGate.jsx'
 import { STEP_COMPONENTS } from './Onboarding.jsx'
+import { requestProfileSetup, pendingProfileSetup, clearProfileSetup } from './profileSetup.js'
 
 const IDS = ['welcome', 'system', 'profile', 'about', 'monomind', 'agents', 'browser', 'permissions', 'firstRun', 'finish']
 const original = { ...STEP_COMPONENTS }
@@ -228,5 +229,52 @@ describe('the onboarding gate', () => {
     expect(go.CompleteOnboarding).toHaveBeenCalled()
     act(() => seen.finish.onFinish())
     expect(await screen.findByTestId('app')).toBeInTheDocument()
+  })
+})
+
+// After NewProfileModal created a later profile, the caller switched to it and
+// reloaded the window; the gate opens the short setup for that profile.
+describe('the short setup for a later profile, after the reload', () => {
+  beforeEach(() => { clearProfileSetup() })
+  afterEach(() => { clearProfileSetup() })
+  const later = (over = {}) => stateOf({ completed: true, currentStep: 'finish', profileId: 'p2',
+    steps: IDS.map(id => ({ id, status: ['about', 'monomind', 'browser', 'agents'].includes(id) ? 'todo' : 'done' })), ...over })
+
+  it('opens profile mode for the selected new profile, reading the full state', async () => {
+    requestProfileSetup('p2')
+    go.GetOnboardingState.mockResolvedValue(later())
+    go.GetOnboardingStateFull.mockResolvedValue(later({ steps: IDS.map(id => ({ id, status: ['about', 'browser', 'agents'].includes(id) ? 'todo' : 'done' })) }))
+    render(<OnboardingGate banners={null} />)
+    expect(await screen.findByTestId('step-about')).toBeInTheDocument()
+    expect(screen.queryByTestId('app')).not.toBeInTheDocument()
+    expect(seen.about.mode).toBe('profile')
+    expect(document.querySelectorAll('nav[aria-label="Setup progress"] li')).toHaveLength(3)
+    await act(async () => { await Promise.resolve() })
+    expect(go.GetOnboardingStateFull).toHaveBeenCalledTimes(1)
+    expect(document.querySelector('[data-step="monomind"]')).toHaveAttribute('data-status', 'done')
+    expect(pendingProfileSetup()).toBeNull()
+    // Done closes it into the app, without completing anything
+    act(() => seen.about.onFinish())
+    expect(await screen.findByTestId('app')).toBeInTheDocument()
+    expect(go.CompleteOnboarding).not.toHaveBeenCalled()
+  })
+
+  it('shows the app and drops the request when the new profile is not the selected one', async () => {
+    requestProfileSetup('p2')
+    go.GetOnboardingState.mockResolvedValue(later({ profileId: 'p1' }))
+    render(<OnboardingGate banners={null} />)
+    expect(await screen.findByTestId('app')).toBeInTheDocument()
+    await act(async () => { await Promise.resolve() })
+    expect(pendingProfileSetup()).toBeNull()
+  })
+
+  it('an unfinished install shows the full flow and drops the request', async () => {
+    requestProfileSetup('p2')
+    go.GetOnboardingState.mockResolvedValue(later({ completed: false, currentStep: 'about' }))
+    render(<OnboardingGate banners={null} />)
+    expect(await screen.findByTestId('step-about')).toBeInTheDocument()
+    expect(seen.about.mode).toBe('full')
+    await act(async () => { await Promise.resolve() })
+    expect(pendingProfileSetup()).toBeNull()
   })
 })

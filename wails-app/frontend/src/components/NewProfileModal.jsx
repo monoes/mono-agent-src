@@ -4,6 +4,7 @@ import { FolderOpen } from 'lucide-react'
 import * as WailsApp from '../wailsjs/go/main/App'
 import { iconUrl } from './orgdesigner/roleIcons.js'
 import IconPickerModal from './orgdesigner/IconPickerModal.jsx'
+import { requestProfileSetup } from '../onboarding/profileSetup.js'
 
 const CreateProfile = WailsApp.CreateProfile ?? (async () => {})
 const ChooseProfileFolder = WailsApp.ChooseProfileFolder ?? (async () => '')
@@ -75,6 +76,9 @@ export default function NewProfileModal({ open, onClose, onCreated }) {
     setError('')
     try {
       const profile = await CreateProfile(trimmed, rootDir, icon)
+      // A profile Go did not select is a later one (only the first is selected
+      // at once): ask for its short setup, which opens once it is selected.
+      if (profile?.id && profile.is_active === false) requestProfileSetup(profile.id)
       onCreated?.(profile)
       onClose?.()
     } catch (e) {

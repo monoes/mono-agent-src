@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
 import NewProfileModal from './NewProfileModal.jsx'
+import { pendingProfileSetup, clearProfileSetup } from '../onboarding/profileSetup.js'
 
 const mockCreateProfile = vi.fn()
 const mockChooseProfileFolder = vi.fn()
@@ -117,4 +118,42 @@ it('backdrop click and Escape both close the modal', () => {
 
   fireEvent.keyDown(window, { key: 'Escape' })
   expect(onClose).toHaveBeenCalledTimes(2)
+})
+
+// The short setup for a later profile (onboarding mode 'profile'). The modal
+// only records the request; the caller switches to the new profile and reloads
+// the window, and the onboarding gate opens the short flow for it then.
+describe('the short setup for a later profile', () => {
+  beforeEach(() => { clearProfileSetup() })
+  afterEach(() => { clearProfileSetup() })
+
+  it('creating a second profile opens the short flow', async () => {
+    // Go selects only the first profile at once: a later one comes back not active
+    mockCreateProfile.mockResolvedValue({ id: 'p2', name: 'Work', is_active: false })
+    const order = []
+    render(<NewProfileModal open={true} onClose={() => order.push('close')} onCreated={() => order.push(`created:${pendingProfileSetup()}`)} />)
+    fireEvent.change(screen.getByPlaceholderText('newProfileModal.namePlaceholder'), { target: { value: 'Work' } })
+    fireEvent.click(screen.getByText('newProfileModal.create'))
+    await waitFor(() => expect(order).toEqual(['created:p2', 'close']))
+    expect(pendingProfileSetup()).toBe('p2')
+  })
+
+  it('creating the very first profile does not open the short flow', async () => {
+    mockCreateProfile.mockResolvedValue({ id: 'p1', name: 'Personal', is_active: true })
+    const onCreated = vi.fn()
+    render(<NewProfileModal open={true} onClose={() => {}} onCreated={onCreated} />)
+    fireEvent.change(screen.getByPlaceholderText('newProfileModal.namePlaceholder'), { target: { value: 'Personal' } })
+    fireEvent.click(screen.getByText('newProfileModal.create'))
+    await waitFor(() => expect(onCreated).toHaveBeenCalled())
+    expect(pendingProfileSetup()).toBeNull()
+  })
+
+  it('a failed create asks for nothing', async () => {
+    mockCreateProfile.mockRejectedValue(new Error('name taken'))
+    render(<NewProfileModal open={true} onClose={() => {}} onCreated={() => {}} />)
+    fireEvent.change(screen.getByPlaceholderText('newProfileModal.namePlaceholder'), { target: { value: 'Work' } })
+    fireEvent.click(screen.getByText('newProfileModal.create'))
+    expect(await screen.findByText('name taken')).toBeInTheDocument()
+    expect(pendingProfileSetup()).toBeNull()
+  })
 })

@@ -5,7 +5,7 @@
 // secret rampage. Ported from the approved mockup
 // docs/mastermind/specs/onboarding-mockups/style-c-cinematic.html.
 //
-// Framework-free: createScene() -> { mount(el), setState(statuses, currentStep),
+// Framework-free: createScene() -> { mount(el), setState(statuses, currentStep, { finished }?),
 // playBuild(stepId): Promise<void>, rebuild(), destroy() }. The root is
 // aria-hidden, holds nothing focusable, and never touches keyboard events.
 import './scene.css'
@@ -49,7 +49,7 @@ export function createScene(options = {}) {
   const onRampageEnd = options.onRampageEnd || (() => {})
   let root = null, alive = false
   const timers = new Set(), frames = new Set(), offs = []
-  const state = { statuses: {}, current: null }
+  const state = { statuses: {}, current: null, finished: false }
 
   const ctx = {
     rm: false, labels, state, onRampageEnd, PLOT_POS,
@@ -113,7 +113,7 @@ export function createScene(options = {}) {
 
   function placeTag() {
     const tag = ctx.q('.onb-plantag'), id = state.current, p = PLOT_POS[PLOT_FOR_STEP[id]]
-    const txt = p ? labels.plan(id) || '' : ''
+    const txt = p && !state.finished ? labels.plan(id) || '' : ''
     tag.querySelector('text').textContent = txt
     if (!txt) { tag.setAttribute('opacity', '0'); return }
     let w = 220
@@ -137,12 +137,13 @@ export function createScene(options = {}) {
 
   function render() {
     if (!root) return
-    const { statuses, current } = state, last = current === 'finish'
+    const { statuses, current, finished } = state, last = current === 'finish'
     if (!last) { ctx.ramp.stop(); ctx.finale.leave() }
     const building = ctx.builds.building, built = new Set()
     ctx.qa('.onb-vsvg .plot').forEach(g => {
       const plot = g.dataset.plot, step = STEP_FOR_PLOT[plot], st = statuses[step] || 'todo'
-      const isB = (st === 'done' || (plot === 'village' && last)) && !building.has(plot)
+      /* finished: the whole village stands, whatever the statuses say */
+      const isB = (finished || st === 'done' || (plot === 'village' && last)) && !building.has(plot)
       const plan = !isB && (step === current || building.has(plot))
       g.classList.toggle('built', isB)
       g.classList.toggle('plan', plan)
@@ -153,7 +154,7 @@ export function createScene(options = {}) {
     ctx.qa('.onb-actors .actor, .onb-drone').forEach(a => a.classList.toggle('on', built.has(a.dataset.need)))
     ctx.q('.onb-warmv').setAttribute('opacity', (built.size * 0.09).toFixed(2))
     ctx.q('.onb-warmsky').setAttribute('opacity', (built.size * 0.06).toFixed(2))
-    root.classList.toggle('dawn', last || statuses.finish === 'done')
+    root.classList.toggle('dawn', !finished && (last || statuses.finish === 'done'))
     placeTag()
     ctx.finds.refresh()
   }
@@ -199,9 +200,12 @@ export function createScene(options = {}) {
       listen(window, 'resize', onResize)
       render()
     },
-    setState(statuses, currentStep) {
+    /* opts.finished: the finished village (all plots built, no sunrise, no
+       plan tag), for the short setup of a later profile */
+    setState(statuses, currentStep, opts) {
       state.statuses = Object.assign({}, statuses)
       state.current = currentStep
+      state.finished = !!(opts && opts.finished)
       render()
     },
     playBuild(stepId) {

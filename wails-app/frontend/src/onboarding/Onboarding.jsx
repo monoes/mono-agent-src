@@ -3,6 +3,9 @@
 // The shell owns the step's eyebrow and h1 (focused on every step change); a
 // step renders what goes under the heading. Steps mark their own progress:
 // Continue and Back never write anything, Skip writes the skip.
+// Mode 'profile' is the short setup of a later profile: about, monomind and
+// browser, all skippable, over the finished village; the last button is Done
+// and closes through onFinish without completing anything.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import Scene from './Scene.jsx'
@@ -189,7 +192,7 @@ export default function Onboarding({ state, startStep, mode = 'full', onFinish, 
 
   return (
     <div className="onb-root" data-mode={mode}>
-      <Scene statuses={statuses} currentStep={step.id} />
+      <Scene statuses={statuses} currentStep={step.id} finished={mode === 'profile'} />
       <div className="onb-layer">
         {banners && <div className="onb-banners">{banners}</div>}
         <header className="onb-top">
@@ -236,7 +239,7 @@ export default function Onboarding({ state, startStep, mode = 'full', onFinish, 
                 <button type="button" className="onb-btn ghost" onClick={doSkip} disabled={busy}>{t('onboarding.shell.skip')}</button>
               )}
               <button type="button" className="onb-btn primary" onClick={doContinue} disabled={!canContinue || busy} aria-busy={busy || undefined}>
-                {label || t('onboarding.shell.continue')}
+                {label || (mode === 'profile' && index === total - 1 ? t('onboarding.shell.done') : t('onboarding.shell.continue'))}
               </button>
             </footer>
           </section>

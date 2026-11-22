@@ -59,6 +59,15 @@ describe('Scene', () => {
     expect(s.playBuild).toHaveBeenCalledTimes(2)
   })
 
+  it('finished: tells the scene, and plays no build when a step turns done', () => {
+    const { rerender } = render(<Scene statuses={{ about: 'todo' }} currentStep="about" finished />)
+    const s = last()
+    expect(s.setState).toHaveBeenLastCalledWith({ about: 'todo' }, 'about', { finished: true })
+    rerender(<Scene statuses={{ about: 'done' }} currentStep="monomind" finished />)
+    expect(s.playBuild).not.toHaveBeenCalled()
+    expect(s.setState).toHaveBeenLastCalledWith({ about: 'done' }, 'monomind', { finished: true })
+  })
+
   it('does not replay builds for steps that were already done on mount', () => {
     render(<Scene statuses={{ welcome: 'done', system: 'done', profile: 'done', about: 'skipped' }} currentStep="monomind" />)
     expect(last().playBuild).not.toHaveBeenCalled()

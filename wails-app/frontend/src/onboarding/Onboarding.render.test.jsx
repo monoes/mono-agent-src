@@ -253,7 +253,7 @@ describe('the onboarding shell', () => {
     expect(button('Skip for now')).toBeInTheDocument()
     act(() => seen.about.goTo('browser'))
     allow()
-    fireEvent.click(button('Continue'))
+    fireEvent.click(button('Done'))
     expect(actions.onFinish).toHaveBeenCalledWith(undefined)
     expect(actions.complete).not.toHaveBeenCalled()
   })

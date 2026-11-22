@@ -9,12 +9,17 @@
 // start gets it; later than that the app stays, and the next launch shows it.
 // While the first answer is pending it shows AccountShell's quiet checking
 // view; if the state cannot be read it shows the app (never a broken gate).
+// A completed install whose selected profile is the one NewProfileModal just
+// created (profileSetup.js; its caller switched to it and reloaded) opens the
+// short setup, mode 'profile', with the full state; the request is dropped
+// after the first decision either way.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import App from '../App.jsx'
 import Onboarding from './Onboarding.jsx'
 import { useOnboarding } from './useOnboarding.js'
 import { OnboardingContext } from './onboardingContext.js'
+import { pendingProfileSetup, clearProfileSetup } from './profileSetup.js'
 
 // Pages inside the app import it from ./onboardingContext.js (no cycle).
 export { OnboardingContext }
@@ -30,13 +35,29 @@ export default function OnboardingGate({ banners = null }) {
   const [nav, setNav] = useState(null)
   // set when the app showed because the first read missed its deadline
   const lateRef = useRef(null)
+  const settledRef = useRef(false)
 
   if (open === undefined && !ob.loading) {
-    // only an answer that says "not completed" opens it; anything else is the app
-    const first = ob.state && ob.state.completed === false ? { stepId: undefined, mode: 'full' } : null
+    // only an answer that says "not completed" opens it; a completed one with
+    // a short-setup request for its selected profile opens that; anything
+    // else is the app
+    const st = ob.state
+    const forProfile = pendingProfileSetup()
+    let first = null
+    if (st && st.completed === false) first = { stepId: undefined, mode: 'full' }
+    else if (st && st.completed === true && forProfile && forProfile === st.profileId) first = { stepId: undefined, mode: 'profile' }
     lateRef.current = first === null && ob.timedOut ? Date.now() : null
     setOpen(first)
   }
+
+  // Once decided: drop the short-setup request, and give the short setup the
+  // full state (the fast answer's monomind and browser statuses are marks only).
+  useEffect(() => {
+    if (open === undefined || settledRef.current) return
+    settledRef.current = true
+    clearProfileSetup()
+    if (open && open.mode === 'profile') loadFull()
+  }, [open, loadFull])
 
   useEffect(() => {
     if (open !== null || lateRef.current === null || !ob.state) return
