@@ -110,7 +110,7 @@ export function validateStructure(nodes) {
   })
 
   const roots = nodes.filter(n => n.parentId == null)
-  if (roots.length === 0) {
+  if (roots.length === 0 && nodes.length > 0) {
     errors.push('no root role — exactly one role must have reports_to: null')
   } else if (roots.length > 1) {
     errors.push(`multiple root roles (${roots.map(r => r.id).join(', ')}) — exactly one may have reports_to: null`)
