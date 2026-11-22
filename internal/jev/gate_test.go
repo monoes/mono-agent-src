@@ -24,6 +24,9 @@ func TestGateValue(t *testing.T) {
 		if id != c.wantID || p != c.wantP {
 			t.Errorf("%s: GateValue = %q, %v; want %q, %v", c.name, id, p, c.wantID, c.wantP)
 		}
+		if got := GateProbability(c.resp, 0.5); (c.wantP == 0) != (got == 0) || got != 0 && got != 0.5 {
+			t.Errorf("%s: GateProbability = %v", c.name, got)
+		}
 	}
 }
 

@@ -59,10 +59,6 @@ func New(ctx context.Context, db *sql.DB, profileID string, cfg Config, s jevcon
 
 // Gate is the value a node compares with its threshold for an answer whose
 // top probability is p (D7): 0 when the provider gives no probability, so
-// such an answer never passes a threshold above 0.
-func Gate(resp *jev.Response, p float64) float64 {
-	if resp != nil && resp.Probability == jev.ProbNone {
-		return 0
-	}
-	return p
-}
+// such an answer never passes a threshold above 0. It is jev.GateProbability,
+// the rule jev.GateValue applies too.
+func Gate(resp *jev.Response, p float64) float64 { return jev.GateProbability(resp, p) }

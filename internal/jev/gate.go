@@ -9,10 +9,17 @@ package jev
 // check resp.Probability == ProbNone itself and do nothing.
 func GateValue(resp *Response, a Answer) (id string, p float64) {
 	id, p = Top(a)
+	return id, GateProbability(resp, p)
+}
+
+// GateProbability is the one rule behind GateValue, for a surface that gates
+// on a probability other than the top option's (a noul, one option's): p,
+// or 0 when resp's provider gives no probability.
+func GateProbability(resp *Response, p float64) float64 {
 	if resp != nil && resp.Probability == ProbNone {
-		return id, 0
+		return 0
 	}
-	return id, p
+	return p
 }
 
 // ModelLabel is the label a surface stores for the model that answered: the
