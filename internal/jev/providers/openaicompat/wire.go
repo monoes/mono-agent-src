@@ -168,8 +168,11 @@ func (e *httpError) Error() string {
 // complete sends one chat completion and decodes the reply. A 400 that
 // refuses max_tokens or temperature (OpenAI's reasoning models) is sent
 // again without that parameter, and the backend remembers it (adapt). Any
-// other 400 is the caller's, a logprobs refusal included.
+// other 400 is the caller's, a logprobs refusal included. An empty answer
+// under completionBudget is asked once more with largeCompletionBudget,
+// which is then kept.
 func (b *Backend) complete(ctx context.Context, body chatRequest) (*chatResponse, error) {
+	var spent struct{ PromptTokens, CompletionTokens int } // of an answer asked again
 	for {
 		sent := b.adapt(body)
 		enc, err := json.Marshal(sent)
@@ -186,16 +189,31 @@ func (b *Backend) complete(ctx context.Context, body chatRequest) (*chatResponse
 		}
 		var res chatResponse
 		if err := json.Unmarshal(raw, &res); err != nil {
-			return nil, fmt.Errorf("%w: undecodable chat completion: %v", jev.ErrInvalidAnswer, err)
+			return nil, fmt.Errorf("%w: undecodable chat completion", jev.ErrInvalidAnswer)
 		}
 		res.long = sent.MaxCompletionTokens > 0
+		res.Usage.PromptTokens += spent.PromptTokens
+		res.Usage.CompletionTokens += spent.CompletionTokens
+		if sent.MaxCompletionTokens == completionBudget && strings.TrimSpace(res.text()) == "" {
+			// The model spent the whole budget reasoning: ask this once more
+			// with the larger one, and keep it. The tokens spent are billed.
+			b.mu.Lock()
+			b.largeBudget = true
+			b.mu.Unlock()
+			spent.PromptTokens, spent.CompletionTokens = res.Usage.PromptTokens, res.Usage.CompletionTokens
+			continue
+		}
 		return &res, nil
 	}
 }
 
 // completionBudget is max_completion_tokens for a model that refuses
-// max_tokens: a reasoning model spends tokens before it answers.
-const completionBudget = 16
+// max_tokens: a reasoning model spends tokens before it answers. A model
+// that spends all of them and answers nothing gets largeCompletionBudget.
+const (
+	completionBudget      = 16
+	largeCompletionBudget = 256
+)
 
 // adapt shapes body for what the provider refused so far.
 func (b *Backend) adapt(body chatRequest) chatRequest {
@@ -203,6 +221,9 @@ func (b *Backend) adapt(body chatRequest) chatRequest {
 	defer b.mu.Unlock()
 	if b.completionTokens && body.MaxTokens > 0 {
 		body.MaxTokens, body.MaxCompletionTokens = 0, completionBudget
+		if b.largeBudget {
+			body.MaxCompletionTokens = largeCompletionBudget
+		}
 	}
 	if b.noTemperature {
 		body.Temperature = nil

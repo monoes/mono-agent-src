@@ -145,7 +145,7 @@ func TestProbeFindsWhatTheProviderGives(t *testing.T) {
 				return 400, `{"error":"logprobs unsupported"}`
 			}
 			return 200, textReply("Yes")
-		}, jev.ProbSampled, 2, defaultTopK},
+		}, jev.ProbSampled, 3, defaultTopK}, // k = 20, k = 5, then none
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			f := newFake(t, c.reply)

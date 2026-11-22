@@ -31,6 +31,12 @@ type option struct{ id, text string }
 // planned for, too few to read it: the question is planned again, once.
 var errReplan = fmt.Errorf("%w: the provider returned fewer alternatives than this question needs", jev.ErrInvalidAnswer)
 
+// errNotALabel says the model's one token was no option label and almost no
+// mass fell on any label: what a reasoning (thinking) model does when it
+// may write a single token.
+var errNotALabel = fmt.Errorf("%w: the model did not answer with a single option label; "+
+	"a reasoning/thinking model needs a larger budget or a non-thinking variant", jev.ErrInvalidAnswer)
+
 // answer is the distribution over the question's answer keys: option ids
 // for a choice, levels for a score, "true"/"false" for a noul. It is
 // conservative (jev.Conservative): the answer keeps only the raw mass the
@@ -168,6 +174,15 @@ func (t *turn) dist(ctx context.Context, user string, labels []string) (map[stri
 	res, err := t.b.complete(ctx, t.request(user, 0, k))
 	t.add(res)
 	var he *httpError
+	if errors.As(err, &he) && he.status == 400 && k > retryTopK {
+		// Some hosts cap top_logprobs below what was asked and refuse the
+		// rest: ask once more for retryTopK before giving logprobs up.
+		if res, err = t.b.complete(ctx, t.request(user, 0, retryTopK)); err == nil {
+			t.b.learnK(retryTopK, k)
+			k = retryTopK
+		}
+		t.add(res)
+	}
 	if errors.As(err, &he) && he.status == 400 {
 		// Groq and others refuse the logprobs parameter: sample without it,
 		// and remember once a request without it succeeds.
@@ -188,6 +203,11 @@ func (t *turn) dist(ctx context.Context, user string, labels []string) (map[stri
 	if coverage < minCoverage && len(labels) > t.b.perRequest() {
 		// Fewer alternatives came back than this request offered labels.
 		return nil, 0, errReplan
+	}
+	if _, isLabel := matchOne(res.text(), labels); coverage < noCoverage && !isLabel {
+		// The one token was no label and nearly no mass fell on any: a
+		// thinking model starts with its reasoning. Asking again would too.
+		return nil, 0, errNotALabel
 	}
 	if coverage < minCoverage {
 		return nil, 0, fmt.Errorf("%w: the model put %.0f%% of its answer on the %d allowed labels (it wanted to say something else)",

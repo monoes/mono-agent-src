@@ -58,7 +58,13 @@ const (
 	// read as log-probabilities: the chosen token alone says nothing about
 	// the others, so such a provider is sampled.
 	minAlternatives = 2
-	httpTimeout     = 90 * time.Second
+	// noCoverage is label mass so small the model answered something else
+	// entirely (errNotALabel).
+	noCoverage = 0.01
+	// retryTopK is what a request asks for after a 400 to defaultTopK, for
+	// hosts that cap top_logprobs (some at 5).
+	retryTopK   = 5
+	httpTimeout = 90 * time.Second
 )
 
 func init() {
@@ -83,6 +89,9 @@ type Backend struct {
 	// completionTokens and noTemperature record a model that refused
 	// max_tokens or temperature (complete).
 	completionTokens, noTemperature bool
+	// largeBudget records a model that spent completionBudget reasoning and
+	// answered nothing: it gets largeCompletionBudget from then on.
+	largeBudget bool
 }
 
 var (

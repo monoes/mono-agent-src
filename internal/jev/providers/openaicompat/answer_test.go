@@ -216,7 +216,7 @@ func TestStoredCapabilitiesSkipLogprobs(t *testing.T) {
 	}
 }
 
-// A 400 to a request with logprobs (Groq) is retried without them, sampled,
+// A 400 to a request with logprobs (Groq) is retried at k = 5, then without them, sampled,
 // and remembered. A 400 that is not about logprobs fails and is not.
 func TestA400ToLogprobsRetriesWithoutThem(t *testing.T) {
 	f := newFake(t, func(_ int, r seen) (int, any) {
@@ -227,10 +227,10 @@ func TestA400ToLogprobsRetriesWithoutThem(t *testing.T) {
 	})
 	cl, _ := newClient(t, f.URL, "", jev.Capabilities{})
 	resp, err := ask(t, cl, choiceOf("first", "second"))
-	if err != nil || resp.Probability != jev.ProbSampled || resp.Answers["q"].Choice != "second" || len(f.requests()) != 6 {
+	if err != nil || resp.Probability != jev.ProbSampled || resp.Answers["q"].Choice != "second" || len(f.requests()) != 7 {
 		t.Fatalf("%+v %v (%d requests)", resp, err, len(f.requests()))
 	}
-	if _, err := ask(t, cl, choiceOf("first", "second")); err != nil || len(f.requests()) != 11 {
+	if _, err := ask(t, cl, choiceOf("first", "second")); err != nil || len(f.requests()) != 12 {
 		t.Fatalf("not remembered: %v (%d requests)", err, len(f.requests()))
 	}
 
