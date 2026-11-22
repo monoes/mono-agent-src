@@ -379,6 +379,14 @@ func (r *Receiver) dispatch(ctx context.Context, row orggrant.EndpointRow, d End
 		origin = d.From[:i]
 	}
 	ledger := NewLedger(r.DB)
+	if r.RootOf != nil && senderRefused(r.RootOf(row.ProfileID), row.OrgName, d.From) {
+		if r.Logf != nil {
+			r.Logf("orgbridge: endpoint %s:%s: refused message %s — sender %q is no role of any org here", row.OrgName, row.RoleID, d.MessageID, d.From)
+		}
+		_ = ledger.Refuse(ctx, Call{ProfileID: row.ProfileID, Direction: DirEndpointIn, OrgName: row.OrgName,
+			RoleID: row.RoleID, WorkflowID: row.WorkflowID, EndpointID: row.ID}, StatusRefusedGrant)
+		return
+	}
 	adm, err := ledger.Admit(ctx, Call{
 		ProfileID: row.ProfileID, Trace: tr, OriginOrg: origin, Direction: DirEndpointIn, OrgName: row.OrgName,
 		RoleID: row.RoleID, WorkflowID: row.WorkflowID, EndpointID: row.ID, RunID: d.Run,
