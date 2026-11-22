@@ -1,35 +1,31 @@
 // "Finish setting up": the onboarding steps still skipped or not done, at the
 // top of the dashboard. Each row reopens the onboarding at its step
-// (OnboardingContext). The steps come from the full state read
-// (GetOnboardingStateFull: the gate's fast read leaves out a completed
-// install's per-step facts), read once the card shows and again whenever the
-// dashboard is shown again. Hiding it is remembered (getStarted.js, the key
+// (OnboardingContext). The rows come from the gate's state once loadFull()
+// has read it with every step's facts (the gate's first, fast read leaves out
+// a completed install's facts), read when the card shows and again whenever
+// the dashboard is shown again. Welcome and You're set are never rows: they
+// are not setup left to do. Hiding it is remembered (getStarted.js, the key
 // the old Get started checklist used).
 import { useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Circle, Rocket, X } from 'lucide-react'
 import { OnboardingContext } from '../../onboarding/onboardingContext.js'
 import { STEPS, statusesOf, railLabel } from '../../onboarding/steps.js'
-import { callStep } from '../../onboarding/callStep.js'
-import { onboarding } from '../../services/onboarding.js'
 import { loadDismissed, saveDismissed } from './getStarted.js'
 
-const SETUP_STEPS = STEPS.filter(s => s.id !== 'finish').map(s => s.id)
+const SETUP_STEPS = STEPS.filter(s => s.id !== 'welcome' && s.id !== 'finish').map(s => s.id)
 
 export default function FinishSetupCard({ isActive = true }) {
   const { t } = useTranslation()
-  const { openOnboarding } = useContext(OnboardingContext)
+  const { openOnboarding, state, loadFull } = useContext(OnboardingContext)
   const [hidden, setHidden] = useState(loadDismissed)
-  const [state, setState] = useState(null)
+  const [full, setFull] = useState(false) // the gate's state carries every fact
   const [opening, setOpening] = useState('')
-  const readSeq = useRef(0)
   const read = useCallback(async () => {
-    const my = ++readSeq.current
-    const r = await callStep(() => onboarding.stateFull())
-    if (my !== readSeq.current) return // a newer read answers
-    if (r.ok) setState(r.value || null)
-    else console.error('finish-setup card: onboarding state', r.message) // the card stays as it was
-  }, [])
+    const r = await loadFull()
+    if (r && r.ok) setFull(true)
+    else console.error('finish-setup card: onboarding state', r?.message) // the card stays as it was
+  }, [loadFull])
   useEffect(() => { if (!hidden) read() }, [hidden, read])
   const wasActive = useRef(isActive)
   useEffect(() => {
@@ -38,7 +34,7 @@ export default function FinishSetupCard({ isActive = true }) {
     if (back && !hidden) read()
   }, [isActive, hidden, read])
 
-  if (hidden || !state) return null
+  if (hidden || !full || !state) return null
   const statuses = statusesOf(state)
   const left = SETUP_STEPS.filter(id => statuses[id] !== 'done')
   if (left.length === 0) return null
