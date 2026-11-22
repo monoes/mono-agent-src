@@ -3,6 +3,7 @@ package doctor
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
 	"github.com/monoes/mono-agent/internal/health"
+	"github.com/monoes/mono-agent/internal/jev"
 	"github.com/monoes/mono-agent/internal/jev/jevconf"
 	"github.com/monoes/mono-agent/internal/monomind"
 	"github.com/monoes/mono-agent/internal/nodemgr"
@@ -190,18 +192,31 @@ func NewHealthEnv(d EnvDeps, projects []string) (*health.Env, func()) {
 	env.JevKey = func(ctx context.Context) (string, error) {
 		return jevconf.KeySource(ctx, env.DB, env.ProfileID)
 	}
-	env.JevModels = func(ctx context.Context) error {
-		c, _, err := jevconf.ResolveClient(ctx, env.DB, env.ProfileID, "", "")
-		if err != nil {
-			return err
-		}
-		_, err = c.Models(ctx)
-		return err
-	}
+	env.JevProvider = func() string { return jevconf.DefaultProvider(env.DB) }
+	env.JevModels = func(ctx context.Context) error { return checkDecisionProvider(ctx, env.DB, env.ProfileID) }
 	if d.Hook != nil {
 		d.Hook(env)
 	}
 	return env, closeFn
+}
+
+// checkDecisionProvider is jev.api's network check of the machine's default
+// decision provider: TypeSafe lists its models with the resolved key, as
+// before providers; another provider lists its models when it can, else
+// answers one tiny yes/no question.
+func checkDecisionProvider(ctx context.Context, db *sql.DB, profileID string) error {
+	provider := jevconf.DefaultProvider(db)
+	c, _, err := jevconf.ResolveProviderClient(ctx, db, profileID, provider, "", "")
+	if err != nil {
+		return err
+	}
+	_, err = c.Models(ctx)
+	if provider == jev.ProviderTypeSafe || !errors.Is(err, jev.ErrUnsupported) {
+		return err
+	}
+	_, err = c.Ask(ctx, map[string]any{"probe": "monoagent doctor checks this provider answers"},
+		map[string]jev.Question{"ok": {Type: jev.TypeNoul, Instructions: "Answer yes."}})
+	return err
 }
 
 // resolveProfileID is the id of the profile idOrName names, by id or else by name (the CLI's

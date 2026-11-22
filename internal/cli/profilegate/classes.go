@@ -61,6 +61,11 @@ var classes = map[string]string{
 	// --from-profile (or takes the newest readable one). `jev key test` stays
 	// scoped: it falls back to the caller's profile vault.
 	"jev key set": ClassGlobal, "jev key remove": ClassGlobal, "jev key adopt": ClassGlobal,
+	// Decision providers are machine-wide records and the machine default, like
+	// the key. `jev provider use --surface S` sets one profile's choice and
+	// demands --profile itself; list and probe stay scoped like `jev key test`
+	// (they read the profile's TypeSafe key source).
+	"jev provider add": ClassGlobal, "jev provider remove": ClassGlobal, "jev provider use": ClassGlobal,
 
 	"automation":                      ClassGlobal,
 	"automation list":                 ClassScoped, // login state of the profile's sessions

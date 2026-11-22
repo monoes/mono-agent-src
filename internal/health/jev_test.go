@@ -53,6 +53,34 @@ func TestJevAPICheck(t *testing.T) {
 	}
 }
 
+// With another default provider, a missing TypeSafe key is not applicable,
+// and jev.api checks that provider (keyless ones too); TypeSafe as the
+// default named explicitly behaves as with no hook (D4).
+func TestJevChecksFollowTheDefaultProvider(t *testing.T) {
+	ctx := context.Background()
+	noKey := func(context.Context) (string, error) { return "", errors.New("no key") }
+	calls := 0
+	env := &Env{ProfileID: "p1", JevKey: noKey, JevModels: func(context.Context) error { calls++; return nil },
+		JevProvider: func() string { return "local" }}
+	if res := checkJevKey(ctx, env); res.Status != StatusSkip || !strings.Contains(res.Summary, `"local"`) {
+		t.Fatalf("key with another provider: %+v", res)
+	}
+	if res := checkJevAPI(ctx, env); res.Status != StatusOK || calls != 1 || !strings.Contains(res.Summary, `"local"`) {
+		t.Fatalf("api with another provider: %+v (calls %d)", res, calls)
+	}
+	env.JevModels = func(context.Context) error { return errors.New("connection refused") }
+	if res := checkJevAPI(ctx, env); res.Status != StatusWarn || !strings.Contains(res.Summary, "connection refused") {
+		t.Fatalf("api failing: %+v", res)
+	}
+	env.JevProvider = func() string { return "typesafe" }
+	if res := checkJevKey(ctx, env); res.Status != StatusWarn || res.FixID != FixJevKey {
+		t.Fatalf("typesafe default, no key: %+v", res)
+	}
+	if res := checkJevAPI(ctx, env); res.Status != StatusSkip {
+		t.Fatalf("typesafe default, no key, api: %+v", res)
+	}
+}
+
 func TestJevRegistered(t *testing.T) {
 	reg := Default()
 	var key, api *Check
