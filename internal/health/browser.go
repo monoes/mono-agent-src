@@ -27,6 +27,13 @@ const (
 	FixBridgeServiceRestart = "browser.bridge.service.restart"
 )
 
+// ExtensionInstallSteps is the by-hand fix for a missing extension, for any
+// Chromium-based browser. The folder is where `extension install` unpacks it
+// (extensioncli.extensionDir); the addresses are internal/chromium's.
+const ExtensionInstallSteps = "run `monoagentcli extension install`, then open your browser's extensions page " +
+	"(chrome://extensions, edge://extensions, brave://extensions, arc://extensions, vivaldi://extensions or opera://extensions) " +
+	"→ enable Developer mode → Load unpacked → ~/.monoagent/extension"
+
 // ClientPairing's answers (extension.PairingState's values).
 const (
 	ClientPairingOK       = "ok"
@@ -54,7 +61,7 @@ func browserFixes() []Fix {
 		{FixInfo: FixInfo{ID: FixBrowserInstall, Label: "Install a Chromium browser", Safety: SafetyManual,
 			Command: "install Google Chrome, Microsoft Edge, Chromium or Brave"}, Apply: manual},
 		{FixInfo: FixInfo{ID: FixExtensionInstall, Label: "Load the MonoAgent extension", Safety: SafetyManual,
-			Command: "open chrome://extensions → enable Developer mode → Load unpacked → the chrome-extension folder"}, Apply: manual},
+			Command: ExtensionInstallSteps}, Apply: manual},
 		{FixInfo: FixInfo{ID: FixExtensionPair, Label: "Pair the extension", Safety: SafetyManual,
 			Command: "monoagentcli extension pair --open"}, Apply: manual},
 		{FixInfo: FixInfo{ID: FixExtensionPermission, Label: "Grant Full Disk Access", Safety: SafetyManual,
