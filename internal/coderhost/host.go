@@ -48,8 +48,8 @@ type Host struct {
 	Mesh      Mesh
 	MeshEvery time.Duration
 	MeshIdle  time.Duration
-	// TitleOf is a chat's name as the app shows it, which a session without a mesh name of its own
-	// takes (AliasFromTitle). Unset, only a name the person typed counts.
+	// TitleOf is the name the person gave a chat, which a session without a mesh name of its own
+	// takes (AliasFromTitle); never a title derived from its prompt. Unset, only a name the person typed counts.
 	TitleOf  func(profileID, conversationID string) (string, error)
 	meshPrev map[meshKey]MeshSession // what the mesh was last told, kept for a session whose records do not read
 

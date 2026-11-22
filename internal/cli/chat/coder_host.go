@@ -356,7 +356,7 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 				Poll:                 poll,
 				Logf:                 logf,
 				RequireConversations: true,
-				TitleOf:              func(profileID, id string) (string, error) { return chatDisplayTitle(db.DB, profileID, id) },
+				TitleOf:              func(profileID, id string) (string, error) { return chatOwnTitle(db.DB, profileID, id) },
 			}
 			// The pursuit loop is on by default and idles until a judge pin exists, unless the operator turned it off (see coder_host_pursuit.go); read once, here.
 			pursuit, pursuitInfo := pursuitFromEnv(os.Getenv, db.DB)
