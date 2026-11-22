@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -209,6 +210,9 @@ func TestReservedEntryIsTheOperatorsToWrite(t *testing.T) {
 // A marked agent's refusal is what it always was, byte for byte (golden), the same text any other refused
 // context gets with its own reason.
 func TestReservedEntryRefusalForAMarkedAgentIsUnchanged(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the golden carries the Linux restart advice (systemctl); the other systems' text is tested in internal/operator")
+	}
 	db := reservedFixture(t)
 	t.Setenv("CLAUDECODE", "1")
 	_, err := runSecretCmd(t, db, "update", secrets.ReservedEntry, "--field", "token="+bearerWanted)

@@ -258,6 +258,36 @@ func TestTheHubIsStartedOnceAMinute(t *testing.T) {
 	m2.Sync(bg, []MeshSession{sess("c9")}) // a failing start is logged, not fatal
 }
 
+// A hub that cannot start is retried less and less often, and the reason is logged once, not every pass (#1767 item 5).
+func TestAHubThatCannotStartIsRetriedWithBackoffAndLoggedOnce(t *testing.T) {
+	h := newFakeHub()
+	h.offline = true
+	starts := 0
+	var logs []string
+	now := time.Now()
+	m := &HubMesh{Call: h.call, Now: func() time.Time { return now },
+		Logf:     func(f string, a ...any) { logs = append(logs, fmt.Sprintf(f, a...)) },
+		StartHub: func(context.Context) error { starts++; return errors.New("exit status 1") }}
+	for i := 0; i < 8; i++ { // eight minutes of one-minute passes
+		m.Sync(bg, []MeshSession{sess("c1")})
+		now = now.Add(time.Minute)
+	}
+	if starts != 3 { // at 0, 2 and 6 minutes: the wait doubles after each failed start
+		t.Fatalf("starts = %d, want 3 (backed off)", starts)
+	}
+	if len(logs) != 1 || !strings.Contains(logs[0], "could not start the hub") {
+		t.Fatalf("logs = %q, want the reason exactly once", logs)
+	}
+	h.offline = false // the hub answers: the wait is short again
+	m.Sync(bg, []MeshSession{sess("c1")})
+	h.offline = true
+	now = now.Add(time.Minute + time.Second)
+	m.Sync(bg, []MeshSession{sess("c2")})
+	if starts != 4 {
+		t.Fatalf("starts = %d, want 4: a recovered hub resets the backoff", starts)
+	}
+}
+
 func msg(from, body string) map[string]any {
 	return map[string]any{"seq": float64(7), "from": from, "fromAlias": "peer-a", "kind": "say", "body": body, "ts": float64(1)}
 }

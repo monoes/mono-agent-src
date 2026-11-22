@@ -70,6 +70,7 @@ type HubMesh struct {
 	mu         sync.Mutex
 	sessions   map[meshKey]*joined
 	hubStarted time.Time
+	hubFails   int // starts of the hub in a row that did not bring it up (backs the next try off; 0 once it answers)
 	seq        int
 }
 
@@ -101,10 +102,12 @@ func randHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
-// hubRetry is how long after a start of the hub another is not attempted;
+// hubRetry is how long after a start of the hub another is not attempted (doubled
+// after each start that did not bring the hub up, at most hubBackoffMax times);
 // maxAliasTries bounds how many names a join tries while the hub says taken.
 const (
 	hubRetry      = time.Minute
+	hubBackoffMax = 6
 	maxAliasTries = 10
 )
 
@@ -196,23 +199,42 @@ func (m *HubMesh) join(ctx context.Context, s MeshSession) *joined {
 // not held up by the few seconds that takes.
 func (m *HubMesh) callWithHub(ctx context.Context, req map[string]any) (map[string]any, error) {
 	reply, err := m.call(req)
-	if err == nil || m.StartHub == nil || m.now().Sub(m.hubStarted) < hubRetry {
+	if err == nil {
+		m.hubFails = 0 // it answers: a later outage starts from the short wait again
+		return reply, nil
+	}
+	if m.StartHub == nil || m.now().Sub(m.hubStarted) < hubRetry<<min(m.hubFails, hubBackoffMax) {
 		return reply, err
 	}
 	m.hubStarted = m.now()
 	m.mu.Unlock()
 	defer m.mu.Lock()
 	if serr := m.StartHub(ctx); serr != nil {
-		m.logf("mesh: could not start the hub: %v", serr)
+		m.hubFailed(serr)
 		return nil, err
 	}
 	for i := 0; i < 20 && ctx.Err() == nil; i++ {
 		time.Sleep(150 * time.Millisecond)
 		if reply, err = m.callUnlocked(req); err == nil {
+			m.mu.Lock()
+			m.hubFails = 0
+			m.mu.Unlock()
 			return reply, nil
 		}
 	}
+	m.hubFailed(err)
 	return nil, err
+}
+
+// hubFailed counts a start that did not bring the hub up, and says why once per run of failures
+// (the next tries come after a longer wait each time, and stay quiet until the hub answers).
+func (m *HubMesh) hubFailed(why error) {
+	m.mu.Lock() // callWithHub lets go of m.mu while the hub starts
+	defer m.mu.Unlock()
+	if m.hubFails == 0 {
+		m.logf("mesh: could not start the hub: %v (trying again less and less often, quietly, until it answers)", why)
+	}
+	m.hubFails++
 }
 
 // callUnlocked is call for a caller that does not hold m.mu (m.seq is guarded by it).

@@ -120,7 +120,7 @@ func TestOrgSignYesAsksTheTurnAwareGate(t *testing.T) {
 	asInATurn(t)
 	_, err := f.run(t, "sign", "growth", "--yes")
 	blocked, ok := err.(*orgSignBlocked)
-	if !ok || blocked.marker != turnStandIn || blocked.JSONErrorFields()["code"] != "org_sign_agent_context" {
+	if !ok || blocked.marker != turnStandIn || blocked.JSONErrorFields()["code"] != "operator_only" {
 		t.Fatalf("cleared-marker turn: sign --yes: %v", err)
 	}
 	if st := f.mustRun(t, "sign", "growth", "--status"); st["blocked_by"] != turnStandIn {
@@ -188,7 +188,7 @@ func TestOrgSignRefusedToTheGateWhateverTheTerminal(t *testing.T) {
 
 func isSignBlocked(err error) bool {
 	b, ok := err.(*orgSignBlocked)
-	return ok && b.JSONErrorFields()["code"] == "org_sign_agent_context"
+	return ok && b.JSONErrorFields()["code"] == "operator_only"
 }
 
 // Approving a gate is approving an approval (class B, decided by the user): `org chat approve` of a
