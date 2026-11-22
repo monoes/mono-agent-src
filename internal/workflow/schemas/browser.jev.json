@@ -34,7 +34,7 @@
     },
     {
       "default": "jev-latest",
-      "help": "Applies to the TypeSafe provider (another provider uses its own model unless you set one here).",
+      "help": "Applies to the TypeSafe provider (another provider uses its own model unless this node also names that provider).",
       "key": "model",
       "label": "Jev Model",
       "required": false,

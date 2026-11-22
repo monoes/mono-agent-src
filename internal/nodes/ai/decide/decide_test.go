@@ -178,6 +178,9 @@ func TestConfigValidation(t *testing.T) {
 		"reserved option":    {"kind": "choice", "question": "q", "options": []interface{}{"a", "low_confidence"}},
 		"duplicate option":   {"kind": "choice", "question": "q", "options": []interface{}{"a", "a"}},
 		"bad options":        {"kind": "choice", "question": "q", "options": 3.0},
+		"a number id":        {"kind": "choice", "question": "q", "options": []interface{}{map[string]interface{}{"id": 3.0}, "b"}},
+		"a number value":     {"kind": "choice", "question": "q", "options": []interface{}{map[string]interface{}{"value": true}, "b"}},
+		"keys equal trimmed": {"kind": "choice", "question": "q", "options": map[string]interface{}{" a": "x", "a": "y"}},
 		"min_confidence > 1": {"kind": "noul", "question": "q", "min_confidence": 1.5},
 	} {
 		if _, err := (&Node{}).Execute(testCtx(), workflow.NodeInput{}, cfg); !errors.Is(err, workflow.ErrInvalidConfig) {
@@ -297,6 +300,40 @@ func TestDefaultProviderAnswers(t *testing.T) {
 	out, err := (&Node{}).Execute(ctx, workflow.NodeInput{Items: items("x =b")}, cfg)
 	if err != nil || len(handles(out)["b"]) != 1 || srv.Calls() != 0 || fb.Requests()[0].Model != "fake-model" {
 		t.Fatalf("err %v, routing %v, TypeSafe %d", err, handles(out), srv.Calls())
+	}
+}
+
+// C9: option ids of an {id: description} object are trimmed, then sorted,
+// as the editor derives the handles.
+func TestOptionIDsAreTrimmedBeforeSorting(t *testing.T) {
+	opts, err := parseOptions(map[string]any{" b": "B", "a ": "A", "c": "C"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := opts[0].id + "," + opts[1].id + "," + opts[2].id; got != "a,b,c" || opts[1].description != "B" {
+		t.Fatalf("options = %+v", opts)
+	}
+}
+
+// C6: more options than the provider takes, or a kind it does not answer,
+// fails the node's config before any item is asked.
+func TestAQuestionTheProviderCannotTakeIsInvalidConfig(t *testing.T) {
+	fb := jevtest.NewFakeBackend(byText)
+	fb.Caps.MaxChoiceOptions = 2
+	ctx := providerCtx(t, fb, true)
+	cfg := map[string]interface{}{"kind": "choice", "question": "q", "input": "{{$json.text}}", "options": []interface{}{"a", "b", "c"}}
+	if _, err := (&Node{}).Execute(ctx, workflow.NodeInput{Items: items("x =b")}, cfg); !errors.Is(err, workflow.ErrInvalidConfig) ||
+		!strings.Contains(err.Error(), "at most 2 options") || fb.Calls() != 0 {
+		t.Fatalf("err %v, calls %d", err, fb.Calls())
+	}
+	cfg["options"] = []interface{}{"a", "b"}
+	if _, err := (&Node{}).Execute(ctx, workflow.NodeInput{Items: items("x =b")}, cfg); err != nil {
+		t.Fatalf("two options: %v", err)
+	}
+	fb.Caps.Kinds = []string{jev.TypeChoice}
+	if _, err := (&Node{}).Execute(ctx, workflow.NodeInput{Items: items("x =0.9")}, map[string]interface{}{"kind": "noul", "question": "q"}); !errors.Is(err, workflow.ErrInvalidConfig) ||
+		!strings.Contains(err.Error(), "does not answer noul") {
+		t.Fatalf("an unsupported kind: %v", err)
 	}
 }
 

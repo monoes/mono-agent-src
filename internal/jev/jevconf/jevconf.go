@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"os"
@@ -52,6 +53,43 @@ func NodeSurface(nodeType string) Surface { return Surface("node:" + nodeType) }
 
 // Surfaces lists the surfaces `jev enable` accepts, in display order.
 var Surfaces = []Surface{ActionFallback, HIL, PeopleReview, Capture, Inbox, PeopleLinks, Asks, Retry, APIAuto}
+
+// SurfaceKinds lists the question kinds each surface asks (every surface in
+// Surfaces, and Decider and DynamicOrg): a provider whose probed kinds lack
+// one cannot serve that surface (CheckSurfaceKinds).
+var SurfaceKinds = map[Surface][]string{
+	ActionFallback: {jev.TypeChoice},                // internal/jevpick
+	HIL:            {jev.TypeChoice, jev.TypeScore}, // internal/hilsuggest: decision, risk
+	PeopleReview:   {jev.TypeChoice},                // internal/peoplereview
+	Capture:        {jev.TypeChoice},                // internal/captureclassify
+	Inbox:          {jev.TypeChoice, jev.TypeNoul},  // intent, should_reply
+	PeopleLinks:    {jev.TypeNoul},                  // internal/peoplelinks
+	Asks:           {jev.TypeChoice},                // internal/orgbridge ask matching
+	Retry:          {jev.TypeChoice},                // jev retry triage
+	APIAuto:        {jev.TypeChoice},                // internal/openaiapi
+	Decider:        {jev.TypeChoice},                // internal/orgdecide
+	DynamicOrg:     {jev.TypeChoice},                // internal/dynorg
+}
+
+// CheckSurfaceKinds refuses provider p for surface s when p's capabilities
+// name the question kinds it answers (a probe found them) and lack one that s
+// asks. Unknown capabilities pass.
+func CheckSurfaceKinds(p Provider, s Surface) error {
+	if len(p.Caps.Kinds) == 0 {
+		return nil
+	}
+	var missing []string
+	for _, k := range SurfaceKinds[s] {
+		if !p.Caps.Supports(k) {
+			missing = append(missing, k)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("jev: provider %q does not answer %s questions, which surface %s asks (it answers %s; `jev provider probe %s` checks again)",
+		p.Name, strings.Join(missing, " and "), s, strings.Join(p.Caps.Kinds, ", "), p.Name)
+}
 
 // Egress lists, per surface, the data sent to TypeSafe (plan §5); `jev enable`
 // prints it before switching a surface on.

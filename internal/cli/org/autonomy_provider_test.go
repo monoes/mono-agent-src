@@ -103,6 +103,10 @@ func TestJevViewProvider(t *testing.T) {
 		{"slashed model decided", orgdecide.Decision{Resolver: "jev:openrouter/openai/gpt-4.1-mini", Rationale: "jev openrouter/openai/gpt-4.1-mini: approve p=0.91 (…)", Probabilities: probs}, "openrouter", true, -1},
 		{"slashed model below", orgdecide.Decision{Resolver: "model:m", Rationale: "jev openrouter/openai/gpt-4.1-mini: deny p=0.51 below 0.90 (…); x", Probabilities: probs}, "openrouter", false, 0.9},
 		{"provider failed", orgdecide.Decision{Resolver: "model:m", Rationale: "jev my-box-2/qwen2.5-7b failed (connection refused); ok", Probabilities: probs}, "my-box-2", false, -1},
+		// C2: an older row with no model after the "/", or a model with spaces.
+		{"no model decided", orgdecide.Decision{Resolver: "jev:hf/", Rationale: "jev hf/: approve p=0.94 (…)", Probabilities: probs}, "hf", true, -1},
+		{"spaced model below", orgdecide.Decision{Resolver: "model:m", Rationale: "jev hf/Big Model 7b: approve p=0.62 below 0.85 (…); x", Probabilities: probs}, "hf", false, 0.85},
+		{"default model decided", orgdecide.Decision{Resolver: "jev:hf/default", Rationale: "jev hf/default: approve p=0.94 (…)", Probabilities: probs}, "hf", true, -1},
 	} {
 		v := jevView(c.d)
 		if v == nil {

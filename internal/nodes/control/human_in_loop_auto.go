@@ -153,43 +153,61 @@ func autoDecideRows(ctx context.Context, db *sql.DB, input workflow.NodeInput, c
 	if err != nil {
 		return skip(err.Error())
 	}
+	typesafe := client.Provider == jev.ProviderTypeSafe
 	kinds := watchProbability(client)
 	ins := make([]hilsuggest.Input, len(input.Items))
 	for i := range ins {
 		ins[i] = hilsuggest.Input{Readonly: ro[i], Editable: ed[i], Policy: cfg.policy}
 	}
-	jctx, cancel := context.WithTimeout(ctx, autoDecideTimeout)
-	defer cancel()
-	sugs, errs := hilsuggest.SuggestAll(jctx, client, ins)
+	var sugs []hilsuggest.Suggestion
+	var errs []error
+	slow := slowProvider(client)
+	if slow {
+		sugs, errs = suggestEach(ctx, client, ins)
+	} else {
+		jctx, cancel := context.WithTimeout(ctx, autoDecideTimeout)
+		defer cancel()
+		sugs, errs = hilsuggest.SuggestAll(jctx, client, ins)
+	}
 	var firstErr error
+	failed := make([]bool, len(plan))
 	for i := range plan {
+		if plan[i].extra == nil {
+			plan[i].extra = map[string]interface{}{}
+		}
 		if errs[i] != nil {
 			if firstErr == nil {
 				firstErr = errs[i]
 			}
+			failed[i] = true
+			if slow {
+				// One item's failure leaves that item for a person, not the others.
+				plan[i].extra["auto_decide_skipped"] = askFailure(client, errs[i])
+			}
 			continue
 		}
-		if plan[i].extra == nil {
-			plan[i].extra = map[string]interface{}{}
-		}
 		plan[i].extra["suggestion"] = sugs[i]
-		plan[i].extra["provider"] = client.Provider
+		if !typesafe { // D4: a TypeSafe row is as before decision providers
+			plan[i].extra["provider"] = client.Provider
+		}
 	}
-	if firstErr != nil {
+	if firstErr != nil && !slow {
 		// Any Jev failure leaves every row for a person, as without Jev.
-		return skip("jev: " + firstErr.Error())
+		return skip(askFailure(client, firstErr))
 	}
 	if orgStarted(ctx, db, input.ExecutionID) {
 		all("auto_decide_skipped", "org-started execution: the org decides its HIL items")
 		return plan, nil
 	}
-	kind := kinds()
-	if kind != "" {
+	if kind := kinds(); kind != "" && !typesafe {
 		all("probability_kind", string(kind))
 	}
 	for i, s := range sugs {
+		if failed[i] {
+			continue
+		}
 		// D7: a provider without probabilities never settles an item.
-		s.P = decisionclient.Gate(&jev.Response{Probability: kind}, s.P)
+		s.P = decisionclient.Gate(&jev.Response{Probability: kinds()}, s.P)
 		switch {
 		// Never auto-approve an item Jev itself rates high-risk: it waits for
 		// a human with the suggestion shown.
@@ -204,6 +222,48 @@ func autoDecideRows(ctx context.Context, db *sql.DB, input workflow.NodeInput, c
 		plan[i].extra["p"] = s.P
 	}
 	return plan, nil
+}
+
+// slowProvider reports whether client's provider answers slowly: it samples
+// its probabilities, or takes one question per request (the HIL request has
+// two). Its items get autoDecideTimeout each, and fail one by one.
+func slowProvider(client *jev.Client) bool {
+	if client.Provider == jev.ProviderTypeSafe || client.Backend == nil {
+		return false
+	}
+	caps := client.Backend.Capabilities()
+	return caps.Probability == jev.ProbSampled || caps.QuestionsPerRequest == 1
+}
+
+// suggestEach is hilsuggest.SuggestAll with a timeout per item.
+func suggestEach(ctx context.Context, client *jev.Client, ins []hilsuggest.Input) ([]hilsuggest.Suggestion, []error) {
+	out := make([]hilsuggest.Suggestion, len(ins))
+	errs := make([]error, len(ins))
+	sem := make(chan struct{}, hilsuggest.MaxInFlight)
+	var wg sync.WaitGroup
+	for i := range ins {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int) {
+			defer func() { <-sem; wg.Done() }()
+			ictx, cancel := context.WithTimeout(ctx, autoDecideTimeout)
+			defer cancel()
+			out[i], errs[i] = hilsuggest.Suggest(ictx, client, ins[i])
+		}(i)
+	}
+	wg.Wait()
+	return out, errs
+}
+
+// askFailure is the skip reason of a failed decision call: the error as
+// before decision providers for TypeSafe, else a fixed phrase and the
+// error's class (a provider's own error text may quote what its server
+// answered, which a person or an agent reads here).
+func askFailure(client *jev.Client, err error) string {
+	if client.Provider == jev.ProviderTypeSafe {
+		return "jev: " + err.Error()
+	}
+	return fmt.Sprintf("jev: decision provider %q did not answer (%s)", client.Provider, jevconf.ErrorClass(err))
 }
 
 // watchProbability records how client's answers got their probabilities. The

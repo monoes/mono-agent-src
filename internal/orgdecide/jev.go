@@ -56,13 +56,45 @@ func (d *JevDecider) model() string {
 
 // label names who answered in the resolver ("jev:<label>") and the
 // rationale ("jev <label>: …"): the model alone for TypeSafe, as before
-// decision providers, else "<provider>/<model>".
-func (d *JevDecider) label() string {
-	provider := ""
-	if d.Client != nil {
-		provider = d.Client.Provider
+// decision providers, else "<provider>/<model>", the model being the one
+// that answered (resp, which may be nil), else the client's, else
+// "default" (the provider's own), with no spaces. A provider's label
+// always has a "/", so `org autonomy decisions` tells it from a TypeSafe
+// model.
+func (d *JevDecider) label(resp *jev.Response) string {
+	provider := d.provider()
+	if provider == jev.ProviderTypeSafe {
+		return jev.ModelLabel(provider, d.model())
 	}
-	return jev.ModelLabel(provider, d.model())
+	model := d.Model
+	if resp != nil && resp.Model != "" {
+		model = resp.Model
+	}
+	if model == "" && d.Client != nil {
+		model = d.Client.Model
+	}
+	if model = strings.Join(strings.Fields(model), "-"); model == "" {
+		model = "default"
+	}
+	return provider + "/" + model
+}
+
+func (d *JevDecider) provider() string {
+	if d.Client == nil || d.Client.Provider == "" {
+		return jev.ProviderTypeSafe
+	}
+	return d.Client.Provider
+}
+
+// callTimeout is jevCallTimeout, three times over for a provider that
+// samples its probabilities or takes one question per request.
+func (d *JevDecider) callTimeout() time.Duration {
+	if d.provider() != jev.ProviderTypeSafe && d.Client.Backend != nil {
+		if c := d.Client.Backend.Capabilities(); c.Probability == jev.ProbSampled || c.QuestionsPerRequest == 1 {
+			return 3 * jevCallTimeout
+		}
+	}
+	return jevCallTimeout
 }
 
 // cost is what one call cost: the provider's own figure when it gives one,
@@ -149,14 +181,20 @@ func (d *JevDecider) Decide(ctx context.Context, p Prompt) (Outcome, error) {
 	if p.Input == nil || p.Input.Item.Kind == KindQuestion || d.Client == nil || len(p.Allowed) == 0 {
 		return d.Fallback.Decide(ctx, p)
 	}
-	label := d.label()
 	started := time.Now()
-	jctx, cancel := context.WithTimeout(ctx, jevCallTimeout)
+	jctx, cancel := context.WithTimeout(ctx, d.callTimeout())
 	resp, err := d.Client.Ask(jctx, jevState(p.Input), map[string]jev.Question{"verdict": jevVerdictQuestion(p.Allowed, p.Input.Level)})
 	cancel()
 	if err != nil {
-		return d.fallback(ctx, p, fmt.Sprintf("jev %s failed (%v)", label, err), Outcome{Latency: time.Since(started)})
+		why := err.Error()
+		if d.provider() != jev.ProviderTypeSafe {
+			// The note goes into a rationale org agents read: a fixed
+			// phrase, never what the provider's server said.
+			why = jevconf.ErrorClass(err)
+		}
+		return d.fallback(ctx, p, fmt.Sprintf("jev %s failed (%s)", d.label(nil), why), Outcome{Latency: time.Since(started)})
 	}
+	label := d.label(resp)
 	a := resp.Answers["verdict"]
 	// A provider that gives no probability gates as 0 (plan D7): the
 	// fallback decides, and the row keeps no distribution it never had.

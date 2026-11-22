@@ -113,7 +113,7 @@
       "type": "text"
     },
     {
-      "help": "Empty = the provider's model.",
+      "help": "Empty = the provider's model. A provider other than TypeSafe takes it only when this node also names that provider.",
       "key": "model",
       "label": "Model",
       "required": false,

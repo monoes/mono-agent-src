@@ -28,7 +28,7 @@ type ChooseNodeSchema struct {
 
 	APIKey string `json:"api_key" schema:"label=TypeSafe API Key,type=password,default=@secret:typesafe,help=Applies to the TypeSafe provider. Falls back to TYPESAFE_API_KEY."`
 
-	Model string `json:"model" schema:"label=Jev Model,type=text,default=jev-latest,help=Applies to the TypeSafe provider (another provider uses its own model unless you set one here)."`
+	Model string `json:"model" schema:"label=Jev Model,type=text,default=jev-latest,help=Applies to the TypeSafe provider (another provider uses its own model unless this node also names that provider)."`
 
 	Concurrency float64 `json:"concurrency" schema:"label=Concurrency,type=number,default=4,min=1,max=8,help=Requests in flight at once (one request per item). If any item's request fails the whole node fails and a re-run sends every item again."`
 }

@@ -33,8 +33,8 @@ type Provider struct {
 	// BaseURL is the only host its key goes to: https, or http to this machine.
 	BaseURL string `json:"base_url"`
 	Model   string `json:"model"`
-	// SecretName is the machine-vault entry holding its key; "" = keyless
-	// (a local server).
+	// SecretName is the machine-vault entry holding its key; "" = keyless,
+	// which only a server on this machine may be (Loopback).
 	SecretName string `json:"secret_name"`
 	// Caps is what a probe found (or the adapter declares).
 	Caps jev.Capabilities `json:"caps"`
@@ -124,14 +124,12 @@ func SaveProvider(ctx context.Context, db *sql.DB, p Provider) error {
 	return updateProviders(ctx, db, func(tx *sql.Tx, saved []Provider) ([]Provider, error) {
 		out := make([]Provider, 0, len(saved)+1)
 		for _, q := range saved {
-			if q.Name == p.Name {
-				continue
+			if q.Name != p.Name {
+				out = append(out, q)
 			}
-			if p.SecretName != "" && q.SecretName == p.SecretName && origin(q.BaseURL) != origin(p.BaseURL) {
-				return nil, fmt.Errorf("jev: the vault entry %q is the key of provider %q at %s: a key goes only to its own host",
-					p.SecretName, q.Name, origin(q.BaseURL))
-			}
-			out = append(out, q)
+		}
+		if err := sharedKeyElsewhere(p, out); err != nil {
+			return nil, err
 		}
 		return append(out, p), nil
 	})
@@ -158,28 +156,11 @@ func RemoveProvider(ctx context.Context, db *sql.DB, name string) error {
 		if len(out) == len(saved) {
 			return nil, fmt.Errorf("%w %q", ErrUnknownProvider, name)
 		}
-		rows, err := tx.QueryContext(ctx, `SELECT key FROM settings WHERE value = ? AND (key = ? OR key LIKE 'jev.%.provider') ORDER BY key`,
-			name, defaultProviderKey)
+		uses, err := providerUses(ctx, tx, name)
 		if err != nil {
 			return nil, err
 		}
-		defer rows.Close()
-		var uses []string
-		for rows.Next() {
-			var k string
-			if err := rows.Scan(&k); err != nil {
-				return nil, err
-			}
-			uses = append(uses, k)
-		}
-		if err := rows.Err(); err != nil {
-			return nil, err
-		}
-		orgs, err := orgDeciderUses(ctx, tx, name)
-		if err != nil {
-			return nil, err
-		}
-		if uses = append(uses, orgs...); len(uses) > 0 {
+		if len(uses) > 0 {
 			return nil, fmt.Errorf("jev: provider %q is still in use (%s): choose another provider there first", name, strings.Join(uses, ", "))
 		}
 		return out, nil
@@ -321,18 +302,12 @@ func ResolveProviderClient(ctx context.Context, db *sql.DB, profileID, provider,
 	if provider == jev.ProviderTypeSafe {
 		return resolveTypeSafeClient(ctx, db, profileID, explicit, model)
 	}
-	p, ok, err := FindProvider(db, provider)
+	p, err := usableProvider(db, provider)
 	if err != nil {
 		return nil, "", err
 	}
-	if !ok {
-		return nil, "", fmt.Errorf("%w %q (`jev provider list` shows the configured ones)", ErrUnknownProvider, provider)
-	}
 	if strings.TrimSpace(explicit) != "" {
 		return nil, "", ErrExplicitKeyWithProvider
-	}
-	if err := checkProvider(p); err != nil {
-		return nil, "", err
 	}
 	build, ok := builderFor(p.Kind)
 	if !ok {
@@ -376,7 +351,33 @@ func providerKey(ctx context.Context, db *sql.DB, p Provider) (key, source strin
 	if !found || v == "" || strings.HasPrefix(v, "@secret:") {
 		return "", "", noProviderKey{p.Name, p.SecretName}
 	}
+	if err := boundOriginRefusal(ctx, db, p); err != nil {
+		return "", "", err
+	}
 	return v, SourceVault, nil
+}
+
+// usableProvider is the stored record of provider, re-checked as when it was
+// saved: its own shape (checkProvider) and, against the other records, that
+// none names its vault entry at another origin.
+func usableProvider(db *sql.DB, provider string) (Provider, error) {
+	saved, err := savedProviders(db)
+	if err != nil {
+		return Provider{}, err
+	}
+	for _, p := range saved {
+		if p.Name != provider {
+			continue
+		}
+		if err := checkProvider(p); err != nil {
+			return Provider{}, err
+		}
+		if err := sharedKeyElsewhere(p, saved); err != nil {
+			return Provider{}, err
+		}
+		return p, nil
+	}
+	return Provider{}, fmt.Errorf("%w %q (`jev provider list` shows the configured ones)", ErrUnknownProvider, provider)
 }
 
 // noProviderKey is a missing provider key; errors.Is(err, jev.ErrNoAPIKey)
@@ -412,12 +413,16 @@ func checkProvider(p Provider) error {
 	if checkOverride(p.BaseURL) != nil {
 		return fmt.Errorf("%w: %q", ErrProviderURL, redact(p.BaseURL))
 	}
+	if err := keylessRemote(p); err != nil {
+		return err
+	}
 	if s := p.SecretName; s != "" && (strings.HasPrefix(s, "@secret:") || s == SecretName || keyNameAliases[normaliseKeyName(s)]) {
 		return fmt.Errorf("jev: provider %q: secret_name %q names the TypeSafe key, which goes only to TypeSafe: store this provider's key under its own name",
 			p.Name, s)
 	}
 	switch p.Caps.Probability {
-	case "", jev.ProbNative, jev.ProbLogprob, jev.ProbSampled, jev.ProbNone:
+	// "softmax": hf-zeroshot's forced softmax over the candidate labels.
+	case "", jev.ProbNative, jev.ProbLogprob, jev.ProbSampled, jev.ProbNone, "softmax":
 	default:
 		return fmt.Errorf("jev: provider %q: unknown probability kind %q", p.Name, p.Caps.Probability)
 	}

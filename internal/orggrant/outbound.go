@@ -96,7 +96,11 @@ var readOnlyNodes = setOf(
 	"comm.email_read", "system.rss_read",
 	"ai.read_page", // static GET, SSRF-guarded, no browser
 	// AI with no tools: ai.choose and ai.decide are Jev decisions (their
-	// input goes to the decision provider's API). The other ai.* are
+	// input goes to the decision provider's API: TypeSafe's, or a provider
+	// on this machine; in a run an org started or an AI wrote, a provider on
+	// another host is refused at run time, internal/nodes/decisionclient,
+	// since classification here cannot see which provider a node resolves
+	// to; core.human_in_loop's auto_decide likewise). The other ai.* are
 	// deprecated stubs that fail without doing anything (ai.agent is left
 	// out regardless).
 	"ai.choose", "ai.decide",

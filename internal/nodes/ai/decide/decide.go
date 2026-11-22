@@ -76,6 +76,9 @@ func (n *Node) Execute(ctx context.Context, input workflow.NodeInput, raw map[st
 	if err != nil {
 		return nil, err
 	}
+	if err := fitsProvider(cfg, client); err != nil {
+		return nil, err
+	}
 	questions := map[string]jev.Question{questionID: buildQuestion(cfg)}
 
 	// One request per item, at most `concurrency` in flight.
@@ -173,6 +176,24 @@ func newClient(ctx context.Context, raw map[string]interface{}) (*jev.Client, er
 			workflow.ErrInvalidConfig, NodeType)
 	}
 	return nil, fmt.Errorf("%w: %s: %v", workflow.ErrInvalidConfig, NodeType, err)
+}
+
+// fitsProvider refuses, before any item is asked, a question the resolved
+// provider cannot answer: a kind it does not answer, or more choice options
+// than it takes (Capabilities.MaxChoiceOptions). TypeSafe takes every one.
+func fitsProvider(cfg *config, client *jev.Client) error {
+	if client.Backend == nil {
+		return nil
+	}
+	caps := client.Backend.Capabilities()
+	if !caps.Supports(cfg.kind) {
+		return invalid("decision provider %q does not answer %s questions", client.Provider, cfg.kind)
+	}
+	if m := caps.MaxChoiceOptions; cfg.kind == jev.TypeChoice && m > 0 && len(cfg.options) > m {
+		return invalid("decision provider %q takes at most %d options, and this node has %d: use fewer options or another provider",
+			client.Provider, m, len(cfg.options))
+	}
+	return nil
 }
 
 func buildQuestion(cfg *config) jev.Question {
