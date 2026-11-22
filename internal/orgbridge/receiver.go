@@ -71,7 +71,7 @@ type Receiver struct {
 
 	mu         sync.Mutex
 	pending    map[string]*pendingDelivery // messageId -> delivery
-	seen       map[string]time.Time        // messageId|org:role -> bus event seen
+	seen       map[string]seenEvent        // messageId|org:role -> bus event seen
 	dispatched map[string]time.Time        // messageId -> dispatched
 	subs       map[tailKey]func()
 }
@@ -79,7 +79,7 @@ type Receiver struct {
 func (r *Receiver) init() {
 	if r.pending == nil {
 		r.pending = map[string]*pendingDelivery{}
-		r.seen = map[string]time.Time{}
+		r.seen = map[string]seenEvent{}
 		r.dispatched = map[string]time.Time{}
 		r.subs = map[tailKey]func(){}
 	}
@@ -146,7 +146,13 @@ func (r *Receiver) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	r.ensureSubscribedLocked(row.ProfileID, row.OrgName)
-	verified := r.seenLocked(d.MessageID, row.OrgName, row.RoleID)
+	ev, verified := r.seenLocked(d.MessageID, row.OrgName, row.RoleID)
+	if verified && !ev.matches(d) {
+		r.mu.Unlock()
+		r.Logf("orgbridge: endpoint %s:%s: refused message %s — from/subject/body differ from the bus event", row.OrgName, row.RoleID, d.MessageID)
+		writeJSONStatus(w, http.StatusForbidden, map[string]string{"error": "delivery does not match the bus event"})
+		return
+	}
 	if !verified {
 		r.pending[d.MessageID] = &pendingDelivery{row: *row, d: d, deadline: time.Now().Add(r.VerifyWindow)}
 	} else {
@@ -196,9 +202,20 @@ func checkEndpointAuth(req *http.Request, row *orggrant.EndpointRow) (string, in
 
 func seenKey(messageID, org, role string) string { return messageID + "|" + org + ":" + role }
 
-func (r *Receiver) seenLocked(messageID, org, role string) bool {
-	_, ok := r.seen[seenKey(messageID, org, role)]
-	return ok
+// seenEvent is what a bus event vouched for: a delivery is genuine only
+// when its from, subject and body are the ones the org's bus carried.
+type seenEvent struct {
+	at                 time.Time
+	from, subject, msg string
+}
+
+func (s seenEvent) matches(d EndpointDelivery) bool {
+	return s.from == d.From && s.subject == d.Subject && StripTrace(s.msg) == StripTrace(d.Body)
+}
+
+func (r *Receiver) seenLocked(messageID, org, role string) (seenEvent, bool) {
+	e, ok := r.seen[seenKey(messageID, org, role)]
+	return e, ok
 }
 
 func (r *Receiver) ensureSubscribedLocked(profileID, org string) {
@@ -256,9 +273,13 @@ func (r *Receiver) onEvent(org string, ev Event) {
 	}
 	r.mu.Lock()
 	r.init()
-	r.seen[seenKey(ev.MessageID(), org, role)] = time.Now()
+	r.seen[seenKey(ev.MessageID(), org, role)] = seenEvent{at: time.Now(), from: ev.From, subject: ev.Subject, msg: ev.Msg}
 	p := r.pending[ev.MessageID()]
-	if p != nil && p.row.OrgName == org && p.row.RoleID == role {
+	if p != nil && p.row.OrgName == org && p.row.RoleID == role && !r.seen[seenKey(ev.MessageID(), org, role)].matches(p.d) {
+		delete(r.pending, ev.MessageID())
+		r.Logf("orgbridge: endpoint %s:%s: refused message %s — from/subject/body differ from the bus event", org, role, ev.MessageID())
+		p = nil
+	} else if p != nil && p.row.OrgName == org && p.row.RoleID == role {
 		delete(r.pending, ev.MessageID())
 		r.dispatched[ev.MessageID()] = time.Now()
 	} else {
@@ -283,8 +304,8 @@ func (r *Receiver) Sweep(ctx context.Context) {
 			delete(r.pending, id)
 		}
 	}
-	for k, at := range r.seen {
-		if now.Sub(at) > 10*time.Minute {
+	for k, e := range r.seen {
+		if now.Sub(e.at) > 10*time.Minute {
 			delete(r.seen, k)
 		}
 	}
