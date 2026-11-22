@@ -133,6 +133,9 @@ func Exec(ctx context.Context, opts ExecOptions, onEvent func(Event)) (*TurnResu
 	if opts.ToolTimeout > 0 {
 		args = append(args, "--tool-timeout", formatDuration(opts.ToolTimeout))
 	}
+	if opts.Runtime == "claude" {
+		args = append(args, "--startup-timeout", formatDuration(startupTimeoutFor(opts)))
+	}
 	for _, p := range opts.Attach {
 		args = append(args, "--attach", p)
 	}
@@ -422,6 +425,24 @@ func Exec(ctx context.Context, opts ExecOptions, onEvent func(Event)) (*TurnResu
 
 // formatDuration renders a duration in the protocol's duration syntax
 // (sub-second is ms-suffixed; everything else whole seconds).
+// DefaultStartupTimeout is how long a claude turn may take to initialize
+// (its SessionStart hooks and MCP servers) before monomind gives up. monomind's
+// own fixed 30 s fails turns on a busy machine or a heavy hook setup (#1754).
+const DefaultStartupTimeout = 120 * time.Second
+
+// StartupTimeoutEnv raises or lowers the limit: a Go duration such as "3m".
+const StartupTimeoutEnv = "MONOAGENT_STARTUP_TIMEOUT"
+
+func startupTimeoutFor(opts ExecOptions) time.Duration {
+	if opts.StartupTimeout > 0 {
+		return opts.StartupTimeout
+	}
+	if d, err := time.ParseDuration(os.Getenv(StartupTimeoutEnv)); err == nil && d > 0 {
+		return d
+	}
+	return DefaultStartupTimeout
+}
+
 func formatDuration(d time.Duration) string {
 	if d < time.Second {
 		return fmt.Sprintf("%dms", d.Milliseconds())
