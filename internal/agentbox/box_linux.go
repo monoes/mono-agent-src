@@ -291,6 +291,18 @@ func (b Box) compatArgv(home string, env []string) ([]string, error) {
 	if exists(filepath.Join(run, "keyring")) {
 		argv = append(argv, "--tmpfs", filepath.Join(run, "keyring"))
 	}
+	// Agent sockets in the runtime dir: SSH_AUTH_SOCK is dropped from the env, but
+	// the sockets stay reachable by path unless masked.
+	for _, d := range []string{"gnupg", "gcr", "p11-kit"} {
+		if fi, err := os.Stat(filepath.Join(run, d)); err == nil && fi.IsDir() {
+			argv = append(argv, "--tmpfs", filepath.Join(run, d))
+		}
+	}
+	for _, f := range []string{"openssh_agent", "ssh-agent.socket"} {
+		if exists(filepath.Join(run, f)) {
+			argv = append(argv, "--ro-bind", "/dev/null", filepath.Join(run, f))
+		}
+	}
 	for _, d := range HiddenHomeDirs {
 		if fi, err := os.Stat(filepath.Join(home, d)); err == nil && fi.IsDir() {
 			argv = append(argv, "--tmpfs", mountPoint(filepath.Join(home, d)))
