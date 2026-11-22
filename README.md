@@ -25,7 +25,7 @@
 - 🖥️ **Three ways to drive it** — a visual canvas editor (Wails desktop GUI), a 180+-command CLI with JSON output everywhere, and a built-in MCP server so AI agents can operate it safely
 - 🤝 **Human-in-the-loop as a platform primitive** — pause any workflow for review, edit the payload, then approve or reject; the queue is durable and survives restarts
 - 🌐 **Browser automation where no practical API exists** — drive *your own logged-in Chrome* via the bundled extension bridge, publishing to and reading your own accounts (same model as consumer RPA tools)
-- 📣 **Social platform nodes** (Instagram, LinkedIn, X, TikTok, Hacker News, Product Hunt) for managing your own accounts: their web automations are official packages on [monoes.me](https://monoes.me), added with `monoagentcli account login` (`library login` is the same sign-in) and `monoagentcli library install automation <id>` (a `-tags nosocial` build leaves the nodes out) — see [Usage Policy](https://github.com/monoes/mono-agent/blob/HEAD/docs/USAGE_POLICY.md)
+- 📣 **Social platform nodes** (Instagram, LinkedIn, X, TikTok, Hacker News, Product Hunt) for managing your own accounts: their web automations are official packages on [monoes.me](https://monoes.me), added with `monoagentcli account login` (`library login` is the same sign-in) and `monoagentcli --profile <name> library install automation <id>` (a `-tags nosocial` build leaves the nodes out) — see [Usage Policy](https://github.com/monoes/mono-agent/blob/HEAD/docs/USAGE_POLICY.md)
 - 📚 **monoes.me library** — browsing needs your monoes.me sign-in (`monoagentcli account login`; `library login` is the same sign-in), official items included; then browse, install and publish workflows, orgs and web automations (`library list | install | publish | update`); the desktop app has the same in its Templates, Browser Automations and Orgs pages
 
 Think of it as an honest, self-hosted n8n you can carry in a single file — with human approval gates and first-class agent access built in.
@@ -437,7 +437,7 @@ Some features are not agent turns. [Jev](AGENTS.md#decision-models-jev) makes fa
 <details>
 <summary><strong>📱 Social platform actions</strong></summary>
 
-Publish to and read **your own accounts** on these platforms via the Chrome extension bridge. Their node types arrive with the platform's web automation package from the monoes.me library (`monoagentcli library install automation <id>`); a `go build -tags nosocial` build leaves them out. They exist for managing your own presence; platform terms apply — see the [Usage Policy](https://github.com/monoes/mono-agent/blob/HEAD/docs/USAGE_POLICY.md).
+Publish to and read **your own accounts** on these platforms via the Chrome extension bridge. Their node types arrive with the platform's web automation package from the monoes.me library (`monoagentcli --profile <name> library install automation <id>`); a `go build -tags nosocial` build leaves them out. They exist for managing your own presence; platform terms apply — see the [Usage Policy](https://github.com/monoes/mono-agent/blob/HEAD/docs/USAGE_POLICY.md).
 
 | Platform | Available actions |
 |----------|-------------------|
