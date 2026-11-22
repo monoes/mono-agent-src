@@ -7,8 +7,9 @@ import (
 
 // The one definition of "oldest profile", shared by the extension bridge's
 // default marker (List) and the desktop app's first selection. The database
-// stores created_at in two shapes ("2006-01-02 15:04:05" for the seeded
-// default row, RFC3339 for rows the CLI creates), so a plain string compare
+// stores created_at in two shapes ("2006-01-02 15:04:05" for a row SQLite's
+// CURRENT_TIMESTAMP filled, such as the 'default' row older databases were
+// seeded with, RFC3339 for rows the CLI creates), so a plain string compare
 // would order them by the character between date and time, not by time.
 
 var createdLayouts = []string{

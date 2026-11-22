@@ -10,27 +10,6 @@ import (
 // Social Lists
 // ---------------------------------------------------------------------------
 
-// CreateSocialList inserts a new social list.
-func (d *Database) CreateSocialList(list *SocialList) error {
-	if list.ID == "" {
-		list.ID = NewID()
-	}
-	now := time.Now().UTC()
-	list.CreatedAt = now
-	list.UpdatedAt = now
-
-	_, err := d.DB.Exec(`
-		INSERT INTO social_lists (id, list_type, name, item_count, created_at, updated_at)
-		VALUES (?,?,?,?,?,?)`,
-		list.ID, nullStr(list.ListType), list.Name, list.ItemCount,
-		list.CreatedAt, list.UpdatedAt,
-	)
-	if err != nil {
-		return fmt.Errorf("creating social list %s: %w", list.ID, err)
-	}
-	return nil
-}
-
 // GetSocialList retrieves a single social list by ID. Returns nil when not
 // found.
 func (d *Database) GetSocialList(id string) (*SocialList, error) {
@@ -220,31 +199,6 @@ func (d *Database) BatchAddSocialListItems(items []*SocialListItem) error {
 // ---------------------------------------------------------------------------
 // Threads
 // ---------------------------------------------------------------------------
-
-// UpsertThread inserts a new thread or updates an existing one matched by
-// social_user_id + platform.
-func (d *Database) UpsertThread(thread *Thread) error {
-	if thread.ID == "" {
-		thread.ID = NewID()
-	}
-	now := time.Now().UTC()
-
-	_, err := d.DB.Exec(`
-		INSERT INTO threads (id, social_user_id, platform, metadata, messages, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?)
-		ON CONFLICT(social_user_id, platform)
-		DO UPDATE SET
-			metadata   = excluded.metadata,
-			messages   = excluded.messages,
-			updated_at = excluded.updated_at`,
-		thread.ID, thread.SocialUserID, thread.Platform,
-		nullStr(thread.Metadata), nullStr(thread.Messages), now, now,
-	)
-	if err != nil {
-		return fmt.Errorf("upserting thread %s/%s: %w", thread.Platform, thread.SocialUserID, err)
-	}
-	return nil
-}
 
 // GetThread retrieves a single thread by social user ID and platform. Returns
 // nil when not found.

@@ -15,7 +15,10 @@ import (
 // this answers "which profiles are there", for the surfaces that have to
 // offer a choice — the extension's profile picker (profile.list on the
 // request channel) and `capture list --profile`. Both need the same three
-// things: the id, the name a person recognises, and and which one is the deterministic default.
+// things: the id, the name a person recognises, and which one a chooser
+// preselects. That "default" is only the oldest profile (or the browser's
+// bound one, see internal/extension), never a profile named or seeded as
+// "Default": a new database has no profile at all.
 
 // Profile is one profile as a chooser shows it. ID is the value that must
 // travel on a capture envelope; Name is the label.

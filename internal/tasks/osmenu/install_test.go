@@ -179,7 +179,7 @@ func TestInstallNeverReplacesAnotherProfilesMenu(t *testing.T) {
 	}
 }
 
-// Every database has a profile "default": a menu's identity is its database
+// Two databases can share a profile id (here the test fixture's "default"): a menu's identity is its database
 // and its profile id. Another database's menu is taken only with force, and
 // never removed by this database's uninstall.
 func TestInstallKeepsAnotherDatabasesMenu(t *testing.T) {

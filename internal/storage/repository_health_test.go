@@ -425,16 +425,21 @@ func TestHealthPersonStatusUpdates(t *testing.T) {
 
 // --- social lists ------------------------------------------------------------
 
+// addSocialList inserts a social list of the test profile 'default' straight
+// into the table (there is no storage function that creates one).
+func addSocialList(t *testing.T, db *storage.Database, id, name string, listType any) *storage.SocialList {
+	t.Helper()
+	if _, err := db.DB.Exec(`INSERT INTO social_lists (id, list_type, name, item_count, created_at, updated_at, profile_id)
+		VALUES (?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'default')`, id, listType, name); err != nil {
+		t.Fatal(err)
+	}
+	return &storage.SocialList{ID: id, Name: name}
+}
+
 func TestHealthSocialListsAndItems(t *testing.T) {
 	db := testdb.Open(t)
-	l := &storage.SocialList{Name: "Leads", ListType: "people"}
-	if err := db.CreateSocialList(l); err != nil {
-		t.Fatal(err)
-	}
-	l2 := &storage.SocialList{Name: "Other"}
-	if err := db.CreateSocialList(l2); err != nil {
-		t.Fatal(err)
-	}
+	l := addSocialList(t, db, "list-leads", "Leads", "people")
+	l2 := addSocialList(t, db, "list-other", "Other", nil)
 
 	if err := db.AddSocialListItem(&storage.SocialListItem{ListID: l.ID, Platform: "x", PlatformUsername: "u1", URL: "https://x.example/u1", FollowerCount: 7}); err != nil {
 		t.Fatal(err)
@@ -505,25 +510,25 @@ func TestHealthSocialListsAndItems(t *testing.T) {
 
 // --- threads, templates, configs, settings -----------------------------------
 
-func TestHealthThreadsUpsert(t *testing.T) {
+func TestHealthThreadsRead(t *testing.T) {
 	db := testdb.Open(t)
-	th := &storage.Thread{SocialUserID: "u1", Platform: "x", Messages: `["hi"]`}
-	if err := db.UpsertThread(th); err != nil {
-		t.Fatal(err)
-	}
-	// Same (user, platform) updates in place.
-	if err := db.UpsertThread(&storage.Thread{SocialUserID: "u1", Platform: "x", Messages: `["hi","yo"]`, Metadata: `{"a":1}`}); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.UpsertThread(&storage.Thread{SocialUserID: "u1", Platform: "instagram"}); err != nil {
-		t.Fatal(err)
+	// Threads of the test profile 'default', written straight into the table (there is no storage
+	// function that writes one).
+	for _, r := range [][]any{
+		{"th-x", "u1", "x", `{"a":1}`, `["hi","yo"]`},
+		{"th-ig", "u1", "instagram", nil, nil},
+	} {
+		if _, err := db.DB.Exec(`INSERT INTO threads (id, social_user_id, platform, metadata, messages, created_at, updated_at, profile_id)
+			VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'default')`, r...); err != nil {
+			t.Fatal(err)
+		}
 	}
 	got, err := db.GetThread("u1", "x")
 	if err != nil || got == nil {
 		t.Fatalf("GetThread: %v %v", got, err)
 	}
-	if got.ID != th.ID || got.Messages != `["hi","yo"]` || got.Metadata != `{"a":1}` {
-		t.Errorf("thread after upsert = %+v", got)
+	if got.ID != "th-x" || got.Messages != `["hi","yo"]` || got.Metadata != `{"a":1}` {
+		t.Errorf("thread = %+v", got)
 	}
 	if missing, err := db.GetThread("nobody", "x"); err != nil || missing != nil {
 		t.Errorf("GetThread missing = %v, %v", missing, err)

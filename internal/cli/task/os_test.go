@@ -331,7 +331,7 @@ func TestTaskOSStatusSaysWhichMenusAreCurrent(t *testing.T) {
 	}
 }
 
-// Every database has a profile "default": an install or an uninstall run with
+// Two databases can share a profile id (here the test fixture's "default"): an install or an uninstall run with
 // another database never takes or removes this database's menu (--force takes it).
 func TestTaskOSInstallNeverTakesAnotherDatabasesMenu(t *testing.T) {
 	db, dest, _, _ := newTaskOSTest(t)
