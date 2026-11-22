@@ -27,6 +27,19 @@ describe('ExtensionSection', () => {
     expect(screen.getByText(/Developer mode/)).toBeInTheDocument()
   })
 
+  it('names any Chromium-based browser, with each extensions page address', async () => {
+    App.GetExtensionInfo.mockResolvedValue(info)
+    await mount()
+    await screen.findByTestId('extension-path')
+    const card = screen.getByTestId('extension-section')
+    expect(card).toHaveTextContent(/any Chromium-based browser/)
+    expect(card).not.toHaveTextContent(/Chrome or Edge/)
+    for (const url of ['chrome://extensions', 'edge://extensions', 'brave://extensions', 'arc://extensions', 'vivaldi://extensions', 'opera://extensions']) {
+      expect(card).toHaveTextContent(url)
+    }
+    expect(card).toHaveTextContent(/in Edge, the left sidebar/)
+  })
+
   it('reinstalls on request and shows the answer', async () => {
     App.GetExtensionInfo.mockResolvedValue(info)
     App.InstallExtension.mockResolvedValue({ ...info, version: '1.6.0' })

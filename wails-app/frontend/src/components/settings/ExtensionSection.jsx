@@ -52,8 +52,9 @@ export default function ExtensionSection() {
       <div style={label}>MonoAgent Bridge extension</div>
       <div style={hint}>
         monoagent browses through this extension, in your own browser and signed in as you. It
-        never starts a browser of its own. The full extension comes with the app: load it in
-        Chrome or Edge once, as an unpacked extension.
+        never starts a browser of its own. The full extension comes with the app: load it once in
+        any Chromium-based browser (Chrome, Edge, Brave, Arc, Vivaldi, Opera and others), as an
+        unpacked extension.
       </div>
       {error && <div style={errText} role="alert">{error}</div>}
       {info && (
@@ -72,8 +73,12 @@ export default function ExtensionSection() {
             </div>
           )}
           <ol style={{ ...hint, margin: 0, paddingLeft: 18 }}>
-            <li>Open <code>chrome://extensions</code> (Edge: <code>edge://extensions</code>).</li>
-            <li>Turn on <strong>Developer mode</strong> (top right).</li>
+            <li>
+              Open the browser's extensions page: <code>chrome://extensions</code>, <code>edge://extensions</code>,{' '}
+              <code>brave://extensions</code>, <code>arc://extensions</code>, <code>vivaldi://extensions</code> or{' '}
+              <code>opera://extensions</code> (in another browser, usually Menu, then Extensions).
+            </li>
+            <li>Turn on <strong>Developer mode</strong> (top right; in Edge, the left sidebar).</li>
             <li>Click <strong>Load unpacked</strong> and choose the folder above.</li>
             <li>Pin <strong>MonoAgent Bridge</strong>, open its icon and pair it with the app.</li>
           </ol>
