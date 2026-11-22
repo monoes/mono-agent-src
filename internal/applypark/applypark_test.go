@@ -558,6 +558,7 @@ type fakeRunner struct {
 	statusDelay time.Duration // how long the queue's status read takes after Finalize returns
 	readMu      sync.Mutex
 	read        map[string]bool // applications whose status the queue has read since Finalize
+	reasons     map[string]string // applications the queue marked needs_you
 	pending     []string        // submissions the person made that Sweep has not applied yet
 }
 

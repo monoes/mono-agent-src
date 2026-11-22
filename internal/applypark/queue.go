@@ -20,6 +20,9 @@ type Runner interface {
 	// awaiting_submit or needs_you, the tab binding). A task that ended
 	// needs_user, with no result, becomes needs_you with a reason.
 	Finalize(ctx context.Context, appID string) error
+	// NeedsYou marks an application whose task ended without a usable result
+	// needs_you, with the reason, so it does not stay "filling".
+	NeedsYou(ctx context.Context, appID, reason string) error
 	// Sweep releases the slots of tabs the person closed or finished with.
 	Sweep(ctx context.Context) error
 }
@@ -63,6 +66,17 @@ type Queue struct {
 func (q Queue) logf(format string, a ...any) {
 	if q.Log != nil {
 		q.Log(format, a...)
+	}
+}
+
+// needsYou moves a fill that ended without a result out of "filling"; a
+// failure to do so is added to the outcome's error.
+func (q Queue) needsYou(ctx context.Context, write *sync.Mutex, o *Outcome, reason string) {
+	write.Lock()
+	err := q.Runner.NeedsYou(context.WithoutCancel(ctx), o.ApplicationID, reason)
+	write.Unlock()
+	if err != nil {
+		o.Error += " (marking needs_you: " + err.Error() + ")"
 	}
 }
 
@@ -121,6 +135,7 @@ func (q Queue) Run(ctx context.Context, ids []string) ([]Outcome, error) {
 		}
 		if status != "complete" && status != "needs_user" {
 			o.Error = "task " + status
+			q.needsYou(ctx, &write, &o, "The fill task "+status+": open its chat to continue.")
 			finish(o)
 			return
 		}
@@ -129,6 +144,7 @@ func (q Queue) Run(ctx context.Context, ids []string) ([]Outcome, error) {
 		write.Unlock()
 		if err != nil {
 			o.Error = err.Error()
+			q.needsYou(ctx, &write, &o, "The fill result could not be recorded: "+err.Error())
 			finish(o)
 			return
 		}
