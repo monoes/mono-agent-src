@@ -68,6 +68,7 @@ func TestTheRefresherPicksUpASignInFromAnotherProcess(t *testing.T) {
 		t.Fatalf("Status = %s/%q", st.State, st.Reason)
 	}
 	e.signIn(10*time.Minute, time.Hour) // the CLI signs in
+	settle(t, e.loops...)               // passes that began before the sign-in have ended, so the advance is seen by one that began after
 	e.f.Clock.Advance(loopPoll)
 	eventually(t, "the sign-in", func() bool { return g.Status().State == account.StateOK })
 }
