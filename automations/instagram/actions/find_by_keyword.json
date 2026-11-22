@@ -24,6 +24,7 @@
         "name": "maxResultsCount",
         "type": "number",
         "default": 20,
+        "max": 500,
         "description": "Maximum number of results to collect"
       },
       {

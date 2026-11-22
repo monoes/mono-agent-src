@@ -25,6 +25,7 @@
         "name": "maxContentCount",
         "type": "number",
         "default": 10,
+        "max": 100,
         "aliases": ["limit"],
         "description": "Maximum number of posts to engage with"
       },

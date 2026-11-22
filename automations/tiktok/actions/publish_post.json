@@ -12,12 +12,28 @@
   },
   "inputs": {
     "required": [
-      "text",
-      "media"
+      {
+        "name": "text",
+        "type": "string",
+        "description": "Post caption"
+      },
+      {
+        "name": "media",
+        "type": "string",
+        "description": "Media file path or URL"
+      }
     ],
     "optional": [
-      "locationTag",
-      "selectedListItems"
+      {
+        "name": "locationTag",
+        "type": "string",
+        "description": "Location tag"
+      },
+      {
+        "name": "selectedListItems",
+        "type": "list",
+        "description": "Accounts the post is for; informational"
+      }
     ]
   },
   "outputs": {

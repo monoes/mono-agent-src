@@ -16,7 +16,10 @@
       {
         "name": "searches",
         "type": "array",
-        "aliases": ["keywords", "keyword"],
+        "aliases": [
+          "keywords",
+          "keyword"
+        ],
         "description": "Hashtags or keywords to search (the node's keywords)"
       }
     ],
@@ -25,11 +28,30 @@
         "name": "maxContentCount",
         "type": "number",
         "default": 10,
-        "aliases": ["limit"],
+        "max": 100,
+        "aliases": [
+          "limit"
+        ],
         "description": "Maximum number of posts to engage with"
       },
-      "commentText",
-      "target"
+      {
+        "name": "delayBetweenActions",
+        "type": "number",
+        "default": 5,
+        "min": 1,
+        "max": 60,
+        "description": "Seconds to wait between videos"
+      },
+      {
+        "name": "commentText",
+        "type": "string",
+        "description": "Comment to leave on each video; none when empty"
+      },
+      {
+        "name": "target",
+        "type": "string",
+        "description": "What to engage with; informational, not read by the steps"
+      }
     ]
   },
   "outputs": {
@@ -127,7 +149,7 @@
       "id": "process_content",
       "iterator": "videos",
       "indexVar": "reachedIndex",
-      "maxItems": "{{maxContentCount or 0}}",
+      "maxItems": "{{maxContentCount or 10}}",
       "steps": [
         "like_video",
         "determine_interaction_type",
