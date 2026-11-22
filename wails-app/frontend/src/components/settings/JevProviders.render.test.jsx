@@ -198,6 +198,44 @@ describe('Add provider', () => {
     expect(key).toHaveValue('')
   })
 
+  it('sends optional prices from the collapsed Pricing section', async () => {
+    const form = await open()
+    const pricing = within(form).getByTestId('jev-add-pricing')
+    expect(pricing.tagName).toBe('DETAILS')
+    expect(pricing).not.toHaveAttribute('open')
+    expect(within(pricing).getByText('Pricing (optional)')).toBeInTheDocument()
+    expect(within(pricing).getByText(/Only used to estimate cost in the usage table/)).toBeInTheDocument()
+    const priceIn = within(form).getByLabelText('USD per million input tokens')
+    const priceOut = within(form).getByLabelText('USD per million output tokens')
+    expect(priceIn).toHaveAttribute('type', 'number')
+    expect(priceIn).toHaveAttribute('min', '0')
+    fireEvent.change(priceIn, { target: { value: '0.15' } })
+    fireEvent.change(priceOut, { target: { value: '0.6' } })
+    App.JevAddProvider.mockResolvedValue({ ...LOCAL, name: 'ollama', probe: { ok: true, error: '' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Add provider' }))
+    await waitFor(() => expect(App.JevAddProvider).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'ollama', usd_per_mtok_in: 0.15, usd_per_mtok_out: 0.6,
+    })))
+    await within(form).findByText('Added ollama. It answered the test.')
+    expect(priceIn).toHaveValue(null)
+    expect(priceOut).toHaveValue(null)
+  })
+
+  it('refuses a negative price before calling the CLI', async () => {
+    const form = await open()
+    const priceOut = within(form).getByLabelText('USD per million output tokens')
+    fireEvent.change(priceOut, { target: { value: '-1' } })
+    expect(priceOut).toHaveAttribute('aria-invalid', 'true')
+    expect(within(form).getByText('Enter a number of 0 or more.')).toBeInTheDocument()
+    const add = within(form).getByRole('button', { name: 'Add provider' })
+    expect(add).toBeDisabled()
+    fireEvent.click(add)
+    expect(App.JevAddProvider).not.toHaveBeenCalled()
+    fireEvent.change(priceOut, { target: { value: '' } })
+    expect(priceOut).toHaveAttribute('aria-invalid', 'false')
+    expect(add).toBeEnabled()
+  })
+
   it('refuses a bad name before calling the CLI and shows CLI errors inline', async () => {
     const form = await open()
     fireEvent.change(within(form).getByLabelText('Name'), { target: { value: 'My Model' } })
