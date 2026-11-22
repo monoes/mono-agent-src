@@ -531,7 +531,11 @@ export default function Documents({ isActive = true }) {
           <div style={{ fontSize: 11, color: 'var(--text-secondary)', flex: 1 }}>
             {initStatus === 'running'
               ? 'Setting up monomind for this profile — this can take a minute or two…'
-              : 'Monomind isn\'t set up for this profile yet — uploaded documents won\'t be searchable until it is.'}
+              // The upload path checks no set-up: the file is saved, then
+              // knowledge_ingest is tried and its outcome stored on the row
+              // (internal/cli/profile/documents.go:34-50, 70, 86-89;
+              // internal/monomind/docsync.go:46-55).
+              : 'This profile isn\'t set up with monomind yet. Uploads are still saved and still sent for indexing; a document that could not be indexed says so in its row.'}
           </div>
           {initStatus === 'running' ? (
             <div className="spinner" style={{ width: 14, height: 14 }} />

@@ -197,6 +197,13 @@ describe('Documents folder upload', () => {
 })
 
 describe('Documents initiate monomind', () => {
+  it('says what an upload before the set-up really does', async () => {
+    WailsApp.IsMonomindInitialized.mockResolvedValue(false)
+    await renderLoaded()
+    expect(await screen.findByText(/Uploads are still saved and still sent for indexing; a document that could not be indexed says so in its row\./)).toBeInTheDocument()
+    expect(screen.queryByText(/won't be searchable until it is/)).not.toBeInTheDocument()
+  })
+
   it('leaves the spinner with the refusal when signed out (no error event is emitted)', async () => {
     WailsApp.IsMonomindInitialized.mockResolvedValue(false)
     WailsApp.InitializeMonomindProfile.mockResolvedValue(JSON.stringify({ error: 'sign in to continue', login_required: true }))
