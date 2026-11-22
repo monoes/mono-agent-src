@@ -343,6 +343,8 @@ func newCoderHostRunCmd(cfg *Deps) *cobra.Command {
 			// the goal checks are off too unless MONOAGENT_PURSUIT_VERIFIER is set (and the loop is on); nothing is built otherwise
 			attachVerifier(cmd.Context(), os.Getenv, pursuit, &pursuitInfo, filepath.Join(filepath.Dir(clicore.ExpandPath(cfg.DBPath())), "scratch", "checks"), verifierForbidden(cfg))
 			h.Pursuit = pursuit
+			self, _ := os.Executable() // "" when unknown; see monoagentInvocation
+			h.SteerCommand = func(profileID string) string { return monoagentInvocation(self, profileID, cfg.DBPath()) }
 			info.Pursuit = &pursuitInfo
 			if pursuitInfo.Reason != "" {
 				logf("coder host: %s", pursuitInfo.Reason)
