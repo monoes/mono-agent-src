@@ -35,6 +35,9 @@ type ExportOptions struct {
 	Now func() time.Time
 	// Host is recorded as provenance; empty asks the OS.
 	Host string
+	// IncludeRecordings also exports browser recordings, which hold typed
+	// values and DOM. Off by default.
+	IncludeRecordings bool
 }
 
 // errBadDate is the parse failure for --since.
@@ -94,6 +97,10 @@ func Export(w io.Writer, opts ExportOptions) (*Manifest, error) {
 		// capture.List already read and decoded meta.json to build the
 		// entry; reading it again here would parse every capture twice.
 		meta := &e.Meta
+		if meta.Source == capture.SourceRecording && !opts.IncludeRecordings {
+			notes = append(notes, Note{Name: name, Reason: "not taken: recording (holds typed values and page DOM)"})
+			continue
+		}
 		if !opts.Since.IsZero() && !capturedAtLeast(meta, opts.Since) {
 			continue
 		}
