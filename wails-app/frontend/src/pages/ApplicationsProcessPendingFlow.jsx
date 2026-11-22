@@ -4,6 +4,7 @@ import { confirm } from '../components/ConfirmDialog.jsx'
 import SendToCoderButton from '../components/SendToCoderButton.jsx'
 import ApplyWithCoderButton from '../components/ApplyWithCoderButton.jsx'
 import { selectionText } from '../components/SendToCoderApi.js'
+import { useDialog } from './connections/ui.jsx'
 
 // computeNextStep is the flow's per-item state-machine decision function,
 // extracted pure and exported for direct unit testing (see
@@ -60,6 +61,7 @@ export default function ApplicationsProcessPendingFlow({ pendingApplications, on
   // Mirrors Sidebar.jsx's movingProfileID guard for the same class of bug.
   const [busy, setBusy] = useState(false)
 
+  const dialog = useDialog(onClose)
   const current = pendingApplications[index]
 
   const pickCv = async () => { const p = await WailsApp.OpenJSONFilePicker('Select CV data JSON'); if (p) setCvPath(p) }
@@ -71,7 +73,7 @@ export default function ApplicationsProcessPendingFlow({ pendingApplications, on
     processCurrent()
   }
 
-  const finishItem = (patch) => setSummary(s => ({ ...s, ...patch }))
+  const finishItem = (key) => setSummary(s => ({ ...s, [key]: s[key] + 1 }))
 
   const advance = () => {
     if (index + 1 >= pendingApplications.length) { setStage('done'); return }
@@ -110,7 +112,7 @@ export default function ApplicationsProcessPendingFlow({ pendingApplications, on
       const result = await WailsApp.ApplyToApplication(item.id, cvData, letterData)
       setApplyResult(result)
       setStage('applied')
-      finishItem({ applied: summary.applied + 1 })
+      finishItem('applied')
     } catch (e) {
       setError(String(e))
     } finally {
@@ -125,11 +127,11 @@ export default function ApplicationsProcessPendingFlow({ pendingApplications, on
     else if (next === 'cancel') {
       setBusy(true)
       WailsApp.SetApplicationStatus(current.id, 'cancelled', '')
-        .then(() => { finishItem({ notInterested: summary.notInterested + 1 }); advance() })
+        .then(() => { finishItem('notInterested'); advance() })
         .catch(e => setError(String(e)))
         .finally(() => setBusy(false))
     } else if (next === 'next') {
-      finishItem({ skipped: summary.skipped + 1 })
+      finishItem('skipped')
       advance()
     }
   }
@@ -139,7 +141,7 @@ export default function ApplicationsProcessPendingFlow({ pendingApplications, on
     setBusy(true)
     try {
       await WailsApp.SendApplication(current.id, '')
-      finishItem({ sent: summary.sent + 1 })
+      finishItem('sent')
       // Only advance past this item once the send actually succeeded --
       // advance() -> processCurrent() clears `error` immediately (and once
       // `stage` becomes 'done' the error block stops rendering at all), so
@@ -158,8 +160,8 @@ export default function ApplicationsProcessPendingFlow({ pendingApplications, on
 
   return (
     <div className="modal-overlay" style={{ position: 'fixed', inset: 0, zIndex: 9500, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)' }}>
-      <div style={boxStyle}>
-        <h3 style={{ margin: 0, fontSize: 14 }}>Process Pending Applications</h3>
+      <div {...dialog} role="dialog" aria-modal="true" aria-labelledby="process-pending-title" style={boxStyle}>
+        <h3 id="process-pending-title" style={{ margin: 0, fontSize: 14 }}>Process Pending Applications</h3>
 
         {!started && (
           <>
@@ -220,7 +222,7 @@ export default function ApplicationsProcessPendingFlow({ pendingApplications, on
               // end (no backdrop-click-to-close or Escape handler either).
               // Give the user an explicit way out of a failed item.
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <button style={btnStyle} onClick={() => { setError(null); finishItem({ skipped: summary.skipped + 1 }); advance() }}>Skip This Item</button>
+                <button style={btnStyle} onClick={() => { setError(null); finishItem('skipped'); advance() }}>Skip This Item</button>
                 <button style={btnStyle} onClick={onClose}>Close</button>
               </div>
             )}
