@@ -5,10 +5,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/monoes/mono-agent/internal/docscan"
 	"github.com/monoes/mono-agent/internal/imagescan"
@@ -99,7 +101,10 @@ func (mt *MonoagentTools) searchProfileDocuments(args string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("searching profile documents: %w", err)
 	}
-	return marshalJSON(results)
+	if len(results) > 0 {
+		mt.markUntrusted("profile documents")
+	}
+	return marshalFenced(results)
 }
 
 // maxSaveDocumentBytes bounds save_document's content size — generous for a
@@ -229,29 +234,25 @@ func (mt *MonoagentTools) saveImage(args string) (string, error) {
 		return "", fmt.Errorf("%q has an unsupported image extension — supported: png, jpg, jpeg, gif, webp, svg, bmp, ico", name)
 	}
 
+	// content is base64 (or a data: URL), or SVG text. It is never a local
+	// path: a path would let a model read any file the process can read.
 	var rawBytes []byte
-	// Check if content is a path to an existing regular file
-	if fi, err := os.Stat(a.Content); err == nil && !fi.IsDir() {
-		b, err := os.ReadFile(a.Content)
-		if err != nil {
-			return "", fmt.Errorf("read image file %s: %w", a.Content, err)
+	trimmed := strings.TrimSpace(a.Content)
+	if strings.HasPrefix(trimmed, "data:") {
+		if idx := strings.Index(trimmed, ","); idx != -1 {
+			trimmed = trimmed[idx+1:]
 		}
-		rawBytes = b
+	}
+	decoded, err := base64.StdEncoding.DecodeString(trimmed)
+	if err == nil && len(decoded) > 0 {
+		rawBytes = decoded
+	} else if strings.HasSuffix(strings.ToLower(name), ".svg") {
+		rawBytes = []byte(a.Content)
 	} else {
-		trimmed := strings.TrimSpace(a.Content)
-		if strings.HasPrefix(trimmed, "data:") {
-			if idx := strings.Index(trimmed, ","); idx != -1 {
-				trimmed = trimmed[idx+1:]
-			}
-		}
-		decoded, err := base64.StdEncoding.DecodeString(trimmed)
-		if err == nil && len(decoded) > 0 {
-			rawBytes = decoded
-		} else if strings.HasSuffix(strings.ToLower(name), ".svg") {
-			rawBytes = []byte(a.Content)
-		} else {
-			return "", fmt.Errorf("invalid image content: must be base64-encoded bytes or valid file path")
-		}
+		return "", fmt.Errorf("invalid image content: must be base64-encoded image bytes")
+	}
+	if !strings.HasSuffix(strings.ToLower(name), ".svg") && !strings.HasPrefix(http.DetectContentType(rawBytes), "image/") {
+		return "", fmt.Errorf("content is not an image")
 	}
 
 	root := mt.profileRoot()
@@ -264,8 +265,20 @@ func (mt *MonoagentTools) saveImage(args string) (string, error) {
 	}
 	dest := filepath.Join(imagesDir, name)
 
-	if err := os.WriteFile(dest, rawBytes, 0600); err != nil {
-		return "", fmt.Errorf("write image %q: %w", name, err)
+	f, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0600)
+	if err != nil {
+		if os.IsExist(err) {
+			return "", fmt.Errorf("an image named %q already exists in images/ — choose a different filename", name)
+		}
+		return "", fmt.Errorf("create image %q: %w", name, err)
+	}
+	_, werr := f.Write(rawBytes)
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr != nil {
+		_ = os.Remove(dest)
+		return "", fmt.Errorf("write image %q: %w", name, werr)
 	}
 
 	resp := map[string]interface{}{

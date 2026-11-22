@@ -43,7 +43,10 @@ func (mt *MonoagentTools) listPeople(args string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return marshalJSON(map[string]interface{}{"people": out})
+	if len(out) > 0 {
+		mt.markUntrusted("people profile")
+	}
+	return marshalFenced(map[string]interface{}{"people": out})
 }
 
 // PersonSummary is a row of the people list.
@@ -100,7 +103,8 @@ func (mt *MonoagentTools) getPerson(args string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return marshalJSON(p)
+	mt.markUntrusted("people profile")
+	return marshalFenced(p)
 }
 
 // GetPerson is get_person: one person of the profile as a document (ErrPersonNotFound
