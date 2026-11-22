@@ -116,7 +116,9 @@ func Resolve(ctx context.Context, st Store, id string, approve bool, edit Edit, 
 			runErr = errors.New(secrets.MaskValues(read, runErr.Error()))
 		}
 	}
-	out, err := st.finish(ctx, p.ID, result, runErr)
+	// The send already ran: its outcome is written even if ctx ended meanwhile,
+	// or the card stays "approved" with no way to learn what happened.
+	out, err := st.finish(context.WithoutCancel(ctx), p.ID, result, runErr)
 	if err != nil {
 		return out, err
 	}
