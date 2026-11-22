@@ -144,7 +144,7 @@ func overviewText(w io.Writer, o Overview) {
 		fmt.Fprintf(w, "members: %d live of %d in %d kinds\n", o.Tree.Live, o.Tree.Total, len(o.Tree.Clusters))
 	}
 	if o.Spend != nil {
-		fmt.Fprintf(w, "spend: %d micro used\n", o.Spend.UsedMicro)
+		fmt.Fprintf(w, "spend: %d micro used (asks and grants only; the sessions' own model turns, the boss's included, are not counted here)\n", o.Spend.UsedMicro)
 	}
 }
 
