@@ -111,7 +111,7 @@ func testDeps(cfg *testConfig) Deps {
 			}
 			var owner string
 			_ = db.QueryRowContext(ctx, `SELECT profile_id FROM workflows WHERE id = ?`, id).Scan(&owner)
-			if owner != "" && profileID != "" && owner != profileID {
+			if owner == "" || profileID == "" || owner != profileID { // workflow.OwnedBy: no profile owns nothing
 				return nil
 			}
 			return wf

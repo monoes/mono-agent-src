@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -65,7 +66,7 @@ func signalWorkflowPID(pid int) (bool, error) {
 	if !alive {
 		return false, nil
 	}
-	if !strings.Contains(strings.ToLower(cmd), "monoagent") {
+	if !isMonoagentBinary(processArgv0(pid, cmd)) {
 		return false, fmt.Errorf("refusing to signal non-monoagent process (pid %d: %s)", pid, cmd)
 	}
 	proc, perr := os.FindProcess(pid)
@@ -73,6 +74,25 @@ func signalWorkflowPID(pid int) (bool, error) {
 		return false, nil
 	}
 	return proc.Signal(syscall.SIGTERM) == nil, nil
+}
+
+// processArgv0 is the executable the process was started as. Linux reads the
+// first NUL-separated argv entry; elsewhere cmd is `ps comm=`, the executable
+// path alone.
+func processArgv0(pid int, cmd string) string {
+	if runtime.GOOS == "linux" {
+		if data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid)); err == nil {
+			first, _, _ := strings.Cut(string(data), "\x00")
+			return first
+		}
+	}
+	return cmd
+}
+
+// isMonoagentBinary reports whether argv0's base name is monoagentcli: a pid
+// whose arguments merely mention "monoagent" is not one of ours.
+func isMonoagentBinary(argv0 string) bool {
+	return strings.HasPrefix(strings.ToLower(filepath.Base(argv0)), "monoagentcli")
 }
 
 // isMonoagentDaemonProcess reports whether pid is a running `monoagentcli

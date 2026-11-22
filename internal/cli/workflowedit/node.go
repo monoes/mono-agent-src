@@ -67,7 +67,7 @@ func (d Deps) newNodeAddCmd() *cobra.Command {
 			var config map[string]interface{}
 			if configJSON != "" {
 				if err := json.Unmarshal([]byte(configJSON), &config); err != nil {
-					return fmt.Errorf("parse --config JSON: %w", err)
+					return d.InvalidInput("parse --config JSON: %v", err)
 				}
 			} else {
 				config = make(map[string]interface{})
@@ -351,6 +351,16 @@ func (d Deps) newConnectCmd() *cobra.Command {
 				return d.NotFound("workflow %q not found", workflowID)
 			}
 
+			have := make(map[string]bool, len(wf.Nodes))
+			for _, n := range wf.Nodes {
+				have[n.ID] = true
+			}
+			for _, id := range []string{srcID, dstID} {
+				if !have[id] {
+					return d.NotFound("node %q not found in workflow %q", id, workflowID)
+				}
+			}
+
 			conn := workflow.WorkflowConnection{
 				ID:           uuid.New().String(),
 				WorkflowID:   workflowID,
@@ -418,14 +428,17 @@ func (d Deps) newDisconnectCmd() *cobra.Command {
 				newConns = append(newConns, c)
 			}
 			if !found {
-				return fmt.Errorf("connection %q not found in workflow %q", connID, workflowID)
+				return d.NotFound("connection %q not found in workflow %q", connID, workflowID)
 			}
 
 			actx := approving(ctx, expect)
 			if err := store.SaveWorkflowConnections(actx, workflowID, newConns); err != nil {
 				return fmt.Errorf("save connections: %w", err)
 			}
-			_ = operator.NoteUnapproved(actx, "edited", workflowID)
+			note := operator.NoteUnapproved(actx, "edited", workflowID)
+			if d.JSONOutput() {
+				return json.NewEncoder(os.Stdout).Encode(operator.WithNote(map[string]any{"id": connID, "removed": true}, note))
+			}
 			fmt.Fprintf(os.Stdout, "Connection %s removed.\n", connID)
 			return nil
 		},

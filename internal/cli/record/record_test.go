@@ -101,12 +101,22 @@ func TestRecordListShowDeleteJSON(t *testing.T) {
 		t.Fatalf("show = %+v", show)
 	}
 
-	out, err = runRecordCLI(t, true, "delete", "rec-a")
+	out, err = runRecordCLI(t, true, "delete", "rec-a", "--yes")
 	if err != nil || out != "{\n  \"ok\": true\n}\n" {
 		t.Fatalf("delete: %v %q", err, out)
 	}
 	if left, _ := recording.List(); len(left) != 1 {
 		t.Fatalf("after delete: %+v", left)
+	}
+}
+
+func TestRecordDeleteJSONNeedsYes(t *testing.T) {
+	recordTestHome(t, "rec-a")
+	if _, err := runRecordCLI(t, true, "delete", "rec-a"); err == nil {
+		t.Fatal("delete --json without --yes succeeded")
+	}
+	if left, _ := recording.List(); len(left) != 1 {
+		t.Fatalf("recording deleted without --yes: %+v", left)
 	}
 }
 

@@ -79,8 +79,10 @@ func TestImportExport(t *testing.T) {
 		t.Fatalf("export = %q, %v", out, err)
 	}
 	dst := filepath.Join(t.TempDir(), "out.json")
-	if out, _, _, err = run(t, d, "", "export", id, "-o", dst); err != nil || out != `Exported workflow "io-test" to `+dst+"\n" {
-		t.Fatalf("export -o = %q, %v", out, err)
+	out, _, _, err = run(t, d, "", "export", id, "-o", dst)
+	var exported struct{ ID, Name, Path string }
+	if err != nil || json.Unmarshal([]byte(out), &exported) != nil || exported.ID != id || exported.Name != "io-test" || exported.Path != dst {
+		t.Fatalf("export -o (--json) = %q, %v", out, err)
 	}
 	if _, err := os.Stat(dst); err != nil {
 		t.Fatal(err)
