@@ -17,8 +17,10 @@ export const HEALTH_MODE = 'background'
 // already running"), and a second run of a fix ("… is already running"). That
 // is the person coming back mid-check, never a failure: a check is asked
 // again after RETRY_MS, and a fix is followed through the events it already
-// sends under its id.
+// sends under its id, for at most FIX_JOIN_MS (its final event may already
+// have gone out); after that the step stops waiting and checks again.
 export const RETRY_MS = 1000
+export const FIX_JOIN_MS = 30000
 const ALREADY = /already (running|being installed)/
 
 // The four rows, by doctor check id. The command line's check never says ok,
@@ -88,6 +90,7 @@ export default function SystemCheck({ mark, setCanContinue, setOnContinue }) {
   const busy = useRef(false)
   const again = useRef(false)
   const marked = useRef(false)
+  const marking = useRef(null)
   const offs = useRef(new Set())
 
   const patchFix = (id, patch) => setFixes(s => ({ ...s, [id]: { ...(s[id] || {}), ...patch } }))
@@ -160,11 +163,15 @@ export default function SystemCheck({ mark, setCanContinue, setOnContinue }) {
     offs.current.add(off)
     const r = await callStep(() => RunHealthFix(fix.id))
     const attach = !r.ok && !r.loginRequired && ALREADY.test(r.message)
-    const ev = r.ok || attach ? await final : { kind: 'error', message: r.loginRequired ? t('onboarding.shell.signIn') : r.message }
+    let joinTimer
+    const ev = r.ok ? await final
+      : attach ? await Promise.race([final, new Promise(res => { joinTimer = setTimeout(() => res({ kind: 'gaveUp' }), FIX_JOIN_MS) })])
+        : { kind: 'error', message: r.loginRequired ? t('onboarding.shell.signIn') : r.message }
+    clearTimeout(joinTimer)
     off()
     offs.current.delete(off)
     if (!alive.current) return
-    if (ev.kind === 'done') {
+    if (ev.kind === 'done' || ev.kind === 'gaveUp') {
       patchFix(fix.id, { running: false, line: '', error: '' })
       check()
       return
@@ -175,15 +182,21 @@ export default function SystemCheck({ mark, setCanContinue, setOnContinue }) {
 
   const allPass = !checking && !!results && ROWS.every(d => results[d.id] && d.passes(results[d.id].status))
 
-  const markOnce = useCallback(async () => {
-    if (marked.current) return true
-    const r = await mark('system')
-    if (r && r.ok === false) {
-      if (alive.current) setNotice(r.loginRequired ? t('onboarding.shell.signIn') : r.message)
-      return false
+  // One mark at a time: the automatic one and a Continue press share it.
+  const markOnce = useCallback(() => {
+    if (marked.current) return Promise.resolve(true)
+    if (!marking.current) {
+      marking.current = (async () => {
+        const r = await mark('system')
+        if (r && r.ok === false) {
+          if (alive.current) setNotice(r.loginRequired ? t('onboarding.shell.signIn') : r.message)
+          return false
+        }
+        marked.current = true
+        return true
+      })().finally(() => { marking.current = null })
     }
-    marked.current = true
-    return true
+    return marking.current
   }, [mark, t])
 
   useEffect(() => {
@@ -251,7 +264,7 @@ export default function SystemCheck({ mark, setCanContinue, setOnContinue }) {
           <b>{rowTitle(t, def.key)}</b>
           {detail && <span>{detail}</span>}
           {extra && !fs?.running && <span className="onb-system-extra">{extra}</span>}
-          {fs?.error && !fs.running && <span className="onb-system-err">{fs.error}</span>}
+          {fs?.error && !fs.running && <p className="onb-error" role="alert">{fs.error}</p>}
         </div>
         {action}
         <span className="onb-row-st">{word}</span>
@@ -259,9 +272,15 @@ export default function SystemCheck({ mark, setCanContinue, setOnContinue }) {
     )
   })
 
+  // A failing row with a fix button (or a running fix) can be fixed here.
+  const fixable = ROWS.some(d => {
+    const res = results?.[d.id]
+    return res && !d.passes(res.status) && res.status !== 'skip' && res.fix && res.fix.safety !== 'manual'
+  })
   const summary = checking ? t('onboarding.system.checking')
     : allPass ? t('onboarding.system.ready')
-      : results ? t('onboarding.system.todo') : ''
+      : !results ? ''
+        : fixable || anyFixRunning ? t('onboarding.system.todo') : t('onboarding.system.todoNoFix')
 
   return (
     <div className="onb-system">

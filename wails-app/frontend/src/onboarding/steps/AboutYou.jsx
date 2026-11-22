@@ -6,6 +6,8 @@
 // The fields start from the profile's current Info (setup can run again on a
 // profile that has it), and only what the person changed is written. An empty
 // field is never written: SetProfileInfo with an empty value clears the field.
+// The exceptions are deliberate clears: last_name when the name became one
+// word, and about_me when our line was all it held.
 // In about_me only our own line is replaced (in any UI language); the rest of
 // the text stays as the person wrote it. Then the mark.
 //
@@ -94,6 +96,7 @@ function startFrom(forms, entries) {
   for (const l of (v.about_me || '').split('\n')) for (const id of ourLine(forms, l) || []) help.add(id)
   return {
     name: tidy(v.full_name || [v.first_name, v.last_name].filter(Boolean).join(' ')),
+    last: (v.last_name || '').trim(),
     role: (v.job_title || '').trim(),
     company: (v.employer || '').trim(),
     help: HELP.filter(id => help.has(id)),
@@ -109,7 +112,9 @@ export function infoEntries(t, forms, start, { name, role, company, help }) {
   if (full && full !== start.name) {
     const [first, last] = splitName(full)
     out.push(['full_name', full], ['first_name', first])
-    if (last) out.push(['last_name', last])
+    // A one-word name clears a stored last name (the one deliberate empty
+    // write besides about_me), so the old one is not mixed with the new.
+    if (last || start.last) out.push(['last_name', last])
   }
   if (role.trim() && role.trim() !== start.role) out.push(['job_title', role.trim()])
   if (company.trim() && company.trim() !== start.company) out.push(['employer', company.trim()])

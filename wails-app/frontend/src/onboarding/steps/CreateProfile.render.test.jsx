@@ -10,7 +10,7 @@ import i18n from '../../i18n.js'
 const go = vi.hoisted(() => ({ CreateProfile: vi.fn(), ChooseProfileFolder: vi.fn() }))
 vi.mock('../../wailsjs/go/main/App', () => go)
 
-import CreateProfile, { PROFILE_ICONS } from './CreateProfile.jsx'
+import CreateProfile, { PROFILE_ICONS, RELOAD_RETRY_MS, forgetMadeProfile } from './CreateProfile.jsx'
 
 const IDS = ['welcome', 'system', 'profile', 'about', 'monomind', 'agents', 'browser', 'permissions', 'firstRun', 'finish']
 const stateOf = (profileStatus = 'todo') => ({
@@ -21,6 +21,7 @@ const stateOf = (profileStatus = 'todo') => ({
 let props
 beforeEach(async () => {
   await i18n.changeLanguage('en')
+  forgetMadeProfile()
   go.CreateProfile.mockReset()
   go.ChooseProfileFolder.mockReset()
   props = {
@@ -127,5 +128,69 @@ describe('CreateProfile', () => {
     expect(props.setContinueLabel).toHaveBeenLastCalledWith(null)
     expect(await runContinue()).not.toBe(false)
     expect(go.CreateProfile).not.toHaveBeenCalled()
+  })
+
+  // reload() never rejects; a failed one resolves { ok: false }.
+  it('retries a failed reload after creating and advances once the state is read', async () => {
+    vi.useFakeTimers()
+    try {
+      go.CreateProfile.mockResolvedValue({ id: 'p1', name: 'Work' })
+      props.reload = vi.fn()
+        .mockResolvedValueOnce({ ok: false, loginRequired: false, message: 'state unreadable' })
+        .mockResolvedValueOnce({ ok: false, loginRequired: false, message: 'state unreadable' })
+        .mockResolvedValueOnce({ ok: true })
+      render(<CreateProfile {...props} />)
+      fireEvent.change(nameField(), { target: { value: 'Work' } })
+      let r
+      await act(async () => {
+        const p = handler()()
+        await vi.advanceTimersByTimeAsync(RELOAD_RETRY_MS * 2)
+        r = await p
+      })
+      expect(props.reload).toHaveBeenCalledTimes(3)
+      expect(go.CreateProfile).toHaveBeenCalledTimes(1)
+      expect(r).not.toBe(false)
+      expect(screen.queryByRole('alert')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stays on the step when the reload keeps failing, and never offers a second profile', async () => {
+    vi.useFakeTimers()
+    try {
+      go.CreateProfile.mockResolvedValue({ id: 'p1', name: 'Work' })
+      props.reload = vi.fn().mockResolvedValue({ ok: false, loginRequired: false, message: 'state unreadable' })
+      const run = async () => {
+        let r
+        await act(async () => {
+          const p = handler()()
+          await vi.advanceTimersByTimeAsync(RELOAD_RETRY_MS * 3)
+          r = await p
+        })
+        return r
+      }
+      render(<CreateProfile {...props} />)
+      fireEvent.change(nameField(), { target: { value: 'Work' } })
+      expect(await run()).toBe(false)
+      expect(props.reload).toHaveBeenCalledTimes(3)
+      expect(screen.getByRole('alert')).toHaveTextContent('Your profile was created, but setup could not read it back: state unreadable')
+      // The profile exists: the form is gone, and Continue only tries the read again.
+      expect(screen.queryByLabelText('Profile name')).toBeNull()
+      expect(props.setCanContinue).toHaveBeenLastCalledWith(true)
+      expect(await run()).toBe(false)
+      expect(props.reload).toHaveBeenCalledTimes(6)
+      expect(go.CreateProfile).toHaveBeenCalledTimes(1)
+
+      // Back and forward again, the state still stale: still no form.
+      cleanup()
+      render(<CreateProfile {...props} />)
+      expect(screen.queryByLabelText('Profile name')).toBeNull()
+      props.reload.mockResolvedValue({ ok: true })
+      expect(await run()).not.toBe(false)
+      expect(go.CreateProfile).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

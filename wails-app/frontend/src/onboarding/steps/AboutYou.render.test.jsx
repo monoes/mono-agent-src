@@ -189,6 +189,16 @@ describe('AboutYou', () => {
     ])
   })
 
+  it('renaming to a single word clears the old last_name', async () => {
+    go.GetProfileInfo.mockResolvedValue(info({ full_name: 'Ada Lovelace', first_name: 'Ada', last_name: 'Lovelace' }))
+    await show()
+    type('Your name', 'Ada')
+    await runContinue()
+    expect(go.SetProfileInfo.mock.calls).toEqual([
+      ['full_name', 'Ada'], ['first_name', 'Ada'], ['last_name', ''],
+    ])
+  })
+
   it('a failed Info read shows why, keeps Continue off, and can be tried again', async () => {
     go.GetProfileInfo.mockRejectedValueOnce('Log in to monoes.me first: run monoagentcli login')
       .mockResolvedValueOnce(info({ job_title: 'Founder' }))

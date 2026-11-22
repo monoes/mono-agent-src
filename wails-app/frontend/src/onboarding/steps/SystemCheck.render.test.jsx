@@ -18,7 +18,7 @@ vi.mock('../../services/api.js', () => ({
   }),
 }))
 
-import SystemCheck, { HEALTH_MODE, RETRY_MS } from './SystemCheck.jsx'
+import SystemCheck, { HEALTH_MODE, RETRY_MS, FIX_JOIN_MS } from './SystemCheck.jsx'
 
 const fix = (id, safety = 'confirm') => ({ id, label: `label of ${id}`, safety })
 const row = (id, status, extra = {}) => ({ id, group: id.split('.')[0], title: id, status, summary: `${id} ${status}`, ...extra })
@@ -109,7 +109,10 @@ describe('SystemCheck', () => {
     await emit({ fix_id: 'monomind.install', kind: 'error', message: 'npm ERR! EACCES: permission denied' })
     await flush()
     const r = rowOf('monomind')
-    expect(within(r).getByText('npm ERR! EACCES: permission denied')).toBeInTheDocument()
+    const alert = within(r).getByRole('alert')
+    expect(alert).toHaveTextContent('npm ERR! EACCES: permission denied')
+    expect(alert.tagName).toBe('P')
+    expect(alert).toHaveClass('onb-error')
     expect(within(r).getByText('Not installed')).toBeInTheDocument()
     expect(r).toHaveClass('bad')
     expect(within(r).getByRole('button', { name: 'Install' })).toBeEnabled()
@@ -206,5 +209,70 @@ describe('SystemCheck', () => {
     const r = rowOf('monomind')
     expect(within(r).queryByRole('button')).toBeNull()
     expect(within(r).getByText('remove the older monomind')).toBeInTheDocument()
+  })
+
+  it('a fix refused for sign-in shows the sign-in message as an alert', async () => {
+    go.RunHealthCheck.mockResolvedValue(FAILING)
+    go.RunHealthFix.mockResolvedValue('{"error":"Log in to monoes.me first: run monoagentcli login","login_required":true}')
+    const { container } = render(<SystemCheck {...props} />)
+    await flush()
+    fireEvent.click(within(rowOf('Background service')).getByRole('button', { name: 'Start' }))
+    await flush()
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent('Your sign-in has ended. Sign in to monoes.me to continue.')
+    expect(alert.tagName).toBe('P')
+    expect(alert).toHaveClass('onb-error')
+    expect(container.querySelector('.onb-spinner')).toBeNull()
+    expect(within(rowOf('Background service')).getByRole('button', { name: 'Start' })).toBeEnabled()
+  })
+
+  it('stops waiting for a fix it joined after FIX_JOIN_MS and checks again', async () => {
+    vi.useFakeTimers()
+    try {
+      go.RunHealthCheck.mockResolvedValueOnce(FAILING).mockResolvedValueOnce(FAILING)
+      go.RunHealthFix.mockResolvedValue('{"error":"monomind.install is already running"}')
+      const { container } = render(<SystemCheck {...props} />)
+      await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+      fireEvent.click(within(rowOf('monomind')).getByRole('button', { name: 'Install' }))
+      await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+      expect(within(rowOf('monomind')).getByText('Installing')).toBeInTheDocument()
+      await act(async () => { await vi.advanceTimersByTimeAsync(FIX_JOIN_MS - 1) })
+      expect(go.RunHealthCheck).toHaveBeenCalledTimes(1)
+      await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+      // No final event ever came: the report decides, and nothing spins on.
+      expect(go.RunHealthCheck).toHaveBeenCalledTimes(2)
+      expect(container.querySelector('.onb-spinner')).toBeNull()
+      expect(within(rowOf('monomind')).getByRole('button', { name: 'Install' })).toBeEnabled()
+      expect(screen.queryByRole('alert')).toBeNull()
+      expect(events.listeners).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('marks system once even when Continue is pressed while the first mark runs', async () => {
+    let finish
+    props.mark = vi.fn(() => new Promise(r => { finish = r }))
+    go.RunHealthCheck.mockResolvedValue(PASSING)
+    render(<SystemCheck {...props} />)
+    await flush()
+    expect(props.mark).toHaveBeenCalledTimes(1)
+    let viaContinue
+    await act(async () => { viaContinue = props.setOnContinue.mock.calls.at(-1)[0]() })
+    await act(async () => { finish({ ok: true }) })
+    expect(await viaContinue).toBe(true)
+    expect(props.mark).toHaveBeenCalledTimes(1)
+  })
+
+  it('says Check again or Skip when no failing row offers a fix', async () => {
+    go.RunHealthCheck.mockResolvedValue(report([
+      row('core.cli', 'info'),
+      row('monomind.node', 'ok'),
+      row('monomind.binary', 'ok'),
+      row('services.daemon', 'warn', { summary: 'pid 4242 — its HTTP API does not answer' }),
+    ]))
+    render(<SystemCheck {...props} />)
+    await flush()
+    expect(screen.getByRole('status')).toHaveTextContent('This cannot be fixed from here. Check again once it is sorted, or skip this step for now.')
   })
 })

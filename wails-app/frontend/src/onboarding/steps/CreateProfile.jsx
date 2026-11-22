@@ -37,6 +37,27 @@ const nameProblem = (name) => {
 }
 const GO_DEFAULT = /cannot be "default"/
 
+// A profile made here whose state read has not come back yet. Kept outside
+// the component: Back unmounts the step, and coming back on a stale state
+// (profile still "todo") must not offer a second profile. Cleared once a
+// state shows the profile step done.
+let madeHere = false
+export function forgetMadeProfile() { madeHere = false }
+
+// reload() resolves { ok: false } on a failed read (it never rejects). After a
+// create it is tried RELOAD_TRIES times, RELOAD_RETRY_MS apart.
+export const RELOAD_RETRY_MS = 500
+const RELOAD_TRIES = 3
+async function reloadWithRetry(reload) {
+  let r
+  for (let i = 0; i < RELOAD_TRIES; i++) {
+    if (i > 0) await new Promise(res => setTimeout(res, RELOAD_RETRY_MS))
+    r = await reload()
+    if (!r || r.ok !== false) return { ok: true }
+  }
+  return r
+}
+
 export default function CreateProfile({ state, reload, setCanContinue, setOnContinue, setContinueLabel }) {
   const { t } = useTranslation()
   const [name, setName] = useState('')
@@ -45,14 +66,29 @@ export default function CreateProfile({ state, reload, setCanContinue, setOnCont
   const [rootDir, setRootDir] = useState('')
   const [goError, setGoError] = useState('')
   const [folderError, setFolderError] = useState('')
+  const [made, setMade] = useState(madeHere)
+  const [reloadError, setReloadError] = useState('')
   const nameRef = useRef(null)
   const iconRefs = useRef([])
 
   // Coming back (Back, or setup run again) after a profile exists: nothing to
   // create. A second profile made here would not be selected (CreateProfile
   // selects only the first), so the next steps would write to the old one.
-  const passThrough = statusesOf(state).profile === 'done'
+  const recorded = statusesOf(state).profile === 'done'
+  const stale = made && !recorded
+  const passThrough = recorded || made
   const problem = nameProblem(name)
+
+  useEffect(() => { if (recorded) madeHere = false }, [recorded])
+
+  // Advance only once the state has been read after the create.
+  const readBack = async () => {
+    setReloadError('')
+    const r = await reloadWithRetry(reload)
+    if (r.ok) return true
+    setReloadError(r.loginRequired ? t('onboarding.shell.signIn') : t('onboarding.profile.reloadFailed', { message: r.message }))
+    return false
+  }
 
   useEffect(() => {
     setContinueLabel(passThrough ? null : t('onboarding.profile.create'))
@@ -61,6 +97,7 @@ export default function CreateProfile({ state, reload, setCanContinue, setOnCont
 
   useEffect(() => {
     setOnContinue(async () => {
+      if (stale) return readBack()
       if (passThrough) return true
       if (problem) { setTouched(true); nameRef.current?.focus(); return false }
       setGoError('')
@@ -70,8 +107,9 @@ export default function CreateProfile({ state, reload, setCanContinue, setOnCont
           : GO_DEFAULT.test(r.message) ? t('onboarding.profile.errorDefault') : r.message)
         return false
       }
-      await reload()
-      return true
+      madeHere = true
+      setMade(true)
+      return readBack()
     })
   })
 
@@ -112,6 +150,7 @@ export default function CreateProfile({ state, reload, setCanContinue, setOnCont
       <div className="onb-profile">
         <p className="onb-lead">{t('onboarding.profile.lead')}</p>
         <p className="onb-pointer"><span>{t('onboarding.profile.haveOne')}</span></p>
+        {reloadError && <p className="onb-error" role="alert">{reloadError}</p>}
       </div>
     )
   }
