@@ -47,8 +47,11 @@ export default function JevAddProviderForm({ kinds, busy, run, reload, onClose }
   const [base, setBase] = useState(preset.base)
   const [model, setModel] = useState('')
   const [key, setKey] = useState('')
-  const [priceIn, setPriceIn] = useState('')
-  const [priceOut, setPriceOut] = useState('')
+  // A price is {v, bad}: a number field holding text reports value '' with
+  // validity.badInput, which must be refused, not sent as 0.
+  const [priceIn, setPriceIn] = useState({ v: '', bad: false })
+  const [priceOut, setPriceOut] = useState({ v: '', bad: false })
+  const priceChange = (set) => (e) => set({ v: e.target.value, bad: !!e.target.validity?.badInput })
   const [err, setErr] = useState('')
   const [result, setResult] = useState(null)
 
@@ -65,8 +68,8 @@ export default function JevAddProviderForm({ kinds, busy, run, reload, onClose }
     setPresetId(id)
   }
   const modelPlaceholder = preset.local ? t('settings.jev.providers.modelLocalPlaceholder') : ''
-  const usdIn = parsePrice(priceIn)
-  const usdOut = parsePrice(priceOut)
+  const usdIn = priceIn.bad ? null : parsePrice(priceIn.v)
+  const usdOut = priceOut.bad ? null : parsePrice(priceOut.v)
   const valid = NAME_RE.test(name) && !!kind && !!base.trim() && (!preset.needsKey || !!key.trim()) &&
     usdIn != null && usdOut != null
 
@@ -81,7 +84,7 @@ export default function JevAddProviderForm({ kinds, busy, run, reload, onClose }
       })
       setKey('')
       setResult(p || { name })
-      setName(''); setModel(''); setPriceIn(''); setPriceOut('')
+      setName(''); setModel(''); setPriceIn({ v: '', bad: false }); setPriceOut({ v: '', bad: false })
       await reload()
     }, setErr)
   }
@@ -140,9 +143,9 @@ export default function JevAddProviderForm({ kinds, busy, run, reload, onClose }
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             {[['price-in', 'priceIn', priceIn, setPriceIn, usdIn], ['price-out', 'priceOut', priceOut, setPriceOut, usdOut]].map(([f, k, v, set, parsed]) => (
               <Field key={f} id={id(f)} text={t(`settings.jev.providers.${k}`)}>
-                <input id={id(f)} type="number" min={0} step="any" inputMode="decimal" value={v} disabled={busy}
+                <input id={id(f)} type="number" min={0} step="any" inputMode="decimal" value={v.v} disabled={busy}
                   aria-describedby={parsed == null ? `${id('price-hint')} ${id(f)}-err` : id('price-hint')}
-                  aria-invalid={parsed == null} onChange={e => set(e.target.value)} style={input} />
+                  aria-invalid={parsed == null} onChange={priceChange(set)} style={input} />
                 {parsed == null && <span id={`${id(f)}-err`} style={errText}>{t('settings.jev.providers.priceInvalid')}</span>}
               </Field>
             ))}

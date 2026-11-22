@@ -258,6 +258,12 @@ describe('Add provider', () => {
     fireEvent.change(priceOut, { target: { value: '' } })
     expect(priceOut).toHaveAttribute('aria-invalid', 'false')
     expect(add).toBeEnabled()
+    // Text in a number field reads as '' with validity.badInput (WebKit): refused, not sent as 0.
+    const priceIn = within(form).getByLabelText('USD per million input tokens')
+    Object.defineProperty(priceIn, 'validity', { configurable: true, get: () => ({ badInput: true }) })
+    fireEvent.change(priceIn, { target: { value: '1' } })
+    expect(priceIn).toHaveAttribute('aria-invalid', 'true')
+    expect(add).toBeDisabled()
   })
 
   it('refuses a bad name before calling the CLI and shows CLI errors inline', async () => {
