@@ -107,7 +107,10 @@ func TestALoadingModelIsWaitedFor(t *testing.T) {
 
 	// A 502 keeps today's budget.
 	var calls atomic.Int32
-	f = newFake(t, func(classifyRequest) (int, string) { calls.Add(1); return http.StatusBadGateway, `{"estimated_time":30}` })
+	f = newFake(t, func(classifyRequest) (int, string) {
+		calls.Add(1)
+		return http.StatusBadGateway, `{"estimated_time":30}`
+	})
 	c = providerClient(t, f.URL, testKey)
 	waits = withSleeps(c)
 	if _, err := c.Ask(context.Background(), map[string]any{}, oneNoul); err == nil || calls.Load() != 3 || (*waits)[0] > 5*time.Second {
