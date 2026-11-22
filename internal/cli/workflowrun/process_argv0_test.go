@@ -12,7 +12,7 @@ import (
 // ~/.monoagent/x, a tail of a log) is not a monoagent binary and must never be
 // signalled.
 func TestSignalWorkflowPIDRefusesProcessThatOnlyMentionsMonoagent(t *testing.T) {
-	cmd := exec.Command("sh", "-c", "sleep 30; true","monoagent-mentioned-only")
+	cmd := exec.Command("sh", "-c", "sleep 30; true", "monoagent-mentioned-only")
 	if err := cmd.Start(); err != nil {
 		t.Skipf("cannot start sh: %v", err)
 	}
