@@ -5,6 +5,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -422,5 +423,34 @@ func TestSiblingCLIPrefersPlainName(t *testing.T) {
 	os.WriteFile(plain, []byte("x"), 0o755)
 	if p, _ := SiblingCLI(dir, "windows", "amd64"); p != plain {
 		t.Fatalf("got %s, want %s", p, plain)
+	}
+}
+
+// A download longer than its cap is refused, not read to the end.
+func TestGetAllRefusesABodyOverTheCap(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(bytes.Repeat([]byte("x"), 4096))
+	}))
+	t.Cleanup(srv.Close)
+	u := Updater{Context: context.Background(), Client: srv.Client()}
+	if b, err := u.getAll(srv.URL, 1024); err == nil {
+		t.Fatalf("a %d-byte body over a 1024 cap was accepted", len(b))
+	}
+	if b, err := u.getAll(srv.URL, 4096); err != nil || len(b) != 4096 {
+		t.Fatalf("a body exactly at the cap must pass: %d bytes, %v", len(b), err)
+	}
+}
+
+// The error body of the release API call is bounded too.
+func TestFetchReleaseBoundsTheErrorBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+		w.Write(bytes.Repeat([]byte("e"), 4*maxSmallBytes))
+	}))
+	t.Cleanup(srv.Close)
+	u := Updater{Context: context.Background(), Client: srv.Client(), APIURL: srv.URL}
+	_, err := u.fetchRelease()
+	if err == nil || len(err.Error()) > 2*maxSmallBytes {
+		t.Fatalf("the error must carry a bounded body: %v", err)
 	}
 }
