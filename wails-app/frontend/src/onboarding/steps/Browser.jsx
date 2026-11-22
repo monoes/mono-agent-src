@@ -14,7 +14,7 @@ import './Browser.css'
 // (DetectChromiumBrowsers), open the browser profile that belongs to this
 // MonoAgent profile (OpenChromiumBrowser), load the extension
 // (GetExtensionInfo gives the folder; InstallExtension unpacks it only when
-// it is missing or old, or on request), pair it (GetExtensionStatus,
+// it is missing, or on request), pair it (GetExtensionStatus,
 // PairExtension; the background service is started with the
 // services.daemon.start fix when it is not running), then bind the
 // attached browser to this profile (GetBrowsers, AssignBrowser). The step
@@ -24,6 +24,9 @@ import './Browser.css'
 export const PAIR_POLL_MS = 3000
 const DAEMON_START = 'services.daemon.start'
 const DAEMON_RESTART = 'services.daemon.restart'
+// After a successful start, the bridge may take a poll or two to bind: it
+// reads as stuck only after this many off reads (about one poll apart).
+export const STUCK_AFTER_OFF_READS = 2
 const SUBS = ['pick', 'open', 'install', 'pair', 'confirm']
 
 // The bridge as `extension status --json` reports it. Connected needs this
@@ -84,16 +87,19 @@ export default function Browser({ state, profileId, reload, setCanContinue }) {
   }, [])
 
   // prepare reads where the extension is unpacked (GetExtensionInfo, read
-  // only) and unpacks it (InstallExtension) only when it is missing or not
-  // the copy this app ships: unpacking replaces a folder the browser may
-  // have loaded. force (Reinstall) unpacks it anyway.
+  // only) and unpacks it (InstallExtension) only when it is missing:
+  // unpacking replaces a folder the browser may have loaded. force
+  // (Reinstall) unpacks it anyway.
   const prepare = useCallback(async (force = false) => {
     setInstalling(true)
     setInstallErr(null)
     if (!force) {
       const r = await callStep(() => GetExtensionInfo())
       if (!r.ok) { setInstalling(false); setInstallErr(r); return }
-      if (r.value?.installed && r.value?.current && r.value?.path) { setInstalling(false); setInfo(r.value); return }
+      // Any copy already there is kept: an old one and a person's own (an
+      // `extension install --zip`) both read current: false, and only they
+      // can tell which it is, so replacing it waits for Reinstall.
+      if (r.value?.installed && r.value?.path) { setInstalling(false); setInfo(r.value); return }
     }
     const r = await callStep(() => InstallExtension())
     setInstalling(false)
@@ -190,9 +196,11 @@ export default function Browser({ state, profileId, reload, setCanContinue }) {
 }
 
 // PairStep follows `extension status` while it is on screen: no background
-// service (Start runs the daemon fix in place; if the service then runs but
-// the bridge still does not answer, the status hint and Restart instead of
-// Start again), not paired or waiting (Pair extension), connected (Next).
+// service (Start runs the daemon fix in place; while the bridge comes up it
+// waits, and if it still reads off after STUCK_AFTER_OFF_READS reads, the
+// status hint and Restart, behind a confirm because a restart interrupts
+// running workflows and org runs), not paired or waiting (Pair extension),
+// connected (Next).
 // The next read is scheduled only after the previous answer, and an answer
 // older than the newest read is dropped.
 export function PairStep({ onNext }) {
@@ -201,6 +209,8 @@ export function PairStep({ onNext }) {
   const [stErr, setStErr] = useState(null)
   const [starting, setStarting] = useState(false)
   const [started, setStarted] = useState(false)
+  const [offAfter, setOffAfter] = useState(0) // status reads off since the last successful start
+  const [confirming, setConfirming] = useState(false)
   const [lines, setLines] = useState([])
   const [startErr, setStartErr] = useState(null)
   const [pairing, setPairing] = useState(false)
@@ -208,13 +218,19 @@ export function PairStep({ onNext }) {
   const live = useRef(true)
   const seq = useRef(0)
   const timer = useRef(null)
+  const startedRef = useRef(false)
 
   const read = useCallback(async () => {
     clearTimeout(timer.current)
     const mine = ++seq.current
     const r = await callStep(() => GetExtensionStatus())
     if (!live.current || mine !== seq.current) return
-    if (r.ok) { setSt(r.value); setStErr(null) } else setStErr(r)
+    if (r.ok) {
+      setSt(r.value)
+      setStErr(null)
+      const off = bridgeOf(r.value) === 'off'
+      setOffAfter((n) => (startedRef.current && off ? n + 1 : 0))
+    } else setStErr(r)
     const stop = r.ok ? bridgeOf(r.value) === 'connected' : r.loginRequired
     if (!stop) timer.current = setTimeout(read, PAIR_POLL_MS)
   }, [])
@@ -236,8 +252,7 @@ export function PairStep({ onNext }) {
     })
     if (!live.current) return
     setStarting(false)
-    if (r.ok) setStarted(true)
-    else setStartErr(r)
+    if (r.ok) { startedRef.current = true; setStarted(true); setOffAfter(0) } else setStartErr(r)
     await read()
   }
 
@@ -254,6 +269,7 @@ export function PairStep({ onNext }) {
   }
 
   const bridge = st ? bridgeOf(st) : null
+  const stuck = started && offAfter >= STUCK_AFTER_OFF_READS
   return (
     <div className="onb-browser-pair">
       {!st && !stErr && (
@@ -272,16 +288,32 @@ export function PairStep({ onNext }) {
           </button>
         </div>
       )}
-      {bridge === 'off' && started && (
+      {bridge === 'off' && started && !stuck && !starting && (
+        <p className="onb-browser-busy" role="status"><span className="onb-spinner" aria-hidden="true" />{t('onboarding.browser.pair.comingUp')}</p>
+      )}
+      {bridge === 'off' && stuck && (
         <div className="onb-browser-off" role="status">
-          <p><b>{t('onboarding.browser.pair.stuck')}</b> {t('onboarding.browser.pair.restartWhy')}</p>
+          <p><b>{t('onboarding.browser.pair.stuck')}</b></p>
           {st.hint && <p className="onb-hint">{st.hint}</p>}
-          <div className="onb-browser-actions">
-            <button type="button" className="onb-btn" disabled={starting} aria-busy={starting || undefined} onClick={() => run(DAEMON_RESTART)}>
-              {starting ? t('onboarding.browser.pair.restarting') : t('onboarding.browser.pair.restart')}
-            </button>
-            <button type="button" className="onb-btn ghost" disabled={starting} onClick={read}>{t('onboarding.browser.pair.again')}</button>
-          </div>
+          {confirming ? (
+            <div className="onb-card" role="group" aria-labelledby="onb-browser-restart-q">
+              <p><b id="onb-browser-restart-q">{t('onboarding.browser.pair.restartTitle')}</b></p>
+              <p>{t('onboarding.browser.pair.restartBody')}</p>
+              <div className="onb-browser-actions">
+                <button type="button" className="onb-btn primary" onClick={() => { setConfirming(false); run(DAEMON_RESTART) }}>
+                  {t('onboarding.browser.pair.restartConfirm')}
+                </button>
+                <button type="button" className="onb-btn ghost" onClick={() => setConfirming(false)}>{t('onboarding.browser.pair.restartCancel')}</button>
+              </div>
+            </div>
+          ) : (
+            <div className="onb-browser-actions">
+              <button type="button" className="onb-btn" disabled={starting} aria-busy={starting || undefined} onClick={() => setConfirming(true)}>
+                {starting ? t('onboarding.browser.pair.restarting') : t('onboarding.browser.pair.restart')}
+              </button>
+              <button type="button" className="onb-btn ghost" disabled={starting} onClick={read}>{t('onboarding.browser.pair.again')}</button>
+            </div>
+          )}
         </div>
       )}
       {lines.length > 0 && <ul className="onb-log">{lines.map((l, i) => <li key={i}>{l}</li>)}</ul>}

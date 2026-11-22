@@ -224,10 +224,14 @@ describe('Connect your browser', () => {
     await waitFor(() => expect(Go.InstallExtension).toHaveBeenCalledTimes(1))
   })
 
-  it('an old unpacked copy is replaced on entry', async () => {
+  it('a copy other than the shipped one (for example the person’s own zip) is kept until Reinstall', async () => {
     Go.GetExtensionInfo.mockResolvedValue({ path: FOLDER, installed: true, current: false, version: '1.0.0' })
     show()
     await toInstall(/Google Chrome/)
+    expect(await screen.findByText(/copy of the extension other than the one this app ships/)).toBeInTheDocument()
+    expect(screen.getByText(FOLDER)).toBeInTheDocument()
+    expect(Go.InstallExtension).not.toHaveBeenCalled()
+    click('Reinstall')
     await waitFor(() => expect(Go.InstallExtension).toHaveBeenCalledTimes(1))
   })
 
@@ -241,11 +245,40 @@ describe('Connect your browser', () => {
     await waitFor(() => expect(listeners['health:fixProgress']).toBeTypeOf('function'))
     act(() => { listeners['health:fixProgress']({ fix_id: 'services.daemon.start', kind: 'line', message: 'the daemon is already running' }) })
     act(() => { listeners['health:fixProgress']({ fix_id: 'services.daemon.start', kind: 'done' }) })
+    // the first off read after a start is a grace period: the bridge may only be slow
+    expect(await screen.findByText("The service started. Waiting for the extension's bridge to come up…")).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Restart the service' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Start' })).not.toBeInTheDocument()
+    // the next poll still reads off: now it is stuck
     expect(await screen.findByText("The background service is running, but the extension's bridge is not answering.")).toBeInTheDocument()
     expect(screen.getByText(hint)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Start' })).not.toBeInTheDocument()
+    // the first click only asks, naming what a restart interrupts
     click('Restart the service')
+    expect(screen.getByText('Restarting stops the background service and starts it again. It interrupts whatever it is running: workflows and org runs.')).toBeInTheDocument()
+    expect(Go.RunHealthFix).not.toHaveBeenCalledWith('services.daemon.restart')
+    click('Cancel')
+    expect(screen.queryByText(/It interrupts whatever it is running/)).not.toBeInTheDocument()
+    expect(Go.RunHealthFix).not.toHaveBeenCalledWith('services.daemon.restart')
+    click('Restart the service')
+    click('Restart anyway')
     await waitFor(() => expect(Go.RunHealthFix).toHaveBeenLastCalledWith('services.daemon.restart'))
+  })
+
+  it('a bridge that comes up during the grace period never shows the stuck state', async () => {
+    Go.GetExtensionStatus
+      .mockResolvedValueOnce(status({ running: false }))
+      .mockResolvedValueOnce(status({ running: false }))
+      .mockResolvedValue(status({ running: true, bridge: { status: 'waiting' }, clientPairing: 'ok' }))
+    show()
+    await toPair()
+    await screen.findByRole('button', { name: 'Start' })
+    click('Start')
+    await waitFor(() => expect(listeners['health:fixProgress']).toBeTypeOf('function'))
+    act(() => { listeners['health:fixProgress']({ fix_id: 'services.daemon.start', kind: 'done' }) })
+    expect(await screen.findByText("The service started. Waiting for the extension's bridge to come up…")).toBeInTheDocument()
+    expect(await screen.findByText(/Waiting for the extension to connect/)).toBeInTheDocument()
+    expect(screen.queryByText(/bridge is not answering/)).not.toBeInTheDocument()
   })
 
   it('a clipboard that refuses says to copy by hand', async () => {

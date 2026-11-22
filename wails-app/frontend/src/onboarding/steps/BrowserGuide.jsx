@@ -47,7 +47,8 @@ export function CopyButton({ text, label }) {
 
 // InstallSteps: open the extensions page, turn on Developer mode, Load
 // unpacked with the extension folder (GetExtensionInfo, or InstallExtension
-// when it was missing or old). Reinstall unpacks it again on request.
+// when it was missing). Reinstall unpacks it again on request; a copy that
+// is not the one this app ships is named as such.
 // browser is a DetectChromiumBrowsers row, or { id: 'other', name }.
 export function InstallSteps({ browser, info, installing, problem, onRetry, onReinstall, onLoaded }) {
   const { t } = useTranslation()
@@ -95,7 +96,7 @@ export function InstallSteps({ browser, info, installing, problem, onRetry, onRe
           )}
           {info?.path && !installing && !problem && (
             <span className="onb-hint">
-              {t('onboarding.browser.install.reinstallWhy')}{' '}
+              {info.current ? t('onboarding.browser.install.reinstallWhy') : t('onboarding.browser.install.otherCopy')}{' '}
               <button type="button" className="onb-btn sm ghost" onClick={onReinstall}>{t('onboarding.browser.install.reinstall')}</button>
             </span>
           )}
