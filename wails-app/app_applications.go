@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"regexp"
@@ -506,7 +507,30 @@ func (a *App) OpenJSONFilePicker(title string) string {
 	if err != nil {
 		return ""
 	}
+	a.notePickedJSON(path)
 	return path
+}
+
+// maxJSONFileBytes caps what ReadJSONFile reads.
+const maxJSONFileBytes = 5 << 20
+
+// notePickedJSON remembers a path the person chose in OpenJSONFilePicker.
+func (a *App) notePickedJSON(path string) {
+	if path == "" {
+		return
+	}
+	a.pickedJSONMu.Lock()
+	defer a.pickedJSONMu.Unlock()
+	if a.pickedJSON == nil {
+		a.pickedJSON = map[string]bool{}
+	}
+	a.pickedJSON[path] = true
+}
+
+func (a *App) wasPickedJSON(path string) bool {
+	a.pickedJSONMu.Lock()
+	defer a.pickedJSONMu.Unlock()
+	return a.pickedJSON[path]
 }
 
 // ReadJSONFile reads and parses a JSON file, returning it as a generic
@@ -517,9 +541,20 @@ func (a *App) ReadJSONFile(path string) (map[string]interface{}, error) {
 	if err := a.signedOut(); err != nil {
 		return nil, err
 	}
-	raw, err := os.ReadFile(path)
+	if !a.wasPickedJSON(path) {
+		return nil, fmt.Errorf("refusing to read a file that was not picked in the file picker")
+	}
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", path, err)
+	}
+	defer f.Close()
+	raw, err := io.ReadAll(io.LimitReader(f, maxJSONFileBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", path, err)
+	}
+	if len(raw) > maxJSONFileBytes {
+		return nil, fmt.Errorf("%s is too large (over %d MB)", path, maxJSONFileBytes>>20)
 	}
 	var result map[string]interface{}
 	if err := json.Unmarshal(raw, &result); err != nil {
