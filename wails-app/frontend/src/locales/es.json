@@ -2968,7 +2968,8 @@
         "permissions": "Permisos",
         "firstRun": "Primera ejecución",
         "finish": "Todo listo"
-      }
+      },
+      "signIn": "Tu sesión ha terminado. Inicia sesión en monoes.me para continuar."
     },
     "welcome": {
       "title": "Te damos la bienvenida",
@@ -2981,8 +2982,7 @@
         "agent": "Un agente de IA",
         "browser": "Tu navegador",
         "firstRun": "Una primera ejecución"
-      },
-      "signIn": "Inicia sesión en monoes.me para continuar."
+      }
     },
     "system": {
       "title": "Revisión del sistema",
@@ -3025,7 +3025,7 @@
       "todo": "Instala o inicia lo que aparece en rojo para continuar.",
       "again": "Comprobar de nuevo",
       "cliMissing": "MonoAgent no encontró su línea de comandos, así que no puede comprobar lo demás. Vuelve a instalar MonoAgent y comprueba de nuevo.",
-      "signIn": "Inicia sesión en monoes.me para continuar."
+      "todoNoFix": "Esto no se puede arreglar desde aquí. Comprueba de nuevo cuando esté resuelto, o sáltate este paso por ahora."
     },
     "profile": {
       "title": "Crea tu perfil",
@@ -3061,7 +3061,7 @@
       "errorEmpty": "Ponle un nombre a tu perfil.",
       "errorDefault": "Elige un nombre que diga para qué es este perfil.",
       "haveOne": "Ya creaste tu perfil. Puedes añadir más perfiles más tarde desde la barra lateral.",
-      "signIn": "Inicia sesión en monoes.me para continuar."
+      "reloadFailed": "Tu perfil se creó, pero la configuración no pudo leerlo: {{message}}"
     },
     "about": {
       "title": "Sobre ti",
@@ -3081,7 +3081,7 @@
       },
       "helpLine": "Quiere ayuda con: {{list}}.",
       "pointer": "Puedes editarlo más tarde en la pestaña Info.",
-      "signIn": "Inicia sesión en monoes.me para continuar."
+      "retry": "Reintentar"
     },
     "monomind": {
       "title": "Activa monomind",
@@ -3090,12 +3090,13 @@
       "docsBody": "Los archivos que añades a este perfil se indexan en su Segundo Cerebro. Los agentes buscan en él, y un grafo de conocimiento enlaza lo que va junto.",
       "orgsTitle": "Para organizaciones",
       "orgsBody": "Una organización es un equipo de agentes con roles, objetivos y un jefe. Las organizaciones funcionan con monomind y guardan su memoria en este perfil.",
+      "agentNote": "Puede que también envíe un mensaje corto de configuración a través de tu cuenta de Claude Code.",
+      "checking": "Comprobando este perfil…",
       "turnOn": "Activar para {{name}}",
       "running": "Activando monomind para {{name}}",
       "runningHint": "Puede tardar un minuto o dos. Puedes seguir adelante; continúa por su cuenta.",
       "progress": "Progreso",
       "on": "monomind está activo para {{name}}.",
-      "signIn": "Inicia sesión en monoes.me primero y vuelve a intentarlo.",
       "failed": "No se pudo activar monomind: {{message}}",
       "pointer": "Lo encontrarás más adelante en la pestaña Documentos."
     },
@@ -3106,8 +3107,6 @@
       "scanning": "Buscando herramientas de programación con IA en este equipo",
       "scanningHint": "Tarda unos segundos.",
       "scanFailed": "No se pudieron buscar agentes: {{message}}",
-      "signInScan": "Inicia sesión en monoes.me primero y vuelve a comprobar.",
-      "signInAccount": "Inicia sesión en monoes.me primero y vuelve a intentarlo.",
       "monomindMissing": "monomind aún no está instalado. La comprobación del sistema lo instala.",
       "backToSystem": "Volver a la comprobación del sistema",
       "emptyTitle": "No se encontraron agentes. Instala uno para continuar.",
@@ -3141,6 +3140,7 @@
       "signInRun": "Ejecuta",
       "signInThen": "en una terminal para iniciar sesión y vuelve a enviar la prueba.",
       "readyNote": "{{name}} respondió al mensaje de prueba.",
+      "rosterFailed": "La prueba terminó, pero no se pudo leer la lista de agentes comprobados: {{message}} Pulsa Comprobar de nuevo.",
       "pointer": "Lo encontrarás más adelante en Ajustes, en Agentes de IA."
     },
     "browser": {
@@ -3180,7 +3180,11 @@
         "copy": "Copiar",
         "copied": "Copiado",
         "copyAddress": "Copiar la dirección",
-        "copyFolder": "Copiar la carpeta"
+        "copyFolder": "Copiar la carpeta",
+        "copyFailed": "No se pudo copiar. Selecciona el texto y cópialo tú.",
+        "reinstallWhy": "La extensión ya está en esta carpeta.",
+        "reinstall": "Reinstalar",
+        "otherCopy": "Esta carpeta tiene una copia de la extensión distinta de la que trae esta app: una versión anterior o una que instalaste tú. Reinstalar la reemplaza; después haz clic en Recargar en la extensión, en la página de extensiones de tu navegador."
       },
       "guide": {
         "labelRight": "Dónde están los controles en {{browser}}: 1 la barra de direcciones, 2 el interruptor del modo de desarrollador arriba a la derecha, 3 el botón Cargar descomprimida",
@@ -3209,7 +3213,15 @@
         "button": "Vincular extensión",
         "pairing": "Vinculando…",
         "opened": "La página de vinculación se abrió en tu navegador. Apruébala allí.",
-        "connected": "Conectado."
+        "connected": "Conectado.",
+        "stuck": "El servicio en segundo plano está en marcha, pero el puente de la extensión no responde.",
+        "restart": "Reiniciar el servicio",
+        "restarting": "Reiniciando…",
+        "comingUp": "El servicio se inició. Esperando a que el puente de la extensión esté listo…",
+        "restartTitle": "¿Reiniciar el servicio en segundo plano?",
+        "restartBody": "Reiniciar detiene el servicio en segundo plano y lo vuelve a iniciar. Interrumpe todo lo que esté ejecutando: flujos de trabajo y ejecuciones de organizaciones.",
+        "restartConfirm": "Reiniciar de todos modos",
+        "restartCancel": "Cancelar"
       },
       "confirm": {
         "loading": "Buscando navegadores conectados…",
@@ -3221,7 +3233,9 @@
         "use": "Usar este navegador",
         "saving": "Guardando…",
         "again": "Comprobar de nuevo",
-        "done": "Los agentes que trabajan en {{profile}} ahora usan {{browser}}."
+        "done": "Los agentes que trabajan en {{profile}} ahora usan {{browser}}.",
+        "unnamed": "Navegador",
+        "usedBy": "Ya lo usa: {{names}}"
       },
       "pointer": "Encontrarás esto más adelante en Ajustes, en Extensión del navegador."
     },
@@ -3232,11 +3246,11 @@
       "recommended": "Recomendado",
       "ask": {
         "title": "Preguntar antes de enviar nada",
-        "desc": "Cualquier sitio; el envío de un formulario en un sitio real espera tu aprobación."
+        "desc": "Los agentes pueden abrir cualquier sitio; el envío de un formulario en un sitio real espera tu aprobación."
       },
       "free": {
         "title": "Dejar que los agentes trabajen libremente",
-        "desc": "Cualquier sitio; los formularios se envían sin preguntarte, y los scripts se ejecutan en cualquier página, donde pueden leer las cookies y el almacenamiento de ese sitio."
+        "desc": "Los agentes pueden abrir cualquier sitio; los formularios se envían sin preguntarte (el rellenado de solicitudes sigue preguntando), y los scripts se ejecutan en cualquier página, donde pueden leer las cookies y el almacenamiento de ese sitio."
       },
       "off": {
         "title": "Mantener a los agentes fuera de mi navegador",
@@ -3246,7 +3260,12 @@
       "machine": "Esto se aplica a todos los perfiles de este equipo.",
       "approvals": "Cuando un agente necesita tu visto bueno, espera en Human-in-Loop hasta que lo apruebes o lo rechaces.",
       "settings": "Más adelante puedes ajustarlo por tipo de agente en Ajustes, en Permisos del navegador.",
-      "retry": "Reintentar"
+      "retry": "Reintentar",
+      "keep": {
+        "title": "Mantener mi configuración actual",
+        "desc": "No cambia nada."
+      },
+      "widens": "Hoy la mayoría de los agentes solo pueden usar páginas locales y de desarrollo. Esta opción les permite abrir cualquier sitio; los envíos siguen esperándote."
     },
     "firstRun": {
       "title": "Tu primera ejecución",
@@ -3268,6 +3287,7 @@
       "needs": "Termina primero «{{step}}».",
       "goTo": "Ir a {{step}}",
       "idle": "Todavía no se ha ejecutado nada.",
+      "addsWorkflow": "Al ejecutarla, este flujo de trabajo se añade a tu lista.",
       "progress": "Progreso de la ejecución",
       "nodeState": "{{name}}: {{state}}",
       "node": {

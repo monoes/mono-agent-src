@@ -40,13 +40,17 @@ const TEXT_INPUTS = ['text', 'email', 'search', 'url', 'tel', 'number', 'passwor
 const OWN_ENTER_ROLES = ['button', 'link', 'checkbox', 'radio', 'switch', 'option', 'tab', 'menuitem', 'combobox', 'listbox', 'slider', 'textbox']
 
 // Enter continues only from inside the panel, outside any dialog, from the
-// panel itself or a text field; never from a button (it clicks itself), a
-// link, a select, a textarea, a non-text input, a control with its own Enter
-// (an ARIA role), a field of a form (the form submits), or a held key.
+// panel itself or a text field, or with focus on the page itself (after a
+// click on the village or on panel text) while no dialog is open; never from a
+// button (it clicks itself), a link, a select, a textarea, a non-text input, a
+// control with its own Enter (an ARIA role), a field of a form (the form
+// submits), or a held key.
 function enterContinues(e, panel) {
   if (e.key !== 'Enter' || e.repeat || e.defaultPrevented || e.isComposing || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return false
   const el = e.target
-  if (!panel || !el || !el.tagName || !panel.contains(el) || el.closest('[role="dialog"]')) return false
+  if (!panel || !el || !el.tagName) return false
+  if (el === el.ownerDocument.body) return !el.ownerDocument.querySelector('[role="dialog"]')
+  if (!panel.contains(el) || el.closest('[role="dialog"]')) return false
   if (NO_ENTER.has(el.tagName) || el.isContentEditable || el.form) return false
   if (el.tagName === 'INPUT' && !TEXT_INPUTS.includes(el.type)) return false
   if (el.tagName !== 'INPUT' && OWN_ENTER_ROLES.includes(el.getAttribute('role'))) return false

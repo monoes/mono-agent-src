@@ -2968,7 +2968,8 @@
         "permissions": "Permissions",
         "firstRun": "First run",
         "finish": "You're set"
-      }
+      },
+      "signIn": "Your sign-in has ended. Sign in to monoes.me to continue."
     },
     "welcome": {
       "title": "Welcome",
@@ -2981,8 +2982,7 @@
         "agent": "An AI agent",
         "browser": "Your browser",
         "firstRun": "A first run"
-      },
-      "signIn": "Sign in to monoes.me to continue."
+      }
     },
     "system": {
       "title": "System check",
@@ -3025,7 +3025,7 @@
       "todo": "Install or start the items marked in red to continue.",
       "again": "Check again",
       "cliMissing": "MonoAgent could not find its command line, so it cannot check the rest. Reinstall MonoAgent, then check again.",
-      "signIn": "Sign in to monoes.me to continue."
+      "todoNoFix": "This cannot be fixed from here. Check again once it is sorted, or skip this step for now."
     },
     "profile": {
       "title": "Create your profile",
@@ -3061,7 +3061,7 @@
       "errorEmpty": "Give your profile a name.",
       "errorDefault": "Pick a name that says what this profile is for.",
       "haveOne": "You already made your profile. You can add more profiles later from the sidebar.",
-      "signIn": "Sign in to monoes.me to continue."
+      "reloadFailed": "Your profile was created, but setup could not read it back: {{message}}"
     },
     "about": {
       "title": "About you",
@@ -3081,7 +3081,7 @@
       },
       "helpLine": "Wants help with: {{list}}.",
       "pointer": "You can edit this later in the Info tab.",
-      "signIn": "Sign in to monoes.me to continue."
+      "retry": "Try again"
     },
     "monomind": {
       "title": "Turn on monomind",
@@ -3090,12 +3090,13 @@
       "docsBody": "Files you add to this profile are indexed into its Second Brain. Agents search it, and a knowledge graph links what belongs together.",
       "orgsTitle": "For orgs",
       "orgsBody": "An org is a team of agents with roles, goals and a boss. Orgs run on monomind and keep their memory in this profile.",
+      "agentNote": "This may also send one short setup message through your Claude Code account.",
+      "checking": "Checking this profile…",
       "turnOn": "Turn on for {{name}}",
       "running": "Turning on monomind for {{name}}",
       "runningHint": "This can take a minute or two. You can skip ahead; it keeps going.",
       "progress": "Progress",
       "on": "monomind is on for {{name}}.",
-      "signIn": "Sign in to monoes.me first, then try again.",
       "failed": "monomind could not be turned on: {{message}}",
       "pointer": "You'll find this later in the Documents tab."
     },
@@ -3106,8 +3107,6 @@
       "scanning": "Looking for AI coding tools on this machine",
       "scanningHint": "This takes a few seconds.",
       "scanFailed": "Could not look for agents: {{message}}",
-      "signInScan": "Sign in to monoes.me first, then check again.",
-      "signInAccount": "Sign in to monoes.me first, then try again.",
       "monomindMissing": "monomind is not installed yet. The system check installs it.",
       "backToSystem": "Back to system check",
       "emptyTitle": "No agents found. Install one to continue.",
@@ -3141,6 +3140,7 @@
       "signInRun": "Run",
       "signInThen": "in a terminal to sign in, then send the test again.",
       "readyNote": "{{name}} answered the test message.",
+      "rosterFailed": "The test finished, but the list of checked agents could not be read: {{message}} Press Check again.",
       "pointer": "You'll find this later in Settings, under AI agents."
     },
     "browser": {
@@ -3180,7 +3180,11 @@
         "copy": "Copy",
         "copied": "Copied",
         "copyAddress": "Copy the address",
-        "copyFolder": "Copy the folder"
+        "copyFolder": "Copy the folder",
+        "copyFailed": "Could not copy. Select the text and copy it yourself.",
+        "reinstallWhy": "The extension is already in this folder.",
+        "reinstall": "Reinstall",
+        "otherCopy": "This folder holds a copy of the extension other than the one this app ships: an older version, or one you installed yourself. Reinstall replaces it; then click Reload on the extension in your browser's extensions page."
       },
       "guide": {
         "labelRight": "Where the controls are in {{browser}}: 1 the address bar, 2 the Developer mode switch at the top right, 3 the Load unpacked button",
@@ -3209,7 +3213,15 @@
         "button": "Pair extension",
         "pairing": "Pairing…",
         "opened": "The pairing page opened in your browser. Approve it there.",
-        "connected": "Connected."
+        "connected": "Connected.",
+        "stuck": "The background service is running, but the extension's bridge is not answering.",
+        "restart": "Restart the service",
+        "restarting": "Restarting…",
+        "comingUp": "The service started. Waiting for the extension's bridge to come up…",
+        "restartTitle": "Restart the background service?",
+        "restartBody": "Restarting stops the background service and starts it again. It interrupts whatever it is running: workflows and org runs.",
+        "restartConfirm": "Restart anyway",
+        "restartCancel": "Cancel"
       },
       "confirm": {
         "loading": "Looking for attached browsers…",
@@ -3221,7 +3233,9 @@
         "use": "Use this browser",
         "saving": "Saving…",
         "again": "Check again",
-        "done": "Agents working in {{profile}} now use {{browser}}."
+        "done": "Agents working in {{profile}} now use {{browser}}.",
+        "unnamed": "Browser",
+        "usedBy": "Already used by: {{names}}"
       },
       "pointer": "You'll find this later in Settings, under Browser Extension."
     },
@@ -3232,11 +3246,11 @@
       "recommended": "Recommended",
       "ask": {
         "title": "Ask before anything is submitted",
-        "desc": "Any site; a form submit on a real site waits for your approval."
+        "desc": "Agents may open any site; a form submit on a real site waits for your approval."
       },
       "free": {
         "title": "Let agents work freely",
-        "desc": "Any site; form submits go through without asking you, and scripts run on any page, where they can read that site's cookies and storage."
+        "desc": "Agents may open any site; form submits go through without asking you (application fill still asks), and scripts run on any page, where they can read that site's cookies and storage."
       },
       "off": {
         "title": "Keep agents out of my browser",
@@ -3246,7 +3260,12 @@
       "machine": "This applies to every profile on this machine.",
       "approvals": "When an agent needs your OK, it waits in Human-in-Loop until you approve or reject.",
       "settings": "You can set this per kind of agent later in Settings, under Browser permissions.",
-      "retry": "Try again"
+      "retry": "Try again",
+      "keep": {
+        "title": "Keep my current settings",
+        "desc": "Nothing changes."
+      },
+      "widens": "Today most agents are limited to local and dev pages. This choice lets them open any site; submits still wait for you."
     },
     "firstRun": {
       "title": "Your first run",
@@ -3268,6 +3287,7 @@
       "needs": "Finish '{{step}}' first.",
       "goTo": "Go to {{step}}",
       "idle": "Nothing has run yet.",
+      "addsWorkflow": "Running it adds this workflow to your list.",
       "progress": "Run progress",
       "nodeState": "{{name}}: {{state}}",
       "node": {
