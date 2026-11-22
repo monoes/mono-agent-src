@@ -272,6 +272,9 @@ func (d Deps) newStatusCmd() *cobra.Command {
 			if strings.EqualFold(status, string(applications.StatusApplied)) {
 				return d.InvalidInput("\"applied\" is not a valid target here -- use `application send`, which requires an explicit human action")
 			}
+			if err := d.requireOperator("change an application's status"); err != nil {
+				return err
+			}
 			db, err := d.OpenDB()
 			if err != nil {
 				return fmt.Errorf("initializing database: %w", err)

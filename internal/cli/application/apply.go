@@ -120,6 +120,9 @@ func (d Deps) newSendCmd() *cobra.Command {
 		Long:  "This is the only way an application's status becomes \"applied\" — mono-agent never submits a form on your behalf; this command is how you tell it you did.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := d.requireOperator("record an application as applied"); err != nil {
+				return err
+			}
 			db, err := d.OpenDB()
 			if err != nil {
 				return fmt.Errorf("initializing database: %w", err)
