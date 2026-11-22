@@ -318,13 +318,7 @@ func (d *Database) applyMigrationsOnConn(ctx context.Context) error {
 	}
 
 	for _, m := range migrations {
-		// Check if this version has already been applied.
-		var exists int
-		err := conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM schema_migrations WHERE version = ?", m.version).Scan(&exists)
-		if err != nil {
-			return fmt.Errorf("checking migration version %d: %w", m.version, err)
-		}
-		if exists > 0 {
+		if applied[m.version] {
 			continue
 		}
 
