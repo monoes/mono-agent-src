@@ -53,7 +53,7 @@ var readOnlySurfaces = map[jevconf.Surface]bool{
 // an unapproved step, or a step under agent access.
 func aiRun(ctx context.Context) string {
 	switch workflow.TriggerTypeFrom(ctx) {
-	case workflow.TriggerTypeOrgTool, workflow.TriggerTypeOrgMessage, workflow.TriggerNodeTypeOrg:
+	case workflow.TriggerTypeOrgTool, workflow.TriggerTypeOrgMessage, workflow.TriggerNodeTypeOrg, workflow.TriggerTypeOrgEvent:
 		return "an org started this run"
 	}
 	switch {

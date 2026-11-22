@@ -117,6 +117,7 @@ func TestARemoteProviderIsRefusedToReadOnlyNodesInAIRuns(t *testing.T) {
 		"granted org call": workflow.WithTrigger(base, workflow.TriggerTypeOrgTool, nil),
 		"org message":      workflow.WithTrigger(base, workflow.TriggerTypeOrgMessage, nil),
 		"trigger.org":      workflow.WithTrigger(base, workflow.TriggerNodeTypeOrg, nil),
+		"org event":        workflow.WithTrigger(base, workflow.TriggerTypeOrgEvent, nil),
 		"AI-authored":      workflow.WithAIAuthored(base),
 	}
 	for name, ctx := range runs {
