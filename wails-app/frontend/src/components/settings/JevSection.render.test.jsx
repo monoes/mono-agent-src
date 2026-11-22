@@ -36,6 +36,17 @@ async function mount(st) {
 const row = (s) => document.querySelector(`[data-jev-surface="${s}"]`)
 
 describe('JevSection', () => {
+  it('hides the TypeSafe key row while another provider is selected', async () => {
+    App.JevListProviders = vi.fn().mockResolvedValue({ selected: 'liquid', providers: [] })
+    App.JevStatus.mockResolvedValue({ ...status('vault', 'decision-liquid'), provider: 'liquid', base_url: 'https://x.example' })
+    App.JevUsage.mockResolvedValue(emptyUsage)
+    const { default: JevSection } = await import('./JevSection.jsx')
+    render(<JevSection />)
+    await screen.findByTestId('jev-other-provider')
+    expect(screen.getByTestId('jev-other-provider')).toHaveTextContent('liquid')
+    expect(screen.queryByPlaceholderText(/key/i)).toBeNull()
+  })
+
   it('shows "Not set" with no key, disables Test and hides Remove', async () => {
     await mount(status('none'))
     expect(screen.getByTestId('jev-key-chip')).toHaveTextContent('Not set')

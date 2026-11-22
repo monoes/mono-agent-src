@@ -84,3 +84,41 @@ func TestGeminiDecisionsAdapter(t *testing.T) {
 		t.Fatalf("input = %v", got["input"])
 	}
 }
+
+func TestGeminiQuestionKeys(t *testing.T) {
+	long := string(make([]byte, 0)) + "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz"
+	qs := map[string]Question{"ok_id-1": {}, "needs space": {}, "needs_space": {}, long: {}, "é": {}}
+	keys := geminiKeys(qs)
+	seen := map[string]bool{}
+	for id, k := range keys {
+		if len(k) == 0 || len(k) > 64 || geminiKeyBad.MatchString(k) || seen[k] {
+			t.Fatalf("%q -> %q is not a unique valid key", id, k)
+		}
+		seen[k] = true
+	}
+	if keys["ok_id-1"] != "ok_id-1" || len(keys) != len(qs) {
+		t.Fatalf("keys = %v", keys)
+	}
+}
+
+func TestGeminiRoundTripsAwkwardIDs(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Questions map[string]any `json:"questions"`
+		}
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &in)
+		answers := map[string]any{}
+		for k := range in.Questions {
+			answers[k] = map[string]any{"type": "noul", "noul": 0.7, "confidence": 0.7}
+		}
+		json.NewEncoder(w).Encode(map[string]any{"answers": answers})
+	}))
+	defer srv.Close()
+	c, _ := NewClient("k", "m")
+	c.BaseURL, c.Protocol = srv.URL, ProtocolGemini
+	resp, err := c.Ask(context.Background(), "s", map[string]Question{"node:browser.jev/1": {Type: TypeNoul}})
+	if err != nil || resp.Answers["node:browser.jev/1"].Noul != 0.7 {
+		t.Fatalf("resp = %+v err = %v", resp, err)
+	}
+}

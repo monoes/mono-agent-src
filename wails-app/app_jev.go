@@ -26,6 +26,7 @@ type JevSurface struct {
 // (never the key itself), the model, and each surface's state.
 type JevStatusInfo struct {
 	ProfileID string       `json:"profile_id"`
+	Provider  string       `json:"provider"`   // the selected decision provider when it is not TypeSafe
 	KeySource string       `json:"key_source"` // config | vault | profile-vault | env | none
 	KeyEntry  string       `json:"key_entry"`  // vault entry name when key_source is vault
 	Model     string       `json:"model"`

@@ -253,10 +253,17 @@ function JevSectionView({ collapsible = false, defaultExpanded = false, expandTo
         <div style={card}>
         <div style={hint}>
           Fast pick-one and yes/no decisions for a few monoagent features. Jev never writes text,
-          and nothing is sent to TypeSafe until you turn a feature on{machine ? " in a profile's settings" : ' below'}. Get an API key at console.typesafe.ai.
+          and nothing is sent to {status.provider ? 'the selected provider' : 'TypeSafe'} until you turn a feature on{machine ? " in a profile's settings" : ' below'}. {!status.provider && 'Get an API key at console.typesafe.ai.'}
         </div>
 
-        <JevKeyRow status={status} busy={busy} k={keyState} />
+        {status.provider ? (
+          <div data-testid="jev-other-provider" style={hint}>
+            Jev is using the {status.provider} decision provider ({status.base_url}). Its key is managed under Decision
+            providers below; the TypeSafe key is not used while another provider is selected.
+          </div>
+        ) : (
+          <JevKeyRow status={status} busy={busy} k={keyState} />
+        )}
 
         {err && <div role="alert" style={errText}>{err}</div>}
 

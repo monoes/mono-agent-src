@@ -1824,6 +1824,7 @@ export namespace main {
 	}
 	export class JevStatusInfo {
 	    profile_id: string;
+	    provider: string;
 	    key_source: string;
 	    key_entry: string;
 	    model: string;
@@ -1837,6 +1838,7 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.profile_id = source["profile_id"];
+	        this.provider = source["provider"];
 	        this.key_source = source["key_source"];
 	        this.key_entry = source["key_entry"];
 	        this.model = source["model"];

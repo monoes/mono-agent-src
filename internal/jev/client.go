@@ -188,14 +188,14 @@ func (c *Client) Ask(ctx context.Context, state any, questions map[string]Questi
 	if c.OnResult != nil {
 		defer func() { c.OnResult(&req, recorded, time.Since(started), err) }()
 	}
-	path, order := "/v1/systemone", []string(nil)
+	path, order, gkeys := "/v1/systemone", []string(nil), map[string]string(nil)
 	var body []byte
 	if c.Protocol == ProtocolOpenAI {
 		path = "/v1/decisions"
 		body, order, err = encodeOpenAI(req)
 	} else if c.Protocol == ProtocolGemini {
 		path = "/v1beta/decisions"
-		body, err = encodeGemini(req)
+		body, gkeys, err = encodeGemini(req)
 	} else {
 		body, err = json.Marshal(req)
 	}
@@ -215,6 +215,7 @@ func (c *Client) Ask(ctx context.Context, state any, questions map[string]Questi
 		return nil, fmt.Errorf("%w: undecodable response: %v", ErrInvalidAnswer, err)
 	} else if c.Protocol == ProtocolGemini {
 		decoded.Usage = geminiUsage(raw)
+		geminiRekey(&decoded, gkeys)
 	}
 	decoded.LatencyMS = time.Since(started).Milliseconds()
 	recorded = &decoded
