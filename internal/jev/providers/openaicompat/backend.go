@@ -145,12 +145,18 @@ func (b *Backend) Answer(ctx context.Context, req *jev.Request) (*jev.Response, 
 	if model == "" {
 		model = b.model
 	}
-	var sampledAny atomic.Bool
+	var (
+		sampledAny atomic.Bool
+		served     atomic.Value // the model a response named, for a request that named none
+	)
 	resp, err := jev.FanOut(ctx, req, 0, func(ctx context.Context, _ string, q jev.Question) (jev.Answer, jev.Usage, error) {
 		t := &turn{b: b, model: model, state: string(state), q: q}
 		probs, err := t.answer(ctx)
 		if t.sampled {
 			sampledAny.Store(true)
+		}
+		if t.served != "" {
+			served.CompareAndSwap(nil, t.served)
 		}
 		if err != nil {
 			return jev.Answer{}, t.usage, err
@@ -159,7 +165,12 @@ func (b *Backend) Answer(ctx context.Context, req *jev.Request) (*jev.Response, 
 		return a, t.usage, err
 	})
 	if resp != nil {
+		// The model sent; when none was (the server's default), the one a
+		// response named.
 		resp.Model = model
+		if s, ok := served.Load().(string); ok && model == "" {
+			resp.Model = s
+		}
 		resp.Probability = jev.ProbLogprob
 		if sampledAny.Load() {
 			resp.Probability = jev.ProbSampled

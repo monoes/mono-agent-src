@@ -19,8 +19,9 @@ type turn struct {
 	q            jev.Question
 	sampled      bool // some request of the turn was sampled
 
-	mu    sync.Mutex // guards usage: a question's samples run at once
-	usage jev.Usage
+	mu     sync.Mutex // guards usage and served: a question's samples run at once
+	usage  jev.Usage
+	served string // the model the first response named
 }
 
 // option is one thing a request offers: the id it stands for and its text.
@@ -327,6 +328,9 @@ func (t *turn) add(res *chatResponse) {
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if t.served == "" {
+		t.served = res.Model
+	}
 	t.usage.InputTokens += res.Usage.PromptTokens
 	t.usage.OutputTokens += res.Usage.CompletionTokens
 	if c := res.Usage.Cost; c != nil {

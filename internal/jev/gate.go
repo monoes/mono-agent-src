@@ -1,5 +1,7 @@
 package jev
 
+import "strings"
+
 // GateValue is Top for a surface that gates on the answer: the most probable
 // option and the probability compared with the threshold. An answer whose
 // provider gives no probability (ProbNone) gates as 0, so it never passes a
@@ -24,10 +26,16 @@ func GateProbability(resp *Response, p float64) float64 {
 
 // ModelLabel is the label a surface stores for the model that answered: the
 // model alone for TypeSafe ("" counts as TypeSafe), so rows stay as they were
-// before decision providers, else "<provider>/<model>".
+// before decision providers, else "<provider>/<model>" with any run of
+// white space in the model replaced by "-", or the provider alone when the
+// model is unknown (never "<provider>/").
 func ModelLabel(provider, model string) string {
 	if provider == "" || provider == ProviderTypeSafe {
 		return model
+	}
+	model = strings.Join(strings.Fields(model), "-")
+	if model == "" {
+		return provider
 	}
 	return provider + "/" + model
 }

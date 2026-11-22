@@ -14,6 +14,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"path"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -39,8 +41,11 @@ func init() {
 // Backend answers through one zero-shot classification endpoint. Build it with New.
 type Backend struct {
 	url, key string
-	http     *http.Client
-	retries  int
+	// model names the model in answers: the record's model, else the
+	// endpoint URL's last path segment, else its host.
+	model   string
+	http    *http.Client
+	retries int
 	// sleep waits d or until ctx ends (tests replace it).
 	sleep func(ctx context.Context, d time.Duration) error
 }
@@ -51,7 +56,24 @@ func New(p jevconf.Provider, key string) (*Backend, error) {
 	if strings.TrimSpace(p.BaseURL) == "" {
 		return nil, errors.New("hf-zeroshot: base_url must be the model's full endpoint URL")
 	}
-	return &Backend{url: p.BaseURL, key: key, http: jev.KeyedHTTPClient(timeout), retries: 2, sleep: sleepCtx}, nil
+	return &Backend{url: p.BaseURL, key: key, model: modelOf(p), http: jev.KeyedHTTPClient(timeout), retries: 2, sleep: sleepCtx}, nil
+}
+
+// modelOf is the model p's answers are labelled with: its Model, else the
+// last segment of its endpoint's path ("…/models/facebook/bart-large-mnli"
+// → "bart-large-mnli"), else the endpoint's host.
+func modelOf(p jevconf.Provider) string {
+	if m := strings.TrimSpace(p.Model); m != "" {
+		return m
+	}
+	u, err := url.Parse(strings.TrimSpace(p.BaseURL))
+	if err != nil {
+		return ""
+	}
+	if seg := path.Base(strings.TrimRight(u.Path, "/")); seg != "." && seg != "/" && seg != "" {
+		return seg
+	}
+	return u.Hostname()
 }
 
 // Capabilities implements jev.Backend.
@@ -72,7 +94,7 @@ func (b *Backend) Answer(ctx context.Context, req *jev.Request) (*jev.Response, 
 		a, err := b.answerOne(ctx, state, q)
 		return a, jev.Usage{}, err
 	})
-	resp.Probability = jev.ProbNative
+	resp.Model, resp.Probability = b.model, jev.ProbNative
 	return resp, err
 }
 

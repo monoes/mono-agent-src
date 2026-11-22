@@ -41,6 +41,8 @@ type chatRequest struct {
 }
 
 type chatResponse struct {
+	// Model is the model the server says answered.
+	Model   string `json:"model"`
 	Choices []struct {
 		Message struct {
 			Content json.RawMessage `json:"content"`

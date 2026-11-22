@@ -26,6 +26,10 @@ type FakeBackend struct {
 	Caps jev.Capabilities
 	// ModelList is what Models returns; nil makes Models fail with jev.ErrUnsupported.
 	ModelList []jev.Model
+	// Model is the model every response names ("" = none: jev.Client then
+	// labels the answer with its own model). It is not the request's model,
+	// so a test sees what an adapter that does not report its model yields.
+	Model string
 
 	mu       sync.Mutex
 	handler  Handler
@@ -87,7 +91,7 @@ func (f *FakeBackend) Answer(ctx context.Context, req *jev.Request) (*jev.Respon
 	if h != nil {
 		want = h(*req)
 	}
-	resp := &jev.Response{Model: req.Model, Answers: map[string]jev.Answer{}, Usage: jev.Usage{InputTokens: 100, OutputTokens: 1}}
+	resp := &jev.Response{Model: f.Model, Answers: map[string]jev.Answer{}, Usage: jev.Usage{InputTokens: 100, OutputTokens: 1}}
 	for id, q := range req.Questions {
 		a, err := Answer(q, want[id])
 		if err != nil {
