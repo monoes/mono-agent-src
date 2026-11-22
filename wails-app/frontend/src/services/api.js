@@ -454,6 +454,7 @@ export const api = {
   setOrgAutonomy:            (org, spec) => GoApp.SetOrgAutonomy(org, JSON.stringify(spec)).then(s => JSON.parse(s)).catch(asError),
   pauseOrgAutonomy:          (org, duration = '') => GoApp.PauseOrgAutonomy(org, duration).then(s => JSON.parse(s)).catch(asError),
   resumeOrgAutonomy:         (org) => GoApp.ResumeOrgAutonomy(org).then(s => JSON.parse(s)).catch(asError),
+  jevProviders:              () => GoApp.JevProviders().catch(guard('jev providers', null)),
   listOrgDecisionLog:        (org, run = '') => GoApp.ListOrgDecisionLog(org, run).then(s => JSON.parse(s)).catch(guard('decision log', null)),
   listNeedsYou:              (org) => GoApp.ListNeedsYou(org).then(s => JSON.parse(s)).catch(guard('needs you', null)),
   // C-35: messages queued for the org's next start (read-only `org queued`).

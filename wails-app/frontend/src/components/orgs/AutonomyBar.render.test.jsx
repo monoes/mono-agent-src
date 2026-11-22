@@ -17,6 +17,7 @@ vi.mock('../../services/api.js', () => ({
     setOrgAutonomy: vi.fn(),
     pauseOrgAutonomy: vi.fn(),
     resumeOrgAutonomy: vi.fn(),
+    jevProviders: vi.fn(),
     listOrgGrants: vi.fn(),
     getOrgGates: vi.fn(),
   },
@@ -37,6 +38,8 @@ beforeEach(async () => {
   api.setOrgAutonomy.mockResolvedValue({ v: 1 })
   api.pauseOrgAutonomy.mockResolvedValue({ v: 1 })
   api.resumeOrgAutonomy.mockResolvedValue({ v: 1 })
+  // No provider configured: only the built-in TypeSafe one.
+  api.jevProviders.mockResolvedValue({ default: 'typesafe', kinds: ['openai'], providers: [{ name: 'typesafe', kind: 'typesafe', builtin: true }] })
   api.listOrgGrants.mockResolvedValue({
     v: 1, org: 'growth', grants: [
       { role: 'lead', alias: 'publish_post', workflow_name: 'Publish post', tier: 'irreversible', approval: 'required' },
@@ -212,5 +215,39 @@ describe('AutonomyBar', () => {
     expect(open).toHaveBeenCalled()
     // No threshold stored yet: the field shows the CLI default.
     expect(screen.getByLabelText('Jev ≥')).toHaveValue(0.8)
+  })
+
+  it('reads providers only for the jev decider, and shows no select with only TypeSafe', async () => {
+    await renderBar()
+    expect(api.jevProviders).not.toHaveBeenCalled()
+    cleanup()
+    api.getOrgAutonomy.mockResolvedValue({ ...AUTONOMY, decider: { ...AUTONOMY.decider, kind: 'jev', provider: '' } })
+    await renderBar()
+    await waitFor(() => expect(api.jevProviders).toHaveBeenCalled())
+    expect(screen.queryByLabelText('Provider')).not.toBeInTheDocument()
+    expect(screen.getByTestId('jev-decider-note')).toHaveTextContent('Needs a TypeSafe key')
+  })
+
+  it('picks the jev decider provider, and Default clears it', async () => {
+    api.jevProviders.mockResolvedValue({ default: 'typesafe', kinds: ['openai'], providers: [
+      { name: 'typesafe', kind: 'typesafe', builtin: true }, { name: 'local', kind: 'openai', builtin: false },
+    ] })
+    api.getOrgAutonomy.mockResolvedValue({ ...AUTONOMY, decider: { ...AUTONOMY.decider, kind: 'jev', provider: '' } })
+    await renderBar()
+    const sel = await screen.findByLabelText('Provider')
+    expect(sel).toHaveValue('')
+    expect(within(sel).getAllByRole('option').map(o => o.textContent)).toEqual(['Default (typesafe)', 'typesafe', 'local'])
+    fireEvent.change(sel, { target: { value: 'local' } })
+    await waitFor(() => expect(api.setOrgAutonomy).toHaveBeenCalledWith('growth', { decider: { kind: 'jev', provider: 'local' } }))
+    cleanup()
+    api.setOrgAutonomy.mockClear()
+    api.getOrgAutonomy.mockResolvedValue({ ...AUTONOMY, decider: { ...AUTONOMY.decider, kind: 'jev', provider: 'local' } })
+    await renderBar()
+    const sel2 = await screen.findByLabelText('Provider')
+    await waitFor(() => expect(sel2).toHaveValue('local'))
+    // A provider other than TypeSafe needs no TypeSafe key.
+    expect(screen.getByTestId('jev-decider-note')).not.toHaveTextContent('Needs a TypeSafe key')
+    fireEvent.change(sel2, { target: { value: '' } })
+    await waitFor(() => expect(api.setOrgAutonomy).toHaveBeenCalledWith('growth', { decider: { kind: 'jev', provider: '' } }))
   })
 })

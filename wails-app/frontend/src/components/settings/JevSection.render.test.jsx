@@ -8,7 +8,13 @@ import '../../i18n.js'
 // The section imports the generated bindings, which call window.go.main.App.
 const App = {}
 beforeEach(() => {
-  for (const k of ['JevStatus', 'JevSetKey', 'JevTestKey', 'JevRemoveKey', 'JevSetSurface', 'JevUsage']) App[k] = vi.fn()
+  for (const k of ['JevStatus', 'JevSetKey', 'JevTestKey', 'JevRemoveKey', 'JevSetSurface', 'JevUsage',
+    'JevProviders', 'JevAddProvider', 'JevUseProvider', 'JevProbeProvider', 'JevRemoveProvider']) App[k] = vi.fn()
+  // No provider configured: only the built-in TypeSafe one (D4).
+  App.JevProviders.mockResolvedValue({ default: 'typesafe', kinds: ['openai', 'anthropic', 'hf-zeroshot'], providers: [
+    { name: 'typesafe', kind: 'typesafe', base_url: 'https://api.typesafe.ai', model: 'jev-latest', key_set: true, builtin: true,
+      caps: { kinds: ['choice', 'noul', 'score'], probability: 'native', max_choice_options: 255, questions_per_request: 32, models: true } },
+  ] })
   window.go = { main: { App } }
 })
 afterEach(() => { cleanup(); delete window.go })
@@ -79,6 +85,22 @@ describe('JevSection', () => {
     await mount(status('vault', 'typesafe'))
     expect(App.JevStatus).toHaveBeenCalledTimes(1)
     expect(App.JevUsage).toHaveBeenCalledTimes(1)
+    expect(App.JevProviders).toHaveBeenCalledTimes(1)
+  })
+
+  // D4: with no provider configured the features read as before — no provider
+  // select, today's TypeSafe wording, no provider column.
+  it('keeps the TypeSafe wording and no provider select when only TypeSafe is configured', async () => {
+    App.JevStatus.mockResolvedValue({ ...status('vault', 'typesafe'), provider: 'typesafe', provider_host: 'api.typesafe.ai', probability: 'native' })
+    App.JevUsage.mockResolvedValue({ surfaces: [{ surface: 'hil', calls: 1, input_tokens: 10 }], total: { surface: 'total', calls: 1 } })
+    const { default: JevSection } = await import('./JevSection.jsx')
+    render(<JevSection />)
+    await screen.findByTestId('jev-key-chip')
+    expect(within(row('hil')).getByText('What is sent to TypeSafe')).toBeInTheDocument()
+    expect(within(row('hil')).queryByRole('combobox')).not.toBeInTheDocument()
+    fireEvent.click(within(row('hil')).getByRole('switch'))
+    expect(screen.getByTestId('jev-confirm-hil')).toHaveTextContent('Turning this on sends the following to TypeSafe:')
+    expect(within(screen.getByRole('table')).queryByText('Provider')).not.toBeInTheDocument()
   })
 
   it('does not read the usage for the machine half on its own', async () => {

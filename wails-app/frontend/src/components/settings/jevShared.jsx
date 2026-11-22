@@ -43,6 +43,49 @@ export function keyChip(st, t) {
   }
 }
 
+// A small rounded badge, the style of the key chip.
+export const pill = (color, bg, bd) => ({
+  display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: mono, fontSize: 10,
+  color, background: bg, border: `1px solid ${bd}`, borderRadius: 99, padding: '1px 8px', whiteSpace: 'nowrap',
+})
+
+// What a feature sends, as the CLI reports it.
+export function EgressList({ items }) {
+  if (!items?.length) return <div style={hint}>No details reported by the CLI.</div>
+  return (
+    <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {items.map((e, i) => (
+        <li key={i} style={{ fontFamily: 'var(--font-body)', fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{e}</li>
+      ))}
+    </ul>
+  )
+}
+
+// hostOf is a provider URL's host:port ('' when it does not parse).
+export function hostOf(baseURL) {
+  try { return new URL(baseURL).host } catch { return '' }
+}
+
+// defaultTarget is the machine-default provider and its host. typesafe (or a
+// CLI too old to report providers) means today's TypeSafe wording.
+export function defaultTarget(status, providers) {
+  const name = providers?.default || status?.provider || 'typesafe'
+  const p = (providers?.providers || []).find(x => x.name === name)
+  return { name, typesafe: name === 'typesafe', host: (p && hostOf(p.base_url)) || status?.provider_host || name }
+}
+
+// isThisComputer copies the CLI's loopback rule (jevconf checkOverride): the
+// host is exactly "localhost", a dotted IPv4 127.x.y.z or [::1]. Anything
+// else counts as another host, so the GUI asks before sending data there.
+export function isThisComputer(baseURL) {
+  const m = /^https?:\/\/([^/?#@]+?)(?::\d+)?(?:[/?#]|$)/i.exec(baseURL || '')
+  if (!m) return false
+  const h = m[1].toLowerCase()
+  if (h === 'localhost' || h === '[::1]') return true
+  const ip = /^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h)
+  return !!ip && ip.slice(1).every(o => Number(o) <= 255)
+}
+
 export function formatUSD(v) {
   if (!v) return '$0'
   if (v < 0.0001) return '<$0.0001'

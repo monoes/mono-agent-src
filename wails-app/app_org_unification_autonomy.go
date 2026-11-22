@@ -29,6 +29,9 @@ type autonomySpec struct {
 		TimeoutSeconds *int   `json:"timeout_seconds"`
 		// Threshold is the jev decider's gate, in (0,1] (--decider-threshold).
 		Threshold *float64 `json:"threshold"`
+		// Provider is the jev decider's decision provider
+		// (--decider-provider); "" clears it back to the machine default.
+		Provider *string `json:"provider"`
 	} `json:"decider"`
 	Policy           *string           `json:"policy"`
 	Tiers            map[string]string `json:"tiers"`
@@ -85,6 +88,12 @@ func autonomySetArgs(org, specJSON string) ([]string, error) {
 				return nil, fmt.Errorf("autonomy spec: decider threshold must be in (0,1]")
 			}
 			args = append(args, "--decider-threshold", strconv.FormatFloat(*d.Threshold, 'f', -1, 64))
+		}
+		if d.Provider != nil {
+			if *d.Provider != "" && !jevProviderName.MatchString(*d.Provider) {
+				return nil, fmt.Errorf("autonomy spec: invalid decider provider %q", *d.Provider)
+			}
+			args = append(args, "--decider-provider", *d.Provider)
 		}
 	}
 	if s.Policy != nil {

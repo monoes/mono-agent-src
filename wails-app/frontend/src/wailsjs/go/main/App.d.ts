@@ -499,7 +499,15 @@ export function IsMonomindInitialized():Promise<boolean>;
 
 export function IsReady():Promise<boolean>;
 
+export function JevAddProvider(arg1:main.JevAddProviderRequest):Promise<main.JevProviderInfo>;
+
+export function JevProbeProvider(arg1:string):Promise<main.JevProbeResult>;
+
+export function JevProviders():Promise<main.JevProviderList>;
+
 export function JevRemoveKey():Promise<main.JevKeyRemoveResult>;
+
+export function JevRemoveProvider(arg1:string):Promise<main.JevRemoveProviderResult>;
 
 export function JevSetKey(arg1:string):Promise<main.JevKeySetResult>;
 
@@ -510,6 +518,8 @@ export function JevStatus():Promise<main.JevStatusInfo>;
 export function JevTestKey():Promise<main.JevKeyTestResult>;
 
 export function JevUsage(arg1:string):Promise<main.JevUsageReport>;
+
+export function JevUseProvider(arg1:string,arg2:string):Promise<main.JevUseResult>;
 
 export function KeyringClearPassphrase():Promise<main.KeyringPassphraseResult>;
 
