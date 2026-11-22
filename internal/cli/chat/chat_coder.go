@@ -362,7 +362,7 @@ func coderFolder(cmd *cobra.Command, cfg *Deps, c coderFolderChoice, runtime str
 	}
 	// A folder the user picked may be their own repo: add only what is
 	// missing, never touch what is there.
-	if _, err := initWorkspace(cmd.Context(), "", dir, rt.InitTarget); err != nil {
+	if _, err := initOwnFolder(cmd.Context(), cmd.ErrOrStderr(), dir, rt.InitTarget); err != nil {
 		return "", err
 	}
 	return dir, nil
