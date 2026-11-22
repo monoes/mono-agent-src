@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { ChevronRight, ChevronDown, ShieldAlert } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { mono, label, hint, errText, input, formatUSD, Switch, EgressList, hostOf, isThisComputer, defaultTarget } from './jevShared.jsx'
+import { mono, label, hint, errText, input, formatUSD, Switch, EgressList, hostOf, isThisComputer, defaultTarget,
+  surfacePinned, missingKinds, capabilityError, sampledCeiling } from './jevShared.jsx'
 
 // Where a surface's data goes: its own provider, else the default. typesafe
 // (or a CLI too old to say) keeps today's wording.
@@ -13,31 +14,63 @@ function surfaceTarget(s, status, providers) {
 
 // The per-feature provider select ('' follows the default) and, when the
 // feature is on and the new provider is on another host, the consent first.
+// A provider whose probed kinds lack one the feature asks is offered
+// disabled; the CLI's refusal (a kind it could not see) shows by the select.
+// A feature with a provider of its own (pinned, even to the default's name)
+// says so and offers to follow the default again.
 function ProviderSelect({ s, title, status, providers, busy, onSet }) {
   const { t } = useTranslation()
   const [asking, setAsking] = useState(null)
+  const [err, setErr] = useState('')
   const list = providers?.providers || []
   const def = providers?.default || status.provider || 'typesafe'
-  const value = s.provider && s.provider !== def ? s.provider : ''
+  const pinned = surfacePinned(s, def)
+  const value = pinned ? s.provider : ''
   const current = surfaceTarget(s, status, providers)
   const selId = `jev-prov-${s.surface}`
+  const errId = `jev-prov-err-${s.surface}`
+  const set = (v) => { setErr(''); onSet(s.surface, v, e => setErr(capabilityError(e, t))) }
   const choose = (v) => {
     if (v === value) return
     const p = list.find(x => x.name === (v || def))
     const host = (p && hostOf(p.base_url)) || v || def
     if (s.enabled && !(p && isThisComputer(p.base_url)) && host !== current.host) setAsking({ v, host })
-    else onSet(s.surface, v)
+    else set(v)
   }
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
         <label htmlFor={selId} style={{ ...label, letterSpacing: 0.5 }}>{t('settings.jev.providers.featureProviderLabel')}</label>
         <select id={selId} className="filter-select" value={asking ? asking.v : value} disabled={busy}
           aria-label={t('settings.jev.providers.featureProvider', { feature: title })}
+          aria-describedby={err ? errId : undefined} aria-invalid={!!err}
           onChange={e => choose(e.target.value)} style={{ fontSize: 10, padding: '2px 22px 2px 6px' }}>
           <option value="">{t('settings.jev.providers.defaultOption', { name: def })}</option>
-          {list.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
+          {list.map(p => {
+            const missing = missingKinds(p, s.surface)
+            return (
+              <option key={p.name} value={p.name} disabled={missing.length > 0 && p.name !== value}>
+                {missing.length ? t('settings.jev.providers.optionMissingKinds', { name: p.name, kinds: missing.join(', ') }) : p.name}
+              </option>
+            )
+          })}
         </select>
+        {pinned && (
+          <>
+            <span data-testid={`jev-pinned-${s.surface}`} style={{ fontFamily: mono, fontSize: 10, color: 'var(--text-secondary)' }}>
+              {t('settings.jev.providers.pinnedTo', { name: s.provider })}
+            </span>
+            <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => choose('')}
+              aria-label={t('settings.jev.providers.followDefaultAria', { feature: title, name: def })}
+              style={{ fontSize: 10, padding: '1px 8px' }}>
+              {t('settings.jev.providers.followDefault')}
+            </button>
+          </>
+        )}
+      </div>
+      {/* Always rendered so a refusal is announced when it appears. */}
+      <div aria-live="assertive" data-testid={`jev-provider-error-${s.surface}`} style={{ flexBasis: '100%' }}>
+        {err && <div id={errId} role="alert" style={errText}>{err}</div>}
       </div>
       {asking && (
         <div data-testid={`jev-provider-confirm-${s.surface}`} style={{
@@ -51,7 +84,7 @@ function ProviderSelect({ s, title, status, providers, busy, onSet }) {
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
             <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => setAsking(null)}>{t('settings.jev.providers.cancel')}</button>
             <button type="button" className="btn btn-primary btn-sm" disabled={busy}
-              onClick={() => { const { v } = asking; setAsking(null); onSet(s.surface, v) }}>
+              onClick={() => { const { v } = asking; setAsking(null); set(v) }}>
               {t('settings.jev.providers.featureSwitchConfirm', { host: asking.host })}
             </button>
           </div>
@@ -86,6 +119,12 @@ function SurfaceRow({ s, status, providers, withProviders, busy, pending, onStar
   const title = s.title || s.surface
   const changed = s.enabled && validThreshold(thr, s.default_threshold) && Number(thr) !== s.threshold
   const thrId = `jev-thr-${s.surface}`
+  // A sampled provider's top probability is at most sampledCeiling: a
+  // threshold above it is never reached, so the feature only suggests.
+  const effective = (providers?.providers || []).find(p => p.name === target.name)
+  const ceiling = sampledCeiling(s.surface)
+  const unreachable = (s.enabled || pending) && effective?.caps?.probability === 'sampled' &&
+    validThreshold(thr, s.default_threshold) && Number(thr) > ceiling
 
   return (
     <div data-jev-surface={s.surface} style={{
@@ -118,6 +157,17 @@ function SurfaceRow({ s, status, providers, withProviders, busy, pending, onStar
           onChange={on => (on ? onStartEnable(s.surface) : (pending ? onCancelEnable() : onDisable(s.surface)))}
         />
       </div>
+
+      {unreachable && (
+        <div data-testid={`jev-sampled-warning-${s.surface}`} role="note" style={{
+          display: 'flex', alignItems: 'flex-start', gap: 6, fontFamily: 'var(--font-body)', fontSize: 11, lineHeight: 1.5,
+          color: 'var(--yellow)', background: 'rgba(234,179,8,.05)', border: '1px solid rgba(234,179,8,.22)',
+          borderRadius: 'var(--radius)', padding: '6px 10px',
+        }}>
+          <ShieldAlert size={13} style={{ flexShrink: 0, marginTop: 2 }} />
+          <span>{t('settings.jev.providers.sampledUnreachable', { max: ceiling.toFixed(2) })}</span>
+        </div>
+      )}
 
       {pending ? (
         <div data-testid={`jev-confirm-${s.surface}`} style={{

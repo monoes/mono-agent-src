@@ -2,21 +2,32 @@ import { useState } from 'react'
 import { ShieldAlert, Plus } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { JevUseProvider, JevProbeProvider, JevRemoveProvider } from '../../wailsjs/go/main/App'
-import { mono, label, hint, errText, okText, pill, hostOf, isThisComputer, testError, removeError, EgressList } from './jevShared.jsx'
+import { mono, label, hint, errText, okText, pill, hostOf, isThisComputer, testError, removeError, EgressList, surfacePinned } from './jevShared.jsx'
 import JevAddProviderForm from './JevAddProviderForm.jsx'
 
 // Settings → Jev → "Decision model": the saved decision providers (machine-wide),
 // which one is the default, a probe per provider, removal and the add form.
 // Everything goes through `monoagentcli jev provider …` (app_jev_providers.go).
-// Making a provider on another host the default first lists what this
-// profile's features would send there: JevUseProvider passes --yes, so this is
-// the consent `jev provider use` asks for in a terminal.
+// Making a provider on another host the default (TypeSafe too) first lists
+// what follows the default and would send there: JevUseProvider passes --yes,
+// so this is the consent `jev provider use` asks for in a terminal.
 
 const PROB_STYLE = {
   native: ['var(--green-neon)', 'rgba(16,185,129,.1)', 'rgba(74,222,128,.25)'],
   logprob: ['var(--cyan)', 'rgba(0,180,216,.1)', 'rgba(0,180,216,.25)'],
+  softmax: ['var(--yellow)', 'rgba(234,179,8,.08)', 'rgba(234,179,8,.22)'],
   sampled: ['var(--yellow)', 'rgba(234,179,8,.08)', 'rgba(234,179,8,.22)'],
   none: ['var(--text-muted)', 'rgba(255,255,255,.05)', 'var(--border)'],
+}
+
+// capsText says what a provider answers and its limits; a limit of 0 is no
+// limit and is not shown. '' when nothing is known (not probed).
+function capsText(caps, t) {
+  const parts = []
+  if (caps?.kinds?.length) parts.push(t('settings.jev.providers.capsKinds', { kinds: caps.kinds.join(', ') }))
+  if (caps?.max_choice_options > 0) parts.push(t('settings.jev.providers.capsMaxOptions', { count: caps.max_choice_options }))
+  if (caps?.options_per_request > 0) parts.push(t('settings.jev.providers.capsOptionsPerRequest', { count: caps.options_per_request }))
+  return parts.join(' · ')
 }
 
 function ProviderRow({ p, isDefault, inUse, busy, probe, onUse, onTest, onRemove, confirmRemove, removeErr, onCancelRemove, onConfirmRemove }) {
@@ -27,6 +38,7 @@ function ProviderRow({ p, isDefault, inUse, busy, probe, onUse, onTest, onRemove
       : inUse ? t('settings.jev.providers.whyInUse') : ''
   const whyId = `jev-prov-why-${p.name}`
   const host = hostOf(p.base_url) || p.base_url
+  const caps = capsText(p.caps, t)
   return (
     <div data-jev-provider={p.name} style={{ borderTop: '1px solid var(--border-dim)', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
@@ -47,6 +59,10 @@ function ProviderRow({ p, isDefault, inUse, busy, probe, onUse, onTest, onRemove
               {p.key_set ? t('settings.jev.providers.keySet') : t('settings.jev.providers.noKey')}
             </span>
           </div>
+          {caps && <div style={{ fontFamily: mono, fontSize: 10, color: 'var(--text-dim)' }}>{caps}</div>}
+          {(prob === 'sampled' || prob === 'softmax') && (
+            <div data-testid={`jev-prob-note-${p.name}`} style={{ ...hint, color: 'var(--yellow)' }}>{t(`settings.jev.providers.probNote.${prob}`)}</div>
+          )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           {!isDefault && (
@@ -100,7 +116,7 @@ function ProviderRow({ p, isDefault, inUse, busy, probe, onUse, onTest, onRemove
 function SwitchConfirm({ p, status, defaultName, busy, onCancel, onConfirm }) {
   const { t } = useTranslation()
   const host = hostOf(p.base_url) || p.base_url
-  const following = (status?.surfaces || []).filter(s => s.enabled && (!s.provider || s.provider === defaultName))
+  const following = (status?.surfaces || []).filter(s => s.enabled && !surfacePinned(s, defaultName))
   return (
     <div data-testid="jev-provider-switch-confirm" role="group" aria-label={t('settings.jev.providers.switchTitle', { name: p.name, host })} style={{
       background: 'rgba(234,179,8,.05)', border: '1px solid rgba(234,179,8,.22)', borderRadius: 'var(--radius)',
@@ -123,6 +139,12 @@ function SwitchConfirm({ p, status, defaultName, busy, onCancel, onConfirm }) {
         <div style={hint}>{t('settings.jev.providers.switchNone')}</div>
       )}
       <div style={hint}>{t('settings.jev.providers.switchOtherProfiles', { host })}</div>
+      <div data-testid="jev-switch-deciders" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <span style={{ fontFamily: mono, fontSize: 11, color: 'var(--text)' }}>{t('settings.jev.providers.switchDeciders')}</span>
+        <EgressList items={[1, 2, 3].map(i => t(`settings.jev.providers.deciderEgress${i}`))} />
+      </div>
+      <div data-testid="jev-switch-nodes" style={hint}>{t('settings.jev.providers.switchNodes')}</div>
+      <div data-testid="jev-switch-dynorg" style={hint}>{t('settings.jev.providers.switchDynorg')}</div>
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
         <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={onCancel}>{t('settings.jev.providers.cancel')}</button>
         <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={onConfirm}>
@@ -147,7 +169,7 @@ export default function JevProvidersBlock({ status, providers, providersErr, bus
 
   const list = providers?.providers || []
   const defaultName = providers?.default || status?.provider || 'typesafe'
-  const inUse = new Set((status?.surfaces || []).map(s => s.provider).filter(Boolean))
+  const inUse = new Set((status?.surfaces || []).map(s => s.provider || '').filter(Boolean))
   const disabled = !!busy
   const start = () => { setErr(''); setNote(''); setRemoveErr({ name: '', text: '' }) }
 
@@ -194,6 +216,12 @@ export default function JevProvidersBlock({ status, providers, providersErr, bus
         )}
       </div>
       <div style={hint}>{t('settings.jev.providers.intro')}</div>
+      {status?.provider_error && (
+        <div role="alert" data-testid="jev-provider-error" style={{ ...errText, display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+          <ShieldAlert size={13} style={{ flexShrink: 0, marginTop: 1 }} />
+          <span>{t('settings.jev.providers.defaultUnusable', { name: status.provider || defaultName, error: status.provider_error.replace(/^jev:\s*/, '') })}</span>
+        </div>
+      )}
       {providersErr && !providers && (
         <div role="alert" style={errText}>{t('settings.jev.providers.loadErr', { error: providersErr })}</div>
       )}
@@ -215,7 +243,7 @@ export default function JevProvidersBlock({ status, providers, providersErr, bus
       {note && <div style={okText}>{note}</div>}
       {list.length > 0 && <div style={hint}>{t('settings.jev.providers.calibrationNote')}</div>}
       {adding && (
-        <JevAddProviderForm kinds={providers?.kinds || []} busy={disabled} run={run} reload={reload} onClose={() => setAdding(false)} />
+        <JevAddProviderForm kinds={providers?.kinds || []} existing={list} busy={disabled} run={run} reload={reload} onClose={() => setAdding(false)} />
       )}
     </div>
   )

@@ -93,16 +93,78 @@ export function defaultTarget(status, providers) {
   return { name, typesafe: name === 'typesafe', host: (p && hostOf(p.base_url)) || status?.provider_host || name }
 }
 
-// isThisComputer copies the CLI's loopback rule (jevconf checkOverride): the
-// host is exactly "localhost", a dotted IPv4 127.x.y.z or [::1]. Anything
-// else counts as another host, so the GUI asks before sending data there.
+// isThisComputer copies the CLI's loopback rule (jevconf.Loopback): the host
+// is exactly "localhost" (case matters, as in Go), a dotted IPv4 127.x.y.z
+// whose octets have no leading zero (what net.ParseIP reads) or [::1]. It
+// may be stricter than the CLI, never looser: anything else counts as
+// another host, so the GUI asks before sending data there.
 export function isThisComputer(baseURL) {
   const m = /^https?:\/\/([^/?#@]+?)(?::\d+)?(?:[/?#]|$)/i.exec(baseURL || '')
   if (!m) return false
-  const h = m[1].toLowerCase()
+  const h = m[1]
   if (h === 'localhost' || h === '[::1]') return true
-  const ip = /^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h)
+  const ip = /^127\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})$/.exec(h)
   return !!ip && ip.slice(1).every(o => Number(o) <= 255)
+}
+
+// surfacePinned says whether a `jev status` surface has a provider choice
+// of its own (provider_pinned; its provider may name the default). A CLI
+// that reports no provider_pinned (it leaves out false) gave a surface's
+// provider only when it differed from the default.
+export function surfacePinned(s, defaultName) {
+  if (typeof s?.provider_pinned === 'boolean') return s.provider_pinned
+  return !!s?.provider && s.provider !== defaultName
+}
+
+// SURFACE_KINDS is jevconf.SurfaceKinds: the question kinds each surface
+// asks. A provider whose probed kinds lack one cannot serve it (the CLI
+// refuses it; JevProviders.render.test.jsx pins this table to the Go source).
+export const SURFACE_KINDS = {
+  action_fallback: ['choice'],
+  hil: ['choice', 'score'],
+  people_review: ['choice'],
+  capture: ['choice'],
+  inbox: ['choice', 'noul'],
+  people_links: ['noul'],
+  asks: ['choice'],
+  retry: ['choice'],
+  api_auto: ['choice'],
+  decider: ['choice'],
+  dynorg: ['choice'],
+}
+
+// missingKinds lists the kinds surface asks that provider p does not
+// answer; [] when p's kinds are unknown (not probed), as CheckSurfaceKinds.
+export function missingKinds(p, surface) {
+  const kinds = p?.caps?.kinds || []
+  if (!kinds.length) return []
+  return (SURFACE_KINDS[surface] || []).filter(k => !kinds.includes(k))
+}
+
+// sampledMax is the highest top probability a sampled provider reports on a
+// question of n options (jev.SampledProbs: 5 samples, add-one smoothed, so
+// (5+1)/(5+n)): 6/7 ≈ 0.857 on two, 0.75 on three. A threshold above it is
+// never reached.
+export const sampledMax = (n) => 6 / (5 + Math.max(2, n))
+
+// SURFACE_OPTIONS is the number of options of the question a surface gates
+// on, where it is fixed: hil's decision (approve, reject, needs_human) and
+// people_links' yes/no. Other surfaces have at least two.
+const SURFACE_OPTIONS = { hil: 3, people_links: 2 }
+
+// sampledCeiling is the highest top probability a sampled provider can give
+// surface's gated question.
+export const sampledCeiling = (surface) => sampledMax(SURFACE_OPTIONS[surface] || 2)
+
+// capabilityError rewrites the CLI's refusal of a provider for a surface
+//   jev: provider "x" does not answer score questions, which surface hil asks
+//   (it answers choice, noul; `jev provider probe x` checks again)
+// into a sentence; any other error keeps its text ('' for none).
+export function capabilityError(raw, t) {
+  const text = String(raw || '').replace(/^(?:Error:\s*)?(?:invalid input:\s*)?jev:\s*/, '')
+  const m = /provider "([^"]+)" does not answer (.+?) questions, which surface (\S+) asks \(it answers ([^;)]*)/.exec(text)
+  if (!m) return text
+  return t('settings.jev.providers.capRefused', { name: m[1], kinds: m[2], surface: m[3], answers: m[4] })
 }
 
 export function formatUSD(v) {

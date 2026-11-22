@@ -98,12 +98,14 @@ describe('CoderOrgSection, this computer', () => {
   it('says on the router picker which choices send the brief to Jev', async () => {
     machine()
     const router = await screen.findByRole('combobox', { name: "Who picks a worker's role" })
-    // Security review of #871: with a Jev key set, Jev gets the brief under
-    // every router (the model and effort questions), so nothing may say a
-    // choice here keeps it local.
-    const note = screen.getByText(/^With a Jev key set, a worker's brief goes to Jev \(TypeSafe\) whatever you pick here/)
-    expect(note).toHaveTextContent('Only removing the Jev key keeps briefs on this machine.')
-    expect(note).not.toHaveTextContent(/The lead keeps|keeps it on this machine/)
+    // Security review of #871: whenever a decision provider resolves, it gets
+    // the brief under every router (the model and effort questions), so
+    // nothing may say a choice here keeps it local. The sentence follows
+    // `coder set --help`: briefs stay only when no Jev key or provider
+    // resolves, or that provider is on this computer.
+    const note = screen.getByText(/^When a decision provider resolves \(the dynorg feature's, else the machine default: TypeSafe with a Jev key set, or a provider you added\), a worker's brief goes to it whatever you pick here/)
+    expect(note).toHaveTextContent("Briefs stay on this machine only when no Jev key or provider resolves, or when that provider's host is this computer (and even then the local server may forward them).")
+    expect(note).not.toHaveTextContent(/The lead keeps|keeps it on this machine|Only removing the Jev key/)
     expect(router.parentElement).toContainElement(note)
   })
 
