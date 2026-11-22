@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Sparkles } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { api, onMonomindInitEvent, notify } from '../services/api.js'
 
 const MAX_LOG_LINES = 10
@@ -14,6 +15,7 @@ const MAX_LOG_LINES = 10
  * @param {() => void} onInitialized
  */
 export default function MonomindInitPrompt({ onInitialized }) {
+  const { t } = useTranslation()
   const [status, setStatus] = useState('idle') // idle | running | error
   const [lines, setLines] = useState([])
   const runningRef = useRef(false)
@@ -43,7 +45,7 @@ export default function MonomindInitPrompt({ onInitialized }) {
     let message = ''
     try {
       const r = await api.initializeMonomindProfile()
-      if (r && r.error) message = r.login_required ? `${r.error} — sign in to monoes.me, then try again.` : r.error
+      if (r && r.error) message = r.login_required ? t('monomindInit.signInAgain', { error: r.error }) : r.error
     } catch (e) {
       message = e?.message || String(e)
     }
@@ -58,12 +60,12 @@ export default function MonomindInitPrompt({ onInitialized }) {
     <div className="empty-state" style={{ flex: 1 }}>
       <div className="empty-state-icon"><Sparkles size={30} /></div>
       <div className="empty-state-title">
-        {status === 'running' ? 'Setting up monomind…' : 'This profile isn’t set up with monomind yet'}
+        {status === 'running' ? t('monomindInit.titleRunning') : t('monomindInit.title')}
       </div>
       <div className="empty-state-desc">
         {status === 'running'
-          ? 'This can take a minute or two.'
-          : 'Orgs and agents need monomind initialized in this profile’s folder first. Setting it up also sends one short prompt through your Claude Code account.'}
+          ? t('monomindInit.descRunning')
+          : t('monomindInit.desc')}
       </div>
       {status === 'running' ? (
         <>
@@ -79,7 +81,7 @@ export default function MonomindInitPrompt({ onInitialized }) {
         </>
       ) : (
         <button className="btn btn-primary btn-sm" onClick={start} style={{ marginTop: 8 }}>
-          Set up agents for this profile
+          {t('monomindInit.start')}
         </button>
       )}
     </div>

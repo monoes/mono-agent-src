@@ -70,7 +70,7 @@ function AdjustControls({ adj, setAdj }) {
 }
 
 // ── Remove BG ─────────────────────────────────────────────────────────────────
-function RemoveBgControls({ bgcolor, setBgcolor }) {
+export function RemoveBgControls({ bgcolor, setBgcolor }) {
   const [useColor, setUseColor] = useState(false)
   const pickerColor = bgcolor || '#ffffff'
 
@@ -93,8 +93,8 @@ function RemoveBgControls({ bgcolor, setBgcolor }) {
     <div>
       {/* Transparent vs color selector */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        <div onClick={() => { setUseColor(false); setBgcolor('') }}
-          style={{
+        <button type="button" aria-pressed={!useColor} onClick={() => { setUseColor(false); setBgcolor('') }}
+          style={{ font: 'inherit',
             flex: 1, borderRadius: 7, border: `1.5px solid ${!useColor ? '#00b4d8' : '#1e3a4f'}`,
             background: !useColor ? 'rgba(0,180,216,.1)' : '#0d1a26',
             padding: '10px 8px', cursor: 'pointer', textAlign: 'center',
@@ -107,10 +107,10 @@ function RemoveBgControls({ bgcolor, setBgcolor }) {
             border: '1px solid #1e3a4f',
           }} />
           <span style={{ ...mono, fontSize: 9, color: !useColor ? '#00b4d8' : '#475569' }}>Transparent</span>
-        </div>
+        </button>
 
-        <div onClick={() => { setUseColor(true); if (!bgcolor) setBgcolor('ffffff') }}
-          style={{
+        <button type="button" aria-pressed={useColor} onClick={() => { setUseColor(true); if (!bgcolor) setBgcolor('ffffff') }}
+          style={{ font: 'inherit',
             flex: 1, borderRadius: 7, border: `1.5px solid ${useColor ? '#00b4d8' : '#1e3a4f'}`,
             background: useColor ? 'rgba(0,180,216,.1)' : '#0d1a26',
             padding: '10px 8px', cursor: 'pointer', textAlign: 'center',
@@ -121,7 +121,7 @@ function RemoveBgControls({ bgcolor, setBgcolor }) {
             border: '1px solid #1e3a4f',
           }} />
           <span style={{ ...mono, fontSize: 9, color: useColor ? '#00b4d8' : '#475569' }}>Color</span>
-        </div>
+        </button>
       </div>
 
       {/* Color picker row — only when color mode is on */}
@@ -370,7 +370,7 @@ const FORMAT_INFO = {
   bmp:  { ext: '.bmp', color: '#ec4899', note: 'Uncompressed — largest file size' },
 }
 
-function ConvertControls({ format, setFormat, quality, setQuality, sizeBytes }) {
+export function ConvertControls({ format, setFormat, quality, setQuality, sizeBytes }) {
   const fi = FORMAT_INFO[format]
   const estSize = sizeBytes ? (
     format === 'jpeg' ? Math.round(sizeBytes * (quality / 100) * 0.15) :
@@ -387,7 +387,7 @@ function ConvertControls({ format, setFormat, quality, setQuality, sizeBytes }) 
       <span style={lbl}>Output Format</span>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 14 }}>
         {Object.entries(FORMAT_INFO).map(([f, info]) => (
-          <div key={f} onClick={() => setFormat(f)} style={{
+          <button type="button" key={f} aria-pressed={format === f} onClick={() => setFormat(f)} style={{ font: 'inherit',
             border: `1px solid ${format === f ? info.color : '#1e3a4f'}`,
             background: format === f ? `${info.color}18` : '#0d1a26',
             borderRadius: 6, padding: '8px 10px', cursor: 'pointer',
@@ -395,7 +395,7 @@ function ConvertControls({ format, setFormat, quality, setQuality, sizeBytes }) 
           }}>
             <span style={{ ...mono, fontSize: 11, fontWeight: 700, color: info.color }}>{f.toUpperCase()}</span>
             <span style={{ ...mono, fontSize: 9, color: '#475569' }}>{info.ext}</span>
-          </div>
+          </button>
         ))}
       </div>
 
