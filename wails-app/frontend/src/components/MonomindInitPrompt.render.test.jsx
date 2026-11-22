@@ -14,6 +14,14 @@ beforeEach(() => vi.clearAllMocks())
 afterEach(() => cleanup())
 
 describe('MonomindInitPrompt', () => {
+  // internal/monomind/profile_init.go:95-96: the claude -p turn is only the
+  // fallback when monomind's own registration (init-json) is missing or fails.
+  it('says the set-up may send a message through Claude Code, not that it always does', () => {
+    render(<MonomindInitPrompt />)
+    expect(screen.getByText(/Setting it up may also send one short setup message through your Claude Code account\./)).toBeInTheDocument()
+    expect(screen.queryByText(/also sends one short prompt/)).not.toBeInTheDocument()
+  })
+
   it('leaves the spinner with the refusal when signed out (no error event is emitted)', async () => {
     WailsApp.InitializeMonomindProfile.mockResolvedValue(JSON.stringify({ error: 'sign in to continue', login_required: true }))
     const errs = []

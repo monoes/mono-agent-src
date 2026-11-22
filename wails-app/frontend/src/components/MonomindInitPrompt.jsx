@@ -60,7 +60,7 @@ export default function MonomindInitPrompt({ onInitialized }) {
       <div className="empty-state-desc">
         {status === 'running'
           ? 'This can take a minute or two.'
-          : 'Orgs and agents need monomind initialized in this profile’s folder first. Setting it up also sends one short prompt through your Claude Code account.'}
+          : 'Orgs and agents need monomind initialized in this profile’s folder first. Setting it up may also send one short setup message through your Claude Code account.'}
       </div>
       {status === 'running' ? (
         <>
