@@ -119,21 +119,34 @@ export default function ApiConnectionModal({ platform, conn, onClose, onRefresh,
   const needsClient = selMethod === 'oauth' && !oauthFields.some(f => f.key === 'client_id')
   const canStart = (!needsClient || !!oauthCreds.clientID) && oauthMissing.length === 0
 
-  useEffect(() => { api.showPlatform(pid).then(setView) }, [pid])
+  const [loadErr, setLoadErr] = useState(null)
+  const closeTimerRef = useRef(null)
+  useEffect(() => () => clearTimeout(closeTimerRef.current), [])
+  const closeSoon = useCallback(() => { clearTimeout(closeTimerRef.current); closeTimerRef.current = setTimeout(onClose, 1500) }, [onClose])
+
+  useEffect(() => {
+    let live = true
+    setLoadErr(null)
+    api.showPlatform(pid).then(v => { if (live) setView(v) }).catch(e => { if (live) setLoadErr(e?.message || String(e)) })
+    return () => { live = false }
+  }, [pid])
 
   // Load stored OAuth credentials when OAuth method selected
   useEffect(() => {
     if (selMethod !== 'oauth') return
+    let live = true
     api.getOAuthCredentials(pid).then(json => {
+      if (!live) return
       if (json) {
         try {
           const c = JSON.parse(json)
           setOauthCreds({ clientID: c.clientID || '', clientSecret: c.clientSecret || '' })
           setOauthCredsNeeded(false)
-        } catch {}
+        } catch { setLoadErr('Could not read the stored OAuth credentials') }
       }
       setOauthCredsLoaded(true)
-    })
+    }).catch(e => { if (live) { setLoadErr(e?.message || String(e)); setOauthCredsLoaded(true) } })
+    return () => { live = false }
   }, [pid, selMethod])
 
   // Subscribe to OAuth flow events; unsubscribe on unmount
@@ -149,14 +162,14 @@ export default function ApiConnectionModal({ platform, conn, onClose, onRefresh,
       if (data.success) {
         setFlowRunning(false)
         await onRefresh()
-        setTimeout(onClose, 1500)
+        closeSoon()
       } else {
         setFlowSteps(prev => [...prev, { message: data.error || 'Flow failed', kind: 'error' }])
         setFlowRunning(false)
       }
     })
     return () => { offProgress(); offDone() }
-  }, [pid, onRefresh, onClose])
+  }, [pid, onRefresh, closeSoon])
 
   // Scroll to bottom when new steps arrive
   useEffect(() => {
@@ -192,10 +205,10 @@ export default function ApiConnectionModal({ platform, conn, onClose, onRefresh,
       if (r && r.startsWith('ok:')) {
         setSaveOk(true)
         await onRefresh()
-        setTimeout(onClose, 1500)
+        closeSoon()
       } else { setSaveErr(r ? r.replace('error:', '').trim() : 'Unknown error') }
     } finally { setSaving(false) }
-  }, [pid, selMethod, fields, onRefresh, onClose])
+  }, [pid, selMethod, fields, onRefresh, closeSoon])
 
   const startOAuthFlow = useCallback(async () => {
     setFlowSteps([])
@@ -227,6 +240,8 @@ export default function ApiConnectionModal({ platform, conn, onClose, onRefresh,
       style={{ position: 'fixed', inset: 0, background: 'var(--overlay)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
     >
       <div style={{ width: '100%', maxWidth: 440, background: 'var(--elevated)', border: '1px solid var(--border-bright)', borderRadius: 'var(--radius-xl)', boxShadow: 'var(--shadow-glow)', overflow: 'hidden' }}>
+
+        {loadErr && <div role="alert" style={{ fontFamily: 'var(--font-mono)', fontSize: 11, padding: '7px 12px', background: 'rgba(239,68,68,.08)', color: 'var(--red)' }}>{loadErr}</div>}
 
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px 12px', borderBottom: '1px solid var(--border)' }}>
