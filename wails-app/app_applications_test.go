@@ -7,6 +7,30 @@ import (
 	"testing"
 )
 
+func TestApplicationBindingsRejectFlagLookingArguments(t *testing.T) {
+	a := newTestApp(t)
+	a.ctx = context.Background()
+	t.Setenv("MONOAGENTCLI_BIN", fakeCLI(t, "echo {}\n")) // never reached for the bad calls
+	checks := map[string]func() error{
+		"get id":       func() error { _, e := a.GetApplication("--profile"); return e },
+		"status id":    func() error { return a.SetApplicationStatus("-x", "cancelled", "") },
+		"status value": func() error { return a.SetApplicationStatus("id1", "--foo", "") },
+		"tag id":       func() error { return a.TagApplication("-x", "t", "add") },
+		"tag tag":      func() error { return a.TagApplication("id1", "--t", "add") },
+		"tag action":   func() error { return a.TagApplication("id1", "t", "delete") },
+		"eval id":      func() error { _, e := a.EvaluateApplication("--x", "claude"); return e },
+		"eval runtime": func() error { _, e := a.EvaluateApplication("id1", "--foo"); return e },
+		"send id":      func() error { return a.SendApplication("-x", "") },
+		"apply id":     func() error { _, e := a.ApplyToApplication("-x", nil, nil); return e },
+	}
+	for name, fn := range checks {
+		err := fn()
+		if err == nil || !strings.Contains(err.Error(), "invalid") {
+			t.Errorf("%s: want an invalid-argument error, got %v", name, err)
+		}
+	}
+}
+
 // TestSetApplicationStatus_RejectsApplied covers the invariant that
 // automation must never be able to mark an application "applied" -- only
 // the explicit, human-triggered `application send` action may do that (see
