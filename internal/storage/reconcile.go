@@ -287,6 +287,14 @@ func (d *Database) reconcileLegacyOwners(ctx context.Context) error {
 		if !has {
 			continue
 		}
+		// Read first: this runs on every open, and an UPDATE takes the write lock even when it changes nothing.
+		var pending int
+		if err := d.DB.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM `+table+` WHERE profile_id IS NULL OR profile_id = '')`).Scan(&pending); err != nil {
+			return fmt.Errorf("storage: reconcile: checking %s owner: %w", table, err)
+		}
+		if pending == 0 {
+			continue
+		}
 		if _, err := d.DB.ExecContext(ctx, `UPDATE OR IGNORE `+table+`
 			SET profile_id = ?
 			WHERE (profile_id IS NULL OR profile_id = '')`, owner); err != nil {
@@ -330,6 +338,20 @@ func (d *Database) reconcileExecutionProfiles(ctx context.Context) error {
 		return nil
 	}
 
+	// Read first (same predicate): executions of default-profile and orphaned workflows never leave the set, so the
+	// UPDATE would scan the whole history and take the write lock on every open.
+	var pending int
+	if err := d.DB.QueryRowContext(ctx, `
+		SELECT EXISTS (SELECT 1 FROM workflow_executions
+		WHERE profile_id = 'default'
+		  AND EXISTS (SELECT 1 FROM workflows w
+		              WHERE w.id = workflow_executions.workflow_id
+		                AND w.profile_id <> 'default' AND w.profile_id <> ''))`).Scan(&pending); err != nil {
+		return fmt.Errorf("storage: reconcile: checking execution profiles: %w", err)
+	}
+	if pending == 0 {
+		return nil
+	}
 	res, err := d.DB.ExecContext(ctx, `
 		UPDATE workflow_executions
 		SET profile_id = (SELECT w.profile_id FROM workflows w WHERE w.id = workflow_executions.workflow_id)
