@@ -31,7 +31,7 @@ type EnvDeps struct {
 	RequireOperator func(what string) error
 	// DBPath is --db-path as given.
 	DBPath func() string
-	// ProfileID is --profile as given (an id or a name; "" for the active profile).
+	// ProfileID is --profile as given (an id or a name; "" when none was given).
 	ProfileID func() string
 	// Version is this binary's version.
 	Version func() string

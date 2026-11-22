@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -43,6 +44,9 @@ func resolveDocPath(root, p string) string {
 	return filepath.Join(root, p)
 }
 
+// errDocumentNotFound is what removeOne returns for a target that names no document.
+var errDocumentNotFound = errors.New("document not found")
+
 // removeOne removes the document named by target (an id, or a path as above).
 func (d Deps) removeOne(ctx context.Context, db *sql.DB, root, target string, deleteFile bool) (removedDocument, error) {
 	var out removedDocument
@@ -62,7 +66,7 @@ func (d Deps) removeOne(ctx context.Context, db *sql.DB, root, target string, de
 		}
 	}
 	if doc == nil {
-		return out, fmt.Errorf("document %q not found", target)
+		return out, fmt.Errorf("%w: %q", errDocumentNotFound, target)
 	}
 	out = removedDocument{ID: doc.ID, Path: doc.Path, Source: doc.Source}
 

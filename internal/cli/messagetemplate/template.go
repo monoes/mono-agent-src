@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/monoes/mono-agent/internal/cli/clicore"
@@ -107,8 +108,8 @@ func (d Deps) newTemplateGetCmd() *cobra.Command {
 		Short: "Show template details",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			var templateID int
-			if _, err := fmt.Sscanf(args[0], "%d", &templateID); err != nil {
+			templateID, err := strconv.Atoi(args[0])
+			if err != nil {
 				return fmt.Errorf("invalid template ID %q: must be an integer", args[0])
 			}
 
@@ -232,8 +233,8 @@ func (d Deps) newTemplateDeleteCmd() *cobra.Command {
 		Short: "Delete a template",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			var templateID int
-			if _, err := fmt.Sscanf(args[0], "%d", &templateID); err != nil {
+			templateID, err := strconv.Atoi(args[0])
+			if err != nil {
 				return fmt.Errorf("invalid template ID %q: must be an integer", args[0])
 			}
 

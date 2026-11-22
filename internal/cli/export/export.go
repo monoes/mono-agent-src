@@ -18,7 +18,7 @@ func (d Deps) newExportCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "export",
-		Short: "Export all data to JSON files",
+		Short: "Export the profile's people to a JSON file",
 		Long: `Exports all people to JSON files.
 Files are written to the output directory, defaulting to the global --output-dir.`,
 		Example: `  monoagentcli export
@@ -118,7 +118,7 @@ func exportPeopleData(db *storage.Database, outputDir, profileID string) (int, e
 	}
 
 	path := filepath.Join(outputDir, "people_export.json")
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return 0, fmt.Errorf("writing people export: %w", err)
 	}
 

@@ -193,6 +193,7 @@ func (d Deps) newNodejsRemoveCmd() *cobra.Command {
 				fmt.Fprintf(cmd.OutOrStdout(), "Remove %s? [y/N] ", what)
 				ans, _ := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
 				if a := strings.ToLower(strings.TrimSpace(ans)); a != "y" && a != "yes" {
+					fmt.Fprintln(cmd.OutOrStdout(), "Not removed.")
 					return nil
 				}
 			}

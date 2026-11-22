@@ -262,3 +262,16 @@ func TestDocumentsRemoveForgetsIndexedDocument(t *testing.T) {
 		t.Fatalf("a never-indexed document must not be sent to knowledge_remove:\n%s", raw)
 	}
 }
+
+// `documents rm` is the same removal as `remove`: a discovered document is excluded so the next
+// folder scan does not add it back.
+func TestDocumentsRmExcludesDiscoveredDocument(t *testing.T) {
+	cfg, _ := discoveredFixture(t)
+	ids := docIDs(t, cfg)
+	if out, err := runDocs(t, cfg, "rm", ids["career-profile.md"]); err != nil {
+		t.Fatalf("rm: %v\n%s", err, out)
+	}
+	if res := runFolderSync(t, cfg, "documents", "sync"); res.Added != 0 {
+		t.Fatalf("scan re-added a document removed with rm: %+v", res)
+	}
+}
