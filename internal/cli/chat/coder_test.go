@@ -116,9 +116,12 @@ func TestCoderSettingsLifecycle(t *testing.T) {
 	out, code := runCoderCLI(t, dbPath, "status")
 	var st coderStatus
 	decodeChatJSON(t, out, &st)
-	if code != 0 || st.Enabled || st.Ready || st.MaxTurns != 200 || st.Timeout != "60m" ||
+	if code != 0 || !st.Enabled || st.Ready || st.MaxTurns != 200 || st.Timeout != "60m" ||
 		!strings.HasSuffix(st.WorkspaceRoot, "monoagent-coder") || len(st.MissingCapabilities) != 4 {
 		t.Fatalf("default status (exit %d) = %+v", code, st)
+	}
+	if out, code := runCoderCLI(t, dbPath, "disable"); code != 0 || strings.Contains(out, `"enabled":true`) {
+		t.Fatalf("disable: exit %d %s", code, out)
 	}
 	if out, code := runCoderCLI(t, dbPath, "enable"); code != 3 || !strings.Contains(out, "yes-i-understand") {
 		t.Fatalf("enable without confirmation: exit %d %s", code, out)
@@ -152,6 +155,7 @@ func TestCoderConversationGate(t *testing.T) {
 	writeCoderMonomind(t, "")
 
 	withCoderCaps(t, monomind.CoderCapabilities...)
+	setCoderSettings(t, dbPath, coderSettings{Enabled: false})
 	out, code := runChatHistory(t, dbPath, "default", "create", "--runtime", "claude", "--mode", "coder", "--new-workspace")
 	if code != 3 || !strings.Contains(out, `"code":"coder_disabled"`) {
 		t.Fatalf("disabled: exit %d %s", code, out)
@@ -374,6 +378,7 @@ func TestCoderTurnRefusedOnceDisabled(t *testing.T) {
 	bin, argsLog := writeCoderMonomind(t, coderTranscript)
 	withCoderCaps(t, monomind.CoderCapabilities...)
 	conv, _ := openTestChatStore(t, dbPath).CreateConversationMode("default", "agent", "general", "claude", "", "", ai.ModeCoder, t.TempDir())
+	setCoderSettings(t, dbPath, coderSettings{Enabled: false})
 
 	out, err := runChatCmd(t, dbPath, bin, "--conversation", conv.ID, "--turn", "turn-1", "--", "hi")
 	var ce *coderError

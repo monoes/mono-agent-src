@@ -287,7 +287,8 @@ func loadCoderSettingsFrom(ctx context.Context, db settingsRW) (coderSettings, e
 		return coderSettings{}, err
 	}
 	if !found {
-		return coderSettings{}.withDefaults(), nil
+		// Nothing stored: coder mode is on by default. A stored row (including one saved by `coder disable`) wins.
+		return coderSettings{Enabled: true}.withDefaults(), nil
 	}
 	var s coderSettings
 	if err := json.Unmarshal([]byte(raw), &s); err != nil {

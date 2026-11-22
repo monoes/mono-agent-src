@@ -37,9 +37,7 @@ func newAccessRig(t *testing.T, enabled bool) *accessRig {
 	r := &accessRig{dbPath: newChatCLITestDB(t)}
 	r.bin, r.argsLog = writeCoderMonomind(t, accessTranscript)
 	withCoderCaps(t, monomind.CoderCapabilities...)
-	if enabled {
-		setCoderSettings(t, r.dbPath, coderSettings{Enabled: true})
-	}
+	setCoderSettings(t, r.dbPath, coderSettings{Enabled: enabled}) // no stored row means on
 	r.store = openTestChatStore(t, r.dbPath)
 	return r
 }
