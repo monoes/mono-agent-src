@@ -258,7 +258,7 @@ func (a *App) DeleteRecording(id string) string {
 	if err := a.signedOut(); err != nil {
 		return loginRequiredJSON(err)
 	}
-	return a.runAutomationCLI(automationCLITimeout, withPositional([]string{"record", "delete"}, id), requireArg("recording id", id))
+	return a.runAutomationCLI(automationCLITimeout, recordDeleteArgs(id), requireArg("recording id", id))
 }
 
 // AnalyzeRecording turns a recording into a draft; automation "" lets the
