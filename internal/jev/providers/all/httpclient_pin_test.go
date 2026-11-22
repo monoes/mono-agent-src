@@ -106,7 +106,7 @@ func TestAdaptersUseOnlyTheKeyedHTTPClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, pkg := range []string{"openaicompat", "anthropic", "hfzeroshot"} {
+	for _, pkg := range []string{"openaicompat", "anthropic", "hfzeroshot", "decisionsapi"} {
 		if !seen[pkg] {
 			t.Fatalf("the walk saw no source of %s (saw %v): the check would pass without checking", pkg, seen)
 		}

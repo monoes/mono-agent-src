@@ -4531,8 +4531,15 @@ resolver prefix `jev:`.
   forced call of a tool whose only input is an enum of the question's
   labels; `hf-zeroshot` (a Hugging Face zero-shot classifier; its
   `base_url` is the model's full endpoint URL): `choice` with up to 50
-  options and `noul` only, a `score` question fails as unsupported. With no
-  provider configured every surface uses TypeSafe and behaves as before.
+  options and `noul` only, a `score` question fails as unsupported;
+  `openai-decisions` (OpenAI's Decisions API, `POST /v1/decisions`, model
+  `gpt-6-luna`) and `gemini-decisions` (Google's, `POST /v1beta/decisions`,
+  model `gemini-decision-1`): the vendor's own calibrated probabilities
+  (`native`), `choice`, `noul` and `score`, every question of a request in
+  one call; `base_url` is the host and may be left at the vendor's, a key is
+  required. Gemini wants question keys of `[A-Za-z0-9_-]` and at most 64
+  characters, so the adapter sends cleaned keys and maps the answers back.
+  With no provider configured every surface uses TypeSafe and behaves as before.
 - **Requests in flight and retries.** A request's questions go out at most 8
   at a time, and a sampled question's 5 samples together (Anthropic: one,
   then the other four), so a server on this computer may get up to 8 × 5
