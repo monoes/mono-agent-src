@@ -4572,8 +4572,8 @@ resolver prefix `jev:`.
   `auto_decide` take an optional `provider` config field (default: the
   resolution above). With a provider other than TypeSafe a node's `api_key`
   is ignored (never sent: it goes only to TypeSafe), and its `model` is
-  passed on unless it is the Jev default, so the provider record's model
-  applies. `applications.evaluate` takes `runtime: "jev@<provider>"`
+  passed on, except the Jev default, which leaves the provider record's
+  model. `applications.evaluate` takes `runtime: "jev@<provider>"`
   or `"jev@<provider>:<model>"` (`"jev"` / `"jev:<model>"` keep working).
   `ai.decide` asks one typed question per item. Config: `kind` (`noul`,
   `score` or `choice`), `question` (required), `input` and `fields` (what
@@ -4689,7 +4689,7 @@ monoagentcli --profile work --json jev provider list        # default, each prov
 monoagentcli --profile work jev provider probe local        # kinds it answers, probability kind, latency
 monoagentcli jev provider use local [--yes]                 # machine default; for a host not on this machine, prints each enabled surface's egress first; `use typesafe` restores
 monoagentcli --profile work jev provider use router --surface hil [--yes]   # one surface of this profile (`jev enable` surfaces only; --profile is required)
-monoagentcli --profile work jev provider use --surface hil --clear  # the surface follows the machine default again
+monoagentcli --profile work jev provider use --surface hil --clear [--yes]   # the surface follows the machine default again
 monoagentcli --profile work jev enable inbox --provider local       # same, then enables it (egress names the host)
 monoagentcli --profile work jev ask --provider local --request req.json   # without --provider: the machine default
 monoagentcli --profile work jev models --provider local     # without --provider: TypeSafe's, as `jev key test`
