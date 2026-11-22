@@ -280,3 +280,23 @@ func TestTheGraceLineOfAnUnreadableRefreshToken(t *testing.T) {
 		}
 	}
 }
+
+// A serving command is serve itself and nothing below it: a subcommand added later under
+// daemon, httpapi or mcp is gated until it is listed.
+func TestServeIsNotInherited(t *testing.T) {
+	t.Parallel()
+	root := testTree()
+	noop := func(*cobra.Command, []string) error { return nil }
+	for _, parent := range []string{"daemon", "mcp"} {
+		p, _, _ := root.Find([]string{parent})
+		child := &cobra.Command{Use: "newsub", RunE: noop}
+		p.AddCommand(child)
+		Apply(root)
+		if got := CommandClass(child); got != ClassGated {
+			t.Errorf("%s newsub: class %q, want gated", parent, got)
+		}
+		if got := CommandClass(p); got != ClassServe {
+			t.Errorf("%s itself: class %q, want serve", parent, got)
+		}
+	}
+}
