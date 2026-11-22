@@ -148,13 +148,17 @@ func (e *Env) runOf(ctx context.Context, org string) (status, run string) {
 	return s.Status, s.Run
 }
 
-func (e *Env) orgCost(ctx context.Context, org, run string) float64 {
+// orgCost is the org's spend. A cost source that cannot be read is an error
+// alongside the partial figure: callers with a budget must not treat the
+// missing part as free.
+func (e *Env) orgCost(ctx context.Context, org, run string) (float64, error) {
 	doc, _ := orgdesign.Load(e.Root, org)
 	cost := DeciderSpend(ctx, e.DB, e.ProfileID, org, run)
-	if raw, err := e.Costs(ctx, e.Root, org); err == nil {
-		cost += ConfiguredCost(raw, doc)
+	raw, err := e.Costs(ctx, e.Root, org)
+	if err != nil {
+		return cost, fmt.Errorf("cost of %q unreadable: %w", org, err)
 	}
-	return cost
+	return cost + ConfiguredCost(raw, doc), nil
 }
 
 // LoadHolding loads a holding org, refusing an ordinary one.
@@ -177,7 +181,10 @@ func (e *Env) GroupStatus(ctx context.Context, holding string) (*Status, error) 
 	}
 	st := &Status{V: 1, Holding: h.Name, Children: []ChildStatus{}, Budget: GroupBudget(h)}
 	_, holdingRun := e.runOf(ctx, h.Name)
-	st.HolderUS = e.orgCost(ctx, h.Name, holdingRun)
+	// With a budget set, a cost that cannot be read refuses rather than
+	// counting as zero; without one the partial figure is only displayed.
+	var costErr error
+	st.HolderUS, costErr = e.orgCost(ctx, h.Name, holdingRun)
 	st.RollupUS = st.HolderUS
 	for _, c := range h.ChildOrgs {
 		cs := ChildStatus{Org: c.Org, Start: c.Start, BudgetShare: c.BudgetShare, Status: "unknown"}
@@ -187,9 +194,15 @@ func (e *Env) GroupStatus(ctx context.Context, holding string) (*Status, error) 
 		if status, run := e.runOf(ctx, c.Org); status != "" || run != "" {
 			cs.Status, cs.Run = status, run
 		}
-		cs.CostUSD = e.orgCost(ctx, c.Org, cs.Run)
+		var err error
+		if cs.CostUSD, err = e.orgCost(ctx, c.Org, cs.Run); err != nil && costErr == nil {
+			costErr = err
+		}
 		st.RollupUS += cs.CostUSD
 		st.Children = append(st.Children, cs)
+	}
+	if costErr != nil && st.Budget > 0 {
+		return nil, fmt.Errorf("group %q has a budget but its cost is unreadable: %w", holding, costErr)
 	}
 	return st, nil
 }
