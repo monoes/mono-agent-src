@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -27,7 +28,23 @@ func WriteFile(path, sheetName string, rows [][]any) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, buf, 0o666)
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".xlsx-*") // 0600
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name()) // a no-op once renamed
+	if _, err := tmp.Write(buf); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }
 
 // Marshal builds the bytes of a single-sheet workbook.
