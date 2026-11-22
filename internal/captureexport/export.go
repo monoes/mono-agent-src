@@ -276,11 +276,21 @@ func writeDirEntry(tw *tar.Writer, name string, modTime time.Time) error {
 // is written cannot be — tar has been promised those bytes — so the entry
 // is padded and the note says the checksum will not match.
 func copyInto(tw *tar.Writer, name, src string, want int64, modTime time.Time) (*Note, error) {
+	// describe() left symlinks out; a path swapped for one since then must
+	// not be followed, so the opened file has to be the regular file Lstat
+	// sees now.
+	before, err := os.Lstat(src)
+	if err != nil {
+		return &Note{Name: name, Reason: "not taken: " + err.Error()}, nil
+	}
 	f, err := os.Open(src)
 	if err != nil {
 		return &Note{Name: name, Reason: "not taken: " + err.Error()}, nil
 	}
 	defer f.Close()
+	if opened, serr := f.Stat(); !before.Mode().IsRegular() || serr != nil || !os.SameFile(before, opened) {
+		return &Note{Name: name, Reason: "not taken: not a regular file any more"}, nil
+	}
 
 	size := want
 	var note *Note
