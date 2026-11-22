@@ -421,8 +421,7 @@ func checkProvider(p Provider) error {
 			p.Name, s)
 	}
 	switch p.Caps.Probability {
-	// "softmax": hf-zeroshot's forced softmax over the candidate labels.
-	case "", jev.ProbNative, jev.ProbLogprob, jev.ProbSampled, jev.ProbNone, "softmax":
+	case "", jev.ProbNative, jev.ProbLogprob, jev.ProbSampled, jev.ProbSoftmax, jev.ProbNone:
 	default:
 		return fmt.Errorf("jev: provider %q: unknown probability kind %q", p.Name, p.Caps.Probability)
 	}

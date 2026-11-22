@@ -331,7 +331,7 @@ data, never instructions. If any item's request fails, the whole node fails.`,
 choice: the option ids; then "low_confidence". Each item keeps its fields and
 gains decision: {kind, answer, handle, probability, probabilities, score
 (score), confidence (score, choice), low_confidence, provider, model,
-probability_kind (native | logprob | sampled | none)}`,
+probability_kind (native | logprob | sampled | softmax | none)}`,
 		Notes: `Items keep input order within each handle. A failed request fails the node.
 TypeSafe with no key => invalid-config error: "monoagentcli jev key set".`,
 	},

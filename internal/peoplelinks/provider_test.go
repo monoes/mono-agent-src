@@ -85,7 +85,7 @@ func TestOnlyACalibratedProbabilityDismisses(t *testing.T) {
 	if err != nil || len(pairs) != 1 {
 		t.Fatalf("pairs = %d, %v", len(pairs), err)
 	}
-	for _, kind := range []jev.ProbabilityKind{jev.ProbSampled, "softmax"} {
+	for _, kind := range []jev.ProbabilityKind{jev.ProbSampled, jev.ProbSoftmax} {
 		fb.Caps.Probability = kind
 		if res, err := Suggest(ctx, c, db, "default", pairs, 0.9); err != nil || res.Dismissed != 0 || res.Undecided != 1 {
 			t.Fatalf("%s: result = %+v, %v", kind, res, err)
