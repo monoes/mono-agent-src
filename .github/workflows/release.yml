@@ -5,7 +5,7 @@ on:
     branches: [master]
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   # The public, releases-only repository every release, asset, manifest and
@@ -127,7 +127,7 @@ jobs:
         # (bumped from 20) because npm 12 requires Node >=22.22; Node 22's
         # own bundled npm predates 12, so it's installed explicitly too.
         run: |
-          npm install -g npm@12
+          npm install -g npm@12.2.3
           npm ci
         working-directory: wails-app/frontend
 
@@ -151,6 +151,10 @@ jobs:
   version:
     needs: test
     runs-on: ubuntu-latest
+    timeout-minutes: 90
+    # Pushes the release tag; the only build-stage job that writes.
+    permissions:
+      contents: write
     outputs:
       tag:  ${{ steps.semver.outputs.tag }}
       prev: ${{ steps.semver.outputs.prev }}
@@ -191,10 +195,13 @@ jobs:
   build-cli:
     needs: version
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     env:
       TAG: ${{ needs.version.outputs.tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -223,10 +230,13 @@ jobs:
   build-cli-macos:
     needs: version
     runs-on: macos-latest
+    timeout-minutes: 90
     env:
       TAG: ${{ needs.version.outputs.tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -280,6 +290,8 @@ jobs:
       TAG: ${{ needs.version.outputs.tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -301,7 +313,7 @@ jobs:
         # (bumped from 20) because npm 12 requires Node >=22.22; Node 22's
         # own bundled npm predates 12, so it's installed explicitly too.
         run: |
-          npm install -g npm@12
+          npm install -g npm@12.2.3
           npm ci
         working-directory: wails-app/frontend
 
@@ -391,6 +403,7 @@ jobs:
   build-windows:
     needs: version
     runs-on: windows-latest
+    timeout-minutes: 90
     env:
       TAG: ${{ needs.version.outputs.tag }}
     defaults:
@@ -398,6 +411,8 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -419,7 +434,7 @@ jobs:
         # (bumped from 20) because npm 12 requires Node >=22.22; Node 22's
         # own bundled npm predates 12, so it's installed explicitly too.
         run: |
-          npm install -g npm@12
+          npm install -g npm@12.2.3
           npm ci
         working-directory: wails-app/frontend
 
@@ -455,10 +470,13 @@ jobs:
   build-linux:
     needs: version
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     env:
       TAG: ${{ needs.version.outputs.tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -487,7 +505,7 @@ jobs:
         # (bumped from 20) because npm 12 requires Node >=22.22; Node 22's
         # own bundled npm predates 12, so it's installed explicitly too.
         run: |
-          npm install -g npm@12
+          npm install -g npm@12.2.3
           npm ci
         working-directory: wails-app/frontend
 
@@ -533,8 +551,11 @@ jobs:
   build-chrome-extension:
     needs: version
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Zip chrome extension
         run: |
@@ -558,8 +579,11 @@ jobs:
   release-guard:
     needs: [build-cli, build-cli-macos, build-macos-arm64, build-windows, build-linux]
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -591,6 +615,8 @@ jobs:
       TAG: ${{ needs.version.outputs.tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -697,6 +723,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -753,8 +780,10 @@ jobs:
             found { print }
           ' CHANGELOG.md 2>/dev/null)
 
+          # A random delimiter: a commit subject or CHANGELOG line equal to a fixed one would end the value early.
+          DELIM="RELEASE_EOF_$(openssl rand -hex 8)"
           {
-            echo 'NOTES<<RELEASE_EOF'
+            echo "NOTES<<${DELIM}"
             echo "## What's New in ${TAG}"
             echo ""
             if [ -n "$CHANGELOG_SECTION" ]; then
@@ -814,7 +843,7 @@ jobs:
             echo "1. Download [monoagent-chrome-extension.zip](https://github.com/${RELEASES_REPO}/releases/download/${TAG}/monoagent-chrome-extension.zip) and unzip it"
             echo "2. Open \`chrome://extensions\`, enable **Developer mode**"
             echo "3. Click **Load unpacked** and select the unzipped \`chrome-extension\` folder"
-            echo 'RELEASE_EOF'
+            echo "${DELIM}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Create the release in the releases repository
