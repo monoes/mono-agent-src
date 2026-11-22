@@ -22,8 +22,13 @@ const (
 	ProbNative ProbabilityKind = "native"
 	// ProbLogprob: read from the provider's token log-probabilities.
 	ProbLogprob ProbabilityKind = "logprob"
-	// ProbSampled: the share of k repeated answers.
+	// ProbSampled: the share of k repeated answers (add-one smoothed, see
+	// SampledProbs).
 	ProbSampled ProbabilityKind = "sampled"
+	// ProbSoftmax: a forced softmax over the candidate labels (a zero-shot
+	// classifier's scores); not calibrated. It gates as a real number, as
+	// ProbLogprob does.
+	ProbSoftmax ProbabilityKind = "softmax"
 	// ProbNone: the provider gives no probability; gate as 0.
 	ProbNone ProbabilityKind = "none"
 )

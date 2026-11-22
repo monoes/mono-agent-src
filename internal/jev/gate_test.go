@@ -17,6 +17,8 @@ func TestGateValue(t *testing.T) {
 		{"nil response", nil, choice, "b", 0.9},
 		{"logprob noul", &Response{Probability: ProbLogprob}, noul, "true", 0.7},
 		{"sampled", &Response{Probability: ProbSampled}, choice, "b", 0.9},
+		{"softmax is a real number, like logprob", &Response{Probability: ProbSoftmax}, choice, "b", 0.9},
+		{"softmax noul", &Response{Probability: ProbSoftmax}, noul, "true", 0.7},
 		{"none choice", &Response{Probability: ProbNone}, choice, "b", 0},
 		{"none noul", &Response{Probability: ProbNone}, noul, "true", 0},
 	} {

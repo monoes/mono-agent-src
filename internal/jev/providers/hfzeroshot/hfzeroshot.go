@@ -6,6 +6,10 @@
 // noul's two answers) and nothing else, so it can only name an option the
 // code enumerated (plan D3). It answers choice and noul questions; a score
 // is jev.ErrUnsupported.
+//
+// The scores are a forced softmax over the candidate labels, not calibrated
+// probabilities: answers report jev.ProbSoftmax. A reply that scores only
+// some of the labels keeps the missing mass off the answer (jev.Conservative).
 package hfzeroshot
 
 import (
@@ -80,7 +84,7 @@ func modelOf(p jevconf.Provider) string {
 func (b *Backend) Capabilities() jev.Capabilities {
 	return jev.Capabilities{
 		Kinds:       []string{jev.TypeChoice, jev.TypeNoul},
-		Probability: jev.ProbNative, MaxChoiceOptions: MaxLabels, QuestionsPerRequest: 1,
+		Probability: jev.ProbSoftmax, MaxChoiceOptions: MaxLabels, QuestionsPerRequest: 1,
 	}
 }
 
@@ -94,7 +98,7 @@ func (b *Backend) Answer(ctx context.Context, req *jev.Request) (*jev.Response, 
 		a, err := b.answerOne(ctx, state, q)
 		return a, jev.Usage{}, err
 	})
-	resp.Model, resp.Probability = b.model, jev.ProbNative
+	resp.Model, resp.Probability = b.model, jev.ProbSoftmax
 	return resp, err
 }
 
@@ -107,16 +111,18 @@ func (b *Backend) answerOne(ctx context.Context, state []byte, q jev.Question) (
 	if err != nil {
 		return jev.Answer{}, err
 	}
-	probs := make(map[string]float64, len(scores))
-	for label, s := range scores {
-		probs[keys[label]] = s
+	// Every candidate, 0 for one the reply left out: a reply scoring only
+	// some labels keeps the rest of its mass off the answer (Conservative).
+	mass := make(map[string]float64, len(keys))
+	for label, key := range keys {
+		mass[key] = scores[label]
 	}
+	probs := jev.Conservative(mass)
 	if q.Type == jev.TypeNoul {
-		p := jev.Renormalise(map[string]float64{"true": probs["true"], "false": probs["false"]})
-		if p == nil {
+		if probs == nil {
 			return jev.Answer{}, fmt.Errorf("%w: hf-zeroshot: no usable score for yes or no", jev.ErrInvalidAnswer)
 		}
-		return jev.NoulAnswer(p["true"])
+		return jev.NoulAnswer(probs["true"])
 	}
 	return jev.ChoiceAnswer(q, probs)
 }

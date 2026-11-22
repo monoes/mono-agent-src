@@ -36,3 +36,20 @@ func TestTheResponseNamesTheModel(t *testing.T) {
 		t.Errorf("label %q", got)
 	}
 }
+
+// Scores are a forced softmax, reported as such (not native, not
+// calibrated), and a reply that scores only some labels keeps the missing
+// mass off the answer: 0.6 for one label of three stays 0.6.
+func TestScoresAreSoftmaxAndAPartialReplyIsNotInflated(t *testing.T) {
+	f := newFake(t, pairs(0.6)) // the other two labels get no score
+	c := providerClient(t, f.URL, testKey)
+	q := jev.Question{Type: jev.TypeChoice, Criteria: map[string]any{"a": "A", "b": "B", "c": "C"}}
+	resp, err := c.Ask(context.Background(), map[string]any{}, map[string]jev.Question{"q": q})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, p := jev.GateValue(resp, resp.Answers["q"])
+	if id != "a" || !near(p, 0.6) || resp.Probability != jev.ProbSoftmax || c.Backend.Capabilities().Probability != jev.ProbSoftmax {
+		t.Fatalf("gate %s %v, probability %s", id, p, resp.Probability)
+	}
+}
