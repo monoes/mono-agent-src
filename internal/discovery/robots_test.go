@@ -20,6 +20,24 @@ func TestCheckRobotsAllowedPermitsWhenNoDisallow(t *testing.T) {
 	}
 }
 
+func TestCheckRobotsAllowedRefusesAnOversizedRobotsFile(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("User-agent: *\nAllow: /\n"))
+		w.Write(make([]byte, discovery.MaxRobotsBytes+1))
+	}))
+	defer srv.Close()
+
+	if err := discovery.CheckRobotsAllowed(context.Background(), srv.URL, "/api/jobs"); err == nil {
+		t.Fatal("an oversized robots.txt was accepted")
+	}
+}
+
+func TestDiscoveryClientHasATimeout(t *testing.T) {
+	if discovery.Client.Timeout <= 0 {
+		t.Fatal("the discovery client waits on the context alone")
+	}
+}
+
 func TestCheckRobotsAllowedBlocksDisallowedPath(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("User-agent: *\nDisallow: /api/jobs\n"))
