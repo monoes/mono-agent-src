@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/monoes/mono-agent/internal/storage"
@@ -52,7 +53,7 @@ func TestQueueDMCreatesPersonAndPendingRow(t *testing.T) {
 	}
 	var user, platform, kind, category string
 	db.QueryRow(`SELECT platform_username, platform, kind, COALESCE(category,'') FROM people WHERE id = ?`, pid).Scan(&user, &platform, &kind, &category)
-	if user != "ada" || platform != "instagram" || kind != "person" || category != "" {
+	if user != "ada" || platform != "INSTAGRAM" || kind != "person" || category != "" {
 		t.Fatalf("person = %s %s %s cat=%q", user, platform, kind, category)
 	}
 	var ext string
@@ -259,5 +260,84 @@ func TestLinkForFindsThePersonOfAQueuedItem(t *testing.T) {
 	}
 	if _, _, ok := LinkFor(ctx, db, "nothing-outbound"); ok {
 		t.Fatal("an item with no row must have no link")
+	}
+}
+
+func peopleOf(t *testing.T, db *sql.DB, pid string) (platform, user string) {
+	t.Helper()
+	if err := db.QueryRow(`SELECT platform, platform_username FROM people WHERE id = ?`, pid).Scan(&platform, &user); err != nil {
+		t.Fatal(err)
+	}
+	return
+}
+
+func TestQueueUsesTheAdapterUsernameAndUpperCasePlatform(t *testing.T) {
+	db, ctx := testDB(t), context.Background()
+	res, err := Queue(ctx, db, Item{Profile: "default", HilRef: "u1", Source: "linkedin", Action: "dm", Account: Account{Platform: "linkedin", Handle: "acme"},
+		Recipient: Recipient{ProfileURL: "https://www.linkedin.com/in/alice/details/experience/"}, Text: "Hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if platform, user := peopleOf(t, db, res.PersonID); platform != "LINKEDIN" || user != "alice" {
+		t.Fatalf("person = %s/%s, want LINKEDIN/alice", platform, user)
+	}
+	// A row a node writer made earlier is found, not duplicated.
+	if _, err := db.Exec(`INSERT INTO people (id, platform_username, platform, profile_id) VALUES ('bob1','bob','LINKEDIN','default')`); err != nil {
+		t.Fatal(err)
+	}
+	res, err = Queue(ctx, db, Item{Profile: "default", HilRef: "u2", Source: "linkedin", Action: "dm", Account: Account{Platform: "linkedin", Handle: "acme"},
+		Recipient: Recipient{ProfileURL: "https://www.linkedin.com/in/bob/"}, Text: "Hi"})
+	if err != nil || res.PersonID != "bob1" {
+		t.Fatalf("existing LINKEDIN row not reused: %q, %v", res.PersonID, err)
+	}
+}
+
+func TestQueueMailtoHandleIsTheAddress(t *testing.T) {
+	db, ctx := testDB(t), context.Background()
+	res, err := Queue(ctx, db, Item{Profile: "default", HilRef: "m1", Source: "email", Action: "email", Account: Account{Platform: "email", Handle: "me@x.test"},
+		Recipient: Recipient{ProfileURL: "mailto:Sam@Example.com"}, Text: "Hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, user := peopleOf(t, db, res.PersonID); user != "sam@example.com" {
+		t.Fatalf("username = %q, want sam@example.com", user)
+	}
+}
+
+func TestQueueRefusesARecipientKnownOnlyByName(t *testing.T) {
+	db, ctx := testDB(t), context.Background()
+	_, err := Queue(ctx, db, Item{Profile: "default", HilRef: "n1", Source: "linkedin", Action: "dm", Account: Account{Platform: "linkedin", Handle: "acme"},
+		Recipient: Recipient{Name: "Sam Lee"}, Text: "Hi"})
+	if err == nil {
+		t.Fatal("a free-text name must not become a username")
+	}
+	var n int
+	db.QueryRow(`SELECT COUNT(*) FROM people WHERE platform_username = 'Sam Lee'`).Scan(&n)
+	if n != 0 {
+		t.Fatal("a person row was created from a name")
+	}
+}
+
+func TestUpsertPersonConcurrentCreatorsShareOneRow(t *testing.T) {
+	db, ctx := testDB(t), context.Background()
+	const workers = 8
+	ids := make([]string, workers)
+	errs := make([]error, workers)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			ids[i], errs[i] = upsertPerson(ctx, db, personSpec{profile: "default", platform: "linkedin", username: "zed", kind: KindPerson})
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	for i := range ids {
+		if errs[i] != nil || ids[i] != ids[0] {
+			t.Fatalf("worker %d: id %q err %v; first id %q", i, ids[i], errs[i], ids[0])
+		}
 	}
 }

@@ -363,3 +363,27 @@ func noted(notes []Note, name string) bool {
 	}
 	return false
 }
+
+func TestExportSkipsRecordingCaptures(t *testing.T) {
+	inbox := seed(t,
+		capture.Meta{URL: "https://example.com/page", Title: "Page", CapturedAt: "2026-09-01T10:00:00Z"},
+		capture.Meta{URL: "https://example.com/rec", Title: "Rec", CapturedAt: "2026-09-02T10:00:00Z", Source: capture.SourceRecording},
+	)
+	_, man := exportToBytes(t, ExportOptions{Inbox: inbox})
+	if man.Count != 1 || man.Captures[0].Title != "Page" {
+		t.Fatalf("a recording must not be exported by default: %+v", man.Captures)
+	}
+	noted := false
+	for _, n := range man.Skipped {
+		if strings.Contains(n.Reason, "recording") {
+			noted = true
+		}
+	}
+	if !noted {
+		t.Errorf("the skipped recording should be noted: %+v", man.Skipped)
+	}
+	_, man = exportToBytes(t, ExportOptions{Inbox: inbox, IncludeRecordings: true})
+	if man.Count != 2 {
+		t.Errorf("IncludeRecordings kept %d, want 2", man.Count)
+	}
+}

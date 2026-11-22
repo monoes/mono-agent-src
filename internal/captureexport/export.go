@@ -35,6 +35,9 @@ type ExportOptions struct {
 	Now func() time.Time
 	// Host is recorded as provenance; empty asks the OS.
 	Host string
+	// IncludeRecordings also exports browser recordings, which hold typed
+	// values and DOM. Off by default.
+	IncludeRecordings bool
 }
 
 // errBadDate is the parse failure for --since.
@@ -94,6 +97,10 @@ func Export(w io.Writer, opts ExportOptions) (*Manifest, error) {
 		// capture.List already read and decoded meta.json to build the
 		// entry; reading it again here would parse every capture twice.
 		meta := &e.Meta
+		if meta.Source == capture.SourceRecording && !opts.IncludeRecordings {
+			notes = append(notes, Note{Name: name, Reason: "not taken: recording (holds typed values and page DOM)"})
+			continue
+		}
 		if !opts.Since.IsZero() && !capturedAtLeast(meta, opts.Since) {
 			continue
 		}
@@ -269,11 +276,21 @@ func writeDirEntry(tw *tar.Writer, name string, modTime time.Time) error {
 // is written cannot be — tar has been promised those bytes — so the entry
 // is padded and the note says the checksum will not match.
 func copyInto(tw *tar.Writer, name, src string, want int64, modTime time.Time) (*Note, error) {
+	// describe() left symlinks out; a path swapped for one since then must
+	// not be followed, so the opened file has to be the regular file Lstat
+	// sees now.
+	before, err := os.Lstat(src)
+	if err != nil {
+		return &Note{Name: name, Reason: "not taken: " + err.Error()}, nil
+	}
 	f, err := os.Open(src)
 	if err != nil {
 		return &Note{Name: name, Reason: "not taken: " + err.Error()}, nil
 	}
 	defer f.Close()
+	if opened, serr := f.Stat(); !before.Mode().IsRegular() || serr != nil || !os.SameFile(before, opened) {
+		return &Note{Name: name, Reason: "not taken: not a regular file any more"}, nil
+	}
 
 	size := want
 	var note *Note
