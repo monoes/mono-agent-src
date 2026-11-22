@@ -233,6 +233,24 @@ func TestImageAddLabelExportDelete(t *testing.T) {
 	if _, err := runImage(t, cfg, "export", "img-004", t.TempDir()); exitCode(err) != 3 {
 		t.Errorf("export to a directory: exit %d", exitCode(err))
 	}
+	if st, err := os.Stat(dest); err != nil || st.Mode().Perm() != 0o600 {
+		t.Errorf("exported file mode = %v (%v), want 0600", st.Mode().Perm(), err)
+	}
+	if err := os.WriteFile(dest, []byte("precious"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runImage(t, cfg, "export", "img-004", dest); exitCode(err) != 3 {
+		t.Errorf("export over an existing file: exit %d", exitCode(err))
+	}
+	if b, _ := os.ReadFile(dest); string(b) != "precious" {
+		t.Fatalf("export clobbered an existing file: %q", b)
+	}
+	if _, err := runImage(t, cfg, "export", "img-004", dest, "--force"); err != nil {
+		t.Fatalf("export --force: %v", err)
+	}
+	if b, _ := os.ReadFile(dest); string(b) != "jpeg!" {
+		t.Fatalf("export --force wrote %q", b)
+	}
 
 	if _, err := runImage(t, cfg, "delete", "img-004"); err != nil {
 		t.Fatal(err)
