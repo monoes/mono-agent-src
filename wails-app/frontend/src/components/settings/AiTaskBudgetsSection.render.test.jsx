@@ -4,6 +4,10 @@ import '@testing-library/jest-dom/vitest'
 import { render, screen, fireEvent, waitFor, within, cleanup } from '@testing-library/react'
 import AiTaskBudgetsSection from './AiTaskBudgetsSection.jsx'
 import { aitaskBudgetApi } from './aitaskBudgetApi.js'
+import { confirm } from '../ConfirmDialog.jsx'
+import '../../i18n.js'
+
+vi.mock('../ConfirmDialog.jsx', () => ({ confirm: vi.fn() }))
 
 vi.mock('./aitaskBudgetApi.js', async (orig) => ({
   ...(await orig()),
@@ -18,6 +22,7 @@ beforeEach(() => {
   aitaskBudgetApi.list.mockResolvedValue(doc())
   aitaskBudgetApi.set.mockResolvedValue({})
   aitaskBudgetApi.clear.mockResolvedValue({})
+  confirm.mockResolvedValue(true)
 })
 afterEach(() => { cleanup(); vi.clearAllMocks() })
 
@@ -82,6 +87,17 @@ describe('AiTaskBudgetsSection', () => {
     fireEvent.change(screen.getByLabelText('Global cap in USD'), { target: { value: '4' } })
     fireEvent.click(screen.getByRole('button', { name: 'Set cap' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('only the user sets a budget')
+  })
+
+  it('asks before lifting a cap and keeps it when the answer is no', async () => {
+    aitaskBudgetApi.list.mockResolvedValue(doc([cap('kind', 'generic', 2)]))
+    confirm.mockResolvedValue(false)
+    render(<AiTaskBudgetsSection />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove the cap for generic' }))
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
+    expect(confirm.mock.calls[0][0]).toMatch(/generic/)
+    expect(confirm.mock.calls[0][1]).toMatchObject({ danger: true })
+    expect(aitaskBudgetApi.clear).not.toHaveBeenCalled()
   })
 
   it('reports a load failure', async () => {
