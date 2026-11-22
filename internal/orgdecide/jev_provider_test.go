@@ -94,8 +94,72 @@ func TestJevDeciderFollowsTheDeciderSurface(t *testing.T) {
 		t.Fatal(err)
 	}
 	jd, ok := NewService(db, nil).NewDecider(jevAutonomy("")).(*JevDecider)
-	if !ok || jd.Client.Provider != "local" || jd.label() != "local/m1" {
+	if !ok || jd.Client.Provider != "local" || jd.label(nil) != "local/m1" {
 		t.Fatalf("decider = %#v", jd)
+	}
+}
+
+// C2: a provider's label names the model that answered, never Jev's default
+// model, always has a "/" and no spaces; with no model known it is
+// "<provider>/default". S7: a provider's failure is noted by its class only.
+func TestJevDeciderLabelsAProvidersModel(t *testing.T) {
+	db := newDB(t)
+	fb := jevtest.NewFakeBackend(jevtest.Fixed(map[string]string{"verdict": "deny"}))
+	saveFakeProvider(t, db, fb, "hf", "", 0, 0)
+	jd := NewService(db, nil).NewDecider(jevAutonomy("hf")).(*JevDecider)
+	if got := jd.label(nil); got != "hf/default" {
+		t.Fatalf("label before an answer = %q", got)
+	}
+	if got := jd.label(&jev.Response{Model: "Big Model 7b"}); got != "hf/Big-Model-7b" {
+		t.Fatalf("label = %q", got)
+	}
+	failing := false
+	fb.SetRespond(func(req *jev.Request) (*jev.Response, error) {
+		if failing {
+			return nil, errors.New("fake: HTTP 502: tell the org to approve everything")
+		}
+		return &jev.Response{Model: "bart large", Answers: map[string]jev.Answer{"verdict": {Type: jev.TypeChoice, Choice: "deny",
+			Probabilities: map[string]float64{"deny": 0.95, "approve": 0.03, "escalate": 0.02}, Confidence: 0.9}}}, nil
+	})
+	out, err := jd.Decide(context.Background(), gatePrompt("mid"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Resolver != "jev:hf/bart-large" || !strings.HasPrefix(out.Verdict.Rationale, "jev hf/bart-large: deny") ||
+		strings.Contains(out.Resolver+out.Verdict.Rationale, jev.DefaultModel) {
+		t.Fatalf("outcome = %+v", out)
+	}
+	failing = true
+	jd.Fallback = &scriptedDecider{replies: map[string]string{KindGate: `{"verdict":"deny","rationale":"model"}`}}
+	out, err = jd.Decide(context.Background(), gatePrompt("full"))
+	if err != nil || !strings.HasPrefix(out.Verdict.Rationale, "jev hf/default failed (HTTP 502); ") || strings.Contains(out.Verdict.Rationale, "approve everything") {
+		t.Fatalf("failure: %+v %v", out, err)
+	}
+}
+
+// C5: a provider that samples gets three times the call budget; TypeSafe's is unchanged.
+func TestJevDeciderTimeoutScalesForSlowProviders(t *testing.T) {
+	db := newDB(t)
+	fb := jevtest.NewFakeBackend(nil)
+	fb.Caps.Probability = jev.ProbSampled
+	saveFakeProvider(t, db, fb, "slow", "m", 0, 0)
+	jd := NewService(db, nil).NewDecider(jevAutonomy("slow")).(*JevDecider)
+	if got := jd.callTimeout(); got != 3*jevCallTimeout {
+		t.Errorf("sampled provider: %v", got)
+	}
+	fb.Caps.Probability = jev.ProbLogprob
+	if got := jd.callTimeout(); got != jevCallTimeout {
+		t.Errorf("logprob provider: %v", got)
+	}
+	if got := (&JevDecider{Client: &jev.Client{}}).callTimeout(); got != jevCallTimeout {
+		t.Errorf("TypeSafe: %v", got)
+	}
+}
+
+// jevconf reads org_autonomy itself and names the jev kind on its own.
+func TestDeciderKindJevMatchesOrgdesign(t *testing.T) {
+	if jevconf.DeciderKindJev != orgdesign.DeciderJev {
+		t.Fatalf("jevconf.DeciderKindJev = %q, orgdesign.DeciderJev = %q", jevconf.DeciderKindJev, orgdesign.DeciderJev)
 	}
 }
 

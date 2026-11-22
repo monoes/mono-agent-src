@@ -77,6 +77,23 @@ func TestEvaluateJevAtProvider(t *testing.T) {
 	}
 }
 
+// C2: with no model known the stored runtime is "jev@<provider>", never
+// "jev@<provider>:".
+func TestEvaluateJevLabelsAProviderWithoutAModel(t *testing.T) {
+	db, id, _ := setupJevTest(t, goldenAnswers())
+	evalProvider(t, db, goldenAnswers(), false)
+	if err := jevconf.SaveProvider(context.Background(), db, jevconf.Provider{Name: "hf", Kind: "fake-matching", BaseURL: "http://localhost"}); err != nil {
+		t.Fatal(err)
+	}
+	v, err := Evaluate(context.Background(), db, "default", id, "jev@hf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := storedRuntime(t, db, id); got != "jev@hf" || !strings.Contains(v.Rationale, "Jev (hf)") {
+		t.Fatalf("stored runtime %q, rationale %q", got, v.Rationale)
+	}
+}
+
 // D7: a provider without probabilities is no evidence that a gate fails.
 func TestEvaluateJevNoProbabilityPassesTheGates(t *testing.T) {
 	db, id, _ := setupJevTest(t, goldenAnswers())

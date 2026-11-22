@@ -169,7 +169,12 @@ func evaluateJev(ctx context.Context, c *jev.Client, app *applications.Applicati
 	}
 	label := RuntimeJev + ":" + model
 	if resp.Provider != "" && resp.Provider != jev.ProviderTypeSafe {
-		label = RuntimeJev + "@" + resp.Provider + ":" + model
+		// "jev@<provider>" when no model is known: never "jev@hf:".
+		if label = RuntimeJev + "@" + resp.Provider; model != "" {
+			label += ":" + model
+		} else {
+			model = resp.Provider
+		}
 	}
 	return verdictFromJev(resp, model, len(excerpts) == 0), label, nil
 }

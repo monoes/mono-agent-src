@@ -17,7 +17,7 @@ var httpStatus = regexp.MustCompile(`\bHTTP ([1-5][0-9][0-9])\b`)
 // a Human-in-Loop row): a provider's own error text may carry what its
 // server answered, which is never quoted there. It is one of "timeout",
 // "canceled", "refused", "no key", "unsupported", "invalid answer",
-// "HTTP <status>" or "failed".
+// "HTTP <status>" or "error".
 func ErrorClass(err error) string {
 	switch {
 	case err == nil:
@@ -39,5 +39,5 @@ func ErrorClass(err error) string {
 	if m := httpStatus.FindStringSubmatch(err.Error()); m != nil {
 		return "HTTP " + m[1]
 	}
-	return "failed"
+	return "error"
 }
