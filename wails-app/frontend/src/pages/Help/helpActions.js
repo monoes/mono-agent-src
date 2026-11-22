@@ -7,7 +7,7 @@
 export const KNOWN_PAGES = Object.freeze([
   'dashboard', 'noderunner', 'people', 'communications', 'publication',
   'connections', 'vault', 'secretsVault', 'applications', 'documents',
-  'info', 'tasks', 'ai', 'orgs', 'logs', 'settings',
+  'info', 'tasks', 'ai', 'orgs', 'logs', 'settings', 'help',
 ])
 
 export const MAX_PROMPT_LENGTH = 4000
