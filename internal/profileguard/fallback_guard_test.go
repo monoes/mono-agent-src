@@ -24,6 +24,9 @@ var rules = []rule{
 	{"coalesce-default", regexp.MustCompile(`(?i)coalesce\(\s*(?:\w+\.)?profile_id\s*,\s*[^)]*default`)},
 	{"profile-literal-default", regexp.MustCompile(`(?i)\bprofile(?:_?id)?\s*(?::=|==|=)\s*"default"`)},
 	{"getenv-monoagent-profile", regexp.MustCompile(`os\.Getenv\(\s*"MONOAGENT_PROFILE"\s*\)`)},
+	{"lookupenv-monoagent-profile", regexp.MustCompile(`os\.LookupEnv\(\s*"MONOAGENT_PROFILE"`)},
+	{"monoagent-profile-env-name", regexp.MustCompile(`"MONOAGENT_PROFILE"`)},
+	{"profile-literal-default-raw", regexp.MustCompile("(?i)\\bprofile(?:_?id)?\\s*(?::=|==|=)\\s*`default`")},
 }
 
 // allow is the list of known remaining fallbacks. Each entry is a path (a
@@ -36,6 +39,8 @@ var allow = []struct {
 	rules  []string
 	reason string
 }{
+	{"internal/agentbox/lists.go", []string{"monoagent-profile-env-name"},
+		"names MONOAGENT_PROFILE in the lists of variables a box never receives"},
 	{"internal/cli/chat/coder_workspace.go", []string{defaultLiteralRule},
 		"the `coder workspace default` subcommand's name (Use), not a profile"},
 	{"internal/cli/connect/connect.go", []string{defaultLiteralRule},
