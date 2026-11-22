@@ -7,6 +7,7 @@ import ApplicationsProcessPendingFlow from './ApplicationsProcessPendingFlow.jsx
 import ApplicationDetailModal from '../components/applications/ApplicationDetailModal.jsx'
 import ApplyQueueButton from '../components/applications/ApplyQueueButton.jsx'
 import { useReloadOnActivate } from '../lib/useReloadOnActivate'
+import { useDialog } from './connections/ui.jsx'
 
 const STATUS_TABS = ['pending', 'awaiting_submit', 'needs_you', 'applied', 'rejected', 'cancelled', 'all']
 
@@ -57,6 +58,37 @@ function StatusBadge({ status }) {
 
 function emptyAddForm() {
   return { kind: 'job', title: '', company: '', url: '', issuingOrg: '', submissionDeadline: '' }
+}
+
+// Add form overlay: a real dialog (role, Escape, focus in/out, labelled inputs).
+function AddApplicationDialog({ addForm, setAddForm, onSubmit, onClose }) {
+  const dialog = useDialog(onClose)
+  const set = (k) => (e) => setAddForm(f => ({ ...f, [k]: e.target.value }))
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()} style={{ position: 'fixed', inset: 0, zIndex: 9000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)' }}>
+      <form {...dialog} role="dialog" aria-modal="true" aria-labelledby="add-application-title" onSubmit={onSubmit} style={{ background: 'var(--surface, #0d1520)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: 20, width: 400, fontFamily: 'var(--font-mono)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <h3 id="add-application-title" style={{ margin: 0, fontSize: 14 }}>Add Application</h3>
+        <select aria-label="Kind" className="select-compact" style={{ fontSize: 11 }} value={addForm.kind} onChange={set('kind')}>
+          <option value="job">Job</option>
+          <option value="tender">Tender</option>
+        </select>
+        <input aria-label="Title" style={inputStyle} placeholder="Title" required value={addForm.title} onChange={set('title')} />
+        <input aria-label="URL" style={inputStyle} placeholder="URL" required value={addForm.url} onChange={set('url')} />
+        {addForm.kind === 'job' ? (
+          <input aria-label="Company" style={inputStyle} placeholder="Company" required value={addForm.company} onChange={set('company')} />
+        ) : (
+          <>
+            <input aria-label="Issuing Organization" style={inputStyle} placeholder="Issuing Organization" required value={addForm.issuingOrg} onChange={set('issuingOrg')} />
+            <input aria-label="Submission Deadline" style={inputStyle} placeholder="Submission Deadline" required value={addForm.submissionDeadline} onChange={set('submissionDeadline')} />
+          </>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+          <button type="button" style={headerBtnStyle} onClick={onClose}>Cancel</button>
+          <button type="submit" style={{ ...headerBtnStyle, background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.4)', color: '#10b981' }}>Add</button>
+        </div>
+      </form>
+    </div>
+  )
 }
 
 export default function Applications({ isActive = true, navData = null, onNavigate, onOpenCoderChat }) {
@@ -229,29 +261,12 @@ export default function Applications({ isActive = true, navData = null, onNaviga
       )}
 
       {showAdd && (
-        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setShowAdd(false)} style={{ position: 'fixed', inset: 0, zIndex: 9000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.55)' }}>
-          <form onSubmit={handleAdd} style={{ background: 'var(--surface, #0d1520)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: 20, width: 400, fontFamily: 'var(--font-mono)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <h3 style={{ margin: 0, fontSize: 14 }}>Add Application</h3>
-            <select className="select-compact" style={{ fontSize: 11 }} value={addForm.kind} onChange={e => setAddForm(f => ({ ...f, kind: e.target.value }))}>
-              <option value="job">Job</option>
-              <option value="tender">Tender</option>
-            </select>
-            <input style={inputStyle} placeholder="Title" required value={addForm.title} onChange={e => setAddForm(f => ({ ...f, title: e.target.value }))} />
-            <input style={inputStyle} placeholder="URL" required value={addForm.url} onChange={e => setAddForm(f => ({ ...f, url: e.target.value }))} />
-            {addForm.kind === 'job' ? (
-              <input style={inputStyle} placeholder="Company" required value={addForm.company} onChange={e => setAddForm(f => ({ ...f, company: e.target.value }))} />
-            ) : (
-              <>
-                <input style={inputStyle} placeholder="Issuing Organization" required value={addForm.issuingOrg} onChange={e => setAddForm(f => ({ ...f, issuingOrg: e.target.value }))} />
-                <input style={inputStyle} placeholder="Submission Deadline" required value={addForm.submissionDeadline} onChange={e => setAddForm(f => ({ ...f, submissionDeadline: e.target.value }))} />
-              </>
-            )}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
-              <button type="button" style={headerBtnStyle} onClick={() => setShowAdd(false)}>Cancel</button>
-              <button type="submit" style={{ ...headerBtnStyle, background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.4)', color: '#10b981' }}>Add</button>
-            </div>
-          </form>
-        </div>
+        <AddApplicationDialog
+          addForm={addForm}
+          setAddForm={setAddForm}
+          onSubmit={handleAdd}
+          onClose={() => setShowAdd(false)}
+        />
       )}
 
       {showProcessPending && (

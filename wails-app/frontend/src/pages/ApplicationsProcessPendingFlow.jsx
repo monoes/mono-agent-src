@@ -4,6 +4,7 @@ import { confirm } from '../components/ConfirmDialog.jsx'
 import SendToCoderButton from '../components/SendToCoderButton.jsx'
 import ApplyWithCoderButton from '../components/ApplyWithCoderButton.jsx'
 import { selectionText } from '../components/SendToCoderApi.js'
+import { useDialog } from './connections/ui.jsx'
 
 // computeNextStep is the flow's per-item state-machine decision function,
 // extracted pure and exported for direct unit testing (see
@@ -60,6 +61,7 @@ export default function ApplicationsProcessPendingFlow({ pendingApplications, on
   // Mirrors Sidebar.jsx's movingProfileID guard for the same class of bug.
   const [busy, setBusy] = useState(false)
 
+  const dialog = useDialog(onClose)
   const current = pendingApplications[index]
 
   const pickCv = async () => { const p = await WailsApp.OpenJSONFilePicker('Select CV data JSON'); if (p) setCvPath(p) }
@@ -158,8 +160,8 @@ export default function ApplicationsProcessPendingFlow({ pendingApplications, on
 
   return (
     <div className="modal-overlay" style={{ position: 'fixed', inset: 0, zIndex: 9500, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)' }}>
-      <div style={boxStyle}>
-        <h3 style={{ margin: 0, fontSize: 14 }}>Process Pending Applications</h3>
+      <div {...dialog} role="dialog" aria-modal="true" aria-labelledby="process-pending-title" style={boxStyle}>
+        <h3 id="process-pending-title" style={{ margin: 0, fontSize: 14 }}>Process Pending Applications</h3>
 
         {!started && (
           <>
