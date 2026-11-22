@@ -3,11 +3,14 @@ import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
 import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react'
+import '../i18n.js'
 
 const { aitaskApi } = vi.hoisted(() => ({
   aitaskApi: { status: vi.fn(), submit: vi.fn(), startFill: vi.fn(), get: vi.fn(), cancel: vi.fn() },
 }))
 vi.mock('./SendToCoderApi.js', async (orig) => ({ ...(await orig()), aitaskApi }))
+// Cancelling a task now asks first: these tests answer yes (the no path is in TaskHeaderCard.cancel.render.test.jsx).
+vi.mock('./ConfirmDialog.jsx', () => ({ confirm: vi.fn(() => Promise.resolve(true)) }))
 
 import SendToCoderButton from './SendToCoderButton.jsx'
 import { TaskHeaderCard } from './bubbles/TaskHeaderCard.jsx'
@@ -116,16 +119,16 @@ describe('TaskHeaderCard', () => {
     expect(screen.getByText('running')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Open in Applications' }))
     expect(onNavigate).toHaveBeenCalledWith('applications')
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel task' }))
     expect(await screen.findByText('cancelled')).toBeInTheDocument()
     expect(aitaskApi.cancel).toHaveBeenCalledWith('t1')
-    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Cancel task' })).toBeNull()
   })
 
   it('a refused cancel is shown', async () => {
     aitaskApi.cancel.mockRejectedValue(new Error('operator only'))
     render(<TaskHeaderCard task={t} onNavigate={() => {}} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel task' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('operator only')
   })
 
@@ -138,7 +141,7 @@ describe('TaskHeaderCard', () => {
     const calls = aitaskApi.get.mock.calls.length
     await act(async () => { await vi.advanceTimersByTimeAsync(12000) })
     expect(aitaskApi.get.mock.calls.length).toBe(calls)
-    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Cancel task' })).toBeNull()
   })
 
   it('says the done label, not just "complete", for a task that has one', async () => {
