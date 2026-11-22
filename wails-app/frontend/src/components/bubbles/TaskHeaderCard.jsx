@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { confirm } from '../ConfirmDialog.jsx'
 import { aitaskApi, taskIsDone } from '../SendToCoderApi.js'
 import { TaskResultLine } from './TaskResultLine.jsx'
 import { aitaskBudgetApi, money } from '../settings/aitaskBudgetApi.js'
@@ -10,6 +12,7 @@ const BUDGET_POLL_MS = 15000
 // what was asked, its status (kept fresh while it runs), a way back to the tab
 // it came from, and Cancel. task = { taskId, goal, status, origin: { page, label } }.
 export function TaskHeaderCard({ task, onNavigate }) {
+  const { t: tr } = useTranslation()
   const [status, setStatus] = useState(task.status || '')
   const [error, setError] = useState('')
   const [result, setResult] = useState(null) // { kind, data } once the task completed
@@ -50,6 +53,7 @@ export function TaskHeaderCard({ task, onNavigate }) {
   }, [task.taskId, status])
 
   const cancel = async () => {
+    if (!(await confirm(tr('taskHeader.cancelBody'), { danger: true, confirmLabel: tr('taskHeader.cancel'), cancelLabel: tr('taskHeader.keep') }))) return
     setCancelling(true)
     setError('')
     try {
@@ -79,7 +83,7 @@ export function TaskHeaderCard({ task, onNavigate }) {
         <button type="button" className="btn btn-ghost btn-sm" onClick={() => onNavigate(origin.page)}>Open in {origin.label || origin.page}</button>
       )}
       {!taskIsDone(status) && (
-        <button type="button" className="btn btn-ghost btn-sm" onClick={cancel} disabled={cancelling}>Cancel</button>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={cancel} disabled={cancelling}>{tr('taskHeader.cancel')}</button>
       )}
       {result && <TaskResultLine kind={result.kind} taskId={task.taskId} result={result.data} onNavigate={onNavigate} />}
       {error && <span role="alert" style={{ color: 'var(--red)', width: '100%' }}>{error}</span>}
