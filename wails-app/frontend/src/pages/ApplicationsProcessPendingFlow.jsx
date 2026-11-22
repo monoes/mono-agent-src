@@ -71,7 +71,7 @@ export default function ApplicationsProcessPendingFlow({ pendingApplications, on
     processCurrent()
   }
 
-  const finishItem = (patch) => setSummary(s => ({ ...s, ...patch }))
+  const finishItem = (key) => setSummary(s => ({ ...s, [key]: s[key] + 1 }))
 
   const advance = () => {
     if (index + 1 >= pendingApplications.length) { setStage('done'); return }
@@ -110,7 +110,7 @@ export default function ApplicationsProcessPendingFlow({ pendingApplications, on
       const result = await WailsApp.ApplyToApplication(item.id, cvData, letterData)
       setApplyResult(result)
       setStage('applied')
-      finishItem({ applied: summary.applied + 1 })
+      finishItem('applied')
     } catch (e) {
       setError(String(e))
     } finally {
@@ -125,11 +125,11 @@ export default function ApplicationsProcessPendingFlow({ pendingApplications, on
     else if (next === 'cancel') {
       setBusy(true)
       WailsApp.SetApplicationStatus(current.id, 'cancelled', '')
-        .then(() => { finishItem({ notInterested: summary.notInterested + 1 }); advance() })
+        .then(() => { finishItem('notInterested'); advance() })
         .catch(e => setError(String(e)))
         .finally(() => setBusy(false))
     } else if (next === 'next') {
-      finishItem({ skipped: summary.skipped + 1 })
+      finishItem('skipped')
       advance()
     }
   }
@@ -139,7 +139,7 @@ export default function ApplicationsProcessPendingFlow({ pendingApplications, on
     setBusy(true)
     try {
       await WailsApp.SendApplication(current.id, '')
-      finishItem({ sent: summary.sent + 1 })
+      finishItem('sent')
       // Only advance past this item once the send actually succeeded --
       // advance() -> processCurrent() clears `error` immediately (and once
       // `stage` becomes 'done' the error block stops rendering at all), so
@@ -220,7 +220,7 @@ export default function ApplicationsProcessPendingFlow({ pendingApplications, on
               // end (no backdrop-click-to-close or Escape handler either).
               // Give the user an explicit way out of a failed item.
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <button style={btnStyle} onClick={() => { setError(null); finishItem({ skipped: summary.skipped + 1 }); advance() }}>Skip This Item</button>
+                <button style={btnStyle} onClick={() => { setError(null); finishItem('skipped'); advance() }}>Skip This Item</button>
                 <button style={btnStyle} onClick={onClose}>Close</button>
               </div>
             )}
