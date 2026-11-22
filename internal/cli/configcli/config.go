@@ -52,7 +52,7 @@ func (d Deps) newConfigListCmd() *cobra.Command {
 			}
 			defer rows.Close()
 
-			var configs []storage.ConfigEntry
+			configs := []storage.ConfigEntry{}
 			for rows.Next() {
 				var c storage.ConfigEntry
 				if err := rows.Scan(&c.Name, &c.ConfigData, &c.CreatedAt, &c.UpdatedAt); err != nil {
@@ -118,7 +118,7 @@ func (d Deps) newConfigGetCmd() *cobra.Command {
 				"SELECT name, config_data, created_at, updated_at FROM configs WHERE name = ?", name,
 			).Scan(&c.Name, &c.ConfigData, &c.CreatedAt, &c.UpdatedAt)
 			if err == sql.ErrNoRows {
-				return fmt.Errorf("config %q not found", name)
+				return clicore.NotFound("config %q not found", name)
 			}
 			if err != nil {
 				return fmt.Errorf("querying config: %w", err)
@@ -147,8 +147,8 @@ func (d Deps) newConfigSetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "set <name> <value>",
 		Short: "Set a config value",
-		Example: `  monoagentcli config set api_key "sk-abc123"
-  monoagentcli config set max_retries "3"`,
+		Example: `  monoagentcli config set max_retries "3"
+  monoagentcli config set default_region "eu"`,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
@@ -178,13 +178,11 @@ func (d Deps) newConfigSetCmd() *cobra.Command {
 			if d.JSONOutput() {
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
-				return enc.Encode(map[string]string{
-					"name":  name,
-					"value": value,
-				})
+				return enc.Encode(map[string]any{"name": name, "set": true})
 			}
 
-			fmt.Fprintf(os.Stdout, "Set config %s = %s\n", name, value)
+			// The value is not echoed: it may be a secret that would land in logs and scrollback.
+			fmt.Fprintf(os.Stdout, "Set config %s.\n", name)
 			return nil
 		},
 	}
@@ -214,9 +212,14 @@ func (d Deps) newConfigDeleteCmd() *cobra.Command {
 
 			affected, _ := result.RowsAffected()
 			if affected == 0 {
-				return fmt.Errorf("config %q not found", name)
+				return clicore.NotFound("config %q not found", name)
 			}
 
+			if d.JSONOutput() {
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(map[string]any{"name": name, "deleted": true})
+			}
 			fmt.Fprintf(os.Stdout, "Deleted config %s.\n", name)
 			return nil
 		},
