@@ -68,6 +68,17 @@ describe('Agents page and monomind', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Set up agents for this profile' })).not.toBeInTheDocument())
   })
 
+  it('reads the set-up state again when the page is shown again', async () => {
+    api.isMonomindInitialized.mockResolvedValue(true)
+    const view = render(<Agents isActive />)
+    await waitFor(() => expect(api.isMonomindInitialized).toHaveBeenCalledTimes(1))
+    view.rerender(<Agents isActive={false} />)
+    api.isMonomindInitialized.mockResolvedValue(false)
+    view.rerender(<Agents isActive />)
+    expect(await setUp()).toBeInTheDocument()
+    expect(api.isMonomindInitialized).toHaveBeenCalledTimes(2)
+  })
+
   it('a remount after a profile switch reads the new profile', async () => {
     api.isMonomindInitialized.mockResolvedValue(true)
     const first = render(<Agents />)

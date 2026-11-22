@@ -141,7 +141,7 @@ function writeScanCache(res) {
   } catch { /* localStorage unavailable/full — cache is best-effort */ }
 }
 
-export default function Agents() {
+export default function Agents({ isActive = true } = {}) {
   // Chat on a runtime opens a new chat bubble with that runtime picked.
   const { openNewChat } = useSendToCoder()
   const onOpenChat = useCallback(runtimeId => openNewChat?.({ setup: { runtime: runtimeId } }), [openNewChat])
@@ -182,8 +182,8 @@ export default function Agents() {
   // missing/outdated) while this profile's own folder has never been
   // initialized — a separate, per-profile check.
   // Re-read after any finished init (from this page, Documents, Orgs or the
-  // onboarding), not only the prompt's own run.
-  const [notInitialized, recheckInit] = useMonomindNotInitialized()
+  // onboarding), not only the prompt's own run, and when the page is shown again.
+  const [notInitialized, recheckInit] = useMonomindNotInitialized(isActive)
 
   // Install / update / copy-steps per runtime — all through monoagentcli
   // (`agent install`), shown inline on the tile.
