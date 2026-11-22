@@ -1746,6 +1746,7 @@ export namespace main {
 	    usd_per_mtok_in: number;
 	    usd_per_mtok_out: number;
 	    no_probe: boolean;
+	    replace: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new JevAddProviderRequest(source);
@@ -1761,6 +1762,7 @@ export namespace main {
 	        this.usd_per_mtok_in = source["usd_per_mtok_in"];
 	        this.usd_per_mtok_out = source["usd_per_mtok_out"];
 	        this.no_probe = source["no_probe"];
+	        this.replace = source["replace"];
 	    }
 	}
 	export class JevKeyRemoveResult {
@@ -1813,6 +1815,7 @@ export namespace main {
 	    kinds: string[];
 	    probability: string;
 	    max_choice_options: number;
+	    options_per_request?: number;
 	    questions_per_request: number;
 	    models: boolean;
 	
@@ -1825,6 +1828,7 @@ export namespace main {
 	        this.kinds = source["kinds"];
 	        this.probability = source["probability"];
 	        this.max_choice_options = source["max_choice_options"];
+	        this.options_per_request = source["options_per_request"];
 	        this.questions_per_request = source["questions_per_request"];
 	        this.models = source["models"];
 	    }
@@ -1969,6 +1973,7 @@ export namespace main {
 	    threshold: number;
 	    default_threshold: number;
 	    provider: string;
+	    provider_pinned?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new JevSurface(source);
@@ -1984,6 +1989,7 @@ export namespace main {
 	        this.threshold = source["threshold"];
 	        this.default_threshold = source["default_threshold"];
 	        this.provider = source["provider"];
+	        this.provider_pinned = source["provider_pinned"];
 	    }
 	}
 	export class JevStatusInfo {
@@ -1997,6 +2003,8 @@ export namespace main {
 	    provider_kind: string;
 	    provider_host: string;
 	    probability: string;
+	    provider_key_source?: string;
+	    provider_error?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new JevStatusInfo(source);
@@ -2014,6 +2022,8 @@ export namespace main {
 	        this.provider_kind = source["provider_kind"];
 	        this.provider_host = source["provider_host"];
 	        this.probability = source["probability"];
+	        this.provider_key_source = source["provider_key_source"];
+	        this.provider_error = source["provider_error"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

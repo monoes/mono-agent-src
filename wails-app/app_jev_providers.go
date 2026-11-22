@@ -15,11 +15,15 @@ import (
 )
 
 // JevProviderCaps is what a provider can answer and how it gets its
-// probabilities (native | logprob | sampled | none).
+// probabilities (native | logprob | softmax | sampled | none).
+// MaxChoiceOptions and QuestionsPerRequest are 0 for no limit;
+// OptionsPerRequest, when set, is how many options one request carries (a
+// larger choice is split).
 type JevProviderCaps struct {
 	Kinds               []string `json:"kinds"`
 	Probability         string   `json:"probability"`
 	MaxChoiceOptions    int      `json:"max_choice_options"`
+	OptionsPerRequest   int      `json:"options_per_request,omitempty"`
 	QuestionsPerRequest int      `json:"questions_per_request"`
 	Models              bool     `json:"models"`
 }
@@ -52,6 +56,9 @@ type JevProviderList struct {
 
 // JevAddProviderRequest is the GUI's add-provider form. APIKey is optional
 // (keyless local servers); prices <= 0 are left to the CLI's default.
+// Replace passes --yes: the GUI showed its own confirm that the provider of
+// that name is replaced (its host, kind or key may change), the consent
+// `jev provider add` asks for in a terminal.
 type JevAddProviderRequest struct {
 	Name          string  `json:"name"`
 	Kind          string  `json:"kind"`
@@ -61,6 +68,7 @@ type JevAddProviderRequest struct {
 	USDPerMTokIn  float64 `json:"usd_per_mtok_in"`
 	USDPerMTokOut float64 `json:"usd_per_mtok_out"`
 	NoProbe       bool    `json:"no_probe"`
+	Replace       bool    `json:"replace"`
 }
 
 // JevUseResult mirrors `jev provider use --json`.
@@ -200,6 +208,9 @@ func (a *App) JevAddProvider(req JevAddProviderRequest) (JevProviderInfo, error)
 	}
 	if req.NoProbe {
 		args = append(args, "--no-probe")
+	}
+	if req.Replace {
+		args = append(args, "--yes")
 	}
 	var p JevProviderInfo
 	if err := a.runMonoCLI(key, &p, args...); err != nil {

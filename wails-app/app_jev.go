@@ -20,7 +20,11 @@ type JevSurface struct {
 	Enabled          bool     `json:"enabled"`
 	Threshold        float64  `json:"threshold"`
 	DefaultThreshold float64  `json:"default_threshold"`
-	Provider         string   `json:"provider"` // this surface's active provider
+	// Provider is the surface's own provider choice for the profile (it may
+	// name the default); "" when it follows the default. ProviderPinned is
+	// true when it has a choice of its own (a CLI before pinning leaves it out).
+	Provider       string `json:"provider"`
+	ProviderPinned bool   `json:"provider_pinned,omitempty"`
 }
 
 // JevStatusInfo mirrors `jev status --json`: where the key comes from
@@ -33,11 +37,15 @@ type JevStatusInfo struct {
 	BaseURL   string       `json:"base_url"`
 	Surfaces  []JevSurface `json:"surfaces"`
 	// The machine-default decision provider, its kind and host, and how it
-	// obtains probabilities (native | logprob | sampled | none).
+	// obtains probabilities (native | logprob | softmax | sampled | none).
 	Provider     string `json:"provider"`
 	ProviderKind string `json:"provider_kind"`
 	ProviderHost string `json:"provider_host"`
 	Probability  string `json:"probability"`
+	// For a default other than TypeSafe: where its key comes from (vault |
+	// keyless) and why it cannot be used ("" when it can).
+	ProviderKeySource string `json:"provider_key_source,omitempty"`
+	ProviderError     string `json:"provider_error,omitempty"`
 }
 
 // JevKeySetResult mirrors `jev key set --json`.
