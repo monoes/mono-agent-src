@@ -29,6 +29,7 @@ func operatorOnlyRowsPR3() []opRow {
 		{path: "browser allow remove", build: newBrowserCmd, args: []string{"allow", "remove", "https://staging.example.com"}},
 		{path: "browser permissions set", build: newBrowserCmd, args: []string{"permissions", "set", "coder", "ask"}},
 		{path: "browser permissions site", build: newBrowserCmd, args: []string{"permissions", "site", "https://github.com", "allow"}},
+		{path: "browser permissions preset", build: newBrowserCmd, args: []string{"permissions", "preset", "ask"}},
 		{path: "coder queue add", build: newCoderCmd, args: []string{"queue", "add", "--kind", "no-such-kind"}},
 		{path: "coder queue start", build: newCoderCmd, args: []string{"queue", "start", "no-such-item"}},
 		{path: "coder projects map", build: newCoderCmd, args: []string{"projects", "map", "http://localhost:3000", "{tmp}"}},

@@ -153,7 +153,7 @@ var verbsWithoutTheHelpText = map[string]bool{
 	"extension pair": true, "extension install": true, "org role set-access": true,
 	"automation trust": true, "automation install": true, "automation new": true, "automation rerecord": true, "automation doctor accept-repair": true,
 	"record verify": true, "record replay": true, "browser allow add": true, "browser allow remove": true,
-	"browser permissions set": true, "browser permissions site": true,
+	"browser permissions set": true, "browser permissions site": true, "browser permissions preset": true,
 	"coder queue add": true, "coder queue start": true, "coder projects map": true, "coder projects unmap": true,
 	"profile update": true, "profile delete": true, "profile backups purge": true, "profile move": true,
 	"profile create": true, "profile documents remove": true, "people review approve": true,

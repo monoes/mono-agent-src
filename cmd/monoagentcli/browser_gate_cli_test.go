@@ -79,7 +79,7 @@ func TestBrowserProfileGateClasses(t *testing.T) {
 	for path, wantWarning := range map[string]bool{
 		"browser allow list": false, "browser allow add": false, "browser browsers": false, "browser diff": false,
 		"coder projects list": false, "coder projects map": false,
-		"browser permissions": false, "browser permissions set": false, "browser permissions site": false,
+		"browser permissions": false, "browser permissions set": false, "browser permissions site": false, "browser permissions preset": false,
 		"browser tabs": true, "browser open": true, "browser click": true, "browser screenshot": true,
 		"browser submit": true, "browser styles": true, "coder queue list": true,
 	} {

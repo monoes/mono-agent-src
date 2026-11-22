@@ -13,19 +13,23 @@ import (
 // browser by id only: the program that runs comes from the path detected
 // here, never from the frontend.
 
-// DetectChromiumBrowsers lists the seven known browsers, installed first.
+// DetectChromiumBrowsers lists the seven known browsers, installed first;
+// nothing while signed out (the account gate, like every binding).
 func (a *App) DetectChromiumBrowsers() []chromium.Browser {
+	if err := a.signedOut(); err != nil {
+		return nil
+	}
 	return chromium.Detect(chromium.Exists)
 }
 
 // OpenChromiumBrowser starts (or brings to the front) the installed browser
 // id. An unknown or missing browser is an error.
 func (a *App) OpenChromiumBrowser(id string) error {
-	name, args, err := chromium.LaunchCommand(id)
-	if err != nil {
+	if err := a.signedOut(); err != nil {
 		return err
 	}
-	if err := a.signedOut(); err != nil {
+	name, args, err := chromium.LaunchCommand(id)
+	if err != nil {
 		return err
 	}
 	cmd := exec.Command(name, args...)
